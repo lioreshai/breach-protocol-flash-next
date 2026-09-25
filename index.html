@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>BREACH PROTOCOL — FPS</title>
+<style>
+:root{--acc:#ff5a2b;--acc2:#3ee0ff;--bg:#05070c}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:#dfe6ef;overflow:hidden;
+  font:14px/1.45 "Segoe UI",system-ui,-apple-system,sans-serif;
+  user-select:none;-webkit-user-select:none;cursor:crosshair}
+#screen{position:fixed;inset:0;width:100%;height:100%;display:block;image-rendering:pixelated;background:#000}
+#scan{position:fixed;inset:0;pointer-events:none;z-index:3;opacity:.45;
+  background:repeating-linear-gradient(0deg,rgba(0,0,0,.28) 0 1px,rgba(0,0,0,0) 1px 3px)}
+.ov{position:fixed;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;
+  z-index:6;text-align:center;padding:22px;cursor:default;
+  background:radial-gradient(ellipse at 50% 42%,rgba(10,16,26,.66),rgba(2,3,6,.94) 72%)}
+.ov.show{display:flex;animation:fade .18s ease-out}
+@keyframes fade{from{opacity:0}to{opacity:1}}
+h1{font:900 clamp(32px,8vw,84px)/.92 "Arial Black",Impact,system-ui,sans-serif;letter-spacing:.05em;margin:0 0 6px;
+  background:linear-gradient(180deg,#fff,#ff8a4c 52%,#a8280b);-webkit-background-clip:text;background-clip:text;color:transparent;
+  filter:drop-shadow(0 0 26px rgba(255,90,43,.35))}
+h2{font:800 clamp(26px,6vw,58px)/1 "Arial Black",Impact,sans-serif;letter-spacing:.06em;margin:0 0 10px;color:#ffd9c8}
+.sub{letter-spacing:.42em;text-transform:uppercase;font-size:12px;color:#8fa3bd;margin:0 0 22px}
+.row{display:flex;gap:10px;align-items:center;justify-content:center;flex-wrap:wrap;margin:10px 0}
+button{font:700 13px/1 "Segoe UI",system-ui,sans-serif;letter-spacing:.16em;text-transform:uppercase;
+  color:#e9f1fb;background:linear-gradient(180deg,#1b2635,#0c1219);border:1px solid #2c3d55;padding:12px 22px;border-radius:3px;cursor:pointer;
+  transition:.12s}
+button:hover{background:linear-gradient(180deg,#2a3b52,#131b25);border-color:var(--acc);color:#fff;transform:translateY(-1px)}
+button.primary{border-color:var(--acc);background:linear-gradient(180deg,#ff6a33,#b33711);color:#140703;font-weight:900}
+button.primary:hover{background:linear-gradient(180deg,#ff8b5c,#d24a1c)}
+button.on{border-color:var(--acc2);box-shadow:0 0 0 1px var(--acc2) inset,0 0 18px rgba(62,224,255,.25);color:#fff}
+.ctl{display:grid;grid-template-columns:auto auto;gap:4px 14px;margin:20px auto 0;max-width:520px;font-size:12.5px;color:#9fb2c9;text-align:left}
+.ctl b{color:#e6eefb;font-weight:600;white-space:nowrap}
+.stat{font:700 13px/1.9 ui-monospace,Menlo,Consolas,monospace;color:#a9bdd6;white-space:pre}
+.stat b{color:#ffb98a;font-weight:700}
+.hint{margin-top:22px;font-size:11px;letter-spacing:.24em;text-transform:uppercase;color:#5f7591}
+.tag{margin-top:8px;font-size:11px;letter-spacing:.2em;color:#6b8098;text-transform:uppercase}
+</style>
+</head>
+<body>
+<canvas id="screen"></canvas>
+<div id="scan"></div>
+
+<div class="ov show" id="menu">
+  <h1>BREACH PROTOCOL</h1>
+  <p class="sub">first person &nbsp;·&nbsp; raycast killzone &nbsp;·&nbsp; no deps</p>
+  <div class="row">
+    <button id="d0">Recruit</button><button id="d1" class="on">Marine</button><button id="d2">Nightmare</button>
+  </div>
+  <div class="row"><button class="primary" id="start">Click to deploy</button></div>
+  <div class="tag">Difficulty: <span id="dname">Marine</span></div>
+  <div class="ctl">
+    <b>WASD / arrows</b><span>move &nbsp;·&nbsp; <b>mouse</b> aim &nbsp;·&nbsp; <b>click</b> fire &nbsp;·&nbsp; <b>right-click</b> aim down sight</span>
+    <b>Shift / C</b><span>sprint / crouch (crouch dodges fire)</span>
+    <b>R / 1 2 3 / wheel</b><span>reload / weapon select</span>
+    <b>G</b><span>grenade &nbsp;·&nbsp; <b>Esc</b> pause &nbsp;·&nbsp; <b>M</b> map &nbsp;·&nbsp; <b>T</b> sound &nbsp;·&nbsp; <b>F3</b> perf</span>
+  </div>
+  <div class="hint">Clear every hostile, then reach the exit portal. Barrels are not your friends.</div>
+</div>
+
+<div class="ov" id="pause">
+  <h2>PAUSED</h2>
+  <div class="row"><button class="primary" id="resume">Resume</button><button id="retry">Restart sector</button><button id="quit">Abort to menu</button></div>
+  <div class="hint">Pointer released — click Resume to lock it again</div>
+</div>
+
+<div class="ov" id="dead">
+  <h2 style="color:#ff6a4a">KIA</h2>
+  <p class="sub">the sector kept you</p>
+  <div class="stat" id="deadStat"></div>
+  <div class="row"><button class="primary" id="again">Redeploy</button><button id="quit2">Menu</button></div>
+</div>
+
+<div class="ov" id="win">
+  <h2>SECTOR CLEARED</h2>
+  <p class="sub">all breach sites neutralised</p>
+  <div class="stat" id="winStat"></div>
+  <div class="row"><button class="primary" id="again2">Run it again</button></div>
+</div>
+
+<script src="js/00_core.js"></script>
+<script src="js/05_paint.js"></script>
+<script src="js/10_assets.js"></script>
+<script src="js/12_sprites.js"></script>
+<script src="js/20_level.js"></script>
+<script src="js/30_entities.js"></script>
+<script src="js/40_render.js"></script>
+<script src="js/50_ui_input.js"></script>
+</body>
+</html>
