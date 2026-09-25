@@ -280,7 +280,7 @@ function buildEnemy(kind) {
       const s = new Surf(dim.w, dim.h);
       fill(s, t, frame++);
       s.lift(1.55, 8);
-      const tex = texFromSurf(s);
+      const tex = texFromSurf(s, false);
       tex.sprite = true;
       list.push(tex);
     }
@@ -299,7 +299,7 @@ function propTex(w, h, fn) {
   const s = new Surf(w, h);
   fn(s, w, h);
   s.lift(1.35, 6);
-  const t = texFromSurf(s);
+  const t = texFromSurf(s, false);
   t.sprite = true;
   return t;
 }

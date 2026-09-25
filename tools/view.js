@@ -12,7 +12,7 @@ const MODE = process.argv[2] || 'scene';
 const ASCII = process.env.ASCII === '1' || process.env.ASCII === '';
 const LVL = +(process.argv[3] || 0);
 const CAM = +(process.argv[4] || 0);
-const OUT = process.env.OUT || (MODE === 'sheets' ? '/tmp/fps_tex.png' : '/tmp/fps_scene.png');
+const OUT = process.env.OUT || (MODE === 'sheets' ? '/tmp/fps_tex.png' : MODE === 'rig' ? '/tmp/fps_rig.png' : '/tmp/fps_scene.png');
 
 function ctxStub() {
   const store = {};
@@ -254,6 +254,65 @@ if (MODE === 'stats') {
   const sp = run('[].concat(...Object.entries(ENEMY).map(([k,F])=>F.walk.map((t,i)=>[k+i,t])), Object.entries(PROP).map(([k,v])=>[k,Array.isArray(v)?v[0]:v]), Object.entries(DECAL).map(([k,t])=>["d"+k,t]))');
   const only2 = process.env.ONLY;
   for (const [n, t] of sp) { texStats(n, newTex(t)); if (only2 && (n.indexOf(only2) === 0 || n === only2)) console.log(texAscii(newTex(t), 60)); }
+} else if (MODE === 'rig') {
+  // pose sheet + silhouette sanity for the vector rigs
+  run('S.mode="play"; startLevel(0, true); RIG.beginFrame(1e6);');
+  const kinds = ['grunt', 'hound', 'brute'], PH = 6, YAW = 6, HH = 150;
+  const cell = (kinds.length ? 1 : 1) * 0;
+  const W = 150 * 2, cells = [];
+  for (const k of kinds) for (let y = 0; y < YAW; y++) for (let p = 0; p < PH; p++) cells.push({ k, y, p });
+  const cols = PH, rows = kinds.length * YAW, cw = 170, chh = 175;
+  const width = cols * cw + 8, height = rows * chh + 8;
+  const sheet = new Uint32Array(width * height), bgc = 0xFF000000 | (0x2a << 16) | (0x26 << 8) | 0x22;
+  sheet.fill(bgc);
+  const rep = [];
+  for (const c of cells) {
+    const yaw = (c.y + 0.5) / YAW * Math.PI * 2 - Math.PI, ph = (c.p + 0.5) / PH;
+    const t = Date.now();
+    const tex = run(`RIG.raster(${JSON.stringify(c.k)}, ${HH}, {p:${ph.toFixed(4)}, yaw:${yaw.toFixed(4)}, mv:${(c.p % 3) / 2}, atk:0, die:0, lean:0, pulse:${(ph * 6.28).toFixed(3)}})`);
+    const ms = Date.now() - t;
+    if (ASCII && c.y === 1 && (c.p === 1 || c.p === 3)) console.log(c.k + ' yaw' + c.y + ' ph' + c.p + '\n' + texAscii(tex, 46));
+    const d = tex.data, runsRow = []; let n = 0, runs = 0, minX = 1e9, maxX = -1e9, minY = 1e9, maxY = -1e9, sr = 0, sg = 0, sb = 0, comY = 0;
+    for (let y = 0; y < tex.h; y++) for (let x = 0; x < tex.w; x++) {
+      const c2 = d[y * tex.w + x]; if ((c2 >>> 24) < 12) continue;
+      n++; if (x < minX) minX = x; if (x > maxX) maxX = x; if (y < minY) minY = y; if (y > maxY) maxY = y;
+      sr += c2 & 255; sg += c2 >> 8 & 255; sb += c2 >> 16 & 255; comY += y;
+      if (y > tex.h * 0.62) {                                   // separate blobs on a row = separate limbs
+        const prev = x > 0 ? (d[y * tex.w + x - 1] >>> 24) : 0; if ( prev < 12) runsRow[y] = (runsRow[y] || 0) + 1;
+      }
+    }
+    for (let y = 0; y < tex.h; y++) runs += runsRow[y] || 0;
+    const gx = 8 + (c.p % cols) * cw + 4, gy = 8 + (((kinds.indexOf(c.k) * YAW) + c.y) * chh) + 4;
+    const ox = gx + Math.round((cw - 8 - tex.w) / 2), oy = gy + (chh - 8 - tex.h);
+    for (let y = 0; y < tex.h; y++) for (let x = 0; x < tex.w; x++) {
+      const c2 = d[y * tex.w + x], a = c2 >>> 24; if (a === 0) continue;
+      const o = (oy + y) * width + ox + x;
+      if (a > 250) { sheet[o] = 0xFF000000 | (c2 & 0xFFFFFF); continue; }
+      const dst = sheet[o], IA = 255 - a;
+      sheet[o] = 0xFF000000 | ((c2 & 255) * a + (dst & 255) * IA >> 8) | (((c2 >> 8 & 255) * a + (dst >> 8 & 255) * IA >> 8) << 8) | (((c2 >> 16 & 255) * a + (dst >> 16 & 255) * IA >> 8) << 16);
+    }
+    rep.push({ k: c.k, y: c.y, p: c.p, ms, cov: n / (tex.w * tex.h), runs: runs / (tex.h * 0.38), w: tex.w, h: tex.h, bb: (maxX - minX + 1) / tex.h, top: minY / tex.h, bot: (maxY + 1) / tex.h, com: comY / n / tex.h, rgb: [sr / n | 0, sg / n | 0, sb / n | 0] });
+  }
+  writePNG(OUT, width, height, toRGBA(sheet));
+  const bad = [];
+  for (const r of rep) {
+    if (r.cov < 0.02) bad.push(r.k + ' yaw' + r.y + ' ph' + r.p + ' coverage ' + (r.cov * 100).toFixed(1) + '% empty');
+    if (r.cov > 0.45) bad.push(r.k + ' yaw' + r.y + ' ph' + r.p + ' coverage ' + (r.cov * 100).toFixed(1) + '% blob');
+    if (r.bot < 0.9) bad.push(r.k + ' yaw' + r.y + ' ph' + r.p + ' feet floating (bbox bottom ' + r.bot.toFixed(2) + ')');
+    if (r.top > 0.25) bad.push(r.k + ' yaw' + r.y + ' ph' + r.p + ' crown low (top ' + r.top.toFixed(2) + ')');
+    if (r.runs < 1.55) bad.push(r.k + ' yaw' + r.y + ' ph' + r.p + ' lower body is one mass (runs/row ' + r.runs.toFixed(2) + ')');
+    if (r.bb > 1.5) bad.push(r.k + ' yaw' + r.y + ' ph' + r.p + ' silhouette too wide ' + r.bb.toFixed(2));
+  }
+  for (const k of kinds) {
+    const rs = rep.filter(r => r.k === k);
+    const com = rs.map(r => r.com);
+    console.log(k.padEnd(6), 'coverage ' + (rs.reduce((a, r) => a + r.cov, 0) / rs.length * 100).toFixed(1) + '%',
+      'bboxW/H ' + Math.min(...rs.map(r => r.bb)).toFixed(2) + '-' + Math.max(...rs.map(r => r.bb)).toFixed(2),
+      'bob ' + (Math.max(...com) - Math.min(...com)).toFixed(3), 'limbs/row ' + (rs.reduce((a, r) => a + r.runs, 0) / rs.length).toFixed(2), 'rgb ' + rs[0].rgb.join(','),
+      'raster ' + (rs.reduce((a, r) => a + r.ms, 0) / rs.length).toFixed(1) + 'ms/frame');
+  }
+  console.log(bad.length ? 'RIG PROBLEMS:\n  ' + bad.join('\n  ') : 'rig silhouettes: all ' + rep.length + ' poses sane');
+  console.log('cache', JSON.stringify(run('RIG.stats()')), '->', OUT);
 } else if (MODE === 'sheets') {
   // contact sheet: each material tiled 2x2 (tileability), each sprite frame at native size
   const spec = run(`(()=>{
@@ -325,4 +384,12 @@ if (MODE === 'stats') {
   const BW = run('BW'), BH = run('BH'), buf = new Uint32Array(run('px'));
   stats('frame', buf, BW, BH);
   dump(`scene L${LVL} cam${CAM}`, buf, BW, BH, 2);
+  if (process.env.WARM) {
+    // warm the rig cache the way play does: walk, turn, and watch the budget hold
+    const t0 = Date.now();
+    const ms = run(`(()=>{const t=[];for(let f=0;f<180;f++){P.ang+=0.05;updatePlayer(1/60);updateEnemies(1/60);const t0=Date.now();renderWorld();t.push(Date.now()-t0);}return t})()`);
+    const sum = ms.reduce((a, b) => a + b, 0);
+    console.log('180 frames of play: raster avg ' + (sum / ms.length).toFixed(2) + 'ms, worst ' + Math.max(...ms) + 'ms, wall ' + (Date.now() - t0) + 'ms');
+    console.log('rig cache', JSON.stringify(run('RIG.stats()')));
+  }
 }

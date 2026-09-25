@@ -11,12 +11,12 @@ let planeLen = cfg.plane, dirX = 1, dirY = 0, planeX = 0, planeY = cfg.plane;
 let camX = 0, camY = 0, eyeZ = 0.5, horizon = 0, shakeX = 0, shakeY = 0;
 let drawCalls = 0, pixFilled = 0;
 let bloomCv = null, bloomCtx = null, canFilter = false, grainCv = null, grainPat = null, grainSeed = 0;
-let FARB = 22, AMB = 0.13, GQ = null;
+let FARB = 22, AMB = 0.13, GQ = null, rigTexH = 200;
 
 const QUAL = [
-  { name: 'PERFORMANCE', res: 0.34, min: 170, max: 430, bloom: false, grade: false, grain: 0, far: 15, dmax: 8, glow: 0, scan: 0.5 },
-  { name: 'BALANCED', res: 0.47, min: 220, max: 560, bloom: true, grade: true, grain: 0.05, far: 22, dmax: 13, glow: 6, scan: 0.18 },
-  { name: 'ULTRA', res: 0.62, min: 260, max: 780, bloom: true, grade: true, grain: 0.04, far: 30, dmax: 19, glow: 9, scan: 0.1 }
+  { name: 'PERFORMANCE', res: 0.34, min: 170, max: 430, bloom: false, grade: false, grain: 0, far: 15, dmax: 8, glow: 0, scan: 0.5, vec: 0, rast: 0, rigH: 0 },
+  { name: 'BALANCED', res: 0.47, min: 220, max: 560, bloom: true, grade: true, grain: 0.05, far: 22, dmax: 13, glow: 6, scan: 0.18, vec: 1, rast: 2, rigH: 132 },
+  { name: 'ULTRA', res: 0.62, min: 260, max: 780, bloom: true, grade: true, grain: 0.04, far: 30, dmax: 19, glow: 9, scan: 0.1, vec: 1, rast: 4, rigH: 216 }
 ];
 
 function resize() {
@@ -87,6 +87,12 @@ function renderWorld() {
 
   castGround(flash, fcR, fcG, fcB);
   castWalls(flash, fcR, fcG, fcB);
+  const qv = GQ || QUAL[1];
+  // One texture per pose, authored at a fixed density and filtered at draw time.
+  // Authoring to the buffer height would cost 20 ms per pose for detail nothing sees:
+  // an enemy at 6 m is 60 px tall, so the preset size plus bilinear magnify is the trade.
+  rigTexH = qv.rigH;
+  RIG.beginFrame(qv.vec ? qv.rast : 0);
 
   /* ---- billboards ---- */
   const list = [];
@@ -110,7 +116,13 @@ function renderWorld() {
   for (const e of ENEMIES) {
     const fr = enemyFrame(e);
     if (fr.alpha <= 0.02) continue;
-    list.push({ tex: fr.tex, x: e.x, y: e.y, z: 0, scale: e.scale, alpha: fr.alpha, flash: fr.flash, tint: e.tint });
+    let rig = null;
+    if (qv.vec) {
+      let yaw = e.ang - P.ang - Math.PI;
+      while (yaw > Math.PI) yaw -= TAU; while (yaw < -Math.PI) yaw += TAU;
+      rig = { hpx: rigTexH, kind: e.kind, p: e.anim, mv: e.movingAmt || 0, atk: e.atkT > 0 ? 1 - clamp(e.atkT / e.type.wind, 0, 1) : 0, die: e.state === 'dead' ? clamp(e.dieT / 0.55, 0, 1) : 0, yaw, lean: e.lean || 0, pulse: e.ph };
+    }
+    list.push({ tex: fr.tex, rig, x: e.x, y: e.y, z: 0, scale: e.scale, alpha: fr.alpha, flash: fr.flash, tint: e.tint });
   }
   /* ground decals first: they lie on the floor and must not paint over feet */
   for (const b of list) { const dx = b.x - camX, dy = b.y - camY; b.d2 = dx * dx + dy * dy; }
@@ -319,9 +331,10 @@ function drawBillboard(o) {
   const tX = invDet * (dirY * dx - dirX * dy);
   const tY = invDet * (-planeY * dx + planeX * dy);
   if (tY < 0.12) return;
-  const tex = o.tex;
-  const hPx = (BH / tY) * o.scale;
+  let hPx = (BH / tY) * o.scale;
   if (hPx < 0.6) return;
+  // rigs rasterize at the size they occupy, so a body is geometric at any distance
+  const tex = o.rig ? RIG.frame(o.rig.kind, { hpx: o.rig.hpx, p: o.rig.p, mv: o.rig.mv, atk: o.rig.atk, die: o.rig.die, yaw: o.rig.yaw, lean: o.rig.lean, pulse: o.rig.pulse }) : o.tex;
   const wPx = hPx * (tex.w / tex.h);
   const screenX = (BW * 0.5) * (1 + tX / tY);
   if (screenX + wPx * 0.5 < 0 || screenX - wPx * 0.5 > BW) return;
@@ -345,31 +358,56 @@ function drawBillboard(o) {
   let alpha = clamp(o.alpha === undefined ? 1 : o.alpha, 0, 1);
   const selfLit = !!o.self;
   const sxStep = tex.w / wPx, syStep = tex.h / hPx;
+  // a rig texture is authored denser than the quad it lands in; decimating it with a
+  // point sample is what made distant enemies shimmer, so filter when texels outnumber pixels
+  const filt = wPx < tex.w * 0.98;
   const flashAdd = o.flash ? 1 : 0;
   drawCalls++;
   const rowBase = (y0c - (cy - hPx * 0.5)) * syStep;
   for (let y = y0c; y <= y1c; y++) {
-    const ty = (rowBase + (y - y0c) * syStep) | 0;
+    const fyt = rowBase + (y - y0c) * syStep;
+    const ty = fyt | 0;
     if (ty < 0 || ty >= tex.h) continue;
     /* light ramps down toward the feet and up toward the crown of the head */
-    const ramp = selfLit ? 1 : 0.72 + 0.34 * (1 - ty / tex.h);
+    const ramp = selfLit ? 1 : 0.72 + 0.34 * (1 - (ty + (fyt - ty)) / tex.h);
     const rlr = lr * ramp, rlg = lg * ramp, rlb = lb * ramp;
     const rowOff = ty * tex.w;
+    const tyf = fyt - ty, row2 = (ty + 1 < tex.h ? ty + 1 : ty) * tex.w;
+    const wy1 = 1 - tyf;
     const yoff = y * BW;
     let xf = (x0c - (screenX - wPx * 0.5)) * sxStep;
     for (let x = x0c; x <= x1c; x++, xf += sxStep) {
       if (zbuf[x] <= tY) continue;
-      let tx = xf | 0;
-      if (tx >= tex.w) tx = tex.w - 1;
-      const src = tex.data[rowOff + tx];
-      const a = src >>> 24;
-      if (a < 4) continue;
+      let src, r2, g2, b2, a2;
+      if (filt) {
+        let tx = xf | 0;
+        if (tx < 0) tx = 0; else if (tx >= tex.w) tx = tex.w - 1;
+        const txf = xf - tx, tx2 = tx + 1 < tex.w ? tx + 1 : tx;
+        const s00 = tex.data[rowOff + tx], s01 = tex.data[rowOff + tx2];
+        const s10 = tex.data[row2 + tx], s11 = tex.data[row2 + tx2];
+        const a00 = s00 >>> 24, a01 = s01 >>> 24, a10 = s10 >>> 24, a11 = s11 >>> 24;
+        const wa = a00 * wy1 * (1 - txf) + a01 * wy1 * txf + a10 * tyf * (1 - txf) + a11 * tyf * txf;
+        if (wa < 8) continue;
+        r2 = ((s00 & 255) * a00 * wy1 * (1 - txf) + (s01 & 255) * a01 * wy1 * txf +
+          (s10 & 255) * a10 * tyf * (1 - txf) + (s11 & 255) * a11 * tyf * txf) / wa;
+        g2 = ((s00 >> 8 & 255) * a00 * wy1 * (1 - txf) + (s01 >> 8 & 255) * a01 * wy1 * txf +
+          (s10 >> 8 & 255) * a10 * tyf * (1 - txf) + (s11 >> 8 & 255) * a11 * tyf * txf) / wa;
+        b2 = ((s00 >> 16 & 255) * a00 * wy1 * (1 - txf) + (s01 >> 16 & 255) * a01 * wy1 * txf +
+          (s10 >> 16 & 255) * a10 * tyf * (1 - txf) + (s11 >> 16 & 255) * a11 * tyf * txf) / wa;
+        a2 = wa / 255; src = s00;
+      } else {
+        let tx = xf | 0;
+        if (tx >= tex.w) tx = tex.w - 1;
+        src = tex.data[rowOff + tx];
+        r2 = src & 255; g2 = src >> 8 & 255; b2 = src >> 16 & 255; a2 = (src >>> 24) / 255;
+      }
+      if (a2 < 0.016) continue;
       const i = yoff + x, dst = px[i];
       let r, g, b;
-      if (selfLit || a === 253) { r = (src & 255) * inv + fR; g = (src >> 8 & 255) * inv + fG; b = (src >> 16 & 255) * inv + fB; }
-      else { r = (src & 255) * rlr + fR; g = (src >> 8 & 255) * rlg + fG; b = (src >> 16 & 255) * rlb + fB; }
+      if (selfLit || (src >>> 24) === 253) { r = r2 * inv + fR; g = g2 * inv + fG; b = b2 * inv + fB; }
+      else { r = r2 * rlr + fR; g = g2 * rlg + fG; b = b2 * rlb + fB; }
       if (flashAdd) { r += (250 - r) * 0.72; g += (242 - g) * 0.72; b += (236 - b) * 0.72; }
-      const A = (a / 255) * alpha;
+      const A = a2 * alpha;
       if (A > 0.99) { px[i] = (0xFF000000 | clampi(b) << 16 | clampi(g) << 8 | clampi(r)) >>> 0; continue; }
       const IA = 1 - A;
       px[i] = (0xFF000000 | clampi(r * A + (dst & 255) * IA) | (clampi(g * A + (dst >> 8 & 255) * IA) << 8) |
