@@ -141,7 +141,7 @@ function tryFire() {
     }
   }
   SND.shot(w.kind);
-  S.flash = Math.max(S.flash, w.kind === 'shotgun' ? 0.75 : 0.45); S.flashCol = [255, 190, 110];
+  S.flash = Math.max(S.flash, w.kind === 'shotgun' ? 0.75 : 0.45); S.flashCol = [255, 190, 110]; S.muzzle = 1;
   S.shake += w.shake; P.kick = w.kick * (w.kind === 'shotgun' ? 1 : 0.6);
   P.recoil = Math.min(BH * 0.55, P.recoil + w.kick * 0.55 * (BH / 400));
   alertEnemies(P.x, P.y, w.kind === 'shotgun' ? 13 : 8.5, 0.35);

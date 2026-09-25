@@ -129,6 +129,7 @@ function update(dt) {
   updateDecals(dt);
   updateLights();
   S.flash = Math.max(0, S.flash - dt * (P.fireT > 0 ? 6 : 9));
+  S.muzzle = Math.max(0, S.muzzle - dt * 22);   // the gun's own light, separate from the damage flash
   S.shake *= Math.pow(0.0025, dt);
   if (S.shake < 0.02) S.shake = 0;
   S.hitMark = Math.max(0, S.hitMark - dt);

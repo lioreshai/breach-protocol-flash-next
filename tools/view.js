@@ -14,6 +14,34 @@ const LVL = +(process.argv[3] || 0);
 const CAM = +(process.argv[4] || 0);
 const OUT = process.env.OUT || (MODE === 'sheets' ? '/tmp/fps_tex.png' : MODE === 'rig' ? '/tmp/fps_rig.png' : '/tmp/fps_scene.png');
 
+/* Canvas path recorder: tracks the CTM so overlay geometry can be measured in
+   device pixels. This is the only way to check the HUD and viewmodel headlessly,
+   since nothing drawn with canvas paths can be read back as pixels. */
+const VR = { on: false, pts: [], fills: 0, depth: 0, badDepth: 0, nan: 0, m: [1, 0, 0, 1, 0, 0], stack: [] };
+const vmul = (a, b) => [a[0] * b[0] + a[2] * b[1], a[1] * b[0] + a[3] * b[1], a[0] * b[2] + a[2] * b[3],
+  a[1] * b[2] + a[3] * b[3], a[0] * b[4] + a[2] * b[5] + a[4], a[1] * b[4] + a[3] * b[5] + a[5]];
+function vrec(x, y) {
+  if (!VR.on) return;
+  const m = VR.m, X = m[0] * x + m[2] * y + m[4], Y = m[1] * x + m[3] * y + m[5];
+  if (!isFinite(X) || !isFinite(Y)) { VR.nan++; return; }
+  VR.pts.push(X, Y);
+}
+function vhook(k, args) {
+  if (!VR.on) return;
+  const m = VR.m;
+  if (k === 'save') { VR.stack.push(m.slice()); VR.depth++; if (VR.depth > VR.maxD) VR.maxD = VR.depth; }
+  else if (k === 'restore') { VR.m = VR.stack.pop() || [1, 0, 0, 1, 0, 0]; VR.depth--; if (VR.depth < 0) VR.badDepth++; }
+  else if (k === 'translate') { VR.m = vmul(m, [1, 0, 0, 1, args[0], args[1]]); }
+  else if (k === 'scale') { VR.m = vmul(m, [args[0], 0, 0, args[1], 0, 0]); }
+  else if (k === 'rotate') { const c = Math.cos(args[0]), s2 = Math.sin(args[0]); VR.m = vmul(m, [c, s2, -s2, c, 0, 0]); }
+  else if (k === 'setTransform') { VR.m = args.slice(0, 6); }
+  else if (k === 'moveTo' || k === 'lineTo') { vrec(args[0], args[1]); }
+  else if (k === 'arcTo') { vrec(args[0], args[1]); vrec(args[2], args[3]); }
+  else if (k === 'arc') { vrec(args[0] - args[2], args[1] - args[2]); vrec(args[0] + args[2], args[1] + args[2]); }
+  else if (k === 'rect') { vrec(args[0], args[1]); vrec(args[0] + args[2], args[1] + args[3]); }
+  else if (k === 'fillRect') { vrec(args[0], args[1]); vrec(args[0] + args[2], args[1] + args[3]); VR.fills++; }
+  else if (k === 'fill' || k === 'stroke') { VR.fills++; }
+}
 function ctxStub() {
   const store = {};
   return new Proxy(store, {
@@ -23,7 +51,8 @@ function ctxStub() {
       if (k === 'createImageData') return (w, h) => ({ data: new Uint8ClampedArray(w * h * 4), width: w, height: h });
       if (k === 'createLinearGradient' || k === 'createRadialGradient' || k === 'createPattern') return () => ({ addColorStop: noop });
       if (k === 'measureText') return () => ({ width: 10 });
-      return noop;
+      if (k === 'maxD') return VR.maxD || 0;
+      return (...a) => { vhook(k, a); };
     },
     set(t, k, v) { t[k] = v; return true; }
   });
@@ -178,6 +207,40 @@ if (MODE === 'exposure') {
   console.log('  ALL       mean ' + pad((grand / gpix).toFixed(0), 3) + '  buckets ' +
     buckets.map(v => (100 * v / gpix).toFixed(0)).join(',') +
     '   <24: ' + (100 * gdark / gpix).toFixed(0) + '%  blown ' + (100 * gclip / gpix).toFixed(2) + '%');
+}
+if (MODE === 'viewmodel') {
+  run('S.mode="play"; S.locked=false; startLevel(0, true);');
+  const DW = run('DW'), DH = run('DH');
+  const states = [
+    ['hip', ''], ['ads', 'P.ads=1'], ['recoil', 'P.kick=WEAPONS[P.weapon].kick;S.muzzle=1'],
+    ['reload', 'P.reloadT=WEAPONS[P.weapon].reload*0.5'], ['reload-mid', 'P.reloadT=WEAPONS[P.weapon].reload*0.2'],
+    ['swap', 'P.swapT=0.3'], ['sprint', 'P.sprint=1;P.bobPhase=1.2;keys.KeyW=1'], ['airborne', 'P.air=true;P.vz=3'],
+  ];
+  let bad = 0;
+  for (let wi = 0; wi < run('WEAPONS.length'); wi++) {
+    for (const [name, setup] of states) {
+      run(`P.weapon=${wi}; P.ads=0; P.kick=0; P.reloadT=0; P.swapT=0; P.sprint=0; P.air=false; P.vz=0; P.bobPhase=0; S.muzzle=0; ${setup}`);
+      VR.on = true; VR.pts = []; VR.fills = 0; VR.nan = 0; VR.maxD = 0; VR.badDepth = 0;
+      const err = run(`(()=>{try{drawViewModel(DH/900);return null}catch(e){return String(e.message)}})()`);
+      VR.on = false;
+      const q = VR.pts; let X0 = 1e9, X1 = -1e9, Y0 = 1e9, Y1 = -1e9;
+      for (let i = 0; i < q.length; i += 2) { X0 = Math.min(X0, q[i]); X1 = Math.max(X1, q[i]); Y0 = Math.min(Y0, q[i + 1]); Y1 = Math.max(Y1, q[i + 1]); }
+      const frac = [X0 / DW, X1 / DW, Y0 / DH, Y1 / DH];
+      const problems = [];
+      if (err) problems.push('threw ' + err);
+      if (VR.nan) problems.push(VR.nan + ' non-finite points');
+      if (VR.depth !== 0 || VR.badDepth) problems.push('save/restore unbalanced (depth ' + VR.depth + ')');
+      if (VR.fills < 8) problems.push('only ' + VR.fills + ' fills - geometry missing');
+      if (X1 < 0 || X0 > DW || Y0 > DH) problems.push('entirely off screen');
+      const tag = (run('WEAPONS')[' ' + wi] || WEAPONSNAME(wi));
+      console.log(('w' + wi + ' ' + name).padEnd(16), 'paths ' + String(VR.fills).padStart(3),
+        'bbox x ' + frac[0].toFixed(2) + '-' + frac[1].toFixed(2), ' y ' + frac[2].toFixed(2) + '-' + frac[3].toFixed(2),
+        problems.length ? '<< ' + problems.join(', ') : '');
+      bad += problems.length ? 1 : 0;
+    }
+  }
+  function WEAPONSNAME(i) { return run('WEAPONS.map(w=>w.kind)')[i]; }
+  console.log(bad ? bad + ' viewmodel states with problems' : 'viewmodel: all states draw on screen, balanced, no NaN');
 }
 if (MODE === 'decal') {
   // ground decals used to sample texel (0,0) and vanish; this counts what actually reaches the floor

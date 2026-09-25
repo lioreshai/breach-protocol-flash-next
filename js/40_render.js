@@ -12,6 +12,8 @@ let camX = 0, camY = 0, eyeZ = 0.5, horizon = 0, shakeX = 0, shakeY = 0;
 let drawCalls = 0, pixFilled = 0;
 let bloomCv = null, bloomCtx = null, canFilter = false, grainCv = null, grainPat = null, grainSeed = 0;
 let FARB = 22, AMB = 0.13, GQ = null, rigTexH = 200;
+// viewmodel spring state: sway lag, previous look angle, eject timing
+const VM = { vx: 0, vy: 0, ang: 0, pitch: 0, t: 0 };
 
 const QUAL = [
   { name: 'PERFORMANCE', res: 0.34, min: 170, max: 430, bloom: false, grade: false, grain: 0, far: 15, dmax: 8, glow: 0, scan: 0.5, vec: 0, rast: 0, rigH: 0 },
@@ -618,51 +620,179 @@ function drawDamageDirs(U) {
 
 /* ---------------- weapon viewmodel ---------------- */
 function drawViewModel(U) {
-  const w = WEAPONS[P.weapon];
-  const bobX = Math.sin(P.bobPhase) * (10 + 8 * P.sprint) * U * (P.moving() ? 1 : 0.15);
-  const bobY = Math.abs(Math.cos(P.bobPhase)) * (8 + 8 * P.sprint) * U * (P.moving() ? 1 : 0.15);
-  const kick = P.kick * 1.1 * U;
-  const rl = P.reloadT > 0 ? Math.sin(clamp(1 - P.reloadT / Math.max(0.01, w.reload), 0, 1) * Math.PI) : 0;
+  const w = WEAPONS[P.weapon], ads = P.ads, k = P.kick;
+  const dt = Math.min(0.05, Math.max(0.0005, (VM.now = performance.now(), (VM.now - (VM.t || performance.now())) / 1000)));
+  VM.t = VM.now;
+  // look-rate sway: the gun lags the camera instead of being welded to it
+  let dAng = P.ang - (VM.ang !== undefined ? VM.ang : P.ang);
+  while (dAng > Math.PI) dAng -= TAU; while (dAng < -Math.PI) dAng += TAU;
+  VM.ang = P.ang;
+  const aim = 1 - ads * 0.8;
+  VM.vx = damp(VM.vx || 0, clamp(-dAng / dt, -6, 6) * 2.2 * U * aim, 9, dt);
+  VM.vy = damp(VM.vy || 0, clamp(-(P.pitch - (VM.pitch || P.pitch)) / dt, -3000, 3000) * U * 0.010 * aim + (P.vz || 0) * 4 * U * aim, 8, dt);
+  VM.pitch = P.pitch;
+  const mv = P.moving() ? 1 : 0, sp = P.sprint ? 1 : 0;
+  const bobX = Math.sin(P.bobPhase) * (9 + 9 * sp) * U * mv * aim;
+  const bobY = Math.abs(Math.cos(P.bobPhase)) * (7 + 9 * sp) * U * mv * aim - (P.air ? 6 * U : 0);
+  const rl = P.reloadT > 0 ? clamp(1 - P.reloadT / w.reload, 0, 1) : P.reloadT > -0.01 ? 1 : 0;
   const swap = P.swapT > 0 ? P.swapT / 0.34 : 0;
-  const crouch = P.crouch * 12 * U;
-  const ads = P.ads;
-  let ox = DW * (0.5 + 0.16 * (1 - ads)) + bobX * (1 - ads);
-  let oy = DH + 10 * U + bobY + kick + rl * 60 * U + swap * 260 * U + crouch - ads * DH * 0.055;
-  const sc = (DH / 900) * (1 - ads * 0.06);
-  ctx.save();
-  ctx.translate(ox, oy); ctx.scale(sc, sc);
-  const g1 = '#2b323c', g2 = '#171c24', glove = '#3a4250', glove2 = '#232a35';
-  const metal = (x, y, wd, ht, col) => { ctx.fillStyle = col || g1; ctx.fillRect(x, y, wd, ht); };
-  const rrect = (x, y, wd, ht, r, col) => { ctx.fillStyle = col; ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + wd, y, x + wd, y + ht, r); ctx.arcTo(x + wd, y + ht, x, y + ht, r); ctx.arcTo(x, y + ht, x, y, r); ctx.arcTo(x, y, x + wd, y, r); ctx.fill(); };
-  const hand = (x, y, s) => { rrect(x, y, 46 * s, 34 * s, 8 * s, glove); rrect(x, y, 46 * s, 10 * s, 5 * s, glove2); };
+  const cellLi = MAP && MAP.light ? Math.min(1, MAP.light[cellIdx(P.x, P.y)] || 0) : 0;
+  const mz = Math.max(0, S.muzzle || 0);
 
-  if (w.kind === 'pistol') {
-    rrect(-40, -230, 46, 150, 8, g2);            // barrel
-    rrect(-58, -110, 120, 44, 8, g1);            // slide
-    rrect(-40, -66, 60, 76, 10, g2);             // grip
-    metal(-30, -215, 26, 10, '#0f1319');
-    hand(-34, -60, 1);
-    if (S.flash > 0.1) { ctx.globalAlpha = clamp(S.flash, 0, 1); ctx.fillStyle = '#ffe9a8'; ctx.beginPath(); ctx.arc(-16, -236, 34 + 26 * S.flash, 0, TAU); ctx.fill(); ctx.globalAlpha = 1; }
-  } else if (w.kind === 'shotgun') {
-    rrect(-26, -330, 44, 250, 6, '#12161c');     // barrel
-    rrect(-30, -300, 52, 200, 6, '#1c222b');
-    rrect(-70, -150, 150, 60, 10, g1);           // receiver
-    rrect(-46, -90, 74, 100, 12, '#4a2f1c');     // grip
-    rrect(-56, -140, 40, 120, 8, '#3b2617');     // pump
-    hand(-52, -140, 1.05); hand(-20, -70, 1.1);
-    metal(-20, -334, 30, 12, '#0a0d11');
-    if (S.flash > 0.1) { ctx.globalAlpha = clamp(S.flash, 0, 1); ctx.fillStyle = '#ffd68f'; ctx.beginPath(); ctx.arc(-4, -344, 46 + 40 * S.flash, 0, TAU); ctx.fill(); ctx.globalAlpha = 1; }
+  ctx.save();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  // the weapon is held close: a foreshortened receiver spans a third of the view,
+  // not the 8% a 1:1 design-space authoring pass produces
+  const SC9 = DH / 900, sc = SC9 * 1.5 * (1 - ads * 0.06);
+  // anchor: hip pose vs shouldered pose, then the reload / swap choreography on top
+  let ox = DW * (0.5 + 0.155 * (1 - ads)) + (VM.vx + bobX) * (1 - ads * 0.6);
+  let oy = DH + 6 * SC9 + bobY + VM.vy + k * 1.5 * SC9 + swap * 300 * SC9 + P.crouch * 13 * SC9 - ads * DH * 0.05;
+  let tilt = (VM.vx * 0.00035 + (P.moving() ? Math.sin(P.bobPhase) * 0.012 * (0.4 + 0.6 * sp) : 0) - ads * 0.0) * (1 - ads);
+  // reload choreography: magazine out, replacement in, action cycled, all per weapon family
+  let rlStage = 0, magOut = 0, slideBack = 0, shellIn = 0, pump = 0;
+  if (rl > 0 && rl < 1) {
+    rlStage = rl;
+    const t = rl;
+    if (w.kind === 'shotgun') {
+      shellIn = t < 0.45 ? Math.sin(t / 0.45 * Math.PI) : 0;
+      pump = t > 0.45 && t < 0.8 ? Math.sin((t - 0.45) / 0.35 * Math.PI) : 0;
+      slideBack = t > 0.8 ? Math.sin((t - 0.8) / 0.2 * Math.PI) * 0.5 : 0;
+    } else if (w.kind === 'rifle') {
+      magOut = t < 0.34 ? Math.sin(t / 0.34 * Math.PI) : 0;
+      slideBack = t > 0.72 ? Math.sin((t - 0.72) / 0.28 * Math.PI) : 0;
+    } else {
+      magOut = t < 0.42 ? Math.sin(t / 0.42 * Math.PI) : 0;
+      slideBack = t > 0.66 ? Math.sin((t - 0.66) / 0.34 * Math.PI) : 0;
+    }
+    oy += (magOut * 26 + shellIn * 44 + pump * 16) * SC9;
+    tilt += magOut * 0.05 - shellIn * 0.03;
+  } else if (P.reloadT > 0) { oy += 34 * SC9; }
+  ctx.translate(ox, oy);
+  ctx.scale(sc, sc);
+  ctx.rotate(tilt + k * 0.0011);
+
+  // everything below is authored in a 900-unit design space, +y down, origin at the muzzle base
+  const grd = (x0, y0, x1, y1, stops) => {
+    const g = ctx.createLinearGradient(x0, y0, x1, y1);
+    for (const s of stops) g.addColorStop(s[0], s[1]);
+    return g;
+  };
+  const lit = (base, up) => {
+    const m = 0.5 + 0.5 * cellLi + mz * 1.5;
+    const c = [parseInt(base.slice(1, 3), 16), parseInt(base.slice(3, 5), 16), parseInt(base.slice(5, 7), 16)];
+    return '#' + c.map(v => {
+      const t2 = Math.max(0, Math.min(255, Math.round(v * m + (up ? 26 * up : 0))));
+      return (t2 < 16 ? '0' : '') + t2.toString(16);
+    }).join('');
+  };
+  const rrect = (x, y, ww, hh, r) => {
+    const rr = Math.min(r, Math.abs(ww) / 2, Math.abs(hh) / 2);
+    ctx.beginPath(); ctx.moveTo(x + rr, y);
+    ctx.arcTo(x + ww, y, x + ww, y + hh, rr); ctx.arcTo(x + ww, y + hh, x, y + hh, rr);
+    ctx.arcTo(x, y + hh, x, y, rr); ctx.arcTo(x, y, x + ww, y, rr); ctx.closePath(); ctx.fill();
+  };
+  const metal = (x, y, ww, hh, r, col, ang) => {
+    ctx.save(); ctx.translate(x, y); if (ang) ctx.rotate(ang);
+    ctx.fillStyle = grd(0, -hh * 0.5, 0, hh * 0.5, [[0, lit(col, 1)], [0.42, lit(col, 0.35)], [0.62, lit('#0e1116')], [1, lit('#05070a')]]);
+    rrect(0, -hh * 0.5, ww, hh, r);
+    ctx.fillStyle = 'rgba(255,255,255,' + (0.05 + 0.13 * mz + 0.05 * cellLi) + ')';
+    rrect(ww * 0.06, -hh * 0.44, ww * 0.88, hh * 0.16, hh * 0.08);
+    ctx.restore();
+  };
+  // a hand: palm, four fingers curled round the grip, thumb, knuckle ridge, cuff
+  const hand = (x, y, s, back, gripAng) => {
+    ctx.save(); ctx.translate(x, y); ctx.rotate(gripAng || 0); ctx.scale(s, s);
+    const skin = lit('#8c6a4f'), skinD = lit('#5d452f'), glove = lit('#3b424e'), gloveD = lit('#222834');
+    ctx.fillStyle = grd(-26, -20, 26, 26, [[0, glove], [0.7, gloveD], [1, lit('#171c26')]]);
+    rrect(back ? 6 : -34, 16, 30, 40, 9);                            // cuff
+    ctx.fillStyle = grd(-24, -22, 24, 24, [[0, skin], [0.55, skinD], [1, lit('#3a2b1e')]]);
+    rrect(back ? -4 : -30, -14, 34, 34, 11);                          // palm/back of hand
+    ctx.fillStyle = grd(0, -20, 0, 22, [[0, skin], [1, skinD]]);
+    for (let f = 0; f < 4; f++) {                                     // fingers wrapping the grip
+      const fy = -10 + f * 8.2, curl = 0.55 + 0.16 * f + slideBack * 0.25;
+      ctx.save(); ctx.translate(back ? -2 : 26, fy); ctx.rotate(back ? curl : -curl);
+      rrect(back ? -16 : 0, -3.6, 17, 7.4, 3.4);
+      ctx.restore();
+    }
+    ctx.save(); ctx.translate(back ? 20 : -20, -6); ctx.rotate(back ? -0.85 : 0.85);   // thumb
+    ctx.fillStyle = grd(0, -5, 0, 6, [[0, skin], [1, skinD]]);
+    rrect(0, -4.6, 16, 9, 4); ctx.restore();
+    ctx.fillStyle = 'rgba(0,0,0,0.30)';
+    for (let f = 0; f < 4; f++) rrect((back ? -6 : 24) - 4, -12 + f * 8.2, 9, 2.2, 1);   // knuckle shade
+    ctx.restore();
+  };
+
+  // ---- weapon families: receiver, barrel, furniture, sight line -----------------
+  const K = w.kind;
+  const gunY = -236, sightY = -268;                                    // local muzzle / sight height
+  if (K === 'shotgun') {
+    metal(-34, -232, 78, 44, 7, '#2c313a');                              // receiver
+    metal(-16, -330, 26, 104, 5, '#242a33');                             // barrel
+    metal(12, -322, 16, 92, 4, '#1c2129');                               // mag tube
+    metal(-10 + pump * 26, -300, 22, 34, 6, '#3a2c1e');                  // pump, travels on reload
+    metal(-30, -186, 44, 74, 10, '#33261a', 0.10);                       // stock
+    metal(-22, -258, 30, 14, 3, '#15191f');                              // ejection port
+    ctx.fillStyle = '#0a0d11'; rrect(-8, -336, 12, 8, 3);                // muzzle ring
+    if (magOut || shellIn) {                                            // shell in the hand
+      ctx.save(); ctx.translate(-52 + shellIn * 16, -208 + shellIn * 30); ctx.rotate(0.2);
+      ctx.fillStyle = grd(0, -8, 0, 8, [[0, lit('#b8412c')], [1, lit('#6d2115')]]); rrect(0, -7, 20, 14, 5);
+      ctx.fillStyle = lit('#d8b04a'); rrect(15, -6.4, 6, 12.8, 2); ctx.restore();
+    }
+    hand(-52 - pump * 6, -292, 1.02, false, -0.16 + pump * 0.10);
+    hand(4, -214 - magOut * 6, 1.06, true, 0.10 + slideBack * 0.05);
+    if (slideBack) { ctx.fillStyle = lit('#cfae55'); rrect(-16 - slideBack * 26, -262 - slideBack * 22, 9, 7, 2); }
+  } else if (K === 'rifle') {
+    metal(-30, -266, 92, 34, 6, '#262c35');                              // upper receiver
+    metal(-8, -372, 18, 112, 4, '#1a1f27');                              // barrel
+    metal(-4, -372, 8, 10, 2, '#0f1218');                                // flash hider
+    metal(-26, -300, 40, 26, 4, '#1d222a', 0);                           // handguard
+    metal(-30 + slideBack * 20, -246, 30, 22, 3, '#161b22');              // charging handle
+    if (!magOut) metal(-14, -232, 26, 62, 4, '#1b2028', 0.04);            // magazine
+    else { ctx.save(); ctx.translate(-14 - magOut * 10, -214 + magOut * 70); ctx.rotate(0.04);
+      ctx.fillStyle = lit('#1b2028'); rrect(0, 0, 26, 60, 4); ctx.restore(); }
+    metal(-40, -196, 52, 78, 12, '#20252e', 0.13);                       // stock
+    metal(-6, -286, 12, 12, 2, '#10141a');                                // rear sight
+    hand(-40 - pump * 4, -306, 0.98, false, -0.30);
+    hand(6, -218 - magOut * 4, 1.04, true, 0.12 + slideBack * 0.06);
+    if (slideBack) { ctx.fillStyle = lit('#cfae55'); rrect(-4 - slideBack * 30, -272 - slideBack * 26, 8, 7, 2); }
   } else {
-    rrect(-20, -360, 34, 260, 5, '#12161c');     // barrel
-    rrect(-56, -190, 130, 70, 10, g1);           // body
-    rrect(-30, -120, 56, 110, 8, g2);            // grip
-    rrect(-16, -250, 26, 120, 6, '#20262f');     // mag ahead
-    rrect(-64, -160, 30, 60, 6, '#0f1319');      // stock
-    for (let i = 0; i < 3; i++) rrect(-52 + i * 30, -200, 18, 26, 4, '#d9a94a');
-    hand(-40, -110, 1.05); hand(-6, -60, 1.05);
-    if (S.flash > 0.1) { ctx.globalAlpha = clamp(S.flash, 0, 1); ctx.fillStyle = '#ffdf9a'; ctx.beginPath(); ctx.arc(-2, -368, 34 + 30 * S.flash, 0, TAU); ctx.fill(); ctx.globalAlpha = 1; }
+    metal(-26, -238, 62, 40, 7, '#2b323c');                               // pistol slide
+    metal(-26 + slideBack * 26, -238, 62, 12, 3, '#20262f');              // slide serration band
+    metal(-20, -200, 34, 62, 8, '#232935', 0.06);                         // grip
+    metal(-20, -248, 54, 10, 3, '#171c24');                               // barrel / muzzle
+    if (!magOut) metal(-16, -196, 22, 46, 3, '#1a1f28', 0.06);            // magazine
+    else { ctx.save(); ctx.translate(-18, -176 + magOut * 84); ctx.rotate(-0.05);
+      ctx.fillStyle = lit('#1a1f28'); rrect(0, 0, 20, 44, 3); ctx.restore(); }
+    ctx.fillStyle = '#0a0d11'; rrect(26, -252, 10, 14, 3);
+    hand(-2, -222 - magOut * 8, 1.05, true, 0.06 + slideBack * 0.04);
+    hand(-40 - (P.reloadT > 0 && magOut ? 18 : 0), -226 - magOut * 26, 0.92, false, -0.42 - magOut * 0.2);
+    if (slideBack) { ctx.fillStyle = lit('#cfae55'); rrect(-18 - slideBack * 30, -252 - slideBack * 24, 8, 7, 2); }
   }
-  // support arm/shape cues
+
+  // ---- muzzle flash: additive cone + kernel at the muzzle, driven by S.muzzle ----
+  if (mz > 0.004) {
+    const my = K === 'rifle' ? -372 : K === 'shotgun' ? -330 : -252;
+    const mx = K === 'pistol' ? 32 : K === 'shotgun' ? -3 : 5;
+    ctx.save(); ctx.globalCompositeOperation = 'lighter';
+    ctx.globalAlpha = Math.min(1, mz);
+    ctx.fillStyle = grd(mx, my - 60 * mz, mx, my + 60 * mz, [[0, 'rgba(255,236,180,0)'], [0.5, 'rgba(255,226,150,0.95)'], [1, 'rgba(255,180,80,0)']]);
+    ctx.beginPath();
+    ctx.moveTo(mx, my - 26 * mz); ctx.lineTo(mx + 150 * mz, my - 4 * mz); ctx.lineTo(mx + 150 * mz, my + 4 * mz);
+    ctx.lineTo(mx, my + 26 * mz); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = grd(mx - 60 * mz, my - 60 * mz, mx + 60 * mz, my + 60 * mz, [[0, 'rgba(255,250,235,1)'], [0.45, 'rgba(255,214,120,0.55)'], [1, 'rgba(255,150,40,0)']]);
+    ctx.beginPath(); ctx.arc(mx, my, 58 * mz, 0, TAU); ctx.fill();
+    ctx.restore();
+  }
+  // ---- sight picture in ADS: the rear sight brackets the front post on screen centre
+  if (ads > 0.02) {
+    const a = ads * ads;
+    ctx.save(); ctx.globalAlpha = a * 0.9;
+    const sy = (DH * 0.5 - oy) / sc, sx = (DW * 0.5 - ox) / sc;
+    ctx.strokeStyle = 'rgba(12,15,20,0.9)'; ctx.lineWidth = 3 * (1 + ads);
+    ctx.beginPath(); ctx.rect(sx - 16, sy + 4, 32, 16); ctx.stroke();
+    ctx.fillStyle = 'rgba(230,240,255,' + (0.10 * a) + ')'; ctx.fillRect(sx - 1, sy - 26, 2, 30);
+    ctx.restore();
+  }
   ctx.restore();
 }
 

@@ -39,7 +39,7 @@ const DIFFS = [
 const S = {
   mode: 'title',      // title | play | pause | dead | win
   level: 0, diff: 1, t: 0, dt: 0, fps: 0, frames: 0, fpsT: 0,
-  locked: false, exitOpen: false, shake: 0, flash: 0, flashCol: [255, 90, 40],
+  locked: false, exitOpen: false, shake: 0, flash: 0, muzzle: 0, flashCol: [255, 90, 40],
   hitMark: 0, headMark: 0, banner: '', bannerT: 0, showMap: true, revealed: 0,
   sound: true, perf: false, runT: 0, gfx: 1
 };
