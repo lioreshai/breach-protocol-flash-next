@@ -14,6 +14,19 @@ const LVL = +(process.argv[3] || 0);
 const CAM = +(process.argv[4] || 0);
 const OUT = process.env.OUT || (MODE === 'sheets' ? '/tmp/fps_tex.png' : MODE === 'rig' ? '/tmp/fps_rig.png' : '/tmp/fps_scene.png');
 
+/* Browsers reject malformed colour strings and non-finite gradient geometry by
+ * throwing. The stub has to do the same or the overlay code, which builds colour
+ * strings at runtime, passes headlessly and throws on the first real frame. */
+function validColor(c, where) {
+  if (typeof c !== 'string') return;                     // gradients, patterns
+  const ok = /^#[0-9a-fA-F]{3,8}$/.test(c) ||
+    /^rgba?\(\s*[-+\d.]+\s*,\s*[-+\d.]+\s*,\s*[-+\d.]+\s*(,\s*[-+\d.]+\s*)?\)$/.test(c) ||
+    /^(white|black|transparent|none)$/.test(c);
+  if (!ok) throw new TypeError('failed to set ' + where + ': invalid colour "' + c + '"');
+}
+function finiteArgs(a, where) {
+  for (const v of a) if (typeof v === 'number' && !isFinite(v)) throw new TypeError('failed to ' + where + ': non-finite argument');
+}
 /* Canvas path recorder: tracks the CTM so overlay geometry can be measured in
    device pixels. This is the only way to check the HUD and viewmodel headlessly,
    since nothing drawn with canvas paths can be read back as pixels. */
@@ -49,12 +62,19 @@ function ctxStub() {
       if (k in t) return t[k];
       if (k === 'getImageData') return () => { throw new Error('canvas getImageData is not available headless - assets must be painted by js/05_paint.js'); };
       if (k === 'createImageData') return (w, h) => ({ data: new Uint8ClampedArray(w * h * 4), width: w, height: h });
-      if (k === 'createLinearGradient' || k === 'createRadialGradient' || k === 'createPattern') return () => ({ addColorStop: noop });
+      if (k === 'createLinearGradient' || k === 'createLinearGradientX') return (...a) => { finiteArgs(a, 'createLinearGradient'); return { addColorStop: (o, c) => { if (!isFinite(o) || o < 0 || o > 1) throw new TypeError('addColorStop: bad offset ' + o); validColor(c, 'addColorStop'); } }; };
+      if (k === 'createRadialGradient') return (...a) => { finiteArgs(a, 'createRadialGradient'); return { addColorStop: (o, c) => { if (!isFinite(o) || o < 0 || o > 1) throw new TypeError('addColorStop: bad offset ' + o); validColor(c, 'addColorStop'); } }; };
+      if (k === 'createPattern') return () => ({});
       if (k === 'measureText') return () => ({ width: 10 });
       if (k === 'maxD') return VR.maxD || 0;
       return (...a) => { vhook(k, a); };
     },
-    set(t, k, v) { t[k] = v; return true; }
+    set(t, k, v) {
+      if (k === 'fillStyle' || k === 'strokeStyle' || k === 'shadowColor') validColor(v, String(k));
+      if ((k === 'lineWidth' || k === 'globalAlpha') && !(typeof v !== 'number' || isFinite(v))) throw new TypeError('failed to set ' + k + ': non-finite');
+      if (k === 'globalAlpha' && typeof v === 'number' && (v < 0 || v > 1)) throw new TypeError('globalAlpha out of range: ' + v);
+      t[k] = v; return true;
+    }
   });
 }
 function canvasStub() {
@@ -241,6 +261,37 @@ if (MODE === 'viewmodel') {
   }
   function WEAPONSNAME(i) { return run('WEAPONS.map(w=>w.kind)')[i]; }
   console.log(bad ? bad + ' viewmodel states with problems' : 'viewmodel: all states draw on screen, balanced, no NaN');
+}
+if (MODE === 'play') {
+  // Exercises the loop the browser actually runs: update() -> renderWorld -> renderOverlay.
+  // Everything else here calls renderWorld directly, which is why a throw inside update()
+  // would pass every other probe and still freeze the screen.
+  const report = (label, code) => {
+    const r = run(`(()=>{try{${code};return null}catch(e){return String((e && e.stack) || e).split(String.fromCharCode(10)).slice(0,3).join(' | ')}})()`);
+    console.log(label.padEnd(22), r ? 'THREW ' + r : 'clean');
+    return r;
+  };
+  let bad = 0;
+  run('S.mode="title"');
+  bad += report('title x60 frames', 'for(let i=0;i<60;i++) frame(16.7*i)') ? 1 : 0;
+  const NW = run('WEAPONS.length');
+  for (let L = 0; L < run('LEVELS.length'); L++) {
+    run(`S.mode="play"; startLevel(${L}, true); S.locked=true; P.ads=0; keys.KeyW=1;`);
+    bad += report(`L${L} update x600`, 'for(let i=0;i<600;i++) update(1/60)') ? 1 : 0;
+    bad += report(`L${L} frame x120`, 'for(let i=0;i<120;i++) frame(1000+i*16.7)') ? 1 : 0;
+    for (let wi = 0; wi < NW; wi++) {
+      run(`P.weapon=${wi}; P.reloadT=WEAPONS[${wi}].reload*0.5;`);
+      bad += report(`L${L} w${wi} reload`, 'for(let i=0;i<90;i++) frame(2000+i*16.7)') ? 1 : 0;
+      run(`P.reloadT=0; P.kick=WEAPONS[${wi}].kick; tryFire();`);
+      bad += report(`L${L} w${wi} fired`, 'for(let i=0;i<60;i++) frame(3000+i*16.7)') ? 1 : 0;
+    }
+    run('keys.KeyW=0; P.sprint=1; keys.KeyShift=1;');
+    bad += report(`L${L} sprint`, 'for(let i=0;i<200;i++) frame(4000+i*16.7)') ? 1 : 0;
+    run('P.sprint=0; keys.KeyShift=0; for(let i=0;i<40;i++){ENEMIES.forEach(e=>{if(e.state==="alive")damageEnemy(e,40,false,1,0)});frame(5000+i*16.7)}');
+    bad += report(`L${L} combat`, 'for(let i=0;i<40;i++) frame(6000+i*16.7)') ? 1 : 0;
+    bad += report(`L${L} portal+swap`, 'S.mode="play"; P.x=exitX; P.y=exitY; nextLevel(); for(let i=0;i<90;i++) frame(7000+i*16.7)') ? 1 : 0;
+  }
+  console.log(bad ? bad + ' loop states threw' : 'gameplay loop: every state ran clean');
 }
 if (MODE === 'decal') {
   // ground decals used to sample texel (0,0) and vanish; this counts what actually reaches the floor

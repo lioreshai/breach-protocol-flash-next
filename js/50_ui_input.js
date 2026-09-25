@@ -151,6 +151,21 @@ function update(dt) {
 let last = 0;
 function frame(ts) {
   requestAnimationFrame(frame);
+  // The canvas cannot show a thrown error, so keep the loop alive on screen and
+  // show it instead - a silent freeze is otherwise indistinguishable from a stall.
+  try { frameInner(ts); S.err = null; }
+  catch (e) {
+    if (!S.err) S.err = String((e && e.message) || e) + ' @ ' + String((e && e.stack) || '').split(String.fromCharCode(10))[1];
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.fillStyle = 'rgba(12,14,18,0.86)'; ctx.fillRect(0, 0, DW, 62);
+    ctx.fillStyle = '#ff6a5a'; ctx.font = '600 15px monospace';
+    ctx.fillText('ERROR (loop alive): ' + String((e && e.message) || e).slice(0, 120), 14, 24);
+    ctx.fillStyle = '#aeb8c4'; ctx.font = '12px monospace';
+    ctx.fillText(String((e && e.stack) || '').split(String.fromCharCode(10))[1] || '', 14, 46);
+  }
+}
+
+function frameInner(ts) {
   const dt = Math.min(0.05, Math.max(0.001, (ts - last) / 1000 || 0.016));
   last = ts;
   S.dt = dt; S.t += dt;
