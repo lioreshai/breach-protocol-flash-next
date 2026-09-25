@@ -9,13 +9,15 @@ fps/
   js/00_core.js     utils, canvas, state, synthesized audio
   js/05_paint.js    software rasteriser + noise/SDF kit every asset is painted with
   js/10_assets.js   material baker: albedo -> normals -> cavity AO -> light, per texture
-  js/12_sprites.js  characters, props and decals painted per frame from primitives
+  js/11_rig.js      characters as jointed geometry, rasterized at draw time and cached by pose
+  js/12_sprites.js  props and decals painted per frame from primitives
   js/20_level.js    room/corridor level generator, RGB lightmap, decals, occupancy
   js/30_entities.js weapons, player, enemy AI, projectiles, particles
   js/40_render.js   software raycaster + post FX + 2D overlay/HUD
   js/50_ui_input.js menus, pointer lock, input, main loop
   tools/smoke.js    headless test harness (node tools/smoke.js)
-  tools/view.js     headless visual harness: sheets | stats | diag | exposure | scene
+  tools/view.js     headless visual harness: sheets | stats | diag | exposure | scene | rig
+                    (scene honours WARM=1 to exercise the rig cache under a spinning camera)
   tools/png.js      minimal PNG writer used by view.js (no dependencies)
 ```
 
@@ -31,7 +33,7 @@ fps/
 | `R` | reload · `1 2 3` or mouse wheel | weapon select |
 | `G` | grenade (area damage, chain-detonates barrels) |
 | `Esc` | pause · `M` map · `T` sound · `F3` perf readout |
-| `F4` | cycle quality: PERFORMANCE / BALANCED / ULTRA (resolution, bloom, grain, fog depth) |
+| `F4` | cycle quality: PERFORMANCE / BALANCED / ULTRA (resolution, bloom, grain, fog depth, rig authoring size) |
 
 ## Goal
 Three procedurally generated sectors. Clear every hostile, the exit portal opens, then find it.
@@ -59,9 +61,15 @@ rounded boxes, polygons) plus tileable value noise and fbm — painting into `Ui
   footprint and adaptive horizontal stepping so near rows keep detail and distant rows cost one
   sample. Bullet holes, scorch marks and blood pool in *world* space and are composited during the
   wall and floor passes.
-* **Characters** (`js/12_sprites.js`) are assembled from shaded tubes and domes with a fixed key
-  light, joint occlusion and rim light, then lifted into albedo range because the scene lights them
-  again.
+* **Characters** (`js/11_rig.js`) are jointed geometry: capsules and rounded boxes specified in
+  fractions of body height, posed by a gait phase that advances with *distance travelled* so a
+  planted foot stays planted, and rasterized through signed-distance fields at the size they
+  occupy. The silhouette is a function of the viewing angle, so facing reads correctly. Poses are
+  cached by (species, gait phase, yaw, action) under a byte cap and a per-frame rasterization
+  budget; over budget the nearest cached pose is reused rather than paying for another raster.
+  Billboards sample with bilinear filtering where texels outnumber pixels, which is what killed the
+  shimmer at distance. `js/12_sprites.js` still paints props and decals, and supplies the bitmap
+  poses the PERFORMANCE preset uses.
 * **Post FX**: bloom from a downscaled bright pass, projected lamp glow with a line-of-sight test,
   film grain and a contrast grade. `F4` trades these against internal resolution.
 
