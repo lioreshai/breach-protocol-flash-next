@@ -12,6 +12,21 @@ let camX = 0, camY = 0, eyeZ = 0.5, horizon = 0, shakeX = 0, shakeY = 0;
 let drawCalls = 0, pixFilled = 0;
 let bloomCv = null, bloomCtx = null, canFilter = false, grainCv = null, grainPat = null, grainSeed = 0;
 let FARB = 22, AMB = 0.13, GQ = null, rigTexH = 200;
+let G_TRI = false, G_GRIT = 0;                                  // derived from QUAL.rast
+const TB = new Float64Array(4);
+/* Bilinear texel fetch in texel units; writes [r,g,b,alpha] into TB (no per-pixel
+ * allocation, which was measurable). Wraps rather than clamps, since tiles repeat. */
+function texBil(td, mw, mh, u, v) {
+  const x0 = u | 0, y0 = v | 0, fx = u - x0, fy = v - y0;
+  const x1 = x0 + 1 === mw ? 0 : x0 + 1, y1 = y0 + 1 === mh ? 0 : y0 + 1;
+  const i00 = y0 * mw + x0, i01 = y0 * mw + x1, i10 = y1 * mw + x0, i11 = y1 * mw + x1;
+  const a = td[i00], b = td[i01], c = td[i10], d = td[i11];
+  const w0 = (1 - fx) * (1 - fy), w1 = fx * (1 - fy), w2 = (1 - fx) * fy, w3 = fx * fy;
+  TB[0] = (a & 255) * w0 + (b & 255) * w1 + (c & 255) * w2 + (d & 255) * w3;
+  TB[1] = (a >> 8 & 255) * w0 + (b >> 8 & 255) * w1 + (c >> 8 & 255) * w2 + (d >> 8 & 255) * w3;
+  TB[2] = (a >> 16 & 255) * w0 + (b >> 16 & 255) * w1 + (c >> 16 & 255) * w2 + (d >> 16 & 255) * w3;
+  TB[3] = (a >>> 24) * w0 + (b >>> 24) * w1 + (c >>> 24) * w2 + (d >>> 24) * w3;
+}
 // viewmodel spring state: sway lag, previous look angle, eject timing
 const VM = { vx: 0, vy: 0, ang: 0, pitch: 0, t: 0 };
 
@@ -28,6 +43,7 @@ function resize() {
   cv.width = DW; cv.height = DH;
   const q = QUAL[clamp(S.gfx | 0, 0, QUAL.length - 1)];
   GQ = q; FARB = q.far;
+  G_TRI = q.rast >= 4; G_GRIT = q.rast >= 4 ? 0.85 : (q.rast >= 2 ? 0.5 : 0);
   BH = clamp(Math.round(DH * q.res), q.min, q.max);
   BW = Math.max(160, Math.round(BH * DW / DH));
   bufCv.width = BW; bufCv.height = BH;
@@ -261,11 +277,21 @@ function castWalls(flash, fcR, fcG, fcB) {
     const spanPx = hpx;
     const mk = spanPx < tex.h * 0.6 ? (spanPx < tex.h * 0.3 ? (spanPx < tex.h * 0.15 ? 3 : 2) : 1) : 0;
     const m = tex.mips[Math.min(mk, tex.mips.length - 1)];
+    /* Crossfade into the next mip instead of switching at a threshold, so the mip
+     * boundary stops being a visible seam at grazing angles. */
+    let m2 = null, wMix = 0;
+    if (G_TRI && mk + 1 < tex.mips.length) {
+      const lvl = Math.max(0, Math.log2(tex.h * 0.62 / Math.max(spanPx, 0.0001)));
+      const fr = lvl - Math.floor(lvl);
+      if (fr > 0.55) { m2 = tex.mips[Math.min(mk + 1, tex.mips.length - 1)]; wMix = (fr - 0.55) / 0.45 * 0.85; }
+    }
+    const grit = G_GRIT * Math.max(0, Math.min(1, 1.35 - perp * 0.11));
     const mw = m.w, mh = m.h, td = m.data, mask = mw - 1;
     const mir = (hash2(mx, my) * 2) | 0;
     let tx = (wallX * mw) | 0; tx &= mask;
-    if ((side === 0 && rdx > 0) || (side === 1 && rdy < 0)) tx = mask - tx;
-    if (mir & 1) tx = mask - tx;
+    let u = wallX * mw;
+    if ((side === 0 && rdx > 0) || (side === 1 && rdy < 0)) { tx = mask - tx; u = mw - u; }
+    if (mir & 1) { tx = mask - tx; u = mw - u; }
 
     /* light on the face: lightmap in the wall cell + lightmap one step out along the normal */
     const nx = side === 0 ? -stepX : 0, ny = side === 1 ? -stepY : 0;
@@ -284,13 +310,24 @@ function castWalls(flash, fcR, fcG, fcB) {
     const tstep = mh / (y1 - y0);
     let ty = (ds - y0) * tstep, idx = ds * BW + x;
     for (let y = ds; y <= de; y++, idx += BW) {
-      const ti = ((ty | 0) & (mh - 1)) * mw + tx; ty += tstep;
-      const c = td[ti];
-      if ((c >>> 24) === 253) {                                // emissive strip: ignores scene light
-        px[idx] = 0xFF000000 | clampi((c >> 16 & 255) * inv + fB) << 16 | clampi((c >> 8 & 255) * inv + fG) << 8 | clampi((c & 255) * inv + fR);
+      const vy = ty; ty += tstep;
+      texBil(td, mw, mh, u, vy);
+      let cr = TB[0], cg = TB[1], cb = TB[2];
+      if ((TB[3] | 0) === 253) {                               // emissive strip: ignores scene light
+        px[idx] = 0xFF000000 | clampi(cb * inv + fB) << 16 | clampi(cg * inv + fG) << 8 | clampi(cr * inv + fR);
         continue;
       }
-      px[idx] = 0xFF000000 | clampi((c >> 16 & 255) * lb + fB) << 16 | clampi((c >> 8 & 255) * lg + fG) << 8 | clampi((c & 255) * lr + fR);
+      if (m2) {
+        const s2 = m2.w / mw;
+        texBil(m2.data, m2.w, m2.h, u * s2, vy * s2);
+        cr += (TB[0] - cr) * wMix; cg += (TB[1] - cg) * wMix; cb += (TB[2] - cb) * wMix;
+      }
+      let gk = 1;
+      if (grit > 0) {                                          // relief from the screen-space field
+        const h0 = DETAIL[(((y + 1) & 31) << 6) | ((x + 1) & 31)], h1 = DETAIL[((y & 31) << 6) | (x & 31)];
+        gk = Math.max(0.25, 1 + (h0 - h1) / 255 * 1.3 * grit);
+      }
+      px[idx] = 0xFF000000 | clampi(cb * lb * gk + fB) << 16 | clampi(cg * lg * gk + fG) << 8 | clampi(cr * lr * gk + fR);
     }
     pixFilled += (de - ds + 1);
 

@@ -500,3 +500,24 @@ DECAL.dust = decalTex(32, (s, n) => {
     return [150, 140, 120, Math.pow(t, 1.6) * 0.3 * (0.4 + fbm(x / n, y / n, 7, 2, 0.6, 3) * 1.2)];
   });
 });
+
+/* Screen-space detail field: a smooth value-noise height map plus fine speckle,
+ * sampled by pixel coordinates so material grain keeps constant on-screen size
+ * instead of collapsing into the base texture's own frequency. */
+const DETAIL = (() => {
+  const S = 64, h = new Uint8Array(S * S), g = new Uint8Array(S * S);
+  let r = 0x51ed270b;
+  const rnd = () => { r ^= r << 13; r ^= r >>> 17; r ^= r << 5; return (r >>> 0) / 4294967296; };
+  for (let i = 0; i < S * S; i++) g[i] = (rnd() * 255) | 0;
+  for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+    let a = 0;
+    for (let o = 0; o < 4; o++) {
+      const w = [[1, 0], [-1, 0], [0, 1], [0, -1]][o];
+      a += g[((y + w[1] + S) & (S - 1)) * S + ((x + w[0] + S) & (S - 1))];
+    }
+    h[y * S + x] = a >> 2;
+  }
+  const out = new Uint8Array(S * S);
+  for (let i = 0; i < S * S; i++) out[i] = Math.max(0, Math.min(255, h[i] * 0.72 + g[i] * 0.28)) | 0;
+  return out;
+})();
