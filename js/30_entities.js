@@ -22,7 +22,8 @@ function makeEnemy(kind, x, y) {
     tint: [1 + (Math.random() - 0.5) * 0.16, 1 + (Math.random() - 0.5) * 0.14, 1 + (Math.random() - 0.5) * 0.12],
     atkMode: 'melee', ph: Math.random() * TAU,
     // locomotion state: velocity is persisted so motion has inertia, and facing turns
-    ang: Math.random() * TAU, svx: 0, svy: 0, lean: 0, stepPhase: Math.random(), footC: 0
+    ang: Math.random() * TAU, svx: 0, svy: 0, lean: 0, stepPhase: Math.random(), footC: 0,
+    stgx: 0, stgy: 0, dieAng: 0, fidgetT: Math.random() * 3
   };
 }
 const eyeH = () => cfg.eye + P.z - P.crouch * 0.19;
@@ -172,7 +173,9 @@ function throwGrenade() {
 /* ---------------- damage ---------------- */
 function damageEnemy(e, dmg, head, dx, dy) {
   if (e.state === 'dead') return;
-  e.hp -= dmg; P.dmg += dmg; e.flashT = 0.09; e.alert = true; e.stagger = 0.14;
+  e.hp -= dmg; P.dmg += dmg; e.flashT = 0.09; e.alert = true;
+  // stagger is a decaying shove along the shot direction, not just a slow-down flag
+  e.stagger = 0.26; e.stgx = (dx || 0) * 2.2; e.stgy = (dy || 0) * 2.2;
   const c = head ? '#ff4a4a' : '#b81a2a';
   burstParts(e.x, e.y, e.scale * (head ? 0.9 : 0.6), head ? 16 : 9, 2.4, c, 0.5, 0.075, false, 1.0);
   if (!isSolid(e.x, e.y)) addGroundSplat(e.x, e.y, 0.20 + Math.random() * 0.12, e.kind === 'hound' ? 'goo' : 'blood');
@@ -181,6 +184,9 @@ function damageEnemy(e, dmg, head, dx, dy) {
   SND.flesh(0);
   if (e.hp <= 0) {
     e.state = 'dead'; e.dieT = 0; P.kills++; S.shake += 2;
+    // a body falls the way it was hit, not the way it was walking
+    e.dieAng = (dx || dy) ? Math.atan2(dy, dx) : e.ang + Math.random() * 0.8 - 0.4;
+    e.vx += (dx || 0) * 1.5; e.vy += (dy || 0) * 1.5;
     killfeed((head ? 'HEADSHOT · ' : '') + e.kind.toUpperCase() + ' DOWN', head ? '#ffe27a' : '#ffcbb3');
     SND.gib(0);
     burstParts(e.x, e.y, e.scale * 0.5, 26, 3.4, e.type.blood, 0.9, 0.11, false, 1.2);
@@ -374,8 +380,16 @@ function updateEnemies(dt) {
         }
         e.cd = t.cd * (0.75 + Math.random() * 0.6);
       }
-      e.anim += dt * 0.4;
-      e.movingAmt = 0;
+      // winding up and driving through the swing shifts the whole body forward
+      const pr = 1 - clamp(e.atkT / e.type.wind, 0, 1);
+      e.lean = damp(e.lean, -0.07 + 0.30 * Math.sin(Math.PI * pr), 9, dt);
+      e.stepPhase += dt * 0.22;
+      e.movingAmt = 0.12;
+      if (pr > 0.5 && e.atkMode === 'melee' && d > e.type.reach * 0.6) {
+        tryMove(e, (dx / d) * e.type.spd * 0.55 * dt, (dy / d) * e.type.spd * 0.55 * dt, e.r * 0.72);
+        e.svx = damp(e.svx, (dx / d) * e.type.spd * 0.55, 8, dt);
+        e.svy = damp(e.svy, (dy / d) * e.type.spd * 0.55, 8, dt);
+      }
       continue;
     }
     // movement
@@ -398,6 +412,13 @@ function updateEnemies(dt) {
       }
     } else {
       e.stepPhase += dt * 0.06;                 // breathing weight shift, not a slowed walk
+      // idle bodies glance around instead of locking to one heading
+      e.fidgetT = (e.fidgetT || 0) - dt;
+      if (e.fidgetT <= 0) {
+        e.fidgetT = 2.2 + Math.random() * 4;
+        e.fidgetTo = e.ang + (Math.random() < 0.5 ? -1 : 1) * (0.4 + Math.random() * 1.3);
+      }
+      turnTo(e, e.fidgetTo, 1.0, dt);
       e.lean = damp(e.lean, Math.sin(e.ph * 0.7) * 0.02, 3, dt);
     }
     // separation
@@ -422,6 +443,8 @@ function updateEnemies(dt) {
     const acc = e.kind === 'hound' ? 9.5 : e.kind === 'brute' ? 4.2 : 6.5;
     e.svx = damp(e.svx, mvx * speed, acc, dt);
     e.svy = damp(e.svy, mvy * speed, acc, dt);
+    const stag = e.stagger > 0 ? e.stagger / 0.26 : 0;              // shot shove, decaying
+    if (stag > 0) { e.svx += e.stgx * stag * stag; e.svy += e.stgy * stag * stag; }
     tryMove(e, (e.svx + e.vx) * dt, (e.svy + e.vy) * dt, e.r * 0.72);
     e.vx *= Math.pow(0.02, dt); e.vy *= Math.pow(0.02, dt);
     const moved = Math.hypot(e.x - before.x, e.y - before.y);
@@ -438,7 +461,7 @@ function updateEnemies(dt) {
       const want = Math.atan2(mvy, mvx);
       turnErr = turnTo(e, want, (e.kind === 'hound' ? 7.5 : e.kind === 'brute' ? 3.4 : 5.2), dt);
     }
-    e.lean = damp(e.lean, clamp(turnErr * 0.55, -0.2, 0.2) * Math.min(1, spd / e.type.spd), 7, dt);
+    e.lean = damp(e.lean, clamp(turnErr * 0.55, -0.2, 0.2) * Math.min(1, spd / e.type.spd) + stag * 0.14, 7, dt);
   }
 }
 

@@ -118,7 +118,7 @@ function renderWorld() {
     if (fr.alpha <= 0.02) continue;
     let rig = null;
     if (qv.vec) {
-      let yaw = e.ang - P.ang - Math.PI;
+      let yaw = (e.state === 'dead' && e.dieAng !== undefined ? e.dieAng : e.ang) - P.ang - Math.PI;
       while (yaw > Math.PI) yaw -= TAU; while (yaw < -Math.PI) yaw += TAU;
       rig = { hpx: rigTexH, kind: e.kind, p: e.anim, mv: e.movingAmt || 0, atk: e.atkT > 0 ? 1 - clamp(e.atkT / e.type.wind, 0, 1) : 0, die: e.state === 'dead' ? clamp(e.dieT / 0.55, 0, 1) : 0, yaw, lean: e.lean || 0, pulse: e.ph };
     }
