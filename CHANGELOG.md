@@ -11,6 +11,10 @@ one change: say what the reader would notice, not which file was touched.
 - Occlusion depth is one value per **pixel** instead of one per screen column: the ground pass writes the distance it already solves — including the pixels it queues for the lip of a step, whose colour comes from a different plane than the row's — the wall pass writes its own face span, and the sprite and particle paths compare per pixel. No pixel changed colour, and a column with no wall no longer holds a stale zero that hid sprites there. A flat ceiling row keeps the "occludes nothing" sentinel until the pass that clips against it (#45).
 
 ### Fixed
+- Walking off a step or into a pit no longer drops the player in a single frame: a column whose floor is
+  more than a quantum below the feet hands the player to the same gravity integration a jump uses, so the
+  fall takes frames and reads as a fall. The `else P.z = gz` line that snapped them down was correct only
+  while every floor was the same floor, which stopped being true when cells gained altitudes.
 - A sealed exit or an enemy spawned in a closed pocket could no longer slip past `smoke`: the reachability array the assertions read was wiped to zeros two lines after the generator filled it.
 - A forgotten `linkBoundaries()` after writing a cell's height can no longer appear as a seam between
   the walls and the floor: the wall pass now reads the same derived ceiling plane the ground pass
@@ -32,6 +36,10 @@ one change: say what the reader would notice, not which file was touched.
 
 ### Changed
 - The `issue` check now accepts the `Refs #N` form AGENTS.md tells us to use, so a PR that is one step of a milestone no longer fails a required check for not closing that milestone.
+- The player obeys the height grid: a quantum of floor steps up without a jump being pressed and two
+  quanta stops the player, landing from more than about 1.5 units costs health scaled by the impact, and the
+  up/down keys change altitude only on a cell flagged as a ladder or a crossing flagged as one. No shipped
+  level has a height or a ladder yet, so all of it is asserted as behaviour in `view.js vert` (#14).
 - Cell heights are now assigned before the generator's occupancy gate, and reachability is height-aware: a boundary is crossable only when the two floors are within one step. Flat levels are unaffected, pixel for pixel.
 - The floor and ceiling are now solved against the height of the cell each pixel's ray lands in,
   instead of against the eye's own floor and ceiling stretched across the whole level: nothing

@@ -296,9 +296,23 @@ function updatePlayer(dt) {
     P.vy += (tvy - P.vy) * Math.min(1, accel * dt);
     // jump / gravity: P.z is an altitude, so what holds the player up is the column's floor
     const gz = floorAt(P.x, P.y);
-    if ((keys['Space']) && !P.air && P.crouch < 0.4) { P.air = true; P.vz = 3.0; SND.step(); }
-    if (P.air) { P.vz -= 9.2 * dt; P.z += P.vz * dt; if (P.z <= gz) { P.z = gz; P.vz = 0; P.air = false; S.shake += 1.2; } }
-    else P.z = gz;
+    const climb = onLadder(P.x, P.y) ? ((keys['KeyE'] ? 1 : 0) - (keys['KeyQ'] ? 1 : 0)) : 0;
+    if (climb) { P.air = false; P.vz = 0; P.z = clamp(P.z + climb * 1.6 * dt, gz, Math.max(gz, ceilAt(P.x, P.y) - cfg.eye)); }
+    else {
+      if ((keys['Space']) && !P.air && P.crouch < 0.4) { P.air = true; P.vz = 3.0; SND.step(); }
+      // a floor more than a quantum below the feet is not support: the fall runs the jump's integration
+      if (!P.air && gz < P.z - ZQ) { P.air = true; P.vz = 0; }
+      if (P.air) {
+        P.vz -= 9.2 * dt; P.z += P.vz * dt;
+        if (P.z <= gz) {
+          const imp = -P.vz;                                 // 5.25 m/s is the impact of a 1.5-unit drop at g=9.2; a jump lands at 3.0
+          P.z = gz; P.vz = 0; P.air = false; S.shake += 1.2;
+          if (imp > 5.25) damagePlayer((imp - 5.25) * 12);
+        }
+      }
+      // auto-step and step-down: eased so a quantum of floor does not hitch the horizon, snapped when it converges
+      else if (gz !== P.z) { const dz = gz - P.z; P.z += Math.abs(dz) < 1e-4 ? dz : dz * Math.min(1, 16 * dt); }
+    }
   }
   const spdNow = Math.hypot(P.vx, P.vy);
   tryMove(P, P.vx * dt, P.vy * dt, 0.28);
