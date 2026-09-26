@@ -78,7 +78,7 @@ const SND = {
     this.startAmbient();
   },
   on() { return S.sound && this.ac && this.ac.state === 'running'; },
-  t() { return this.ac.currentTime; },
+  t() { const c = this.ac.currentTime; return isFinite(c) ? Math.max(0, c) : 0; },
   panner(rel) {
     if (!this.ac.createStereoPanner) return null;
     const p = this.ac.createStereoPanner();
@@ -95,8 +95,8 @@ const SND = {
     bp.frequency.setValueAtTime(f0, t); bp.frequency.exponentialRampToValueAtTime(Math.max(40, f1), t + dur);
     bp.Q.value = q;
     const g = this.ac.createGain();
-    g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(gain, t + 0.004);
-    g.gain.exponentialRampToValueAtTime(0.0008, t + dur);
+    g.gain.setValueAtTime(0.0008, t); g.gain.linearRampToValueAtTime(Math.max(0.0009, gain), t + 0.004);
+    g.gain.exponentialRampToValueAtTime(0.0008, t + Math.max(0.012, dur));
     s.connect(bp); bp.connect(g); this.chain(g, pan);
     s.start(t, Math.random()); s.stop(t + dur + 0.02);
   },
@@ -106,8 +106,8 @@ const SND = {
     o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(Math.max(20, f1), t + dur);
     if (detune) o.detune.value = detune;
     const g = this.ac.createGain();
-    g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(gain, t + 0.006);
-    g.gain.exponentialRampToValueAtTime(0.0008, t + dur);
+    g.gain.setValueAtTime(0.0008, t); g.gain.linearRampToValueAtTime(Math.max(0.0009, gain), t + 0.006);
+    g.gain.exponentialRampToValueAtTime(0.0008, t + Math.max(0.012, dur));
     o.connect(g); this.chain(g, pan); o.start(t); o.stop(t + dur + 0.02);
   },
   shot(kind) {
