@@ -51,6 +51,7 @@ const listeners = {};
 // spec, which surfaced as "TypeError: Math.hypot is not a function" at asset boot. Chain to
 // Math so every method still resolves, and shadow only random.
 const SEED = (Number(process.env.SEED) || 12345) >>> 0;
+console.log('seed', SEED, process.env.SEED ? '(from SEED env)' : '(default)');
 let rs = SEED;
 const sbMath = Object.create(Math);
 sbMath.random = () => { rs ^= rs << 13; rs >>>= 0; rs ^= rs >>> 17; rs ^= rs << 5; rs >>>= 0; return rs / 4294967296; };
@@ -146,9 +147,15 @@ const release = () => fire('mouseup', { button: 0 });
     }
     samples.sort((a, b) => a - b);
     const med = samples[2];
+    // The verdict used to be a bare number. SEED=777 measures 18.95 ms on code that reads
+    // 3.3 ms at the default seed, so a red X could not be told apart from an unlucky world.
+    // Name the scene that was timed, in the line AND in the failure detail.
+    const sc = vm.runInContext('[S.level, LEVELS[S.level].name, P.x, P.y, P.z, MW, MH, MAP.rooms.length]', ctxVm);
+    const scene = `SEED ${SEED} - L${sc[0]} ${sc[1]} - player ${sc[2].toFixed(1)},${sc[3].toFixed(1)} z ${sc[4].toFixed(2)}` +
+      ` - grid ${sc[5]}x${sc[6]} - ${sc[7]} rooms - buffer ${vm.runInContext('[BW,BH]', ctxVm).join('x')}`;
     console.log('raster cost: median', med.toFixed(2), 'ms/frame, batches',
-      samples.map(v => v.toFixed(1)).join('/'), 'at', vm.runInContext('[BW,BH]', ctxVm).join('x'));
-    expect('raster fits a 60fps frame (median of 5)', med < 16, med.toFixed(2) + ' ms/frame');
+      samples.map(v => v.toFixed(1)).join('/'), '|', scene);
+    expect('raster fits a 60fps frame (median of 5)', med < 16, med.toFixed(2) + ' ms/frame @ ' + scene);
   }
   frames(60);
   // put a target the player can actually shoot, then prove gunfire kills
