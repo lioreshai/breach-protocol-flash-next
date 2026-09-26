@@ -288,10 +288,9 @@ function castWalls(flash, fcR, fcG, fcB) {
     const grit = G_GRIT * Math.max(0, Math.min(1, 1.35 - perp * 0.11));
     const mw = m.w, mh = m.h, td = m.data, mask = mw - 1;
     const mir = (hash2(mx, my) * 2) | 0;
-    let tx = (wallX * mw) | 0; tx &= mask;
     let u = wallX * mw;
-    if ((side === 0 && rdx > 0) || (side === 1 && rdy < 0)) { tx = mask - tx; u = mw - u; }
-    if (mir & 1) { tx = mask - tx; u = mw - u; }
+    if ((side === 0 && rdx > 0) || (side === 1 && rdy < 0)) u = mw - u;
+    if (mir & 1) u = mw - u;
 
     /* light on the face: lightmap in the wall cell + lightmap one step out along the normal */
     const nx = side === 0 ? -stepX : 0, ny = side === 1 ? -stepY : 0;
@@ -324,7 +323,7 @@ function castWalls(flash, fcR, fcG, fcB) {
       }
       let gk = 1;
       if (grit > 0) {                                          // relief from the screen-space field
-        const h0 = DETAIL[(((y + 1) & 31) << 6) | ((x + 1) & 31)], h1 = DETAIL[((y & 31) << 6) | (x & 31)];
+        const h0 = DETAIL[(((y + 1) & 63) << 6) | ((x + 1) & 63)], h1 = DETAIL[((y & 63) << 6) | (x & 63)];   // table is 64x64; &31 used a quarter of it at a 32px period
         gk = Math.max(0.25, 1 + (h0 - h1) / 255 * 1.3 * grit);
       }
       px[idx] = 0xFF000000 | clampi(cb * lb * gk + fB) << 16 | clampi(cg * lg * gk + fG) << 8 | clampi(cr * lr * gk + fR);
@@ -489,7 +488,7 @@ function drawLightGlow(q) {
     if (!los(camX, camY, L.x, L.y)) continue;
     const s = project(L.x, L.y, 0.55);
     if (!s) continue;
-    const rad = Math.max(10, (BH / s.d) * 0.55 * (DW / BH));
+    const rad = Math.min(Math.max(10, (BH / s.d) * 0.55 * (DW / BH)), DW * 0.25);   // clamped: unclamped, a lamp at 1 m was a near-full-screen additive fill per lamp per frame
     const k = clamp((L.str || 0.8) * (1 - d / 22), 0, 1) * 0.5;
     const c = L.col || [255, 200, 130];
     const g = ctx.createRadialGradient(s.x, s.y, 0, s.x, s.y, rad);
