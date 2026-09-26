@@ -17,7 +17,7 @@ function setDiff(i) {
 function resetRun() {
   P.hp = 100; P.armor = 0; P.mag = WEAPONS.map(w => w.mag); P.reserve = WEAPONS.map(w => w.cap); P.gren = 4;
   P.weapon = 0; P.vx = P.vy = 0; P.pitch = 0; P.deadT = 0; P.reloadT = 0; P.fireT = 0; P.swapT = 0;
-  P.ads = 0; P.crouch = 0; P.z = 0; P.vz = 0; P.air = false; P.hurtT = 0; P.kick = 0; P.recoil = 0;
+  P.ads = 0; P.crouch = 0; P.z = floorAt(P.x, P.y); P.vz = 0; P.air = false; P.hurtT = 0; P.kick = 0; P.recoil = 0;
   P.kills = P.shots = P.hits = P.dmg = 0;
   S.runT = 0; feed.length = 0; PARTS.length = 0; PROJ.length = 0;
   S.flash = 0; S.shake = 0; S.dmgDirT = 0;

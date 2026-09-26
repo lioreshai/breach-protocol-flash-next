@@ -43,7 +43,7 @@ function elStub(id) {
 const docListeners = {};
 const listeners = {};
 const sandbox = {
-  console, Math, Date, JSON, Uint32Array, Uint8ClampedArray, Int16Array, Float32Array, Uint8Array, Object, Array, String, Number, Boolean, Error, isNaN, isFinite, parseInt, parseFloat, setTimeout, clearTimeout,
+  console, Math, Date, JSON, Uint32Array, Uint16Array, Uint8ClampedArray, Int16Array, Float32Array, Uint8Array, Object, Array, String, Number, Boolean, Error, isNaN, isFinite, parseInt, parseFloat, setTimeout, clearTimeout,
   document: {
     getElementById: elStub, createElement: () => canvasStub(),
     addEventListener: (t, f) => { (docListeners[t] = docListeners[t] || []).push(f); },

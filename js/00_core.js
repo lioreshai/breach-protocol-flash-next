@@ -46,7 +46,7 @@ const S = {
 };
 const P = {
   x: 2.5, y: 2.5, ang: 0, pitch: 0, vx: 0, vy: 0,
-  hp: 100, armor: 0, z: 0, vz: 0, air: false,
+  hp: 100, armor: 0, z: 0, vz: 0, air: false,     // z is the feet's ABSOLUTE altitude - floorAt(x, y) is what holds it up
   crouch: 0, sprint: 0, bob: 0, bobPhase: 0, recoil: 0,
   // Boot-time defaults only: resetRun() derives these from WEAPONS, which is the
   // source of truth. The old literals here had drifted from the weapon caps.

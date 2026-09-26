@@ -251,13 +251,13 @@ function tryMove(o, dx, dy, rad) {
   // direction, which is a permanent lock - fall back to bare destination tests so a
   // mover that ends up embedded can always walk out of it.
   if (isSolid(o.x, o.y)) {
-    if (!isSolid(o.x + dx, o.y)) o.x += dx;
-    if (!isSolid(o.x, o.y + dy)) o.y += dy;
+    if (canEnter(o.x, o.y, o.x + dx, o.y)) o.x += dx;
+    if (canEnter(o.x, o.y, o.x, o.y + dy)) o.y += dy;
     return;
   }
   // axis-separated slide
-  if (!isSolid(o.x + dx + Math.sign(dx) * rad, o.y) && !isSolid(o.x + dx + Math.sign(dx) * rad, o.y - rad * 0.7) && !isSolid(o.x + dx + Math.sign(dx) * rad, o.y + rad * 0.7)) o.x += dx;
-  if (!isSolid(o.x, o.y + dy + Math.sign(dy) * rad) && !isSolid(o.x - rad * 0.7, o.y + dy + Math.sign(dy) * rad) && !isSolid(o.x + rad * 0.7, o.y + dy + Math.sign(dy) * rad)) o.y += dy;
+  if (canEnter(o.x, o.y, o.x + dx + Math.sign(dx) * rad, o.y) && canEnter(o.x, o.y, o.x + dx + Math.sign(dx) * rad, o.y - rad * 0.7) && canEnter(o.x, o.y, o.x + dx + Math.sign(dx) * rad, o.y + rad * 0.7)) o.x += dx;
+  if (canEnter(o.x, o.y, o.x, o.y + dy + Math.sign(dy) * rad) && canEnter(o.x, o.y, o.x - rad * 0.7, o.y + dy + Math.sign(dy) * rad) && canEnter(o.x, o.y, o.x + rad * 0.7, o.y + dy + Math.sign(dy) * rad)) o.y += dy;
 }
 function updatePlayer(dt) {
   const dead = P.deadT > 0;
@@ -294,9 +294,11 @@ function updatePlayer(dt) {
     const accel = fw || sd ? 14 : 11;
     P.vx += (tvx - P.vx) * Math.min(1, accel * dt);
     P.vy += (tvy - P.vy) * Math.min(1, accel * dt);
-    // jump / gravity
+    // jump / gravity: P.z is an altitude, so what holds the player up is the column's floor
+    const gz = floorAt(P.x, P.y);
     if ((keys['Space']) && !P.air && P.crouch < 0.4) { P.air = true; P.vz = 3.0; SND.step(); }
-    if (P.air) { P.vz -= 9.2 * dt; P.z += P.vz * dt; if (P.z <= 0) { P.z = 0; P.vz = 0; P.air = false; S.shake += 1.2; } }
+    if (P.air) { P.vz -= 9.2 * dt; P.z += P.vz * dt; if (P.z <= gz) { P.z = gz; P.vz = 0; P.air = false; S.shake += 1.2; } }
+    else P.z = gz;
   }
   const spdNow = Math.hypot(P.vx, P.vy);
   tryMove(P, P.vx * dt, P.vy * dt, 0.28);

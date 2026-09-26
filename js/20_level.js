@@ -28,7 +28,101 @@ let DECALS = [], DECAL_GRID = [], DECAL_MASK = null;
 let exitX = 0, exitY = 0, explored = null, bfsDist = null;   // read by an assertion in tools/smoke.js
 
 const cellIdx = (x, y) => (y | 0) * MW + (x | 0);
-/* Nearest cell without a wall, by breadth-first search from a starting point. */
+
+/* ================= the vertical grid =================
+   One walkable band per column, altitudes quantised into ZQ steps:
+     fz    floor altitude of the column, in quanta (0 = today's ground, -4 = a pit)
+     cz    this column's own ceiling, in quanta above its own floor
+     vb    the four boundary crossings, four bits per side in DIR order (16 bits per
+           column) described from the point of view of LEAVING this cell that way
+     feat  what the column is, for the minimap
+   Everything is flat while fz is all zeros: cz is CZ_DEF, the one-unit room the
+   raycaster hard-codes today, and vb holds only VB_BLOCK, on the boundaries isSolid
+   already implies. Each formula below is written to collapse to the flat world's
+   exactly - that is this milestone's backwards-compatibility test. */
+const ZQ = 0.25;
+const CZ_DEF = 4;                                        // 4 quanta = one unit of ceiling
+const VB_BLOCK = 1, VB_RAMP = 2, VB_LADDER = 4, VB_THRU = 8;
+const FEAT_NONE = 0, FEAT_STAIR = 1, FEAT_LADDER = 2, FEAT_PIT = 3, FEAT_RAIL = 4;
+/* Leaving a cell in direction d steps by (DIRX[d], DIRY[d]); d ^ 2 is the way back in. */
+const DIRX = [1, 0, -1, 0], DIRY = [0, 1, 0, -1];
+/* Side order used by the breadth-first walks; +x, -x, +y, -y, as the old index
+   arithmetic visited them, so nearestOpen still finds the same cell. */
+const BFS_SIDES = [0, 2, 1, 3];
+
+/* Floor altitude of a column in world units; the void outside the map is the ground. */
+const floorAt = (x, y) => {
+  const ix = x | 0, iy = y | 0;
+  if (ix < 0 || iy < 0 || ix >= MW || iy >= MH) return 0;
+  return MAP.fz[iy * MW + ix] * ZQ;
+};
+/* The underside of whatever stands above: the tallest neighbouring floor, but never
+   lower than one unit over this column's own. Flat, this is exactly 1. */
+function ceilAt(x, y) {
+  const ix = x | 0, iy = y | 0;
+  if (ix < 0 || iy < 0 || ix >= MW || iy >= MH) return 1;
+  const i = iy * MW + ix, f = MAP.fz[i] * ZQ;
+  let c = f + Math.max(ZQ, MAP.cz[i] * ZQ);
+  for (let d = 0; d < 4; d++) {
+    const nx = ix + DIRX[d], ny = iy + DIRY[d];
+    if (nx < 0 || ny < 0 || nx >= MW || ny >= MH) continue;
+    const nf = MAP.fz[ny * MW + nx] * ZQ;
+    if (nf > c) c = nf;
+  }
+  return c;
+}
+/* Which band of the column (x,y) an altitude belongs to. A column has one walkable band
+   in this representation, so the answer is 0 inside it and -1 in the slabs and void
+   around it - enough to make "is this upstairs from that" a real question by M4. */
+function bandOf(x, y, z) {
+  if (isSolid(x, y)) return -1;
+  return (z >= floorAt(x, y) && z < ceilAt(x, y)) ? 0 : -1;
+}
+/* Flags of the crossing that leaves cell (x,y) in direction d. */
+const vbAt = (x, y, d) => (MAP.vb[(y | 0) * MW + (x | 0)] >> ((d & 3) << 2)) & 15;
+/* Derive every crossing from the grid: a wall blocks, and so does a step up taller than
+   one quantum unless something ramps or ladders it. A drop is never a wall - you take it.
+   Setting the flag here is what makes "blocking, walkable and drawn" one byte later. */
+function linkBoundaries() {
+  const cell = MAP.cell, fz = MAP.fz;
+  for (let y = 0; y < MH; y++) for (let x = 0; x < MW; x++) {
+    const i = y * MW + x;
+    let bits = 0;
+    for (let d = 0; d < 4; d++) {
+      const nx = x + DIRX[d], ny = y + DIRY[d];
+      if (nx < 0 || ny < 0 || nx >= MW || ny >= MH) continue;
+      const n = ny * MW + nx;
+      if (cell[i] || cell[n]) { bits |= VB_BLOCK << (d << 2); continue; }
+      if (fz[n] - fz[i] > 1 && !(MAP.vb[i] & (VB_RAMP | VB_LADDER) << (d << 2))) bits |= VB_BLOCK << (d << 2);
+    }
+    MAP.vb[i] |= bits;
+  }
+}
+/* Which side of its own cell a mover at (fx,fy) crosses to reach (tx,ty); -1 when the
+   two are the same column, or only touch at a corner that the other probes already see. */
+const sideFrom = (fx, fy, tx, ty) => {
+  const dx = (tx | 0) - (fx | 0), dy = (ty | 0) - (fy | 0);
+  if (dx === 1 && !dy) return 0;
+  if (dy === 1 && !dx) return 1;
+  if (dx === -1 && !dy) return 2;
+  if (dy === -1 && !dx) return 3;
+  return -1;
+};
+/* The one movement test, and the only one: an open column reached through a crossing
+   that is not blocked. Height lives in the flag rather than in a second comparison here,
+   so while the grid is flat this is exactly !isSolid(tx, ty). A mover standing inside
+   geometry answers to openness alone - the flags of a wall say every way out is blocked,
+   and taking them at face value is a permanent lock. */
+function canEnter(fx, fy, tx, ty) {
+  if (isSolid(tx, ty)) return false;
+  if (isSolid(fx, fy)) return true;
+  const d = sideFrom(fx, fy, tx, ty);
+  return d < 0 || !(vbAt(fx, fy, d) & VB_BLOCK);
+}
+
+/* Nearest cell with a walkable floor, by breadth-first search from a starting point:
+   four-neighbour, over exactly the crossings the player is allowed to make, so a sealed
+   band can never be mistaken for a way out. */
 function nearestOpen(x, y) {
   if (!isSolid(x, y)) return [x, y];
   const seen = new Uint8Array(MAP.cell.length), q = [(y | 0) * MW + (x | 0)];
@@ -36,10 +130,14 @@ function nearestOpen(x, y) {
   for (let h = 0; h < q.length; h++) {
     const c = q[h], cx = c % MW, cy = (c / MW) | 0;
     if (!isSolid(cx + 0.5, cy + 0.5)) return [cx + 0.5, cy + 0.5];
-    for (const d of [1, -1, MW, -MW]) {
-      const n = c + d;
-      if (n < 0 || n >= seen.length || seen[n]) continue;
-      seen[n] = 1; q.push(n);
+    for (const d of BFS_SIDES) {
+      const nx = cx + DIRX[d], ny = cy + DIRY[d];
+      if (nx < 0 || ny < 0 || nx >= MW || ny >= MH || seen[ny * MW + nx]) continue;
+      // Inside geometry the search is only looking for the nearest floor, so it may step
+      // through walls - a corner cell has no other way out. Once it is on open ground it
+      // takes the crossings the player does, so a sealed band cannot answer as a rescue.
+      if (!MAP.cell[c] && !canEnter(cx + 0.5, cy + 0.5, nx + 0.5, ny + 0.5)) continue;
+      seen[ny * MW + nx] = 1; q.push(ny * MW + nx);
     }
   }
   return [x, y];
@@ -220,8 +318,10 @@ function genLevel(li) {
       lR: new Float32Array(N * N), lG: new Float32Array(N * N), lB: new Float32Array(N * N), lw: new Float32Array(N * N),
       lt: new Uint8Array(N * N * 3), amb: cfgL.amb === undefined ? 0.13 : cfgL.amb, tintDirty: true,
       floorTex: FLOORS[cfgL.floor] || FLOORS.CONCRETE, ceilTex: CEILS[cfgL.ceil] || CEILS.CONCRETE,
-      floorTile: 1.15, ceilTile: 0.9 };
-    MW = N; MH = N; decalGridInit();
+      floorTile: 1.15, ceilTile: 0.9,
+      fz: new Int8Array(N * N), cz: new Uint8Array(N * N).fill(CZ_DEF),
+      vb: new Uint16Array(N * N), feat: new Uint8Array(N * N) };
+    MW = N; MH = N; linkBoundaries(); decalGridInit();
 
     bfsDist = dist;
     explored = new Uint8Array(N * N); S.revealed = 0; bfsDist = new Int16Array(N * N);
@@ -278,7 +378,7 @@ function genLevel(li) {
     // geometry is unrecoverable - the collision probes would sample the player's own
     // cell - so walk out to the nearest open cell instead of spawning into a wall.
     const sp = nearestOpen(px0, py0);
-    P.x = sp[0]; P.y = sp[1]; P.ang = 0.6; P.vx = P.vy = 0; P.z = 0;
+    P.x = sp[0]; P.y = sp[1]; P.ang = 0.6; P.vx = P.vy = 0; P.z = floorAt(sp[0], sp[1]);
     return true;
   }
   // extremely unlikely fallback: reuse a smaller successful layout
@@ -288,8 +388,10 @@ function genLevel(li) {
   for (let y = 0; y < N; y++) { cell[y * N] = cell[y * N + N - 1] = WT.TECH; }
   MAP = { w: N, h: N, cell, light: new Float32Array(N * N).fill(0.7), rooms: [{ x: 1, y: 1, w: N - 2, h: N - 2, cx: N >> 1, cy: N >> 1 }],
     lR: new Float32Array(N * N).fill(0.6), lG: new Float32Array(N * N).fill(0.6), lB: new Float32Array(N * N).fill(0.6), lw: new Float32Array(N * N).fill(0.7),
-    lt: new Uint8Array(N * N * 3).fill(128), amb: 0.14, tintDirty: false, floorTex: FLOORS.CONCRETE, ceilTex: CEILS.CONCRETE, floorTile: 1.15, ceilTile: 0.9 };
-  MW = N; MH = N; decalGridInit(); explored = new Uint8Array(N * N); S.revealed = 0;
+    lt: new Uint8Array(N * N * 3).fill(128), amb: 0.14, tintDirty: false, floorTex: FLOORS.CONCRETE, ceilTex: CEILS.CONCRETE, floorTile: 1.15, ceilTile: 0.9,
+    fz: new Int8Array(N * N), cz: new Uint8Array(N * N).fill(CZ_DEF),
+    vb: new Uint16Array(N * N), feat: new Uint8Array(N * N) };
+  MW = N; MH = N; linkBoundaries(); decalGridInit(); explored = new Uint8Array(N * N); S.revealed = 0;
   LIGHTS = []; PROPS = []; PICKUPS = []; PROJ = []; PARTS = []; ENEMIES = [];
   exitX = N - 2.5; exitY = N - 2.5; P.x = 2.5; P.y = 2.5;
   for (const L of LIGHTS) splatLight(L, L.str);
