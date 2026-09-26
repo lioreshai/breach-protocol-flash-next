@@ -53,9 +53,14 @@ jobs:
           PR_BODY: ${{ github.event.pull_request.body }}
         run: |
           set -euo pipefail
-          if printf '%s' "$PR_BODY" | grep -qiE '(close|fix|resolve)s?:? *#[0-9]+'; then
-            printf '%s\n' "$PR_BODY" | grep -oiE '(close|fix|resolve)s?:? *#[0-9]+' | head -3
+          if printf '%s' "$PR_BODY" | grep -qiE '\b(close|closes|closed|fix|fixes|fixed|resolve|resolves|resolved)[[:space:]]?:? *#[0-9]+'; then
+            printf '%s\n' "$PR_BODY" | grep -oiE '\b(close|closes|closed|fix|fixes|fixed|resolve|resolves|resolved)[[:space:]]?:? *#[0-9]+' | head -3
             echo "references an issue, which GitHub closes on merge"
+            exit 0
+          fi
+          if printf '%s' "$PR_BODY" | grep -qiE '(refs?|see also):? *#[0-9]+'; then
+            printf '%s\n' "$PR_BODY" | grep -oiE '(refs?|see also):? *#[0-9]+' | head -3
+            echo "references an issue WITHOUT closing it - a milestone, or a related defect"
             exit 0
           fi
           if printf '%s' "$PR_BODY" | grep -q '\[no-issue\]'; then
