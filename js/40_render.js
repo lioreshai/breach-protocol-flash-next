@@ -430,7 +430,7 @@ function decalAlpha(dc, wx, wy, dfade) {
    walls: DDA + coloured light + face shading + decals
    ------------------------------------------------------------------ */
 function castWalls(flash, fcR, fcG, fcB) {
-  const cellArr = MAP.cell, N = MAP.w, lm = MAP.light;
+  const cellArr = MAP.cell, N = MAP.w, lm = MAP.light, cp = MAP.ceilPlane;
   const stepBase = 2 / BW;
   const flR = S.flashCol[0] / 255, flG = S.flashCol[1] / 255, flB = S.flashCol[2] / 255;
   const flashK0 = flash;
@@ -495,7 +495,10 @@ function castWalls(flash, fcR, fcG, fcB) {
        y0/y1 the two expressions this function used to contain, bit for bit. */
     const ox = mx + nx, oy = my + ny;
     const fd = side === 0 ? (nx > 0 ? 0 : 2) : (ny > 0 ? 1 : 3);
-    const z0 = faceZ0(ox, oy, fd), z1 = ceilAt(ox, oy), dz = z1 - z0;
+    /* z1 is the ground pass's plane, read from the same derived array: two sources of truth made a
+       forgotten linkBoundaries() a seam between the passes instead of a failure. Both axes tested
+       before the index, and out of map keeps ceilAt's own answer for the void, which is 1. */
+    const z0 = faceZ0(ox, oy, fd), z1 = ox >= 0 && oy >= 0 && ox < N && oy < N ? cp[oy * N + ox] : 1, dz = z1 - z0;
     let y0 = horizon + (eyeZ - z1) * hpx, y1 = horizon + (eyeZ - z0) * hpx;
     const ds = Math.max(0, Math.ceil(y0)), de = Math.min(BH - 1, Math.floor(y1));
     if (!(dz > 0) || ds > de) continue;                    // no face here to draw

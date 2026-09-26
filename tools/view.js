@@ -281,7 +281,31 @@ if (MODE === 'planes') {
       `  ceilPlane stale ${r.stale} ${r.stale ? 'STALE-DERIVED' : 'DERIVED ok'}  ${JSON.stringify(r.cv)}`);
     staleAll += r.stale;
   }
-  process.exit(staleAll ? 1 : 0);     // a derived array that disagrees with its formula is a verdict, not a footnote
+  /* Both passes read ceilPlane now, so a grid write that skips linkBoundaries() is no longer a seam
+     nobody compares - linkStamp moves only inside linkBoundaries(), so a write that leaves it where
+     it was is the forgotten call. Write one floor with no relink and require all four facts: the grid
+     moved, the stamp did not, the derived array disagrees with the formula, and a relink fixes both. */
+  const yn = v => (v ? 1 : 0);
+  const st = vm.runInContext(`(function(){
+    startLevel(0, true);
+    const N = MAP.w, k = MAP.cell.length;
+    let i = -1; for (let j = 0; j < k; j++) if (!MAP.cell[j]) { i = j; break; }
+    if (i < 0) return { skip: 'NO-OPEN-CELL' };
+    const ix = i % N, iy = (i / N) | 0;
+    const f0 = MAP.fz[i], a0 = MAP.ceilPlane[i], s0 = MAP.linkStamp | 0;
+    MAP.fz[i] = f0 + 1;                                   // a band write with NO linkBoundaries()
+    const s1 = MAP.linkStamp | 0, a1 = MAP.ceilPlane[i];
+    linkBoundaries();
+    const s2 = MAP.linkStamp | 0;
+    return { cell: i, gridMoved: MAP.fz[i] !== f0, arrayUntouched: a1 === a0, stampMovedStale: s1 !== s0,
+      staleAgrees: a1 === ceilAt(ix, iy), stampMovedRelink: s2 !== s1, freshAgrees: MAP.ceilPlane[i] === ceilAt(ix, iy) };
+  })()`, ctxVm);
+  const stOk = !st.skip && st.gridMoved && st.arrayUntouched && !st.stampMovedStale &&
+    !st.staleAgrees && st.stampMovedRelink && st.freshAgrees;
+  console.log(`relink stamp  ${st.skip || 'cell ' + st.cell}  grid moved ${yn(st.gridMoved)}  forgot relink: stamp moved ${yn(st.stampMovedStale)}` +
+    ` array!=ceilAt ${yn(!st.staleAgrees)}  relinked: stamp moved ${yn(st.stampMovedRelink)} array==ceilAt ${yn(st.freshAgrees)}` +
+    `  ${st.skip ? st.skip : stOk ? 'STALE-DETECT ok' : 'STALE-DETECT FAIL'}`);
+  process.exit(staleAll || !stOk ? 1 : 0);  // a derived array that disagrees with its formula is a verdict, not a footnote
 }
 
 if (MODE === 'exposure') {
