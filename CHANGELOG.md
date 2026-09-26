@@ -8,6 +8,7 @@ one change: say what the reader would notice, not which file was touched.
 ## Unreleased
 
 ### Fixed
+- The character rim light is a thin ridge instead of a wide ramp: at close range it stopped reading as a white halo around the whole silhouette, at the same edge separation and the same frame cost.
 - Character rim light now follows the silhouette instead of outlining every capsule, box and disc, so the seams inside a body stopped glowing; gain retuned to keep edge separation at least as good as before.
 
 ### Added

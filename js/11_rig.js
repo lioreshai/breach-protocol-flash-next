@@ -27,9 +27,10 @@ const SPEC = {
 
 /* ---------------- shaded primitives (Surf.shape with an analytic SDF) ------- */
 let SC = null;                                     // {s, H} current raster context
-const RIM_ON = 0.72;
+const RIM_ON = 1.0;
 let RIM = RIM_ON;                                  // DEV.set('rim', false) puts it at 0 for a live A/B
-const RIM_BAND = 0.03;                             // rim width = 3% of body height, as it always was
+const RIM_BAND = 0.016;                            // ridge half-width = 1.6% of body height (was 3%)
+const RIM_K = 3.0;                                  // exp falloff: ~5% of peak at the band edge
 let RIMD = null;                                   // distance scratch, grown to the largest pose
 const SHRGB = [0, 0, 0];                            // shade closures must not allocate per pixel
 const rgb = hex => [parseInt(hex.slice(1, 3), 16), parseInt(hex.slice(3, 5), 16), parseInt(hex.slice(5, 7), 16)];
@@ -118,9 +119,9 @@ function rimSil(s, hpx) {
   for (let i = 0; i < N; i++) {
     const a = D[i] >>> 24;
     if (a === 0) continue;
-    const t = 1 - dd[i] * inv;
-    if (t <= 0) continue;
-    const rim = t * t * (3 - 2 * t) * RIM, p = D[i];
+    const t = dd[i] * inv;
+    if (t >= 1) continue;
+    const rim = Math.exp(-RIM_K * t) * RIM, p = D[i];
     D[i] = pk((p & 255) + 150 * rim, (p >> 8 & 255) + 188 * rim, (p >> 16 & 255) + 238 * rim, a);
   }
 }
