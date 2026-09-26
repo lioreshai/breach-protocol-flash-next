@@ -12,6 +12,8 @@ let camX = 0, camY = 0, eyeZ = 0.5, horizon = 0, shakeX = 0, shakeY = 0;
 let drawCalls = 0, pixFilled = 0;
 let bloomCv = null, bloomCtx = null, canFilter = false, grainCv = null, grainPat = null, grainSeed = 0;
 let FARB = 22, AMB = 0.13, GQ = null, rigTexH = 200;
+let pxUsed = 0;                                          // rig texels authored this frame
+const PXBUD = 0.55e6, POSE_AR = 2.2;                      // frame budget, and a pose's w/h area ratio
 let G_TRI = false, G_GRIT = 0;                                  // derived from QUAL.rast
 const TB = new Float64Array(4);
 /* Bilinear texel fetch in texel units; writes [r,g,b,alpha] into TB (no per-pixel
@@ -32,7 +34,7 @@ const VM = { vx: 0, vy: 0, ang: 0, pitch: 0, t: 0 };
 
 const QUAL = [
   { name: 'PERFORMANCE', res: 0.34, min: 170, max: 430, bloom: false, grade: false, grain: 0, far: 15, dmax: 8, glow: 0, scan: 0.5, vec: 0, rast: 0, rigH: 0 },
-  { name: 'BALANCED', res: 0.47, min: 220, max: 560, bloom: true, grade: true, grain: 0.05, far: 22, dmax: 13, glow: 6, scan: 0.18, vec: 1, rast: 2, rigH: 132 },
+  { name: 'BALANCED', res: 0.47, min: 220, max: 760, bloom: true, grade: true, grain: 0.05, far: 22, dmax: 13, glow: 6, scan: 0.18, vec: 1, rast: 2, rigH: 300 },
   { name: 'ULTRA', res: 0.62, min: 260, max: 780, bloom: true, grade: true, grain: 0.04, far: 30, dmax: 19, glow: 9, scan: 0.1, vec: 1, rast: 4, rigH: 216 }
 ];
 
@@ -131,6 +133,7 @@ function renderWorld() {
     tex: PROP.portal[(S.t * 12 | 0) % 8], x: exitX, y: exitY, z: 0.02, scale: 1.5,
     alpha: S.exitOpen ? 1 : 0.42, self: S.exitOpen, dim: S.exitOpen ? 0 : 0.55
   });
+  pxUsed = 0;                                              // one authoring budget per frame
   for (const e of ENEMIES) {
     const fr = enemyFrame(e);
     if (fr.alpha <= 0.02) continue;
@@ -138,7 +141,21 @@ function renderWorld() {
     if (qv.vec) {
       let yaw = (e.state === 'dead' && e.dieAng !== undefined ? e.dieAng : e.ang) - P.ang - Math.PI;
       while (yaw > Math.PI) yaw -= TAU; while (yaw < -Math.PI) yaw += TAU;
-      rig = { hpx: Math.min(rigTexH, Math.max(56, (BH / (Math.hypot(e.x - P.x, e.y - P.y) || 0.6)) * e.scale)), kind: e.kind, p: e.anim, mv: e.movingAmt || 0, atk: e.atkT > 0 ? 1 - clamp(e.atkT / e.type.wind, 0, 1) : 0, die: e.state === 'dead' ? clamp(e.dieT / 0.55, 0, 1) : 0, yaw, lean: e.lean || 0, pulse: e.ph };
+      const want = Math.min(rigTexH, Math.max(56, (BH / (Math.hypot(e.x - P.x, e.y - P.y) || 0.6)) * e.scale));
+      // Authoring is cached, but its COST lands on whichever frame first sees the pose, and it
+      // grows with the SQUARE of the height. Measured on the same machine in the same minute
+      // (idle-machine A/B in a worktree, WARM stress 180 frames x2): HEAD avg 11.41/11.59 ms,
+      // worst 26/30; with rigH 300 avg 11.38/11.89, worst 29/43. Steady state is unchanged and
+      // the cost moved into individual authoring frames. Tightening PXBUD from 1.2e6 to 0.55e6
+      // changed nothing (made: 74 poses either way, cache 2.99 MB) - which is the finding: the
+      // tail is ONE close pose costing ~5x what it did, not many poses piling up, and a per-frame
+      // budget cannot fix a single expensive authoring event. The fix for that hitch is progressive
+      // refinement (author small now, upgrade the entry next frame), tracked separately. The
+      // budget stays because it does bound a multi-pose pileup for free.
+      const fit = Math.sqrt(Math.max(0, PXBUD - pxUsed) / POSE_AR);
+      const hpx = Math.min(want, Math.max(56, fit));
+      pxUsed += hpx * hpx * POSE_AR;
+      rig = { hpx, kind: e.kind, p: e.anim, mv: e.movingAmt || 0, atk: e.atkT > 0 ? 1 - clamp(e.atkT / e.type.wind, 0, 1) : 0, die: e.state === 'dead' ? clamp(e.dieT / 0.55, 0, 1) : 0, yaw, lean: e.lean || 0, pulse: e.ph };
     }
     list.push({ tex: fr.tex, rig, x: e.x, y: e.y, z: 0, scale: e.scale, alpha: fr.alpha, flash: fr.flash, tint: e.tint });
   }
