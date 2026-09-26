@@ -310,12 +310,20 @@ function castWalls(flash, fcR, fcG, fcB) {
     if (li > 1) li = 1;
     const lr = AMB + (li * lt[0] + fk * flR) * 1.05, lg = AMB + (li * lt[1] + fk * flG) * 1.05, lb = AMB + (li * lt[2] + fk * flB) * 1.05;
 
-    let y0 = horizon + (eyeZ - 1) * hpx, y1 = horizon + eyeZ * hpx;
+    /* The face's real span: it starts being material at the higher of the two floors and runs
+       up to the ceiling plane of the air side, (ox,oy). Flat, z0 = 0 and z1 = 1, which makes
+       y0/y1 the two expressions this function used to contain, bit for bit. */
+    const ox = mx + nx, oy = my + ny;
+    const fd = side === 0 ? (nx > 0 ? 0 : 2) : (ny > 0 ? 1 : 3);
+    const z0 = faceZ0(ox, oy, fd), z1 = ceilAt(ox, oy), dz = z1 - z0;
+    let y0 = horizon + (eyeZ - z1) * hpx, y1 = horizon + (eyeZ - z0) * hpx;
     const ds = Math.max(0, Math.ceil(y0)), de = Math.min(BH - 1, Math.floor(y1));
-    const tstep = mh / (y1 - y0);
+    if (!(dz > 0) || ds > de) continue;                    // no face here to draw
+    const tstep = mh * dz / (y1 - y0);                     // tiles per world unit, not per face
     let ty = (ds - y0) * tstep, idx = ds * BW + x;
+    if (ty >= mh) ty %= mh;                                // v wraps every world unit
     for (let y = ds; y <= de; y++, idx += BW) {
-      const vy = ty; ty += tstep;
+      const vy = ty; ty += tstep; if (ty >= mh) ty -= mh;
       texBil(td, mw, mh, u, vy);
       let cr = TB[0], cg = TB[1], cb = TB[2];
       if ((TB[3] | 0) === 253) {                               // emissive strip: ignores scene light

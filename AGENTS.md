@@ -92,10 +92,23 @@ bands in one column, or a floor overhanging the cell it sits above.
   `tryMove`, and a textured riser in the wall pass. `VB_THRU` = "see it, not climb it".
 - **A cell's ceiling is the underside of the floor above:** `ceilAt = floor + max(1 unit,
   neighbour floors above)`. Without this formula you see sky inside buildings.
-- The three literal `1`s that make the world flat today: `castGround`'s
-  `d = (isF ? eyeZ : 1 - eyeZ) * BH / |p|`, `castWalls`' `y0 = horizon + (eyeZ - 1) * hpx`,
-  and the decal/`zbuf` span math assuming faces span 0..1. Absent height arrays every new
-  formula must collapse to those exactly, bit for bit — that is the backwards-compat test.
+- **A boundary face spans from the higher of the two floors to the ceiling plane of the air
+  side:** `z0 = max(floorAt(a), floorAt(b))`, `z1 = ceilAt(a)`. Never `ceilAt` of the *wall*
+  cell: a solid column has no air, so its derived ceiling is a fiction, while its own floor is
+  honest — a solid column is solid from its floor up. A span ≤ 0 is a column the DDA stops at
+  that draws nothing, and it is a generator fault rather than a code one: a wall whose base sits
+  at or above the ceiling plane of the band it encloses, so wall bases must be carried down to
+  the lowest band they bound.
+- The two literal `1`s left in the flat world: `castGround`'s
+  `d = (isF ? eyeZ : 1 - eyeZ) * BH / |p|` and the decal/`zbuf` span math assuming faces span
+  0..1. `castWalls`' `y0 = horizon + (eyeZ - 1) * hpx` is gone (M1): the face's `z0/z1` comes
+  from the grid and `tstep = mh * dz / (y1 - y0)` tiles a wall texture per **world unit**, not per
+  face. Every new formula must collapse to the old one exactly, bit for bit — that is the
+  backwards-compat test, and for M1 it was measured rather than argued: 24 frames (3 levels × 2
+  seeds × 4 yaws) hashed identical against `HEAD` at an unchanged 3.3 ms median. A face taller
+  than a unit pushes `v` past the mip, and `texBil` wraps only at its last texel, so `v` must
+  wrap per unit — otherwise the read runs off the array and `undefined & 255` paints fog colour
+  where the wall should be, with no black pixel to show for it.
 - Light stays **one value per column**, weighted by a band term; do **not** make the lightmap
   per band, because a fading transient re-splats its delta and an un-splat that lands in a
   derived band leaves permanent light (breaks smoke's "blast light fully fades out" assert).

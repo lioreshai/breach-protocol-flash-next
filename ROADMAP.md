@@ -36,7 +36,9 @@ asset generated in JS at boot. The current frontier is **vertical navigation**: 
 - [ ] Re-baseline every number in `AGENTS.md` after that, and re-check the two decisions whose
       evidence was weakest (the rig size-class work was justified by a 10× claim from luck).
 - [ ] Numeric altitude probes (`alt`, `drop`, `sight`, `cull`, `horizon`) — a prerequisite for
-      trusting vertical work, since **no existing assert compares z at all**.
+      trusting vertical work, since **no existing assert compares z at all**. `alt` exists and now
+      counts the boundary faces the wall pass draws plus their spans; `drop`/`sight`/`cull`/
+      `horizon` are still owed before M4 can be trusted.
 
 ## Vertical navigation — milestones (design in `AGENTS.md`)
 
@@ -47,8 +49,8 @@ is what keeps `smoke.js` meaningful *while* this is in flight.
 
 | # | Ship | Exit gate |
 |---|---|---|
-| M0 | Height expressible; `P.z` absolute; flat behaviour bit-identical | `exposure` per level moves `< 3`; smoke green; `alt` reports all-flat |
-| M1 | Boundary faces with real `z0/z1` | `alt` reports boundary faces > 0, no span ≤ 0 (invisible wall) |
+| M0 ✓ | Height expressible; `P.z` absolute; flat behaviour bit-identical | `exposure` per level moves `< 3`; smoke green; `alt` reports all-flat |
+| M1 ✓ | Boundary faces with real `z0/z1` | `alt` reports boundary faces > 0, no span ≤ 0 (invisible wall) |
 | M2 | Ground plane solved per **column**; ceilings in the same commit | medians within ~1 ms of baseline; `horizon` depth error `< 0.02` |
 | M3 | Bands + links generated; gravity, step-up, fall damage, climb | `alt`: ≥1 link per band, 0 unreachable cells; `drop` clean |
 | M4 | Everything sits at a height (enemies, `hitscan`, props, pickups, FX, portal) | `sight`: 0 cross-band false-visibles; combat asserts with a `P.z = 1` variant |

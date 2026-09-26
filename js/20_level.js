@@ -71,6 +71,11 @@ function ceilAt(x, y) {
   }
   return c;
 }
+/* Bottom of the face that the solid column in direction d shows into the air of cell (x,y).
+   A solid column is solid from its own floor upward, so the boundary plane starts being
+   material at the higher of the two floors; its top is ceilAt(x,y) of the air side, where the
+   ceiling pass takes over. Flat, that is the pair the raycaster hard-coded: 0 and 1. */
+const faceZ0 = (x, y, d) => Math.max(floorAt(x, y), floorAt(x + DIRX[d], y + DIRY[d]));
 /* Which band of the column (x,y) an altitude belongs to. A column has one walkable band
    in this representation, so the answer is 0 inside it and -1 in the slabs and void
    around it - enough to make "is this upstairs from that" a real question by M4. */
