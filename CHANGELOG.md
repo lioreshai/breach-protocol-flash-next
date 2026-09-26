@@ -8,6 +8,10 @@ one change: say what the reader would notice, not which file was touched.
 ## Unreleased
 
 ### Fixed
+- A forgotten `linkBoundaries()` after writing a cell's height can no longer appear as a seam between
+  the walls and the floor: the wall pass now reads the same derived ceiling plane the ground pass
+  draws, and `view.js planes` fails when a height write leaves the relink stamp where it was. Flat
+  levels render pixel-for-pixel the same.
 - `genLevel`'s silent fallback now warns, and sets the spawn altitude - it inherited the previous level's `P.z` on a mid-run transition, and its lamp loop iterated the array cleared one line earlier
 - Standing at a step or looking across a sunken room no longer paints the floor or ceiling of a room
   two cells away through the wall: the ground solver may only borrow a height from a column within two
