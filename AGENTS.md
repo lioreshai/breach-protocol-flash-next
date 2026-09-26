@@ -21,6 +21,26 @@ node tools/view.js scene 0 0 ASCII=1    # text view, since image input is broken
 WARM=1 node tools/view.js scene 0 3     # stress: 180 frames, turning camera
 ```
 
+## Who verifies what
+
+Whatever can be observed on the deployed site — a screenshot, `browser eval` over the game's own
+globals, thrown errors, measured frame deltas — **is verified; nobody waits for a human report on
+it.** Asking "does this look right?" about a defect already captured in a screenshot is a bug in
+the workflow. Reserve asking for what a page cannot reveal: feel, responsiveness, audio comfort,
+difficulty.
+
+Evidence order: **live page** (real GPU path, aspect ratio, pointer lock) → **`view.js` probes**
+(geometry, lighting, budgets) → **smoke verdict** (green proves nothing about looks).
+
+**Hard rule: refresh the README's screenshots after every merged PR that changes the picture.**
+Capture from the deployed build into `docs/screens/` — not from a headless dump, not from an older
+build — and put any defect visible in a shot into its caption instead of cropping it out. A defect
+in a caption is known; a cropped defect becomes a bug report about someone's display.
+
+Trap: the headless probes rasterize poses **without** the scene-light multiply, so `view.js rig`
+and `contrast` both passed the characters while the deployed site drew enemies as translucent
+boxes (`docs/screens/level0-enemies.png`). A probe passing is not a probe being capable of failing.
+
 Gate commits on the tool's verdict, not on grep matching a line — grepping "raster cost"
 matched even while the assert failed and produced commits with known-failing budgets:
 
