@@ -39,11 +39,17 @@ the way it is.
       `Object.assign({}, Math)` copies **nothing** — Math's own properties are non-enumerable
       per spec — which showed up as `TypeError: Math.hypot is not a function` at asset boot.
       Same commit, default seed: **6.4 / 4.5 / 4.6 ms** (was 34.9 / 4.5 / 15.7 ms).
-- [ ] **The budget is seed-dependent, and that is a real finding.** `SEED=777` measures
-      **18.95 ms and fails** the 16 ms gate on identical code. Either that level is genuinely
-      heavier (more lamps, bigger rooms, more enemies) or `genLevel` hit its fallback arena — a
-      big open lit box that fills the screen with ground pixels. Investigate before trusting
-      "the gate is green": report which level/seed was timed and whether the fallback fired.
+- [ ] **The budget is content-dependent, which the gate could not show.** An earlier entry here
+      claimed `SEED=777` measures **18.95 ms and fails** the 16 ms gate on identical code. It does
+      not reproduce: on `bf68bcb`, default seed medians **3.33 ms** (batches 3.3/3.3/3.3/3.4/3.4) and
+      `SEED=777` medians **8.85 ms** (8.7/8.8/8.8/9.1/9.1) — **both pass**. Whatever produced 18.95,
+      it was not this code on this machine, and the P0 framing was retired rather than argued.
+      What *is* reproducible is the reason the figure survived: both runs print the same scene class
+      (L0 ARCHIVE SUBLEVEL, grid 26x26, 4 rooms, buffer 601x338), differing only in the player's cell
+      (10.5,17.5 vs 8.5,13.5), so a 2.7x cost difference was invisible — the line was a bare number.
+      PR #32 prints seed, level, player cell and z, grid, rooms and buffer in the verdict line and in
+      the failure detail. Still open: is the 2.7x ray content or camera position, and did `genLevel`
+      take its fallback arena (#23) — a silent flat lit box is green CI telling a lie.
 - [ ] Re-baseline every number in `AGENTS.md` after that, and re-check the two decisions whose
       evidence was weakest (the rig size-class work was justified by a 10× claim from luck).
 - [ ] Numeric altitude probes (`alt`, `drop`, `sight`, `cull`, `horizon`) — a prerequisite for
