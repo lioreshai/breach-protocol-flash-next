@@ -71,9 +71,16 @@ function seg(ax, ay, bx, by, r, paint) {
 /* everything below works in body space: x lateral and y height as fractions of
    body height, sizes likewise. tilt rotates an upright box, +tips its top forward */
 function box(cx, cy, w, h, tilt, r, paint) {
-  const H = SC.H, d = (Math.abs(w) + Math.abs(h)) * 0.5 + r;
-  SC.s.shape(obbSD(SC.px(cx), SC.py(cy), w * 0.5 * H, h * 0.5 * H, tilt, r * H), paint,
-    { box: [SC.px(cx) - d * H, SC.py(cy) - d * H, SC.px(cx) + d * H, SC.py(cy) + d * H] });
+  // Exact rotated-AABB extents. The old box used (|w|+|h|)/2 on BOTH axes - the half-diagonal
+  // sum, so a 0.5x0.7 torso scanned a 1.2x1.2 square, several times the pixels the SDF can fill.
+  // The +1.5 is NOT slack for rounding: shape() anti-aliases with aa=0.85, so coverage extends
+  // past the SDF's zero. Without the margin the sheet changed bytes - a clipped AA fringe, a
+  // quality loss wearing a perf win's clothes. With it, the rig sheet is md5-identical.
+  const H = SC.H, c = Math.abs(Math.cos(tilt)), si = Math.abs(Math.sin(tilt));
+  const hw = Math.abs(w) * 0.5, hh = Math.abs(h) * 0.5, rr = Math.abs(r);
+  const ex = (c * hw + si * hh + rr) * H + 1.5, ey = (si * hw + c * hh + rr) * H + 1.5;
+  SC.s.shape(obbSD(SC.px(cx), SC.py(cy), hw * H, hh * H, tilt, r * H), paint,
+    { box: [SC.px(cx) - ex, SC.py(cy) - ey, SC.px(cx) + ex, SC.py(cy) + ey] });
 }
 function disc(cx, cy, r, paint) {
   const H = SC.H, x = SC.px(cx), y = SC.py(cy), rr = r * H;
