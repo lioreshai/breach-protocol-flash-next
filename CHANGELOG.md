@@ -7,6 +7,9 @@ one change: say what the reader would notice, not which file was touched.
 
 ## Unreleased
 
+### Changed
+- Occlusion depth is one value per **pixel** instead of one per screen column: the ground pass writes the distance it already solves — including the pixels it queues for the lip of a step, whose colour comes from a different plane than the row's — the wall pass writes its own face span, and the sprite and particle paths compare per pixel. No pixel changed colour, and a column with no wall no longer holds a stale zero that hid sprites there. A flat ceiling row keeps the "occludes nothing" sentinel until the pass that clips against it (#45).
+
 ### Fixed
 - A sealed exit or an enemy spawned in a closed pocket could no longer slip past `smoke`: the reachability array the assertions read was wiped to zeros two lines after the generator filled it.
 - A forgotten `linkBoundaries()` after writing a cell's height can no longer appear as a seam between

@@ -51,7 +51,12 @@ function resize() {
   bufCv.width = BW; bufCv.height = BH;
   imgBuf = bufCtx.createImageData(BW, BH);
   px = new Uint32Array(imgBuf.data.buffer);
-  zbuf = new Float32Array(BW);
+  // zbuf = camera-space perpendicular distance of the nearest occluding surface at that PIXEL
+  // (Infinity = draws nothing over it). The ground pass covers every pixel, the wall pass
+  // overwrites its face span; readers cull on a strictly-nearer surface.
+  // Ceiling rows keep the sentinel: their plane solve ignores walls, and rigs/portal quads are
+  // authored taller than the one-unit room, so clipping on it would repaint today's picture.
+  zbuf = new Float32Array(BW * BH).fill(Infinity);
   ctx.imageSmoothingEnabled = q.res > 0.4;          // smooth upscale instead of chunky pixels
   ctx.imageSmoothingQuality = 'low';
   const scan = document.getElementById('scan');     // the CRT curtain is a look, not a given
@@ -214,7 +219,7 @@ function castGround(flash, fcR, fcG, fcB) {
   if (RX.length < BW) { RX = new Int32Array(BW); RP = new Float64Array(BW); }
   for (let y = 0; y < BH; y++) {
     const p = y - hInt;
-    if (p === 0) { px.fill(0xFF000000 | fcB << 16 | fcG << 8 | fcR, y * BW, y * BW + BW); continue; }
+    if (p === 0) { px.fill(0xFF000000 | fcB << 16 | fcG << 8 | fcR, y * BW, y * BW + BW); zbuf.fill(Infinity, y * BW, y * BW + BW); continue; }
     const isF = p > 0, absP = p > 0 ? p : -p;
     /* planeA is the band the eye is in: floorAt below the horizon, ceilAt above it, and in
        the flat world exactly 0 and exactly 1 - which is what makes dRow the old d. It doubles
@@ -239,6 +244,7 @@ function castGround(flash, fcR, fcG, fcB) {
       const lit = MAP.light ? MAP.light[cellIdx(camX, camY)] : 0.4;
       px.fill(pack(clampi((18 * c0[0] + lit * 26 * c0[0]) * 1 + fRRow), clampi((18 * c0[1] + lit * 26 * c0[1]) + fGRow),
         clampi((18 * c0[2] + lit * 26 * c0[2]) + fBRow)), y * BW, y * BW + BW);
+      zbuf.fill(isF ? dRaw : Infinity, y * BW, y * BW + BW);   // depth = the row's own solve, unclamped
       continue;
     }
     /* row ray span: column x has cam offset (x*stepBase-1) */
@@ -255,6 +261,12 @@ function castGround(flash, fcR, fcG, fcB) {
     // magnified ~128x into a flat gradient and pxTex never exceeded 0.071 - the mip
     // chain, the grit, the plank and tile patterns were all unreachable by construction.
     const row = y * BW;
+    /* One fill instead of one store per pixel: writing a loop-invariant inside the pixel loop cost
+       +2.5 ms of a 1202x676 frame. dRaw is deliberately the distance BEFORE the FARB*4 shading
+       clamp - occlusion wants the real distance, and the clamp only exists to stop a texel being
+       dragged in from 300 m. Ceiling rows keep the Infinity sentinel on purpose (issue #45).
+       Columns this row cannot solve are queued below and get their own depth in groundPixel(). */
+    zbuf.fill(isF ? dRaw : Infinity, row, row + BW);
     let pxi = wx | 0, pyi = wy | 0, cIdx = pyi * N + pxi, mir = 0;
     let inMap = pxi >= 0 && pyi >= 0 && pxi < N && pyi < N;
     let lt = inMap ? cellTint(cIdx) : TINT_WHITE, li = inMap && lm ? lm[cIdx] : 0;
@@ -371,6 +383,12 @@ function groundPixel(x, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb, dP)
     dS = dz * BH / absP;
     if (dS > FARB * 4) dS = FARB * 4;
   }
+  /* This pixel's cell is NOT on the row's plane, so the row's depth is wrong for it: at the lip of a
+     step the row says the distance to the plane the eye is in, while the colour painted here came
+     from a plane one quantum (or two units) away. One store per deferred pixel, of the distance this
+     function already solved - no re-solve, no call - which is what keeps a sunk stripe from
+     occluding a sprite standing in it at the wrong depth. */
+  zbuf[row + x] = dS;
   const cx = camX + rx * dS, cy = camY + ry * dS;
   let sx = cx | 0, sy = cy | 0;
   /* a re-solved pixel that leaves the map falls back to the predictor's cell (gx, gy) for light and
@@ -452,7 +470,6 @@ function castWalls(flash, fcR, fcG, fcB) {
     }
     let perp = side === 0 ? sdx - ddx : sdy - ddy;
     if (!(perp > 0.0001)) perp = 0.0001;
-    zbuf[x] = perp;
     if (tv === 0 || perp > FARB * 3) continue;
     const tex = WALLS[(tv - 1) % WALLS.length];
     if (!tex) continue;
@@ -506,6 +523,7 @@ function castWalls(flash, fcR, fcG, fcB) {
     let ty = (ds - y0) * tstep, idx = ds * BW + x;
     if (ty >= mh) ty %= mh;                                // v wraps every world unit
     for (let y = ds; y <= de; y++, idx += BW) {
+      zbuf[idx] = perp;
       const vy = ty; ty += tstep; if (ty >= mh) ty -= mh;
       texBil(td, mw, mh, u, vy);
       let cr = TB[0], cg = TB[1], cb = TB[2];
@@ -619,7 +637,9 @@ function drawBillboard(o) {
     const yoff = y * BW;
     let xf = (x0c - (screenX - wPx * 0.5)) * sxStep;
     for (let x = x0c; x <= x1c; x++, xf += sxStep) {
-      if (zbuf[x] <= tY) continue;
+      // strictly-nearer occluder culls; equal depth draws, which keeps a sprite's own
+      // floor-contact row from being clipped by the floor it stands on
+      if (zbuf[yoff + x] < tY) continue;
       let src, r2, g2, b2, a2;
       if (filt) {
         let tx = xf | 0;
@@ -764,8 +784,8 @@ function renderOverlay() {
   for (const p of PARTS) {
     const s = project(p.x, p.y, p.z);
     if (!s || s.d > 34) continue;
-    const col = BW * (s.x / DW) | 0;
-    if (col < 0 || col >= BW || zbuf[col] < s.d - 0.35) continue;
+    const col = BW * (s.x / DW) | 0, prow = clamp(BH * (s.y / DH) | 0, 0, BH - 1);
+    if (col < 0 || col >= BW || zbuf[prow * BW + col] < s.d - 0.35) continue;
     const life = p.life / p.max;
     const r = Math.max(1, (p.size * BH / s.d) * (DW / BH) * (0.6 + 0.9 * life));
     ctx.globalAlpha = Math.min(1, life * 1.3) * (p.add ? 0.85 : 0.75);
