@@ -23,25 +23,6 @@ WARM=1 node tools/view.js scene 0 3     # stress: 180 frames, turning camera
 
 ## Who verifies what
 
-<<<<<<< HEAD
-Whatever can be observed on the deployed site — a screenshot, `browser eval` over the game's own
-globals, thrown errors, measured frame deltas — **is verified; nobody waits for a human report on
-it.** Asking "does this look right?" about a defect already captured in a screenshot is a bug in
-the workflow. Reserve asking for what a page cannot reveal: feel, responsiveness, audio comfort,
-difficulty.
-
-Evidence order: **live page** (real GPU path, aspect ratio, pointer lock) → **`view.js` probes**
-(geometry, lighting, budgets) → **smoke verdict** (green proves nothing about looks).
-
-**Hard rule: refresh the README's screenshots after every merged PR that changes the picture.**
-Capture from the deployed build into `docs/screens/` — not from a headless dump, not from an older
-build — and put any defect visible in a shot into its caption instead of cropping it out. A defect
-in a caption is known; a cropped defect becomes a bug report about someone's display.
-
-Trap: the headless probes rasterize poses **without** the scene-light multiply, so `view.js rig`
-and `contrast` both passed the characters while the deployed site drew enemies as translucent
-boxes (`docs/screens/level0-enemies.png`). A probe passing is not a probe being capable of failing.
-=======
 The live site is the source of truth: every merge to `main` deploys to
 `https://lioreshai.github.io/breach-protocol-flash-next/`. Whatever can be observed there — a
 screenshot, `browser eval` over the game's own globals, thrown errors, measured frame deltas —
@@ -57,11 +38,15 @@ Order of evidence, strongest first:
 Human judgement still rules what the page cannot reveal: game feel, aim responsiveness, whether the
 audio levels are pleasant, difficulty. Ask about those. Do not ask about pixels.
 
+**Hard rule: refresh the README's screenshots after every merged PR that changes the picture.**
+Capture them from the deployed build into `docs/screens/` - not from a headless dump, not from an
+older build - and put any defect visible in a shot into its caption instead of cropping it out. A
+defect in a caption is known; a cropped defect becomes a bug report about someone's display.
+
 Trap: the headless probes rasterize poses **without** the scene-light multiply, so `view.js rig`
 and `contrast` both agreed the characters looked fine while the live site drew them as translucent
 boxes (`/tmp/fps_live.png`). A probe passing is not the same thing as a probe being capable of
 failing.
->>>>>>> origin/main
 
 Gate commits on the tool's verdict, not on grep matching a line — grepping "raster cost"
 matched even while the assert failed and produced commits with known-failing budgets:
