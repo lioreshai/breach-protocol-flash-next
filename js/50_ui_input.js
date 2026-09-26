@@ -162,6 +162,9 @@ function frame(ts) {
     ctx.fillText('ERROR (loop alive): ' + String((e && e.message) || e).slice(0, 120), 14, 24);
     ctx.fillStyle = '#aeb8c4'; ctx.font = '12px monospace';
     ctx.fillText(String((e && e.stack) || '').split(String.fromCharCode(10))[1] || '', 14, 46);
+    // A throw before renderWorld() must not freeze the picture: the simulation
+    // keeps stepping, so an unrendered frame reads as a hung game.
+    try { renderWorld(); renderOverlay(); } catch (e2) {}
   }
 }
 

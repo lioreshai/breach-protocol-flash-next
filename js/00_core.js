@@ -177,3 +177,22 @@ const SND = {
     setTimeout(tick, 1200);
   }
 };
+
+/* An exception thrown from inside an AudioNode call must never reach the game
+ * loop - before this, one bad audio parameter killed the frame between
+ * update() and renderWorld(), so the simulation kept running while the screen
+ * froze on the last good frame. Any audio failure now disables sound and the
+ * game carries on. */
+for (const k of ['burst', 'tone', 'step', 'click', 'boom', 'hurt', 'pickup', 'door', 'portal']) {
+  const f = SND[k];
+  if (typeof f !== 'function') continue;
+  SND[k] = function () {
+    try { return f.apply(this, arguments); }
+    catch (e) {
+      S.sound = false;
+      if (S.err === undefined) S.err = 'audio disabled: ' + ((e && e.message) || e);
+      if (SND.ac) { try { SND.ac.close(); } catch (e2) {} SND.ac = null; }
+      return undefined;
+    }
+  };
+}
