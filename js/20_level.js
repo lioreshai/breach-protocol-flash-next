@@ -100,7 +100,8 @@ const vbAt = (x, y, d) => (MAP.vb[(y | 0) * MW + (x | 0)] >> ((d & 3) << 2)) & 1
 /* Derive every crossing from the grid: a wall blocks, and so does a step up taller than
    one quantum unless something ramps or ladders it. A drop is never a wall - you take it.
    Setting the flag here is what makes "blocking, walkable and drawn" one byte later. */
-function linkBoundaries() {
+let LINK_STAMP = 0;                                       // monotonic across level rebuilds, so a
+function linkBoundaries() {                               // read before one cannot look fresh
   const cell = MAP.cell, fz = MAP.fz;
   for (let y = 0; y < MH; y++) for (let x = 0; x < MW; x++) {
     const i = y * MW + x;
@@ -115,6 +116,7 @@ function linkBoundaries() {
     MAP.vb[i] |= bits;
   }
   buildCeilPlanes();                                      // ceilings are derived from the same grid
+  MAP.linkStamp = ++LINK_STAMP;                           // a relink that never ran is then assertable
 }
 /* Which side of its own cell a mover at (fx,fy) crosses to reach (tx,ty); -1 when the
    two are the same column, or only touch at a corner that the other probes already see. */
