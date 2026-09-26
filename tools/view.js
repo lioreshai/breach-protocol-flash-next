@@ -351,6 +351,9 @@ if (MODE === 'heights') {
      version of that split crashed in the decal branch alone - at 4x resolution, where the stress
      probe runs - because every other frame in every probe has no decal on the floor at all. */
   const SPLAT = `;(()=>{let s=987654;const rr=(a,b)=>{s=(s*1103515245+12345)&0x7fffffff;return b+(a-b)*(s/0x7fffffff);};for(let k=0;k<60;k++)addGroundSplat(P.x+rr(8,-8),P.y+rr(8,-8),0.5+rr(0,0.4),'blood');for(let k=0;k<12;k++)addGroundSplat(P.x+rr(6,-6),P.y+rr(6,-6),0.9+rr(0,0.4),'scorch')})()`;
+  // a camera a cell from the western border looking OUT of the map: CAMSET's longest-ray yaw points the solver away from the border, which makes every out-of-map branch unreachable for every gate
+  const LOOKOUT = `;(()=>{let by=1;for(let y=1;y<MH-1;y++)if(!isSolid(1.5,y+.5)){by=y;break;}` +
+    `P.x=1.5;P.y=by+.5;P.ang=Math.PI;P.pitch=BH*0.02;P.z=floorAt(P.x,P.y);for(const e of ENEMIES)e.state='sleep';})()`;
   /* Per config: what to poke, and which half of the frame has to move. 'still' is the assertion that
      a floor row and a ceiling row are solved against DIFFERENT planes; 'move' is the one that says
      the solver reads the grid at all. A floor poke CAN legitimately move a ceiling - ceilAt takes
@@ -367,7 +370,9 @@ if (MODE === 'heights') {
     ['pit', '(()=>{for(let i=0;i<MW*MH;i++){const x=i%MW,y=(i/MW)|0;if(Math.hypot(x+0.5-P.x,y+0.5-P.y)>3)MAP.fz[i]-=4;}})()' + CARRY, 'move', 'still'],
     // every other 4-column band is a metre down, walls included: maximum plane churn per row while
     // every boundary keeps a face of positive span, and ceilAt of a sunk band lands below the eye
-    ['stripes', 'for(let i=0;i<MW*MH;i++)if(((i%MW)>>2)&1)MAP.fz[i]-=4' + CARRY + SPLAT, 'move', 'still', true],
+    ['stripes', 'for(let i=0;i<MW*MH;i++)if(((i%MW)>>2)&1)MAP.fz[i]-=4' + CARRY + SPLAT, 'move', 'still', true, true],
+    // the border-facing camera: rays that LEAVE the level, so the out-of-map fallbacks run at all
+    ['border', 'for(let i=0;i<MW*MH;i++)if(((i%MW)>>2)&1)MAP.fz[i]-=4' + CARRY + LOOKOUT, 'move', 'any', false, true],
     // a platform 0.25 up beyond 2 m: the case with no riser to draw, must not show far geometry
     ['stepUp', '(()=>{for(let i=0;i<MW*MH;i++){if(MAP.cell[i])continue;const x=i%MW,y=(i/MW)|0;const d=Math.hypot(x+0.5-P.x,y+0.5-P.y);if(d>2&&d<=7)MAP.fz[i]+=1;}})()', 'move', 'any'],
     // the eye stands on the raised band, so the row predictor comes from floorAt, not from eyeZ
@@ -377,7 +382,7 @@ if (MODE === 'heights') {
   for (let li = 0; li < run('LEVELS.length'); li++) {
     let ref = null, refF = null, flatMean = 0;
     console.log(`level ${li}`);
-    for (const [name, poke, wantFloor, wantCeil, wantDecals] of cfgs) {
+    for (const [name, poke, wantFloor, wantCeil, wantDecals, wantOutMap] of cfgs) {
       seedRng(4242 + li * 31);
       run(`S.mode='play';S.locked=false;startLevel(${li},true);`);
       const cam = run(CAMSET);
@@ -395,8 +400,9 @@ if (MODE === 'heights') {
       run('renderWorld()');
       const BW = run('BW'), BH = run('BH'), hInt = run('Math.round(horizon)'), n = BW * BH;
       const full = new Uint32Array(run('px'));
-      run('px.fill(pack(FOGC[0],FOGC[1],FOGC[2]));castGround(S.flash,FOGC[0],FOGC[1],FOGC[2]);');
+      run('px.fill(pack(FOGC[0],FOGC[1],FOGC[2]));reSolveBad=0;gndOffMap=0;castGround(S.flash,FOGC[0],FOGC[1],FOGC[2]);');
       const cur = new Uint32Array(run('px'));
+      const reS = run('({bad:reSolveBad,off:gndOffMap})');   // this ground pass only, not the renderWorld before it
       let sum = 0, dark = 0, lo = 0, hi = 0, loDiff = 0, hiDiff = 0, fullDiff = 0;
       for (let i = 0; i < n; i++) {
         const c = full[i], L = 0.2126 * (c & 255) + 0.7152 * (c >> 8 & 255) + 0.0722 * (c >> 16 & 255);
@@ -436,6 +442,10 @@ if (MODE === 'heights') {
       if (wantCeil === 'move' && hiP < 2) fail += ' CEILING-IGNORED';
       // the deferred pixel body's decal blend has to run somewhere, or its copy of the blend is untested
       if (wantDecals && !dcov) fail += ' NO-DECAL-COVERAGE';
+      // a re-solve that ran out of tries places the pixel on a plane its own cell contradicts
+      if (reS.bad) fail += ' RE-SOLVE-NOT-CONVERGED';
+      // and the out-of-map fallbacks have to be executed by the config that claims to cover them
+      if (wantOutMap && !reS.off) fail += ' NO-OUTMAP-COVERAGE';
       if (fail) bad++;
       console.log(`  ${pad(name, 9)} mean ${pad(mean.toFixed(1), 5)}` +
         (poke ? ` (${mean - flatMean >= 0 ? '+' : ''}${(mean - flatMean).toFixed(1)})` : '          ') +
@@ -443,24 +453,22 @@ if (MODE === 'heights') {
         `  moved floor ${loP.toFixed(2)}%  ceiling ${hiP.toFixed(2)}%` +
         (geo ? `  faces ${geo.n} span ${geo.n ? geo.mn + '..' + geo.mx : '-'} bad ${geo.bad}` : '') +
         (wantDecals ? `  decal cells ${dcov}` : '') +
+        `  re-solves bad ${reS.bad} off-map ${reS.off}` +
         `  eye ${cam.x.toFixed(1)},${cam.y.toFixed(1)} sight ${cam.d.toFixed(1)}m  ${fail ? 'FAIL' + fail : 'ok'}`);
-      if (!poke) {
-        /* There is no poked frame to compare the flat one against, so the check that CAN run is
-           determinism: rebuild the level from the same seed and require the same pixels. A ground
-           pass that quietly reads frame-to-frame state would show here and nowhere else. */
-        ref = cur; refF = full; flatMean = mean;
-        seedRng(4242 + li * 31);
-        run(`S.mode='play';S.locked=false;startLevel(${li},true);`);
-        run(CAMSET);
-        run('renderWorld();px.fill(pack(FOGC[0],FOGC[1],FOGC[2]));castGround(S.flash,FOGC[0],FOGC[1],FOGC[2]);');
-        const again = new Uint32Array(run('px'));
-        let rms = 0;
-        for (let i = 0; i < n; i++) if (again[i] !== ref[i]) rms++;
-        /* the GROUND pixels of the replay, not the composited frame: the portal cycles on S.t and
-           pickups bob on their own phase, so a replayed level is not supposed to be identical up
-           there, and a diff measured on the composite would be a lie about determinism. */
-        if (rms) { bad++; console.log(`  replay    ${rms} ground pixels differ from the same seed: the pass is not deterministic FAIL`); }
-      }
+      // determinism now runs on EVERY config and on the ground-only repaint: it used to sit under `if (!poke)`, i.e. on `flat` alone - the one config whose RX/RP queue is provably empty, so the deferred pixel body had no coverage while this printed ok
+      seedRng(4242 + li * 31);
+      run(`S.mode='play';S.locked=false;startLevel(${li},true);`);
+      run(CAMSET);
+      if (poke) run(poke + ';linkBoundaries();');
+      run('renderWorld();px.fill(pack(FOGC[0],FOGC[1],FOGC[2]));castGround(S.flash,FOGC[0],FOGC[1],FOGC[2]);');
+      const again = new Uint32Array(run('px'));
+      let rms = 0;
+      for (let i = 0; i < n; i++) if (again[i] !== cur[i]) rms++;
+      /* the GROUND pixels of the replay, not the composited frame: the portal cycles on S.t and
+         pickups bob on their own phase, so a replayed level is not supposed to be identical up
+         there, and a diff measured on the composite would be a lie about determinism. */
+      if (rms) { bad++; console.log(`  replay    ${rms} ground pixels differ from the same seed: the pass is not deterministic FAIL`); }
+      if (!poke) { ref = cur; refF = full; flatMean = mean; }   // every poked frame is judged against the FLAT one
     }
   }
   console.log(bad ? `heights: ${bad} config(s) FAILED` : 'heights: all configs ok');

@@ -8,6 +8,11 @@ one change: say what the reader would notice, not which file was touched.
 ## Unreleased
 
 ### Fixed
+- Standing at a step or looking across a sunken room no longer paints the floor or ceiling of a room
+  two cells away through the wall: the ground solver may only borrow a height from a column within two
+  cells with nothing solid between, it can no longer run out of tries and place a pixel at a distance
+  belonging to a height it discarded, and pixels whose ray leaves the level stop borrowing light, tint
+  and decals from a cell on the far side of the map. Flat levels render pixel-for-pixel the same.
 - Thin limbs stopped glowing: the rim band is now capped by the width of the part under the pixel, so a leg or hanging arm shows a lit edge instead of lighting up edge to edge.
 - The character rim light is a thin ridge instead of a wide ramp: at close range it stopped reading as a white halo around the whole silhouette, at the same edge separation and the same frame cost.
 - Character rim light now follows the silhouette instead of outlining every capsule, box and disc, so the seams inside a body stopped glowing; gain retuned to keep edge separation at least as good as before.

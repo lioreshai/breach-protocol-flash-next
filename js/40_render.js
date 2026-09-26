@@ -9,7 +9,7 @@
    ================================================================== */
 let planeLen = cfg.plane, dirX = 1, dirY = 0, planeX = 0, planeY = cfg.plane;
 let camX = 0, camY = 0, eyeZ = 0.5, horizon = 0, shakeX = 0, shakeY = 0;
-let drawCalls = 0, pixFilled = 0;
+let drawCalls = 0, pixFilled = 0, reSolveBad = 0, gndOffMap = 0;   // last two: ground re-solve counters, read by tools/view.js heights
 let bloomCv = null, bloomCtx = null, canFilter = false, grainCv = null, grainPat = null, grainSeed = 0;
 let FARB = 22, AMB = 0.13, GQ = null, rigTexH = 200;
 let pxUsed = 0;                                          // rig texels authored this frame
@@ -209,7 +209,6 @@ function castGround(flash, fcR, fcG, fcB) {
   const tileF = MAP.floorTile || 1.15, tileC = MAP.ceilTile || 0.9;
   const dMasks = DECAL_MASK, dGrid = DECAL_GRID;
   const amb = AMB, fl = flash;
-  const NN = N * N;
   /* Scratch for the columns of one row that had to be re-solved off the row's plane. Sized to a
      row because a row is all a frame can ever queue; in a flat level nothing is ever written. */
   if (RX.length < BW) { RX = new Int32Array(BW); RP = new Float64Array(BW); }
@@ -221,7 +220,8 @@ function castGround(flash, fcR, fcG, fcB) {
        the flat world exactly 0 and exactly 1 - which is what makes dRow the old d. It doubles
        as the predictor for every pixel of the row. A floor above the eye and a ceiling below
        it are not surfaces these rows can reach, so neither is allowed to be the predictor. */
-    const rawA = isF ? floorAt(camX, camY) : ceilAt(camX, camY);
+    const cAx = camX | 0, cAy = camY | 0, cAir = cAx >= 0 && cAy >= 0 && cAx < N && cAy < N && !cellArr[cAy * N + cAx];
+    const rawA = cAir ? (isF ? fzs[cAy * N + cAx] * ZQ : cp[cAy * N + cAx]) : eyeZ;   // no air of its own -> okA false -> sentinel
     const okA = isF ? rawA < eyeZ : rawA > eyeZ;
     const planeA = okA ? rawA : (isF ? Math.min(0, eyeZ - ZQ) : Math.max(1, eyeZ + ZQ));
     const dzA = isF ? eyeZ - planeA : planeA - eyeZ;
@@ -255,7 +255,8 @@ function castGround(flash, fcR, fcG, fcB) {
     // magnified ~128x into a flat gradient and pxTex never exceeded 0.071 - the mip
     // chain, the grit, the plank and tile patterns were all unreachable by construction.
     const row = y * BW;
-    let pxi = wx | 0, pyi = wy | 0, cIdx = pyi * N + pxi, mir = 0, inMap = cIdx >= 0 && cIdx < NN;
+    let pxi = wx | 0, pyi = wy | 0, cIdx = pyi * N + pxi, mir = 0;
+    let inMap = pxi >= 0 && pyi >= 0 && pxi < N && pyi < N;
     let lt = inMap ? cellTint(cIdx) : TINT_WHITE, li = inMap && lm ? lm[cIdx] : 0;
     if (li > 1) li = 1;
     let lr = baseRow + li * lt[0], lg = baseRow + li * lt[1], lb = baseRow + li * lt[2];
@@ -281,12 +282,12 @@ function castGround(flash, fcR, fcG, fcB) {
       const gx = wx | 0, gy = wy | 0;
       if (gx !== pxi || gy !== pyi) {                          // crossed into another cell
         pxi = gx; pyi = gy; cIdx = gy * N + gx;
-        inMap = cIdx >= 0 && cIdx < NN;
+        inMap = gx >= 0 && gy >= 0 && gx < N && gy < N;
         if (inMap) {
           lt = cellTint(cIdx); li = lm ? lm[cIdx] : 0.4;
           lr = base + li * lt[0]; lg = base + li * lt[1]; lb = base + li * lt[2];
           mir = (hash2(gx, gy) * 4) | 0;                        // per-cell mirror kills the tiling tell
-        } else { lt = TINT_WHITE; li = 0; lr = lg = lb = base; }
+        } else { gndOffMap++; lt = TINT_WHITE; li = 0; lr = lg = lb = base; }
         /* Only AIR columns have a floor and a ceiling: a solid column has no air, so its ceilAt is a
            fiction, and the void outside the map is today's flat ground - both mean "no plane of your
            own". Both axes are tested here even though inMap tested the index, because the index is
@@ -339,31 +340,46 @@ function castGround(flash, fcR, fcG, fcB) {
    registers - measured at 2.5 ms of a 1202x676 frame - and this function runs on no pixel of a
    flat level, which is why `scene` md5s and `heights` both have to stay green to trust either. */
 function groundPixel(x, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb, dP) {
-  const N = MAP.w, cellArr = MAP.cell, lm = MAP.light, NN = N * N, stepBase = 2 / BW;
+  const N = MAP.w, cellArr = MAP.cell, lm = MAP.light, stepBase = 2 / BW;
   const cam = x * stepBase - 1, rx = dirX + planeX * cam, ry = dirY + planeY * cam;
-  let dS = 0;
+  let dS = 0, ax = (camX + rx * dP) | 0, ay = (camY + ry * dP) | 0, settled = false;
   for (let g = 0; g < 3; g++) {
     const dz = isF ? eyeZ - pl : pl - eyeZ;
     dS = dz * BH / absP;
     if (dS > FARB * 4) dS = FARB * 4;
     const qx = (camX + rx * dS) | 0, qy = (camY + ry * dS) | 0;
+    const mx = (qx + ax) >> 1, my = (qy + ay) >> 1;
+    // a plane may only come from a column within two cells on BOTH axes with no solid column between
     let plN = pl;
-    if (qx >= 0 && qy >= 0 && qx < N && qy < N) {
+    if (qx >= 0 && qy >= 0 && qx < N && qy < N && Math.abs(qx - ax) <= 2 && Math.abs(qy - ay) <= 2 &&
+      mx >= 0 && my >= 0 && mx < N && my < N && !cellArr[my * N + mx]) {
       const ii = qy * N + qx;
       if (!cellArr[ii]) {
         const t = isF ? MAP.fz[ii] * ZQ : MAP.ceilPlane[ii];
         if (isF ? t < eyeZ : t > eyeZ) plN = t;
       }
     }
-    if (plN === pl) break;
+    ax = qx; ay = qy;
+    // planes are quantized to ZQ, so agreement within one quantum is convergence: a pixel on the seam between two cells whose planes differ by a quantum has no fixed point and alternates forever (measured: 33,656 of a frame's re-solves on eyeUp, all a 1 <-> 1.25 two-cycle); the plane it started from wins
+    if (Math.abs(plN - pl) <= ZQ) { settled = true; break; }
     pl = plN;
+  }
+  // an exhausted loop used to leave dS from the PREVIOUS plane; the plane finally used now places the pixel
+  if (!settled) {
+    reSolveBad++;
+    const dz = isF ? eyeZ - pl : pl - eyeZ;
+    dS = dz * BH / absP;
+    if (dS > FARB * 4) dS = FARB * 4;
   }
   const cx = camX + rx * dS, cy = camY + ry * dS;
   let sx = cx | 0, sy = cy | 0;
   /* a re-solved pixel that leaves the map falls back to the predictor's cell (gx, gy) for light and
      mirror - the cell the row's own walk would have reached - so it shades like a flat pixel at that
      distance instead of wrapping to a cell on the far side of the level */
-  if (sx < 0 || sy < 0 || sx >= N || sy >= N) { sx = (camX + rx * dP) | 0; sy = (camY + ry * dP) | 0; }
+  if (sx < 0 || sy < 0 || sx >= N || sy >= N) {
+    gndOffMap++;
+    sx = (camX + rx * dP) | 0; sy = (camY + ry * dP) | 0;
+  }
   const dfade = 0.4 + 0.6 * Math.exp(-dS * 0.02);
   const fog = fogAt(dS), inv = 1 - fog, fR = fcR * fog, fG = fcG * fog, fB = fcB * fog;
   const base = amb + fl * Math.exp(-dS * 0.30) * 0.9;
@@ -373,7 +389,7 @@ function groundPixel(x, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb, dP)
   const k = pxTex >= 0.5 ? (pxTex >= 2 ? (pxTex >= 4 ? 3 : 2) : 1) : 0;
   const m = tex.mips[Math.min(k, tex.mips.length - 1)];
   const mw = m.w, mh = m.h, ms = sc * m.w, td = m.data, mask = mw - 1, maskH = mh - 1;
-  const cIdx = sy * N + sx, inMap = cIdx >= 0 && cIdx < NN;
+  const inMap = sx >= 0 && sy >= 0 && sx < N && sy < N, cIdx = sy * N + sx;
   let lr, lg, lb, mir = 0;
   if (inMap) {
     const lt = cellTint(cIdx), li = lm ? lm[cIdx] : 0.4;   // no li>1 clamp here either, matching the
