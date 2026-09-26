@@ -40,6 +40,7 @@ const S = {
   mode: 'title',      // title | play | pause | dead | win
   level: 0, diff: 1, t: 0, dt: 0, fps: 0, frames: 0, fpsT: 0,
   locked: false, exitOpen: false, shake: 0, flash: 0, muzzle: 0, flashCol: [255, 90, 40],
+  err: '', audioBroken: false,
   hitMark: 0, headMark: 0, banner: '', bannerT: 0, showMap: true, revealed: 0,
   sound: true, perf: false, runT: 0, gfx: 1
 };
@@ -63,7 +64,7 @@ function killfeed(text, col) { feed.unshift({ text, col: col || '#ffcbb3', t: 3.
 const SND = {
   ac: null, master: null, musicGain: null, noiseBuf: null, music: null,
   init() {
-    if (this.ac) { if (this.ac.state === 'suspended') this.ac.resume(); return; }
+    if (this.ac) { if (this.ac.state === 'suspended') this.ac.resume().catch(function () {}); return; }
     const AC = window.AudioContext || window.webkitAudioContext;
     if (!AC) return;
     try { this.ac = new AC(); } catch (e) { return; }
@@ -82,7 +83,7 @@ const SND = {
   // silently muted game, so nudge it awake and let the next call make noise.
   on() {
     if (!S.sound || !this.ac) return false;
-    if (this.ac.state === 'suspended') { try { this.ac.resume(); } catch (e) {} return false; }
+    if (this.ac.state === 'suspended') { this.ac.resume().catch(function () {}); return false; }
     return this.ac.state === 'running';
   },
   t() { const c = this.ac.currentTime; return isFinite(c) ? Math.max(0, c) : 0; },
@@ -190,16 +191,28 @@ const SND = {
  * update() and renderWorld(), so the simulation kept running while the screen
  * froze on the last good frame. Any audio failure now disables sound and the
  * game carries on. */
-for (const k of ['burst', 'tone', 'step', 'click', 'boom', 'hurt', 'pickup', 'door', 'portal']) {
+for (const k of Object.keys(SND)) {
   const f = SND[k];
-  if (typeof f !== 'function') continue;
+  if (typeof f !== 'function' || k === 'init') continue;
   SND[k] = function () {
     try { return f.apply(this, arguments); }
     catch (e) {
-      S.sound = false;
-      if (S.err === undefined) S.err = 'audio disabled: ' + ((e && e.message) || e);
+      // Sound is broken, not muted: S.sound stays the user's preference so pressing
+      // T cannot announce AUDIO ON over a closed context.
+      if (!S.audioBroken) { S.audioBroken = true; noteError(e, 'audio disabled'); }
       if (SND.ac) { try { SND.ac.close(); } catch (e2) {} SND.ac = null; }
       return undefined;
     }
   };
+}
+
+/* Every catch in this project used to be silent, and S.err was written but read by
+ * nothing, so a swallowed exception left no trace in the console or on screen. One
+ * helper now records and reports; the frame loop paints it and the console sees it. */
+function noteError(e, where) {
+  const msg = String((e && e.message) || e);
+  const at = e && e.stack ? String(e.stack).split('\n')[1] : '';
+  S.err = where + ': ' + msg + (at ? ' @ ' + at.trim() : '');
+  if (typeof console !== 'undefined' && console.warn) console.warn('[' + where + ']', msg);
+  return S.err;
 }

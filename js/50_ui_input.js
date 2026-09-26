@@ -51,7 +51,9 @@ function statsText() {
   return `TIME       ${mm}:${String(ss).padStart(2, '0')}\nKILLS      ${P.kills}\nDAMAGE     ${Math.round(P.dmg)}\nACCURACY   ${acc}%\nDIFFICULTY ${DIFFS[S.diff].name}`;
 }
 function startGame() {
-  SND.init();
+  // A throw inside init/startAmbient used to escape into this click handler with the
+  // game not started and nothing on screen to say so.
+  try { SND.init(); } catch (e) { S.audioBroken = true; noteError(e, 'audio init'); }
   resetRun(); startLevel(0, true);
   S.mode = 'play'; hideOv(); lockPointer();
 }
@@ -155,17 +157,23 @@ function frame(ts) {
   // show it instead - a silent freeze is otherwise indistinguishable from a stall.
   try { frameInner(ts); S.err = null; }
   catch (e) {
-    if (!S.err) S.err = String((e && e.message) || e) + ' @ ' + String((e && e.stack) || '').split(String.fromCharCode(10))[1];
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.fillStyle = 'rgba(12,14,18,0.86)'; ctx.fillRect(0, 0, DW, 62);
-    ctx.fillStyle = '#ff6a5a'; ctx.font = '600 15px monospace';
-    ctx.fillText('ERROR (loop alive): ' + String((e && e.message) || e).slice(0, 120), 14, 24);
-    ctx.fillStyle = '#aeb8c4'; ctx.font = '12px monospace';
-    ctx.fillText(String((e && e.stack) || '').split(String.fromCharCode(10))[1] || '', 14, 46);
-    // A throw before renderWorld() must not freeze the picture: the simulation
-    // keeps stepping, so an unrendered frame reads as a hung game.
-    try { renderWorld(); renderOverlay(); } catch (e2) {}
+    noteError(e, 'frame');
+    // A throw before renderWorld() must not freeze the picture - the simulation keeps
+    // stepping, so an unrendered frame reads as a hung game. Render first, then paint
+    // the banner: doing it the other way round hid the message under the recovery
+    // render, so a logic throw looked like a healthy game.
+    try { renderWorld(); renderOverlay(); } catch (e2) { noteError(e2, 'recovery render'); }
+    drawErrorBanner();
   }
+}
+
+function drawErrorBanner() {
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.fillStyle = 'rgba(12,14,18,0.86)'; ctx.fillRect(0, 0, DW, 62);
+  ctx.fillStyle = '#ff6a5a'; ctx.font = '600 15px monospace';
+  ctx.fillText('ERROR (loop alive): ' + String(S.err || '').slice(0, 120), 14, 24);
+  ctx.fillStyle = '#aeb8c4'; ctx.font = '12px monospace';
+  ctx.fillText('F3 perf · T audio · press Esc to pause and resume to retry', 14, 46);
 }
 
 function frameInner(ts) {
