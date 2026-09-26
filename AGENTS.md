@@ -210,3 +210,13 @@ Also true and visible in the PNGs: the ceiling streaks at grazing angles (mip se
 no anisotropy) and a one-unit-tall world makes everything read as a crawlway — both are the
 vertical work, not texture knobs. Keep the ground sampler honest about world scale
 (`ms = sc * mw`) at every height.
+
+## Branch hygiene
+
+`delete_branch_on_merge` is **on** for the repository, so a merged PR's remote branch disappears by
+itself, and `.github/workflows/prune.yml` (weekly + manual) sweeps whatever that setting cannot
+reach. Do not add ancestry checks to that sweep: merges here are **squash** merges, so a merged
+branch's content is in `main` while its commit is not an ancestor of it, and
+`git merge-base --is-ancestor origin/<branch> origin/main` reports a fully merged branch as
+unmerged. Detect by PR state (`gh pr list --state merged --head <branch>`) and prune local branches
+for merged PRs too, or the local repo keeps ghosts that make `git branch` look like open work.
