@@ -401,6 +401,7 @@ function genLevel(li) {
     return true;
   }
   // extremely unlikely fallback: reuse a smaller successful layout
+  console.warn('genLevel FALLBACK: every attempt for level ' + li + ' failed the occupancy gate - shipping a flat lit box with no enemies');
   const N = LEVELS[li].size;
   const cell = new Uint8Array(N * N).fill(0);
   for (let x = 0; x < N; x++) { cell[x] = cell[(N - 1) * N + x] = WT.TECH; }
@@ -412,8 +413,7 @@ function genLevel(li) {
     vb: new Uint16Array(N * N), feat: new Uint8Array(N * N), ceilPlane: new Float64Array(N * N) };
   MW = N; MH = N; linkBoundaries(); decalGridInit(); explored = new Uint8Array(N * N); S.revealed = 0;
   LIGHTS = []; PROPS = []; PICKUPS = []; PROJ = []; PARTS = []; ENEMIES = [];
-  exitX = N - 2.5; exitY = N - 2.5; P.x = 2.5; P.y = 2.5;
-  for (const L of LIGHTS) splatLight(L, L.str);
+  exitX = N - 2.5; exitY = N - 2.5; P.x = 2.5; P.y = 2.5; P.z = floorAt(P.x, P.y);
   buildTint();
   return true;
 }
