@@ -65,6 +65,25 @@ case "$out" in *"SMOKE PASSED"*) git add -A && git commit ;; *) echo NOT COMMITT
 - Three.js port (in a branch): `BufferGeometry` needs the `uv2 → uv` copy; no ShaderMaterial
   tonemapping; `CircleGeometry` thetaLength is a delta; `InstancedMesh` count must be an
   exact multiple of vertices-per-instance; additive blending cannot read its destination.
+- **`shape()` already hands the shading closure the signed distance to the silhouette** (`d`,
+  `05_paint.js:147`), and `bodyPaint` used to ignore its third argument while its own comment
+  claimed a rim existed. A rim light is therefore free — no normal, no gradient, no extra SDF
+  eval — and it is angle-correct because `d` is a true distance field. Express the band in *body
+  fractions* (`d / authoredHeight`), not pixels, or it thins out as poses get sharper.
+- **A rim must be ADDITIVE, not a multiplier.** `base + rim` on an albedo that averages 35,59,68
+  still renders dark: the measured silhouette-edge contrast did not move at all. Adding light
+  (`C*base + 150*rim`) moved it. And because the raster is multiplied by scene light at composite,
+  a rim scaled this way is weakest in exactly the dark rooms where separation is needed most —
+  `AMB 0.19` floors it. That tension is unresolved; a contact shadow is the light-independent
+  mechanism.
+- **`view.js rig` dumps the RAW raster** (no `lr` multiply, no fog), so it shows a lighting
+  change's upper bound. The rim that measured correctly in-game still looked like a neon outline
+  in that sheet — use it to reject too-strong, never to confirm too-weak.
+- `view.js contrast` answers "do the characters read?" numerically: render the world, render it
+  again with `ENEMIES.length = 0`, and the difference *is* the silhouette mask — no projection
+  math, no depth guessing. cam0 = longest sight line, cam1 = nearest enemy, cam2 = enemy parked
+  3.5 m in front of the lens. Pre-rim baseline: edge dL 13–22, 24–60% of edge pixels within 10
+  luminance of the wall behind them (i.e. invisible outlines) on all three levels.
 - Claiming a field is dead: grep **`tools/` too** — probe code strings hide reads (`bfsDist`
   looked dead and was the HUD's objective distance).
 - Background jobs race your commits and produce mis-subject commits, and **`git add -A` is not

@@ -46,14 +46,31 @@ const obbSD = (cx, cy, hx, hy, ang, r) => {
 };
 const discSD = (cx, cy, r) => (px, py) => Math.hypot(px - cx, py - cy) - r;
 
-/* paint closure: body shading, vertical ramp plus a rim that tracks the viewer */
+/* paint closure: body shading - vertical ramp, a yaw ramp, and a real silhouette rim.
+   The rim is free: shape() already hands the shading closure the signed distance to the
+   silhouette in `d` (js/05_paint.js:147), and this closure used to ignore its third argument
+   while the comment claimed a rim existed. d is in raster pixels, so dividing by the authored
+   height turns the band into body fractions - the rim stays the same thickness at 56 px and
+   at 300 px instead of thinning out as poses get sharper. SC.* is read at closure-build time
+   rather than per pixel: this used to hit SC.s.h / SC.s.w / SC.sy three times a pixel. */
 function bodyPaint(col, k) {
-  const C = rgb(col);
-  return (px, py) => {
-    const u = py / SC.s.h, v = px / SC.s.w;
-    const side = clamp((0.5 - v) * 1.15 * SC.sy, -0.32, 0.32);
-    const m = clamp((0.60 + 0.55 * (1 - u) + side) * (k === undefined ? 1 : k), 0.18, 1.6);
-    SHRGB[0] = C[0] * m; SHRGB[1] = C[1] * m; SHRGB[2] = C[2] * m;
+  const C = rgb(col), kk = k === undefined ? 1 : k;
+  const hh = 1 / SC.s.h, iw = 1 / SC.s.w, ih = 1 / SC.H, sy = SC.sy;
+  const BAND = 0.03, BINV = 1 / BAND;                     // rim width = 3% of body height
+  return (px, py, d) => {
+    const u = py * hh, v = px * iw;
+    const side = clamp((0.5 - v) * 1.15 * sy, -0.32, 0.32);
+    const base = clamp((0.60 + 0.55 * (1 - u) + side) * kk, 0.18, 1.6);
+    const t = clamp((d * ih + BAND) * BINV, 0, 1);         // 0 inside, 1 on the silhouette
+    const rim = t * t * (3 - 2 * t) * 0.45;                 // smoothstep, no sqrt
+    // ADDITIVE, and this is the part that mattered: multiplied by the albedo the rim was
+    // invisible because the albedos are dark (armour averages 35,59,68, so base+0.6 still
+    // rendered as a dark grey and the measured edge contrast did not move). A rim is light
+    // arriving from behind, so it is added as light and then scaled by the scene light at
+    // composite time like everything else - it cannot glow in a room that is dark.
+    SHRGB[0] = C[0] * base + 150 * rim;
+    SHRGB[1] = C[1] * base + 188 * rim;
+    SHRGB[2] = C[2] * base + 238 * rim;
     return SHRGB;
   };
 }

@@ -312,6 +312,76 @@ if (MODE === 'exposure') {
     buckets.map(v => (100 * v / gpix).toFixed(0)).join(',') +
     '   <24: ' + (100 * gdark / gpix).toFixed(0) + '%  blown ' + (100 * gclip / gpix).toFixed(2) + '%');
 }
+if (MODE === 'contrast') {
+  // Do the characters separate from the room they are standing in? Rendering the world twice,
+  // once with ENEMIES emptied, makes the difference EXACTLY the enemy silhouette - no projection
+  // math, no depth test guesswork, no dependence on how drawBillboard picks pixels. What matters
+  // for readability is the CONTRAST ALONG THAT SILHOUETTE'S EDGE, not the average over the body:
+  // a dark enemy on a dark wall is invisible even when its interior is perfectly shaded.
+  run('S.mode="play"; S.locked=false;');
+  for (let cam = 0; cam < 3; cam++) {
+    run(`startLevel(${LVL}, true); S.mode='play';`);
+    run(`(()=>{
+      const cs=[];for(let y=1;y<MH-1;y++)for(let x=1;x<MW-1;x++)if(!isSolid(x+.5,y+.5))cs.push([x,y]);
+      const c=cs.length?cs[((cs.length*0.31+${cam})|0)%cs.length]:[P.x|0,P.y|0];
+      P.x=c[0]+.5;P.y=c[1]+.5;P.pitch=0;P.z=floorAt(P.x,P.y);
+      // cam 0 looks down the longest sight line, cam 1 looks AT the nearest enemy, cam 2 parks
+      // the nearest enemy 3.5 m in front of the lens: the first measures specks on the horizon,
+      // the last measures the silhouette at the size a player actually has to read it, and with
+      // only ~0.2% of pixels covered an average is easily dominated by one lucky wall.
+      if (${cam} === 1 && ENEMIES.length) {
+        let be=null,bd=1e9;
+        for(const e of ENEMIES){if(e.state==='dead')continue;const d=Math.hypot(e.x-c[0]-.5,e.y-c[1]-.5);if(d<bd){bd=d;be=e;}}
+        if(be)P.ang=Math.atan2(be.y-P.y,be.x-P.x);
+      } else {
+        let best=0,bd=-1;
+        for(let k=0;k<48;k++){const a=k*Math.PI/24;
+          const d=castRayDist(c[0]+.5,c[1]+.5,Math.cos(a),Math.sin(a),9).dist;
+          if(d>bd){bd=d;best=a;}}
+        P.ang=best;
+      }
+      if (${cam} === 2 && ENEMIES.length) {
+        const fw = castRayDist(P.x, P.y, Math.cos(P.ang), Math.sin(P.ang), 8).dist;
+        const d = Math.min(3.5, Math.max(1.2, fw * 0.7));
+        const e = ENEMIES.find(e => e.state !== 'dead') || ENEMIES[0];
+        e.x = P.x + Math.cos(P.ang) * d; e.y = P.y + Math.sin(P.ang) * d;
+        e.z = floorAt(e.x, e.y); e.ang = P.ang + Math.PI; e.movingAmt = 0;
+      }
+      for(const e of ENEMIES)e.state='sleep';
+    })()`);
+    run('S.t = 3.5; renderWorld()');
+    const A = new Uint32Array(run('px'));
+    run('ENEMIES.length = 0; renderWorld()');
+    const B = new Uint32Array(run('px'));
+    const W = run('BW'), H = run('BH');
+    const lum = (b, i) => 0.2126 * (b[i] & 255) + 0.7152 * (b[i] >> 8 & 255) + 0.0722 * (b[i] >> 16 & 255);
+    const cov = new Uint8Array(W * H);
+    let cover = 0, dsum = 0, csum = 0, lost = 0, edge = 0, en = 0, ez = 0;
+    for (let i = 0; i < W * H; i++) {
+      const d = Math.abs(lum(A, i) - lum(B, i));
+      if (d > 4 || (A[i] >>> 24) - (B[i] >>> 24) !== 0) { cov[i] = 1; cover++; dsum += d; ez++; }
+    }
+    for (let y = 1; y < H - 1; y++) for (let x = 1; x < W - 1; x++) {
+      const i = y * W + x;
+      if (!cov[i] || (cov[i - 1] && cov[i + 1] && cov[i - W] && cov[i + W])) continue;
+      // silhouette boundary pixel: compare the two renders where the enemy is NOT
+      const j = cov[i - 1] ? i + 1 : cov[i + 1] ? i - 1 : cov[i - W] ? i + W : i - 1;
+      const dA = Math.abs(lum(A, i) - lum(B, j)), dB = Math.abs(lum(A, j) - lum(A, i));
+      const d = Math.max(dA, dB);
+      edge += d; en++;
+      const dl = Math.abs(lum(A, i) - lum(B, j));
+      if (dl < 10) lost++;
+      csum += (Math.abs((A[i] & 255) - (B[j] & 255)) + Math.abs((A[i] >> 8 & 255) - (B[j] >> 8 & 255)) + Math.abs((A[i] >> 16 & 255) - (B[j] >> 16 & 255))) / 3;
+    }
+    const pct = (100 * cover / (W * H)).toFixed(1);
+    const body = ez ? (dsum / ez).toFixed(0) : '0';
+    const ed = en ? (edge / en).toFixed(0) : '0';
+    console.log('cam ' + cam + '  cover ' + pct + '%  body dL ' + body + '  edge dL ' + ed +
+      '  edge dRGB ' + (en ? (csum / en).toFixed(0) : '0') + '  lost ' + (en ? (100 * lost / en).toFixed(0) : '0') +
+      '%' + (en === 0 ? '  NO ENEMY IN FRAME' : +ed < 24 ? '   WEAK - silhouettes merge into the room' : '   READS'));
+  }
+}
+
 if (MODE === 'viewmodel') {
   run('S.mode="play"; S.locked=false; startLevel(0, true);');
   const DW = run('DW'), DH = run('DH');
