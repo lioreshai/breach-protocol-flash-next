@@ -20,15 +20,22 @@ jobs:
           fetch-depth: 0
 
       - name: CHANGELOG entry required
+        env:
+          # Passed as env, never spliced into the script. The previous version put
+          # ${{ github.event.pull_request.body }} inside single quotes in the command, so a body
+          # containing an apostrophe ("the repo's real gates") closed the quote and broke the
+          # test - and any body at all was being interpreted by the shell, which is the same bug
+          # with a security label on it.
+          PR_BODY: ${{ github.event.pull_request.body }}
+          BASE: ${{ github.base_ref }}
         run: |
           set -euo pipefail
-          base="${{ github.base_ref }}"
-          git fetch -q origin "$base"
-          if git diff --name-only "origin/$base"...HEAD | grep -qx 'CHANGELOG.md'; then
+          git fetch -q origin "$BASE"
+          if git diff --name-only "origin/$BASE"...HEAD | grep -qx 'CHANGELOG.md'; then
             echo "CHANGELOG.md is updated by this PR"
             exit 0
           fi
-          if printf '%s' '${{ github.event.pull_request.body }}' | grep -q '\[no-changelog\]'; then
+          if printf '%s' "$PR_BODY" | grep -q '\[no-changelog\]'; then
             echo "exempt: PR body carries [no-changelog]"
             exit 0
           fi
