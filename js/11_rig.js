@@ -247,7 +247,8 @@ function rigHound(pose, C, sp) {
     const front = i < 2 ? 1 : -1, side = i % 2 ? 1 : -1;
     const a2 = pose.p * TAU + (front > 0 ? 0 : Math.PI) + (side > 0 ? Math.PI * 0.5 : 0);
     const sw = pose.die > 0.01 ? 0.15 * side : Math.sin(a2) * (0.22 + 0.34 * pose.mv);   // was 0.30+0.42: at that splay the animal read as a stool
-    const bend = 0.32 + 0.5 * Math.max(0, Math.sin(a2 + 1.1));
+    // Front legs straight, hind legs hocked: four identical limbs is a big part of the stool look.
+    const bend = (front > 0 ? 0.12 : 0.50) + (front > 0 ? 0.20 : 0.60) * Math.max(0, Math.sin(a2 + 1.1));
     const jx = front * 0.19 * Math.abs(sy) + side * 0.05 * cy, jy = cyy + (front > 0 ? 0.005 : -0.055);   // start under the belly, not at its corners
     const a1 = Math.PI / 2 - sw * (0.5 + 0.5 * Math.abs(sy)) + front * sy * 0.22;
     const knee = limb(jx, jy, a1, sp.thigh, sp.limb * 1.5 * (side > 0 ? 1 : 0.9), side > 0 ? bodyP : darkP);
@@ -256,17 +257,31 @@ function rigHound(pose, C, sp) {
     // A paw that plants: a tapered limb ending in nothing reads as a stick at any distance.
     box(pastern[0] + 0.022 * front * Math.abs(sy), pastern[1] - 0.013, 0.062, 0.028, 0, 0.011, side > 0 ? darkP : bodyPaint(C.dark, 0.8));
   }
-  box(0, cyy, sp.torso * (0.45 + 0.55 * Math.abs(sy)), 0.21, pitch, 0.085, bodyP);
-  box(Math.sin(pitch) * 0.02, cyy + 0.12, sp.torso * 0.7 * Math.max(0.15, Math.abs(sy)), 0.03, pitch, 0.014, ridgeP);
-  const nx = Math.sin(pitch) * sp.torso * 0.4 + sy * 0.03, ny = cyy + Math.cos(pitch) * 0.05 + 0.06;
-  limb(Math.sin(pitch) * sp.torso * 0.28, ny - 0.02, Math.PI / 2 - pitch - 0.45, sp.torso * 0.3, 0.05, bodyP);
-  segB(nx, ny, nx + 0.075 * sy, ny - 0.025, sp.headR * 0.78, bodyP);
-  disc(nx + 0.055 * sy + 0.03 * cy, ny - 0.03, sp.headR * 0.55, bodyPaint(C.skin));
+  // Tail drawn BEFORE the body, not last: the signed sy that puts the head forward puts the tail
+  // base behind, but at head-on yaws the segment still lands inside the body silhouette, so drawn
+  // last it read as a dark bar across the chest - and as a fifth leg when it reached the floor.
+  // pi + 0.72 sweeps it back and UP; the old pi/2 + 0.85 hung it straight down the haunch.
+  const tA = Math.PI + 0.72 - Math.sin(pose.p * TAU) * 0.28 - pitch;
+  const t1 = limb(-0.135 * sy, cyy + 0.055, tA, 0.105, 0.028, darkP);
+  limb(t1[0], t1[1], tA - 0.30 + Math.sin(pose.p * TAU * 2) * 0.22, 0.085, 0.018, darkP);
+  // Chest, haunch and a low belly bar instead of one rounded box: a single box with big corner
+  // radius is a table top, and the animal needs a withers, a waist and a tuck-up.
+  const ws = 0.45 + 0.55 * Math.abs(sy);
+  box(0.115 * sy, cyy + 0.030, sp.torso * 0.40 * ws, 0.225, pitch, 0.070, bodyP);
+  box(-0.125 * sy, cyy - 0.010, sp.torso * 0.40 * ws, 0.190, pitch, 0.065, bodyP);
+  box(0, cyy - 0.050, sp.torso * 0.62 * ws, 0.075, pitch, 0.035, bodyP);
+  box(Math.sin(pitch) * 0.02, cyy + 0.100, sp.torso * 0.50 * ws, 0.026, pitch, 0.011, ridgeP);
+  // Neck runs UP and forward. limb() computes by = y - sin(ang)*len with +y up, so "down" is
+  // pi/2 and "up" is -pi/2: the old angle (pi/2 - pitch - 0.45) pointed the neck DOWN into the
+  // chest, which is why the head only appeared as a nub at some yaws.
+  const nk = limb(0.115 * sy, cyy + 0.085, -Math.PI / 2 + 0.68 - pitch, 0.130, 0.048 * ws + 0.016, bodyP);
+  const hx = nk[0] + 0.020 * sy, hy = nk[1] + 0.006;
+  box(hx, hy, 0.075 * ws + 0.026, 0.070, pitch - 0.12, 0.024, bodyP);
+  box(hx + 0.058 * sy, hy - 0.020, 0.070 * Math.max(0.30, Math.abs(sy)) + 0.012 * Math.abs(cy), 0.040, pitch - 0.06, 0.016, bodyPaint(C.skin));
+  box(hx - 0.026 * sy, hy + 0.048, 0.024 * ws + 0.010, 0.052, pitch + 0.30, 0.009, darkP);
   if (cy > -0.4) {
-    box(nx + 0.04 * sy, ny + 0.022, 0.04 * (0.3 + 0.7 * Math.abs(cy)), 0.015, 0, 0, flatPaint(rgb(C.eye), u => 0.85 + 0.35 * u));
+    box(hx + 0.030 * sy, hy + 0.002, 0.018 * (0.3 + 0.7 * Math.abs(cy)), 0.013, 0, 0, flatPaint(rgb(C.eye), u => 0.85 + 0.35 * u));
   }
-  const tA = Math.PI / 2 + 0.85 - Math.sin(pose.p * TAU) * 0.3 - pitch;
-  limb(-Math.sin(pitch) * sp.torso * 0.45, ny + 0.03, tA, 0.16, 0.02, darkP);
 }
   return { frame, beginFrame, clear, stats, raster: (k, h, p) => raster(k, h, p), get bytes() { return bytes; } };
 })();
