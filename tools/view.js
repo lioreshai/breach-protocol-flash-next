@@ -91,8 +91,16 @@ function elStub(id) {
   elements[id] = base;
   return base;
 }
+// Same defect smoke.js had: the generator draws from Math.random, so an unseeded probe renders
+// a DIFFERENT LEVEL every run - which quietly invalidated before/after visual comparisons (two
+// PNGs described as "same camera, one change" were different worlds). Object.assign cannot
+// clone Math (its own properties are non-enumerable per spec); chain and shadow random.
+const SEED = (Number(process.env.SEED) || 12345) >>> 0;
+let rs = SEED;
+const sbMath = Object.create(Math);
+sbMath.random = () => { rs ^= rs << 13; rs >>>= 0; rs ^= rs >>> 17; rs ^= rs << 5; rs >>>= 0; return rs / 4294967296; };
 const sandbox = {
-  console, Math, Date, JSON, Object, Array, String, Number, Boolean, Error, isNaN, isFinite, parseInt, parseFloat,
+  console, Math: sbMath, Date, JSON, Object, Array, String, Number, Boolean, Error, isNaN, isFinite, parseInt, parseFloat,
   setTimeout, clearTimeout, Uint8Array, Uint16Array, Uint32Array, Int8Array, Int16Array, Int32Array, Float32Array, Float64Array, Uint8ClampedArray,
   document: {
     getElementById: elStub, createElement: () => canvasStub(), addEventListener: noop,
