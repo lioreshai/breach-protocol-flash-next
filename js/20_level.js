@@ -76,6 +76,18 @@ function ceilAt(x, y) {
    material at the higher of the two floors; its top is ceilAt(x,y) of the air side, where the
    ceiling pass takes over. Flat, that is the pair the raycaster hard-coded: 0 and 1. */
 const faceZ0 = (x, y, d) => Math.max(floorAt(x, y), floorAt(x + DIRX[d], y + DIRY[d]));
+/* Ceiling plane of every column in world units, derived from the grid wherever the grid is derived
+   (linkBoundaries). The ground pass reads this instead of calling ceilAt at every cell crossing:
+   identical numbers, but ~1300 calls once per level instead of ~5000 per frame inside the pixel
+   loop, which was the difference between the flat world paying nothing for the per-cell solver and
+   paying 5% of it. It is filled by CALLING ceilAt, so the formula exists once, and it hangs off the
+   same hook as MAP.vb because a stamp that says "the grid moved" is one forgotten write away from
+   drawing last frame's ceilings - which is why tools/view.js planes checks it against ceilAt. */
+function buildCeilPlanes() {
+  const cp = MAP.ceilPlane;
+  for (let y = 0, i = 0; y < MH; y++) for (let x = 0; x < MW; x++, i++) cp[i] = ceilAt(x, y);
+  return cp;
+}
 /* Which band of the column (x,y) an altitude belongs to. A column has one walkable band
    in this representation, so the answer is 0 inside it and -1 in the slabs and void
    around it - enough to make "is this upstairs from that" a real question by M4. */
@@ -102,6 +114,7 @@ function linkBoundaries() {
     }
     MAP.vb[i] |= bits;
   }
+  buildCeilPlanes();                                      // ceilings are derived from the same grid
 }
 /* Which side of its own cell a mover at (fx,fy) crosses to reach (tx,ty); -1 when the
    two are the same column, or only touch at a corner that the other probes already see. */
@@ -325,7 +338,8 @@ function genLevel(li) {
       floorTex: FLOORS[cfgL.floor] || FLOORS.CONCRETE, ceilTex: CEILS[cfgL.ceil] || CEILS.CONCRETE,
       floorTile: 1.15, ceilTile: 0.9,
       fz: new Int8Array(N * N), cz: new Uint8Array(N * N).fill(CZ_DEF),
-      vb: new Uint16Array(N * N), feat: new Uint8Array(N * N) };
+      vb: new Uint16Array(N * N), feat: new Uint8Array(N * N),
+      ceilPlane: new Float64Array(N * N) };
     MW = N; MH = N; linkBoundaries(); decalGridInit();
 
     bfsDist = dist;
@@ -395,7 +409,7 @@ function genLevel(li) {
     lR: new Float32Array(N * N).fill(0.6), lG: new Float32Array(N * N).fill(0.6), lB: new Float32Array(N * N).fill(0.6), lw: new Float32Array(N * N).fill(0.7),
     lt: new Uint8Array(N * N * 3).fill(128), amb: 0.14, tintDirty: false, floorTex: FLOORS.CONCRETE, ceilTex: CEILS.CONCRETE, floorTile: 1.15, ceilTile: 0.9,
     fz: new Int8Array(N * N), cz: new Uint8Array(N * N).fill(CZ_DEF),
-    vb: new Uint16Array(N * N), feat: new Uint8Array(N * N) };
+    vb: new Uint16Array(N * N), feat: new Uint8Array(N * N), ceilPlane: new Float64Array(N * N) };
   MW = N; MH = N; linkBoundaries(); decalGridInit(); explored = new Uint8Array(N * N); S.revealed = 0;
   LIGHTS = []; PROPS = []; PICKUPS = []; PROJ = []; PARTS = []; ENEMIES = [];
   exitX = N - 2.5; exitY = N - 2.5; P.x = 2.5; P.y = 2.5;

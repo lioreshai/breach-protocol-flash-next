@@ -14,6 +14,10 @@ one change: say what the reader would notice, not which file was touched.
 - `?dev=1` boots the game with no click and no pointer lock and publishes a `DEV` console API (deterministic camera and enemy placement, frozen frames, a DDA ray query, runtime quality overrides including the character rim light), documented in the README.
 
 ### Changed
+- The floor and ceiling are now solved against the height of the cell each pixel's ray lands in,
+  instead of against the eye's own floor and ceiling stretched across the whole level: nothing
+  changes on today's flat levels — that parity is the gate — and `view.js heights` is the probe that
+  proves a room's floor and ceiling now follow the room rather than the camera.
 - The extra-seeds check runs on merges to main instead of on every branch push and pull request: it printed the same informational verdict every time and cost ~6 runner-minutes doing it.
 - Verification rule written down: anything observable on the live site is verified without waiting for a human report. Fixes a stale note claiming image input is broken here.
 - README shows what the game actually looks like today, captured from the deployed build, and that pass is a standing rule after every visible merge.
