@@ -233,3 +233,22 @@ the rim fix) was closed the instant PR #8 merged and deleted that branch — no 
 commit was nowhere near `main`. A silently closed PR looks like a merged one in a session summary, so
 verify a fix reached `main` by grepping its content (`git show origin/main:js/11_rig.js | grep -c rimSil`),
 never by PR bookkeeping. Branch every change off `main`; if two changes touch the same file, sequence them.
+
+## Issue tracking
+
+Status lives in [issues](https://github.com/lioreshai/breach-protocol-flash-next/issues); `ROADMAP.md`
+keeps direction and measured constraints, and prose status tables are not to be reintroduced. A PR
+body carries `Closes #N` — **the keyword, not a bare `#N`**, because merges here are squash merges and
+a bare reference links the issue while leaving it open, which is how a tracker dies. `[no-issue]` is
+the opt-out, same shape as `[no-changelog]`, and the `issue` check in `pr-guard.yml` is the gate.
+
+Milestones are issues too (M2 = #13, M3 = #14, M4 = #15, M5+M6 = #16), so "what is left" is a query
+rather than a document. Two habits follow from how this repo merges:
+
+- **Confirm the close.** After an admin squash merge, check `gh issue view N --json state` instead of
+  assuming. A merge whose reference lived in the commit message but not the PR body closes nothing, and
+  an issue left open after its work shipped is worse than no issue, because the next reader re-does it.
+- **File a measured defect as an issue in the session that measured it**, numbers in the body. Bug #20
+  (the mip chain averages alpha to 254 while the ground tests `alpha === 253` exactly, so emissive
+  texels silently lose their light-exempt path in every mip) was a by-product of reading code for a
+  different task; parked in a transcript it would have evaporated.
