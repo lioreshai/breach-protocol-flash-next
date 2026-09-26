@@ -417,6 +417,20 @@ if (MODE === 'heights') {
   // a camera a cell from the western border looking OUT of the map: CAMSET's longest-ray yaw points the solver away from the border, which makes every out-of-map branch unreachable for every gate
   const LOOKOUT = `;(()=>{let by=1;for(let y=1;y<MH-1;y++)if(!isSolid(1.5,y+.5)){by=y;break;}` +
     `P.x=1.5;P.y=by+.5;P.ang=Math.PI;P.pitch=BH*0.02;P.z=floorAt(P.x,P.y);for(const e of ENEMIES)e.state='sleep';})()`;
+  /* Depth agreement (PR #44): occlusion is one value per PIXEL now, and the pixels the ground pass
+     queues are exactly the ones where the ROW's distance is the WRONG distance - at the lip of a step
+     the colour comes from another plane while the row's fill left its own. So "every ground pixel
+     writes the distance it computed" can only be checked where the deferred path runs, which is
+     nowhere a shipped level goes. This records which pixels the renderer itself decided to defer, by
+     wrapping groundPixel around the ground-only repaint below and restoring it immediately (the
+     determinism replay must not run through a wrapper, and no timing is asserted here). */
+  run('var ZD={a:[],set:new Uint8Array(0),n:0};');
+  const ZRESET = '(()=>{if(ZD.set.length<BW*BH)ZD.set=new Uint8Array(BW*BH);else ZD.set.fill(0);'
+    + 'ZD.a.length=0;ZD.n=0})()';
+  const ZON = `(()=>{if(!globalThis.__gpO){globalThis.__gpO=groundPixel;const O=groundPixel;groundPixel=` +
+    `function(x,pl,row){ZD.set[row+x]=1;if((ZD.n++&31)===0&&ZD.a.length<12288)ZD.a.push(x,row,pl);` +
+    `return O.apply(this,arguments)}}})()`;
+  const ZOFF = '(()=>{if(globalThis.__gpO){groundPixel=globalThis.__gpO;globalThis.__gpO=null}})()';
   /* Per config: what to poke, and which half of the frame has to move. 'still' is the assertion that
      a floor row and a ceiling row are solved against DIFFERENT planes; 'move' is the one that says
      the solver reads the grid at all. A floor poke CAN legitimately move a ceiling - ceilAt takes
@@ -430,22 +444,24 @@ if (MODE === 'heights') {
     // the floor drops a metre beyond 3 m, WALL COLUMNS WITH IT: a sunken band whose bounding wall
     // stops at the higher floor has a face of span 0, which is a grid fault, not a renderer one,
     // and the faces line below is what proves the config is legal before it blames the pass
-    ['pit', '(()=>{for(let i=0;i<MW*MH;i++){const x=i%MW,y=(i/MW)|0;if(Math.hypot(x+0.5-P.x,y+0.5-P.y)>3)MAP.fz[i]-=4;}})()' + CARRY, 'move', 'still'],
+    ['pit', '(()=>{for(let i=0;i<MW*MH;i++){const x=i%MW,y=(i/MW)|0;if(Math.hypot(x+0.5-P.x,y+0.5-P.y)>3)MAP.fz[i]-=4;}})()' + CARRY, 'move', 'still', false, false, true],
     // every other 4-column band is a metre down, walls included: maximum plane churn per row while
     // every boundary keeps a face of positive span, and ceilAt of a sunk band lands below the eye
-    ['stripes', 'for(let i=0;i<MW*MH;i++)if(((i%MW)>>2)&1)MAP.fz[i]-=4' + CARRY + SPLAT, 'move', 'still', true, true],
-    // the border-facing camera: rays that LEAVE the level, so the out-of-map fallbacks run at all
-    ['border', 'for(let i=0;i<MW*MH;i++)if(((i%MW)>>2)&1)MAP.fz[i]-=4' + CARRY + LOOKOUT, 'move', 'any', false, true],
+    ['stripes', 'for(let i=0;i<MW*MH;i++)if(((i%MW)>>2)&1)MAP.fz[i]-=4' + CARRY + SPLAT, 'move', 'still', true, true, true],
+    // the border-facing camera: rays that LEAVE the level, so the out-of-map fallbacks run at all.
+    // It queues NO deferred pixel though, and that is the rule rather than a gap: a column outside the
+    // map has no plane of its own, so those pixels keep the row's predictor (wantDepth stays false).
+    ['border', 'for(let i=0;i<MW*MH;i++)if(((i%MW)>>2)&1)MAP.fz[i]-=4' + CARRY + LOOKOUT, 'move', 'any', false, true, false],
     // a platform 0.25 up beyond 2 m: the case with no riser to draw, must not show far geometry
-    ['stepUp', '(()=>{for(let i=0;i<MW*MH;i++){if(MAP.cell[i])continue;const x=i%MW,y=(i/MW)|0;const d=Math.hypot(x+0.5-P.x,y+0.5-P.y);if(d>2&&d<=7)MAP.fz[i]+=1;}})()', 'move', 'any'],
+    ['stepUp', '(()=>{for(let i=0;i<MW*MH;i++){if(MAP.cell[i])continue;const x=i%MW,y=(i/MW)|0;const d=Math.hypot(x+0.5-P.x,y+0.5-P.y);if(d>2&&d<=7)MAP.fz[i]+=1;}})()', 'move', 'any', false, false, true],
     // the eye stands on the raised band, so the row predictor comes from floorAt, not from eyeZ
-    ['eyeUp', '(()=>{for(let i=0;i<MW*MH;i++){if(MAP.cell[i])continue;const x=i%MW,y=(i/MW)|0;if(Math.hypot(x+0.5-P.x,y+0.5-P.y)<=1.5)MAP.fz[i]+=1;}P.z=floorAt(P.x,P.y)})()', 'move', 'any']
+    ['eyeUp', '(()=>{for(let i=0;i<MW*MH;i++){if(MAP.cell[i])continue;const x=i%MW,y=(i/MW)|0;if(Math.hypot(x+0.5-P.x,y+0.5-P.y)<=1.5)MAP.fz[i]+=1;}P.z=floorAt(P.x,P.y)})()', 'move', 'any', false, false, true]
   ];
   let bad = 0;
   for (let li = 0; li < run('LEVELS.length'); li++) {
     let ref = null, refF = null, flatMean = 0;
     console.log(`level ${li}`);
-    for (const [name, poke, wantFloor, wantCeil, wantDecals, wantOutMap] of cfgs) {
+    for (const [name, poke, wantFloor, wantCeil, wantDecals, wantOutMap, wantDepth] of cfgs) {
       seedRng(4242 + li * 31);
       run(`S.mode='play';S.locked=false;startLevel(${li},true);`);
       const cam = run(CAMSET);
@@ -463,7 +479,9 @@ if (MODE === 'heights') {
       run('renderWorld()');
       const BW = run('BW'), BH = run('BH'), hInt = run('Math.round(horizon)'), n = BW * BH;
       const full = new Uint32Array(run('px'));
+      run(ZRESET + ';' + ZON);
       run('px.fill(pack(FOGC[0],FOGC[1],FOGC[2]));reSolveBad=0;gndOffMap=0;castGround(S.flash,FOGC[0],FOGC[1],FOGC[2]);');
+      run(ZOFF);
       const cur = new Uint32Array(run('px'));
       const reS = run('({bad:reSolveBad,off:gndOffMap})');   // this ground pass only, not the renderWorld before it
       let sum = 0, dark = 0, lo = 0, hi = 0, loDiff = 0, hiDiff = 0, fullDiff = 0;
@@ -481,6 +499,70 @@ if (MODE === 'heights') {
         }
       }
       const mean = sum / n, loP = ref ? 100 * loDiff / lo : 0, hiP = ref ? 100 * hiDiff / hi : 0;
+      /* Depth agreement. For a sampled deferred pixel the STORED value is turned back into the plane
+         it implies (d = dz*BH/|p| inverted), and that plane has to be either the plane the pixel was
+         queued with or the plane of the cell the pixel landed in - which is the settle condition the
+         solver promises, so it is a check rather than a second solver. A pixel left at the ROW's
+         distance implies the row's plane, which differs from its own by at least one quantum, so it
+         cannot pass. Dozens of samples per config, no ceilAt/floorAt, no per-pixel scan. */
+      const zc = new Float32Array(run('zbuf')), zset = run('ZD.set');
+      const st = run('({BW,BH,hz:Math.round(horizon),camX,camY,dirX,dirY,planeX,planeY,eyeZ,ZQ,FARB,'
+        + 'N:MAP.w,n:ZD.n,rec:ZD.a.length})');
+      const ZA = run('ZD.a'), fzs = new Float64Array(run('MAP.fz')),
+        cpl = new Float64Array(run('MAP.ceilPlane')), cel = new Uint8Array(run('MAP.cell'));
+      const eX = st.camX | 0, eY = st.camY | 0, eAir = eX >= 0 && eY >= 0 && eX < st.N && eY < st.N && !cel[eY * st.N + eX];
+      /* the row's predictor plane, per half of the frame - the same four lines castGround runs */
+      const pA = [0, 1].map(ai => {
+        const raw = eAir ? (ai ? cpl[eY * st.N + eX] : fzs[eY * st.N + eX] * st.ZQ) : st.eyeZ;
+        const ok = ai ? raw > st.eyeZ : raw < st.eyeZ;
+        return ok ? raw : (ai ? Math.max(1, st.eyeZ + st.ZQ) : Math.min(0, st.eyeZ - st.ZQ));
+      });
+      let dTot = 0, dBad = 0, dStale = 0, dCeilS = 0, dWhy = '';
+      const rec = st.rec / 3, stepS = Math.max(1, Math.ceil(rec / 48));
+      for (let s = 0; s < rec; s += stepS) {
+        const x = ZA[s * 3], row = ZA[s * 3 + 1], pl = ZA[s * 3 + 2];
+        const p = row / st.BW - st.hz, isF = p > 0, ai = isF ? 0 : 1, absP = isF ? p : -p;
+        const got = zc[row + x];
+        dTot++; if (!isF) dCeilS++;
+        if (!isFinite(got) || !(got > 0)) { dBad++; if (!dWhy) dWhy = 'store ' + got; continue; }
+        const dRow = (isF ? st.eyeZ - pA[ai] : pA[ai] - st.eyeZ) * st.BH / absP;
+        if (Math.abs(got - dRow) <= Math.max(1e-5, dRow * 1e-6)) {
+          dStale++; if (!dWhy) dWhy = `keeps the row's ${dRow.toFixed(2)} at plane ${pl.toFixed(2)}`; continue;
+        }
+        const cf = x * (2 / st.BW) - 1, rx = st.dirX + st.planeX * cf, ry = st.dirY + st.planeY * cf;
+        const implied = isF ? st.eyeZ - got * absP / st.BH : st.eyeZ + got * absP / st.BH;
+        const qx = (st.camX + rx * got) | 0, qy = (st.camY + ry * got) | 0;
+        let ref2 = pl;                                            // the plane it was queued with
+        if (qx >= 0 && qy >= 0 && qx < st.N && qy < st.N && !cel[qy * st.N + qx])
+          ref2 = isF ? fzs[qy * st.N + qx] * st.ZQ : cpl[qy * st.N + qx];
+        if (Math.abs(implied - ref2) > st.ZQ + 1e-3 && Math.abs(implied - pl) > st.ZQ + 1e-3) {
+          dBad++; if (!dWhy) dWhy = `implies z=${implied.toFixed(2)}, the plane there is ${ref2.toFixed(2)}`;
+        }
+      }
+      /* Structure rather than sampling: every pixel the row painted itself must carry the row's own
+         distance - the far band included, since that branch fills the row with the same number - and a
+         pixel the row did NOT queue must still hold the sentinel in a ceiling row, which is the #45
+         carve-out. Deferred pixels are excluded here and covered by the samples above, so this cannot
+         double-count a pixel the solver legitimately moved. */
+      let hzBad = 0, rowBad = 0, rowTot = 0, farRows = 0, farBad = 0, ceilBad = 0, ceilTot = 0;
+      if (st.hz >= 0 && st.hz < st.BH) for (let x = 0; x < st.BW; x++) if (zc[st.hz * st.BW + x] !== Infinity) hzBad++;
+      const tolRel = 1e-6;
+      for (let y = 0; y < st.BH; y++) {
+        const p = y - st.hz;
+        if (!p) continue;
+        const isF = p > 0, ai = isF ? 0 : 1, absP = isF ? p : -p;
+        const dR = (isF ? st.eyeZ - pA[ai] : pA[ai] - st.eyeZ) * st.BH / absP;
+        const far = isF && dR > st.FARB;
+        if (far && y > st.hz) farRows++;
+        for (const fx of [0.13, 0.37, 0.61, 0.87]) {
+          const i = y * st.BW + ((st.BW * fx) | 0);
+          if (zset[i]) continue;                                   // deferred: the samples cover it
+          if (isF) {
+            rowTot++;
+            if (Math.abs(zc[i] - dR) > Math.max(1e-5, dR * tolRel)) { rowBad++; if (far) farBad++; }
+          } else { ceilTot++; if (zc[i] !== Infinity) ceilBad++; }
+        }
+      }
       let fail = '';
       /* The absolute band only catches the frame that went grey or blew out. The regression this
          repo paid for was 9 points of level-0 exposure, which sits comfortably inside that band, so
@@ -507,6 +589,14 @@ if (MODE === 'heights') {
       if (wantDecals && !dcov) fail += ' NO-DECAL-COVERAGE';
       // a re-solve that ran out of tries places the pixel on a plane its own cell contradicts
       if (reS.bad) fail += ' RE-SOLVE-NOT-CONVERGED';
+      // the deferred columns are the only pixels whose depth the row's fill cannot be trusted for, so
+      // a config that claims to poke them has to actually queue some, or the depth check above is vacuous
+      if (wantDepth && !st.n) fail += ' NO-DEFERRED-COVERAGE';
+      if (dStale) fail += ' DEFERRED-STALE-DEPTH';
+      if (dBad) fail += ' DEPTH-DISAGREES';
+      if (hzBad) fail += ' HORIZON-DEPTH';
+      if (rowBad) fail += ' ROW-DEPTH';
+      if (ceilBad) fail += ' CEILING-SENTINEL';
       // and the out-of-map fallbacks have to be executed by the config that claims to cover them
       if (wantOutMap && !reS.off) fail += ' NO-OUTMAP-COVERAGE';
       if (fail) bad++;
@@ -518,6 +608,12 @@ if (MODE === 'heights') {
         (wantDecals ? `  decal cells ${dcov}` : '') +
         `  re-solves bad ${reS.bad} off-map ${reS.off}` +
         `  eye ${cam.x.toFixed(1)},${cam.y.toFixed(1)} sight ${cam.d.toFixed(1)}m  ${fail ? 'FAIL' + fail : 'ok'}`);
+      console.log(`  ${pad('depth', 9)} ${dTot}/${st.n} deferred sampled, ` +
+        `${dStale ? dStale + ' STALE (row distance)' : dBad ? dBad + ' disagree' : 'all agree'}` +
+        `${dCeilS ? `, ${dCeilS} in ceiling rows (store their own depth: #45)` : ''}` +
+        `  rows ${rowTot} ok${rowBad ? ' ' + rowBad + ' BAD' : ''} (far band ${farRows}${farBad ? ' bad ' + farBad : ''})` +
+        `  horizon ${hzBad ? 'BROKEN' : 'sentinel ok'}  ceiling ${ceilBad ? ceilBad + '/' + ceilTot + ' NOT sentinel' : ceilTot + ' sentinel'}` +
+        `${dWhy ? '  ' + dWhy : ''}`);
       // determinism now runs on EVERY config and on the ground-only repaint: it used to sit under `if (!poke)`, i.e. on `flat` alone - the one config whose RX/RP queue is provably empty, so the deferred pixel body had no coverage while this printed ok
       seedRng(4242 + li * 31);
       run(`S.mode='play';S.locked=false;startLevel(${li},true);`);
