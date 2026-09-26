@@ -252,6 +252,45 @@ if (MODE === 'alt') {
   }
 }
 
+if (MODE === 'vert') {
+  /* M3 step 1: cell heights have to reach the occupancy gate. This calls bfsReach, the one BFS the
+     generator uses, so it tests the function the gate runs rather than a copy that can drift. */
+  let bad = 0;
+  for (let li = 0; li < 3; li++) {
+    const r = vm.runInContext(`(function(){
+      const warns = []; const ow = console.warn; console.warn = function (m) { warns.push(String(m)); };
+      startLevel(${li}, true);
+      console.warn = ow;
+      const N = MAP.w, start = MAP.rooms[0].cy * N + MAP.rooms[0].cx;
+      const flatFz = new Int8Array(N * N);
+      const flat = bfsReach(MAP.cell, flatFz, N, start);
+      let rf = 0, mx = -1, mxIdx = -1;
+      const exitIdx0 = ((exitY | 0) * N + (exitX | 0));
+      for (let i = 0; i < N * N; i++) if (flat[i] >= 0) { rf++; if (flat[i] > mx) { mx = flat[i]; mxIdx = i; } }
+      const stepFz = new Int8Array(N * N); for (let i = 0; i < N * N; i++) stepFz[i] = (i % 3) ? 1 : 0;
+      const dStep = bfsReach(MAP.cell, stepFz, N, start);
+      let rs = 0; for (let i = 0; i < N * N; i++) if (dStep[i] >= 0) rs++;
+      const splitFz = new Int8Array(N * N);
+      for (let y = 0; y < N; y++) for (let x = (N >> 1); x < N; x++) splitFz[y * N + x] = 2;
+      const dSplit = bfsReach(MAP.cell, splitFz, N, start);
+      let rb = 0, blocked = 0;
+      for (let i = 0; i < N * N; i++) { if (dSplit[i] >= 0) rb++; if (flat[i] >= 0 && dSplit[i] < 0) blocked++; }
+      const exitIdx = exitIdx0;
+      MAP.fz = splitFz; linkBoundaries();
+      return { N: N, exitAtFar: mxIdx === exitIdx0, exitDist: flat[exitIdx0], rfAtExit: mx, reachFlat: rf, reachStep: rs, reachSplit: rb, blocked: blocked,
+        warns: warns.length, exitSealed: dSplit[exitIdx] < 0, stamp: MAP.linkStamp };
+    })()`, ctxVm);
+    const ok = r.exitAtFar && r.reachStep === r.reachFlat && r.reachSplit < r.reachFlat && r.blocked > 0 && r.warns === 0 && r.exitSealed;
+    if (!ok) bad++;
+    console.log(`level ${li}  N ${r.N}  exit is the far cell ${r.exitAtFar ? 'ok' : 'FAIL'} (d=${r.exitDist})` +
+      `  one-step walkable ${r.reachStep === r.reachFlat ? 'ok' : 'FAIL ' + r.reachStep + '/' + r.reachFlat}` +
+      `  split reaches ${r.reachSplit}/${r.reachFlat} blocked ${r.blocked} ${r.blocked > 0 && r.reachSplit < r.reachFlat ? 'REFUSES ok' : 'FAIL'}` +
+      `  exit sealed ${r.exitSealed ? 'ok' : 'FAIL'}  FALLBACK warns ${r.warns} ${r.warns === 0 ? 'ok' : 'FALSE POSITIVE'}  ${ok ? 'ok' : 'FAIL'}`);
+  }
+  if (bad) { console.log('vert: FAILED'); process.exit(1); }
+  console.log('vert: all levels ok');
+}
+
 if (MODE === 'planes') {
   // What alt reports as "flat" is the FLOOR grid. The ground pass solves each pixel against the
   // plane of the cell it lands in - floor below the horizon, MAP.ceilPlane above it - so a
