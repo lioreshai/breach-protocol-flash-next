@@ -27,8 +27,10 @@ const SPEC = {
 
 /* ---------------- shaded primitives (Surf.shape with an analytic SDF) ------- */
 let SC = null;                                     // {s, H} current raster context
-const RIM_ON = 0.45;                               // the rim gain this file has always shipped with
+const RIM_ON = 0.72;
 let RIM = RIM_ON;                                  // DEV.set('rim', false) puts it at 0 for a live A/B
+const RIM_BAND = 0.03;                             // rim width = 3% of body height, as it always was
+let RIMD = null;                                   // distance scratch, grown to the largest pose
 const SHRGB = [0, 0, 0];                            // shade closures must not allocate per pixel
 const rgb = hex => [parseInt(hex.slice(1, 3), 16), parseInt(hex.slice(3, 5), 16), parseInt(hex.slice(5, 7), 16)];
 const segSD = (ax, ay, bx, by, r) => (px, py) => {
@@ -48,33 +50,79 @@ const obbSD = (cx, cy, hx, hy, ang, r) => {
 };
 const discSD = (cx, cy, r) => (px, py) => Math.hypot(px - cx, py - cy) - r;
 
-/* paint closure: body shading - vertical ramp, a yaw ramp, and a real silhouette rim.
-   The rim is free: shape() already hands the shading closure the signed distance to the
-   silhouette in `d` (js/05_paint.js:147), and this closure used to ignore its third argument
-   while the comment claimed a rim existed. d is in raster pixels, so dividing by the authored
-   height turns the band into body fractions - the rim stays the same thickness at 56 px and
-   at 300 px instead of thinning out as poses get sharper. SC.* is read at closure-build time
-   rather than per pixel: this used to hit SC.s.h / SC.s.w / SC.sy three times a pixel. */
+/* paint closure: body shading only - vertical ramp plus a yaw ramp.
+   The rim used to be added here, from the signed distance shape() passes as `d`. That distance is
+   to the *primitive's own* boundary, so every capsule, box and disc rimmed itself - including the
+   boundaries buried inside the body where parts overlap, which is what a live close-up showed as
+   pale rounded rectangles around the torso, head and each leg. The rim now happens once, over the
+   finished silhouette, in rimSil(). SC.* is read at closure-build time rather than per pixel. */
 function bodyPaint(col, k) {
   const C = rgb(col), kk = k === undefined ? 1 : k;
-  const hh = 1 / SC.s.h, iw = 1 / SC.s.w, ih = 1 / SC.H, sy = SC.sy, rg = RIM;
-  const BAND = 0.03, BINV = 1 / BAND;                     // rim width = 3% of body height
-  return (px, py, d) => {
+  const hh = 1 / SC.s.h, iw = 1 / SC.s.w, sy = SC.sy;
+  return (px, py) => {
     const u = py * hh, v = px * iw;
     const side = clamp((0.5 - v) * 1.15 * sy, -0.32, 0.32);
     const base = clamp((0.60 + 0.55 * (1 - u) + side) * kk, 0.18, 1.6);
-    const t = clamp((d * ih + BAND) * BINV, 0, 1);         // 0 inside, 1 on the silhouette
-    const rim = t * t * (3 - 2 * t) * rg;                 // smoothstep, no sqrt
-    // ADDITIVE, and this is the part that mattered: multiplied by the albedo the rim was
-    // invisible because the albedos are dark (armour averages 35,59,68, so base+0.6 still
-    // rendered as a dark grey and the measured edge contrast did not move). A rim is light
-    // arriving from behind, so it is added as light and then scaled by the scene light at
-    // composite time like everything else - it cannot glow in a room that is dark.
-    SHRGB[0] = C[0] * base + 150 * rim;
-    SHRGB[1] = C[1] * base + 188 * rim;
-    SHRGB[2] = C[2] * base + 238 * rim;
+    SHRGB[0] = C[0] * base;
+    SHRGB[1] = C[1] * base;
+    SHRGB[2] = C[2] * base;
     return SHRGB;
   };
+}
+
+/* Silhouette rim. Two chamfer sweeps give every covered texel its octile distance to the nearest
+   partially covered texel - that is, to the edge of the body as drawn - and the same smoothstep
+   band as before is then added as light. Cost is ~4 linear passes over the pose box instead of a
+   second raster of every part, and a seam between two overlapping parts sits far from any
+   partially covered texel, so it stops glowing while the outline keeps its light.
+   ADDITIVE, not multiplied: the albedos are dark (armour averages 35,59,68), so a multiplied rim
+   left measured edge contrast unmoved. It is scaled by scene light at composite time like
+   everything else, so it cannot glow in a room that is dark. */
+function rimSil(s, hpx) {
+  if (RIM <= 0) return;
+  const D = s.data, W = s.w, H = s.h, N = W * H, band = Math.max(1.5, hpx * RIM_BAND);
+  if (!RIMD || RIMD.length < N) RIMD = new Float32Array(N);
+  const dd = RIMD, INF = 1e6, DIAG = 1.4142;
+  for (let i = 0; i < N; i++) dd[i] = (D[i] >>> 24) < 255 ? 0 : INF;
+  for (let y = 0; y < H; y++) {
+    const r = y * W;
+    for (let x = 0; x < W; x++) {
+      const i = r + x;
+      let v = dd[i];
+      if (x > 0) { const t = dd[i - 1] + 1; if (t < v) v = t; }
+      if (y > 0) {
+        const u = i - W, t = dd[u] + 1;
+        if (t < v) v = t;
+        if (x > 0) { const q = dd[u - 1] + DIAG; if (q < v) v = q; }
+        if (x + 1 < W) { const q = dd[u + 1] + DIAG; if (q < v) v = q; }
+      }
+      dd[i] = v;
+    }
+  }
+  for (let y = H - 1; y >= 0; y--) {
+    const r = y * W;
+    for (let x = W - 1; x >= 0; x--) {
+      const i = r + x;
+      let v = dd[i];
+      if (x + 1 < W) { const t = dd[i + 1] + 1; if (t < v) v = t; }
+      if (y + 1 < H) {
+        const u = i + W, t = dd[u] + 1;
+        if (t < v) v = t;
+        if (x > 0) { const q = dd[u - 1] + DIAG; if (q < v) v = q; }
+        if (x + 1 < W) { const q = dd[u + 1] + DIAG; if (q < v) v = q; }
+      }
+      dd[i] = v;
+    }
+  }
+  const inv = 1 / band;
+  for (let i = 0; i < N; i++) {
+    const a = D[i] >>> 24;
+    if (a === 0) continue;
+    const t = 1 - dd[i] * inv;
+    if (t <= 0) continue;
+    const rim = t * t * (3 - 2 * t) * RIM, p = D[i];
+    D[i] = pk((p & 255) + 150 * rim, (p >> 8 & 255) + 188 * rim, (p >> 16 & 255) + 238 * rim, a);
+  }
 }
 function flatPaint(rgbArr, g) {
   return (px, py) => {
@@ -184,6 +232,7 @@ raster = (kind, hpx, pose) => {
   SC = { s, H: hpx, sy, px: x => s.w * 0.5 + x * hpx, py: y => hpx * (1 - y) };
   const C = COL[kind];
   if (kind === 'hound') rigHound(pose, C, sp); else rigBiped(pose, C, sp);
+  rimSil(s, hpx);
   SC = null;
   return { w: s.w, h: s.h, data: s.data };
 };
