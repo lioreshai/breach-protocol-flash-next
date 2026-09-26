@@ -201,6 +201,42 @@ function texStats(label, tex) {
     ' emis ' + emis + ' avgRGB ' + ((lr / n) | 0) + ',' + ((lg / n) | 0) + ',' + ((lbb / n) | 0) +
     ' blown ' + (100 * clip / n).toFixed(2) + '%' + dbg);
 }
+if (MODE === 'alt') {
+  // Altitude cross-section - the vertical generalisation of "is this level sane". Flat levels
+  // must report band 0 at 100%, 0 boundary faces and 0 mismatches; anything else means M0's
+  // claim that flat behaviour is bit-identical has broken. faces>0 with span<=0, or a wall byte
+  // between two open cells at the same height, is the invisible-wall signature that freezes DDA.
+  for (let li = 0; li < 3; li++) {
+    const r = vm.runInContext(`(function(){
+      startLevel(${li}, true);
+      const N = MAP.w, cell = MAP.cell, fz = MAP.fz, vb = MAP.vb;
+      let open = 0, nonFlat = 0, minF = 9e9, maxF = -9e9, faces = 0, faceUnblocked = 0, blockedFlat = [0,0,0,0];
+      const bands = {};
+      for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+        const i = y * N + x;
+        if (cell[i]) continue;
+        open++;
+        const f = fz[i] * ZQ; bands[f] = (bands[f] || 0) + 1;
+        if (fz[i] !== 0) nonFlat++;
+        if (f < minF) minF = f; if (f > maxF) maxF = f;
+        // Use the game's own direction arrays: an invented table reads the wrong nibble and
+        // reports phantom invisible walls (it did, as 0,23,23,0 on a level with no height at all).
+        for (let d = 0; d < 4; d++) {
+          const j = i + DIRY[d] * N + DIRX[d];
+          if (j < 0 || j >= N * N || cell[j]) continue;
+          const dq = fz[j] - fz[i], blocked = (vb[i] >> (d << 2)) & 1;
+          if (dq > 1) { faces++; if (!blocked) faceUnblocked++; }
+          else if (blocked) blockedFlat[d]++;
+        }
+      }
+      return { open, nonFlat, minF, maxF, faces, faceUnblocked, blockedFlat, bands, bandsN: MAP.bands };
+    })()`, ctxVm);
+    const flat = r.nonFlat === 0 && r.faces === 0 && r.blockedFlat.every(v => v === 0);
+    console.log(`level ${li}  open ${r.open}  floors ${r.minF}..${r.maxF}  bands ${JSON.stringify(r.bands)}`);
+    console.log(`         faces ${r.faces}  unblocked-step ${r.faceUnblocked}  blockedFlat byDir ${r.blockedFlat.join(',')}  ${flat ? 'ALL FLAT ok' : 'NOT FLAT - check above'}`);
+  }
+}
+
 if (MODE === 'exposure') {
   // average over levels x seeds: single runs swing +-20 just from lamp placement
   const N = run('LEVELS.length'), reps = +(process.env.REPS || 3);
