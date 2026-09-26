@@ -252,6 +252,31 @@ if (MODE === 'alt') {
   }
 }
 
+if (MODE === 'planes') {
+  // What alt reports as "flat" is the FLOOR grid. The ground pass solves each pixel against the
+  // plane of the cell it lands in - floor for rows below the horizon, ceilAt for rows above - so a
+  // ceiling that is not exactly 1 in a "flat" level makes segments break and moves pixels. This is
+  // the probe that says so: planes per level, floor and ceiling separately.
+  for (let li = 0; li < 3; li++) {
+    const r = vm.runInContext(`(function(){
+      startLevel(${li}, true);
+      const N = MAP.w; let fmin = 9e9, fmax = -9e9, cmin = 9e9, cmax = -9e9, open = 0, cnot1 = 0;
+      const cv = {};
+      for (let y = 1; y < N - 1; y++) for (let x = 1; x < N - 1; x++) {
+        if (MAP.cell[y * N + x]) continue;
+        open++;
+        const f = floorAt(x + 0.5, y + 0.5), c = ceilAt(x + 0.5, y + 0.5);
+        if (f < fmin) fmin = f; if (f > fmax) fmax = f;
+        if (c < cmin) cmin = c; if (c > cmax) cmax = c;
+        if (c !== 1) cnot1++;
+        cv[c.toFixed(4)] = (cv[c.toFixed(4)] || 0) + 1;
+      }
+      return { open, fmin, fmax, cmin, cmax, cnot1, cv };
+    })()`, ctxVm);
+    console.log(`level ${li}  open ${r.open}  floors ${r.fmin}..${r.fmax}  ceilings ${r.cmin}..${r.cmax}  ceil!=1 ${r.cnot1}  ${JSON.stringify(r.cv)}`);
+  }
+}
+
 if (MODE === 'exposure') {
   // average over levels x seeds: single runs swing +-20 just from lamp placement
   const N = run('LEVELS.length'), reps = +(process.env.REPS || 3);

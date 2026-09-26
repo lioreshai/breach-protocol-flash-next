@@ -78,6 +78,19 @@ case "$out" in *"SMOKE PASSED"*) git add -A && git commit ;; *) echo NOT COMMITT
   into the void, where the grid is undefined and DDA never hits (that is a "freeze").
   `nearestOpen()` rescues an embedded player; `tryMove()` slides along walls.
 - `zbuf` holds 0 in columns where no wall was hit, which silently culls billboards there.
+- **A wall column has no floor plane and no ceiling.** `ceilAt(wall)` = `floor + max(ZQ, cz*ZQ)` with
+  `cz` left at 0, i.e. `floor + 0.25` — *below the eye*. Anything that solves a screen row against
+  "the plane of the cell the ray is in" must skip solid cells or it will conclude the plane is above
+  the eye and paint nothing (that is how a full-frame dark gray, mean 33 where the baseline reads
+  79, first appeared). Air-only planes; solid cells inherit the plane carried into them; the wall
+  pass paints over those pixels anyway.
+- Solving the ground per cell instead of per row is **not** a drop-in. An attempt (kept out of
+  history at `7b9665b..80a7f1e`-era tree, `node --check` clean, md5-identical at the spawn camera)
+  still shifted exposure by −4 overall, −9 on level 0. Establishes: the segment *breaks* were not
+  the cause (disabling them changed nothing), the solid-cell case was a genuine bug, and the
+  residual delta lives in shading, not geometry — so a future attempt must diff *shading* per row,
+  not chase segment counts. Flat parity is the gate; it failed, so it was reverted rather than
+  shipped with a look regression.
 
 ## Now: verticality — the design that was chosen
 
