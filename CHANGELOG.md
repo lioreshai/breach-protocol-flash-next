@@ -8,6 +8,8 @@ one change: say what the reader would notice, not which file was touched.
 ## Unreleased
 
 ### Changed
+- CI required check drops from ~8 min to ~1.5 min: the probes moved to their own job beside the gate, so only guards, syntax and the full smoke run stand between a PR and a merge.
+- CI required check is ~6 min faster: the informational seed runs moved to their own job. The PR changelog guard reads the body from the environment now, so a body containing an apostrophe no longer breaks it (or reaches the shell).
 - Repo is public, with CI on every push and PR, and Pages deploying every merge to main.
 - Weapon viewmodel rebuilt: one bore axis for all three families, so the muzzle flash now comes
   out of the muzzle instead of 90 degrees to the side, and the forearms reach past the frame.
