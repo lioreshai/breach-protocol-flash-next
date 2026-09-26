@@ -38,6 +38,11 @@ Order of evidence, strongest first:
 Human judgement still rules what the page cannot reveal: game feel, aim responsiveness, whether the
 audio levels are pleasant, difficulty. Ask about those. Do not ask about pixels.
 
+**Hard rule: refresh the README's screenshots after every merged PR that changes the picture.**
+Capture them from the deployed build into `docs/screens/` - not from a headless dump, not from an
+older build - and put any defect visible in a shot into its caption instead of cropping it out. A
+defect in a caption is known; a cropped defect becomes a bug report about someone's display.
+
 Trap: the headless probes rasterize poses **without** the scene-light multiply, so `view.js rig`
 and `contrast` both agreed the characters looked fine while the live site drew them as translucent
 boxes (`/tmp/fps_live.png`). A probe passing is not the same thing as a probe being capable of
