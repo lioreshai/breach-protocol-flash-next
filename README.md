@@ -47,6 +47,22 @@ Kills can drop health/ammo. Barrels detonate when shot. Headshots count double-p
 Difficulty changes enemy damage, health and count.
 
 ## How it looks
+### What it looks like today
+
+Captured from the deployed build, not from a mockup or an old build: [live site](https://lioreshai.github.io/breach-protocol-flash-next/). These are refreshed whenever a merged PR changes what the game looks like.
+
+![spawn corridor](docs/screens/level0-spawn.png)
+
+*Archive Sublevel, spawn looking down a lit corridor. Ceiling texture is streaked at grazing angles - mip selection has no anisotropy.*
+
+![close wall](docs/screens/level0-facing-wall.png)
+
+*Close on a wall. Honest defects visible here: the forearms are too thick and read as tubes, and the floor texture is over-saturated and too busy at close range.*
+
+![enemies](docs/screens/level0-enemies.png)
+
+*Enemies at 2-5 m. This one is deliberately kept in: characters composite as translucent boxes with visible quad edges at close range, which no headless probe detected (`view.js rig` and `contrast` both passed it). See AGENTS.md, "Who verifies what".*
+
 Everything is generated in plain JS at boot (~1.6 s): no image files, no fetches, no canvas path
 calls. `js/05_paint.js` is a small rasteriser — analytic anti-aliased SDF shapes (segments, discs,
 rounded boxes, polygons) plus tileable value noise and fbm — painting into `Uint32Array` bitmaps.
