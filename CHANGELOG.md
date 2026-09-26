@@ -10,9 +10,10 @@ one change: say what the reader would notice, not which file was touched.
 ### Changed
 - The extra-seeds check runs on merges to main instead of on every branch push and pull request: it printed the same informational verdict every time and cost ~6 runner-minutes doing it.
 - Verification rule written down: anything observable on the live site is verified without waiting for a human report. Fixes a stale note claiming image input is broken here.
+- README shows what the game actually looks like today, captured from the deployed build, and that pass is a standing rule after every visible merge.
+- Merged branches are deleted instead of accumulating: the repository deletes on merge, and a weekly sweep catches what that setting cannot reach.
 - CI required check drops from ~8 min to ~1.5 min: the probes moved to their own job beside the gate, so only guards, syntax and the full smoke run stand between a PR and a merge.
 - CI required check is ~6 min faster: the informational seed runs moved to their own job. The PR changelog guard reads the body from the environment now, so a body containing an apostrophe no longer breaks it (or reaches the shell).
-- README shows what the game actually looks like today, captured from the deployed build, and that pass is a standing rule after every visible merge.
 - Repo is public, with CI on every push and PR, and Pages deploying every merge to main.
 - Weapon viewmodel rebuilt: one bore axis for all three families, so the muzzle flash now comes
   out of the muzzle instead of 90 degrees to the side, and the forearms reach past the frame.
