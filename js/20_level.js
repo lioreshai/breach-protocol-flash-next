@@ -101,6 +101,25 @@ const vbAt = (x, y, d) => (MAP.vb[(y | 0) * MW + (x | 0)] >> ((d & 3) << 2)) & 1
    one quantum unless something ramps or ladders it. A drop is never a wall - you take it.
    Setting the flag here is what makes "blocking, walkable and drawn" one byte later. */
 let LINK_STAMP = 0;                                       // monotonic across level rebuilds, so a
+/* Reachability over open cells, shared by the occupancy gate and the `vert` probe. A boundary is
+   crossable only when the two floors are within one quantum; on an all-flat grid that is always
+   true, which is what keeps this a no-op on every shipped level. */
+function bfsReach(cellArr, fzArr, N, start) {
+  const dist = new Int16Array(N * N).fill(-1);
+  const q = [start];
+  dist[start] = 0;
+  for (let head = 0; head < q.length; head++) {
+    const idx = q[head], x = idx % N, y = (idx / N) | 0, d = dist[idx];
+    const nb = [[x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]];
+    for (const [nx, ny] of nb) {
+      if (nx < 1 || ny < 1 || nx >= N - 1 || ny >= N - 1) continue;
+      const ni = ny * N + nx;
+      if (cellArr[ni] === 0 && dist[ni] < 0 && Math.abs(fzArr[ni] - fzArr[idx]) <= 1) { dist[ni] = d + 1; q.push(ni); }
+    }
+  }
+  return dist;
+}
+
 function linkBoundaries() {                               // read before one cannot look fresh
   const cell = MAP.cell, fz = MAP.fz;
   for (let y = 0; y < MH; y++) for (let x = 0; x < MW; x++) {
@@ -316,19 +335,10 @@ function genLevel(li) {
       }
     }
 
-    // occupancy from room 0
-    const dist = new Int16Array(N * N).fill(-1);
-    const q = [rooms[0].cy * N + rooms[0].cx];
-    dist[q[0]] = 0;
-    for (let head = 0; head < q.length; head++) {
-      const idx = q[head], x = idx % N, y = (idx / N) | 0, d = dist[idx];
-      const nb = [[x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]];
-      for (const [nx, ny] of nb) {
-        if (nx < 1 || ny < 1 || nx >= N - 1 || ny >= N - 1) continue;
-        const ni = ny * N + nx;
-        if (cell[ni] === 0 && dist[ni] < 0) { dist[ni] = d + 1; q.push(ni); }
-      }
-    }
+    /* occupancy from room 0. fzTry is the grid the BFS actually walks, and it is the same array
+       MAP.fz becomes below, so a band written before this point cannot be invisible to the gate. */
+    const fzTry = new Int8Array(N * N);
+    const dist = bfsReach(cell, fzTry, N, rooms[0].cy * N + rooms[0].cx);
     let reachable = 0, far = -1, farIdx = -1, total = 0;
     for (let i = 0; i < N * N; i++) if (dist[i] >= 0) { reachable++; total++; if (dist[i] > far) { far = dist[i]; farIdx = i; } }
     let openCells = 0; for (let i = 0; i < N * N; i++) if (cell[i] === 0) openCells++;
@@ -339,13 +349,13 @@ function genLevel(li) {
       lt: new Uint8Array(N * N * 3), amb: cfgL.amb === undefined ? 0.13 : cfgL.amb, tintDirty: true,
       floorTex: FLOORS[cfgL.floor] || FLOORS.CONCRETE, ceilTex: CEILS[cfgL.ceil] || CEILS.CONCRETE,
       floorTile: 1.15, ceilTile: 0.9,
-      fz: new Int8Array(N * N), cz: new Uint8Array(N * N).fill(CZ_DEF),
+      fz: fzTry, cz: new Uint8Array(N * N).fill(CZ_DEF),
       vb: new Uint16Array(N * N), feat: new Uint8Array(N * N),
       ceilPlane: new Float64Array(N * N) };
     MW = N; MH = N; linkBoundaries(); decalGridInit();
 
     bfsDist = dist;
-    explored = new Uint8Array(N * N); S.revealed = 0; bfsDist = new Int16Array(N * N);
+    explored = new Uint8Array(N * N); S.revealed = 0;
     const px0 = rooms[0].cx + 0.5, py0 = rooms[0].cy + 0.5;
     exitX = (farIdx % N) + 0.5; exitY = ((farIdx / N) | 0) + 0.5;
 
