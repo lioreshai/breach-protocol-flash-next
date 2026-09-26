@@ -8,6 +8,8 @@ one change: say what the reader would notice, not which file was touched.
 ## Unreleased
 
 ### Changed
+- CI required check drops from ~8 min to ~1.5 min: the probes moved to their own job beside the gate, so only guards, syntax and the full smoke run stand between a PR and a merge.
+- CI required check is ~6 min faster: the informational seed runs moved to their own job. The PR changelog guard reads the body from the environment now, so a body containing an apostrophe no longer breaks it (or reaches the shell).
 - README shows what the game actually looks like today, captured from the deployed build, and that pass is a standing rule after every visible merge.
 - Repo is public, with CI on every push and PR, and Pages deploying every merge to main.
 - Weapon viewmodel rebuilt: one bore axis for all three families, so the muzzle flash now comes
