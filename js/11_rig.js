@@ -198,11 +198,15 @@ function rigBiped(pose, C, sp) {
   const shX = Math.sin(pitch) * (sp.sh - sp.hip), shY = sp.hip + Math.cos(pitch) * (sp.sh - sp.hip) + bob;
   // head
   const hx = shX + sy * 0.012, hy = shY + (sp.head - sp.sh);
-  limb(hx, hy - 0.025, Math.PI / 2, 0.05, 0.042, darkP);
-  disc(hx, hy, sp.headR, skinP);
-  disc(hx + 0.012 * sy, hy + 0.008, sp.headR * 0.74, bodyPaint(C.dark, 0.95));
-  if (cy > -0.35) {
-    box(hx - 0.03 * sy, hy + 0.012, 0.024 * (0.35 + 0.65 * Math.abs(cy)), 0.02, 0, 0, flatPaint(rgb(C.eye), u => 0.85 + 0.35 * u));
+  // Head. This was a skin disc of r with a dark disc of 0.74r on top: a light rim around a dark
+  // blob, which at any useful pose height reads as a hollow ring - no jaw, no facing direction.
+  // Now a helmet dome (these are armoured troops), a jaw box under it, and a visor band that
+  // carries the eye across the front so the direction the head faces is legible.
+  limb(hx, hy - 0.028, Math.PI / 2, 0.055, 0.052, darkP);
+  box(hx - 0.004 * sy, hy + 0.008, sp.headR * (1.50 + 0.50 * Math.abs(sy)), sp.headR * 1.40, 0, sp.headR * 0.42, bodyPaint(C.armor));
+  box(hx + 0.014 * sy, hy - 0.030, sp.headR * (1.00 + 0.40 * Math.abs(sy)), sp.headR * 0.44, 0, sp.headR * 0.16, darkP);
+  if (cy > -0.3) {
+    box(hx + 0.024 * sy, hy + 0.006, sp.headR * (0.42 + 0.46 * Math.abs(sy)) + sp.headR * 0.30 * Math.abs(cy), sp.headR * 0.28, 0, sp.headR * 0.06, flatPaint(rgb(C.eye), u => 0.85 + 0.35 * u));
   }
   // arms + weapon; the near arm draws last so it crosses the body
   const order = sy >= 0 ? [1, 0] : [0, 1];
