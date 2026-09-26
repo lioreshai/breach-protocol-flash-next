@@ -31,7 +31,9 @@ const RIM_ON = 1.0;
 let RIM = RIM_ON;                                  // DEV.set('rim', false) puts it at 0 for a live A/B
 const RIM_BAND = 0.016;                            // ridge half-width = 1.6% of body height (was 3%)
 const RIM_K = 3.0;                                  // exp falloff: ~5% of peak at the band edge
+const RIM_T = 0.16;                                 // band cap as a fraction of LOCAL limb width
 let RIMD = null;                                   // distance scratch, grown to the largest pose
+let RIMTH = null;                                  // limb-width scratch, same lifetime
 const SHRGB = [0, 0, 0];                            // shade closures must not allocate per pixel
 const rgb = hex => [parseInt(hex.slice(1, 3), 16), parseInt(hex.slice(3, 5), 16), parseInt(hex.slice(5, 7), 16)];
 const segSD = (ax, ay, bx, by, r) => (px, py) => {
@@ -115,11 +117,31 @@ function rimSil(s, hpx) {
       dd[i] = v;
     }
   }
-  const inv = 1 / band;
+  /* A band scaled from body height alone lights a whole leg: at a 600 px body the
+   * band is 9.6 px and a leg is ~30 px wide, so its interior sits inside one band
+   * and glows. Cap the band by the width of the covered run the pixel sits in.
+   * Horizontal runs only: that measures legs and hanging arms exactly, and costs
+   * one row-major pass - a vertical term needs a second pass and the frame budget
+   * will not pay for it (measured +1 ms). */
+  if (!RIMTH || RIMTH.length < N) RIMTH = new Float32Array(N);
+  const th = RIMTH, invBand = 1 / band;
+  for (let y = 0; y < H; y++) {
+    const r = y * W;
+    let x = 0;
+    while (x < W) {
+      while (x < W && (D[r + x] >>> 24) === 0) x++;
+      let q = x;
+      while (q < W && (D[r + q] >>> 24) !== 0) q++;
+      const w = q - x;
+      for (let k = x; k < q; k++) th[r + k] = w;
+      x = q + 1;
+    }
+  }
   for (let i = 0; i < N; i++) {
     const a = D[i] >>> 24;
     if (a === 0) continue;
-    const t = dd[i] * inv;
+    const cap = th[i] * RIM_T;
+    const t = cap >= band ? dd[i] * invBand : dd[i] / (cap < 1 ? 1 : cap);
     if (t >= 1) continue;
     const rim = Math.exp(-RIM_K * t) * RIM, p = D[i];
     D[i] = pk((p & 255) + 150 * rim, (p >> 8 & 255) + 188 * rim, (p >> 16 & 255) + 238 * rim, a);
