@@ -65,7 +65,24 @@ jobs:
           node tools/view.js contrast
           node tools/view.js viewmodel
 
-      - name: Other seeds (informational - known perf-gate variance, see ROADMAP P0)
+
+  # The extra seeds are information, not a gate. They used to be the last step of the required
+  # job, where "non-blocking" only meant the step could fail - the job still ran them, so every
+  # merge paid 6 of its 8 minutes for a number nobody acts on, and SEED=777 fails the perf gate on
+  # code nobody changed. Out here the required context finishes in about two minutes and the seeds
+  # still report on their own row.
+  seeds:
+    name: seeds (informational)
+    continue-on-error: true
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Other seeds
         continue-on-error: true
         run: |
           set -uo pipefail
@@ -73,6 +90,7 @@ jobs:
             if out=$(SEED=$s node tools/smoke.js 2>&1); then
               echo "seed $s: passed"
             else
-              echo "seed $s: would fail the gate (tracked as ROADMAP P0, not blocking this PR)"
+              echo "seed $s: would fail the gate (tracked as ROADMAP P0, not blocking any PR)"
+              printf '%s\n' "$out" | tail -6
             fi
           done
