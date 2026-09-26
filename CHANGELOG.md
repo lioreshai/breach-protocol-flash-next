@@ -7,6 +7,9 @@ one change: say what the reader would notice, not which file was touched.
 
 ## Unreleased
 
+### Fixed
+- Character rim light now follows the silhouette instead of outlining every capsule, box and disc, so the seams inside a body stopped glowing; gain retuned to keep edge separation at least as good as before.
+
 ### Added
 - `?dev=1` boots the game with no click and no pointer lock and publishes a `DEV` console API (deterministic camera and enemy placement, frozen frames, a DDA ray query, runtime quality overrides including the character rim light), documented in the README.
 
