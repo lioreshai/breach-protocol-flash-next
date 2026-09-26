@@ -7,6 +7,9 @@ one change: say what the reader would notice, not which file was touched.
 
 ## Unreleased
 
+### Added
+- A software-rasterized 3D character path (`MESH`, reachable from the console via `DEV.mesh`) that builds each body from volumetric tubes and boxes instead of a billboarded silhouette, with near-plane clipping, per-pixel depth and light from the scene grid. Nothing in the game draws it yet: it exists to measure whether real geometry costs anything next to the raycaster.
+
 ### Fixed
 - Thin limbs stopped glowing: the rim band is now capped by the width of the part under the pixel, so a leg or hanging arm shows a lit edge instead of lighting up edge to edge.
 - The character rim light is a thin ridge instead of a wide ramp: at close range it stopped reading as a white halo around the whole silhouette, at the same edge separation and the same frame cost.

@@ -220,7 +220,26 @@
 
   const DEV = {
     on: true, help: help, boot: boot, cam: cam, look: look, face: face, nearestEnemy: nearestEnemy, freeze: freeze,
-    tick: tick, spawn: spawn, clear: clear, set: set, tiers: tiers, stats: stats, state: state, ray: ray
+    tick: tick, spawn: spawn, clear: clear, set: set, tiers: tiers, stats: stats, state: state, ray: ray,
+    // spike-only: draw N procedural meshes into the real framebuffer over a rendered
+    // world frame and return the cost. The billboard path is not involved.
+    mesh: function (o) {
+      o = o || {};
+      const n = o.n === undefined ? 1 : o.n, d = o.d === undefined ? 3 : o.d, kind = o.kind || 'grunt';
+      const span = o.span === undefined ? 1.1 : o.span;
+      if (!S.running) DEV.boot();
+      renderWorld();
+      MESH.reset();
+      const t0 = performance.now();
+      for (let i = 0; i < n; i++) {
+        const f = n === 1 ? 0 : (i / (n - 1) - 0.5) * span;
+        const mx = P.x + Math.cos(P.ang) * d + Math.cos(P.ang + Math.PI / 2) * f;
+        const my = P.y + Math.sin(P.ang) * d + Math.sin(P.ang + Math.PI / 2) * f;
+        MESH.draw({ kind: kind, x: mx, y: my, z: P.z, yaw: o.yaw === undefined ? Math.atan2(P.x - mx, P.y - my) : o.yaw, scale: o.scale || 1 });
+      }
+      const ms = performance.now() - t0, s = MESH.stats();
+      return { ms: +ms.toFixed(3), tris: s.tris, pxFilled: s.pxFilled, n: n, dist: d, trisEach: MESH.trisFor(kind), buf: BW + 'x' + BH };
+    }
   };
   window.DEV = DEV;
   if (S.mode === 'title' && !/[?&]boot=0/.test(URLQ)) DEV.boot();
