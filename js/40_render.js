@@ -372,10 +372,17 @@ function drawBillboard(o) {
   if (tY < 0.12) return;
   let hPx = (BH / tY) * o.scale;
   if (hPx < 0.6) return;
+  const screenX = (BW * 0.5) * (1 + tX / tY);
+  // Cull before rasterizing, not after. A pose costs 1-8 ms and the per-frame budget is
+  // 2-4 poses, and this used to fetch the pose first: 56 poses were measured rasterizing
+  // while every enemy sat behind the camera, starving the visible ones into coarse
+  // bucket pops. Bodies are never wider than ~1.2x their height, so the box is
+  // conservative - it can keep an off-screen body, never drop an on-screen one.
+  const wide = hPx * 1.2;
+  if (screenX + wide * 0.5 < 0 || screenX - wide * 0.5 > BW) return;
   // rigs rasterize at the size they occupy, so a body is geometric at any distance
   const tex = o.rig ? RIG.frame(o.rig.kind, { hpx: o.rig.hpx, p: o.rig.p, mv: o.rig.mv, atk: o.rig.atk, die: o.rig.die, yaw: o.rig.yaw, lean: o.rig.lean, pulse: o.rig.pulse }) : o.tex;
   const wPx = hPx * (tex.w / tex.h);
-  const screenX = (BW * 0.5) * (1 + tX / tY);
   if (screenX + wPx * 0.5 < 0 || screenX - wPx * 0.5 > BW) return;
   const cy = horizon + (BH / tY) * (eyeZ - (o.z + o.scale * 0.5));
   const y0 = Math.ceil(cy - hPx * 0.5), y1 = Math.floor(cy + hPx * 0.5);
