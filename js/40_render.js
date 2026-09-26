@@ -168,6 +168,7 @@ function castGround(flash, fcR, fcG, fcB) {
     if (p === 0) { px.fill(0xFF000000 | fcB << 16 | fcG << 8 | fcR, y * BW, y * BW + BW); continue; }
     const isF = p > 0;
     let d = (isF ? eyeZ : 1 - eyeZ) * BH / Math.abs(p);
+    const dfade = 0.4 + 0.6 * Math.exp(-d * 0.02);   // row-constant: was one exp per pixel per decal
     if (d > FARB * 4) d = FARB * 4;
     const fog = fogAt(d);
     const inv = 1 - fog, fR = fcR * fog, fG = fcG * fog, fB = fcB * fog;
@@ -216,11 +217,11 @@ function castGround(flash, fcR, fcG, fcB) {
       const i = row + x;
       if ((c >>> 24) === 253) { px[i] = 0xFF000000 | clampi((c >> 16 & 255) * inv + fB) << 16 | clampi((c >> 8 & 255) * inv + fG) << 8 | clampi((c & 255) * inv + fR); continue; }
       let r = (c & 255) * lr + fR, g = (c >> 8 & 255) * lg + fG, b = (c >> 16 & 255) * lb + fB;
-      const dl = inMap && dMasks ? dMasks[cIdx] : 0;
-      if (dl !== 0) {                                          // blood/scorch in world space
+      const dl = isF && inMap && dMasks ? dMasks[cIdx] : 0;
+      if (dl !== 0) {                                          // blood/scorch in world space, floor only
         const gl = dGrid[cIdx];
         for (let q = 0; q < gl.length; q++) {
-          const dc = gl[q], al = decalAlpha(dc, wx, wy, d);
+          const dc = gl[q], al = decalAlpha(dc, wx, wy, dfade);
           if (al <= 0.01) continue;
           const dt = dc.tex, du = (((wx - dc.x) * dc.inv + 0.5) * dt.w) | 0, dv = (((wy - dc.y) * dc.inv + 0.5) * dt.h) | 0;
           if (du < 0 || dv < 0 || du >= dt.w || dv >= dt.h) continue;
@@ -233,11 +234,11 @@ function castGround(flash, fcR, fcG, fcB) {
     }
   }
 }
-function decalAlpha(dc, wx, wy, d) {
+function decalAlpha(dc, wx, wy, dfade) {
   const dx = wx - dc.x, dy = wy - dc.y, r2 = dx * dx + dy * dy;
   if (r2 >= dc.r * dc.r) return 0;
   const t = 1 - r2 / (dc.r * dc.r);
-  return dc.a * t * (0.4 + 0.6 * Math.exp(-d * 0.02));
+  return dc.a * t * dfade;
 }
 
 /* ------------------------------------------------------------------

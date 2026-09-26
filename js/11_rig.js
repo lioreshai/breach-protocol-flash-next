@@ -109,7 +109,14 @@ frame = (kind, o) => {
   const key = kind + '|' + ph + '|' + yb + '|' + mb + '|' + ab + '|' + db;
   let ent = cache.get(key);
   if (ent) { cache.delete(key); cache.set(key, ent); return ent.tex; }
-  if (!budget || bytes > CAP) {
+  // Evict *before* deciding to give up. Eviction used to live only after an insertion,
+  // so once bytes passed CAP the cache could neither shrink nor make another pose: every
+  // enemy stayed permanently on the nearest stale pose and the made counter froze.
+  while (bytes > CAP && cache.size > 4) {
+    const oldest = cache.entries().next().value;
+    cache.delete(oldest[0]); bytes -= oldest[1].tex.data.byteLength;
+  }
+  if (!budget) {
     ent = nearest(kind, ph, yb, mb, ab, db);
     if (ent) return ent.tex;
   }
@@ -124,10 +131,6 @@ frame = (kind, o) => {
   cache.set(key, ent); bytes += tex.data.byteLength; made++;
   (recent[kind] || (recent[kind] = [])).push(ent);
   if (recent[kind].length > 40) recent[kind].shift();
-  while (bytes > CAP && cache.size > 4) {
-    const oldest = cache.entries().next().value;
-    cache.delete(oldest[0]); bytes -= oldest[1].tex.data.byteLength;
-  }
   return tex;
 };
 nearest = (kind, ph, yb, mb, ab, db) => {
