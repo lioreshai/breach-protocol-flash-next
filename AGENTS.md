@@ -74,20 +74,55 @@ case "$out" in *"SMOKE PASSED"*) git add -A && git commit ;; *) echo NOT COMMITT
   `nearestOpen()` rescues an embedded player; `tryMove()` slides along walls.
 - `zbuf` holds 0 in columns where no wall was hit, which silently culls billboards there.
 
-## Now: verticality — what currently assumes flat
+## Now: verticality — the design that was chosen
 
-- `WALL_H = 1`: walls span z 0..1, so a cell is a unit box. Slabs/stacks need per-wall
-  `z0/z1` and the wall span math (`u` along the wall, `yh/y0` from `z`) must use them.
-- `castGround` projects rows from a plane at `eyeZ` / `1-eyeZ` — one plane per row. Floors
-  at varying heights need the row solved per column from the cell's floor height (and then
-  the `zbuf` occlusion trick becomes real: cull ground pixels already covered by a wall).
-- Player physics and collision are 2D (`tryMove`, circle vs grid cells). Needs `P.z`,
-  gravity, step-up/step-down, and fall damage at the level's ceiling height.
-- `MAP.light`, `cellTint`, `bfsDist`, `DECAL_MASK/GRID` are keyed by 2D cell — multi-height
-  cells need a z in the key or a documented convention (light and sound bleed vertically).
-- Sprites/rigs already carry `o.z` (base height) and `ETYPE.scale` (hitbox height), so
-  things on ledges work in the projection as long as `zbuf` and the ground pass agree.
-- Minimap is top-down 2D; it needs an altitude cue (current-cell z, or arrows for stairs).
+Representation: **a quantized per-cell height grid** (2.5D stacked slabs), not a
+sector/portal graph. One playable band per column: `MAP.fz` (floor = `fz*ZQ`, `ZQ=0.25`,
+`-4` = pit), `MAP.cz` (own ceiling *above own floor*, default `4` = today's one-unit
+room), `MAP.vb` (per-boundary flags, packed per side: BLOCK/THRU/RAMP/LADDER), `MAP.feat`
+(STAIR/LADDER/PIT/RAIL + band for the minimap). Portal semantics fall out of the grid: the
+opening between two open cells is `[max(fz), min(cz)]`, so stairs, ledges, atria and pits
+need no graph. Chosen because `MAP.cell`, `MAP.light`, `DECAL_*`, `bfsDist`, `explored` and
+**every probe in `tools/`** index `y*MW+x` — keeping them intact is what keeps
+`node tools/smoke.js` meaningful *while* the work is in flight. Cannot do: two walkable
+bands in one column, or a floor overhanging the cell it sits above.
 
-Keep the smoke gates green while doing it, and keep the floor/ceiling sampler honest about
-world scale (`ms = sc * mw`) at every height.
+- **Blocking ⇒ walkable ⇒ drawn is one byte.** A boundary with `dz > ZQ` that is not a ramp
+  gets `VB_BLOCK` on both sides, so the same test makes it opaque in the DDA, impassable in
+  `tryMove`, and a textured riser in the wall pass. `VB_THRU` = "see it, not climb it".
+- **A cell's ceiling is the underside of the floor above:** `ceilAt = floor + max(1 unit,
+  neighbour floors above)`. Without this formula you see sky inside buildings.
+- The three literal `1`s that make the world flat today: `castGround`'s
+  `d = (isF ? eyeZ : 1 - eyeZ) * BH / |p|`, `castWalls`' `y0 = horizon + (eyeZ - 1) * hpx`,
+  and the decal/`zbuf` span math assuming faces span 0..1. Absent height arrays every new
+  formula must collapse to those exactly, bit for bit — that is the backwards-compat test.
+- Light stays **one value per column**, weighted by a band term; do **not** make the lightmap
+  per band, because a fading transient re-splats its delta and an un-splat that lands in a
+  derived band leaves permanent light (breaks smoke's "blast light fully fades out" assert).
+- Decals and lights need **absolute z**; `addWallMark`'s face-relative `clamp(z,0.12,0.88)`
+  is only correct today because faces span 0..1.
+
+Milestones, each ending playable with gates green: **M0** representation + absolute `P.z`
+(nothing visible) · **M1** boundary faces with real `z0/z1` · **M2** ground plane solved per
+*column* (`rowK = BH/|p|` stays the one division; `dz` is cell-constant) **with ceilings in
+the same commit** — floors-only shows a phantom floor across a tall room's upper half ·
+**M3** bands + links + gravity/step/fall-damage/climb · **M4** everything sits at a height
+(enemies, `hitscan`, props, pickups, projectiles, particles, decals, portal trigger)
+· **M5** per-band light, glow, minimap altitude cue · **M6** a hand-authored two-storey level.
+
+Three risks that stay invisible to today's gates:
+
+1. `startLevel(i, fresh)` runs `genLevel()` and *then* `resetRun()`, which zeroes `P.z` — a
+   band-1 spawn starts inside the floor above. Fix the ordering in M3.
+2. `genLevel`'s occupancy gate (`reachable < openCells*0.9`) is a height-blind 4-neighbour
+   BFS. Split bands and every attempt fails into the fallback: a lit empty box, no heights,
+   every gate green, and the feature silently absent. It must `console.warn('genLevel FALLBACK')`.
+3. No existing assert compares z, so "shots pass through the catwalk enemy", "an explosion
+   downstairs kills upstairs", "the portal triggers from the floor below" all ship green.
+   Needs the numeric altitude probes (`alt`, `drop`, `sight`, `cull`, `horizon`) and a
+   `VERT=1` smoke lane before M4 is trustworthy.
+
+Also true and visible in the PNGs: the ceiling streaks at grazing angles (mip selection has
+no anisotropy) and a one-unit-tall world makes everything read as a crawlway — both are the
+vertical work, not texture knobs. Keep the ground sampler honest about world scale
+(`ms = sc * mw`) at every height.
