@@ -291,9 +291,9 @@ if (MODE === 'play') {
       run(`P.reloadT=0; P.kick=WEAPONS[${wi}].kick; tryFire();`);
       bad += report(`L${L} w${wi} fired`, 'for(let i=0;i<60;i++) frame(3000+i*16.7)') ? 1 : 0;
     }
-    run('keys.KeyW=0; P.sprint=1; keys.KeyShift=1;');
+    run('keys.KeyW=1; keys.ShiftLeft=1;');   // sprint needs forward pressure, not just Shift
     bad += report(`L${L} sprint`, 'for(let i=0;i<200;i++) frame(4000+i*16.7)') ? 1 : 0;
-    run('P.sprint=0; keys.KeyShift=0; for(let i=0;i<40;i++){ENEMIES.forEach(e=>{if(e.state==="alive")damageEnemy(e,40,false,1,0)});frame(5000+i*16.7)}');
+    run('keys.ShiftLeft=0; keys.ShiftRight=0; for(let i=0;i<40;i++){ENEMIES.forEach(e=>{if(e.state==="alive")damageEnemy(e,40,false,1,0)});frame(5000+i*16.7)}');
     bad += report(`L${L} combat`, 'for(let i=0;i<40;i++) frame(6000+i*16.7)') ? 1 : 0;
     bad += report(`L${L} portal+swap`, 'S.mode="play"; P.x=exitX; P.y=exitY; nextLevel(); for(let i=0;i<90;i++) frame(7000+i*16.7)') ? 1 : 0;
   }
@@ -378,7 +378,6 @@ if (MODE === 'stats') {
   // pose sheet + silhouette sanity for the vector rigs
   run('S.mode="play"; startLevel(0, true); RIG.beginFrame(1e6);');
   const kinds = ['grunt', 'hound', 'brute'], PH = 6, YAW = 6, HH = 150;
-  const cell = (kinds.length ? 1 : 1) * 0;
   const W = 150 * 2, cells = [];
   for (const k of kinds) for (let y = 0; y < YAW; y++) for (let p = 0; p < PH; p++) cells.push({ k, y, p });
   const cols = PH, rows = kinds.length * YAW, cw = 170, chh = 175;

@@ -97,7 +97,13 @@ const release = () => fire('mouseup', { button: 0 });
     for(let x=0;x<BW;x++){const c=px[y+x];s.add(c);if(c!==fogCol)nonfog++}return {rowColors:s.size,wallPx:nonfog,BW}})()`, ctxVm);
   const memMB = vm.runInContext(`(()=>{const seen=new Set();let b=0;const walk=o=>{if(!o||typeof o!=='object'||seen.has(o))return;seen.add(o);
     for(const k in o){const v=o[k];if(v instanceof Uint32Array)b+=v.byteLength;else if(v&&typeof v==='object')walk(v)}};
-    walk(WALLS);walk(PROP);walk(ENEMY);return b/1048576})()`, ctxVm);
+    walk(WALLS);walk(PROP);walk(ENEMY);
+    // FLOORS/CEILS/DECAL and the rig cache were previously outside the gate, so the
+    // "asset memory" number understated what the game actually holds.
+    for (const g of [typeof FLOORS !== 'undefined' && FLOORS, typeof CEILS !== 'undefined' && CEILS,
+      typeof DECAL !== 'undefined' && DECAL]) if (g) walk(g);
+    if (typeof RIG !== 'undefined') b += RIG.stats().mb * 1048576;
+    return b / 1048576})()`, ctxVm);
   console.log('asset shading tables:', memMB.toFixed(1), 'MB');
   expect('sprite tables stay in the tens of MB, not hundreds', memMB < 40, memMB.toFixed(1) + ' MB');
 

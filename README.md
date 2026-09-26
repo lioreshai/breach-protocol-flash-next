@@ -115,13 +115,14 @@ access (the stub throws on `getImageData`, so assets cannot accidentally depend 
 
 | mode | what it tells you |
 |---|---|
-| `sheets` | every material (4 tiled quads) and sprite in one PNG (`/tmp/fps_sheets.png`) |
+| `sheets` | every material (4 tiled quads) and sprite in one PNG (`/tmp/fps_tex.png`) |
 | `stats` | per texture/sprite: mean, deviation, neighbour gradient, coverage, emissive count, average RGB, blown pixels, and the bake pipeline's own albedo × shade × AO terms |
 | `diag` | red-channel histograms per material plus measured **coverage** of every noise threshold helper |
 | `exposure` | mean luminance and histogram averaged over levels × seeds × 6 view angles — the number to tune brightness against |
 | `scene <level> [cam]` | one frame as a PNG (`/tmp/fps_scene.png`) plus its luminance stats |
 
-`REPS=n`, `ONLY=W1` and `ASCII=1` narrow those runs. Levels lay themselves out with `Math.random`,
+`REPS=n` and `ONLY=W1` narrow runs, `ASCII=1` prints text instead of writing a PNG, and
+`OUT=` redirects the PNG path. Levels lay themselves out with `Math.random`,
 so `exposure` seeds it; single-run numbers otherwise swing ±20 from lamp placement alone.
 
 ## Notes
@@ -133,8 +134,8 @@ so `exposure` seeds it; single-run numbers otherwise swing ±20 from lamp placem
 * Boot spends ~1.6 s baking materials and characters, once, before the menu draws.
 * `node tools/smoke.js` runs the whole game headlessly: every menu transition, all three sectors,
   gunfire actually killing something, and 180 generated levels checked for a reachable exit and
-  reachable spawns. It must exit 0, keeps raster cost under 16 ms/frame and asset memory under
-  40 MB.
+  reachable spawns. It must exit 0, keeps raster cost under 16 ms/frame **on a nearly empty frame** and asset memory under
+  40 MB (every texture table plus the rig cache).
 * Crates and barrels are decoration, not cover — nothing but walls is solid, so sprites never
   block movement or line of sight.
 
@@ -175,3 +176,26 @@ frame body now also paints the message if it does throw, and renders anyway.
   for anything that costs frame time. Budgets: raster under 16 ms/frame, assets under 40 MB
   (currently ~5.4 MB plus a rig cache capped at 9 MB), exposure mean near 71 with under 15% of
   pixels below 24.
+
+
+## What the gates actually measure
+`tools/smoke.js` is the only pass/fail harness; the `tools/view.js` probes **print, they do not
+fail** - `rig` will happily report `RIG PROBLEMS:` and exit 0. Read them as instruments, not as a
+build. Three numbers deserve honesty rather than a badge:
+
+* the raster figure is `renderWorld()+renderOverlay()` on an almost-empty frame (the run prints
+  `billboards: 2` right beside it), so it is a floor, not gameplay. Gameplay cost is what
+  `WARM=1 node tools/view.js scene 1 0` measures over 180 frames; on this machine that has been
+  ~10 ms avg and 35-76 ms worst, which is a different claim than "16 ms/frame".
+* asset memory now walks `WALLS`, `PROP`, `ENEMY`, `FLOORS`, `CEILS`, `DECAL` **and** the rig cache.
+  Before that it quoted 5.4 MB for something the game held ~30% more of.
+* exposure varies a lot per level (recent run: 91 / 37 / 37, mean 55), so the mean is a dial to
+  tune against, not a target. Levels 2 and 3 are the dark industrial ones.
+
+Two traps that will bite a contributor:
+
+* `js/11_rig.js` is the one file **without** `'use strict'` and it relies on implicit globals
+  (`cache`, `frame`, `nearest`, `raster`, `CAP`, `BUCKETS`). Adding the directive breaks the game.
+* Nothing runs audio headlessly - both harnesses stub `AudioContext` as undefined, so `SND.init()`
+  bails. Audio changes are only exercised in a browser; the on-screen `ERROR (loop alive)` banner
+  and `S.err` are what tell you there.
