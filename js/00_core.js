@@ -40,7 +40,7 @@ const S = {
   mode: 'title',      // title | play | pause | dead | win
   level: 0, diff: 1, t: 0, dt: 0, fps: 0, frames: 0, fpsT: 0,
   locked: false, exitOpen: false, shake: 0, flash: 0, muzzle: 0, flashCol: [255, 90, 40],
-  err: '', audioBroken: false,
+  err: '', audioBroken: false, dmgDir: 0, dmgDirT: 0,
   hitMark: 0, headMark: 0, banner: '', bannerT: 0, showMap: true, revealed: 0,
   sound: true, perf: false, runT: 0, gfx: 1
 };
@@ -50,7 +50,7 @@ const P = {
   crouch: 0, sprint: 0, bob: 0, bobPhase: 0, recoil: 0,
   // Boot-time defaults only: resetRun() derives these from WEAPONS, which is the
   // source of truth. The old literals here had drifted from the weapon caps.
-  weapon: 0, mag: [12, 6, 34], reserve: [150, 66, 280], gren: 4,
+  weapon: 0, mag: [12, 6, 34], reserve: [150, 66, 280], gren: 4, semiLock: false,
   fireT: 0, reloadT: 0, swapT: 0, ads: 0, hurtT: 0, kick: 0, deadT: 0,
   kills: 0, shots: 0, hits: 0, dmg: 0, stepT: 0
 };
@@ -160,6 +160,12 @@ const SND = {
     notes.forEach((f, i) => setTimeout(() => { this.tone('square', f, f * 1.01, 0.34, 0.13); this.tone('sine', f / 2, f / 2, 0.4, 0.1); }, i * 130));
   },
   startAmbient() {
+    // One drone bed and one tension-pulse chain per session. After an audio fault the
+    // quarantine nulls ac, so the next startGame() built a SECOND context and called
+    // this again: every fault leaked a permanent oscillator bed plus a tick chain that
+    // re-arms itself forever.
+    if (this.ambient) return;
+    this.ambient = true;
     const ac = this.ac;
     // low drone bed
     const mk = (f, g) => {

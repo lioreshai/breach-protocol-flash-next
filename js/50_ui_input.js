@@ -113,7 +113,7 @@ addEventListener('keydown', e => {
   if (e.repeat) { keys[c] = true; return; }
   keys[c] = true;
   if (S.mode === 'title') { if (c === 'Enter' || c === 'Space') startGame(); return; }
-  if (S.mode === 'dead' || S.mode === 'win') { if (c === 'Enter' || c === 'KeyR') { resetRun(); startLevel(S.level, false); resume(); } if (c === 'Escape') toMenu(); return; }
+  if (S.mode === 'dead' || S.mode === 'win') { if (c === 'Enter' || c === 'KeyR') { resetRun(); startLevel(S.mode === 'win' ? 0 : S.level, false); resume(); } if (c === 'Escape') toMenu(); return; }
   if (S.mode === 'pause') { if (c === 'Escape' || c === 'Enter') resume(); if (c === 'KeyQ') toMenu(); return; }
   if (S.mode !== 'play') return;
   if (c === 'Escape') { pauseGame(); return; }
