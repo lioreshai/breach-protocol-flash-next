@@ -102,8 +102,10 @@ z, so shots pass through catwalks and the exit triggers from the floor below.
 
 - Two commits have mis-matched subjects/content from a background-job `git add -A` race. Do not
   rewrite history while any background job can commit.
-- The `worker` subagent has twice returned an **empty** report in 2 seconds (while `planner`
-  works), so delegated implementation may silently not happen — verify with `git status`.
+- The `worker` subagent returned an **empty** report twice in ~2 seconds (while `planner`
+  worked). It then completed a 50-turn, 13-minute M0 implementation on a **short** brief — so
+  the failures correlated with very long briefs, not with the agent being broken. Verify
+  delegated work with `git status` either way; M0's output was re-run and independently checked.
 - A stray `tools/_vac_tmp.js` from a subagent needs deleting.
 - Every raster number recorded before the seeding fix is a luck draw; treat as directional only.
 
