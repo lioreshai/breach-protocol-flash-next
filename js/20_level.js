@@ -97,6 +97,15 @@ function bandOf(x, y, z) {
 }
 /* Flags of the crossing that leaves cell (x,y) in direction d. */
 const vbAt = (x, y, d) => (MAP.vb[(y | 0) * MW + (x | 0)] >> ((d & 3) << 2)) & 15;
+/* A ladder is either what a column IS or how a crossing is flagged, and only these two say so:
+   the up/down controls move P.z here and nowhere else. */
+function onLadder(x, y) {
+  const i = (y | 0) * MW + (x | 0);
+  if (!MAP.cell[i] && MAP.feat[i] === FEAT_LADDER) return true;
+  const b = MAP.vb[i];
+  for (let d = 0; d < 4; d++) if (b & (VB_LADDER << (d << 2))) return true;
+  return false;
+}
 /* Derive every crossing from the grid: a wall blocks, and so does a step up taller than
    one quantum unless something ramps or ladders it. A drop is never a wall - you take it.
    Setting the flag here is what makes "blocking, walkable and drawn" one byte later. */

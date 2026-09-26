@@ -287,6 +287,130 @@ if (MODE === 'vert') {
       `  split reaches ${r.reachSplit}/${r.reachFlat} blocked ${r.blocked} ${r.blocked > 0 && r.reachSplit < r.reachFlat ? 'REFUSES ok' : 'FAIL'}` +
       `  exit sealed ${r.exitSealed ? 'ok' : 'FAIL'}  FALLBACK warns ${r.warns} ${r.warns === 0 ? 'ok' : 'FALSE POSITIVE'}  ${ok ? 'ok' : 'FAIL'}`);
   }
+  /* ---- M3 step 2: the player has to OBEY the grid. No shipped level has a height or a ladder
+     yet (that is step 4), so no other gate can watch this code, and "it did not crash" is not a
+     verdict. Every case pokes MAP.fz / MAP.vb / MAP.feat, relinks, then asks what the player
+     DID - sampled per frame, because a teleport and a fall agree about the final position. */
+  console.log('player behaviour');
+  const VROW = (label, ok, detail) => {
+    bad += ok ? 0 : 1;
+    console.log('  ' + (label + ' ').padEnd(42, '.') + ' ' + (ok ? 'ok  ' : 'FAIL') + '  ' + detail);
+  };
+  const PRE = li => `S.mode='play';S.locked=false;S.diff=1;startLevel(${li},true);` +
+    `for(const e of ENEMIES)e.state='sleep';for(const k in keys)delete keys[k];` +
+    `P.vx=P.vy=P.vz=0;P.air=false;P.crouch=0;P.hp=100;P.armor=0;`;
+  /* A lane is a straight run of open columns. With dy = 0 the only probe tryMove can reach is the
+     one pointing down the run, so a lane is a corridor the assertion owns end to end. */
+  const LANE = `(()=>{for(let y=1;y<MH-2;y++)for(let x=1;x<MW-6;x++){let n=0;` +
+    `while(n<10&&x+n<MW-1&&!MAP.cell[y*MW+x+n])n++;if(n>=6)return{x:x,y:y,n:n};}return null})()`;
+  /* A poke that leaves a face of span <= 0 is a grid fault and would blame the wrong code, so the
+     legality of every config is reported before any FAIL below is allowed to point at the player. */
+  const SPANS = `(()=>{let tot=0,bad=0;for(let i=0;i<MW*MH;i++){if(!MAP.cell[i])continue;const x=i%MW,y=(i/MW)|0;` +
+    `for(let d=0;d<4;d++){const nx=x+DIRX[d],ny=y+DIRY[d];if(nx<0||ny<0||nx>=MW||ny>=MH||MAP.cell[ny*MW+nx])continue;` +
+    `tot++;if(!(ceilAt(x,y)-faceZ0(x,y,d)>0))bad++;}}return{tot:tot,bad:bad}})()`;
+  /* S.shake is in the sample because a support test that fires ON the floor self-cancels inside one
+     frame (it lands before the sample) and is invisible to a post-update read - but the landing adds
+     its impulse every frame, and an impulse that repeats while walking on flat ground is a bug. */
+  const SAMPLE = `update(1/60);s.push([+P.x.toFixed(4),+P.z.toFixed(6),+floorAt(P.x,P.y).toFixed(4),P.air?1:0,+P.hp.toFixed(3),+S.shake.toFixed(4)])`;
+  const RUN = (fr, key) => `(()=>{` + (key ? `keys['${key}']=1;` : '') + `const s=[];for(let i=0;i<${fr};i++){${SAMPLE};}return s})()`;
+  const PLACE = (x, y, z) => `P.x=${x};P.y=${y};P.ang=0;P.vx=P.vy=P.vz=0;P.air=false;` +
+    `P.z=${z === undefined ? 'floorAt(P.x,P.y)' : z};for(const k of ['KeyW','KeyA','KeyS','KeyE','KeyQ','Space','ShiftLeft'])delete keys[k];`;
+  /* The flat case runs on every untouched level: it is what makes the md5 gate mean something,
+     since a P.z that only tracks the floor by luck hashes just as well as one that does not. */
+  for (let li = 0; li < run('LEVELS.length'); li++) {
+    run(PRE(li));
+    const x0 = run('P.x'), s = run(RUN(150, 'KeyW'));
+    const sep = s.filter(r => r[1] !== r[2]).length, air = s.filter(r => r[3]).length;
+    const adv = s[s.length - 1][0] - x0, z0 = s[0][1], shk = Math.max.apply(null, s.map(r => r[5]));
+    VROW('L' + li + ' flat walk keeps P.z on the floor', !sep && !air && adv > 2 && shk < 0.05,
+      `P.z off the floor ${sep}/150 frames, airborne ${air}, landing impulse peaked at ${shk.toFixed(2)}, ` +
+      `travelled ${adv.toFixed(2)} units in 2.5 s` + (adv <= 2 ? ' VACUOUS - the player barely moved' : ''));
+    const ze = run(RUN(40, 'KeyE')).pop()[1], zq = run(RUN(40, 'KeyQ')).pop()[1];
+    VROW('L' + li + ' climb keys inert with no ladder', ze === z0 && zq === z0, `KeyE -> ${ze}, KeyQ -> ${zq}, floor ${s[0][2]}`);
+  }
+  let laneLi = -1, lane = null;
+  for (let li = 0; li < run('LEVELS.length') && !lane; li++) { run(PRE(li)); lane = run(LANE); if (lane) laneLi = li; }
+  if (!lane) VROW('a straight lane to walk down', false, 'NO-LANE in any level - every case below is vacuous');
+  else {
+    const CX = lane.x, CY = lane.y, N = lane.n, LIPX = CX + 3;
+    /* Every config: a poke on the lane, then the same walk down it. The poke is a runtime height,
+       not a generator change - step 4 owns the content - and linkBoundaries is what keeps
+       ceilPlane and linkStamp honest about it (view.js planes is the gate for that). */
+    const CFG = (body, poke) => PRE(laneLi) + `(()=>{${poke}})();linkBoundaries();` +
+      PLACE(CX + 0.5, CY + 0.5) + body;
+    console.log(`  lane level ${laneLi} cell ${CX},${CY} length ${N} - facing +x, the change 3 columns ahead`);
+    /* Blocking, walkable and drawn must be ONE byte: a quantum of floor is a stair the player
+       walks up unasked, two quanta is a wall it stops at, and both are the same flag test. */
+    for (const [name, dq, want] of [['a 1-quantum lip', 1, 'over'], ['a 2-quantum lip', 2, 'stop']]) {
+      run(CFG('', `for(let j=3;j<${N};j++)MAP.fz[${CY} * MW + ${CX} + j]+=${dq};`));
+      const Z0 = run('P.z'), sp = run(SPANS), s = run(RUN(150, 'KeyW'));
+      const zs = s.map(r => r[1]), crossed = s[s.length - 1][0] > LIPX + 0.2;
+      const air = s.filter(r => r[3]).length;
+      const mid = zs.filter(z => z > zs[0] + 1e-9 && z < Z0 + dq * 0.25 - 1e-9).length;
+      const endZ = zs[zs.length - 1], wantZ = Z0 + (want === 'over' ? 0.25 : 0);
+      const ok = sp.bad === 0 && air === 0 && endZ === wantZ && (want === 'over' ? crossed && mid > 0 : !crossed && mid === 0);
+      VROW('auto-step over ' + name, ok,
+        `faces ${sp.tot - sp.bad}/${sp.tot} legal, crossed ${crossed ? 'yes' : 'no'}, P.z ${zs[0]} -> ${endZ} (want ${wantZ}), ` +
+        `rise spread over ${mid} intermediate frames, airborne ${air}`);
+      if (want === 'over') {
+        const path = [];
+        for (const r of s) if (!path.length || r[1] !== path[path.length - 1]) path.push(r[1]);
+        console.log('    P.z path ' + path.map(v => v.toFixed(4)).join(' -> '));
+      }
+    }
+    /* A drop the collision path lets you walk off has to take FRAMES: the else branch used to snap
+       P.z to the floor, which is the teleport this step exists to remove. */
+    run(CFG('', `for(let j=3;j<${N};j++)MAP.fz[${CY} * MW + ${CX} + j]-=4;`));
+    const spd = run(SPANS), s = run(RUN(120, 'KeyW'));
+    const airAt = s.map((r, i) => r[3] ? i : -1).filter(i => i >= 0);
+    let mono = true;
+    for (let i = 1; i < s.length; i++) if (s[i][1] > s[i - 1][1] + 1e-12) mono = false;
+    const uniq = new Set(s.map(r => r[1])).size, dmg = +(100 - s[s.length - 1][4]).toFixed(3);
+    VROW('walking off a 1-unit ledge falls over frames', spd.bad === 0 && airAt.length >= 3 && mono && uniq >= 4 && dmg === 0,
+      `airborne ${airAt.length} frames, monotonic ${mono ? 'yes' : 'no'}, ${uniq} distinct P.z, hp lost ${dmg}, ` +
+      `lands on ${s[s.length - 1][2]} at P.z ${s[s.length - 1][1]}`);
+    const from = airAt.length ? Math.max(0, airAt[0] - 1) : 0, to = airAt.length ? Math.min(s.length - 1, airAt[airAt.length - 1] + 1) : 0;
+    console.log('    frame        x       P.z    floor  air');
+    for (let i = from; i <= to; i++) if (i - from < 26 || i > to - 3)
+      console.log('    ' + String(i).padStart(5) + ' ' + s[i][0].toFixed(3).padStart(9) + ' ' + s[i][1].toFixed(5).padStart(9) +
+        ' ' + s[i][2].toFixed(2).padStart(7) + ' ' + (s[i][3] ? 'yes' : 'no').padStart(5));
+    /* Landing costs health above the free-drop limit and nothing below it. Each drop is dug into
+       the lane so the altitude lost is exact - k quanta - from a player at rest. */
+    const rows = [];
+    for (const k of [5, 8, 10, 13, 16]) {
+      run(CFG('', `for(let j=1;j<${N};j++)MAP.fz[${CY} * MW + ${CX} + j]-=${k};`) + PLACE(CX + 2.5, CY + 0.5, 0));
+      const sp = run(SPANS);
+      const r = run('(()=>{let i=0;do{update(1/60);i++}while(P.air&&i<240);' +
+        'return{i:i,hp:+P.hp.toFixed(3),z:P.z,gz:floorAt(P.x,P.y)}})()');
+      rows.push({ h: k * 0.25, dmg: +(100 - r.hp).toFixed(3), fr: r.i, landed: r.z === r.gz, spans: sp.bad });
+    }
+    const over = rows.slice(1);
+    const mono2 = over.every((r, i) => i === 0 || r.dmg > over[i - 1].dmg);
+    VROW('fall damage free under 1.5 units, scaled over', rows[0].dmg === 0 && over.every(r => r.dmg > 0) && mono2 && rows.every(r => r.landed && !r.spans),
+      rows.map(r => `${r.h.toFixed(2)}->${r.dmg.toFixed(1)}hp/${r.fr}f`).join('  ') + '   (drop -> hp lost / frames)');
+    /* A ladder is the only thing that turns the up/down keys into altitude, so the same cell with
+       the flag cleared is the control: identical grid, identical keys, no change in P.z. */
+    const ladCase = (poke, key, fr) => {
+      run(CFG('', poke) + PLACE(CX + 1.5, CY + 0.5));
+      return run(RUN(fr, key)).pop()[1];
+    };
+    const Z0 = run(PRE(laneLi) + PLACE(CX + 1.5, CY + 0.5) + 'P.z'), ceil = run('ceilAt(P.x,P.y)');
+    const up = ladCase(`MAP.feat[${CY} * MW + ${CX} + 1]=FEAT_LADDER;`, 'KeyE', 40);
+    const plain = ladCase(`MAP.feat[${CY} * MW + ${CX} + 1]=FEAT_NONE;`, 'KeyE', 40);
+    const vlad = ladCase(`MAP.vb[${CY} * MW + ${CX} + 1]|=(VB_LADDER<<0);`, 'KeyE', 40);
+    const down = ladCase(`MAP.feat[${CY} * MW + ${CX} + 1]=FEAT_LADDER;`, 'KeyQ', 40);
+    VROW('climb up on a FEAT_LADDER cell', up > Z0, `P.z ${Z0} -> ${up} in 0.67 s (ceiling plane ${ceil})`);
+    VROW('the same cell without the flag does not climb', plain === Z0, `P.z ${Z0} -> ${plain}`);
+    VROW('a VB_LADDER crossing climbs too', vlad > Z0, `P.z ${Z0} -> ${vlad}`);
+    VROW('climbing down stops at the column floor', down === Z0, `P.z ${Z0} -> ${down}`);
+  }
+  /* The spawn invariant the ordering bug would break: at level start the feet are ON the floor. */
+  for (let li = 0; li < run('LEVELS.length'); li++) {
+    run(`S.mode='play';startLevel(${li},true);`);
+    const r = run('({z:P.z,f:floorAt(P.x,P.y),air:P.air?1:0,solid:isSolid(P.x,P.y)?1:0})');
+    VROW('L' + li + ' spawn sits on its floor', r.z === r.f && !r.air && !r.solid,
+      `P.z ${r.z} vs floorAt ${r.f}, airborne ${r.air}, inside geometry ${r.solid}`);
+  }
   if (bad) { console.log('vert: FAILED'); process.exit(1); }
   console.log('vert: all levels ok');
 }
