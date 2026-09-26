@@ -106,7 +106,11 @@ frame = (kind, o) => {
   const mb = Math.min(BUCKETS.mv - 1, (clamp(o.mv || 0, 0, 0.999) * BUCKETS.mv) | 0);
   const ab = Math.min(BUCKETS.atk - 1, (clamp(o.atk || 0, 0, 0.999) * BUCKETS.atk) | 0);
   const db = Math.min(BUCKETS.die - 1, (clamp(o.die || 0, 0, 0.999) * BUCKETS.die) | 0);
-  const key = kind + '|' + ph + '|' + yb + '|' + mb + '|' + ab + '|' + db;
+  // Coarse size class belongs in the key: poses are authored at the height they occupy,
+  // so an entry is only valid for the band it was made in. A size-unkeyed cache made
+  // 132-px bodies answer for 431-px closeups.
+  const sc = o.hpx >= 170 ? 2 : (o.hpx >= 80 ? 1 : 0);
+  const key = kind + '|' + ph + '|' + yb + '|' + mb + '|' + ab + '|' + db + '|' + sc;
   let ent = cache.get(key);
   if (ent) { cache.delete(key); cache.set(key, ent); return ent.tex; }
   // Evict *before* deciding to give up. Eviction used to live only after an insertion,
