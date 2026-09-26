@@ -61,7 +61,15 @@ Captured from the deployed build, not from a mockup or an old build: [live site]
 
 ![enemies](docs/screens/level0-enemies.png)
 
-*Enemies at 2-5 m. This one is deliberately kept in: characters composite as translucent boxes with visible quad edges at close range, which no headless probe detected (`view.js rig` and `contrast` both passed it). See AGENTS.md, "Who verifies what".*
+*Enemies at 2-5 m, one hound closing from the right. The caption used to blame translucent compositing
+for the mottled look here; that measures false. Sampling body pixels against the wall behind them gives
+correlation -0.398 over 6463 masked pixels, body mean luminance 89.2 against wall 100 — and masking on a
+large difference biases correlation *negative*, so there is no positive tracking at all: the bodies are
+opaque. What you are seeing is torso speckle against an equally busy wall. The real defect in this shot
+is the rim light, whose band is too wide at close range and reads as a white halo (issue #17) — the
+contrast probe passed it because that probe averages edge contrast and cannot see band width. Three
+enemies placed with `DEV.spawn(kind, 1, d)` land on the same ray and two hide behind the first, which is
+why this uses the fanning `DEV.spawn(kind, 2, d)`.*
 
 Everything is generated in plain JS at boot (~1.6 s): no image files, no fetches, no canvas path
 calls. `js/05_paint.js` is a small rasteriser — analytic anti-aliased SDF shapes (segments, discs,
