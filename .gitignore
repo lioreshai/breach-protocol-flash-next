@@ -33,3 +33,4 @@ coverage/
 /dump/
 /scratch/
 *.dump.bin
+_site/
