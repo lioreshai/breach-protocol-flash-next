@@ -279,6 +279,12 @@ if (MODE === 'play') {
     run(`S.mode="play"; startLevel(${L}, true); S.locked=true; P.ads=0; keys.KeyW=1;`);
     bad += report(`L${L} update x600`, 'for(let i=0;i<600;i++) update(1/60)') ? 1 : 0;
     bad += report(`L${L} frame x120`, 'for(let i=0;i<120;i++) frame(1000+i*16.7)') ? 1 : 0;
+    // Velocity without displacement was the reported freeze: a mover whose position sits
+    // in a solid cell fails its own radius probes and can never move. Measure travel.
+    const trav = run(`(()=>{const x0=P.x,y0=P.y;keys.KeyW=1;for(let i=0;i<45;i++)frame(${L * 1e5}+i*16.7);keys.KeyW=0;return [Math.hypot(P.x-x0,P.y-y0),isSolid(P.x,P.y)?1:0]})()`);
+    console.log(('  L' + L + ' walk').padEnd(20), trav[0] > 1 ? trav[0].toFixed(2) + ' units in 0.75 s'
+      : 'BLOCKED after ' + trav[0].toFixed(3) + ' units' + (trav[1] ? ' - embedded in geometry' : '') + ' << this is the freeze');
+    if (!(trav[0] > 1)) bad++;
     for (let wi = 0; wi < NW; wi++) {
       run(`P.weapon=${wi}; P.reloadT=WEAPONS[${wi}].reload*0.5;`);
       bad += report(`L${L} w${wi} reload`, 'for(let i=0;i<90;i++) frame(2000+i*16.7)') ? 1 : 0;

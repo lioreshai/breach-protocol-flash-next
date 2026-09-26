@@ -248,6 +248,14 @@ function openExit() {
 /* ---------------- player ---------------- */
 P.moving = function () { return Math.hypot(this.vx, this.vy) > 0.35; };
 function tryMove(o, dx, dy, rad) {
+  // Inside geometry, the radius probes land on the mover's own cell and reject every
+  // direction, which is a permanent lock - fall back to bare destination tests so a
+  // mover that ends up embedded can always walk out of it.
+  if (isSolid(o.x, o.y)) {
+    if (!isSolid(o.x + dx, o.y)) o.x += dx;
+    if (!isSolid(o.x, o.y + dy)) o.y += dy;
+    return;
+  }
   // axis-separated slide
   if (!isSolid(o.x + dx + Math.sign(dx) * rad, o.y) && !isSolid(o.x + dx + Math.sign(dx) * rad, o.y - rad * 0.7) && !isSolid(o.x + dx + Math.sign(dx) * rad, o.y + rad * 0.7)) o.x += dx;
   if (!isSolid(o.x, o.y + dy + Math.sign(dy) * rad) && !isSolid(o.x - rad * 0.7, o.y + dy + Math.sign(dy) * rad) && !isSolid(o.x + rad * 0.7, o.y + dy + Math.sign(dy) * rad)) o.y += dy;

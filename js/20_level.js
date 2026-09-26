@@ -28,6 +28,22 @@ let DECALS = [], DECAL_GRID = [], DECAL_MASK = null;
 let exitX = 0, exitY = 0, explored = null, bfsDist = null;
 
 const cellIdx = (x, y) => (y | 0) * MW + (x | 0);
+/* Nearest cell without a wall, by breadth-first search from a starting point. */
+function nearestOpen(x, y) {
+  if (!isSolid(x, y)) return [x, y];
+  const seen = new Uint8Array(MAP.cell.length), q = [(y | 0) * MW + (x | 0)];
+  seen[q[0]] = 1;
+  for (let h = 0; h < q.length; h++) {
+    const c = q[h], cx = c % MW, cy = (c / MW) | 0;
+    if (!isSolid(cx + 0.5, cy + 0.5)) return [cx + 0.5, cy + 0.5];
+    for (const d of [1, -1, MW, -MW]) {
+      const n = c + d;
+      if (n < 0 || n >= seen.length || seen[n]) continue;
+      seen[n] = 1; q.push(n);
+    }
+  }
+  return [x, y];
+}
 const isSolid = (x, y) => {
   const ix = x | 0, iy = y | 0;
   if (ix < 0 || iy < 0 || ix >= MW || iy >= MH) return true;
@@ -257,7 +273,11 @@ function genLevel(li) {
     // lightmap splat, then a smoothing pass and the per-cell tint
     for (const L of LIGHTS) splatLight(L, L.str);
     blurLight(); buildTint();
-    P.x = px0; P.y = py0; P.ang = 0.6; P.vx = P.vy = 0; P.z = 0;
+    // The scatter pass can drop a pillar on the room centre, and starting inside
+    // geometry is unrecoverable - the collision probes would sample the player's own
+    // cell - so walk out to the nearest open cell instead of spawning into a wall.
+    const sp = nearestOpen(px0, py0);
+    P.x = sp[0]; P.y = sp[1]; P.ang = 0.6; P.vx = P.vy = 0; P.z = 0;
     return true;
   }
   // extremely unlikely fallback: reuse a smaller successful layout
