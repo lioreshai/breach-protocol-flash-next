@@ -1,0 +1,48 @@
+name: Prune merged branches
+
+# `delete_branch_on_merge` is enabled on the repository and handles the normal case, but it is a
+# repo *setting* rather than a file, so nothing in the tree records that branches are supposed to
+# disappear - and it does nothing for branches merged before it was turned on, or by a path that
+# ignored it. This is the safety net beside it.
+#
+# Detection is by the PR's merged state, not by `merge-base --is-ancestor`: merges here are
+# squash merges, so the branch's *content* is in main while its *commit* is not an ancestor of it,
+# and an ancestry check reports a fully-merged branch as unmerged and keeps it forever.
+
+on:
+  schedule:
+    - cron: '17 6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: read
+
+jobs:
+  prune:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Delete branches whose pull request was merged
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -uo pipefail
+          kept=0; pruned=0
+          # origin/HEAD shows up in branch listings and is not a branch.
+          for br in $(gh api repos/{owner}/{repo}/branches --paginate --jq '.[].name' | grep -vE '^(main|HEAD)$'); do
+            # gh infers the repo from the checked-out remote; the {owner}/{repo} placeholders are
+            # substituted by `gh api` only, not in a `-R` argument.
+            pr=$(gh pr list --state merged --head "$br" --json number --jq '.[0].number // empty')
+            if [ -n "$pr" ]; then
+              if gh api -X DELETE "repos/{owner}/{repo}/git/refs/heads/$br" 2>/dev/null; then
+                echo "pruned $br (merged in PR #$pr)"; pruned=$((pruned + 1))
+              else
+                echo "could not delete $br (protected, or already gone)"; kept=$((kept + 1))
+              fi
+            else
+              echo "keeping $br - no merged PR points at it"; kept=$((kept + 1))
+            fi
+          done
+          echo "pruned=$pruned kept=$kept"
