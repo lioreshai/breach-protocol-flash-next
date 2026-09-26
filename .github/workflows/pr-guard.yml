@@ -42,3 +42,31 @@ jobs:
           echo "CHANGELOG.md was not touched."
           echo "Add a line under Unreleased, or put [no-changelog] in the PR body for tooling-only work."
           exit 1
+
+  issue:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Issue reference required
+        env:
+          # Same rule as PR_BODY above: never spliced into the script, always read from env.
+          # A body containing an apostrophe once closed the quote and broke the test.
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          set -euo pipefail
+          if printf '%s' "$PR_BODY" | grep -qiE '(close|fix|resolve)s?:? *#[0-9]+'; then
+            printf '%s\n' "$PR_BODY" | grep -oiE '(close|fix|resolve)s?:? *#[0-9]+' | head -3
+            echo "references an issue, which GitHub closes on merge"
+            exit 0
+          fi
+          if printf '%s' "$PR_BODY" | grep -q '\[no-issue\]'; then
+            echo "exempt: PR body carries [no-issue]"
+            exit 0
+          fi
+          echo "The PR body names no issue."
+          echo "Add a line such as 'Closes #13' (or 'Closes #13, #14'), or '[no-issue]' for"
+          echo "work that is genuinely not tracked - the marker is the point: it has to be written"
+          echo "down where someone can disagree with it."
+          echo "Use the keyword, not a bare '#13': on a squash merge a bare reference links the"
+          echo "issue but leaves it open, and an issue that is quietly never closed is worse than"
+          echo "no issue at all, because it teaches everyone to ignore the tracker."
+          exit 1

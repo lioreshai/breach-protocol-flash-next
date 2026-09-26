@@ -176,6 +176,23 @@ access (the stub throws on `getImageData`, so assets cannot accidentally depend 
 `OUT=` redirects the PNG path. Levels lay themselves out with `Math.random`,
 so `exposure` seeds it; single-run numbers otherwise swing ±20 from lamp placement alone.
 
+## How work is tracked
+
+Backlog, bugs and milestones are [GitHub issues](https://github.com/lioreshai/breach-protocol-flash-next/issues),
+not lines in a markdown file — an issue can be linked from the commit that closes it and a paragraph
+cannot. The mechanics:
+
+* A PR body names its issue with `Closes #N` (or `Fixes #N`). **The keyword is required**: on a squash
+  merge a bare `#13` links the issue and leaves it open forever, and an issue nobody ever closes is
+  worse than no tracker, because it teaches everyone to ignore it. The `issue` check enforces this.
+* `[no-issue]` in the body is the opt-out for work that genuinely is not tracked. Like
+  `[no-changelog]`, the marker has to be written down where someone can disagree with it.
+* Commits may name the issue too (`M2: … (#13)`), which is what makes `git log` navigable.
+* `triage.yml` runs weekly and reports open issues with no priority or no area label. It reports; it
+  never labels or closes anything by itself.
+* `ROADMAP.md` keeps direction, the priority rubric and measured constraints. Status questions go to
+  the tracker.
+
 ## Notes
 * Chrome/Safari/Firefox all fine. Mouse look needs pointer lock, granted on the first click — that
   click does not also fire your weapon.
