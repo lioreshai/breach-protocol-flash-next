@@ -17,9 +17,36 @@ node tools/view.js sheets               # /tmp/fps_tex.png + /tmp/fps_rig.png
 node tools/view.js scene 0 0            # /tmp/fps_scene.png (level 0, cell 0)
 node tools/view.js exposure             # mean brightness per level (targets 60-100)
 node tools/view.js rig | viewmodel | play | diag | decal
-node tools/view.js scene 0 0 ASCII=1    # text view, since image input is broken here
+node tools/view.js scene 0 0 ASCII=1    # text view, when the pixels want to be numbers
 WARM=1 node tools/view.js scene 0 3     # stress: 180 frames, turning camera
 ```
+
+## Who verifies what
+
+The live site is the source of truth: every merge to `main` deploys to
+`https://lioreshai.github.io/breach-protocol-flash-next/`. Whatever can be observed there — a
+screenshot, `browser eval` over the game's own globals, thrown errors, measured frame deltas —
+**is verified, and nobody waits for a human report on it.** Asking "does this look right to you?"
+about a defect already captured in a screenshot is a bug in the workflow, not politeness.
+
+Order of evidence, strongest first:
+
+1. **the live page in a browser** — real GPU path, real aspect ratio, real pointer lock.
+2. **`node tools/view.js <probe>`** — geometry, lighting, budgets: deterministic and diffable.
+3. **the smoke verdict** — must stay green; proves nothing about how anything looks.
+
+Human judgement still rules what the page cannot reveal: game feel, aim responsiveness, whether the
+audio levels are pleasant, difficulty. Ask about those. Do not ask about pixels.
+
+**Hard rule: refresh the README's screenshots after every merged PR that changes the picture.**
+Capture them from the deployed build into `docs/screens/` - not from a headless dump, not from an
+older build - and put any defect visible in a shot into its caption instead of cropping it out. A
+defect in a caption is known; a cropped defect becomes a bug report about someone's display.
+
+Trap: the headless probes rasterize poses **without** the scene-light multiply, so `view.js rig`
+and `contrast` both agreed the characters looked fine while the live site drew them as translucent
+boxes (`/tmp/fps_live.png`). A probe passing is not the same thing as a probe being capable of
+failing.
 
 Gate commits on the tool's verdict, not on grep matching a line — grepping "raster cost"
 matched even while the assert failed and produced commits with known-failing budgets:

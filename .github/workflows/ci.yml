@@ -84,6 +84,11 @@ jobs:
   seeds:
     name: seeds (informational)
     continue-on-error: true
+    # Main pushes only. These two seeds exist to say "the numbers move a lot between generated
+    # levels" - nothing about a diff can change that verdict, so running them per PR and per branch
+    # push burned ~6 runner-minutes each time to re-print a known constant. The coverage still
+    # happens after every merge, which is where a regression would actually show up.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
