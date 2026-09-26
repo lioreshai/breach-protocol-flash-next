@@ -43,6 +43,13 @@ Capture them from the deployed build into `docs/screens/` - not from a headless 
 older build - and put any defect visible in a shot into its caption instead of cropping it out. A
 defect in a caption is known; a cropped defect becomes a bug report about someone's display.
 
+**`?dev=1` is the sanctioned way to verify live behaviour.** It boots the game with no click and no
+pointer lock and publishes `DEV` (`README.md`: *Driving the game from a console*) — deterministic
+camera and enemy placement, `freeze`/`tick` for reproducible frames, `DEV.ray` for geometry claims,
+and `DEV.set('rim', false)` to A/B one shading term in the running page. A claim checked through
+`DEV` counts as verified; a claim checked by guessing at internals does not. The first hunt that
+needed it wasted turns assigning to `P.yaw`, which does not exist — the heading is `P.ang`.
+
 Trap: the headless probes rasterize poses **without** the scene-light multiply, so `view.js rig`
 and `contrast` both agreed the characters looked fine while the live site drew them as translucent
 boxes (`/tmp/fps_live.png`). A probe passing is not the same thing as a probe being capable of

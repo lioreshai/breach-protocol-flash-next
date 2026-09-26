@@ -27,6 +27,8 @@ const SPEC = {
 
 /* ---------------- shaded primitives (Surf.shape with an analytic SDF) ------- */
 let SC = null;                                     // {s, H} current raster context
+const RIM_ON = 0.45;                               // the rim gain this file has always shipped with
+let RIM = RIM_ON;                                  // DEV.set('rim', false) puts it at 0 for a live A/B
 const SHRGB = [0, 0, 0];                            // shade closures must not allocate per pixel
 const rgb = hex => [parseInt(hex.slice(1, 3), 16), parseInt(hex.slice(3, 5), 16), parseInt(hex.slice(5, 7), 16)];
 const segSD = (ax, ay, bx, by, r) => (px, py) => {
@@ -55,14 +57,14 @@ const discSD = (cx, cy, r) => (px, py) => Math.hypot(px - cx, py - cy) - r;
    rather than per pixel: this used to hit SC.s.h / SC.s.w / SC.sy three times a pixel. */
 function bodyPaint(col, k) {
   const C = rgb(col), kk = k === undefined ? 1 : k;
-  const hh = 1 / SC.s.h, iw = 1 / SC.s.w, ih = 1 / SC.H, sy = SC.sy;
+  const hh = 1 / SC.s.h, iw = 1 / SC.s.w, ih = 1 / SC.H, sy = SC.sy, rg = RIM;
   const BAND = 0.03, BINV = 1 / BAND;                     // rim width = 3% of body height
   return (px, py, d) => {
     const u = py * hh, v = px * iw;
     const side = clamp((0.5 - v) * 1.15 * sy, -0.32, 0.32);
     const base = clamp((0.60 + 0.55 * (1 - u) + side) * kk, 0.18, 1.6);
     const t = clamp((d * ih + BAND) * BINV, 0, 1);         // 0 inside, 1 on the silhouette
-    const rim = t * t * (3 - 2 * t) * 0.45;                 // smoothstep, no sqrt
+    const rim = t * t * (3 - 2 * t) * rg;                 // smoothstep, no sqrt
     // ADDITIVE, and this is the part that mattered: multiplied by the albedo the rim was
     // invisible because the albedos are dark (armour averages 35,59,68, so base+0.6 still
     // rendered as a dark grey and the measured edge contrast did not move). A rim is light
@@ -117,12 +119,12 @@ function limb(x, y, ang, len, r, paint) {
 }
 
 /* ---------------- cache ---------------- */
-cache = new Map(); recent = {}; bytes = 0; made = 0; budget = 0;
+cache = new Map(); recent = {}; bytes = 0; made = 0; budget = 0; poses = 0;
 CAP = 9 * 1048576;
 const BUCKETS = { ph: 8, yaw: 8, mv: 3, atk: 4, die: 6 };
-function beginFrame(b) { budget = b; }
+function beginFrame(b) { budget = b; poses = 0; }
 function clear() { cache.clear(); for (const k in recent) delete recent[k]; bytes = 0; }
-function stats() { return { entries: cache.size, mb: +(bytes / 1048576).toFixed(2), made: made }; }
+function stats() { return { entries: cache.size, mb: +(bytes / 1048576).toFixed(2), made: made, poses: poses }; }
 
 frame = (kind, o) => {
   const ph = Math.floor((((o.p % 1) + 1) % 1) * BUCKETS.ph);
@@ -156,7 +158,7 @@ frame = (kind, o) => {
     lean: clamp(o.lean || 0, -0.22, 0.22), pulse: o.pulse || 0,
   });
   ent = { tex, ph, yb, mb, ab, db };
-  cache.set(key, ent); bytes += tex.data.byteLength; made++;
+  cache.set(key, ent); bytes += tex.data.byteLength; made++; poses++;
   (recent[kind] || (recent[kind] = [])).push(ent);
   if (recent[kind].length > 40) recent[kind].shift();
   return tex;
@@ -304,5 +306,5 @@ function rigHound(pose, C, sp) {
     box(hx + 0.030 * sy, hy + 0.002, 0.018 * (0.3 + 0.7 * Math.abs(cy)), 0.013, 0, 0, flatPaint(rgb(C.eye), u => 0.85 + 0.35 * u));
   }
 }
-  return { frame, beginFrame, clear, stats, raster: (k, h, p) => raster(k, h, p), get bytes() { return bytes; } };
+  return { frame, beginFrame, clear, stats, raster: (k, h, p) => raster(k, h, p), setRim: on => { RIM = on ? RIM_ON : 0; clear(); }, get rim() { return RIM > 0; }, get bytes() { return bytes; } };
 })();
