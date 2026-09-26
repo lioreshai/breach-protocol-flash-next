@@ -53,9 +53,19 @@ and `DEV.set('rim', false)` to A/B one shading term in the running page. A claim
 needed it wasted turns assigning to `P.yaw`, which does not exist — the heading is `P.ang`.
 
 Trap: the headless probes rasterize poses **without** the scene-light multiply, so `view.js rig`
-and `contrast` both agreed the characters looked fine while the live site drew them as translucent
-boxes (`/tmp/fps_live.png`). A probe passing is not the same thing as a probe being capable of
-failing.
+and `contrast` both agreed the characters looked fine while the live site showed something the probes
+could not describe (`/tmp/fps_live.png`). A probe passing is not the same thing as a probe being
+capable of failing.
+
+That trap carried a **false diagnosis for several commits**, and it is worth keeping the correction
+next to the lesson: the live characters did *not* composite as translucent boxes. Correlating body
+pixels against the wall behind them (6463 masked px, mean body 89.2 vs mean wall 100) gives **-0.398**,
+and masking on a large body-vs-background difference biases correlation *negative*, so a true value of
+zero would look like this too — the bodies are opaque, and the see-through impression is torso speckle
+against an equally busy wall. What the live site actually shows at close range is a rim band that is too
+wide and reads as a white halo (issue #17), which the edge-contrast probe passed because an average
+cannot see band *width*. Two lessons, both cheap to keep: a probe that cannot fail is worthless, and a
+finding that survives in prose after it was disproven is worse than no finding.
 
 Gate commits on the tool's verdict, not on grep matching a line — grepping "raster cost"
 matched even while the assert failed and produced commits with known-failing budgets:
