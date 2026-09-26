@@ -67,8 +67,13 @@ case "$out" in *"SMOKE PASSED"*) git add -A && git commit ;; *) echo NOT COMMITT
   exact multiple of vertices-per-instance; additive blending cannot read its destination.
 - Claiming a field is dead: grep **`tools/` too** — probe code strings hide reads (`bfsDist`
   looked dead and was the HUD's objective distance).
-- Background jobs running `git add -A` race your edits and produce mis-subject commits.
-  Don't launch a commit-including job while editing; audit `git show --stat` after.
+- Background jobs race your commits and produce mis-subject commits, and **`git add -A` is not
+  the only way to cause one**: naming a path still sweeps whatever a running job has written to
+  that file. `9cfc17e` ("Hound legs") carried the M1 worker's alt-probe boundary/span extension
+  because I ran `git add tools/view.js` while it was editing the same file — annotated in
+  `git notes`, since rewriting history to fix a subject destroys the diff it is supposed to
+  document. While a job runs: `git diff --stat` and confirm you own the hunks, or wait.
+  Auditing `git show --stat` afterwards catches it; waiting for the notice prevents it.
 - Probes that spin the camera also *drive the player*: recenter or they walk through walls
   into the void, where the grid is undefined and DDA never hits (that is a "freeze").
   `nearestOpen()` rescues an embedded player; `tryMove()` slides along walls.
