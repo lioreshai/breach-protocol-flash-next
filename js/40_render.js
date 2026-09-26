@@ -191,7 +191,12 @@ function castGround(flash, fcR, fcG, fcB) {
     const pxTex = Math.abs(wxs * sc) + Math.abs(wys * sc) * 0.001;
     const k = pxTex >= 0.5 ? (pxTex >= 2 ? (pxTex >= 4 ? 3 : 2) : 1) : 0;
     const m = tex.mips[Math.min(k, tex.mips.length - 1)];
-    const mw = m.w, mh = m.h, ms = sc * (mw / tex.w), td = m.data, mask = mw - 1, maskH = mh - 1;
+    // ms is texels per world unit at THIS mip: the tile is tileF world units wide, so a
+    // 128-texel tile must advance mw/tileF per unit. Dividing by the mip width instead
+    // (sc * mw/tex.w) made every tile span ~147 world units, so all floor material was
+    // magnified ~128x into a flat gradient and pxTex never exceeded 0.071 - the mip
+    // chain, the grit, the plank and tile patterns were all unreachable by construction.
+    const mw = m.w, mh = m.h, ms = sc * mw, td = m.data, mask = mw - 1, maskH = mh - 1;
     const row = y * BW;
     const NN = N * N;
     let pxi = wx | 0, pyi = wy | 0, cIdx = pyi * N + pxi, mir = 0, inMap = cIdx >= 0 && cIdx < NN;
