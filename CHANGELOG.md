@@ -8,6 +8,7 @@ one change: say what the reader would notice, not which file was touched.
 ## Unreleased
 
 ### Changed
+- Verification rule written down: anything observable on the live site is verified without waiting for a human report. Fixes a stale note claiming image input is broken here.
 - Repo is public, with CI on every push and PR, and Pages deploying every merge to main.
 - Weapon viewmodel rebuilt: one bore axis for all three families, so the muzzle flash now comes
   out of the muzzle instead of 90 degrees to the side, and the forearms reach past the frame.
