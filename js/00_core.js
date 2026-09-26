@@ -48,7 +48,9 @@ const P = {
   x: 2.5, y: 2.5, ang: 0, pitch: 0, vx: 0, vy: 0,
   hp: 100, armor: 0, z: 0, vz: 0, air: false,
   crouch: 0, sprint: 0, bob: 0, bobPhase: 0, recoil: 0,
-  weapon: 0, mag: [12, 6, 34], reserve: [140, 48, 240], gren: 4,
+  // Boot-time defaults only: resetRun() derives these from WEAPONS, which is the
+  // source of truth. The old literals here had drifted from the weapon caps.
+  weapon: 0, mag: [12, 6, 34], reserve: [150, 66, 280], gren: 4,
   fireT: 0, reloadT: 0, swapT: 0, ads: 0, hurtT: 0, kick: 0, deadT: 0,
   kills: 0, shots: 0, hits: 0, dmg: 0, stepT: 0
 };
@@ -177,8 +179,8 @@ const SND = {
     // slow tension pulse
     const tick = () => {
       if (this.ac && S.mode === 'play') {
-        const i = P.hp < 35 ? 0.55 : 1.6;
-        this.tone('sine', 55, 30, 0.22, P.hp < 35 ? 0.16 : 0.07);
+        const i = P.hp < LOW_HP ? 0.55 : 1.6;
+        this.tone('sine', 55, 30, 0.22, P.hp < LOW_HP ? 0.16 : 0.07);
         setTimeout(tick, i * 1000);
       } else setTimeout(tick, 1400);
     };
@@ -209,6 +211,8 @@ for (const k of Object.keys(SND)) {
 /* Every catch in this project used to be silent, and S.err was written but read by
  * nothing, so a swallowed exception left no trace in the console or on screen. One
  * helper now records and reports; the frame loop paints it and the console sees it. */
+// "About to die" in one place; it was 35 in three sites and 40 in two.
+const LOW_HP = 35;
 function noteError(e, where) {
   const msg = String((e && e.message) || e);
   const at = e && e.stack ? String(e.stack).split('\n')[1] : '';

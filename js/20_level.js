@@ -25,7 +25,7 @@ let MW = 0, MH = 0;
 let LIGHTS = [], PROPS = [], PICKUPS = [], ENEMIES = [], PROJ = [], PARTS = [];
 /* decals are stored per cell so the wall/floor loops can skip cells with none */
 let DECALS = [], DECAL_GRID = [], DECAL_MASK = null;
-let exitX = 0, exitY = 0, explored = null, bfsDist = null;
+let exitX = 0, exitY = 0, explored = null, bfsDist = null;   // read by an assertion in tools/smoke.js
 
 const cellIdx = (x, y) => (y | 0) * MW + (x | 0);
 /* Nearest cell without a wall, by breadth-first search from a starting point. */
@@ -222,8 +222,9 @@ function genLevel(li) {
       floorTex: FLOORS[cfgL.floor] || FLOORS.CONCRETE, ceilTex: CEILS[cfgL.ceil] || CEILS.CONCRETE,
       floorTile: 1.15, ceilTile: 2.4 };
     MW = N; MH = N; decalGridInit();
+
     bfsDist = dist;
-    explored = new Uint8Array(N * N); S.revealed = 0;
+    explored = new Uint8Array(N * N); S.revealed = 0; bfsDist = new Int16Array(N * N);
     const px0 = rooms[0].cx + 0.5, py0 = rooms[0].cy + 0.5;
     exitX = (farIdx % N) + 0.5; exitY = ((farIdx / N) | 0) + 0.5;
 
@@ -288,7 +289,7 @@ function genLevel(li) {
   MAP = { w: N, h: N, cell, light: new Float32Array(N * N).fill(0.7), rooms: [{ x: 1, y: 1, w: N - 2, h: N - 2, cx: N >> 1, cy: N >> 1 }],
     lR: new Float32Array(N * N).fill(0.6), lG: new Float32Array(N * N).fill(0.6), lB: new Float32Array(N * N).fill(0.6), lw: new Float32Array(N * N).fill(0.7),
     lt: new Uint8Array(N * N * 3).fill(128), amb: 0.14, tintDirty: false, floorTex: FLOORS.CONCRETE, ceilTex: CEILS.CONCRETE, floorTile: 1.15, ceilTile: 2.4 };
-  MW = N; MH = N; decalGridInit(); explored = new Uint8Array(N * N); S.revealed = 0; bfsDist = new Int16Array(N * N);
+  MW = N; MH = N; decalGridInit(); explored = new Uint8Array(N * N); S.revealed = 0;
   LIGHTS = []; PROPS = []; PICKUPS = []; PROJ = []; PARTS = []; ENEMIES = [];
   exitX = N - 2.5; exitY = N - 2.5; P.x = 2.5; P.y = 2.5;
   for (const L of LIGHTS) splatLight(L, L.str);

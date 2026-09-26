@@ -591,7 +591,7 @@ function renderOverlay() {
 
   /* damage vignette + low hp */
   const hurt = clamp(P.hurtT / 0.5, 0, 1);
-  const lowhp = P.hp < 40 ? (1 - P.hp / 40) * (0.35 + 0.25 * Math.sin(S.t * 6)) : 0;
+  const lowhp = P.hp < LOW_HP ? (1 - P.hp / LOW_HP) * (0.35 + 0.25 * Math.sin(S.t * 6)) : 0;
   if (hurt > 0.01 || lowhp > 0.01 || P.deadT > 0) {
     const g = ctx.createRadialGradient(DW / 2, DH / 2, DH * 0.25, DW / 2, DH / 2, DH * 0.78);
     g.addColorStop(0, 'rgba(255,0,0,0)');

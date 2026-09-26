@@ -15,7 +15,7 @@ function setDiff(i) {
 }
 
 function resetRun() {
-  P.hp = 100; P.armor = 0; P.mag = [12, 6, 34]; P.reserve = [150, 66, 280]; P.gren = 4;
+  P.hp = 100; P.armor = 0; P.mag = WEAPONS.map(w => w.mag); P.reserve = WEAPONS.map(w => w.cap); P.gren = 4;
   P.weapon = 0; P.vx = P.vy = 0; P.pitch = 0; P.deadT = 0; P.reloadT = 0; P.fireT = 0; P.swapT = 0;
   P.ads = 0; P.crouch = 0; P.z = 0; P.vz = 0; P.air = false; P.hurtT = 0; P.kick = 0; P.recoil = 0;
   P.kills = P.shots = P.hits = P.dmg = 0;
@@ -151,11 +151,11 @@ function update(dt) {
   S.dmgDirT = Math.max(0, S.dmgDirT - dt);
   for (let i = feed.length - 1; i >= 0; i--) { feed[i].t -= dt; if (feed[i].t <= 0) feed.splice(i, 1); }
   // alert from nearby gunfire handled in tryFire
-  if (P.hp < 35 && !P.air) S.shake = Math.max(S.shake, 0.6 + 0.4 * Math.sin(S.t * 7));
+  if (P.hp < LOW_HP && !P.air) S.shake = Math.max(S.shake, 0.6 + 0.4 * Math.sin(S.t * 7));
   // music intensity
   if (SND.musicGain) {
     const left = enemiesLeft();
-    const want = 0.03 + (left === 0 ? -0.01 : 0.02) + (P.hp < 40 ? 0.05 : 0) + Math.min(0.05, left * 0.004);
+    const want = 0.03 + (left === 0 ? -0.01 : 0.02) + (P.hp < LOW_HP ? 0.05 : 0) + Math.min(0.05, left * 0.004);
     SND.musicGain.gain.value = lerp(SND.musicGain.gain.value, S.sound ? want : 0, dt * 0.6);
   }
   // transient lights are faded in updateProps
@@ -190,7 +190,7 @@ function drawErrorBanner() {
 function frameInner(ts) {
   const dt = Math.min(0.05, Math.max(0.001, (ts - last) / 1000 || 0.016));
   last = ts;
-  S.dt = dt; S.t += dt;
+  S.t += dt;
   S.frames++; S.fpsT += dt;
   if (S.fpsT > 0.5) { S.fps = Math.round(S.frames / S.fpsT); S.frames = 0; S.fpsT = 0; }
   drawCalls = 0;
