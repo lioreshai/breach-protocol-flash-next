@@ -58,6 +58,17 @@ function startGame() {
   S.mode = 'play'; hideOv(); lockPointer();
 }
 function resume() { S.mode = 'play'; hideOv(); lockPointer(); }
+
+function pauseGame() {
+  if (S.mode !== 'play') return;
+  S.mode = 'pause'; show('pause');
+  // No keyup ever arrives for a key held when the tab loses focus, and the same goes
+  // for a held trigger or held ADS button. Without clearing them, resuming walks into
+  // a wall and keeps firing - and there were four ways in, each clearing something
+  // different, so this is the one place that decides what pausing means.
+  mouse.down = false; mouse.rdown = false;
+  for (const k in keys) delete keys[k];
+}
 function toMenu() {
   S.mode = 'title'; show('menu'); genLevel(0); S.exitOpen = false;
   PROJ.length = 0; PARTS.length = 0;
@@ -91,10 +102,10 @@ addEventListener('mousemove', e => {
 addEventListener('wheel', e => { if (S.mode === 'play') switchWeapon((P.weapon + (e.deltaY > 0 ? 1 : WEAPONS.length - 1)) % WEAPONS.length); }, { passive: true });
 document.addEventListener('pointerlockchange', () => {
   S.locked = document.pointerLockElement === cv;
-  if (!S.locked && S.mode === 'play') { S.mode = 'pause'; show('pause'); mouse.down = false; }
+  if (!S.locked && S.mode === 'play') pauseGame();
 });
-addEventListener('blur', () => { if (S.mode === 'play') { S.mode = 'pause'; show('pause'); } });
-document.addEventListener('visibilitychange', () => { if (document.hidden && S.mode === 'play') { S.mode = 'pause'; show('pause'); } });
+addEventListener('blur', () => { pauseGame(); });
+document.addEventListener('visibilitychange', () => { if (document.hidden) pauseGame(); });
 
 addEventListener('keydown', e => {
   const c = e.code;
@@ -105,7 +116,7 @@ addEventListener('keydown', e => {
   if (S.mode === 'dead' || S.mode === 'win') { if (c === 'Enter' || c === 'KeyR') { resetRun(); startLevel(S.level, false); resume(); } if (c === 'Escape') toMenu(); return; }
   if (S.mode === 'pause') { if (c === 'Escape' || c === 'Enter') resume(); if (c === 'KeyQ') toMenu(); return; }
   if (S.mode !== 'play') return;
-  if (c === 'Escape') { S.mode = 'pause'; show('pause'); return; }
+  if (c === 'Escape') { pauseGame(); return; }
   if (c === 'KeyR') reload();
   else if (c === 'KeyG') throwGrenade();
   else if (c === 'Digit1') switchWeapon(0);

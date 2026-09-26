@@ -144,7 +144,7 @@ function tryFire() {
   S.flash = Math.max(S.flash, w.kind === 'shotgun' ? 0.75 : 0.45); S.flashCol = [255, 190, 110]; S.muzzle = 1;
   S.shake += w.shake; P.kick = w.kick * (w.kind === 'shotgun' ? 1 : 0.6);
   P.recoil = Math.min(BH * 0.55, P.recoil + w.kick * 0.55 * (BH / 400));
-  alertEnemies(P.x, P.y, w.kind === 'shotgun' ? 13 : 8.5, 0.35);
+  alertEnemies(P.x, P.y, w.kind === 'shotgun' ? 13 : 8.5, w.kind === 'shotgun' ? 1 : w.kind === 'pistol' ? 0.6 : 0.4);
 }
 function reload() {
   const w = WEAPONS[P.weapon];
@@ -236,7 +236,6 @@ function damagePlayer(dmg, srcAng, ignoreArmor) {
   if (srcAng !== undefined) { S.dmgDir = srcAng; S.dmgDirT = 0.9; }
   if (P.hp <= 0) {
     P.hp = 0; P.deadT = 0.001; SND.death();
-    setTimeout(() => { SND.fanfare(false); showDead(); }, 1200);
   }
 }
 function openExit() {
@@ -263,7 +262,13 @@ function tryMove(o, dx, dy, rad) {
 function updatePlayer(dt) {
   const dead = P.deadT > 0;
   const f = dead ? 0 : 1;
-  if (P.deadT > 0) P.deadT += dt;
+  if (P.deadT > 0) {
+    P.deadT += dt;
+    // The death screen is driven by the simulation clock, not a wall-clock timer:
+    // a setTimeout kept running through a pause, so resuming or starting a fresh run
+    // from the menu let it fire later and drop pointer lock on a living player.
+    if (P.deadT > 1.2 && S.mode === 'play') { P.deadT = 0; SND.fanfare(false); showDead(); }
+  }
   // look
   if (!dead && (S.locked || mouse.down)) {
     const s = cfg.sens * (1 - P.ads * 0.45);
@@ -345,6 +350,7 @@ function takePickup(k) {
       const add = Math.ceil(w.cap * 0.16);
       if (room > 0) { P.reserve[i] += Math.min(room, add); got = true; }
     }
+    if (!got) { k.dead = false; return; }          // full reserves: not consumed, no false report
     killfeed('AMMO RESUPPLY', '#ffd27a');
   }
   SND.pickup(k.type);
@@ -352,10 +358,13 @@ function takePickup(k) {
 }
 
 /* ---------------- enemy AI ---------------- */
-function alertEnemies(x, y, r, chance) {
+function alertEnemies(x, y, r, report) {
   for (const e of ENEMIES) {
     if (e.state === 'dead' || e.alert) continue;
-    if (Math.hypot(e.x - x, e.y - y) < r && (!chance || Math.random() < chance * 3)) { e.alert = true; e.state = 'chase'; if (Math.random() < 0.5) SND.growl(e.kind, panOf(e)); }
+    // `report` is the wake probability for a shot fired here. It used to be multiplied
+    // by 3, and the only call site passed 0.35 - i.e. 1.05, so every sleeping enemy in
+    // radius woke on every shot and the parameter was decoration.
+    if (Math.hypot(e.x - x, e.y - y) < r && (!report || Math.random() < report)) { e.alert = true; e.state = 'chase'; if (Math.random() < 0.5) SND.growl(e.kind, panOf(e)); }
   }
 }
 function panOf(e) {
@@ -481,7 +490,7 @@ function updateProjectiles(dt) {
     p.vz -= (p.kind === 'gren' ? 6.4 : 0.9) * dt;
     const nx = p.x + p.vx * dt, ny = p.y + p.vy * dt, nz = p.z + p.vz * dt;
     if (isSolid(nx, ny)) {
-      if (p.kind === 'gren') { p.vx *= -0.45; p.vy *= -0.45; p.vz += 1.2; burstParts(p.x, p.y, p.z, 3, 1.2, '#ffd08a', 0.2, 0.04, true, 0.6); if (Math.random() < 0.5) addWallMark(p.x, p.y, p.z, undefined); }
+      if (p.kind === 'gren') { p.vx *= -0.45; p.vy *= -0.45; p.vz += 1.2; burstParts(p.x, p.y, p.z, 3, 1.2, '#ffd08a', 0.2, 0.04, true, 0.6); }
       else { popOrb(p); PROJ.splice(i, 1); continue; }
     } else { p.x = nx; p.y = ny; }
     p.z += p.vz * dt;
