@@ -28,6 +28,7 @@ one change: say what the reader would notice, not which file was touched.
 - `?dev=1` boots the game with no click and no pointer lock and publishes a `DEV` console API (deterministic camera and enemy placement, frozen frames, a DDA ray query, runtime quality overrides including the character rim light), documented in the README.
 
 ### Changed
+- The `issue` check now accepts the `Refs #N` form AGENTS.md tells us to use, so a PR that is one step of a milestone no longer fails a required check for not closing that milestone.
 - Cell heights are now assigned before the generator's occupancy gate, and reachability is height-aware: a boundary is crossable only when the two floors are within one step. Flat levels are unaffected, pixel for pixel.
 - The floor and ceiling are now solved against the height of the cell each pixel's ray lands in,
   instead of against the eye's own floor and ceiling stretched across the whole level: nothing
