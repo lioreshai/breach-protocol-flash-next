@@ -77,7 +77,14 @@ const SND = {
     this.noiseBuf = b;
     this.startAmbient();
   },
-  on() { return S.sound && this.ac && this.ac.state === 'running'; },
+  // A context that was created before the first gesture stays suspended until
+  // something resumes it; skipping every sound while suspended used to mean a
+  // silently muted game, so nudge it awake and let the next call make noise.
+  on() {
+    if (!S.sound || !this.ac) return false;
+    if (this.ac.state === 'suspended') { try { this.ac.resume(); } catch (e) {} return false; }
+    return this.ac.state === 'running';
+  },
   t() { const c = this.ac.currentTime; return isFinite(c) ? Math.max(0, c) : 0; },
   panner(rel) {
     if (!this.ac.createStereoPanner) return null;
