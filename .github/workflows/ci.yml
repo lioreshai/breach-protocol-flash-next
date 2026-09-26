@@ -1,7 +1,11 @@
 name: CI
 
-# Tests on every push and every pull request. The repo has zero dependencies and no build
-# step, so "install" here is a guard that it stays that way, not a step that does work.
+# Three jobs, deliberately unequal. `test` is the only required status check, so a merge waits on
+# it alone: guards, syntax, and the full smoke run. The probes and the extra seeds run beside it in
+# their own jobs and report what they find without holding anyone up - the difference between a
+# check that is informative and a check that is a toll booth is whether it shares a job with the
+# gate. Previously all of it lived in one job, so a merge paid 6 minutes for numbers nobody acts
+# on and the assertion everyone cares about was 15% of the wall time.
 
 on:
   push:
@@ -55,24 +59,49 @@ jobs:
             *) echo "smoke gate: FAIL"; exit 1 ;;
           esac
 
-      - name: Probes (informational - they report, they do not gate)
-        continue-on-error: true
+  probes:
+    continue-on-error: true
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Probes (they report, they do not gate)
         run: |
           set -uo pipefail
+          # Deliberately not part of the required job. Several of these describe known debt, and a
+          # red X that means "the ceiling still has no anisotropic filtering" teaches everyone to
+          # ignore the checks that mean something else.
           node tools/view.js alt
           node tools/view.js planes
           node tools/view.js exposure
           node tools/view.js contrast
           node tools/view.js viewmodel
 
-      - name: Other seeds (informational - known perf-gate variance, see ROADMAP P0)
-        continue-on-error: true
+  seeds:
+    name: seeds (informational)
+    continue-on-error: true
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Other seeds
         run: |
           set -uo pipefail
+          # SEED=777 fails the perf gate on code nobody changed (ROADMAP P0) and this step cost more
+          # than smoke itself, so it cannot live where it gates a merge.
           for s in 777 31337; do
             if out=$(SEED=$s node tools/smoke.js 2>&1); then
               echo "seed $s: passed"
             else
-              echo "seed $s: would fail the gate (tracked as ROADMAP P0, not blocking this PR)"
+              echo "seed $s: would fail the gate (tracked as ROADMAP P0, not blocking any PR)"
+              printf '%s\n' "$out" | tail -6
             fi
           done
