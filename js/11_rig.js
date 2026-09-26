@@ -246,13 +246,15 @@ function rigHound(pose, C, sp) {
   for (let i = 0; i < 4; i++) {                          // diagonal-couplet gait
     const front = i < 2 ? 1 : -1, side = i % 2 ? 1 : -1;
     const a2 = pose.p * TAU + (front > 0 ? 0 : Math.PI) + (side > 0 ? Math.PI * 0.5 : 0);
-    const sw = pose.die > 0.01 ? 0.15 * side : Math.sin(a2) * (0.30 + 0.42 * pose.mv);
+    const sw = pose.die > 0.01 ? 0.15 * side : Math.sin(a2) * (0.22 + 0.34 * pose.mv);   // was 0.30+0.42: at that splay the animal read as a stool
     const bend = 0.32 + 0.5 * Math.max(0, Math.sin(a2 + 1.1));
-    const jx = front * 0.19 * Math.abs(sy) + side * 0.05 * cy, jy = cyy + (front > 0 ? 0.045 : -0.02);
+    const jx = front * 0.19 * Math.abs(sy) + side * 0.05 * cy, jy = cyy + (front > 0 ? 0.005 : -0.055);   // start under the belly, not at its corners
     const a1 = Math.PI / 2 - sw * (0.5 + 0.5 * Math.abs(sy)) + front * sy * 0.22;
-    const knee = limb(jx, jy, a1, sp.thigh, sp.limb * (side > 0 ? 1 : 0.88), side > 0 ? bodyP : darkP);
+    const knee = limb(jx, jy, a1, sp.thigh, sp.limb * 1.5 * (side > 0 ? 1 : 0.9), side > 0 ? bodyP : darkP);
     const a3 = a1 + bend * (front > 0 ? -1 : 1);
-    limb(knee[0], knee[1], a3, sp.shin, sp.limb * 0.78 * (side > 0 ? 1 : 0.88), side > 0 ? bodyP : darkP);
+    const pastern = limb(knee[0], knee[1], a3, sp.shin, sp.limb * 1.3 * (side > 0 ? 0.95 : 0.86), side > 0 ? bodyP : darkP);
+    // A paw that plants: a tapered limb ending in nothing reads as a stick at any distance.
+    box(pastern[0] + 0.022 * front * Math.abs(sy), pastern[1] - 0.013, 0.062, 0.028, 0, 0.011, side > 0 ? darkP : bodyPaint(C.dark, 0.8));
   }
   box(0, cyy, sp.torso * (0.45 + 0.55 * Math.abs(sy)), 0.21, pitch, 0.085, bodyP);
   box(Math.sin(pitch) * 0.02, cyy + 0.12, sp.torso * 0.7 * Math.max(0.15, Math.abs(sy)), 0.03, pitch, 0.014, ridgeP);

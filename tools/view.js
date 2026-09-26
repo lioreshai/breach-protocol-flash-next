@@ -203,14 +203,17 @@ function texStats(label, tex) {
 }
 if (MODE === 'alt') {
   // Altitude cross-section - the vertical generalisation of "is this level sane". Flat levels
-  // must report band 0 at 100%, 0 boundary faces and 0 mismatches; anything else means M0's
-  // claim that flat behaviour is bit-identical has broken. faces>0 with span<=0, or a wall byte
-  // between two open cells at the same height, is the invisible-wall signature that freezes DDA.
+  // must report band 0 at 100%, no step faces and no mismatches; anything else means the flat
+  // world has stopped being bit-identical. boundary is what the wall pass will draw: a face of
+  // span <=0 there is a column the DDA stops at but nothing renders - the invisible wall that
+  // freezes a raycast. step counts open-to-open crossings, where an unblocked step is the same
+  // fault seen from the movement side.
   for (let li = 0; li < 3; li++) {
     const r = vm.runInContext(`(function(){
       startLevel(${li}, true);
       const N = MAP.w, cell = MAP.cell, fz = MAP.fz, vb = MAP.vb;
       let open = 0, nonFlat = 0, minF = 9e9, maxF = -9e9, faces = 0, faceUnblocked = 0, blockedFlat = [0,0,0,0];
+      let bfaces = 0, badSpan = 0, minSpan = 9e9, maxSpan = 0;
       const bands = {};
       for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
         const i = y * N + x;
@@ -222,18 +225,30 @@ if (MODE === 'alt') {
         // Use the game's own direction arrays: an invented table reads the wrong nibble and
         // reports phantom invisible walls (it did, as 0,23,23,0 on a level with no height at all).
         for (let d = 0; d < 4; d++) {
-          const j = i + DIRY[d] * N + DIRX[d];
-          if (j < 0 || j >= N * N || cell[j]) continue;
+          const nx = x + DIRX[d], ny = y + DIRY[d];
+          if (nx < 0 || ny < 0 || nx >= N || ny >= N) continue;
+          const j = ny * N + nx;
+          if (cell[j]) {
+            // the face the wall pass draws here, measured with the renderer's own pair
+            const sp = ceilAt(x, y) - faceZ0(x, y, d);
+            bfaces++;
+            if (!(sp > 0)) badSpan++;
+            else { if (sp < minSpan) minSpan = sp; if (sp > maxSpan) maxSpan = sp; }
+            continue;
+          }
           const dq = fz[j] - fz[i], blocked = (vb[i] >> (d << 2)) & 1;
           if (dq > 1) { faces++; if (!blocked) faceUnblocked++; }
           else if (blocked) blockedFlat[d]++;
         }
       }
-      return { open, nonFlat, minF, maxF, faces, faceUnblocked, blockedFlat, bands, bandsN: MAP.bands };
+      return { open, nonFlat, minF, maxF, faces, faceUnblocked, blockedFlat,
+        bfaces, badSpan, minSpan, maxSpan, bands, bandsN: MAP.bands };
     })()`, ctxVm);
-    const flat = r.nonFlat === 0 && r.faces === 0 && r.blockedFlat.every(v => v === 0);
+    const flat = r.nonFlat === 0 && r.faces === 0 && r.blockedFlat.every(v => v === 0) && r.badSpan === 0;
     console.log(`level ${li}  open ${r.open}  floors ${r.minF}..${r.maxF}  bands ${JSON.stringify(r.bands)}`);
-    console.log(`         faces ${r.faces}  unblocked-step ${r.faceUnblocked}  blockedFlat byDir ${r.blockedFlat.join(',')}  ${flat ? 'ALL FLAT ok' : 'NOT FLAT - check above'}`);
+    console.log(`         boundary ${r.bfaces} span ${r.bfaces ? r.minSpan + '..' + r.maxSpan : '-'} span<=0 ${r.badSpan}` +
+      `  step faces ${r.faces} unblocked-step ${r.faceUnblocked}  blockedFlat byDir ${r.blockedFlat.join(',')}` +
+      `  ${r.bfaces > 0 && r.badSpan === 0 ? 'FACES ok' : 'FACE FAIL'}  ${flat ? 'ALL FLAT ok' : 'NOT FLAT - check above'}`);
   }
 }
 
@@ -421,7 +436,7 @@ if (MODE === 'stats') {
 } else if (MODE === 'rig') {
   // pose sheet + silhouette sanity for the vector rigs
   run('S.mode="play"; startLevel(0, true); RIG.beginFrame(1e6);');
-  const kinds = ['grunt', 'hound', 'brute'], PH = 6, YAW = 6, HH = 150;
+  const kinds = (process.env.KIND || 'grunt,hound,brute').split(',').filter(s => s), PH = 6, YAW = 6, HH = 150;
   const W = 150 * 2, cells = [];
   for (const k of kinds) for (let y = 0; y < YAW; y++) for (let p = 0; p < PH; p++) cells.push({ k, y, p });
   const cols = PH, rows = kinds.length * YAW, cw = 170, chh = 175;
