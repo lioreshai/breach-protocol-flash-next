@@ -42,8 +42,20 @@ function elStub(id) {
 }
 const docListeners = {};
 const listeners = {};
+// The game's generator draws from Math.random, so an unseeded run builds a different level,
+// lamp field and enemy set in every PROCESS - which made the raster gate measure luck rather
+// than code: one commit measured 34.9 / 4.5 / 15.7 ms at load average 1.79, each run
+// internally consistent. Clone Math into the sandbox with a seeded PRNG so scenes, and so
+// timings, are reproducible. SEED=<n> varies the world on purpose.
+// NB: Object.assign({}, Math) copies NOTHING - Math's own properties are non-enumerable per
+// spec, which surfaced as "TypeError: Math.hypot is not a function" at asset boot. Chain to
+// Math so every method still resolves, and shadow only random.
+const SEED = (Number(process.env.SEED) || 12345) >>> 0;
+let rs = SEED;
+const sbMath = Object.create(Math);
+sbMath.random = () => { rs ^= rs << 13; rs >>>= 0; rs ^= rs >>> 17; rs ^= rs << 5; rs >>>= 0; return rs / 4294967296; };
 const sandbox = {
-  console, Math, Date, JSON, Uint32Array, Uint16Array, Uint8ClampedArray, Int16Array, Float32Array, Uint8Array, Object, Array, String, Number, Boolean, Error, isNaN, isFinite, parseInt, parseFloat, setTimeout, clearTimeout,
+  console, Math: sbMath, Date, JSON, Uint32Array, Uint16Array, Uint8ClampedArray, Int16Array, Float32Array, Uint8Array, Object, Array, String, Number, Boolean, Error, isNaN, isFinite, parseInt, parseFloat, setTimeout, clearTimeout,
   document: {
     getElementById: elStub, createElement: () => canvasStub(),
     addEventListener: (t, f) => { (docListeners[t] = docListeners[t] || []).push(f); },

@@ -23,10 +23,16 @@ asset generated in JS at boot. The current frontier is **vertical navigation**: 
 
 ## P0 — harness truth
 
-- [ ] **Seed the RNG for timed batches.** `tools/smoke.js` seeds nothing and `genLevel` uses
-      `Math.random` (6 sites in `js/20_level.js`, 24 in `js/30_entities.js`), so each process
-      renders a different level/lamp/enemy layout. Same commit, load 1.79: **34.9 / 4.5 /
-      15.7 ms**. Median-of-5 batches fixed *within*-run noise only.
+- [x] **Seed the RNG for timed batches.** Done in `tools/smoke.js`: the sandbox now gets
+      `Object.create(Math)` with a shadowed `random` (a xorshift PRNG, `SEED=<n>` to vary).
+      `Object.assign({}, Math)` copies **nothing** — Math's own properties are non-enumerable
+      per spec — which showed up as `TypeError: Math.hypot is not a function` at asset boot.
+      Same commit, default seed: **6.4 / 4.5 / 4.6 ms** (was 34.9 / 4.5 / 15.7 ms).
+- [ ] **The budget is seed-dependent, and that is a real finding.** `SEED=777` measures
+      **18.95 ms and fails** the 16 ms gate on identical code. Either that level is genuinely
+      heavier (more lamps, bigger rooms, more enemies) or `genLevel` hit its fallback arena — a
+      big open lit box that fills the screen with ground pixels. Investigate before trusting
+      "the gate is green": report which level/seed was timed and whether the fallback fired.
 - [ ] Re-baseline every number in `AGENTS.md` after that, and re-check the two decisions whose
       evidence was weakest (the rig size-class work was justified by a 10× claim from luck).
 - [ ] Numeric altitude probes (`alt`, `drop`, `sight`, `cull`, `horizon`) — a prerequisite for
