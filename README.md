@@ -16,7 +16,13 @@ fps/
   js/40_render.js   software raycaster + post FX + 2D overlay/HUD
   js/50_ui_input.js menus, pointer lock, input, main loop
   tools/smoke.js    headless test harness (node tools/smoke.js)
-  tools/view.js     headless visual harness: sheets | stats | diag | exposure | scene | rig
+  tools/view.js     headless visual harness. Modes: sheets, stats, diag, exposure, scene (WARM=1 stresses the rig
+                    cache over 180 frames), rig (pose sheet + coverage/bob metrics, ASCII=1 prints
+                    a text render), viewmodel (every weapon through hip/ADS/recoil/reload/swap/
+                    sprint/airborne, verifying overlay geometry lands on screen with balanced
+                    save/restore), play (drives the real frame()/update() loop through every level,
+                    weapon, reload, fire, sprint, combat and level transition, and measures how far
+                    the player actually walks), decal (ground decals reach the floor sampler)
                     (scene honours WARM=1 to exercise the rig cache under a spinning camera)
   tools/png.js      minimal PNG writer used by view.js (no dependencies)
 ```
