@@ -193,7 +193,7 @@ function frameInner(ts) {
   S.t += dt;
   S.frames++; S.fpsT += dt;
   if (S.fpsT > 0.5) { S.fps = Math.round(S.frames / S.fpsT); S.frames = 0; S.fpsT = 0; }
-  drawCalls = 0;
+  drawCalls = 0; reSolveBad = 0; gndOffMap = 0;
   if (S.mode === 'play') update(dt);
   else if (S.mode === 'title') {
     P.ang += dt * 0.09; P.bobPhase += dt * 1.2;

@@ -16,6 +16,8 @@ node tools/view.js stats                # per-material variance / mean / unique 
 node tools/view.js sheets               # /tmp/fps_tex.png + /tmp/fps_rig.png
 node tools/view.js scene 0 0            # /tmp/fps_scene.png (level 0, cell 0)
 node tools/view.js exposure             # mean brightness per level (targets 60-100)
+node tools/view.js heights              # which HALF of the frame moves when only floors, or only
+                                        # ceilings, change altitude - the M2 probe, exits non-zero
 node tools/view.js rig | viewmodel | play | diag | decal
 node tools/view.js scene 0 0 ASCII=1    # text view, when the pixels want to be numbers
 WARM=1 node tools/view.js scene 0 3     # stress: 180 frames, turning camera
@@ -102,6 +104,44 @@ case "$out" in *"SMOKE PASSED"*) git add -A && git commit ;; *) echo NOT COMMITT
 ## Traps already paid for
 
 - `'use strict'` cannot go in `11_rig.js` (relies on implicit globals).
+- **Three ground shadings are welded to the row solver and change silently when the solver
+  changes**, which is how the first M2 attempt came out md5-identical at the spawn camera yet 4
+  points darker overall and 9 on level 0: light is sampled **cell-quantized** on the ground (walls
+  sample it bilinear *with* a `exp(-perp*0.16)` falloff — borrowing the wall formula for the floor is
+  the −9, it is not a unification), fog is `fogAt(camera-space depth)` with **no z term** in either
+  pass, and the `li > 1 → 1` clamp exists **only at row init, never on a cell crossing**, so a cell
+  under a lamp renders brighter when the row walks into it than when the row starts in it. Re-key
+  that light update on the *pixel's* own cell and the quirk becomes a uniform clamp — parity dies in
+  the brightest rooms first. M2 keeps all three as they were and says so in the pass header.
+- **A cell index is one number, so a range check on it is not a bounds check.** `gy*MW + gx` with
+  `gx === -1` is a valid index for the far end of the row above: real cell, real light, wrong plane.
+  The light path has always had this wrap (parity now, so it stays); the plane lookups M2 added test
+  both axes, because a plane read through a wall paints a room that is behind it.
+- **`ceilAt` in a pixel loop is a cliff.** It walks four neighbours; called from every cell crossing
+  of the ground pass it cost ~5% of the flat frame — same arithmetic, wrong place. Derive it once
+  per level into `MAP.ceilPlane` (see the verticality section) and keep the crossings to one read.
+- **The ground pixel body exists TWICE**: in the row loop of `castGround`, and in `groundPixel()`,
+  which shades the columns whose cell is not on the row's plane. The duplication is the perf fix, not
+  taste - the row loop's mip/fog/light values must stay `const` of the row, because writing them per
+  pixel (the obvious way to say "this pixel has its own distance") cost **+2.5 ms of a 1202×676
+  frame for pixels nothing re-solves**: V8 keeps a loop-invariant in a register only while nothing
+  writes it inside the loop. Off-plane pixels are queued per row (`RX`/`RP`) and painted after it.
+  Change one copy and you have changed the other, and `scene` md5s only prove the *flat* copy right -
+  `heights` is what runs the second one.
+- **A parity frame needs a floor decal in it.** The first version of that split crashed in the decal
+  branch alone, under `WARM` at 4x resolution, while four `scene` md5s swore parity: those frames
+  contain no ground decal at all, so the branch never ran. `heights`' `stripes` config now sprays
+  `addGroundSplat` blood/scorch and fails `NO-DECAL-COVERAGE` if no cell carries `DECAL_MASK`.
+- **Instrumenting a hot loop changes what it costs.** `window.castGround = function () { …g()… }`
+  for a phase-by-phase A/B added **15 ms/frame to both sides** and hid the very difference being
+  measured - the wrapper deoptimizes the call site in `renderWorld`, which is the same one-indirection
+  cliff documented above. Bisect a hot-loop regression by editing variants of the file and running
+  the real probe against them (`JSDIR=` or a worktree), never by timing inside it.
+- A probe that measures the **composited** frame cannot see the ground pass: the wall pass repaints
+  rows whenever a face's z span changes (a taller ceiling retiles the wall it caps, including the
+  rows below the eye line), and the portal cycles on `S.t` while pickups bob. `heights` therefore
+  renders each config twice — composite for brightness/black, then a `castGround`-only repaint for
+  the geometry diff — and its determinism replay compares ground pixels only.
 - `exponentialRampToValueAtTime` throws if start OR target is 0 (floors live at 0.0008);
   `AudioContext` starts suspended — `SND.on()` must `resume()`; never gate playback on the
   user's mute flag (`S.sound`); `try/catch` only catches a *synchronous* throw, so wrap the
@@ -186,29 +226,48 @@ bands in one column, or a floor overhanging the cell it sits above.
   that draws nothing, and it is a generator fault rather than a code one: a wall whose base sits
   at or above the ceiling plane of the band it encloses, so wall bases must be carried down to
   the lowest band they bound.
-- The two literal `1`s left in the flat world: `castGround`'s
-  `d = (isF ? eyeZ : 1 - eyeZ) * BH / |p|` and the decal/`zbuf` span math assuming faces span
-  0..1. `castWalls`' `y0 = horizon + (eyeZ - 1) * hpx` is gone (M1): the face's `z0/z1` comes
-  from the grid and `tstep = mh * dz / (y1 - y0)` tiles a wall texture per **world unit**, not per
-  face. Every new formula must collapse to the old one exactly, bit for bit — that is the
-  backwards-compat test, and for M1 it was measured rather than argued: 24 frames (3 levels × 2
-  seeds × 4 yaws) hashed identical against `HEAD` at an unchanged 3.3 ms median. A face taller
-  than a unit pushes `v` past the mip, and `texBil` wraps only at its last texel, so `v` must
-  wrap per unit — otherwise the read runs off the array and `undefined & 255` paints fog colour
+- **The last literal `1` of the flat world is gone from the ground pass.** M2 replaced
+  `d = (isF ? eyeZ : 1 - eyeZ) * BH / |p|` with the same expression solved against the plane of the
+  cell the pixel's own ray lands in (`floorAt` below the horizon, `MAP.ceilPlane` above), kept as a
+  *predictor*: a pixel whose cell is at the eye's altitude reuses the row's distance untouched, so a
+  flat level runs the old arithmetic bit for bit (measured: 4 frames md5-identical, exposure
+  77/62/59 unchanged). What is left of the flat assumption is the decal/`zbuf` span math, which
+  still assumes faces span 0..1. `castWalls`' `y0 = horizon + (eyeZ - 1) * hpx` went in M1: the
+  face's `z0/z1` comes from the grid and `tstep = mh * dz / (y1 - y0)` tiles a wall texture per
+  **world unit**, not per face. Every new formula must collapse to the old one exactly, bit for
+  bit — that is the backwards-compat test, and for M1 it was measured rather than argued: 24 frames
+  (3 levels × 2 seeds × 4 yaws) hashed identical against `HEAD` at an unchanged 3.3 ms median. A
+  face taller than a unit pushes `v` past the mip, and `texBil` wraps only at its last texel, so `v`
+  must wrap per unit — otherwise the read runs off the array and `undefined & 255` paints fog colour
   where the wall should be, with no black pixel to show for it.
+- **The renderer reads ceilings from `MAP.ceilPlane`**, a derived array filled by `buildCeilPlanes()`
+  at the end of `linkBoundaries()`, because calling `ceilAt` from the ground pass's cell crossings
+  cost 5% of the flat frame. It is filled by *calling* `ceilAt` per column (formula lives in one
+  place) and hangs off the same hook as `MAP.vb`, so **anything that writes `MAP.fz`/`MAP.cz` must
+  call `linkBoundaries()` afterwards** — `tools/view.js planes` compares the array against the
+  formula per column and exits non-zero when they disagree, which is the only thing standing between
+  a forgotten write and last frame's ceilings.
 - Light stays **one value per column**, weighted by a band term; do **not** make the lightmap
   per band, because a fading transient re-splats its delta and an un-splat that lands in a
   derived band leaves permanent light (breaks smoke's "blast light fully fades out" assert).
 - Decals and lights need **absolute z**; `addWallMark`'s face-relative `clamp(z,0.12,0.88)`
   is only correct today because faces span 0..1.
 
-Milestones, each ending playable with gates green: **M0** representation + absolute `P.z`
-(nothing visible) · **M1** boundary faces with real `z0/z1` · **M2** ground plane solved per
-*column* (`rowK = BH/|p|` stays the one division; `dz` is cell-constant) **with ceilings in
-the same commit** — floors-only shows a phantom floor across a tall room's upper half ·
-**M3** bands + links + gravity/step/fall-damage/climb · **M4** everything sits at a height
-(enemies, `hitscan`, props, pickups, projectiles, particles, decals, portal trigger)
-· **M5** per-band light, glow, minimap altitude cue · **M6** a hand-authored two-storey level.
+Milestones, each ending playable with gates green: ~~**M0** representation + absolute `P.z`~~ ·
+~~**M1** boundary faces with real `z0/z1`~~ · ~~**M2** the ground plane solved per **cell**, floors
+and **ceilings in the same commit** (floors-only shows a phantom floor across a tall room's upper
+half)~~ · **M3** bands + links + gravity/step/fall-damage/climb ← **here** · **M4** everything sits
+at a height (enemies, `hitscan`, props, pickups, projectiles, particles, decals, portal trigger) ·
+**M5** per-band light, glow, minimap altitude cue · **M6** a hand-authored two-storey level.
+
+`node tools/view.js heights` is the probe that makes M2 verifiable while every shipped level is
+still flat: it pokes `MAP.fz`/`MAP.cz` into six configurations per level (tall ceilings, a pit beyond
+3 m, sunk 4-column stripes, a platform, the eye standing on a raised band) and asserts **which half
+of the frame moved** — measured on the ground pass alone, because the wall pass legitimately
+repaints rows the moment a face's z span changes. Emulating the old constant-plane solver through all
+four plane lookups makes 12 of its 18 configs FAIL at 0.00% moved; solving a plane against a **solid**
+column FAILs four more by drifting ~20% of the ceiling rows. Read that as: the probe can see the
+feature, and it can see the two ways M2 has already failed.
 
 Three risks that stay invisible to today's gates:
 
@@ -217,10 +276,11 @@ Three risks that stay invisible to today's gates:
 2. `genLevel`'s occupancy gate (`reachable < openCells*0.9`) is a height-blind 4-neighbour
    BFS. Split bands and every attempt fails into the fallback: a lit empty box, no heights,
    every gate green, and the feature silently absent. It must `console.warn('genLevel FALLBACK')`.
-3. No existing assert compares z, so "shots pass through the catwalk enemy", "an explosion
-   downstairs kills upstairs", "the portal triggers from the floor below" all ship green.
-   Needs the numeric altitude probes (`alt`, `drop`, `sight`, `cull`, `horizon`) and a
-   `VERT=1` smoke lane before M4 is trustworthy.
+3. No existing assert compares z where things *move*, so "shots pass through the catwalk enemy", "an
+   explosion downstairs kills upstairs", "the portal triggers from the floor below" all ship green.
+   The ground plane now has one (`heights`); the geometry of movers does not. Needs the numeric
+   altitude probes (`drop`, `sight`, `cull`, `horizon`) and a `VERT=1` smoke lane before M4 is
+   trustworthy.
 
 Also true and visible in the PNGs: the ceiling streaks at grazing angles (mip selection has
 no anisotropy) and a one-unit-tall world makes everything read as a crawlway — both are the

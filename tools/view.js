@@ -254,27 +254,34 @@ if (MODE === 'alt') {
 
 if (MODE === 'planes') {
   // What alt reports as "flat" is the FLOOR grid. The ground pass solves each pixel against the
-  // plane of the cell it lands in - floor for rows below the horizon, ceilAt for rows above - so a
+  // plane of the cell it lands in - floor below the horizon, MAP.ceilPlane above it - so a
   // ceiling that is not exactly 1 in a "flat" level makes segments break and moves pixels. This is
-  // the probe that says so: planes per level, floor and ceiling separately.
+  // the probe that says so: planes per level, floor and ceiling separately. ceilPlane is DERIVED
+  // (linkBoundaries fills it from ceilAt), so the same loop checks it is not stale: a write to
+  // MAP.fz or MAP.cz that skips linkBoundaries would render last frame's ceilings, silently.
+  let staleAll = 0;
   for (let li = 0; li < 3; li++) {
     const r = vm.runInContext(`(function(){
       startLevel(${li}, true);
-      const N = MAP.w; let fmin = 9e9, fmax = -9e9, cmin = 9e9, cmax = -9e9, open = 0, cnot1 = 0;
+      const N = MAP.w; let fmin = 9e9, fmax = -9e9, cmin = 9e9, cmax = -9e9, open = 0, cnot1 = 0, stale = 0;
       const cv = {};
       for (let y = 1; y < N - 1; y++) for (let x = 1; x < N - 1; x++) {
         if (MAP.cell[y * N + x]) continue;
         open++;
         const f = floorAt(x + 0.5, y + 0.5), c = ceilAt(x + 0.5, y + 0.5);
+        if (MAP.ceilPlane[y * N + x] !== c) stale++;             // derived array vs the formula
         if (f < fmin) fmin = f; if (f > fmax) fmax = f;
         if (c < cmin) cmin = c; if (c > cmax) cmax = c;
         if (c !== 1) cnot1++;
         cv[c.toFixed(4)] = (cv[c.toFixed(4)] || 0) + 1;
       }
-      return { open, fmin, fmax, cmin, cmax, cnot1, cv };
+      return { open, fmin, fmax, cmin, cmax, cnot1, stale, cv };
     })()`, ctxVm);
-    console.log(`level ${li}  open ${r.open}  floors ${r.fmin}..${r.fmax}  ceilings ${r.cmin}..${r.cmax}  ceil!=1 ${r.cnot1}  ${JSON.stringify(r.cv)}`);
+    console.log(`level ${li}  open ${r.open}  floors ${r.fmin}..${r.fmax}  ceilings ${r.cmin}..${r.cmax}  ceil!=1 ${r.cnot1}` +
+      `  ceilPlane stale ${r.stale} ${r.stale ? 'STALE-DERIVED' : 'DERIVED ok'}  ${JSON.stringify(r.cv)}`);
+    staleAll += r.stale;
   }
+  process.exit(staleAll ? 1 : 0);     // a derived array that disagrees with its formula is a verdict, not a footnote
 }
 
 if (MODE === 'exposure') {
@@ -312,6 +319,162 @@ if (MODE === 'exposure') {
     buckets.map(v => (100 * v / gpix).toFixed(0)).join(',') +
     '   <24: ' + (100 * gdark / gpix).toFixed(0) + '%  blown ' + (100 * gclip / gpix).toFixed(2) + '%');
 }
+if (MODE === 'heights') {
+  /* The ground pass solves each pixel against the plane of the cell its own ray lands in, and
+     every shipped level is flat, so no other gate can watch that code run. This probe builds the
+     heights at runtime and asks which HALF of the frame moved: a floor row must not react to a
+     ceiling and a ceiling row must not react to a floor, which is only true if the solver reads
+     the plane per cell instead of one plane per row. It also fails the way M2 has failed before -
+     solving a plane against a SOLID column gives a floor plane below the eye, the pass paints
+     nothing and the frame comes out grey (mean 33 where the flat render reads 79) - so every
+     config reports its mean, its black ratio, and the boundary spans the wall pass will draw.
+     The heights are pokes to MAP.fz/cz, not generator changes: M2 is a renderer milestone and the
+     shipped grid stays flat until M3 gives the bands links, which is why `alt` must stay green. */
+  const CAMSET = `(()=>{
+    const cs=[];for(let y=1;y<MH-1;y++)for(let x=1;x<MW-1;x++)if(!isSolid(x+.5,y+.5))cs.push([x,y]);
+    const c=cs[((cs.length*0.31)|0)%cs.length];
+    let best=0,bd=-1;
+    for(let k=0;k<48;k++){const a=k*Math.PI/24;const d=castRayDist(c[0]+.5,c[1]+.5,Math.cos(a),Math.sin(a),9).dist;if(d>bd){bd=d;best=a;}}
+    P.x=c[0]+.5;P.y=c[1]+.5;P.ang=best;P.pitch=BH*0.02;P.z=floorAt(P.x,P.y);
+    for(const e of ENEMIES)e.state='sleep';
+    return {x:P.x,y:P.y,d:bd};
+  })()`;
+  /* A wall column must reach down to the lowest band it bounds, or the face it shows has span <= 0:
+     that is a grid fault (AGENTS.md), so every poke that moves a floor runs this after it and the
+     faces column below is what proves the config is legal before any FAIL gets blamed on the pass. */
+  const CARRY = `;(()=>{for(let k=0;k<2;k++)for(let i=0;i<MW*MH;i++){if(!MAP.cell[i])continue;let m=MAP.fz[i];
+    for(let d=0;d<4;d++){const x=i%MW,y=(i/MW)|0,nx=x+DIRX[d],ny=y+DIRY[d];
+      if(nx<0||ny<0||nx>=MW||ny>=MH)continue;const n=ny*MW+nx;
+      if(!MAP.cell[n]&&MAP.fz[n]<m)m=MAP.fz[n];}MAP.fz[i]=m;}})()`;
+  /* Floor decals in the frame, so a re-solved pixel has to run the decal blend. The deferred pass in
+     castGround is a SECOND copy of the ground pixel body (its comment says why), and the first
+     version of that split crashed in the decal branch alone - at 4x resolution, where the stress
+     probe runs - because every other frame in every probe has no decal on the floor at all. */
+  const SPLAT = `;(()=>{let s=987654;const rr=(a,b)=>{s=(s*1103515245+12345)&0x7fffffff;return b+(a-b)*(s/0x7fffffff);};for(let k=0;k<60;k++)addGroundSplat(P.x+rr(8,-8),P.y+rr(8,-8),0.5+rr(0,0.4),'blood');for(let k=0;k<12;k++)addGroundSplat(P.x+rr(6,-6),P.y+rr(6,-6),0.9+rr(0,0.4),'scorch')})()`;
+  // a camera a cell from the western border looking OUT of the map: CAMSET's longest-ray yaw points the solver away from the border, which makes every out-of-map branch unreachable for every gate
+  const LOOKOUT = `;(()=>{let by=1;for(let y=1;y<MH-1;y++)if(!isSolid(1.5,y+.5)){by=y;break;}` +
+    `P.x=1.5;P.y=by+.5;P.ang=Math.PI;P.pitch=BH*0.02;P.z=floorAt(P.x,P.y);for(const e of ENEMIES)e.state='sleep';})()`;
+  /* Per config: what to poke, and which half of the frame has to move. 'still' is the assertion that
+     a floor row and a ceiling row are solved against DIFFERENT planes; 'move' is the one that says
+     the solver reads the grid at all. A floor poke CAN legitimately move a ceiling - ceilAt takes
+     the tallest neighbouring floor - which is why stepUp and eyeUp are 'any' up there, while pit and
+     stripes, whose sunk bands put their own ceiling at or below the eye and so fall back to the
+     row's plane, are 'still'. */
+  const cfgs = [
+    ['flat', '', 'any', 'any'],
+    // every wall in the level gets a 3-unit ceiling: the upper half must move, the floor must not
+    ['tallRoom', 'for(let i=0;i<MW*MH;i++)if(!MAP.cell[i])MAP.cz[i]=12', 'still', 'move'],
+    // the floor drops a metre beyond 3 m, WALL COLUMNS WITH IT: a sunken band whose bounding wall
+    // stops at the higher floor has a face of span 0, which is a grid fault, not a renderer one,
+    // and the faces line below is what proves the config is legal before it blames the pass
+    ['pit', '(()=>{for(let i=0;i<MW*MH;i++){const x=i%MW,y=(i/MW)|0;if(Math.hypot(x+0.5-P.x,y+0.5-P.y)>3)MAP.fz[i]-=4;}})()' + CARRY, 'move', 'still'],
+    // every other 4-column band is a metre down, walls included: maximum plane churn per row while
+    // every boundary keeps a face of positive span, and ceilAt of a sunk band lands below the eye
+    ['stripes', 'for(let i=0;i<MW*MH;i++)if(((i%MW)>>2)&1)MAP.fz[i]-=4' + CARRY + SPLAT, 'move', 'still', true, true],
+    // the border-facing camera: rays that LEAVE the level, so the out-of-map fallbacks run at all
+    ['border', 'for(let i=0;i<MW*MH;i++)if(((i%MW)>>2)&1)MAP.fz[i]-=4' + CARRY + LOOKOUT, 'move', 'any', false, true],
+    // a platform 0.25 up beyond 2 m: the case with no riser to draw, must not show far geometry
+    ['stepUp', '(()=>{for(let i=0;i<MW*MH;i++){if(MAP.cell[i])continue;const x=i%MW,y=(i/MW)|0;const d=Math.hypot(x+0.5-P.x,y+0.5-P.y);if(d>2&&d<=7)MAP.fz[i]+=1;}})()', 'move', 'any'],
+    // the eye stands on the raised band, so the row predictor comes from floorAt, not from eyeZ
+    ['eyeUp', '(()=>{for(let i=0;i<MW*MH;i++){if(MAP.cell[i])continue;const x=i%MW,y=(i/MW)|0;if(Math.hypot(x+0.5-P.x,y+0.5-P.y)<=1.5)MAP.fz[i]+=1;}P.z=floorAt(P.x,P.y)})()', 'move', 'any']
+  ];
+  let bad = 0;
+  for (let li = 0; li < run('LEVELS.length'); li++) {
+    let ref = null, refF = null, flatMean = 0;
+    console.log(`level ${li}`);
+    for (const [name, poke, wantFloor, wantCeil, wantDecals, wantOutMap] of cfgs) {
+      seedRng(4242 + li * 31);
+      run(`S.mode='play';S.locked=false;startLevel(${li},true);`);
+      const cam = run(CAMSET);
+      let geo = null, dcov = 0;
+      if (poke) {
+        run(poke + ';linkBoundaries();');
+        dcov = run('(()=>{let m=0;for(let c=0;c<DECAL_MASK.length;c++)if(DECAL_MASK[c])m++;return m})()');
+        geo = run(`(()=>{let n=0,bad=0,mn=9e9,mx=-9e9;for(let y=1;y<MH-1;y++)for(let x=1;x<MW-1;x++){const i=y*MW+x;if(MAP.cell[i])continue;for(let d=0;d<4;d++){const nx=x+DIRX[d],ny=y+DIRY[d];if(nx<0||ny<0||nx>=MW||ny>=MH)continue;if(MAP.cell[ny*MW+nx]){const sp=ceilAt(x,y)-faceZ0(x,y,d);n++;if(!(sp>0))bad++;else{if(sp<mn)mn=sp;if(sp>mx)mx=sp;}}}}return{n,bad,mn,mx}})()`);
+      }
+      /* Two reads of every frame. The composited one carries the brightness and black-fill checks;
+         the second repaints every pixel with the ground pass alone, because the wall pass
+         legitimately redraws rows the moment a face's z span changes (a taller ceiling retiles the
+         wall it caps, including the rows below the eye line) and counting that as the floor solver
+         having moved would blame the wrong pass. */
+      run('renderWorld()');
+      const BW = run('BW'), BH = run('BH'), hInt = run('Math.round(horizon)'), n = BW * BH;
+      const full = new Uint32Array(run('px'));
+      run('px.fill(pack(FOGC[0],FOGC[1],FOGC[2]));reSolveBad=0;gndOffMap=0;castGround(S.flash,FOGC[0],FOGC[1],FOGC[2]);');
+      const cur = new Uint32Array(run('px'));
+      const reS = run('({bad:reSolveBad,off:gndOffMap})');   // this ground pass only, not the renderWorld before it
+      let sum = 0, dark = 0, lo = 0, hi = 0, loDiff = 0, hiDiff = 0, fullDiff = 0;
+      for (let i = 0; i < n; i++) {
+        const c = full[i], L = 0.2126 * (c & 255) + 0.7152 * (c >> 8 & 255) + 0.0722 * (c >> 16 & 255);
+        sum += L; if (L < 2) dark++;
+        if (refF && refF[i] !== c) fullDiff++;
+      }
+      for (let y = 0; y < BH; y++) {
+        const lower = y > hInt, row = y * BW;
+        for (let x = 0; x < BW; x++) {
+          const i = row + x;
+          if (lower) lo++; else hi++;
+          if (ref && ref[i] !== cur[i]) { if (lower) loDiff++; else hiDiff++; }
+        }
+      }
+      const mean = sum / n, loP = ref ? 100 * loDiff / lo : 0, hiP = ref ? 100 * hiDiff / hi : 0;
+      let fail = '';
+      /* The absolute band only catches the frame that went grey or blew out. The regression this
+         repo paid for was 9 points of level-0 exposure, which sits comfortably inside that band, so
+         a poked frame is also judged against the flat frame of the same level: moving planes alone
+         moves very little (|delta| <= 6 measured over three levels x five configs), and a shading
+         change that drags a whole room further than that is the thing being guarded here. */
+      if (!(mean >= 40 && mean <= 150)) fail += ' MEAN-OUT-OF-BAND';
+      // NO relative exposure check here, on purpose: tallRoom moves a ceiling five times further
+      // away, which is 12 points of fog on level 2 and CORRECT. Exposure parity against origin/main
+      // is gated by `view.js exposure` on the shipped flat levels, and cross-talk between the two
+      // planes is asserted far sharper below - floor rows or ceiling rows pixel-for-pixel unchanged
+      // when only the other plane moved. Loosening the halves to chase a mean would trade a real
+      // assertion for a weaker one.
+      if (100 * dark / n > 1.5) fail += ' BLACK-FILL';
+      if (geo && geo.bad) fail += ' FACE-SPAN-FAULT';
+      if (poke && fullDiff < n * 0.002) fail += ' NO-EFFECT';
+      if (wantFloor === 'still' && loP > 0.2) fail += ' FLOOR-MOVED-WRONGLY';
+      if (wantFloor === 'move' && loP < 2) fail += ' FLOOR-IGNORED';
+      if (wantCeil === 'still' && hiP > 0.2) fail += ' CEILING-MOVED-WRONGLY';
+      // and its mirror: solving a plane against a SOLID column drifts ~20% of the ceiling rows here,
+      // which is the grey-frame bug in embryo
+      if (wantCeil === 'move' && hiP < 2) fail += ' CEILING-IGNORED';
+      // the deferred pixel body's decal blend has to run somewhere, or its copy of the blend is untested
+      if (wantDecals && !dcov) fail += ' NO-DECAL-COVERAGE';
+      // a re-solve that ran out of tries places the pixel on a plane its own cell contradicts
+      if (reS.bad) fail += ' RE-SOLVE-NOT-CONVERGED';
+      // and the out-of-map fallbacks have to be executed by the config that claims to cover them
+      if (wantOutMap && !reS.off) fail += ' NO-OUTMAP-COVERAGE';
+      if (fail) bad++;
+      console.log(`  ${pad(name, 9)} mean ${pad(mean.toFixed(1), 5)}` +
+        (poke ? ` (${mean - flatMean >= 0 ? '+' : ''}${(mean - flatMean).toFixed(1)})` : '          ') +
+        `  black ${(100 * dark / n).toFixed(2)}%` +
+        `  moved floor ${loP.toFixed(2)}%  ceiling ${hiP.toFixed(2)}%` +
+        (geo ? `  faces ${geo.n} span ${geo.n ? geo.mn + '..' + geo.mx : '-'} bad ${geo.bad}` : '') +
+        (wantDecals ? `  decal cells ${dcov}` : '') +
+        `  re-solves bad ${reS.bad} off-map ${reS.off}` +
+        `  eye ${cam.x.toFixed(1)},${cam.y.toFixed(1)} sight ${cam.d.toFixed(1)}m  ${fail ? 'FAIL' + fail : 'ok'}`);
+      // determinism now runs on EVERY config and on the ground-only repaint: it used to sit under `if (!poke)`, i.e. on `flat` alone - the one config whose RX/RP queue is provably empty, so the deferred pixel body had no coverage while this printed ok
+      seedRng(4242 + li * 31);
+      run(`S.mode='play';S.locked=false;startLevel(${li},true);`);
+      run(CAMSET);
+      if (poke) run(poke + ';linkBoundaries();');
+      run('renderWorld();px.fill(pack(FOGC[0],FOGC[1],FOGC[2]));castGround(S.flash,FOGC[0],FOGC[1],FOGC[2]);');
+      const again = new Uint32Array(run('px'));
+      let rms = 0;
+      for (let i = 0; i < n; i++) if (again[i] !== cur[i]) rms++;
+      /* the GROUND pixels of the replay, not the composited frame: the portal cycles on S.t and
+         pickups bob on their own phase, so a replayed level is not supposed to be identical up
+         there, and a diff measured on the composite would be a lie about determinism. */
+      if (rms) { bad++; console.log(`  replay    ${rms} ground pixels differ from the same seed: the pass is not deterministic FAIL`); }
+      if (!poke) { ref = cur; refF = full; flatMean = mean; }   // every poked frame is judged against the FLAT one
+    }
+  }
+  console.log(bad ? `heights: ${bad} config(s) FAILED` : 'heights: all configs ok');
+  process.exit(bad ? 1 : 0);
+}
+
 if (MODE === 'contrast') {
   // Do the characters separate from the room they are standing in? Rendering the world twice,
   // once with ENEMIES emptied, makes the difference EXACTLY the enemy silhouette - no projection
