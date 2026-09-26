@@ -125,6 +125,41 @@ count, spawn tables, `amb`, `lampCol`, `fogCol`). Quality presets are the `QUAL`
 `js/40_render.js`. `LEVELS[].rooms` is a target, not a promise — the placement loop keeps whatever
 it fits, so expect 4-6 rooms on any sector.
 
+## Driving the game from a console (dev mode)
+
+Append **`?dev=1`** to the URL and the game boots itself — no click, no pointer lock — and publishes
+one global, `DEV`. Without that flag `js/90_dev.js` returns immediately: no globals, no wrappers, no
+behaviour change, so the flag cannot leak into normal play. `DEV.help()` prints this list in the
+console.
+
+| Call | What it does |
+|---|---|
+| `DEV.boot()` | Starts the run through the deploy button's own code path. |
+| `DEV.cam(x, y[, z, ang, pitch])` | Parks camera and player. `ang` is `P.ang` (radians, +x is 0). Rejects NaN; a position inside a solid cell is snapped through the game's own `nearestOpen()`, so it cannot embed the player in a wall. |
+| `DEV.look(dAng[, dPitch])` | Rotates in place. It never feeds `mouse.dx`, so it cannot walk the player into the void where DDA never hits. |
+| `DEV.face([enemy])`, `DEV.nearestEnemy()` | Aim at the nearest living enemy, or a given one. |
+| `DEV.freeze([bool])` | Stops `update()` and pins the clock; rendering continues, so two screenshots of "the same frame" really match. |
+| `DEV.tick([n])` | Exactly `n` update+render frames at `dt = 1/60`, no vsync. |
+| `DEV.spawn(kind[, n, dist])`, `DEV.clear()` | Place `grunt\|hound\|brute` in a deterministic fan `dist` metres in front of the camera; drop enemies/projectiles/particles. |
+| `DEV.set(name, value)` | Runtime overrides of the quality tier (`res, bloom, grade, grain, far, glow, rigH, rast, dmax, scan, vec, min, max`) plus **`rim`** — the character rim light, for a live A/B. |
+| `DEV.tiers()` / `DEV.stats()` | The `QUAL` table as it now stands; frame ms (`n/med/p95/last`), fps, buffer, draw calls, poses rasterised this frame, `RIG.stats()`, enemy count, tier name. |
+| `DEV.state()` | JSON-safe snapshot: player (heading under `ang`), level, enemies, counts, `S` flags. |
+| `DEV.ray(x, y[, z], dx, dy, dz[, maxD])` | Steps the real DDA and reports the first wall: distance, cell, face. |
+
+Three things to do with it:
+
+```
+DEV.boot(); DEV.cam(4.5, 4.5, undefined, 0.6); DEV.freeze(true); DEV.tick(30)
+DEV.spawn('brute', 1, 2); DEV.face(); JSON.stringify(DEV.stats())
+DEV.set('rim', false)                       // then screenshot; DEV.set('rim', true) to restore
+DEV.ray(P.x, P.y, 0.5, Math.cos(P.ang), Math.sin(P.ang))   // is that wall actually there?
+```
+
+The `rim` toggle exists because a defect in how characters composite survived every headless probe:
+the probes rasterize poses without the scene-light multiply, so a probe passing was not a probe
+being capable of failing. Being able to switch one shading term off in the running page turns that
+kind of claim into a measurement.
+
 ## Judging the picture without a browser
 `node tools/view.js <mode>` renders headlessly through the same code paths, with no canvas pixel
 access (the stub throws on `getImageData`, so assets cannot accidentally depend on one):
