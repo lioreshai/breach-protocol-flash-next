@@ -144,6 +144,12 @@ case "$out" in *"SMOKE PASSED"*) git add -A && git commit ;; *) echo NOT COMMITT
   residual delta lives in shading, not geometry — so a future attempt must diff *shading* per row,
   not chase segment counts. Flat parity is the gate; it failed, so it was reverted rather than
   shipped with a look regression.
+- **A watch command must not contain `case` or multiline shell.** The harness wraps the condition in
+  `{ ... ; } 2>&1` on one line, so `;;` becomes a syntax error and bash exits 2 in ~50 ms —
+  `bg_19` and `bg_20` both died that way having polled **nothing**, which is indistinguishable from a
+  watch whose condition simply never became true. Use a single-line test instead:
+  `printf '%s' "$s" | grep -qE "^(MERGED|OPEN CLEAN)"` (`bg_21` worked first try). Same reason PR
+  bodies must be written to a file or passed as one quoted `--body` string, never a heredoc in `if`.
 
 ## Now: verticality — the design that was chosen
 
@@ -220,3 +226,10 @@ branch's content is in `main` while its commit is not an ancestor of it, and
 `git merge-base --is-ancestor origin/<branch> origin/main` reports a fully merged branch as
 unmerged. Detect by PR state (`gh pr list --state merged --head <branch>`) and prune local branches
 for merged PRs too, or the local repo keeps ghosts that make `git branch` look like open work.
+
+**Never stack a PR on another PR's branch here.** GitHub **closes** a PR whose base branch is deleted,
+and with `delete_branch_on_merge` on, that is exactly what merging the parent does: PR #9 (`base=feat/dev-mode`,
+the rim fix) was closed the instant PR #8 merged and deleted that branch — no error, no warning, and its
+commit was nowhere near `main`. A silently closed PR looks like a merged one in a session summary, so
+verify a fix reached `main` by grepping its content (`git show origin/main:js/11_rig.js | grep -c rimSil`),
+never by PR bookkeeping. Branch every change off `main`; if two changes touch the same file, sequence them.
