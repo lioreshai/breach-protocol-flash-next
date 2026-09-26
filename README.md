@@ -79,6 +79,10 @@ rounded boxes, polygons) plus tileable value noise and fbm — painting into `Ui
 * **Post FX**: bloom from a downscaled bright pass, projected lamp glow with a line-of-sight test,
   film grain and a contrast grade. `F4` trades these against internal resolution.
 
+* **Audio** (`js/00_core.js`, `SND`) is synthesised at call time - noise bursts and tones panned by
+  bearing over an ambient bed; `T` toggles it and prints AUDIO ON / AUDIO MUTED. See *Audio* below
+  for the two traps that cost a debugging session each.
+
 ## How it works
 * **Renderer** is a software raycaster (Wolfenstein-style DDA) writing into an `ImageData`'s
   `Uint32Array` at ~0.5× resolution, upscaled to the window. Per-column light, fog and tint are
@@ -133,3 +137,41 @@ so `exposure` seeds it; single-run numbers otherwise swing ±20 from lamp placem
   40 MB.
 * Crates and barrels are decoration, not cover — nothing but walls is solid, so sprites never
   block movement or line of sight.
+
+
+## Audio
+Sound is synthesised at call time in `SND` (`js/00_core.js`) - filtered noise bursts and tones,
+panned by the bearing to the source, over an ambient bed. `T` toggles it and prints AUDIO ON /
+AUDIO MUTED, which is how you tell a muted game from a broken one. Two traps are worth knowing
+before you touch it, because both cost a debugging session:
+
+* An exponential ramp may not leave a value of zero. Footstep gain is scaled by distance, so a
+  distant footfall reached `exponentialRampToValueAtTime` sitting at 0 and threw in Chrome - the
+  envelopes therefore start at 0.0008 and floor their target above it.
+* A context created before the first user gesture stays `suspended` until something resumes it.
+  `SND.on()` nudges it awake instead of returning false forever, which is what silently muted the
+  whole game.
+
+As a last resort any throwing `AudioNode` call disables sound and closes the context rather than
+propagating: an exception anywhere in `frame()` used to abort the frame before `renderWorld()`, so
+the simulation kept stepping behind a still picture and the game looked hung while it was fine. The
+frame body now also paints the message if it does throw, and renders anyway.
+
+## Extending it
+* **A material**: add an entry to the material list in `js/10_assets.js` and paint it with the
+  `Surf` primitives from `js/05_paint.js`. Levels pick wall textures through `pickWallTex`, and
+  floor and ceiling variants are indexed by the same ids. Never read canvas pixels - the headless
+  harness throws on `getImageData` so that painting stays procedural and stays testable.
+* **A prop**: paint it into `PROP` in `js/12_sprites.js`. Billboards are drawn, filtered and
+  occluded for free.
+* **An enemy species**: add an `ETYPE` row (speed, `stride`, `gait`, scale, hitbox height) plus a
+  `RIGSPEC` entry and `RIGCOL` colours in `js/11_rig.js`. Rig units are fractions of body height, so
+  hitboxes and geometry cannot drift apart. Gait phase advances with *distance travelled*, so a
+  planted foot never slides - keep new locomotion honest by driving `stepPhase` the same way.
+* **A quality knob**: add the field to every row of `QUAL` and read it once in `setGfx`, or in the
+  shader that owns it. Never branch on the preset index inside a pixel loop.
+* **Verify** with `node tools/smoke.js`, then whichever probe covers the change: `exposure` for
+  anything tonal, `play` for logic and input, `viewmodel` for the overlay, `scene` with `WARM=1`
+  for anything that costs frame time. Budgets: raster under 16 ms/frame, assets under 40 MB
+  (currently ~5.4 MB plus a rig cache capped at 9 MB), exposure mean near 71 with under 15% of
+  pixels below 24.
