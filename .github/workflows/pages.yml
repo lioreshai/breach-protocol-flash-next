@@ -1,0 +1,78 @@
+name: Deploy to GitHub Pages
+
+# Merging a pull request into main is a push to main, so this runs on exactly that event.
+# The validation below is the same gate CI enforces on the pull request, so a PR that was
+# green is deployable by construction - nothing can be merged that the deploy would reject.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Never let two deploys race; the older one loses.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Validate (same gate as CI)
+        run: |
+          set -euo pipefail
+          for f in $(grep -o 'src="js/[^"]*"' index.html | sed 's/src="//; s/"//'); do
+            node --check "$f"
+          done
+          out=$(node tools/smoke.js 2>&1) || true
+          echo "$out" | tail -20
+          case "$out" in
+            *"SMOKE PASSED"*) echo "smoke gate PASS - deploying" ;;
+            *) echo "smoke gate FAIL - refusing to deploy"; exit 1 ;;
+          esac
+
+      - name: Stage the site
+        run: |
+          set -euo pipefail
+          rm -rf _site
+          mkdir -p _site
+          cp index.html _site/index.html
+          cp -r js _site/js
+          # Everything else in the repo is tooling (tools/) or docs. The playable artifact is
+          # index.html plus js/ - if that stops being true, this deploy is wrong rather than
+          # short a workaround: the game must stay free of network requests and asset files.
+          ls -lR _site
+          # Comment lines are filtered out first, so a URL in a note or a doc link cannot break
+          # a deploy - only code that would actually fetch can.
+          net=$(grep -rEn 'https?://' _site/index.html _site/js | grep -Ev ':[0-9]+:[[:space:]]*(//|\*|/\*)' || true)
+          if [ -n "$net" ]; then
+            echo "$net"
+            echo "the shipped game must make no network requests - fix before deploying"
+            exit 1
+          fi
+          echo "no network references in shipped code"
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

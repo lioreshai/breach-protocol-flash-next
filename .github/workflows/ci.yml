@@ -1,0 +1,78 @@
+name: CI
+
+# Tests on every push and every pull request. The repo has zero dependencies and no build
+# step, so "install" here is a guard that it stays that way, not a step that does work.
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Must stay dependency-free
+        run: |
+          set -euo pipefail
+          if [ -f package.json ]; then
+            echo "package.json appeared in the tree."
+            echo "This game loads js/*.js as plain scripts in numeric filename order and installs nothing."
+            echo "If a dependency is genuinely required, that is a design change - discuss it first."
+            exit 1
+          fi
+
+      - name: Syntax check, in index.html load order
+        run: |
+          set -euo pipefail
+          # Load order matters: these files share globals, so a file that parses alone can still
+          # depend on something defined later. Check them in the order the browser reads them.
+          n=0
+          for f in $(grep -o 'src="js/[^"]*"' index.html | sed 's/src="//; s/"//'); do
+            echo "-- $f"
+            node --check "$f"
+            n=$((n + 1))
+          done
+          echo "checked $n script tags"
+          test "$n" -ge 1
+
+      - name: Smoke (save/restore balance, colour variety, raster budget, asset memory)
+        run: |
+          set -euo pipefail
+          out=$(node tools/smoke.js 2>&1) || true
+          echo "$out" | tail -20
+          # Gate on the tool's verdict, not on a grep that can match a failing run.
+          case "$out" in
+            *"SMOKE PASSED"*) echo "smoke gate: PASS" ;;
+            *) echo "smoke gate: FAIL"; exit 1 ;;
+          esac
+
+      - name: Probes (informational - they report, they do not gate)
+        continue-on-error: true
+        run: |
+          set -uo pipefail
+          node tools/view.js alt
+          node tools/view.js planes
+          node tools/view.js exposure
+          node tools/view.js contrast
+          node tools/view.js viewmodel
+
+      - name: Other seeds (informational - known perf-gate variance, see ROADMAP P0)
+        continue-on-error: true
+        run: |
+          set -uo pipefail
+          for s in 777 31337; do
+            if out=$(SEED=$s node tools/smoke.js 2>&1); then
+              echo "seed $s: passed"
+            else
+              echo "seed $s: would fail the gate (tracked as ROADMAP P0, not blocking this PR)"
+            fi
+          done

@@ -1,3 +1,35 @@
+# OS / editor cruft
 .DS_Store
+.AppleDouble
+.LSOverride
+._*
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Node (this repo has ZERO dependencies - npm install must never be needed)
 node_modules/
+package-lock.json
+npm-debug.log*
+
+# Secrets and local config - never committed
+.env
+.env.*
+*.pem
+*.key
+*_rsa
+*_token
+.credentials.yml
+
+# Logs and generated artifacts
 *.log
+*.tmp
+coverage/
+.nyc_output/
+
+# Local scratch: probe dumps go to /tmp by design (see tools/view.js)
+/dump/
+/scratch/
+*.dump.bin
