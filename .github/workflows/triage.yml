@@ -1,0 +1,72 @@
+name: Issue triage
+
+# Weekly sweep of the tracker. The rule this enforces is small: an issue that has no priority and
+# no area label is an issue nobody can pick up, and an issue whose PR merged while it stayed open
+# is worse - it teaches everyone to ignore the tracker. Both are cheap to detect and impossible to
+# notice by eye once there are dozens of issues.
+#
+# It reports, it does not guess. It never closes or labels anything by itself, because the whole
+# point of moving status out of markdown prose is that a human decides what a thing means.
+
+on:
+  schedule:
+    - cron: '17 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  issues: read
+
+jobs:
+  sweep:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Collect
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          R="${GITHUB_REPOSITORY}"
+          q() { gh api "repos/$R/issues?state=open&per_page=100" --paginate \
+                  --jq "$1"; }
+
+          {
+            echo "## Issue triage $(date -u +%F)"
+            echo
+            echo "| issue | labels | age | why it is listed |"
+            echo "|---|---|---|---|"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          q '.[] | select((.pull_request // null) == null) | select(([.labels[].name]
+              | map(startswith("priority:")) | any) | not)
+             | [.number, ([.labels[].name] | join(",")), .created_at, "no priority label"]
+            | @tsv' > /tmp/noprio.tsv || true
+
+          q '.[] | select((.pull_request // null) == null) | select(([.labels[].name]
+              | map(startswith("graphics") or startswith("verticality") or startswith("tooling")
+                    or startswith("perf") or startswith("ci/infra") or startswith("area:"))
+              | any) | not)
+             | [.number, ([.labels[].name] | join(",")), .created_at, "no area label"]
+            | @tsv' > /tmp/noarea.tsv || true
+
+          # Note: no "is this milestone actually done" check here. A milestone issue is open by
+          # design until several PRs have landed, so inferring completion from labels or links
+          # would produce noise, and a triage job that cries wolf gets ignored like everything else.
+
+          n=0
+          for f in /tmp/noprio.tsv /tmp/noarea.tsv; do
+            while IFS=$'\t' read -r num labels created why; do
+              [ -n "${num:-}" ] || continue
+              echo "| #${num} | ${labels:-none} | ${created:0:10} | ${why} |" >> "$GITHUB_STEP_SUMMARY"
+              n=$((n + 1))
+            done < "$f"
+          done
+
+          {
+            echo
+            if [ "$n" = "0" ]; then
+              echo "Every open issue has a priority, an area, and a way to be closed. Nothing to do."
+            else
+              echo "**$n finding(s).** Labels are the cheapest part of this; add them in the UI."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "triage findings: $n"

@@ -11,6 +11,17 @@ holds 60 fps, and is **fun to play** — playable in the browser in one file-ope
 asset generated in JS at boot. The current frontier is **vertical navigation**: maps you move
 *up and down* through, not a flat plane you walk around.
 
+## Status lives in the issue tracker
+
+This file keeps direction, the priority rubric and measured design constraints. It does **not** keep
+status: who is doing what, what is left and what is blocked are [GitHub issues](
+https://github.com/lioreshai/breach-protocol-flash-next/issues). Prose status tables go stale silently
+and cannot be linked from a commit; an issue can. Every PR names an issue with `Closes #N` (the
+keyword matters — a bare `#N` links but does not close on a squash merge) or opts out with
+`[no-issue]`, and the `issue` check in `pr-guard.yml` enforces it. Milestones M0–M6, the P0 harness
+items and every known defect below have issues; the sections here explain *why* each item is ranked
+the way it is.
+
 ## How work gets prioritized
 
 1. **Truth of the harness.** Anything that lets a gate report green while the game is broken
