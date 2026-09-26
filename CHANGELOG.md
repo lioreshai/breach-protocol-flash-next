@@ -8,6 +8,7 @@ one change: say what the reader would notice, not which file was touched.
 ## Unreleased
 
 ### Fixed
+- A sealed exit or an enemy spawned in a closed pocket could no longer slip past `smoke`: the reachability array the assertions read was wiped to zeros two lines after the generator filled it.
 - A forgotten `linkBoundaries()` after writing a cell's height can no longer appear as a seam between
   the walls and the floor: the wall pass now reads the same derived ceiling plane the ground pass
   draws, and `view.js planes` fails when a height write leaves the relink stamp where it was. Flat
@@ -27,6 +28,7 @@ one change: say what the reader would notice, not which file was touched.
 - `?dev=1` boots the game with no click and no pointer lock and publishes a `DEV` console API (deterministic camera and enemy placement, frozen frames, a DDA ray query, runtime quality overrides including the character rim light), documented in the README.
 
 ### Changed
+- Cell heights are now assigned before the generator's occupancy gate, and reachability is height-aware: a boundary is crossable only when the two floors are within one step. Flat levels are unaffected, pixel for pixel.
 - The floor and ceiling are now solved against the height of the cell each pixel's ray lands in,
   instead of against the eye's own floor and ceiling stretched across the whole level: nothing
   changes on today's flat levels — that parity is the gate — and `view.js heights` is the probe that
