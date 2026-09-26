@@ -74,14 +74,6 @@ case "$out" in *"SMOKE PASSED"*) git add -A && git commit ;; *) echo NOT COMMITT
   `nearestOpen()` rescues an embedded player; `tryMove()` slides along walls.
 - `zbuf` holds 0 in columns where no wall was hit, which silently culls billboards there.
 
-## Eyes-on workflow
-
-Image input is broken in this model config, so visual claims must be numeric (variance,
-unique colours, mean exposure, sampled paths) **plus a PNG in `/tmp` for the user to
-open** — `open /tmp/fps_scene.png`. The assistant cannot open the page in a browser here
-(loopback and `file://` are blocked by policy and `PI_WEB_ALLOW_LOCAL` stays unset), so
-the user is the visual gate: ask them to look at the dump and to play the game.
-
 ## Now: verticality — what currently assumes flat
 
 - `WALL_H = 1`: walls span z 0..1, so a cell is a unit box. Slabs/stacks need per-wall

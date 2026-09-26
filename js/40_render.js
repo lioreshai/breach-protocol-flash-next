@@ -160,7 +160,7 @@ function castGround(flash, fcR, fcG, fcB) {
   const stepBase = 2 / BW;
   const cellArr = MAP.cell, N = MAP.w, lm = MAP.light;
   const floorTex = MAP.floorTex || FLOORS.CONCRETE, ceilTex = MAP.ceilTex || CEILS.CONCRETE;
-  const tileF = MAP.floorTile || 1.15, tileC = MAP.ceilTile || 2.2;
+  const tileF = MAP.floorTile || 1.15, tileC = MAP.ceilTile || 0.9;
   const dMasks = DECAL_MASK, dGrid = DECAL_GRID;
   const amb = AMB, fl = flash;
   for (let y = 0; y < BH; y++) {
@@ -491,25 +491,42 @@ function drawBloom(q) {
 }
 function drawLightGlow(q) {
   if (!q.glow) return;
+  // Budget by lamps actually DRAWN, not by list index. The old `if (n++ > q.glow) break`
+  // counted lamps it then skipped for being out of range or behind the camera, so on a
+  // lamp-rich level the budget was spent on the first entries of LIGHTS and the lamps the
+  // player could see never glowed at all. Nearest-first also spends it where it covers
+  // the most screen, and keeps the los() raycasts bounded to what filling the budget needs.
+  const cand = [];
+  const mrg = DW * 0.25 + 1;                                  // rad is clamped to DW*0.25 on BOTH axes
+  for (const L of LIGHTS) {
+    const d = Math.hypot(L.x - camX, L.y - camY);
+    if (d > 20 || d < 0.35) continue;
+    const s = project(L.x, L.y, 0.55);                        // cheap cull before any raycast
+    if (!s || s.x < -mrg || s.x > DW + mrg || s.y < -mrg || s.y > DH + mrg) continue;
+    cand.push([d, L, s]);
+  }
+  cand.sort((a, b) => a[0] - b[0]);
   ctx.save();
   ctx.globalCompositeOperation = 'lighter';
   let n = 0;
-  for (const L of LIGHTS) {
-    if (n++ > q.glow) break;
-    const d = Math.hypot(L.x - camX, L.y - camY);
-    if (d > 20 || d < 0.35) continue;
+  for (const c of cand) {
+    if (n >= q.glow) break;
+    const d = c[0], L = c[1], s = c[2];
     if (!los(camX, camY, L.x, L.y)) continue;
-    const s = project(L.x, L.y, 0.55);
-    if (!s) continue;
     const rad = Math.min(Math.max(10, (BH / s.d) * 0.55 * (DW / BH)), DW * 0.25);   // clamped: unclamped, a lamp at 1 m was a near-full-screen additive fill per lamp per frame
     const k = clamp((L.str || 0.8) * (1 - d / 22), 0, 1) * 0.5;
-    const c = L.col || [255, 200, 130];
+    const col = L.col || [255, 200, 130];
     const g = ctx.createRadialGradient(s.x, s.y, 0, s.x, s.y, rad);
-    g.addColorStop(0, `rgba(${c[0]},${c[1]},${c[2]},${k * 0.7})`);
-    g.addColorStop(0.45, `rgba(${c[0] * 0.8 | 0},${c[1] * 0.7 | 0},${c[2] * 0.55 | 0},${k * 0.22})`);
+    g.addColorStop(0, `rgba(${col[0]},${col[1]},${col[2]},${k * 0.7})`);
+    g.addColorStop(0.45, `rgba(${col[0] * 0.8 | 0},${col[1] * 0.7 | 0},${col[2] * 0.55 | 0},${k * 0.22})`);
     g.addColorStop(1, 'rgba(0,0,0,0)');
     ctx.fillStyle = g;
-    ctx.fillRect(s.x - rad, s.y - rad, rad * 2, rad * 2);
+    // Intersect the fill with the viewport: an additive disc half off-screen used to pay
+    // for its hidden half, and the gradient is positioned in canvas space either way.
+    const rx = Math.max(0, s.x - rad), ry = Math.max(0, s.y - rad);
+    const rw = Math.min(DW, s.x + rad) - rx, rh = Math.min(DH, s.y + rad) - ry;
+    if (rw > 0 && rh > 0) ctx.fillRect(rx, ry, rw, rh);
+    n++;
   }
   ctx.restore();
 }

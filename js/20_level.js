@@ -220,7 +220,7 @@ function genLevel(li) {
       lR: new Float32Array(N * N), lG: new Float32Array(N * N), lB: new Float32Array(N * N), lw: new Float32Array(N * N),
       lt: new Uint8Array(N * N * 3), amb: cfgL.amb === undefined ? 0.13 : cfgL.amb, tintDirty: true,
       floorTex: FLOORS[cfgL.floor] || FLOORS.CONCRETE, ceilTex: CEILS[cfgL.ceil] || CEILS.CONCRETE,
-      floorTile: 1.15, ceilTile: 2.4 };
+      floorTile: 1.15, ceilTile: 0.9 };
     MW = N; MH = N; decalGridInit();
 
     bfsDist = dist;
@@ -288,7 +288,7 @@ function genLevel(li) {
   for (let y = 0; y < N; y++) { cell[y * N] = cell[y * N + N - 1] = WT.TECH; }
   MAP = { w: N, h: N, cell, light: new Float32Array(N * N).fill(0.7), rooms: [{ x: 1, y: 1, w: N - 2, h: N - 2, cx: N >> 1, cy: N >> 1 }],
     lR: new Float32Array(N * N).fill(0.6), lG: new Float32Array(N * N).fill(0.6), lB: new Float32Array(N * N).fill(0.6), lw: new Float32Array(N * N).fill(0.7),
-    lt: new Uint8Array(N * N * 3).fill(128), amb: 0.14, tintDirty: false, floorTex: FLOORS.CONCRETE, ceilTex: CEILS.CONCRETE, floorTile: 1.15, ceilTile: 2.4 };
+    lt: new Uint8Array(N * N * 3).fill(128), amb: 0.14, tintDirty: false, floorTex: FLOORS.CONCRETE, ceilTex: CEILS.CONCRETE, floorTile: 1.15, ceilTile: 0.9 };
   MW = N; MH = N; decalGridInit(); explored = new Uint8Array(N * N); S.revealed = 0;
   LIGHTS = []; PROPS = []; PICKUPS = []; PROJ = []; PARTS = []; ENEMIES = [];
   exitX = N - 2.5; exitY = N - 2.5; P.x = 2.5; P.y = 2.5;

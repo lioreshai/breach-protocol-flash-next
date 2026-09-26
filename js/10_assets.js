@@ -401,36 +401,45 @@ FLOORS.FLESH = matTex(T2, T2, p => {
   p.r -= pool * 26; p.g -= pool * 12; p.b -= pool * 6; p.h -= pool * 0.05;
 }, { bump: 1.3, amb: 0.42, spec: 0.55, specPow: 20, ao: 0.7, grain: 9 });
 
-CEILS.CONCRETE = matTex(64, 64, p => {
-  const n = fbm(p.u, p.v, 5, 4, 0.55, 61);
-  let v = 0.5 + n * 0.4;
-  p.r = 92 * v; p.g = 92 * v; p.b = 98 * v;
-  p.h = 0.6 + (n - 0.5) * 0.1;
-  const stain = smoothstep(0.4, 0.85, fbm(p.u * 2, p.v * 2, 4, 3, 0.6, 13));
-  p.r -= stain * 18; p.g -= stain * 16; p.b -= stain * 12;
-  cracks(p, 0.07, 0.1, 3, 27, [26, 26, 30]);
-}, { bump: 0.9, amb: 0.5, spec: 0.03, ao: 0.6, grain: 10 });
-CEILS.PANEL = matTex(64, 64, p => {
-  const gx = (p.u * 2) % 1, gy = (p.v * 2) % 1;
-  const d = Math.max(Math.abs(gx - 0.5) - 0.45, Math.abs(gy - 0.5) - 0.45);
+CEILS.CONCRETE = matTex(T2, T2, p => {
+  const sx = (p.u * 2) % 1, sy = (p.v * 2) % 1;
+  const seam = Math.max(Math.abs(sx - 0.5) - 0.46, Math.abs(sy - 0.5) - 0.46);
+  const sk = smoothstep(-0.015, 0.02, seam);
+  const n = fbm(p.u * 7, p.v * 7, 5, 4, 0.55, 61);
+  let v = 0.46 + n * 0.3;
+  p.r = 78 * v; p.g = 79 * v; p.b = 86 * v;                      // cooler and darker than any floor, so overhead reads as overhead
+  p.h = 0.6 - sk * 0.22 + (n - 0.5) * 0.08;
+  const pit = smoothstep(0.74, 0.9, fbm(p.u * 26, p.v * 26, 3, 2, 0.5, 23));
+  p.h -= pit * 0.1; p.r -= pit * 12; p.g -= pit * 11; p.b -= pit * 9;
+  const soot = smoothstep(0.55, 0.95, fbm(p.u * 1.6, p.v * 1.6, 4, 3, 0.6, 13));
+  p.r -= soot * 20; p.g -= soot * 19; p.b -= soot * 15;
+  cracks(p, 0.05, 0.08, 3, 27, [24, 24, 28]);
+}, { bump: 1.1, amb: 0.42, spec: 0.03, ao: 0.8, grain: 8 });
+CEILS.PANEL = matTex(T2, T2, p => {
+  const gx = (p.u * 4) % 1, gy = (p.v * 4) % 1;
+  const d = Math.max(Math.abs(gx - 0.5) - 0.46, Math.abs(gy - 0.5) - 0.46);
   const seam = smoothstep(-0.02, 0.03, d);
-  const n = fbm(p.u * 5, p.v * 0.9, 6, 3, 0.55, 71);
-  let v = 0.5 + n * 0.35;
-  p.r = 70 * v; p.g = 78 * v; p.b = 92 * v;
-  p.h = 0.58 - seam * 0.2 + (n - 0.5) * 0.04;
-  const vent = Math.abs(gy - 0.5) < 0.4 && Math.abs(gx - 0.5) < 0.3 && ((p.v * 2) | 0) % 3 === 0;
-  if (vent) { const s = Math.sin((gy) * 46) * 0.5 + 0.5; p.h -= s * 0.14; p.r -= s * 18; p.g -= s * 18; p.b -= s * 16; }
-  dust(p, 0.16, [70, 74, 82]);
-}, { bump: 1.0, amb: 0.5, spec: 0.12, specPow: 26, ao: 0.7, grain: 6 });
-CEILS.ROCK = matTex(64, 64, p => {
-  const n = turb(p.u, p.v, 4, 4, 57);
-  let v = 0.42 + n * 0.66;
-  p.r = 84 * v; p.g = 80 * v; p.b = 76 * v;
-  p.h = 0.5 + (n - 0.5) * 0.3;
-  const wet = smoothstep(0.68, 0.9, fbm(p.u, p.v, 7, 3, 0.6, 33));
-  p.r += wet * 12; p.g += wet * 12; p.b += wet * 14;
-  moss(p, 0.25, 71);
-}, { bump: 1.5, amb: 0.5, spec: 0.06, ao: 0.8, grain: 12 });
+  const n = fbm(p.u * 14, p.v * 3, 6, 3, 0.55, 71);
+  let v = 0.44 + n * 0.3;
+  p.r = 58 * v; p.g = 66 * v; p.b = 80 * v;
+  p.h = 0.56 - seam * 0.22 + (n - 0.5) * 0.03;
+  if (Math.hypot(((gx * 2) % 1) - 0.5, ((gy * 2) % 1) - 0.5) < 0.09) { p.h += 0.08; p.r += 14; p.g += 14; p.b += 14; }
+  const vent = Math.abs(gy - 0.5) < 0.32 && Math.abs(gx - 0.5) < 0.22 && ((p.v * 4) | 0) % 3 === 0;
+  if (vent) { const s = Math.sin(gy * 60) * 0.5 + 0.5; p.h -= s * 0.2; p.r -= s * 20; p.g -= s * 20; p.b -= s * 18; }
+  dust(p, 0.12, [62, 66, 74]);
+}, { bump: 1.1, amb: 0.44, spec: 0.14, specPow: 26, ao: 0.75, grain: 6 });
+CEILS.ROCK = matTex(T2, T2, p => {
+  const strata = Math.sin(p.v * 12 + turb(p.u * 2, p.v * 2, 3, 3, 51) * 2.2) * 0.5 + 0.5;
+  const n = turb(p.u * 7, p.v * 7, 4, 4, 57);
+  let v = 0.36 + n * 0.42 + strata * 0.14;
+  p.r = 70 * v; p.g = 68 * v; p.b = 70 * v;                       // desaturated: the warm browns belong to the floor
+  p.h = 0.44 + n * 0.3 + strata * 0.1;
+  const knob = smoothstep(0.72, 0.95, fbm(p.u * 9, p.v * 9, 4, 3, 0.55, 19));
+  p.h += knob * 0.2; p.r += knob * 10; p.g += knob * 10; p.b += knob * 12;
+  const wet = smoothstep(0.72, 0.94, fbm(p.u * 5, p.v * 5, 3, 3, 0.6, 33));
+  p.r += wet * 10; p.g += wet * 11; p.b += wet * 14;
+  moss(p, 0.1, 71);                                               // seam moss, not floor moss
+}, { bump: 1.6, amb: 0.4, spec: 0.07, ao: 0.9, grain: 10 });
 CEILS.SINEW = matTex(64, 64, p => {
   const n = fbm(p.u, p.v, 4, 4, 0.55, 5);
   let v = 0.5 + n * 0.6;
