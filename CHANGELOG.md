@@ -11,6 +11,10 @@ one change: say what the reader would notice, not which file was touched.
 - Occlusion depth is one value per **pixel** instead of one per screen column: the ground pass writes the distance it already solves — including the pixels it queues for the lip of a step, whose colour comes from a different plane than the row's — the wall pass writes its own face span, and the sprite and particle paths compare per pixel. No pixel changed colour, and a column with no wall no longer holds a stale zero that hid sprites there. A flat ceiling row keeps the "occludes nothing" sentinel until the pass that clips against it (#45).
 
 ### Fixed
+- Revising a floor no longer leaves an invisible wall where the step used to be. The boundary flags were
+  OR-ed in at every relink, so a step that was raised and then flattened kept blocking movement and drawing
+  a face although the grid was flat again; blocking is now rewritten from the grid each relink while the
+  authored ramp and ladder bits survive it (#54).
 - Walking off a step or into a pit no longer drops the player in a single frame: a column whose floor is
   more than a quantum below the feet hands the player to the same gravity integration a jump uses, so the
   fall takes frames and reads as a fall. The `else P.z = gz` line that snapped them down was correct only

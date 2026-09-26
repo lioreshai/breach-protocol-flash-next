@@ -468,6 +468,45 @@ if (MODE === 'planes') {
   console.log(`relink stamp  ${st.skip || 'cell ' + st.cell}  grid moved ${yn(st.gridMoved)}  forgot relink: stamp moved ${yn(st.stampMovedStale)}` +
     ` array!=ceilAt ${yn(!st.staleAgrees)}  relinked: stamp moved ${yn(st.stampMovedRelink)} array==ceilAt ${yn(st.freshAgrees)}` +
     `  ${st.skip ? st.skip : stOk ? 'STALE-DETECT ok' : 'STALE-DETECT FAIL'}`);
+
+  /* The same claim one level down: MAP.vb must be a pure function of MAP.fz as well as of the walls.
+     Raise a boundary and put it back and no blocker may remain - a relink that can only ADD blocking
+     leaves an invisible wall wherever a grid was ever revised - while an authored ladder bit must
+     survive the relink that clears the derived ones, since that is what makes it authored. */
+  const idem = vm.runInContext(`(function(){
+    startLevel(0, true);
+    const N = MAP.w, k = MAP.cell.length, v0 = MAP.vb.slice(), fz0 = MAP.fz.slice();
+    let sx = -1, sy = -1;
+    for (let y = 1; y < N - 1 && sx < 0; y++) for (let x = 1; x <= N - 8; x++) {
+      let ok = true;
+      for (let j = 0; j < 7; j++) if (MAP.cell[y * N + x + j]) { ok = false; x += 6; break; }
+      if (ok) { sx = x; sy = y; }
+    }
+    if (sx < 0) return { skip: 'NO-RUN' };
+    const base = sy * N + sx;
+    let lad = -1;
+    for (let j = 0; j < k; j++) if (!MAP.cell[j] && (j < base || j > base + 6)) { lad = j; break; }
+    if (lad >= 0) MAP.vb[lad] |= (VB_LADDER << 0);
+    for (let j = 1; j <= 6; j++) MAP.fz[base + j] += 2;
+    linkBoundaries();
+    const blockedUp = (MAP.vb[base] & VB_BLOCK) ? 1 : 0;
+    for (let j = 1; j <= 6; j++) MAP.fz[base + j] -= 2;
+    linkBoundaries();
+    let stale = 0, first = -1;
+    for (let j = 0; j < k; j++) {
+      if (j === lad) continue;
+      if (MAP.vb[j] !== v0[j]) { stale++; if (first < 0) first = j; }
+    }
+    let restored = true;
+    for (let j = 0; j < k; j++) if (MAP.fz[j] !== fz0[j]) { restored = false; break; }
+    return { skip: null, cells: k, run: base, stale: stale, first: first, restored: restored ? 1 : 0,
+      blockedUp: blockedUp, lad: lad, ladKept: (lad >= 0 && (MAP.vb[lad] & VB_LADDER)) ? 1 : 0 };
+  })()`, ctxVm);
+  const idemOk = !idem.skip && idem.restored && idem.stale === 0 && idem.blockedUp === 1 && idem.ladKept === 1;
+  console.log(`relink vb    ${idem.skip || 'run at cell ' + idem.run}  raised blocks ${yn(idem.blockedUp)}  ` +
+    `grid restored ${yn(idem.restored)}  stale blockers ${idem.stale}` +
+    `${idem.first >= 0 ? ' (first at cell ' + idem.first + ')' : ''}  authored ladder kept ${yn(idem.ladKept)}` +
+    `  ${idem.skip ? idem.skip : idemOk ? 'RELINK-VB ok' : 'RELINK-VB FAIL'}`);
   process.exit(staleAll || !stOk ? 1 : 0);  // a derived array that disagrees with its formula is a verdict, not a footnote
 }
 
