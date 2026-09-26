@@ -9,7 +9,7 @@
    ================================================================== */
 let planeLen = cfg.plane, dirX = 1, dirY = 0, planeX = 0, planeY = cfg.plane;
 let camX = 0, camY = 0, eyeZ = 0.5, horizon = 0, shakeX = 0, shakeY = 0;
-let drawCalls = 0, pixFilled = 0;
+let drawCalls = 0, pixFilled = 0, reSolveBad = 0, gndOffMap = 0;   // last two: ground re-solve counters, read by tools/view.js heights
 let bloomCv = null, bloomCtx = null, canFilter = false, grainCv = null, grainPat = null, grainSeed = 0;
 let FARB = 22, AMB = 0.13, GQ = null, rigTexH = 200;
 let pxUsed = 0;                                          // rig texels authored this frame
@@ -168,69 +168,137 @@ function renderWorld() {
 }
 
 /* ------------------------------------------------------------------
-   floor & ceiling: perspective-correct texture mapping.
-   One division per row, integer stepping per pixel, mip chosen from the
-   world footprint, light sampled from the cell the pixel lands in.
+   floor & ceiling: perspective-correct texture mapping, solved per CELL.
+   A screen row used to be solved against one plane - the eye's own floor below
+   the horizon, the eye's own ceiling above it - which stretched that plane over
+   every column in the level. Each pixel is now solved against the plane of the
+   cell its own ray lands in, so the room two doors away has its own floor
+   altitude AND its own ceiling, and the ceiling is drawn here rather than left
+   as a gap in the wall pass: floors-only would paint a phantom floor across the
+   upper half of a tall room, which is the same lie told from the other side.
+
+   The row keeps its old distance as a PREDICTOR, and a pixel whose cell sits at the eye's altitude
+   is painted by the loop this pass always had, with the same loop-invariant mip, fog and light - one
+   extra compare per pixel is all the feature costs there (smoke's raster median unchanged, and +0.8 ms
+   of a 1202x676 stress frame). A pixel whose cell is NOT on that plane is queued and shaded after the
+   row by groundPixel(), which is a second copy of the pixel body and the reason the first one's
+   values are allowed to stay const. In a flat level nothing is ever queued, so `d` there is the
+   expression this pass has always contained, bit for bit. What deliberately did NOT change,
+   because the last attempt changed it and came out 4 points darker overall and 9
+   on level 0:
+   - light stays CELL-QUANTIZED for floors and ceilings alike (the wall pass samples
+     it bilinear with a distance falloff - unifying the two is a shading change, and
+     it is not free: bilinear+pulled light off a lamp pool is what shifted exposure),
+   - fog stays fogAt(camera-space depth) with no z term, which is what the wall pass
+     uses too, so ground and walls keep fading at the same rate,
+   - the far band, the mip thresholds and the muzzle-flash term stay row-constants
+     for every pixel that did not move.
+   Planes come from AIR cells only: a solid column has no air, so its ceilAt is a fiction, and the
+   void outside the map is today's flat ground. Both keep the row's plane, which means their pixels
+   are not re-solved at all and the wall pass draws over them - reading a plane THROUGH a wall is how
+   a room two cells out of sight gets painted across the middle of one, and solving a plane against a
+   solid column once filled an entire frame with grey.
    ------------------------------------------------------------------ */
+let RX = new Int32Array(0), RP = new Float64Array(0);   // columns of one row that needed re-solving
+
 function castGround(flash, fcR, fcG, fcB) {
   const hInt = Math.round(horizon);
   const stepBase = 2 / BW;
-  const cellArr = MAP.cell, N = MAP.w, lm = MAP.light;
+  const cellArr = MAP.cell, N = MAP.w, lm = MAP.light, fzs = MAP.fz, cp = MAP.ceilPlane;
   const floorTex = MAP.floorTex || FLOORS.CONCRETE, ceilTex = MAP.ceilTex || CEILS.CONCRETE;
   const tileF = MAP.floorTile || 1.15, tileC = MAP.ceilTile || 0.9;
   const dMasks = DECAL_MASK, dGrid = DECAL_GRID;
   const amb = AMB, fl = flash;
+  /* Scratch for the columns of one row that had to be re-solved off the row's plane. Sized to a
+     row because a row is all a frame can ever queue; in a flat level nothing is ever written. */
+  if (RX.length < BW) { RX = new Int32Array(BW); RP = new Float64Array(BW); }
   for (let y = 0; y < BH; y++) {
     const p = y - hInt;
     if (p === 0) { px.fill(0xFF000000 | fcB << 16 | fcG << 8 | fcR, y * BW, y * BW + BW); continue; }
-    const isF = p > 0;
-    let d = (isF ? eyeZ : 1 - eyeZ) * BH / Math.abs(p);
-    const dfade = 0.4 + 0.6 * Math.exp(-d * 0.02);   // row-constant: was one exp per pixel per decal
-    if (d > FARB * 4) d = FARB * 4;
-    const fog = fogAt(d);
-    const inv = 1 - fog, fR = fcR * fog, fG = fcG * fog, fB = fcB * fog;
-    const flashK = fl * Math.exp(-d * 0.30);
-    const base = amb + flashK * 0.9;
-    let tex, TW, TH, mips, NM, sc;
+    const isF = p > 0, absP = p > 0 ? p : -p;
+    /* planeA is the band the eye is in: floorAt below the horizon, ceilAt above it, and in
+       the flat world exactly 0 and exactly 1 - which is what makes dRow the old d. It doubles
+       as the predictor for every pixel of the row. A floor above the eye and a ceiling below
+       it are not surfaces these rows can reach, so neither is allowed to be the predictor. */
+    const cAx = camX | 0, cAy = camY | 0, cAir = cAx >= 0 && cAy >= 0 && cAx < N && cAy < N && !cellArr[cAy * N + cAx];
+    const rawA = cAir ? (isF ? fzs[cAy * N + cAx] * ZQ : cp[cAy * N + cAx]) : eyeZ;   // no air of its own -> okA false -> sentinel
+    const okA = isF ? rawA < eyeZ : rawA > eyeZ;
+    const planeA = okA ? rawA : (isF ? Math.min(0, eyeZ - ZQ) : Math.max(1, eyeZ + ZQ));
+    const dzA = isF ? eyeZ - planeA : planeA - eyeZ;
+    const dRaw = dzA * BH / absP;
+    const dfadeRow = 0.4 + 0.6 * Math.exp(-dRaw * 0.02);   // row-constant: was one exp per pixel per decal
+    const dRow = dRaw > FARB * 4 ? FARB * 4 : dRaw;
+    const fogRow = fogAt(dRow);
+    const invRow = 1 - fogRow, fRRow = fcR * fogRow, fGRow = fcG * fogRow, fBRow = fcB * fogRow;
+    const flashRow = fl * Math.exp(-dRow * 0.30);
+    const baseRow = amb + flashRow * 0.9;
+    let tex, sc;
     if (isF) { tex = floorTex; sc = 1 / tileF; } else { tex = ceilTex; sc = 1 / tileC; }
-    if (d > FARB || !(tex && tex.mips)) {                     // far band: light-tinted fog, no texture
+    if (dRow > FARB || !(tex && tex.mips)) {                     // far band: light-tinted fog, no texture
       const c0 = cellTint(cellIdx(camX, camY));
       const lit = MAP.light ? MAP.light[cellIdx(camX, camY)] : 0.4;
-      px.fill(pack(clampi((18 * c0[0] + lit * 26 * c0[0]) * 1 + fR), clampi((18 * c0[1] + lit * 26 * c0[1]) + fG),
-        clampi((18 * c0[2] + lit * 26 * c0[2]) + fB)), y * BW, y * BW + BW);
+      px.fill(pack(clampi((18 * c0[0] + lit * 26 * c0[0]) * 1 + fRRow), clampi((18 * c0[1] + lit * 26 * c0[1]) + fGRow),
+        clampi((18 * c0[2] + lit * 26 * c0[2]) + fBRow)), y * BW, y * BW + BW);
       continue;
     }
     /* row ray span: column x has cam offset (x*stepBase-1) */
     const c0 = -1;
-    let wx = camX + (dirX + planeX * c0) * d, wy = camY + (dirY + planeY * c0) * d;
-    const wxs = planeX * stepBase * d, wys = planeY * stepBase * d;
+    let wx = camX + (dirX + planeX * c0) * dRow, wy = camY + (dirY + planeY * c0) * dRow;
+    const wxs = planeX * stepBase * dRow, wys = planeY * stepBase * dRow;
     /* mip from the world footprint of a pixel */
     const pxTex = Math.abs(wxs * sc) + Math.abs(wys * sc) * 0.001;
-    const k = pxTex >= 0.5 ? (pxTex >= 2 ? (pxTex >= 4 ? 3 : 2) : 1) : 0;
-    const m = tex.mips[Math.min(k, tex.mips.length - 1)];
+    const kRow = pxTex >= 0.5 ? (pxTex >= 2 ? (pxTex >= 4 ? 3 : 2) : 1) : 0;
+    const mRow = tex.mips[Math.min(kRow, tex.mips.length - 1)];
     // ms is texels per world unit at THIS mip: the tile is tileF world units wide, so a
     // 128-texel tile must advance mw/tileF per unit. Dividing by the mip width instead
     // (sc * mw/tex.w) made every tile span ~147 world units, so all floor material was
     // magnified ~128x into a flat gradient and pxTex never exceeded 0.071 - the mip
     // chain, the grit, the plank and tile patterns were all unreachable by construction.
-    const mw = m.w, mh = m.h, ms = sc * mw, td = m.data, mask = mw - 1, maskH = mh - 1;
     const row = y * BW;
-    const NN = N * N;
-    let pxi = wx | 0, pyi = wy | 0, cIdx = pyi * N + pxi, mir = 0, inMap = cIdx >= 0 && cIdx < NN;
+    let pxi = wx | 0, pyi = wy | 0, cIdx = pyi * N + pxi, mir = 0;
+    let inMap = pxi >= 0 && pyi >= 0 && pxi < N && pyi < N;
     let lt = inMap ? cellTint(cIdx) : TINT_WHITE, li = inMap && lm ? lm[cIdx] : 0;
     if (li > 1) li = 1;
-    let lr = base + li * lt[0], lg = base + li * lt[1], lb = base + li * lt[2];
+    let lr = baseRow + li * lt[0], lg = baseRow + li * lt[1], lb = baseRow + li * lt[2];
+    /* One cell-crossing test per pixel, as the pass has always had it. pxi/pyi is that walk and,
+       when nothing is being re-solved, it is also the walk of the plane - the cell being shaded and
+       the cell whose plane the row solved for only part company at a pixel that gets queued below,
+       and those never write a pixel here. planeC is the plane of the cell the walk is standing in,
+       or planeA when that column has no plane of its own or a plane these rows cannot reach. */
+    let planeC = planeA;
+    if (pxi >= 0 && pyi >= 0 && pxi < N && pyi < N && !cellArr[cIdx]) {
+      const pl0 = isF ? fzs[cIdx] * ZQ : cp[cIdx];
+      planeC = (isF ? pl0 < eyeZ : pl0 > eyeZ) ? pl0 : planeA;
+    }
+    /* Everything the pixel body reads is a const of this row, and that is not style: the day these
+       became per-pixel `let`s, a 1202x676 frame cost 2.5 ms more for pixels nothing re-solves,
+       because V8 can only keep a value in a register while nothing writes it inside the loop. So a
+       pixel that needs its own distance, fog, mip and light is queued and shaded after the row by
+       groundPixel(), and the flat case - every pixel of every level shipped - never touches one. */
+    const dfade = dfadeRow, fog = fogRow, inv = invRow, fR = fRRow, fG = fGRow, fB = fBRow, base = baseRow;
+    const mw = mRow.w, mh = mRow.h, ms = sc * mRow.w, td = mRow.data, mask = mw - 1, maskH = mh - 1;
+    let nm = 0;
     for (let x = 0; x < BW; x++, wx += wxs, wy += wys) {
       const gx = wx | 0, gy = wy | 0;
       if (gx !== pxi || gy !== pyi) {                          // crossed into another cell
         pxi = gx; pyi = gy; cIdx = gy * N + gx;
-        inMap = cIdx >= 0 && cIdx < NN;
+        inMap = gx >= 0 && gy >= 0 && gx < N && gy < N;
         if (inMap) {
           lt = cellTint(cIdx); li = lm ? lm[cIdx] : 0.4;
           lr = base + li * lt[0]; lg = base + li * lt[1]; lb = base + li * lt[2];
           mir = (hash2(gx, gy) * 4) | 0;                        // per-cell mirror kills the tiling tell
-        } else { lt = TINT_WHITE; li = 0; lr = lg = lb = base; }
-      }
+        } else { gndOffMap++; lt = TINT_WHITE; li = 0; lr = lg = lb = base; }
+        /* Only AIR columns have a floor and a ceiling: a solid column has no air, so its ceilAt is a
+           fiction, and the void outside the map is today's flat ground - both mean "no plane of your
+           own". Both axes are tested here even though inMap tested the index, because the index is
+           one-dimensional and gx === -1 with gy > 0 is a valid index for a cell on the far side of
+           the level: reading a plane THROUGH a wall is how a room two cells out of sight gets painted
+           across the middle of one, and it once filled an entire frame with grey. */
+        let pl = planeA;
+        if (gx >= 0 && gy >= 0 && gx < N && gy < N && !cellArr[cIdx]) pl = isF ? fzs[cIdx] * ZQ : cp[cIdx];
+        planeC = (isF ? pl < eyeZ : pl > eyeZ) ? pl : planeA;   // a floor above the eye and a ceiling
+      }                                                        // below it reach nothing on these rows
+      if (planeC !== planeA) { RX[nm] = x; RP[nm] = planeC; nm++; continue; }
       let tx = (wx * ms) | 0, ty = (wy * ms) | 0;
       tx &= mask; ty &= maskH;
       if (mir & 1) tx = mask - tx;
@@ -254,7 +322,102 @@ function castGround(flash, fcR, fcG, fcB) {
       }
       px[i] = 0xFF000000 | clampi(b) << 16 | clampi(g) << 8 | clampi(r);
     }
+    /* second pass over the columns this row could not solve, in column order; each writes its own
+       pixel so the order within the row cannot change the image, and the wall pass has not run yet */
+    for (let q = 0; q < nm; q++) groundPixel(RX[q], RP[q], row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb, dRow);
   }
+}
+
+/* One pixel whose cell is not on the row's plane. d comes from that plane through the same
+   expression the row uses with the plane swapped in, the position comes from d, and the cell the
+   position lands in has to agree with the plane that produced it: three tries settle every pixel
+   that can be settled. The lip of a step can oscillate - both answers are defensible there - and
+   the plane it started from wins, so an unsolvable pixel never reveals a room behind the wall you
+   are looking at. d is clamped to the row's reach before it is USED, exactly as the row clamps its
+   own, so a plane two units up cannot drag a texel from 300 metres away.
+   The shading below is the SECOND copy of the ground pixel body: it must change with the loop in
+   castGround, not instead of it. The split is what lets that loop hold its mip, fog and light in
+   registers - measured at 2.5 ms of a 1202x676 frame - and this function runs on no pixel of a
+   flat level, which is why `scene` md5s and `heights` both have to stay green to trust either. */
+function groundPixel(x, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb, dP) {
+  const N = MAP.w, cellArr = MAP.cell, lm = MAP.light, stepBase = 2 / BW;
+  const cam = x * stepBase - 1, rx = dirX + planeX * cam, ry = dirY + planeY * cam;
+  let dS = 0, ax = (camX + rx * dP) | 0, ay = (camY + ry * dP) | 0, settled = false;
+  for (let g = 0; g < 3; g++) {
+    const dz = isF ? eyeZ - pl : pl - eyeZ;
+    dS = dz * BH / absP;
+    if (dS > FARB * 4) dS = FARB * 4;
+    const qx = (camX + rx * dS) | 0, qy = (camY + ry * dS) | 0;
+    const mx = (qx + ax) >> 1, my = (qy + ay) >> 1;
+    // a plane may only come from a column within two cells on BOTH axes with no solid column between
+    let plN = pl;
+    if (qx >= 0 && qy >= 0 && qx < N && qy < N && Math.abs(qx - ax) <= 2 && Math.abs(qy - ay) <= 2 &&
+      mx >= 0 && my >= 0 && mx < N && my < N && !cellArr[my * N + mx]) {
+      const ii = qy * N + qx;
+      if (!cellArr[ii]) {
+        const t = isF ? MAP.fz[ii] * ZQ : MAP.ceilPlane[ii];
+        if (isF ? t < eyeZ : t > eyeZ) plN = t;
+      }
+    }
+    ax = qx; ay = qy;
+    // planes are quantized to ZQ, so agreement within one quantum is convergence: a pixel on the seam between two cells whose planes differ by a quantum has no fixed point and alternates forever (measured: 33,656 of a frame's re-solves on eyeUp, all a 1 <-> 1.25 two-cycle); the plane it started from wins
+    if (Math.abs(plN - pl) <= ZQ) { settled = true; break; }
+    pl = plN;
+  }
+  // an exhausted loop used to leave dS from the PREVIOUS plane; the plane finally used now places the pixel
+  if (!settled) {
+    reSolveBad++;
+    const dz = isF ? eyeZ - pl : pl - eyeZ;
+    dS = dz * BH / absP;
+    if (dS > FARB * 4) dS = FARB * 4;
+  }
+  const cx = camX + rx * dS, cy = camY + ry * dS;
+  let sx = cx | 0, sy = cy | 0;
+  /* a re-solved pixel that leaves the map falls back to the predictor's cell (gx, gy) for light and
+     mirror - the cell the row's own walk would have reached - so it shades like a flat pixel at that
+     distance instead of wrapping to a cell on the far side of the level */
+  if (sx < 0 || sy < 0 || sx >= N || sy >= N) {
+    gndOffMap++;
+    sx = (camX + rx * dP) | 0; sy = (camY + ry * dP) | 0;
+  }
+  const dfade = 0.4 + 0.6 * Math.exp(-dS * 0.02);
+  const fog = fogAt(dS), inv = 1 - fog, fR = fcR * fog, fG = fcG * fog, fB = fcB * fog;
+  const base = amb + fl * Math.exp(-dS * 0.30) * 0.9;
+  /* the row's footprint test with this pixel's distance: the world step per column is
+     plane*stepBase*d, so the footprint scales with d and nothing else */
+  const pxTex = Math.abs(planeX * stepBase * dS * sc) + Math.abs(planeY * stepBase * dS * sc) * 0.001;
+  const k = pxTex >= 0.5 ? (pxTex >= 2 ? (pxTex >= 4 ? 3 : 2) : 1) : 0;
+  const m = tex.mips[Math.min(k, tex.mips.length - 1)];
+  const mw = m.w, mh = m.h, ms = sc * m.w, td = m.data, mask = mw - 1, maskH = mh - 1;
+  const inMap = sx >= 0 && sy >= 0 && sx < N && sy < N, cIdx = sy * N + sx;
+  let lr, lg, lb, mir = 0;
+  if (inMap) {
+    const lt = cellTint(cIdx), li = lm ? lm[cIdx] : 0.4;   // no li>1 clamp here either, matching the
+    lr = base + li * lt[0]; lg = base + li * lt[1]; lb = base + li * lt[2];   // loop's cell crossing
+    mir = (hash2(sx, sy) * 4) | 0;
+  } else { lr = lg = lb = base; }
+  let tx = (cx * ms) | 0, ty = (cy * ms) | 0;
+  tx &= mask; ty &= maskH;
+  if (mir & 1) tx = mask - tx;
+  if (mir & 2) ty = maskH - ty;
+  const c = td[ty * mw + tx];
+  const i = row + x;
+  if ((c >>> 24) === 253) { px[i] = 0xFF000000 | clampi((c >> 16 & 255) * inv + fB) << 16 | clampi((c >> 8 & 255) * inv + fG) << 8 | clampi((c & 255) * inv + fR); return; }
+  let r = (c & 255) * lr + fR, g = (c >> 8 & 255) * lg + fG, b = (c >> 16 & 255) * lb + fB;
+  const dl = isF && inMap && DECAL_MASK ? DECAL_MASK[cIdx] : 0;
+  if (dl !== 0) {
+    const gl = DECAL_GRID[cIdx];
+    for (let q = 0; q < gl.length; q++) {
+      const dc = gl[q], al = decalAlpha(dc, cx, cy, dfade);
+      if (al <= 0.01) continue;
+      const dt = dc.tex, du = (((cx - dc.x) * dc.inv + 0.5) * dt.w) | 0, dv = (((cy - dc.y) * dc.inv + 0.5) * dt.h) | 0;
+      if (du < 0 || dv < 0 || du >= dt.w || dv >= dt.h) continue;
+      const s = dt.data[dv * dt.w + du], sa = (s >>> 24) / 255 * al;
+      if (sa < 0.01) continue;
+      r += ((s & 255) - r) * sa; g += ((s >> 8 & 255) - g) * sa; b += ((s >> 16 & 255) - b) * sa;
+    }
+  }
+  px[i] = 0xFF000000 | clampi(b) << 16 | clampi(g) << 8 | clampi(r);
 }
 function decalAlpha(dc, wx, wy, dfade) {
   const dx = wx - dc.x, dy = wy - dc.y, r2 = dx * dx + dy * dy;

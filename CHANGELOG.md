@@ -8,6 +8,11 @@ one change: say what the reader would notice, not which file was touched.
 ## Unreleased
 
 ### Fixed
+- Standing at a step or looking across a sunken room no longer paints the floor or ceiling of a room
+  two cells away through the wall: the ground solver may only borrow a height from a column within two
+  cells with nothing solid between, it can no longer run out of tries and place a pixel at a distance
+  belonging to a height it discarded, and pixels whose ray leaves the level stop borrowing light, tint
+  and decals from a cell on the far side of the map. Flat levels render pixel-for-pixel the same.
 - Thin limbs stopped glowing: the rim band is now capped by the width of the part under the pixel, so a leg or hanging arm shows a lit edge instead of lighting up edge to edge.
 - The character rim light is a thin ridge instead of a wide ramp: at close range it stopped reading as a white halo around the whole silhouette, at the same edge separation and the same frame cost.
 - Character rim light now follows the silhouette instead of outlining every capsule, box and disc, so the seams inside a body stopped glowing; gain retuned to keep edge separation at least as good as before.
@@ -17,6 +22,10 @@ one change: say what the reader would notice, not which file was touched.
 - `?dev=1` boots the game with no click and no pointer lock and publishes a `DEV` console API (deterministic camera and enemy placement, frozen frames, a DDA ray query, runtime quality overrides including the character rim light), documented in the README.
 
 ### Changed
+- The floor and ceiling are now solved against the height of the cell each pixel's ray lands in,
+  instead of against the eye's own floor and ceiling stretched across the whole level: nothing
+  changes on today's flat levels — that parity is the gate — and `view.js heights` is the probe that
+  proves a room's floor and ceiling now follow the room rather than the camera.
 - The extra-seeds check runs on merges to main instead of on every branch push and pull request: it printed the same informational verdict every time and cost ~6 runner-minutes doing it.
 - Verification rule written down: anything observable on the live site is verified without waiting for a human report. Fixes a stale note claiming image input is broken here.
 - README shows what the game actually looks like today, captured from the deployed build, and that pass is a standing rule after every visible merge.
