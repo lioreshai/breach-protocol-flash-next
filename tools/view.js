@@ -320,7 +320,7 @@ if (MODE === 'viewmodel') {
     ['reload', 'P.reloadT=WEAPONS[P.weapon].reload*0.5'], ['reload-mid', 'P.reloadT=WEAPONS[P.weapon].reload*0.2'],
     ['swap', 'P.swapT=0.3'], ['sprint', 'P.sprint=1;P.bobPhase=1.2;keys.KeyW=1'], ['airborne', 'P.air=true;P.vz=3'],
   ];
-  let bad = 0;
+  let bad = 0, hip = null, flashNote = '';
   for (let wi = 0; wi < run('WEAPONS.length'); wi++) {
     for (const [name, setup] of states) {
       run(`P.weapon=${wi}; P.ads=0; P.kick=0; P.reloadT=0; P.swapT=0; P.sprint=0; P.air=false; P.vz=0; P.bobPhase=0; S.muzzle=0; ${setup}`);
@@ -337,8 +337,18 @@ if (MODE === 'viewmodel') {
       if (VR.fills < 8) problems.push('only ' + VR.fills + ' fills - geometry missing');
       if (X1 < 0 || X0 > DW || Y0 > DH) problems.push('entirely off screen');
       const tag = (run('WEAPONS')[' ' + wi] || WEAPONSNAME(wi));
+      // The flash must leave along the BORE, not across it. Comparing the hip bbox (muzzle 0)
+      // with the recoil bbox (muzzle 1) isolates the flash geometry with no game-side hook: the
+      // muzzle used to be emitted along +x, so a flash that grew wider than it grew up is a bug.
+      if (name === 'hip') hip = frac;
+      if (name === 'recoil') {
+        const up = hip[2] - frac[2], right = frac[1] - hip[1];
+        if (up < right) problems.push('flash grows sideways, not along the bore (up ' + up.toFixed(2) + ' DH, right ' + right.toFixed(2) + ' DW)');
+        flashNote = 'flash up ' + up.toFixed(2) + ' DH / right ' + right.toFixed(2) + ' DW';
+      }
       console.log(('w' + wi + ' ' + name).padEnd(16), 'paths ' + String(VR.fills).padStart(3),
         'bbox x ' + frac[0].toFixed(2) + '-' + frac[1].toFixed(2), ' y ' + frac[2].toFixed(2) + '-' + frac[3].toFixed(2),
+        flashNote ? '| ' + flashNote : '',
         problems.length ? '<< ' + problems.join(', ') : '');
       bad += problems.length ? 1 : 0;
     }

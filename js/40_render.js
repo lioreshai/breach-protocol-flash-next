@@ -812,66 +812,108 @@ function drawViewModel(U) {
     for (let f = 0; f < 4; f++) rrect((back ? -6 : 24) - 4, -12 + f * 8.2, 9, 2.2, 1);   // knuckle shade
     ctx.restore();
   };
+  // a forearm, drawn BEHIND the gun so the hand can wrap the grip over it. The anchor sits
+  // just below the bottom edge, so local y > 0 is already off screen: running the sleeve to
+  // y = 340 puts the elbow a few hundred device pixels past the edge, which is what makes the
+  // hand read as belonging to a body instead of floating next to the weapon.
+  const arm = (x, y, s, side, ang) => {
+    ctx.save(); ctx.translate(x, y); ctx.rotate(ang || 0); ctx.scale(s, s);
+    const ex = side * 52, ey = 340;
+    ctx.fillStyle = grd(-34, 0, 34, 0, [[0, lit('#1d222b')], [0.45, lit('#363e4a')], [1, lit('#171b23')]]);
+    ctx.beginPath();
+    ctx.moveTo(-16, -8); ctx.lineTo(16, -8);
+    ctx.quadraticCurveTo(ex * 0.4 + 18, ey * 0.45, ex + 22, ey);
+    ctx.lineTo(ex - 30, ey);
+    ctx.quadraticCurveTo(ex * 0.4 - 18, ey * 0.45, -16, -8);
+    ctx.closePath(); ctx.fill();
+    ctx.fillStyle = grd(0, -12, 0, 14, [[0, lit('#48525f')], [1, lit('#242a34')]]);   // cuff
+    rrect(-18, -14, 36, 24, 9);
+    ctx.restore();
+  };
 
-  // ---- weapon families: receiver, barrel, furniture, sight line -----------------
+  // ---- weapon families ------------------------------------------------------------
+  // One convention for all three, because they used to disagree: the bore runs up the
+  // screen (-y) toward the vanishing point, +x is lateral, origin at the rear of the grip.
+  // The pistol drew its barrel as a HORIZONTAL bar while the rifle and shotgun drew theirs
+  // vertically, and the flash was emitted along +x - so the muzzle blast came out of the
+  // side of the gun, 90 deg off the bore. Families now differ by silhouette and nothing else.
   const K = w.kind;
-  const gunY = -236, sightY = -268;                                    // local muzzle / sight height
+  let muzzleX = 2, muzzleY = -330;
   if (K === 'shotgun') {
-    metal(-34, -232, 78, 44, 7, '#2c313a');                              // receiver
-    metal(-16, -330, 26, 104, 5, '#242a33');                             // barrel
-    metal(12, -322, 16, 92, 4, '#1c2129');                               // mag tube
-    metal(-10 + pump * 26, -300, 22, 34, 6, '#3a2c1e');                  // pump, travels on reload
-    metal(-30, -186, 44, 74, 10, '#33261a', 0.10);                       // stock
-    metal(-22, -258, 30, 14, 3, '#15191f');                              // ejection port
-    ctx.fillStyle = '#0a0d11'; rrect(-8, -336, 12, 8, 3);                // muzzle ring
+    muzzleX = -1; muzzleY = -404;
+    arm(-56, -322, 1.0, -1, -0.08);
+    arm(10, -212, 1.06, 1, 0.04);
+    metal(-34, -232, 84, 46, 8, '#2c313a');                              // receiver
+    metal(-16, -398, 30, 172, 5, '#242a33');                             // barrel
+    metal(14, -386, 20, 154, 4, '#1c2129');                              // mag tube, under the bore
+    metal(-12 + pump * 30, -330, 30, 42, 7, '#3a2c1e');                  // pump, travels on reload
+    ctx.fillStyle = lit('#0e1217'); rrect(-13, -396, 24, 150, 3);        // rib along the top
+    metal(-30, -186, 48, 82, 11, '#33261a', 0.10);                       // stock
+    metal(-24, -262, 34, 15, 3, '#15191f');                              // ejection port
+    ctx.fillStyle = '#0a0d11'; rrect(-13, -406, 26, 11, 4);              // muzzle ring
     if (magOut || shellIn) {                                            // shell in the hand
       ctx.save(); ctx.translate(-52 + shellIn * 16, -208 + shellIn * 30); ctx.rotate(0.2);
       ctx.fillStyle = grd(0, -8, 0, 8, [[0, lit('#b8412c')], [1, lit('#6d2115')]]); rrect(0, -7, 20, 14, 5);
       ctx.fillStyle = lit('#d8b04a'); rrect(15, -6.4, 6, 12.8, 2); ctx.restore();
     }
-    hand(-52 - pump * 6, -292, 1.02, false, -0.16 + pump * 0.10);
-    hand(4, -214 - magOut * 6, 1.06, true, 0.10 + slideBack * 0.05);
+    hand(-56 - pump * 6, -322, 1.04, false, -0.16 + pump * 0.10);
+    hand(6, -212 - magOut * 6, 1.08, true, 0.10 + slideBack * 0.05);
     if (slideBack) { ctx.fillStyle = lit('#cfae55'); rrect(-16 - slideBack * 26, -262 - slideBack * 22, 9, 7, 2); }
   } else if (K === 'rifle') {
-    metal(-30, -266, 92, 34, 6, '#262c35');                              // upper receiver
-    metal(-8, -372, 18, 112, 4, '#1a1f27');                              // barrel
-    metal(-4, -372, 8, 10, 2, '#0f1218');                                // flash hider
-    metal(-26, -300, 40, 26, 4, '#1d222a', 0);                           // handguard
+    muzzleX = 1; muzzleY = -436;
+    arm(-44, -312, 0.98, -1, -0.06);
+    arm(10, -216, 1.04, 1, 0.05);
+    metal(-30, -266, 92, 36, 6, '#262c35');                              // upper receiver
+    metal(-8, -430, 20, 170, 4, '#1a1f27');                              // barrel
+    metal(-5, -434, 14, 14, 3, '#0f1218');                               // flash hider
+    metal(-26, -312, 44, 46, 5, '#1d222a', 0);                           // handguard
     metal(-30 + slideBack * 20, -246, 30, 22, 3, '#161b22');              // charging handle
-    if (!magOut) metal(-14, -232, 26, 62, 4, '#1b2028', 0.04);            // magazine
+    if (!magOut) metal(-14, -230, 26, 64, 4, '#1b2028', 0.04);            // magazine
     else { ctx.save(); ctx.translate(-14 - magOut * 10, -214 + magOut * 70); ctx.rotate(0.04);
       ctx.fillStyle = lit('#1b2028'); rrect(0, 0, 26, 60, 4); ctx.restore(); }
-    metal(-40, -196, 52, 78, 12, '#20252e', 0.13);                       // stock
-    metal(-6, -286, 12, 12, 2, '#10141a');                                // rear sight
-    hand(-40 - pump * 4, -306, 0.98, false, -0.30);
-    hand(6, -218 - magOut * 4, 1.04, true, 0.12 + slideBack * 0.06);
+    metal(-40, -196, 52, 80, 12, '#20252e', 0.13);                       // stock
+    metal(-7, -288, 14, 14, 2, '#10141a');                               // rear sight
+    metal(-2, -400, 8, 26, 2, '#10141a');                                // front post
+    hand(-44 - pump * 4, -312, 1.0, false, -0.30);
+    hand(6, -216 - magOut * 4, 1.06, true, 0.12 + slideBack * 0.06);
     if (slideBack) { ctx.fillStyle = lit('#cfae55'); rrect(-4 - slideBack * 30, -272 - slideBack * 26, 8, 7, 2); }
   } else {
-    metal(-26, -238, 62, 40, 7, '#2b323c');                               // pistol slide
-    metal(-26 + slideBack * 26, -238, 62, 12, 3, '#20262f');              // slide serration band
-    metal(-20, -200, 34, 62, 8, '#232935', 0.06);                         // grip
-    metal(-20, -248, 54, 10, 3, '#171c24');                               // barrel / muzzle
-    if (!magOut) metal(-16, -196, 22, 46, 3, '#1a1f28', 0.06);            // magazine
+    muzzleX = 1; muzzleY = -338;
+    arm(-36, -288, 0.94, -1, -0.05);
+    arm(6, -222, 1.04, 1, 0.03);
+    metal(-26, -312, 56, 80, 8, '#2b323c');                               // slide, foreshortened
+    metal(-26 + slideBack * 22, -312, 56, 15, 4, '#20262f');              // serration band
+    metal(-5, -332, 16, 26, 4, '#171c24');                                // barrel crown
+    metal(-22, -238, 42, 88, 11, '#232935', 0.17);                        // grip, raked back
+    if (!magOut) metal(-18, -232, 24, 66, 3, '#1a1f28', 0.06);            // magazine in the grip
     else { ctx.save(); ctx.translate(-18, -176 + magOut * 84); ctx.rotate(-0.05);
       ctx.fillStyle = lit('#1a1f28'); rrect(0, 0, 20, 44, 3); ctx.restore(); }
-    ctx.fillStyle = '#0a0d11'; rrect(26, -252, 10, 14, 3);
-    hand(-2, -222 - magOut * 8, 1.05, true, 0.06 + slideBack * 0.04);
-    hand(-40 - (P.reloadT > 0 && magOut ? 18 : 0), -226 - magOut * 26, 0.92, false, -0.42 - magOut * 0.2);
-    if (slideBack) { ctx.fillStyle = lit('#cfae55'); rrect(-18 - slideBack * 30, -252 - slideBack * 24, 8, 7, 2); }
+    ctx.fillStyle = '#0a0d11'; rrect(-9, -338, 22, 10, 3);                // muzzle face
+    metal(-30, -256, 16, 20, 3, '#161b23');                               // trigger guard
+    hand(-2, -226 - magOut * 8, 1.06, true, 0.06 + slideBack * 0.04);
+    hand(-36 - (P.reloadT > 0 && magOut ? 18 : 0), -288 - magOut * 26, 0.92, false, -0.36 - magOut * 0.2);
+    if (slideBack) { ctx.fillStyle = lit('#cfae55'); rrect(-18 - slideBack * 30, -300 - slideBack * 20, 8, 7, 2); }
   }
 
   // ---- muzzle flash: additive cone + kernel at the muzzle, driven by S.muzzle ----
   if (mz > 0.004) {
-    const my = K === 'rifle' ? -372 : K === 'shotgun' ? -330 : -252;
-    const mx = K === 'pistol' ? 32 : K === 'shotgun' ? -3 : 5;
+    const mx = muzzleX, my = muzzleY;
     ctx.save(); ctx.globalCompositeOperation = 'lighter';
     ctx.globalAlpha = Math.min(1, mz);
-    ctx.fillStyle = grd(mx, my - 60 * mz, mx, my + 60 * mz, [[0, 'rgba(255,236,180,0)'], [0.5, 'rgba(255,226,150,0.95)'], [1, 'rgba(255,180,80,0)']]);
+    ctx.fillStyle = grd(mx, my, mx, my - 150 * mz, [[0, 'rgba(255,250,235,0.95)'], [1, 'rgba(255,170,60,0)']]);
     ctx.beginPath();
-    ctx.moveTo(mx, my - 26 * mz); ctx.lineTo(mx + 150 * mz, my - 4 * mz); ctx.lineTo(mx + 150 * mz, my + 4 * mz);
-    ctx.lineTo(mx, my + 26 * mz); ctx.closePath(); ctx.fill();
+    ctx.moveTo(mx - 26 * mz, my); ctx.lineTo(mx - 5 * mz, my - 150 * mz);
+    ctx.lineTo(mx + 5 * mz, my - 150 * mz); ctx.lineTo(mx + 26 * mz, my);
+    ctx.closePath(); ctx.fill();
     ctx.fillStyle = grd(mx - 60 * mz, my - 60 * mz, mx + 60 * mz, my + 60 * mz, [[0, 'rgba(255,250,235,1)'], [0.45, 'rgba(255,214,120,0.55)'], [1, 'rgba(255,150,40,0)']]);
     ctx.beginPath(); ctx.arc(mx, my, 58 * mz, 0, TAU); ctx.fill();
+    ctx.fillStyle = 'rgba(255,236,170,0.75)';                        // star, so the blast has edges
+    for (let i = 0; i < 5; i++) {
+      const a = i * TAU / 5 + mz * 0.7, r = (i === 0 ? 150 : 78) * mz;
+      ctx.save(); ctx.translate(mx, my); ctx.rotate(a - Math.PI / 2);
+      ctx.beginPath(); ctx.moveTo(-7 * mz, 0); ctx.lineTo(0, -r); ctx.lineTo(7 * mz, 0);
+      ctx.closePath(); ctx.fill(); ctx.restore();
+    }
     ctx.restore();
   }
   // ---- sight picture in ADS: the rear sight brackets the front post on screen centre
