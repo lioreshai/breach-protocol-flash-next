@@ -17,7 +17,7 @@ const CAM = +(process.argv[4] || 0);
 // An unknown name used to fall through to the scene dump and exit 0, so a typo in a CI probe list
 // ran something, painted a PNG and reported a passing gate (#89).
 const PROBES = ['scene', 'alt', 'anim', 'contrast', 'decal', 'diag', 'exposure', 'heights',
-  'mip', 'planes', 'play', 'props', 'rig', 'sheets', 'stats', 'vert', 'viewmodel'];
+  'mip', 'planes', 'play', 'props', 'rig', 'sheets', 'sight', 'stats', 'vert', 'viewmodel'];
 if (!PROBES.includes(MODE)) {
   console.error('unknown probe "' + MODE + '" - known: ' + PROBES.join(' '));
   process.exit(2);
@@ -518,6 +518,114 @@ if (MODE === 'vert') {
   // "frame: mean" and painted /tmp/fps_scene.png whose value depends on where this probe left the
   // RNG stream, which reads like a measurement of the level and measures nothing (#89).
   process.exit(0);
+}
+
+if (MODE === 'sight') {
+  /* #98: hitscan tested a *world* altitude against the enemy's height above absolute zero, so a body
+     standing on a band one unit up was unhittable and a barrel one unit down was hit by a shot fired
+     level at the eye. Levels are still flat, so nothing here is visible in play yet - the point is
+     that M4 is built on these two branches. Every row derives its own expectation from floorAt and
+     scale rather than quoting a constant, and the "must miss" rows exist so that widening the window
+     to +infinity cannot pass: the bug and its opposite both fail, only the band-relative window passes. */
+  let bad = 0;
+  const row = (label, ok, detail) => {
+    console.log('  ' + label.padEnd(44) + (ok ? ' ok  ' : ' FAIL') + '  ' + detail);
+    if (!ok) bad++;
+  };
+  for (let li = 0; li < 3; li++) {
+    const res = run(`(function(){
+      const out = {skip: null, rows: []};
+      let lane = null;
+      for (let y = 2; y < MH - 2 && !lane; y++) for (let x = 2; x < MW - 8 && !lane; x++) {
+        let n = 0; for (let k = 0; k < 7; k++) if (!MAP.cell[y * MW + x + k]) n++;
+        if (n >= 7) lane = {x: x + 0.5, y: y + 0.5};
+      }
+      if (!lane) { out.skip = 'no 7-cell straight run on this level'; return out; }
+      startLevel(${li}, true);
+      const en = ENEMIES[0];
+      if (!en) { out.skip = 'no enemy generated'; return out; }
+      /* the cast must be out of the lane, not merely asleep: a sleeping neighbour absorbs the nearest
+         hit and reports the bug absent (#96 learned this the same way) */
+      ENEMIES.length = 0; ENEMIES.push(en);
+      const px = lane.x, py = lane.y, ex = lane.x + 4, ey = lane.y;
+      const probe = (dq, aimFrac, tanFix) => {
+        const fz0 = MAP.fz.slice(), cz0 = MAP.cz.slice();
+        for (const [cx, cy] of [[ex, ey], [ex + 1, ey]]) MAP.fz[(cy | 0) * MW + (cx | 0)] += dq;
+        linkBoundaries();
+        en.x = ex; en.y = ey; en.state = 'idle'; en.alert = false; en.hp = 1e6; en.dead = false;
+        P.x = px; P.y = py; P.ang = 0; P.crouch = 0; P.air = false; P.vz = 0;
+        P.z = floorAt(px, py);
+        const ef = floorAt(ex, ey), eyeZ = cfg.eye + P.z;
+        const aimZ = tanFix === undefined ? ef + en.scale * aimFrac : eyeZ + tanFix * 4;
+        const r = hitscan(0, (aimZ - eyeZ) / 4, 20);
+        const hitZ = r.info ? r.info.z : null;
+        const got = {
+          ef, eyeZ, aimZ, dq,
+          hitEnemy: r.enemy ? 1 : 0, hitZ, head: r.info && r.info.head ? 1 : 0,
+          t: r.t, wall: r.wall ? 1 : 0, barrel: r.info && r.info.barrel ? 1 : 0,
+          bodyLo: ef + 0.02, bodyHi: ef + en.scale, headAt: ef + en.scale * 0.78,
+        };
+        for (let i = 0; i < MAP.fz.length; i++) MAP.fz[i] = fz0[i];
+        for (let i = 0; i < MAP.cz.length; i++) MAP.cz[i] = cz0[i];
+        linkBoundaries();
+        return got;
+      };
+      const rows = [];
+      for (const dq of [0, 4, -4, 2]) rows.push({k: 'chest' + dq, g: probe(dq, 0.5)});
+      for (const dq of [0, 4, -4]) rows.push({k: 'head' + dq, g: probe(dq, 0.9)});
+      rows.push({k: 'flat', g: probe(4, 0, 0)});
+      /* the prop branch has no z test at all today: it answers on perp and range alone */
+      const bar = {tex: PROP.barrel, x: ex, y: ey, scale: 0.86, z: floorAt(ex, ey), kind: 'barrel', hp: 26, dead: false};
+      for (const dq of [0, -4]) {
+        const fz0 = MAP.fz.slice();
+        MAP.fz[(ey | 0) * MW + (ex | 0)] += dq;
+        linkBoundaries();
+        bar.z = floorAt(ex, ey);
+        PROPS.push(bar);
+        P.x = px; P.y = py; P.ang = 0; P.crouch = 0; P.air = false; P.vz = 0; P.z = floorAt(px, py);
+        ENEMIES[0].state = 'dead';                       // the prop branch only runs when nothing else hit
+        const eyeZ = cfg.eye + P.z;
+        const aim = dq === 0 ? bar.z + bar.scale * 0.5 : eyeZ;   // lid-aim when level, flat aim when sunk
+        const r = hitscan(0, (aim - eyeZ) / 4, 20);
+        rows.push({k: 'barrel' + dq, g: {ef: bar.z, eyeZ, aimZ: aim, dq, hitEnemy: 0, hitZ: r.info ? r.info.z : null,
+          head: 0, t: r.t, wall: r.wall ? 1 : 0, barrel: r.info && r.info.barrel ? 1 : 0,
+          bodyLo: bar.z, bodyHi: bar.z + bar.scale, headAt: Infinity}});
+        PROPS.splice(PROPS.indexOf(bar), 1);
+        ENEMIES[0].state = 'idle';
+        for (let i = 0; i < MAP.fz.length; i++) MAP.fz[i] = fz0[i];
+        linkBoundaries();
+      }
+      out.rows = rows; out.dist = 4; return out;
+    })()`);
+    if (res.skip) { console.log(`L${li}: ${res.skip}  SKIP`); bad++; continue; }
+    for (const {k, g} of res.rows) {
+      const f = n => (n === null || n === undefined ? ' -' : n.toFixed(3));
+      if (k.startsWith('chest')) {
+        const dq = +k.slice(5);
+        const inBand = g.hitZ !== null && g.hitZ >= g.bodyLo && g.hitZ <= g.bodyHi;
+        row(`L${li} chest shot at band ${dq > 0 ? '+' : ''}${dq / 4}`,
+          g.hitEnemy === 1 && !g.head && inBand,
+          `enemy floor ${f(g.ef)}  eye ${f(g.eyeZ)}  aim ${f(g.aimZ)}  hit ${g.hitEnemy ? 'hz ' + f(g.hitZ) : 'MISS t ' + g.t.toFixed(1) + (g.wall ? ' into wall' : '')}  window ${f(g.bodyLo)}..${f(g.bodyHi)}`);
+      } else if (k.startsWith('head')) {
+        const dq = +k.slice(4);
+        const inBand = g.hitZ !== null && g.hitZ >= g.bodyLo && g.hitZ <= g.bodyHi;
+        row(`L${li} head shot at band ${dq > 0 ? '+' : ''}${dq / 4}`,
+          g.hitEnemy === 1 && g.head === 1 && inBand,
+          `enemy floor ${f(g.ef)}  hit ${g.hitEnemy ? 'hz ' + f(g.hitZ) + (g.head ? ' HEAD' : ' body (mislabelled)') : 'MISS t ' + g.t.toFixed(1)}  head above ${f(g.headAt)}`);
+      } else if (k === 'flat') {
+        row(`L${li} level shot at enemy one band up`,
+          g.hitEnemy === 0,
+          `enemy floor ${f(g.ef)}  shot stays at ${f(g.aimZ)}  hit ${g.hitEnemy ? 'hz ' + f(g.hitZ) + ' - hitting through the floor' : 'no enemy (t ' + g.t.toFixed(1) + (g.wall ? ', riser stops it' : ', flies past') + ')'}`);
+      } else if (k.startsWith('barrel')) {
+        const dq = +k.slice(6);
+        row(`L${li} barrel shot at band ${dq > 0 ? '+' : ''}${dq / 4}`,
+          g.barrel === (dq === 0 ? 1 : 0) && (dq !== 0 || g.hitZ >= g.bodyLo),
+          `barrel ${f(g.ef)}..${f(g.bodyHi)}  aim ${f(g.aimZ)}  ${g.barrel ? 'barrel hit at hz ' + f(g.hitZ) : 'no barrel hit (t ' + g.t.toFixed(1) + ')'}`);
+      }
+    }
+  }
+  console.log(bad ? `SIGHT ${bad} FAILURES` : 'SIGHT ok - hit tests follow the body they hit');
+  process.exit(bad ? 1 : 0);
 }
 
 if (MODE === 'planes') {
