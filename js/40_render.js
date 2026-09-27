@@ -102,24 +102,41 @@ function renderWorld() {
   castGround(flash, fcR, fcG, fcB);
   castWalls(flash, fcR, fcG, fcB);
 
-  /* ---- sprites: props, pickups, projectiles, the portal ---- */
+  /* ---- sprites: props, pickups, projectiles, the portal ----
+     Props, pickups, the orb and the portal are geometry now (#76), on the same `mesh:true` dispatch the
+     enemies got in #72. Two conventions carry over unchanged: `scale` is TOTAL world height, and z is
+     the FEET, resolved at DRAW time like an enemy's already was (below) - a prop that stores
+     generation-time floorAt still sinks when a band changes under it, which is what M3 makes routine.
+     What the billboard had and the mesh cannot keep is the texture: each prop was one painted Surf, so
+     js/13_mesh.js authors parts for it. The grenade stays a billboard - no geometry is authored for it
+     and MESH.draw now throws rather than answer with a grunt. The `glow` field the pickup entries
+     carried is gone: drawBillboard never read it, glow comes from LIGHTS in drawLightGlow (#76). */
   const list = [];
+  const PKKIND = { health: 'pickupHealth', ammo: 'pickupAmmo', armor: 'pickupArmor' };
   for (const p of PROPS) {
     if (p.dead && p.kind === 'barrel') continue;
-    list.push({ tex: p.tex, x: p.x, y: p.y, z: p.z, scale: p.scale, alpha: p.dead ? 0.35 : 1, kind: p.kind });
+    list.push({ mesh: true, kind: p.kind, x: p.x, y: p.y, z: floorAt(p.x, p.y), scale: p.scale, alpha: p.dead ? 0.35 : 1 });
   }
   for (const k of PICKUPS) {
     if (k.dead) continue;
-    const tex = k.type === 'health' ? PROP.health : k.type === 'armor' ? PROP.armor : PROP.ammo;
-    list.push({ tex, x: k.x, y: k.y, z: 0.16 + Math.sin(k.bob) * 0.05, scale: 0.42, alpha: 1, glow: k.type === 'armor' ? 0.25 : 0 });
+    // the bob rides ON TOP of the floor, so a pickup on a raised band bobs there instead of at z 0.16
+    list.push({ mesh: true, kind: PKKIND[k.type], x: k.x, y: k.y, z: floorAt(k.x, k.y) + 0.16 + Math.sin(k.bob) * 0.05, scale: 0.42, alpha: 1 });
   }
   for (const p of PROJ) {
-    const tex = p.kind === 'orb' ? PROP.orb[(S.t * 14 | 0) % 4] : p.tex;
-    list.push({ tex, x: p.x, y: p.y, z: p.z - p.scale / 2, scale: p.scale, alpha: 1, self: true });
+    if (p.kind === 'orb') {
+      list.push({ mesh: true, kind: 'orb', x: p.x, y: p.y, z: p.z - p.scale / 2, scale: p.scale, alpha: 1, emis: true });
+    } else {
+      list.push({ tex: p.tex, x: p.x, y: p.y, z: p.z - p.scale / 2, scale: p.scale, alpha: 1, self: true });
+    }
   }
+  /* Open, the portal is light-exempt, which is the billboard's self:true said as lighting, and it runs
+     alpha-blended because a flat-shaded mesh has no gradient to fade with. Shut it is dimmed and lit by
+     the room (the old dim:0.55). Both keep self-occlusion ON: the wall behind it is already painted and
+     this list is sorted far to near, so writing depth cannot hide the room - it only makes the near
+     jamb hide the far one, which is the whole point of a frame. */
   list.push({
-    tex: PROP.portal[(S.t * 12 | 0) % 8], x: exitX, y: exitY, z: 0.02, scale: 1.5,
-    alpha: S.exitOpen ? 1 : 0.42, self: S.exitOpen, dim: S.exitOpen ? 0 : 0.55
+    mesh: true, kind: 'portal', x: exitX, y: exitY, z: floorAt(exitX, exitY) + 0.02, scale: 1.5,
+    alpha: S.exitOpen ? 0.85 : 0.42, emis: S.exitOpen, dim: S.exitOpen ? 0 : 0.55,
   });
   /* Bodies are geometry now (js/13_mesh.js, #39): the mesh carries the enemy's real position,
      heading and world height instead of a billboard's distance, an 8-way yaw bucket and the

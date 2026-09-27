@@ -394,10 +394,10 @@ function genLevel(li) {
       PROPS.push({ tex: PROP.lamp, x: c[0] + 0.5, y: c[1] + 0.5, scale: 0.95, z: floorAt(c[0] + 0.5, c[1] + 0.5), kind: 'lamp' });
     }
     LIGHTS.push({ x: exitX, y: exitY, r: 5.5, str: 0.75, col: [140, 225, 255], stat: 1 });
-    for (let i = 0; i < cfgL.crates; i++) { const c = takeNear(2); PROPS.push({ tex: PROP.crate, x: c[0] + 0.5, y: c[1] + 0.5, scale: 0.72, z: 0.0, kind: 'crate' }); }
+    for (let i = 0; i < cfgL.crates; i++) { const c = takeNear(2); PROPS.push({ tex: PROP.crate, x: c[0] + 0.5, y: c[1] + 0.5, scale: 0.72, z: floorAt(c[0] + 0.5, c[1] + 0.5), kind: 'crate' }); }
     for (let i = 0; i < cfgL.barrels; i++) {
       const c = takeNear(2);
-      PROPS.push({ tex: PROP.barrel, x: c[0] + 0.5, y: c[1] + 0.5, scale: 0.86, z: 0.0, kind: 'barrel', hp: 26, dead: false });
+      PROPS.push({ tex: PROP.barrel, x: c[0] + 0.5, y: c[1] + 0.5, scale: 0.86, z: floorAt(c[0] + 0.5, c[1] + 0.5), kind: 'barrel', hp: 26, dead: false });
     }
     for (const k in cfgL.pick) for (let i = 0; i < cfgL.pick[k]; i++) {
       const c = takeNear(2);

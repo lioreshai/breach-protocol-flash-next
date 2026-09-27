@@ -65,6 +65,8 @@ const MESH = (function () {
 
   let tris = 0, pxFilled = 0, trisCulled = 0, SELF = true;
   let ALPHA = 1, FLASH = 0, TINT = null;               // per-draw terms the enemy list carries
+  let EMIS = false, DIM = 0, EM = null;                // the light-exempt registers: entry-wide, per-vertex
+  let R0 = 0.30, R1 = 0.85;                            // the Lambert ramp, per kind - see draw()
   let CR = 0, CG = 0, CB = 0;                       // shaded colour of the current triangle
 
   /* ---- geometry emit: tubes and boxes into a flat vertex/index list ----
@@ -76,10 +78,19 @@ const MESH = (function () {
   function Builder() {
     this.p = [];                                    // x,y,z,r,g,b
     this.t = [];                                    // i0,i1,i2
+    this.e = [];                                    // 1 where the part makes its own light
     this.ca = 1; this.sa = 0;                       // rotation about x, positive tips the up axis forward
     this.cx = 0; this.cy = 0; this.cz = 0;
+    this.em = 0;                                    // set around an emit to mark the part emissive
   }
   const B = { cross: (ax, ay, az, bx, by, bz) => [ay * bz - az * by, az * bx - ax * bz, ax * by - ay * bx] };
+
+  /* which part was emitted last, per vertex: 0 = it reflects the room, 1 = it makes its own light.
+     The billboard marks an emissive TEXEL by writing alpha byte 253 (js/10_assets.js:81) and the
+     raster routes those pixels around the light term entirely (js/40_render.js:703). A mesh has no
+     texture and no alpha channel to hide a marker in, so the exemption is a vertex flag instead - and
+     it must be per PART, not per entry, because a lamp is a metal post with a bulb in it. */
+  Builder.prototype.em = 0;
 
   /* compose "rotate by ang about the pivot (py,pz)" into the current transform:
      R2(R1 p + c1) = R(a1+a2) p + (R2 c1 + c2), so one angle and one vector carry the whole chain */
@@ -115,11 +126,11 @@ const MESH = (function () {
     const base = this.p.length / 6;
     for (let i = 0; i < NS; i++) {
       const cx = u[0] * RC[i * 2] + v[0] * RC[i * 2 + 1], cy = u[1] * RC[i * 2] + v[1] * RC[i * 2 + 1], cz = u[2] * RC[i * 2] + v[2] * RC[i * 2 + 1];
-      this.p.push(ax + cx * ra, ay + cy * ra, az + cz * ra, c[0], c[1], c[2]);
+      this.p.push(ax + cx * ra, ay + cy * ra, az + cz * ra, c[0], c[1], c[2]); this.e.push(this.em);
     }
     for (let i = 0; i < NS; i++) {
       const cx = u[0] * RC[i * 2] + v[0] * RC[i * 2 + 1], cy = u[1] * RC[i * 2] + v[1] * RC[i * 2 + 1], cz = u[2] * RC[i * 2] + v[2] * RC[i * 2 + 1];
-      this.p.push(bx + cx * rb, by + cy * rb, bz + cz * rb, c[0], c[1], c[2]);
+      this.p.push(bx + cx * rb, by + cy * rb, bz + cz * rb, c[0], c[1], c[2]); this.e.push(this.em);
     }
     for (let i = 0; i < NS; i++) {
       const j = (i + 1) % NS;
@@ -140,10 +151,129 @@ const MESH = (function () {
     ];
     for (const q of faces) {
       const b0 = this.p.length / 6;
-      for (const qv of q) { const p = this.pt(qv[0], qv[1], qv[2]); this.p.push(p[0], p[1], p[2], c[0], c[1], c[2]); }
+      for (const qv of q) { const p = this.pt(qv[0], qv[1], qv[2]); this.p.push(p[0], p[1], p[2], c[0], c[1], c[2]); this.e.push(this.em); }
       this.t.push(b0, b0 + 1, b0 + 2, b0, b0 + 2, b0 + 3);
     }
     return this;
+  };
+
+  /* a bipyramid - an octahedron when the radii agree: 6 vertices and 8 triangles against a box's 24,
+     and the only primitive here that reads as a bulb or an energy cell rather than a crate. Props are
+     the reason it exists; no body uses it. */
+  Builder.prototype.bip = function (cx, cy, cz, rx, ry, rz, c) {
+    const eq = this.p.length / 6;
+    const put = (x, y, z) => { const p = this.pt(x, y, z); this.p.push(p[0], p[1], p[2], c[0], c[1], c[2]); this.e.push(this.em); };
+    put(cx + rx, cy, cz); put(cx, cy, cz + rz); put(cx - rx, cy, cz); put(cx, cy, cz - rz);
+    const top = this.p.length / 6; put(cx, cy + ry, cz);
+    const bot = this.p.length / 6; put(cx, cy - ry, cz);
+    for (let i = 0; i < 4; i++) {
+      const j = (i + 1) % 4;
+      this.t.push(eq + i, eq + j, top, eq + i, bot, eq + j);
+    }
+    return this;
+  };
+
+  /* ---- props: authored geometry, and static --------------------------------------
+     js/12_sprites.js:306-410 paints each prop as ONE flat Surf with rrect/ell/polygon and a closure
+     shade fn, so there is no part list to port - the parts below are new. Three rules they keep:
+     - the y range is the prop's TOTAL height, because draw() puts a vertex at o.z + by*sc exactly as
+       the quad centres at o.z + scale*0.5 (js/40_render.js:635), so `scale` ports 1:1;
+     - the colours are ALBEDO, not the pre-lit values the sprite closures returned. The barrel's cyl()
+       multiplied 142,54,36 by 0.30+0.8*dif; here 142,54,36 is the albedo and 0.30+0.85*d is the same
+       Lambert term the bodies already use, so a barrel in the same light reads the same;
+     - a part that makes its own light is wrapped in b.em = 1, the mesh's only equivalent of the
+       billboard's alpha-byte-253 branch. The orb and the portal are exempt end to end because the
+       billboard drew them self:true (js/40_render.js:119,:120); the lamp's bulb is exempt and its post
+       is not, which is what the sprite's rgrad-over-rrect split meant.
+     Proportions are measured off the sprites' own layouts (a 64x92 barrel quad puts its lid at 0.14 of
+     h from the top, so the lid ring is at y 0.93 here; the lamp's fixture sits at h*0.20 from the top,
+     so y 0.80) and each footprint is that quad's width, so nothing changes size by becoming a solid.
+     Static means cheap here: no phase buckets, so each of these is rasterized from ONE vertex table
+     that never rebuilds, which is the claim COST=1 in the props probe measures. */
+  /* the three pickups are one shape with three paints; see the rows below for why the type is not a
+     tint. Body fractions: the case fills 0.26..0.74 of its own height, because the DRAW ENTRY already
+     lifts z by the 0.16 bob the billboard used, so the sprite's visible centre lands where it was. */
+  function pickParts(shell, band, plate) {
+    return b => {
+      b.box(0, 0.50, 0, 0.30, 0.24, 0.30, shell);
+      b.box(0, 0.30, 0, 0.315, 0.05, 0.315, band);
+      b.box(0, 0.56, 0.285, 0.12, 0.12, 0.03, plate);
+      b.box(0, 0.56, -0.285, 0.12, 0.12, 0.03, plate);
+      return b;
+    };
+  }
+
+  const PROPGEO = {
+    barrel(b) {
+      const RED = [142, 54, 36], RIM = [74, 30, 22], YEL = [214, 172, 32], MET = [196, 204, 214];
+      b.tube(0, 0.03, 0, 0, 0.50, 0, 0.225, 0.245, RED);       // the staves, bulging at the bilge
+      b.tube(0, 0.50, 0, 0, 0.93, 0, 0.245, 0.215, RED);
+      b.tube(0, 0.27, 0, 0, 0.33, 0, 0.255, 0.255, RIM);       // the two hoops
+      b.tube(0, 0.66, 0, 0, 0.72, 0, 0.25, 0.25, RIM);
+      b.tube(0, 0.42, 0, 0, 0.55, 0, 0.25, 0.25, YEL);         // the hazard band
+      b.tube(0, 0.90, 0, 0, 0.97, 0, 0.225, 0.20, RIM);        // the lid
+      b.box(0, 0.95, 0.11, 0.045, 0.02, 0.045, MET);           // the bung on it
+      return b;
+    },
+    crate(b) {
+      const WOOD = [158, 112, 64], FRAME = [70, 48, 24];
+      b.box(0, 0.44, 0, 0.36, 0.40, 0.36, WOOD);               // the body, 0.04 to 0.84
+      b.box(0, 0.85, 0, 0.375, 0.025, 0.375, FRAME);           // lid
+      b.box(0, 0.05, 0, 0.375, 0.025, 0.375, FRAME);           // skid base
+      b.box(0, 0.44, 0, 0.375, 0.055, 0.375, FRAME);           // one band, all four faces at once
+      return b;
+    },
+    lamp(b) {
+      const POST = [44, 50, 60], BASE = [62, 70, 82], SHADE = [40, 46, 54];
+      b.box(0, 0.03, 0, 0.17, 0.03, 0.17, BASE);               // the foot
+      b.tube(0, 0.05, 0, 0, 0.66, 0, 0.05, 0.035, POST);       // the post
+      b.tube(0, 0.70, 0, 0, 0.84, 0, 0.17, 0.06, SHADE);       // the fixture, mouth down
+      b.em = 1;
+      // the aperture sits UNDER the cone's mouth and narrower than it. A puck of the same radius as the
+      // cone at that height pokes through it, and a hexagonal puck seen edge-on is a plank: the first two
+      // cuts of this looked like a yellow wing, then like a shelf, for exactly that reason.
+      b.tube(0, 0.68, 0, 0, 0.71, 0, 0.135, 0.135, [255, 176, 84]);
+      b.tube(0, 0.69, 0, 0, 0.705, 0, 0.08, 0.08, [255, 226, 166]);
+      b.em = 0;
+      return b;
+    },
+    /* Three rows, not one row plus a tint. The billboard had three painted sheets - white case with a
+       red cross, olive tin with brass rounds, blue plate - and a mesh has no picture to carry that, so
+       the identity moves into the albedo. TINT would not do it: it multiplies the LIGHT (it is an
+       enemy's individual jitter), so a red plate under an armor-blue tint goes dark instead of blue. */
+    pickupHealth: pickParts([228, 234, 242], [136, 148, 166], [214, 44, 36]),
+    pickupAmmo: pickParts([124, 138, 86], [64, 74, 44], [212, 168, 74]),
+    pickupArmor: pickParts([54, 124, 168], [180, 240, 255], [110, 220, 255]),
+    orb(b) {
+      b.em = 1;
+      b.bip(0, 0.50, 0, 0.42, 0.50, 0.42, [150, 255, 90]);    // the shell, filling the quad's height
+      b.bip(0, 0.50, 0, 0.20, 0.24, 0.20, [244, 255, 224]);   // the core the sprite circles
+      b.em = 0;
+      return b;
+    },
+    /* the billboard is a radial-gradient oval whose alpha fades to nothing, so it never hid the room
+       behind it. A flat-shaded mesh has no gradient, so the surround becomes a real frame and the glow
+       a thin membrane, alpha-blended: the room behind is already painted and this list is sorted far to
+       near, so writing depth costs nothing and buys the one thing a quad cannot do, the near jamb
+       hiding the far one. The gate is SQUARE in plan and the membrane a CROSS, because nothing in the
+       level data says which way a portal faces - the entry is exitX,exitY and nothing else - and a flat
+       panel lying along one world axis shrinks to a sliver when the corridor runs along the other. That
+       is what the first cut did: seen end-on it was 208 px of frame with almost no glow in it. */
+    portal(b) {
+      const MET = [56, 62, 76], GLOW = [150, 236, 255], CORE = [240, 255, 255];
+      for (const s of [1, -1]) {
+        b.tube(0.30 * s, 0.0, 0, 0.30 * s, 0.88, 0, 0.04, 0.032, MET);
+        b.tube(0.0, 0.0, 0.30 * s, 0.0, 0.88, 0.30 * s, 0.04, 0.032, MET);
+      }
+      b.box(0, 0.92, 0, 0.36, 0.05, 0.36, MET);
+      b.box(0, 0.04, 0, 0.36, 0.04, 0.36, MET);
+      b.em = 1;
+      b.box(0, 0.46, 0, 0.32, 0.42, 0.03, GLOW);
+      b.box(0, 0.46, 0, 0.03, 0.42, 0.32, GLOW);
+      b.bip(0, 0.52, 0, 0.15, 0.24, 0.15, CORE);
+      b.em = 0;
+      return b;
+    },
   };
 
   /* ---- one body from one pose -------------------------------------------------
@@ -152,7 +282,7 @@ const MESH = (function () {
      VERTEX ORDER this function produces is what lets a cached pose share the rest model's colour
      and index arrays: every call runs the same emits in the same order, only the numbers differ. */
   function emit(kind, q) {
-    const s = SPEC[kind] || SPEC.grunt, sk = SKIN[kind] || SKIN.grunt, dk = DARK[kind] || DARK.grunt, cl = CLOTH[kind] || CLOTH.grunt;
+    const s = SPEC[kind], sk = SKIN[kind], dk = DARK[kind], cl = CLOTH[kind];
     const b = new Builder(), hipY = s.hip + q.bob, shY = s.sh + q.bob;
     b.tip(q.topple, 0.02, 0);                        // a corpse turns about its CONTACT LINE, at the feet
     for (let i = 0; i < 2; i++) {
@@ -191,7 +321,7 @@ const MESH = (function () {
        (js/11_rig.js:213), so a cached pose answered with whichever lean it happened to be authored
        with. The mesh authors pitch from atk and die instead, where the bucket means what it says. */
   function joints(kind, p, mv, atk, die) {
-    const s = SPEC[kind] || SPEC.grunt, dying = die > 0.01;
+    const s = SPEC[kind], dying = die > 0.01;
     const q = { bob: 0, pitch: 0, topple: 0, leg: [], arm: [] };
     q.bob = dying ? -die * 0.02 : -mv * 0.016 * Math.abs(Math.sin(p * TAU));
     q.pitch = dying ? 0 : atk * 0.20;
@@ -215,10 +345,31 @@ const MESH = (function () {
 
   /* ---- per-kind rest model: topology, colours and the vertex count everything else keys on ---- */
   const MODELS = {};
+  /* a prop's static geometry, or a body from its pose. The pose is computed ONLY for a body: joints()
+     reads SPEC, and SPEC has no prop rows - a prop never has a phase bucket to begin with. */
+  function geoFor(kind, p, mv, atk, die) {
+    if (!PROPGEO[kind]) return emit(kind, joints(kind, p, mv, atk, die));
+    const b = PROPGEO[kind](new Builder());
+    /* propTex puts every prop sprite through Surf.lift(1.35, 6) - "sprites are albedo: they get lit
+       again in the scene" (js/05_paint.js:220) - so the numbers in PROPGEO are not yet the albedo the
+       billboard handed the raster. Applying the same transform is what makes a mesh prop the same COLOUR
+       as the sheet it replaced: without it a crate's brightest pixels measured 62 against the sprite's
+       101 at the same camera. Bodies never went through a lift, so they are untouched. */
+    for (let i = 3; i < b.p.length; i += 6) {
+      b.p[i] = Math.min(255, b.p[i] * 1.35 + 6);
+      b.p[i + 1] = Math.min(255, b.p[i + 1] * 1.35 + 6);
+      b.p[i + 2] = Math.min(255, b.p[i + 2] * 1.35 + 6);
+    }
+    return b;
+  }
   function model(kind) {
     if (MODELS[kind]) return MODELS[kind];
-    const b = emit(kind, joints(kind, 0, 0, 0, 0));
-    const mdl = { kind, p: new Float32Array(b.p), t: new Uint16Array(b.t), nV: b.p.length / 6, tris: b.t.length / 3 };
+    /* NO fallback. This used to read SPEC[kind] || SPEC.grunt, so a kind nobody authored answered with
+       a grunt - a prop converted by mistake would have shipped as a small grey soldier, which is the
+       failure #76 asks to make loud. A missing row is a bug in the caller, so it throws. */
+    if (!SPEC[kind] && !PROPGEO[kind]) throw new Error('MESH: no geometry authored for kind "' + kind + '"');
+    const b = geoFor(kind, 0, 0, 0, 0);
+    const mdl = { kind, p: new Float32Array(b.p), t: new Uint16Array(b.t), em: Uint8Array.from(b.e), nV: b.p.length / 6, tris: b.t.length / 3 };
     MODELS[kind] = mdl;
     return mdl;
   }
@@ -237,7 +388,7 @@ const MESH = (function () {
   let poseBytes = 0, poseMade = 0, CACHE = true;
 
   function buildPose(m, p, mv, atk, die) {
-    const b = emit(m.kind, joints(m.kind, p, mv, atk, die));
+    const b = geoFor(m.kind, p, mv, atk, die);
     const n = m.nV, v = new Float32Array(n * 3);
     if (b.p.length !== m.p.length) console.warn('MESH pose vertex count drifted from the rest model: ' + m.kind);
     for (let i = 0; i < n; i++) {
@@ -346,11 +497,26 @@ const MESH = (function () {
   function draw(o) {
     const m = model(o.kind || 'grunt'), sc = o.scale || 1, cyw = Math.cos(o.yaw || 0), syw = Math.sin(o.yaw || 0);
     SELF = o.self === undefined ? true : !!o.self;
+    /* EMIS is the entry-wide form of the exemption and EM the per-part one; either is enough to put a
+       triangle's pixels on the billboard's light-free path. The billboard reaches it through a texel
+       whose alpha byte is 253 or through o.self (js/40_render.js:703), and a mesh has neither, so
+       without these the orb, the portal and a lamp's bulb would be multiplied by scene light - which
+       is darkest in exactly the rooms where they are the only light source (js/40_render.js:703, and
+       #33 for the same floor under AMB). */
+    EMIS = !!o.emis; DIM = o.dim || 0; EM = m.em;
+    /* The ramp a face's light rides. A body's sprites carried a curvature term, so 0.30+0.85*d is that
+       path's own history and stays; a PROP's sprite had NO normal at all - drawBillboard's lr is
+       AMB + 1.1*li*lt, flat - so borrowing the body's ramp darkened every prop face turned away from KEY
+       by up to 3.7x, which is how a hazard-red drum came out the colour of dried mud. Measured at one
+       camera, brightest tenth of the silhouette: barrel 99 -> 79, crate 101 -> 51. 0.75+0.42*d keeps the
+       directionality a solid needs (a face along the key is still 1.5x one facing off it) and lands the
+       average where the painted sheet was. */
+    const pg = PROPGEO[o.kind] !== undefined;
+    R0 = pg ? 0.75 : 0.30; R1 = pg ? 0.42 : 0.85;
     ALPHA = o.alpha === undefined ? 1 : o.alpha;
     FLASH = o.flash ? 1 : 0;
     TINT = o.tint || null;
-    const PD = m.p, T = m.t, nV = Math.min(m.nV, MAXV);
-    cam.x = camX; cam.y = camY; cam.dirX = dirX; cam.dirY = dirY; cam.planeX = planeX; cam.planeY = planeY;
+    const PD = m.p, T = m.t, nV = Math.min(m.nV, MAXV);    cam.x = camX; cam.y = camY; cam.dirX = dirX; cam.dirY = dirY; cam.planeX = planeX; cam.planeY = planeY;
     cam.invDet = 1 / (planeX * dirY - dirX * planeY);
     /* Cull before rasterizing. A body costs its whole triangle list whether or not it can be
        seen, and the two tests the billboard path already runs - behind the camera, off the
@@ -397,14 +563,23 @@ const MESH = (function () {
       toCam(VX[i2], VY[i2], VZ[i2], cam); CX[2] = cam.tx; CY[2] = cam.ty; CZ[2] = cam.tz;
       if (CY[0] < NEAR && CY[1] < NEAR && CY[2] < NEAR) { trisCulled++; continue; }
       const dc = (CY[0] + CY[1] + CY[2]) / 3;
-      const li = Math.min(1, (lm ? lm[cellIdx(o.x, o.y)] : 0.5) * Math.exp(-dc * 0.14) + 0.30 * visAt(dc));
       const fog = fogAt(dc), inv = 1 - fog;
-      const sh = 0.30 + 0.85 * d;
-      const fk = FL ? FL * 1.1 * Math.exp(-dc * 0.30) : 0;
-      let lr = (AMB + li * lt[0] * sh + fk * (FC[0] / 255)) * inv;
-      let lg = (AMB + li * lt[1] * sh + fk * (FC[1] / 255)) * inv;
-      let lb = (AMB + li * lt[2] * sh + fk * (FC[2] / 255)) * inv;
-      if (TINT) { lr *= TINT[0]; lg *= TINT[1]; lb *= TINT[2]; }
+      let lr, lg, lb;
+      if (EMIS || EM[i0]) {
+        // light-exempt: albedo and fog and nothing else, which is what js/40_render.js:703 does for a
+        // texel whose alpha byte is 253 or a sprite drawn self:true - no AMB, no scene light, no ramp,
+        // no tint and no dim, because all of those are terms of the light the pixel is exempt from
+        lr = inv; lg = inv; lb = inv;
+      } else {
+        const li = Math.min(1, (lm ? lm[cellIdx(o.x, o.y)] : 0.5) * Math.exp(-dc * 0.14) + 0.30 * visAt(dc));
+        const sh = R0 + R1 * d;
+        const fk = FL ? FL * 1.1 * Math.exp(-dc * 0.30) : 0;
+        lr = (AMB + li * lt[0] * sh + fk * (FC[0] / 255)) * inv;
+        lg = (AMB + li * lt[1] * sh + fk * (FC[1] / 255)) * inv;
+        lb = (AMB + li * lt[2] * sh + fk * (FC[2] / 255)) * inv;
+        if (DIM) { lr *= 1 - DIM; lg *= 1 - DIM; lb *= 1 - DIM; }   // the portal's shut-and-dimmed term
+        if (TINT) { lr *= TINT[0]; lg *= TINT[1]; lb *= TINT[2]; }
+      }
       const packed = PD[i0 * 6 + 3] << 16 | PD[i0 * 6 + 4] << 8 | PD[i0 * 6 + 5];
       let r = (packed >> 16 & 255) * lr + FOGC[0] * fog; CR = r > 255 ? 255 : r | 0;
       let g = (packed >> 8 & 255) * lg + FOGC[1] * fog; CG = g > 255 ? 255 : g | 0;
@@ -423,6 +598,23 @@ const MESH = (function () {
     setCache: v => { CACHE = !!v; POSE.clear(); poseBytes = 0; poseMade = 0; return CACHE; },
     trisFor: k => model(k || 'grunt').tris,
     vertsFor: k => model(k || 'grunt').nV,
+    /* the rest model's own extent in body space: its height span and its radius in plan. This is what
+       lets a height claim about `scale` test the CONVENTION instead of the art, because a solid does not
+       project to BH*span/t at its centre - its near edge is nearer than its centre, which is a thing a
+       flat quad never had to say. Throws on an unauthored kind, like everything else here. */
+    spanFor: k => {
+      const m = model(k);
+      if (!m.span) {
+        let y0 = 1e9, y1 = -1e9, r = 0;
+        for (let i = 0; i < m.nV; i++) {
+          const x = m.p[i * 6], y = m.p[i * 6 + 1], z = m.p[i * 6 + 2];
+          if (y < y0) y0 = y; if (y > y1) y1 = y;
+          const d = Math.hypot(x, z); if (d > r) r = d;
+        }
+        m.span = { y0: y0, y1: y1, r: r };
+      }
+      return m.span;
+    },
     PB,
     SPEC,
   };
