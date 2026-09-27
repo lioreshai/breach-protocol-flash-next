@@ -1154,12 +1154,22 @@ if (MODE === 'anim') {
     for (let r = 0; r < rounds; r++) for (const [name, toggle] of variants) {
       run(toggle);
       step(24);                                        // warm: each side pays its own first builds
-      const t0 = Date.now();
+      run('MESH.reset()');                             // so the px/tri counters below are this batch
+      /* Timed node-side with hrtime, NOT inside the vm: the harness stubs performance.now() as
+         Date.now() (tools/view.js:113), so a per-frame delta inside the sandbox is a whole number of
+         milliseconds and a 25 ms frame quantizes to 25 or 26 - which reads as a bimodal benchmark
+         when the code under test is uniform. One hrtime pair per batch puts the clock's resolution
+         at 0.02 ms per frame, and the batches are interleaved across rounds for the reason #53 gave. */
+      const t0 = process.hrtime.bigint();
       for (let i = 0; i < frames; i++) { run(TREAD); run('renderWorld()'); }
-      const s = run('MESH.stats()');
-      console.log('  round ' + r + '  ' + name.padEnd(30) + ((Date.now() - t0) / frames).toFixed(2) +
-        ' ms/frame   load ' + os.loadavg()[0].toFixed(2) + '   pose table ' + s.poseEntries +
-        ' entries / ' + s.poseMB + ' MB, ' + s.poseMade + ' built');
+      const ms = Number(process.hrtime.bigint() - t0) / 1e6 / frames;
+      const s = run('(()=>({px:MESH.stats().pxFilled, tris:MESH.stats().tris, parts:PARTS.length,' +
+        'decals:(()=>{let m=0;for(let i=0;i<DECAL_MASK.length;i++)if(DECAL_MASK[i])m++;return m})(),' +
+        'pose:MESH.stats()}))()');
+      console.log('  round ' + r + '  ' + name.padEnd(30) + ms.toFixed(2) + ' ms/frame   load ' +
+        os.loadavg()[0].toFixed(2) + '   ' + s.px + ' px by bodies / ' + s.tris + ' tris   pose ' +
+        s.pose.poseEntries + '/' + s.pose.poseMB + ' MB, ' + s.pose.poseMade + ' built   scene ' +
+        s.parts + ' parts, ' + s.decals + ' decal cells');
     }
     process.exit(0);
   }
