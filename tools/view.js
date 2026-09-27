@@ -689,16 +689,29 @@ if (MODE === 'mip') {
 }
 
 if (MODE === 'exposure') {
-  // average over levels x seeds: single runs swing +-20 just from lamp placement
-  const N = run('LEVELS.length'), reps = +(process.env.REPS || 3);
+  /* Average over levels x rolls x yaws. Two things this prints and used to hide:
+     - the ROLLS separately, because the generator's roll moves a frame by more than the 60-100 band
+       is wide. Measured on the deployed page through DEV (which never seeds), four startLevel rolls
+       of level 0 at one yaw read 90.6 / 62.7 / 50.7 / 63.8 - a 40-point spread, the whole width of
+       the band - so a single mean per level is a dice roll dressed as a property of the level (#87).
+       The probe seeds, so its own spread is smaller than that; the point of printing it is that
+       nobody has to take that on faith any more.
+     - WHICH LAYER the numbers are in. Everything here is the raster BEFORE bloom, grade and grain,
+       which together move the mean by about +20 and -21 and cancel unevenly per room (#85). A
+       screenshot is not comparable to a number below, and saying so is half of why this exists. */
+  const N = run('LEVELS.length'), reps = +(process.env.REPS || 4);
   const buckets = new Array(8).fill(0);
   let grand = 0, gpix = 0, gclip = 0, gdark = 0;
+  console.log('exposure: raster BEFORE bloom/grade/grain (the composited frame is not this number), '
+    + reps + ' seeded rolls x 6 yaws per level, band 60-100 quoted against the MEDIAN not a mean');
   for (let lv = 0; lv < N; lv++) {
     let sum = 0, n = 0;
     const hist = new Array(8).fill(0);
+    const rolls = [];
     for (let r = 0; r < reps; r++) {
       seedRng(1000 + lv * 97 + r * 13);
       run(`S.mode='play'; S.locked=false; startLevel(${lv}, true);`);
+      let rs = 0, rn = 0;
       // average over yaws: looking down the longest corridor over-weights fog
       for (let w = 0; w < 6; w++) {
         run(`(()=>{const cs=[];for(let y=1;y<MH-1;y++)for(let x=1;x<MW-1;x++)if(!isSolid(x+.5,y+.5))cs.push([x,y]);
@@ -709,15 +722,22 @@ if (MODE === 'exposure') {
         const BW = run('BW'), BH = run('BH'), d = new Uint32Array(run('px')), m = d.length;
         for (let i = 0; i < m; i++) {
           const c = d[i], L = 0.2126 * (c & 255) + 0.7152 * (c >> 8 & 255) + 0.0722 * (c >> 16 & 255);
-          sum += L; hist[Math.min(7, (L / 32) | 0)]++; if (L > 250) gclip++; if (L < 24) gdark++;
+          sum += L; rs += L; hist[Math.min(7, (L / 32) | 0)]++; if (L > 250) gclip++; if (L < 24) gdark++;
         }
-        n += m; gpix += m;
+        n += m; rn += m; gpix += m;
       }
+      rolls.push(rs / rn);
     }
+    const sorted = rolls.slice().sort((a, b) => a - b);
+    const med = sorted.length % 2 ? sorted[(sorted.length / 2) | 0]
+      : (sorted[sorted.length / 2 - 1] + sorted[sorted.length / 2]) / 2;
     for (let b = 0; b < 8; b++) buckets[b] += hist[b];
     grand += sum;
-    console.log('  level ' + lv + '  mean ' + pad((sum / n).toFixed(0), 3) + '  buckets ' +
-      hist.map(v => (100 * v / n).toFixed(0)).join(','));
+    console.log('  level ' + lv + '  mean ' + pad((sum / n).toFixed(0), 3) +
+      '  median ' + pad(med.toFixed(0), 3) +
+      '  rolls ' + rolls.map(v => pad(v.toFixed(0), 3)).join(' ') +
+      '  spread ' + pad((sorted[sorted.length - 1] - sorted[0]).toFixed(0), 3) +
+      '  buckets ' + hist.map(v => (100 * v / n).toFixed(0)).join(','));
   }
   console.log('  ALL       mean ' + pad((grand / gpix).toFixed(0), 3) + '  buckets ' +
     buckets.map(v => (100 * v / gpix).toFixed(0)).join(',') +
