@@ -1,7 +1,8 @@
 name: CI
 
 # Three jobs, deliberately unequal. `test` is the only required status check, so a merge waits on
-# it alone: guards, syntax, and the full smoke run. The probes and the extra seeds run beside it in
+# it alone: guards, syntax, the full smoke run, and the six probes whose verdict is an exit code the
+# probe itself computes (#89). The rest of the probes and the extra seeds run beside it in
 # their own jobs and report what they find without holding anyone up - the difference between a
 # check that is informative and a check that is a toll booth is whether it shares a job with the
 # gate. Previously all of it lived in one job, so a merge paid 6 minutes for numbers nobody acts
@@ -59,6 +60,27 @@ jobs:
             *) echo "smoke gate: FAIL"; exit 1 ;;
           esac
 
+      - name: Probe gates (deterministic verdicts, must stay green)
+        run: |
+          set -euo pipefail
+          # Six probes whose verdict the code itself turns into an exit code, that seed their own RNG
+          # or run under CI's fixed SEED, and that write no artifact. Measured here at 1.6-5.0 s each,
+          # ~17 s total, which is why they can live in the required job instead of beside it (#89).
+          # heights and mip contain art-tuned thresholds: if one trips on a shading change it tripped
+          # reproducibly, and that is a verdict about the change, not a flake.
+          #   heights  ground solved per cell, which half of the frame moved, decal + deferred coverage
+          #   mip      grazing-angle streak against the 1-D and mush controls
+          #   anim     a body changes SHAPE while it walks, per kind, and dies 3 distinct ways per kind
+          #   props    quad-vs-mesh, scale window, emissive exemption, feet on the floor
+          #   vert     walk / step / fall / damage / ladder / spawn-altitude rows
+          #   planes   derived ceiling array vs its formula, and the #55 raise-restore stale-blocker run
+          node tools/view.js heights
+          node tools/view.js mip
+          node tools/view.js anim
+          node tools/view.js props
+          node tools/view.js vert
+          node tools/view.js planes
+
   probes:
     continue-on-error: true
     runs-on: ubuntu-latest
@@ -72,15 +94,22 @@ jobs:
       - name: Probes (they report, they do not gate)
         run: |
           set -uo pipefail
-          # Deliberately not part of the required job. Several of these describe known debt, and a
-          # red X that means "the ceiling still has no anisotropic filtering" teaches everyone to
-          # ignore the checks that mean something else.
-          node tools/view.js alt
-          node tools/view.js planes
-          node tools/view.js heights
-          node tools/view.js exposure
-          node tools/view.js contrast
-          node tools/view.js viewmodel
+          # Reporting only: several of these describe known debt, and a red X that means "the ceiling
+          # still has no anisotropic filtering" teaches everyone to ignore the checks that mean
+          # something else. What changed is that each probe's own exit code is now captured and
+          # printed. Before, this step ran `set -uo pipefail` with no -e and six bare commands, so its
+          # status was the LAST probe's and a failure in the first five was thrown away (#89).
+          # Read the list below as measurements, not as coverage: alt, exposure, contrast, decal,
+          # diag, stats and sheets compute no exit code at all, and rig has a problem counter that is
+          # printed but not wired to one. A "pass" line here does not mean checked.
+          status=0
+          for p in alt exposure contrast rig stats sheets decal diag; do
+            if node tools/view.js "$p" >/tmp/probe_$p.log 2>&1; then r=pass; else r=FAIL; status=1; fi
+            echo "== $p: $r"
+            tail -6 /tmp/probe_$p.log
+          done
+          # play (51 s) and scene (an artifact dump) stay out of CI entirely; run them by hand.
+          exit $status
 
   seeds:
     name: seeds (informational)
