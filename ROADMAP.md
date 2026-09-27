@@ -89,7 +89,9 @@ z, so shots pass through catwalks and the exit triggers from the floor below.
   recognisable". Needs: forearms that reach off-screen, a larger, silhouette-legible weapon
   per family, and muzzle flash that reads as coming from the barrel. Verify by rendering the
   viewmodel probe and **looking at the PNG**.
-- **Ceiling streaking** at grazing angles: mip selection has no anisotropy.
+- **Ceiling streaking** near the horizon at grazing angles: the mip footprint's anisotropy ratio is
+  clamped at 4:1 (#57) because 8:1 erased the floor's grout lines - a deliberate residual now, not an
+  absent feature.
 - **Rigs**: legs read as sticks at mid distance; coarse pose buckets pop during turns.
 
 ## Code health — standing standards
@@ -112,8 +114,6 @@ z, so shots pass through catwalks and the exit triggers from the floor below.
 - [ ] Dedup level generation: one `makeMap`/spec path instead of duplicated field lists;
       per-species numbers into `ETYPE`; entity defaults in one table.
 - [ ] Delete verified-dead: `LVL`, `total`, `nz`, `e.stuck` (grep `tools/` first).
-- [ ] Inline the bilinear fetch instead of the module-global `TB` out-param (measured 21 →
-      12 ms near a wall — a *correctness* fact about V8, so it belongs in `AGENTS.md` too).
 - [ ] Rig rasterizer's rotated-box bbox over-scans 3–4× (use exact OBB extents).
 - [ ] `tools/` needs the same dedup love: probes repeat boot, seed and scene-setup boilerplate.
 
