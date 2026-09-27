@@ -113,9 +113,10 @@ function hitscan(ang, tanP, range) {
     if (perp > e.r) continue;
     const th = proj - Math.sqrt(Math.max(0, e.r * e.r - perp * perp));
     if (th < 0.25) continue;
+    const ez = floorAt(e.x, e.y);            // the body stands on its own band, not on absolute zero (#98)
     const hz = oz + tanP * th;
-    if (hz < 0.02 || hz > e.scale) continue;
-    if (th < bestT) { bestT = th; best = e; hitObj = { head: hz > e.scale * 0.78, z: hz }; }
+    if (hz < ez + 0.02 || hz > ez + e.scale) continue;
+    if (th < bestT) { bestT = th; best = e; hitObj = { head: hz > ez + e.scale * 0.78, z: hz }; }
   }
   if (!best) {
     for (const p of PROPS) {
@@ -124,7 +125,10 @@ function hitscan(ang, tanP, range) {
       if (proj < 0.2 || proj - 0.4 > bestT) continue;
       const perp = Math.abs(dx * ey - dy * ex); if (perp > 0.4) continue;
       const th = proj - Math.sqrt(Math.max(0, 0.16 - perp * perp));
-      if (th > 0.2 && th < bestT) { bestT = th; best = null; hitObj = { barrel: p, z: oz + tanP * th }; }
+      if (th <= 0.2 || th >= bestT) continue;
+      const hzb = oz + tanP * th;                       // this branch had no z test at all (#98)
+      if (hzb < p.z || hzb > p.z + p.scale) continue;
+      bestT = th; best = null; hitObj = { barrel: p, z: hzb };
     }
   }
   const hx = ox + dx * bestT, hy = oy + dy * bestT, hz = oz + tanP * bestT;
