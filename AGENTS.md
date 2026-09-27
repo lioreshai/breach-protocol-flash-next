@@ -194,6 +194,49 @@ case "$out" in *"SMOKE PASSED"*) git add -A && git commit ;; *) echo NOT COMMITT
   residual delta lives in shading, not geometry — so a future attempt must diff *shading* per row,
   not chase segment counts. Flat parity is the gate; it failed, so it was reverted rather than
   shipped with a look regression.
+- **A probe's determinism assertion must run where the code under test runs.** `view.js heights`
+  re-rendered identical state to prove frame-stability *under `if (!poke)`* — i.e. only on `flat`,
+  the one config where the deferred-pixel queue is provably empty, so the RX/RP path had no
+  determinism coverage at all while the probe printed "all configs determinism ok". Same family as
+  `CAMSET` choosing the **longest-ray** yaw, which points the solver away from the map border and
+  makes every out-of-map branch structurally unreachable for every gate (that is why `stripes`
+  exists). When you add a mechanism, name the config that exercises it and confirm the assertion
+  runs *there*.
+- **The index-only bounds test is not a bounds check, twice over.** `cIdx >= 0 && cIdx < NN` with
+  `sy === -1, sx === 4` is a valid index into the *last row of the level*, so an off-map pixel takes
+  light, tint, mirror and decal mask from a cell on the far side. M2 carried two of these
+  (`js/40_render.js:258`, `:376`) because the correct two-axis form ten lines away at `:297` got
+  copied as a formula rather than as a guard.
+- **A fixed-point walk that runs out of iterations still paints.** M2's re-solve tried 3 times and
+  left `dS` computed from the *previous* plane when it exhausted: measured non-convergence on
+  586,506 of 1,791,686 re-solves (33%) on poked configs, with `pl = plN` dead on the last pass.
+  Iteration counts are the wrong convergence test on a **quantized** domain — compare against the
+  quantum (`ZQ`) and count non-convergence in a probe, or a step lip's appearance is defined by how
+  the loop gives up.
+- **Never report a context percentage you did not read from the `<strategy>` block.** This session
+  said "~2% of context left" with no such measurement behind it — it was extrapolated down from a
+  24% read an hour earlier, and the footer said 79.4% remaining. It was not decoration either: it
+  was the stated reason to skip a 195-line fix pass and a tuning cycle. Same rule as any figure —
+  read it or say you don't know.
+- **A derived flag that is OR-ed in can never be removed.** `linkBoundaries` ended with
+  `MAP.vb[i] |= bits` so that authored `VB_RAMP|VB_LADDER` would survive a relink, and as a side
+  effect nothing cleared the derived `VB_BLOCK`: raising a boundary and flattening it left a phantom
+  wall that `canEnter` treats as authoritative (measured: **7 stale blockers** after a 7-cell
+  raise-and-restore, #55). Probes never saw it because every config calls `startLevel(li, true)`
+  first and probes only ever poke *upward* from flat. Any "preserve the authored bits" fix must
+  mask them (`VB_KEEP = 0x6666`), not stop writing.
+- **Before believing a live behaviour probe, read the source the page is actually running.** A Pages
+  deploy leaves the previous build's subresources in the browser cache for its `max-age` (~10 min),
+  and `fetch(url,{cache:'reload'})` inside an `async` eval is useless because the tool serializes the
+  Promise as `{}`. The first "it works" eval after #55 was therefore a **false positive waiting to
+  happen**; `linkBoundaries.toString().includes('VB_KEEP')` is the check that makes a behaviour probe
+  mean what it says. `curl` with `?cb=` proves the CDN's bytes, not the page's code.
+- **A negative control that self-cancels inside one frame proves nothing.** Sabotaging a support test
+  and observing the *post-update* state showed the player standing on air for zero frames, because
+  gravity corrected it before the sample — sampling the **landing impulse** (`S.shake`) turned it into
+  a loud failure. Same reason an assertion's allowed conclusions must include the repo's legitimate
+  `SKIPPED` (the seeds job is push-on-main only), and why `gh pr view -q .field` needs `--json`:
+  both made a guard report "all clear" or "refused" for a reason that had nothing to do with the code.
 - **A watch command must not contain `case` or multiline shell.** The harness wraps the condition in
   `{ ... ; } 2>&1` on one line, so `;;` becomes a syntax error and bash exits 2 in ~50 ms —
   `bg_19` and `bg_20` both died that way having polled **nothing**, which is indistinguishable from a
