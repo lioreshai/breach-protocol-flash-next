@@ -576,7 +576,9 @@ if (MODE === 'planes') {
     `grid restored ${yn(idem.restored)}  stale blockers ${idem.stale}` +
     `${idem.first >= 0 ? ' (first at cell ' + idem.first + ')' : ''}  authored ladder kept ${yn(idem.ladKept)}` +
     `  ${idem.skip ? idem.skip : idemOk ? 'RELINK-VB ok' : 'RELINK-VB FAIL'}`);
-  process.exit(staleAll || !stOk ? 1 : 0);  // a derived array that disagrees with its formula is a verdict, not a footnote
+  // A config that could not run is a skip, not a pass (#89); one that ran and failed is a verdict.
+  // RELINK-VB is the #55 stale-blocker guard, and it used to print into a step that exited 0.
+  process.exit(staleAll || !stOk || (!idem.skip && !idemOk) ? 1 : 0);
 }
 
 if (MODE === 'mip') {
@@ -1523,6 +1525,10 @@ if (MODE === 'viewmodel') {
   }
   function WEAPONSNAME(i) { return run('WEAPONS.map(w=>w.kind)')[i]; }
   console.log(bad ? bad + ' viewmodel states with problems' : 'viewmodel: all states draw on screen, balanced, no NaN');
+  /* The counter was already here, it just never reached an exit code, so four weapons problems and
+     zero were the same green. Without this exit the block also fell through to the scene dump,
+     painting a PNG whose mean depends on where this probe left the RNG stream (#89). */
+  process.exit(bad ? 1 : 0);
 }
 if (MODE === 'play') {
   // Exercises the loop the browser actually runs: update() -> renderWorld -> renderOverlay.
