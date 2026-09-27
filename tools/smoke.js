@@ -146,7 +146,7 @@ const release = () => fire('mouseup', { button: 0 });
   frames(20);
   step('walk+look', "keys['KeyW']=true; mouse.dx=6; mouse.dy=-3");
   vm.runInContext('const fogCol=(255<<24|(FOGC[2]<<16)|(FOGC[1]<<8)|FOGC[0])>>>0', ctxVm);
-  console.log('play buffer colors:', bufCheck(), 'billboards:', vm.runInContext('drawCalls', ctxVm), 'center row:', JSON.stringify(wallCoverage()));
+  console.log('play buffer colors:', bufCheck(), 'sprites:', vm.runInContext('drawCalls', ctxVm), 'center row:', JSON.stringify(wallCoverage()));
   {
     // One 120-frame sample was the whole verdict, and on this machine that sample
     // swings 5-18 ms for identical code, so the budget tripped on noise. Five batches,

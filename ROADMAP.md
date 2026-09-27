@@ -92,7 +92,9 @@ z, so shots pass through catwalks and the exit triggers from the floor below.
 - **Ceiling streaking** near the horizon at grazing angles: the mip footprint's anisotropy ratio is
   clamped at 4:1 (#57) because 8:1 erased the floor's grout lines - a deliberate residual now, not an
   absent feature.
-- **Rigs**: legs read as sticks at mid distance; coarse pose buckets pop during turns.
+- **Mesh characters**: bodies are geometry now (#69 B2) but they are not *animated* geometry — legs
+  are straight, so a walking enemy keeps a static stance and a dying one fades in place. The billboard
+  path's gait and death poses are drawn by nothing, and #41's edge still stair-steps at 6 tube sides.
 
 ## Code health — standing standards
 

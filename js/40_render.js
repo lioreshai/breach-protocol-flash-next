@@ -11,9 +11,7 @@ let planeLen = cfg.plane, dirX = 1, dirY = 0, planeX = 0, planeY = cfg.plane;
 let camX = 0, camY = 0, eyeZ = 0.5, horizon = 0, shakeX = 0, shakeY = 0;
 let drawCalls = 0, pixFilled = 0, reSolveBad = 0, gndOffMap = 0;   // last two: ground re-solve counters, read by tools/view.js heights
 let bloomCv = null, bloomCtx = null, canFilter = false, grainCv = null, grainPat = null, grainSeed = 0;
-let FARB = 22, AMB = 0.13, GQ = null, rigTexH = 200;
-let pxUsed = 0;                                          // rig texels authored this frame
-const PXBUD = 0.55e6, POSE_AR = 2.2;                      // frame budget, and a pose's w/h area ratio
+let FARB = 22, AMB = 0.13, GQ = null;
 let G_TRI = false, G_GRIT = 0;                                  // derived from QUAL.rast
 /* The wall bilinear fetch is inlined at its one call site below rather than factored into a
    function that writes its result into a scratch array: a module-global typed-array out-param
@@ -103,14 +101,8 @@ function renderWorld() {
 
   castGround(flash, fcR, fcG, fcB);
   castWalls(flash, fcR, fcG, fcB);
-  const qv = GQ || QUAL[1];
-  // One texture per pose, authored at a fixed density and filtered at draw time.
-  // Authoring to the buffer height would cost 20 ms per pose for detail nothing sees:
-  // an enemy at 6 m is 60 px tall, so the preset size plus bilinear magnify is the trade.
-  rigTexH = qv.rigH;
-  RIG.beginFrame(qv.vec ? qv.rast : 0);
 
-  /* ---- billboards ---- */
+  /* ---- sprites: props, pickups, projectiles, the portal ---- */
   const list = [];
   for (const p of PROPS) {
     if (p.dead && p.kind === 'barrel') continue;
@@ -129,36 +121,26 @@ function renderWorld() {
     tex: PROP.portal[(S.t * 12 | 0) % 8], x: exitX, y: exitY, z: 0.02, scale: 1.5,
     alpha: S.exitOpen ? 1 : 0.42, self: S.exitOpen, dim: S.exitOpen ? 0 : 0.55
   });
-  pxUsed = 0;                                              // one authoring budget per frame
+  /* Bodies are geometry now (js/13_mesh.js, #39): the mesh carries the enemy's real position,
+     heading and world height instead of a billboard's distance, an 8-way yaw bucket and the
+     flat-world z: 0. enemyFrame still owns what the mesh cannot express - the corpse fade and
+     the hit flash - and both reach MESH.draw as {alpha,flash}. What the mesh does NOT have yet
+     is animation: its legs are straight, so a walking enemy no longer cycles a gait and a dying
+     one fades in place instead of toppling (B3+). */
   for (const e of ENEMIES) {
     const fr = enemyFrame(e);
     if (fr.alpha <= 0.02) continue;
-    let rig = null;
-    if (qv.vec) {
-      let yaw = (e.state === 'dead' && e.dieAng !== undefined ? e.dieAng : e.ang) - P.ang - Math.PI;
-      while (yaw > Math.PI) yaw -= TAU; while (yaw < -Math.PI) yaw += TAU;
-      const want = Math.min(rigTexH, Math.max(56, (BH / (Math.hypot(e.x - P.x, e.y - P.y) || 0.6)) * e.scale));
-      // Authoring is cached, but its COST lands on whichever frame first sees the pose, and it
-      // grows with the SQUARE of the height. Measured on the same machine in the same minute
-      // (idle-machine A/B in a worktree, WARM stress 180 frames x2): HEAD avg 11.41/11.59 ms,
-      // worst 26/30; with rigH 300 avg 11.38/11.89, worst 29/43. Steady state is unchanged and
-      // the cost moved into individual authoring frames. Tightening PXBUD from 1.2e6 to 0.55e6
-      // changed nothing (made: 74 poses either way, cache 2.99 MB) - which is the finding: the
-      // tail is ONE close pose costing ~5x what it did, not many poses piling up, and a per-frame
-      // budget cannot fix a single expensive authoring event. The fix for that hitch is progressive
-      // refinement (author small now, upgrade the entry next frame), tracked separately. The
-      // budget stays because it does bound a multi-pose pileup for free.
-      const fit = Math.sqrt(Math.max(0, PXBUD - pxUsed) / POSE_AR);
-      const hpx = Math.min(want, Math.max(56, fit));
-      pxUsed += hpx * hpx * POSE_AR;
-      rig = { hpx, kind: e.kind, p: e.anim, mv: e.movingAmt || 0, atk: e.atkT > 0 ? 1 - clamp(e.atkT / e.type.wind, 0, 1) : 0, die: e.state === 'dead' ? clamp(e.dieT / 0.55, 0, 1) : 0, yaw, lean: e.lean || 0, pulse: e.ph };
-    }
-    list.push({ tex: fr.tex, rig, x: e.x, y: e.y, z: 0, scale: e.scale, alpha: fr.alpha, flash: fr.flash, tint: e.tint });
+    const heading = e.state === 'dead' && e.dieAng !== undefined ? e.dieAng : e.ang;
+    list.push({
+      mesh: true, kind: e.kind, x: e.x, y: e.y, z: floorAt(e.x, e.y),
+      yaw: TAU * 0.25 - heading,                      // body +z is its front: see js/13_mesh.js draw
+      scale: e.scale, alpha: fr.alpha, flash: fr.flash ? 1 : 0, tint: e.tint,
+    });
   }
   /* ground decals first: they lie on the floor and must not paint over feet */
   for (const b of list) { const dx = b.x - camX, dy = b.y - camY; b.d2 = dx * dx + dy * dy; }
   list.sort((a, b) => b.d2 - a.d2);
-  for (const b of list) drawBillboard(b);
+  for (const b of list) { if (b.mesh) MESH.draw(b); else drawBillboard(b); }
 
   bufCtx.putImageData(imgBuf, 0, 0);
 }
@@ -635,15 +617,12 @@ function drawBillboard(o) {
   let hPx = (BH / tY) * o.scale;
   if (hPx < 0.6) return;
   const screenX = (BW * 0.5) * (1 + tX / tY);
-  // Cull before rasterizing, not after. A pose costs 1-8 ms and the per-frame budget is
-  // 2-4 poses, and this used to fetch the pose first: 56 poses were measured rasterizing
-  // while every enemy sat behind the camera, starving the visible ones into coarse
-  // bucket pops. Bodies are never wider than ~1.2x their height, so the box is
-  // conservative - it can keep an off-screen body, never drop an on-screen one.
+  // Cull before rasterizing, not after: a sprite whose quad lands off the buffer is not worth a
+  // texture walk. Bodies are never wider than ~1.2x their height, so the box is conservative -
+  // it can keep an off-screen sprite, never drop an on-screen one.
   const wide = hPx * 1.2;
   if (screenX + wide * 0.5 < 0 || screenX - wide * 0.5 > BW) return;
-  // rigs rasterize at the size they occupy, so a body is geometric at any distance
-  const tex = o.rig ? RIG.frame(o.rig.kind, { hpx: o.rig.hpx, p: o.rig.p, mv: o.rig.mv, atk: o.rig.atk, die: o.rig.die, yaw: o.rig.yaw, lean: o.rig.lean, pulse: o.rig.pulse }) : o.tex;
+  const tex = o.tex;
   const wPx = hPx * (tex.w / tex.h);
   if (screenX + wPx * 0.5 < 0 || screenX - wPx * 0.5 > BW) return;
   const cy = horizon + (BH / tY) * (eyeZ - (o.z + o.scale * 0.5));
@@ -666,8 +645,8 @@ function drawBillboard(o) {
   let alpha = clamp(o.alpha === undefined ? 1 : o.alpha, 0, 1);
   const selfLit = !!o.self;
   const sxStep = tex.w / wPx, syStep = tex.h / hPx;
-  // a rig texture is authored denser than the quad it lands in; decimating it with a
-  // point sample is what made distant enemies shimmer, so filter when texels outnumber pixels
+  // a texture can be authored denser than the quad it lands in; decimating it with a point
+  // sample is what made distant enemies shimmer, so filter when texels outnumber pixels
   const filt = wPx < tex.w * 0.98;
   const flashAdd = o.flash ? 1 : 0;
   drawCalls++;
@@ -907,7 +886,7 @@ function renderOverlay() {
   }
   if (S.perf) {
     ctx.textAlign = 'left'; ctx.font = `600 ${11 * U}px ui-monospace,monospace`; ctx.fillStyle = '#7fe8a0';
-    ctx.fillText(`FPS ${S.fps}  buf ${BW}x${BH}  ${q.name}  billboards ${drawCalls}  decals ${DECALS.length}  parts ${PARTS.length}  enemies ${ENEMIES.length}`, 12, DH - 12);
+    ctx.fillText(`FPS ${S.fps}  buf ${BW}x${BH}  ${q.name}  sprites ${drawCalls}  decals ${DECALS.length}  parts ${PARTS.length}  enemies ${ENEMIES.length}`, 12, DH - 12);
   }
   ctx.restore();
 }

@@ -187,10 +187,11 @@
     };
   }
   /* DEV.mesh: draw N procedural volumetric bodies into the real framebuffer over a
-     rendered world frame and return the cost (js/13_mesh.js). The billboard path is
-     not involved, and nothing else in the build calls MESH. self:false reproduces the
-     original spike's read-only depth test - mesh-vs-world occlusion kept, self-occlusion
-     lost to painter's order - as a negative control for the depth write. */
+     rendered world frame and return the cost (js/13_mesh.js). Since #69 B2 the enemy list calls
+     MESH.draw too, so this draws EXTRA bodies on top of the level's own - clear them with
+     DEV.clear() for a clean cost figure. self:false reproduces the original spike's read-only
+     depth test - mesh-vs-world occlusion kept, self-occlusion lost to painter's order - as a
+     negative control for the depth write. */
   function mesh(o) {
     o = o || {};
     const kind = ETYPE[o.kind] ? o.kind : 'grunt', cnt = Math.max(1, (o.n === undefined ? 1 : o.n) | 0);
