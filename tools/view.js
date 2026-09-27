@@ -1137,7 +1137,7 @@ if (MODE === 'anim') {
     }
     return { n, pct: 100 * n / (m.n || 1), dl: n ? sum / n : 0 };
   }
-  let bad = 0, attachBad = 0;
+  let bad = 0, attachBad = 0, judgeBad = 0;
   const row = (name, d, m, note) => {
     const ok = d.pct >= MINMOVE;
     if (!ok) bad++;
@@ -1249,7 +1249,16 @@ if (MODE === 'anim') {
        from a mirrored one. The >=15% silhouette-top assert the topple row already made now runs
        for EVERY variant - "it topples" is not the same claim as "every way of dying topples", and
        a variant that stays standing would slide through as a distinct hash. */
+    /* Every kind, not whatever ENEMIES[0] happens to be. A first version of this loop animated
+       ENEMIES[0] and so asserted ONE kind per level - three levels of grunt, three green rows, and
+       nothing at all said about a hound or a brute, whose fall rows are authored separately
+       (SPEC[k].die). Kind flows per draw (js/40_render.js:156), so forcing kind, type and scale on
+       the same body is enough to exercise every row of the table. */
+    const VKIND = run('Object.keys(ETYPE)');
+    for (const vk of VKIND) {
+    const VL = vk.padEnd(6);
     run(`(()=>{const e=ENEMIES[0];e.state='dead';e.vx=e.vy=e.svx=e.svy=0;e.dieAng=Math.atan2(P.y-e.y,P.x-e.x)+0.7})()`);
+    run(`ENEMIES[0].kind=${JSON.stringify(vk)};ENEMIES[0].type=ETYPE[${JSON.stringify(vk)}];ENEMIES[0].scale=ETYPE[${JSON.stringify(vk)}].scale;`);
     const VNM = run('typeof MESH.DIEV === "number" ? MESH.DIEV : 0');
     const DT = [0, 0.1, 0.2, 0.4, 0.55];              // dieT -> die buckets 0, 1, 2, 4, 5
     const vs = [];
@@ -1262,10 +1271,10 @@ if (MODE === 'anim') {
       }
       const a = ss[0], c = ss[3], f = ss[ss.length - 1];
       vs.push({ v, a, f, h: f.h, tri: f.tri });
-      row('topple v' + v + ' .40s', cmp(a.s, a.m, c.s), a.m, 'sil top ' + a.m.top + ' -> ' + c.m.top);
+      row(vk + ' topple v' + v + ' .40s', cmp(a.s, a.m, c.s), a.m, 'sil top ' + a.m.top + ' -> ' + c.m.top);
       const rise = a.m.bot - a.m.top;
       if (rise > 20 && c.m.top - a.m.top < rise * 0.15) {
-        bad++; console.log('  topple v' + v + '    silhouette top moved ' + (c.m.top - a.m.top) + ' px of a ' + rise +
+        bad++; console.log('  ' + VL + 'topple v' + v + '    silhouette top moved ' + (c.m.top - a.m.top) + ' px of a ' + rise +
           ' px body: it did not go DOWN - ' + 'IDENTICAL');
       }
       /* the variant's own timeline, hashed: a death that jumps from standing to flat in one bucket
@@ -1274,10 +1283,10 @@ if (MODE === 'anim') {
          contains the same death buckets it did before variants existed. */
       const along = new Set(ss.map(z => z.h)).size;
       if (along < 3) bad++;
-      console.log('  fall v' + v + '      ' + along + '/' + ss.length + ' distinct silhouettes on the way down   mask px ' +
+      console.log('  ' + VL + 'fall v' + v + '      ' + along + '/' + ss.length + ' distinct silhouettes on the way down   mask px ' +
         ss.map(z => z.m.n).join('/') + '   ' + (along < 3 ? 'IDENTICAL - it pops instead of falling' : 'ok'));
       if (v > 0 && f.m.n < a.m.n * 0.4) {
-        bad++; console.log('  corpse v' + v + '    rests at ' + f.m.n + ' mask px against dv0\'s ' + a.m.n +
+        bad++; console.log('  ' + VL + 'corpse v' + v + '    rests at ' + f.m.n + ' mask px against dv0\'s ' + a.m.n +
           ': it collapsed into the floor, so "distinct" would be "missing"');
       }
     }
@@ -1286,11 +1295,12 @@ if (MODE === 'anim') {
     for (let i = 0; i < VMIN; i++) for (let j = i + 1; j < VMIN; j++) pairs.push(maskIoU(vs[i].f.m, vs[j].f.m));
     const ovok = dh === VMIN && pairs.every(z => z < IOVMIN);
     if (!ovok) bad++;
-    console.log('  death variants ' + dh + '/' + VMIN + ' distinct of dv 0..' + (VMIN - 1) + '   IoU ' +
+    console.log('  ' + VL + 'death variants ' + dh + '/' + VMIN + ' distinct of dv 0..' + (VMIN - 1) + '   IoU ' +
       pairs.map(z => z.toFixed(2)).join(' ') + '   rest px ' + vs.map(z => z.f.m.n).join('/') +
       '   tris ' + vs.map(z => z.tri).join('/') + (ovok ? '  VARIES' : '  IDENTICAL - every corpse is the same corpse'));
     if (VNM && VNM !== VMIN) {
-      bad++; console.log('  death variants the table authors ' + VNM + ' variants per kind, the design asks for ' + VMIN);
+      bad++; console.log('  ' + VL + 'death variants the table authors ' + VNM + ' variants per kind, the design asks for ' + VMIN);
+    }
     }
     /* wind-up: the same atk progress the billboard used (1 - atkT/wind), with the lean the update
        would have damped to. Full extension lands at pr = 1, which is the frame the shot fires in. */
@@ -1332,12 +1342,29 @@ if (MODE === 'anim') {
     `while(t>0.6&&isSolid(ex,ey)){t-=0.2;ex=P.x+Math.cos(P.ang)*t;ey=P.y+Math.sin(P.ang)*t;}` +
     `APX=ex;APY=ey;return +t.toFixed(2)})()`);
   const nospec = AKIND.filter(k => ASPEC.indexOf(k) < 0);
-  console.log('attached: ' + AKIND.join('/') + ' bodies at ' + adist + ' m, cell ' + apl.cell + ', every gait bucket named above' +
+  /* Per-kind distance, because MASKMIN counts pixels and bodies are not the same size. A grunt at
+     2.4 m paints ~4,800 mask px; a hound at 2.4 m painted 591 on main at 5835134, so one threshold
+     across three body sizes declared the hound rows "NO BODY TO JUDGE" and anim has exited 1 on
+     main ever since with nothing actually detached. Each kind is now judged at the FARTHEST distance
+     that clears MASKMIN, and a kind that clears it at no distance still reports it rather than
+     passing quietly. */
+  function maskCount(s) { const m = maskOf(s); let n = 0; for (let i = 0; i < N; i++) if (m.cov[i] || s.zA[i] < s.zB[i] - 1e-4) n++; return n; }
+  const DK = {};
+  for (const k of AKIND) {
+    let picked = 0;
+    for (let d = adist; d >= 0.9; d -= 0.3) {
+      run(`(()=>{ENEMIES.length=0;const e=makeEnemy('${k}',P.x+Math.cos(P.ang)*${d.toFixed(2)},P.y+Math.sin(P.ang)*${d.toFixed(2)});` +
+        `${PIN}e.ang=Math.atan2(P.y-e.y,P.x-e.x);ENEMIES.push(e)})()`);
+      if (maskCount(shot()) >= MASKMIN) { picked = +d.toFixed(2); break; }
+    }
+    DK[k] = picked || +adist.toFixed(2);
+  }
+  console.log('attached: ' + AKIND.map(k => k + ' @' + DK[k] + ' m').join(', ') + ', cell ' + apl.cell + ', every gait bucket named above' +
     (nospec.length ? '\n  NO MESH SPEC for ' + nospec.join('/') + ' - those kinds would silently draw as grunts' : ''));
   if (nospec.length) { bad++; attachBad += nospec.length; }
   for (const k of AKIND) {
     for (const [dy, ph, mv, nm] of APOSE) {
-      const ap = run(`(()=>{ENEMIES.length=0;const e=makeEnemy('${k}',APX,APY);${PIN}` +
+      const ap = run(`(()=>{ENEMIES.length=0;const e=makeEnemy('${k}',P.x+Math.cos(P.ang)*${DK[k]},P.y+Math.sin(P.ang)*${DK[k]});${PIN}` +
         `e.ang=Math.atan2(P.y-e.y,P.x-e.x)+${dy};e.anim=${ph};e.movingAmt=${mv};ENEMIES.push(e);` +
         `let r=(e.ang-P.ang-Math.PI)%TAU;if(r>Math.PI)r-=TAU;if(r<-Math.PI)r+=TAU;` +
         `const ex=e.x-camX,ey=e.y-camY;` +
@@ -1359,8 +1386,8 @@ if (MODE === 'anim') {
         if (x < lef) lef = x; if (x > rig) rig = x;
       }
       if (an < MASKMIN) {
-        bad++; attachBad++;
-        console.log('  ' + k.padEnd(6) + pad(nm, 12) + 'body ' + an + ' px: NO BODY TO JUDGE - the probe cannot pass');
+        bad++; judgeBad++;
+        console.log('  ' + k.padEnd(6) + pad(nm, 12) + 'body ' + an + ' px at ' + DK[k] + ' m: NO BODY TO JUDGE at any distance - the probe cannot pass');
         continue;
       }
       /* The shoulder line, from the silhouette itself: the widest row of a body is its arms plus
@@ -1417,8 +1444,9 @@ if (MODE === 'anim') {
     }
   }
   const why = [];
-  if (bad - attachBad) why.push('bodies are drawn in a static stance');
+  if (bad - attachBad - judgeBad) why.push('bodies are drawn in a static stance');
   if (attachBad) why.push(attachBad + ' pose(s) with DETACHED parts');
+  if (judgeBad) why.push(judgeBad + ' pose(s) too small to judge at ANY distance - a probe-geometry problem, not a detachment failure');
   console.log(bad ? 'anim: ' + bad + ' assertion(s) FAILED - ' + why.join('; ')
     : 'anim: bodies change shape while they move and their parts are attached');
   process.exit(bad ? 1 : 0);
