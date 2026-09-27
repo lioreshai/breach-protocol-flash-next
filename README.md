@@ -49,27 +49,19 @@ Difficulty changes enemy damage, health and count.
 ## How it looks
 ### What it looks like today
 
-Captured from the deployed build, not from a mockup or an old build: [live site](https://lioreshai.github.io/breach-protocol-flash-next/). These are refreshed whenever a merged PR changes what the game looks like.
+Captured from the deployed build, not from a mockup or an old build: [live site](https://lioreshai.github.io/breach-protocol-flash-next/). These are refreshed whenever a merged PR changes what the game looks like. All three come from a **single boot**: `startLevel` calls `genLevel` unconditionally, so any reset deals a new map, and the camera is posed with `DEV.cam` and the frame frozen with `DEV.freeze` so nothing moves between the probe and the capture.
 
 ![spawn corridor](docs/screens/level0-spawn.png)
 
-*Archive Sublevel, spawn looking down a lit corridor. Ceiling texture is streaked at grazing angles - mip selection has no anisotropy.*
+*Spawn cell of Archive Sublevel, turned toward the longest direction that lands in the 60-100 luminance band: yaw 1.18 rad, 12.4 m of sight, mean 62.3. Floors and ceilings now choose their mip from **both** axes of the pixel footprint (#57), so the ground keeps tile detail into the middle distance instead of point-sampling into mush. Two defects survive in this frame. The ceiling near the horizon still streaks radially, because the true anisotropy there exceeds the 4:1 clamp that was chosen to keep the floor's grout lines. And the geometry of "spawn" depends on which level the generator dealt (#60): the three boots taken while shooting these put spawn in three different cells with sight lines of 12.4, 17.9 and 21.5 m. The level was cleared with `DEV.clear()` so nothing is mid-attack, which is why the counter reads 0 LEFT.*
 
 ![close wall](docs/screens/level0-facing-wall.png)
 
-*Close on a wall. Honest defects visible here: the forearms are too thick and read as tubes, and the floor texture is over-saturated and too busy at close range.*
+*1.5 m from a wall face. The forearms still read as tubes. The strip of floor along the bottom is what close ground looks like after #57 - busier and more legible than the point-sampled version it replaced - so the older note here, that the floor was over-saturated and too busy at close range, is re-stated against the new sampling rather than quietly dropped.*
 
 ![enemies](docs/screens/level0-enemies.png)
 
-*Enemies at 2-5 m, one hound closing from the right. The caption used to blame translucent compositing
-for the mottled look here; that measures false. Sampling body pixels against the wall behind them gives
-correlation -0.398 over 6463 masked pixels, body mean luminance 89.2 against wall 100 — and masking on a
-large difference biases correlation *negative*, so there is no positive tracking at all: the bodies are
-opaque. What you are seeing is torso speckle against an equally busy wall. The real defect in this shot
-is the rim light, whose band is too wide at close range and reads as a white halo (issue #17) — the
-contrast probe passed it because that probe averages edge contrast and cannot see band width. Three
-enemies placed with `DEV.spawn(kind, 1, d)` land on the same ray and two hide behind the first, which is
-why this uses the fanning `DEV.spawn(kind, 2, d)`.*
+*Four enemies from the same generated level as the shot above. Hounds placed at 4.00 m had closed to 2.96 m by capture, grunts at 6.45 m, all four in `chase`, mean luminance 63.3, player at 100. `DEV.spawn(kind, n, dist)` clamps to the first open cell **short** of `dist`, so "metres in front" is an upper bound: from a pose without a clear sight line both spawns land at 1.45 m and the frame becomes a wall of torso. The rim light is a thin ridge now (#33: half-max band 9.00 to 2.22 px at a 600 px body), so the white-halo defect that used to be described in this caption is obsolete. What is actually visible: the limbs are still implicit-quad silhouettes (#41) - look at the near hound's legs - and the bodies are opaque, which is a measurement and not an impression, correlation -0.398 over 6463 masked body pixels against the wall behind them, body mean luminance 89.2 against wall 100, with the caveat that masking on a large difference biases correlation negative, so there is no positive tracking at all either way. The mottled read is torso speckle against an equally busy wall. The white flare at the near hound's feet is a lamp standing directly behind it.*negative*, so there is no positive tracking at all: the bodies are
 
 Everything is generated in plain JS at boot (~1.6 s): no image files, no fetches, no canvas path
 calls. `js/05_paint.js` is a small rasteriser — analytic anti-aliased SDF shapes (segments, discs,
