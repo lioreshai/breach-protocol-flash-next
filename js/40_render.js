@@ -206,6 +206,40 @@ function renderWorld() {
    ------------------------------------------------------------------ */
 let RX = new Int32Array(0), RP = new Float64Array(0);   // columns of one row that needed re-solving
 
+/* Ground mip selection: MIPAR is the anisotropy ratio the footprint may be stretched by before the
+   choice stops rewarding it, and MIPAX is the A/B switch (0 = the 1-D selection this shipped with)
+   that tools/view.js mip uses as its negative control. Both are read once per row, never per pixel. */
+let MIPAX = 1, MIPAR = 4;
+
+/* The mip for a ground pixel from the WORLD footprint of one pixel, given the two screen-axis
+   deltas in world units: (ax0,ax1) is how far the sampled point moves along a row, (ay0,ay1) how
+   far down a column. For a plane the row delta is plane*step*d, which is ALMOST constant in
+   length across the frame, while the column delta is raydir*d/|p| and grows as 1/p^2 - so a floor
+   seen obliquely covers a long thin strip of world, and selecting from one axis alone takes a mip
+   far too small and streaks along the view direction (issue #19). The old form weighted the u
+   component of the row delta at 1 and its v component at 0.001, so looking down a corridor axis,
+   where planeX is 0, it read a footprint of 0 and held mip 0 over the whole floor.
+   The larger axis wins, unless it is more than MIPAR times the other: a footprint elongated past
+   that would buy a smaller mip than the well-sampled axis needs, blurring detail nothing occludes,
+   because there is no anisotropic filter here to keep the fine axis sharp. Mip k is the level whose
+   texel is at least one pixel wide, floor(log2(rho)) - the cascade below is that, in mip-0 texels
+   per pixel. */
+function mipSel(ax0, ax1, ay0, ay1, sc, tex) {
+  const m = tex.mips, n = m.length;
+  let k;
+  if (!MIPAX) {                                             // the shipped 1-D term, control only
+    const t = Math.abs(ax0 * sc) + Math.abs(ax1 * sc) * 0.001;
+    k = t >= 0.5 ? (t >= 2 ? (t >= 4 ? 3 : 2) : 1) : 0;
+  } else {
+    const ws = m[0].w * sc;                                 // mip-0 texels per world unit
+    const ax = Math.sqrt(ax0 * ax0 + ax1 * ax1) * ws;
+    const ay = Math.sqrt(ay0 * ay0 + ay1 * ay1) * ws;
+    const rho = ax >= ay ? ax : ay < ax * MIPAR ? ay : ax * MIPAR;
+    k = rho >= 16 ? 4 : rho >= 8 ? 3 : rho >= 4 ? 2 : rho >= 2 ? 1 : 0;
+  }
+  return k < n ? k : n - 1;
+}
+
 function castGround(flash, fcR, fcG, fcB) {
   const hInt = Math.round(horizon);
   const stepBase = 2 / BW;
@@ -251,9 +285,11 @@ function castGround(flash, fcR, fcG, fcB) {
     const c0 = -1;
     let wx = camX + (dirX + planeX * c0) * dRow, wy = camY + (dirY + planeY * c0) * dRow;
     const wxs = planeX * stepBase * dRow, wys = planeY * stepBase * dRow;
-    /* mip from the world footprint of a pixel */
-    const pxTex = Math.abs(wxs * sc) + Math.abs(wys * sc) * 0.001;
-    const kRow = pxTex >= 0.5 ? (pxTex >= 2 ? (pxTex >= 4 ? 3 : 2) : 1) : 0;
+    /* mip from the footprint of one pixel. The row delta is (wxs,wys); the column delta is the ray
+       direction times d/|p|, evaluated at the frame CENTRE column - |ray| reaches sqrt(1+plane^2)
+       = 1.23 at the corners, which is a third of a mip and stays inside the ratio clamp. */
+    const cfRow = dRow / absP;
+    const kRow = mipSel(wxs, wys, dirX * cfRow, dirY * cfRow, sc, tex);
     const mRow = tex.mips[Math.min(kRow, tex.mips.length - 1)];
     // ms is texels per world unit at THIS mip: the tile is tileF world units wide, so a
     // 128-texel tile must advance mw/tileF per unit. Dividing by the mip width instead
@@ -401,11 +437,12 @@ function groundPixel(x, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb, dP)
   const dfade = 0.4 + 0.6 * Math.exp(-dS * 0.02);
   const fog = fogAt(dS), inv = 1 - fog, fR = fcR * fog, fG = fcG * fog, fB = fcB * fog;
   const base = amb + fl * Math.exp(-dS * 0.30) * 0.9;
-  /* the row's footprint test with this pixel's distance: the world step per column is
-     plane*stepBase*d, so the footprint scales with d and nothing else */
-  const pxTex = Math.abs(planeX * stepBase * dS * sc) + Math.abs(planeY * stepBase * dS * sc) * 0.001;
-  const k = pxTex >= 0.5 ? (pxTex >= 2 ? (pxTex >= 4 ? 3 : 2) : 1) : 0;
-  const m = tex.mips[Math.min(k, tex.mips.length - 1)];
+  /* the row's footprint test at this pixel's distance: the world step per column is
+     plane*stepBase*d and per row is ray*d/|p|, so both scale with d and nothing else. Here the ray
+     direction is this pixel's own, not the centre column's. */
+  const cfS = dS / absP;
+  const k = mipSel(planeX * stepBase * dS, planeY * stepBase * dS, rx * cfS, ry * cfS, sc, tex);
+  const m = tex.mips[k];
   const mw = m.w, mh = m.h, ms = sc * m.w, td = m.data, mask = mw - 1, maskH = mh - 1;
   const inMap = sx >= 0 && sy >= 0 && sx < N && sy < N, cIdx = sy * N + sx;
   let lr, lg, lb, mir = 0;
