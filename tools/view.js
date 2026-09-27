@@ -3,6 +3,8 @@
 
    node tools/view.js sheets            -> /tmp/fps_tex.png  (materials + sprites)
    node tools/view.js scene [lvl] [n]   -> /tmp/fps_scene.png (framebuffer, sector lvl, camera n)
+   node tools/view.js mip             streak metric for the ground mip selection (#19): one line
+                              per level, plus the 1-D and mush controls it is judged against
 */
 const vm = require('vm'), fs = require('fs'), path = require('path');
 const { writePNG, toRGBA } = require('./png');
@@ -508,6 +510,123 @@ if (MODE === 'planes') {
     `${idem.first >= 0 ? ' (first at cell ' + idem.first + ')' : ''}  authored ladder kept ${yn(idem.ladKept)}` +
     `  ${idem.skip ? idem.skip : idemOk ? 'RELINK-VB ok' : 'RELINK-VB FAIL'}`);
   process.exit(staleAll || !stOk ? 1 : 0);  // a derived array that disagrees with its formula is a verdict, not a footnote
+}
+
+if (MODE === 'mip') {
+  /* Issue #19: the ground pass picked its mip from ONE axis of the pixel's world footprint - the u
+     component of the row delta, with its v component weighted 0.001 - while the footprint of a
+     ground pixel is a long thin strip whose long axis points down the column: |plane|*step*d along
+     a row against |ray|*d/|p| down one, and d itself is dz*BH/|p|, so the column axis grows as 1/p^2
+     toward the horizon. Selecting from one axis takes a mip far too small and the pass then POINT
+     samples it, which is the streaking in every screenshot that shows a ceiling. At the heading this
+     probe's camera takes, planeX is 0, so the old term read a footprint of exactly 0 and held mip 0
+     on 327 of 327 textured rows.
+
+     So measure the picture instead of the formula: render the ground pass ALONE (no walls to hide it
+     and no z-buffer guessing), and take the mean absolute luminance step DOWN A COLUMN, normalised
+     by the mean so an exposure shift cannot masquerade as a fix. Ceiling and floor halves are
+     reported separately because they are separate plane lookups.
+
+     Two controls run in the same process, because a smoothness metric can always be satisfied by
+     blurring the frame, and a probe that cannot fail is worthless:
+       CONTROL 1-D   MIPAX=0, the selection this shipped with. Must be WORSE (higher streak).
+       CONTROL MUSH  MAP.floorTex/ceilTex swapped for a chain whose every level is the LAST one, so
+                     the tiling stays exact (ms = sc*m.w wraps the tile at 1/sc = tileF either way)
+                     and any selection whatsoever renders mush. Its streak is low BY CONSTRUCTION,
+                     which is why the fix must stay clearly rougher than it - MUSHMARGIN - and why
+                     the along-row detail column is printed next to it.
+     The mip histogram comes from the shipped mipSel called on the row's own deltas, with the row's
+     distance read back out of zbuf (floor rows carry their unclamped solve there), so it cannot
+     drift from the selection under test. Rows the far band fills are excluded from the histogram -
+     they hold no texture at all - but not from the gradient, where a flat fill contributes zero to
+     both sides of every comparison. MIPAX/MIPAR are restored afterwards; nothing here writes a file. */
+  const MUSHMARGIN = 1.15;
+  const GROUND = 'px.fill(pack(FOGC[0],FOGC[1],FOGC[2]));castGround(S.flash,FOGC[0],FOGC[1],FOGC[2]);';
+  const MUSHON = `(()=>{globalThis.__mt={};for(const k of ['floorTex','ceilTex']){const t=MAP[k]||(k==='floorTex'?FLOORS.CONCRETE:CEILS.CONCRETE);const last=t.mips[t.mips.length-1];globalThis.__mt[k]=MAP[k]||null;MAP[k]={w:t.w,h:t.h,data:t.data,tiles:true,mips:t.mips.map(()=>last)}}})()`;
+  const MUSHOFF = '(()=>{if(globalThis.__mt){MAP.floorTex=globalThis.__mt.floorTex;MAP.ceilTex=globalThis.__mt.ceilTex;globalThis.__mt=null}})()';
+  const sel = (ax, ar, mush) => {
+    run(`MIPAX=${ax};MIPAR=${ar};` + (mush ? MUSHON : MUSHOFF));
+    run(GROUND);
+    const st = run('({BW,BH,hz:Math.round(horizon),FARB,zb:zbuf,rows:(()=>{const h=[0,0,0,0,0,0,0],e=[0,0],sb=2/BW,hz=Math.round(horizon),' +
+      'fT=(MAP.floorTex||FLOORS.CONCRETE),cT=(MAP.ceilTex||CEILS.CONCRETE),scF=1/(MAP.floorTile||1.15),scC=1/(MAP.ceilTile||0.9),' +
+      'eIdx=((camY|0)*MAP.w+(camX|0))|0,air=(camX|0)>=0&&(camY|0)>=0&&(camX|0)<MAP.w&&(camY|0)<MAP.w&&!MAP.cell[eIdx],' +
+      'cz=air?MAP.ceilPlane[eIdx]:Math.max(1,eyeZ+ZQ);' +
+      'for(let y=0;y<BH;y++){const p=y-hz;if(!p)continue;const isF=p>0,absP=p>0?p:-p;' +
+      'const dRaw=isF?zbuf[y*BW]:((cz-eyeZ)*BH/absP);if(dRaw>FARB)continue;' +
+      'const d=Math.min(dRaw,FARB*4),cf=d/absP,tex=isF?fT:cT,sc=isF?scF:scC;' +
+      'const k=mipSel(planeX*sb*d,planeY*sb*d,dirX*cf,dirY*cf,sc,tex);h[k]++;if(k===tex.mips.length-1)e[1]++;else e[0]++}' +
+      'return {h,e}})()})');
+    run(MUSHOFF);
+    const d = new Uint32Array(run('px'));
+    const { BW, BH, hz, FARB } = st;
+    const L = new Float64Array(BW * BH);
+    let cSum = 0, cN = 0, fSum = 0, fN = 0;
+    for (let y = 0; y < BH; y++) {
+      const p = y - hz, r = y * BW;
+      for (let x = 0; x < BW; x++) {
+        const c = d[r + x], v = 0.2126 * (c & 255) + 0.7152 * (c >> 8 & 255) + 0.0722 * (c >> 16 & 255);
+        L[r + x] = v;
+        if (p < 0) { cSum += v; cN++; } else if (p > 0) { fSum += v; fN++; }
+      }
+    }
+    const acc = { dyC: 0, dyF: 0, dx: 0, n: 0 };
+    for (let y = 0; y + 1 < BH; y++) {
+      const p = y - hz, q = y + 1 - hz;
+      if (!p || !q) continue;                                   // a pair touching the horizon row
+      const r = y * BW, r2 = r + BW, fl = p > 0;
+      for (let x = 0; x < BW; x++) {
+        const g = Math.abs(L[r2 + x] - L[r + x]);
+        if (fl) acc.dyF += g; else acc.dyC += g;
+        if (x + 1 < BW) acc.dx += Math.abs(L[r + x + 1] - L[r + x]);
+        acc.n++;
+      }
+    }
+    const nc = Math.max(1, acc.n), mL = (cSum + fSum) / Math.max(1, cN + fN);
+    let hi = 0;
+    for (let i = 0; i < st.rows.h.length; i++) if (st.rows.h[i]) hi = i;
+    return { streakC: 1000 * acc.dyC / nc / mL, streakF: 1000 * acc.dyF / nc / mL, detail: 1000 * acc.dx / nc / mL,
+      mean: mL, hist: st.rows.h.slice(0, hi + 1), end: st.rows.e[1], rows: st.rows.e[0] + st.rows.e[1] };
+  };
+  let bad = 0;
+  const DEF = run('({ax:MIPAX,ar:MIPAR})');
+  if (process.env.AR) DEF.ar = +process.env.AR;          // sweep the ratio clamp to re-justify MIPAR
+  for (let li = 0; li < run('LEVELS.length'); li++) {
+    const per = [[], [], []];
+    for (let k = 0; k < 2; k++) {
+      seedRng(771 + li * 31 + k * 7);
+      run(`S.mode='play';S.locked=false;startLevel(${li},true);`);
+      // longest sight line, then the same cell turned 45 deg: the axis-aligned heading is where the
+      // old term collapsed to zero, the diagonal is where it still read something
+      run(`(()=>{const cs=[];for(let y=1;y<MH-1;y++)for(let x=1;x<MW-1;x++)if(!isSolid(x+.5,y+.5))cs.push([x,y]);
+        const c=cs[((cs.length*0.31)|0)%cs.length];let best=0,bd=-1;
+        for(let k2=0;k2<48;k2++){const a=k2*Math.PI/24;const d=castRayDist(c[0]+.5,c[1]+.5,Math.cos(a),Math.sin(a),9).dist;if(d>bd){bd=d;best=a;}}
+        P.x=c[0]+.5;P.y=c[1]+.5;P.ang=best+${k}*Math.PI/4;P.pitch=BH*0.02;P.z=floorAt(P.x,P.y);
+        for(const e of ENEMIES)e.state='sleep';})()`);
+      run('renderWorld()');
+      per[0].push(sel(DEF.ax, DEF.ar, false));
+      per[1].push(sel(0, DEF.ar, false));
+      per[2].push(sel(DEF.ax, DEF.ar, true));
+      run(`MIPAX=${DEF.ax};MIPAR=${DEF.ar};`);
+    }
+    const avg = a => ({ sc: a.reduce((s, v) => s + v.streakC, 0) / a.length, sf: a.reduce((s, v) => s + v.streakF, 0) / a.length,
+      detail: a.reduce((s, v) => s + v.detail, 0) / a.length, mean: a.reduce((s, v) => s + v.mean, 0) / a.length,
+      end: a.reduce((s, v) => s + v.end, 0) / a.length, rows: a.reduce((s, v) => s + v.rows, 0) / a.length,
+      hist: a[0].hist });
+    const [fix, ctl, mush] = per.map(avg);
+    const dC = 100 * (fix.sc / ctl.sc - 1), dF = 100 * (fix.sf / ctl.sf - 1);
+    const smooth = (fix.sc + fix.sf) / (mush.sc + mush.sf + 1e-9);
+    const ok = fix.sc + fix.sf < ctl.sc + ctl.sf &&
+      fix.sc + fix.sf > MUSHMARGIN * (mush.sc + mush.sf) && fix.detail > mush.detail * MUSHMARGIN;
+    if (!ok) bad++;
+    console.log(`level ${li}  streak ceil ${fix.sc.toFixed(0)} (ctl ${ctl.sc.toFixed(0)} ${dC >= 0 ? '+' : ''}${dC.toFixed(0)}%, mush ${mush.sc.toFixed(0)})` +
+      `  floor ${fix.sf.toFixed(0)} (ctl ${ctl.sf.toFixed(0)} ${dF >= 0 ? '+' : ''}${dF.toFixed(0)}%, mush ${mush.sf.toFixed(0)})` +
+      `  detail ${fix.detail.toFixed(0)} (ctl ${ctl.detail.toFixed(0)}, mush ${mush.detail.toFixed(0)})` +
+      `  mean ${fix.mean.toFixed(0)}  mips ${fix.hist.join(',')} chainEnd ${fix.end}/${fix.rows} ${ok ? 'ok' : 'FAIL'}`);
+    if (process.env.BANDS) console.log(`         smoothness vs mush ${smooth.toFixed(2)}x (must stay above ${MUSHMARGIN}), detail floor is the mush frame's ${mush.detail.toFixed(0)}`);
+  }
+  run(`MIPAX=${DEF.ax};MIPAR=${DEF.ar};`);
+  console.log(bad ? `${bad} level(s) NOT BETTER THAN THE 1-D CONTROL` : 'MIP ok: two-axis selection beats the 1-D control on every level and is not mush');
+  process.exit(bad ? 1 : 0);
 }
 
 if (MODE === 'exposure') {
