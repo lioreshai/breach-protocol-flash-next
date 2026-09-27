@@ -306,8 +306,11 @@ if (MODE === 'vert') {
     bad += ok ? 0 : 1;
     console.log('  ' + (label + ' ').padEnd(42, '.') + ' ' + (ok ? 'ok  ' : 'FAIL') + '  ' + detail);
   };
+  /* Mechanical rows own their cast: sleeping enemies is not enough because a sleeping enemy wakes
+     on sight and shoots the player mid-sample, which is how "landing impulse" came to mean "was
+     there a hound in the lane". The rows below measure feet, floors and gravity. */
   const PRE = li => `S.mode='play';S.locked=false;S.diff=1;startLevel(${li},true);` +
-    `for(const e of ENEMIES)e.state='sleep';for(const k in keys)delete keys[k];` +
+    `ENEMIES.length=0;for(const k in keys)delete keys[k];` +
     `P.vx=P.vy=P.vz=0;P.air=false;P.crouch=0;P.hp=100;P.armor=0;`;
   /* A lane is a straight run of open columns. With dy = 0 the only probe tryMove can reach is the
      one pointing down the run, so a lane is a corridor the assertion owns end to end. */
@@ -332,8 +335,18 @@ if (MODE === 'vert') {
     const x0 = run('P.x'), s = run(RUN(150, 'KeyW'));
     const sep = s.filter(r => r[1] !== r[2]).length, air = s.filter(r => r[3]).length;
     const adv = s[s.length - 1][0] - x0, z0 = s[0][1], shk = Math.max.apply(null, s.map(r => r[5]));
-    VROW('L' + li + ' flat walk keeps P.z on the floor', !sep && !air && adv > 2 && shk < 0.05,
-      `P.z off the floor ${sep}/150 frames, airborne ${air}, landing impulse peaked at ${shk.toFixed(2)}, ` +
+    /* Attribute the shake before judging it. The sample carries hp precisely so an impulse can be
+     * told apart from damage, and this row was judging them together: on the level SEED=1 deals, an
+     * enemy reaches the walking player once, hp goes 100 -> 91, shake peaks at 4.07, and the row
+     * called that a self-cancelling support test - while max shake over the frames BEFORE the hit
+     * was 0.000. The same row read 0.00 and passed on SEED=4, so across 8 seeds main failed 7 of
+     * them and CI stayed green because SEED is pinned to 12345, which happens to deal a lane with
+     * nobody in it. A gate whose colour depends on whether an enemy wandered by measures the level. */
+    const hp0 = s[0][4], hpEnd = s[s.length - 1][4], nHit = s.filter((r, i) => i && r[4] !== s[i - 1][4]).length;
+    const shkNH = Math.max.apply(null, s.filter(r => r[4] === hp0).map(r => r[5]));
+    VROW('L' + li + ' flat walk keeps P.z on the floor', !sep && !air && adv > 2 && shkNH < 0.05,
+      `P.z off the floor ${sep}/150 frames, airborne ${air}, impulse on un-hit frames ${shkNH.toFixed(2)}` +
+      ` (any-source peak ${shk.toFixed(2)}, ${nHit} hit${nHit === 1 ? '' : 's'} taking hp ${hp0.toFixed(0)} -> ${hpEnd.toFixed(0)}), ` +
       `travelled ${adv.toFixed(2)} units in 2.5 s` + (adv <= 2 ? ' VACUOUS - the player barely moved' : ''));
     const ze = run(RUN(40, 'KeyE')).pop()[1], zq = run(RUN(40, 'KeyQ')).pop()[1];
     VROW('L' + li + ' climb keys inert with no ladder', ze === z0 && zq === z0, `KeyE -> ${ze}, KeyQ -> ${zq}, floor ${s[0][2]}`);
@@ -375,9 +388,20 @@ if (MODE === 'vert') {
     const airAt = s.map((r, i) => r[3] ? i : -1).filter(i => i >= 0);
     let mono = true;
     for (let i = 1; i < s.length; i++) if (s[i][1] > s[i - 1][1] + 1e-12) mono = false;
-    const uniq = new Set(s.map(r => r[1])).size, dmg = +(100 - s[s.length - 1][4]).toFixed(3);
-    VROW('walking off a 1-unit ledge falls over frames', spd.bad === 0 && airAt.length >= 3 && mono && uniq >= 4 && dmg === 0,
-      `airborne ${airAt.length} frames, monotonic ${mono ? 'yes' : 'no'}, ${uniq} distinct P.z, hp lost ${dmg}, ` +
+    const uniq = new Set(s.map(r => r[1])).size;
+    /* hp is attributed by frame, not totalled: this row asserted dmg === 0 and read 8, 11, 16 and
+       19 on four different level rolls, which was a grunt's 9-damage projectile and nothing to do
+       with the fall. A drop on the frame the feet return to the floor is fall damage; anything else
+       is not this row's business, but it is printed so the reader can see it. */
+    let landDmg = 0, hitDmg = 0;
+    for (let i = 1; i < s.length; i++) {
+      const dh = s[i][4] - s[i - 1][4];
+      if (dh < -1e-9) { if (!s[i][3] && s[i - 1][3]) landDmg += -dh; else hitDmg += -dh; }
+    }
+    landDmg = +landDmg.toFixed(3); hitDmg = +hitDmg.toFixed(3);
+    VROW('walking off a 1-unit ledge falls over frames', spd.bad === 0 && airAt.length >= 3 && mono && uniq >= 4 && landDmg === 0,
+      `airborne ${airAt.length} frames, monotonic ${mono ? 'yes' : 'no'}, ${uniq} distinct P.z, ` +
+      `hp lost ${landDmg} from the fall (${hitDmg} from hits, attributed per frame), ` +
       `lands on ${s[s.length - 1][2]} at P.z ${s[s.length - 1][1]}`);
     const from = airAt.length ? Math.max(0, airAt[0] - 1) : 0, to = airAt.length ? Math.min(s.length - 1, airAt[airAt.length - 1] + 1) : 0;
     console.log('    frame        x       P.z    floor  air');
@@ -447,7 +471,12 @@ if (MODE === 'vert') {
     `globalThis.__spawnPlateau=0;startLevel(${li},true);P.hp=100;globalThis.__spawnBand=${dq};` +
     `globalThis.__spawnPlateau=${plateau};` +
     (vz ? `P.air=true;P.vz=${vz};` : '') + `startLevel(${li},${fresh ? 'true' : 'false'});` +
-    `for(const e of ENEMIES)e.state='sleep';for(const k in keys)delete keys[k];P.crouch=0;`;
+    `for(const e of ENEMIES)e.state='sleep';for(const k in keys)delete keys[k];P.crouch=0;` +
+    /* The second startLevel above is what a level change actually runs, and genLevel repopulates
+       ENEMIES - so the sleep loop cannot keep the sample clean here. Clear the cast: an entry point
+       that costs the player health because an NPC wandered into frame is not an altitude defect, and
+       SETTLE attributes whatever hp does move so the row still says which source it means. */
+    `ENEMIES.length=0;`;
   const PEEK = `({z:P.z,f:floorAt(P.x,P.y),air:P.air?1:0,vz:+P.vz.toFixed(4),` +
     `q:MAP.fz[((P.y|0)*MW+(P.x|0))],solid:isSolid(P.x,P.y)?1:0,` +
     `below:(P.z<floorAt(P.x,P.y)-1e-9)?1:0,cap:+((cfg.eye+P.z)-clamp(cfg.eye+P.z,0.12,1.4)).toFixed(4)})`;
@@ -455,8 +484,11 @@ if (MODE === 'vert') {
      floor means the step-up eases the camera out of the slab, and a carried-over vz runs the fall
      integration against a floor that was never left, which costs health for a fall that never did. */
   const SETTLE = `(()=>{const s=[];for(let i=0;i<60;i++){update(1/60);` +
-    `s.push([+P.z.toFixed(6),+floorAt(P.x,P.y).toFixed(4),P.air?1:0]);}return` +
-    `{off:s.filter(r=>Math.abs(r[0]-r[1])>1e-9).length,air:s.filter(r=>r[2]).length,hp:+P.hp.toFixed(3)}})()`;
+    `s.push([+P.z.toFixed(6),+floorAt(P.x,P.y).toFixed(4),P.air?1:0,+P.hp.toFixed(3)]);}` +
+    `const drop=(f)=>{let d=0;for(let i=1;i<s.length;i++){const dh=s[i][3]-s[i-1][3];if(dh<-1e-9&&f(i))d+=-dh;}` +
+    `return +d.toFixed(3)};return{off:s.filter(r=>Math.abs(r[0]-r[1])>1e-9).length,` +
+    `air:s.filter(r=>r[2]).length,hp:+P.hp.toFixed(3),` +
+    `land:drop(i=>!s[i][2]&&s[i-1][2]),hit:drop(i=>!(!s[i][2]&&s[i-1][2]))}})()`;
   const LEGAL = `(()=>{let tot=0,bad=0;for(let i=0;i<MW*MH;i++){if(!MAP.cell[i])continue;const x=i%MW,y=(i/MW)|0;` +
     `for(let d=0;d<4;d++){const nx=x+DIRX[d],ny=y+DIRY[d];if(nx<0||ny<0||nx>=MW||ny>=MH||MAP.cell[ny*MW+nx])continue;` +
     `tot++;if(!(ceilAt(x,y)-faceZ0(x,y,d)>0))bad++;}}return{tot:tot,bad:bad}})()`;
@@ -464,11 +496,11 @@ if (MODE === 'vert') {
     run(ENTER(li, fresh, dq, vz, plateau || 0));
     const r = run(PEEK), st = run(SETTLE), lg = run(LEGAL);
     const ok = r.z === r.f && !r.below && !r.air && r.vz === 0 && !r.solid && !lg.bad &&
-      !st.off && !st.air && st.hp === 100;
+      !st.off && !st.air && st.land === 0;
     VROW(label, ok, `P.z ${r.z} vs floorAt ${r.f} (spawn column ${r.q} quanta), feet below the floor ` +
       `${r.below ? 'YES' : 'no'}, airborne ${r.air}, vz ${r.vz}, in geometry ${r.solid} | faces ` +
       `${lg.tot - lg.bad}/${lg.tot} legal | then ${st.off}/60 frames off the floor, airborne ${st.air}, ` +
-      `hp ${st.hp}` + (r.cap ? ` | render eye capped ${r.cap} below the grid` : ''));
+      `hp ${st.hp} (fall ${st.land}, hits ${st.hit})` + (r.cap ? ` | render eye capped ${r.cap} below the grid` : ''));
   };
   for (let li = 0; li < run('LEVELS.length'); li++) {
     spawnRow('L' + li + ' spawn on flat ground (new game)', li, true, 0, 0);
@@ -482,6 +514,10 @@ if (MODE === 'vert') {
   run(`if(globalThis.__genReal){genLevel=globalThis.__genReal;globalThis.__genReal=null;globalThis.__spawnBand=0;}`);
   if (bad) { console.log('vert: FAILED'); process.exit(1); }
   console.log('vert: all levels ok');
+  // Without this the pass path fell through into the scene dump: CI's gate step printed a
+  // "frame: mean" and painted /tmp/fps_scene.png whose value depends on where this probe left the
+  // RNG stream, which reads like a measurement of the level and measures nothing (#89).
+  process.exit(0);
 }
 
 if (MODE === 'planes') {
@@ -576,9 +612,33 @@ if (MODE === 'planes') {
     `grid restored ${yn(idem.restored)}  stale blockers ${idem.stale}` +
     `${idem.first >= 0 ? ' (first at cell ' + idem.first + ')' : ''}  authored ladder kept ${yn(idem.ladKept)}` +
     `  ${idem.skip ? idem.skip : idemOk ? 'RELINK-VB ok' : 'RELINK-VB FAIL'}`);
+  /* Generation must depend on the seed and nothing else. makeEnemy used to take ten draws from the
+     global stream per enemy (js/30_entities.js:29-36, #90), so how many enemies a level happens to
+     contain moved its texture layout, lamp positions and pickup phases. Both arms seed FIRST, then
+     construct k enemies, then generate: construction is the ONLY difference between them and has no
+     gameplay effect at all, so a grid that still moves means the stream is coupled again - the
+     coupling is what made level-comparing probes unreproducible (#87, #91). Seeding before each arm
+     is what makes this a comparison rather than two visits to the same stream. */
+  const genArm = (k) => {
+    seedRng(20260927);
+    return run(`(function(){
+      for (let i = 0; i < ${k}; i++) makeEnemy('grunt', 1.5, 1.5);
+      ENEMIES.length = 0;
+      startLevel(0, true);
+      const hh = (arr, f) => { let g = 2166136261; for (let i = 0; i < arr.length; i++) { g ^= (f ? f(arr[i]) : arr[i]) | 0; g = Math.imul(g, 16777619); } return g >>> 0; };
+      return { cell: hh(MAP.cell), fz: hh(MAP.fz), lamp: hh(LIGHTS, (l) => (l.x * 1000) | 0),
+        nL: LIGHTS.length, nP: PICKUPS.length, nX: PROPS.length };
+    })()`);
+  };
+  const g0 = genArm(0), g12 = genArm(12);
+  const genOk = g0.cell === g12.cell && g0.fz === g12.fz && g0.lamp === g12.lamp &&
+    g0.nL === g12.nL && g0.nP === g12.nP && g0.nX === g12.nX;
+  console.log(`gen stream   0 vs 12 enemies constructed  cell ${g0.cell}/${g12.cell}  fz ${g0.fz}/${g12.fz}  ` +
+    `lampPos ${g0.lamp}/${g12.lamp}  counts ${g0.nL}L/${g0.nP}P/${g0.nX}X vs ${g12.nL}L/${g12.nP}P/${g12.nX}X  ` +
+    `${genOk ? 'GEN-COUPLE ok' : 'GEN-COUPLE FAIL - constructing an enemy moves the level'}`);
   // A config that could not run is a skip, not a pass (#89); one that ran and failed is a verdict.
   // RELINK-VB is the #55 stale-blocker guard, and it used to print into a step that exited 0.
-  process.exit(staleAll || !stOk || (!idem.skip && !idemOk) ? 1 : 0);
+  process.exit(staleAll || !stOk || (!idem.skip && !idemOk) || !genOk ? 1 : 0);
 }
 
 if (MODE === 'mip') {
