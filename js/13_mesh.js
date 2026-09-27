@@ -28,10 +28,41 @@
 const MESH = (function () {
 
   // proportions in fractions of total body height - kept in sync by the assert below
+  /* How a body dies (#82). `die` is DIEV rows per kind, and the row IS the death: topple angle,
+     the fall direction as a yaw term (see draw - it is free, so a sideways corpse costs no extra
+     vertex set), per-limb hip swing / knee bend / shoulder raise, and how far it sinks. Row 0 of
+     every kind is the pose that shipped before variants existed, down to the number, so a corpse
+     that rolls 0 dies exactly the way it used to and every contrast number measured against it
+     still means what it said. The rows differ per kind on purpose: a hound's legs go out stiff,
+     a brute's mass takes it down off-axis, and a grunt crumples the way it always did.
+     Limb arrays are indexed the way the leg/arm loop is: [0] = -side (the body's right), [1] =
+     +side. sw is the hip swing from straight down (+ forward), bd the knee bend off that, aa the
+     shoulder raise (+ forward and up) and sa the forearm relative to it. */
   const SPEC = {
-    grunt: { aspect: 0.62, hip: 0.50, sh: 0.815, head: 0.915, headR: 0.068, torso: 0.235, hipLat: 0.055, shLat: 0.098, thigh: 0.245, shin: 0.235, upper: 0.175, fore: 0.165, limb: 0.040, arm: 0.031 },
-    hound: { aspect: 1.02, hip: 0.50, sh: 0.72, head: 0.80, headR: 0.095, torso: 0.48, hipLat: 0.10, shLat: 0.13, thigh: 0.21, shin: 0.21, upper: 0.17, fore: 0.17, limb: 0.038, arm: 0.034 },
-    brute: { aspect: 0.80, hip: 0.44, sh: 0.775, head: 0.855, headR: 0.080, torso: 0.33, hipLat: 0.075, shLat: 0.16, thigh: 0.205, shin: 0.20, upper: 0.20, fore: 0.18, limb: 0.052, arm: 0.046 },
+    grunt: {
+      aspect: 0.62, hip: 0.50, sh: 0.815, head: 0.915, headR: 0.068, torso: 0.235, hipLat: 0.055, shLat: 0.098, thigh: 0.245, shin: 0.235, upper: 0.175, fore: 0.165, limb: 0.040, arm: 0.031,
+      die: [
+        { tp: 1.35, yw: 0.0, sw: [0.45, -0.45], bd: [0.85, 0.85], aa: [0.50, 0.50], sa: [-0.20, -0.20], sk: 0.02 },
+        { tp: 1.20, yw: TAU * 0.25, sw: [0.80, -0.15], bd: [0.40, 1.15], aa: [1.15, 0.20], sa: [-0.30, -0.55], sk: 0.03 },
+        { tp: 1.55, yw: 0.30, sw: [0.10, 0.35], bd: [1.30, 1.05], aa: [0.10, 0.25], sa: [-0.45, -0.40], sk: 0.05 },
+      ],
+    },
+    hound: {
+      aspect: 1.02, hip: 0.50, sh: 0.72, head: 0.80, headR: 0.095, torso: 0.48, hipLat: 0.10, shLat: 0.13, thigh: 0.21, shin: 0.21, upper: 0.17, fore: 0.17, limb: 0.038, arm: 0.034,
+      die: [
+        { tp: 1.35, yw: 0.0, sw: [0.45, -0.45], bd: [0.85, 0.85], aa: [0.50, 0.50], sa: [-0.20, -0.20], sk: 0.02 },
+        { tp: 1.45, yw: -TAU * 0.25, sw: [0.70, -0.70], bd: [0.20, 0.25], aa: [0.85, -0.30], sa: [-0.15, -0.60], sk: 0.02 },
+        { tp: 1.25, yw: 0.60, sw: [0.85, -0.25], bd: [0.35, 1.00], aa: [0.65, 0.10], sa: [-0.55, -0.25], sk: 0.04 },
+      ],
+    },
+    brute: {
+      aspect: 0.80, hip: 0.44, sh: 0.775, head: 0.855, headR: 0.080, torso: 0.33, hipLat: 0.075, shLat: 0.16, thigh: 0.205, shin: 0.20, upper: 0.20, fore: 0.18, limb: 0.052, arm: 0.046,
+      die: [
+        { tp: 1.35, yw: 0.0, sw: [0.45, -0.45], bd: [0.85, 0.85], aa: [0.50, 0.50], sa: [-0.20, -0.20], sk: 0.02 },
+        { tp: -1.15, yw: 0.0, sw: [0.20, -0.20], bd: [0.30, 0.30], aa: [1.00, 0.90], sa: [0.35, 0.30], sk: 0.03 },
+        { tp: 1.30, yw: -TAU * 0.25, sw: [0.55, -0.10], bd: [1.10, 0.45], aa: [0.20, 0.75], sa: [-0.50, -0.15], sk: 0.06 },
+      ],
+    },
   };
   // js/11_rig.js COL: SKIN=armor, DARK=dark, CLOTH=cloth, decoded to numbers
   const SKIN = { grunt: [58, 66, 80], hound: [65, 82, 47], brute: [67, 48, 79] };
@@ -51,6 +82,17 @@ const MESH = (function () {
   const SRC = { hip: 0.50, torso: 0.235, limb: 0.040 };
   if (SPEC.grunt.hip !== SRC.hip || SPEC.grunt.torso !== SRC.torso || SPEC.grunt.limb !== SRC.limb)
     console.warn('MESH SPEC drifted from js/11_rig.js SPEC');
+
+  /* ---- death variants (#82) -------------------------------------------------
+     Until now the ONLY thing that made two corpses differ was which leg the loop happened to
+     visit first (`sw = -0.45 * side`, js/13_mesh.js:201 on main - the discriminator was the loop
+     index, not the enemy), so a firefight left twenty identical silhouettes behind. A kind now
+     authors DIEV rows above and the variant is rolled AT SPAWN into e.dv, never at death: a
+     death-time roll cannot be reproduced under DEV.tick, which never seeds RNG, so the live page
+     could not be checked. Row 0 is the old pose, so nothing about the shipped picture changes. */
+  const DIEV = 3;
+  for (const k in SPEC) if (!SPEC[k].die || SPEC[k].die.length !== DIEV)
+    console.warn('MESH SPEC.' + k + '.die must author exactly ' + DIEV + ' death variants');
 
   /* scratch, all hoisted: a triangle per call, no allocation in the draw loop
      (js/40_render.js pays for exactly this lesson - an out-param in a module
@@ -320,24 +362,24 @@ const MESH = (function () {
      - `lean` is NOT an input. The rig passed it to the raster but left it out of its own cache key
        (js/11_rig.js:213), so a cached pose answered with whichever lean it happened to be authored
        with. The mesh authors pitch from atk and die instead, where the bucket means what it says. */
-  function joints(kind, p, mv, atk, die) {
-    const s = SPEC[kind], dying = die > 0.01;
+  function joints(kind, p, mv, atk, die, dv) {
+    const s = SPEC[kind], dying = die > 0.01, dr = dying ? dieRow(kind, dv) : null;
     const q = { bob: 0, pitch: 0, topple: 0, leg: [], arm: [] };
-    q.bob = dying ? -die * 0.02 : -mv * 0.016 * Math.abs(Math.sin(p * TAU));
+    q.bob = dying ? -die * dr.sk : -mv * 0.016 * Math.abs(Math.sin(p * TAU));
     q.pitch = dying ? 0 : atk * 0.20;
-    q.topple = dying ? die * 1.35 : 0;                // the rig's die pitch, now about the ground line
+    q.topple = dying ? die * dr.tp : 0;               // the rig's die pitch, now about the ground line
     for (let i = 0; i < 2; i++) {
       const side = i ? 1 : -1, a2 = p * TAU + (i ? Math.PI : 0);
-      const sw = dying ? -0.45 * side : Math.sin(a2) * (0.06 + 0.30 * mv);
+      const sw = dying ? dr.sw[i] : Math.sin(a2) * (0.06 + 0.30 * mv);
       const lift = dying ? 0 : 0.05 * mv * Math.max(0, Math.sin(a2 + 0.6));
-      const bend = dying ? 0.85 : 0.02 + 0.6 * mv * Math.max(0, Math.sin(a2 + 1.05));
+      const bend = dying ? dr.bd[i] : 0.02 + 0.6 * mv * Math.max(0, Math.sin(a2 + 1.05));
       const kx = side * s.hipLat * 0.8, ky = s.hip + q.bob - s.thigh * Math.cos(sw) + lift;
       const kz = s.thigh * Math.sin(sw) + 0.01, sa2 = sw - bend;
       q.leg.push({ kx, ky, kz, fx: kx, fy: ky - s.shin * Math.cos(sa2), fz: kz + s.shin * Math.sin(sa2) });
-      const aa = dying ? 0.5 : Math.sin(a2 + Math.PI) * (0.05 + 0.26 * mv) + atk * 1.15;
+      const aa = dying ? dr.aa[i] : Math.sin(a2 + Math.PI) * (0.05 + 0.26 * mv) + atk * 1.15;
       const ax = side * s.shLat, ay = s.sh + q.bob;
       const ey = ay - s.upper * Math.cos(aa), ez = s.upper * Math.sin(aa) + 0.02;
-      const sa3 = aa + (dying ? -0.2 : 0.24 - 0.18 * atk);
+      const sa3 = aa + (dying ? dr.sa[i] : 0.24 - 0.18 * atk);
       q.arm.push({ ex: ax * 1.05, ey, ez, hx: ax * 1.1, hy: ey - s.fore * Math.cos(sa3), hz: ez + s.fore * Math.sin(sa3) });
     }
     return q;
@@ -347,8 +389,15 @@ const MESH = (function () {
   const MODELS = {};
   /* a prop's static geometry, or a body from its pose. The pose is computed ONLY for a body: joints()
      reads SPEC, and SPEC has no prop rows - a prop never has a phase bucket to begin with. */
-  function geoFor(kind, p, mv, atk, die) {
-    if (!PROPGEO[kind]) return emit(kind, joints(kind, p, mv, atk, die));
+  /* the variant's row, or the shipped pose. A prop has no SPEC row at all and never topples, so
+     for it the default is not a fallback but the answer: no angle, no fall direction. */
+  function dieRow(kind, dv) {
+    const t = SPEC[kind] && SPEC[kind].die;
+    return t ? t[((dv | 0) % DIEV + DIEV) % DIEV] : SPEC.grunt.die[0];
+  }
+
+  function geoFor(kind, p, mv, atk, die, dv) {
+    if (!PROPGEO[kind]) return emit(kind, joints(kind, p, mv, atk, die, dv));
     const b = PROPGEO[kind](new Builder());
     /* propTex puts every prop sprite through Surf.lift(1.35, 6) - "sprites are albedo: they get lit
        again in the scene" (js/05_paint.js:220) - so the numbers in PROPGEO are not yet the albedo the
@@ -368,7 +417,7 @@ const MESH = (function () {
        a grunt - a prop converted by mistake would have shipped as a small grey soldier, which is the
        failure #76 asks to make loud. A missing row is a bug in the caller, so it throws. */
     if (!SPEC[kind] && !PROPGEO[kind]) throw new Error('MESH: no geometry authored for kind "' + kind + '"');
-    const b = geoFor(kind, 0, 0, 0, 0);
+    const b = geoFor(kind, 0, 0, 0, 0, 0);
     const mdl = { kind, p: new Float32Array(b.p), t: new Uint16Array(b.t), em: Uint8Array.from(b.e), nV: b.p.length / 6, tris: b.t.length / 3 };
     MODELS[kind] = mdl;
     return mdl;
@@ -376,19 +425,19 @@ const MESH = (function () {
 
   /* ---- pose table: one vertex set per phase bucket ---------------------------
      The amortization the rig had (js/11_rig.js BUCKETS + its LRU pose cache), moved from textures
-     to vertices: 8 gait phases x 3 move levels x 4 attack x 6 death per kind, built on first sight
-     and LRU-evicted under a byte cap, so a moving enemy costs a Map hit and an array read instead
-     of a vertex rebuild. Buckets are ENDPOINTS except the gait phase, which is periodic: bucket i
-     is phase i/8, and mv/atk/die run 0..1 so the last bucket is a full stride, a full extension
-     and a flat corpse. `MESH.setCache(false)` turns the table off, which is the rebuild-per-frame
-     half of the cost A/B (#73 acceptance). */
+     to vertices: 8 gait phases x 3 move levels x 4 attack per kind, plus 5 death buckets x DIEV
+     variants per kind, built on first sight and LRU-evicted under a byte cap, so a moving enemy
+     costs a Map hit and an array read instead of a vertex rebuild. Buckets are ENDPOINTS except
+     the gait phase, which is periodic: bucket i is phase i/8, and mv/atk/die run 0..1 so the last
+     bucket is a full stride, a full extension and a flat corpse. `MESH.setCache(false)` turns the
+     table off, which is the rebuild-per-frame half of the cost A/B (#73 acceptance). */
   const PB = { ph: 8, mv: 3, atk: 4, die: 6 };
   const POSE = new Map();
   const PCAP = 4 << 20;
   let poseBytes = 0, poseMade = 0, CACHE = true;
 
-  function buildPose(m, p, mv, atk, die) {
-    const b = geoFor(m.kind, p, mv, atk, die);
+  function buildPose(m, p, mv, atk, die, dv) {
+    const b = geoFor(m.kind, p, mv, atk, die, dv);
     const n = m.nV, v = new Float32Array(n * 3);
     if (b.p.length !== m.p.length) console.warn('MESH pose vertex count drifted from the rest model: ' + m.kind);
     for (let i = 0; i < n; i++) {
@@ -402,8 +451,15 @@ const MESH = (function () {
     const mv = Math.min(PB.mv - 1, (clamp(o.mv || 0, 0, 0.999) * PB.mv) | 0);
     const ab = Math.min(PB.atk - 1, (clamp(o.atk || 0, 0, 0.999) * PB.atk) | 0);
     const db = Math.min(PB.die - 1, (clamp(o.die || 0, 0, 0.999) * PB.die) | 0);
-    if (!CACHE) return buildPose(m, ph / PB.ph, mv / (PB.mv - 1), ab / (PB.atk - 1), db / (PB.die - 1));
-    const key = m.kind + '|' + ph + '|' + mv + '|' + ab + '|' + db;
+    /* A corpse has no gait: once die > 0.01 joints() reads NONE of p, mv or atk, so for a dying
+       body those three buckets are collapsed out of the key and the death variant goes in. That is
+       exact rather than approximate - the vertices cannot depend on them - and it is what pays for
+       DIEV: 5 buckets x 3 variants per kind replaces the 96 entries per phase that main keyed and
+       built for one and the same corpse. */
+    const dv = db > 0 ? ((o.dv | 0) % DIEV + DIEV) % DIEV : 0;
+    if (!CACHE) return buildPose(m, ph / PB.ph, mv / (PB.mv - 1), ab / (PB.atk - 1), db / (PB.die - 1), dv);
+    const key = db > 0 ? m.kind + '|d' + dv + '|' + db
+      : m.kind + '|' + ph + '|' + mv + '|' + ab;
     const hit = POSE.get(key);
     if (hit !== undefined) { POSE.delete(key); POSE.set(key, hit); return hit; }
     // evict before building, the rig's lesson: a cache that can only shrink on an insert stalls
@@ -411,7 +467,7 @@ const MESH = (function () {
       const old = POSE.entries().next().value;
       POSE.delete(old[0]); poseBytes -= old[1].byteLength;
     }
-    const v = buildPose(m, ph / PB.ph, mv / (PB.mv - 1), ab / (PB.atk - 1), db / (PB.die - 1));
+    const v = buildPose(m, ph / PB.ph, mv / (PB.mv - 1), ab / (PB.atk - 1), db / (PB.die - 1), dv);
     POSE.set(key, v); poseBytes += v.byteLength; poseMade++;
     return v;
   }
@@ -489,13 +545,22 @@ const MESH = (function () {
     o.tz = wz;
   }
 
-  /* draw one mesh. opts: {kind,x,y,z,yaw,scale,self,alpha,flash,tint, p,mv,atk,die}
+  /* draw one mesh. opts: {kind,x,y,z,yaw,scale,self,alpha,flash,tint, p,mv,atk,die,dv}
      alpha < 1 blends (the corpse fade); flash is the hit term folded into the flat colour the
      way the billboard did it; tint is that enemy's per-individual colour jitter. p/mv/atk/die are
      the gait phase, the move amount, the attack progress and the death progress - the same four
-     signals the billboard fed js/11_rig.js - and they select a cached vertex set, not a rebuild. */
+     signals the billboard fed js/11_rig.js - and they select a cached vertex set, not a rebuild.
+     dv is the death variant rolled at spawn (#82): it picks WHICH death pose that is, and one of
+     its terms is added to the yaw rather than to the vertex set. */
   function draw(o) {
-    const m = model(o.kind || 'grunt'), sc = o.scale || 1, cyw = Math.cos(o.yaw || 0), syw = Math.sin(o.yaw || 0);
+    const m = model(o.kind || 'grunt'), sc = o.scale || 1;
+    /* The variant's FALL DIRECTION rides in the yaw, which is free: the yaw is applied to the
+       cached verts below and is not in the key, so "topples onto its own side" is the same vertex
+       set turned a quarter turn rather than a third of the table again (that lever is why the
+       cache grows by 10 sets and not 3x). Only a body that is actually in a death bucket gets
+       one - a live enemy's heading must never move because of a corpse field. */
+    const yaw = (o.die || 0) >= 1 / PB.die ? (o.yaw || 0) + dieRow(o.kind || 'grunt', o.dv).yw : (o.yaw || 0);
+    const cyw = Math.cos(yaw), syw = Math.sin(yaw);
     SELF = o.self === undefined ? true : !!o.self;
     /* EMIS is the entry-wide form of the exemption and EM the per-part one; either is enough to put a
        triangle's pixels on the billboard's light-free path. The billboard reaches it through a texel
@@ -534,7 +599,8 @@ const MESH = (function () {
     /* The pose comes AFTER the cull, for the reason AGENTS.md already states about rigs: work done
        for a body nobody sees is not free. A corpse topples about the contact line its own yaw points
        along, which is why dieAng still rides in `yaw` here - direction is the yaw's job, progress is
-       the vertex set's (js/40_render.js). */
+       the vertex set's (js/40_render.js). The variant's yw is added to that same yaw above, so a
+       corpse that falls sideways aims along dieAng turned a quarter turn. */
     const PP = poseOf(m, o);
     for (let i = 0; i < nV; i++) {
       const bx = PP[i * 3], by = PP[i * 3 + 1], bz = PP[i * 3 + 2];
@@ -593,7 +659,7 @@ const MESH = (function () {
 
   return {
     draw,
-    stats: () => ({ tris, pxFilled, trisCulled, poseEntries: POSE.size, poseMB: +(poseBytes / 1048576).toFixed(2), poseMade }),
+    stats: () => ({ tris, pxFilled, trisCulled, poseEntries: POSE.size, poseMB: +(poseBytes / 1048576).toFixed(2), poseMade, capMB: PCAP / 1048576 }),
     reset: () => { tris = 0; pxFilled = 0; trisCulled = 0; },
     setCache: v => { CACHE = !!v; POSE.clear(); poseBytes = 0; poseMade = 0; return CACHE; },
     trisFor: k => model(k || 'grunt').tris,
@@ -617,5 +683,6 @@ const MESH = (function () {
     },
     PB,
     SPEC,
+    DIEV,
   };
 })();
