@@ -159,6 +159,7 @@ function renderWorld() {
       p: e.anim, mv: e.movingAmt || 0,
       atk: dying || e.atkT <= 0 ? 0 : 1 - clamp(e.atkT / e.type.wind, 0, 1),
       die: dying ? clamp(e.dieT / 0.55, 0, 1) : 0,
+      dv: e.dv | 0,                                   // which death this enemy got at spawn (#82)
     });
   }
   /* ground decals first: they lie on the floor and must not paint over feet */

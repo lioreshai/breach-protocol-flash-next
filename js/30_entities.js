@@ -12,13 +12,23 @@ const ETYPE = {
   hound: { hp: 24, spd: 3.25, r: 0.38, scale: 0.78, melee: 8, reach: 1.15, proj: 0, projDmg: 0, cd: 1.0, wind: 0.22, sight: 19, score: 80, blood: '#4c8a2a', stride: 1.05, gait: 4 },
   brute: { hp: 155, spd: 1.55, r: 0.60, scale: 1.52, melee: 24, reach: 1.75, proj: 7.5, projDmg: 17, cd: 2.2, wind: 0.5, sight: 17, score: 320, blood: '#6b2a9a', stride: 0.62, gait: 2 }
 };
+/* Which of a kind's deaths the next enemy gets (#82). Deliberately NOT a Math.random() draw, and
+   the reason is measured rather than guessed: makeEnemy runs INSIDE genLevel, so one extra draw
+   there advances the seed stream and rewrites every level for a given seed - as (Math.random() *
+   MESH.DIEV) | 0 this turned view.js vert and view.js props red on DIFFERENT worlds (different
+   exit distances, prop positions, a 4.07 landing impulse where main read 0.00) without touching a
+   line of shading. A counter costs no draw, is reproducible under DEV.tick which never seeds RNG,
+   and hands out the variants evenly through a firefight instead of rolling the same one twice. */
+let dvNext = 0;
 function makeEnemy(kind, x, y) {
   const t = ETYPE[kind];
+  dvNext = (dvNext + 1) % MESH.DIEV;
   return {
     kind, type: t, x, y, vx: 0, vy: 0, r: t.r, scale: t.scale,
     hp: Math.round(t.hp * DIFFS[S.diff].hp), maxhp: Math.round(t.hp * DIFFS[S.diff].hp),
     state: 'sleep', anim: Math.random() * 4, atkT: 0, cd: rnd(1.2), dieT: 0, flashT: 0, stagger: 0, loseT: 1.6,
     alert: false, lx: x, ly: y, stuck: 0, side: Math.random() < 0.5 ? 1 : -1, sideT: 0, movingAmt: 0,
+    dv: dvNext,                                       // which death this one gets (#82), fixed at spawn
     tint: [1 + (Math.random() - 0.5) * 0.16, 1 + (Math.random() - 0.5) * 0.14, 1 + (Math.random() - 0.5) * 0.12],
     atkMode: 'melee', ph: Math.random() * TAU,
     // locomotion state: velocity is persisted so motion has inertia, and facing turns

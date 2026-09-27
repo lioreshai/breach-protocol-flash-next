@@ -106,6 +106,10 @@
       const o = openAlong(P.ang + off, d), e = makeEnemy(k, o[0], o[1]);
       // makeEnemy scatters gait phase, tint and facing: pin them so two spawns agree
       e.anim = 0; e.stepPhase = 0; e.ph = 0; e.tint = [1, 1, 1]; e.state = 'sleep'; e.alert = false;
+      // dv is pinned too, and to i rather than to 0: DEV.tick never seeds RNG, so a random variant
+      // would be unreproducible, and a crowd that cycles the table is what lets the live page show
+      // three different corpses from one call (the game rolls it at random instead)
+      e.dv = i % MESH.DIEV;
       e.ang = Math.atan2(P.y - e.y, P.x - e.x);
       ENEMIES.push(e);
     }
