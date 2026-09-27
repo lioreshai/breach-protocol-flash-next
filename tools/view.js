@@ -1068,9 +1068,14 @@ if (MODE === 'anim') {
      Poses are quantized into buckets by design, so pairs are measured over >= 0.1 s windows; the
      `distinct` count says the cycle is more than a two-frame shuffle. */
   const W = run('BW'), H = run('BH'), N = W * H;
+  const KIND = process.env.KIND || 'grunt';
   const lum = (b, i) => 0.2126 * (b[i] & 255) + 0.7152 * (b[i] >> 8 & 255) + 0.0722 * (b[i] >> 16 & 255);
-  const STEP = n => `(()=>{const e=ENEMIES[0];if(!e)return;for(let i=0;i<${n};i++){const bx=e.x,by=e.y;` +
-    `updateEnemies(1/60);e.x=bx;e.y=by}P.z=floorAt(P.x,P.y)})()`;
+  /* the treadmill: record every body, run ONE real updateEnemies step, put them back. Pinning all
+     of them (not just ENEMIES[0]) is what lets the COST lane hold a crowd still while it animates. */
+  run('var AX = [], AY = [];');
+  const TREAD = `(()=>{const n=ENEMIES.length;for(let i=0;i<n;i++){AX[i]=ENEMIES[i].x;AY[i]=ENEMIES[i].y}` +
+    `updateEnemies(1/60);for(let i=0;i<n;i++){ENEMIES[i].x=AX[i];ENEMIES[i].y=AY[i]}P.z=floorAt(P.x,P.y)})()`;
+  const step = n => { for (let i = 0; i < n; i++) run(TREAD); };
   const BARE = `(()=>{const keep=[];for(const z of ENEMIES)keep.push(z);ENEMIES.length=0;renderWorld();` +
     `for(const z of keep)ENEMIES.push(z)})()`;
   const DTH = 6;                                   // a body pixel counts as changed past this dL
@@ -1109,27 +1114,64 @@ if (MODE === 'anim') {
       '  mean dL ' + pad(d.dl.toFixed(0), 3) + '  ' + (ok ? 'MOVES' : 'IDENTICAL - static body') + (note ? '  ' + note : ''));
     return d;
   };
+  /* Camera: the open cell with the longest clear sight line, looking down it - the same frame for
+     the sweep and for the COST lane, so the two measure the same thing. */
+  const CAMCELL = `(()=>{
+    const cs=[];for(let y=2;y<MH-2;y++)for(let x=2;x<MW-2;x++)if(!isSolid(x+.5,y+.5))cs.push([x,y]);
+    let bc=cs[0],bcv=-1;
+    for(const c of cs){let m=0;for(let k=0;k<12;k++){const d=castRayDist(c[0]+.5,c[1]+.5,Math.cos(k*TAU/12),Math.sin(k*TAU/12),6).dist;if(d>m)m=d;}if(m>bcv){bcv=m;bc=c;}}
+    let best=0,bm=-1;
+    for(let k=0;k<64;k++){const a=k*TAU/64,d=castRayDist(bc[0]+.5,bc[1]+.5,Math.cos(a),Math.sin(a),7).dist;if(d>bm){bm=d;best=a;}}
+    P.x=bc[0]+.5;P.y=bc[1]+.5;P.ang=best;P.pitch=0;P.z=floorAt(P.x,P.y);
+    ENEMIES.length=0;
+    return {cell:bc,ray:+bm.toFixed(2)};
+  })()`;
+  // makeEnemy scatters gait phase, tint and facing: pin them so two runs of this probe agree
+  const PIN = `e.anim=0;e.stepPhase=0;e.ph=0;e.tint=[1,1,1];e.state='chase';e.alert=true;e.cd=1e9;` +
+    `e.movingAmt=0;e.lean=0;e.atkT=0;e.dieT=0;e.stagger=0;e.ang=Math.atan2(P.y-e.y,P.x-e.x);`;
+  /* COST=1: the amortization claim, measured the way #53 measures anything - interleaved batches,
+     load per batch, several rounds, never one pair. `rebuild-per-frame` is this same code with the
+     pose table switched off (MESH.setCache(false)), i.e. what an unamortized animation would cost;
+     main has no table to switch off and no pose input at all, so its run of this lane times the
+     static bodies it ships. */
+  if (process.env.COST) {
+    const os = require('os'), frames = +(process.env.FRAMES || 60), rounds = +(process.env.ROUNDS || 4);
+    const hasCache = run('typeof MESH.setCache==="function"');
+    const SET = on => hasCache ? 'MESH.setCache(' + on + ');' : '';
+    const PARK = `(()=>{${SET('true')}while(ENEMIES.length)PARKED.push(ENEMIES.pop())})()`;
+    const UNP = on => `(()=>{${SET(on)}while(PARKED.length)ENEMIES.push(PARKED.pop())})()`;
+    const variants = hasCache
+      ? [['12 bodies, phase-cache', UNP('true')], ['12 bodies, rebuild per frame', UNP('false')], ['0 bodies (the frame floor)', PARK]]
+      : [['12 bodies, static geometry', UNP('true')], ['0 bodies (the frame floor)', PARK]];
+    run('var PARKED = [];');
+    seedRng(4242);
+    run(`S.mode='play'; S.locked=false; startLevel(0, true);`);
+    const pl = run(CAMCELL);
+    run(`(()=>{const K=['grunt','hound','brute'];for(let i=0;i<12;i++){const a=P.ang+(i/11-0.5)*1.4,d=2.4+(i%4)*0.9;` +
+      `const e=makeEnemy(K[i%3],P.x+Math.cos(a)*d,P.y+Math.sin(a)*d);${PIN}e.anim=e.stepPhase=i*0.11;ENEMIES.push(e)}})()`);
+    console.log('cost: 12 bodies (4 each of grunt/hound/brute) in a 1.4 rad arc at 2.4-5.1 m, camera at cell ' +
+      pl.cell + ', ' + frames + ' frames per batch, ' + rounds + ' interleaved rounds');
+    for (let r = 0; r < rounds; r++) for (const [name, toggle] of variants) {
+      run(toggle);
+      step(24);                                        // warm: each side pays its own first builds
+      const t0 = Date.now();
+      for (let i = 0; i < frames; i++) { run(TREAD); run('renderWorld()'); }
+      const s = run('MESH.stats()');
+      console.log('  round ' + r + '  ' + name.padEnd(30) + ((Date.now() - t0) / frames).toFixed(2) +
+        ' ms/frame   load ' + os.loadavg()[0].toFixed(2) + '   pose table ' + s.poseEntries +
+        ' entries / ' + s.poseMB + ' MB, ' + s.poseMade + ' built');
+    }
+    process.exit(0);
+  }
   for (let li = 0; li < run('LEVELS.length'); li++) {
     seedRng(4242 + li * 31);
     run(`S.mode='play'; S.locked=false; startLevel(${li}, true);`);
-    const setup = run(`(()=>{
-      const cs=[];for(let y=2;y<MH-2;y++)for(let x=2;x<MW-2;x++)if(!isSolid(x+.5,y+.5))cs.push([x,y]);
-      let bc=cs[0],bcv=-1;
-      for(const c of cs){let m=0;for(let k=0;k<12;k++){const d=castRayDist(c[0]+.5,c[1]+.5,Math.cos(k*TAU/12),Math.sin(k*TAU/12),6).dist;if(d>m)m=d;}if(m>bcv){bcv=m;bc=c;}}
-      let best=0,bm=-1;
-      for(let k=0;k<64;k++){const a=k*TAU/64,d=castRayDist(bc[0]+.5,bc[1]+.5,Math.cos(a),Math.sin(a),7).dist;if(d>bm){bm=d;best=a;}}
-      P.x=bc[0]+.5;P.y=bc[1]+.5;P.ang=best;P.pitch=0;P.z=floorAt(P.x,P.y);
-      ENEMIES.length=0;
-      let t=Math.min(1.9,Math.max(1.3,bm*0.7)),ex=P.x+Math.cos(P.ang)*t,ey=P.y+Math.sin(P.ang)*t;
-      while(t>0.6&&isSolid(ex,ey)){t-=0.2;ex=P.x+Math.cos(P.ang)*t;ey=P.y+Math.sin(P.ang)*t;}
-      const e=makeEnemy('grunt',ex,ey);
-      e.anim=0;e.stepPhase=0;e.ph=0;e.tint=[1,1,1];e.state='chase';e.alert=true;e.cd=1e9;
-      e.movingAmt=0;e.lean=0;e.atkT=0;e.dieT=0;e.stagger=0;e.ang=Math.atan2(P.y-e.y,P.x-e.x);
-      ENEMIES.push(e);
-      return {d:+t.toFixed(2),cell:bc};
-    })()`);
-    console.log(`level ${li}  buf ${W}x${H}  body at ${setup.d} m, cell ${setup.cell}`);
-    run(STEP(8));                                     // warm: walking speed reached, facing settled
+    const pl = run(CAMCELL);
+    const setup = run(`(()=>{let t=Math.min(1.9,Math.max(1.3,${pl.ray}*0.7)),ex=P.x+Math.cos(P.ang)*t,ey=P.y+Math.sin(P.ang)*t;` +
+      `while(t>0.6&&isSolid(ex,ey)){t-=0.2;ex=P.x+Math.cos(P.ang)*t;ey=P.y+Math.sin(P.ang)*t;}` +
+      `const e=makeEnemy('${KIND}',ex,ey);${PIN}ENEMIES.push(e);return +t.toFixed(2)})()`);
+    console.log(`level ${li}  buf ${W}x${H}  ${KIND} at ${setup} m, cell ${pl.cell}`);
+    step(8);                                            // warm: walking speed reached, facing settled
     const s0 = shot(), s0b = shot();
     const m0 = maskOf(s0);
     if (m0.n < MASKMIN) { bad++; console.log('  mask ' + m0.n + ' px: NO BODY TO JUDGE - the probe cannot pass'); }
@@ -1138,7 +1180,7 @@ if (MODE === 'anim') {
     console.log('  replay         changed ' + pad(rp.pct.toFixed(2), 5) + '% of ' + pad(m0.n, 5) + ' mask px  ' +
       (rp.pct > 0.5 ? 'WORLD CHURN FAKES THE DIFF' : 'noise floor, so the rows below are shape'));
     const samples = [s0];
-    for (let s = 1; s <= 8; s++) { run(STEP(3)); samples.push(shot()); }   // 3 steps = 0.05 s
+    for (let s = 1; s <= 8; s++) { step(3); samples.push(shot()); }   // 3 steps = 0.05 s
     const seen = new Set();
     for (const s of samples) {
       let h = 0;

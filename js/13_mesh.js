@@ -7,9 +7,9 @@
    sides, a real depth per pixel and - the part a billboard cannot do -
    self-occlusion: an arm behind a torso is hidden by the torso.
 
-   Nothing here is wired into ENEMIES or renderWorld: DEV.mesh() is the only
-   caller, so the billboard path is untouched and can be A/B'd against this.
-   Loading this file changes no pixel of a frame nobody asked to draw.
+   Since #72 the enemy list IS the caller: js/40_render.js hands every enemy to MESH.draw with the
+   four pose signals the billboard used to feed js/11_rig.js. DEV.mesh() is the second caller and
+   draws extra bodies over a rendered frame, so the two paths can still be A/B'd against each other.
 
    Depth: the framebuffer's zbuf is one perpendicular distance per PIXEL
    (js/40_render.js:50), not per screen column as it was when this rasterizer
@@ -62,16 +62,44 @@ const MESH = (function () {
   let ALPHA = 1, FLASH = 0, TINT = null;               // per-draw terms the enemy list carries
   let CR = 0, CG = 0, CB = 0;                       // shaded colour of the current triangle
 
-  /* ---- geometry emit: tubes and boxes into a flat vertex/index list ---- */
+  /* ---- geometry emit: tubes and boxes into a flat vertex/index list ----
+     Every vertex leaves through the builder's current transform: a rotation about the body's
+     lateral axis plus a translation. That is what lets a pose LEAN a torso and TOPPLE a corpse
+     without the emit code knowing either is happening, and it is resolved once per pose bucket,
+     never per frame. */
+  const PT = [0, 0, 0];
   function Builder() {
     this.p = [];                                    // x,y,z,r,g,b
     this.t = [];                                    // i0,i1,i2
+    this.ca = 1; this.sa = 0;                       // rotation about x, positive tips the up axis forward
+    this.cx = 0; this.cy = 0; this.cz = 0;
   }
   const B = { cross: (ax, ay, az, bx, by, bz) => [ay * bz - az * by, az * bx - ax * bz, ax * by - ay * bx] };
 
-  /* tapered tube from a to b (body space, y up), radii ra->rb, colour c */
+  /* compose "rotate by ang about the pivot (py,pz)" into the current transform:
+     R2(R1 p + c1) = R(a1+a2) p + (R2 c1 + c2), so one angle and one vector carry the whole chain */
+  Builder.prototype.tip = function (ang, py, pz) {
+    if (!ang) return this;
+    const ca = Math.cos(ang), sa = Math.sin(ang), y = this.cy, z = this.cz;
+    this.cy = ca * y - sa * z + py - (ca * py - sa * pz);
+    this.cz = sa * y + ca * z + pz - (sa * py + ca * pz);
+    const k = Math.atan2(this.sa * ca + this.ca * sa, this.ca * ca - this.sa * sa);
+    this.ca = Math.cos(k); this.sa = Math.sin(k);
+    return this;
+  };
+  Builder.prototype.pt = function (x, y, z) {
+    const ca = this.ca, sa = this.sa;
+    PT[0] = x + this.cx; PT[1] = y * ca - z * sa + this.cy; PT[2] = y * sa + z * ca + this.cz;
+    return PT;
+  };
+
+  /* tapered tube from a to b (body space, y up, +z forward), radii ra->rb, colour c */
   Builder.prototype.tube = function (ax, ay, az, bx, by, bz, ra, rb, c) {
-    let dx = bx - ax, dy = by - ay, dz = bz - az;
+    const pa = this.pt(ax, ay, az);
+    const p0x = pa[0], p0y = pa[1], p0z = pa[2];            // pt shares one scratch array
+    const pb = this.pt(bx, by, bz);
+    let dx = pb[0] - p0x, dy = pb[1] - p0y, dz = pb[2] - p0z;
+    ax = p0x; ay = p0y; az = p0z; bx = pb[0]; by = pb[1]; bz = pb[2];
     const L = Math.hypot(dx, dy, dz) || 1e-6;
     dx /= L; dy /= L; dz /= L;
     // two orthogonals to the axis; pick the ref axis furthest from it for stability
@@ -107,39 +135,122 @@ const MESH = (function () {
     ];
     for (const q of faces) {
       const b0 = this.p.length / 6;
-      for (const qv of q) this.p.push(qv[0], qv[1], qv[2], c[0], c[1], c[2]);
+      for (const qv of q) { const p = this.pt(qv[0], qv[1], qv[2]); this.p.push(p[0], p[1], p[2], c[0], c[1], c[2]); }
       this.t.push(b0, b0 + 1, b0 + 2, b0, b0 + 2, b0 + 3);
     }
     return this;
   };
 
-  /* ---- per-kind model: a biped built from the SPEC fractions ---- */
+  /* ---- one body from one pose -------------------------------------------------
+     One skeleton for every kind - hound and brute have always been proportional variations of the
+     grunt here, so a single gait function drives all three and SPEC supplies the lengths. The
+     VERTEX ORDER this function produces is what lets a cached pose share the rest model's colour
+     and index arrays: every call runs the same emits in the same order, only the numbers differ. */
+  function emit(kind, q) {
+    const s = SPEC[kind] || SPEC.grunt, sk = SKIN[kind] || SKIN.grunt, dk = DARK[kind] || DARK.grunt, cl = CLOTH[kind] || CLOTH.grunt;
+    const b = new Builder(), hipY = s.hip + q.bob, shY = s.sh + q.bob;
+    b.tip(q.topple, 0.02, 0);                        // a corpse turns about its CONTACT LINE, at the feet
+    for (let i = 0; i < 2; i++) {
+      const L = q.leg[i], hx = (i ? 1 : -1) * s.hipLat;
+      // leg: hip -> knee -> foot, swung by the gait (these were straight: "animation plugs in here")
+      b.tube(hx, hipY, 0, L.kx, L.ky, L.kz, s.limb, s.limb * 0.86, cl);
+      b.tube(L.kx, L.ky, L.kz, L.fx, L.fy, L.fz, s.limb * 0.86, s.limb * 0.7, cl);
+      b.box(L.fx, Math.max(0.03, L.fy + 0.01), L.fz + 0.04, s.limb * 1.1, 0.03, s.limb * 1.8, dk);
+    }
+    b.tip(q.pitch, hipY, 0);                         // the wind-up tips everything above the hip
+    b.box(0, (hipY + shY) * 0.5, 0, s.shLat * 1.05, (shY - hipY) * 0.5, s.torso * 0.42, sk);
+    b.box(0, hipY + 0.02, 0, s.hipLat * 1.3, 0.045, s.torso * 0.34, dk);
+    b.box(0, s.head + q.bob + s.headR * 0.6, 0, s.headR * 0.86, s.headR * 0.95, s.headR * 0.80, dk);
+    b.box(0, s.head + q.bob + s.headR * 0.7, s.headR * 0.72, s.headR * 0.62, s.headR * 0.30, s.headR * 0.22, [255, 208, 138]);
+    for (let i = 0; i < 2; i++) {
+      const A = q.arm[i], ax = (i ? 1 : -1) * s.shLat;
+      b.tube(ax, shY, 0, A.ex, A.ey, A.ez, s.arm, s.arm * 0.86, sk);
+      b.tube(A.ex, A.ey, A.ez, A.hx, A.hy, A.hz, s.arm * 0.86, s.arm * 0.7, sk);
+    }
+    return b;
+  }
+
+  /* ---- the gait itself ------------------------------------------------------
+     Magnitudes are the billboard's (rigBiped in js/11_rig.js), so a body reads like the sprite it
+     replaced. Two things are deliberate:
+     - at mv = atk = die = 0 the chains collapse onto the straight stance #72 shipped, so the idle
+       picture - and every contrast number measured against it - is unchanged;
+     - `lean` is NOT an input. The rig passed it to the raster but left it out of its own cache key
+       (js/11_rig.js:213), so a cached pose answered with whichever lean it happened to be authored
+       with. The mesh authors pitch from atk and die instead, where the bucket means what it says. */
+  function joints(kind, p, mv, atk, die) {
+    const s = SPEC[kind] || SPEC.grunt, dying = die > 0.01;
+    const q = { bob: 0, pitch: 0, topple: 0, leg: [], arm: [] };
+    q.bob = dying ? -die * 0.02 : -mv * 0.016 * Math.abs(Math.sin(p * TAU));
+    q.pitch = dying ? 0 : atk * 0.20;
+    q.topple = dying ? die * 1.35 : 0;                // the rig's die pitch, now about the ground line
+    for (let i = 0; i < 2; i++) {
+      const side = i ? 1 : -1, a2 = p * TAU + (i ? Math.PI : 0);
+      const sw = dying ? -0.45 * side : Math.sin(a2) * (0.06 + 0.30 * mv);
+      const lift = dying ? 0 : 0.05 * mv * Math.max(0, Math.sin(a2 + 0.6));
+      const bend = dying ? 0.85 : 0.02 + 0.6 * mv * Math.max(0, Math.sin(a2 + 1.05));
+      const kx = side * s.hipLat * 0.8, ky = s.hip + q.bob - s.thigh * Math.cos(sw) + lift;
+      const kz = s.thigh * Math.sin(sw) + 0.01, sa2 = sw - bend;
+      q.leg.push({ kx, ky, kz, fx: kx, fy: ky - s.shin * Math.cos(sa2), fz: kz + s.shin * Math.sin(sa2) });
+      const aa = dying ? 0.5 : Math.sin(a2 + Math.PI) * (0.05 + 0.26 * mv) + atk * 1.15;
+      const ax = side * s.shLat, ay = s.sh + q.bob;
+      const ey = ay - s.upper * Math.cos(aa), ez = s.upper * Math.sin(aa) + 0.02;
+      const sa3 = aa + (dying ? -0.2 : 0.24 - 0.18 * atk);
+      q.arm.push({ ex: ax * 1.05, ey, ez, hx: ax * 1.1, hy: ey - s.fore * Math.cos(sa3), hz: ez + s.fore * Math.sin(sa3) });
+    }
+    return q;
+  }
+
+  /* ---- per-kind rest model: topology, colours and the vertex count everything else keys on ---- */
   const MODELS = {};
   function model(kind) {
     if (MODELS[kind]) return MODELS[kind];
-    const s = SPEC[kind] || SPEC.grunt, sk = SKIN[kind] || SKIN.grunt, dk = DARK[kind] || DARK.grunt, cl = CLOTH[kind] || CLOTH.grunt;
-    const b = new Builder();
-    const hipY = s.hip, shY = s.sh, bodyZ = 0;
-    // torso: a slab from hip to shoulder, wider at the shoulders
-    b.box(0, (hipY + shY) * 0.5, bodyZ, s.shLat * 1.05, (shY - hipY) * 0.5, s.torso * 0.42, sk);
-    b.box(0, hipY + 0.02, bodyZ, s.hipLat * 1.3, 0.045, s.torso * 0.34, dk);
-    // head + a visor plate so the front is readable
-    b.box(0, s.head + s.headR * 0.6, bodyZ, s.headR * 0.86, s.headR * 0.95, s.headR * 0.80, dk);
-    b.box(0, s.head + s.headR * 0.7, bodyZ + s.headR * 0.72, s.headR * 0.62, s.headR * 0.30, s.headR * 0.22, [255, 208, 138]);
-    for (const side of [-1, 1]) {
-      // leg: hip -> knee -> foot, straight for the spike (animation plugs in here)
-      const hx = side * s.hipLat, kx = side * s.hipLat * 0.8;
-      b.tube(hx, hipY, 0, kx, hipY - s.thigh, 0.01, s.limb, s.limb * 0.86, cl);
-      b.tube(kx, hipY - s.thigh, 0.01, kx, Math.max(0.02, hipY - s.thigh - s.shin), 0.02, s.limb * 0.86, s.limb * 0.7, cl);
-      b.box(kx, 0.03, 0.06, s.limb * 1.1, 0.03, s.limb * 1.8, dk);
-      // arm: shoulder -> elbow -> hand
-      const ax = side * s.shLat;
-      b.tube(ax, shY, 0, ax * 1.05, shY - s.upper, 0.02, s.arm, s.arm * 0.86, sk);
-      b.tube(ax * 1.05, shY - s.upper, 0.02, ax * 1.1, shY - s.upper - s.fore, 0.06, s.arm * 0.86, s.arm * 0.7, sk);
-    }
+    const b = emit(kind, joints(kind, 0, 0, 0, 0));
     const mdl = { kind, p: new Float32Array(b.p), t: new Uint16Array(b.t), nV: b.p.length / 6, tris: b.t.length / 3 };
     MODELS[kind] = mdl;
     return mdl;
+  }
+
+  /* ---- pose table: one vertex set per phase bucket ---------------------------
+     The amortization the rig had (js/11_rig.js BUCKETS + its LRU pose cache), moved from textures
+     to vertices: 8 gait phases x 3 move levels x 4 attack x 6 death per kind, built on first sight
+     and LRU-evicted under a byte cap, so a moving enemy costs a Map hit and an array read instead
+     of a vertex rebuild. Buckets are ENDPOINTS except the gait phase, which is periodic: bucket i
+     is phase i/8, and mv/atk/die run 0..1 so the last bucket is a full stride, a full extension
+     and a flat corpse. `MESH.setCache(false)` turns the table off, which is the rebuild-per-frame
+     half of the cost A/B (#73 acceptance). */
+  const PB = { ph: 8, mv: 3, atk: 4, die: 6 };
+  const POSE = new Map();
+  const PCAP = 4 << 20;
+  let poseBytes = 0, poseMade = 0, CACHE = true;
+
+  function buildPose(m, p, mv, atk, die) {
+    const b = emit(m.kind, joints(m.kind, p, mv, atk, die));
+    const n = m.nV, v = new Float32Array(n * 3);
+    if (b.p.length !== m.p.length) console.warn('MESH pose vertex count drifted from the rest model: ' + m.kind);
+    for (let i = 0; i < n; i++) {
+      v[i * 3] = b.p[i * 6]; v[i * 3 + 1] = b.p[i * 6 + 1]; v[i * 3 + 2] = b.p[i * 6 + 2];
+    }
+    return v;
+  }
+
+  function poseOf(m, o) {
+    const ph = Math.floor(((((o.p || 0) % 1) + 1) % 1) * PB.ph);
+    const mv = Math.min(PB.mv - 1, (clamp(o.mv || 0, 0, 0.999) * PB.mv) | 0);
+    const ab = Math.min(PB.atk - 1, (clamp(o.atk || 0, 0, 0.999) * PB.atk) | 0);
+    const db = Math.min(PB.die - 1, (clamp(o.die || 0, 0, 0.999) * PB.die) | 0);
+    if (!CACHE) return buildPose(m, ph / PB.ph, mv / (PB.mv - 1), ab / (PB.atk - 1), db / (PB.die - 1));
+    const key = m.kind + '|' + ph + '|' + mv + '|' + ab + '|' + db;
+    const hit = POSE.get(key);
+    if (hit !== undefined) { POSE.delete(key); POSE.set(key, hit); return hit; }
+    // evict before building, the rig's lesson: a cache that can only shrink on an insert stalls
+    while (poseBytes > PCAP && POSE.size > 8) {
+      const old = POSE.entries().next().value;
+      POSE.delete(old[0]); poseBytes -= old[1].byteLength;
+    }
+    const v = buildPose(m, ph / PB.ph, mv / (PB.mv - 1), ab / (PB.atk - 1), db / (PB.die - 1));
+    POSE.set(key, v); poseBytes += v.byteLength; poseMade++;
+    return v;
   }
 
   /* ---- triangle rasterizer: flat shading, per-pixel 1/z, near-plane clip ---- */
@@ -215,9 +326,11 @@ const MESH = (function () {
     o.tz = wz;
   }
 
-  /* draw one mesh. opts: {kind,x,y,z,yaw,scale,self,alpha,flash,tint}
+  /* draw one mesh. opts: {kind,x,y,z,yaw,scale,self,alpha,flash,tint, p,mv,atk,die}
      alpha < 1 blends (the corpse fade); flash is the hit term folded into the flat colour the
-     way the billboard did it; tint is that enemy's per-individual colour jitter. */
+     way the billboard did it; tint is that enemy's per-individual colour jitter. p/mv/atk/die are
+     the gait phase, the move amount, the attack progress and the death progress - the same four
+     signals the billboard fed js/11_rig.js - and they select a cached vertex set, not a rebuild. */
   function draw(o) {
     const m = model(o.kind || 'grunt'), sc = o.scale || 1, cyw = Math.cos(o.yaw || 0), syw = Math.sin(o.yaw || 0);
     SELF = o.self === undefined ? true : !!o.self;
@@ -240,8 +353,13 @@ const MESH = (function () {
       const wide = (BH / tYc) * sc * 1.6, sx = (BW * 0.5) * (1 + tXc / tYc);
       if (sx + wide * 0.5 < 0 || sx - wide * 0.5 > BW) return;
     }
+    /* The pose comes AFTER the cull, for the reason AGENTS.md already states about rigs: work done
+       for a body nobody sees is not free. A corpse topples about the contact line its own yaw points
+       along, which is why dieAng still rides in `yaw` here - direction is the yaw's job, progress is
+       the vertex set's (js/40_render.js). */
+    const PP = poseOf(m, o);
     for (let i = 0; i < nV; i++) {
-      const bx = PD[i * 6], by = PD[i * 6 + 1], bz = PD[i * 6 + 2];
+      const bx = PP[i * 3], by = PP[i * 3 + 1], bz = PP[i * 3 + 2];
       VX[i] = o.x + (bx * cyw + bz * syw) * sc;
       VY[i] = o.y + (-bx * syw + bz * cyw) * sc;
       VZ[i] = o.z + by * sc;
@@ -288,10 +406,12 @@ const MESH = (function () {
 
   return {
     draw,
-    stats: () => ({ tris, pxFilled, trisCulled }),
+    stats: () => ({ tris, pxFilled, trisCulled, poseEntries: POSE.size, poseMB: +(poseBytes / 1048576).toFixed(2), poseMade }),
     reset: () => { tris = 0; pxFilled = 0; trisCulled = 0; },
+    setCache: v => { CACHE = !!v; POSE.clear(); poseBytes = 0; poseMade = 0; return CACHE; },
     trisFor: k => model(k || 'grunt').tris,
     vertsFor: k => model(k || 'grunt').nV,
+    PB,
     SPEC,
   };
 })();

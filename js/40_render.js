@@ -124,17 +124,24 @@ function renderWorld() {
   /* Bodies are geometry now (js/13_mesh.js, #39): the mesh carries the enemy's real position,
      heading and world height instead of a billboard's distance, an 8-way yaw bucket and the
      flat-world z: 0. enemyFrame still owns what the mesh cannot express - the corpse fade and
-     the hit flash - and both reach MESH.draw as {alpha,flash}. What the mesh does NOT have yet
-     is animation: its legs are straight, so a walking enemy no longer cycles a gait and a dying
-     one fades in place instead of toppling (B3+). */
+     the hit flash - and both reach MESH.draw as {alpha,flash}. The four pose signals below are the
+     ones the billboard fed js/11_rig.js before #72, so a walking body cycles its gait and a dying
+     one topples (#73). For a corpse the yaw carries dieAng because that is the direction it falls:
+     the vertex set pitches the body toward its own front, so the yaw aims the topple and the die
+     term is how far it has gone. atk is the same progress the shot is timed on in
+     js/30_entities.js:417, so the arm is fully extended on the frame the round leaves the muzzle. */
   for (const e of ENEMIES) {
     const fr = enemyFrame(e);
     if (fr.alpha <= 0.02) continue;
     const heading = e.state === 'dead' && e.dieAng !== undefined ? e.dieAng : e.ang;
+    const dying = e.state === 'dead';
     list.push({
       mesh: true, kind: e.kind, x: e.x, y: e.y, z: floorAt(e.x, e.y),
       yaw: TAU * 0.25 - heading,                      // body +z is its front: see js/13_mesh.js draw
       scale: e.scale, alpha: fr.alpha, flash: fr.flash ? 1 : 0, tint: e.tint,
+      p: e.anim, mv: e.movingAmt || 0,
+      atk: dying || e.atkT <= 0 ? 0 : 1 - clamp(e.atkT / e.type.wind, 0, 1),
+      die: dying ? clamp(e.dieT / 0.55, 0, 1) : 0,
     });
   }
   /* ground decals first: they lie on the floor and must not paint over feet */
