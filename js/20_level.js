@@ -43,6 +43,7 @@ const cellIdx = (x, y) => (y | 0) * MW + (x | 0);
 const ZQ = 0.25;
 const CZ_DEF = 4;                                        // 4 quanta = one unit of ceiling
 const VB_BLOCK = 1, VB_RAMP = 2, VB_LADDER = 4, VB_THRU = 8;
+const VB_KEEP = 0x6666;                    // VB_RAMP|VB_LADDER in each of the four side nibbles: the authored bits
 const FEAT_NONE = 0, FEAT_STAIR = 1, FEAT_LADDER = 2, FEAT_PIT = 3, FEAT_RAIL = 4;
 /* Leaving a cell in direction d steps by (DIRX[d], DIRY[d]); d ^ 2 is the way back in. */
 const DIRX = [1, 0, -1, 0], DIRY = [0, 1, 0, -1];
@@ -141,7 +142,9 @@ function linkBoundaries() {                               // read before one can
       if (cell[i] || cell[n]) { bits |= VB_BLOCK << (d << 2); continue; }
       if (fz[n] - fz[i] > 1 && !(MAP.vb[i] & (VB_RAMP | VB_LADDER) << (d << 2))) bits |= VB_BLOCK << (d << 2);
     }
-    MAP.vb[i] |= bits;
+    // blocking is derived from the grid, so a relink must be able to REMOVE it: OR-ing leaves a
+    // wall behind when a boundary is lowered or flattened. The authored bits survive via VB_KEEP.
+    MAP.vb[i] = (MAP.vb[i] & VB_KEEP) | bits;
   }
   buildCeilPlanes();                                      // ceilings are derived from the same grid
   MAP.linkStamp = ++LINK_STAMP;                           // a relink that never ran is then assertable
