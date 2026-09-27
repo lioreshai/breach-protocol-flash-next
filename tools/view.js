@@ -406,13 +406,72 @@ if (MODE === 'vert') {
     VROW('a VB_LADDER crossing climbs too', vlad > Z0, `P.z ${Z0} -> ${vlad}`);
     VROW('climbing down stops at the column floor', down === Z0, `P.z ${Z0} -> ${down}`);
   }
-  /* The spawn invariant the ordering bug would break: at level start the feet are ON the floor. */
+  /* ---- M3 step 3: a level START has to seat the feet on the grid the level ended up with.
+     genLevel derives P.z from the grid inside itself, so the fresh path self-heals; the paths that
+     do not run resetRun (nextLevel, retry, again) only ever get whatever genLevel happened to
+     write before its last poke at the grid, and vertical state (P.air / P.vz) is never re-seated at
+     all. So every entry path is asserted, and the raised band is authored the way step 4 will
+     author it - MAP.fz written at the end of generation, then linkBoundaries(), which is what keeps
+     ceilPlane honest about the poke (view.js planes is the gate for that). */
+  console.log('spawn altitude');
+  run(`(()=>{ if (globalThis.__genReal) return;
+    globalThis.__genReal = genLevel; globalThis.__spawnBand = 0; globalThis.__spawnPlateau = 0;
+    genLevel = function (li) {
+      const r = globalThis.__genReal(li), dq = globalThis.__spawnBand;
+      if (dq) {
+        // Two pokes, both legal by construction on any geometry, because a poke that makes a face
+        // span 0 blames the renderer instead of the code under test (view.js vert's SPANS rule).
+        // A BLOCK of +-2 columns rises at most 2 quanta: a one-unit room then keeps a face of 0.5.
+        // Anything taller raises the WHOLE grid, so every face keeps the span it already had.
+        if (globalThis.__spawnPlateau) { for (let i = 0; i < MW * MH; i++) MAP.fz[i] += dq; }
+        else {
+          const sx = P.x | 0, sy = P.y | 0;
+          for (let y = Math.max(0, sy - 2); y <= Math.min(MH - 1, sy + 2); y++)
+            for (let x = Math.max(0, sx - 2); x <= Math.min(MW - 1, sx + 2); x++) MAP.fz[y * MW + x] += dq;
+        }
+        linkBoundaries();
+      }
+      return r;
+    }; })()`);
+  /* A level entry, performed the way the game performs it: PRE's startLevel puts the player on the
+     flat grid, then the band is raised and the level is started again through the path under test. */
+  const ENTER = (li, fresh, dq, vz, plateau) => `S.mode='play';S.locked=false;S.diff=1;globalThis.__spawnBand=0;` +
+    `globalThis.__spawnPlateau=0;startLevel(${li},true);P.hp=100;globalThis.__spawnBand=${dq};` +
+    `globalThis.__spawnPlateau=${plateau};` +
+    (vz ? `P.air=true;P.vz=${vz};` : '') + `startLevel(${li},${fresh ? 'true' : 'false'});` +
+    `for(const e of ENEMIES)e.state='sleep';for(const k in keys)delete keys[k];P.crouch=0;`;
+  const PEEK = `({z:P.z,f:floorAt(P.x,P.y),air:P.air?1:0,vz:+P.vz.toFixed(4),` +
+    `q:MAP.fz[((P.y|0)*MW+(P.x|0))],solid:isSolid(P.x,P.y)?1:0,` +
+    `below:(P.z<floorAt(P.x,P.y)-1e-9)?1:0,cap:+((cfg.eye+P.z)-clamp(cfg.eye+P.z,0.12,1.4)).toFixed(4)})`;
+  /* The consequence, not just the number: 60 frames of standing still. Feet below the column's own
+     floor means the step-up eases the camera out of the slab, and a carried-over vz runs the fall
+     integration against a floor that was never left, which costs health for a fall that never did. */
+  const SETTLE = `(()=>{const s=[];for(let i=0;i<60;i++){update(1/60);` +
+    `s.push([+P.z.toFixed(6),+floorAt(P.x,P.y).toFixed(4),P.air?1:0]);}return` +
+    `{off:s.filter(r=>Math.abs(r[0]-r[1])>1e-9).length,air:s.filter(r=>r[2]).length,hp:+P.hp.toFixed(3)}})()`;
+  const LEGAL = `(()=>{let tot=0,bad=0;for(let i=0;i<MW*MH;i++){if(!MAP.cell[i])continue;const x=i%MW,y=(i/MW)|0;` +
+    `for(let d=0;d<4;d++){const nx=x+DIRX[d],ny=y+DIRY[d];if(nx<0||ny<0||nx>=MW||ny>=MH||MAP.cell[ny*MW+nx])continue;` +
+    `tot++;if(!(ceilAt(x,y)-faceZ0(x,y,d)>0))bad++;}}return{tot:tot,bad:bad}})()`;
+  const spawnRow = (label, li, fresh, dq, vz, plateau) => {
+    run(ENTER(li, fresh, dq, vz, plateau || 0));
+    const r = run(PEEK), st = run(SETTLE), lg = run(LEGAL);
+    const ok = r.z === r.f && !r.below && !r.air && r.vz === 0 && !r.solid && !lg.bad &&
+      !st.off && !st.air && st.hp === 100;
+    VROW(label, ok, `P.z ${r.z} vs floorAt ${r.f} (spawn column ${r.q} quanta), feet below the floor ` +
+      `${r.below ? 'YES' : 'no'}, airborne ${r.air}, vz ${r.vz}, in geometry ${r.solid} | faces ` +
+      `${lg.tot - lg.bad}/${lg.tot} legal | then ${st.off}/60 frames off the floor, airborne ${st.air}, ` +
+      `hp ${st.hp}` + (r.cap ? ` | render eye capped ${r.cap} below the grid` : ''));
+  };
   for (let li = 0; li < run('LEVELS.length'); li++) {
-    run(`S.mode='play';startLevel(${li},true);`);
-    const r = run('({z:P.z,f:floorAt(P.x,P.y),air:P.air?1:0,solid:isSolid(P.x,P.y)?1:0})');
-    VROW('L' + li + ' spawn sits on its floor', r.z === r.f && !r.air && !r.solid,
-      `P.z ${r.z} vs floorAt ${r.f}, airborne ${r.air}, inside geometry ${r.solid}`);
+    spawnRow('L' + li + ' spawn on flat ground (new game)', li, true, 0, 0);
+    spawnRow('L' + li + ' spawn on flat ground (level change)', li, false, 0, 0);
+    spawnRow('L' + li + ' entering a level airborne', li, false, 0, -7);
+    spawnRow('L' + li + ' spawn on a +1-quantum band (level change)', li, false, 1, 0);
+    spawnRow('L' + li + ' spawn on a +2-quantum band (new game)', li, true, 2, 0);
+    spawnRow('L' + li + ' spawn on a +2-quantum band (level change)', li, false, 2, 0);
+    spawnRow('L' + li + ' spawn on a +4-quantum plateau (level change)', li, false, 4, 0, 1);
   }
+  run(`if(globalThis.__genReal){genLevel=globalThis.__genReal;globalThis.__genReal=null;globalThis.__spawnBand=0;}`);
   if (bad) { console.log('vert: FAILED'); process.exit(1); }
   console.log('vert: all levels ok');
 }
