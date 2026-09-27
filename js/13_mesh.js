@@ -42,6 +42,11 @@ const MESH = (function () {
   const RC = new Float32Array(NS * 2);
   for (let i = 0; i < NS; i++) { const a = i * Math.PI * 2 / NS; RC[i * 2] = Math.cos(a); RC[i * 2 + 1] = Math.sin(a); }
 
+  /* How far a part reaches INTO the part it joins, in fractions of body height (#74). Parts that
+     butt exactly leave a seam that opens at oblique yaw, because each box's silhouette edge is
+     solved on its own; an overlap makes the junction one silhouette at every angle. */
+  const JOIN = 0.02;
+
   // boot-time drift detector: these three numbers must match js/11_rig.js SPEC
   const SRC = { hip: 0.50, torso: 0.235, limb: 0.040 };
   if (SPEC.grunt.hip !== SRC.hip || SPEC.grunt.torso !== SRC.torso || SPEC.grunt.limb !== SRC.limb)
@@ -160,6 +165,13 @@ const MESH = (function () {
     b.tip(q.pitch, hipY, 0);                         // the wind-up tips everything above the hip
     b.box(0, (hipY + shY) * 0.5, 0, s.shLat * 1.05, (shY - hipY) * 0.5, s.torso * 0.42, sk);
     b.box(0, hipY + 0.02, 0, s.hipLat * 1.3, 0.045, s.torso * 0.34, dk);
+    /* The neck. The torso box ends at the shoulder line and the head box starts above it, and what
+       sat between them was the level behind: 9 rows of daylight on a grunt at 2.4 m (#74). This
+       spans the whole gap plus JOIN into each end, so the junction is solid at any yaw - a prism
+       silhouette is convex and the body axis is inside the prism, so that column is covered by
+       construction. Emitted between the two boxes it stitches, and the emit ORDER is the pose
+       table's vertex order, so it stays here rather than moving with the head. */
+    b.tube(0, shY - JOIN, 0, 0, s.head + q.bob - s.headR * 0.35 + JOIN, 0, s.headR * 0.52, s.headR * 0.46, dk);
     b.box(0, s.head + q.bob + s.headR * 0.6, 0, s.headR * 0.86, s.headR * 0.95, s.headR * 0.80, dk);
     b.box(0, s.head + q.bob + s.headR * 0.7, s.headR * 0.72, s.headR * 0.62, s.headR * 0.30, s.headR * 0.22, [255, 208, 138]);
     for (let i = 0; i < 2; i++) {
