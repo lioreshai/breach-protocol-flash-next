@@ -1237,15 +1237,13 @@ if (MODE === 'anim') {
      A row counts as body if the mesh PAINTED there (the px diff) or WROTE DEPTH there (its zbuf
      nearer than the enemy-free frame's), because either signal alone can be fooled - a body pixel
      that happens to match the wall reads as a gap in colour, and neither can invent coverage that
-     is not there. Measured on origin/main 1b2e493, grunt at 2.4 m in the spawn stance: 97-119
-     head, 120-128 background, 129-181 torso - 9 rows of daylight, 5.6% of body height, which is
-     the live-page defect in #74.
-     The column is the centre of the head's own CROWN row: the parts are stacked on that axis, so it
-     is the body's centre line rather than a guess. The bounding-box centre is checked as a second
-     column when it disagrees. Poses are the spawn stance, +-60 deg of body-vs-camera yaw and one
-     mid-stride bucket: an exact butt still cracks at oblique angles where each box's silhouette
-     edge is solved on its own, and #73's buckets move the shoulders, so a rest-pose-only check
-     would be the check that cannot fail. */
+     is not there. Measured on origin/main 1b2e493, grunt at 2.4 m in the spawn stance: 92-112
+     head, 113-120 background, 121-170 torso - 8 rows of daylight on a 151 px body, which is the
+     live-page defect in #74 (9 rows of 162 there; the deployments differ in buffer size).
+     Poses are the spawn stance, +-60 deg of body-vs-camera yaw and one mid-stride bucket: an exact
+     butt still cracks at oblique angles where each box's silhouette edge is solved on its own, and
+     #73's buckets move the shoulders, so a rest-pose-only check would be the check that cannot
+     fail. */
   const AKIND = run('Object.keys(ETYPE)'), ASPEC = run('Object.keys(MESH.SPEC)');
   const APOSE = [[0, 0, 0, 'spawn'], [-Math.PI / 3, 0, 0, 'yaw -60'], [Math.PI / 3, 0, 0, 'yaw +60'],
   [Math.PI / 6, 0.375, 0.9, 'stride +30']];
@@ -1263,10 +1261,13 @@ if (MODE === 'anim') {
   if (nospec.length) { bad++; attachBad += nospec.length; }
   for (const k of AKIND) {
     for (const [dy, ph, mv, nm] of APOSE) {
-      const ydeg = run(`(()=>{ENEMIES.length=0;const e=makeEnemy('${k}',APX,APY);${PIN}` +
+      const ap = run(`(()=>{ENEMIES.length=0;const e=makeEnemy('${k}',APX,APY);${PIN}` +
         `e.ang=Math.atan2(P.y-e.y,P.x-e.x)+${dy};e.anim=${ph};e.movingAmt=${mv};ENEMIES.push(e);` +
         `let r=(e.ang-P.ang-Math.PI)%TAU;if(r>Math.PI)r-=TAU;if(r<-Math.PI)r+=TAU;` +
-        `return +(r*180/Math.PI).toFixed(0)})()`);
+        `const ex=e.x-camX,ey=e.y-camY;` +
+        `return {deg:+(r*180/Math.PI).toFixed(0),` +
+        `ax:Math.round((BW*0.5)*(1+(dirY*ex-dirX*ey)/(-planeY*ex+planeX*ey)))}})()`);
+      const ydeg = ap.deg;
       const s = shot();
       const m = maskOf(s);
       /* the mask that decides coverage is paint OR depth-written: a leg whose cloth happens to
@@ -1299,18 +1300,23 @@ if (MODE === 'anim') {
       }
       let shRow = bot;
       for (let y = top; y <= bot; y++) if (span[y] * 10 >= wide * 7) { shRow = y; break; }
-      const crown = [];
-      for (let x = 0; x < W; x++) if (cov[top * W + x]) crown.push(x);
-      const cols = [crown[crown.length >> 1]], bc = (lef + rig) >> 1;
-      if (cols[0] !== bc) cols.push(bc);
+      /* The body's own axis, projected: the parts are stacked on the vertical world line through
+         the enemy's feet, and a vertical line projects to ONE screen column (pitch moves the
+         horizon, not the column), so this is the centre line by construction rather than a guess
+         from a bounding box - whose centre drifts off it at oblique yaw, and whose crown-row
+         centre lands on a CORNER of the head box's top face. The axis is inside every part, so
+         every row above the shoulder line must be body here, and the neck's projected half-width
+         is >=3 px at this distance, which is why +-1 is still inside the join. */
+      const cols = [ap.ax - 1, ap.ax, ap.ax + 1];
       const rec = [];
       for (const x of cols) {
-        const runs = []; let st = -1, gap = 0;
+        const runs = []; let st = -1, seen = false, gap = 0;
         for (let y = top; y <= bot; y++) {
           const on = cov[y * W + x];
-          if (on && st < 0) st = y;
-          if (!on && st >= 0) { runs.push([st, y - 1]); st = -1; }
-          if (!on && y < shRow) gap++;
+          if (on) { if (st < 0) st = y; seen = true; }
+          else if (st >= 0) { runs.push([st, y - 1]); st = -1; }
+          // rows above this column's OWN head top are beside the head, not between its parts
+          if (!on && seen && y < shRow) gap++;
         }
         if (st >= 0) runs.push([st, bot]);
         rec.push({ x, runs, gap });
@@ -1318,7 +1324,7 @@ if (MODE === 'anim') {
       const gap = Math.max.apply(null, rec.map(r => r.gap)), h = bot - top + 1;
       const runsTxt = rec.map(r => r.runs.slice(0, 3).map(q => q[0] + '-' + q[1]).join(' ')).join(' | ');
       const noHead = shRow - top < MINDIA;
-      if (process.env.ATTASCII) {
+      if (process.env.ATTASCII) {                          // ATTASCII=1: print the mask, '>' = shRow
         for (let y = top; y <= bot; y += 1) {
           let ln = '';
           for (let x = lef; x <= rig; x++) ln += cov[y * W + x] ? '#' : '.';
@@ -1326,8 +1332,9 @@ if (MODE === 'anim') {
         }
       }
       if (gap > 0 || noHead) { bad++; attachBad++; }
-      console.log('  ' + k.padEnd(6) + pad(nm, 12) + 'yaw ' + pad(ydeg, 4) + 'deg  shoulders row ' + pad(shRow, 4) +
-        '  runs ' + pad(runsTxt, 26) +
+      console.log('  ' + k.padEnd(6) + pad(nm, 12) + 'yaw ' + pad(ydeg, 4) + 'deg  axis col ' + pad(ap.ax, 4) +
+        ' shoulders row ' + pad(shRow, 4) +
+        ' runs ' + pad(runsTxt, 26) + ' ' +
         (gap ? 'GAP ' + gap + ' of ' + (shRow - top) + ' head rows = ' + (100 * gap / h).toFixed(1) +
           '% of body height  DETACHED - daylight between head and torso'
           : 'no background between head and torso  ATTACHED') + (noHead ? '  NO HEAD TO JUDGE' : ''));
