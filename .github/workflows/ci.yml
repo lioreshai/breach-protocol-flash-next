@@ -63,7 +63,7 @@ jobs:
       - name: Probe gates (deterministic verdicts, must stay green)
         run: |
           set -euo pipefail
-          # Six probes whose verdict the code itself turns into an exit code, that seed their own RNG
+          # Seven probes whose verdict the code itself turns into an exit code, that seed their own
           # or run under CI's fixed SEED, and that write no artifact. Measured here at 1.6-5.0 s each,
           # ~17 s total, which is why they can live in the required job instead of beside it (#89).
           # heights and mip contain art-tuned thresholds: if one trips on a shading change it tripped
@@ -74,12 +74,15 @@ jobs:
           #   props    quad-vs-mesh, scale window, emissive exemption, feet on the floor
           #   vert     walk / step / fall / damage / ladder / spawn-altitude rows
           #   planes   derived ceiling array vs its formula, and the #55 raise-restore stale-blocker run
+          #   sight    a shot aimed at a body on another band hits it, and a level shot does not hit
+          #            through the floor under it - both directions fail, only the band-relative window passes
           node tools/view.js heights
           node tools/view.js mip
           node tools/view.js anim
           node tools/view.js props
           node tools/view.js vert
           node tools/view.js planes
+          node tools/view.js sight
 
   probes:
     continue-on-error: true

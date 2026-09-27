@@ -557,7 +557,8 @@ if (MODE === 'sight') {
         P.z = floorAt(px, py);
         const ef = floorAt(ex, ey), eyeZ = cfg.eye + P.z;
         const aimZ = tanFix === undefined ? ef + en.scale * aimFrac : eyeZ + tanFix * 4;
-        const r = hitscan(0, (aimZ - eyeZ) / 4, 20);
+        const surf = 4 - en.r;                      // a cylinder's near surface is nearer than its axis
+        const r = hitscan(0, (aimZ - eyeZ) / surf, 20);
         const hitZ = r.info ? r.info.z : null;
         const got = {
           ef, eyeZ, aimZ, dq,
@@ -572,7 +573,7 @@ if (MODE === 'sight') {
       };
       const rows = [];
       for (const dq of [0, 4, -4, 2]) rows.push({k: 'chest' + dq, g: probe(dq, 0.5)});
-      for (const dq of [0, 4, -4]) rows.push({k: 'head' + dq, g: probe(dq, 0.9)});
+      for (const dq of [0, 4, -4]) rows.push({k: 'head' + dq, g: probe(dq, 0.85)});
       rows.push({k: 'flat', g: probe(4, 0, 0)});
       /* the prop branch has no z test at all today: it answers on perp and range alone */
       const bar = {tex: PROP.barrel, x: ex, y: ey, scale: 0.86, z: floorAt(ex, ey), kind: 'barrel', hp: 26, dead: false};
@@ -581,16 +582,16 @@ if (MODE === 'sight') {
         MAP.fz[(ey | 0) * MW + (ex | 0)] += dq;
         linkBoundaries();
         bar.z = floorAt(ex, ey);
-        PROPS.push(bar);
+        const props0 = PROPS.slice(); PROPS.length = 0; PROPS.push(bar);   // same lesson as the cast: clear, do not merely move (#96)
         P.x = px; P.y = py; P.ang = 0; P.crouch = 0; P.air = false; P.vz = 0; P.z = floorAt(px, py);
         ENEMIES[0].state = 'dead';                       // the prop branch only runs when nothing else hit
         const eyeZ = cfg.eye + P.z;
         const aim = dq === 0 ? bar.z + bar.scale * 0.5 : eyeZ;   // lid-aim when level, flat aim when sunk
-        const r = hitscan(0, (aim - eyeZ) / 4, 20);
+        const r = hitscan(0, (aim - eyeZ) / (4 - 0.4), 20);   // the barrel's near face, not its axis
         rows.push({k: 'barrel' + dq, g: {ef: bar.z, eyeZ, aimZ: aim, dq, hitEnemy: 0, hitZ: r.info ? r.info.z : null,
           head: 0, t: r.t, wall: r.wall ? 1 : 0, barrel: r.info && r.info.barrel ? 1 : 0,
           bodyLo: bar.z, bodyHi: bar.z + bar.scale, headAt: Infinity}});
-        PROPS.splice(PROPS.indexOf(bar), 1);
+        PROPS.length = 0; for (const q of props0) PROPS.push(q);
         ENEMIES[0].state = 'idle';
         for (let i = 0; i < MAP.fz.length; i++) MAP.fz[i] = fz0[i];
         linkBoundaries();
@@ -611,7 +612,7 @@ if (MODE === 'sight') {
         const inBand = g.hitZ !== null && g.hitZ >= g.bodyLo && g.hitZ <= g.bodyHi;
         row(`L${li} head shot at band ${dq > 0 ? '+' : ''}${dq / 4}`,
           g.hitEnemy === 1 && g.head === 1 && inBand,
-          `enemy floor ${f(g.ef)}  hit ${g.hitEnemy ? 'hz ' + f(g.hitZ) + (g.head ? ' HEAD' : ' body (mislabelled)') : 'MISS t ' + g.t.toFixed(1)}  head above ${f(g.headAt)}`);
+          `enemy floor ${f(g.ef)}  hit ${g.hitEnemy ? 'hz ' + f(g.hitZ) + ' at ' + ((g.hitZ - g.bodyLo) / (g.bodyHi - g.bodyLo)).toFixed(2) + ' of the body -> ' + (g.head ? 'HEAD' : 'body') : 'MISS t ' + g.t.toFixed(1)}  head above ${f(g.headAt)}`);
       } else if (k === 'flat') {
         row(`L${li} level shot at enemy one band up`,
           g.hitEnemy === 0,
