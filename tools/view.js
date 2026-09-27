@@ -1760,8 +1760,10 @@ if (MODE === 'props') {
       ' px window its own authored ' + span.toFixed(2) + ' m span gives at this distance - scale is TOTAL'
       + ' world height: 40_render.js:635 centres the quad at o.z+scale*0.5, 13_mesh.js:365 puts a'
       + ' vertex at o.z+by*sc');
-    else if (!sp) console.log('    scale: n/a for geometry - it is a quad that measures exactly its own ' +
-      quad.toFixed(0) + ' px (silhouette x' + ratio.toFixed(2) + '); row (A) is the one that failed');
+    else if (!sp) fail('(S) ' + kind + ': cannot be measured - it renders as a quad that measures exactly its own ' +
+      quad.toFixed(0) + ' px (silhouette x' + ratio.toFixed(2) + '), which reports nothing about whether the '
+      + 'generator scale survived the port. (A) says why it is a quad, and a row that cannot answer its ' +
+      + 'own question has not passed it');
     else console.log('    scale: ' + m.h + ' px tall x ' + (m.rgt - m.lft + 1) + ' wide, inside the ' +
       loH.toFixed(0) + '-' + hiH.toFixed(0) + ' px window a ' + span.toFixed(2) + ' m body gives at t=' +
       tY.toFixed(2) + ' m, rows ' + m.top + '-' + m.bot);
