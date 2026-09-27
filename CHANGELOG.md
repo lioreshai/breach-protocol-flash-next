@@ -12,6 +12,7 @@ one change: say what the reader would notice, not which file was touched.
 - Occlusion depth is one value per **pixel** instead of one per screen column: the ground pass writes the distance it already solves — including the pixels it queues for the lip of a step, whose colour comes from a different plane than the row's — the wall pass writes its own face span, and the sprite and particle paths compare per pixel. No pixel changed colour, and a column with no wall no longer holds a stale zero that hid sprites there. A flat ceiling row keeps the "occludes nothing" sentinel until the pass that clips against it (#45).
 
 ### Fixed
+- A level transition seats the player on the **new** level's floor. Entering a sector while falling carried that fall across the portal and cost 22.8 hp of damage for a drop that never happened; and because the generator derives the spawn altitude before its last write to the height grid, a spawn on a raised band arrived 0.5 units inside the floor above and took 28 frames to ease out of it (#14 step 3).
 - Ceilings and floors no longer streak at grazing angles. The ground pass picked its mip from one axis
   of a pixel's world footprint — the u component of the row delta, with its v component weighted 0.001 —
   while that footprint is a long thin strip pointing down the column, so looking along a corridor axis,

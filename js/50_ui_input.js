@@ -28,6 +28,10 @@ function startLevel(i, fresh) {
   genLevel(i);
   P.deadT = 0; P.pitch = 0; P.recoil = 0;
   if (fresh) resetRun();
+  // The grid is only final when genLevel returns, and the non-fresh paths (next level, retry, again)
+  // run no resetRun at all, so the feet are seated here rather than wherever a generator happened to
+  // leave them: P.z is the feet's altitude, resting exactly on floorAt, with no fall carried in.
+  P.z = floorAt(P.x, P.y); P.vz = 0; P.air = false;
   banner('SECTOR ' + (i + 1) + ' · ' + LEVELS[i].name, 3.4);
   if (enemiesLeft() === 0) openExit();
 }
