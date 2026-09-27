@@ -20,20 +20,29 @@ const ETYPE = {
    line of shading. A counter costs no draw, is reproducible under DEV.tick which never seeds RNG,
    and hands out the variants evenly through a firefight instead of rolling the same one twice. */
 let dvNext = 0;
+/* Per-enemy cosmetics (gait phase, tint, facing, fidget) come from a PRIVATE stream keyed to a
+   spawn counter, not from Math.random. makeEnemy runs INSIDE genLevel, so its ten global draws made
+   a level's enemy count part of its layout: constructing twelve enemies and throwing them away —
+   no gameplay effect at all — moved a rendered level's mean from 66.4 to 70.2 and changed its hash
+   (#90). Same xorshift the asset painter already uses (js/10_assets.js:519). */
+let cosmeticSeed = 0x9e3779b9;
 function makeEnemy(kind, x, y) {
   const t = ETYPE[kind];
   dvNext = (dvNext + 1) % MESH.DIEV;
+  cosmeticSeed = (cosmeticSeed + 0x6d2b79f5) >>> 0;
+  let cr = cosmeticSeed;
+  const crnd = () => { cr ^= cr << 13; cr ^= cr >>> 17; cr ^= cr << 5; return (cr >>> 0) / 4294967296; };
   return {
     kind, type: t, x, y, vx: 0, vy: 0, r: t.r, scale: t.scale,
     hp: Math.round(t.hp * DIFFS[S.diff].hp), maxhp: Math.round(t.hp * DIFFS[S.diff].hp),
-    state: 'sleep', anim: Math.random() * 4, atkT: 0, cd: rnd(1.2), dieT: 0, flashT: 0, stagger: 0, loseT: 1.6,
-    alert: false, lx: x, ly: y, stuck: 0, side: Math.random() < 0.5 ? 1 : -1, sideT: 0, movingAmt: 0,
+    state: 'sleep', anim: crnd() * 4, atkT: 0, cd: crnd() * 1.2, dieT: 0, flashT: 0, stagger: 0, loseT: 1.6,
+    alert: false, lx: x, ly: y, stuck: 0, side: crnd() < 0.5 ? 1 : -1, sideT: 0, movingAmt: 0,
     dv: dvNext,                                       // which death this one gets (#82), fixed at spawn
-    tint: [1 + (Math.random() - 0.5) * 0.16, 1 + (Math.random() - 0.5) * 0.14, 1 + (Math.random() - 0.5) * 0.12],
-    atkMode: 'melee', ph: Math.random() * TAU,
+    tint: [1 + (crnd() - 0.5) * 0.16, 1 + (crnd() - 0.5) * 0.14, 1 + (crnd() - 0.5) * 0.12],
+    atkMode: 'melee', ph: crnd() * TAU,
     // locomotion state: velocity is persisted so motion has inertia, and facing turns
-    ang: Math.random() * TAU, svx: 0, svy: 0, lean: 0, stepPhase: Math.random(), footC: 0,
-    stgx: 0, stgy: 0, dieAng: 0, fidgetT: Math.random() * 3
+    ang: crnd() * TAU, svx: 0, svy: 0, lean: 0, stepPhase: crnd(), footC: 0,
+    stgx: 0, stgy: 0, dieAng: 0, fidgetT: crnd() * 3
   };
 }
 const eyeH = () => cfg.eye + P.z - P.crouch * 0.19;
