@@ -1081,11 +1081,15 @@ if (MODE === 'anim') {
   const DTH = 6;                                   // a body pixel counts as changed past this dL
   const MASKMIN = 800;                             // below this the silhouette is too small to judge
   const MINMOVE = 3.0;                             // % of mask pixels that must change (measured: main 0.0)
+  /* zbuf comes along because #74 needs to know where the mesh OCCUPIES a pixel, not where it
+     happens to be visible: a body row whose colour matches the wall behind it would otherwise read
+     as a gap. The mesh writes its own depth where it draws, so "zbuf nearer than the enemy-free
+     frame" is the colour-independent copy of the same question. */
   function shot() {
     run('renderWorld()');
-    const A = new Uint32Array(run('px'));
+    const A = new Uint32Array(run('px')), zA = new Float32Array(run('zbuf'));
     run(BARE);
-    return { A, B: new Uint32Array(run('px')) };
+    return { A, B: new Uint32Array(run('px')), zA, zB: new Float32Array(run('zbuf')) };
   }
   function maskOf(s) {
     const cov = new Uint8Array(N); let n = 0, top = H, bot = -1;
@@ -1106,7 +1110,7 @@ if (MODE === 'anim') {
     }
     return { n, pct: 100 * n / (m.n || 1), dl: n ? sum / n : 0 };
   }
-  let bad = 0;
+  let bad = 0, attachBad = 0;
   const row = (name, d, m, note) => {
     const ok = d.pct >= MINMOVE;
     if (!ok) bad++;
@@ -1227,8 +1231,120 @@ if (MODE === 'anim') {
       ? ps.poseEntries + ' cached vertex sets, ' + ps.poseMB + ' MB (this is what amortizes the rebuild)'
       : 'none - so geometry is rebuilt per enemy per frame'));
   }
-  console.log(bad ? `anim: ${bad} assertion(s) FAILED - bodies are drawn in a static stance`
-    : 'anim: bodies change shape while they move');
+  /* ---- #74: are the parts ATTACHED? ------------------------------------------------------
+     The same mask as the rows above, read DOWN a column instead of across it: between the run of
+     body pixels that is the head and the run that is the torso there must be no run of background.
+     A row counts as body if the mesh PAINTED there (the px diff) or WROTE DEPTH there (its zbuf
+     nearer than the enemy-free frame's), because either signal alone can be fooled - a body pixel
+     that happens to match the wall reads as a gap in colour, and neither can invent coverage that
+     is not there. Measured on origin/main 1b2e493, grunt at 2.4 m in the spawn stance: 92-112
+     head, 113-120 background, 121-170 torso - 8 rows of daylight on a 151 px body, which is the
+     live-page defect in #74 (9 rows of 162 there; the deployments differ in buffer size).
+     Poses are the spawn stance, +-60 deg of body-vs-camera yaw and one mid-stride bucket: an exact
+     butt still cracks at oblique angles where each box's silhouette edge is solved on its own, and
+     #73's buckets move the shoulders, so a rest-pose-only check would be the check that cannot
+     fail. */
+  const AKIND = run('Object.keys(ETYPE)'), ASPEC = run('Object.keys(MESH.SPEC)');
+  const APOSE = [[0, 0, 0, 'spawn'], [-Math.PI / 3, 0, 0, 'yaw -60'], [Math.PI / 3, 0, 0, 'yaw +60'],
+  [Math.PI / 6, 0.375, 0.9, 'stride +30']];
+  const MINDIA = 3;                                   // a first run this short is not a head
+  seedRng(4242);
+  run('var APX = 0, APY = 0;');
+  run(`S.mode='play'; S.locked=false; startLevel(0, true);`);
+  const apl = run(CAMCELL);
+  const adist = run(`(()=>{let t=2.4,ex=P.x+Math.cos(P.ang)*t,ey=P.y+Math.sin(P.ang)*t;` +
+    `while(t>0.6&&isSolid(ex,ey)){t-=0.2;ex=P.x+Math.cos(P.ang)*t;ey=P.y+Math.sin(P.ang)*t;}` +
+    `APX=ex;APY=ey;return +t.toFixed(2)})()`);
+  const nospec = AKIND.filter(k => ASPEC.indexOf(k) < 0);
+  console.log('attached: ' + AKIND.join('/') + ' bodies at ' + adist + ' m, cell ' + apl.cell + ', every gait bucket named above' +
+    (nospec.length ? '\n  NO MESH SPEC for ' + nospec.join('/') + ' - those kinds would silently draw as grunts' : ''));
+  if (nospec.length) { bad++; attachBad += nospec.length; }
+  for (const k of AKIND) {
+    for (const [dy, ph, mv, nm] of APOSE) {
+      const ap = run(`(()=>{ENEMIES.length=0;const e=makeEnemy('${k}',APX,APY);${PIN}` +
+        `e.ang=Math.atan2(P.y-e.y,P.x-e.x)+${dy};e.anim=${ph};e.movingAmt=${mv};ENEMIES.push(e);` +
+        `let r=(e.ang-P.ang-Math.PI)%TAU;if(r>Math.PI)r-=TAU;if(r<-Math.PI)r+=TAU;` +
+        `const ex=e.x-camX,ey=e.y-camY;` +
+        `return {deg:+(r*180/Math.PI).toFixed(0),` +
+        `ax:Math.round((BW*0.5)*(1+(dirY*ex-dirX*ey)/(-planeY*ex+planeX*ey)))}})()`);
+      const ydeg = ap.deg;
+      const s = shot();
+      const m = maskOf(s);
+      /* the mask that decides coverage is paint OR depth-written: a leg whose cloth happens to
+         match the floor is a body pixel even though the colour diff cannot see it, and a bbox
+         taken from colour alone would clip the run list at the wrong row. */
+      const cov = new Uint8Array(N);
+      let an = 0, top = H, bot = -1, lef = W, rig = -1;
+      for (let i = 0; i < N; i++) {
+        if (!(m.cov[i] || s.zA[i] < s.zB[i] - 1e-4)) continue;
+        cov[i] = 1; an++;
+        const y = (i / W) | 0, x = i - y * W;
+        if (y < top) top = y; if (y > bot) bot = y;
+        if (x < lef) lef = x; if (x > rig) rig = x;
+      }
+      if (an < MASKMIN) {
+        bad++; attachBad++;
+        console.log('  ' + k.padEnd(6) + pad(nm, 12) + 'body ' + an + ' px: NO BODY TO JUDGE - the probe cannot pass');
+        continue;
+      }
+      /* The shoulder line, from the silhouette itself: the widest row of a body is its arms plus
+         torso, so the first row that reaches most of that width is where the torso starts. Above it
+         is neck, below it is legs - and the legs are legitimately off-axis, so the background
+         between them (#74's rows 182-245) can never enter the measurement. */
+      const span = new Int32Array(bot + 2); let wide = 0;
+      for (let y = top; y <= bot; y++) {
+        let lo = W, hi = -1;
+        for (let x = lef; x <= rig; x++) if (cov[y * W + x]) { if (x < lo) lo = x; if (x > hi) hi = x; }
+        span[y] = hi >= lo ? hi - lo + 1 : 0;
+        if (span[y] > wide) wide = span[y];
+      }
+      let shRow = bot;
+      for (let y = top; y <= bot; y++) if (span[y] * 10 >= wide * 7) { shRow = y; break; }
+      /* The body's own axis, projected: the parts are stacked on the vertical world line through
+         the enemy's feet, and a vertical line projects to ONE screen column (pitch moves the
+         horizon, not the column), so this is the centre line by construction rather than a guess
+         from a bounding box - whose centre drifts off it at oblique yaw, and whose crown-row
+         centre lands on a CORNER of the head box's top face. The axis is inside every part, so
+         every row above the shoulder line must be body here, and the neck's projected half-width
+         is >=3 px at this distance, which is why +-1 is still inside the join. */
+      const cols = [ap.ax - 1, ap.ax, ap.ax + 1];
+      const rec = [];
+      for (const x of cols) {
+        const runs = []; let st = -1, seen = false, gap = 0;
+        for (let y = top; y <= bot; y++) {
+          const on = cov[y * W + x];
+          if (on) { if (st < 0) st = y; seen = true; }
+          else if (st >= 0) { runs.push([st, y - 1]); st = -1; }
+          // rows above this column's OWN head top are beside the head, not between its parts
+          if (!on && seen && y < shRow) gap++;
+        }
+        if (st >= 0) runs.push([st, bot]);
+        rec.push({ x, runs, gap });
+      }
+      const gap = Math.max.apply(null, rec.map(r => r.gap)), h = bot - top + 1;
+      const runsTxt = rec.map(r => r.runs.slice(0, 3).map(q => q[0] + '-' + q[1]).join(' ')).join(' | ');
+      const noHead = shRow - top < MINDIA;
+      if (process.env.ATTASCII) {                          // ATTASCII=1: print the mask, '>' = shRow
+        for (let y = top; y <= bot; y += 1) {
+          let ln = '';
+          for (let x = lef; x <= rig; x++) ln += cov[y * W + x] ? '#' : '.';
+          console.log('    ' + String(y).padStart(4) + (y === shRow ? '>' : ' ') + ln);
+        }
+      }
+      if (gap > 0 || noHead) { bad++; attachBad++; }
+      console.log('  ' + k.padEnd(6) + pad(nm, 12) + 'yaw ' + pad(ydeg, 4) + 'deg  axis col ' + pad(ap.ax, 4) +
+        ' shoulders row ' + pad(shRow, 4) +
+        ' runs ' + pad(runsTxt, 26) + ' ' +
+        (gap ? 'GAP ' + gap + ' of ' + (shRow - top) + ' head rows = ' + (100 * gap / h).toFixed(1) +
+          '% of body height  DETACHED - daylight between head and torso'
+          : 'no background between head and torso  ATTACHED') + (noHead ? '  NO HEAD TO JUDGE' : ''));
+    }
+  }
+  const why = [];
+  if (bad - attachBad) why.push('bodies are drawn in a static stance');
+  if (attachBad) why.push(attachBad + ' pose(s) with DETACHED parts');
+  console.log(bad ? 'anim: ' + bad + ' assertion(s) FAILED - ' + why.join('; ')
+    : 'anim: bodies change shape while they move and their parts are attached');
   process.exit(bad ? 1 : 0);
 }
 
