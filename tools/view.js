@@ -1763,7 +1763,7 @@ if (MODE === 'props') {
     else if (!sp) fail('(S) ' + kind + ': cannot be measured - it renders as a quad that measures exactly its own ' +
       quad.toFixed(0) + ' px (silhouette x' + ratio.toFixed(2) + '), which reports nothing about whether the '
       + 'generator scale survived the port. (A) says why it is a quad, and a row that cannot answer its ' +
-      + 'own question has not passed it');
+      'own question has not passed it');
     else console.log('    scale: ' + m.h + ' px tall x ' + (m.rgt - m.lft + 1) + ' wide, inside the ' +
       loH.toFixed(0) + '-' + hiH.toFixed(0) + ' px window a ' + span.toFixed(2) + ' m body gives at t=' +
       tY.toFixed(2) + ' m, rows ' + m.top + '-' + m.bot);
