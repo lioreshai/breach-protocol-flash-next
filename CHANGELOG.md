@@ -7,6 +7,9 @@ one change: say what the reader would notice, not which file was touched.
 
 ## Unreleased
 
+### Added
+- `DEV.mesh()` draws a character as volumetric geometry instead of a billboard, and that geometry now occludes **itself**: the rasterizer writes its own per-pixel depth, so an arm behind a chest stays behind it instead of painting through it. Nothing in the game calls it — the shipped picture is byte-identical (7 scene frames md5-identical to `main`) — and `DEV.mesh({self:false})` puts back the old read-only-depth ordering as a negative control (#69).
+
 ### Changed
 - Inline the wall bilinear fetch at its single call site and wrap the neighbour texel with an integer mask, guarded by a new smoke assertion that every wall mip dimension is a power of two (#25).
 - Occlusion depth is one value per **pixel** instead of one per screen column: the ground pass writes the distance it already solves — including the pixels it queues for the lip of a step, whose colour comes from a different plane than the row's — the wall pass writes its own face span, and the sprite and particle paths compare per pixel. No pixel changed colour, and a column with no wall no longer holds a stale zero that hid sprites there. A flat ceiling row keeps the "occludes nothing" sentinel until the pass that clips against it (#45).
