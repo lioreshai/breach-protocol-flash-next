@@ -120,6 +120,18 @@ const release = () => fire('mouseup', { button: 0 });
   console.log('asset shading tables:', memMB.toFixed(1), 'MB');
   expect('sprite tables stay in the tens of MB, not hundreds', memMB < 40, memMB.toFixed(1) + ' MB');
 
+  // castWalls wraps the neighbour texel with `& (w - 1)` rather than comparing against the width,
+  // which is the same answer only while every mip dimension is a power of two. buildMips clamps the
+  // chain at 8, so one non-power-of-two base texture would carry a wrong wrap through every mip.
+  const pow2Bad = vm.runInContext(`(()=>{const pot=n=>n>0&&(n&(n-1))===0;const b=[];
+    const chk=(nm,t)=>{if(!t)return;const L=[{w:t.w,h:t.h}].concat(t.mips||[]);
+      L.forEach((m,i)=>{if(!pot(m.w)||!pot(m.h))b.push(nm+' mip'+i+' '+m.w+'x'+m.h)})};
+    for(let i=0;i<WALLS.length;i++)chk('WALLS['+i+']',WALLS[i]);return b})()`, ctxVm);
+  const mipCount = vm.runInContext('(()=>{let n=0;for(let i=0;i<WALLS.length;i++){const t=WALLS[i];if(t)n+=1+(t.mips?t.mips.length:0)}return n})()', ctxVm);
+  console.log('wall mip dimensions:', mipCount, 'checked,', pow2Bad.length, 'not a power of two');
+  expect('wall mip dimensions are powers of two (the & mask wrap depends on it)',
+    pow2Bad.length === 0, pow2Bad.slice(0, 4).join(', '));
+
   step('title frames', 'null');
   console.log('title buffer colors:', bufCheck());
   expect('title screen renders more than fog', bufCheck() > 8);

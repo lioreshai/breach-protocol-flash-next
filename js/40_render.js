@@ -15,20 +15,11 @@ let FARB = 22, AMB = 0.13, GQ = null, rigTexH = 200;
 let pxUsed = 0;                                          // rig texels authored this frame
 const PXBUD = 0.55e6, POSE_AR = 2.2;                      // frame budget, and a pose's w/h area ratio
 let G_TRI = false, G_GRIT = 0;                                  // derived from QUAL.rast
-const TB = new Float64Array(4);
-/* Bilinear texel fetch in texel units; writes [r,g,b,alpha] into TB (no per-pixel
- * allocation, which was measurable). Wraps rather than clamps, since tiles repeat. */
-function texBil(td, mw, mh, u, v) {
-  const x0 = u | 0, y0 = v | 0, fx = u - x0, fy = v - y0;
-  const x1 = x0 + 1 === mw ? 0 : x0 + 1, y1 = y0 + 1 === mh ? 0 : y0 + 1;
-  const i00 = y0 * mw + x0, i01 = y0 * mw + x1, i10 = y1 * mw + x0, i11 = y1 * mw + x1;
-  const a = td[i00], b = td[i01], c = td[i10], d = td[i11];
-  const w0 = (1 - fx) * (1 - fy), w1 = fx * (1 - fy), w2 = (1 - fx) * fy, w3 = fx * fy;
-  TB[0] = (a & 255) * w0 + (b & 255) * w1 + (c & 255) * w2 + (d & 255) * w3;
-  TB[1] = (a >> 8 & 255) * w0 + (b >> 8 & 255) * w1 + (c >> 8 & 255) * w2 + (d >> 8 & 255) * w3;
-  TB[2] = (a >> 16 & 255) * w0 + (b >> 16 & 255) * w1 + (c >> 16 & 255) * w2 + (d >> 16 & 255) * w3;
-  TB[3] = (a >>> 24) * w0 + (b >>> 24) * w1 + (c >>> 24) * w2 + (d >>> 24) * w3;
-}
+/* The wall bilinear fetch is inlined at its one call site below rather than factored into a
+   function that writes its result into a scratch array: a module-global typed-array out-param
+   blocks V8 inlining and register allocation, and the same code inlined measured 21 -> 12 ms
+   near a wall. It is inlined here and nowhere else, so the pass that keeps the registers is this
+   one, and any new caller must inline it too rather than reach for a shared helper. */
 // viewmodel spring state: sway lag, previous look angle, eject timing
 const VM = { vx: 0, vy: 0, ang: 0, pitch: 0, t: 0 };
 
@@ -526,11 +517,22 @@ function castWalls(flash, fcR, fcG, fcB) {
       if (fr > 0.55) { m2 = tex.mips[Math.min(mk + 1, tex.mips.length - 1)]; wMix = (fr - 0.55) / 0.45 * 0.85; }
     }
     const grit = G_GRIT * Math.max(0, Math.min(1, 1.35 - perp * 0.11));
-    const mw = m.w, mh = m.h, td = m.data, mask = mw - 1;
+    const mw = m.w, mh = m.h, td = m.data, maskX = mw - 1, maskY = mh - 1;
     const mir = (hash2(mx, my) * 2) | 0;
     let u = wallX * mw;
     if ((side === 0 && rdx > 0) || (side === 1 && rdy < 0)) u = mw - u;
     if (mir & 1) u = mw - u;
+    /* u is constant down the column, so the horizontal texel pair and its weights are solved once
+       per ray: that is the part a per-pixel fetch was recomputing. The neighbour wraps with &mask
+       instead of comparing to the width, which is the same answer only while every mip width is a
+       power of two (T2 = 128 halved to 8). The BASE index is left unmasked so an exact texel
+       boundary still reads the texel it always read. */
+    const ux = u | 0, fx = u - ux, rfx = 1 - fx, ux1 = (ux + 1) & maskX;
+    let mw2 = 0, maskY2 = 0, td2 = null, s2 = 0, ux2 = 0, ux2b = 0, fx2 = 0, rfx2 = 0;
+    if (m2) {
+      s2 = m2.w / mw; mw2 = m2.w; maskY2 = m2.h - 1; td2 = m2.data;
+      const u2 = u * s2; ux2 = u2 | 0; fx2 = u2 - ux2; rfx2 = 1 - fx2; ux2b = (ux2 + 1) & (mw2 - 1);
+    }
 
     /* light on the face: lightmap in the wall cell + lightmap one step out along the normal */
     const nx = side === 0 ? -stepX : 0, ny = side === 1 ? -stepY : 0;
@@ -562,16 +564,25 @@ function castWalls(flash, fcR, fcG, fcB) {
     for (let y = ds; y <= de; y++, idx += BW) {
       zbuf[idx] = perp;
       const vy = ty; ty += tstep; if (ty >= mh) ty -= mh;
-      texBil(td, mw, mh, u, vy);
-      let cr = TB[0], cg = TB[1], cb = TB[2];
-      if ((TB[3] | 0) === 253) {                               // emissive strip: ignores scene light
+      const yv = vy | 0, fy = vy - yv, rfy = 1 - fy;
+      const rw0 = yv * mw, rw1 = ((yv + 1) & maskY) * mw;
+      const t0 = td[rw0 + ux], t1 = td[rw0 + ux1], t2 = td[rw1 + ux], t3 = td[rw1 + ux1];
+      const w0 = rfx * rfy, w1 = fx * rfy, w2 = rfx * fy, w3 = fx * fy;
+      let cr = (t0 & 255) * w0 + (t1 & 255) * w1 + (t2 & 255) * w2 + (t3 & 255) * w3;
+      let cg = (t0 >> 8 & 255) * w0 + (t1 >> 8 & 255) * w1 + (t2 >> 8 & 255) * w2 + (t3 >> 8 & 255) * w3;
+      let cb = (t0 >> 16 & 255) * w0 + (t1 >> 16 & 255) * w1 + (t2 >> 16 & 255) * w2 + (t3 >> 16 & 255) * w3;
+      if ((((t0 >>> 24) * w0 + (t1 >>> 24) * w1 + (t2 >>> 24) * w2 + (t3 >>> 24) * w3) | 0) === 253) {
         px[idx] = 0xFF000000 | clampi(cb * inv + fB) << 16 | clampi(cg * inv + fG) << 8 | clampi(cr * inv + fR);
         continue;
       }
-      if (m2) {
-        const s2 = m2.w / mw;
-        texBil(m2.data, m2.w, m2.h, u * s2, vy * s2);
-        cr += (TB[0] - cr) * wMix; cg += (TB[1] - cg) * wMix; cb += (TB[2] - cb) * wMix;
+      if (m2) {                                                 // crossfade into the next mip
+        const v2 = vy * s2, y2 = v2 | 0, gy2 = v2 - y2, cy2 = 1 - gy2;
+        const q0 = y2 * mw2, q1 = ((y2 + 1) & maskY2) * mw2;
+        const e0 = td2[q0 + ux2], e1 = td2[q0 + ux2b], e2 = td2[q1 + ux2], e3 = td2[q1 + ux2b];
+        const g0 = rfx2 * cy2, g1 = fx2 * cy2, g2 = rfx2 * gy2, g3 = fx2 * gy2;
+        cr += (((e0 & 255) * g0 + (e1 & 255) * g1 + (e2 & 255) * g2 + (e3 & 255) * g3) - cr) * wMix;
+        cg += (((e0 >> 8 & 255) * g0 + (e1 >> 8 & 255) * g1 + (e2 >> 8 & 255) * g2 + (e3 >> 8 & 255) * g3) - cg) * wMix;
+        cb += (((e0 >> 16 & 255) * g0 + (e1 >> 16 & 255) * g1 + (e2 >> 16 & 255) * g2 + (e3 >> 16 & 255) * g3) - cb) * wMix;
       }
       let gk = 1;
       if (grit > 0) {                                          // relief from the screen-space field
