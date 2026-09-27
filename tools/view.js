@@ -1081,6 +1081,33 @@ if (MODE === 'anim') {
   const DTH = 6;                                   // a body pixel counts as changed past this dL
   const MASKMIN = 800;                             // below this the silhouette is too small to judge
   const MINMOVE = 3.0;                             // % of mask pixels that must change (measured: main 0.0)
+  const VMIN = 3;                                  // death variants #82 asks each kind to author
+  const IOVMIN = 0.75;                             // masks overlapping more than this are ONE silhouette
+  /* the corpse's signature: its coverage bitmap, translated to its own bbox and quantised to a
+     16x16 grid of counts. Normalising by the bbox is what makes a corpse that merely slid two
+     pixels down the wall sign the same, while one that lies along the other axis does not; the
+     counts are bucketed in 2s because raster edge pixels are not reproducible between poses. */
+  function maskHash(m) {
+    let top = H, bot = -1, lef = W, rig = -1;
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (m.cov[y * W + x]) {
+      if (y < top) top = y; if (y > bot) bot = y; if (x < lef) lef = x; if (x > rig) rig = x;
+    }
+    if (bot < 0) return 'EMPTY';
+    const hh = bot - top + 1, ww = rig - lef + 1, g = new Int32Array(256);
+    for (let y = top; y <= bot; y++) for (let x = lef; x <= rig; x++) if (m.cov[y * W + x])
+      g[((((y - top) * 16 / hh) | 0) * 16 + (((x - lef) * 16 / ww) | 0))]++;
+    let h = 2166136261;
+    for (let i = 0; i < 256; i++) h = ((h ^ Math.min(255, g[i] >> 1)) * 16777619) >>> 0;
+    return h.toString(16);
+  }
+  function maskIoU(a, b) {
+    let inter = 0, uni = 0;
+    for (let i = 0; i < N; i++) {
+      const t = (a.cov[i] ? 1 : 0) + (b.cov[i] ? 1 : 0);
+      if (t === 2) inter++; else if (t) uni++;
+    }
+    return uni ? inter / uni : 1;
+  }
   /* zbuf comes along because #74 needs to know where the mesh OCCUPIES a pixel, not where it
      happens to be visible: a body row whose colour matches the wall behind it would otherwise read
      as a gap. The mesh writes its own depth where it draws, so "zbuf nearer than the enemy-free
@@ -1131,8 +1158,10 @@ if (MODE === 'anim') {
     return {cell:bc,ray:+bm.toFixed(2)};
   })()`;
   // makeEnemy scatters gait phase, tint and facing: pin them so two runs of this probe agree
+  // dv belongs here for the same reason: makeEnemy rolls it at spawn, and a random variant would
+  // make the rows below depend on the run (the death section sets it per variant explicitly).
   const PIN = `e.anim=0;e.stepPhase=0;e.ph=0;e.tint=[1,1,1];e.state='chase';e.alert=true;e.cd=1e9;` +
-    `e.movingAmt=0;e.lean=0;e.atkT=0;e.dieT=0;e.stagger=0;e.ang=Math.atan2(P.y-e.y,P.x-e.x);`;
+    `e.movingAmt=0;e.lean=0;e.atkT=0;e.dieT=0;e.stagger=0;e.dv=0;e.ang=Math.atan2(P.y-e.y,P.x-e.x);`;
   /* COST=1: the amortization claim, measured the way #53 measures anything - interleaved batches,
      load per batch, several rounds, never one pair. `rebuild-per-frame` is this same code with the
      pose table switched off (MESH.setCache(false)), i.e. what an unamortized animation would cost;
@@ -1205,17 +1234,63 @@ if (MODE === 'anim') {
       (seen.size < 4 ? '  IDENTICAL - no gait' : '  ok'));
     if (seen.size < 4) bad++;
     for (const s of [2, 4, 6, 8]) row('walk +' + (s * 0.05).toFixed(2) + 's', cmp(s0, m0, samples[s]), m0);
-    /* death: alpha is exactly 1 until dieT 2.4, so between 0 and 0.4 s any pixel change is geometry
-       and nothing else. A topple also lowers the top of the silhouette, which the fade cannot do. */
+    /* ---- #82: does EVERY enemy die the same way? -------------------------------------
+       One corpse per death variant, sampled by setting e.dv - a field the renderer is supposed
+       to read and main does not, so setting it there changes nothing and every variant renders
+       the same body. That is what makes this row red on main without the probe knowing whether
+       the fix exists: the assertion is about the PICTURE, and the only way to satisfy it is to
+       make the picture depend on the field.
+       The mask is the same contrast technique as every row above, and the sample is the frame
+       the corpse RESTS in (dieT 0.55 = die bucket 5), because that is the pose the player walks
+       past for the next three seconds - "they all die the same way" is a claim about the corpse,
+       not about the two frames it takes to get there. Two variants are DISTINCT when their
+       bbox-normalised masks hash differently AND their raw overlap stays under IOVMIN: the hash
+       alone would let a one-pixel twitch count as a new death, IoU alone cannot tell a duplicate
+       from a mirrored one. The >=15% silhouette-top assert the topple row already made now runs
+       for EVERY variant - "it topples" is not the same claim as "every way of dying topples", and
+       a variant that stays standing would slide through as a distinct hash. */
     run(`(()=>{const e=ENEMIES[0];e.state='dead';e.vx=e.vy=e.svx=e.svy=0;e.dieAng=Math.atan2(P.y-e.y,P.x-e.x)+0.7})()`);
-    const ds = [];
-    for (const v of [0, 0.1, 0.2, 0.4, 0.55]) { run(`ENEMIES[0].dieT=${v}`); const s = shot(); ds.push({ v, s, m: maskOf(s) }); }
-    const d0 = ds[0], d4 = ds[3];
-    row('topple +0.40s', cmp(d0.s, d0.m, d4.s), d0.m, 'sil top ' + d0.m.top + ' -> ' + d4.m.top);
-    const rise = d0.m.bot - d0.m.top;
-    if (rise > 20 && d4.m.top - d0.m.top < rise * 0.15) {
-      bad++; console.log('  topple         silhouette top moved ' + (d4.m.top - d0.m.top) + ' px of a ' + rise +
-        ' px body: it did not go DOWN - ' + 'IDENTICAL');
+    const VNM = run('typeof MESH.DIEV === "number" ? MESH.DIEV : 0');
+    const DT = [0, 0.1, 0.2, 0.4, 0.55];              // dieT -> die buckets 0, 1, 2, 4, 5
+    const vs = [];
+    for (let v = 0; v < VMIN; v++) {
+      const ss = [];
+      for (const t of DT) {
+        run('MESH.reset();ENEMIES[0].dv=' + v + ';ENEMIES[0].dieT=' + t + ';renderWorld();');
+        const tri = run('MESH.stats().tris'), s = shot(), m = maskOf(s);
+        ss.push({ t, s, m, h: maskHash(m), tri });
+      }
+      const a = ss[0], c = ss[3], f = ss[ss.length - 1];
+      vs.push({ v, a, f, h: f.h, tri: f.tri });
+      row('topple v' + v + ' .40s', cmp(a.s, a.m, c.s), a.m, 'sil top ' + a.m.top + ' -> ' + c.m.top);
+      const rise = a.m.bot - a.m.top;
+      if (rise > 20 && c.m.top - a.m.top < rise * 0.15) {
+        bad++; console.log('  topple v' + v + '    silhouette top moved ' + (c.m.top - a.m.top) + ' px of a ' + rise +
+          ' px body: it did not go DOWN - ' + 'IDENTICAL');
+      }
+      /* the variant's own timeline, hashed: a death that jumps from standing to flat in one bucket
+         would satisfy "it topples" and "it is a different corpse" while still being a pop. This is
+         also the row that keeps the old dieT sweep in the build, so the pose table below still
+         contains the same death buckets it did before variants existed. */
+      const along = new Set(ss.map(z => z.h)).size;
+      if (along < 3) bad++;
+      console.log('  fall v' + v + '      ' + along + '/' + ss.length + ' distinct silhouettes on the way down   mask px ' +
+        ss.map(z => z.m.n).join('/') + '   ' + (along < 3 ? 'IDENTICAL - it pops instead of falling' : 'ok'));
+      if (v > 0 && f.m.n < a.m.n * 0.4) {
+        bad++; console.log('  corpse v' + v + '    rests at ' + f.m.n + ' mask px against dv0\'s ' + a.m.n +
+          ': it collapsed into the floor, so "distinct" would be "missing"');
+      }
+    }
+    const dh = new Set(vs.map(z => z.h)).size;
+    const pairs = [];
+    for (let i = 0; i < VMIN; i++) for (let j = i + 1; j < VMIN; j++) pairs.push(maskIoU(vs[i].f.m, vs[j].f.m));
+    const ovok = dh === VMIN && pairs.every(z => z < IOVMIN);
+    if (!ovok) bad++;
+    console.log('  death variants ' + dh + '/' + VMIN + ' distinct of dv 0..' + (VMIN - 1) + '   IoU ' +
+      pairs.map(z => z.toFixed(2)).join(' ') + '   rest px ' + vs.map(z => z.f.m.n).join('/') +
+      '   tris ' + vs.map(z => z.tri).join('/') + (ovok ? '  VARIES' : '  IDENTICAL - every corpse is the same corpse'));
+    if (VNM && VNM !== VMIN) {
+      bad++; console.log('  death variants the table authors ' + VNM + ' variants per kind, the design asks for ' + VMIN);
     }
     /* wind-up: the same atk progress the billboard used (1 - atkT/wind), with the lean the update
        would have damped to. Full extension lands at pr = 1, which is the frame the shot fires in. */
@@ -1228,7 +1303,8 @@ if (MODE === 'anim') {
     row('windup pr .75', cmp(as[0].s, as[0].m, as[3].s), as[0].m);
     const ps = run('MESH.stats()');
     console.log('  pose table     ' + (ps && ps.poseEntries !== undefined
-      ? ps.poseEntries + ' cached vertex sets, ' + ps.poseMB + ' MB (this is what amortizes the rebuild)'
+      ? ps.poseEntries + ' cached vertex sets, ' + ps.poseMB + ' MB' + (ps.capMB ? ' of ' + ps.capMB.toFixed(2) + ' MB cap' : '') +
+        ' (this is what amortizes the rebuild)'
       : 'none - so geometry is rebuilt per enemy per frame'));
   }
   /* ---- #74: are the parts ATTACHED? ------------------------------------------------------
