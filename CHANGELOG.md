@@ -11,6 +11,13 @@ one change: say what the reader would notice, not which file was touched.
 - Occlusion depth is one value per **pixel** instead of one per screen column: the ground pass writes the distance it already solves — including the pixels it queues for the lip of a step, whose colour comes from a different plane than the row's — the wall pass writes its own face span, and the sprite and particle paths compare per pixel. No pixel changed colour, and a column with no wall no longer holds a stale zero that hid sprites there. A flat ceiling row keeps the "occludes nothing" sentinel until the pass that clips against it (#45).
 
 ### Fixed
+- Ceilings and floors no longer streak at grazing angles. The ground pass picked its mip from one axis
+  of a pixel's world footprint — the u component of the row delta, with its v component weighted 0.001 —
+  while that footprint is a long thin strip pointing down the column, so looking along a corridor axis,
+  where planeX is 0, it read a footprint of exactly zero and point-sampled mip 0 across the whole floor.
+  Selection now takes both screen axes of the footprint, ratio-clamped 4:1, once per row, and
+  `node tools/view.js mip` measures the streaking and keeps the old 1-D selection as its negative control
+  (#19).
 - Revising a floor no longer leaves an invisible wall where the step used to be. The boundary flags were
   OR-ed in at every relink, so a step that was raised and then flattened kept blocking movement and drawing
   a face although the grid was flat again; blocking is now rewritten from the grid each relink while the
