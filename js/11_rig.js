@@ -207,7 +207,10 @@ frame = (kind, o) => {
   // so an entry is only valid for the band it was made in. A size-unkeyed cache made
   // 132-px bodies answer for 431-px closeups.
   const sc = o.hpx >= 170 ? 2 : (o.hpx >= 80 ? 1 : 0);
-  const key = kind + '|' + ph + '|' + yb + '|' + mb + '|' + ab + '|' + db + '|' + sc;
+  // yaw is NOT in the key (#69 B2, from #39): a body rendered as geometry is valid at any yaw, so
+  // the bucket is an authoring parameter only - the pose still renders at its bucket centre, and
+  // keying 8 yaws multiplied every other bucket for a texture that cannot turn in the round.
+  const key = kind + '|' + ph + '|' + mb + '|' + ab + '|' + db + '|' + sc;
   let ent = cache.get(key);
   if (ent) { cache.delete(key); cache.set(key, ent); return ent.tex; }
   // Evict *before* deciding to give up. Eviction used to live only after an insertion,
