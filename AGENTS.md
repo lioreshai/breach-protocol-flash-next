@@ -312,10 +312,15 @@ four plane lookups makes 12 of its 18 configs FAIL at 0.00% moved; solving a pla
 column FAILs four more by drifting ~20% of the ceiling rows. Read that as: the probe can see the
 feature, and it can see the two ways M2 has already failed.
 
-Three risks that stay invisible to today's gates:
+Three risks that were invisible to the gates when this list was written:
 
-1. `startLevel(i, fresh)` runs `genLevel()` and *then* `resetRun()`, which zeroes `P.z` — a
-   band-1 spawn starts inside the floor above. Fix the ordering in M3.
+1. ~~`startLevel(i, fresh)` runs `genLevel()` and *then* `resetRun()`, which zeroes `P.z`~~ — fixed in
+   M3 step 3, and the ordering was not the whole hazard: `resetRun` derives `P.z` from `floorAt`, but
+   the **non-fresh** entries (`nextLevel`, `retry`, `again`) run no `resetRun` at all, so the feet kept
+   what the generator's own line computed *before* its last write to `MAP.fz`, and `P.air`/`P.vz` were
+   never re-seated. `startLevel` now seats all three after generation, on every path, and
+   `view.js vert`'s spawn-altitude rows are the gate — reverted, they measure `P.z 0 vs floorAt 0.5`
+   with the feet below the floor, and `hp 77.16` after 60 frames of a fall carried across the portal.
 2. `genLevel`'s occupancy gate (`reachable < openCells*0.9`) is a height-blind 4-neighbour
    BFS. Split bands and every attempt fails into the fallback: a lit empty box, no heights,
    every gate green, and the feature silently absent. It must `console.warn('genLevel FALLBACK')`.
