@@ -1542,28 +1542,47 @@ if (MODE === 'props') {
     run('var PH = [], PQ = [], PKP = [], PKK = [], PKP2 = [];');
     const PARK = '(()=>{while(PROPS.length)PH.push(PROPS.pop());while(PICKUPS.length)PQ.push(PICKUPS.pop())})()';
     const UNP = '(()=>{while(PH.length)PROPS.push(PH.pop());while(PQ.length)PICKUPS.push(PQ.pop())})()';
+    /* The camera BOTH variants get: the open cell with the longest clear sight line, looking down it,
+       with the enemies asleep so neither side drifts. At the spawn camera most of a level's props sit
+       behind walls and the pre-raster cull in MESH.draw returns before they cost anything, so a
+       drawn/parked pair measured THERE prices three props and reports it as twenty-five - which is why
+       tris/frame is printed beside ms/frame below. */
+    const CAMSEE = `(() => {
+      const cs = [];
+      for (let y = 2; y < MH - 2; y++) for (let x = 2; x < MW - 2; x++) if (!isSolid(x + .5, y + .5)) cs.push([x, y]);
+      let bc = cs[0], bcv = -1;
+      for (const c of cs) { let m = 0; for (let k = 0; k < 12; k++) { const d = castRayDist(c[0] + .5, c[1] + .5, Math.cos(k * TAU / 12), Math.sin(k * TAU / 12), 6).dist; if (d > m) m = d; } if (m > bcv) { bcv = m; bc = c; } }
+      let best = 0, bm = -1;
+      for (let k = 0; k < 64; k++) { const a = k * TAU / 64, d = castRayDist(bc[0] + .5, bc[1] + .5, Math.cos(a), Math.sin(a), 7).dist; if (d > bm) { bm = d; best = a; } }
+      P.x = bc[0] + .5; P.y = bc[1] + .5; P.ang = best; P.pitch = 0; P.z = floorAt(P.x, P.y);
+      for (const e of ENEMIES) e.state = 'sleep';
+      return { cell: bc, ray: +bm.toFixed(2) };
+    })()`;
     console.log('props cost: interleaved drawn/parked batches; the parked variant has NO prop or pickup in it');
     console.log('  pairs SHARE a level: genLevel() is unseeded, so a cross-level pair would be two maps');
     for (let li = 0; li < 3; li++) {
       run(`S.mode='play'; S.locked=false; startLevel(${li}, true);`);
       const census = run('(()=>{const c={};for(const p of PROPS)c[p.kind]=(c[p.kind]||0)+1;' +
         'return JSON.stringify({props:PROPS.length,pickups:PICKUPS.length,by:c})})()');
-      console.log('  level ' + li + '  census ' + census);
-      const acc = { drawn: [], parked: [] };
+      console.log('  level ' + li + '  census ' + census + '  cam ' + JSON.stringify(run(CAMSEE)));
+      const acc = { drawn: [], parked: [] }, tri = { drawn: [], parked: [] };
       for (let r = 0; r < rounds; r++) for (const v of [0, 1]) {
         run(v ? PARK : 'null');
         for (let i = 0; i < 12; i++) run('renderWorld()');          // warm what both variants share
+        run('MESH.reset()');                                       // so the denominator is THIS batch
         const t0 = process.hrtime.bigint();
         for (let i = 0; i < frames; i++) run('renderWorld()');
         const ms = Number(process.hrtime.bigint() - t0) / 1e6 / frames;
         acc[v ? 'parked' : 'drawn'].push(ms);
+        tri[v ? 'parked' : 'drawn'].push(Math.round(run('MESH.stats().tris') / frames));
         run(v ? UNP : 'null');
       }
       const med = a => { const s = a.slice().sort((x, y) => x - y); return s[s.length >> 1]; };
-      const d = med(acc.drawn), p = med(acc.parked);
-      console.log('    drawn ' + pad(d.toFixed(2), 6) + ' ms/frame   parked ' + pad(p.toFixed(2), 6) +
-        ' ms/frame   prop cost ' + pad((d - p).toFixed(2), 6) + ' ms   load ' + os.loadavg()[0].toFixed(2) +
-        '  up ' + process.uptime().toFixed(0) + 's  mesh ' + run('JSON.stringify(MESH.stats())'));
+      const d = med(acc.drawn), p2 = med(acc.parked);
+      console.log('    drawn ' + pad(d.toFixed(2), 6) + ' ms/frame at ' + pad(med(tri.drawn), 6) + ' tris' +
+        '   parked ' + pad(p2.toFixed(2), 6) + ' ms/frame at ' + pad(med(tri.parked), 6) + ' tris' +
+        '   prop cost ' + pad((d - p2).toFixed(2), 6) + ' ms   load ' + os.loadavg()[0].toFixed(2) +
+        '  up ' + process.uptime().toFixed(0) + 's  poses ' + run('MESH.stats().poseEntries'));
       console.log('    batches drawn ' + acc.drawn.map(x => x.toFixed(1)).join('/') +
         '  parked ' + acc.parked.map(x => x.toFixed(1)).join('/'));
     }
@@ -1624,12 +1643,14 @@ if (MODE === 'props') {
   /* ONE thing in the world at a time, at the spot, with the generator's own scale. __p is what the
      rows read back for z and scale, so the entry the probe writes is the entry the game draws. */
   const SX = SPOT.x.toFixed(4), SY = SPOT.y.toFixed(4);
-  const SC = { barrel: 0.86, crate: 0.72, lamp: 0.95, pickup: 0.42, orb: 0.3, portal: 1.5 };
+  const SC = { barrel: 0.86, crate: 0.72, lamp: 0.95, pickupHealth: 0.42, pickupAmmo: 0.42, pickupArmor: 0.42, orb: 0.3, portal: 1.5 };
   const put = {
     barrel: `PROPS.length=0;PROPS.push({tex:PROP.barrel,x:${SX},y:${SY},z:floorAt(${SX},${SY}),scale:0.86,kind:'barrel',hp:26,dead:false});globalThis.__p=PROPS[0]`,
     crate: `PROPS.length=0;PROPS.push({tex:PROP.crate,x:${SX},y:${SY},z:floorAt(${SX},${SY}),scale:0.72,kind:'crate'});globalThis.__p=PROPS[0]`,
     lamp: `PROPS.length=0;PROPS.push({tex:PROP.lamp,x:${SX},y:${SY},z:floorAt(${SX},${SY}),scale:0.95,kind:'lamp'});globalThis.__p=PROPS[0]`,
-    pickup: `PROPS.length=0;PICKUPS.push({type:'health',x:${SX},y:${SY},bob:0,dead:false});globalThis.__p=PICKUPS[0]`,
+    pickupHealth: `PROPS.length=0;PICKUPS.length=0;PICKUPS.push({type:'health',x:${SX},y:${SY},bob:0,dead:false});globalThis.__p=PICKUPS[0]`,
+    pickupAmmo: `PROPS.length=0;PICKUPS.length=0;PICKUPS.push({type:'ammo',x:${SX},y:${SY},bob:0,dead:false});globalThis.__p=PICKUPS[0]`,
+    pickupArmor: `PROPS.length=0;PICKUPS.length=0;PICKUPS.push({type:'armor',x:${SX},y:${SY},bob:0,dead:false});globalThis.__p=PICKUPS[0]`,
     orb: `PROPS.length=0;PROJ.length=0;PROJ.push({kind:'orb',x:${SX},y:${SY},z:0.9,scale:0.3,vx:0,vy:0,vz:0,t:0,tex:PROP.orb[0]});globalThis.__p=PROJ[0]`,
     portal: `PROPS.length=0;exitX=${SX};exitY=${SY};S.exitOpen=true;globalThis.__p={x:${SX},y:${SY},scale:1.5,z:0.02}`,
   };
@@ -1639,7 +1660,8 @@ if (MODE === 'props') {
      silhouette - the contrast/anim technique, and why no projection math appears below. */
   const hide = {
     barrel: 'PROPS.length=0', crate: 'PROPS.length=0', lamp: 'PROPS.length=0',
-    pickup: 'PICKUPS.length=0', orb: 'PROJ.length=0', portal: 'exitX=-40;exitY=-40',
+    pickupHealth: 'PICKUPS.length=0', pickupAmmo: 'PICKUPS.length=0', pickupArmor: 'PICKUPS.length=0',
+    orb: 'PROJ.length=0', portal: 'exitX=-40;exitY=-40',
   };
   const render = code => { run(code + ';S.t=3.5;renderWorld()'); };
   function pair(code, off, on) {
@@ -1653,14 +1675,14 @@ if (MODE === 'props') {
     return out;
   }
   function mask(s) {
-    const cov = new Uint8Array(N); let n = 0, top = H, bot = -1;
+    const cov = new Uint8Array(N); let n = 0, top = H, bot = -1, lft = W, rgt = -1;
     for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
       const i = y * W + x;
       if (Math.abs(lum(s.A, i) - lum(s.B, i)) > 4 || (s.A[i] >>> 24) - (s.B[i] >>> 24) !== 0) {
-        cov[i] = 1; n++; if (y < top) top = y; if (y > bot) bot = y;
+        cov[i] = 1; n++; if (y < top) top = y; if (y > bot) bot = y; if (x < lft) lft = x; if (x > rgt) rgt = x;
       }
     }
-    return { cov, n, top, bot, h: bot - top + 1 };
+    return { cov, n, top, bot, lft, rgt, h: bot - top + 1 };
   }
   // % of the mask whose depth the object itself wrote: a mesh rasterizer writes zbuf where it draws,
   // a billboard never touches it, so this reads "geometry" without asking how many triangles there are
@@ -1682,16 +1704,21 @@ if (MODE === 'props') {
   let bad = 0;
   const fail = msg => { bad++; console.log('    FAIL ' + msg); };
   const gruntTris = run('MESH.trisFor("grunt")'), gruntVerts = run('MESH.vertsFor("grunt")');
-  const KINDS = ['barrel', 'crate', 'lamp', 'pickup', 'orb', 'portal'];
+  const KINDS = ['barrel', 'crate', 'lamp', 'pickupHealth', 'pickupAmmo', 'pickupArmor', 'orb', 'portal'];
   const EMISSIVE = { lamp: 1, orb: 1, portal: 1 };
   console.log('props: level ' + LI + '  cam ' + CAM.x.toFixed(2) + ',' + CAM.y.toFixed(2) +
     ' (clear ray ' + CAM.ray + ' m)  prop at ' + SPOT.d + ' m  grunt = ' + gruntTris + ' tris');
   for (const kind of KINDS) {
     const P0 = put[kind], HID = hide[kind];
+    /* the portal is in EVERY frame - it is drawn from exitX/exitY rather than from a list - so it gets
+       parked out of any frame that is measuring something else. Without this its triangles land in row
+       (A)'s count and a half-converted prop kind would pass on the strength of a doorway, and its glow
+       would land in the top decile of row (E)'s control rows. */
+    const PARKO = kind === 'portal' ? '' : 'exitX=-40;exitY=-40;';
     // row (F) parks the camera on a sight line of its own, so every kind re-seats it
     run(CAMSET);
     console.log('  ' + kind.toUpperCase());
-    const s = pair(P0, HID), m = mask(s);
+    const s = pair(PARKO + P0, HID), m = mask(s);
     // (A) geometry or quad
     if (m.n < 250) fail('(A) ' + kind + ': nothing to judge - the silhouette is ' + m.n + ' px');
     const own = owned(s, m);
@@ -1720,11 +1747,24 @@ if (MODE === 'props') {
     // (S) the height convention: scale is TOTAL world height on both paths
     const tY = run('(()=>{const dx=' + SX + '-camX,dy=' + SY + '-camY;return (1/(planeX*dirY-dirX*planeY))*(-planeY*dx+planeX*dy)})()');
     const quad = (H / tY) * SC[kind], ratio = m.h / quad;
-    if (!(ratio > 0.4 && ratio < 1.12)) fail('(S) ' + kind + ': silhouette is ' + m.h + ' px tall against a ' +
-      quad.toFixed(0) + ' px quad at t=' + tY.toFixed(2) + ' m (x' + ratio.toFixed(2) +
-      ') - scale is TOTAL world height: 40_render.js:635 centres at o.z+scale*0.5, 13_mesh.js:365 puts a vertex at o.z+by*sc');
-    else console.log('    scale: ' + m.h + ' px of a ' + quad.toFixed(0) + ' px quad (x' + ratio.toFixed(2) +
-      ') at t=' + tY.toFixed(2) + ' m');
+    let sp = null;
+    try { sp = run('MESH.spanFor(' + JSON.stringify(kind) + ')'); } catch (e) { /* a quad: (A) said it */ }
+    /* a SOLID does not project at one distance: the near jamb of a 0.9 m gate standing at 2.9 m is
+       2.4 m from the eye, so its crown lands ABOVE the centre-plane quad. That is perspective and not
+       a scale bug, so what gets asserted is the window it gives rather than a single number. */
+    const rr = sp ? Math.min(sp.r * SC[kind], tY * 0.45) : 0;
+    const span = sp ? (sp.y1 - sp.y0) * SC[kind] : SC[kind];
+    const hiH = (H / Math.max(0.2, tY - rr)) * span, loH = (H / (tY + rr)) * span;
+    if (sp && (m.h > hiH * 1.04 || m.h < loH * 0.96)) fail('(S) ' + kind + ': silhouette is ' + m.h +
+      ' px tall at t=' + tY.toFixed(2) + ' m, outside the ' + loH.toFixed(0) + '-' + hiH.toFixed(0) +
+      ' px window its own authored ' + span.toFixed(2) + ' m span gives at this distance - scale is TOTAL'
+      + ' world height: 40_render.js:635 centres the quad at o.z+scale*0.5, 13_mesh.js:365 puts a'
+      + ' vertex at o.z+by*sc');
+    else if (!sp) console.log('    scale: n/a for geometry - it is a quad that measures exactly its own ' +
+      quad.toFixed(0) + ' px (silhouette x' + ratio.toFixed(2) + '); row (A) is the one that failed');
+    else console.log('    scale: ' + m.h + ' px tall x ' + (m.rgt - m.lft + 1) + ' wide, inside the ' +
+      loH.toFixed(0) + '-' + hiH.toFixed(0) + ' px window a ' + span.toFixed(2) + ' m body gives at t=' +
+      tY.toFixed(2) + ' m, rows ' + m.top + '-' + m.bot);
     // (E) emissive exemption: the same frame with the lights off
     /* "the lights are off" means OFF: MAP.light to 0 AND MAP.amb to 0, because renderWorld re-reads
        AMB from MAP.amb every frame (40_render.js:96) so the ambient floor is the other half of the
@@ -1733,7 +1773,7 @@ if (MODE === 'props') {
        cannot push that ratio down cannot see scene light at all. */
     run('globalThis.__L = MAP.light.slice(); globalThis.__A = MAP.amb');
     run('MAP.amb = 0; for(let i=0;i<MW*MH;i++)MAP.light[i] = 0');
-    const s2 = pair(P0, HID);
+    const s2 = pair(PARKO + P0, HID);
     run('MAP.light.set(globalThis.__L); MAP.amb = globalThis.__A');
     const m2 = mask(s2);
     if (m2.n < 250) fail('(E) ' + kind + ': invisible once the lights are off (' + m2.n + ' px) - cannot judge emissive');
@@ -1761,7 +1801,7 @@ if (MODE === 'props') {
     if (isProp && !fstate) fail('(F) ' + kind + ': no GENERATED prop of this kind has a >= 1.9 m clear ray, so '
       + 'its feet could not be judged - the census is unreachable from the camera');
     const fX = fstate ? fstate.x : +SX, fY = fstate ? fstate.y : +SY;
-    const fcode = fstate ? 'null' : P0;
+    const fcode = (fstate ? '' : P0 + ';') + PARKO;
     const foff = fstate ? 'PKP2[0]=PROPS.splice(' + fstate.i + ',1)[0]' : HID;
     const fon = fstate ? 'PROPS.splice(' + fstate.i + ',0,PKP2[0])' : 'null';
     const sA = pair(fcode, foff, fon), mA = mask(sA);
@@ -1774,7 +1814,13 @@ if (MODE === 'props') {
     run('MAP.fz.set(globalThis.__F);linkBoundaries();P.z=floorAt(P.x,P.y);ENEMIES.length=0;');
     const keep = m3.h / (mA.h || 1), shift = mA.bot - m3.bot, want = (H / ftY) * 0.25;
     const who = fstate ? 'generated prop ' + fstate.i + ' at ' + fstate.d + ' m' : 'the placed entry';
-    if (keep < 0.9) fail('(F) ' + kind + ': SUNK IN THE BAND - raising its floor by one quantum (0.25 m, a step, '
+    // a projectile in flight has no feet: its z is the arc js/30_entities.js owns, so raising the band
+    // under it must change NOTHING - the correct answer, not a failure, and not a silent pass either:
+    // nothing in this probe or any other gate covers a MOVER's altitude, which #76 leaves to gameplay
+    const airborne = kind === 'orb';
+    if (airborne) console.log('    feet: n/a - airborne, z is the arc 30_entities.js owns, not floorAt;'
+      + ' UNCOVERED by any gate here');
+    else if (keep < 0.9) fail('(F) ' + kind + ': SUNK IN THE BAND - raising its floor by one quantum (0.25 m, a step, '
       + 'so no riser is drawn and nothing occludes it) hid ' + (100 * (1 - keep)).toFixed(0) + '% of it (height '
       + mA.h + ' -> ' + m3.h + ' px, bottom ' + mA.bot + ' -> ' + m3.bot + ') on ' + who + ': its z is not floorAt(x,y)');
     else if (shift < want * 0.4) fail('(F) ' + kind + ': the floor rose one quantum and the prop did not (bottom row '
