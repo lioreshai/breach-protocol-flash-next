@@ -83,15 +83,16 @@ rounded boxes, polygons) plus tileable value noise and fbm — painting into `Ui
   footprint and adaptive horizontal stepping so near rows keep detail and distant rows cost one
   sample. Bullet holes, scorch marks and blood pool in *world* space and are composited during the
   wall and floor passes.
-* **Characters** (`js/11_rig.js`) are jointed geometry: capsules and rounded boxes specified in
-  fractions of body height, posed by a gait phase that advances with *distance travelled* so a
-  planted foot stays planted, and rasterized through signed-distance fields at the size they
-  occupy. The silhouette is a function of the viewing angle, so facing reads correctly. Poses are
-  cached by (species, gait phase, yaw, action) under a byte cap and a per-frame rasterization
-  budget; over budget the nearest cached pose is reused rather than paying for another raster.
-  Billboards sample with bilinear filtering where texels outnumber pixels, which is what killed the
-  shimmer at distance. `js/12_sprites.js` still paints props and decals, and supplies the bitmap
-  poses the PERFORMANCE preset uses.
+* **Characters** (`js/13_mesh.js`) are volumetric meshes: six-sided tubes and chamfered boxes built
+  from the same body fractions as `js/11_rig.js`, placed at the enemy's real position, heading and
+  floor height, flat-shaded from a world-space normal and rasterized into the framebuffer the
+  raycaster owns. The triangle raster writes the per-pixel depth it wins, which is what lets a body
+  hide its own far side, and it clips at the near plane, so a body can walk into the lens. It has no
+  animation yet — legs are straight — so the jointed 2D rasters (`js/11_rig.js`) and the bitmap
+  sheets (`js/12_sprites.js`) are still built and probed by `view.js rig` and `DEV.set('rim')`, but
+  nothing in a frame draws them any more; #69 B5 deletes them. Poses used to be cached by
+  (species, gait phase, yaw, action); yaw left that key, because geometry is valid at every angle.
+  `js/12_sprites.js` still paints props and decals.
 * **Post FX**: bloom from a downscaled bright pass, projected lamp glow with a line-of-sight test,
   film grain and a contrast grade. `F4` trades these against internal resolution.
 
@@ -103,9 +104,10 @@ rounded boxes, polygons) plus tileable value noise and fbm — painting into `Ui
 * **Renderer** is a software raycaster (Wolfenstein-style DDA) writing into an `ImageData`'s
   `Uint32Array` at ~0.5× resolution, upscaled to the window. Per-column light, fog and tint are
   computed once per column, so each pixel costs one texture read, a few multiplies and a clamp.
-* **Billboards** (props, pickups, enemies, projectiles, portal) are depth-tested against the
-  per-column z-buffer and alpha blended; sprites are occluded correctly by walls. They also get a
-  small distance-based fill light, so an enemy in an unlit room is still a readable silhouette.
+* **Billboards** (props, pickups, projectiles, portal) are depth-tested per pixel against the
+  distance the ground and wall passes wrote, and alpha blended, so a sprite is occluded correctly by
+  walls and by the bodies in `js/13_mesh.js`, which write into that same depth. They also get a
+  small distance-based fill light, so an unlit prop is still a readable silhouette.
 * **Pitch** is a screen shear, so it is converted to a ray slope (`aimPx / BH`) for hit maths —
   aim at legs or head and the hit test agrees. Firing recoil is a separate term that settles on
   its own, so the vertical aim you set with the mouse is never pulled back to level.
@@ -252,7 +254,7 @@ fail** - `rig` will happily report `RIG PROBLEMS:` and exit 0. Read them as inst
 build. Three numbers deserve honesty rather than a badge:
 
 * the raster figure is `renderWorld()+renderOverlay()` on an almost-empty frame (the run prints
-  `billboards: 2` right beside it), so it is a floor, not gameplay. Gameplay cost is what
+  `sprites: 2` right beside it), so it is a floor, not gameplay. Gameplay cost is what
   `WARM=1 node tools/view.js scene 1 0` measures over 180 frames; on this machine that has been
   ~10 ms avg and 35-76 ms worst, which is a different claim than "16 ms/frame".
 * asset memory now walks `WALLS`, `PROP`, `ENEMY`, `FLOORS`, `CEILS`, `DECAL` **and** the rig cache.

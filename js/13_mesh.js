@@ -59,6 +59,7 @@ const MESH = (function () {
   const cam = { x: 0, y: 0, dirX: 0, dirY: 0, planeX: 0, planeY: 0, invDet: 1, tx: 0, ty: 0, tz: 0 };
 
   let tris = 0, pxFilled = 0, trisCulled = 0, SELF = true;
+  let ALPHA = 1, FLASH = 0, TINT = null;               // per-draw terms the enemy list carries
   let CR = 0, CG = 0, CB = 0;                       // shaded colour of the current triangle
 
   /* ---- geometry emit: tubes and boxes into a flat vertex/index list ---- */
@@ -171,6 +172,8 @@ const MESH = (function () {
     const x0 = Math.max(0, Math.ceil(minx)), x1 = Math.min(BW - 1, Math.floor(maxx));
     const y0 = Math.max(0, Math.ceil(miny)), y1 = Math.min(BH - 1, Math.floor(maxy));
     if (x1 < x0 || y1 < y0) return;
+    const COL = (255 << 24 | CB << 16 | CG << 8 | CR) >>> 0;
+    const A = ALPHA, IA = 1 - A, SOLID = A >= 1;      // hoisted: the blend is a corpse's, not the rule
     const e0x = SX[1] - SX[0], e0y = SY[1] - SY[0], e1x = SX[2] - SX[0], e1y = SY[2] - SY[0];
     const det = e0x * e1y - e1x * e0y;
     if (det > -1e-9 && det < 1e-9) return;                      // degenerate in screen space
@@ -192,7 +195,12 @@ const MESH = (function () {
         // writing the winner is the whole point: without it these triangles are
         // painted in emit order, and a torso emitted before an arm loses to it
         if (SELF && z < occ) zbuf[off] = z;
-        px[off] = (255 << 24 | CB << 16 | CG << 8 | CR) >>> 0;
+        if (SOLID) px[off] = COL;
+        else {
+          const dst = px[off];
+          px[off] = (0xFF000000 | clampi(CB * A + (dst >> 16 & 255) * IA) << 16 |
+            clampi(CG * A + (dst >> 8 & 255) * IA) << 8 | clampi(CR * A + (dst & 255) * IA)) >>> 0;
+        }
         pxFilled++;
       }
     }
@@ -207,13 +215,31 @@ const MESH = (function () {
     o.tz = wz;
   }
 
-  /* draw one mesh. opts: {kind,x,y,z,yaw,scale,self} */
+  /* draw one mesh. opts: {kind,x,y,z,yaw,scale,self,alpha,flash,tint}
+     alpha < 1 blends (the corpse fade); flash is the hit term folded into the flat colour the
+     way the billboard did it; tint is that enemy's per-individual colour jitter. */
   function draw(o) {
     const m = model(o.kind || 'grunt'), sc = o.scale || 1, cyw = Math.cos(o.yaw || 0), syw = Math.sin(o.yaw || 0);
     SELF = o.self === undefined ? true : !!o.self;
+    ALPHA = o.alpha === undefined ? 1 : o.alpha;
+    FLASH = o.flash ? 1 : 0;
+    TINT = o.tint || null;
     const PD = m.p, T = m.t, nV = Math.min(m.nV, MAXV);
     cam.x = camX; cam.y = camY; cam.dirX = dirX; cam.dirY = dirY; cam.planeX = planeX; cam.planeY = planeY;
     cam.invDet = 1 / (planeX * dirY - dirX * planeY);
+    /* Cull before rasterizing. A body costs its whole triangle list whether or not it can be
+       seen, and the two tests the billboard path already runs - behind the camera, off the
+       buffer - are two world-space dots. The box is 1.6x the projected height against a body
+       no wider than 1.02x it (SPEC.aspect), so it can keep an off-screen body and cannot drop
+       an on-screen one. */
+    const ex = o.x - camX, ey = o.y - camY;
+    const tYc = cam.invDet * (-planeY * ex + planeX * ey);
+    if (tYc < -sc) return;
+    if (tYc > 0.12) {
+      const tXc = cam.invDet * (dirY * ex - dirX * ey);
+      const wide = (BH / tYc) * sc * 1.6, sx = (BW * 0.5) * (1 + tXc / tYc);
+      if (sx + wide * 0.5 < 0 || sx - wide * 0.5 > BW) return;
+    }
     for (let i = 0; i < nV; i++) {
       const bx = PD[i * 6], by = PD[i * 6 + 1], bz = PD[i * 6 + 2];
       VX[i] = o.x + (bx * cyw + bz * syw) * sc;
@@ -221,6 +247,7 @@ const MESH = (function () {
       VZ[i] = o.z + by * sc;
     }
     const lt = cellTint(cellIdx(o.x, o.y)), lm = MAP.light;
+    const FL = S.flash, FC = S.flashCol;                // the muzzle's own light, the billboard's term
     for (let k = 0, K = T.length; k < K; k += 3) {
       const i0 = T[k], i1 = T[k + 1], i2 = T[k + 2];
       // face normal in world space (flat shading), then Lambert against KEY
@@ -243,11 +270,18 @@ const MESH = (function () {
       const li = Math.min(1, (lm ? lm[cellIdx(o.x, o.y)] : 0.5) * Math.exp(-dc * 0.14) + 0.30 * visAt(dc));
       const fog = fogAt(dc), inv = 1 - fog;
       const sh = 0.30 + 0.85 * d;
-      const lr = (AMB + li * lt[0] * sh) * inv, lg = (AMB + li * lt[1] * sh) * inv, lb = (AMB + li * lt[2] * sh) * inv;
+      const fk = FL ? FL * 1.1 * Math.exp(-dc * 0.30) : 0;
+      let lr = (AMB + li * lt[0] * sh + fk * (FC[0] / 255)) * inv;
+      let lg = (AMB + li * lt[1] * sh + fk * (FC[1] / 255)) * inv;
+      let lb = (AMB + li * lt[2] * sh + fk * (FC[2] / 255)) * inv;
+      if (TINT) { lr *= TINT[0]; lg *= TINT[1]; lb *= TINT[2]; }
       const packed = PD[i0 * 6 + 3] << 16 | PD[i0 * 6 + 4] << 8 | PD[i0 * 6 + 5];
       let r = (packed >> 16 & 255) * lr + FOGC[0] * fog; CR = r > 255 ? 255 : r | 0;
       let g = (packed >> 8 & 255) * lg + FOGC[1] * fog; CG = g > 255 ? 255 : g | 0;
       let b = (packed & 255) * lb + FOGC[2] * fog; CB = b > 255 ? 255 : b | 0;
+      // the hit flash the billboard applied per pixel is per triangle here: a flat-shaded face has
+      // one colour, so the same 0.72 pull toward white after fog lands in the three registers
+      if (FLASH) { CR = (CR + (250 - CR) * 0.72) | 0; CG = (CG + (242 - CG) * 0.72) | 0; CB = (CB + (236 - CB) * 0.72) | 0; }
       tri();
     }
   }
