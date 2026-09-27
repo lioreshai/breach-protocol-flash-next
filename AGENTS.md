@@ -18,6 +18,9 @@ node tools/view.js scene 0 0            # /tmp/fps_scene.png (level 0, cell 0)
 node tools/view.js exposure             # mean brightness per level (targets 60-100)
 node tools/view.js heights              # which HALF of the frame moves when only floors, or only
                                         # ceilings, change altitude - the M2 probe, exits non-zero
+node tools/view.js anim                 # does a body change SHAPE while it walks - masks the silhouette
+                                        # by the contrast technique so world churn cannot fake the diff;
+                                        # exits non-zero on a static stance. KIND=<kind>, COST=1
 node tools/view.js rig | viewmodel | play | diag | decal
 node tools/view.js scene 0 0 ASCII=1    # text view, when the pixels want to be numbers
 WARM=1 node tools/view.js scene 0 3     # stress: 180 frames, turning camera

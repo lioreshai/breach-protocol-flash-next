@@ -22,7 +22,11 @@ fps/
                     sprint/airborne, verifying overlay geometry lands on screen with balanced
                     save/restore), play (drives the real frame()/update() loop through every level,
                     weapon, reload, fire, sprint, combat and level transition, and measures how far
-                    the player actually walks), decal (ground decals reach the floor sampler)
+                    the player actually walks), decal (ground decals reach the floor sampler),
+                    anim (does an enemy's body change SHAPE while it walks: masks the silhouette by
+                    the contrast technique, drives the gait through the game's own updateEnemies, and
+                    fails on a body drawn in a static stance; KIND=<kind> picks the body, COST=1
+                    measures the pose table against rebuilding vertices every frame)
                     (scene honours WARM=1 to exercise the rig cache under a spinning camera)
   tools/png.js      minimal PNG writer used by view.js (no dependencies)
 ```
