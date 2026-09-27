@@ -14,6 +14,14 @@ const MODE = process.argv[2] || 'scene';
 const ASCII = process.env.ASCII === '1' || process.env.ASCII === '';
 const LVL = +(process.argv[3] || 0);
 const CAM = +(process.argv[4] || 0);
+// An unknown name used to fall through to the scene dump and exit 0, so a typo in a CI probe list
+// ran something, painted a PNG and reported a passing gate (#89).
+const PROBES = ['scene', 'alt', 'anim', 'contrast', 'decal', 'diag', 'exposure', 'heights',
+  'mip', 'planes', 'play', 'props', 'rig', 'sheets', 'stats', 'vert', 'viewmodel'];
+if (!PROBES.includes(MODE)) {
+  console.error('unknown probe "' + MODE + '" - known: ' + PROBES.join(' '));
+  process.exit(2);
+}
 const OUT = process.env.OUT || (MODE === 'sheets' ? '/tmp/fps_tex.png' : MODE === 'rig' ? '/tmp/fps_rig.png' : '/tmp/fps_scene.png');
 
 /* Browsers reject malformed colour strings and non-finite gradient geometry by
