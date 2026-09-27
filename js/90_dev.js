@@ -186,6 +186,36 @@
       through: zh >= z0 && zh < z1
     };
   }
+  /* DEV.mesh: draw N procedural volumetric bodies into the real framebuffer over a
+     rendered world frame and return the cost (js/13_mesh.js). The billboard path is
+     not involved, and nothing else in the build calls MESH. self:false reproduces the
+     original spike's read-only depth test - mesh-vs-world occlusion kept, self-occlusion
+     lost to painter's order - as a negative control for the depth write. */
+  function mesh(o) {
+    o = o || {};
+    const kind = ETYPE[o.kind] ? o.kind : 'grunt', cnt = Math.max(1, (o.n === undefined ? 1 : o.n) | 0);
+    const d = o.d === undefined ? 3 : +o.d, span = o.span === undefined ? 1.1 : +o.span;
+    const sc = o.scale === undefined ? ETYPE[kind].scale : +o.scale;
+    const self = o.self === undefined ? true : !!o.self;
+    if (S.mode !== 'play') DEV.boot();
+    renderWorld();
+    MESH.reset();
+    const t0 = performance.now();
+    for (let i = 0; i < cnt; i++) {
+      const f = cnt === 1 ? 0 : (i / (cnt - 1) - 0.5) * span;
+      const mx = P.x + Math.cos(P.ang) * d + Math.cos(P.ang + Math.PI / 2) * f;
+      const my = P.y + Math.sin(P.ang) * d + Math.sin(P.ang + Math.PI / 2) * f;
+      MESH.draw({
+        kind, x: mx, y: my, z: o.z === undefined ? floorAt(mx, my) : +o.z,
+        yaw: o.yaw === undefined ? Math.atan2(P.x - mx, P.y - my) : +o.yaw, scale: sc, self,
+      });
+    }
+    const s = MESH.stats();
+    return {
+      ms: +(performance.now() - t0).toFixed(3), tris: s.tris, pxFilled: s.pxFilled, trisCulled: s.trisCulled,
+      n: cnt, dist: num(d, 2), kind, self, scale: num(sc, 3), trisEach: MESH.trisFor(kind), vertsEach: MESH.vertsFor(kind), buf: BW + 'x' + BH,
+    };
+  }
   function tiers() { return QUAL.map((q, i) => ({ i: i, name: q.name, res: q.res, bloom: q.bloom, grade: q.grade, grain: q.grain, rigH: q.rigH, far: q.far, active: i === S.gfx })); }
   function help() {
     console.log([
@@ -208,6 +238,10 @@
       '  DEV.state()                     JSON-safe snapshot: player (ang is the heading), level, enemies, counts, S flags',
       '  DEV.ray(x, y[, z], dx, dy, dz[, maxD])',
       '                          the wall DDA for one ray: {hit, dist, x, y, z, cell, mat, side, normal, face, through}',
+      '  DEV.mesh({n,d,kind,yaw,scale,span,z,self})',
+      '                          renderWorld(), then draw n procedural volumetric bodies d metres along the view',
+      '                          (js/13_mesh.js) and return {ms,tris,pxFilled}. self:false drops the depth WRITE,',
+      '                          which is what makes a body occlude itself — the negative control for that claim.',
       '',
       '  examples: DEV.cam(4.5, 4.5, undefined, 0.6); DEV.freeze(true); DEV.tick(30)',
       '            DEV.spawn("brute", 1, 2); JSON.stringify(DEV.stats())',
@@ -220,7 +254,7 @@
 
   const DEV = {
     on: true, help: help, boot: boot, cam: cam, look: look, face: face, nearestEnemy: nearestEnemy, freeze: freeze,
-    tick: tick, spawn: spawn, clear: clear, set: set, tiers: tiers, stats: stats, state: state, ray: ray,
+    tick: tick, spawn: spawn, clear: clear, set: set, tiers: tiers, stats: stats, state: state, ray: ray, mesh: mesh,
     get ground() { return { reSolveBad: reSolveBad, gndOffMap: gndOffMap }; }   // ground re-solve counters, see tools/view.js heights
   };
   window.DEV = DEV;
