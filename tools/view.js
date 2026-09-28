@@ -17,7 +17,7 @@ const CAM = +(process.argv[4] || 0);
 // An unknown name used to fall through to the scene dump and exit 0, so a typo in a CI probe list
 // ran something, painted a PNG and reported a passing gate (#89).
 const PROBES = ['scene', 'alt', 'anim', 'contrast', 'cull', 'decal', 'diag', 'exposure', 'heights',
-  'drop', 'mip', 'planes', 'play', 'props', 'rig', 'sheets', 'sight', 'stats', 'vert', 'viewmodel'];
+  'drop', 'horizon', 'mip', 'planes', 'play', 'props', 'rig', 'sheets', 'sight', 'stats', 'vert', 'viewmodel'];
 if (!PROBES.includes(MODE)) {
   console.error('unknown probe "' + MODE + '" - known: ' + PROBES.join(' '));
   process.exit(2);
@@ -747,6 +747,83 @@ if (MODE === 'drop') {
   }
 
   console.log(bad ? `DROP ${bad} FAILURES` : 'DROP ok - the player lands on the floor they fall to');
+  process.exit(bad ? 1 : 0);
+}
+
+if (MODE === 'horizon') {
+  /* #24's horizon half. M0 made P.z an absolute altitude, and the claim was that the horizon stays
+     where the CAMERA puts it - js/40_render.js:97 carries no altitude term at all, only BH/2 + aimPx
+     + bob + shake. Asserting that alone is vacuous (a constant horizon passes it too), so the rows
+     come in pairs: invariance to altitude, then proof the frame really did change, then proof the
+     horizon DOES move when the thing that should move it does. The third row reads the renderer's own
+     eye altitude: js/40_render.js:95 clamps it into [0.12, 1.4], a bound written when P.z was a crouch
+     offset in [0,1]; under absolute altitude it becomes a CEILING on where the player can stand. */
+  let bad = 0, known = 0;
+  const STRICT = !!process.env.STRICT;
+  const row = (label, ok, detail, knownIssue) => {
+    const tag = ok ? ' ok  ' : knownIssue ? 'KNOWN' : ' FAIL';
+    console.log('  ' + label.padEnd(46) + tag + '  ' + detail + (ok || !knownIssue ? '' : '  [' + knownIssue + ']'));
+    if (ok) return;
+    if (knownIssue && !STRICT) known++; else bad++;
+  };
+  const ZQ = run('ZQ'), BW = run('BW'), BH = run('BH'), MW = run('MW');
+  const PRE = li => `S.mode='play';S.locked=false;S.diff=1;startLevel(${li},true);ENEMIES.length=0;PROPS.length=0;` +
+    `for(const k in keys)delete keys[k];P.vx=P.vy=P.vz=0;P.air=false;P.crouch=0;P.hp=100;P.armor=0;S.shake=0;P.bob=0;P.pitch=0;P.recoil=0;`;
+  const snap = () => run('(function(){ window.__fz0h = MAP.fz.slice(); return 1; })()');
+  // the index is built INSIDE the sandbox on purpose: MW changes per level (26x26 then 32x32), so a
+  // value captured once at probe start indexes off the end of the array past level 0, and a typed-array
+  // write past the end is silently dropped - the poke then does nothing and the frame never changes.
+  const poke = (cells, dq) => run(`(function(){
+    for (const i of [${cells.map(c => `${(c[1] | 0)} * MW + ${(c[0] | 0)}`).join(',')}]) MAP.fz[i] += ${dq};
+    linkBoundaries(); return 1; })()`);
+  const restore = () => run('(function(){ for (let i = 0; i < MAP.fz.length; i++) MAP.fz[i] = __fz0h[i]; linkBoundaries(); P.z = floorAt(P.x, P.y); return 1; })()');
+  const look = () => run('(function(){ P.z = floorAt(P.x, P.y); renderWorld(); return { hz: horizon, eye: eyeZ, z: P.z, cfg: cfg.eye }; })()');
+  const frame = () => new Uint32Array(run('px'));
+  const diffPx = (a, b) => { let n = 0; for (let i = 0, N = a.length; i < N; i++) if (a[i] !== b[i]) n++; return n; };
+
+  for (let li = 0; li < run('LEVELS.length'); li++) {
+    seedRng((SEED ^ (li * 2654435761)) >>> 0);
+    run(PRE(li)); snap();
+    const flat = look(), frameFlat = frame();
+    const own = [[Math.floor(run('P.x')), Math.floor(run('P.y'))]];
+
+    const rows = [];
+    for (const dq of [4, -4, 8]) {
+      poke(own, dq);
+      const a = look(), frameA = frame(), changed = diffPx(frameFlat, frameA);
+      poke(own, -dq);
+      rows.push({ dq, a, changed });
+    }
+    const hzErr = Math.max.apply(null, rows.map(r => Math.abs(r.a.hz - flat.hz)));
+    row(`L${li} the horizon does not know the player's altitude`, hzErr < 1,
+      `horizon ${flat.hz.toFixed(3)} at the level's own datum vs ${rows.map(r => r.a.hz.toFixed(3)).join(' / ')} at P.z ${rows.map(r => r.a.z.toFixed(2)).join(' / ')} (worst |d| ${hzErr.toFixed(3)} px of ${BH}) - js/40_render.js:97 has no altitude term`);
+
+    const minChanged = Math.min.apply(null, rows.map(r => r.changed));
+    row(`L${li} the frame does know it, so the row above can fail`,
+      minChanged > 0.01 * BW * BH,
+      `fewest pixels changed by a poke of ${rows.map(r => (r.dq * ZQ).toFixed(2)).join(' / ')} m: ${minChanged} of ${BW * BH} (${(100 * minChanged / (BW * BH)).toFixed(2)}%), P.z ${rows.map(r => r.a.z.toFixed(2)).join(' / ')} (a poke that does not move P.z did not reach the grid)`);
+
+    // the renderer's own eye, on each band, against cfg.eye + P.z with the clamp not binding
+    const eyeRows = rows.map(r => ({ dq: r.dq, want: flat.cfg + r.a.z, got: r.a.eye, z: r.a.z }));
+    const worst = eyeRows.reduce((m, r) => Math.max(m, Math.abs(r.got - r.want)), 0);
+    row(`L${li} the eye altitude tracks the band the player stands on`, worst < 1e-6,
+      `cfg.eye ${flat.cfg.toFixed(2)}: eye should be ${eyeRows.map(r => r.want.toFixed(2)).join(' / ')} for P.z ${eyeRows.map(r => r.z.toFixed(2)).join(' / ')}, renderer uses ${eyeRows.map(r => r.got.toFixed(2)).join(' / ')} - js/40_render.js:95 clamps to [0.12, 1.4], a bound from when P.z was a crouch offset (worst off ${worst.toFixed(2)} m)`, '#103');
+
+    const pRow = [];
+    for (const pk of [200, -200]) {
+      run(`P.pitch=${pk};`);
+      pRow.push({ pk, hz: look().hz });
+    }
+    run('P.pitch=0;');
+    const slope = (pRow[0].hz - pRow[1].hz) / (pRow[0].pk - pRow[1].pk);
+    row(`L${li} pitching the camera moves the horizon`,
+      Math.abs(slope - 1) < 0.02 && Math.abs(pRow[0].hz - flat.hz) > 100,
+      `horizon ${flat.hz.toFixed(1)} at pitch 0, ${pRow.map(r => r.hz.toFixed(1) + ' at pitch ' + r.pk).join(', ')} -> ${slope.toFixed(4)} px of horizon per px of pitch (aimPx is in pixels, so 1)`);
+    restore();
+  }
+
+  console.log((bad ? `HORIZON ${bad} FAILURES` : 'HORIZON ok - the horizon belongs to the camera, not to the floor') +
+    (known ? `  (${known} known ${STRICT ? 'FAILED under STRICT' : 'reporting'} rows: eyeZ clamps at 1.4, #103)` : ''));
   process.exit(bad ? 1 : 0);
 }
 
