@@ -17,7 +17,7 @@ const CAM = +(process.argv[4] || 0);
 // An unknown name used to fall through to the scene dump and exit 0, so a typo in a CI probe list
 // ran something, painted a PNG and reported a passing gate (#89).
 const PROBES = ['scene', 'alt', 'anim', 'contrast', 'cull', 'decal', 'diag', 'exposure', 'heights',
-  'mip', 'planes', 'play', 'props', 'rig', 'sheets', 'sight', 'stats', 'vert', 'viewmodel'];
+  'drop', 'mip', 'planes', 'play', 'props', 'rig', 'sheets', 'sight', 'stats', 'vert', 'viewmodel'];
 if (!PROBES.includes(MODE)) {
   console.error('unknown probe "' + MODE + '" - known: ' + PROBES.join(' '));
   process.exit(2);
@@ -626,6 +626,127 @@ if (MODE === 'sight') {
     }
   }
   console.log(bad ? `SIGHT ${bad} FAILURES` : 'SIGHT ok - hit tests follow the body they hit');
+  process.exit(bad ? 1 : 0);
+}
+
+if (MODE === 'drop') {
+  /* M3's gravity, driven through the real input layer at a fixed dt: does the player leave the ground
+     when the floor leaves, land ON the floor below rather than the far cell's, take damage only past
+     the impact threshold, and read one quantum down as a step rather than a fall? Driving P.vx by
+     hand does nothing - updatePlayer recomputes velocity from `keys` every frame - so the run is
+     driven by keys and facing, the way a player is. Landing is judged on the frame the feet arrive
+     (#95: sampling the post-update state measures gravity's correction, not gravity), and shake and
+     hp are sampled together so a hurt can never be mistaken for a landing. */
+  let bad = 0;
+  const row = (label, ok, detail) => {
+    console.log('  ' + label.padEnd(46) + (ok ? ' ok  ' : ' FAIL') + '  ' + detail);
+    if (!ok) bad++;
+  };
+  const ZQ = run('ZQ'), G = 9.2, SAFE = 5.25;   // js/30_entities.js:333 - 5.25 m/s is a 1.5 m drop
+  const PLACE = (x, y, ang) => `P.x=${x};P.y=${y};P.ang=${ang};P.vx=P.vy=P.vz=0;P.air=false;P.z=floorAt(P.x,P.y);` +
+    `S.shake=0;for(const k of ['KeyW','KeyA','KeyS','KeyE','KeyQ','Space','ShiftLeft'])delete keys[k];`;
+  const trace = (fr) => run(`(()=>{const s=[];keys['KeyW']=1;for(let i=0;i<${fr};i++){update(1/60);` +
+    `s.push([P.x,P.y,P.z,P.air?1:0,P.vz,P.hp,S.shake,floorAt(P.x,P.y)]);}return s})()`);
+  const snap = () => run('(function(){ window.__fz0 = MAP.fz.slice(); return 1; })()');
+  const poke = (cells, dq) => run(`(function(){
+    if (!window.__fz0 || window.__fz0.length !== MAP.fz.length) window.__fz0 = MAP.fz.slice();
+    for (const i of [${cells.map(c => (c[1] | 0) * run('MW') + (c[0] | 0)).join(',')}]) MAP.fz[i] += ${dq};
+    linkBoundaries(); return 1; })()`);
+  const restore = () => run('(function(){ for (let i = 0; i < MAP.fz.length; i++) MAP.fz[i] = __fz0[i]; linkBoundaries(); return 1; })()');
+  const angTo = (dx, dy) => Math.atan2(dy, dx);
+  const PRE = li => `S.mode='play';S.locked=false;S.diff=1;startLevel(${li},true);` +
+    // ENEMIES.length=0 belongs in PRE: a live enemy reaches the walking player for 8 hp a hit and
+    // damagePlayer adds shake, and an unattributed shake is how this row first read as a landing that
+    // never happened - the #96 lesson, relearned in my own code. hp is sampled per frame below so each
+    // row can name WHICH impulse it is counting.
+    `ENEMIES.length=0;PROPS.length=0;for(const k in keys)delete keys[k];` +
+    `P.vx=P.vy=P.vz=0;P.air=false;P.crouch=0;P.hp=100;P.armor=0;S.shake=0;`;
+
+  for (let li = 0; li < run('LEVELS.length'); li++) {
+    seedRng((SEED ^ (li * 2654435761)) >>> 0);
+    run(PRE(li));
+    snap();
+    // the longest open run from the spawn, so the lane exists in whatever direction the level offers
+    const lane = (() => {
+      const dirs = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+      let best = null;
+      for (const d of dirs) {
+        run(PLACE(run('P.x'), run('P.y'), angTo(d[0], d[1])));
+        const n = run(`(()=>{let n=0;const X=Math.floor(P.x),Y=Math.floor(P.y);
+          while(n<8 && MAP.cell[(Y+${d[1]}*n)*MW + X+${d[0]}*n] === 0) n++; return n})()`);
+        if (!best || n > best.n) best = { n, dx: d[0], dy: d[1] };
+      }
+      return best;
+    })();
+    if (lane.n < 3) { row(`L${li} lane`, false, `no open run of 3 cells from spawn in any direction (best ${lane.n})`); continue; }
+    const X = run('P.x'), Y = run('P.y'), LX = Math.floor(X), LY = Math.floor(Y);
+    const cellAt = (k) => [[LX + lane.dx * k, LY + lane.dy * k]];
+    const put = (x, y) => run(`(()=>{ ${PLACE(x, y, angTo(lane.dx, lane.dy))} return 1 })()`);
+
+    // --- falls: raise the cell the player STANDS ON, so walking forward is stepping off a ledge ----
+    const fall = (dq, frames) => {
+      put(X, Y);
+      poke(cellAt(0), dq);
+      put(X, Y);                                    // re-seat ON the raised floor
+      const s = trace(frames);
+      const airOn = s.findIndex(r => r[3]);
+      const landIx = s.findIndex((r, i) => i && s[i - 1][3] && !r[3]);
+      const land = landIx < 0 ? null : {
+        f: landIx + 1, z: s[landIx][2], gz: s[landIx][7], imp: -s[landIx - 1][4],
+        shake: s[landIx][6] - s[landIx - 1][6], hp: s[landIx - 1][5] - s[landIx][5],
+      };
+      restore();
+      return { airOn, air: s.filter(r => r[3]).length, land, end: s[s.length - 1], h: dq * ZQ };
+    };
+
+    let r = fall(4, 90);
+    const vSafe = Math.sqrt(2 * G * r.h);
+    row(`L${li} stepping off a ${(r.h).toFixed(2)} m ledge falls and lands with an impulse`,
+      r.air > 0 && !!r.land && Math.abs(r.land.z - r.land.gz) < 0.02 && !r.end[3] &&
+      r.land.shake > 0.8 && r.land.hp === 0,
+      `air from frame ${r.airOn + 1} (${r.air} airborne frames), landed frame ${r.land && r.land.f} at z ${r.land && r.land.z.toFixed(4)} ` +
+      `on floor ${r.land && r.land.gz.toFixed(2)}, impact ${r.land ? r.land.imp.toFixed(2) : '-'} m/s vs sqrt(2gh)=${vSafe.toFixed(2)} ` +
+      `(threshold ${SAFE}), shook ${r.land && r.land.shake.toFixed(2)}, hp -${r.land && r.land.hp}`);
+
+    r = fall(12, 120);
+    const vHard = Math.sqrt(2 * G * r.h);
+    row(`L${li} a ${(r.h).toFixed(2)} m drop hurts`,
+      r.air > 0 && !!r.land && r.land.hp > 3 && Math.abs(r.land.z - r.land.gz) < 0.02,
+      `impact ${r.land ? r.land.imp.toFixed(2) : '-'} m/s vs ${vHard.toFixed(2)} predicted, hp -${r.land && r.land.hp.toFixed(2)} ` +
+      `(formula (imp-${SAFE})*12 = ${Math.max(0, (vHard - SAFE) * 12).toFixed(1)}), landed on floor ${r.land && r.land.gz.toFixed(2)}`);
+
+    // --- a step UP: blocked, and no lift from reading the far cell's floor as support --------------
+    put(X, Y);
+    poke(cellAt(1).concat(cellAt(2)), 4);
+    const vb = run(`(function(){ return { own: MAP.vb[${LY * run('MW') + LX}], ahead: MAP.vb[${(LY + lane.dy) * run('MW') + LX + lane.dx}] }; })()`);
+    put(X, Y);
+    const w = trace(60);
+    const moved = Math.hypot(w[w.length - 1][0] - X, w[w.length - 1][1] - Y);
+    const zmax = Math.max.apply(null, w.map(x => x[2])), zmin = Math.min.apply(null, w.map(x => x[2]));
+    const airF = w.findIndex(x => x[3]);
+    restore();
+    row(`L${li} a step up blocks without lifting the player`,
+      moved < 0.7 && airF < 0 && Math.abs(zmax - zmin) < 1e-6,
+      `moved ${moved.toFixed(2)} m in 1 s into the riser, z stayed ${zmin.toFixed(4)} (max ${zmax.toFixed(4)}), ` +
+      `air ${airF < 0 ? 'never' : 'frame ' + (airF + 1)}, vb own 0x${(vb.own >>> 0).toString(16)} ahead 0x${(vb.ahead >>> 0).toString(16)}`);
+
+    // --- one quantum down must be a STEP: the edge test is strict (gz < P.z - ZQ), so no air ------
+    put(X, Y);
+    poke(cellAt(1).concat(cellAt(2)), -1);
+    put(X, Y);
+    const zStart = run('P.z');
+    const st = trace(45);
+    const stAir = st.findIndex(x => x[3]);
+    const jump = Math.max.apply(null, st.map((x, i) => i ? x[6] - st[i - 1][6] : 0));
+    const zEnd = st[st.length - 1][2];
+    restore();
+    row(`L${li} one quantum down is a step, not a fall`,
+      stAir < 0 && jump < 0.5 && Math.abs(zEnd - (zStart - ZQ)) < 0.02,
+      `air ${stAir < 0 ? 'never' : 'frame ' + (stAir + 1)}, biggest shake jump ${jump.toFixed(3)}, hp -${(st[0][5] - st[st.length - 1][5]).toFixed(2)}, ` +
+      `z ${zStart.toFixed(3)} -> ${zEnd.toFixed(3)} (wants ${(zStart - ZQ).toFixed(3)})`);
+  }
+
+  console.log(bad ? `DROP ${bad} FAILURES` : 'DROP ok - the player lands on the floor they fall to');
   process.exit(bad ? 1 : 0);
 }
 
