@@ -230,18 +230,27 @@ function explode(x, y, z, radius, dmg, ownDmg) {
   S.shake += 9; S.flash = 1.0; S.flashCol = [255, 170, 70];
   burstParts(x, y, z, 46, 5.5, '#ffd07a', 0.75, 0.13, true, 1.3);
   burstParts(x, y, z, 22, 3.0, '#7a4a22', 1.1, 0.16, false, 1.0);
+  // #105: the falloff was Math.hypot(dx,dy), so z was spent on particles only and a blast
+  // downstairs spent full damage on anything within radius at ANY altitude (measured: hp 100 ->
+  // 49.4 for a grunt 2.0 m away in xy and 2.00 m up, radius 3.2, dmg 90). What separates two
+  // things in this world is a FLOOR, not a z, and both call sites pass an altitude that is not a
+  // band - a grenade's mid-air p.z at :540, a literal 0.55 for a chained barrel at :564 - so
+  // gating on |dz| would have quietly disarmed every airburst. Comparing the two columns' floors
+  // leaves a flat level bit-identical (every floor is 0) and makes a slab over 2*ZQ stop the shock.
+  const bf = floorAt(x, y);                                // the band the blast is in
+  const banded = (fx, fy) => Math.abs(floorAt(fx, fy) - bf) <= 2 * ZQ;
   for (const e of ENEMIES) {
     if (e.state === 'dead') continue;
     const d = Math.hypot(e.x - x, e.y - y);
-    if (d < radius) {
+    if (d < radius && banded(e.x, e.y)) {
       if (!los(x, y, e.x, e.y) && d > 1.2) continue;
       damageEnemy(e, dmg * (1 - d / radius * 0.7), false, (e.x - x) / (d || 1), (e.y - y) / (d || 1));
       e.vx += (e.x - x) / (d || 1) * 4; e.vy += (e.y - y) / (d || 1) * 4;
     }
   }
-  for (const p of PROPS) if (p.kind === 'barrel' && !p.dead && Math.hypot(p.x - x, p.y - y) < radius * 0.9) { p.dead = true; p.boom = 0.12 + Math.random() * 0.16; }
+  for (const p of PROPS) if (p.kind === 'barrel' && !p.dead && Math.hypot(p.x - x, p.y - y) < radius * 0.9 && banded(p.x, p.y)) { p.dead = true; p.boom = 0.12 + Math.random() * 0.16; }
   const pd = Math.hypot(P.x - x, P.y - y);
-  if (pd < radius * 1.1 && ownDmg) {
+  if (pd < radius * 1.1 && ownDmg && banded(P.x, P.y)) {
     if (pd < 0.9 || los(x, y, P.x, P.y)) damagePlayer(ownDmg * (1 - pd / (radius * 1.1)), Math.atan2(y - P.y, x - P.x), true);
   }
   const flash = { x, y, r: 7, str: 1.2, fade: 0.45, col: [255, 172, 82] };
@@ -363,10 +372,14 @@ function updatePlayer(dt) {
   // pickups
   for (const k of PICKUPS) {
     if (k.dead) continue;
-    if (dist2(k.x, k.y, P.x, P.y) < 0.5) takePickup(k);
+    // #109: xy proximity alone took a pickup while hovering above it. The window is 0.6 m rather
+    // than a band because a jump peaks at 0.489 m (vz 3.0 against g 9.2, :325/:329) - jumping to
+    // grab something still has to work - while feet a full unit above the pickup's floor do not.
+    if (dist2(k.x, k.y, P.x, P.y) < 0.5 && Math.abs(P.z - floorAt(k.x, k.y)) < 0.6) takePickup(k);
   }
-  // exit
-  if (S.exitOpen && dist2(P.x, P.y, exitX, exitY) < 0.55) nextLevel();
+  // exit: the portal stands ON a band, so being in its column is not enough. It used to be an xy
+  // test alone, which changed level from a cell whose floor was a unit below (#105).
+  if (S.exitOpen && floorAt(P.x, P.y) === floorAt(exitX, exitY) && dist2(P.x, P.y, exitX, exitY) < 0.55) nextLevel();
   // explored map
   const px0 = P.x | 0, py0 = P.y | 0;
   for (let y = py0 - 7; y <= py0 + 7; y++) for (let x = px0 - 7; x <= px0 + 7; x++) {
