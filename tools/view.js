@@ -16,7 +16,7 @@ const LVL = +(process.argv[3] || 0);
 const CAM = +(process.argv[4] || 0);
 // An unknown name used to fall through to the scene dump and exit 0, so a typo in a CI probe list
 // ran something, painted a PNG and reported a passing gate (#89).
-const PROBES = ['scene', 'alt', 'anim', 'contrast', 'decal', 'diag', 'exposure', 'heights',
+const PROBES = ['scene', 'alt', 'anim', 'contrast', 'cull', 'decal', 'diag', 'exposure', 'heights',
   'mip', 'planes', 'play', 'props', 'rig', 'sheets', 'sight', 'stats', 'vert', 'viewmodel'];
 if (!PROBES.includes(MODE)) {
   console.error('unknown probe "' + MODE + '" - known: ' + PROBES.join(' '));
@@ -626,6 +626,157 @@ if (MODE === 'sight') {
     }
   }
   console.log(bad ? `SIGHT ${bad} FAILURES` : 'SIGHT ok - hit tests follow the body they hit');
+  process.exit(bad ? 1 : 0);
+}
+
+if (MODE === 'cull') {
+  /* #24's cull half: does a body's SILHOUETTE move with the band it stands on, and does a body
+     behind a raised floor actually go behind it? Since #72 the draw entry computes floorAt(e.x, e.y)
+     per frame, so the answer should be yes - but nothing asserts it, which is what "shots pass
+     through the catwalk enemy" and "the body floats over the mezzanine" both shipped green means.
+     The mask is render-with minus render-without (the contrast technique), so world churn from the
+     poke cannot fake it: poking MAP.fz changes the room, and the difference cancels the room.
+     Predictions come from similar triangles (rows = dz * BH / perp) and are printed next to the
+     measurement rather than quoted from a derivation. */
+  let bad = 0, known = 0;
+  const STRICT = !!process.env.STRICT;
+  // Rows come in two kinds and the difference must be in the exit code, not in a comment: the
+  // displacement families assert (they would fail today if the draw entry stopped reading floorAt),
+  // the occlusion family detects #100 and is red until that is fixed. STRICT=1 gates the latter too.
+  const row = (label, ok, detail, knownIssue) => {
+    const tag = ok ? ' ok  ' : knownIssue ? 'KNOWN' : ' FAIL';
+    console.log('  ' + label.padEnd(46) + tag + '  ' + detail + (ok || !knownIssue ? '' : '  [' + knownIssue + ']'));
+    if (ok) return;
+    if (knownIssue && !STRICT) known++; else bad++;
+  };
+  const W = run('BW'), H = run('BH'), ZQS = run('ZQ');
+  const lum = (b, i) => 0.2126 * (b[i] & 255) + 0.7152 * (b[i] >> 8 & 255) + 0.0722 * (b[i] >> 16 & 255);
+
+  // one frame with the body, one without: the difference IS the silhouette
+  const shot = () => {
+    run('S.t = 3.5; renderWorld()');
+    const A = new Uint32Array(run('px'));
+    run('__keep = ENEMIES.slice(); ENEMIES.length = 0; renderWorld(); ENEMIES.length = 0; for (const q of __keep) ENEMIES.push(q);');
+    const B = new Uint32Array(run('px'));
+    let n = 0, sy = 0, top = H, bot = -1;
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        const i = y * W + x;
+        if (Math.abs(lum(A, i) - lum(B, i)) > 4 || (A[i] >>> 24) - (B[i] >>> 24) !== 0) {
+          n++; sy += y; if (y < top) top = y; if (y > bot) bot = y;
+        }
+      }
+    }
+    return { px: n, cy: n ? sy / n : -1, top: bot >= 0 ? top : -1, bot };
+  };
+
+  for (let li = 0; li < 3; li++) {
+    const setup = run(`(function(){
+      startLevel(${li}, true);
+      let lane = null;
+      for (let y = 2; y < MH - 2 && !lane; y++) for (let x = 2; x < MW - 9 && !lane; x++) {
+        let n = 0; for (let k = 0; k < 8; k++) if (!MAP.cell[y * MW + x + k]) n++;
+        if (n >= 8) lane = { x: x + 0.5, y: y + 0.5 };
+      }
+      if (!lane) return { skip: 'no 8-cell straight run' };
+      const en = ENEMIES[0];
+      if (!en) return { skip: 'no enemy generated' };
+      ENEMIES.length = 0; ENEMIES.push(en);              // isolate the cast: clear, do not move (#96)
+      en.state = 'sleep'; en.alert = false; en.movingAmt = 0; en.anim = 0;
+      P.x = lane.x; P.y = lane.y; P.z = floorAt(P.x, P.y); P.ang = 0; P.pitch = 0; P.crouch = 0;
+      return { lane };
+    })()`);
+    if (setup.skip) { console.log(`L${li}: ${setup.skip}  SKIP`); bad++; continue; }
+    // props out of the lane too: a crate between the lens and the body occludes one config and not
+    // the next, which on L0 (a 114 px speck) read as "the sunk body is BIGGER than the flat one".
+    // The mask cancels anything static across the two renders, so this only removes confounders.
+    run('window.__props = PROPS.slice(); PROPS.length = 0;');
+    const putProps = () => run('PROPS.length = 0; for (const q of __props) PROPS.push(q);');
+
+    // the saved grid stays inside the sandbox: an Int8Array serialises as {"0":..}, not as a row
+    const poke = (cells, dq) => run(`(function(){
+      window.__fz0 = MAP.fz.slice();
+      ${JSON.stringify(cells)}.forEach(([cx, cy]) => { MAP.fz[(cy | 0) * MW + (cx | 0)] += ${dq}; });
+      linkBoundaries();
+      return MAP.fz[(cells0 = 0, ${JSON.stringify(cells)}[0][1] | 0) * MW + (${JSON.stringify(cells)}[0][0] | 0)];
+    })()`);
+    const restore = () => run('(function(){ for (let i = 0; i < MAP.fz.length; i++) MAP.fz[i] = __fz0[i]; linkBoundaries(); return 1; })()');
+
+    // A: the body alone moves band-to-band; the lane between the lens and it stays flat
+    const base = run(`(function(){
+      const en = ENEMIES[0]; en.x = ${setup.lane.x} + 4; en.y = ${setup.lane.y}; en.z = floorAt(en.x, en.y);
+      return { d: Math.hypot(en.x - P.x, en.y - P.y), scale: en.scale, ef: floorAt(en.x, en.y) };
+    })()`);
+    const flat = shot();
+    const pred = zq => Math.abs(zq) * ZQS * run('BH') / base.d;
+    // The two directions are different physical situations and must not share one assertion.
+    // Raised: the body is fully visible above the flat lane, so its centroid moves by the projected
+    // unit. Sunk: the lip of its own hole hides almost all of it - THAT IS CORRECT, and the visible
+    // remainder should be small and LOW, so this row asserts occlusion rather than displacement. An
+    // earlier version applied the raised rule to both and called correct occlusion a failure.
+    const exCell = [Math.floor(setup.lane.x + 4), Math.floor(setup.lane.y)];
+    poke([exCell], 4);
+    run('ENEMIES[0].z = floorAt(ENEMIES[0].x, ENEMIES[0].y);');
+    const up = shot();
+    restore();
+    const shiftUp = up.cy >= 0 && flat.cy >= 0 ? flat.cy - up.cy : 0;
+    const want = pred(4);
+    row(`L${li} body on a band +1`,
+      shiftUp >= 0.5 * want && up.px > 0.4 * flat.px && up.px < 2.5 * flat.px,
+      `centroid moved up ${shiftUp.toFixed(1)} px of ${want.toFixed(1)} predicted for 1 unit at ${base.d.toFixed(1)} m (rows = BH/perp), area ${up.px} vs ${flat.px}, top ${flat.top} -> ${up.top}`);
+
+    poke([exCell], -4);
+    run('ENEMIES[0].z = floorAt(ENEMIES[0].x, ENEMIES[0].y);');
+    const dn = shot();
+    restore();
+    const shiftDn = dn.cy >= 0 && flat.cy >= 0 ? dn.cy - flat.cy : 0;
+    row(`L${li} body in a pit is hidden by its own lip`,
+      shiftDn > 0 && dn.px < 0.5 * flat.px,
+      `centroid moved down ${shiftDn.toFixed(1)} px and only ${(100 * dn.px / flat.px).toFixed(1)}% of the flat silhouette survives (the crown at ${base.ef.toFixed(2)}+${base.scale.toFixed(2)} is all that clears the lip), top ${flat.top} -> ${dn.top}`);
+
+    // B: a step up between the lens and the body, measured twice, because the interesting question is
+    // not only "is the body hidden" but "did the step draw ANYTHING": a boundary with VB_BLOCK on the
+    // LOW cell's uphill nibble (js/20_level.js:143 - asymmetric, so reading the raised cell shows 0 and
+    // looks like a missing derivation) is impassable, yet the wall pass cannot enumerate it because a
+    // face is produced only where the DDA stops at a SOLID column (js/40_render.js:503-508) and an
+    // air-air border never stops the DDA at all. STEP is in quanta so the threshold can be walked.
+    const STEP = +(process.env.STEP || 4);
+    const mid = [];
+    for (let k = 1; k <= 3; k++) mid.push([Math.floor(setup.lane.x) + k, Math.floor(setup.lane.y)]);
+    run('(function(){ window.__bak = ENEMIES.slice(); ENEMIES.length = 0; renderWorld(); return 1; })()');
+    const bgFlat = new Uint32Array(run('px'));
+    poke(mid, STEP);
+    run('renderWorld()');
+    const bgPoke = new Uint32Array(run('px'));
+    const horizonPx = run('horizon');            // the engine's own horizon, not a derivation
+    let bgn = 0, bgTop = -1, bgBot = -1, bgBelow = 0;
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const i = y * W + x;
+      if (bgFlat[i] !== bgPoke[i]) { bgn++; if (bgTop < 0) bgTop = y; bgBot = y; if (y > horizonPx) bgBelow++; }
+    }
+    const facts = run(`(function(){
+      const lo = ${(Math.floor(setup.lane.x) | 0)} * MW + ${(Math.floor(setup.lane.y) | 0)};
+      const hi = ${(Math.floor(setup.lane.x) + 3 | 0)} * MW + ${(Math.floor(setup.lane.y) | 0)};
+      return { vbLow: MAP.vb[lo], vbHigh: MAP.vb[hi], VB_BLOCK: VB_BLOCK,
+        floorLow: floorAt(P.x, P.y), floorHigh: floorAt(P.x + 3, P.y),
+        ceilLow: ceilAt(P.x, P.y), cpLow: MAP.ceilPlane[lo], cpHigh: MAP.ceilPlane[hi],
+        canUp: canEnter(lo, 0) ? 1 : 0 };
+    })()`);
+    run('(function(){ for (let i = 0; i < MAP.fz.length; i++) MAP.fz[i] = __fz0[i]; linkBoundaries(); ENEMIES.length = 0; for (const q of __bak) ENEMIES.push(q); return 1; })()');
+
+    poke(mid, STEP);
+    const hid = shot();
+    restore();
+    row(`L${li} body behind a step of ${(STEP * ZQS).toFixed(2)} m`,
+      hid.px < 0.25 * flat.px,
+      `silhouette ${hid.px} px vs ${flat.px} flat; background changed ${bgn} px (${(100 * bgn / (W * H)).toFixed(2)}%, rows ${bgTop}..${bgBot}); ` +
+      `low cell blocks ${(facts.vbLow & facts.VB_BLOCK) ? 'yes' : 'no'} (vb 0x${facts.vbLow.toString(16)}, raised cell 0x${facts.vbHigh.toString(16)}), ` +
+      `floors ${facts.floorLow.toFixed(2)} -> ${facts.floorHigh.toFixed(2)}, ceilAt(low) ${facts.ceilLow.toFixed(2)}, ceilPlane ${facts.cpLow.toFixed(2)} -> ${facts.cpHigh.toFixed(2)}`, '#100');
+    console.log(`  L${li} reference: flat silhouette ${flat.px} px, centroid ${flat.cy.toFixed(1)} of ${H}, rows ${flat.top}..${flat.bot}, body ${base.scale.toFixed(2)} units at ${base.d.toFixed(2)} m`);
+    putProps();
+  }
+  console.log((bad ? `CULL ${bad} FAILURES` : 'CULL ok - bodies sit on the band they stand on') +
+    (known ? `  (${known} known ${STRICT ? 'FAILED under STRICT' : 'reporting'} rows: air-air steps occlude nothing, #100)` : ''));
   process.exit(bad ? 1 : 0);
 }
 
