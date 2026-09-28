@@ -239,7 +239,10 @@ case "$out" in *"SMOKE PASSED"*) git add -A && git commit ;; *) echo NOT COMMITT
   and `fetch(url,{cache:'reload'})` inside an `async` eval is useless because the tool serializes the
   Promise as `{}`. The first "it works" eval after #55 was therefore a **false positive waiting to
   happen**; `linkBoundaries.toString().includes('VB_KEEP')` is the check that makes a behaviour probe
-  mean what it says. `curl` with `?cb=` proves the CDN's bytes, not the page's code.
+  mean what it says, and the marker it looks for must be **code, not prose**: `toString()` renders comments
+  too, so checking that an *old* string is gone matched a comment explaining its removal and reported the
+  deployed build as unfixed (#122's live check). Grep the merged file for a token that exists in the shipped
+  statement before putting that token in an assertion. `curl` with `?cb=` proves the CDN's bytes, not the page's code.
 - **A negative control that self-cancels inside one frame proves nothing.** Sabotaging a support test
   and observing the *post-update* state showed the player standing on air for zero frames, because
   gravity corrected it before the sample — sampling the **landing impulse** (`S.shake`) turned it into
@@ -259,7 +262,15 @@ case "$out" in *"SMOKE PASSED"*) git add -A && git commit ;; *) echo NOT COMMITT
   before CI had published a single check row, five seconds after `pr create`. Two terms make a condition
   honest: `[ -z "$s" ] && exit 1`, and a **count of the rows you expect** (`ok >= 4`), not merely the
   absence of a bad word. The same trap is why the earlier watches printed a table: they were armed after
-  checks existed, so their emptiness never fired. Use `gh pr view N --json statusCheckRollup` with
+  checks existed, so their emptiness never fired.
+- **Arm a deploy watch with a marker grepped out of the merged file, never from memory of what you wrote.**
+  `bg_8` burned a full 600 s deadline on `grep -c "face's own span"`: that phrase is in the PR body, while the
+  shipped comment reads `the ceiling plane of the AIR side`, so the condition could never become true - and a
+  watch that cannot succeed prints the same `NOT MET` as a deploy that is merely slow (`last-modified` on the
+  CDN said 15:28:15; the watch died at 15:38 still saying "not yet"). The inverse of the bullet above: both
+  failure modes look identical from the outside, so the marker is verified against `git show origin/main:<file>`
+  before the watch is armed, and a watch that lapses is investigated by reading the deployed bytes rather than
+  re-armed with a longer deadline. Use `gh pr view N --json statusCheckRollup` with
   `.status` (`IN_PROGRESS`/`COMPLETED`) and `.conclusion` (`SUCCESS`/`FAILURE`/`SKIPPED`) - `gh pr checks`
   has no machine output here.
 
