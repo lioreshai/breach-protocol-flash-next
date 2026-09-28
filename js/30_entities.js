@@ -204,7 +204,10 @@ function damageEnemy(e, dmg, head, dx, dy) {
   // stagger is a decaying shove along the shot direction, not just a slow-down flag
   e.stagger = 0.26; e.stgx = (dx || 0) * 2.2; e.stgy = (dy || 0) * 2.2;
   const c = head ? '#ff4a4a' : '#b81a2a';
-  burstParts(e.x, e.y, e.scale * (head ? 0.9 : 0.6), head ? 16 : 9, 2.4, c, 0.5, 0.075, false, 1.0);
+  // #116: the spray's altitude is measured from the band the body stands on. It used to be
+  // e.scale alone, which reads as an absolute z, so debris born at a chest 0.6 above the DATUM slid
+  // up to the floor of a raised band - blood that sprays along the ground instead of through the air.
+  burstParts(e.x, e.y, floorAt(e.x, e.y) + e.scale * (head ? 0.9 : 0.6), head ? 16 : 9, 2.4, c, 0.5, 0.075, false, 1.0);
   if (!isSolid(e.x, e.y)) addGroundSplat(e.x, e.y, 0.20 + Math.random() * 0.12, e.kind === 'hound' ? 'goo' : 'blood');
   if (head) S.headMark = 0.3;
   S.hitMark = 0.16;
@@ -216,7 +219,7 @@ function damageEnemy(e, dmg, head, dx, dy) {
     e.vx += (dx || 0) * 1.5; e.vy += (dy || 0) * 1.5;
     killfeed((head ? 'HEADSHOT · ' : '') + e.kind.toUpperCase() + ' DOWN', head ? '#ffe27a' : '#ffcbb3');
     SND.gib(0);
-    burstParts(e.x, e.y, e.scale * 0.5, 26, 3.4, e.type.blood, 0.9, 0.11, false, 1.2);
+    burstParts(e.x, e.y, floorAt(e.x, e.y) + e.scale * 0.5, 26, 3.4, e.type.blood, 0.9, 0.11, false, 1.2);
     if (!isSolid(e.x, e.y)) addGroundSplat(e.x, e.y, e.scale * 0.42, e.kind === 'hound' ? 'goo' : 'blood');
     if (Math.random() < 0.42 * DIFFS[S.diff].droprate)
       PICKUPS.push({ type: Math.random() < 0.55 ? 'ammo' : 'health', x: e.x, y: e.y, bob: 0, dead: false });
@@ -445,7 +448,11 @@ function updateEnemies(dt) {
         const t = e.type;
         if (e.atkMode === 'range') {
           const sp = t.proj, a = Math.atan2(P.y - e.y, P.x - e.x);
-          PROJ.push({ kind: 'orb', x: e.x, y: e.y, z: e.scale * 0.62, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, vz: 0.35, t: 4.5, tex: PROP.orb[0], scale: 0.42, dmg: t.projDmg, src: e });
+          // #116: the body's height is a HEIGHT ABOVE ITS FEET, the same way the hitscan window reads
+          // it (ez + 0.02 .. ez + scale, above) and the same way the draw list does. On its own it is an
+          // absolute z of 0.63 for a grunt, and the orb's floor is the band (#98), so on any band at or
+          // above that the shot was born under its own floor and popOrb ran in the frame it was pushed.
+          PROJ.push({ kind: 'orb', x: e.x, y: e.y, z: floorAt(e.x, e.y) + e.scale * 0.62, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, vz: 0.35, t: 4.5, tex: PROP.orb[0], scale: 0.42, dmg: t.projDmg, src: e });
           SND.enemyShot(panOf(e));
         } else {
           const dd = Math.hypot(P.x - e.x, P.y - e.y);
