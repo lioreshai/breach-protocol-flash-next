@@ -437,6 +437,16 @@ issue still open, which is the worst possible shape for a merge tool. Use
 `{"merged":true}` when it worked. Pass the **full** SHA - a 7-char prefix 422s with `sha should be
 40 characters` - and pin it to the head that CI actually ran.
 
+**Green CI rows do not mean the merge will go through, and `405` is the message that says so.** Two
+failures in one session, both silent: `gh api … > /dev/null 2>&1` swallowed a refusal and only
+`gh pr view --json state` printed afterwards showed the PR was still **OPEN**; and the refusal itself
+was `{"status":"405"}, "3 of 3 required status checks are expected"` - not a CI complaint but a
+**stale merge ref**: the branch was cut off `main` before another PR landed, so the checks the watcher
+counted as 7 SUCCESS had run against a merge commit that no longer exists. Read `mergeStateStatus`
+(`CLEAN`/`BLOCKED`/`DIRTY`) before merging, and if it is `BLOCKED` with the rows all green, **rebase
+onto current `main` and force-push** so CI runs against the real target - never admin-merge past it.
+Redirect nothing from a merge call: a lapse that prints nothing cannot be diagnosed after the fact.
+
 **A YAML step `name:` cannot contain `': '`.** A plain scalar cannot contain colon-space, so the
 *whole workflow* fails to parse: no step runs, nothing is reported, and CI stays green until the
 workflow runs (#107 - caught in review, not by CI, because the file that broke could not report
