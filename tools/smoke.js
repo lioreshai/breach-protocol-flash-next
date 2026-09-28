@@ -806,6 +806,61 @@ const release = () => fire('mouseup', { button: 0 });
       }
     }
 
+    // V14 - the other way a shot leaves its band: stepping into a cell whose FLOOR is above the ray (#128). That
+    // boundary is a drawn face - a riser - so the answer is a WALL HIT on it, with the mark on the riser rather
+    // than on whatever stands behind the drop. Measured before the fix: a level shot at a step-up band reported
+    // the far wall's face and marked THAT face, i.e. a bullet hole in a wall 4 m beyond the wall the bullet hit.
+    // Both directions gate: low, the shot must stop on the boundary plane (t, side, and the mark's own x prove
+    // which face took it); high, through the opening above the step, it must fly past the riser and die on its
+    // own ceiling instead - so "stop whenever the floors differ" fails the second half, and "no floor test at
+    // all" fails the first. The opening here is [max floor, min ceiling] = [0.75, 1.00], 25 cm of it.
+    vboot();
+    {
+      const cands = S1(`{const a=[];for(let y=2;y<MAP.h-2;y++)for(let x=2;x<MAP.w-9;x++){
+        let n=0;for(let k=0;k<8;k++)if(!isSolid(x+k,y+0.5))n++;
+        if(n===8&&floorAt(x+0.5,y+0.5)===0)a.push([x+0.5,y+0.5]);}
+        return a.length?a[0]:[]}`);
+      const spot = cands && cands.length === 2 ? cands : null;
+      if (!vsetup('riser setup found a flat 8-cell lane at floor 0', !!spot,
+        spot ? `lane from (${spot[0]}, ${spot[1]})` : 'no flat lane to build a step into')) { }
+      else {
+        const px = spot[0], py = spot[1];
+        S1(`{for(let k=2;k<=4;k++)MAP.fz[(${py|0})*MAP.w+((${px|0})+k)]+=3;linkBoundaries();
+            return +floorAt(${px+2.5},${py}).toFixed(3)}`);
+        const raised = +S1(`+floorAt(${px + 2.5},${py}).toFixed(3)`).toFixed(3);
+        const open = +S1(`Math.min(ceilAt(${(px | 0) + 1}+0.5,${py}),ceilAt(${(px | 0) + 2}+0.5,${py}))`).toFixed(3);
+        const fire = (tp, dy) => {
+          S1(`{DECALS.length=0;PARTS.length=0;ENEMIES.length=0;PROJ.length=0;
+              P.x=${px};P.y=${py};P.z=floorAt(P.x,P.y);P.air=false;P.vx=P.vy=P.vz=0;P.ang=0;P.pitch=0;
+              P.crouch=0;P.deadT=0;P.hp=100;P.fireT=0;P.reloadT=0;P.swapT=0;P.mag[0]=8;P.shots=0;
+              switchWeapon(0);P.swapT=0;return 0}`);
+          const r = S1(`{const h=hitscan(0,${tp},46);return [+h.t.toFixed(3),h.wall?1:0,h.band?1:0,h.side,
+              +h.z.toFixed(3),DECALS.length]}`);
+          V(`mouse.dy=${dy};mouse.down=true`); frames(1); V('mouse.down=false'); frames(1);
+          const d = S1(`{return [DECALS.length,DECALS.length?+DECALS[0].x.toFixed(3):-1,
+              DECALS.length?+DECALS[0].z.toFixed(3):-1,P.shots,+pitchTan().toFixed(3)]}`);
+          return { t: r[0], wall: r[1], band: r[2], side: r[3], z: r[4], n: d[0], mx: d[1], mz: d[2], shots: d[3], tp: d[4] };
+        };
+        // t is a DISTANCE and the plane is a COORDINATE: conflating them is how this row first failed on a
+        // correct answer (t 1.5 vs x 4.0, 2.5 m apart because the shooter stands mid-cell).
+        const plane = (px | 0) + 2, bndT = plane - px;
+        const lo = fire(0, 0), hi = fire(0.25, -160);
+        const okLo = lo.wall === 1 && Math.abs(lo.t - bndT) < 0.02 && lo.side === 0 && lo.n === 1 &&
+          Math.abs(lo.mx - plane) < 0.02 && lo.mz >= raised;
+        const okHi = hi.wall === 0 && hi.band === 1 && hi.t > bndT + 0.3 && hi.n === 0 && hi.shots === 1;
+        vrow('a shot at a step-up band hits the riser, not the wall behind the drop', okLo && okHi,
+          `step up ${raised} across the plane x ${plane.toFixed(1)} = t ${bndT.toFixed(2)} from the shot line ` +
+          `(opening ${raised}..${open}, eye ${S1('+eyeH().toFixed(2)')}) | low (tanP 0): ` +
+          `${lo.wall ? 'wall' : 'NO WALL'} at t ${lo.t} side ${lo.side}, ${lo.n} mark(s) at x ${lo.mx} z ` +
+          `${lo.mz} over ${lo.shots} shot - want wall at t ${bndT.toFixed(2)}, one mark ON that plane ` +
+          `(x ${plane.toFixed(1)}, z >= ${raised}) | pitched through the opening (tanP 0.25 asked, ` +
+          `${hi.tp} at the trigger; ceiling would be reached at t ${((1 - 0.5) / 0.25).toFixed(2)}): ` +
+          `${hi.wall ? 'WALL' : 'no wall'} at t ${hi.t} band ${hi.band}, ${hi.n} mark(s) - want no wall past t ` +
+          `${(bndT + 0.3).toFixed(2)}, 0 marks`
+          + (raised <= 0 ? ' - VACUOUS: the step is not raised, nothing here is a riser' : ''));
+      }
+    }
+
     console.log('VERT lane: ' + vgate + ' gating row(s), ' + vknown + ' known-issue row(s)' +
       (vknown ? ' - STRICT=1 promotes them' : ''));
   }
