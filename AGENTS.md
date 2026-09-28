@@ -119,7 +119,13 @@ case "$out" in *"SMOKE PASSED"*) git add -A && git commit ;; *) echo NOT COMMITT
 - **A cell index is one number, so a range check on it is not a bounds check.** `gy*MW + gx` with
   `gx === -1` is a valid index for the far end of the row above: real cell, real light, wrong plane.
   The light path has always had this wrap (parity now, so it stays); the plane lookups M2 added test
-  both axes, because a plane read through a wall paints a room that is behind it.
+  both axes, because a plane read through a wall paints a room that is behind it. Two more of the
+  same family, both silent, both found while fixing #105: a per-pixel
+  re-solve that derived its cell as `floor((p.x + off*perp) / TILE)` instead of from the march
+  could land **outside the array**, since the offset point is not the point the ray advanced to
+  (what ships takes `gx = wx | 0` from the DDA itself, `js/40_render.js:336`, and the offset form
+  is the one to refuse in review); and a `cIdx >= 0 && cIdx < NN` guard on `gy*MW + gx` lets
+  `sy === -1` read the **last row of the level** - guard on `sx && sy`, both axes, always.
 - **`ceilAt` in a pixel loop is a cliff.** It walks four neighbours; called from every cell crossing
   of the ground pass it cost ~5% of the flat frame — same arithmetic, wrong place. Derive it once
   per level into `MAP.ceilPlane` (see the verticality section) and keep the crossings to one read.
@@ -263,6 +269,12 @@ bands in one column, or a floor overhanging the cell it sits above.
 - **Blocking ⇒ walkable ⇒ drawn is one byte.** A boundary with `dz > ZQ` that is not a ramp
   gets `VB_BLOCK` on both sides, so the same test makes it opaque in the DDA, impassable in
   `tryMove`, and a textured riser in the wall pass. `VB_THRU` = "see it, not climb it".
+  This sentence was **false for the 59 commits between `ef74e52` (M1: boundary faces have real
+  z0/z1) and #112**: the span rule below covers the *wall* case, and an air-to-air step satisfied
+  "blocking" without ever entering the geometry branch, so the byte stopped the DDA and stopped
+  `tryMove` while drawing nothing - a step you could not walk up and could not see. No probe saw it because no probe had
+  ever placed the player next to a step (`cull` has those rows now, and they fail in both
+  directions).
 - **A cell's ceiling is the underside of the floor above:** `ceilAt = floor + max(1 unit,
   neighbour floors above)`. Without this formula you see sky inside buildings.
 - **A boundary face spans from the higher of the two floors to the ceiling plane of the air
@@ -272,6 +284,20 @@ bands in one column, or a floor overhanging the cell it sits above.
   that draws nothing, and it is a generator fault rather than a code one: a wall whose base sits
   at or above the ceiling plane of the band it encloses, so wall bases must be carried down to
   the lowest band they bound.
+  **An air-to-air boundary needs its own span rule, and it is not this one.** There is no wall
+  column to carry a base down, and `ceilAt` of either side overshoots both, so the face is the
+  **slab side**, `[min(floorA, floorB), max(floorA, floorB)]`. Reusing the wall span - which is
+  what the first attempt did - renders, keeps every md5 identical, and builds the riser ABOVE the
+  pit lip instead of below it: `cull` then exits 1 on all three levels with the body in the pit
+  hidden **completely** (`centroid moved down 0.0 px and only 0.0% of the flat silhouette survives`,
+  where correct geometry leaves the crown at 8.4-8.7%), while the step rows lose occlusion in the
+  other direction and report the body still visible behind a 1 m step (1505 of 1540 px, background
+  churn 25% instead of 203,137 px / 100%). Gated by
+  `MAP.steps`, derived in `linkBoundaries` for exactly the reason `VB_BLOCK` is: generated levels
+  are entirely flat, so this branch is dead code on shipped content until M6 authors steps, and
+  `planes`' `STEPS-FLAG` row is what catches a forgotten relink. Note the ordering trap - a
+  `poke()` relinks and *recomputes* `MAP.steps`, so a control that forces the flag must do it
+  after the poke or the row measures nothing.
 - **The last literal `1` of the flat world is gone from the ground pass.** M2 replaced
   `d = (isF ? eyeZ : 1 - eyeZ) * BH / |p|` with the same expression solved against the plane of the
   cell the pixel's own ray lands in (`floorAt` below the horizon, `MAP.ceilPlane` above), kept as a
@@ -302,8 +328,9 @@ bands in one column, or a floor overhanging the cell it sits above.
 Milestones, each ending playable with gates green: ~~**M0** representation + absolute `P.z`~~ ·
 ~~**M1** boundary faces with real `z0/z1`~~ · ~~**M2** the ground plane solved per **cell**, floors
 and **ceilings in the same commit** (floors-only shows a phantom floor across a tall room's upper
-half)~~ · **M3** bands + links + gravity/step/fall-damage/climb ← **here** · **M4** everything sits
-at a height (enemies, `hitscan`, props, pickups, projectiles, particles, decals, portal trigger) ·
+half)~~ · ~~**M3** bands + links + gravity/step/fall-damage/climb~~ (issue #14 closed) · **M4**
+everything sits at a height (enemies, `hitscan`, props, pickups, projectiles, particles, decals,
+portal trigger) ← **here** ·
 **M5** per-band light, glow, minimap altitude cue · **M6** a hand-authored two-storey level.
 
 `node tools/view.js heights` is the probe that makes M2 verifiable while every shipped level is
@@ -347,6 +374,24 @@ branch's content is in `main` while its commit is not an ancestor of it, and
 `git merge-base --is-ancestor origin/<branch> origin/main` reports a fully merged branch as
 unmerged. Detect by PR state (`gh pr list --state merged --head <branch>`) and prune local branches
 for merged PRs too, or the local repo keeps ghosts that make `git branch` look like open work.
+
+**Merge through the API, not `gh pr merge --admin`.** That command printed *nothing at all* and
+merged nothing (PR #98, 2026-09-28) - a silent success-reporting failure, with CI green and the
+issue still open, which is the worst possible shape for a merge tool. Use
+`gh api -X PUT /repos/<repo>/pulls/<N>/merge -f sha=<full 40-char head> -f merge_method=squash
+-f commit_message="… Closes #N"`: it answers 422 when the SHA is stale or the base moved, and
+`{"merged":true}` when it worked. Pass the **full** SHA - a 7-char prefix 422s with `sha should be
+40 characters` - and pin it to the head that CI actually ran.
+
+**A YAML step `name:` cannot contain `': '`.** A plain scalar cannot contain colon-space, so the
+*whole workflow* fails to parse: no step runs, nothing is reported, and CI stays green until the
+workflow runs (#107 - caught in review, not by CI, because the file that broke could not report
+it). `tools/wfyaml.rb` now asserts each workflow parses, that `jobs` is non-empty, and that every
+job has `runs-on`, `steps`, and a `run:`/`uses:` on each step - which is a real exit path for the
+class "a job that runs nothing". It cannot catch a bad *mapping* (a step list indented under a
+mapping key instead of a sequence parses into garbage that still has a `runs-on`) and it cannot
+check **its own** file, so `ci.yml` and `pr-guard.yml` validate **each other**: one breaking is
+reported by the other.
 
 **Never stack a PR on another PR's branch here.** GitHub **closes** a PR whose base branch is deleted,
 and with `delete_branch_on_merge` on, that is exactly what merging the parent does: PR #9 (`base=feat/dev-mode`,
