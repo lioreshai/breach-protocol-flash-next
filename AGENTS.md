@@ -272,9 +272,9 @@ bands in one column, or a floor overhanging the cell it sits above.
   This sentence was **false for the 59 commits between `ef74e52` (M1: boundary faces have real
   z0/z1) and #112**: the span rule below covers the *wall* case, and an air-to-air step satisfied
   "blocking" without ever entering the geometry branch, so the byte stopped the DDA and stopped
-  `tryMove` while drawing nothing - a step you could not walk up and could not see. No probe saw it because no probe had
-  ever placed the player next to a step (`cull` has those rows now, and they fail in both
-  directions).
+  `tryMove` while drawing nothing - a step you could not walk up and could not see. No probe saw it
+  because no probe had ever placed the player next to a step (`cull` has those rows now, and they
+  fail in both directions).
 - **A cell's ceiling is the underside of the floor above:** `ceilAt = floor + max(1 unit,
   neighbour floors above)`. Without this formula you see sky inside buildings.
 - **A boundary face spans from the higher of the two floors to the ceiling plane of the air
