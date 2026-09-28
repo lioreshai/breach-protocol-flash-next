@@ -270,7 +270,17 @@ case "$out" in *"SMOKE PASSED"*) git add -A && git commit ;; *) echo NOT COMMITT
   CDN said 15:28:15; the watch died at 15:38 still saying "not yet"). The inverse of the bullet above: both
   failure modes look identical from the outside, so the marker is verified against `git show origin/main:<file>`
   before the watch is armed, and a watch that lapses is investigated by reading the deployed bytes rather than
-  re-armed with a longer deadline. Use `gh pr view N --json statusCheckRollup` with
+  re-armed with a longer deadline.
+  The same discipline applies to a **count** in a condition, and `bg_10` paid for it: the CI watcher's
+  `minSuccess` counts `SUCCESS` rows only - `SKIPPED` deliberately does not count, or an all-skipped lane would
+  read as green - so a full run here is 7 SUCCESS + 2 informational SKIPPED and passing the *total* row count
+  (9) made the condition unsatisfiable for a PR whose checks were all green. Third cousin of the same trap:
+  `gh pr view` resolves the repo from the **cwd**, so a watcher script run from outside a checkout dies with
+  `failed to run git: not a git repository`, its stdout is empty, and the emptiness guard that makes an
+  `unknown flag` failure visible reads it as "checks not published yet". Pass `--repo owner/name` in any script
+  meant to be armed from anywhere, and give the watcher distinct exit codes with printed evidence - 0 met,
+  3 terminal-but-below-count (prints `SUCCESS=7 < min=9`), 4 the query itself failed (prints gh's stderr) -
+  because a lapse that prints nothing cannot be diagnosed after the fact. Use `gh pr view N --json statusCheckRollup` with
   `.status` (`IN_PROGRESS`/`COMPLETED`) and `.conclusion` (`SUCCESS`/`FAILURE`/`SKIPPED`) - `gh pr checks`
   has no machine output here.
 
