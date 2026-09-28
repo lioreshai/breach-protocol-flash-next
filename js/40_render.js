@@ -92,7 +92,15 @@ function renderWorld() {
   dirX = Math.cos(P.ang); dirY = Math.sin(P.ang);
   planeX = -dirY * planeLen; planeY = dirX * planeLen;
   camX = P.x; camY = P.y;
-  eyeZ = clamp(cfg.eye + P.z - P.crouch * 0.19, 0.12, 1.4);
+  // The eye belongs in the band the player is standing in. The [0.12, 1.4] this used to clamp
+  // against predates absolute altitude - it guarded a P.z that could only be a crouch offset in
+  // [0,1] - and as a bound on an absolute eye it is a ceiling on WHERE THE PLAYER MAY STAND:
+  // above ~0.9 m the eye froze at 1.4 while the floor under their feet was higher than that, and
+  // `okA = rawA < eyeZ` in the ground pass then rejects that floor and paints datum z=0 instead
+  // (#103). Bounding by the band keeps the guard doing its job - the eye can never leave the room
+  // it is in - at any altitude, and on a flat level (floorAt 0, ceilAt 1) it is the same interval.
+  const pfl = floorAt(P.x, P.y);
+  eyeZ = clamp(cfg.eye + P.z - P.crouch * 0.19, pfl + 0.12, ceilAt(P.x, P.y) - 0.06);
   AMB = MAP && MAP.amb !== undefined ? MAP.amb : 0.13;
   horizon = BH * 0.5 + aimPx() + bobP * (BH / 400) * 3 + shakeY;
   const fcR = FOGC[0], fcG = FOGC[1], fcB = FOGC[2];
