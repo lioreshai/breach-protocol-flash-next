@@ -270,6 +270,191 @@ const release = () => fire('mouseup', { button: 0 });
   vm.runInContext('S.locked=true', ctxVm); clickCanvas(); frames(2);
   expect('a locked click fires', vm.runInContext('P.shots', ctxVm) === lockedShots + 1, 'shots ' + lockedShots + ' -> ' + vm.runInContext('P.shots', ctxVm));
   release(); frames(5);
+  // -------------------------------------------------------------- VERT lane
+  // Everything above this line judges a flat world: the run loop teleports x/y and leaves the
+  // altitude alone, blast damage and the portal trigger measure 2D distance, and a projectile's
+  // floor is a literal 0.02/0.08. VERT=1 runs the same harness against real bands so those four
+  // claims ("shots pass through the catwalk enemy", "an explosion downstairs kills upstairs",
+  // "the portal triggers from the floor below", "a grenade rolls along the floor") are asserted
+  // where they can actually be wrong. A row whose defect is already filed reports instead of
+  // failing, and re-reads its own measurement every run: the day the fix lands it becomes a
+  // plain assert with no CI-list edit. STRICT=1 promotes every row now.
+  if (process.env.VERT) {
+    const V = code => vm.runInContext(code, ctxVm);
+    // every snippet is an IIFE: a top-level `const` in one runInContext script is a lexical
+    // binding on the context and the NEXT script then hits "already declared". Reads are wrapped
+    // as expressions, setups as blocks - `(=>{P.kills})()` is a block body and yields undefined.
+    const S1 = code => {
+      const c = code.trim();
+      if (c.startsWith('{') && /\breturn\b/.test(c)) return V('(()=>' + c + ')()');
+      return V('(()=>(' + (c.startsWith('{') ? c.slice(1, -1) : c) + '))()');
+    };
+    let vknown = 0, vgate = 0;
+    // print the measurement whether or not it gates: a lane that reports nothing on a pass cannot
+    // be audited later. Two kinds of row, and the difference is not cosmetic -
+    //   vrow      a gate. It fails the run. Used for behaviour that is correct today, so a
+    //             REGRESSION (reverting #99, deleting gravity) is red, not a note.
+    //   vknownRow correct behaviour asserted, but the defect is filed: red only under STRICT=1,
+    //             and it becomes a plain passing gate the day the fix lands, with no CI edit.
+    // A single row that both "reports" and "gates when broken" cannot fail at all, which a
+    // control proved the moment #99's window was reverted and the run stayed green.
+    const vrow = (label, ok, detail) => {
+      console.log('  VERT ' + label.padEnd(56) + (ok ? 'ok   ' : 'FAIL ') + ' ' + detail);
+      vgate++; expect('VERT ' + label, ok, detail);
+    };
+    const vknownRow = (label, ok, detail, issue) => {
+      if (ok) { vrow(label, true, detail + ' (filed ' + issue + ', fixed)'); return; }
+      vknown++;
+      console.log('  VERT ' + label.padEnd(56) + 'KNOWN [' + issue + '] ' + detail);
+      if (process.env.STRICT) expect('VERT ' + label, false, detail);
+    };
+    // a row that could not set up is a FAILURE, never a KNOWN: a row that silently skips is the
+    // "check that cannot fail" this lane exists to catch
+    const vsetup = (label, ok, detail) => { expect('VERT ' + label, ok, detail); return ok; };
+    const vboot = () => {
+      V('genLevel(0); startLevel(0,true); S.mode="play"; S.locked=true; S.exitOpen=false');
+      V('window.__fzbak = MAP.fz.slice()');
+      V("for(const e of ENEMIES){e.state='sleep';e.cd=999;e.alert=false} PROJ.length=0; PICKUPS.length=0");
+    };
+    const vpoke = (x, y, dq) => V('MAP.fz[' + (y * vm.runInContext('MW', ctxVm)) + ' + ' + x + '] += ' + dq + '; linkBoundaries()');
+    const vrestore = () => V('MAP.fz.set(window.__fzbak); linkBoundaries()');
+    // a cell with `len` metres of unobstructed line along +x and no third party in the corridor
+    const vlane = len => S1(`{for(const r of MAP.rooms)
+      for(let ry=r.y+1;ry<r.y+r.h-1;ry++)for(let rx=r.x+1;rx<r.x+r.w-1;rx++){
+        if(isSolid(rx+0.5,ry+0.5))continue;
+        if(castRayDist(rx+0.5,ry+0.5,1,0,${len}).dist<${len})continue;
+        let solo=true;for(const o of ENEMIES){if(o.state==='dead')continue;
+          const ox=o.x-(rx+0.5),oy=o.y-(ry+0.5);if(ox>0&&ox<14&&Math.abs(oy)<0.8)solo=false}
+        if(!solo)continue;return [rx,ry]}
+      return null}`);
+    console.log('--- VERT lane: the same harness against real bands ---');
+
+    // V1 - "shots pass through the catwalk enemy". js/30_entities.js:116-118 tests the ray's z
+    // against the TARGET's own band, so a body standing 0.75 m up is out of reach of a level
+    // shot; before #99 that window was absolute (0.02..e.scale) and the bullet passed through the
+    // floor the enemy stands on and killed it. Both halves are asserted: no kill, and shots fired,
+    // because a lane that never fired would satisfy "no kill" forever.
+    vboot();
+    {
+      const ln = vlane(6);
+      if (!vsetup('shot setup found a 6 m firing lane', !!ln, 'no clear corridor on this seed')) { }
+      else {
+        const ex = ln[0] + 4, ey = ln[1];
+        vpoke(ex, ey, 3);                                    // +0.75 m pedestal under the enemy
+        const k0 = S1('{P.kills}'), s0 = S1('{P.shots}');
+        S1(`{ENEMIES.length=0;const e=makeEnemy('grunt',${ex}+0.5,${ey}+0.5);e.hp=1;e.maxhp=1;ENEMIES.push(e);
+           P.x=${ln[0]}+0.5;P.y=${ln[1]}+0.5;P.vx=P.vy=P.vz=0;P.ang=0;P.pitch=0;P.crouch=0;P.fireT=0;P.mag[0]=8;
+           P.z=floorAt(P.x,P.y);P.air=false;switchWeapon(0);return 0}`);
+        V("mouse.down=true"); frames(30); V("mouse.down=false"); frames(5);
+        const k1 = S1('{P.kills}'), ns = S1('{P.shots}') - s0;
+        const win = S1(`{const e=ENEMIES[0],ez=floorAt(e.x,e.y);return [P.z+cfg.eye,ez+0.02,ez+e.scale,e.hp]}`);
+        vrow('a level shot does not pass through a raised enemy floor', k1 === k0 && ns > 0,
+          `${ns} shot(s), kills ${k0} -> ${k1}: ray z ${win[0].toFixed(2)} vs enemy window [${win[1].toFixed(2)}, ${win[2].toFixed(2)}], enemy hp ${win[3]}`);
+        vrestore();
+      }
+    }
+
+    // V2 - walking off a step, driven by real input rather than a written P.vx (the player update
+    // recomputes velocity from keys, so a direct write just gets damped to nothing).
+    vboot();
+    {
+      const ln = vlane(4);
+      if (!vsetup('fall setup found a 4 m clear run', !!ln, 'no clear corridor on this seed')) { }
+      else {
+        const px = ln[0], py = ln[1];
+        vpoke(px, py, 4);                                    // player stands on a +1.0 m band
+        S1(`{ENEMIES.length=0;P.x=${px}+0.5;P.y=${py}+0.5;P.ang=0;P.pitch=0;P.hp=100;P.crouch=0;
+            P.z=floorAt(P.x,P.y);P.air=false;P.vx=P.vy=0;return 0}`);
+        const hp0 = S1('{P.hp}'), x0 = S1('{P.x}');
+        V("keys['KeyW']=true");
+        let air = 0;
+        for (let i = 0; i < 45; i++) { frames(1); air += S1('{P.air?1:0}'); }
+        V("keys['KeyW']=false"); frames(10);
+        const z = S1('{P.z}'), fl = S1('{floorAt(P.x,P.y)}'), d = S1('{P.x}') - x0, hp1 = S1('{P.hp}');
+        vrow('walking off a step lands on the band below', air > 0 && Math.abs(z - fl) < 0.02 && hp1 >= hp0 && d > 0.8,
+          `airborne ${air} frames, travelled ${d.toFixed(2)} m, P.z ${z.toFixed(3)} vs floorAt ${fl.toFixed(3)}, hp ${hp0} -> ${hp1}`);
+        vrestore();
+      }
+    }
+
+    // V3 - the portal trigger (js/30_entities.js:369) is dist2(P.x,P.y,exitX,exitY) < 0.55 with no
+    // z term. The trigger radius is 0.55 and a cell is 1 m, so the only ground that is both inside
+    // the radius and in a DIFFERENT column is the 5 cm sliver at a cell edge - which is exactly the
+    // standing position that matters: at the lip of a portal a metre overhead.
+    vboot();
+    {
+      const r = S1('{return [exitX,exitY,isSolid(exitX,exitY)]}');
+      if (!vsetup('portal setup found an open exit cell', !r[2], 'exit cell solid on this seed')) { }
+      else {
+        const gx = Math.floor(r[0]), gy = Math.floor(r[1]);
+        V('S.exitOpen=true');
+        vpoke(gx - 1, gy, -4);                               // the column at the lip drops 1.0 m
+        S1(`{P.x=exitX-0.52;P.y=exitY;P.vx=P.vy=P.vz=0;P.air=false;P.crouch=0;
+            P.z=floorAt(P.x,P.y);return 0}`);
+        const lv = S1('{S.level}'), pz = S1('{P.z}'), md = S1('{S.mode}');
+        frames(4);
+        vknownRow('the portal does not trigger from a band below', S1('{S.level}') === lv && S1('{S.mode}') === 'play',
+          `player z ${pz.toFixed(2)}, portal floor ${S1('{floorAt(exitX,exitY)}').toFixed(2)}, 0.52 m away in xy: level ${lv} -> ${S1('{S.level}')}, mode ${md} -> ${S1('{S.mode}')}`, '#105');
+        vrestore();
+      }
+    }
+
+    // V4 - explode(x,y,z,...) spends its z argument on particles only: the falloff at
+    // js/30_entities.js:235 is Math.hypot(dx,dy), so a blast on the lower band damages anything
+    // within radius at ANY altitude.
+    vboot();
+    {
+      const ln = vlane(3);
+      if (!vsetup('blast setup found a 3 m clear run', !!ln, 'no clear corridor on this seed')) { }
+      else {
+        const ex = ln[0] + 2, ey = ln[1];
+        vpoke(ex, ey, 8);                                    // enemy on a +2.0 m band: far enough
+        // above the blast that a fix cannot clear it with a 1 m tolerance by luck - at +1.25 m the
+        // separation measured 1.15 m and a 1.2 m tolerance let the damage through untouched
+        const sep = S1('{floorAt(' + (ex + 0.5) + ',' + (ey + 0.5) + ')}');
+        S1(`{ENEMIES.length=0;const e=makeEnemy('grunt',${ex}+0.5,${ey}+0.5);e.hp=100;ENEMIES.push(e);
+            P.x=${ln[0]}+0.5;P.y=${ln[1]}+0.5;P.z=floorAt(P.x,P.y);P.air=false;P.hp=100;return 0}`);
+        const hp0 = S1('{ENEMIES[0].hp}');
+        S1(`{explode(${ln[0]}+0.5,${ln[1]}+0.5,floorAt(${ln[0]}+0.5,${ln[1]}+0.5)+0.1,3.2,90,0);return 0}`);
+        frames(6);
+        const hp1 = S1('{ENEMIES[0].hp}');
+        vknownRow('a blast on the lower band spares the band above', hp1 >= hp0,
+          `hp ${hp0} -> ${hp1}, 2.0 m away in xy, ${sep.toFixed(2)} m above the blast centre`, '#105');
+        vrestore();
+      }
+    }
+
+    // V5 - a projectile's floor is a literal (js/30_entities.js:79 clamps z against 0.02, :532
+    // against 0.08, never against the band), so an orb on a raised band sinks through the floor it
+    // should pop on and keeps travelling under it. Spawned downrange, not at the player: the flat
+    // harness spawns it on the player's own tile, which pops it against the player on frame 1 and
+    // would leave this row judging a sentinel value.
+    vboot();
+    {
+      const ln = vlane(3);
+      if (!vsetup('orb setup found a 3 m clear run', !!ln, 'no clear corridor on this seed')) { }
+      else {
+        const px = ln[0], py = ln[1];
+        for (let k = 0; k <= 2; k++) vpoke(px + k, py, 4);    // the corridor is a +1.0 m band
+        const fl = S1(`{floorAt(${px}+1.5,${py}+0.5)}`);
+        S1(`{ENEMIES.length=0;PROJ.length=0;P.x=${px}+0.5;P.y=${py}+0.5;P.z=floorAt(P.x,P.y);P.air=false;
+            PROJ.push({kind:'orb',x:${px}+1.5,y:${py}+0.5,z:floorAt(${px}+1.5,${py}+0.5)+0.9,vx:0,vy:0,vz:-1.6,
+              t:3,tex:PROP.orb[0],scale:0.42,dmg:9});return 0}`);
+        let minz = 99, obs = 0, popped = 0;
+        for (let i = 0; i < 60; i++) {
+          frames(1);
+          if (S1('{PROJ.length}')) { obs++; minz = Math.min(minz, S1('{PROJ[0].z}')); } else { popped = i + 1; break; }
+        }
+        vknownRow('an orb pops on its own band, not on the datum', obs > 3 && minz >= fl - 0.1,
+          `band floor ${fl.toFixed(2)}, orb lowest z ${obs ? minz.toFixed(2) : 'never observed'} over ${obs} frame(s)` +
+          (popped ? ', popped frame ' + popped : ', still flying at 60'), '#98');
+        S1('{PROJ.length=0;return 0}'); vrestore();
+      }
+    }
+    console.log('VERT lane: ' + vgate + ' gating row(s), ' + vknown + ' known-issue row(s)' +
+      (vknown ? ' - STRICT=1 promotes them' : ''));
+  }
+
   const rep = vm.runInContext(`({mode:S.mode,level:S.level,kills:P.kills,shots:P.shots,hp:Math.round(P.hp),
     parts:PARTS.length,proj:PROJ.length,enemies:ENEMIES.length,left:enemiesLeft(),fps:S.fps,
     mapOk:(MAP.w===MW&&MAP.cell.length===MW*MH)})`, ctxVm);
