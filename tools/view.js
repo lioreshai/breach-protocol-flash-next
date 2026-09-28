@@ -964,12 +964,55 @@ if (MODE === 'cull') {
 
     poke(mid, STEP);
     const hid = shot();
+    const stops = run('MAP.riserStops');      // rays that stopped at an air->air riser this frame
     restore();
+    // A WALKABLE step (one quantum: you step up it, canEnter allows it) must not draw a face - the
+    // ground pass already paints its plane. This needs MAP.steps forced to 1, because on a grid whose
+    // only step is 1 quantum the flag is 0 and the branch is never reached: the row is the renderer's
+    // threshold agreeing with the flag's, and it is what catches a renderer that stops at every height
+    // difference (STEP=1 quanta, or `dq !== 0`, both land here).
+    restore();
+    // poke() relinks, and relinking recomputes MAP.steps to 0 for a 1-quantum grid - so the flag has
+    // to be forced AFTER the poke. Forcing it first made this row report 0 stops no matter what the
+    // renderer did, which the STEP-threshold control caught and nothing else could.
+    poke(mid, 1);
+    run('MAP.steps = 1');
+    const walk = shot();
+    const stops1 = run('MAP.riserStops');
+    restore();
+    // An AUTHORED ramp is the other case that must not draw a face: it is a slope the ground pass
+    // paints, its bit lives in VB_KEEP so a relink preserves it while clearing the derived blocker,
+    // and this is the only row that exercises the RAMP clause of the renderer's stop test - nothing
+    // in the generator authors a ramp, so every other path through that clause is unreachable.
+    // ONE raised cell, not a run: the flanks of a run are ordinary step faces and would legitimately
+    // stop rays. What must survive is the view of the body behind the slope.
+    restore();
+    const ramp = run(`(function(){
+      const ly = ${Math.floor(setup.lane.y)}, loX = ${Math.floor(setup.lane.x) | 0} + 1, hiX = loX + 1;
+      MAP.fz[ly * MW + hiX] += ${STEP};
+      MAP.vb[ly * MW + loX] |= VB_RAMP;                 // uphill nibble of the low cell (+x)
+      MAP.vb[ly * MW + hiX] |= VB_RAMP | (VB_RAMP << 8);  // the slope CONTINUES through the cell: the
+      //   -x nibble is the same crossing seen from above, and the +x nibble is its far edge - leave
+      //   that one plain and the raised cell is a plinth whose far step-down hides the body legitimately
+      linkBoundaries();
+      return { canUp: canEnter(loX + 0.5, ly + 0.5, hiX + 0.5, ly + 0.5) ? 1 : 0,
+               vb: (MAP.vb[ly * MW + loX] >> 0) & 15, steps: MAP.steps };
+    })()`);
+    const rampShot = shot();
+    const stopsR = run('MAP.riserStops');
+    restore();
+    row(`L${li} an authored ramp is a slope, not a wall`, rampShot.px > 0.6 * flat.px && ramp.canUp === 1,
+      `body behind the ramp kept ${(100 * rampShot.px / Math.max(1, flat.px)).toFixed(0)}% of its silhouette` +
+      ` (${flat.px} -> ${rampShot.px} px), canEnter ${ramp.canUp ? 'allows' : 'REFUSES'} the crossing,` +
+      ` nibble 0x${ramp.vb.toString(16)}, MAP.steps ${ramp.steps}, ${stopsR} ray(s) stopped on faces nearby`);
+    row(`L${li} a walkable step of ${(ZQS).toFixed(2)} m draws no face`, stops1 === 0,
+      `rays stopped at a 1-quantum boundary: ${stops1} (MAP.steps forced to 1 to keep the branch live;` +
+      ` the body behind it kept ${(100 * walk.px / Math.max(1, flat.px)).toFixed(0)}% of its silhouette)`);
     row(`L${li} body behind a step of ${(STEP * ZQS).toFixed(2)} m`,
-      hid.px < 0.25 * flat.px,
+      hid.px < 0.25 * flat.px && stops > 0,
       `silhouette ${hid.px} px vs ${flat.px} flat; background changed ${bgn} px (${(100 * bgn / (W * H)).toFixed(2)}%, rows ${bgTop}..${bgBot}); ` +
       `low cell blocks ${(facts.vbLow & facts.VB_BLOCK) ? 'yes' : 'no'} (vb 0x${facts.vbLow.toString(16)}, raised cell 0x${facts.vbHigh.toString(16)}), ` +
-      `floors ${facts.floorLow.toFixed(2)} -> ${facts.floorHigh.toFixed(2)}, ceilAt(low) ${facts.ceilLow.toFixed(2)}, ceilPlane ${facts.cpLow.toFixed(2)} -> ${facts.cpHigh.toFixed(2)}`, '#100');
+      `floors ${facts.floorLow.toFixed(2)} -> ${facts.floorHigh.toFixed(2)}, ceilAt(low) ${facts.ceilLow.toFixed(2)}, ceilPlane ${facts.cpLow.toFixed(2)} -> ${facts.cpHigh.toFixed(2)}`);
     console.log(`  L${li} reference: flat silhouette ${flat.px} px, centroid ${flat.cy.toFixed(1)} of ${H}, rows ${flat.top}..${flat.bot}, body ${base.scale.toFixed(2)} units at ${base.d.toFixed(2)} m`);
     putProps();
   }
@@ -1066,6 +1109,41 @@ if (MODE === 'planes') {
       blockedUp: blockedUp, lad: lad, ladKept: (lad >= 0 && (MAP.vb[lad] & VB_LADDER)) ? 1 : 0 };
   })()`, ctxVm);
   const idemOk = !idem.skip && idem.restored && idem.stale === 0 && idem.blockedUp === 1 && idem.ladKept === 1;
+
+  /* #100 gave the wall pass a second derived fact: MAP.steps, read once per frame to decide whether
+     a riser can exist anywhere. A grid with steps whose flag still says flat draws nothing while
+     movement stays blocked - the original #100, resurrected by a forgotten linkBoundaries() rather
+     than by missing code - so the flag has to be shown to track the grid BOTH ways, and to be stale
+     exactly when the relink was skipped rather than always right by luck. */
+  const stp = vm.runInContext(`(function(){
+    startLevel(0, true);
+    const N = MAP.w;
+    let idx = -1;
+    for (let k = 1; k < MAP.cell.length - 2; k++) {
+      if (k % N === N - 1) continue;                       // a neighbour must be in the same row
+      if (MAP.cell[k] || MAP.cell[k + 1]) continue;        // walls already draw their own face
+      idx = k; break;
+    }
+    if (idx < 0) return { skip: 'no air-air pair on this seed' };
+    const j = idx + 1, fz0 = MAP.fz.slice();
+    const flat0 = MAP.steps;
+    MAP.fz[j] += 8; linkBoundaries();
+    const raised = MAP.steps;
+    MAP.fz.set(fz0); linkBoundaries();
+    const restored = MAP.steps;
+    MAP.fz[j] += 8;                                        // a step with NO relink: the stale state
+    const staleFlag = MAP.steps;
+    linkBoundaries();
+    const relinked = MAP.steps;
+    MAP.fz.set(fz0); linkBoundaries();
+    return { cell: idx, flat0: flat0, raised: raised, restored: restored,
+             staleFlag: staleFlag, relinked: relinked };
+  })()`, ctxVm);
+  const stepsOk = !stp.skip && stp.flat0 === 0 && stp.raised === 1 && stp.restored === 0 &&
+    stp.staleFlag === 0 && stp.relinked === 1;
+  console.log(`relink steps   ${stp.skip || 'cell ' + stp.cell}  flat ${stp.flat0}  raised ${stp.raised}  ` +
+    `restored ${stp.restored}  poked without relink ${stp.staleFlag}  after relink ${stp.relinked}  ` +
+    `${stp.skip ? stp.skip : stepsOk ? 'STEPS-FLAG ok' : 'STEPS-FLAG FAIL - steps would draw nothing'}`);
   console.log(`relink vb    ${idem.skip || 'run at cell ' + idem.run}  raised blocks ${yn(idem.blockedUp)}  ` +
     `grid restored ${yn(idem.restored)}  stale blockers ${idem.stale}` +
     `${idem.first >= 0 ? ' (first at cell ' + idem.first + ')' : ''}  authored ladder kept ${yn(idem.ladKept)}` +
@@ -1096,7 +1174,8 @@ if (MODE === 'planes') {
     `${genOk ? 'GEN-COUPLE ok' : 'GEN-COUPLE FAIL - constructing an enemy moves the level'}`);
   // A config that could not run is a skip, not a pass (#89); one that ran and failed is a verdict.
   // RELINK-VB is the #55 stale-blocker guard, and it used to print into a step that exited 0.
-  process.exit(staleAll || !stOk || (!idem.skip && !idemOk) || !genOk ? 1 : 0);
+  // STEPS-FLAG is the same coupling for the #100 riser flag: a stale flag is an invisible step.
+  process.exit(staleAll || !stOk || (!idem.skip && !idemOk) || (!stp.skip && !stepsOk) || !genOk ? 1 : 0);
 }
 
 if (MODE === 'mip') {
