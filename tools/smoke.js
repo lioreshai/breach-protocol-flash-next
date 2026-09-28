@@ -583,6 +583,61 @@ const release = () => fire('mouseup', { button: 0 });
       }
     }
 
+    // V10 - an enemy's orb was spawned at a BODY-RELATIVE number read as an absolute altitude
+    // (js/30_entities.js:448, z: e.scale * 0.62 = 0.632 for a grunt) while its FLOOR is the band (#98,
+    // :556), so on any band at or above ~0.55 m the shot was born under the floor the shooter stands on
+    // and popOrb ran in the frame it was pushed: the enemy fires, nothing travels, and every gate stays
+    // green because V5 hands `updateProjectiles` an orb with a correct z and never reaches this site.
+    // Measured on the deployed build before the fix (#116): flat, an orb in 3 of 4 frames at z 0.638;
+    // shooter's cell raised, 0 of 4 frames, +12 PARTS and +1 LIGHT - the signature of a pop on frame 1.
+    // Driven through the AI's own decision rather than by writing atkMode, so the row dies if the
+    // decision changes. Both directions are asserted: the flat control proves the lane CAN spawn an orb
+    // (else "no orb on the band" would be satisfied by a broken lane), and the band half bounds z from
+    // BELOW and ABOVE, so a shot fired at the ceiling fails as loudly as one fired at the feet. The
+    // shelf is +0.75 rather than +1.0 because a 1.0 lip beside a 1.0-tall room has ceiling plane 1.0 and
+    // floor 1.0 - a face of span 0, which is a grid fault that would blame the renderer (#100).
+    vboot();
+    {
+      const ln = vlane(7);
+      if (!vsetup('ranged shot setup found a 7 m clear run', !!ln, 'no clear corridor on this seed')) { }
+      else {
+        const ex = ln[0] + 5, ey = ln[1];
+        const fire = () => {
+          S1(`{PROJ.length=0;LIGHTS.length=0;ENEMIES.length=0;
+              const e=makeEnemy('grunt',${ex}+0.5,${ey}+0.5);e.state='chase';e.alert=true;e.cd=0;
+              ENEMIES.push(e);P.x=${ln[0]}+0.5;P.y=${ey}+0.5;P.z=floorAt(P.x,P.y);P.air=false;
+              P.hp=100;P.deadT=0;P.crouch=0;return 0}`);
+          const sc = S1('{ENEMIES[0].scale}');
+          let framesWith = 0, first = null;
+          for (let i = 0; i < 90; i++) {
+            frames(1);
+            if (S1('{PROJ.length}')) { framesWith++; if (first === null) first = S1('{PROJ[0].z}'); }
+          }
+          const lights = S1('{LIGHTS.length}');
+          S1('{PROJ.length=0;LIGHTS.length=0;return 0}');
+          return { framesWith, first, lights, sc };
+        };
+        const flat = fire();
+        for (let k = 0; k < 3; k++) vpoke(ex + k, ey, 3);      // a +0.75 m shelf under the shooter
+        const fl = S1(`{floorAt(${ex}+0.5,${ey}+0.5)}`);
+        const up = fire();
+        const want = `(${(fl + 0.4).toFixed(2)}, ${(fl + up.sc).toFixed(2)})`;
+        // "no orb on the band" has three causes and the detail must not blame the wrong one: the defect
+        // this row exists for, a lane that cannot spawn an orb at all, and a lane that cannot fire.
+        const bandZ = flat.first === null ? 'NOT REACHED - the lane spawned no orb on flat ground either'
+          : up.first === null ? 'NONE - fired and popped in the frame it was spawned' : up.first.toFixed(3);
+        vrow('an enemy on a band fires from its chest, not the datum',
+          flat.first !== null && flat.framesWith > 2 && Math.abs(flat.first - 0.632) < 0.05 &&
+          up.first !== null && up.framesWith > 2 && up.first > fl + 0.4 && up.first < fl + up.sc,
+          `flat: ${flat.framesWith} frame(s) carrying an orb, first z ` +
+          `${flat.first === null ? 'NONE' : flat.first.toFixed(3)} (want 0.632, parity) | band floor ` +
+          `${fl.toFixed(2)}: ${up.framesWith} frame(s), first z ` +
+          `${bandZ}` +
+          `, want ${want} = above the feet, below the crown; orb pops lit ${up.lights}`);
+        vrestore();
+      }
+    }
+
     console.log('VERT lane: ' + vgate + ' gating row(s), ' + vknown + ' known-issue row(s)' +
       (vknown ? ' - STRICT=1 promotes them' : ''));
   }
