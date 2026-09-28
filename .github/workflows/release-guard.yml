@@ -1,0 +1,120 @@
+name: Release guard
+
+# Why this exists: when it was written the repository had merged 67 PRs against one tag
+# (`baseline-v1`, 2026-09-25) and published nothing. Direction lived in issues, but no build could be
+# named, which is what a tag is for. docs/RELEASE.md owns the process; this file owns the floor:
+# 50 merged PRs since the newest tag, and a release is overdue.
+#
+# Design notes, each earned somewhere else in this repo's history:
+#
+#   * A query that errors must fail, not report zero. Issue #122 was a guard whose API call returned
+#     "none" on failure and therefore told everyone the road was clear. The count here is validated
+#     as an integer and the step dies otherwise.
+#   * The verdict is the LAST step, so the scheduled run can open the debt issue before failing the
+#     job. Failing inside the compute step would mean a due release never produces the issue.
+#   * Counting goes through `gh pr list --state merged` rather than a REST `sort=updated` paginate,
+#     because a merged PR can sit behind recently-updated closed PRs and fall outside the page budget.
+#   * The only exemption is a head branch under `release/`, which is the PR that pays the debt; it is
+#     printed as waived rather than hidden.
+#   * Making this check *required* is a repo-settings step taken after the existing debt is paid
+#     (docs/RELEASE.md, "How the debt reads"), because a blocking check that is already overdue would
+#     deadlock the PR that introduces it.
+
+on:
+  pull_request:
+  schedule:
+    - cron: '17 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
+  issues: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      LIMIT: 50
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Count merged PRs since the newest tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG=$(git describe --tags --abbrev=0 2>/dev/null || true)
+          if [ -z "$TAG" ]; then
+            echo "::error::no tag in this checkout - release debt has no origin, so the count would be meaningless"
+            exit 1
+          fi
+          SINCE_UTC=$(date -u -d "$(git log -1 --format=%cI "$TAG")" +%Y-%m-%dT%H:%M:%SZ)
+          COUNT=$(gh pr list --repo "$GITHUB_REPOSITORY" --state merged --limit 500 --json mergedAt \
+            | jq -r --arg s "$SINCE_UTC" '[.[] | select(.mergedAt > $s)] | length')
+          case "$COUNT" in
+            ''|*[!0-9]*)
+              echo "::error::could not count merged PRs since $TAG (got '$COUNT') - failing instead of reporting 0"
+              exit 1
+              ;;
+          esac
+          DUE=0
+          NOTE="release debt: $COUNT merged PR(s) since $TAG (threshold $LIMIT)"
+          HEAD_REF="${GITHUB_HEAD_REF:-}"
+          if [ "$COUNT" -ge "$LIMIT" ]; then
+            if [ "${HEAD_REF#release/}" != "$HEAD_REF" ]; then
+              NOTE="$NOTE - DEBT WAIVED: $HEAD_REF is the release PR that pays it (docs/RELEASE.md)"
+            else
+              DUE=1
+              echo "::warning::$COUNT merged PRs since $TAG: docs/RELEASE.md says a release is overdue"
+            fi
+          fi
+          echo "$NOTE"
+          {
+            echo "TAG=$TAG"
+            echo "SINCE_UTC=$SINCE_UTC"
+            echo "COUNT=$COUNT"
+            echo "DUE=$DUE"
+          } >> "$GITHUB_ENV"
+
+      - name: Open the release-debt issue on the weekly run
+        if: github.event_name == 'schedule'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ "$DUE" != "1" ]; then
+            echo "not due ($COUNT merged PR(s) since $TAG), no issue"
+            exit 0
+          fi
+          TITLE="Release debt: $COUNT merged PRs since $TAG"
+          EXISTING=$(gh issue list --repo "$GITHUB_REPOSITORY" --search "Release debt in:title" \
+            --state open --json number --jq '.[0].number // 0')
+          case "$EXISTING" in
+            ''|*[!0-9]*)
+              echo "::error::could not list open debt issues (got '$EXISTING')"
+              exit 1
+              ;;
+          esac
+          {
+            printf 'docs/RELEASE.md says a release is overdue: **%s merged PRs since `%s`** (threshold 50).\n\n' "$COUNT" "$TAG"
+            printf '`gh pr list --state merged --limit 500 --json number,title,mergedAt` filtered on `mergedAt > %s` is the list.\n\n' "$SINCE_UTC"
+            printf 'Cut the release: branch `release/vX.Y`, changelog section, screenshots from the deployed build, gates, tag. See docs/RELEASE.md.\n'
+          } > /tmp/debt.md
+          if [ "$EXISTING" = "0" ]; then
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "$TITLE" --body-file /tmp/debt.md
+          else
+            gh issue comment "$EXISTING" --repo "$GITHUB_REPOSITORY" --body-file /tmp/debt.md
+          fi
+
+      - name: Verdict
+        run: |
+          set -euo pipefail
+          if [ "$DUE" = "1" ]; then
+            echo "::error::release debt: $COUNT merged PRs since $TAG, threshold $LIMIT is reached. docs/RELEASE.md, and the release PR must be on a release/* branch."
+            exit 1
+          fi
+          echo "release check green - $COUNT merged PR(s) since $TAG, threshold $LIMIT"

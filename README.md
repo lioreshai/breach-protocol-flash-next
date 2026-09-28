@@ -215,7 +215,7 @@ cannot. The mechanics:
 * Commits may name the issue too (`M2: … (#13)`), which is what makes `git log` navigable.
 * `triage.yml` runs weekly and reports open issues with no priority or no area label. It reports; it
   never labels or closes anything by itself.
-* `ROADMAP.md` keeps direction, the priority rubric and measured constraints. Status questions go to
+* `docs/ROADMAP.md` keeps direction, the priority rubric and measured constraints. Status questions go to
   the tracker.
 
 ## Notes
