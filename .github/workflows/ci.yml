@@ -161,13 +161,13 @@ jobs:
       - name: Other seeds
         run: |
           set -uo pipefail
-          # SEED=777 fails the perf gate on code nobody changed (ROADMAP P0) and this step cost more
+          # SEED=777 fails the perf gate on code nobody changed (docs/ROADMAP.md P0) and this step cost more
           # than smoke itself, so it cannot live where it gates a merge.
           for s in 777 31337; do
             if out=$(SEED=$s node tools/smoke.js 2>&1); then
               echo "seed $s: passed"
             else
-              echo "seed $s: would fail the gate (tracked as ROADMAP P0, not blocking any PR)"
+              echo "seed $s: would fail the gate (tracked as docs/ROADMAP.md P0, not blocking any PR)"
               printf '%s\n' "$out" | tail -6
             fi
           done
