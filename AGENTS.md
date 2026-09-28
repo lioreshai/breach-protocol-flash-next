@@ -283,6 +283,11 @@ case "$out" in *"SMOKE PASSED"*) git add -A && git commit ;; *) echo NOT COMMITT
   because a lapse that prints nothing cannot be diagnosed after the fact. Use `gh pr view N --json statusCheckRollup` with
   `.status` (`IN_PROGRESS`/`COMPLETED`) and `.conclusion` (`SUCCESS`/`FAILURE`/`SKIPPED`) - `gh pr checks`
   has no machine output here.
+- **A watch condition must contain no writes at all.** `gh issue edit 128 … && bash /tmp/prwatch.sh 129 7` was
+  armed as one line, so the `edit` re-ran on every poll (killed at 7 s after one evaluation). It happened to be
+  an idempotent edit against a body file, so nothing broke - pointed at a comment thread or an append instead,
+  the same shape posts or corrupts something 37 times. Do the write in the foreground, read the effect back,
+  then arm the pure read.
 
 ## Now: verticality — the design that was chosen
 
@@ -385,7 +390,18 @@ Three risks that were invisible to the gates when this list was written:
 2. `genLevel`'s occupancy gate (`reachable < openCells*0.9`) is a height-blind 4-neighbour
    BFS. Split bands and every attempt fails into the fallback: a lit empty box, no heights,
    every gate green, and the feature silently absent. It must `console.warn('genLevel FALLBACK')`.
-3. No existing assert compares z where things *move*, so "shots pass through the catwalk enemy", "an
+3. **A probe can assert the defect, and its rows can fail when you *add* a test.** `view.js sight`'s `+1 band`
+   rows raised the enemy a full unit, which closes the boundary's opening `[max(floor), min(ceiling)]` to
+   `[1.00, 1.00]` - the enemy is sealed off - and six rows kept printing `hit at t 3.3` for as long as `hitscan`
+   ignored altitude (#129 found this by wiring the ceiling term and watching `sight` go red, not by reading it).
+   When a new altitude test breaks existing rows, ask whether the row's geometry has an opening at all before
+   touching the row's expectation - the answer is usually the geometry. And prove the rewrite changed behaviour
+   and not the claim by running the rewritten rows against **unmodified** code: green there is what makes the
+   rewrite honest. Related trap, same pass: `ceilAt` is **per cell**, so an opening has to exist along the whole
+   flight - lifting one cell moved the stop one cell down the lane (`MISS t 1.8`, measured) instead of opening
+   the shot's path.
+
+4. No existing assert compares z where things *move*, so "shots pass through the catwalk enemy", "an
    explosion downstairs kills upstairs", "the portal triggers from the floor below" all ship green.
    The ground plane now has one (`heights`); the geometry of movers does not. Needs the numeric
    altitude probes (`drop`, `sight`, `cull`, `horizon`) and a `VERT=1` smoke lane before M4 is
