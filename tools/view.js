@@ -1066,6 +1066,41 @@ if (MODE === 'planes') {
       blockedUp: blockedUp, lad: lad, ladKept: (lad >= 0 && (MAP.vb[lad] & VB_LADDER)) ? 1 : 0 };
   })()`, ctxVm);
   const idemOk = !idem.skip && idem.restored && idem.stale === 0 && idem.blockedUp === 1 && idem.ladKept === 1;
+
+  /* #100 gave the wall pass a second derived fact: MAP.steps, read once per frame to decide whether
+     a riser can exist anywhere. A grid with steps whose flag still says flat draws nothing while
+     movement stays blocked - the original #100, resurrected by a forgotten linkBoundaries() rather
+     than by missing code - so the flag has to be shown to track the grid BOTH ways, and to be stale
+     exactly when the relink was skipped rather than always right by luck. */
+  const stp = vm.runInContext(`(function(){
+    startLevel(0, true);
+    const N = MAP.w;
+    let idx = -1;
+    for (let k = 1; k < MAP.cell.length - 2; k++) {
+      if (k % N === N - 1) continue;                       // a neighbour must be in the same row
+      if (MAP.cell[k] || MAP.cell[k + 1]) continue;        // walls already draw their own face
+      idx = k; break;
+    }
+    if (idx < 0) return { skip: 'no air-air pair on this seed' };
+    const j = idx + 1, fz0 = MAP.fz.slice();
+    const flat0 = MAP.steps;
+    MAP.fz[j] += 8; linkBoundaries();
+    const raised = MAP.steps;
+    MAP.fz.set(fz0); linkBoundaries();
+    const restored = MAP.steps;
+    MAP.fz[j] += 8;                                        // a step with NO relink: the stale state
+    const staleFlag = MAP.steps;
+    linkBoundaries();
+    const relinked = MAP.steps;
+    MAP.fz.set(fz0); linkBoundaries();
+    return { cell: idx, flat0: flat0, raised: raised, restored: restored,
+             staleFlag: staleFlag, relinked: relinked };
+  })()`, ctxVm);
+  const stepsOk = !stp.skip && stp.flat0 === 0 && stp.raised === 1 && stp.restored === 0 &&
+    stp.staleFlag === 0 && stp.relinked === 1;
+  console.log(`relink steps   ${stp.skip || 'cell ' + stp.cell}  flat ${stp.flat0}  raised ${stp.raised}  ` +
+    `restored ${stp.restored}  poked without relink ${stp.staleFlag}  after relink ${stp.relinked}  ` +
+    `${stp.skip ? stp.skip : stepsOk ? 'STEPS-FLAG ok' : 'STEPS-FLAG FAIL - steps would draw nothing'}`);
   console.log(`relink vb    ${idem.skip || 'run at cell ' + idem.run}  raised blocks ${yn(idem.blockedUp)}  ` +
     `grid restored ${yn(idem.restored)}  stale blockers ${idem.stale}` +
     `${idem.first >= 0 ? ' (first at cell ' + idem.first + ')' : ''}  authored ladder kept ${yn(idem.ladKept)}` +
@@ -1096,7 +1131,8 @@ if (MODE === 'planes') {
     `${genOk ? 'GEN-COUPLE ok' : 'GEN-COUPLE FAIL - constructing an enemy moves the level'}`);
   // A config that could not run is a skip, not a pass (#89); one that ran and failed is a verdict.
   // RELINK-VB is the #55 stale-blocker guard, and it used to print into a step that exited 0.
-  process.exit(staleAll || !stOk || (!idem.skip && !idemOk) || !genOk ? 1 : 0);
+  // STEPS-FLAG is the same coupling for the #100 riser flag: a stale flag is an invisible step.
+  process.exit(staleAll || !stOk || (!idem.skip && !idemOk) || (!stp.skip && !stepsOk) || !genOk ? 1 : 0);
 }
 
 if (MODE === 'mip') {

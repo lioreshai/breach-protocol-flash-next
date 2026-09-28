@@ -492,6 +492,7 @@ function decalAlpha(dc, wx, wy, dfade) {
    ------------------------------------------------------------------ */
 function castWalls(flash, fcR, fcG, fcB) {
   const cellArr = MAP.cell, N = MAP.w, lm = MAP.light, cp = MAP.ceilPlane;
+  const fzs = MAP.fz, vbs = MAP.vb, doStep = MAP.steps ? 1 : 0;      // #100: 0 on every flat level
   const stepBase = 2 / BW;
   const flR = S.flashCol[0] / 255, flG = S.flashCol[1] / 255, flB = S.flashCol[2] / 255;
   const flashK0 = flash;
@@ -504,12 +505,37 @@ function castWalls(flash, fcR, fcG, fcB) {
     let stepX, stepY, sdx, sdy, side = 0;
     if (rdx < 0) { stepX = -1; sdx = (camX - mx) * ddx; } else { stepX = 1; sdx = (mx + 1 - camX) * ddx; }
     if (rdy < 0) { stepY = -1; sdy = (camY - my) * ddy; } else { stepY = 1; sdy = (my + 1 - camY) * ddy; }
-    let tv = 0, guard = 0;
+    let tv = 0, guard = 0, riser = 0, rz0 = 0, rz1 = 1;
     while (guard++ < 180) {
       if (sdx < sdy) { sdx += ddx; mx += stepX; side = 0; } else { sdy += ddy; my += stepY; side = 1; }
       if (mx < 0 || my < 0 || mx >= N || my >= N) { tv = 1; break; }
       tv = cellArr[my * N + mx];
       if (tv !== 0) break;
+      /* #100: an air->air boundary with a step at it is a FACE. The height difference that makes
+         canEnter refuse the move (js/20_level.js: `dq > 1` quantum, the same test that sets
+         VB_BLOCK) used to be both intangible and invisible, because a face was only ever enumerated
+         where the DDA stopped at a SOLID column and an air->air border never stops a ray at all:
+         the step occluded nothing, so `zbuf` kept the far distance and geometry showed through it.
+         Stopping here with the far cell as the "wall" cell makes the light, tint, mirroring and
+         texture walk of this function correct unchanged. The SPAN is not: a solid column's face runs
+         from the higher floor to the air side's ceiling, but an air->air boundary is the SIDE OF A
+         FLOOR SLAB, so its face is the strip between the two floors, [min(floors), max(floors)].
+         Two cases fall out of that and both are asserted by `view.js cull`: a one-unit step in a
+         one-unit room collapses the far band to zero headroom and the strip fills the eye's whole
+         band, so it reads as a wall and occludes everything (the bug #100 was filed for); and a pit
+         gets the wall below its lip instead of a wall above it, so a body in the pit keeps showing
+         its crown instead of vanishing. `tv` is the material of a riser: the exposed edge of a
+         floor, so it wears the concrete of the floor family rather than the room's wall. Flat levels
+         never reach this test - MAP.steps is 0 - so a flat frame stays bit-identical. */
+      if (doStep) {
+        const d = side === 0 ? (stepX > 0 ? 0 : 2) : (stepY > 0 ? 1 : 3);
+        const pi = (my - (side === 1 ? stepY : 0)) * N + (mx - (side === 0 ? stepX : 0));
+        const dq = fzs[my * N + mx] - fzs[pi];
+        if ((dq > 1 || dq < -1) && !(vbs[pi] & ((VB_RAMP | VB_LADDER) << (d << 2)))) {
+          const fhi = dq > 0 ? fzs[my * N + mx] : fzs[pi], flo = dq > 0 ? fzs[pi] : fzs[my * N + mx];
+          riser = 1; rz0 = flo * ZQ; rz1 = fhi * ZQ; tv = WT.CONCRETE; break;
+        }
+      }
     }
     let perp = side === 0 ? sdx - ddx : sdy - ddy;
     if (!(perp > 0.0001)) perp = 0.0001;
@@ -569,7 +595,7 @@ function castWalls(flash, fcR, fcG, fcB) {
     /* z1 is the ground pass's plane, read from the same derived array: two sources of truth made a
        forgotten linkBoundaries() a seam between the passes instead of a failure. Both axes tested
        before the index, and out of map keeps ceilAt's own answer for the void, which is 1. */
-    const z0 = faceZ0(ox, oy, fd), z1 = ox >= 0 && oy >= 0 && ox < N && oy < N ? cp[oy * N + ox] : 1, dz = z1 - z0;
+    const z0 = riser ? rz0 : faceZ0(ox, oy, fd), z1 = riser ? rz1 : (ox >= 0 && oy >= 0 && ox < N && oy < N ? cp[oy * N + ox] : 1), dz = z1 - z0;
     let y0 = horizon + (eyeZ - z1) * hpx, y1 = horizon + (eyeZ - z0) * hpx;
     const ds = Math.max(0, Math.ceil(y0)), de = Math.min(BH - 1, Math.floor(y1));
     if (!(dz > 0) || ds > de) continue;                    // no face here to draw
