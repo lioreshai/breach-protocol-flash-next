@@ -1347,8 +1347,36 @@ if (MODE === 'mip') {
     if (process.env.BANDS) console.log(`         smoothness vs mush ${smooth.toFixed(2)}x (must stay above ${MUSHMARGIN}), detail floor is the mush frame's ${mush.detail.toFixed(0)}`);
   }
   run(`MIPAX=${DEF.ax};MIPAR=${DEF.ar};`);
+
+  /* #20: the emissive marker has to survive the chain. 253 is a FLAG (this texel emits light), not a
+     coverage value, and the renderer matches it exactly - the ground row loop, groundPixel and castWalls'
+     bilinear decode. Measured on the deployed build, no mip 0 anywhere holds a 254, because the painter
+     writes 255 or exactly 253; every 254 in a deeper mip is therefore a texel that stopped being emissive
+     because aSum/4 averaged it (FLOORS.FLESH lost 84% of its emissive area by mip 1, WALLS[1] all of it by
+     mip 2). So count nothing but manufactured bytes, and separately hand buildMips a 16x16 with one flagged
+     texel so the invariant is checked against the function and not only against what the painter happened to
+     produce today. emTotal is the VACUOUS guard: a census that finds no emissive texel proves nothing. */
+  const mark = run(`(()=>{const sets=[['FLOORS',FLOORS],['CEILS',CEILS],['WALLS',WALLS]];
+    let made254=0,emTotal=0,worst='',worstN=0;
+    for(const [nm,obj] of sets){if(!obj)continue;
+      for(const [k,t] of Object.entries(obj)){if(!t||!t.mips)continue;
+        let e0=0,made=0;
+        for(let i=0;i<t.mips.length;i++){const d=t.mips[i].data;
+          for(let p=0;p<d.length;p++){const a=d[p]>>>24;
+            if(a===253){if(!i)e0++;}else if(a===254){made++;made254++;}}}
+        emTotal+=e0;
+        if(made>worstN){worstN=made;worst=nm+'['+k+'] mip0 emissive '+e0+' manufactured '+made;}}}
+    const q=new Uint32Array(256);for(let i=0;i<256;i++)q[i]=pk(10,10,10,255);q[0]=pk(200,180,120,253);
+    const one=buildMips(16,16,q);
+    const a1=one.length>1?one[1].data[0]>>>24:-1;
+    return {made254,emTotal,worst,a1,levels:one.length}})()`);
+  const markOk = mark.made254 === 0 && mark.emTotal > 0 && mark.a1 === 253;
+  console.log(`emissive marker   ${markOk ? 'ok' : 'FAIL'}   ${mark.emTotal} emissive texels censused across ` +
+    `FLOORS/CEILS/WALLS, ${mark.made254} texel(s) at alpha 254 (a value the painter never writes: ${mark.worst || 'none'}); ` +
+    `synthetic 1 flagged texel -> mip1 alpha ${mark.a1} (want 253, chain has ${mark.levels} levels)`);
+
   console.log(bad ? `${bad} level(s) NOT BETTER THAN THE 1-D CONTROL` : 'MIP ok: two-axis selection beats the 1-D control on every level and is not mush');
-  process.exit(bad ? 1 : 0);
+  process.exit(bad || !markOk ? 1 : 0);
 }
 
 if (MODE === 'exposure') {

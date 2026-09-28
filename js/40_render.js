@@ -613,7 +613,11 @@ function castWalls(flash, fcR, fcG, fcB) {
       let cr = (t0 & 255) * w0 + (t1 & 255) * w1 + (t2 & 255) * w2 + (t3 & 255) * w3;
       let cg = (t0 >> 8 & 255) * w0 + (t1 >> 8 & 255) * w1 + (t2 >> 8 & 255) * w2 + (t3 >> 8 & 255) * w3;
       let cb = (t0 >> 16 & 255) * w0 + (t1 >> 16 & 255) * w1 + (t2 >> 16 & 255) * w2 + (t3 >> 16 & 255) * w3;
-      if ((((t0 >>> 24) * w0 + (t1 >>> 24) * w1 + (t2 >>> 24) * w2 + (t3 >>> 24) * w3) | 0) === 253) {
+      // #20: four tests, not a blend of the four. The alpha byte is a flag here (253 = this texel emits
+      // light, 255 = ordinary opaque), so blending the corners turns a pixel that merely TOUCHES an
+      // emissive texel into 254.x and the branch is missed at fractional coordinates in mip 0 - and now
+      // that buildMips carries the flag, a blend is the only way a lit texel can still be missed.
+      if ((t0 >>> 24) === 253 || (t1 >>> 24) === 253 || (t2 >>> 24) === 253 || (t3 >>> 24) === 253) {
         px[idx] = 0xFF000000 | clampi(cb * inv + fB) << 16 | clampi(cg * inv + fG) << 8 | clampi(cr * inv + fR);
         continue;
       }
