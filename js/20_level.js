@@ -316,10 +316,27 @@ function updateDecals(dt) {
     if (d.life <= 0) removeDecal(d);
   }
 }
-/* a hole punched in a wall face, or a pool on the floor */
+/* A hole punched in a wall face carries ABSOLUTE altitude (#120). The old clamp to [0.12, 0.88] meant
+   "the middle of the face" only while every face spanned 0..1; the renderer solves dc.z as a world height
+   (js/40_render.js: syTop = horizon + (eyeZ - (dc.z + dc.r)) * hpx), so above the datum the hole was
+   painted into the floor slab of a room whose floor was higher than 0.88 - and the caller's h.z < 0.96
+   window, testing an absolute altitude against the same flat window, usually dropped the mark first.
+   A face spans from the higher of the two floors to the ceiling plane of the AIR side, so that is the
+   window now, inset by the mark's own radius so a disc cannot hang over a band it was not punched in.
+   The hit point lies on the boundary, so the face is the pair of cells sharing the integer line it hit;
+   isSolid reads an off-map cell as solid, so the map edge resolves to the cell that exists. */
 function addWallMark(x, y, z, side, kind) {
   if (side === undefined) return;
-  addDecal({ x, y, z: clamp(z, 0.12, 0.88), r: 0.11 + Math.random() * 0.04, side: side + 1, tex: kind === 'scorch' ? DECAL.scorch : DECAL.bullet, a: 0.9 });
+  const r = 0.11 + Math.random() * 0.04;
+  const b = Math.round(side ? y : x);
+  const c1 = side ? [x | 0, b - 1] : [b - 1, y | 0];
+  const c2 = side ? [x | 0, b] : [b, y | 0];
+  const air = isSolid(c1[0] + 0.5, c1[1] + 0.5) ? c2 : c1;
+  const wall = air === c1 ? c2 : c1;
+  const z0 = Math.max(floorAt(air[0] + 0.5, air[1] + 0.5), floorAt(wall[0] + 0.5, wall[1] + 0.5));
+  const z1 = ceilAt(air[0] + 0.5, air[1] + 0.5);
+  addDecal({ x, y, z: clamp(z, z0 + r, Math.max(z0 + r, z1 - r)), r, side: side + 1,
+    tex: kind === 'scorch' ? DECAL.scorch : DECAL.bullet, a: 0.9 });
 }
 function addGroundSplat(x, y, r, kind) {
   const tex = kind === 'goo' ? DECAL.goo : kind === 'scorch' ? DECAL.scorch : kind === 'dust' ? DECAL.dust : DECAL.blood;
