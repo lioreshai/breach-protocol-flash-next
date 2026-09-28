@@ -424,6 +424,31 @@ const release = () => fire('mouseup', { button: 0 });
       }
     }
 
+    // V7 - the other half of V4, and the reason it exists at all. A gate that only ever CLOSES also
+    // satisfies "spares the band above", and that is not hypothetical: replacing banded() with
+    // `false` - blasts damage nothing anywhere - leaves the flat lane GREEN, because the flat harness
+    // calls explode at :205 and asserts only that it does not throw. So V4 alone would ship "blasts
+    // do nothing". Same geometry, no poke: the body is on the blast's OWN band and must lose exactly
+    // the 50.6 the falloff prescribes at 2.0 m with radius 3.2 and dmg 90.
+    vboot();
+    {
+      const ln = vlane(3);
+      if (!vsetup('same-band blast setup found a 3 m clear run', !!ln, 'no clear corridor on this seed')) { }
+      else {
+        const ex = ln[0] + 2, ey = ln[1];
+        S1(`{ENEMIES.length=0;const e=makeEnemy('grunt',${ex}+0.5,${ey}+0.5);e.hp=100;ENEMIES.push(e);
+            P.x=${ln[0]}+0.5;P.y=${ln[1]}+0.5;P.z=floorAt(P.x,P.y);P.air=false;P.hp=100;return 0}`);
+        const hp0 = S1('{ENEMIES[0].hp}');
+        S1(`{explode(${ln[0]}+0.5,${ln[1]}+0.5,floorAt(${ln[0]}+0.5,${ln[1]}+0.5)+0.1,3.2,90,0);return 0}`);
+        frames(6);
+        const hp1 = S1('{ENEMIES[0].hp}');
+        const want = 90 * (1 - 2 / 3.2 * 0.7);
+        vrow('a blast on its own band still damages a body on it', hp1 <= hp0 - want * 0.8,
+          `hp ${hp0.toFixed(1)} -> ${hp1.toFixed(1)} at 2.00 m in xy on the same band; the falloff says`
+          + ` -${want.toFixed(1)}, a gate that never opens reads ${hp1 === hp0 ? '0' : (hp0 - hp1).toFixed(1)}`);
+      }
+    }
+
     // V5 - a projectile's floor is a literal (js/30_entities.js:79 clamps z against 0.02, :532
     // against 0.08, never against the band), so an orb on a raised band sinks through the floor it
     // should pop on and keeps travelling under it. Spawned downrange, not at the player: the flat
