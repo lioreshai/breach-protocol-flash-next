@@ -277,13 +277,22 @@ function buildMips(w, h, data) {
   while (cw > 8 || ch > 8) {
     const nw = Math.max(8, cw >> 1), nh = Math.max(8, ch >> 1), out = new Uint32Array(nw * nh);
     for (let y = 0; y < nh; y++) for (let x = 0; x < nw; x++) {
-      let r = 0, g = 0, b = 0, aSum = 0;
+      let r = 0, g = 0, b = 0, aSum = 0, em = 0;
       for (let j = 0; j < 2; j++) for (let i = 0; i < 2; i++) {
         const c = cd[Math.min(ch - 1, y * 2 + j) * cw + Math.min(cw - 1, x * 2 + i)], al = c >>> 24;
         if (!al) continue;
+        if (al === 253) em = 1;
         r += (c & 255) * al; g += (c >> 8 & 255) * al; b += (c >> 16 & 255) * al; aSum += al;
       }
-      out[y * nw + x] = aSum === 0 ? 0 : pk(r / aSum, g / aSum, b / aSum, aSum / 4);
+      /* #20: this alpha is not a coverage value - 253 is the FLAG the emissive painter sets, and the
+         renderer matches it exactly (ground row loop, groundPixel, castWalls' bilinear decode). Averaging
+         it manufactures 254 wherever a 253 meets a 255 (i0 truncates: (253+255+255+255)/4 = 254.5 -> 254),
+         a byte no read site recognises, so an emissive area stopped being emissive as soon as it was far
+         enough to filter: measured on the deployed build, 84% of FLOORS.FLESH's emissive texels lost the
+         branch by mip 1 and every emissive texel of WALLS[1] by mip 2. Carry the flag instead of the
+         number - an emissive texel anywhere in the 2x2 keeps the area self-lit, which spreads a glow by
+         half a texel per level rather than deleting it. */
+      out[y * nw + x] = aSum === 0 ? 0 : pk(r / aSum, g / aSum, b / aSum, em ? 253 : aSum / 4);
     }
     mips.push({ w: nw, h: nh, data: out });
     cw = nw; ch = nh; cd = out;
