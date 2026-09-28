@@ -466,7 +466,7 @@ never by PR bookkeeping. Branch every change off `main`; if two changes touch th
 
 ## Issue tracking
 
-Status lives in [issues](https://github.com/lioreshai/breach-protocol-flash-next/issues); `ROADMAP.md`
+Status lives in [issues](https://github.com/lioreshai/breach-protocol-flash-next/issues); `docs/ROADMAP.md`
 keeps direction and measured constraints, and prose status tables are not to be reintroduced. A PR
 body carries `Closes #N` — **the keyword, not a bare `#N`**, because merges here are squash merges and
 a bare reference links the issue while leaving it open, which is how a tracker dies. `[no-issue]` is
