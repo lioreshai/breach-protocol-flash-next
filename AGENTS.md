@@ -274,6 +274,11 @@ case "$out" in *"SMOKE PASSED"*) git add -A && git commit ;; *) echo NOT COMMITT
   (`exposure`'s fall-through dump vs `scene 0 0`, #58/#61) - inside one `exposure` run the printed number and
   the PNG it leaves agree. Each check cost one sampling command or one 6-step bisect over 35 commits; the
   instrument was never the problem, believing a difference before eliminating what moved underneath it was.
+- **A closing keyword inside backticks closes nothing.** #145 stayed open after #146 merged with its body
+  opening `` `Closes #145` `` - a markdown code span, so GitHub linked nothing - while the `issue` check stayed
+  green because it greps the raw text. Same family as a bare `#N`: a green check proves the string was present,
+  never that the reference exists. Write the keyword as plain text, and confirm with `gh issue view N --json
+  state` after an admin squash merge, which is the only reason this was caught.
 - **A watch that greps for absence reports MET when the command fails.** `bg_4` exited 0 after **59 ms**
   having read nothing: its condition was `gh pr checks 121 --json …`, and this `gh` has no `--json` on
   `pr checks`, so the command printed `unknown flag` on stderr, `$s` was empty, neither the `pending` nor
