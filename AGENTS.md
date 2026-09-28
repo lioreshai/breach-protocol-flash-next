@@ -53,7 +53,14 @@ pointer lock and publishes `DEV` (`README.md`: *Driving the game from a console*
 camera and enemy placement, `freeze`/`tick` for reproducible frames, `DEV.ray` for geometry claims,
 and `DEV.set('rim', false)` to A/B one shading term in the running page. A claim checked through
 `DEV` counts as verified; a claim checked by guessing at internals does not. The first hunt that
-needed it wasted turns assigning to `P.yaw`, which does not exist — the heading is `P.ang`.
+needed it wasted turns assigning to `P.yaw`, which does not exist — the heading is `P.ang`. `DEV.ray` takes a **vector** - `ray(x, y, z, dx, dy, dz, maxD)` - not `(ang, tanP)`: calling
+`DEV.ray(0, 1.2)` reads as "pitch this ray up" and is actually a DDA that **starts at cell (0, 1.2)**, i.e. inside
+the map border, and answers `hit: false` for a ray that hits a face at 23.5 m. That answer is not merely wrong, it
+is unfalsifiable - it agrees with whatever `hitscan` says. Its `through` field is the same family of trap: it is
+`zh >= z0 && zh < z1`, an annotation of the ray's altitude against the face's own span, not a second verdict on
+whether the shot hit. Also `P.pitch` is in **pixels**, clamped to `+-BH * 0.62` and converted by `pitchTan()`, so
+after a look delta it reads 222.58 where the shot's slope was 0.628 - report `pitchTan()`, not `P.pitch`, when a
+number has to mean the shot's slope (`js/30_entities.js:326`).
 
 Trap: the headless probes rasterize poses **without** the scene-light multiply, so `view.js rig`
 and `contrast` both agreed the characters looked fine while the live site showed something the probes
