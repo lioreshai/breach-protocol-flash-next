@@ -1390,8 +1390,110 @@ if (MODE === 'mip') {
     `FLOORS/CEILS/WALLS, ${mark.made254} texel(s) at alpha 254 (a value the painter never writes: ${mark.worst || 'none'}); ` +
     `synthetic 1 flagged texel -> mip1 alpha ${mark.a1} (want 253, chain has ${mark.levels} levels)`);
 
+  /* #123: the census above gates the CHAIN. The OTHER site #20 had to fix is the bilinear FETCH in castWalls,
+     and nothing gated it: the old code averaged the four corner alphas, so a wall pixel that merely TOUCHES an
+     emissive texel blended to 254.x, missed the light-exempt branch and got multiplied by scene light - in
+     mip 0, where the census cannot see it, because the census reads texture bytes, not what the fetch produced.
+     Gated by pixels, with three hand-built textures on the SAME geometry, the SAME light and G_GRIT=0 (grit's
+     gk swings +/-0.6 at the default quality, which would swamp the comparison):
+       E  every texel alpha 253  -> the self-lit form, colour*(1-fog) + fogCol*fog
+       O  every texel alpha 255  -> the scene-lit form, colour*lr + fogCol*fog
+       A  same RGB, alpha alternating per texel in x -> every fetch with a fractional u straddles E and O
+     All three carry ONE colour, so the bilinear colour blend is identical across them and the only thing that
+     can move an A pixel from E to O is whether the branch saw the flag. A pixel closer to O than to E is the
+     bug. A render where NO A pixel is closer to O means the pattern was never resolved (a mip >= 1 chain is
+     uniformly 253 since #124's sticky flag), the second way this could pass for the wrong reason, so that is
+     asserted too. Reverting the four tests to a blend moves the straddling pixels onto O; widening the test to
+     >= 253 makes ordinary opaque texels self-lit and collapses the E-O gap to nothing.
+     The face is chosen by what castWalls RESOLVES (zbuf in the sample band flat and near), not by
+     castRayDist: that march counts a blocked boundary as a wall and picked a "face" at 2.5 m that the renderer
+     paints at 5.1 m, so a candidate chosen from it would have asserted on pixels that are not that face. */
+  const fetchRes = run(`(()=>{
+    const cand=[];
+    for(let y=2;y<MH-2&&cand.length<12;y++)for(let x=2;x<MW-6;x++){
+      if(isSolid(x+.5,y+.5))continue;
+      let d=-1;for(let k=1;k<=4;k++)if(isSolid(x+k+.5,y+.5)){d=k;break;}
+      if(d>0)cand.push([x+.5,y+.5,d]);}
+    if(!cand.length)return{skip:'no air cell with a material wall within 4 m to +x'};
+    const TW=WALLS[0].w,TH=WALLS[0].h;
+    const texOf=al=>{const d=new Uint32Array(TW*TH);
+      for(let y=0;y<TH;y++)for(let x=0;x<TW;x++)d[y*TW+x]=pk(170,160,150,al===2?((x&1)?255:253):al);
+      return {w:TW,h:TH,data:d,tiles:true,mips:buildMips(TW,TH,d)}};
+    const TE=texOf(253),TO=texOf(255),TA=texOf(2);
+    const x0=(BW*0.46)|0,x1=(BW*0.54)|0;
+    const lum=i=>{const c=px[i];return 0.2126*(c&255)+0.7152*(c>>8&255)+0.0722*(c>>16&255)};
+    const bak=[];for(let i=0;i<WALLS.length;i++)bak[i]=WALLS[i];
+    const gk=G_GRIT,gt=G_TRI;G_GRIT=0;G_TRI=false;
+    let hit=null,tried=0;
+    for(const c of cand){
+      tried++;
+      P.x=c[0];P.y=c[1];P.ang=0;P.pitch=0;P.crouch=0;P.z=floorAt(c[0],c[1]);P.air=false;P.vx=P.vy=P.vz=0;
+      for(const e of ENEMIES)e.state='sleep';
+      const IDX=(MAP.cell[(c[1]|0)*MAP.w+((c[0]|0)+c[2])]-1+WALLS.length)%WALLS.length;
+      renderWorld();
+      px.fill(pack(FOGC[0],FOGC[1],FOGC[2]));castWalls(S.flash,FOGC[0],FOGC[1],FOGC[2]);
+      const hzz=Math.round(horizon),y0=Math.max(0,hzz-24),y1=Math.min(BH-1,hzz+24);
+      const idxs=[];let lo=1e9,hi=-1e9;
+      for(let x=x0;x<x1;x++)for(let y=y0;y<=y1;y++){const i=y*BW+x,pz=zbuf[i];
+        if(!Number.isFinite(pz)||pz<=0.05)continue;idxs.push(i);if(pz<lo)lo=pz;if(pz>hi)hi=pz;}
+      // accept only a candidate that lands on MIP 0 (spanPx >= 0.6 texels/unit), because a deeper chain is
+      // uniformly 253 since #124 and would make the fetch assertion pass without exercising mip 0 at all
+      const span = BH / ((lo + hi) / 2);
+      if (idxs.length >= 160 && hi - lo < 0.45 && lo > 1.1 && hi < 4.2 && span >= TH * 0.6) { hit = { c, IDX, lo, hi, idxs, hzz }; break; }
+    }
+    if(!hit){for(let i=0;i<WALLS.length;i++)WALLS[i]=bak[i];G_GRIT=gk;G_TRI=gt;
+      return{skip:'no candidate resolved a flat face-on face 1.1-4.2 m away in the sample band',tried};}
+    WALLS[hit.IDX]=TE;
+    px.fill(pack(FOGC[0],FOGC[1],FOGC[2]));castWalls(S.flash,FOGC[0],FOGC[1],FOGC[2]);
+    const grab=()=>{const a=new Float64Array(hit.idxs.length);for(let k=0;k<hit.idxs.length;k++)a[k]=lum(hit.idxs[k]);return a};
+    const LE=grab();
+    WALLS[hit.IDX]=TO;px.fill(pack(FOGC[0],FOGC[1],FOGC[2]));castWalls(S.flash,FOGC[0],FOGC[1],FOGC[2]);const LO=grab();
+    WALLS[hit.IDX]=TA;px.fill(pack(FOGC[0],FOGC[1],FOGC[2]));castWalls(S.flash,FOGC[0],FOGC[1],FOGC[2]);const LA=grab();
+    const perp=hit.idxs.length?zbuf[hit.idxs[(hit.idxs.length/2)|0]]:0,spanPx=BH/perp,th=bak[0].h;
+    const mip=spanPx<th*0.6?(spanPx<th*0.3?(spanPx<th*0.15?3:2):1):0;
+    const wi=(hit.c[1]|0)*MAP.w+((hit.c[0]|0)+hit.c[2]);
+    const amb=AMB,lit=MAP.light?Math.max(MAP.light[wi],MAP.light[(hit.c[1]|0)*MAP.w+(hit.c[0]|0)]):1;
+    for(let i=0;i<WALLS.length;i++)WALLS[i]=bak[i];G_GRIT=gk;G_TRI=gt;
+    return {LE,LO,LA,n:hit.idxs.length,perp:+perp.toFixed(3),spanPx:+spanPx.toFixed(1),mip,
+      levels:TE.mips.length,lo:+hit.lo.toFixed(3),hi:+hit.hi.toFixed(3),tried,spot:[+hit.c[0].toFixed(1),+hit.c[1].toFixed(1)],
+      face:hit.c[2],IDX:hit.IDX,horizon:hit.hzz,amb:+amb.toFixed(3),lit:+lit.toFixed(3)}})()`);
+  let fetchOk = false, fetchLine = '';
+  if (!fetchRes || fetchRes.skip) fetchLine = `FAIL   SKIPPED: ${fetchRes ? fetchRes.skip : 'scan failed'} (${fetchRes ? fetchRes.tried : 0} candidates tried) - the fetch is not being exercised`;
+  else {
+    const LE = Float64Array.from(fetchRes.LE), LO = Float64Array.from(fetchRes.LO), LA = Float64Array.from(fetchRes.LA);
+    let nE = 0, nO = 0, nOther = 0, sE = 0, sO = 0;
+    for (let k = 0; k < LA.length; k++) {
+      const dE = Math.abs(LA[k] - LE[k]), dO = Math.abs(LA[k] - LO[k]);
+      sE += LE[k]; sO += LO[k];
+      if (dE <= 1) nE++; else if (dO <= 1) nO++; else nOther++;
+    }
+    const meanE = sE / LA.length, meanO = sO / LA.length, gap = meanE - meanO;
+    /* Alternating columns, and that choice is the whole point of the row: the bug truncates, so a straddling
+       fetch blends to 253.x when the flagged corner's weight is under 0.5 and `| 0` still reads 253, which made
+       a period-8 pattern pass on the broken build (measured: 1519 -> 1329 emissive, only 190 of ~588 straddling
+       columns moved). With every other texel flagged, EVERY fetch has at least one flagged corner (t1 or t3 in
+       the pair, whatever fx and fy are), so correct code must make every pixel self-lit and the blend must make
+       every one of them 254 and scene-lit - a 100% vs 0% signal with no dependence on where u lands.
+       mip === 0 is asserted outright, because a deeper chain is uniformly 253 after #124's sticky flag and would
+       fake the emissive half while proving nothing about the fetch. The >= 253 direction (ordinary opaque texels
+       treated as self-lit) is caught by the E-O gap collapsing - control B measures it. */
+    fetchOk = gap > 20 && fetchRes.mip === 0 && nE >= LA.length * 0.98 && nO <= LA.length * 0.02;
+    fetchLine = `${LA.length} wall px on the face at (${fetchRes.spot[0]}, ${fetchRes.spot[1]}) +${fetchRes.face} -> ` +
+      `WALLS[${fetchRes.IDX}], perp ${fetchRes.perp} m (band ${fetchRes.lo}-${fetchRes.hi}, mip ${fetchRes.mip} of ` +
+      `${fetchRes.levels - 1}, ${fetchRes.spanPx} px per world unit, AMB ${fetchRes.amb}, light ${fetchRes.lit}) | ` +
+      `all-emissive mean ${meanE.toFixed(1)} vs all-opaque mean ${meanO.toFixed(1)} (gap ${gap.toFixed(1)}, must ` +
+      `stay > 20 - the exemption has to be visible in this light) | straddling: ${nE} match emissive, ${nO} match ` +
+      `opaque, ${nOther} neither - prediction is EVERY pixel emissive: with the flag on alternating texels, each ` +
+      `bilinear quartet has at least one flagged corner (t1 or t3, whatever fx/fy are), so the four tests must ` +
+      `catch all ${LA.length} and blending the four alphas must lose all of them to the scene-lit form (254 is not ` +
+      `253) | mip must be 0: a deeper chain is uniformly 253 since #124 and would match emissive for the wrong ` +
+      `reason | ${fetchRes.tried} candidate(s) scanned`;
+  }
+  console.log(`wall fetch        ${fetchOk ? 'ok' : 'FAIL'}   ${fetchLine}`);
+
+
   console.log(bad ? `${bad} level(s) NOT BETTER THAN THE 1-D CONTROL` : 'MIP ok: two-axis selection beats the 1-D control on every level and is not mush');
-  process.exit(bad || !markOk ? 1 : 0);
+  process.exit(bad || !markOk || !fetchOk ? 1 : 0);
 }
 
 if (MODE === 'exposure') {
