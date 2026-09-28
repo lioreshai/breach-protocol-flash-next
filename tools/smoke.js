@@ -648,7 +648,18 @@ const release = () => fire('mouseup', { button: 0 });
     // Both halves gate: the shelf must cost sight (the fix), and the same 9 m of flat floor must NOT
     // (else "this enemy never sees anyone" would satisfy the row - the failure V6 and V10 dodge the
     // same way). P.hp is in the detail because an alert enemy that cannot see still cannot hurt anyone,
-    // and a row that only reads `alert` would pass on a lane where the shooting broke.
+    // and a row that only reads `alert` would pass on a lane where the shooting broke. Two terms came in
+    // after #119 merged, because a parallel implementation of the same fix (pushed to
+    // fix/sight-altitude-window-alt, since deleted) asserted both and this row did not. ALERT is counted
+    // per FRAME rather than read at the end: on current main the two are equivalent, because updateEnemies
+    // keeps alert STICKY (`if (see) e.alert = true`, cleared at js/30_entities.js:444 only past
+    // sight*1.6, which an 8 m enemy never reaches), so one frame of sight already shows in the final flag -
+    // no control can separate them today, and the count is here for the day that stickiness goes away,
+    // when the final flag alone would start passing a sight that opens for a frame at a time. The other
+    // term is load-bearing now: the slab's ability to STOP the enemy is read from canEnter, because a
+    // riser that paints without setting VB_BLOCK (#100's invariant) would otherwise leave this row
+    // asserting only that the sight ray was blind, in a game where the enemy can walk onto the plateau and
+    // see from its far side.
     vboot();
     {
       const ln = vlane(9);
@@ -660,22 +671,34 @@ const release = () => fire('mouseup', { button: 0 });
               const e=makeEnemy('grunt',${ax},${ey}+0.5);e.state='idle';e.alert=false;e.cd=0;
               ENEMIES.push(e);P.x=${bx};P.y=${ey}+0.5;P.z=floorAt(P.x,P.y);P.air=false;
               P.hp=100;P.deadT=0;P.crouch=0;return 0}`);
-          let shotFrames = 0;
-          for (let i = 0; i < 90; i++) { frames(1); shotFrames += S1('{PROJ.length?1:0}'); }
+          let shotFrames = 0, alertFrames = 0;
+          for (let i = 0; i < 90; i++) {
+            frames(1);
+            const f = S1('{return [(PROJ.length?1:0),(ENEMIES.length&&ENEMIES[0].alert?1:0)]}');
+            shotFrames += f[0]; alertFrames += f[1];
+          }
           const r = S1('{return [ENEMIES[0].alert?1:0, ENEMIES[0].state, +P.hp.toFixed(1)]}');
           S1('{PROJ.length=0;ENEMIES.length=0;return 0}');
-          return { shotFrames, alert: r[0], state: r[1], hp: r[2] };
+          return { shotFrames, alertFrames, alert: r[0], state: r[1], hp: r[2] };
         };
         const open = drive();                                    // 9 m of flat floor: it must see
         for (let k = 3; k <= 5; k++) vpoke(ln[0] + k, ey, 3);      // a +0.75 m plateau between them
+        // The near edge of the plateau, read as the player would cross it: if that crossing is allowed,
+        // the slab is a painting and not a barrier, and what this row is asserting about sight is a
+        // different game from the one the plateau is in.
+        const bar = S1(`{return [canEnter(${ln[0]}+2.5,${ey}+0.5,${ln[0]}+3.5,${ey}+0.5)?1:0, ` +
+          `vbAt(${ln[0]}+2.5,${ey}+0.5,0)&VB_BLOCK?1:0]}`);
         const shelf = drive();
         const floorMid = S1(`{floorAt(${ln[0]}+4.5,${ey}+0.5)}`);
         vrow('a floor above the sight line costs an enemy its sight',
-          open.alert === 1 && open.shotFrames > 0 && shelf.alert === 0 && shelf.shotFrames === 0 && shelf.hp === 100,
-          `flat run: alert ${open.alert}, state ${open.state}, ${open.shotFrames} frame(s) carrying the enemy's `
-          + `orb, hp ${open.hp} | plateau floor ${floorMid.toFixed(2)} between them: alert ${shelf.alert}, `
-          + `state ${shelf.state}, ${shelf.shotFrames} frame(s), hp ${shelf.hp}`
-          + (shelf.alert === 0 && open.alert === 0 ? ' - VACUOUS: the enemy sees nobody on flat ground either' : ''));
+          open.alertFrames > 0 && open.shotFrames > 0 && shelf.alertFrames === 0 && shelf.shotFrames === 0 &&
+          shelf.hp === 100 && bar[0] === 0,
+          `flat run: alert on ${open.alertFrames}/90 frame(s), ${open.shotFrames} frame(s) carrying the enemy's `
+          + `orb, hp ${open.hp} | plateau floor ${floorMid.toFixed(2)} between them: alert on `
+          + `${shelf.alertFrames}/90 frame(s), ${shelf.shotFrames} frame(s), hp ${shelf.hp}; crossing the near `
+          + `edge ${bar[0] ? 'ALLOWED' : 'refused'} (VB_BLOCK ${bar[1]})`
+          + (bar[0] ? ' - NOT A BARRIER: the slab walks through, so sight here is not the same claim'
+            : shelf.alertFrames === 0 && open.alertFrames === 0 ? ' - VACUOUS: the enemy sees nobody on flat ground either' : ''));
         vrestore();
       }
     }
