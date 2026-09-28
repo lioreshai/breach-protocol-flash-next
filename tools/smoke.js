@@ -926,6 +926,93 @@ const release = () => fire('mouseup', { button: 0 });
       }
     }
 
+    // V16 and V17 gate the two rules that were FIXED and never ASSERTED: the exit changes level by a test
+    // that includes a band (#105: an xy-only test let the level change from a cell whose floor was a unit
+    // below), and a pickup has a 0.6 m vertical window (#109: xy proximity took it while the player hovered
+    // above it). Risk #3 in AGENTS.md names this gap - nearly every other assert compares x and y. Both rows
+    // are SELF-CONTROLLED: the same pose minus the altitude poke must give the opposite answer, so deleting
+    // the band test turns the row red instead of quietly passing, the failure mode this lane keeps hitting.
+    for (let li = 0; li < 3; li++) {                                // three levels, as at :139
+      V('startLevel(' + li + ', true); S.mode = "playing";');
+      // Every other row in this lane is a pure eval and the lane never advances a frame, so these two rows
+      // call update() themselves at a fixed dt: DEV is not loaded in this harness and frames() left the
+      // world un-advanced, which is how both controls first answered "nothing happened".
+      const step = n => V('{ for (let i = 0; i < ' + n + '; i++) update(0.016); }');
+      const pair = S1(`{
+        for (let y = 1; y < MH - 1; y++) for (let x = 1; x < MW - 2; x++) {
+          if (isSolid(x + 0.5, y + 0.5) || isSolid(x + 1.5, y + 0.5) || isSolid(x + 2.5, y + 0.5)) continue;
+          if (MAP.fz[y * MW + x] !== MAP.fz[y * MW + x + 1]) continue;
+          if (MAP.fz[y * MW + x] !== MAP.fz[y * MW + x + 2]) continue;
+          return { x: x, y: y };
+        }
+        return null;
+      }`);
+      if (vsetup('V16 setup found three open cells side by side at one floor', !!pair,
+        'no such triple on level ' + li + ' - the row cannot run')) {
+        const ex = pair.x + 1.9, ey = pair.y + 0.5, px = pair.x + 2.3;
+        const lv0 = S1('S.level');
+        // the exit parked 0.1 m inside the boundary so a point one cell over is still inside its 0.74 m
+        // radius; exitX/exitY are generator state and this pose is probe-only - the row gates the band rule,
+        // not where the generator puts portals
+        const pose = () => V('{ for (const e of ENEMIES) e.hp = 0; S.exitOpen = true; exitX = ' + ex +
+          '; exitY = ' + ey + '; P.x = ' + px + '; P.y = ' + ey + '; P.z = floorAt(P.x, P.y); }');
+        pose();
+        vpoke(pair.x + 2, pair.y, 1);                                    // the cell under the player +0.25 m
+        V('P.z = floorAt(P.x, P.y)');
+        // the pose's own geometry is read BEFORE it is allowed to do anything: with the band term missing the
+        // raised pose changes level, which reloads the level and moves the exit 30 m away, so a detail line
+        // measured afterwards describes the aftermath rather than the pose
+        const rFloor = +S1('floorAt(P.x, P.y)'), xFloor = +S1('floorAt(exitX, exitY)');
+        const dmin = +S1('Math.sqrt(dist2(P.x, P.y, exitX, exitY))');
+        step(20);
+        const raised = S1('{ return S.level }'), raisedWin = S1('{ return S.mode === "win" }');
+        vrestore(); pose(); V('P.z = floorAt(P.x, P.y)');                  // same pose, both floors flat
+        const gate = S1('{ return { mode: S.mode, locked: !!S.locked, open: !!S.exitOpen, hp: Math.round(P.hp),'
+          + ' band: floorAt(P.x, P.y) === floorAt(exitX, exitY), near: dist2(P.x, P.y, exitX, exitY) < 0.55 } }');
+        step(20);
+        // "advanced" is not always a level number: on the last level nextLevel() ends the run instead of
+        // incrementing S.level, and #105's band test is the same line of code either way
+        const flat = S1('{ return S.level }'), flatWin = S1('{ return S.mode === "win" }');
+        const advRaised = raised !== lv0 || raisedWin, advFlat = flat !== lv0 || flatWin;
+        vrow('L' + li + ' the exit needs its own band, not just its column (#105)',
+          !advRaised && advFlat,
+          dmin.toFixed(2) + ' m from the portal (radius 0.74) on floor ' + rFloor.toFixed(2) + ' while its'
+          + ' floor is ' + xFloor.toFixed(2) + ': ' + (advRaised ? 'CHANGES LEVEL - the band test is gone'
+          : 'level stays put (want stays)') + '; same pose with both floors flat: ' + (advFlat
+            ? 'advances (want advances)'
+            : 'DOES NOT advance, so the band test is not what stops the raised case either and this row'
+            + ' proves nothing') + ' | gate terms: mode ' + gate.mode + ', locked ' + gate.locked + ', open '
+          + gate.open + ', hp ' + gate.hp + ', same band ' + gate.band + ', within radius ' + gate.near
+          + (flatWin ? ' | advancing here ends the run rather than moving level (last level)' : ''));
+      V('startLevel(' + li + ', true); S.mode = "playing";');
+      }
+
+      const pk = S1('PICKUPS.length ? { x: PICKUPS[0].x, y: PICKUPS[0].y } : null');
+      if (vsetup('V17 setup found a pickup to stand on', !!pk, 'level ' + li + ' generated none')) {
+        V('window.__pkCopy = Object.assign({}, PICKUPS[0]); PICKUPS[0] && (window.__pkCopy.x = ' + pk.x +
+          ', window.__pkCopy.y = ' + pk.y + ');');
+        const hover = (dz, ticks) => {
+          // takePickup marks k.dead rather than splicing, and REFUSES a pickup the player cannot use (health
+          // at hp 100 sets dead back to false and returns), so the pose has to want the item: hurt, stripped
+          // armour, empty reserves. Counting PICKUPS.length instead made this row fail on a build that was
+          // behaving correctly, which is the VACUOUS shape in the other direction.
+          V('{ PICKUPS.length = 0; const k = Object.assign({}, window.__pkCopy); k.dead = false;'
+            + ' PICKUPS.push(k); P.x = ' + pk.x + '; P.y = ' + pk.y + '; P.hp = 50; P.armor = 0;'
+            + ' for (let i = 0; i < P.reserve.length; i++) P.reserve[i] = 0;'
+            + ' P.z = floorAt(P.x, P.y) + ' + dz + '; }');
+          step(ticks);
+          return S1('{ return PICKUPS.filter(k => !k.dead).length }');
+        };
+        const lo = hover(0.0, 6), mid = hover(0.5, 6), out = hover(0.9, 6);
+        vrow('L' + li + ' a pickup is taken from the hover window and not from above it (#109)',
+          lo === 0 && mid === 0 && out === 1,
+          'on its floor ' + lo + ' left (want 0) | hovering 0.50 m over it ' + mid + ' left (want 0 - a jump'
+          + ' peaks at 0.489 m so grabbing mid-air must keep working) | 0.90 m over it ' + out + ' left'
+          + ' (want 1)' + (lo ? ' - VACUOUS: not even standing on it takes it' : ''));
+        V('P.z = floorAt(P.x, P.y);');
+      }
+    }
+
     console.log('VERT lane: ' + vgate + ' gating row(s), ' + vknown + ' known-issue row(s)' +
       (vknown ? ' - STRICT=1 promotes them' : ''));
   }

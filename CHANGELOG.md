@@ -1,6 +1,21 @@
 ## Unreleased
 
 ### Added
+- **Two rules that were fixed and never asserted now have gates.** The exit changes level through a test that
+  includes a band (#105: an xy-only test let the level change from a cell whose floor was a unit below), and a
+  pickup has a 0.6 m vertical window (#109: xy proximity took it while the player hovered above it). Neither had
+  a regression test: risk #3 in AGENTS.md says as much - nearly every assert in the repo compares x and y.
+  Six new VERT rows (the lane goes 15 -> 21 gating rows) stand in the neighbour cell 0.40 m from a parked exit on
+  a floor 0.25 above its floor and require the level to stay put, then flatten that floor and require it to
+  advance; and stand on a pickup at 0.00 m, 0.50 m above it and 0.90 m above it, requiring it taken, taken (a jump
+  peaks at 0.489 m so grabbing mid-air has to keep working) and left. Both rows are self-controlled, and both
+  controls were run: deleting #105's band term turns V16 red on all three levels with nothing else failing,
+  deleting #109's window turns V17 red on the 0.90 m half with nothing else failing. Writing them found two ways
+  to be silently vacuous - on the last level `nextLevel()` ends the run instead of incrementing `S.level`, and
+  `takePickup` sets `k.dead` rather than splicing and REFUSES a health pickup at hp 100, so counting array length
+  at full health fails a build that is behaving correctly.
+
+### Added
 
 ### Changed
 
