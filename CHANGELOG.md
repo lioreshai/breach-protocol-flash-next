@@ -5,6 +5,7 @@
 ### Changed
 
 ### Fixed
+- **The v1.1 release said the recaptured frames sit 23-44 luminance points below the captions they replaced, and that was wrong.** Four cheap checks replaced it, each eliminating one confound: the era build predates **#96**'s seed-to-layout remap (same seed, different level - that commit's own body measures 12 constructed-and-discarded enemies moving a rendered level's mean 66.4 to 70.2, and 66.4 is the era number in the table); bisecting the probe's *printed* frame mean lands on **#91**, which changed what that number means, not on any renderer; bisecting the PNG's own pixels lands on #96, a different level rather than a darker one; and a printed `frame: mean 59.1` "disagreeing" with a sampled 28.7 was two probe paths writing the same temp path - `exposure` falls through into a scene dump at a camera its rolls left (`#58`, `#61`), while `scene 0 0` photographs cam0 - because within one `exposure` run the printed number and the PNG it leaves agree at 59.1. #139 is closed as not a defect. Nothing in the thread was outside **#87**'s measured roll spread of 18-70 points, which is the constraint the captions now state instead of implying.
 
 ## 1.1 - 2026-09-28
 
@@ -19,7 +20,10 @@ them correctness work on things that had never been tested at altitude: what a s
 a mark sits on, where a body occludes, which cell owns a light. Screenshots were recaptured from the
 deployed build for this release, and the centre of the frame measures 23-44 luminance points below the
 numbers in the captions those shots replaced while `view.js exposure` is unchanged across the same pair
-of builds - a gap in a layer no probe scores, recorded as #139.
+of builds - which turned out not to be a darkening at all: `83d9411` predates **#96**, whose removal of
+`makeEnemy`'s global `Math.random` draws inside `genLevel` means the same seed lays out a different level,
+so the two numbers photograph different rooms. #139 was opened on that difference and closed as not a
+defect. This sentence shipped wrong in the release and was corrected afterwards, which is why it says so.
 
 ### Added
 

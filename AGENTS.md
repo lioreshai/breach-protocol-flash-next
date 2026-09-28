@@ -262,6 +262,18 @@ case "$out" in *"SMOKE PASSED"*) git add -A && git commit ;; *) echo NOT COMMITT
   watch whose condition simply never became true. Use a single-line test instead:
   `printf '%s' "$s" | grep -qE "^(MERGED|OPEN CLEAN)"` (`bg_21` worked first try). Same reason PR
   bodies must be written to a file or passed as one quoted `--body` string, never a heredoc in `if`.
+- **A number that moved across a commit boundary is not evidence until the metric has been bisected too.**
+  #139 was opened on a 40-point luminance drop between four README captions and their recapture, and closed
+  as not a defect after four confounds, each of which looked like a finding on its own. **#91** changed what
+  `exposure`'s printed `frame: mean` means, so bisecting that printout bisects the printout (`git bisect run`
+  on a grep of a log line is legal and misleading); **#96** moved `makeEnemy`'s ten global `Math.random`
+  draws into a private xorshift, which changed the **seed-to-layout mapping**, so era and main photograph
+  different rooms from the same seed - that commit's own body says 12 enemies constructed and discarded move a
+  rendered level's mean 66.4 to 70.2, and 66.4 was the era number in the table. And a printed `59.1` appearing
+  to disagree with a sampled `28.7` was two probe modes writing the same temp path from different cameras
+  (`exposure`'s fall-through dump vs `scene 0 0`, #58/#61) - inside one `exposure` run the printed number and
+  the PNG it leaves agree. Each check cost one sampling command or one 6-step bisect over 35 commits; the
+  instrument was never the problem, believing a difference before eliminating what moved underneath it was.
 - **A watch that greps for absence reports MET when the command fails.** `bg_4` exited 0 after **59 ms**
   having read nothing: its condition was `gh pr checks 121 --json …`, and this `gh` has no `--json` on
   `pr checks`, so the command printed `unknown flag` on stderr, `$s` was empty, neither the `pending` nor
