@@ -83,6 +83,7 @@ jobs:
           node tools/view.js vert
           node tools/view.js planes
           node tools/view.js sight
+          node tools/view.js drop
 
   probes:
     continue-on-error: true
