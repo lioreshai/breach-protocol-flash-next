@@ -132,6 +132,7 @@ function bfsReach(cellArr, fzArr, N, start) {
 
 function linkBoundaries() {                               // read before one cannot look fresh
   const cell = MAP.cell, fz = MAP.fz;
+  let steps = 0;            // does ANY column boundary in this level have a step at it? (#100)
   for (let y = 0; y < MH; y++) for (let x = 0; x < MW; x++) {
     const i = y * MW + x;
     let bits = 0;
@@ -140,12 +141,19 @@ function linkBoundaries() {                               // read before one can
       if (nx < 0 || ny < 0 || nx >= MW || ny >= MH) continue;
       const n = ny * MW + nx;
       if (cell[i] || cell[n]) { bits |= VB_BLOCK << (d << 2); continue; }
-      if (fz[n] - fz[i] > 1 && !(MAP.vb[i] & (VB_RAMP | VB_LADDER) << (d << 2))) bits |= VB_BLOCK << (d << 2);
+      const dq = fz[n] - fz[i];
+      if (dq > 1 || dq < -1) steps = 1;                   // a riser exists to draw, up or down (#100)
+      if (dq > 1 && !(MAP.vb[i] & (VB_RAMP | VB_LADDER) << (d << 2))) bits |= VB_BLOCK << (d << 2);
     }
     // blocking is derived from the grid, so a relink must be able to REMOVE it: OR-ing leaves a
     // wall behind when a boundary is lowered or flattened. The authored bits survive via VB_KEEP.
     MAP.vb[i] = (MAP.vb[i] & VB_KEEP) | bits;
   }
+  // The wall pass asks this once per frame instead of testing every ray against the height grid:
+  // every level the generator makes is flat, so the riser branch is never even reached there, which
+  // is what keeps a flat frame bit-identical (#100). A grid with a step in it must come through this
+  // function to be visible at all, so `view.js planes` asserts the flag tracks the grid.
+  MAP.steps = steps;
   buildCeilPlanes();                                      // ceilings are derived from the same grid
   MAP.linkStamp = ++LINK_STAMP;                           // a relink that never ran is then assertable
 }

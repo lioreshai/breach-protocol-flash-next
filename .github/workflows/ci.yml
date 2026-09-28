@@ -98,6 +98,9 @@ jobs:
           #            through the floor under it - both directions fail, only the band-relative window passes
           #   horizon  the horizon belongs to the camera, not to the floor, and the eye tracks
           #            the band it stands in - the row that used to report #103 now gates it
+          #   cull     a body is drawn on the band it stands on AND a step occludes what is behind
+          #            it: the row that used to report #100 (a raised band blocked movement and drew
+          #            nothing) now gates it, so an invisible step fails the build
           node tools/view.js heights
           node tools/view.js mip
           node tools/view.js anim
@@ -107,6 +110,7 @@ jobs:
           node tools/view.js sight
           node tools/view.js drop
           node tools/view.js horizon
+          node tools/view.js cull
 
   probes:
     continue-on-error: true
@@ -130,7 +134,7 @@ jobs:
           # diag, stats and sheets compute no exit code at all, and rig has a problem counter that is
           # printed but not wired to one. A "pass" line here does not mean checked.
           status=0
-          for p in alt cull exposure contrast rig stats sheets decal diag; do
+          for p in alt exposure contrast rig stats sheets decal diag; do
             if node tools/view.js "$p" >/tmp/probe_$p.log 2>&1; then r=pass; else r=FAIL; status=1; fi
             echo "== $p: $r"
             tail -6 /tmp/probe_$p.log
