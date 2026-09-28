@@ -1,8 +1,8 @@
 name: CI
 
 # Three jobs, deliberately unequal. `test` is the only required status check, so a merge waits on
-# it alone: guards, syntax, the full smoke run, and the six probes whose verdict is an exit code the
-# probe itself computes (#89). The rest of the probes and the extra seeds run beside it in
+# it alone: guards, syntax, the flat smoke run, that same harness run against real bands, and the
+# eight probes whose verdict is an exit code the probe itself computes (#89). The rest of the probes and the extra seeds run beside it in
 # their own jobs and report what they find without holding anyone up - the difference between a
 # check that is informative and a check that is a toll booth is whether it shares a job with the
 # gate. Previously all of it lived in one job, so a merge paid 6 minutes for numbers nobody acts
@@ -58,6 +58,20 @@ jobs:
           case "$out" in
             *"SMOKE PASSED"*) echo "smoke gate: PASS" ;;
             *) echo "smoke gate: FAIL"; exit 1 ;;
+          esac
+
+      - name: Smoke against real bands (VERT=1 lane: movers, portal and blasts at altitude)
+        run: |
+          set -euo pipefail
+          out=$(VERT=1 node tools/smoke.js 2>&1) || true
+          echo "$out" | sed -n '/--- VERT lane/,$p'
+          # The lane's gating rows are ordinary asserts, so a REGRESSION (a shot passing through a
+          # floor again, gravity deleted) fails the merge. Its KNOWN rows are filed defects that
+          # re-read their own measurement every run and promote themselves to asserts when fixed, so
+          # this step goes red on a regression without being a toll booth for #105 and #98.
+          case "$out" in
+            *"SMOKE PASSED"*) echo "vert smoke gate: PASS" ;;
+            *) echo "vert smoke gate: FAIL"; exit 1 ;;
           esac
 
       - name: Probe gates (deterministic verdicts, must stay green)
