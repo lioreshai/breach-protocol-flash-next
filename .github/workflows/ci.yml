@@ -60,7 +60,7 @@ jobs:
             *) echo "smoke gate: FAIL"; exit 1 ;;
           esac
 
-      - name: Smoke against real bands (VERT=1 lane: movers, portal and blasts at altitude)
+      - name: Smoke against real bands (VERT=1 lane, movers/portal/blasts at altitude)
         run: |
           set -euo pipefail
           out=$(VERT=1 node tools/smoke.js 2>&1) || true
