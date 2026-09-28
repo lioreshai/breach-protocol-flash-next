@@ -90,6 +90,8 @@ jobs:
           #   planes   derived ceiling array vs its formula, and the #55 raise-restore stale-blocker run
           #   sight    a shot aimed at a body on another band hits it, and a level shot does not hit
           #            through the floor under it - both directions fail, only the band-relative window passes
+          #   horizon  the horizon belongs to the camera, not to the floor, and the eye tracks
+          #            the band it stands in - the row that used to report #103 now gates it
           node tools/view.js heights
           node tools/view.js mip
           node tools/view.js anim
@@ -98,6 +100,7 @@ jobs:
           node tools/view.js planes
           node tools/view.js sight
           node tools/view.js drop
+          node tools/view.js horizon
 
   probes:
     continue-on-error: true
@@ -121,7 +124,7 @@ jobs:
           # diag, stats and sheets compute no exit code at all, and rig has a problem counter that is
           # printed but not wired to one. A "pass" line here does not mean checked.
           status=0
-          for p in alt cull exposure contrast horizon rig stats sheets decal diag; do
+          for p in alt cull exposure contrast rig stats sheets decal diag; do
             if node tools/view.js "$p" >/tmp/probe_$p.log 2>&1; then r=pass; else r=FAIL; status=1; fi
             echo "== $p: $r"
             tail -6 /tmp/probe_$p.log
