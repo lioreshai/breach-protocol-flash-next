@@ -451,6 +451,37 @@ const release = () => fire('mouseup', { button: 0 });
         S1('{PROJ.length=0;return 0}'); vrestore();
       }
     }
+
+    // V6 - pickups are the same xy-only proximity as the portal, at js/30_entities.js:366: hovering
+    // a unit above a pickup took it. This one gates rather than reports, because the fix ships here.
+    // Both halves are asserted - "not taken while hovering" is also satisfied by a lane that broke
+    // pickups. vboot clears PICKUPS so this row places its own (same shape as 20_level.js:404), and
+    // no floor is poked: the player HOVERS, so no VB_BLOCK and no #100 interaction helps the row.
+    // P.hp is 60 because takePickup un-does a health pickup at full hp.
+    vboot();
+    {
+      const ln = vlane(3);
+      if (!vsetup('pickup setup found a 3 m clear run', !!ln, 'no clear corridor on this seed')) { }
+      else {
+        const kx = ln[0] + 1.5, ky = ln[1] + 0.5;
+        const fl = S1(`{floorAt(${kx},${ky})}`);
+        S1(`{PICKUPS.length=0;PICKUPS.push({type:'health',x:${kx},y:${ky},bob:0,dead:false});
+            window.__pk=PICKUPS[0];P.x=${kx};P.y=${ky};P.z=${fl}+1;P.air=true;P.vz=0;P.hp=60;return 0}`);
+        const fz = S1('{P.z}');
+        frames(1);
+        // S1 hands back the raw value, so this is a boolean: comparing it to the STRING 'true'
+        // made both halves false, and the negative half vacuously true - a row that cannot fail.
+        const high = !!S1('{window.__pk.dead}');
+        S1(`{P.z=${fl};P.air=false;P.vz=0;return 0}`);
+        frames(2);
+        const low = !!S1('{window.__pk.dead}');
+        vrow('a pickup is grabbed on its band, not from above', !high && low,
+          `pickup floor ${fl.toFixed(2)}: taken with feet ${fz.toFixed(2)} (hovering 1.00 m up) = ${high},` +
+          ` taken with feet ${fl.toFixed(2)} (standing) = ${low}${low ? '' : ' - the grab itself is broken'}`);
+        S1('{PICKUPS.length=0;return 0}');
+      }
+    }
+
     console.log('VERT lane: ' + vgate + ' gating row(s), ' + vknown + ' known-issue row(s)' +
       (vknown ? ' - STRICT=1 promotes them' : ''));
   }
