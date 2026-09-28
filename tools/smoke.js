@@ -424,6 +424,31 @@ const release = () => fire('mouseup', { button: 0 });
       }
     }
 
+    // V7 - the other half of V4, and the reason it exists at all. A gate that only ever CLOSES also
+    // satisfies "spares the band above", and that is not hypothetical: replacing banded() with
+    // `false` - blasts damage nothing anywhere - leaves the flat lane GREEN, because the flat harness
+    // calls explode at :205 and asserts only that it does not throw. So V4 alone would ship "blasts
+    // do nothing". Same geometry, no poke: the body is on the blast's OWN band and must lose exactly
+    // the 50.6 the falloff prescribes at 2.0 m with radius 3.2 and dmg 90.
+    vboot();
+    {
+      const ln = vlane(3);
+      if (!vsetup('same-band blast setup found a 3 m clear run', !!ln, 'no clear corridor on this seed')) { }
+      else {
+        const ex = ln[0] + 2, ey = ln[1];
+        S1(`{ENEMIES.length=0;const e=makeEnemy('grunt',${ex}+0.5,${ey}+0.5);e.hp=100;ENEMIES.push(e);
+            P.x=${ln[0]}+0.5;P.y=${ln[1]}+0.5;P.z=floorAt(P.x,P.y);P.air=false;P.hp=100;return 0}`);
+        const hp0 = S1('{ENEMIES[0].hp}');
+        S1(`{explode(${ln[0]}+0.5,${ln[1]}+0.5,floorAt(${ln[0]}+0.5,${ln[1]}+0.5)+0.1,3.2,90,0);return 0}`);
+        frames(6);
+        const hp1 = S1('{ENEMIES[0].hp}');
+        const want = 90 * (1 - 2 / 3.2 * 0.7);
+        vrow('a blast on its own band still damages a body on it', hp1 <= hp0 - want * 0.8,
+          `hp ${hp0.toFixed(1)} -> ${hp1.toFixed(1)} at 2.00 m in xy on the same band; the falloff says`
+          + ` -${want.toFixed(1)}, a gate that never opens reads ${hp1 === hp0 ? '0' : (hp0 - hp1).toFixed(1)}`);
+      }
+    }
+
     // V5 - a projectile's floor is a literal (js/30_entities.js:79 clamps z against 0.02, :532
     // against 0.08, never against the band), so an orb on a raised band sinks through the floor it
     // should pop on and keeps travelling under it. Spawned downrange, not at the player: the flat
@@ -451,6 +476,37 @@ const release = () => fire('mouseup', { button: 0 });
         S1('{PROJ.length=0;return 0}'); vrestore();
       }
     }
+
+    // V6 - pickups are the same xy-only proximity as the portal, at js/30_entities.js:366: hovering
+    // a unit above a pickup took it. This one gates rather than reports, because the fix ships here.
+    // Both halves are asserted - "not taken while hovering" is also satisfied by a lane that broke
+    // pickups. vboot clears PICKUPS so this row places its own (same shape as 20_level.js:404), and
+    // no floor is poked: the player HOVERS, so no VB_BLOCK and no #100 interaction helps the row.
+    // P.hp is 60 because takePickup un-does a health pickup at full hp.
+    vboot();
+    {
+      const ln = vlane(3);
+      if (!vsetup('pickup setup found a 3 m clear run', !!ln, 'no clear corridor on this seed')) { }
+      else {
+        const kx = ln[0] + 1.5, ky = ln[1] + 0.5;
+        const fl = S1(`{floorAt(${kx},${ky})}`);
+        S1(`{PICKUPS.length=0;PICKUPS.push({type:'health',x:${kx},y:${ky},bob:0,dead:false});
+            window.__pk=PICKUPS[0];P.x=${kx};P.y=${ky};P.z=${fl}+1;P.air=true;P.vz=0;P.hp=60;return 0}`);
+        const fz = S1('{P.z}');
+        frames(1);
+        // S1 hands back the raw value, so this is a boolean: comparing it to the STRING 'true'
+        // made both halves false, and the negative half vacuously true - a row that cannot fail.
+        const high = !!S1('{window.__pk.dead}');
+        S1(`{P.z=${fl};P.air=false;P.vz=0;return 0}`);
+        frames(2);
+        const low = !!S1('{window.__pk.dead}');
+        vrow('a pickup is grabbed on its band, not from above', !high && low,
+          `pickup floor ${fl.toFixed(2)}: taken with feet ${fz.toFixed(2)} (hovering 1.00 m up) = ${high},` +
+          ` taken with feet ${fl.toFixed(2)} (standing) = ${low}${low ? '' : ' - the grab itself is broken'}`);
+        S1('{PICKUPS.length=0;return 0}');
+      }
+    }
+
     console.log('VERT lane: ' + vgate + ' gating row(s), ' + vknown + ' known-issue row(s)' +
       (vknown ? ' - STRICT=1 promotes them' : ''));
   }
