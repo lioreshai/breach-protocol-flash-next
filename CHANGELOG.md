@@ -1,25 +1,68 @@
-# Changelog
-
-Rules: every pull request adds a line under **Unreleased** unless it is pure tooling with no
-effect on what the player sees or how the code reads - in that case put `[no-changelog]` in the
-PR body and the PR guard lets it through. Newest entry first inside a section. One line means
-one change: say what the reader would notice, not which file was touched.
-
 ## Unreleased
 
 ### Added
+
+### Changed
+
+### Fixed
+
+## 1.1 - 2026-09-28
+
+The verticality foundation. M0-M3 landed: a quantized per-cell height grid with absolute
+player altitude, boundary faces with real z spans, the ground and ceiling planes solved per
+cell, and the links plus gravity, step, fall and climb behaviour that make a column below you
+a place a shot, a mark and a body have to respect. **Not in this release: content.** Generated levels
+are still flat - measured in the deployed page, `MAP.fz` is 0 in all 676 cells of level 0 and
+`MAP.cz` is 4 in all 676 - so verticality here is engine, probes and authored behaviour, not picture,
+and M6 is the release that gets to change that sentence. 69 PRs merged since `baseline-v1`, most of
+them correctness work on things that had never been tested at altitude: what a shot hits, what
+a mark sits on, where a body occludes, which cell owns a light. Screenshots were recaptured from the
+deployed build for this release, and the centre of the frame measures 23-44 luminance points below the
+numbers in the captions those shots replaced while `view.js exposure` is unchanged across the same pair
+of builds - a gap in a layer no probe scores, recorded as #139.
+
+### Added
+
 - **Documentation moved into `docs/`, and a release is now something this repo does.** `docs/ROADMAP.md` (moved with `git mv`; references updated in `README.md`, `AGENTS.md` and `ci.yml`'s seed comments), a new `docs/README.md` index, a new `docs/RELEASE.md`, and `docs/screens/` where it was. `docs/RELEASE.md` sets the trigger — a milestone issue closing, **50 merged PRs since the newest tag**, or the README's screenshots no longer describing the game — plus the version scheme — numbering runs **forward from the changelog's existing `## 1.0`**, whose own text says it is tag `baseline-v1`, so `v1.0` aliases that tag, MINOR per release, MAJOR at playable-complete (M6 authored, `0 known-issue row(s)` in the VERT lane, both smoke lanes green, no open P0) and the checklist, which ends with screenshots captured **from the deployed build** and a tag on the merge commit. `.github/workflows/release-guard.yml` enforces the 50-PR floor, measured as merged PRs whose `mergedAt` is newer than the newest tag. The arithmetic that motivated it, from live data: **68 merged PRs against one tag (`baseline-v1`, 2026-09-25) and zero GitHub releases** — so the first release is overdue by the rule's own arithmetic and lands as `v1.1` straight after this PR, with `v1.0` aliased onto `baseline-v1` so the published baseline finally has a tag. Sequencing matters and is the one design fact worth keeping: **a blocking check that is already overdue would deadlock the PR that introduces it**, so the guard lands running-but-not-required, the release PR (head branch under `release/`, the only exemption, and printed as waived rather than hidden) pays the debt, and *then* `release` joins the required contexts — a PUT that has to carry all four (`test`, `changelog`, `issue`, `release`), because protection on `main` currently requires the first three with `strict: true`. The guard fails rather than reporting zero when the query errors (#122's shape), counts through `gh pr list --state merged` because a REST `sort=updated` paginate can hide a merged PR behind recently-updated closed ones, and on the weekly schedule opens or updates one issue titled `Release debt: N merged PRs since vX`, so debt is visible in the tracker and not only as a red check on somebody's PR. Verified locally where the machine allowed: all six workflow files parse under `tools/wfyaml.rb`'s structural rules (ruby is absent here, so CI's `yaml` job stays authoritative) and the count step run by hand prints `newest tag baseline-v1 at 2026-09-25T17:51:41Z / release debt: 68 merged PR(s) / verdict FAIL`. No `.js` changed, so smoke and the probes are unaffected by construction.
 - The changelog's duplicated `### Added` and `### Fixed` headings inside `Unreleased` are collapsed — one of each, which is what a release PR re-headers, and how it accumulates two is now written into the release checklist rather than discovered at release time.
 - **`view.js mip` now gates the emissive FETCH, not just the mip chain (#123).** #20 fixed two sites and the probe only watched one: the census row counts alpha bytes in textures, so it can tell that `buildMips` stopped manufacturing `254`, but nothing exercised `castWalls`' bilinear decode, where a wall pixel's flag came from a *blend of the four corner alphas* and a pixel that merely touches an emissive texel averaged to `254.x` and lost the light-exempt branch in **mip 0** — verified only by two scene hashes moving. The new row builds three textures with one colour (`170,160,150`, so the colour blend is identical across them and cannot confound the comparison) on identical geometry, identical light and `G_GRIT=0` (grit's `gk` swings ±0.6 at default quality and would swamp the difference): every texel `253`, every texel `255`, and alternating columns of each, then compares the third render's pixels **one by one** against the first two and requires every one of them to be self-lit. Passing line: `2352 wall px on the face at (18.5, 3.5) +4 -> WALLS[4], perp 3.5 m (band 3.5-3.5, mip 0 of 4, 96.6 px per world unit, AMB 0.3, light 0.026) | all-emissive mean 151.5 vs all-opaque mean 107.6 (gap 43.9) | straddling: 2352 match emissive, 0 match opaque, 0 neither`. Controls: putting the blend back gives `1203 emissive, 1006 opaque, 143 neither` and widening the test to `>= 253` collapses the emissive/opaque gap to **0.0** — both directions fail. Two findings came out of building it. The bug **truncates**: a straddling fetch whose flagged corner weighs under 0.5 blends to `253.x` and `| 0` still reads `253`, so a period-8 pattern passed on the broken build (`1519 -> 1329` emissive, only 190 of ~588 straddling columns moved) and the pattern has to be dense enough that *every* quartet has a flagged corner for the row to mean anything. And the candidate face must be chosen by what `castWalls` **resolves** (`zbuf` flat and near across the sample band): `castRayDist` counts a blocked boundary as a wall and offered a "face" at 2.5 m that the renderer paints at 5.1 m, which would have asserted on pixels that are not that face. The face must also land on mip 0 — asserted outright, since a deeper chain is uniformly `253` after #124's sticky flag and would match emissive for the wrong reason.
 - `DEV.mesh()` draws a character as volumetric geometry instead of a billboard, and that geometry now occludes **itself**: the rasterizer writes its own per-pixel depth, so an arm behind a chest stays behind it instead of painting through it. Nothing in the game calls it — the shipped picture is byte-identical (7 scene frames md5-identical to `main`) — and `DEV.mesh({self:false})` puts back the old read-only-depth ordering as a negative control (#69).
 
+- Work is tracked in GitHub issues: every PR must reference one with `Closes #N` or carry `[no-issue]`, the tracker holds milestones and defects that used to live as prose in ROADMAP.md, and a weekly triage sweep reports open issues with no priority or area label.
+- `?dev=1` boots the game with no click and no pointer lock and publishes a `DEV` console API (deterministic camera and enemy placement, frozen frames, a DDA ray query, runtime quality overrides including the character rim light), documented in the README.
+
 ### Changed
+
 - A level now depends on its seed and nothing else. `makeEnemy` took **ten** draws from the global `Math.random` stream per enemy (gait phase, tint, facing, fidget) and it runs *inside* `genLevel`, so how many enemies a level happened to contain reshuffled its wall textures, lamp positions and pickup phases: constructing twelve of them and throwing them away — no gameplay effect whatsoever — moved a rendered level's mean luminance from 66.4 to 70.2. Per-enemy cosmetics now come from a private stream keyed to a spawn counter, the same xorshift the asset painter uses, which is also what finally lets a probe compare two levels at all: `view.js planes` hashes generation after constructing 0 and 12 enemies and reports `GEN-COUPLE ok`, and it fails all three of its comparisons the moment the coupling is put back (#90).
 - Enemies no longer all die the same way. Each kind now authors three death rows — topple angle, fall direction, per-limb swing, how far the body sinks — and the variant is dealt **at spawn**, so a firefight leaves a mix of corpses instead of twenty copies of one pose with the same leg in the air. Variant 0 is the pose that shipped, number for number, which is why `view.js stats / vert / props / heights` are md5-identical to `main` across this change; and the variant is dealt by a **spawn counter rather than a random draw**, because `makeEnemy` runs inside `genLevel` and a single extra `Math.random()` there advances the seed stream and rebuilds every level for a given seed (#82).
 - Props are geometry too. A barrel, a crate, a lamp, the three pickups, an orb and the exit portal are rasterized as solids instead of cards that turn to face you, so a prop has a side and a top; the orb and the portal keep their glow through a light-exempt path in the mesh rasterizer, which is what the billboards' alpha byte 253 was for; and a prop's feet come from `floorAt(x, y)` instead of the generator's literal `z: 0.0`. Two traps came with it: a prop's albedo needs the `Surf.lift(1.35, 6)` that `propTex` applies to every prop sheet (without it a crate's brightest pixels measured 62 where the sprite measured 101), and props need a flatter Lambert ramp than bodies (0.75 + 0.42·d against 0.30 + 0.85·d) because `drawBillboard` has no normal term at all — borrowing the body's ramp turned a hazard-red drum the colour of dried mud. At the shipped census (20/25/30 props plus 8/11/13 pickups, all visible from one camera) the cost lane measures **+0.26/+0.58/+0.78 ms/frame** on levels 0/1/2 over interleaved drawn/parked batches, on frames whose prop-free floor is 3.10/3.53/3.57 ms — and the same lane pointed at `main`'s billboards reads 0.02–0.05 ms, so the cards were nearly free and the solids are not; that is the trade #76 accepted. Silhouette-edge contrast is level: mean dL 34.7 to `main`'s 35.0, lost 10.3% on both, at one camera per level on one machine. `view.js props` fails 40 assertions on the build before it (#76, #69).
 - Characters are geometry. An enemy is rasterized as a volumetric mesh at its real position, heading and floor height instead of as a billboard whose yaw is one of 8 buckets, so a body has sides, an arm behind a chest stays behind it, and rotation stops popping between poses. Bodies read further apart from the room they stand in — silhouette-edge contrast went from dL 18-40 to dL 22-52, and the share of edge pixels lost against the wall from 23-42% to 0-33% (`view.js contrast`, 3 levels x 3 cameras) — and a crowd got cheaper, not dearer: 18 enemies on screen measured 13.0 ms/frame of billboard poses against 3.3 ms of mesh, and `WARM` stress 13.31 ms avg / 31 ms worst against 4.11 / 11. The one tier that pays is PERFORMANCE, which drew pre-baked sheets and now pays +0.25 ms at 8 bodies, +0.56 ms at 18. What the mesh cannot do yet is animate: a walking enemy no longer cycles a gait and a dying one fades in place instead of toppling, which is why the sprite sheets and pose rasters are still built but no longer drawn (#69 B2, #39).
 - Inline the wall bilinear fetch at its single call site and wrap the neighbour texel with an integer mask, guarded by a new smoke assertion that every wall mip dimension is a power of two (#25).
 - Occlusion depth is one value per **pixel** instead of one per screen column: the ground pass writes the distance it already solves — including the pixels it queues for the lip of a step, whose colour comes from a different plane than the row's — the wall pass writes its own face span, and the sprite and particle paths compare per pixel. No pixel changed colour, and a column with no wall no longer holds a stale zero that hid sprites there. A flat ceiling row keeps the "occludes nothing" sentinel until the pass that clips against it (#45).
+
+- The `issue` check now accepts the `Refs #N` form AGENTS.md tells us to use, so a PR that is one step of a milestone no longer fails a required check for not closing that milestone.
+- The player obeys the height grid: a quantum of floor steps up without a jump being pressed and two
+  quanta stops the player, landing from more than about 1.5 units costs health scaled by the impact, and the
+  up/down keys change altitude only on a cell flagged as a ladder or a crossing flagged as one. No shipped
+  level has a height or a ladder yet, so all of it is asserted as behaviour in `view.js vert` (#14).
+- Cell heights are now assigned before the generator's occupancy gate, and reachability is height-aware: a boundary is crossable only when the two floors are within one step. Flat levels are unaffected, pixel for pixel.
+- The floor and ceiling are now solved against the height of the cell each pixel's ray lands in,
+  instead of against the eye's own floor and ceiling stretched across the whole level: nothing
+  changes on today's flat levels — that parity is the gate — and `view.js heights` is the probe that
+  proves a room's floor and ceiling now follow the room rather than the camera.
+- The extra-seeds check runs on merges to main instead of on every branch push and pull request: it printed the same informational verdict every time and cost ~6 runner-minutes doing it.
+- Verification rule written down: anything observable on the live site is verified without waiting for a human report. Fixes a stale note claiming image input is broken here.
+- README shows what the game actually looks like today, captured from the deployed build, and that pass is a standing rule after every visible merge.
+- Merged branches are deleted instead of accumulating: the repository deletes on merge, and a weekly sweep catches what that setting cannot reach.
+- CI required check drops from ~8 min to ~1.5 min: the probes moved to their own job beside the gate, so only guards, syntax and the full smoke run stand between a PR and a merge.
+- CI required check is ~6 min faster: the informational seed runs moved to their own job. The PR changelog guard reads the body from the environment now, so a body containing an apostrophe no longer breaks it (or reaches the shell).
+- Repo is public, with CI on every push and PR, and Pages deploying every merge to main.
+- Weapon viewmodel rebuilt: one bore axis for all three families, so the muzzle flash now comes
+  out of the muzzle instead of 90 degrees to the side, and the forearms reach past the frame.
+- Characters are drawn with a rim light so they separate from dark walls, and render at roughly
+  2.3x the earlier texel height instead of going blocky up close.
+- The muzzle flash is a flash: a cone down the barrel plus a 5-spike star with a per-weapon
+  flicker seed, instead of a dim circle on the gun's right.
 
 ### Fixed
 
@@ -68,41 +111,12 @@ one change: say what the reader would notice, not which file was touched.
 - The character rim light is a thin ridge instead of a wide ramp: at close range it stopped reading as a white halo around the whole silhouette, at the same edge separation and the same frame cost.
 - Character rim light now follows the silhouette instead of outlining every capsule, box and disc, so the seams inside a body stopped glowing; gain retuned to keep edge separation at least as good as before.
 
-### Added
-- Work is tracked in GitHub issues: every PR must reference one with `Closes #N` or carry `[no-issue]`, the tracker holds milestones and defects that used to live as prose in ROADMAP.md, and a weekly triage sweep reports open issues with no priority or area label.
-- `?dev=1` boots the game with no click and no pointer lock and publishes a `DEV` console API (deterministic camera and enemy placement, frozen frames, a DDA ray query, runtime quality overrides including the character rim light), documented in the README.
-
-### Changed
-- The `issue` check now accepts the `Refs #N` form AGENTS.md tells us to use, so a PR that is one step of a milestone no longer fails a required check for not closing that milestone.
-- The player obeys the height grid: a quantum of floor steps up without a jump being pressed and two
-  quanta stops the player, landing from more than about 1.5 units costs health scaled by the impact, and the
-  up/down keys change altitude only on a cell flagged as a ladder or a crossing flagged as one. No shipped
-  level has a height or a ladder yet, so all of it is asserted as behaviour in `view.js vert` (#14).
-- Cell heights are now assigned before the generator's occupancy gate, and reachability is height-aware: a boundary is crossable only when the two floors are within one step. Flat levels are unaffected, pixel for pixel.
-- The floor and ceiling are now solved against the height of the cell each pixel's ray lands in,
-  instead of against the eye's own floor and ceiling stretched across the whole level: nothing
-  changes on today's flat levels — that parity is the gate — and `view.js heights` is the probe that
-  proves a room's floor and ceiling now follow the room rather than the camera.
-- The extra-seeds check runs on merges to main instead of on every branch push and pull request: it printed the same informational verdict every time and cost ~6 runner-minutes doing it.
-- Verification rule written down: anything observable on the live site is verified without waiting for a human report. Fixes a stale note claiming image input is broken here.
-- README shows what the game actually looks like today, captured from the deployed build, and that pass is a standing rule after every visible merge.
-- Merged branches are deleted instead of accumulating: the repository deletes on merge, and a weekly sweep catches what that setting cannot reach.
-- CI required check drops from ~8 min to ~1.5 min: the probes moved to their own job beside the gate, so only guards, syntax and the full smoke run stand between a PR and a merge.
-- CI required check is ~6 min faster: the informational seed runs moved to their own job. The PR changelog guard reads the body from the environment now, so a body containing an apostrophe no longer breaks it (or reaches the shell).
-- Repo is public, with CI on every push and PR, and Pages deploying every merge to main.
-- Weapon viewmodel rebuilt: one bore axis for all three families, so the muzzle flash now comes
-  out of the muzzle instead of 90 degrees to the side, and the forearms reach past the frame.
-- Characters are drawn with a rim light so they separate from dark walls, and render at roughly
-  2.3x the earlier texel height instead of going blocky up close.
-- The muzzle flash is a flash: a cone down the barrel plus a 5-spike star with a per-weapon
-  flicker seed, instead of a dim circle on the gun's right.
-
-### Fixed
 - Lamp fixtures are placed on their cell's floor instead of floating at the middle of the box.
 - Rig pose boxes were over-scanned by up to 61%, so most of a character's raster cost was spent
   on empty pixels.
 - Sound can no longer leave the audio graph in a stuck state, and a muted context no longer
   leaks a voice per shot.
+
 
 ## 1.0 - 2026-09-26
 
