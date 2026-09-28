@@ -465,21 +465,30 @@ if (MODE === 'vert') {
       }
       return r;
     }; })()`);
-  /* A level entry, performed the way the game performs it: PRE's startLevel puts the player on the
-     flat grid, then the band is raised and the level is started again through the path under test. */
-  const ENTER = (li, fresh, dq, vz, plateau) => `S.mode='play';S.locked=false;S.diff=1;globalThis.__spawnBand=0;` +
-    `globalThis.__spawnPlateau=0;startLevel(${li},true);P.hp=100;globalThis.__spawnBand=${dq};` +
-    `globalThis.__spawnPlateau=${plateau};` +
-    (vz ? `P.air=true;P.vz=${vz};` : '') + `startLevel(${li},${fresh ? 'true' : 'false'});` +
+  /* A level entry, performed the way the game performs it: the first startLevel puts the player on
+     the flat grid, then the band is raised and the level is started again through the path under
+     test. The two calls are SPLIT because #95: a row that arms P.air/P.vz inside the same script
+     that then calls startLevel never lets anything observe the state it is named for, so a refactor
+     that dropped the arm would print the same "airborne 0". Arming in its own run turns the
+     precondition into a measurement, and VACUOUS is then a verdict rather than a caption. */
+  const ENTER1 = (li, dq, plateau) => `S.mode='play';S.locked=false;S.diff=1;globalThis.__spawnBand=0;` +
+    `globalThis.__spawnPlateau=0;startLevel(${li},true);P.hp=100;ENEMIES.length=0;` +
+    `globalThis.__spawnBand=${dq};globalThis.__spawnPlateau=${plateau};`;
+  const ENTER2 = (li, fresh) => `startLevel(${li},${fresh ? 'true' : 'false'});` +
     `for(const e of ENEMIES)e.state='sleep';for(const k in keys)delete keys[k];P.crouch=0;` +
-    /* The second startLevel above is what a level change actually runs, and genLevel repopulates
-       ENEMIES - so the sleep loop cannot keep the sample clean here. Clear the cast: an entry point
-       that costs the player health because an NPC wandered into frame is not an altitude defect, and
-       SETTLE attributes whatever hp does move so the row still says which source it means. */
+    /* startLevel above repopulates ENEMIES - so the sleep loop cannot keep the sample clean here.
+       Clear the cast: an entry point that costs the player health because an NPC wandered into frame
+       is not an altitude defect, and the sampler attributes whatever hp does move so the row still
+       says which source it means. */
     `ENEMIES.length=0;`;
+  const AIRSET = vz => `P.air=true;P.vz=${vz};`;
   const PEEK = `({z:P.z,f:floorAt(P.x,P.y),air:P.air?1:0,vz:+P.vz.toFixed(4),` +
     `q:MAP.fz[((P.y|0)*MW+(P.x|0))],solid:isSolid(P.x,P.y)?1:0,` +
-    `below:(P.z<floorAt(P.x,P.y)-1e-9)?1:0,cap:+((cfg.eye+P.z)-clamp(cfg.eye+P.z,0.12,1.4)).toFixed(4)})`;
+    /* cap mirrors renderWorld's OWN clamp (js/40_render.js), not the flat world's [0.12, 1.4] that
+       #103 retired: quoting the dead interval made every raised-band row print "render eye capped`
+       `0.1 below the grid" - a regression claim about a renderer that caps nothing there. */
+    `below:(P.z<floorAt(P.x,P.y)-1e-9)?1:0,cap:+((cfg.eye+P.z-P.crouch*0.19)-` +
+    `clamp(cfg.eye+P.z-P.crouch*0.19,floorAt(P.x,P.y)+0.12,ceilAt(P.x,P.y)-0.06)).toFixed(4)})`;
   /* The consequence, not just the number: 60 frames of standing still. Feet below the column's own
      floor means the step-up eases the camera out of the slab, and a carried-over vz runs the fall
      integration against a floor that was never left, which costs health for a fall that never did. */
@@ -489,23 +498,70 @@ if (MODE === 'vert') {
     `return +d.toFixed(3)};return{off:s.filter(r=>Math.abs(r[0]-r[1])>1e-9).length,` +
     `air:s.filter(r=>r[2]).length,hp:+P.hp.toFixed(3),` +
     `land:drop(i=>!s[i][2]&&s[i-1][2]),hit:drop(i=>!(!s[i][2]&&s[i-1][2]))}})()`;
+  /* A fall SAMPLED FROM THE ARMED STATE. Seeding the sample with the state before the first update
+     is not decoration: a player armed at the floor with vz -7 lands during frame 1, so a loop that
+     samples after each update sees no airborne frame and no hp step at all - the self-cancelling
+     negative control AGENTS.md already warns about, arriving as a row that reports a clean landing
+     for a fall the row itself caused. */
+  const FALL = `(()=>{const s=[],snap=()=>[+P.z.toFixed(6),+floorAt(P.x,P.y).toFixed(4),P.air?1:0,` +
+    `+P.hp.toFixed(3),+P.vz.toFixed(4)];s.push(snap());for(let i=0;i<90;i++){update(1/60);s.push(snap());}` +
+    `let land=-1;for(let i=1;i<s.length;i++)if(!s[i][2]&&s[i-1][2]){land=i;break;}` +
+    `const drop=(f)=>{let d=0;for(let i=1;i<s.length;i++){const dh=s[i][3]-s[i-1][3];if(dh<-1e-9&&f(i))d+=-dh;}` +
+    `return +d.toFixed(3)};const e=s[s.length-1];return{land:land,air:s.filter(r=>r[2]).length,` +
+    `off:land<0?-1:s.slice(land).filter(r=>Math.abs(r[0]-r[1])>1e-9).length,` +
+    `fallhp:drop(i=>!s[i][2]&&s[i-1][2]),hithp:drop(i=>!(!s[i][2]&&s[i-1][2])),` +
+    `z:e[0],f:e[1],airE:e[2],vz:e[4],hp:+P.hp.toFixed(3)}})()`;
   const LEGAL = `(()=>{let tot=0,bad=0;for(let i=0;i<MW*MH;i++){if(!MAP.cell[i])continue;const x=i%MW,y=(i/MW)|0;` +
     `for(let d=0;d<4;d++){const nx=x+DIRX[d],ny=y+DIRY[d];if(nx<0||ny<0||nx>=MW||ny>=MH||MAP.cell[ny*MW+nx])continue;` +
     `tot++;if(!(ceilAt(x,y)-faceZ0(x,y,d)>0))bad++;}}return{tot:tot,bad:bad}})()`;
   const spawnRow = (label, li, fresh, dq, vz, plateau) => {
-    run(ENTER(li, fresh, dq, vz, plateau || 0));
+    run(ENTER1(li, dq, plateau || 0));
+    /* Armed BEFORE the entry: this is a fall carried in from the level the player was leaving, and
+       the entry is supposed to absorb it. Reading the arm back is what makes "airborne 0" below
+       mean "the entry seated the feet" rather than "nothing ever armed" (#95). */
+    let armed = null;
+    if (vz) { run(AIRSET(vz)); armed = run(PEEK); }
+    run(ENTER2(li, fresh));
     const r = run(PEEK), st = run(SETTLE), lg = run(LEGAL);
-    const ok = r.z === r.f && !r.below && !r.air && r.vz === 0 && !r.solid && !lg.bad &&
+    const vac = !!vz && (!armed.air || Math.abs(armed.vz - vz) > 1e-9);
+    const ok = !vac && r.z === r.f && !r.below && !r.air && r.vz === 0 && !r.solid && !lg.bad &&
       !st.off && !st.air && st.land === 0;
-    VROW(label, ok, `P.z ${r.z} vs floorAt ${r.f} (spawn column ${r.q} quanta), feet below the floor ` +
+    VROW(label, ok, (vac ? `VACUOUS - arming vz ${vz} left airborne ${armed ? armed.air : '?'}, ` +
+      `vz ${armed ? armed.vz : '?'}, so this row tested nothing | ` : '') +
+      (armed ? `armed airborne ${armed.air} vz ${armed.vz} before the entry | ` : '') +
+      `P.z ${r.z} vs floorAt ${r.f} (spawn column ${r.q} quanta), feet below the floor ` +
       `${r.below ? 'YES' : 'no'}, airborne ${r.air}, vz ${r.vz}, in geometry ${r.solid} | faces ` +
       `${lg.tot - lg.bad}/${lg.tot} legal | then ${st.off}/60 frames off the floor, airborne ${st.air}, ` +
-      `hp ${st.hp} (fall ${st.land}, hits ${st.hit})` + (r.cap ? ` | render eye capped ${r.cap} below the grid` : ''));
+      `hp ${st.hp} (fall ${st.land}, hits ${st.hit})` +
+      (r.cap ? ` | eye clamped ${r.cap} by the band's own ceiling` : ''));
+  };
+  /* And the same velocity on the other side of the entry, where it is REAL: the entry seated the
+     feet, then the player is airborne inside the new level. This is the row that makes the row
+     above's "hp 100" mean something - one magnitude, two outcomes, so a threshold that drifts or a
+     landing that stops seating shows up as a FAIL rather than as agreement between two zeros. */
+  const fallRow = (label, li, fresh, vz, wantHp) => {
+    run(ENTER1(li, 0, 0));
+    run(ENTER2(li, fresh));
+    run(AIRSET(vz));
+    const armed = run(PEEK), st = run(FALL);
+    const vac = !armed.air || Math.abs(armed.vz - vz) > 1e-9;
+    const grounded = !st.airE && st.vz === 0 && Math.abs(st.z - st.f) < 1e-9;
+    const ok = !vac && st.land > 0 && st.land <= 60 && st.off === 0 && grounded &&
+      st.hithp === 0 && (wantHp ? st.fallhp > 0 && st.hp < 100 : (st.fallhp === 0 && st.hp === 100));
+    VROW(label, ok, (vac ? `VACUOUS - arming vz ${vz} left airborne ${armed.air}, vz ${armed.vz} | ` : '') +
+      `armed airborne ${armed.air} vz ${armed.vz} after the entry | lands frame ${st.land} of 90, ` +
+      `${st.air} airborne frames, ${st.off} frames off the floor after landing, hp ${st.hp} ` +
+      `(from the fall ${st.fallhp}, from hits ${st.hithp}) | ends airborne ${st.airE}, vz ${st.vz}, ` +
+      `P.z ${st.z} vs floorAt ${st.f}`);
   };
   for (let li = 0; li < run('LEVELS.length'); li++) {
     spawnRow('L' + li + ' spawn on flat ground (new game)', li, true, 0, 0);
     spawnRow('L' + li + ' spawn on flat ground (level change)', li, false, 0, 0);
     spawnRow('L' + li + ' entering a level airborne', li, false, 0, -7);
+    /* -7 m/s is the impact the engine charges for (js/30_entities.js); +3.0 is the jump it documents
+       as damage-free. The pair brackets the free/hurt threshold at a level start. */
+    fallRow('L' + li + ' a hard fall INSIDE the level is paid for', li, false, -7, true);
+    fallRow('L' + li + ' a jump-speed carry-in costs no health', li, false, 3.0, false);
     spawnRow('L' + li + ' spawn on a +1-quantum band (level change)', li, false, 1, 0);
     spawnRow('L' + li + ' spawn on a +2-quantum band (new game)', li, true, 2, 0);
     spawnRow('L' + li + ' spawn on a +2-quantum band (level change)', li, false, 2, 0);
