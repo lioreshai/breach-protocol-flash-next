@@ -493,6 +493,7 @@ function decalAlpha(dc, wx, wy, dfade) {
 function castWalls(flash, fcR, fcG, fcB) {
   const cellArr = MAP.cell, N = MAP.w, lm = MAP.light, cp = MAP.ceilPlane;
   const fzs = MAP.fz, vbs = MAP.vb, doStep = MAP.steps ? 1 : 0;      // #100: 0 on every flat level
+  MAP.riserStops = 0;                                            // asserted by view.js cull
   const stepBase = 2 / BW;
   const flR = S.flashCol[0] / 255, flG = S.flashCol[1] / 255, flB = S.flashCol[2] / 255;
   const flashK0 = flash;
@@ -533,7 +534,7 @@ function castWalls(flash, fcR, fcG, fcB) {
         const dq = fzs[my * N + mx] - fzs[pi];
         if ((dq > 1 || dq < -1) && !(vbs[pi] & ((VB_RAMP | VB_LADDER) << (d << 2)))) {
           const fhi = dq > 0 ? fzs[my * N + mx] : fzs[pi], flo = dq > 0 ? fzs[pi] : fzs[my * N + mx];
-          riser = 1; rz0 = flo * ZQ; rz1 = fhi * ZQ; tv = WT.CONCRETE; break;
+          riser = 1; rz0 = flo * ZQ; rz1 = fhi * ZQ; MAP.riserStops++; tv = WT.CONCRETE; break;
         }
       }
     }
