@@ -437,7 +437,9 @@ function updateEnemies(dt) {
     if (e.stagger > 0) e.stagger -= dt;
     if (e.state === 'dead') { e.dieT += dt; e.vx *= 0.8; e.vy *= 0.8; tryMove(e, e.vx * dt, e.vy * dt, e.r * 0.6); continue; }
     const dx = P.x - e.x, dy = P.y - e.y, d = Math.hypot(dx, dy) || 1e-4;
-    const see = d < e.type.sight && los(e.x, e.y, P.x, P.y) && P.deadT === 0;
+    // #118: the ray is the enemy's EYE to the player's, not a line drawn on the floor plan - see losZ.
+    // The muzzle altitude is the same convention the orb spawn uses (#117).
+    const see = d < e.type.sight && losZ(e.x, e.y, floorAt(e.x, e.y) + e.scale * 0.62, P.x, P.y, eyeH()) && P.deadT === 0;
     if (see) { e.alert = true; e.lx = P.x; e.ly = P.y; e.loseT = 1.6; }
     else if (e.alert) { e.loseT -= dt; if (e.loseT <= 0 && d > e.type.sight * 1.6) e.alert = false; }
     if (e.alert && e.state === 'sleep') { e.state = 'chase'; SND.growl(e.kind, panOf(e)); }
