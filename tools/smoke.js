@@ -507,6 +507,82 @@ const release = () => fire('mouseup', { button: 0 });
       }
     }
 
+    // V8 - particles. js/30_entities.js:79 clamped a particle's z against the literal 0.02, so debris
+    // shed on a raised band pooled on the DATUM - sparks lying on a floor that is not there. Asserted
+    // as an invariant rather than a minimum, because debris drifts sideways into neighbouring columns
+    // and a plain "lowest z in the band" would blame the drift: no particle may sit below the floor
+    // of the cell it is standing in. That is the defect, stated where the fix cannot dodge it.
+    vboot();
+    {
+      const ln = vlane(3);
+      if (!vsetup('particle setup found a 3 m clear run', !!ln, 'no clear corridor on this seed')) { }
+      else {
+        for (let k = 0; k <= 2; k++) vpoke(ln[0] + k, ln[1], 4);           // the run is a +1.0 m band
+        const fl = S1(`{floorAt(${ln[0]}+1.5,${ln[1]}+0.5)}`);
+        const n0 = S1(`{PARTS.length=0;P.x=${ln[0]}+0.5;P.y=${ln[1]}+0.5;P.z=floorAt(P.x,P.y);P.air=false;
+            burstParts(${ln[0]}+1.5,${ln[1]}+0.5,floorAt(${ln[0]}+1.5,${ln[1]}+0.5)+0.5,26,1.4,'#ffd07a',1.6,0.08,false,0.35);
+            return PARTS.length}`);
+        let seen = 0, worst = 0, under = 0;
+        for (let i = 0; i < 45; i++) {
+          frames(1);
+          if (!S1('{PARTS.length}')) break;
+          seen++;
+          const r = S1(`{let b=0,n=0;for(const q of PARTS){const f=floorAt(q.x,q.y); if(f>0.5&&q.z<f-0.05){n++;b=Math.max(b,f-q.z)}}
+                        return [n,b]}`);
+          under += r[0]; worst = Math.max(worst, r[1]);
+        }
+        vrow('no particle sits below the floor of its own cell', seen > 3 && under === 0,
+          `band floor ${fl.toFixed(2)}, ${n0} particles burst at +0.50 over ${seen} frame(s): ` +
+          `${under} particle-frame(s) below their cell floor, worst depth ${worst.toFixed(2)} m`);
+        S1('{PARTS.length=0;return 0}'); vrestore();
+      }
+    }
+
+    // V9 - the orb/player altitude window started at the DATUM (js/30_entities.js:558), so an orb
+    // travelling along a floor a metre BELOW a player on a raised band damaged them at the legs.
+    // The orb has to be in the LOW column and the player in the raised one, because the projectile
+    // floor fix lifts an orb inside a raised column to that column's floor - which is correct, and
+    // would have made a same-column version of this row pass for the wrong reason. Both halves are
+    // asserted: an orb at the player's own altitude must still hit, or the row could be satisfied by
+    // breaking hit detection outright. dd is asserted too: if tryMove slides the player clear of the
+    // boundary the proximity test stops being the thing under test, so the row says so instead of
+    // going quietly green.
+    vboot();
+    {
+      const ln = vlane(3);
+      if (!vsetup('orb window setup found a 3 m clear run', !!ln, 'no clear corridor on this seed')) { }
+      else {
+        const cx = ln[0] + 1, cy = ln[1];
+        vpoke(cx, cy, 4);                                                 // player on a +1.0 m band
+        const fl = S1(`{floorAt(${cx}+0.5,${cy}+0.5)}`);
+        const orbAt = (x, z) => S1(`{PROJ.length=0;PROJ.push({kind:'orb',x:${x},y:${cy}+0.5,z:${z},vx:0,vy:0,vz:0,
+            t:3,tex:PROP.orb[0],scale:0.42,dmg:25});return PROJ[0].z}`);
+        S1(`{ENEMIES.length=0;PROJ.length=0;P.x=${cx}+0.85;P.y=${cy}+0.5;P.z=floorAt(P.x,P.y);P.air=false;
+            P.hp=100;P.deadT=0;P.crouch=0;return 0}`);
+        // Mid-band, not at the datum: an orb lying at z 0.05 in the low column is INSIDE that
+        // column's floor slab, so the projectile clamp lifts and pops it before the player test
+        // would ever run - which would have made this half pass by destroying the projectile rather
+        // than by refusing the hit. z 0.50 is legitimate flight for the low band and 0.50 m below
+        // the player's feet.
+        orbAt(cx + 1.05, 0.50);
+        const hp0 = S1('{P.hp}');
+        frames(2);
+        const hp1 = S1('{P.hp}'), dd = S1('{Math.abs(P.x - ' + (cx + 1.05).toFixed(2) + ')}');
+        S1(`{P.hp=100;return 0}`);
+        orbAt(cx + 0.5, fl + 0.30);                                       // same band as the player
+        const k0 = S1('{P.hp}');
+        frames(2);
+        const k1 = S1('{P.hp}');
+        const ddWarn = dd < 0.45 ? '' : ' - OUTSIDE the 0.45 proximity test, the row is not testing what it claims';
+        vrow('an orb below a raised player is not hit from below',
+          dd < 0.45 && hp1 === hp0 && k1 < k0,
+          `player floor ${fl.toFixed(2)} at x ${(cx + 0.85).toFixed(2)}, orb z 0.50 in the low column at ` +
+          `x ${(cx + 1.05).toFixed(2)}: dd ${dd.toFixed(2)}${ddWarn}, hp ${hp0.toFixed(0)} -> ${hp1.toFixed(0)}; ` +
+          `same-band orb at z ${(fl + 0.3).toFixed(2)}: hp ${k0.toFixed(0)} -> ${k1.toFixed(0)}`);
+        S1('{PROJ.length=0;return 0}'); vrestore();
+      }
+    }
+
     console.log('VERT lane: ' + vgate + ' gating row(s), ' + vknown + ' known-issue row(s)' +
       (vknown ? ' - STRICT=1 promotes them' : ''));
   }
