@@ -861,6 +861,71 @@ const release = () => fire('mouseup', { button: 0 });
       }
     }
 
+    // V15 - a shot aimed into the ground it is standing on (#131). Hitscan tested enemies, props and (since
+    // #125/#128) the band a shot travels through, but it modelled NO ground at all, so a descending ray crossed
+    // the plane under the shooter's feet and kept flying - to mark the wall 20 m away with a hole in mid-air.
+    // Two halves in opposite directions, same arithmetic: on a flat lane the ray must cross its OWN floor plane
+    // and stop there, leaving a splat in the cell it landed in; down a staircase it must keep descending into the
+    // band below, because the plane is re-keyed per cell. So "stop whenever the ray descends" fails the second
+    // half and "model no ground" fails the first. The staircase is not decoration: from an eye at 0.50 a line to
+    // a chest 1.00 below at 4.00 out crosses the shooter's own floor 1.87 m ahead, INSIDE the shooter's cell, so
+    // a 1-unit drop has no legal shot into it at all - which is what the first half asserts.
+    vboot();
+    {
+      const cands = S1(`{const a=[];for(let y=2;y<MAP.h-2;y++)for(let x=2;x<MAP.w-9;x++){
+        let n=0;for(let k=0;k<8;k++)if(!isSolid(x+k,y+0.5))n++;
+        if(n===8&&floorAt(x+0.5,y+0.5)===0)a.push([x+0.5,y+0.5]);}
+        return a.length?a[0]:[]}`);
+      const spot = cands && cands.length === 2 ? cands : null;
+      if (!vsetup('V15 setup found a flat 8-cell lane at floor 0', !!spot,
+        spot ? `lane from (${spot[0]}, ${spot[1]})` : 'no flat lane to aim down along')) { }
+      else {
+        const px = spot[0], py = spot[1];
+        const shot = (poke, dy) => {
+          if (poke) S1(`{${poke}linkBoundaries();return 1}`);
+          S1(`{DECALS.length=0;PARTS.length=0;ENEMIES.length=0;PROJ.length=0;
+              P.x=${px};P.y=${py};P.z=floorAt(P.x,P.y);P.air=false;P.vx=P.vy=P.vz=0;P.ang=0;P.pitch=0;
+              P.crouch=0;P.deadT=0;P.hp=100;P.fireT=0;P.reloadT=0;P.swapT=0;P.mag[0]=8;P.shots=0;
+              switchWeapon(0);P.swapT=0;return 1}`);
+          V(`mouse.dy=${dy};mouse.down=true`); frames(1); V('mouse.down=false'); frames(1);
+          const tp = +S1('+pitchTan().toFixed(3)');
+          const r = S1(`{const h=hitscan(0,${tp},46);const d=DECALS.length?DECALS[DECALS.length-1]:null;
+            return [+h.t.toFixed(3),h.wall?1:0,h.band?1:0,h.floor?1:0,+h.z.toFixed(3),DECALS.length,
+              d?+d.x.toFixed(3):-1,d?+d.z.toFixed(3):-1,+floorAt(d?d.x:${px},d?d.y:${py}).toFixed(3),P.shots,
+              [1,2,3,4].map(k=>+floorAt(${px}+k,${py}).toFixed(2)).join(' ')]}`);
+          return { t: r[0], wall: r[1], band: r[2], floor: r[3], z: r[4], n: r[5], mx: r[6], mz: r[7],
+            mfz: r[8], shots: r[9], fzs: r[10], tp, eye: +S1('+eyeH().toFixed(3)') };
+        };
+        const flat = shot('', 136);
+        const stair = shot(`for(let k=1;k<=4;k++)MAP.fz[${py | 0} * MAP.w + (${px | 0} + k)] -= k;`, 113);
+        const restore = S1(`{for(let k=1;k<=4;k++)MAP.fz[${py | 0} * MAP.w + (${px | 0} + k)] += k;
+          linkBoundaries();return +floorAt(${px + 2.5},${py}).toFixed(3)}`);
+        // the expectation is computed from what the frame measured, not from a literal: eye and the slope the
+        // look step actually produced, so a sensitivity change moves the want, not the verdict
+        const tWant = (0 - flat.eye) / flat.tp;
+        const okFlat = flat.floor === 1 && flat.wall === 0 && flat.band === 0 && flat.shots === 1 &&
+          Math.abs(flat.t - tWant) < 0.06 && flat.n === 1 && Math.abs(flat.mz - (flat.mfz + 0.01)) < 0.03;
+        // The staircase half cannot ask for wall === 0: the stairs run into a 1-unit RISE at their far end (the
+        // poke stops at k=4), which is a face, so the honest claim is that the shot is not stopped at the plane
+        // it stood on - it gets well past where the flat lane killed it - and the wall it finally meets is the
+        // far end, not the shooter's feet. Control B (fl never re-keyed) dies here at the flat lane's own t.
+        const okStair = stair.floor === 0 && stair.shots === 1 && stair.t > flat.t + 1.0;
+        vrow('a shot aimed into the ground stops at the floor plane it crosses, and a staircase lets it through',
+          okFlat && okStair,
+          `flat lane: eye ${flat.eye} at (${px}, ${py}), tanP ${flat.tp} -> own floor plane (0.00) reached at t ` +
+          `${tWant.toFixed(2)} | got ${flat.floor ? 'FLOOR' : 'no floor'} at t ${flat.t}${flat.wall ? ', WALL' : ''}` +
+          ` band ${flat.band}, ${flat.n} splat(s) at x ${flat.mx} z ${flat.mz} in a cell whose floor is ` +
+          `${flat.mfz} over ${flat.shots} shot - want a floor hit at t ${tWant.toFixed(2)} and one ground splat ` +
+          `on that cell's plane, no wall mark anywhere | stairs (one quantum per cell: ${stair.fzs}), ` +
+          `tanP ${stair.tp}: ${stair.floor ? 'STOPPED at its FIRST floor plane' : 'keeps descending'} at t ` +
+          `${stair.t}${stair.wall ? ', meets the wall at the far end of the stairs' : ''} - want no floor stop and ` +
+          `t past ${(flat.t + 1).toFixed(2)}, because the plane is re-keyed per cell and the stairs descend as ` +
+          `fast as the ray does` +
+          (Math.abs(flat.tp) < 0.05 ? ' - VACUOUS: the shot is not aimed down, nothing crosses a floor plane' : '') +
+          (restore !== 0 ? ` - VACUOUS: the lane did not restore to floor 0 (reads ${restore})` : ''));
+      }
+    }
+
     console.log('VERT lane: ' + vgate + ' gating row(s), ' + vknown + ' known-issue row(s)' +
       (vknown ? ' - STRICT=1 promotes them' : ''));
   }

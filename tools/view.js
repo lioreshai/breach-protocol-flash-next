@@ -606,7 +606,7 @@ if (MODE === 'sight') {
       const px = lane.x, py = lane.y, ex = lane.x + 4, ey = lane.y;
       const probe = (dq, aimFrac, tanFix) => {
         const fz0 = MAP.fz.slice(), cz0 = MAP.cz.slice();
-        for (const [cx, cy] of [[ex, ey], [ex + 1, ey]]) MAP.fz[(cy | 0) * MW + (cx | 0)] += dq;
+        if (dq > 0) for (const [cx, cy] of [[ex, ey], [ex + 1, ey]]) MAP.fz[(cy | 0) * MW + (cx | 0)] += dq;
         /* A boundary whose opening is EMPTY cannot be shot through, so raising the enemy a full unit has to
            open the shooter's ceiling too or the row silently asserts "shots ignore altitude": the opening
            between two cells is [max(floor), min(ceiling)], and floor+1.00 against a 1.00 ceiling is
@@ -621,6 +621,18 @@ if (MODE === 'sight') {
         if (dq > 0) {
           const cZ = Math.max(4, Math.ceil((dq * ZQ + en.scale + 0.25) / ZQ));
           for (let k = 0; k <= 6; k++) MAP.cz[((py | 0) * MW) + ((px | 0) + k)] = cZ;
+        } else if (dq < 0) {
+          /* #131 made this poke a staircase instead of a single drop, and the reason is arithmetic: from an eye
+             at 0.50 a line to a chest 1.00 below at 4.00 out descends at -0.25 and crosses the shooter's OWN
+             floor plane 1.87 m ahead - inside the shooter's cell - so aiming into a 1-unit drop is aiming into
+             a floor slab, and #131's floor term is what says so. A sunk cell has no opening by default either:
+             its ceiling is DERIVED as the underside of the neighbour's floor, so the boundary is
+             [max floor, min ceil] = [0.00, 0.00]. What does reach an enemy one band down is a band that steps
+             down at least as fast as the ray - one quantum per cell is a 0.25 rise on a 1.00 run, exactly the
+             slope the row aims along - and that is real M3/M6 content rather than a fiction: every boundary on
+             the flight has an opening, and the ray stays ~0.25 above each cell's floor instead of under it.
+             The stop answer for the single-drop case belongs in a row of its own (smoke's VERT lane, V15). */
+          for (let k = 1; k <= 6; k++) MAP.fz[((py | 0) * MW) + ((px | 0) + k)] += Math.max(dq, -k);
         }
         linkBoundaries();
         en.x = ex; en.y = ey; en.state = 'idle'; en.alert = false; en.hp = 1e6; en.dead = false;

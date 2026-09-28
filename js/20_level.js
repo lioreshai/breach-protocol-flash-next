@@ -250,13 +250,17 @@ function losZ(ax, ay, az, bx, by, bz) {
    floor+0.25 (a fiction - a solid column has no air), so comparing against it would stop the shot mid-wall and
    un-mark every hit. Returns maxT when the ray never leaves its band. Only the CEILING term is here; see the
    floor note in the loop - the riser case is a wall hit and needs its own pass (#125 deferred half). */
-/* Where a shot's ray leaves the band it travels through (#125 ceiling, #128 riser). Returns {t, kind, side}:
-   kind 0 = stays in its band for maxT; kind 1 = rose through the CEILING plane of the cell it is in, which is
-   not a face, so the caller stops the shot there with no wall verdict and no mark; kind 2 = stepped BELOW the
-   floor of the cell it entered, which is a RISER - a drawn face - so the caller reports a wall hit at t on
-   boundary `side` and the mark belongs to the riser rather than to whatever stands behind the drop. Both planes
+/* Where a shot's ray leaves the band it travels through (#125 ceiling, #128 riser, #131 floor). Returns
+   {t, kind, side}: kind 0 = stays in its band for maxT; kind 1 = rose through the CEILING plane of the cell it
+   is in, which is not a face, so the caller stops the shot there with no wall verdict and no mark; kind 2 =
+   stepped BELOW the floor of the cell it entered, which is a RISER - a drawn face - so the caller reports a wall
+   hit at t on boundary `side` and the mark belongs to the riser rather than to whatever stands behind the drop;
+   kind 3 = descended through the FLOOR plane of the cell it is in (#131), also not a face, so the caller stops
+   the shot at the ground with a splat rather than letting it fly through the slab it is standing on. Both planes
    are re-keyed per SAMPLED cell, so a shot travelling through a ramp or an atrium opening is stopped neither by
-   the ceiling it started under nor by a step it flies over. A solid cell returns maxT, because ceilAt there is
+   the ceiling it started under nor by a step it flies over, and a shot aimed down at a PIT re-keys to the pit's
+   lower floor at the lip and keeps flying into the pit band - which is the behaviour view.js sight's band -1
+   rows have asserted since before this term existed. A solid cell returns maxT, because ceilAt there is
    floor + 0.25 - a fiction, a solid column has no air - and comparing against it stops the shot mid-wall.
    t is solved exactly at the crossing (the cell boundary is an integer line, the ceiling plane is constant
    inside a cell), not the sample distance, so a riser mark lands on the plane instead of 14 cm inside the cell. */
@@ -273,6 +277,17 @@ function bandExitT(ax, ay, dx, dy, az, tanP, maxT) {
     if (z >= cz) {                                           // rose out of the band it is travelling in
       out.kind = 1;
       out.t = tanP > 0 ? (cz - az) / tanP : t;
+      return out;
+    }
+    /* #131: the same solver's other wall it cannot see. The floor plane of the GOVERNING band is what the ray
+       stands on, so a descending ray crosses it INSIDE one cell and a boundary test can never notice - that is
+       how a shot aimed at the ground kept flying through the slab and marked the wall 20 m away. Solved exactly
+       rather than on the sample, and only when the ray starts ABOVE that plane: a ray already below its own
+       floor (a seat bug, see the spawn-altitude rows) keeps the old unmodelled flight instead of dying at the
+       first sample 0.14 m from the muzzle. */
+    if (z <= fl && tanP < 0 && az > fl) {
+      out.kind = 3;
+      out.t = (fl - az) / tanP;
       return out;
     }
     const ix = x | 0, iy = y | 0;

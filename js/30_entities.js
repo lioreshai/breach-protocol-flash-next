@@ -116,7 +116,8 @@ function hitscan(ang, tanP, range) {
   const bx = bandExitT(ox, oy, dx, dy, oz, tanP, Math.min(range, wall.wall ? wall.dist : range));
   const ceilStop = bx.kind === 1 && bx.t < wall.dist;
   const riser = bx.kind === 2 && bx.t < wall.dist;
-  let bestT = (ceilStop || riser) ? bx.t : wall.dist, best = null, hitObj = null;
+  const floorStop = bx.kind === 3 && bx.t < wall.dist;      // #131: the ray crossed the ground it stands on
+  let bestT = (ceilStop || riser || floorStop) ? bx.t : wall.dist, best = null, hitObj = null;
   for (const e of ENEMIES) {
     if (e.state === 'dead') continue;
     const ex = e.x - ox, ey = e.y - oy, proj = ex * dx + ey * dy;
@@ -145,7 +146,8 @@ function hitscan(ang, tanP, range) {
   }
   const hx = ox + dx * bestT, hy = oy + dy * bestT, hz = oz + tanP * bestT;
   return { t: bestT, x: hx, y: hy, z: hz, enemy: best, info: hitObj,
-    wall: riser || (wall.wall && !ceilStop), side: riser ? bx.side : wall.side, band: ceilStop };
+    wall: riser || (wall.wall && !(ceilStop || floorStop)), side: riser ? bx.side : wall.side,
+    band: ceilStop, floor: floorStop };
 }
 
 /* ---------------- firing ---------------- */
@@ -178,6 +180,13 @@ function tryFire() {
       }
       // #125: a band hit is a ceiling or a floor, at h.z - not the ground under the ray's endpoint.
       else if (h.band) burstParts(h.x, h.y, Math.max(0.05, h.z), 4, 1.2, '#c9b48a', 0.28, 0.05, false, 0.4);
+      // #131: the shot crossed the plane it was standing on, so the ground takes the hit - at the cell it
+      // landed in, the same rule #120 established for wall marks. Ground decals are painted from the cell
+      // grid, so the splat sits on that cell's own floor plane without any altitude argument here.
+      else if (h.floor) {
+        burstParts(h.x, h.y, Math.max(0.05, h.z), 4, 1.2, '#c9b48a', 0.28, 0.05, false, 0.4);
+        if (h.t < 24) addGroundSplat(h.x, h.y, 0.05, 'dust');
+      }
       else burstParts(h.x, h.y, 0.05, 3, 1.0, '#c9b48a', 0.3, 0.05, false, 0.4);
     }
   }
