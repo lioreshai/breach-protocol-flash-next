@@ -219,6 +219,25 @@ function blocked(ax, ay, bx, by) {
   return false;
 }
 function los(ax, ay, bx, by) { return !blocked(ax, ay, bx, by); }
+/* A raised band is not SOLID, so the march above walks straight through a slab of floor whose riser the
+   wall pass paints and whose boundary byte makes it impassable: an enemy behind a platform saw through
+   it and shot the player across it (#118, measured on the deployed build - los() true across a +1.0 m
+   plateau in the middle of a 9 m run, floorAt at the midpoint 1.0). The decision belongs to the sight
+   LINE's own altitude: a sample whose floor is above the line is a ceiling from that end of the ray,
+   and one below it is ground you look over. On a generated (flat) level every floor is 0 and every eye
+   is above it, so the second test never fires and this answers exactly what los answers. */
+function losZ(ax, ay, az, bx, by, bz) {
+  const dx = bx - ax, dy = by - ay, d = Math.hypot(dx, dy);
+  if (d < 1e-4) return true;
+  const st = 0.14, n = (d / st) | 0;
+  for (let i = 1; i < n; i++) {
+    const t = i * st / d, sx = ax + dx * t, sy = ay + dy * t;
+    if (isSolid(sx, sy)) return false;
+    // 1e-3 because a floor level with the line is the floor the eye stands on, not a wall in front of it
+    if (floorAt(sx, sy) > az + (bz - az) * t + 1e-3) return false;
+  }
+  return true;
+}
 
 function pickWallTex(cfgL) { return Math.random() < 0.78 ? cfgL.wall : cfgL.wall2; }
 
