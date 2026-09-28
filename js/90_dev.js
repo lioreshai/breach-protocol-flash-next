@@ -221,6 +221,31 @@
       n: cnt, dist: num(d, 2), kind, self, scale: num(sc, 3), trisEach: MESH.trisFor(kind), vertsEach: MESH.vertsFor(kind), buf: BW + 'x' + BH,
     };
   }
+  /* DEV.lum: Rec.709 luma of the COMPOSITED frame — cv, the display canvas after bloom, grade,
+     grain and the HUD overlay — not the raster `px` that tools/view.js exposure averages (#85).
+     mean is every stride'd pixel of the whole frame; mid is the same sample restricted to the
+     centre half in x and y. They are different windows and are never substitutes for each other.
+     Throws when it cannot measure, so a reader can never mistake "no canvas pixels" for "black". */
+  function lum(o) {
+    o = o || {};
+    const stride = Math.max(1, (o.stride === undefined ? 4 : o.stride) | 0);
+    const w = cv.width, h = cv.height;
+    if (!w || !h) throw new Error('DEV.lum: display canvas is ' + w + 'x' + h + ' — the page has not resized');
+    const d = ctx.getImageData(0, 0, w, h).data;
+    const x0 = (w * 0.25) | 0, x1 = (w * 0.75) | 0, y0 = (h * 0.25) | 0, y1 = (h * 0.75) | 0;
+    let aS = 0, aN = 0, mS = 0, mN = 0;
+    for (let y = 0; y < h; y += stride) {
+      const my = y >= y0 && y < y1;
+      for (let x = 0; x < w; x += stride) {
+        const i = ((y * w) + x) << 2;
+        const L = 0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2];
+        aS += L; aN++;
+        if (my && x >= x0 && x < x1) { mS += L; mN++; }
+      }
+    }
+    if (!aN || !isFinite(aS)) throw new Error('DEV.lum: sampled ' + aN + ' pixel(s) of a ' + w + 'x' + h + ' canvas at stride ' + stride);
+    return { mean: +(aS / aN).toFixed(2), mid: mN ? +(mS / mN).toFixed(2) : null, midN: mN, n: aN, stride: stride, buf: w + 'x' + h };
+  }
   function tiers() { return QUAL.map((q, i) => ({ i: i, name: q.name, res: q.res, bloom: q.bloom, grade: q.grade, grain: q.grain, rigH: q.rigH, far: q.far, active: i === S.gfx })); }
   function help() {
     console.log([
@@ -239,6 +264,9 @@
       '  DEV.set(name, value)            tier keys (res, bloom, grade, grain, far, glow, rigH, rast, dmax, scan, vec, min, max)',
       '                                  plus gfx (0..2 or a tier name) and rim (bool; clears the pose cache)',
       '  DEV.tiers()                     the QUAL table as it now stands, including any overrides set() made',
+      '  DEV.lum([{stride}])             composited frame luma {mean, mid}: cv after bloom/grade/grain/HUD,',
+      '                                  mean over the whole frame, mid over the centre half-window — two',
+      '                                  windows that are not interchangeable, and neither is view.js raster',
       '  DEV.stats()                     frame ms {n,med,p95,last}, fps, buf, drawCalls, poses this frame, RIG.stats(), enemies, tier',
       '  DEV.state()                     JSON-safe snapshot: player (ang is the heading), level, enemies, counts, S flags',
       '  DEV.ray(x, y[, z], dx, dy, dz[, maxD])',
@@ -260,6 +288,7 @@
   const DEV = {
     on: true, help: help, boot: boot, cam: cam, look: look, face: face, nearestEnemy: nearestEnemy, freeze: freeze,
     tick: tick, spawn: spawn, clear: clear, set: set, tiers: tiers, stats: stats, state: state, ray: ray, mesh: mesh,
+    lum: lum,
     get ground() { return { reSolveBad: reSolveBad, gndOffMap: gndOffMap }; }   // ground re-solve counters, see tools/view.js heights
   };
   window.DEV = DEV;

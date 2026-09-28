@@ -1,6 +1,20 @@
 ## Unreleased
 
 ### Added
+- **`DEV.lum([{stride}])` reports the luminance of the frame the player actually sees, and CI prints it.**
+  `mean` is Rec.709 luma over the whole display canvas (after bloom, grade, grain and the HUD), `mid` over the
+  centre half-window - two windows that are not interchangeable, and on this layer `mid` runs 8 to 20 points
+  above `mean`, which is the conflation that produced #117 and #139. `tools/ci/assert.js exposure` drives the
+  system Chrome over the DevTools protocol with node built-ins only (no dependencies; `tools/ci/no-deps.js`
+  still guards the tree) and asserts the **median of 5 seeded rolls per level** inside 60-100, printing the roll
+  spread and never asserting it, because that spread is 18-70 points, wider than the window (#87). The dice are
+  `view.js exposure`'s own (`1000 + level*97 + roll*13`) so the two tools look at the same levels. Exit codes are
+  distinct - 1 outside, 3 NOT MEASURED - so a run that could not reach the canvas never reports a passing grade
+  (#122). #47's premise was understated: there was no `DEV.meanLum` and no exposure assert in `tools/smoke.js`
+  at all, so no CI job gated brightness on **any** layer. The step ships `continue-on-error: true` because it is
+  red on `main` today: level 2's median is **53 on the raster and 38 composited**, against 73/91 and 76/86 on
+  levels 0 and 1, and a blocking check that is already overdue deadlocks its own introducing PR. #143 carries
+  the numbers and the flip condition.
 - **Two rules that were fixed and never asserted now have gates.** The exit changes level through a test that
   includes a band (#105: an xy-only test let the level change from a cell whose floor was a unit below), and a
   pickup has a 0.6 m vertical window (#109: xy proximity took it while the player hovered above it). Neither had
