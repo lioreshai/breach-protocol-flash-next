@@ -607,6 +607,21 @@ if (MODE === 'sight') {
       const probe = (dq, aimFrac, tanFix) => {
         const fz0 = MAP.fz.slice(), cz0 = MAP.cz.slice();
         for (const [cx, cy] of [[ex, ey], [ex + 1, ey]]) MAP.fz[(cy | 0) * MW + (cx | 0)] += dq;
+        /* A boundary whose opening is EMPTY cannot be shot through, so raising the enemy a full unit has to
+           open the shooter's ceiling too or the row silently asserts "shots ignore altitude": the opening
+           between two cells is [max(floor), min(ceiling)], and floor+1.00 against a 1.00 ceiling is
+           [1.00, 1.00] - nothing. A tall shooter cell is the legal version (an atrium, which is what M6
+           authors), and it keeps the same claim - a shot can reach an enemy standing one band up - through
+           geometry that actually has a hole in it. Restored with cz0 below, like the fz poke. */
+        /* The opening must exist along the whole flight, not just at the shooter's feet: ceilAt is per cell, so
+           one tall cell leaves the ray crossing z=1.00 inside the NEXT cell, whose ceiling is 1.00, and the
+           stop lands 1.8 m out - measured. So the lane is opened as one atrium (this is what M6 authors: a
+           gallery you can shoot up into), which keeps the row's claim - a shot reaches an enemy one band up -
+           and puts a real hole in the geometry it travels through. */
+        if (dq > 0) {
+          const cZ = Math.max(4, Math.ceil((dq * ZQ + en.scale + 0.25) / ZQ));
+          for (let k = 0; k <= 6; k++) MAP.cz[((py | 0) * MW) + ((px | 0) + k)] = cZ;
+        }
         linkBoundaries();
         en.x = ex; en.y = ey; en.state = 'idle'; en.alert = false; en.hp = 1e6; en.dead = false;
         P.x = px; P.y = py; P.ang = 0; P.crouch = 0; P.air = false; P.vz = 0;

@@ -753,6 +753,59 @@ const release = () => fire('mouseup', { button: 0 });
       }
     }
 
+    // V13 - a shot's ray had NO altitude test of any kind (#125): walls came out of castRayDist, which is a 2D
+    // march, so a ray pitched above its own ceiling kept travelling to the wall behind it and punched a hole
+    // along that face's TOP EDGE. Measured on the deployed build, one shooter, one face: a ray reaching z 2.50
+    // answered `wall true` at the face's own distance and stored one mark at z 0.856 = face top minus the decal
+    // inset - a bullet hole along the top of a wall the bullet flew over. Note the planes are re-keyed per
+    // SAMPLED cell, so this does NOT stop the legitimate upward shot at an enemy standing on a raised band
+    // (view.js sight aims that shot, and stays green). Both directions gate: pitched past the ceiling the shot
+    // must stop short of the face (no wall, t well under the face's distance, and the CLICK leaves no mark),
+    // while the same gun level must still hit that face and mark it - so "stop every shot" and "never leave a
+    // mark" both fail. The pitched sample uses tanP 1.2 rather than the minimum crossing slope because P.pitch
+    // lerps back toward the aim pitch inside the tick that fires it: a barely-crossing pitch decays into a
+    // legal wall hit and the row would report a defect that is only the decay (measured: tanP 0.4 requested,
+    // z 0.692 at the wall = tanP ~0.05 fired).
+    vboot();
+    {
+      const cands = S1(`{const a=[];for(let y=1;y<MAP.h-1;y++)for(let x=1;x<MAP.w-8;x++){
+        if(isSolid(x+0.5,y+0.5)||isSolid(x+1.5,y+0.5))continue;
+        const r=castRayDist(x+0.5,y+0.5,1,0,12);if(r.wall&&r.dist>2)a.push([x+0.5,y+0.5,+r.dist.toFixed(3)]);}
+        return a.length?a.sort((p,q)=>q[2]-p[2])[0]:[]}`);
+      const spot = cands && cands.length === 3 ? cands : null;
+      if (!vsetup('shot setup found a long run to a wall face', !!spot,
+        spot ? `longest east run ${spot[2]} m from (${spot[0]}, ${spot[1]})` : 'no open cell with a wall to the east')) { }
+      else {
+        const cx = spot[0], cy = spot[1];
+        const fire = (tp, dy) => {
+          S1(`{DECALS.length=0;PARTS.length=0;ENEMIES.length=0;PROJ.length=0;
+              P.x=${cx};P.y=${cy};P.z=floorAt(P.x,P.y);P.air=false;P.vx=P.vy=P.vz=0;P.ang=0;P.pitch=0;
+              P.crouch=0;P.deadT=0;P.hp=100;P.fireT=0;P.reloadT=0;P.swapT=0;P.mag[0]=8;P.shots=0;
+              switchWeapon(0);P.swapT=0;return 0}`);
+          const r = S1(`{const h=hitscan(0,${tp},46);return [+h.t.toFixed(3),h.wall?1:0,h.band?1:0,
+              +h.z.toFixed(3),+ceilAt(P.x,P.y).toFixed(3),+eyeH().toFixed(3)]}`);
+          // The pitch is aimed through the mouse-look delta, not by writing P.pitch: the look step owns that
+          // field and rewrites it inside the tick that fires, so an assignment fires a LEVEL shot (measured:
+          // P.pitch 0.880 requested, pitchTan 0.02 fired).
+          V(`mouse.dy=${dy};mouse.down=true`); frames(1); V('mouse.down=false'); frames(1);
+          const d = S1(`{return [DECALS.length,P.shots,+pitchTan().toFixed(3),+P.pitch.toFixed(3)]}`);
+          return { t: r[0], wall: r[1], band: r[2], z: r[3], ceil: r[4], eye: r[5], n: d[0], shots: d[1], tp: d[2], pitch: d[3] };
+        };
+        const lvl = fire(0, 0), up = fire(1.2, -420);
+        const okLvl = lvl.wall === 1 && lvl.n === 1 && lvl.shots === 1;
+        const okUp = up.wall === 0 && up.band === 1 && up.t < lvl.t - 0.2 && up.n === 0 && up.shots === 1;
+        vrow('a shot stops at the ceiling it is aimed at, not at the wall behind it', okLvl && okUp,
+          `level: ${lvl.wall ? 'wall' : 'NO WALL'} at t ${lvl.t}, ${lvl.n} mark(s) over ${lvl.shots} shot ` +
+          `(ceiling plane ${lvl.ceil}, eye ${lvl.eye}) | aimed up one click (look delta -420, ` +
+          `pitchTan ${up.tp} at the trigger; a ray at tanP 1.20 would cross ${lvl.ceil} at t ` +
+          `${((lvl.ceil - lvl.eye) / 1.2).toFixed(2)}); ${up.wall ? 'WALL' : 'no wall'} ` +
+          `at t ${up.t}, band stop ${up.band}, z ${up.z}, ${up.n} mark(s) over ${up.shots} shot - want no wall, ` +
+          `t < ${(lvl.t - 0.2).toFixed(2)}, 0 marks`
+          + (lvl.wall === 0 || lvl.n === 0
+            ? ' - VACUOUS: the level shot does not hit a wall either, so nothing here is being stopped' : ''));
+      }
+    }
+
     console.log('VERT lane: ' + vgate + ' gating row(s), ' + vknown + ' known-issue row(s)' +
       (vknown ? ' - STRICT=1 promotes them' : ''));
   }
