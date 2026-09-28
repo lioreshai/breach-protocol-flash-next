@@ -252,6 +252,16 @@ case "$out" in *"SMOKE PASSED"*) git add -A && git commit ;; *) echo NOT COMMITT
   watch whose condition simply never became true. Use a single-line test instead:
   `printf '%s' "$s" | grep -qE "^(MERGED|OPEN CLEAN)"` (`bg_21` worked first try). Same reason PR
   bodies must be written to a file or passed as one quoted `--body` string, never a heredoc in `if`.
+- **A watch that greps for absence reports MET when the command fails.** `bg_4` exited 0 after **59 ms**
+  having read nothing: its condition was `gh pr checks 121 --json …`, and this `gh` has no `--json` on
+  `pr checks`, so the command printed `unknown flag` on stderr, `$s` was empty, neither the `pending` nor
+  the `fail` grep matched, and the script fell through to `echo "$s"; exit 0` - a CI watch that "passed"
+  before CI had published a single check row, five seconds after `pr create`. Two terms make a condition
+  honest: `[ -z "$s" ] && exit 1`, and a **count of the rows you expect** (`ok >= 4`), not merely the
+  absence of a bad word. The same trap is why the earlier watches printed a table: they were armed after
+  checks existed, so their emptiness never fired. Use `gh pr view N --json statusCheckRollup` with
+  `.status` (`IN_PROGRESS`/`COMPLETED`) and `.conclusion` (`SUCCESS`/`FAILURE`/`SKIPPED`) - `gh pr checks`
+  has no machine output here.
 
 ## Now: verticality — the design that was chosen
 
