@@ -112,6 +112,30 @@ jobs:
           node tools/view.js horizon
           node tools/view.js cull
 
+      - name: Composited exposure gate on the live page
+        # PARKED, REPORTING ONLY: level 2's median is outside the window on both layers (#143: raster 53,
+        # composited 38), so a blocking version of this step would be red on main and deadlock every PR - the
+        # release-guard precedent. Reporting is not gating, which is #47's own point, so #143 carries the flip
+        # condition: delete this line once level 2's median is inside 60-100 on both layers.
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          # The brightness the player actually sees lives in the display canvas, AFTER bloom, grade,
+          # grain and the HUD overlay, and no headless probe can read it: the canvas stub in
+          # tools/view.js no-ops drawImage and throws on getImageData, so every exposure assert that
+          # existed before #47 measured the raster before post FX - a page that composited too dark
+          # or too bright passed CI while every brightness gate stayed green (#85). This step drives
+          # the system Chrome over the DevTools protocol with node built-ins only (no package.json,
+          # which the step above guards) and reads the frame through DEV.lum().
+          # The rule is the MEDIAN of 5 seeded rolls per level inside 60-100, because the roll-to-roll
+          # spread is 18-70 points, WIDER than the 40-point window, so one roll outside it proves
+          # nothing (#87) and the spread is printed rather than asserted. The dice are view.js
+          # exposure's own (1000 + level*97 + roll*13), so the two tools measure the same generated
+          # levels and a red row here is reproducible rather than a dice roll.
+          # Exit codes are distinct: 1 outside the window, 3 NOT MEASURED (no browser, no DEV, page
+          # threw, no canvas pixels) - a run that could not measure never reports a passing grade.
+          node tools/ci/assert.js exposure
+
   probes:
     continue-on-error: true
     runs-on: ubuntu-latest
