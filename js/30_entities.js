@@ -76,7 +76,11 @@ function updateParts(dt) {
     if (!isSolid(nx, p.y)) p.x = nx; else { p.vx *= -0.35; p.vy *= 0.4; }
     if (!isSolid(p.x, ny)) p.y = ny; else { p.vy *= -0.35; p.vx *= 0.4; }
     p.z += p.vz * dt;
-    if (p.z < 0.02) { p.z = 0.02; p.vz *= -0.28; p.vx *= 0.7; p.vy *= 0.7; }
+    // #98: particles settled on the DATUM, so whatever a body shed on a raised band or in a pit slid
+    // down to z = 0.02 - sparks pooling on a floor that is not there. floorAt is an index read and is
+    // 0 on every level the generator makes, which leaves this arithmetic exactly as it was.
+    const pfl = floorAt(p.x, p.y);
+    if (p.z < pfl + 0.02) { p.z = pfl + 0.02; p.vz *= -0.28; p.vx *= 0.7; p.vy *= 0.7; }
   }
 }
 
@@ -546,7 +550,11 @@ function updateProjectiles(dt) {
       else { popOrb(p); PROJ.splice(i, 1); continue; }
     } else { p.x = nx; p.y = ny; }
     p.z += p.vz * dt;
-    if (p.z < 0.08) { p.z = 0.08; if (p.kind === 'gren') { p.vz *= -0.42; p.vx *= 0.72; p.vy *= 0.72; if (Math.abs(p.vz) < 0.4) p.vz = 0; } else { popOrb(p); PROJ.splice(i, 1); continue; } }
+    // #98: an orb's floor was the literal 0.08, so on a raised band it sank through the floor it
+    // should pop on and went on travelling underneath it - the VERT lane's last reporting row. The
+    // grenade bounce keeps its own arithmetic; only the plane it lands on moved.
+    const pfl = floorAt(p.x, p.y) + 0.08;
+    if (p.z < pfl) { p.z = pfl; if (p.kind === 'gren') { p.vz *= -0.42; p.vx *= 0.72; p.vy *= 0.72; if (Math.abs(p.vz) < 0.4) p.vz = 0; } else { popOrb(p); PROJ.splice(i, 1); continue; } }
     if (p.kind === 'gren') {
       p.trail = (p.trail || 0) + dt;
       if (p.trail > 0.03) { p.trail = 0; addPart(p.x, p.y, p.z, rnd(0.3), rnd(0.3), 0.2, 0.5, '#ffdd88', 0.05, true); }
@@ -555,7 +563,10 @@ function updateProjectiles(dt) {
       addPart(p.x, p.y, p.z, rnd(0.4), rnd(0.4), 0, 0.22, '#9cff6a', 0.06, true);
       // hit player?
       const dd = Math.hypot(P.x - p.x, P.y - p.y);
-      const inZ = p.z > (P.crouch ? 0.16 : 0.02) && p.z < playerTop();
+      // #98: the lower bound was the DATUM, so an orb rolling along a floor a metre BELOW a player on
+      // a raised band registered as a hit at their legs. The window is the body now: feet plus a
+      // crouch allowance up to playerTop(), which already carries P.z.
+      const inZ = p.z > P.z + (P.crouch ? 0.16 : 0.02) && p.z < playerTop();
       if (dd < 0.45 && inZ && P.deadT === 0) {
         damagePlayer(p.dmg, Math.atan2(p.y - P.y, p.x - P.x));
         burstParts(p.x, p.y, p.z, 12, 2.2, '#b6ff7a', 0.4, 0.08, true, 1);
