@@ -162,7 +162,10 @@ function tryFire() {
     } else {
       if (h.wall || h.t > 40) {
         burstParts(h.x, h.y, Math.max(0.05, h.z), 4, 1.4, '#ffd9a0', 0.25, 0.05, true, 0.6);
-        if (h.wall && h.t < 24 && h.z > 0.06 && h.z < 0.96) addWallMark(h.x, h.y, h.z, h.side);
+        // #120: no altitude window here. h.z is absolute (eyeH() + tanP*t), and the old h.z < 0.96 named
+        // the face only while faces spanned 0..1; on a band it rejected every chest-height shot. addWallMark
+        // now clamps into the face's own span, so any hit on that face leaves a mark.
+        if (h.wall && h.t < 24) addWallMark(h.x, h.y, h.z, h.side);
       }
       else burstParts(h.x, h.y, 0.05, 3, 1.0, '#c9b48a', 0.3, 0.05, false, 0.4);
     }

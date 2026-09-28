@@ -703,6 +703,56 @@ const release = () => fire('mouseup', { button: 0 });
       }
     }
 
+    // V12 - a bullet hole wrote its altitude FACE-RELATIVELY while the renderer solved it as an absolute
+    // world height (#120), and the write was gated on the flat world's window (h.z < 0.96). Measured on the
+    // deployed build before the fix, one shooter, one wall 3.5 m away, level pitch: on the datum it left one
+    // mark at z 0.500 (top +0.649 above that floor); with the same room raised +1.0 m it left ZERO - the
+    // sparks flew at the true 2.500 and the hole simply was not punched, because eyeH 2.5 failed a window
+    // written when every face spanned 0..1. Both directions gate: the raised band must leave a mark (the
+    // defect), and the same shot on the datum must leave exactly one at the altitude it used to (so a
+    // "punch a mark unconditionally" fix cannot satisfy the row). The shot is a click through tryFire, not
+    // a call to addWallMark, so the row dies if the branch moves or the window comes back.
+    vboot();
+    {
+      // The generator's walls are the one-cell perimeter ring on this seed (measured: 0 interior faces, 24
+      // border ones, and 100 solid cells = 26*4-4), so the face being shot is the east wall of the arena.
+      // x stops at MAP.w-2 so the wall cell itself is in bounds: floorAt/ceilAt answer 0 and 1 off-map, which
+      // is right for a face the map never describes, and wrong to lean on here.
+      const cands = S1(`{const a=[];for(let y=1;y<MAP.h-1;y++)for(let x=1;x<MAP.w-1;x++)
+        if(!isSolid(x+0.5,y+0.5)&&isSolid(x+1.5,y+0.5))a.push(x+0.5,y+0.5);return a}`);
+      const spot = cands.length ? [cands[0], cands[1]] : null;
+      if (!vsetup('mark setup found a wall face to shoot', !!spot,
+        `${cands.length} open cell(s) with a solid cell east of it`)) { }
+      else {
+        const cx = spot[0], cy = spot[1];
+        const fire = () => {
+          S1(`{DECALS.length=0;PARTS.length=0;ENEMIES.length=0;PROJ.length=0;
+              P.x=${cx};P.y=${cy};P.z=floorAt(P.x,P.y);P.air=false;P.vx=P.vy=P.vz=0;P.ang=0;P.pitch=0;
+              P.crouch=0;P.deadT=0;P.hp=100;P.fireT=0;P.reloadT=0;P.swapT=0;P.mag[0]=8;P.shots=0;
+              switchWeapon(0);P.swapT=0;return 0}`);
+          const hz = +S1(`{return +hitscan(0,0,46).z.toFixed(3)}`);
+          V('mouse.down=true'); frames(1); V('mouse.down=false'); frames(1);
+          const d = S1(`{return [DECALS.length, DECALS.length?+DECALS[0].z.toFixed(3):null,
+              +floorAt(P.x,P.y).toFixed(3), +eyeH().toFixed(3), P.shots]}`);
+          return { hz, n: d[0], z: d[1], floor: d[2], eye: d[3], shots: d[4] };
+        };
+        const flat = fire();
+        vpoke(cx | 0, cy | 0, 3);                                 // the shooter's own cell +0.75 m
+        const band = fire();
+        const zTop = +S1(`{return +MAP.ceilPlane[(P.y|0)*MW+(P.x|0)].toFixed(3)}`);
+        vrow('a bullet hole sits where the bullet hit it',
+          flat.shots === 1 && flat.n === 1 && Math.abs(flat.z - flat.hz) <= 0.35 &&
+          band.shots === 1 && band.n === 1 && Math.abs(band.z - band.hz) <= 0.35 &&
+          band.z > band.floor + 0.2 && band.z < zTop,
+          `flat: ${flat.n} mark(s) at z ${flat.z} for a hit at ${flat.hz} (floor ${flat.floor}, eye ` +
+          `${flat.eye}, ${flat.shots} shot) | shooter's cell +0.75: floor ${band.floor}, face tops out at ` +
+          `${zTop}: ${band.n} mark(s) at z ${band.z} for a hit at ${band.hz}, want above ` +
+          `${(band.floor + 0.2).toFixed(2)} and below ${zTop}`
+          + (flat.n === 0 ? ' - VACUOUS: the same shot leaves no mark on flat ground either' : ''));
+        vrestore();
+      }
+    }
+
     console.log('VERT lane: ' + vgate + ' gating row(s), ' + vknown + ' known-issue row(s)' +
       (vknown ? ' - STRICT=1 promotes them' : ''));
   }
