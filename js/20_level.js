@@ -250,25 +250,70 @@ function losZ(ax, ay, az, bx, by, bz) {
    floor+0.25 (a fiction - a solid column has no air), so comparing against it would stop the shot mid-wall and
    un-mark every hit. Returns maxT when the ray never leaves its band. Only the CEILING term is here; see the
    floor note in the loop - the riser case is a wall hit and needs its own pass (#125 deferred half). */
+/* Where a shot's ray leaves the band it travels through (#125 ceiling, #128 riser). Returns {t, kind, side}:
+   kind 0 = stays in its band for maxT; kind 1 = rose through the CEILING plane of the cell it is in, which is
+   not a face, so the caller stops the shot there with no wall verdict and no mark; kind 2 = stepped BELOW the
+   floor of the cell it entered, which is a RISER - a drawn face - so the caller reports a wall hit at t on
+   boundary `side` and the mark belongs to the riser rather than to whatever stands behind the drop. Both planes
+   are re-keyed per SAMPLED cell, so a shot travelling through a ramp or an atrium opening is stopped neither by
+   the ceiling it started under nor by a step it flies over. A solid cell returns maxT, because ceilAt there is
+   floor + 0.25 - a fiction, a solid column has no air - and comparing against it stops the shot mid-wall.
+   t is solved exactly at the crossing (the cell boundary is an integer line, the ceiling plane is constant
+   inside a cell), not the sample distance, so a riser mark lands on the plane instead of 14 cm inside the cell. */
 function bandExitT(ax, ay, dx, dy, az, tanP, maxT) {
-  if (!(maxT > 0)) return maxT;
+  const out = { t: maxT, kind: 0, side: 0 };
+  if (!(maxT > 0)) return out;
   const st = 0.14, n = (maxT / st) | 0;                      // losZ's resolution: a 1-unit band cannot be crossed unseen
+  let pxi = ax | 0, pyi = ay | 0;
+  let cz = ceilAt(ax, ay), fl = floorAt(ax, ay);             // the GOVERNING band: the one the ray is inside
   for (let i = 1; i <= n; i++) {
     const t = i * st, x = ax + dx * t, y = ay + dy * t;
-    if (isSolid(x, y)) return maxT;
+    if (isSolid(x, y)) return out;                           // the caller's own wall governs (see header)
     const z = az + tanP * t;
-    // CEILING only, on purpose. The floor term is a different defect and is deferred: stepping below the floor
-    // of the cell sampled means the ray met a riser, which is a FACE, so the right answer there is a wall hit
-    // at the boundary (mark and all), not a mid-air stop - and shipping it flips view.js sight's +/-1-band
-    // rows, which assert a hit on an enemy one unit up through a boundary whose opening is [1.00, 1.00], i.e.
-    // sealed. Those rows pass today only because the floor test does not exist; changing their claim needs its
-    // own pass. Measured on this branch with both terms: L2 chest shot at band +1 stops at t 1.8 (aim 1.510).
-    if (z >= ceilAt(x, y)) return t;
+    if (z >= cz) {                                           // rose out of the band it is travelling in
+      out.kind = 1;
+      out.t = tanP > 0 ? (cz - az) / tanP : t;
+      return out;
+    }
+    const ix = x | 0, iy = y | 0;
+    if (ix !== pxi || iy !== pyi) {
+      const nfl = floorAt(x, y), ncz = ceilAt(x, y);
+      if (z < nfl && z >= fl) {          // a band whose floor is above a ray that is STILL IN its own band: a riser.
+                                                             // The second term is load-bearing: a shot pitched down has
+                                                             // already left its band through its own floor plane,
+                                                             // and hitscan models no ground at all, so that ray
+                                                             // keeps flying - and reaches an enemy standing in a
+                                                             // pit below - instead of inventing a slab it cannot see.
+        out.kind = 2;
+        if (ix !== pxi) { out.side = 0; out.t = dx !== 0 ? ((dx > 0 ? ix : ix + 1) - ax) / dx : t; }
+        else { out.side = 1; out.t = dy !== 0 ? ((dy > 0 ? iy : iy + 1) - ay) / dy : t; }
+        if (!(out.t > 0)) out.t = t;
+        return out;
+      }
+      if (ncz > z) { cz = ncz; fl = nfl; }                   // the ray steps INTO that band: re-key the planes
+    }                                                        // else the band lies wholly below the ray - a hole in
+                                                             // the floor it is flying over - so the governing
+                                                             // ceiling stays, and the shot keeps descending
+                                                             // until it enters that band for real
+    pxi = ix; pyi = iy;
   }
-  return maxT;
+  return out;
 }
 
+/* Why the three cases above are the whole rule, learned the hard way in #128. The naive form - test the planes
+   of whatever cell the sample lands in - is wrong twice, and both wrongnesses were measured:
+   - a cell LOWER than the shooter (a pit, or a poke of -1 unit) has a derived ceiling equal to the surrounding
+     floor plane, which is ABOVE the ray as it descends: a state test sees "z >= ceilAt" and stops the shot at
+     the boundary. But the ray is not through a ceiling, it is passing OVER a hole, and the ceiling that governs
+     it is the one it is still inside (measured: view.js sight's band -1 rows turned into `MISS t 1.8 into wall`).
+   - a cell whose floor is above the ray is not a plane crossing either, it is an EDGE: the boundary itself is
+     the face, which is why the stop distance is solved from the integer boundary line, not from the sample.
+   A floor crossing inside one cell (walking a shot down through its own floor plane) is unreachable by a shot
+   from eye height in a level cell, so the governing planes only ever change at a boundary - and `fl` is kept
+   for that reason, not because anything reads it here. */
+
 function pickWallTex(cfgL) { return Math.random() < 0.78 ? cfgL.wall : cfgL.wall2; }
+
 
 /* Adds one light's contribution to the lightmap; a negative amount takes it back out.
    Static lights are splatted once at generation, transient ones re-splat their delta
@@ -363,7 +408,13 @@ function addWallMark(x, y, z, side, kind) {
   const air = isSolid(c1[0] + 0.5, c1[1] + 0.5) ? c2 : c1;
   const wall = air === c1 ? c2 : c1;
   const z0 = Math.max(floorAt(air[0] + 0.5, air[1] + 0.5), floorAt(wall[0] + 0.5, wall[1] + 0.5));
-  const z1 = ceilAt(air[0] + 0.5, air[1] + 0.5);
+  /* Two open cells (a riser between bands) bound the face from BOTH sides, and the mark must stay inside the
+     opening [max floor, min ceiling] - ceilAt of whichever cell happened to be non-solid would let a mark float
+     up into the higher band's ceiling. A solid side is skipped: its ceilAt is the fiction (floor + 0.25), which
+     is why this is a min over air cells only and not a general rule. */
+  const bothAir = !isSolid(c1[0] + 0.5, c1[1] + 0.5) && !isSolid(c2[0] + 0.5, c2[1] + 0.5);
+  const z1 = bothAir ? Math.min(ceilAt(c1[0] + 0.5, c1[1] + 0.5), ceilAt(c2[0] + 0.5, c2[1] + 0.5))
+    : ceilAt(air[0] + 0.5, air[1] + 0.5);
   addDecal({ x, y, z: clamp(z, z0 + r, Math.max(z0 + r, z1 - r)), r, side: side + 1,
     tex: kind === 'scorch' ? DECAL.scorch : DECAL.bullet, a: 0.9 });
 }

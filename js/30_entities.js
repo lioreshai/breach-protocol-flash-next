@@ -109,11 +109,14 @@ function hitscan(ang, tanP, range) {
   const dx = Math.cos(ang), dy = Math.sin(ang), ox = P.x, oy = P.y, oz = eyeH();
   const wall = castRayDist(ox, oy, dx, dy, range);
   /* #125: a shot stops where it leaves the band it travels through, so a ray pitched above its own ceiling no
-     longer reaches the wall behind it - and no longer paints a hole along that wall's top edge. Bounded by the
-     wall distance, so the march is a handful of samples on the shots that matter. */
-  const bt = bandExitT(ox, oy, dx, dy, oz, tanP, Math.min(range, wall.wall ? wall.dist : range));
-  const bandStop = bt < wall.dist;
-  let bestT = bandStop ? bt : wall.dist, best = null, hitObj = null;
+     longer reaches the wall behind it - and no longer paints a hole along that wall's top edge. #128 adds the
+     other way out: stepping below the floor of the cell entered means the ray met a riser, which IS a face, so
+     that one reports as a wall hit on the boundary and marks the riser instead of what stands behind the drop.
+     Bounded by the wall distance, so the march is a handful of samples on the shots that matter. */
+  const bx = bandExitT(ox, oy, dx, dy, oz, tanP, Math.min(range, wall.wall ? wall.dist : range));
+  const ceilStop = bx.kind === 1 && bx.t < wall.dist;
+  const riser = bx.kind === 2 && bx.t < wall.dist;
+  let bestT = (ceilStop || riser) ? bx.t : wall.dist, best = null, hitObj = null;
   for (const e of ENEMIES) {
     if (e.state === 'dead') continue;
     const ex = e.x - ox, ey = e.y - oy, proj = ex * dx + ey * dy;
@@ -142,7 +145,7 @@ function hitscan(ang, tanP, range) {
   }
   const hx = ox + dx * bestT, hy = oy + dy * bestT, hz = oz + tanP * bestT;
   return { t: bestT, x: hx, y: hy, z: hz, enemy: best, info: hitObj,
-    wall: wall.wall && !bandStop, side: wall.side, band: bandStop };
+    wall: riser || (wall.wall && !ceilStop), side: riser ? bx.side : wall.side, band: ceilStop };
 }
 
 /* ---------------- firing ---------------- */
