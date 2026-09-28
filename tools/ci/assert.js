@@ -240,10 +240,23 @@ async function main() {
     if (cdp) cdp.close();
     proc.kill('SIGTERM');
     setTimeout(() => { if (proc.exitCode === null) proc.kill('SIGKILL'); }, 3000).unref();
-    // Chrome is still writing into the profile when it dies, so a failed cleanup is noise and
-    // must not masquerade as the verdict (it turned a port timeout into an ENOTEMPTY report).
-    try { fs.rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }); } catch (e) { console.log('note: left ' + dir + ' behind: ' + e.message); }
+    // Chrome is still writing into the profile when it is signalled, so removing the directory immediately
+    // loses to it: CI's log showed ENOTEMPTY on Default and one leftover directory per run (#145), and 10
+    // retries of 200 ms were not enough because the process was alive for all of them. Wait for it to exit,
+    // and if the remove still refuses, the path goes to stderr so the verdict stays the last stdout line.
+    await exited(proc, 4000);
+    try { fs.rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }); }
+    catch (e) { console.error('note: left ' + dir + ' behind: ' + e.message + ' - remove it manually'); }
   }
 }
 
 main().then(c => { process.exitCode = c; }, e => { console.log('EXPOSURE GATE: NOT MEASURED - ' + (e && e.stack || e)); process.exitCode = 3; });
+
+// resolve when the child is really gone (or after ms), so cleanup cannot race its profile writes (#145)
+function exited(p, ms) {
+  return new Promise(res => {
+    if (p.exitCode !== null || p.signalCode) return res();
+    const t = setTimeout(res, ms);
+    p.once('exit', () => { clearTimeout(t); res(); });
+  });
+}
