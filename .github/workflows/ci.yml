@@ -25,6 +25,12 @@ jobs:
         with:
           node-version: 22
 
+      - name: Workflow YAML parses and can run
+        # The other half of #107's fix. This job is a required check, so a pr-guard.yml that no longer
+        # parses fails HERE instead of vanishing; tools/wfyaml.rb says why an unparseable workflow is
+        # worse than a failing one.
+        run: ruby tools/wfyaml.rb --dir .github/workflows
+
       - name: Must stay dependency-free
         run: |
           set -euo pipefail

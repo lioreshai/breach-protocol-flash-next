@@ -75,3 +75,20 @@ jobs:
           echo "issue but leaves it open, and an issue that is quietly never closed is worse than"
           echo "no issue at all, because it teaches everyone to ignore the tracker."
           exit 1
+
+  yaml:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Workflow YAML parses and can run
+        # #107: a workflow that does not parse produces ZERO jobs, so nothing is reported on the PR
+        # and an admin merge - `gh pr merge --admin` always bypasses protection rather than satisfying
+        # it - goes through the gap. One step name grew a colon-space, which a plain YAML scalar cannot
+        # carry, and all of ci.yml went inert while every check read green. A guard cannot check the
+        # file it lives in, so the identical step is ALSO in ci.yml's required job: each one reports
+        # the other breaking. The rules live in tools/wfyaml.rb, which fails loudly if the parser is
+        # missing or the directory glob matches nothing, instead of passing.
+        run: |
+          set -euo pipefail
+          ruby tools/wfyaml.rb --dir .github/workflows
