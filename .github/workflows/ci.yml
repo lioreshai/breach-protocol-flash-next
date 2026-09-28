@@ -106,7 +106,7 @@ jobs:
           # diag, stats and sheets compute no exit code at all, and rig has a problem counter that is
           # printed but not wired to one. A "pass" line here does not mean checked.
           status=0
-          for p in alt exposure contrast rig stats sheets decal diag; do
+          for p in alt cull exposure contrast rig stats sheets decal diag; do
             if node tools/view.js "$p" >/tmp/probe_$p.log 2>&1; then r=pass; else r=FAIL; status=1; fi
             echo "== $p: $r"
             tail -6 /tmp/probe_$p.log
