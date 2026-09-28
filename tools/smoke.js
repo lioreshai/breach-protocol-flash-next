@@ -638,6 +638,48 @@ const release = () => fire('mouseup', { button: 0 });
       }
     }
 
+    // V11 - enemy sight was a 2D march over isSolid only (#118): a raised band is not solid, so an enemy
+    // saw - and shot - straight through a slab of floor whose riser the wall pass paints and whose
+    // boundary byte refuses to let it walk through. Measured on the deployed build before the fix: los()
+    // true across a +1.0 m plateau in the middle of a 9 m run, floorAt at the midpoint 1.0, isSolid false.
+    // The shelf goes BETWEEN the two bodies with both of them on the flat band, because that is the case
+    // the old ray got wrong in both directions at once: player-on-the-shelf is genuinely visible over a
+    // 0.75 m lip, and asserting THAT would have been a row about geometry rather than about the ray.
+    // Both halves gate: the shelf must cost sight (the fix), and the same 9 m of flat floor must NOT
+    // (else "this enemy never sees anyone" would satisfy the row - the failure V6 and V10 dodge the
+    // same way). P.hp is in the detail because an alert enemy that cannot see still cannot hurt anyone,
+    // and a row that only reads `alert` would pass on a lane where the shooting broke.
+    vboot();
+    {
+      const ln = vlane(9);
+      if (!vsetup('sight setup found a 9 m clear run', !!ln, 'no clear corridor on this seed')) { }
+      else {
+        const ey = ln[1], ax = ln[0] + 0.5, bx = ln[0] + 8.5;
+        const drive = () => {
+          S1(`{ENEMIES.length=0;PROJ.length=0;PARTS.length=0;
+              const e=makeEnemy('grunt',${ax},${ey}+0.5);e.state='idle';e.alert=false;e.cd=0;
+              ENEMIES.push(e);P.x=${bx};P.y=${ey}+0.5;P.z=floorAt(P.x,P.y);P.air=false;
+              P.hp=100;P.deadT=0;P.crouch=0;return 0}`);
+          let shotFrames = 0;
+          for (let i = 0; i < 90; i++) { frames(1); shotFrames += S1('{PROJ.length?1:0}'); }
+          const r = S1('{return [ENEMIES[0].alert?1:0, ENEMIES[0].state, +P.hp.toFixed(1)]}');
+          S1('{PROJ.length=0;ENEMIES.length=0;return 0}');
+          return { shotFrames, alert: r[0], state: r[1], hp: r[2] };
+        };
+        const open = drive();                                    // 9 m of flat floor: it must see
+        for (let k = 3; k <= 5; k++) vpoke(ln[0] + k, ey, 3);      // a +0.75 m plateau between them
+        const shelf = drive();
+        const floorMid = S1(`{floorAt(${ln[0]}+4.5,${ey}+0.5)}`);
+        vrow('a floor above the sight line costs an enemy its sight',
+          open.alert === 1 && open.shotFrames > 0 && shelf.alert === 0 && shelf.shotFrames === 0 && shelf.hp === 100,
+          `flat run: alert ${open.alert}, state ${open.state}, ${open.shotFrames} frame(s) carrying the enemy's `
+          + `orb, hp ${open.hp} | plateau floor ${floorMid.toFixed(2)} between them: alert ${shelf.alert}, `
+          + `state ${shelf.state}, ${shelf.shotFrames} frame(s), hp ${shelf.hp}`
+          + (shelf.alert === 0 && open.alert === 0 ? ' - VACUOUS: the enemy sees nobody on flat ground either' : ''));
+        vrestore();
+      }
+    }
+
     console.log('VERT lane: ' + vgate + ' gating row(s), ' + vknown + ' known-issue row(s)' +
       (vknown ? ' - STRICT=1 promotes them' : ''));
   }
