@@ -239,6 +239,35 @@ function losZ(ax, ay, az, bx, by, bz) {
   return true;
 }
 
+/* #125: how far along a shot's ray it stays inside the band it is travelling through. A wall has no altitude
+   test - castRayDist is a 2D march - so before this a ray pitched past its own ceiling kept travelling and
+   punched a hole along the TOP EDGE of whatever wall was behind it (measured on the deployed build: hit z
+   2.50 against a face spanning 0.00..1.00, one mark stored at 0.856, which is the face top minus the decal
+   inset). The planes are re-keyed at every SAMPLED cell rather than fixed at the origin, because through a
+   ramp or stair opening the ceiling genuinely changes midway - a solver that used the origin's ceiling would
+   also stop the legitimate upward shot at an enemy standing on a raised band, which is the shot view.js
+   sight aims. Inside a solid cell the answer is the caller's own wall distance: ceilAt of a wall cell answers
+   floor+0.25 (a fiction - a solid column has no air), so comparing against it would stop the shot mid-wall and
+   un-mark every hit. Returns maxT when the ray never leaves its band. Only the CEILING term is here; see the
+   floor note in the loop - the riser case is a wall hit and needs its own pass (#125 deferred half). */
+function bandExitT(ax, ay, dx, dy, az, tanP, maxT) {
+  if (!(maxT > 0)) return maxT;
+  const st = 0.14, n = (maxT / st) | 0;                      // losZ's resolution: a 1-unit band cannot be crossed unseen
+  for (let i = 1; i <= n; i++) {
+    const t = i * st, x = ax + dx * t, y = ay + dy * t;
+    if (isSolid(x, y)) return maxT;
+    const z = az + tanP * t;
+    // CEILING only, on purpose. The floor term is a different defect and is deferred: stepping below the floor
+    // of the cell sampled means the ray met a riser, which is a FACE, so the right answer there is a wall hit
+    // at the boundary (mark and all), not a mid-air stop - and shipping it flips view.js sight's +/-1-band
+    // rows, which assert a hit on an enemy one unit up through a boundary whose opening is [1.00, 1.00], i.e.
+    // sealed. Those rows pass today only because the floor test does not exist; changing their claim needs its
+    // own pass. Measured on this branch with both terms: L2 chest shot at band +1 stops at t 1.8 (aim 1.510).
+    if (z >= ceilAt(x, y)) return t;
+  }
+  return maxT;
+}
+
 function pickWallTex(cfgL) { return Math.random() < 0.78 ? cfgL.wall : cfgL.wall2; }
 
 /* Adds one light's contribution to the lightmap; a negative amount takes it back out.
