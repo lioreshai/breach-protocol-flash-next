@@ -373,7 +373,13 @@ function updatePlayer(dt) {
         }
       }
       // auto-step and step-down: eased so a quantum of floor does not hitch the horizon, snapped when it converges
-      else if (gz !== P.z) { const dz = gz - P.z; P.z += Math.abs(dz) < 1e-4 ? dz : dz * Math.min(1, 16 * dt); }
+      else if (gz !== P.z) {
+        const dz = gz - P.z;
+        // a grounded rise of at most one quantum (ZQ = 0.25 m) is a step the feet simply take; anything
+        // taller is a wall by linkBoundaries' own rule, so this never lifts the player through a riser
+        if (dz > 0 && dz <= ZQ) P.z = gz;
+        else P.z += Math.abs(dz) < 1e-4 ? dz : dz * Math.min(1, 16 * dt);
+      }
     }
   }
   const spdNow = Math.hypot(P.vx, P.vy);
