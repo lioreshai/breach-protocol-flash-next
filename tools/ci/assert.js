@@ -87,6 +87,9 @@ const VW = +(process.env.VIEWPORT_W || 1280);
 const VH = +(process.env.VIEWPORT_H || 720);
 const STRIDE = +(process.env.STRIDE || 4);
 const PEAK_MIN = +(process.env.PEAK_MIN || 0.002);   // #157: "nothing threw" is not "audible"; full scale 1.0
+// #168: renders per sound before the verdict, odd so the median is one of the renders that happened.
+// Only reached when a render lands at or under PEAK_MIN, so a healthy run still renders each sound once.
+const RENDERS_MAX = Math.max(1, (+(process.env.RENDERS_MAX || 5) | 0) | 1);
 const DEADLINE = +(process.env.DEADLINE || 300) * 1000;
 const url = 'file://' + path.join(ROOT, 'index.html') + '?dev=1&boot=0';
 
@@ -251,6 +254,7 @@ const AUDIO_FN = `(async function () {
     };
   }
   const pans = [0, 0.45, -0.62];        // 0 is the ONE value that used to survive chain(); the others are what panOf() returns
+  const PEAK_MIN = ${PEAK_MIN}, RMAX = ${RENDERS_MAX};   // the gate's own threshold and render cap, injected from node
   const calls = [];
   for (const k of ['pistol', 'shotgun', 'rifle', 'dry']) calls.push(['shot', [k]]);
   calls.push(['reload', [1]], ['reload', [2]]);
@@ -262,11 +266,13 @@ const AUDIO_FN = `(async function () {
   // fanfare is deliberately NOT in the sweep: its notes go through setTimeout, so offline rendering
   // cannot schedule them and a peak measured here would be a stopwatch reading, not a sound. Saying so
   // is the point - a probe that quietly skips a sound and counts it as covered is worse than no probe.
-  for (const c of calls) {
-    const name = c[0] + '(' + c[1].join(',') + ')';
+  // One render of one sound: its own context, its own graph, its own peak. This is the quantity
+  // PEAK_MIN has always been compared against - nothing about it is changed here, only how many
+  // times it is drawn before the verdict (below).
+  async function renderOnce(c) {
     S.audioBroken = false;
     const off = new OfflineAudioContext(2, N, SR);
-    try { SND.init(off); } catch (e) { out.sounds.push({ name: name, threw: 'init: ' + String(e.message || e).slice(0, 120), warned: 0, peak: 0 }); continue; }
+    try { SND.init(off); } catch (e) { return { peak: 0, threw: 'init: ' + String(e.message || e).slice(0, 120), warned: 0, foreign: 0 }; }
     const w0 = out.warns.length;
     let threw = null;
     allow = 1;
@@ -281,8 +287,39 @@ const AUDIO_FN = `(async function () {
         for (let i = 0; i < d.length; i++) { const v = d[i] < 0 ? -d[i] : d[i]; if (v > pk) pk = v; }
       }
     } catch (e) { threw = (threw ? threw + ' ; ' : '') + 'render: ' + String(e.message || e).slice(0, 120); }
-    pk = +pk.toFixed(5);
-    out.sounds.push({ name: name, threw: threw, warned: out.warns.length - w0, peak: pk, foreign: supTotal - sup0 });
+    return { peak: +pk.toFixed(5), threw: threw, warned: out.warns.length - w0, foreign: supTotal - sup0 };
+  }
+  function median(a) {
+    const s = a.slice().sort((x, y) => x - y), n = s.length;
+    return n % 2 ? s[(n / 2) | 0] : (s[(n / 2 | 0) - 1] + s[n / 2 | 0]) / 2;
+  }
+
+  for (const c of calls) {
+    const name = c[0] + '(' + c[1].join(',') + ')';
+    /* A peak is ONE DRAW from a distribution, not a property of a sound. js/00_core.js:117 rolls
+       playbackRate and :125 rolls where in the noise buffer the source starts, and SND.init refills
+       that buffer per render, so every render draws a different waveform through the same envelope.
+       #175 measured step() at median 0.00298 / min 0.00146 against a 0.002 floor, and this gate read
+       one draw per sound per run - so "inaudible" was ~7% probable for a sound that is audible every
+       time, and a BLOCKING check was a coin flip (#168: two unrelated PRs eaten in an hour).
+       The verdict is therefore the MEDIAN of an odd number of renders. A sound that is silent
+       renders 0.00000 every time and stays red; a sound whose median sits under the floor stays red;
+       only the luck of a single draw can no longer decide. Renders are added in PAIRS and the median
+       is tested on odd counts only, so the verdict is always one of the renders that actually
+       happened rather than an average of two that straddles the floor, and it stops as soon as the
+       median clears the floor - so the common case is still exactly one render per sound. */
+    const peaks = [];
+    let threw = null, warned = 0, foreign = 0;
+    for (let r = 1; r <= RMAX; r++) {
+      const one = await renderOnce(c);
+      peaks.push(one.peak); warned += one.warned; foreign += one.foreign;
+      if (one.threw && !threw) threw = one.threw;
+      if (threw) break;                       // a throw fails on its own and repeats for the same reason
+      if (r % 2 === 1) { const m = median(peaks); if (m > PEAK_MIN || r >= RMAX) break; }
+    }
+    const pk = median(peaks);
+    out.sounds.push({ name: name, threw: threw, warned: warned, peak: pk, renders: peaks.length,
+      all: peaks, spread: +(Math.max.apply(null, peaks) - Math.min.apply(null, peaks)).toFixed(5), foreign: foreign });
     if (pk > out.peakMax) out.peakMax = pk;
   }
   // Hand the game back its own live context, and its own unwrapped burst/tone.
@@ -353,8 +390,19 @@ async function mainAudio() {
     for (const s of bad.concat(quiet)) {
       console.log('  ' + pad(s.name, 22) + ' peak ' + s.peak.toFixed(5) + '  '
         + (s.threw ? 'THREW ' + s.threw : (s.warned ? 'warn x' + s.warned + ': ' + r.warns.slice(-1)[0] : 'SILENT'))
-        + '  own renders ' + (s.renders || 1) + ', foreign calls dropped ' + (s.foreign || 0));
+        + '  own renders ' + (s.renders || 1) + (s.renders > 1 ? ' [' + s.all.join(' ') + ']' : '')
+        + ', foreign calls dropped ' + (s.foreign || 0));
     }
+    const retried = r.sounds.filter(s => (s.renders || 1) > 1 && !s.threw && !s.warned && s.peak > PEAK_MIN);
+    for (const s of retried) {
+      console.log('  ' + pad(s.name, 22) + ' peak ' + s.peak.toFixed(5) + ' = median of ' + s.renders + ' renders, spread '
+        + s.spread.toFixed(5) + ' [' + s.all.join(' ') + '] - a draw landed at or under ' + PEAK_MIN + ' and the median'
+        + ' cleared it, which is the row that used to be a flake.');
+    }
+    const draws = r.sounds.reduce((a, s) => a + (s.renders || 1), 0);
+    console.log('  verdict per sound is the median of up to ' + RENDERS_MAX + ' renders, re-rendered only while that median sat at or'
+      + ' under ' + PEAK_MIN + ': ' + draws + ' renders for ' + r.sounds.length + ' sounds this run, so a silent sound is still'
+      + ' silent in every render and one lucky transient cannot save it.');
     console.log('  peaks: max ' + r.peakMax + ', inaudible ' + quiet.length + '/' + r.sounds.length + ', throwing '
       + bad.length + ', S.audioBroken after sweep ' + r.broken + ', S.err ' + JSON.stringify(r.err));
     if (bad.length || quiet.length || r.broken) {
