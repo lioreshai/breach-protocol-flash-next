@@ -3200,6 +3200,12 @@ if (MODE === 'props') {
      that way. */
   const W = run('BW'), H = run('BH'), N = W * H;
   const LI = +(process.argv[3] || 0);
+  /* #180: the view model is GEOMETRY in the world buffer now, so a probe that isolates a prop by
+     pixel diff measures the rifle along with it - measured 12 failures here, every one of them the
+     gun in the lower-right corner of the mask ("the silhouette is CUT by the frame, rows ..337").
+     The rig is not furniture and not part of the world these rows measure, so it is suppressed here
+     the way the viewmodel probe suppresses the WORLD to see the rig alone. */
+  run('window.drawViewModel = function () {};');
   const lum = (b, i) => 0.2126 * (b[i] & 255) + 0.7152 * (b[i] >> 8 & 255) + 0.0722 * (b[i] >> 16 & 255);
 
   /* COST=1: the census lane, before the single-prop placement below rewrites the arrays. */
