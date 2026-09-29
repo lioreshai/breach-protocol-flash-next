@@ -1,6 +1,24 @@
 ## Unreleased
 
 ### Fixed
+- **Altitude was in the grid but not on the screen: a step lip read as a ramp and the minimap
+  ignored height** (#164).
+  A human playing the deployed build after #162 could walk up a staircase yet could not tell they had
+  changed level. Risers wear the level's floor material, measuring **86.5 / 87.0 / 86.4** against floor
+  **73.2 / 71.4 / 71.0** - a brighter patch of the SAME texture, so there was a luminance cue and no
+  EDGE cue, and the minimap read `cell`/`explored` only. A multiply **crease** is now drawn on the row
+  where the visible surface changes (light-independent, because an additive rim is floored by `AMB 0.19`
+  exactly where separation is needed), plus a band tint per band on the minimap (band 0 keeps the colour
+  that shipped, so a flat level paints byte-identical ink). Mean absolute luminance jump across the lip:
+  faces **32.1 / 16.1 / 38.4 -> 97.3 / 37.8 / 118.9**, walkable lips **9.4 / 6.9 / 2.0 -> 45.4 / 55.9 /
+  34.3**, and the share of walkable lip pixels within 10 luminance of their neighbour falls
+  **72.9 / 100 / 100 -> 0.0 / 18.3 / 16.7**. Gated by a new **blocking** probe, `view.js bands`, that runs
+  the real DDA per column, cross-checks every claim against the renderer's own `zbuf`, counts pixels
+  instead of averages, and fails 11 rows with the seam term switched off.
+  Known and filed, not hidden: the **walkable** half of the seam keys on the wall march's first crossing
+  rather than the ground pass's own plane test, so it lands correctly in 38/60, 48/60, 33/60 columns
+  (#167).
+
 - **Generated levels contained no altitude: every shipped level was a flat slab** (#152, M3's
   generation half).
   `genLevel` allocated `MAP.fz` as all zeros and no line in `js/` ever wrote it, so the whole vertical

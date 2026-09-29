@@ -13,6 +13,11 @@ let drawCalls = 0, pixFilled = 0, reSolveBad = 0, gndOffMap = 0;   // last two: 
 let bloomCv = null, bloomCtx = null, canFilter = false, grainCv = null, grainPat = null, grainSeed = 0;
 let FARB = 22, AMB = 0.13, GQ = null;
 let G_TRI = false, G_GRIT = 0;                                  // derived from QUAL.rast
+/* #164: altitude reached the geometry and no pixels. A seam at the CREASE of every step the render
+   ray crosses - the foot darkened, the far lip lifted - is the one cue that survives a dark room, so
+   it is a MULTIPLY on composited pixels, not an additive term the AMB floor sinks. World-scaled, so
+   it stays SEAMW metres wide at any depth, and narrow, so it is an edge and not a shade. */
+let SEAM = 1, SEAMD = 0.62, SEAMU = 0.13, SEAMW = 0.16, SEAMC = 0.22;
 /* The wall bilinear fetch is inlined at its one call site below rather than factored into a
    function that writes its result into a scratch array: a module-global typed-array out-param
    blocks V8 inlining and register allocation, and the same code inlined measured 21 -> 12 ms
@@ -487,6 +492,36 @@ function decalAlpha(dc, wx, wy, dfade) {
   return dc.a * t * dfade;
 }
 
+/* Paint the seam of one step lip in one column. zA is the floor on the side of the lip the ray is
+   standing on - the lower floor of a drawn riser, whose foot that is - and zB the floor beyond, t the
+   perpendicular distance of the boundary. A floor below the eye always projects BELOW its own row,
+   so the near surface owns every row under yc(zA) and the far surface every row above it: the band
+   therefore always runs UPWARD from yc(zA), into the riser for a step up (which the wall pass draws
+   at >=2 quanta and paints straight through at 1 quantum it walks over - the reason #164 could ship
+   with the geometry right and the picture flat) and into the far floor for a step down. Capped to
+   half the riser's projected height, so a 1 m face gets a seam at its foot, not a gradient.
+   amp < 0 shades a crease, amp > 0 lifts a lip; a multiply either way, so the AMB floor that sinks an
+   additive rim in a dark room cannot sink this. */
+function seamCrease(x, t, zA, zB, amp) {
+  if (!(t > 0.001)) return;
+  const hp = BH / t, yA = horizon + (eyeZ - zA) * hp, yB = horizon + (eyeZ - zB) * hp;
+  const bw = Math.min(Math.abs(yB - yA) * 0.5, hp * SEAMW);
+  if (!(bw > 0.5)) return;
+  const y0 = Math.floor(yA);
+  for (let k = 0; k <= bw; k++) {
+    const y = y0 - k;
+    if (y < 0) break;
+    if (y >= BH) continue;
+    const i = y * BW + x, v = px[i];
+    // the lip row itself carries an extra term: where the far surface is already darker than the
+    // floor in front of it, a gradient alone passes THROUGH the floor's brightness and the lip
+    // vanishes (measured on L1: mean |dL| 25 with the gradient, and the sign of the difference
+    // changes across levels, so an unsigned threshold cannot be the whole gate)
+    const kk = 1 + amp * (1 - k / bw) - (!k && amp < 0 ? SEAMC : 0);
+    px[i] = (0xFF000000 | clampi((v >> 16 & 255) * kk) << 16 | clampi((v >> 8 & 255) * kk) << 8 | clampi((v & 255) * kk)) >>> 0;
+  }
+}
+
 /* ------------------------------------------------------------------
    walls: DDA + coloured light + face shading + decals
    ------------------------------------------------------------------ */
@@ -506,9 +541,10 @@ function castWalls(flash, fcR, fcG, fcB) {
     let stepX, stepY, sdx, sdy, side = 0;
     if (rdx < 0) { stepX = -1; sdx = (camX - mx) * ddx; } else { stepX = 1; sdx = (mx + 1 - camX) * ddx; }
     if (rdy < 0) { stepY = -1; sdy = (camY - my) * ddy; } else { stepY = 1; sdy = (my + 1 - camY) * ddy; }
-    let tv = 0, guard = 0, riser = 0, rz0 = 0, rz1 = 1;
+    let tv = 0, guard = 0, riser = 0, rz0 = 0, rz1 = 1, crk = 0, cT = 0, cA = 0, cB = 0;
     while (guard++ < 180) {
-      if (sdx < sdy) { sdx += ddx; mx += stepX; side = 0; } else { sdy += ddy; my += stepY; side = 1; }
+      let tX;
+      if (sdx < sdy) { tX = sdx; sdx += ddx; mx += stepX; side = 0; } else { tX = sdy; sdy += ddy; my += stepY; side = 1; }
       if (mx < 0 || my < 0 || mx >= N || my >= N) { tv = 1; break; }
       tv = cellArr[my * N + mx];
       if (tv !== 0) break;
@@ -536,11 +572,17 @@ function castWalls(flash, fcR, fcG, fcB) {
           const fhi = dq > 0 ? fzs[my * N + mx] : fzs[pi], flo = dq > 0 ? fzs[pi] : fzs[my * N + mx];
           riser = 1; rz0 = flo * ZQ; rz1 = fhi * ZQ; MAP.riserStops++; tv = WT.CONCRETE; break;
         }
+        /* A one-quantum boundary is walkable, so it is not a face and the ray flies straight through
+           it: remember the crossing and its two floors, and the seam below paints the riser the wall
+           pass was not allowed to draw. A ramp or ladder link means there is no lip to paint. */
+        if (dq && !crk && SEAM && !(vbs[pi] & ((VB_RAMP | VB_LADDER) << (d << 2)))) {
+          crk = 1; cT = tX; cA = fzs[pi] * ZQ; cB = fzs[my * N + mx] * ZQ;
+        }
       }
     }
     let perp = side === 0 ? sdx - ddx : sdy - ddy;
     if (!(perp > 0.0001)) perp = 0.0001;
-    if (tv === 0 || perp > FARB * 3) continue;
+    if (tv === 0 || perp > FARB * 3) { if (crk && !riser) seamCrease(x, cT, cA, cB, -SEAMD); continue; }
     /* A riser wears MAP.floorTex, the material this level already authors for its floors. It used to
        wear WTEX.CONCRETE, which is in NO level's palette: 136 texel-luminance against the 99 of level
        0's floor and the 89 of level 2's, so a banded level read ~+8 raster brighter than a flat one at
@@ -673,6 +715,8 @@ function castWalls(flash, fcR, fcG, fcB) {
         }
       }
     }
+    if (riser && SEAM) { seamCrease(x, perp, rz0, rz1, -SEAMD); seamCrease(x, perp, rz1, rz0, SEAMU); }
+    else if (crk) seamCrease(x, cT, cA, cB, -SEAMD);
   }
 }
 
@@ -1304,6 +1348,13 @@ function drawFeed(U) {
 }
 
 let mmLayer = null, mmCtx = null, mmKey = '', mmRevealed = -1, mmBuild = -1;
+/* Minimap band cue (#164): an air cell's ink carries which floor it is on, relative to the level's
+   modal band (MAP.fzBase). Index 0 is the colour this function used before the cue existed, so a flat
+   level maps every cell there and paints exactly what it painted then; only a stepped level adds ink,
+   and a staircase reads as a run of cells going lighter while a pit reads as warming away from you. */
+const MMBAND = ['rgba(120,74,46,.9)', 'rgba(110,69,45,.9)', 'rgba(99,64,44,.9)', 'rgba(86,60,44,.9)',
+  'rgba(28,48,70,.9)',
+  'rgba(52,96,120,.9)', 'rgba(68,122,148,.9)', 'rgba(86,148,174,.9)', 'rgba(108,178,204,.9)'];
 function drawMinimap(U) {
   const size = Math.min(DW * 0.2, DH * 0.24), pad = 18 * U;
   const x0 = DW - size - pad, y0 = pad + 6 * U, s = size / Math.max(MW, MH);
@@ -1315,7 +1366,9 @@ function drawMinimap(U) {
     mmCtx.fillStyle = 'rgba(5,9,15,.92)'; mmCtx.fillRect(0, 0, size, size);
     for (let y = 0; y < MH; y++) for (let x = 0; x < MW; x++) {
       if (!explored[y * MW + x]) continue;
-      mmCtx.fillStyle = MAP.cell[y * MW + x] !== 0 ? 'rgba(126,156,192,.5)' : 'rgba(28,48,70,.9)';
+      const ci = y * MW + x;
+      mmCtx.fillStyle = MAP.cell[ci] !== 0 ? 'rgba(126,156,192,.5)'
+        : MMBAND[4 + Math.max(-4, Math.min(4, (MAP.fz[ci] | 0) - (MAP.fzBase | 0)))];
       mmCtx.fillRect(x * s, y * s, s + 0.75, s + 0.75);
     }
     mmKey = key; mmRevealed = S.revealed; mmBuild = S.t;

@@ -111,6 +111,13 @@ jobs:
           node tools/view.js drop
           node tools/view.js horizon
           node tools/view.js cull
+          #   bands    #164's legibility gate: at a step lip the PIXELS must step where the DEPTH
+          #            buffer steps (the measured pair across the lip, and the % of lip pixels within
+          #            10 luminance of their neighbour), the seam term must be a narrow band AT the
+          #            crease and not a tint (its depth, its width against the riser's own height,
+          #            and how much of it survives a band's width away), and the minimap must ink
+          #            off-datum cells in colours the datum cells do not use
+          node tools/view.js bands
           #   alt      M3's exit gate on GENERATED levels: two bands or more, an unblocked link into
           #            every band above the datum, no open cell the height-aware crossing rule cannot
           #            reach, a staircase climbable on foot, no face of span<=0. It replaces the

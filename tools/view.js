@@ -16,7 +16,7 @@ const LVL = +(process.argv[3] || 0);
 const CAM = +(process.argv[4] || 0);
 // An unknown name used to fall through to the scene dump and exit 0, so a typo in a CI probe list
 // ran something, painted a PNG and reported a passing gate (#89).
-const PROBES = ['scene', 'alt', 'anim', 'contrast', 'cull', 'decal', 'diag', 'exposure', 'heights',
+const PROBES = ['scene', 'alt', 'anim', 'bands', 'contrast', 'cull', 'decal', 'diag', 'exposure', 'heights',
   'drop', 'horizon', 'mip', 'planes', 'play', 'props', 'rig', 'sheets', 'sight', 'stats', 'vert', 'viewmodel'];
 if (!PROBES.includes(MODE)) {
   console.error('unknown probe "' + MODE + '" - known: ' + PROBES.join(' '));
@@ -3009,6 +3009,310 @@ if (MODE === 'props') {
   console.log(bad ? 'PROPS PROBE: ' + bad + ' FAILURE(S)' : 'PROPS PROBE: every prop volumetric, light-exempt where emissive, and grounded');
   process.exit(bad ? 1 : 0);
 }
+if (MODE === 'bands') {
+  /* #164: altitude reached the geometry (#162) and no pixels - a player can climb a staircase and
+     report "almost impossible to tell I was on a different level". These rows ask the question that
+     complaint describes: WHERE THE RENDERER'S OWN DEPTH says the surface jumps, does the luminance
+     jump with it, and is the jump an EDGE (a narrow band at the crease) rather than a level shift?
+     Nothing here pokes MAP.fz - the lips come out of the GENERATED grid, the column classification
+     out of the renderer's ray and the seam A/B out of the SEAM global, so no row can be satisfied by
+     geometry the probe drew for itself (the trap every vertical row in this file used to have), and
+     every number counts columns, rows and pixels because an average cannot see the WIDTH of a band. */
+  let bad = 0;
+  const W = run('BW'), H = run('BH'), ZQS = run('ZQ');
+  const DIST = +(process.env.DIST || 3.5), STRIDE = +(process.env.STRIDE || 2);
+  // a column counts only when the plane it crossed IS the target plane: averaging columns that
+  // crossed a different lip smears the pair measure (measured 9.4 vs 38 for one and the same step)
+  const TOL = +(process.env.TOL || 0.06);
+  const DBG = !!process.env.DBG;
+  const SEAMW = run('typeof SEAMW === "number" ? SEAMW : 0');
+  const row = (label, ok, detail) => {
+    console.log('  ' + label.padEnd(52) + (ok ? ' ok  ' : ' FAIL') + '  ' + detail);
+    if (!ok) bad++;
+  };
+  const lum = (b, i) => 0.2126 * (b[i] & 255) + 0.7152 * (b[i] >> 8 & 255) + 0.0722 * (b[i] >> 16 & 255);
+  // -1 when the build has no such term: an assignment to a name the renderer never reads would
+  // silently create a new global and the A/B control would then prove nothing (AGENTS: a control
+  // that self-cancels is worse than no control), so the toggle is read back AND timed on pixels.
+  const seamArm = v => run('(function(){ if (typeof SEAM !== "number") return -1; SEAM = ' + v + '; return SEAM; })()');
+  const lumAvg = (b, w, y0, y1, x) => {
+    const a = Math.max(0, Math.min(H - 1, Math.round(y0))), e = Math.max(0, Math.min(H - 1, Math.round(y1))), st = e >= a ? 1 : -1;
+    let s = 0, n = 0;
+    for (let y = a; st > 0 ? y <= e : y >= e; y += st) { s += lum(b, y * w + x); n++; }
+    return n ? s / n : 0;
+  };
+  const lumDiffAvg = (p, q, w, y0, y1, x) => {
+    const a = Math.max(0, Math.min(H - 1, Math.round(y0))), e = Math.max(0, Math.min(H - 1, Math.round(y1))), st = e >= a ? 1 : -1;
+    let s = 0, n = 0;
+    for (let y = a; st > 0 ? y <= e : y >= e; y += st) { s += Math.abs(lum(p, y * w + x) - lum(q, y * w + x)); n++; }
+    return n ? s / n : 0;
+  };
+
+  /* First surface change along every column's ray, in the renderer's own parametrisation
+     (point = cam + ray * t, and t is also the perpendicular distance because dir.(dir + plane*cam)
+     = 1), refined by bisection so the row maths is not quantized by the sampling step. A crossing
+     into an open cell at the same altitude is not an event - the DDA does not stop there either.
+     kind: wall = a solid column; face = an air->air step of >=2 quanta, which the wall pass draws;
+     walk = exactly 1 quantum, which it does NOT draw (canEnter steps over it); ramp/ladder links
+     draw no lip either, so they are excluded from both kinds. */
+  const march = (cx, cy) => run(`(function () {
+    const N = MAP.w, cell = MAP.cell, fz = MAP.fz, vb = MAP.vb, sb = 2 / BW;
+    const NX = [1, 0, -1, 0], NY = [0, 1, 0, -1];
+    const D = ${DIST} + 0.3, CX = ${cx}, CY = ${cy}, RES = [];
+    const ceilOf = i => {                       // js/10_world ceilAt, mirrored for the face's top
+      const f = fz[i], x = i % N, y = (i / N) | 0; let m = 0;
+      for (let k = 0; k < 4; k++) { const nx = x + NX[k], ny = y + NY[k]; if (nx < 0 || ny < 0 || nx >= N || ny >= N) continue; const j = ny * N + nx; if (cell[j] || fz[j] > f) m = Math.max(m, fz[j] - f); }
+      return (f + Math.max(1, m)) * ZQ;
+    };
+    for (let x = 1; x < BW - 1; x += ${STRIDE}) {
+      const cam = x * sb - 1, rx = dirX + planeX * cam, ry = dirY + planeY * cam;
+      let mx = CX | 0, my = CY | 0, t = D, guard = 0, ev = null;
+      if (mx < 0 || my < 0 || mx >= N || my >= N || cell[my * N + mx]) { RES.push([x, 'void', 0, 0, 0, 0, 0]); continue; }
+      const sX = rx < 0 ? -1 : 1, sY = ry < 0 ? -1 : 1;
+      const qX = Math.abs(1 / rx), qY = Math.abs(1 / ry);
+      let sdX = rx < 0 ? (CX - mx) * qX : (mx + 1 - CX) * qX;
+      let sdY = ry < 0 ? (CY - my) * qY : (my + 1 - CY) * qY;
+      let prev = my * N + mx;
+      while (guard++ < 300) {                    // castWalls' own enumeration, side semantics included
+        let d;
+        if (sdX < sdY) { mx += sX; t = sdX; sdX += qX; d = sX > 0 ? 0 : 2; }
+        else { my += sY; t = sdY; sdY += qY; d = sY > 0 ? 1 : 3; }
+        if (t > D) break;
+        const cur = my * N + mx;
+        if (cell[cur]) { const a = fz[prev], w = fz[cur]; ev = [x, 'wall', w - a, t, a * ZQ, Math.max(a, w) * ZQ, ceilOf(prev)]; break; }
+        const dq = fz[cur] - fz[prev];
+        if (dq) {
+          if (vb[prev] & (VB_RAMP | VB_LADDER) << (d << 2)) { prev = cur; continue; }   // climbable: no lip
+          if (Math.abs(dq) > 1) {          // js/40_render.js:567 draws the SLAB side of an air->air step
+            ev = [x, 'face', dq, t, fz[prev] * ZQ, Math.min(fz[cur], fz[prev]) * ZQ, Math.max(fz[cur], fz[prev]) * ZQ];
+            break;
+          }
+          ev = [x, 'walk', dq, t, fz[prev] * ZQ, Math.min(fz[cur], fz[prev]) * ZQ, Math.max(fz[cur], fz[prev]) * ZQ];
+          break;
+        }
+        prev = cur;
+      }
+      RES.push(ev || [x, 'far', 0, D, fz[prev] * ZQ, 0, 0]);
+    }
+    return RES;
+  })()`);
+
+  /* A boundary of the wanted kind with a straight level 5-cell approach in any of the four
+     directions, nearest the spawn - the lip a player meets first. A tie goes to the one whose side
+     cells match, so most of the frame is looking at it. */
+  const lipFor = (kind, sx, sy) => run(`(function () {
+    const N = MW, cell = MAP.cell, fz = MAP.fz, vb = MAP.vb, want = ${JSON.stringify(kind)};
+    const DX = [1, 0, -1, 0], DY = [0, 1, 0, -1];
+    let best = null, bs = -1;
+    for (let y = 2; y < N - 2; y++) for (let x = 2; x < N - 2; x++) {
+      for (let d = 0; d < 4; d++) {
+        const i = y * N + x, j = (y + DY[d]) * N + x + DX[d];
+        if (cell[i] || cell[j] || j < 0 || j >= N * N) continue;
+        const dq = fz[j] - fz[i]; if (!dq) continue;
+        const linked = !!(vb[i] & (VB_RAMP | VB_LADDER) << (d << 2));
+        const here = Math.abs(dq) > 1 ? (linked ? 'ramp' : 'face') : 'walk';
+        if (here !== want) continue;
+        let ok = 1;
+        for (let k = 1; k <= 4; k++) {
+          const cx2 = x - DX[d] * k, cy2 = y - DY[d] * k;
+          if (cx2 < 1 || cy2 < 1 || cx2 >= N - 1 || cy2 >= N - 1) { ok = 0; break; }
+          const c = cy2 * N + cx2;
+          if (cell[c] || fz[c] !== fz[i]) { ok = 0; break; }
+        }
+        if (!ok) continue;
+        const p = d % 2 === 0 ? 1 : 0;                              // the lip's own long axis
+        let wide = 1;
+        for (const s of [-1, 1]) {
+          const a = (y + DY[p] * s) * N + x + DX[p] * s, b = a + DY[d] * N + DX[d];
+          if (cell[a] || cell[b] || fz[a] !== fz[i] || fz[b] !== fz[j]) break;
+          wide++;
+        }
+        const dd = Math.hypot(x + 0.5 - ${sx}, y + 0.5 - ${sy});
+        const sc = wide * 1000 - dd;
+        // the BOUNDARY PLANE, not the cell centre: a +x crossing lives at x+1 and a -x one at x, so
+        // the lens sits DIST of PERPENDICULAR distance from the lip the rows are solved against
+        const ppx = x + (DX[d] > 0 ? 1 : DX[d] < 0 ? 0 : 0.5), ppy = y + (DY[d] > 0 ? 1 : DY[d] < 0 ? 0 : 0.5);
+        if (sc > bs) { bs = sc; best = { x, y, d, dq, wide, cx: ppx - DX[d] * ${DIST}, cy: ppy - DY[d] * ${DIST}, ang: Math.atan2(DY[d], DX[d]) }; }
+      }
+    }
+    return best || { skip: 'no boundary of that kind with a straight level 5-cell approach' };
+  })()`);
+
+  const pose = (cx, cy, ang) => run(`(function () {
+    ENEMIES.length = 0; PROPS.length = 0; PROJ.length = 0; PARTS.length = 0;   // isolate the cast
+    P.x = ${cx}; P.y = ${cy}; P.ang = ${ang}; P.pitch = 0; P.crouch = 0;
+    P.vx = 0; P.vy = 0; P.vz = 0; P.air = false; P.bob = 0; P.kick = 0; P.z = floorAt(P.x, P.y);
+    return 1;
+  })()`);
+
+  // thresholds: mean |dL| at the lip and the darkest share of lip pixels that are indistinguishable
+  // from their neighbour. Measured on main f7d1847 with the seam absent: face lips 32.1 / 16.1 /
+  // 38.4 and walk lips 9.4 / 6.9 / 2.0 - so the number a face lip already clears is NOT the evidence
+  // a seam works (the band row below is), and this row is the #164 measurement itself.
+  const MEAN_MIN = +(process.env.MEAN_MIN || 30), WITHIN_MAX = +(process.env.WITHIN_MAX || 35);
+  for (let li = 0; li < 3; li++) {
+    const spawn = run(`(function () { startLevel(${li}, true); return [P.x, P.y]; })()`);
+    // SEAM=0 runs this whole probe with the term switched off in the renderer, so the same rows can
+    // be shown red against the shipped build rather than only against a base checkout
+    const seam = seamArm(process.env.SEAM === '0' ? 0 : 1);
+    let diffPx = 0;
+    for (const kind of ['face', 'walk']) {
+      const L = lipFor(kind, spawn[0], spawn[1]);
+      if (L.skip) { row(`L${li} ${kind} lip exists to measure`, false, L.skip); continue; }
+      pose(L.cx, L.cy, L.ang);
+      if (seam === 1) {
+        run('SEAM = 1');
+        if (process.env.SEAMD) run('SEAMD = ' + Number(process.env.SEAMD));
+        if (process.env.SEAMU) run('SEAMU = ' + Number(process.env.SEAMU));
+        if (process.env.SEAMW) run('SEAMW = ' + Number(process.env.SEAMW));
+      }
+      run('S.t = 3.5; renderWorld()');
+      const A = new Uint32Array(run('px')), zb = new Float32Array(run('zbuf'));
+      const hor = run('horizon'), eye = run('eyeZ'), risers = run('MAP.riserStops');
+      let B = A;
+      if (seam === 1) { run('SEAM = 0'); run('S.t = 3.5; renderWorld()'); B = new Uint32Array(run('px')); run('SEAM = 1'); }
+      const m = march(L.cx, L.cy);
+      if (DBG) {
+        const hsh = {};
+        for (const c of m) { const k = c[1] + (Math.abs(c[3] - DIST) <= TOL ? '@D' : '@else'); hsh[k] = (hsh[k] || 0) + 1; }
+        console.log(`    dbg L${li} ${kind} lip (${L.x},${L.y}) d${L.d} dq ${L.dq} wide ${L.wide} cam(${L.cx.toFixed(2)},${L.cy.toFixed(2)}) ang ${L.ang.toFixed(3)}: ` + JSON.stringify(hsh));
+      }
+      let n = 0, sum = 0, sgn = 0, within = 0, zok = 0, off = 0;
+      let dropSum = 0, wideSum = 0, spanSum = 0, farSum = 0, farN = 0, dip = 0, touched = 0, near0 = 0;
+      for (const c of m) {
+        if (c[1] !== kind || Math.abs(c[3] - DIST) > TOL) continue;
+        const x = c[0], perp = c[3], zLo = c[5], zHi = c[6], hp = H / perp;
+        // yLip is the row the VISIBLE surface changes at: the camera side of the boundary. A floor
+        // below the eye always projects below its own row, so every row under yLip is the near floor
+        // and every row above it is the far surface - the seam band runs upward from yLip in every
+        // case, and the pair that straddles the lip is (yLip, yLip + 1) whichever way the step goes.
+        const zCam = kind === 'face' ? zLo : c[4], zOther = zCam === zLo ? zHi : zLo;
+        const yLip = hor + (eye - zCam) * hp, yOther = hor + (eye - zOther) * hp;
+        const bw = Math.min(Math.abs(yOther - yLip) * 0.5, hp * SEAMW), yF = Math.floor(yLip);
+        if (yF < bw + 16 || yF > H - 14) continue;
+        if (kind === 'face') {                          // the wall pass must have painted a face here
+          if (Math.abs(zb[yF * W + x] - perp) > 0.02) { off++; continue; }
+          zok++;
+        } else {                                        // no face: the near floor's own row distance
+          const dExp = (eye - c[4]) * H / (yF + 3 - hor);
+          if (Math.abs(zb[(yF + 3) * W + x] - dExp) > 0.06) { off++; continue; }
+          zok++;
+        }
+        // the pair across the step lip: the lip row and the floor immediately in front of it
+        const dP = lum(A, (yF + 1) * W + x) - lum(A, yF * W + x);
+        n++; sum += Math.abs(dP); sgn += dP; if (Math.abs(dP) <= 10) within++;
+        // the seam on its own, with everything else about the frame held still. Its band is located
+        // empirically - the strongest shift anywhere within +-0.5 m of the geometric lip - and the
+        // OFFSET from the analytic lip is asserted below, because a seam painted 1 m from the step it
+        // is supposed to describe would otherwise read as a pass. (The renderer keys the seam on the
+        // cell its own DDA stepped from, and on columns that clip a cell corner that cell is not the
+        // one a sampled march lands in: measured 22 px apart on L2, which is one quantum.)
+        const win = Math.max(6, Math.round(2 * hp * SEAMW));
+        let yb = -1, peak = 0;
+        for (let y = Math.max(0, yF - win); y <= Math.min(H - 1, yF + win); y++) {
+          const d = lum(B, y * W + x) - lum(A, y * W + x);
+          if (d > peak) { peak = d; yb = y; }
+        }
+        const bRows = (() => {
+          let k = 0;
+          for (let y = yb; y >= 0 && y >= yb - win - 2; y--) {
+            if ((lum(B, y * W + x) - lum(A, y * W + x)) >= peak * 0.5) k++; else break;
+          }
+          return k;
+        })();
+        let band = 0, nRows = 0;
+        for (let k = 0; k <= bRows; k++) { band += lum(B, (yb - k) * W + x) - lum(A, (yb - k) * W + x); nRows++; }
+        // locality: the SAME term measured a band's width clear of the crease on the far side, and on
+        // the floor 6-14 rows in front of it. Offsets are fixed (win = 2 design band widths), not
+        // relative to the band this column happened to show, or a narrower band would look leakier.
+        const a1 = lumDiffAvg(A, B, W, yb - win - 4, yb - win - 12, x);
+        const a2 = lumDiffAvg(A, B, W, yb + 6, yb + 14, x);
+        const mid = lumAvg(A, W, yb - bRows * 0.25, yb - bRows * 0.75, x);
+        const near = lumAvg(A, W, yb + bRows + 6, yb + bRows + 16, x);
+        const far = lumAvg(A, W, yb - bRows - 6, yb - bRows - 16, x);
+        dropSum += nRows ? band / nRows : 0; wideSum += bRows; spanSum += Math.abs(yOther - yLip);
+        farSum += Math.max(a1, a2); farN++;
+        if (mid < near - 12 && mid < far - 12) dip++;
+        if (yb >= 0 && Math.abs(yb - yF) <= win) near0++;
+        if (peak > 4) touched++;
+      }
+      const meanD = n ? sum / n : 0, pctW = n ? 100 * within / n : 100;
+      row(`L${li} ${kind} lip: geometry the depth buffer agrees with`,
+        n >= 24 && zok >= n * 0.9,
+        `${n} of ${m.length} columns cross a ${kind} lip at ${DIST} m (refused ${off}: the renderer's `
+        + `own zbuf says nothing is there), riserStops ${risers}, horizon ${hor.toFixed(1)}, eyeZ ${eye.toFixed(2)}`);
+      row(`L${li} ${kind} lip: luminance steps where depth steps`,
+        n >= 24 && meanD >= MEAN_MIN && pctW <= WITHIN_MAX,
+        `mean |dL| across the lip ${meanD.toFixed(1)} (want >= ${MEAN_MIN}), ${pctW.toFixed(1)}% of lip `
+        + `pixels within 10 of their neighbour (want <= ${WITHIN_MAX}%), signed ${(n ? sgn / n : 0).toFixed(1)} `
+        + `- ${kind === 'face' ? 'a riser wears the floor material, so today the step is a brighter patch of the same texture'
+          : 'a walk lip draws NO face at all: the floor texture is painted straight through the riser'}`);
+      row(`L${li} ${kind} lip: a seam band at the crease, not a shade`,
+        seam === 1 && dropSum / (farN || 1) >= 18 && wideSum / (n || 1) >= 1 &&
+        wideSum / (spanSum || 1) <= 0.45 && farSum / (farN || 1) <= 5 &&
+        near0 >= Math.max(12, n * 0.5) && touched >= near0,
+        `foot drop ${n ? (dropSum / farN).toFixed(1) : '0'} px-lum when the term is on, band `
+        + `${(n ? wideSum / n : 0).toFixed(1)} px of a ${(n ? spanSum / n : 0).toFixed(0)} px riser `
+        + `(${(100 * wideSum / (spanSum || 1)).toFixed(0)}% - wider than that is a tint, not an edge), `
+        + `${(farSum / (farN || 1)).toFixed(1)} a band's width clear of the crease on both sides `
+        + `(locality, want <= 5), `
+        + `of those, ${n ? (100 * dip / n).toFixed(0) : 0}% also read as a local luminance minimum `
+        + `(lighting-dependent: the AMB floor sinks it in dark rooms - see the #164 note), `
+        + `${near0} of ${n} bands land within 0.5 m of the lip the grid says, ${touched} of ${n} moved at all`);
+    }
+    if (seam === 1) {
+      {
+        run('SEAM = 1; S.t = 3.5; renderWorld()');
+        const A = new Uint32Array(run('px'));
+        run('SEAM = 0; S.t = 3.5; renderWorld()');
+        const B = new Uint32Array(run('px'));
+        run('SEAM = 1');
+        for (let i = 0; i < A.length; i += 7) if (Math.abs(lum(A, i) - lum(B, i)) > 4) diffPx += 7;
+      }
+    }
+    row(`L${li} the seam term is in the build and moves pixels`, seam === 1 && diffPx > 0,
+      seam === -1 ? 'no SEAM global in js/: the A/B control cannot arm, so no lip row above it means anything'
+        : seam === 0 ? `the term is switched OFF for this control run (SEAM=0): the lips above have no edge`
+        : `SEAM=1 vs SEAM=0 moves ${diffPx} px of the frame (every 7th sampled)`);
+
+    // the band cue in the minimap: colours paired to cells by recording the layer's own fillRects
+    const mm = run(`(function () {
+      const rec = [], fz = MAP.fz, cell = MAP.cell, N = MW; let cur = '';
+      const ctxo = { globalAlpha: 1, font: '', lineWidth: 1, textAlign: 'left', imageSmoothingEnabled: true };
+      Object.defineProperty(ctxo, 'fillStyle', { get: () => cur, set: v => { cur = v; } });
+      for (const k of ['save', 'restore', 'setTransform', 'drawImage', 'strokeRect', 'beginPath', 'arc', 'fill',
+        'translate', 'rotate', 'fillText', 'stroke', 'clearRect']) ctxo[k] = () => { };
+      ctxo.fillRect = (x, y, w, h) => { rec.push([cur, x, y]); };
+      const fake = { width: 0, height: 0, style: {}, getContext: () => ctxo };
+      const old = document.createElement;
+      document.createElement = () => fake;
+      mmLayer = null; mmKey = ''; mmRevealed = -1;
+      explored.fill(1); S.revealed++;
+      drawMinimap(1);
+      document.createElement = old;
+      const size = Math.min(DW * 0.2, DH * 0.24), s = size / Math.max(MW, MH);
+      const byBand = {};
+      for (const r of rec) {
+        const gx = Math.floor(r[1] / s), gy = Math.floor(r[2] / s);
+        if (gx < 0 || gy < 0 || gx >= N || gy >= N || cell[gy * N + gx]) continue;
+        const b = fz[gy * N + gx] * ZQ;
+        (byBand[b] = byBand[b] || {})[r[0]] = (byBand[b][r[0]] || 0) + 1;
+      }
+      return byBand;
+    })()`);
+    const bands = Object.keys(mm).map(Number).sort((a, b) => a - b);
+    const colOf = b => Object.keys(mm[b]).sort((p, q) => mm[b][q] - mm[b][p])[0];
+    const datum = colOf(bands[0]);
+    const offBands = bands.filter(b => Math.abs(b) > 1e-6);
+    const sameOff = offBands.filter(b => colOf(b) === datum);
+    row(`L${li} minimap shows which band a cell is on`, bands.length >= 2 && sameOff.length === 0,
+      `${bands.length} bands painted: ` + bands.map(b => `${b.toFixed(2)}m ${colOf(b)}`).join(', ') +
+      (sameOff.length ? ` - ${sameOff.length} off-datum band(s) still use the datum colour` : ''));
+  }
+  console.log(bad ? `BANDS ${bad} FAILURE(S) - altitude is in the grid and not on the screen` :
+    'BANDS ok - the step lip reads as an edge, the seam is a band not a tint, and the minimap shows the band');
+  process.exit(bad ? 1 : 0);
+}
 if (MODE === 'stats') {
   console.log('--- materials ---');
   run('');
@@ -3157,3 +3461,4 @@ if (MODE === 'stats') {
     console.log('rig cache', JSON.stringify(run('RIG.stats()')));
   }
 }
+
