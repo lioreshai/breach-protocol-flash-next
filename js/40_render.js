@@ -227,10 +227,6 @@ function renderWorld() {
    solid column once filled an entire frame with grey.
    ------------------------------------------------------------------ */
 let RX = new Int32Array(0), RP = new Float64Array(0);   // columns of one row that needed re-solving
-/* SCRATCH INSTRUMENTATION (perfX only, never ships): accumulated per renderWorld. Counted once per
-   ROW at BW-nm/nm, plus the fixed-point try count inside groundPixel's floor half. */
-/* SCRATCH INSTRUMENTATION (perfX only, never ships): accumulated per renderWorld. Counted once per
-   ROW at BW-nm/nm, plus the fixed-point try count inside groundPixel's floor half. */
 
 
 /* Ground mip selection: MIPAR is the anisotropy ratio the footprint may be stretched by before the
