@@ -2780,7 +2780,22 @@ if (MODE === 'props') {
      are tried in generation order and the first with a >= 1.9 m clear ray wins. */
   const AIM = k => `(()=>{let b=null;for(let i=0;i<PROPS.length;i++){const p=PROPS[i];if(p.kind!==${JSON.stringify(k)})continue;` +
     `let ba=0,bd=-1;for(let j=0;j<48;j++){const a=j*TAU/48,d=castRayDist(p.x,p.y,Math.cos(a),Math.sin(a),6).dist;if(d>bd){bd=d;ba=a}}` +
-    `if(bd<1.9)continue;const dd=Math.min(2.6,bd-0.7);` +
+    `if(bd<1.9)continue;` +
+    /* The camera has to stand on the BAND whose floor the prop's feet are on, because `floorAt` is per
+       cell: the longest-ray direction can leave the prop's room, and an eye a unit below then looks at
+       the prop THROUGH that room's floor. The ground pass fills zbuf with Infinity on ceiling rows
+       (js/40_render.js:287,:311) and a mesh's only occlusion test is `occ < z` (js/13_mesh.js:524), so
+       nothing hides the body there and the mask is the part of it above the low room's ceiling, clipped
+       by the top of the frame - measured on the first banded build at level 0 prop 0: cam floor 0.00,
+       prop floor 1.00, rows 0..88 of 338, zbuf Infinity behind all 1387 px, while the entry the game
+       drew was z=floorAt at the correct height. On a flat level floorAt is equal in every cell, so this
+       test passes for every yaw, the argmax above is kept, and the camera is the one that shipped. */
+    `const pf=floorAt(p.x,p.y),at=(a,d)=>floorAt(p.x+Math.cos(a)*d,p.y+Math.sin(a)*d);` +
+    `if(at(ba,Math.min(2.6,bd-0.7))!==pf){let bj=-1,bv=-1;` +
+    `for(let j=0;j<48;j++){const a=j*TAU/48,d=castRayDist(p.x,p.y,Math.cos(a),Math.sin(a),6).dist;` +
+    `if(d<1.9||d<=bv||at(a,Math.min(2.6,d-0.7))!==pf)continue;bv=d;bj=j}` +
+    `if(bj<0)continue;ba=bj*TAU/48;bd=bv}` +
+    `const dd=Math.min(2.6,bd-0.7);` +
     `if(isSolid(p.x+Math.cos(ba)*dd,p.y+Math.sin(ba)*dd))continue;` +
     `b={i:i,x:+p.x.toFixed(4),y:+p.y.toFixed(4),d:+dd.toFixed(2)};` +
     `P.x=p.x+Math.cos(ba)*dd;P.y=p.y+Math.sin(ba)*dd;P.ang=Math.atan2(p.y-P.y,p.x-P.x);P.pitch=0;` +
@@ -2966,17 +2981,30 @@ if (MODE === 'props') {
     // a projectile in flight has no feet: its z is the arc js/30_entities.js owns, so raising the band
     // under it must change NOTHING - the correct answer, not a failure, and not a silent pass either:
     // nothing in this probe or any other gate covers a MOVER's altitude, which #76 leaves to gameplay
+    const cutRef = mA.top <= 0 || mA.bot >= H - 1 || m3.bot >= H - 1, cutTop = m3.top <= 0;
     const airborne = kind === 'orb';
     if (airborne) console.log('    feet: n/a - airborne, z is the arc 30_entities.js owns, not floorAt;'
       + ' UNCOVERED by any gate here');
-    else if (keep < 0.9) fail('(F) ' + kind + ': SUNK IN THE BAND - raising its floor by one quantum (0.25 m, a step, '
+    /* A silhouette CUT by the frame cannot answer this question: its h and bot are then the frame's own
+       edge, so a prop seen from BELOW its band - the case AIM now refuses - reads as "hid 82% of itself"
+       without having moved. The two crops are not equally harmless: a reference frame that is cut, or a
+       bottom row that runs off either frame, measures nothing at all, while a tall entry (the portal is
+       1.5 m) whose TOP leaves the frame only after the raise still has a real bottom edge, so the shift
+       is still the prop and only `keep` is a crop - which gets said on the row rather than passed off as
+       a kept height. A sunk prop is still caught either way: its bottom row does not rise by `want`. */
+    else if (cutRef) fail('(F) ' + kind + ': the silhouette is CUT by the frame (rows ' + mA.top + '..' +
+      mA.bot + ' then ' + m3.top + '..' + m3.bot + ' of ' + H + '), so "height kept" and "bottom row" '
+      + 'describe the crop and not the feet - the camera is not looking at this prop from its own band');
+    else if (keep < 0.9 && !cutTop) fail('(F) ' + kind + ': SUNK IN THE BAND - raising its floor by one quantum (0.25 m, a step, '
       + 'so no riser is drawn and nothing occludes it) hid ' + (100 * (1 - keep)).toFixed(0) + '% of it (height '
       + mA.h + ' -> ' + m3.h + ' px, bottom ' + mA.bot + ' -> ' + m3.bot + ') on ' + who + ': its z is not floorAt(x,y)');
     else if (shift < want * 0.4) fail('(F) ' + kind + ': the floor rose one quantum and the prop did not (bottom row '
       + mA.bot + ' -> ' + m3.bot + ', expected ~' + want.toFixed(0) + ' px up) on ' + who +
       ' - it is painted at the old plane, so it sinks into any band above 0');
     else console.log('    feet: height kept ' + (100 * keep).toFixed(0) + '%, bottom row up ' + shift +
-      ' px (expected ~' + want.toFixed(0) + ') on ' + who);
+      ' px (expected ~' + want.toFixed(0) + ') on ' + who +
+      (cutTop ? ' [top of the ' + m3.h + ' px body leaves the frame after the raise: height is a crop, '
+        + 'the bottom row is not]' : ''));
   }
   console.log(bad ? 'PROPS PROBE: ' + bad + ' FAILURE(S)' : 'PROPS PROBE: every prop volumetric, light-exempt where emissive, and grounded');
   process.exit(bad ? 1 : 0);
