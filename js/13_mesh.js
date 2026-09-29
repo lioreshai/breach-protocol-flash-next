@@ -569,6 +569,7 @@ const MESH = (function () {
     const yaw = (o.die || 0) >= 1 / PB.die ? (o.yaw || 0) + dieRow(o.kind || 'grunt', o.dv).yw : (o.yaw || 0);
     const cyw = Math.cos(yaw), syw = Math.sin(yaw);
     SELF = o.self === undefined ? true : !!o.self;
+    BODY = !!o.body;               // a character's draw: what COV stamps, see js/00_core.js
     /* EMIS is the entry-wide form of the exemption and EM the per-part one; either is enough to put a
        triangle's pixels on the billboard's light-free path. The billboard reaches it through a texel
        whose alpha byte is 253 or through o.self (js/40_render.js:703), and a mesh has neither, so
