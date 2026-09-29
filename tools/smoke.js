@@ -272,8 +272,9 @@ const release = () => fire('mouseup', { button: 0 });
   release(); frames(5);
   // -------------------------------------------------------------- VERT lane
   // Everything above this line judges a flat world: the run loop teleports x/y and leaves the
-  // altitude alone, blast damage and the portal trigger measure 2D distance, and a projectile's
-  // floor is a literal 0.02/0.08. VERT=1 runs the same harness against real bands so those four
+  // altitude alone, blast damage and the portal trigger measure 2D distance, and a projectile's floor
+  // plane was a literal 0.02/0.08 (#98 moved the orb's to floorAt + 0.08; its CEILING was missing until
+  // #148, which V18 below asserts). VERT=1 runs the same harness against real bands so those four
   // claims ("shots pass through the catwalk enemy", "an explosion downstairs kills upstairs",
   // "the portal triggers from the floor below", "a grenade rolls along the floor") are asserted
   // where they can actually be wrong. A row whose defect is already filed reports instead of
@@ -1010,6 +1011,44 @@ const release = () => fire('mouseup', { button: 0 });
           + ' peaks at 0.489 m so grabbing mid-air must keep working) | 0.90 m over it ' + out + ' left'
           + ' (want 1)' + (lo ? ' - VACUOUS: not even standing on it takes it' : ''));
         V('P.z = floorAt(P.x, P.y);');
+      }
+    }
+
+    // V18 - a PROJECTILE's ceiling (#148). V13..V15 gate the hitscan ray and #98 moved the orb's FLOOR to
+    // floorAt + 0.08, but updateProjectiles' only obstacle test is isSolid(nx, ny) - two dimensions - so a
+    // launched orb climbed straight through the ceiling plane. Measured on the deployed build before the
+    // fix: an orb fired upward in a room whose ceiling is 1.000 reached z 4.771 and was still alive 120
+    // frames later - an enemy shot that crosses a ceiling and lands in the room above it. Both directions
+    // gate: the orb must die AT the plane (deleting the ceiling test lets it escape to ~4.7 and fails),
+    // while a grenade must bounce BACK DOWN and keep flying (an over-eager "delete anything above the
+    // plane" drains PROJ at the first crossing and fails on the frames it stayed alive).
+    vboot();
+    {
+      const spot = S1(`{for(let y=2;y<MAP.h-2;y++)for(let x=2;x<MAP.w-2;x++){
+        if(isSolid(x+0.5,y+0.5))continue;
+        if(Math.hypot(x+0.5-P.x,y+0.5-P.y)<3)continue;
+        const fl=floorAt(x+0.5,y+0.5), ce=ceilAt(x+0.5,y+0.5);
+        if(Math.abs(ce-(fl+1))>0.01)continue;
+        return [x+0.5,y+0.5,+fl.toFixed(3),+ce.toFixed(3)];}
+        return []}`);
+      if (vsetup('V18 setup found a one-unit-tall open cell clear of the player', spot && spot.length === 4,
+        spot && spot.length === 4 ? `cell (${spot[0]}, ${spot[1]}) floor ${spot[2]}, ceiling plane ${spot[3]}`
+          : 'none found')) {
+        const fly = (kind, vz, fuse) => S1(`{PROJ.length = 0; PARTS.length = 0; DECALS.length = 0;
+          PROJ.push({kind:'${kind}', x:${spot[0]}, y:${spot[1]}, z:${spot[2]}+0.3, vx:0, vy:0, vz:${vz},
+            dmg:9, t:${fuse}, tex:PROP.grenade, scale:0.2});
+          let maxZ = -9, alive = 1, f = 0;
+          for (let i = 0; i < 140; i++) { updateProjectiles(0.016); f++; const p = PROJ[0]; if (!p) { alive = 0; break } if (p.z > maxZ) maxZ = p.z; }
+          PROJ.length = 0; return [+maxZ.toFixed(3), alive, f]; }`);
+        const orb = fly('orb', 3.2, 4), gren = fly('gren', 3.0, 1.2);
+        const ceil = spot[3], lim = (ceil + 0.05).toFixed(2);
+        const okOrb = orb[1] === 0 && orb[0] <= ceil + 0.05 && orb[2] < 60;
+        const okGren = gren[0] <= ceil + 0.05 && gren[2] > 30;
+        vrow('a projectile stops at the ceiling plane instead of sailing into the room above (#148)',
+          okOrb && okGren,
+          `orb fired up at vz 3.2 in a ${ceil} m room: peak ${orb[0]}, ${orb[1] ? 'STILL FLYING' : 'popped'} after ${orb[2]} frame(s) (want popped, peak <= ${lim})` +
+          ` | grenade at vz 3.0: peak ${gren[0]}, alive ${gren[2]} frame(s) (want peak <= ${lim} and > 30 - it must bounce back DOWN, not vanish at the plane)`
+          + (orb[1] ? ' - the ceiling test is not running' : ''));
       }
     }
 
