@@ -1,6 +1,21 @@
 ## Unreleased
 
 ### Fixed
+- **A projectile had no ceiling: an orb fired upward passed through it and kept flying** (#148).
+  `updateProjectiles`' only obstacle test is `isSolid(nx, ny)` - two dimensions - and `ceilAt` is called
+  nowhere in `js/30_entities.js`, so an orb launched in a room whose ceiling plane is **1.000** reached
+  **z 4.771** on the deployed build (5.194 in the new lane's pose) and was **still alive 120 frames later**:
+  enemy fire crosses a ceiling and lands in the room above, the M4 failure mode AGENTS risk #3 named, and it
+  shipped green because every altitude row tests **hitscan** (V13-V15) or a **poked** band. Orbs now pop at
+  the plane with a spark and grenades bounce back **down** into the room they were thrown in; the same shot
+  after the fix peaks at **0.993 and pops on frame 15**. Gated by a new VERT row **V18** (lane now 22 gating
+  rows) that gates both directions: an escaping orb fails, and so does an over-eager "delete anything above
+  the plane", because the grenade must stay alive and come back down. The stale line in `tools/smoke.js`'s
+  VERT header claiming a projectile's planes are the literals 0.02/0.08 is corrected (#98 moved the floor;
+  the ceiling was the gap). V18's first version was **silently absent** - `vsetup` returns `ok`, and
+  `if (!vsetup(...)) { body }` runs the body only when setup *fails*, so nothing printed and nothing
+  asserted while every neighbour stayed green; the tells were the lane's `N gating row(s)` count holding at
+  21 and a control run against `HEAD` that failed to fail. That lesson is now in `AGENTS.md`.
 - **The game was silent, and had been for a while: `chain()` handed the pan argument straight to
   `connect()`.** Every positional sound passes `panOf(e)`, which returns `Math.sin()` - a **number**
   (`js/30_entities.js:454`) - while `chain(node, pan)` (`js/00_core.js:98`) did `node.connect(pan)`, so the
