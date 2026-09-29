@@ -194,12 +194,16 @@ access (the stub throws on `getImageData`, so assets cannot accidentally depend 
 | `sheets` | every material (4 tiled quads) and sprite in one PNG (`/tmp/fps_tex.png`) |
 | `stats` | per texture/sprite: mean, deviation, neighbour gradient, coverage, emissive count, average RGB, blown pixels, and the bake pipeline's own albedo × shade × AO terms |
 | `diag` | red-channel histograms per material plus measured **coverage** of every noise threshold helper |
-| `exposure` | mean luminance and histogram averaged over levels × seeds × 6 view angles — the number to tune brightness against |
+| `exposure` | mean luminance and histogram averaged over levels × seeds × 6 view angles — the number to tune brightness against — plus a **spawn** column: mean and centre-half `mid` of the **first frame**, the pose `startLevel` leaves the player in, with no `update()` and no camera move (#155). The band that window asserts is 60–100 on the composited layer in `tools/ci/assert.js`; the spawn column is reported here and asserted separately there, and the two numbers are different layers — not comparable |
 | `scene <level> [cam]` | one frame as a PNG (`/tmp/fps_scene.png`) plus its luminance stats |
 
 `REPS=n` and `ONLY=W1` narrow runs, `ASCII=1` prints text instead of writing a PNG, and
 `OUT=` redirects the PNG path. Levels lay themselves out with `Math.random`,
 so `exposure` seeds it; single-run numbers otherwise swing ±20 from lamp placement alone.
+That swing is why both brightness assertions read the **median of seeded rolls**: one seeded roll at one
+fixed pose is a view class, not a property of the level — measured 21 to 137 composited mean across five
+spawn frames of one level (#155), a range that straddles both failure anchors, so the per-roll values are
+printed and the median is what gets judged.
 
 ## How work is tracked
 

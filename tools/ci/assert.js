@@ -37,6 +37,52 @@ const YAWS = Math.max(1, +(process.env.YAWS || 6));
 // The dice are view.js exposure's: 1000 + level*97 + roll*13. ROLLSEED shifts them to ask
 // "is the verdict a property of the level, or of these four numbers?"
 const SEED = (+(process.env.ROLLSEED || 1000)) >>> 0;
+/* #155: the SPAWN frame - the first frame at the pose startLevel leaves the player in - is asserted on
+   its own band, because the 60-100 window above never sampled it: every sampler in the repo parks the
+   camera in an arbitrary open cell and spins it through 6 yaws over 5 rolls, so a gate could read
+   86/90/73 while the frame the player actually sees first read 12.7/51.4/129.07 (#155, live page).
+
+   DERIVATION - the band is the gap between two rendered FAILURE states, not a fit to the spawn data.
+   Both anchors were measured on the composited frame in this geometry (1280x720, stride 4, roll dice
+   1000+level*97) with a throwaway probe: "lamps off" = MAP.light zeroed with the authored ambient left
+   in place, "lamps + ambient off" = MAP.light zeroed and MAP.amb 0, "lamp in the lens" = the camera 1 m
+   from each of 6 lamps facing it:
+
+     level  spawn medians (5 rolls)      all-lamps-off     lamps+ambient off   lamp 1 m in the lens
+     L0     56  (rolls 90 21 55 56 118)  mean 13.0         mean 3.9            mean 79.4 .. 137.5
+     L1     48  (rolls 28 48 75 83 24)   mean 14.4         mean 3.7            mean 91.0 .. 110.7
+     L2     54  (rolls 43 92 35 137 54)  mean 32.2         mean 17.3           mean 130.1 .. 163.9
+
+   So the top of the band is the DIMMEST lamp-in-the-lens view (79.4, L0) rounded down to 75: a first
+   frame that reads as bright as a light fixture 1 m from the lens is a spawn placed in a lamp or a lamp
+   that is too strong, and no level's spawn median should need that. The bottom is the BRIGHTEST
+   lamps-off render (32.2, L2, whose ambient is 0.3 and whose emissive texels are light-exempt) rounded
+   up to 35: below that the first frame has no lamp light in it. Same width as the 60-100 window (40
+   points) and 25 lower in the scale, because a spawn view is one wall of one room rather than an average
+   over 6 yaws - the measured medians (56/48/54) sit 25-35 under the asserted ones (86/90/73).
+
+   What makes this band legitimate rather than loose is that it is asserted on the MEDIAN of the same 5
+   seeded rolls as the check above, while the per-roll values are printed and NOT asserted: a single
+   pose has no yaw and no frame averaging, so one roll is a view class, not a property of the level -
+   measured per-roll range 21..137, which straddles BOTH failure anchors. That overlap is the honest
+   limit of this gate, stated rather than hidden: a single dark roll (21 on L0) is dimmer than a level
+   with every lamp unlit (32 on L2), because ambient differs per level (0.19 / 0.185 / 0.3), so no
+   absolute threshold can police one frame across three levels. A median can, and a systematic change -
+   a spawn view with no light in it, or a lamp in the lens - moves it.
+
+   mid (DEV.lum's CENTRE-HALF region mean, js/90_dev.js:235, not a median of luminances) is printed but
+   not asserted: its anchors overlap the legit data (a lightless L2 reads mid 40.1 while L1's spawn
+   median mid is 31), so a mid band would either never fail or fail today.
+
+   Consequence to expect: the follow-up to #155 authors light placement once #149 lands. If it brightens
+   spawn views past 75 this step goes red, and the answer is to re-derive the band from the two anchors
+   above - re-render them, do not nudge the number.
+
+   SPAWN_MIN/SPAWN_MAX override the band so it can be narrowed to prove the check can fail (that is what
+   they are for); the defaults below are what CI runs, since ci.yml sets neither.
+*/
+const SMIN = +(process.env.SPAWN_MIN || 35);
+const SMAX = +(process.env.SPAWN_MAX || 75);
 const VW = +(process.env.VIEWPORT_W || 1280);
 const VH = +(process.env.VIEWPORT_H || 720);
 const STRIDE = +(process.env.STRIDE || 4);
@@ -136,6 +182,20 @@ const ROLL_FN = `(function (lv, roll, yaws, stride, seed) {
   const c = cs[((cs.length * 0.31 + roll) | 0) % cs.length];
   for (const e of ENEMIES) e.state = 'sleep';
   DEV.freeze(true);
+  /* #155: the FIRST FRAME, before any camera move and with update() frozen, on this same generated
+     level. The pose is written rather than trusted: P.ang is the heading (there is no P.yaw) and P.z
+     is the FEET - js/40_render.js:103 adds cfg.eye to it, so adding cfg.eye here would raise the eye a
+     full unit off the floor and measure a floating camera. */
+  const pose = (() => {
+    const sx = P.x, sy = P.y, sa = P.ang;
+    P.x = sx; P.y = sy; P.ang = sa; P.pitch = 0; P.vx = P.vy = P.vz = 0; P.air = false; P.crouch = 0;
+    P.z = floorAt(sx, sy);
+    if (!(P.z === floorAt(P.x, P.y))) throw new Error('spawn pose is not seated: P.z ' + P.z + ' vs floorAt ' + floorAt(P.x, P.y));
+    DEV.tick(1);
+    const s = DEV.lum({ stride: stride });
+    if (!isFinite(s.mean)) throw new Error('DEV.lum returned a non-finite mean on the spawn frame');
+    return { mean: s.mean, mid: s.mid, x: +sx.toFixed(2), y: +sy.toFixed(2), ang: +sa.toFixed(3) };
+  })();
   let sum = 0, mid = 0, rast = 0;
   for (let w = 0; w < yaws; w++) {
     DEV.cam(c[0] + 0.5, c[1] + 0.5, undefined, w * 2 * Math.PI / yaws + 0.13, BH * 0.02);
@@ -148,7 +208,7 @@ const ROLL_FN = `(function (lv, roll, yaws, stride, seed) {
     rast += rs / m;
   }
   DEV.freeze(false);
-  return { mean: sum / yaws, mid: mid / yaws, raster: rast / yaws, cells: cs.length, buf: cv.width + 'x' + cv.height };
+  return { mean: sum / yaws, mid: mid / yaws, raster: rast / yaws, cells: cs.length, buf: cv.width + 'x' + cv.height, spawn: pose };
 })(%LV%, %ROLL%, %YAWS%, %STRIDE%, %SEED%)`;
 
 /* ---------------- audio (#157) ---------------- */
@@ -333,19 +393,21 @@ async function main() {
     console.log('exposure: COMPOSITED frame = display canvas ' + buf[0] + 'x' + buf[1] + ' (' + buf[2] + ' tier, raster '
       + buf[3] + 'x' + buf[4] + '), '
       + ver + ', stride ' + STRIDE + ' sample, ' + ROLLS + ' seeded rolls x ' + YAWS + ' yaws per level, band '
-      + MIN + '-' + MAX + ' quoted against the MEDIAN not a mean');
+      + MIN + '-' + MAX + ' quoted against the MEDIAN not a mean, spawn band ' + SMIN + '-' + SMAX + ' (the first frame)');
     console.log('  (same seeded dice as tools/view.js exposure; its "raster BEFORE bloom/grade/grain" column '
       + 'below is the layer that prints there - the two are not comparable, which is what #85 was about)');
 
-    const bad = [];
+    const bad = [], badSpawn = [];
     let allMed = 0;
     for (let lv = 0; lv < nLevels; lv++) {
-      const rolls = [], mids = [], rasts = [];
+      const rolls = [], mids = [], rasts = [], spM = [], spMid = [], spAng = [];
       for (let r = 0; r < ROLLS; r++) {
         const expr = ROLL_FN.replace('%LV%', lv).replace('%ROLL%', r).replace('%YAWS%', YAWS).replace('%STRIDE%', STRIDE)
           .replace('%SEED%', (SEED + lv * 97 + r * 13) >>> 0);
         const v = await evaluate(cdp, expr);
         rolls.push(v.mean); mids.push(v.mid); rasts.push(v.raster);
+        spM.push(v.spawn.mean); spMid.push(v.spawn.mid); spAng.push(v.spawn.ang);
+        if (!(v.spawn.x >= 0 && v.spawn.y >= 0)) throw new Error('spawn pose is off-map at roll ' + r + ': ' + v.spawn.x + ',' + v.spawn.y);
         process.stdout.write('.');
       }
       process.stdout.write('\n');
@@ -354,25 +416,45 @@ async function main() {
       allMed += med;
       const okv = med >= MIN && med <= MAX;
       if (!okv) bad.push('level ' + lv + ' median ' + med.toFixed(1) + ' outside ' + MIN + '-' + MAX);
+      const spMed = median(spM), spSorted = spM.slice().sort((a, b) => a - b);
+      const oksp = spMed >= SMIN && spMed <= SMAX;
+      if (!oksp) badSpawn.push('level ' + lv + ' spawn median ' + spMed.toFixed(1) + ' outside ' + SMIN + '-' + SMAX
+        + ' (rolls ' + spM.map(v => v.toFixed(0)).join(' ') + ')');
       console.log('  level ' + lv + pad('  mean ' + (rolls.reduce((a, b) => a + b) / rolls.length).toFixed(0), 9)
         + pad('  median ' + med.toFixed(0), 11)
         + '  rolls ' + rolls.map(v => pad(v.toFixed(0), 3)).join(' ')
         + pad('  spread ' + spread.toFixed(0), 10)
         + pad('  mid ' + median(mids).toFixed(0), 7)
         + pad('  raster ' + median(rasts).toFixed(0), 11)
-        + (okv ? '  ok' : '  OUTSIDE'));
+        + (okv ? '  ok' : '  OUTSIDE')
+        + '  | spawn ' + pad(spMed.toFixed(0), 4) + pad(' mid ' + median(spMid).toFixed(0), 6)
+        + '  rolls ' + spM.map(v => pad(v.toFixed(0), 3)).join(' ')
+        + pad('  spread ' + (spSorted[spSorted.length - 1] - spSorted[0]).toFixed(0), 9)
+        + '  yaw ' + spAng[0] + (oksp ? '  ok' : '  OUTSIDE'));
     }
     allMed /= nLevels;
     console.log('  ALL     median ' + allMed.toFixed(1) + '  (mean of the per-level medians)');
-    if (bad.length) {
-      console.log('EXPOSURE GATE FAIL: composited frame outside the ' + MIN + '-' + MAX + ' window');
-      bad.forEach(b => console.log('  ' + b));
+    if (bad.length || badSpawn.length) {
+      console.log('EXPOSURE GATE FAIL: composited frame outside the ' + MIN + '-' + MAX
+        + (badSpawn.length ? ' window, or the first frame at spawn outside ' + SMIN + '-' + SMAX : '') + ' (both on the composited frame)');
+      bad.concat(badSpawn).forEach(b => console.log('  ' + b));
       console.log('  the window is the documented exposure target (AGENTS.md: 60-100), here from LUM_MIN/LUM_MAX;');
       console.log('  a median this far off is a shading or post-FX change, and the per-roll values are printed');
       console.log('  above because the roll spread is wider than the window (#87) and is not asserted.');
+      if (badSpawn.length) {
+        console.log('  the SPAWN band is separate because it samples the FIRST FRAME at the pose startLevel');
+        console.log('  leaves (no yaw averaging, no update()), which the 60-100 window never sampled (#155).');
+        console.log('  Derivation in the SPAWN_MIN/SPAWN_MAX block at the top of this file: 35 is above the');
+        console.log('  brightest render with every lamp unlit (32.2, L2) and 75 is below the dimmest lamp');
+        console.log('  1 m in the lens (79.4, L0). LOW = the spawn view has no lamp light in it; HIGH = a');
+        console.log('  lamp is in the lens. Asserted on the median of the 5 rolls because one fixed pose is');
+        console.log('  a view class rather than a property of the level (per-roll range measured 21-137,');
+        console.log('  which straddles both anchors); the rolls are printed above and not judged.');
+      }
       return 1;
     }
-    console.log('EXPOSURE ok: every level medians inside ' + MIN + '-' + MAX + ' on the composited frame');
+    console.log('EXPOSURE ok: every level medians inside ' + MIN + '-' + MAX + ' and every level spawn frame inside '
+      + SMIN + '-' + SMAX + ' on the composited frame');
     return 0;
   } catch (e) {
     console.log('EXPOSURE GATE: NOT MEASURED - ' + (e && e.message ? e.message : e));
