@@ -4441,6 +4441,10 @@ if (MODE === 'contrast') {
                   PIXHASH=1, which is how this run shows the shipped rim switch no longer reaches
                   the picture: #72 moved bodies off the rig raster onto the mesh, and nothing in
                   the draw path calls RIG any more.
+       SHADOW=0   runs the whole probe with the #178 contact shadow switched off in the renderer (see the
+                  arm below), which is how a run says the term is in js/ at all. With the COVERAGE mask a
+                  shadow is BACKGROUND, so unlike the #179 diff-mask reading this moves edge dL and lost%;
+                  a control run that prints identical numbers is a term that paints nothing.
        STRICT=1   promotes cam 1's #179 debt row from KNOWN to a hard FAIL, which is how the term that
                   pays the debt gets A/B'd against a baseline that is green WITH the debt already paid.
 
@@ -4832,6 +4836,16 @@ if (MODE === 'contrast') {
      this is the same REST the viewmodel probe uses for the same reason (#180). VM.ang = P.ang matters
      as much as the zeros: dAng is what the lag damps TOWARD, and after one frame it is already 0. */
   const VMREST = 'if (typeof VM !== "undefined") { VM.ang = P.ang; VM.lag = 0; VM.vy = 0; }';
+  /* SHADOW=0 runs this whole probe with the #178 contact shadow switched off in the renderer, the same
+     A/B arm the seam rows use (view.js:7118). A missing SHADOW global answers -1: without that, a
+     control run and a real run print identical numbers and nothing says the term is not in js/ at all.
+     The SHADOW_* knobs are the term's tuning surface, armed for the same reason SEAMD/SEAMW are. This
+     replaces the diff-mask era's reading (#179), where the arm could not show an effect because the mask
+     swallowed the shadow; with COV the shadow is background and these rows can credit it. */
+  const shArm = run('(function(){ if (typeof SHADOW !== "number") return -1; SHADOW = ' + (process.env.SHADOW === '0' ? 0 : 1) + '; return SHADOW; })()');
+  console.log(shArm < 0 ? '  no SHADOW global in js/: the contact-shadow A/B cannot arm, so no number below says anything about it'
+    : '  contact shadow ' + (shArm ? 'ON' : 'OFF (control run: the world is not darkened under bodies)'));
+  for (const k of ['D', 'R', 'F', 'ZT', 'ZF']) if (process.env['SHADOW' + k]) run('SHADOW_' + k + ' = ' + Number(process.env['SHADOW' + k]));
   for (let cam = 0; cam < 3; cam++) {
     run(`startLevel(${LVL}, true); S.mode='play'; S.locked=false;`);
     if (FLAT) run('MAP.fz.fill(0); MAP.cz.fill(CZ_DEF); linkBoundaries(); for (const e of ENEMIES) e.z = floorAt(e.x, e.y);');
