@@ -221,7 +221,7 @@ const ROLL_FN = `(function (lv, roll, yaws, stride, seed) {
    throws there exactly as it does in a browser. Each sound gets its OWN context so one failure cannot
    hide the next - being able to hide the next failure is how #157 stayed invisible for so long. */
 const AUDIO_FN = `(async function () {
-  const out = { sounds: [], warns: [], peakMax: 0, fatal: null };
+  const out = { sounds: [], warns: [], peakMax: 0, fatal: null, suppressed: 0, supBy: {} };
   const ow = console.warn;
   console.warn = function () { out.warns.push(Array.prototype.map.call(arguments, String).join(' ').slice(0, 200)); };
   S.sound = true;                        // never gate on the user's mute flag; here the probe needs it on
@@ -229,6 +229,27 @@ const AUDIO_FN = `(async function () {
   out.preBroken = S.audioBroken === true;
   out.preState = SND.ac ? SND.ac.state : 'NO CONTEXT';
   const SR = 44100, DUR = 0.7, N = Math.round(SR * DUR);
+  /* A render must contain the sound under test and nothing else, and until now it did not.
+     The game's own update loop keeps running while an OfflineAudioContext renders, and it calls
+     SND.burst straight out of update (js/30_entities.js:667 footfall, growl from the enemy AI,
+     startAmbient's tension tick in js/00_core.js:200) - and SND.ac points at the context under
+     test for the whole render window, so those calls get scheduled INSIDE the sound being measured.
+     tools/ci/attribution.js measured a foreign call in 39 of 39 renders; one contaminated step()
+     read 0.04548 where its own burst peaks at 0.0029, i.e. 15x the thing under test. That is why
+     silencing a sound failed to turn this gate red: the peak it compared was not the sound's.
+     Every sound swept here builds its whole graph synchronously - fanfare, the one that schedules
+     notes with setTimeout, is excluded below and says so - so anything reaching a context outside
+     the call under test is dropped and counted rather than measured. */
+  let allow = 0, supTotal = 0, supBy = {};
+  const restore = [];
+  for (const k of ['burst', 'tone']) {
+    const own = SND[k];
+    restore.push([k, own]);
+    SND[k] = function () {
+      if (!allow) { supTotal++; supBy[k] = (supBy[k] || 0) + 1; return undefined; }
+      return own.apply(this, arguments);
+    };
+  }
   const pans = [0, 0.45, -0.62];        // 0 is the ONE value that used to survive chain(); the others are what panOf() returns
   const calls = [];
   for (const k of ['pistol', 'shotgun', 'rifle', 'dry']) calls.push(['shot', [k]]);
@@ -248,7 +269,10 @@ const AUDIO_FN = `(async function () {
     try { SND.init(off); } catch (e) { out.sounds.push({ name: name, threw: 'init: ' + String(e.message || e).slice(0, 120), warned: 0, peak: 0 }); continue; }
     const w0 = out.warns.length;
     let threw = null;
+    allow = 1;
     try { SND[c[0]].apply(SND, c[1]); } catch (e) { threw = String((e && e.message) || e).slice(0, 160); }
+    allow = 0;
+    const sup0 = supTotal;
     let pk = 0;
     try {
       const buf = await off.startRendering();
@@ -258,10 +282,12 @@ const AUDIO_FN = `(async function () {
       }
     } catch (e) { threw = (threw ? threw + ' ; ' : '') + 'render: ' + String(e.message || e).slice(0, 120); }
     pk = +pk.toFixed(5);
-    out.sounds.push({ name: name, threw: threw, warned: out.warns.length - w0, peak: pk });
+    out.sounds.push({ name: name, threw: threw, warned: out.warns.length - w0, peak: pk, foreign: supTotal - sup0 });
     if (pk > out.peakMax) out.peakMax = pk;
   }
-  // Hand the game back its own live context before anything else can run.
+  // Hand the game back its own live context, and its own unwrapped burst/tone.
+  for (const p of restore) SND[p[0]] = p[1];
+  out.suppressed = supTotal; out.supBy = supBy;
   S.audioBroken = false;
   try { SND.ac = null; SND.master = null; SND.music = null; SND.noiseBuf = null; SND.init(); } catch (e) {}
   out.state = SND.ac ? SND.ac.state : 'NO CONTEXT';
@@ -316,13 +342,18 @@ async function mainAudio() {
       + '(pan passed as a number), each rendered through its own 0.7 s OfflineAudioContext at 44100 Hz - '
       + 'deterministic, no output device, and a wrong node signature still throws as it does in a browser');
     console.log('  before the probe touched anything: S.audioBroken ' + r.preBroken + ', live context "' + r.preState + '"');
+    const supBy = Object.keys(r.supBy || {}).sort().map(k => k + ' x' + r.supBy[k]).join(', ');
+    console.log('  each render carries the sound under test alone: ' + r.suppressed + ' calls made by the game\u2019s own update loop'
+      + (supBy ? ' (' + supBy + ')' : '') + ' reached a context mid-render and were dropped, not measured'
+      + ' - counting them is how a silent sound used to pass on a footstep it did not make.');
     if (!core.includes('createStereoPanner')) {
       console.log('  NOTE: js/00_core.js has no createStereoPanner - this is the unfixed (#157) code, so pan goes into connect() as a number.');
     }
     console.log('  not measured by this probe: fanfare (notes scheduled with setTimeout), startAmbient (a looping drone - offline rendering would measure a different sound each run).');
     for (const s of bad.concat(quiet)) {
       console.log('  ' + pad(s.name, 22) + ' peak ' + s.peak.toFixed(5) + '  '
-        + (s.threw ? 'THREW ' + s.threw : (s.warned ? 'warn x' + s.warned + ': ' + r.warns.slice(-1)[0] : 'SILENT')));
+        + (s.threw ? 'THREW ' + s.threw : (s.warned ? 'warn x' + s.warned + ': ' + r.warns.slice(-1)[0] : 'SILENT'))
+        + '  own renders ' + (s.renders || 1) + ', foreign calls dropped ' + (s.foreign || 0));
     }
     console.log('  peaks: max ' + r.peakMax + ', inaudible ' + quiet.length + '/' + r.sounds.length + ', throwing '
       + bad.length + ', S.audioBroken after sweep ' + r.broken + ', S.err ' + JSON.stringify(r.err));

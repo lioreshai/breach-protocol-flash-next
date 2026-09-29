@@ -16,7 +16,12 @@
      prev/next peak of the neighbouring renders in sweep order, to see shared-buffer patterns
 
    Foreign calls are the whole point: a render whose own sound is silent and whose peak is nonzero
-   has been contaminated, and the stack printed beside it names who did it. */
+   has been contaminated, and the stack printed beside it names who did it.
+
+   UPDATE from the fix this fed: tools/ci/assert.js now DROPS these calls instead of measuring them,
+   so the gate's peak is the sound under test alone. This probe keeps them in on purpose - its job is
+   to show what the gate used to be counting, and it cannot show that to a build of itself that
+   suppresses. Set FREEZE=1 to stop the update loop as a control for how much is the loop's doing. */
 const path = require('path'), fs = require('fs'), os = require('os'), cp = require('child_process');
 
 const ROOT = path.resolve(__dirname, '..', '..');
@@ -70,7 +75,7 @@ async function evaluate(cdp, expression) {
   return r.result ? r.result.value : undefined;
 }
 
-/* The gate's call list, copied from AUDIO_FN (tools/ci/assert.js:230-240). */
+/* The gate's call list, copied from AUDIO_FN's `calls` array in tools/ci/assert.js. */
 function buildCalls() {
   const calls = [];
   for (const k of ['pistol', 'shotgun', 'rifle', 'dry']) calls.push(['shot', [k], 'shot(' + k + ')']);
