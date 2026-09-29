@@ -3022,7 +3022,12 @@ if (MODE === 'viewmodel') {
   const authored = amp * (DH / 900) * BW / DW;   // device px -> raster px, via the frame's own dims
   const PLANE0 = run('cfg.plane');
   function travel(wide) {
-    const A = pair('P.sprint=1; keys.KeyW=1; P.vx=4; P.bobPhase=0');
+    /* SYMMETRIC ABOUT THE REST POSE, which is why these two states are +/-(PI/2) rather than 0 and
+       PI/2: the rig spans depths 0.15 to 0.9 m, so a lateral shift changes the SILHOUETTE as well as
+       its position (a near part slides further in px than a far one). Measured from the rest pose that
+       is a one-sided bias worth 12% of the signal; measured from +A to -A it is mirror-image and
+       cancels, and the translation and the roll lever both simply double. */
+    const A = pair('P.sprint=1; keys.KeyW=1; P.vx=4; P.bobPhase=-Math.PI / 2');
     const B = pair('P.sprint=1; keys.KeyW=1; P.vx=4; P.bobPhase=Math.PI / 2');
     return { d: B.o.cxN - A.o.cxN, n: A.o.nx, px: A.o.n, pl: B.cb.planeLen };
   }
@@ -3032,10 +3037,10 @@ if (MODE === 'viewmodel') {
   run('cfg.plane = ' + PLANE0 + ';');
   let problems = [];
   if (!(T1.n > 64 && T1.px > MINPX)) problems.push('too few pixels near the pivot to measure travel (' + T1.n + ')');
-  else if (!(Math.abs(T1.d / authored - 1) <= 0.12)) problems.push('painted sway travel is ' +
-    (T1.d / authored).toFixed(3) + 'x the art\'s authored travel - the conversion does not use planeLen');
-  console.log('sway travel'.padEnd(24), 'authored ' + authored.toFixed(2) + ' px  painted ' + T1.d.toFixed(2) +
-    ' px  ratio ' + (T1.d / authored).toFixed(3) + '  (over ' + T1.n + ' px within 70 px of the pivot; DW x DH ' +
+  else if (!(Math.abs(T1.d / (2 * authored) - 1) <= 0.12)) problems.push('painted sway travel is ' +
+    (T1.d / (2 * authored)).toFixed(3) + 'x the art\'s authored travel - the conversion does not use planeLen');
+  console.log('sway travel'.padEnd(24), 'authored ' + (2 * authored).toFixed(2) + ' px  painted ' + T1.d.toFixed(2) +
+    ' px  ratio ' + (T1.d / (2 * authored)).toFixed(3) + '  (over ' + T1.n + ' px within 70 px of the pivot; DW x DH ' +
     DW + 'x' + DH + ', raster ' + BW + 'x' + BH + ', planeLen ' + T1.pl.toFixed(3) + ')',
     problems.length ? '<< ' + problems.join(', ') : '');
   bad += problems.length ? 1 : 0;

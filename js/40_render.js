@@ -1192,8 +1192,12 @@ function drawDamageDirs(U) {
    THE PX-TO-METRES CONVERSION, because the bob and recoil terms below are the art's own numbers and
    re-tuning them would change how the gun MOVES: js/13_mesh.js projects Y = horizon + BH*(eyeZ-z)/ty
    into a buffer upscaled by DH/BH, so a vertical offset of d device px at forward distance t is
-   d*t/DH metres, and a lateral one is 2*d*t/DW because the horizontal field comes from planeLen, not
-   from the aspect. Both are evaluated at the gun's mean reach (VMSIT.t), which is exact for a term
+   d*t/DH metres, and a lateral one is 2*d*planeLen*t/DW: the device-px part (BW/DW of it is in the
+   raster) comes from the canvas, and the metres-per-plane-unit part is PLANELEN, because the horizontal
+   field is the camera plane while the vertical field is 2 metres at unit depth. Omitting planeLen was
+   the bug this line now documents: it painted 1/planeLen = 1.35x the art's travel at hip and made the
+   amount track the field of view (3.1x in ADS, where planeLen is 0.324) instead of the projection.
+   Both are evaluated at the gun's mean reach (VMSIT.t), which is exact for a term
    that translates the whole rig and approximate for its rotation.
 
    DEPTH - THE DECISION: ALWAYS NEAREST, implemented by drawing against a swapped depth array
@@ -1270,7 +1274,7 @@ function drawViewModel() {
   const rl = P.reloadT > 0 ? clamp(1 - P.reloadT / w.reload, 0, 1) : P.reloadT > -0.01 ? 1 : 0;
   const swap = P.swapT > 0 ? P.swapT / 0.34 : 0;
   const mz = Math.max(0, S.muzzle || 0);
-  const MPPY = VMSIT.t / DH, MPPX = 2 * VMSIT.t / DW;      // see the header: metres per device pixel
+  const MPPY = VMSIT.t / DH, MPPX = 2 * planeLen * VMSIT.t / DW;   // see the header: metres per device pixel
 
   // reload choreography: magazine out, replacement in, action cycled - the art's own staging, and
   // every term below is now a TRANSFORM of the rig rather than a translation of a screen anchor
