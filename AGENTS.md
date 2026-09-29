@@ -356,7 +356,8 @@ case "$out" in *"SMOKE PASSED"*) git add -A && git commit ;; *) echo NOT COMMITT
   sits in the reporting job while `ci.yml`'s blocking list runs the other eight. So CI cannot see the
   missing feature *and* would stay green while printing a contradiction. Making generation real means
   **giving `alt` a verdict** — a `process.exit` on ≥2 bands, ≥1 link per band, 0 unreachable cells,
-  ≥1 climbable staircase — after which it belongs in the blocking list (#152). Ask of any
+  ≥1 climbable staircase — after which it belongs in the blocking list (#152) — **done: `alt` now ends in
+`process.exit(bad ? 1 : 0)` and sits in the blocking list (`ci.yml`).** Ask of any
   green vertical verdict: which line creates the geometry this row needs?
 - **A probe that reads `zbuf` as a *label* rather than a *distance* breaks silently when the value
   becomes honest.** `!Number.isFinite(pz)` was how `view.js`'s mip rows meant "the wall pass painted
@@ -430,8 +431,10 @@ bands in one column, or a floor overhanging the cell it sits above.
   where correct geometry leaves the crown at 8.4-8.7%), while the step rows lose occlusion in the
   other direction and report the body still visible behind a 1 m step (1505 of 1540 px, background
   churn 25% instead of 203,137 px / 100%). Gated by
-  `MAP.steps`, derived in `linkBoundaries` for exactly the reason `VB_BLOCK` is: generated levels
-  are entirely flat, so this branch is dead code on shipped content until M6 authors steps, and
+  `MAP.steps`, derived in `linkBoundaries` for exactly the reason `VB_BLOCK` is — **and since #162 this
+  branch is live on shipped content, not dead code**: `alt` counts 77–111 step faces per generated level
+  with `MAP.steps 1`. It was dead code while generation wrote no altitude, which is what the older
+  wording here said, and
   `planes`' `STEPS-FLAG` row is what catches a forgotten relink. Note the ordering trap - a
   `poke()` relinks and *recomputes* `MAP.steps`, so a control that forces the flag must do it
   after the poke or the row measures nothing.
@@ -466,8 +469,13 @@ Milestones, each ending playable with gates green: ~~**M0** representation + abs
 ~~**M1** boundary faces with real `z0/z1`~~ · ~~**M2** the ground plane solved per **cell**, floors
 and **ceilings in the same commit** (floors-only shows a phantom floor across a tall room's upper
 half)~~ · **M3** is **two halves and only one shipped**: ~~gravity/step-up/fall-damage/climb~~
-(gated by `drop`, `canEnter`'s `VB_LADDER` reads, `vert`) · **bands and links generated — not done,
-`genLevel` never writes an altitude** (#152) ← **here** · **M4** everything sits at a height —
+(gated by `drop`, `canEnter`'s `VB_LADDER` reads, `vert`) · ~~bands and links generated~~ (**#152 is
+closed**; `alt` prints per-level rows, a verdict and `process.exit(bad ? 1 : 0)`, and is in `ci.yml`'s
+blocking list — measured on `main`: **5 floor values per level, 125–153 cells off the datum, 3 climbable
+staircase runs, 77–111 step faces with `MAP.steps 1`, 0 unreachable cells**) — so **M3 is complete**, and
+what is left of verticality is **M4 and M5: what a player can see and climb** ← **here**. Being in the
+grid is not being perceivable: staircase cells are ~2.6% of a floorplan (15 of 572 on L0) and no column
+is authored hollow, so a level is multi-storey in `MAP.fz` and still reads as a crawlway · **M4** everything sits at a height —
 `hitscan`, culling, blast band, exit band and pickup hover are gated (`sight`, `cull`, V4, V16, V17),
 enemy movement across bands, `updateProj`'s missing ceiling test (#148) and face-relative decal z are
 not · **M5** per-band light, glow, minimap altitude cue · **M6** a hand-authored two-storey level.
@@ -478,17 +486,24 @@ and was never closed**, and its content — bands and links in `genLevel` — ne
 `fzTry`, allocated as an all-zero `Int8Array` at `js/20_level.js:491` and made into `MAP.fz` at `:503`, and
 **no line writes it** (`:575` is the fallback box, not the normal path),
 so `view.js alt` reports `floors 0..0`, one band per level and `step faces 0` on all three levels.
+*(That describes `main` **before #162**. It is no longer the state of the repo — the paragraph under
+*Now:* carries the measured numbers, and this sentence is kept only because the failure it documents,
+a milestone struck without a verdict, is the reason the verdict exists.)*
 The wrong line cost every subsequent session its way into the feature, because "done" is not
 something you edit into a milestone list: it is a verdict a tool prints. Strike a milestone only
 with the verdict beside it (here: ≥2 bands, ≥1 link per band, 0 unreachable cells, ≥1 climbable
-staircase). That verdict does not exist yet, and the reason is worth being exact about: **`alt` has no
-`process.exit` in its code path at all.** It computes `flat`, prints `NOT FLAT - check above`, falls
-through to the scene dump and exits **0** (`tools/view.js:214-263`; the exits at 571/576 belong to
-`vert`, those at 712/833/910/1104 to sight/drop/horizon/cull). The flatness line in its output is
-decoration, not a gate — the worst kind of probe, one that cannot fail.
+staircase). **That verdict now exists** (`tools/view.js:334` ends the `alt` mode with
+`process.exit(bad ? 1 : 0)`, and the mode is in `ci.yml`'s blocking list), and generation is switched
+on: #152 closed, `alt` reporting 5 floor values per level, 125–153 cells off the datum, 3 climbable
+staircase runs and 77–111 step faces on `main`. **What is left is not geometry.** The rows are green and
+the levels still read flat, because the raised band is 116 of 572 cells, a staircase is 15 cells, and no
+column is authored with a ceiling above one unit — so there is nothing to look *up* into. The next
+milestone is authored volume and findability, not another shading term. The older sentence here — "`alt`
+has no `process.exit` in its code path at all ... the flatness line in its output is decoration" — was
+true of `tools/view.js` when written and is the reason the verdict was built; it is not the state now.
 
-`node tools/view.js heights` is the probe that makes M2 verifiable while every shipped level is
-still flat: it pokes `MAP.fz`/`MAP.cz` into six configurations per level (tall ceilings, a pit beyond
+`node tools/view.js heights` is the probe that makes M2 verifiable on levels whose altitude is now
+authored by the generator rather than poked by the probe: it pokes `MAP.fz`/`MAP.cz` into six configurations per level (tall ceilings, a pit beyond
 3 m, sunk 4-column stripes, a platform, the eye standing on a raised band) and asserts **which half
 of the frame moved** — measured on the ground pass alone, because the wall pass legitimately
 repaints rows the moment a face's z span changes. Emulating the old constant-plane solver through all
