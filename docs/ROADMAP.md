@@ -52,10 +52,14 @@ the way it is.
       take its fallback arena (#23) — a silent flat lit box is green CI telling a lie.
 - [ ] Re-baseline every number in `AGENTS.md` after that, and re-check the two decisions whose
       evidence was weakest (the rig size-class work was justified by a 10× claim from luck).
-- [ ] Numeric altitude probes (`alt`, `drop`, `sight`, `cull`, `horizon`) — a prerequisite for
-      trusting vertical work, since **no existing assert compares z at all**. `alt` exists and now
-      counts the boundary faces the wall pass draws plus their spans; `drop`/`sight`/`cull`/
-      `horizon` are still owed before M4 can be trusted.
+- [x] Numeric altitude probes (`alt`, `drop`, `sight`, `cull`, `horizon`) — all five exist and run.
+      `drop`, `sight`, `cull`, `horizon`, `heights`, `planes`, `vert` are in the **blocking** probe list
+      (`ci.yml`) and pass with numbers: a 3 m drop lands at 7.21 m/s against 7.43 predicted and hurts
+      (hp −25.32 vs the formula's 26.2); a level shot at an enemy one band up hits nothing; a body on
+      band +1 moves its silhouette centroid up 89.1 px against 84.5 predicted. **`alt` is the exception:
+      it runs in the reporting job only, and it asserts that levels are FLAT** (M0's exit gate). So z is
+      no longer invisible to the asserts — but every vertical row *creates* its geometry by poking
+      `MAP.fz`, which means none of them can fail on a world that has no altitudes. That is #152.
 
 ## Vertical navigation — milestones (design in `AGENTS.md`)
 
@@ -68,16 +72,28 @@ is what keeps `smoke.js` meaningful *while* this is in flight.
 |---|---|---|
 | M0 ✓ | Height expressible; `P.z` absolute; flat behaviour bit-identical | `exposure` per level moves `< 3`; smoke green; `alt` reports all-flat |
 | M1 ✓ | Boundary faces with real `z0/z1` | `alt` reports boundary faces > 0, no span ≤ 0 (invisible wall) |
-| M2 | Ground plane solved per **column**; ceilings in the same commit | medians within ~1 ms of baseline; `horizon` depth error `< 0.02` |
-| M3 | Bands + links generated; gravity, step-up, fall damage, climb | `alt`: ≥1 link per band, 0 unreachable cells; `drop` clean |
-| M4 | Everything sits at a height (enemies, `hitscan`, props, pickups, FX, portal) | `sight`: 0 cross-band false-visibles; combat asserts with a `P.z = 1` variant |
+| M2 ✓ | Ground plane solved per **column**; ceilings in the same commit | medians within ~1 ms of baseline; `horizon` depth error `< 0.02` |
+| M3 ◐ | **Physics ✓** gravity, step-up, fall damage, climb; **generation ✗** — no band or link is ever authored | `drop` clean ✓; `alt`: ≥2 bands per level, ≥1 link per band, 0 unreachable cells — **cannot pass today, and `alt` still asserts flat** |
+| M4 ◐ | `hitscan`, culling, blast/exit/pickup bands ✓ gated; enemy movement across bands, projectile ceiling (#148), absolute decal z ✗ | `sight`: 0 cross-band false-visibles ✓; combat asserts on a *generated* two-band level |
 | M5 | Per-band light and glow, minimap altitude cue | `exposure` **per band** in 60–100; colour variety not worse |
 | M6 | Hand-authored two-storey level | full smoke + user playthrough |
 
+**The frontier is one thing: `genLevel` has never written an altitude.** `MAP.fz` is allocated as an
+all-zero `Int8Array` (`js/20_level.js:575`) and no line in `js/` writes it, so `alt` reports
+`floors 0..0`, one band and `step faces 0` on all three levels — the representation, the faces, the
+ground solver and the movement all work on a world that has nothing to climb. Until 2026-09-29
+`AGENTS.md` claimed M3 had shipped ("issue #14 closed"), and #14 is open and was never closed: a
+milestone was struck without a verdict beside it, and the next readers inherited a feature that did
+not exist. [#152](https://github.com/lioreshai/breach-protocol-flash-next/issues/152) is the blocker
+for every vertical claim; [#14](https://github.com/lioreshai/breach-protocol-flash-next/issues/14)
+and [#15](https://github.com/lioreshai/breach-protocol-flash-next/issues/15) carry the per-item truth.
+
 Three failure modes that stay **green** while broken (each needs a probe, not a code review):
-`resetRun()` zeroes `P.z` *after* `genLevel` placed the spawn; `genLevel`'s height-blind
-occupancy gate degrades to a lit empty box with the feature silently absent; nothing compares
-z, so shots pass through catwalks and the exit triggers from the floor below.
+~~`resetRun()` zeroes `P.z` *after* `genLevel` placed the spawn~~ (fixed: `startLevel` seats
+`P.z`/`P.air`/`P.vz` on every path, gated by `vert`); `genLevel`'s height-blind occupancy gate degrades
+to a lit empty box with the feature silently absent (the warn ships, the **gate** is still blind);
+and ~~nothing compares z~~ — z is compared now, but **only on grids the probes poked themselves**, so
+a build with no altitudes at all passes the whole vertical suite (#152).
 
 ## Visual and feel backlog
 
