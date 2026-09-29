@@ -147,9 +147,10 @@ function linkBoundaries() {                               // read before one can
   const cell = MAP.cell, fz = MAP.fz;
   let steps = 0;            // does ANY column boundary in this level have a step at it? (#100)
   const seenF = new Uint8Array(256); let bands = 0;   // distinct floor quanta over open columns (#152)
+  const cntF = new Int32Array(256);                   // their histogram: the band cue's datum (#164)
   for (let y = 0; y < MH; y++) for (let x = 0; x < MW; x++) {
     const i = y * MW + x;
-    if (!cell[i]) { const k = fz[i] + 128; if (!seenF[k]) { seenF[k] = 1; bands++; } }
+    if (!cell[i]) { const k = fz[i] + 128; cntF[k]++; if (!seenF[k]) { seenF[k] = 1; bands++; } }
     let bits = 0;
     for (let d = 0; d < 4; d++) {
       const nx = x + DIRX[d], ny = y + DIRY[d];
@@ -170,6 +171,12 @@ function linkBoundaries() {                               // read before one can
   // function to be visible at all, so `view.js planes` asserts the flag tracks the grid.
   MAP.steps = steps;
   MAP.bands = bands;
+  /* The band cue's datum: the floor most of the level's open columns sit on. Using the mode rather
+     than the minimum means a flat level maps EVERY cell to index 0, which is the colour the minimap
+     already used, so a flat minimap stays byte-identical and only a stepped level adds an ink. */
+  let bQu = 0, bCnt = -1;
+  for (let k = 0; k < 256; k++) if (cntF[k] > bCnt) { bCnt = cntF[k]; bQu = k - 128; }
+  MAP.fzBase = bQu;
   buildCeilPlanes();                                      // ceilings are derived from the same grid
   MAP.linkStamp = ++LINK_STAMP;                           // a relink that never ran is then assertable
 }
