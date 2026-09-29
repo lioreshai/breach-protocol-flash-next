@@ -227,6 +227,11 @@ function renderWorld() {
    solid column once filled an entire frame with grey.
    ------------------------------------------------------------------ */
 let RX = new Int32Array(0), RP = new Float64Array(0);   // columns of one row that needed re-solving
+/* SCRATCH INSTRUMENTATION (perfX only, never ships): accumulated per renderWorld. Counted once per
+   ROW at BW-nm/nm, plus the fixed-point try count inside groundPixel's floor half. */
+/* SCRATCH INSTRUMENTATION (perfX only, never ships): accumulated per renderWorld. Counted once per
+   ROW at BW-nm/nm, plus the fixed-point try count inside groundPixel's floor half. */
+
 
 /* Ground mip selection: MIPAR is the anisotropy ratio the footprint may be stretched by before the
    choice stops rewarding it, and MIPAX is the A/B switch (0 = the 1-D selection this shipped with)
@@ -331,6 +336,7 @@ function planeAlong(rx, ry, pl, isF, absP) {
 }
 
 function castGround(flash, fcR, fcG, fcB) {
+  gSer++;                                  // invalidates the deferred-pixel constant memo
   const hInt = Math.round(horizon);
   const stepBase = 2 / BW;
   const cellArr = MAP.cell, N = MAP.w, lm = MAP.light, fzs = MAP.fz, cp = MAP.ceilPlane;
@@ -513,95 +519,136 @@ function castGround(flash, fcR, fcG, fcB) {
    castGround, not instead of it. The split is what lets that loop hold its mip, fog and light in
    registers - measured at 2.5 ms of a 1202x676 frame - and this function runs on no pixel of a
    flat level, which is why `scene` md5s and `heights` both have to stay green to trust either. */
+/* A deferred pixel's shading constants are a function of (ROW, PLANE) and nothing else: the engine's d
+   is a PARAMETER along (dir + plane*cam), so d = |plane - eyeZ| * BH / |p| is the same number for every
+   column of a row that shares a plane - and the decal fade, the fog, the flash term and the world step
+   per column follow from that one number. Solving them per call is what made the deferred copy the hot
+   loop once a generated level carried a second plane over part of the frame (measured on the raised
+   quadrant: 26,106 deferred px of 203k, 12.9% of the frame, 57 ms/frame against 13 ms for the same
+   geometry painted by the row loop). So the constants are built once per (row, plane) and rebuilt only
+   when a pixel's honest plane differs from the one its run was queued with - which is also the rule the
+   floor half's fixed point already reached after one try on 94% of its pixels. A flat level never gets
+   here at all, so this path cannot move a pixel of one. */
+let gSer = 0, gMSer = -1, gMRow = -1, gMPl = 0, gMDS = 0, gMDfa = 0, gMFog = 0, gMInv = 0, gMFR = 0,
+  gMFG = 0, gMFB = 0, gMBase = 0, gMCx0 = 0, gMCy0 = 0, gMCxs = 0, gMCys = 0,
+  gMCf = 0, gMAx = 0, gMWs = 0, gMAn = 1, gMAr = 4, gMN = 0,
+  gLSer = -1, gLSX = 0, gLSY = 0, gML0 = 0, gML1 = 0, gML2 = 0, gMMir = 0;
+
+function gndBuild(row, isF, absP, pl, tex, sc, fcR, fcG, fcB, fl, amb) {
+  const dS = (isF ? eyeZ - pl : pl - eyeZ) * BH / absP;
+  const dc = dS > FARB * 4 ? FARB * 4 : dS;
+  const fog = fogAt(dc);
+  gMSer = gSer; gMRow = row; gMPl = pl; gMDS = dc;
+  gMDfa = 0.4 + 0.6 * Math.exp(-dc * 0.02);
+  gMFog = fog; gMInv = 1 - fog; gMFR = fcR * fog; gMFG = fcG * fog; gMFB = fcB * fog;
+  gMBase = amb + fl * Math.exp(-dc * 0.30) * 0.9;
+  /* the sampled point is LINEAR in the column: camX + (dirX + planeX*(x*stepBase-1))*dS, so a pixel
+     of this run needs two multiplies, not a ray build. Same algebra the row uses for its own wx/wys. */
+  const sb = 2 / BW;
+  gMCxs = sb * planeX * dc; gMCys = sb * planeY * dc;
+  gMCx0 = camX + (dirX - planeX) * dc; gMCy0 = camY + (dirY - planeY) * dc;
+  /* mip selection, per (row, plane): mipSel's ROW axis is the same number for every column of the run,
+     and only its column axis moves - by |ray|, which is what the pixel's own cam offset says. Same
+     expressions and the same evaluation order as the call, so the chosen level is the same texel-for-
+     texel; the anisotropy switch stays honoured because `view.js mip` A/Bs it as a control. */
+  const ax0 = planeX * sb * dc, ax1 = planeY * sb * dc, ws = tex.mips[0].w * sc;
+  gMAx = Math.sqrt(ax0 * ax0 + ax1 * ax1) * ws; gMCf = dc / absP; gMN = tex.mips.length;
+  gMAn = MIPAX; gMAr = MIPAR; gMWs = ws;
+}
+
 function groundPixel(x, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb, dP) {
-  const N = MAP.w, cellArr = MAP.cell, lm = MAP.light, stepBase = 2 / BW;
+  const N = MAP.w, cellArr = MAP.cell, lm = MAP.light, fzs = MAP.fz, stepBase = 2 / BW;
   const cam = x * stepBase - 1, rx = dirX + planeX * cam, ry = dirY + planeY * cam;
-  let dS;
+  // the cell this pixel's ray reaches at the ROW's distance: the shipped out-of-map fallback cell and
+  // the anchor the floor half's settle test measures its two-cell proximity against
+  const ax = (camX + rx * dP) | 0, ay = (camY + ry * dP) | 0;
   if (isF) {
-    /* The FLOOR half keeps the shipped solver verbatim: three tries in which the cell the pixel lands
-       in may replace the plane that queued it. It adopts a LOWER plane it finds further along the ray,
-       which down a staircase paints the bottom floor's plane at 18 m where walking the ray says the
-       first step's plane answered at 9.4 m - a phantom, and the reason the `bands` walk-lip row reads
-       45.4 instead of 27.1. Fixing that half moves 11,850 px of that probe's L0 frame and needs its
-       look gate re-based, so it is NOT folded into #170, which is entirely a ceiling-row defect. */
-    let ax = (camX + rx * dP) | 0, ay = (camY + ry * dP) | 0, settled = false;
+    /* The FLOOR half keeps the shipped solver's SHAPE - the plane the pixel was queued with may be
+       replaced by the floor of the cell the pixel lands in, once per try, quantum apart = settled -
+       but runs the arithmetic only, with no shading in the loop, and the plane it lands on is what the
+       (row, plane) constants are built from. That is the same answer the three-try loop left in dS:
+       d is always the final plane's solve, whether the loop broke, settled or ran out. It adopts a
+       LOWER plane it finds further along the ray, which down a staircase paints the bottom floor's
+       plane at 18 m where walking the ray says the first step's plane answered at 9.4 m - a phantom,
+       and the reason the `bands` walk-lip row reads 45.4 instead of 27.1; walking the floor half needs
+       its own change and its own look gate, not a quiet edit to that threshold. */
+    let cur = pl, aq = ax, aqq = ay, settled = false;
     for (let g = 0; g < 3; g++) {
-      dS = (eyeZ - pl) * BH / absP;
-      if (dS > FARB * 4) dS = FARB * 4;
-      const qx = (camX + rx * dS) | 0, qy = (camY + ry * dS) | 0;
-      const mx = (qx + ax) >> 1, my = (qy + ay) >> 1;
+      const d0 = (eyeZ - cur) * BH / absP, dc = d0 > FARB * 4 ? FARB * 4 : d0;
+      const qx = (camX + rx * dc) | 0, qy = (camY + ry * dc) | 0;
+      const mx = (qx + aq) >> 1, my = (qy + aqq) >> 1;
       // a plane may only come from a column within two cells on BOTH axes with no solid column between
-      let plN = pl;
-      if (qx >= 0 && qy >= 0 && qx < N && qy < N && Math.abs(qx - ax) <= 2 && Math.abs(qy - ay) <= 2 &&
+      let plN = cur;
+      if (qx >= 0 && qy >= 0 && qx < N && qy < N && Math.abs(qx - aq) <= 2 && Math.abs(qy - aqq) <= 2 &&
         mx >= 0 && my >= 0 && mx < N && my < N && !cellArr[my * N + mx]) {
         const ii = qy * N + qx;
-        if (!cellArr[ii]) {
-          const t = MAP.fz[ii] * ZQ;
-          if (t < eyeZ) plN = t;
-        }
+        if (!cellArr[ii]) { const t = fzs[ii] * ZQ; if (t < eyeZ) plN = t; }
       }
-      ax = qx; ay = qy;
-      // planes are quantized to ZQ, so agreement within one quantum is convergence: a pixel on the seam between two cells whose planes differ by a quantum has no fixed point and alternates forever (measured: 33,656 of a frame's re-solves on eyeUp, all a 1 <-> 1.25 two-cycle); the plane it started from wins
-      if (Math.abs(plN - pl) <= ZQ) { settled = true; break; }
-      pl = plN;
+      aq = qx; aqq = qy;
+      // planes are quantized to ZQ, so agreement within one quantum is convergence: a pixel on the
+      // seam between two cells whose planes differ by a quantum has no fixed point and alternates
+      // forever (measured: 33,656 of a frame's re-solves on eyeUp, all a 1 <-> 1.25 two-cycle)
+      if (Math.abs(plN - cur) <= ZQ) { settled = true; break; }
+      cur = plN;
     }
-    // an exhausted loop used to leave dS from the PREVIOUS plane; the plane finally used now places the pixel
-    if (!settled) {
-      reSolveBad++;
-      dS = (eyeZ - pl) * BH / absP;
-      if (dS > FARB * 4) dS = FARB * 4;
-    }
+    // an exhausted loop used to leave dS from the PREVIOUS plane; the plane finally used places the
+    // pixel, so it is counted here and solved like every other one
+    if (!settled) reSolveBad++;
+    pl = cur;
   } else {
     // the CEILING half walks the ray: which cell's slab reaches the point this column arrives at
     pl = planeAlong(rx, ry, pl, isF, absP);
-    dS = (pl - eyeZ) * BH / absP;
-    if (dS > FARB * 4) dS = FARB * 4;
   }
+  if (gMRow !== row || gMPl !== pl || gMSer !== gSer) gndBuild(row, isF, absP, pl, tex, sc, fcR, fcG, fcB, fl, amb);
+  const dS = gMDS;
   /* This pixel's cell is NOT on the row's plane, so the row's depth is wrong for it: at the lip of a
-     step the row says the distance to the plane the eye is in, while the colour painted here came
-     from a plane one quantum (or two units) away. One store per deferred pixel, of the distance this
-     function already solved - no re-solve, no call - which is what keeps a sunk stripe from
-     occluding a sprite standing in it at the wrong depth. */
+     step the row says the distance to the plane the eye is in, while the colour painted here came from
+     a plane one quantum (or two units) away - the distance this pixel's plane solves to. */
   zbuf[row + x] = dS;
-  const cx = camX + rx * dS, cy = camY + ry * dS;
+  const cx = gMCx0 + x * gMCxs, cy = gMCy0 + x * gMCys;
   let sx = cx | 0, sy = cy | 0;
-  /* a re-solved pixel that leaves the map falls back to the predictor's cell (gx, gy) for light and
-     mirror - the cell the row's own walk would have reached - so it shades like a flat pixel at that
-     distance instead of wrapping to a cell on the far side of the level */
-  if (sx < 0 || sy < 0 || sx >= N || sy >= N) {
-    gndOffMap++;
-    sx = (camX + rx * dP) | 0; sy = (camY + ry * dP) | 0;
-  }
-  const dfade = 0.4 + 0.6 * Math.exp(-dS * 0.02);
-  const fog = fogAt(dS), inv = 1 - fog, fR = fcR * fog, fG = fcG * fog, fB = fcB * fog;
-  const base = amb + fl * Math.exp(-dS * 0.30) * 0.9;
-  /* the row's footprint test at this pixel's distance: the world step per column is
-     plane*stepBase*d and per row is ray*d/|p|, so both scale with d and nothing else. Here the ray
-     direction is this pixel's own, not the centre column's. */
-  const cfS = dS / absP;
-  const k = mipSel(planeX * stepBase * dS, planeY * stepBase * dS, rx * cfS, ry * cfS, sc, tex);
+  /* a re-solved pixel that leaves the map falls back to the predictor's cell - the cell the row's own
+     walk would have reached - so it shades like a flat pixel at that distance instead of wrapping to a
+     cell on the far side of the level */
+  if (sx < 0 || sy < 0 || sx >= N || sy >= N) { gndOffMap++; sx = ax; sy = ay; }
+  let k;
+  if (gMAn) {
+    const cfS = gMCf, qx = rx * cfS, qy = ry * cfS;
+    const ay = Math.sqrt(qx * qx + qy * qy) * gMWs;
+    const rho = gMAx >= ay ? gMAx : ay < gMAx * gMAr ? ay : gMAx * gMAr;
+    k = rho >= 16 ? 4 : rho >= 8 ? 3 : rho >= 4 ? 2 : rho >= 2 ? 1 : 0;
+    if (k >= gMN) k = gMN - 1;
+  } else k = mipSel(planeX * stepBase * dS, planeY * stepBase * dS, rx * (dS / absP), ry * (dS / absP), sc, tex);
   const m = tex.mips[k];
   const mw = m.w, mh = m.h, ms = sc * m.w, td = m.data, mask = mw - 1, maskH = mh - 1;
   const inMap = sx >= 0 && sy >= 0 && sx < N && sy < N, cIdx = sy * N + sx;
-  let lr, lg, lb, mir = 0;
-  if (inMap) {
-    const lt = cellTint(cIdx), li = lm ? lm[cIdx] : 0.4;   // no li>1 clamp here either, matching the
-    lr = base + li * lt[0]; lg = base + li * lt[1]; lb = base + li * lt[2];   // loop's cell crossing
-    mir = (hash2(sx, sy) * 4) | 0;
-  } else { lr = lg = lb = base; }
+  let lr, lg, lb, mir;
+  /* Light and mirror are functions of the CELL, not of the pixel: the row loop recomputes them at a
+     crossing for exactly that reason, and here they are the same three loads plus one hash per crossing
+     instead of per pixel. Keyed by the frame serial too, because the lightmap fades between frames. */
+  if (gLSer !== gSer || sx !== gLSX || sy !== gLSY) {
+    gLSer = gSer; gLSX = sx; gLSY = sy; gML0 = gML1 = gML2 = 0; gMMir = 0;
+    const lta = MAP.lt, kk = cIdx * 3;
+    if (inMap && lta && cIdx >= 0 && kk + 2 < lta.length) {
+      const li = lm ? lm[cIdx] : 0.4;                     // no li>1 clamp here either, matching the
+      gML0 = li * lta[kk] / 128; gML1 = li * lta[kk + 1] / 128; gML2 = li * lta[kk + 2] / 128;   // loop's
+      gMMir = (hash2(sx, sy) * 4) | 0;                    // cell crossing
+    }
+  }
+  lr = gMBase + gML0; lg = gMBase + gML1; lb = gMBase + gML2; mir = gMMir;
   let tx = (cx * ms) | 0, ty = (cy * ms) | 0;
   tx &= mask; ty &= maskH;
   if (mir & 1) tx = mask - tx;
   if (mir & 2) ty = maskH - ty;
   const c = td[ty * mw + tx];
   const i = row + x;
-  if ((c >>> 24) === 253) { px[i] = 0xFF000000 | clampi((c >> 16 & 255) * inv + fB) << 16 | clampi((c >> 8 & 255) * inv + fG) << 8 | clampi((c & 255) * inv + fR); return; }
-  let r = (c & 255) * lr + fR, g = (c >> 8 & 255) * lg + fG, b = (c >> 16 & 255) * lb + fB;
+  if ((c >>> 24) === 253) { px[i] = 0xFF000000 | clampi((c >> 16 & 255) * gMInv + gMFB) << 16 | clampi((c >> 8 & 255) * gMInv + gMFG) << 8 | clampi((c & 255) * gMInv + gMFR); return; }
+  let r = (c & 255) * lr + gMFR, g = (c >> 8 & 255) * lg + gMFG, b = (c >> 16 & 255) * lb + gMFB;
   const dl = isF && inMap && DECAL_MASK ? DECAL_MASK[cIdx] : 0;
   if (dl !== 0) {
     const gl = DECAL_GRID[cIdx];
     for (let q = 0; q < gl.length; q++) {
-      const dc = gl[q], al = decalAlpha(dc, cx, cy, dfade);
+      const dc = gl[q], al = decalAlpha(dc, cx, cy, gMDfa);
       if (al <= 0.01) continue;
       const dt = dc.tex, du = (((cx - dc.x) * dc.inv + 0.5) * dt.w) | 0, dv = (((cy - dc.y) * dc.inv + 0.5) * dt.h) | 0;
       if (du < 0 || dv < 0 || du >= dt.w || dv >= dt.h) continue;
@@ -612,6 +659,7 @@ function groundPixel(x, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb, dP)
   }
   px[i] = 0xFF000000 | clampi(b) << 16 | clampi(g) << 8 | clampi(r);
 }
+
 function decalAlpha(dc, wx, wy, dfade) {
   const dx = wx - dc.x, dy = wy - dc.y, r2 = dx * dx + dy * dy;
   if (r2 >= dc.r * dc.r) return 0;
