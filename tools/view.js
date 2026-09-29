@@ -2296,9 +2296,10 @@ if (MODE === 'contrast') {
     console.log('  masks      coverage ' + nM + ' px vs diff ' + oCover + ' px  |  drawn-but-invisible ' +
       ghost + ' px  |  diff-not-covered (leak) ' + leak + ' px  |  ring ' + enring + ' of ' + ring.length +
       (noBg ? ' (' + noBg + ' with no outside neighbour)' : ''));
-    row('cam ' + cam + ' mask is bodies, not the room', nMB === 0,
+    row('cam ' + cam + ' mask is bodies, not the room', nMB === 0 && nM > 0,
       nMB ? 'rendering with ENEMIES emptied still stamps ' + nMB + ' px of coverage - the mask is counting something other than the cast'
-        : 'ENEMIES emptied -> coverage empty, so every mask pixel below is a body\'s own draw');
+        : !nM ? 'vacuous: nothing drew in the measured frame either, so this proves nothing about the mask'
+          : 'ENEMIES emptied -> coverage empty, so every one of the ' + nM + ' mask px below is a body\'s own draw');
     row('cam ' + cam + ' silhouette is big enough', nM >= MINMASK, nM + ' px = ' + pct(nM) + ' of the frame' +
       (nM ? '' : ' - NOTHING DREW: rows below are not measurements'));
     row('cam ' + cam + ' edge ring is measurable', enring >= RINGMIN && noBg === 0,
