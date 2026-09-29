@@ -1,6 +1,24 @@
 ## Unreleased
 
 ### Fixed
+- **A prop on the band above still drew through the slab, in the band of rows just below its riser**
+  (#170). **438 / 401 / 398 px at rows 102..127** on L0/L1/L2 stayed visible behind a raised floor.
+  Every one of them was painted by the **deferred** ground path (forcing the split never to queue
+  removes the leak entirely; forcing it to always queue reproduces it byte-identically), and each was
+  queued with plane **2.00** and answered from plane **2.00** — the row's own nearer plane (**1.00**,
+  which solves to 2.5–4.0 m against the lamp at 4.00 m) was **never a candidate**, which is why
+  tie-breaking the fixed point changed nothing. A deferred pixel now marches the ray the way the row's
+  DDA does and adopts **the plane whose cell actually extends to the hit point**, stopping at the
+  boundary whose opening `[max floor, min ceiling]` closes at the ray's height (`planeAlong`), and
+  `gndWalkEdge` counts the marches that end on a slab edge rather than a plane. The row loop
+  deliberately does **not** march: a 40-step DDA per cell crossing measured **38.2 ms against main's
+  9.2 on a flat frame** — the documented one-indirection cliff — and no leaking pixel lived there.
+  Flat levels are bit-identical (`scene 0 0` md5 unchanged), and so is the **mirror** geometry, which
+  is the part that matters: a tall ceiling four cells out with flat floors hashes the ground pass
+  `0xbb92cda0 / 0x80688d4a / 0x0186ce30`, identical to main, where the plausible near-plane rule drew
+  the **near** ceiling across the room instead. `cull`'s far-slab row now asserts the **whole**
+  silhouette instead of excluding rows below the riser's top edge — that exclusion is what let the
+  defect print green.
 - **A prop, pickup or orb on the band above drew through the floor you were standing on** (#163).
   The ground pass wrote `zbuf = Infinity` on ceiling rows, and a mesh's only occlusion test is
   `occ < z`, so nothing on those rows could ever hide a body: measured at camera `(8.10,19.50)`

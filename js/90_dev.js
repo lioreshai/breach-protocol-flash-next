@@ -289,7 +289,7 @@
     on: true, help: help, boot: boot, cam: cam, look: look, face: face, nearestEnemy: nearestEnemy, freeze: freeze,
     tick: tick, spawn: spawn, clear: clear, set: set, tiers: tiers, stats: stats, state: state, ray: ray, mesh: mesh,
     lum: lum,
-    get ground() { return { reSolveBad: reSolveBad, gndOffMap: gndOffMap }; }   // ground re-solve counters, see tools/view.js heights
+    get ground() { return { reSolveBad: reSolveBad, gndOffMap: gndOffMap, walkEdge: gndWalkEdge }; }   // ground re-solve counters, see tools/view.js heights
   };
   window.DEV = DEV;
   if (S.mode === 'title' && !/[?&]boot=0/.test(URLQ)) DEV.boot();

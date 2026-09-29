@@ -1301,10 +1301,10 @@ if (MODE === 'cull') {
     /* Rows above RISE_TOP have NO wall face in front of them: RISE_TOP is where the raised band's
        riser projects (similar triangles, horizon - (slab underside - eyeZ) * BH / distance to the
        boundary), so for y < RISE_TOP the ceiling solve is the only thing that can hide the prop, which
-       is exactly the #163 case. Below it the pixel sits on the low/raised SEAM, where groundPixel's
-       fixed point oscillates between the two planes and gives up on the far one - a separate, already
-       documented weakness (AGENTS: non-convergence on a quantized domain), covered by `heights`, not
-       something this row may pretend is fixed. */
+       is exactly the #163 case. BELOW it the pixel sits on the low/raised SEAM: that band used to be
+     EXCLUDED here, which made the row print green while a prop drew through the slab (398-438 px,
+     #170 - and the pixels were all on the deferred path, answered from the plane the queued solve had
+     reached rather than the one whose cell extends to the hit point). Asserted whole now. */
     const CAMCP = run(`MAP.ceilPlane[${Math.floor(setup.lane.y)} * MW + ${Math.floor(setup.lane.x)}]`);
     const TBOUND = 2.5;                                  // cell cx+3 starts at x = cx + 3, camera at cx + 0.5
     const RISE_TOP = HZZ - (CAMCP - run('eyeZ')) * run('BH') / TBOUND;
@@ -1335,9 +1335,10 @@ if (MODE === 'cull') {
     restore();
     run('PROPS.length = 0;');
     row(`L${li} a prop one band above is hidden by the slab`,
-      above.inR <= Math.max(16, 0.02 * ownB.n) && ownB.n >= 250 && ownB.above >= 0.2 * ownB.n &&
+      above.n <= Math.max(24, 0.04 * ownB.n) && above.inR <= Math.max(16, 0.02 * ownB.n) &&
+      ownB.n >= 250 && ownB.above >= 0.2 * ownB.n &&
       ownB.fin >= 0.6 * ownB.above,
-      `lamp 0.95 m at ${lampT.toFixed(2)} m on band ${((BG.cz + 4) * run('ZQ')).toFixed(2)} vs the camera's ${(BG.cz * run('ZQ')).toFixed(2)}: ${above.inR} px in rows 0..${Math.round(RISE_TOP)}, the ceiling-only band above the riser's top edge (ceilPlane ${CAMCP.toFixed(2)}, boundary ${TBOUND} m), of ${above.n} px total at rows ${above.top}..${above.bot}; the same prop on the camera's own band keeps ${ownB.n} px, ${ownB.above} above the horizon with a finite ceiling distance (FARB ${FARBV}) behind ${ownB.fin} of them`);
+      `lamp 0.95 m at ${lampT.toFixed(2)} m on band ${((BG.cz + 4) * run('ZQ')).toFixed(2)} vs the camera's ${(BG.cz * run('ZQ')).toFixed(2)}: ${above.n} px of silhouette at rows ${above.top}..${above.bot}, of which ${above.inR} in the ceiling-only band above the riser's top edge (ceilPlane ${CAMCP.toFixed(2)}, boundary ${TBOUND} m) - the seam band below the riser's edge is asserted too, not excluded (#170); the same prop on the camera's own band keeps ${ownB.n} px, ${ownB.above} above the horizon with a finite ceiling distance (FARB ${FARBV}) behind ${ownB.fin} of them`);
     console.log(`  L${li} reference: flat silhouette ${flat.px} px, centroid ${flat.cy.toFixed(1)} of ${H}, rows ${flat.top}..${flat.bot}, body ${base.scale.toFixed(2)} units at ${base.d.toFixed(2)} m`);
 
     putProps();
