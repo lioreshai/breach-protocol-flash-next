@@ -196,7 +196,14 @@ case "$out" in *"SMOKE PASSED"*) git add -A && git commit ;; *) echo NOT COMMITT
 - Probes that spin the camera also *drive the player*: recenter or they walk through walls
   into the void, where the grid is undefined and DDA never hits (that is a "freeze").
   `nearestOpen()` rescues an embedded player; `tryMove()` slides along walls.
-- `zbuf` holds 0 in columns where no wall was hit, which silently culls billboards there.
+- **`zbuf` is a distance in every pixel now, not a label.** It is allocated `Infinity`
+  (`js/40_render.js:55`) and `castGround` fills every row each frame (`:296`, `:324`, `:446`); the only
+  place `Infinity` survives is the `p === 0` horizon row (`:271`), where it is arithmetic. The older form
+  of this trap — "`zbuf` holds 0 where no wall was hit, which silently culls billboards" — described a
+  buffer only the wall pass wrote. Nothing writes 0 any more, so a probe or pass that tests for it is
+  testing a condition that cannot happen: the billboard test (`:790`) and the mesh test
+  (`js/13_mesh.js:524`) are both strictly-nearer comparisons now, which is why #163 had to give ceiling
+  rows a real distance instead of a sentinel to make occlusion able to fail at all.
 - **A wall column has no floor plane and no ceiling.** `ceilAt(wall)` = `floor + max(ZQ, cz*ZQ)` with
   `cz` left at 0, i.e. `floor + 0.25` — *below the eye*. Anything that solves a screen row against
   "the plane of the cell the ray is in" must skip solid cells or it will conclude the plane is above
@@ -340,6 +347,34 @@ case "$out" in *"SMOKE PASSED"*) git add -A && git commit ;; *) echo NOT COMMITT
   **giving `alt` a verdict** — a `process.exit` on ≥2 bands, ≥1 link per band, 0 unreachable cells,
   ≥1 climbable staircase — after which it belongs in the blocking list (#152). Ask of any
   green vertical verdict: which line creates the geometry this row needs?
+- **A probe that reads `zbuf` as a *label* rather than a *distance* breaks silently when the value
+  becomes honest.** `!Number.isFinite(pz)` was how `view.js`'s mip rows meant "the wall pass painted
+  here" (`tools/view.js:1702`), and `heights` asserted `zc[i] !== Infinity` on ceiling pixels (the #45
+  carve-out). #163 made the ground pass store its own solve on ceiling rows (`js/40_render.js`), so the
+  mip sampler must now clear `zbuf` to the sentinel before each of its four isolated `castWalls` calls
+  (`:1698,:1711,:1714,:1715`) to keep measuring the wall pass alone. The only row that keeps `Infinity`
+  is the horizon, where `dz * BH / 0` is arithmetic, not a carve-out — and `HORIZON-DEPTH` asserts it.
+- **`startLevel` regenerates the grid, so a poke of `MAP.cz` before it is lost.** `genLevel` reassigns
+  `MAP.cz` from a fresh array (`js/20_level.js:606`), so #163's taller-sight-path poke (`MAP.cz.fill
+  (CZ_DEF * 2)`) measured "fixed 6 of 7 rows" when it ran before the attach section's own regenerate.
+  A probe that pokes altitude must re-seat it **after every `startLevel`**, or its occlusion row is
+  structurally unable to fail.
+- **A riser one cell ahead makes an occlusion row unable to fail.** cull's "prop one band above is
+  hidden by the slab" puts the raised band **three cells** out so the riser's top projects at row ~101
+  of 338 and rows 31..101 have no wall face in front of them — the ceiling solve is the only occluder
+  there (measured 0 px fixed vs 565/565/490 px with the zbuf writes reverted). One cell ahead puts the
+  riser's top at row 0, the wall pass hides the prop by itself, and the row passes on a build with no
+  ceiling depth at all (measured: 0 px both ways). Name the config that exercises the case, then check
+  it fails on the geometry you did not change.
+- **Assert the value, not the placeholder.** #163 turned `heights`' `CEILING-SENTINEL` into
+  `CEILING-DEPTH`: a ceiling pixel must now match **the row's own solve** within tolerance
+  (`tools/view.js:2038`), not merely be "not Infinity". That is the stronger form — a sentinel renamed
+  1e30 passes the old test and fails the new one, as does "hide everything".
+- **Quantized-domain non-convergence now has a visible consequence.** Below a raised band's riser lip a
+  prop on the band above still draws — measured 398–438 px at rows 102..127 (#163) — because
+  `groundPixel`'s fixed point oscillates between the low and raised planes at the seam and gives up on
+  the far one. The failure mode is the one recorded above ("a fixed-point walk that runs out of
+  iterations still paints"); what is new is that pixels show it.
 
 ## Now: verticality — the design that was chosen
 
