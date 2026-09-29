@@ -152,6 +152,33 @@
   than no citation. Finding them also changed the plan - authored bands must go in **before** `bfsReach` at
   `:492` (the comment at `:489-490` notes the BFS walks the array `MAP.fz` becomes), or the gate certifies a
   flat grid the player never receives.
+- **`contrast`'s mask is coverage now, and the probe can fail.** The silhouette used to be
+  `|A - B| > 4`, where `B` is the same render with `ENEMIES.length = 0`, which cannot credit anything
+  a body changes in the *world*: `B` has none of it, and a shadow falling outside the silhouette joins
+  the mask and moves the sampled edge onto the shadow's own falloff, where `dl` is tiny. That is how
+  a contact shadow measuring a nonzero value on **4,410 of 37,651** body pixels left cam1
+  **bit-identical** (dL 14, lost 44%), while `cull` read **113.0% / 182.3%** of the flat silhouette
+  "surviving" and `cover` went **1.1% → 33.3%** (#179). The mask is now `COV` - who painted each
+  pixel last, stamped at the mesh and billboard write sites, cleared once per frame by `renderWorld`,
+  `null` in play - so a body pixel painted the same colour as the wall is *in* the mask and a shadow
+  behind a body is *background*. Ring = mask pixels with an outside neighbour in the 8-neighbourhood;
+  background reference = the median luminance of those outside neighbours **of the same composited
+  frame**. Five rows per camera with a verdict and a `process.exit`: mask-is-bodies (the enemy-free
+  render's coverage must be empty), silhouette big enough, ring measurable, body reads against the
+  room (the shipped `edge dL >= 24`, plus `lost <= 70%`), and **leak** - pixels the diff mask claims
+  that coverage denies, **0 px on main**, which is the shadow bug made countable. Coverage also sees
+  the pixels the diff mask structurally could not contain: **52 / 566 / 0** body pixels at cam0/cam1/
+  cam2 differ from the enemy-free render by <= 4, i.e. **20% of cam1's silhouette was invisible to
+  the oracle**. Numbers on the same frames, old rule then new: cam0 `0.5%/34/29/13%` →
+  `0.5%/32/28/17%`, cam1 `1.1%/15/14/44%` → `1.4%/12/17/38%` (WEAK under both rules, and now it
+  exits 1), cam2 `0.2%/82/79/1%` → `0.2%/82/68/0%`. Controls, each seen to move the verdict:
+  `NOBODY=1` gives an empty mask and 12 red rows instead of confident zeros, `DARKRING=1` (paint the
+  ring black - the scale a future contour term is judged on) takes cam1 from `17/38%` WEAK to
+  `37/0%` READS, and `TINT=k` flips verdicts at identical mask geometry, which is what the shipped
+  `DEV.set('rim', …)` can no longer do (bodies are meshes since #72; `RIM=0|1` hashes the same frame
+  both ways). Pixels are unchanged: `scene` md5s identical on all three levels, WARM PNG md5
+  identical across 16 interleaved runs, `exposure` ok, `SMOKE PASSED` with the VERT lane at 25
+  gating rows.
 
 ### Added
 - **The exposure gate now samples the frame the player actually sees first, and it fails on its own.**
