@@ -109,6 +109,32 @@ const MESH = (function () {
   let BODY = false;                                   // o.body: a character, not a prop (COV stamp)
   let ALPHA = 1, FLASH = 0, TINT = null;               // per-draw terms the enemy list carries
   let EMIS = false, DIM = 0, EM = null;                // the light-exempt registers: entry-wide, per-vertex
+  /* Two terms only a view model needs, and both are A/B-able from tools/view.js because they are
+     module registers rather than baked arithmetic:
+     FLR  - a floor on the LIGHT MULTIPLIER, not an additive. The 2-D art multiplied its albedo by
+            `0.5 + 0.5*cellLi + mz*1.5`, so its dark-room value was 0.5 of albedo; this path's
+            multiplier is `AMB + li*lt*sh`, which at AMB 0.19 and a dark cell lands near 0.19 - 2.6x
+            darker than the art ever was. 0.5 reproduces the art's floor AND keeps its 2:1 ratio
+            between a dark cell and a lit one, which is what keeps row (d) able to darken at all.
+     RIMK - the ADDITIVE half, in output space (`+ RIMC*rim`, never `*rim`): adding light to an albedo
+            that averages 30..58 is the only thing that moves silhouette contrast (AGENTS, #17). The
+            shape is the grazing-angle term `1 - |N.V|`, which needs no normal map and no gradient -
+            the face normal and the vector to the eye are already computed two lines up. */
+  let FLR = 0, RIMK = 0;
+  const RIMC = [150, 176, 208];                       // a cool sky rim on warm metal
+  /* o.near swaps the DEPTH array rather than adding a branch to the pixel loop. The swap makes the
+     same `if (occ < z) continue` compare the draw against ITSELF instead of against the frame: the
+     world's distances are never consulted, so nothing in the room can cull the view model, and the
+     writes land in scratch so the frame's depth is exactly what it was - the view model cannot punch
+     a hole in the foreground after it is drawn. Self-occlusion still has to be real: the gun is 60
+     boxes and tubes whose faces overlap in screen space, and painter's order cannot order them (the
+     art got away with a fixed order because it drew the forearms behind the receiver by hand). So
+     the scratch is a depth buffer, and the region the PREVIOUS frame's view model wrote is cleared
+     before the next one draws - outside that rectangle the scratch is already +Infinity, which makes
+     the clear exact (induction: every pixel ever written was inside the rectangle cleared last
+     frame) and costs a strip of the frame rather than a fill of it. */
+  let ZFAR = null, ZSAVE = null, VMASK = false;
+  let srx0 = 0, srx1 = -1, sry0 = 0, sry1 = -1;      // the rectangle the last view-model draw wrote
   let R0 = 0.30, R1 = 0.85;                            // the Lambert ramp, per kind - see draw()
   let CR = 0, CG = 0, CB = 0;                       // shaded colour of the current triangle
 
@@ -319,6 +345,207 @@ const MESH = (function () {
     },
   };
 
+  /* ---- the weapon in the player's hands (#...) ---------------------------------
+     The three view models were 2-D canvas path art in js/40_render.js. They are geometry here, on the
+     same Builder the bodies and props use, so their pixels come out of the same perspective projection
+     as everything else in the frame - which is the whole point: a gun drawn with canvas paths has no
+     depth, cannot be lit by the room, and stays glued to the display buffer when the camera turns.
+
+     THREE CONVENTIONS, and each one is load-bearing for a probe row:
+     - METRES, and `scale` is 1: the world's meshes are authored in body fractions (a grunt is 1 unit
+       tall and `scale` sizes him), which would make a 0.42 m barrel a number like 0.42 of a grunt.
+       A view model's seat is stated in metres against the eye (js/40_render.js), so the geometry is too.
+     - the BORE is the +z axis at y = 0, and the origin is the top of the grip. That is what lets
+       js/40_render.js rotate the rig by atan(pitchTan()) about x and have the barrel point along the
+       firing ray: the muzzle of a rig with no extra pitch is then ON the ray `hitscan` marches
+       (js/30_entities.js:108), not merely near it. Parts hang BELOW y=0 (grip, magazine, stock) the
+       way they hang below the bore on a real gun, so the sight line sits above the bore by ~0.03 m.
+     - parts that MOVE on reload are placed by the `st` argument, not by a pose table. The art did the
+       same thing (`slideBack`, `magOut`, `pump`, `shellIn` translated boxes), the view model is one
+       mesh per frame against a 2-4 pose budget, and a bucket table for a continuous ejector travel
+       would quantise it. So the vertex set is rebuilt per frame and cached not at all: see the
+       `VMCOST=1` lane in tools/view.js for what that rebuild costs.
+     The albedos are the art's own hex values, unmodified: `lit()` used to multiply them by
+     `0.5 + 0.5*cellLi + mz*1.5`, and this path multiplies them by the scene light instead, whose value
+     at cellLi 1 is ~0.94 - so a gun in a LIT room is the same colour it always was, and the dark-room
+     floor is js/40_render.js's job (VMFLOOR), not a re-tune here.
+     The flash is emissive geometry: the art drew it with 'lighter' into the display buffer, and a mesh
+     has no additive blend, so it is a solid bright solid instead and the glow comes from the frame's
+     own bloom plus the screen-space muzzle light in renderOverlay, both of which already exist. */
+  const VW = {
+    steel: [44, 49, 58], dark: [26, 31, 39], black: [15, 18, 24], blue: [36, 42, 51],
+    wood: [58, 44, 30], wood2: [51, 38, 26],
+    skin: [140, 106, 79], skinD: [93, 69, 47], glove: [59, 66, 78], gloveD: [34, 40, 52],
+    sleeve: [29, 34, 43], sleeveD: [19, 23, 30],
+    brass: [216, 176, 74], shell: [184, 65, 44], hot: [255, 244, 210], ember: [255, 190, 96],
+  };
+
+  /* The FOREARM, and it is emitted BEFORE the gun parts, which is the art's own draw order: "a
+     forearm, drawn BEHIND the gun so the hand can wrap the grip over it" (the deleted `arm()`).
+     Sequence still matters even though the view model now has a depth test of its own: the sleeve is
+     the biggest triangle in the draw and crosses the receiver in screen space, and a rig that has to
+     win that contest on depth alone is a rig whose parts are ordered by luck. The elbow stays IN
+     FRONT of the near plane (js/13_mesh.js NEAR = 0.12) and far below the eye: an elbow behind the
+     near plane is clipped away and the arm vanishes out of the frame, which is what the first cut
+     did, and an elbow only 0.15 m below the eye bulges across the picture instead of leaving it. */
+  function vArm(b, x, y, z, s, back) {
+    const w = back ? -1 : 1;
+    b.tube(x + w * 0.004 * s, y - 0.022 * s, z - 0.002 * s, x + w * 0.058 * s, y - 0.320 * s, z - 0.095 * s,
+      0.0155 * s, 0.0260 * s, VW.sleeve);              // to an elbow below the frame
+    return b;
+  }
+
+  /* A hand wrapped round a part, emitted AFTER the gun for the same reason the art drew its hands
+     last: the fingers have to read as IN FRONT of the grip they hold. Palm, the fingers curled over
+     the far side as one block with two creases, thumb, cuff. The art drew four separate fingers and a
+     knuckle ridge; at this size a mesh reads as a fist with creases in it, and separate finger tubes
+     poked out of the palm silhouette on both sides and looked like floating tabs (measured in the
+     first frames of this conversion). `s` sizes the WHOLE hand - offsets as well as extents, because
+     a hand whose palm shrank but whose fingers stayed put is a hand with its fingers on the table. */
+  function vHand(b, x, y, z, s, back) {
+    const w = back ? -1 : 1;
+    b.box(x, y, z, 0.020 * s, 0.024 * s, 0.022 * s, VW.glove);
+    b.box(x + w * 0.021 * s, y - 0.004 * s, z, 0.010 * s, 0.020 * s, 0.020 * s, VW.skin);
+    b.box(x + w * 0.030 * s, y - 0.013 * s, z, 0.0035 * s, 0.0035 * s, 0.019 * s, VW.skinD);
+    b.box(x + w * 0.030 * s, y + 0.007 * s, z, 0.0035 * s, 0.0035 * s, 0.019 * s, VW.skinD);
+    b.tube(x + w * 0.017 * s, y + 0.012 * s, z + 0.012 * s, x - w * 0.002 * s, y + 0.024 * s, z + 0.018 * s,
+      0.0070 * s, 0.0055 * s, VW.skin);              // the thumb, along the top of the grip
+    return b;
+  }
+
+  /* Where each bore ENDS, in the same metres as the geometry. The rig needs this number to put the
+     muzzle on the firing ray and the flash geometry needs it to grow out of the barrel, so it lives
+     beside the geometry and both read it - the assert at the bottom of this file catches a drift. */
+  const VMUZZLE = { pistol: 0.196, shotgun: 0.404, rifle: 0.452 };
+
+  /* The muzzle flash, emitted AT the bore's end: a cone along +z plus a core. Emissive, so the room
+     cannot dim it, and sized by S.muzzle - the art drew a `lighter` cone 150 units long and a 58-unit
+     kernel. Grows ALONG the bore, never across it, because the flash used to be emitted along +x, 90
+     deg off the bore, and tools/view.js has a row that would not survive that regressing. It is part
+     of the gun's own vertex set rather than a second draw so the view model stays the 1 pose/frame
+     the mesh budget is written against, and because a part that makes its own light is already
+     expressible per-vertex (`em`) without needing a second alpha register. */
+  function vFlash(b, mz, z) {
+    const k = Math.max(0.05, mz || 0);
+    b.em = 1;
+    b.tube(0, 0, z + 0.004, 0, 0, z + 0.020 + 0.135 * k, 0.016 * k + 0.006, 0.004, VW.hot);
+    b.bip(0, 0, z + 0.012 + 0.030 * k, 0.030 * k + 0.008, 0.030 * k + 0.008, 0.046 * k + 0.012, VW.ember);
+    b.bip(0, 0, z + 0.014 + 0.026 * k, 0.016 * k + 0.005, 0.016 * k + 0.005, 0.026 * k + 0.008, VW.hot);
+    b.em = 0;
+    return b;
+  }
+
+  const VMGEO = {
+    /* M9 SIDEARM. The art drew the slide as an 80x80-unit square with the barrel stub on top of it;
+       here the slide is 0.175 m of rectangular tube and the grip rakes back on its own axis. */
+    pistol(b, s) {
+      const MU = VMUZZLE.pistol;
+      vArm(b, 0.010, -0.056, 0.006, 1.0, false);
+      vArm(b, -0.024, -0.070, 0.052, 0.92, true);
+      b.box(0, 0.007, 0.088, 0.0185, 0.0135, 0.086, VW.steel);          // the slide
+      b.box(0, 0.0235, 0.088, 0.008, 0.0035, 0.070, VW.black);          // the serrated rib on top
+      b.tube(0, 0.004, MU - 0.024, 0, 0.004, MU, 0.0115, 0.0105, VW.dark); // the barrel crown
+      b.box(0, 0.004, MU, 0.0125, 0.0125, 0.004, VW.black);             // the muzzle face
+      b.box(0, -0.017, 0.062, 0.0165, 0.0105, 0.060, VW.blue);          // the frame under the slide
+      b.tube(0, -0.022, 0.038, 0, -0.118, -0.012, 0.0205, 0.018, VW.blue);  // the grip, raked back
+      b.box(0, -0.132, -0.015, 0.018, 0.006, 0.016, VW.black);          // the magazine base plate
+      b.tube(0, -0.030, 0.010, 0, -0.058, -0.014, 0.0055, 0.005, VW.dark);  // trigger guard, front leg
+      b.tube(0, -0.058, -0.014, 0, -0.030, -0.028, 0.005, 0.005, VW.dark);  // and its rear leg
+      b.box(-0.0135, 0.026, 0.014, 0.0042, 0.0075, 0.0055, VW.black);   // rear sight, left ear
+      b.box(0.0135, 0.026, 0.014, 0.0042, 0.0075, 0.0055, VW.black);    // and right ear
+      b.box(0, 0.026, 0.178, 0.0035, 0.0085, 0.0045, VW.black);         // the front post
+      b.box(0, -0.006, -0.004, 0.008, 0.011, 0.010, VW.steel);          // the hammer
+      if (s.slideBack) b.box(0, 0.014, 0.088 - s.slideBack * 0.026, 0.019, 0.008, 0.050, VW.dark);
+      vHand(b, 0.010, -0.056, 0.006, 1.0, false);
+      vHand(b, -0.024, -0.070, 0.052, 0.92, true);
+      if (s.mz > 0.004) vFlash(b, s.mz, MU);
+      return b;
+    },
+    /* M870 BREACHER. The art's two parallel tubes (bore above, mag tube below) are the silhouette;
+       the pump travels on the lower one, which is what `pump` does to the geometry below. */
+    shotgun(b, s) {
+      const MU = VMUZZLE.shotgun, pu = (s.pump || 0) * 0.034;
+      vArm(b, 0.004, -0.064, -0.002, 1.02, false);
+      vArm(b, -0.006, -0.070, 0.270 + pu, 1.0, true);   // the pump hand's arm travels with the pump
+      b.box(0, 0.004, 0.086, 0.0215, 0.0185, 0.082, VW.steel);          // the receiver
+      b.box(0, 0.0235, 0.086, 0.011, 0.0045, 0.070, VW.black);          // the top rib
+      b.tube(0, 0.004, 0.164, 0, 0.004, MU, 0.0135, 0.012, VW.dark);     // the barrel
+      b.tube(0, -0.024, 0.150, 0, -0.024, MU - 0.032, 0.0135, 0.0125, VW.blue); // the magazine tube
+      b.box(0, 0.004, MU, 0.0155, 0.0155, 0.005, VW.black);             // the muzzle ring
+      b.tube(0, -0.024, 0.238 + pu, 0, -0.024, 0.300 + pu, 0.0225, 0.0215, VW.wood);  // the pump, travels
+      b.tube(0, -0.030, -0.004, 0, -0.086, -0.190, 0.0245, 0.0285, VW.wood2); // the stock
+      b.box(0, -0.104, -0.186, 0.023, 0.011, 0.014, VW.black);          // the recoil pad
+      b.tube(0, -0.020, 0.016, 0, -0.118, -0.026, 0.0205, 0.018, VW.wood2);  // the pistol grip
+      b.box(0.0205, 0.008, 0.050, 0.004, 0.010, 0.020, VW.black);       // the ejection port
+      if (s.shellIn) {
+        b.tube(0.040, -0.092, 0.052, 0.056, -0.084, 0.058, 0.0105, 0.010, VW.shell);
+        b.tube(0.056, -0.084, 0.058, 0.062, -0.081, 0.060, 0.0105, 0.010, VW.brass);
+      }
+      vHand(b, 0.004, -0.064, -0.002, 1.02, false);
+      vHand(b, -0.006, -0.070, 0.270 + pu, 1.0, true);
+      if (s.mz > 0.004) vFlash(b, s.mz, MU);
+      return b;
+    },
+    /* VK-36 AUTOGUN. Longest reach of the three, which is the art's own ranking (muzzle at -436
+       design units against the shotgun's -404 and the pistol's -338). */
+    rifle(b, s) {
+      const MU = VMUZZLE.rifle;
+      vArm(b, 0.008, -0.062, 0.004, 1.0, false);
+      vArm(b, -0.008, -0.066, 0.236, 0.98, true);
+      b.box(0, 0.005, 0.092, 0.0235, 0.0195, 0.086, VW.steel);          // the upper receiver
+      b.box(0, 0.0265, 0.092, 0.0155, 0.0055, 0.078, VW.black);         // the dust cover
+      b.box(0, -0.004, 0.238, 0.0245, 0.020, 0.056, VW.blue);           // the handguard
+      b.tube(0, 0.004, 0.292, 0, 0.004, MU - 0.034, 0.0125, 0.0115, VW.dark); // the barrel
+      b.tube(0, 0.004, MU - 0.034, 0, 0.004, MU, 0.016, 0.0145, VW.black);    // the flash hider
+      b.box(0, 0.0215, MU - 0.054, 0.0075, 0.0125, 0.0085, VW.dark);    // the gas block
+      b.box(0, 0.0365, MU - 0.054, 0.004, 0.0085, 0.005, VW.black);     // the front post
+      b.box(-0.014, 0.0335, 0.030, 0.0045, 0.0085, 0.006, VW.black);    // rear sight, left ear
+      b.box(0.014, 0.0335, 0.030, 0.0045, 0.0085, 0.006, VW.black);     // rear sight, right ear
+      b.box(0, -0.006, 0.116, 0.0175, 0.0125, 0.031, VW.dark);          // the magwell
+      if (s.magOut > 0.02) {
+        b.box(0, -0.088 + s.magOut * 0.10, 0.118 + s.magOut * 0.02, 0.0165, 0.052, 0.028, VW.blue);
+      } else {
+        b.box(0, -0.086, 0.118, 0.0165, 0.052, 0.028, VW.blue);         // the magazine
+        b.box(0, -0.142, 0.118, 0.0175, 0.006, 0.029, VW.black);        // its floorplate
+      }
+      b.box(0, 0.020, -0.004 - (s.slideBack || 0) * 0.022, 0.0125, 0.0075, 0.017, VW.dark); // charging handle
+      b.tube(0, -0.028, -0.006, 0, -0.112, 0.014, 0.021, 0.0185, VW.blue);   // the grip
+      b.tube(0, -0.030, -0.014, 0, -0.062, -0.190, 0.0225, 0.0265, VW.blue); // the stock
+      b.box(0, -0.076, -0.196, 0.021, 0.016, 0.010, VW.black);          // the butt pad
+      vHand(b, 0.008, -0.062, 0.004, 1.0, false);
+      vHand(b, -0.008, -0.066, 0.236, 0.98, true);
+      if (s.slideBack) b.box(-0.030 - s.slideBack * 0.020, 0.012, 0.020, 0.005, 0.006, 0.010, VW.brass);
+      if (s.mz > 0.004) vFlash(b, s.mz, MU);
+      return b;
+    },
+  };
+
+  /* Build one weapon's vertex set. No MODELS entry and no pose table on purpose: the parts above
+     move continuously (ejector travel, pump travel, a shell sliding in), the view model is one mesh
+     per frame, and the rebuild is ~0.05 ms of arithmetic against a rasterizer that costs more than
+     that for a body at 3 m. The flash is emitted into the SAME builder with `b.em = 1` rather than
+     into a second one, so the view model is one draw and its emissive parts carry the light exemption
+     per vertex (EM) instead of needing a second set of shading registers. */
+  function weaponGeo(kind, st) {
+    const g = VMGEO[kind];
+    if (!g) throw new Error('MESH: no view model authored for weapon "' + kind + '"');
+    const b = g(new Builder(), st || {});
+    const p = new Float32Array(b.p), v = new Float32Array(b.p.length / 2);
+    for (let i = 0; i < b.p.length / 6; i++) { v[i * 3] = b.p[i * 6]; v[i * 3 + 1] = b.p[i * 6 + 1]; v[i * 3 + 2] = b.p[i * 6 + 2]; }
+    return { kind, p, v, t: new Uint16Array(b.t), em: Uint8Array.from(b.e), nV: b.p.length / 6, tris: b.t.length / 3 };
+  }
+
+  /* boot-time drift detector for the view models, same shape as SPEC/SRC higher up: VMUZZLE is the
+     number js/40_render.js puts the muzzle on the firing ray with, so a barrel built to a different
+     length would move the DRAWN muzzle off the ray while every hitscan number stayed right. */
+  for (const k in VMUZZLE) {
+    let mx = -1e9;
+    const bb = VMGEO[k](new Builder(), { mz: 0 });
+    for (let i = 0; i < bb.p.length; i += 6) if (bb.p[i + 2] > mx) mx = bb.p[i + 2];
+    if (Math.abs(mx - VMUZZLE[k]) > 0.008)      // 0.008 = the thickness of a muzzle plate
+      console.warn('MESH view model ' + k + ' geometry ends at z ' + mx.toFixed(3) + ' but VMUZZLE says ' + VMUZZLE[k]);
+  }
+
   /* ---- one body from one pose -------------------------------------------------
      One skeleton for every kind - hound and brute have always been proportional variations of the
      grunt here, so a single gait function drives all three and SPEC supplies the lengths. The
@@ -503,6 +730,10 @@ const MESH = (function () {
     const x0 = Math.max(0, Math.ceil(minx)), x1 = Math.min(BW - 1, Math.floor(maxx));
     const y0 = Math.max(0, Math.ceil(miny)), y1 = Math.min(BH - 1, Math.floor(maxy));
     if (x1 < x0 || y1 < y0) return;
+    if (VMASK) {                                      // view model only: four compares per triangle
+      if (x0 < srx0) srx0 = x0; if (x1 > srx1) srx1 = x1;
+      if (y0 < sry0) sry0 = y0; if (y1 > sry1) sry1 = y1;
+    }
     const COL = (255 << 24 | CB << 16 | CG << 8 | CR) >>> 0;
     const A = ALPHA, IA = 1 - A, SOLID = A >= 1;      // hoisted: the blend is a corpse's, not the rule
     /* Coverage mask: hoisted so the global is read once per TRIANGLE, not per pixel, and when COV
@@ -560,7 +791,11 @@ const MESH = (function () {
      dv is the death variant rolled at spawn (#82): it picks WHICH death pose that is, and one of
      its terms is added to the yaw rather than to the vertex set. */
   function draw(o) {
-    const m = model(o.kind || 'grunt'), sc = o.scale || 1;
+    /* A view model brings its own vertex set (`mdl`): its parts travel continuously - ejector, pump,
+     a shell sliding in - so the caller rebuilds it per frame instead of bucketing it (weaponGeo).
+     A prebuilt model has no pose table, no death variant and no kind in SPEC. */
+    const m = o.mdl || model(o.kind || 'grunt'), sc = o.scale || 1,
+      MDL = o.mdl || null, ROT = o.rot || null;      // rot: a 3x3 row-major world rotation
     /* The variant's FALL DIRECTION rides in the yaw, which is free: the yaw is applied to the
        cached verts below and is not in the key, so "topples onto its own side" is the same vertex
        set turned a quarter turn rather than a third of the table again (that lever is why the
@@ -570,6 +805,19 @@ const MESH = (function () {
     const cyw = Math.cos(yaw), syw = Math.sin(yaw);
     SELF = o.self === undefined ? true : !!o.self;
     BODY = !!o.body;               // a character's draw: what COV stamps, see js/00_core.js
+    /* A view model draws into a SCRATCH depth buffer instead of the frame's: it is nearer than
+       everything the world can put there, so its own test must be against its own parts only (the
+       header in js/40_render.js explains the direction of the swap). It is also not a body, so the
+       line above has to stay ABOVE this one: COV gets stamped per pixel below, and BODY is the
+       module global it reads - a draw that swapped depth but left BODY set by the previous (enemy)
+       draw would paint the gun into the coverage mask and tools/view.js contrast would measure it. */
+    if (o.near) {
+      if (!ZFAR || ZFAR.length !== zbuf.length) { ZFAR = new Float32Array(zbuf.length).fill(Infinity); srx1 = -1; }
+      for (let y = sry0; y <= sry1; y++) ZFAR.fill(Infinity, y * BW + srx0, y * BW + srx1 + 1);
+      srx0 = 1e9; srx1 = -1e9; sry0 = 1e9; sry1 = -1e9;
+      VMASK = true;
+      ZSAVE = zbuf; zbuf = ZFAR;
+    }
     /* EMIS is the entry-wide form of the exemption and EM the per-part one; either is enough to put a
        triangle's pixels on the billboard's light-free path. The billboard reaches it through a texel
        whose alpha byte is 253 or through o.self (js/40_render.js:703), and a mesh has neither, so
@@ -584,12 +832,15 @@ const MESH = (function () {
        camera, brightest tenth of the silhouette: barrel 99 -> 79, crate 101 -> 51. 0.75+0.42*d keeps the
        directionality a solid needs (a face along the key is still 1.5x one facing off it) and lands the
        average where the painted sheet was. */
-    const pg = PROPGEO[o.kind] !== undefined;
-    R0 = pg ? 0.75 : 0.30; R1 = pg ? 0.42 : 0.85;
+    const pg = !MDL && PROPGEO[o.kind] !== undefined;
+    R0 = MDL ? 0.55 : (pg ? 0.75 : 0.30); R1 = MDL ? 0.55 : (pg ? 0.42 : 0.85);
+    FLR = MDL ? (o.floor || 0) : 0; RIMK = MDL ? (o.rim || 0) : 0;
     ALPHA = o.alpha === undefined ? 1 : o.alpha;
     FLASH = o.flash ? 1 : 0;
     TINT = o.tint || null;
-    const PD = m.p, T = m.t, nV = Math.min(m.nV, MAXV);    cam.x = camX; cam.y = camY; cam.dirX = dirX; cam.dirY = dirY; cam.planeX = planeX; cam.planeY = planeY;
+    const PD = m.p, T = m.t, nV = Math.min(m.nV, MAXV);
+    if (nV !== m.nV) console.warn('MESH: ' + m.kind + ' has ' + m.nV + ' verts, over MAXV ' + MAXV + ' - it will be drawn truncated');
+    cam.x = camX; cam.y = camY; cam.dirX = dirX; cam.dirY = dirY; cam.planeX = planeX; cam.planeY = planeY;
     cam.invDet = 1 / (planeX * dirY - dirX * planeY);
     /* Cull before rasterizing. A body costs its whole triangle list whether or not it can be
        seen, and the two tests the billboard path already runs - behind the camera, off the
@@ -609,14 +860,29 @@ const MESH = (function () {
        along, which is why dieAng still rides in `yaw` here - direction is the yaw's job, progress is
        the vertex set's (js/40_render.js). The variant's yw is added to that same yaw above, so a
        corpse that falls sideways aims along dieAng turned a quarter turn. */
-    const PP = poseOf(m, o);
-    for (let i = 0; i < nV; i++) {
-      const bx = PP[i * 3], by = PP[i * 3 + 1], bz = PP[i * 3 + 2];
-      VX[i] = o.x + (bx * cyw + bz * syw) * sc;
-      VY[i] = o.y + (-bx * syw + bz * cyw) * sc;
-      VZ[i] = o.z + by * sc;
-    }
-    const lt = cellTint(cellIdx(o.x, o.y)), lm = MAP.light;
+    const PP = MDL ? MDL.v : poseOf(m, o);
+    if (ROT) {
+      // yaw+pitch+roll as one matrix, so a rig can point its bore along the firing ray.
+      // The yaw-only branch below is untouched: this is the extra path a view model takes,
+      // and a body never builds a matrix.
+      for (let i = 0; i < nV; i++) {
+        const bx = PP[i * 3], by = PP[i * 3 + 1], bz = PP[i * 3 + 2];
+        VX[i] = o.x + (ROT[0] * bx + ROT[1] * by + ROT[2] * bz) * sc;
+        VY[i] = o.y + (ROT[3] * bx + ROT[4] * by + ROT[5] * bz) * sc;
+        VZ[i] = o.z + (ROT[6] * bx + ROT[7] * by + ROT[8] * bz) * sc;
+      }
+    } else
+      for (let i = 0; i < nV; i++) {
+        const bx = PP[i * 3], by = PP[i * 3 + 1], bz = PP[i * 3 + 2];
+        VX[i] = o.x + (bx * cyw + bz * syw) * sc;
+        VY[i] = o.y + (-bx * syw + bz * cyw) * sc;
+        VZ[i] = o.z + by * sc;
+      }
+    /* The light cell is the PLAYER's cell, not the anchor's: a muzzle 0.15 m ahead of the eye is
+       over the boundary into whatever is in front, and taking the light of that - a wall column,
+       or the room behind a door - would make the gun dim when it points at a wall. */
+    const cc = o.cell === undefined ? cellIdx(o.x, o.y) : o.cell;
+    const lt = cellTint(cc), lm = MAP.light;
     const FL = S.flash, FC = S.flashCol;                // the muzzle's own light, the billboard's term
     for (let k = 0, K = T.length; k < K; k += 3) {
       const i0 = T[k], i1 = T[k + 1], i2 = T[k + 2];
@@ -629,7 +895,9 @@ const MESH = (function () {
       nx /= nl; ny /= nl; nz /= nl;
       // two-sided: the tubes are open at the ends, so their far walls must shade
       // rather than vanish - depth ordering, not backface culling, hides them
-      if (nx * (camX - VX[i0]) + ny * (camY - VY[i0]) + nz * (eyeZ - VZ[i0]) < 0) { nx = -nx; ny = -ny; nz = -nz; }
+      const evx = camX - VX[i0], evy = camY - VY[i0], evz = eyeZ - VZ[i0];
+      let vd = nx * evx + ny * evy + nz * evz;
+      if (vd < 0) { nx = -nx; ny = -ny; nz = -nz; vd = -vd; }
       let d = nx * KEY[0] + ny * KEY[1] + nz * KEY[2];
       if (d < 0) d = 0;
       toCam(VX[i0], VY[i0], VZ[i0], cam); CX[0] = cam.tx; CY[0] = cam.ty; CZ[0] = cam.tz;
@@ -645,7 +913,7 @@ const MESH = (function () {
         // no tint and no dim, because all of those are terms of the light the pixel is exempt from
         lr = inv; lg = inv; lb = inv;
       } else {
-        const li = Math.min(1, (lm ? lm[cellIdx(o.x, o.y)] : 0.5) * Math.exp(-dc * 0.14) + 0.30 * visAt(dc));
+        const li = Math.min(1, (lm ? lm[cc] : 0.5) * Math.exp(-dc * 0.14) + 0.30 * visAt(dc));
         const sh = R0 + R1 * d;
         const fk = FL ? FL * 1.1 * Math.exp(-dc * 0.30) : 0;
         lr = (AMB + li * lt[0] * sh + fk * (FC[0] / 255)) * inv;
@@ -653,16 +921,27 @@ const MESH = (function () {
         lb = (AMB + li * lt[2] * sh + fk * (FC[2] / 255)) * inv;
         if (DIM) { lr *= 1 - DIM; lg *= 1 - DIM; lb *= 1 - DIM; }   // the portal's shut-and-dimmed term
         if (TINT) { lr *= TINT[0]; lg *= TINT[1]; lb *= TINT[2]; }
+        if (FLR > lr) lr = FLR;
+        if (FLR > lg) lg = FLR;
+        if (FLR > lb) lb = FLR;
       }
       const packed = PD[i0 * 6 + 3] << 16 | PD[i0 * 6 + 4] << 8 | PD[i0 * 6 + 5];
-      let r = (packed >> 16 & 255) * lr + FOGC[0] * fog; CR = r > 255 ? 255 : r | 0;
-      let g = (packed >> 8 & 255) * lg + FOGC[1] * fog; CG = g > 255 ? 255 : g | 0;
-      let b = (packed & 255) * lb + FOGC[2] * fog; CB = b > 255 ? 255 : b | 0;
+      let r = (packed >> 16 & 255) * lr + FOGC[0] * fog;
+      let g = (packed >> 8 & 255) * lg + FOGC[1] * fog;
+      let b = (packed & 255) * lb + FOGC[2] * fog;
+      if (RIMK) {
+        // grazing faces take the rim: |N.V| -> 0 is by definition a face seen edge-on, which is the
+        // silhouette of a convex part, so the band is angle-correct without a distance field
+        const q = RIMK * (1 - Math.min(1, vd / Math.max(1e-6, Math.hypot(evx, evy, evz))));
+        r += RIMC[0] * q; g += RIMC[1] * q; b += RIMC[2] * q;
+      }
+      CR = r > 255 ? 255 : r | 0; CG = g > 255 ? 255 : g | 0; CB = b > 255 ? 255 : b | 0;
       // the hit flash the billboard applied per pixel is per triangle here: a flat-shaded face has
       // one colour, so the same 0.72 pull toward white after fog lands in the three registers
       if (FLASH) { CR = (CR + (250 - CR) * 0.72) | 0; CG = (CG + (242 - CG) * 0.72) | 0; CB = (CB + (236 - CB) * 0.72) | 0; }
       tri();
     }
+    if (ZSAVE) { zbuf = ZSAVE; ZSAVE = null; VMASK = false; }
   }
 
   return {
@@ -672,6 +951,10 @@ const MESH = (function () {
     setCache: v => { CACHE = !!v; POSE.clear(); poseBytes = 0; poseMade = 0; return CACHE; },
     trisFor: k => model(k || 'grunt').tris,
     vertsFor: k => model(k || 'grunt').nV,
+    /* the view model's geometry: rebuilt per frame, never cached, and the numbers the probes need */
+    weapon: (k, st) => weaponGeo(k, st),
+    muzzleFor: k => VMUZZLE[k],
+    maxVerts: MAXV,
     /* the rest model's own extent in body space: its height span and its radius in plan. This is what
        lets a height claim about `scale` test the CONVENTION instead of the art, because a solid does not
        project to BH*span/t at its centre - its near edge is nearer than its centre, which is a thing a
