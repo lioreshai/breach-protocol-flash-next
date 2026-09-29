@@ -2221,16 +2221,37 @@ if (MODE === 'contrast') {
                   future contour-style term gets judged on: edge dL up, lost down.
        TINT=k     repaints the bodies with their own per-individual tint, the colour the mesh shades
                   with, so "the rows move with BODY shading, not with mask geometry" is testable.
+       POSEONLY=1 drops every body but the POSED one from the measured frame. Same camera, same cell,
+                  same yaw, same geometry - it is how a WEAK verdict gets attributed: posed body alone
+                  reading 24+ while the crowd reads 20 says the shortfall is in FOUND bodies merging
+                  into the room, not in the pose.
+       FLAT=1     flattens the grid (MAP.fz.fill(0), cz back to CZ_DEF, relink) after the level builds.
+                  This is the control that says the POSE is the mechanism and not the level: on the
+                  volume branch a camera whose cone is 0.56 m deep measures nothing, and with the
+                  slab gone the same camera finds a clear ray and its mask comes back non-zero.
        RIM=0|1    runs RIG.setRim (the call DEV.set('rim', ...) makes) and prints a frame hash with
                   PIXHASH=1, which is how this run shows the shipped rim switch no longer reaches
                   the picture: #72 moved bodies off the rig raster onto the mesh, and nothing in
                   the draw path calls RIG any more.
        STRICT=1   promotes cam 1's #179 debt row from KNOWN to a hard FAIL, which is how the term that
-                  pays the debt gets A/B'd against a baseline that is green WITH the debt already paid. */
+                  pays the debt gets A/B'd against a baseline that is green WITH the debt already paid.
+
+     EVERY CAMERA POSES ITS BODY (#189). Bodies are meshes occlusion-tested against `zbuf`, and since
+     #162 `zbuf` carries the riser lips the generator now authors, so a body on the band above a
+     camera can be hidden COMPLETELY by a 1 m ledge 0.56 m in front of the lens - cam 1 on the volume
+     branch measured 0 px that way while every enemy in the level stayed alive and in the frustum.
+     That occlusion is CORRECT (`cull` asserts it) and it is reported per camera below, but it cannot
+     be measured against, so all three cameras now do what cam 2 always did: march from the lens with
+     the renderer's own stop conditions and park ONE body in the clear, on the camera's own band, at
+     the same distance. Nothing else about the cameras moved - same cells, same yaws, same conventions -
+     and every row that samples a body says POSED in its label, because a posed body and a found one
+     are not the same evidence and a reader has to be able to tell them apart. */
   const W = run('BW'), H = run('BH'), N = W * H;
   const lum = (b, i) => 0.2126 * (b[i] & 255) + 0.7152 * (b[i] >> 8 & 255) + 0.0722 * (b[i] >> 16 & 255);
   const DARKRING = process.env.DARKRING === '1';
   const NOBODY = process.env.NOBODY === '1';
+  const POSEONLY = process.env.POSEONLY === '1';
+  const FLAT = process.env.FLAT === '1';
   const RIM = process.env.RIM === undefined ? -1 : +process.env.RIM ? 1 : 0;
   const TINTK = process.env.TINT === undefined ? NaN : +process.env.TINT;
   const PIXHASH = process.env.PIXHASH === '1';
@@ -2254,6 +2275,9 @@ if (MODE === 'contrast') {
      cam 0 and cam 2 are NOT debt rows - they read - and they keep failing outright. */
   const DEBT = { cam: 1, issue: '#179', dl: 16.65, lost: 37.94, dlFloor: 15.65, lostCeil: 41.94 };
   const STRICT = !!process.env.STRICT;
+  const PLANE = +run('cfg.plane');                       // camera half-width in dir units: atan() is the half-FOV
+  const FOVH = Math.atan(PLANE) * 180 / Math.PI;
+  const FOVH_JS = Math.atan(PLANE);                      // the same half-FOV in radians, for the pose fan
   let bad = 0, nrows = 0, known = 0;
   // a row that could not measure anything is a FAILURE, never a KNOWN: a row that silently skips is
   // the "probe that cannot fail" this rewrite exists to remove, so vacuity stays out of the debt branch.
@@ -2266,9 +2290,41 @@ if (MODE === 'contrast') {
     if (gate) bad++; else known++;
   };
   const NB = [[-1, -1], [0, -1], [1, -1], [-1, 0], [1, 0], [-1, 1], [0, 1], [1, 1]];
+  const BRAD = 0.35;                       // a body's own radius: the march clears it past its NEAR edge
+  /* The geometry this probe has to ask with. castRayDist stops at SOLID columns only, so it answers
+     "visible" for a body standing behind a riser lip that castWalls then hides - cam 1's whole
+     vacuity on the volume branch is that (a 1 m ledge at 0.56 m, a body at 2.24 m, #189). This
+     mirrors the stop conditions of js/40_render.js's DDA instead: a solid column, or an air->air
+     boundary of more than one quantum that no ramp or ladder links. Flat levels take neither branch,
+     so there the march is castRayDist by another name. */
+  run(`window.__march = function (ox, oy, rx, ry, maxD) {
+    let mx = ox | 0, my = oy | 0, px = mx, py = my;
+    const ddx = Math.abs(1 / (rx || 1e-9)), ddy = Math.abs(1 / (ry || 1e-9));
+    let stepX, stepY, sdx, sdy;
+    if (rx < 0) { stepX = -1; sdx = (ox - mx) * ddx; } else { stepX = 1; sdx = (mx + 1 - ox) * ddx; }
+    if (ry < 0) { stepY = -1; sdy = (oy - my) * ddy; } else { stepY = 1; sdy = (my + 1 - oy) * ddy; }
+    let side = 0, g = 0;
+    while (g++ < 220) {
+      let t;
+      if (sdx < sdy) { t = sdx; sdx += ddx; mx += stepX; side = 0; } else { t = sdy; sdy += ddy; my += stepY; side = 1; }
+      if (mx < 0 || my < 0 || mx >= MW || my >= MH) return { dist: Math.min(t, maxD), why: 'void' };
+      if (t > maxD) return { dist: maxD, why: 'clear' };
+      const i = my * MW + mx;
+      if (MAP.cell[i]) return { dist: t, why: 'wall' };
+      const d = side === 0 ? (stepX > 0 ? 0 : 2) : (stepY > 0 ? 1 : 3);
+      const pi = py * MW + px, dq = MAP.fz[i] - MAP.fz[pi];
+      if ((dq > 1 || dq < -1) && !(MAP.vb[pi] & ((VB_RAMP | VB_LADDER) << (d << 2)))) return { dist: t, why: 'slab' };
+      px = mx; py = my;
+    }
+    return { dist: maxD, why: 'guard' };
+  }`);
   console.log('contrast: coverage-mask oracle on level ' + LVL + '  buffer ' + W + 'x' + H +
     (DARKRING ? '  DARKRING' : '') + (NOBODY ? '  NOBODY' : '') +
-    (RIM >= 0 ? '  RIM=' + RIM : '') + (isNaN(TINTK) ? '' : '  TINT=' + TINTK));
+    (RIM >= 0 ? '  RIM=' + RIM : '') + (isNaN(TINTK) ? '' : '  TINT=' + TINTK) + (POSEONLY ? '  POSEONLY' : '') +
+    (FLAT ? '  FLAT(grid forced to the datum before the cameras are set)' : ''));
+  console.log('contrast: every camera POSES one body by a geometric march on its own band before it measures '
+    + '(cam 2 has always done that; #189 is why all three must) - a body a slab legitimately hides stays '
+    + 'hidden, and is counted and named on the occlusion line instead of emptying the mask.');
   console.log('contrast: cam ' + DEBT.cam + "'s verdict row is a known-issue row by design - its separation on " +
     'unmodified shipped content measures edge dL ' + DEBT.dl + ' / lost ' + DEBT.lost + '% at level 0 SEED ' + SEED +
     ', under the ' + DLMIN + ' it is held to. That row reports (KNOWN) instead of failing and turns red '
@@ -2289,7 +2345,9 @@ if (MODE === 'contrast') {
   const VMREST = 'VM.ang = P.ang; VM.lag = 0; VM.vy = 0;';
   for (let cam = 0; cam < 3; cam++) {
     run(`startLevel(${LVL}, true); S.mode='play'; S.locked=false;`);
-    run(`(()=>{
+    if (FLAT) run('MAP.fz.fill(0); MAP.cz.fill(CZ_DEF); linkBoundaries(); for (const e of ENEMIES) e.z = floorAt(e.x, e.y);');
+    const camG = run(`(()=>{
+      window.__posed = null; window.__looked = null;
       const cs=[];for(let y=1;y<MH-1;y++)for(let x=1;x<MW-1;x++)if(!isSolid(x+.5,y+.5))cs.push([x,y]);
       const c=cs.length?cs[((cs.length*0.31+${cam})|0)%cs.length]:[P.x|0,P.y|0];
       P.x=c[0]+.5;P.y=c[1]+.5;P.pitch=0;P.z=floorAt(P.x,P.y);
@@ -2299,7 +2357,7 @@ if (MODE === 'contrast') {
       if (${cam} === 1 && ENEMIES.length) {
         let be=null,bd=1e9;
         for(const e of ENEMIES){if(e.state==='dead')continue;const d=Math.hypot(e.x-c[0]-.5,e.y-c[1]-.5);if(d<bd){bd=d;be=e;}}
-        if(be)P.ang=Math.atan2(be.y-P.y,be.x-P.x);
+        if(be){P.ang=Math.atan2(be.y-P.y,be.x-P.x);window.__looked=be;}
       } else {
         let best=0,bd=-1;
         for(let k=0;k<48;k++){const a=k*Math.PI/24;
@@ -2307,22 +2365,62 @@ if (MODE === 'contrast') {
           if(d>bd){bd=d;best=a;}}
         P.ang=best;
       }
-      if (${cam} === 2 && ENEMIES.length) {
-        const fw = castRayDist(P.x, P.y, Math.cos(P.ang), Math.sin(P.ang), 8).dist;
-        const d = Math.min(3.5, Math.max(1.2, fw * 0.7));
-        const e = ENEMIES.find(e => e.state !== 'dead') || ENEMIES[0];
-        e.x = P.x + Math.cos(P.ang) * d; e.y = P.y + Math.sin(P.ang) * d;
-        e.z = floorAt(e.x, e.y); e.ang = P.ang + Math.PI; e.movingAmt = 0;
+      /* POSE (all three cams, cam 2's mechanism generalised): walk from the lens with the renderer's
+         own stop conditions and park one body in the clear, on the camera's OWN band, at the distance
+         cam 2 has always used - min(3.5, max(1.2, 0.7 x clear)). A candidate that lands in a wall, in
+         a pit or past a riser lip is refused and the previous one tried, 0.12 m at a time. If the
+         view RAY has no room for a body at all - cam 1 on the volume branch stands 0.56 m from a
+         riser lip, which is less than a body's own radius - the search fans over the frustum it is
+         already looking through, axis first and then symmetrically to 60% of the half-FOV, so the
+         camera's cell, its yaw and its distance convention all stay exactly as they were and the only
+         thing that moved is the body. On a flat level the axis always works, so nothing there moves.
+         On a cam that picked a body to look at, that body is left where it is when there is another
+         to spend, so the occlusion a ledge causes stays in the frame AND in the line below. */
+      let poseD = 0, poseWhy = 'no enemies in the level', clear = 0, poseOff = 0, poseClear = 0;
+      const band = floorAt(P.x, P.y);
+      if (ENEMIES.length) {
+        const cx0 = Math.cos(P.ang), cy0 = Math.sin(P.ang);
+        clear = __march(P.x, P.y, cx0, cy0, 8).dist;
+        const spread = ${FOVH_JS} * 0.6 / 5;              // 5 steps reaches 60% of the half-FOV, well inside the frame
+        const victim = () => ENEMIES.find(q => q.state !== 'dead' && q !== window.__looked) ||
+          ENEMIES.find(q => q.state !== 'dead');
+        for (let w = 0; w < 11 && !poseD; w++) {
+          const s = w === 0 ? 0 : (w & 1 ? (w + 1) >> 1 : -((w + 1) >> 1));
+          const a = P.ang + s * spread, cx = Math.cos(a), cy = Math.sin(a);
+          const cl = w === 0 ? clear : __march(P.x, P.y, cx, cy, 8).dist;
+          for (let d = Math.min(3.5, Math.max(1.2, cl * 0.7)), k = 0; k < 30 && d >= 1.2; k++, d -= 0.12) {
+            const bx = P.x + cx * d, by = P.y + cy * d;
+            if (isSolid(bx, by) || Math.abs(floorAt(bx, by) - band) > 1e-6 || d > cl - ${BRAD}) continue;
+            const e = victim();
+            if (!e) { poseWhy = 'every body is dead'; break; }
+            e.x = bx; e.y = by; e.z = floorAt(bx, by); e.ang = a + Math.PI; e.movingAmt = 0;
+            window.__posed = e; poseD = d; poseOff = a - P.ang; poseClear = cl; poseWhy = 'posed'; break;
+          }
+        }
+        if (!poseD && poseWhy === 'no enemies in the level') poseWhy = 'no clear spot on the camera band at the 1.2 m floor or beyond, within 60% of the frustum (the axis march stops at ' + clear.toFixed(2) + ' m)';
       }
       for(const e of ENEMIES)e.state='sleep';
-      return {n:ENEMIES.length};
+      return {n:ENEMIES.length, pose:poseD, why:poseWhy, clear:clear, band:band, off:poseOff, poseClear:poseClear};
     })()`);
     // arm the mask (null in play; this probe is its only caller) and any shading control
     run('if (!COV || COV.length !== BW * BH) COV = new Uint8Array(BW * BH);');
+    /* What the renderer can see of every body, asked per body with the march above rather than
+       guessed from the mask: `inF` is the centre test against the camera's half-FOV, `stop` is where
+       the first solid column or riser lip cuts the sight line, `vis` says the sight line got past the
+       body's NEAR edge (BRAD in). A dead body is not a body to measure and is skipped. */
+    const bodies = run(`(()=>{const o=[],cx=Math.cos(P.ang),cy=Math.sin(P.ang);
+      for(const e of ENEMIES){if(e.state==='dead')continue;
+        const dx=e.x-P.x,dy=e.y-P.y,d=Math.hypot(dx,dy);
+        const fw=dx*cx+dy*cy,lat=cfg.plane*(dy*cx-dx*cy);
+        const inF=d>0.01&&fw>0.2&&Math.abs(lat)<=fw;
+        const m=inF?__march(P.x,P.y,dx/d,dy/d,d):{dist:d,why:'outside'};
+        o.push({d:d,inF:inF?1:0,stop:m.dist,why:m.why,vis:(inF&&m.dist>d-${BRAD})?1:0,posed:e===window.__posed?1:0});
+      }return o})()`);
     if (RIM >= 0) run('RIG.setRim(' + RIM + ')');
     if (!isNaN(TINTK)) run('for (const e of ENEMIES) e.tint = [' + TINTK + ',' + TINTK + ',' + TINTK + '];');
     run('window.__keep = ENEMIES.slice();');
     if (NOBODY) run('ENEMIES.length = 0;');
+    if (POSEONLY) run('for (let i = ENEMIES.length - 1; i >= 0; i--) if (ENEMIES[i] !== window.__posed) ENEMIES.splice(i, 1);');
     run('S.t = 3.5; ' + VMREST + ' renderWorld()');
     const A = new Uint32Array(run('px')), M = new Uint8Array(run('COV'));
     // the cross-check frame: the same world with the bodies out, which is what the OLD mask was.
@@ -2330,8 +2428,24 @@ if (MODE === 'contrast') {
     run('ENEMIES.length = 0; ' + VMREST + ' renderWorld();');
     const B = new Uint32Array(run('px')), MB = new Uint8Array(run('COV'));
     run('ENEMIES.length = 0; for (const q of __keep) ENEMIES.push(q);');
+    /* The pose corroborated by PIXELS: the frame with ONLY the posed body in it. "The camera has a
+       body it can see" must not be satisfied by whatever else happened to be standing in the shot,
+       and "the march calls it clear" has to be checkable against what the draw path made of that. */
+    let posedPx = -1;
+    if (!NOBODY && camG.pose) {
+      run('ENEMIES.length = 0; if (window.__posed) ENEMIES.push(window.__posed); ' + VMREST + ' renderWorld();');
+      const MP = new Uint8Array(run('COV'));
+      posedPx = 0;
+      for (let i = 0; i < N; i++) if (MP[i]) posedPx++;
+      run('ENEMIES.length = 0; for (const q of __keep) ENEMIES.push(q);');
+    }
     let nMB = 0;
     for (let i = 0; i < N; i++) if (MB[i]) nMB++;
+    // ---- the occlusion tally (#189): named, counted, reported - not swallowed into a zero mask ----
+    const inFr = bodies.filter(b => b.inF), visB = inFr.filter(b => b.vis), hidB = inFr.filter(b => !b.vis);
+    const slabB = hidB.filter(b => b.why === 'slab'), obstB = hidB.filter(b => b.why !== 'slab');
+    const posedB = bodies.find(b => b.posed);
+    const badBlock = hidB.filter(b => !(b.stop < b.d)).length;
     // ---- coverage mask + edge ring (8-neighbourhood) ----
     const ring = [];
     let nM = 0;
@@ -2388,7 +2502,10 @@ if (MODE === 'contrast') {
       : nM < MINMASK ? 'TOO SMALL - ' + nM + ' mask px is below the ' + MINMASK + ' px floor'
       : !enring ? 'NO RING - nothing to sample'
       : edgeDL < DLMIN || lostPct > LOSTMAX ? 'WEAK - silhouettes merge into the room' : 'READS';
-    console.log('cam ' + cam + '  ' + W + 'x' + H + (PIXHASH ? '  frame ' + (() => {
+    console.log('cam ' + cam + '  ' + W + 'x' + H + (camG.pose ? '  POSED body at ' + camG.pose.toFixed(2) +
+      ' m on band ' + camG.band.toFixed(2) + ' (pose ray clear to ' + camG.poseClear.toFixed(2) + ' m' +
+      (Math.abs(camG.off) > 1e-6 ? ', ' + (camG.off * 180 / Math.PI).toFixed(1) + ' deg off the axis, whose march stops at ' + camG.clear.toFixed(2) + ' m' : ', axis march clear to ' + camG.clear.toFixed(2) + ' m') + ')'
+      : '  NO POSE: ' + camG.why) + (PIXHASH ? '  frame ' + (() => {
       let h = 2166136261;
       for (let i = 0; i < N; i += 7) h = ((h ^ A[i]) * 16777619) >>> 0;
       return (h >>> 0).toString(16);
@@ -2401,11 +2518,43 @@ if (MODE === 'contrast') {
     console.log('  masks      coverage ' + nM + ' px vs diff ' + oCover + ' px  |  drawn-but-invisible ' +
       ghost + ' px  |  diff-not-covered (leak) ' + leak + ' px  |  ring ' + enring + ' of ' + ring.length +
       (noBg ? ' (' + noBg + ' with no outside neighbour)' : ''));
+    /* Informational, and tied to #189: a body on the band above a camera can be hidden COMPLETELY by
+       a ledge the wall pass is right to draw, and `cull` asserts that geometry, so this is not a
+       failure - it is the reason the body below is posed. The numbers are the shape #189 was filed
+       with: how far the body is, and how much nearer the thing in front of it is. */
+    const named = b => b.map(q => 'body ' + q.d.toFixed(2) + ' m / block ' + q.stop.toFixed(2) + ' m').join(', ');
+    console.log('  occlusion  ' + inFr.length + ' of ' + bodies.length + ' bodies in the +' + FOVH.toFixed(1) +
+      ' deg half-frustum: ' + visB.length + ' in the clear, ' + slabB.length + ' hidden by slab/band geometry' +
+      (slabB.length ? ' [' + named(slabB.slice(0, 4)) + (slabB.length > 4 ? ', +' + (slabB.length - 4) : '') + ']' : '') +
+      (obstB.length ? ', ' + obstB.length + ' behind a wall' : '') +
+      '   reporting only, not gated: #189');
+    /* TWO ROWS ABOUT THE FRAME BEFORE ANY CONTRAST IS MEASURED, both stated as POSED because a body
+       the probe put in the shot is not evidence that the game's own placement is readable:
+         the pose row is the guarantee this probe needs to measure anything at all - one body the
+           march says is in the clear, on the camera's own band, painting pixels of its own.
+         the accounting row is #189 turned into a number: every body in the frustum is either in the
+           clear or named as hidden, the two add up to the count, and a hidden one is block-nearer
+           than it is body-farther. That a body IS hidden never fails this row (the slab is correct);
+           a hidden body being uncounted, or nothing being left to measure, does. */
+    const poseOk = camG.pose > 0 && !!posedB && !!posedB.vis && posedPx >= MINMASK;
+    row('cam ' + cam + ' has a POSED body it can see', poseOk,
+      camG.pose ? 'POSED at ' + camG.pose.toFixed(2) + ' m on band ' + camG.band.toFixed(2) +
+        (Math.abs(camG.off) > 1e-6 ? ', ' + (camG.off * 180 / Math.PI).toFixed(1) + ' deg off the axis (which stops at ' + camG.clear.toFixed(2) + ' m)' : '') +
+        ', pose ray clear to ' + camG.poseClear.toFixed(2) + ' m, paints ' + posedPx + ' px alone (floor ' + MINMASK + ')' +
+        (posedB && !posedB.vis ? ' - but the march disagrees: stops at ' + posedB.stop.toFixed(2) + ' m' : '') +
+        (cam === 1 && slabB.length ? ' (the found body it was looking at is behind a slab at ' + slabB[0].stop.toFixed(2) + ' m)' : '')
+        : 'NO POSE: ' + camG.why + ', so this camera has nothing honest to measure');
+    row('cam ' + cam + ' frustum bodies are all accounted for',
+      inFr.length === visB.length + hidB.length && inFr.length >= 1 && !!posedB && !!posedB.inF && badBlock === 0,
+      inFr.length + ' in frustum = ' + visB.length + ' clear + ' + hidB.length + ' hidden, posed body ' +
+      (posedB ? (posedB.inF ? 'in frustum and ' + (posedB.vis ? 'clear' : 'BLOCKED at ' + posedB.stop.toFixed(2) + ' m') : 'OUTSIDE the frustum') : 'missing') +
+      (badBlock ? ', ' + badBlock + ' hidden without a nearer block distance' : ''));
     row('cam ' + cam + ' mask is bodies, not the room', nMB === 0 && nM > 0,
       nMB ? 'rendering with ENEMIES emptied still stamps ' + nMB + ' px of coverage - the mask is counting something other than the cast'
         : !nM ? 'vacuous: nothing drew in the measured frame either, so this proves nothing about the mask'
           : 'ENEMIES emptied -> coverage empty, so every one of the ' + nM + ' mask px below is a body\'s own draw');
     row('cam ' + cam + ' silhouette is big enough', nM >= MINMASK, nM + ' px = ' + pct(nM) + ' of the frame' +
+      (posedPx >= 0 ? ' (POSED body paints ' + posedPx + ' of them alone)' : '') +
       (nM ? '' : ' - NOTHING DREW: rows below are not measurements'));
     row('cam ' + cam + ' edge ring is measurable', enring >= RINGMIN && noBg === 0,
       enring + ' ring px' + (noBg ? ', ' + noBg + ' with no background sample' : ''));
@@ -2418,7 +2567,7 @@ if (MODE === 'contrast') {
        untouched for cam 0 and cam 2, which read and therefore keep failing outright. */
     const debt = !reads && measured && cam === DEBT.cam &&
       edgeDL >= DEBT.dlFloor && lostPct <= DEBT.lostCeil ? DEBT.issue : undefined;
-    row('cam ' + cam + ' body reads against the room', reads,
+    row('cam ' + cam + ' body reads against the room' + (camG.pose ? ' (posed body in shot)' : ''), reads,
       'edge dL ' + edgeDL.toFixed(0) + ' vs ' + DLMIN + ', lost ' + lostPct.toFixed(0) + '% vs ' + LOSTMAX +
       (reads || cam !== DEBT.cam || !measured ? '' : debt
         ? ' - debt, fails below ' + DEBT.dlFloor.toFixed(2) + ' dL or above ' + DEBT.lostCeil.toFixed(2) + '% lost'
