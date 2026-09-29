@@ -279,6 +279,12 @@ case "$out" in *"SMOKE PASSED"*) git add -A && git commit ;; *) echo NOT COMMITT
   green because it greps the raw text. Same family as a bare `#N`: a green check proves the string was present,
   never that the reference exists. Write the keyword as plain text, and confirm with `gh issue view N --json
   state` after an admin squash merge, which is the only reason this was caught.
+- **Quote the roll count beside any median you cite.** These distributions are bimodal, and an even-count median
+  averages the two modes instead of selecting one. #143 opened with "composited is 15 points below raster"; ~13
+  of that was one tool printing `REPS=4` (median of a 40 and a 66 -> 53) and the other `ROLLS=5` (picks 38) on
+  level 2's rolls `39.5 103.3 36.5 66.2 42.5`. The instruments agreed to 0.1 all along, and the real asymmetry
+  was 12 points. Same family as #87's "the spread is wider than the window": state N, and when comparing two
+  layers compare the **same frames at the same count**, not the headline number each tool happens to print.
 - **A watch that greps for absence reports MET when the command fails.** `bg_4` exited 0 after **59 ms**
   having read nothing: its condition was `gh pr checks 121 --json …`, and this `gh` has no `--json` on
   `pr checks`, so the command printed `unknown flag` on stderr, `$s` was empty, neither the `pending` nor
