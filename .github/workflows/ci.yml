@@ -111,6 +111,11 @@ jobs:
           node tools/view.js drop
           node tools/view.js horizon
           node tools/view.js cull
+          #   alt      M3's exit gate on GENERATED levels: two bands or more, an unblocked link into
+          #            every band above the datum, no open cell the height-aware crossing rule cannot
+          #            reach, a staircase climbable on foot, no face of span<=0. It replaces the
+          #            flatness assertion that was M0's exit gate, and it pokes nothing.
+          node tools/view.js alt
 
       - name: Composited exposure gate on the live page
         # BLOCKING since the level-2 lamp fix (#143): level 2 read 53 raster / 38 composited and now reads 73 on

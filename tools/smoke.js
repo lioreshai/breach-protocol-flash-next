@@ -770,7 +770,13 @@ const release = () => fire('mouseup', { button: 0 });
     {
       const cands = S1(`{const a=[];for(let y=1;y<MAP.h-1;y++)for(let x=1;x<MAP.w-8;x++){
         if(isSolid(x+0.5,y+0.5)||isSolid(x+1.5,y+0.5))continue;
-        const r=castRayDist(x+0.5,y+0.5,1,0,12);if(r.wall&&r.dist>2)a.push([x+0.5,y+0.5,+r.dist.toFixed(3)]);}
+        const r=castRayDist(x+0.5,y+0.5,1,0,12);if(!r.wall||r.dist<=2)continue;
+        // ONE floor the whole run: since #152 a run can end at a blocked RISER, which castRayDist
+        // answers as a wall but hitscan answers as a band stop, and then neither shot is a wall shot
+        const f0=MAP.fz[y*MAP.w+x];let mixed=0;
+        for(let k=2;k<=Math.min(11,MAP.w-1-x,Math.floor(r.dist));k++)if(MAP.fz[y*MAP.w+x+k]!==f0)mixed=1;
+        if(mixed)continue;
+        a.push([x+0.5,y+0.5,+r.dist.toFixed(3)]);}
         return a.length?a.sort((p,q)=>q[2]-p[2])[0]:[]}`);
       const spot = cands && cands.length === 3 ? cands : null;
       if (!vsetup('shot setup found a long run to a wall face', !!spot,
@@ -1010,6 +1016,50 @@ const release = () => fire('mouseup', { button: 0 });
           + ' peaks at 0.489 m so grabbing mid-air must keep working) | 0.90 m over it ' + out + ' left'
           + ' (want 1)' + (lo ? ' - VACUOUS: not even standing on it takes it' : ''));
         V('P.z = floorAt(P.x, P.y);');
+      }
+    }
+
+    // V18 is M3's generation half gated with NO vpoke anywhere in it: it walks a staircase the
+    // GENERATOR authored. If generation regresses to flat, the setup finds no run and vsetup FAILS -
+    // a row that could not set up is a failure, never a KNOWN - so a flat world cannot pass this lane.
+    for (let li = 0; li < 3; li++) {
+      V('startLevel(' + li + ', true); S.mode = "play"; S.locked = false; S.exitOpen = false;');
+      V('for (const e of ENEMIES) { e.state = "sleep"; e.cd = 999; e.alert = false; }'
+        + ' PROJ.length = 0; PICKUPS.length = 0; PROPS.length = 0; for (const k in keys) delete keys[k];');
+      const stair = S1(`{
+        for (let y = 2; y < MH - 2; y++) for (let x = 2; x < MW - 2; x++) {
+          if (isSolid(x + 0.5, y + 0.5) || MAP.fz[y * MW + x]) continue;
+          for (let d = 0; d < 4; d++) {
+            let ok = true;
+            for (let k = 1; k <= 4; k++) {
+              const nx = x + DIRX[d] * k, ny = y + DIRY[d] * k;
+              if (nx < 1 || ny < 1 || nx >= MW - 1 || ny >= MH - 1 || isSolid(nx + 0.5, ny + 0.5) ||
+                MAP.fz[ny * MW + nx] !== k) { ok = false; break; }
+            }
+            if (ok) return { x: x, y: y, d: d };
+          }
+        }
+        return null;
+      }`);
+      if (vsetup('V18 setup found a generated 4-step staircase on level ' + li, !!stair,
+        'no cell at the datum with four +1-quanta steps in a line - generation is flat again')) {
+        const ANG = [0, Math.PI / 2, Math.PI, -Math.PI / 2];   // DIRX/DIRY live in the vm, not here
+        V('P.x = ' + (stair.x + 0.5) + '; P.y = ' + (stair.y + 0.5) + '; P.ang = ' + ANG[stair.d] + '; P.z = floorAt(P.x, P.y); P.vx = P.vy = P.vz = 0; P.air = false;');
+        const s = V('(()=>{keys["KeyW"] = 1; const s = []; for (let i = 0; i < 150; i++) { update(0.016);'
+          + ' s.push([+P.z.toFixed(6), +floorAt(P.x, P.y).toFixed(4), P.air ? 1 : 0, +P.hp.toFixed(2)]); } return s})()');
+        const end = s[s.length - 1], airN = s.filter(r => r[2]).length;
+        // the feet are allowed to disagree with floorAt for the ONE frame they cross a boundary (gz is
+        // read before tryMove), so the claim is about RUNS, not counts: an eased lift gives a run of
+        // ~26 frames per step, a lift gives 1
+        let offN = 0, offRun = 0;
+        for (const r of s) { if (Math.abs(r[0] - r[1]) > 1e-4) { offRun++; offN = Math.max(offN, offRun); } else offRun = 0; }
+        const hpN = s.filter((r, i) => i && r[3] < s[i - 1][3] - 1e-9).length;
+        vrow('L' + li + ' a generated staircase lifts the feet a full unit (#152)',
+          end[0] === end[1] && Math.abs(end[1] - 1) < 1e-6 && airN === 0 && offN <= 1 && hpN === 0,
+          `z ${end[0]} on floor ${end[1]} after 150 frames on foot (want 1 from the datum band 0), ` +
+          `${airN} airborne frames, longest run of frames with the feet off their own floor ${offN} (want <=1;` +
+          ` an eased lift runs ~26 per step), ${hpN} hp steps`
+          + (end[1] === 0 ? ' - VACUOUS: never left the datum band' : ''));
       }
     }
 
