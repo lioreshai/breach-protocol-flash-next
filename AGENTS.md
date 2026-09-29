@@ -323,11 +323,14 @@ case "$out" in *"SMOKE PASSED"*) git add -A && git commit ;; *) echo NOT COMMITT
   `drop`, `sight`, `cull`, `horizon`, `heights` and the VERT smoke lane calls `vpoke`/writes `MAP.fz`
   to create the band it tests — correct while the generator was flat, and now the reason the entire
   vertical suite is green on levels that have **no altitude at all** (`alt`: `floors 0..0`, one band,
-  `step faces 0`; no write to `MAP.fz` exists in `js/` outside the allocation at
-  `js/20_level.js:575`). Worse, `alt` asserts **flatness** (M0's exit gate, `tools/view.js:261` prints
-  `ALL FLAT ok`) and sits in the reporting job while `ci.yml`'s blocking list runs the other eight — so
-  CI both cannot see the missing feature and would go red when it arrived. When generation turns on,
-  that assertion is replaced in the same commit and `alt` joins the blocking list (#152). Ask of any
+  `step faces 0`; the grid the generator builds is `fzTry`, allocated all-zero at
+  `js/20_level.js:491` and made `MAP.fz` at `:503`, and **no line writes it** (`:575` is only the fallback
+  box). Worse, **`alt` cannot fail**: it computes `flat`, prints `ALL FLAT ok` /
+  `NOT FLAT - check above` (`tools/view.js:261`), falls through to the scene dump and exits 0, and it
+  sits in the reporting job while `ci.yml`'s blocking list runs the other eight. So CI cannot see the
+  missing feature *and* would stay green while printing a contradiction. Making generation real means
+  **giving `alt` a verdict** — a `process.exit` on ≥2 bands, ≥1 link per band, 0 unreachable cells,
+  ≥1 climbable staircase — after which it belongs in the blocking list (#152). Ask of any
   green vertical verdict: which line creates the geometry this row needs?
 
 ## Now: verticality — the design that was chosen
@@ -414,13 +417,18 @@ not · **M5** per-band light, glow, minimap altitude cue · **M6** a hand-author
 
 **A struck-through milestone needs a probe line that proves it, and this one did not have one.**
 Until 2026-09-29 this file said "~~M3~~ … (issue #14 closed)" and put the marker on M4. #14 is **open
-and was never closed**, and its content — bands and links in `genLevel` — never shipped: `MAP.fz` is
-allocated at `js/20_level.js:575` as an all-zero `Int8Array` and **no line in `js/` writes to it**,
+and was never closed**, and its content — bands and links in `genLevel` — never shipped: the grid is
+`fzTry`, allocated as an all-zero `Int8Array` at `js/20_level.js:491` and made into `MAP.fz` at `:503`, and
+**no line writes it** (`:575` is the fallback box, not the normal path),
 so `view.js alt` reports `floors 0..0`, one band per level and `step faces 0` on all three levels.
 The wrong line cost every subsequent session its way into the feature, because "done" is not
 something you edit into a milestone list: it is a verdict a tool prints. Strike a milestone only
 with the verdict beside it (here: ≥2 bands, ≥1 link per band, 0 unreachable cells, ≥1 climbable
-staircase, from `alt` once its flat assertion is replaced).
+staircase). That verdict does not exist yet, and the reason is worth being exact about: **`alt` has no
+`process.exit` in its code path at all.** It computes `flat`, prints `NOT FLAT - check above`, falls
+through to the scene dump and exits **0** (`tools/view.js:214-263`; the exits at 571/576 belong to
+`vert`, those at 712/833/910/1104 to sight/drop/horizon/cull). The flatness line in its output is
+decoration, not a gate — the worst kind of probe, one that cannot fail.
 
 `node tools/view.js heights` is the probe that makes M2 verifiable while every shipped level is
 still flat: it pokes `MAP.fz`/`MAP.cz` into six configurations per level (tall ceilings, a pit beyond
@@ -440,12 +448,17 @@ Three risks that were invisible to the gates when this list was written:
    never re-seated. `startLevel` now seats all three after generation, on every path, and
    `view.js vert`'s spawn-altitude rows are the gate — reverted, they measure `P.z 0 vs floorAt 0.5`
    with the feet below the floor, and `hp 77.16` after 60 frames of a fall carried across the portal.
-2. `genLevel`'s occupancy gate (`reachable < openCells*0.9`) is a height-blind 4-neighbour
-   BFS. Split bands and every attempt fails into the fallback: a lit empty box, no heights,
-   every gate green, and the feature silently absent. ~~It must `console.warn('genLevel FALLBACK')`~~
-   — the warn ships (`js/20_level.js:566-567`), which only makes the *gate* the problem: a BFS that
-   cannot see a ramp or a ladder will call every banded attempt unreachable and ship the box, so the
-   gate has to learn `VB_RAMP`/`VB_LADDER` crossings in the same commit that turns generation on (#152).
+2. `genLevel`'s occupancy gate (`reachable < openCells*0.9`) is a 4-neighbour walk that is **half
+   height-aware**: `bfsReach(cellArr, fzArr, N, start)` (`js/20_level.js:117`, called at `:492`) admits a
+   crossing only when `Math.abs(fzArr[ni] - fzArr[idx]) <= 1` (`:127`) — **one quantum**. A stepped band is
+   therefore already reachable, but **a ramp or a ladder is not**: those links are 4 quanta by construction,
+   so every attempt that authors one fails the gate and ships the fallback box (the warn at `:566-567`
+   fires, which is the only good news). The gate must count `VB_RAMP`/`VB_LADDER` crossings in the same
+   commit that turns generation on (#152). Second hazard for that commit: smoke's **V15 needs a flat 8-cell
+   lane at floor 0** (`tools/smoke.js:876-880`) and fails `vsetup` without one, so a staircase landing in
+   that lane breaks the VERT lane rather than the generator — and note `auto-step` already exists
+   (`js/30_entities.js:376`, eased `P.z += dz * min(1, 16*dt)`, gated by `vert`'s 1-quantum-over /
+   2-quantum-stop rows), so generation must *not* add a second lift.
 3. **A probe can assert the defect, and its rows can fail when you *add* a test.** `view.js sight`'s `+1 band`
    rows raised the enemy a full unit, which closes the boundary's opening `[max(floor), min(ceiling)]` to
    `[1.00, 1.00]` - the enemy is sealed off - and six rows kept printing `hit at t 3.3` for as long as `hitscan`
