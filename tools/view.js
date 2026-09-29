@@ -2214,6 +2214,18 @@ if (MODE === 'contrast') {
     + 'only below ' + DEBT.dlFloor + ' dL or above ' + DEBT.lostCeil + '% lost, i.e. when the debt GROWS. '
     + 'Tracked in ' + DEBT.issue + ' (Epic A); STRICT=1 gates it as it stands, so the term that pays it '
     + 'can be A/B\'d against a green baseline.');
+  /* #180 puts the rifle in the raster, so it is now part of what a pair of renders must hold FIXED.
+     drawViewModel damps its look-lag against wall-clock dt (VM.now = performance.now()), so two
+     frames rendered back to back are NOT the same pose - which is fatal here, because this probe's
+     oracle IS a pair of renders. Measured with the rig in the frame and at rest never applied:
+     cam 1's diff goes 2272 -> 3158 px and cam 2's 431 -> 1231, all of it leak (LEAKMAX is 0), and the
+     leak also disqualifies cam 1's debt row, since a row that leaks has not measured the baseline it
+     owes. The coverage mask never saw it either way - MESH.draw carries body: 0 for the rig, so tri()
+     stamps 0 and the mask stays 999 / 2838 / 431 px, identical to main. Putting the rig at rest before
+     BOTH sampled frames removes the cause instead of the symptom and leaves the gun in the picture;
+     this is the same REST the viewmodel probe uses for the same reason (#180). VM.ang = P.ang matters
+     as much as the zeros: dAng is what the lag damps TOWARD, and after one frame it is already 0. */
+  const VMREST = 'VM.ang = P.ang; VM.lag = 0; VM.vy = 0;';
   for (let cam = 0; cam < 3; cam++) {
     run(`startLevel(${LVL}, true); S.mode='play'; S.locked=false;`);
     run(`(()=>{
@@ -2250,11 +2262,11 @@ if (MODE === 'contrast') {
     if (!isNaN(TINTK)) run('for (const e of ENEMIES) e.tint = [' + TINTK + ',' + TINTK + ',' + TINTK + '];');
     run('window.__keep = ENEMIES.slice();');
     if (NOBODY) run('ENEMIES.length = 0;');
-    run('S.t = 3.5; renderWorld()');
+    run('S.t = 3.5; ' + VMREST + ' renderWorld()');
     const A = new Uint32Array(run('px')), M = new Uint8Array(run('COV'));
     // the cross-check frame: the same world with the bodies out, which is what the OLD mask was.
     // Its coverage is the empty-mask control - the cast is out of the scene it rendered.
-    run('ENEMIES.length = 0; renderWorld();');
+    run('ENEMIES.length = 0; ' + VMREST + ' renderWorld();');
     const B = new Uint32Array(run('px')), MB = new Uint8Array(run('COV'));
     run('ENEMIES.length = 0; for (const q of __keep) ENEMIES.push(q);');
     let nMB = 0;

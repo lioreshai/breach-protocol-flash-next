@@ -1324,6 +1324,8 @@ function drawViewModel() {
     mdl: MESH.weapon(w.kind, { mz, magOut, slideBack, pump, shellIn }),
     x: ax, y: ay, z: az, rot: VMROT,
     near: true,                       // the depth decision, stated in the header
+    body: 0,                          // NOT a body: COV must stay 0 under the gun (#183) - contrast
+                                      // measures bodies, and this paints over them
     cell: cellIdx(P.x, P.y),          // the room you are IN, not the wall the muzzle points at
     floor: VMFLOOR, rim: VMRIM,
   });
