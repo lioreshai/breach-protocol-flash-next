@@ -56,8 +56,10 @@ the way it is.
       `drop`, `sight`, `cull`, `horizon`, `heights`, `planes`, `vert` are in the **blocking** probe list
       (`ci.yml`) and pass with numbers: a 3 m drop lands at 7.21 m/s against 7.43 predicted and hurts
       (hp −25.32 vs the formula's 26.2); a level shot at an enemy one band up hits nothing; a body on
-      band +1 moves its silhouette centroid up 89.1 px against 84.5 predicted. **`alt` is the exception:
-      it runs in the reporting job only, and it asserts that levels are FLAT** (M0's exit gate). So z is
+      band +1 moves its silhouette centroid up 89.1 px against 84.5 predicted. **`alt` is the exception, and
+      it is worse than "not gating": it has no `process.exit` in its code path at all** - it computes a
+      flatness verdict, prints `ALL FLAT ok` / `NOT FLAT - check above`, falls through to the scene dump and
+      exits 0 (`tools/view.js:214-263`). So z is
       no longer invisible to the asserts — but every vertical row *creates* its geometry by poking
       `MAP.fz`, which means none of them can fail on a world that has no altitudes. That is #152.
 
@@ -78,8 +80,9 @@ is what keeps `smoke.js` meaningful *while* this is in flight.
 | M5 | Per-band light and glow, minimap altitude cue | `exposure` **per band** in 60–100; colour variety not worse |
 | M6 | Hand-authored two-storey level | full smoke + user playthrough |
 
-**The frontier is one thing: `genLevel` has never written an altitude.** `MAP.fz` is allocated as an
-all-zero `Int8Array` (`js/20_level.js:575`) and no line in `js/` writes it, so `alt` reports
+**The frontier is one thing: `genLevel` has never written an altitude.** On the normal path the grid is
+`fzTry`, allocated as all-zero `Int8Array` at `js/20_level.js:491` and made into `MAP.fz` at `:503`; the
+`new Int8Array` at `:575` is only the fallback box. **No line writes `fzTry`**, so `alt` reports
 `floors 0..0`, one band and `step faces 0` on all three levels — the representation, the faces, the
 ground solver and the movement all work on a world that has nothing to climb. Until 2026-09-29
 `AGENTS.md` claimed M3 had shipped ("issue #14 closed"), and #14 is open and was never closed: a
@@ -87,6 +90,21 @@ milestone was struck without a verdict beside it, and the next readers inherited
 not exist. [#152](https://github.com/lioreshai/breach-protocol-flash-next/issues/152) is the blocker
 for every vertical claim; [#14](https://github.com/lioreshai/breach-protocol-flash-next/issues/14)
 and [#15](https://github.com/lioreshai/breach-protocol-flash-next/issues/15) carry the per-item truth.
+
+Three constraints on the commit that turns generation on, each of them a gate that would otherwise
+mislead the author:
+
+- **Author the bands before the occupancy gate, not after.** `bfsReach` walks the very array `MAP.fz`
+  becomes (`js/20_level.js:489-490` says so), so heights written after `:492` are validated against a flat
+  grid the player never gets.
+- **The gate is height-aware to one quantum only.** `Math.abs(fzArr[ni] - fzArr[idx]) <= 1`
+  (`js/20_level.js:127`) admits a step and refuses a ramp or a ladder, both of which span 4 quanta, so a
+  generator that authors them fails every attempt into the fallback box until the crossing test counts
+  `VB_RAMP`/`VB_LADDER`.
+- **`auto-step` already exists** (`js/30_entities.js:376`, eased `P.z += dz * min(1, 16*dt)`, gated by
+  `vert`'s 1-quantum-over / 2-quantum-stop rows) — generation must not add a second lift — and smoke's V15
+  needs a **flat 8-cell lane at floor 0** (`tools/smoke.js:876-880`), so a staircase that lands in that lane
+  breaks the VERT lane rather than the generator.
 
 Three failure modes that stay **green** while broken (each needs a probe, not a code review):
 ~~`resetRun()` zeroes `P.z` *after* `genLevel` placed the spawn~~ (fixed: `startLevel` seats

@@ -3,20 +3,36 @@
 ### Changed
 - **The vertical milestones now say what the tools measure, because one of them said something false.**
   `AGENTS.md` recorded M3 as shipped - "~~bands + links~~ (issue #14 closed)" - and put the current marker
-  on M4. #14 is **open and was never closed**, and its content never happened: `MAP.fz` is allocated as an
-  all-zero `Int8Array` (`js/20_level.js:575`) and **no line in `js/` writes to it**, so `view.js alt` reports
+  on M4. #14 is **open and was never closed**, and its content never happened: the grid the generator builds
+  is `fzTry`, allocated as an all-zero `Int8Array` at `js/20_level.js:491` and made into `MAP.fz` at `:503`,
+  and **no line writes it**, so `view.js alt` reports
   `floors 0..0`, a single band per level (`{"0":572}` / `{"0":896}` / `{"0":1146}`) and **`step faces 0`** on
   all three levels. The honest split, now written in both `AGENTS.md` and `docs/ROADMAP.md`: M3's **physics**
   shipped and is gated (`drop` lands a 3 m fall at 7.21 m/s against 7.43 predicted, hurts hp −25.32 against
-  the formula's 26.2, and blocks a step-up without lifting the player), M3's **generation** did not, so no
+  the formula's 26.2, and a **blocked** riser stops the player dead - 0.20 m moved in 1 s with `z` unchanged;
+  the lift that does exist is `auto-step` at `js/30_entities.js:376`, eased over ~1/16 s, and `vert` gates it
+  with 1-quantum-over / 2-quantum-stop rows), M3's **generation** did not, so no
   level in the game has a staircase, a ramp, a ladder or a pit. `docs/ROADMAP.md`'s P0 claim that
   `drop`/`sight`/`cull`/`horizon` were "still owed" is also retired - all four exist, run in the blocking
-  probe list and pass; the probe that *asserts flatness* (`alt`) is the one CI runs without gating.
+  probe list and pass. The probe that *would* gate flatness (`alt`) is worse than ungated: **it has no
+  `process.exit` in its code path**, so it prints `NOT FLAT - check above`, falls through to the scene dump
+  and exits 0 - a verdict line that cannot fail.
   Two rules added so this cannot recur: a milestone may only be struck through **with a verdict line beside
   it**, and a green vertical row must be able to name the line that creates the geometry it tests - every
   vertical row in the suite builds its own band with `vpoke`, which is why a world with no altitudes passes
   all of it. Tracked as **#152**; #14 and #15 were rewritten from these measurements (both carried claims the
   code had since contradicted, #15's being "z is invisible to every existing assert").
+- **A second pass corrected four claims the first pass had made about that correction.** `alt` does not
+  "assert flatness while unparked" - it cannot fail at all (no `process.exit`, `tools/view.js:214-263`). The
+  occupancy gate is not "height-blind": `bfsReach` (`js/20_level.js:117`, used at `:492`) admits crossings
+  of `|Δfz| <= 1` (`:127`), which is why it already accepts steps and **refuses ramps and ladders** (4 quanta)
+  into the fallback box. A step-up lift is not missing - `auto-step` (`js/30_entities.js:376`) eases `P.z` to
+  the floor and `vert` gates it. And the line first cited as the allocation (`:575`) is the **fallback** box;
+  the normal path is `fzTry` at `:491` becoming `MAP.fz` at `:503`. Each was checked in the source before
+  being rewritten here, which is the point: a citation is a claim, and a wrong one costs the next reader more
+  than no citation. Finding them also changed the plan - authored bands must go in **before** `bfsReach` at
+  `:492` (the comment at `:489-490` notes the BFS walks the array `MAP.fz` becomes), or the gate certifies a
+  flat grid the player never receives.
 
 ### Added
 - **`DEV.lum([{stride}])` reports the luminance of the frame the player actually sees, and CI prints it.**
