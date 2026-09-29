@@ -112,29 +112,44 @@ function onLadder(x, y) {
    Setting the flag here is what makes "blocking, walkable and drawn" one byte later. */
 let LINK_STAMP = 0;                                       // monotonic across level rebuilds, so a
 /* Reachability over open cells, shared by the occupancy gate and the `vert` probe. A boundary is
-   crossable only when the two floors are within one quantum; on an all-flat grid that is always
-   true, which is what keeps this a no-op on every shipped level. */
-function bfsReach(cellArr, fzArr, N, start) {
+   crossable when the two floors are within one quantum, or when something lets you climb the step
+   (see linkedClimb); on an all-flat grid the first test is always true and the second is never
+   reached, which is what keeps this a no-op on a flat level. vbArr/featArr are optional so a probe
+   that hands in a synthetic grid keeps the quantum-only rule it was written against. */
+function bfsReach(cellArr, fzArr, N, start, vbArr, featArr) {
   const dist = new Int16Array(N * N).fill(-1);
   const q = [start];
   dist[start] = 0;
   for (let head = 0; head < q.length; head++) {
     const idx = q[head], x = idx % N, y = (idx / N) | 0, d = dist[idx];
-    const nb = [[x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]];
-    for (const [nx, ny] of nb) {
+    const nb = [[x + 1, y, 0], [x - 1, y, 2], [x, y + 1, 1], [x, y - 1, 3]];
+    for (const [nx, ny, dd] of nb) {
       if (nx < 1 || ny < 1 || nx >= N - 1 || ny >= N - 1) continue;
       const ni = ny * N + nx;
-      if (cellArr[ni] === 0 && dist[ni] < 0 && Math.abs(fzArr[ni] - fzArr[idx]) <= 1) { dist[ni] = d + 1; q.push(ni); }
+      if (cellArr[ni] !== 0 || dist[ni] >= 0) continue;
+      if (Math.abs(fzArr[ni] - fzArr[idx]) <= 1 || linkedClimb(vbArr, featArr, idx, ni, dd)) { dist[ni] = d + 1; q.push(ni); }
     }
   }
   return dist;
+}
+/* A crossing taller than one quantum still LINKS the two bands when something lets you climb it: a
+   RAMP or LADDER nibble on either side - the pair linkBoundaries refuses to block - or a column that
+   IS a ladder. Without this half the occupancy gate calls every banded layout unreachable and the
+   generator ships its flat fallback box while the code looks correct (#152). */
+function linkedClimb(vbArr, featArr, i, j, d) {
+  if (featArr && (featArr[i] === FEAT_LADDER || featArr[j] === FEAT_LADDER)) return true;
+  if (!vbArr) return false;
+  return !!(vbArr[i] & (VB_RAMP | VB_LADDER) << (d << 2)) ||
+    !!(vbArr[j] & (VB_RAMP | VB_LADDER) << ((d ^ 2) << 2));
 }
 
 function linkBoundaries() {                               // read before one cannot look fresh
   const cell = MAP.cell, fz = MAP.fz;
   let steps = 0;            // does ANY column boundary in this level have a step at it? (#100)
+  const seenF = new Uint8Array(256); let bands = 0;   // distinct floor quanta over open columns (#152)
   for (let y = 0; y < MH; y++) for (let x = 0; x < MW; x++) {
     const i = y * MW + x;
+    if (!cell[i]) { const k = fz[i] + 128; if (!seenF[k]) { seenF[k] = 1; bands++; } }
     let bits = 0;
     for (let d = 0; d < 4; d++) {
       const nx = x + DIRX[d], ny = y + DIRY[d];
@@ -154,6 +169,7 @@ function linkBoundaries() {                               // read before one can
   // is what keeps a flat frame bit-identical (#100). A grid with a step in it must come through this
   // function to be visible at all, so `view.js planes` asserts the flag tracks the grid.
   MAP.steps = steps;
+  MAP.bands = bands;
   buildCeilPlanes();                                      // ceilings are derived from the same grid
   MAP.linkStamp = ++LINK_STAMP;                           // a relink that never ran is then assertable
 }
@@ -329,6 +345,87 @@ function bandExitT(ax, ay, dx, dy, az, tanP, maxT) {
 
 function pickWallTex(cfgL) { return Math.random() < 0.78 ? cfgL.wall : cfgL.wall2; }
 
+/* M3's generation half (#152): a layout is a floor plan until something has altitude. Raises `want`
+   room interiors by one unit (BAND_UP quanta) and links each to the datum band with a stair run of
+   1-quantum steps along a corridor mouth, or with a ladder column when the mouth is shorter than the
+   four cells the run needs. Room 0 holds the spawn and is never raised. Every draw is the seeded
+   RNG, and a candidate that costs any reachable cell its reach is reverted here, so a band can never
+   be the reason an attempt fails the occupancy gate. Writes the grid only: linkBoundaries derives
+   the blocking bits and the ceiling planes from it afterwards. */
+const BAND_UP = 4;                                          // one unit above the datum, in quanta
+function authorHeights(cell, N, rooms, fz, vb, feat, cz, want) {
+  const owner = (x, y) => {
+    for (const r of rooms) if (x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h) return r;
+    return null;
+  };
+  const open = (x, y) => x > 0 && y > 0 && x < N - 1 && y < N - 1 && cell[y * N + x] === 0;
+  const start = rooms[0].cy * N + rooms[0].cx;
+  let base = bfsReach(cell, fz, N, start, vb, feat), made = 0;
+  const cand = rooms.slice(1), done = new Uint8Array(cand.length);
+  // NO draw from Math.random anywhere in here: the scatter pass below (lamps, crates, barrels,
+  // pickups, enemies) takes its places from that stream, and #90/#96 learned that a generator draw
+  // count which moves makes every downstream measurement incomparable with the previous build. The
+  // mouth is chosen by a coordinate hash instead - different room, different mouth, same seed.
+  // Pass 0 raises only rooms that fit a STAIR of 1-quantum steps; pass 1 tops the count up with
+  // ladders. That preference is what makes ">=1 climbable staircase" (alt's exit gate, smoke V18) a
+  // property of any layout that HAS a stair-capable room instead of a property of candidate order.
+  for (let pass = 0; pass < 2 && made < want; pass++) for (let at = 0; at < cand.length && made < want; at++) {
+    if (done[at]) continue;
+    const r = cand[at];
+    const mouths = [];
+    for (let y = r.y; y < r.y + r.h; y++) for (let x = r.x; x < r.x + r.w; x++) {
+      if (!open(x, y) || (x > r.x && x < r.x + r.w - 1 && y > r.y && y < r.y + r.h - 1)) continue;
+      for (let d = 0; d < 4; d++) {
+        const nx = x + DIRX[d], ny = y + DIRY[d];
+        if (open(nx, ny) && !owner(nx, ny)) mouths.push([x, y, d]);
+      }
+    }
+    if (!mouths.length) continue;
+    const mo = mouths[(made * 7 + r.cx + r.cy * 3) % mouths.length], mx = mo[0], my = mo[1], md = mo[2];
+    // the run of corridor cells that leaves the mouth: the stair writes the first three and the
+    // fourth has to stay on the datum, or the last step is a wall instead of a step
+    const line = [];
+    for (let k = 1; k <= 4; k++) {
+      const x = mx + DIRX[md] * k, y = my + DIRY[md] * k;
+      if (!open(x, y) || owner(x, y)) break;
+      line.push([x, y]);
+    }
+    const stair = line.length >= 4;
+    if (!stair && pass === 0) continue;
+    const undo = [];
+    const mark = (x, y) => { const i = y * N + x; undo.push([i, fz[i], feat[i], vb[i], cz[i]]); return i; };
+    for (let y = r.y; y < r.y + r.h; y++) for (let x = r.x; x < r.x + r.w; x++) {
+      if (open(x, y)) fz[mark(x, y)] = BAND_UP;
+    }
+    if (stair) {
+      for (let k = 0; k < 3; k++) {
+        const i = mark(line[k][0], line[k][1]);
+        fz[i] = BAND_UP - 1 - k; feat[i] = FEAT_STAIR;
+      }
+    } else {
+      // a ladder where a stair will not fit: a shaft BAND_UP+2 quanta over its own floor, because the
+      // climb tops out at ceilAt - cfg.eye and has to reach the band above, flagged on the crossing
+      // that the grid alone would block
+      const i = mark(line[0][0], line[0][1]);
+      feat[i] = FEAT_LADDER; cz[i] = BAND_UP + 2;
+      vb[i] |= VB_LADDER << (md << 2);
+      vb[my * N + mx] |= VB_LADDER << ((md ^ 2) << 2);
+    }
+    const chk = bfsReach(cell, fz, N, start, vb, feat);
+    let loss = 0;
+    for (let i = 0; i < N * N; i++) if (base[i] >= 0 && chk[i] < 0) loss++;
+    if (loss) {
+      for (let k = undo.length - 1; k >= 0; k--) {
+        const u = undo[k];
+        fz[u[0]] = u[1]; feat[u[0]] = u[2]; vb[u[0]] = u[3]; cz[u[0]] = u[4];
+      }
+      continue;
+    }
+    base = chk; done[at] = 1; made++;
+  }
+  return made;
+}
+
 
 /* Adds one light's contribution to the lightmap; a negative amount takes it back out.
    Static lights are splatted once at generation, transient ones re-splat their delta
@@ -488,10 +585,14 @@ function genLevel(li) {
 
     /* occupancy from room 0. fzTry is the grid the BFS actually walks, and it is the same array
        MAP.fz becomes below, so a band written before this point cannot be invisible to the gate. */
-    const fzTry = new Int8Array(N * N);
-    const dist = bfsReach(cell, fzTry, N, rooms[0].cy * N + rooms[0].cx);
+    const fzTry = new Int8Array(N * N), czTry = new Uint8Array(N * N).fill(CZ_DEF);
+    const vbTry = new Uint16Array(N * N), featTry = new Uint8Array(N * N);
+    authorHeights(cell, N, rooms, fzTry, vbTry, featTry, czTry, cfgL.rooms >> 1);
+    const dist = bfsReach(cell, fzTry, N, rooms[0].cy * N + rooms[0].cx, vbTry, featTry);
     let reachable = 0, far = -1, farIdx = -1, total = 0;
-    for (let i = 0; i < N * N; i++) if (dist[i] >= 0) { reachable++; total++; if (dist[i] > far) { far = dist[i]; farIdx = i; } }
+    // the exit stays on the datum band: a portal at the top of a staircase you cannot see from the
+    // spawn is a navigation defect, and room 0's own cells are all band 0, so this always has a answer
+    for (let i = 0; i < N * N; i++) if (dist[i] >= 0) { reachable++; total++; if (dist[i] > far && fzTry[i] === 0) { far = dist[i]; farIdx = i; } }
     let openCells = 0; for (let i = 0; i < N * N; i++) if (cell[i] === 0) openCells++;
     if (reachable < openCells * 0.9) continue;              // too much of the map sealed off
 
@@ -500,8 +601,8 @@ function genLevel(li) {
       lt: new Uint8Array(N * N * 3), amb: cfgL.amb === undefined ? 0.13 : cfgL.amb, tintDirty: true,
       floorTex: FLOORS[cfgL.floor] || FLOORS.CONCRETE, ceilTex: CEILS[cfgL.ceil] || CEILS.CONCRETE,
       floorTile: 1.15, ceilTile: 0.9,
-      fz: fzTry, cz: new Uint8Array(N * N).fill(CZ_DEF),
-      vb: new Uint16Array(N * N), feat: new Uint8Array(N * N),
+      fz: fzTry, cz: czTry,
+      vb: vbTry, feat: featTry,
       ceilPlane: new Float64Array(N * N) };
     MW = N; MH = N; linkBoundaries(); decalGridInit();
 
