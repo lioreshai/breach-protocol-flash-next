@@ -319,6 +319,17 @@ case "$out" in *"SMOKE PASSED"*) git add -A && git commit ;; *) echo NOT COMMITT
   the same shape posts or corrupts something 37 times. Do the write in the foreground, read the effect back,
   then arm the pure read.
 
+- **A probe that builds its own geometry cannot fail on a world that has none.** Every vertical row in
+  `drop`, `sight`, `cull`, `horizon`, `heights` and the VERT smoke lane calls `vpoke`/writes `MAP.fz`
+  to create the band it tests — correct while the generator was flat, and now the reason the entire
+  vertical suite is green on levels that have **no altitude at all** (`alt`: `floors 0..0`, one band,
+  `step faces 0`; no write to `MAP.fz` exists in `js/` outside the allocation at
+  `js/20_level.js:575`). Worse, `alt` asserts **flatness** (M0's exit gate, `tools/view.js:261` prints
+  `ALL FLAT ok`) and sits in the reporting job while `ci.yml`'s blocking list runs the other eight — so
+  CI both cannot see the missing feature and would go red when it arrived. When generation turns on,
+  that assertion is replaced in the same commit and `alt` joins the blocking list (#152). Ask of any
+  green vertical verdict: which line creates the geometry this row needs?
+
 ## Now: verticality — the design that was chosen
 
 Representation: **a quantized per-cell height grid** (2.5D stacked slabs), not a
@@ -394,10 +405,22 @@ bands in one column, or a floor overhanging the cell it sits above.
 Milestones, each ending playable with gates green: ~~**M0** representation + absolute `P.z`~~ ·
 ~~**M1** boundary faces with real `z0/z1`~~ · ~~**M2** the ground plane solved per **cell**, floors
 and **ceilings in the same commit** (floors-only shows a phantom floor across a tall room's upper
-half)~~ · ~~**M3** bands + links + gravity/step/fall-damage/climb~~ (issue #14 closed) · **M4**
-everything sits at a height (enemies, `hitscan`, props, pickups, projectiles, particles, decals,
-portal trigger) ← **here** ·
-**M5** per-band light, glow, minimap altitude cue · **M6** a hand-authored two-storey level.
+half)~~ · **M3** is **two halves and only one shipped**: ~~gravity/step-up/fall-damage/climb~~
+(gated by `drop`, `canEnter`'s `VB_LADDER` reads, `vert`) · **bands and links generated — not done,
+`genLevel` never writes an altitude** (#152) ← **here** · **M4** everything sits at a height —
+`hitscan`, culling, blast band, exit band and pickup hover are gated (`sight`, `cull`, V4, V16, V17),
+enemy movement across bands, `updateProj`'s missing ceiling test (#148) and face-relative decal z are
+not · **M5** per-band light, glow, minimap altitude cue · **M6** a hand-authored two-storey level.
+
+**A struck-through milestone needs a probe line that proves it, and this one did not have one.**
+Until 2026-09-29 this file said "~~M3~~ … (issue #14 closed)" and put the marker on M4. #14 is **open
+and was never closed**, and its content — bands and links in `genLevel` — never shipped: `MAP.fz` is
+allocated at `js/20_level.js:575` as an all-zero `Int8Array` and **no line in `js/` writes to it**,
+so `view.js alt` reports `floors 0..0`, one band per level and `step faces 0` on all three levels.
+The wrong line cost every subsequent session its way into the feature, because "done" is not
+something you edit into a milestone list: it is a verdict a tool prints. Strike a milestone only
+with the verdict beside it (here: ≥2 bands, ≥1 link per band, 0 unreachable cells, ≥1 climbable
+staircase, from `alt` once its flat assertion is replaced).
 
 `node tools/view.js heights` is the probe that makes M2 verifiable while every shipped level is
 still flat: it pokes `MAP.fz`/`MAP.cz` into six configurations per level (tall ceilings, a pit beyond
@@ -419,7 +442,10 @@ Three risks that were invisible to the gates when this list was written:
    with the feet below the floor, and `hp 77.16` after 60 frames of a fall carried across the portal.
 2. `genLevel`'s occupancy gate (`reachable < openCells*0.9`) is a height-blind 4-neighbour
    BFS. Split bands and every attempt fails into the fallback: a lit empty box, no heights,
-   every gate green, and the feature silently absent. It must `console.warn('genLevel FALLBACK')`.
+   every gate green, and the feature silently absent. ~~It must `console.warn('genLevel FALLBACK')`~~
+   — the warn ships (`js/20_level.js:566-567`), which only makes the *gate* the problem: a BFS that
+   cannot see a ramp or a ladder will call every banded attempt unreachable and ship the box, so the
+   gate has to learn `VB_RAMP`/`VB_LADDER` crossings in the same commit that turns generation on (#152).
 3. **A probe can assert the defect, and its rows can fail when you *add* a test.** `view.js sight`'s `+1 band`
    rows raised the enemy a full unit, which closes the boundary's opening `[max(floor), min(ceiling)]` to
    `[1.00, 1.00]` - the enemy is sealed off - and six rows kept printing `hit at t 3.3` for as long as `hitscan`

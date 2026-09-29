@@ -1,5 +1,23 @@
 ## Unreleased
 
+### Changed
+- **The vertical milestones now say what the tools measure, because one of them said something false.**
+  `AGENTS.md` recorded M3 as shipped - "~~bands + links~~ (issue #14 closed)" - and put the current marker
+  on M4. #14 is **open and was never closed**, and its content never happened: `MAP.fz` is allocated as an
+  all-zero `Int8Array` (`js/20_level.js:575`) and **no line in `js/` writes to it**, so `view.js alt` reports
+  `floors 0..0`, a single band per level (`{"0":572}` / `{"0":896}` / `{"0":1146}`) and **`step faces 0`** on
+  all three levels. The honest split, now written in both `AGENTS.md` and `docs/ROADMAP.md`: M3's **physics**
+  shipped and is gated (`drop` lands a 3 m fall at 7.21 m/s against 7.43 predicted, hurts hp −25.32 against
+  the formula's 26.2, and blocks a step-up without lifting the player), M3's **generation** did not, so no
+  level in the game has a staircase, a ramp, a ladder or a pit. `docs/ROADMAP.md`'s P0 claim that
+  `drop`/`sight`/`cull`/`horizon` were "still owed" is also retired - all four exist, run in the blocking
+  probe list and pass; the probe that *asserts flatness* (`alt`) is the one CI runs without gating.
+  Two rules added so this cannot recur: a milestone may only be struck through **with a verdict line beside
+  it**, and a green vertical row must be able to name the line that creates the geometry it tests - every
+  vertical row in the suite builds its own band with `vpoke`, which is why a world with no altitudes passes
+  all of it. Tracked as **#152**; #14 and #15 were rewritten from these measurements (both carried claims the
+  code had since contradicted, #15's being "z is invisible to every existing assert").
+
 ### Added
 - **`DEV.lum([{stride}])` reports the luminance of the frame the player actually sees, and CI prints it.**
   `mean` is Rec.709 luma over the whole display canvas (after bloom, grade, grain and the HUD), `mid` over the
