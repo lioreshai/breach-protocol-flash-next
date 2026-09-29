@@ -1,6 +1,25 @@
 ## Unreleased
 
 ### Fixed
+- **Generated levels contained no altitude: every shipped level was a flat slab** (#152, M3's
+  generation half).
+  `genLevel` allocated `MAP.fz` as all zeros and no line in `js/` ever wrote it, so the whole vertical
+  feature - staircases, landings, ladders, band-aware visibility and shots - had nothing to exercise;
+  `view.js alt` proved it every run by asserting **flatness** (`ALL FLAT ok`), because flatness was M0's
+  exit gate. `authorHeights` now raises room interiors by one unit and links them to the datum with
+  4-cell stair runs (or a ladder where the mouth is too short), **before** the occupancy BFS, so the
+  generator's reachability gate walks the same grid the player will (`bfsReach` counts `|dq| <= 1`,
+  `VB_RAMP`/`VB_LADDER` nibbles and `FEAT_LADDER`). Measured per level: **116 / 144 / 211 cells off the
+  datum**, 3 staircases, `0 unreachable of 572 / 897 / 1145`, spawn and exit on the datum, and the
+  generator's own `cell`/`lampPos` draw-stream **hash unchanged**. `alt` now asserts the opposite of
+  flatness (>= 2 bands, a link into every band, 0 unreachable, a climbable staircase) and is in the
+  **blocking** probe list - it can no longer report "ok" for a world with no stairs. Side effects found
+  and fixed in the same pass: **riser faces wore `WTEX.CONCRETE`, luminance 136, in no level's palette**,
+  and at the 3.19 m mean perpendicular they hit the wall falloff at `li 0.679`, which pushed level 0's
+  composited exposure to **103.3 outside the 60-100 window** - risers now wear the level's own floor
+  material (raster +1.9, gate green at 94/94/65); the eased auto-step became a **one-frame snap** so a
+  step-up cannot drift through a riser; and `view.js`'s exposure sweep set `P.x/P.y` **without seating
+  `P.z`**, which rendered half its banded cameras clamped out of their band.
 - **A projectile had no ceiling: an orb fired upward passed through it and kept flying** (#148).
   `updateProjectiles`' only obstacle test is `isSolid(nx, ny)` - two dimensions - and `ceilAt` is called
   nowhere in `js/30_entities.js`, so an orb launched in a room whose ceiling plane is **1.000** reached

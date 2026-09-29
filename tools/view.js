@@ -1728,7 +1728,7 @@ if (MODE === 'exposure') {
       for (let w = 0; w < 6; w++) {
         run(`(()=>{const cs=[];for(let y=1;y<MH-1;y++)for(let x=1;x<MW-1;x++)if(!isSolid(x+.5,y+.5))cs.push([x,y]);
           const c=cs[((cs.length*0.31+${r})|0)%cs.length];
-          P.x=c[0]+.5;P.y=c[1]+.5;P.ang=${w}*Math.PI/3+0.13;P.pitch=BH*0.02;
+          P.x=c[0]+.5;P.y=c[1]+.5;P.ang=${w}*Math.PI/3+0.13;P.pitch=BH*0.02;P.z=floorAt(P.x,P.y);
           for(const e of ENEMIES)e.state='sleep';})()`);
         run('renderWorld()');
         const BW = run('BW'), BH = run('BH'), d = new Uint32Array(run('px')), m = d.length;
