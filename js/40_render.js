@@ -25,7 +25,7 @@ let SEAM = 1, SEAMD = 0.62, SEAMU = 0.13, SEAMW = 0.16, SEAMC = 0.22;
    near a wall. It is inlined here and nowhere else, so the pass that keeps the registers is this
    one, and any new caller must inline it too rather than reach for a shared helper. */
 // viewmodel spring state: sway lag, previous look angle, eject timing
-const VM = { vx: 0, vy: 0, ang: 0, pitch: 0, t: 0 };
+const VM = { vy: 0, ang: 0, lag: 0, now: 0, t: 0 };
 
 const QUAL = [
   { name: 'PERFORMANCE', res: 0.34, min: 170, max: 430, bloom: false, grade: false, grain: 0, far: 15, dmax: 8, glow: 0, scan: 0.5, vec: 0, rast: 0, rigH: 0 },
@@ -184,6 +184,12 @@ function renderWorld() {
   list.sort((a, b) => b.d2 - a.d2);
   if (COV) COV.fill(0);            // opt-in only: null in play, so this is one branch off the hot path
   for (const b of list) { if (b.mesh) MESH.draw(b); else drawBillboard(b); }
+
+  /* The weapon last, and into the same buffer. It is the nearest thing in the frame, and drawing it
+     here rather than composited over the finished picture is what makes it part of the picture: bloom,
+     grade, grain and the vignette now reach it the way they reach the room it is held in. Its own
+     header in this file states the seat, the depth decision and the two light terms. */
+  drawViewModel();
 
   bufCtx.putImageData(imgBuf, 0, 0);
 }
@@ -1091,8 +1097,6 @@ function renderOverlay() {
   if (P.deadT > 0) {
     ctx.fillStyle = `rgba(90,0,0,${Math.min(0.6, P.deadT * 0.35)})`; ctx.fillRect(0, 0, DW, DH);
   }
-  drawViewModel(U);
-
   /* damage vignette + low hp */
   const hurt = clamp(P.hurtT / 0.5, 0, 1);
   const lowhp = P.hp < LOW_HP ? (1 - P.hp / LOW_HP) * (0.35 + 0.25 * Math.sin(S.t * 6)) : 0;
@@ -1159,8 +1163,81 @@ function drawDamageDirs(U) {
   ctx.restore(); ctx.globalAlpha = 1;
 }
 
-/* ---------------- weapon viewmodel ---------------- */
-function drawViewModel(U) {
+/* ---------------- weapon viewmodel ----------------
+   The gun is GEOMETRY: js/13_mesh.js authors it in metres and rasterizes it into the same buffer as
+   the world, with the same projection, the same depth array and the same scene light every body uses.
+   It used to be ~200 lines of canvas paths composited into the DISPLAY buffer after bloom, which is
+   not the same thing at all: those pixels had no depth, could not be occluded or lit, did not
+   foreshorten, and could not be placed in the world the shots travel through.
+
+   SEAT, IN METRES. The rig is one anchor plus one rotation, both derived from the player, so the gun
+   is rigid in the view and yet lives in the world the raycaster walks:
+     anchor = (P.x, P.y, eyeZ) + M * L,   M = [gun's right | gun's up | bore],
+     L = (right offset + bobX, -(drop + bobY + crouch + swap), -recoil travel)
+   M's yaw is P.ang TRAILED BY VM.lag (see the look-lag note below: a turn swings the rig about the
+   eye, it does not slide it), its pitch is the shot's own, and its third column is the UNIT FIRING
+   RAY: (cos rigAng*cos p, sin rigAng*cos p, sin p) with tan p = pitchTan() = aimPx()/BH, which is the
+   direction `hitscan` marches (js/30_entities.js:109 uses dx=cos(ang), dy=sin(ang), oz=eyeH(), slope
+   tanP). The barrel therefore points where the shot goes, at every pitch and every yaw, and the
+   muzzle's perpendicular distance from the shot ray is hypot(Lx, Ly) by construction - row (c) in
+   tools/view.js measures it, and reports the one place the two disagree: the shot leaves the eye at
+   eyeH() while the picture - and so this rig - is drawn from the CLAMPED eye height (js/40_render.js
+   clamps eyeZ into the cell's habitable band), so a shot fired inside a crawlspace leaves from a
+   different height than the gun that appears to fire it. That predates this pass and is not fixed here.
+   Pitch enters this rig ONCE, as its rotation: the renderer draws pitch as a shift of `horizon`, not
+   as a rotation of the projection, and a bore rotated by atan(pitchTan()) lands back on screen centre
+   through that shift exactly - which is the property that makes the crosshair mean the muzzle points
+   at it, and the property a px-per-pitch sway term would break.
+
+   THE PX-TO-METRES CONVERSION, because the bob and recoil terms below are the art's own numbers and
+   re-tuning them would change how the gun MOVES: js/13_mesh.js projects Y = horizon + BH*(eyeZ-z)/ty
+   into a buffer upscaled by DH/BH, so a vertical offset of d device px at forward distance t is
+   d*t/DH metres, and a lateral one is 2*d*t/DW because the horizontal field comes from planeLen, not
+   from the aspect. Both are evaluated at the gun's mean reach (VMSIT.t), which is exact for a term
+   that translates the whole rig and approximate for its rotation.
+
+   DEPTH - THE DECISION: ALWAYS NEAREST, implemented by drawing against a swapped depth array
+   (js/13_mesh.js `o.near`) rather than by writing a nearer band. Arithmetic: the gun occupies 0.12 m -
+   the rasterizer's own near-plane clip, which is where the forearms run out - to 0.86 m (a full-length
+   muzzle flash), while the nearest surface the world can put there is a wall face the player is
+   standing inside - perp distance ~0 - which the wall pass writes into zbuf as ~0, and the occlusion
+   rule is the rasterizer's `if (occ < z) continue`. Against that value a test would cull the gun
+   whenever the player hugs a corner, and against zbuf's other sentinel - 0 in columns where no wall
+   was hit, which already silently culls billboards - a test would punch holes in the sky. Neither is a
+   foreground object the gun must respect, and the art this replaced composited over everything, so
+   "always nearest" is also the parity choice. Writing a *nearer* band instead would additionally make
+   every later sprite/particle test fail against the gun, which is wrong in particular for the
+   particles renderOverlay draws after this buffer is composited.
+
+   It cannot punch a hole in legitimate foreground because the swap is DIRECTIONAL: the frame's zbuf is
+   neither read nor written while the view model draws, so the frame's depth is exactly what it was and
+   only these pixels' TEST is disabled. The scratch is not an all-Infinity void either - it is a real
+   depth buffer for the gun's own 60 parts, cleared over the rectangle the previous frame's rig wrote.
+   Self-occlusion has to stay on: the gun is boxes and open tubes whose faces overlap in screen space,
+   and a draw that orders them by emit order is a draw whose correctness depends on which part happened
+   to be authored first (the art's fixed order only worked because a vector painter cannot put the far
+   wall of a barrel in front of the near one). What the gun legitimately covers is anything closer than
+   the muzzle - a grunt's face pressed against the bore, which is what it should hide.
+
+   LIGHT: the multiply is the world's own (AMB + li*lt*sh) at the PLAYER's cell, so a dark room darkens
+   the gun, and two readability terms are applied because a mesh has no painted gradient to lean on -
+   VMFLOOR floors the MULTIPLIER at 0.5, which is the 2-D art's own dark-room value (`0.5 + 0.5*cellLi`),
+   and VMRIM adds `RIMC*(1-|N.V|)` in OUTPUT space, never as a multiplier: the albedo averages 30..58,
+   so multiplying it cannot brighten anything (AGENTS, #17). Both are module globals so the probe can
+   A/B them to numbers; both are measured in row (d). */
+const VMSIT = {
+  f: 0.245, r: 0.105, d: 0.115,      // hip: the grip top, metres forward / right / BELOW the eye
+  af: 0.190, ar: 0.016, ad: 0.034,   // shouldered: on the centre line, and the SIGHT line at eye height
+  t: 0.30,                           // the reach the device-px terms above are converted at
+};
+let VMFLOOR = 0.5, VMRIM = 0.08;     // the two readability terms - see row (d)
+const VMROT = new Float32Array(9);
+/* The rig's world anchor, published for the probes the way VM's sway state already is: row (c) puts
+   the muzzle on the firing ray from here plus VMROT's third column and MESH.muzzleFor(kind), so the
+   claim about the barrel is arithmetic over numbers the frame actually used, not a re-derivation. */
+const VMPOS = new Float32Array(3);
+
+function drawViewModel() {
   const w = WEAPONS[P.weapon], ads = P.ads, k = P.kick;
   const dt = Math.min(0.05, Math.max(0.0005, (VM.now = performance.now(), (VM.now - (VM.t || performance.now())) / 1000)));
   VM.t = VM.now;
@@ -1169,30 +1246,36 @@ function drawViewModel(U) {
   while (dAng > Math.PI) dAng -= TAU; while (dAng < -Math.PI) dAng += TAU;
   VM.ang = P.ang;
   const aim = 1 - ads * 0.8;
-  VM.vx = damp(VM.vx || 0, clamp(-dAng / dt, -6, 6) * 2.2 * U * aim, 9, dt);
-  VM.vy = damp(VM.vy || 0, clamp(-(P.pitch - (VM.pitch || P.pitch)) / dt, -3000, 3000) * U * 0.010 * aim + (P.vz || 0) * 4 * U * aim, 8, dt);
-  VM.pitch = P.pitch;
+  /* Look lag, in the rig's OWN unit. The art kept this as a screen-space slide (`VM.vx`, device px,
+     added to the anchor) because a canvas-path gun has no heading to lag - and the same term applied
+     to a world-seated rig is not the same physics: a px slide does not depend on where the geometry
+     is, so it cannot be checked against the projection at all. Here a turn trails the gun's HEADING
+     behind the camera's by VM.lag radians, which rotates the whole rig about the eye and therefore
+     moves each part by its own perspective amount - row (b) in tools/view.js measures that against
+     the projection and fails a build whose gun is welded to the display buffer. At the art's own
+     ceiling (a 6 rad/s whip) the trail is 0.05 rad = 3 deg, which displaces the muzzle by ~45 device
+     px: the same order the art's 10 px slide had at the grip, larger at the barrel because the
+     barrel is further away. The gun no longer slides sideways when you turn; it swings.
+     PITCH IS NOT A SWAY TERM. The art also damped a pitch-RATE term into VM.vy to stop a screen-space
+     gun from staying put while the picture slid past it; that compensation is the reason it existed,
+     and a rig that carries the pitch in its own rotation is already doing the same job exactly. Left
+     in, it was a pitch measurement in the wrong unit - device px of look-delta - smuggled into metres
+     of world offset, so looking up fast made the gun SINK IN THE WORLD. What survives is the vertical
+     VELOCITY term: the body's own rise and fall, which the rig cannot know from its seat. */
+  VM.lag = damp(VM.lag || 0, clamp(-dAng / dt, -6, 6) * 0.0083 * aim, 9, dt);
+  VM.vy = damp(VM.vy || 0, (P.vz || 0) * 4 * (DH / 900) * aim, 8, dt);
   const mv = P.moving() ? 1 : 0, sp = P.sprint ? 1 : 0;
-  const bobX = Math.sin(P.bobPhase) * (9 + 9 * sp) * U * mv * aim;
-  const bobY = Math.abs(Math.cos(P.bobPhase)) * (7 + 9 * sp) * U * mv * aim - (P.air ? 6 * U : 0);
+  const bobX = Math.sin(P.bobPhase) * (9 + 9 * sp) * (DH / 900) * mv * aim;
+  const bobY = Math.abs(Math.cos(P.bobPhase)) * (7 + 9 * sp) * (DH / 900) * mv * aim - (P.air ? 6 * (DH / 900) : 0);
   const rl = P.reloadT > 0 ? clamp(1 - P.reloadT / w.reload, 0, 1) : P.reloadT > -0.01 ? 1 : 0;
   const swap = P.swapT > 0 ? P.swapT / 0.34 : 0;
-  const cellLi = MAP && MAP.light ? Math.min(1, MAP.light[cellIdx(P.x, P.y)] || 0) : 0;
   const mz = Math.max(0, S.muzzle || 0);
+  const MPPY = VMSIT.t / DH, MPPX = 2 * VMSIT.t / DW;      // see the header: metres per device pixel
 
-  ctx.save();
-  ctx.setTransform(1, 0, 0, 1, 0, 0);
-  // the weapon is held close: a foreshortened receiver spans a third of the view,
-  // not the 8% a 1:1 design-space authoring pass produces
-  const SC9 = DH / 900, sc = SC9 * 1.5 * (1 - ads * 0.06);
-  // anchor: hip pose vs shouldered pose, then the reload / swap choreography on top
-  let ox = DW * (0.5 + 0.155 * (1 - ads)) + (VM.vx + bobX) * (1 - ads * 0.6);
-  let oy = DH + 6 * SC9 + bobY + VM.vy + k * 1.5 * SC9 + swap * 300 * SC9 + P.crouch * 13 * SC9 - ads * DH * 0.05;
-  let tilt = (VM.vx * 0.00035 + (P.moving() ? Math.sin(P.bobPhase) * 0.012 * (0.4 + 0.6 * sp) : 0) - ads * 0.0) * (1 - ads);
-  // reload choreography: magazine out, replacement in, action cycled, all per weapon family
-  let rlStage = 0, magOut = 0, slideBack = 0, shellIn = 0, pump = 0;
+  // reload choreography: magazine out, replacement in, action cycled - the art's own staging, and
+  // every term below is now a TRANSFORM of the rig rather than a translation of a screen anchor
+  let magOut = 0, slideBack = 0, shellIn = 0, pump = 0, rlDrop = 0, rlRoll = 0;
   if (rl > 0 && rl < 1) {
-    rlStage = rl;
     const t = rl;
     if (w.kind === 'shotgun') {
       shellIn = t < 0.45 ? Math.sin(t / 0.45 * Math.PI) : 0;
@@ -1205,178 +1288,41 @@ function drawViewModel(U) {
       magOut = t < 0.42 ? Math.sin(t / 0.42 * Math.PI) : 0;
       slideBack = t > 0.66 ? Math.sin((t - 0.66) / 0.34 * Math.PI) : 0;
     }
-    oy += (magOut * 26 + shellIn * 44 + pump * 16) * SC9;
-    tilt += magOut * 0.05 - shellIn * 0.03;
-  } else if (P.reloadT > 0) { oy += 34 * SC9; }
-  ctx.translate(ox, oy);
-  ctx.scale(sc, sc);
-  ctx.rotate(tilt + k * 0.0011);
+    rlDrop = (magOut * 26 + shellIn * 44 + pump * 16) * (DH / 900);
+    rlRoll = magOut * 0.05 - shellIn * 0.03;
+  } else if (P.reloadT > 0) { rlDrop = 34 * (DH / 900); }
 
-  // everything below is authored in a 900-unit design space, +y down, origin at the muzzle base
-  const grd = (x0, y0, x1, y1, stops) => {
-    const g = ctx.createLinearGradient(x0, y0, x1, y1);
-    for (const s of stops) g.addColorStop(s[0], s[1]);
-    return g;
-  };
-  const lit = (base, up) => {
-    const m = 0.5 + 0.5 * cellLi + mz * 1.5;
-    const c = [parseInt(base.slice(1, 3), 16), parseInt(base.slice(3, 5), 16), parseInt(base.slice(5, 7), 16)];
-    return '#' + c.map(v => {
-      const t2 = Math.max(0, Math.min(255, Math.round(v * m + (up ? 26 * up : 0))));
-      return (t2 < 16 ? '0' : '') + t2.toString(16);
-    }).join('');
-  };
-  const rrect = (x, y, ww, hh, r) => {
-    const rr = Math.min(r, Math.abs(ww) / 2, Math.abs(hh) / 2);
-    ctx.beginPath(); ctx.moveTo(x + rr, y);
-    ctx.arcTo(x + ww, y, x + ww, y + hh, rr); ctx.arcTo(x + ww, y + hh, x, y + hh, rr);
-    ctx.arcTo(x, y + hh, x, y, rr); ctx.arcTo(x, y, x + ww, y, rr); ctx.closePath(); ctx.fill();
-  };
-  const metal = (x, y, ww, hh, r, col, ang) => {
-    ctx.save(); ctx.translate(x, y); if (ang) ctx.rotate(ang);
-    ctx.fillStyle = grd(0, -hh * 0.5, 0, hh * 0.5, [[0, lit(col, 1)], [0.42, lit(col, 0.35)], [0.62, lit('#0e1116')], [1, lit('#05070a')]]);
-    rrect(0, -hh * 0.5, ww, hh, r);
-    ctx.fillStyle = 'rgba(255,255,255,' + (0.05 + 0.13 * mz + 0.05 * cellLi) + ')';
-    rrect(ww * 0.06, -hh * 0.44, ww * 0.88, hh * 0.16, hh * 0.08);
-    ctx.restore();
-  };
-  // a hand: palm, four fingers curled round the grip, thumb, knuckle ridge, cuff
-  const hand = (x, y, s, back, gripAng) => {
-    ctx.save(); ctx.translate(x, y); ctx.rotate(gripAng || 0); ctx.scale(s, s);
-    const skin = lit('#8c6a4f'), skinD = lit('#5d452f'), glove = lit('#3b424e'), gloveD = lit('#222834');
-    ctx.fillStyle = grd(-26, -20, 26, 26, [[0, glove], [0.7, gloveD], [1, lit('#171c26')]]);
-    rrect(back ? 6 : -34, 16, 30, 40, 9);                            // cuff
-    ctx.fillStyle = grd(-24, -22, 24, 24, [[0, skin], [0.55, skinD], [1, lit('#3a2b1e')]]);
-    rrect(back ? -4 : -30, -14, 34, 34, 11);                          // palm/back of hand
-    ctx.fillStyle = grd(0, -20, 0, 22, [[0, skin], [1, skinD]]);
-    for (let f = 0; f < 4; f++) {                                     // fingers wrapping the grip
-      const fy = -10 + f * 8.2, curl = 0.55 + 0.16 * f + slideBack * 0.25;
-      ctx.save(); ctx.translate(back ? -2 : 26, fy); ctx.rotate(back ? curl : -curl);
-      rrect(back ? -16 : 0, -3.6, 17, 7.4, 3.4);
-      ctx.restore();
-    }
-    ctx.save(); ctx.translate(back ? 20 : -20, -6); ctx.rotate(back ? -0.85 : 0.85);   // thumb
-    ctx.fillStyle = grd(0, -5, 0, 6, [[0, skin], [1, skinD]]);
-    rrect(0, -4.6, 16, 9, 4); ctx.restore();
-    ctx.fillStyle = 'rgba(0,0,0,0.30)';
-    for (let f = 0; f < 4; f++) rrect((back ? -6 : 24) - 4, -12 + f * 8.2, 9, 2.2, 1);   // knuckle shade
-    ctx.restore();
-  };
-  // a forearm, drawn BEHIND the gun so the hand can wrap the grip over it. The anchor sits
-  // just below the bottom edge, so local y > 0 is already off screen: running the sleeve to
-  // y = 340 puts the elbow a few hundred device pixels past the edge, which is what makes the
-  // hand read as belonging to a body instead of floating next to the weapon.
-  const arm = (x, y, s, side, ang) => {
-    ctx.save(); ctx.translate(x, y); ctx.rotate(ang || 0); ctx.scale(s, s);
-    const ex = side * 52, ey = 340;
-    ctx.fillStyle = grd(-34, 0, 34, 0, [[0, lit('#1d222b')], [0.45, lit('#363e4a')], [1, lit('#171b23')]]);
-    ctx.beginPath();
-    ctx.moveTo(-16, -8); ctx.lineTo(16, -8);
-    ctx.quadraticCurveTo(ex * 0.4 + 18, ey * 0.45, ex + 22, ey);
-    ctx.lineTo(ex - 30, ey);
-    ctx.quadraticCurveTo(ex * 0.4 - 18, ey * 0.45, -16, -8);
-    ctx.closePath(); ctx.fill();
-    ctx.fillStyle = grd(0, -12, 0, 14, [[0, lit('#48525f')], [1, lit('#242a34')]]);   // cuff
-    rrect(-18, -14, 36, 24, 9);
-    ctx.restore();
-  };
+  // the rotation: yaw from P.ang trailed by the look lag, pitch from the shot's own slope, roll from
+  // the swing and the walk
+  const p = Math.atan(pitchTan());
+  const rigAng = P.ang + VM.lag;
+  const roll = -(VM.lag * 0.07 + (P.moving() ? Math.sin(P.bobPhase) * 0.012 * (0.4 + 0.6 * sp) : 0) + k * 0.0011 + rlRoll);
+  const ca = Math.cos(rigAng), sa = Math.sin(rigAng), cp = Math.cos(p), sp2 = Math.sin(p), cr = Math.cos(roll), sr = Math.sin(roll);
+  // columns: the player's right, the gun's up, the bore = the unit firing ray (see the header)
+  const rx = -sa, ry = ca, rz = 0, ux = -ca * sp2, uy = -sa * sp2, uz = cp, bx = ca * cp, by = sa * cp, bz = sp2;
+  const X0 = rx * cr + ux * sr, X1 = ry * cr + uy * sr, X2 = rz * cr + uz * sr;
+  const Y0 = -rx * sr + ux * cr, Y1 = -ry * sr + uy * cr, Y2 = -rz * sr + uz * cr;
+  VMROT[0] = X0; VMROT[1] = Y0; VMROT[2] = bx;
+  VMROT[3] = X1; VMROT[4] = Y1; VMROT[5] = by;
+  VMROT[6] = X2; VMROT[7] = Y2; VMROT[8] = bz;
 
-  // ---- weapon families ------------------------------------------------------------
-  // One convention for all three, because they used to disagree: the bore runs up the
-  // screen (-y) toward the vanishing point, +x is lateral, origin at the rear of the grip.
-  // The pistol drew its barrel as a HORIZONTAL bar while the rifle and shotgun drew theirs
-  // vertically, and the flash was emitted along +x - so the muzzle blast came out of the
-  // side of the gun, 90 deg off the bore. Families now differ by silhouette and nothing else.
-  const K = w.kind;
-  let muzzleX = 2, muzzleY = -330;
-  if (K === 'shotgun') {
-    muzzleX = -1; muzzleY = -404;
-    arm(-56, -322, 1.0, -1, -0.08);
-    arm(10, -212, 1.06, 1, 0.04);
-    metal(-34, -232, 84, 46, 8, '#2c313a');                              // receiver
-    metal(-16, -398, 30, 172, 5, '#242a33');                             // barrel
-    metal(14, -386, 20, 154, 4, '#1c2129');                              // mag tube, under the bore
-    metal(-12 + pump * 30, -330, 30, 42, 7, '#3a2c1e');                  // pump, travels on reload
-    ctx.fillStyle = lit('#0e1217'); rrect(-13, -396, 24, 150, 3);        // rib along the top
-    metal(-30, -186, 48, 82, 11, '#33261a', 0.10);                       // stock
-    metal(-24, -262, 34, 15, 3, '#15191f');                              // ejection port
-    ctx.fillStyle = '#0a0d11'; rrect(-13, -406, 26, 11, 4);              // muzzle ring
-    if (magOut || shellIn) {                                            // shell in the hand
-      ctx.save(); ctx.translate(-52 + shellIn * 16, -208 + shellIn * 30); ctx.rotate(0.2);
-      ctx.fillStyle = grd(0, -8, 0, 8, [[0, lit('#b8412c')], [1, lit('#6d2115')]]); rrect(0, -7, 20, 14, 5);
-      ctx.fillStyle = lit('#d8b04a'); rrect(15, -6.4, 6, 12.8, 2); ctx.restore();
-    }
-    hand(-56 - pump * 6, -322, 1.04, false, -0.16 + pump * 0.10);
-    hand(6, -212 - magOut * 6, 1.08, true, 0.10 + slideBack * 0.05);
-    if (slideBack) { ctx.fillStyle = lit('#cfae55'); rrect(-16 - slideBack * 26, -262 - slideBack * 22, 9, 7, 2); }
-  } else if (K === 'rifle') {
-    muzzleX = 1; muzzleY = -436;
-    arm(-44, -312, 0.98, -1, -0.06);
-    arm(10, -216, 1.04, 1, 0.05);
-    metal(-30, -266, 92, 36, 6, '#262c35');                              // upper receiver
-    metal(-8, -430, 20, 170, 4, '#1a1f27');                              // barrel
-    metal(-5, -434, 14, 14, 3, '#0f1218');                               // flash hider
-    metal(-26, -312, 44, 46, 5, '#1d222a', 0);                           // handguard
-    metal(-30 + slideBack * 20, -246, 30, 22, 3, '#161b22');              // charging handle
-    if (!magOut) metal(-14, -230, 26, 64, 4, '#1b2028', 0.04);            // magazine
-    else { ctx.save(); ctx.translate(-14 - magOut * 10, -214 + magOut * 70); ctx.rotate(0.04);
-      ctx.fillStyle = lit('#1b2028'); rrect(0, 0, 26, 60, 4); ctx.restore(); }
-    metal(-40, -196, 52, 80, 12, '#20252e', 0.13);                       // stock
-    metal(-7, -288, 14, 14, 2, '#10141a');                               // rear sight
-    metal(-2, -400, 8, 26, 2, '#10141a');                                // front post
-    hand(-44 - pump * 4, -312, 1.0, false, -0.30);
-    hand(6, -216 - magOut * 4, 1.06, true, 0.12 + slideBack * 0.06);
-    if (slideBack) { ctx.fillStyle = lit('#cfae55'); rrect(-4 - slideBack * 30, -272 - slideBack * 26, 8, 7, 2); }
-  } else {
-    muzzleX = 1; muzzleY = -338;
-    arm(-36, -288, 0.94, -1, -0.05);
-    arm(6, -222, 1.04, 1, 0.03);
-    metal(-26, -312, 56, 80, 8, '#2b323c');                               // slide, foreshortened
-    metal(-26 + slideBack * 22, -312, 56, 15, 4, '#20262f');              // serration band
-    metal(-5, -332, 16, 26, 4, '#171c24');                                // barrel crown
-    metal(-22, -238, 42, 88, 11, '#232935', 0.17);                        // grip, raked back
-    if (!magOut) metal(-18, -232, 24, 66, 3, '#1a1f28', 0.06);            // magazine in the grip
-    else { ctx.save(); ctx.translate(-18, -176 + magOut * 84); ctx.rotate(-0.05);
-      ctx.fillStyle = lit('#1a1f28'); rrect(0, 0, 20, 44, 3); ctx.restore(); }
-    ctx.fillStyle = '#0a0d11'; rrect(-9, -338, 22, 10, 3);                // muzzle face
-    metal(-30, -256, 16, 20, 3, '#161b23');                               // trigger guard
-    hand(-2, -226 - magOut * 8, 1.06, true, 0.06 + slideBack * 0.04);
-    hand(-36 - (P.reloadT > 0 && magOut ? 18 : 0), -288 - magOut * 26, 0.92, false, -0.36 - magOut * 0.2);
-    if (slideBack) { ctx.fillStyle = lit('#cfae55'); rrect(-18 - slideBack * 30, -300 - slideBack * 20, 8, 7, 2); }
-  }
+  // the local anchor, in the gun's own frame: metres right / up / forward of the eye
+  const Lx = VMSIT.r + (VMSIT.ar - VMSIT.r) * ads + bobX * MPPX * (1 - ads * 0.6);
+  const Ly = -(VMSIT.d + (VMSIT.ad - VMSIT.d) * ads) - (bobY + VM.vy + k * 1.5 * (DH / 900) + swap * 300 * (DH / 900) +
+    P.crouch * 13 * (DH / 900) - ads * DH * 0.05 + rlDrop) * MPPY;
+  const Lz = VMSIT.f + (VMSIT.af - VMSIT.f) * ads - k * 0.0016;      // recoil travels the gun straight back
+  const ax = P.x + X0 * Lx + Y0 * Ly + bx * Lz;
+  const ay = P.y + X1 * Lx + Y1 * Ly + by * Lz;
+  const az = eyeZ + X2 * Lx + Y2 * Ly + bz * Lz;
+  VMPOS[0] = ax; VMPOS[1] = ay; VMPOS[2] = az;
 
-  // ---- muzzle flash: additive cone + kernel at the muzzle, driven by S.muzzle ----
-  if (mz > 0.004) {
-    const mx = muzzleX, my = muzzleY;
-    ctx.save(); ctx.globalCompositeOperation = 'lighter';
-    ctx.globalAlpha = Math.min(1, mz);
-    ctx.fillStyle = grd(mx, my, mx, my - 150 * mz, [[0, 'rgba(255,250,235,0.95)'], [1, 'rgba(255,170,60,0)']]);
-    ctx.beginPath();
-    ctx.moveTo(mx - 26 * mz, my); ctx.lineTo(mx - 5 * mz, my - 150 * mz);
-    ctx.lineTo(mx + 5 * mz, my - 150 * mz); ctx.lineTo(mx + 26 * mz, my);
-    ctx.closePath(); ctx.fill();
-    ctx.fillStyle = grd(mx - 60 * mz, my - 60 * mz, mx + 60 * mz, my + 60 * mz, [[0, 'rgba(255,250,235,1)'], [0.45, 'rgba(255,214,120,0.55)'], [1, 'rgba(255,150,40,0)']]);
-    ctx.beginPath(); ctx.arc(mx, my, 58 * mz, 0, TAU); ctx.fill();
-    ctx.fillStyle = 'rgba(255,236,170,0.75)';                        // star, so the blast has edges
-    for (let i = 0; i < 5; i++) {
-      const a = i * TAU / 5 + mz * 0.7, r = (i === 0 ? 150 : 78) * mz;
-      ctx.save(); ctx.translate(mx, my); ctx.rotate(a - Math.PI / 2);
-      ctx.beginPath(); ctx.moveTo(-7 * mz, 0); ctx.lineTo(0, -r); ctx.lineTo(7 * mz, 0);
-      ctx.closePath(); ctx.fill(); ctx.restore();
-    }
-    ctx.restore();
-  }
-  // ---- sight picture in ADS: the rear sight brackets the front post on screen centre
-  if (ads > 0.02) {
-    const a = ads * ads;
-    ctx.save(); ctx.globalAlpha = a * 0.9;
-    const sy = (DH * 0.5 - oy) / sc, sx = (DW * 0.5 - ox) / sc;
-    ctx.strokeStyle = 'rgba(12,15,20,0.9)'; ctx.lineWidth = 3 * (1 + ads);
-    ctx.beginPath(); ctx.rect(sx - 16, sy + 4, 32, 16); ctx.stroke();
-    ctx.fillStyle = 'rgba(230,240,255,' + (0.10 * a) + ')'; ctx.fillRect(sx - 1, sy - 26, 2, 30);
-    ctx.restore();
-  }
-  ctx.restore();
+  MESH.draw({
+    mdl: MESH.weapon(w.kind, { mz, magOut, slideBack, pump, shellIn }),
+    x: ax, y: ay, z: az, rot: VMROT,
+    near: true,                       // the depth decision, stated in the header
+    cell: cellIdx(P.x, P.y),          // the room you are IN, not the wall the muzzle points at
+    floor: VMFLOOR, rim: VMRIM,
+  });
 }
 
 /* ---------------- HUD ---------------- */
