@@ -264,9 +264,19 @@ if (MODE === 'alt') {
       const start = MAP.rooms[0].cy * N + MAP.rooms[0].cx, zero = new Int8Array(N * N);
       const dBand = bfsReach(cell, fz, N, start, vb, feat);
       const dFlat = bfsReach(cell, zero, N, start);
-      let unreach = 0, sealed = 0;
-      for (let i = 0; i < N * N; i++) if (!cell[i] && dBand[i] < 0) { unreach++; if (dFlat[i] >= 0) sealed++; }
-      // one link per band-above-datum, counted from the HIGH side so a stair is not counted twice
+      let unreach = 0, sealed = 0, reachUp = 0, reachDown = 0, reachOff = 0, farReach = 0;
+      for (let i = 0; i < N * N; i++) {
+        if (cell[i]) continue;
+        if (dBand[i] < 0) { unreach++; if (dFlat[i] >= 0) sealed++; continue; }
+        if (fz[i] > 0) reachUp++; else if (fz[i] < 0) reachDown++;
+        if (fz[i]) { reachOff++; if (dBand[i] > farReach) farReach = dBand[i]; }
+      }
+      // one link per band, counted from the end that is FARTHER from the datum, so a stair is not
+      // counted twice. The old form used the HIGH side, which is the same thing while every band sits
+      // above the datum and cannot see a sunken one at all: the crossing that reaches a pit floor is
+      // the step DOWN from its stair, whose high side is the stair cell, so the pit's own band looked
+      // unlinked on a level where bfsReach reaches every cell of it (#181). Identical on an
+      // all-nonnegative grid, which is what main is.
       const linkIn = {}, blockedStep = {};
       for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
         const i = y * N + x; if (cell[i]) continue;
@@ -276,11 +286,12 @@ if (MODE === 'alt') {
           const j = ny * N + nx; if (cell[j] || j < i) continue;
           const dq = fz[j] - fz[i];
           if (!dq) continue;
-          const hi = dq > 0 ? fz[j] : fz[i];
-          if (hi === 0) continue;
+          const near = Math.abs(fz[i]) <= Math.abs(fz[j]) ? fz[i] : fz[j];
+          const far = near === fz[i] ? fz[j] : fz[i];
+          if (far === 0) continue;
           const cross = Math.abs(dq) <= 1 || linkedClimb(vb, feat, i, j, d);
-          linkIn[hi * ZQ] = (linkIn[hi * ZQ] || 0) + (cross ? 1 : 0);
-          if (!cross) blockedStep[hi * ZQ] = (blockedStep[hi * ZQ] || 0) + 1;
+          linkIn[far * ZQ] = (linkIn[far * ZQ] || 0) + (cross ? 1 : 0);
+          if (!cross) blockedStep[far * ZQ] = (blockedStep[far * ZQ] || 0) + 1;
         }
       }
       // a staircase is derived, not trusted from FEAT_STAIR: a maximal chain along +x/+y whose floors
@@ -307,12 +318,48 @@ if (MODE === 'alt') {
       const nBands = Object.keys(bands).length;
       let bandLink = 0, noLink = [];
       for (const k of Object.keys(bands)) if (+k !== 0) { if (linkIn[k]) bandLink++; else noLink.push(k); }
+      /* #181's three rows, on the same generated grid and derived the same way - nothing here trusts
+         a feature byte, and none of it pokes a grid the probe drew for itself.
+         headroom: ceilAt - floorAt of an OPEN column. A flat level is exactly 1 (CZ_DEF quanta), and
+         the only way a column reaches 2 is MAP.cz authored above 4, so this is "a room you can stand
+         up in", not a ceiling the derived formula happened to lift.
+         runs: the largest 4-connected patch of open columns sharing one off-datum floor. Main raises
+         whole ROOMS, so its largest patch is one room; a band you can walk on for its whole width has
+         to be bigger than any room on the map.
+         reachUp/reachDown: cells off the datum the player's own crossing rule gets to from spawn. */
+      let headMax = 0, headCols = 0;
+      for (let y = 1; y < N - 1; y++) for (let x = 1; x < N - 1; x++) {
+        const i = y * N + x; if (cell[i]) continue;
+        const h = ceilAt(x, y) - fz[i] * ZQ;
+        if (h > headMax) headMax = h;
+        if (h >= 2) headCols++;
+      }
+      const seen = new Uint8Array(N * N);
+      let runMax = 0, runFloor = 0, runTot = 0, runs = 0;
+      for (let y = 1; y < N - 1; y++) for (let x = 1; x < N - 1; x++) {
+        const i = y * N + x;
+        if (cell[i] || seen[i] || !fz[i]) continue;
+        const q = fz[i];
+        let n = 0; const st = [i]; seen[i] = 1;
+        for (let k = 0; k < st.length; k++) {
+          const c = st[k], cx = c % N, cy = (c / N) | 0; n++;
+          for (let d = 0; d < 4; d++) {
+            const j = (cy + DIRY[d]) * N + (cx + DIRX[d]);
+            if (j < 0 || j >= N * N || cell[j] || seen[j] || fz[j] !== q) continue;
+            seen[j] = 1; st.push(j);
+          }
+        }
+        runTot += n; runs++;
+        if (n > runMax) { runMax = n; runFloor = q * ZQ; }
+      }
       return { open, nonFlat, minF, maxF, faces, faceUnblocked, blockedFlat,
         bfaces, badSpan, minSpan, maxSpan, bands, bandsN: MAP.bands, nBands, unreach, sealed,
         linkIn, blockedStep, stairs, stairCells, ladCells, bandLink, noLink, steps: MAP.steps,
+        headMax, headCols, runMax, runFloor, runTot, runs, reachUp, reachDown, reachOff, farReach,
         spawnBand: floorAt(P.x, P.y), exitBand: floorAt(exitX, exitY) };
     })()`, ctxVm);
     console.log(`level ${li}  open ${r.open}  floors ${r.minF}..${r.maxF}  bands ${JSON.stringify(r.bands)}`);
+    const runWant = Math.max(24, Math.round(r.open * 0.12));
     console.log(`         boundary ${r.bfaces} span ${r.bfaces ? r.minSpan + '..' + r.maxSpan : '-'} span<=0 ${r.badSpan}` +
       `  step faces ${r.faces} unblocked-step ${r.faceUnblocked}  blockedFlat byDir ${r.blockedFlat.join(',')}` +
       `  ${r.bfaces > 0 && r.badSpan === 0 ? 'FACES ok' : 'FACE FAIL'}`);
@@ -329,8 +376,22 @@ if (MODE === 'alt') {
       `MAP.steps ${r.steps} (a step face with the flag at 0 draws nothing - #100 on generated content)`);
     row(`L${li} spawn and exit stay on the datum`, r.spawnBand === 0 && r.exitBand === 0 && r.badSpan === 0,
       `spawn floor ${r.spawnBand.toFixed(2)}, exit floor ${r.exitBand.toFixed(2)}, faces of span<=0 ${r.badSpan}`);
+    // #181: being in the grid is not being perceivable. These three rows are the difference between a
+    // level that is multi-storey in MAP.fz and one that reads as a crawlway, and every one of them is
+    // RED ON MAIN - main authors no CZ_TALL column, no cell below the datum, and no off-datum patch
+    // larger than a single room.
+    row(`L${li} a column you can stand up in (>=2 units)`, r.headCols >= 1,
+      `${r.headCols} open column(s) measure >= 2 units from floorAt to ceilAt, tallest ${r.headMax.toFixed(2)}; ` +
+      `a flat level reads exactly 1.00 there and a ladder shaft reaches 1.50, so 0 is the flat-world answer`);
+    row(`L${li} off the datum is reachable from spawn, up AND down`, r.reachUp >= 1 && r.reachDown >= 1,
+      `${r.reachUp} cell(s) above the datum and ${r.reachDown} below it reached from spawn by the crossing rule ` +
+      `(furthest ${r.farReach} crossings away); a level with no sunken band reports 0 below`);
+    row(`L${li} a raised band you can walk on, not hop onto`, r.runMax >= runWant,
+      `largest contiguous patch of one off-datum floor is ${r.runMax} cells at floor ${r.runMax ? r.runFloor.toFixed(2) : '-'}, ` +
+      `want >= ${runWant} (12% of ${r.open} open cells, 24 floor); ${r.runs} patch(es), ${r.runTot} off-datum cells across all of them`);
   }
-  console.log(bad ? `ALT ${bad} FAILURES - the bands are not there or not linked` : 'ALT ok - M3 bands authored, linked and reachable');
+  console.log(bad ? `ALT ${bad} FAILURES - the bands are not there, not linked, or there is nothing to look at`
+    : 'ALT ok - bands authored, linked, reachable, and there is volume to look at');
   process.exit(bad ? 1 : 0);
 }
 
