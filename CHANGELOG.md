@@ -1,6 +1,17 @@
 ## Unreleased
 
 ### Fixed
+- **The CI audio verdict no longer depends on how busy the runner was** (#168). The inaudible-
+  envelope row took the **loudest** `step()` peak of up to 5 renders under a shared CPU, and the
+  envelope builder's first ramp can miss its 5 ms window entirely when the event thread is loaded,
+  so a low draw could only be rescued by a lucky second attempt: **1 of 16 runs red on an unloaded
+  box**, worse under parallel probes, and a sabotage control on `main` **passed the enemy-footstep
+  case** (peak 0.27769, 14 of 15 red) because contamination by other systems' footsteps raised the
+  average instead of the player's own peak. The verdict is now the **median of up to 7 renders**,
+  retried only while that median sits at or below the floor, and each render is **isolated** —
+  every `update()` call not issued by the probe is dropped and counted. No max-of-N, no raised
+  floor: the 0.002 threshold still means what it says, and the sabotage is red **15/15 and 6/6**
+  where `main` was 14/15 with one silent green.
 - **A prop on the band above still drew through the slab, in the band of rows just below its riser**
   (#170). **438 / 401 / 398 px at rows 102..127** on L0/L1/L2 stayed visible behind a raised floor.
   Every one of them was painted by the **deferred** ground path (forcing the split never to queue
