@@ -21,7 +21,8 @@ const path = require('path'), fs = require('fs'), os = require('os'), cp = requi
 
 const ROOT = path.resolve(__dirname, '..', '..');
 const MODE = process.argv[2] || 'exposure';
-const ASSERTS = ['exposure'];
+const ASSERTS = ['exposure', 'audio'];
+const TAG = MODE.toUpperCase() + ' GATE:';
 if (!ASSERTS.includes(MODE)) {
   console.error('unknown assertion "' + MODE + '" - known: ' + ASSERTS.join(' '));
   process.exit(2);
@@ -39,6 +40,7 @@ const SEED = (+(process.env.ROLLSEED || 1000)) >>> 0;
 const VW = +(process.env.VIEWPORT_W || 1280);
 const VH = +(process.env.VIEWPORT_H || 720);
 const STRIDE = +(process.env.STRIDE || 4);
+const PEAK_MIN = +(process.env.PEAK_MIN || 0.002);   // #157: "nothing threw" is not "audible"; full scale 1.0
 const DEADLINE = +(process.env.DEADLINE || 300) * 1000;
 const url = 'file://' + path.join(ROOT, 'index.html') + '?dev=1&boot=0';
 
@@ -50,12 +52,12 @@ function chromeBin() {
   // guard reports "all clear" for a reason unrelated to the code (AGENTS.md).
   if (process.env.CHROME) {
     if (fs.existsSync(process.env.CHROME)) return process.env.CHROME;
-    die(3, ['EXPOSURE GATE: NOT MEASURED - CHROME=' + process.env.CHROME + ' does not exist']);
+    die(3, [TAG + ' NOT MEASURED - CHROME=' + process.env.CHROME + ' does not exist']);
   }
   const cands = ['/usr/bin/google-chrome', '/usr/bin/google-chrome-stable',
     '/usr/bin/chromium', '/usr/bin/chromium-browser', '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'];
   for (const c of cands) if (fs.existsSync(c)) return c;
-  die(3, ['EXPOSURE GATE: NOT MEASURED - no Chrome/Chromium binary found at any of:', ...cands.map(c => '  ' + c)]);
+  die(3, [TAG + ' NOT MEASURED - no Chrome/Chromium binary found at any of:', ...cands.map(c => '  ' + c)]);
 }
 
 function waitPort(dir, proc) {
@@ -148,6 +150,147 @@ const ROLL_FN = `(function (lv, roll, yaws, stride, seed) {
   DEV.freeze(false);
   return { mean: sum / yaws, mid: mid / yaws, raster: rast / yaws, cells: cs.length, buf: cv.width + 'x' + cv.height };
 })(%LV%, %ROLL%, %YAWS%, %STRIDE%, %SEED%)`;
+
+/* ---------------- audio (#157) ---------------- */
+
+/* Page side: render every sound through an OfflineAudioContext and measure the WAVEFORM it produces.
+   Two reasons, both learned the hard way. A real-time AnalyserNode tap inside --headless=new reads a
+   render clock that does not advance, so every peak came back as the same constant and the "audible"
+   half of the assert could not fail; and a CI box has no output device at all. Offline rendering is
+   deterministic, device-free and still real WebAudio, so handing connect() a number instead of a node
+   throws there exactly as it does in a browser. Each sound gets its OWN context so one failure cannot
+   hide the next - being able to hide the next failure is how #157 stayed invisible for so long. */
+const AUDIO_FN = `(async function () {
+  const out = { sounds: [], warns: [], peakMax: 0, fatal: null };
+  const ow = console.warn;
+  console.warn = function () { out.warns.push(Array.prototype.map.call(arguments, String).join(' ').slice(0, 200)); };
+  S.sound = true;                        // never gate on the user's mute flag; here the probe needs it on
+  try { SND.init(); } catch (e) {}
+  out.preBroken = S.audioBroken === true;
+  out.preState = SND.ac ? SND.ac.state : 'NO CONTEXT';
+  const SR = 44100, DUR = 0.7, N = Math.round(SR * DUR);
+  const pans = [0, 0.45, -0.62];        // 0 is the ONE value that used to survive chain(); the others are what panOf() returns
+  const calls = [];
+  for (const k of ['pistol', 'shotgun', 'rifle', 'dry']) calls.push(['shot', [k]]);
+  calls.push(['reload', [1]], ['reload', [2]]);
+  for (const p of pans) {
+    calls.push(['impact', [p]], ['flesh', [p]], ['gib', [p]], ['explosion', [p]], ['enemyShot', [p]]);
+    for (const k of ['grunt', 'hound', 'brute']) calls.push(['growl', [k, p]]);
+  }
+  calls.push(['pain', []], ['death', []], ['pickup', ['health']], ['pickup', ['ammo']], ['portal', []], ['step', []], ['ui', [700]]);
+  // fanfare is deliberately NOT in the sweep: its notes go through setTimeout, so offline rendering
+  // cannot schedule them and a peak measured here would be a stopwatch reading, not a sound. Saying so
+  // is the point - a probe that quietly skips a sound and counts it as covered is worse than no probe.
+  for (const c of calls) {
+    const name = c[0] + '(' + c[1].join(',') + ')';
+    S.audioBroken = false;
+    const off = new OfflineAudioContext(2, N, SR);
+    try { SND.init(off); } catch (e) { out.sounds.push({ name: name, threw: 'init: ' + String(e.message || e).slice(0, 120), warned: 0, peak: 0 }); continue; }
+    const w0 = out.warns.length;
+    let threw = null;
+    try { SND[c[0]].apply(SND, c[1]); } catch (e) { threw = String((e && e.message) || e).slice(0, 160); }
+    let pk = 0;
+    try {
+      const buf = await off.startRendering();
+      for (let ch = 0; ch < buf.numberOfChannels; ch++) {
+        const d = buf.getChannelData(ch);
+        for (let i = 0; i < d.length; i++) { const v = d[i] < 0 ? -d[i] : d[i]; if (v > pk) pk = v; }
+      }
+    } catch (e) { threw = (threw ? threw + ' ; ' : '') + 'render: ' + String(e.message || e).slice(0, 120); }
+    pk = +pk.toFixed(5);
+    out.sounds.push({ name: name, threw: threw, warned: out.warns.length - w0, peak: pk });
+    if (pk > out.peakMax) out.peakMax = pk;
+  }
+  // Hand the game back its own live context before anything else can run.
+  S.audioBroken = false;
+  try { SND.ac = null; SND.master = null; SND.music = null; SND.noiseBuf = null; SND.init(); } catch (e) {}
+  out.state = SND.ac ? SND.ac.state : 'NO CONTEXT';
+  out.broken = S.audioBroken === true;
+  out.err = S.err || null;
+  out.sampleRate = SR;
+  console.warn = ow;
+  return out;
+})()`;
+
+async function mainAudio() {
+  const bin = chromeBin();
+  const ver = cp.execFileSync(bin, ['--version'], { encoding: 'utf8' }).trim();
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'breach-audio-'));
+  const proc = cp.spawn(bin, ['--headless=new', '--remote-debugging-port=0', '--disable-gpu', '--no-sandbox',
+    '--disable-dev-shm-usage', '--no-first-run', '--no-default-browser-check',
+    '--window-size=' + VW + ',' + VH, '--user-data-dir=' + dir, url],
+    { stdio: ['ignore', 'ignore', 'pipe'] });
+  let cdp = null;
+  const watchdog = setTimeout(() => { try { proc.kill('SIGKILL'); } catch (e) {} die(3, [TAG + ' NOT MEASURED - timed out after ' + DEADLINE / 1000 + ' s']); }, DEADLINE);
+  try {
+    const port = await waitPort(dir, proc);
+    const targets = await (await fetch('http://127.0.0.1:' + port + '/json/list')).json();
+    const page = targets.find(t => t.type === 'page' && t.webSocketDebuggerUrl);
+    if (!page) throw new Error('no page target among ' + targets.map(t => t.type).join(','));
+    cdp = await connect(page.webSocketDebuggerUrl);
+    for (let waited = 0; ; waited += 200) {
+      const ok = await evaluate(cdp, '!!(window.DEV && DEV.on && typeof SND !== "undefined" && typeof SND.init === "function")');
+      if (ok) break;
+      if (waited > 20000) throw new Error('window.DEV / SND never appeared - is the page loading with ?dev=1?');
+      await new Promise(r => setTimeout(r, 200));
+    }
+    const booted = await evaluate(cdp, '(()=>{ resize(); if (S.mode !== "play") DEV.boot(); return { mode: S.mode, err: S.err }; })()');
+    if (booted.mode !== 'play') throw new Error('DEV.boot() left S.mode at "' + booted.mode + '" (S.err ' + booted.err + ')');
+    // Check the code that is about to be exercised. Reading SND.chain.toString() is useless here: every
+    // SND method is replaced by the fault wrapper's closure (js/00_core.js:202), so its source would
+    // describe the wrapper and report the fix as missing. index.html loads these bytes verbatim.
+    const core = fs.readFileSync(path.join(ROOT, 'js', '00_core.js'), 'utf8');
+    // A probe must tell "the code is broken" from "I could not look". Offline rendering hooks the graph by
+    // handing SND.init a context; a build whose init ignores its arguments (anything before #157) would
+    // make every peak read 0.00000 for a reason that has nothing to do with the game being silent.
+    const initLen = await evaluate(cdp, 'SND.init.length');
+    if (initLen < 1) {
+      console.log(TAG + ' NOT MEASURED - SND.init takes no context argument in the running build, so the graph cannot be rendered offline (the seam #157 added). A zero peak here would be this harness being blind, not the game being silent.');
+      return 3;
+    }
+    const r = await evaluate(cdp, AUDIO_FN);
+    if (r.fatal) throw new Error(r.fatal);
+    const bad = r.sounds.filter(s => s.threw || s.warned);
+    const quiet = r.sounds.filter(s => !s.threw && !s.warned && s.peak <= PEAK_MIN);
+    console.log('audio: ' + ver + ', ' + r.sounds.length + ' sounds driven with the game\u2019s own argument conventions '
+      + '(pan passed as a number), each rendered through its own 0.7 s OfflineAudioContext at 44100 Hz - '
+      + 'deterministic, no output device, and a wrong node signature still throws as it does in a browser');
+    console.log('  before the probe touched anything: S.audioBroken ' + r.preBroken + ', live context "' + r.preState + '"');
+    if (!core.includes('createStereoPanner')) {
+      console.log('  NOTE: js/00_core.js has no createStereoPanner - this is the unfixed (#157) code, so pan goes into connect() as a number.');
+    }
+    console.log('  not measured by this probe: fanfare (notes scheduled with setTimeout), startAmbient (a looping drone - offline rendering would measure a different sound each run).');
+    for (const s of bad.concat(quiet)) {
+      console.log('  ' + pad(s.name, 22) + ' peak ' + s.peak.toFixed(5) + '  '
+        + (s.threw ? 'THREW ' + s.threw : (s.warned ? 'warn x' + s.warned + ': ' + r.warns.slice(-1)[0] : 'SILENT')));
+    }
+    console.log('  peaks: max ' + r.peakMax + ', inaudible ' + quiet.length + '/' + r.sounds.length + ', throwing '
+      + bad.length + ', S.audioBroken after sweep ' + r.broken + ', S.err ' + JSON.stringify(r.err));
+    if (bad.length || quiet.length || r.broken) {
+      console.log('AUDIO GATE FAIL: ' + bad.length + ' of ' + r.sounds.length + ' sounds threw, ' + quiet.length
+        + ' rendered silence' + (r.broken ? ', and S.audioBroken is set - every sound is now a no-op' : ''));
+      return 1;
+    }
+    if (r.peakMax < PEAK_MIN) {
+      console.log('AUDIO GATE FAIL: nothing threw but the loudest render peaked at ' + r.peakMax + ' < ' + PEAK_MIN
+        + ' - a graph that throws nothing and produces no signal is still silent.');
+      return 1;
+    }
+    console.log('AUDIO ok: peak ' + r.peakMax + ', ' + r.sounds.length + '/' + r.sounds.length + ' sounds render signal, nothing threw');
+    return 0;
+  } catch (e) {
+    console.log(TAG + ' NOT MEASURED - ' + (e && e.message ? e.message : e));
+    console.log('  this is a failure of the harness, not a passing grade: nothing was compared.');
+    return 3;
+  } finally {
+    clearTimeout(watchdog);
+    if (cdp) { try { cdp.close(); } catch (e) {} }
+    try { proc.kill('SIGKILL'); } catch (e) {}
+    await exited(proc, 4000);
+    try { fs.rmSync(dir, { recursive: true, force: true }); }
+    catch (e) { console.error('note: left ' + dir + ' behind: ' + e.message + ' - remove it manually'); }
+  }
+}
 
 async function main() {
   const bin = chromeBin();
@@ -250,7 +393,7 @@ async function main() {
   }
 }
 
-main().then(c => { process.exitCode = c; }, e => { console.log('EXPOSURE GATE: NOT MEASURED - ' + (e && e.stack || e)); process.exitCode = 3; });
+(MODE === 'audio' ? mainAudio() : main()).then(c => { process.exitCode = c; }, e => { console.log(TAG + ' NOT MEASURED - ' + (e && e.stack || e)); process.exitCode = 3; });
 
 // resolve when the child is really gone (or after ms), so cleanup cannot race its profile writes (#145)
 function exited(p, ms) {
