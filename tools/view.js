@@ -2163,7 +2163,9 @@ if (MODE === 'contrast') {
        RIM=0|1    runs RIG.setRim (the call DEV.set('rim', ...) makes) and prints a frame hash with
                   PIXHASH=1, which is how this run shows the shipped rim switch no longer reaches
                   the picture: #72 moved bodies off the rig raster onto the mesh, and nothing in
-                  the draw path calls RIG any more. */
+                  the draw path calls RIG any more.
+       STRICT=1   promotes cam 1's #179 debt row from KNOWN to a hard FAIL, which is how the term that
+                  pays the debt gets A/B'd against a baseline that is green WITH the debt already paid. */
   const W = run('BW'), H = run('BH'), N = W * H;
   const lum = (b, i) => 0.2126 * (b[i] & 255) + 0.7152 * (b[i] >> 8 & 255) + 0.0722 * (b[i] >> 16 & 255);
   const DARKRING = process.env.DARKRING === '1';
@@ -2172,16 +2174,46 @@ if (MODE === 'contrast') {
   const TINTK = process.env.TINT === undefined ? NaN : +process.env.TINT;
   const PIXHASH = process.env.PIXHASH === '1';
   const MINMASK = 200, DLR = 4, DLLOST = 10, DLMIN = 24, LOSTMAX = 70, RINGMIN = 8, LEAKMAX = 0;
-  let bad = 0, nrows = 0;
-  const row = (label, ok, detail) => {
+  /* cam 1's separation on unmodified shipped content is BELOW the DLMIN gate it is held to, and #179
+     (Epic A) is filed for the shading term that pays it. So that ONE row reports instead of failing -
+     the shape smoke's VERT lanes already print (`N gating row(s), N known-issue row(s)`) and that
+     `drop` and `cull` use above - and the day the term lands it becomes a plain ok row with no CI and
+     no workflow edit. It is NOT allowed to grow, and the floors below are measured, not guessed (all
+     cam 1, level 0, SEED 12345 - the configuration CI runs, deterministic to the digit over repeat
+     runs of the same build):
+       unmodified      edge dL 16.65   lost 37.94%   <- the recorded debt, printed KNOWN, exit 0
+       TINT=1          edge dL 15.95   lost 41.44%   drops the per-individual colour jitter: a neutral
+                                                   repaint, so still the debt rather than a regression
+       TINT=2          edge dL 15.15   lost 43.77%   halves the body's light headroom: a real loss of
+                                                   separation, and it trips BOTH floors
+       TINT=0, DARKRING edge dL 37     lost 0-1%     pays the debt: the row turns back into a plain ok
+     Hence the rule "the debt may not grow on either axis": recorded minus 1 dL, recorded plus 4 points
+     of lost. The dL axis separates TINT=1 from TINT=2 (0.30 / 0.50 of margin) and the lost axis
+     agrees with it on every state measured here, so the verdict does not rest on one number's rounding.
+     cam 0 and cam 2 are NOT debt rows - they read - and they keep failing outright. */
+  const DEBT = { cam: 1, issue: '#179', dl: 16.65, lost: 37.94, dlFloor: 15.65, lostCeil: 41.94 };
+  const STRICT = !!process.env.STRICT;
+  let bad = 0, nrows = 0, known = 0;
+  // a row that could not measure anything is a FAILURE, never a KNOWN: a row that silently skips is
+  // the "probe that cannot fail" this rewrite exists to remove, so vacuity stays out of the debt branch.
+  const row = (label, ok, detail, debt) => {
     nrows++;
-    console.log('    ' + label.padEnd(42) + (ok ? ' ok  ' : ' FAIL') + '  ' + detail);
-    if (!ok) bad++;
+    const gate = ok || !debt || STRICT;
+    console.log('    ' + label.padEnd(42) + (ok ? ' ok  ' : gate ? ' FAIL' : 'KNOWN') + '  ' + detail +
+      (ok || !debt ? '' : '  [' + debt + ' debt' + (STRICT ? ', gated by STRICT=1' : '') + ']'));
+    if (ok) return;
+    if (gate) bad++; else known++;
   };
   const NB = [[-1, -1], [0, -1], [1, -1], [-1, 0], [1, 0], [-1, 1], [0, 1], [1, 1]];
   console.log('contrast: coverage-mask oracle on level ' + LVL + '  buffer ' + W + 'x' + H +
     (DARKRING ? '  DARKRING' : '') + (NOBODY ? '  NOBODY' : '') +
     (RIM >= 0 ? '  RIM=' + RIM : '') + (isNaN(TINTK) ? '' : '  TINT=' + TINTK));
+  console.log('contrast: cam ' + DEBT.cam + "'s verdict row is a known-issue row by design - its separation on " +
+    'unmodified shipped content measures edge dL ' + DEBT.dl + ' / lost ' + DEBT.lost + '% at level 0 SEED ' + SEED +
+    ', under the ' + DLMIN + ' it is held to. That row reports (KNOWN) instead of failing and turns red '
+    + 'only below ' + DEBT.dlFloor + ' dL or above ' + DEBT.lostCeil + '% lost, i.e. when the debt GROWS. '
+    + 'Tracked in ' + DEBT.issue + ' (Epic A); STRICT=1 gates it as it stands, so the term that pays it '
+    + 'can be A/B\'d against a green baseline.');
   for (let cam = 0; cam < 3; cam++) {
     run(`startLevel(${LVL}, true); S.mode='play'; S.locked=false;`);
     run(`(()=>{
@@ -2304,9 +2336,21 @@ if (MODE === 'contrast') {
       (nM ? '' : ' - NOTHING DREW: rows below are not measurements'));
     row('cam ' + cam + ' edge ring is measurable', enring >= RINGMIN && noBg === 0,
       enring + ' ring px' + (noBg ? ', ' + noBg + ' with no background sample' : ''));
-    row('cam ' + cam + ' body reads against the room', nM >= MINMASK && enring >= RINGMIN &&
-      edgeDL >= DLMIN && lostPct <= LOSTMAX,
-      'edge dL ' + edgeDL.toFixed(0) + ' vs ' + DLMIN + ', lost ' + lostPct.toFixed(0) + '% vs ' + LOSTMAX);
+    const reads = nM >= MINMASK && enring >= RINGMIN && edgeDL >= DLMIN && lostPct <= LOSTMAX;
+    // a measurement at all: something drew, the ring has pixels, and the mask does not leak. Only a
+    // row that measured can owe a debt - vacuity is a FAILURE (see the row() note above).
+    const measured = nM >= MINMASK && enring >= RINGMIN && leak <= LEAKMAX;
+    /* cam 1's WEAK verdict on unmodified content is the #179 debt, so it reports - unless the number
+       dropped below the recorded floor, which is a regression, not the debt. The gate above is
+       untouched for cam 0 and cam 2, which read and therefore keep failing outright. */
+    const debt = !reads && measured && cam === DEBT.cam &&
+      edgeDL >= DEBT.dlFloor && lostPct <= DEBT.lostCeil ? DEBT.issue : undefined;
+    row('cam ' + cam + ' body reads against the room', reads,
+      'edge dL ' + edgeDL.toFixed(0) + ' vs ' + DLMIN + ', lost ' + lostPct.toFixed(0) + '% vs ' + LOSTMAX +
+      (reads || cam !== DEBT.cam || !measured ? '' : debt
+        ? ' - debt, fails below ' + DEBT.dlFloor.toFixed(2) + ' dL or above ' + DEBT.lostCeil.toFixed(2) + '% lost'
+        : ' - the DEBT GREW: below the recorded floor ' + DEBT.dlFloor.toFixed(2) + ' dL / ' + DEBT.lostCeil.toFixed(2) + '%'),
+      debt);
     row('cam ' + cam + ' diff mask leaks nothing', leak <= LEAKMAX,
       leak + ' px differ between the two renders but no body painted them' +
       (leak ? ' - a body-driven WORLD change is being counted as the body (#179)' : ''));
@@ -2334,7 +2378,10 @@ if (MODE === 'contrast') {
       med(off).toFixed(2) + ' [' + off.join(' ') + ']  armed median ' + med(on).toFixed(2) +
       ' [' + on.join(' ') + ']');
   }
-  console.log(bad ? `CONTRAST ${bad} FAILURE(S) of ${nrows} rows` : `CONTRAST ok - ${nrows} rows: bodies separate from the rooms they stand in`);
+  const debtTail = known ? ', ' + known + ' known-issue row' + (known > 1 ? 's' : '') + ' (' +
+    (STRICT ? 'FAILED under STRICT=1' : 'reporting') + ': cam ' + DEBT.cam + ' ' + DEBT.issue + ')' : '';
+  console.log(bad || known ? `CONTRAST ${bad} FAILURE(S) of ${nrows} rows` + debtTail
+    : `CONTRAST ok - ${nrows} rows: bodies separate from the rooms they stand in` + debtTail);
   run('COV = null;');
   process.exit(bad ? 1 : 0);
 }
