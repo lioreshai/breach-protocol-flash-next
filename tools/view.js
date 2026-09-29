@@ -2256,6 +2256,41 @@ if (MODE === 'contrast') {
   const TINTK = process.env.TINT === undefined ? NaN : +process.env.TINT;
   const PIXHASH = process.env.PIXHASH === '1';
   const MINMASK = 200, DLR = 4, DLLOST = 10, DLMIN = 24, LOSTMAX = 70, RINGMIN = 8, LEAKMAX = 0;
+  /* Per-frame edge statistics, factored out of the camera loop so the posed frame, the found frame and
+     the flat control are measured by the SAME arithmetic as the crowd frame - a control computed by a
+     second implementation is not a control. Identical loops to the ones this block used inline. */
+  const nCover = (m) => { let n = 0; for (let i = 0; i < N; i++) if (m[i]) n++; return n; };
+  const ringOf = (m) => {
+    const r = [];
+    for (let y = 1; y < H - 1; y++) {
+      const rw = y * W;
+      for (let x = 1; x < W - 1; x++) {
+        const i = rw + x;
+        if (!m[i]) continue;
+        if (m[i - 1] && m[i + 1] && m[i - W] && m[i + W] && m[i - W - 1] && m[i - W + 1] && m[i + W - 1] && m[i + W + 1]) continue;
+        r.push(i);
+      }
+    }
+    return r;
+  };
+  const edgeOf = (f, m, ring) => {
+    let eDL = 0, eRGB = 0, lost = 0, noBg = 0;
+    for (let t = 0; t < ring.length; t++) {
+      const i = ring[t], vals = [], idxs = [];
+      for (const o of NB) { const j = i + o[1] * W + o[0]; if (!m[j]) { vals.push(lum(f, j)); idxs.push(j); } }
+      if (!vals.length) { noBg++; continue; }
+      const srt = vals.slice().sort((p, q) => p - q);
+      const med = srt.length & 1 ? srt[srt.length >> 1] : (srt[(srt.length >> 1) - 1] + srt[srt.length >> 1]) * 0.5;
+      let k = 0, bk = 1e18;
+      for (let u = 0; u < vals.length; u++) { const d = Math.abs(vals[u] - med); if (d < bk) { bk = d; k = u; } }
+      const j = idxs[k], dl = Math.abs(lum(f, i) - med);
+      eDL += dl; eRGB += (Math.abs((f[i] & 255) - (f[j] & 255)) + Math.abs((f[i] >> 8 & 255) - (f[j] >> 8 & 255)) +
+        Math.abs((f[i] >> 16 & 255) - (f[j] >> 16 & 255))) / 3;
+      if (dl < DLLOST) lost++;
+    }
+    const en = ring.length - noBg;
+    return { dl: en ? eDL / en : 0, rgb: en ? eRGB / en : 0, lost: en ? 100 * lost / en : 0, en, noBg, ring: ring.length };
+  };
   /* cam 1's separation on unmodified shipped content is BELOW the DLMIN gate it is held to, and #179
      (Epic A) is filed for the shading term that pays it. So that ONE row reports instead of failing -
      the shape smoke's VERT lanes already print (`N gating row(s), N known-issue row(s)`) and that
@@ -2272,8 +2307,42 @@ if (MODE === 'contrast') {
      Hence the rule "the debt may not grow on either axis": recorded minus 1 dL, recorded plus 4 points
      of lost. The dL axis separates TINT=1 from TINT=2 (0.30 / 0.50 of margin) and the lost axis
      agrees with it on every state measured here, so the verdict does not rest on one number's rounding.
-     cam 0 and cam 2 are NOT debt rows - they read - and they keep failing outright. */
+     cam 0 and cam 2 are NOT debt rows - they read - and they keep failing outright.
+
+     #188 SPLITS THAT OBJECT IN TWO, because on the volume branch the body in cam 1's shot is no longer
+     necessarily a body the GAME placed, and "the debt is paid" cannot be allowed to mean "the probe
+     found somewhere to stand a body". The two debts are:
+       FOUND  (DEBT below, unchanged to the digit) the frame with every body where the game put it, the
+              frame those floors were recorded against. It runs ONLY when the march says a found body
+              is in the cone; when it does not, the row reports #189 instead of pretending to measure.
+       POSED  (POSE_FLOOR below) the frame with only the body the probe parked in the clear. Same
+              camera, same cell, same yaw, different reason for the number: it says what a body the
+              player could actually see looks like, and it is NOT evidence about #179's term.
+     THAT IS A GATE CHANGE AND IT IS PRINTED, NOT LABELLED AWAY: a posed body on cam 1's own camera and
+     cell reads 44 dL / 14% lost under FLAT=1 (measured, this branch), so a single row that accepted
+     either body would report #179 PAID with no shading term landing anywhere. Only the FOUND row can
+     say #179 is paid; the POSED row's ok is labelled posed and says so on its own line. */
   const DEBT = { cam: 1, issue: '#179', dl: 16.65, lost: 37.94, dlFloor: 15.65, lostCeil: 41.94 };
+  /* The distance floor the pose honours - min(3.5, max(POSEFLOOR, 0.7 x clear)) - and therefore the
+     number the #189 conditional is measured against. One constant on purpose: the row that says "the
+     cone cannot reach the pose floor" and the pose that cannot reach it must read the same value. */
+  const POSEFLOOR = 1.2;
+  /* The window the POSED/FOUND read rows report #179 in is [floor, gate), floor = max(POSE_FLOOR,
+     flatControl - BANDTOL), and both terms are measured, not rounded:
+       POSE_FLOOR 13 = one dL under the worst number the 6-cell x 3-camera x {crowd,posed} sweep of
+         this branch produced anywhere (values: cam0 31 - 58 53 23 59, cam1 - 61 36 73 39 50, cam2
+         15 14 34 26 27 32 banded; the dash is a cell with no measurable body, which is a FAILURE, not
+         a number). It is a catastrophe backstop only - the term that decides the row is the control.
+       BANDTOL     the most separation the BAND is allowed to cost, from the matched pairs of the same
+         sweep (same body, same spot, grid at the datum - the in-run control, not the FLAT=1 rerun,
+         which also re-poses the body and so compares different distances). Measured cost, every value:
+         cam0 0 +5 0 0 0 / cam1 0 +5 +9 -1 0 / cam2 +1 0 +2 -1 0 ... hence the tolerance below.
+     The control is what makes the window FALSIFIABLE: #179's term is a body-shading term, so if it
+     lands and moves the flat layout's number while this row's number stays where it is, the floor
+     rises past the number and the row goes RED. "Banded lighting is the cause" is falsified by exactly
+     that measurement - and on level 0 it is already false: the flat control reads 21 where the banded
+     frame reads 20, so on this level the band costs ~1 dL and the shortfall is the room's own light. */
+  const POSE_FLOOR = 13, BANDTOL = 3;
   const STRICT = !!process.env.STRICT;
   const PLANE = +run('cfg.plane');                       // camera half-width in dir units: atan() is the half-FOV
   const FOVH = Math.atan(PLANE) * 180 / Math.PI;
@@ -2378,6 +2447,14 @@ if (MODE === 'contrast') {
          On a cam that picked a body to look at, that body is left where it is when there is another
          to spend, so the occlusion a ledge causes stays in the frame AND in the line below. */
       let poseD = 0, poseWhy = 'no enemies in the level', clear = 0, poseOff = 0, poseClear = 0;
+      /* coneMax = the furthest the SAME __march lets a body stand at all (clear minus its own radius,
+         best over the rays the search samples) - the bound the #189 conditional is read from, so it
+         cannot be inflated without changing the march that places bodies, and the row that prints it
+         goes red rather than known if someone inflates it. spotBand / spotPlace are the census of what
+         the search refused: spots that were floor and band but past a lip, and spots the whole test
+         accepted (a pose that fails with spotPlace > 0 failed for a body-handling reason, not #189). */
+      let coneMax = 0, spotBand = 0, spotPlace = 0;
+      const alive = ENEMIES.reduce((n, q) => n + (q.state !== 'dead' ? 1 : 0), 0);
       const band = floorAt(P.x, P.y);
       if (ENEMIES.length) {
         const cx0 = Math.cos(P.ang), cy0 = Math.sin(P.ang);
@@ -2389,19 +2466,27 @@ if (MODE === 'contrast') {
           const s = w === 0 ? 0 : (w & 1 ? (w + 1) >> 1 : -((w + 1) >> 1));
           const a = P.ang + s * spread, cx = Math.cos(a), cy = Math.sin(a);
           const cl = w === 0 ? clear : __march(P.x, P.y, cx, cy, 8).dist;
-          for (let d = Math.min(3.5, Math.max(1.2, cl * 0.7)), k = 0; k < 30 && d >= 1.2; k++, d -= 0.12) {
+          if (cl - ${BRAD} > coneMax) coneMax = cl - ${BRAD};
+          for (let d = Math.min(3.5, Math.max(${POSEFLOOR}, cl * 0.7)), k = 0; k < 30 && d >= ${POSEFLOOR}; k++, d -= 0.12) {
             const bx = P.x + cx * d, by = P.y + cy * d;
-            if (isSolid(bx, by) || Math.abs(floorAt(bx, by) - band) > 1e-6 || d > cl - ${BRAD}) continue;
+            const onBand = !isSolid(bx, by) && Math.abs(floorAt(bx, by) - band) <= 1e-6;
+            if (onBand) {
+              if (d > cl - ${BRAD}) spotBand++; else spotPlace++;
+              if (d > cl - ${BRAD}) continue;
+            } else continue;
             const e = victim();
             if (!e) { poseWhy = 'every body is dead'; break; }
+            window.__foundPos = { x: e.x, y: e.y, z: e.z, ang: e.ang };
+            window.__poseSpot = { x: bx, y: by, z: floorAt(bx, by), ang: a + Math.PI };
             e.x = bx; e.y = by; e.z = floorAt(bx, by); e.ang = a + Math.PI; e.movingAmt = 0;
             window.__posed = e; poseD = d; poseOff = a - P.ang; poseClear = cl; poseWhy = 'posed'; break;
           }
         }
-        if (!poseD && poseWhy === 'no enemies in the level') poseWhy = 'no clear spot on the camera band at the 1.2 m floor or beyond, within 60% of the frustum (the axis march stops at ' + clear.toFixed(2) + ' m)';
+        if (!poseD && poseWhy === 'no enemies in the level') poseWhy = 'no clear spot on the camera band at the ' + ${POSEFLOOR} + ' m floor or beyond, within 60% of the frustum (the axis march stops at ' + clear.toFixed(2) + ' m)';
       }
       for(const e of ENEMIES)e.state='sleep';
-      return {n:ENEMIES.length, pose:poseD, why:poseWhy, clear:clear, band:band, off:poseOff, poseClear:poseClear};
+      return {n:ENEMIES.length, pose:poseD, why:poseWhy, clear:clear, band:band, off:poseOff, poseClear:poseClear,
+        coneMax:coneMax, spotBand:spotBand, spotPlace:spotPlace, alive:alive};
     })()`);
     // arm the mask (null in play; this probe is its only caller) and any shading control
     run('if (!COV || COV.length !== BW * BH) COV = new Uint8Array(BW * BH);');
@@ -2431,15 +2516,68 @@ if (MODE === 'contrast') {
     run('ENEMIES.length = 0; for (const q of __keep) ENEMIES.push(q);');
     /* The pose corroborated by PIXELS: the frame with ONLY the posed body in it. "The camera has a
        body it can see" must not be satisfied by whatever else happened to be standing in the shot,
-       and "the march calls it clear" has to be checkable against what the draw path made of that. */
-    let posedPx = -1;
+       and "the march calls it clear" has to be checkable against what the draw path made of that.
+       The same frame is what the POSED read row measures, so #188's floors and this pixel count come
+       off one render and one mask - the row cannot disagree with the pose row about what is in frame. */
+    let posedPx = -1, posedSt = null, otherPx = 0;
     if (!NOBODY && camG.pose) {
       run('ENEMIES.length = 0; if (window.__posed) ENEMIES.push(window.__posed); ' + VMREST + ' renderWorld();');
-      const MP = new Uint8Array(run('COV'));
-      posedPx = 0;
-      for (let i = 0; i < N; i++) if (MP[i]) posedPx++;
+      const PF = new Uint32Array(run('px')), MP = new Uint8Array(run('COV'));
+      posedPx = nCover(MP);
+      posedSt = edgeOf(PF, MP, ringOf(MP));
+      // pixels the CROWD frame has that the posed body alone cannot account for = some other body drew
+      for (let i = 0; i < N; i++) if (M[i] && !MP[i]) otherPx++;
       run('ENEMIES.length = 0; for (const q of __keep) ENEMIES.push(q);');
     }
+    /* The FOUND frame: every body back where the GAME put it, including the one this camera moved.
+       That is the frame #179's floors were recorded against and the only frame allowed to say the debt
+       is paid (#188's gate change: a posed body reads 44 dL on the cell where a found one reads 16.65,
+       so one row accepting either would report #179 paid with no term landing). The march is asked
+       again HERE, after the positions are restored, because "is a found body in the cone" is a question
+       about the found frame - and when it says no, the row reports #189 with the cone bound instead of
+       measuring an empty shot. */
+    let foundN = -1, foundSt = null, foundVis = 0, flatFound = null;
+    if (!NOBODY && !POSEONLY && camG.pose) {
+      foundVis = +run(`(()=>{if(window.__posed&&window.__foundPos){const p=window.__posed,f=window.__foundPos;
+          p.x=f.x;p.y=f.y;p.z=f.z;p.ang=f.ang;}
+        const cx=Math.cos(P.ang),cy=Math.sin(P.ang);let n=0;
+        for(const e of ENEMIES){if(e.state==='dead')continue;
+          const dx=e.x-P.x,dy=e.y-P.y,d=Math.hypot(dx,dy);
+          const fw=dx*cx+dy*cy,lat=cfg.plane*(dy*cx-dx*cy);
+          if(!(d>0.01&&fw>0.2&&Math.abs(lat)<=fw))continue;
+          if(__march(P.x,P.y,dx/d,dy/d,d).dist>d-${BRAD})n++;}
+        return n})()`);
+      if (foundVis) {
+        run('S.t = 3.5; ' + VMREST + ' renderWorld();');
+        const CF = new Uint32Array(run('px')), MC = new Uint8Array(run('COV'));
+        foundN = nCover(MC);
+        foundSt = edgeOf(CF, MC, ringOf(MC));
+        // the falsifier for THIS frame, taken while every body is still on its found spot
+        if (!(foundSt.dl >= DLMIN && foundSt.lost <= LOSTMAX)) flatFound = flatCtl(false);
+      }
+    }
+    // put the posed body back on its pose spot, so the posed control below matches the posed frame above
+    if (!NOBODY && camG.pose) run('if (window.__posed && window.__poseSpot) { const p = window.__posed, s = window.__poseSpot;'
+      + ' p.x = s.x; p.y = s.y; p.z = s.z; p.ang = s.ang; }');
+    /* THE FALSIFIER, in-run: the SAME bodies on the SAME spots with the grid at the datum. It is asked
+       only for a frame that came in WEAK, and it is the measurement that decides whether "banded
+       lighting is the cause" survives - #179's term is a body-shading term, so a term that moves this
+       control and leaves the banded number where it is pushes the row's floor over the number and the
+       row goes red. Flattening here rather than re-running with FLAT=1 matters: FLAT=1 flattens before
+       the cameras are set, so it also RE-POSES the body at another distance (measured on L1/12345 cam 2:
+       2.45 m banded vs 3.50 m flat, a -10 dL "band effect" that is a distance effect). */
+    const flatCtl = (posedOnly) => {
+      run('MAP.fz.fill(0); MAP.cz.fill(CZ_DEF); linkBoundaries(); for (const e of ENEMIES) e.z = floorAt(e.x, e.y);');
+      if (posedOnly) run('ENEMIES.length = 0; if (window.__posed) ENEMIES.push(window.__posed);');
+      run('S.t = 3.5; ' + VMREST + ' renderWorld();');
+      const FF = new Uint32Array(run('px')), MF = new Uint8Array(run('COV'));
+      const st = edgeOf(FF, MF, ringOf(MF));
+      st.px = nCover(MF);
+      run('ENEMIES.length = 0; for (const q of __keep) ENEMIES.push(q);');
+      return st;
+    };
+    let flatPosed = null;
+    if (!NOBODY && posedSt && !(posedSt.dl >= DLMIN && posedSt.lost <= LOSTMAX)) flatPosed = flatCtl(true);
     let nMB = 0;
     for (let i = 0; i < N; i++) if (MB[i]) nMB++;
     // ---- the occlusion tally (#189): named, counted, reported - not swallowed into a zero mask ----
