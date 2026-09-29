@@ -1135,6 +1135,15 @@ if (MODE === 'cull') {
     const restore = () => run('(function(){ for (let i = 0; i < MAP.fz.length; i++) MAP.fz[i] = __fz0[i]; linkBoundaries(); return 1; })()');
 
     // A: the body alone moves band-to-band; the lane between the lens and it stays flat
+    /* #163 changes what THIS geometry shows, so the row owns a taller sight path. A body one band above
+       a flat corridor is behind that corridor's ceiling slab, and once ceiling rows carry a distance it is
+       correctly INVISIBLE: measured on the fixed build, area 0 px on all three levels where main reported
+       1489/1533/1410 px and a 87-95 px centroid shift - the row had been measuring a body drawn through
+       the floor above it. The altitude claim is still worth gating, so MAP.cz goes to CZ_DEF*2 for the
+       pair: that lifts the plane the rays cross without moving any floor, both renders of every pair
+       share the poke, and the difference is still the body and nothing else. Restored before the step
+       rows, which must stay on a 1-unit ceiling to be comparable with `flat`. */
+    run('window.__cz0 = MAP.cz.slice(); MAP.cz.fill(CZ_DEF * 2); linkBoundaries();');
     const base = run(`(function(){
       const en = ENEMIES[0]; en.x = ${setup.lane.x} + 4; en.y = ${setup.lane.y}; en.z = floorAt(en.x, en.y);
       return { d: Math.hypot(en.x - P.x, en.y - P.y), scale: en.scale, ef: floorAt(en.x, en.y) };
@@ -1165,6 +1174,7 @@ if (MODE === 'cull') {
     row(`L${li} body in a pit is hidden by its own lip`,
       shiftDn > 0 && dn.px < 0.5 * flat.px,
       `centroid moved down ${shiftDn.toFixed(1)} px and only ${(100 * dn.px / flat.px).toFixed(1)}% of the flat silhouette survives (the crown at ${base.ef.toFixed(2)}+${base.scale.toFixed(2)} is all that clears the lip), top ${flat.top} -> ${dn.top}`);
+    run('MAP.cz.set(__cz0); linkBoundaries();');   // the taller sight path belongs to row A alone
 
     // B: a step up between the lens and the body, measured twice, because the interesting question is
     // not only "is the body hidden" but "did the step draw ANYTHING": a boundary with VB_BLOCK on the
@@ -1252,7 +1262,84 @@ if (MODE === 'cull') {
       `silhouette ${hid.px} px vs ${flat.px} flat; background changed ${bgn} px (${(100 * bgn / (W * H)).toFixed(2)}%, rows ${bgTop}..${bgBot}); ` +
       `low cell blocks ${(facts.vbLow & facts.VB_BLOCK) ? 'yes' : 'no'} (vb 0x${facts.vbLow.toString(16)}, raised cell 0x${facts.vbHigh.toString(16)}), ` +
       `floors ${facts.floorLow.toFixed(2)} -> ${facts.floorHigh.toFixed(2)}, ceilAt(low) ${facts.ceilLow.toFixed(2)}, ceilPlane ${facts.cpLow.toFixed(2)} -> ${facts.cpHigh.toFixed(2)}`);
+    /* ---- #163: does a PROP on the band above go BEHIND the slab? ------------------------------
+       The ground pass left Infinity on every ceiling row (js/40_render.js:287,:311) and a mesh's only
+       occlusion test is `occ < z` (js/13_mesh.js:524), so nothing on those rows could hide a body and
+       the part of a prop above the low room's ceiling plane drew through the floor it stands on.
+       The geometry is chosen, not convenient: the raised band starts THREE cells out, so the riser's
+       top edge projects at row ~101 of 338 while the lamp's crown is at row ~31 - rows 31..101 have no
+       wall face in front of them at all, and the ceiling solve is the only occluder there. Raising the
+       band ONE cell ahead instead puts the riser top at row 0, the wall pass hides the prop by itself,
+       and the row passes on a build with no ceiling depth at all (measured: 0 px both ways) - which is
+       the "probe that cannot fail" this file keeps having to relearn.
+       Both halves move ONE variable: the same 9 cells, the same prop, the same camera, band cz+4 and
+       band cz. Measured per level (L0/L1/L2, BH 338): above the band 0 px fixed vs 565/565/490 px
+       reverted at rows 58..101, every reverted pixel behind a sentinel zbuf; own band 850/756/804 px,
+       of which 364/262/313 sit above the horizon over ceiling rows whose zbuf is now finite and < FARB
+       - a nearer body still draws, so "hide everything" and "Infinity renamed to 1e30" both fail here. */
+    const BG = run(`(()=>{
+      const cx = ${Math.floor(setup.lane.x) | 0}, cy = ${Math.floor(setup.lane.y) | 0};
+      P.x = ${setup.lane.x}; P.y = ${setup.lane.y}; P.ang = 0; P.pitch = 0; P.crouch = 0;
+      P.z = floorAt(P.x, P.y); ENEMIES.length = 0; PROPS.length = 0; PROJ.length = 0;
+      exitX = -40; exitY = -40;
+      const cz = MAP.fz[cy * MW + cx], cells = [];
+      for (let k = 3; k <= 6; k++) for (let d = -1; d <= 1; d++) {
+        const x = cx + k, y = cy + d;
+        if (x < 1 || y < 1 || x >= MW - 1 || y >= MH - 1 || MAP.cell[y * MW + x]) continue;
+        cells.push([x, y]);
+      }
+      return { cz, cells, lx: cx + 4.5, ly: cy + 0.5, pf: floorAt(cx + 4.5, cy + 0.5) };
+    })()`);
+    const LAMP = `PROPS.length = 0; PROPS.push({tex:PROP.lamp,x:${BG.lx},y:${BG.ly},z:floorAt(${BG.lx},${BG.ly}),scale:0.95,kind:'lamp'});`;
+    // one band above the camera (cz + 4 quanta = +1.00 m), air cells only, grid restored by restore()
+    const setBand = zq => run(`(function(){
+      window.__fz0 = MAP.fz.slice();
+      ${JSON.stringify(BG.cells)}.forEach(([cx, cy]) => { MAP.fz[(cy | 0) * MW + (cx | 0)] = ${zq}; });
+      linkBoundaries(); return MAP.fz[${Math.floor(setup.lane.y)} * MW + ${Math.floor(setup.lane.x) + 4}];
+    })()`);
+    const FARBV = run('FARB'), HZZ = Math.round(run('horizon'));
+    /* Rows above RISE_TOP have NO wall face in front of them: RISE_TOP is where the raised band's
+       riser projects (similar triangles, horizon - (slab underside - eyeZ) * BH / distance to the
+       boundary), so for y < RISE_TOP the ceiling solve is the only thing that can hide the prop, which
+       is exactly the #163 case. Below it the pixel sits on the low/raised SEAM, where groundPixel's
+       fixed point oscillates between the two planes and gives up on the far one - a separate, already
+       documented weakness (AGENTS: non-convergence on a quantized domain), covered by `heights`, not
+       something this row may pretend is fixed. */
+    const CAMCP = run(`MAP.ceilPlane[${Math.floor(setup.lane.y)} * MW + ${Math.floor(setup.lane.x)}]`);
+    const TBOUND = 2.5;                                  // cell cx+3 starts at x = cx + 3, camera at cx + 0.5
+    const RISE_TOP = HZZ - (CAMCP - run('eyeZ')) * run('BH') / TBOUND;
+    // with the prop, then without: the difference IS the prop, so world churn cannot fake the mask
+    const pshot = cutY => {
+      run('MESH.reset(); S.t = 3.5; renderWorld()');
+      const A = new Uint32Array(run('px'));
+      run('window.__pq = PROPS.slice(); PROPS.length = 0; renderWorld(); for (const q of __pq) PROPS.push(q);');
+      const B = new Uint32Array(run('px')), zB = new Float32Array(run('zbuf'));
+      let n = 0, inR = 0, top = H, bot = -1, above = 0, fin = 0;
+      for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+        const i = y * W + x;
+        if (Math.abs(lum(A, i) - lum(B, i)) > 4 || (A[i] >>> 24) - (B[i] >>> 24) !== 0) {
+          n++; if (y < top) top = y; if (y > bot) bot = y;
+          if (y < cutY) inR++;
+          if (y < HZZ) { above++; const z = zB[i]; if (z > 0 && z < FARBV) fin++; }
+        }
+      }
+      return { n, inR, top, bot, above, fin };
+    };
+    setBand(BG.cz + 4);
+    run(LAMP);
+    const above = pshot(RISE_TOP);
+    const lampT = run(`(()=>{const dx=${BG.lx}-camX,dy=${BG.ly}-camY;return (1/(planeX*dirY-dirX*planeY))*(-planeY*dx+planeX*dy)})()`);
+    setBand(BG.cz);
+    run(LAMP);
+    const ownB = pshot(-1);
+    restore();
+    run('PROPS.length = 0;');
+    row(`L${li} a prop one band above is hidden by the slab`,
+      above.inR <= Math.max(16, 0.02 * ownB.n) && ownB.n >= 250 && ownB.above >= 0.2 * ownB.n &&
+      ownB.fin >= 0.6 * ownB.above,
+      `lamp 0.95 m at ${lampT.toFixed(2)} m on band ${((BG.cz + 4) * run('ZQ')).toFixed(2)} vs the camera's ${(BG.cz * run('ZQ')).toFixed(2)}: ${above.inR} px in rows 0..${Math.round(RISE_TOP)}, the ceiling-only band above the riser's top edge (ceilPlane ${CAMCP.toFixed(2)}, boundary ${TBOUND} m), of ${above.n} px total at rows ${above.top}..${above.bot}; the same prop on the camera's own band keeps ${ownB.n} px, ${ownB.above} above the horizon with a finite ceiling distance (FARB ${FARBV}) behind ${ownB.fin} of them`);
     console.log(`  L${li} reference: flat silhouette ${flat.px} px, centroid ${flat.cy.toFixed(1)} of ${H}, rows ${flat.top}..${flat.bot}, body ${base.scale.toFixed(2)} units at ${base.d.toFixed(2)} m`);
+
     putProps();
   }
   console.log((bad ? `CULL ${bad} FAILURES` : 'CULL ok - bodies sit on the band they stand on') +
@@ -1577,7 +1664,10 @@ if (MODE === 'mip') {
      >= 253 makes ordinary opaque texels self-lit and collapses the E-O gap to nothing.
      The face is chosen by what castWalls RESOLVES (zbuf in the sample band flat and near), not by
      castRayDist: that march counts a blocked boundary as a wall and picked a "face" at 2.5 m that the renderer
-     paints at 5.1 m, so a candidate chosen from it would have asserted on pixels that are not that face. */
+     paints at 5.1 m, so a candidate chosen from it would have asserted on pixels that are not that face.
+     zbuf is cleared to the sentinel before each castWalls here: since #163 the ground pass leaves a real distance
+     on ceiling rows too, and this row reads zbuf to find the pixels THE WALL PASS painted, so borrowing the ground
+     pass's leftovers would have widened the sample band onto ceiling geometry without saying so. */
   const fetchRes = run(`(()=>{
     const cand=[];
     for(let y=2;y<MH-2&&cand.length<12;y++)for(let x=2;x<MW-6;x++){
@@ -1605,7 +1695,7 @@ if (MODE === 'mip') {
       for(const e of ENEMIES)e.state='sleep';
       const IDX=(MAP.cell[(c[1]|0)*MAP.w+((c[0]|0)+c[2])]-1+WALLS.length)%WALLS.length;
       renderWorld();
-      px.fill(pack(FOGC[0],FOGC[1],FOGC[2]));castWalls(S.flash,FOGC[0],FOGC[1],FOGC[2]);
+      px.fill(pack(FOGC[0],FOGC[1],FOGC[2]));zbuf.fill(Infinity);castWalls(S.flash,FOGC[0],FOGC[1],FOGC[2]);
       const hzz=Math.round(horizon),y0=Math.max(0,hzz-24),y1=Math.min(BH-1,hzz+24);
       const idxs=[];let lo=1e9,hi=-1e9;
       for(let x=x0;x<x1;x++)for(let y=y0;y<=y1;y++){const i=y*BW+x,pz=zbuf[i];
@@ -1618,11 +1708,11 @@ if (MODE === 'mip') {
     if(!hit){for(let i=0;i<WALLS.length;i++)WALLS[i]=bak[i];G_GRIT=gk;G_TRI=gt;
       return{skip:'no candidate resolved a flat face-on face 1.1-4.2 m away in the sample band',tried};}
     WALLS[hit.IDX]=TE;
-    px.fill(pack(FOGC[0],FOGC[1],FOGC[2]));castWalls(S.flash,FOGC[0],FOGC[1],FOGC[2]);
+    px.fill(pack(FOGC[0],FOGC[1],FOGC[2]));zbuf.fill(Infinity);castWalls(S.flash,FOGC[0],FOGC[1],FOGC[2]);
     const grab=()=>{const a=new Float64Array(hit.idxs.length);for(let k=0;k<hit.idxs.length;k++)a[k]=lum(hit.idxs[k]);return a};
     const LE=grab();
-    WALLS[hit.IDX]=TO;px.fill(pack(FOGC[0],FOGC[1],FOGC[2]));castWalls(S.flash,FOGC[0],FOGC[1],FOGC[2]);const LO=grab();
-    WALLS[hit.IDX]=TA;px.fill(pack(FOGC[0],FOGC[1],FOGC[2]));castWalls(S.flash,FOGC[0],FOGC[1],FOGC[2]);const LA=grab();
+    WALLS[hit.IDX]=TO;px.fill(pack(FOGC[0],FOGC[1],FOGC[2]));zbuf.fill(Infinity);castWalls(S.flash,FOGC[0],FOGC[1],FOGC[2]);const LO=grab();
+    WALLS[hit.IDX]=TA;px.fill(pack(FOGC[0],FOGC[1],FOGC[2]));zbuf.fill(Infinity);castWalls(S.flash,FOGC[0],FOGC[1],FOGC[2]);const LA=grab();
     const perp=hit.idxs.length?zbuf[hit.idxs[(hit.idxs.length/2)|0]]:0,spanPx=BH/perp,th=bak[0].h;
     const mip=spanPx<th*0.6?(spanPx<th*0.3?(spanPx<th*0.15?3:2):1):0;
     const wi=(hit.c[1]|0)*MAP.w+((hit.c[0]|0)+hit.c[2]);
@@ -1920,9 +2010,12 @@ if (MODE === 'heights') {
         }
       }
       /* Structure rather than sampling: every pixel the row painted itself must carry the row's own
-         distance - the far band included, since that branch fills the row with the same number - and a
-         pixel the row did NOT queue must still hold the sentinel in a ceiling row, which is the #45
-         carve-out. Deferred pixels are excluded here and covered by the samples above, so this cannot
+         distance - the far band included, since that branch fills the row with the same number - on
+         BOTH halves of the frame. The ceiling half used to assert the Infinity sentinel instead (the
+         #45 carve-out); #163 replaced that carve-out with the row's own ceiling solve, so the
+         assertion became the same arithmetic as the floor half rather than a weaker one: one number
+         that has to agree with the row instead of one number that could only ever be Infinity.
+         Deferred pixels are excluded here and covered by the samples above, so this cannot
          double-count a pixel the solver legitimately moved. */
       let hzBad = 0, rowBad = 0, rowTot = 0, farRows = 0, farBad = 0, ceilBad = 0, ceilTot = 0;
       if (st.hz >= 0 && st.hz < st.BH) for (let x = 0; x < st.BW; x++) if (zc[st.hz * st.BW + x] !== Infinity) hzBad++;
@@ -1940,7 +2033,10 @@ if (MODE === 'heights') {
           if (isF) {
             rowTot++;
             if (Math.abs(zc[i] - dR) > Math.max(1e-5, dR * tolRel)) { rowBad++; if (far) farBad++; }
-          } else { ceilTot++; if (zc[i] !== Infinity) ceilBad++; }
+          } else {
+            ceilTot++;
+            if (!(zc[i] > 0) || Math.abs(zc[i] - dR) > Math.max(1e-5, dR * tolRel)) ceilBad++;
+          }
         }
       }
       let fail = '';
@@ -1976,7 +2072,9 @@ if (MODE === 'heights') {
       if (dBad) fail += ' DEPTH-DISAGREES';
       if (hzBad) fail += ' HORIZON-DEPTH';
       if (rowBad) fail += ' ROW-DEPTH';
-      if (ceilBad) fail += ' CEILING-SENTINEL';
+      // a ceiling row that carries a sentinel, a zero or a distance that is not its own solve cannot
+      // hide a body on the band above, which is #163; the horizon row is exempt above, not here
+      if (ceilBad) fail += ' CEILING-DEPTH';
       // and the out-of-map fallbacks have to be executed by the config that claims to cover them
       if (wantOutMap && !reS.off) fail += ' NO-OUTMAP-COVERAGE';
       if (fail) bad++;
@@ -1992,7 +2090,7 @@ if (MODE === 'heights') {
         `${dStale ? dStale + ' STALE (row distance)' : dBad ? dBad + ' disagree' : 'all agree'}` +
         `${dCeilS ? `, ${dCeilS} in ceiling rows (store their own depth: #45)` : ''}` +
         `  rows ${rowTot} ok${rowBad ? ' ' + rowBad + ' BAD' : ''} (far band ${farRows}${farBad ? ' bad ' + farBad : ''})` +
-        `  horizon ${hzBad ? 'BROKEN' : 'sentinel ok'}  ceiling ${ceilBad ? ceilBad + '/' + ceilTot + ' NOT sentinel' : ceilTot + ' sentinel'}` +
+        `  horizon ${hzBad ? 'BROKEN' : 'sentinel ok'}  ceiling ${ceilTot} ${ceilBad ? ceilBad + ' NOT THE ROW SOLVE' : 'rows carry their own distance'}` +
         `${dWhy ? '  ' + dWhy : ''}`);
       // determinism now runs on EVERY config and on the ground-only repaint: it used to sit under `if (!poke)`, i.e. on `flat` alone - the one config whose RX/RP queue is provably empty, so the deferred pixel body had no coverage while this printed ok
       seedRng(4242 + li * 31);
@@ -2249,6 +2347,15 @@ if (MODE === 'anim') {
     seedRng(4242 + li * 31);
     run(`S.mode='play'; S.locked=false; startLevel(${li}, true);`);
     const pl = run(CAMCELL);
+    /* #163: ceiling rows now carry a distance, so a body is CLIPPED where it crosses the ceiling plane
+       instead of smearing through it. On the shipped one-unit rooms that is a real change to what these
+       rows look at - the brute at 1.9 m went from a 18381 px mask whose top was the frame edge (row 0)
+       to a 12597 px mask clipped at row 62, and a topple measured from a clipped crown moves 11 px where
+       the row wants 15% of the body. The claims here are about bodies changing SHAPE and parts staying
+       ATTACHED, and none of them is about ceiling height, so the probe lifts its own sight path: cz to
+       CZ_DEF*2 for every frame of the run, floors untouched, so nothing is clipped and every threshold
+       below still measures a whole body. Both renders of a pair share the world, so the mask is the body. */
+    run('MAP.cz.fill(CZ_DEF * 2); linkBoundaries();');
     const setup = run(`(()=>{let t=Math.min(1.9,Math.max(1.3,${pl.ray}*0.7)),ex=P.x+Math.cos(P.ang)*t,ey=P.y+Math.sin(P.ang)*t;` +
       `while(t>0.6&&isSolid(ex,ey)){t-=0.2;ex=P.x+Math.cos(P.ang)*t;ey=P.y+Math.sin(P.ang)*t;}` +
       `const e=makeEnemy('${KIND}',ex,ey);${PIN}ENEMIES.push(e);return +t.toFixed(2)})()`);
@@ -2376,6 +2483,12 @@ if (MODE === 'anim') {
   seedRng(4242);
   run('var APX = 0, APY = 0;');
   run(`S.mode='play'; S.locked=false; startLevel(0, true);`);
+  // #163 again, and this is why the poke above was not enough: this section re-runs startLevel, which
+  // regenerates the grid and resets MAP.cz to CZ_DEF, so the ceiling came back down to one unit and the
+  // brute's head went back inside the slab (brute spawn: first run 24-151 becomes 92-151, i.e. the head
+  // is gone and the widest row IS the top row - NO HEAD TO JUDGE). Same reason, same poke, after the
+  // regenerate rather than before it.
+  run('MAP.cz.fill(CZ_DEF * 2); linkBoundaries();');
   const apl = run(CAMCELL);
   const adist = run(`(()=>{let t=2.4,ex=P.x+Math.cos(P.ang)*t,ey=P.y+Math.sin(P.ang)*t;` +
     `while(t>0.6&&isSolid(ex,ey)){t-=0.2;ex=P.x+Math.cos(P.ang)*t;ey=P.y+Math.sin(P.ang)*t;}` +
@@ -2807,13 +2920,18 @@ if (MODE === 'props') {
   const SX = SPOT.x.toFixed(4), SY = SPOT.y.toFixed(4);
   const SC = { barrel: 0.86, crate: 0.72, lamp: 0.95, pickupHealth: 0.42, pickupAmmo: 0.42, pickupArmor: 0.42, orb: 0.3, portal: 1.5 };
   const put = {
+    /* The orb's z used to be the literal 0.9. Since #163 a mesh is occluded by the ceiling plane, and a
+       0.3 m body centred at 0.9 in a one-unit room stands with half its span INSIDE the slab, so (S)
+       measured a clipped 30 px instead of the 34-37 px its own authored span gives. It is now hung
+       0.35 m under the ceiling of its own cell - under the slab at any band, still above the floor at
+       every band, and (F) already reports the orb as airborne because 30_entities.js owns its arc. */
     barrel: `PROPS.length=0;PROPS.push({tex:PROP.barrel,x:${SX},y:${SY},z:floorAt(${SX},${SY}),scale:0.86,kind:'barrel',hp:26,dead:false});globalThis.__p=PROPS[0]`,
     crate: `PROPS.length=0;PROPS.push({tex:PROP.crate,x:${SX},y:${SY},z:floorAt(${SX},${SY}),scale:0.72,kind:'crate'});globalThis.__p=PROPS[0]`,
     lamp: `PROPS.length=0;PROPS.push({tex:PROP.lamp,x:${SX},y:${SY},z:floorAt(${SX},${SY}),scale:0.95,kind:'lamp'});globalThis.__p=PROPS[0]`,
     pickupHealth: `PROPS.length=0;PICKUPS.length=0;PICKUPS.push({type:'health',x:${SX},y:${SY},bob:0,dead:false});globalThis.__p=PICKUPS[0]`,
     pickupAmmo: `PROPS.length=0;PICKUPS.length=0;PICKUPS.push({type:'ammo',x:${SX},y:${SY},bob:0,dead:false});globalThis.__p=PICKUPS[0]`,
     pickupArmor: `PROPS.length=0;PICKUPS.length=0;PICKUPS.push({type:'armor',x:${SX},y:${SY},bob:0,dead:false});globalThis.__p=PICKUPS[0]`,
-    orb: `PROPS.length=0;PROJ.length=0;PROJ.push({kind:'orb',x:${SX},y:${SY},z:0.9,scale:0.3,vx:0,vy:0,vz:0,t:0,tex:PROP.orb[0]});globalThis.__p=PROJ[0]`,
+    orb: `PROPS.length=0;PROJ.length=0;PROJ.push({kind:'orb',x:${SX},y:${SY},z:ceilAt(${SX},${SY})-0.35,scale:0.3,vx:0,vy:0,vz:0,t:0,tex:PROP.orb[0]});globalThis.__p=PROJ[0]`,
     portal: `PROPS.length=0;exitX=${SX};exitY=${SY};S.exitOpen=true;globalThis.__p={x:${SX},y:${SY},scale:1.5,z:0.02}`,
   };
   /* The second render of every pair has to have the OBJECT out of it, not just the array emptied:
