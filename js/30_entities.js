@@ -587,6 +587,17 @@ function updateProjectiles(dt) {
     // grenade bounce keeps its own arithmetic; only the plane it lands on moved.
     const pfl = floorAt(p.x, p.y) + 0.08;
     if (p.z < pfl) { p.z = pfl; if (p.kind === 'gren') { p.vz *= -0.42; p.vx *= 0.72; p.vy *= 0.72; if (Math.abs(p.vz) < 0.4) p.vz = 0; } else { popOrb(p); PROJ.splice(i, 1); continue; } }
+    // #148: the wall test above is isSolid(nx, ny) - two dimensions - so a shot angled up a stairwell or
+    // over a pit lip sailed through the ceiling plane and kept travelling above the room it should have
+    // stopped in (measured: an orb launched in a one-unit room reached z 4.771 with the ceiling at 1.000).
+    // ceilAt is the underside of the floor above, which is the plane that stops it. Orbs pop there; a
+    // grenade bounces back down into the room it was thrown in.
+    const pce = ceilAt(p.x, p.y);
+    if (p.z > pce) {
+      p.z = pce - 0.02;
+      if (p.kind === 'gren') { p.vz = -Math.abs(p.vz) * 0.35; burstParts(p.x, p.y, p.z, 3, 1.0, '#ffd08a', 0.3, 0.06); }
+      else { addPart(p.x, p.y, p.z, 0, 0, -0.4, 0.22, '#9cff6a', 0.06, true); popOrb(p); PROJ.splice(i, 1); continue; }
+    }
     if (p.kind === 'gren') {
       p.trail = (p.trail || 0) + dt;
       if (p.trail > 0.03) { p.trail = 0; addPart(p.x, p.y, p.z, rnd(0.3), rnd(0.3), 0.2, 0.5, '#ffdd88', 0.05, true); }

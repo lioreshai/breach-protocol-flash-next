@@ -262,6 +262,14 @@ case "$out" in *"SMOKE PASSED"*) git add -A && git commit ;; *) echo NOT COMMITT
   watch whose condition simply never became true. Use a single-line test instead:
   `printf '%s' "$s" | grep -qE "^(MERGED|OPEN CLEAN)"` (`bg_21` worked first try). Same reason PR
   bodies must be written to a file or passed as one quoted `--body` string, never a heredoc in `if`.
+- **A VERT row can be silently absent while the lane prints green.** `vsetup(label, ok, detail)` *calls*
+  `expect` and **returns `ok`**, and the lane uses two shapes: `if (vsetup(...)) { … }` (V17) and
+  `if (!vsetup(...)) { } else { … }` (V13/V15). Writing the second as `if (!vsetup(...)) { <body> }` makes
+  the row execute **only when its setup failed**, so it never runs on a real level — no print, no assert,
+  every neighbour green. The tells are the lane's own **`N gating row(s)` count** (the counter lives in
+  `vrow`, so an absent row shows as arithmetic: V18's first version left it at 21, not 22) and a **control
+  run** (`git worktree add --detach /tmp/x HEAD`, copy the tool in, run the lane there). A row that has not
+  been seen to fail against a build without the fix has not been tested at all (#148 cost a cycle to this).
 - **A number that moved across a commit boundary is not evidence until the metric has been bisected too.**
   #139 was opened on a 40-point luminance drop between four README captions and their recapture, and closed
   as not a defect after four confounds, each of which looked like a finding on its own. **#91** changed what
