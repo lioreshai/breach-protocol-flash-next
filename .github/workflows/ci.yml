@@ -113,11 +113,10 @@ jobs:
           node tools/view.js cull
 
       - name: Composited exposure gate on the live page
-        # PARKED, REPORTING ONLY: level 2's median is outside the window on both layers (#143: raster 53,
-        # composited 38), so a blocking version of this step would be red on main and deadlock every PR - the
-        # release-guard precedent. Reporting is not gating, which is #47's own point, so #143 carries the flip
-        # condition: delete this line once level 2's median is inside 60-100 on both layers.
-        continue-on-error: true
+        # BLOCKING since the level-2 lamp fix (#143): level 2 read 53 raster / 38 composited and now reads 73 on
+        # both layers, with levels 0 and 1 generating byte-identical levels. Deliberately not continue-on-error -
+        # reporting is not gating, which is #47's whole point. #149 owns the tail this step still hides: the
+        # median passes on level 2 while 2 of 5 rolls do not, so read the printed rolls, not just the verdict.
         run: |
           set -euo pipefail
           # The brightness the player actually sees lives in the display canvas, AFTER bloom, grade,

@@ -34,6 +34,22 @@
 ### Changed
 
 ### Fixed
+- **Level 2 was dark before any post-processing: its lamp count never grew with its size.** `js/20_level.js:530`
+  loops `cfgL.lamps`, which is **6 / 8 / 9** for sizes **26 / 32 / 36** - 0.0089 lamps per cell on level 0 against
+  **0.0069** on level 2, 22% sparser in the biggest level. Its raster median read **42.5** (53 by the even-count
+  artifact below), under the documented 60, so bloom and the vignette were never the cause: switching each shipped
+  term off in turn attributes **+28.4 / +27.7 / +8.6** to bloom, **-1.9** to grade, **0.0** to grain, closing to
+  within 1.5 points of the composited frame on all three levels. `lamps: 9` to **16** at `:19` moves level 2 to
+  **73** on the raster and inside the window composited, while levels 0 and 1 generate byte-identical levels
+  (raster 73 / 76 with unchanged rolls, composited 86 / 90) and `smoke` stays green. This also lets the exposure
+  step in `ci.yml` be **un-parked**, which completes #47: brightness on the layer the player sees is now blocking,
+  not reported. Area-scaling the lamp formula instead of the literal was measured and rejected - it puts level 1
+  at 104-117 composited, outside the top of the window.
+  Filed rather than folded in: **#149**, because `:531` places lamps with `takeNear(1)` with no spacing or per-room
+  guarantee, so level 2's roll 0 stays at 37-48 in every config measured and part of this +35 is content churn (a
+  geometry-identical +10-lamp control buys only +23); and **#150**, because `js/40_render.js:780`'s
+  `brightness(1.5) contrast(2.1)` composes to `out = 3.15*in - 0.55`, an absolute threshold at in 44.5, so the
+  bloom *source* loses energy on a dark frame - gain **x0.67** on level 2 against **x1.28 / x1.22**.
 - **`tools/ci/assert.js` left a Chrome profile directory in `/tmp` on every run (#145).** The merged CI log
   ended with `left /tmp/breach-ci-WjYoXX behind: ENOTEMPTY: directory not empty, rmdir '.../Default'`: the
   cleanup removed the profile immediately after SIGTERMing Chrome, so the remove lost to a process that was still
