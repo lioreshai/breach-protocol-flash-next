@@ -199,12 +199,29 @@ case "$out" in *"SMOKE PASSED"*) git add -A && git commit ;; *) echo NOT COMMITT
   to keep: the ring is an **8**-neighbourhood (a rasterised silhouette steps diagonally), and the
   background reference is the median luminance of the outside-mask neighbours **of the same
   composited frame** — take it from the enemy-free render again and the shadow is out of the number.
-  The probe now has a verdict and a `process.exit`: cam1 is WEAK on main (coverage rule edge dL 17
-  against the shipped 24) where the diff rule said 14, and `probes` in `ci.yml` is reporting-only,
-  so a red contrast row now means the debt, not the tool. Its own baseline moved accordingly: cam0
+  The probe now has a verdict and a `process.exit`: cam1 is WEAK on main (coverage rule edge dL 16.65
+  against the shipped 24) where the diff rule said 14. That verdict was **not** free — see the next
+  bullet: `probes` in `ci.yml` aggregates exit codes, so giving the probe one made the job blocking and
+  every PR red, and cam1's shortfall now reports as a known-issue row (#179) instead. Its own baseline
+  moved accordingly: cam0
   0.5%/34/29/13 → 0.5%/32/28/17, cam1 1.1%/15/14/44 → 1.4%/12/17/38, cam2 0.2%/82/79/1 →
   0.2%/82/68/0. Pre-rim history still lives here: edge dL 13–22 with 24–60% of edge pixels within 10
   luminance of the wall behind them.
+- **A probe's new exit code is a gate change wearing a probe's clothes.** The `probes` job is
+  documented as *"they report, they do not gate"*, but `ci.yml:188-192` runs
+  `for p in alt exposure contrast rig stats sheets decal diag` and sets `status=1` if **any** of them
+  exits non-zero — so the first probe to gain a `process.exit` turns that job into a **blocking**
+  FAILURE row and `mergeStateStatus` into BLOCKED, and the job's `continue-on-error` does not save it,
+  because the row reports the step's own `exit $status`. A permanently-red row then teaches everyone to
+  ignore the rows that mean something. Ship a verdict with a **known-issue row** at the recorded
+  baseline instead of a threshold widened until the row cannot fail: report (`KNOWN`), go red only on a
+  regression past a *measured* floor, promote to a hard gate under `STRICT=1`, and print the debt in the
+  verdict line — the shape smoke's VERT lanes print as `25 gating row(s), 0 known-issue row(s)` and
+  `view.js contrast`'s cam 1 prints as `0 FAILURE(S) of 15 rows, 1 known-issue row`. A debt row still
+  has to be seen to fail: `STRICT=1` on unchanged content, and a shading A/B that crosses the floor
+  (`TINT=2` moves cam1 16.65 → 15.15 dL and 37.94% → 43.77% lost, past both floors, while `TINT=1`,
+  which only drops the colour jitter, moves it to 15.95 / 41.44% and stays a debt). Vacuity — nothing
+  drew, no ring, a nonzero leak — is a FAILURE, never a debt.
 - **`DEV.set('rim', false)` is a dead A/B switch and cannot be a control.** Bodies became meshes in
   #72 and nothing in the draw path calls `RIG` outside `js/90_dev.js` and `view.js rig`, so the
   shipped rim toggle moves no pixel: frame hashes at cam0/1/2 are identical with the rim on and off
