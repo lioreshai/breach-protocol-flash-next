@@ -88,8 +88,15 @@ const VH = +(process.env.VIEWPORT_H || 720);
 const STRIDE = +(process.env.STRIDE || 4);
 const PEAK_MIN = +(process.env.PEAK_MIN || 0.002);   // #157: "nothing threw" is not "audible"; full scale 1.0
 // #168: renders per sound before the verdict, odd so the median is one of the renders that happened.
-// Only reached when a render lands at or under PEAK_MIN, so a healthy run still renders each sound once.
-const RENDERS_MAX = Math.max(1, (+(process.env.RENDERS_MAX || 5) | 0) | 1);
+// Only reached when a render lands at or under PEAK_MIN, so a healthy run still renders each sound
+// once - measured, 37 renders for 37 sounds and the same ~2.6 s wall time as the one-draw gate. The cap
+// is therefore NOT a wall-time knob: it is paid only in a run that would otherwise have been decided by
+// luck. That luck is real but rare: on clean content the first draw landed at or under the floor in 4 of
+// 81 runs (draws of 0.00172-0.00200) across load 2.5-6.8. The cap is sized for p=0.12 rather than for
+// that point estimate, because the estimate's own interval runs that high and because load moves it: at
+// p=0.12 a median of 5 fails about 1 run in 60 and a median of 7 about 1 in 1000, which for a BLOCKING
+// check on an unrelated PR is the whole difference.
+const RENDERS_MAX = Math.max(1, (+(process.env.RENDERS_MAX || 7) | 0) | 1);
 const DEADLINE = +(process.env.DEADLINE || 300) * 1000;
 const url = 'file://' + path.join(ROOT, 'index.html') + '?dev=1&boot=0';
 
