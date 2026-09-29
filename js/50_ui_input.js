@@ -170,7 +170,7 @@ function frame(ts) {
   requestAnimationFrame(frame);
   // The canvas cannot show a thrown error, so keep the loop alive on screen and
   // show it instead - a silent freeze is otherwise indistinguishable from a stall.
-  try { frameInner(ts); S.err = null; }
+  try { frameInner(ts); if (!S.audioBroken) S.err = null; }
   catch (e) {
     noteError(e, 'frame');
     // A throw before renderWorld() must not freeze the picture - the simulation keeps

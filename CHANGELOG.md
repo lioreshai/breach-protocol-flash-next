@@ -1,5 +1,36 @@
 ## Unreleased
 
+### Fixed
+- **The game was silent, and had been for a while: `chain()` handed the pan argument straight to
+  `connect()`.** Every positional sound passes `panOf(e)`, which returns `Math.sin()` - a **number**
+  (`js/30_entities.js:454`) - while `chain(node, pan)` (`js/00_core.js:98`) did `node.connect(pan)`, so the
+  executing statement was `gainNode.connect(0.4)` → *"Failed to execute 'connect' on 'AudioNode': Overload
+  resolution failed"*. The node factory that branch wanted, `panner(rel)`, was called from nowhere in `js/`,
+  so the only working branch was unreachable; `pan === 0` was the single value that survived (`if (pan)`
+  falsy), and `Math.sin()` is rarely 0. It got worse than one bad sound: the fault wrapper
+  (`js/00_core.js:205-214`) catches, **closes the context** and leaves every `SND.*` method a no-op, so the
+  first enemy at your left flank silences the game for the rest of the page's life - measured on the
+  deployed build as `S.audioBroken: true` with `acState: "NO CONTEXT"` at boot, `S.sound` still true, no
+  exception escaping, `update()` healthy. `chain()` now takes a pan **position**, builds the `StereoPanner`
+  itself and clamps it to ±0.9; the dead `panner()` is gone. `S.err` also stops being erased while
+  `S.audioBroken` is set (`js/50_ui_input.js:173` cleared it on every successful frame, so the reason lived
+  for 16 ms - that is what "`Serr: null`" in an audio bug report actually meant).
+- **Audio now has a numeric gate, which it never had.** `node tools/ci/assert.js audio` drives 37 sounds
+  with the game's own argument conventions (pan as a number, weapon kinds from `WEAPONS`, enemy kinds from
+  the level configs), each through its **own** `OfflineAudioContext` at 44.1 kHz, and asserts on the
+  rendered waveform: nothing throws, nothing renders silence. Per-sound contexts matter - one graph that
+  dies and takes the bus with it is the bug being tested for. An `AnalyserNode` tap on a *live* headless
+  context was written first and rejected: `--headless=new` reads a render clock that does not advance, so
+  all 38 peaks came back as one constant (0.19631) and the audible half of the assert could not fail. Two
+  sounds are named as **not** covered rather than silently counted: `fanfare` (notes scheduled with
+  `setTimeout`, so offline rendering measures a stopwatch) and `startAmbient` (a loop, different waveform
+  per run). Verdict `AUDIO ok peak=0.27984, 37/37 sounds render signal` / `AUDIO GATE FAIL`, exit 1 on
+  failure, 3 when the harness itself could not look (a build whose `SND.init` takes no context argument
+  prints *"this harness being blind, not the game being silent"* instead of a fake red). Controls: fixed
+  build with only `chain()` reverted → **exit 1, 37/37 threw**, `S.err` naming `Object.chain … :104:38`;
+  pre-#157 build → exit 3, not a false green. `SND.init(ctx)` is the seam that makes this possible and the
+  game never passes an argument. Closes #157.
+
 ### Changed
 - **The vertical milestones now say what the tools measure, because one of them said something false.**
   `AGENTS.md` recorded M3 as shipped - "~~bands + links~~ (issue #14 closed)" - and put the current marker
