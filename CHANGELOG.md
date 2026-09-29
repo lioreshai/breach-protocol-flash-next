@@ -66,6 +66,30 @@
   flat grid the player never receives.
 
 ### Added
+- **The exposure gate now samples the frame the player actually sees first, and it fails on its own.**
+  Every brightness sampler in the repo — `tools/view.js exposure`, `tools/ci/assert.js exposure` — parked
+  the camera in an arbitrary open cell, spun it through 6 yaws and ran 20–120 `update()` frames before
+  measuring, so all of them asserted a *median over rolls of a pose nobody plays* while the first frame of
+  the level was in no gate: the live page read **12.73 / 51.41 / 129.07** means (mids 18.34 / 47.93 /
+  149.40) at the spawn pose against the 60–100 target, while the same build asserted **86 / 90 / 73**
+  (#155). `view.js exposure` now prints a **spawn** column (mean + centre-half `mid`, same dice as its
+  rolls column, on the same generated level, no `update()`), and `tools/ci/assert.js exposure` asserts it
+  on a separate band, **35–75** on the composited frame, in a verdict that accounts for both numbers. The
+  band is the gap between two rendered failure states, not a fit: measured on this geometry, a spawn frame
+  with every lamp unlit reads **13.0 / 14.4 / 32.2** (and 3.7–17.3 with the ambient zeroed too) while a
+  lamp 1 m from the lens reads **79.4–137.5** mean, so 35 sits above the brightest unlit render and 75
+  below the dimmest lamp-in-the-lens view. It is asserted on the median of the same 5 seeded rolls because
+  one fixed pose is a view class rather than a property of the level — the per-roll values range 21–137
+  and straddle *both* anchors, so they are printed and not judged; `mid` is printed and not judged because
+  its anchors overlap (a lightless level 2 reads mid 40.1 while L1's spawn median mid is 31). Two controls,
+  both reverted: narrowing `SPAWN_MAX` to 55 fails level 0's spawn line with the median line still `ok`
+  (exit 1), and zeroing `MAP.light` at the spawn frame only collapses the spawn numbers to 13 / 15 / 29
+  while the asserted medians stay 86 / 90 / 73 — #155's defect class, caught. The pose is written
+  explicitly rather than trusted: `P.ang` is the heading (there is no `P.yaw`), and `P.z` is the **feet** —
+  `js/40_render.js:103` adds `cfg.eye`, so setting `floorAt + cfg.eye` would have raised the eye a full
+  unit off the floor and measured a floating camera. No light authoring or lamp placement is touched here:
+  that is the follow-up once #149 lands, and if it brightens spawn views past 75 this step goes red and the
+  band gets re-derived from the two anchors, not nudged.
 - **`DEV.lum([{stride}])` reports the luminance of the frame the player actually sees, and CI prints it.**
   `mean` is Rec.709 luma over the whole display canvas (after bloom, grade, grain and the HUD), `mid` over the
   centre half-window - two windows that are not interchangeable, and on this layer `mid` runs 8 to 20 points
