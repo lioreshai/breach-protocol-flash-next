@@ -2342,21 +2342,22 @@ if (MODE === 'contrast') {
      rises past the number and the row goes RED. "Banded lighting is the cause" is falsified by exactly
      that measurement - and on level 0 it is already false: the flat control reads 21 where the banded
      frame reads 20, so on this level the band costs ~1 dL and the shortfall is the room's own light. */
-  const POSE_FLOOR = 13, BANDTOL = 3;
+  const POSE_FLOOR = 13, BANDTOL = 3, POSE_LOSTCEIL = 45, BANDED_FLOOR = 12, BAND_LOSTCEIL = 45;
   const STRICT = !!process.env.STRICT;
   const PLANE = +run('cfg.plane');                       // camera half-width in dir units: atan() is the half-FOV
   const FOVH = Math.atan(PLANE) * 180 / Math.PI;
   const FOVH_JS = Math.atan(PLANE);                      // the same half-FOV in radians, for the pose fan
   let bad = 0, nrows = 0, known = 0;
+  const knownIssues = new Set();   // which issues the KNOWN rows are carrying, in the order they appeared
   // a row that could not measure anything is a FAILURE, never a KNOWN: a row that silently skips is
   // the "probe that cannot fail" this rewrite exists to remove, so vacuity stays out of the debt branch.
   const row = (label, ok, detail, debt) => {
     nrows++;
     const gate = ok || !debt || STRICT;
-    console.log('    ' + label.padEnd(42) + (ok ? ' ok  ' : gate ? ' FAIL' : 'KNOWN') + '  ' + detail +
+    console.log('    ' + label.padEnd(46) + (ok ? ' ok  ' : gate ? ' FAIL' : 'KNOWN') + '  ' + detail +
       (ok || !debt ? '' : '  [' + debt + ' debt' + (STRICT ? ', gated by STRICT=1' : '') + ']'));
     if (ok) return;
-    if (gate) bad++; else known++;
+    if (gate) bad++; else { known++; knownIssues.add(debt); }
   };
   const NB = [[-1, -1], [0, -1], [1, -1], [-1, 0], [1, 0], [-1, 1], [0, 1], [1, 1]];
   const BRAD = 0.35;                       // a body's own radius: the march clears it past its NEAR edge
@@ -2394,12 +2395,15 @@ if (MODE === 'contrast') {
   console.log('contrast: every camera POSES one body by a geometric march on its own band before it measures '
     + '(cam 2 has always done that; #189 is why all three must) - a body a slab legitimately hides stays '
     + 'hidden, and is counted and named on the occlusion line instead of emptying the mask.');
-  console.log('contrast: cam ' + DEBT.cam + "'s verdict row is a known-issue row by design - its separation on " +
-    'unmodified shipped content measures edge dL ' + DEBT.dl + ' / lost ' + DEBT.lost + '% at level 0 SEED ' + SEED +
-    ', under the ' + DLMIN + ' it is held to. That row reports (KNOWN) instead of failing and turns red '
-    + 'only below ' + DEBT.dlFloor + ' dL or above ' + DEBT.lostCeil + '% lost, i.e. when the debt GROWS. '
-    + 'Tracked in ' + DEBT.issue + ' (Epic A); STRICT=1 gates it as it stands, so the term that pays it '
-    + 'can be A/B\'d against a green baseline.');
+  console.log('contrast: cam ' + DEBT.cam + "'s read row is SPLIT (#188): a FOUND-body row keeps " + DEBT.issue +
+    '\'s recorded floors and is the only row that can say the debt is paid, and a POSED-body row is measured\n' +
+    'contrast: against floors taken from a POSEONLY sweep, because a posed body on this same camera and cell reads '
+    + 'far above a found one - 44 dL vs ' + DEBT.dl + ' under FLAT=1 - so one row accepting either would report '
+    + DEBT.issue + '\n' +
+    'contrast: paid with no shading term landing. Rows that cannot measure because the CONE is shallower than a\n' +
+    'contrast: body report #189 with the march\'s own bound beside them; rows that cannot measure for any other\n' +
+    'contrast: reason are FAILUREs. cam 2\'s banded WEAK reports ' + DEBT.issue + ' with an in-run at-datum control as its\n' +
+    'contrast: falsifier, and STRICT=1 promotes every KNOWN row to a hard FAIL.');
   /* #180 puts the rifle in the raster, so it is now part of what a pair of renders must hold FIXED.
      drawViewModel damps its look-lag against wall-clock dt (VM.now = performance.now()), so two
      frames rendered back to back are NOT the same pose - which is fatal here, because this probe's
@@ -2450,10 +2454,14 @@ if (MODE === 'contrast') {
       /* coneMax = the furthest the SAME __march lets a body stand at all (clear minus its own radius,
          best over the rays the search samples) - the bound the #189 conditional is read from, so it
          cannot be inflated without changing the march that places bodies, and the row that prints it
-         goes red rather than known if someone inflates it. spotBand / spotPlace are the census of what
-         the search refused: spots that were floor and band but past a lip, and spots the whole test
-         accepted (a pose that fails with spotPlace > 0 failed for a body-handling reason, not #189). */
-      let coneMax = 0, spotBand = 0, spotPlace = 0;
+         goes red rather than known if someone inflates it. The three counters are the census of what
+         the search refused, and all three are needed because "the cone is 0.4 m deep" and "the search
+         never ran" look the same from coneMax alone: tried counts every candidate point examined,
+         offBand counts those in a wall or on ANOTHER band (the raised quadrant past a lip - cam 1 on
+         the CI cell, where every candidate is off-band, not merely past a lip), pastLip counts those
+         on the band but beyond the march, and placeable is what the whole test accepted - a pose that
+         fails with placeable > 0 failed for a body-handling reason, not #189. */
+      let coneMax = 0, spotTried = 0, spotBand = 0, spotPlace = 0, spotOff = 0;
       const alive = ENEMIES.reduce((n, q) => n + (q.state !== 'dead' ? 1 : 0), 0);
       const band = floorAt(P.x, P.y);
       if (ENEMIES.length) {
@@ -2470,10 +2478,10 @@ if (MODE === 'contrast') {
           for (let d = Math.min(3.5, Math.max(${POSEFLOOR}, cl * 0.7)), k = 0; k < 30 && d >= ${POSEFLOOR}; k++, d -= 0.12) {
             const bx = P.x + cx * d, by = P.y + cy * d;
             const onBand = !isSolid(bx, by) && Math.abs(floorAt(bx, by) - band) <= 1e-6;
-            if (onBand) {
-              if (d > cl - ${BRAD}) spotBand++; else spotPlace++;
-              if (d > cl - ${BRAD}) continue;
-            } else continue;
+            spotTried++;
+            if (!onBand) { spotOff++; continue; }
+            if (d > cl - ${BRAD}) { spotBand++; continue; }
+            spotPlace++;
             const e = victim();
             if (!e) { poseWhy = 'every body is dead'; break; }
             window.__foundPos = { x: e.x, y: e.y, z: e.z, ang: e.ang };
@@ -2486,7 +2494,7 @@ if (MODE === 'contrast') {
       }
       for(const e of ENEMIES)e.state='sleep';
       return {n:ENEMIES.length, pose:poseD, why:poseWhy, clear:clear, band:band, off:poseOff, poseClear:poseClear,
-        coneMax:coneMax, spotBand:spotBand, spotPlace:spotPlace, alive:alive};
+        coneMax:coneMax, spotBand:spotBand, spotPlace:spotPlace, spotOff:spotOff, tried:spotTried, alive:alive};
     })()`);
     // arm the mask (null in play; this probe is its only caller) and any shading control
     run('if (!COV || COV.length !== BW * BH) COV = new Uint8Array(BW * BH);');
@@ -2525,6 +2533,7 @@ if (MODE === 'contrast') {
       const PF = new Uint32Array(run('px')), MP = new Uint8Array(run('COV'));
       posedPx = nCover(MP);
       posedSt = edgeOf(PF, MP, ringOf(MP));
+      posedSt.px = posedPx;
       // pixels the CROWD frame has that the posed body alone cannot account for = some other body drew
       for (let i = 0; i < N; i++) if (M[i] && !MP[i]) otherPx++;
       run('ENEMIES.length = 0; for (const q of __keep) ENEMIES.push(q);');
@@ -2536,24 +2545,28 @@ if (MODE === 'contrast') {
        again HERE, after the positions are restored, because "is a found body in the cone" is a question
        about the found frame - and when it says no, the row reports #189 with the cone bound instead of
        measuring an empty shot. */
-    let foundN = -1, foundSt = null, foundVis = 0, flatFound = null;
-    if (!NOBODY && !POSEONLY && camG.pose) {
-      foundVis = +run(`(()=>{if(window.__posed&&window.__foundPos){const p=window.__posed,f=window.__foundPos;
+    let foundN = -1, foundSt = null, foundVis = 0, foundIn = 0, foundStop = -1;
+    const ctlCache = {};
+    const control = (which) => ctlCache[which] || (ctlCache[which] = flatCtl(which));
+    if (!NOBODY && cam === DEBT.cam) {
+      const fq = run(`(()=>{if(window.__posed&&window.__foundPos){const p=window.__posed,f=window.__foundPos;
           p.x=f.x;p.y=f.y;p.z=f.z;p.ang=f.ang;}
-        const cx=Math.cos(P.ang),cy=Math.sin(P.ang);let n=0;
+        const cx=Math.cos(P.ang),cy=Math.sin(P.ang);let n=0,k=0,stop=1e9;
         for(const e of ENEMIES){if(e.state==='dead')continue;
           const dx=e.x-P.x,dy=e.y-P.y,d=Math.hypot(dx,dy);
           const fw=dx*cx+dy*cy,lat=cfg.plane*(dy*cx-dx*cy);
           if(!(d>0.01&&fw>0.2&&Math.abs(lat)<=fw))continue;
-          if(__march(P.x,P.y,dx/d,dy/d,d).dist>d-${BRAD})n++;}
-        return n})()`);
+          const m=__march(P.x,P.y,dx/d,dy/d,d);k++;if(m.dist>d-${BRAD})n++;if(m.dist<stop)stop=m.dist;}
+        return {n:n,k:k,stop:stop>1e8?-1:stop}})()`);
+      foundVis = fq.n; foundIn = fq.k; foundStop = fq.stop;
       if (foundVis) {
         run('S.t = 3.5; ' + VMREST + ' renderWorld();');
         const CF = new Uint32Array(run('px')), MC = new Uint8Array(run('COV'));
         foundN = nCover(MC);
         foundSt = edgeOf(CF, MC, ringOf(MC));
-        // the falsifier for THIS frame, taken while every body is still on its found spot
-        if (!(foundSt.dl >= DLMIN && foundSt.lost <= LOSTMAX)) flatFound = flatCtl(false);
+        foundSt.px = foundN;
+        // the falsifier for THIS frame, taken while every body is still on its FOUND spot
+        if (!(foundSt.dl >= DLMIN && foundSt.lost <= LOSTMAX)) control('found');
       }
     }
     // put the posed body back on its pose spot, so the posed control below matches the posed frame above
@@ -2566,18 +2579,23 @@ if (MODE === 'contrast') {
        row goes red. Flattening here rather than re-running with FLAT=1 matters: FLAT=1 flattens before
        the cameras are set, so it also RE-POSES the body at another distance (measured on L1/12345 cam 2:
        2.45 m banded vs 3.50 m flat, a -10 dL "band effect" that is a distance effect). */
-    const flatCtl = (posedOnly) => {
-      run('MAP.fz.fill(0); MAP.cz.fill(CZ_DEF); linkBoundaries(); for (const e of ENEMIES) e.z = floorAt(e.x, e.y);');
-      if (posedOnly) run('ENEMIES.length = 0; if (window.__posed) ENEMIES.push(window.__posed);');
+    function flatCtl(which) {
+      run('window.__fzS = MAP.fz.slice(); window.__czS = MAP.cz.slice();'
+        + ' MAP.fz.fill(0); MAP.cz.fill(CZ_DEF); linkBoundaries(); for (const e of ENEMIES) e.z = floorAt(e.x, e.y);');
+      if (which === 'posed') run('ENEMIES.length = 0; if (window.__posed) ENEMIES.push(window.__posed);');
       run('S.t = 3.5; ' + VMREST + ' renderWorld();');
       const FF = new Uint32Array(run('px')), MF = new Uint8Array(run('COV'));
       const st = edgeOf(FF, MF, ringOf(MF));
       st.px = nCover(MF);
-      run('ENEMIES.length = 0; for (const q of __keep) ENEMIES.push(q);');
+      /* A control that leaves the LEVEL flat is not a control, it is the next row's world: restore the
+         grid the level generated (and every body's z on it) before returning, so nothing measured after
+         this silently measures the datum. startLevel in the NEXT camera iteration is not the fix - it
+         would only hide the leak on the cameras that come later. */
+      run('MAP.fz.set(window.__fzS); MAP.cz.set(window.__czS); linkBoundaries();'
+        + ' ENEMIES.length = 0; for (const q of __keep) ENEMIES.push(q); for (const e of ENEMIES) e.z = floorAt(e.x, e.y);');
       return st;
-    };
-    let flatPosed = null;
-    if (!NOBODY && posedSt && !(posedSt.dl >= DLMIN && posedSt.lost <= LOSTMAX)) flatPosed = flatCtl(true);
+    }
+    if (!NOBODY && posedSt && !(posedSt.dl >= DLMIN && posedSt.lost <= LOSTMAX)) control('posed');
     let nMB = 0;
     for (let i = 0; i < N; i++) if (MB[i]) nMB++;
     // ---- the occlusion tally (#189): named, counted, reported - not swallowed into a zero mask ----
@@ -2675,6 +2693,25 @@ if (MODE === 'contrast') {
            clear or named as hidden, the two add up to the count, and a hidden one is block-nearer
            than it is body-farther. That a body IS hidden never fails this row (the slab is correct);
            a hidden body being uncounted, or nothing being left to measure, does. */
+    /* #189 is a GEOMETRIC reason for having nothing to measure, and it must be proven by the same march
+       that places the bodies rather than by a number written next to the row: coneMax is how far ANY
+       sampled ray of this frustum lets a body stand at all (its march distance minus the body's own
+       radius), spotBand counts on-band candidates the march refused at a lip. Cone max below the pose
+       floor with refusals above zero means "this cone is shallower than a body" - #189, a KNOWN row.
+       At or above the floor, a spot existed and the pose failed anyway: that is a bug in this probe and
+       stays RED. It is also why inflating the bound cannot rescue the row - the inflation has to be made
+       in __march's own answer, which is the value the pose is placed with. */
+    const m189 = !camG.pose && camG.coneMax < POSEFLOOR && camG.tried > 0 && !NOBODY;
+    const boundTxt = 'axis march stops at ' + camG.clear.toFixed(2) + ' m, cone max ' + camG.coneMax.toFixed(2) +
+      ' m against the ' + POSEFLOOR.toFixed(2) + ' m pose floor: ' + camG.tried + ' spot(s) examined in the frustum, ' +
+      camG.spotOff + ' off the band, ' + camG.spotBand + ' past a lip, ' + camG.spotPlace + ' placeable';
+    /* Every row below that needs a body IN THE FRAME is vacuous on this camera for the same geometric
+       reason, and vacuity here is not the silent skip the row() note forbids: it is conditional on a
+       measured bound (coneMax < the floor the pose uses, from __march itself), it prints that bound, and
+       cam 0 and cam 2 stay hard gates, so a mask that stopped working at the source still goes red on
+       the cameras whose cone is deep. A row that failed for a reason other than nothing drawing - a mask
+       that counts the ROOM, a partition that does not add up - is never labelled. */
+    const m189vac = m189 && nM === 0;
     const poseOk = camG.pose > 0 && !!posedB && !!posedB.vis && posedPx >= MINMASK;
     row('cam ' + cam + ' has a POSED body it can see', poseOk,
       camG.pose ? 'POSED at ' + camG.pose.toFixed(2) + ' m on band ' + camG.band.toFixed(2) +
@@ -2682,36 +2719,124 @@ if (MODE === 'contrast') {
         ', pose ray clear to ' + camG.poseClear.toFixed(2) + ' m, paints ' + posedPx + ' px alone (floor ' + MINMASK + ')' +
         (posedB && !posedB.vis ? ' - but the march disagrees: stops at ' + posedB.stop.toFixed(2) + ' m' : '') +
         (cam === 1 && slabB.length ? ' (the found body it was looking at is behind a slab at ' + slabB[0].stop.toFixed(2) + ' m)' : '')
-        : 'NO POSE: ' + camG.why + ', so this camera has nothing honest to measure');
+        : 'NO POSE: ' + camG.why + ' | ' + (m189 ? boundTxt
+          : camG.coneMax < POSEFLOOR ? 'the cone reaches only ' + camG.coneMax.toFixed(2) + ' m but the search examined '
+            + camG.tried + ' spot(s), so nothing here says #189: ' + boundTxt
+            : 'cone max ' + camG.coneMax.toFixed(2) + ' m is at or above the ' + POSEFLOOR.toFixed(2) + ' m floor and ' +
+              camG.spotPlace + ' spot(s) were placeable, so the pose failed for a reason that is NOT #189'),
+      !poseOk && m189 ? '#189' : undefined);
+    const partOk = inFr.length === visB.length + hidB.length && inFr.length >= 1 && badBlock === 0;
     row('cam ' + cam + ' frustum bodies are all accounted for',
-      inFr.length === visB.length + hidB.length && inFr.length >= 1 && !!posedB && !!posedB.inF && badBlock === 0,
+      partOk && !!posedB && !!posedB.inF,
       inFr.length + ' in frustum = ' + visB.length + ' clear + ' + hidB.length + ' hidden, posed body ' +
-      (posedB ? (posedB.inF ? 'in frustum and ' + (posedB.vis ? 'clear' : 'BLOCKED at ' + posedB.stop.toFixed(2) + ' m') : 'OUTSIDE the frustum') : 'missing') +
-      (badBlock ? ', ' + badBlock + ' hidden without a nearer block distance' : ''));
+      (posedB ? (posedB.inF ? 'in frustum and ' + (posedB.vis ? 'clear' : 'BLOCKED at ' + posedB.stop.toFixed(2) + ' m') : 'OUTSIDE the frustum')
+        : m189 ? 'missing because the cone cannot hold one | ' + boundTxt : 'missing') +
+      (badBlock ? ', ' + badBlock + ' hidden without a nearer block distance' : ''),
+      m189 && partOk ? '#189' : undefined);
     row('cam ' + cam + ' mask is bodies, not the room', nMB === 0 && nM > 0,
       nMB ? 'rendering with ENEMIES emptied still stamps ' + nMB + ' px of coverage - the mask is counting something other than the cast'
-        : !nM ? 'vacuous: nothing drew in the measured frame either, so this proves nothing about the mask'
-          : 'ENEMIES emptied -> coverage empty, so every one of the ' + nM + ' mask px below is a body\'s own draw');
+        : !nM ? 'vacuous: nothing drew in the measured frame either, so this proves nothing about the mask' +
+          (m189vac ? ' | nothing drew because no body is in the clear: ' + boundTxt : '')
+          : 'ENEMIES emptied -> coverage empty, so every one of the ' + nM + ' mask px below is a body\'s own draw',
+      m189vac && !nMB ? '#189' : undefined);
     row('cam ' + cam + ' silhouette is big enough', nM >= MINMASK, nM + ' px = ' + pct(nM) + ' of the frame' +
       (posedPx >= 0 ? ' (POSED body paints ' + posedPx + ' of them alone)' : '') +
-      (nM ? '' : ' - NOTHING DREW: rows below are not measurements'));
+      (nM ? '' : ' - NOTHING DREW: rows below are not measurements' + (m189vac ? ' | ' + boundTxt : '')),
+      m189vac ? '#189' : undefined);
     row('cam ' + cam + ' edge ring is measurable', enring >= RINGMIN && noBg === 0,
-      enring + ' ring px' + (noBg ? ', ' + noBg + ' with no background sample' : ''));
+      enring + ' ring px' + (noBg ? ', ' + noBg + ' with no background sample' : '') +
+      (!enring && m189vac ? ' | a ring of pixels a body painted, and no body painted any: ' + boundTxt : ''),
+      m189vac ? '#189' : undefined);
     const reads = nM >= MINMASK && enring >= RINGMIN && edgeDL >= DLMIN && lostPct <= LOSTMAX;
     // a measurement at all: something drew, the ring has pixels, and the mask does not leak. Only a
     // row that measured can owe a debt - vacuity is a FAILURE (see the row() note above).
     const measured = nM >= MINMASK && enring >= RINGMIN && leak <= LEAKMAX;
-    /* cam 1's WEAK verdict on unmodified content is the #179 debt, so it reports - unless the number
-       dropped below the recorded floor, which is a regression, not the debt. The gate above is
-       untouched for cam 0 and cam 2, which read and therefore keep failing outright. */
-    const debt = !reads && measured && cam === DEBT.cam &&
-      edgeDL >= DEBT.dlFloor && lostPct <= DEBT.lostCeil ? DEBT.issue : undefined;
-    row('cam ' + cam + ' body reads against the room' + (camG.pose ? ' (posed body in shot)' : ''), reads,
-      'edge dL ' + edgeDL.toFixed(0) + ' vs ' + DLMIN + ', lost ' + lostPct.toFixed(0) + '% vs ' + LOSTMAX +
-      (reads || cam !== DEBT.cam || !measured ? '' : debt
-        ? ' - debt, fails below ' + DEBT.dlFloor.toFixed(2) + ' dL or above ' + DEBT.lostCeil.toFixed(2) + '% lost'
-        : ' - the DEBT GREW: below the recorded floor ' + DEBT.dlFloor.toFixed(2) + ' dL / ' + DEBT.lostCeil.toFixed(2) + '%'),
-      debt);
+    /* THE DEBT, IN TWO PARTS (#188). On the volume branch the body in cam 1's shot is not necessarily a
+       body the GAME placed, and "#179 is paid" cannot be allowed to mean "the probe found somewhere to
+       stand a body" - a posed body on this very camera and cell reads 44 dL under FLAT=1 where a found
+       one reads 16.65. So cam 1 gets TWO rows, each with its own object and its own floor:
+         FOUND  every body where the game put it - the frame #179's floors were recorded against, and
+                the only frame that can say the debt is paid. Runs only when a placed body is in the
+                clear inside the cone; when none is, the row says #189 and prints the cone bound.
+         POSED  the single body the march parked in the clear - what a body the player could actually
+                see looks like. Its floor comes from the POSEONLY sweep below, and its ok is NOT
+                evidence about #179's term; the line says so.
+       For cam 0 and cam 2 the crowd frame stays the measured frame; cam 2's WEAK rides the banded floor
+       (#179/M5) with the in-run at-datum control as its falsifier. cam 0 keeps failing outright. */
+    if (cam === DEBT.cam) {
+      const fVac = !!foundSt && foundSt.px >= MINMASK && foundSt.en >= RINGMIN;
+      const fReads = fVac && foundSt.dl >= DLMIN && foundSt.lost <= LOSTMAX;
+      if (!bodies.length || NOBODY) {
+        row('cam 1 body reads - FOUND bodies', false,
+          NOBODY ? 'vacuous: NOBODY=1 emptied the scene, so there is no placement in the frame to judge - this row is a control and fails by design'
+            : 'vacuous: no living body in the level, so there is no placement to judge', undefined);
+      } else if (!foundVis) {
+        row('cam 1 body reads - FOUND bodies', false,
+          foundIn + ' body(ies) the GAME placed inside the cone, ' + foundVis + ' of them in the clear (nearest stop '
+          + (foundStop < 0 ? 'none' : foundStop.toFixed(2)) + ' m) - there is no found-body measurement to take | ' + boundTxt,
+          '#189');
+      } else {
+        const fCtl = (!fReads && fVac) ? control('found') : null;
+        const fDebt = !fReads && fVac && foundSt.dl < DLMIN && foundSt.dl >= DEBT.dlFloor && foundSt.lost <= DEBT.lostCeil
+          ? DEBT.issue : undefined;
+        row('cam 1 body reads - FOUND bodies', fReads,
+          'edge dL ' + foundSt.dl.toFixed(0) + ' vs ' + DLMIN + ', lost ' + foundSt.lost.toFixed(0) + '% vs ' + LOSTMAX +
+          ' on ' + foundN + ' px of coverage, ' + foundVis + '/' + foundIn + ' placed bodies in the clear' +
+          (fCtl ? ' | the SAME bodies on the SAME spots with the grid at the datum read ' + fCtl.dl.toFixed(0) + ' dL / '
+            + fCtl.lost.toFixed(0) + '% on ' + fCtl.px + ' px' : '') +
+          (fReads || !fVac ? '' : fDebt
+            ? ' - debt, fails below ' + DEBT.dlFloor.toFixed(2) + ' dL or above ' + DEBT.lostCeil.toFixed(2) + '% lost'
+            : fVac ? ' - the DEBT GREW: below the recorded floor ' + DEBT.dlFloor.toFixed(2) + ' dL / ' + DEBT.lostCeil.toFixed(2) + '%'
+              : ' - vacuous: ' + foundN + ' px / ring ' + foundSt.en + ' is under the ' + MINMASK + '/' + RINGMIN + ' floors'),
+          fDebt);
+      }
+      const pVac = !!posedSt && posedSt.px >= MINMASK && posedSt.en >= RINGMIN;
+      const pReads = pVac && posedSt.dl >= DLMIN && posedSt.lost <= LOSTMAX;
+      if (!pVac) {
+        row('cam 1 body reads - POSED body', false,
+          camG.pose ? 'vacuous: the posed body paints ' + posedPx + ' px with ring ' + (posedSt ? posedSt.en : 0) +
+            ', under the ' + MINMASK + '/' + RINGMIN + ' floors - not a measurement, not a debt'
+            : m189 ? 'nothing to measure, and the reason is the cone and not the shading: ' + boundTxt
+              : 'vacuous: ' + camG.why, camG.pose || !m189 ? undefined : '#189');
+      } else {
+        const pCtl = pReads ? null : control('posed');
+        const pFloor = Math.max(POSE_FLOOR, pCtl ? pCtl.dl - BANDTOL : POSE_FLOOR);
+        const pDebt = !pReads && posedSt.dl < DLMIN && posedSt.dl >= pFloor && posedSt.lost <= POSE_LOSTCEIL
+          ? DEBT.issue + ' (posed)' : undefined;
+        row('cam 1 body reads - POSED body', pReads,
+          'edge dL ' + posedSt.dl.toFixed(0) + ' vs ' + DLMIN + ', lost ' + posedSt.lost.toFixed(0) + '% vs ' + LOSTMAX +
+          ' on ' + posedPx + ' px (the crowd frame has ' + otherPx + ' px this body alone does not account for)' +
+          (pCtl ? ' | the SAME body on the SAME spot at the datum reads ' + pCtl.dl.toFixed(0) + ' dL on ' + pCtl.px +
+            ' px, so the band costs ' + (pCtl.dl - posedSt.dl).toFixed(0) + ' dL and the window opens at max(' + POSE_FLOOR +
+            ', ' + pCtl.dl.toFixed(0) + ' - ' + BANDTOL + ') = ' + pFloor.toFixed(1) : '') +
+          (pReads ? '' : pDebt ? ' | reported, NOT paid: a posed body reads high on cells where a found one does not'
+            : ' | below the measured floor ' + pFloor.toFixed(1) + ' dL, a regression rather than a debt'),
+          pDebt);
+      }
+    } else {
+      /* cam 2's WEAK on a banded level is #179/M5's lighting debt, and the in-run control is what makes
+         the label falsifiable instead of a synonym for "this room is dark": the same bodies on the same
+         spots with the grid at the datum. A shading term that lifts THAT past DLMIN while this number
+         stays here moves the floor to (control - BANDTOL) and turns this row RED; a control as weak as
+         this frame says the band is not the cause and the label is wrong on this cell. */
+      const ctlC = (reads || !measured || cam !== 2) ? null : control('crowd');
+      const bFloor = Math.max(BANDED_FLOOR, ctlC ? ctlC.dl - BANDTOL : BANDED_FLOOR);
+      const debt = !reads && measured && cam === 2 && edgeDL < DLMIN && edgeDL >= bFloor && lostPct <= BAND_LOSTCEIL
+        ? DEBT.issue : undefined;
+      row('cam ' + cam + ' body reads against the room' + (camG.pose ? ' (posed body in shot)' : ''), reads,
+        'edge dL ' + edgeDL.toFixed(0) + ' vs ' + DLMIN + ', lost ' + lostPct.toFixed(0) + '% vs ' + LOSTMAX +
+        (ctlC ? ' | the same bodies on the same spots at the datum read ' + ctlC.dl.toFixed(0) + ' dL on ' + ctlC.px +
+          ' px, so the band costs ' + (ctlC.dl - edgeDL).toFixed(0) + ' dL and the window opens at max(' + BANDED_FLOOR +
+          ', ' + ctlC.dl.toFixed(0) + ' - ' + BANDTOL + ') = ' + bFloor.toFixed(1) +
+          (ctlC.dl < DLMIN ? ' | NOTE: the control is ITSELF below ' + DLMIN + ', so on this cell the band is not the cause - '
+            + (DLMIN - ctlC.dl).toFixed(0) + ' dL of the ' + (DLMIN - edgeDL).toFixed(0) + ' dL shortfall is the room\'s own '
+            + 'light (the deficit even an unbanded level has here) and ' + (ctlC.dl - edgeDL).toFixed(0) + ' dL is the band' : '') +
+          ' | FALSIFIER for "banded lighting is the cause": a body-shading term that moves the datum control past ' + DLMIN +
+          ' while this number does not move pushes the floor over it and turns this row red' : '') +
+        (reads || cam !== 2 || !measured ? '' : debt ? ' - banded debt, fails below ' + bFloor.toFixed(1) + ' dL'
+          : ' - below the measured banded floor ' + bFloor.toFixed(1) + ' dL: a regression, not the debt'),
+        debt);
+    }
     row('cam ' + cam + ' diff mask leaks nothing', leak <= LEAKMAX,
       leak + ' px differ between the two renders but no body painted them' +
       (leak ? ' - a body-driven WORLD change is being counted as the body (#179)' : ''));
@@ -2740,7 +2865,7 @@ if (MODE === 'contrast') {
       ' [' + on.join(' ') + ']');
   }
   const debtTail = known ? ', ' + known + ' known-issue row' + (known > 1 ? 's' : '') + ' (' +
-    (STRICT ? 'FAILED under STRICT=1' : 'reporting') + ': cam ' + DEBT.cam + ' ' + DEBT.issue + ')' : '';
+    (STRICT ? 'FAILED under STRICT=1' : 'reporting') + ': ' + [...knownIssues].join(' ') + ')' : '';
   console.log(bad || known ? `CONTRAST ${bad} FAILURE(S) of ${nrows} rows` + debtTail
     : `CONTRAST ok - ${nrows} rows: bodies separate from the rooms they stand in` + debtTail);
   run('COV = null;');
