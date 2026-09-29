@@ -1522,15 +1522,45 @@ if (MODE === 'exposure') {
   const N = run('LEVELS.length'), reps = +(process.env.REPS || 4);
   const buckets = new Array(8).fill(0);
   let grand = 0, gpix = 0, gclip = 0, gdark = 0;
+  /* mid = mean of the CENTRE HALF of the frame, the same region DEV.lum calls mid (js/90_dev.js:235),
+     so the number here and the number tools/ci/assert.js prints off the display canvas mean one
+     thing. It is a region mean, NOT a median of luminances - reading it as one is how a bright lamp
+     off-centre looks like a dark frame. */
+  const lumOf = c => 0.2126 * (c & 255) + 0.7152 * (c >> 8 & 255) + 0.0722 * (c >> 16 & 255);
+  const med2 = a => { const s = a.slice().sort((x, y) => x - y), k = s.length; return k % 2 ? s[(k / 2) | 0] : (s[k / 2 - 1] + s[k / 2]) / 2; };
+  const midOf = (d, w, h) => {
+    let s = 0, k = 0;
+    const x0 = (w * 0.25) | 0, x1 = (w * 0.75) | 0, y0 = (h * 0.25) | 0, y1 = (h * 0.75) | 0;
+    for (let y = y0; y < y1; y++) { const row = y * w; for (let x = x0; x < x1; x++) { s += lumOf(d[row + x]); k++; } }
+    return k ? s / k : NaN;
+  };
   console.log('exposure: raster BEFORE bloom/grade/grain (the composited frame is not this number), '
     + reps + ' seeded rolls x 6 yaws per level, band 60-100 quoted against the MEDIAN not a mean');
+  console.log('  spawn column = the FIRST FRAME, no update(): the pose startLevel leaves (js/20_level.js:562-563\n' +
+    '  sets P.x/P.y from nearestOpen of the spawn room centre, P.ang is authored as a constant 0.6 there, and\n' +
+    '  P.z is the FEET - js/40_render.js:103 adds cfg.eye). One pose, one roll each, same dice as the rolls column.');
   for (let lv = 0; lv < N; lv++) {
     let sum = 0, n = 0;
     const hist = new Array(8).fill(0);
-    const rolls = [];
+    const rolls = [], spawnMeans = [], spawnMids = [];
     for (let r = 0; r < reps; r++) {
       seedRng(1000 + lv * 97 + r * 13);
       run(`S.mode='play'; S.locked=false; startLevel(${lv}, true);`);
+      /* #155: the frame the player actually sees first. Every sampler in this repo, this one included,
+         moved the camera to an arbitrary open cell and spun it through yaws, so the spawn frame was in
+         no gate while the medians below sat comfortably inside 60-100. Taken on the SAME generated level
+         as this roll, before the yaw loop re-poses the camera, so median and spawn on one line are
+         two views of one world rather than two worlds. The pose is written, not trusted, in the form
+         the other probes use: P.ang is the heading (there is no P.yaw) and P.z is the feet. */
+      const pose = run(`(()=>{const sx=P.x, sy=P.y, sa=P.ang;
+        P.x=sx; P.y=sy; P.ang=sa; P.pitch=0; P.vx=P.vy=P.vz=0; P.air=false; P.crouch=0;
+        P.z=floorAt(sx,sy); for(const e of ENEMIES) e.state='sleep';
+        return {z:P.z, f:floorAt(P.x,P.y)}})()`);
+      if (!(pose.z === pose.f)) console.log('  SPAWN-POSE FAIL level ' + lv + ' roll ' + r + ': P.z ' + pose.z + ' is not floorAt ' + pose.f);
+      run('renderWorld()');
+      const sW = run('BW'), sH = run('BH'), sd = new Uint32Array(run('px'));
+      let sSum = 0; for (let i = 0; i < sd.length; i++) sSum += lumOf(sd[i]);
+      spawnMeans.push(sSum / sd.length); spawnMids.push(midOf(sd, sW, sH));
       let rs = 0, rn = 0;
       // average over yaws: looking down the longest corridor over-weights fog
       for (let w = 0; w < 6; w++) {
@@ -1553,11 +1583,16 @@ if (MODE === 'exposure') {
       : (sorted[sorted.length / 2 - 1] + sorted[sorted.length / 2]) / 2;
     for (let b = 0; b < 8; b++) buckets[b] += hist[b];
     grand += sum;
+    const spSorted = spawnMeans.slice().sort((a, b) => a - b);
     console.log('  level ' + lv + '  mean ' + pad((sum / n).toFixed(0), 3) +
       '  median ' + pad(med.toFixed(0), 3) +
       '  rolls ' + rolls.map(v => pad(v.toFixed(0), 3)).join(' ') +
       '  spread ' + pad((sorted[sorted.length - 1] - sorted[0]).toFixed(0), 3) +
-      '  buckets ' + hist.map(v => (100 * v / n).toFixed(0)).join(','));
+      '  buckets ' + hist.map(v => (100 * v / n).toFixed(0)).join(',') +
+      '  | spawn mean ' + pad(med2(spawnMeans).toFixed(0), 3) +
+      '  mid ' + pad(med2(spawnMids).toFixed(0), 3) +
+      '  rolls ' + spawnMeans.map(v => pad(v.toFixed(0), 3)).join(' ') +
+      '  spread ' + pad((spSorted[spSorted.length - 1] - spSorted[0]).toFixed(0), 3));
   }
   console.log('  ALL       mean ' + pad((grand / gpix).toFixed(0), 3) + '  buckets ' +
     buckets.map(v => (100 * v / gpix).toFixed(0)).join(',') +

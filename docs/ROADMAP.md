@@ -52,6 +52,17 @@ the way it is.
       take its fallback arena (#23) — a silent flat lit box is green CI telling a lie.
 - [ ] Re-baseline every number in `AGENTS.md` after that, and re-check the two decisions whose
       evidence was weakest (the rig size-class work was justified by a 10× claim from luck).
+- [ ] **Brightness was asserted on a pose nobody plays (#155) — now measured on both.** Every sampler
+      (`view.js exposure`, `tools/ci/assert.js exposure`) moved the camera to an arbitrary open cell, spun
+      it through 6 yaws and ran frames before sampling, so the **first frame** was outside every gate: the
+      live page read means **12.73 / 51.41 / 129.07** at the spawn pose while the same build asserted
+      **86 / 90 / 73**, all inside 60–100. Fixed in the measurement half (this PR): `view.js exposure`
+      prints a spawn mean/`mid` column on the same dice, `assert.js exposure` asserts the spawn median on
+      its own band **35–75** composited, derived from two rendered failure states — lamps unlit
+      **13.0 / 14.4 / 32.2**, lamp 1 m in the lens **79.4–137.5** — not from the spawn numbers. Both bands
+      are medians of 5 seeded rolls, because one fixed pose is a view class: measured per-roll 21–137 on
+      level 0, which straddles both anchors. The light-authoring half is **not** in this band of work (it
+      follows #149), so a spawn view that legitimately faces a dark wall is still allowed to be dark.
 - [x] Numeric altitude probes (`alt`, `drop`, `sight`, `cull`, `horizon`) — all five exist and run.
       `drop`, `sight`, `cull`, `horizon`, `heights`, `planes`, `vert` are in the **blocking** probe list
       (`ci.yml`) and pass with numbers: a 3 m drop lands at 7.21 m/s against 7.43 predicted and hurts
