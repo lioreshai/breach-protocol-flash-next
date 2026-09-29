@@ -2311,6 +2311,29 @@ if (MODE === 'contrast') {
       leak + ' px differ between the two renders but no body painted them' +
       (leak ? ' - a body-driven WORLD change is being counted as the body (#179)' : ''));
   }
+  if (process.env.ARMCOST) {
+    /* What the mask costs WHEN A PROBE ARMS IT - the only state in which it can cost anything, and
+       the number that says what a run of this probe pays. Interleaved rolls in one process, same
+       compiled script on both sides (ARM is a sandbox global, not a rewritten loop), median of 5
+       rolls of 100 frames, per the timing discipline. Camera and cast are cam 2's: the largest
+       silhouette in this probe, so the mask writes the most pixels. */
+    const med = a => { const s = a.slice().sort((x, y) => x - y); return s[s.length >> 1]; };
+    const off = [], on = [];
+    for (let r = 0; r < 5; r++) {
+      for (const arm of [0, 1]) {
+        run('window.ARM = ' + arm + ';');
+        const v = +run(`(function (){
+          const keep = COV; COV = ARM ? keep : null;
+          const t = []; for (let f = 0; f < 100; f++) { const a = Date.now(); renderWorld(); t.push(Date.now() - a); }
+          COV = keep; t.sort((x, y) => x - y); return t[50];
+        })()`);
+        (arm ? on : off).push(v);
+      }
+    }
+    console.log('arm cost (cam 2 frame, 5 interleaved rolls of 100 frames, ms/frame): off median ' +
+      med(off).toFixed(2) + ' [' + off.join(' ') + ']  armed median ' + med(on).toFixed(2) +
+      ' [' + on.join(' ') + ']');
+  }
   console.log(bad ? `CONTRAST ${bad} FAILURE(S) of ${nrows} rows` : `CONTRAST ok - ${nrows} rows: bodies separate from the rooms they stand in`);
   run('COV = null;');
   process.exit(bad ? 1 : 0);
