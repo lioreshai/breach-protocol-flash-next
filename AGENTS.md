@@ -179,11 +179,57 @@ case "$out" in *"SMOKE PASSED"*) git add -A && git commit ;; *) echo NOT COMMITT
 - **`view.js rig` dumps the RAW raster** (no `lr` multiply, no fog), so it shows a lighting
   change's upper bound. The rim that measured correctly in-game still looked like a neon outline
   in that sheet — use it to reject too-strong, never to confirm too-weak.
-- `view.js contrast` answers "do the characters read?" numerically: render the world, render it
-  again with `ENEMIES.length = 0`, and the difference *is* the silhouette mask — no projection
-  math, no depth guessing. cam0 = longest sight line, cam1 = nearest enemy, cam2 = enemy parked
-  3.5 m in front of the lens. Pre-rim baseline: edge dL 13–22, 24–60% of edge pixels within 10
-  luminance of the wall behind them (i.e. invisible outlines) on all three levels.
+- **A probe whose mask is a render difference cannot credit a body-driven change to the world.**
+  `view.js contrast` used to answer "do the characters read?" by rendering the world, rendering it
+  again with `ENEMIES.length = 0`, and taking the difference as the silhouette mask. The second
+  frame has no shadow in it by construction, so a shadow term never reaches `dl`, and a shadow that
+  lands OUTSIDE the silhouette **joins the mask** and moves the sampled edge onto the shadow's own
+  falloff boundary, where `dl` is tiny — measured on the contact-shadow branch (#179): cam1
+  **bit-identical** (dL 14, lost 44%) with a term computing a nonzero value on **4,410 of 37,651**
+  body pixels, while `cull` reported **113.0% / 182.3%** of the flat silhouette "surviving" and
+  `cover` went **1.1% → 33.3%**. A diff mask can see the mask's GEOMETRY, never the shading inside
+  it. The mask is now `COV`: who painted each pixel **last**, stamped at the mesh and billboard write
+  sites, cleared once per frame, `null` in play (armed only by this probe; interleaved against main
+  it costs nothing when off — 8 pairs of `WARM=1 scene 0 3`, 35.3 ms both sides, PNG md5 identical,
+  and 24/25/65 ms per frame at cam0/1/2 in contrast's own state with the mask **armed**). On the
+  same frames the coverage mask says what the diff mask could not: **52 / 566 / 0 px** on cam0/cam1/
+  cam2 are body pixels whose difference from the enemy-free render is ≤ 4 — 20% of cam1's silhouette
+  was pixels the old oracle structurally could not contain — and **`leak`**, pixels the diff mask
+  claims that coverage denies, is **0 on main**, which is the shadow bug made countable. Two rules
+  to keep: the ring is an **8**-neighbourhood (a rasterised silhouette steps diagonally), and the
+  background reference is the median luminance of the outside-mask neighbours **of the same
+  composited frame** — take it from the enemy-free render again and the shadow is out of the number.
+  The probe now has a verdict and a `process.exit`: cam1 is WEAK on main (coverage rule edge dL 16.65
+  against the shipped 24) where the diff rule said 14. That verdict was **not** free — see the next
+  bullet: `probes` in `ci.yml` aggregates exit codes, so giving the probe one made the job blocking and
+  every PR red, and cam1's shortfall now reports as a known-issue row (#179) instead. Its own baseline
+  moved accordingly: cam0
+  0.5%/34/29/13 → 0.5%/32/28/17, cam1 1.1%/15/14/44 → 1.4%/12/17/38, cam2 0.2%/82/79/1 →
+  0.2%/82/68/0. Pre-rim history still lives here: edge dL 13–22 with 24–60% of edge pixels within 10
+  luminance of the wall behind them.
+- **A probe's new exit code is a gate change wearing a probe's clothes.** The `probes` job is
+  documented as *"they report, they do not gate"*, but `ci.yml:188-192` runs
+  `for p in alt exposure contrast rig stats sheets decal diag` and sets `status=1` if **any** of them
+  exits non-zero — so the first probe to gain a `process.exit` turns that job into a **blocking**
+  FAILURE row and `mergeStateStatus` into BLOCKED, and the job's `continue-on-error` does not save it,
+  because the row reports the step's own `exit $status`. A permanently-red row then teaches everyone to
+  ignore the rows that mean something. Ship a verdict with a **known-issue row** at the recorded
+  baseline instead of a threshold widened until the row cannot fail: report (`KNOWN`), go red only on a
+  regression past a *measured* floor, promote to a hard gate under `STRICT=1`, and print the debt in the
+  verdict line — the shape smoke's VERT lanes print as `25 gating row(s), 0 known-issue row(s)` and
+  `view.js contrast`'s cam 1 prints as `0 FAILURE(S) of 15 rows, 1 known-issue row`. A debt row still
+  has to be seen to fail: `STRICT=1` on unchanged content, and a shading A/B that crosses the floor
+  (`TINT=2` moves cam1 16.65 → 15.15 dL and 37.94% → 43.77% lost, past both floors, while `TINT=1`,
+  which only drops the colour jitter, moves it to 15.95 / 41.44% and stays a debt). Vacuity — nothing
+  drew, no ring, a nonzero leak — is a FAILURE, never a debt.
+- **`DEV.set('rim', false)` is a dead A/B switch and cannot be a control.** Bodies became meshes in
+  #72 and nothing in the draw path calls `RIG` outside `js/90_dev.js` and `view.js rig`, so the
+  shipped rim toggle moves no pixel: frame hashes at cam0/1/2 are identical with the rim on and off
+  (`RIM=0` vs `RIM=1` with `PIXHASH=1 node tools/view.js contrast` → `63bfcab0 6c3c1250 42f22ef0`
+  both ways). To show that a contrast row responds to **body shading** rather than to mask geometry,
+  use `TINT=k` (the enemy's own per-individual colour the mesh shades with): `TINT=2` flips cam0
+  READS→WEAK and `TINT=0.35` flips cam1 WEAK→READS at **identical mask geometry** (999 / 2838 / 431
+  px in every run), which is the one thing the diff-mask version could never demonstrate.
 - Claiming a field is dead: grep **`tools/` too** — probe code strings hide reads (`bfsDist`
   looked dead and was the HUD's objective distance).
 - Background jobs race your commits and produce mis-subject commits, and **`git add -A` is not

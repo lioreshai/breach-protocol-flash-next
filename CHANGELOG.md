@@ -152,6 +152,58 @@
   than no citation. Finding them also changed the plan - authored bands must go in **before** `bfsReach` at
   `:492` (the comment at `:489-490` notes the BFS walks the array `MAP.fz` becomes), or the gate certifies a
   flat grid the player never receives.
+- **`contrast`'s new exit code made a reporting job blocking, so cam 1's shortfall is a debt row.**
+  The verdict shipped in the previous entry went **FAILURE** in `probes`: `ci.yml:188-192` runs
+  `for p in alt exposure contrast rig stats sheets decal diag` and sets `status=1` if any exits
+  non-zero, so a probe that always exits 1 on unmodified content is a permanent blocking row and
+  `mergeStateStatus` BLOCKED - the job's `continue-on-error` does not help, because the row reports the
+  step's own `exit $status`. Fixed in the tool, not by widening a threshold until the row cannot fail:
+  cam 1's *recorded* separation is now a **known-issue row** in the shape smoke's VERT lanes use
+  (`25 gating row(s), 0 known-issue row(s)`), counted in the verdict line -
+  `CONTRAST 0 FAILURE(S) of 15 rows, 1 known-issue row (reporting: cam 1 #179)`. It reports at the
+  baseline and goes red only when the debt **grows**: below edge dL **15.65** (recorded 16.65 minus 1)
+  or above **41.94%** lost (recorded 37.94% plus 4). Both floors are measured on level 0 SEED 12345 -
+  the configuration CI runs, deterministic to the digit over repeat runs - and bracketed by the knob
+  that moves body shading: unmodified **16.65 / 37.94%** is the debt, `TINT=1` (drops the
+  per-individual colour jitter, a neutral repaint) reads **15.95 / 41.44%** and stays a debt, `TINT=2`
+  (halves the body's light headroom) reads **15.15 / 43.77%** and trips **both** axes, and `DARKRING=1`
+  reads **37.19 / 0%**, which turns the row back into a plain `ok` and drops the count to 0 - paying
+  #179 is visible in the output. `STRICT=1` promotes the row to a hard FAIL (exit 1) so the term that
+  pays the debt can be A/B'd against a green baseline. Everything else keeps its teeth: an empty mask,
+  a nonzero leak, a too-small ring and the cam0/cam2 verdicts stay hard FAILs (cam0 **28 / 17%** and
+  cam2 **68 / 0%** read, so they are not debts), and `NOBODY=1` still prints **12** red rows rather
+  than confident zeros. Control, for a debt row that might be self-cancelling: the patched probe on
+  `a789064` carrying only the `COV` stamping hunks prints the same KNOWN row at exit 0 with identical
+  frame hashes (`63bfcab0 6c3c1250 42f22ef0`) and goes red under `STRICT=1` and `TINT=2` there too, so
+  the row tracks content rather than this branch's tooling - and on pristine `main` the probe cannot
+  even run (`COV is not defined`), because its oracle is the geometry-pass stamp, not the tool.
+- **`contrast`'s mask is coverage now, and the probe can fail.** The silhouette used to be
+  `|A - B| > 4`, where `B` is the same render with `ENEMIES.length = 0`, which cannot credit anything
+  a body changes in the *world*: `B` has none of it, and a shadow falling outside the silhouette joins
+  the mask and moves the sampled edge onto the shadow's own falloff, where `dl` is tiny. That is how
+  a contact shadow measuring a nonzero value on **4,410 of 37,651** body pixels left cam1
+  **bit-identical** (dL 14, lost 44%), while `cull` read **113.0% / 182.3%** of the flat silhouette
+  "surviving" and `cover` went **1.1% → 33.3%** (#179). The mask is now `COV` - who painted each
+  pixel last, stamped at the mesh and billboard write sites, cleared once per frame by `renderWorld`,
+  `null` in play - so a body pixel painted the same colour as the wall is *in* the mask and a shadow
+  behind a body is *background*. Ring = mask pixels with an outside neighbour in the 8-neighbourhood;
+  background reference = the median luminance of those outside neighbours **of the same composited
+  frame**. Five rows per camera with a verdict and a `process.exit`: mask-is-bodies (the enemy-free
+  render's coverage must be empty), silhouette big enough, ring measurable, body reads against the
+  room (the shipped `edge dL >= 24`, plus `lost <= 70%`), and **leak** - pixels the diff mask claims
+  that coverage denies, **0 px on main**, which is the shadow bug made countable. Coverage also sees
+  the pixels the diff mask structurally could not contain: **52 / 566 / 0** body pixels at cam0/cam1/
+  cam2 differ from the enemy-free render by <= 4, i.e. **20% of cam1's silhouette was invisible to
+  the oracle**. Numbers on the same frames, old rule then new: cam0 `0.5%/34/29/13%` →
+  `0.5%/32/28/17%`, cam1 `1.1%/15/14/44%` → `1.4%/12/17/38%` (WEAK under both rules, and now it
+  exits 1), cam2 `0.2%/82/79/1%` → `0.2%/82/68/0%`. Controls, each seen to move the verdict:
+  `NOBODY=1` gives an empty mask and 12 red rows instead of confident zeros, `DARKRING=1` (paint the
+  ring black - the scale a future contour term is judged on) takes cam1 from `17/38%` WEAK to
+  `37/0%` READS, and `TINT=k` flips verdicts at identical mask geometry, which is what the shipped
+  `DEV.set('rim', …)` can no longer do (bodies are meshes since #72; `RIM=0|1` hashes the same frame
+  both ways). Pixels are unchanged: `scene` md5s identical on all three levels, WARM PNG md5
+  identical across 16 interleaved runs, `exposure` ok, `SMOKE PASSED` with the VERT lane at 25
+  gating rows.
 
 ### Added
 - **The exposure gate now samples the frame the player actually sees first, and it fails on its own.**

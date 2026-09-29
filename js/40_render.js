@@ -176,11 +176,13 @@ function renderWorld() {
       atk: dying || e.atkT <= 0 ? 0 : 1 - clamp(e.atkT / e.type.wind, 0, 1),
       die: dying ? clamp(e.dieT / 0.55, 0, 1) : 0,
       dv: e.dv | 0,                                   // which death this enemy got at spawn (#82)
+      body: 1,                                        // coverage stamp for tools/view.js contrast
     });
   }
   /* ground decals first: they lie on the floor and must not paint over feet */
   for (const b of list) { const dx = b.x - camX, dy = b.y - camY; b.d2 = dx * dx + dy * dy; }
   list.sort((a, b) => b.d2 - a.d2);
+  if (COV) COV.fill(0);            // opt-in only: null in play, so this is one branch off the hot path
   for (const b of list) { if (b.mesh) MESH.draw(b); else drawBillboard(b); }
 
   bufCtx.putImageData(imgBuf, 0, 0);
@@ -929,6 +931,9 @@ function drawBillboard(o) {
       else { r = r2 * rlr + fR; g = g2 * rlg + fG; b = b2 * rlb + fB; }
       if (flashAdd) { r += (250 - r) * 0.72; g += (242 - g) * 0.72; b += (236 - b) * 0.72; }
       const A = a2 * alpha;
+      // coverage: a billboard is never a character (bodies are meshes since #72), so it stamps 0
+      // and erases the body it painted over. One branch, and COV is null in play.
+      if (COV) COV[i] = 0;
       if (A > 0.99) { px[i] = (0xFF000000 | clampi(b) << 16 | clampi(g) << 8 | clampi(r)) >>> 0; continue; }
       const IA = 1 - A;
       px[i] = (0xFF000000 | clampi(r * A + (dst & 255) * IA) | (clampi(g * A + (dst >> 8 & 255) * IA) << 8) |

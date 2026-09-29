@@ -2114,22 +2114,115 @@ if (MODE === 'heights') {
 }
 
 if (MODE === 'contrast') {
-  // Do the characters separate from the room they are standing in? Rendering the world twice,
-  // once with ENEMIES emptied, makes the difference EXACTLY the enemy silhouette - no projection
-  // math, no depth test guesswork, no dependence on how drawBillboard picks pixels. What matters
-  // for readability is the CONTRAST ALONG THAT SILHOUETTE'S EDGE, not the average over the body:
-  // a dark enemy on a dark wall is invisible even when its interior is perfectly shaded.
-  run('S.mode="play"; S.locked=false;');
+  /* Do the characters separate from the room they are standing in?
+
+     THE MASK IS COVERAGE, NOT A RENDER DIFFERENCE. It used to be |A - B| > 4, where B is the same
+     render with ENEMIES emptied, and that cannot credit anything a body changes in the WORLD: B has
+     no shadow in it by construction, so no shadow term ever reaches dl, and a shadow that falls
+     OUTSIDE the silhouette JOINS the mask, which moves the sampled edge onto the shadow's own
+     falloff boundary where dl is tiny. Measured on the contact-shadow branch (#179): cam1 read
+     BIT-IDENTICAL (dL 14, lost 44%) with a term computing a nonzero value on 4,410 of 37,651 body
+     pixels, `cull` reported 113.0% / 182.3% of the flat silhouette "surviving", and cover went
+     1.1% -> 33.3%. What a diff mask can see is the mask's GEOMETRY; the shading inside it is
+     invisible to it, and the shading is what this probe is for.
+
+     So the mask now comes from the body pass itself. COV (js/00_core.js, armed here, stamped at the
+     mesh and billboard pixel writes) records who painted each pixel LAST, 1 being a body's own
+     draw; renderWorld clears it once per frame and it is null in play. Two consequences, both the
+     point: a body pixel painted the SAME colour as the wall behind it is now in the mask - that
+     pixel is by definition one whose difference is 0, so the old mask could never contain it - and
+     a shadow behind the body is now BACKGROUND, where a shadow belongs.
+
+     RULES, identical for all three cameras:
+       mask        M[i] = 1 where a body's draw was the last writer of pixel i. An alpha-blended
+                   draw (a corpse fading) stamps too, so a fading body counts as drawn.
+       edge ring   a mask pixel inside rows/cols 1..n-2 (the same border margin the old loop used)
+                   with at least one of its EIGHT neighbours outside the mask. Eight, not four: a
+                   rasterised silhouette steps diagonally and a 4-neighbour ring calls those steps
+                   interior.
+       background  the MEDIAN luminance of the outside-mask neighbours in that pixel's 3x3, taken
+                   from the SAME composited frame as the body - one value, robust to the neighbour
+                   that is shadow and the one that is lit wall. A ring pixel with no outside-mask
+                   neighbour is counted and fails the ring row. edge dRGB's reference is the
+                   outside neighbour whose luminance is nearest that median, so the two numbers
+                   describe the same pixel.
+       thresholds  unchanged from the shipped probe: separated above dl 4, an edge pixel LOST below
+                   dl 10, verdict WEAK below edge dL 24. Plus: lost under 70%, mask at least
+                   MINMASK px, ring at least 8 px, an empty mask is a FAILURE rather than a zero,
+                   and every pixel the old diff mask claims but coverage denies is counted and
+                   fails - that leak IS the bug this rewrite fixes, made countable.
+
+     Controls (env, and each one is run before this branch is proposed for merge):
+       NOBODY=1   renders the measured frame with ENEMIES emptied: the mask must come back empty
+                  and every row must go RED. A probe that printed "lost 0%" here would repeat the
+                  exact defect it was written to fix.
+       DARKRING=1 paints the edge ring black in the frame before measuring, which is the scale a
+                  future contour-style term gets judged on: edge dL up, lost down.
+       TINT=k     repaints the bodies with their own per-individual tint, the colour the mesh shades
+                  with, so "the rows move with BODY shading, not with mask geometry" is testable.
+       RIM=0|1    runs RIG.setRim (the call DEV.set('rim', ...) makes) and prints a frame hash with
+                  PIXHASH=1, which is how this run shows the shipped rim switch no longer reaches
+                  the picture: #72 moved bodies off the rig raster onto the mesh, and nothing in
+                  the draw path calls RIG any more.
+       STRICT=1   promotes cam 1's #179 debt row from KNOWN to a hard FAIL, which is how the term that
+                  pays the debt gets A/B'd against a baseline that is green WITH the debt already paid. */
+  const W = run('BW'), H = run('BH'), N = W * H;
+  const lum = (b, i) => 0.2126 * (b[i] & 255) + 0.7152 * (b[i] >> 8 & 255) + 0.0722 * (b[i] >> 16 & 255);
+  const DARKRING = process.env.DARKRING === '1';
+  const NOBODY = process.env.NOBODY === '1';
+  const RIM = process.env.RIM === undefined ? -1 : +process.env.RIM ? 1 : 0;
+  const TINTK = process.env.TINT === undefined ? NaN : +process.env.TINT;
+  const PIXHASH = process.env.PIXHASH === '1';
+  const MINMASK = 200, DLR = 4, DLLOST = 10, DLMIN = 24, LOSTMAX = 70, RINGMIN = 8, LEAKMAX = 0;
+  /* cam 1's separation on unmodified shipped content is BELOW the DLMIN gate it is held to, and #179
+     (Epic A) is filed for the shading term that pays it. So that ONE row reports instead of failing -
+     the shape smoke's VERT lanes already print (`N gating row(s), N known-issue row(s)`) and that
+     `drop` and `cull` use above - and the day the term lands it becomes a plain ok row with no CI and
+     no workflow edit. It is NOT allowed to grow, and the floors below are measured, not guessed (all
+     cam 1, level 0, SEED 12345 - the configuration CI runs, deterministic to the digit over repeat
+     runs of the same build):
+       unmodified      edge dL 16.65   lost 37.94%   <- the recorded debt, printed KNOWN, exit 0
+       TINT=1          edge dL 15.95   lost 41.44%   drops the per-individual colour jitter: a neutral
+                                                   repaint, so still the debt rather than a regression
+       TINT=2          edge dL 15.15   lost 43.77%   halves the body's light headroom: a real loss of
+                                                   separation, and it trips BOTH floors
+       TINT=0, DARKRING edge dL 37     lost 0-1%     pays the debt: the row turns back into a plain ok
+     Hence the rule "the debt may not grow on either axis": recorded minus 1 dL, recorded plus 4 points
+     of lost. The dL axis separates TINT=1 from TINT=2 (0.30 / 0.50 of margin) and the lost axis
+     agrees with it on every state measured here, so the verdict does not rest on one number's rounding.
+     cam 0 and cam 2 are NOT debt rows - they read - and they keep failing outright. */
+  const DEBT = { cam: 1, issue: '#179', dl: 16.65, lost: 37.94, dlFloor: 15.65, lostCeil: 41.94 };
+  const STRICT = !!process.env.STRICT;
+  let bad = 0, nrows = 0, known = 0;
+  // a row that could not measure anything is a FAILURE, never a KNOWN: a row that silently skips is
+  // the "probe that cannot fail" this rewrite exists to remove, so vacuity stays out of the debt branch.
+  const row = (label, ok, detail, debt) => {
+    nrows++;
+    const gate = ok || !debt || STRICT;
+    console.log('    ' + label.padEnd(42) + (ok ? ' ok  ' : gate ? ' FAIL' : 'KNOWN') + '  ' + detail +
+      (ok || !debt ? '' : '  [' + debt + ' debt' + (STRICT ? ', gated by STRICT=1' : '') + ']'));
+    if (ok) return;
+    if (gate) bad++; else known++;
+  };
+  const NB = [[-1, -1], [0, -1], [1, -1], [-1, 0], [1, 0], [-1, 1], [0, 1], [1, 1]];
+  console.log('contrast: coverage-mask oracle on level ' + LVL + '  buffer ' + W + 'x' + H +
+    (DARKRING ? '  DARKRING' : '') + (NOBODY ? '  NOBODY' : '') +
+    (RIM >= 0 ? '  RIM=' + RIM : '') + (isNaN(TINTK) ? '' : '  TINT=' + TINTK));
+  console.log('contrast: cam ' + DEBT.cam + "'s verdict row is a known-issue row by design - its separation on " +
+    'unmodified shipped content measures edge dL ' + DEBT.dl + ' / lost ' + DEBT.lost + '% at level 0 SEED ' + SEED +
+    ', under the ' + DLMIN + ' it is held to. That row reports (KNOWN) instead of failing and turns red '
+    + 'only below ' + DEBT.dlFloor + ' dL or above ' + DEBT.lostCeil + '% lost, i.e. when the debt GROWS. '
+    + 'Tracked in ' + DEBT.issue + ' (Epic A); STRICT=1 gates it as it stands, so the term that pays it '
+    + 'can be A/B\'d against a green baseline.');
   for (let cam = 0; cam < 3; cam++) {
-    run(`startLevel(${LVL}, true); S.mode='play';`);
+    run(`startLevel(${LVL}, true); S.mode='play'; S.locked=false;`);
     run(`(()=>{
       const cs=[];for(let y=1;y<MH-1;y++)for(let x=1;x<MW-1;x++)if(!isSolid(x+.5,y+.5))cs.push([x,y]);
       const c=cs.length?cs[((cs.length*0.31+${cam})|0)%cs.length]:[P.x|0,P.y|0];
       P.x=c[0]+.5;P.y=c[1]+.5;P.pitch=0;P.z=floorAt(P.x,P.y);
       // cam 0 looks down the longest sight line, cam 1 looks AT the nearest enemy, cam 2 parks
       // the nearest enemy 3.5 m in front of the lens: the first measures specks on the horizon,
-      // the last measures the silhouette at the size a player actually has to read it, and with
-      // only ~0.2% of pixels covered an average is easily dominated by one lucky wall.
+      // the last measures the silhouette at the size a player actually has to read it.
       if (${cam} === 1 && ENEMIES.length) {
         let be=null,bd=1e9;
         for(const e of ENEMIES){if(e.state==='dead')continue;const d=Math.hypot(e.x-c[0]-.5,e.y-c[1]-.5);if(d<bd){bd=d;be=e;}}
@@ -2149,40 +2242,149 @@ if (MODE === 'contrast') {
         e.z = floorAt(e.x, e.y); e.ang = P.ang + Math.PI; e.movingAmt = 0;
       }
       for(const e of ENEMIES)e.state='sleep';
+      return {n:ENEMIES.length};
     })()`);
+    // arm the mask (null in play; this probe is its only caller) and any shading control
+    run('if (!COV || COV.length !== BW * BH) COV = new Uint8Array(BW * BH);');
+    if (RIM >= 0) run('RIG.setRim(' + RIM + ')');
+    if (!isNaN(TINTK)) run('for (const e of ENEMIES) e.tint = [' + TINTK + ',' + TINTK + ',' + TINTK + '];');
+    run('window.__keep = ENEMIES.slice();');
+    if (NOBODY) run('ENEMIES.length = 0;');
     run('S.t = 3.5; renderWorld()');
-    const A = new Uint32Array(run('px'));
-    run('ENEMIES.length = 0; renderWorld()');
-    const B = new Uint32Array(run('px'));
-    const W = run('BW'), H = run('BH');
-    const lum = (b, i) => 0.2126 * (b[i] & 255) + 0.7152 * (b[i] >> 8 & 255) + 0.0722 * (b[i] >> 16 & 255);
-    const cov = new Uint8Array(W * H);
-    let cover = 0, dsum = 0, csum = 0, lost = 0, edge = 0, en = 0, ez = 0;
-    for (let i = 0; i < W * H; i++) {
+    const A = new Uint32Array(run('px')), M = new Uint8Array(run('COV'));
+    // the cross-check frame: the same world with the bodies out, which is what the OLD mask was.
+    // Its coverage is the empty-mask control - the cast is out of the scene it rendered.
+    run('ENEMIES.length = 0; renderWorld();');
+    const B = new Uint32Array(run('px')), MB = new Uint8Array(run('COV'));
+    run('ENEMIES.length = 0; for (const q of __keep) ENEMIES.push(q);');
+    let nMB = 0;
+    for (let i = 0; i < N; i++) if (MB[i]) nMB++;
+    // ---- coverage mask + edge ring (8-neighbourhood) ----
+    const ring = [];
+    let nM = 0;
+    for (let y = 1; y < H - 1; y++) {
+      const r = y * W;
+      for (let x = 1; x < W - 1; x++) {
+        const i = r + x;
+        if (!M[i]) continue;
+        nM++;
+        if (M[i - 1] && M[i + 1] && M[i - W] && M[i + W] && M[i - W - 1] && M[i - W + 1] && M[i + W - 1] && M[i + W + 1]) continue;
+        ring.push(i);
+      }
+    }
+    if (DARKRING) for (const i of ring) A[i] = 0xFF000000;      // a contour term, hand-painted
+    let eDL = 0, eRGB = 0, lost = 0, noBg = 0, bDL = 0;
+    for (let t = 0; t < ring.length; t++) {
+      const i = ring[t], vals = [], idxs = [];
+      for (const o of NB) { const j = i + o[1] * W + o[0]; if (!M[j]) { vals.push(lum(A, j)); idxs.push(j); } }
+      if (!vals.length) { noBg++; continue; }
+      const srt = vals.slice().sort((p, q) => p - q);
+      const med = srt.length & 1 ? srt[srt.length >> 1] : (srt[(srt.length >> 1) - 1] + srt[srt.length >> 1]) * 0.5;
+      let k = 0, bk = 1e18;
+      for (let u = 0; u < vals.length; u++) { const d = Math.abs(vals[u] - med); if (d < bk) { bk = d; k = u; } }
+      const j = idxs[k], dl = Math.abs(lum(A, i) - med);
+      eDL += dl; eRGB += (Math.abs((A[i] & 255) - (A[j] & 255)) + Math.abs((A[i] >> 8 & 255) - (A[j] >> 8 & 255)) +
+        Math.abs((A[i] >> 16 & 255) - (A[j] >> 16 & 255))) / 3;
+      if (dl < DLLOST) lost++;
+    }
+    for (let i = 0; i < N; i++) if (M[i]) bDL += Math.abs(lum(A, i) - lum(B, i));
+    // ---- the OLD rule, kept as a cross-check on the same pixels ----
+    const cov = new Uint8Array(N);
+    let oCover = 0, oSum = 0, oEdge = 0, oEn = 0, oLost = 0, oRGB = 0, leak = 0;
+    for (let i = 0; i < N; i++) {
       const d = Math.abs(lum(A, i) - lum(B, i));
-      if (d > 4 || (A[i] >>> 24) - (B[i] >>> 24) !== 0) { cov[i] = 1; cover++; dsum += d; ez++; }
+      if (d > DLR || (A[i] >>> 24) - (B[i] >>> 24) !== 0) { cov[i] = 1; oCover++; oSum += d; if (!M[i]) leak++; }
     }
     for (let y = 1; y < H - 1; y++) for (let x = 1; x < W - 1; x++) {
       const i = y * W + x;
       if (!cov[i] || (cov[i - 1] && cov[i + 1] && cov[i - W] && cov[i + W])) continue;
-      // silhouette boundary pixel: compare the two renders where the enemy is NOT
       const j = cov[i - 1] ? i + 1 : cov[i + 1] ? i - 1 : cov[i - W] ? i + W : i - 1;
-      const dA = Math.abs(lum(A, i) - lum(B, j)), dB = Math.abs(lum(A, j) - lum(A, i));
-      const d = Math.max(dA, dB);
-      edge += d; en++;
-      const dl = Math.abs(lum(A, i) - lum(B, j));
-      if (dl < 10) lost++;
-      csum += (Math.abs((A[i] & 255) - (B[j] & 255)) + Math.abs((A[i] >> 8 & 255) - (B[j] >> 8 & 255)) + Math.abs((A[i] >> 16 & 255) - (B[j] >> 16 & 255))) / 3;
+      const dl = Math.max(Math.abs(lum(A, i) - lum(B, j)), Math.abs(lum(A, j) - lum(A, i)));
+      oEdge += dl; oEn++;
+      if (Math.abs(lum(A, i) - lum(B, j)) < DLLOST) oLost++;
+      oRGB += (Math.abs((A[i] & 255) - (B[j] & 255)) + Math.abs((A[i] >> 8 & 255) - (B[j] >> 8 & 255)) +
+        Math.abs((A[i] >> 16 & 255) - (B[j] >> 16 & 255))) / 3;
     }
-    const pct = (100 * cover / (W * H)).toFixed(1);
-    const body = ez ? (dsum / ez).toFixed(0) : '0';
-    const ed = en ? (edge / en).toFixed(0) : '0';
-    console.log('cam ' + cam + '  cover ' + pct + '%  body dL ' + body + '  edge dL ' + ed +
-      '  edge dRGB ' + (en ? (csum / en).toFixed(0) : '0') + '  lost ' + (en ? (100 * lost / en).toFixed(0) : '0') +
-      '%' + (en === 0 ? '  NO ENEMY IN FRAME' : +ed < 24 ? '   WEAK - silhouettes merge into the room' : '   READS'));
+    const ghost = nM - (oCover - leak);                          // drawn, and invisible in the diff
+    const pct = v => (100 * v / N).toFixed(1) + '%';
+    const f = (v, n) => (v ? (v / n).toFixed(0) : '0');
+    const enring = ring.length - noBg;
+    const covDL = nM ? bDL / nM : 0, edgeDL = enring ? eDL / enring : 0, edgeRGB = enring ? eRGB / enring : 0;
+    const lostPct = enring ? 100 * lost / enring : 0;
+    const verdict = !nM ? 'NO COVERAGE - the mask has no body in it'
+      : nM < MINMASK ? 'TOO SMALL - ' + nM + ' mask px is below the ' + MINMASK + ' px floor'
+      : !enring ? 'NO RING - nothing to sample'
+      : edgeDL < DLMIN || lostPct > LOSTMAX ? 'WEAK - silhouettes merge into the room' : 'READS';
+    console.log('cam ' + cam + '  ' + W + 'x' + H + (PIXHASH ? '  frame ' + (() => {
+      let h = 2166136261;
+      for (let i = 0; i < N; i += 7) h = ((h ^ A[i]) * 16777619) >>> 0;
+      return (h >>> 0).toString(16);
+    })() : ''));
+    console.log('  coverage   cover ' + pct(nM) + '  body dL ' + f(bDL, nM) + '  edge dL ' + f(eDL, enring) +
+      '  edge dRGB ' + f(eRGB, enring) + '  lost ' + lostPct.toFixed(0) + '%   ' + verdict);
+    console.log('  diff-mask  cover ' + pct(oCover) + '  body dL ' + f(oSum, oCover) + '  edge dL ' + f(oEdge, oEn) +
+      '  edge dRGB ' + f(oRGB, oEn) + '  lost ' + (oEn ? (100 * oLost / oEn).toFixed(0) : '0') + '%' +
+      '   (cross-check, the pre-#179 rule on these same pixels)');
+    console.log('  masks      coverage ' + nM + ' px vs diff ' + oCover + ' px  |  drawn-but-invisible ' +
+      ghost + ' px  |  diff-not-covered (leak) ' + leak + ' px  |  ring ' + enring + ' of ' + ring.length +
+      (noBg ? ' (' + noBg + ' with no outside neighbour)' : ''));
+    row('cam ' + cam + ' mask is bodies, not the room', nMB === 0 && nM > 0,
+      nMB ? 'rendering with ENEMIES emptied still stamps ' + nMB + ' px of coverage - the mask is counting something other than the cast'
+        : !nM ? 'vacuous: nothing drew in the measured frame either, so this proves nothing about the mask'
+          : 'ENEMIES emptied -> coverage empty, so every one of the ' + nM + ' mask px below is a body\'s own draw');
+    row('cam ' + cam + ' silhouette is big enough', nM >= MINMASK, nM + ' px = ' + pct(nM) + ' of the frame' +
+      (nM ? '' : ' - NOTHING DREW: rows below are not measurements'));
+    row('cam ' + cam + ' edge ring is measurable', enring >= RINGMIN && noBg === 0,
+      enring + ' ring px' + (noBg ? ', ' + noBg + ' with no background sample' : ''));
+    const reads = nM >= MINMASK && enring >= RINGMIN && edgeDL >= DLMIN && lostPct <= LOSTMAX;
+    // a measurement at all: something drew, the ring has pixels, and the mask does not leak. Only a
+    // row that measured can owe a debt - vacuity is a FAILURE (see the row() note above).
+    const measured = nM >= MINMASK && enring >= RINGMIN && leak <= LEAKMAX;
+    /* cam 1's WEAK verdict on unmodified content is the #179 debt, so it reports - unless the number
+       dropped below the recorded floor, which is a regression, not the debt. The gate above is
+       untouched for cam 0 and cam 2, which read and therefore keep failing outright. */
+    const debt = !reads && measured && cam === DEBT.cam &&
+      edgeDL >= DEBT.dlFloor && lostPct <= DEBT.lostCeil ? DEBT.issue : undefined;
+    row('cam ' + cam + ' body reads against the room', reads,
+      'edge dL ' + edgeDL.toFixed(0) + ' vs ' + DLMIN + ', lost ' + lostPct.toFixed(0) + '% vs ' + LOSTMAX +
+      (reads || cam !== DEBT.cam || !measured ? '' : debt
+        ? ' - debt, fails below ' + DEBT.dlFloor.toFixed(2) + ' dL or above ' + DEBT.lostCeil.toFixed(2) + '% lost'
+        : ' - the DEBT GREW: below the recorded floor ' + DEBT.dlFloor.toFixed(2) + ' dL / ' + DEBT.lostCeil.toFixed(2) + '%'),
+      debt);
+    row('cam ' + cam + ' diff mask leaks nothing', leak <= LEAKMAX,
+      leak + ' px differ between the two renders but no body painted them' +
+      (leak ? ' - a body-driven WORLD change is being counted as the body (#179)' : ''));
   }
+  if (process.env.ARMCOST) {
+    /* What the mask costs WHEN A PROBE ARMS IT - the only state in which it can cost anything, and
+       the number that says what a run of this probe pays. Interleaved rolls in one process, same
+       compiled script on both sides (ARM is a sandbox global, not a rewritten loop), median of 5
+       rolls of 100 frames, per the timing discipline. Camera and cast are cam 2's: the largest
+       silhouette in this probe, so the mask writes the most pixels. */
+    const med = a => { const s = a.slice().sort((x, y) => x - y); return s[s.length >> 1]; };
+    const off = [], on = [];
+    for (let r = 0; r < 5; r++) {
+      for (const arm of [0, 1]) {
+        run('window.ARM = ' + arm + ';');
+        const v = +run(`(function (){
+          const keep = COV; COV = ARM ? keep : null;
+          const t = []; for (let f = 0; f < 100; f++) { const a = Date.now(); renderWorld(); t.push(Date.now() - a); }
+          COV = keep; t.sort((x, y) => x - y); return t[50];
+        })()`);
+        (arm ? on : off).push(v);
+      }
+    }
+    console.log('arm cost (cam 2 frame, 5 interleaved rolls of 100 frames, ms/frame): off median ' +
+      med(off).toFixed(2) + ' [' + off.join(' ') + ']  armed median ' + med(on).toFixed(2) +
+      ' [' + on.join(' ') + ']');
+  }
+  const debtTail = known ? ', ' + known + ' known-issue row' + (known > 1 ? 's' : '') + ' (' +
+    (STRICT ? 'FAILED under STRICT=1' : 'reporting') + ': cam ' + DEBT.cam + ' ' + DEBT.issue + ')' : '';
+  console.log(bad || known ? `CONTRAST ${bad} FAILURE(S) of ${nrows} rows` + debtTail
+    : `CONTRAST ok - ${nrows} rows: bodies separate from the rooms they stand in` + debtTail);
+  run('COV = null;');
+  process.exit(bad ? 1 : 0);
 }
-
 if (MODE === 'anim') {
   /* #73: does an enemy's body change SHAPE while it walks? Asked literally - diff the body pixels
      between t and t + 0.4 s. Since #72 the mesh path gets no animation input at all

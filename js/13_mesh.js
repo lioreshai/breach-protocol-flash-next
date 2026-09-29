@@ -106,6 +106,7 @@ const MESH = (function () {
   const cam = { x: 0, y: 0, dirX: 0, dirY: 0, planeX: 0, planeY: 0, invDet: 1, tx: 0, ty: 0, tz: 0 };
 
   let tris = 0, pxFilled = 0, trisCulled = 0, SELF = true;
+  let BODY = false;                                   // o.body: a character, not a prop (COV stamp)
   let ALPHA = 1, FLASH = 0, TINT = null;               // per-draw terms the enemy list carries
   let EMIS = false, DIM = 0, EM = null;                // the light-exempt registers: entry-wide, per-vertex
   let R0 = 0.30, R1 = 0.85;                            // the Lambert ramp, per kind - see draw()
@@ -504,6 +505,11 @@ const MESH = (function () {
     if (x1 < x0 || y1 < y0) return;
     const COL = (255 << 24 | CB << 16 | CG << 8 | CR) >>> 0;
     const A = ALPHA, IA = 1 - A, SOLID = A >= 1;      // hoisted: the blend is a corpse's, not the rule
+    /* Coverage mask: hoisted so the global is read once per TRIANGLE, not per pixel, and when COV
+       is null (play) CW is null and the only cost in the loop is a predictable branch. The stamp is
+       LAST-WRITER-WINS because the list is sorted far to near: a crate drawn over a body stamps 0
+       and the body stops being silhouette, which is what the eye sees. */
+    const CW = COV, CTAG = BODY ? 1 : 0;
     const e0x = SX[1] - SX[0], e0y = SY[1] - SY[0], e1x = SX[2] - SX[0], e1y = SY[2] - SY[0];
     const det = e0x * e1y - e1x * e0y;
     if (det > -1e-9 && det < 1e-9) return;                      // degenerate in screen space
@@ -525,6 +531,7 @@ const MESH = (function () {
         // writing the winner is the whole point: without it these triangles are
         // painted in emit order, and a torso emitted before an arm loses to it
         if (SELF && z < occ) zbuf[off] = z;
+        if (CW) CW[off] = CTAG;
         if (SOLID) px[off] = COL;
         else {
           const dst = px[off];
@@ -562,6 +569,7 @@ const MESH = (function () {
     const yaw = (o.die || 0) >= 1 / PB.die ? (o.yaw || 0) + dieRow(o.kind || 'grunt', o.dv).yw : (o.yaw || 0);
     const cyw = Math.cos(yaw), syw = Math.sin(yaw);
     SELF = o.self === undefined ? true : !!o.self;
+    BODY = !!o.body;               // a character's draw: what COV stamps, see js/00_core.js
     /* EMIS is the entry-wide form of the exemption and EM the per-part one; either is enough to put a
        triangle's pixels on the billboard's light-free path. The billboard reaches it through a texel
        whose alpha byte is 253 or through o.self (js/40_render.js:703), and a mesh has neither, so

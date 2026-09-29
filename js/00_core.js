@@ -20,6 +20,11 @@ let DPR = 1, DW = 0, DH = 0;
 const bufCv = document.createElement('canvas');
 const bufCtx = bufCv.getContext('2d', { alpha: false });
 let BW = 0, BH = 0, imgBuf = null, px = null, zbuf = null;
+/* COV = an OPT-IN coverage mask for the geometry pass: null in play, so no draw site reads it.
+   A probe sets it to a Uint8Array(BW*BH); renderWorld clears it once per frame and the mesh and
+   billboard write sites stamp the pixels they paint with who painted them LAST (1 = a body's own
+   draw, 0 = anything else). tools/view.js contrast is the only caller. */
+let COV = null;
 
 /* ---------------- config ---------------- */
 let FOGC = [9, 12, 20];   // per level: air has a colour
