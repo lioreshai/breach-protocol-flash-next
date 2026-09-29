@@ -22,6 +22,19 @@ let G_TRI = false, G_GRIT = 0;                                  // derived from 
    it is a MULTIPLY on composited pixels, not an additive term the AMB floor sinks. World-scaled, so
    it stays SEAMW metres wide at any depth, and narrow, so it is an edge and not a shade. */
 let SEAM = 1, SEAMD = 0.62, SEAMU = 0.13, SEAMW = 0.16, SEAMC = 0.22;
+/* #178: contact shadow. A rim ADDS to the body, and the rig raster is multiplied by scene light at
+   composite, so an additive rim is weakest in the dark rooms that need separation most - AMB 0.19
+   floors it. This SUBTRACTS from the world a body occludes instead: a short radial falloff on the
+   floor of the body's own BAND, and a band on any face inside the same contact disc. A MULTIPLY on
+   lit pixels (the seam's mechanism at seamCrease), so it darkens whatever is there instead of
+   competing with a light constant. It paints pixels and NEVER writes zbuf - a shadow is not an
+   occluder (#163/#170). SHADOW_R is metres added to a body's collision radius to get the disc;
+   SHADOW_ZT is how far a floor pixel's plane may be from the body's feet plane and still take the
+   term (bands are quantized, so this is a band test, not a soft falloff); SHADOW_F is the falloff
+   exponent in t = 1-(d/R)^2, 2 being a tight ring and 1 a flat-topped disc; SHADOW_ZF is how much of
+   the term is left at the crown of the body's span on a face. */
+let SHADOW = 1, SHADOW_D = 0.55, SHADOW_R = 0.30, SHADOW_ZT = 0.02, SHADOW_F = 2,
+    SHADOW_ZF = 0.75, SHADOW_FAR = 18;
 /* The wall bilinear fetch is inlined at its one call site below rather than factored into a
    function that writes its result into a scratch array: a module-global typed-array out-param
    blocks V8 inlining and register allocation, and the same code inlined measured 21 -> 12 ms
@@ -117,6 +130,11 @@ function renderWorld() {
   const fcR = FOGC[0], fcG = FOGC[1], fcB = FOGC[2];
   const fcol = pack(FOGC[0], FOGC[1], FOGC[2]);
   px.fill(fcol);
+
+  /* #178: bodies register their contact disc before the world is drawn, so both ground copies and the
+     wall loop can darken the world they occlude for the price of one indexed read per pixel. Rebuilt
+     every frame - a body moves, a band moves - and allocated with the level. */
+  buildShadowGrid();
 
   castGround(flash, fcR, fcG, fcB);
   castWalls(flash, fcR, fcG, fcB);
@@ -344,6 +362,57 @@ function planeAlong(rx, ry, pl, isF, absP) {
   return pl;
 }
 
+/* One linked list per cell, in typed arrays grown with the level and reused every frame: no allocation
+   per frame, and a pixel whose cell holds no body costs one read. A body enters every cell its contact
+   disc touches (at most 9), so the ring of floor AND the face behind it both find it. SH_Z is the FEET
+   - floorAt at the body's own cell - so the band test a floor pixel applies is a comparison against it
+   and a body on the band above cannot darken the band you are on (#152 makes that reachable). */
+const SH_CAP = 96;
+let SH_HEAD = null, SH_NEXT = new Int32Array(SH_CAP), SH_N = 0;
+const SH_X = new Float64Array(SH_CAP), SH_Y = new Float64Array(SH_CAP), SH_Z = new Float64Array(SH_CAP);
+const SH_I = new Float64Array(SH_CAP), SH_H = new Float64Array(SH_CAP);
+function buildShadowGrid() {
+  const N = MAP.w, nn = N * N;
+  if (!SH_HEAD || SH_HEAD.length !== nn) SH_HEAD = new Int32Array(nn);
+  const head = SH_HEAD; head.fill(-1);
+  SH_N = 0;
+  if (!SHADOW) return;
+  const far2 = SHADOW_FAR * SHADOW_FAR;
+  for (let q = 0; q < ENEMIES.length && SH_N < SH_CAP; q++) {
+    const e = ENEMIES[q];
+    // a corpse that has finished fading draws no body, so it grounds no shadow either
+    if (e.state === 'dead' && e.dieT > 3.8) continue;
+    const ex = e.x - camX, ey = e.y - camY;
+    if (ex * ex + ey * ey > far2) continue;
+    const n = SH_N, r = SHADOW_R + e.r, fz = floorAt(e.x, e.y);
+    SH_X[n] = e.x; SH_Y[n] = e.y; SH_Z[n] = fz; SH_I[n] = 1 / (r * r); SH_H[n] = e.scale;
+    const x0 = (e.x - r) | 0, x1 = (e.x + r) | 0, y0 = (e.y - r) | 0, y1 = (e.y + r) | 0;
+    for (let cy = y0; cy <= y1; cy++) {
+      if (cy < 0 || cy >= N) continue;
+      for (let cx = x0; cx <= x1; cx++) {
+        if (cx < 0 || cx >= N) continue;
+        SH_NEXT[n] = head[cy * N + cx]; head[cy * N + cx] = n;
+      }
+    }
+    SH_N++;
+  }
+}
+
+/* t^SHADOW_F at a world point on a FLOOR, 0 outside every disc in the cell. Bands are compared by the
+   quantum: a body one slab up answers nothing at any distance, which is the rule `heights` and `cull`
+   gate. Returns the fraction to remove from the lit pixel, before the caller multiplies. */
+function shadowFloor(wx, wy, plane, k) {
+  for (; k >= 0; k = SH_NEXT[k]) {
+    const dz = plane - SH_Z[k];
+    if (dz > SHADOW_ZT || dz < -SHADOW_ZT) continue;
+    const dx = wx - SH_X[k], dy = wy - SH_Y[k];
+    const t = 1 - (dx * dx + dy * dy) * SH_I[k];
+    if (t <= 0) continue;
+    return (SHADOW_F === 2 ? t * t : Math.pow(t, SHADOW_F)) * SHADOW_D;
+  }
+  return 0;
+}
+
 function castGround(flash, fcR, fcG, fcB) {
   gSer++;                                  // invalidates the deferred-pixel constant memo
   const hInt = Math.round(horizon);
@@ -352,6 +421,7 @@ function castGround(flash, fcR, fcG, fcB) {
   const floorTex = MAP.floorTex || FLOORS.CONCRETE, ceilTex = MAP.ceilTex || CEILS.CONCRETE;
   const tileF = MAP.floorTile || 1.15, tileC = MAP.ceilTile || 0.9;
   const dMasks = DECAL_MASK, dGrid = DECAL_GRID;
+  const shm = SHADOW ? SH_HEAD : null;                     // #178, hoisted so the pixel loop reads a local
   const amb = AMB, fl = flash;
   const gndSteps = MAP.steps ? 1 : 0;                 // #170: 0 on every flat level, which is what keeps
   //                                      a flat frame free of any call to planeAlong and thus md5-clean
@@ -559,6 +629,14 @@ function castGround(flash, fcR, fcG, fcB) {
           r += ((s & 255) - r) * sa; g += ((s >> 8 & 255) - g) * sa; b += ((s >> 16 & 255) - b) * sa;
         }
       }
+      /* #178 contact shadow: the world the body occludes, darkened. Floor rows only, and only on the
+         band the body stands on. Both axes are tested before the index, because cIdx is one number and
+         gx === -1 with gy > 0 is a valid index into a cell on the far side of the level. A MULTIPLY on
+         the lit pixel, so the AMB floor that sinks an additive rim cannot sink this; no zbuf write. */
+      if (shm && isF && inMap) {
+        const sk = shm[cIdx];
+        if (sk >= 0) { const kk = 1 - shadowFloor(wx, wy, planeC, sk); r *= kk; g *= kk; b *= kk; }
+      }
       px[i] = 0xFF000000 | clampi(b) << 16 | clampi(g) << 8 | clampi(r);
     }
     /* second pass over the columns this row could not solve, in column order; each writes its own
@@ -667,6 +745,7 @@ function slabT(rx, ry, absP) {
 
 function groundPixel(x, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb, dP, plA) {
   const N = MAP.w, cellArr = MAP.cell, lm = MAP.light, fzs = MAP.fz, stepBase = 2 / BW;
+  const shm = SHADOW ? SH_HEAD : null;                      // #178, second copy of the ground pixel body
   const cam = x * stepBase - 1, rx = dirX + planeX * cam, ry = dirY + planeY * cam;
   // the cell this pixel's ray reaches at the ROW's distance: the shipped out-of-map fallback cell and
   // the anchor the floor half's settle test measures its two-cell proximity against
@@ -781,6 +860,19 @@ function groundPixel(x, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb, dP,
       r += ((s & 255) - r) * sa; g += ((s >> 8 & 255) - g) * sa; b += ((s >> 16 & 255) - b) * sa;
     }
   }
+  /* #178 contact shadow, the DEFERRED copy: same term, same band rule, same plane the ROW copy passes.
+     The branch passed `eyeZ - d*absP/BH`, the inverse of the row's plane solve; that expression no
+     longer round-trips here, because dS is now the memo's CLAMPED distance (FARB*4) and the under-a-slab
+     case carries a crossing's t rather than a plane solve. `pl` is the plane this pixel is painted on -
+     the same grid value planeC holds on a row-painted pixel - so the two copies of this body answer
+     identically at the same world point, which is what `heights`' deferred-pixel rows depend on. */
+  if (shm && isF && inMap) {
+    const sk = shm[cIdx];
+    if (sk >= 0) {
+      const kk = 1 - shadowFloor(cx, cy, pl, sk);
+      r *= kk; g *= kk; b *= kk;
+    }
+  }
   px[i] = 0xFF000000 | clampi(b) << 16 | clampi(g) << 8 | clampi(r);
 }
 
@@ -839,6 +931,7 @@ function castWalls(flash, fcR, fcG, fcB) {
   const flR = S.flashCol[0] / 255, flG = S.flashCol[1] / 255, flB = S.flashCol[2] / 255;
   const flashK0 = flash;
   const dmax = GQ ? GQ.dmax : 13, dMask = DECAL_MASK, dGrid = DECAL_GRID;
+  const shm = SHADOW ? SH_HEAD : null;                      // #178 contact shadow
   for (let x = 0; x < BW; x++) {
     const cam = x * stepBase - 1;
     const rdx = dirX + planeX * cam, rdy = dirY + planeY * cam;
@@ -977,6 +1070,25 @@ function castWalls(flash, fcR, fcG, fcB) {
     const tstep = mh * dz / (y1 - y0);                     // tiles per world unit, not per face
     let ty = (ds - y0) * tstep, idx = ds * BW + x;
     if (ty >= mh) ty %= mh;                                // v wraps every world unit
+    /* #178 contact shadow on a face. A face has ONE world x,y for its whole span, so the planar part of
+       the term is per COLUMN (two subs, two muls, one indexed read) and only the altitude term is per
+       pixel; shA/shB bound the body's own span from its feet up. Darkens the surface's LIGHT, not the
+       fog, and writes no zbuf. */
+    let shK = 0, shA = 0, shB = 1;
+    if (shm) {
+      const fhx = camX + rdx * perp, fhy = camY + rdy * perp;
+      const fcx = fhx | 0, fcy = fhy | 0;
+      if (fcx >= 0 && fcy >= 0 && fcx < N && fcy < N) {
+        for (let k = shm[fcy * N + fcx]; k >= 0; k = SH_NEXT[k]) {
+          const dx = fhx - SH_X[k], dy = fhy - SH_Y[k];
+          const t = 1 - (dx * dx + dy * dy) * SH_I[k];
+          if (t <= 0) continue;
+          const tt = (SHADOW_F === 2 ? t * t : Math.pow(t, SHADOW_F)) * SHADOW_D;
+          if (tt > shK) { shK = tt; shA = SH_Z[k]; shB = SH_Z[k] + SH_H[k]; }
+        }
+      }
+    }
+    const shS = shK > 0 ? 1 / Math.max(0.2, shB - shA) : 0, shZs = perp / BH;
     for (let y = ds; y <= de; y++, idx += BW) {
       zbuf[idx] = perp;
       const vy = ty; ty += tstep; if (ty >= mh) ty -= mh;
@@ -1009,7 +1121,14 @@ function castWalls(flash, fcR, fcG, fcB) {
         const h0 = DETAIL[(((y + 1) & 63) << 6) | ((x + 1) & 63)], h1 = DETAIL[((y & 63) << 6) | (x & 63)];   // table is 64x64; &31 used a quarter of it at a 32px period
         gk = Math.max(0.25, 1 + (h0 - h1) / 255 * 1.3 * grit);
       }
-      px[idx] = 0xFF000000 | clampi(cb * lb * gk + fB) << 16 | clampi(cg * lg * gk + fG) << 8 | clampi(cr * lr * gk + fR);
+      /* the body's contact band on this face: full at the feet, SHADOW_ZF of it at the crown, nothing
+         above the body - a band where the silhouette meets the wall, not a wash over the room */
+      let shM = 1;
+      if (shK > 0) {
+        const vv = (eyeZ - (y - horizon) * shZs - shA) * shS;
+        shM = vv <= 0 ? 1 - shK : vv >= 1 ? 1 - shK * SHADOW_ZF : 1 - shK * (1 - SHADOW_ZF * vv);
+      }
+      px[idx] = 0xFF000000 | clampi(cb * lb * gk * shM + fB) << 16 | clampi(cg * lg * gk * shM + fG) << 8 | clampi(cr * lr * gk * shM + fR);
     }
     pixFilled += (de - ds + 1);
 
