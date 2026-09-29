@@ -350,10 +350,15 @@ if (MODE === 'vert') {
       // since #152 the exit is chosen among the BAND-0 cells of bfsReach's own field, so "the exit is
       // at the far end" has to be measured by that rule - the flat-farthest cell may be a raised room
       const exitIdx0 = ((exitY | 0) * N + (exitX | 0));
+      const exitBand0 = MAP.fz[exitIdx0], exitD0 = bfsDist[exitIdx0];   // before the split poke below
+      let ties = 0;
       for (let i = 0; i < N * N; i++) {
         if (flat[i] >= 0) { rf++; if (flat[i] > mx) { mx = flat[i]; mxIdx = i; } }
         if (bfsDist[i] >= 0 && MAP.fz[i] === 0 && bfsDist[i] > fb) { fb = bfsDist[i]; fbIdx = i; }
       }
+      // js/20_level.js:595 scans with a strict > over ascending i, so a tie is the generator's own
+      // answer too: the claim is the DISTANCE and the band, not which argmax cell it landed on
+      for (let i = 0; i < N * N; i++) if (bfsDist[i] === fb && MAP.fz[i] === 0) ties++;
       const stepFz = new Int8Array(N * N); for (let i = 0; i < N * N; i++) stepFz[i] = (i % 3) ? 1 : 0;
       const dStep = bfsReach(MAP.cell, stepFz, N, start);
       let rs = 0; for (let i = 0; i < N * N; i++) if (dStep[i] >= 0) rs++;
@@ -364,12 +369,14 @@ if (MODE === 'vert') {
       for (let i = 0; i < N * N; i++) { if (dSplit[i] >= 0) rb++; if (flat[i] >= 0 && dSplit[i] < 0) blocked++; }
       const exitIdx = exitIdx0;
       MAP.fz = splitFz; linkBoundaries();
-      return { N: N, exitAtFar: fbIdx === exitIdx0 && MAP.fz[exitIdx0] === 0, exitDist: bfsDist[exitIdx0], farBand0: fb, rfAtExit: mx, reachFlat: rf, reachStep: rs, reachSplit: rb, blocked: blocked,
+      return { N: N, exitAtFar: exitBand0 === 0 && fb >= 0 && exitD0 === fb, exitDist: exitD0, farBand0: fb, rfAtExit: mx, reachFlat: rf, reachStep: rs, reachSplit: rb, blocked: blocked, ties: ties, exitQ: exitBand0, argmaxSame: fbIdx === exitIdx0 ? 1 : 0,
         warns: warns.length, exitSealed: dSplit[exitIdx] < 0, stamp: MAP.linkStamp };
     })()`, ctxVm);
     const ok = r.exitAtFar && r.reachStep === r.reachFlat && r.reachSplit < r.reachFlat && r.blocked > 0 && r.warns === 0 && r.exitSealed;
     if (!ok) bad++;
-    console.log(`level ${li}  N ${r.N}  exit is the far band-0 cell ${r.exitAtFar ? 'ok' : 'FAIL'} (d=${r.exitDist} of ${r.farBand0})` +
+    console.log(`level ${li}  N ${r.N}  exit is the far band-0 cell ${r.exitAtFar ? 'ok' : 'FAIL'} (d=${r.exitDist} of ${r.farBand0}, ` +
+      `${r.ties} cell(s) at that distance on the datum, exit column ${r.exitQ === 0 ? 'on the datum' : r.exitQ + ' quanta off it'}` +
+      `${r.argmaxSame ? ', same cell as the argmax' : ', a tied cell rather than the first argmax'})` +
       `  one-step walkable ${r.reachStep === r.reachFlat ? 'ok' : 'FAIL ' + r.reachStep + '/' + r.reachFlat}` +
       `  split reaches ${r.reachSplit}/${r.reachFlat} blocked ${r.blocked} ${r.blocked > 0 && r.reachSplit < r.reachFlat ? 'REFUSES ok' : 'FAIL'}` +
       `  exit sealed ${r.exitSealed ? 'ok' : 'FAIL'}  FALLBACK warns ${r.warns} ${r.warns === 0 ? 'ok' : 'FALSE POSITIVE'}  ${ok ? 'ok' : 'FAIL'}`);
@@ -390,14 +397,27 @@ if (MODE === 'vert') {
     `ENEMIES.length=0;for(const k in keys)delete keys[k];` +
     `P.vx=P.vy=P.vz=0;P.air=false;P.crouch=0;P.hp=100;P.armor=0;`;
   /* A lane is a straight run of open columns. With dy = 0 the only probe tryMove can reach is the
-     one pointing down the run, so a lane is a corridor the assertion owns end to end. */
+     one pointing down the run, so a lane is a corridor the assertion owns end to end. Since #152 a
+     lane also has to sit at ONE altitude, or the rows below walk across an authored step and measure
+     that instead of the lip they poked. */
   const LANE = `(()=>{for(let y=1;y<MH-2;y++)for(let x=1;x<MW-6;x++){let n=0;` +
-    `while(n<10&&x+n<MW-1&&!MAP.cell[y*MW+x+n])n++;if(n>=6)return{x:x,y:y,n:n};}return null})()`;
+    `while(n<10&&x+n<MW-1&&!MAP.cell[y*MW+x+n]&&MAP.fz[y*MW+x+n]===MAP.fz[y*MW+x])n++;if(n>=6)return{x:x,y:y,n:n};}return null})()`;
   /* A poke that leaves a face of span <= 0 is a grid fault and would blame the wrong code, so the
-     legality of every config is reported before any FAIL below is allowed to point at the player. */
-  const SPANS = `(()=>{let tot=0,bad=0;for(let i=0;i<MW*MH;i++){if(!MAP.cell[i])continue;const x=i%MW,y=(i/MW)|0;` +
-    `for(let d=0;d<4;d++){const nx=x+DIRX[d],ny=y+DIRY[d];if(nx<0||ny<0||nx>=MW||ny>=MH||MAP.cell[ny*MW+nx])continue;` +
+     legality of every config is reported before any FAIL below is allowed to point at the player.
+     The AIR side owns the ceiling plane - js/40_render.js:599 reads ceilPlane of the cell the eye is
+     in - so this walks open cells against solid neighbours, the way LEGAL below and view.js `planes`
+     already do. ceilAt of a solid column is the fiction AGENTS warns about; on a flat grid the two
+     sides agree, which is how the wall-side form survived until generation authored bands. Air-to-air
+     risers are NOT counted here: their face is the slab side [min floor, max floor], another rule. */
+  const SPANS = `(()=>{let tot=0,bad=0;for(let i=0;i<MW*MH;i++){if(MAP.cell[i])continue;const x=i%MW,y=(i/MW)|0;` +
+    `for(let d=0;d<4;d++){const nx=x+DIRX[d],ny=y+DIRY[d];if(nx<0||ny<0||nx>=MW||ny>=MH||!MAP.cell[ny*MW+nx])continue;` +
     `tot++;if(!(ceilAt(x,y)-faceZ0(x,y,d)>0))bad++;}}return{tot:tot,bad:bad}})()`;
+  /* Carrying: a wall column must reach down to the lowest band it bounds, or the face it shows has
+     span <= 0. Same pass as view.js heights' CARRY, and the reason a dig poke below must run it. */
+  const CARRY = `(()=>{for(let k=0;k<2;k++)for(let i=0;i<MW*MH;i++){if(!MAP.cell[i])continue;let m=MAP.fz[i];
+    for(let d=0;d<4;d++){const x=i%MW,y=(i/MW)|0,nx=x+DIRX[d],ny=y+DIRY[d];
+      if(nx<0||ny<0||nx>=MW||ny>=MH)continue;const n=ny*MW+nx;
+      if(!MAP.cell[n]&&MAP.fz[n]<m)m=MAP.fz[n];}MAP.fz[i]=m;}})()`;
   /* S.shake is in the sample because a support test that fires ON the floor self-cancels inside one
      frame (it lands before the sample) and is invisible to a post-update read - but the landing adds
      its impulse every frame, and an impulse that repeats while walking on flat ground is a bug. */
@@ -442,16 +462,32 @@ if (MODE === 'vert') {
     /* Blocking, walkable and drawn must be ONE byte: a quantum of floor is a stair the player
        walks up unasked, two quanta is a wall it stops at, and both are the same flag test. */
     for (const [name, dq, want] of [['a 1-quantum lip', 1, 'over'], ['a 2-quantum lip', 2, 'stop']]) {
-      run(CFG('', `for(let j=3;j<${N};j++)MAP.fz[${CY} * MW + ${CX} + j]+=${dq};`));
+      /* Absolute, not `+=`: the lane may already sit on a raised band, and a step written against a
+         cell whose own floor is unknown is not the step the row's name claims. CARRY keeps the wall
+         bases under the band they bound, so a face of span 0 cannot blame the renderer for this poke. */
+      run(CFG('', `const q=MAP.fz[${CY} * MW + ${CX}];` +
+        `for(let j=3;j<${N};j++)MAP.fz[${CY} * MW + ${CX} + j]=q+${dq};` + CARRY));
       const Z0 = run('P.z'), sp = run(SPANS), s = run(RUN(150, 'KeyW'));
+      /* The same byte that makes the face opaque makes it impassable, so the row names which side it
+         expects: the 1-quantum lip must NOT be VB_BLOCK (or auto-step has nothing to walk over) and
+         the 2-quantum one must BE VB_BLOCK (or the row passes on an invisible wall). */
+      const blk = run(`vbAt(${CX + 2.5},${CY + 0.5},0)&VB_BLOCK`);
+      const wantBlk = want === 'over' ? 0 : run('VB_BLOCK');
       const zs = s.map(r => r[1]), crossed = s[s.length - 1][0] > LIPX + 0.2;
       const air = s.filter(r => r[3]).length;
       const mid = zs.filter(z => z > zs[0] + 1e-9 && z < Z0 + dq * 0.25 - 1e-9).length;
       const endZ = zs[zs.length - 1], wantZ = Z0 + (want === 'over' ? 0.25 : 0);
-      const ok = sp.bad === 0 && air === 0 && endZ === wantZ && (want === 'over' ? crossed && mid > 0 : !crossed && mid === 0);
+      /* The rise must take ONE frame: js/30_entities.js:379 sets P.z = floorAt for a grounded rise of
+         at most ZQ, and the ease it replaced ran 26 frames to converge within 1e-4 (measured on the
+         flat build). Either direction is a regression now - a lift that drifts costs the camera 26
+         frames of climbing floor, a lift that never fires leaves endZ below wantZ - so mid is judged,
+         not printed. */
+      const ok = sp.bad === 0 && blk === wantBlk && air === 0 && endZ === wantZ && mid === 0 &&
+        (want === 'over' ? crossed : !crossed);
       VROW('auto-step over ' + name, ok,
-        `faces ${sp.tot - sp.bad}/${sp.tot} legal, crossed ${crossed ? 'yes' : 'no'}, P.z ${zs[0]} -> ${endZ} (want ${wantZ}), ` +
-        `rise spread over ${mid} intermediate frames, airborne ${air}`);
+        `faces ${sp.tot - sp.bad}/${sp.tot} legal, lip boundary ${blk ? 'VB_BLOCK' : 'walkable'} (want ${wantBlk ? 'VB_BLOCK' : 'walkable'}), ` +
+        `crossed ${crossed ? 'yes' : 'no'}, P.z ${zs[0]} -> ${endZ} (want ${wantZ}), ` +
+        `rise spread over ${mid} intermediate frames (want 0 - the snap at js/30_entities.js:379), airborne ${air}`);
       if (want === 'over') {
         const path = [];
         for (const r of s) if (!path.length || r[1] !== path[path.length - 1]) path.push(r[1]);
@@ -460,7 +496,8 @@ if (MODE === 'vert') {
     }
     /* A drop the collision path lets you walk off has to take FRAMES: the else branch used to snap
        P.z to the floor, which is the teleport this step exists to remove. */
-    run(CFG('', `for(let j=3;j<${N};j++)MAP.fz[${CY} * MW + ${CX} + j]-=4;`));
+    run(CFG('', `const q=MAP.fz[${CY} * MW + ${CX}];` +
+      `for(let j=3;j<${N};j++)MAP.fz[${CY} * MW + ${CX} + j]=q-4;` + CARRY));
     const spd = run(SPANS), s = run(RUN(120, 'KeyW'));
     const airAt = s.map((r, i) => r[3] ? i : -1).filter(i => i >= 0);
     let mono = true;
@@ -486,19 +523,27 @@ if (MODE === 'vert') {
       console.log('    ' + String(i).padStart(5) + ' ' + s[i][0].toFixed(3).padStart(9) + ' ' + s[i][1].toFixed(5).padStart(9) +
         ' ' + s[i][2].toFixed(2).padStart(7) + ' ' + (s[i][3] ? 'yes' : 'no').padStart(5));
     /* Landing costs health above the free-drop limit and nothing below it. Each drop is dug into
-       the lane so the altitude lost is exact - k quanta - from a player at rest. */
+       the lane to an ABSOLUTE altitude - q0 quanta down by k - because the lane may be a raised room,
+       where a relative `-= k` and a start at z 0 put the feet k*ZQ - floorAt apart and the label stops
+       being the drop. The measured start and landing altitudes are printed beside the drop. */
     const rows = [];
     for (const k of [5, 8, 10, 13, 16]) {
-      run(CFG('', `for(let j=1;j<${N};j++)MAP.fz[${CY} * MW + ${CX} + j]-=${k};`) + PLACE(CX + 2.5, CY + 0.5, 0));
-      const sp = run(SPANS);
+      run(CFG('', `globalThis.__q0=MAP.fz[${CY} * MW + ${CX} + 2];` +
+        `for(let j=1;j<${N};j++)MAP.fz[${CY} * MW + ${CX} + j]=globalThis.__q0-${k};` + CARRY) +
+        PLACE(CX + 2.5, CY + 0.5, 'globalThis.__q0*ZQ'));
+      const sp = run(SPANS), zFrom = run('P.z');
       const r = run('(()=>{let i=0;do{update(1/60);i++}while(P.air&&i<240);' +
         'return{i:i,hp:+P.hp.toFixed(3),z:P.z,gz:floorAt(P.x,P.y)}})()');
-      rows.push({ h: k * 0.25, dmg: +(100 - r.hp).toFixed(3), fr: r.i, landed: r.z === r.gz, spans: sp.bad });
+      rows.push({ want: k * 0.25, h: +(zFrom - r.gz).toFixed(6), zFrom: zFrom, zTo: r.gz,
+        dmg: +(100 - r.hp).toFixed(3), fr: r.i, landed: r.z === r.gz, spans: sp.bad });
     }
     const over = rows.slice(1);
     const mono2 = over.every((r, i) => i === 0 || r.dmg > over[i - 1].dmg);
-    VROW('fall damage free under 1.5 units, scaled over', rows[0].dmg === 0 && over.every(r => r.dmg > 0) && mono2 && rows.every(r => r.landed && !r.spans),
-      rows.map(r => `${r.h.toFixed(2)}->${r.dmg.toFixed(1)}hp/${r.fr}f`).join('  ') + '   (drop -> hp lost / frames)');
+    const exact = rows.every(r => Math.abs(r.h - r.want) < 1e-9);
+    VROW('fall damage free under 1.5 units, scaled over', exact && rows[0].dmg === 0 && over.every(r => r.dmg > 0) && mono2 && rows.every(r => r.landed && !r.spans),
+      rows.map(r => `${r.h.toFixed(2)} (${r.zFrom.toFixed(2)}->${r.zTo.toFixed(2)}) ${r.dmg.toFixed(1)}hp/${r.fr}f`).join('  ') +
+      (exact ? '' : '  WANT the drops to measure ' + rows.map(r => r.want.toFixed(2)).join(', ') + ' - the dig is not the drop') +
+      '   (drop, start -> landing altitude -> hp lost / frames)');
     /* A ladder is the only thing that turns the up/down keys into altitude, so the same cell with
        the flag cleared is the control: identical grid, identical keys, no change in P.z. */
     const ladCase = (poke, key, fr) => {
