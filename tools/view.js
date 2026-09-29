@@ -2244,8 +2244,8 @@ if (MODE === 'contrast') {
      be measured against, so all three cameras now do what cam 2 always did: march from the lens with
      the renderer's own stop conditions and park ONE body in the clear, on the camera's own band, at
      the same distance. Nothing else about the cameras moved - same cells, same yaws, same conventions -
-     and every row that samples a body says POSED in its label, because a posed body and a found one
-     are not the same evidence and a reader has to be able to tell them apart. */
+     and the rows that guarantee and judge that body say POSED in their label, because a posed body
+     and a found one are not the same evidence and a reader has to be able to tell them apart. */
   const W = run('BW'), H = run('BH'), N = W * H;
   const lum = (b, i) => 0.2126 * (b[i] & 255) + 0.7152 * (b[i] >> 8 & 255) + 0.0722 * (b[i] >> 16 & 255);
   const DARKRING = process.env.DARKRING === '1';
@@ -2373,7 +2373,8 @@ if (MODE === 'contrast') {
          riser lip, which is less than a body's own radius - the search fans over the frustum it is
          already looking through, axis first and then symmetrically to 60% of the half-FOV, so the
          camera's cell, its yaw and its distance convention all stay exactly as they were and the only
-         thing that moved is the body. On a flat level the axis always works, so nothing there moves.
+         thing that moved is the body. On a flat grid the march is castRayDist by another name and the
+         axis candidate is the one cam 2 used to take, so a flat level reposes nothing it posed honestly.
          On a cam that picked a body to look at, that body is left where it is when there is another
          to spend, so the occlusion a ledge causes stays in the frame AND in the line below. */
       let poseD = 0, poseWhy = 'no enemies in the level', clear = 0, poseOff = 0, poseClear = 0;
