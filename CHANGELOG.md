@@ -1,5 +1,20 @@
 ## Unreleased
 
+### Added
+- **The weapon in your hands is geometry, not a painted sprite** (#180). It is drawn through the
+  same rasteriser as the world, into a **scratch depth buffer** so it can never cull a billboard,
+  and it is deliberately **absent from the coverage mask** (`body: 0` at the draw site, with
+  `contrast`'s emptied-`ENEMIES` row as the guard) so the character-separation probe cannot start
+  measuring the gun. Sway was converted to screen space as `2 * planeLen * t / DW` instead of
+  `2 * t / DW`, which had made the authored travel **1.399×** too large at the hip and **3.1×** in
+  ADS, and barely scaled with field of view (**0.408** against an ideal invariance of **1.00**);
+  measured travel/authored
+  is now **0.911 / 0.927 / 0.922** at 1280×720, 1600×900 and 960×540, and the FOV-invariance ratio
+  went **0.408 → 0.992**. All 24 weapon/pose states paint (**min 1,175 px**, rifle-at-hip bbox
+  `x 0.59–0.86 y 0.61–1.00`), **0 frame-depth pixels** are written, and `hitscan` is byte-identical
+  with the rig drawn. Cost is real and tracked as **#186**: WARM median **35.0 → 37.0 ms**, flat
+  **8.85 → 10.5 ms**.
+
 ### Fixed
 - **The CI audio verdict no longer depends on how busy the runner was** (#168). The inaudible-
   envelope row took the **loudest** `step()` peak of up to 5 renders under a shared CPU, and the
