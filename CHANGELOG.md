@@ -1,6 +1,24 @@
 ## Unreleased
 
 ### Fixed
+- **A prop, pickup or orb on the band above drew through the floor you were standing on** (#163).
+  The ground pass wrote `zbuf = Infinity` on ceiling rows, and a mesh's only occlusion test is
+  `occ < z`, so nothing on those rows could ever hide a body: measured at camera `(8.10,19.50)`
+  (`floorAt 0.00`) with a lamp prop at `(5.50,19.50)` (`floorAt 1.00`, `ceilAt 2.00`), all **1387**
+  mask pixels sat behind `Infinity`. Ceiling rows now carry the ceiling plane's own distance
+  (`d = dz*BH/|p|`, finite for any real plane), so the test can lose. No second sentinel was needed
+  and none was introduced: the `p === 0` fill keeps `Infinity` for a horizontal ray that never reaches
+  a plane. Gated by a two-sided `cull` row - a prop one band above paints **0 px** in the
+  ceiling-only band on all three levels while the same prop on the camera's band still paints
+  **850 / 756 / 804**, and it fails with **565 / 565 / 490 px at rows 58..101** when the ceiling write
+  is reverted. Bodies taller than the room's ceiling plane are now **clipped** instead of smeared
+  through it, which is correct geometry against a one-unit world. Cost: WARM interleaved
+  **37.23/38.06/37.18 ms** vs main **37.94/38.72/37.43** (-1.4%), smoke median **8.98 vs 8.95 ms**.
+  Known, not hidden: **398-438 px at rows 102..127**, below the riser's top edge, still draw through
+  the slab because `groundPixel`'s fixed point oscillates between the low and raised planes and gives
+  up on the far one - the quantized-domain non-convergence recorded in AGENTS, now with a visible
+  consequence (#170).
+
 - **Altitude was in the grid but not on the screen: a step lip read as a ramp and the minimap
   ignored height** (#164).
   A human playing the deployed build after #162 could walk up a staircase yet could not tell they had
