@@ -10,6 +10,7 @@
 let planeLen = cfg.plane, dirX = 1, dirY = 0, planeX = 0, planeY = cfg.plane;
 let camX = 0, camY = 0, eyeZ = 0.5, horizon = 0, shakeX = 0, shakeY = 0;
 let drawCalls = 0, pixFilled = 0, reSolveBad = 0, gndOffMap = 0;   // last two: ground re-solve counters, read by tools/view.js heights
+let gndWalkEdge = 0;                                 // deferred pixels the ray march handed to the wall pass: a slab EDGE, no plane of its own
 let bloomCv = null, bloomCtx = null, canFilter = false, grainCv = null, grainPat = null, grainSeed = 0;
 let FARB = 22, AMB = 0.13, GQ = null;
 let G_TRI = false, G_GRIT = 0;                                  // derived from QUAL.rast
@@ -253,6 +254,74 @@ function mipSel(ax0, ax1, ay0, ay1, sc, tex) {
   return k < n ? k : n - 1;
 }
 
+/* Which plane's own CELL reaches the point this ray arrives at: march the ray from the eye cell and
+   take the first surface honestly in the way - the plane of a cell the ray reaches while it is still
+   INSIDE that cell, or the floor of a boundary whose slab closes over the ray's altitude. Altitude is
+   a property of the ROW and not of the plane: the engine's d is a PARAMETER along (dir + plane*cam),
+   whose length varies from 1 at the centre to sqrt(1+plane^2) at the corners, and z = eyeZ -+ d*absP/BH
+   is exactly the same expression castGround solves - so the march, the row and the deferred body all
+   count the same units and a crossing is a comparison rather than a solve. (Marching EUCLIDEAN
+   distances instead - the obvious DDA - reads every boundary ~1.1x further away than the row counts it
+   and repaints a low corridor's ceiling with the tall room behind it: measured 2106 CZBAND px in rows
+   102..109, plane 2.00 at 7.57 -> 1.00 at 2.52, for a ray that clears the doorway before it rises.)
+   This is the rule the per-cell solver was approximating: solving a plane across the whole ray answered
+   a ceiling pixel at 10 m when the floor of the cell one boundary out stopped the same ray at 2.5, and
+   a prop standing on that floor drew through the slab (#170). Returns `pl` when nothing nearer
+   intervenes, so a caller that queued `pl` keeps the answer it had.
+   The CEILING side of a closing is deliberately not answered with a plane: a ray that leaves its cell
+   ABOVE the neighbour's ceiling has come to the edge of a slab, which is a face the wall pass owns,
+   and painting the neighbour's ceiling plane back across that room is the phantom the CZBAND control
+   in `view.js cull` exists to catch. Marches that end there are counted in gndWalkEdge, not guessed.
+   A flat level answers on the eye's own cell at the row's own distance, which is the shipped
+   arithmetic bit for bit, and the row only calls this when a plane differs or the grid has a step. */
+function planeAlong(rx, ry, pl, isF, absP) {
+  const N = MAP.w, cellArr = MAP.cell, fzs = MAP.fz, cp = MAP.ceilPlane;
+  const ax = rx > 0 ? rx : -rx, ay = ry > 0 ? ry : -ry;
+  const sgn = isF ? -1 : 1;                          // floors below the eye, ceilings above it
+  const rise = sgn * absP / BH;                      // world altitude per unit of the ray's PARAMETER
+  const invAbsP = BH / absP;
+  const dzPl = (pl - eyeZ) * sgn;
+  const cap = dzPl > 1e-9 && dzPl * invAbsP < FARB * 4 ? dzPl * invAbsP : FARB * 4;
+  let cx = camX | 0, cy = camY | 0, tIn = 0, g = 0;
+  const sx = rx > 0 ? 1 : -1, sy = ry > 0 ? 1 : -1;
+  let tx = ax > 0 ? (rx > 0 ? cx + 1 - camX : camX - cx) / ax : 1e30;
+  let ty = ay > 0 ? (ry > 0 ? cy + 1 - camY : camY - cy) / ay : 1e30;
+  for (; g < 40; g++) {
+    const tOut = tx < ty ? tx : ty;
+    if (!(tOut < cap)) {                             // nothing between the eye and the point in question
+      const ie = cy * N + cx;
+      if (cx >= 0 && cy >= 0 && cx < N && cy < N && !cellArr[ie]) {
+        const pe = isF ? fzs[ie] * ZQ : cp[ie];      // the march is standing in a cell whose own surface
+        if ((pe - eyeZ) * sgn > 1e-9 && Math.abs(pe - pl) > ZQ * 0.5) gndWalkEdge++;   // is not the answer: a slab edge
+      }
+      break;
+    }
+    const i = cy * N + cx;
+    // The void and a solid column have no plane of their own, and the caller's plane stands: a wall
+    // there is drawn by the wall pass, which repaints this pixel and its depth either way.
+    if (cx < 0 || cy < 0 || cx >= N || cy >= N || cellArr[i]) break;
+    const pz = isF ? fzs[i] * ZQ : cp[i];            // this cell's own surface
+    const tz = (pz - eyeZ) * sgn > 1e-9 ? (pz - eyeZ) * sgn * invAbsP : -1;
+    if (tz >= tIn && tz <= tOut) { pl = pz; break; } // hit while still inside the cell that owns it
+    /* The cell across the boundary the ray reaches first - ONLY that axis moves. Stepping both
+       components (the obvious `cx+sx, cy+sy`) walks a diagonal that the ray never travels, so a
+       straight-ahead ray reads the floor of the row above the corridor and the closing test below
+       answers nothing (this is how the first version of #170 left 232 of 438 px leaking). */
+    const stepX = tx < ty, nx = cx + (stepX ? sx : 0), ny = cy + (stepX ? 0 : sy);
+    const fHere = fzs[i] * ZQ;
+    const fThere = nx < 0 || ny < 0 || nx >= N || ny >= N ? 0 : fzs[ny * N + nx] * ZQ;
+    const lo = fHere > fThere ? fHere : fThere;      // the bottom of the opening at that boundary
+    if (eyeZ + tOut * rise < lo) {                   // the ray slips UNDER a floor, so it hits that floor
+      const dlo = (lo - eyeZ) * sgn;                 // a floor at or beyond the candidate's own solve is
+      if (dlo > 1e-9 && dlo * invAbsP < cap) { pl = lo; break; }   // the riser case, and the wall pass's
+    }
+    tIn = tOut; cx = nx; cy = ny;
+    if (stepX) tx += 1 / ax; else ty += 1 / ay;
+  }
+  if (g >= 40) reSolveBad++;                         // a march that ran out of crossings: heights' row
+  return pl;
+}
+
 function castGround(flash, fcR, fcG, fcB) {
   const hInt = Math.round(horizon);
   const stepBase = 2 / BW;
@@ -261,6 +330,8 @@ function castGround(flash, fcR, fcG, fcB) {
   const tileF = MAP.floorTile || 1.15, tileC = MAP.ceilTile || 0.9;
   const dMasks = DECAL_MASK, dGrid = DECAL_GRID;
   const amb = AMB, fl = flash;
+  const gndSteps = MAP.steps ? 1 : 0;                 // #170: 0 on every flat level, which is what keeps
+  //                                      a flat frame free of any call to planeAlong and thus md5-clean
   /* Scratch for the columns of one row that had to be re-solved off the row's plane. Sized to a
      row because a row is all a frame can ever queue; in a flat level nothing is ever written. */
   if (RX.length < BW) { RX = new Int32Array(BW); RP = new Float64Array(BW); }
@@ -336,6 +407,8 @@ function castGround(flash, fcR, fcG, fcB) {
     if (pxi >= 0 && pyi >= 0 && pxi < N && pyi < N && !cellArr[cIdx]) {
       const pl0 = isF ? fzs[cIdx] * ZQ : cp[cIdx];
       planeC = (isF ? pl0 < eyeZ : pl0 > eyeZ) ? pl0 : planeA;
+      // the first column's ray is the row's left edge, dir - plane. Ceiling rows only, see below.
+      if (!isF && planeC !== planeA) planeC = planeAlong(dirX - planeX, dirY - planeY, planeC, isF, absP);
     }
     /* Everything the pixel body reads is a const of this row, and that is not style: the day these
        became per-pixel `let`s, a 1202x676 frame cost 2.5 ms more for pixels nothing re-solves,
@@ -365,6 +438,23 @@ function castGround(flash, fcR, fcG, fcB) {
         if (gx >= 0 && gy >= 0 && gx < N && gy < N && !cellArr[cIdx]) pl = isF ? fzs[cIdx] * ZQ : cp[cIdx];
         planeC = (isF ? pl < eyeZ : pl > eyeZ) ? pl : planeA;   // a floor above the eye and a ceiling
       }                                                        // below it reach nothing on these rows
+      /* A plane is only honest if the cell carrying it reaches the point this column's ray arrives at,
+         so ask the march, not the cell the row's WALK happened to enter: a raised floor one boundary
+         out closes the ray under itself and the pixel belongs to the row, not to a solve ten metres
+         away (#170). Guarded by the plane differing or a step in the grid, so a flat level never pays
+         for it and never runs arithmetic the row did not already run.
+         CEILING ROWS ONLY. The same walk on FLOOR rows is correct too and changes the picture: main's
+         fixed point there ADOPTS a lower plane it finds further along the ray, so down a staircase a
+         step-down lip paints the bottom floor's plane at 18 m where the honest hit is the first step's
+         at 9.4 m. Walking that half moves 11,850 px of the `bands` probe's L0 walk-lip frame (5.8% of
+         it) and drops its mean |dL| across the lip from 45.4 to 27.1 (want >= 30) - the lip's
+         legibility is bought with the phantom. That half is a separate change with a look gate to
+         re-base first; the #170 defect is entirely in the ceiling half (measured: 0 px of the leak is
+         row-painted, and nodefer answers every one of the 438). */
+      /* No march here: a 40-step DDA per cell crossing is the documented one-indirection cliff (it
+         measured 38.2 ms against main's 9.2 on a flat frame). The row defers with the plane its own
+         walk reached, and groundPixel() marches that pixel - which is where all 438/401/398 leaking
+         pixels are (measured: 0 px row-painted), so the row copy needs no rule of its own. */
       if (planeC !== planeA) { RX[nm] = x; RP[nm] = planeC; nm++; continue; }
       let tx = (wx * ms) | 0, ty = (wy * ms) | 0;
       tx &= mask; ty &= maskH;
@@ -395,12 +485,21 @@ function castGround(flash, fcR, fcG, fcB) {
   }
 }
 
-/* One pixel whose cell is not on the row's plane. d comes from that plane through the same
-   expression the row uses with the plane swapped in, the position comes from d, and the cell the
-   position lands in has to agree with the plane that produced it: three tries settle every pixel
-   that can be settled. The lip of a step can oscillate - both answers are defensible there - and
-   the plane it started from wins, so an unsolvable pixel never reveals a room behind the wall you
-   are looking at. d is clamped to the row's reach before it is USED, exactly as the row clamps its
+/* One pixel whose cell is not on the row's plane. The CEILING half asks which cell's slab reaches the
+   point this column's ray arrives at - the same helper the row loop uses, so both copies of this pixel
+   answer the same question the same way. That is where #170's leak lives: a pixel queued at a raised
+   band's CEILING plane 10 m out was never offered the FLOOR one boundary out that stops the same ray at
+   2.5, and the prop standing on that floor drew through it.
+   The FLOOR half keeps the three-try fixed point below, verbatim from before #170. That iteration is an
+   approximation of the same question: it settles a two-cycle between two planes by the quantum rule
+   (measured: 33,656 of a frame's re-solves on `eyeUp`), and on floors it also ADOPTS a lower plane it
+   finds further along the ray - down a staircase that paints the bottom floor's plane at 18 m where
+   walking the ray answers the first step's plane at 9.4 m. Walking the floor half is more correct and
+   moves 11,850 px of the `bands` probe's L0 walk-lip frame (5.8% of it), taking its mean |dL| across
+   the lip from 45.4 to 27.1 (want >= 30) and its signed value from -11.2 to +7.0, because that lip's
+   legibility is bought with the phantom. It needs its own change and its own look gate, not a quiet
+   edit to that threshold.
+   d is clamped to the row's reach before it is USED, exactly as the row clamps its
    own, so a plane two units up cannot drag a texel from 300 metres away.
    The shading below is the SECOND copy of the ground pixel body: it must change with the loop in
    castGround, not instead of it. The split is what lets that loop hold its mip, fog and light in
@@ -409,33 +508,45 @@ function castGround(flash, fcR, fcG, fcB) {
 function groundPixel(x, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb, dP) {
   const N = MAP.w, cellArr = MAP.cell, lm = MAP.light, stepBase = 2 / BW;
   const cam = x * stepBase - 1, rx = dirX + planeX * cam, ry = dirY + planeY * cam;
-  let dS = 0, ax = (camX + rx * dP) | 0, ay = (camY + ry * dP) | 0, settled = false;
-  for (let g = 0; g < 3; g++) {
-    const dz = isF ? eyeZ - pl : pl - eyeZ;
-    dS = dz * BH / absP;
-    if (dS > FARB * 4) dS = FARB * 4;
-    const qx = (camX + rx * dS) | 0, qy = (camY + ry * dS) | 0;
-    const mx = (qx + ax) >> 1, my = (qy + ay) >> 1;
-    // a plane may only come from a column within two cells on BOTH axes with no solid column between
-    let plN = pl;
-    if (qx >= 0 && qy >= 0 && qx < N && qy < N && Math.abs(qx - ax) <= 2 && Math.abs(qy - ay) <= 2 &&
-      mx >= 0 && my >= 0 && mx < N && my < N && !cellArr[my * N + mx]) {
-      const ii = qy * N + qx;
-      if (!cellArr[ii]) {
-        const t = isF ? MAP.fz[ii] * ZQ : MAP.ceilPlane[ii];
-        if (isF ? t < eyeZ : t > eyeZ) plN = t;
+  let dS;
+  if (isF) {
+    /* The FLOOR half keeps the shipped solver verbatim: three tries in which the cell the pixel lands
+       in may replace the plane that queued it. It adopts a LOWER plane it finds further along the ray,
+       which down a staircase paints the bottom floor's plane at 18 m where walking the ray says the
+       first step's plane answered at 9.4 m - a phantom, and the reason the `bands` walk-lip row reads
+       45.4 instead of 27.1. Fixing that half moves 11,850 px of that probe's L0 frame and needs its
+       look gate re-based, so it is NOT folded into #170, which is entirely a ceiling-row defect. */
+    let ax = (camX + rx * dP) | 0, ay = (camY + ry * dP) | 0, settled = false;
+    for (let g = 0; g < 3; g++) {
+      dS = (eyeZ - pl) * BH / absP;
+      if (dS > FARB * 4) dS = FARB * 4;
+      const qx = (camX + rx * dS) | 0, qy = (camY + ry * dS) | 0;
+      const mx = (qx + ax) >> 1, my = (qy + ay) >> 1;
+      // a plane may only come from a column within two cells on BOTH axes with no solid column between
+      let plN = pl;
+      if (qx >= 0 && qy >= 0 && qx < N && qy < N && Math.abs(qx - ax) <= 2 && Math.abs(qy - ay) <= 2 &&
+        mx >= 0 && my >= 0 && mx < N && my < N && !cellArr[my * N + mx]) {
+        const ii = qy * N + qx;
+        if (!cellArr[ii]) {
+          const t = MAP.fz[ii] * ZQ;
+          if (t < eyeZ) plN = t;
+        }
       }
+      ax = qx; ay = qy;
+      // planes are quantized to ZQ, so agreement within one quantum is convergence: a pixel on the seam between two cells whose planes differ by a quantum has no fixed point and alternates forever (measured: 33,656 of a frame's re-solves on eyeUp, all a 1 <-> 1.25 two-cycle); the plane it started from wins
+      if (Math.abs(plN - pl) <= ZQ) { settled = true; break; }
+      pl = plN;
     }
-    ax = qx; ay = qy;
-    // planes are quantized to ZQ, so agreement within one quantum is convergence: a pixel on the seam between two cells whose planes differ by a quantum has no fixed point and alternates forever (measured: 33,656 of a frame's re-solves on eyeUp, all a 1 <-> 1.25 two-cycle); the plane it started from wins
-    if (Math.abs(plN - pl) <= ZQ) { settled = true; break; }
-    pl = plN;
-  }
-  // an exhausted loop used to leave dS from the PREVIOUS plane; the plane finally used now places the pixel
-  if (!settled) {
-    reSolveBad++;
-    const dz = isF ? eyeZ - pl : pl - eyeZ;
-    dS = dz * BH / absP;
+    // an exhausted loop used to leave dS from the PREVIOUS plane; the plane finally used now places the pixel
+    if (!settled) {
+      reSolveBad++;
+      dS = (eyeZ - pl) * BH / absP;
+      if (dS > FARB * 4) dS = FARB * 4;
+    }
+  } else {
+    // the CEILING half walks the ray: which cell's slab reaches the point this column arrives at
+    pl = planeAlong(rx, ry, pl, isF, absP);
+    dS = (pl - eyeZ) * BH / absP;
     if (dS > FARB * 4) dS = FARB * 4;
   }
   /* This pixel's cell is NOT on the row's plane, so the row's depth is wrong for it: at the lip of a
