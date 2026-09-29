@@ -48,8 +48,10 @@ function resize() {
   // zbuf = camera-space perpendicular distance of the nearest occluding surface at that PIXEL
   // (Infinity = draws nothing over it). The ground pass covers every pixel, the wall pass
   // overwrites its face span; readers cull on a strictly-nearer surface.
-  // Ceiling rows keep the sentinel: their plane solve ignores walls, and rigs/portal quads are
-  // authored taller than the one-unit room, so clipping on it would repaint today's picture.
+  // Both halves of the frame carry a distance: the sentinel meant "no surface solved here", not
+  // "this is a ceiling", and Infinity on a ceiling row is what let a body on the band above draw
+  // through the slab (#163). Only a row with no plane to solve - the horizon row, where dz/0 is
+  // Infinity - keeps the sentinel.
   zbuf = new Float32Array(BW * BH).fill(Infinity);
   ctx.imageSmoothingEnabled = q.res > 0.4;          // smooth upscale instead of chunky pixels
   ctx.imageSmoothingQuality = 'low';
@@ -264,6 +266,8 @@ function castGround(flash, fcR, fcG, fcB) {
   if (RX.length < BW) { RX = new Int32Array(BW); RP = new Float64Array(BW); }
   for (let y = 0; y < BH; y++) {
     const p = y - hInt;
+    // the one row with no distance to report: dz * BH / 0 is Infinity for every plane, because a
+    // horizontal ray never reaches one, so this pixel genuinely has no surface in front of it
     if (p === 0) { px.fill(0xFF000000 | fcB << 16 | fcG << 8 | fcR, y * BW, y * BW + BW); zbuf.fill(Infinity, y * BW, y * BW + BW); continue; }
     const isF = p > 0, absP = p > 0 ? p : -p;
     /* planeA is the band the eye is in: floorAt below the horizon, ceilAt above it, and in
@@ -289,7 +293,7 @@ function castGround(flash, fcR, fcG, fcB) {
       const lit = MAP.light ? MAP.light[cellIdx(camX, camY)] : 0.4;
       px.fill(pack(clampi((18 * c0[0] + lit * 26 * c0[0]) * 1 + fRRow), clampi((18 * c0[1] + lit * 26 * c0[1]) + fGRow),
         clampi((18 * c0[2] + lit * 26 * c0[2]) + fBRow)), y * BW, y * BW + BW);
-      zbuf.fill(isF ? dRaw : Infinity, y * BW, y * BW + BW);   // depth = the row's own solve, unclamped
+      zbuf.fill(dRaw, y * BW, y * BW + BW);                    // depth = the row's own solve, unclamped
       continue;
     }
     /* row ray span: column x has cam offset (x*stepBase-1) */
@@ -311,9 +315,13 @@ function castGround(flash, fcR, fcG, fcB) {
     /* One fill instead of one store per pixel: writing a loop-invariant inside the pixel loop cost
        +2.5 ms of a 1202x676 frame. dRaw is deliberately the distance BEFORE the FARB*4 shading
        clamp - occlusion wants the real distance, and the clamp only exists to stop a texel being
-       dragged in from 300 m. Ceiling rows keep the Infinity sentinel on purpose (issue #45).
+       dragged in from 300 m. The same number is the depth of BOTH halves: a ceiling row's plane is
+       the slab the cell above stands on, so its solve is the distance to that slab and `occ < z`
+       (#13_mesh.js:524) can finally hide a body standing on the band above (issue #163). Where the
+       row has no plane of its own, planeA is the +-ZQ fallback and this is its distance, which is
+       what the floor half has always written.
        Columns this row cannot solve are queued below and get their own depth in groundPixel(). */
-    zbuf.fill(isF ? dRaw : Infinity, row, row + BW);
+    zbuf.fill(dRaw, row, row + BW);
     let pxi = wx | 0, pyi = wy | 0, cIdx = pyi * N + pxi, mir = 0;
     let inMap = pxi >= 0 && pyi >= 0 && pxi < N && pyi < N;
     let lt = inMap ? cellTint(cIdx) : TINT_WHITE, li = inMap && lm ? lm[cIdx] : 0;
