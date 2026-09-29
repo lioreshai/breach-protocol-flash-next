@@ -9,7 +9,7 @@
 const vm = require('vm'), fs = require('fs'), path = require('path');
 const { writePNG, toRGBA } = require('./png');
 const noop = () => {};
-const W = 1280, H = 720;
+const W = +(process.env.VW || 1280), H = +(process.env.VH || 720);   // VW/VH: the sway rows are resolution tests
 const MODE = process.argv[2] || 'scene';
 const ASCII = process.env.ASCII === '1' || process.env.ASCII === '';
 const LVL = +(process.argv[3] || 0);
@@ -2214,6 +2214,18 @@ if (MODE === 'contrast') {
     + 'only below ' + DEBT.dlFloor + ' dL or above ' + DEBT.lostCeil + '% lost, i.e. when the debt GROWS. '
     + 'Tracked in ' + DEBT.issue + ' (Epic A); STRICT=1 gates it as it stands, so the term that pays it '
     + 'can be A/B\'d against a green baseline.');
+  /* #180 puts the rifle in the raster, so it is now part of what a pair of renders must hold FIXED.
+     drawViewModel damps its look-lag against wall-clock dt (VM.now = performance.now()), so two
+     frames rendered back to back are NOT the same pose - which is fatal here, because this probe's
+     oracle IS a pair of renders. Measured with the rig in the frame and at rest never applied:
+     cam 1's diff goes 2272 -> 3158 px and cam 2's 431 -> 1231, all of it leak (LEAKMAX is 0), and the
+     leak also disqualifies cam 1's debt row, since a row that leaks has not measured the baseline it
+     owes. The coverage mask never saw it either way - MESH.draw carries body: 0 for the rig, so tri()
+     stamps 0 and the mask stays 999 / 2838 / 431 px, identical to main. Putting the rig at rest before
+     BOTH sampled frames removes the cause instead of the symptom and leaves the gun in the picture;
+     this is the same REST the viewmodel probe uses for the same reason (#180). VM.ang = P.ang matters
+     as much as the zeros: dAng is what the lag damps TOWARD, and after one frame it is already 0. */
+  const VMREST = 'VM.ang = P.ang; VM.lag = 0; VM.vy = 0;';
   for (let cam = 0; cam < 3; cam++) {
     run(`startLevel(${LVL}, true); S.mode='play'; S.locked=false;`);
     run(`(()=>{
@@ -2250,11 +2262,11 @@ if (MODE === 'contrast') {
     if (!isNaN(TINTK)) run('for (const e of ENEMIES) e.tint = [' + TINTK + ',' + TINTK + ',' + TINTK + '];');
     run('window.__keep = ENEMIES.slice();');
     if (NOBODY) run('ENEMIES.length = 0;');
-    run('S.t = 3.5; renderWorld()');
+    run('S.t = 3.5; ' + VMREST + ' renderWorld()');
     const A = new Uint32Array(run('px')), M = new Uint8Array(run('COV'));
     // the cross-check frame: the same world with the bodies out, which is what the OLD mask was.
     // Its coverage is the empty-mask control - the cast is out of the scene it rendered.
-    run('ENEMIES.length = 0; renderWorld();');
+    run('ENEMIES.length = 0; ' + VMREST + ' renderWorld();');
     const B = new Uint32Array(run('px')), MB = new Uint8Array(run('COV'));
     run('ENEMIES.length = 0; for (const q of __keep) ENEMIES.push(q);');
     let nMB = 0;
@@ -2808,48 +2820,251 @@ if (MODE === 'anim') {
 }
 
 if (MODE === 'viewmodel') {
+  /* The view model is GEOMETRY now (#180), so the only honest reader is the raster. A mesh writes
+     into `px` and issues no canvas op at all - measured 27,375 raster writes against 0 recorded
+     fills - which is why this probe used to record canvas paths and reported "geometry missing" for
+     a rifle that was painting 13,853 pixels, and why four attempts of this epic stayed green while
+     shipping zero pixels: a frame mean cannot move when nothing is drawn. Every number below is one
+     rendered frame diffed against the SAME frame with drawViewModel suppressed, the way `contrast`
+     isolates a body by deleting it, so nothing in the room can fake the signal and a rig that paints
+     nothing fails rather than passing on an exposure that never noticed it. */
   run('S.mode="play"; S.locked=false; startLevel(0, true);');
-  const DW = run('DW'), DH = run('DH');
+  const BW = run('BW'), BH = run('BH'), DW = run('DW'), DH = run('DH');
   const states = [
-    ['hip', ''], ['ads', 'P.ads=1'], ['recoil', 'P.kick=WEAPONS[P.weapon].kick;S.muzzle=1'],
-    ['reload', 'P.reloadT=WEAPONS[P.weapon].reload*0.5'], ['reload-mid', 'P.reloadT=WEAPONS[P.weapon].reload*0.2'],
-    ['swap', 'P.swapT=0.3'], ['sprint', 'P.sprint=1;P.bobPhase=1.2;keys.KeyW=1'], ['airborne', 'P.air=true;P.vz=3'],
+    ['hip', '', 'LR'], ['ads', 'P.ads=1', 'C'], ['recoil', 'P.kick=WEAPONS[P.weapon].kick;S.muzzle=1', 'LR'],
+    ['reload', 'P.reloadT=WEAPONS[P.weapon].reload*0.5', 'LR'], ['reload-mid', 'P.reloadT=WEAPONS[P.weapon].reload*0.2', 'LR'],
+    ['swap', 'P.swapT=0.3', 'LR'], ['sprint', 'P.sprint=1;P.bobPhase=1.2;keys.KeyW=1;P.vx=4', 'LR'],
+    ['airborne', 'P.air=true;P.vz=3', 'LR'],
   ];
-  let bad = 0, hip = null, flashNote = '';
+  const QUAD = 0.85;                     // painted pixels required in the lower-right quadrant
+  const MINPX = 256;                     // measured minimum across the 24 states: 1,175 (a pistol mid-swap)
+  let bad = 0;
+  /* THE RIG IS PUT AT REST BEFORE EACH PAIR (#180). drawViewModel damps its sway against wall-clock
+     dt (VM.now = performance.now()), so two frames rendered back to back are NOT the same pose: the
+     look-lag term was still moving 0.0093 rad between the pair, which is the gun's whole silhouette
+     in the diff and made every painted-pixel count below a lie about churn instead of geometry.
+     After two frames VM.ang equals P.ang, so dAng is 0 and lag damps to exactly 0; the explicit zeros
+     cover the first frame AND make the measured pose independent of how long the sandbox took to
+     render the frames before it, which a probe must be. The second frame of each pair runs the pass
+     STUBBED, which freezes the sway state rather than advancing it, and that is what makes the two
+     frames differ by the rig and by nothing else. */
+  const REST = 'for (let i = 0; i < 6; i++) renderWorld(); VM.lag = 0; VM.vx = 0; VM.vy = 0;';
+  // record the instance the pass submits, so a red row can say "culled" or "never submitted"
+  run('window.__VMSAVE = window.drawViewModel; window.__REC = []; (function () { var o = MESH.draw; MESH.draw = function (a) { window.__REC.push({ near: !!a.near, x: a.x, y: a.y, z: a.z }); return o.apply(this, arguments) }; })()');
+
+  /* One frame of the rig and one without it. Returns the diff, measured in the page: 200k pixels and
+     200k depths must not cross the bridge twice per state. zbuf is compared because it is a DISTANCE
+     in every pixel now - a rig that writes one, even a sentinel, silently culls billboards. */
+  function pair(set, keep) {
+    run('P.ads=0; P.kick=0; P.reloadT=0; P.swapT=0; P.sprint=0; P.air=false; P.vz=0; P.bobPhase=0; S.muzzle=0; keys.KeyW=0; P.vx=0; P.vy=0; ' + set);
+    run('window.drawViewModel = window.__VMSAVE; ' + REST);
+    const err = run('(()=>{try{window.__REC=[];MESH.reset();renderWorld();return null}catch(e){return String(e.message)}})()');
+    const a = run('MESH.stats().tris');
+    const pxOn = keep ? new Uint32Array(run('px')) : null;   // kept only by the flash rows, which diff two rigs
+    run('window.__P0 = px.slice(); window.__Z0 = zbuf.slice(); window.__H0 = JSON.stringify(hitscan(P.ang, pitchTan(), 12));');
+    run('window.drawViewModel = function () {}; VM.lag = 0; MESH.reset(); renderWorld();');
+    const b = run('MESH.stats().tris');
+    const o = run('(()=>{const A=window.__P0,B=px;' +
+      'const idet=1/(planeX*dirY-dirX*planeY),dx=VMPOS[0]-camX,dy=VMPOS[1]-camY;' +
+      'const ty=idet*(-planeY*dx+planeX*dy),tx=idet*(dirY*dx-dirX*dy);' +
+      'const pax=BW*0.5*(1+tx/ty),pay=horizon+BH*(eyeZ-VMPOS[2])/ty,R=70;let n=0,x0=1e9,x1=-1e9,y0=1e9,y1=-1e9,sx=0,sy=0,q=0,nx=0,nsx=0;' +
+      'for(let i=0;i<A.length;i++){if(A[i]!==B[i]){n++;const X=i%BW,Y=(i/BW)|0;sx+=X;sy+=Y;' +
+      'if(X>BW*0.5&&Y>BH*0.5)q++;const ddx=X-pax,ddy=Y-pay;if(ddx*ddx+ddy*ddy<R*R){nx++;nsx+=X;}' +
+      'if(X<x0)x0=X;if(X>x1)x1=X;if(Y<y0)y0=Y;if(Y>y1)y1=Y;}}' +
+      'let zd=0;const Z=window.__Z0;for(let i=0;i<Z.length;i++)if(zbuf[i]!==Z[i])zd++;' +
+      'return {n,x0,x1,y0,y1,cx:sx/n,cy:sy/n,q,zd,nx,cxN:nx?nsx/nx:NaN,ax:pax,ay:pay,' +
+      'hs:JSON.stringify(hitscan(P.ang,pitchTan(),12))===window.__H0}})()');
+    run('window.drawViewModel = window.__VMSAVE;');
+    const rec = run('window.__REC.filter(r => r.near).slice(-1)[0]');
+    const cb = run('({camX,camY,dirX,dirY,planeX,planeY,eyeZ,horizon,planeLen})');
+    const tf = run('[].concat(Array.from(VMPOS), Array.from(VMROT))');
+    let anchor = null;
+    /* The instance the pass handed the rasterizer, read back through the frame's OWN camera basis.
+       When nothing paints this is the difference between "geometry missing" (what four sessions read)
+       and "geometry culled because the projection was shown a camera that is not the eye" - and it is
+       arithmetic over numbers the frame used, not a re-derivation of them. */
+    if (rec) {
+      const idet = 1 / (cb.planeX * cb.dirY - cb.dirX * cb.planeY);
+      const dx = rec.x - cb.camX, dy = rec.y - cb.camY;
+      const ty = idet * (-cb.planeY * dx + cb.planeX * dy), tx = idet * (cb.dirY * dx - cb.dirX * dy);
+      anchor = { d: ty, t: tx, sx: (BW * 0.5) * (1 + tx / ty), sy: cb.horizon + BH * (cb.eyeZ - rec.z) / ty };
+    }
+    return { o, a, b, err, rec, anchor, tf, cb, pxOn };
+  }
+
+  const kinds = run('WEAPONS.map(w => w.kind)');
   for (let wi = 0; wi < run('WEAPONS.length'); wi++) {
-    for (const [name, setup] of states) {
-      run(`P.weapon=${wi}; P.ads=0; P.kick=0; P.reloadT=0; P.swapT=0; P.sprint=0; P.air=false; P.vz=0; P.bobPhase=0; S.muzzle=0; ${setup}`);
-      VR.on = true; VR.pts = []; VR.fills = 0; VR.nan = 0; VR.maxD = 0; VR.badDepth = 0;
-      const err = run(`(()=>{try{drawViewModel(DH/900);return null}catch(e){return String(e.message)}})()`);
-      VR.on = false;
-      const q = VR.pts; let X0 = 1e9, X1 = -1e9, Y0 = 1e9, Y1 = -1e9;
-      for (let i = 0; i < q.length; i += 2) { X0 = Math.min(X0, q[i]); X1 = Math.max(X1, q[i]); Y0 = Math.min(Y0, q[i + 1]); Y1 = Math.max(Y1, q[i + 1]); }
-      const frac = [X0 / DW, X1 / DW, Y0 / DH, Y1 / DH];
-      const problems = [];
-      if (err) problems.push('threw ' + err);
-      if (VR.nan) problems.push(VR.nan + ' non-finite points');
-      if (VR.depth !== 0 || VR.badDepth) problems.push('save/restore unbalanced (depth ' + VR.depth + ')');
-      if (VR.fills < 8) problems.push('only ' + VR.fills + ' fills - geometry missing');
-      if (X1 < 0 || X0 > DW || Y0 > DH) problems.push('entirely off screen');
-      const tag = (run('WEAPONS')[' ' + wi] || WEAPONSNAME(wi));
-      // The flash must leave along the BORE, not across it. Comparing the hip bbox (muzzle 0)
-      // with the recoil bbox (muzzle 1) isolates the flash geometry with no game-side hook: the
-      // muzzle used to be emitted along +x, so a flash that grew wider than it grew up is a bug.
-      if (name === 'hip') hip = frac;
-      if (name === 'recoil') {
-        const up = hip[2] - frac[2], right = frac[1] - hip[1];
-        if (up < right) problems.push('flash grows sideways, not along the bore (up ' + up.toFixed(2) + ' DH, right ' + right.toFixed(2) + ' DW)');
-        flashNote = 'flash up ' + up.toFixed(2) + ' DH / right ' + right.toFixed(2) + ' DW';
-      }
-      console.log(('w' + wi + ' ' + name).padEnd(16), 'paths ' + String(VR.fills).padStart(3),
-        'bbox x ' + frac[0].toFixed(2) + '-' + frac[1].toFixed(2), ' y ' + frac[2].toFixed(2) + '-' + frac[3].toFixed(2),
-        flashNote ? '| ' + flashNote : '',
+    for (const [name, setup, where] of states) {
+      const r = pair('P.weapon=' + wi + '; ' + setup);
+      const d = r.o, problems = [];
+      if (r.err) problems.push('threw ' + r.err);
+      if (r.tf.some(v => !isFinite(v))) problems.push('non-finite anchor or basis');
+      if (d.zd) problems.push(d.zd + ' frame-depth pixels written - the rig culls billboards');
+      if (!d.hs) problems.push('hitscan changed when the rig was drawn - it is shootable');
+      if (d.b - d.a > 0) problems.push('the rig rasterized ' + (d.b - d.a) + ' tris into the frame WITHOUT the view-model pass');
+      const tris = r.a - r.b;
+      if (tris <= 0) problems.push('0 triangles submitted - ' + (r.anchor
+        ? (r.anchor.d < 0.12 || r.anchor.d > 2
+          ? 'culled, anchor at depth ' + r.anchor.d.toFixed(3) + ' m / lateral ' + r.anchor.t.toFixed(3) +
+            ' plane-units -> screen ' + r.anchor.sx.toFixed(0) + ',' + r.anchor.sy.toFixed(0) + ' of ' + BW + 'x' + BH +
+            ' (camera camX ' + r.cb.camX.toFixed(2) + ', camY ' + r.cb.camY.toFixed(2) + ', dir ' +
+            r.cb.dirX.toFixed(2) + ',' + r.cb.dirY.toFixed(2) + ')'
+          : 'culled for a reason the anchor does not explain (depth ' + r.anchor.d.toFixed(3) + ' m)')
+        : 'the pass submitted no instance at all'));
+      if (d.n < MINPX) problems.push('only ' + d.n + ' pixels painted - geometry missing');
+      /* Where the gun belongs on screen. Hip, recoil, reload, swap, sprint and airborne are the art's
+         hip pose: `ox = DW*(0.5 + 0.155*(1-ads))` put the anchor at 0.655 of the width and `oy = DH + ...`
+         below the bottom edge, so the rig enters from the lower-right corner. ADS is the exception by
+         design - VMSIT sits it on the CENTRE line - and what the art asserted there was the SIGHT
+         PICTURE (`sx = (DW*0.5 - ox)/sc` put the rear-sight bracket on screen centre). A silhouette
+         centroid is the wrong stand-in for that - the stock and the hands still hang right of the line -
+         so ADS is asserted to STRADDLE the centre of the frame on both axes. */
+      if (where === 'LR') {
+        if (!(d.n >= MINPX && d.q >= QUAD * d.n)) problems.push('only ' + (100 * d.q / Math.max(1, d.n)).toFixed(0) +
+          '% of its pixels in the lower-right quadrant');
+      } else if (!(d.x0 < BW * 0.5 && d.x1 > BW * 0.5 && d.y0 < BH * 0.5 && d.y1 > BH * 0.5)) problems.push('ADS box ' +
+        (d.x0 / BW).toFixed(2) + '-' + (d.x1 / BW).toFixed(2) + ' x ' + (d.y0 / BH).toFixed(2) + '-' + (d.y1 / BH).toFixed(2) +
+        ' does not straddle the centre - there is no sight picture on the middle of the frame');
+      /* The anchor must sit between the rasterizer's near clip and a metre or two of reach. This is
+         the row that replaces the old "entirely off screen", which was unreachable: culled geometry
+         paints nothing, so the painted box is empty rather than out of range. It fires on a stale
+         camera basis (7.643 m, measured), on authored metres reaching the projection unscaled, and on
+         an anchor that collapses onto the camera plane (depth <= 0.12). */
+      if (r.anchor && !(r.anchor.d > 0.12 && r.anchor.d < 2)) problems.push('anchor depth ' +
+        r.anchor.d.toFixed(3) + ' m - the rig is not in the player\'s hands (near clip 0.12)');
+      console.log(('w' + wi + ' ' + kinds[wi] + ' ' + name).padEnd(24),
+        'paint ' + String(d.n).padStart(5) + ' px  tris ' + String(tris).padStart(4),
+        'bbox x ' + (d.x0 / BW).toFixed(2) + '-' + (d.x1 / BW).toFixed(2),
+        'y ' + (d.y0 / BH).toFixed(2) + '-' + (d.y1 / BH).toFixed(2),
+        'centroid ' + (d.cx / BW).toFixed(2) + ',' + (d.cy / BH).toFixed(2) +
+        '  near-pivot ' + d.nx + ' px',
+        'quad ' + (100 * d.q / Math.max(1, d.n)).toFixed(0) + '%',
+        r.anchor ? 'anchor ' + r.anchor.d.toFixed(3) + ' m' : '',
         problems.length ? '<< ' + problems.join(', ') : '');
       bad += problems.length ? 1 : 0;
     }
+
+    /* THE FLASH LEAVES ALONG THE BORE. It used to be emitted along +x, 90 deg off the bore, and the
+       row that caught it compared the hip bbox with the recoil bbox - a screen-space test on a
+       screen-space gun. That premise is gone: a horizontal bore at pitch 0 converges on the vanishing
+       point, so its MUZZLE projects further in than the SIGHTS do and no flash can push the bbox up
+       past them (measured: hip top 0.61, muzzle row 0.70, flash tip 0.64 - the old row failed all
+       three recoil states on correct geometry). Two measurements replace it, one in the geometry's own
+       metres and one in the frame's own pixels, and both are direction tests rather than thresholds:
+       (a) which verts does mz=1 ADD, and are they on the bore axis ahead of the muzzle - a rig whose
+           flash runs out of the side of the receiver fails this exactly, in metres, at any resolution;
+       (b) the flash's painted pixels (same state, same pose, muzzle light only) against the projected
+           bore line: their mean along-bore must be positive (past the muzzle, not inside the gun) and
+           their mean across it must be near zero (centred on the axis, not beside it). */
+    const MU = run('MESH.muzzleFor("' + kinds[wi] + '")');
+    const gA = run('MESH.weapon("' + kinds[wi] + '", {mz:0})'), gB = run('MESH.weapon("' + kinds[wi] + '", {mz:1})');
+    const fProblems = [];
+    let fN = 0, fz0 = 1e9, fz1 = -1e9, fxm = 0, fym = 0, fz = 0, fNote = '';
+    for (let i = gA.p.length / 6; i < gB.p.length / 6; i++) {
+      fN++; const x = gB.p[i * 6], y = gB.p[i * 6 + 1], z = gB.p[i * 6 + 2];
+      fz += z; if (z < fz0) fz0 = z; if (z > fz1) fz1 = z;
+      if (Math.abs(x) > fxm) fxm = Math.abs(x); if (Math.abs(y) > fym) fym = Math.abs(y);
+    }
+    if (!fN) fProblems.push('mz=1 adds no geometry - the flash would not draw');
+    else {
+      if (fz0 < MU - 0.06) fProblems.push('flash geometry starts at z ' + fz0.toFixed(3) + ' m, well behind the muzzle crown at ' + MU.toFixed(3));
+      if (fN && fz / fN < MU) fProblems.push('flash geometry is centred at z ' + (fz / fN).toFixed(3) + ' m, BEHIND the muzzle at ' + MU.toFixed(3) + ' - it is inside the gun');
+      if (fxm > 0.06 || fym > 0.06) fProblems.push('flash geometry is off the bore axis: |x| ' + fxm.toFixed(3) + ' m, |y| ' + fym.toFixed(3) + ' m');
+      if (fN > gB.tris) fProblems.push('flash vertex count ' + fN + ' exceeds its own triangle count');
+    }
+    const r0 = pair('P.weapon=' + wi + '; P.kick=WEAPONS[' + wi + '].kick; S.muzzle=0', true);
+    const r1 = pair('P.weapon=' + wi + '; P.kick=WEAPONS[' + wi + '].kick; S.muzzle=1', true);
+    // the bore's own screen line, from the instance the frame submitted
+    let along = -1e9, across = 0, sumA = 0, sumC = 0, fpx = 0;
+    if (r1.anchor) {
+      const idet = 1 / (r1.cb.planeX * r1.cb.dirY - r1.cb.dirX * r1.cb.planeY);
+      const proj = (wx, wy, wz) => {
+        const dx = wx - r1.cb.camX, dy = wy - r1.cb.camY;
+        const ty = idet * (-r1.cb.planeY * dx + r1.cb.planeX * dy), tx = idet * (r1.cb.dirY * dx - r1.cb.dirX * dy);
+        return [(BW * 0.5) * (1 + tx / ty), r1.cb.horizon + BH * (r1.cb.eyeZ - wz) / ty];
+      };
+      const pv = Array.from(run('VMPOS')), rv = Array.from(run('VMROT'));
+      const bp = z => proj(pv[0] + rv[2] * z, pv[1] + rv[5] * z, pv[2] + rv[8] * z);
+      const m0 = bp(MU), m1 = bp(MU + 0.25);
+      let ux = m1[0] - m0[0], uy = m1[1] - m0[1];
+      const ul = Math.hypot(ux, uy) || 1; ux /= ul; uy /= ul;
+      const [msx, msy] = m0;
+      // these two frames differ by the flash geometry alone: same pose, same kick, muzzle light only
+      const A0 = r0.pxOn, B0 = r1.pxOn;
+      let fx0 = 1e9, fx1 = -1e9, fy0 = 1e9, fy1 = -1e9;
+      for (let i = 0; i < A0.length; i++) if (A0[i] !== B0[i]) {
+        fpx++; const X = i % BW, Y = (i / BW) | 0, dX = X - msx, dY = Y - msy;
+        if (X < fx0) fx0 = X; if (X > fx1) fx1 = X; if (Y < fy0) fy0 = Y; if (Y > fy1) fy1 = Y;
+        const al = dX * ux + dY * uy, ac = -dX * uy + dY * ux;
+        if (al > along) along = al; if (Math.abs(ac) > across) across = Math.abs(ac);
+        sumA += al; sumC += ac;
+      }
+      fpx ? 0 : fProblems.push('the muzzle flash paints no pixels at all');
+      if (fpx >= 8 && !(sumA / fpx > 0)) fProblems.push('flash centroid is BEHIND the muzzle plane (mean along-bore ' + (sumA / fpx).toFixed(1) + ' px)');
+      if (fpx >= 8 && Math.abs(sumC / fpx) > 10) fProblems.push('flash centroid is ' + (sumC / fpx).toFixed(1) + ' px off the bore axis - it leaves sideways');
+      if (fpx >= 8 && along < 8) fProblems.push('flash reaches only ' + along.toFixed(1) + ' px along the bore');
+      fNote = 'flash ' + fpx + ' px  bbox x ' + (fx0 / BW).toFixed(2) + '-' + (fx1 / BW).toFixed(2) +
+        ' y ' + (fy0 / BH).toFixed(2) + '-' + (fy1 / BH).toFixed(2) +
+        '  along ' + along.toFixed(1) + ' px  across ' + across.toFixed(1) +
+        ' px  mean(along ' + (sumA / Math.max(1, fpx)).toFixed(1) + ', across ' + (sumC / Math.max(1, fpx)).toFixed(1) + ')  verts ' +
+        fN + ' z ' + fz0.toFixed(3) + '..' + fz1.toFixed(3) + ' of muzzle ' + MU.toFixed(3);
+    } else fNote = 'flash ' + fN + ' verts, no anchor to measure it against';
+    console.log(('w' + wi + ' ' + kinds[wi] + ' flash').padEnd(24), fNote,
+      fProblems.length ? '<< ' + fProblems.join(', ') : '');
+    bad += fProblems.length ? 1 : 0;
   }
-  function WEAPONSNAME(i) { return run('WEAPONS.map(w=>w.kind)')[i]; }
-  console.log(bad ? bad + ' viewmodel states with problems' : 'viewmodel: all states draw on screen, balanced, no NaN');
+
+  /* THE SWAY IS CONVERTED WITH THE PROJECTION, NOT WITH THE CANVAS (#180). The art translated a
+     screen-space anchor by bobX DEVICE px (js/40_render.js on main: `ox = DW*(0.5+0.155*(1-ads)) +
+     (VM.vx + bobX)*(1-ads*0.6)`), and the rig is a WORLD object, so the term needs the same
+     world-units-per-pixel factor the ground and mesh passes use. Lateral, that is 2*planeLen*t/DW -
+     planeLen, not 2, because the horizontal field comes from the camera plane. The old conversion used
+     2*t/DW and so painted 1/planeLen = 1.39x the art's travel, which is a field-of-view error, not a
+     canvas-size one: the ratio it produces tracks planeLen and ignores resolution. Two rows follow.
+     (i) painted travel against authored travel, both in raster px; (ii) painted travel against itself
+     at a different planeLen, which must NOT move - the authored term is a slide across the screen, so
+     the metres it implies are what has to change with the field of view.
+     MEASURED NEAR THE PIVOT, ON PURPOSE: the walk also rolls the rig (`roll = ... sin(bobPhase)*0.012
+     *(0.4+0.6*sp)`), and a rotation about the anchor moves a mask centroid by leverAngle*leverArm -
+     1.8 px of contamination on a 6.8 px signal when averaged over the whole silhouette, which is
+     enough to hide a 39% error. Within 70 px of the projected anchor the lever arm is short and the
+     contamination is under 0.5 px, so the ratio separates 1.00 from 1.39 instead of reading 1.12 for
+     both. The pivot is the instance the frame submitted, not a re-derivation. */
+  const amp = (9 + 9 * 1);                       // the art's own bobX amplitude at sprint, device px
+  const authored = amp * (DH / 900) * BW / DW;   // device px -> raster px, via the frame's own dims
+  const PLANE0 = run('cfg.plane');
+  function travel(wide) {
+    /* SYMMETRIC ABOUT THE REST POSE, which is why these two states are +/-(PI/2) rather than 0 and
+       PI/2: the rig spans depths 0.15 to 0.9 m, so a lateral shift changes the SILHOUETTE as well as
+       its position (a near part slides further in px than a far one). Measured from the rest pose that
+       is a one-sided bias worth 12% of the signal; measured from +A to -A it is mirror-image and
+       cancels, and the translation and the roll lever both simply double. */
+    const A = pair('P.sprint=1; keys.KeyW=1; P.vx=4; P.bobPhase=-Math.PI / 2');
+    const B = pair('P.sprint=1; keys.KeyW=1; P.vx=4; P.bobPhase=Math.PI / 2');
+    return { d: B.o.cxN - A.o.cxN, n: A.o.nx, px: A.o.n, pl: B.cb.planeLen };
+  }
+  const T1 = travel(false);
+  run('cfg.plane = ' + (PLANE0 * 2).toFixed(4) + ';');
+  const T2 = travel(true);
+  run('cfg.plane = ' + PLANE0 + ';');
+  let problems = [];
+  if (!(T1.n > 64 && T1.px > MINPX)) problems.push('too few pixels near the pivot to measure travel (' + T1.n + ')');
+  else if (!(Math.abs(T1.d / (2 * authored) - 1) <= 0.12)) problems.push('painted sway travel is ' +
+    (T1.d / (2 * authored)).toFixed(3) + 'x the art\'s authored travel - the conversion does not use planeLen');
+  console.log('sway travel'.padEnd(24), 'authored ' + (2 * authored).toFixed(2) + ' px  painted ' + T1.d.toFixed(2) +
+    ' px  ratio ' + (T1.d / (2 * authored)).toFixed(3) + '  (over ' + T1.n + ' px within 70 px of the pivot; DW x DH ' +
+    DW + 'x' + DH + ', raster ' + BW + 'x' + BH + ', planeLen ' + T1.pl.toFixed(3) + ')',
+    problems.length ? '<< ' + problems.join(', ') : '');
+  bad += problems.length ? 1 : 0;
+  problems = [];
+  if (!(Math.abs(T2.d / T1.d - 1) <= 0.25)) problems.push('sway travel moves ' + (T2.d / T1.d).toFixed(2) +
+    'x when the field of view doubles - the slide is tied to the canvas, not to the projection');
+  console.log('sway vs field of view'.padEnd(24), 'painted ' + T1.d.toFixed(2) + ' px at planeLen ' + T1.pl.toFixed(3) +
+    ', ' + T2.d.toFixed(2) + ' px at planeLen ' + T2.pl.toFixed(3) + '  ratio ' + (T2.d / T1.d).toFixed(3),
+    problems.length ? '<< ' + problems.join(', ') : '');
+  bad += problems.length ? 1 : 0;
+
+  console.log(bad ? bad + ' viewmodel states with problems' : 'viewmodel: all states paint geometry in the lower-right quadrant, no depth written, shots unaffected, sway travels as authored');
   /* The counter was already here, it just never reached an exit code, so four weapons problems and
      zero were the same green. Without this exit the block also fell through to the scene dump,
      painting a PNG whose mean depends on where this probe left the RNG stream (#89). */
@@ -2997,6 +3212,12 @@ if (MODE === 'props') {
      that way. */
   const W = run('BW'), H = run('BH'), N = W * H;
   const LI = +(process.argv[3] || 0);
+  /* #180: the view model is GEOMETRY in the world buffer now, so a probe that isolates a prop by
+     pixel diff measures the rifle along with it - measured 12 failures here, every one of them the
+     gun in the lower-right corner of the mask ("the silhouette is CUT by the frame, rows ..337").
+     The rig is not furniture and not part of the world these rows measure, so it is suppressed here
+     the way the viewmodel probe suppresses the WORLD to see the rig alone. */
+  run('window.drawViewModel = function () {};');
   const lum = (b, i) => 0.2126 * (b[i] & 255) + 0.7152 * (b[i] >> 8 & 255) + 0.0722 * (b[i] >> 16 & 255);
 
   /* COST=1: the census lane, before the single-prop placement below rewrites the arrays. */
