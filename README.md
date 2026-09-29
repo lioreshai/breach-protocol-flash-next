@@ -289,6 +289,10 @@ Two traps that will bite a contributor:
 
 * `js/11_rig.js` is the one file **without** `'use strict'` and it relies on implicit globals
   (`cache`, `frame`, `nearest`, `raster`, `CAP`, `BUCKETS`). Adding the directive breaks the game.
-* Nothing runs audio headlessly - both harnesses stub `AudioContext` as undefined, so `SND.init()`
-  bails. Audio changes are only exercised in a browser; the on-screen `ERROR (loop alive)` banner
-  and `S.err` are what tell you there.
+* The `vm` harnesses (`tools/view.js`, `tools/smoke.js`) stub `AudioContext` as undefined, so `SND.init()`
+  bails there and **no sound is ever built in those two tools** - an audio change cannot be verified with
+  them. What does verify it is `node tools/ci/assert.js audio`: it drives every `SND` method with the
+  game's own argument conventions through its own `OfflineAudioContext` and measures the waveform (#157).
+  It gates CI. In a browser the on-screen `ERROR (loop alive)` banner and `S.err` are the other trace;
+  `S.err` now survives while `S.audioBroken` is set, because clearing it every frame made "audio died
+  silently" undiagnosable.

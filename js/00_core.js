@@ -65,11 +65,17 @@ function killfeed(text, col) { feed.unshift({ text, col: col || '#ffcbb3', t: 3.
    ================================================================== */
 const SND = {
   ac: null, master: null, musicGain: null, noiseBuf: null, music: null,
-  init() {
-    if (this.ac) { if (this.ac.state === 'suspended') this.ac.resume().catch(function () {}); return; }
-    const AC = window.AudioContext || window.webkitAudioContext;
-    if (!AC) return;
-    try { this.ac = new AC(); } catch (e) { return; }
+  init(ctx) {
+    // A caller-supplied context is for tools/ci/assert.js audio, which renders through an
+    // OfflineAudioContext: deterministic, needs no output device, and still real WebAudio semantics, so
+    // a wrong node signature throws there exactly as it does in a browser. The game never passes one.
+    if (ctx) this.ac = ctx;
+    else if (this.ac) { if (this.ac.state === 'suspended') this.ac.resume().catch(function () {}); return; }
+    else {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return;
+      try { this.ac = new AC(); } catch (e) { return; }
+    }
     const comp = this.ac.createDynamicsCompressor();
     comp.threshold.value = -16; comp.ratio.value = 6;
     this.master = this.ac.createGain(); this.master.gain.value = 0.85;
@@ -78,24 +84,32 @@ const SND = {
     const n = Math.floor(this.ac.sampleRate * 1.5), b = this.ac.createBuffer(1, n, this.ac.sampleRate), d = b.getChannelData(0);
     for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
     this.noiseBuf = b;
-    this.startAmbient();
+    if (!ctx) this.startAmbient();
   },
   // A context that was created before the first gesture stays suspended until
   // something resumes it; skipping every sound while suspended used to mean a
   // silently muted game, so nudge it awake and let the next call make noise.
   on() {
     if (!S.sound || !this.ac) return false;
+    // An OfflineAudioContext reports 'suspended' until startRendering() drives it, and its sounds are
+    // scheduled rather than played, so the autoplay gate does not apply to it.
+    if (typeof OfflineAudioContext !== 'undefined' && this.ac instanceof OfflineAudioContext) return true;
     if (this.ac.state === 'suspended') { this.ac.resume().catch(function () {}); return false; }
     return this.ac.state === 'running';
   },
   t() { const c = this.ac.currentTime; return isFinite(c) ? Math.max(0, c) : 0; },
-  panner(rel) {
-    if (!this.ac.createStereoPanner) return null;
-    const p = this.ac.createStereoPanner();
-    p.pan.value = clamp(Math.sin(rel || 0), -0.9, 0.9);
-    return p;
+  // #157: callers pass a pan POSITION - panOf() returns Math.sin(), a number - and this used to hand it
+  // straight to connect(), which threw "Overload resolution failed". The fault wrapper turns one throw
+  // into silence for every sound for the rest of the page's life, so this is the whole bug.
+  chain(node, pan) {
+    if (typeof pan === 'number' && isFinite(pan) && Math.abs(pan) > 1e-4 && this.ac.createStereoPanner) {
+      const p = this.ac.createStereoPanner();
+      p.pan.value = clamp(pan, -0.9, 0.9);
+      node.connect(p); p.connect(this.master);
+      return;
+    }
+    node.connect(this.master);
   },
-  chain(node, pan) { if (pan) { node.connect(pan); pan.connect(this.master); } else node.connect(this.master); },
   burst(dur, f0, f1, q, gain, type, pan) {          // filtered noise
     if (!this.on()) return;
     const t = this.t(), s = this.ac.createBufferSource();

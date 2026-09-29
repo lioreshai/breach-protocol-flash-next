@@ -135,6 +135,22 @@ jobs:
           # threw, no canvas pixels) - a run that could not measure never reports a passing grade.
           node tools/ci/assert.js exposure
 
+      - name: Audio gate (every sound rendered through an OfflineAudioContext)
+        # BLOCKING since #157: chain() took the pan argument straight to connect() while every caller
+        # passes a NUMBER (panOf returns Math.sin), so the first sound with any stereo position threw -
+        # and the fault wrapper turns one throw into silence for EVERY sound for the rest of the page's
+        # life, with no exception escaping and nothing on screen. Three audio bugs before this one were
+        # each found by a person noticing the game had gone quiet, because no assert touched SND.
+        # Each sound gets its own OfflineAudioContext: deterministic, needs no output device, and still
+        # real WebAudio, so a wrong node signature throws exactly as it does in a browser. A real-time
+        # AnalyserNode tap was tried first and measures a render clock that does not advance in
+        # --headless=new - every peak came back as the same constant, i.e. a gate that could not fail.
+        # Exit codes: 1 a sound threw or rendered silence, 3 NOT MEASURED (no browser, no DEV, an
+        # inability to hook the graph) - a run that could not measure never reports a passing grade.
+        run: |
+          set -euo pipefail
+          node tools/ci/assert.js audio
+
   probes:
     continue-on-error: true
     runs-on: ubuntu-latest
