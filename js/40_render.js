@@ -890,8 +890,14 @@ function castWalls(flash, fcR, fcG, fcB) {
         }
       }
     }
+    /* The riser's own creases, then this column's nearer 1-quantum crease - not INSTEAD OF it. As an
+       `else if` the far seam evicted the near one, and on a level that authors volume a riser sits
+       down some column behind almost every stair tread: measured on 60 of 60 walk-lip columns of L0
+       and L2, where the seam moved not one pixel of the lip the player is standing at (issue #181's
+       bands row read `foot drop 0.0 px-lum, band 0.0 px of a 24 px riser` for exactly this). Painted
+       after so the nearer lip wins any row the two bands share. */
     if (riser && SEAM) { seamCrease(x, perp, rz0, rz1, -SEAMD); seamCrease(x, perp, rz1, rz0, SEAMU); }
-    else if (crk) seamCrease(x, cT, cA, cB, -SEAMD);
+    if (crk) seamCrease(x, cT, cA, cB, -SEAMD);
   }
 }
 

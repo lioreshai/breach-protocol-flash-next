@@ -3644,13 +3644,6 @@ if (MODE === 'bands') {
     for (let y = a; st > 0 ? y <= e : y >= e; y += st) { s += lum(b, y * w + x); n++; }
     return n ? s / n : 0;
   };
-  const lumDiffAvg = (p, q, w, y0, y1, x) => {
-    const a = Math.max(0, Math.min(H - 1, Math.round(y0))), e = Math.max(0, Math.min(H - 1, Math.round(y1))), st = e >= a ? 1 : -1;
-    let s = 0, n = 0;
-    for (let y = a; st > 0 ? y <= e : y >= e; y += st) { s += Math.abs(lum(p, y * w + x) - lum(q, y * w + x)); n++; }
-    return n ? s / n : 0;
-  };
-
   /* First surface change along every column's ray, in the renderer's own parametrisation
      (point = cam + ray * t, and t is also the perpendicular distance because dir.(dir + plane*cam)
      = 1), refined by bisection so the row maths is not quantized by the sampling step. A crossing
@@ -3658,10 +3651,12 @@ if (MODE === 'bands') {
      kind: wall = a solid column; face = an air->air step of >=2 quanta, which the wall pass draws;
      walk = exactly 1 quantum, which it does NOT draw (canEnter steps over it); ramp/ladder links
      draw no lip either, so they are excluded from both kinds. */
-  const march = (cx, cy) => run(`(function () {
+  const march = (cx, cy, all) => run(`(function () {
     const N = MAP.w, cell = MAP.cell, fz = MAP.fz, vb = MAP.vb, sb = 2 / BW;
     const NX = [1, 0, -1, 0], NY = [0, 1, 0, -1];
-    const D = ${DIST} + 0.3, CX = ${cx}, CY = ${cy}, RES = [];
+    // all=1 enumerates every crease the wall pass could paint, so it marches as far as castWalls
+    // does (the guard, i.e. the map border) instead of stopping at the row's own 3.5 m sample plane
+    const D = ${all ? 60 : DIST} + 0.3, CX = ${cx}, CY = ${cy}, RES = [], STOP1 = ${all ? 0 : 1};
     const ceilOf = i => {                       // js/10_world ceilAt, mirrored for the face's top
       const f = fz[i], x = i % N, y = (i / N) | 0; let m = 0;
       for (let k = 0; k < 4; k++) { const nx = x + NX[k], ny = y + NY[k]; if (nx < 0 || ny < 0 || nx >= N || ny >= N) continue; const j = ny * N + nx; if (cell[j] || fz[j] > f) m = Math.max(m, fz[j] - f); }
@@ -3691,7 +3686,8 @@ if (MODE === 'bands') {
             break;
           }
           ev = [x, 'walk', dq, t, fz[prev] * ZQ, Math.min(fz[cur], fz[prev]) * ZQ, Math.max(fz[cur], fz[prev]) * ZQ];
-          break;
+          if (STOP1) break;                       // all=1: the row's own first event; all=0: keep the whole list
+          RES.push(ev); ev = null; prev = cur; continue;
         }
         prev = cur;
       }
@@ -3748,11 +3744,22 @@ if (MODE === 'bands') {
     return 1;
   })()`);
 
-  // thresholds: mean |dL| at the lip and the darkest share of lip pixels that are indistinguishable
-  // from their neighbour. Measured on main f7d1847 with the seam absent: face lips 32.1 / 16.1 /
-  // 38.4 and walk lips 9.4 / 6.9 / 2.0 - so the number a face lip already clears is NOT the evidence
-  // a seam works (the band row below is), and this row is the #164 measurement itself.
-  const MEAN_MIN = +(process.env.MEAN_MIN || 30), WITHIN_MAX = +(process.env.WITHIN_MAX || 35);
+  // the share of lip pixels that are indistinguishable from their neighbour - the visibility floor,
+  // and the reason a contrast of 1.0 between two near-black rows cannot pass this row.
+  const WITHIN_MAX = +(process.env.WITHIN_MAX || 35);
+  /* The step is judged as CONTRAST, |a-b|/(a+b), not as absolute luminance. A crease is a MULTIPLY in
+     the renderer (the lip row keeps 1 - SEAMD - SEAMC = 0.16 of what was there), so the most it can
+     move is 0.84 times how bright the surface already is: the branch's L1 walk lip sits on a floor
+     that renders at 27.6 with the row in front at 29.5, so its ceiling on mean |dL| is 23.2 and an
+     absolute 30 is unreachable however hard the renderer works - while the SAME 84% crease on main's
+     L1 walk lip (68.3 / 84.6) measured 73.7. Measured on the six lips of each tree: seam ON 0.55-0.79
+     on the branch and 0.56-0.79 on main, seam OFF 0.11-0.31, and 0.11-0.12 on the columns whose
+     crease the wall pass drops for a farther riser. The threshold sits in that gap: the worst failing
+     value measured is 0.31, the best passing one 0.55. */
+  const CON_MIN = +(process.env.CON_MIN || 0.45);
+  // the same rule for the seam band's depth: mean(B-A) over the band, over mean(A) over that band.
+  // Measured 1.13-1.45 on all six lips of the branch with the term on, 0.00 with SEAM=0.
+  const DROP_CON_MIN = +(process.env.DROP_CON_MIN || 0.45);
   for (let li = 0; li < 3; li++) {
     const spawn = run(`(function () { startLevel(${li}, true); return [P.x, P.y]; })()`);
     // SEAM=0 runs this whole probe with the term switched off in the renderer, so the same rows can
@@ -3775,13 +3782,47 @@ if (MODE === 'bands') {
       let B = A;
       if (seam === 1) { run('SEAM = 0'); run('S.t = 3.5; renderWorld()'); B = new Uint32Array(run('px')); run('SEAM = 1'); }
       const m = march(L.cx, L.cy);
+      /* Every crease each column contains, not just the one the row measures: a staircase puts the
+         next tread's lip above this one and the sunken block's riser behind it, and the seam paints
+         those bands too. Locality has to be measured on rows NO crease reaches, or the next lip's own
+         edge is booked as a leak (measured 10.2 on the branch's L2 walk lip, on rows that belonged to
+         a real riser). A tint moves rows nothing reaches, so it still counts as a leak. */
+      const creaseByX = {};
+      for (const c of march(L.cx, L.cy, 1)) {
+        if (c[1] === 'walk') {
+          const zA = c[4], zB = zA === c[5] ? c[6] : c[5];
+          (creaseByX[c[0]] = creaseByX[c[0]] || []).push([c[3], zA, zB]);
+        } else if (c[1] === 'face') {
+          (creaseByX[c[0]] = creaseByX[c[0]] || []).push([c[3], c[5], c[6]], [c[3], c[6], c[5]]);
+        }
+      }
+      const reaches = (x, y) => {
+        const cs = creaseByX[x];
+        if (!cs) return false;
+        for (let k = 0; k < cs.length; k++) {
+          const h2 = H / cs[k][0], yA = hor + (eye - cs[k][1]) * h2, yB = hor + (eye - cs[k][2]) * h2;
+          const b2 = Math.min(Math.abs(yB - yA) * 0.5, h2 * SEAMW), y0 = Math.floor(yA);
+          if (y <= y0 && y >= y0 - b2) return true;
+        }
+        return false;
+      };
+      const lumDiffClear = (p, q, x, y0, y1) => {
+        const a = Math.max(0, Math.min(H - 1, Math.round(y0))), e = Math.max(0, Math.min(H - 1, Math.round(y1))), st = e >= a ? 1 : -1;
+        let s = 0, n2 = 0;
+        for (let y = a; st > 0 ? y <= e : y >= e; y += st) {
+          if (reaches(x, y)) continue;
+          s += Math.abs(lum(p, y * W + x) - lum(q, y * W + x)); n2++;
+        }
+        clearRows += n2;
+        return n2 ? s / n2 : 0;
+      };
       if (DBG) {
         const hsh = {};
         for (const c of m) { const k = c[1] + (Math.abs(c[3] - DIST) <= TOL ? '@D' : '@else'); hsh[k] = (hsh[k] || 0) + 1; }
         console.log(`    dbg L${li} ${kind} lip (${L.x},${L.y}) d${L.d} dq ${L.dq} wide ${L.wide} cam(${L.cx.toFixed(2)},${L.cy.toFixed(2)}) ang ${L.ang.toFixed(3)}: ` + JSON.stringify(hsh));
       }
       let n = 0, sum = 0, sgn = 0, within = 0, zok = 0, off = 0;
-      let dropSum = 0, wideSum = 0, spanSum = 0, farSum = 0, farN = 0, dip = 0, touched = 0, near0 = 0;
+      let dropSum = 0, wideSum = 0, spanSum = 0, farSum = 0, farN = 0, dip = 0, touched = 0, near0 = 0, conSum = 0, refSum = 0, clearRows = 0;
       for (const c of m) {
         if (c[1] !== kind || Math.abs(c[3] - DIST) > TOL) continue;
         const x = c[0], perp = c[3], zLo = c[5], zHi = c[6], hp = H / perp;
@@ -3802,8 +3843,10 @@ if (MODE === 'bands') {
           zok++;
         }
         // the pair across the step lip: the lip row and the floor immediately in front of it
-        const dP = lum(A, (yF + 1) * W + x) - lum(A, yF * W + x);
+        const lU = lum(A, (yF + 1) * W + x), lD = lum(A, yF * W + x);
+        const dP = lU - lD, den = lU + lD;
         n++; sum += Math.abs(dP); sgn += dP; if (Math.abs(dP) <= 10) within++;
+        conSum += den > 12 ? Math.abs(dP) / den : 0;
         // the seam on its own, with everything else about the frame held still. Its band is located
         // empirically - the strongest shift anywhere within +-0.5 m of the geometric lip - and the
         // OFFSET from the analytic lip is asserted below, because a seam painted 1 m from the step it
@@ -3823,42 +3866,55 @@ if (MODE === 'bands') {
           }
           return k;
         })();
-        let band = 0, nRows = 0;
-        for (let k = 0; k <= bRows; k++) { band += lum(B, (yb - k) * W + x) - lum(A, (yb - k) * W + x); nRows++; }
+        let band = 0, ref = 0, nRows = 0;
+        for (let k = 0; k <= bRows; k++) {
+          band += lum(B, (yb - k) * W + x) - lum(A, (yb - k) * W + x); ref += lum(A, (yb - k) * W + x); nRows++;
+        }
         // locality: the SAME term measured a band's width clear of the crease on the far side, and on
         // the floor 6-14 rows in front of it. Offsets are fixed (win = 2 design band widths), not
         // relative to the band this column happened to show, or a narrower band would look leakier.
-        const a1 = lumDiffAvg(A, B, W, yb - win - 4, yb - win - 12, x);
-        const a2 = lumDiffAvg(A, B, W, yb + 6, yb + 14, x);
+        const a1 = lumDiffClear(A, B, x, yb - win - 4, yb - win - 12);
+        const a2 = lumDiffClear(A, B, x, yb + 6, yb + 14);
         const mid = lumAvg(A, W, yb - bRows * 0.25, yb - bRows * 0.75, x);
         const near = lumAvg(A, W, yb + bRows + 6, yb + bRows + 16, x);
         const far = lumAvg(A, W, yb - bRows - 6, yb - bRows - 16, x);
-        dropSum += nRows ? band / nRows : 0; wideSum += bRows; spanSum += Math.abs(yOther - yLip);
+        dropSum += nRows ? band / nRows : 0; refSum += nRows ? ref / nRows : 0;
+        wideSum += bRows; spanSum += Math.abs(yOther - yLip);
         farSum += Math.max(a1, a2); farN++;
         if (mid < near - 12 && mid < far - 12) dip++;
         if (yb >= 0 && Math.abs(yb - yF) <= win) near0++;
         if (peak > 4) touched++;
       }
-      const meanD = n ? sum / n : 0, pctW = n ? 100 * within / n : 100;
+      const meanD = n ? sum / n : 0, pctW = n ? 100 * within / n : 100, meanCon = n ? conSum / n : 0;
+      // the foot drop as a fraction of how bright that band is: the term is a multiply, so on a floor
+      // rendering at 27 the most it can be is 0.84 of 27 and an absolute 18 px-lum is out of reach in
+      // a dim room while the same crease on a floor at 106 measured 88 (main L0 walk)
+      const dropBar = farN ? dropSum / farN : 0, dropCon = refSum ? dropSum / refSum : 0;
       row(`L${li} ${kind} lip: geometry the depth buffer agrees with`,
         n >= 24 && zok >= n * 0.9,
         `${n} of ${m.length} columns cross a ${kind} lip at ${DIST} m (refused ${off}: the renderer's `
         + `own zbuf says nothing is there), riserStops ${risers}, horizon ${hor.toFixed(1)}, eyeZ ${eye.toFixed(2)}`);
       row(`L${li} ${kind} lip: luminance steps where depth steps`,
-        n >= 24 && meanD >= MEAN_MIN && pctW <= WITHIN_MAX,
-        `mean |dL| across the lip ${meanD.toFixed(1)} (want >= ${MEAN_MIN}), ${pctW.toFixed(1)}% of lip `
-        + `pixels within 10 of their neighbour (want <= ${WITHIN_MAX}%), signed ${(n ? sgn / n : 0).toFixed(1)} `
+        n >= 24 && meanCon >= CON_MIN && pctW <= WITHIN_MAX,
+        `contrast across the lip ${(100 * meanCon).toFixed(0)}% (want >= ${(100 * CON_MIN).toFixed(0)}%), `
+        + `mean |dL| ${meanD.toFixed(1)}, ${(pctW).toFixed(1)}% of lip pixels within 10 of their neighbour `
+        + `(want <= ${WITHIN_MAX}%), signed ${(n ? sgn / n : 0).toFixed(1)} `
         + `- ${kind === 'face' ? 'a riser wears the floor material, so today the step is a brighter patch of the same texture'
           : 'a walk lip draws NO face at all: the floor texture is painted straight through the riser'}`);
       row(`L${li} ${kind} lip: a seam band at the crease, not a shade`,
-        seam === 1 && dropSum / (farN || 1) >= 18 && wideSum / (n || 1) >= 1 &&
+        seam === 1 && dropCon >= DROP_CON_MIN && wideSum / (n || 1) >= 1 &&
         wideSum / (spanSum || 1) <= 0.45 && farSum / (farN || 1) <= 5 &&
+        // and the locality term must have been MEASURED: masking every row of both windows would
+        // make it read 0.0 on a build that tints the whole frame, which is the one thing it owns
+        clearRows >= (farN || 1) * 4 &&
         near0 >= Math.max(12, n * 0.5) && touched >= near0,
-        `foot drop ${n ? (dropSum / farN).toFixed(1) : '0'} px-lum when the term is on, band `
+        `the band is ${(100 * dropCon).toFixed(0)}% brighter with the term off (${dropBar.toFixed(1)} px-lum `
+        + `off a floor at ${(refSum / (farN || 1)).toFixed(0)}), the step is a crease not a shade; want >= `
+        + `${(100 * DROP_CON_MIN).toFixed(0)}%), band `
         + `${(n ? wideSum / n : 0).toFixed(1)} px of a ${(n ? spanSum / n : 0).toFixed(0)} px riser `
         + `(${(100 * wideSum / (spanSum || 1)).toFixed(0)}% - wider than that is a tint, not an edge), `
-        + `${(farSum / (farN || 1)).toFixed(1)} a band's width clear of the crease on both sides `
-        + `(locality, want <= 5), `
+        + `${(farSum / (farN || 1)).toFixed(1)} a band's width clear of every crease in the column on both sides `
+        + `(locality, want <= 5, measured on ${farN ? (clearRows / farN).toFixed(1) : '0'} of 18 rows/column) `
         + `of those, ${n ? (100 * dip / n).toFixed(0) : 0}% also read as a local luminance minimum `
         + `(lighting-dependent: the AMB floor sinks it in dark rooms - see the #164 note), `
         + `${near0} of ${n} bands land within 0.5 m of the lip the grid says, ${touched} of ${n} moved at all`);
@@ -3905,7 +3961,12 @@ if (MODE === 'bands') {
     })()`);
     const bands = Object.keys(mm).map(Number).sort((a, b) => a - b);
     const colOf = b => Object.keys(mm[b]).sort((p, q) => mm[b][q] - mm[b][p])[0];
-    const datum = colOf(bands[0]);
+    /* The datum is the band MOST cells stand on, not the numerically lowest one. While every band sat
+       at or above the datum those were the same band, and a pit is the first thing to separate them:
+       taking the lowest made the pit the datum and flagged the real datum's own ink as a collision -
+       the same one-sided rule alt's link count had to lose. */
+    const cntOf = b => Object.keys(mm[b]).reduce((s, c) => s + mm[b][c], 0);
+    const datum = colOf(bands.reduce((a, b) => cntOf(b) > cntOf(a) ? b : a));
     const offBands = bands.filter(b => Math.abs(b) > 1e-6);
     const sameOff = offBands.filter(b => colOf(b) === datum);
     row(`L${li} minimap shows which band a cell is on`, bands.length >= 2 && sameOff.length === 0,
