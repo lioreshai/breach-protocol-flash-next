@@ -230,12 +230,23 @@ case "$out" in *"SMOKE PASSED"*) git add -A && git commit ;; *) echo NOT COMMITT
   light, tint, mirror and decal mask from a cell on the far side. M2 carried two of these
   (`js/40_render.js:258`, `:376`) because the correct two-axis form ten lines away at `:297` got
   copied as a formula rather than as a guard.
-- **A fixed-point walk that runs out of iterations still paints.** M2's re-solve tried 3 times and
-  left `dS` computed from the *previous* plane when it exhausted: measured non-convergence on
-  586,506 of 1,791,686 re-solves (33%) on poked configs, with `pl = plN` dead on the last pass.
-  Iteration counts are the wrong convergence test on a **quantized** domain — compare against the
-  quantum (`ZQ`) and count non-convergence in a probe, or a step lip's appearance is defined by how
-  the loop gives up.
+- **A fixed-point walk in a quantized domain needs a quantum test, not an iteration count** — and
+  M2's version of that lesson is now **partly spent, so do not re-derive it from this bullet**. The
+  re-solve used to try 3 times and leave `dS` computed from the *previous* plane (measured then:
+  non-convergence on 586,506 of 1,791,686 re-solves, 33%, with `pl = plN` dead on the last pass).
+  `groundPixel` today terminates on the quantum (`js/40_render.js:431`,
+  `if (Math.abs(plN - pl) <= ZQ) { settled = true; break; }`) and counts exhaustion **separately** in
+  `reSolveBad` (`:436`, asserted by `RE-SOLVE-NOT-CONVERGED`). Two consequences, both measured
+  2026-09-29 while chasing #170: **`reSolveBad` stays 0 on the pixels that still leak**, so exhaustion
+  counting cannot see that bug; and the `<= ZQ` branch is an *exit*, not a *convergence proof* — it
+  accepts a one-quantum neighbour and keeps the plane the walk **arrived from**. Answering that branch
+  with the nearer plane instead (smaller `|plane - eyeZ|`, since screen distance is
+  `|plane - eyeZ| * BH / |p|` in both passes) changed the leak **not at all** (398 px at rows 102..127,
+  identical) and broke `heights` with `DEFERRED-STALE-DEPTH` on 3 `stepUp` configs — because
+  `groundPixel` is one of the **two copies** of the ground pixel body, so depth became a property of
+  *which path painted the pixel* rather than of the geometry. Lesson: when a bug survives a plausible
+  arithmetic fix, the pixels are not going through that arithmetic. **Attribute them before editing
+  it** (row path vs deferred queue, `castGround`'s split at `:363-371`, `:394`).
 - **Never report a context percentage you did not read from the `<strategy>` block.** This session
   said "~2% of context left" with no such measurement behind it — it was extrapolated down from a
   24% read an hour earlier, and the footer said 79.4% remaining. It was not decoration either: it
@@ -372,9 +383,12 @@ case "$out" in *"SMOKE PASSED"*) git add -A && git commit ;; *) echo NOT COMMITT
   1e30 passes the old test and fails the new one, as does "hide everything".
 - **Quantized-domain non-convergence now has a visible consequence.** Below a raised band's riser lip a
   prop on the band above still draws — measured 398–438 px at rows 102..127 (#163) — because
-  `groundPixel`'s fixed point oscillates between the low and raised planes at the seam and gives up on
-  the far one. The failure mode is the one recorded above ("a fixed-point walk that runs out of
-  iterations still paints"); what is new is that pixels show it.
+  `groundPixel`'s fixed point oscillates between the low and raised planes at the seam and answers from
+  the plane it arrived at. The failure mode is the one recorded above ("a fixed-point walk in a
+  quantized domain needs a quantum test, not an iteration count") - and note that bullet's correction:
+  exhaustion counting (`reSolveBad`) reports **0** on exactly these pixels, so it is not the way in;
+  attribute the pixels to the row path or the deferred queue before changing any arithmetic. What is
+  new here is that pixels show it.
 
 ## Now: verticality — the design that was chosen
 
