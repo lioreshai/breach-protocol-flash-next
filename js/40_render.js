@@ -525,9 +525,9 @@ function castWalls(flash, fcR, fcG, fcB) {
          one-unit room collapses the far band to zero headroom and the strip fills the eye's whole
          band, so it reads as a wall and occludes everything (the bug #100 was filed for); and a pit
          gets the wall below its lip instead of a wall above it, so a body in the pit keeps showing
-         its crown instead of vanishing. `tv` is the material of a riser: the exposed edge of a
-         floor, so it wears the concrete of the floor family rather than the room's wall. Flat levels
-         never reach this test - MAP.steps is 0 - so a flat frame stays bit-identical. */
+         its crown instead of vanishing. A riser is the exposed edge of a floor slab, so its material is
+         the level's own floor material, chosen below - not a wall texture, and not a global concrete.
+         Flat levels never reach this test - MAP.steps is 0 - so a flat frame stays bit-identical. */
       if (doStep) {
         const d = side === 0 ? (stepX > 0 ? 0 : 2) : (stepY > 0 ? 1 : 3);
         const pi = (my - (side === 1 ? stepY : 0)) * N + (mx - (side === 0 ? stepX : 0));
@@ -541,7 +541,12 @@ function castWalls(flash, fcR, fcG, fcB) {
     let perp = side === 0 ? sdx - ddx : sdy - ddy;
     if (!(perp > 0.0001)) perp = 0.0001;
     if (tv === 0 || perp > FARB * 3) continue;
-    const tex = WALLS[(tv - 1) % WALLS.length];
+    /* A riser wears MAP.floorTex, the material this level already authors for its floors. It used to
+       wear WTEX.CONCRETE, which is in NO level's palette: 136 texel-luminance against the 99 of level
+       0's floor and the 89 of level 2's, so a banded level read ~+8 raster brighter than a flat one at
+       an identical lightmap - riser faces are the whole of that delta (13.8% of level 0's pixels at
+       mean 118.6, where the floor they cover reads 73.2). Dead on flat levels, so nothing shipped moves. */
+    const tex = riser && MAP.floorTex ? MAP.floorTex : WALLS[(tv - 1) % WALLS.length];
     if (!tex) continue;
     let wallX = side === 0 ? camY + perp * rdy : camX + perp * rdx;
     wallX -= Math.floor(wallX);
