@@ -43,6 +43,15 @@ const cellIdx = (x, y) => (y | 0) * MW + (x | 0);
 const ZQ = 0.25;
 const CZ_DEF = 4;                                        // 4 quanta = one unit of ceiling
 const LHOVER = 0.78;                     // a lamp light's authored hover above its own floor (:845)
+/* #213: a coverage TOP-UP source is scaled by the band it was placed to cover, because a 16-cell pit
+   and a 300-cell floor otherwise receive identical sources - which is why standing inside a lit pit
+   read DEV.lum 168 mean / 229 mid (a white box) while the big floor stayed under-lit. str is
+   TOPUP_BASE * clamp(coveredCells / TOPUP_TARGET, TOPUP_MINF, 1), coveredCells being the count the
+   placement score already computes. TARGET is the pit knob (cov/32 = 0.5 exactly for a 5x3 hole, so a
+   pit gets a dim fill and a >=32-cell band keeps a full lamp); MINF only bites on bands under 16 cells,
+   where a proportional source would be a dark cell with a lamp prop on it. The knobs live here and not
+   behind an env var on purpose: a row gated on a knob a human must remember is the failure mode. */
+const TOPUP_BASE = 1.05, TOPUP_TARGET = 32, TOPUP_MINF = 0.5;
 const VB_BLOCK = 1, VB_RAMP = 2, VB_LADDER = 4, VB_THRU = 8;
 const VB_KEEP = 0x6666;                    // VB_RAMP|VB_LADDER in each of the four side nibbles: the authored bits
 const FEAT_NONE = 0, FEAT_STAIR = 1, FEAT_LADDER = 2, FEAT_PIT = 3, FEAT_RAIL = 4;
@@ -958,7 +967,7 @@ function genLevel(li) {
         const list = bandCells.get(wb), cov = ownLight(wb);
         const unserved = list.filter((i, k) => cov[k] < OWN_MIN);
         const r = 7.2 + prnd() * 2.8;
-        let best = -1, bs = -1;
+        let best = -1, bs = -1, bcov = 0;
         for (let tries = 0; tries < 400 && unserved.length; tries++) {
           const q = list[(prnd() * list.length) | 0];
           if (q === best || taken.has(q)) continue;
@@ -966,17 +975,19 @@ function genLevel(li) {
           let sc = 0;
           for (const j of unserved) if (Math.hypot((j % N) - qx, ((j / N) | 0) - qy) < r) sc++;
           const score = sc * 16 + OPENAT(qx, qy);             // openness breaks ties, never outranks a cell
-          if (score > bs) { bs = score; best = q; }
+          if (score > bs) { bs = score; best = q; bcov = sc; }   // the placement's coverage, for its intensity
         }
         if (best < 0) {                                       // deterministic sweep: the band still gets one
           let bo = -1;
           for (const q of list) { const op = OPENAT(q % N, (q / N) | 0); if (op > bo) { bo = op; best = q; } }
           if (best < 0) break;
+          bcov = unserved.length;
         }
         taken.add(best);
         perBand.set(wb, (perBand.get(wb) || 0) + 1);
         const bx = best % N, by = (best / N) | 0;
-        LIGHTS.push({ x: bx + 0.5, y: by + 0.5, z: floorAt(bx + 0.5, by + 0.5) + LHOVER, r, str: 1.05, col: cfgL.lampCol, stat: 1 });
+        const tsc = Math.min(1, Math.max(TOPUP_MINF, (bcov || 1) / TOPUP_TARGET));   // 0 coverage keeps a full lamp: a dim source that covers nothing would only darken the band
+        LIGHTS.push({ x: bx + 0.5, y: by + 0.5, z: floorAt(bx + 0.5, by + 0.5) + LHOVER, r, str: TOPUP_BASE * tsc, col: cfgL.lampCol, stat: 1 });
         PROPS.push({ tex: PROP.lamp, x: bx + 0.5, y: by + 0.5, scale: 0.95, z: floorAt(bx + 0.5, by + 0.5), kind: 'lamp' });
       }
     }
