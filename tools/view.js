@@ -423,8 +423,19 @@ if (MODE === 'vert') {
       const stepFz = new Int8Array(N * N); for (let i = 0; i < N * N; i++) stepFz[i] = (i % 3) ? 1 : 0;
       const dStep = bfsReach(MAP.cell, stepFz, N, start);
       let rs = 0; for (let i = 0; i < N * N; i++) if (dStep[i] >= 0) rs++;
+      /* The seam this raises has to have the SPAWN on the near side and the EXIT on the far one, or
+         "the split refuses" is a claim about a seam no path crosses. Before generation the spawn was
+         room[0] in the top-left, so x >= N/2 did exactly that; #188 authors bands and the spawn can now
+         sit at x 19 of 26 (L0) or x 30 of 36 (L2), so the old half raised the ground the BFS starts on,
+         the exit was reachable inside the raised half at d 20 and L0/L2 reported "exit sealed FAIL".
+         Split on the axis where spawn and exit differ most, and raise the half beyond its midpoint. */
+      const sx = start % N, sy = (start / N) | 0, eX = exitX | 0, eY = exitY | 0;
+      const axY = Math.abs(eY - sy) > Math.abs(eX - sx);
+      const cut = axY ? ((sy + eY) >> 1) : ((sx + eX) >> 1);
       const splitFz = new Int8Array(N * N);
-      for (let y = 0; y < N; y++) for (let x = (N >> 1); x < N; x++) splitFz[y * N + x] = 2;
+      for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+        if (axY ? (eY > sy ? y > cut : y <= cut) : (eX > sx ? x > cut : x <= cut)) splitFz[y * N + x] = 2;
+      }
       const dSplit = bfsReach(MAP.cell, splitFz, N, start);
       let rb = 0, blocked = 0;
       for (let i = 0; i < N * N; i++) { if (dSplit[i] >= 0) rb++; if (flat[i] >= 0 && dSplit[i] < 0) blocked++; }
@@ -525,9 +536,14 @@ if (MODE === 'vert') {
     for (const [name, dq, want] of [['a 1-quantum lip', 1, 'over'], ['a 2-quantum lip', 2, 'stop']]) {
       /* Absolute, not `+=`: the lane may already sit on a raised band, and a step written against a
          cell whose own floor is unknown is not the step the row's name claims. CARRY keeps the wall
-         bases under the band they bound, so a face of span 0 cannot blame the renderer for this poke. */
+         bases under the band they bound, so a face of span 0 cannot blame the renderer for this poke.
+         The band runs to the map's inner border, not to the end of the lane: since #188 the column
+         after a lane can be another band rather than a wall, and a 150-frame walk travels ~7.2 units,
+         so a poke that stops with the lane is WALKED OFF THE END of and the tail of the sample then
+         measures the step down off the poke (measured: P.z 0 -> 0.25 at the lip, then 0.1833 -> 0.1344
+         -> 0.0986 as the ease chased a floor of 0), which is not the lip this row is named for. */
       run(CFG('', `const q=MAP.fz[${CY} * MW + ${CX}];` +
-        `for(let j=3;j<${N};j++)MAP.fz[${CY} * MW + ${CX} + j]=q+${dq};` + CARRY));
+        `for(let x=${CX}+3;x<MW-1;x++)MAP.fz[${CY} * MW + x]=q+${dq};` + CARRY));
       const Z0 = run('P.z'), sp = run(SPANS), s = run(RUN(150, 'KeyW'));
       /* The same byte that makes the face opaque makes it impassable, so the row names which side it
          expects: the 1-quantum lip must NOT be VB_BLOCK (or auto-step has nothing to walk over) and
@@ -589,7 +605,15 @@ if (MODE === 'vert') {
        being the drop. The measured start and landing altitudes are printed beside the drop. */
     const rows = [];
     for (const k of [5, 8, 10, 13, 16]) {
-      run(CFG('', `globalThis.__q0=MAP.fz[${CY} * MW + ${CX} + 2];` +
+      /* PICKUPS.length=0 belongs in this poke, not in PRE: the dig drops the landing altitude to the
+         floor of every column the player walks over, and a health pickup standing in that band is
+         TAKEN on the landing frame - js/30_entities.js:430 (+25, capped at 100) runs in the same
+         update as the damage, on the same frame the row's own rule uses to recognise fall damage, so
+         the row cannot attribute it. Measured on #188: damagePlayer(10.6) fires at x 3.5, hp goes
+         100 -> 89.40, the pickup heals to 100 and the 2.00-unit drop prints 0.0hp. Clearing it in PRE
+         instead would shift how much randomness the run consumes, and every later row would see a
+         different level roll (measured: L2's flat walk 7.16 -> 5.21 units, spawn rows +/-32 faces). */
+      run(CFG('', `PICKUPS.length=0;globalThis.__q0=MAP.fz[${CY} * MW + ${CX} + 2];` +
         `for(let j=1;j<${N};j++)MAP.fz[${CY} * MW + ${CX} + j]=globalThis.__q0-${k};` + CARRY) +
         PLACE(CX + 2.5, CY + 0.5, 'globalThis.__q0*ZQ'));
       const sp = run(SPANS), zFrom = run('P.z');
