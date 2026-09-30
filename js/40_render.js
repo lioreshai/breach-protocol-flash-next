@@ -134,6 +134,16 @@ function renderWorld() {
   const PKKIND = { health: 'pickupHealth', ammo: 'pickupAmmo', armor: 'pickupArmor' };
   for (const p of PROPS) {
     if (p.dead && p.kind === 'barrel') continue;
+    /* A prop the EYE is inside paints the whole frame with its own mesh magnified to the near plane:
+       measured at a camera on a barrel's cell centre (props sit at cell centres and `tryMove` gives
+       props no collision), 95.8 % of the above-horizon pixels belonged to a prop at 0.00 m and `zbuf`
+       read 0.142 there against the geography's 0.997 - a bright frame that looks like a wall while
+       every ray finds open ground (#212). The mesh's 0.12 m near plane is not the guard: a face 14 cm
+       away is past it. Cull by footprint, not distance - a crate 3 m out is a real occluder. The
+       gameplay half (props are not collision, so a player can stand in one) is a movement change and
+       is called out in the PR instead of riding along in a render fix. */
+    const pf = MESH.foot(p.kind) * (p.scale || 1);
+    if (pf > 0 && Math.abs(p.x - camX) < pf && Math.abs(p.y - camY) < pf) continue;
     list.push({ mesh: true, kind: p.kind, x: p.x, y: p.y, z: floorAt(p.x, p.y), scale: p.scale, alpha: p.dead ? 0.35 : 1 });
   }
   for (const k of PICKUPS) {
