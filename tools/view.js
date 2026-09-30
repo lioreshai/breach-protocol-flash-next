@@ -639,7 +639,7 @@ if (MODE === 'flatparity') {
   const f1 = v => (v === undefined || v === null ? '-' : (+v).toFixed(1));
   const md5of = () => { const d = new Uint32Array(run('px'));
     return crypto.createHash('md5').update(Buffer.from(d.buffer, d.byteOffset, d.byteLength)).digest('hex'); };
-  const hashes = [], mns = [];
+  const hashes = [], mns = [], flat = [];
   const NL = run('LEVELS.length');
   for (let lv = 0; lv < NL; lv++) {
     seedRng(1000 + lv * 97);
@@ -660,6 +660,10 @@ if (MODE === 'flatparity') {
       return s / B;
     })()`);
     hashes.push(md5of()); mns.push(mean);
+    /* Read from the world that was just HASHED, not from this file's comments: how many cells are still
+       off the datum in the frame behind the md5. It is 0, and that is the mechanism this probe's own
+       limitation rests on (#211 ask 2) - printed next to the verdict below rather than asserted. */
+    flat.push(run('(()=>{ let n = 0; for (let i = 0; i < MAP.fz.length; i++) if (MAP.fz[i] !== 0) n++; return n; })()'));
     console.log('  level ' + lv + '  flat spawn-frame md5 ' + hashes[lv] + '  mean ' + mean.toFixed(1));
   }
   if (process.env.FP_CHILD) process.exit(0);
@@ -827,9 +831,23 @@ if (MODE === 'flatparity') {
     + '. A placement rule that only touches rooms the spawn camera cannot see therefore CANNOT move this'
     + ' triple, so do not read the LOCK row as a lamp census - and note the pair is not vacuous: on MAIN'
     + ' the two senses are identical, the sums do not move, and this row goes red.');
+  /* #211 ask 2: the limitation printed NEXT TO the verdict instead of buried in this block's header.
+     Every cell of a hashed level sits on the datum, so `fd = 0` and the band term is the literal 1
+     before any SIGN is read: NO flat frame can fail a signed band term, and no reference hash can be
+     narrowed to make it able to. Measured, not argued - the one-sided kernel `lf - floor >= -ZQ - 1e-9`
+     prints ok on all six rows and hashes both triples byte-identical (4262d051/f05beeb5/050b225e and
+     f9e4da3a/f05beeb5/d4b2d2cd, #210), while alt's direction rows FAIL 169/273/117 on that same kernel.
+     So this probe gates the collapse and alt gates the sign; neither alone gates the term. */
+  console.log('  --  NECESSARY, NOT SUFFICIENT: the hashed levels carry ' + flat.join(' / ') + ' cells off the datum ('
+    + run('MAP.fz.length') + ' cells per level), so fd = 0 in every cell and `Math.abs(lf - floorAt(col)) <= ZQ + 1e-9` '
+    + 'evaluates to the literal 1 in this frame - it is BLIND TO THE SIGN of the band term. The one-sided variant '
+    + '`lf - floor >= -ZQ - 1e-9` (up blocked, down unbounded) prints ok on all six rows above and hashes BOTH triples '
+    + 'byte-identical, while `view.js alt` FAILs 169 / 273 / 117 cells lit from a band above on that very kernel. '
+    + 'alt\'s two direction rows are the sign test: a green parity row here is NOT proof that a band term exists.');
   console.log(bad ? 'FLATPARITY ' + bad + ' FAILURES - the PARITY triple no longer collapses with LAMPS=off, or the LOCK triple moved'
     : 'flatparity ok - PARITY collapses to 2c5a94f with LAMPS=off (formula collapse) and LOCK holds on the shipped lamp record'
-    + ' (regression lock); two cold processes per sense agree');
+    + ' (regression lock); two cold processes per sense agree, and both senses are BLIND TO THE SIGN of the band term'
+    + ' (the line above, and alt\'s direction rows are what gate it)');
   process.exit(bad ? 1 : 0);
 }
 
