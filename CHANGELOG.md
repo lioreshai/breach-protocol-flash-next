@@ -312,6 +312,27 @@
   rig left that path. Both sentences are cited to the merged files now; the captions themselves were
   rewritten from live-page measurements, and every number in them was measured at the posed camera on
   the deployed build.
+- **The LEAK/CZBAND ground-pass diagnostic is a probe now, and it is the row that sees a wrong ceiling
+  fix** (#177). `cull` gained ~200 env-gated lines from `measure/leak-attribution`, rebased onto the
+  engine that #188 left behind it. `LEAK=1` attributes each leak pixel to the row path or the deferred
+  re-solve by SOURCE-transforming the split at `js/40_render.js:468` (never by wrapping it - the wrapper
+  cliff is documented) and stamping provenance off `groundPixel` itself: `ship` / `nodefer` / `alldefer`
+  answer **14,276 / 0 / 194,123** calls per frame, which is the proof the patch is live. On current main
+  the #170 leak set is **0 px on all three levels**, so those rows print `LEAK-VACUUM` with the deferred
+  call count beside them instead of reporting an average over the empty set. `CZBAND=1` is the half that
+  can still fail here: a CEILING step (floors flat, a farther ceiling four cells out) is the mirror of the
+  leak geometry, and the ground pass's framebuffer over it hashes **14c12844 / 8ab438b0 / 5a425d84** on
+  `76e9356` - recorded as a row, not as prose. Two-sided, measured with the probe byte-identical
+  (`b353219a`) and only the engine swapped: the nearer-plane-on-ceiling-rows rule (`eee37f3`, #177's named
+  wrong fix) reads **0ef7fae8 / 0c06c14c / 76e93114** and turns **both** rows red on all three levels
+  (`CULL 6 FAILURES`, exit 1) because that rule also collapses the control - `nodefer` then hashes
+  *equal* to `ship`, i.e. queueing stops mattering - while its own parent (`535e285`) reads
+  **bb92cda0 / 80688d4a / 0186ce30**, the values #177 quotes, so the rule is what moved the number (era
+  held constant, `px differ` identical at 47,431) and **#188's generated volume is what moved those
+  values off main's**. A build with no diagnostic prints **0 rows and exits 0** - silence reading as a
+  pass is why the block also counts its own rows (sabotaged to skip one level it reads `2 of 3` and
+  fails). Parity with `js/` untouched and every var unset: `cull`, `heights`, `planes`, `alt` verdicts
+  identical to `main`, `scene` md5s identical on all three levels, `SMOKE PASSED`.
 ### Added
 - **The exposure gate now samples the frame the player actually sees first, and it fails on its own.**
   Every brightness sampler in the repo — `tools/view.js exposure`, `tools/ci/assert.js exposure` — parked
