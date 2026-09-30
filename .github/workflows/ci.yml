@@ -83,9 +83,11 @@ jobs:
       - name: Probe gates (deterministic verdicts, must stay green)
         run: |
           set -euo pipefail
-          # Seven probes whose verdict the code itself turns into an exit code, that seed their own
-          # or run under CI's fixed SEED, and that write no artifact. Measured here at 1.6-5.0 s each,
-          # ~17 s total, which is why they can live in the required job instead of beside it (#89).
+          # Thirteen modes in fourteen invocations whose verdict the code itself turns into an exit
+          # code (cull runs twice, the second env-gated), that seed their own or run under CI's fixed
+          # SEED, and that write no artifact - which is why they live in the required job and not beside
+          # it (#89). Timed on a loaded box (load ~3) at 4.7-21 s each, flatparity and anim the largest;
+          # the absolute numbers are load-dependent, the verdicts are not.
           # heights and mip contain art-tuned thresholds: if one trips on a shading change it tripped
           # reproducibly, and that is a verdict about the change, not a flake.
           #   heights  ground solved per cell, which half of the frame moved, decal + deferred coverage
@@ -126,8 +128,37 @@ jobs:
           #   alt      M3's exit gate on GENERATED levels: two bands or more, an unblocked link into
           #            every band above the datum, no open cell the height-aware crossing rule cannot
           #            reach, a staircase climbable on foot, no face of span<=0. It replaces the
-          #            flatness assertion that was M0's exit gate, and it pokes nothing.
+          #            flatness assertion that was M0's exit gate, and it pokes nothing. Its two
+          #            direction rows are ALSO the only thing here that sees the SIGN of the band term
+          #            - see the flatparity note below, and run both when a band term is in the diff.
           node tools/view.js alt
+          #   flatparity  the invariant AGENTS.md names as the backwards-compat test for every vertical
+          #            change - "every new formula must collapse to the old one exactly, bit for bit" -
+          #            existed only as a sentence in PR bodies until #210 gave it md5 literals, and no
+          #            step ran it until now (#211): an unwired verdict rots back into a caption exactly
+          #            like the prose did. ONE command runs BOTH senses, because the probe spawns the
+          #            other lamp record cold (view.js's spawn) rather than waiting for a human to
+          #            remember the knob - which is the failure mode this row exists to remove:
+          #              PARITY  [LAMPS=off]  f9e4da3a / f05beeb5 / d4b2d2cd, means 79.7 / 34.1 / 47.5
+          #                  the top-up never authored, so the lamp record is 2c5a94f's and the ONLY
+          #                  difference from that build is the band term in splatLight. This is the
+          #                  formula-collapse proof a shading change is gated on.
+          #              LOCK    [LAMPS unset] 4262d051 / f05beeb5 / 050b225e, means 81.3 / 34.1 / 51.7
+          #                  the shipped record. A regression lock on lamp PLACEMENT: it moves when a
+          #                  placement rule moves, so green there is NOT evidence a term is bit-neutral
+          #                  (#208's top-up moved L0 and L2 with the kernel measured bit-neutral).
+          #            Costs ~21 s here, the most expensive row in this step: it renders 3 levels in 4
+          #            cold processes, which is what makes the hash stream comparable across builds.
+          #            KNOWN BLINDNESS, printed by the probe beside its verdict, not hidden in a comment:
+          #            the probe forces MAP.fz flat, so fd = 0 in every cell and the band term is the
+          #            literal 1 before any sign is read. The one-sided kernel `lf - floor >= -ZQ - 1e-9`
+          #            therefore prints ok on all six rows and hashes BOTH triples byte-identical while
+          #            alt FAILs 169 / 279 / 117 cells lit from a band above on that same kernel (measured
+          #            at 4495c08 and at 7f62f82; #211's body quotes 273 for L1, which does not reproduce
+          #            here - the row that gates is `alt`, not this note). Flat parity is necessary and never
+          #            sufficient:
+          #            a green row here does not prove a band term exists, only that it collapses.
+          node tools/view.js flatparity
 
       - name: Composited exposure gate on the live page
         # BLOCKING since the level-2 lamp fix (#143): level 2 read 53 raster / 38 composited and now reads 73 on
