@@ -289,6 +289,37 @@
   both ways). Pixels are unchanged: `scene` md5s identical on all three levels, WARM PNG md5
   identical across 16 interleaved runs, `exposure` ok, `SMOKE PASSED` with the VERT lane at 25
   gating rows.
+- **The README's four shots are back on the deployed build, and the sentences beside them now match the
+  shipped code** (#190). Captured from `dc98788`'s **deployed bytes** - all 12 subresources fetched with a
+  cache-buster and md5-compared against the merged tree, `js/20_level.js` = `53ce6c64c85ed72b5657281519267fd7`
+  on both sides, with the deploy marker `authorVolume` counting **2** in the served file and **0** in
+  `origin/main~1`'s - then posed through `?dev=1` at the four documented cameras in **one boot**
+  (`DEV.clear()` and `DEV.cam` only, no `startLevel`). Each caption now carries its own composited `DEV.lum`
+  (mean / mid-window): **spawn 45.42 / 77.54, facing-wall 118.58 / 178.84, enemies 81.65 / 96.99, props
+  47.06 / 71.17**. Volume is claimed only where it is a **diff**: flattening this boot's **147 raised cells**
+  changes **111,764** sampled px of the spawn frame (40.7%), its **23 sunken cells** change **218,981** of the
+  facing-wall frame (79.7%) and **70,738** of the props frame (25.8%), and all 41 rays of the spawn frustum
+  cross a band, nearest at **1.57 m**. Two sentences were simply false rather than stale: the viewmodel is not
+  "Canvas2D vector art drawn in `renderOverlay` (`js/40_render.js:865`)" - it is geometry authored in metres
+  in `js/13_mesh.js` (`rifle(b, s)` at `:491`) and rasterized into the **world buffer** by `drawViewModel()`
+  (`js/40_render.js:1294`), called from inside `renderWorld()` at `:192`, with its depth test pointed at a
+  **swapped scratch array** (`o.near`, `js/13_mesh.js:125` and `:814`) so it can neither cull a billboard nor
+  punch a hole in the sky (#180's geometry half, shipped by #185); and the smoke raster figure's companion now
+  prints `sprites: 0` (`tools/smoke.js:149`, the value this README quoted as 2) precisely because that rig left
+  the canvas path. Two more sentences moved because the world moved: the facing-wall pose now stands **inside**
+  the sunken block - feet -1.00, eye -0.50, so the slab side it looks at spans **[-1.00, 0.00]** where the
+  caption said [0.00, 1.00], the same step rule with its sign inverted - and `DEV.ray` answers **13.44 m** on
+  the spawn centre ray where the altitude march answers **2.13 m**. What stayed broken is written where it was
+  measured rather than in a summary: **#189** did **not** reproduce - the posed hound on the +1 band changes
+  **4,092** sampled px seen from the datum, so this shot neither confirms nor closes the issue, whose second
+  half (the shot that hits you being solved the same way) a still frame cannot test at all - and **#180**'s
+  look-feel half is still open, the rig's lag damped against wall-clock `dt`, which is why `tools/view.js` has
+  to put the rig at rest before **both** frames of any pair it diffs (`VMREST`, `tools/view.js:2471`). One
+  number was **dropped rather than restated**: the props caption's "emptying `PROPS` changes 78,420 pixels"
+  measured 3,786 px here while a single lamp measured 4,418 and restoring the list left a 3,018 px residual
+  against the reference frame, and a mutation count on objects that feed an additive glow layer is not a
+  coverage count. The picture changed and so did the prose: `SMOKE PASSED` (raster median **11.77 ms**, batches
+  11.5/11.8/11.8/11.8/11.9) and `alt` ok on all three levels with the numbers the captions now quote.
 
 ### Added
 - **The exposure gate now samples the frame the player actually sees first, and it fails on its own.**
