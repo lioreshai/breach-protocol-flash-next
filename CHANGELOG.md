@@ -41,6 +41,28 @@
   **8.85 → 10.5 ms**.
 
 ### Fixed
+- **A lamp lit columns whose band it was not on** (#203). `splatLight` splatted a **2-D disc and
+  discarded `L.z`**, although lamps carry one (`js/20_level.js:845`, `z = floorAt + 0.78`), so light
+  crossed band boundaries as if the slab were glass: **13–17 % of open cells** on every level carried
+  **0.208 / 0.222 / 0.263** units from a lamp more than a band away, and **41 / 114 / 67** cells
+  (attribution filter; the `alt` row's own filter measures **53 / 135 / 66**) took their **only** light
+  from such a lamp at mean **0.583 / 0.410 / 0.549** — geography that reads as lit from a direction it
+  cannot be lit from. The kernel now multiplies the disc by a **hover-tolerant** binary term,
+  `wv = |L.z − floorAt(col)| <= LHOVER + ZQ ? 1 : 0`, which is **exactly 1 on a lamp's own band** (that
+  band reads `dz = 0.78`, and one quantum under its floor reads `1.03`) so no lamp is taxed for standing
+  where it stands — the naive `|dz| > 1` gate and the `exp(-(dz/1.5)²)` falloff written in the issue
+  both **darken every lamp in the game** and drop level 1's exposure to **49.2 / 56.2**, below the
+  60–100 window, which is why the weight is a quantum test rather than a curve. Transients keep no
+  authored `z` and default to the emitting cell's own `floorAt` (documented at the call sites and in the
+  commit); the exit pad ships `z`-less on that same default because an authored `z` measurably taxed the
+  pools near the exit and changed nothing else. Wrong-band-only cells are **0 / 0 / 0**, a forced-flat
+  level is **md5-identical** to `9656176`, splat+un-splat round-trips to **1.2e-7** so the fade asserts
+  in `tools/smoke.js` stand untouched, and the new `alt` rows fail **6 times** against HEAD's `js`.
+  What it costs is filed as **#204**: the term is a step, so two quanta below a lamp the direct term is
+  exactly zero — pit floors lose **79 / 74 / 42 %** of their light and **0.25 m reads floodlit while
+  0.50 m reads black**. The ramp that would buy that back was measured and rejected: it returns the
+  darkness and leaves **53 / 134 / 66** cells lit through a band boundary with `alt` red six times.
+
 - **The far band took its light from the camera's cell, not from the cell it draws** (#197).
   `castGround` FILLS — does not texture — every row whose own plane solve passes `FARB` (22 m at the
   BALANCED tier): the horizon band of a flat level, the upper half of a tall room, the far side of a

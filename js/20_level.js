@@ -42,6 +42,8 @@ const cellIdx = (x, y) => (y | 0) * MW + (x | 0);
    exactly - that is this milestone's backwards-compatibility test. */
 const ZQ = 0.25;
 const CZ_DEF = 4;                                        // 4 quanta = one unit of ceiling
+const LHOVER = 0.78;                     // a lamp light's authored hover above its own floor (:845)
+const LIGHT_REACH = LHOVER + ZQ + 1e-9;  // a light reaches columns whose floor is within its hover + one quantum (#203)
 const VB_BLOCK = 1, VB_RAMP = 2, VB_LADDER = 4, VB_THRU = 8;
 const VB_KEEP = 0x6666;                    // VB_RAMP|VB_LADDER in each of the four side nibbles: the authored bits
 const FEAT_NONE = 0, FEAT_STAIR = 1, FEAT_LADDER = 2, FEAT_PIT = 3, FEAT_RAIL = 4;
@@ -645,11 +647,26 @@ function authorVolume(cell, N, rooms, fz, vb, feat, cz) {
 function splatLight(L, amt) {
   const lm = MAP.light, lr = MAP.lR, lg = MAP.lG, lb = MAP.lB, lw = MAP.lw, N = MAP.w, R = Math.ceil(L.r);
   const c = L.col || [255, 205, 150];
+  /* A light that carries no z emits from the FLOOR of the cell it emits in: a muzzle flash,
+     an explosion, an orb pop happens at its owner's feet, so the band of the owner's feet is
+     the band of the light. The transient call sites (js/30_entities.js:286, :631) carry no z
+     on purpose and rely on this documented default (#203). */
+  const lz = L.z === undefined ? floorAt(L.x, L.y) : L.z;
   for (let y = Math.max(0, (L.y - R) | 0); y < Math.min(N, L.y + R); y++)
     for (let x = Math.max(0, (L.x - R) | 0); x < Math.min(N, L.x + R); x++) {
       const d = Math.hypot(x + 0.5 - L.x, y + 0.5 - L.y);
       if (d >= L.r) continue;
-      const w = Math.pow(1 - d / L.r, 1.6), i = y * N + x;
+      /* Hover-tolerant vertical term (#203): the 2-D disc only lights a column whose floor is
+         within the light's reach, |L.z - floorAt(col)| <= LHOVER + ZQ, and lights it at full
+         strength; past that reach it adds nothing at all. A lamp authored at floorAt + LHOVER
+         reads dz = 0.78 on its own band and 1.03 in a dip one quantum under its floor, so the
+         term is the literal 1 there - a flat level, and every lamp on its own band, reproduce
+         the old arithmetic bit for bit - while a datum lamp stops brightening a pit floor a
+         unit below it or a floor two units above. This same function runs the delta un-splat,
+         so the kernel is identical for add and remove and a fading transient leaves no
+         permanent light (smoke's "blast light fully fades out", unchanged). */
+      const wv = Math.abs(lz - floorAt(x + 0.5, y + 0.5)) <= LIGHT_REACH ? 1 : 0;
+      const w = Math.pow(1 - d / L.r, 1.6) * wv, i = y * N + x;
       lm[i] += amt * w;
       const k = Math.abs(amt * w);
       lr[i] += c[0] / 255 * k; lg[i] += c[1] / 255 * k; lb[i] += c[2] / 255 * k; lw[i] += k;
@@ -842,9 +859,17 @@ function genLevel(li) {
     LIGHTS = []; PROPS = []; PICKUPS = []; PROJ = []; PARTS = []; ENEMIES = [];
     for (let i = 0; i < cfgL.lamps; i++) {
       const c = takeNear(1);
-      LIGHTS.push({ x: c[0] + 0.5, y: c[1] + 0.5, z: floorAt(c[0] + 0.5, c[1] + 0.5) + 0.78, r: 7.2 + Math.random() * 2.8, str: 1.05, col: cfgL.lampCol, stat: 1 });
+      LIGHTS.push({ x: c[0] + 0.5, y: c[1] + 0.5, z: floorAt(c[0] + 0.5, c[1] + 0.5) + LHOVER, r: 7.2 + Math.random() * 2.8, str: 1.05, col: cfgL.lampCol, stat: 1 });
       PROPS.push({ tex: PROP.lamp, x: c[0] + 0.5, y: c[1] + 0.5, scale: 0.95, z: floorAt(c[0] + 0.5, c[1] + 0.5), kind: 'lamp' });
     }
+    /* The pad light deliberately carries NO z: it is drawn as a glow AT the floor, so it
+       emits from the floor of its own cell - the documented splatLight default, the same
+       rule the transients use (#203). Its band is thereby defined (the exit is datum-pinned),
+       which was the issue with "undefined rather than zero"; an authored hover offset would
+       tax the pools under the stair and pit cells around the exit, and the L2 lip rows of
+       bands measured that cost (pad at floorAt+0.55 or +0.78 puts the L2 face-lip contrast
+       46% -> 43% against the 45% floor - the pool a floor glow casts across its lip is
+       load-bearing legibility, not bleed). */
     LIGHTS.push({ x: exitX, y: exitY, r: 5.5, str: 0.75, col: [140, 225, 255], stat: 1 });
     for (let i = 0; i < cfgL.crates; i++) { const c = takeNear(2); PROPS.push({ tex: PROP.crate, x: c[0] + 0.5, y: c[1] + 0.5, scale: 0.72, z: floorAt(c[0] + 0.5, c[1] + 0.5), kind: 'crate' }); }
     for (let i = 0; i < cfgL.barrels; i++) {

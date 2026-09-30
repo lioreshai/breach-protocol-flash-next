@@ -283,6 +283,7 @@ function explode(x, y, z, radius, dmg, ownDmg) {
   if (pd < radius * 1.1 && ownDmg && banded(P.x, P.y)) {
     if (pd < 0.9 || los(x, y, P.x, P.y)) damagePlayer(ownDmg * (1 - pd / (radius * 1.1)), Math.atan2(y - P.y, x - P.x), true);
   }
+  // no z: the flash is on the band of the emitting cell's floor - the splatLight default (#203)
   const flash = { x, y, r: 7, str: 1.2, fade: 0.45, col: [255, 172, 82] };
   flash.lit = flash.str; splatLight(flash, flash.str);
   LIGHTS.push(flash);
@@ -627,6 +628,7 @@ function updateProjectiles(dt) {
 }
 function popOrb(p) {
   burstParts(p.x, p.y, p.z, 8, 1.8, '#a8ff7a', 0.3, 0.07, true, 0.8);
+  // no z: the pop is on the band of the cell it pops in - the splatLight default (#203)
   const L = { x: p.x, y: p.y, r: 3.2, str: 0.5, fade: 0.2, col: [150, 255, 110] };
   L.lit = L.str; splatLight(L, L.str); LIGHTS.push(L);
 }

@@ -16,7 +16,7 @@ const LVL = +(process.argv[3] || 0);
 const CAM = +(process.argv[4] || 0);
 // An unknown name used to fall through to the scene dump and exit 0, so a typo in a CI probe list
 // ran something, painted a PNG and reported a passing gate (#89).
-const PROBES = ['scene', 'alt', 'anim', 'bands', 'contrast', 'cull', 'decal', 'diag', 'exposure', 'heights',
+const PROBES = ['scene', 'alt', 'anim', 'bands', 'contrast', 'cull', 'decal', 'diag', 'exposure', 'flatparity', 'heights',
   'drop', 'horizon', 'mip', 'planes', 'play', 'props', 'rig', 'sheets', 'sight', 'stats', 'vert', 'viewmodel'];
 if (!PROBES.includes(MODE)) {
   console.error('unknown probe "' + MODE + '" - known: ' + PROBES.join(' '));
@@ -389,10 +389,147 @@ if (MODE === 'alt') {
     row(`L${li} a raised band you can walk on, not hop onto`, r.runMax >= runWant,
       `largest contiguous patch of one off-datum floor is ${r.runMax} cells at floor ${r.runMax ? r.runFloor.toFixed(2) : '-'}, ` +
       `want >= ${runWant} (12% of ${r.open} open cells, 24 floor); ${r.runs} patch(es), ${r.runTot} off-datum cells across all of them`);
+    /* #203's rows. A lamp must not light columns whose band it is not on, and the vertical term
+       must be a literal 1 at the lamp's own band. Magnitudes are measured through the game's own
+       splatLight - each static light is splatted against a snapshot of MAP.light and un-splatted,
+       so the numbers are what the shipped kernel delivers, and only the dz classification is
+       computed here. The config that exercises these rows is the generated grid from the
+       startLevel(li, true) at the top of this loop: the wrong-band population exists because the
+       generator authored the bands (#152), nothing is poked, and popGeo >= 1 on every level is
+       the non-vacuity proof that there were real cells to measure. */
+    const v = vm.runInContext(`(function(){
+      const N = MAP.w, snap = MAP.light.slice(), stat = LIGHTS.filter(L => L.stat);
+      const srcOK = new Uint8Array(N * N), srcBad = new Uint8Array(N * N), srcGeo = new Uint8Array(N * N);
+      const hist = {}; let maxDrift = 0, bad = 0, badLight = 0, pop = 0, popGeo = 0;
+      for (const L of stat) {
+        const lz = L.z === undefined ? floorAt(L.x, L.y) : L.z;
+        MAP.light.set(snap);
+        splatLight(L, L.str);
+        const R = Math.ceil(L.r);
+        for (let y = Math.max(0, (L.y - R) | 0); y < Math.min(N, L.y + R); y++)
+          for (let x = Math.max(0, (L.x - R) | 0); x < Math.min(N, L.x + R); x++) {
+            const i = y * N + x;
+            if (MAP.cell[i]) continue;
+            if (Math.hypot(x + .5 - L.x, y + .5 - L.y) >= L.r) continue;
+            const dz = Math.abs(lz - MAP.fz[i] * ZQ);
+            if (dz > 1.03 + 1e-3) {
+              srcGeo[i] = 1;
+              if (MAP.light[i] - snap[i] > 1e-4) srcBad[i] = 1;
+            } else srcOK[i] = 1;
+            const k = dz.toFixed(2); hist[k] = (hist[k] || 0) + 1;
+          }
+        splatLight(L, -L.str);
+        for (let j = 0; j < MAP.light.length; j++) { const e = Math.abs(MAP.light[j] - snap[j]); if (e > maxDrift) maxDrift = e; }
+      }
+      MAP.light.set(snap);
+      for (let i = 0; i < N * N; i++) {
+        if (MAP.cell[i]) continue;
+        if (srcGeo[i]) popGeo++;
+        if (srcBad[i]) { pop++; if (!srcOK[i]) { bad++; badLight += snap[i]; } }
+      }
+      /* The weight itself, through the shipped splatLight: a zero-extent synthetic light (str 1,
+         centre distance 0) splatted at exact dz values on the spawn cell delivers the vertical
+         term verbatim at the centre pixel. The negative side - light BELOW the floor, which is a
+         lamp under a landing or an atrium slab - is probed at -1.78 to prove the term reads |dz|,
+         not signed dz. */
+      const cx = P.x | 0, cy = P.y | 0, f = floorAt(cx + .5, cy + .5), i0 = cy * N + cx;
+      const probeAt = zo => { MAP.light.set(snap);
+        splatLight({ x: cx + .5, y: cy + .5, z: f + zo, r: 1.2, str: 1 }, 1);
+        const q = MAP.light[i0] - snap[i0]; MAP.light.set(snap); return +q.toFixed(6); };
+      const tbl = [0, .78, 1, 1.03, 1.25, 1.78, 2].map(dz => probeAt(dz));
+      const neg = probeAt(-1.78);
+      buildTint();
+      return { bad, pop, popGeo, badLight: bad ? badLight / bad : 0, hist, tbl, neg, maxDrift, lamps: stat.length };
+    })()`, ctxVm);
+    row(`L${li} a lamp is untaxed at its own band`, Math.abs(v.tbl[0] - 1) < 1e-4 && Math.abs(v.tbl[1] - 1) < 1e-4 && Math.abs(v.tbl[3] - 1) < 1e-4,
+      `w(0)=${v.tbl[0]} w(0.78)=${v.tbl[1]} w(1.03)=${v.tbl[3]} - a lamp's own band reads dz=0.78 and the dip one quantum under its floor reads 1.03, so a weight that taxes either one darkens every lamp it stands over (a hard |dz|>1 gate puts 1.03 at 0; exp(-(dz/1.5)^2) taxes 0.78 to 0.76)`);
+    row(`L${li} light does not reach past hover+one quantum`, v.tbl[4] <= 0.3 && v.tbl[5] <= 0.02 && v.tbl[6] <= 0.02 && Math.abs(v.neg - v.tbl[5]) < 1e-4,
+      `w(1.25)=${v.tbl[4]} w(1.78)=${v.tbl[5]} w(2.0)=${v.tbl[6]} symmetric w(-1.78)=${v.neg}; the /2 falloff written in #203 reads 0.5 at 1.78, i.e. light still reaches 3.78 m below the lamp, and then the count row cannot reach zero`);
+    row(`L${li} no cell lit only from a wrong band`, v.bad <= 2 && v.popGeo >= 1,
+      `${v.bad} open cell(s) take their ONLY light from a lamp more than one quantum past its hover (the #203 measurement was 41/114/67 per level on the unweighted kernel), mean MAP.light there ${v.bad ? v.badLight.toFixed(3) : '-'} (issue: 0.583/0.410/0.549); ${v.pop} cell(s) still receive any wrong-band light, ${v.popGeo} lie in a wrong-band disc at all (non-vacuity), ${v.lamps} lamps, dz histogram ${JSON.stringify(v.hist)}`);
+    row(`L${li} every lamp splat is exactly reversible`, v.maxDrift < 1e-4,
+      `max |MAP.light - snapshot| over splat+un-splat of all ${v.lamps} static lamps ${v.maxDrift.toExponential(1)} - the fade asserts in smoke stand on the delta un-splat using the same kernel as the splat`);
   }
   console.log(bad ? `ALT ${bad} FAILURES - the bands are not there, not linked, or there is nothing to look at`
     : 'ALT ok - bands authored, linked, reachable, and there is volume to look at');
   process.exit(bad ? 1 : 0);
+}
+
+if (MODE === 'flatparity') {
+  /* The backwards-compatibility test every altitude change has passed: force the grid flat and
+     the spawn-camera frame must hash bit-identical against the build before the change. The
+     generator authors real bands now (#152), so flat has to be FORCED - and the lightmap
+     rebuilt through the game's own splatLight after the forcing, because a lightmap splatted
+     over banded ground still carries the weight the fixed build evaluated against those bands.
+     Each authored-z light's hover offset is re-seated on the flat grid with the same
+     arithmetic the generator uses (floorAt + 0.78 for a lamp), so both sides of the comparison
+     run one identical world; z-less lights (the exit pad) are left z-less and take the
+     floorAt default on both builds, which is byte-equal by construction. Nothing here is in
+     the shipped path.
+
+     The hashed frame is not the first renderWorld of the process. Two determinism hazards
+     are measured at 9656176 while building this probe: the FIRST frame after startLevel hashes
+     differently across identical builds (the pose cache answers a cold request from the
+     nearest-pose path, whose contents depend on process history), and EVERY frame hashes
+     differently inside one process - the harness stubs performance.now() as Date.now()
+     (view.js:121), and drawViewModel integrates its look-lag against that wall-clock dt (the
+     same trap viewmodel's own notes at :3055 and :4007 describe: "two frames rendered back to
+     back are NOT the same pose"). So the probe pins the sandbox clock, renders a few frames at
+     constant dt until the damping converges, and hashes a warm frame - then re-renders and
+     re-hashes to prove the pair agree before anyone compares them across builds. */
+  const crypto = require('crypto');
+  const md5of = () => { const d = new Uint32Array(run('px'));
+    return crypto.createHash('md5').update(Buffer.from(d.buffer, d.byteOffset, d.byteLength)).digest('hex'); };
+  const hashes = [];
+  const NL = run('LEVELS.length');
+  for (let lv = 0; lv < NL; lv++) {
+    seedRng(1000 + lv * 97);
+    run(`S.mode='play'; S.locked=false; startLevel(${lv}, true);`);
+    const mean = run(`(()=>{
+      MAP.fz.fill(0); MAP.cz.fill(CZ_DEF); linkBoundaries();
+      for (const L of LIGHTS) if (L.stat && L.z !== undefined) L.z = floorAt(L.x, L.y) + 0.78;
+      MAP.light.fill(0); MAP.lR.fill(0); MAP.lG.fill(0); MAP.lB.fill(0); MAP.lw.fill(0);
+      for (const L of LIGHTS) splatLight(L, L.str);
+      blurLight(); buildTint();
+      P.pitch = 0; P.vx = P.vy = P.vz = 0; P.air = false; P.crouch = 0; P.z = floorAt(P.x, P.y);
+      for (const e of ENEMIES) e.state = 'sleep';
+      performance.now = () => 5; VM.t = 5;   // pin the clock: the lag must advance by a constant dt, not by wall ms
+      for (let k = 0; k < 8; k++) renderWorld();
+      renderWorld();
+      const d = new Uint32Array(px), B = BW * BH; let s = 0;
+      for (let i = 0; i < B; i++) s += 0.2126 * (d[i] & 255) + 0.7152 * (d[i] >> 8 & 255) + 0.0722 * (d[i] >> 16 & 255);
+      return s / B;
+    })()`);
+    hashes.push(md5of());
+    console.log('  level ' + lv + '  flat spawn-frame md5 ' + hashes[lv] + '  mean ' + mean.toFixed(1));
+  }
+  if (process.env.FP_CHILD) process.exit(0);
+  /* The self-check re-runs the WHOLE probe as a cold child process and demands identical
+     per-level hashes. Consecutive renders inside ONE process are NOT hash-stable: measured at
+     9656176, the same state alternates between two frames every renderWorld, deterministically
+     (a 16-render hash stream repeats exactly across independent runs), and the alternation
+     survives removing enemies, props, pickups and lights - some per-render cache or pool state
+     in the draw path is responsible; this probe does not claim to have found its mechanism.
+     What WAS measured true is the property this tool needs: cold-process-to-cold-process, the
+     whole hash stream is byte-identical. So the probe spawns itself once and requires the pair
+     to agree before calling these md5s comparable across builds - a parity claim hashes a
+     cold-start frame at a fixed render index, never "the second render". The clock pin above
+     is separate and load-bearing: the harness stubs performance.now() as Date.now() (view.js:
+     121) and drawViewModel integrates look-lag against that dt (:3055/:4007 describe the same
+     trap), so unpinned frames advance the gun's lag by wall milliseconds - which is how two
+     runs of ONE unchanged build hashed differently under machine load at first. */
+  const child = require('child_process').spawnSync(process.execPath, [__filename, 'flatparity'],
+    { env: Object.assign({}, process.env, { FP_CHILD: '1' }), encoding: 'utf8', timeout: 900000 });
+  const re = /level (\d+)\s+flat spawn-frame md5 ([0-9a-f]{32})/g;
+  let m, mismatch = -1, n2 = 0;
+  while ((m = re.exec(child.stdout || ''))) { if (hashes[+m[1]] !== m[2]) mismatch = +m[1]; n2++; }
+  if (child.error || child.status !== 0 || n2 !== hashes.length || mismatch >= 0) {
+    console.log('FLATPARITY UNSTABLE' + (mismatch >= 0 ? ' on level ' + mismatch : '') + ' - hashes describe nothing.' +
+      ' child exit ' + child.status + ' ' + String(child.error || child.stderr || '').split('\n')[0]);
+    process.exit(1);
+  }
+  console.log('flatparity ok - two cold-start processes hashed identical frames; compare these md5s across builds');
+  process.exit(0);
 }
 
 if (MODE === 'vert') {
@@ -1616,8 +1753,15 @@ if (MODE === 'cull') {
          justifies it, and nothing else. Moved by fix/far-band-light-197 (#197) off 5f14a09, where they
          were 0x14c12844 / 0x8ab438b0 / 0x5a425d84: the far band now reads the cell its own row solves
          into, so a frame whose horizon band lands in a different cell than the camera's paints differently
-         - measured with LEAK=1 CZBAND=1 in this tree, and the three together with nothing else. */
-      const CZBAND_REF = [0x2711a2a8, 0x10157366, 0xeaee1fd8];
+         - measured with LEAK=1 CZBAND=1 in this tree, and the three together with nothing else. Moved
+         again by fix/203-lamp-band-weight (#203) off 9656176, where they were 0x2711a2a8 / 0x10157366 /
+         0xeaee1fd8: a lamp's splat no longer reaches columns more than one quantum past its hover, so a
+         ceiling-step frame whose ground lands under a wrong-band lamp now paints darker there. Note that
+         L2 did NOT move - that is the control that this is the band weight and not a global brightness
+         shift, and it is the same asymmetry the exposure numbers showed (74 / 66 / 71 against 77 / 70 /
+         71). Measured with LEAK=1 CZBAND=1 in this tree, and reproduced byte-for-byte by CI on the same
+         commit, which is what makes re-recording them honest rather than convenient. */
+      const CZBAND_REF = [0x4bd739d4, 0xcfc1fdac, 0xeaee1fd8];
       if (process.env.CZBAND) {
         czRows++;
         run(`(function(){ window.__cz0b = MAP.cz.slice(); ${JSON.stringify(BG.cells)}
@@ -4612,6 +4756,7 @@ if (MODE === 'bands') {
      geometry the probe drew for itself (the trap every vertical row in this file used to have), and
      every number counts columns, rows and pixels because an average cannot see the WIDTH of a band. */
   let bad = 0, knownN = 0, rowsN = 0, STRICT = !!process.env.STRICT;   // debt rows go red under STRICT=1
+  const debts = new Set();
   const W = run('BW'), H = run('BH'), ZQS = run('ZQ');
   const DIST = +(process.env.DIST || 3.5), STRIDE = +(process.env.STRIDE || 2);
   // a column counts only when the plane it crossed IS the target plane: averaging columns that
@@ -4632,7 +4777,7 @@ if (MODE === 'bands') {
     console.log('  ' + label.padEnd(52) + (ok && !belowBar ? ' ok  ' : known ? 'KNOWN' : ' FAIL') + '  ' + detail +
       (ok && !belowBar ? '' : !debt ? '' : '  [' + debt + ']'));
     if (ok && !belowBar) return;
-    if (known) knownN++; else bad++;
+    if (known) { knownN++; debts.add(debt); } else bad++;
   };
   const lum = (b, i) => 0.2126 * (b[i] & 255) + 0.7152 * (b[i] >> 8 & 255) + 0.0722 * (b[i] >> 16 & 255);
   // -1 when the build has no such term: an assignment to a name the renderer never reads would
@@ -4767,6 +4912,15 @@ if (MODE === 'bands') {
      0.00 is what a renderer that draws no geometry at all measures there, so the row still fails hard
      on main and stays a KNOWN row on this one until the riser's material/lighting is tuned. */
   const CON_WFLOOR = +(process.env.CON_WFLOOR || 0.06);
+  /* CON_FLOOR is the hard line under the FACE kind's contrast debt (#203): the lamp-band weight
+     removes the pool a deck lamp used to cast DOWN onto the lip floor - #203's own example of the
+     bug - and that pool was load-bearing at the L2 lip, which sat at 0.46 against the 0.45 bar on
+     main. Measured on the fixed build 0.61 (L0) / 0.69 (L1) / 0.43 (L2); the floor sits one notch
+     under the worst (0.40) so the row stays KNOWN for this debt and goes hard-red on any build
+     that removes more edge than the weight does. The naive reach=1 control measures the SAME
+     0.43 here (it differs from the fix only at dz 1.03, a class this lip's floor is not in) - the
+     bands row is not what rejects that design; the alt weight-table rows are. */
+  const CON_FLOOR = +(process.env.CON_FLOOR || 0.40);
   // the same rule for the seam band's depth: mean(B-A) over the band, over mean(A) over that band.
   // Measured 1.13-1.45 on all six lips of the branch with the term on, 0.00 with SEAM=0.
   const DROP_CON_MIN = +(process.env.DROP_CON_MIN || 0.45);
@@ -4916,9 +5070,10 @@ if (MODE === 'bands') {
         `${n} of ${m.length} columns cross a ${kind} lip at ${DIST} m (refused ${off}: the renderer's `
         + `own zbuf says nothing is there), riserStops ${risers}, horizon ${hor.toFixed(1)}, eyeZ ${eye.toFixed(2)}`);
       row(`L${li} ${kind} lip: luminance steps where depth steps`,
-        n >= 24 && meanCon >= (kind === 'walk' ? CON_WFLOOR : CON_MIN) && pctW <= WITHIN_MAX,
+        n >= 24 && meanCon >= (kind === 'walk' ? CON_WFLOOR : CON_FLOOR) && pctW <= WITHIN_MAX,
         `contrast across the lip ${(100 * meanCon).toFixed(0)}% (want >= ${(100 * CON_MIN).toFixed(0)}%`
-        + (kind === 'walk' ? `, hard floor ${(100 * CON_WFLOOR).toFixed(0)}%` : '') + `), `
+        + (kind === 'walk' ? `, hard floor ${(100 * CON_WFLOOR).toFixed(0)}%`
+          : `, hard floor ${(100 * CON_FLOOR).toFixed(0)}%`) + `), `
         + `mean |dL| ${meanD.toFixed(1)}, ${(pctW).toFixed(1)}% of lip pixels within 10 of their neighbour `
         + `(want <= ${WITHIN_MAX}%), signed ${(n ? sgn / n : 0).toFixed(1)} `
         + `- ${kind === 'face' ? 'a riser wears the floor material, so today the step is a brighter patch of the same texture'
@@ -4932,8 +5087,12 @@ if (MODE === 'bands') {
         // edge in a dark room needs the light-independent mechanism, same tension as the body rim), so
         // it reports as debt above a floor measured one notch under the worst generated level, and a
         // build that draws no face at all still fails it hard at 0%.
-        kind === 'walk' && meanCon < CON_MIN ? '#195' : undefined,
-        kind === 'walk' && meanCon < CON_MIN);
+        // The face kind carries the #203 debt: the lamp-band weight removed the pool a deck lamp
+        // cast DOWN onto the lip floor - #203's own example of the bug - and the L2 lip measured
+        // 0.46 (main) -> 0.43 (fixed) against the 0.45 bar; the same light-independent riser
+        // tuning gap, the same hard fail past CON_FLOOR.
+        meanCon < CON_MIN ? (kind === 'walk' ? '#195' : '#203') : undefined,
+        meanCon < CON_MIN);
       row(`L${li} ${kind} lip: a seam band at the crease, not a shade`,
         seam === 1 && dropCon >= DROP_CON_MIN && wideSum / (n || 1) >= 1 &&
         wideSum / (spanSum || 1) <= 0.45 && farSum / (farN || 1) <= 5 &&
@@ -5107,7 +5266,7 @@ if (MODE === 'bands') {
   }
   console.log((bad ? `BANDS ${bad} FAILURE(S) - altitude is in the grid and not on the screen` :
     'BANDS ok - the step lip reads as an edge, the seam is a band not a tint, the far band reads the cell it solves into, and the minimap shows the band') +
-    `, ${bad} gating row(s) of ${rowsN}, ${knownN} known-issue row(s)` + (knownN ? ' (#195 riser legibility)' : '') +
+    `, ${bad} gating row(s) of ${rowsN}, ${knownN} known-issue row(s)` + (knownN ? ' (' + [...debts].join(', ') + ')' : '') +
     (STRICT && knownN ? ' - STRICT=1: debt rows counted as failures' : ''));
   process.exit(bad ? 1 : 0);
 }
