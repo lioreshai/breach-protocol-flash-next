@@ -205,6 +205,16 @@
   game never passes an argument. Closes #157.
 
 ### Changed
+
+- README screenshots refreshed from the deployed build carrying `754d9ce` (#196) in one
+  `?dev=1` boot, all 10 `js` subresources md5-checked against the tree (10/10; marker
+  `function slabT(` = 1 deployed, 1 in main, 0 in main~1). Captions state the fix and the two
+  defects it left: a five-tread flight at (6.5, 1.5) draws its risers in wall material but
+  averages 25.6 where the spawn camera averages 96.4 (#197), the pit lip at (10.5, 14.5) is a
+  hard lit face under an unlit black upper half at 19.7 (#16’s missing per-band light), and
+  the same-band hostile shot says out loud that it is not an altitude test (#189 keeps its own
+  repro). The section separates “the stairs draw” from “the level has two floors” (#152),
+  and names the unseated vitals 58 as the damage vignette instead of leaving it inside the means.
 - **The ground-pass diagnostic is a blocking CI row** (#177 follow-up). `cull` now runs twice in the
   probes job, once plain and once under `LEAK=1 CZBAND=1`, so the wrong-fix falsifier that only those
   two rows can see - adopting the nearer ceiling plane, which leaves every shipped verdict green -
