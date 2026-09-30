@@ -41,6 +41,30 @@
   **8.85 → 10.5 ms**.
 
 ### Fixed
+- **The far band took its light from the camera's cell, not from the cell it draws** (#197).
+  `castGround` FILLS — does not texture — every row whose own plane solve passes `FARB` (22 m at the
+  BALANCED tier): the horizon band of a flat level, the upper half of a tall room, the far side of a
+  pit. That fill read `MAP.light` and the tint of `cellIdx(camX, camY)`, the **camera's** column, so
+  brightness past 22 m was the lamp luck of wherever the eye happened to stand — measured on the
+  deployed build at camera (10.5, 14.5) yaw π/2, that column's `MAP.light` 0.574 and a neutral tint
+  predict a fill of 16.5, the frame's upper half measures 16.3, the whole frame 22.7 and **63.6 %** of
+  its pixels sit under 24. The row now samples **its own fan**: 8 points across the row at the row's
+  own solve distance, one lightmap + tint lookup per sample and **never one per pixel** (a row at
+  `FARB` spans ~30 m, so one cell would book all of it to one lamp), and a sample that leaves the map
+  gets what the textured path itself gives an off-map column — no light, white tint — which is the grey
+  the same ray paints one metre inside `FARB`. The band's *magnitude* came out of the same measurement:
+  `(18 + light * 26)` was a texture mean in disguise, so the literals are gone and the fill is the mean
+  of the mip the band replaces, with emissive texels averaged by their own light-exempt rule. No pair of
+  literals could have worked — sweeping them puts level 0's floors at (19, 26) and level 1's at (70, 7),
+  because the floor materials' mip4 mean measures **89–131** and the ceilings' **44–79** — and one
+  material (level 2's floor) is 52 emissive texels of 64 at the coarse mip, which a plain mean overstates
+  by **+28**. Scored on the row ADJACENT to the band (same frame, same columns, ~1 m apart in distance, so
+  the world either side of the boundary is one world and only the shading can move): mean |step|
+  **4.2 / 5.8 / 3.4** per level against **18.4 / 19.1 / 9.8** on main, at 9 cameras × 6 yaws × both halves
+  of the frame; the raster mean moves by ≤ 0.4 and the composited exposure gate stays at 87 / 93 / 77 (median of 5
+  rolls, spawn frames 57 / 48 / 63). `bands` gained a blocking row for that step and for the frame's dark
+  share, and it **FAILS on unmodified `origin/main` at all three levels** with no edit to `js/`; `CZBAND`'s
+  ground-pass hashes moved to `2711a2a8 / 10157366 / eaee1fd8` because the band legitimately changed.
 - **Authored volume made three defects visible that the flat world had been hiding** (#188). (1) A
   **nearer step crease was evicted by a farther riser**: `castWalls` painted a crease in an
   `else if (crk)` *after* the riser's seam, so one ≥2-quanta riser anywhere later in a column deleted
