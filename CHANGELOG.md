@@ -211,6 +211,22 @@
   turns the build red instead of being caught by a human who ran the right command. Measured on
   `main`: the gated row exits 0 with ceiling-step ground hashes `14c12844` / `8ab438b0` / `5a425d84`,
   and the plain run above it stays byte-identical because the diagnostic is env-gated.
+- **A step you can walk up is now a face you can see** (#192). `castWalls` emitted an air-to-air
+  riser only when `|dq| > 1`, so a staircase tread, a pit lip and a deck edge - all one quantum,
+  which is what the generator authors - were painted as floor from a plane 0.25 m away: `zbuf` said
+  the room below was under the camera, and the lip read as a void or a brighter patch of the same
+  texture. Any `dq != 0` now emits the slab-side face (the crossing stays `VB_THRU`, so 1-quantum
+  steps remain walkable and auto-stepped), risers wear a wall material instead of `MAP.floorTex`, and
+  the seam-for-walkable-step branch is gone because the step is geometry now. A floor-half pixel
+  whose own cell's floor is at or above the eye is no longer refused to the far plane: the deferred
+  copy marches to the boundary the ray slips under (`slabT`), which is where the deck case stopped
+  leaking 380 px instead of 565 on `heights`' stepUp. The DDA's previous-cell lookup is bounds-checked
+  on both axes, where `qy * N + qx` wrapped a border step to the far end of the level. Flat frames are
+  bit-for-bit unchanged (9 frames hashed identical over 3 levels x 3 yaws; `scene` md5s identical on
+  levels 0 and 2). `cull` gains 9 camera-posed rows against generated lips - 2640 px/level of `zbuf`
+  compared to an independent march, 2640 disagreeing on main and 0 here - and `bands`' walk-lip rows
+  now demand the face, their luminance half reporting the #192 debt (26% / 12% on L1 / L2 against the
+  45% bar, hard floor 6%, red under `STRICT=1`).
 - **README screenshots and captions recaptured from the deployed build** (#190). The four shots
   were two builds out of date and two of the four captions described a different level than the pixels
   under them. All four are now re-shot from ONE boot of the live site at `?dev=1` (build `dc98788`),
