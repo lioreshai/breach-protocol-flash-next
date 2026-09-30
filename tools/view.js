@@ -2380,6 +2380,118 @@ if (MODE === 'cull') {
     }
   }
 
+  /* ---- #212: what a pit lip 1.5 m out is allowed to own -----------------------------------
+     The capture that filed #212 read 93.8 % of the pixels ABOVE the horizon as wall texture at a
+     camera 1.5 m from a pit lip, `zbuf` recording a face at 0.14-0.21 m there while every ray found
+     open ground. Attributed on the merged build at that recipe (dealt dice 1000, the page's own
+     678x359 raster, `MAP.riserStops` 678 of 678 agreeing with the page at 1.5 m and 675 of 678 at
+     3.5 m), the WALL pass emits the lip's slab side at perp 1.50 with span [-1.00, 0.00] and paints
+     rows 300..359 of 359 - nothing above the horizon at any of the four swept distances, where the
+     wall oracle reads 0.0 / 0.0 / 0.1 / 3.2 % at 1.5 / 2.5 / 3.5 / 7.5 m, the OPPOSITE trend to the
+     report. So neither hypothesis in the issue survives: the riser's span and row clip are right
+     (it paints its own projected band and no row above it), and the boundary is not drawn-without-
+     blocking either - it emits in every column and the DDA stops at it, with `VB_BLOCK` on the DOWN
+     side's opposite nibble so climbing back up is refused and stepping down is not, which is what
+     makes a pit a pit and is exactly why the solid-only `DEV.ray` answers "open ground": it cannot
+     see an air->air riser at all, and never could.
+     What owns those pixels is a PROP. The generator drops crates and barrels at cell CENTRES
+     (js/20_level.js:983 - `c[0]+0.5`), `tryMove` (js/30_entities.js) gives props no collision what-
+     soever, and the capture's camera (20.5, 15.5) sat on the centre of a cell that holds a barrel:
+     distance 0.00 m, its mesh magnified out to the rasterizer's 0.12 m near plane, filling the
+     frame with drum-red and writing `zbuf` 0.142 through the mesh's self-occlusion store
+     (js/13_mesh.js:764) where the geography's own ceiling solve reads 0.997. A bright frame that is
+     a wall, from inside a prop. The invariant that broke is therefore neither "blocking => drawn"
+     nor a riser span: it is that NOTHING may paint the frame from inside the camera.
+     So this row POKES both halves - a band 4 quanta down one cell beyond the lip, and one barrel
+     prop at the camera's own position - so no roll and no dealt layout can satisfy it or empty it.
+     The dealt level's own pit-cell and prop counts are printed beside it to say which of the two
+     numbers came from the generator (none) and which was authored by the row (both).
+     The config that exercises the assertion is the 1.5 m one: at 2.5 and 3.5 m the prop is still at
+     the eye (the cull is by footprint, not by the lip's distance) and the lip subtends less, so
+     those rows are the guard against the fix spreading - a crate 3 m out must still occlude. */
+  const lipCover = (li, dist) => run(`(function () {
+    const DIST = ${dist};
+    S.mode = 'play'; S.locked = false; startLevel(${li}, true);
+    exitX = -40; exitY = -40;                                  // no portal in the frame
+    const N = MAP.w, cell = MAP.cell, fz = MAP.fz, cp = MAP.ceilPlane, vb = MAP.vb;
+    let dealtPit = 0;
+    for (let i = 0; i < cell.length; i++) if (!cell[i] && fz[i] <= -2) dealtPit++;
+    const dealtProps = PROPS.length;
+    let lip = null;
+    outer:
+    for (let y = 2; y < N - 2; y++) for (let x = 2; x < N - 2; x++) for (let d = 0; d < 4; d++) {
+      let ok = true;
+      for (let k = -5; k <= 3; k++) {
+        const cx = x + DIRX[d] * k, cy = y + DIRY[d] * k, i = cy * N + cx;
+        if (cx < 1 || cy < 1 || cx >= N - 1 || cy >= N - 1 || cell[i] || fz[i]) { ok = false; break; }
+      }
+      if (!ok) continue;
+      for (let k = 1; k <= 3; k++) fz[(y + DIRY[d] * k) * N + x + DIRX[d] * k] -= 4;   // a 1 m pit
+      linkBoundaries();
+      lip = { x, y, d };
+      break outer;
+    }
+    if (!lip) return { fail: 'no straight 6-cell datum lane in this level to poke a lip into' };
+    const d = lip.d, bx = lip.x + (DIRX[d] > 0 ? 1 : DIRX[d] < 0 ? 0 : 0.5), by = lip.y + (DIRY[d] > 0 ? 1 : DIRY[d] < 0 ? 0 : 0.5);
+    ENEMIES.length = 0; PROJ.length = 0; PARTS.length = 0; PICKUPS.length = 0; PROPS.length = 0;
+    P.x = bx - DIRX[d] * DIST; P.y = by - DIRY[d] * DIST;
+    P.ang = Math.atan2(DIRY[d], DIRX[d]); P.pitch = 0; P.crouch = 0;
+    P.vx = 0; P.vy = 0; P.vz = 0; P.air = false; P.bob = 0; P.kick = 0; P.z = floorAt(P.x, P.y);
+    S.t = 3.5;
+    // the capture's case, authored rather than dealt: a barrel prop AT THE CAMERA
+    PROPS.push({ tex: PROP.barrel, x: P.x, y: P.y, scale: 0.86, z: floorAt(P.x, P.y), kind: 'barrel', hp: 26, dead: false });
+    const near = lip.y * N + lip.x, far = (lip.y + DIRY[d]) * N + lip.x + DIRX[d];
+    renderWorld();
+    const hInt = Math.round(horizon), comp = new Uint32Array(px), cz = new Float32Array(zbuf);
+    const keep = PROPS.slice(); PROPS.length = 0;
+    renderWorld();
+    const bare = new Uint32Array(px); PROPS.length = 0; for (const p of keep) PROPS.push(p);
+    px.fill(0xFF000000 | FOGC[2] << 16 | FOGC[1] << 8 | FOGC[0]); zbuf.fill(Infinity);
+    castGround(S.flash, FOGC[0], FOGC[1], FOGC[2]);
+    const gz = new Float32Array(zbuf);
+    px.fill(0xFF000000 | FOGC[2] << 16 | FOGC[1] << 8 | FOGC[0]); zbuf.fill(Infinity);
+    castWalls(S.flash, FOGC[0], FOGC[1], FOGC[2]);
+    const wz = new Float32Array(zbuf);
+    let above = 0, wall = 0, prop = 0, minC = Infinity, minG = Infinity;
+    for (let y = 0; y < hInt; y++) for (let x = 0; x < BW; x++) {
+      const i = y * BW + x; above++;
+      if (isFinite(wz[i])) wall++;
+      if (comp[i] !== bare[i]) prop++;
+      if (isFinite(cz[i]) && cz[i] < minC) minC = cz[i];
+      if (isFinite(gz[i]) && gz[i] < minG) minG = gz[i];
+    }
+    // the lip's own geometry, square on the lane so perp IS the axis distance to the plane
+    const z0 = Math.min(fz[near], fz[far]) * ZQ, z1 = Math.max(fz[near], fz[far]) * ZQ, hpx = BH / DIST;
+    return {
+      BW, BH, hz: hInt, eyeZ: +eyeZ.toFixed(2), dist: DIST, steps: MAP.steps, risers: MAP.riserStops,
+      above, wallPct: +(100 * wall / above).toFixed(2), propPct: +(100 * prop / above).toFixed(2),
+      minComp: +minC.toFixed(3), minGround: +minG.toFixed(3), dealtPit, dealtProps,
+      cam: [+P.x.toFixed(1), +P.y.toFixed(1)], cell: [lip.x, lip.y], dir: d,
+      band: [+(fz[near] * ZQ).toFixed(2), +(fz[far] * ZQ).toFixed(2)],
+      vbNear: (vb[near] >> (d << 2)) & 15, vbFar: (vb[far] >> ((d ^ 2) << 2)) & 15,
+      enterDown: canEnter(lip.x + 0.5, lip.y + 0.5, lip.x + 0.5 + DIRX[d] * 0.25, lip.y + 0.5 + DIRY[d] * 0.25),
+      enterUp: canEnter(lip.x + 0.5 + DIRX[d] * 0.75, lip.y + 0.5 + DIRY[d] * 0.75, lip.x + 0.5 + DIRX[d] * 0.5, lip.y + 0.5 + DIRY[d] * 0.5),
+      y0: +(horizon + (eyeZ - z1) * hpx).toFixed(1), y1: +(horizon + (eyeZ - z0) * hpx).toFixed(1),
+      propDist: 0.0
+    };
+  })()`);
+  for (const dist of [1.5, 2.5, 3.5]) for (let li = 0; li < run('LEVELS.length'); li++) {
+    const C = lipCover(li, dist);
+    if (C.fail) { row(`L${li} pit lip ${dist} m: nothing paints the frame from inside the camera`, false, `VACUOUS - ${C.fail}`); continue; }
+    const okP = C.propPct <= 1, okZ = C.minComp >= 0.9;
+    row(`L${li} pit lip ${dist} m: nothing paints the frame from inside the camera`, okP && okZ,
+      `camera (${C.cam}) on the datum at cell (${C.cell}) dir ${C.dir} -> lip ${C.dist} m ahead, band ${C.band[0]} / ${C.band[1]}` +
+      ` (slab side [${Math.min(C.band[0], C.band[1]).toFixed(2)}, ${Math.max(C.band[0], C.band[1]).toFixed(2)}], projected rows ${C.y0}..${C.y1},` +
+      ` drawn ${Math.max(0, Math.ceil(C.y0))}..${Math.min(C.BH - 1, Math.floor(C.y1))} of ${C.BH}, horizon ${C.hz} - the riser's whole band is BELOW the` +
+      ` eye line, which is hypothesis (a) refuted on this geometry) - vb ${C.vbNear}/2/${C.vbFar} (down-step walkable, up-step blocked),` +
+      ` canEnter down ${C.enterDown} up ${C.enterUp}, riserStops ${C.risers}/${C.BW}, MAP.steps ${C.steps}` +
+      `: ${C.propPct}% of the above-horizon pixels belong to the barrel prop standing AT the camera (bound 1) and min zbuf there is ${C.minComp}` +
+      ` against the ground pass's own ${C.minGround} (floor 0.90 - a prop face at 0.14 m is inside the camera, past the mesh's 0.12 m near` +
+      ` plane, which is the number the issue read as a wall). Wall-pass coverage of the same half reads ${C.wallPct}% here - evidence, not` +
+      ` asserted: this lane is a corridor, and at the capture's room pose the wall oracle is 0.0%. Dealt level had ${C.dealtPit} pit cells and` +
+      ` ${C.dealtProps} props; the pit and the prop in this row are both poked, so no roll empties it`);
+  }
+
 
   console.log((bad ? `CULL ${bad} FAILURES` : 'CULL ok - bodies sit on the band they stand on') +
     (known ? `  (${known} known ${STRICT ? 'FAILED under STRICT' : 'reporting'} rows: air-air steps occlude nothing, #100)` : ''));

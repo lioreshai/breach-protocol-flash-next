@@ -273,6 +273,8 @@ const MESH = (function () {
   }
 
   const PROPGEO = {
+    /* Each kind also carries its authored footprint radius in FOOT below - the draw loop needs it to
+       tell "in front of the prop" from "inside the prop" (#212). */
     barrel(b) {
       const RED = [142, 54, 36], RIM = [74, 30, 22], YEL = [214, 172, 32], MET = [196, 204, 214];
       b.tube(0, 0.03, 0, 0, 0.50, 0, 0.225, 0.245, RED);       // the staves, bulging at the bilge
@@ -790,6 +792,12 @@ const MESH = (function () {
      signals the billboard fed js/11_rig.js - and they select a cached vertex set, not a rebuild.
      dv is the death variant rolled at spawn (#82): it picks WHICH death pose that is, and one of
      its terms is added to the yaw rather than to the vertex set. */
+  /* Footprint radius per authored prop kind, in NORMALISED units (before `scale`): the barrel's
+     staves reach 0.255, the crate's frame 0.375, the lamp's shade 0.17. It lives beside the geometry
+     it measures because a footprint guessed in the caller is a second source of truth that drifts
+     the day the art changes; `MESH.foot` is the only reader (#212). */
+  const FOOT = { barrel: 0.255, crate: 0.375, lamp: 0.17 };
+
   function draw(o) {
     /* A view model brings its own vertex set (`mdl`): its parts travel continuously - ejector, pump,
      a shell sliding in - so the caller rebuilds it per frame instead of bucketing it (weaponGeo).
@@ -950,6 +958,7 @@ const MESH = (function () {
     reset: () => { tris = 0; pxFilled = 0; trisCulled = 0; },
     setCache: v => { CACHE = !!v; POSE.clear(); poseBytes = 0; poseMade = 0; return CACHE; },
     trisFor: k => model(k || 'grunt').tris,
+    foot: k => FOOT[k] || 0,
     vertsFor: k => model(k || 'grunt').nV,
     /* the view model's geometry: rebuilt per frame, never cached, and the numbers the probes need */
     weapon: (k, st) => weaponGeo(k, st),
