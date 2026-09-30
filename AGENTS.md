@@ -440,6 +440,18 @@ case "$out" in *"SMOKE PASSED"*) git add -A && git commit ;; *) echo NOT COMMITT
   attribute the pixels to the row path or the deferred queue before changing any arithmetic. What is
   new here is that pixels show it.
 
+- **A docs PR has no deploy to verify, and the md5 of a 404 body is `d41d8cd9…`.**
+  `.github/workflows/pages.yml` stages `_site` as `index.html` + `js/` **only**, deliberately (the
+  playable artifact must stay free of network requests and asset files), so everything under
+  `docs/` — including every `docs/screens/*.png` the README embeds — is **404 on the Pages host**
+  and always has been (measured in one second, same command: `docs/screens/level0-spawn.png` **404**,
+  `README.md` **404**, `js/40_render.js` **200**). A verification script that pipes such a body into
+  `md5sum` gets the hash of the **empty string** and reports it as a *stale deploy*, which is how one
+  docs PR spent a 14-minute watch on a condition that could never become true. So: gate deploy checks
+  on **js blobs** (that is the artifact), check `curl -w '%{http_code}'` **before** blaming `max-age`,
+  and for a docs-only PR verify the **tree** — `git show origin/main:docs/screens/x.png | md5sum`
+  against the bytes the capture produced — because there is nothing on the host to compare them to.
+
 ## Now: verticality — the design that was chosen
 
 Representation: **a quantized per-cell height grid** (2.5D stacked slabs), not a
