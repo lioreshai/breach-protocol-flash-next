@@ -41,6 +41,33 @@
   **8.85 → 10.5 ms**.
 
 ### Fixed
+- **A prop the camera stands inside painted the whole frame as a wall** (#212). The recapture that
+  filed this read **93.8 %** of the pixels above the horizon as wall texture at a camera 1.5 m from a
+  pit lip, `zbuf` recording a face at 0.14–0.21 m there while `DEV.ray` reported open ground to 9.5 m.
+  Attributed on the merged build at that recipe — dealt dice 1000, the page's own **678×359** raster,
+  `MAP.riserStops` **678 of 678** at 1.5 m and **675 of 678** at 3.5 m, agreeing with the page to the
+  unit — the wall pass is **not** in it: the lip's slab side emits at perp **1.50** with span
+  **[−1.00, 0.00]** and paints rows **300..359 of 359**, wholly below the eye line, at every swept
+  distance, where the wall-pass oracle reads **0.0 / 0.0 / 0.1 / 3.1 %** at 1.5 / 2.5 / 3.5 / 7.5 m —
+  the opposite trend to the report. So neither hypothesis survives: no riser paints rows above its own
+  projected top, and no boundary is drawn without blocking (the byte is right — a down-step is
+  walkable, the nibble back up is `VB_BLOCK` — and `DEV.ray` cannot see an air→air riser at all, so
+  "open ground" was never a disagreement). What owns those pixels is a **prop**: crates and barrels
+  are authored at cell **centres** (`js/20_level.js:983`) and `tryMove` gives props no collision, so
+  the capture's camera (20.5, 15.5) was standing in the middle of a barrel — distance **0.00 m** — its
+  mesh magnified out to the rasterizer's 0.12 m near plane, writing `zbuf` **0.142** through the
+  mesh's self-occlusion store (`js/13_mesh.js:764`) where the geography's own ceiling solve reads
+  **0.997**. A prop whose authored footprint contains the eye is now skipped; the radius comes from
+  the geometry table through `MESH.foot`, not from a guess in the draw loop, and the cull is by
+  footprint so a crate 3 m out still occludes. `cull` gains **9 rows** — a poked −1.00 m lip at
+  1.5 / 2.5 / 3.5 m with a barrel prop at the camera, on all three levels — which **FAIL on
+  `origin/main`** at 94.7 % prop-owned pixels and min `zbuf` 0.155 and pass here at 0.0 % and 1.000;
+  pit and prop are both poked, so no roll empties them. Not fixed here, and stated rather than
+  smuggled in: props are still not collision, so a player can still walk into one — he now sees
+  through it instead of into it. Nothing in the four README cameras sits inside a prop (checked at
+  all four poses on all three levels) and every hash held: flatparity PARITY
+  `f9e4da3a/f05beeb5/d4b2d2cd`, LOCK `4262d051/f05beeb5/050b225e`, `LEAK=1 CZBAND=1 cull`
+  `0x9c03d4f4/0xeec7be60/0x7dd66c40`, so no lock was re-recorded and no recapture is owed.
 - **A light lit the band above its own, and a band the lamp budget missed was black geography**
   (#208, #204). #203 closed half of the bleed and left the other half open, because its term compared
   the **emitter height** with the column's floor: `|L.z - floor| <= LHOVER + ZQ` is `fd ∈ [-1.81,
