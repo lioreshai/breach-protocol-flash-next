@@ -1753,8 +1753,15 @@ if (MODE === 'cull') {
          justifies it, and nothing else. Moved by fix/far-band-light-197 (#197) off 5f14a09, where they
          were 0x14c12844 / 0x8ab438b0 / 0x5a425d84: the far band now reads the cell its own row solves
          into, so a frame whose horizon band lands in a different cell than the camera's paints differently
-         - measured with LEAK=1 CZBAND=1 in this tree, and the three together with nothing else. */
-      const CZBAND_REF = [0x2711a2a8, 0x10157366, 0xeaee1fd8];
+         - measured with LEAK=1 CZBAND=1 in this tree, and the three together with nothing else. Moved
+         again by fix/203-lamp-band-weight (#203) off 9656176, where they were 0x2711a2a8 / 0x10157366 /
+         0xeaee1fd8: a lamp's splat no longer reaches columns more than one quantum past its hover, so a
+         ceiling-step frame whose ground lands under a wrong-band lamp now paints darker there. Note that
+         L2 did NOT move - that is the control that this is the band weight and not a global brightness
+         shift, and it is the same asymmetry the exposure numbers showed (74 / 66 / 71 against 77 / 70 /
+         71). Measured with LEAK=1 CZBAND=1 in this tree, and reproduced byte-for-byte by CI on the same
+         commit, which is what makes re-recording them honest rather than convenient. */
+      const CZBAND_REF = [0x4bd739d4, 0xcfc1fdac, 0xeaee1fd8];
       if (process.env.CZBAND) {
         czRows++;
         run(`(function(){ window.__cz0b = MAP.cz.slice(); ${JSON.stringify(BG.cells)}
