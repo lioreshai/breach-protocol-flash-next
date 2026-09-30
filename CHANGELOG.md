@@ -41,6 +41,56 @@
   **8.85 → 10.5 ms**.
 
 ### Fixed
+- **A light lit the band above its own, and a band the lamp budget missed was black geography**
+  (#208, #204). #203 closed half of the bleed and left the other half open, because its term compared
+  the **emitter height** with the column's floor: `|L.z - floor| <= LHOVER + ZQ` is `fd ∈ [-1.81,
+  +0.25]` in **floor** terms, so a lamp lit a floor up to 1.75 m **above** itself (7 quanta) while a
+  floor one quantum **below** it stayed dark. Read by signed floor difference over 12 rolls per level,
+  that is **275 / 32 / 261** cells per level taking *direct* light from a source standing a band or
+  more **below** them (mean delivered **0.799 / 1.001 / 1.032** of which **0.21–0.27** is the crossing
+  itself) against **8 / 12 / 6** reaching down, and **43 / 224 / 194** cells whose only light arrives
+  across a band. `splatLight` now recovers the source's **floor** (`L.z - LHOVER`, or `floorAt` for a
+  z-less source, which never had a hover to subtract) and asks `|fd| <= ZQ`: the source's own band and
+  one quantum either way, nothing beyond, in the **un-splat** as much as the splat, so `smoke`'s "blast
+  light fully fades out" still has one kernel for add and remove (`alt`'s reversibility row reads
+  **1.2e-7** across 10/12/20 lamps). `LIGHT_REACH` is gone with the reach it named — its only other
+  reader was a probe string, which is the AGENTS lesson that a "dead" field's last reader can be
+  inside a `runInContext` template.
+  Closing the reach exposes the second half, because a band that was lit by borrowing now has to light
+  itself: **#204's** top-up, retargeted from *lampless* bands to **under-covered** ones. A band is
+  covered when a source standing on it delivers ≥ **0.25** to a cell — measured by calling the shipped
+  `splatLight` for that band's sources onto a scratch lightmap, so the criterion cannot drift from the
+  kernel, and measured **pre-blur** because counting the blur residue is what lets a datum pad stand
+  in for a pit lamp (#209). Bands under 8 reachable interior cells are skipped, ≤ 2 lamps go on one
+  band, ≤ 3 per level, and the placement maximises how many of that band's unserved cells the new disc
+  covers, drawing from a **private LCG**. `MAP.cell/fz/cz/vb/feat/ceilPlane` and the enemy and pickup
+  positions hash **identical** to `main` on all three levels; only `LIGHTS` and the lamp props differ
+  (7/9/17 → **10/12/19–20**, i.e. **+3.0** per level, where #207's lampless-band rule spent +0.9 — the
+  budget binds on every level, so the rule wants more lamps than it is allowed and the guard is
+  load-bearing).
+  Delivered: the wrong-band population goes **123 / 377 / 337 → 37 / 51 / 75** cells and its **direct**
+  component **43 / 224 / 194 → 0**, with **0.0 %** of delivered energy arriving off-band by splat (the
+  residual is `blurLight`'s, #206, so it is not 0 and was not made 0 by authoring lamp `z`). Dark pit
+  floors **117 / 71 / 62** of **181 / 194 / 175** → **0** at mean light **0.672 / 0.631 / 0.647** with
+  the pad left **z-less**; the 3 pad-carried pit cells that #209 measured at SEED 12345 read 0 because
+  the reach shrank, not because the pad was authored a height. Raised-band mean light **0.537 / 0.411
+  / 0.657 → 0.541 / 0.524 / 0.769** (dark raised cells **205 / 557 / 392 → 52 / 157 / 154**), and all
+  open cells **0.428 / 0.379 / 0.593 → 0.546 / 0.474 / 0.670**. Cost, stated plainly: the frame is
+  **brighter** — `exposure` means **74 / 66 / 71 → 74 / 76 / 83** (medians 70/72/72 → 70/73/85) and the
+  composited gate's medians **86 / 84 / 76 → 86 / 85 / 95**, every median inside 60-100 but L2 19 points
+  up. `bands`' L0 face lip, which the kernel term alone drove to **43 %** (a 4th known-issue row),
+  comes back to **54 %** against the 45 % bar and the debt rows stay at main's 3; the other five lips
+  hold within **±1 point** of main except L2 walk (11 % → 10 %, above its 6 % floor). Own-band blast
+  light is **byte-identical** (**658.37 / 1590, 809.29 / 2022, 749.99 / 2049**) and the band **above** a
+  blast now lights **0.00 over 0 cells**. Flat parity: the kernel term alone reproduces all three
+  forced-flat md5s (**f9e4da3a / f05beeb5 / d4b2d2cd**, means 79.7 / 34.1 / 47.5) and so does this tree
+  with the top-up suppressed; shipped, L0 and L2 move (**4262d051** mean 81.3, **050b225e** mean 51.7)
+  because the coverage lamps light a world whose bands the probe flattened — an honest deviation, not a
+  formula regression, and not papered over by re-recording the md5s. `CZBAND` re-recorded to
+  **0x9c03d4f4 / 0xeec7be60 / 0x7dd66c40** with all four quadrants run (variant+new ok, main+new FAIL
+  ×3, main+old ok, variant+old FAIL ×3) and the px-difference counts holding at **51048 / 49614 /
+  49586** against main's 51047 / 49620 / 49586. Perf is a wash: interleaved 3 pairs at load 2.4–3.0,
+  **11.77 / 11.95 / 11.95 ms** against main's **12.33 / 11.45 / 11.72**.
 - **A lamp lit columns whose band it was not on** (#203). `splatLight` splatted a **2-D disc and
   discarded `L.z`**, although lamps carry one (`js/20_level.js:845`, `z = floorAt + 0.78`), so light
   crossed band boundaries as if the slab were glass: **13–17 % of open cells** on every level carried

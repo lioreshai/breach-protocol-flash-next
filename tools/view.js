@@ -400,9 +400,17 @@ if (MODE === 'alt') {
     const v = vm.runInContext(`(function(){
       const N = MAP.w, snap = MAP.light.slice(), stat = LIGHTS.filter(L => L.stat);
       const srcOK = new Uint8Array(N * N), srcBad = new Uint8Array(N * N), srcGeo = new Uint8Array(N * N);
-      const hist = {}; let maxDrift = 0, bad = 0, badLight = 0, pop = 0, popGeo = 0;
+      /* The same decomposition read by SIGN of the floor difference. dz above is |L.z - floor|, so a
+         column 1.00 m ABOVE a datum lamp (dz 0.22) and a pit floor 1.00 m BELOW it (dz 1.78) land on
+         opposite sides of the 1.03 test for reasons that have nothing to do with the kernel: the dz
+         form cannot see an upward crossing at all. fd below is source floor minus column floor, which
+         is what the kernel's own band term compares. */
+      const fGeo = new Uint8Array(N * N), fUp = new Uint8Array(N * N), fDn = new Uint8Array(N * N);
+      const fUpQ = new Int8Array(N * N), fDnQ = new Int8Array(N * N), fPad = new Uint8Array(N * N), fPadGeo = new Uint8Array(N * N), fPadDisc = new Uint8Array(N * N);
+      const hist = {}, fh = {}; let maxDrift = 0, bad = 0, badLight = 0, pop = 0, popGeo = 0, geoN = 0;
       for (const L of stat) {
         const lz = L.z === undefined ? floorAt(L.x, L.y) : L.z;
+        const lf = L.z === undefined ? lz : L.z - LHOVER;          // the source's own FLOOR
         MAP.light.set(snap);
         splatLight(L, L.str);
         const R = Math.ceil(L.r);
@@ -417,38 +425,122 @@ if (MODE === 'alt') {
               if (MAP.light[i] - snap[i] > 1e-4) srcBad[i] = 1;
             } else srcOK[i] = 1;
             const k = dz.toFixed(2); hist[k] = (hist[k] || 0) + 1;
+            const fd = lf - MAP.fz[i] * ZQ, q = Math.round(fd / ZQ);
+            const got = MAP.light[i] - snap[i] > 1e-4;             // this source delivered light HERE
+            if (Math.abs(fd) > ZQ + 1e-9) {
+              fGeo[i] = 1;
+              if (L.z === undefined) fPadDisc[i] = 1;                       // any open cell in the pad's disc
+              if (fd > 0) fPadGeo[i] = 1;                                   // ...of those, the ones BELOW it
+              const bk = Math.abs(q) <= 1 ? '1' : Math.abs(q) === 2 ? '2' : Math.abs(q) === 3 ? '3' : '4+';
+              const hk = (fd < 0 ? 'up' : 'dn') + bk;
+              fh[hk] = (fh[hk] || 0) + 1;
+              if (got) { if (fd < 0) { fUp[i] = 1; if (q < fUpQ[i]) fUpQ[i] = q; } else { fDn[i] = 1; if (q > fDnQ[i]) fDnQ[i] = q; }
+                if (fd > 0 && L.z === undefined) fPad[i] = 1; }
+            }
           }
         splatLight(L, -L.str);
         for (let j = 0; j < MAP.light.length; j++) { const e = Math.abs(MAP.light[j] - snap[j]); if (e > maxDrift) maxDrift = e; }
       }
       MAP.light.set(snap);
+      let upN = 0, dnN = 0, upLit = 0, dnLit = 0, padN = 0, padGeo = 0, padDisc = 0;
+      const upBk = {}, dnBk = {};
       for (let i = 0; i < N * N; i++) {
         if (MAP.cell[i]) continue;
         if (srcGeo[i]) popGeo++;
         if (srcBad[i]) { pop++; if (!srcOK[i]) { bad++; badLight += snap[i]; } }
+        if (fGeo[i]) geoN++;
+        if (fUp[i]) { upN++; upLit += snap[i]; const b = -fUpQ[i], k = b <= 1 ? '1' : b === 2 ? '2' : b === 3 ? '3' : '4+'; upBk[k] = (upBk[k] || 0) + 1; }
+        if (fDn[i]) { dnN++; dnLit += snap[i]; const k = fDnQ[i] <= 1 ? '1' : fDnQ[i] === 2 ? '2' : fDnQ[i] === 3 ? '3' : '4+'; dnBk[k] = (dnBk[k] || 0) + 1; if (fPad[i]) padN++; }
+        if (fPadGeo[i]) padGeo++; else if (fPadDisc[i]) padDisc++;
       }
       /* The weight itself, through the shipped splatLight: a zero-extent synthetic light (str 1,
-         centre distance 0) splatted at exact dz values on the spawn cell delivers the vertical
-         term verbatim at the centre pixel. The negative side - light BELOW the floor, which is a
-         lamp under a landing or an atrium slab - is probed at -1.78 to prove the term reads |dz|,
-         not signed dz. */
+         centre distance 0) authored at z = f + LHOVER + dq STANDS on the band f + dq, so dq is the
+         FLOOR difference the band term compares - the term verbatim at the centre pixel. This table
+         used to be indexed by the EMITTER height (z = f + dz), which is why a lamp's own band read
+         dz 0.78 there: #203's kernel folded the hover into the comparison, so the probe had to as
+         well. Same properties, honest variable, and both signs probed at |fd| = 1 m. */
       const cx = P.x | 0, cy = P.y | 0, f = floorAt(cx + .5, cy + .5), i0 = cy * N + cx;
-      const probeAt = zo => { MAP.light.set(snap);
-        splatLight({ x: cx + .5, y: cy + .5, z: f + zo, r: 1.2, str: 1 }, 1);
+      const probeAt = dq => { MAP.light.set(snap);
+        splatLight({ x: cx + .5, y: cy + .5, z: f + LHOVER + dq, r: 1.2, str: 1 }, 1);
         const q = MAP.light[i0] - snap[i0]; MAP.light.set(snap); return +q.toFixed(6); };
-      const tbl = [0, .78, 1, 1.03, 1.25, 1.78, 2].map(dz => probeAt(dz));
-      const neg = probeAt(-1.78);
+      const tbl = [0, .25, .5, 1, -.25, -.5, -1].map(dq => probeAt(dq));
+      const neg = probeAt(-1);
       buildTint();
-      return { bad, pop, popGeo, badLight: bad ? badLight / bad : 0, hist, tbl, neg, maxDrift, lamps: stat.length };
+      return { bad, pop, popGeo, badLight: bad ? badLight / bad : 0, hist, tbl, neg, maxDrift, lamps: stat.length,
+        geoN, upN, dnN, fh, upBk, dnBk, padN, padGeo, padDisc, upMean: upN ? upLit / upN : 0, dnMean: dnN ? dnLit / dnN : 0 };
     })()`, ctxVm);
-    row(`L${li} a lamp is untaxed at its own band`, Math.abs(v.tbl[0] - 1) < 1e-4 && Math.abs(v.tbl[1] - 1) < 1e-4 && Math.abs(v.tbl[3] - 1) < 1e-4,
-      `w(0)=${v.tbl[0]} w(0.78)=${v.tbl[1]} w(1.03)=${v.tbl[3]} - a lamp's own band reads dz=0.78 and the dip one quantum under its floor reads 1.03, so a weight that taxes either one darkens every lamp it stands over (a hard |dz|>1 gate puts 1.03 at 0; exp(-(dz/1.5)^2) taxes 0.78 to 0.76)`);
-    row(`L${li} light does not reach past hover+one quantum`, v.tbl[4] <= 0.3 && v.tbl[5] <= 0.02 && v.tbl[6] <= 0.02 && Math.abs(v.neg - v.tbl[5]) < 1e-4,
-      `w(1.25)=${v.tbl[4]} w(1.78)=${v.tbl[5]} w(2.0)=${v.tbl[6]} symmetric w(-1.78)=${v.neg}; the /2 falloff written in #203 reads 0.5 at 1.78, i.e. light still reaches 3.78 m below the lamp, and then the count row cannot reach zero`);
+    row(`L${li} a lamp is untaxed at its own band`, Math.abs(v.tbl[0] - 1) < 1e-4 && Math.abs(v.tbl[1] - 1) < 1e-4 && Math.abs(v.tbl[4] - 1) < 1e-4,
+      `w(fd=0)=${v.tbl[0]} w(fd=+1q)=${v.tbl[1]} w(fd=-1q)=${v.tbl[4]} - the synthetic lamp stands ON the column's floor in the first case and one quantum off it in the other two, so a weight that taxes any of them darkens every lamp it stands over (a term that compares the EMITTER rather than the source's floor puts a lamp's own band one hover off: a hard |dz|>1 gate reads 0 here, and the /2 falloff written in #203 taxes 0.78 to 0.76)`);
+    row(`L${li} light does not cross a band boundary`, v.tbl[2] <= 0.02 && v.tbl[3] <= 0.02 && v.tbl[5] <= 0.02 && v.tbl[6] <= 0.02 && Math.abs(v.neg - v.tbl[3]) < 1e-4,
+      `w(+2q)=${v.tbl[2]} w(+4q)=${v.tbl[3]} w(-2q)=${v.tbl[5]} w(-4q)=${v.tbl[6]}, and the +/-1 m pair agrees (${v.neg} vs ${v.tbl[3]}) so the term reads |fd| and not a signed fd. #203's reach - fd in [-1.81,+0.25] - answers w(+4q)=0 AND w(-4q)=1, so a row that probes one sign only cannot see the bleed it is meant to stop`);
     row(`L${li} no cell lit only from a wrong band`, v.bad <= 2 && v.popGeo >= 1,
-      `${v.bad} open cell(s) take their ONLY light from a lamp more than one quantum past its hover (the #203 measurement was 41/114/67 per level on the unweighted kernel), mean MAP.light there ${v.bad ? v.badLight.toFixed(3) : '-'} (issue: 0.583/0.410/0.549); ${v.pop} cell(s) still receive any wrong-band light, ${v.popGeo} lie in a wrong-band disc at all (non-vacuity), ${v.lamps} lamps, dz histogram ${JSON.stringify(v.hist)}`);
+      `${v.bad} open cell(s) take their ONLY light from a lamp more than one quantum past its hover (the #203 measurement was 41/114/67 per level on the unweighted kernel), mean MAP.light there ${v.bad ? v.badLight.toFixed(3) : '-'} (issue: 0.583/0.410/0.549); ${v.pop} cell(s) still receive any wrong-band light, ${v.popGeo} lie in a wrong-band disc at all (non-vacuity), ${v.lamps} lamps, dz histogram ${JSON.stringify(v.hist)} - dz is |L.z - floor| and blind to sign, so the two floor-difference rows below say what actually crosses a band`);
+    row(`L${li} no column is lit from a band ABOVE it`, v.dnN === 0 && v.geoN >= 1,
+      `${v.dnN} open cell(s) take direct light from a source whose FLOOR is at least one quantum ABOVE their own (by quanta ${JSON.stringify(v.dnBk)}, mean MAP.light there ${v.dnN ? v.dnMean.toFixed(3) : '-'}, ${v.padN} of them from a z-less source on the floorAt default). #203 already blocks fd > ZQ for an authored lamp, so this is the half that closed and it reads 0 on main; counted separately from the row below so a kernel that trades one half for the other cannot pass this pair`);
+    row(`L${li} no column is lit from a band BELOW it`, v.upN === 0 && v.geoN >= 1,
+      `${v.upN} open cell(s) take direct light from a source whose FLOOR is at least one quantum BELOW their own (by quanta ${JSON.stringify(v.upBk)}, mean MAP.light there ${v.upN ? v.upMean.toFixed(3) : '-'}; off-band discs cover ${v.geoN} open cells, non-vacuity). |L.z - floor| <= LHOVER + ZQ is fd in [-1.81, +0.25] in floor terms, so a datum lamp lit the raised band a whole unit above it at full weight while a pit one quantum below it stayed dark - the half #203 left open, and invisible to the dz row above because a cell 1.00 m up reads dz 0.22`);
+    row(`L${li} no pit floor is lit from the exit pad above it`, v.padN === 0,
+      `${v.padN} cell(s) take light from a Z-LESS source standing above them (the exit pad is the only z-less static light: it emits from floorAt of its own cell); the pad's disc covers ${v.padGeo + v.padDisc} open cells that are not on the pad's own band, ${v.padGeo} of them on a band BELOW it, so where that second number is 0 the pad has no floor below it to leak into and this row is reporting nothing. On 2c5a94f level 0 shows the #209 measurement: 3 cells at mean light 1.452 at SEED 12345, every one pad-carried, because the reach was fd <= LHOVER + ZQ = 1.03 m downward and a pit floor four quanta under the pad sat inside it. The pad deliberately keeps NO z - authoring a hover would tax the pools under the stair, which bands' L2 lip rows measured at 46% -> 43% - so #209 is settled by the reach plus a lamp on the pit band of its own, not by an authored z on the pad`);
     row(`L${li} every lamp splat is exactly reversible`, v.maxDrift < 1e-4,
       `max |MAP.light - snapshot| over splat+un-splat of all ${v.lamps} static lamps ${v.maxDrift.toExponential(1)} - the fade asserts in smoke stand on the delta un-splat using the same kernel as the splat`);
+  }
+  /* #204's coverage criteria and #206's residual, on the protocol #199 measured them with rather than on
+     the single probe-seeded world above: 12 seeded rolls per level (dice 1000 + level*97 + roll*13, the
+     same numbers tools/ci/assert.js rolls), the GENERATED grid with nothing poked - the config that
+     exercises these rows is generation itself (#152), so a placement rule that wrote MAP.fz would show
+     up here - and the DELIVERED lightmap as startLevel leaves it (splat + blurLight + buildTint).
+     Delivered is the point: blurLight carries light across a lip, so the wrong-band population is not
+     zero and cannot be, which is why #206's criterion is "must not grow past the recorded population"
+     and not "= 0". An in-band source is the KERNEL's own band term restated on the source's FLOOR -
+     LHOVER comes off an authored lamp, a z-less source is already standing on its floor - rather than
+     the old LIGHT_REACH constant, which #208 deleted together with the emitter-height reach it named; a
+     probe string that read that constant would throw here, which is the AGENTS lesson that a probe
+     string can be the only reader a "dead" field has. Recorded on 2c5a94f under this floor-referenced
+     test, 12 rolls: pit-dark 117/71/62 of 181/194/175 cells (MAP.fz <= -3) at mean light
+     0.077/0.174/0.230, wrong-band-lit 123/377/337 at 0.231/0.254/0.311, no-source-in-disc
+     976/1537/1140. A pit-dark of 0 with pit 0 would be vacuity rather than a fix, so the population
+     rides along in the detail and pit > 0 is part of the assertion. */
+  {
+    const MAIN_PIT = [181, 194, 175], MAIN_OOB = [123, 377, 337];
+    for (let lv = 0; lv < 3; lv++) {
+      const A = { pit: 0, pitDark: 0, pitSum: 0, oob: 0, oobSum: 0, nosrc: 0, dark: 0, open: 0, lamps: 0 };
+      for (let r = 0; r < 12; r++) {
+        seedRng(1000 + lv * 97 + r * 13);
+        const c = vm.runInContext(`(function(){
+          startLevel(${lv}, true);
+          const N = MAP.w, cell = MAP.cell, fz = MAP.fz, light = MAP.light;
+          const S = []; for (const L of LIGHTS) S.push({ x: L.x, y: L.y, r: L.r, f: L.z === undefined ? floorAt(L.x, L.y) : L.z - LHOVER });
+          let pit = 0, pitDark = 0, pitSum = 0, oob = 0, oobSum = 0, nosrc = 0, dark = 0, open = 0;
+          for (let i = 0; i < N * N; i++) {
+            if (cell[i]) continue;
+            open++;
+            const fl = fz[i] * ZQ, lt = light[i], dk = lt < 0.05;
+            if (fz[i] <= -3) { pit++; pitSum += lt; if (dk) pitDark++; }
+            const px = i % N + 0.5, py = ((i / N) | 0) + 0.5;
+            let inR = 0, good = 0;
+            for (const s of S) {
+              if (Math.hypot(s.x - px, s.y - py) >= s.r) continue;
+              inR++; if (Math.abs(s.f - fl) <= ZQ + 1e-9) good++;
+            }
+            if (dk) { dark++; if (!inR) nosrc++; }
+            else if (inR && !good) { oob++; oobSum += lt; }
+          }
+          return { pit: pit, pitDark: pitDark, pitSum: pitSum, oob: oob, oobSum: oobSum, nosrc: nosrc, dark: dark, open: open,
+            lamps: LIGHTS.filter(function (L) { return L.stat; }).length };
+        })()`, ctxVm);
+        A.pit += c.pit; A.pitDark += c.pitDark; A.pitSum += c.pitSum; A.oob += c.oob; A.oobSum += c.oobSum;
+        A.nosrc += c.nosrc; A.dark += c.dark; A.open += c.open; A.lamps += c.lamps;
+      }
+      row(`L${lv} no pit-floor cell is left dark`, A.pitDark === 0 && A.pit > 0,
+        `${A.pitDark} of ${A.pit} pit cells (MAP.fz <= -3, main has ${MAIN_PIT[lv]} of them) hold less than 0.05 delivered`
+        + ` light, mean ${A.pit ? (A.pitSum / A.pit).toFixed(3) : '-'} there (main: 117/71/62 dark at 0.077/0.174/0.230) over 12 rolls`
+        + ` of the generated grid - ${(A.lamps / 12).toFixed(2)} lamps/instance (main 7/9/17), ${A.nosrc} cells with no source in the XY disc`
+        + ` (the #199 coverage half), ${A.dark} dark of ${A.open} open`);
+      row(`L${lv} delivered wrong-band light does not spread`, A.oob <= MAIN_OOB[lv],
+        `${A.oob} open cell(s) hold delivered light with NO source standing on their own band within reach (recorded on main: ${MAIN_OOB[lv]}), mean`
+        + ` light there ${A.oob ? (A.oobSum / A.oob).toFixed(3) : '-'} (main: 0.231/0.254/0.311). This population is blurLight's doing, not a lamp's (#206), so 0 is`
+        + ` not the target - growing it past main would mean lamps authored off their own floor, which is the #204 control that measured 155/194/169 pit cells`);
+    }
   }
   console.log(bad ? `ALT ${bad} FAILURES - the bands are not there, not linked, or there is nothing to look at`
     : 'ALT ok - bands authored, linked, reachable, and there is volume to look at');
@@ -1760,8 +1852,17 @@ if (MODE === 'cull') {
          L2 did NOT move - that is the control that this is the band weight and not a global brightness
          shift, and it is the same asymmetry the exposure numbers showed (74 / 66 / 71 against 77 / 70 /
          71). Measured with LEAK=1 CZBAND=1 in this tree, and reproduced byte-for-byte by CI on the same
-         commit, which is what makes re-recording them honest rather than convenient. */
-      const CZBAND_REF = [0x4bd739d4, 0xcfc1fdac, 0xeaee1fd8];
+         commit, which is what makes re-recording them honest rather than convenient. Moved a third time
+         by fix/band-bleed-close (#208) off 2c5a94f, where they were 0x4bd739d4 / 0xcfc1fdac / 0xeaee1fd8:
+         the band term in the splat kernel now references the SOURCE's floor rather than its emitter
+         height, and a band the lamp budget never reached gets a lamp of its own. All three moved, and
+         the px-difference counts held at 51048 / 49614 / 49586 against main's 51047 / 49620 / 49586 -
+         the ground pass changed because the LIGHT under it did, not because the geometry did, which is
+         the claim the four-quadrant control makes (variant js + these refs ok, main js + these refs
+         FAIL x3, main js + the old refs ok, variant js + the old refs FAIL x3). Note that the kernel
+         term ALONE measures 0x765abed0 / 0x020678dc / 0x2621e6d1: these three are the kernel plus the
+         coverage lamps, and the two sets are not interchangeable. */
+      const CZBAND_REF = [0x9c03d4f4, 0xeec7be60, 0x7dd66c40];
       if (process.env.CZBAND) {
         czRows++;
         run(`(function(){ window.__cz0b = MAP.cz.slice(); ${JSON.stringify(BG.cells)}
