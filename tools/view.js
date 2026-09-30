@@ -264,9 +264,19 @@ if (MODE === 'alt') {
       const start = MAP.rooms[0].cy * N + MAP.rooms[0].cx, zero = new Int8Array(N * N);
       const dBand = bfsReach(cell, fz, N, start, vb, feat);
       const dFlat = bfsReach(cell, zero, N, start);
-      let unreach = 0, sealed = 0;
-      for (let i = 0; i < N * N; i++) if (!cell[i] && dBand[i] < 0) { unreach++; if (dFlat[i] >= 0) sealed++; }
-      // one link per band-above-datum, counted from the HIGH side so a stair is not counted twice
+      let unreach = 0, sealed = 0, reachUp = 0, reachDown = 0, reachOff = 0, farReach = 0;
+      for (let i = 0; i < N * N; i++) {
+        if (cell[i]) continue;
+        if (dBand[i] < 0) { unreach++; if (dFlat[i] >= 0) sealed++; continue; }
+        if (fz[i] > 0) reachUp++; else if (fz[i] < 0) reachDown++;
+        if (fz[i]) { reachOff++; if (dBand[i] > farReach) farReach = dBand[i]; }
+      }
+      // one link per band, counted from the end that is FARTHER from the datum, so a stair is not
+      // counted twice. The old form used the HIGH side, which is the same thing while every band sits
+      // above the datum and cannot see a sunken one at all: the crossing that reaches a pit floor is
+      // the step DOWN from its stair, whose high side is the stair cell, so the pit's own band looked
+      // unlinked on a level where bfsReach reaches every cell of it (#181). Identical on an
+      // all-nonnegative grid, which is what main is.
       const linkIn = {}, blockedStep = {};
       for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
         const i = y * N + x; if (cell[i]) continue;
@@ -276,11 +286,12 @@ if (MODE === 'alt') {
           const j = ny * N + nx; if (cell[j] || j < i) continue;
           const dq = fz[j] - fz[i];
           if (!dq) continue;
-          const hi = dq > 0 ? fz[j] : fz[i];
-          if (hi === 0) continue;
+          const near = Math.abs(fz[i]) <= Math.abs(fz[j]) ? fz[i] : fz[j];
+          const far = near === fz[i] ? fz[j] : fz[i];
+          if (far === 0) continue;
           const cross = Math.abs(dq) <= 1 || linkedClimb(vb, feat, i, j, d);
-          linkIn[hi * ZQ] = (linkIn[hi * ZQ] || 0) + (cross ? 1 : 0);
-          if (!cross) blockedStep[hi * ZQ] = (blockedStep[hi * ZQ] || 0) + 1;
+          linkIn[far * ZQ] = (linkIn[far * ZQ] || 0) + (cross ? 1 : 0);
+          if (!cross) blockedStep[far * ZQ] = (blockedStep[far * ZQ] || 0) + 1;
         }
       }
       // a staircase is derived, not trusted from FEAT_STAIR: a maximal chain along +x/+y whose floors
@@ -307,12 +318,48 @@ if (MODE === 'alt') {
       const nBands = Object.keys(bands).length;
       let bandLink = 0, noLink = [];
       for (const k of Object.keys(bands)) if (+k !== 0) { if (linkIn[k]) bandLink++; else noLink.push(k); }
+      /* #181's three rows, on the same generated grid and derived the same way - nothing here trusts
+         a feature byte, and none of it pokes a grid the probe drew for itself.
+         headroom: ceilAt - floorAt of an OPEN column. A flat level is exactly 1 (CZ_DEF quanta), and
+         the only way a column reaches 2 is MAP.cz authored above 4, so this is "a room you can stand
+         up in", not a ceiling the derived formula happened to lift.
+         runs: the largest 4-connected patch of open columns sharing one off-datum floor. Main raises
+         whole ROOMS, so its largest patch is one room; a band you can walk on for its whole width has
+         to be bigger than any room on the map.
+         reachUp/reachDown: cells off the datum the player's own crossing rule gets to from spawn. */
+      let headMax = 0, headCols = 0;
+      for (let y = 1; y < N - 1; y++) for (let x = 1; x < N - 1; x++) {
+        const i = y * N + x; if (cell[i]) continue;
+        const h = ceilAt(x, y) - fz[i] * ZQ;
+        if (h > headMax) headMax = h;
+        if (h >= 2) headCols++;
+      }
+      const seen = new Uint8Array(N * N);
+      let runMax = 0, runFloor = 0, runTot = 0, runs = 0;
+      for (let y = 1; y < N - 1; y++) for (let x = 1; x < N - 1; x++) {
+        const i = y * N + x;
+        if (cell[i] || seen[i] || !fz[i]) continue;
+        const q = fz[i];
+        let n = 0; const st = [i]; seen[i] = 1;
+        for (let k = 0; k < st.length; k++) {
+          const c = st[k], cx = c % N, cy = (c / N) | 0; n++;
+          for (let d = 0; d < 4; d++) {
+            const j = (cy + DIRY[d]) * N + (cx + DIRX[d]);
+            if (j < 0 || j >= N * N || cell[j] || seen[j] || fz[j] !== q) continue;
+            seen[j] = 1; st.push(j);
+          }
+        }
+        runTot += n; runs++;
+        if (n > runMax) { runMax = n; runFloor = q * ZQ; }
+      }
       return { open, nonFlat, minF, maxF, faces, faceUnblocked, blockedFlat,
         bfaces, badSpan, minSpan, maxSpan, bands, bandsN: MAP.bands, nBands, unreach, sealed,
         linkIn, blockedStep, stairs, stairCells, ladCells, bandLink, noLink, steps: MAP.steps,
+        headMax, headCols, runMax, runFloor, runTot, runs, reachUp, reachDown, reachOff, farReach,
         spawnBand: floorAt(P.x, P.y), exitBand: floorAt(exitX, exitY) };
     })()`, ctxVm);
     console.log(`level ${li}  open ${r.open}  floors ${r.minF}..${r.maxF}  bands ${JSON.stringify(r.bands)}`);
+    const runWant = Math.max(24, Math.round(r.open * 0.12));
     console.log(`         boundary ${r.bfaces} span ${r.bfaces ? r.minSpan + '..' + r.maxSpan : '-'} span<=0 ${r.badSpan}` +
       `  step faces ${r.faces} unblocked-step ${r.faceUnblocked}  blockedFlat byDir ${r.blockedFlat.join(',')}` +
       `  ${r.bfaces > 0 && r.badSpan === 0 ? 'FACES ok' : 'FACE FAIL'}`);
@@ -329,8 +376,22 @@ if (MODE === 'alt') {
       `MAP.steps ${r.steps} (a step face with the flag at 0 draws nothing - #100 on generated content)`);
     row(`L${li} spawn and exit stay on the datum`, r.spawnBand === 0 && r.exitBand === 0 && r.badSpan === 0,
       `spawn floor ${r.spawnBand.toFixed(2)}, exit floor ${r.exitBand.toFixed(2)}, faces of span<=0 ${r.badSpan}`);
+    // #181: being in the grid is not being perceivable. These three rows are the difference between a
+    // level that is multi-storey in MAP.fz and one that reads as a crawlway, and every one of them is
+    // RED ON MAIN - main authors no CZ_TALL column, no cell below the datum, and no off-datum patch
+    // larger than a single room.
+    row(`L${li} a column you can stand up in (>=2 units)`, r.headCols >= 1,
+      `${r.headCols} open column(s) measure >= 2 units from floorAt to ceilAt, tallest ${r.headMax.toFixed(2)}; ` +
+      `a flat level reads exactly 1.00 there and a ladder shaft reaches 1.50, so 0 is the flat-world answer`);
+    row(`L${li} off the datum is reachable from spawn, up AND down`, r.reachUp >= 1 && r.reachDown >= 1,
+      `${r.reachUp} cell(s) above the datum and ${r.reachDown} below it reached from spawn by the crossing rule ` +
+      `(furthest ${r.farReach} crossings away); a level with no sunken band reports 0 below`);
+    row(`L${li} a raised band you can walk on, not hop onto`, r.runMax >= runWant,
+      `largest contiguous patch of one off-datum floor is ${r.runMax} cells at floor ${r.runMax ? r.runFloor.toFixed(2) : '-'}, ` +
+      `want >= ${runWant} (12% of ${r.open} open cells, 24 floor); ${r.runs} patch(es), ${r.runTot} off-datum cells across all of them`);
   }
-  console.log(bad ? `ALT ${bad} FAILURES - the bands are not there or not linked` : 'ALT ok - M3 bands authored, linked and reachable');
+  console.log(bad ? `ALT ${bad} FAILURES - the bands are not there, not linked, or there is nothing to look at`
+    : 'ALT ok - bands authored, linked, reachable, and there is volume to look at');
   process.exit(bad ? 1 : 0);
 }
 
@@ -362,8 +423,19 @@ if (MODE === 'vert') {
       const stepFz = new Int8Array(N * N); for (let i = 0; i < N * N; i++) stepFz[i] = (i % 3) ? 1 : 0;
       const dStep = bfsReach(MAP.cell, stepFz, N, start);
       let rs = 0; for (let i = 0; i < N * N; i++) if (dStep[i] >= 0) rs++;
+      /* The seam this raises has to have the SPAWN on the near side and the EXIT on the far one, or
+         "the split refuses" is a claim about a seam no path crosses. Before generation the spawn was
+         room[0] in the top-left, so x >= N/2 did exactly that; #188 authors bands and the spawn can now
+         sit at x 19 of 26 (L0) or x 30 of 36 (L2), so the old half raised the ground the BFS starts on,
+         the exit was reachable inside the raised half at d 20 and L0/L2 reported "exit sealed FAIL".
+         Split on the axis where spawn and exit differ most, and raise the half beyond its midpoint. */
+      const sx = start % N, sy = (start / N) | 0, eX = exitX | 0, eY = exitY | 0;
+      const axY = Math.abs(eY - sy) > Math.abs(eX - sx);
+      const cut = axY ? ((sy + eY) >> 1) : ((sx + eX) >> 1);
       const splitFz = new Int8Array(N * N);
-      for (let y = 0; y < N; y++) for (let x = (N >> 1); x < N; x++) splitFz[y * N + x] = 2;
+      for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+        if (axY ? (eY > sy ? y > cut : y <= cut) : (eX > sx ? x > cut : x <= cut)) splitFz[y * N + x] = 2;
+      }
       const dSplit = bfsReach(MAP.cell, splitFz, N, start);
       let rb = 0, blocked = 0;
       for (let i = 0; i < N * N; i++) { if (dSplit[i] >= 0) rb++; if (flat[i] >= 0 && dSplit[i] < 0) blocked++; }
@@ -464,9 +536,14 @@ if (MODE === 'vert') {
     for (const [name, dq, want] of [['a 1-quantum lip', 1, 'over'], ['a 2-quantum lip', 2, 'stop']]) {
       /* Absolute, not `+=`: the lane may already sit on a raised band, and a step written against a
          cell whose own floor is unknown is not the step the row's name claims. CARRY keeps the wall
-         bases under the band they bound, so a face of span 0 cannot blame the renderer for this poke. */
+         bases under the band they bound, so a face of span 0 cannot blame the renderer for this poke.
+         The band runs to the map's inner border, not to the end of the lane: since #188 the column
+         after a lane can be another band rather than a wall, and a 150-frame walk travels ~7.2 units,
+         so a poke that stops with the lane is WALKED OFF THE END of and the tail of the sample then
+         measures the step down off the poke (measured: P.z 0 -> 0.25 at the lip, then 0.1833 -> 0.1344
+         -> 0.0986 as the ease chased a floor of 0), which is not the lip this row is named for. */
       run(CFG('', `const q=MAP.fz[${CY} * MW + ${CX}];` +
-        `for(let j=3;j<${N};j++)MAP.fz[${CY} * MW + ${CX} + j]=q+${dq};` + CARRY));
+        `for(let x=${CX}+3;x<MW-1;x++)MAP.fz[${CY} * MW + x]=q+${dq};` + CARRY));
       const Z0 = run('P.z'), sp = run(SPANS), s = run(RUN(150, 'KeyW'));
       /* The same byte that makes the face opaque makes it impassable, so the row names which side it
          expects: the 1-quantum lip must NOT be VB_BLOCK (or auto-step has nothing to walk over) and
@@ -528,7 +605,15 @@ if (MODE === 'vert') {
        being the drop. The measured start and landing altitudes are printed beside the drop. */
     const rows = [];
     for (const k of [5, 8, 10, 13, 16]) {
-      run(CFG('', `globalThis.__q0=MAP.fz[${CY} * MW + ${CX} + 2];` +
+      /* PICKUPS.length=0 belongs in this poke, not in PRE: the dig drops the landing altitude to the
+         floor of every column the player walks over, and a health pickup standing in that band is
+         TAKEN on the landing frame - js/30_entities.js:430 (+25, capped at 100) runs in the same
+         update as the damage, on the same frame the row's own rule uses to recognise fall damage, so
+         the row cannot attribute it. Measured on #188: damagePlayer(10.6) fires at x 3.5, hp goes
+         100 -> 89.40, the pickup heals to 100 and the 2.00-unit drop prints 0.0hp. Clearing it in PRE
+         instead would shift how much randomness the run consumes, and every later row would see a
+         different level roll (measured: L2's flat walk 7.16 -> 5.21 units, spawn rows +/-32 faces). */
+      run(CFG('', `PICKUPS.length=0;globalThis.__q0=MAP.fz[${CY} * MW + ${CX} + 2];` +
         `for(let j=1;j<${N};j++)MAP.fz[${CY} * MW + ${CX} + j]=globalThis.__q0-${k};` + CARRY) +
         PLACE(CX + 2.5, CY + 0.5, 'globalThis.__q0*ZQ'));
       const sp = run(SPANS), zFrom = run('P.z');
@@ -2160,20 +2245,76 @@ if (MODE === 'contrast') {
                   future contour-style term gets judged on: edge dL up, lost down.
        TINT=k     repaints the bodies with their own per-individual tint, the colour the mesh shades
                   with, so "the rows move with BODY shading, not with mask geometry" is testable.
+       POSEONLY=1 drops every body but the POSED one from the measured frame. Same camera, same cell,
+                  same yaw, same geometry - it is how a WEAK verdict gets attributed: posed body alone
+                  reading 24+ while the crowd reads 20 says the shortfall is in FOUND bodies merging
+                  into the room, not in the pose.
+       FLAT=1     flattens the grid (MAP.fz.fill(0), cz back to CZ_DEF, relink) after the level builds.
+                  This is the control that says the POSE is the mechanism and not the level: on the
+                  volume branch a camera whose cone is 0.56 m deep measures nothing, and with the
+                  slab gone the same camera finds a clear ray and its mask comes back non-zero.
        RIM=0|1    runs RIG.setRim (the call DEV.set('rim', ...) makes) and prints a frame hash with
                   PIXHASH=1, which is how this run shows the shipped rim switch no longer reaches
                   the picture: #72 moved bodies off the rig raster onto the mesh, and nothing in
                   the draw path calls RIG any more.
        STRICT=1   promotes cam 1's #179 debt row from KNOWN to a hard FAIL, which is how the term that
-                  pays the debt gets A/B'd against a baseline that is green WITH the debt already paid. */
+                  pays the debt gets A/B'd against a baseline that is green WITH the debt already paid.
+
+     EVERY CAMERA POSES ITS BODY (#189). Bodies are meshes occlusion-tested against `zbuf`, and since
+     #162 `zbuf` carries the riser lips the generator now authors, so a body on the band above a
+     camera can be hidden COMPLETELY by a 1 m ledge 0.56 m in front of the lens - cam 1 on the volume
+     branch measured 0 px that way while every enemy in the level stayed alive and in the frustum.
+     That occlusion is CORRECT (`cull` asserts it) and it is reported per camera below, but it cannot
+     be measured against, so all three cameras now do what cam 2 always did: march from the lens with
+     the renderer's own stop conditions and park ONE body in the clear, on the camera's own band, at
+     the same distance. Nothing else about the cameras moved - same cells, same yaws, same conventions -
+     and the rows that guarantee and judge that body say POSED in their label, because a posed body
+     and a found one are not the same evidence and a reader has to be able to tell them apart. */
   const W = run('BW'), H = run('BH'), N = W * H;
   const lum = (b, i) => 0.2126 * (b[i] & 255) + 0.7152 * (b[i] >> 8 & 255) + 0.0722 * (b[i] >> 16 & 255);
   const DARKRING = process.env.DARKRING === '1';
   const NOBODY = process.env.NOBODY === '1';
+  const POSEONLY = process.env.POSEONLY === '1';
+  const FLAT = process.env.FLAT === '1';
   const RIM = process.env.RIM === undefined ? -1 : +process.env.RIM ? 1 : 0;
   const TINTK = process.env.TINT === undefined ? NaN : +process.env.TINT;
   const PIXHASH = process.env.PIXHASH === '1';
   const MINMASK = 200, DLR = 4, DLLOST = 10, DLMIN = 24, LOSTMAX = 70, RINGMIN = 8, LEAKMAX = 0;
+  /* Per-frame edge statistics, factored out of the camera loop so the posed frame, the found frame and
+     the flat control are measured by the SAME arithmetic as the crowd frame - a control computed by a
+     second implementation is not a control. Identical loops to the ones this block used inline. */
+  const nCover = (m) => { let n = 0; for (let i = 0; i < N; i++) if (m[i]) n++; return n; };
+  const ringOf = (m) => {
+    const r = [];
+    for (let y = 1; y < H - 1; y++) {
+      const rw = y * W;
+      for (let x = 1; x < W - 1; x++) {
+        const i = rw + x;
+        if (!m[i]) continue;
+        if (m[i - 1] && m[i + 1] && m[i - W] && m[i + W] && m[i - W - 1] && m[i - W + 1] && m[i + W - 1] && m[i + W + 1]) continue;
+        r.push(i);
+      }
+    }
+    return r;
+  };
+  const edgeOf = (f, m, ring) => {
+    let eDL = 0, eRGB = 0, lost = 0, noBg = 0;
+    for (let t = 0; t < ring.length; t++) {
+      const i = ring[t], vals = [], idxs = [];
+      for (const o of NB) { const j = i + o[1] * W + o[0]; if (!m[j]) { vals.push(lum(f, j)); idxs.push(j); } }
+      if (!vals.length) { noBg++; continue; }
+      const srt = vals.slice().sort((p, q) => p - q);
+      const med = srt.length & 1 ? srt[srt.length >> 1] : (srt[(srt.length >> 1) - 1] + srt[srt.length >> 1]) * 0.5;
+      let k = 0, bk = 1e18;
+      for (let u = 0; u < vals.length; u++) { const d = Math.abs(vals[u] - med); if (d < bk) { bk = d; k = u; } }
+      const j = idxs[k], dl = Math.abs(lum(f, i) - med);
+      eDL += dl; eRGB += (Math.abs((f[i] & 255) - (f[j] & 255)) + Math.abs((f[i] >> 8 & 255) - (f[j] >> 8 & 255)) +
+        Math.abs((f[i] >> 16 & 255) - (f[j] >> 16 & 255))) / 3;
+      if (dl < DLLOST) lost++;
+    }
+    const en = ring.length - noBg;
+    return { dl: en ? eDL / en : 0, rgb: en ? eRGB / en : 0, lost: en ? 100 * lost / en : 0, en, noBg, ring: ring.length };
+  };
   /* cam 1's separation on unmodified shipped content is BELOW the DLMIN gate it is held to, and #179
      (Epic A) is filed for the shading term that pays it. So that ONE row reports instead of failing -
      the shape smoke's VERT lanes already print (`N gating row(s), N known-issue row(s)`) and that
@@ -2190,30 +2331,132 @@ if (MODE === 'contrast') {
      Hence the rule "the debt may not grow on either axis": recorded minus 1 dL, recorded plus 4 points
      of lost. The dL axis separates TINT=1 from TINT=2 (0.30 / 0.50 of margin) and the lost axis
      agrees with it on every state measured here, so the verdict does not rest on one number's rounding.
-     cam 0 and cam 2 are NOT debt rows - they read - and they keep failing outright. */
+     cam 0 and cam 2 are NOT debt rows - they read - and they keep failing outright.
+
+     #188 SPLITS THAT OBJECT IN TWO, because on the volume branch the body in cam 1's shot is no longer
+     necessarily a body the GAME placed, and "the debt is paid" cannot be allowed to mean "the probe
+     found somewhere to stand a body". The two debts are:
+       FOUND  (DEBT below, unchanged to the digit) the frame with every body where the game put it, the
+              frame those floors were recorded against. It runs ONLY when the march says a found body
+              is in the cone; when it does not, the row reports #189 instead of pretending to measure.
+       POSED  (POSE_FLOOR below) the frame with only the body the probe parked in the clear. Same
+              camera, same cell, same yaw, different reason for the number: it says what a body the
+              player could actually see looks like, and it is NOT evidence about #179's term.
+       FOUND  (DEBT below on the cell those floors were recorded on; the measured floor elsewhere) the
+              frame with every body where the game put it. It runs ONLY when the march says a found body
+              is in the cone; when it does not, the row reports #189 instead of pretending to measure.
+       POSED  (POSE_FLOOR below) the frame with only the body the probe parked in the clear. Same
+              camera, same cell, same yaw, different reason for the number: it says what a body the
+              player could actually see looks like, and it is NOT evidence about #179's term.
+     THAT IS A GATE CHANGE AND IT IS PRINTED, NOT LABELLED AWAY: on the CI cell under FLAT=1 the FOUND
+     frame reads 44 dL / 14% lost and the POSED frame 35 dL / 15% (both measured on this branch), where
+     the same camera banded and unposed measures 16.65 - so a single row that accepted either body would
+     report #179 PAID with no shading term landing anywhere, just by moving the body into the light.
+     Only the FOUND row can say #179 is paid; the POSED row's ok is labelled posed and says so. */
   const DEBT = { cam: 1, issue: '#179', dl: 16.65, lost: 37.94, dlFloor: 15.65, lostCeil: 41.94 };
+  /* The distance floor the pose honours - min(3.5, max(POSEFLOOR, 0.7 x clear)) - and therefore the
+     number the #189 conditional is measured against. One constant on purpose: the row that says "the
+     cone cannot reach the pose floor" and the pose that cannot reach it must read the same value. */
+  const POSEFLOOR = 1.2;
+  /* The window the POSED/FOUND read rows report #179 in is [floor, gate), floor = max(POSE_FLOOR,
+     flatControl - BANDTOL), and both terms are measured, not rounded:
+       POSE_FLOOR = one dL under the worst number the sweep of this branch produced anywhere; see the
+         measured lists beside the constants below. It is a catastrophe backstop only - the term that
+         decides the row is the control.
+       BANDTOL     = the most separation the BAND is allowed to cost, from the matched pairs of that
+         sweep (same body, same spot, grid at the datum). Measured cost, every value: -4 -1 0 0 +2 +2 +5
+         +8, hence 8. See the sweep note beside the constants.
+     The control is what makes the window FALSIFIABLE: #179's term is a body-shading term, so if it
+     lands and moves the flat layout's number while this row's number stays where it is, the floor
+     rises past the number and the row goes RED. "Banded lighting is the cause" is falsified by exactly
+     that measurement - and on level 0 it is already false: the flat control reads 21 where the banded
+     frame reads 20, so on this level the band costs ~1 dL and the shortfall is the room's own light. */
+  /* Floors measured on this branch, not rounded guesses. The sweep is 3 levels x 2 seeds x {crowd,
+     POSEONLY} x {banded, grid at the datum} = 24 runs of this probe (N per row below), and the control
+     in each weak row is the SAME bodies on the SAME spots with the grid at the datum, rendered in the
+     same process - not a FLAT=1 rerun, which re-poses the body at another distance and compares a
+     "band effect" that is a distance effect.
+       POSED values (cam 1, the posed body alone): 14 14 25 25 35 35 36 36 38 38 39 39 40 40 43 43 43 43,
+         N=18 of 24 runs - the other 6 could not pose at all (cone max 0.19 / 0.40 / 0.65 m) and are
+         #189 rows, not numbers. min 14 -> POSE_FLOOR 13. lost on those same runs peaks at 42 (the 14 dL
+         pair), so POSE_LOSTCEIL 45.
+       BANDED values (cam 2's crowd/POSEONLY frames): banded 20 32 24 31 36 15 35 34 24 27, flat 21 37 24
+         20 31 37 16 35 22 27 -> min 15 -> BANDED_FLOOR 14; lost peaks at 48 -> BAND_LOSTCEIL 52.
+       BAND cost, from the matched pairs of that sweep (banded minus control): -4 -1 0 0 +2 +2 +5 +8, so
+         BANDTOL 8. The +8 is cam 2's posed body alone on the raised band (15 against a control of 22);
+         the crowd on the same spot loses only 2, because other bodies in the ring lift the control too.
+     That list is also the answer to "can the distribution separate banded from unlit": NOT by a
+     threshold, but cell by cell through the control. On L0/s7 the posed body reads 14 with a control of
+     14 (band cost 0 - that room is unlit, and #179's shading term is the only thing that can move it);
+     on L1/s7 cam 2 reads 24 against a control of 20 (the band HELPS). A single global floor could not
+     tell those two cells apart; the per-cell control can, which is why the floor is max(backstop,
+     control - BANDTOL) and the backstop is only a catastrophe detector. */
+  const POSE_FLOOR = 13, POSE_LOSTCEIL = 45, BANDED_FLOOR = 14, BAND_LOSTCEIL = 52, BANDTOL = 8;
+  /* The cell #179's floors were recorded against. Everything CI runs is this cell; the other cells of
+     the sweep get the same measured floor every other banded row uses, because 15.65 dL was never
+     measured on level 1 and calling a 14 there "the debt grew" would be inventing a baseline. */
+  const DEBT_CELL = LVL === 0 && SEED === 12345;
   const STRICT = !!process.env.STRICT;
-  let bad = 0, nrows = 0, known = 0;
+  const PLANE = +run('cfg.plane');                       // camera half-width in dir units: atan() is the half-FOV
+  const FOVH = Math.atan(PLANE) * 180 / Math.PI;
+  const FOVH_JS = Math.atan(PLANE);                      // the same half-FOV in radians, for the pose fan
+  let bad = 0, nrows = 0, known = 0, maskDead = false;
+  const knownIssues = new Set();   // which issues the KNOWN rows are carrying, in the order they appeared
   // a row that could not measure anything is a FAILURE, never a KNOWN: a row that silently skips is
   // the "probe that cannot fail" this rewrite exists to remove, so vacuity stays out of the debt branch.
   const row = (label, ok, detail, debt) => {
     nrows++;
     const gate = ok || !debt || STRICT;
-    console.log('    ' + label.padEnd(42) + (ok ? ' ok  ' : gate ? ' FAIL' : 'KNOWN') + '  ' + detail +
+    console.log('    ' + label.padEnd(46) + (ok ? ' ok  ' : gate ? ' FAIL' : 'KNOWN') + '  ' + detail +
       (ok || !debt ? '' : '  [' + debt + ' debt' + (STRICT ? ', gated by STRICT=1' : '') + ']'));
     if (ok) return;
-    if (gate) bad++; else known++;
+    if (gate) bad++; else { known++; knownIssues.add(debt); }
   };
   const NB = [[-1, -1], [0, -1], [1, -1], [-1, 0], [1, 0], [-1, 1], [0, 1], [1, 1]];
+  const BRAD = 0.35;                       // a body's own radius: the march clears it past its NEAR edge
+  /* The geometry this probe has to ask with. castRayDist stops at SOLID columns only, so it answers
+     "visible" for a body standing behind a riser lip that castWalls then hides - cam 1's whole
+     vacuity on the volume branch is that (a 1 m ledge at 0.56 m, a body at 2.24 m, #189). This
+     mirrors the stop conditions of js/40_render.js's DDA instead: a solid column, or an air->air
+     boundary of more than one quantum that no ramp or ladder links. Flat levels take neither branch,
+     so there the march is castRayDist by another name. */
+  run(`window.__march = function (ox, oy, rx, ry, maxD) {
+    let mx = ox | 0, my = oy | 0, px = mx, py = my;
+    const ddx = Math.abs(1 / (rx || 1e-9)), ddy = Math.abs(1 / (ry || 1e-9));
+    let stepX, stepY, sdx, sdy;
+    if (rx < 0) { stepX = -1; sdx = (ox - mx) * ddx; } else { stepX = 1; sdx = (mx + 1 - ox) * ddx; }
+    if (ry < 0) { stepY = -1; sdy = (oy - my) * ddy; } else { stepY = 1; sdy = (my + 1 - oy) * ddy; }
+    let side = 0, g = 0;
+    while (g++ < 220) {
+      let t;
+      if (sdx < sdy) { t = sdx; sdx += ddx; mx += stepX; side = 0; } else { t = sdy; sdy += ddy; my += stepY; side = 1; }
+      if (mx < 0 || my < 0 || mx >= MW || my >= MH) return { dist: Math.min(t, maxD), why: 'void' };
+      if (t > maxD) return { dist: maxD, why: 'clear' };
+      const i = my * MW + mx;
+      if (MAP.cell[i]) return { dist: t, why: 'wall' };
+      const d = side === 0 ? (stepX > 0 ? 0 : 2) : (stepY > 0 ? 1 : 3);
+      const pi = py * MW + px, dq = MAP.fz[i] - MAP.fz[pi];
+      if ((dq > 1 || dq < -1) && !(MAP.vb[pi] & ((VB_RAMP | VB_LADDER) << (d << 2)))) return { dist: t, why: 'slab' };
+      px = mx; py = my;
+    }
+    return { dist: maxD, why: 'guard' };
+  }`);
   console.log('contrast: coverage-mask oracle on level ' + LVL + '  buffer ' + W + 'x' + H +
     (DARKRING ? '  DARKRING' : '') + (NOBODY ? '  NOBODY' : '') +
-    (RIM >= 0 ? '  RIM=' + RIM : '') + (isNaN(TINTK) ? '' : '  TINT=' + TINTK));
-  console.log('contrast: cam ' + DEBT.cam + "'s verdict row is a known-issue row by design - its separation on " +
-    'unmodified shipped content measures edge dL ' + DEBT.dl + ' / lost ' + DEBT.lost + '% at level 0 SEED ' + SEED +
-    ', under the ' + DLMIN + ' it is held to. That row reports (KNOWN) instead of failing and turns red '
-    + 'only below ' + DEBT.dlFloor + ' dL or above ' + DEBT.lostCeil + '% lost, i.e. when the debt GROWS. '
-    + 'Tracked in ' + DEBT.issue + ' (Epic A); STRICT=1 gates it as it stands, so the term that pays it '
-    + 'can be A/B\'d against a green baseline.');
+    (RIM >= 0 ? '  RIM=' + RIM : '') + (isNaN(TINTK) ? '' : '  TINT=' + TINTK) + (POSEONLY ? '  POSEONLY' : '') +
+    (FLAT ? '  FLAT(grid forced to the datum before the cameras are set)' : ''));
+  console.log('contrast: every camera POSES one body by a geometric march on its own band before it measures '
+    + '(cam 2 has always done that; #189 is why all three must) - a body a slab legitimately hides stays '
+    + 'hidden, and is counted and named on the occlusion line instead of emptying the mask.');
+  console.log('contrast: cam ' + DEBT.cam + "'s read row is SPLIT (#188): a FOUND-body row keeps " + DEBT.issue +
+    '\'s recorded floors and is the only row that can say the debt is paid, and a POSED-body row is measured\n' +
+    'contrast: against floors taken from a POSEONLY sweep, because a posed body on this same camera and cell reads '
+    + 'far above a found one - 44 dL vs ' + DEBT.dl + ' under FLAT=1 - so one row accepting either would report '
+    + DEBT.issue + '\n' +
+    'contrast: paid with no shading term landing. Rows that cannot measure because the CONE is shallower than a\n' +
+    'contrast: body report #189 with the march\'s own bound beside them; rows that cannot measure for any other\n' +
+    'contrast: reason are FAILUREs. cam 2\'s banded WEAK reports ' + DEBT.issue + ' with an in-run at-datum control as its\n' +
+    'contrast: falsifier, and STRICT=1 promotes every KNOWN row to a hard FAIL.');
   /* #180 puts the rifle in the raster, so it is now part of what a pair of renders must hold FIXED.
      drawViewModel damps its look-lag against wall-clock dt (VM.now = performance.now()), so two
      frames rendered back to back are NOT the same pose - which is fatal here, because this probe's
@@ -2225,10 +2468,12 @@ if (MODE === 'contrast') {
      BOTH sampled frames removes the cause instead of the symptom and leaves the gun in the picture;
      this is the same REST the viewmodel probe uses for the same reason (#180). VM.ang = P.ang matters
      as much as the zeros: dAng is what the lag damps TOWARD, and after one frame it is already 0. */
-  const VMREST = 'VM.ang = P.ang; VM.lag = 0; VM.vy = 0;';
+  const VMREST = 'if (typeof VM !== "undefined") { VM.ang = P.ang; VM.lag = 0; VM.vy = 0; }';
   for (let cam = 0; cam < 3; cam++) {
     run(`startLevel(${LVL}, true); S.mode='play'; S.locked=false;`);
-    run(`(()=>{
+    if (FLAT) run('MAP.fz.fill(0); MAP.cz.fill(CZ_DEF); linkBoundaries(); for (const e of ENEMIES) e.z = floorAt(e.x, e.y);');
+    const camG = run(`(()=>{
+      window.__posed = null; window.__looked = null;
       const cs=[];for(let y=1;y<MH-1;y++)for(let x=1;x<MW-1;x++)if(!isSolid(x+.5,y+.5))cs.push([x,y]);
       const c=cs.length?cs[((cs.length*0.31+${cam})|0)%cs.length]:[P.x|0,P.y|0];
       P.x=c[0]+.5;P.y=c[1]+.5;P.pitch=0;P.z=floorAt(P.x,P.y);
@@ -2238,7 +2483,7 @@ if (MODE === 'contrast') {
       if (${cam} === 1 && ENEMIES.length) {
         let be=null,bd=1e9;
         for(const e of ENEMIES){if(e.state==='dead')continue;const d=Math.hypot(e.x-c[0]-.5,e.y-c[1]-.5);if(d<bd){bd=d;be=e;}}
-        if(be)P.ang=Math.atan2(be.y-P.y,be.x-P.x);
+        if(be){P.ang=Math.atan2(be.y-P.y,be.x-P.x);window.__looked=be;}
       } else {
         let best=0,bd=-1;
         for(let k=0;k<48;k++){const a=k*Math.PI/24;
@@ -2246,22 +2491,83 @@ if (MODE === 'contrast') {
           if(d>bd){bd=d;best=a;}}
         P.ang=best;
       }
-      if (${cam} === 2 && ENEMIES.length) {
-        const fw = castRayDist(P.x, P.y, Math.cos(P.ang), Math.sin(P.ang), 8).dist;
-        const d = Math.min(3.5, Math.max(1.2, fw * 0.7));
-        const e = ENEMIES.find(e => e.state !== 'dead') || ENEMIES[0];
-        e.x = P.x + Math.cos(P.ang) * d; e.y = P.y + Math.sin(P.ang) * d;
-        e.z = floorAt(e.x, e.y); e.ang = P.ang + Math.PI; e.movingAmt = 0;
+      /* POSE (all three cams, cam 2's mechanism generalised): walk from the lens with the renderer's
+         own stop conditions and park one body in the clear, on the camera's OWN band, at the distance
+         cam 2 has always used - min(3.5, max(1.2, 0.7 x clear)). A candidate that lands in a wall, in
+         a pit or past a riser lip is refused and the previous one tried, 0.12 m at a time. If the
+         view RAY has no room for a body at all - cam 1 on the volume branch stands 0.56 m from a
+         riser lip, which is less than a body's own radius - the search fans over the frustum it is
+         already looking through, axis first and then symmetrically to 60% of the half-FOV, so the
+         camera's cell, its yaw and its distance convention all stay exactly as they were and the only
+         thing that moved is the body. On a flat grid the march is castRayDist by another name and the
+         axis candidate is the one cam 2 used to take, so a flat level reposes nothing it posed honestly.
+         On a cam that picked a body to look at, that body is left where it is when there is another
+         to spend, so the occlusion a ledge causes stays in the frame AND in the line below. */
+      let poseD = 0, poseWhy = 'no enemies in the level', clear = 0, poseOff = 0, poseClear = 0;
+      /* coneMax = the furthest the SAME __march lets a body stand at all (clear minus its own radius,
+         best over the rays the search samples) - the bound the #189 conditional is read from, so it
+         cannot be inflated without changing the march that places bodies, and the row that prints it
+         goes red rather than known if someone inflates it. The three counters are the census of what
+         the search refused, and all three are needed because "the cone is 0.4 m deep" and "the search
+         never ran" look the same from coneMax alone: tried counts every candidate point examined,
+         offBand counts those in a wall or on ANOTHER band (the raised quadrant past a lip - cam 1 on
+         the CI cell, where every candidate is off-band, not merely past a lip), pastLip counts those
+         on the band but beyond the march, and placeable is what the whole test accepted - a pose that
+         fails with placeable > 0 failed for a body-handling reason, not #189. */
+      let coneMax = 0, spotTried = 0, spotBand = 0, spotPlace = 0, spotOff = 0;
+      const alive = ENEMIES.reduce((n, q) => n + (q.state !== 'dead' ? 1 : 0), 0);
+      const band = floorAt(P.x, P.y);
+      if (ENEMIES.length) {
+        const cx0 = Math.cos(P.ang), cy0 = Math.sin(P.ang);
+        clear = __march(P.x, P.y, cx0, cy0, 8).dist;
+        const spread = ${FOVH_JS} * 0.6 / 5;              // 5 steps reaches 60% of the half-FOV, well inside the frame
+        const victim = () => ENEMIES.find(q => q.state !== 'dead' && q !== window.__looked) ||
+          ENEMIES.find(q => q.state !== 'dead');
+        for (let w = 0; w < 11 && !poseD; w++) {
+          const s = w === 0 ? 0 : (w & 1 ? (w + 1) >> 1 : -((w + 1) >> 1));
+          const a = P.ang + s * spread, cx = Math.cos(a), cy = Math.sin(a);
+          const cl = w === 0 ? clear : __march(P.x, P.y, cx, cy, 8).dist;
+          if (cl - ${BRAD} > coneMax) coneMax = cl - ${BRAD};
+          for (let d = Math.min(3.5, Math.max(${POSEFLOOR}, cl * 0.7)), k = 0; k < 30 && d >= ${POSEFLOOR}; k++, d -= 0.12) {
+            const bx = P.x + cx * d, by = P.y + cy * d;
+            const onBand = !isSolid(bx, by) && Math.abs(floorAt(bx, by) - band) <= 1e-6;
+            spotTried++;
+            if (!onBand) { spotOff++; continue; }
+            if (d > cl - ${BRAD}) { spotBand++; continue; }
+            spotPlace++;
+            const e = victim();
+            if (!e) { poseWhy = 'every body is dead'; break; }
+            window.__foundPos = { x: e.x, y: e.y, z: e.z, ang: e.ang };
+            window.__poseSpot = { x: bx, y: by, z: floorAt(bx, by), ang: a + Math.PI };
+            e.x = bx; e.y = by; e.z = floorAt(bx, by); e.ang = a + Math.PI; e.movingAmt = 0;
+            window.__posed = e; poseD = d; poseOff = a - P.ang; poseClear = cl; poseWhy = 'posed'; break;
+          }
+        }
+        if (!poseD && poseWhy === 'no enemies in the level') poseWhy = 'no clear spot on the camera band at the ' + ${POSEFLOOR} + ' m floor or beyond, within 60% of the frustum (the axis march stops at ' + clear.toFixed(2) + ' m)';
       }
       for(const e of ENEMIES)e.state='sleep';
-      return {n:ENEMIES.length};
+      return {n:ENEMIES.length, pose:poseD, why:poseWhy, clear:clear, band:band, off:poseOff, poseClear:poseClear,
+        coneMax:coneMax, spotBand:spotBand, spotPlace:spotPlace, spotOff:spotOff, tried:spotTried, alive:alive};
     })()`);
     // arm the mask (null in play; this probe is its only caller) and any shading control
     run('if (!COV || COV.length !== BW * BH) COV = new Uint8Array(BW * BH);');
+    /* What the renderer can see of every body, asked per body with the march above rather than
+       guessed from the mask: `inF` is the centre test against the camera's half-FOV, `stop` is where
+       the first solid column or riser lip cuts the sight line, `vis` says the sight line got past the
+       body's NEAR edge (BRAD in). A dead body is not a body to measure and is skipped. */
+    const bodies = run(`(()=>{const o=[],cx=Math.cos(P.ang),cy=Math.sin(P.ang);
+      for(const e of ENEMIES){if(e.state==='dead')continue;
+        const dx=e.x-P.x,dy=e.y-P.y,d=Math.hypot(dx,dy);
+        const fw=dx*cx+dy*cy,lat=cfg.plane*(dy*cx-dx*cy);
+        const inF=d>0.01&&fw>0.2&&Math.abs(lat)<=fw;
+        const m=inF?__march(P.x,P.y,dx/d,dy/d,d):{dist:d,why:'outside'};
+        o.push({d:d,inF:inF?1:0,stop:m.dist,why:m.why,vis:(inF&&m.dist>d-${BRAD})?1:0,posed:e===window.__posed?1:0});
+      }return o})()`);
     if (RIM >= 0) run('RIG.setRim(' + RIM + ')');
     if (!isNaN(TINTK)) run('for (const e of ENEMIES) e.tint = [' + TINTK + ',' + TINTK + ',' + TINTK + '];');
     run('window.__keep = ENEMIES.slice();');
     if (NOBODY) run('ENEMIES.length = 0;');
+    if (POSEONLY) run('for (let i = ENEMIES.length - 1; i >= 0; i--) if (ENEMIES[i] !== window.__posed) ENEMIES.splice(i, 1);');
     run('S.t = 3.5; ' + VMREST + ' renderWorld()');
     const A = new Uint32Array(run('px')), M = new Uint8Array(run('COV'));
     // the cross-check frame: the same world with the bodies out, which is what the OLD mask was.
@@ -2269,8 +2575,101 @@ if (MODE === 'contrast') {
     run('ENEMIES.length = 0; ' + VMREST + ' renderWorld();');
     const B = new Uint32Array(run('px')), MB = new Uint8Array(run('COV'));
     run('ENEMIES.length = 0; for (const q of __keep) ENEMIES.push(q);');
+    /* The pose corroborated by PIXELS: the frame with ONLY the posed body in it. "The camera has a
+       body it can see" must not be satisfied by whatever else happened to be standing in the shot,
+       and "the march calls it clear" has to be checkable against what the draw path made of that.
+       The same frame is what the POSED read row measures, so #188's floors and this pixel count come
+       off one render and one mask - the row cannot disagree with the pose row about what is in frame. */
+    let posedPx = -1, posedSt = null, otherPx = 0;
+    if (!NOBODY && camG.pose) {
+      run('ENEMIES.length = 0; if (window.__posed) ENEMIES.push(window.__posed); ' + VMREST + ' renderWorld();');
+      const PF = new Uint32Array(run('px')), MP = new Uint8Array(run('COV'));
+      posedPx = nCover(MP);
+      posedSt = edgeOf(PF, MP, ringOf(MP));
+      posedSt.px = posedPx;
+      // pixels the CROWD frame has that the posed body alone cannot account for = some other body drew
+      for (let i = 0; i < N; i++) if (M[i] && !MP[i]) otherPx++;
+      run('ENEMIES.length = 0; for (const q of __keep) ENEMIES.push(q);');
+    }
+    /* The FOUND frame: every body back where the GAME put it, including the one this camera moved.
+       That is the frame #179's floors were recorded against and the only frame allowed to say the debt
+       is paid (#188's gate change: a posed body reads 44 dL on the cell where a found one reads 16.65,
+       so one row accepting either would report #179 paid with no term landing). The march is asked
+       again HERE, after the positions are restored, because "is a found body in the cone" is a question
+       about the found frame - and when it says no, the row reports #189 with the cone bound instead of
+       measuring an empty shot. */
+    let foundN = -1, foundSt = null, foundVis = 0, foundIn = 0, foundStop = -1;
+    const ctlCache = {};
+    const control = (which) => ctlCache[which] || (ctlCache[which] = flatCtl(which));
+    /* Re-render the FOUND frame from scratch and measure it: every body back on the spot the game put it
+       on, same S.t, rig at rest. The FOUND row compares what it is about to report against this, so the
+       row cannot be handed the posed frame (or any other frame) and print an ok: the pixels have to agree
+       with the claim, and the probe is deterministic enough for them to agree exactly. */
+    const foundStatsNow = () => {
+      run('if (window.__posed && window.__foundPos) { const p = window.__posed, f = window.__foundPos;'
+        + ' p.x = f.x; p.y = f.y; p.z = f.z; p.ang = f.ang; } S.t = 3.5; ' + VMREST + ' renderWorld();');
+      const XF = new Uint32Array(run('px')), XC = new Uint8Array(run('COV'));
+      const st = edgeOf(XF, XC, ringOf(XC));
+      st.px = nCover(XC);
+      run('if (window.__posed && window.__poseSpot) { const p = window.__posed, s = window.__poseSpot;'
+        + ' p.x = s.x; p.y = s.y; p.z = s.z; p.ang = s.ang; }');
+      return st;
+    };
+    if (!NOBODY && cam === DEBT.cam) {
+      const fq = run(`(()=>{if(window.__posed&&window.__foundPos){const p=window.__posed,f=window.__foundPos;
+          p.x=f.x;p.y=f.y;p.z=f.z;p.ang=f.ang;}
+        const cx=Math.cos(P.ang),cy=Math.sin(P.ang);let n=0,k=0,stop=1e9;
+        for(const e of ENEMIES){if(e.state==='dead')continue;
+          const dx=e.x-P.x,dy=e.y-P.y,d=Math.hypot(dx,dy);
+          const fw=dx*cx+dy*cy,lat=cfg.plane*(dy*cx-dx*cy);
+          if(!(d>0.01&&fw>0.2&&Math.abs(lat)<=fw))continue;
+          const m=__march(P.x,P.y,dx/d,dy/d,d);k++;if(m.dist>d-${BRAD})n++;if(m.dist<stop)stop=m.dist;}
+        return {n:n,k:k,stop:stop>1e8?-1:stop}})()`);
+      foundVis = fq.n; foundIn = fq.k; foundStop = fq.stop;
+      if (foundVis) {
+        run('S.t = 3.5; ' + VMREST + ' renderWorld();');
+        const CF = new Uint32Array(run('px')), MC = new Uint8Array(run('COV'));
+        foundN = nCover(MC);
+        foundSt = edgeOf(CF, MC, ringOf(MC));
+        foundSt.px = foundN;
+        // the falsifier for THIS frame, taken while every body is still on its FOUND spot
+        if (!(foundSt.dl >= DLMIN && foundSt.lost <= LOSTMAX)) control('found');
+      }
+    }
+    // put the posed body back on its pose spot, so the posed control below matches the posed frame above
+    if (!NOBODY && camG.pose) run('if (window.__posed && window.__poseSpot) { const p = window.__posed, s = window.__poseSpot;'
+      + ' p.x = s.x; p.y = s.y; p.z = s.z; p.ang = s.ang; }');
+    /* THE FALSIFIER, in-run: the SAME bodies on the SAME spots with the grid at the datum. It is asked
+       only for a frame that came in WEAK, and it is the measurement that decides whether "banded
+       lighting is the cause" survives - #179's term is a body-shading term, so a term that moves this
+       control and leaves the banded number where it is pushes the row's floor over the number and the
+       row goes red. Flattening here rather than re-running with FLAT=1 matters: FLAT=1 flattens before
+       the cameras are set, so it also RE-POSES the body at another distance (measured on L1/12345 cam 2:
+       2.45 m banded vs 3.50 m flat, a -10 dL "band effect" that is a distance effect). */
+    function flatCtl(which) {
+      run('window.__fzS = MAP.fz.slice(); window.__czS = MAP.cz.slice();'
+        + ' MAP.fz.fill(0); MAP.cz.fill(CZ_DEF); linkBoundaries(); for (const e of ENEMIES) e.z = floorAt(e.x, e.y);');
+      if (which === 'posed') run('ENEMIES.length = 0; if (window.__posed) ENEMIES.push(window.__posed);');
+      run('S.t = 3.5; ' + VMREST + ' renderWorld();');
+      const FF = new Uint32Array(run('px')), MF = new Uint8Array(run('COV'));
+      const st = edgeOf(FF, MF, ringOf(MF));
+      st.px = nCover(MF);
+      /* A control that leaves the LEVEL flat is not a control, it is the next row's world: restore the
+         grid the level generated (and every body's z on it) before returning, so nothing measured after
+         this silently measures the datum. startLevel in the NEXT camera iteration is not the fix - it
+         would only hide the leak on the cameras that come later. */
+      run('MAP.fz.set(window.__fzS); MAP.cz.set(window.__czS); linkBoundaries();'
+        + ' ENEMIES.length = 0; for (const q of __keep) ENEMIES.push(q); for (const e of ENEMIES) e.z = floorAt(e.x, e.y);');
+      return st;
+    }
+    if (!NOBODY && posedSt && !(posedSt.dl >= DLMIN && posedSt.lost <= LOSTMAX)) control('posed');
     let nMB = 0;
     for (let i = 0; i < N; i++) if (MB[i]) nMB++;
+    // ---- the occlusion tally (#189): named, counted, reported - not swallowed into a zero mask ----
+    const inFr = bodies.filter(b => b.inF), visB = inFr.filter(b => b.vis), hidB = inFr.filter(b => !b.vis);
+    const slabB = hidB.filter(b => b.why === 'slab'), obstB = hidB.filter(b => b.why !== 'slab');
+    const posedB = bodies.find(b => b.posed);
+    const badBlock = hidB.filter(b => !(b.stop < b.d)).length;
     // ---- coverage mask + edge ring (8-neighbourhood) ----
     const ring = [];
     let nM = 0;
@@ -2327,7 +2726,10 @@ if (MODE === 'contrast') {
       : nM < MINMASK ? 'TOO SMALL - ' + nM + ' mask px is below the ' + MINMASK + ' px floor'
       : !enring ? 'NO RING - nothing to sample'
       : edgeDL < DLMIN || lostPct > LOSTMAX ? 'WEAK - silhouettes merge into the room' : 'READS';
-    console.log('cam ' + cam + '  ' + W + 'x' + H + (PIXHASH ? '  frame ' + (() => {
+    console.log('cam ' + cam + '  ' + W + 'x' + H + (camG.pose ? '  POSED body at ' + camG.pose.toFixed(2) +
+      ' m on band ' + camG.band.toFixed(2) + ' (pose ray clear to ' + camG.poseClear.toFixed(2) + ' m' +
+      (Math.abs(camG.off) > 1e-6 ? ', ' + (camG.off * 180 / Math.PI).toFixed(1) + ' deg off the axis, whose march stops at ' + camG.clear.toFixed(2) + ' m' : ', axis march clear to ' + camG.clear.toFixed(2) + ' m') + ')'
+      : '  NO POSE: ' + camG.why) + (PIXHASH ? '  frame ' + (() => {
       let h = 2166136261;
       for (let i = 0; i < N; i += 7) h = ((h ^ A[i]) * 16777619) >>> 0;
       return (h >>> 0).toString(16);
@@ -2340,29 +2742,197 @@ if (MODE === 'contrast') {
     console.log('  masks      coverage ' + nM + ' px vs diff ' + oCover + ' px  |  drawn-but-invisible ' +
       ghost + ' px  |  diff-not-covered (leak) ' + leak + ' px  |  ring ' + enring + ' of ' + ring.length +
       (noBg ? ' (' + noBg + ' with no outside neighbour)' : ''));
+    /* Informational, and tied to #189: a body on the band above a camera can be hidden COMPLETELY by
+       a ledge the wall pass is right to draw, and `cull` asserts that geometry, so this is not a
+       failure - it is the reason the body below is posed. The numbers are the shape #189 was filed
+       with: how far the body is, and how much nearer the thing in front of it is. */
+    const named = b => b.map(q => 'body ' + q.d.toFixed(2) + ' m / block ' + q.stop.toFixed(2) + ' m').join(', ');
+    console.log('  occlusion  ' + inFr.length + ' of ' + bodies.length + ' bodies in the +' + FOVH.toFixed(1) +
+      ' deg half-frustum: ' + visB.length + ' in the clear, ' + slabB.length + ' hidden by slab/band geometry' +
+      (slabB.length ? ' [' + named(slabB.slice(0, 4)) + (slabB.length > 4 ? ', +' + (slabB.length - 4) : '') + ']' : '') +
+      (obstB.length ? ', ' + obstB.length + ' behind a wall' : '') +
+      '   reporting only, not gated: #189');
+    /* TWO ROWS ABOUT THE FRAME BEFORE ANY CONTRAST IS MEASURED, both stated as POSED because a body
+       the probe put in the shot is not evidence that the game's own placement is readable:
+         the pose row is the guarantee this probe needs to measure anything at all - one body the
+           march says is in the clear, on the camera's own band, painting pixels of its own.
+         the accounting row is #189 turned into a number: every body in the frustum is either in the
+           clear or named as hidden, the two add up to the count, and a hidden one is block-nearer
+           than it is body-farther. That a body IS hidden never fails this row (the slab is correct);
+           a hidden body being uncounted, or nothing being left to measure, does. */
+    /* #189 is a GEOMETRIC reason for having nothing to measure, and it must be proven by the same march
+       that places the bodies rather than by a number written next to the row: coneMax is how far ANY
+       sampled ray of this frustum lets a body stand at all (its march distance minus the body's own
+       radius), spotBand counts on-band candidates the march refused at a lip. Cone max below the pose
+       floor with refusals above zero means "this cone is shallower than a body" - #189, a KNOWN row.
+       At or above the floor, a spot existed and the pose failed anyway: that is a bug in this probe and
+       stays RED. It is also why inflating the bound cannot rescue the row - the inflation has to be made
+       in __march's own answer, which is the value the pose is placed with. */
+    /* Is the COVERAGE MASK ALIVE? The diff mask (A vs B) does not depend on COV at all, so a run where
+       a body moved pixels but coverage says nothing did is a dead mask, not an empty scene. Cam 0 is
+       measured first, so by the time cam 1's rows print this is known, and without it a mask that
+       stopped stamping would be reported as #189 on the one camera whose cone is also shallow - a broken
+       instrument wearing a known-issue label, which is the exact shape this probe exists to refuse. */
+    if (nM === 0 && oCover > 0) maskDead = true;
+    const m189 = !camG.pose && camG.coneMax < POSEFLOOR && camG.tried > 0 && !NOBODY && !maskDead;
+    const boundTxt = 'axis march stops at ' + camG.clear.toFixed(2) + ' m, cone max ' + camG.coneMax.toFixed(2) +
+      ' m against the ' + POSEFLOOR.toFixed(2) + ' m pose floor: ' + camG.tried + ' spot(s) examined in the frustum, ' +
+      camG.spotOff + ' off the band, ' + camG.spotBand + ' past a lip, ' + camG.spotPlace + ' placeable';
+    /* Every row below that needs a body IN THE FRAME is vacuous on this camera for the same geometric
+       reason, and vacuity here is not the silent skip the row() note forbids: it is conditional on a
+       measured bound (coneMax < the floor the pose uses, from __march itself), it prints that bound, and
+       cam 0 and cam 2 stay hard gates, so a mask that stopped working at the source still goes red on
+       the cameras whose cone is deep. A row that failed for a reason other than nothing drawing - a mask
+       that counts the ROOM, a partition that does not add up - is never labelled. */
+    const m189vac = m189 && nM === 0;
+    const poseOk = camG.pose > 0 && !!posedB && !!posedB.vis && posedPx >= MINMASK;
+    row('cam ' + cam + ' has a POSED body it can see', poseOk,
+      camG.pose ? 'POSED at ' + camG.pose.toFixed(2) + ' m on band ' + camG.band.toFixed(2) +
+        (Math.abs(camG.off) > 1e-6 ? ', ' + (camG.off * 180 / Math.PI).toFixed(1) + ' deg off the axis (which stops at ' + camG.clear.toFixed(2) + ' m)' : '') +
+        ', pose ray clear to ' + camG.poseClear.toFixed(2) + ' m, paints ' + posedPx + ' px alone (floor ' + MINMASK + ')' +
+        (posedB && !posedB.vis ? ' - but the march disagrees: stops at ' + posedB.stop.toFixed(2) + ' m' : '') +
+        (cam === 1 && slabB.length ? ' (the found body it was looking at is behind a slab at ' + slabB[0].stop.toFixed(2) + ' m)' : '')
+        : 'NO POSE: ' + camG.why + ' | ' + (m189 ? boundTxt
+          : camG.coneMax < POSEFLOOR ? 'the cone reaches only ' + camG.coneMax.toFixed(2) + ' m but the search examined '
+            + camG.tried + ' spot(s), so nothing here says #189: ' + boundTxt
+            : 'cone max ' + camG.coneMax.toFixed(2) + ' m is at or above the ' + POSEFLOOR.toFixed(2) + ' m floor and ' +
+              camG.spotPlace + ' spot(s) were placeable, so the pose failed for a reason that is NOT #189'),
+      !poseOk && m189 ? '#189' : undefined);
+    const partOk = inFr.length === visB.length + hidB.length && inFr.length >= 1 && badBlock === 0;
+    row('cam ' + cam + ' frustum bodies are all accounted for',
+      partOk && !!posedB && !!posedB.inF,
+      inFr.length + ' in frustum = ' + visB.length + ' clear + ' + hidB.length + ' hidden, posed body ' +
+      (posedB ? (posedB.inF ? 'in frustum and ' + (posedB.vis ? 'clear' : 'BLOCKED at ' + posedB.stop.toFixed(2) + ' m') : 'OUTSIDE the frustum')
+        : m189 ? 'missing because the cone cannot hold one | ' + boundTxt : 'missing') +
+      (badBlock ? ', ' + badBlock + ' hidden without a nearer block distance' : ''),
+      m189 && partOk ? '#189' : undefined);
     row('cam ' + cam + ' mask is bodies, not the room', nMB === 0 && nM > 0,
       nMB ? 'rendering with ENEMIES emptied still stamps ' + nMB + ' px of coverage - the mask is counting something other than the cast'
-        : !nM ? 'vacuous: nothing drew in the measured frame either, so this proves nothing about the mask'
-          : 'ENEMIES emptied -> coverage empty, so every one of the ' + nM + ' mask px below is a body\'s own draw');
+        : !nM ? 'vacuous: nothing drew in the measured frame either, so this proves nothing about the mask' +
+          (m189vac ? ' | nothing drew because no body is in the clear: ' + boundTxt : '')
+          : 'ENEMIES emptied -> coverage empty, so every one of the ' + nM + ' mask px below is a body\'s own draw',
+      m189vac && !nMB ? '#189' : undefined);
     row('cam ' + cam + ' silhouette is big enough', nM >= MINMASK, nM + ' px = ' + pct(nM) + ' of the frame' +
-      (nM ? '' : ' - NOTHING DREW: rows below are not measurements'));
+      (posedPx >= 0 ? ' (POSED body paints ' + posedPx + ' of them alone)' : '') +
+      (nM ? '' : ' - NOTHING DREW: rows below are not measurements' + (m189vac ? ' | ' + boundTxt : '')),
+      m189vac ? '#189' : undefined);
     row('cam ' + cam + ' edge ring is measurable', enring >= RINGMIN && noBg === 0,
-      enring + ' ring px' + (noBg ? ', ' + noBg + ' with no background sample' : ''));
+      enring + ' ring px' + (noBg ? ', ' + noBg + ' with no background sample' : '') +
+      (!enring && m189vac ? ' | a ring of pixels a body painted, and no body painted any: ' + boundTxt : ''),
+      m189vac ? '#189' : undefined);
     const reads = nM >= MINMASK && enring >= RINGMIN && edgeDL >= DLMIN && lostPct <= LOSTMAX;
     // a measurement at all: something drew, the ring has pixels, and the mask does not leak. Only a
     // row that measured can owe a debt - vacuity is a FAILURE (see the row() note above).
     const measured = nM >= MINMASK && enring >= RINGMIN && leak <= LEAKMAX;
-    /* cam 1's WEAK verdict on unmodified content is the #179 debt, so it reports - unless the number
-       dropped below the recorded floor, which is a regression, not the debt. The gate above is
-       untouched for cam 0 and cam 2, which read and therefore keep failing outright. */
-    const debt = !reads && measured && cam === DEBT.cam &&
-      edgeDL >= DEBT.dlFloor && lostPct <= DEBT.lostCeil ? DEBT.issue : undefined;
-    row('cam ' + cam + ' body reads against the room', reads,
-      'edge dL ' + edgeDL.toFixed(0) + ' vs ' + DLMIN + ', lost ' + lostPct.toFixed(0) + '% vs ' + LOSTMAX +
-      (reads || cam !== DEBT.cam || !measured ? '' : debt
-        ? ' - debt, fails below ' + DEBT.dlFloor.toFixed(2) + ' dL or above ' + DEBT.lostCeil.toFixed(2) + '% lost'
-        : ' - the DEBT GREW: below the recorded floor ' + DEBT.dlFloor.toFixed(2) + ' dL / ' + DEBT.lostCeil.toFixed(2) + '%'),
-      debt);
+    /* THE DEBT, IN TWO PARTS (#188). On the volume branch the body in cam 1's shot is not necessarily a
+       body the GAME placed, and "#179 is paid" cannot be allowed to mean "the probe found somewhere to
+       stand a body" - on the CI cell the FOUND frame under FLAT=1 reads 44 dL / 14% and the POSED frame
+       35 dL / 15%, where the same camera banded and unposed measures 16.65. So cam 1 gets TWO rows, each
+       with its own object and its own floor:
+         FOUND  every body where the game put it - the frame #179's floors were recorded against, and
+                the only frame that can say the debt is paid. Runs only when a placed body is in the
+                clear inside the cone; when none is, the row says #189 and prints the cone bound.
+         POSED  the single body the march parked in the clear - what a body the player could actually
+                see looks like. Its floor comes from the POSEONLY sweep below, and its ok is NOT
+                evidence about #179's term; the line says so.
+       For cam 0 and cam 2 the crowd frame stays the measured frame; cam 2's WEAK rides the banded floor
+       (#179/M5) with the in-run at-datum control as its falsifier. cam 0 keeps failing outright. */
+    if (cam === DEBT.cam) {
+      const fVac = !!foundSt && foundSt.px >= MINMASK && foundSt.en >= RINGMIN;
+      const fReads = fVac && foundSt.dl >= DLMIN && foundSt.lost <= LOSTMAX;
+      /* On the cell #179's floors were recorded on, they are the window unchanged. Elsewhere the row
+         uses the same measured floor as the other banded rows: a number never measured on level 1 cannot
+         be the baseline a level-1 frame "grew past". */
+      const fCtl0 = ctlCache.found || null;   // rendered by the FOUND block above, while the bodies were on their found spots
+      /* On the cell #179's floors were recorded on, they are the window unchanged. Elsewhere the row
+         uses the same measured floor as the other banded rows: a number never measured on level 1 cannot
+         be the baseline a level-1 frame "grew past". */
+      const fFloor = DEBT_CELL ? DEBT.dlFloor : Math.max(BANDED_FLOOR, (fCtl0 ? fCtl0.dl : DLMIN) - BANDTOL);
+      const fCeil = DEBT_CELL ? DEBT.lostCeil : BAND_LOSTCEIL;
+      /* THE FOUND ROW MUST PROVE IT MEASURED A FOUND FRAME: it re-renders the frame it claims to report
+         and requires the same coverage and the same edge dL. A row handed the posed frame instead - or
+         one whose restore silently failed - differs here, because the posed body's pixels are not the
+         found bodies' pixels. Under POSEONLY the found frame is not the measured frame by request, so
+         the row does not measure at all and the re-render is not owed. */
+      const fRe = foundVis ? foundStatsNow() : null;
+      const fSame = POSEONLY || !fRe || !foundSt || (fRe.px === foundN && Math.abs(fRe.dl - foundSt.dl) < 0.05);
+      const fDebt = !fReads && fVac && !!foundSt && foundSt.dl < DLMIN && foundSt.dl >= fFloor && foundSt.lost <= fCeil
+        && fSame ? DEBT.issue : undefined;
+      const fOk = fReads && (!foundSt || fSame);
+      if (!bodies.length || NOBODY) {
+        row('cam 1 body reads - FOUND bodies', false,
+          NOBODY ? 'vacuous: NOBODY=1 emptied the scene, so there is no placement in the frame to judge - this row is a control and fails by design'
+            : 'vacuous: no living body in the level, so there is no placement to judge', undefined);
+      } else if (!foundVis || !foundSt) {
+        row('cam 1 body reads - FOUND bodies', false,
+          foundIn + ' body(ies) the GAME placed inside the cone, ' + foundVis + ' of them in the clear (nearest stop '
+          + (foundStop < 0 ? 'none' : foundStop.toFixed(2)) + ' m) - there is no found-body measurement to take | ' + boundTxt,
+          '#189');
+      } else {
+        row('cam 1 body reads - FOUND bodies', fOk,
+          'edge dL ' + foundSt.dl.toFixed(1) + ' vs ' + DLMIN + ', lost ' + foundSt.lost.toFixed(0) + '% vs ' + LOSTMAX +
+          ' on ' + foundN + ' px of coverage, ' + foundVis + '/' + foundIn + ' placed bodies in the clear' +
+          (POSEONLY ? '' : ' | re-rendered from the found spots it is ' + (fSame ? 'the same frame: ' : 'NOT the same frame: ') +
+            fRe.px + ' px, edge dL ' + fRe.dl.toFixed(1) + (fSame ? '' : ' against the ' + foundN + ' px and dL '
+            + (foundSt ? foundSt.dl.toFixed(1) : '0') + ' this row was handed - it is measuring a frame that is not the found one')) +
+          (fCtl0 ? ' | the SAME bodies on the SAME spots with the grid at the datum read ' + fCtl0.dl.toFixed(1) + ' dL / '
+            + fCtl0.lost.toFixed(0) + '% on ' + fCtl0.px + ' px' + (DEBT_CELL ? '' : ', so the band costs '
+            + (fCtl0.dl - foundSt.dl).toFixed(1) + ' dL and the window opens at max(' + BANDED_FLOOR + ', '
+            + fCtl0.dl.toFixed(1) + ' - ' + BANDTOL + ') = ' + fFloor.toFixed(1)) : '') +
+          (fOk || !fVac ? '' : fDebt
+            ? ' - debt, fails below ' + fFloor.toFixed(2) + ' dL or above ' + fCeil.toFixed(2) + '% lost'
+            : fVac ? ' - the DEBT GREW: below the floor ' + fFloor.toFixed(2) + ' dL / ' + fCeil.toFixed(2) + '%'
+              : ' - vacuous: ' + foundN + ' px / ring ' + foundSt.en + ' is under the ' + MINMASK + '/' + RINGMIN + ' floors'),
+          fDebt);
+      }
+      const pVac = !!posedSt && posedSt.px >= MINMASK && posedSt.en >= RINGMIN;
+      const pReads = pVac && posedSt.dl >= DLMIN && posedSt.lost <= LOSTMAX;
+      if (!pVac) {
+        row('cam 1 body reads - POSED body', false,
+          camG.pose ? 'vacuous: the posed body paints ' + posedPx + ' px with ring ' + (posedSt ? posedSt.en : 0) +
+            ', under the ' + MINMASK + '/' + RINGMIN + ' floors - not a measurement, not a debt'
+            : m189 ? 'nothing to measure, and the reason is the cone and not the shading: ' + boundTxt
+              : 'vacuous: ' + camG.why, camG.pose || !m189 ? undefined : '#189');
+      } else {
+        const pCtl = pReads ? null : control('posed');
+        const pFloor = Math.max(POSE_FLOOR, pCtl ? pCtl.dl - BANDTOL : POSE_FLOOR);
+        const pDebt = !pReads && posedSt.dl < DLMIN && posedSt.dl >= pFloor && posedSt.lost <= POSE_LOSTCEIL
+          ? DEBT.issue + ' (posed)' : undefined;
+        row('cam 1 body reads - POSED body', pReads,
+          'edge dL ' + posedSt.dl.toFixed(1) + ' vs ' + DLMIN + ', lost ' + posedSt.lost.toFixed(0) + '% vs ' + LOSTMAX +
+          ' on ' + posedPx + ' px (crowd frame has ' + otherPx + ' px more than this body alone; floors from a'
+          + ' 24-run sweep, N=18 measurable, min 14)' +
+          (pCtl ? ' | the SAME body on the SAME spot at the datum reads ' + pCtl.dl.toFixed(1) + ' dL on ' + pCtl.px +
+            ' px, so the band costs ' + (pCtl.dl - posedSt.dl).toFixed(1) + ' dL and the window opens at max(' + POSE_FLOOR +
+            ', ' + pCtl.dl.toFixed(1) + ' - ' + BANDTOL + ') = ' + pFloor.toFixed(1) : '') +
+          (pReads ? '' : pDebt ? ' | reported, NOT paid: a posed body reads high on cells where a found one does not'
+            : ' | below the measured floor ' + pFloor.toFixed(1) + ' dL, a regression rather than a debt'),
+          pDebt);
+      }
+    } else {
+      /* cam 2's WEAK on a banded level is #179/M5's lighting debt, and the in-run control is what makes
+         the label falsifiable instead of a synonym for "this room is dark": the same bodies on the same
+         spots with the grid at the datum. A shading term that lifts THAT past DLMIN while this number
+         stays here moves the floor to (control - BANDTOL) and turns this row RED; a control as weak as
+         this frame says the band is not the cause and the label is wrong on this cell. */
+      const ctlC = (reads || !measured || cam !== 2) ? null : control('crowd');
+      const bFloor = Math.max(BANDED_FLOOR, ctlC ? ctlC.dl - BANDTOL : BANDED_FLOOR);
+      const debt = !reads && measured && cam === 2 && edgeDL < DLMIN && edgeDL >= bFloor && lostPct <= BAND_LOSTCEIL
+        ? DEBT.issue : undefined;
+      row('cam ' + cam + ' body reads against the room' + (camG.pose ? ' (posed body in shot)' : ''), reads,
+        'edge dL ' + edgeDL.toFixed(1) + ' vs ' + DLMIN + ', lost ' + lostPct.toFixed(0) + '% vs ' + LOSTMAX +
+        (ctlC ? ' | the same bodies on the same spots at the datum read ' + ctlC.dl.toFixed(1) + ' dL on ' + ctlC.px +
+          ' px, so the band costs ' + (ctlC.dl - edgeDL).toFixed(1) + ' dL and the window opens at max(' + BANDED_FLOOR +
+          ', ' + ctlC.dl.toFixed(1) + ' - ' + BANDTOL + ') = ' + bFloor.toFixed(1) +
+          (ctlC.dl < DLMIN ? ' | NOTE: the control is ITSELF below ' + DLMIN + ', so on this cell the band is not the cause - '
+            + (DLMIN - ctlC.dl).toFixed(0) + ' dL of the ' + (DLMIN - edgeDL).toFixed(0) + ' dL shortfall is the room\'s own '
+            + 'light (the deficit even an unbanded level has here) and ' + (ctlC.dl - edgeDL).toFixed(0) + ' dL is the band' : '') +
+          ' | FALSIFIER for "banded lighting is the cause": a body-shading term that moves the datum control past ' + DLMIN +
+          ' while this number does not move pushes the floor over it and turns this row red' : '') +
+        (reads || cam !== 2 || !measured ? '' : debt ? ' - banded debt, fails below ' + bFloor.toFixed(1) + ' dL'
+          : ' - below the measured banded floor ' + bFloor.toFixed(1) + ' dL: a regression, not the debt'),
+        debt);
+    }
     row('cam ' + cam + ' diff mask leaks nothing', leak <= LEAKMAX,
       leak + ' px differ between the two renders but no body painted them' +
       (leak ? ' - a body-driven WORLD change is being counted as the body (#179)' : ''));
@@ -2391,7 +2961,7 @@ if (MODE === 'contrast') {
       ' [' + on.join(' ') + ']');
   }
   const debtTail = known ? ', ' + known + ' known-issue row' + (known > 1 ? 's' : '') + ' (' +
-    (STRICT ? 'FAILED under STRICT=1' : 'reporting') + ': cam ' + DEBT.cam + ' ' + DEBT.issue + ')' : '';
+    (STRICT ? 'FAILED under STRICT=1' : 'reporting') + ': ' + [...knownIssues].join(' ') + ')' : '';
   console.log(bad || known ? `CONTRAST ${bad} FAILURE(S) of ${nrows} rows` + debtTail
     : `CONTRAST ok - ${nrows} rows: bodies separate from the rooms they stand in` + debtTail);
   run('COV = null;');
@@ -3583,13 +4153,6 @@ if (MODE === 'bands') {
     for (let y = a; st > 0 ? y <= e : y >= e; y += st) { s += lum(b, y * w + x); n++; }
     return n ? s / n : 0;
   };
-  const lumDiffAvg = (p, q, w, y0, y1, x) => {
-    const a = Math.max(0, Math.min(H - 1, Math.round(y0))), e = Math.max(0, Math.min(H - 1, Math.round(y1))), st = e >= a ? 1 : -1;
-    let s = 0, n = 0;
-    for (let y = a; st > 0 ? y <= e : y >= e; y += st) { s += Math.abs(lum(p, y * w + x) - lum(q, y * w + x)); n++; }
-    return n ? s / n : 0;
-  };
-
   /* First surface change along every column's ray, in the renderer's own parametrisation
      (point = cam + ray * t, and t is also the perpendicular distance because dir.(dir + plane*cam)
      = 1), refined by bisection so the row maths is not quantized by the sampling step. A crossing
@@ -3597,10 +4160,12 @@ if (MODE === 'bands') {
      kind: wall = a solid column; face = an air->air step of >=2 quanta, which the wall pass draws;
      walk = exactly 1 quantum, which it does NOT draw (canEnter steps over it); ramp/ladder links
      draw no lip either, so they are excluded from both kinds. */
-  const march = (cx, cy) => run(`(function () {
+  const march = (cx, cy, all) => run(`(function () {
     const N = MAP.w, cell = MAP.cell, fz = MAP.fz, vb = MAP.vb, sb = 2 / BW;
     const NX = [1, 0, -1, 0], NY = [0, 1, 0, -1];
-    const D = ${DIST} + 0.3, CX = ${cx}, CY = ${cy}, RES = [];
+    // all=1 enumerates every crease the wall pass could paint, so it marches as far as castWalls
+    // does (the guard, i.e. the map border) instead of stopping at the row's own 3.5 m sample plane
+    const D = ${all ? 60 : DIST} + 0.3, CX = ${cx}, CY = ${cy}, RES = [], STOP1 = ${all ? 0 : 1};
     const ceilOf = i => {                       // js/10_world ceilAt, mirrored for the face's top
       const f = fz[i], x = i % N, y = (i / N) | 0; let m = 0;
       for (let k = 0; k < 4; k++) { const nx = x + NX[k], ny = y + NY[k]; if (nx < 0 || ny < 0 || nx >= N || ny >= N) continue; const j = ny * N + nx; if (cell[j] || fz[j] > f) m = Math.max(m, fz[j] - f); }
@@ -3630,7 +4195,8 @@ if (MODE === 'bands') {
             break;
           }
           ev = [x, 'walk', dq, t, fz[prev] * ZQ, Math.min(fz[cur], fz[prev]) * ZQ, Math.max(fz[cur], fz[prev]) * ZQ];
-          break;
+          if (STOP1) break;                       // all=1: the row's own first event; all=0: keep the whole list
+          RES.push(ev); ev = null; prev = cur; continue;
         }
         prev = cur;
       }
@@ -3687,11 +4253,22 @@ if (MODE === 'bands') {
     return 1;
   })()`);
 
-  // thresholds: mean |dL| at the lip and the darkest share of lip pixels that are indistinguishable
-  // from their neighbour. Measured on main f7d1847 with the seam absent: face lips 32.1 / 16.1 /
-  // 38.4 and walk lips 9.4 / 6.9 / 2.0 - so the number a face lip already clears is NOT the evidence
-  // a seam works (the band row below is), and this row is the #164 measurement itself.
-  const MEAN_MIN = +(process.env.MEAN_MIN || 30), WITHIN_MAX = +(process.env.WITHIN_MAX || 35);
+  // the share of lip pixels that are indistinguishable from their neighbour - the visibility floor,
+  // and the reason a contrast of 1.0 between two near-black rows cannot pass this row.
+  const WITHIN_MAX = +(process.env.WITHIN_MAX || 35);
+  /* The step is judged as CONTRAST, |a-b|/(a+b), not as absolute luminance. A crease is a MULTIPLY in
+     the renderer (the lip row keeps 1 - SEAMD - SEAMC = 0.16 of what was there), so the most it can
+     move is 0.84 times how bright the surface already is: the branch's L1 walk lip sits on a floor
+     that renders at 27.6 with the row in front at 29.5, so its ceiling on mean |dL| is 23.2 and an
+     absolute 30 is unreachable however hard the renderer works - while the SAME 84% crease on main's
+     L1 walk lip (68.3 / 84.6) measured 73.7. Measured on the six lips of each tree: seam ON 0.55-0.79
+     on the branch and 0.56-0.79 on main, seam OFF 0.11-0.31, and 0.11-0.12 on the columns whose
+     crease the wall pass drops for a farther riser. The threshold sits in that gap: the worst failing
+     value measured is 0.31, the best passing one 0.55. */
+  const CON_MIN = +(process.env.CON_MIN || 0.45);
+  // the same rule for the seam band's depth: mean(B-A) over the band, over mean(A) over that band.
+  // Measured 1.13-1.45 on all six lips of the branch with the term on, 0.00 with SEAM=0.
+  const DROP_CON_MIN = +(process.env.DROP_CON_MIN || 0.45);
   for (let li = 0; li < 3; li++) {
     const spawn = run(`(function () { startLevel(${li}, true); return [P.x, P.y]; })()`);
     // SEAM=0 runs this whole probe with the term switched off in the renderer, so the same rows can
@@ -3714,13 +4291,47 @@ if (MODE === 'bands') {
       let B = A;
       if (seam === 1) { run('SEAM = 0'); run('S.t = 3.5; renderWorld()'); B = new Uint32Array(run('px')); run('SEAM = 1'); }
       const m = march(L.cx, L.cy);
+      /* Every crease each column contains, not just the one the row measures: a staircase puts the
+         next tread's lip above this one and the sunken block's riser behind it, and the seam paints
+         those bands too. Locality has to be measured on rows NO crease reaches, or the next lip's own
+         edge is booked as a leak (measured 10.2 on the branch's L2 walk lip, on rows that belonged to
+         a real riser). A tint moves rows nothing reaches, so it still counts as a leak. */
+      const creaseByX = {};
+      for (const c of march(L.cx, L.cy, 1)) {
+        if (c[1] === 'walk') {
+          const zA = c[4], zB = zA === c[5] ? c[6] : c[5];
+          (creaseByX[c[0]] = creaseByX[c[0]] || []).push([c[3], zA, zB]);
+        } else if (c[1] === 'face') {
+          (creaseByX[c[0]] = creaseByX[c[0]] || []).push([c[3], c[5], c[6]], [c[3], c[6], c[5]]);
+        }
+      }
+      const reaches = (x, y) => {
+        const cs = creaseByX[x];
+        if (!cs) return false;
+        for (let k = 0; k < cs.length; k++) {
+          const h2 = H / cs[k][0], yA = hor + (eye - cs[k][1]) * h2, yB = hor + (eye - cs[k][2]) * h2;
+          const b2 = Math.min(Math.abs(yB - yA) * 0.5, h2 * SEAMW), y0 = Math.floor(yA);
+          if (y <= y0 && y >= y0 - b2) return true;
+        }
+        return false;
+      };
+      const lumDiffClear = (p, q, x, y0, y1) => {
+        const a = Math.max(0, Math.min(H - 1, Math.round(y0))), e = Math.max(0, Math.min(H - 1, Math.round(y1))), st = e >= a ? 1 : -1;
+        let s = 0, n2 = 0;
+        for (let y = a; st > 0 ? y <= e : y >= e; y += st) {
+          if (reaches(x, y)) continue;
+          s += Math.abs(lum(p, y * W + x) - lum(q, y * W + x)); n2++;
+        }
+        clearRows += n2;
+        return n2 ? s / n2 : 0;
+      };
       if (DBG) {
         const hsh = {};
         for (const c of m) { const k = c[1] + (Math.abs(c[3] - DIST) <= TOL ? '@D' : '@else'); hsh[k] = (hsh[k] || 0) + 1; }
         console.log(`    dbg L${li} ${kind} lip (${L.x},${L.y}) d${L.d} dq ${L.dq} wide ${L.wide} cam(${L.cx.toFixed(2)},${L.cy.toFixed(2)}) ang ${L.ang.toFixed(3)}: ` + JSON.stringify(hsh));
       }
       let n = 0, sum = 0, sgn = 0, within = 0, zok = 0, off = 0;
-      let dropSum = 0, wideSum = 0, spanSum = 0, farSum = 0, farN = 0, dip = 0, touched = 0, near0 = 0;
+      let dropSum = 0, wideSum = 0, spanSum = 0, farSum = 0, farN = 0, dip = 0, touched = 0, near0 = 0, conSum = 0, refSum = 0, clearRows = 0;
       for (const c of m) {
         if (c[1] !== kind || Math.abs(c[3] - DIST) > TOL) continue;
         const x = c[0], perp = c[3], zLo = c[5], zHi = c[6], hp = H / perp;
@@ -3741,8 +4352,10 @@ if (MODE === 'bands') {
           zok++;
         }
         // the pair across the step lip: the lip row and the floor immediately in front of it
-        const dP = lum(A, (yF + 1) * W + x) - lum(A, yF * W + x);
+        const lU = lum(A, (yF + 1) * W + x), lD = lum(A, yF * W + x);
+        const dP = lU - lD, den = lU + lD;
         n++; sum += Math.abs(dP); sgn += dP; if (Math.abs(dP) <= 10) within++;
+        conSum += den > 12 ? Math.abs(dP) / den : 0;
         // the seam on its own, with everything else about the frame held still. Its band is located
         // empirically - the strongest shift anywhere within +-0.5 m of the geometric lip - and the
         // OFFSET from the analytic lip is asserted below, because a seam painted 1 m from the step it
@@ -3762,42 +4375,55 @@ if (MODE === 'bands') {
           }
           return k;
         })();
-        let band = 0, nRows = 0;
-        for (let k = 0; k <= bRows; k++) { band += lum(B, (yb - k) * W + x) - lum(A, (yb - k) * W + x); nRows++; }
+        let band = 0, ref = 0, nRows = 0;
+        for (let k = 0; k <= bRows; k++) {
+          band += lum(B, (yb - k) * W + x) - lum(A, (yb - k) * W + x); ref += lum(A, (yb - k) * W + x); nRows++;
+        }
         // locality: the SAME term measured a band's width clear of the crease on the far side, and on
         // the floor 6-14 rows in front of it. Offsets are fixed (win = 2 design band widths), not
         // relative to the band this column happened to show, or a narrower band would look leakier.
-        const a1 = lumDiffAvg(A, B, W, yb - win - 4, yb - win - 12, x);
-        const a2 = lumDiffAvg(A, B, W, yb + 6, yb + 14, x);
+        const a1 = lumDiffClear(A, B, x, yb - win - 4, yb - win - 12);
+        const a2 = lumDiffClear(A, B, x, yb + 6, yb + 14);
         const mid = lumAvg(A, W, yb - bRows * 0.25, yb - bRows * 0.75, x);
         const near = lumAvg(A, W, yb + bRows + 6, yb + bRows + 16, x);
         const far = lumAvg(A, W, yb - bRows - 6, yb - bRows - 16, x);
-        dropSum += nRows ? band / nRows : 0; wideSum += bRows; spanSum += Math.abs(yOther - yLip);
+        dropSum += nRows ? band / nRows : 0; refSum += nRows ? ref / nRows : 0;
+        wideSum += bRows; spanSum += Math.abs(yOther - yLip);
         farSum += Math.max(a1, a2); farN++;
         if (mid < near - 12 && mid < far - 12) dip++;
         if (yb >= 0 && Math.abs(yb - yF) <= win) near0++;
         if (peak > 4) touched++;
       }
-      const meanD = n ? sum / n : 0, pctW = n ? 100 * within / n : 100;
+      const meanD = n ? sum / n : 0, pctW = n ? 100 * within / n : 100, meanCon = n ? conSum / n : 0;
+      // the foot drop as a fraction of how bright that band is: the term is a multiply, so on a floor
+      // rendering at 27 the most it can be is 0.84 of 27 and an absolute 18 px-lum is out of reach in
+      // a dim room while the same crease on a floor at 106 measured 88 (main L0 walk)
+      const dropBar = farN ? dropSum / farN : 0, dropCon = refSum ? dropSum / refSum : 0;
       row(`L${li} ${kind} lip: geometry the depth buffer agrees with`,
         n >= 24 && zok >= n * 0.9,
         `${n} of ${m.length} columns cross a ${kind} lip at ${DIST} m (refused ${off}: the renderer's `
         + `own zbuf says nothing is there), riserStops ${risers}, horizon ${hor.toFixed(1)}, eyeZ ${eye.toFixed(2)}`);
       row(`L${li} ${kind} lip: luminance steps where depth steps`,
-        n >= 24 && meanD >= MEAN_MIN && pctW <= WITHIN_MAX,
-        `mean |dL| across the lip ${meanD.toFixed(1)} (want >= ${MEAN_MIN}), ${pctW.toFixed(1)}% of lip `
-        + `pixels within 10 of their neighbour (want <= ${WITHIN_MAX}%), signed ${(n ? sgn / n : 0).toFixed(1)} `
+        n >= 24 && meanCon >= CON_MIN && pctW <= WITHIN_MAX,
+        `contrast across the lip ${(100 * meanCon).toFixed(0)}% (want >= ${(100 * CON_MIN).toFixed(0)}%), `
+        + `mean |dL| ${meanD.toFixed(1)}, ${(pctW).toFixed(1)}% of lip pixels within 10 of their neighbour `
+        + `(want <= ${WITHIN_MAX}%), signed ${(n ? sgn / n : 0).toFixed(1)} `
         + `- ${kind === 'face' ? 'a riser wears the floor material, so today the step is a brighter patch of the same texture'
           : 'a walk lip draws NO face at all: the floor texture is painted straight through the riser'}`);
       row(`L${li} ${kind} lip: a seam band at the crease, not a shade`,
-        seam === 1 && dropSum / (farN || 1) >= 18 && wideSum / (n || 1) >= 1 &&
+        seam === 1 && dropCon >= DROP_CON_MIN && wideSum / (n || 1) >= 1 &&
         wideSum / (spanSum || 1) <= 0.45 && farSum / (farN || 1) <= 5 &&
+        // and the locality term must have been MEASURED: masking every row of both windows would
+        // make it read 0.0 on a build that tints the whole frame, which is the one thing it owns
+        clearRows >= (farN || 1) * 4 &&
         near0 >= Math.max(12, n * 0.5) && touched >= near0,
-        `foot drop ${n ? (dropSum / farN).toFixed(1) : '0'} px-lum when the term is on, band `
+        `the band is ${(100 * dropCon).toFixed(0)}% brighter with the term off (${dropBar.toFixed(1)} px-lum `
+        + `off a floor at ${(refSum / (farN || 1)).toFixed(0)}), the step is a crease not a shade; want >= `
+        + `${(100 * DROP_CON_MIN).toFixed(0)}%), band `
         + `${(n ? wideSum / n : 0).toFixed(1)} px of a ${(n ? spanSum / n : 0).toFixed(0)} px riser `
         + `(${(100 * wideSum / (spanSum || 1)).toFixed(0)}% - wider than that is a tint, not an edge), `
-        + `${(farSum / (farN || 1)).toFixed(1)} a band's width clear of the crease on both sides `
-        + `(locality, want <= 5), `
+        + `${(farSum / (farN || 1)).toFixed(1)} a band's width clear of every crease in the column on both sides `
+        + `(locality, want <= 5, measured on ${farN ? (clearRows / farN).toFixed(1) : '0'} of 18 rows/column) `
         + `of those, ${n ? (100 * dip / n).toFixed(0) : 0}% also read as a local luminance minimum `
         + `(lighting-dependent: the AMB floor sinks it in dark rooms - see the #164 note), `
         + `${near0} of ${n} bands land within 0.5 m of the lip the grid says, ${touched} of ${n} moved at all`);
@@ -3844,7 +4470,12 @@ if (MODE === 'bands') {
     })()`);
     const bands = Object.keys(mm).map(Number).sort((a, b) => a - b);
     const colOf = b => Object.keys(mm[b]).sort((p, q) => mm[b][q] - mm[b][p])[0];
-    const datum = colOf(bands[0]);
+    /* The datum is the band MOST cells stand on, not the numerically lowest one. While every band sat
+       at or above the datum those were the same band, and a pit is the first thing to separate them:
+       taking the lowest made the pit the datum and flagged the real datum's own ink as a collision -
+       the same one-sided rule alt's link count had to lose. */
+    const cntOf = b => Object.keys(mm[b]).reduce((s, c) => s + mm[b][c], 0);
+    const datum = colOf(bands.reduce((a, b) => cntOf(b) > cntOf(a) ? b : a));
     const offBands = bands.filter(b => Math.abs(b) > 1e-6);
     const sameOff = offBands.filter(b => colOf(b) === datum);
     row(`L${li} minimap shows which band a cell is on`, bands.length >= 2 && sameOff.length === 0,

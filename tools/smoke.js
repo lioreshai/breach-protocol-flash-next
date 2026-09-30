@@ -940,7 +940,18 @@ const release = () => fire('mouseup', { button: 0 });
     // are SELF-CONTROLLED: the same pose minus the altitude poke must give the opposite answer, so deleting
     // the band test turns the row red instead of quietly passing, the failure mode this lane keeps hitting.
     for (let li = 0; li < 3; li++) {                                // three levels, as at :139
-      V('startLevel(' + li + ', true); S.mode = "playing";');
+      // vrestore() below restores the snapshot vboot took, and this loop enters the level through
+      // startLevel instead of vboot, so the snapshot has to be re-taken here. On flat generation the
+      // distinction is invisible - the snapshot is all zeros, so restoring it makes the grid flat and the
+      // row's own control reads "both floors flat" by accident rather than by construction. On banded
+      // generation it is not: L2 restored a 26-wide level-0 snapshot over a 36-wide grid and the two cells
+      // of the pose landed on fz 4 and fz 3 - AGENTS' forgotten-reseat family: re-seat after every
+      // startLevel that regenerates the grid.
+      // NB the flat half of this pose now really does advance the level, and nextLevel's genLevel draws from
+      // the seeded stream, so every row AFTER this one sees a different level than it did while the control
+      // silently did nothing - which is why a staircase coordinate measured before this line is not the one
+      // the verdict lines print.
+      V('startLevel(' + li + ', true); S.mode = "playing"; window.__fzbak = MAP.fz.slice();');
       // Every other row in this lane is a pure eval and the lane never advances a frame, so these two rows
       // call update() themselves at a fixed dt: DEV is not loaded in this harness and frames() left the
       // world un-advanced, which is how both controls first answered "nothing happened".
@@ -1061,12 +1072,21 @@ const release = () => fire('mouseup', { button: 0 });
     // V19 is M3's generation half gated with NO vpoke anywhere in it: it walks a staircase the
     // GENERATOR authored. If generation regresses to flat, the setup finds no run and vsetup FAILS -
     // a row that could not set up is a failure, never a KNOWN - so a flat world cannot pass this lane.
+    //
+    // The scan is the WHOLE interior. It used to start at x,y = 2, which was harmless while generation
+    // scattered one-quantum room interiors, and blind once #181 authored a quadrant: linkBand anchors its
+    // mouth choice on the first stranded cell in row-major order and a region starts at x0,y0 = 1, so the
+    // stair it authors tends to run along the map's FIRST interior row or column - feat STAIR cells at fz
+    // 0,1,2,3,4, which is exactly the run this row walks (the verdict line prints which one it found). The
+    // steps are still required to be open, collinear, one quantum apart and off the solid border, and the
+    // start cell to sit at the datum, so a flat grid yields nothing at any y or x: with authorVolume's
+    // writes erased the setup fails on all three levels and the lane prints 22 gating rows, not 25.
     for (let li = 0; li < 3; li++) {
       V('startLevel(' + li + ', true); S.mode = "play"; S.locked = false; S.exitOpen = false;');
       V('for (const e of ENEMIES) { e.state = "sleep"; e.cd = 999; e.alert = false; }'
         + ' PROJ.length = 0; PICKUPS.length = 0; PROPS.length = 0; for (const k in keys) delete keys[k];');
       const stair = S1(`{
-        for (let y = 2; y < MH - 2; y++) for (let x = 2; x < MW - 2; x++) {
+        for (let y = 1; y < MH - 1; y++) for (let x = 1; x < MW - 1; x++) {
           if (isSolid(x + 0.5, y + 0.5) || MAP.fz[y * MW + x]) continue;
           for (let d = 0; d < 4; d++) {
             let ok = true;
@@ -1095,6 +1115,7 @@ const release = () => fire('mouseup', { button: 0 });
         const hpN = s.filter((r, i) => i && r[3] < s[i - 1][3] - 1e-9).length;
         vrow('L' + li + ' a generated staircase lifts the feet a full unit (#152)',
           end[0] === end[1] && Math.abs(end[1] - 1) < 1e-6 && airN === 0 && offN <= 1 && hpN === 0,
+          `generated run at (${stair.x}, ${stair.y}) walking ${['+x', '+y', '-x', '-y'][stair.d]}: ` +
           `z ${end[0]} on floor ${end[1]} after 150 frames on foot (want 1 from the datum band 0), ` +
           `${airN} airborne frames, longest run of frames with the feet off their own floor ${offN} (want <=1;` +
           ` an eased lift runs ~26 per step), ${hpN} hp steps`

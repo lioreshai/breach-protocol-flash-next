@@ -352,85 +352,290 @@ function bandExitT(ax, ay, dx, dy, az, tanP, maxT) {
 
 function pickWallTex(cfgL) { return Math.random() < 0.78 ? cfgL.wall : cfgL.wall2; }
 
-/* M3's generation half (#152): a layout is a floor plan until something has altitude. Raises `want`
-   room interiors by one unit (BAND_UP quanta) and links each to the datum band with a stair run of
-   1-quantum steps along a corridor mouth, or with a ladder column when the mouth is shorter than the
-   four cells the run needs. Room 0 holds the spawn and is never raised. Every draw is the seeded
-   RNG, and a candidate that costs any reachable cell its reach is reverted here, so a band can never
-   be the reason an attempt fails the occupancy gate. Writes the grid only: linkBoundaries derives
-   the blocking bits and the ceiling planes from it afterwards. */
+/* #152 put bands in the grid; #181 is about what that grid then contains. Raising `rooms>>1`
+   scattered room interiors one unit up leaves a histogram that is 78% datum, off-datum cells too
+   scattered to stand ON, and MAP.cz at one unit in every column - multi-storey in MAP.fz, a crawlway
+   on screen. So this authors three named FEATURES per level instead of a scatter, each a shape the
+   probes already know how to read:
+
+     RAISED SIDE  every open cell on one side of the map sits a unit above the datum, so the altitude
+                  difference is legible from the rooms that touch it. Room 0's cells stay down (the
+                  spawn), and each stranded part of the side gets its own stair or ladder.
+     SUNKEN ROOM  the room furthest from spawn drops a unit, with the bases of the walls around it
+                  carried down with it - the cheapest "down there" a player can see.
+     TALL ROOM    the largest rooms get CZ_TALL quanta of their own, which is the only way a column
+                  can be looked UP in, and the mouths into them get it too: an open doorway draws no
+                  face at all, so its lintel IS the ceiling you see through it, and a one-unit lintel
+                  would hide a three-unit room from the corridor you entered it from.
+
+   Three rules this pass is written against, all of them already paid for:
+   - NO draw from Math.random anywhere in here. The scatter pass downstream takes its places from
+     that stream, and #90/#96 learned that a generator whose draw count moves makes every downstream
+     measurement incomparable with the previous build. Every choice below is a property of the layout:
+     a side ranked by area, a BFS distance, a scan order.
+   - Every write is logged and reverted WHOLE when it costs a reachable cell its reach, so generation
+     can never be the reason the occupancy gate fails (#152's rule, kept).
+   - A SUNKEN cell's surrounding wall must have its base carried down with it, or that face spans from
+     z0 = max(floor) = the datum to z1 = ceilAt(air) = the datum: span 0, a column the DDA stops at
+     that draws nothing (the generator-fault family of #120). Raising needs no such carry - a raised
+     cell's wall face already starts at the raised floor.
+   Writes the grid only: genLevel calls linkBoundaries(), which derives the blocking bits (masked by
+   VB_KEEP, so the authored ladder nibbles survive a relink) and the ceiling planes from it. */
 const BAND_UP = 4;                                          // one unit above the datum, in quanta
-function authorHeights(cell, N, rooms, fz, vb, feat, cz, want) {
-  const owner = (x, y) => {
+const BAND_DOWN = -BAND_UP;                                 // one unit below it
+const CZ_TALL = 12;                                         // three units of headroom; the gate is 2
+const LINK_STEPS = 40;                                      // link-or-give-back rounds per band, per pass
+const STAIR_CELLS = 4;                                      // cells a 1-unit climb needs: 3 steps + 1
+const PIT_W = 5, PIT_H = 4, PIT_MIN = 6;                    // sunken cells: see feature 2's budget note
+
+function authorVolume(cell, N, rooms, fz, vb, feat, cz) {
+  const open = (x, y) => x > 0 && y > 0 && x < N - 1 && y < N - 1 && cell[y * N + x] === 0;
+  const roomAt = (x, y) => {
     for (const r of rooms) if (x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h) return r;
     return null;
   };
-  const open = (x, y) => x > 0 && y > 0 && x < N - 1 && y < N - 1 && cell[y * N + x] === 0;
-  const start = rooms[0].cy * N + rooms[0].cx;
-  let base = bfsReach(cell, fz, N, start, vb, feat), made = 0;
-  const cand = rooms.slice(1), done = new Uint8Array(cand.length);
-  // NO draw from Math.random anywhere in here: the scatter pass below (lamps, crates, barrels,
-  // pickups, enemies) takes its places from that stream, and #90/#96 learned that a generator draw
-  // count which moves makes every downstream measurement incomparable with the previous build. The
-  // mouth is chosen by a coordinate hash instead - different room, different mouth, same seed.
-  // Pass 0 raises only rooms that fit a STAIR of 1-quantum steps; pass 1 tops the count up with
-  // ladders. That preference is what makes ">=1 climbable staircase" (alt's exit gate, smoke V18) a
-  // property of any layout that HAS a stair-capable room instead of a property of candidate order.
-  for (let pass = 0; pass < 2 && made < want; pass++) for (let at = 0; at < cand.length && made < want; at++) {
-    if (done[at]) continue;
-    const r = cand[at];
-    const mouths = [];
-    for (let y = r.y; y < r.y + r.h; y++) for (let x = r.x; x < r.x + r.w; x++) {
-      if (!open(x, y) || (x > r.x && x < r.x + r.w - 1 && y > r.y && y < r.y + r.h - 1)) continue;
+  const spawnR = rooms[0], start = spawnR.cy * N + spawnR.cx;
+  const inSpawn = (x, y) => x >= spawnR.x && x < spawnR.x + spawnR.w && y >= spawnR.y && y < spawnR.y + spawnR.h;
+  const reach = () => bfsReach(cell, fz, N, start, vb, feat);
+  const lost = (d0, d) => { let n = 0; for (let i = 0; i < N * N; i++) if (d0[i] >= 0 && d[i] < 0) n++; return n; };
+
+  // The undo log is a stack with checkpoints: a feature is made of attempts, and an attempt that
+  // does not help must rewind without taking the band write with it.
+  const log = [];
+  const mark = i => { log.push([i, fz[i], feat[i], vb[i], cz[i]]); return i; };
+  const cut = () => log.length;
+  const rewind = n => { while (log.length > n) { const u = log.pop(); fz[u[0]] = u[1]; feat[u[0]] = u[2]; vb[u[0]] = u[3]; cz[u[0]] = u[4]; } };
+  const keeps = d0 => lost(d0, reach()) === 0;
+
+  /* tools/smoke.js V14/V15 aim a shot down the FIRST straight 8-cell run whose first cell answers
+     floorAt 0 - their own scan, their own pick - and both pokes are RELATIVE (three quanta up, one
+     quantum down per cell), so that lane has to stay on the datum eight cells deep or the row
+     measures a staircase it did not build. Reserve exactly those cells here rather than discovering
+     it in the VERT lane: the reservation costs a band eight cells, not a level its volume. */
+  const flat = new Uint8Array(N * N);
+  for (let y = 2, got = false; y < N - 2 && !got; y++) for (let x = 2; x < N - 9 && !got; x++) {
+    let n = 0;
+    for (let k = 0; k < 8; k++) if (open(x + k, y)) n++;
+    if (n !== 8 || fz[y * N + x] !== 0) continue;
+    for (let k = 0; k < 8; k++) flat[y * N + x + k] = 1;
+    got = true;
+  }
+
+  /* Crossings of a selected region with a cell that is still on the datum, in scan order: each one is
+     a mouth a link can be authored at. `sel` is authoritative - a mouth whose region side was never
+     raised is not a link into the band. */
+  const mouthsOf = sel => {
+    const out = [];
+    for (let y = 1; y < N - 1; y++) for (let x = 1; x < N - 1; x++) {
+      const i = y * N + x;
+      if (!sel[i] || cell[i] || fz[i] === 0) continue;
       for (let d = 0; d < 4; d++) {
         const nx = x + DIRX[d], ny = y + DIRY[d];
-        if (open(nx, ny) && !owner(nx, ny)) mouths.push([x, y, d]);
+        if (!open(nx, ny)) continue;
+        const j = ny * N + nx;
+        if (sel[j] || fz[j] !== 0 || flat[j]) continue;
+        out.push([i, d]);
       }
     }
-    if (!mouths.length) continue;
-    const mo = mouths[(made * 7 + r.cx + r.cy * 3) % mouths.length], mx = mo[0], my = mo[1], md = mo[2];
-    // the run of corridor cells that leaves the mouth: the stair writes the first three and the
-    // fourth has to stay on the datum, or the last step is a wall instead of a step
-    const line = [];
-    for (let k = 1; k <= 4; k++) {
+    return out;
+  };
+  /* Author one link at mouth (mi, direction md), `band` quanta being the region's floor. The four
+     cells going away from the region must be open and on the datum; the first three become the steps
+     (each one quantum from the last, so the auto-step in js/30_entities.js:376 is the only lift in
+     the level and the fourth cell is the flat landing the row solver needs) and the fourth stays
+     put. A run shorter than that takes a ladder instead: a shaft tall enough that the climb tops out
+     above the band, flagged on BOTH nibbles of the crossing - the pair linkBoundaries refuses to
+     block and the pair linkedClimb reads, so a nibble on one side alone is a climb you can fall into
+     but not out of. */
+  const linkAt = (sel, band, mi, md, ladder) => {
+    const mx = mi % N, my = (mi / N) | 0, line = [];
+    for (let k = 1; k <= STAIR_CELLS; k++) {
       const x = mx + DIRX[md] * k, y = my + DIRY[md] * k;
-      if (!open(x, y) || owner(x, y)) break;
-      line.push([x, y]);
+      if (!open(x, y) || sel[y * N + x] || fz[y * N + x] !== 0 || flat[y * N + x]) break;
+      line.push(y * N + x);
     }
-    const stair = line.length >= 4;
-    if (!stair && pass === 0) continue;
-    const undo = [];
-    const mark = (x, y) => { const i = y * N + x; undo.push([i, fz[i], feat[i], vb[i], cz[i]]); return i; };
-    for (let y = r.y; y < r.y + r.h; y++) for (let x = r.x; x < r.x + r.w; x++) {
-      if (open(x, y)) fz[mark(x, y)] = BAND_UP;
+    const up = band > 0 ? 1 : -1;
+    if (line.length >= STAIR_CELLS) {
+      for (let k = 0; k < STAIR_CELLS - 1; k++) { const i = mark(line[k]); fz[i] = band - up * (k + 1); feat[i] = FEAT_STAIR; }
+      return true;
     }
-    if (stair) {
-      for (let k = 0; k < 3; k++) {
-        const i = mark(line[k][0], line[k][1]);
-        fz[i] = BAND_UP - 1 - k; feat[i] = FEAT_STAIR;
+    if (!line.length || !ladder) return false;
+    const i = mark(line[0]);
+    feat[i] = FEAT_LADDER; cz[i] = Math.abs(band) + 2;
+    vb[i] |= VB_LADDER << ((md ^ 2) << 2);
+    vb[mi] |= VB_LADDER << (md << 2);
+    return true;
+  };
+  /* Links, only where the band strands something. The anchor for choosing a mouth is the first
+     stranded cell in scan order, so the stair goes where a player is already walking; the pass order
+     is stair-then-ladder for the reason #152 states - alt's staircase row and smoke V19 must be a
+     property of the layout, not of candidate order. A link that does not reduce the stranded count
+     is rewound, which is what stops six stairs being authored where one does the job. */
+  const linkBand = (sel, band, d0, ladder) => {
+    for (let pass = 0; pass < (ladder ? 2 : 1); pass++) {
+      for (let step = 0; step < LINK_STEPS; step++) {
+        const d = reach();
+        let want = -1;
+        for (let i = 0; i < N * N; i++) if (d0[i] >= 0 && d[i] < 0) { want = i; break; }
+        if (want < 0) return true;
+        const wx = want % N, wy = (want / N) | 0;
+        const mouths = mouthsOf(sel).sort((a, b) => {
+          const da = Math.abs(a[0] % N - wx) + Math.abs(((a[0] / N) | 0) - wy);
+          const db = Math.abs(b[0] % N - wx) + Math.abs(((b[0] / N) | 0) - wy);
+          return da - db || a[0] - b[0] || a[1] - b[1];
+        });
+        let moved = false;
+        for (const m of mouths) {
+          const cp = cut();
+          if (!linkAt(sel, band, m[0], m[1], ladder && pass === 1) || !keeps(d0)) { rewind(cp); continue; }
+          if (lost(d0, reach()) === lost(d0, d)) { rewind(cp); continue; }
+          moved = true; break;
+        }
+        if (!moved) {
+          /* This pocket of the band takes no link - a mouth whose run is 3 cells, a component that
+             touches the datum only through a diagonal. Hand the pocket back to the datum and keep
+             the rest of the band: losing one corner's altitude is a smaller lie than losing the
+             feature, and a cell that goes back to the datum cannot strand anything, since that is
+             where it already is. */
+          const d2 = reach();
+          let gave = 0;
+          for (let i = 0; i < N * N; i++) {
+            if (!sel[i] || d0[i] < 0 || d2[i] >= 0) continue;
+            sel[i] = 0; mark(i); fz[i] = 0; feat[i] = FEAT_NONE; gave++;
+          }
+          if (!gave) return false;
+        }
       }
-    } else {
-      // a ladder where a stair will not fit: a shaft BAND_UP+2 quanta over its own floor, because the
-      // climb tops out at ceilAt - cfg.eye and has to reach the band above, flagged on the crossing
-      // that the grid alone would block
-      const i = mark(line[0][0], line[0][1]);
-      feat[i] = FEAT_LADDER; cz[i] = BAND_UP + 2;
-      vb[i] |= VB_LADDER << (md << 2);
-      vb[my * N + mx] |= VB_LADDER << ((md ^ 2) << 2);
     }
-    const chk = bfsReach(cell, fz, N, start, vb, feat);
-    let loss = 0;
-    for (let i = 0; i < N * N; i++) if (base[i] >= 0 && chk[i] < 0) loss++;
-    if (loss) {
-      for (let k = undo.length - 1; k >= 0; k--) {
-        const u = undo[k];
-        fz[u[0]] = u[1]; feat[u[0]] = u[2]; vb[u[0]] = u[3]; cz[u[0]] = u[4];
-      }
-      continue;
+    return lost(d0, reach()) === 0;
+  };
+
+  const d0 = reach();
+  const authored = [];
+
+  /* ---- feature 1: a QUADRANT or SIDE of the level stands a unit up --------
+     Eight candidate regions - the four quadrants first, then the four half-planes. A quadrant goes
+     first because it leaves three quarters flat for the pit, the tall rooms, the exit and the flat
+     lane the VERT lane aims its gun down, and its seam is no longer than a half-plane's: two
+     half-lines against one full one. Ranked within each group by the cells it owns, so the plateau is
+     the bigger piece of the floorplan and the altitude difference is legible from the rooms that touch
+     it. Room 0's cells never join the region: the spawn has to stay on the datum. */
+  const N2 = N >> 1;
+  const rects = [];
+  for (const q of [[0, 0], [1, 0], [0, 1], [1, 1]]) rects.push({
+    tag: 'q' + (q[0] + q[1] * 2), quad: 1, x0: q[0] ? N2 : 1, x1: q[0] ? N - 2 : N2 - 1,
+    y0: q[1] ? N2 : 1, y1: q[1] ? N - 2 : N2 - 1 });
+  for (const h of [[1, 0], [0, 0], [0, 1], [1, 1]]) rects.push({
+    tag: 'h' + (h[0] + h[1] * 2), quad: 0, x0: h[0] ? N2 : 1, x1: N - 2, y0: h[1] ? N2 : 1, y1: N - 2 });
+  const ranked = rects.map(r => {
+    let n = 0;
+    for (let y = r.y0; y <= r.y1; y++) for (let x = r.x0; x <= r.x1; x++) {
+      const i = y * N + x;
+      if (!cell[i] && fz[i] === 0 && !flat[i] && !inSpawn(x, y)) n++;
     }
-    base = chk; done[at] = 1; made++;
+    return { r, n };
+  }).sort((a, b) => b.r.quad - a.r.quad || b.n - a.n || a.r.tag.localeCompare(b.r.tag));
+  for (const cand of ranked) {
+    if (cand.n < 8) continue;                       // fewer than 8 cells is not a band, it is a corner
+    const cp = cut(), sel = new Uint8Array(N * N);
+    for (let y = cand.r.y0; y <= cand.r.y1; y++) for (let x = cand.r.x0; x <= cand.r.x1; x++) {
+      const i = y * N + x;
+      if (cell[i] || fz[i] !== 0 || flat[i] || inSpawn(x, y)) continue;
+      sel[i] = 1; mark(i); fz[i] = BAND_UP;
+    }
+    // No wall write here on purpose: a wall between the band and the datum must stay at the datum,
+    // or the face it shows the flat side starts above that side's ceiling plane and draws nothing.
+    // Bases are carried down once, at the end, where both directions of the fault are one rule.
+    const ok = linkBand(sel, BAND_UP, d0, true);
+    if (ok) { authored.push('raisedSide:' + cand.r.tag); break; }
+    rewind(cp);
   }
-  return made;
+
+  /* ---- feature 2: a sunken block in the room furthest from spawn ---------
+     The RASTER BUDGET caps this shape, and that is a measured fact rather than a taste: a cell below
+     the eye disagrees with the row's plane in BOTH halves (its floor is under the eye, and its ceiling
+     is the lip's floor plane under the row's ceiling), so every pixel of it goes through the deferred
+     copy in castGround. A whole room sunk that way measured +42 ms of a 16 ms frame at 26,106 deferred
+     pixels of 194,123; the same level with the sunken block removed measured +5. So the pit is a
+     BLOCK with a lip around it, not a whole room: you stand in the room and look DOWN into a hole,
+     which is the cue the row is about, and the frame stays inside the budget it is gated on. */
+  const sunkRooms = rooms.slice(1).filter(r => {
+    for (let y = r.y; y < r.y + r.h; y++) for (let x = r.x; x < r.x + r.w; x++) {
+      if (!open(x, y) || fz[y * N + x] !== 0 || flat[y * N + x]) return false;
+    }
+    return r.w >= 4 && r.h >= 4;
+  }).sort((a, b) => {
+    const da = d0[a.cy * N + a.cx], db = d0[b.cy * N + b.cx];
+    return (db < 0 ? -1 : db) - (da < 0 ? -1 : da) || b.w * b.h - a.w * a.h || a.cx - b.cx || a.cy - b.cy;
+  });
+  for (const room of sunkRooms.slice(0, 4)) {
+    const bw = Math.min(room.w - 2, PIT_W), bh = Math.min(room.h - 2, PIT_H);
+    if (bw * bh < PIT_MIN) continue;                 // no room for a hole with a lip around it
+    const bx = room.x + ((room.w - bw) >> 1), by = room.y + ((room.h - bh) >> 1);
+    const cp = cut(), sel = new Uint8Array(N * N);
+    for (let y = by; y < by + bh; y++) for (let x = bx; x < bx + bw; x++) {
+      const i = y * N + x;
+      sel[i] = 1; mark(i); fz[i] = BAND_DOWN; feat[i] = FEAT_PIT;
+    }
+    // Stairs only, no ladder fallback: dropping into a pit is free (a drop is never a wall), so the
+    // only way out is the climb, and a flagged crossing is a link the occupancy gate can see and the
+    // player may not be able to use. A pit that will not take a stair is not authored at all.
+    const ok = linkBand(sel, BAND_DOWN, d0, false);
+    if (ok) { authored.push('sunkenRoom'); break; }
+    rewind(cp);
+  }
+
+  /* ---- feature 3: rooms you can stand up in ------------------------------ */
+  const tallWant = rooms.length >= 8 ? 2 : 1;
+  const tallRooms = rooms.slice(1).filter(r => {
+    let f = -99;
+    for (let y = r.y; y < r.y + r.h; y++) for (let x = r.x; x < r.x + r.w; x++) {
+      if (!open(x, y)) return false;
+      const q = fz[y * N + x];
+      if (f === -99) f = q; else if (q !== f) return false;      // a straddling room is two bands at once
+    }
+    return r.w >= 5 && r.h >= 5 && r !== spawnR;
+  }).sort((a, b) => b.w * b.h - a.w * a.h || a.cx - b.cx || a.cy - b.cy).slice(0, tallWant);
+  for (const r of tallRooms) {
+    const cp = cut(), f = fz[r.cy * N + r.cx];
+    const set = i => { mark(i); cz[i] = CZ_TALL; };
+    for (let y = r.y; y < r.y + r.h; y++) for (let x = r.x; x < r.x + r.w; x++) if (!cell[y * N + x]) set(y * N + x);
+    for (let y = r.y - 1; y <= r.y + r.h; y++) for (let x = r.x - 1; x <= r.x + r.w; x++) {
+      if (!open(x, y) || fz[y * N + x] !== f || roomAt(x, y) !== null) continue;   // corridor cells only
+      const i = y * N + x;
+      if (cz[i] === CZ_TALL) continue;
+      for (let d = 0; d < 4; d++) {
+        const nx = x + DIRX[d], ny = y + DIRY[d];
+        if (nx < 0 || ny < 0 || nx >= N || ny >= N) continue;
+        const j = ny * N + nx;
+        if (!cell[j] && fz[j] === f && roomAt(nx, ny) === r) { set(i); break; }
+      }
+    }
+    if (keeps(d0)) authored.push('tallRoom'); else rewind(cp);
+  }
+
+  /* Carry the base of every solid column down to the lowest band it bounds. A face spans
+     z0 = max(floorA, floorB) to z1 = ceilAt(the AIR side), so a wall whose own floor is at or above
+     the ceiling plane of the band it encloses is a column the DDA stops at that draws nothing - a
+     generator fault, not a rendering one, and the sunken room's walls hit it exactly: floor 0 against
+     a pit whose ceiling is the datum plane, span 0. Down only, never up - the wall between a raised
+     band and the datum belongs to the datum, and raising it would move that fault to the flat side,
+     which is where the spawn, the exit and the probes live. */
+  for (let i = 0; i < N * N; i++) {
+    if (!cell[i]) continue;
+    const x = i % N, y = (i / N) | 0;
+    let lo = fz[i];
+    for (let d = 0; d < 4; d++) {
+      const nx = x + DIRX[d], ny = y + DIRY[d];
+      if (nx < 0 || ny < 0 || nx >= N || ny >= N) continue;
+      const j = ny * N + nx;
+      if (cell[j]) continue;
+      const cap = fz[j] + cz[j] - 1;                      // one quantum under that band's ceiling
+      if (cap < lo) lo = cap;
+    }
+    if (lo !== fz[i]) { mark(i); fz[i] = lo; }
+  }
+  return authored;
 }
 
 
@@ -594,7 +799,7 @@ function genLevel(li) {
        MAP.fz becomes below, so a band written before this point cannot be invisible to the gate. */
     const fzTry = new Int8Array(N * N), czTry = new Uint8Array(N * N).fill(CZ_DEF);
     const vbTry = new Uint16Array(N * N), featTry = new Uint8Array(N * N);
-    authorHeights(cell, N, rooms, fzTry, vbTry, featTry, czTry, cfgL.rooms >> 1);
+    authorVolume(cell, N, rooms, fzTry, vbTry, featTry, czTry);
     const dist = bfsReach(cell, fzTry, N, rooms[0].cy * N + rooms[0].cx, vbTry, featTry);
     let reachable = 0, far = -1, farIdx = -1, total = 0;
     // the exit stays on the datum band: a portal at the top of a staircase you cannot see from the
