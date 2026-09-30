@@ -41,6 +41,47 @@
   **8.85 → 10.5 ms**.
 
 ### Fixed
+
+- **A band the lamp budget never reached was black** (#204). #203 made the splat kernel honour the
+  band, which exposed the placement rule underneath it: `genLevel` spends `cfgL.lamps` draws on
+  `takeNear`'s openness screen (≥ 6 of 9 neighbours) with no notion of altitude at all, and a pit
+  floor is often a 1×3 lane that screen rejects **structurally** — so on a level with a sunken band
+  the whole budget can land on the datum. Pit floors (`MAP.fz <= -3`) measured **117 / 71 / 62** of
+  **181 / 194 / 175** cells dark (delivered `MAP.light < 0.05`) at mean **0.077 / 0.174 / 0.230**,
+  and **9 275 / 29 535 / 55** pit ground pixels dark of 25 904 / 82 497 / 8 202. Main's lamp loop is
+  kept **verbatim** and one **top-up** lamp is placed on each band that still has no source of its
+  own, chosen from a **private** LCG (seeded from `li`, `rooms.length` and the exit) — never
+  `Math.random`, for #96's reason: one global draw here would re-roll the world under every probe
+  seed. Neutrality is measured, not assumed: booting levels in sequence the way the probes do,
+  `MAP.cell / fz / cz / vb / ceilPlane`, the pickups and the enemy positions hash **identical to
+  `main` on all three levels**, while `LIGHTS` differs on **level 1 only** (10 lamps against main's
+  9) — same frames, one more light. Bands under **8 reachable interior cells** are skipped: they are
+  decoration, and the guarantee-one-per-band form without that floor degenerates into
+  one-lamp-per-band on the 9-band levels, which starves the datum to **38.3 %** dark cells at raster
+  mean **40** (#204's variants A and Bt, both measured). Cost **+0.92 / +0.92 / +0.75 lamps** per
+  level (**7.92 / 9.92 / 17.75** against 7 / 9 / 17); what it buys, pit dark cells **0 / 0 / 0** at
+  mean **0.719 / 0.751 / 0.827**, pit pixels **0 of 25 904 / 82 497 / 8 202**, dark ground pixels
+  **11.1 / 15.7 / 22.8 % → 9.0 / 9.7 / 22.8 %**, and cells with no source in the XY disc **976 /
+  1537 / 1140 → 625 / 1263 / 949** — the coverage half of #199 improves but stays open, because that
+  half is lamp *spread* (control C buys most of it with randomness alone). Both light criteria hold:
+  `alt`'s splat-only wrong-band row stays **0**, and the **delivered** wrong-band population — #206's,
+  which is `blurLight`'s doing and therefore cannot be zeroed — falls **74 / 142 / 138 → 13 / 36 /
+  50** without any lamp authored off its own floor. Exposure rises **+3 / +8 / +3** raster mean
+  (**77 / 74 / 74** against `main`'s 74 / 66 / 71 in the same window, medians **71 / 73 / 72**, every
+  median inside 60–100 and `assert.js` ok on both layers). `alt` gained two rows per level on the
+  protocol #199 measured with — 12 seeded rolls, dice `1000 + level*97 + roll*13`, the **generated**
+  grid, nothing poked: one counts dark pit-floor cells, asserts **0**, and carries the pit population
+  (**181 / 194 / 175**) so a zero can never mean "no pits"; the other asserts the delivered wrong-band
+  population does not grow past **74 / 142 / 138**. Seen to fail in both directions: with the top-up
+  call disabled in the same tree it prints **117 / 71 / 62** and FAILs, with it enabled it prints
+  **0** and passes. Two numbers do **not** come back unchanged and are recorded here rather than
+  cropped: on the CI seed the level-1 pit lamp lifts the datum tread beside a walk lip, taking that
+  #195 row's flatness clause from **15.0 % to 36.7 %** within-10 (contrast 26 % → 12 %) so `bands`
+  goes red at SEED 12345, reports a debt row at SEED 7, and is untouched at SEED 999 where no band
+  needs topping; and the level-1 `CZBAND` ground-pass hash moves **0xcfc1fdac → 0x09da72f4** with
+  cell/fz/vb byte-identical — a light change on `main`'s own frame, the same two-of-three asymmetry
+  #203 recorded. Neither reference is re-recorded here, and no threshold was widened.
+
 - **A lamp lit columns whose band it was not on** (#203). `splatLight` splatted a **2-D disc and
   discarded `L.z`**, although lamps carry one (`js/20_level.js:845`, `z = floorAt + 0.78`), so light
   crossed band boundaries as if the slab were glass: **13–17 % of open cells** on every level carried

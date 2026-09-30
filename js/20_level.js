@@ -855,12 +855,69 @@ function genLevel(li) {
       }
       return freeCells[rndi(freeCells.length)];
     };
+    /* #204: the bands present among REACHABLE open interior cells, biggest first, and takeNear's
+       openness screen restated as a function so a band-restricted picker can use it as a preference
+       instead of a veto - a pit floor is often a 1x3 lane and open>=6 rejects that structurally.
+       takeNear itself is left alone: its draw sequence is what makes the seed-to-layout mapping
+       main's. Needed because a lamp now has to be findable per band - #203 made the splat kernel
+       honour the band, so light from a lamp on the wrong one stopped arriving and a band the budget
+       never reached went black (#204 measured 117/71/62 pit-floor cells dark on main). */
+    const OPENAT = (cx, cy) => {
+      let n = 0;
+      for (let oy = -1; oy <= 1; oy++) for (let ox = -1; ox <= 1; ox++) if (!cell[(cy + oy) * N + (cx + ox)] && cy + oy > 0 && cx + ox > 0) n++;
+      return n;
+    };
+    const bandCells = new Map();
+    for (let i = 0; i < N * N; i++) {
+      if (cell[i] || dist[i] < 0) continue;
+      const x = i % N, y = (i / N) | 0;
+      if (x < 1 || y < 1 || x >= N - 1 || y >= N - 1) continue;
+      bandCells.set(fzTry[i], (bandCells.get(fzTry[i]) || 0) + 1);
+    }
+    const bandOrder = [...bandCells.keys()].sort((a, b) => bandCells.get(b) - bandCells.get(a) || b - a);
 
     LIGHTS = []; PROPS = []; PICKUPS = []; PROJ = []; PARTS = []; ENEMIES = [];
     for (let i = 0; i < cfgL.lamps; i++) {
       const c = takeNear(1);
       LIGHTS.push({ x: c[0] + 0.5, y: c[1] + 0.5, z: floorAt(c[0] + 0.5, c[1] + 0.5) + LHOVER, r: 7.2 + Math.random() * 2.8, str: 1.05, col: cfgL.lampCol, stat: 1 });
       PROPS.push({ tex: PROP.lamp, x: c[0] + 0.5, y: c[1] + 0.5, scale: 0.95, z: floorAt(c[0] + 0.5, c[1] + 0.5), kind: 'lamp' });
+    }
+    /* #204's top-up, layered on the loop above UNCHANGED - same global draws in the same order, so the
+       seed-to-layout mapping stays main's and every geometry-pinned reference stays put. What the
+       budget missed, this pays for: one lamp on each band that has no source of its own, chosen from a
+       PRIVATE stream (never Math.random, for the reason #96 moved makeEnemy's draws off the global
+       stream - one global draw here would re-roll the world under every probe seed). Bands under 8
+       reachable interior cells are decoration, not a place a player can be lost in, so they are
+       skipped; that floor is also the budget guard, because a rule guaranteeing one lamp per band
+       degenerates into one-per-band on the 9-band levels and starves the datum band (#204 measured
+       47.8% dark cells there, against main's 24.7%). Cost measured: +0.9 lamps per level, no geometry. */
+    {
+      let ps = ((li * 7919 + rooms.length * 104729 + ((exitX * 1000) | 0) * 13 + 12345) >>> 0) || 1;
+      const prnd = () => { ps = (Math.imul(ps, 1664525) + 1013904223) >>> 0; return ps / 4294967296; };
+      const lit = new Set();
+      for (const L of LIGHTS) lit.add(fzTry[((L.y | 0) * N) + (L.x | 0)]);
+      for (const b of bandOrder.filter(b => !lit.has(b) && bandCells.get(b) >= 8)) {
+        let best = null, bo = -1, alt = null;
+        for (let tries = 0; tries < 400; tries++) {
+          const q = freeCells[(prnd() * freeCells.length) | 0];
+          if (dist[q[1] * N + q[0]] < 1 || fzTry[q[1] * N + q[0]] !== b) continue;
+          const op = OPENAT(q[0], q[1]);
+          if (op >= 6) { best = q; break; }
+          if (op > bo) { bo = op; alt = q; }
+        }
+        if (!best && alt) best = alt;
+        if (!best) {                                  // deterministic sweep: the band still gets one
+          bo = -1;
+          for (const q of freeCells) {
+            if (dist[q[1] * N + q[0]] < 1 || fzTry[q[1] * N + q[0]] !== b) continue;
+            const op = OPENAT(q[0], q[1]);
+            if (op > bo) { bo = op; best = q; }
+          }
+        }
+        if (!best) continue;
+        LIGHTS.push({ x: best[0] + 0.5, y: best[1] + 0.5, z: floorAt(best[0] + 0.5, best[1] + 0.5) + LHOVER, r: 7.2 + prnd() * 2.8, str: 1.05, col: cfgL.lampCol, stat: 1 });
+        PROPS.push({ tex: PROP.lamp, x: best[0] + 0.5, y: best[1] + 0.5, scale: 0.95, z: floorAt(best[0] + 0.5, best[1] + 0.5), kind: 'lamp' });
+      }
     }
     /* The pad light deliberately carries NO z: it is drawn as a glow AT the floor, so it
        emits from the floor of its own cell - the documented splatLight default, the same
