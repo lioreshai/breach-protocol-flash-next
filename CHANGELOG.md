@@ -1,6 +1,31 @@
 ## Unreleased
 
 ### Added
+- **A generated level has volume, not just altitude** (#188). `authorHeights` scattered single room
+  interiors one quantum up and left `MAP.cz` at one unit in every column, so a level was multi-storey
+  in `MAP.fz` and still read as a crawlway. `authorVolume` authors three named features per level. A
+  **raised quadrant** (falling back to a half-plane) stands a unit above the datum, its stranded
+  pockets stair-linked and handed back to the datum when a mouth will not take a stair — the largest
+  contiguous off-datum patch goes from **40–60 cells** (one room) to **144 / 225 / 287**. A **sunken
+  block** with a lip around it, at most **5×4 cells** and 1.00 m down, sits in the room furthest from
+  spawn and is linked by a *descending* stair, because dropping in is free and so a flagged crossing
+  is not a verified way out. **Tall rooms** take `CZ_TALL` quanta of their own on the largest rooms
+  AND on the corridor mouths into them — an open doorway draws no face, and its lintel is the ceiling
+  you see through it. Measured at SEED 12345, **86 / 45 / 100** open columns stand **≥ 2 units** from
+  `floorAt` to `ceilAt` (tallest **3.00 m**) where a flat level reads exactly 1.00 and a ladder shaft
+  reaches 1.50. Wall bases are carried DOWN to the lowest band they bound, once, at the end, which is
+  why **faces of span ≤ 0 read 0** on all three levels instead of moving that generator fault to the
+  flat side where the spawn, the exit and the probes live. No draw from `Math.random` was added (the
+  only changed lines mentioning it are comments) and `planes`' GEN-COUPLE row still hashes cell/fz/
+  lamp identical at 0 and 12 enemies constructed. `alt` gained three rows for this — a column you can
+  stand up in, off-datum cells reachable from spawn **up and down**, a raised patch you can walk on of
+  ≥ max(24, 12% of open cells) — and its band-link rule counts a crossing from the end farther from
+  the datum, which is the same cell as it was while every band sat above the datum and the only way a
+  descending stair's link shows at all. Cost on smoke's own instrument (median of 5 batches, SEED
+  12345, run back to back against `main` on one box): **12.08 ms against main's 10.28**. The limit is
+  not depth — digging **every** open cell 4 quanta down measures within **±1.7 ms** of flat (5 batches
+  × 3 levels) — it is **plane crossings per row**: a checkerboard dig, one crossing every 2 cells,
+  costs **25.2–31.2 ms against 11.4–12.4 flat**.
 - **The weapon in your hands is geometry, not a painted sprite** (#180). It is drawn through the
   same rasteriser as the world, into a **scratch depth buffer** so it can never cull a billboard,
   and it is deliberately **absent from the coverage mask** (`body: 0` at the draw site, with
@@ -16,6 +41,40 @@
   **8.85 → 10.5 ms**.
 
 ### Fixed
+- **Authored volume made three defects visible that the flat world had been hiding** (#188). (1) A
+  **nearer step crease was evicted by a farther riser**: `castWalls` painted a crease in an
+  `else if (crk)` *after* the riser's seam, so one ≥2-quanta riser anywhere later in a column deleted
+  a 1-quanta crease closer to the camera — **60 of 60** sampled columns on the branch's L0/L2 walk
+  lips rendered a lip with no seam at all, and on `main` it was already **53 of 60 on L2**, booked as
+  ok because the metric watching it was `mean |dL| ≥ 30`, a brightness test that cannot see geometry.
+  (2) Those two lip metrics were themselves calibrated to light level: 0.84 × the luminance of the
+  floor in front of the lip is the ceiling the row can reach, so a lip in a room rendering at 27.6
+  can never pass any renderer. They gate on **contrast** now — `|a−b|/(a+b) ≥ 0.45` for the luminance
+  row, the same fraction of the band's own luminance for the foot drop — with the within-10 term kept
+  as a visibility floor and locality measured only on rows no crease in that column reaches, behind a
+  coverage guard so the masking cannot read 0.0 vacuously (controls: seam term off = **15 FAIL**,
+  eviction back in = **4 FAIL** at 11–12% contrast against 69–70%, crease cap removed = **5 FAIL** on
+  locality). (3) Three `vert` rows had premises the bands invalidated, and each was fixed in the
+  probe, not in the shipped code it measures: the **auto-step** row poked its lip band only to the end
+  of the lane, which a 150-frame walk now steps off — the sample's tail chased a floor of 0 (`P.z 0.25
+  → 0.1833 → 0.1344 → 0.0986`, read as `rise spread over 3 intermediate frames`) while the snap at
+  `js/30_entities.js:379` had already fired in one frame; the **fall-damage** row dug its pit into the
+  level's own loot, and a health pickup standing in that band is taken on the landing frame —
+  `damagePlayer(10.6)` fires, hp 100 → 89.40, `takePickup` heals to the 100 cap, and a 2.00-unit drop
+  printed **0.0hp** (the row's rule cannot attribute it: the heal lands on the same frame the rule
+  uses to recognise fall damage); and the occupancy **split** row raised the `x ≥ N/2` half-plane, a
+  flat-world rule about where the spawn sits — on L0 (spawn x 19 of 26) and L2 (30 of 36) it raised
+  the ground the BFS starts on, so the exit was reachable *inside* the raised half at d 20 and both
+  levels reported `exit sealed FAIL`. It splits on the axis where spawn and exit differ most now.
+  Controls, each on unmodified `main` code with this probe: clean = 0 FAIL of 41 rows; the auto-step
+  snap disabled = that row FAIL; `imp > 5.25` → `> 99` = the fall row plus the three `hard fall is
+  paid for` rows FAIL; `> 1` = the fall row at **−6.0hp** on the 1.25 free drop plus the three
+  `jump-speed carry-in` rows FAIL; `bfsReach`'s crossing widened to 4 quanta = all three split rows
+  FAIL. **Still broken, and now labelled rather than passed**: **#189**, an enemy on the band above is
+  invisible from the datum while the shot that hits you is solved the same way — the probe's POSED row
+  reports #189 whenever the body is outside the cone instead of pretending to measure — and **#179**,
+  whose cam-1 edge contrast is **16.65 dL against the shipped 24** and 37.94% of the silhouette lost,
+  held as a known-issue row with measured floors (15.65 / 41.94) that `STRICT=1` promotes to a failure.
 - **The CI audio verdict no longer depends on how busy the runner was** (#168). The inaudible-
   envelope row took the **loudest** `step()` peak of up to 5 renders under a shared CPU, and the
   envelope builder's first ramp can miss its 5 ms window entirely when the event thread is loaded,
