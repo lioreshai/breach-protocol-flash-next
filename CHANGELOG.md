@@ -347,6 +347,31 @@
 
 ### Changed
 
+- **"flat md5 parity holds" is a verdict a machine prints** (#211). `flatparity` gained md5 literals in
+  #210 and **no step ran it**, so both triples could have rotted back into a PR caption exactly like the
+  prose they replaced. The required job's `Probe gates` step now runs it (13 modes → **14 invocations**),
+  and one command covers **both** senses because the probe spawns the other lamp record cold rather than
+  waiting for a human to remember the knob — which is the failure mode this issue is about:
+  **PARITY** `[LAMPS=off]` `f9e4da3a / f05beeb5 / d4b2d2cd`, means **79.7 / 34.1 / 47.5** (the
+  formula-collapse proof, the lamp record is `2c5a94f`'s), and **LOCK** `[LAMPS unset]`
+  `4262d051 / f05beeb5 / 050b225e`, means **81.3 / 34.1 / 51.7** (a regression lock on lamp *placement*,
+  green there is not evidence a term is bit-neutral). Cost **+21 s** to the required job, the largest row
+  in it: 3 levels × 4 cold processes, which is what makes the stream comparable across builds. Wiring
+  shown in both directions — this tree **exit 0**; `2c5a94f`'s `js` with these tools → **LOCK FAIL ×2
+  (L0, L2) + census FAIL, exit 1**; these tools with `SHIP` refs set to the OLD triple → **LOCK FAIL ×2,
+  exit 1**, so the row is satisfied by the recorded md5 and not merely by hashes being stable. The
+  blindness is now **printed beside the verdict** instead of buried in the block header: the hashed
+  levels carry **0 / 0 / 0** cells off the datum of **1296**, so `fd = 0` everywhere and the band term is
+  the literal `1` before any sign is read. Consequence, measured and stated rather than glossed: on the
+  one-sided kernel `lf - floor >= -ZQ - 1e-9` **all six rows print `ok`** and BOTH triples hash
+  byte-identical (`flatparity` **exit 0**) — the row added here is blind to that kernel, as #211 says it
+  must be, and reference hashes cannot be narrowed to fix it. CI as a whole still reddens it: the step
+  aborts at `cull` (**CULL 2 FAILURES**) before `flatparity` runs, and `alt`'s direction rows fail
+  **169 / 279 / 117** (measured on this kernel at both `4495c08` and `7f62f82`; #211's body quotes **273**
+  for L1 and that number does not reproduce here). No `js/` line changed: direction rows **0/0/0**, pit
+  dark **0 of 181/194/175** at **0.672/0.631/0.647**, `bands` debt **3 of 27** with L0 face lip **54 %**
+  all unchanged. Closes #211.
+
 - README screenshots refreshed from the deployed build carrying `66eea67` (#200) in one `?dev=1`
   boot, all **11** `js` subresources md5-checked against the tree (11/11; marker `FARFAN` 5 served /
   5 in `main` / **0** in `main~1`), and the sentences beside them rewritten because one of them was
