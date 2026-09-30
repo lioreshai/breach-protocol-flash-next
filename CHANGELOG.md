@@ -41,6 +41,39 @@
   **8.85 → 10.5 ms**.
 
 ### Fixed
+- **A pit read as a white box because a coverage top-up was authored as a full lamp** (#213). A 5×3 pit
+  (16 cells) and a 300-cell floor received **identical** sources, so standing inside a lit pit read
+  `DEV.lum` **168 mean / 229 mid** while the big floor stayed under-lit: #204's symptom with its sign
+  flipped. A top-up's intensity is now `TOPUP_BASE * clamp(coveredCells / TOPUP_TARGET, TOPUP_MINF, 1)`,
+  `coveredCells` being the count the placement score already computes (`score = sc*16 + OPENAT`), with
+  `TOPUP_BASE 1.05 / TOPUP_TARGET 32 / TOPUP_MINF 0.5` as module consts — **not** behind an env var,
+  because a row gated on a knob a human must remember is the failure mode this repo already documents.
+  `cov/32 = 0.5` exactly for a 16-cell hole, so **TARGET is the pit knob** and MINF only bites on bands
+  under 16 cells, where a proportional source would be a dark cell with a lamp prop on it. Placement is
+  untouched — lamps stay **9.83 / 12.00 / 19.67** with top-ups **2.83 / 3.00 / 2.67**, so `MAX_ADD = 3`
+  still binds — and `topUpEnabled()` is untouched. Pit mean light **0.672/0.631/0.647 → 0.426/0.423/0.464**
+  at **0 of 181 / 194 / 175** dark cells, dark-open **252/1083/872 → 253/1087/874**, composited pit floor
+  **90.4/89.8/127.9 → 73.5/77.3/118.4** mean and **115.1/119.9/166.9 → 94.2/104.0/156.9** centre-half,
+  exposure medians **70/72/85** unchanged. `alt`'s row became **`a pit reads lit, not blown`**, four
+  clauses, every value printed: no dark cell, **a population that exists in 11 / 12 / 10 of the 12 rolls**
+  (no pit at L0 roll 11, L2 rolls 0 and 4 — a pit row that silently runs on two levels is this repo's
+  known blind spot), mean ≤ **0.55**, and dark-open ≤ `round(1.02 × TOPUP_DARK_REF)` = **257 / 1105 /
+  889** so dim cannot be bought with coverage. **No composited-frame threshold is asserted**: the worst
+  pit frame is immovable by this mechanism (level 2 stays **183.8 mean / 245 mid** in all 17 placement
+  configs, because the glow overlay has no altitude term — **#221** owns that half), so a frame rule would
+  be permanently red for a reason no lamp change can fix; the frame numbers print beside the verdict
+  instead. Controls, each a file variant in its own worktree: this branch **PASS ×3**; `TARGET = ∞` (main's
+  full lamp) clause 3 **FAIL ×3** at 0.672/0.631/0.647; `TARGET 256, MINF 0` clause 1 **FAIL ×3** (6/8/4
+  dark pit cells — #204's symptom "fixed" by going dark); `TARGET 64, MINF 0.35` clause 4 **FAIL ×3**
+  (dark-open **+247/+497/+329**, coverage sold to buy dim); `LAMPS=off` clause 1 **FAIL** (118/72/62), so
+  the row cannot be satisfied by deleting the feature. **`PARITY [LAMPS=off]`
+  `f9e4da3a/f05beeb5/d4b2d2cd` did not move** — the ramp never runs when the top-up is suppressed at author
+  time, which is the knob-independence proof — while **LOCK L0 legitimately moved `4262d051 → 060da4cd`
+  (mean 81.3 → 80.8)** because the shipped world gains dimmer sources; L1 `f05beeb5` and L2 `050b225e`
+  stay **byte-identical** at TARGET ≤ 64, where the scale is exactly 1 and `1.05 * 1 === 1.05`.
+  `LEAK=1 CZBAND=1 cull` holds **0x9c03d4f4/0xeec7be60/0x7dd66c40** with no re-record; smoke **PASSED**
+  (blast-fade and splat reversibility green) at raster median **11.68 ms**, `VERT=1` at **25 gating rows /
+  0 known-issue**, and the 13-mode roster exits 0.
 - **A prop the camera stands inside painted the whole frame as a wall** (#212). The recapture that
   filed this read **93.8 %** of the pixels above the horizon as wall texture at a camera 1.5 m from a
   pit lip, `zbuf` recording a face at 0.14–0.21 m there while `DEV.ray` reported open ground to 9.5 m.

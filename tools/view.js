@@ -511,8 +511,15 @@ if (MODE === 'alt') {
      rides along in the detail and pit > 0 is part of the assertion. */
   {
     const MAIN_PIT = [181, 194, 175], MAIN_OOB = [123, 377, 337];
+    /* #213: dark-OPEN cells recorded at the shipped lamp record, per level, over these same 12 rolls. A
+       top-up source whose intensity drops pays for dimmer pit light with darker floor somewhere else, and
+       that is the trade this refuses - the T64M0.35 variant of the sweep is exactly "coverage sold to buy
+       dim" (+247/+497/+329 here). The 1.02 tolerance is measured slack, not a guessed one: the shipped pair
+       (TARGET 32, MINF 0.5) lands at +1/+4/+2 over these references, and the variant above sits 25-45x
+       further out, so the row cannot be tightened into a coin flip or widened into a no-op. */
+    const TOPUP_DARK_REF = [252, 1083, 872];
     for (let lv = 0; lv < 3; lv++) {
-      const A = { pit: 0, pitDark: 0, pitSum: 0, oob: 0, oobSum: 0, nosrc: 0, dark: 0, open: 0, lamps: 0 };
+      const A = { pit: 0, pitDark: 0, pitSum: 0, oob: 0, oobSum: 0, nosrc: 0, dark: 0, open: 0, lamps: 0, pitRolls: 0, noPitAt: [] };
       for (let r = 0; r < 12; r++) {
         seedRng(1000 + lv * 97 + r * 13);
         const c = vm.runInContext(`(function(){
@@ -539,12 +546,28 @@ if (MODE === 'alt') {
         })()`, ctxVm);
         A.pit += c.pit; A.pitDark += c.pitDark; A.pitSum += c.pitSum; A.oob += c.oob; A.oobSum += c.oobSum;
         A.nosrc += c.nosrc; A.dark += c.dark; A.open += c.open; A.lamps += c.lamps;
+        if (c.pit) A.pitRolls++; else A.noPitAt.push(r);
       }
-      row(`L${lv} no pit-floor cell is left dark`, A.pitDark === 0 && A.pit > 0,
-        `${A.pitDark} of ${A.pit} pit cells (MAP.fz <= -3, main has ${MAIN_PIT[lv]} of them) hold less than 0.05 delivered`
-        + ` light, mean ${A.pit ? (A.pitSum / A.pit).toFixed(3) : '-'} there (main: 117/71/62 dark at 0.077/0.174/0.230) over 12 rolls`
-        + ` of the generated grid - ${(A.lamps / 12).toFixed(2)} lamps/instance (main 7/9/17), ${A.nosrc} cells with no source in the XY disc`
-        + ` (the #199 coverage half), ${A.dark} dark of ${A.open} open`);
+      const dref = Math.round(1.02 * TOPUP_DARK_REF[lv]);
+      /* One row for the whole pit criterion, because either half alone passes on a world that broke the
+         other: "no dark pit cell" was green while the pit was a white box (DEV.lum 168 mean / 229 mid,
+         #213), and "pit light below the ceiling" would be green on the LAMPS=off world that has 118/72/62
+         dark cells (117/71/62 where #204 measured it on 2c5a94f). The four clauses are printed with their
+         values because the row is the record. NO
+         composited-frame threshold is asserted here: the sweep measured the WORST pit frame as immovable by
+         this mechanism - level 2 stays 183.8 mean / 245 mid in every placement config, because the glow
+         overlay has no altitude term (#221 owns that half) - so a frame rule would be permanently red for a
+         reason no lamp change can fix. The recorded frame numbers ride along beside the verdict instead. */
+      row(`L${lv} a pit reads lit, not blown`,
+        A.pitDark === 0 && A.pit > 0 && A.pitSum / A.pit <= 0.55 && A.dark <= dref,
+        `(1) ${A.pitDark} of ${A.pit} pit cells (MAP.fz <= -3, main has ${MAIN_PIT[lv]} of them) hold less than 0.05 delivered`
+        + ` light (the LAMPS=off control measures 118/72/62 here and 117/71/62 on 2c5a94f) - (2) that population exists in ${A.pitRolls} of`
+        + ` the 12 rolls${A.noPitAt.length ? `, no pit at roll${A.noPitAt.length > 1 ? 's' : ''} ${A.noPitAt.join(' and ')}` : ''}, so this is not a row silently running on two levels - (3) mean delivered light there ${A.pit ? (A.pitSum / A.pit).toFixed(3) : 'no pit at all'} against the 0.55 ceiling`
+        + ` (main's unscaled top-up 0.672/0.631/0.647, which is the #213 white box) - (4) ${A.dark} dark of ${A.open} open cells against`
+        + ` ${dref} = round(1.02 x ${TOPUP_DARK_REF[lv]}). ${(A.lamps / 12).toFixed(2)} lamps/instance (main 7/9/17), ${A.nosrc} cells with no`
+        + ` source in the XY disc (the #199 coverage half). No frame threshold is asserted: the worst sampled pit`
+        + ` frame is 157.1/162.5/183.8 mean and 206.6/213.9/245.0 centre-half mid in the COMPOSITED page for`
+        + ` these parameters and is unchanged by lamp intensity at all (#221, the glow overlay has no altitude term).`);
       row(`L${lv} delivered wrong-band light does not spread`, A.oob <= MAIN_OOB[lv],
         `${A.oob} open cell(s) hold delivered light with NO source standing on their own band within reach (recorded on main: ${MAIN_OOB[lv]}), mean`
         + ` light there ${A.oob ? (A.oobSum / A.oob).toFixed(3) : '-'} (main: 0.231/0.254/0.311). This population is blurLight's doing, not a lamp's (#206), so 0 is`
@@ -633,8 +656,13 @@ if (MODE === 'flatparity') {
      tell the senses apart, and the control row says so instead of claiming a triple moved. */
   const OLD = ['f9e4da3af18836db903fd7cbdf2b0206', 'f05beeb58f1266a1aea7e44712995292', 'd4b2d2cd539c3b620ea0ce5ab115d50a'];
   const OLDM = [79.7, 34.1, 47.5];
-  const SHIP = ['4262d0517160b4461e7a4926a078512e', 'f05beeb58f1266a1aea7e44712995292', '050b225e3f295b3ca991d59addea2f1c'];
-  const SHIPM = [81.3, 34.1, 51.7];
+  /* #213 moves SHIP[0] to 060da4cd (80.8, from 4262d051/81.3) and nothing else: a coverage top-up's
+     intensity now scales with the cells it covers, so the shipped world gains DIMMER sources and L0's
+     spawn frame repaints. L1 and L2 are byte-identical at TARGET <= 64 - their top-ups each cover >= 32
+     cells, so the scale is exactly 1 and 1.05 * 1 === 1.05. The PARITY triple did not move at all, which
+     is the knob-independence proof: with the top-up suppressed at author time this change runs no code. */
+  const SHIP = ['060da4cdaadc2e4a4276ce8f06b0eecf', 'f05beeb58f1266a1aea7e44712995292', '050b225e3f295b3ca991d59addea2f1c'];
+  const SHIPM = [80.8, 34.1, 51.7];
   const OFF = process.env.LAMPS === 'off';
   const f1 = v => (v === undefined || v === null ? '-' : (+v).toFixed(1));
   const md5of = () => { const d = new Uint32Array(run('px'));
