@@ -111,6 +111,11 @@ jobs:
           node tools/view.js drop
           node tools/view.js horizon
           node tools/view.js cull
+          #   leak     which ground path paints a seam pixel, plus the ceiling-step ground hash whose
+          #            wrong-fix falsifier (#177) no other row can see - the nearer-plane rule applied
+          #            to the CEILING branch only leaves every shipped verdict green, and only these
+          #            two rows go red. Env-gated, so the plain cull run above stays byte-identical.
+          LEAK=1 CZBAND=1 node tools/view.js cull
           #   bands    #164's legibility gate: at a step lip the PIXELS must step where the DEPTH
           #            buffer steps (the measured pair across the lip, and the % of lip pixels within
           #            10 luminance of their neighbour), the seam term must be a narrow band AT the
