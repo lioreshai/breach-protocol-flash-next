@@ -1168,6 +1168,7 @@ if (MODE === 'cull') {
   };
   const W = run('BW'), H = run('BH'), ZQS = run('ZQ');
   const lum = (b, i) => 0.2126 * (b[i] & 255) + 0.7152 * (b[i] >> 8 & 255) + 0.0722 * (b[i] >> 16 & 255);
+  let czRows = 0;                                              // #177: CZBAND rows actually emitted
 
   // one frame with the body, one without: the difference IS the silhouette
   const shot = () => {
@@ -1427,7 +1428,228 @@ if (MODE === 'cull') {
     console.log(`  L${li} reference: flat silhouette ${flat.px} px, centroid ${flat.cy.toFixed(1)} of ${H}, rows ${flat.top}..${flat.bot}, body ${base.scale.toFixed(2)} units at ${base.d.toFixed(2)} m`);
 
     putProps();
+
+    /* ---- LEAK ATTRIBUTION (LEAK=1) -------------------------------------------------------------
+       Two env vars, and each exists to catch ONE wrong fix (#177):
+         LEAK=1   catches "the leak is gone, so the deferred pass is fine": it says WHICH GROUND PATH
+                  painted the pixels, so a fix that answers them from the row instead of the re-solve
+                  cannot be mistaken for a fix of the arithmetic. The attribution itself is only as
+                  good as the geometry: on current main the #170 leak is 0 px, so these rows report
+                  the split with an empty mask and say so (LEAK-VACUUM) rather than print zeros as a
+                  verdict. CZBAND is the part that can still fail on this build.
+         CZBAND=1 catches "adopt the nearer plane on ceiling rows": it hashes the ground pass over the
+                  MIRROR geometry - floors flat, a farther ceiling four cells out - where that rule
+                  paints the NEAR ceiling across a room whose ceiling is genuinely farther. It is the
+                  only row in the repo that sees that fix, because every other config either raises
+                  both ceilings (nothing queues) or raises a FLOOR (the leak geometry, now fixed).
+       CFG=ship,nodefer,alldefer picks the configs, LEAKROW=1 adds the per-pixel row-path/deferred map.
+       Off by default: `node tools/view.js cull` without them runs no line of this block.
+       CZBAND hashes recorded on 76e9356 (generated volume from #188 is IN this build, which is why they
+       are not the bb92cda0/80688d4a/0186ce30 quoted in #177): L0 14c12844, L1 8ab438b0, L2 5a425d84.
+       Which ground path paints the pixels where a prop on the band above still draws through the
+       slab? Same frame, three configs of ONE line (js/40_render.js:468): ship (the split as
+       authored), nodefer (the split can never queue, so castGround's own body paints every pixel of
+       the row and groundPixel runs on nothing) and alldefer (the split always queues, so
+       groundPixel paints everything the row does not far-band away). The config is a SOURCE
+       transform of castGround, not a wrapper around it, so the hot-loop-wrapper cost documented in
+       AGENTS cannot be confused with a picture change - and each config's own deferred-call count
+       is the proof the patch is live: 0 for nodefer, ~one per pixel for alldefer.
+       Provenance is recorded by wrapping groundPixel the way `heights` already does, so a pixel is
+       'deferred' iff the renderer itself decided to re-solve it and 'row-painted' otherwise; the
+       ground pass covers every pixel of every row, so there is no third case except the horizon.
+       Nothing here changes arithmetic, thresholds or any row above: the block runs after every
+       verdict for the level, restores MAP.fz and un-patches castGround. */
+    if (process.env.LEAK) {
+      const NEEDLE = 'if (planeC !== planeA) { RX[nm] = x; RP[nm] = planeC; nm++; continue; }';
+      const REPL = c => c === 'nodefer' ? NEEDLE.replace('if (planeC', 'if (false && planeC')
+        : c === 'alldefer' ? 'if (true) { RX[nm] = x; RP[nm] = planeC; nm++; continue; }'
+          : NEEDLE;
+      const CFGS = (process.env.CFG || 'ship,nodefer,alldefer').split(',');
+      run('var GD={set:new Uint8Array(0),a:[],n:0,cap:400000};');
+      const GRES = '(()=>{if(GD.set.length<BW*BH)GD.set=new Uint8Array(BW*BH);else GD.set.fill(0);GD.a.length=0;GD.n=0})()';
+      const GON = `(()=>{if(!globalThis.__gpL){globalThis.__gpL=groundPixel;const O=groundPixel;groundPixel=` +
+        `function(x,pl,row){GD.set[row+x]=1;if(GD.a.length<GD.cap)GD.a.push(row+x,pl);GD.n++;return O.apply(this,arguments)}}})()`;
+      const GOFF = '(()=>{if(globalThis.__gpL){groundPixel=globalThis.__gpL;globalThis.__gpL=null}})()';
+      const CUT = Math.ceil(RISE_TOP);
+      let defPx = 0;
+      /* One frame of the #163 geometry under one config of the split: the with/without-prop pair
+         (the difference IS the prop), the occluder depth that pair leaves behind, and a ground-only
+         replay that gives per-pixel PROVENANCE (deferred iff the renderer itself queued it) plus the
+         depth the ground pass alone stored. The control band (dq=0, the prop on the camera's own
+         flat band) is the config-independence check: nothing queues there, so all three configs must
+         agree with the 804-px silhouette `cull` already reports. */
+      const frame = (cfg, dq) => {
+        const patched = run(`(function(){
+          if (!globalThis.__cgO) globalThis.__cgO = castGround;
+          const src = globalThis.__cgO.toString(), rep = ${JSON.stringify(REPL(cfg))};
+          if (src.indexOf(${JSON.stringify(NEEDLE)}) < 0) return 'NEEDLE-NOT-FOUND';
+          castGround = eval('(' + src.split(${JSON.stringify(NEEDLE)}).join(rep) + ')');
+          return castGround.toString().indexOf(rep) >= 0 ? 'ok' : 'PATCH-FAILED';
+        })()`);
+        setBand(BG.cz + dq); run(LAMP);
+        run(GRES + ';' + GON + ';MESH.reset();S.t=3.5;renderWorld();' + GOFF);
+        const A = new Uint32Array(run('px')), frameDef = run('GD.n');
+        run('window.__pq=PROPS.slice();PROPS.length=0;MESH.reset();S.t=3.5;renderWorld();for(const q of __pq)PROPS.push(q);');
+        const B = new Uint32Array(run('px')), zo = new Float32Array(run('zbuf'));
+        run(GRES + ';' + GON + ';px.fill(pack(FOGC[0],FOGC[1],FOGC[2]));castGround(S.flash,FOGC[0],FOGC[1],FOGC[2]);' + GOFF);
+        /* The record of what the deferred pass ANSWERED is built here rather than inside the renderer:
+           the wrapper sees the plane each pixel was QUEUED with, and the ground pass's final zbuf at
+           that pixel is the distance the deferred body stored (the row fills its own distance first and
+           the queue drains after it, so nothing else writes it). Inverting d = dz*BH/|p| gives back the
+           plane that answered, so "which plane won" needs no probe-side copy of the renderer's maths and
+           no edit to js/ - the one exception is the FARB*4 clamp, which shows up as an implied plane
+           outside the grid and is reported as such. */
+        const zg = new Float32Array(run('zbuf')), dg = new Uint8Array(run('GD.set')), groundDef = run('GD.n'), tr = new Float64Array(run('GD.a'));
+        restore(); run('castGround = globalThis.__cgO;');
+        return { patched: patched, A: A, B: B, zo: zo, zg: zg, dg: dg, def: frameDef, defG: groundDef, tr: tr };
+      };
+      const hit = (r, i) => Math.abs(lum(r.A, i) - lum(r.B, i)) > 4 || (r.A[i] >>> 24) - (r.B[i] >>> 24) !== 0;
+      // full-frame mask: total, the CLEAN band (y < CUT, the ceiling rows #163 made honest), rows
+      const full = r => {
+        let n = 0, clean = 0, top = H, bot = -1;
+        for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+          const i = y * W + x;
+          if (hit(r, i)) { n++; if (y < top) top = y; if (y > bot) bot = y; if (y < CUT) clean++; }
+        }
+        return { n, clean, top, bot };
+      };
+      // the same PIXEL SET in every config, so a depth range means something across rows
+      const over = (r, idx) => {
+        let vis = 0, def = 0, row = 0, ovr = 0, mn = Infinity, mx = -Infinity, omn = Infinity, omx = -Infinity;
+        for (const i of idx) {
+          if (hit(r, i)) vis++;
+          if (r.dg[i]) def++; else row++;
+          if (r.zo[i] !== r.zg[i]) ovr++;
+          if (r.zg[i] < mn) mn = r.zg[i]; if (r.zg[i] > mx) mx = r.zg[i];
+          if (r.zo[i] < omn) omn = r.zo[i]; if (r.zo[i] > omx) omx = r.zo[i];
+        }
+        return { vis, def, row, ovr, mn, mx, omn, omx };
+      };
+      const lampT = run(`(()=>{const dx=${BG.lx}-camX,dy=${BG.ly}-camY;return (1/(planeX*dirY-dirX*planeY))*(-planeY*dx+planeX*dy)})()`);
+      const idxOf = r => { const a = []; for (let y = CUT; y < H; y++) for (let x = 0; x < W; x++) if (hit(r, y * W + x)) a.push(y * W + x); return a; };
+      // the reference pixel set is ALWAYS the shipped split's leak pixels, even when CFGS skips ship
+      let refIdx = CFGS[0] === 'ship' ? null : idxOf(frame('ship', 4));
+      for (const cfg of CFGS) {
+        const r = frame(cfg, 4), f = full(r);
+        if (cfg === 'ship') defPx = r.defG;
+        if (!refIdx) refIdx = idxOf(r);
+        const o = frame(cfg, 0), s = over(r, refIdx), own = over(o, refIdx), ownc = full(o);
+        /* Across the WHOLE seam band, not just the mask: how many of these pixels did the wall pass
+           paint at all? The row's premise is that below RISE_TOP a pixel sits on the seam, where a
+           riser face exists - if the wall pass wrote none of them, the ceiling solve is the only
+           occluder there and the leak has a second contributor (a riser that draws nothing). */
+        let bandN = 0, bandWall = 0;
+        for (let y = CUT; y <= 127 && y < H; y++) for (let x = 0; x < W; x++) {
+          const i = y * W + x; bandN++; if (r.zo[i] !== r.zg[i]) bandWall++;
+        }
+        const perRow = [];
+        if (process.env.LEAKROW) {
+          let last = -1;
+          for (const i of refIdx) {
+            const y = (i / W) | 0; if (y !== last) { perRow.push(`${y}:`); last = y; }
+            perRow.push(r.dg[i] ? 'D' : 'R');
+          }
+        }
+        console.log(`    L${li} ${cfg.padEnd(9)} patch ${r.patched}  groundPixel-calls/frame ${String(r.def).padStart(6)} ` +
+          `(ground-only ${r.defG}) | RAISED mask ${f.n} px rows ${f.top}..${f.bot}, CLEAN y<${CUT} ${f.clean} px | ` +
+          `on the ship-config leak set (${refIdx.length} px): visible ${s.vis}, row-painted ${s.row}, deferred ${s.def}, ` +
+          `wall/mesh overwrote ${s.ovr}, ground z ${s.mn.toFixed(2)}..${s.mx.toFixed(2)}, occluder z ${s.omn.toFixed(2)}..${s.omx.toFixed(2)}` +
+          ` | own-band control ${ownc.n} px (visible there ${own.vis}) | seam band y ${CUT}..127: ${bandWall} of ${bandN} px painted by the wall pass | lamp at ${lampT.toFixed(2)} m`);
+        if (process.env.LEAKROW) console.log(`      ${refIdx.length} px as R/D in row order  ${perRow.join('')}`);
+        /* What groundPixel ANSWERED on exactly those pixels: queued plane -> plane it settled on, the
+           distance that produced, whether the loop called it converged, and the same depth if the
+           NEARER plane (the one the eye is closer to, so the one the ray reaches first) had answered.
+           The QUEUED plane comes from the wrapper, the plane that ANSWERED is inverted out of the
+           distance the deferred body stored (d = dz*BH/|p|, so z = eyeZ -+ d*|p|/BH): the row's own plane
+           is not in that argument list at all, which is the finding. The same depth is then quoted for
+           the NEARER of the two planes, the one the eye is closer to and so the ray reaches first. */
+        if (cfg === 'ship') {
+          const EYE = run('eyeZ'), BHV = run('BH'), HZ = Math.round(run('horizon')), FB = run('FARB') * 4;
+          const want = new Set(refIdx), hist = new Map();
+          let seen = 0, samePl = 0, moved = 0, nearHides = 0, dNearMin = Infinity, dNearMax = -Infinity;
+          for (let k = 0; k < r.tr.length; k += 2) {
+            const i = r.tr[k]; if (!want.has(i)) continue;
+            seen++; const pl0 = r.tr[k + 1], dS = r.zg[i];
+            const y = (i / W) | 0, p = y - HZ, isF = p > 0, absP = p > 0 ? p : -p;
+            const plF = isF ? EYE - dS * absP / BHV : EYE + dS * absP / BHV;      // the plane that answered
+            if (Math.abs(plF - pl0) <= ZQS) samePl++; else moved++;
+            const plN = Math.abs(plF - EYE) <= Math.abs(pl0 - EYE) ? plF : pl0;      // nearer to the eye = hit first
+            let dN = (isF ? EYE - plN : plN - EYE) * BHV / absP; if (dN > FB) dN = FB;
+            if (dN < lampT) nearHides++;
+            if (dN < dNearMin) dNearMin = dN; if (dN > dNearMax) dNearMax = dN;
+            const key = `${pl0.toFixed(2)}->${plF.toFixed(2)} ${Math.abs(plF - pl0) <= ZQS ? 'answered-as-queued' : 'MOVED'} d ${dS.toFixed(2)}`;
+            hist.set(key, (hist.get(key) || 0) + 1);
+          }
+          const top = [...hist.entries()].sort((a, b) => b[1] - a[1]).slice(0, 4)
+            .map(([k, v]) => `${k} x${v}`).join(', ');
+          console.log(`      trace of the leak set: ${seen}/${refIdx.length} px traced (deferred px ${r.defG}), ` +
+            `answered-as-queued ${samePl}, moved ${moved}, plane answers ${top || 'NONE'} | ` +
+            `nearer-plane depth ${isFinite(dNearMin) ? dNearMin.toFixed(2) + '..' + dNearMax.toFixed(2) : '-'}, ` +
+            `which hides the lamp on ${nearHides} of ${seen}`);
+        }
+      }
+      /* An empty mask is a RESULT about the geometry, not a passing row: 0 leak px means #170 is fixed
+         here, and every number above was computed over the empty set. Say which, and name the row that
+         is still capable of failing on this build (AGENTS: a probe that cannot fail is worthless). */
+      if (!refIdx.length) console.log(`    L${li} LEAK-VACUUM: the ship-config leak set is 0 px, so the ` +
+        `attribution above has no pixels to attribute - the #170 geometry does not leak on this build. ` +
+        `The deferred path is still live (${defPx} groundPixel calls/frame); CZBAND=1 is the row that ` +
+        `can still fail on this build (#177)`);
+      /* A rule that makes the leak vanish can still be wrong, and `heights` cannot see this one: a
+         CEILING step (a tall room beyond a low one, floors FLAT, so the ray goes through the doorway
+         and up to a farther ceiling) is the mirror of the leak geometry, and no config in the repo has
+         a near ceiling and a farther ceiling in the same frame - `tallRoom` raises every cell, so
+         planeA and the neighbour agree and nothing queues. This hashes the ground pass's own framebuffer
+         for that frame, so two builds can be compared on it. CZBAND=1, and the value is meaningless on
+         its own - only its agreement or disagreement across two trees means anything. */
+      /* The values the ground pass answers on this geometry, recorded on 76e9356 - the two-sided form
+         of printing them (#177). A wrong ceiling rule that passes every shipped gate MOVES these, which
+         is the whole reason the row exists; a deliberate change to the ceiling answer updates all three
+         together with the row that justifies it, and nothing else. */
+      const CZBAND_REF = [0x14c12844, 0x8ab438b0, 0x5a425d84];
+      if (process.env.CZBAND) {
+        czRows++;
+        run(`(function(){ window.__cz0b = MAP.cz.slice(); ${JSON.stringify(BG.cells)}
+          .forEach(([x, y]) => { MAP.cz[(y | 0) * MW + (x | 0)] += 4; }); linkBoundaries(); return 1; })()`);
+        /* The same frame under a config of the split. The shipped config's hash is the value to diff
+           across builds; the nodefer one is the control that says the frame is worth hashing at all:
+           if forcing every pixel through the ROW body leaves the hash alone, this geometry queues
+           nothing and the number has stopped being an instrument of the seam. */
+        const czFrame = cfg => {
+          const p = run(`(function(){
+            if (!globalThis.__cgO) globalThis.__cgO = castGround;
+            const src = globalThis.__cgO.toString(), rep = ${JSON.stringify(REPL(cfg))};
+            if (src.indexOf(${JSON.stringify(NEEDLE)}) < 0) return 'NEEDLE-NOT-FOUND';
+            castGround = eval('(' + src.split(${JSON.stringify(NEEDLE)}).join(rep) + ')');
+            return castGround.toString().indexOf(rep) >= 0 ? 'ok' : 'PATCH-FAILED';
+          })()`);
+          setBand(BG.cz); run('PROPS.length = 0; ENEMIES.length = 0; MESH.reset(); S.t = 3.5; renderWorld();');
+          const flatG = new Uint32Array(run('px'));
+          run(GRES + ';px.fill(pack(FOGC[0],FOGC[1],FOGC[2]));castGround(S.flash,FOGC[0],FOGC[1],FOGC[2]);');
+          const g = new Uint32Array(run('px'));
+          let h = 0x811c9dc5, dfl = 0;
+          for (let i = 0; i < g.length; i++) { h = (h ^ g[i]) * 16777619 >>> 0; if (g[i] !== flatG[i]) dfl++; }
+          run('castGround = globalThis.__cgO;');
+          return { p, h, dfl };
+        };
+        const czS = czFrame('ship'), czN = czFrame('nodefer');
+        const cpFar = run(`MAP.ceilPlane[${Math.floor(setup.lane.y)} * MW + ${Math.floor(setup.lane.x) + 4}]`);
+        const hex = v => '0x' + v.toString(16).padStart(8, '0');
+        row(`L${li} the ceiling-step frame exercises the deferred pass`, czS.p === 'ok' && czN.h !== czS.h,
+          `ceilings ${CAMCP.toFixed(2)} -> ${cpFar.toFixed(2)} four cells out, floors flat: ground-pass hash ` +
+          `${hex(czS.h)} (${czS.dfl} px differ from the composited frame) | nodefer control ${czN.p} ` +
+          `${hex(czN.h)} - the two agree only if this geometry queues nothing, which would make the hash ` +
+          `worthless rather than clean (#177)`);
+        row(`L${li} the ceiling-step ground hash is the recorded one`, czS.h === CZBAND_REF[li],
+          `measured ${hex(czS.h)} vs recorded ${hex(CZBAND_REF[li])}, ${czS.dfl} px of the ground pass differ ` +
+          `from the composited frame - this is the row that #177's wrong fix (adopt the nearer ceiling ` +
+          `plane) turns red while every shipped gate stays green`);
+        restore(); run('MAP.cz.set(__cz0b); linkBoundaries();');
+      }
+    }
   }
+  if (process.env.CZBAND) row('CZBAND emitted a hash for every level', czRows === 3,
+    `${czRows} of 3 levels printed a ceiling-step hash - an absent row reads as silence, not as a pass (#177)`);
   console.log((bad ? `CULL ${bad} FAILURES` : 'CULL ok - bodies sit on the band they stand on') +
     (known ? `  (${known} known ${STRICT ? 'FAILED under STRICT' : 'reporting'} rows: air-air steps occlude nothing, #100)` : ''));
   process.exit(bad ? 1 : 0);
