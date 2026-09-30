@@ -446,8 +446,21 @@ function castGround(flash, fcR, fcG, fcB) {
            across the middle of one, and it once filled an entire frame with grey. */
         let pl = planeA;
         if (gx >= 0 && gy >= 0 && gx < N && gy < N && !cellArr[cIdx]) pl = isF ? fzs[cIdx] * ZQ : cp[cIdx];
-        planeC = (isF ? pl < eyeZ : pl > eyeZ) ? pl : planeA;   // a floor above the eye and a ceiling
-      }                                                        // below it reach nothing on these rows
+        /* A FLOOR above the eye used to be refused here exactly like a ceiling below it, which threw away
+           the one fact the pixel carries: the cell it landed in is AIR and its floor is OVER its head, so
+           the ray has walked INTO that column's slab and the row's own plane does not reach it (#192).
+           Refusing let the pixel be painted by the row at the row's distance, which is the far floor behind
+           the deck: a deck was see-through in exactly the cases where the raise is not CZ_DEF, because when
+           the raise equals the ceiling height the slab's underside is the eye's own ceiling plane and the
+           CEILING half answers it honestly through ceilAt. Queue the pixel with the deck's own plane and
+           let the deferred copy answer the crossing it slipped under - groundPixel's `t < eyeZ` refusal
+           still cannot solve a plane above the eye (d goes negative), and does not have to: the honest
+           distance is the slab's SIDE, the same number the wall pass writes for that boundary's face, so
+           the two passes now agree instead of disagreeing by the depth of the deck. A flat level's floor is
+           never above the eye, so no flat pixel is queued and the flat row stays bit-identical. */
+        planeC = (isF ? (pl < eyeZ || (gx >= 0 && gy >= 0 && gx < N && gy < N && !cellArr[cIdx] && pl >= eyeZ))
+          : pl > eyeZ) ? pl : planeA;                          // a ceiling below the eye reaches nothing
+      }
       /* A plane is only honest if the cell carrying it reaches the point this column's ray arrives at,
          so ask the march, not the cell the row's WALK happened to enter: a raised floor one boundary
          out closes the ray under itself and the pixel belongs to the row, not to a solve ten metres
@@ -491,7 +504,7 @@ function castGround(flash, fcR, fcG, fcB) {
     }
     /* second pass over the columns this row could not solve, in column order; each writes its own
        pixel so the order within the row cannot change the image, and the wall pass has not run yet */
-    for (let q = 0; q < nm; q++) groundPixel(RX[q], RP[q], row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb, dRow);
+    for (let q = 0; q < nm; q++) groundPixel(RX[q], RP[q], row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb, dRow, planeA);
   }
 }
 
@@ -527,14 +540,19 @@ function castGround(flash, fcR, fcG, fcB) {
    here at all, so this path cannot move a pixel of one. */
 let gSer = 0, gMSer = -1, gMRow = -1, gMPl = 0, gMDS = 0, gMDfa = 0, gMFog = 0, gMInv = 0, gMFR = 0,
   gMFG = 0, gMFB = 0, gMBase = 0, gMCx0 = 0, gMCy0 = 0, gMCxs = 0, gMCys = 0,
-  gMCf = 0, gMAx = 0, gMWs = 0, gMAn = 1, gMAr = 4, gMN = 0,
+  gMCf = 0, gMAx = 0, gMWs = 0, gMAn = 1, gMAr = 4, gMN = 0, gMDist = -1,
   gLSer = -1, gLSX = 0, gLSY = 0, gML0 = 0, gML1 = 0, gML2 = 0, gMMir = 0;
 
-function gndBuild(row, isF, absP, pl, tex, sc, fcR, fcG, fcB, fl, amb) {
-  const dS = (isF ? eyeZ - pl : pl - eyeZ) * BH / absP;
+function gndBuild(row, isF, absP, pl, tex, sc, fcR, fcG, fcB, fl, amb, dOv) {
+  /* dOv >= 0 replaces the PLANE SOLVE with a distance the caller already knows - the only caller that
+     passes it is the under-a-slab case below, where the surface stopping the ray is a crossing rather
+     than a plane and the plane it was queued with has no solve. The memo carries it (gMDist) because a
+     run of pixels can share a plane and differ in where they slip under: keying on the plane alone would
+     hand one column's fog and mip to the next. */
+  const dS = dOv >= 0 ? dOv : (isF ? eyeZ - pl : pl - eyeZ) * BH / absP;
   const dc = dS > FARB * 4 ? FARB * 4 : dS;
   const fog = fogAt(dc);
-  gMSer = gSer; gMRow = row; gMPl = pl; gMDS = dc;
+  gMSer = gSer; gMRow = row; gMPl = pl; gMDS = dc; gMDist = dOv === undefined ? -1 : dOv;
   gMDfa = 0.4 + 0.6 * Math.exp(-dc * 0.02);
   gMFog = fog; gMInv = 1 - fog; gMFR = fcR * fog; gMFG = fcG * fog; gMFB = fcB * fog;
   gMBase = amb + fl * Math.exp(-dc * 0.30) * 0.9;
@@ -552,12 +570,49 @@ function gndBuild(row, isF, absP, pl, tex, sc, fcR, fcG, fcB, fl, amb) {
   gMAn = MIPAX; gMAr = MIPAR; gMWs = ws;
 }
 
-function groundPixel(x, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb, dP) {
+/* Where a DESCENDING ray goes under a slab, as the crossing's own distance along (dir + plane*cam) - or
+   -1 when nothing closes over it. A FLOOR at or above the eye cannot be solved by a floor row (the engine's
+   d = (eyeZ - plane) * BH / |p| is negative there), so the honest answer for a pixel whose ray walked into
+   such a column is not a plane at all: it is the boundary the ray slipped under, which is also the distance
+   the wall pass writes for that boundary's riser face (#192), so the two passes hold one depth. Marched
+   rather than solved because a DESCENDING ray meets a slab SIDE before it meets any plane. One axis per
+   crossing, for the reason planeAlong states: stepping both walks a diagonal the ray never travels. A
+   column's side and the void are answered -1 - the wall pass paints a column either way, and the void is
+   today's flat ground. Runs from groundPixel's floor half only, on the pixels whose cell floor is at or
+   above the eye: the row loop must never call this (a march per cell crossing is the documented cliff). */
+function slabT(rx, ry, absP) {
+  const N = MAP.w, cellArr = MAP.cell, fzs = MAP.fz, rise = absP / BH;
+  const ax = rx > 0 ? rx : -rx, ay = ry > 0 ? ry : -ry;
+  const sx = rx > 0 ? 1 : -1, sy = ry > 0 ? 1 : -1;
+  let cx = camX | 0, cy = camY | 0, g = 0;
+  let tx = ax > 0 ? (rx > 0 ? cx + 1 - camX : camX - cx) / ax : 1e30;
+  let ty = ay > 0 ? (ry > 0 ? cy + 1 - camY : camY - cy) / ay : 1e30;
+  for (; g < 40; g++) {
+    const tOut = tx < ty ? tx : ty;
+    if (!(tOut < FARB * 4)) return -1;                        // nothing closes over it inside reach
+    const stepX = tx < ty, nx = cx + (stepX ? sx : 0), ny = cy + (stepX ? 0 : sy);
+    if (nx < 0 || ny < 0 || nx >= N || ny >= N) return -1;    // the void is not a slab
+    const j = ny * N + nx;
+    if (cellArr[j]) return -1;                                // a column: the wall pass owns this pixel
+    if (fzs[j] * ZQ >= eyeZ) return tOut;                     // under that column's floor: its side stops us
+    const i = cy * N + cx;                     // the floor of the cell being left stops the ray first, and
+    if (cx >= 0 && cy >= 0 && cx < N && cy < N && !cellArr[i]) {  // then the crossing behind it is a solve,
+      const fl = fzs[i] * ZQ;                                  // not a slab: the row's answer was honest
+      if (fl < eyeZ && (eyeZ - fl) / rise <= tOut) return -1;
+    }
+    cx = nx; cy = ny;
+    if (stepX) tx += 1 / ax; else ty += 1 / ay;
+  }
+  return -1;
+}
+
+function groundPixel(x, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb, dP, plA) {
   const N = MAP.w, cellArr = MAP.cell, lm = MAP.light, fzs = MAP.fz, stepBase = 2 / BW;
   const cam = x * stepBase - 1, rx = dirX + planeX * cam, ry = dirY + planeY * cam;
   // the cell this pixel's ray reaches at the ROW's distance: the shipped out-of-map fallback cell and
   // the anchor the floor half's settle test measures its two-cell proximity against
   const ax = (camX + rx * dP) | 0, ay = (camY + ry * dP) | 0;
+  let dOv = -1;                                    // >= 0 when a crossing, not a plane, places the pixel
   if (isF) {
     /* The FLOOR half keeps the shipped solver's SHAPE - the plane the pixel was queued with may be
        replaced by the floor of the cell the pixel lands in, once per try, quantum apart = settled -
@@ -591,11 +646,25 @@ function groundPixel(x, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb, dP)
     // pixel, so it is counted here and solved like every other one
     if (!settled) reSolveBad++;
     pl = cur;
+    /* #192, the deck faces: `t < eyeZ` above refuses a floor that is at or above the eye, so a pixel
+       queued from under a deck leaves this loop with the deck's own plane in `pl` and no solve for it.
+       What stops a descending ray there is the slab's SIDE at the boundary it slipped under, so ask the
+       march for that crossing and build the pixel from its distance. When the march says nothing closes
+       over the ray - the pixel's cell was only the row's WALK and a floor in front stopped the ray first -
+       the honest answer is the band the eye is in, so the pixel falls back to the predictor rather than to
+       a plane it cannot solve. Costs one march per queued pixel of this one case and nothing anywhere
+       else: a flat level never queues a pixel, and a below-the-eye pixel never reaches this line. */
+    if (pl >= eyeZ) {
+      const st = slabT(rx, ry, absP);
+      if (st >= 0) { dOv = st; }
+      else { pl = plA; dOv = -1; }
+    }
   } else {
     // the CEILING half walks the ray: which cell's slab reaches the point this column arrives at
     pl = planeAlong(rx, ry, pl, isF, absP);
   }
-  if (gMRow !== row || gMPl !== pl || gMSer !== gSer) gndBuild(row, isF, absP, pl, tex, sc, fcR, fcG, fcB, fl, amb);
+  if (gMRow !== row || gMPl !== pl || gMDist !== dOv || gMSer !== gSer)
+    gndBuild(row, isF, absP, pl, tex, sc, fcR, fcG, fcB, fl, amb, dOv);
   const dS = gMDS;
   /* This pixel's cell is NOT on the row's plane, so the row's depth is wrong for it: at the lip of a
      step the row says the distance to the plane the eye is in, while the colour painted here came from
@@ -667,9 +736,10 @@ function decalAlpha(dc, wx, wy, dfade) {
    standing on - the lower floor of a drawn riser, whose foot that is - and zB the floor beyond, t the
    perpendicular distance of the boundary. A floor below the eye always projects BELOW its own row,
    so the near surface owns every row under yc(zA) and the far surface every row above it: the band
-   therefore always runs UPWARD from yc(zA), into the riser for a step up (which the wall pass draws
-   at >=2 quanta and paints straight through at 1 quantum it walks over - the reason #164 could ship
-   with the geometry right and the picture flat) and into the far floor for a step down. Capped to
+   therefore always runs UPWARD from yc(zA), into the riser for a step up (every step up is a drawn
+   face since #192, so this band now always lands ON a face - it used to be the only thing painted at
+   a 1-quantum tread, which is why #164 could ship with the geometry right and the picture flat) and
+   into the far floor for a step down. Capped to
    half the riser's projected height, so a 1 m face gets a seam at its foot, not a gradient.
    amp < 0 shades a crease, amp > 0 lifts a lip; a multiply either way, so the AMB floor that sinks an
    additive rim in a dark room cannot sink this. */
@@ -712,7 +782,7 @@ function castWalls(flash, fcR, fcG, fcB) {
     let stepX, stepY, sdx, sdy, side = 0;
     if (rdx < 0) { stepX = -1; sdx = (camX - mx) * ddx; } else { stepX = 1; sdx = (mx + 1 - camX) * ddx; }
     if (rdy < 0) { stepY = -1; sdy = (camY - my) * ddy; } else { stepY = 1; sdy = (my + 1 - camY) * ddy; }
-    let tv = 0, guard = 0, riser = 0, rz0 = 0, rz1 = 1, crk = 0, cT = 0, cA = 0, cB = 0;
+    let tv = 0, guard = 0, riser = 0, rz0 = 0, rz1 = 1;
     while (guard++ < 180) {
       let tX;
       if (sdx < sdy) { tX = sdx; sdx += ddx; mx += stepX; side = 0; } else { tX = sdy; sdy += ddy; my += stepY; side = 1; }
@@ -732,34 +802,50 @@ function castWalls(flash, fcR, fcG, fcB) {
          one-unit room collapses the far band to zero headroom and the strip fills the eye's whole
          band, so it reads as a wall and occludes everything (the bug #100 was filed for); and a pit
          gets the wall below its lip instead of a wall above it, so a body in the pit keeps showing
-         its crown instead of vanishing. A riser is the exposed edge of a floor slab, so its material is
-         the level's own floor material, chosen below - not a wall texture, and not a global concrete.
-         Flat levels never reach this test - MAP.steps is 0 - so a flat frame stays bit-identical. */
+         its crown instead of vanishing. A riser is the exposed edge of a floor slab, so it wears a
+         WALL material (#192): a lip that wears the floor texture is a brighter patch of the same
+         texture, which is what `view.js bands` printed about generated content while the generator
+         started authoring staircases.
+         THE THRESHOLD IS ANY HEIGHT DIFFERENCE, not "a step too tall to climb" (#192). The generator
+         authors every stair tread exactly one quantum from the last (js/20_level.js:459), so the old
+         `|dq| > 1` test - copied from the VB_BLOCK rule that decides what `canEnter` refuses - drew
+         no geometry at all along a flight: the tread boundaries were intangible, unpainted and, worse,
+         unrecorded in `zbuf`, so a staircase was a hole in the depth buffer with a seam multiply
+         painted over it. Blocking and drawing are different questions and only one of them is here:
+         the byte that stops a ray stays `dq > 1` (js/20_level.js:162), so a one-quantum crossing is
+         still walkable and still auto-stepped - the player walks up a face he can now also see.
+         A ramp or a ladder link is the exception that must keep flying through: the crossing is a
+         slope or a shaft, not a lip, and `view.js cull`'s ramp row is the only thing that exercises
+         that clause. Flat levels never reach this test - MAP.steps is 0 - so a flat frame stays
+         bit-identical. */
       if (doStep) {
         const d = side === 0 ? (stepX > 0 ? 0 : 2) : (stepY > 0 ? 1 : 3);
-        const pi = (my - (side === 1 ? stepY : 0)) * N + (mx - (side === 0 ? stepX : 0));
-        const dq = fzs[my * N + mx] - fzs[pi];
-        if ((dq > 1 || dq < -1) && !(vbs[pi] & ((VB_RAMP | VB_LADDER) << (d << 2)))) {
+        /* The cell the ray came from, with BOTH axes tested before the index is used. `qy * N + qx`
+           is a valid index when qy === -1 and qx > 0, and the cell it addresses is on the far side of
+           the level: the first crossing of a ray that starts in a border cell read THAT column's floor
+           as its neighbour's, which is the same fault `AGENTS.md` records twice for the light path.
+           Out of the map there is no neighbouring column, so dq is 0 - no face, no crease. */
+        const qx = mx - (side === 0 ? stepX : 0), qy = my - (side === 1 ? stepY : 0);
+        const dq = qx >= 0 && qy >= 0 && qx < N && qy < N ? fzs[my * N + mx] - fzs[qy * N + qx] : 0;
+        const pi = qy * N + qx;
+        if (dq && !(vbs[pi] & ((VB_RAMP | VB_LADDER) << (d << 2)))) {
           const fhi = dq > 0 ? fzs[my * N + mx] : fzs[pi], flo = dq > 0 ? fzs[pi] : fzs[my * N + mx];
           riser = 1; rz0 = flo * ZQ; rz1 = fhi * ZQ; MAP.riserStops++; tv = WT.CONCRETE; break;
-        }
-        /* A one-quantum boundary is walkable, so it is not a face and the ray flies straight through
-           it: remember the crossing and its two floors, and the seam below paints the riser the wall
-           pass was not allowed to draw. A ramp or ladder link means there is no lip to paint. */
-        if (dq && !crk && SEAM && !(vbs[pi] & ((VB_RAMP | VB_LADDER) << (d << 2)))) {
-          crk = 1; cT = tX; cA = fzs[pi] * ZQ; cB = fzs[my * N + mx] * ZQ;
         }
       }
     }
     let perp = side === 0 ? sdx - ddx : sdy - ddy;
     if (!(perp > 0.0001)) perp = 0.0001;
-    if (tv === 0 || perp > FARB * 3) { if (crk && !riser) seamCrease(x, cT, cA, cB, -SEAMD); continue; }
-    /* A riser wears MAP.floorTex, the material this level already authors for its floors. It used to
-       wear WTEX.CONCRETE, which is in NO level's palette: 136 texel-luminance against the 99 of level
-       0's floor and the 89 of level 2's, so a banded level read ~+8 raster brighter than a flat one at
-       an identical lightmap - riser faces are the whole of that delta (13.8% of level 0's pixels at
-       mean 118.6, where the floor they cover reads 73.2). Dead on flat levels, so nothing shipped moves. */
-    const tex = riser && MAP.floorTex ? MAP.floorTex : WALLS[(tv - 1) % WALLS.length];
+    if (tv === 0 || perp > FARB * 3) continue;
+    /* A riser is a VERTICAL face, so it wears the same lookup every other face wears (#192). It wore
+       MAP.floorTex on the argument that WTEX.CONCRETE is in no level's palette and read ~+8 raster
+       brighter than a flat level at an identical lightmap - true, and bought with the wrong thing: a
+       lip in the floor's own texture is a brighter patch of the same texture, which is exactly what
+       `view.js bands` reported about generated content once the generator authored stairs (#192's
+       "stairs/pits/decks render as voids": the geometry was there, the MATERIAL said floor). The
+       brightness question is a palette question, answered below by the face's own shading, not by
+       painting walls with floor. Dead on flat levels, so nothing shipped moves. */
+    const tex = WALLS[(tv - 1) % WALLS.length];
     if (!tex) continue;
     let wallX = side === 0 ? camY + perp * rdy : camX + perp * rdx;
     wallX -= Math.floor(wallX);
@@ -893,7 +979,6 @@ function castWalls(flash, fcR, fcG, fcB) {
        bands row read `foot drop 0.0 px-lum, band 0.0 px of a 24 px riser` for exactly this). Painted
        after so the nearer lip wins any row the two bands share. */
     if (riser && SEAM) { seamCrease(x, perp, rz0, rz1, -SEAMD); seamCrease(x, perp, rz1, rz0, SEAMU); }
-    if (crk) seamCrease(x, cT, cA, cB, -SEAMD);
   }
 }
 
