@@ -230,6 +230,21 @@
 
 ### Changed
 
+- README screenshots refreshed from the deployed build carrying `66eea67` (#200) in one `?dev=1`
+  boot, all **11** `js` subresources md5-checked against the tree (11/11; marker `FARFAN` 5 served /
+  5 in `main` / **0** in `main~1`), and the sentences beside them rewritten because one of them was
+  **false**: the captions explained a step-lip camera as dark *because height buys no light*, a
+  diagnosis a 44-sample sweep disproved (**+18.0 ± 19.0** brighter than its own spawn camera at
+  matched lamp distance, frame mean tracking **the camera column's own** `MAP.light` at **r = +0.62**,
+  N = 44), and on this boot the ordering simply inverts (**+31.7** the other way). What #200 changed
+  is the **far band's** source and magnitude — `bands` mean |step| across `FARB` **18.4 / 19.1 / 9.8
+  → 4.2 / 5.8 / 3.4** — and what still leaves geography dark is #199 (`splatLight` discards lamp `z`)
+  plus a fog colour of [17, 13, 10] whose luma is 13.63. Three stale verification claims fixed in
+  passing: the raster buffer is **678×359 upscaled 2.125×** into a 1440×763 canvas, not "1202×676";
+  vitals read **66**, not 58; an independent PNG decode sits **+0.1 to +0.3** from `DEV.lum`, not
+  "about 6 points low". The line claiming the generator authors no walkable band is deleted because
+  **#152 closed** — this roll deals five floor values and walkable links at ±1…±3 quanta.
+
 - README screenshots refreshed from the deployed build carrying `754d9ce` (#196) in one
   `?dev=1` boot, all 10 `js` subresources md5-checked against the tree (10/10; marker
   `function slabT(` = 1 deployed, 1 in main, 0 in main~1). Captions state the fix and the two
