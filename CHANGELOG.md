@@ -205,6 +205,21 @@
   game never passes an argument. Closes #157.
 
 ### Changed
+- **README screenshots and captions recaptured from the deployed build** (#190). The four shots
+  were two builds out of date and two of the four captions described a different level than the pixels
+  under them. All four are now re-shot from ONE boot of the live site at `?dev=1` (build `dc98788`),
+  byte parity re-checked at commit time: **11/11** `js/` subresources md5-equal against the Pages host
+  with a cache-buster, and the volume marker counts 1 deployed, 1 in `origin/main`, **0** in
+  `origin/main~1`. That roll deals 506 of 676 cells on the datum, 144 at `MAP.fz` 4, 20 at -4 with the
+  quanta-1..3 and -1..-3 stairs, and `MAP.cz` 12 in **70 columns**. The enemies caption now carries
+  the measurement #189 lacked: at a camera 4.50 m short of a lip, a grunt on the camera's own band at
+  3.00 m owns **7,955** px at >30 while each of two grunts on the band above at 8.00 m owns **35**, and
+  the control says why — a **crate** in the same cell at the same range owns **0 px**, so it is the
+  lip's geometry hiding them and not the enemy draw path ignoring `floorAt`. One instrument fact cost an
+  hour and is now written down: `DEV.lum` on the live canvas and the committed PNG of the same frame
+  differ by a systematic ~6 points (48.08 to 45.38, 138.94 to 131.63, 129.82 to 123.20, 117.15 to
+  111.13), which is the screenshot colour path, so single-digit disagreement between a caption and a
+  file is not a defect.
 - **The vertical milestones now say what the tools measure, because one of them said something false.**
   `AGENTS.md` recorded M3 as shipped - "~~bands + links~~ (issue #14 closed)" - and put the current marker
   on M4. #14 is **open and was never closed**, and its content never happened: the grid the generator builds
