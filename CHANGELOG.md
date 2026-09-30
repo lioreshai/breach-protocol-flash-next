@@ -372,6 +372,42 @@
   dark **0 of 181/194/175** at **0.672/0.631/0.647**, `bands` debt **3 of 27** with L0 face lip **54 %**
   all unchanged. Closes #211.
 
+- **README screenshots and captions recaptured two merges after the picture changed** (#203, #210).
+  The four shots came from one `?dev=1` boot of `4495c08` at canvas **1440×763** / raster **678×359**,
+  BALANCED, `DEV.freeze(true)` + `DEV.clear()` once and no `startLevel` between shots, with two
+  procedure changes that move the numbers: the level was **dealt from the probe's own dice** (the
+  `tools/view.js` `seedRng` LCG installed in the page, seeded **1000** = its `1000 + level*97 + roll*13`
+  at level 0 roll 0), so the PNGs and the probe numbers are one world instead of two maps; and the
+  level-intro banner was ended with the game's own `banner('', 0)`, because the freeze gates the
+  `update()` that owns its timer and a frozen frame otherwise keeps "SECTOR 1 · ARCHIVE SUBLEVEL"
+  across the middle of the picture. **Vitals read 100**, so the damage vignette that sat inside the
+  previous four frames' means (they carried 66 hp) is gone from these. Verification is a **code**
+  marker, not prose: `genLevel.toString().includes('topUpEnabled')` → **true** in the page that rendered
+  them, re-read after the A/B restored the knob, and **12/12** `js` + `index.html` md5-equal to
+  `origin/main`. This session's egress allowlist refuses `lioreshai.github.io`, so the capture ran
+  against the merged tree rendered locally rather than the Pages URL, and the caption says so instead
+  of implying otherwise. What the captions now claim, measured: the pit frame's 16 floor cells
+  (`MAP.fz <= -3`) read mean light **0.630** with **0 of 16** under 0.05, and re-dealing **the same dice**
+  with #210's top-up off (`topUpEnabled` returning false, the `LAMPS=off` knob) puts them at **0.002**
+  with **16 of 16** dark and the lamp list at **7 instead of 10** — lip camera **20.62 → 44.30**,
+  pit-floor camera **36.00 → 168.18** (centre-half **228.92**, `MAP.light 0.908`), which documents
+  #204 as a measurement and records that its symptom has **flipped sign** (filed as **#213**): a lamp
+  in a 5x3 hole now reads near-blown. Two instrument findings, both printed instead of smoothed: an independent PNG
+  decode sits **0.5 to 2.0 BELOW** `DEV.lum` here (−1.96 / −0.53 / −1.58 / −0.71 luma), the opposite
+  sign to the "**+0.1 to +0.3 high**" the last caption recorded, and the PNGs carry no colour chunk; and
+  because film grain cycles **7 phases** (`js/40_render.js:1203`) while the page's own rAF keeps
+  compositing between `eval` calls, a "the frame changed" claim is only meaningful **inside one JS
+  turn** — in-turn the floor is **0.009–0.028 %** of pixels moving >4 luma, across turns an unchanged
+  frame reported **2.872 %**. New finding, filed as **#212**: **the same pit from 1.5 m out is a wall** —
+  **93.8 %** of the pixels above the horizon carry wall texture while `DEV.ray` reports open ground to
+  **9.5 m** and `zbuf` records the face at **0.14–0.21 m** on rows 10…355, falling to 13.5 % at 2.5 m,
+  2.8 % at 3.5 m and 0 % beyond 7.5 m, at a *bright* mean of 71.62, so no brightness gate can see it.
+  Also fixed in passing: the claim that the minimap's band palette is "the only altitude cue" (the spawn
+  frame's minimap is unexplored black), the "0.036 %" noise floor restated as the in-turn number, and
+  the enemies frame's #189 sentence — the staircase case is measured at **8,782 px (0.799 %)** for a body
+  a full band above the camera, so #189 keeps the **deck** repro and not this one.
+
+
 - README screenshots refreshed from the deployed build carrying `66eea67` (#200) in one `?dev=1`
   boot, all **11** `js` subresources md5-checked against the tree (11/11; marker `FARFAN` 5 served /
   5 in `main` / **0** in `main~1`), and the sentences beside them rewritten because one of them was
