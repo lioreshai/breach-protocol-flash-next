@@ -205,6 +205,12 @@
   game never passes an argument. Closes #157.
 
 ### Changed
+- **The ground-pass diagnostic is a blocking CI row** (#177 follow-up). `cull` now runs twice in the
+  probes job, once plain and once under `LEAK=1 CZBAND=1`, so the wrong-fix falsifier that only those
+  two rows can see - adopting the nearer ceiling plane, which leaves every shipped verdict green -
+  turns the build red instead of being caught by a human who ran the right command. Measured on
+  `main`: the gated row exits 0 with ceiling-step ground hashes `14c12844` / `8ab438b0` / `5a425d84`,
+  and the plain run above it stays byte-identical because the diagnostic is env-gated.
 - **README screenshots and captions recaptured from the deployed build** (#190). The four shots
   were two builds out of date and two of the four captions described a different level than the pixels
   under them. All four are now re-shot from ONE boot of the live site at `?dev=1` (build `dc98788`),
