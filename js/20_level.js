@@ -771,6 +771,15 @@ function addGroundSplat(x, y, r, kind) {
   addDecal({ x: x + rnd(0.14, -0.14), y: y + rnd(0.14, -0.14), z: 0.01, r, tex, a: kind === 'scorch' ? 0.85 : 0.8, life: 55 });
 }
 
+/* Whether the coverage top-up may author lamps at all (#204). The shipped answer is yes, always; the
+   ONE reason it exists is tools/view.js's LAMPS=off knob, which runs the generator with the top-up
+   suppressed so the flat-parity triple can mean what it claims (see flatparity's header). It is a
+   function rather than a constant so the probe can reassign the global - the same handle style the
+   probes already use on groundPixel and castGround - and it is read ONCE per level, at author time,
+   so the suppression removes lamps from the record rather than deleting them after the world was
+   built around them. Nothing else in the generator consults it. */
+function topUpEnabled() { return true; }
+
 function genLevel(li) {
   const cfgL = LEVELS[li];
   if (cfgL.fogCol) { FOGC[0] = cfgL.fogCol[0]; FOGC[1] = cfgL.fogCol[1]; FOGC[2] = cfgL.fogCol[2]; }
@@ -899,7 +908,7 @@ function genLevel(li) {
        lamps than it is allowed and the guard is load-bearing. Draws come from a PRIVATE LCG and no grid
        is written - one global draw here would re-roll the world under every probe seed (#96), and
        MAP.fz is smoke's V15 flat lane. */
-    {
+    if (topUpEnabled()) {                                // LAMPS=off in tools/view.js runs the kernel without this
       const MIN_BAND = 8, PER_BAND = 2, MAX_ADD = 3, OWN_MIN = 0.25, COV_TARGET = 0.75;
       let ps = ((li * 7919 + rooms.length * 104729 + ((exitX * 1000) | 0) * 13 + 12345) >>> 0) || 1;
       const prnd = () => { ps = (Math.imul(ps, 1664525) + 1013904223) >>> 0; return ps / 4294967296; };

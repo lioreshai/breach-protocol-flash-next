@@ -132,6 +132,15 @@ for (const f of fs.readdirSync(path.join(__dirname, '..', 'js')).filter(f => f.e
   try { run(fs.readFileSync(path.join(__dirname, '..', 'js', f), 'utf8')); }
   catch (e) { console.log('LOAD FAIL ' + f + ': ' + e.stack.split('\n').slice(0, 4).join('\n')); process.exit(1); }
 }
+/* LAMPS=off suppresses the #204 coverage top-up at AUTHOR time and nothing else. js/20_level.js
+   topUpEnabled() is the one call site, so the budget lamps, the exit pad, the grid and every global
+   Math.random draw are the ones the shipped path makes - the difference between the two records is the
+   <=3 top-up lamps and no more, which tools/view.js flatparity ASSERTS (the knob-off lamp list must be a
+   field-by-field prefix of the shipped one) rather than assumes. It exists because flat parity is
+   compared in a world the probe flattened after generation: with the top-up on, a flat level carries
+   lamps that were authored for bands the probe deleted, so the flat md5 stops being a formula test. See
+   that mode's header before quoting either triple. */
+if (process.env.LAMPS === 'off') run('topUpEnabled = function () { return false; };');
 function newTex(t) { return { w: t.w, h: t.h, data: new Uint32Array(t.data), dbg: t.dbg }; }
 function dump(label, u32, w, h, scale) {
   const rgba = toRGBA(u32);
@@ -559,6 +568,54 @@ if (MODE === 'flatparity') {
      floorAt default on both builds, which is byte-equal by construction. Nothing here is in
      the shipped path.
 
+     TWO TRIPLES, AND THEY MEAN DIFFERENT THINGS. Since #208 the generator authors lamps by a coverage
+     rule (#204), so this probe can force a flat world two ways: with the lamp record the shipped path
+     makes, or with the coverage top-up suppressed at author time (LAMPS=off, view.js:152). They hash
+     differently, and only one of them is a parity proof:
+
+       PARITY  LAMPS=off    the top-up never authored, so the lamp record is 2c5a94f's and the ONLY
+                            difference from that build is the band term in splatLight. This is the
+                            formula-collapse proof every altitude change since M1 has passed.
+       LOCK    LAMPS unset   the shipped record: same formula, more lamps, some of them placed for a
+                            band this probe then flattened. It moves when PLACEMENT moves and proves
+                            nothing about a term - it is a regression lock on lamp placement.
+
+     The trap this header exists to close: "the flat md5 parity holds" read off the LOCK row is not
+     evidence that a shading change is bit-neutral. Since #208 that sentence was true of the LOCK row and
+     false as a formula claim, and nothing said so - L0 moved to 4262d051 (81.3) and L2 to 050b225e
+     (51.7) with the kernel alone measured bit-neutral. So both are recorded, both are checked, the knob
+     is in the label of each row, and the gap between them is decomposed into lamps below rather than
+     waved away. Run LAMPS=off when what you are asking is "is my term bit-neutral?".
+
+     CONTROLS, each run against this branch's kernel in its own worktree (never a file copy of the
+     probe), so both rows are known to be able to fail AND known to be unable to fail on one thing:
+
+       this js, LAMPS=off                     the OLD triple, ok - the kernel term is bit-neutral;
+       MAIN's js (2c5a94f) with these tools   LOCK FAIL x2 (L0, L2 - L1 is byte-identical in both
+                                            records) and PARITY ok x3: the same run reproduces the
+                                            OLD triple, which is the third quadrant for free, because
+                                            those hashes are what main's own flatparity prints;
+       this js, refs set to the OLD triple    LOCK FAIL x2 - so the LOCK row is satisfied by the
+                                            recorded md5, not merely by the hashes being stable;
+       this js, radial exponent 1.6 -> 1.55   PARITY FAIL x3 and LOCK FAIL x3 (means 82.8 / 34.9 /
+                                            52.5) - a term that is NOT bit-neutral reddens both;
+       this js, band term made ONE-SIDED      BOTH senses stay GREEN on all three levels, and THAT is
+         (light reaching up blocked, reaching  the limit of what a flat frame can prove. Replace
+          down unbounded: `lf - floor >=        `|lf - floor| <= ZQ + 1e-9` with `lf - floor >=
+          -ZQ - 1e-9` - the variant that trades  -ZQ - 1e-9` and all six rows print ok: LOCK hashes
+          one half of the bleed for the other.   4262d051 / f05beeb5 / 050b225e and PARITY hashes
+          It leaks - alt reads 169 / 273 / 117   f9e4da3a / f05beeb5 / d4b2d2cd, the shipped frames to
+          cells lit from a band above on that    the byte. On a flat world fd = 0 for every cell, so
+          very kernel)                         neither sense can see a SIGN convention. This is not a
+                                            threshold set too wide that a reviewer could tighten: the
+                                            term reduces to the literal 1 before the sign is ever
+                                            read, so NO flat frame can ever fail a signed band term.
+                                            Flat parity is necessary and never sufficient - alt's two
+                                            direction rows are what see the sign (they fail at
+                                            275 / 32 / 261 upward on main's kernel and at 169 / 273 /
+                                            117 downward on the one-sided one), which is why both
+                                            probes run and both gate.
+
      The hashed frame is not the first renderWorld of the process. Two determinism hazards
      are measured at 9656176 while building this probe: the FIRST frame after startLevel hashes
      differently across identical builds (the pose cache answers a cold request from the
@@ -570,9 +627,19 @@ if (MODE === 'flatparity') {
      constant dt until the damping converges, and hashes a warm frame - then re-renders and
      re-hashes to prove the pair agree before anyone compares them across builds. */
   const crypto = require('crypto');
+  /* RECORDED. OLD is what 2c5a94f's own flatparity prints, measured in this checkout; SHIP is what this
+     build's shipped path prints. L1 is byte-identical in both senses at this dice - the top-up adds no
+     lamp to level 1 here (the counts are printed in the decomposition rows), so only 2 of 3 levels can
+     tell the senses apart, and the control row says so instead of claiming a triple moved. */
+  const OLD = ['f9e4da3af18836db903fd7cbdf2b0206', 'f05beeb58f1266a1aea7e44712995292', 'd4b2d2cd539c3b620ea0ce5ab115d50a'];
+  const OLDM = [79.7, 34.1, 47.5];
+  const SHIP = ['4262d0517160b4461e7a4926a078512e', 'f05beeb58f1266a1aea7e44712995292', '050b225e3f295b3ca991d59addea2f1c'];
+  const SHIPM = [81.3, 34.1, 51.7];
+  const OFF = process.env.LAMPS === 'off';
+  const f1 = v => (v === undefined || v === null ? '-' : (+v).toFixed(1));
   const md5of = () => { const d = new Uint32Array(run('px'));
     return crypto.createHash('md5').update(Buffer.from(d.buffer, d.byteOffset, d.byteLength)).digest('hex'); };
-  const hashes = [];
+  const hashes = [], mns = [];
   const NL = run('LEVELS.length');
   for (let lv = 0; lv < NL; lv++) {
     seedRng(1000 + lv * 97);
@@ -592,7 +659,7 @@ if (MODE === 'flatparity') {
       for (let i = 0; i < B; i++) s += 0.2126 * (d[i] & 255) + 0.7152 * (d[i] >> 8 & 255) + 0.0722 * (d[i] >> 16 & 255);
       return s / B;
     })()`);
-    hashes.push(md5of());
+    hashes.push(md5of()); mns.push(mean);
     console.log('  level ' + lv + '  flat spawn-frame md5 ' + hashes[lv] + '  mean ' + mean.toFixed(1));
   }
   if (process.env.FP_CHILD) process.exit(0);
@@ -603,25 +670,167 @@ if (MODE === 'flatparity') {
      survives removing enemies, props, pickups and lights - some per-render cache or pool state
      in the draw path is responsible; this probe does not claim to have found its mechanism.
      What WAS measured true is the property this tool needs: cold-process-to-cold-process, the
-     whole hash stream is byte-identical. So the probe spawns itself once and requires the pair
-     to agree before calling these md5s comparable across builds - a parity claim hashes a
+     whole hash stream is byte-identical. So the probe spawns itself (a twin of this pass, plus two
+     cold samples of the other lamp record) and requires the pairs to agree before calling these md5s
+     comparable across builds - a parity claim hashes a
      cold-start frame at a fixed render index, never "the second render". The clock pin above
      is separate and load-bearing: the harness stubs performance.now() as Date.now() (view.js:
      121) and drawViewModel integrates look-lag against that dt (:3055/:4007 describe the same
      trap), so unpinned frames advance the gun's lag by wall milliseconds - which is how two
      runs of ONE unchanged build hashed differently under machine load at first. */
-  const child = require('child_process').spawnSync(process.execPath, [__filename, 'flatparity'],
-    { env: Object.assign({}, process.env, { FP_CHILD: '1' }), encoding: 'utf8', timeout: 900000 });
-  const re = /level (\d+)\s+flat spawn-frame md5 ([0-9a-f]{32})/g;
-  let m, mismatch = -1, n2 = 0;
-  while ((m = re.exec(child.stdout || ''))) { if (hashes[+m[1]] !== m[2]) mismatch = +m[1]; n2++; }
-  if (child.error || child.status !== 0 || n2 !== hashes.length || mismatch >= 0) {
-    console.log('FLATPARITY UNSTABLE' + (mismatch >= 0 ? ' on level ' + mismatch : '') + ' - hashes describe nothing.' +
-      ' child exit ' + child.status + ' ' + String(child.error || child.stderr || '').split('\n')[0]);
+  const spawn = flip => {
+    const env = Object.assign({}, process.env, { FP_CHILD: '1' });
+    if (flip) { if (OFF) delete env.LAMPS; else env.LAMPS = 'off'; }
+    const c = require('child_process').spawnSync(process.execPath, [__filename, 'flatparity'],
+      { env, encoding: 'utf8', timeout: 900000 });
+    const rx = /level (\d+)\s+flat spawn-frame md5 ([0-9a-f]{32})\s+mean ([-\d.]+)/g;
+    const h = [], mm = []; let q, n = 0;
+    while ((q = rx.exec(c.stdout || ''))) { h[+q[1]] = q[2]; mm[+q[1]] = +q[3]; n++; }
+    return { h, mm, n, status: c.status, why: String(c.error || c.stderr || '').split('\n')[0] };
+  };
+  const sameStream = (a, b, n) => a.n === n && b.n === n && a.h.slice(0, n).every((x, i) => x === b.h[i]);
+  const twin = spawn(false);
+  if (twin.status !== 0 || !sameStream({ h: hashes, n: hashes.length }, twin, hashes.length)) {
+    console.log('FLATPARITY UNSTABLE on the ' + (OFF ? 'LAMPS=off' : 'shipped') + ' pass - hashes describe nothing.' +
+      ' child exit ' + twin.status + ' ' + twin.why);
     process.exit(1);
   }
-  console.log('flatparity ok - two cold-start processes hashed identical frames; compare these md5s across builds');
-  process.exit(0);
+  /* The OTHER lamp record, sampled twice cold. Twice, because a single cold process proves nothing about
+     stability - the property above is cold-to-cold - and this pass may not render both records in one
+     process, which is the alternation the comment above measured. The samples run with FP_CHILD so they
+     print their streams and do not recurse; the rows below are printed once, by the pass that was asked
+     for them. */
+  const o1 = spawn(true), o2 = spawn(true);
+  if (o1.status !== 0 || o2.status !== 0 || !sameStream(o1, o2, hashes.length)) {
+    console.log('FLATPARITY UNSTABLE across the LAMPS=' + (OFF ? 'unset' : 'off') + ' pass - hashes describe nothing.' +
+      ' child exits ' + o1.status + '/' + o2.status + ' ' + (o1.why || o2.why));
+    process.exit(1);
+  }
+  const shipH = OFF ? o1.h : hashes, shipM = OFF ? o1.mm : mns;
+  const parH = OFF ? hashes : o1.h, parM = OFF ? mns : o1.mm;
+  let bad = 0;
+  const row = (label, ok, detail) => { if (!ok) bad++; console.log('  ' + (ok ? 'ok  ' : 'FAIL') + '  ' + label + ' - ' + detail); return ok; };
+
+  for (let lv = 0; lv < NL; lv++) {
+    row('L' + lv + ' PARITY  collapses to 2c5a94f   [LAMPS=off - the coverage top-up never authored]',
+      parH[lv] === OLD[lv],
+      'md5 ' + parH[lv] + ' mean ' + f1(parM[lv]) + ' against the triple 2c5a94f prints (' + OLD[lv] + ' mean ' + OLDM[lv] +
+      '). The lamp record is that build\'s, so the only difference from it is the band term in splatLight: THIS is the\n' +
+      '        formula-collapse proof, the one a shading change is gated on. Run LAMPS=off to use it.');
+    row('L' + lv + ' LOCK    holds at the shipped record   [LAMPS unset]',
+      shipH[lv] === SHIP[lv],
+      'md5 ' + shipH[lv] + ' mean ' + f1(shipM[lv]) + ' against the recorded ' + SHIP[lv] + ' mean ' + SHIPM[lv] +
+      '. This is a REGRESSION LOCK on lamp placement, not a\n' +
+      '        formula claim: it moves when a placement rule moves, so green here is NOT evidence that a term is bit-neutral.');
+  }
+  const dLock = shipH.filter((x, i) => x !== OLD[i]).length, dPar = parH.filter((x, i) => x !== SHIP[i]).length;
+  const sumGap = [], addN = [];
+
+  /* WHY the two triples differ, decomposed into lamps instead of asserted. Each pass: generate (same
+     dice the hash loop uses), snapshot the lamp record, then run the probe's own flatten recipe and sum
+     the DELIVERED light channel, blur included, because that is what the frame reads. The two records
+     must differ by the top-up lamps and nothing else, so the knob-off record is required to be a
+     field-by-field prefix of the shipped one (x, y, r, str, authored z) - that is the check that the
+     knob suppresses the top-up and not the world. Then each top-up lamp is splatted ALONE, in the
+     authored world and in the flattened one: blurLight is o[i] = sum(w*v)/n with n a function of position
+     only, so it is linear and the sum of the blurred solos must equal the difference of the sums to
+     floating-point noise. If that residual is not noise the gap is not the lamps, and this row is the
+     formula bug. */
+  if (!OFF) {
+    const KNOB = off => 'topUpEnabled = function () { return ' + (!off) + '; };';
+    const SNAP = `(function(){ return { n: LIGHTS.length, np: PROPS.length,
+      l: LIGHTS.map(L => ({ x: L.x, y: L.y, r: L.r, str: L.str, z: L.z, col: L.col })) }; })()`;
+    const FLAT = `(function(){ const N = MAP.w, B = N * N;
+      globalThis.__fzAuth = MAP.fz.slice();
+      MAP.fz.fill(0); MAP.cz.fill(CZ_DEF); linkBoundaries();
+      for (const L of LIGHTS) if (L.stat && L.z !== undefined) L.z = floorAt(L.x, L.y) + 0.78;
+      MAP.light.fill(0); MAP.lR.fill(0); MAP.lG.fill(0); MAP.lB.fill(0); MAP.lw.fill(0);
+      for (const L of LIGHTS) splatLight(L, L.str);
+      blurLight(); buildTint();
+      let post = 0; for (let i = 0; i < B; i++) post += MAP.light[i];
+      return { post, lt: Array.from(MAP.lt), l: LIGHTS.map(L => ({ x: L.x, y: L.y, r: L.r, str: L.str, z: L.z, col: L.col })) }; })()`;
+    const SOLO = (L, cond) => `(function(){ const N = MAP.w, B = N * N, L = ${JSON.stringify(L)};
+      MAP.light.fill(0); MAP.lR.fill(0); MAP.lG.fill(0); MAP.lB.fill(0); MAP.lw.fill(0);
+      splatLight(L, L.str);
+      let pre = 0, touch = 0, lit = 0, offb = 0;
+      for (let i = 0; i < B; i++) { const v = MAP.light[i]; pre += v; if (v > 1e-6) { touch++; if (v >= 0.25) lit++; if (${cond}) offb++; } }
+      blurLight();
+      let post = 0; for (let i = 0; i < B; i++) post += MAP.light[i];
+      return { pre, post, touch, lit, offb }; })()`;
+    const COND_AUTH = `Math.abs(MAP.fz[i] * ZQ - (L.z === undefined ? floorAt(L.x, L.y) : L.z - LHOVER)) > ZQ + 1e-9`;
+    for (let lv = 0; lv < NL; lv++) {
+      run(KNOB(true)); seedRng(1000 + lv * 97);
+      run(`S.mode='play'; S.locked=false; startLevel(${lv}, true);`);
+      const b0 = run(SNAP), bF = run(FLAT);
+      run(KNOB(false)); seedRng(1000 + lv * 97);
+      run(`S.mode='play'; S.locked=false; startLevel(${lv}, true);`);
+      const s0 = run(SNAP);
+      const au = s0.l.slice(b0.l.length).map(L => run(SOLO(L, COND_AUTH)));
+      const sF = run(FLAT);
+      const ex = sF.l.slice(bF.l.length).map(L => run(SOLO(L, `globalThis.__fzAuth[i] !== 0`)));
+      let prefix = s0.l.length >= b0.l.length;
+      for (let k = 0; prefix && k < b0.l.length; k++)
+        for (const f of ['x', 'y', 'r', 'str', 'z']) if (s0.l[k][f] !== b0.l[k][f]) prefix = false;
+      const delta = sF.post - bF.post, solos = ex.reduce((a, o) => a + o.post, 0), resid = Math.abs(delta - solos);
+      let tintMoved = 0;
+      for (let i = 0; i < bF.lt.length; i += 3) if (Math.abs(bF.lt[i] - sF.lt[i]) > 4 || Math.abs(bF.lt[i + 1] - sF.lt[i + 1]) > 4 ||
+        Math.abs(bF.lt[i + 2] - sF.lt[i + 2]) > 4) tintMoved++;
+      row('L' + lv + ' the gap between the two triples is the top-up lamps and nothing else',
+        prefix && ex.length === s0.l.length - b0.l.length && (delta === 0 ? resid < 1e-4 : resid <= Math.abs(delta) * 0.001),
+        'lamps ' + b0.n + ' -> ' + s0.n + ', props ' + b0.np + ' -> ' + s0.np + ', knob-off record is a field-by-field prefix of the shipped one: '
+        + (prefix ? 'yes' : 'NO'));
+      sumGap[lv] = delta; addN[lv] = ex.length;
+      console.log('          flat delivered light sum ' + sF.post.toFixed(1) + ' shipped vs ' + bF.post.toFixed(1) + ' knob-off = '
+        + delta.toFixed(2) + '; the ' + ex.length + ' top-up lamp(s) alone deliver ' + solos.toFixed(2) + ' through the same blur'
+        + ' (residual ' + resid.toExponential(1) + '), so the ' + f1(shipM[lv]) + '-' + f1(parM[lv]) + ' frame-mean gap is lamps placed on a world'
+        + ' the probe flattened, not a term\n          per lamp, cells it serves where it was authored -> cells it lights once the probe flattened'
+        + ' the world (the second number is larger because a lamp authored for an N-cell band lands on the whole datum floor): '
+        + (ex.length ? ex.map((o, k) => '\n            ' + (au[k] ? au[k].lit : '?') + ' cells at >=0.25 -> ' + o.lit + ' cells at >=0.25, of the '
+          + o.touch + ' cells it touches ' + o.offb + ' sit where a band was deleted, blurred sum ' + o.post.toFixed(2)).join('') : 'none')
+        + (tintMoved ? '\n          the delivered TINT also moves on ' + tintMoved + ' cells (the lamps carry the level lamp colour, so'
+          + ' the gap is not a light-channel-only difference)' : ''));
+    }
+  }
+  /* The instrument comparison, measured rather than asserted: a spawn-camera frame sees the cells it
+     can see, so a lamp placed in a room the camera cannot reach moves NO pixel. The lightmap sum has no
+     such blindness. On these dice level 1's frame is byte-identical in both senses while its light sum
+     moves by +131 - which is why the LOCK row above is called a lock and not a proof, and why the
+     decomposition is what a placement change is actually read against. */
+  /* Counted from a BOOLEAN, not from a string prefix. The first version classified each level into
+     'md5+sum' or 'md5 BLIND, sum+' and then counted `seen.filter(s => s[0] === 'm')` - both labels
+     begin with 'm', so the count was ALWAYS NL and the row printed "3 of 3 move their flat lightmap
+     sum WITHOUT moving a pixel" on the same line whose own per-level list said two of the three had
+     moved a pixel (measured: 4262d051/f05beeb5/050b225e vs the old triple, so L0 and L2 moved). A
+     count that cannot take another value is not a measurement (AGENTS), and this one was load-bearing
+     prose: it is the sentence that tells a reviewer the LOCK row is blind to a lamp in an unseen room.
+     Each level is now classified by BOTH instruments - md5 moved or not, lightmap sum moved or not - so
+     "md5 BLIND, sum+" is the only label that means the frame is blind, "BOTH FLAT" says the top-up lit
+     nothing at all, and the row asserts the md5 column agrees with dLock and that a lamp that was added
+     moved the lightmap. On main's js the honest reading is 0 blind / 3 BOTH FLAT, because the knob is
+     inert there and the two records are the same world - which is the vacuity the dLock >= 1 term sees. */
+  const md5Moved = sumGap.map((d, i) => shipH[i] !== OLD[i]);
+  const sumMoved = sumGap.map(d => d > 1e-6);
+  const seen = sumGap.map((d, i) => md5Moved[i] ? (sumMoved[i] ? 'md5+sum' : 'md5+ (flat sum)')
+    : (sumMoved[i] ? 'md5 BLIND, sum+' : 'BOTH FLAT'));
+  const blind = sumGap.filter((d, i) => sumMoved[i] && !md5Moved[i]).length;
+  const moved = md5Moved.filter(m => m).length, still = sumGap.filter((d, i) => !sumMoved[i] && !md5Moved[i]).length;
+  row('the LOCK row is not a lamp census (frame md5 vs lightmap sum)',
+    dLock === dPar && dLock >= 1 && (sumGap.length ? sumGap.every(d => d >= 0) && addN.every(n => n >= 0) &&
+      moved === dLock && sumGap.every((d, i) => addN[i] === 0 || sumMoved[i]) : true),
+    'per level ' + (seen.join(' ') || 'light sums only measured without LAMPS=off')
+    + (sumGap.length ? '; ' + blind + ' of ' + NL + ' move their flat lightmap sum WITHOUT moving a pixel'
+      + ', ' + moved + ' of ' + NL + ' move a pixel too (dLock ' + dLock + ')'
+      + (still ? ', ' + still + ' of ' + NL + ' move neither - the top-up added no lamp that the lightmap sees'
+        : '') + ' (gaps +' + sumGap.map(d => d.toFixed(1)).join(' / +') + ' delivered light from +' + addN.join('/')
+      + ' lamp(s))'
+      : '; the decomposition runs on the shipped pass only, so run this mode without LAMPS=off for it')
+    + '. A placement rule that only touches rooms the spawn camera cannot see therefore CANNOT move this'
+    + ' triple, so do not read the LOCK row as a lamp census - and note the pair is not vacuous: on MAIN'
+    + ' the two senses are identical, the sums do not move, and this row goes red.');
+  console.log(bad ? 'FLATPARITY ' + bad + ' FAILURES - the PARITY triple no longer collapses with LAMPS=off, or the LOCK triple moved'
+    : 'flatparity ok - PARITY collapses to 2c5a94f with LAMPS=off (formula collapse) and LOCK holds on the shipped lamp record'
+    + ' (regression lock); two cold processes per sense agree');
+  process.exit(bad ? 1 : 0);
 }
 
 if (MODE === 'vert') {

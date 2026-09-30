@@ -91,6 +91,51 @@
   ×3, main+old ok, variant+old FAIL ×3) and the px-difference counts holding at **51048 / 49614 /
   49586** against main's 51047 / 49620 / 49586. Perf is a wash: interleaved 3 pairs at load 2.4–3.0,
   **11.77 / 11.95 / 11.95 ms** against main's **12.33 / 11.45 / 11.72**.
+- **"Flat md5 parity holds" stopped proving anything about a term** (#208 follow-up, tool-only).
+  `flatparity` compared nothing: it hashed a flat spawn frame, checked the hash against its own cold
+  child for **stability**, and printed "compare these md5s across builds" — no recorded reference in
+  its whole code path (0 md5 literals in its block at `2c5a94f`), and `ci.yml` never ran it. So the
+  sentence every altitude change since M1 has been gated on lived in PR prose only, and since #208 the
+  generator authors lamps by a coverage rule, which broke it twice over: the probe flattens `MAP.fz`
+  **after** generation, so a shipped flat frame carries top-up lamps that were placed for bands the
+  probe then deleted, and the md5 moves with **placement** rather than with any term. The mode now
+  prints and asserts **two triples with two names**. `LAMPS=off` (a documented knob styled like
+  `WARM=`/`SEED=`, wired to one new call site, `genLevel`'s `topUpEnabled()`, read once per level at
+  author time) suppresses the top-up and nothing else — the budget lamps, the exit pad, the grid and
+  every global `Math.random` draw stay the shipped ones — and that record must reproduce
+  `f9e4da3af18836db903fd7cbdf2b0206 / f05beeb58f1266a1aea7e44712995292 / d4b2d2cd539c3b620ea0ce5ab115d50a`
+  at means **79.7 / 34.1 / 47.5**: **PARITY**, the formula-collapse proof a shading change is gated on.
+  Without the knob the shipped record must hold **4262d051… / f05beeb5… / 050b225e…** at
+  **81.3 / 34.1 / 51.7**: **LOCK**, a regression lock on lamp placement, green is not evidence of
+  bit-neutrality, and neither triple may be quoted as "parity" without saying which. The gap is
+  decomposed rather than waved away: flat delivered light **469.6 vs 321.0 (L0), 518.6 vs 387.5 (L1),
+  839.3 vs 758.6 (L2)** against **3 / 3 / 2** top-up lamps splatted **alone** through the same (linear)
+  blur, which accounts for the difference to **1.1e-6 / 8.4e-8 / 2.0e-7** — the residual is the formula
+  bug row, and it is noise. Four quadrants seen to disagree, each in its own tree: knob-off + old refs
+  **ok**, main's `js` + these refs **LOCK FAIL ×2** (L1 is byte-identical in both records), main's own
+  build + its own probe **ok at the old triple** (and unable to fail on content, which is the defect
+  this entry is about), shipped + old refs **FAIL ×2**.
+- **A probe count that could only ever read 3** (found while writing the row above). The first version
+  of the census row classified each level into `md5+sum` or `md5 BLIND, sum+` and then counted
+  `seen.filter(s => s[0] === 'm')` — **both labels start with `m`**, so the count was always `NL` and
+  the row printed "**3 of 3** move their flat lightmap sum WITHOUT moving a pixel" on the same line
+  whose own per-level list said two of the three had moved a pixel. The sentence was the one that tells
+  a reviewer the LOCK row cannot see a lamp in a room the spawn camera misses, so it was load-bearing
+  prose fed by a constant. Each level is now classified by **both** instruments (md5 moved / lightmap
+  sum moved) into `md5+sum`, `md5 BLIND, sum+`, `md5+ (flat sum)`, `BOTH FLAT`, the blind count is
+  derived from the md5 comparison the rows are gated on, and the row asserts the two agree (`moved ==
+  dLock`) and that a lamp added moved the lightmap — so on main's `js` it reads **0 blind, 3 BOTH
+  FLAT**, which is the vacuity `dLock >= 1` already reddens. Honest reading here: **1 of 3** (L1).
+- **What no flat frame can ever see, printed where the claim lives.** Replacing the band term's
+  `|lf - floor| <= ZQ + 1e-9` with `lf - floor >= -ZQ - 1e-9` — one-sided, blocking the upward half and
+  allowing light **down** past any number of bands, and it leaks: `alt` reads **169 / 273 / 117** cells
+  lit from a band above on that very kernel — leaves **all six** flatparity rows green on all three
+  levels, LOCK hashing `4262d051 / f05beeb5 / 050b225e` and PARITY `f9e4da3a / f05beeb5 / d4b2d2cd`
+  bit for bit. Not a threshold set too wide: on a flat world `fd = 0` in every cell, so the term
+  reduces to the literal 1 before the sign is ever read. Flat parity is **necessary and never
+  sufficient** for a band term, and `alt`'s two direction rows are what see the sign (they fail at
+  **275 / 32 / 261** upward on main's kernel and **169 / 273 / 117** downward on the one-sided one).
+  Recorded in the mode's header so the next reader is not told a proof is stronger than it is.
 - **A lamp lit columns whose band it was not on** (#203). `splatLight` splatted a **2-D disc and
   discarded `L.z`**, although lamps carry one (`js/20_level.js:845`, `z = floorAt + 0.78`), so light
   crossed band boundaries as if the slab were glass: **13–17 % of open cells** on every level carried
