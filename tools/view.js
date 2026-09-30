@@ -1451,8 +1451,9 @@ if (MODE === 'cull') {
                   both ceilings (nothing queues) or raises a FLOOR (the leak geometry, now fixed).
        CFG=ship,nodefer,alldefer picks the configs, LEAKROW=1 adds the per-pixel row-path/deferred map.
        Off by default: `node tools/view.js cull` without them runs no line of this block.
-       CZBAND hashes recorded on 76e9356 (generated volume from #188 is IN this build, which is why they
-       are not the bb92cda0/80688d4a/0186ce30 quoted in #177): L0 14c12844, L1 8ab438b0, L2 5a425d84.
+       CZBAND hashes recorded on fix/far-band-light-197 (#197, the commit that moves the far band's light
+       off the camera's own cell; they were 14c12844/8ab438b0/5a425d84 on 5f14a09, and before that the
+       bb92cda0/80688d4a/0186ce30 quoted in #177): L0 2711a2a8, L1 10157366, L2 eaee1fd8.
        Which ground path paints the pixels where a prop on the band above still draws through the
        slab? Same frame, three configs of ONE line (js/40_render.js:468): ship (the split as
        authored), nodefer (the split can never queue, so castGround's own body paints every pixel of
@@ -1609,11 +1610,14 @@ if (MODE === 'cull') {
          planeA and the neighbour agree and nothing queues. This hashes the ground pass's own framebuffer
          for that frame, so two builds can be compared on it. CZBAND=1, and the value is meaningless on
          its own - only its agreement or disagreement across two trees means anything. */
-      /* The values the ground pass answers on this geometry, recorded on 76e9356 - the two-sided form
-         of printing them (#177). A wrong ceiling rule that passes every shipped gate MOVES these, which
-         is the whole reason the row exists; a deliberate change to the ceiling answer updates all three
-         together with the row that justifies it, and nothing else. */
-      const CZBAND_REF = [0x14c12844, 0x8ab438b0, 0x5a425d84];
+      /* The values the ground pass answers on this geometry - the two-sided form of printing them (#177).
+         A wrong ceiling rule that passes every shipped gate MOVES these, which is the whole reason the row
+         exists; a deliberate change to the ceiling answer updates all three together with the row that
+         justifies it, and nothing else. Moved by fix/far-band-light-197 (#197) off 5f14a09, where they
+         were 0x14c12844 / 0x8ab438b0 / 0x5a425d84: the far band now reads the cell its own row solves
+         into, so a frame whose horizon band lands in a different cell than the camera's paints differently
+         - measured with LEAK=1 CZBAND=1 in this tree, and the three together with nothing else. */
+      const CZBAND_REF = [0x2711a2a8, 0x10157366, 0xeaee1fd8];
       if (process.env.CZBAND) {
         czRows++;
         run(`(function(){ window.__cz0b = MAP.cz.slice(); ${JSON.stringify(BG.cells)}
@@ -4766,6 +4770,11 @@ if (MODE === 'bands') {
   // the same rule for the seam band's depth: mean(B-A) over the band, over mean(A) over that band.
   // Measured 1.13-1.45 on all six lips of the branch with the term on, 0.00 with SEAM=0.
   const DROP_CON_MIN = +(process.env.DROP_CON_MIN || 0.45);
+  /* #197's two bars, both measured on the trees that needed them (see the far-band block below): the
+     step over the FARB boundary, and the share of the frame that may be near-black. A half-frame with no
+     band in it at all is VACUOUS and counts against the row, never in its favour. */
+  const FARB_STEP_MAX = +(process.env.FARB_STEP_MAX || 8);
+  const FARDARK_MAX = +(process.env.FARDARK_MAX || 55), FARDARK_L = +(process.env.FARDARK_L || 24);
   for (let li = 0; li < 3; li++) {
     const spawn = run(`(function () { startLevel(${li}, true); return [P.x, P.y]; })()`);
     // SEAM=0 runs this whole probe with the term switched off in the renderer, so the same rows can
@@ -4996,9 +5005,108 @@ if (MODE === 'bands') {
     row(`L${li} minimap shows which band a cell is on`, bands.length >= 2 && sameOff.length === 0,
       `${bands.length} bands painted: ` + bands.map(b => `${b.toFixed(2)}m ${colOf(b)}`).join(', ') +
       (sameOff.length ? ` - ${sameOff.length} off-datum band(s) still use the datum colour` : ''));
+    /* #197: WHERE THE FAR BAND GETS ITS LIGHT. castGround fills - does not texture - every row whose own
+       plane solve passes FARB: the horizon band of a flat level, the upper half of a tall room, the far
+       side of a pit. That fill used to read MAP.light and the tint of cellIdx(camX, camY) - the CAMERA
+       column - so the brightness of everything past 22 m was the lamp luck of wherever the eye stood, and
+       a measured frame read 22.7 mean with 63.6% of pixels under 24 because one cell said so. What gates
+       it is LUMINANCE CONTINUITY ACROSS THE FARB BOUNDARY, not a threshold on how bright the band is:
+       take the LAST FILLED ROW (|p| = floor(dz*BH/FARB), the renderer own rule and its own dz, from the
+       band the eye stands in) against the FIRST TEXTURED ROW (|p| + 1) - same frame, same columns, ~1 m
+       apart in distance, so the world on either side of the boundary is the same world and the only thing
+       that can move is the shading. Same cell and same light: the step is the texture own grain. The
+       camera cell: the step is the difference between two rooms, drawn as a hard edge across the middle of
+       the frame. The rows are read off a castGround-only repaint, because the wall pass legitimately covers
+       part of the band and would hide the pixels this asks about; the band is CHECKED to be a fill (one
+       value across the row) rather than assumed, so a frame with no band in it is VACUOUS and counts
+       against the row instead of passing quietly; and the camera is sampled at the spawn and at the
+       nearest lip the grid offers, four yaws each, so no single pose can satisfy the row incidentally.
+       Measured 2026-09-30 at 9 cameras x 6 yaws x both halves: this build reads 4.2 / 5.8 / 3.4 mean
+       |step| on levels 0/1/2 and origin/main reads 18.4 / 19.1 / 9.8 - the bar sits in that gap, closer
+       to the fix than to main, and L2 is the level that can only pass on a small number of cameras
+       because its floor material is mostly emissive at the coarse mip, where the light barely counts. */
+    const farProbe = () => run(`(function () {
+      const N = MAP.w, cell = MAP.cell, fz = MAP.fz, cp = MAP.ceilPlane, lm = MAP.light;
+      px.fill(pack(FOGC[0], FOGC[1], FOGC[2]));
+      castGround(S.flash, FOGC[0], FOGC[1], FOGC[2]);
+      const hz = Math.round(horizon), cx = camX | 0, cy = camY | 0, ci = cy * N + cx, out = [];
+      const stat = y => {
+        let s = 0, mn = 1e9, mx = -1e9, first = px[y * BW], same = true;
+        for (let x = 0; x < BW; x++) {
+          const v = px[y * BW + x], Lv = 0.2126 * (v & 255) + 0.7152 * (v >> 8 & 255) + 0.0722 * (v >> 16 & 255);
+          s += Lv; if (Lv < mn) mn = Lv; if (Lv > mx) mx = Lv; if (v !== first) same = false;
+        }
+        return { mean: s / BW, mn, mx, spread: mx - mn, flat: same };
+      };
+      for (const side of [1, -1]) {
+        const isF = side > 0, air = cx >= 0 && cy >= 0 && cx < N && cy < N && !cell[ci];
+        const raw = air ? (isF ? fz[ci] * ZQ : cp[ci]) : eyeZ;
+        const okA = isF ? raw < eyeZ : raw > eyeZ;
+        const pl = okA ? raw : (isF ? Math.min(0, eyeZ - ZQ) : Math.max(1, eyeZ + ZQ));
+        const dz = isF ? eyeZ - pl : pl - eyeZ;
+        if (!(dz > 0)) { out.push({ side, skip: 'no plane of the band the eye stands in reaches these rows' }); continue; }
+        const pb = Math.floor(dz * BH / FARB), yF = hz + side * pb, yT = hz + side * (pb + 1);
+        if (pb < 1 || yF < 0 || yF >= BH || yT < 0 || yT >= BH) { out.push({ side, pb, skip: 'band off frame' }); continue; }
+        let bsum = 0, bn = 0, tsum = 0, tn = 0, bandFlat = true;
+        for (let p = 1; p <= pb; p++) { const y = hz + side * p; if (y < 0 || y >= BH) break; const q = stat(y); bsum += q.mean; bn++; if (!q.flat) bandFlat = false; }
+        for (let k = 1; k <= 3; k++) { const y = hz + side * (pb + k); if (y < 0 || y >= BH) break; const q = stat(y); tsum += q.mean; tn++; }
+        const f = stat(yF), t = stat(yT);
+        out.push({ side, pb, yF, yT, dz, fill: f, tex: t, bandMean: bn ? bsum / bn : 0, texMean: tn ? tsum / tn : 0,
+          bandFlat, dF: zbuf[yF * BW], dT: zbuf[yT * BW], camL: lm && ci >= 0 && ci < lm.length ? lm[ci] : -1 });
+      }
+      return out; })()`);
+    const farFrame = () => {
+      const fr = new Uint32Array(run('px'));
+      let dk = 0, n = 0, s = 0;
+      for (let i = 0; i < fr.length; i += 3) {
+        const v = fr[i], L = 0.2126 * (v & 255) + 0.7152 * (v >> 8 & 255) + 0.0722 * (v >> 16 & 255);
+        s += L; n++; if (L < FARDARK_L) dk++;
+      }
+      return { dark: 100 * dk / n, mean: s / n };
+    };
+    const cams = [[spawn[0], spawn[1]]];
+    const lipF = lipFor('face', spawn[0], spawn[1]);
+    if (!lipF.skip) cams.push([lipF.cx, lipF.cy]);
+    const lipW = lipFor('walk', spawn[0], spawn[1]);
+    if (!lipW.skip) cams.push([lipW.cx, lipW.cy]);
+    /* plus a fixed lattice of open cells, first in row order: two cameras can be satisfied by luck -
+       level 2 reads 9.8 on main across 108 half-frames while the spawn and the face lip alone read 7.8, and a
+       floor that is mostly emissive at the coarse mip barely answers the lightmap at all - a lattice is
+       what stops one lucky pose from being the verdict. Deterministic: MAP.cell, row-major, no draw of any random number. */
+    const lat = run(`(function () { const N = MAP.w, cell = MAP.cell, st = Math.max(3, (N / 6) | 0), out = [];
+      for (let y = 1; y < N - 1 && out.length < 6; y += st) for (let x = 1; x < N - 1 && out.length < 6; x += st)
+        if (!cell[y * N + x]) out.push([x + 0.5, y + 0.5]);
+      return out; })()`);
+    for (const c of lat) cams.push(c);
+    const YAWS = [0, Math.PI / 3, 2 * Math.PI / 3, Math.PI, 4 * Math.PI / 3, 5 * Math.PI / 3];
+    const nFrame = cams.length * YAWS.length;
+    let fSamples = 0, fStep = 0, fWorst = 0, fVac = 0, fDark = 0, fMean = 0, fParts = [];
+    for (const [fx, fy] of cams) for (const fyaw of YAWS) {
+      pose(fx, fy, fyaw);
+      run('S.t = 3.5; renderWorld()');
+      const fr = farFrame();
+      fDark += fr.dark; fMean += fr.mean;
+      for (const h of farProbe()) {
+        if (h.skip) { fVac++; continue; }
+        // a fill row is ONE value across the row: if it is not, there is no band here and the pair proves nothing
+        if (!h.fill.flat || h.tex.flat || !h.bandFlat) { fVac++; continue; }
+        const st = h.fill.mean - h.tex.mean;
+        fSamples++; fStep += Math.abs(st);
+        fParts.push(`${h.side > 0 ? 'f' : 'c'}${h.pb}:${st >= 0 ? '+' : ''}${st.toFixed(1)}@${h.dF.toFixed(0)}m`);
+        if (Math.abs(st) > fWorst) fWorst = Math.abs(st);
+      }
+    }
+    const nSamp = fSamples || 1;
+    row(`L${li} far band: its light is the cell the row solves into, not the camera own`,
+      fSamples >= nFrame && fStep / nSamp <= FARB_STEP_MAX && fDark / nFrame <= FARDARK_MAX,
+      `mean |step| across the FARB boundary ${(fStep / nSamp).toFixed(2)} (want <= ${FARB_STEP_MAX}), worst ${fWorst.toFixed(1)} over ${fSamples} half-frames `
+      + `at ${cams.length} cameras x ${YAWS.length} yaws (${fParts.slice(0, 8).join(' ')}${fParts.length > 8 ? ' ...' : ''}); that frame is `
+      + `${(fDark / nFrame).toFixed(1)}% under luminance ${FARDARK_L} (want <= ${FARDARK_MAX}%), raster mean ${(fMean / nFrame).toFixed(1)} `
+      + `- FARB ${run('FARB')} m, ${fVac} half-frame(s) with no band to measure`,
+      undefined, fVac > fSamples);
   }
   console.log((bad ? `BANDS ${bad} FAILURE(S) - altitude is in the grid and not on the screen` :
-    'BANDS ok - the step lip reads as an edge, the seam is a band not a tint, and the minimap shows the band') +
+    'BANDS ok - the step lip reads as an edge, the seam is a band not a tint, the far band reads the cell it solves into, and the minimap shows the band') +
     `, ${bad} gating row(s) of ${rowsN}, ${knownN} known-issue row(s)` + (knownN ? ' (#195 riser legibility)' : '') +
     (STRICT && knownN ? ' - STRICT=1: debt rows counted as failures' : ''));
   process.exit(bad ? 1 : 0);

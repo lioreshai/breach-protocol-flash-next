@@ -13,6 +13,9 @@ let drawCalls = 0, pixFilled = 0, reSolveBad = 0, gndOffMap = 0;   // last two: 
 let gndWalkEdge = 0;                                 // deferred pixels the ray march handed to the wall pass: a slab EDGE, no plane of its own
 let bloomCv = null, bloomCtx = null, canFilter = false, grainCv = null, grainPat = null, grainSeed = 0;
 let FARB = 22, AMB = 0.13, GQ = null;
+// samples across one row's fan used to find the light of a far-band row (#197): a row at FARB spans
+// ~1.4*FARB world metres, so ONE cell would book a 30 m wide band to one lamp. Lookups per ROW.
+const FARFAN = 8;
 let G_TRI = false, G_GRIT = 0;                                  // derived from QUAL.rast
 /* #164: altitude reached the geometry and no pixels. A seam at the CREASE of every step the render
    ray crosses - the foot darkened, the far lip lifted - is the one cue that survives a dark room, so
@@ -370,10 +373,56 @@ function castGround(flash, fcR, fcG, fcB) {
     let tex, sc;
     if (isF) { tex = floorTex; sc = 1 / tileF; } else { tex = ceilTex; sc = 1 / tileC; }
     if (dRow > FARB || !(tex && tex.mips)) {                     // far band: light-tinted fog, no texture
-      const c0 = cellTint(cellIdx(camX, camY));
-      const lit = MAP.light ? MAP.light[cellIdx(camX, camY)] : 0.4;
-      px.fill(pack(clampi((18 * c0[0] + lit * 26 * c0[0]) * 1 + fRRow), clampi((18 * c0[1] + lit * 26 * c0[1]) + fGRow),
-        clampi((18 * c0[2] + lit * 26 * c0[2]) + fBRow)), y * BW, y * BW + BW);
+      /* #197: SOURCE. The light and tint of this wash come from the cells the row's own plane solve
+         LANDS IN, not from the cell the camera stands in. Both used to be cellIdx(camX, camY), which
+         made the far half of the frame the camera's lamp luck: stand in a lit cell and every far row
+         glowed, stand in a dark one and a lit room 30 m away went black - measured on the deployed
+         build as a frame mean of 22.7 with 63.6% of pixels under 24 where the camera column's lightmap
+         value alone predicted the fill. Sampled FARFAN times across the row's fan at the row's own
+         solve distance and averaged: ONE LOOKUP PER SAMPLE, on the row, never per pixel, because a row
+         at FARB spans ~1.4*FARB metres and one cell would book all of it to one lamp. A sample that
+         leaves the map gets what the textured path gives an off-map column (white tint, light 0) - the
+         grey the same ray paints one metre inside FARB - and indices are guarded on BOTH axes, since
+         an index is one number and gx === -1 is a valid index for the far side of the level.
+       * MAGNITUDE. The old (18 + light * 26) was a texture mean in disguise: this band is what the
+         textured row would have averaged, and that row averages to texelMean * (base + light * tint),
+         so 18 ~ texelMean * AMB and 26 ~ texelMean. Measured 2026-09-30 against the row ADJACENT to
+         the band (same frame, same columns, ~1 m apart in distance, ground pass alone, 12 poses x 4
+         yaws per level) the mean step was 18.9 on main, 8.8 with only the source fixed at (18, 26),
+         and NO pair of literals closes it - its optimum is (19,26) on one level's floors and (70,7)
+         on another's ceilings, because the floor materials' mip4 mean measures 89..131 and the
+         ceilings' 44..79, so one pair is wrong by that ratio. Taking the mean from the mip the band
+         stands in instead of guessing it gives 4.9 mean step and <= 8.9 on every level and half.
+         Emissive texels are averaged with their OWN rule (light-exempt, times 1 - fog), which is how
+         the pixel body shades them: without the split a material that is mostly emissive at the
+         coarsest mip (level 2's floor: 52 of 64 texels) overstates the band by +28, which is the
+         bright haze this row used to be instead of the room behind it. */
+      const lta = MAP.lt, inv128 = 1 / 128, fstep = 2 / FARFAN, fcam = -1 + fstep * 0.5;
+      const mm = tex && tex.mips ? tex.mips[tex.mips.length - 1] : tex;
+      if (!mm.meanNE) {                                   // once per mip, on the mip the band replaces
+        let sr = 0, sg = 0, sb = 0, er = 0, eg = 0, eb = 0, nLit = 0, nEm = 0;
+        for (let i = 0; i < mm.data.length; i++) {
+          const v = mm.data[i];
+          if ((v >>> 24) === 253) { er += v & 255; eg += (v >> 8) & 255; eb += (v >> 16) & 255; nEm++; }
+          else { sr += v & 255; sg += v >> 8 & 255; sb += v >> 16 & 255; nLit++; }
+        }
+        const n = mm.data.length || 1;
+        mm.meanNE = nLit ? [sr / nLit, sg / nLit, sb / nLit] : [sr / n, sg / n, sb / n];
+        mm.meanEM = nEm ? [er / nEm, eg / nEm, eb / nEm] : mm.meanNE;
+        mm.emFrac = nEm / n;
+      }
+      const dcN = mm.meanNE, dcE = mm.meanEM, wEm = mm.emFrac, wLit = (1 - mm.emFrac) * (1 / FARFAN);
+      let ar = wEm * dcE[0] * invRow, ag = wEm * dcE[1] * invRow, ab = wEm * dcE[2] * invRow;
+      for (let s = 0; s < FARFAN; s++) {
+        const cm = fcam + fstep * s;
+        const sx = (camX + (dirX + planeX * cm) * dRaw) | 0, sy = (camY + (dirY + planeY * cm) * dRaw) | 0;
+        const inMap = !!lta && sx >= 0 && sy >= 0 && sx < N && sy < N;
+        const ci = inMap ? sy * N + sx : 0, li = inMap && lm ? lm[ci] : 0;   // off-map -> light 0
+        ar += wLit * dcN[0] * (baseRow + li * (inMap ? lta[ci * 3] * inv128 : 1));
+        ag += wLit * dcN[1] * (baseRow + li * (inMap ? lta[ci * 3 + 1] * inv128 : 1));
+        ab += wLit * dcN[2] * (baseRow + li * (inMap ? lta[ci * 3 + 2] * inv128 : 1));
+      }
+      px.fill(pack(clampi(ar + fRRow), clampi(ag + fGRow), clampi(ab + fBRow)), y * BW, y * BW + BW);
       zbuf.fill(dRaw, y * BW, y * BW + BW);                    // depth = the row's own solve, unclamped
       continue;
     }
