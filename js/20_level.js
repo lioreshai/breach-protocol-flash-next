@@ -43,7 +43,6 @@ const cellIdx = (x, y) => (y | 0) * MW + (x | 0);
 const ZQ = 0.25;
 const CZ_DEF = 4;                                        // 4 quanta = one unit of ceiling
 const LHOVER = 0.78;                     // a lamp light's authored hover above its own floor (:845)
-const LIGHT_REACH = LHOVER + ZQ + 1e-9;  // a light reaches columns whose floor is within its hover + one quantum (#203)
 const VB_BLOCK = 1, VB_RAMP = 2, VB_LADDER = 4, VB_THRU = 8;
 const VB_KEEP = 0x6666;                    // VB_RAMP|VB_LADDER in each of the four side nibbles: the authored bits
 const FEAT_NONE = 0, FEAT_STAIR = 1, FEAT_LADDER = 2, FEAT_PIT = 3, FEAT_RAIL = 4;
@@ -650,22 +649,29 @@ function splatLight(L, amt) {
   /* A light that carries no z emits from the FLOOR of the cell it emits in: a muzzle flash,
      an explosion, an orb pop happens at its owner's feet, so the band of the owner's feet is
      the band of the light. The transient call sites (js/30_entities.js:286, :631) carry no z
-     on purpose and rely on this documented default (#203). */
-  const lz = L.z === undefined ? floorAt(L.x, L.y) : L.z;
+     on purpose and rely on this documented default (#203).
+     The band a light belongs to is its source's FLOOR, not its emitter height: an authored lamp
+     hangs LHOVER above the floor it stands on, so the floor is recovered by taking the hover back
+     off, and a z-less source is already standing on its floor. */
+  const lf = L.z === undefined ? floorAt(L.x, L.y) : L.z - LHOVER;
   for (let y = Math.max(0, (L.y - R) | 0); y < Math.min(N, L.y + R); y++)
     for (let x = Math.max(0, (L.x - R) | 0); x < Math.min(N, L.x + R); x++) {
       const d = Math.hypot(x + 0.5 - L.x, y + 0.5 - L.y);
       if (d >= L.r) continue;
-      /* Hover-tolerant vertical term (#203): the 2-D disc only lights a column whose floor is
-         within the light's reach, |L.z - floorAt(col)| <= LHOVER + ZQ, and lights it at full
-         strength; past that reach it adds nothing at all. A lamp authored at floorAt + LHOVER
-         reads dz = 0.78 on its own band and 1.03 in a dip one quantum under its floor, so the
-         term is the literal 1 there - a flat level, and every lamp on its own band, reproduce
-         the old arithmetic bit for bit - while a datum lamp stops brightening a pit floor a
-         unit below it or a floor two units above. This same function runs the delta un-splat,
-         so the kernel is identical for add and remove and a fading transient leaves no
+      /* Band term: the 2-D disc lights the columns whose FLOOR is within one quantum of the
+         source's own floor, at full strength, and adds nothing at all past that. #203 put
+         |L.z - floorAt(col)| <= LHOVER + ZQ here, which closed the DOWNWARD half of the bleed - a
+         datum lamp stopped brightening a pit floor a unit below it - but in floor terms that reach
+         is fd in [-1.81, +0.25], so the UPWARD half survived: a column 7 quanta above a lamp was
+         lit at full weight while the column one quantum below it was dark. Measured on 2c5a94f
+         over 12 rolls per level, 74/92/98 cells per roll take direct light from a lamp whose floor
+         is >= 1.00 m BELOW them (mean 0.21-0.27 of a delivered 0.55-0.68) against 0.0-1.0 cells
+         per roll reaching down. The reach is now symmetric, so it is |fd| <= ZQ: the source's own
+         band and one quantum either way, nothing beyond. On a flat level fd = 0, the test is the
+         literal 1, and every flat frame reproduces bit for bit. This same function runs the delta
+         un-splat, so the kernel is identical for add and remove and a fading transient leaves no
          permanent light (smoke's "blast light fully fades out", unchanged). */
-      const wv = Math.abs(lz - floorAt(x + 0.5, y + 0.5)) <= LIGHT_REACH ? 1 : 0;
+      const wv = Math.abs(lf - floorAt(x + 0.5, y + 0.5)) <= ZQ + 1e-9 ? 1 : 0;
       const w = Math.pow(1 - d / L.r, 1.6) * wv, i = y * N + x;
       lm[i] += amt * w;
       const k = Math.abs(amt * w);
@@ -764,6 +770,15 @@ function addGroundSplat(x, y, r, kind) {
   if (kind === 'dust') { addDecal({ x: x + rnd(0.1, -0.1), y: y + rnd(0.1, -0.1), z: 0.01, r, tex, a: 0.3, life: 12 }); return; }
   addDecal({ x: x + rnd(0.14, -0.14), y: y + rnd(0.14, -0.14), z: 0.01, r, tex, a: kind === 'scorch' ? 0.85 : 0.8, life: 55 });
 }
+
+/* Whether the coverage top-up may author lamps at all (#204). The shipped answer is yes, always; the
+   ONE reason it exists is tools/view.js's LAMPS=off knob, which runs the generator with the top-up
+   suppressed so the flat-parity triple can mean what it claims (see flatparity's header). It is a
+   function rather than a constant so the probe can reassign the global - the same handle style the
+   probes already use on groundPixel and castGround - and it is read ONCE per level, at author time,
+   so the suppression removes lamps from the record rather than deleting them after the world was
+   built around them. Nothing else in the generator consults it. */
+function topUpEnabled() { return true; }
 
 function genLevel(li) {
   const cfgL = LEVELS[li];
@@ -871,6 +886,100 @@ function genLevel(li) {
        46% -> 43% against the 45% floor - the pool a floor glow casts across its lip is
        load-bearing legibility, not bleed). */
     LIGHTS.push({ x: exitX, y: exitY, r: 5.5, str: 0.75, col: [140, 225, 255], stat: 1 });
+    /* #204's coverage half, with the target corrected from "bands that hold no lamp" to "bands that
+       are not covered", because #208's kernel makes the difference matter: a lamp now lights the band
+       it STANDS on, so a raised band the budget happened to reach with one lamp keeps main's coverage
+       of nothing while the datum light it used to borrow stops arriving - that is the whole of why the
+       kernel term alone spends level 0's face-lip row. A band is served when a source standing ON it
+       lights its cells, and "lights" is the kernel's own test (|srcFloor - bandFloor| <= ZQ), so
+       coverage is measured by running the shipped splatLight for that band's sources onto a scratch
+       lightmap and reading what arrives, rather than by restating the disc here and drifting from it.
+       The pre-blur direct term is the right thing to author against: delivered MAP.light is post-blur,
+       and blurLight carries light across a lip, so counting it would let a datum lamp stand in for a
+       pit lamp - which is #209's complaint about the exit pad's z-less reach, stated as a placement
+       rule. A band under MIN_BAND reachable interior cells is decoration rather than a place a player
+       can be lost in, and that floor is also a budget guard. OWN_MIN is 0.25 rather than the 0.05 the
+       dark-cell counters use, and that gap is the finding: at 0.05 a band counts as covered when a
+       lamp's disc merely reaches its edge at 5% strength, which is 0/0/0 dark pit cells and a level 0
+       face lip that still reads 43% (main 61, the kernel term alone 43), while 0.25 asks for a floor
+       that is actually LIT and the lip comes back to 54% - the row stops being a debt row. The cost is
+       measured, not assumed: MAX_ADD binds on all three levels (10/12/19-20 lamps against main's
+       7/9/17, i.e. +3.0 per level where #207's lampless-band rule spent +0.9), so the rule wants more
+       lamps than it is allowed and the guard is load-bearing. Draws come from a PRIVATE LCG and no grid
+       is written - one global draw here would re-roll the world under every probe seed (#96), and
+       MAP.fz is smoke's V15 flat lane. */
+    if (topUpEnabled()) {                                // LAMPS=off in tools/view.js runs the kernel without this
+      const MIN_BAND = 8, PER_BAND = 2, MAX_ADD = 3, OWN_MIN = 0.25, COV_TARGET = 0.75;
+      let ps = ((li * 7919 + rooms.length * 104729 + ((exitX * 1000) | 0) * 13 + 12345) >>> 0) || 1;
+      const prnd = () => { ps = (Math.imul(ps, 1664525) + 1013904223) >>> 0; return ps / 4294967296; };
+      // the source's own FLOOR - the same recovery splatLight makes, restated here only to pick a band
+      const srcFloor = L => (L.z === undefined ? floorAt(L.x, L.y) : L.z - LHOVER);
+      const OPENAT = (cx, cy) => {
+        let n = 0;
+        for (let oy = -1; oy <= 1; oy++) for (let ox = -1; ox <= 1; ox++) if (!cell[(cy + oy) * N + (cx + ox)] && cy + oy > 0 && cx + ox > 0) n++;
+        return n;
+      };
+      // reachable open interior cells, grouped by band, biggest band first (the datum, then the rest)
+      const bandCells = new Map();
+      for (let i = 0; i < N * N; i++) {
+        if (cell[i] || dist[i] < 0) continue;
+        const x = i % N, y = (i / N) | 0;
+        if (x < 1 || y < 1 || x >= N - 1 || y >= N - 1) continue;
+        let a = bandCells.get(fzTry[i]);
+        if (!a) bandCells.set(fzTry[i], a = []);
+        a.push(i);
+      }
+      const bandOrder = [...bandCells.keys()].sort((a, b) => bandCells.get(b).length - bandCells.get(a).length || b - a);
+      const taken = new Set();
+      for (const L of LIGHTS) taken.add(((L.y | 0) * N) + (L.x | 0));
+      /* What the sources standing on band b deliver to b's own cells, through the shipped kernel, on a
+         scratch lightmap put back exactly as found. It is all zeros at this point and the real splat
+         runs below, so this leaves no residue behind - the arrays are swapped out rather than cleared. */
+      const ownLight = b => {
+        const keep = [MAP.light, MAP.lR, MAP.lG, MAP.lB, MAP.lw];
+        MAP.light = new Float32Array(N * N); MAP.lR = new Float32Array(N * N);
+        MAP.lG = new Float32Array(N * N); MAP.lB = new Float32Array(N * N); MAP.lw = new Float32Array(N * N);
+        for (const L of LIGHTS) if (Math.abs(srcFloor(L) - b * ZQ) <= ZQ + 1e-9) splatLight(L, L.str);
+        const lm = MAP.light, out = [];
+        for (const i of bandCells.get(b)) out.push(lm[i]);
+        MAP.light = keep[0]; MAP.lR = keep[1]; MAP.lG = keep[2]; MAP.lB = keep[3]; MAP.lw = keep[4];
+        return out;
+      };
+      const darkShare = b => { const v = ownLight(b); let d = 0; for (const x of v) if (x < OWN_MIN) d++; return d / v.length; };
+      const perBand = new Map();
+      for (let added = 0; added < MAX_ADD; added++) {
+        let wb, worst = 1 - COV_TARGET;                       // a band needs >25% of its cells unserved
+        for (const b of bandOrder) {
+          if (bandCells.get(b).length < MIN_BAND || (perBand.get(b) || 0) >= PER_BAND) continue;
+          const ds = darkShare(b);
+          if (ds > worst) { worst = ds; wb = b; }
+        }
+        if (wb === undefined) break;
+        const list = bandCells.get(wb), cov = ownLight(wb);
+        const unserved = list.filter((i, k) => cov[k] < OWN_MIN);
+        const r = 7.2 + prnd() * 2.8;
+        let best = -1, bs = -1;
+        for (let tries = 0; tries < 400 && unserved.length; tries++) {
+          const q = list[(prnd() * list.length) | 0];
+          if (q === best || taken.has(q)) continue;
+          const qx = q % N, qy = (q / N) | 0;
+          let sc = 0;
+          for (const j of unserved) if (Math.hypot((j % N) - qx, ((j / N) | 0) - qy) < r) sc++;
+          const score = sc * 16 + OPENAT(qx, qy);             // openness breaks ties, never outranks a cell
+          if (score > bs) { bs = score; best = q; }
+        }
+        if (best < 0) {                                       // deterministic sweep: the band still gets one
+          let bo = -1;
+          for (const q of list) { const op = OPENAT(q % N, (q / N) | 0); if (op > bo) { bo = op; best = q; } }
+          if (best < 0) break;
+        }
+        taken.add(best);
+        perBand.set(wb, (perBand.get(wb) || 0) + 1);
+        const bx = best % N, by = (best / N) | 0;
+        LIGHTS.push({ x: bx + 0.5, y: by + 0.5, z: floorAt(bx + 0.5, by + 0.5) + LHOVER, r, str: 1.05, col: cfgL.lampCol, stat: 1 });
+        PROPS.push({ tex: PROP.lamp, x: bx + 0.5, y: by + 0.5, scale: 0.95, z: floorAt(bx + 0.5, by + 0.5), kind: 'lamp' });
+      }
+    }
     for (let i = 0; i < cfgL.crates; i++) { const c = takeNear(2); PROPS.push({ tex: PROP.crate, x: c[0] + 0.5, y: c[1] + 0.5, scale: 0.72, z: floorAt(c[0] + 0.5, c[1] + 0.5), kind: 'crate' }); }
     for (let i = 0; i < cfgL.barrels; i++) {
       const c = takeNear(2);
