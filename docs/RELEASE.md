@@ -57,6 +57,11 @@ git checkout -b release/vX.Y main
 2. **Screenshots, from the deployed build** into `docs/screens/`, and any defect visible in a shot
    goes into its caption rather than being cropped (`AGENTS.md`, hard rule). Not from a headless
    dump, not from an older checkout — `https://lioreshai.github.io/breach-protocol-flash-next/`.
+   The *capture* happens on the host; the *files* do not live there. `pages.yml` publishes
+   `index.html` + `js/` only, so `docs/screens/*.png` answers **404** on the Pages URL and GitHub
+   renders them from the repo instead. A docs PR is therefore verified against the **merged tree**
+   (`git show origin/main:docs/screens/x.png | md5sum`), never against a fetch of the host — a
+   404 body hashes to `d41d8cd9…` and reads as a stale deploy.
 3. **Direction.** `docs/ROADMAP.md` gets its constraints updated if measurements moved (frame
    budgets, raster medians). No status tables.
 4. **Gates**, with the numbers in the release PR body:
