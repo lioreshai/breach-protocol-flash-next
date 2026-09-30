@@ -217,7 +217,10 @@ case "$out" in *"SMOKE PASSED"*) git add -A && git commit ;; *) echo NOT COMMITT
   baseline instead of a threshold widened until the row cannot fail: report (`KNOWN`), go red only on a
   regression past a *measured* floor, promote to a hard gate under `STRICT=1`, and print the debt in the
   verdict line — the shape smoke's VERT lanes print as `25 gating row(s), 0 known-issue row(s)` and
-  `view.js contrast`'s cam 1 prints as `0 FAILURE(S) of 15 rows, 1 known-issue row`. A debt row still
+  `view.js contrast` prints on its CI cell as `0 FAILURE(S) of 22 rows, 8 known-issue rows (reporting:
+  #189 #179)`. The row count is the probe's own tally, so it moves when a row is added — #188 split
+  cam 1's read row into FOUND and POSED and took it from 15 to 21 to 22; a count quoted in prose that
+  disagrees with the printed one is a defect in the prose, not in the gate. A debt row still
   has to be seen to fail: `STRICT=1` on unchanged content, and a shading A/B that crosses the floor
   (`TINT=2` moves cam1 16.65 → 15.15 dL and 37.94% → 43.77% lost, past both floors, while `TINT=1`,
   which only drops the colour jitter, moves it to 15.95 / 41.44% and stays a debt). Vacuity — nothing
