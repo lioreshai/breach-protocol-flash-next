@@ -450,6 +450,61 @@ if (MODE === 'alt') {
     row(`L${li} every lamp splat is exactly reversible`, v.maxDrift < 1e-4,
       `max |MAP.light - snapshot| over splat+un-splat of all ${v.lamps} static lamps ${v.maxDrift.toExponential(1)} - the fade asserts in smoke stand on the delta un-splat using the same kernel as the splat`);
   }
+  /* #204's two light criteria, on the protocol #199 measured them with rather than on the single
+     probe-seeded world above: 12 seeded rolls per level (dice 1000 + level*97 + roll*13, the same
+     numbers tools/ci/assert.js rolls), the GENERATED grid with nothing poked - the config that
+     exercises these rows is generation itself (#152), so a rule that wrote MAP.fz would show up
+     here - and the DELIVERED lightmap as startLevel leaves it (splat + blurLight + buildTint).
+     Delivered is the point: blurLight carries light across lips, so the wrong-band population is
+     not zero and cannot be, which is why #206's criterion is "must not grow past the recorded
+     population" and not "= 0". Classification is #199's: dark = MAP.light < 0.05, pit = MAP.fz
+     <= -3, an in-band source = a LIGHTS entry whose disc covers the cell with |z - own floor|
+     <= LIGHT_REACH. Recorded on main (12 rolls): pit-dark 117/71/62 of 181/194/175 pit cells at
+     mean light 0.077/0.174/0.230, wrong-band-lit 74/142/138, no-source-in-disc 976/1537/1140. A
+     pit-dark of 0 with pit 0 would be vacuity rather than a fix, so the population rides along in
+     the detail and pit > 0 is part of the assertion. */
+  {
+    const MAIN_PIT = [181, 194, 175], MAIN_OOB = [74, 142, 138];
+    for (let lv = 0; lv < 3; lv++) {
+      const A = { pit: 0, pitDark: 0, pitSum: 0, oob: 0, oobSum: 0, nosrc: 0, dark: 0, open: 0, lamps: 0 };
+      for (let r = 0; r < 12; r++) {
+        seedRng(1000 + lv * 97 + r * 13);
+        const c = vm.runInContext(`(function(){
+          startLevel(${lv}, true);
+          const N = MAP.w, cell = MAP.cell, fz = MAP.fz, light = MAP.light;
+          const S = []; for (const L of LIGHTS) S.push({ x: L.x, y: L.y, r: L.r, z: L.z === undefined ? floorAt(L.x, L.y) : L.z });
+          let pit = 0, pitDark = 0, pitSum = 0, oob = 0, oobSum = 0, nosrc = 0, dark = 0, open = 0;
+          for (let i = 0; i < N * N; i++) {
+            if (cell[i]) continue;
+            open++;
+            const fl = fz[i] * ZQ, lt = light[i], dk = lt < 0.05;
+            if (fz[i] <= -3) { pit++; pitSum += lt; if (dk) pitDark++; }
+            const px = i % N + 0.5, py = ((i / N) | 0) + 0.5;
+            let inR = 0, good = 0;
+            for (const s of S) {
+              if (Math.hypot(s.x - px, s.y - py) >= s.r) continue;
+              inR++; if (Math.abs(s.z - fl) <= LIGHT_REACH) good++;
+            }
+            if (dk) { dark++; if (!inR) nosrc++; }
+            else if (inR && !good) { oob++; oobSum += lt; }
+          }
+          return { pit: pit, pitDark: pitDark, pitSum: pitSum, oob: oob, oobSum: oobSum, nosrc: nosrc, dark: dark, open: open,
+            lamps: LIGHTS.filter(function (L) { return L.stat; }).length };
+        })()`, ctxVm);
+        A.pit += c.pit; A.pitDark += c.pitDark; A.pitSum += c.pitSum; A.oob += c.oob; A.oobSum += c.oobSum;
+        A.nosrc += c.nosrc; A.dark += c.dark; A.open += c.open; A.lamps += c.lamps;
+      }
+      row(`L${lv} no pit-floor cell is left dark`, A.pitDark === 0 && A.pit > 0,
+        `${A.pitDark} of ${A.pit} pit cells (MAP.fz <= -3, main has ${MAIN_PIT[lv]} of them) hold less than 0.05 delivered`
+        + ` light, mean ${A.pit ? (A.pitSum / A.pit).toFixed(3) : '-'} there (main: 117/71/62 dark at 0.077/0.174/0.230) over 12 rolls`
+        + ` of the generated grid - ${(A.lamps / 12).toFixed(2)} lamps/instance (main 7/9/17), ${A.nosrc} cells with no source in the XY disc`
+        + ` (the #199 coverage half), ${A.dark} dark of ${A.open} open`);
+      row(`L${lv} delivered wrong-band light does not spread`, A.oob <= MAIN_OOB[lv],
+        `${A.oob} open cell(s) hold delivered light with NO in-band source within reach (recorded on main: ${MAIN_OOB[lv]}), mean`
+        + ` light there ${A.oob ? (A.oobSum / A.oob).toFixed(3) : '-'} (main's 0.214/0.183/0.224). This population is blurLight's doing, not a lamp's (#206), so 0 is`
+        + ` not the target - growing it would mean lamps authored off their own floor (the #204 control that measures 155/194/169 did that)`);
+    }
+  }
   console.log(bad ? `ALT ${bad} FAILURES - the bands are not there, not linked, or there is nothing to look at`
     : 'ALT ok - bands authored, linked, reachable, and there is volume to look at');
   process.exit(bad ? 1 : 0);
