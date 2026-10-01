@@ -40,6 +40,16 @@ Order of evidence, strongest first:
 2. **`node tools/view.js <probe>`** — geometry, lighting, budgets: deterministic and diffable.
 3. **the smoke verdict** — must stay green; proves nothing about how anything looks.
 
+**Only four recorded references stand behind item 2 today.** `flatparity` compares three recorded
+triples of literal hashes — PARITY (`tools/view.js:863`), LOCK (`:870`) and the DEALT sense over the
+dealt frame (`:887`) — and `cull` records a crc32 triple for the ceiling-step ground (`CZBAND_REF`,
+`:2468`); every other probe block prints verdicts whose numbers are **not** hash-gated, so a figure
+quoted from `alt`, `heights`, `contrast`, `exposure` or `scene` prose is a record of one session's
+measurement and not a row that can fail. `grep -cE '[0-9a-f]{32}' tools/view.js` reads 3 and misses
+`cull`'s `0x…` refs, which is a caveat on #216's own survey instrument as much as on the claims it
+surveyed. Giving the other blocks rows is the probe-half of #216; until it lands, the claims below
+are labelled instead.
+
 Human judgement still rules what the page cannot reveal: game feel, aim responsiveness, whether the
 audio levels are pleasant, difficulty. Ask about those. Do not ask about pixels.
 
@@ -116,7 +126,9 @@ case "$out" in *"SMOKE PASSED"*) git add -A && git commit ;; *) echo NOT COMMITT
 - `'use strict'` cannot go in `11_rig.js` (relies on implicit globals).
 - **Three ground shadings are welded to the row solver and change silently when the solver
   changes**, which is how the first M2 attempt came out md5-identical at the spawn camera yet 4
-  points darker overall and 9 on level 0: light is sampled **cell-quantized** on the ground (walls
+  points darker overall and 9 on level 0 (historical: that attempt was reverted, and no row can fail
+  on those frames now — what holds a flat spawn frame to a literal today is `flatparity`'s PARITY and
+  LOCK senses, `tools/view.js:863,:870`): light is sampled **cell-quantized** on the ground (walls
   sample it bilinear *with* a `exp(-perp*0.16)` falloff — borrowing the wall formula for the floor is
   the −9, it is not a unification), fog is `fogAt(camera-space depth)` with **no z term** in either
   pass, and the `li > 1 → 1` clamp exists **only at row init, never on a cell crossing**, so a cell
@@ -145,7 +157,9 @@ case "$out" in *"SMOKE PASSED"*) git add -A && git commit ;; *) echo NOT COMMITT
   Change one copy and you have changed the other, and `scene` md5s only prove the *flat* copy right -
   `heights` is what runs the second one.
 - **A parity frame needs a floor decal in it.** The first version of that split crashed in the decal
-  branch alone, under `WARM` at 4x resolution, while four `scene` md5s swore parity: those frames
+  branch alone, under `WARM` at 4x resolution, while four `scene` md5s swore parity (that was the M2
+  attempt's own harness and it is gone: `scene` records no hash and is not in `ci.yml`'s roster, so a
+  `scene` md5 cannot swear anything today — the lesson stands, the instrument does not): those frames
   contain no ground decal at all, so the branch never ran. `heights`' `stripes` config now sprays
   `addGroundSplat` blood/scorch and fails `NO-DECAL-COVERAGE` if no cell carries `DECAL_MASK`.
 - **Instrumenting a hot loop changes what it costs.** `window.castGround = function () { …g()… }`
@@ -190,7 +204,9 @@ case "$out" in *"SMOKE PASSED"*) git add -A && git commit ;; *) echo NOT COMMITT
   `cover` went **1.1% → 33.3%**. A diff mask can see the mask's GEOMETRY, never the shading inside
   it. The mask is now `COV`: who painted each pixel **last**, stamped at the mesh and billboard write
   sites, cleared once per frame, `null` in play (armed only by this probe; interleaved against main
-  it costs nothing when off — 8 pairs of `WARM=1 scene 0 3`, 35.3 ms both sides, PNG md5 identical,
+  it costs nothing when off — 8 pairs of `WARM=1 scene 0 3`, 35.3 ms both sides, PNG md5 identical
+  (a hash of the PNG file taken in that session, not a row: `tools/` computes exactly one md5, over
+  the world-pass buffer at `tools/view.js:892`, and no tool reads a PNG back — evidence, not a gate),
   and 24/25/65 ms per frame at cam0/1/2 in contrast's own state with the mask **armed**). On the
   same frames the coverage mask says what the diff mask could not: **52 / 566 / 0 px** on cam0/cam1/
   cam2 are body pixels whose difference from the enemy-free render is ≤ 4 — 20% of cam1's silhouette
@@ -260,8 +276,11 @@ case "$out" in *"SMOKE PASSED"*) git add -A && git commit ;; *) echo NOT COMMITT
   79, first appeared). Air-only planes; solid cells inherit the plane carried into them; the wall
   pass paints over those pixels anyway.
 - Solving the ground per cell instead of per row is **not** a drop-in. An attempt (kept out of
-  history at `7b9665b..80a7f1e`-era tree, `node --check` clean, md5-identical at the spawn camera)
-  still shifted exposure by −4 overall, −9 on level 0. Establishes: the segment *breaks* were not
+  history at `7b9665b..80a7f1e`-era tree — unrecoverable here, since `git cat-file -t` answers *Not a
+  valid object name* for both SHAs, so cite the numbers and the reasoning rather than the tree;
+  `node --check` clean, md5-identical at the spawn camera, and that parity half is historical — no
+  row can fail on it) still shifted exposure by −4 overall, −9 on level 0. Establishes: the segment
+  *breaks* were not
   the cause (disabling them changed nothing), the solid-cell case was a genuine bug, and the
   residual delta lives in shading, not geometry — so a future attempt must diff *shading* per row,
   not chase segment counts. Flat parity is the gate; it failed, so it was reverted rather than
@@ -502,7 +521,9 @@ bands in one column, or a floor overhanging the cell it sits above.
   **An air-to-air boundary needs its own span rule, and it is not this one.** There is no wall
   column to carry a base down, and `ceilAt` of either side overshoots both, so the face is the
   **slab side**, `[min(floorA, floorB), max(floorA, floorB)]`. Reusing the wall span - which is
-  what the first attempt did - renders, keeps every md5 identical, and builds the riser ABOVE the
+  what the first attempt did - renders, keeps every md5 identical (the md5 half was a one-off
+  comparison in that session, not a row - what gates this branch now is `cull`'s step rows,
+  `tools/view.js:2178,:2185`, which exit non-zero), and builds the riser ABOVE the
   pit lip instead of below it: `cull` then exits 1 on all three levels with the body in the pit
   hidden **completely** (`centroid moved down 0.0 px and only 0.0% of the flat silhouette survives`,
   where correct geometry leaves the crown at 8.4-8.7%), while the step rows lose occlusion in the
@@ -520,12 +541,16 @@ bands in one column, or a floor overhanging the cell it sits above.
   cell the pixel's own ray lands in (`floorAt` below the horizon, `MAP.ceilPlane` above), kept as a
   *predictor*: a pixel whose cell is at the eye's altitude reuses the row's distance untouched, so a
   flat level runs the old arithmetic bit for bit (measured: 4 frames md5-identical, exposure
-  77/62/59 unchanged). What is left of the flat assumption is the decal/`zbuf` span math, which
+  77/62/59 unchanged - partial today: 3 spawn frames are gated by `flatparity`'s flat senses, while
+  `exposure` has no `process.exit` at all, so 77/62/59 is a record of a run and not a gate). What is left of the flat assumption is the decal/`zbuf` span math, which
   still assumes faces span 0..1. `castWalls`' `y0 = horizon + (eyeZ - 1) * hpx` went in M1: the
   face's `z0/z1` comes from the grid and `tstep = mh * dz / (y1 - y0)` tiles a wall texture per
   **world unit**, not per face. Every new formula must collapse to the old one exactly, bit for
   bit — that is the backwards-compat test, and for M1 it was measured rather than argued: 24 frames
-  (3 levels × 2 seeds × 4 yaws) hashed identical against `HEAD` at an unchanged 3.3 ms median. A
+  (3 levels × 2 seeds × 4 yaws) hashed identical against `HEAD` at an unchanged 3.3 ms median — a
+  historical measurement: no such hash set exists in any tool, and the only recorded references in
+  `tools/` are `flatparity`'s three triples (`:863,:870,:887`) and `cull`'s `CZBAND_REF` (`:2468`),
+  all of them on other frames, so this sentence cannot be re-run or failed today. A
   face taller than a unit pushes `v` past the mip, and `texBil` wraps only at its last texel, so `v`
   must wrap per unit — otherwise the read runs off the array and `undefined & 255` paints fog colour
   where the wall should be, with no black pixel to show for it.
