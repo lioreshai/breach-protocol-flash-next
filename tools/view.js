@@ -6736,6 +6736,20 @@ if (MODE === 'bands') {
       }
       let n = 0, sum = 0, sgn = 0, within = 0, zok = 0, off = 0;
       let dropSum = 0, wideSum = 0, spanSum = 0, farSum = 0, farN = 0, dip = 0, touched = 0, near0 = 0, conSum = 0, refSum = 0, clearRows = 0;
+      /* #167's placement claim, measured on the EYE's own side of the boundary and on the FACE's own
+         side of the lip. The form this replaces located the band by argmax INSIDE +-win of the analytic
+         lip row, so a band displaced across the lip could not be seen at all: the search always found
+         "a" band and called it near, which is why the row could print 60 of 60 while the walkable crease
+         was keyed on a crossing other than the one those pixels resolve against. Two things are fixed
+         here: the anchor is yc = the row of the floor the RAY STANDS ON (c[4], never the height-sorted
+         lower floor - for a step DOWN the lower floor is the FAR side and its projection lands on the
+         NEAR floor's rows, so anchoring on it measures a plane no pixel shows), and the verdict is the
+         side-aware one in the column loop below. WIDE is only the window that separates DISPLACED (a
+         band exists, not on this face) from NOTHING (no band within +-WIDE of the lip, ~1.3 m at DIST).
+         NEAR = a band inside the painted face, on its side of the lip; FAR = a band only beyond the lip;
+         NOMOVE = the term painted nothing in the window: vacuity, never a pass. */
+      const WIDE = 4 * Math.max(6, Math.round(2 * (H / DIST) * SEAMW));
+      let nearW = 0, farW = 0, noW = 0;
       for (const c of m) {
         if (c[1] !== kind || Math.abs(c[3] - DIST) > TOL) continue;
         const x = c[0], perp = c[3], zLo = c[5], zHi = c[6], hp = H / perp;
@@ -6803,6 +6817,35 @@ if (MODE === 'bands') {
         if (mid < near - 12 && mid < far - 12) dip++;
         if (yb >= 0 && Math.abs(yb - yF) <= win) near0++;
         if (peak > 4) touched++;
+        {
+          /* "Near the lip row" is not the claim: a band that starts at the lip and runs into the WRONG
+             surface is a band on the wrong side of the lip, and that is the #167 failure. A riser always
+             paints the SLAB side (js/40_render.js:973 takes z0/z1 from rz0/rz1 for every dq, post-#196),
+             so the painted face owns exactly one side of the lip row yc: from yc toward the OTHER floor's
+             row. The gated claim is therefore that the term DARKENS A ROW INSIDE THAT FACE, strictly on
+             its own side of yc and within win rows of it. The anchor row itself is excluded, because
+             seamCrease's extra k=0 term is painted there whichever way dir goes: counting it lets
+             3edf43b's march key (band runs UP from the anchor whatever the step direction) pass 60 of 60
+             columns on a DOWN lip - measured, with both a distance-only and an anchor-inclusive form - so
+             a row that counts it cannot fail on the defect it is bought for. A column whose only band is
+             on the far side of the lip is DISPLACED (farW); one with no band anywhere in the wide window
+             is vacuity (noW). Both are FAILUREs of the walkable row, never a silent pass. */
+          const yc = Math.floor(hor + (eye - c[4]) * hp);
+          const zF = c[4] === c[5] ? c[6] : c[5];                      // the far side's floor
+          const yO = hor + (eye - zF) * hp;
+          const want = yO >= yc ? 1 : -1;                               // the face's own side
+          const lim = Math.min(win, Math.round(Math.abs(yO - yc)));     // never deeper than the face
+          let onFace = 0, anywhere = 0;
+          for (let k = 1; k <= lim; k++) {
+            const y = yc + want * k;
+            if (y >= 0 && y < H) onFace = Math.max(onFace, lum(B, y * W + x) - lum(A, y * W + x));
+          }
+          for (let y = Math.max(0, yc - WIDE); y <= Math.min(H - 1, yc + WIDE); y++)
+            anywhere = Math.max(anywhere, lum(B, y * W + x) - lum(A, y * W + x));
+          if (onFace > 4) nearW++;
+          else if (anywhere > 4) farW++;
+          else noW++;
+        }
       }
       const meanD = n ? sum / n : 0, pctW = n ? 100 * within / n : 100, meanCon = n ? conSum / n : 0;
       // the foot drop as a fraction of how bright that band is: the term is a multiply, so on a floor
@@ -6843,7 +6886,21 @@ if (MODE === 'bands') {
         // and the locality term must have been MEASURED: masking every row of both windows would
         // make it read 0.0 on a build that tints the whole frame, which is the one thing it owns
         clearRows >= (farN || 1) * 4 &&
-        near0 >= Math.max(12, n * 0.5) && touched >= near0,
+        /* The placement term, #167. Both halves of this row used to be `near0 >= max(12, n*0.5)`, a bar
+           whose own instrument could not see the failure it was bought for (the argmax lived inside the
+           window, so a band on the wrong side of the lip still scored near: 60 of 60 while the crease ran
+           the wrong way). The mechanism it was filed against is gone - the march-keyed walkable crease
+           (`crk`) was deleted by 754d9ce (#196), which made every step a DRAWN riser, so the crease is
+           now keyed on the face the wall pass painted rather than on a crossing the march only walked
+           past - and the bar is the face row's measured standard: every counted column, 0 misplaced, 0
+           without a band. Measured on main, all six rows read n of n with 0 and 0 (299/240/239 face,
+           60/60/60 walk), and restoring 3edf43b's march key puts 60 of 60 on L1 and L2 (their walk lip
+           is a step DOWN, so the band runs up out of the face) and 299 of 299 on L0's face (a 1 m step
+           DOWN) in the MISPLACED column with the row exiting 1 - the bar sits where nothing was widened.
+           L0's walk lip is a step UP, where the two keys agree, so that row stays green under the
+           sabotage; it is stated rather than hidden. Vacuity fails: n >= 24 counted columns here, the
+           lip-exists row above, and the seam-term row under it. */
+        n >= 24 && nearW === n && farW === 0 && noW === 0,
         `the band is ${(100 * dropCon).toFixed(0)}% brighter with the term off (${dropBar.toFixed(1)} px-lum `
         + `off a floor at ${(refSum / (farN || 1)).toFixed(0)}), the step is a crease not a shade; want >= `
         + `${(100 * DROP_CON_MIN).toFixed(0)}%), band `
@@ -6853,7 +6910,11 @@ if (MODE === 'bands') {
         + `(locality, want <= 5, measured on ${farN ? (clearRows / farN).toFixed(1) : '0'} of 18 rows/column) `
         + `of those, ${n ? (100 * dip / n).toFixed(0) : 0}% also read as a local luminance minimum `
         + `(lighting-dependent: the AMB floor sinks it in dark rooms - see the #164 note), `
-        + `${near0} of ${n} bands land within 0.5 m of the lip the grid says, ${touched} of ${n} moved at all`);
+        + `${near0} of ${n} bands land within 0.5 m of the lip the grid says, ${touched} of ${n} moved at all`
+        + `; #167: ${nearW} of ${n} columns have a seam band INSIDE the painted face on its own side of the`
+        + ` lip row on the eye's own side (within ${(200 * SEAMW).toFixed(0)} cm of it), ${farW} with a band only`
+        + ` on the far side of the lip, ${noW} with no band at all within \u00b1${(800 * SEAMW).toFixed(0)} cm`
+        + ` - GATING at 0 misplaced, both kinds (was >= 50%)`);
     }
     if (seam === 1) {
       {
