@@ -313,6 +313,13 @@ const release = () => fire('mouseup', { button: 0 });
     // "check that cannot fail" this lane exists to catch
     const vsetup = (label, ok, detail) => { expect('VERT ' + label, ok, detail); return ok; };
     const vboot = () => {
+      // Every vboot re-seeds the stream: genLevel draws from Math.random, and any behaviour change
+      // upstream shifts how many draws happened before this lane builds its world - the lane then
+      // tests a DIFFERENT map under the same SEED. Measured on #218's branch: the same SEED 12345
+      // V11 picked a corridor whose neighbours let a pinned eye see around the poked slab, because
+      // movement collisions had shifted the stream by a few draws. A lane that reseeds is a lane
+      // whose world is a function of SEED and nothing else.
+      V(`(()=>{let a=(${SEED}+90210)>>>0;Math.random=()=>{a=(a+0x6D2B79F5)>>>0;let t=a;t=Math.imul(t^t>>>15,t|1);t^=Math.imul(t^t>>>7,t|61);return((t^t>>>14)>>>0)/4294967296};})()`);
       V('genLevel(0); startLevel(0,true); S.mode="play"; S.locked=true; S.exitOpen=false');
       V('window.__fzbak = MAP.fz.slice()');
       V("for(const e of ENEMIES){e.state='sleep';e.cd=999;e.alert=false} PROJ.length=0; PICKUPS.length=0");
@@ -661,6 +668,15 @@ const release = () => fire('mouseup', { button: 0 });
     // riser that paints without setting VB_BLOCK (#100's invariant) would otherwise leave this row
     // asserting only that the sight ray was blind, in a game where the enemy can walk onto the plateau and
     // see from its far side.
+    // The eye is PINNED where it is created: the grunt's idle wander draws from the global
+    // Math.random stream, and any behaviour change upstream (a mover that used to cross a prop and
+    // now slides on it shifts how many draws happen before this row runs) reshuffles that wander.
+    // One frame of wander around the lip of a ONE-CELL slab sees the player, alert is sticky, and the
+    // row stops asserting the sight ray - measured on #218's branch at SEED 12345, where a wander
+    // that main happened to draw on the other side came out beside the slab and leaked 17 orb
+    // frames. Walking is not what this row owns: the slab's ability to STOP the mover is read from
+    // canEnter below, and stair walking is V1/V19's. Same technique as anim's TREAD: restore the
+    // mover's x/y each frame so the geometry is the row's, not the stream's.
     vboot();
     {
       const ln = vlane(9);
@@ -672,9 +688,11 @@ const release = () => fire('mouseup', { button: 0 });
               const e=makeEnemy('grunt',${ax},${ey}+0.5);e.state='idle';e.alert=false;e.cd=0;
               ENEMIES.push(e);P.x=${bx};P.y=${ey}+0.5;P.z=floorAt(P.x,P.y);P.air=false;
               P.hp=100;P.deadT=0;P.crouch=0;return 0}`);
+          S1('{globalThis.__pin=[ENEMIES[0].x,ENEMIES[0].y];return 0}');
           let shotFrames = 0, alertFrames = 0;
           for (let i = 0; i < 90; i++) {
             frames(1);
+            S1('{ENEMIES[0].x=__pin[0];ENEMIES[0].y=__pin[1];return 0}');
             const f = S1('{return [(PROJ.length?1:0),(ENEMIES.length&&ENEMIES[0].alert?1:0)]}');
             shotFrames += f[0]; alertFrames += f[1];
           }
