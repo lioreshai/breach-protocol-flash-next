@@ -1,3 +1,30 @@
+## Unreleased
+
+### Added
+
+- **The capture-caption table is decoded from the PNGs instead of typed into prose** (#235).
+  `tools/recap.js` reads `docs/screens/*.png` with its own PNG reader (chunk walk, `zlib.inflateSync`,
+  the five scanline filters — no dependency, the reader half of `tools/png.js`) and prints per file the
+  frame mean, the share at or above 240 / 200 luma, the dark-row count with its longest run and start
+  row at two thresholds, and three band means, with the sampling stride and the luma rule in the header.
+  `node tools/recap.js --rev=<sha>` runs the same decoder over the blobs at a revision, which is how the
+  reader validates itself against the files it replaced: on the four PR #233 swapped out it prints
+  **87.82 / 24.89 / 87.74 / 35.80**, the numbers that caption carries, to 0.00.
+  `node tools/recap.js check` is the gate — now a blocking step in `ci.yml` — comparing every
+  `decode to **a / b / c / d / e**` list in `README.md` (read in embed order, tolerance 0.005, and the
+  lists must agree with *each other*: line 76 and line 104 of the file used to disagree) and every
+  "rows average under luminance" sentence, attributed to the image block it sits under, at the tool's
+  own threshold so a caption cannot pick its own bar. **30 rows, 0 failures on `main`.** Vacuity is a
+  FAILURE: nothing decodable, an embed with no file behind it, or a README quoting nothing exits 1.
+  Two findings the tool now prints instead of arguing: the audited numbers are **Rec.709** luma at every
+  column (`js/90_dev.js:241`'s own rule) — Rec.601 reads spawn **87.26** against the file's **87.67** and
+  reproduces none of the captions — and the dark-row bar they were measured at is **24**, not the 20 the
+  sentences print: at 24 `facing-wall` reads **417 rows / 244-run from row 0** and its predecessor **402 /
+  239**, `props` **343 / 277** and **337 / 277**, all four exact, while 20 reads 361 / 232 and 34 reads
+  535 / 298. Controls seen red before merge: two PNGs swapped in a scratch copy (mean 87.67 quoted against
+  24.69 in the bytes, rows 0 against 417), one caption's mean re-generated to 88.67, and `DIR` pointed at
+  a directory with no PNGs in it.
+
 ## [v1.2] - 2026-10-01
 
 **M3 shipped: the generator authors altitude.** 48 PRs merged since `v1.1`, and this is the release
