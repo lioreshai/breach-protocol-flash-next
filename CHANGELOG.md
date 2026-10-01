@@ -391,6 +391,8 @@ Gates at this build: `SMOKE PASSED` at raster median **12.35 ms** (5 batches 12.
 
 ### Fixed
 
+- **The DEALT sampler's camera is chosen from the grid, not inherited from the spawn seat** (#226). Level 2's dealt frame differed from its flattened twin by 8 px of 203,138 — its spawn camera sees none of the level's 292 off-datum cells — so the `wv = 1` control (band term deleted) tripped only 2 of 3 DEALT levels; `DEALT_SEATS` now seats each level at a datum cell picked by how many off-datum open cells an eye-height FOV sweep enters (137/165, 174/246, 184/292 in view), a new `DEALT-VACUOUS` row FAILs any sampler whose dealt-vs-flat gap drops under 4,096 px (2% of frame), the sampler prints and the row asserts its `rng=`, and the triple re-recorded cold at the new seats: `wv = 1` now FAILs 3 of 3 with both flat triples byte-identical.
+
 - **A step you walk DOWN now has an edge at the lip you are standing at** (#195). `seamCrease` was
   anchored on the **lower** of a step's two floors and always ran its band upward, which is the right
   row for a step up (the eye's floor IS the lower one there) and the wrong one for a step down: the
