@@ -234,7 +234,7 @@ function captionStats(text, emb) {
     if (!owner) continue;
     const rn = /longest unbroken run is (\d+) rows,? (?:starting at|from) row (\d+)/.exec(text.slice(m.index, m.index + 320));
     rows.push({ name: owner.name, at: m.index, count: +m[1], total: m[2] ? +m[2] : null, thr: +m[3],
-      run: rn ? +rn[1] : 0, start: rn ? +rn[2] : 0 });
+      run: rn ? +rn[1] : null, start: rn ? +rn[2] : null });
   }
   return rows;
 }
@@ -313,7 +313,9 @@ function checkMode(rows) {
   for (const q of stats) {
     const r = byName[q.name];
     if (!r) { console.log('MISMATCH ' + q.name.padEnd(20) + 'caption quotes rows, no such PNG decodes'); fails.push(q.name + ': rows quoted, file missing'); continue; }
-    const cmp = [['rows', q.count, r.s.dark.count], ['run ', q.run, r.s.dark.run], ['start', q.start, r.s.dark.start]];
+    const cmp = [['rows', q.count, r.s.dark.count]];
+    if (q.run !== null) cmp.push(['run ', q.run, r.s.dark.run], ['start', q.start, r.s.dark.start]);
+    else notes.push(q.name + ': the caption counts dark rows but names no run, so run/start are not gated there');
     for (const c of cmp) {
       const ok = c[1] === c[2];
       console.log((ok ? 'ok      ' : 'MISMATCH') + ' ' + q.name.padEnd(20) + c[0] + '   README ' + String(c[1]).padStart(7) +
