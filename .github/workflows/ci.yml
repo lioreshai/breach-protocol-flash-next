@@ -147,8 +147,10 @@ jobs:
           #                  the shipped record. A regression lock on lamp PLACEMENT: it moves when a
           #                  placement rule moves, so green there is NOT evidence a term is bit-neutral
           #                  (#208's top-up moved L0 and L2 with the kernel measured bit-neutral).
-          #            Costs ~21 s here, the most expensive row in this step: it renders 3 levels in 4
-          #            cold processes, which is what makes the hash stream comparable across builds.
+          #            Costs ~96 s here, the most expensive row in this step (#243 raised it from ~37 s):
+          #            the DEALT sampler now boots before EVERY level, because the gun depth scratch is
+          #            cleared over the rect the PREVIOUS frame wrote (js/13_mesh.js:858), so a fresh
+          #            level used to inherit the previous level rect and the hash depended on render order.
           #            KNOWN BLINDNESS, printed by the probe beside its verdict, not hidden in a comment:
           #            the probe forces MAP.fz flat, so fd = 0 in every cell and the band term is the
           #            literal 1 before any sign is read. The one-sided kernel `lf - floor >= -ZQ - 1e-9`

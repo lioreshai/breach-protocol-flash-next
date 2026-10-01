@@ -83,6 +83,36 @@
   can no longer absorb it, and that a shallow-cone camera whose frame plainly has a body in it stops being
   reported as the level's fault.
 
+- **The DEALT triple no longer depends on the order the probe rendered the roster in** (#243). The three dealt
+  md5s were reproducible only with levels run in order inside one process: hashing level 1 alone in a process
+  that had rendered nothing else gave `f240fd35` where the roster gave `889817bf`, and level 2 `ce8e96a3` against
+  `158327b0`, with zero bytes of `js/` changed — a lock whose value describes a render ORDER, which any future
+  probe that reorders or parallelises the roster turns red on a clean tree. Attributed by dumping both buffers:
+  **24 px of 203,138 (L1) and 16 px (L2)**, every one inside `x 407..459, y 276..305` of the 601×338 frame — the
+  view model's rectangle. The gun's **depth history** is the mechanism: the scratch it self-occludes against is
+  cleared over the region the *previous* frame's view model wrote (`js/13_mesh.js:858`, the induction at `:153`),
+  so the first frames of a fresh level inherit the rectangle the gun drew a level ago and the pixels whose
+  self-occlusion differs never heal — nine renders did not heal them. The two caches the issue blamed are
+  measurably innocent: clearing `MESH`'s `POSE` between levels leaves all three hashes byte-identical, and
+  `RIG`'s LRU answers *0 entries / 0 made* at every level boundary because nothing in the draw path has called
+  `RIG` since #72 — so the fix is not a list of caches. `view.js`'s game boot is now a function: called once at
+  module load in the same order as before (every other mode byte-stable) and again **before every level in the
+  DEALT sampler**, and a new context plus the two node-side holders it cannot clear — the `elements` stub cache,
+  which would otherwise hand a second game instance the first one's event handlers, and `rs`, the sandbox `Math`
+  stream boot-time art is drawn from — is the whole of it. `FP_DEALT1=<lv>` samples one level with nothing else
+  rendered, and the new `DEALT-ORDER` row hashes every level both ways and requires the two to agree; an empty or
+  malformed hash is VACUITY and fails by name. Seen red in the same tree (`#243CTL-NOBOOT`, the boot call removed
+  → L1 in-order `889817bf` against alone `f240fd35`, 4 FAIL rows, exit 1) and back to green on restore. **Lock:
+  `DEALT 3e88c850 / f240fd35 / ce8e96a3`, re-recorded here** — L0 unchanged because it was already the first thing
+  the process drew, L1/L2 now being the cold children's numbers #241 had to footnote; means identical at
+  57.3 / 58.7 / 86.0, dealt-vs-flat gaps 195,990 / 195,621 / 198,984 px against #226's 4,096-px vacuity floor and
+  the seat census unchanged at 165/572, 246/900, 292/1150. `LOCK 060da4cd f05beeb5 050b225e`,
+  `PARITY f9e4da3a f05beeb5 d4b2d2cd` and `cull CZBAND 0x9c03d4f4 0xeec7be60 0x7dd66c40` byte-identical,
+  `SMOKE PASSED` at raster median **12.28 ms** (batches 12.2/12.2/12.3/12.3/12.8), `VERT=1` **25 gating row(s),
+  0 known-issue row(s)**, `contrast` **0 FAILURE(S) of 22 rows, 7 known-issue rows**, `recap check` **0 FAILURE(S)
+  of 28 rows**. Cost, stated: `flatparity` went from 37 s to 96 s on this box (eleven boots where it had two),
+  because order-independence is now something the sampler does rather than something the reader remembers.
+
 ## [v1.2] - 2026-10-01
 
 **M3 shipped: the generator authors altitude.** 48 PRs merged since `v1.1`, and this is the release
