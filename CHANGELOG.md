@@ -131,6 +131,39 @@
   0 known-issue row(s)**, `contrast` **0 FAILURE(S) of 22 rows, 7 known-issue rows**, `recap check` **0 FAILURE(S)
   of 28 rows**. Cost, stated: `flatparity` went from 37 s to 96 s on this box (eleven boots where it had two),
   because order-independence is now something the sampler does rather than something the reader remembers.
+- **`cull`'s CZBAND verdict is a pair now, so its green means the lightmap and not just the lane** (#223).
+  `LEAK=1 CZBAND=1 node tools/view.js cull` compared ONE crc32 - a hash of one camera's ground-pass frame on one
+  8-cell lane - which moves when the lightmap changes somewhere that frame rasterizes and holds when it changes
+  somewhere it cannot, so neither "it stayed put, my change is invisible" nor "it moved, my change is global"
+  was ever licensed by it. The row now records a second sense beside it, `cull/CZBAND-LIGHT`, a digest of the
+  whole level's **generated** lightmap (`MAP.light` stamped in `cull`'s `setup()` straight after `startLevel`, so
+  a transient splat cannot make the record order-dependent - the printed drift between snapshot and now is **0**
+  on all three levels), the verdict is the AND of the two, and the detail names which sense moved. Measured on
+  this tree, one run per arm (`lane / world`, number = lightmap sum): a **global** source scale moves both
+  senses on 3 of 3 levels at x 0.999 (so #223's "1 of 3 levels" is too strong for that class - the lane is not
+  blind there), and so do `MAX_ADD 3→1`, `TOPUP_TARGET=128`; but **one top-up lamp at 0.1 str takes 24.14 of
+  L0's 300.47 (-8.0 %) of delivered light and leaves L0's lane hash BYTE-IDENTICAL**, and `TOPUP_TARGET=64`
+  moves L0's lightmap by 4.19 with the same identical hash. The floor between the readings is therefore not a
+  threshold (both senses are bit-exact records) but a measured miss: **24.14 of 300.47 let through by the lane
+  against the 0.30 of 300.47 at which it does move** - WHICH source changed decides it, not how small the change
+  is. #252's own regression is the case the row exists for: deleting `blurLight`'s band gate returns L0/L1's lane
+  hashes to the pre-#252 literals `0x9c03d4f4 / 0xeec7be60` while L2's stays `0x7dd66c40`, byte-identical, so on
+  the third level the old verdict was structurally unable to fail; that arm now reads 3 FAIL rows with L2 saying
+  "the generated lightmap changed and this lane does not show it", and `alt` agrees with #206's recorded
+  37/49/75 census rather than the row duplicating it. The arm that shows what was wrong: `TOPUP_TARGET=64` leaves
+  `flatparity` **green (exit 0)** and `SMOKE PASSED`, and reads L0 FAIL on the world sense alone, L1 FAIL on
+  both, L2 ok. Both senses stay because they read different things - the lane hash sees the LIVE lightmap on the
+  cells one camera reaches, the world digest sees the GENERATED lightmap on every cell - and the four verdict
+  classes are each printed by a real arm (main, `CZ_DEF 4→5`, one lamp at 0.1, the band-gate deletion). Locks
+  byte-identical as required of a probe-side change: `LOCK 060da4cd f05beeb5 050b225e`,
+  `PARITY f9e4da3a f05beeb5 d4b2d2cd`, `DEALT bb12ef3e 370d3f7a 3a51e659` and the existing
+  `cull CZBAND 0x8f763884 0x77511300 0x7dd66c40`; the new record `CZBAND-LIGHT 0xb0988514 0xb54c0a14
+  0xcb62daf2` is additive and `tools/refs.lock` carries 5 rows that agree with their declarations.
+  `SMOKE PASSED` at raster median **11.55 ms** (batches 11.4/11.5/11.6/11.6/11.8), `VERT=1` **25 gating row(s),
+  0 known-issue row(s)**, `contrast` **0 FAILURE(S) of 27 rows, 7 known-issue rows**, `recap check` **0 FAILURE(S)
+  of 28 rows**. Two premises from #223 did not survive measurement: a global intensity change is visible to the
+  lane on 3 of 3 levels, and "every other gate stayed green" is false on the localised arms - `alt` reddens on
+  TARGET=64, on the single-lamp arm and on the band-gate deletion.
 
 ## [v1.2] - 2026-10-01
 
