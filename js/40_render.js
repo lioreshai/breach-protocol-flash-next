@@ -1164,6 +1164,80 @@ function drawBloom(q) {
   ctx.drawImage(bloomCv, 0, 0, DW, DH);
   ctx.restore();
 }
+/* ---- the glow's band gate (#221) ---------------------------------
+   The disc a lamp draws is a SCREEN-space object, and until #221 it covered whatever pixels it
+   landed on: a lamp standing on the datum painted additive light into the pixels of a pit a unit
+   below it (level 2 roll 9: composited mean 183.8, centre-half 245.0, immovable by every lamp-intensity
+   knob in the game), because splatLight's band term is a LIGHTMAP term and the glow is composited,
+   never splatted - MAP.light never moved and neither did the picture.
+
+   The gate is splatLight's own term, `|sourceFloor - floorAt(surfaceCell)| <= ZQ`, evaluated on the
+   surface the pixel lands on instead of on a cell of the lightmap. Two shipped facts make that
+   readable per pixel: `zbuf` has been a DISTANCE in every pixel since #163 (the only surviving
+   Infinity is the horizon row, where dz * BH / 0 is arithmetic), and project() above is invertible -
+   the surface a pixel shows sits `zbuf` metres along the ray `dir + plane * (2x/BW - 1)` from the
+   eye, so backing that distance off by a few centimetres gives the AIR cell the ray came through,
+   whose floor is the band the pixel belongs to. Not the camera's cell and not P.z: keyed on the
+   camera's band, a player standing at a pit lip looking down at a lamp that is genuinely below them
+   loses that lamp's glow from every pixel it lights, which is the wrong version this file refuses -
+   cull's lip rows and alt's glow row are the controls that say so.
+
+   On a flat level every open cell is at floor 0 and every source floor is 0, so the term is the
+   literal true, no run is dropped, the fill is the one clipped rect it always was, and flatparity's
+   PARITY triple does not move a byte. Everything that decides a sample is hoisted out of the pixel
+   loop - the row's own (by - horizon) / BH and its row base, one multiply per sample, no
+   transcendental and no ceilAt/floorAt call inside it (floorAt walks four neighbours and cost 5 % of
+   the flat frame once already, from a cell crossing). */
+let GLOWREC = null;                                  // opt-in glow recorder for tools/view.js alt, null in play
+const GR = [];                                  // rect list handed to the fill loop, reused per lamp
+
+/* Accepted runs of one screen row, merged down into as few rects as the geometry allows. A row whose
+   runs match the row above it extends that rect instead of adding one, so a disc whose surface is one
+   band costs one fillRect - the same call the flat world has always made - and only a disc that
+   straddles a lip pays for the split. */
+function glowBandRects(rx, ry, rw, rh, lf) {
+  GR.length = 0;
+  const ys = BH / DH, xs = BW / DW, x1 = rx + rw, y1 = ry + rh, N = MAP.w;
+  const cell = MAP.cell, fz = MAP.fz, lo = lf - ZQ - 1e-9, hi = lf + ZQ + 1e-9;
+  const st = Math.max(2, (rw / 32) | 0);        // one sample per this many device px along x
+  const vs = Math.max(1, (rh / 64) | 0);        // ... and down y
+  let prev = null;                              // previous row's runs, to merge a run of rows into one rect
+  for (let Y = ry; Y < y1; Y += vs) {
+    const by = (Y * ys) | 0;
+    if (by < 0 || by >= BH) continue;
+    const h = Math.min(vs, y1 - Y), base = by * BW;
+    const runs = [];
+    let rs = -1, re = 0;
+    for (let X = rx; X <= x1; X += st) {
+      const xe = Math.min(x1, X + st);          // this sample stands for [X, xe)
+      let bx = (X * xs) | 0;
+      if (bx < 0) bx = 0; else if (bx >= BW) bx = BW - 1;
+      const dz = zbuf[base + bx];
+      let ok = dz === Infinity;                 // the horizon row keeps the glow it always had
+      if (!ok) {
+        const cc = bx * 2 / BW - 1;
+        for (let bk = 0; bk < 4 && !ok; bk++) {
+          const rr = dz - (bk === 0 ? 0.05 : bk === 1 ? 0.2 : bk === 2 ? 0.5 : 1.2);
+          const mx = (camX + rr * (dirX + planeX * cc)) | 0, my = (camY + rr * (dirY + planeY * cc)) | 0;
+          if (mx < 0 || my < 0 || mx >= N || my >= N) continue;     // both axes, always
+          const jj = my * N + mx;
+          if (cell[jj]) continue;                                   // inside a wall: back up into the air
+          const cf = fz[jj] * ZQ;
+          ok = cf >= lo && cf <= hi;
+        }
+      }
+      if (ok) { if (rs < 0) rs = X; re = xe; }
+      else if (rs >= 0) { runs.push(rs, re); rs = -1; }
+    }
+    if (rs >= 0) runs.push(rs, re);
+    let same = prev !== null && prev.length === runs.length;
+    for (let i = 0; same && i < runs.length; i++) if (prev[i] !== runs[i]) same = false;
+    if (same) for (let i = 0; i < runs.length / 2; i++) GR[GR.length - runs.length / 2 * 5 + i * 5 + 3] += h;
+    else { for (let i = 0; i < runs.length; i += 2) GR.push(runs[i], Y, runs[i + 1] - runs[i], h, 1); }
+    prev = runs;
+  }
+}
+
 function drawLightGlow(q) {
   if (!q.glow) return;
   // Budget by lamps actually DRAWN, not by list index. The old `if (n++ > q.glow) break`
@@ -1200,7 +1274,22 @@ function drawLightGlow(q) {
     // for its hidden half, and the gradient is positioned in canvas space either way.
     const rx = Math.max(0, s.x - rad), ry = Math.max(0, s.y - rad);
     const rw = Math.min(DW, s.x + rad) - rx, rh = Math.min(DH, s.y + rad) - ry;
-    if (rw > 0 && rh > 0) ctx.fillRect(rx, ry, rw, rh);
+    if (rw > 0 && rh > 0) {
+      /* The source's own band, once per lamp: an authored lamp hangs LHOVER above the floor it stands
+         on, so the floor comes back off the emitter height exactly the way splatLight's `lf` does,
+         and a light with no z is already standing on its floor. One floorAt call per lamp, never per
+         pixel, and no ceilAt at all - the surface's own cell decides the band. */
+      const lf = L.z === undefined ? floorAt(L.x, L.y) : L.z - LHOVER;   // the source's FLOOR, as splatLight reads it
+      glowBandRects(rx, ry, rw, rh, lf);
+      for (let i = 0; i < GR.length; i += 5) {
+        if (GR[i + 2] <= 0 || GR[i + 3] <= 0) continue;
+        ctx.globalAlpha = GR[i + 4];
+        ctx.fillRect(GR[i], GR[i + 1], GR[i + 2], GR[i + 3]);
+      }
+      ctx.globalAlpha = 1;
+      if (GLOWREC) GLOWREC.push({ x: s.x, y: s.y, rad: rad, k: k, d: d, lx: L.x, ly: L.y, lz: L.z,
+        lf: lf, str: L.str || 0.8, col: col, rects: GR.slice() });
+    }
     n++;
   }
   ctx.restore();
