@@ -17,10 +17,179 @@ const CAM = +(process.argv[4] || 0);
 // An unknown name used to fall through to the scene dump and exit 0, so a typo in a CI probe list
 // ran something, painted a PNG and reported a passing gate (#89).
 const PROBES = ['scene', 'alt', 'anim', 'bands', 'contrast', 'cull', 'decal', 'diag', 'exposure', 'flatparity', 'heights',
-  'drop', 'horizon', 'mip', 'planes', 'play', 'props', 'rig', 'sheets', 'sight', 'stats', 'vert', 'viewmodel'];
+  'drop', 'horizon', 'mip', 'planes', 'play', 'props', 'rig', 'sheets', 'sight', 'stats', 'vert', 'viewmodel', 'refs'];
 if (!PROBES.includes(MODE)) {
   console.error('unknown probe "' + MODE + '" - known: ' + PROBES.join(' '));
   process.exit(2);
+}
+/* ---------------------------------------------------------------------------------------------
+ * RECORDED REFERENCES (#216 probe-half). A *recorded reference* is a literal a probe compares a
+ * measured value against: flatparity's PARITY/LOCK/DEALT md5 triples and cull's CZBAND crc32
+ * triple. Until now the only census of them was a grep, and #216's own survey said what it read:
+ * `grep -cE '[0-9a-f]{32}' tools/view.js` = 3, which misses cull's crc32 refs (that pattern cannot
+ * match 0x9c03d4f4) and cannot tell a live compare from a historical triple quoted in a comment.
+ * So "21 of 22 blocks print verdicts with no hash behind them" was a claim about a blind instrument.
+ *
+ * The mechanism replaces the instrument instead of sampling it: a record is DECLARED by the code
+ * that compares against it. The declaration binds the literals (a const whose value is a refRecord
+ * call returning them unchanged), so the declaration *is* the compare - a probe cannot gain, lose
+ * or edit a reference without the inventory moving, and prose cannot invent one. `tools/refs.lock`
+ * is the machine-readable table of those declarations (`node tools/view.js refs --record` writes
+ * it) and the inventory is asserted against the table from inside `flatparity`, which `ci.yml:161`
+ * runs under `set -euo pipefail`, so no new CI step and no new gate is needed to make it bite.
+ * Comparison is two-directional and a difference in either direction exits 1: a declaration with no
+ * row is `REFS-DECLARED-MISSING`, a row with no declaration (the declaration was deleted) is
+ * `REFS-IN-TABLE-UNDECLARED`, an edited literal is `REFS-VALUES-MOVED`. A missing or unparsable
+ * table is a FAILURE, never a silent pass (#216's vacuity rule: a check that cannot fail).
+ *
+ * What this makes falsifiable: the COUNT, KIND and VALUES of recorded references per block, printed
+ * on every CI run - which is the form of "N blocks have no hash behind their verdicts" that can move
+ * when someone adds one, instead of rotting in a paragraph.
+ *
+ * What it still cannot see: the blocks whose verdict numbers are COMPUTED, not hashed - `alt`'s
+ * cells-lit-from-a-band-above, `heights`' % of frame moved, `contrast`'s edge dL and lost-%,
+ * `exposure`'s means, `mip`'s streak counts, `bands`' legibility pair, `scene`'s dumps. Nothing here
+ * turns a computed figure into a hash; those rows report, they do not lock, and they are listed by
+ * name in every run of this inventory rather than counted in a document.
+ * --------------------------------------------------------------------------------------------- */
+const REFS_FILE = process.env.REFS_LOCK || path.join(__dirname, 'refs.lock');
+const REFS_RECORD = process.argv.includes('--record');
+const REFS_ROSTER = PROBES.filter(n => n !== 'refs');
+const REFS_CAND = /(?:const|let|var)\s+[A-Za-z_$][\w$]*\s*=\s*refRecord\(/;
+const REFCALL = /(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*refRecord\(\s*'([a-z]+)'\s*,\s*'([A-Za-z0-9_\-]+)'\s*,\s*'([a-z0-9]+)'\s*,\s*\[([^\]]*)\]/;
+const refHex8 = n => '0x' + (n >>> 0).toString(16).padStart(8, '0');
+/* A record is declared, not asserted: this returns its literals, so the line that registers a
+   reference is the line the compare reads them from. Kind is validated in both directions - the
+   same rule the static scan applies - so a truncated hash cannot become a lock by typo. */
+function refRecord(mode, rowName, kind, vals) {
+  for (const v of vals) {
+    if (kind === 'md5' && !(/^[0-9a-f]{32}$/.test(v))) throw new TypeError('refRecord ' + mode + '/' + rowName + ': md5 value "' + v + '" is not 32 hex');
+    if (kind === 'crc32' && !(typeof v === 'number' && v >= 0 && v <= 0xffffffff)) throw new TypeError('refRecord ' + mode + '/' + rowName + ': crc32 value "' + v + '" is not a uint32');
+  }
+  return vals;
+}
+/* The scan is line-oriented on purpose: a declaration must fit on the line that binds it, and a
+   refRecord call that does not parse is reported (REFS-DECL-FORM) rather than skipped, so a record
+   cannot hide by being wrapped, computed, or bound to something nothing reads. */
+function refScan() {
+  const src = fs.readFileSync(__filename, 'utf8').split('\n'), decls = [], badform = [];
+  for (let i = 0; i < src.length; i++) {
+    const L = src[i];
+    if (!REFS_CAND.test(L)) continue;
+    const m = REFCALL.exec(L);
+    if (!m) { badform.push(i + 1); continue; }
+    const vals = [];
+    for (const raw of m[5].split(',')) {
+      const t = raw.trim();
+      const q = /^'([^']*)'$/.exec(t), h = /^0x([0-9a-f]{1,8})$/i.exec(t);
+      if (q) vals.push(q[1]);
+      else if (h) vals.push(refHex8(parseInt(h[1], 16)));
+      else badform.push(i + 1);
+    }
+    decls.push({ vname: m[1], mode: m[2], row: m[3], kind: m[4], vals: vals.join(' '), line: i + 1 });
+  }
+  return { decls, badform, src };
+}
+function refTable(file) {
+  if (!fs.existsSync(file)) return null;
+  const rows = [], bad = [];
+  for (const line of fs.readFileSync(file, 'utf8').split('\n')) {
+    if (!line.trim() || line.trim()[0] === '#') continue;
+    const c = line.split('\t');
+    if (c.length !== 5 || c[0] !== 'ref') bad.push(line);
+    else rows.push({ key: c[1] + '/' + c[2], mode: c[1], row: c[2], kind: c[3], vals: c[4] });
+  }
+  return { rows, bad };
+}
+function refWrite(decls, file) {
+  const head = ['# tools/refs.lock - the recorded-reference inventory of tools/view.js (#216 probe-half).',
+    '# One row per probe verdict that compares a measured value against a recorded literal, in the',
+    '# form:  ref <TAB> probe <TAB> row <TAB> kind <TAB> value(s), space separated.',
+    '# Regenerate:  node tools/view.js refs --record      Assert:  node tools/view.js refs',
+    '# A declaration with no row here fails REFS-DECLARED-MISSING; a row with no declaration fails',
+    '# REFS-IN-TABLE-UNDECLARED; an edited literal fails REFS-VALUES-MOVED. None of the three is a',
+    '# warning, and the row runs inside flatparity, which ci.yml runs blocking.'].join('\n');
+  const body = decls.slice().sort((a, b) => (a.mode + a.row < b.mode + b.row ? -1 : 1))
+    .map(d => ['ref', d.mode, d.row, d.kind, d.vals].join('\t')).join('\n');
+  fs.writeFileSync(file, head + '\n' + body + '\n');
+}
+/* One inventory, two callers: `refs` mode prints it alone, and flatparity feeds it its own row()
+   so a disagreement is a FAIL row in a blocking step. Pure fs + string work: it renders nothing, so
+   it cannot warm the pose cache or move a lock (#243's ordering cliff is why that matters here). */
+function refInventory(row) {
+  const { decls, badform, src } = refScan();
+  row('REFS-DECL-FORM every record declaration parses to a lock row', badform.length === 0,
+    decls.length + ' declaration(s) parse' + (badform.length ? ', ' + badform.length + ' do NOT (lines ' +
+      badform.join(',') + ' - a record must be a const binding of a refRecord call with a literal array on that one line' : '') +
+      '; a record that cannot be read is not a record');
+  const offRoster = decls.filter(d => !REFS_ROSTER.includes(d.mode));
+  row('REFS-ROSTER every record names a probe this tool knows', offRoster.length === 0,
+    offRoster.length ? offRoster.map(d => d.mode + '/' + d.row).join(' ') + ' - a record on an unknown block compares against nothing'
+      : decls.map(d => d.mode + '/' + d.row + ' (' + d.kind + ' @:' + d.line + ')').join(' '));
+  const keys = decls.map(d => d.mode + '/' + d.row), dups = keys.filter((k, i) => keys.indexOf(k) !== i);
+  row('REFS-DUP-KEY no two declarations share a probe+row key', dups.length === 0,
+    dups.length ? 'duplicate ' + dups.join(' ') : 'keys ' + keys.join(' '));
+  const tab = refTable(REFS_FILE);
+  if (!tab) {
+    row('REFS-LOCKFILE the lock table exists', false, 'no table at ' + REFS_FILE + ' with ' + decls.length +
+      ' declaration(s) in ' + path.basename(__filename) + ' - run `node tools/view.js refs --record`. Absence is a FAILURE: a probe that finds nothing to compare against must not report ok.');
+    return { decls, tab: null };
+  }
+  row('REFS-LOCK-FORM every lock row parses', tab.bad.length === 0,
+    tab.rows.length + ' row(s) read' + (tab.bad.length ? ', ' + tab.bad.length + ' unparsable: ' + tab.bad.join(' | ').slice(0, 160) : ' (ref<TAB>probe<TAB>row<TAB>kind<TAB>values)'));
+  const tkeys = tab.rows.map(r => r.key);
+  const missing = decls.filter(d => tkeys.indexOf(d.mode + '/' + d.row) < 0);
+  const undecl = tab.rows.filter(r => keys.indexOf(r.key) < 0);
+  const moved = tab.rows.filter(r => keys.indexOf(r.key) >= 0 &&
+    r.vals !== decls[keys.indexOf(r.key)].vals);
+  row('REFS-DECLARED-MISSING every declared record has a lock row', missing.length === 0,
+    missing.length ? missing.map(d => d.mode + '/' + d.row + ' (declared @:' + d.line + ')').join(' ') + ' - the table was not regenerated after the declaration' : missing.length + ' missing');
+  row('REFS-IN-TABLE-UNDECLARED every lock row has a declaration', undecl.length === 0,
+    undecl.length ? undecl.map(r => r.key + ' - the compare was deleted from ' + path.basename(__filename) + ' and the table still claims it exists') : undecl.length + ' orphan rows');
+  row('REFS-VALUES-MOVED values in the table are the values in the code', moved.length === 0,
+    moved.length ? moved.map(r => r.key + ' table [' + r.vals + '] vs code [' + decls[keys.indexOf(r.key)].vals + ']').join(' ; ') : moved.length + ' moved');
+  /* Reporting half - never a failure, always printed: the counts the prose used to carry, and the
+     reconciliation with the grep #216 surveyed with, including the 0x family that grep cannot see. */
+  const byKind = {}, byBlock = {};
+  for (const d of decls) { byKind[d.kind] = (byKind[d.kind] || 0) + 1; (byBlock[d.mode] = byBlock[d.mode] || []).push(d.row); }
+  const noRec = REFS_ROSTER.filter(n => !byBlock[n]);
+  console.log('  --  records: ' + decls.length + ' (' + Object.keys(byKind).sort().map(k => k + ' ' + byKind[k]).join(', ') +
+    ') across ' + Object.keys(byBlock).length + ' of ' + REFS_ROSTER.length + ' verdict-printing probes; with none: ' + noRec.length + ' [' + noRec.join(' ') + ']');
+  let md5Lines = 0, hxRefs = 0, hxOther = 0;
+  const hxSeen = [];
+  for (let i = 0; i < src.length; i++) {
+    const L = src[i];
+    if (/[0-9a-f]{32}/.test(L)) md5Lines++;
+    for (const h of (L.match(/0x[0-9a-f]{7,8}/g) || [])) {
+      if (L.indexOf('refRecord(') >= 0) hxRefs++;
+      else { hxOther++; if (hxSeen.length < 6) hxSeen.push(h + ' @:' + (i + 1)); }
+    }
+  }
+  console.log('  --  #216\'s instrument reconciled: `grep -cE \'[0-9a-f]{32}\' tools/view.js` = ' + md5Lines +
+    ' line(s) - equal to the ' + (byKind.md5 || 0) + ' md5 record(s) here, because each now sits on the line that binds it.' +
+    ' The crc32 family is invisible to that grep: ' + hxRefs + ' 0x… literal(s) inside a declaration vs ' + hxOther +
+    ' mentions elsewhere, which are historical triples quoted in comments and the FNV/PRNG constants' +
+    ' - first: ' + hxSeen.join(' ') + '. A grep counts mentions; this table counts compares.');
+  return { decls, tab };
+}
+if (MODE === 'refs') {
+  let rbad = 0;
+  const rrow = (label, ok, detail) => { if (!ok) rbad++; console.log('  ' + (ok ? 'ok  ' : 'FAIL') + '  ' + label + ' - ' + detail); return ok; };
+  const sc = refScan();
+  if (REFS_RECORD) {
+    refWrite(sc.decls, REFS_FILE);
+    const back = refTable(REFS_FILE);
+    rrow('REFS-ROUNDTRIP the table written re-reads with every declaration',
+      !!back && back.bad.length === 0 && back.rows.length === sc.decls.length,
+      back ? back.rows.length + ' row(s) read back, ' + back.bad.length + ' unparsable, ' + sc.decls.length + ' declared -> ' + REFS_FILE : 'unreadable');
+    console.log(rbad ? 'REFS RECORD FAILED - wrote ' + REFS_FILE + ' and could not read it back' : 'refs recorded ' + sc.decls.length + ' references -> ' + REFS_FILE);
+    process.exit(rbad ? 1 : 0);
+  }
+  refInventory(rrow);
+  console.log(rbad ? 'REFS ' + rbad + ' FAILURE(S) - the declared records and ' + path.basename(REFS_FILE) + ' disagree (regenerate with `node tools/view.js refs --record` only after the code change is the one you meant)'
+    : 'refs ok - ' + sc.decls.length + ' recorded reference(s) in ' + new Set(sc.decls.map(d => d.mode)).size +
+      ' of ' + REFS_ROSTER.length + ' probes, table agrees (' + REFS_FILE + ')');
+  process.exit(rbad ? 1 : 0);
 }
 const OUT = process.env.OUT || (MODE === 'sheets' ? '/tmp/fps_tex.png' : MODE === 'rig' ? '/tmp/fps_rig.png' : '/tmp/fps_scene.png');
 
@@ -878,14 +1047,14 @@ if (MODE === 'flatparity') {
      build's shipped path prints. L1 is byte-identical in both senses at this dice - the top-up adds no
      lamp to level 1 here (the counts are printed in the decomposition rows), so only 2 of 3 levels can
      tell the senses apart, and the control row says so instead of claiming a triple moved. */
-  const OLD = ['f9e4da3af18836db903fd7cbdf2b0206', 'f05beeb58f1266a1aea7e44712995292', 'd4b2d2cd539c3b620ea0ce5ab115d50a'];
+  const OLD = refRecord('flatparity', 'PARITY', 'md5', ['f9e4da3af18836db903fd7cbdf2b0206', 'f05beeb58f1266a1aea7e44712995292', 'd4b2d2cd539c3b620ea0ce5ab115d50a']);
   const OLDM = [79.7, 34.1, 47.5];
   /* #213 moves SHIP[0] to 060da4cd (80.8, from 4262d051/81.3) and nothing else: a coverage top-up's
      intensity now scales with the cells it covers, so the shipped world gains DIMMER sources and L0's
      spawn frame repaints. L1 and L2 are byte-identical at TARGET <= 64 - their top-ups each cover >= 32
      cells, so the scale is exactly 1 and 1.05 * 1 === 1.05. The PARITY triple did not move at all, which
      is the knob-independence proof: with the top-up suppressed at author time this change runs no code. */
-  const SHIP = ['060da4cdaadc2e4a4276ce8f06b0eecf', 'f05beeb58f1266a1aea7e44712995292', '050b225e3f295b3ca991d59addea2f1c'];
+  const SHIP = refRecord('flatparity', 'LOCK', 'md5', ['060da4cdaadc2e4a4276ce8f06b0eecf', 'f05beeb58f1266a1aea7e44712995292', '050b225e3f295b3ca991d59addea2f1c']);
   const SHIPM = [80.8, 34.1, 51.7];
   /* #219's DEALT triple, #226's camera: the frame of each level AS DEALTED - bands, band term, shipped
      lamp record, same dice (1000 + level*97) and the same pinned-clock ninth render - but at a seat
@@ -951,7 +1120,7 @@ if (MODE === 'flatparity') {
      chosen for. The two numbers #241 recorded as the cold children's (f240fd35, ce8e96a3) are now the lock,
      so the value a single-level run prints and the value the roster prints are the same number - which is
      the DEALT-ORDER row's whole job. */
-  const DEALT = ['3e88c850528f97c56d8ce8ecfe168ee2', 'f240fd3502c1db1ad543934f91a48eb5', 'ce8e96a3029e5ee71a12a2dec7f3e15a'];
+  const DEALT = refRecord('flatparity', 'DEALT', 'md5', ['3e88c850528f97c56d8ce8ecfe168ee2', 'f240fd3502c1db1ad543934f91a48eb5', 'ce8e96a3029e5ee71a12a2dec7f3e15a']);
   const DEALTM = [57.3, 58.7, 86.0];
   const OFF = process.env.LAMPS === 'off';
   const f1 = v => (v === undefined || v === null ? '-' : (+v).toFixed(1));
@@ -1388,7 +1557,15 @@ if (MODE === 'flatparity') {
     + 'column is lit from a band ABOVE it" row reads 169 / 279 / 117 on that kernel against 0 / 0 / 0 here (the 273 '
     + 'this file and CHANGELOG used to quote for level 1 was an older deal; #219 measured 279). A green FLAT parity '
     + 'row is still NOT proof that a band term exists or points the right way.')
-  console.log(bad ? 'FLATPARITY ' + bad + ' FAILURES - the PARITY triple no longer collapses with LAMPS=off, or the LOCK triple moved'
+  /* #216 probe-half, and the reason this row lives HERE rather than in a step of its own: the
+     recorded references this probe owns are the only numbers in tools/view.js a claim can be checked
+     against, and until now the only census of them was a grep that reads 3 and cannot see cull's
+     crc32 family at all. Asserting the inventory from inside a blocking step means the count cannot
+     drift out of the prose again: adding a lock, deleting one, or editing a literal all redden this
+     row, and the row prints which blocks still have nothing behind their verdicts. It renders
+     nothing, so it cannot warm the pose cache or move a triple (#243). */
+  refInventory(row);
+  console.log(bad ? 'FLATPARITY ' + bad + ' FAILURES - the PARITY triple no longer collapses with LAMPS=off, the LOCK triple moved, or the recorded-reference inventory disagrees with tools/refs.lock (the REFS rows above say which)'
     : 'flatparity ok - PARITY collapses to 2c5a94f with LAMPS=off (formula collapse), LOCK holds on the shipped lamp'
     + ' record (regression lock) and DEALT holds on the world as dealt (population + lock). Two cold processes per'
     + ' sense agree. The two FLAT senses are BLIND TO THE SIGN of the band term; DEALT and alt\'s band-above rows are'
@@ -2634,7 +2811,7 @@ if (MODE === 'cull') {
          FAIL x3, main js + the old refs ok, variant js + the old refs FAIL x3). Note that the kernel
          term ALONE measures 0x765abed0 / 0x020678dc / 0x2621e6d1: these three are the kernel plus the
          coverage lamps, and the two sets are not interchangeable. */
-      const CZBAND_REF = [0x9c03d4f4, 0xeec7be60, 0x7dd66c40];
+      const CZBAND_REF = refRecord('cull', 'CZBAND', 'crc32', [0x9c03d4f4, 0xeec7be60, 0x7dd66c40]);   // LEAK=1 CZBAND=1, cull's own step rows
       if (process.env.CZBAND) {
         czRows++;
         run(`(function(){ window.__cz0b = MAP.cz.slice(); ${JSON.stringify(BG.cells)}

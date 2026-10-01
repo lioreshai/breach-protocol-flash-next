@@ -40,15 +40,28 @@ Order of evidence, strongest first:
 2. **`node tools/view.js <probe>`** — geometry, lighting, budgets: deterministic and diffable.
 3. **the smoke verdict** — must stay green; proves nothing about how anything looks.
 
-**Only four recorded references stand behind item 2 today.** `flatparity` compares three recorded
-triples of literal hashes — PARITY (`tools/view.js:863`), LOCK (`:870`) and the DEALT sense over the
-dealt frame (`:887`) — and `cull` records a crc32 triple for the ceiling-step ground (`CZBAND_REF`,
-`:2468`); every other probe block prints verdicts whose numbers are **not** hash-gated, so a figure
-quoted from `alt`, `heights`, `contrast`, `exposure` or `scene` prose is a record of one session's
-measurement and not a row that can fail. `grep -cE '[0-9a-f]{32}' tools/view.js` reads 3 and misses
-`cull`'s `0x…` refs, which is a caveat on #216's own survey instrument as much as on the claims it
-surveyed. Giving the other blocks rows is the probe-half of #216; until it lands, the claims below
-are labelled instead.
+**Four recorded references stand behind item 2, and a row now counts them.** `flatparity` compares
+three recorded md5 triples — PARITY, LOCK and the DEALT sense over the dealt frame — and `cull`
+records a crc32 triple for the ceiling-step ground (`CZBAND_REF`). Each is *declared* through
+`refRecord`, which returns the very literals its compare reads, so the declaration is the compare and
+a reference cannot be gained, lost or edited without the inventory moving. `tools/refs.lock` is the
+machine-readable table of those declarations (`node tools/view.js refs --record` regenerates it) and
+`refInventory` asserts declarations against it from **inside `flatparity`**, which `ci.yml` runs
+blocking — so an unregenerated table is a `FAIL REFS-DECLARED-MISSING` /
+`REFS-IN-TABLE-UNDECLARED` / `REFS-VALUES-MOVED` row, a missing table is `REFS-LOCKFILE` (absence is a
+failure, never an ok), and `node tools/view.js refs` prints the same rows alone with no render, so it
+cannot warm a pose cache. What is falsifiable now is the **count, kind and values** of recorded
+references per block, printed every CI run — currently *4 records (3 md5, 1 crc32) in 2 of the 23
+probe blocks, 21 blocks named as having none* — which is the form of "the other blocks have no hash
+behind their verdicts" that moves when someone adds one instead of rotting in a paragraph. The old
+survey instrument is obsolete, and `refs` prints the reconciliation: the `grep -cE '[0-9a-f]{32}'`
+count over `tools/view.js` reads 3 (equal to the md5 records, because each now sits on the line that
+binds it) and is blind to the crc32 family — that pattern cannot match `0x9c03d4f4` — while a `0x…`
+grep counts 20 mentions, of which 3 are the live `CZBAND_REF` and the rest are historical triples quoted in
+comments plus the FNV/PRNG constants. What still has **no** row: the blocks whose verdict numbers are
+computed rather than hashed — `alt`, `heights`, `contrast`, `exposure`, `mip`, `bands`, `scene` and
+the rest of the 21 — so a figure quoted from their prose is still one session's measurement, and
+#216 stays open until those blocks have rows; keep labelling such claims.
 
 Human judgement still rules what the page cannot reveal: game feel, aim responsiveness, whether the
 audio levels are pleasant, difficulty. Ask about those. Do not ask about pixels.
