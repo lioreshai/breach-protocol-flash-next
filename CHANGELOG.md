@@ -1,6 +1,29 @@
 ## Unreleased
 
 ### Added
+- **The minimap plots the climbs the generator authored, before the player finds them** (#189 part 1).
+  `MAP.feat` authors `STAIR`/`LADDER`/`PIT` cells and no HUD code read them, so an off-band region was
+  undiscoverable from the datum. `drawFeatCues` (js/50_ui_input.js, called by the frame loop after
+  `renderOverlay` under the same `S.showMap` gate `drawMinimap` carries) glyphs every feat cell — stair
+  two horizontal ticks, ladder a vertical bar, pit a square — **regardless of `explored`**, measured
+  first: at SEED 12345 the pop is **STAIR 6 / LADDER 0 / PIT 20 (L2 12), RAIL 0 — nothing writes
+  FEAT_RAIL** — **0 of 26 / 26 / 18** feat cells sit inside the reveal disc (radius `sqrt(52)` cells,
+  js/30_entities.js) and the nearest staircase is **10.4 / 13.9 / 25.3 cells** from the spawn seat, so
+  an explored-gated cue paints nothing when it matters. At the default minimap every cell gets its own
+  **6.65 / 5.40 / 4.80 px**, so the glyph fits at 1-px-per-cell × ~5; no cue had to move to a HUD line.
+  Ink is band-vs-`MAP.fzBase`, level-wide, never player-relative — where *you* are stays the arrow
+  (#16 gap kept visible, asserted not argued). `bands` gained three rows per level: cue coverage with
+  populations and a misplaced-cell count (0 cells authored is a FAILURE, not an ok), spawn-seat
+  findability (nearest climb cell + whether its minimap pixel is non-background at explored = 0), and
+  an invariance row that reddens if the cue ever encodes the player's own band. Controls seen red in a
+  control worktree: cue reverted → 0 cues with cells present; cue gated on `explored` → the spawn-seat
+  clause; glyph at the wrong kind or one cell east → the coverage/misplacement clause; `MAP.feat`
+  emptied → vacuity as FAILURE. Cost: **0.015 ms/frame** measured alone (600 calls, headless fillRect
+  hook), and order-flipped paired batches (5×60 frames/side, loadavg ~3) put frame cost at **12.98 vs
+  13.10 ms** median — inside the noise. All four lock senses printed unchanged: LOCK
+  060da4cd/f05beeb5/050b225e, PARITY f9e4da3a/f05beeb5/d4b2d2cd, CZBAND
+  0x9c03d4f4/0xeec7be60/0x7dd66c40, DEALT ecb797dd/96a450d0/22d473ed — the cue paints on the display
+  canvas after `renderWorld` writes `px`, never into `px`.
 - **A generated level has volume, not just altitude** (#188). `authorHeights` scattered single room
   interiors one quantum up and left `MAP.cz` at one unit in every column, so a level was multi-storey
   in `MAP.fz` and still read as a crawlway. `authorVolume` authors three named features per level. A

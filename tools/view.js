@@ -6138,6 +6138,89 @@ if (MODE === 'bands') {
     row(`L${li} minimap shows which band a cell is on`, bands.length >= 2 && sameOff.length === 0,
       `${bands.length} bands painted: ` + bands.map(b => `${b.toFixed(2)}m ${colOf(b)}`).join(', ') +
       (sameOff.length ? ` - ${sameOff.length} off-datum band(s) still use the datum colour` : ''));
+    /* #189 part 1: MAP.feat authors STAIR/LADDER/PIT cells and no HUD code read them, so the climb
+       was undiscoverable. These rows gate the minimap cue that plots them. The cue is drawn by
+       js/50_ui_input.js's drawFeatCues AFTER renderOverlay (the HUD file owns it; the renderer file
+       does not), so these rows record the main display ctx, not the layer's fake - the layer rows
+       above stay pure band-tint accounting. Cue fills are identified by MMFEAT's colour strings,
+       which grep says occur nowhere else in js/. explored is zeroed for the capture because that is
+       the spawn frame: measured 0 of 26/26/18 feat cells sit inside the reveal disc (radius
+       sqrt(52) cells), so an explored-gated cue would paint nothing when it matters (control 2).
+       A pop of 0 is a FAILURE, not an ok - the vacuity rule, cells must exist to be cued. */
+    const cq = run(`(function () {
+      const N = MW, feat = MAP.feat, rec = [], pop = [0, 0, 0, 0, 0], cells = [];
+      let climb = null, cdist = 1e9;
+      for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+        const i = y * N + x, k = feat[i] | 0;
+        if (k < 1 || k > 4) continue;
+        pop[k]++; cells.push([x, y, k]);
+        if (k === 1 || k === 2) {
+          const d = Math.hypot(x + 0.5 - ${spawn[0]}, y + 0.5 - ${spawn[1]});
+          if (d < cdist) { cdist = d; climb = [x, y, k, d, MAP.fz[i]]; }
+        }
+      }
+      const U2 = DH / 900, size2 = Math.min(DW * 0.2, DH * 0.24), pad2 = 18 * U2;
+      const x2 = DW - size2 - pad2, y2 = pad2 + 6 * U2, s2 = size2 / Math.max(MW, MH);
+      explored.fill(0); S.revealed++;                 // spawn-frame state; drawFeatCues must not care
+      const have = typeof drawFeatCues === 'function' && typeof MMFEAT !== 'undefined';
+      const of = ctx.fillRect, cols = have ? MMFEAT.map(c => String(c)) : [];
+      if (have) {
+        ctx.fillRect = function (x, y, w, h) { rec.push([String(this.fillStyle), x, y, w, h]); };
+        drawFeatCues(U2);
+        ctx.fillRect = of;
+      }
+      return { pop, cells, climb, rec, cols, mw: MW, mh: MH, x2, y2, s2,
+        wired: /drawFeatCues/.test(frameInner.toString()), dead: !have };
+    })()`);
+    const cellKeyOf = (px, py) => Math.floor((px - cq.x2) / cq.s2) + ',' + Math.floor((py - cq.y2) / cq.s2);
+    const featAt = {};
+    for (const [x, y, k] of cq.cells) featAt[x + ',' + y] = k;
+    const cuedCell = {};
+    let misplaced = 0, cueFills = 0;
+    for (const [col, px, py] of cq.rec) {
+      const k = cq.cols.indexOf(col);
+      if (k < 0) continue;
+      cueFills++;
+      const key = cellKeyOf(px, py);
+      if (featAt[key] === k) cuedCell[key] = 1; else misplaced++;
+    }
+    const popTot = cq.pop.reduce((a, b) => a + b, 0);
+    const cuedK = [0, 0, 0, 0, 0];
+    for (const [x, y, k] of cq.cells) if (cuedCell[x + ',' + y]) cuedK[k]++;
+    const cuedTot = cuedK.reduce((a, b) => a + b, 0);
+    row(`L${li} every feat cell the map authors gets its cue`, !cq.dead && cq.wired && popTot > 0 && cuedTot === popTot && misplaced === 0,
+      `pop STAIR ${cq.pop[1]} LADDER ${cq.pop[2]} PIT ${cq.pop[3]} RAIL ${cq.pop[4]} -> cued ${cuedK[1]}/${cq.pop[1]} ${cuedK[2]}/${cq.pop[2]} ${cuedK[3]}/${cq.pop[3]} ${cuedK[4]}/${cq.pop[4]}` +
+      ` of ${cq.cells.length} cells at ${cq.s2.toFixed(2)} px/cell; ${cueFills} cue fills, ${misplaced} at the wrong cell or kind; frame loop ${cq.wired ? 'calls' : 'DOES NOT CALL'} drawFeatCues` +
+      (cq.dead ? ' - no MMFEAT in the build' : popTot === 0 ? ' - NO FEAT CELLS (vacuity is a FAILURE, not an ok)' : ''));
+    if (!cq.climb) {
+      row(`L${li} spawn seat can find the nearest climbable cell`, false, 'no STAIR/LADDER cell authored - vacuity');
+    } else {
+      const [cx, cy, k, d, band] = cq.climb;
+      const px0 = cq.x2 + cx * cq.s2, py0 = cq.y2 + cy * cq.s2;
+      const ink = cq.rec.find(([col, px, py, w, h]) =>
+        cq.cols.indexOf(col) >= 0 && px < px0 + cq.s2 && px + w > px0 && py < py0 + cq.s2 && py + h > py0);
+      const DISC = Math.sqrt(52);
+      row(`L${li} spawn seat can find the nearest climbable cell`, !!ink,
+        `nearest STAIR/LADDER cell ${d.toFixed(1)} cells = ${d.toFixed(1)} m at (${cx},${cy}) band ${band >= 0 ? '+' : ''}${band}, ` +
+        `${d > DISC ? 'OUTSIDE' : 'inside'} the ${DISC.toFixed(1)}-cell reveal disc - an explored-gated cue would ${d > DISC ? 'paint NOTHING here' : 'already show it'}; ` +
+        `its minimap pixel ${ink ? 'carries ' + ink[0] : 'IS BACKGROUND - no cue before the player has been there'}`);
+    }
+    const inv = run(`(function () {
+      const rec = [], of = ctx.fillRect;
+      const z0 = P.z; P.z = z0 + ${ZQS} * 4;                 // feet a full band above the seat
+      if (typeof drawFeatCues === 'function') {
+        ctx.fillRect = function (x, y, w, h) { rec.push([String(this.fillStyle), x, y]); };
+        drawFeatCues(DH / 900);
+        ctx.fillRect = of;
+      }
+      P.z = z0;
+      return rec;
+    })()`);
+    const base = cq.rec.map(r => [r[0], r[1], r[2]]);
+    row(`L${li} the cue invents no altitude (the #16 gap stays visible)`,
+      cq.rec.length > 0 && JSON.stringify(base) === JSON.stringify(inv),
+      `${base.length} cue fills identical with the player on their own band and 1 band higher: cell ink is band-vs-MAP.fzBase (level-wide), ` +
+      `never player-relative - where YOU are is the arrow, not a tint (#16 gap kept, not papered over)`);
     /* #197: WHERE THE FAR BAND GETS ITS LIGHT. castGround fills - does not texture - every row whose own
        plane solve passes FARB: the horizon band of a flat level, the upper half of a tall room, the far
        side of a pit. That fill used to read MAP.light and the tint of cellIdx(camX, camY) - the CAMERA
