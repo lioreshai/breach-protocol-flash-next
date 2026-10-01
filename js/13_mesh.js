@@ -122,6 +122,27 @@ const MESH = (function () {
             the face normal and the vector to the eye are already computed two lines up. */
   let FLR = 0, RIMK = 0;
   const RIMC = [150, 176, 208];                       // a cool sky rim on warm metal
+  /* #232 TORSO STRUCTURE. The shipped body is flat-shaded per TRIANGLE, so a grunt's chest is one
+     box of ~26 px at 6 m carrying one luminance: its within-surface gradient measured 2.7 on the
+     composited frame against 2.2-3.0 for the room behind it, and the material table's 6.3-6.7 is
+     texel-space on art (#72) that the mesh no longer draws. A flat face cannot be given structure by
+     a per-VERTEX value (tri() writes one packed colour per triangle), so this is a per-PIXEL term.
+     Three rules, each because something else failed:
+     - it is a ZERO-MEAN triangle wave, so it moves the gradient without moving the mean;
+     - the constant is the SLOPE in luminance per screen pixel, not the amplitude: amplitude =
+       SLOPE * projectedPeriod / 4, which is what a mip chain does for a wall texture and keeps the
+       term from BOILING as the body turns (a fixed-amplitude seam at pixel period changes every
+       pixel by slope*motion each frame - the failure mode that got the leg specular rejected);
+     - the period is a fraction of AUTHORED BODY HEIGHT (TS_CYC seams per body unit), never pixels,
+       so it does not thin out as poses get sharper, exactly as AGENTS.md says of the rim band. The
+       mesh has no silhouette distance field to band on, so the band here is the grazing term
+       `1 - |N.V|` - the same angle-correct stand-in RIMK uses above - floored by TS_BMIN so the
+       face square to the eye, which is most of the chest, still reads.
+     Legs and silhouette are untouched on purpose: a specular that rode the gait read as noise and
+     shrinking the outline breaks the walk (both rejected, #232). Fades out below TS_MINP px. */
+  const TS_CYC = 10, TS_MINP = 3.5, TS_SLOPE = 9, TS_MAX = 26, TS_BMIN = 0.45;
+  const TSC = [0.80, 1.00, 1.15];                   // slightly cool seams on warm armour
+  let TAMP = 0, TK = 0, ST = null, TQ0 = 0, TQ1 = 0, TQ2 = 0;
   /* o.near swaps the DEPTH array rather than adding a branch to the pixel loop. The swap makes the
      same `if (occ < z) continue` compare the draw against ITSELF instead of against the frame: the
      world's distances are never consulted, so nothing in the room can cull the view model, and the
@@ -148,6 +169,8 @@ const MESH = (function () {
     this.p = [];                                    // x,y,z,r,g,b
     this.t = [];                                    // i0,i1,i2
     this.e = [];                                    // 1 where the part makes its own light
+    this.s = [];                                    // #232 authored structure coord per vertex, 0 = none
+    this.rg = 0;                                    // region register: 1 while a torso part emits
     this.ca = 1; this.sa = 0;                       // rotation about x, positive tips the up axis forward
     this.cx = 0; this.cy = 0; this.cz = 0;
     this.em = 0;                                    // set around an emit to mark the part emissive
@@ -184,6 +207,7 @@ const MESH = (function () {
     const p0x = pa[0], p0y = pa[1], p0z = pa[2];            // pt shares one scratch array
     const pb = this.pt(bx, by, bz);
     let dx = pb[0] - p0x, dy = pb[1] - p0y, dz = pb[2] - p0z;
+    const sva = this.rg ? ax + az : 0, svb = this.rg ? bx + bz : 0;   // #232 authored, before the transform
     ax = p0x; ay = p0y; az = p0z; bx = pb[0]; by = pb[1]; bz = pb[2];
     const L = Math.hypot(dx, dy, dz) || 1e-6;
     dx /= L; dy /= L; dz /= L;
@@ -195,11 +219,11 @@ const MESH = (function () {
     const base = this.p.length / 6;
     for (let i = 0; i < NS; i++) {
       const cx = u[0] * RC[i * 2] + v[0] * RC[i * 2 + 1], cy = u[1] * RC[i * 2] + v[1] * RC[i * 2 + 1], cz = u[2] * RC[i * 2] + v[2] * RC[i * 2 + 1];
-      this.p.push(ax + cx * ra, ay + cy * ra, az + cz * ra, c[0], c[1], c[2]); this.e.push(this.em);
+      this.p.push(ax + cx * ra, ay + cy * ra, az + cz * ra, c[0], c[1], c[2]); this.e.push(this.em); this.s.push(sva);
     }
     for (let i = 0; i < NS; i++) {
       const cx = u[0] * RC[i * 2] + v[0] * RC[i * 2 + 1], cy = u[1] * RC[i * 2] + v[1] * RC[i * 2 + 1], cz = u[2] * RC[i * 2] + v[2] * RC[i * 2 + 1];
-      this.p.push(bx + cx * rb, by + cy * rb, bz + cz * rb, c[0], c[1], c[2]); this.e.push(this.em);
+      this.p.push(bx + cx * rb, by + cy * rb, bz + cz * rb, c[0], c[1], c[2]); this.e.push(this.em); this.s.push(svb);
     }
     for (let i = 0; i < NS; i++) {
       const j = (i + 1) % NS;
@@ -220,7 +244,7 @@ const MESH = (function () {
     ];
     for (const q of faces) {
       const b0 = this.p.length / 6;
-      for (const qv of q) { const p = this.pt(qv[0], qv[1], qv[2]); this.p.push(p[0], p[1], p[2], c[0], c[1], c[2]); this.e.push(this.em); }
+      for (const qv of q) { const p = this.pt(qv[0], qv[1], qv[2]); this.p.push(p[0], p[1], p[2], c[0], c[1], c[2]); this.e.push(this.em); this.s.push(this.rg ? qv[0] + qv[2] : 0); }
       this.t.push(b0, b0 + 1, b0 + 2, b0, b0 + 2, b0 + 3);
     }
     return this;
@@ -565,7 +589,9 @@ const MESH = (function () {
       b.box(L.fx, Math.max(0.03, L.fy + 0.01), L.fz + 0.04, s.limb * 1.1, 0.03, s.limb * 1.8, dk);
     }
     b.tip(q.pitch, hipY, 0);                         // the wind-up tips everything above the hip
+    b.rg = 1;                                        // #232: the torso is the region that gets structure
     b.box(0, (hipY + shY) * 0.5, 0, s.shLat * 1.05, (shY - hipY) * 0.5, s.torso * 0.42, sk);
+    b.rg = 0;
     b.box(0, hipY + 0.02, 0, s.hipLat * 1.3, 0.045, s.torso * 0.34, dk);
     /* The neck. The torso box ends at the shoulder line and the head box starts above it, and what
        sat between them was the level behind: 9 rows of daylight on a grunt at 2.4 m (#74). This
@@ -648,7 +674,7 @@ const MESH = (function () {
        failure #76 asks to make loud. A missing row is a bug in the caller, so it throws. */
     if (!SPEC[kind] && !PROPGEO[kind]) throw new Error('MESH: no geometry authored for kind "' + kind + '"');
     const b = geoFor(kind, 0, 0, 0, 0, 0);
-    const mdl = { kind, p: new Float32Array(b.p), t: new Uint16Array(b.t), em: Uint8Array.from(b.e), nV: b.p.length / 6, tris: b.t.length / 3 };
+    const mdl = { kind, p: new Float32Array(b.p), t: new Uint16Array(b.t), em: Uint8Array.from(b.e), st: Float32Array.from(b.s), nV: b.p.length / 6, tris: b.t.length / 3 };
     MODELS[kind] = mdl;
     return mdl;
   }
@@ -765,7 +791,15 @@ const MESH = (function () {
         // painted in emit order, and a torso emitted before an arm loses to it
         if (SELF && z < occ) zbuf[off] = z;
         if (CW) CW[off] = CTAG;
-        if (SOLID) px[off] = COL;
+        if (TK && SOLID) {
+          // the zero-mean seam: (1-w1-w2)*TQ0 + w1*TQ1 + w2*TQ2 is the body coord under the pixel
+          let u = (1 - w1 - w2) * TQ0 + w1 * TQ1 + w2 * TQ2;
+          u -= Math.floor(u);
+          const kk = (u < 0.5 ? u * 4 - 1 : 3 - u * 4) * TK;
+          px[off] = (0xFF000000 | clampi(CB + kk * TSC[1]) << 16 | clampi(CG + kk * TSC[1]) << 8 |
+            clampi(CR + kk * TSC[0])) >>> 0;
+        }
+        else if (SOLID) px[off] = COL;
         else {
           const dst = px[off];
           px[off] = (0xFF000000 | clampi(CB * A + (dst >> 16 & 255) * IA) << 16 |
@@ -833,6 +867,7 @@ const MESH = (function () {
        is darkest in exactly the rooms where they are the only light source (js/40_render.js:703, and
        #33 for the same floor under AMB). */
     EMIS = !!o.emis; DIM = o.dim || 0; EM = m.em;
+    ST = m.st || null;                              // #232 per-vertex torso coord; props and the gun have none
     /* The ramp a face's light rides. A body's sprites carried a curvature term, so 0.30+0.85*d is that
        path's own history and stays; a PROP's sprite had NO normal at all - drawBillboard's lr is
        AMB + 1.1*li*lt, flat - so borrowing the body's ramp darkened every prop face turned away from KEY
@@ -869,6 +904,11 @@ const MESH = (function () {
        the vertex set's (js/40_render.js). The variant's yw is added to that same yaw above, so a
        corpse that falls sideways aims along dieAng turned a quarter turn. */
     const PP = MDL ? MDL.v : poseOf(m, o);
+    /* The seam PERIOD in pixels is what sets the amplitude: TS_CYC seams per body unit, projected.
+       Below TS_MINP px the term is off rather than aliased - that is the fade a mip chain is for a
+       wall texture, and here it is two lines instead of a chain. */
+    const TPR = BH * sc / (Math.max(NEAR, Math.abs(tYc)) * TS_CYC);
+    TAMP = !ST || TPR <= TS_MINP ? 0 : Math.min(TS_MAX, TS_SLOPE * TPR * 0.25);
     if (ROT) {
       // yaw+pitch+roll as one matrix, so a rig can point its bore along the firing ray.
       // The yaw-only branch below is untouched: this is the extra path a view model takes,
@@ -943,6 +983,17 @@ const MESH = (function () {
         const q = RIMK * (1 - Math.min(1, vd / Math.max(1e-6, Math.hypot(evx, evy, evz))));
         r += RIMC[0] * q; g += RIMC[1] * q; b += RIMC[2] * q;
       }
+      /* Per triangle: the torso's own coord set, gated by the grazing band. TK is a module register
+         like CR, so it MUST be zeroed on every triangle that is not torso geometry - a stale TK would
+         paint the seam onto the leg that follows the chest in emit order. */
+      if (TAMP) {
+        const sa = ST[i0], sb = ST[i1], sz = ST[i2];
+        if (sa !== 0 || sb !== 0 || sz !== 0) {
+          const q = 1 - Math.min(1, vd / Math.max(1e-6, Math.hypot(evx, evy, evz)));
+          TK = TAMP * (TS_BMIN + (1 - TS_BMIN) * q);
+          TQ0 = sa * TS_CYC; TQ1 = sb * TS_CYC; TQ2 = sz * TS_CYC;
+        } else TK = 0;
+      } else TK = 0;
       CR = r > 255 ? 255 : r | 0; CG = g > 255 ? 255 : g | 0; CB = b > 255 ? 255 : b | 0;
       // the hit flash the billboard applied per pixel is per triangle here: a flat-shaded face has
       // one colour, so the same 0.72 pull toward white after fog lands in the three registers
