@@ -26,6 +26,47 @@
   a directory with no PNGs in it.
 ### Fixed
 
+- **The step-lip seam row now asks which SIDE of the lip the band is on, and the ~40 % it was filed
+  about turns out to have been fixed elsewhere** (#167). `node tools/view.js bands`' placement term was
+  `near0 >= max(12, n*0.5)` with the band located by argmax INSIDE ±win of the analytic lip row, so a
+  band displaced across the lip could not be seen: the search always found *a* band and called it near,
+  and a 50 % bar on an instrument that cannot report FAR is a row that cannot fail. Re-measured on
+  `da5dad5` with a wide (±4 win ≈ 1.3 m) predicate, **the wrong-side fraction on the walkable columns is
+  0 of 60, 0 of 60, 0 of 60** against the issue's 22/60, 12/60, 27/60 — because `git log -S crk` shows
+  the march-keyed walkable crease was deleted by `754d9ce` (#196), which made every step a DRAWN riser,
+  so `seamCrease` is now reached only from `if (riser && SEAM)` (`js/40_render.js:1051-1058`) and is
+  keyed on the boundary whose face the wall pass painted. **No `js/` changed: nothing was left to fix
+  in the renderer, and no ground-pass seam term was added** — `castGround`'s row loop and `groundPixel()`
+  contain no seam term and provably cannot see this case, because a riser paints the slab side
+  (`js/40_render.js:973`, `z0/z1` from `rz0/rz1` for every `dq`) so the ground pass never answers for a
+  lip's pixels. The row is tightened to what it should always have said, for BOTH kinds: a column counts
+  only if the seam A/B diff exceeds 4 on a row strictly INSIDE the painted face, on the face's own side
+  of the lip row `yc = floor(hor + (eye - c[4]) * hp)` (the floor the RAY STANDS ON — never the
+  height-sorted lower floor, whose projection for a step DOWN lands on the near floor's rows), within
+  `win` ≈ 32 cm and never deeper than the face; the anchor row itself is excluded because
+  `seamCrease`'s `k = 0` term is painted there whichever way `dir` goes — with it, the sabotage passes
+  60 of 60 on a DOWN lip. Gate `n >= 24 && nearW === n && farW === 0 && noW === 0`; measured spread on
+  main: **299/299, 240/240, 239/239 face and 60/60, 60/60, 60/60 walk, 0 misplaced, 0 with no band**, so
+  nothing was widened to reach the bar. Seen to fail in both directions: restoring `3edf43b`'s march key
+  in the same tree (`grep -c SAB167A js/40_render.js` = 3) puts **60 of 60 on L1 and L2's walk rows and
+  299 of 299 on L0's face** in the MISPLACED column, `BANDS 4 FAILURE(S)`, exit 1, and restoring the file
+  prints `0 gating row(s) of 36` at exit 0 — L0's own walk lip is a step UP, where the two keys agree,
+  so that one row stays green under that sabotage and says so. Vacuity is a FAILURE, not a pass:
+  flattening the grid inside `linkBoundaries` exits 1 with six `lip exists to measure` rows (9 FAILURE(S)
+  total), and sampling at a plane no lip reaches (`DIST=24`) exits 1 with 19. What is NOT fixed here is
+  where the displaced population went: under a *dominant-band* predicate (argmax over the wide window,
+  not the shipped gate) **139 of 299 L0 face columns put their strongest band at the far edge of the
+  same drawn face**, all DOWN-step lips, from the crease's second term (`js/40_render.js:1057`) and
+  #195's `dir` rule rather than from the march key — a #195-family tuning gap with its own issue, not
+  this row's, and the reason the L0 face row's own contrast pair is measured at the far floor's row
+  (`tools/view.js`, `const zCam = kind === 'face' ? zLo : c[4]`).
+  Locks unchanged because no pixel changed: `flatparity` PARITY `f9e4da3a f05beeb5 d4b2d2cd` and LOCK
+  `060da4cd f05beeb5 050b225e`, DEALT `bb12ef3e 370d3f7a 3a51e659`, `cull`'s CZBAND
+  `0x8f763884 0x77511300 0x7dd66c40` and CZBAND-LIGHT `0xb0988514 0xb54c0a14 0xcb62daf2` all read "vs
+  recorded" identical, `refs ok - 5 recorded reference(s)`, `RECAP 0 FAILURE(S) of 28 rows`, both smoke
+  lanes green (`VERT=1`: 25 gating rows), `heights` all configs ok, `contrast 0 FAILURE(S) of 27 rows,
+  7 known-issue rows`. Measured 2026-10-01.
+
 - **The torso-gradient numbers that paid #232 now have a row in the repo that can fail** (#244).
   `node tools/view.js contrast` gained `cam N torso carries surface structure` and `cam N torso gradient not
   paid by mean or edge`, plus a run-level vacuity row: the gradient is mean `|L(x+1) − L(x−1)|/2` over the
