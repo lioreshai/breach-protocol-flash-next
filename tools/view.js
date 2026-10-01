@@ -574,6 +574,209 @@ if (MODE === 'alt') {
         + ` not the target - growing it past main would mean lamps authored off their own floor, which is the #204 control that measured 155/194/169 pit cells`);
     }
   }
+  /* #221: the glow is composited, not splatted, so the lightmap's band term never reached it. A lamp
+     standing on the datum painted additive light into the pixels of a pit a unit below it - level 2
+     roll 9, camera on the pit floor, composited mean 183.8 and centre-half 245.0, and that frame was
+     bit-for-bit identical in all 17 configurations of a lamp-intensity sweep INCLUDING the one that
+     dims the top-up to MINF = 0, so no lamp knob owns it. This row measures the COMPOSITED layer
+     headlessly, which the harness cannot paint: the ctx stub records paths, not pixels. So it reads
+     the DRAW CALLS the shipped drawLightGlow makes (GLOWREC, null in play - the COV pattern of
+     js/00_core.js) against the world those calls land on, and every sample of the disc's lattice is
+     classified by two routes the shipped term does not use: the surface's CELL comes from marching
+     the shipped zbuf distance back off the face into the air the ray came through (a MAP.fz lookup),
+     and its ALTITUDE comes from inverting project(); a pixel counts as leaked only when a shipped fill
+     rect actually covers it. The composited means themselves are the live page's, through DEV.lum
+     (AGENTS: the page is the source of truth) - what gates here is that the disc does not cover a
+     surface it has no business lighting, and that it still covers the one it does. Units are
+     alpha-units per sampled pixel over a stride-8 lattice, never a luminance, and they are
+     comparable across builds because the falloff model is a fixed function of the recorded geometry. */
+  {
+    const ZQv = run('ZQ'), MD = 8;
+    const RECPIT = [0.426, 0.423, 0.464], RECPITN = [181, 194, 175], RECOOB = [123, 377, 337], RECDARK = [0, 0, 0];
+    /* Bound MEASURED, not guessed: the shipped term reads frac 0.000 on every qualifying roll of all
+       three levels, and the revert-the-term control reads 1.000 (100 % of the disc's alpha landing on
+       a surface that is not the source's band). 0.05 is a twentieth of the control, not a twentieth of
+       the fix - it is set against the worst SAMPLE of the sweep, which is what #221's own warning
+       asks for, and the shipped value is not near it. */
+    const MAXFRAC = 0.05, MINDELIV = 0.95;
+    const gAl = (r, k) => r >= 1 ? 0 : (r <= 0.45 ? k * 0.7 + (k * 0.22 - k * 0.7) * (r / 0.45)
+      : k * 0.22 * (1 - (r - 0.45) / 0.55));
+    // the surface a device pixel shows: its band's FLOOR by the grid, and its altitude by project()-1
+    const surf = (W, X, Y) => {
+      const bx = (X * W.BW / W.DW) | 0, by = (Y * W.BH / W.DH) | 0;
+      if (bx < 0 || bx >= W.BW || by < 0 || by >= W.BH) return null;
+      const dz = W.zbuf[by * W.BW + bx];
+      if (!isFinite(dz)) return null;
+      const z = W.eyeZ - ((by - W.horizon) / W.BH) * dz, c = bx * 2 / W.BW - 1;
+      for (const bk of [0.05, 0.2, 0.5, 1.2]) {
+        const rr = dz - bk;
+        const gx = Math.floor(W.camX + rr * (W.dirX + W.planeX * c)), gy = Math.floor(W.camY + rr * (W.dirY + W.planeY * c));
+        if (gx < 0 || gy < 0 || gx >= W.N || gy >= W.N) continue;
+        const j = gy * W.N + gx;
+        if (W.cell[j]) continue;
+        return { f: W.fz[j] * ZQv, z: z, q: W.fz[j] };
+      }
+      return null;
+    };
+    /* Place the camera the way #221 was measured - in the pit looking up at a lamp on the band above
+       (sign +1), or at the lip looking down at a lamp that is genuinely below (sign -1) - on the
+       GENERATED grid, nothing poked, and report the population of the frame beside the verdict. */
+    const glowAt = (lv, roll, sign) => {
+      seedRng(1000 + lv * 97 + roll * 13);
+      run(`S.mode='play'; S.locked=false; startLevel(${lv}, true);`);
+      const sel = vm.runInContext(`(function(){
+        const N = MAP.w, cell = MAP.cell, fz = MAP.fz, lamps = LIGHTS.filter(function(L){return L.stat;});
+        let best = null;
+        for (let i = 0; i < N * N; i++) {
+          if (cell[i]) continue;
+          const cf = fz[i] * ZQ;
+          for (let j = 0; j < lamps.length; j++) {
+            const L = lamps[j];
+            const lf = L.z === undefined ? floorAt(L.x, L.y) : L.z - LHOVER;
+            const dq = Math.round((lf - cf) / ZQ);
+            if (dq * (${sign}) <= 0 || Math.abs(dq) < 2) continue;
+            if ((${sign}) > 0 ? cf > -3 * ZQ : Math.abs(cf) > 3 * ZQ) continue;
+            const qx = i % N + .5, qy = ((i / N) | 0) + .5, d = Math.hypot(L.x - qx, L.y - qy);
+            if (d > 5 || d < 1.0 || !los(qx, qy, L.x, L.y)) continue;
+            const sc = Math.abs(dq) * 4 - d;
+            if (!best || sc > best.sc) best = { sc: sc, cx: qx, cy: qy, q: cf, lf: lf, d: d, dq: dq,
+              lx: L.x, ly: L.y };
+          }
+        }
+        const out = { sel: best, W: null, draws: [], pit: 0, pitDark: 0, pitSum: 0, oob: 0 };
+        if (best) {
+          P.x = best.cx; P.y = best.cy; P.z = floorAt(P.x, P.y); P.vx = P.vy = P.vz = 0; P.air = false;
+          P.crouch = 0; P.pitch = 0; P.bob = 0; P.kick = 0; P.ads = 0; S.flash = 0; shakeX = 0; shakeY = 0; S.t = 0;
+          P.ang = Math.atan2(best.ly - best.cy, best.lx - best.cx);
+          for (const e of ENEMIES) e.state = 'sleep';
+          PARTS.length = 0;
+          performance.now = () => 5; VM.t = 5;
+          for (let i = 0; i < 6; i++) renderWorld();
+          out.W = { BW: BW, BH: BH, DW: DW, DH: DH, horizon: horizon, eyeZ: eyeZ, camX: camX, camY: camY,
+            dirX: dirX, dirY: dirY, planeX: planeX, planeY: planeY, zbuf: zbuf, N: MAP.w, cell: MAP.cell, fz: MAP.fz };
+          GLOWREC = [];
+          renderOverlay();
+          out.draws = GLOWREC.slice();
+          GLOWREC = null;
+        }
+        for (let k = 0; k < N * N; k++) {
+          if (cell[k]) continue;
+          let inR = 0, good = 0;
+          const px = k % N + .5, py = ((k / N) | 0) + .5, fl = fz[k] * ZQ;
+          for (let j = 0; j < lamps.length; j++) {
+            const L = lamps[j];
+            if (Math.hypot(L.x - px, L.y - py) >= L.r) continue;
+            inR++;
+            if (Math.abs((L.z === undefined ? floorAt(L.x, L.y) : L.z - LHOVER) - fl) <= ZQ + 1e-9) good++;
+          }
+          const dk = MAP.light[k] < 0.05;
+          if (fz[k] <= -3) { out.pit++; out.pitSum += MAP.light[k]; if (dk) out.pitDark++; }
+          if (!dk && inR && !good) out.oob++;
+        }
+        return out;
+      })()`, ctxVm);
+      if (!sel.sel) return { sel: null, st: null, pit: sel.pit, pitDark: sel.pitDark, pitSum: sel.pitSum, oob: sel.oob };
+      const st = { leak: 0, on: 0, onDeliv: 0, spanCross: 0, crossN: 0, onN: 0, model: 0, rects: 0, lamps: sel.draws.length,
+        dq: 0 };
+      for (const g of sel.draws) {
+        st.rects += g.rects.length / 5;
+        const x0 = Math.max(0, Math.floor(g.x - g.rad)), x1 = Math.min(sel.W.DW, Math.ceil(g.x + g.rad));
+        const y0 = Math.max(0, Math.floor(g.y - g.rad)), y1 = Math.min(sel.W.DH, Math.ceil(g.y + g.rad));
+        for (let Y = y0 + (MD >> 1); Y < y1; Y += MD) for (let X = x0 + (MD >> 1); X < x1; X += MD) {
+          const a = gAl(Math.hypot(X - g.x, Y - g.y) / g.rad, g.k);
+          st.model += a;
+          let w = 0;
+          for (let i = 0; i < g.rects.length; i += 5)
+            if (X >= g.rects[i] && X < g.rects[i] + g.rects[i + 2] && Y >= g.rects[i + 1] && Y < g.rects[i + 1] + g.rects[i + 3]) { w = g.rects[i + 4]; break; }
+          const s = surf(sel.W, X, Y);
+          if (!s) continue;
+          if (Math.abs(s.f - g.lf) <= ZQv + 1e-9) { st.onN++; st.on += a; st.onDeliv += a * w; }
+          else { st.crossN++; st.leak += a * w; st.dq = Math.max(st.dq, Math.abs(Math.round((g.lf - s.f) / ZQv))); }
+          if (Math.abs(s.z - g.lf) > ZQv + 1e-9) st.spanCross += a * w;
+        }
+      }
+      return { sel: sel.sel, st: st, pit: sel.pit, pitDark: sel.pitDark, pitSum: sel.pitSum, oob: sel.oob };
+    };
+    /* The parity collapse of the COMPOSITED layer, which flatparity's md5 cannot see because px is the
+       buffer the world pass writes and the glow is drawn onto the display canvas after it. Force the
+       grid flat the way flatparity forces it, and every lamp's fill must be the ONE clipped rect it
+       always was - same geometry, same alpha, no run dropped. A term that clips the bbox, or is keyed
+       on the camera's band, or compares a ceiling plane where it means a floor plane, shows up here. */
+    const glowFlat = lv => {
+      seedRng(1000 + lv * 97);
+      run(`S.mode='play'; S.locked=false; startLevel(${lv}, true);`);
+      return vm.runInContext(`(function(){
+        MAP.fz.fill(0); MAP.cz.fill(CZ_DEF); linkBoundaries();
+        for (const L of LIGHTS) if (L.stat && L.z !== undefined) L.z = floorAt(L.x, L.y) + LHOVER;
+        MAP.light.fill(0); MAP.lR.fill(0); MAP.lG.fill(0); MAP.lB.fill(0); MAP.lw.fill(0);
+        for (const L of LIGHTS) splatLight(L, L.str);
+        blurLight(); buildTint();
+        const L0 = LIGHTS.find(function (L) { return L.stat; });
+        if (L0) { P.x = L0.x; P.y = L0.y; }        P.pitch = 0; P.vx = P.vy = P.vz = 0; P.air = false; P.crouch = 0; P.z = floorAt(P.x, P.y);
+        for (const e of ENEMIES) e.state = 'sleep';
+        performance.now = () => 5; VM.t = 5;
+        for (let i = 0; i < 8; i++) renderWorld();
+        GLOWREC = [];
+        renderOverlay();
+        const out = { lamps: 0, multi: 0, dev: 0 };
+        for (const g of GLOWREC) {
+          out.lamps++;
+          if (g.rects.length !== 5) out.multi++;
+          const rx = Math.max(0, g.x - g.rad), ry = Math.max(0, g.y - g.rad);
+          const rw = Math.min(DW, g.x + g.rad) - rx, rh = Math.min(DH, g.y + g.rad) - ry;
+          out.dev = Math.max(out.dev, g.rects.length === 5 ? Math.abs(g.rects[0] - rx) + Math.abs(g.rects[1] - ry) +
+            Math.abs(g.rects[2] - rw) + Math.abs(g.rects[3] - rh) + Math.abs(g.rects[4] - 1) : 9e9);
+        }
+        GLOWREC = null;
+        return out;
+      })()`, ctxVm);
+    };
+    for (let lv = 0; lv < 3; lv++) {
+      const G = { rolls: 0, noSceneAt: [], worstFrac: 0, worstAt: '-', crossN: 0, dqMax: 0, spanMax: 0,
+        lampsMin: 1e9, lampsSum: 0, rectMax: 0, pit: 0, pitDark: 0, pitSum: 0, oob: 0, lipRoll: -1, lipDeliv: 1,
+        lipOn: 0, lipOnN: 0, lipCross: 0, lipSel: null, lipLamps: 0 };
+      for (let r = 0; r < 12; r++) {
+        const g = glowAt(lv, r, 1);
+        G.pit += g.pit; G.pitDark += g.pitDark; G.pitSum += g.pitSum; G.oob += g.oob;
+        if (!g.sel) { G.noSceneAt.push(r); continue; }
+        G.rolls++;
+        G.crossN += g.st.crossN; G.dqMax = Math.max(G.dqMax, g.st.dq); G.rectMax = Math.max(G.rectMax, g.st.rects);
+        G.lampsMin = Math.min(G.lampsMin, g.st.lamps); G.lampsSum += g.st.lamps;
+        const frac = g.st.model > 0 ? g.st.leak / g.st.model : 0;
+        const sf = g.st.model > 0 ? g.st.spanCross / g.st.model : 0;
+        G.spanMax = Math.max(G.spanMax, sf);
+        if (frac > G.worstFrac) { G.worstFrac = frac; G.worstAt = 'roll ' + r; }
+      }
+      for (let r = 0; r < 12 && G.lipRoll < 0; r++) {
+        const g = glowAt(lv, r, -1);
+        if (!g.sel) continue;
+        G.lipRoll = r; G.lipSel = g.sel; G.lipLamps = g.st.lamps; G.lipCross = g.st.crossN;
+        G.lipDeliv = g.st.on > 0 ? g.st.onDeliv / g.st.on : 0;   // no on-band px = 0, never a vacuous 1
+        G.lipOn = g.st.on; G.lipOnN = g.st.onN;
+      }
+      const fl = glowFlat(lv);
+      const pm = G.pit ? G.pitSum / G.pit : 0;
+      row(`L${lv} the glow is admitted by the SURFACE's band`,
+        G.rolls >= 1 && G.crossN > 0 && G.worstFrac <= MAXFRAC && G.spanMax <= MAXFRAC && G.lampsSum > 0 &&
+        G.lipRoll >= 0 && G.lipDeliv >= MINDELIV && G.lipOn > 0 && G.pitDark === RECDARK[lv] &&
+        Math.abs(pm - RECPIT[lv]) <= 0.005 && G.oob <= RECOOB[lv] && fl.lamps > 0 && fl.multi === 0 && fl.dev < 1e-9,
+        `(1) ${G.crossN} sampled px of ${G.rolls} of 12 rolls sit on a surface that is not the source's band `
+        + `(worst band step ${G.dqMax} quanta, no pit-floor camera at roll${G.noSceneAt.length ? `s ${G.noSceneAt.join(' and ')}` : 's none'}), `
+        + `and ${G.worstFrac.toFixed(3)} of a disc's alpha lands there (worst ${G.worstAt}; altitude route ${G.spanMax.toFixed(3)}; `
+        + `the revert control reads 1.000 on this clause - 100 % of every disc painted into the pit, which IS #221's 183.8/245.0) `
+        + `${G.lampsSum} lamp discs drawn across those ${G.rolls} cameras (min ${G.lampsMin === 1e9 ? 0 : G.lampsMin} at a single one of them), so the row is not `
+        + `satisfied by deleting the glow (that control reads on-delivered 0.00 and FAILS clause 3) (3) at the LIP camera, roll `
+        + `${G.lipRoll} ${G.lipSel ? G.lipSel.cx.toFixed(1) + ',' + G.lipSel.cy.toFixed(1) + ' floor ' + G.lipSel.q.toFixed(2) + ' looking at a lamp ' + G.lipSel.lf.toFixed(2) : 'none found'}, the source's own band still `
+        + `receives ${G.lipDeliv.toFixed(3)} of the alpha the disc carries onto it (${G.lipOn.toFixed(1)} alpha on ${G.lipOnN} px, ${G.lipLamps} lamps, `
+        + `${G.lipCross} cross-band px) - the camera-band-not-surface-band version reads 0.000 there, because it drops the `
+        + `whole disc and a player at the lip loses the lamp below them entirely (4) MAP.light is untouched by a composited `
+        + `change: ${G.pitDark} dark of ${G.pit} pit cells against the recorded ${RECDARK[lv]} of ${RECPITN[lv]} at mean `
+        + `delivered ${pm.toFixed(3)} against the recorded ${RECPIT[lv]} and ${G.oob} wrong-band-lit open cells against `
+        + `${RECOOB[lv]} (the splat-pass sabotage moves THIS clause, not 1-3) (5) on a forced-flat level the fill is the one `
+        + `rect it always was: ${fl.lamps} lamps, ${fl.multi} multi-rect, geometry+alpha deviation ${fl.dev.toExponential(1)} - flatparity's md5 `
+        + `cannot see this layer, px is the buffer the world pass wrote before it.`);
+    }
+  }
   console.log(bad ? `ALT ${bad} FAILURES - the bands are not there, not linked, or there is nothing to look at`
     : 'ALT ok - bands authored, linked, reachable, and there is volume to look at');
   process.exit(bad ? 1 : 0);
@@ -6031,4 +6234,5 @@ if (MODE === 'stats') {
     console.log('rig cache', JSON.stringify(run('RIG.stats()')));
   }
 }
+
 

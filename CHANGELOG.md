@@ -41,6 +41,46 @@
   **8.85 → 10.5 ms**.
 
 ### Fixed
+- **The lamp glow is now admitted by the band of the surface it paints, not by the screen** (#221).
+  `drawLightGlow` composited an additive disc for any lamp that passed `los()` and a distance test —
+  no band term, no `fd`, no altitude test of any kind — while `splatLight` has carried
+  `|sourceFloor − floorAt(cell)| <= ZQ` since #203. The splat was right and the overlay was not, so a
+  lamp standing on the datum painted light *into* the pixels of a pit a unit below it: level 2 roll 9,
+  camera on the pit floor, composited **183.8 mean / 245.0 centre-half**, and that frame was
+  bit-for-bit identical in **all 17 configurations of a lamp-intensity sweep including `MINF = 0`** —
+  a knob that changes nothing cannot be the mechanism, and `MAP.light` read a correct 0.808 there.
+  The gate is now the splat's own term evaluated on the **painted surface**: `zbuf` has been a
+  distance in every pixel since #163, and project() inverts, so backing `zbuf` off by a few
+  centimetres along `dir + plane·(2x/BW − 1)` gives the air cell the ray came through, and
+  `MAP.fz` of that cell is the band the pixel belongs to. Rejected runs are dropped from the disc's
+  fill (row runs merged down, so a disc over one band is still the one `fillRect` it always was);
+  the per-lamp `floorAt` and the per-row `(row − horizon)/BH` are hoisted, and nothing calls
+  `ceilAt` in the loop. **Refused: skipping the disc when the source's band differs from the
+  camera's cell band** — at #221's camera that draws **0 lamp discs** (a player at a pit lip loses
+  the lamp below them entirely, and at L2 roll 1 the source's own band receives **27.44 of 33.3**
+  alpha instead of **160.13 of 258.1**), and refused too the altitude-*span* form, which cannot tell
+  the underside of the slab the lamp stands on from the floor of the band it bounds (**0.222** of the
+  disc leaked into the pit on that variant against **0.000** here). The parity collapse is checkable
+  rather than argued: **`flatparity`'s PARITY [LAMPS=off] triple
+  `f9e4da3a`/`f05beeb5`/`d4b2d2cd` and LOCK [LAMPS unset] `060da4cd`/`f05beeb5`/`050b225e` are all
+  byte-identical** — the glow paints the display canvas in `renderOverlay`, after the buffer
+  `flatparity` hashes, so nothing was re-recorded, and `alt`'s new row adds the clause that layer
+  cannot see: on a forced-flat level every disc must still be **one rect at alpha 1**, deviation
+  **0.0e+00**. `MAP.light` is untouched by construction and asserted: **0 of 181 / 194 / 175** pit
+  cells dark at mean delivered **0.426 / 0.423 / 0.464**, blast-fade and the splat/un-splat
+  reversibility asserts green, `VERT=1` **25 gating rows / 0 known-issue**, `exposure` medians
+  **70 / 72 / 85** identical across the change at N = 4 rolls × 6 yaws. Four controls reddened four
+  different clauses of `alt`'s row: **revert-the-term** (frac **1.000** vs **0.000** shipped, every
+  other clause identical — the baseline is #221's frame), **camera-band-not-surface-band** (**0**
+  discs drawn), **the glow's band term moved into `splatLight`** (pit mean light **0.506 / 0.503 /
+  0.551** and wrong-band-lit **55 / 91 / 145** — the lightmap moves, clauses 1–3 and 5 do not, so the
+  shipped change is provably in the composited pass), and **the glow deleted** (on-delivered
+  **0.000**); **`LAMPS=off`** stays red at **118 / 72 / 62** dark pits, so fewer lamps satisfies
+  nothing. Cost: headless `renderOverlay` at a lip camera reads **5.8 ms/frame** with the term
+  against **0.12** without, but the identical loop costs **1631 ms in a `vm` context against 28 ms
+  in the host** for 12M iterations, so that headless number is the harness, not the browser; it is
+  linear in the lattice (a 4× coarser one reads 0.43 ms), which is what the stride is there to tune.
+
 - **`flatparity`'s census counted its own `fill(0)` and reported the game as flat** (#219). The run ended
   with "the hashed levels carry **0 / 0 / 0** cells off the datum" beside a verdict that the band term is
   blind to its own sign — and that 0 came from the probe's own `MAP.fz.fill(0)` two lines above the count,
