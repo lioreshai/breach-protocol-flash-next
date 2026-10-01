@@ -792,26 +792,32 @@ function decalAlpha(dc, wx, wy, dfade) {
 }
 
 /* Paint the seam of one step lip in one column. zA is the floor on the side of the lip the ray is
-   standing on - the lower floor of a drawn riser, whose foot that is - and zB the floor beyond, t the
-   perpendicular distance of the boundary. A floor below the eye always projects BELOW its own row,
-   so the near surface owns every row under yc(zA) and the far surface every row above it: the band
-   therefore always runs UPWARD from yc(zA), into the riser for a step up (every step up is a drawn
-   face since #192, so this band now always lands ON a face - it used to be the only thing painted at
-   a 1-quantum tread, which is why #164 could ship with the geometry right and the picture flat) and
-   into the far floor for a step down. Capped to
+   standing on and zB the floor beyond, t the perpendicular distance of the boundary; dir is the
+   direction the band runs from its anchor row, -1 up the screen and +1 down it. A floor below the eye
+   always projects BELOW its own row, so the surface the eye stands on owns every row under yc(zA) -
+   but WHICH rows the drawn face occupies depends on which side of the step the eye is on: for a step
+   UP the face runs from yc(zA) upward (dir -1), and for a step DOWN the wall pass paints the slab side
+   from yc(zA) DOWNWARD (dir +1), because yc(zA) is then the face's top edge, not its foot. Keying the
+   band on the lower floor instead of on the eye's own side put the crease on the far side of the face
+   whenever the player stood on the high side, so the visible lip carried no edge at all - measured on
+   the lips a level offers: 57/77/59% contrast across an UP lip against 17/17/29% across a DOWN one,
+   with the band reaching the lip row on 100% of up columns and 0% of down columns (#195). With dir
+   derived this way the up case is bit-identical to what it was. Capped to
    half the riser's projected height, so a 1 m face gets a seam at its foot, not a gradient.
    amp < 0 shades a crease, amp > 0 lifts a lip; a multiply either way, so the AMB floor that sinks an
    additive rim in a dark room cannot sink this. */
-function seamCrease(x, t, zA, zB, amp) {
+function seamCrease(x, t, zA, zB, amp, dir) {
   if (!(t > 0.001)) return;
   const hp = BH / t, yA = horizon + (eyeZ - zA) * hp, yB = horizon + (eyeZ - zB) * hp;
   const bw = Math.min(Math.abs(yB - yA) * 0.5, hp * SEAMW);
   if (!(bw > 0.5)) return;
-  const y0 = Math.floor(yA);
+  // the anchor row is the face's own edge row on this side: floor() coming up from below, ceil()
+  // coming down from above - the same pair castWalls uses for de and ds
+  const y0 = dir > 0 ? Math.ceil(yA) : Math.floor(yA);
   for (let k = 0; k <= bw; k++) {
-    const y = y0 - k;
-    if (y < 0) break;
-    if (y >= BH) continue;
+    const y = y0 + dir * k;
+    if (y < 0) { if (dir < 0) break; continue; }
+    if (y >= BH) { if (dir > 0) break; continue; }
     const i = y * BW + x, v = px[i];
     // the lip row itself carries an extra term: where the far surface is already darker than the
     // floor in front of it, a gradient alone passes THROUGH the floor's brightness and the lip
@@ -841,7 +847,7 @@ function castWalls(flash, fcR, fcG, fcB) {
     let stepX, stepY, sdx, sdy, side = 0;
     if (rdx < 0) { stepX = -1; sdx = (camX - mx) * ddx; } else { stepX = 1; sdx = (mx + 1 - camX) * ddx; }
     if (rdy < 0) { stepY = -1; sdy = (camY - my) * ddy; } else { stepY = 1; sdy = (my + 1 - camY) * ddy; }
-    let tv = 0, guard = 0, riser = 0, rz0 = 0, rz1 = 1;
+    let tv = 0, guard = 0, riser = 0, rz0 = 0, rz1 = 1, rze = 0, rzf = 1;
     while (guard++ < 180) {
       let tX;
       if (sdx < sdy) { tX = sdx; sdx += ddx; mx += stepX; side = 0; } else { tX = sdy; sdy += ddy; my += stepY; side = 1; }
@@ -889,7 +895,12 @@ function castWalls(flash, fcR, fcG, fcB) {
         const pi = qy * N + qx;
         if (dq && !(vbs[pi] & ((VB_RAMP | VB_LADDER) << (d << 2)))) {
           const fhi = dq > 0 ? fzs[my * N + mx] : fzs[pi], flo = dq > 0 ? fzs[pi] : fzs[my * N + mx];
-          riser = 1; rz0 = flo * ZQ; rz1 = fhi * ZQ; MAP.riserStops++; tv = WT.CONCRETE; break;
+          riser = 1; rz0 = flo * ZQ; rz1 = fhi * ZQ; MAP.riserStops++; tv = WT.CONCRETE;
+          /* rze/rzf are the same two floors sorted by WHICH SIDE THE RAY CAME FROM rather than by
+             height - the crease belongs at the lip the player is standing at, and on a step down
+             that is the higher of the two (#195). rz0/rz1 keep sorting by height: the face's span
+             and its texture do not care which side the eye is on. */
+          rze = (dq > 0 ? flo : fhi) * ZQ; rzf = (dq > 0 ? fhi : flo) * ZQ; break;
         }
       }
     }
@@ -1037,7 +1048,15 @@ function castWalls(flash, fcR, fcG, fcB) {
        and L2, where the seam moved not one pixel of the lip the player is standing at (issue #181's
        bands row read `foot drop 0.0 px-lum, band 0.0 px of a 24 px riser` for exactly this). Painted
        after so the nearer lip wins any row the two bands share. */
-    if (riser && SEAM) { seamCrease(x, perp, rz0, rz1, -SEAMD); seamCrease(x, perp, rz1, rz0, SEAMU); }
+    if (riser && SEAM) {
+      /* A drawn slab side has a junction at EACH of its two screen edges, and before #195 only the
+         lower floor's got one: for a step DOWN that is the edge the eye does NOT stand at, so the
+         visible lip carried no edge at all (up lips 57/77/59% contrast, down lips 17/17/29%). The
+         lower floor's crease stays exactly where it was, because for a step UP it is the same row. */
+      seamCrease(x, perp, rze, rzf, -SEAMD, rzf > rze ? -1 : 1);
+      if (rze !== rz0) seamCrease(x, perp, rz0, rz1, -SEAMD, -1);
+      seamCrease(x, perp, rz1, rz0, SEAMU, -1);
+    }
   }
 }
 
