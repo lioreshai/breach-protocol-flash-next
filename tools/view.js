@@ -829,12 +829,12 @@ if (MODE === 'flatparity') {
          (light reaching up blocked, reaching  060da4cd/f05beeb5/050b225e and PARITY f9e4da3a/f05beeb5/
           down unbounded: `lf - floor >=        d4b2d2cd, byte-identical to main - and THAT is the limit of
           -ZQ - 1e-9`, the variant that trades  what a FLAT frame can prove. THE DEALT SENSE DOES NOT: on
-          one half of the bleed for the other)  that kernel it reddens 2 of 3 levels, because the dealt
-                                            frame is painted by the term rather than by the literal the
-                                            flat grid collapses it to. Level 2 stays green and is the
-                                            honest exception - its dealt frame differs from its flattened
-                                            one by 8 px of 203,138, so that spawn camera sees no band to
-                                            lose. This is not a threshold a reviewer could tighten: on a
+          one half of the bleed for the other)  that kernel it reddens 3 of 3 levels at the grid-chosen
+                                            DEALT_SEATS camera #226 installed (measured on #226's branch
+                                            with the sabotage and the assertion in one tree; at the spawn
+                                            seats #219 inherited it was 2 of 3, and level 2's green row
+                                            there - an 8-px dealt frame - was the blind camera, not a
+                                            blind row). This is not a threshold a reviewer could tighten: on a
                                             flat grid the term reduces to the literal 1 before the sign
                                             is ever read, so NO flat frame can ever fail a signed term.
                                             The sign is gated twice now - DEALT by the dealt frame, and
@@ -869,27 +869,58 @@ if (MODE === 'flatparity') {
      is the knob-independence proof: with the top-up suppressed at author time this change runs no code. */
   const SHIP = ['060da4cdaadc2e4a4276ce8f06b0eecf', 'f05beeb58f1266a1aea7e44712995292', '050b225e3f295b3ca991d59addea2f1c'];
   const SHIPM = [80.8, 34.1, 51.7];
-  /* #219's DEALT triple: the spawn frame of each level AS DEALTED - bands, band term, shipped lamp
-     record, same dice (1000 + level*97) and the same pinned-clock ninth render. Where LOCK is a
+  /* #219's DEALT triple, #226's camera: the frame of each level AS DEALTED - bands, band term, shipped
+     lamp record, same dice (1000 + level*97) and the same pinned-clock ninth render - but at a seat
+     CHOSEN FROM THE GRID, not the spawn seat #219 inherited. Where LOCK is a
      regression lock on lamp PLACEMENT in a world this probe flattened, this one is a lock on the
      banded world the generator deals: it moves when the dealt picture moves, which the two flat triples
      structurally cannot do. Its churn is MEASURED, not assumed - see the DEALT row for the count (9 of 11
-     recent js commits move at least one of the three hashes), which is what makes this a lock that
-     re-records often rather than a proof. The clauses beside it are the falsifiable half. */
-  /* Recorded on main 828d1b4 with this branch's sampler: two cold samplers agree, and the three hashes are
-     the ones the churn run printed for 828d1b4, which is the check that the lock and the churn measurement
-     are one instrument and not two. They are NOT the flattened frames two rows above: level 0's dealt frame
-     differs from its flattened one on 45,871 px of 203,138 and level 1's on 78,636, while level 2's differs
-     on 8 - the per-render alternation floor, because level 2's spawn camera looks at none of its 292
-     off-datum cells. A DEALT ref therefore locks the dealt picture only where the camera is pointed at it,
-     which is why the census clause and not this triple is the half of the row that catches generation
-     going flat. L0's entry was re-recorded for #195: the dealt spawn frame gains the contact crease at
-     one step-DOWN lip - 1,009 px of 203,138, every one of them DARKER (mean -23.3, rows 181..195), and
-     the other two levels byte-identical, which is the whole diff of that change in the shipped world.
-     The two flat senses (PARITY, LOCK) did not move at all, because a flattened grid has no risers.
-     */
-  const DEALT = ['ecb797dd2fe866b11167d569d158326d', '96a450d02712aefa4d4e32c964c902cc', '22d473ed414f2f66645530955fa59ef0'];
-  const DEALTM = [79.5, 33.7, 51.7];
+     recent js commits move at least one of the three hashes at the spawn-seat camera; the new seats only
+     raise the odds of a move), which is what makes this a lock that
+     re-records often rather than a proof. The clauses beside it are the falsifiable half. History kept
+     from the spawn-seat triple (ecb797dd/96a450d0/22d473ed, means 79.5/33.7/51.7, recorded across #219,
+     #224 and #195, whose dealt frames differed from their flattened twins on 45,871 / 78,636 / 8 px):
+     the triple below replaces it at the same dice, and #195's crease entry survives in the churn run,
+     not in this line. */
+  /* #226. The triple above was hashed at the SPAWN seat, and the spawn seat is a cell the generator
+     happens to start the player on, not a pose chosen to see anything: level 2's dealt frame differed
+     from its flattened one by 8 px of 203,138 while the level holds 292 off-datum open cells, so a
+     sabotage that deletes splatLight's band term (wv = 1: banded world, flat-shaded light) moved the
+     dealt hash on 2 of 3 levels and the class shipped green on the level with the MOST altitude.
+     The seats below are chosen from the grid instead: for each level, the spawn cell plus open cells
+     reached by walking out from it, each scored by how many of the level's off-datum OPEN cells an
+     eye-height DDA sweep across the camera FOV (2*atan(cfg.plane)) ENTERS; candidates were restricted
+     to DATUM cells so the dealt-vs-flat gap counts what the camera SEES and not a frame shift from the
+     player's own altitude; ties by longest central ray (CAMSET's lesson, as a tiebreak only); the
+     chosen entry per level is a candidate whose dealt md5 MOVES under wv = 1 and, among those, the one
+     with the largest dealt-vs-flat gap. The chosen seats, per level, are then (off-datum-in-view /
+     dealt-vs-flat px / wv=1 dealt-vs-dealt px moved): L0 (14.5,12.5,3pi/4) 137 of 165 / 195,990 /
+     196,075; L1 (14.5,7.5,0) 174 of 246 / 195,620 / 196,718; L2 (15.5,17.5,5pi/8) 184 of 292 /
+     198,982 / 198,618. Candidate scoring ran in single-level cold children (their gaps read +-2 px off
+     the sampler's, e.g. 195,621 vs 195,620); THE SAMPLER'S OWN LEVEL-ORDERED PROCESS IS THE RECIPE -
+     the #224 alternation arriving between levels, so a child that renders only level 2 hashes it
+     ce8e96a3 while the sampler hashes 158327b0 at the SAME js and seat, and cold-to-cold was verified
+     at the sampler order only (two FP_DEALT processes byte-identical). The wv = 1 column is a true
+     dealt-vs-dealt buffer diff at the sampler order (clean and sabotaged trees, buffers dumped and
+     diffed; the six hashes cross-check the full-probe control run line for line). Rejected with the
+     worst gaps: flat-looking corners whose view
+     contains NO off-datum column at all (L1 (3.5,30.5) 0/246, L2 (34.5,34.5) 0/292 - the 8-px class in
+     seat form), the L0 corner (18.5,2.5) at 2/165, and the spawn seats themselves - the L2 spawn seat
+     at its grid-best yaw sees 24/292 and gaps 11,271 px, clearing the vacuity floor on 4% of the
+     population, while its SHIPPED default yaw - the pose #224 hashed - gaps 8 px and does not move at
+     all when the band term dies. The triples below were re-recorded cold at
+     the new seats, two cold samplers agreeing per level. The census clause and the DEALT-VACUOUS row
+     below are the falsifiable half; a DEALT ref locks the dealt picture only where the camera is
+     pointed at it, and the chosen views enter 137/165, 174/246 and 184/292 of each level's off-datum
+     open population - the coverage count is printed per seat, the frame pixel difference is gated. */
+  const DEALT_SEATS = [
+    [14.5, 12.5, 2.356194490192345],  // L0 dice 1000: 137/165 off-datum open cells in view, gap 195,990 px
+    [14.5, 7.5, 0],                   // L1 dice 1097: 174/246 in view, gap 195,621 px
+    [15.5, 17.5, 1.9634954084936207]  // L2 dice 1194: 184/292 in view, gap 198,984 px
+  ];
+  const DEALTVAC = 4096;  // px of the 203,138-px frame (2%) - #226 vacuity floor, see the DEALT-VACUOUS row
+  const DEALT = ['3e88c850528f97c56d8ce8ecfe168ee2', '889817bf065d7249cedc75392b8348d8', '158327b01ae6161ccd91813ddd50ef1a'];
+  const DEALTM = [57.3, 58.7, 86.0];
   const OFF = process.env.LAMPS === 'off';
   const f1 = v => (v === undefined || v === null ? '-' : (+v).toFixed(1));
   const md5of = () => { const d = new Uint32Array(run('px'));
@@ -925,10 +956,15 @@ if (MODE === 'flatparity') {
   if (process.env.FP_DEALT) {
     /* The DEALT sampler: the level as the generator dealt it - no fill, no cz reset, no relink, no lamp
        re-seat, no splat rebuild, and NO flat render, because a flat render here would move the hash
-       below (see above). Same dice, same settle, same ninth render as every other sense in this probe. */
+       below (see above). Same dice, same settle, same ninth render as every other sense in this probe.
+       The camera is DEALT_SEATS[lv], #226, applied AFTER the deal by three plain assignments: the RNG
+       rule stays exactly #224's (seedRng BEFORE startLevel, so the level is generated from the deal and
+       the camera consumes no draws), and the seat cannot perturb generation, enemies or props. */
     for (let lv = 0; lv < NL; lv++) {
       seedRng(1000 + lv * 97);
       run(`S.mode='play'; S.locked=false; startLevel(${lv}, true);`);
+      const s = DEALT_SEATS[lv];
+      run(`P.x=${s[0]}; P.y=${s[1]}; P.ang=${s[2]};`);
       const c = run(CENSUS), dm = run(`(()=>{ ${SETTLE} ${LUMA} })()`);
       const dh = md5of(), dpix = Array.from(new Uint32Array(run('px')));
       // The same level flattened by the probe's own recipe, rendered again at the same render count, so
@@ -938,7 +974,8 @@ if (MODE === 'flatparity') {
       let nd = 0;
       for (let i = 0; i < fpix.length; i++) if (fpix[i] !== dpix[i]) nd++;
       console.log('  dealt level ' + lv + ' md5 ' + dh + ' mean ' + dm.toFixed(1) + ' off-datum ' + c.off + '/' + c.open +
-        ', ' + nd + ' of ' + fpix.length + ' px differ from the flattened frame');
+        ', ' + nd + ' of ' + fpix.length + ' px differ from the flattened frame, rng ' + (1000 + lv * 97) +
+        ' at seat ' + DEALT_SEATS[lv].join(','));
     }
     process.exit(0);
   }
@@ -995,13 +1032,13 @@ if (MODE === 'flatparity') {
     delete env.LAMPS; delete env.FP_CHILD;
     const c = require('child_process').spawnSync(process.execPath, [__filename, 'flatparity'],
       { env, encoding: 'utf8', timeout: 900000 });
-    const h = [], mm = [], dn = [], dOpen = [], dPx = [], dTot = []; let n = 0;
+    const h = [], mm = [], dn = [], dOpen = [], dPx = [], dTot = [], rng = []; let n = 0;
     for (const line of String(c.stdout || '').split('\n')) {
-      const q = /^\s*dealt level (\d+) md5 ([0-9a-f]{32}) mean ([-\d.]+) off-datum (\d+)\/(\d+), (\d+) of (\d+) px/.exec(line);
+      const q = /^\s*dealt level (\d+) md5 ([0-9a-f]{32}) mean ([-\d.]+) off-datum (\d+)\/(\d+), (\d+) of (\d+) px differ from the flattened frame, rng (\d+)/.exec(line);
       if (!q) continue;
-      const lv = +q[1]; h[lv] = q[2]; mm[lv] = +q[3]; dn[lv] = +q[4]; dOpen[lv] = +q[5]; dPx[lv] = +q[6]; dTot[lv] = +q[7]; n++;
+      const lv = +q[1]; h[lv] = q[2]; mm[lv] = +q[3]; dn[lv] = +q[4]; dOpen[lv] = +q[5]; dPx[lv] = +q[6]; dTot[lv] = +q[7]; rng[lv] = +q[8]; n++;
     }
-    return { h, mm, dn, dOpen, dPx, dTot, n, status: c.status, why: String(c.error || c.stderr || '').split('\n')[0] };
+    return { h, mm, dn, dOpen, dPx, dTot, rng, n, status: c.status, why: String(c.error || c.stderr || '').split('\n')[0] };
   };
   const sameStream = (a, b, n) => a.n === n && b.n === n && a.h.slice(0, n).every((x, i) => x === b.h[i]);
   const twin = spawn(false);
@@ -1055,11 +1092,19 @@ if (MODE === 'flatparity') {
                       down to the band it bounds, not a band anyone walks on;
        after == 0     the flat senses really do hash a flattened grid, which is what makes PARITY a
                       collapse rather than a description of an already-flat world;
-       md5 == DEALT   the lock #219 asked for, on the world as dealt, sampled cold in its own process.
-       px            PRINTED, NOT GATED: how much of the dealt frame the bands actually cause. It has a floor
-                      from the per-render alternation the header measures - level 2 reads 8 px while its
-                      spawn camera sees no band at all - so a flat world would not read 0 here either and a
-                      clause on it could never fail. It is an instrument reading beside the gate, not one.
+       md5 == DEALT   the lock #219 asked for, on the world as dealt, sampled cold in its own process,
+                      at a camera chosen from the grid (#226) and not the spawn seat - and only if the
+                      sampler dealt itself from the dice it says it did (rng == 1000 + level*97, #224's
+                      rule, now captured from the sampler line instead of ambient).
+       px >= FLOOR   DEALT-VACUOUS (#226, its own row below): how much of the dealt frame the bands
+                      actually cause, now GATED. The floor is 4,096 px of the 203,138-px frame (2%),
+                      chosen from the measurements beside it: the old spawn seats read 45,871 / 78,636 /
+                      8 px, and 8 px of 203,138 is the per-render alternation floor - a frame that
+                      differs from its own flattened twin by nothing the camera can attribute to the
+                      bands. The new seats measure 195,620..198,982 px at the sampler order, 48x above the floor, so the
+                      row
+                      is nowhere near its own cliff, while a camera that sees no band - the 8-px class -
+                      cannot pass it. Vacuity is a FAILURE, never a pass with an explanation attached.
      Churn measured over the 12 most recent js commits (828d1b4 back to f7d1847, one recipe against each
      commit's own js at the pinned dice, two cold samples per commit, all stable): 9 of the 11 with a
      measured parent move at least one of the three hashes - only 4f2b9c0 (#217, a prop-cull fix) and
@@ -1075,22 +1120,33 @@ if (MODE === 'flatparity') {
      green because its camera looks at none of its 292 off-datum cells, not because the row is blind. alt
      gates the same class through the lightmap, where the population is countable. */
   for (let lv = 0; lv < NL; lv++) {
-    row('L' + lv + ' DEALT  the dealt grid is banded, the flat grid is flat, and the dealt frame holds',
-      dv1.dn[lv] >= 1 && flat[lv] === 0 && dv1.h[lv] === DEALT[lv],
+    row('L' + lv + ' DEALT  the dealt grid is banded, the flat grid is flat, the dice is the deal, and the dealt frame holds',
+      dv1.dn[lv] >= 1 && flat[lv] === 0 && dv1.h[lv] === DEALT[lv] && dv1.rng[lv] === 1000 + lv * 97,
       dv1.dn[lv] + ' of ' + dv1.dOpen[lv] + ' open cells of the level dealt at dice ' + (1000 + lv * 97) + ' sit off the'
       + ' datum (counted from the dealt grid in the sampler that hashed it, before any fill); ' + flat[lv] + ' survive'
       + ' the fill the PARITY/LOCK senses hash, so those two rows describe a world THIS PROBE flattened. The dealt frame'
       + ' differs from the same level flattened by this probe on ' + dv1.dPx[lv] + ' of ' + dv1.dTot[lv] + ' px ('
       + (100 * dv1.dPx[lv] / dv1.dTot[lv]).toFixed(2) + '% of the frame) at the same render count: that ratio is what a'
-      + ' DEALT md5 is actually worth at this camera - a level whose bands sit out of the spawn view reports only the'
-      + ' alternation floor here (level 2: 8 px of 203,138, 0.00%), and its dealt hash locks almost nothing. Dealt md5 '
+      + ' DEALT md5 is actually worth at this camera, which #226 chose from the grid rather than inherited from the'
+      + ' spawn seat (seat ' + DEALT_SEATS[lv].join(', ') + ', scored by off-datum cells entered by an eye-height FOV'
+      + ' sweep - see DEALT_SEATS for the table and the rejected candidates). rng ' + dv1.rng[lv] + ': the sampler'
+      + ' reseeds to the deal BEFORE startLevel and the seat costs no draws, so this frame describes THAT deal. Dealt md5 '
       + dv1.h[lv] + ' mean ' + f1(dv1.mm[lv]) + ' against the recorded ' + DEALT[lv] + ' mean ' + DEALTM[lv] +
       ' (two cold'
       + ' samplers agree). At 0 off-datum cells the generator has stopped authoring altitude and PARITY/LOCK would'
       + ' hold on an already-flat world - the first clause is what makes them a collapse rather than a tautology (alt'
       + ' gates >=2 bands, their links and reachability; this gates that there was any geometry here to collapse).'
-      + ' Churn: 9 of 11 recent js commits move this hash, so green here is a lock on the dealt picture, not a proof'
+      + ' Churn: 9 of 11 recent js commits moved this hash (measured at the pre-#226 spawn-seat camera), so green here is a lock on the dealt picture, not a proof'
       + ' that a band term exists or has the right sign.');
+    row('L' + lv + ' DEALT-VACUOUS  the dealt frame and the flattened frame are different pictures at this camera',
+      dv1.dPx[lv] >= DEALTVAC,
+      dv1.dPx[lv] + ' of ' + dv1.dTot[lv] + ' px (' + (100 * dv1.dPx[lv] / dv1.dTot[lv]).toFixed(2) + '%) of the dealt frame'
+      + ' differ from the same level flattened at the SAME seat and render count, against a vacuity floor of ' + DEALTVAC +
+      ' px (2% of frame, set from the spawn-seat measurements: the worst camera that still saw bands read 45,871 px,'
+      + ' and the 8-px level-2 spawn row was pure alternation floor - a frame comparing nothing). A DEALT md5 hashed at'
+      + ' a camera below this floor locks a flat-looking view of a banded level and the wv = 1 class ships green there'
+      + ' (#226 measured exactly that on the spawn seats: 2 of 3 levels tripped). This row FAILs with this name when'
+      + ' the sampler goes blind again - it never fails silently as a green lock.');
   }
   const dLock = shipH.filter((x, i) => x !== OLD[i]).length, dPar = parH.filter((x, i) => x !== SHIP[i]).length;
   const sumGap = [], addN = [];
@@ -1203,7 +1259,8 @@ if (MODE === 'flatparity') {
      prints ok on all six FLAT rows and hashes both flat triples byte-identical (060da4cd/f05beeb5/
      050b225e and f9e4da3a/f05beeb5/d4b2d2cd, #210 and re-measured on this branch), while alt's band-above
      row FAILS 169/279/117 on that same kernel (the 273 this file carried for level 1 was an older deal's
-     digit) and DEALT reddens on 2 of 3 levels. So this probe's flat senses gate the collapse, and the
+     digit) and DEALT reddens on 3 of 3 levels at its grid-chosen seats (#226 re-measured with the sabotage
+     and the assertion in one tree; it was 2 of 3 at the spawn seats this change replaced). So this probe's flat senses gate the collapse, and the
      dealt frame plus alt's lightmap rows gate the sign; no one of them gates the term. */
   console.log('  --  NECESSARY, NOT SUFFICIENT, AND FLAT BY CONSTRUCTION HERE: the grids behind the two FLAT md5s '
     + 'above are flattened by THIS PROBE (MAP.fz.fill(0) in the hash loop, run after startLevel and before the splat '
@@ -1217,9 +1274,10 @@ if (MODE === 'flatparity') {
     + 'CONSTRUCTION - what the two probes are gated to agree on is "off-datum cells exist", never a number. What each '
     + 'sense can see of the SIGN, measured on this branch against the one-sided kernel `lf - floor >= -ZQ - 1e-9` (up '
     + 'blocked, down unbounded): the flat triples come out byte-identical to the recorded ones (060da4cd/f05beeb5/'
-    + '050b225e), as #210 found; DEALT moves on 2 of 3 levels, because a dealt frame that ignores which side of its '
-    + 'lamp the light came from is not the frame the shipped kernel paints - level 2 is the exception, its dealt frame '
-    + 'differing from its flattened one by 8 px of 203,138, i.e. that camera sees no band to lose; and alt\'s "no '
+    + '050b225e), as #210 found; DEALT moves on 3 of 3 levels - #226 replaced the inherited spawn seats with grid-chosen '
+    + 'DEALT_SEATS cameras, so a dealt frame that ignores which side of its lamp the light came from is no longer a '
+    + 'frame any sampled level can pass on (at the spawn seats it was 2 of 3, level 2 green on a dealt frame that '
+    + 'differed from its flattened twin by 8 px of 203,138 - a camera that saw no band to lose); and alt\'s "no '
     + 'column is lit from a band ABOVE it" row reads 169 / 279 / 117 on that kernel against 0 / 0 / 0 here (the 273 '
     + 'this file and CHANGELOG used to quote for level 1 was an older deal; #219 measured 279). A green FLAT parity '
     + 'row is still NOT proof that a band term exists or points the right way.')
