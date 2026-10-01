@@ -688,17 +688,47 @@ function splatLight(L, amt) {
     }
   MAP.tintDirty = true;
 }
-/* one smoothing pass so per-cell light reads as a pool, not a chessboard */
+/* one smoothing pass so per-cell light reads as a pool, not a chessboard.
+   #206: the pass gains the band term the splat kernel has had since #203/#208 — a neighbour
+   carries light only if its floor is within one quantum of the cell's own, the same predicate
+   `Math.abs(lf - floorAt(col)) <= ZQ` restated on the grid. Without it this kernel was the leak:
+   the splat delivers NOTHING across a band (measured on df919c3, 12 rolls per level: 0/0/0 cells
+   at delivered light >= 0.05 are direct-lit with no in-band source in the disc), yet 37/49/75
+   cells in the same roll set held delivered light >= 0.05 no lamp on their band can reach, and
+   every one of them was light this kernel carried across a riser. Gated, the same census counts
+   19/10/16 (staircase hops only), and the cells whose only light was that tail are now honestly
+   dark — `alt`'s dark-open census moved 253/1087/874 -> 344/1194/1055 with the reclassification.
+   The lightmap stays ONE VALUE
+   PER COLUMN — the kernel is band-aware, the array is not — so a fading transient still re-splats
+   its delta into the array the blur produced and the un-splat stays exact (smoke's "blast light
+   fully fades out" is untouched: blurLight runs at generation only, never on a transient frame).
+   Light crossing a boundary the feet can step (one quantum) still flows — a staircase lights its
+   own flight one cell per hop — and a slab blocks light exactly as far as it blocks walking.
+   The gated neighbour enters the average as a ZERO with its weight kept in n — the same treatment
+   the kernel already gives a solid column, which sits in n at light ~0. Skipping it from sum AND
+   denominator instead (renormalise over same-band samples) was tried and measured: it leaves the
+   L2 face lip within noise of this form (lU 30.84 vs 30.67, lD 12.44 vs 11.99 — the lip's 4.5-point
+   drop against main's 43% is the deleted tail either way, not a denominator artifact) and buys
+   brighter pool edges beside slabs, which is a second behaviour change nobody asked for. Deleting
+   the tail is not free at the lip either: `bands`' #203 legibility row read 43% on main and lands
+   at 39% here (lU 33.10 -> 30.67 — the floor in front of the step was wearing the far band's tail;
+   lD 12.03 -> 11.99, the riser untouched), so that row's debt floor moved one notch under the new
+   worst with the numbers on its face, exactly as #203 moved it under the old one.
+   On a flat level every quantum is equal, every neighbour contributes at its original weight in
+   its original order, and the pass is BIT-IDENTICAL to the old one: that collapse is what keeps
+   flatparity's two FLAT senses (LOCK, PARITY) where they are, and they hash these frames. */
 function blurLight() {
-  const N = MAP.w, s = MAP.light, o = new Float32Array(s.length);
+  const N = MAP.w, s = MAP.light, fz = MAP.fz, o = new Float32Array(s.length);
   for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
-    const i = y * N + x;
+    const i = y * N + x, b = fz[i];
     let sum = s[i] * 3, n = 3;
     for (let j = -1; j <= 1; j++) for (let k = -1; k <= 1; k++) {
       if (!j && !k) continue;
       const yy = y + j, xx = x + k;
       if (yy < 0 || xx < 0 || yy >= N || xx >= N) continue;
-      sum += s[yy * N + xx] * (j === 0 || k === 0 ? 2 : 1); n += j === 0 || k === 0 ? 2 : 1;
+      const jj = yy * N + xx, q = j === 0 || k === 0 ? 2 : 1;
+      sum += Math.abs(fz[jj] - b) > 1 ? 0 : s[jj] * q;   // one quantum = the splat kernel's own band reach
+      n += q;
     }
     o[i] = sum / n;
   }
