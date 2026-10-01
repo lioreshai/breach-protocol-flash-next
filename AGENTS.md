@@ -274,6 +274,22 @@ case "$out" in *"SMOKE PASSED"*) git add -A && git commit ;; *) echo NOT COMMITT
   makes every out-of-map branch structurally unreachable for every gate (that is why `stripes`
   exists). When you add a mechanism, name the config that exercises it and confirm the assertion
   runs *there*.
+- **A cold sampler cannot share a process with a hashed render, and its camera is part of the
+  assertion.** `flatparity`'s DEALT rows (#224) hash the *dealt* frame so "generation stopped making
+  bands" trips a lock instead of an adjective. Rendering that frame in the same process as the flat
+  sense moved `060da4cd…` to `e96fe6bb…` (and to `bee34388…` in the other ordering) with **zero bytes
+  of `js/` changed** — the extra renders warm the pose cache and depth history the flat sense's
+  arithmetic reads, which is this repo's one-indirection cliff arriving at probe design. Hash each
+  sense in a fresh process, and when a tools-only diff moves a lock triple, suspect the harness's own
+  render order before suspecting the generator. The same pass produced a **self-cancelling control
+  harness**: reverting `js/` between a variant's two probes made every variant `alt` row a measurement
+  of `main` (the #148 lesson in a new costume — run the sabotage and the assertion in one tree, and
+  prove it by printing a marker out of the sabotaged file). And the camera half of #224 is still open
+  as **#226**: a DEALT sampler at the **spawn seat** hashed a flat-looking view of level 2 — dealt vs
+  flattened differ by **8 px of 203,138** there, on the level with the *most* off-datum cells (292 of
+  1150) — so `wv = 1` (band term deleted, grid untouched) FAILs 2 of 3 levels and passes on the third.
+  Choose such a pose from the grid, and treat a sampler whose dealt-vs-flat gap is under the floor as
+  vacuity, which is a FAILURE, never a pass with an explanation attached.
 - **The index-only bounds test is not a bounds check, twice over.** `cIdx >= 0 && cIdx < NN` with
   `sy === -1, sx === 4` is a valid index into the *last row of the level*, so an off-map pixel takes
   light, tint, mirror and decal mask from a cell on the far side. M2 carried two of these
