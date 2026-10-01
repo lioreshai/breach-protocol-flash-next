@@ -26,6 +26,28 @@
   a directory with no PNGs in it.
 ### Fixed
 
+- **A shot no longer flies through a slab it cannot see through: `bandExitT` now tests the ceiling of the
+  column it is ENTERING, not only the ceiling it started under** (#189). The rule had one half of the
+  ceiling term (#125): the ray stops where it rises through the ceiling of the band it is travelling in, and
+  nothing asked the column it crossed into. So a ray inside a TALL ROOM's air (ceiling 2.00, which #181
+  authors) that crossed into a one-unit column at 1.107 m re-keyed nothing (`ncz > z` false), saw no riser
+  (equal floors, `dz = 0` draws no face), and continued **inside that column's roof** — measured on main in
+  the geometry `sight` now prints: hit at **5.58 m, hz 1.867**, from a seat whose eye sees a ceiling plane at
+  **1.00** and whose pixels `cull` already proves hide a prop one band up. Flat the two tests are the same
+  plane (`cz === ncz === 1`) and the sample test runs first, so LOCK/PARITY/DEALT/CZBAND do not move; the
+  discriminator `nfl >= fl` keeps #128's hole-in-the-floor rule, measured unchanged on the staircase-down
+  (hit 3.580), single-drop (floor stop 1.808) and raised-band-over-lower (floor stop 2.818) rows. On shipped
+  generated geometry **9 of 1440** spawn-seat shots change, all wall→band: each used to mark a face at
+  11.50–13.28 m with the mark at z 1.65–1.83, above the ceiling plane of the room it had just crossed into,
+  and now stops at the boundary at 5.00–10.59 m — hits are **13 → 13**, so the player loses no kill and keeps
+  no hole. The enemy's side was checked rather than assumed: `losZ` answers **seen across a closed slab**
+  (opening `[1.00, 1.00]`, both directions) — filed with those numbers under #189 — while its damage is
+  already symmetric, an orb from the band above popping at the entered column's ceiling plane for **0 damage**
+  against a 22-damage same-band control. Two `sight` rows per level gate it both ways with the geometry in the
+  detail line (stop **2.50 m** with the slab; hit **hz 1.87 at 5.58 m** through an atrium opened along the whole
+  flight); with the branch disabled the block rows go red — exit 1, `term REMOVED`, stop 6.12 m — and the
+  opening rows stay green, which is what makes the miss mean *the slab* rather than *nothing was reachable*.
+
 - **The step-lip seam row now asks which SIDE of the lip the band is on, and the ~40 % it was filed
   about turns out to have been fixed elsewhere** (#167). `node tools/view.js bands`' placement term was
   `near0 >= max(12, n*0.5)` with the band located by argmax INSIDE ±win of the analytic lip row, so a

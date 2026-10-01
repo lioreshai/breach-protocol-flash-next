@@ -2089,6 +2089,61 @@ if (MODE === 'sight') {
         for (let i = 0; i < MAP.fz.length; i++) MAP.fz[i] = fz0[i];
         linkBoundaries();
       }
+      /* #189's fairness half, and the trap that ate the last session's rows (#129): a row that raises
+         an enemy a band up without opening the flight asserts nothing, so EVERY number that decides
+         these two rows is printed. One flight, one byte of difference between the two configs:
+           BLOCK  cells 3..5 keep the one-unit ceiling the generator authors in every column that is
+                  not a TALL ROOM, so the ray - which is in real air at 1.11 m because it started in a
+                  two-unit room - crosses into cell 3 ABOVE that column's ceiling plane, i.e. inside
+                  its slab. The wall pass draws no face there (the two floors are equal, dz = 0), the
+                  ceiling pass paints the plane, and cull's own row says a prop one band up is hidden:
+                  so the shot has to stop on the boundary line.
+           OPEN   the same cells get the tall ceiling - an atrium, the same geometry the band +1 rows
+                  above already author - so the flight has a hole in it all the way and the shot must
+                  reach the same body at the same aim.
+         The OPEN row hitting is what makes the BLOCK row's miss mean "the slab" rather than "no body in
+         the cone": vacuity here is a FAILURE, and canBlock is the precondition stated as arithmetic.
+         The marker is read out of bandExitT's own source (code, not prose) so a build that lost the
+         term cannot print its way past these two rows. */
+      const CZS = 8;                                        // quanta: a 2.00 m ceiling, #181's TALL ROOM
+      out.slab = (() => {
+        const fz0 = MAP.fz.slice(), cz0 = MAP.cz.slice();
+        const lx = lane.x | 0, ly = lane.y | 0;
+        const setCell = (k, dq, czq) => { const i = ly * MW + lx + k; MAP.fz[i] = dq; if (czq !== undefined) MAP.cz[i] = czq; };
+        const build = (openFlight) => {
+          for (let k = 0; k <= 6; k++) setCell(k, 0, 4);            // the datum band, one-unit rooms
+          for (let k = 0; k <= 2; k++) setCell(k, 0, CZS);          // the shooter's room is TALL
+          for (let k = 3; k <= 5; k++) setCell(k, 0, openFlight ? CZS : 4);
+          setCell(6, 4, undefined);                                 // the column the body stands on
+          linkBoundaries();
+        };
+        const fire = () => {
+          const ex = lx + 6.5;
+          en.x = ex; en.y = lane.y; en.state = 'idle'; en.alert = false; en.hp = 1e6; en.dead = false;
+          P.x = lane.x; P.y = lane.y; P.ang = 0; P.crouch = 0; P.air = false; P.vz = 0;
+          P.z = floorAt(lane.x, lane.y);
+          const ef = floorAt(ex, lane.y), eyeZ = cfg.eye + P.z, aimZ = ef + en.scale * 0.85;
+          const tp = (aimZ - eyeZ) / (6 - en.r);
+          const r = hitscan(0, tp, 20);
+          const bx = bandExitT(P.x, P.y, 1, 0, eyeZ, tp, 20);        // same ray, for the kind + solved t
+          const geo = [];
+          for (let k = 0; k <= 6; k++) geo.push(floorAt(lx + k + 0.5, lane.y).toFixed(2) + '/' + ceilAt(lx + k + 0.5, lane.y).toFixed(2));
+          return { t: r.t, hit: r.enemy ? 1 : 0, hz: r.info ? r.info.z : null, wall: r.wall ? 1 : 0,
+            band: r.band ? 1 : 0, floorStop: r.floor ? 1 : 0, kind: bx.kind, bt: bx.t,
+            ef, eyeZ, aimZ, altAt3: eyeZ + tp * 2.5, scale: en.scale, reach: 6 - en.r,
+            bodyLo: ef + 0.02, bodyHi: ef + en.scale,
+            f2: floorAt(lx + 2.5, lane.y), c2: ceilAt(lx + 2.5, lane.y),
+            f3: floorAt(lx + 3.5, lane.y), c3: ceilAt(lx + 3.5, lane.y),
+            f6: floorAt(ex, lane.y), c6: ceilAt(ex, lane.y), geo: geo.join(' ') };
+        };
+        const o = { term: bandExitT.toString().indexOf('nfl >= fl') >= 0 ? 'PRESENT' : 'REMOVED' };
+        build(false); o.block = fire();
+        build(true); o.open = fire();
+        for (let i = 0; i < MAP.fz.length; i++) MAP.fz[i] = fz0[i];
+        for (let i = 0; i < MAP.cz.length; i++) MAP.cz[i] = cz0[i];
+        linkBoundaries();
+        return o;
+      })();
       out.rows = rows; out.dist = 4; return out;
     })()`);
     if (res.skip) { console.log(`L${li}: ${res.skip}  SKIP`); bad++; continue; }
@@ -2116,6 +2171,28 @@ if (MODE === 'sight') {
           g.barrel === (dq === 0 ? 1 : 0) && (dq !== 0 || g.hitZ >= g.bodyLo),
           `barrel ${f(g.ef)}..${f(g.bodyHi)}  aim ${f(g.aimZ)}  ${g.barrel ? 'barrel hit at hz ' + f(g.hitZ) : 'no barrel hit (t ' + g.t.toFixed(1) + ')'}`);
       }
+    }
+    /* #189: the two slab rows. Print the geometry BEFORE the verdict's arithmetic, because the whole
+       history of these rows is a miss that meant nothing (#129: rows printed `hit at t 3.3` for an
+       enemy sealed behind a closed opening; the mirror of that is a row that passes because nothing
+       was ever reachable). term = what bandExitT's own source says, so a reverted build is named. */
+    const S = res.slab;
+    const sf = n => (n === null || n === undefined ? ' -' : n.toFixed(2));
+    if (!S) row(`L${li} slab rows`, false, 'no result returned');
+    else {
+      const b = S.block, o = S.open;
+      // can the geometry BLOCK? entered column not higher than the flight, its ceiling below the ray,
+      // the shooter's column still air above the ray, and the body's column actually a band up.
+      const canBlock = b.f3 <= b.f2 && b.c3 <= b.altAt3 && b.altAt3 < b.c2 && b.f6 > b.f2 && b.c6 > b.f6;
+      // can the SAME flight HIT? the ray under every column's ceiling along the flight, body's band open.
+      const canHit = o.altAt3 < o.c3 && o.c6 > o.f6 && o.altAt3 < o.c6;
+      const geo = g => `cells f/c ${g.geo}  | boundary 2|3: floors ${sf(g.f2)}->${sf(g.f3)}, ceilAt ${sf(g.c2)}->${sf(g.c3)}, ray ${sf(g.altAt3)}, opening [${sf(Math.max(g.f2, g.f3))}, ${sf(Math.min(g.c2, g.c3))}]  | body column f/c ${sf(g.f6)}/${sf(g.c6)}`;
+      row(`L${li} shot at a body one band up stops at the slab`,
+        canBlock && b.hit === 0 && b.band === 1 && b.wall === 0 && b.bt < b.reach,
+        `${canBlock ? 'stops ' + b.bt.toFixed(2) + ' m (boundary into cell 3, body at ' + b.reach.toFixed(2) + '), band stop no wall verdict, t ' + b.t.toFixed(2) : 'VACUOUS - geometry cannot block (ray ' + sf(b.altAt3) + ' vs entered ceiling ' + sf(b.c3) + ')'}  aim ${sf(b.aimZ)} from eye ${sf(b.eyeZ)} on floor 0  kind ${b.kind}  term ${S.term}  ${geo(b)}`);
+      row(`L${li} same shot through an opening along the flight hits`,
+        canHit && o.hit === 1 && o.hz !== null && o.hz >= o.bodyLo && o.hz <= o.bodyHi,
+        `${canHit ? (o.hit ? 'hit hz ' + sf(o.hz) + ' at t ' + o.t.toFixed(2) + ' in window ' + sf(o.bodyLo) + '..' + sf(o.bodyHi) : 'MISS t ' + o.t.toFixed(2) + (o.wall ? ' into wall' : o.band ? ' band stop' : '')) : 'VACUOUS - the opened flight still has no hole (ray ' + sf(o.altAt3) + ' vs ceilings ' + sf(o.c3) + '/' + sf(o.c6) + ')'}  aim ${sf(o.aimZ)} from eye ${sf(o.eyeZ)}  kind ${o.kind}  term ${S.term}  ${geo(o)}`);
     }
   }
   console.log(bad ? `SIGHT ${bad} FAILURES` : 'SIGHT ok - hit tests follow the body they hit');
