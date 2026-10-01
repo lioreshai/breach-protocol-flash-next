@@ -50,6 +50,12 @@ the way it is.
       PR #32 prints seed, level, player cell and z, grid, rooms and buffer in the verdict line and in
       the failure detail. Still open: is the 2.7x ray content or camera position, and did `genLevel`
       take its fallback arena (#23) — a silent flat lit box is green CI telling a lie.
+      Re-measured at the `v1.2` release build (`5a2790c`, N = 5 batches, 5 rolls): **12.35 ms**
+      (12.2/12.2/12.3/12.4/12.4) on the same scene class — L0 ARCHIVE SUBLEVEL, grid 26x26, 4 rooms,
+      buffer 601x338 — so the flat default-seed median that this entry recorded at 3.33 has moved
+      ~3.7x toward the 16 ms gate while the gate stayed green throughout. The content-dependence question
+      is untouched by that: it is a cost rise on the *same* scene class, which is the direction the
+      entry was written to warn about, and 16 ms is now 1.3x away rather than 5x.
 - [ ] Re-baseline every number in `AGENTS.md` after that, and re-check the two decisions whose
       evidence was weakest (the rig size-class work was justified by a 10× claim from luck).
 - [ ] **Brightness was asserted on a pose nobody plays (#155) — now measured on both.** Every sampler
