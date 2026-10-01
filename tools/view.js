@@ -3904,6 +3904,7 @@ if (MODE === 'contrast') {
   const FOVH = Math.atan(PLANE) * 180 / Math.PI;
   const FOVH_JS = Math.atan(PLANE);                      // the same half-FOV in radians, for the pose fan
   let bad = 0, nrows = 0, known = 0, maskDead = false;
+  const noPoseNotes = [];   // #242: per-cam reason a camera posed nothing, so the verdict line NAMES it
   const knownIssues = new Set();   // which issues the KNOWN rows are carrying, in the order they appeared
   // a row that could not measure anything is a FAILURE, never a KNOWN: a row that silently skips is
   // the "probe that cannot fail" this rewrite exists to remove, so vacuity stays out of the debt branch.
@@ -3917,6 +3918,33 @@ if (MODE === 'contrast') {
   };
   const NB = [[-1, -1], [0, -1], [1, -1], [-1, 0], [1, 0], [-1, 1], [0, 1], [1, 1]];
   const BRAD = 0.35;                       // a body's own radius: the march clears it past its NEAR edge
+  /* #242 NAMES the reason a camera yielded no pose. Four different failures used to print as one
+     sentence ('the axis march stops at 0.56 m'), which is how cam 1's emptiness came to be quoted as
+     if it were a measurement:
+       BAND GATE      the march's own slab test - |fz[a]-fz[b]| over one quantum on a boundary with no
+                      VB_RAMP/VB_LADDER link - stops the ray, and the pose's exact-band rule then
+                      refuses every candidate past the lip. `canEnter` is never consulted here.
+       SOLID WALL /   a wall column, or the map border, stops the ray: occlusion, not the band.
+       OFF-MAP BORDER
+       POSE PATH      candidates WERE placeable (spotPlace > 0) and nothing got posed, or a pose
+                      painted no pixels: the probe's own body handling, never a debt.
+     The POSE CACHE cannot explain "no pose" - nothing was rasterised, so the cache was never reached -
+     and that is said out of the counters (spotPlace, posedPx), not out of prose. */
+  const CAUSENAME = { slab: 'BAND GATE', wall: 'SOLID WALL', void: 'OFF-MAP BORDER', clear: 'NOTHING STOPS THE RAY', guard: 'MARCH GUARD' };
+  const sgn = (v, n) => (v >= 0 ? '+' : '') + v.toFixed(n);
+  const noPoseCause = (g) => {
+    if (g.pose) return '';
+    const stop = g.clear.toFixed(2) + ' m';
+    if (!g.tried) return 'SEARCH NEVER RAN: no living enemy to place, so no candidate was examined';
+    if (g.spotPlace > 0) return 'POSE PATH: ' + g.spotPlace + ' of ' + g.tried + ' candidates were placeable and nothing was posed - not the band, not the march, and not the pose cache (no pose existed to rasterise)';
+    const gate = g.clearWhy === 'slab' ? 'BAND GATE: the march stops on a ' + sgn(g.clearDz, 2) + ' m slab across the boundary at ' + stop + ', with no ramp or ladder link on it'
+      : g.clearWhy === 'wall' ? 'SOLID WALL at ' + stop + ': occlusion, not the band'
+        : g.clearWhy === 'void' ? 'OFF-MAP BORDER at ' + stop + ': the ray left the grid'
+          : (CAUSENAME[g.clearWhy] || 'NO CAUSE NAMED') + ' at ' + stop;
+    return gate + ' - ' + g.coneMax.toFixed(2) + ' m of cone against the ' + POSEFLOOR.toFixed(2) +
+      ' m pose floor, ' + g.spotOff + '/' + g.tried + ' candidates on ANOTHER band, ' + g.spotBand +
+      ' past a lip, ' + g.spotPlace + ' placeable, pose cache not reached';
+  };
   /* The geometry this probe has to ask with. castRayDist stops at SOLID columns only, so it answers
      "visible" for a body standing behind a riser lip that castWalls then hides - cam 1's whole
      vacuity on the volume branch is that (a 1 m ledge at 0.56 m, a body at 2.24 m, #189). This
@@ -3933,16 +3961,18 @@ if (MODE === 'contrast') {
     while (g++ < 220) {
       let t;
       if (sdx < sdy) { t = sdx; sdx += ddx; mx += stepX; side = 0; } else { t = sdy; sdy += ddy; my += stepY; side = 1; }
-      if (mx < 0 || my < 0 || mx >= MW || my >= MH) return { dist: Math.min(t, maxD), why: 'void' };
-      if (t > maxD) return { dist: maxD, why: 'clear' };
+      if (mx < 0 || my < 0 || mx >= MW || my >= MH) return { dist: Math.min(t, maxD), why: 'void', dz: 0 };
+      if (t > maxD) return { dist: maxD, why: 'clear', dz: 0 };
       const i = my * MW + mx;
-      if (MAP.cell[i]) return { dist: t, why: 'wall' };
+      if (MAP.cell[i]) return { dist: t, why: 'wall', dz: 0 };
       const d = side === 0 ? (stepX > 0 ? 0 : 2) : (stepY > 0 ? 1 : 3);
       const pi = py * MW + px, dq = MAP.fz[i] - MAP.fz[pi];
-      if ((dq > 1 || dq < -1) && !(MAP.vb[pi] & ((VB_RAMP | VB_LADDER) << (d << 2)))) return { dist: t, why: 'slab' };
+      // #242: dz names HOW MUCH band the gate that stopped this ray is worth, in metres, so a
+      // "no pose" verdict can say which gate refused rather than leaving the reader to guess.
+      if ((dq > 1 || dq < -1) && !(MAP.vb[pi] & ((VB_RAMP | VB_LADDER) << (d << 2)))) return { dist: t, why: 'slab', dz: dq * ZQ };
       px = mx; py = my;
     }
-    return { dist: maxD, why: 'guard' };
+    return { dist: maxD, why: 'guard', dz: 0 };
   }`);
   console.log('contrast: coverage-mask oracle on level ' + LVL + '  buffer ' + W + 'x' + H +
     (DARKRING ? '  DARKRING' : '') + (NOBODY ? '  NOBODY' : '') +
@@ -4007,6 +4037,7 @@ if (MODE === 'contrast') {
          On a cam that picked a body to look at, that body is left where it is when there is another
          to spend, so the occlusion a ledge causes stays in the frame AND in the line below. */
       let poseD = 0, poseWhy = 'no enemies in the level', clear = 0, poseOff = 0, poseClear = 0;
+      let clearWhy = 'clear', clearDz = 0; const spots = [];
       /* coneMax = the furthest the SAME __march lets a body stand at all (clear minus its own radius,
          best over the rays the search samples) - the bound the #189 conditional is read from, so it
          cannot be inflated without changing the march that places bodies, and the row that prints it
@@ -4022,7 +4053,8 @@ if (MODE === 'contrast') {
       const band = floorAt(P.x, P.y);
       if (ENEMIES.length) {
         const cx0 = Math.cos(P.ang), cy0 = Math.sin(P.ang);
-        clear = __march(P.x, P.y, cx0, cy0, 8).dist;
+        const axq = __march(P.x, P.y, cx0, cy0, 8);
+        clear = axq.dist; clearWhy = axq.why; clearDz = axq.dz;
         const spread = ${FOVH_JS} * 0.6 / 5;              // 5 steps reaches 60% of the half-FOV, well inside the frame
         const victim = () => ENEMIES.find(q => q.state !== 'dead' && q !== window.__looked) ||
           ENEMIES.find(q => q.state !== 'dead');
@@ -4033,8 +4065,14 @@ if (MODE === 'contrast') {
           if (cl - ${BRAD} > coneMax) coneMax = cl - ${BRAD};
           for (let d = Math.min(3.5, Math.max(${POSEFLOOR}, cl * 0.7)), k = 0; k < 30 && d >= ${POSEFLOOR}; k++, d -= 0.12) {
             const bx = P.x + cx * d, by = P.y + cy * d;
-            const onBand = !isSolid(bx, by) && Math.abs(floorAt(bx, by) - band) <= 1e-6;
+            const bz = floorAt(bx, by), solid = isSolid(bx, by);
+            const onBand = !solid && Math.abs(bz - band) <= 1e-6;
             spotTried++;
+            /* #242: the census of what the search refused, printed per spot so the next session does
+               not re-try this lane. dz is the band delta of the SPOT itself (floorAt there minus the
+               camera's own band) - the one number that says "off band" instead of "refused". */
+            if (spots.length < 44) spots.push({ ray: w, deg: (a - P.ang) * 180 / Math.PI, cl: cl, d: d,
+              dz: bz - band, why: solid ? 'solid' : (bz - band !== 0 ? 'off-band' : (d > cl - ${BRAD} ? 'past-lip' : 'placeable')) });
             if (!onBand) { spotOff++; continue; }
             if (d > cl - ${BRAD}) { spotBand++; continue; }
             spotPlace++;
@@ -4050,7 +4088,8 @@ if (MODE === 'contrast') {
       }
       for(const e of ENEMIES)e.state='sleep';
       return {n:ENEMIES.length, pose:poseD, why:poseWhy, clear:clear, band:band, off:poseOff, poseClear:poseClear,
-        coneMax:coneMax, spotBand:spotBand, spotPlace:spotPlace, spotOff:spotOff, tried:spotTried, alive:alive};
+        coneMax:coneMax, spotBand:spotBand, spotPlace:spotPlace, spotOff:spotOff, tried:spotTried, alive:alive,
+        clearWhy:clearWhy, clearDz:clearDz, spots:spots};
     })()`);
     // arm the mask (null in play; this probe is its only caller) and any shading control
     run('if (!COV || COV.length !== BW * BH) COV = new Uint8Array(BW * BH);');
@@ -4232,7 +4271,7 @@ if (MODE === 'contrast') {
     console.log('cam ' + cam + '  ' + W + 'x' + H + (camG.pose ? '  POSED body at ' + camG.pose.toFixed(2) +
       ' m on band ' + camG.band.toFixed(2) + ' (pose ray clear to ' + camG.poseClear.toFixed(2) + ' m' +
       (Math.abs(camG.off) > 1e-6 ? ', ' + (camG.off * 180 / Math.PI).toFixed(1) + ' deg off the axis, whose march stops at ' + camG.clear.toFixed(2) + ' m' : ', axis march clear to ' + camG.clear.toFixed(2) + ' m') + ')'
-      : '  NO POSE: ' + camG.why) + (PIXHASH ? '  frame ' + (() => {
+      : '  NO POSE [' + (camG.pose ? '' : camG.spotPlace > 0 ? 'POSE PATH' : !camG.tried ? 'NO ENEMY' : CAUSENAME[camG.clearWhy] || 'UNKNOWN') + ']: ' + camG.why) + (PIXHASH ? '  frame ' + (() => {
       let h = 2166136261;
       for (let i = 0; i < N; i += 7) h = ((h ^ A[i]) * 16777619) >>> 0;
       return (h >>> 0).toString(16);
@@ -4277,10 +4316,53 @@ if (MODE === 'contrast') {
        stopped stamping would be reported as #189 on the one camera whose cone is also shallow - a broken
        instrument wearing a known-issue label, which is the exact shape this probe exists to refuse. */
     if (nM === 0 && oCover > 0) maskDead = true;
-    const m189 = !camG.pose && camG.coneMax < POSEFLOOR && camG.tried > 0 && !NOBODY && !maskDead;
-    const boundTxt = 'axis march stops at ' + camG.clear.toFixed(2) + ' m, cone max ' + camG.coneMax.toFixed(2) +
+    /* #242 splits the two reasons a camera yields no pose, because they are not the same verdict:
+         NO ENEMY IN REACH   the LEVEL's geometry leaves this cone shallower than a body AND the frame
+                             agrees - not one body pixel was painted. That is #189 part 2's debt (an
+                             enemy on the band above is not visible or placeable from the datum): real,
+                             reported, and a KNOWN row, because making it red makes CI red forever and a
+                             permanently-red row teaches everyone to ignore the rows that mean something.
+         NO POSE WITH A BODY IN FRAME
+                             a living enemy is in the world and the coverage mask sees a body's draw,
+                             yet the search rasterised no pose. The shot is measurable while the probe
+                             says it is not - a regression, a FAILURE, an exit code. (A mask that stopped
+                             stamping is the third branch and was already red, via maskDead.) */
+    const bodyInFrame = nM > 0;
+    const noPoseBad = !camG.pose && !NOBODY && camG.alive > 0 && bodyInFrame;
+    const nearDz = (() => {
+      const sp = (camG.spots || []).filter(s => s.why === 'off-band' || s.why === 'past-lip' || s.why === 'solid');
+      if (!sp.length) return null;
+      let b = sp[0];
+      for (const s of sp) if (s.d < b.d) b = s;
+      return b.dz;
+    })();
+    const m189 = !camG.pose && camG.coneMax < POSEFLOOR && camG.tried > 0 && !NOBODY && !maskDead && !bodyInFrame;
+    const boundTxt = (m189 ? 'NO ENEMY IN REACH at cam ' + cam + ': ' : noPoseBad ? 'NO POSE WITH A BODY IN FRAME at cam ' + cam + ': ' : '') +
+      'axis march stops at ' + camG.clear.toFixed(2) + ' m' +
+      (camG.tried && !camG.pose ? ' (' + (CAUSENAME[camG.clearWhy] || camG.clearWhy) + ')' : '') + ', cone max ' + camG.coneMax.toFixed(2) +
       ' m against the ' + POSEFLOOR.toFixed(2) + ' m pose floor: ' + camG.tried + ' spot(s) examined in the frustum, ' +
-      camG.spotOff + ' off the band, ' + camG.spotBand + ' past a lip, ' + camG.spotPlace + ' placeable';
+      camG.spotOff + ' off the band, ' + camG.spotBand + ' past a lip, ' + camG.spotPlace + ' placeable' +
+      (nearDz === null ? '' : ', nearest candidate ' + sgn(nearDz, 2) + ' m off this band');
+    /* #242: a camera that poses nothing says WHY once, in one named sentence, and then lists what it
+       refused so the next session does not re-try the same lane (#226's seat census is the model: the
+       rejects get printed, so they stop being re-counted as news). */
+    if (!camG.pose && camG.tried) {
+      noPoseNotes.push('cam ' + cam + ' ' + (m189 ? 'NO ENEMY IN REACH' : noPoseBad ? 'NO POSE WITH A BODY IN FRAME' : 'NO POSE') +
+        ' = ' + (camG.spotPlace > 0 ? 'POSE PATH (' + camG.spotPlace + ' placeable, none posed)'
+          : (CAUSENAME[camG.clearWhy] || 'UNKNOWN') + ' at ' + camG.clear.toFixed(2) + ' m, '
+            + camG.spotOff + '/' + camG.tried + ' candidates off band' + (nearDz === null ? '' : ', nearest ' + sgn(nearDz, 2) + ' m')));
+      console.log('  no-pose    ' + (m189 ? 'NO ENEMY IN REACH - reported, not gated (#189 part 2: an enemy on the band above is not placeable from this seat)'
+        : noPoseBad ? 'NO POSE WITH A BODY IN FRAME - a REGRESSION, not the #189 debt: ' + nM + ' px of body in the shot while the search posed nothing'
+          : maskDead ? 'the coverage mask itself is dead (see the mask rows), so #189 cannot be blamed for this cam'
+            : 'not #189: ' + camG.why) + '  |  ' + noPoseCause(camG));
+      if (camG.spots && camG.spots.length) {
+        console.log('             ' + camG.tried + ' candidate spot(s) examined from this lens, ' + camG.spotPlace +
+          ' placeable - the rejects, so nobody re-tries them:');
+        for (const s of camG.spots) console.log('               ray ' + String(s.ray).padStart(2) +
+          (s.deg >= 0 ? '  +' : '  ') + s.deg.toFixed(1) + ' deg off axis   that ray clear to ' + s.cl.toFixed(2) +
+          ' m   spot at ' + s.d.toFixed(2) + ' m   band ' + sgn(s.dz, 2) + ' m   ' + s.why.toUpperCase());
+      }
+    }
     /* Every row below that needs a body IN THE FRAME is vacuous on this camera for the same geometric
        reason, and vacuity here is not the silent skip the row() note forbids: it is conditional on a
        measured bound (coneMax < the floor the pose uses, from __march itself), it prints that bound, and
@@ -4296,6 +4378,7 @@ if (MODE === 'contrast') {
         (posedB && !posedB.vis ? ' - but the march disagrees: stops at ' + posedB.stop.toFixed(2) + ' m' : '') +
         (cam === 1 && slabB.length ? ' (the found body it was looking at is behind a slab at ' + slabB[0].stop.toFixed(2) + ' m)' : '')
         : 'NO POSE: ' + camG.why + ' | ' + (m189 ? boundTxt
+          : noPoseBad ? 'a BODY IS IN THE FRAME (' + nM + ' px of coverage) and the search posed nothing, so this is a regression and not #189: ' + boundTxt
           : camG.coneMax < POSEFLOOR ? 'the cone reaches only ' + camG.coneMax.toFixed(2) + ' m but the search examined '
             + camG.tried + ' spot(s), so nothing here says #189: ' + boundTxt
             : 'cone max ' + camG.coneMax.toFixed(2) + ' m is at or above the ' + POSEFLOOR.toFixed(2) + ' m floor and ' +
@@ -4369,8 +4452,13 @@ if (MODE === 'contrast') {
       } else if (!foundVis || !foundSt) {
         row('cam 1 body reads - FOUND bodies', false,
           foundIn + ' body(ies) the GAME placed inside the cone, ' + foundVis + ' of them in the clear (nearest stop '
-          + (foundStop < 0 ? 'none' : foundStop.toFixed(2)) + ' m) - there is no found-body measurement to take | ' + boundTxt,
-          '#189');
+          + (foundStop < 0 ? 'none' : foundStop.toFixed(2)) + ' m) - there is no found-body measurement to take'
+          + (noPoseBad ? ', BUT THE FRAME HAS A BODY IN IT (' + nM + ' px of coverage drawn by a body the probe never posed), so "nothing is in the clear" is a broken visibility solve and not the debt' : '') +
+          ' | ' + boundTxt,
+          // #242: the debt label needs the frame to agree. A posed body's own pixels are not evidence
+          // that a PLACED one was visible (measured on L1/12345: the pose draws 1932 px while all 8
+          // placed bodies sit behind slabs - that is #189, and it was red for one commit here).
+          noPoseBad ? undefined : '#189');
       } else {
         row('cam 1 body reads - FOUND bodies', fOk,
           'edge dL ' + foundSt.dl.toFixed(1) + ' vs ' + DLMIN + ', lost ' + foundSt.lost.toFixed(0) + '% vs ' + LOSTMAX +
@@ -4465,8 +4553,9 @@ if (MODE === 'contrast') {
   }
   const debtTail = known ? ', ' + known + ' known-issue row' + (known > 1 ? 's' : '') + ' (' +
     (STRICT ? 'FAILED under STRICT=1' : 'reporting') + ': ' + [...knownIssues].join(' ') + ')' : '';
-  console.log(bad || known ? `CONTRAST ${bad} FAILURE(S) of ${nrows} rows` + debtTail
-    : `CONTRAST ok - ${nrows} rows: bodies separate from the rooms they stand in` + debtTail);
+  const poseTail = noPoseNotes.length ? '  |  no-pose cause: ' + noPoseNotes.join('  |  ') : '';
+  console.log((bad || known ? `CONTRAST ${bad} FAILURE(S) of ${nrows} rows` + debtTail
+    : `CONTRAST ok - ${nrows} rows: bodies separate from the rooms they stand in` + debtTail) + poseTail);
   run('COV = null;');
   process.exit(bad ? 1 : 0);
 }
