@@ -610,9 +610,11 @@ staircase runs, 77–111 step faces with `MAP.steps 1`, 0 unreachable cells**) �
 what is left of verticality is **M4 and M5: what a player can see and climb** ← **here**. Being in the
 grid is not being perceivable: staircase cells are ~2.6% of a floorplan (15 of 572 on L0) and no column
 is authored hollow, so a level is multi-storey in `MAP.fz` and still reads as a crawlway · **M4** everything sits at a height —
-`hitscan` - including the **entered column's** ceiling plane (#258) - culling, blast band, exit band and pickup
-hover are gated (`sight`, `cull`, V4, V16, V17); enemy movement across bands, the enemy's eye `losZ`
-seeing through a `[1.00, 1.00]` opening (#259) and face-relative decal z are not; `updateProj`'s ceiling
+`hitscan` - including the **entered column's** ceiling plane (#258), and the enemy's eye, which since #261
+**asks that same solver** where its line leaves the band rather than re-deriving a second rule (four
+`sight` rows per level: blocked both directions across a `[1.00, 1.00]` opening, visible both directions
+through the opened control) - culling, blast band, exit band and pickup hover are gated (`sight`, `cull`,
+V4, V16, V17); enemy movement across bands and face-relative decal z are not; `updateProj`'s ceiling
 test shipped in #148 (`js/30_entities.js:625`) · **M5** per-band light, glow, minimap altitude cue · **M6** a hand-authored two-storey level.
 
 **A struck-through milestone needs a probe line that proves it, and this one did not have one.**
