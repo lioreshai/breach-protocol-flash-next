@@ -622,22 +622,25 @@ if (MODE === 'flatparity') {
                                             recorded md5, not merely by the hashes being stable;
        this js, radial exponent 1.6 -> 1.55   PARITY FAIL x3 and LOCK FAIL x3 (means 82.8 / 34.9 /
                                             52.5) - a term that is NOT bit-neutral reddens both;
-       this js, band term made ONE-SIDED      BOTH senses stay GREEN on all three levels, and THAT is
-         (light reaching up blocked, reaching  the limit of what a flat frame can prove. Replace
-          down unbounded: `lf - floor >=        `|lf - floor| <= ZQ + 1e-9` with `lf - floor >=
-          -ZQ - 1e-9` - the variant that trades  -ZQ - 1e-9` and all six rows print ok: LOCK hashes
-          one half of the bleed for the other.   4262d051 / f05beeb5 / 050b225e and PARITY hashes
-          It leaks - alt reads 169 / 273 / 117   f9e4da3a / f05beeb5 / d4b2d2cd, the shipped frames to
-          cells lit from a band above on that    the byte. On a flat world fd = 0 for every cell, so
-          very kernel)                         neither sense can see a SIGN convention. This is not a
-                                            threshold set too wide that a reviewer could tighten: the
-                                            term reduces to the literal 1 before the sign is ever
-                                            read, so NO flat frame can ever fail a signed band term.
-                                            Flat parity is necessary and never sufficient - alt's two
-                                            direction rows are what see the sign (they fail at
-                                            275 / 32 / 261 upward on main's kernel and at 169 / 273 /
-                                            117 downward on the one-sided one), which is why both
-                                            probes run and both gate.
+       this js, band term made ONE-SIDED      the two FLAT senses stay GREEN on all three levels - LOCK
+         (light reaching up blocked, reaching  060da4cd/f05beeb5/050b225e and PARITY f9e4da3a/f05beeb5/
+          down unbounded: `lf - floor >=        d4b2d2cd, byte-identical to main - and THAT is the limit of
+          -ZQ - 1e-9`, the variant that trades  what a FLAT frame can prove. THE DEALT SENSE DOES NOT: on
+          one half of the bleed for the other)  that kernel it reddens 2 of 3 levels, because the dealt
+                                            frame is painted by the term rather than by the literal the
+                                            flat grid collapses it to. Level 2 stays green and is the
+                                            honest exception - its dealt frame differs from its flattened
+                                            one by 8 px of 203,138, so that spawn camera sees no band to
+                                            lose. This is not a threshold a reviewer could tighten: on a
+                                            flat grid the term reduces to the literal 1 before the sign
+                                            is ever read, so NO flat frame can ever fail a signed term.
+                                            The sign is gated twice now - DEALT by the dealt frame, and
+                                            alt by the lightmap, whose "no column is lit from a band
+                                            ABOVE it" row reads 169 / 279 / 117 on the one-sided kernel
+                                            and 0 / 0 / 0 on main (169 / 279 / 117 above and 281 / 198 /
+                                            270 below with the term deleted outright, wv = 1). The 273
+                                            this row used to quote for level 1, and CHANGELOG:131/:137,
+                                            was an older deal's digit - measured 279 on this branch.
 
      The hashed frame is not the first renderWorld of the process. Two determinism hazards
      are measured at 9656176 while building this probe: the FIRST frame after startLevel hashes
@@ -663,36 +666,89 @@ if (MODE === 'flatparity') {
      is the knob-independence proof: with the top-up suppressed at author time this change runs no code. */
   const SHIP = ['060da4cdaadc2e4a4276ce8f06b0eecf', 'f05beeb58f1266a1aea7e44712995292', '050b225e3f295b3ca991d59addea2f1c'];
   const SHIPM = [80.8, 34.1, 51.7];
+  /* #219's DEALT triple: the spawn frame of each level AS DEALTED - bands, band term, shipped lamp
+     record, same dice (1000 + level*97) and the same pinned-clock ninth render. Where LOCK is a
+     regression lock on lamp PLACEMENT in a world this probe flattened, this one is a lock on the
+     banded world the generator deals: it moves when the dealt picture moves, which the two flat triples
+     structurally cannot do. Its churn is MEASURED, not assumed - see the DEALT row for the count (9 of 11
+     recent js commits move at least one of the three hashes), which is what makes this a lock that
+     re-records often rather than a proof. The clauses beside it are the falsifiable half. */
+  /* Recorded on main 828d1b4 with this branch's sampler: two cold samplers agree, and the three hashes are
+     the ones the churn run printed for 828d1b4, which is the check that the lock and the churn measurement
+     are one instrument and not two. They are NOT the flattened frames two rows above: level 0's dealt frame
+     differs from its flattened one on 45,871 px of 203,138 and level 1's on 78,636, while level 2's differs
+     on 8 - the per-render alternation floor, because level 2's spawn camera looks at none of its 292
+     off-datum cells. A DEALT ref therefore locks the dealt picture only where the camera is pointed at it,
+     which is why the census clause and not this triple is the half of the row that catches generation
+     going flat. */
+  const DEALT = ['ec62943380a83d3034d526f2a64d370c', '96a450d02712aefa4d4e32c964c902cc', '22d473ed414f2f66645530955fa59ef0'];
+  const DEALTM = [79.7, 33.7, 51.7];
   const OFF = process.env.LAMPS === 'off';
   const f1 = v => (v === undefined || v === null ? '-' : (+v).toFixed(1));
   const md5of = () => { const d = new Uint32Array(run('px'));
     return crypto.createHash('md5').update(Buffer.from(d.buffer, d.byteOffset, d.byteLength)).digest('hex'); };
-  const hashes = [], mns = [], flat = [];
+  const hashes = [], mns = [], flat = [], dealt = [], openCells = [];
   const NL = run('LEVELS.length');
-  for (let lv = 0; lv < NL; lv++) {
-    seedRng(1000 + lv * 97);
-    run(`S.mode='play'; S.locked=false; startLevel(${lv}, true);`);
-    const mean = run(`(()=>{
-      MAP.fz.fill(0); MAP.cz.fill(CZ_DEF); linkBoundaries();
-      for (const L of LIGHTS) if (L.stat && L.z !== undefined) L.z = floorAt(L.x, L.y) + 0.78;
-      MAP.light.fill(0); MAP.lR.fill(0); MAP.lG.fill(0); MAP.lB.fill(0); MAP.lw.fill(0);
-      for (const L of LIGHTS) splatLight(L, L.str);
-      blurLight(); buildTint();
-      P.pitch = 0; P.vx = P.vy = P.vz = 0; P.air = false; P.crouch = 0; P.z = floorAt(P.x, P.y);
+  const CENSUS = `(()=>{ let n = 0, o = 0; for (let i = 0; i < MAP.fz.length; i++) {
+      if (MAP.cell[i]) continue; o++; if (MAP.fz[i] !== 0) n++; } return { off: n, open: o }; })()`;
+  /* THE DEALT SENSE GETS ITS OWN PROCESS, AND THAT IS A MEASURED RESULT, NOT A TASTE. The frame is
+     hashed at a FIXED render index with the clock pinned, and rendering ANYTHING else in the process
+     first moves that hash. Measured three ways against the recorded 060da4cd/f05beeb5/050b225e:
+     8 extra renders before the flat hash gives e96fe6bb/f746bcb5/32d25823, 9 gives
+     bee34388/90f20cbd/050b225e - and rendering the dealt frame per level, whether BEFORE the flat hash
+     (L0/L1 move to bee34388/90f20cbd) or AFTER it (L1/L2 move to 37cb3011 and 4e718f4f/b9ba6913), moves
+     LOCK and PARITY too. So there is no ordering in which a dealt render and a flat hash coexist, and
+     the probe's own doctrine - "this probe may not render both records in one process" - is what settles
+     it: DEALT is sampled by a cold child that never flattens anything, exactly as the two lamp records
+     are sampled cold. The pose cache answering a cold request from the nearest-pose path is the
+     mechanism the header already blames; this probe does not claim to have found more than that. */
+  const LUMA = `const d = new Uint32Array(px), B = BW * BH; let s = 0;
+      for (let i = 0; i < B; i++) s += 0.2126 * (d[i] & 255) + 0.7152 * (d[i] >> 8 & 255) + 0.0722 * (d[i] >> 16 & 255);
+      return s / B;`;
+  const SETTLE = `P.pitch = 0; P.vx = P.vy = P.vz = 0; P.air = false; P.crouch = 0; P.z = floorAt(P.x, P.y);
       for (const e of ENEMIES) e.state = 'sleep';
       performance.now = () => 5; VM.t = 5;   // pin the clock: the lag must advance by a constant dt, not by wall ms
       for (let k = 0; k < 8; k++) renderWorld();
-      renderWorld();
-      const d = new Uint32Array(px), B = BW * BH; let s = 0;
-      for (let i = 0; i < B; i++) s += 0.2126 * (d[i] & 255) + 0.7152 * (d[i] >> 8 & 255) + 0.0722 * (d[i] >> 16 & 255);
-      return s / B;
-    })()`);
+      renderWorld();`;
+  const FLATTEN = `MAP.fz.fill(0); MAP.cz.fill(CZ_DEF); linkBoundaries();
+      for (const L of LIGHTS) if (L.stat && L.z !== undefined) L.z = floorAt(L.x, L.y) + 0.78;
+      MAP.light.fill(0); MAP.lR.fill(0); MAP.lG.fill(0); MAP.lB.fill(0); MAP.lw.fill(0);
+      for (const L of LIGHTS) splatLight(L, L.str);
+      blurLight(); buildTint();`;
+  if (process.env.FP_DEALT) {
+    /* The DEALT sampler: the level as the generator dealt it - no fill, no cz reset, no relink, no lamp
+       re-seat, no splat rebuild, and NO flat render, because a flat render here would move the hash
+       below (see above). Same dice, same settle, same ninth render as every other sense in this probe. */
+    for (let lv = 0; lv < NL; lv++) {
+      seedRng(1000 + lv * 97);
+      run(`S.mode='play'; S.locked=false; startLevel(${lv}, true);`);
+      const c = run(CENSUS), dm = run(`(()=>{ ${SETTLE} ${LUMA} })()`);
+      const dh = md5of(), dpix = Array.from(new Uint32Array(run('px')));
+      // The same level flattened by the probe's own recipe, rendered again at the same render count, so
+      // the pixel difference below is the DEALT frame's worth of geometry rather than a camera move.
+      run(`(()=>{ ${FLATTEN} ${SETTLE} return 0; })()`);
+      const fpix = new Uint32Array(run('px'));
+      let nd = 0;
+      for (let i = 0; i < fpix.length; i++) if (fpix[i] !== dpix[i]) nd++;
+      console.log('  dealt level ' + lv + ' md5 ' + dh + ' mean ' + dm.toFixed(1) + ' off-datum ' + c.off + '/' + c.open +
+        ', ' + nd + ' of ' + fpix.length + ' px differ from the flattened frame');
+    }
+    process.exit(0);
+  }
+  for (let lv = 0; lv < NL; lv++) {
+    seedRng(1000 + lv * 97);
+    run(`S.mode='play'; S.locked=false; startLevel(${lv}, true);`);
+    /* The census is a COUNT, not a render: it reads the dealt grid without touching it, so it costs
+       nothing and pollutes nothing - which is why it can sit in the flat pass at all. */
+    const c0 = run(CENSUS);
+    dealt.push(c0.off); openCells.push(c0.open);
+    const mean = run(`(()=>{ ${FLATTEN} ${SETTLE} ${LUMA} })()`);
     hashes.push(md5of()); mns.push(mean);
-    /* Read from the world that was just HASHED, not from this file's comments: how many cells are still
-       off the datum in the frame behind the md5. It is 0, and that is the mechanism this probe's own
-       limitation rests on (#211 ask 2) - printed next to the verdict below rather than asserted. */
-    flat.push(run('(()=>{ let n = 0; for (let i = 0; i < MAP.fz.length; i++) if (MAP.fz[i] !== 0) n++; return n; })()'));
-    console.log('  level ' + lv + '  flat spawn-frame md5 ' + hashes[lv] + '  mean ' + mean.toFixed(1));
+    /* How many off-datum OPEN cells survive the fill just above: 0, because THIS probe put it there. Read
+       from the world that was just hashed rather than from this file's comments. */
+    flat.push(run(CENSUS).off);
+    console.log('  level ' + lv + '  flat spawn-frame md5 ' + hashes[lv] + '  mean ' + mean.toFixed(1) +
+      '   [dealt grid: ' + dealt[lv] + '/' + openCells[lv] + ' open cells off the datum]');
   }
   if (process.env.FP_CHILD) process.exit(0);
   /* The self-check re-runs the WHOLE probe as a cold child process and demands identical
@@ -715,10 +771,30 @@ if (MODE === 'flatparity') {
     if (flip) { if (OFF) delete env.LAMPS; else env.LAMPS = 'off'; }
     const c = require('child_process').spawnSync(process.execPath, [__filename, 'flatparity'],
       { env, encoding: 'utf8', timeout: 900000 });
-    const rx = /level (\d+)\s+flat spawn-frame md5 ([0-9a-f]{32})\s+mean ([-\d.]+)/g;
-    const h = [], mm = []; let q, n = 0;
-    while ((q = rx.exec(c.stdout || ''))) { h[+q[1]] = q[2]; mm[+q[1]] = +q[3]; n++; }
+    const h = [], mm = []; let n = 0;
+    for (const line of String(c.stdout || '').split('\n')) {
+      const q = /^\s*level (\d+)\s+flat spawn-frame md5 ([0-9a-f]{32})\s+mean ([-\d.]+)/.exec(line);
+      if (!q) continue;
+      const lv = +q[1]; h[lv] = q[2]; mm[lv] = +q[3]; n++;
+    }
     return { h, mm, n, status: c.status, why: String(c.error || c.stderr || '').split('\n')[0] };
+  };
+  /* The DEALT sampler, cold. It always runs the SHIPPED lamp record - the knob is a lamp-authoring knob
+     and the dealt world is the shipped one - so an LAMPS=off pass still reports the same DEALT hashes and
+     says so. Two samples, because one cold process proves nothing about stability: the property every
+     hash in this probe rests on is cold-to-cold. */
+  const spawnDealt = () => {
+    const env = Object.assign({}, process.env, { FP_DEALT: '1' });
+    delete env.LAMPS; delete env.FP_CHILD;
+    const c = require('child_process').spawnSync(process.execPath, [__filename, 'flatparity'],
+      { env, encoding: 'utf8', timeout: 900000 });
+    const h = [], mm = [], dn = [], dOpen = [], dPx = [], dTot = []; let n = 0;
+    for (const line of String(c.stdout || '').split('\n')) {
+      const q = /^\s*dealt level (\d+) md5 ([0-9a-f]{32}) mean ([-\d.]+) off-datum (\d+)\/(\d+), (\d+) of (\d+) px/.exec(line);
+      if (!q) continue;
+      const lv = +q[1]; h[lv] = q[2]; mm[lv] = +q[3]; dn[lv] = +q[4]; dOpen[lv] = +q[5]; dPx[lv] = +q[6]; dTot[lv] = +q[7]; n++;
+    }
+    return { h, mm, dn, dOpen, dPx, dTot, n, status: c.status, why: String(c.error || c.stderr || '').split('\n')[0] };
   };
   const sameStream = (a, b, n) => a.n === n && b.n === n && a.h.slice(0, n).every((x, i) => x === b.h[i]);
   const twin = spawn(false);
@@ -740,6 +816,12 @@ if (MODE === 'flatparity') {
   }
   const shipH = OFF ? o1.h : hashes, shipM = OFF ? o1.mm : mns;
   const parH = OFF ? hashes : o1.h, parM = OFF ? mns : o1.mm;
+  const dv1 = spawnDealt(), dv2 = spawnDealt();
+  if (dv1.status !== 0 || dv2.status !== 0 || !sameStream(dv1, dv2, NL)) {
+    console.log('FLATPARITY UNSTABLE across the DEALT samplers - the dealt hashes describe nothing.' +
+      ' child exits ' + dv1.status + '/' + dv2.status + ' ' + (dv1.why || dv2.why));
+    process.exit(1);
+  }
   let bad = 0;
   const row = (label, ok, detail) => { if (!ok) bad++; console.log('  ' + (ok ? 'ok  ' : 'FAIL') + '  ' + label + ' - ' + detail); return ok; };
 
@@ -754,6 +836,54 @@ if (MODE === 'flatparity') {
       'md5 ' + shipH[lv] + ' mean ' + f1(shipM[lv]) + ' against the recorded ' + SHIP[lv] + ' mean ' + SHIPM[lv] +
       '. This is a REGRESSION LOCK on lamp placement, not a\n' +
       '        formula claim: it moves when a placement rule moves, so green here is NOT evidence that a term is bit-neutral.');
+  }
+  /* #219. The census used to be counted from the grid AFTER this probe's own MAP.fz.fill(0), so the run
+     ended by printing "0 / 0 / 0 cells off the datum" as a property of the game while describing the
+     probe - the trap AGENTS.md records for alt (a probe that builds its own geometry cannot fail on a
+     world that has none), arriving from the other side: a probe that ERASES geometry cannot fail on a
+     world that has it either, and then reports the resulting blindness as flatness. Three clauses are
+     asserted per level, each measured from a grid that has the geometry its own claim needs:
+       dealt >= 1     the generator authored altitude. Counted over OPEN columns with the game's own
+                      MAP.cell, which is alt's definition - a solid column's fz is a wall base carried
+                      down to the band it bounds, not a band anyone walks on;
+       after == 0     the flat senses really do hash a flattened grid, which is what makes PARITY a
+                      collapse rather than a description of an already-flat world;
+       md5 == DEALT   the lock #219 asked for, on the world as dealt, sampled cold in its own process.
+       px            PRINTED, NOT GATED: how much of the dealt frame the bands actually cause. It has a floor
+                      from the per-render alternation the header measures - level 2 reads 8 px while its
+                      spawn camera sees no band at all - so a flat world would not read 0 here either and a
+                      clause on it could never fail. It is an instrument reading beside the gate, not one.
+     Churn measured over the 12 most recent js commits (828d1b4 back to f7d1847, one recipe against each
+     commit's own js at the pinned dice, two cold samples per commit, all stable): 9 of the 11 with a
+     measured parent move at least one of the three hashes - only 4f2b9c0 (#217, a prop-cull fix) and
+     acdf91d (#183) leave the dealt frame byte-identical. Per column the triple is carried almost entirely
+     by level 0 (9 of 11 boundaries move L0, 2 move L1, 5 move L2), so a single-level DEALT lock would be
+     a nearly-dead lock - level 0 carries the signal on its own. Attribution is the child's: in a list
+     filtered to js-touching commits the older row is the parent, so a pair that hashes equal means the
+     newer commit left the dealt frame alone. So a DEALT lock re-records on most js commits: it is a LOCK,
+     and the clauses above it, not the ref, are
+     what would catch generation regressing to flat. On the SIGN: the two flat senses cannot see one at
+     all (fd = 0 collapses the term to the literal 1 before the sign is read). DEALT can, and was measured
+     to - the one-sided kernel `lf - floor >= -ZQ - 1e-9` reddens this row on 2 of 3 levels, and level 2 is
+     green because its camera looks at none of its 292 off-datum cells, not because the row is blind. alt
+     gates the same class through the lightmap, where the population is countable. */
+  for (let lv = 0; lv < NL; lv++) {
+    row('L' + lv + ' DEALT  the dealt grid is banded, the flat grid is flat, and the dealt frame holds',
+      dv1.dn[lv] >= 1 && flat[lv] === 0 && dv1.h[lv] === DEALT[lv],
+      dv1.dn[lv] + ' of ' + dv1.dOpen[lv] + ' open cells of the level dealt at dice ' + (1000 + lv * 97) + ' sit off the'
+      + ' datum (counted from the dealt grid in the sampler that hashed it, before any fill); ' + flat[lv] + ' survive'
+      + ' the fill the PARITY/LOCK senses hash, so those two rows describe a world THIS PROBE flattened. The dealt frame'
+      + ' differs from the same level flattened by this probe on ' + dv1.dPx[lv] + ' of ' + dv1.dTot[lv] + ' px ('
+      + (100 * dv1.dPx[lv] / dv1.dTot[lv]).toFixed(2) + '% of the frame) at the same render count: that ratio is what a'
+      + ' DEALT md5 is actually worth at this camera - a level whose bands sit out of the spawn view reports only the'
+      + ' alternation floor here (level 2: 8 px of 203,138, 0.00%), and its dealt hash locks almost nothing. Dealt md5 '
+      + dv1.h[lv] + ' mean ' + f1(dv1.mm[lv]) + ' against the recorded ' + DEALT[lv] + ' mean ' + DEALTM[lv] +
+      ' (two cold'
+      + ' samplers agree). At 0 off-datum cells the generator has stopped authoring altitude and PARITY/LOCK would'
+      + ' hold on an already-flat world - the first clause is what makes them a collapse rather than a tautology (alt'
+      + ' gates >=2 bands, their links and reachability; this gates that there was any geometry here to collapse).'
+      + ' Churn: 9 of 11 recent js commits move this hash, so green here is a lock on the dealt picture, not a proof'
+      + ' that a band term exists or has the right sign.');
   }
   const dLock = shipH.filter((x, i) => x !== OLD[i]).length, dPar = parH.filter((x, i) => x !== SHIP[i]).length;
   const sumGap = [], addN = [];
@@ -863,19 +993,34 @@ if (MODE === 'flatparity') {
      Every cell of a hashed level sits on the datum, so `fd = 0` and the band term is the literal 1
      before any SIGN is read: NO flat frame can fail a signed band term, and no reference hash can be
      narrowed to make it able to. Measured, not argued - the one-sided kernel `lf - floor >= -ZQ - 1e-9`
-     prints ok on all six rows and hashes both triples byte-identical (4262d051/f05beeb5/050b225e and
-     f9e4da3a/f05beeb5/d4b2d2cd, #210), while alt's direction rows FAIL 169/273/117 on that same kernel.
-     So this probe gates the collapse and alt gates the sign; neither alone gates the term. */
-  console.log('  --  NECESSARY, NOT SUFFICIENT: the hashed levels carry ' + flat.join(' / ') + ' cells off the datum ('
-    + run('MAP.fz.length') + ' cells per level), so fd = 0 in every cell and `Math.abs(lf - floorAt(col)) <= ZQ + 1e-9` '
-    + 'evaluates to the literal 1 in this frame - it is BLIND TO THE SIGN of the band term. The one-sided variant '
-    + '`lf - floor >= -ZQ - 1e-9` (up blocked, down unbounded) prints ok on all six rows above and hashes BOTH triples '
-    + 'byte-identical, while `view.js alt` FAILs 169 / 273 / 117 cells lit from a band above on that very kernel. '
-    + 'alt\'s two direction rows are the sign test: a green parity row here is NOT proof that a band term exists.');
+     prints ok on all six FLAT rows and hashes both flat triples byte-identical (060da4cd/f05beeb5/
+     050b225e and f9e4da3a/f05beeb5/d4b2d2cd, #210 and re-measured on this branch), while alt's band-above
+     row FAILS 169/279/117 on that same kernel (the 273 this file carried for level 1 was an older deal's
+     digit) and DEALT reddens on 2 of 3 levels. So this probe's flat senses gate the collapse, and the
+     dealt frame plus alt's lightmap rows gate the sign; no one of them gates the term. */
+  console.log('  --  NECESSARY, NOT SUFFICIENT, AND FLAT BY CONSTRUCTION HERE: the grids behind the two FLAT md5s '
+    + 'above are flattened by THIS PROBE (MAP.fz.fill(0) in the hash loop, run after startLevel and before the splat '
+    + 'rebuild), so fd = 0 in every cell of the grids they hashed and `Math.abs(lf - floorAt(col)) <= ZQ + 1e-9` '
+    + 'evaluates to the literal 1 there - both flat senses are BLIND TO THE SIGN of the band term, and no reference '
+    + 'hash can be narrowed to make them able to fail one. That 0 describes the probe, not the game. DEALT CENSUS, '
+    + 'counted from the grid the generator dealt at this probe\'s own dice (1000 + level*97), over open columns: '
+    + dv1.dn.join(' / ') + ' cells off the datum of ' + dv1.dOpen.join(' / ') + ' open, and the DEALT rows above hash '
+    + 'those levels as dealt (triple ' + DEALT.map(x => x.slice(0, 8)).join('/') + '). `view.js alt` counts the same '
+    + 'predicate at the harness\'s ambient SEED stream, which it does not reseed per level, so ITS DIGITS DIFFER BY '
+    + 'CONSTRUCTION - what the two probes are gated to agree on is "off-datum cells exist", never a number. What each '
+    + 'sense can see of the SIGN, measured on this branch against the one-sided kernel `lf - floor >= -ZQ - 1e-9` (up '
+    + 'blocked, down unbounded): the flat triples come out byte-identical to the recorded ones (060da4cd/f05beeb5/'
+    + '050b225e), as #210 found; DEALT moves on 2 of 3 levels, because a dealt frame that ignores which side of its '
+    + 'lamp the light came from is not the frame the shipped kernel paints - level 2 is the exception, its dealt frame '
+    + 'differing from its flattened one by 8 px of 203,138, i.e. that camera sees no band to lose; and alt\'s "no '
+    + 'column is lit from a band ABOVE it" row reads 169 / 279 / 117 on that kernel against 0 / 0 / 0 here (the 273 '
+    + 'this file and CHANGELOG used to quote for level 1 was an older deal; #219 measured 279). A green FLAT parity '
+    + 'row is still NOT proof that a band term exists or points the right way.')
   console.log(bad ? 'FLATPARITY ' + bad + ' FAILURES - the PARITY triple no longer collapses with LAMPS=off, or the LOCK triple moved'
-    : 'flatparity ok - PARITY collapses to 2c5a94f with LAMPS=off (formula collapse) and LOCK holds on the shipped lamp record'
-    + ' (regression lock); two cold processes per sense agree, and both senses are BLIND TO THE SIGN of the band term'
-    + ' (the line above, and alt\'s direction rows are what gate it)');
+    : 'flatparity ok - PARITY collapses to 2c5a94f with LAMPS=off (formula collapse), LOCK holds on the shipped lamp'
+    + ' record (regression lock) and DEALT holds on the world as dealt (population + lock). Two cold processes per'
+    + ' sense agree. The two FLAT senses are BLIND TO THE SIGN of the band term; DEALT and alt\'s band-above rows are'
+    + ' what gate a sign, and the census beside them is what says the game is not flat (the line above)');
   process.exit(bad ? 1 : 0);
 }
 
