@@ -614,8 +614,14 @@ is authored hollow, so a level is multi-storey in `MAP.fz` and still reads as a 
 **asks that same solver** where its line leaves the band rather than re-deriving a second rule (four
 `sight` rows per level: blocked both directions across a `[1.00, 1.00]` opening, visible both directions
 through the opened control) - culling, blast band, exit band and pickup hover are gated (`sight`, `cull`,
-V4, V16, V17); enemy movement across bands and face-relative decal z are not; `updateProj`'s ceiling
-test shipped in #148 (`js/30_entities.js:625`) · **M5** per-band light, glow, minimap altitude cue · **M6** a hand-authored two-storey level.
+V4, V16, V17), and since #263 so is **whether the AI can cross a band at all**: fifteen `sight` rows drive
+the real `update()` loop for 240 frames in five configs that differ by one byte of the boundary, and a
+staircase, a ramp and a ladder all let the body arrive at floor 1.00 (closest 0.87 of a reach of 1.35) while
+the same raised band with no climb bit **stops it at 3.81 m** with the eye seeing **0/240** — the behaviour
+was already right, the gap was that nothing asked (the ramp row carries its own control: the same
+4-quantum band authored WITHOUT the ramp bit must not arrive, so the row credits the byte and not the
+geometry). Face-relative decal z is not gated; `updateProj`'s ceiling test shipped in #148
+(`js/30_entities.js:625`) · **M5** per-band light, glow, minimap altitude cue · **M6** a hand-authored two-storey level.
 
 **A struck-through milestone needs a probe line that proves it, and this one did not have one.**
 Until 2026-09-29 this file said "~~M3~~ … (issue #14 closed)" and put the marker on M4. #14 is **open
