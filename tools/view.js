@@ -2139,6 +2139,40 @@ if (MODE === 'sight') {
         const o = { term: bandExitT.toString().indexOf('nfl >= fl') >= 0 ? 'PRESENT' : 'REMOVED' };
         build(false); o.block = fire();
         build(true); o.open = fire();
+        /* #259: the same flight asked of the enemy's EYE instead of the player's shot. Geometry differs
+           from the slab rows in one byte - here the BODY's column is a band up rather than the shot being
+           aimed up at it - because the claim is about the boundary between the two columns, whose opening
+           [max floor, min ceilAt] is [1.00, 1.00]: zero. BLOCK must therefore answer "not visible" in BOTH
+           directions; OPEN gives the whole flight a ceiling of 2.00 (the same atrium the rows above author)
+           and must answer "visible" in both, which is what makes BLOCK's miss mean the slab and not a body
+           that was never reachable. Marker is read out of losZ's own source, code not prose. */
+        const eyeBuild = (openFlight) => {
+          for (let k = 0; k <= 6; k++) setCell(k, 0, 4);
+          if (openFlight) for (let k = 2; k <= 6; k++) setCell(k, 0, CZS);
+          setCell(6, 4, openFlight ? CZS : 4);
+          linkBoundaries();
+        };
+        const eyeRun = () => {
+          const ex = lx + 6.5;
+          en.x = ex; en.y = lane.y; en.state = 'idle'; en.alert = false; en.hp = 1e6; en.dead = false;
+          P.x = lx + 0.5; P.y = lane.y; P.ang = 0; P.crouch = 0; P.air = false; P.vz = 0;
+          P.z = floorAt(P.x, P.y);
+          const ef = floorAt(ex, lane.y), eeye = ef + en.scale * 0.62, peye = cfg.eye + P.z;
+          const dd = ex - P.x;
+          const bu = bandExitT(P.x, P.y, 1, 0, peye, (eeye - peye) / dd, dd);
+          const bd = bandExitT(ex, lane.y, -1, 0, eeye, (peye - eeye) / dd, dd);
+          return { up: losZ(P.x, P.y, peye, ex, lane.y, eeye) ? 1 : 0,
+            down: losZ(ex, lane.y, eeye, P.x, P.y, peye) ? 1 : 0,
+            d: dd, peye, eeye, ef, scale: en.scale,
+            kindUp: bu.kind, tUp: bu.t, kindDn: bd.kind, tDn: bd.t,
+            f0: floorAt(P.x, P.y), c0: ceilAt(P.x, P.y),
+            f5: floorAt(lx + 5.5, lane.y), c5: ceilAt(lx + 5.5, lane.y),
+            f6: ef, c6: ceilAt(ex, lane.y),
+            zEdge: peye + (eeye - peye) * ((lx + 6) - P.x) / dd };
+        };
+        eyeBuild(false); o.eblock = eyeRun();
+        eyeBuild(true); o.eopen = eyeRun();
+        o.eyeTerm = losZ.toString().indexOf('bandExitT(ax, ay, dx / d') >= 0 ? 'PRESENT' : 'REMOVED';
         for (let i = 0; i < MAP.fz.length; i++) MAP.fz[i] = fz0[i];
         for (let i = 0; i < MAP.cz.length; i++) MAP.cz[i] = cz0[i];
         linkBoundaries();
@@ -2193,6 +2227,31 @@ if (MODE === 'sight') {
       row(`L${li} same shot through an opening along the flight hits`,
         canHit && o.hit === 1 && o.hz !== null && o.hz >= o.bodyLo && o.hz <= o.bodyHi,
         `${canHit ? (o.hit ? 'hit hz ' + sf(o.hz) + ' at t ' + o.t.toFixed(2) + ' in window ' + sf(o.bodyLo) + '..' + sf(o.bodyHi) : 'MISS t ' + o.t.toFixed(2) + (o.wall ? ' into wall' : o.band ? ' band stop' : '')) : 'VACUOUS - the opened flight still has no hole (ray ' + sf(o.altAt3) + ' vs ceilings ' + sf(o.c3) + '/' + sf(o.c6) + ')'}  aim ${sf(o.aimZ)} from eye ${sf(o.eyeZ)}  kind ${o.kind}  term ${S.term}  ${geo(o)}`);
+    }
+    /* #259: the eye rows. canBlockEye is the opening arithmetic, stated rather than assumed: a boundary
+       whose [max floor, min ceilAt] has no height cannot be looked through, and the row refuses to claim a
+       block on geometry that has a hole in it. The OPEN rows are the anti-over-block arm - they must stay
+       green whether or not the term is present, so a build that blocks everything cannot pass this block. */
+    const E = res.slab;
+    if (!E) row(`L${li} eye rows`, false, 'no result returned');
+    else {
+      const eb = E.eblock, eo = E.eopen;
+      const openB = Math.min(eb.c5, eb.c6) - Math.max(eb.f5, eb.f6);
+      const openO = Math.min(eo.c5, eo.c6) - Math.max(eo.f5, eo.f6);
+      const ef2 = n => (n === null || n === undefined ? ' -' : n.toFixed(2));
+      const egeo = g => `boundary 5|6: floors ${ef2(g.f5)}->${ef2(g.f6)}, ceilAt ${ef2(g.c5)}->${ef2(g.c6)}, opening [${ef2(Math.max(g.f5, g.f6))}, ${ef2(Math.min(g.c5, g.c6))}]  | line at the boundary ${ef2(g.zEdge)}  | eye cells ${ef2(g.f0)}/${ef2(g.c0)} and ${ef2(g.f6)}/${ef2(g.c6)}  | d ${ef2(g.d)}`;
+      row(`L${li} the enemy's eye stops at a slab (band above -> datum)`,
+        openB <= 0 && eb.down === 0,
+        `${openB <= 0 ? (eb.down ? 'VISIBLE THROUGH THE SLAB - kind ' + eb.kindDn + ' t ' + ef2(eb.tDn) : 'blocked at t ' + ef2(eb.tDn) + ' (kind ' + eb.kindDn + ', band exit before the target at ' + ef2(eb.d) + ')') : `VACUOUS - the boundary has a ${ef2(openB)} m opening, nothing to block`}  enemy eye ${ef2(eb.eeye)} on floor ${ef2(eb.ef)}, player eye ${ef2(eb.peye)} on floor ${ef2(eb.f0)}, body ${ef2(eb.ef)}..${ef2(eb.ef + eb.scale)}  term ${E.eyeTerm}  ${egeo(eb)}`);
+      row(`L${li} the same eye sees a body through an opening (band above -> datum)`,
+        openO > 0 && eo.down === 1,
+        `${openO > 0 ? (eo.down ? 'visible, kind ' + eo.kindDn + ' at t ' + ef2(eo.tDn) + ' of ' + ef2(eo.d) : 'BLOCKED THROUGH THE OPENING - the term blocks a flight that has a hole in it') : 'VACUOUS - the opened flight has no hole'}  eye ${ef2(eo.eeye)} -> ${ef2(eo.peye)}  kind ${eo.kindDn}  term ${E.eyeTerm}  ${egeo(eo)}`);
+      row(`L${li} the eye is blocked the other way too (datum -> band above)`,
+        openB <= 0 && eb.up === 0,
+        `${openB <= 0 ? (eb.up ? 'VISIBLE THROUGH THE SLAB - kind ' + eb.kindUp + ' t ' + ef2(eb.tUp) : 'blocked at t ' + ef2(eb.tUp) + ' (kind ' + eb.kindUp + ')') : 'VACUOUS - the boundary has no slab'}  line ${ef2(eb.peye)} -> ${ef2(eb.eeye)} at the boundary ${ef2(eb.zEdge)}  term ${E.eyeTerm}  ${egeo(eb)}`);
+      row(`L${li} and sees through the opening the other way`,
+        openO > 0 && eo.up === 1,
+        `${openO > 0 ? (eo.up ? 'visible, kind ' + eo.kindUp + ' at t ' + ef2(eo.tUp) + ' of ' + ef2(eo.d) : 'BLOCKED THROUGH THE OPENING') : 'VACUOUS - no hole in the opened flight'}  kind ${eo.kindUp}  term ${E.eyeTerm}  ${egeo(eo)}`);
     }
   }
   console.log(bad ? `SIGHT ${bad} FAILURES` : 'SIGHT ok - hit tests follow the body they hit');

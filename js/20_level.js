@@ -259,9 +259,24 @@ function los(ax, ay, bx, by) { return !blocked(ax, ay, bx, by); }
    LINE's own altitude: a sample whose floor is above the line is a ceiling from that end of the ray,
    and one below it is ground you look over. On a generated (flat) level every floor is 0 and every eye
    is above it, so the second test never fires and this answers exactly what los answers. */
+/* #259 closes the other half of that rule by ASKING the shot solver the same question instead of
+   re-deriving it: bandExitT answers "where does this line leave the band it travels through", and an
+   eye is a line. It had the ceiling of the band being flown AND, since #189, the ceiling of the column
+   being entered; the loop below had only the floor-above-the-line test, so an eye at 0.55 on the datum
+   that rises into a column whose own ceiling plane is 1.00 was walking through that column's slab
+   unseen - the enemy saw a player the renderer refuses to draw and #189's table calls a [1.00, 1.00]
+   opening. Sharing the solver is the point: two copies of a rule drift, and #189 opened with exactly
+   that asymmetry (shots stopped, the eye did not). Flat it is inert, and structurally so: every column
+   is floor 0 and ceiling 1.00, an eye lives at 0.55 on its own floor or on the band at 1.00, and a line
+   between two points inside [floor, ceilAt] of every column it crosses never reaches a plane, so
+   bandExitT returns kind 0 at maxT and the verdict is the loop's alone. An exit at t <= 1e-3 is IGNORED:
+   that is an eye sitting above the ceiling of its own cell - a seat bug the spawn-altitude rows own -
+   and blinding the AI for it would hide the bug rather than fix it. */
 function losZ(ax, ay, az, bx, by, bz) {
   const dx = bx - ax, dy = by - ay, d = Math.hypot(dx, dy);
   if (d < 1e-4) return true;
+  const ex = bandExitT(ax, ay, dx / d, dy / d, az, (bz - az) / d, d);
+  if (ex.kind !== 0 && ex.t > 1e-3) return false;
   const st = 0.14, n = (d / st) | 0;
   for (let i = 1; i < n; i++) {
     const t = i * st / d, sx = ax + dx * t, sy = ay + dy * t;

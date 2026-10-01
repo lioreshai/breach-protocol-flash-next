@@ -1,5 +1,21 @@
 ## Unreleased
 
+  Four new `sight` rows print their geometry before their verdict — BLOCK (boundary 5|6 floors
+  0.00→1.00, ceilAt 1.00→2.00, opening `[1.00, 1.00]`, line 1.54 at the boundary) must be **blocked in
+  both directions** (3.35 m kind 3 down-band, 2.65 m kind 1 up-band) and the OPEN control (ceilings
+  2.00/3.00, opening `[1.00, 2.00]`) must be **visible both ways at t 6.00**, which is what makes the
+  block mean the slab and not an unreachable body. Both directions seen to fail in one tree: with
+  `js/20_level.js` at origin/main the rows read **6 FAILURES / exit 1** and print `term REMOVED` from
+  `losZ.toString()`; restored they read **SIGHT ok / exit 0** with `term PRESENT`, and the OPEN rows are
+  green in both arms so a build that blocks everything cannot pass. What the AI actually spends changed:
+  at the BLOCK pose, 120 frames, same tree, term swapped at runtime — on main the enemy answers "see"
+  **120/120**, is alerted **120/120**, fires an orb into the slab and walks **8.5 → 5.84 / 5.71 / 5.57**
+  toward a player the renderer will not draw; with the term **0 sees, 0 alerted, 0 orbs, x 8.5**. On
+  shipped geometry at the spawn seat the delta is **2 of 20 in-range sight decisions** (L0 6→5, L1 9→8,
+  L2 5→5) and each one is a line `bandExitT` independently calls a band exit, so nothing else was
+  blinded. Gates: smoke PASSED (raster median 11.90, batches 11.8/11.9/11.9/12.0/12.2), VERT 25 gating
+  rows, alt / planes / heights / cull ok, contrast **0 FAILURE(S) of 27 rows / 7 known-issue rows**,
+  recap 0 of 28, refs ok 5 records (no lock moved).
 ### Added
 
 - **The capture-caption table is decoded from the PNGs instead of typed into prose** (#235).
@@ -275,6 +291,16 @@ Gates at this build: `SMOKE PASSED` at raster median **12.35 ms** (5 batches 12.
   cull ok, exposure medians 69/71/83 in the 60–100 band, recap 0 of 28. js **does** change pixels on
   the dealt (live) levels — floor light beside band boundaries — so the README screenshots are owed a
   recapture PR from the deployed build.
+  the AI's eye is the same line the shot solver already refuses (#259). `losZ` had the
+  floor-above-the-line test from #118 and **no ceiling term at all**, so an enemy one band above kept
+  answering "I see you" across a boundary whose opening `[max floor, min ceilAt]` is `[1.00, 1.00]` —
+  zero — while #258's shot stopped there and an orb's damage was already 0 on both ends (0 dmg at
+  0.5 m and 4.5 m, control 22). The fix **calls `bandExitT` instead of re-deriving a second rule**, so
+  the eye and the shot cannot drift apart: an eye is a line, and a line that leaves its band before the
+  target is not a sight line. Flat it is inert structurally (every column is floor 0 / ceiling 1.00 and
+  a line between two points inside those planes never reaches one, so `bandExitT` returns kind 0 at
+  maxT) — LOCK `060da4cd`, PARITY `f9e4da3a` and DEALT `bb12ef3e` are byte-identical, `scene 0 0` is
+  `58987e85` and `scene 1 2` `fa0b88ea` in both trees, so no pixels move and no recapture is owed.
 ### Added
 
 - **The minimap plots the climbs the generator authored, before the player finds them** (#189 part 1).
