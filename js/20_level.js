@@ -296,7 +296,15 @@ function losZ(ax, ay, az, bx, by, bz) {
    rows have asserted since before this term existed. A solid cell returns maxT, because ceilAt there is
    floor + 0.25 - a fiction, a solid column has no air - and comparing against it stops the shot mid-wall.
    t is solved exactly at the crossing (the cell boundary is an integer line, the ceiling plane is constant
-   inside a cell), not the sample distance, so a riser mark lands on the plane instead of 14 cm inside the cell. */
+   inside a cell), not the sample distance, so a riser mark lands on the plane instead of 14 cm inside the cell.
+   #189 adds the other half of that first sentence: the CEILING of the column being ENTERED, not only the ceiling
+   the ray started under. One test was half a rule, and it read the generator's tall rooms as free line of fire: a
+   ray inside a TALL ROOM's air (ceiling 2.00, which #181's TALL ROOM feature authors) crossed into a one-unit
+   corridor at 1.107 without re-keying and without a riser, so it flew inside that corridor's ROOF and hit a body
+   standing on the band beyond it (measured on main: hit at 5.58 m, hz 1.867, from a seat whose eye sees a ceiling
+   plane at 1.00, and cull's own row says a prop one band up is hidden). Flat, the two tests are the SAME plane -
+   every column is floor 0 and ceiling 1 - and the sample test above runs first, so a flat level answers with the
+   identical kind and the identical solved t: this term is inert on the backwards-compat gate. */
 function bandExitT(ax, ay, dx, dy, az, tanP, maxT) {
   const out = { t: maxT, kind: 0, side: 0 };
   if (!(maxT > 0)) return out;
@@ -339,6 +347,21 @@ function bandExitT(ax, ay, dx, dy, az, tanP, maxT) {
         return out;
       }
       if (ncz > z) { cz = ncz; fl = nfl; }                   // the ray steps INTO that band: re-key the planes
+      else if (nfl >= fl) {                                 // #189: the entered column's OWN ceiling is below the
+                                                             // ray and that column is not BELOW the band being flown,
+                                                             // so the space at this altitude is not a hole in the
+                                                             // floor the ray is over - it is that column's slab.
+                                                             // A same-floor boundary draws no face (dz = 0), and the
+                                                             // ceiling pass paints the plane, which is exactly what
+                                                             // the eye refuses to see through: the shot stops on the
+                                                             // boundary line, with no wall verdict and no mark, the
+                                                             // same way the ceiling of its own band stops it.
+        out.kind = 1;
+        if (ix !== pxi) out.t = dx !== 0 ? ((dx > 0 ? ix : ix + 1) - ax) / dx : t;
+        else out.t = dy !== 0 ? ((dy > 0 ? iy : iy + 1) - ay) / dy : t;
+        if (!(out.t > 0)) out.t = t;
+        return out;
+      }
     }                                                        // else the band lies wholly below the ray - a hole in
                                                              // the floor it is flying over - so the governing
                                                              // ceiling stays, and the shot keeps descending
