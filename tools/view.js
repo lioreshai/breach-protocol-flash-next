@@ -90,7 +90,7 @@ function ctxStub() {
 function canvasStub() {
   return { width: 300, height: 150, style: {}, getContext: () => ctxStub(), addEventListener: noop, requestPointerLock: () => undefined };
 }
-const elements = {};
+let elements = {};
 function elStub(id) {
   const reg = {};
   const base = {
@@ -109,38 +109,56 @@ const SEED = (Number(process.env.SEED) || 12345) >>> 0;
 let rs = SEED;
 const sbMath = Object.create(Math);
 sbMath.random = () => { rs ^= rs << 13; rs >>>= 0; rs ^= rs >>> 17; rs ^= rs << 5; rs >>>= 0; return rs / 4294967296; };
-const sandbox = {
-  console, Math: sbMath, Date, JSON, Object, Array, String, Number, Boolean, Error, isNaN, isFinite, parseInt, parseFloat,
-  setTimeout, clearTimeout, Uint8Array, Uint16Array, Uint32Array, Int8Array, Int16Array, Int32Array, Float32Array, Float64Array, Uint8ClampedArray,
-  document: {
-    getElementById: elStub, createElement: () => canvasStub(), addEventListener: noop,
-    exitPointerLock: noop, pointerLockElement: null, hidden: false
-  },
-  addEventListener: noop, removeEventListener: noop, requestAnimationFrame: noop,
-  devicePixelRatio: 1, innerWidth: W, innerHeight: H, AudioContext: undefined, webkitAudioContext: undefined,
-  performance: { now: () => Date.now() }
-};
-sandbox.window = sandbox; sandbox.globalThis = sandbox;
+let sandbox, ctxVm;
+const run = code => vm.runInContext(code, ctxVm, { filename: 'view' });
 // levels lay themselves out with Math.random, so measurements need a seeded one
 function seedRng(seed) {
   run(`(()=>{let a=${seed | 0}>>>0;Math.random=()=>{a=(a+0x6D2B79F5)>>>0;` +
     `let t=a;t=Math.imul(t^t>>>15,t|1);t^=t+Math.imul(t^t>>>7,t|61);return((t^t>>>14)>>>0)/4294967296};})()`);
 }
-const ctxVm = vm.createContext(sandbox);
-const run = code => vm.runInContext(code, ctxVm, { filename: 'view' });
-for (const f of fs.readdirSync(path.join(__dirname, '..', 'js')).filter(f => f.endsWith('.js')).sort()) {
-  try { run(fs.readFileSync(path.join(__dirname, '..', 'js', f), 'utf8')); }
-  catch (e) { console.log('LOAD FAIL ' + f + ': ' + e.stack.split('\n').slice(0, 4).join('\n')); process.exit(1); }
+/* BOOT THE GAME INTO A FRESH CONTEXT. At module load this runs exactly once, in the same order as
+   before, so every mode that boots once - which is every mode except the DEALT sampler - hashes what
+   it always hashed. It is a FUNCTION because #243 needs to be able to say "nothing that a previous
+   render did is still in memory", and that is a property of the BOOT, not of a list of caches:
+   clearing caches finds what whoever listed them thought of, a fresh instantiation finds all of it.
+   The two things a new context does NOT clear are node-side and listed here:
+     elements  - elStub hands the same stub object to every game instance, so boot N would inherit
+                 boot N-1's event handlers and textContent;
+     rs        - js boot-time art is drawn from the sandbox Math, whose generator lives in this file,
+                 so without the reset boot N would texture the world further along the stream.
+   The LAMPS knob used to be applied after the load loop at module scope; it is applied here instead,
+   in the same position, so a re-boot honours it exactly as the first boot did. */
+function boot(knob) {
+  elements = {}; rs = SEED;
+  sandbox = {
+    console, Math: sbMath, Date, JSON, Object, Array, String, Number, Boolean, Error, isNaN, isFinite, parseInt, parseFloat,
+    setTimeout, clearTimeout, Uint8Array, Uint16Array, Uint32Array, Int8Array, Int16Array, Int32Array, Float32Array, Float64Array, Uint8ClampedArray,
+    document: {
+      getElementById: elStub, createElement: () => canvasStub(), addEventListener: noop,
+      exitPointerLock: noop, pointerLockElement: null, hidden: false
+    },
+    addEventListener: noop, removeEventListener: noop, requestAnimationFrame: noop,
+    devicePixelRatio: 1, innerWidth: W, innerHeight: H, AudioContext: undefined, webkitAudioContext: undefined,
+    performance: { now: () => Date.now() }
+  };
+  sandbox.window = sandbox; sandbox.globalThis = sandbox;
+  ctxVm = vm.createContext(sandbox);
+  for (const f of fs.readdirSync(path.join(__dirname, '..', 'js')).filter(f => f.endsWith('.js')).sort()) {
+    try { run(fs.readFileSync(path.join(__dirname, '..', 'js', f), 'utf8')); }
+    catch (e) { console.log('LOAD FAIL ' + f + ': ' + e.stack.split('\n').slice(0, 4).join('\n')); process.exit(1); }
+  }
+  /* LAMPS=off suppresses the #204 coverage top-up at AUTHOR time and nothing else. js/20_level.js
+     topUpEnabled() is the one call site, so the budget lamps, the exit pad, the grid and every global
+     Math.random draw are the ones the shipped path makes - the difference between the two records is the
+     <=3 top-up lamps and no more, which tools/view.js flatparity ASSERTS (the knob-off lamp list must be a
+     field-by-field prefix of the shipped one) rather than assumes. It exists because flat parity is
+     compared in a world the probe flattened after generation: with the top-up on, a flat level carries
+     lamps that were authored for bands the probe deleted, so the flat md5 stops being a formula test. See
+     that mode's header before quoting either triple. It sat at module scope until #243 moved it in here,
+     one line after the load loop, so a re-boot applies it exactly as the first boot did. */
+  if (knob !== false && process.env.LAMPS === 'off') run('topUpEnabled = function () { return false; };');
 }
-/* LAMPS=off suppresses the #204 coverage top-up at AUTHOR time and nothing else. js/20_level.js
-   topUpEnabled() is the one call site, so the budget lamps, the exit pad, the grid and every global
-   Math.random draw are the ones the shipped path makes - the difference between the two records is the
-   <=3 top-up lamps and no more, which tools/view.js flatparity ASSERTS (the knob-off lamp list must be a
-   field-by-field prefix of the shipped one) rather than assumes. It exists because flat parity is
-   compared in a world the probe flattened after generation: with the top-up on, a flat level carries
-   lamps that were authored for bands the probe deleted, so the flat md5 stops being a formula test. See
-   that mode's header before quoting either triple. */
-if (process.env.LAMPS === 'off') run('topUpEnabled = function () { return false; };');
+boot();
 function newTex(t) { return { w: t.w, h: t.h, data: new Uint32Array(t.data), dbg: t.dbg }; }
 function dump(label, u32, w, h, scale) {
   const rgba = toRGBA(u32);
@@ -897,12 +915,13 @@ if (MODE === 'flatparity') {
      dealt-vs-flat px / wv=1 dealt-vs-dealt px moved): L0 (14.5,12.5,3pi/4) 137 of 165 / 195,990 /
      196,075; L1 (14.5,7.5,0) 174 of 246 / 195,620 / 196,718; L2 (15.5,17.5,5pi/8) 184 of 292 /
      198,982 / 198,618. Candidate scoring ran in single-level cold children (their gaps read +-2 px off
-     the sampler's, e.g. 195,621 vs 195,620); THE SAMPLER'S OWN LEVEL-ORDERED PROCESS IS THE RECIPE -
-     the #224 alternation arriving between levels, so a child that renders only level 2 hashes it
-     ce8e96a3 while the sampler hashes 158327b0 at the SAME js and seat, and cold-to-cold was verified
-     at the sampler order only (two FP_DEALT processes byte-identical). The wv = 1 column is a true
-     dealt-vs-dealt buffer diff at the sampler order (clean and sabotaged trees, buffers dumped and
-     diffed; the six hashes cross-check the full-probe control run line for line). Rejected with the
+     the sampler's, e.g. 195,621 vs 195,620); at the time the sampler's level-ordered process was THE RECIPE
+     and a child that rendered only level 2 hashed it ce8e96a3 while the sampler hashed 158327b0 at the SAME
+     js and seat - #224's alternation arriving BETWEEN levels, and the reason #243 retired that recipe: the
+     sampler now boots before every level, so the roster order cannot reach the hash and the cold children's
+     numbers are the lock. The wv = 1 column is a true dealt-vs-dealt buffer diff at the sampler order
+     (clean and sabotaged trees, buffers dumped and diffed; the six hashes cross-check the full-probe
+     control run line for line). Rejected with the
      worst gaps: flat-looking corners whose view
      contains NO off-datum column at all (L1 (3.5,30.5) 0/246, L2 (34.5,34.5) 0/292 - the 8-px class in
      seat form), the L0 corner (18.5,2.5) at 2/165, and the spawn seats themselves - the L2 spawn seat
@@ -919,7 +938,20 @@ if (MODE === 'flatparity') {
     [15.5, 17.5, 1.9634954084936207]  // L2 dice 1194: 184/292 in view, gap 198,984 px
   ];
   const DEALTVAC = 4096;  // px of the 203,138-px frame (2%) - #226 vacuity floor, see the DEALT-VACUOUS row
-  const DEALT = ['3e88c850528f97c56d8ce8ecfe168ee2', '889817bf065d7249cedc75392b8348d8', '158327b01ae6161ccd91813ddd50ef1a'];
+  /* #243 re-recorded this triple for L1 and L2, and NOTHING about the world moved.
+     old  3e88c850 / 889817bf / 158327b0   the level-ordered sampler's numbers: level 0 cold, levels 1 and
+          2 hashed with a level's worth of rendering in front of them.
+     new  3e88c850 / f240fd35 / ce8e96a3   the same three levels each hashed after a boot and nothing else.
+     L0 did not move, which is the control: it was already the first thing its process drew. L1 and L2 moved
+     by 24 px and 16 px of 203,138 - the view model's rectangle, x 407..459 y 276..305 - because the gun's
+     depth scratch no longer arrives carrying the previous level's rectangle (see DEALT-ORDER for the
+     attribution and the boot in the sampler for the fix). The means are IDENTICAL to two decimals (57.3 /
+     58.7 / 86.0), which is what 16 pixels of a 203,138-px frame does to a mean, and the dealt-vs-flat gaps
+     are 195,990 / 195,621 / 198,984 px against #226's floor of 4,096: the seats still see what they were
+     chosen for. The two numbers #241 recorded as the cold children's (f240fd35, ce8e96a3) are now the lock,
+     so the value a single-level run prints and the value the roster prints are the same number - which is
+     the DEALT-ORDER row's whole job. */
+  const DEALT = ['3e88c850528f97c56d8ce8ecfe168ee2', 'f240fd3502c1db1ad543934f91a48eb5', 'ce8e96a3029e5ee71a12a2dec7f3e15a'];
   const DEALTM = [57.3, 58.7, 86.0];
   const OFF = process.env.LAMPS === 'off';
   const f1 = v => (v === undefined || v === null ? '-' : (+v).toFixed(1));
@@ -938,8 +970,13 @@ if (MODE === 'flatparity') {
      LOCK and PARITY too. So there is no ordering in which a dealt render and a flat hash coexist, and
      the probe's own doctrine - "this probe may not render both records in one process" - is what settles
      it: DEALT is sampled by a cold child that never flattens anything, exactly as the two lamp records
-     are sampled cold. The pose cache answering a cold request from the nearest-pose path is the
-     mechanism the header already blames; this probe does not claim to have found more than that. */
+     are sampled cold. It used to blame "the pose cache answering a cold request from the nearest-pose
+     path" for what moved between renders; #243 measured that claim and it is FALSE for the levels: clearing
+     js/13_mesh.js's POSE between levels leaves all three dealt hashes byte-identical, js/11_rig.js's LRU
+     answers 0 entries / 0 made at every level boundary because the draw path has not called RIG since #72,
+     and what does move is 24 px (L1) / 16 px (L2) inside the view model's own rectangle - the gun's depth
+     scratch, cleared over the region the PREVIOUS frame's view model wrote. That is why the sampler boots
+     per level rather than clearing a list, and why DEALT-ORDER exists to keep it honest. */
   const LUMA = `const d = new Uint32Array(px), B = BW * BH; let s = 0;
       for (let i = 0; i < B; i++) s += 0.2126 * (d[i] & 255) + 0.7152 * (d[i] >> 8 & 255) + 0.0722 * (d[i] >> 16 & 255);
       return s / B;`;
@@ -959,8 +996,30 @@ if (MODE === 'flatparity') {
        below (see above). Same dice, same settle, same ninth render as every other sense in this probe.
        The camera is DEALT_SEATS[lv], #226, applied AFTER the deal by three plain assignments: the RNG
        rule stays exactly #224's (seedRng BEFORE startLevel, so the level is generated from the deal and
-       the camera consumes no draws), and the seat cannot perturb generation, enemies or props. */
+       the camera consumes no draws), and the seat cannot perturb generation, enemies or props.
+       FP_DEALT1=<lv> samples ONE level and nothing else: the loop still runs 0..NL-1 but skips every
+       other level's startLevel and every render, so that level's dealt frame is a cold render in a
+       process that has rendered nothing else. #243 hashes each level alone and in level order with it. */
+    const ONLY = process.env.FP_DEALT1 === undefined ? -1 : +process.env.FP_DEALT1;
     for (let lv = 0; lv < NL; lv++) {
+      if (ONLY >= 0 && lv !== ONLY) continue;
+      /* ONE BOOT PER LEVEL, AND THE HASH CANNOT DEPEND ON THE ORDER ANYMORE (#243). What used to leak
+         between levels is named by measurement, not by guesswork: hashing level 1 alone in a process
+         that rendered nothing else differs from hashing it after level 0 on 24 px of 203,138 (level 2:
+         16 px), all of it inside the box x 407..459, y 276..305 of the 601x338 frame - the view model's
+         own rectangle, at the bottom of the screen. The mechanism is the gun's DEPTH HISTORY: the scratch
+         it self-occludes against is cleared over the region the PREVIOUS frame's view model wrote
+         (js/13_mesh.js:858, the induction at :153), so the first frames of a fresh level inherit the
+         rectangle the gun drew in the level before, and pixels whose self-occlusion differs never heal -
+         nine renders did not heal them. The pose cache is NOT it: clearing MESH's POSE between levels
+         moves all three hashes not at all (a hit rebuilds nothing and changes nothing), and js/11_rig.js's
+         LRU answers 0 entries / 0 made at every level boundary because the draw path has not called RIG
+         since #72. Clearing those two would therefore have been a fix that fixes nothing. A re-boot is the
+         whole of it because it is not a list: every module global of every js file - zbuf, DECAL_*, LIGHTS,
+         POSE, the view-model scratch and its rectangle - comes back at its own initial value, and the two
+         node-side holders that outlive a context (elements, rs) are reset inside boot(). knob=false: the
+         DEALT sense always reports the SHIPPED lamp record, in code rather than only in the spawn env. */
+      boot(false);
       seedRng(1000 + lv * 97);
       run(`S.mode='play'; S.locked=false; startLevel(${lv}, true);`);
       const s = DEALT_SEATS[lv];
@@ -1027,18 +1086,29 @@ if (MODE === 'flatparity') {
      and the dealt world is the shipped one - so an LAMPS=off pass still reports the same DEALT hashes and
      says so. Two samples, because one cold process proves nothing about stability: the property every
      hash in this probe rests on is cold-to-cold. */
-  const spawnDealt = () => {
-    const env = Object.assign({}, process.env, { FP_DEALT: '1' });
+  const spawnDealt = () => dealLines(runDealt({}));
+  /* ONE LEVEL IN A PROCESS THAT RENDERS NOTHING ELSE (#243). Same sampler, one level skipped past rather
+     than rendered: FP_DEALT1=<lv> makes the loop `continue` for every other level, so nothing before this
+     level's own startLevel has drawn a pixel in this context. The DEALT-ORDER row below hashes with this
+     AND with the level-ordered sampler and requires the two to agree - which is what makes the recorded
+     triple a property of the LEVEL and not of the roster that happened to run before it. */
+  const spawnDealtOne = lv => dealLines(runDealt({ FP_DEALT1: String(lv) }));
+  const runDealt = (extra) => {
+    const env = Object.assign({}, process.env, { FP_DEALT: '1' }, extra);
     delete env.LAMPS; delete env.FP_CHILD;
-    const c = require('child_process').spawnSync(process.execPath, [__filename, 'flatparity'],
+    return require('child_process').spawnSync(process.execPath, [__filename, 'flatparity'],
       { env, encoding: 'utf8', timeout: 900000 });
-    const h = [], mm = [], dn = [], dOpen = [], dPx = [], dTot = [], rng = []; let n = 0;
+  };
+  const dealLines = c => {
+    const r = { h: [], mm: [], dn: [], dOpen: [], dPx: [], dTot: [], rng: [], n: 0, status: c.status,
+      why: String(c.error || c.stderr || '').split('\n')[0] };
     for (const line of String(c.stdout || '').split('\n')) {
       const q = /^\s*dealt level (\d+) md5 ([0-9a-f]{32}) mean ([-\d.]+) off-datum (\d+)\/(\d+), (\d+) of (\d+) px differ from the flattened frame, rng (\d+)/.exec(line);
       if (!q) continue;
-      const lv = +q[1]; h[lv] = q[2]; mm[lv] = +q[3]; dn[lv] = +q[4]; dOpen[lv] = +q[5]; dPx[lv] = +q[6]; dTot[lv] = +q[7]; rng[lv] = +q[8]; n++;
+      const lv = +q[1]; r.h[lv] = q[2]; r.mm[lv] = +q[3]; r.dn[lv] = +q[4]; r.dOpen[lv] = +q[5];
+      r.dPx[lv] = +q[6]; r.dTot[lv] = +q[7]; r.rng[lv] = +q[8]; r.n++;
     }
-    return { h, mm, dn, dOpen, dPx, dTot, rng, n, status: c.status, why: String(c.error || c.stderr || '').split('\n')[0] };
+    return r;
   };
   const sameStream = (a, b, n) => a.n === n && b.n === n && a.h.slice(0, n).every((x, i) => x === b.h[i]);
   const twin = spawn(false);
@@ -1061,6 +1131,12 @@ if (MODE === 'flatparity') {
   const shipH = OFF ? o1.h : hashes, shipM = OFF ? o1.mm : mns;
   const parH = OFF ? hashes : o1.h, parM = OFF ? mns : o1.mm;
   const dv1 = spawnDealt(), dv2 = spawnDealt();
+  /* Each level again, alone in its own process. Three children, ~10 s each on this box: the price of
+     proving the lock does not depend on the order, and the only way to ask the question - "individually"
+     and "in level order" cannot be sampled in the same process, because a process that sampled both would
+     itself be an order. */
+  const dOne = [];
+  for (let lv = 0; lv < NL; lv++) dOne.push(spawnDealtOne(lv));
   if (dv1.status !== 0 || dv2.status !== 0 || !sameStream(dv1, dv2, NL)) {
     console.log('FLATPARITY UNSTABLE across the DEALT samplers - the dealt hashes describe nothing.' +
       ' child exits ' + dv1.status + '/' + dv2.status + ' ' + (dv1.why || dv2.why));
@@ -1147,6 +1223,37 @@ if (MODE === 'flatparity') {
       + ' a camera below this floor locks a flat-looking view of a banded level and the wv = 1 class ships green there'
       + ' (#226 measured exactly that on the spawn seats: 2 of 3 levels tripped). This row FAILs with this name when'
       + ' the sampler goes blind again - it never fails silently as a green lock.');
+    /* #243. THE LOCK MUST NOT DEPEND ON THE ORDER THE ROSTER RAN IN. The two triples this row compares
+       cannot be sampled in one process - a process that sampled both would itself BE an order - so the
+       per-level child above and the level-ordered sampler above are the two halves, and their agreement is
+       the claim. What used to make them disagree is attributed, not guessed: hashing level 1 alone in a
+       process that had rendered nothing differed from hashing it after level 0 on 24 px of 203,138, and
+       level 2 on 16 px, every one of them inside x 407..459, y 276..305 of the 601x338 frame - the view
+       model's rectangle. The gun's DEPTH HISTORY is the mechanism (the scratch it self-occludes against is
+       cleared over the region the PREVIOUS frame's view model wrote, js/13_mesh.js:858 with the induction at
+       :153), so the first frames of a fresh level inherit the rectangle the gun drew a level ago and the
+       pixels whose self-occlusion differs do not heal - nine renders did not heal them. The two caches the
+     * issue named are NOT it: clearing MESH's POSE between levels moves all three hashes not at all, and
+       js/11_rig.js's LRU answers 0 entries / 0 made at every level boundary because nothing in the draw
+       path has called RIG since #72. So the fix is a re-boot per level, which is not a list of caches and
+       therefore cannot be incomplete, and this row is what stays red if a future js commit puts state
+       somewhere the boot does not reach. */
+    const one = dOne[lv];
+    const hOne = one.h[lv], hOrd = dv1.h[lv];
+    const isMd5 = s => typeof s === 'string' && /^[0-9a-f]{32}$/.test(s);
+    row('L' + lv + ' DEALT-ORDER  the dealt hash is a property of the level, not of the order the roster ran in',
+      isMd5(hOne) && isMd5(hOrd) && one.n === 1 && one.status === 0 &&
+      hOne === hOrd && hOne === DEALT[lv] && one.rng[lv] === 1000 + lv * 97,
+      (isMd5(hOne) ? 'hashed ALONE in its own process: ' + hOne : 'NO HASH from the single-level sampler (exit ' +
+        one.status + ' ' + (one.why || 'no line matched') + ')') + ', hashed IN LEVEL ORDER by the sampler that ran ' +
+        NL + ' levels in one process: ' + (isMd5(hOrd) ? hOrd : 'none') + ', recorded ' + DEALT[lv] + ', against a ' +
+        NL + '-level roster that has rendered ' + (lv === 0 ? 'nothing' : 'level' + (lv === 1 ? ' 0' : 's 0..' + (lv - 1))) +
+        ' before it. They agree because the DEALT sampler re-boots the game before every level (see the sampler), and '
+      + 'the two orders are then the same state reached by two routes. A disagreement is #243 come back: the recorded '
+      + 'triple would again describe a render ORDER rather than a level, so any probe that reorders or parallelises the '
+      + 'roster turns the DEALT rows red with a clean tree. NO HASH is VACUITY, not a pass - a row comparing nothing '
+      + 'cannot agree with anything, so an empty or malformed hash fails here by name. rng ' + one.rng[lv] + ' and ' +
+      one.dPx[lv] + ' px of dealt-vs-flat gap say the lone sampler really did deal the level rather than skip it.');
   }
   const dLock = shipH.filter((x, i) => x !== OLD[i]).length, dPar = parH.filter((x, i) => x !== SHIP[i]).length;
   const sumGap = [], addN = [];
