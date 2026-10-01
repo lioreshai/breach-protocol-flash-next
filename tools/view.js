@@ -3925,6 +3925,154 @@ if (MODE === 'contrast') {
     const en = ring.length - noBg;
     return { dl: en ? eDL / en : 0, rgb: en ? eRGB / en : 0, lost: en ? 100 * lost / en : 0, en, noBg, ring: ring.length };
   };
+  /* ---- #244: THE TORSO GRADIENT, ONE DEFINITION, IN A TOOL THAT SHIPS --------------------------
+     #232 was paid with numbers measured by a COPY of this file in /tmp, and three sessions have since
+     produced three definitions of "the torso's within-surface gradient", none of which can fail:
+       (a) `stats`' grunt rows (grad 6.1-6.7) - texel-space variance of the billboard sheets #72 took
+           out of the draw path. The shipped body is MESH.draw, so no change to a mesh can move it.
+       (b) #240's rows (1.02-2.32 -> 3.24-4.53) - a band of PIXEL ROWS (0.20..0.51 from the crown)
+           including the silhouette ring, so a contour term pays it and a pose-resolution change moves
+           it; it also lived in a file that no longer exists.
+       (c) #246's hand measurement (2.98 -> 3.79 on rows 317-451) - family (b) with a third row set.
+     The definition recorded here, chosen because the thing being claimed is about the COMPOSITED
+     frame (AGENTS: the raw-raster `rig` sheet showed a rim the live site contradicted):
+       frame    the composited crowd frame of a real level, from the real draw path, exactly the frame
+                the coverage rows above measure. Not a sheet, not a raw raster, not a crop.
+       region   pixels the coverage mask says a BODY painted last, inside the projection of the torso
+                box's OWN authored span (heights [sp.hip, sp.sh] of js/13_mesh.js's SPEC) and its
+                projected half-width (sp.shLat * 1.05), per body, projected by the mesh's own formula
+                Y = horizon + BH*(eyeZ - z)/depth. Authored BODY HEIGHTS, never row numbers: a sharper
+                pose, a different distance or a different buffer scales the band with the body instead
+                of drifting off it - which is what (b) got wrong and what makes the numbers comparable
+                across builds.
+       interior a torso pixel counts only with a 2 px cushion of mask around it (all 25 neighbours).
+                The silhouette ring is therefore STRUCTURALLY out of this number, so the row can say
+                the gradient came from the SURFACE. #232 required the mean AND silhouette channels
+                unmoved; a band average that includes the outline can be paid by fattening the outline.
+       operator mean |L(x+1) - L(x-1)| / 2 - the luminance slope per screen pixel, which is exactly
+                what #232's slope-as-the-constant term delivers by construction (amplitude =
+                TS_SLOPE * projected period / 4, so the slope is TS_SLOPE * the grazing band, and the
+                number is independent of the projected period - a mip-correct term reads the same near
+                and far, which is the property worth gating).
+       controls room gradient: the same operator over the non-mask pixels of the same frame (the ratio
+                is what "the torso reads as armour, not as a box" means on screen); the DC of the wave
+                (mean of the SIGNED slope, which is the zero-mean half measured inside one frame); and
+                torso boil against the SAME BODY's limb band across a 0.03 rad turn (legs carry no term,
+                so they are a motion control that needs no literal and no build with the term off - and
+                NOT a gradient control: legs are faceted tubes and read 2.8-11.6 dL/px with no term in
+                the tree at all, which is why there is no "rise over the limb band" gate here).          */
+  const TG_SP = {
+    grunt: { sh: 0.815, hip: 0.50, crown: 0.983, half: 0.1029 },
+    hound: { sh: 0.720, hip: 0.50, crown: 0.895, half: 0.1365 },
+    brute: { sh: 0.775, hip: 0.44, crown: 0.935, half: 0.1680 }
+  };
+  /* The floor sits between the two measured readings of THIS arithmetic: the pre-#232 tree (js/
+     reverted to 135c8ad^) run with THIS probe, and current main. Nine cells each (3 levels x 3 cameras,
+     SEED 12345; the CI cell is L0 cam 0/2):
+       no torso term in js/    0.00 0.01 0.02 0.02 0.04 0.09 0.14 0.68   (L0 cam 0 0.02, cam 2 0.01)
+       shipped term            2.17 2.51 2.51 2.52 2.54 2.54 2.74 3.31
+     The separation is sharper than #240's because a flat-shaded triangle carries NO intra-face slope, so
+     the termless torso reads about 0.0 - the 1.02-2.32 in that record was the silhouette ring and the
+     seams between faces, which this definition excludes by construction. Floor 1.40 is twice the
+     strongest termless cell and 0.64 of the weakest shipped one: it trips on a term that loses a third
+     of its slope, not on a dark room.                                                        */
+  const TG_PRE = 0.68, TG_POST = 2.17, TG_FLOOR = 1.40, TG_MINPX = 60;
+  /* The mean and motion halves, measured on the same nine cells of both trees. The mean channel is the
+     DC of the wave: the mean of the SIGNED slope less the frame\'s own, which cancels on a zero-mean
+     triangle (0.00 to 0.53 with no term in js/, 0.00 to 0.80 shipped - the widest legit cell is L2 cam 1,
+     246 px of torso) and does not cancel on a unipolar seam, a multiplier or a term clamped off centre.
+     Floor 1.20 is 1.5x the widest legit cell. The whole-silhouette mean this term costs across the two
+     trees on the CI cell is +0.4 (46.1 -> 46.5 cam 0, 48.6 -> 49.0 cam 2): small and POSITIVE, not the
+     -0.2 #240 quoted, so it is printed rather than repeated.
+     BOIL IS REPORTED AND NOT GATED, and that is a measurement rather than a dodge: torso boil measured
+     9.3 to 13.8 across the whole shipped parameter space (TS_SLOPE 0 / 9 / 30 - TS_MAX clamps the
+     amplitude - and TS_CYC 10 / 28) against the limb band of the same bodies at 17.96 to 37.49, on every
+     cell of both trees. No setting this file can express crosses a ceiling at +3, and AGENTS is explicit
+     that a threshold nothing can cross is a row that cannot fail. What the ceiling DOES catch is a
+     mechanism anchored to the SCREEN rather than to the body - a specular or a noise term painted in
+     output space, which is the failure #232 rejected when the leg specular died. The trade #244 asks to
+     keep visible - more slope or a faster seam for more boil - lands in the printed ratio below (4.39
+     shipped, 8.50 at TS_CYC = 28, both at 542 torso px), and the gradient floor is what stops the faster
+     seam from buying that trade with structure: TS_CYC = 28 measures 1.62 dL/px.                       */
+  const TG_BIAS = 1.20, TG_MEANMOVE = 0.4, TG_BOILLO = 9.3, TG_BOILHI = 13.8, TG_LIMBOILLO = 17.96,
+    TG_LIMBOILHI = 37.49, TG_NOISE = 4.39, TG_NOISESAB = 8.50;
+  /* Which js/ the process is actually running, grepped out of the SHIPPED STATEMENT (code, not prose:
+     a comment explaining a removal would match a prose marker - AGENTS #122). This is what makes the
+     revert arm and the shading A/B provable rather than "I promise I pointed at the other tree". */
+  const TG_MARK = (() => {
+    try {
+      const src = fs.readFileSync(path.join(__dirname, '..', 'js', '13_mesh.js'), 'utf8');
+      if (!/TS_SLOPE \* TPR \* 0\.25/.test(src)) return 'js/13_mesh.js term ABSENT (no per-pixel torso term in this tree)';
+      const k = /TS_CYC = ([0-9.]+)[^;]*?TS_SLOPE = ([-0-9.]+)/.exec(src);
+      return 'js/13_mesh.js term PRESENT (TS_CYC ' + (k ? k[1] : '?') + ', TS_SLOPE ' + (k ? k[2] : '?') + ')';
+    } catch (e) { return 'js/13_mesh.js unreadable: ' + e.message; }
+  })();
+  /* One implementation, used for the crowd frame and for every frame this row is compared against,
+     so a control measured by a second implementation would not be a control (see edgeOf above). */
+  const torsoStats = (F, M, list, cm, F2) => {
+    const hw = W * 0.5, invDet = 1 / (cm.planeX * cm.dirY - cm.dirX * cm.planeY);
+    const slope = (f, i) => Math.abs(lum(f, i + 1) - lum(f, i - 1)) * 0.5;
+    // the same operator WITHOUT the absolute value: its mean is the DC the wave carries, see TG_BIAS
+    const slopeS = (f, i) => (lum(f, i + 1) - lum(f, i - 1)) * 0.5;
+    const r = { px: 0, gs: 0, sgs: 0, ls: 0, bs: 0, limbPx: 0, limbGs: 0, limbBs: 0, silPx: 0, silLs: 0, rej: 0,
+      grad: 0, bias: 0, bandMean: 0, boil: 0, limbGrad: 0, limbBoil: 0, silMean: 0, room: 0, roomBias: 0, roomN: 0, per: [] };
+    for (const e of list) {
+      const sp = TG_SP[e.k]; if (!sp) continue;
+      const dx = e.x - cm.camX, dy = e.y - cm.camY;
+      const tY = invDet * (-cm.planeY * dx + cm.planeX * dy);
+      if (tY < 0.3) { r.per.push({ k: e.k, d: tY, px: 0, g: 0, boil: 0, lpx: 0, lboil: 0, why: 'behind the lens', dead: e.dead }); continue; }
+      const tX = invDet * (cm.dirY * dx - cm.dirX * dy);
+      const hpx = hw * sp.half * e.s / tY, sx = hw * (1 + tX / tY);
+      const x0 = Math.max(2, Math.ceil(sx - hpx)), x1 = Math.min(W - 3, Math.floor(sx + hpx));
+      if (x1 <= x0) { r.per.push({ k: e.k, d: tY, px: 0, g: 0, boil: 0, lpx: 0, lboil: 0, why: 'off screen', dead: e.dead }); continue; }
+      const rowH = h => cm.hz + cm.BH * (cm.eyeZ - (e.z + h * e.s)) / tY;
+      // [top row, bottom row, which accumulator] - torso band, then the limb band BELOW the hip
+      const bands = [[Math.ceil(rowH(sp.sh)), Math.floor(rowH(sp.hip)), 0],
+        [Math.ceil(rowH(sp.hip - 0.06)), Math.floor(rowH(0.06)), 1]];
+      const acc = [[0, 0, 0, 0, 0], [0, 0, 0, 0, 0]];
+      for (const bd of bands) {
+        const a = acc[bd[2]];
+        for (let y = Math.max(2, bd[0]); y <= Math.min(H - 3, bd[1]); y++) {
+          const rw = y * W;
+          for (let x = x0; x <= x1; x++) {
+            const i = rw + x;
+            if (!M[i]) continue;
+            let cushion = true;
+            for (let oy = -2; oy <= 2 && cushion; oy++) {
+              const o = rw + oy * W;
+              for (let ox = -2; ox <= 2; ox++) if (!M[o + x + ox]) { cushion = false; break; }
+            }
+            if (!cushion) { r.rej++; continue; }
+            a[0]++; a[1] += slope(F, i); a[2] += lum(F, i); a[4] += slopeS(F, i);
+            if (F2) a[3] += Math.abs(lum(F2, i) - lum(F, i));
+          }
+        }
+      }
+      // the same column window over the whole body: the mean channel's reference, no cushion needed
+      for (let y = Math.max(1, Math.floor(rowH(sp.crown + 0.03))); y <= Math.min(H - 2, Math.ceil(rowH(-0.03))); y++) {
+        const rw = y * W;
+        for (let x = x0; x <= x1; x++) { const i = rw + x; if (!M[i]) continue; r.silPx++; r.silLs += lum(F, i); }
+      }
+      const a = acc[0], b = acc[1];
+      r.px += a[0]; r.gs += a[1]; r.sgs += a[4]; r.ls += a[2]; r.bs += a[3];
+      r.limbPx += b[0]; r.limbGs += b[1]; r.limbBs += b[3];
+      r.per.push({ k: e.k, d: tY, px: a[0], g: a[0] ? a[1] / a[0] : 0, boil: a[0] ? a[3] / a[0] : 0,
+        lpx: b[0], lboil: b[0] ? b[3] / b[0] : 0, dead: e.dead });
+    }
+    let rs = 0, rss = 0;
+    // EVERY column, not a stride: a strided sample of a 2-px-period pattern biases the SIGNED mean, and
+    // the signed mean is the DC the mean channel is gated on.
+    for (let y = 2; y < H - 2; y += 2) {
+      const rw = y * W;
+      for (let x = 2; x < W - 2; x++) { const i = rw + x; if (M[i]) continue; rs += slope(F, i); rss += slopeS(F, i); r.roomN++; }
+    }
+    r.room = r.roomN ? rs / r.roomN : 0; r.roomBias = r.roomN ? rss / r.roomN : 0;
+    r.grad = r.px ? r.gs / r.px : 0;
+    r.bias = r.px ? Math.abs(r.sgs / r.px - r.roomBias) : 0; r.bandMean = r.px ? r.ls / r.px : 0;
+    r.boil = r.px ? r.bs / r.px : 0; r.limbGrad = r.limbPx ? r.limbGs / r.limbPx : 0;
+    r.limbBoil = r.limbPx ? r.limbBs / r.limbPx : 0; r.silMean = r.silPx ? r.silLs / r.silPx : 0;
+    return r;
+  };
   /* cam 1's separation on unmodified shipped content is BELOW the DLMIN gate it is held to, and #179
      (Epic A) is filed for the shading term that pays it. So that ONE row reports instead of failing -
      the shape smoke's VERT lanes already print (`N gating row(s), N known-issue row(s)`) and that
@@ -4010,7 +4158,8 @@ if (MODE === 'contrast') {
   const PLANE = +run('cfg.plane');                       // camera half-width in dir units: atan() is the half-FOV
   const FOVH = Math.atan(PLANE) * 180 / Math.PI;
   const FOVH_JS = Math.atan(PLANE);                      // the same half-FOV in radians, for the pose fan
-  let bad = 0, nrows = 0, known = 0, maskDead = false;
+  let bad = 0, nrows = 0, known = 0, maskDead = false, tgCams = 0;
+  const tgCamsAt = [];
   const noPoseNotes = [];   // #242: per-cam reason a camera posed nothing, so the verdict line NAMES it
   const knownIssues = new Set();   // which issues the KNOWN rows are carrying, in the order they appeared
   // a row that could not measure anything is a FAILURE, never a KNOWN: a row that silently skips is
@@ -4401,6 +4550,40 @@ if (MODE === 'contrast') {
       (slabB.length ? ' [' + named(slabB.slice(0, 4)) + (slabB.length > 4 ? ', +' + (slabB.length - 4) : '') + ']' : '') +
       (obstB.length ? ', ' + obstB.length + ' behind a wall' : '') +
       '   reporting only, not gated: #189');
+    /* ---- #244 THE TORSO'S OWN GRADIENT, on this composited frame, with its three controls -------
+       The frame is re-rendered here (same S.t, rig at rest) and counted against the pixels the
+       coverage line above described, because this row CLAIMS to be about that frame - a row handed
+       some other frame is the failure #232's numbers already had, and the re-render agreement makes it
+       checkable rather than promised. TB is the same shot turned 0.03 rad: the boil half of #232's
+       requirement, measured by pixels instead of by folklore. */
+    run('S.t = 3.5; ' + VMREST + ' renderWorld();');
+    const TA = new Uint32Array(run('px')), TM = new Uint8Array(run('COV'));
+    const TGL = run('ENEMIES.map(e => ({k: e.kind, x: e.x, y: e.y, z: e.z, s: e.scale, dead: e.state === "dead" ? 1 : 0}))');
+    const TGC = run('({camX, camY, dirX, dirY, planeX, planeY, eyeZ, hz: horizon, BW, BH})');
+    let tgSamePx = 0;
+    for (let i = 0; i < N; i++) if (TA[i] !== A[i]) tgSamePx++;
+    const tgAng = run('P.ang');
+    run('P.ang += 0.03; S.t = 3.5; ' + VMREST + ' renderWorld();');
+    const TB = new Uint32Array(run('px'));
+    run('P.ang = ' + tgAng + ';');
+    const tstat = torsoStats(TA, TM, TGL, TGC, TB);
+    const tgMean = Math.abs(tstat.bandMean - tstat.silMean);
+    if (tstat.px >= TG_MINPX) { tgCams++; tgCamsAt.push(cam); }
+    console.log('  torso      ' + (tstat.px ? 'grad ' + tstat.grad.toFixed(2) + ' dL/px on ' + tstat.px +
+      ' interior torso px' : 'NOT MEASURED - no torso pixel cleared the 2 px interior cushion') +
+      '  |  room ' + tstat.room.toFixed(2) + ' on ' + tstat.roomN + ' px (ratio ' +
+      (tstat.room ? (tstat.grad / tstat.room).toFixed(2) : '-') + ')  |  band mean ' + tstat.bandMean.toFixed(1) +
+      ' vs body mean ' + tstat.silMean.toFixed(1) + '  |  limb band ' + tstat.limbGrad.toFixed(2) + ' dL/px'
+      + ' (not a gradient control - faceted tubes, 2.8-11.6 dL/px with no term in the tree)  |  DC '
+      + tstat.bias.toFixed(2) + " after the frame's own " + tstat.roomBias.toFixed(2) + '  |  boil 0.03 rad torso '
+      + tstat.boil.toFixed(2) + ' / limbs ' + tstat.limbBoil.toFixed(2) +
+      (tstat.grad ? ' (noise per unit structure ' + (tstat.boil / tstat.grad).toFixed(2) + ')' : '') +
+      ' / limbs ' + tstat.limbBoil.toFixed(2) + '  |  px rejected for sitting in the ring ' + tstat.rej +
+      '  |  re-render vs the frame above: ' + tgSamePx + ' px differ');
+    console.log('             gradient per body the mesh drew - kind, distance, interior torso px, dL/px, boil: ' +
+      (tstat.per.length ? tstat.per.map(q => q.k + (q.dead ? '/dead' : '') + ' ' + q.d.toFixed(2) + ' m ' +
+        (q.px ? q.px + ' px @ ' + q.g.toFixed(2) + ' (boil torso ' + q.boil.toFixed(2) + ' / limbs ' + q.lboil.toFixed(2) + ')' : (q.why || 'no interior torso px'))).join(', ') : 'no body in the frame') +
+      '   [' + TG_MARK + ']');
     /* TWO ROWS ABOUT THE FRAME BEFORE ANY CONTRAST IS MEASURED, both stated as POSED because a body
        the probe put in the shot is not evidence that the game's own placement is readable:
          the pose row is the guarantee this probe needs to measure anything at all - one body the
@@ -4634,6 +4817,53 @@ if (MODE === 'contrast') {
     row('cam ' + cam + ' diff mask leaks nothing', leak <= LEAKMAX,
       leak + ' px differ between the two renders but no body painted them' +
       (leak ? ' - a body-driven WORLD change is being counted as the body (#179)' : ''));
+    /* ---- #244, the rows that make those numbers fail on a regression -----------------------------
+       Two gated rows per camera: the gradient the SURFACE carries (the ring is out of it by
+       construction, so an outline cannot pay it) and the two channels #232 required UNMOVED (mean and
+       motion). Both are vacuity-gated first: pixels under TG_MINPX is a FAILURE wherever a body is in
+       the frame, and only the proven #189 cone - the branch the cam 1 rows above already report - gets
+       to call it no measurement to take. */
+    const tgVac = tstat.px >= TG_MINPX;
+    const tgDebt = tgVac || bodyInFrame || NOBODY ? undefined : '#189';
+    const tgWhy = tgDebt ? ' - NO MEASUREMENT: ' + boundTxt
+      : ' - VACUITY: ' + tstat.px + ' px of interior torso is under the ' + TG_MINPX + ' floor while ' + nM +
+        ' body px are in the frame, so the band is not landing on a torso';
+    /* A camera whose mask is EMPTY has no torso to measure, and cam 1's five #189 rows above already
+       carry that debt; a sixth and seventh KNOWN row would only teach the reader to skim the tally.
+       So the rows are emitted wherever the mask has a body in it, and the case where nothing drew at
+       all is still two red lines away from green: the per-cam print above says NOT MEASURED, and the
+       run's own vacuity row below fails if no camera measured anything. */
+    if (nM > 0) {
+      row('cam ' + cam + ' torso carries surface structure', tgVac && tstat.grad >= TG_FLOOR,
+        'torso gradient ' + tstat.grad.toFixed(2) + ' dL/px vs floor ' + TG_FLOOR + ' on ' + tstat.px +
+        ' interior torso px; floor between the two measured trees (no term in js/: ' + TG_PRE + ', shipped: '
+        + TG_POST + ' - weakest of nine cells, the termless torso reads about 0.0 because a flat-shaded'
+        + ' triangle has no intra-face slope, so the 1.02-2.32 #240 quoted was ring and face seams rather'
+        + ' than surface); the room in this frame reads ' + tstat.room.toFixed(2) + ' dL/px, so the torso'
+        + ' delivers ' + (tstat.room ? (100 * tstat.grad / tstat.room).toFixed(0) : '0') + '% of what the'
+        + ' walls do on screen' + (tgVac ? '' : tgWhy) + ' [' + TG_MARK + ']' +
+        (tgSamePx ? ' | NOTE: the re-render differs from the coverage frame on ' + tgSamePx + ' px' : ''), tgDebt);
+      row('cam ' + cam + ' torso gradient not paid by mean or edge', tgVac && tstat.bias <= TG_BIAS,
+        'DC of the wave ' + tstat.bias.toFixed(2) + ' dL/px vs floor ' + TG_BIAS + ' (mean of the SIGNED'
+        + " slope less the frame's own " + tstat.roomBias.toFixed(2) + ': a zero-mean triangle cancels, a'
+        + ' unipolar seam, a multiplier or a term clamped off centre does not; 0.00 to 0.53 measured with no'
+        + ' term in js/, 0.00 to 0.80 shipped) | the whole-silhouette mean this term costs across the two'
+        + ' trees: ' + TG_MEANMOVE + ' - this frame band ' + tstat.bandMean.toFixed(1) + ', body '
+        + tstat.silMean.toFixed(1) + ', |d| ' + tgMean.toFixed(2) + " is the region's own albedo step and is"
+        + ' printed, not gated | outline: ' + tstat.rej + ' torso px rejected for sitting within 2 px of the'
+        + ' silhouette, and the gradient above counts nothing else, so an outline cannot pay it' +
+        ' | boil 0.03 rad: torso ' + tstat.boil.toFixed(2) + ', limb band of the same bodies '
+        + tstat.limbBoil.toFixed(2) + ', noise per unit structure ' + (tstat.px ? (tstat.boil / Math.max(tstat.grad, 1e-9)).toFixed(2) : '0') +
+        ' - REPORTED, NOT GATED: torso boil measures ' + TG_BOILLO + ' to ' + TG_BOILHI +
+        ' across the shipped parameter space (TS_SLOPE 0 / 9 / 30, TS_CYC 10 / 28) against limbs '
+        + TG_LIMBOILLO + ' to ' + TG_LIMBOILHI + ', so a ceiling here would be a row nothing can cross; the'
+        + ' slope/seam trade is visible in the ratio (' + TG_NOISE + ' shipped, ' + TG_NOISESAB + ' at TS_CYC'
+        + ' = 28, whose gradient, 1.62, is what the floor is really guarding)' + (tgVac ? '' : tgWhy), tgDebt);
+    } else {
+      console.log('    torso rows SKIPPED at cam ' + cam + ': NOTHING DREW in the measured frame (' + nM +
+        ' coverage px), so there is no surface to measure - the #189 rows above carry that, and the run\'s'
+        + ' vacuity row below carries the case where no camera measured at all');
+    }
   }
   if (process.env.ARMCOST) {
     /* What the mask costs WHEN A PROBE ARMS IT - the only state in which it can cost anything, and
@@ -4658,6 +4888,13 @@ if (MODE === 'contrast') {
       med(off).toFixed(2) + ' [' + off.join(' ') + ']  armed median ' + med(on).toFixed(2) +
       ' [' + on.join(' ') + ']');
   }
+  /* #244's own vacuity line, at the level of the INSTRUMENT: the torso rows exist on every camera, so
+     a run in which not one camera produced a torso reading is a red line, not a quiet 0.00 in a line
+     nobody reads. That is the failure #244 was filed for: numbers no recorded row can fail. */
+  row('the torso gradient measured at least one camera', tgCams > 0,
+    tgCams + ' of 3 cameras produced at least ' + TG_MINPX + ' interior torso px' +
+    (tgCams ? ' (cam ' + tgCamsAt.join(' ') + ')' : ' - the torso row is not measuring, which is the defect #244 was filed for') +
+    (tgCams === 3 ? '' : '; a camera that produced none says why on its own rows above'));
   const debtTail = known ? ', ' + known + ' known-issue row' + (known > 1 ? 's' : '') + ' (' +
     (STRICT ? 'FAILED under STRICT=1' : 'reporting') + ': ' + [...knownIssues].join(' ') + ')' : '';
   const poseTail = noPoseNotes.length ? '  |  no-pose cause: ' + noPoseNotes.join('  |  ') : '';
