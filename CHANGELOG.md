@@ -54,6 +54,34 @@
   55-78% of what the walls deliver on screen, because TS_SLOPE is one global constant and buying the rest costs
   the boil neutrality above. The readout lives in a throwaway copy of `view.js` (`/tmp`), not in `tools/` — #232's
   follow-up should give it a row.
+- **`contrast` names why a camera yields no body, and can no longer dress a regression as the #189 debt** (#242).
+  On `3f69d6f` cam1 scores **nothing**: `NO POSE`, 7 known-issue rows, the march stopping at **0.56 m**, and
+  **11** candidate spots tried with **0** placeable — so every sentence in this file and `AGENTS.md` built on
+  "cam1 is WEAK at 16.65 dL" was quoting a grid that no longer generates that seat. `view.js contrast` now
+  prints the **stop cause** (`BAND GATE` — the march's own `|fz[a]-fz[b]| > 1 quantum` slab test, with no
+  `VB_RAMP`/`VB_LADDER` link on that boundary, `canEnter` never consulted; or `SOLID WALL`, `OFF-MAP BORDER`,
+  `POSE PATH`, `NOTHING STOPS THE RAY`) in the per-camera line and in the verdict line, and lists every
+  rejected spot with its ray offset, that ray's march distance, its distance from the lens and its **band
+  delta** (cam1 on the CI cell: rays 0…10 at 0 to ±21.5°, every candidate at 1.20 m sitting **+1.00 m** above
+  the camera's band, all `OFF-BAND`), so nobody re-tries them. The issue asked for "no posed body" to be a
+  hard `process.exit`; that would make CI **permanently** red, because cam1's emptiness is #189 part 2's real
+  debt and a permanently-red row teaches everyone to ignore the rows that mean something, so the two causes
+  are **split** instead: `NO ENEMY IN REACH` (nothing posed *and* nothing drew) stays a `KNOWN` row, while
+  `NO POSE WITH A BODY IN FRAME` (a living enemy, body pixels in the coverage mask, zero poses rasterised)
+  is a `FAILURE` with an exit code. Seen to fail: with one enemy moved into cam2's cone **and** the pose fan's
+  cone capped under the floor, main's `view.js` exits **0** printing `0 FAILURE(S) of 22 rows, 9 known-issue
+  rows` — 6,678 px of body in the shot labelled as the level's geometry — while this build exits **1** with
+  `NO POSE WITH A BODY IN FRAME - a REGRESSION, not the #189 debt: 6678 px …` naming cam 2; restoring the
+  tree puts the verdict back at `0 FAILURE(S) of 22 rows, 7 known-issue rows`, exit 0. Controls unchanged
+  on the shipped cell (`FLAT` / `POSEONLY` / `TINT=2` / `STRICT` / `NOBODY`, and the 3 levels × 2 seeds matrix):
+  every row-count and failure-count matches `main` to the digit, so the split moves no verdict — only the
+  reason beside it. Locks byte-identical (`LOCK 060da4cd f05beeb5 050b225e`, `PARITY f9e4da3a f05beeb5
+  d4b2d2cd`, `DEALT 3e88c850 889817bf 158327b0`, `cull CZBAND 0x9c03d4f4 0xeec7be60 0x7dd66c40`),
+  `SMOKE PASSED` at raster median **11.58 ms**, `VERT=1` **25 gating row(s), 0 known-issue row(s)**, `recap
+  check` **0 FAILURE(S) of 28 rows**. Caveat, stated: on this cell a pose-path regression at cam0/cam2 was
+  already red through the `MINMASK` floor and the cone-max branch — what this changes is that the debt label
+  can no longer absorb it, and that a shallow-cone camera whose frame plainly has a body in it stops being
+  reported as the level's fault.
 
 ## [v1.2] - 2026-10-01
 
