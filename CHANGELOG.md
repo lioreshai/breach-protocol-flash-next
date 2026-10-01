@@ -1,6 +1,16 @@
-## Unreleased
+## [v1.2] - 2026-10-01
+
+**M3 shipped: the generator authors altitude.** 48 PRs merged since `v1.1`, and this is the release
+that closes M3 (#14) — the milestone whose content landed in #162 while the issue stayed open, which
+is why the strike-through in `AGENTS.md` needed a verdict beside it rather than an edit. `view.js alt`
+now ends in `process.exit(bad ? 1 : 0)` and asserts bands, links, reachability and staircases on the
+generated grid, and it is in `ci.yml`'s blocking list. Being in the grid is not being perceivable: what
+is left of verticality is M4/M5 — authored volume, light and findability — not another generator pass.
+Gates at this build: `SMOKE PASSED` at raster median **12.35 ms** (5 batches 12.2/12.2/12.3/12.4/12.4,
+16 ms gate), `VERT=1` **25 gating row(s), 0 known-issue row(s)**.
 
 ### Added
+
 - **The minimap plots the climbs the generator authored, before the player finds them** (#189 part 1).
   `MAP.feat` authors `STAIR`/`LADDER`/`PIT` cells and no HUD code read them, so an off-band region was
   undiscoverable from the datum. `drawFeatCues` (js/50_ui_input.js, called by the frame loop after
@@ -63,7 +73,297 @@
   with the rig drawn. Cost is real and tracked as **#186**: WARM median **35.0 → 37.0 ms**, flat
   **8.85 → 10.5 ms**.
 
+- **The exposure gate now samples the frame the player actually sees first, and it fails on its own.**
+  Every brightness sampler in the repo — `tools/view.js exposure`, `tools/ci/assert.js exposure` — parked
+  the camera in an arbitrary open cell, spun it through 6 yaws and ran 20–120 `update()` frames before
+  measuring, so all of them asserted a *median over rolls of a pose nobody plays* while the first frame of
+  the level was in no gate: the live page read **12.73 / 51.41 / 129.07** means (mids 18.34 / 47.93 /
+  149.40) at the spawn pose against the 60–100 target, while the same build asserted **86 / 90 / 73**
+  (#155). `view.js exposure` now prints a **spawn** column (mean + centre-half `mid`, same dice as its
+  rolls column, on the same generated level, no `update()`), and `tools/ci/assert.js exposure` asserts it
+  on a separate band, **35–75** on the composited frame, in a verdict that accounts for both numbers. The
+  band is the gap between two rendered failure states, not a fit: measured on this geometry, a spawn frame
+  with every lamp unlit reads **13.0 / 14.4 / 32.2** (and 3.7–17.3 with the ambient zeroed too) while a
+  lamp 1 m from the lens reads **79.4–137.5** mean, so 35 sits above the brightest unlit render and 75
+  below the dimmest lamp-in-the-lens view. It is asserted on the median of the same 5 seeded rolls because
+  one fixed pose is a view class rather than a property of the level — the per-roll values range 21–137
+  and straddle *both* anchors, so they are printed and not judged; `mid` is printed and not judged because
+  its anchors overlap (a lightless level 2 reads mid 40.1 while L1's spawn median mid is 31). Two controls,
+  both reverted: narrowing `SPAWN_MAX` to 55 fails level 0's spawn line with the median line still `ok`
+  (exit 1), and zeroing `MAP.light` at the spawn frame only collapses the spawn numbers to 13 / 15 / 29
+  while the asserted medians stay 86 / 90 / 73 — #155's defect class, caught. The pose is written
+  explicitly rather than trusted: `P.ang` is the heading (there is no `P.yaw`), and `P.z` is the **feet** —
+  `js/40_render.js:103` adds `cfg.eye`, so setting `floorAt + cfg.eye` would have raised the eye a full
+  unit off the floor and measured a floating camera. No light authoring or lamp placement is touched here:
+  that is the follow-up once #149 lands, and if it brightens spawn views past 75 this step goes red and the
+  band gets re-derived from the two anchors, not nudged.
+- **`DEV.lum([{stride}])` reports the luminance of the frame the player actually sees, and CI prints it.**
+  `mean` is Rec.709 luma over the whole display canvas (after bloom, grade, grain and the HUD), `mid` over the
+  centre half-window - two windows that are not interchangeable, and on this layer `mid` runs 8 to 20 points
+  above `mean`, which is the conflation that produced #117 and #139. `tools/ci/assert.js exposure` drives the
+  system Chrome over the DevTools protocol with node built-ins only (no dependencies; `tools/ci/no-deps.js`
+  still guards the tree) and asserts the **median of 5 seeded rolls per level** inside 60-100, printing the roll
+  spread and never asserting it, because that spread is 18-70 points, wider than the window (#87). The dice are
+  `view.js exposure`'s own (`1000 + level*97 + roll*13`) so the two tools look at the same levels. Exit codes are
+  distinct - 1 outside, 3 NOT MEASURED - so a run that could not reach the canvas never reports a passing grade
+  (#122). #47's premise was understated: there was no `DEV.meanLum` and no exposure assert in `tools/smoke.js`
+  at all, so no CI job gated brightness on **any** layer. The step ships `continue-on-error: true` because it is
+  red on `main` today: level 2's median is **53 on the raster and 38 composited**, against 73/91 and 76/86 on
+  levels 0 and 1, and a blocking check that is already overdue deadlocks its own introducing PR. #143 carries
+  the numbers and the flip condition.
+- **Two rules that were fixed and never asserted now have gates.** The exit changes level through a test that
+  includes a band (#105: an xy-only test let the level change from a cell whose floor was a unit below), and a
+  pickup has a 0.6 m vertical window (#109: xy proximity took it while the player hovered above it). Neither had
+  a regression test: risk #3 in AGENTS.md says as much - nearly every assert in the repo compares x and y.
+  Six new VERT rows (the lane goes 15 -> 21 gating rows) stand in the neighbour cell 0.40 m from a parked exit on
+  a floor 0.25 above its floor and require the level to stay put, then flatten that floor and require it to
+  advance; and stand on a pickup at 0.00 m, 0.50 m above it and 0.90 m above it, requiring it taken, taken (a jump
+  peaks at 0.489 m so grabbing mid-air has to keep working) and left. Both rows are self-controlled, and both
+  controls were run: deleting #105's band term turns V16 red on all three levels with nothing else failing,
+  deleting #109's window turns V17 red on the 0.90 m half with nothing else failing. Writing them found two ways
+  to be silently vacuous - on the last level `nextLevel()` ends the run instead of incrementing `S.level`, and
+  `takePickup` sets `k.dead` rather than splicing and REFUSES a health pickup at hp 100, so counting array length
+  at full health fails a build that is behaving correctly.
+
+### Changed
+
+- **"flat md5 parity holds" is a verdict a machine prints** (#211). `flatparity` gained md5 literals in
+  #210 and **no step ran it**, so both triples could have rotted back into a PR caption exactly like the
+  prose they replaced. The required job's `Probe gates` step now runs it (13 modes → **14 invocations**),
+  and one command covers **both** senses because the probe spawns the other lamp record cold rather than
+  waiting for a human to remember the knob — which is the failure mode this issue is about:
+  **PARITY** `[LAMPS=off]` `f9e4da3a / f05beeb5 / d4b2d2cd`, means **79.7 / 34.1 / 47.5** (the
+  formula-collapse proof, the lamp record is `2c5a94f`'s), and **LOCK** `[LAMPS unset]`
+  `4262d051 / f05beeb5 / 050b225e`, means **81.3 / 34.1 / 51.7** (a regression lock on lamp *placement*,
+  green there is not evidence a term is bit-neutral). Cost **+21 s** to the required job, the largest row
+  in it: 3 levels × 4 cold processes, which is what makes the stream comparable across builds. Wiring
+  shown in both directions — this tree **exit 0**; `2c5a94f`'s `js` with these tools → **LOCK FAIL ×2
+  (L0, L2) + census FAIL, exit 1**; these tools with `SHIP` refs set to the OLD triple → **LOCK FAIL ×2,
+  exit 1**, so the row is satisfied by the recorded md5 and not merely by hashes being stable. The
+  blindness is now **printed beside the verdict** instead of buried in the block header: the hashed
+  levels carry **0 / 0 / 0** cells off the datum of **1296**, so `fd = 0` everywhere and the band term is
+  the literal `1` before any sign is read. Consequence, measured and stated rather than glossed: on the
+  one-sided kernel `lf - floor >= -ZQ - 1e-9` **all six rows print `ok`** and BOTH triples hash
+  byte-identical (`flatparity` **exit 0**) — the row added here is blind to that kernel, as #211 says it
+  must be, and reference hashes cannot be narrowed to fix it. CI as a whole still reddens it: the step
+  aborts at `cull` (**CULL 2 FAILURES**) before `flatparity` runs, and `alt`'s direction rows fail
+  **169 / 279 / 117** (measured on this kernel at both `4495c08` and `7f62f82`; #211's body quotes **273**
+  for L1 and that number does not reproduce here). No `js/` line changed: direction rows **0/0/0**, pit
+  dark **0 of 181/194/175** at **0.672/0.631/0.647**, `bands` debt **3 of 27** with L0 face lip **54 %**
+  all unchanged. Closes #211.
+
+- **README screenshots and captions recaptured two merges after the picture changed** (#203, #210).
+  The four shots came from one `?dev=1` boot of `4495c08` at canvas **1440×763** / raster **678×359**,
+  BALANCED, `DEV.freeze(true)` + `DEV.clear()` once and no `startLevel` between shots, with two
+  procedure changes that move the numbers: the level was **dealt from the probe's own dice** (the
+  `tools/view.js` `seedRng` LCG installed in the page, seeded **1000** = its `1000 + level*97 + roll*13`
+  at level 0 roll 0), so the PNGs and the probe numbers are one world instead of two maps; and the
+  level-intro banner was ended with the game's own `banner('', 0)`, because the freeze gates the
+  `update()` that owns its timer and a frozen frame otherwise keeps "SECTOR 1 · ARCHIVE SUBLEVEL"
+  across the middle of the picture. **Vitals read 100**, so the damage vignette that sat inside the
+  previous four frames' means (they carried 66 hp) is gone from these. Verification is a **code**
+  marker, not prose: `genLevel.toString().includes('topUpEnabled')` → **true** in the page that rendered
+  them, re-read after the A/B restored the knob, and **12/12** `js` + `index.html` md5-equal to
+  `origin/main`. This session's egress allowlist refuses `lioreshai.github.io`, so the capture ran
+  against the merged tree rendered locally rather than the Pages URL, and the caption says so instead
+  of implying otherwise. What the captions now claim, measured: the pit frame's 16 floor cells
+  (`MAP.fz <= -3`) read mean light **0.630** with **0 of 16** under 0.05, and re-dealing **the same dice**
+  with #210's top-up off (`topUpEnabled` returning false, the `LAMPS=off` knob) puts them at **0.002**
+  with **16 of 16** dark and the lamp list at **7 instead of 10** — lip camera **20.62 → 44.30**,
+  pit-floor camera **36.00 → 168.18** (centre-half **228.92**, `MAP.light 0.908`), which documents
+  #204 as a measurement and records that its symptom has **flipped sign** (filed as **#213**): a lamp
+  in a 5x3 hole now reads near-blown. Two instrument findings, both printed instead of smoothed: an independent PNG
+  decode sits **0.5 to 2.0 BELOW** `DEV.lum` here (−1.96 / −0.53 / −1.58 / −0.71 luma), the opposite
+  sign to the "**+0.1 to +0.3 high**" the last caption recorded, and the PNGs carry no colour chunk; and
+  because film grain cycles **7 phases** (`js/40_render.js:1203`) while the page's own rAF keeps
+  compositing between `eval` calls, a "the frame changed" claim is only meaningful **inside one JS
+  turn** — in-turn the floor is **0.009–0.028 %** of pixels moving >4 luma, across turns an unchanged
+  frame reported **2.872 %**. New finding, filed as **#212**: **the same pit from 1.5 m out is a wall** —
+  **93.8 %** of the pixels above the horizon carry wall texture while `DEV.ray` reports open ground to
+  **9.5 m** and `zbuf` records the face at **0.14–0.21 m** on rows 10…355, falling to 13.5 % at 2.5 m,
+  2.8 % at 3.5 m and 0 % beyond 7.5 m, at a *bright* mean of 71.62, so no brightness gate can see it.
+  Also fixed in passing: the claim that the minimap's band palette is "the only altitude cue" (the spawn
+  frame's minimap is unexplored black), the "0.036 %" noise floor restated as the in-turn number, and
+  the enemies frame's #189 sentence — the staircase case is measured at **8,782 px (0.799 %)** for a body
+  a full band above the camera, so #189 keeps the **deck** repro and not this one.
+
+- README screenshots refreshed from the deployed build carrying `66eea67` (#200) in one `?dev=1`
+  boot, all **11** `js` subresources md5-checked against the tree (11/11; marker `FARFAN` 5 served /
+  5 in `main` / **0** in `main~1`), and the sentences beside them rewritten because one of them was
+  **false**: the captions explained a step-lip camera as dark *because height buys no light*, a
+  diagnosis a 44-sample sweep disproved (**+18.0 ± 19.0** brighter than its own spawn camera at
+  matched lamp distance, frame mean tracking **the camera column's own** `MAP.light` at **r = +0.62**,
+  N = 44), and on this boot the ordering simply inverts (**+31.7** the other way). What #200 changed
+  is the **far band's** source and magnitude — `bands` mean |step| across `FARB` **18.4 / 19.1 / 9.8
+  → 4.2 / 5.8 / 3.4** — and what still leaves geography dark is #199 (`splatLight` discards lamp `z`)
+  plus a fog colour of [17, 13, 10] whose luma is 13.63. Three stale verification claims fixed in
+  passing: the raster buffer is **678×359 upscaled 2.125×** into a 1440×763 canvas, not "1202×676";
+  vitals read **66**, not 58; an independent PNG decode sits **+0.1 to +0.3** from `DEV.lum`, not
+  "about 6 points low". The line claiming the generator authors no walkable band is deleted because
+  **#152 closed** — this roll deals five floor values and walkable links at ±1…±3 quanta.
+
+- README screenshots refreshed from the deployed build carrying `754d9ce` (#196) in one
+  `?dev=1` boot, all 10 `js` subresources md5-checked against the tree (10/10; marker
+  `function slabT(` = 1 deployed, 1 in main, 0 in main~1). Captions state the fix and the two
+  defects it left: a five-tread flight at (6.5, 1.5) draws its risers in wall material but
+  averages 25.6 where the spawn camera averages 96.4 (#197), the pit lip at (10.5, 14.5) is a
+  hard lit face under an unlit black upper half at 19.7 (#16’s missing per-band light), and
+  the same-band hostile shot says out loud that it is not an altitude test (#189 keeps its own
+  repro). The section separates “the stairs draw” from “the level has two floors” (#152),
+  and names the unseated vitals 58 as the damage vignette instead of leaving it inside the means.
+- **The ground-pass diagnostic is a blocking CI row** (#177 follow-up). `cull` now runs twice in the
+  probes job, once plain and once under `LEAK=1 CZBAND=1`, so the wrong-fix falsifier that only those
+  two rows can see - adopting the nearer ceiling plane, which leaves every shipped verdict green -
+  turns the build red instead of being caught by a human who ran the right command. Measured on
+  `main`: the gated row exits 0 with ceiling-step ground hashes `14c12844` / `8ab438b0` / `5a425d84`,
+  and the plain run above it stays byte-identical because the diagnostic is env-gated.
+- **A step you can walk up is now a face you can see** (#192). `castWalls` emitted an air-to-air
+  riser only when `|dq| > 1`, so a staircase tread, a pit lip and a deck edge - all one quantum,
+  which is what the generator authors - were painted as floor from a plane 0.25 m away: `zbuf` said
+  the room below was under the camera, and the lip read as a void or a brighter patch of the same
+  texture. Any `dq != 0` now emits the slab-side face (the crossing stays `VB_THRU`, so 1-quantum
+  steps remain walkable and auto-stepped), risers wear a wall material instead of `MAP.floorTex`, and
+  the seam-for-walkable-step branch is gone because the step is geometry now. A floor-half pixel
+  whose own cell's floor is at or above the eye is no longer refused to the far plane: the deferred
+  copy marches to the boundary the ray slips under (`slabT`), which is where the deck case stopped
+  leaking 380 px instead of 565 on `heights`' stepUp. The DDA's previous-cell lookup is bounds-checked
+  on both axes, where `qy * N + qx` wrapped a border step to the far end of the level. Flat frames are
+  bit-for-bit unchanged (9 frames hashed identical over 3 levels x 3 yaws; `scene` md5s identical on
+  levels 0 and 2). `cull` gains 9 camera-posed rows against generated lips - 2640 px/level of `zbuf`
+  compared to an independent march, 2640 disagreeing on main and 0 here - and `bands`' walk-lip rows
+  now demand the face, their luminance half reporting the #192 debt (26% / 12% on L1 / L2 against the
+  45% bar, hard floor 6%, red under `STRICT=1`).
+- **README screenshots and captions recaptured from the deployed build** (#190). The four shots
+  were two builds out of date and two of the four captions described a different level than the pixels
+  under them. All four are now re-shot from ONE boot of the live site at `?dev=1` (build `dc98788`),
+  byte parity re-checked at commit time: **11/11** `js/` subresources md5-equal against the Pages host
+  with a cache-buster, and the volume marker counts 1 deployed, 1 in `origin/main`, **0** in
+  `origin/main~1`. That roll deals 506 of 676 cells on the datum, 144 at `MAP.fz` 4, 20 at -4 with the
+  quanta-1..3 and -1..-3 stairs, and `MAP.cz` 12 in **70 columns**. The enemies caption now carries
+  the measurement #189 lacked: at a camera 4.50 m short of a lip, a grunt on the camera's own band at
+  3.00 m owns **7,955** px at >30 while each of two grunts on the band above at 8.00 m owns **35**, and
+  the control says why — a **crate** in the same cell at the same range owns **0 px**, so it is the
+  lip's geometry hiding them and not the enemy draw path ignoring `floorAt`. One instrument fact cost an
+  hour and is now written down: `DEV.lum` on the live canvas and the committed PNG of the same frame
+  differ by a systematic ~6 points (48.08 to 45.38, 138.94 to 131.63, 129.82 to 123.20, 117.15 to
+  111.13), which is the screenshot colour path, so single-digit disagreement between a caption and a
+  file is not a defect.
+- **The vertical milestones now say what the tools measure, because one of them said something false.**
+  `AGENTS.md` recorded M3 as shipped - "~~bands + links~~ (issue #14 closed)" - and put the current marker
+  on M4. #14 is **open and was never closed**, and its content never happened: the grid the generator builds
+  is `fzTry`, allocated as an all-zero `Int8Array` at `js/20_level.js:491` and made into `MAP.fz` at `:503`,
+  and **no line writes it**, so `view.js alt` reports
+  `floors 0..0`, a single band per level (`{"0":572}` / `{"0":896}` / `{"0":1146}`) and **`step faces 0`** on
+  all three levels. The honest split, now written in both `AGENTS.md` and `docs/ROADMAP.md`: M3's **physics**
+  shipped and is gated (`drop` lands a 3 m fall at 7.21 m/s against 7.43 predicted, hurts hp −25.32 against
+  the formula's 26.2, and a **blocked** riser stops the player dead - 0.20 m moved in 1 s with `z` unchanged;
+  the lift that does exist is `auto-step` at `js/30_entities.js:376`, eased over ~1/16 s, and `vert` gates it
+  with 1-quantum-over / 2-quantum-stop rows), M3's **generation** did not, so no
+  level in the game has a staircase, a ramp, a ladder or a pit. `docs/ROADMAP.md`'s P0 claim that
+  `drop`/`sight`/`cull`/`horizon` were "still owed" is also retired - all four exist, run in the blocking
+  probe list and pass. The probe that *would* gate flatness (`alt`) is worse than ungated: **it has no
+  `process.exit` in its code path**, so it prints `NOT FLAT - check above`, falls through to the scene dump
+  and exits 0 - a verdict line that cannot fail.
+  Two rules added so this cannot recur: a milestone may only be struck through **with a verdict line beside
+  it**, and a green vertical row must be able to name the line that creates the geometry it tests - every
+  vertical row in the suite builds its own band with `vpoke`, which is why a world with no altitudes passes
+  all of it. Tracked as **#152**; #14 and #15 were rewritten from these measurements (both carried claims the
+  code had since contradicted, #15's being "z is invisible to every existing assert").
+- **A second pass corrected four claims the first pass had made about that correction.** `alt` does not
+  "assert flatness while unparked" - it cannot fail at all (no `process.exit`, `tools/view.js:214-263`). The
+  occupancy gate is not "height-blind": `bfsReach` (`js/20_level.js:117`, used at `:492`) admits crossings
+  of `|Δfz| <= 1` (`:127`), which is why it already accepts steps and **refuses ramps and ladders** (4 quanta)
+  into the fallback box. A step-up lift is not missing - `auto-step` (`js/30_entities.js:376`) eases `P.z` to
+  the floor and `vert` gates it. And the line first cited as the allocation (`:575`) is the **fallback** box;
+  the normal path is `fzTry` at `:491` becoming `MAP.fz` at `:503`. Each was checked in the source before
+  being rewritten here, which is the point: a citation is a claim, and a wrong one costs the next reader more
+  than no citation. Finding them also changed the plan - authored bands must go in **before** `bfsReach` at
+  `:492` (the comment at `:489-490` notes the BFS walks the array `MAP.fz` becomes), or the gate certifies a
+  flat grid the player never receives.
+- **`contrast`'s new exit code made a reporting job blocking, so cam 1's shortfall is a debt row.**
+  The verdict shipped in the previous entry went **FAILURE** in `probes`: `ci.yml:188-192` runs
+  `for p in alt exposure contrast rig stats sheets decal diag` and sets `status=1` if any exits
+  non-zero, so a probe that always exits 1 on unmodified content is a permanent blocking row and
+  `mergeStateStatus` BLOCKED - the job's `continue-on-error` does not help, because the row reports the
+  step's own `exit $status`. Fixed in the tool, not by widening a threshold until the row cannot fail:
+  cam 1's *recorded* separation is now a **known-issue row** in the shape smoke's VERT lanes use
+  (`25 gating row(s), 0 known-issue row(s)`), counted in the verdict line -
+  `CONTRAST 0 FAILURE(S) of 15 rows, 1 known-issue row (reporting: cam 1 #179)`. It reports at the
+  baseline and goes red only when the debt **grows**: below edge dL **15.65** (recorded 16.65 minus 1)
+  or above **41.94%** lost (recorded 37.94% plus 4). Both floors are measured on level 0 SEED 12345 -
+  the configuration CI runs, deterministic to the digit over repeat runs - and bracketed by the knob
+  that moves body shading: unmodified **16.65 / 37.94%** is the debt, `TINT=1` (drops the
+  per-individual colour jitter, a neutral repaint) reads **15.95 / 41.44%** and stays a debt, `TINT=2`
+  (halves the body's light headroom) reads **15.15 / 43.77%** and trips **both** axes, and `DARKRING=1`
+  reads **37.19 / 0%**, which turns the row back into a plain `ok` and drops the count to 0 - paying
+  #179 is visible in the output. `STRICT=1` promotes the row to a hard FAIL (exit 1) so the term that
+  pays the debt can be A/B'd against a green baseline. Everything else keeps its teeth: an empty mask,
+  a nonzero leak, a too-small ring and the cam0/cam2 verdicts stay hard FAILs (cam0 **28 / 17%** and
+  cam2 **68 / 0%** read, so they are not debts), and `NOBODY=1` still prints **12** red rows rather
+  than confident zeros. Control, for a debt row that might be self-cancelling: the patched probe on
+  `a789064` carrying only the `COV` stamping hunks prints the same KNOWN row at exit 0 with identical
+  frame hashes (`63bfcab0 6c3c1250 42f22ef0`) and goes red under `STRICT=1` and `TINT=2` there too, so
+  the row tracks content rather than this branch's tooling - and on pristine `main` the probe cannot
+  even run (`COV is not defined`), because its oracle is the geometry-pass stamp, not the tool.
+- **`contrast`'s mask is coverage now, and the probe can fail.** The silhouette used to be
+  `|A - B| > 4`, where `B` is the same render with `ENEMIES.length = 0`, which cannot credit anything
+  a body changes in the *world*: `B` has none of it, and a shadow falling outside the silhouette joins
+  the mask and moves the sampled edge onto the shadow's own falloff, where `dl` is tiny. That is how
+  a contact shadow measuring a nonzero value on **4,410 of 37,651** body pixels left cam1
+  **bit-identical** (dL 14, lost 44%), while `cull` read **113.0% / 182.3%** of the flat silhouette
+  "surviving" and `cover` went **1.1% → 33.3%** (#179). The mask is now `COV` - who painted each
+  pixel last, stamped at the mesh and billboard write sites, cleared once per frame by `renderWorld`,
+  `null` in play - so a body pixel painted the same colour as the wall is *in* the mask and a shadow
+  behind a body is *background*. Ring = mask pixels with an outside neighbour in the 8-neighbourhood;
+  background reference = the median luminance of those outside neighbours **of the same composited
+  frame**. Five rows per camera with a verdict and a `process.exit`: mask-is-bodies (the enemy-free
+  render's coverage must be empty), silhouette big enough, ring measurable, body reads against the
+  room (the shipped `edge dL >= 24`, plus `lost <= 70%`), and **leak** - pixels the diff mask claims
+  that coverage denies, **0 px on main**, which is the shadow bug made countable. Coverage also sees
+  the pixels the diff mask structurally could not contain: **52 / 566 / 0** body pixels at cam0/cam1/
+  cam2 differ from the enemy-free render by <= 4, i.e. **20% of cam1's silhouette was invisible to
+  the oracle**. Numbers on the same frames, old rule then new: cam0 `0.5%/34/29/13%` →
+  `0.5%/32/28/17%`, cam1 `1.1%/15/14/44%` → `1.4%/12/17/38%` (WEAK under both rules, and now it
+  exits 1), cam2 `0.2%/82/79/1%` → `0.2%/82/68/0%`. Controls, each seen to move the verdict:
+  `NOBODY=1` gives an empty mask and 12 red rows instead of confident zeros, `DARKRING=1` (paint the
+  ring black - the scale a future contour term is judged on) takes cam1 from `17/38%` WEAK to
+  `37/0%` READS, and `TINT=k` flips verdicts at identical mask geometry, which is what the shipped
+  `DEV.set('rim', …)` can no longer do (bodies are meshes since #72; `RIM=0|1` hashes the same frame
+  both ways). Pixels are unchanged: `scene` md5s identical on all three levels, WARM PNG md5
+  identical across 16 interleaved runs, `exposure` ok, `SMOKE PASSED` with the VERT lane at 25
+  gating rows.
+- **Two sentences of the README were stale prose rather than merely old** (#190, alongside the
+  recapture). The first-person viewmodel was still described as Canvas2D art drawn in `renderOverlay`,
+  which #185 ended - it is geometry rasterized inside `renderWorld()` against a swapped scratch depth -
+  and the frame loop was still described as `renderWorld()` + `renderOverlay()` per frame, where the
+  canvas-overlay `drawCalls` counter now reads 0 on a steady frame (`tools/smoke.js:149`) because the
+  rig left that path. Both sentences are cited to the merged files now; the captions themselves were
+  rewritten from live-page measurements, and every number in them was measured at the posed camera on
+  the deployed build.
+- **The LEAK/CZBAND ground-pass diagnostic is a probe now, and it is the row that sees a wrong ceiling
+  fix** (#177). `cull` gained ~200 env-gated lines from `measure/leak-attribution`, rebased onto the
+  engine that #188 left behind it. `LEAK=1` attributes each leak pixel to the row path or the deferred
+  re-solve by SOURCE-transforming the split at `js/40_render.js:468` (never by wrapping it - the wrapper
+  cliff is documented) and stamping provenance off `groundPixel` itself: `ship` / `nodefer` / `alldefer`
+  answer **14,276 / 0 / 194,123** calls per frame, which is the proof the patch is live. On current main
+  the #170 leak set is **0 px on all three levels**, so those rows print `LEAK-VACUUM` with the deferred
+  call count beside them instead of reporting an average over the empty set. `CZBAND=1` is the half that
+  can still fail here: a CEILING step (floors flat, a farther ceiling four cells out) is the mirror of the
+  leak geometry, and the ground pass's framebuffer over it hashes **14c12844 / 8ab438b0 / 5a425d84** on
+  `76e9356` - recorded as a row, not as prose. Two-sided, measured with the probe byte-identical
+  (`b353219a`) and only the engine swapped: the nearer-plane-on-ceiling-rows rule (`eee37f3`, #177's named
+  wrong fix) reads **0ef7fae8 / 0c06c14c / 76e93114** and turns **both** rows red on all three levels
+  (`CULL 6 FAILURES`, exit 1) because that rule also collapses the control - `nodefer` then hashes
+  *equal* to `ship`, i.e. queueing stops mattering - while its own parent (`535e285`) reads
+  **bb92cda0 / 80688d4a / 0186ce30**, the values #177 quotes, so the rule is what moved the number (era
+  held constant, `px differ` identical at 47,431) and **#188's generated volume is what moved those
+  values off main's**. A build with no diagnostic prints **0 rows and exits 0** - silence reading as a
+  pass is why the block also counts its own rows (sabotaged to skip one level it reads `2 of 3` and
+  fails). Parity with `js/` untouched and every var unset: `cull`, `heights`, `planes`, `alt` verdicts
+  identical to `main`, `scene` md5s identical on all three levels, `SMOKE PASSED`.
+
 ### Fixed
+
 - **A step you walk DOWN now has an edge at the lip you are standing at** (#195). `seamCrease` was
   anchored on the **lower** of a step's two floors and always ran its band upward, which is the right
   row for a step up (the eye's floor IS the lower one there) and the wrong one for a step down: the
@@ -561,301 +861,6 @@
   pre-#157 build → exit 3, not a false green. `SND.init(ctx)` is the seam that makes this possible and the
   game never passes an argument. Closes #157.
 
-### Changed
-
-- **"flat md5 parity holds" is a verdict a machine prints** (#211). `flatparity` gained md5 literals in
-  #210 and **no step ran it**, so both triples could have rotted back into a PR caption exactly like the
-  prose they replaced. The required job's `Probe gates` step now runs it (13 modes → **14 invocations**),
-  and one command covers **both** senses because the probe spawns the other lamp record cold rather than
-  waiting for a human to remember the knob — which is the failure mode this issue is about:
-  **PARITY** `[LAMPS=off]` `f9e4da3a / f05beeb5 / d4b2d2cd`, means **79.7 / 34.1 / 47.5** (the
-  formula-collapse proof, the lamp record is `2c5a94f`'s), and **LOCK** `[LAMPS unset]`
-  `4262d051 / f05beeb5 / 050b225e`, means **81.3 / 34.1 / 51.7** (a regression lock on lamp *placement*,
-  green there is not evidence a term is bit-neutral). Cost **+21 s** to the required job, the largest row
-  in it: 3 levels × 4 cold processes, which is what makes the stream comparable across builds. Wiring
-  shown in both directions — this tree **exit 0**; `2c5a94f`'s `js` with these tools → **LOCK FAIL ×2
-  (L0, L2) + census FAIL, exit 1**; these tools with `SHIP` refs set to the OLD triple → **LOCK FAIL ×2,
-  exit 1**, so the row is satisfied by the recorded md5 and not merely by hashes being stable. The
-  blindness is now **printed beside the verdict** instead of buried in the block header: the hashed
-  levels carry **0 / 0 / 0** cells off the datum of **1296**, so `fd = 0` everywhere and the band term is
-  the literal `1` before any sign is read. Consequence, measured and stated rather than glossed: on the
-  one-sided kernel `lf - floor >= -ZQ - 1e-9` **all six rows print `ok`** and BOTH triples hash
-  byte-identical (`flatparity` **exit 0**) — the row added here is blind to that kernel, as #211 says it
-  must be, and reference hashes cannot be narrowed to fix it. CI as a whole still reddens it: the step
-  aborts at `cull` (**CULL 2 FAILURES**) before `flatparity` runs, and `alt`'s direction rows fail
-  **169 / 279 / 117** (measured on this kernel at both `4495c08` and `7f62f82`; #211's body quotes **273**
-  for L1 and that number does not reproduce here). No `js/` line changed: direction rows **0/0/0**, pit
-  dark **0 of 181/194/175** at **0.672/0.631/0.647**, `bands` debt **3 of 27** with L0 face lip **54 %**
-  all unchanged. Closes #211.
-
-- **README screenshots and captions recaptured two merges after the picture changed** (#203, #210).
-  The four shots came from one `?dev=1` boot of `4495c08` at canvas **1440×763** / raster **678×359**,
-  BALANCED, `DEV.freeze(true)` + `DEV.clear()` once and no `startLevel` between shots, with two
-  procedure changes that move the numbers: the level was **dealt from the probe's own dice** (the
-  `tools/view.js` `seedRng` LCG installed in the page, seeded **1000** = its `1000 + level*97 + roll*13`
-  at level 0 roll 0), so the PNGs and the probe numbers are one world instead of two maps; and the
-  level-intro banner was ended with the game's own `banner('', 0)`, because the freeze gates the
-  `update()` that owns its timer and a frozen frame otherwise keeps "SECTOR 1 · ARCHIVE SUBLEVEL"
-  across the middle of the picture. **Vitals read 100**, so the damage vignette that sat inside the
-  previous four frames' means (they carried 66 hp) is gone from these. Verification is a **code**
-  marker, not prose: `genLevel.toString().includes('topUpEnabled')` → **true** in the page that rendered
-  them, re-read after the A/B restored the knob, and **12/12** `js` + `index.html` md5-equal to
-  `origin/main`. This session's egress allowlist refuses `lioreshai.github.io`, so the capture ran
-  against the merged tree rendered locally rather than the Pages URL, and the caption says so instead
-  of implying otherwise. What the captions now claim, measured: the pit frame's 16 floor cells
-  (`MAP.fz <= -3`) read mean light **0.630** with **0 of 16** under 0.05, and re-dealing **the same dice**
-  with #210's top-up off (`topUpEnabled` returning false, the `LAMPS=off` knob) puts them at **0.002**
-  with **16 of 16** dark and the lamp list at **7 instead of 10** — lip camera **20.62 → 44.30**,
-  pit-floor camera **36.00 → 168.18** (centre-half **228.92**, `MAP.light 0.908`), which documents
-  #204 as a measurement and records that its symptom has **flipped sign** (filed as **#213**): a lamp
-  in a 5x3 hole now reads near-blown. Two instrument findings, both printed instead of smoothed: an independent PNG
-  decode sits **0.5 to 2.0 BELOW** `DEV.lum` here (−1.96 / −0.53 / −1.58 / −0.71 luma), the opposite
-  sign to the "**+0.1 to +0.3 high**" the last caption recorded, and the PNGs carry no colour chunk; and
-  because film grain cycles **7 phases** (`js/40_render.js:1203`) while the page's own rAF keeps
-  compositing between `eval` calls, a "the frame changed" claim is only meaningful **inside one JS
-  turn** — in-turn the floor is **0.009–0.028 %** of pixels moving >4 luma, across turns an unchanged
-  frame reported **2.872 %**. New finding, filed as **#212**: **the same pit from 1.5 m out is a wall** —
-  **93.8 %** of the pixels above the horizon carry wall texture while `DEV.ray` reports open ground to
-  **9.5 m** and `zbuf` records the face at **0.14–0.21 m** on rows 10…355, falling to 13.5 % at 2.5 m,
-  2.8 % at 3.5 m and 0 % beyond 7.5 m, at a *bright* mean of 71.62, so no brightness gate can see it.
-  Also fixed in passing: the claim that the minimap's band palette is "the only altitude cue" (the spawn
-  frame's minimap is unexplored black), the "0.036 %" noise floor restated as the in-turn number, and
-  the enemies frame's #189 sentence — the staircase case is measured at **8,782 px (0.799 %)** for a body
-  a full band above the camera, so #189 keeps the **deck** repro and not this one.
-
-
-- README screenshots refreshed from the deployed build carrying `66eea67` (#200) in one `?dev=1`
-  boot, all **11** `js` subresources md5-checked against the tree (11/11; marker `FARFAN` 5 served /
-  5 in `main` / **0** in `main~1`), and the sentences beside them rewritten because one of them was
-  **false**: the captions explained a step-lip camera as dark *because height buys no light*, a
-  diagnosis a 44-sample sweep disproved (**+18.0 ± 19.0** brighter than its own spawn camera at
-  matched lamp distance, frame mean tracking **the camera column's own** `MAP.light` at **r = +0.62**,
-  N = 44), and on this boot the ordering simply inverts (**+31.7** the other way). What #200 changed
-  is the **far band's** source and magnitude — `bands` mean |step| across `FARB` **18.4 / 19.1 / 9.8
-  → 4.2 / 5.8 / 3.4** — and what still leaves geography dark is #199 (`splatLight` discards lamp `z`)
-  plus a fog colour of [17, 13, 10] whose luma is 13.63. Three stale verification claims fixed in
-  passing: the raster buffer is **678×359 upscaled 2.125×** into a 1440×763 canvas, not "1202×676";
-  vitals read **66**, not 58; an independent PNG decode sits **+0.1 to +0.3** from `DEV.lum`, not
-  "about 6 points low". The line claiming the generator authors no walkable band is deleted because
-  **#152 closed** — this roll deals five floor values and walkable links at ±1…±3 quanta.
-
-- README screenshots refreshed from the deployed build carrying `754d9ce` (#196) in one
-  `?dev=1` boot, all 10 `js` subresources md5-checked against the tree (10/10; marker
-  `function slabT(` = 1 deployed, 1 in main, 0 in main~1). Captions state the fix and the two
-  defects it left: a five-tread flight at (6.5, 1.5) draws its risers in wall material but
-  averages 25.6 where the spawn camera averages 96.4 (#197), the pit lip at (10.5, 14.5) is a
-  hard lit face under an unlit black upper half at 19.7 (#16’s missing per-band light), and
-  the same-band hostile shot says out loud that it is not an altitude test (#189 keeps its own
-  repro). The section separates “the stairs draw” from “the level has two floors” (#152),
-  and names the unseated vitals 58 as the damage vignette instead of leaving it inside the means.
-- **The ground-pass diagnostic is a blocking CI row** (#177 follow-up). `cull` now runs twice in the
-  probes job, once plain and once under `LEAK=1 CZBAND=1`, so the wrong-fix falsifier that only those
-  two rows can see - adopting the nearer ceiling plane, which leaves every shipped verdict green -
-  turns the build red instead of being caught by a human who ran the right command. Measured on
-  `main`: the gated row exits 0 with ceiling-step ground hashes `14c12844` / `8ab438b0` / `5a425d84`,
-  and the plain run above it stays byte-identical because the diagnostic is env-gated.
-- **A step you can walk up is now a face you can see** (#192). `castWalls` emitted an air-to-air
-  riser only when `|dq| > 1`, so a staircase tread, a pit lip and a deck edge - all one quantum,
-  which is what the generator authors - were painted as floor from a plane 0.25 m away: `zbuf` said
-  the room below was under the camera, and the lip read as a void or a brighter patch of the same
-  texture. Any `dq != 0` now emits the slab-side face (the crossing stays `VB_THRU`, so 1-quantum
-  steps remain walkable and auto-stepped), risers wear a wall material instead of `MAP.floorTex`, and
-  the seam-for-walkable-step branch is gone because the step is geometry now. A floor-half pixel
-  whose own cell's floor is at or above the eye is no longer refused to the far plane: the deferred
-  copy marches to the boundary the ray slips under (`slabT`), which is where the deck case stopped
-  leaking 380 px instead of 565 on `heights`' stepUp. The DDA's previous-cell lookup is bounds-checked
-  on both axes, where `qy * N + qx` wrapped a border step to the far end of the level. Flat frames are
-  bit-for-bit unchanged (9 frames hashed identical over 3 levels x 3 yaws; `scene` md5s identical on
-  levels 0 and 2). `cull` gains 9 camera-posed rows against generated lips - 2640 px/level of `zbuf`
-  compared to an independent march, 2640 disagreeing on main and 0 here - and `bands`' walk-lip rows
-  now demand the face, their luminance half reporting the #192 debt (26% / 12% on L1 / L2 against the
-  45% bar, hard floor 6%, red under `STRICT=1`).
-- **README screenshots and captions recaptured from the deployed build** (#190). The four shots
-  were two builds out of date and two of the four captions described a different level than the pixels
-  under them. All four are now re-shot from ONE boot of the live site at `?dev=1` (build `dc98788`),
-  byte parity re-checked at commit time: **11/11** `js/` subresources md5-equal against the Pages host
-  with a cache-buster, and the volume marker counts 1 deployed, 1 in `origin/main`, **0** in
-  `origin/main~1`. That roll deals 506 of 676 cells on the datum, 144 at `MAP.fz` 4, 20 at -4 with the
-  quanta-1..3 and -1..-3 stairs, and `MAP.cz` 12 in **70 columns**. The enemies caption now carries
-  the measurement #189 lacked: at a camera 4.50 m short of a lip, a grunt on the camera's own band at
-  3.00 m owns **7,955** px at >30 while each of two grunts on the band above at 8.00 m owns **35**, and
-  the control says why — a **crate** in the same cell at the same range owns **0 px**, so it is the
-  lip's geometry hiding them and not the enemy draw path ignoring `floorAt`. One instrument fact cost an
-  hour and is now written down: `DEV.lum` on the live canvas and the committed PNG of the same frame
-  differ by a systematic ~6 points (48.08 to 45.38, 138.94 to 131.63, 129.82 to 123.20, 117.15 to
-  111.13), which is the screenshot colour path, so single-digit disagreement between a caption and a
-  file is not a defect.
-- **The vertical milestones now say what the tools measure, because one of them said something false.**
-  `AGENTS.md` recorded M3 as shipped - "~~bands + links~~ (issue #14 closed)" - and put the current marker
-  on M4. #14 is **open and was never closed**, and its content never happened: the grid the generator builds
-  is `fzTry`, allocated as an all-zero `Int8Array` at `js/20_level.js:491` and made into `MAP.fz` at `:503`,
-  and **no line writes it**, so `view.js alt` reports
-  `floors 0..0`, a single band per level (`{"0":572}` / `{"0":896}` / `{"0":1146}`) and **`step faces 0`** on
-  all three levels. The honest split, now written in both `AGENTS.md` and `docs/ROADMAP.md`: M3's **physics**
-  shipped and is gated (`drop` lands a 3 m fall at 7.21 m/s against 7.43 predicted, hurts hp −25.32 against
-  the formula's 26.2, and a **blocked** riser stops the player dead - 0.20 m moved in 1 s with `z` unchanged;
-  the lift that does exist is `auto-step` at `js/30_entities.js:376`, eased over ~1/16 s, and `vert` gates it
-  with 1-quantum-over / 2-quantum-stop rows), M3's **generation** did not, so no
-  level in the game has a staircase, a ramp, a ladder or a pit. `docs/ROADMAP.md`'s P0 claim that
-  `drop`/`sight`/`cull`/`horizon` were "still owed" is also retired - all four exist, run in the blocking
-  probe list and pass. The probe that *would* gate flatness (`alt`) is worse than ungated: **it has no
-  `process.exit` in its code path**, so it prints `NOT FLAT - check above`, falls through to the scene dump
-  and exits 0 - a verdict line that cannot fail.
-  Two rules added so this cannot recur: a milestone may only be struck through **with a verdict line beside
-  it**, and a green vertical row must be able to name the line that creates the geometry it tests - every
-  vertical row in the suite builds its own band with `vpoke`, which is why a world with no altitudes passes
-  all of it. Tracked as **#152**; #14 and #15 were rewritten from these measurements (both carried claims the
-  code had since contradicted, #15's being "z is invisible to every existing assert").
-- **A second pass corrected four claims the first pass had made about that correction.** `alt` does not
-  "assert flatness while unparked" - it cannot fail at all (no `process.exit`, `tools/view.js:214-263`). The
-  occupancy gate is not "height-blind": `bfsReach` (`js/20_level.js:117`, used at `:492`) admits crossings
-  of `|Δfz| <= 1` (`:127`), which is why it already accepts steps and **refuses ramps and ladders** (4 quanta)
-  into the fallback box. A step-up lift is not missing - `auto-step` (`js/30_entities.js:376`) eases `P.z` to
-  the floor and `vert` gates it. And the line first cited as the allocation (`:575`) is the **fallback** box;
-  the normal path is `fzTry` at `:491` becoming `MAP.fz` at `:503`. Each was checked in the source before
-  being rewritten here, which is the point: a citation is a claim, and a wrong one costs the next reader more
-  than no citation. Finding them also changed the plan - authored bands must go in **before** `bfsReach` at
-  `:492` (the comment at `:489-490` notes the BFS walks the array `MAP.fz` becomes), or the gate certifies a
-  flat grid the player never receives.
-- **`contrast`'s new exit code made a reporting job blocking, so cam 1's shortfall is a debt row.**
-  The verdict shipped in the previous entry went **FAILURE** in `probes`: `ci.yml:188-192` runs
-  `for p in alt exposure contrast rig stats sheets decal diag` and sets `status=1` if any exits
-  non-zero, so a probe that always exits 1 on unmodified content is a permanent blocking row and
-  `mergeStateStatus` BLOCKED - the job's `continue-on-error` does not help, because the row reports the
-  step's own `exit $status`. Fixed in the tool, not by widening a threshold until the row cannot fail:
-  cam 1's *recorded* separation is now a **known-issue row** in the shape smoke's VERT lanes use
-  (`25 gating row(s), 0 known-issue row(s)`), counted in the verdict line -
-  `CONTRAST 0 FAILURE(S) of 15 rows, 1 known-issue row (reporting: cam 1 #179)`. It reports at the
-  baseline and goes red only when the debt **grows**: below edge dL **15.65** (recorded 16.65 minus 1)
-  or above **41.94%** lost (recorded 37.94% plus 4). Both floors are measured on level 0 SEED 12345 -
-  the configuration CI runs, deterministic to the digit over repeat runs - and bracketed by the knob
-  that moves body shading: unmodified **16.65 / 37.94%** is the debt, `TINT=1` (drops the
-  per-individual colour jitter, a neutral repaint) reads **15.95 / 41.44%** and stays a debt, `TINT=2`
-  (halves the body's light headroom) reads **15.15 / 43.77%** and trips **both** axes, and `DARKRING=1`
-  reads **37.19 / 0%**, which turns the row back into a plain `ok` and drops the count to 0 - paying
-  #179 is visible in the output. `STRICT=1` promotes the row to a hard FAIL (exit 1) so the term that
-  pays the debt can be A/B'd against a green baseline. Everything else keeps its teeth: an empty mask,
-  a nonzero leak, a too-small ring and the cam0/cam2 verdicts stay hard FAILs (cam0 **28 / 17%** and
-  cam2 **68 / 0%** read, so they are not debts), and `NOBODY=1` still prints **12** red rows rather
-  than confident zeros. Control, for a debt row that might be self-cancelling: the patched probe on
-  `a789064` carrying only the `COV` stamping hunks prints the same KNOWN row at exit 0 with identical
-  frame hashes (`63bfcab0 6c3c1250 42f22ef0`) and goes red under `STRICT=1` and `TINT=2` there too, so
-  the row tracks content rather than this branch's tooling - and on pristine `main` the probe cannot
-  even run (`COV is not defined`), because its oracle is the geometry-pass stamp, not the tool.
-- **`contrast`'s mask is coverage now, and the probe can fail.** The silhouette used to be
-  `|A - B| > 4`, where `B` is the same render with `ENEMIES.length = 0`, which cannot credit anything
-  a body changes in the *world*: `B` has none of it, and a shadow falling outside the silhouette joins
-  the mask and moves the sampled edge onto the shadow's own falloff, where `dl` is tiny. That is how
-  a contact shadow measuring a nonzero value on **4,410 of 37,651** body pixels left cam1
-  **bit-identical** (dL 14, lost 44%), while `cull` read **113.0% / 182.3%** of the flat silhouette
-  "surviving" and `cover` went **1.1% → 33.3%** (#179). The mask is now `COV` - who painted each
-  pixel last, stamped at the mesh and billboard write sites, cleared once per frame by `renderWorld`,
-  `null` in play - so a body pixel painted the same colour as the wall is *in* the mask and a shadow
-  behind a body is *background*. Ring = mask pixels with an outside neighbour in the 8-neighbourhood;
-  background reference = the median luminance of those outside neighbours **of the same composited
-  frame**. Five rows per camera with a verdict and a `process.exit`: mask-is-bodies (the enemy-free
-  render's coverage must be empty), silhouette big enough, ring measurable, body reads against the
-  room (the shipped `edge dL >= 24`, plus `lost <= 70%`), and **leak** - pixels the diff mask claims
-  that coverage denies, **0 px on main**, which is the shadow bug made countable. Coverage also sees
-  the pixels the diff mask structurally could not contain: **52 / 566 / 0** body pixels at cam0/cam1/
-  cam2 differ from the enemy-free render by <= 4, i.e. **20% of cam1's silhouette was invisible to
-  the oracle**. Numbers on the same frames, old rule then new: cam0 `0.5%/34/29/13%` →
-  `0.5%/32/28/17%`, cam1 `1.1%/15/14/44%` → `1.4%/12/17/38%` (WEAK under both rules, and now it
-  exits 1), cam2 `0.2%/82/79/1%` → `0.2%/82/68/0%`. Controls, each seen to move the verdict:
-  `NOBODY=1` gives an empty mask and 12 red rows instead of confident zeros, `DARKRING=1` (paint the
-  ring black - the scale a future contour term is judged on) takes cam1 from `17/38%` WEAK to
-  `37/0%` READS, and `TINT=k` flips verdicts at identical mask geometry, which is what the shipped
-  `DEV.set('rim', …)` can no longer do (bodies are meshes since #72; `RIM=0|1` hashes the same frame
-  both ways). Pixels are unchanged: `scene` md5s identical on all three levels, WARM PNG md5
-  identical across 16 interleaved runs, `exposure` ok, `SMOKE PASSED` with the VERT lane at 25
-  gating rows.
-- **Two sentences of the README were stale prose rather than merely old** (#190, alongside the
-  recapture). The first-person viewmodel was still described as Canvas2D art drawn in `renderOverlay`,
-  which #185 ended - it is geometry rasterized inside `renderWorld()` against a swapped scratch depth -
-  and the frame loop was still described as `renderWorld()` + `renderOverlay()` per frame, where the
-  canvas-overlay `drawCalls` counter now reads 0 on a steady frame (`tools/smoke.js:149`) because the
-  rig left that path. Both sentences are cited to the merged files now; the captions themselves were
-  rewritten from live-page measurements, and every number in them was measured at the posed camera on
-  the deployed build.
-- **The LEAK/CZBAND ground-pass diagnostic is a probe now, and it is the row that sees a wrong ceiling
-  fix** (#177). `cull` gained ~200 env-gated lines from `measure/leak-attribution`, rebased onto the
-  engine that #188 left behind it. `LEAK=1` attributes each leak pixel to the row path or the deferred
-  re-solve by SOURCE-transforming the split at `js/40_render.js:468` (never by wrapping it - the wrapper
-  cliff is documented) and stamping provenance off `groundPixel` itself: `ship` / `nodefer` / `alldefer`
-  answer **14,276 / 0 / 194,123** calls per frame, which is the proof the patch is live. On current main
-  the #170 leak set is **0 px on all three levels**, so those rows print `LEAK-VACUUM` with the deferred
-  call count beside them instead of reporting an average over the empty set. `CZBAND=1` is the half that
-  can still fail here: a CEILING step (floors flat, a farther ceiling four cells out) is the mirror of the
-  leak geometry, and the ground pass's framebuffer over it hashes **14c12844 / 8ab438b0 / 5a425d84** on
-  `76e9356` - recorded as a row, not as prose. Two-sided, measured with the probe byte-identical
-  (`b353219a`) and only the engine swapped: the nearer-plane-on-ceiling-rows rule (`eee37f3`, #177's named
-  wrong fix) reads **0ef7fae8 / 0c06c14c / 76e93114** and turns **both** rows red on all three levels
-  (`CULL 6 FAILURES`, exit 1) because that rule also collapses the control - `nodefer` then hashes
-  *equal* to `ship`, i.e. queueing stops mattering - while its own parent (`535e285`) reads
-  **bb92cda0 / 80688d4a / 0186ce30**, the values #177 quotes, so the rule is what moved the number (era
-  held constant, `px differ` identical at 47,431) and **#188's generated volume is what moved those
-  values off main's**. A build with no diagnostic prints **0 rows and exits 0** - silence reading as a
-  pass is why the block also counts its own rows (sabotaged to skip one level it reads `2 of 3` and
-  fails). Parity with `js/` untouched and every var unset: `cull`, `heights`, `planes`, `alt` verdicts
-  identical to `main`, `scene` md5s identical on all three levels, `SMOKE PASSED`.
-### Added
-- **The exposure gate now samples the frame the player actually sees first, and it fails on its own.**
-  Every brightness sampler in the repo — `tools/view.js exposure`, `tools/ci/assert.js exposure` — parked
-  the camera in an arbitrary open cell, spun it through 6 yaws and ran 20–120 `update()` frames before
-  measuring, so all of them asserted a *median over rolls of a pose nobody plays* while the first frame of
-  the level was in no gate: the live page read **12.73 / 51.41 / 129.07** means (mids 18.34 / 47.93 /
-  149.40) at the spawn pose against the 60–100 target, while the same build asserted **86 / 90 / 73**
-  (#155). `view.js exposure` now prints a **spawn** column (mean + centre-half `mid`, same dice as its
-  rolls column, on the same generated level, no `update()`), and `tools/ci/assert.js exposure` asserts it
-  on a separate band, **35–75** on the composited frame, in a verdict that accounts for both numbers. The
-  band is the gap between two rendered failure states, not a fit: measured on this geometry, a spawn frame
-  with every lamp unlit reads **13.0 / 14.4 / 32.2** (and 3.7–17.3 with the ambient zeroed too) while a
-  lamp 1 m from the lens reads **79.4–137.5** mean, so 35 sits above the brightest unlit render and 75
-  below the dimmest lamp-in-the-lens view. It is asserted on the median of the same 5 seeded rolls because
-  one fixed pose is a view class rather than a property of the level — the per-roll values range 21–137
-  and straddle *both* anchors, so they are printed and not judged; `mid` is printed and not judged because
-  its anchors overlap (a lightless level 2 reads mid 40.1 while L1's spawn median mid is 31). Two controls,
-  both reverted: narrowing `SPAWN_MAX` to 55 fails level 0's spawn line with the median line still `ok`
-  (exit 1), and zeroing `MAP.light` at the spawn frame only collapses the spawn numbers to 13 / 15 / 29
-  while the asserted medians stay 86 / 90 / 73 — #155's defect class, caught. The pose is written
-  explicitly rather than trusted: `P.ang` is the heading (there is no `P.yaw`), and `P.z` is the **feet** —
-  `js/40_render.js:103` adds `cfg.eye`, so setting `floorAt + cfg.eye` would have raised the eye a full
-  unit off the floor and measured a floating camera. No light authoring or lamp placement is touched here:
-  that is the follow-up once #149 lands, and if it brightens spawn views past 75 this step goes red and the
-  band gets re-derived from the two anchors, not nudged.
-- **`DEV.lum([{stride}])` reports the luminance of the frame the player actually sees, and CI prints it.**
-  `mean` is Rec.709 luma over the whole display canvas (after bloom, grade, grain and the HUD), `mid` over the
-  centre half-window - two windows that are not interchangeable, and on this layer `mid` runs 8 to 20 points
-  above `mean`, which is the conflation that produced #117 and #139. `tools/ci/assert.js exposure` drives the
-  system Chrome over the DevTools protocol with node built-ins only (no dependencies; `tools/ci/no-deps.js`
-  still guards the tree) and asserts the **median of 5 seeded rolls per level** inside 60-100, printing the roll
-  spread and never asserting it, because that spread is 18-70 points, wider than the window (#87). The dice are
-  `view.js exposure`'s own (`1000 + level*97 + roll*13`) so the two tools look at the same levels. Exit codes are
-  distinct - 1 outside, 3 NOT MEASURED - so a run that could not reach the canvas never reports a passing grade
-  (#122). #47's premise was understated: there was no `DEV.meanLum` and no exposure assert in `tools/smoke.js`
-  at all, so no CI job gated brightness on **any** layer. The step ships `continue-on-error: true` because it is
-  red on `main` today: level 2's median is **53 on the raster and 38 composited**, against 73/91 and 76/86 on
-  levels 0 and 1, and a blocking check that is already overdue deadlocks its own introducing PR. #143 carries
-  the numbers and the flip condition.
-- **Two rules that were fixed and never asserted now have gates.** The exit changes level through a test that
-  includes a band (#105: an xy-only test let the level change from a cell whose floor was a unit below), and a
-  pickup has a 0.6 m vertical window (#109: xy proximity took it while the player hovered above it). Neither had
-  a regression test: risk #3 in AGENTS.md says as much - nearly every assert in the repo compares x and y.
-  Six new VERT rows (the lane goes 15 -> 21 gating rows) stand in the neighbour cell 0.40 m from a parked exit on
-  a floor 0.25 above its floor and require the level to stay put, then flatten that floor and require it to
-  advance; and stand on a pickup at 0.00 m, 0.50 m above it and 0.90 m above it, requiring it taken, taken (a jump
-  peaks at 0.489 m so grabbing mid-air has to keep working) and left. Both rows are self-controlled, and both
-  controls were run: deleting #105's band term turns V16 red on all three levels with nothing else failing,
-  deleting #109's window turns V17 red on the 0.90 m half with nothing else failing. Writing them found two ways
-  to be silently vacuous - on the last level `nextLevel()` ends the run instead of incrementing `S.level`, and
-  `takePickup` sets `k.dead` rather than splicing and REFUSES a health pickup at hp 100, so counting array length
-  at full health fails a build that is behaving correctly.
-
-### Added
-
-### Changed
-
-### Fixed
 - **Level 2 was dark before any post-processing: its lamp count never grew with its size.** `js/20_level.js:530`
   loops `cfgL.lamps`, which is **6 / 8 / 9** for sizes **26 / 32 / 36** - 0.0089 lamps per cell on level 0 against
   **0.0069** on level 2, 22% sparser in the biggest level. Its raster median read **42.5** (53 by the even-count
