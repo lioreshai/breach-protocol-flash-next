@@ -208,6 +208,46 @@ const release = () => fire('mouseup', { button: 0 });
   frames(60);
   const lm2 = vm.runInContext('MAP.light[(P.y|0)*MW+(P.x|0)]', ctxVm);
   expect('blast light fully fades out', Math.abs(lm2 - lm0) < 0.01, `${lm0.toFixed(3)} -> ${lm2.toFixed(3)}`);
+  /* #206 targeted check: a transient splat whose disc straddles a BAND BOUNDARY. The permanent-light
+     risk this repo carries is "a fading transient re-splats its delta; if light were per-band, an
+     un-splat could land in a band the source never lit and leave light behind". Light stayed ONE
+     VALUE PER COLUMN and the band rule lives in the kernels (splat wv, blur gate), so add and remove
+     run over the same cells in the same array. This asserts both halves on a real boundary: the
+     splat touches ZERO cells whose floor is more than one quantum off the source's floor (a z-less
+     transient emits from its own cell's floor, so it can never paint the band across a slab), and
+     the cancel returns MAP.light to the snapshot (max drift < 1e-3). In-band cells MUST move, or the
+     world had no boundary and the check is vacuity - same rule as everywhere else. */
+  const tcs = vm.runInContext(`(()=>{
+    const N=MAP.w, fz=MAP.fz, cell=MAP.cell;
+    let bi=-1;
+    for(let i=0;i<N*N&&bi<0;i++){ if(cell[i])continue; const x=i%N,y=(i/N)|0;
+      for(let d=1;d<4;d++){const nx=x+DIRX[d],ny=y+DIRY[d];
+        if(nx<0||ny<0||nx>=N||ny>=N||cell[ny*N+nx])continue;
+        if(Math.abs(fz[ny*N+nx]-fz[i])>1){bi=i;break;}}}
+    if(bi<0)return{found:false};
+    const snap=MAP.light.slice(0);
+    const keep=[MAP.light.slice(0),MAP.lR.slice(0),MAP.lG.slice(0),MAP.lB.slice(0),MAP.lw.slice(0)];
+    const bx=(bi%N)+0.5, by=((bi/N)|0)+0.5;
+    const L={x:bx,y:by,r:7.5,str:1.0,col:[255,205,150]};
+    splatLight(L,0.6);
+    let cross=0,band=0;
+    const srcF=floorAt(bx,by);
+    for(let i=0;i<N*N;i++){ const dl=MAP.light[i]-snap[i]; if(dl<=1e-9)continue;
+      if(Math.abs(fz[i]*ZQ-srcF)>ZQ+1e-9)cross++; else band++; }
+    splatLight(L,-0.6);
+    let drift=0;
+    for(let i=0;i<N*N;i++)drift=Math.max(drift,Math.abs(MAP.light[i]-snap[i]));
+    MAP.light=keep[0]; MAP.lR=keep[1]; MAP.lG=keep[2]; MAP.lB=keep[3]; MAP.lw=keep[4];
+    MAP.tintDirty=true;
+    return{found:true,cross:cross,band:band,drift:drift};
+  })()`, ctxVm);
+  expect('boundary pair exists on this level (#206 check)', tcs.found === true);
+  if (tcs.found) {
+    expect('transient splat at a band edge paints no wrong-band cell', tcs.cross === 0,
+      `${tcs.cross} cells beyond one quantum of the source floor were touched, ${tcs.band} in-band`);
+    expect('transient at a band edge leaves no permanent light', tcs.drift < 1e-3,
+      `max |MAP.light - snapshot| after splat+cancel ${tcs.drift.toExponential(1)} on ${tcs.band} in-band cells`);
+  }
   // isolate the duck check: cooldown every hostile and drop every pickup, so the only
   // things that can happen are the orb hitting or still flying
   const orb = `PROJ.push({kind:'orb',x:P.x,y:P.y,z:0.9,vx:0,vy:0,vz:0,t:2,tex:PROP.orb[0],scale:0.42,dmg:9})`;

@@ -685,26 +685,35 @@ if (MODE === 'alt') {
      same numbers tools/ci/assert.js rolls), the GENERATED grid with nothing poked - the config that
      exercises these rows is generation itself (#152), so a placement rule that wrote MAP.fz would show
      up here - and the DELIVERED lightmap as startLevel leaves it (splat + blurLight + buildTint).
-     Delivered is the point: blurLight carries light across a lip, so the wrong-band population is not
-     zero and cannot be, which is why #206's criterion is "must not grow past the recorded population"
-     and not "= 0". An in-band source is the KERNEL's own band term restated on the source's FLOOR -
+     Delivered is the point: until #206 the blur carried light across a lip, so the wrong-band
+     population was not zero and could not be, which is why #206's criterion was "must not grow past
+     the recorded population" and not "= 0". #206 chose option A - the blur now applies the splat
+     kernel's own band term (one quantum of floor difference per hop), so what remains is the
+     staircase residue: one blur pass spans one intermediate cell, a source exactly 2 quanta off a
+     cell's floor can still light the far side of a step. That residue is the recorded floor. An
+     in-band source is the KERNEL's own band term restated on the source's FLOOR -
      LHOVER comes off an authored lamp, a z-less source is already standing on its floor - rather than
      the old LIGHT_REACH constant, which #208 deleted together with the emitter-height reach it named; a
      probe string that read that constant would throw here, which is the AGENTS lesson that a probe
      string can be the only reader a "dead" field has. Recorded on 2c5a94f under this floor-referenced
      test, 12 rolls: pit-dark 117/71/62 of 181/194/175 cells (MAP.fz <= -3) at mean light
      0.077/0.174/0.230, wrong-band-lit 123/377/337 at 0.231/0.254/0.311, no-source-in-disc
-     976/1537/1140. A pit-dark of 0 with pit 0 would be vacuity rather than a fix, so the population
+     976/1537/1140. Recorded on df919c3 after #206's blur gate, same dice: wrong-band-lit 21/19/19 at
+     0.186/0.177/0.251 (the bleeding kernel measured 37/49/75 there). A pit-dark of 0 with pit 0 would be vacuity rather than a fix, so the population
      rides along in the detail and pit > 0 is part of the assertion. */
   {
-    const MAIN_PIT = [181, 194, 175], MAIN_OOB = [123, 377, 337];
+    const MAIN_PIT = [181, 194, 175], MAIN_OOB = [21, 19, 19];   // #206: recorded on the gated kernel; the bleeding kernel was 123/377/337 (2c5a94f) / 37/49/75 (df919c3)
     /* #213: dark-OPEN cells recorded at the shipped lamp record, per level, over these same 12 rolls. A
        top-up source whose intensity drops pays for dimmer pit light with darker floor somewhere else, and
        that is the trade this refuses - the T64M0.35 variant of the sweep is exactly "coverage sold to buy
        dim" (+247/+497/+329 here). The 1.02 tolerance is measured slack, not a guessed one: the shipped pair
        (TARGET 32, MINF 0.5) lands at +1/+4/+2 over these references, and the variant above sits 25-45x
-       further out, so the row cannot be tightened into a coin flip or widened into a no-op. */
-    const TOPUP_DARK_REF = [252, 1083, 872];
+       further out, so the row cannot be tightened into a coin flip or widened into a no-op.
+       #206 re-recorded these values to 307/1142/1001: with the blur band gate, the cells whose ONLY
+       light was the cross-band bleed become honestly dark (+54/+55/+127 over the pre-gate readings
+       253/1087/874 on df919c3 - the wrong-band population this fix deletes, reclassified, not new
+       darkness). The slack and the T64M0.35 distance from it are unchanged. */
+    const TOPUP_DARK_REF = [307, 1142, 1001];
     for (let lv = 0; lv < 3; lv++) {
       const A = { pit: 0, pitDark: 0, pitSum: 0, oob: 0, oobSum: 0, nosrc: 0, dark: 0, open: 0, lamps: 0, pitRolls: 0, noPitAt: [] };
       for (let r = 0; r < 12; r++) {
@@ -738,7 +747,7 @@ if (MODE === 'alt') {
       const dref = Math.round(1.02 * TOPUP_DARK_REF[lv]);
       /* One row for the whole pit criterion, because either half alone passes on a world that broke the
          other: "no dark pit cell" was green while the pit was a white box (DEV.lum 168 mean / 229 mid,
-         #213), and "pit light below the ceiling" would be green on the LAMPS=off world that has 118/72/62
+         #213), and "pit light below the ceiling" would be green on the LAMPS=off world that has 181/177/146
          dark cells (117/71/62 where #204 measured it on 2c5a94f). The four clauses are printed with their
          values because the row is the record. NO
          composited-frame threshold is asserted here: the sweep measured the WORST pit frame as immovable by
@@ -748,7 +757,7 @@ if (MODE === 'alt') {
       row(`L${lv} a pit reads lit, not blown`,
         A.pitDark === 0 && A.pit > 0 && A.pitSum / A.pit <= 0.55 && A.dark <= dref,
         `(1) ${A.pitDark} of ${A.pit} pit cells (MAP.fz <= -3, main has ${MAIN_PIT[lv]} of them) hold less than 0.05 delivered`
-        + ` light (the LAMPS=off control measures 118/72/62 here and 117/71/62 on 2c5a94f) - (2) that population exists in ${A.pitRolls} of`
+        + ` light (the LAMPS=off control measures 181/177/146 here on the gated kernel - 118/72/62 before #206, when datum tails reached into pits, and 117/71/62 on 2c5a94f) - (2) that population exists in ${A.pitRolls} of`
         + ` the 12 rolls${A.noPitAt.length ? `, no pit at roll${A.noPitAt.length > 1 ? 's' : ''} ${A.noPitAt.join(' and ')}` : ''}, so this is not a row silently running on two levels - (3) mean delivered light there ${A.pit ? (A.pitSum / A.pit).toFixed(3) : 'no pit at all'} against the 0.55 ceiling`
         + ` (main's unscaled top-up 0.672/0.631/0.647, which is the #213 white box) - (4) ${A.dark} dark of ${A.open} open cells against`
         + ` ${dref} = round(1.02 x ${TOPUP_DARK_REF[lv]}). ${(A.lamps / 12).toFixed(2)} lamps/instance (main 7/9/17), ${A.nosrc} cells with no`
@@ -756,9 +765,9 @@ if (MODE === 'alt') {
         + ` frame is 157.1/162.5/183.8 mean and 206.6/213.9/245.0 centre-half mid in the COMPOSITED page for`
         + ` these parameters and is unchanged by lamp intensity at all (#221, the glow overlay has no altitude term).`);
       row(`L${lv} delivered wrong-band light does not spread`, A.oob <= MAIN_OOB[lv],
-        `${A.oob} open cell(s) hold delivered light with NO source standing on their own band within reach (recorded on main: ${MAIN_OOB[lv]}), mean`
-        + ` light there ${A.oob ? (A.oobSum / A.oob).toFixed(3) : '-'} (main: 0.231/0.254/0.311). This population is blurLight's doing, not a lamp's (#206), so 0 is`
-        + ` not the target - growing it past main would mean lamps authored off their own floor, which is the #204 control that measured 155/194/169 pit cells`);
+        `${A.oob} open cell(s) hold delivered light with NO source standing on their own band within reach (recorded on the #206-gated kernel: ${MAIN_OOB[lv]}; the bleeding kernel was 123/377/337 on 2c5a94f and 37/49/75 on df919c3), mean`
+        + ` light there ${A.oob ? (A.oobSum / A.oob).toFixed(3) : '-'} (gated: 0.186/0.177/0.251; bleeding main: 0.231/0.254/0.311). #206 gated the blur with the splat kernel's own band term, so what is left is staircase residue: one blur pass spans one intermediate cell and a source exactly 2 quanta off a floor can light the far side of a step. That residue is the record, not a leak -`
+        + ` growing past it means the gate was weakened or lamps were authored off their own floor, which is the #204 control that measured 155/194/169 pit cells`);
     }
   }
   /* #221: the glow is composited, not splatted, so the lightmap's band term never reached it. A lamp
@@ -779,7 +788,11 @@ if (MODE === 'alt') {
      comparable across builds because the falloff model is a fixed function of the recorded geometry. */
   {
     const ZQv = run('ZQ'), MD = 8;
-    const RECPIT = [0.426, 0.423, 0.464], RECPITN = [181, 194, 175], RECOOB = [123, 377, 337], RECDARK = [0, 0, 0];
+    const RECPIT = [0.388, 0.397, 0.416], RECPITN = [181, 194, 175], RECOOB = [21, 19, 19], RECDARK = [0, 0, 0];
+    /* #206: RECPIT and RECOOB are MAP.light censuses, so the blur band gate moved them with the
+       kernel (0.426/0.423/0.464 and 123/377/337 were the bleeding kernel's df919c3 readings; the
+       clause's whole job is to say a COMPOSITED change did not touch MAP.light, and it can only say
+       that against the kernel that ships). RECDARK stays 0: coverage authors a source per band. */
     /* Bound MEASURED, not guessed: the shipped term reads frac 0.000 on every qualifying roll of all
        three levels, and the revert-the-term control reads 1.000 (100 % of the disc's alpha landing on
        a surface that is not the source's band). 0.05 is a twentieth of the control, not a twentieth of
@@ -1120,8 +1133,14 @@ if (MODE === 'flatparity') {
      chosen for. The two numbers #241 recorded as the cold children's (f240fd35, ce8e96a3) are now the lock,
      so the value a single-level run prints and the value the roster prints are the same number - which is
      the DEALT-ORDER row's whole job. */
-  const DEALT = refRecord('flatparity', 'DEALT', 'md5', ['3e88c850528f97c56d8ce8ecfe168ee2', 'f240fd3502c1db1ad543934f91a48eb5', 'ce8e96a3029e5ee71a12a2dec7f3e15a']);
-  const DEALTM = [57.3, 58.7, 86.0];
+  /* #206 re-recorded this triple again, and here the world DID move: blurLight gained the splat
+     kernel's own band gate, so delivered light no longer crosses a riser in the dealt grids. Dealt
+     means rose (57.3/58.7/86.0 -> 61.5/64.9/88.6) because a cell beside a slab stops averaging in
+     the riser's dark zero, and the dealt wrong-band population fell 37/49/75 -> 21/19/19 per 12
+     rolls. The two FLAT senses (LOCK, PARITY) did not move a bit under the same change - which is
+     what makes this a light-population move rather than a renderer move. */
+  const DEALT = refRecord('flatparity', 'DEALT', 'md5', ['cd7ba2c8aa3338c83d580b58d06a638f', 'ebcae9de1c9158f7e8641bea248d78bc', '7720f56526056d00a817af35deb37f9b']);
+  const DEALTM = [61.5, 64.9, 88.6];
   const OFF = process.env.LAMPS === 'off';
   const f1 = v => (v === undefined || v === null ? '-' : (+v).toFixed(1));
   const md5of = () => { const d = new Uint32Array(run('px'));
@@ -2810,8 +2829,13 @@ if (MODE === 'cull') {
          the claim the four-quadrant control makes (variant js + these refs ok, main js + these refs
          FAIL x3, main js + the old refs ok, variant js + the old refs FAIL x3). Note that the kernel
          term ALONE measures 0x765abed0 / 0x020678dc / 0x2621e6d1: these three are the kernel plus the
-         coverage lamps, and the two sets are not interchangeable. */
-      const CZBAND_REF = refRecord('cull', 'CZBAND', 'crc32', [0x9c03d4f4, 0xeec7be60, 0x7dd66c40]);   // LEAK=1 CZBAND=1, cull's own step rows
+         coverage lamps, and the two sets are not interchangeable. Moved a fourth time by
+         level/206-blurband (#206) off df919c3, where they were 0x9c03d4f4 / 0xeec7be60 / 0x7dd66c40:
+         blurLight now applies the splat kernel's own band gate, so no cross-slab tail brightens the
+         ground beside a band boundary any more. L2 held - the same "band weight, not global
+         brightness" control #203 noted - and the px-difference counts held at 51048 / 49614 / 49586,
+         so the ground pass changed because the LIGHT under it did and not because the geometry did. */
+      const CZBAND_REF = refRecord('cull', 'CZBAND', 'crc32', [0xdd56450c, 0x33060140, 0x7dd66c40]);   // LEAK=1 CZBAND=1, cull's own step rows
       if (process.env.CZBAND) {
         czRows++;
         run(`(function(){ window.__cz0b = MAP.cz.slice(); ${JSON.stringify(BG.cells)}

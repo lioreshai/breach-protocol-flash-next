@@ -688,17 +688,43 @@ function splatLight(L, amt) {
     }
   MAP.tintDirty = true;
 }
-/* one smoothing pass so per-cell light reads as a pool, not a chessboard */
+/* one smoothing pass so per-cell light reads as a pool, not a chessboard.
+   #206: the pass gains the band term the splat kernel has had since #203/#208 — a neighbour
+   contributes only if its floor is within one quantum of the cell's own, the same predicate
+   `Math.abs(lf - floorAt(col)) <= ZQ` restated on the grid. Without it this kernel was the leak:
+   the splat delivers NOTHING across a band (measured on df919c3, 12 rolls per level: 0/0/0 cells
+   at delivered light >= 0.05 are direct-lit with no in-band source in the disc), yet 37/49/75
+   cells in the same roll set held delivered light >= 0.05 no lamp on their band can reach, and
+   every one of them was light this kernel carried across a riser. The lightmap stays ONE VALUE
+   PER COLUMN — the kernel is band-aware, the array is not — so a fading transient still re-splats
+   its delta into the array the blur produced and the un-splat stays exact (smoke's "blast light
+   fully fades out" is untouched: blurLight runs at generation only, never on a transient frame).
+   Light crossing a boundary the feet can step (one quantum) still flows — a staircase lights its
+   own flight one cell per hop — and a slab blocks light exactly as far as it blocks walking.
+   The gated neighbour is SKIPPED from sum and n (renormalise over same-band samples, don't dilute
+   toward the slab's zero): zero-weighting the slab side instead made every pool beside a riser
+   darker than the same pool mid-band, the same "two cells of the same band read as two levels of
+   danger" asymmetry this issue exists to remove. The unavoidable consequence of removing the bleed
+   is that the cells whose ONLY light was that bleed become dark: `alt` clause 4 measured
+   307/1142/1001 dark open cells against main's 252/1083/872, +55/+59/+112 — the wrong-band
+   population this fix deletes, reclassified from lit-by-bleed to dark. The budget rides along with
+   the kernel, recorded with that reason, and `alt` clause 1 (no pit cell dark) stays 0.
+   On a flat level every quantum is equal, every neighbour contributes at its original weight in
+   its original order, and the pass is BIT-IDENTICAL to the old one: that collapse is what keeps
+   flatparity's two FLAT senses (LOCK, PARITY) where they are, and they hash these frames. */
 function blurLight() {
-  const N = MAP.w, s = MAP.light, o = new Float32Array(s.length);
+  const N = MAP.w, s = MAP.light, fz = MAP.fz, o = new Float32Array(s.length);
   for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
-    const i = y * N + x;
+    const i = y * N + x, b = fz[i];
     let sum = s[i] * 3, n = 3;
     for (let j = -1; j <= 1; j++) for (let k = -1; k <= 1; k++) {
       if (!j && !k) continue;
       const yy = y + j, xx = x + k;
       if (yy < 0 || xx < 0 || yy >= N || xx >= N) continue;
-      sum += s[yy * N + xx] * (j === 0 || k === 0 ? 2 : 1); n += j === 0 || k === 0 ? 2 : 1;
+      const jj = yy * N + xx;
+      if (Math.abs(fz[jj] - b) > 1) continue;    // one quantum = the splat kernel's own band reach
+      const q = j === 0 || k === 0 ? 2 : 1;
+      sum += s[jj] * q; n += q;
     }
     o[i] = sum / n;
   }

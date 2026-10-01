@@ -142,6 +142,33 @@ generated grid, and it is in `ci.yml`'s blocking list. Being in the grid is not 
 is left of verticality is M4/M5 — authored volume, light and findability — not another generator pass.
 Gates at this build: `SMOKE PASSED` at raster median **12.35 ms** (5 batches 12.2/12.2/12.3/12.4/12.4,
 16 ms gate), `VERT=1` **25 gating row(s), 0 known-issue row(s)**.
+- **Light no longer diffuses through a slab: cells lit with no source on their own band fell from
+  37/49/75 to 21/19/19** (#206, option A from measurement). `blurLight` smoothed the one lightmap per
+  column across band boundaries while the splat kernel has been band-locked since #203/#208 — measured
+  fresh on df919c3, **0/0/0** cells are *direct*-lit off-band and every wrong-band cell was this kernel
+  carrying light across a riser (the issue's 74/142/138 was the 2c5a94f population; #208/#209 had
+  already shrunk it). The pass now applies the splat kernel's own predicate to each neighbour —
+  `|fz[n] − fz[c]| <= 1` quantum, skipped from sum and denominator, so a pool beside a riser keeps
+  main's pooling instead of gaining a new dark edge — and light stays **one value per column**: a
+  fading transient still re-splats its delta into the same array and the un-splat stays exact, so
+  smoke's "blast light fully fades out" is untouched and smoke gains a targeted boundary check (a
+  z-less splat whose disc straddles a slab paints **0** wrong-band cells and cancels to the snapshot;
+  it fails at 108 cells when the splat weight is sabotaged to `wv=1`). On a flat level every neighbour
+  qualifies at its original weight in its original order and the pass is **bit-identical** — flatparity
+  LOCK/PARITY `060da4cd/f05beeb5/050b225e` and `f9e4da3a/…` hold unchanged. What remains is staircase
+  residue: one blur pass spans one intermediate cell, so a source exactly 2 quanta off-band still
+  lights the far side of a step — that residue is the recorded floor (`MAIN_OOB`, alt row rewritten;
+  removing the gate sends alt red at exactly 37/49/75). Re-recorded with the kernel, each with its
+  reason: DEALT `3e88c850/f240fd35/ce8e96a3` → `cd7ba2c8/ebcae9de/7720f565` (means 61.5/64.9/88.6 — a
+  cell beside a slab stops averaging in the riser's zero), CZBAND `0x9c03d4f4/0xeec7be60/0x7dd66c40`
+  → `0xdd56450c/0x33060140/0x7dd66c40` with px-counts held at 51048/49614/49586 (L2 holding is the
+  band-weight control again), the dark-cell budget 252/1083/872 → **307/1142/1001** (+54/+55/+127 is
+  the deleted bleed reclassified honestly dark, not new darkness — pre-gate df919c3 measured
+  253/1087/874), and the LAMPS=off control dark-pit census 118/72/62 → 181/177/146. Gates: smoke
+  PASSED, VERT 25 gating rows, alt ok, contrast **0 FAILURE(S) of 27 rows / 7 known-issue rows**
+  unchanged, cull ok, exposure medians 70/73/84 in the 60–100 band, recap 0 of 28. js **does** change
+  pixels on the dealt (live) levels — floor light beside band boundaries and pool edges — so the
+  README screenshots are owed a recapture PR from the deployed build.
 
 ### Added
 
