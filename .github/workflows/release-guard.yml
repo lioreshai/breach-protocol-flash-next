@@ -16,6 +16,24 @@ name: Release guard
 #     because a merged PR can sit behind recently-updated closed PRs and fall outside the page budget.
 #   * The only exemption is a head branch under `release/`, which is the PR that pays the debt; it is
 #     printed as waived rather than hidden.
+#
+# docs/RELEASE.md names three triggers and for a while this file computed one of them: 48 merged PRs sat
+# under the floor while M3 (#14) had shipped untagged and PR #233 had replaced every screenshot in the
+# README, and both facts were prose (issue #236). Triggers 1 and 3 are computed now, with three rules
+# that were already this file's rules applied to them:
+#
+#   * "No tag is newer than that close" compares a milestone's `closedAt` with the newest tag's **creation**
+#     date, not with the commit it names. The squash merge that closes a milestone and the tag cut on that
+#     merge are seconds apart: v1.2's commit is dated 2026-10-01T11:59:03Z and #14's close is 11:59:05Z, so
+#     against the commit date every release is permanently two seconds late for its own milestone and the
+#     row is red on every PR forever. v1.2's tagger date is 11:59:19Z, and *that* is the comparison the
+#     sentence means. The PR count keeps using the commit date, which is right for a date-range query.
+#   * The screenshot row reports and does not gate: a permanently-red row teaches everyone to ignore the
+#     rows that mean something. It prints as a known-issue row and turns red only under the condition the
+#     PR count already uses, never on a threshold of its own.
+#   * The compute steps take `RG_*` overrides (`RG_TAG`, `RG_ISSUES_FILE`) so a control run can pin the tag
+#     or feed a query result and still execute these very lines. Nothing in CI sets them; they exist
+#     because a row that has not been seen to fail has not been tested.
 #   * Making this check *required* is a repo-settings step taken after the existing debt is paid
 #     (docs/RELEASE.md, "How the debt reads"), because a blocking check that is already overdue would
 #     deadlock the PR that introduces it.
@@ -36,6 +54,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       LIMIT: 50
+      MLIMIT: 500
     steps:
       - uses: actions/checkout@v4
         with:
@@ -47,7 +66,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          TAG=$(git describe --tags --abbrev=0 2>/dev/null || true)
+          TAG=${RG_TAG:-$(git describe --tags --abbrev=0 2>/dev/null || true)}
           if [ -z "$TAG" ]; then
             echo "::error::no tag in this checkout - release debt has no origin, so the count would be meaningless"
             exit 1
@@ -80,14 +99,132 @@ jobs:
             echo "DUE=$DUE"
           } >> "$GITHUB_ENV"
 
+      - name: Milestones closed since the newest tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # docs/RELEASE.md trigger 1. Milestones are issues whose title starts "M<n>:" (M3 = #14, M4 = #15),
+          # so "is a milestone done" stays a query rather than a paragraph.
+          if [ -n "${RG_ISSUES_FILE:-}" ]; then
+            RAW=$(cat "$RG_ISSUES_FILE")
+          else
+            RAW=$(gh issue list --repo "$GITHUB_REPOSITORY" --state all --limit "$MLIMIT" \
+              --json number,title,state,closedAt)
+          fi
+          NRAW=$(printf '%s' "$RAW" | jq 'length' 2>/dev/null || true)
+          case "$NRAW" in
+            ''|*[!0-9]*)
+              echo "::error::the issue query did not answer with a JSON array (got '$NRAW') - failing instead of reporting 0 milestones"
+              exit 1
+              ;;
+          esac
+          if [ "$NRAW" -eq 0 ]; then
+            echo "::error::the issue list came back with 0 issues - a query that answers nothing cannot prove that no milestone is due (#122)"
+            exit 1
+          fi
+          if [ "$NRAW" -ge "$MLIMIT" ]; then
+            echo "::error::the issue list filled its $MLIMIT-row page budget - a milestone could be outside the page, so no verdict here is honest"
+            exit 1
+          fi
+          NMS=$(printf '%s' "$RAW" | jq '[.[] | select(.title | test("^M[0-9]+:"))] | length')
+          if [ "$NMS" = "0" ]; then
+            echo "::error::no issue titled 'M<n>: ...' among $NRAW issues - either milestones stopped being issues or this filter is wrong; '0 milestones, all clear' is vacuity (#122)"
+            exit 1
+          fi
+          # The tag's own creation date, not the commit it names - see the design note above.
+          TG=$(git for-each-ref --format='%(taggerdate:iso8601-strict)' "refs/tags/$TAG" 2>/dev/null || true)
+          if [ -z "$TG" ]; then
+            TG=$(git log -1 --format=%cI "$TAG")
+            SRC="commit date of a lightweight tag"
+          else
+            SRC="tag date"
+          fi
+          TAG_UTC=$(date -u -d "$TG" +%Y-%m-%dT%H:%M:%SZ)
+          DUE_M=0
+          DUE_M_LIST=""
+          NCLOSED=0
+          while IFS=$'\t' read -r NUM STATE CLOSED TITLE; do
+            if [ "$STATE" != "CLOSED" ]; then
+              continue
+            fi
+            NCLOSED=$((NCLOSED + 1))
+            if [ "$CLOSED" = null ]; then
+              echo "::error::milestone #$NUM is CLOSED with no closedAt - it cannot be compared against $TAG"
+              exit 1
+            fi
+            case "$CLOSED" in
+              [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z) ;;
+              *)
+                echo "::error::milestone #$NUM has closedAt '$CLOSED', which is not an ISO instant - this row cannot compare it"
+                exit 1
+                ;;
+            esac
+            if [ "$CLOSED" \> "$TAG_UTC" ]; then
+              DUE_M=1
+              DUE_M_LIST="$DUE_M_LIST #$NUM"
+              echo "milestone #$NUM ($TITLE) closed at $CLOSED, after $TAG was created at $TAG_UTC"
+            fi
+          done < <(printf '%s' "$RAW" | jq -r '.[] | select(.title | test("^M[0-9]+:")) | [.number, .state, (.closedAt // "null"), .title] | join("\t")')
+          MS_NOTE="$NMS milestone issue(s), $NCLOSED of them CLOSED, newest close compared against $TAG at $TAG_UTC ($SRC)"
+          HEAD_REF="${GITHUB_HEAD_REF:-}"
+          if [ "$DUE_M" = "1" ] && [ "${HEAD_REF#release/}" != "$HEAD_REF" ]; then
+            echo "milestone debt WAIVED: $HEAD_REF is the release PR that pays it (docs/RELEASE.md)"
+            DUE_M=0
+            MS_NOTE="$MS_NOTE - DEBT WAIVED by $HEAD_REF"
+          elif [ "$DUE_M" = "1" ]; then
+            echo "::warning::milestone$DUE_M_LIST closed after $TAG: docs/RELEASE.md trigger 1 says a release is due"
+          fi
+          echo "$MS_NOTE"
+          {
+            echo "TAG_UTC=$TAG_UTC"
+            echo "DUE_M=$DUE_M"
+            echo "DUE_M_LIST=$DUE_M_LIST"
+            echo "MS_NOTE=$MS_NOTE"
+          } >> "$GITHUB_ENV"
+
+      - name: Screens changed since the newest tag
+        run: |
+          set -euo pipefail
+          # docs/RELEASE.md trigger 3: if the README's screenshots stop describing the game, the fix is a
+          # release rather than a caption edit. Between the newest tag and here that is a file list.
+          NTREE=$(git ls-tree -r --name-only HEAD -- docs/screens | wc -l)
+          if [ "$NTREE" -eq 0 ]; then
+            echo "::error::no files under docs/screens at HEAD - the README embeds shots, so an empty tree here means this row compared nothing"
+            exit 1
+          fi
+          DIFF=$(git diff --name-only "$TAG" HEAD -- docs/screens)
+          if [ -z "$DIFF" ]; then
+            SHOTS=0
+          else
+            SHOTS=$(printf '%s\n' "$DIFF" | wc -l)
+          fi
+          DUE_S=0
+          HEAD_REF="${GITHUB_HEAD_REF:-}"
+          if [ "$SHOTS" -gt 0 ]; then
+            printf '%s\n' "$DIFF" | sed 's/^/  /'
+            if [ "${HEAD_REF#release/}" != "$HEAD_REF" ]; then
+              echo "$SHOTS screenshot(s) changed since $TAG - a baseline is due - WAIVED on $HEAD_REF, the release PR that pays it"
+            elif [ "$DUE" = "1" ]; then
+              DUE_S=1
+              echo "$SHOTS screenshot(s) changed since $TAG - a baseline is due, and the PR-count floor is breached too, so this one gates"
+            else
+              echo "$SHOTS screenshot(s) changed since $TAG - a baseline is due (known-issue row: reporting, not gating, until the count in trigger 2 says otherwise)"
+            fi
+          fi
+          {
+            echo "SHOTS=$SHOTS"
+            echo "DUE_S=$DUE_S"
+          } >> "$GITHUB_ENV"
+
       - name: Open the release-debt issue on the weekly run
         if: github.event_name == 'schedule'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          if [ "$DUE" != "1" ]; then
-            echo "not due ($COUNT merged PR(s) since $TAG), no issue"
+          if [ "$DUE" != "1" ] && [ "$DUE_M" != "1" ]; then
+            echo "not due ($COUNT merged PR(s) since $TAG; $MS_NOTE), no issue"
             exit 0
           fi
           TITLE="Release debt: $COUNT merged PRs since $TAG"
@@ -100,8 +237,16 @@ jobs:
               ;;
           esac
           {
-            printf 'docs/RELEASE.md says a release is overdue: **%s merged PRs since `%s`** (threshold 50).\n\n' "$COUNT" "$TAG"
+            if [ "$DUE" = "1" ]; then
+              printf 'docs/RELEASE.md says a release is overdue: **%s merged PRs since `%s`** (threshold 50).\n\n' "$COUNT" "$TAG"
+            fi
+            if [ "$DUE_M" = "1" ]; then
+              printf 'docs/RELEASE.md trigger 1: milestone issue(s)%s CLOSED after `%s` was created at %s, and no tag is newer than the close.\n\n' "$DUE_M_LIST" "$TAG" "$TAG_UTC"
+            fi
             printf '`gh pr list --state merged --limit 500 --json number,title,mergedAt` filtered on `mergedAt > %s` is the list.\n\n' "$SINCE_UTC"
+            if [ "$SHOTS" -gt 0 ]; then
+              printf 'docs/RELEASE.md trigger 3: %s screenshot(s) under `docs/screens/` differ between `%s` and `main` - the baseline is overdue with the rest of the debt.\n\n' "$SHOTS" "$TAG"
+            fi
             printf 'Cut the release: branch `release/vX.Y`, changelog section, screenshots from the deployed build, gates, tag. See docs/RELEASE.md.\n'
           } > /tmp/debt.md
           if [ "$EXISTING" = "0" ]; then
@@ -113,8 +258,19 @@ jobs:
       - name: Verdict
         run: |
           set -euo pipefail
+          if [ "$SHOTS" -gt 0 ]; then
+            if [ "$DUE_S" = "1" ]; then
+              echo "::error::$SHOTS screenshot(s) changed since $TAG - a baseline is due, and it is gating because the 50-PR floor is breached ($COUNT since $TAG). docs/RELEASE.md trigger 3."
+            else
+              echo "known-issue row: $SHOTS screenshot(s) changed since $TAG - a baseline is due (docs/RELEASE.md trigger 3, reporting; the row that gates is the count)"
+            fi
+          fi
           if [ "$DUE" = "1" ]; then
             echo "::error::release debt: $COUNT merged PRs since $TAG, threshold $LIMIT is reached. docs/RELEASE.md, and the release PR must be on a release/* branch."
             exit 1
           fi
-          echo "release check green - $COUNT merged PR(s) since $TAG, threshold $LIMIT"
+          if [ "$DUE_M" = "1" ]; then
+            echo "::error::release debt: milestone issue$DUE_M_LIST is CLOSED and no tag is newer than its close ($TAG, $TAG_UTC). docs/RELEASE.md trigger 1, and the release PR must be on a release/* branch."
+            exit 1
+          fi
+          echo "release check green - $COUNT merged PR(s) since $TAG, threshold $LIMIT; $MS_NOTE; $SHOTS screenshot(s) changed since $TAG"
