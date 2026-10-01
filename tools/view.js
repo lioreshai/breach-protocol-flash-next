@@ -5559,7 +5559,153 @@ if (MODE === 'props') {
       (cutTop ? ' [top of the ' + m3.h + ' px body leaves the frame after the raise: height is a crop, '
         + 'the bottom row is not]' : ''));
   }
-  console.log(bad ? 'PROPS PROBE: ' + bad + ' FAILURE(S)' : 'PROPS PROBE: every prop volumetric, light-exempt where emissive, and grounded');
+  /* #218: props stop the player. tryMove consults the SAME authored footprint row (F)'s siblings
+     draw with (MESH.foot * scale, js/13_mesh.js:799) grown by the mover radius, gated on the grid:
+     a prop on another band hangs in the air and blocks no one. These rows drive the REAL loop
+     (update -> updatePlayer -> tryMove), never a poke of P.x, and each one prints the population
+     it drove - a prop-collision row that silently never reached a prop is the `alt` pit-population
+     family, so reaching is counted, and zero reached is a FAILURE not an ok. The drives set keys
+     and tick frames so gravity, the auto-step and the landing impulse are all live, per #218's
+     own ask: sampling the post-update state after gravity would self-cancel. */
+  console.log('  PROP COLLISION (#218)');
+  const RAD218 = 0.28;                                       // the player radius js/30_entities.js calls tryMove with
+  const row218 = (label, ok, detail) => {
+    console.log('    ' + label.padEnd(26) + (ok ? ' ok  ' : 'FAIL ') + ' ' + detail);
+    if (!ok) bad++;
+  };
+  const FOOTK = {};
+  for (const k of ['barrel', 'crate', 'lamp']) FOOTK[k] = run('MESH.foot(' + JSON.stringify(k) + ')');
+  const DRIVE = (sx, sy, i, frames) => `(()=>{
+    const p=PROPS[${i}]; const f=MESH.foot(p.kind)*(p.scale||1), r=f+${RAD218};
+    P.x=${sx.toFixed(4)};P.y=${sy.toFixed(4)};P.z=floorAt(P.x,P.y);P.vx=0;P.vy=0;P.air=false;P.deadT=0;
+    P.ang=Math.atan2(p.y-P.y,p.x-P.x);keys['KeyW']=1;
+    let minEdge=1e9,fIn=0,deep=0;
+    for(let k=0;k<${frames};k++){update(1/60);
+      const ax=Math.abs(p.x-P.x),ay=Math.abs(p.y-P.y);
+      if(ax<f&&ay<f&&Math.abs(floorAt(p.x,p.y)-floorAt(P.x,P.y))<ZQ){fIn++;const dp=f-Math.max(ax,ay);if(dp>deep)deep=dp;}
+      const e=Math.max(ax,ay)-r;if(e<minEdge)minEdge=e;
+    }
+    keys['KeyW']=0;
+    const ax=Math.abs(p.x-P.x),ay=Math.abs(p.y-P.y);
+    return{minEdge:+minEdge.toFixed(4),fIn,deep:+deep.toFixed(3),
+      inside:ax<f&&ay<f&&Math.abs(floorAt(p.x,p.y)-floorAt(P.x,P.y))<ZQ};
+  })()`;
+  const BAND218 = (i, raise, frames) => `(()=>{
+    const p=PROPS[${i}]; const f=MESH.foot(p.kind)*(p.scale||1), r=f+${RAD218};
+    const cx=p.x|0, fzi=(p.y|0)*MW+cx, sx=cx-0.02, sy=p.y-r-0.30;
+    if(${raise ? 1 : 0}){MAP.fz[fzi]+=1;linkBoundaries();}
+    P.x=sx;P.y=sy;P.z=floorAt(sx,sy);P.vx=0;P.vy=0;P.air=false;P.deadT=0;P.ang=Math.PI/2;keys['KeyW']=1;
+    let crossed=false,minEdge=1e9,fIn=0;
+    for(let k=0;k<${frames};k++){update(1/60);
+      const ax=Math.abs(p.x-P.x),ay=Math.abs(p.y-P.y);
+      const e=Math.max(ax,ay)-r;if(e<minEdge)minEdge=e;
+      if(ax<f&&ay<f&&Math.abs(floorAt(p.x,p.y)-floorAt(P.x,P.y))<ZQ)fIn++;
+      if(P.y>p.y+r){crossed=true;break;}
+    }
+    keys['KeyW']=0;
+    const stepOK=${raise ? 'canEnter(sx,p.y,cx+0.5,p.y)' : 'true'};
+    if(${raise ? 1 : 0}){MAP.fz[fzi]-=1;linkBoundaries();}
+    return{crossed,minEdge:+minEdge.toFixed(3),fIn,stepOK,r:+r.toFixed(3)};
+  })()`;
+  const SLIDE218 = (i, frames) => `(()=>{
+    const p=PROPS[${i}]; const f=MESH.foot(p.kind)*(p.scale||1), r=f+${RAD218};
+    P.x=p.x+r+0.45;P.y=p.y-r-0.20;P.z=floorAt(P.x,P.y);P.vx=0;P.vy=0;P.air=false;P.deadT=0;
+    P.ang=Math.atan2(0.866,-0.5);keys['KeyW']=1;
+    let crossed=false,minEdge=1e9,fIn=0;
+    for(let k=0;k<${frames};k++){update(1/60);
+      const ax=Math.abs(p.x-P.x),ay=Math.abs(p.y-P.y);
+      const e=Math.max(ax,ay)-r;if(e<minEdge)minEdge=e;
+      if(ax<f&&ay<f&&Math.abs(floorAt(p.x,p.y)-floorAt(P.x,P.y))<ZQ)fIn++;
+      if(P.y>p.y+r){crossed=true;break;}
+    }
+    keys['KeyW']=0;
+    return{crossed,minEdge:+minEdge.toFixed(3),fIn,fy:+P.y.toFixed(3)};
+  })()`;
+  for (let li = 0; li < 3; li++) {
+    run(`S.mode='play'; S.locked=false; startLevel(${li}, true); ENEMIES.length=0; PROJ.length=0;`);
+    const cands = run(`(()=>{for(const p of PROPS)if(p.kind==='crate'||p.kind==='barrel'||p.kind==='lamp'){}
+      return PROPS.map((p,i)=>({i,k:p.kind,x:p.x,y:p.y,s:p.scale||1,gz:floorAt(p.x,p.y)}))})()`);
+    const cen = {}; let nSolidProp = 0;
+    for (const c of cands) { cen[c.k] = (cen[c.k] || 0) + 1; if (FOOTK[c.k] > 0) nSolidProp++; }
+    /* row 1: head-on drives into authored props from the four axis directions */
+    const chosen = []; const perK = {};
+    for (const c of cands) { if (FOOTK[c.k] <= 0) continue; if ((perK[c.k] || 0) >= 2) continue; perK[c.k] = (perK[c.k] || 0) + 1; chosen.push(c); }
+    const offs = [[1.35, 0], [-1.35, 0], [0, 1.35], [0, -1.35]];
+    const poses = []; let skippedHatch = 0;
+    for (const c of chosen) for (const o of offs) {
+      const sx = c.x + o[0], sy = c.y + o[1];
+      const v = run(`({s:isSolid(${sx.toFixed(4)},${sy.toFixed(4)}),z:floorAt(${sx.toFixed(4)},${sy.toFixed(4)}),h:(typeof propBlocks==='function')&&propBlocks(${sx.toFixed(4)},${sy.toFixed(4)},${RAD218})})`);
+      if (v.s || v.h || Math.abs(v.z - c.gz) >= run('ZQ')) { if (v.h) skippedHatch++; continue; }  // buried, hatched start or band-crossing pose: cannot test the blocker
+      poses.push({ c, sx, sy });
+    }
+    let drove = 0, reached = 0, penPoses = 0, penFrames = 0, penDeep = 0, worstEdge = -9;
+    for (const q of poses) {
+      const o = run(DRIVE(q.sx, q.sy, q.c.i, 45));
+      drove++;
+      if (o.minEdge <= 0.12) reached++;
+      if (o.minEdge > worstEdge) worstEdge = o.minEdge;
+      penFrames += o.fIn;
+      if (o.fIn || o.inside) { penPoses++; if (o.deep > penDeep) penDeep = o.deep; }
+    }
+    row218('blocks drove-in player',
+      drove > 0 && reached > 0 && penPoses === 0 && penFrames === 0,
+      reached === 0 || drove === 0
+        ? 'VACUITY: drove ' + drove + ' poses into ' + nSolidProp + ' props (' + JSON.stringify(cen) +
+          ') and REACHED none - the row tested nothing'
+        : 'props ' + cands.length + ' (' + JSON.stringify(cen) + '), drove ' + drove + ' poses, '
+          + reached + ' REACHED the blocker' + (skippedHatch ? ' (+' + skippedHatch + ' starts skipped as inside another prop\'s blocker)' : '') +
+          ', poses ever inside a footprint ' + penPoses +
+          ' (frames ' + penFrames + ', deepest ' + penDeep.toFixed(2) + ' m past the centre edge), '
+          + 'worst stopped edge +' + worstEdge.toFixed(2) + ' m');
+    /* row 2: the band case on a crate whose grown footprint (foot*scale+rad > 0.5) overhangs the
+       neighbouring cell, so a band-blind test can reach the lane; raised cell is +1 quantum = a
+       step, not a boundary (row (F)'s own precedent), so no wall can stand in for the band term */
+    let bi = -1;
+    for (const c of cands) {
+      if (c.k !== 'crate' || FOOTK.crate * c.s + RAD218 <= 0.52) continue;
+      const cx = Math.floor(c.x), cy = Math.floor(c.y);
+      const laneOK = run(`!isSolid(${cx - 0.02},${cy - 0.35})&&!isSolid(${cx - 0.02},${c.y})&&!isSolid(${cx - 0.02},${cy + 1.4})&&!(typeof propBlocks==='function'&&propBlocks(${cx - 0.02},${cy - 0.35},${RAD218}))&&!(typeof propBlocks==='function'&&propBlocks(${cx - 0.02},${cy + 1.4},${RAD218}))`);
+      if (laneOK) { bi = c.i; break; }
+    }
+    if (bi < 0) row218('respects the band', false,
+      'VACUITY: no generated crate whose ghost (foot*scale+' + RAD218 + ') overhangs an open flanking lane on level ' + li);
+    else {
+      const A = run(BAND218(bi, 1, 50)), B = run(BAND218(bi, 0, 50));
+      row218('respects the band',
+        A.stepOK && A.crossed && A.fIn === 0 && !B.crossed && B.fIn === 0 && B.minEdge <= 0.12,
+        'crate#' + bi + ' ghost r ' + A.r + ' m overhangs the lane by ' + (A.r - 0.5).toFixed(2) +
+        ' m: raised one quantum (a step, canEnter across the lip = ' + A.stepOK + ') walked through = ' +
+        A.crossed + ' (ghost min edge ' + A.minEdge + ', never inside); same-band control blocked at edge '
+        + B.minEdge + ' crossed=' + B.crossed + (B.fIn ? ' PENETRATED ' + B.fIn + ' frames' : ''));
+    }
+    /* row 3: slide, not seal - a pose that grazes the prop's face at ~20 deg must keep advancing
+       along the free axis and end past the prop's far edge of the ghost; a seal blocks the whole
+       move at first contact and the pose dies beside the face */
+    const spos = [];
+    for (const c of cands) {
+      if (FOOTK[c.k] <= 0) continue;
+      const cx = Math.floor(c.x), cy = Math.floor(c.y);
+      const r = FOOTK[c.k] * c.s + RAD218;
+      const laneOK = run(`!isSolid(${(c.x + r + 0.45).toFixed(4)},${(c.y - r - 0.2).toFixed(4)})&&!isSolid(${cx + 1},${cy - 1})&&!isSolid(${cx + 1},${cy + 1})&&!(typeof propBlocks==='function'&&propBlocks(${(c.x + r + 0.45).toFixed(4)},${(c.y - r - 0.2).toFixed(4)},${RAD218}))`);
+      if (laneOK) spos.push(c);
+      if (spos.length >= 4) break;
+    }
+    let sBrush = 0, sCross = 0, sSkip = 0, sWorst = 9;
+    for (const c of spos) {
+      const o = run(SLIDE218(c.i, 60));
+      if (o.minEdge > 0.12) { sSkip++; continue; }        // the lane never met the ghost: pose tests nothing
+      sBrush++;
+      if (o.crossed) sCross++;
+      else sWorst = Math.min(sWorst, o.fy);
+    }
+    row218('slides, does not seal',
+      sBrush > 0 && sCross === sBrush,
+    sBrush === 0 ? 'VACUITY: ' + spos.length + ' candidate props on level ' + li + ', NONE brushed the ghost (skipped ' + sSkip + ') - the row tested nothing' :
+      spos.length + ' face-graze poses at ~30 deg, brushed ' + sBrush + ' (skipped ' + sSkip + ' that never met the ghost), crossed the lane ' + sCross +
+      (sCross < sBrush ? ' - stuck beside the face (worst final y ' + sWorst.toFixed(2) + ')'
+        : ' (a seal would stop at first contact instead of sliding on the free axis)'));
+  }
+  console.log(bad ? 'PROPS PROBE: ' + bad + ' FAILURE(S)' : 'PROPS PROBE: every prop volumetric, light-exempt where emissive, grounded, and solid to the player');
   process.exit(bad ? 1 : 0);
 }
 if (MODE === 'bands') {
