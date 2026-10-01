@@ -2253,6 +2253,81 @@ if (MODE === 'sight') {
         openO > 0 && eo.up === 1,
         `${openO > 0 ? (eo.up ? 'visible, kind ' + eo.kindUp + ' at t ' + ef2(eo.tUp) + ' of ' + ef2(eo.d) : 'BLOCKED THROUGH THE OPENING') : 'VACUOUS - no hole in the opened flight'}  kind ${eo.kindUp}  term ${E.eyeTerm}  ${egeo(eo)}`);
     }
+    /* #15's remaining item: nobody had ever asked whether an enemy on band 0 follows a player onto
+       band 1, or whether a ramp means anything to the mover. It drives the REAL update loop for 240
+       frames in five configs that differ by one byte of the boundary, and reads the outcome from the
+       grid rather than from a state flag: canEnter refuses a crossing on VB_BLOCK and nothing else,
+       so the staircase (dz = 1 quantum each) and the ramp/ladder (dz = 4 quanta with the climb bit
+       clearing the block) must all let the body arrive, and the SAME raised band with no climb bit
+       must not. The wall row also asserts sees 0, which is the #261 eye term doing its job on a mover
+       that cannot reach: a body that walks into a slab it cannot see through is the bug this row
+       exists to catch, and the ramp row is the sabotage control - author the 4-quantum boundary
+       WITHOUT the ramp bit and the row goes red, so it credits the byte and not the geometry. */
+    const PU = run(`(function(){
+      startLevel(${li}, true);
+      let lane = null;
+      for (let y = 2; y < MH - 2 && !lane; y++) for (let x = 2; x < MW - 8 && !lane; x++) {
+        let n = 0; for (let k = 0; k < 7; k++) if (!MAP.cell[y * MW + x + k]) n++;
+        if (n >= 7) lane = { x: x, y: y };
+      }
+      if (!lane) return { skip: 'no 7-cell straight run on this level' };
+      const fz0 = MAP.fz.slice(), cz0 = MAP.cz.slice(), vb0 = MAP.vb.slice(), en = ENEMIES[0];
+      if (!en) return { skip: 'no enemy generated' };
+      ENEMIES.length = 0; ENEMIES.push(en);
+      const cell = (k) => lane.y * MW + lane.x + k;
+      const arm = (kind) => {
+        for (let k = 0; k <= 6; k++) { MAP.fz[cell(k)] = 0; MAP.cz[cell(k)] = 4; MAP.vb[cell(k)] = 0; }
+        if (kind === 'stair') { for (let k = 3; k <= 6; k++) MAP.fz[cell(k)] = k - 2; }
+        if (kind === 'wall' || kind === 'ramp' || kind === 'ladder' || kind === 'noramp') {
+          for (let k = 3; k <= 6; k++) MAP.fz[cell(k)] = 4;
+        }
+        if (kind === 'ramp') { MAP.vb[cell(2)] |= VB_RAMP; MAP.vb[cell(3)] |= VB_RAMP | (VB_RAMP << 8); }
+        if (kind === 'ladder') { MAP.vb[cell(2)] |= VB_LADDER; MAP.vb[cell(3)] |= VB_LADDER | (VB_LADDER << 8); }
+        linkBoundaries();
+        P.x = lane.x + 6.5; P.y = lane.y + 0.5; P.ang = Math.PI; P.hp = 100; P.deadT = 0;
+        P.air = false; P.vz = 0; P.crouch = 0; P.z = floorAt(P.x, P.y);
+        en.x = lane.x + 0.5; en.y = lane.y + 0.5; en.state = 'chase'; en.alert = true;
+        en.lx = P.x; en.ly = P.y; en.loseT = 1.6; en.hp = 1e6; en.dead = false; en.atkT = 0; en.cd = 0; en.stuck = 0;
+        S.mode = 'play'; S.locked = false; PROJ.length = 0;
+        let sees = 0, stuckT = 0, reach = 999, climbed = 0;
+        for (let i = 0; i < 240; i++) {
+          update(1 / 60);
+          if (floorAt(en.x, en.y) > 0.01) climbed = 1;
+          const dd = Math.hypot(P.x - en.x, P.y - en.y);
+          if (dd < reach) reach = dd;
+          if (losZ(en.x, en.y, floorAt(en.x, en.y) + en.scale * 0.62, P.x, P.y, eyeH())) sees++;
+          if (en.stuck > 0.5) stuckT++;
+        }
+        return { dx: +(en.x - lane.x).toFixed(2), q: +floorAt(en.x, en.y).toFixed(2),
+          reach: +reach.toFixed(2), sees: sees, stuckT: stuckT, climbed: climbed,
+          blk: vbAt(lane.x + 0.5, lane.y + 0.5, 0), reachBy: +en.type.reach.toFixed(2),
+          dzq: MAP.fz[cell(3)] };
+      };
+      const o = { gate: canEnter.toString().indexOf('VB_BLOCK') >= 0 ? 'PRESENT' : 'REMOVED' };
+      for (const k of ['flat', 'stair', 'wall', 'ramp', 'ladder', 'noramp']) o[k] = arm(k);
+      for (let i = 0; i < MAP.fz.length; i++) { MAP.fz[i] = fz0[i]; MAP.cz[i] = cz0[i]; MAP.vb[i] = vb0[i]; }
+      linkBoundaries();
+      return o; })()`);
+    if (PU.skip) row(`L${li} pursuit rows`, false, PU.skip + ' - VACUOUS');
+    else {
+      const pf = g => `arrives x ${g.dx.toFixed(2)} of 6.00 cells, floor ${g.q.toFixed(2)}, closest ${g.reach.toFixed(2)} (reach ${g.reachBy.toFixed(2)}), eye sees ${g.sees}/240, stuck ${g.stuckT}, boundary block ${g.blk & 1}, gate ${PU.gate}, dz ${g.dzq} q`; 
+      const arrived = g => g.dx > 5.0 && g.reach < g.reachBy;
+      row(`L${li} a band-0 enemy walks a staircase to a band-1 player`,
+        PU.stair.climbed === 1 && arrived(PU.stair),
+        `${PU.stair.climbed ? 'climbs: ' : 'NEVER LEFT THE DATUM: '}${pf(PU.stair)}`);
+      row(`L${li} a ramp is a link to the AI, not a wall`,
+        PU.ramp.climbed === 1 && arrived(PU.ramp) && PU.noramp.climbed === 0 && !arrived(PU.noramp),
+        `${pf(PU.ramp)}  | same band with the ramp bit ABSENT: ${pf(PU.noramp)}`);
+      row(`L${li} a ladder is a link to the AI too`,
+        PU.ladder.climbed === 1 && arrived(PU.ladder),
+        pf(PU.ladder));
+      row(`L${li} a slab the eye cannot see through stops the body as well`,
+        PU.wall.climbed === 0 && !arrived(PU.wall) && PU.wall.sees === 0 && PU.wall.reach > PU.wall.reachBy,
+        `${PU.wall.climbed ? 'CLIMBED A BLOCKED SLAB: ' : 'stops at the slab: '}${pf(PU.wall)}`);
+      row(`L${li} and on flat ground the chase still closes`,
+        arrived(PU.flat) && PU.flat.sees > 200,
+        pf(PU.flat));
+    }
   }
   console.log(bad ? `SIGHT ${bad} FAILURES` : 'SIGHT ok - hit tests follow the body they hit');
   process.exit(bad ? 1 : 0);
