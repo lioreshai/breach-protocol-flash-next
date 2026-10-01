@@ -56,7 +56,7 @@ probe blocks, 21 blocks named as having none* — which is the form of "the othe
 behind their verdicts" that moves when someone adds one instead of rotting in a paragraph. The old
 survey instrument is obsolete, and `refs` prints the reconciliation: the `grep -cE '[0-9a-f]{32}'`
 count over `tools/view.js` reads 3 (equal to the md5 records, because each now sits on the line that
-binds it) and is blind to the crc32 family — that pattern cannot match `0x9c03d4f4` — while a `0x…`
+binds it) and is blind to the crc32 family — that pattern cannot match a literal like `CZBAND_REF`'s, whose values #252 re-recorded — while a `0x…`
 grep counts 20 mentions, of which 3 are the live `CZBAND_REF` and the rest are historical triples quoted in
 comments plus the FNV/PRNG constants. What still has **no** row: the blocks whose verdict numbers are
 computed rather than hashed — `alt`, `heights`, `contrast`, `exposure`, `mip`, `bands`, `scene` and
