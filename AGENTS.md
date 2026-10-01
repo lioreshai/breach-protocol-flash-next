@@ -40,7 +40,7 @@ Order of evidence, strongest first:
 2. **`node tools/view.js <probe>`** — geometry, lighting, budgets: deterministic and diffable.
 3. **the smoke verdict** — must stay green; proves nothing about how anything looks.
 
-**Four recorded references stand behind item 2, and a row now counts them.** `flatparity` compares
+**Five recorded references stand behind item 2, and a row now counts them.** `flatparity` compares
 three recorded md5 triples — PARITY, LOCK and the DEALT sense over the dealt frame — and `cull`
 records a crc32 triple for the ceiling-step ground (`CZBAND_REF`). Each is *declared* through
 `refRecord`, which returns the very literals its compare reads, so the declaration is the compare and
@@ -51,14 +51,14 @@ blocking — so an unregenerated table is a `FAIL REFS-DECLARED-MISSING` /
 `REFS-IN-TABLE-UNDECLARED` / `REFS-VALUES-MOVED` row, a missing table is `REFS-LOCKFILE` (absence is a
 failure, never an ok), and `node tools/view.js refs` prints the same rows alone with no render, so it
 cannot warm a pose cache. What is falsifiable now is the **count, kind and values** of recorded
-references per block, printed every CI run — currently *4 records (3 md5, 1 crc32) in 2 of the 23
-probe blocks, 21 blocks named as having none* — which is the form of "the other blocks have no hash
+references per block, printed every CI run — currently *5 records (3 md5, 2 crc32) in 2 of the 23
+probe blocks, 21 blocks named as having none* (the fifth is #254's whole-level lightmap hash) — which is the form of "the other blocks have no hash
 behind their verdicts" that moves when someone adds one instead of rotting in a paragraph. The old
 survey instrument is obsolete, and `refs` prints the reconciliation: the `grep -cE '[0-9a-f]{32}'`
 count over `tools/view.js` reads 3 (equal to the md5 records, because each now sits on the line that
 binds it) and is blind to the crc32 family — that pattern cannot match a literal like `CZBAND_REF`'s, whose values #252 re-recorded — while a `0x…`
-grep counts 20 mentions, of which 3 are the live `CZBAND_REF` and the rest are historical triples quoted in
-comments plus the FNV/PRNG constants. What still has **no** row: the blocks whose verdict numbers are
+grep counts 30 mentions, of which 6 are the two live records (#254 added `CZBAND-LIGHT`) and the rest are historical triples quoted in
+comments plus the FNV/PRNG constants - which is why the count lives in `tools/refs.lock`, not in a grep. What still has **no** row: the blocks whose verdict numbers are
 computed rather than hashed — `alt`, `heights`, `contrast`, `exposure`, `mip`, `bands`, `scene` and
 the rest of the 21 — so a figure quoted from their prose is still one session's measurement, and
 #216 stays open until those blocks have rows; keep labelling such claims.
