@@ -160,6 +160,26 @@ jobs:
           #            a green row here does not prove a band term exists, only that it collapses.
           node tools/view.js flatparity
 
+      - name: Capture-caption gate - README's quoted numbers vs the committed PNGs
+        run: |
+          set -euo pipefail
+          # BLOCKING, and it is the whole content of #235: the five captions in README.md carry typed
+          # numbers, and the audit that opened the issue read 8 of 23 of them as no longer matching the
+          # bytes or the probe they cite - including two decode lists in the same file that disagreed
+          # with each other. tools/recap.js decodes docs/screens/*.png itself (chunk walk, inflate and
+          # the five scanline filters, no dependency - the reader half of tools/png.js) and compares
+          # against README.md's own `decode to **a / b / c / d / e**` lists, read in the order the images
+          # are embedded, and against every "<N> (of M) rows average under|below luminance <T> ... longest
+          # unbroken run is <R> rows ... row <S>" sentence, attributed to the image block it sits under.
+          # Mean tolerance 0.005, row statistics exact, always measured at the tool's own threshold so a
+          # caption cannot pick its own bar. Deterministic (no RNG, no browser, no network) at ~2 s.
+          # Vacuity is a FAILURE and not a pass with an explanation: nothing decodable, an embed with no
+          # file behind it, a decode that is not a page screenshot, or a README that quotes no numbers all
+          # exit 1. Seen to fail three ways before it was wired - two PNGs swapped in a scratch copy
+          # (mean 87.67 quoted against 24.69 in the bytes, rows 0 against 417), one caption's mean
+          # re-generated to 88.67, and DIR pointed at a directory with no PNGs in it.
+          node tools/recap.js check
+
       - name: Composited exposure gate on the live page
         # BLOCKING since the level-2 lamp fix (#143): level 2 read 53 raster / 38 composited and now reads 73 on
         # both layers, with levels 0 and 1 generating byte-identical levels. Deliberately not continue-on-error -
