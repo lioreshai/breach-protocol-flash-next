@@ -883,9 +883,13 @@ if (MODE === 'flatparity') {
      on 8 - the per-render alternation floor, because level 2's spawn camera looks at none of its 292
      off-datum cells. A DEALT ref therefore locks the dealt picture only where the camera is pointed at it,
      which is why the census clause and not this triple is the half of the row that catches generation
-     going flat. */
-  const DEALT = ['ec62943380a83d3034d526f2a64d370c', '96a450d02712aefa4d4e32c964c902cc', '22d473ed414f2f66645530955fa59ef0'];
-  const DEALTM = [79.7, 33.7, 51.7];
+     going flat. L0's entry was re-recorded for #195: the dealt spawn frame gains the contact crease at
+     one step-DOWN lip - 1,009 px of 203,138, every one of them DARKER (mean -23.3, rows 181..195), and
+     the other two levels byte-identical, which is the whole diff of that change in the shipped world.
+     The two flat senses (PARITY, LOCK) did not move at all, because a flattened grid has no risers.
+     */
+  const DEALT = ['ecb797dd2fe866b11167d569d158326d', '96a450d02712aefa4d4e32c964c902cc', '22d473ed414f2f66645530955fa59ef0'];
+  const DEALTM = [79.5, 33.7, 51.7];
   const OFF = process.env.LAMPS === 'off';
   const f1 = v => (v === undefined || v === null ? '-' : (+v).toFixed(1));
   const md5of = () => { const d = new Uint32Array(run('px'));
@@ -5919,12 +5923,19 @@ if (MODE === 'bands') {
          edge is booked as a leak (measured 10.2 on the branch's L2 walk lip, on rows that belonged to
          a real riser). A tint moves rows nothing reaches, so it still counts as a leak. */
       const creaseByX = {};
+      /* Each entry is one band seamCrease will paint: [perp, anchor altitude, the altitude the band
+         runs TOWARD, dir]. The band runs into the face from its anchor row, so a step DOWN - whose
+         drawn slab side lies BELOW yc(the eye's own floor) - is masked below that row, not above it
+         (#195); the lower floor's crease and the far lip's catch-light both run up. Masking every
+         band upward from the anchor instead hides rows no term reaches and leaves the rows a down-step
+         lip does reach unmasked, which reads as a 6-10 px-lum leak on a build whose seam is local. */
       for (const c of march(L.cx, L.cy, 1)) {
-        if (c[1] === 'walk') {
-          const zA = c[4], zB = zA === c[5] ? c[6] : c[5];
-          (creaseByX[c[0]] = creaseByX[c[0]] || []).push([c[3], zA, zB]);
-        } else if (c[1] === 'face') {
-          (creaseByX[c[0]] = creaseByX[c[0]] || []).push([c[3], c[5], c[6]], [c[3], c[6], c[5]]);
+        if (c[1] === 'walk' || c[1] === 'face') {
+          const zE = c[4], zL = c[5], zH = c[6], zO = zE === zL ? zH : zL;
+          const list = (creaseByX[c[0]] = creaseByX[c[0]] || []);
+          list.push([c[3], zE, zO, zO > zE ? -1 : 1]);                  // the lip the eye stands at
+          if (zE !== zL) list.push([c[3], zL, zH, -1]);                 // step down: the far crease too
+          list.push([c[3], zH, zL, -1]);                                // the far lip's catch-light
         }
       }
       const reaches = (x, y) => {
@@ -5932,8 +5943,9 @@ if (MODE === 'bands') {
         if (!cs) return false;
         for (let k = 0; k < cs.length; k++) {
           const h2 = H / cs[k][0], yA = hor + (eye - cs[k][1]) * h2, yB = hor + (eye - cs[k][2]) * h2;
-          const b2 = Math.min(Math.abs(yB - yA) * 0.5, h2 * SEAMW), y0 = Math.floor(yA);
-          if (y <= y0 && y >= y0 - b2) return true;
+          const b2 = Math.min(Math.abs(yB - yA) * 0.5, h2 * SEAMW), dir = cs[k][3] === 1 ? 1 : -1;
+          const y0 = dir > 0 ? Math.ceil(yA) : Math.floor(yA), y1 = y0 + dir * b2;
+          if (dir > 0 ? (y >= y0 && y <= y1) : (y <= y0 && y >= y1)) return true;
         }
         return false;
       };

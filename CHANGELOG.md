@@ -41,6 +41,41 @@
   **8.85 → 10.5 ms**.
 
 ### Fixed
+- **A step you walk DOWN now has an edge at the lip you are standing at** (#195). `seamCrease` was
+  anchored on the **lower** of a step's two floors and always ran its band upward, which is the right
+  row for a step up (the eye's floor IS the lower one there) and the wrong one for a step down: the
+  wall pass paints a down-step slab side from `yc(the eye's own floor)` DOWNWARD, so the crease landed
+  on the far edge of the band and the visible lip got no shading at all. Measured over the lips each
+  level offers (36 lips x 3 seeds, 2,040 columns): **57 / 77 / 59 %** contrast across an UP lip against
+  **17 / 17 / 29 %** across a DOWN one, the band reaching the lip row on **100 %** of up columns and
+  **0 %** of down ones — the failing pixels were never "risers too dark", they were a crease painted
+  one band-height away from the edge it describes. `seamCrease` takes the direction now and the caller
+  passes the eye's own side; the lower floor's crease is kept where it was, because for a step up that
+  is the same row, so **no up-step pixel changes value** (the census reports up lips identical to the
+  digit, 49.0 / 69.0 / 42.0 % before and after). `bands`' WALK row: **72 / 27 / 10 % → 72 / 57 / 71 %**,
+  within-10 **0 / 10 / 25 % → 0 / 0 / 0 %**, all three `ok` at the 45 % bar and the printed tally moves
+  from `3 known-issue row(s) (#195, #203)` to `1 known-issue row(s)`. **Refused, with numbers:** the
+  riser wearing the level's own wall family — risers already wear ONE entry (`WTEX.CONCRETE`, in no
+  level's palette, not split across families), and swapping it for the level's own family measures
+  **71 / 24 / 10** with L2's within-10 rising to 35 %; a global ×1.45 brighten of every riser face —
+  **62 / 42 / 21**, mean |dL| on L2 20.4 → 58.9 while its contrast sits at **21 %**, which is the shape
+  of a magnitude knob that cannot step pixels which are not stepping (and it reddens #203's floor on
+  L2's face lip, 43 % → 27 %); the riser wearing the level's floor texture — **78 / 21 / 18**, so the
+  material difference across the seam is load-bearing, not a nuisance; and `v` phased to world height
+  instead of the face top — **71 / 26 / 12**. Lighting was ruled out by the same census: the failing
+  down lips sit in the *brighter* rooms (frame mean 59–86 against 36–58 for the passing up lips), so
+  `AMB` sinking an additive term is not the mechanism, and the shipped term is a multiply anyway.
+  `bands`' locality mask now mirrors the band direction it is meant to describe (masking every band
+  upward from the anchor hides rows no term reaches and books the rows a down-step lip does reach as a
+  6–10 px-lum leak); the mask alone moves no contrast number — 72 / 27 / 10 with main's renderer, same
+  as main. Flat senses are byte-identical (PARITY `f9e4da3a/f05beeb5/d4b2d2cd`, LOCK
+  `060da4cd/f05beeb5/050b225e`) because a flattened grid has no risers, and `LEAK=1 CZBAND=1 cull`
+  `0x9c03d4f4/0xeec7be60/0x7dd66c40` is unchanged because no light moved. The **dealt** lock for level 0
+  moved (`ec629433 → ecb797dd`, mean 79.7 → 79.5) and is re-recorded: **1,009 of 203,138 px, every one
+  of them darker** (mean −23.3, rows 181..195) — one 15-row crease band at one step-down lip in the
+  spawn view — with levels 1 and 2 byte-identical. Raster median 12.07 → 11.72 ms over 3 interleaved
+  rolls (N = 5 batches of 180 frames, load 3.1–3.8): no cost above the noise floor, because the extra
+  call runs only on riser columns of a step-down face.
 - **The lamp glow is now admitted by the band of the surface it paints, not by the screen** (#221).
   `drawLightGlow` composited an additive disc for any lamp that passed `los()` and a distance test —
   no band term, no `fd`, no altitude test of any kind — while `splatLight` has carried
