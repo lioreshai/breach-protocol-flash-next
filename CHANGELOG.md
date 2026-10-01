@@ -24,6 +24,36 @@
   535 / 298. Controls seen red before merge: two PNGs swapped in a scratch copy (mean 87.67 quoted against
   24.69 in the bytes, rows 0 against 417), one caption's mean re-generated to 88.67, and `DIR` pointed at
   a directory with no PNGs in it.
+### Fixed
+
+- **A grunt's own torso surface now has structure, so separation is not carried by the silhouette alone** (#232).
+  The issue's `grad 6.3-6.7` was measured on the material table, which is the **billboard sheet `#72` took out of
+  the draw path** — the shipped body is `MESH.draw`, flat-shaded **per triangle**, so a chest is one box of ~26 px
+  at 6 m carrying **one** luminance. Measured on the composited frame at the contrast cams with a torso-region
+  readout (body y 0.50..0.815 = rows 0.20..0.51 from the crown): torsograd **1.60 / 1.07** on level 0 and
+  **1.02 / 2.32 / 1.43** on level 2, against a whole-body 2.7 and a room behind it of 2.2-2.9 (L0) and 4.7-5.9 (L2).
+  So the torso is the flattest part of the body on screen too, by 2-3x against the room — the issue's finding, with
+  the right instrument. A per-vertex value cannot fix it (`tri()` writes one packed colour per triangle), so the
+  term is per pixel and its constant is the **slope** (TS_SLOPE luminance per screen pixel), with amplitude =
+  slope × projected-period / 4 and the period a fraction of **authored body height** (TS_CYC seams per body unit,
+  faded out under TS_MINP px) — the mip behaviour a wall texture gets by chain, in two lines, and what keeps the
+  term from boiling: mean |dL| over body px after a 0.03 rad turn is **29.19 against 29.37 off**, while the
+  higher-frequency settings cost +1.2 to +3.0. It is a zero-mean triangle wave, so the mean does not move
+  (45.9→45.7, 46.2→46.0, 35.3→35.0, 46.9→46.7), it is banded by the grazing term `1-|N·V|` floored at TS_BMIN —
+  the mesh's angle-correct stand-in for the rig's signed distance, so the chest square to the eye still reads — and
+  it is **torso geometry only**: legs and outline are untouched, because a specular that rode the gait read as noise
+  and shrinking the silhouette breaks the walk. Because it is added in **output space inside the mesh draw**, after
+  the mesh's own `AMB + li·lt·sh`, it is not floored by `AMB 0.19` the way the rig's raster rim is: the delta is
+  **+2.18 / +2.13** on dark level 0 and **+2.22 / +2.21 / +2.00** on bright level 2, the same term doing the same
+  work in both. Gates: contrast unchanged where it must not move (cam0 **49.9→50.0**, cam2 **28.6→28.8**, L2
+  28.2→28.3 / 28.8→28.7, verdict 0 FAILURE of 22 rows with the same **7 known-issue rows**), `TINT=2` still moves
+  cam0 49.9→41.8 at identical mask geometry so the rows still answer to body shading, all six lock hashes and
+  `cull` byte-identical, smoke PASSED at raster median 12.4 vs 12.5 ms over 3 interleaved pairs (no resolvable
+  delta), VERT 25 gating rows green, and a 4x crop of the body box reads as armour panels rather than a neon
+  outline. Residual, stated: on the **bright** level the torso reaches 3.2-4.5 against the room's own 4.7-5.9, i.e.
+  55-78% of what the walls deliver on screen, because TS_SLOPE is one global constant and buying the rest costs
+  the boil neutrality above. The readout lives in a throwaway copy of `view.js` (`/tmp`), not in `tools/` — #232's
+  follow-up should give it a row.
 
 ## [v1.2] - 2026-10-01
 
