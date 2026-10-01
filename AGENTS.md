@@ -192,7 +192,16 @@ case "$out" in *"SMOKE PASSED"*) git add -A && git commit ;; *) echo NOT COMMITT
   mechanism.
 - **`view.js rig` dumps the RAW raster** (no `lr` multiply, no fog), so it shows a lighting
   change's upper bound. The rim that measured correctly in-game still looked like a neon outline
-  in that sheet — use it to reject too-strong, never to confirm too-weak.
+  in that sheet — use it to reject too-strong, never to confirm too-weak. The torso's own gradient has
+  a recorded home now: `contrast`'s **`cam N torso carries surface structure`** is mean `|L(x+1) − L(x−1)|/2`
+  over pixels the coverage mask calls a body, inside the projection of the torso box's authored `SPEC` heights
+  (hip → shoulder, never row numbers, so it scales with the body and not with the pose's resolution) and 2 px
+  clear of the silhouette, on the composited frame — **0.00–0.68 with no torso term in `js/` (a `135c8ad^`
+  tree, era pre-#232) against 2.17–3.31 shipped (era `135c8ad`+), floor 1.40**. #232 was paid by three
+  definitions of that number in three sessions (`stats`' texel-space sheet variance, art #72 took out of the
+  draw path; #240's pixel-row band with the ring inside it, from a `view.js` that no longer exists; #246's
+  hand-measured rows 317-451) and none of them could fail — which is the shape a row exists to remove, and why
+  `stats`' grunt rows are still not a mesh measurement.
 - **A probe whose mask is a render difference cannot credit a body-driven change to the world.**
   `view.js contrast` used to answer "do the characters read?" by rendering the world, rendering it
   again with `ENEMIES.length = 0`, and taking the difference as the silhouette mask. The second

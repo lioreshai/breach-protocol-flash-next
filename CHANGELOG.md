@@ -26,6 +26,25 @@
   a directory with no PNGs in it.
 ### Fixed
 
+- **The torso-gradient numbers that paid #232 now have a row in the repo that can fail** (#244).
+  `node tools/view.js contrast` gained `cam N torso carries surface structure` and `cam N torso gradient not
+  paid by mean or edge`, plus a run-level vacuity row: the gradient is mean `|L(x+1) − L(x−1)|/2` over the
+  pixels the coverage mask calls a body, inside the projection of the torso box's authored `SPEC` heights
+  (hip → shoulder, so it scales with the body and not with the pose's resolution) and 2 px clear of the
+  silhouette, on the **composited** frame. Measured with this arithmetic on nine cells (3 levels × 3 cameras):
+  **0.00–0.68 with no torso term in `js/`** (a `135c8ad^` tree, era pre-#232) against **2.17–3.31 shipped**
+  (era `135c8ad`+), floor **1.40**; the termless torso reads ~0.0 because a flat-shaded triangle carries no
+  intra-face slope, so the 1.02–2.32 #240 quoted was ring and face seams, not surface. Controls seen red:
+  the same probe over `js/` at `135c8ad^` (exit 1, printing `js/13_mesh.js term ABSENT`), and `TS_SLOPE = 0`
+  with the silhouette byte-identical at 1924 / 0 / 2143 px (exit 1, `term PRESENT (TS_CYC 10, TS_SLOPE 0)`).
+  The mean half is the wave's DC — the mean of the *signed* slope less the frame's own, 0.00–0.53 termless
+  and 0.00–0.80 shipped, floor 1.20 — and the whole-silhouette mean this term costs measures **+0.4** on the
+  CI cell, not the −0.2 #240 quoted. Boil is printed and **not** gated, because torso boil measures 9.3–13.8
+  across the whole shipped parameter space (`TS_SLOPE` 0/9/30, `TS_CYC` 10/28) against the same bodies' limb
+  band at 17.96–37.49, and a ceiling nothing can cross is a row that cannot fail; the trade is visible in the
+  printed noise-per-unit-structure ratio (**4.39** shipped, **8.50** at `TS_CYC = 28`, whose gradient 1.62 is
+  what the floor is really guarding). Verdict on the CI cell is `0 FAILURE(S) of 27 rows, 7 known-issue rows`.
+
 - **A grunt's own torso surface now has structure, so separation is not carried by the silhouette alone** (#232).
   The issue's `grad 6.3-6.7` was measured on the material table, which is the **billboard sheet `#72` took out of
   the draw path** — the shipped body is `MESH.draw`, flat-shaded **per triangle**, so a chest is one box of ~26 px
