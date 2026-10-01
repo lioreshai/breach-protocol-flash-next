@@ -26,6 +26,41 @@
   a directory with no PNGs in it.
 ### Fixed
 
+- **The step-lip contrast row now measures the plane the renderer paints, and says which one it used**
+  (#257). `bands`' face-kind pair anchored on the **height-sorted** lower floor
+  (`zCam = kind === 'face' ? zLo : c[4]`), so on a step DOWN — where the lower floor is the FAR side and
+  its projection lands on the rows of the plane the eye stands on — the "near" term of the pair was a
+  plane the higher cell's riser hides. Measured on `59f496c`: **all 299 counted L0 face columns are
+  DOWN-step lips**, so the pair sat on the far plane for 299 of 299, and **139 of 299 (46.5%) put their
+  strongest seam band at the FAR edge of the same drawn face** — #167's population, reproduced exactly.
+  On L1/L2 the face lip is an UP step, where a height sort and the eye's own plane are the same number
+  (0 of 240, 0 of 239 disagree), so **the one config where the two anchors disagree is a step down, the
+  eye on the higher floor** — named in the row's own detail line. One column of L0 (`x83`, perp 3.50,
+  floor 0.00 against a pit at −1.00) shows why the old anchor was not merely a worse row: the wall pass
+  paints the slab side at rows 219..313, the far-plane anchor reads the pair 313/314 whose lower neighbour
+  is the player's own floor at 1.16 m, and the lip the eye stands at is the 217/219 pair. Both kinds now
+  key on `c[4]`, the same anchor the #167 placement block has always used, and the face kind's depth test
+  reads a row the wall pass painted **within the window round the anchor** instead of AT it — a span edge
+  is a rounding decision, which is what the walk branch has said about its own lip row since #192.
+  Two rows per level per kind came in (the mode prints **48 gating rows where it printed 36**): the
+  anchor row prints `near-anchor: visible|lower`, how many columns are at the painted eye-side edge, and
+  the DOWN-lip count; the band row prints the dominant-edge split (near / far / none) with the gate at
+  **55% far from the measured spread 46.5%–0.0%** and a **#257 debt line above 25%**, so a passing run
+  still prints the displaced population instead of averaging it away. `ANCHOR=lower` runs the probe with
+  the pre-#257 anchor — the service `SEAM=0` does for the term — and puts that row **red, exit 1,
+  `0 of 299 … 299 elsewhere`**, while reproducing the old numbers everywhere else (contrast 55%, mean
+  |dL| 53.6, 16.1% within 10), which is what makes the failure the anchor and nothing else. Vacuity fails
+  both ways it can arise: `SEAM=0` (nothing painted) reddens all six band rows with *N with no band at
+  either*, and a scratch tree with `MAP.steps = 0` (air→air steps draw no face) reads
+  **`0 of 300 columns cross a face lip … refused 299`** and fails both rows at `n >= 24`. On the honest
+  anchor L0's face contrast moves **55% → 56%**, mean |dL| 53.6 → 53.2, within-10 **16.1% → 5.0%** and the
+  band at the sampled edge 4.1 px → 1.2 px of the 96 px riser; L1/L2 face and every walk row are unchanged,
+  because their lip is UP. No `js/` byte moved, so no #195 45%-bar or #164 legibility figure this re-anchors
+  is restated here — those prose numbers were measured with the old anchor and stay era-bound. One thing
+  that did not survive the A/A check: this probe is **not run-to-run deterministic** — two runs of the same
+  `59f496c` tree printed *122% (51.0 px-lum off a floor at 42)* and *119% (51.1 … 43)* with 258 vs 252 of 299
+  bands near the lip; the two new rows and the contrast row were identical across runs.
+
 - **A shot no longer flies through a slab it cannot see through: `bandExitT` now tests the ceiling of the
   column it is ENTERING, not only the ceiling it started under** (#189). The rule had one half of the
   ceiling term (#125): the ray stops where it rises through the ceiling of the band it is travelling in, and

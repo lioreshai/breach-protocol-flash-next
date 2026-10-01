@@ -6702,6 +6702,24 @@ if (MODE === 'bands') {
   // crossed a different lip smears the pair measure (measured 9.4 vs 38 for one and the same step)
   const TOL = +(process.env.TOL || 0.06);
   const DBG = !!process.env.DBG;
+  /* #257: which PLANE the contrast pair is anchored on. 'visible' (the default) is the plane the
+     renderer paints on the eye's side of the boundary - c[4], the floor of the cell the RAY STANDS ON,
+     which is what the #167 placement block has always keyed on. 'lower' reproduces the pre-#257
+     height-sorted floor for the face kind, the same service SEAM=0 does for the seam term: it puts the
+     rows below red on the build the issue was filed against, with no old tree to check out.
+     The two anchors disagree in exactly ONE config - a step DOWN, the eye on the higher floor - where
+     the lower floor is the FAR side and its projection lands on the rows of the plane the eye stands
+     on: measured 299 of 299 counted L0 face columns (all DOWN lips) disagree, 0 of 240 and 0 of 239 on
+     L1 / L2, whose face lip is an UP step where the sort and the eye's plane coincide. */
+  const ANCHOR = process.env.ANCHOR === 'lower' ? 'lower' : 'visible';
+  /* The dominant-band floor (#257): the share of a row's columns whose STRONGEST seam band is the FAR
+     edge of the drawn face rather than the eye-side edge the pair samples. Measured on the tree that
+     needed the row: face 46.5% (L0: 139 of 299, every one a DOWN lip) / 0.0% (L1) / 0.0% (L2); walk
+     0.0% on all three. The gate sits above the worst measured value (55% against 46.5%) so the row is
+     green today and red on any build that moves more of the term off the visible lip, and the debt
+     line (25%, above the 0% measured where the lip is UP) keeps the population visible in a run that
+     passes - the displaced population is the issue, so it must be printed, not averaged away. */
+  const FAR_DOM_MAX = +(process.env.FAR_DOM_MAX || 0.55), FAR_DOM_DEBT = +(process.env.FAR_DOM_DEBT || 0.25);
   const SEAMW = run('typeof SEAMW === "number" ? SEAMW : 0');
   const row = (label, ok, detail, debt, belowBar) => {
     // A debt row is the shape this repo uses for a shortfall that is REAL and MEASURED but not owned
@@ -6946,6 +6964,9 @@ if (MODE === 'bands') {
         console.log(`    dbg L${li} ${kind} lip (${L.x},${L.y}) d${L.d} dq ${L.dq} wide ${L.wide} cam(${L.cx.toFixed(2)},${L.cy.toFixed(2)}) ang ${L.ang.toFixed(3)}: ` + JSON.stringify(hsh));
       }
       let n = 0, sum = 0, sgn = 0, within = 0, zok = 0, off = 0;
+      // #257: WHERE the pair is sampled (cov), how many columns are DOWN lips (nDown), and which edge
+      // of the drawn face carries the term (domN near / domF far / dom0 neither = vacuity)
+      let covOk = 0, covBad = 0, nDown = 0, domN = 0, domF = 0, dom0 = 0;
       let dropSum = 0, wideSum = 0, spanSum = 0, farSum = 0, farN = 0, dip = 0, touched = 0, near0 = 0, conSum = 0, refSum = 0, clearRows = 0;
       /* #167's placement claim, measured on the EYE's own side of the boundary and on the FACE's own
          side of the lip. The form this replaces located the band by argmax INSIDE +-win of the analytic
@@ -6968,12 +6989,33 @@ if (MODE === 'bands') {
         // below the eye always projects below its own row, so every row under yLip is the near floor
         // and every row above it is the far surface - the seam band runs upward from yLip in every
         // case, and the pair that straddles the lip is (yLip, yLip + 1) whichever way the step goes.
-        const zCam = kind === 'face' ? zLo : c[4], zOther = zCam === zLo ? zHi : zLo;
+        // #257: the face kind used to key this on `zLo`, the height-SORTED lower floor. On a step DOWN
+        // that floor is the FAR side, and its projection lands on the rows of the plane the eye stands
+        // on, so the pair measured a plane the renderer does not draw at that pixel. Both kinds now
+        // anchor on c[4] - the eye's own floor - which is the walk kind's existing anchor.
+        const zCam = ANCHOR === 'lower' && kind === 'face' ? zLo : c[4], zOther = zCam === zLo ? zHi : zLo;
         const yLip = hor + (eye - zCam) * hp, yOther = hor + (eye - zOther) * hp;
         const bw = Math.min(Math.abs(yOther - yLip) * 0.5, hp * SEAMW), yF = Math.floor(yLip);
         if (yF < bw + 16 || yF > H - 14) continue;
+        /* #257's coverage clause, used by BOTH the depth row and the anchor row below. The pair must
+           straddle the edge of the face the WALL PASS PAINTED, on the side the eye stands at. yA is the row
+           of the plane of the cell the ray stands on, solved at this column's own perp - the anchor the #167
+           placement block uses - and the painted span is read out of the renderer's depth buffer rather than
+           re-derived: the rows whose depth IS this boundary's perp ARE the face, wherever its span landed.
+           The test looks 2 rows above and 3 below a row rather than AT it because a span edge is a rounding
+           decision, not a measurement - the walk branch below has said so since #192, and the eye-side edge
+           of a DOWN lip measures 1 row above the first painted row (y0 is rounded up). Anchor the pair on the
+           height-sorted LOWER floor and the POSITION half of the clause fails on every DOWN lip, because
+           those rows are the FAR lip of the same face - a plane the higher cell's riser occludes. A column
+           with no painted row in reach is refused (off), and a row that refuses everything is a FAILURE: the
+           geometry row's own n >= 24 is the vacuity gate, never a smaller average. */
+        const yA = Math.floor(hor + (eye - c[4]) * hp), zFar = c[4] === c[5] ? c[6] : c[5];
+        const yO = Math.floor(hor + (eye - zFar) * hp);
+        const paintedRows = yc => { let k = 0; for (let y = yc - 2; y <= yc + 3; y++) if (y >= 0 && y < H && Math.abs(zb[y * W + x] - perp) <= 0.02) k++; return k; };
         if (kind === 'face') {                          // the wall pass must have painted a face here
-          if (Math.abs(zb[yF * W + x] - perp) > 0.02) { off++; continue; }
+          // ...and it must have painted it AT this pair: the anchor row is the span's edge, so the depth is
+          // read in the window round it (the row's own lip row is where the ground pass answers, not the face)
+          if (!paintedRows(yF)) { off++; continue; }
           zok++;
         } else {
           /* A walk lip carries a FACE now (#192), so this is the branch above's expectation: the
@@ -6986,6 +7028,8 @@ if (MODE === 'bands') {
           if (yS < 0 || yS >= H || Math.abs(zb[yS * W + x] - perp) > 0.02) { off++; continue; }
           zok++;
         }
+        if (Math.abs(yF - yA) <= 2 && paintedRows(yF) > 0) covOk++; else covBad++;
+        if (c[4] !== c[5]) nDown++;
         // the pair across the step lip: the lip row and the floor immediately in front of it
         const lU = lum(A, (yF + 1) * W + x), lD = lum(A, yF * W + x);
         const dP = lU - lD, den = lU + lD;
@@ -6998,6 +7042,15 @@ if (MODE === 'bands') {
         // cell its own DDA stepped from, and on columns that clip a cell corner that cell is not the
         // one a sampled march lands in: measured 22 px apart on L2, which is one quantum.)
         const win = Math.max(6, Math.round(2 * hp * SEAMW));
+        {
+          /* Which EDGE of the drawn face carries the term: the strongest shift within +-win of the
+             eye-side edge versus the same search around the FAR edge of the same face. The pair above
+             samples one of them, and the band row below says which. Neither window draws anything -
+             both are rows of the frame the renderer already painted. */
+          const pk = yc => { let p = 0; for (let y = Math.max(0, Math.floor(yc) - win); y <= Math.min(H - 1, Math.floor(yc) + win); y++) p = Math.max(p, lum(B, y * W + x) - lum(A, y * W + x)); return p; };
+          const pNear = pk(yA), pFar = pk(yO);
+          if (pNear <= 4 && pFar <= 4) dom0++; else if (pNear >= pFar) domN++; else domF++;
+        }
         let yb = -1, peak = 0;
         for (let y = Math.max(0, yF - win); y <= Math.min(H - 1, yF + win); y++) {
           const d = lum(B, y * W + x) - lum(A, y * W + x);
@@ -7067,11 +7120,27 @@ if (MODE === 'bands') {
         n >= 24 && zok >= n * 0.9,
         `${n} of ${m.length} columns cross a ${kind} lip at ${DIST} m (refused ${off}: the renderer's `
         + `own zbuf says nothing is there), riserStops ${risers}, horizon ${hor.toFixed(1)}, eyeZ ${eye.toFixed(2)}`);
+      /* #257: the row ABOVE says a face is there; this one says whether the CONTRAST PAIR is measured on
+         it. It is the difference between "299 of 299 columns cross a face lip" and "the edge those 299
+         columns were scored on is the one the player sees": with the height-sorted anchor the pair sat at
+         the far lip of the same drawn face on all 299 L0 columns, a plane the higher cell's riser puts in
+         front of, so the row could report a contrast the frame does not contain. Vacuity fails twice over
+         here - n >= 24 counted columns, and a column with no painted face row within 2 rows of the anchor
+         is a covBad, not a smaller average. */
+      row(`L${li} ${kind} lip: the pair is anchored on the painted plane`,
+        n >= 24 && covBad === 0,
+        `near-anchor: ${ANCHOR === 'lower' ? 'LOWER (the height-sorted floor - the pre-#257 anchor)' : 'VISIBLE (c[4], the floor the ray stands on)'}; `
+        + `${covOk} of ${n} columns have the pair ACROSS the eye-side edge of the face the wall pass painted, `
+        + `${covBad} elsewhere (the far lip of the same face: a plane its own riser occludes, so the edge there `
+        + `is not the one the player meets), ${nDown} of ${n} are DOWN-step lips - the ONE config where a height `
+        + `sort and the eye's plane disagree (measured with ANCHOR=lower: 299 of 299 on L0 face, 0 of 240 and 0 of `
+        + `239 on L1/L2 whose lip is UP, and the walk kind's anchor has been c[4] since #192)`);
       row(`L${li} ${kind} lip: luminance steps where depth steps`,
         n >= 24 && meanCon >= (kind === 'walk' ? CON_WFLOOR : CON_FLOOR) && pctW <= WITHIN_MAX,
         `contrast across the lip ${(100 * meanCon).toFixed(0)}% (want >= ${(100 * CON_MIN).toFixed(0)}%`
         + (kind === 'walk' ? `, hard floor ${(100 * CON_WFLOOR).toFixed(0)}%`
-          : `, hard floor ${(100 * CON_FLOOR).toFixed(0)}%`) + `), `
+          : `, hard floor ${(100 * CON_FLOOR).toFixed(0)}%`) + `), anchored on the `
+        + (ANCHOR === 'lower' ? 'height-sorted LOWER floor (near-anchor: lower, pre-#257)' : 'plane the renderer paints on the EYE side (near-anchor: visible)') + `, `
         + `mean |dL| ${meanD.toFixed(1)}, ${(pctW).toFixed(1)}% of lip pixels within 10 of their neighbour `
         + `(want <= ${WITHIN_MAX}%), signed ${(n ? sgn / n : 0).toFixed(1)} `
         + `- ${kind === 'face' ? 'a riser wears the floor material, so today the step is a brighter patch of the same texture'
@@ -7126,6 +7195,23 @@ if (MODE === 'bands') {
         + ` lip row on the eye's own side (within ${(200 * SEAMW).toFixed(0)} cm of it), ${farW} with a band only`
         + ` on the far side of the lip, ${noW} with no band at all within \u00b1${(800 * SEAMW).toFixed(0)} cm`
         + ` - GATING at 0 misplaced, both kinds (was >= 50%)`);
+      /* #257's other half: which edge of the drawn face the term actually lights up. The pair above now
+         samples the eye-side edge, and on a DOWN lip the FAR edge of the same face can still carry the
+         stronger band (#195's dir rule plus the crease's own anchor-row term) - that population is what
+         the issue counted at 139 of 299 on L0. It is reported, gated against a floor above the measured
+         spread so it cannot grow, and made a DEBT row above the 0% measured where the lip is UP, so a
+         passing run still prints it instead of burying it in an average (#188's shape). A column with no
+         band at either edge is vacuity and fails; so does a row that measured no columns. */
+      row(`L${li} ${kind} lip: the strongest band is on the sampled plane`,
+        n >= 24 && dom0 === 0 && domF <= Math.ceil(n * FAR_DOM_MAX),
+        `dominant band of the drawn face: ${domN} at the EYE-SIDE edge the pair samples, ${domF} at the FAR `
+        + `edge of the same face, ${dom0} with no band at either (want 0) - far share `
+        + `${(100 * domF / (n || 1)).toFixed(1)}% against the ${(100 * FAR_DOM_MAX).toFixed(0)}% floor, measured `
+        + `from the spread 46.5% (L0 face, 139/299) to 0.0% (L1, L2, every walk row) on the tree that needed `
+        + `this row; ${nDown} of ${n} columns are DOWN lips and every far-edge column measured is one`
+        + ` (a riser lit at its far lip reads as an edge the player is not standing at)`,
+        domF > Math.ceil(n * FAR_DOM_DEBT) ? '#257' : undefined,
+        domF > Math.ceil(n * FAR_DOM_DEBT));
     }
     if (seam === 1) {
       {
