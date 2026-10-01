@@ -31,6 +31,11 @@ name: Release guard
 #   * The screenshot row reports and does not gate: a permanently-red row teaches everyone to ignore the
 #     rows that mean something. It prints as a known-issue row and turns red only under the condition the
 #     PR count already uses, never on a threshold of its own.
+#   * A screenshot row that reads a FILE LIST trains the wrong reflex (#245). v1.2..#246 lists one file whose
+#     whole delta is 872 px of 1,098,720 past |dL| > 2 - the other four byte-identical - while #240 listed no
+#     file at all and made every torso in the README stale. So the list became a MEASUREMENT (what share of
+#     sampled pixels moved, floor SLIM % of a frame) plus its INVERSE (`js/` moved and no screenshot did), and
+#     both keep the row shape above: known-issue, gating only when the count does, waived on `release/*`.
 #   * The compute steps take `RG_*` overrides (`RG_TAG`, `RG_ISSUES_FILE`) so a control run can pin the tag
 #     or feed a query result and still execute these very lines. Nothing in CI sets them; they exist
 #     because a row that has not been seen to fail has not been tested.
@@ -55,6 +60,12 @@ jobs:
     env:
       LIMIT: 50
       MLIMIT: 500
+      # trigger 3's two bars: SLIM is the percent of ONE frame's sampled pixels that must move past
+      # |dL| > SD_LUMA before a screenshot change counts as a picture change (every real recapture in this
+      # repo's history is >= 3.7 %, the #246 torso noise is 0.08 %); SD_STRIDE 1 means every pixel.
+      SLIM: 1
+      SD_LUMA: 2
+      SD_STRIDE: 1
     steps:
       - uses: actions/checkout@v4
         with:
@@ -69,6 +80,10 @@ jobs:
           TAG=${RG_TAG:-$(git describe --tags --abbrev=0 2>/dev/null || true)}
           if [ -z "$TAG" ]; then
             echo "::error::no tag in this checkout - release debt has no origin, so the count would be meaningless"
+            exit 1
+          fi
+          if ! git rev-parse -q --verify "${TAG}^{commit}" >/dev/null; then
+            echo "::error::'$TAG' does not resolve to a commit - every trigger compares against it, and a comparison that cannot resolve answers 'nothing changed' (#122)"
             exit 1
           fi
           SINCE_UTC=$(date -u -d "$(git log -1 --format=%cI "$TAG")" +%Y-%m-%dT%H:%M:%SZ)
@@ -183,38 +198,224 @@ jobs:
             echo "MS_NOTE=$MS_NOTE"
           } >> "$GITHUB_ENV"
 
-      - name: Screens changed since the newest tag
+      - name: Screens changed or stale since the newest tag
         run: |
           set -euo pipefail
           # docs/RELEASE.md trigger 3: if the README's screenshots stop describing the game, the fix is a
-          # release rather than a caption edit. Between the newest tag and here that is a file list.
-          NTREE=$(git ls-tree -r --name-only HEAD -- docs/screens | wc -l)
-          if [ "$NTREE" -eq 0 ]; then
-            echo "::error::no files under docs/screens at HEAD - the README embeds shots, so an empty tree here means this row compared nothing"
+          # release rather than a caption edit. Between the newest tag and here that used to be a file list,
+          # and a file list answers one question - WHICH FILE'S HASH MOVED - which is neither of the two
+          # questions trigger 3 is for (#245):
+          #
+          #   magnitude - v1.2..#246 lists ONE file, and that file's whole delta is 872 px of 1,098,720 past
+          #     |dL| > 2 (0.08 % of the frame, no pixel moving more than 5.6, the other four byte-identical).
+          #     That is a torso texture, and a "baseline is due" row for it is noise. Every real recapture is
+          #     two orders of magnitude away: #233 3.7 %, #225 11.9 %, #215/#201/#198/#191/#165 92-97 %. So
+          #     past SLIM percent of a frame's sampled pixels the row fires; below it, one informational
+          #     line, because a row people have learned to skip is worse than no row.
+          #   staleness - #240 changed ONE js file and ZERO screenshot files, and the list said nothing: the
+          #     README was describing a build that had stopped existing. Screenshots NOT changing is the case
+          #     the row was written for, so it is now also read from the absence.
+          #
+          # Blobs come from the tree with `git show`, never from the Pages host (docs/screens 404s there by
+          # design), and the decoder is tools/recap.js's, so this repo keeps exactly one PNG reader (#235).
+          HEADREF=${RG_HEAD:-${HEAD:-HEAD}}
+          README=${RG_README:-README.md}
+          for REF in "$TAG" "$HEADREF"; do
+            if ! git rev-parse -q --verify "${REF}^{commit}" >/dev/null; then
+              echo "::error::'$REF' does not resolve to a commit - comparing a ref that is not there answers 'no screenshot changed' (#122)"
+              exit 1
+            fi
+          done
+          if [ ! -f "$README" ]; then
+            echo "::error::$README is not in this checkout - nothing embeds docs/screens here, so trigger 3 has no sentence to check (#122)"
             exit 1
           fi
-          DIFF=$(git diff --name-only "$TAG" HEAD -- docs/screens)
+          PNGS=$(git ls-tree -r --name-only "$HEADREF" -- docs/screens | grep '\.png$' || true)
+          NEMB=$(grep -o 'docs/screens/[A-Za-z0-9._-]*\.png' "$README" | sort -u | wc -l || true)
+          if [ -z "$PNGS" ]; then
+            echo "::error::no PNG under docs/screens at $HEADREF while $README embeds $NEMB screenshot reference(s) - '0 screenshots changed' out of an empty tree means the row compared nothing (#122)"
+            exit 1
+          fi
+          if [ "$NEMB" -eq 0 ]; then
+            echo "::error::$README embeds no docs/screens/*.png - 'the README's screenshots' has no referent in this tree, so any verdict here is vacuity (#122)"
+            exit 1
+          fi
+          NJST=$(git ls-tree -r --name-only "$HEADREF" -- js | grep -c '\.js$' || true)
+          if [ "$NJST" -eq 0 ]; then
+            echo "::error::no js/ at $HEADREF - the staleness half would compare a tree that draws nothing and call the silence clean (#122)"
+            exit 1
+          fi
+          DIFF=$(git diff --name-only "$TAG" "$HEADREF" -- docs/screens | grep '\.png$' || true)
           if [ -z "$DIFF" ]; then
             SHOTS=0
           else
             SHOTS=$(printf '%s\n' "$DIFF" | wc -l)
           fi
-          DUE_S=0
+          NJS=$(git diff --name-only "$TAG" "$HEADREF" -- js | grep -c '\.js$' || true)
+          case "$NJS" in
+            ''|*[!0-9]*)
+              echo "::error::could not count js files changed since $TAG (got '$NJS') - failing instead of reporting 0"
+              exit 1
+              ;;
+          esac
           HEAD_REF="${GITHUB_HEAD_REF:-}"
+          WAIVED=0
+          if [ "${HEAD_REF#release/}" != "$HEAD_REF" ]; then WAIVED=1; fi
+          FIRE_S=0
+          STALE=0
+          DUE_S=0
+          DUE_T=0
+          S_TEXT=""
+          T_TEXT=""
+          SMAG=0
+          STOUCH=0
+          SMAX=0
+          STOTAL=0
+          SPX=0
+          SCPX=0
+          DLV="$SD_LUMA"
+          SRV="$SD_STRIDE"
           if [ "$SHOTS" -gt 0 ]; then
-            printf '%s\n' "$DIFF" | sed 's/^/  /'
-            if [ "${HEAD_REF#release/}" != "$HEAD_REF" ]; then
-              echo "$SHOTS screenshot(s) changed since $TAG - a baseline is due - WAIVED on $HEAD_REF, the release PR that pays it"
+            cat > /tmp/pxshare.js <<'NODEJS'
+          // release-guard trigger 3 (#245): how many sampled pixels differ between two revisions' committed
+          // screenshots. The PNG decoder is tools/recap.js's - this adds no second reader to the repo.
+          const cp = require('child_process');
+          const path = require('path');
+          const recap = require(path.join(process.cwd(), 'tools/recap.js'));
+          const LR = 0.2126, LG = 0.7152, LB = 0.0722;   // the same Rec.709 weights tools/recap.js prints
+          const TAG = process.argv[2], HEADREF = process.argv[3];
+          const DL = parseFloat(process.env.SD_LUMA || '2');
+          const STRIDE = Math.max(1, parseInt(process.env.SD_STRIDE || '1', 10) || 1);
+          const FLOOR = parseFloat(process.env.SLIM || '1');
+          function show(ref, f) {
+            try { return cp.execFileSync('git', ['show', ref + ':' + f], { maxBuffer: 1 << 28 }); }
+            catch (e) { return null; }
+          }
+          const files = cp.execFileSync('git', ['ls-tree', '--name-only', '-r', HEADREF, '--', 'docs/screens'],
+            { encoding: 'utf8' }).trim().split('\n').filter(function (f) { return f.endsWith('.png'); });
+          if (!files.length) { console.log('no PNG under docs/screens at ' + HEADREF); process.exit(3); }
+          let px = 0, cpx = 0, fired = 0, touched = 0, maxpct = 0;
+          for (const f of files) {
+            const head = show(HEADREF, f);
+            if (head === null) { console.log(f + ' is listed at ' + HEADREF + ' but git show answered nothing'); process.exit(3); }
+            const ib = (function () {
+              try { return recap.pngDecode(head, f + '@head'); }
+              catch (e) { console.log(f + ' at head does not decode: ' + e.message); process.exit(3); }
+            })();
+            if (!ib.w || !ib.h || !ib.rgb.length) {
+              console.log(f + ' decoded to ' + ib.w + 'x' + ib.h + ' - no pixels to compare');
+              process.exit(3);
+            }
+            const n = Math.ceil(ib.w / STRIDE) * ib.h;
+            const old = show(TAG, f);
+            const same = old !== null && Buffer.compare(old, head) === 0;
+            let c, why;
+            if (old === null) { c = n; why = ' (new since tag)'; }
+            else if (same) { c = 0; why = ' (byte-identical)'; }
+            else {
+              const ia = (function () {
+                try { return recap.pngDecode(old, f + '@tag'); }
+                catch (e) { console.log(f + ' at ' + TAG + ' does not decode: ' + e.message); process.exit(3); }
+              })();
+              if (ia.w !== ib.w || ia.h !== ib.h) {
+                c = n; why = ' (frame ' + ia.w + 'x' + ia.h + ' -> ' + ib.w + 'x' + ib.h + ')';
+              } else {
+                const A = ia.rgb, B = ib.rgb;
+                c = 0;
+                for (let y = 0; y < ib.h; y++) {
+                  const base = y * ib.w * 3;
+                  for (let x = 0; x < ib.w; x += STRIDE) {
+                    const i = base + x * 3;
+                    const la = LR * A[i] + LG * A[i + 1] + LB * A[i + 2];
+                    const lb = LR * B[i] + LG * B[i + 1] + LB * B[i + 2];
+                    if (Math.abs(la - lb) > DL) c++;
+                  }
+                }
+                why = '';
+              }
+            }
+            const pct = 100 * c / n;
+            px += n; cpx += c;
+            if (!same) touched++;
+            if (pct > maxpct) maxpct = pct;
+            if (pct > FLOOR) fired++;
+            console.log('  ' + f + ': ' + n + ' sampled px, ' + c + ' past |dL| > ' + DL + ' = ' +
+              pct.toFixed(3) + ' %' + why);
+          }
+          if (px === 0) { console.log('sampled 0 px across ' + files.length + ' file(s) - nothing was measured'); process.exit(3); }
+          console.log('PIXSHARE|files=' + fired + '|touched=' + touched + '|max=' + maxpct.toFixed(3) +
+            '|total=' + (100 * cpx / px).toFixed(3) + '|px=' + px + '|cp=' + cpx + '|dl=' + DL +
+            '|stride=' + STRIDE + '|floor=' + FLOOR);
+          NODEJS
+            if ! OUT=$(node /tmp/pxshare.js "$TAG" "$HEADREF" 2>&1); then
+              printf '%s\n' "$OUT" | sed 's/^/  /'
+              echo "::error::the pixel-share pass could not measure docs/screens against $TAG - the decode output is above. An unreadable screenshot is not a screenshot that did not change, and 'no screenshot changed' would be a lie (#122)."
+              exit 1
+            fi
+            printf '%s\n' "$OUT" | grep -v '^PIXSHARE|' | sed 's/^/  /'
+            LINE=$(printf '%s\n' "$OUT" | grep '^PIXSHARE|' || true)
+            if [ -z "$LINE" ]; then
+              echo "::error::the pixel-share pass printed no PIXSHARE line (last line: $(printf '%s\n' "$OUT" | tail -n 1)) - trigger 3 will not report a share it did not measure (#122)"
+              exit 1
+            fi
+            IFS='|' read -r _HDR F_FILES F_TOUCHED F_MAX F_TOTAL F_PX F_CP F_DL F_STRIDE F_FLOOR <<< "$LINE"
+            for KV in "${F_FILES:-}" "${F_TOUCHED:-}" "${F_MAX:-}" "${F_TOTAL:-}" "${F_PX:-}" "${F_CP:-}" "${F_DL:-}" "${F_STRIDE:-}" "${F_FLOOR:-}"; do
+              case "${KV#*=}" in
+                ''|*[!0-9.]*)
+                  echo "::error::PIXSHARE line '$LINE' is missing a field or carries a non-numeric '$KV' - a share that does not parse measured nothing (#122)"
+                  exit 1
+                  ;;
+              esac
+            done
+            SMAG=${F_FILES#files=}
+            STOUCH=${F_TOUCHED#touched=}
+            SMAX=${F_MAX#max=}
+            STOTAL=${F_TOTAL#total=}
+            SPX=${F_PX#px=}
+            SCPX=${F_CP#cp=}
+            DLV=${F_DL#dl=}
+            SRV=${F_STRIDE#stride=}
+          fi
+          if [ "$SMAG" -gt 0 ]; then
+            S_TEXT="$SMAG file(s), $STOTAL % of sampled px changed since $TAG (max file $SMAX % of $SPX sampled px, |dL| > $DLV, stride $SRV, floor $SLIM %) - a baseline is due"
+            FIRE_S=1
+            if [ "$WAIVED" = "1" ]; then
+              echo "$S_TEXT - DEBT WAIVED: $HEAD_REF is the release PR that pays it (docs/RELEASE.md)"
             elif [ "$DUE" = "1" ]; then
               DUE_S=1
-              echo "$SHOTS screenshot(s) changed since $TAG - a baseline is due, and the PR-count floor is breached too, so this one gates"
+              echo "$S_TEXT, and the PR-count floor is breached too ($COUNT since $TAG), so this one gates"
             else
-              echo "$SHOTS screenshot(s) changed since $TAG - a baseline is due (known-issue row: reporting, not gating, until the count in trigger 2 says otherwise)"
+              echo "$S_TEXT (known-issue row: reporting, not gating, until the count in trigger 2 says otherwise)"
+            fi
+          elif [ "$SHOTS" -gt 0 ]; then
+            echo "informational: $SHOTS file(s) touched docs/screens since $TAG and $STOTAL % of $SPX sampled px moved past |dL| > $DLV (max file $SMAX %, floor $SLIM %) - under the floor, so this is a recapture of a texture, not a picture change, and no row is printed"
+          fi
+          if [ "$NJS" -gt 0 ] && [ "$SHOTS" -eq 0 ]; then
+            STALE=1
+            T_TEXT="$NJS js file(s) changed since $TAG and 0 screenshot(s) re-captured - a baseline is due"
+            if [ "$WAIVED" = "1" ]; then
+              echo "$T_TEXT - DEBT WAIVED: $HEAD_REF is the release PR that pays it (docs/RELEASE.md)"
+            elif [ "$DUE" = "1" ]; then
+              DUE_T=1
+              echo "$T_TEXT, and the PR-count floor is breached too ($COUNT since $TAG), so this one gates"
+            else
+              echo "$T_TEXT (known-issue row: reporting, not gating, until the count in trigger 2 says otherwise)"
             fi
           fi
           {
             echo "SHOTS=$SHOTS"
+            echo "NJS=$NJS"
+            echo "FIRE_S=$FIRE_S"
+            echo "STALE=$STALE"
             echo "DUE_S=$DUE_S"
+            echo "DUE_T=$DUE_T"
+            echo "S_TEXT=$S_TEXT"
+            echo "T_TEXT=$T_TEXT"
+            echo "SMAG=$SMAG"
+            echo "STOUCH=$STOUCH"
+            echo "SMAX=$SMAX"
+            echo "STOTAL=$STOTAL"
+            echo "SPX=$SPX"
           } >> "$GITHUB_ENV"
 
       - name: Open the release-debt issue on the weekly run
@@ -244,8 +445,11 @@ jobs:
               printf 'docs/RELEASE.md trigger 1: milestone issue(s)%s CLOSED after `%s` was created at %s, and no tag is newer than the close.\n\n' "$DUE_M_LIST" "$TAG" "$TAG_UTC"
             fi
             printf '`gh pr list --state merged --limit 500 --json number,title,mergedAt` filtered on `mergedAt > %s` is the list.\n\n' "$SINCE_UTC"
-            if [ "$SHOTS" -gt 0 ]; then
-              printf 'docs/RELEASE.md trigger 3: %s screenshot(s) under `docs/screens/` differ between `%s` and `main` - the baseline is overdue with the rest of the debt.\n\n' "$SHOTS" "$TAG"
+            if [ "$FIRE_S" = "1" ]; then
+              printf 'docs/RELEASE.md trigger 3 (magnitude): %s, with %s screenshot file(s) touched between `%s` and `main`.\n\n' "$S_TEXT" "$SHOTS" "$TAG"
+            fi
+            if [ "$STALE" = "1" ]; then
+              printf 'docs/RELEASE.md trigger 3 (staleness): %s - the README describes a build that no longer draws.\n\n' "$T_TEXT"
             fi
             printf 'Cut the release: branch `release/vX.Y`, changelog section, screenshots from the deployed build, gates, tag. See docs/RELEASE.md.\n'
           } > /tmp/debt.md
@@ -258,12 +462,15 @@ jobs:
       - name: Verdict
         run: |
           set -euo pipefail
-          if [ "$SHOTS" -gt 0 ]; then
-            if [ "$DUE_S" = "1" ]; then
-              echo "::error::$SHOTS screenshot(s) changed since $TAG - a baseline is due, and it is gating because the 50-PR floor is breached ($COUNT since $TAG). docs/RELEASE.md trigger 3."
-            else
-              echo "known-issue row: $SHOTS screenshot(s) changed since $TAG - a baseline is due (docs/RELEASE.md trigger 3, reporting; the row that gates is the count)"
-            fi
+          if [ "$DUE_S" = "1" ]; then
+            echo "::error::$S_TEXT, and it is gating because the $LIMIT-PR floor is breached ($COUNT since $TAG). docs/RELEASE.md trigger 3."
+          elif [ "$FIRE_S" = "1" ]; then
+            echo "known-issue row: $S_TEXT (docs/RELEASE.md trigger 3, magnitude; reporting - the row that gates is the count)"
+          fi
+          if [ "$DUE_T" = "1" ]; then
+            echo "::error::$T_TEXT, and it is gating because the $LIMIT-PR floor is breached ($COUNT since $TAG). docs/RELEASE.md trigger 3."
+          elif [ "$STALE" = "1" ]; then
+            echo "known-issue row: $T_TEXT (docs/RELEASE.md trigger 3, staleness; reporting - the row that gates is the count)"
           fi
           if [ "$DUE" = "1" ]; then
             echo "::error::release debt: $COUNT merged PRs since $TAG, threshold $LIMIT is reached. docs/RELEASE.md, and the release PR must be on a release/* branch."
@@ -273,4 +480,4 @@ jobs:
             echo "::error::release debt: milestone issue$DUE_M_LIST is CLOSED and no tag is newer than its close ($TAG, $TAG_UTC). docs/RELEASE.md trigger 1, and the release PR must be on a release/* branch."
             exit 1
           fi
-          echo "release check green - $COUNT merged PR(s) since $TAG, threshold $LIMIT; $MS_NOTE; $SHOTS screenshot(s) changed since $TAG"
+          echo "release check green - $COUNT merged PR(s) since $TAG, threshold $LIMIT; $MS_NOTE; $SHOTS screenshot file(s) touched since $TAG ($STOTAL % of $SPX sampled px moved, max file $SMAX % against floor $SLIM %); $NJS js file(s), staleness row $([ "$STALE" = "1" ] && echo FIRED || echo silent)"
