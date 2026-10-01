@@ -309,18 +309,41 @@ function openExit() {
 
 /* ---------------- player ---------------- */
 P.moving = function () { return Math.hypot(this.vx, this.vy) > 0.35; };
+/* #218: a live prop stands on the grid like a low wall, and the footprint it stands on is
+   the ONE authored by the art (#217's MESH.foot), not a second table: the same number drives
+   "does this prop occlude the eye" here and in js/40_render.js's draw skip. The block square is
+   that footprint grown by the mover's radius - the exact Minkowski sum of two axis-aligned
+   squares - so sliding off a prop's face uses the same geometry as sliding along a wall. The
+   altitude test compares floorAt of the entered cell against the prop's own band in grid
+   quanta: a prop on the band above hangs in the air over the datum and must not stop anyone
+   walking under it (#189's band-blind family), and this runs in the movement tick, never a
+   pixel loop (AGENTS' one-indirection cliff). */
+function propBlocks(x, y, rad) {
+  const gz = floorAt(x, y);
+  for (let i = 0; i < PROPS.length; i++) {
+    const p = PROPS[i];
+    if (p.dead) continue;                              // a burnt barrel scatters nothing
+    const r = MESH.foot(p.kind) * (p.scale || 1) + rad;
+    if (Math.abs(p.x - x) >= r || Math.abs(p.y - y) >= r) continue;
+    if (Math.abs(floorAt(p.x, p.y) - gz) < ZQ) return true;
+  }
+  return false;
+}
 function tryMove(o, dx, dy, rad) {
-  // Inside geometry, the radius probes land on the mover's own cell and reject every
+  // Inside geometry - or inside a PROP's grown footprint, which teleports, dev poses and
+  // blast knockback can reach - the radius probes land on the mover's own cell and reject every
   // direction, which is a permanent lock - fall back to bare destination tests so a
-  // mover that ends up embedded can always walk out of it.
-  if (isSolid(o.x, o.y)) {
+  // mover that ends up embedded can always walk out of it. The test must use the SAME grown
+  // radius that blocks: keyed on the bare footprint, an escaping mover would cross into the
+  // ring between footprint and ghost edge, find every outward target blocked, and freeze there.
+  if (isSolid(o.x, o.y) || propBlocks(o.x, o.y, rad)) {
     if (canEnter(o.x, o.y, o.x + dx, o.y)) o.x += dx;
     if (canEnter(o.x, o.y, o.x, o.y + dy)) o.y += dy;
     return;
   }
   // axis-separated slide
-  if (canEnter(o.x, o.y, o.x + dx + Math.sign(dx) * rad, o.y) && canEnter(o.x, o.y, o.x + dx + Math.sign(dx) * rad, o.y - rad * 0.7) && canEnter(o.x, o.y, o.x + dx + Math.sign(dx) * rad, o.y + rad * 0.7)) o.x += dx;
-  if (canEnter(o.x, o.y, o.x, o.y + dy + Math.sign(dy) * rad) && canEnter(o.x, o.y, o.x - rad * 0.7, o.y + dy + Math.sign(dy) * rad) && canEnter(o.x, o.y, o.x + rad * 0.7, o.y + dy + Math.sign(dy) * rad)) o.y += dy;
+  if (canEnter(o.x, o.y, o.x + dx + Math.sign(dx) * rad, o.y) && canEnter(o.x, o.y, o.x + dx + Math.sign(dx) * rad, o.y - rad * 0.7) && canEnter(o.x, o.y, o.x + dx + Math.sign(dx) * rad, o.y + rad * 0.7) && !propBlocks(o.x + dx, o.y, rad)) o.x += dx;
+  if (canEnter(o.x, o.y, o.x, o.y + dy + Math.sign(dy) * rad) && canEnter(o.x, o.y, o.x - rad * 0.7, o.y + dy + Math.sign(dy) * rad) && canEnter(o.x, o.y, o.x + rad * 0.7, o.y + dy + Math.sign(dy) * rad) && !propBlocks(o.x, o.y + dy, rad)) o.y += dy;
 }
 function updatePlayer(dt) {
   const dead = P.deadT > 0;

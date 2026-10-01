@@ -80,7 +80,28 @@
   against **0.12** without, but the identical loop costs **1631 ms in a `vm` context against 28 ms
   in the host** for 12M iterations, so that headless number is the harness, not the browser; it is
   linear in the lattice (a 4× coarser one reads 0.43 ms), which is what the stride is there to tune.
-
+- **Props stop the player, with the footprint the art already authored** (#218). #217 stopped a prop the
+  EYE is inside from painting the frame, and said the movement half was a movement change: until now
+  `tryMove` gave props no test at all, so a player driven into a crate ended up **inside** it — measured
+  on main at SEED 12345, **22 / 24 / 23 driven poses** across the three levels reached a prop and every
+  one of them penetrated, **168–177 frames** of drive spent standing inside a footprint, deepest **0.26 m**
+  — dead centre. `propBlocks` now consults `MESH.foot(kind) * scale` — the same number #217's render skip
+  reads, grown by the mover radius (the Minkowski sum of two axis-aligned squares, so sliding off a prop's
+  face is the same geometry as sliding along a wall) — and gates it on the grid: `floorAt` of the entered
+  cell against the prop's own band, in quanta of `ZQ`. The test lives in the movement tick, never a pixel
+  loop; smoke's raster median is **11.5 ms N=5 at load 1.98** against main's **12.2 N=5 at load 2.36**.
+  A band-blind version of the same test stops a player on the datum **0.15 m short of the lip** under a
+  prop on the band above, which is #189's family and now reddens the `props` band row; the seal-not-slide
+  version freezes face-graze poses **0/4 across every level** beside the prop instead of crossing. The
+  embedded escape hatch keys on the same grown radius, not the bare footprint — keyed on the footprint an
+  escaping mover freezes in the ring between the two. Enemies respect the same byte: **656 / 490 / 811**
+  blocked moves where main reported 0, blocker-overlap frames **376 → 15, 222 → 0, 387 → 16**. No spawn
+  landed inside a footprint in **18 rolls**, and a parked-in-prop dev pose drives clear in **7 frames**.
+  #217's render-side skip stays as the guard it is. `props` gained 9 rows (3 levels × collision / band /
+  slide, each printing its prop census and reached-population, vacuity a FAILURE); smoke's VERT lane
+  counts stay **25 gating, 0 known-issue**, and its `vboot` now re-seeds the stream per lane — the V11
+  sight row had been riding on how many draws earlier sections happened to make, which #218's movement
+  shifted (measured: a pinned eye on a re-seeded world, alert 0/90 across seeds and across builds).
 - **`flatparity`'s census counted its own `fill(0)` and reported the game as flat** (#219). The run ended
   with "the hashed levels carry **0 / 0 / 0** cells off the datum" beside a verdict that the band term is
   blind to its own sign — and that 0 came from the probe's own `MAP.fz.fill(0)` two lines above the count,
