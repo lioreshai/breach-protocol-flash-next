@@ -67,12 +67,16 @@ the way it is.
       `drop`, `sight`, `cull`, `horizon`, `heights`, `planes`, `vert` are in the **blocking** probe list
       (`ci.yml`) and pass with numbers: a 3 m drop lands at 7.21 m/s against 7.43 predicted and hurts
       (hp −25.32 vs the formula's 26.2); a level shot at an enemy one band up hits nothing; a body on
-      band +1 moves its silhouette centroid up 89.1 px against 84.5 predicted. **`alt` is the exception, and
-      it is worse than "not gating": it has no `process.exit` in its code path at all** - it computes a
-      flatness verdict, prints `ALL FLAT ok` / `NOT FLAT - check above`, falls through to the scene dump and
-      exits 0 (`tools/view.js:214-263`). So z is
-      no longer invisible to the asserts — but every vertical row *creates* its geometry by poking
-      `MAP.fz`, which means none of them can fail on a world that has no altitudes. That is #152.
+      band +1 moves its silhouette centroid up 89.1 px against 84.5 predicted. **`alt` was the exception, and
+      it was worse than "not gating": it had no `process.exit` in its code path at all** - it computed a
+      flatness verdict, printed `ALL FLAT ok` / `NOT FLAT - check above`, fell through to the scene dump and
+      exited 0. That described `main` when the line was written; `alt` now ends in
+      `process.exit(bad ? 1 : 0)` (`tools/view.js:782`), asserts bands instead of flatness, and sits in
+      `ci.yml`'s blocking list — #152, closed by #162. So z is
+      no longer invisible to the asserts — and the warning that follows, that every vertical row *creates*
+      its geometry by poking `MAP.fz` so none can fail on a world with no altitudes, now has a counterweight:
+      `alt`'s band rows and `flatparity`'s DEALT census count the grid the **generator** dealt, which a poke
+      cannot fake.
 
 ## Vertical navigation — milestones (design in `AGENTS.md`)
 
@@ -83,35 +87,54 @@ is what keeps `smoke.js` meaningful *while* this is in flight.
 
 | # | Ship | Exit gate |
 |---|---|---|
-| M0 ✓ | Height expressible; `P.z` absolute; flat behaviour bit-identical | `exposure` per level moves `< 3`; smoke green; `alt` reports all-flat |
+| M0 ✓ | Height expressible; `P.z` absolute; the **flat** world collapses to the old arithmetic bit for bit | `flatparity`'s two flat senses hash a grid **the probe flattens** (PARITY `tools/view.js:863`, LOCK `:870`); smoke green. `exposure`'s per-level `< 3` prints with no exit code, so it reports rather than gates |
 | M1 ✓ | Boundary faces with real `z0/z1` | `alt` reports boundary faces > 0, no span ≤ 0 (invisible wall) |
 | M2 ✓ | Ground plane solved per **column**; ceilings in the same commit | medians within ~1 ms of baseline; `horizon` depth error `< 0.02` |
-| M3 ◐ | **Physics ✓** gravity, step-up, fall damage, climb; **generation ✗** — no band or link is ever authored | `drop` clean ✓; `alt`: ≥2 bands per level, ≥1 link per band, 0 unreachable cells — **cannot pass today, and `alt` still asserts flat** |
+| M3 ✓ | **Physics ✓** gravity, step-up, fall damage, climb; **generation ✓** — bands, links and staircases are authored (#152, shipped in #162) | `drop` clean ✓; `alt`: ≥2 bands per level, ≥1 link per band, 0 unreachable cells ✓ — measured on `62d5b5c`, `main`: 9 distinct floor values on each level over 576 / 897 / 1156 open cells, **170 / 251 / 307 cells off the datum**, 46 / 52 / 52 step faces, 0 unreachable, `ALT ok`, exit 0 (N = 1 run) |
 | M4 ◐ | `hitscan`, culling, blast/exit/pickup bands ✓ gated; enemy movement across bands, projectile ceiling (#148), absolute decal z ✗ | `sight`: 0 cross-band false-visibles ✓; combat asserts on a *generated* two-band level |
 | M5 | Per-band light and glow, minimap altitude cue | `exposure` **per band** in 60–100; colour variety not worse |
 | M6 | Hand-authored two-storey level | full smoke + user playthrough |
 
-**The frontier is one thing: `genLevel` has never written an altitude.** On the normal path the grid is
-`fzTry`, allocated as all-zero `Int8Array` at `js/20_level.js:491` and made into `MAP.fz` at `:503`; the
-`new Int8Array` at `:575` is only the fallback box. **No line writes `fzTry`**, so `alt` reports
-`floors 0..0`, one band and `step faces 0` on all three levels — the representation, the faces, the
-ground solver and the movement all work on a world that has nothing to climb. Until 2026-09-29
-`AGENTS.md` claimed M3 had shipped ("issue #14 closed"), and #14 is open and was never closed: a
-milestone was struck without a verdict beside it, and the next readers inherited a feature that did
-not exist. [#152](https://github.com/lioreshai/breach-protocol-flash-next/issues/152) is the blocker
-for every vertical claim; [#14](https://github.com/lioreshai/breach-protocol-flash-next/issues/14)
-and [#15](https://github.com/lioreshai/breach-protocol-flash-next/issues/15) carry the per-item truth.
+**What "bit-identical" is gated by, and by which instrument (#214, #219, #224).** The M0 row means the
+**flat senses**: `flatparity` fills `MAP.fz`/`MAP.cz` flat itself before hashing each level's spawn frame,
+so PARITY and LOCK are a formula-collapse proof — correct for "does the new expression reduce to the old
+one on a flat grid" — and *not* a description of a dealt level (the `0 / 0 / 0` cells-off-the-datum census
+beside that verdict is read after the probe's own fill, so it is a property of the probe). A flattened
+world cannot exercise a term that only acts off the datum, which is why the sign of the band term is
+gated elsewhere and not there. The other half is the **DEALT** sense (`view.js:887`), which hashes the
+banded world as dealt and gates its md5 clause per level; its dealt-vs-flat pixel ratio is **printed, not
+gated** (a level whose spawn camera sees no band reads only the per-render alternation floor — level 2: 8
+px of 203,138), and its churn is measured: **9 of 11** recent `js` commit boundaries move at least one of
+the three hashes, so DEALT is a lock that re-records often, not a proof that a band term exists or has the
+right sign. "Our levels are flat" is not a claim this file makes any more: generation authors bands, and
+the numbers are in the M3 row above.
 
-Three constraints on the commit that turns generation on, each of them a gate that would otherwise
-mislead the author:
+**The frontier is no longer whether altitude is authored.** The paragraph that used to sit here said
+`genLevel` had never written an altitude — the grid was an all-zero `Int8Array` that no line wrote — and
+that was true of `main` when it was written. It is not now: `authorVolume` (`js/20_level.js:401`) is
+called before the occupancy gate (`:843`, then `bfsReach` at `:844`), and `alt` measures the result (the
+M3 row above). What that paragraph was really pointing at survives as a different problem: a raised band is
+a minority of the floorplan and no column is authored hollow, so a level is multi-storey in `MAP.fz` and
+still *reads* flat to a player. That is M4/M5 — perceivability and findability — not generation. The reason
+this paragraph was wrong for as long as it was stands, and is the rule: until 2026-09-29 `AGENTS.md` struck
+M3 as shipped ("issue #14 closed") with no verdict beside it, and the next readers inherited a feature that
+did not exist — a milestone is struck by a verdict a tool prints, not by an edit to a list.
+[#152](https://github.com/lioreshai/breach-protocol-flash-next/issues/152) is closed;
+[#14](https://github.com/lioreshai/breach-protocol-flash-next/issues/14) and
+[#15](https://github.com/lioreshai/breach-protocol-flash-next/issues/15) carry the per-item truth.
+
+Three constraints on the commit that turns generation on — generation came on in #162, so read these as
+what that commit had to satisfy, and they still bind any later generator change:
 
 - **Author the bands before the occupancy gate, not after.** `bfsReach` walks the very array `MAP.fz`
-  becomes (`js/20_level.js:489-490` says so), so heights written after `:492` are validated against a flat
-  grid the player never gets.
-- **The gate is height-aware to one quantum only.** `Math.abs(fzArr[ni] - fzArr[idx]) <= 1`
-  (`js/20_level.js:127`) admits a step and refuses a ramp or a ladder, both of which span 4 quanta, so a
-  generator that authors them fails every attempt into the fallback box until the crossing test counts
-  `VB_RAMP`/`VB_LADDER`.
+  becomes (`js/20_level.js:489-490` says so — the comment sits at `:838` on current `main`, and the call
+  pair is `:843` then `:844`), so heights written after the gate are validated against a flat grid the
+  player never gets.
+- **The gate is height-aware to one quantum only** — this bullet described `main` before #162. `Math.abs(fzArr[ni] - fzArr[idx]) <= 1`
+  (`js/20_level.js:127`) admitted a step and refused a ramp or a ladder, both of which span 4 quanta, so a
+  generator that authored them failed every attempt into the fallback box. It now OR-s in
+  `linkedClimb(vbArr, featArr, …)` (`js/20_level.js:140`), which is the `VB_RAMP`/`VB_LADDER` count this
+  bullet asked for.
 - **`auto-step` already exists** (`js/30_entities.js:376`, eased `P.z += dz * min(1, 16*dt)`, gated by
   `vert`'s 1-quantum-over / 2-quantum-stop rows) — generation must not add a second lift — and smoke's V15
   needs a **flat 8-cell lane at floor 0** (`tools/smoke.js:876-880`), so a staircase that lands in that lane
@@ -121,8 +144,9 @@ Three failure modes that stay **green** while broken (each needs a probe, not a 
 ~~`resetRun()` zeroes `P.z` *after* `genLevel` placed the spawn~~ (fixed: `startLevel` seats
 `P.z`/`P.air`/`P.vz` on every path, gated by `vert`); `genLevel`'s height-blind occupancy gate degrades
 to a lit empty box with the feature silently absent (the warn ships, the **gate** is still blind);
-and ~~nothing compares z~~ — z is compared now, but **only on grids the probes poked themselves**, so
-a build with no altitudes at all passes the whole vertical suite (#152).
+and ~~nothing compares z~~ — z is compared now, **but on the dealt grid as well as on grids the probes
+poked themselves** (`alt`'s band rows and `flatparity`'s DEALT census), so a build whose generator stopped
+authoring altitude reddens those two rather than passing the whole vertical suite (#152, closed).
 
 ## Visual and feel backlog
 

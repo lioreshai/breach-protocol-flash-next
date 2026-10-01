@@ -316,7 +316,11 @@
 - **What no flat frame can ever see, printed where the claim lives.** Replacing the band term's
   `|lf - floor| <= ZQ + 1e-9` with `lf - floor >= -ZQ - 1e-9` — one-sided, blocking the upward half and
   allowing light **down** past any number of bands, and it leaks: `alt` reads **169 / 273 / 117** cells
-  lit from a band above on that very kernel — leaves **all six** flatparity rows green on all three
+  lit from a band above on that very kernel (the figure that reproduces today is **169 / 279 / 117** —
+  level 1's digit is the one that moved, and it moved with the `#96` seed-to-layout change, so 273 is
+  what that older deal measured and 279 is what this kernel measures: `tools/view.js:846` and the #214
+  bullet below both carry 279; the second figure in this bullet is the same older reading, kept as
+  measured *then*, not re-quotable as current evidence) — leaves **all six** flatparity rows green on all three
   levels, LOCK hashing `4262d051 / f05beeb5 / 050b225e` and PARITY `f9e4da3a / f05beeb5 / d4b2d2cd`
   bit for bit. Not a threshold set too wide: on a flat world `fd = 0` in every cell, so the term
   reduces to the literal 1 before the sign is ever read. Flat parity is **necessary and never
@@ -338,7 +342,9 @@
   authored `z` and default to the emitting cell's own `floorAt` (documented at the call sites and in the
   commit); the exit pad ships `z`-less on that same default because an authored `z` measurably taxed the
   pools near the exit and changed nothing else. Wrong-band-only cells are **0 / 0 / 0**, a forced-flat
-  level is **md5-identical** to `9656176`, splat+un-splat round-trips to **1.2e-7** so the fade asserts
+  level is **md5-identical** to `9656176` (a comparison made in that session against that commit — what
+  holds a forced-flat md5 to a literal today is `flatparity`'s PARITY/LOCK triples, `tools/view.js:863,
+  :870`, added by #214 three eras later), splat+un-splat round-trips to **1.2e-7** so the fade asserts
   in `tools/smoke.js` stand untouched, and the new `alt` rows fail **6 times** against HEAD's `js`.
   What it costs is filed as **#204**: the term is a step, so two quanta below a lamp the direct term is
   exactly zero — pit floors lose **79 / 74 / 42 %** of their light and **0.25 m reads floodlit while
