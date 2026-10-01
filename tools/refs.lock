@@ -1,0 +1,11 @@
+# tools/refs.lock - the recorded-reference inventory of tools/view.js (#216 probe-half).
+# One row per probe verdict that compares a measured value against a recorded literal, in the
+# form:  ref <TAB> probe <TAB> row <TAB> kind <TAB> value(s), space separated.
+# Regenerate:  node tools/view.js refs --record      Assert:  node tools/view.js refs
+# A declaration with no row here fails REFS-DECLARED-MISSING; a row with no declaration fails
+# REFS-IN-TABLE-UNDECLARED; an edited literal fails REFS-VALUES-MOVED. None of the three is a
+# warning, and the row runs inside flatparity, which ci.yml runs blocking.
+ref	cull	CZBAND	crc32	0x9c03d4f4 0xeec7be60 0x7dd66c40
+ref	flatparity	DEALT	md5	3e88c850528f97c56d8ce8ecfe168ee2 f240fd3502c1db1ad543934f91a48eb5 ce8e96a3029e5ee71a12a2dec7f3e15a
+ref	flatparity	LOCK	md5	060da4cdaadc2e4a4276ce8f06b0eecf f05beeb58f1266a1aea7e44712995292 050b225e3f295b3ca991d59addea2f1c
+ref	flatparity	PARITY	md5	f9e4da3af18836db903fd7cbdf2b0206 f05beeb58f1266a1aea7e44712995292 d4b2d2cd539c3b620ea0ce5ab115d50a
