@@ -2391,6 +2391,11 @@ if (MODE === 'cull') {
   for (let li = 0; li < 3; li++) {
     const setup = run(`(function(){
       startLevel(${li}, true);
+      /* #223: the lightmap THIS level was generated with, stamped before any row can splat a
+         transient into it. MAP.light is maintained by splat/un-splat deltas at runtime, so reading it
+         late would make a recorded reference depend on which rows ran first. Nothing between here and
+         the CZBAND block calls startLevel again, so this is the grid the hashed frame renders. */
+      window.__lwGen = MAP.light.slice();
       let lane = null;
       for (let y = 2; y < MH - 2 && !lane; y++) for (let x = 2; x < MW - 9 && !lane; x++) {
         let n = 0; for (let k = 0; k < 8; k++) if (!MAP.cell[y * MW + x + k]) n++;
@@ -2839,6 +2844,38 @@ if (MODE === 'cull') {
          brightness" control #203 noted - and the px-difference counts held at 51048 / 49614 / 49586,
          so the ground pass changed because the LIGHT under it did and not because the geometry did. */
       const CZBAND_REF = refRecord('cull', 'CZBAND', 'crc32', [0x8f763884, 0x77511300, 0x7dd66c40]);   // LEAK=1 CZBAND=1, cull's own step rows
+      /* #223: the WORLD sense, recorded beside the lane sense, because czS.h above is a lightmap
+         instrument only ON ONE CAMERA'S FRAME: it moves when the lightmap changed somewhere that frame
+         rasterizes and holds when it changed somewhere it cannot, so its green never proves "the
+         lightmap is unchanged". This sense is the same question asked of every cell the generator lit.
+         MEASURED on this tree (LEAK=1 CZBAND=1 cull, one run per arm; lane = czS.h above, world = the
+         digest recorded below; the number is the level's lightmap sum):
+           arm    change                                 L0                 L1                 L2
+           main   -                                      = / =   300.47     = / =   392.00     = / =   773.20
+           x0.999 every static source x 0.999            MOVE / MOVE      MOVE / MOVE      MOVE / MOVE
+           x0.80  every static source x 0.80             MOVE / MOVE      MOVE / MOVE      MOVE / MOVE
+           ONE0.1 ONE top-up lamp at 0.1 str             HOLD / MOVE 276  MOVE / MOVE 360  MOVE / MOVE 713
+           T64    TOPUP_TARGET 32 -> 64 (one lamp's tsc) HOLD / MOVE 296  MOVE / MOVE 360  HOLD / HOLD 773
+           T128   TOPUP_TARGET 32 -> 128                MOVE / MOVE 263  MOVE / MOVE 360  MOVE / MOVE 755
+           LAMP   MAX_ADD 3 -> 1 (fewer top-up lamps)   MOVE / MOVE 217  MOVE / MOVE 294  MOVE / MOVE 664
+           WV1    #252's blurLight band gate DELETED    MOVE / MOVE      MOVE / MOVE      HOLD / MOVE
+         The issue's claim needs narrowing in both directions and the table says which way. It is too
+         STRONG for a global intensity change - the lane hash moves on 3 of 3 levels at x 0.999, so
+         nothing off-lane is hiding there - and too WEAK for the localised class: one top-up lamp at
+         0.1 str takes 24.14 of L0's 300.47 (-8.0% of the level's delivered light) with L0's lane hash
+         BYTE-IDENTICAL, and TARGET=64 moves L0's lightmap by 4.19 with the same identical lane hash.
+         So the floor between the two readings is not a threshold (the world sense is bit-exact) but a
+         measured miss: the largest delta the lane lets through is 24.14 of 300.47 on L0 against the
+         0.30 of 300.47 (x 0.999) at which it does move - WHICH source changed decides it, not how
+         small the change is. #252 is the regression this row exists for: deleting blurLight's band
+         gate returns L0/L1's lane hashes to the pre-#252 literals (0x9c03d4f4 / 0xeec7be60) while L2's
+         stays 0x7dd66c40, byte-identical, so on the third level the old verdict could not have seen it.
+         Both senses stay because they read different things: the lane hash rasterizes the LIVE lightmap
+         on the cells one camera reaches, the world digest reads the GENERATED lightmap on every cell.
+         The printed drift (MAP.light now vs the snapshot taken straight after startLevel) is 0 on all
+         three levels, so on this path they are the same array; a nonzero drift would mean a row had
+         splatted a transient into the frame and the pair had stopped being comparable. */
+      const CZLIGHT_REF = refRecord('cull', 'CZBAND-LIGHT', 'crc32', [0xb0988514, 0xb54c0a14, 0xcb62daf2]);
       if (process.env.CZBAND) {
         czRows++;
         run(`(function(){ window.__cz0b = MAP.cz.slice(); ${JSON.stringify(BG.cells)}
@@ -2865,6 +2902,22 @@ if (MODE === 'cull') {
           return { p, h, dfl };
         };
         const czS = czFrame('ship'), czN = czFrame('nodefer');
+        /* The world sense: the generated lightmap of this level, hashed whole. No render, no poke -
+           a typed-array read, so it cannot warm the pose cache or move a lock (#243's cliff). */
+        const lw = new Float32Array(run('window.__lwGen'));
+        const lwb = new Uint8Array(lw.buffer), lwn = new Float32Array(run('MAP.light'));
+        let lwH = 0x811c9dc5, lwSum = 0, lwMax = 0, lwDrift = 0;
+        for (let i = 0; i < lwb.length; i++) lwH = (lwH ^ lwb[i]) * 16777619 >>> 0;
+        for (let i = 0; i < lw.length; i++) {
+          const v = lw[i]; lwSum += v; if (v > lwMax) lwMax = v;
+          const d = v - lwn[i]; lwDrift = Math.abs(d) > lwDrift ? Math.abs(d) : lwDrift;
+        }
+        /* How much of the level's lighting this one frame could even see: a DISTANCE test against the
+           renderer's own far term at the sampled camera, not an occlusion test, so it over-counts.
+           Printed so a lane-sense green reads as the placement statement it is (#223 ask 1). */
+        const lampN = run(`LIGHTS.filter(L => L.stat === 1).length`);
+        const lampF = run(`(function(){ const C = ${BG.lx - 4}, D = ${BG.ly}; let n = 0;
+          for (const L of LIGHTS) if (L.stat === 1 && Math.hypot(L.x - C, L.y - D) < ${FARBV}) n++; return n; })()`);
         const cpFar = run(`MAP.ceilPlane[${Math.floor(setup.lane.y)} * MW + ${Math.floor(setup.lane.x) + 4}]`);
         const hex = v => '0x' + v.toString(16).padStart(8, '0');
         row(`L${li} the ceiling-step frame exercises the deferred pass`, czS.p === 'ok' && czN.h !== czS.h,
@@ -2872,10 +2925,24 @@ if (MODE === 'cull') {
           `${hex(czS.h)} (${czS.dfl} px differ from the composited frame) | nodefer control ${czN.p} ` +
           `${hex(czN.h)} - the two agree only if this geometry queues nothing, which would make the hash ` +
           `worthless rather than clean (#177)`);
-        row(`L${li} the ceiling-step ground hash is the recorded one`, czS.h === CZBAND_REF[li],
-          `measured ${hex(czS.h)} vs recorded ${hex(CZBAND_REF[li])}, ${czS.dfl} px of the ground pass differ ` +
-          `from the composited frame - this is the row that #177's wrong fix (adopt the nearer ceiling ` +
-          `plane) turns red while every shipped gate stays green`);
+        const laneOk = czS.h === CZBAND_REF[li], worldOk = lwH === CZLIGHT_REF[li];
+        row(`L${li} the ceiling-step ground hash AND the lightmap under it are the recorded ones`,
+          laneOk && worldOk,
+          `LANE ${hex(czS.h)} vs recorded ${hex(CZBAND_REF[li])} (${czS.dfl} px of the ground pass differ ` +
+          `from the composited frame; ${lampF} of ${lampN} static lamps within ${FARBV.toFixed(0)} m of this ` +
+          `camera - a DISTANCE test, not an occlusion test) | WORLD ${hex(lwH)} vs recorded ` +
+          `${hex(CZLIGHT_REF[li])} (sum ${lwSum.toFixed(2)} over ${lw.length} cells, max ${lwMax.toFixed(3)}, ` +
+          `drift from now ${lwDrift ? lwDrift.toExponential(1) : '0'}) | ` +
+          (laneOk && worldOk ? 'both senses at the record' : !laneOk && worldOk
+            ? 'GEOMETRY or RENDER changed, the GENERATED lightmap did NOT - the class #177\'s wrong fix '
+              + '(adopt the nearer ceiling plane) lands in' : laneOk
+            ? 'THE GENERATED LIGHTMAP CHANGED AND THIS LANE DOES NOT SHOW IT - the frame hash alone reads '
+              + 'GREEN here (#223): the changed source is off this camera\'s lane' :
+            'both senses moved - a light change this lane also rasterizes, or a grid change on top of it') +
+          `. Green means the WHOLE level's generated lightmap is the recorded one, not that a light change ` +
+          `was invisible: the lane hash alone holds byte-identical when a source off the lane moves ` +
+          `(measured: one top-up lamp at 0.1 str, -8.0% of L0's lightmap, leaves L0's lane hash unchanged, ` +
+          `and #252's band-gate removal leaves L2's unchanged), while a GLOBAL source scale moves it on 3 of 3.`);
         restore(); run('MAP.cz.set(__cz0b); linkBoundaries();');
       }
     }
