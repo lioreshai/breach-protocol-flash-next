@@ -191,6 +191,35 @@ function drawErrorBanner() {
   ctx.fillText('F3 perf · T audio · press Esc to pause and resume to retry', 14, 46);
 }
 
+/* Minimap feature cue (#189 part 1): MAP.feat authors STAIR/LADDER/PIT cells and no HUD code read
+   them, so an off-band region was undiscoverable from the datum. The cue plots REGARDLESS of
+   explored: measured 2026-10-01 on the generated levels, 0 of 26/26/18 feat cells sit inside the
+   reveal disc (radius sqrt(52) cells, js/30_entities.js) and the nearest staircase is
+   10.4/13.9/25.3 cells from the spawn seat - an explored-gated cue paints nothing on the spawn
+   frame. Geometry mirrors drawMinimap (js/40_render.js) deliberately: the HUD file owns the cue
+   pass, the renderer owns the layer, and bands' cue rows read both. FEAT_RAIL has no entry -
+   nothing authors it; if generation ever does, bands' coverage row fails on uncued cells rather
+   than pass silently. Ink is a LEVEL-wide reference (band vs MAP.fzBase), never a player-relative
+   altitude: where the player stands is the arrow, not any cell's colour (#16 gap kept visible). */
+const MMFEAT = [null, 'rgba(255,233,176,.95)', 'rgba(207,234,255,.95)', 'rgba(255,154,122,.9)'];
+function drawFeatCues(U) {
+  const size = Math.min(DW * 0.2, DH * 0.24), pad = 18 * U;
+  const x0 = DW - size - pad, y0 = pad + 6 * U, s = size / Math.max(MW, MH);
+  ctx.save();
+  ctx.globalAlpha = 0.9;
+  for (let y = 0; y < MH; y++) for (let x = 0; x < MW; x++) {
+    const k = MAP.feat[y * MW + x] | 0, g = MMFEAT[k];
+    if (!g) continue;
+    ctx.fillStyle = g;
+    if (k === FEAT_STAIR) {
+      ctx.fillRect(x0 + x * s + s * .2, y0 + y * s + s * .28, s * .6, s * .18);
+      ctx.fillRect(x0 + x * s + s * .2, y0 + y * s + s * .58, s * .6, s * .18);
+    } else if (k === FEAT_LADDER) ctx.fillRect(x0 + x * s + s * .38, y0 + y * s + s * .14, s * .24, s * .72);
+    else ctx.fillRect(x0 + x * s + s * .35, y0 + y * s + s * .35, s * .3, s * .3);
+  }
+  ctx.restore();
+}
+
 function frameInner(ts) {
   const dt = Math.min(0.05, Math.max(0.001, (ts - last) / 1000 || 0.016));
   last = ts;
@@ -211,6 +240,8 @@ function frameInner(ts) {
   else { shakeX = 0; shakeY = 0; }
   renderWorld();
   renderOverlay();
+  // same gate drawMinimap carries in js/40_render.js: title mode returns before its HUD
+  if (S.mode !== 'title' && S.showMap) drawFeatCues(DH / 900);
 }
 
 /* ---------------- boot ---------------- */
