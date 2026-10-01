@@ -41,6 +41,37 @@
   **8.85 → 10.5 ms**.
 
 ### Fixed
+- **`flatparity`'s census counted its own `fill(0)` and reported the game as flat** (#219). The run ended
+  with "the hashed levels carry **0 / 0 / 0** cells off the datum" beside a verdict that the band term is
+  blind to its own sign — and that 0 came from the probe's own `MAP.fz.fill(0)` two lines above the count,
+  on a `main` whose dealt levels hold **165 / 246 / 292** off-datum open cells at the same dice (`alt`
+  reads 170 / 251 / 307 at its own unseeded stream). A probe that ERASES geometry cannot fail on a world
+  that has any, and then reports the resulting blindness as flatness. The census is counted from the DEALT
+  grid now, over open columns with the game's own `MAP.cell`, and a per-level row asserts it. A third
+  sense, **DEALT**, hashes each level's spawn frame as generated — no fill, no relink, no lamp re-seat,
+  same dice, same pinned-clock ninth render — recorded at `ec629433/96a450d0/22d473ed` (means 79.7/33.7/
+  51.7) with the off-datum population and the dealt-vs-flat pixel gap printed beside the verdict. It needs
+  its own cold process, which is a measured result and not a taste: rendering anything before the flat hash
+  moves LOCK/PARITY — 8 extra renders gives `e96fe6bb/f746bcb5/32d25823` and 9 gives
+  `bee34388/90f20cbd/050b225e`, and a dealt render per level moves them whether it goes first
+  (`bee34388/90f20cbd`) or last (`37cb3011`, `4e718f4f/b9ba6913`). Churn was measured BEFORE recording
+  refs, over the 12 most recent js commits at the pinned dice, two cold samples each and all stable: **9 of
+  the 11 boundaries with a measured parent move at least one of the three hashes** — only `4f2b9c0` (#217,
+  prop cull) and `acdf91d` (#183) leave the dealt frame byte-identical — and the signal sits almost wholly in
+  level 0 (**9** of 11 boundaries move L0, **2** move L1, **5** move L2; the columns hold 10 / 3 / 6 distinct
+  values across the 12, so an L1-only lock would have been nearly dead). This is a lock that re-records on
+  most js commits and the population clause, not the ref, is the falsifiable half. Controls, each a real
+  file variant of `js/20_level.js` in a detached worktree: deleting the `authorVolume` call (the write that
+  makes a level non-flat — `fzTry` is allocated all-zero, so absence is what flattens) reddens census and
+  DEALT on **3 of 3** levels, exit 1; `wv = 1` (a banded world with flat-shaded light) leaves both flat
+  triples byte-identical to main and reddens DEALT on **2 of 3**, exit 1; the one-sided kernel
+  `lf - floor >= -ZQ - 1e-9` does the same, which is the first answer this repo has had — rather than a
+  hypothesis — to whether a banded-but-flat-shaded world is detectable. Level 2 is the honest exception and
+  prints why: its dealt frame differs from its flattened one on **8 px of 203,138**, the alternation floor,
+  so that camera sees none of its 292 off-datum cells and its dealt hash locks almost nothing. LOCK,
+  PARITY and CZBAND unchanged (`060da4cd/f05beeb5/050b225e`, `f9e4da3a/f05beeb5/d4b2d2cd`,
+  `0x9c03d4f4/0xeec7be60/0x7dd66c40`), and the stale 169/**273**/117 this probe's header quotes for level 1
+  is corrected to the measured 169/**279**/117 (#219 item 2, named in #216).
 - **A pit read as a white box because a coverage top-up was authored as a full lamp** (#213). A 5×3 pit
   (16 cells) and a 300-cell floor received **identical** sources, so standing inside a lit pit read
   `DEV.lum` **168 mean / 229 mid** while the big floor stayed under-lit: #204's symptom with its sign
