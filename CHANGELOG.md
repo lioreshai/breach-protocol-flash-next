@@ -2,6 +2,37 @@
 
 ### Added
 
+- **`props` gates the lamp core's saturation, so #84 can finally fail** (#84). Probe-only: the game is
+  byte-identical and a player sees nothing new. Row (E) asked whether emissive pixels survive the lights
+  going out, and #84 asks a different question — whether the aperture ever reaches the top of the byte —
+  which nothing in `tools/` could answer, because the three existing `blown` blocks are `console.log`
+  arithmetic with no exit code and this mode parks its prop at **2.90 m**, where fog puts the core under
+  the threshold whatever the art does. There is no tone curve in `js/` (no tonemap/reinhard/filmic), so
+  clipping is arithmetic: the aperture is authored `[255,226,166]` (`js/13_mesh.js:331`), `geoFor`'s
+  propTex lift (`js/13_mesh.js:664-666`, `83d9411` — not `ec271fb`, which is what the issue's comment
+  names) makes it `[255,255,230]` = luminance **253.2**, and an emissive pixel is
+  `albedo*(1-fog)+FOGC*fog` with no scene light, so `R>253` needs `fog < 2/(255-FOGC[0])` ≈ 0.008, which
+  `fogAt` reaches at **2.5 m**. The new row re-seats that authored lamp on the same sight line at **1.00 m**,
+  inside the fog-free radius, and gates two numbers **inside the silhouette** against a `num` record,
+  `props/LAMPCORE` = **263 / 239.6, 263 / 239.5, 263 / 239.5** (saturated `R>253 && G>253` px and top-decile
+  luminance per level, recorded with `node tools/view.js refs --record`, so the inventory moved from 7
+  records in 3 probes to **8 in 4** and nothing else in `tools/refs.lock` moved). Distance curve for one lamp
+  on that camera, in-mask px: **1928 at 0.50 m, 462 at 0.80, 263 at 1.00, 76 at 1.40, 20 at 2.30, 0 from
+  2.60 up**, `maxLum` 253.2 while fog is 0 and 250.2/246.3 once it is not. Seen to bite, with a marker
+  printed out of the sabotaged file so the harness cannot self-cancel: deleting the lift
+  (`13_mesh.js:664-666`) moves the in-mask count **263 → 0** and the top decile **239.6 → 194.4, exit 1**,
+  while row (E) above it stays green, which is the gap #84 was describing; zeroing the authored aperture
+  (`:330-331`) also gives **0 px, exit 1**; and a frame-wide `blown > 0` rule would *not* have caught the
+  first one on level 1, where 3 px over luminance 250 are not the core, so the frame-wide count survives a
+  dead core while the in-mask count goes to zero (on level 0 it goes to 0 too, which makes the frame-wide
+  rule level-dependent rather than merely looser — the reason the count is in-mask). The era-vs-claim was
+  measured and only half reproduces: `83d9411^` (`6b75261`, billboard lamp) has **8** saturated px and **8**
+  pure-white `255,255,255` px at level 1 / 1.40 m where main has **76** and **0**, so the older build blows
+  to white on fewer pixels, not more — the direction the comment carried is wrong, the pure-white family is
+  real but belongs to lit geography, not to the core. No `js/` byte moved in the commit, and `flatparity`
+  confirms it: LOCK `060da4cd…`, PARITY `f9e4da3a…`, DEALT `bb12ef3e…` unchanged, so no deploy proof and no
+  recapture is owed.
+
 - **`exposure` grew records, so its numbers can now fail instead of being quoted** (#216). The block that
   prints "level 0 mean 73 median 69 | spawn mean 57 mid 65" had no `process.exit` and no literal behind any
   digit, which is how "exposure 77/62/59" could sit in `AGENTS.md` as a measured claim across a
