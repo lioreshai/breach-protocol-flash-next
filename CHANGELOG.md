@@ -122,6 +122,33 @@
   535 / 298. Controls seen red before merge: two PNGs swapped in a scratch copy (mean 87.67 quoted against
   24.69 in the bytes, rows 0 against 417), one caption's mean re-generated to 88.67, and `DIR` pointed at
   a directory with no PNGs in it.
+
+- **`?dev=1&seed=<int>` makes a live boot deterministic** (#166). Nothing new for a player — this is
+  verification plumbing, and with no `seed` parameter `js/90_dev.js` does not touch `Math.random` at all.
+  Generation takes its places from `Math.random` (`js/20_level.js:898, :911, :962, :1077` and
+  `pickWallTex` at `:401`), so every load of the deployed URL was a different level: two loads of one
+  unseeded URL in a real browser folded to **2016015967** and **34562729**, spawn seats (16.5, 10.5) and
+  (9.5, 5.5). That made "capture the README shots from the deployed build" only half satisfiable — a
+  frame could be looked at but never re-taken. The dev boot now installs the game's own `mulberry`
+  (`js/05_paint.js:10`, a top-level declaration in an earlier classic script and therefore a global by
+  the time `90_dev.js` runs, so no second generator was written), and `DEV.layoutSig()` — also on
+  `DEV.state().layout` — reports an FNV-1a fold over `MAP.fz` then `MAP.cell`, the identity check the
+  issue was filed with, now a shipped method with a boot-time `[DEV] seed <n>` line beside it.
+  `mulberry` is bit-for-bit the recurrence `tools/view.js:301` and `tools/ci/assert.js:186` install
+  (8 seeds × 20000 draws, including `-5` and `2^31`), so page and probe roll the same dice — but not the
+  same *level*, because the two consume different numbers of draws before generation: seed 12345 folds to
+  **2229721315** in a browser and **3367779095** under the node harness, so a seed names a deal within one
+  environment and the README captions' seeds remain unrecorded.
+  Measured on the page, one load per row: `seed=12345` twice → **2229721315, 2229721315** (and again from
+  the `#seed=` form), `seed=999` → **981139549**, no seed → **2460101646, 3894850526** — behaviour
+  unchanged. Control seen red: in a scratch copy with the install line commented out, `DEV.seed` still
+  reported 12345 while two boots folded to **1475905126** and **1221425367**; the reported seed is not the
+  oracle, the layout fold is. No shipped byte outside `js/90_dev.js` moved and the roster is green on the
+  change: `flatparity` (PARITY/LOCK/DEALT literal md5s hold), `smoke` median **12.15 ms** with batches
+  12.1/12.1/12.2/12.2/12.5, `VERT=1 smoke` **25 gating row(s), 0 known-issue row(s)**, `exposure` medians
+  **69/71/83** and spawn **57/65/60/50/63/73** exact, `contrast` **0 FAILURE(S) of 30 rows**, and bands,
+  alt, planes, heights, cull, `LEAK=1 CZBAND=1 cull`, anim, props, sight, drop, horizon, mip, vert, stats,
+  sheets and `WARM=1 scene 0 3` at exit 0 (22 probes, load average 2.5–3.1). No recapture is owed.
 ### Fixed
 
 - **`alt`'s glow census printed `NaN` instead of a number** (#275). The glow aggregator literal at `tools/view.js:973-975` declared every field except `oobClimb` / `oobSum`, while `:978` accumulates `G.oobClimb += g.oobClimb`, so the row detail at `:1013` rendered "NaN climb cells of this deal's NaN" on all three levels. The assertion was unaffected - it gates `G.oob` - so the row stayed green while printing nothing quotable; the sibling accumulator at `:739` has both keys, which is why only this path broke. main prints the phrase 3 times, this tree prints 10 / 16 / 19 with `grep -c NaN` = 0, verdict unchanged. `docs/VERTICALITY.md`'s census paragraph is replaced with what `alt` reports today (9 floor values, 170/251/307 cells off the datum, 46/52/52 step faces, headroom 86 on L0 and 45 on L1 at tallest 3.00 m) and with the claim "no column is authored with a ceiling above one unit" removed: `CZ_TALL = 12` authors three units of air at `js/20_level.js:434`/`:649`, so a level reads flat from coverage, corridor reach and lamp-flat ceiling light, not from absent volume.

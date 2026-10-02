@@ -8,6 +8,23 @@
   const URLQ = typeof location !== 'undefined' ? location.search + ' ' + location.hash : '';
   if (!/[?&]dev=1/.test(URLQ)) return;
 
+  /* ?dev=1&seed=<int> makes a live boot reproducible, so a frame on the DEPLOYED build can be named
+     and re-run instead of merely described (#166). The level is drawn from Math.random — js/20_level.js
+     :898, :911, :962, :1077 and pickWallTex at :401 — so two loads of one URL used to be two levels;
+     measured in a real browser on the unseeded page: layout 2016015967 vs 34562729, spawn seats
+     (16.5, 10.5) vs (9.5, 5.5). The generator installed here is mulberry (js/05_paint.js:10), not a
+     second one: it is a top-level function declaration in an earlier classic script, so it is a global
+     by the time this file runs (index.html loads 05 before 90), and its recurrence is bit-for-bit the
+     one tools/view.js's seedRng installs (:301) and tools/ci/assert.js patches into the page (:186) —
+     same int32 state for the same seed, so the harness's dice and the page's are the same dice.
+     No seed parameter leaves Math.random alone, and a player without ?dev=1 never reaches this line.
+     One page load is one deal: a second DEV.boot() keeps drawing from the advanced stream rather than
+     re-cutting it, so a frame is reproduced by reloading the URL, not by booting twice. */
+  const SEEDQ = /[?&#]seed=(-?\d+)/.exec(URLQ);
+  // the uint32 the generator holds, which is what DEV.seed reports: ?seed=-5 and ?seed=4294967291 deal the same level
+  const SEED = SEEDQ ? (Math.trunc(+SEEDQ[1]) >>> 0) : null;
+  if (SEED !== null) Math.random = mulberry(SEED);
+
   const STEP = 1000 / 60;                    // the fixed step DEV.tick() advances by
   const HIST = new Float64Array(300);        // frame cost history, filled by the wrapper below
   let at = 0, TS = performance.now(), FROZEN = false, T0 = 0;
@@ -149,6 +166,8 @@
   function state() {
     return {
       mode: S.mode, level: S.level, levelName: LEVELS[S.level].name, runT: num(S.runT, 2), t: num(S.t, 2), fps: S.fps,
+      // #166: seed = the uint32 pinning this deal, null when the URL named none; layout = DEV.layoutSig()
+      seed: SEED, layout: (MAP.cell && MAP.fz) ? layoutSig() : null,
       p: {
         x: num(P.x, 3), y: num(P.y, 3), z: num(P.z, 3), floor: num(floorAt(P.x, P.y), 3), ang: num(P.ang, 4),
         pitch: num(P.pitch, 1), hp: num(P.hp, 1), armor: num(P.armor, 1), weapon: WEAPONS[P.weapon].name, weaponIdx: P.weapon,
@@ -248,6 +267,18 @@
     if (!aN || !isFinite(aS)) throw new Error('DEV.lum: sampled ' + aN + ' pixel(s) of a ' + w + 'x' + h + ' canvas at stride ' + stride);
     return { mean: +(aS / aN).toFixed(2), mid: mN ? +(mS / mN).toFixed(2) : null, midN: mN, n: aN, stride: stride, buf: w + 'x' + h };
   }
+  /* The identity check #166 was filed with, folded over the two arrays that say WHICH level this is:
+     MAP.fz (the altitude grid) then MAP.cell (the floorplan). FNV-1a, the fold tools/view.js:3707 uses,
+     so a number off the live page and a number off a probe are the same kind of number. Same fold on
+     two boots ⇒ same level. Throws when there is no level rather than returning a number that would
+     compare equal to another "nothing here". */
+  function layoutSig() {
+    if (!MAP.cell || !MAP.fz) throw new Error('DEV.layoutSig: no level generated yet — call DEV.boot() first');
+    let h = 2166136261;
+    for (let i = 0; i < MAP.fz.length; i++) h = Math.imul(h ^ MAP.fz[i], 16777619);
+    for (let i = 0; i < MAP.cell.length; i++) h = Math.imul(h ^ MAP.cell[i], 16777619);
+    return h >>> 0;
+  }
   function tiers() { return QUAL.map((q, i) => ({ i: i, name: q.name, res: q.res, bloom: q.bloom, grade: q.grade, grain: q.grain, rigH: q.rigH, far: q.far, active: i === S.gfx })); }
   function help() {
     console.log([
@@ -266,6 +297,8 @@
       '  DEV.set(name, value)            tier keys (res, bloom, grade, grain, far, glow, rigH, rast, dmax, scan, vec, min, max)',
       '                                  plus gfx (0..2 or a tier name) and rim (bool; clears the pose cache)',
       '  DEV.tiers()                     the QUAL table as it now stands, including any overrides set() made',
+      '  DEV.layoutSig()                  FNV-1a over MAP.fz then MAP.cell — the level\'s identity (#166).',
+      '                                  Two boots of one ?dev=1&seed=<n> URL must agree; with no seed they must not.',
       '  DEV.lum([{stride}])             composited frame luma {mean, mid}: cv after bloom/grade/grain/HUD,',
       '                                  mean over the whole frame, mid over the centre half-window — two',
       '                                  windows that are not interchangeable, and neither is view.js raster',
@@ -290,10 +323,12 @@
   const DEV = {
     on: true, help: help, boot: boot, cam: cam, look: look, face: face, nearestEnemy: nearestEnemy, freeze: freeze,
     tick: tick, spawn: spawn, clear: clear, set: set, tiers: tiers, stats: stats, state: state, ray: ray, mesh: mesh,
-    lum: lum,
+    lum: lum, layoutSig: layoutSig, seed: SEED,
     get ground() { return { reSolveBad: reSolveBad, gndOffMap: gndOffMap, walkEdge: gndWalkEdge }; }   // ground re-solve counters, see tools/view.js heights
   };
   window.DEV = DEV;
   if (S.mode === 'title' && !/[?&]boot=0/.test(URLQ)) DEV.boot();
+  // the boot-time marker a harness greps the deployed bytes for: this line is code, so it cannot be a comment
+  if (SEED !== null) console.log('[DEV] seed ' + SEED + ' (mulberry) — DEV.state().layout identifies this level');
   console.log('[DEV] dev mode on — DEV.help()');
 })();
