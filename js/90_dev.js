@@ -8,6 +8,27 @@
   const URLQ = typeof location !== 'undefined' ? location.search + ' ' + location.hash : '';
   if (!/[?&]dev=1/.test(URLQ)) return;
 
+  /* #166: a live run must be poseable deterministically, or the standing rule "capture the README
+     shots from the deployed build" cannot be honoured - generation takes its places from
+     Math.random (js/20_level.js:898, 911, 962, 1077), so two boots of one URL are two different
+     levels (measured on the deployed page: layoutSig 2513589791 then 1446704314). Seeding here,
+     before DEV.boot() at the bottom of this block, puts the dice under the generator's first draw.
+     Same recurrence as the probes' mulberry (js/05_paint.js:10), inlined because that one is
+     module-scoped. NO seed parameter => Math.random is never touched, so play stays byte-identical. */
+  const SEEDQ = /[?&#]seed=(\d+)/.exec(URLQ);
+  let DEVSEED = null;
+  if (SEEDQ) {
+    DEVSEED = (Number(SEEDQ[1]) >>> 0) || 1;
+    let s = DEVSEED;
+    Math.random = function () {
+      s = (s + 0x6D2B79F5) >>> 0;
+      let t = s;
+      t = Math.imul(t ^ (t >>> 15), t | 1);
+      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
   const STEP = 1000 / 60;                    // the fixed step DEV.tick() advances by
   const HIST = new Float64Array(300);        // frame cost history, filled by the wrapper below
   let at = 0, TS = performance.now(), FROZEN = false, T0 = 0;
@@ -294,6 +315,17 @@
     get ground() { return { reSolveBad: reSolveBad, gndOffMap: gndOffMap, walkEdge: gndWalkEdge }; }   // ground re-solve counters, see tools/view.js heights
   };
   window.DEV = DEV;
+  /* The two things a harness needs to prove it is looking at a seeded build rather than a prose
+     claim: the seed in effect, and an identity for the level that is independent of rendering. */
+  DEV.seedValue = DEVSEED;
+  DEV.layoutSig = function () {
+    let h = 0, i;
+    for (i = 0; i < MAP.fz.length; i++) h = (h * 31 + MAP.fz[i]) >>> 0;
+    for (i = 0; i < MAP.cell.length; i++) h = (h * 31 + (MAP.cell[i] ? 1 : 0)) >>> 0;
+    return h;
+  };
+  console.log('DEV seed ' + (DEVSEED === null ? 'off (Math.random untouched)' : DEVSEED));
+
   if (S.mode === 'title' && !/[?&]boot=0/.test(URLQ)) DEV.boot();
   console.log('[DEV] dev mode on — DEV.help()');
 })();
