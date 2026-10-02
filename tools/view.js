@@ -702,7 +702,10 @@ if (MODE === 'alt') {
      0.092/0.121/0.132 (the bleeding kernel measured 37/49/75 on df919c3 there). A pit-dark of 0 with pit 0 would be vacuity rather than a fix, so the population
      rides along in the detail and pit > 0 is part of the assertion. */
   {
-    const MAIN_PIT = [181, 194, 175], MAIN_OOB = [19, 10, 16];   // #206: recorded on the gated kernel; the bleeding kernel was 123/377/337 (2c5a94f) / 37/49/75 (df919c3)
+    const MAIN_PIT = [181, 194, 175], MAIN_OOB = [19, 10, 16], MAIN_OOB_GEO = [0, 0, 0];
+  // MAIN_OOB is the ALL-CELL figure (#206, era: stairs hugged the outer ring); MAIN_OOB_GEO is the
+  // same census with the authored climb cells removed, recorded on the tree that moved the mouths
+  // (#189). The row gates the GEO figure, so stair placement cannot buy it and light bleed still trips it.   // #206: recorded on the gated kernel; the bleeding kernel was 123/377/337 (2c5a94f) / 37/49/75 (df919c3)
     /* #213: dark-OPEN cells recorded at the shipped lamp record, per level, over these same 12 rolls. A
        top-up source whose intensity drops pays for dimmer pit light with darker floor somewhere else, and
        that is the trade this refuses - the T64M0.35 variant of the sweep is exactly "coverage sold to buy
@@ -716,14 +719,14 @@ if (MODE === 'alt') {
        from it are unchanged. */
     const TOPUP_DARK_REF = [344, 1194, 1055];
     for (let lv = 0; lv < 3; lv++) {
-      const A = { pit: 0, pitDark: 0, pitSum: 0, oob: 0, oobSum: 0, nosrc: 0, dark: 0, open: 0, lamps: 0, pitRolls: 0, noPitAt: [] };
+      const A = { pit: 0, pitDark: 0, pitSum: 0, oob: 0, oobSum: 0, oobClimb: 0, nosrc: 0, dark: 0, open: 0, lamps: 0, pitRolls: 0, noPitAt: [] };
       for (let r = 0; r < 12; r++) {
         seedRng(1000 + lv * 97 + r * 13);
         const c = vm.runInContext(`(function(){
           startLevel(${lv}, true);
           const N = MAP.w, cell = MAP.cell, fz = MAP.fz, light = MAP.light;
           const S = []; for (const L of LIGHTS) S.push({ x: L.x, y: L.y, r: L.r, f: L.z === undefined ? floorAt(L.x, L.y) : L.z - LHOVER });
-          let pit = 0, pitDark = 0, pitSum = 0, oob = 0, oobSum = 0, nosrc = 0, dark = 0, open = 0;
+          let pit = 0, pitDark = 0, pitSum = 0, oob = 0, oobSum = 0, oobClimb = 0, nosrc = 0, dark = 0, open = 0;
           for (let i = 0; i < N * N; i++) {
             if (cell[i]) continue;
             open++;
@@ -736,12 +739,20 @@ if (MODE === 'alt') {
               inR++; if (Math.abs(s.f - fl) <= ZQ + 1e-9) good++;
             }
             if (dk) { dark++; if (!inR) nosrc++; }
-            else if (inR && !good) { oob++; oobSum += lt; }
+            else if (inR && !good) {
+              /* #189: an authored stair step is a column that no lamp stands on - lamps are authored
+                 on ROOM floors - so it always reads as "light with no source on its own band", and
+                 counting it made this row a census of where the STAIRS are. That is what the #189
+                 link-anchor fix moves: the whole 19/10/16 -> 23/20/17 shift was climb cells. The
+                 light claim lives in the non-climb count; the climb share rides along in the detail. */
+              if (MAP.feat[i] === FEAT_STAIR || MAP.feat[i] === FEAT_LADDER) oobClimb++;
+              else { oob++; oobSum += lt; }
+            }
           }
-          return { pit: pit, pitDark: pitDark, pitSum: pitSum, oob: oob, oobSum: oobSum, nosrc: nosrc, dark: dark, open: open,
+          return { pit: pit, pitDark: pitDark, pitSum: pitSum, oob: oob, oobSum: oobSum, oobClimb: oobClimb, nosrc: nosrc, dark: dark, open: open,
             lamps: LIGHTS.filter(function (L) { return L.stat; }).length };
         })()`, ctxVm);
-        A.pit += c.pit; A.pitDark += c.pitDark; A.pitSum += c.pitSum; A.oob += c.oob; A.oobSum += c.oobSum;
+        A.pit += c.pit; A.pitDark += c.pitDark; A.pitSum += c.pitSum; A.oob += c.oob; A.oobSum += c.oobSum; A.oobClimb += c.oobClimb;
         A.nosrc += c.nosrc; A.dark += c.dark; A.open += c.open; A.lamps += c.lamps;
         if (c.pit) A.pitRolls++; else A.noPitAt.push(r);
       }
@@ -765,9 +776,13 @@ if (MODE === 'alt') {
         + ` source in the XY disc (the #199 coverage half). No frame threshold is asserted: the worst sampled pit`
         + ` frame is 157.1/162.5/183.8 mean and 206.6/213.9/245.0 centre-half mid in the COMPOSITED page for`
         + ` these parameters and is unchanged by lamp intensity at all (#221, the glow overlay has no altitude term).`);
-      row(`L${lv} delivered wrong-band light does not spread`, A.oob <= MAIN_OOB[lv],
-        `${A.oob} open cell(s) hold delivered light with NO source standing on their own band within reach (recorded on the #206-gated kernel: ${MAIN_OOB[lv]}; the bleeding kernel was 123/377/337 on 2c5a94f and 37/49/75 on df919c3), mean`
-        + ` light there ${A.oob ? (A.oobSum / A.oob).toFixed(3) : '-'} (gated: 0.092/0.121/0.132; bleeding main: 0.231/0.254/0.311). #206 gated the blur with the splat kernel's own band term, so what is left is staircase residue: one blur pass spans one intermediate cell and a source exactly 2 quanta off a floor can light the far side of a step. That residue is the record, not a leak -`
+      row(`L${lv} delivered wrong-band light does not spread`, A.oob <= MAIN_OOB_GEO[lv],
+        `${A.oob} NON-CLIMB open cell(s) hold delivered light with NO source standing on their own band within `
+        + `reach against the recorded ${MAIN_OOB_GEO[lv]} (the ALL-CELL figure was ${MAIN_OOB[lv]} on the tree`
+        + `that put stair mouths on the map's outer ring; this tree's climb-cell share is ${A.oobClimb}, i.e. `
+        + `${A.oobClimb} of ${A.oob + A.oobClimb} such cells are authored steps, which take datum light by construction`
+        + `(no lamp stands on a stair) - counting them made this row a census of stair placement, which #189 moved`
+        + ` mean delivered light there ${A.oob ? (A.oobSum / A.oob).toFixed(3) : '-'} (gated: 0.092/0.121/0.132; bleeding main: 0.231/0.254/0.311). #206 gated the blur with the splat kernel's own band term, so what is left is staircase residue: one blur pass spans one intermediate cell and a source exactly 2 quanta off a floor can light the far side of a step. That residue is the record, not a leak -`
         + ` growing past it means the gate was weakened or lamps were authored off their own floor, which is the #204 control that measured 155/194/169 pit cells`);
     }
   }
@@ -789,7 +804,8 @@ if (MODE === 'alt') {
      comparable across builds because the falloff model is a fixed function of the recorded geometry. */
   {
     const ZQv = run('ZQ'), MD = 8;
-    const RECPIT = [0.293, 0.299, 0.314], RECPITN = [181, 194, 175], RECOOB = [19, 10, 16], RECDARK = [0, 0, 0];
+    const RECPIT = [0.293, 0.299, 0.314], RECPITN = [181, 194, 175], RECOOB = [19, 10, 16], RECDARK = [0, 0, 0],
+      RECOOB_GEO = [0, 0, 0];   // #189: same census minus the authored climb cells; RECOOB is kept as the era figure
     /* #206: RECPIT and RECOOB are MAP.light censuses, so the blur band gate moved them with the
        kernel (0.426/0.423/0.464 and 123/377/337 were the bleeding kernel's df919c3 readings - the
        pit means carried a real cross-band tail on top of the direct coverage light, which is what
@@ -846,7 +862,7 @@ if (MODE === 'alt') {
               lx: L.x, ly: L.y };
           }
         }
-        const out = { sel: best, W: null, draws: [], pit: 0, pitDark: 0, pitSum: 0, oob: 0 };
+        const out = { sel: best, W: null, draws: [], pit: 0, pitDark: 0, pitSum: 0, oob: 0, oobClimb: 0 };
         if (best) {
           P.x = best.cx; P.y = best.cy; P.z = floorAt(P.x, P.y); P.vx = P.vy = P.vz = 0; P.air = false;
           P.crouch = 0; P.pitch = 0; P.bob = 0; P.kick = 0; P.ads = 0; S.flash = 0; shakeX = 0; shakeY = 0; S.t = 0;
@@ -874,11 +890,13 @@ if (MODE === 'alt') {
           }
           const dk = MAP.light[k] < 0.05;
           if (fz[k] <= -3) { out.pit++; out.pitSum += MAP.light[k]; if (dk) out.pitDark++; }
-          if (!dk && inR && !good) out.oob++;
+          if (!dk && inR && !good) {
+            if (MAP.feat[k] === FEAT_STAIR || MAP.feat[k] === FEAT_LADDER) out.oobClimb++; else out.oob++;
+          }
         }
         return out;
       })()`, ctxVm);
-      if (!sel.sel) return { sel: null, st: null, pit: sel.pit, pitDark: sel.pitDark, pitSum: sel.pitSum, oob: sel.oob };
+      if (!sel.sel) return { sel: null, st: null, pit: sel.pit, pitDark: sel.pitDark, pitSum: sel.pitSum, oob: sel.oob, oobClimb: sel.oobClimb };
       const st = { leak: 0, on: 0, onDeliv: 0, spanCross: 0, crossN: 0, onN: 0, model: 0, rects: 0, lamps: sel.draws.length,
         dq: 0 };
       for (const g of sel.draws) {
@@ -898,7 +916,7 @@ if (MODE === 'alt') {
           if (Math.abs(s.z - g.lf) > ZQv + 1e-9) st.spanCross += a * w;
         }
       }
-      return { sel: sel.sel, st: st, pit: sel.pit, pitDark: sel.pitDark, pitSum: sel.pitSum, oob: sel.oob };
+      return { sel: sel.sel, st: st, pit: sel.pit, pitDark: sel.pitDark, pitSum: sel.pitSum, oob: sel.oob, oobClimb: sel.oobClimb };
     };
     /* The parity collapse of the COMPOSITED layer, which flatparity's md5 cannot see because px is the
        buffer the world pass writes and the glow is drawn onto the display canvas after it. Force the
@@ -940,7 +958,7 @@ if (MODE === 'alt') {
         lipOn: 0, lipOnN: 0, lipCross: 0, lipSel: null, lipLamps: 0 };
       for (let r = 0; r < 12; r++) {
         const g = glowAt(lv, r, 1);
-        G.pit += g.pit; G.pitDark += g.pitDark; G.pitSum += g.pitSum; G.oob += g.oob;
+        G.pit += g.pit; G.pitDark += g.pitDark; G.pitSum += g.pitSum; G.oob += g.oob; G.oobClimb += g.oobClimb;
         if (!g.sel) { G.noSceneAt.push(r); continue; }
         G.rolls++;
         G.crossN += g.st.crossN; G.dqMax = Math.max(G.dqMax, g.st.dq); G.rectMax = Math.max(G.rectMax, g.st.rects);
@@ -962,7 +980,7 @@ if (MODE === 'alt') {
       row(`L${lv} the glow is admitted by the SURFACE's band`,
         G.rolls >= 1 && G.crossN > 0 && G.worstFrac <= MAXFRAC && G.spanMax <= MAXFRAC && G.lampsSum > 0 &&
         G.lipRoll >= 0 && G.lipDeliv >= MINDELIV && G.lipOn > 0 && G.pitDark === RECDARK[lv] &&
-        Math.abs(pm - RECPIT[lv]) <= 0.005 && G.oob <= RECOOB[lv] && fl.lamps > 0 && fl.multi === 0 && fl.dev < 1e-9,
+        Math.abs(pm - RECPIT[lv]) <= 0.005 && G.oob <= RECOOB_GEO[lv] && fl.lamps > 0 && fl.multi === 0 && fl.dev < 1e-9,
         `(1) ${G.crossN} sampled px of ${G.rolls} of 12 rolls sit on a surface that is not the source's band `
         + `(worst band step ${G.dqMax} quanta, no pit-floor camera at roll${G.noSceneAt.length ? `s ${G.noSceneAt.join(' and ')}` : 's none'}), `
         + `and ${G.worstFrac.toFixed(3)} of a disc's alpha lands there (worst ${G.worstAt}; altitude route ${G.spanMax.toFixed(3)}; `
@@ -975,7 +993,9 @@ if (MODE === 'alt') {
         + `whole disc and a player at the lip loses the lamp below them entirely (4) MAP.light is untouched by a composited `
         + `change: ${G.pitDark} dark of ${G.pit} pit cells against the recorded ${RECDARK[lv]} of ${RECPITN[lv]} at mean `
         + `delivered ${pm.toFixed(3)} against the recorded ${RECPIT[lv]} and ${G.oob} wrong-band-lit open cells against `
-        + `${RECOOB[lv]} (the splat-pass sabotage moves THIS clause, not 1-3) (5) on a forced-flat level the fill is the one `
+        + `the recorded ${RECOOB_GEO[lv]} NON-CLIMB cells (${G.oobClimb} climb cells of this deal's ${G.oob + G.oobClimb} are steps, `
+        + `which take datum light by construction - #189); the era figure including them was ${RECOOB[lv]} (the splat-pass`
+        + `sabotage moves THIS clause, not 1-3) (5) on a forced-flat level the fill is the one `
         + `rect it always was: ${fl.lamps} lamps, ${fl.multi} multi-rect, geometry+alpha deviation ${fl.dev.toExponential(1)} - flatparity's md5 `
         + `cannot see this layer, px is the buffer the world pass wrote before it.`);
     }
