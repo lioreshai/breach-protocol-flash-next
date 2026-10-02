@@ -903,22 +903,30 @@ const release = () => fire('mouseup', { button: 0 });
               +h.z.toFixed(3),DECALS.length]}`);
           V(`mouse.dy=${dy};mouse.down=true`); frames(1); V('mouse.down=false'); frames(1);
           const d = S1(`{return [DECALS.length,DECALS.length?+DECALS[0].x.toFixed(3):-1,
-              DECALS.length?+DECALS[0].z.toFixed(3):-1,P.shots,+pitchTan().toFixed(3)]}`);
-          return { t: r[0], wall: r[1], band: r[2], side: r[3], z: r[4], n: d[0], mx: d[1], mz: d[2], shots: d[3], tp: d[4] };
+              DECALS.length?+DECALS[0].z.toFixed(3):-1,P.shots,+pitchTan().toFixed(3),
+              DECALS.length?+DECALS[0].r.toFixed(3):-1]}`);
+          return { t: r[0], wall: r[1], band: r[2], side: r[3], z: r[4], n: d[0], mx: d[1], mz: d[2],
+            shots: d[3], tp: d[4], r: d[5] };
         };
         // t is a DISTANCE and the plane is a COORDINATE: conflating them is how this row first failed on a
         // correct answer (t 1.5 vs x 4.0, 2.5 m apart because the shooter stands mid-cell).
         const plane = (px | 0) + 2, bndT = plane - px;
         const lo = fire(0, 0), hi = fire(0.25, -160);
+        // The z test here used to be `mz >= raised`, and the pre-fix clamp satisfied it by pinning EVERY mark on
+        // an air-to-air step to the LIP - which is what #15's fix removes. The lane's own floor is 0 by the
+        // candidate filter above and the strip the renderer paints is [0, raised], so the honest claim is that
+        // the mark lies inside that strip, inset by the disc's own radius. The x-plane test is what proves the
+        // shot stopped at the step rather than at the wall behind it; z now says where on the face it landed.
         const okLo = lo.wall === 1 && Math.abs(lo.t - bndT) < 0.02 && lo.side === 0 && lo.n === 1 &&
-          Math.abs(lo.mx - plane) < 0.02 && lo.mz >= raised;
+          Math.abs(lo.mx - plane) < 0.02 && lo.mz >= lo.r - 1e-9 && lo.mz <= raised - lo.r + 1e-9;
         const okHi = hi.wall === 0 && hi.band === 1 && hi.t > bndT + 0.3 && hi.n === 0 && hi.shots === 1;
         vrow('a shot at a step-up band hits the riser, not the wall behind the drop', okLo && okHi,
           `step up ${raised} across the plane x ${plane.toFixed(1)} = t ${bndT.toFixed(2)} from the shot line ` +
           `(opening ${raised}..${open}, eye ${S1('+eyeH().toFixed(2)')}) | low (tanP 0): ` +
           `${lo.wall ? 'wall' : 'NO WALL'} at t ${lo.t} side ${lo.side}, ${lo.n} mark(s) at x ${lo.mx} z ` +
           `${lo.mz} over ${lo.shots} shot - want wall at t ${bndT.toFixed(2)}, one mark ON that plane ` +
-          `(x ${plane.toFixed(1)}, z >= ${raised}) | pitched through the opening (tanP 0.25 asked, ` +
+          `(x ${plane.toFixed(1)}, the strip is [0.00, ${raised.toFixed(2)}] inset to [${lo.r.toFixed(3)}, ` +
+          `${(raised - lo.r).toFixed(3)}] for a disc of r ${lo.r.toFixed(3)}) | pitched through the opening (tanP 0.25 asked, ` +
           `${hi.tp} at the trigger; ceiling would be reached at t ${((1 - 0.5) / 0.25).toFixed(2)}): ` +
           `${hi.wall ? 'WALL' : 'no wall'} at t ${hi.t} band ${hi.band}, ${hi.n} mark(s) - want no wall past t ` +
           `${(bndT + 0.3).toFixed(2)}, 0 marks`

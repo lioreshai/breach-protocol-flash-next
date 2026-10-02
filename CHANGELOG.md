@@ -71,7 +71,13 @@
   LOCK `060da4cd…`, PARITY `f9e4da3a…`, DEALT `bb12ef3e…` unchanged, `heights`/`bands`/`cull`/`alt` ok,
   `smoke` PASSED (raster median 11.78 ms, batches 11.8/11.8/11.8/11.8/12.1), VERT 25 gating rows, `refs` 7
   records, recap 0 of 28. The pixels only move where a shot meets a step, so the README's spawn-seat captures
-  are unaffected — a level that has just loaded has no decals in it, and `recap check` stays green.
+  are unaffected — a level that has just loaded has no decals in it, and `recap check` stays green. The same premise lived in a **shipped** row: VERT's *a shot at a step-up band hits the riser, not the
+  wall behind the drop* required `mark.z >= step top`, which the pin satisfied by putting every mark on the
+  lip. It now requires the mark to lie inside the strip inset by the disc's radius, and the x-plane test that
+  already in the row is what proves the shot stopped at the step. On the fixed tree the bullet crosses at eye
+  height and the mark reads **z 0.496** in a strip `[0.00, 0.75]`; with the pre-fix rule it reads **0.9**, above
+  the strip, and `SMOKE FAILED` — seen in a worktree carrying *this* `smoke.js` against sabotaged `js`, because
+  a control that runs the old assertion against the old code passes on a lie.
 
 - **The wrong-band light row was counting stairs, not light** (#189). `alt`'s
   `delivered wrong-band light does not spread` gated `A.oob <= MAIN_OOB[lv]` with `MAIN_OOB = [19, 10, 16]`
