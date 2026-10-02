@@ -6210,6 +6210,116 @@ if (MODE === 'decal') {
   const after = sample(), nDec = run('DECALS.length');
   console.log('floor pixels with blood chroma: before ' + before + '  after ' + after +
     '  (decals in world: ' + nDec + ')');
+
+  /* #15's last ungated item, and the reason a shipped fix (#120, absolute altitude) still had no row: the
+     WINDOW a mark may live in. A face against a solid column runs from the higher floor to the air side's
+     ceiling; a face between two OPEN cells is the side of a floor slab and runs [min floor, max floor]
+     (js/40_render.js:864, #100/#192, gated by cull's step rows). The shipped rule used the first formula
+     for both, and on a riser the two agree only in collapsing to a point - ceilAt of the lower cell IS the
+     upper floor - so every mark on a step was clamped to maxFloor + r, above the strip that is drawn, while
+     every row in this file stayed green because a flat level has no riser to punch. These rows are written
+     against the strip the RENDERER draws, so they fail on the old rule and cannot be satisfied by a flat
+     world: dq >= 2 risers only, and a one-quantum tread (which is what the generator authors, #192) gets
+     its own row because a 0.25 m strip cannot contain a 0.22-0.30 m disc at all. */
+  const FLAT_HI = 0.88, FLAT_LO = 0.12;   // the window #120 removed, kept to show these rows differ under it
+  let dbad = 0, drows = 0;
+  const drow = (label, ok, detail) => { drows++; if (!ok) dbad++; console.log('  ' + (ok ? 'ok  ' : 'FAIL') + ' ' + (label + '                                     ').slice(0, 50) + ' ' + detail); };
+  const punch = (lv, minDq) => run(`(()=>{
+    const N = MAP.w, fz = MAP.fz, dqHist = [];
+    DECALS.length = 0; for (let i = 0; i < DECAL_MASK.length; i++) DECAL_MASK[i] = 0;
+    let best = null;
+    for (let y = 2; y < MH - 2; y++) for (let x = 2; x < MW - 2; x++) for (let k = 0; k < 2; k++) {
+      const dx = k ? 1 : 0, dy = k ? 0 : 1;
+      const bx = x + dx, by = y + dy;
+      if (isSolid(x + .5, y + .5) || isSolid(bx + .5, by + .5)) continue;
+      const dq = Math.abs(fz[y * N + x] - fz[by * N + bx]);
+      if (dq < 1) continue;
+      if (dqHist[dq] === undefined) dqHist[dq] = 0; dqHist[dq]++;
+      if (${minDq === 'riser' ? 'dq < 2' : minDq === 'tread' ? 'dq !== 1' : 'false'}) continue;
+      const hi = Math.max(fz[y * N + x], fz[by * N + bx]) * ZQ;
+      const sc = ${minDq === 'thin' ? '(1000 - dq)' : '(dq >= 3 ? 4 : 0) + (hi > 0.88 ? 2 : 0) + (dq >= 2 ? 1 : 0)'};
+      if (!best || sc > best.sc) best = { x, y, bx, by, dq, side: dx ? 0 : 1, sc };
+    }
+    if (!best) return { none: true, dq: ${'1'} };
+    const { x, y, bx, by, side } = best;
+    // the pair sharing the integer line, per axis: a vertical boundary differs in x and SHARES y
+    const c1 = side ? [x, by - 1] : [bx - 1, y];
+    const c2 = side ? [x, by] : [bx, y];
+    const mx = side ? x + .5 : bx, my = side ? by : y + .5;
+    const f1 = floorAt(c1[0] + .5, c1[1] + .5), f2 = floorAt(c2[0] + .5, c2[1] + .5);
+    const z0 = Math.min(f1, f2), z1 = Math.max(f1, f2);          // the slab side the wall pass paints
+    const want = [z0 + (z1 - z0) * .5, z0 + (z1 - z0) * .25, z0 - 0.25, z1 + 0.25, 1.05];
+    const got = want.map((w, i) => {
+      addWallMark(mx, my, w, side, i === 4 ? 'scorch' : 'bullet');
+      const d = DECALS[DECALS.length - 1];
+      return { want: w, z: d.z, r: d.r, mask: DECAL_MASK[d.cell] };
+    });
+    return { none: false, mx, my, side, dq: best.dq, z0, z1, got, strip: z1 - z0, dqHist,
+      c1: c1[1] * N + c1[0], c2: c2[1] * N + c2[0], f1, f2,
+      ceil1: ceilAt(c1[0] + .5, c1[1] + .5), ceil2: ceilAt(c2[0] + .5, c2[1] + .5) };
+  })()`);
+  for (let lv = 0; lv < 3; lv++) {
+    run('S.mode="play"; S.locked=false; startLevel(' + lv + ', true);');
+    const G = punch(lv, 2);
+    if (G.none) {
+      drow('L' + lv + ' a riser exists to punch into', false,
+        'no air-to-air boundary with |dz| >= 2 quanta in the interior - a level with no riser cannot show '
+        + 'an altitude bug, which is a FAILURE and not a skip (the vacuity rule of #216)');
+      continue;
+    }
+    const eps = 1e-9, rmax = Math.max.apply(null, G.got.map(g => g.r));
+    const inside = G.got.filter(g => g.want >= G.z0 + g.r && g.want <= G.z1 - g.r);
+    const botReq = G.got[2], topReq = G.got[3];
+    const outside = G.got.filter(g => g.z < G.z0 - 1e-6 || g.z > G.z1 + 1e-6);
+    drow('L' + lv + ' no mark leaves the strip the wall pass paints', outside.length === 0,
+      outside.length ? outside.length + ' of ' + G.got.length + ' marks sit OUTSIDE [' + G.z0.toFixed(3)
+        + ', ' + G.z1.toFixed(3) + '] - worst ' + outside.map(g => g.z.toFixed(3)).join(' ')
+        + ' on the slab side between cell ' + G.c1 + ' (floor ' + G.f1.toFixed(2) + ', ceiling '
+        + G.ceil1.toFixed(2) + ') and cell ' + G.c2 + ' (floor ' + G.f2.toFixed(2) + ', ceiling '
+        + G.ceil2.toFixed(2) + '): the drawn face is [min floor, max floor] (js/40_render.js:864), so a '
+        + 'mark above max floor is painted on the band wall behind the step, not on the step'
+        : 'all ' + G.got.length + ' marks lie inside the strip [' + G.z0.toFixed(3) + ', ' + G.z1.toFixed(3)
+        + '] at ' + G.mx.toFixed(2) + ',' + G.my.toFixed(2) + ' side ' + G.side + ', ' + G.dq + ' quanta '
+        + '(cells ' + G.c1 + ' floor ' + G.f1.toFixed(2) + ' / ' + G.c2 + ' floor ' + G.f2.toFixed(2) + ')');
+    drow('L' + lv + ' a mark inside its strip keeps the altitude it was given',
+      inside.length > 0 && inside.every(g => Math.abs(g.z - g.want) < eps),
+      inside.length + ' request(s) lay inside the inset window and were stored untouched ('
+      + inside.map(g => g.want.toFixed(3) + '->' + g.z.toFixed(3)).join(' ') + '); strip '
+      + G.strip.toFixed(3) + ' m, disc radius up to ' + rmax.toFixed(3) + ', eps ' + eps);
+    drow('L' + lv + ' marks above the top and below the bottom clamp to the EDGES',
+      Math.abs(botReq.z - (G.z0 + botReq.r)) < 1e-6 && Math.abs(topReq.z - (G.z1 - topReq.r)) < 1e-6,
+      'requested ' + botReq.want.toFixed(3) + ' (bottom - 0.25) stored ' + botReq.z.toFixed(3)
+      + ' = min floor + r; requested ' + topReq.want.toFixed(3) + ' (top + 0.25) stored ' + topReq.z.toFixed(3)
+      + ' = max floor - r. The old rule pinned BOTH to max floor + r = ' + (G.z1 + topReq.r).toFixed(3)
+      + ', and the flat window #120 removed would have stored '
+      + (G.z0 - 0.25 < FLAT_LO ? (FLAT_LO + botReq.r).toFixed(3) : 'the value itself') + ' / '
+      + Math.min(FLAT_HI - topReq.r, topReq.want).toFixed(3) + ' - neither reaches the riser');
+    const T = punch(lv, 'thin');
+    if (T.none) drow('L' + lv + ' a thin face exists to place a disc on', false,
+      'no air-to-air boundary with any height difference in the interior of this deal - the generator authors '
+      + 'stair treads one quantum apart (#192), so its absence means generation changed under this row');
+    else {
+      const c = T.got[3], mid = (T.z0 + T.z1) * 0.5, thin = T.strip < 2 * c.r;
+      const wantZ = thin ? mid : T.z1 - c.r;
+      drow('L' + lv + ' a request outside a thin face lands ON the face',
+        Math.abs(c.z - wantZ) < 1e-9,
+        'thinnest air-to-air face is ' + T.strip.toFixed(3) + ' m (cells ' + T.c1 + '/' + T.c2 + ', floors '
+        + T.f1.toFixed(2) + '/' + T.f2.toFixed(2) + ', ' + T.dq + ' quantum(s)) against a disc of radius '
+        + c.r.toFixed(3) + ': ' + (thin ? 'the disc is wider than the face, no inset window exists (top - r '
+          + (T.z1 - c.r).toFixed(3) + ' < bottom + r ' + (T.z0 + c.r).toFixed(3) + '), so the request '
+          + c.want.toFixed(3) + ' is CENTRED at ' + mid.toFixed(3)
+          : 'the face holds the disc, so the request ' + c.want.toFixed(3) + ' clamps to top - r = ' + wantZ.toFixed(3))
+        + '. The old rule gave ' + (T.z1 + c.r).toFixed(3) + ' either way, a full disc above the face. Air-to-air '
+        + 'height histogram here: ' + T.dqHist.map((n, q) => n ? q + 'q:' + n : '').filter(Boolean).join(' '));
+    }
+    drow('L' + lv + ' the marks are registered for the wall pass', G.got.every(g => g.mask === 1),
+      G.got.map(g => 'mask ' + g.mask).join(' ') + ' - an unregistered decal is invisible, so an altitude row '
+      + 'alone could pass on marks nobody draws (the ground half of this block exists for that reason)');
+  }
+  console.log(dbad ? 'DECAL ' + dbad + ' FAILURE(S) of ' + drows + ' rows - wall marks are not on the face they were punched on'
+    : 'DECAL ok - ground splats draw (' + after + ' vs ' + before + ' blood px) and wall marks stay on the '
+    + 'strip the wall pass paints (' + drows + ' rows)');
+  process.exit(dbad ? 1 : 0);
 }
 if (MODE === 'diag') {
   run('');
