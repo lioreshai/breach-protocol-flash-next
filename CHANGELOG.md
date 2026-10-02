@@ -124,6 +124,8 @@
   a directory with no PNGs in it.
 ### Fixed
 
+- **`alt`'s glow census printed `NaN` instead of a number** (#275). The glow aggregator literal at `tools/view.js:973-975` declared every field except `oobClimb` / `oobSum`, while `:978` accumulates `G.oobClimb += g.oobClimb`, so the row detail at `:1013` rendered "NaN climb cells of this deal's NaN" on all three levels. The assertion was unaffected - it gates `G.oob` - so the row stayed green while printing nothing quotable; the sibling accumulator at `:739` has both keys, which is why only this path broke. main prints the phrase 3 times, this tree prints 10 / 16 / 19 with `grep -c NaN` = 0, verdict unchanged. `docs/VERTICALITY.md`'s census paragraph is replaced with what `alt` reports today (9 floor values, 170/251/307 cells off the datum, 46/52/52 step faces, headroom 86 on L0 and 45 on L1 at tallest 3.00 m) and with the claim "no column is authored with a ceiling above one unit" removed: `CZ_TALL = 12` authors three units of air at `js/20_level.js:434`/`:649`, so a level reads flat from coverage, corridor reach and lamp-flat ceiling light, not from absent volume.
+
 - **`bands` diffed two renders with the viewmodel still damping, so its seam row could not fail** (#266).
   `L<n> the seam term is in the build and moves pixels` counts pixels that differ between a `SEAM=1` and a
   `SEAM=0` render of one state, and both renders are `S.t = 3.5; renderWorld()` — identical but for one
