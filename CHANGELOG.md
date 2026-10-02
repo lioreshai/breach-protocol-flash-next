@@ -94,6 +94,22 @@
   a directory with no PNGs in it.
 ### Fixed
 
+- **`anim` read the contact patch as a detached head; a player sees nothing new** (#18, probe-side
+  only, no `js/` byte changed). The mode's silhouette is a render difference against the same frame with
+  `ENEMIES` emptied, which cancels everything the world does on its own — but not a term the *body*
+  causes: the contact patch is absent from the enemy-free render, so its ground pixels entered the mask
+  by construction. They sit in rows 241–251, below the body's own bottom row (grunt 324 px of 2222,
+  hound 275 of 757 — all 275 below the body, brute 950 of 10411), they are wider than the body, and
+  #74's shoulder line is the widest mask row, so `shRow` moved off the shoulders (grunt 121) onto the
+  floor (241) and every row of daylight between torso and patch counted as a head gap: **5 poses
+  `DETACHED`, GAP 79 of 106–150 head rows**, on bodies bit-for-bit identical to the shipped ones. The
+  depth half of the mask never saw it (0 px differ — the term writes no `zbuf`). `anim` now arms
+  `SHADOW = 0` for its own pass, the way `contrast` arms it as an A/B, because a contact patch is not
+  body shape; the term's own behaviour stays gated by `contrast`'s rows and `cull`. Seen to fail both
+  ways: with the neck join deleted from `js/13_mesh.js` the rows print `GAP … DETACHED` and exit 1, and
+  with the gait phase frozen they print `IDENTICAL - static body`. Attach rows after the fix match
+  `origin/main` exactly (grunt `shRow 121`, hound at 2.1 m).
+
 - **A bullet hole in a step was drawn above the step** (#15, #120's unfinished half). `addWallMark` has
   carried absolute altitude since #120, but the window it clamps into used the solid-column rule for every
   face: `[max floor, ceilAt(air)]`. On an air-to-air boundary that is self-cancelling arithmetic, because
