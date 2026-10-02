@@ -4468,6 +4468,32 @@ if (MODE === 'contrast') {
   const TINTK = process.env.TINT === undefined ? NaN : +process.env.TINT;
   const PIXHASH = process.env.PIXHASH === '1';
   const MINMASK = 200, DLR = 4, DLLOST = 10, DLMIN = 24, LOSTMAX = 70, RINGMIN = 8, LEAKMAX = 0;
+  /* #18: the contact-shadow patch is the ONE sanctioned reason this probe may report leak. A ground
+     shadow paints world pixels by definition, so an oracle whose background is a render with the bodies
+     removed calls those pixels leak whatever the geometry does - the honest response is to BOUND the
+     footprint from both sides rather than widen the cap until the row cannot fail:
+       at most LEAKFRAC  x the body's own silhouette   the leak row, KNOWN as #18 inside the cap,
+                                                   FAILURE past it (STRICT=1 gates it now)
+       at least PATCHFRAC x the same silhouette        the patch row, FAILURE below it, so a term that
+                                                   paints nothing cannot pay the row above it
+     Both are RELATIVE because the footprint is a ground projection of the body's own radius: a bigger
+     body projects a bigger patch and a nearer body projects more pixels of it, so a bare pixel literal
+     would be a statement about the camera rather than about the term.
+     MEASURED residue of the retuned term (js/40_render.js D 0.42, R -0.10 m past a body's own collision
+     radius, F 3, ZF 0.25 - visible edge at 0.84 R = 0.27 m, inside a grunt's 0.42 m footprint),
+     leak px / mask px, all of the leak DARKER so patch == leak on every one of these cells:
+       LVL 0 SEED 12345  cam 0  214/1924 = 0.111   cam 2  193/2143 = 0.090   (N = 5 runs, identical:
+       the probe is deterministic, so repeats agree to the pixel and only the cells below give spread)
+       LVL 0 SEED 12345  cam 0  214/1924 = 0.111   cam 2  193/2143 = 0.090
+       LVL 1             cam 0  207/1924 = 0.108   cam 2  468/4146 = 0.113
+       LVL 2             cam 0  320/4594 = 0.070   cam 2  447/4680 = 0.096
+       LVL 0 SEED 777    cam 0  542/8421 = 0.064   cam 2  152/1932 = 0.079
+       LVL 0 SEED 4242   cam 0  227/1979 = 0.115   cam 2  164/1932 = 0.085
+     worst ratio 0.115 -> cap 0.15 (1.3x the worst sample); floor 0.03 sits at half the weakest sample
+     (0.064) and is 6x above "nothing". For scale: the disc this term used to cast leaked 1886 / 2134 px
+     (ratios ~0.98 / 1.00 - it covered as much world as the bodies did), and the delete-the-term control
+     reads 0 px with main's exact 50 / 29 dL. */
+  const LEAKFRAC = 0.15, PATCHFRAC = 0.03, PATCHMIN = 8;
   /* Per-frame edge statistics, factored out of the camera loop so the posed frame, the found frame and
      the flat control are measured by the SAME arithmetic as the crowd frame - a control computed by a
      second implementation is not a control. Identical loops to the ones this block used inline. */
@@ -5088,10 +5114,23 @@ if (MODE === 'contrast') {
     // ---- the OLD rule, kept as a cross-check on the same pixels ----
     const cov = new Uint8Array(N);
     let oCover = 0, oSum = 0, oEdge = 0, oEn = 0, oLost = 0, oRGB = 0, leak = 0;
+    /* #18: of the pixels the coverage mask denies, the ones that got DARKER with the bodies in frame are
+       the contact patch's own visible footprint - the term multiplies the lit pixel down, so a shadow can
+       only darken, and an unlit-pixel change that brightens is not this term. patch and leak are the SAME
+       pixels seen from opposite sides, and that is the point: "a patch small enough to pass the leak rows
+       while painting nothing" becomes a pair of rows that cannot both be satisfied by nothing. patchLow
+       counts the ones below the horizon row, where the ground the patch lives on is painted. */
+    let patch = 0, patchSum = 0, patchLow = 0;
+    const hzIdx = (Math.floor(run('horizon')) + 1) * W;
     for (let i = 0; i < N; i++) {
-      const d = Math.abs(lum(A, i) - lum(B, i));
-      if (d > DLR || (A[i] >>> 24) - (B[i] >>> 24) !== 0) { cov[i] = 1; oCover++; oSum += d; if (!M[i]) leak++; }
+      const la = lum(A, i), lz = lum(B, i), d = Math.abs(la - lz);
+      if (d > DLR || (A[i] >>> 24) - (B[i] >>> 24) !== 0) {
+        cov[i] = 1; oCover++; oSum += d;
+        if (!M[i]) { leak++; if (la < lz - DLR) { patch++; patchSum += lz - la; if (i >= hzIdx) patchLow++; } }
+      }
     }
+    const leakCap = Math.round(nM * LEAKFRAC);   // #18: the sanctioned footprint, sized by the body that casts it
+    const patchFloor = Math.max(PATCHMIN, Math.round(nM * PATCHFRAC));   // #18: the other end of the same window
     for (let y = 1; y < H - 1; y++) for (let x = 1; x < W - 1; x++) {
       const i = y * W + x;
       if (!cov[i] || (cov[i - 1] && cov[i + 1] && cov[i - W] && cov[i + W])) continue;
@@ -5287,7 +5326,7 @@ if (MODE === 'contrast') {
     const reads = nM >= MINMASK && enring >= RINGMIN && edgeDL >= DLMIN && lostPct <= LOSTMAX;
     // a measurement at all: something drew, the ring has pixels, and the mask does not leak. Only a
     // row that measured can owe a debt - vacuity is a FAILURE (see the row() note above).
-    const measured = nM >= MINMASK && enring >= RINGMIN && leak <= LEAKMAX;
+    const measured = nM >= MINMASK && enring >= RINGMIN && leak <= leakCap;   // #18: leak inside the sanctioned cap is still a trustworthy oracle
     /* THE DEBT, IN TWO PARTS (#188). On the volume branch the body in cam 1's shot is not necessarily a
        body the GAME placed, and "#179 is paid" cannot be allowed to mean "the probe found somewhere to
        stand a body" - on the CI cell the FOUND frame under FLAT=1 reads 44 dL / 14% and the POSED frame
@@ -5402,9 +5441,31 @@ if (MODE === 'contrast') {
           : ' - below the measured banded floor ' + bFloor.toFixed(1) + ' dL: a regression, not the debt'),
         debt);
     }
+    /* #18: the leak row and the patch row below are the two ends of ONE number, the world-side footprint
+       of the contact shadow. Inside the cap the debt is reported as #18 - a ground shadow is background
+       to this oracle by construction, and the alternative (an enemy-free control render to attribute it
+       in-probe) would be a third render per camera inside the measurement sequence. Past the cap it is a
+       regression: the term has grown back into the disc it was before the retune. */
     row('cam ' + cam + ' diff mask leaks nothing', leak <= LEAKMAX,
       leak + ' px differ between the two renders but no body painted them' +
-      (leak ? ' - a body-driven WORLD change is being counted as the body (#179)' : ''));
+      (leak <= LEAKMAX ? '' : nM >= MINMASK
+        ? ' - ' + patch + ' of them are DARKER than the body-free render, which is the #18 contact patch painting the world a body occludes: to a coverage-rule oracle whose background has no bodies in it, a ground shadow IS background, so the debt is capped at ' + LEAKFRAC + ' x this body\'s own ' + nM + ' mask px = ' + leakCap + ' px and grows red past it (STRICT=1 gates it now)'
+        : ' - a body-driven WORLD change is being counted as the body (#179), and with ' + nM + ' px of mask there is no patch here to blame for it'),
+      leak > LEAKMAX && leak <= leakCap && nM >= MINMASK ? '#18' : undefined);
+    /* The other side of the same pixels. A term whose footprint is under 3 % of the silhouette it grounds
+       is a term no player sees (measured residue sits at 0.064-0.115), and the delete-the-term control
+       gives exactly this row at 0 px, so the row cannot be satisfied by shrinking the patch out of
+       existence to pay the row above. */
+    row('cam ' + cam + ' contact patch paints ground px (#18)', patch >= patchFloor,
+      patch + ' px outside the coverage mask are darker than the body-free render by over ' + DLR +
+      ' (mean ' + (patch ? (patchSum / patch).toFixed(1) : '0') + ' luminance, ' + patchLow +
+      ' of them below the horizon ' + Math.floor(run('horizon')) + '), floor ' + patchFloor + ' px = max(' +
+      PATCHMIN + ', ' + PATCHFRAC + ' x this body\'s own ' + nM + ' mask px; measured residue 0.064-0.115 x' +
+      ', cap ' + leakCap + ' px)' +
+      (patch >= patchFloor ? ' | the same frame with the term DELETED gives 0 px here, which fails'
+        : nM >= MINMASK ? ' - NOTHING PAINTS: the term is in js/ but reaches no pixel a player can see, which is worse than no term (this is the delete-the-term number)'
+          : ' | no measurement to take: ' + boundTxt),
+      nM >= MINMASK ? undefined : (m189 ? '#189' : undefined));
     /* ---- #244, the rows that make those numbers fail on a regression -----------------------------
        Two gated rows per camera: the gradient the SURFACE carries (the ring is out of it by
        construction, so an outline cannot pay it) and the two channels #232 required UNMOVED (mean and

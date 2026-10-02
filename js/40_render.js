@@ -28,13 +28,27 @@ let SEAM = 1, SEAMD = 0.62, SEAMU = 0.13, SEAMW = 0.16, SEAMC = 0.22;
    floor of the body's own BAND, and a band on any face inside the same contact disc. A MULTIPLY on
    lit pixels (the seam's mechanism at seamCrease), so it darkens whatever is there instead of
    competing with a light constant. It paints pixels and NEVER writes zbuf - a shadow is not an
-   occluder (#163/#170). SHADOW_R is metres added to a body's collision radius to get the disc;
+   occluder (#163/#170).
+
+   #18's retune: the first version was a DISC of e.r + 0.30 m plus a band up the whole height of the
+   body, and on the coverage-rule oracle that reads as a separation COST, not a cue - a darkened wall
+   behind a dark body lowers edge dL (cam 0 50 -> 46, cam 2 29 -> 25) and every darkened world pixel is
+   counted as leak. So the term is now a PATCH at the contact line: the radius is pulled 10 cm INSIDE
+   the body's own collision radius (so the patch cannot darken a world pixel outside the footprint the
+   silhouette already occupies), the falloff exponent is raised so the VISIBLE edge sits at 0.84 R
+   rather than 0.95 R (D*t^F falls under 1/255 at t = (1/(255*D))^(1/F): R = 0.32 m for a grunt, visible
+   to 0.27 m, inside its 0.42 m footprint), and the face term is confined to a band as tall as the patch
+   is wide, zero above it, instead of keeping 75% of the term to the crown.
+   SHADOW_R is metres added to a body's collision radius to get the patch radius (negative = the patch
+   stops inside the footprint);
    SHADOW_ZT is how far a floor pixel's plane may be from the body's feet plane and still take the
-   term (bands are quantized, so this is a band test, not a soft falloff); SHADOW_F is the falloff
-   exponent in t = 1-(d/R)^2, 2 being a tight ring and 1 a flat-topped disc; SHADOW_ZF is how much of
-   the term is left at the crown of the body's span on a face. */
-let SHADOW = 1, SHADOW_D = 0.55, SHADOW_R = 0.30, SHADOW_ZT = 0.02, SHADOW_F = 2,
-    SHADOW_ZF = 0.75, SHADOW_FAR = 18;
+   term (bands are quantized, so this is a band test, not a soft falloff - it is what stops the patch
+   painting a floor the body is not standing on, across a lip or a pit edge);
+   SHADOW_F is the falloff exponent in t = 1-(d/R)^2, 1 being a flat-topped disc and 3 a tight core;
+   SHADOW_ZF is how much of the term is left at the TOP of that contact band on a face (above it,
+   nothing). */
+let SHADOW = 1, SHADOW_D = 0.42, SHADOW_R = -0.10, SHADOW_ZT = 0.02, SHADOW_F = 3,
+    SHADOW_ZF = 0.25, SHADOW_FAR = 18;
 /* The wall bilinear fetch is inlined at its one call site below rather than factored into a
    function that writes its result into a scratch array: a module-global typed-array out-param
    blocks V8 inlining and register allocation, and the same code inlined measured 21 -> 12 ms
@@ -385,7 +399,7 @@ function buildShadowGrid() {
     const ex = e.x - camX, ey = e.y - camY;
     if (ex * ex + ey * ey > far2) continue;
     const n = SH_N, r = SHADOW_R + e.r, fz = floorAt(e.x, e.y);
-    SH_X[n] = e.x; SH_Y[n] = e.y; SH_Z[n] = fz; SH_I[n] = 1 / (r * r); SH_H[n] = e.scale;
+    SH_X[n] = e.x; SH_Y[n] = e.y; SH_Z[n] = fz; SH_I[n] = 1 / (r * r); SH_H[n] = r;
     const x0 = (e.x - r) | 0, x1 = (e.x + r) | 0, y0 = (e.y - r) | 0, y1 = (e.y + r) | 0;
     for (let cy = y0; cy <= y1; cy++) {
       if (cy < 0 || cy >= N) continue;
@@ -1121,12 +1135,18 @@ function castWalls(flash, fcR, fcG, fcB) {
         const h0 = DETAIL[(((y + 1) & 63) << 6) | ((x + 1) & 63)], h1 = DETAIL[((y & 63) << 6) | (x & 63)];   // table is 64x64; &31 used a quarter of it at a 32px period
         gk = Math.max(0.25, 1 + (h0 - h1) / 255 * 1.3 * grit);
       }
-      /* the body's contact band on this face: full at the feet, SHADOW_ZF of it at the crown, nothing
-         above the body - a band where the silhouette meets the wall, not a wash over the room */
+      /* the body's contact band on this face: full at the feet, SHADOW_ZF of it at the TOP of the band,
+         nothing above it. The band is as tall as the patch is wide (#18: a contact zone is isotropic in
+         world units, and a band that ran up the body's whole span was a wash over the wall that cost
+         edge dL and bought no grounding) and it falls off quadratically, so the visible part hugs the
+         floor line. */
       let shM = 1;
       if (shK > 0) {
         const vv = (eyeZ - (y - horizon) * shZs - shA) * shS;
-        shM = vv <= 0 ? 1 - shK : vv >= 1 ? 1 - shK * SHADOW_ZF : 1 - shK * (1 - SHADOW_ZF * vv);
+        if (vv < 1) {
+          const w = 1 - (vv > 0 ? vv : 0);
+          shM = 1 - shK * (SHADOW_ZF + (1 - SHADOW_ZF) * w * w);
+        }
       }
       px[idx] = 0xFF000000 | clampi(cb * lb * gk * shM + fB) << 16 | clampi(cg * lg * gk * shM + fG) << 8 | clampi(cr * lr * gk * shM + fR);
     }
