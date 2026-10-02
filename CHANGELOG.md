@@ -2,6 +2,31 @@
 
 ### Added
 
+- **`exposure` grew records, so its numbers can now fail instead of being quoted** (#216). The block that
+  prints "level 0 mean 73 median 69 | spawn mean 57 mid 65" had no `process.exit` and no literal behind any
+  digit, which is how "exposure 77/62/59" could sit in `AGENTS.md` as a measured claim across a
+  seed-to-layout change (#96 re-rolls a level's layout, so that triple stopped describing a world nobody can
+  regenerate). Two records now, declared through `refRecord` and locked in `tools/refs.lock`:
+  `exposure/MEDIAN` = **69 / 71 / 83** (the statistic the block's own header says to read, not the mean) and
+  `exposure/SPAWN` = **57/65 / 60/50 / 63/73** (spawn seat mean and the centre-half region `DEV.lum` calls
+  `mid`, so `tools/ci/assert.js` can reproduce the same number off the live page). 10 rows, and the block
+  ends in an exit code: three per-level lock rows, three window rows against the documented 60–100 (read on
+  the median of four seeded rolls, because one roll of level 0 spans 49–103), three spawn-seat rows, and a
+  vacuity row on the grand mean. Reproducible across processes — three runs on one tree printed identical
+  digits, which is why the lock is exact rather than a tolerance nobody measured. Seen to bite: halving the
+  ground pass's light multiply (`js/40_render.js:548`) gives **41 / 43 / 56** and **9 of 10 rows FAIL, exit
+  1**. Equally measured, and now written in the block's header: four declaration-site edits that moved the
+  numbers **not at all** — `FOGC` at `js/00_core.js:30`, `FARB`/`AMB` at `js/40_render.js:15`, and the
+  `: 0.13` ambient fallback at `:115` — because `startLevel` re-authors all three (`FARB = q.far`, `AMB =
+  MAP.amb`) and `visAt` carries no `FARB` term, so a constant at the top of a file is not an A/B of a shipped
+  term. To hold numeric records the instrument needed a numeric kind: `refScan` read quoted strings and
+  `0x…` only, so a bare decimal died in `REFS-DECL-FORM` with its values silently empty — it parses decimals
+  now, `refRecord` validates kind `num`, and the inventory reads **7 records in 3 of 23 probes** (the count is
+  printed by `view.js refs`, and `AGENTS.md` was rewritten to read it there instead of naming it in prose).
+  `ci.yml`'s roster comment now says which blocks actually compute an exit code (17 of 21; `play`, `decal`,
+  `diag`, `stats` do not, `rig` prints a counter it never wires). No `js/` byte moved: LOCK `060da4cd…`,
+  PARITY `f9e4da3a…` and DEALT `bb12ef3e…` unchanged, so no deploy proof and no recapture is owed.
+
 - **The capture-caption table is decoded from the PNGs instead of typed into prose** (#235).
   `tools/recap.js` reads `docs/screens/*.png` with its own PNG reader (chunk walk, `zlib.inflateSync`,
   the five scanline filters — no dependency, the reader half of `tools/png.js`) and prints per file the
