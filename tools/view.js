@@ -433,9 +433,19 @@ if (MODE === 'alt') {
      gate sets the exit code (this probe used to always exit 0, which is why it was only ever reporting).
      Nothing here pokes MAP.fz: these are the bands the generator authored, or the row is lying. */
   let bad = 0, knownN = 0, rowsN = 0;
+  /* STRICT=1 promotes the arrival row below from a reported debt to a gate, the same shape contrast
+     (:2641) and cull (:2719) use: a true-but-red finding is RECORDED at a measured baseline rather
+     than widened until it cannot fail, and the debt is counted in the verdict line. */
+  const STRICT = !!process.env.STRICT;
   const row = (label, ok, detail) => {
     console.log('  ' + label.padEnd(44) + (ok ? ' ok  ' : ' FAIL') + '  ' + detail);
+    rowsN++;
     if (!ok) bad++;
+  };
+  const krow = (label, ok, detail) => {
+    console.log('  ' + label.padEnd(44) + (ok ? ' ok  ' : (STRICT ? ' FAIL' : 'KNOWN')) + '  ' + detail);
+    rowsN++;
+    if (!ok) { if (STRICT) bad++; else knownN++; }
   };
   for (let li = 0; li < 3; li++) {
     const r = vm.runInContext(`(function(){
@@ -596,6 +606,127 @@ if (MODE === 'alt') {
     row(`L${li} a column you can stand up in (>=2 units)`, r.headCols >= 1,
       `${r.headCols} open column(s) measure >= 2 units from floorAt to ceilAt, tallest ${r.headMax.toFixed(2)}; ` +
       `a flat level reads exactly 1.00 there and a ladder shaft reaches 1.50, so 0 is the flat-world answer`);
+    /* #15 M4: being COUNTED is not being SEEN. The row above proves the column has headroom; this one
+       asks whether a player standing in the ordinary one-unit rooms can see it at all, and answers it
+       with the game's own eye solver - js/30_entities.js' hitscan, which since #261 tests the ENTERED
+       column's ceiling plane as well as its own, so a shot that would fly inside a corridor roof stops
+       there. No second LOS rule is invented here: this is the function a trigger pull runs, aimed.
+       Bodies are lifted for the cast and restored after it, because a body standing in a doorway is
+       not geometry - sight's own header says the cast must be out of the lane, not merely asleep.
+       TWO aim heights, because one number cannot separate "there is a room over there" from "you can
+       see that it is tall": the EYE-HEIGHT aim reaches a tall column through an ordinary doorway (a
+       1-unit lintel is enough, and that is all a flat level has), while the LOOK-UP aim is a point one
+       quantum UNDER THE TALL COLUMN'S OWN CEILING PLANE - the surface a player actually looks up at.
+       That choice is load-bearing and was measured, not guessed: aiming at a FIXED height above the
+       column's floor (floor+1.40) degenerates into the eye-height cast at range, because a ray that
+       rises 0.90 m over 7.6 m stays under the 1-unit ceiling it flies through until the last metre and
+       never touches it - it counted 86/86/86 columns seen with a mean 52 stands each, which is plain
+       line of fire wearing a look-up costume. Aimed at the ceiling plane instead, the ray must cross
+       the ceiling of the room it was fired under, and it can only do that through air taller than that
+       room: the mouth js/20_level.js' TALL ROOM feature gives the corridor cells feeding a tall room
+       (an open doorway draws no face, so its lintel IS the ceiling you see through). The row gates on the
+       look-up count; the eye-height count is its control, and a generator that stopped authoring the
+       mouths would leave the control standing and the gate at 0. CZ_TALL back to CZ_DEF (no tall term)
+       takes the FIRST clause to 0, which is the sabotage this row was written against. */
+    const V = vm.runInContext(`(function(){
+      const N = MAP.w, cell = MAP.cell, fz = MAP.fz;
+      const save = { x: P.x, y: P.y, z: P.z, c: P.crouch, a: P.air, v: P.vz };
+      const en = ENEMIES.slice(), pr = PROPS.slice();
+      ENEMIES.length = 0; PROPS.length = 0;
+      const tall = [], stands = {};
+      for (let y = 1; y < N - 1; y++) for (let x = 1; x < N - 1; x++) {
+        const i = y * N + x; if (cell[i]) continue;
+        const h = ceilAt(x, y) - fz[i] * ZQ;
+        if (h >= 2) tall.push(i);
+        else (stands[fz[i]] = stands[fz[i]] || []).push(i);
+      }
+      const RANGE = 20;                                   // sight's own cast range, not a new constant
+      /* One cast, and WHY it stopped: hitscan reports a wall (which includes a riser, #128), a ceiling
+         it left through (kind 1, the #261 term this row exists to exercise) or its own floor (#131).
+         "Not visible because a wall is in the way" and "not visible because the ceiling of the room you
+         stand in is in the way" are different defects, and only the second one is this row's subject. */
+      function cast(ax, ay, tx, ty, tz) {
+        const az = floorAt(ax, ay) + cfg.eye;
+        const dx = tx + 0.5 - ax, dy = ty + 0.5 - ay, hh = Math.hypot(dx, dy);
+        if (hh < 0.35 || hh > RANGE) return { ok: 0, kind: 4, d: hh };
+        const dist = Math.hypot(hh, tz - az);
+        P.x = ax; P.y = ay; P.z = floorAt(ax, ay); P.crouch = 0; P.air = false; P.vz = 0;
+        const h = hitscan(Math.atan2(dy, dx), (tz - az) / hh, dist + 2);
+        return { ok: h.t >= dist - 1e-6 ? 1 : 0, kind: h.wall ? 1 : h.band ? 2 : h.floor ? 3 : 4, d: dist };
+      }
+      const O = { tall: tall.length, cols: 0, upSeen: 0, bodySeen: 0, stands: 0, bodyStands: 0, dsum: 0,
+                  casts: 0, spUp: 0, spMid: 0, spBody: 0, spDist: -1, spH: 0, spKind: '-', spNear: -1, lowStands: 0 };
+      for (const k in stands) O.lowStands += stands[k].length;
+      const spx = P.x, spy = P.y;
+      O.spH = ceilAt(spx | 0, spy | 0) - floorAt(spx, spy);
+      for (const i of tall) {
+        const tx = i % N, ty = (i / N) | 0, tf = fz[i] * ZQ, tc = ceilAt(tx, ty);
+        const zUp = tc - ZQ, zMid = (tf + 1.0 + tc) / 2, zBody = tf + 0.75;
+        if (zUp <= tf + 1.0 + 1e-9) continue;             // nothing above a 1-unit lintel to look up into
+        O.cols++;
+        let nUp = 0, nBody = 0, dsum = 0;
+        const list = stands[fz[i]] || [];
+        for (const j of list) {
+          const jx = j % N, jy = (j / N) | 0;
+          if (Math.abs(jx - tx) > RANGE || Math.abs(jy - ty) > RANGE) continue;
+          O.casts++;
+          const cu = cast(jx + 0.5, jy + 0.5, tx, ty, zUp);
+          if (cu.ok) { nUp++; dsum += Math.hypot(tx - jx, ty - jy); }
+          if (cast(jx + 0.5, jy + 0.5, tx, ty, zBody).ok) nBody++;
+        }
+        if (nUp) { O.upSeen++; O.stands += nUp; O.dsum += dsum; }
+        if (nBody) { O.bodySeen++; O.bodyStands += nBody; }
+        /* the seat a player actually arrives on, at three heights: eye height (a room you could walk
+           into), the MIDPOINT of the span above the lintel (volume, half of it), and the ceiling plane
+           (volume, all of it). Which of the three the seat reaches says whether the arrival view shows
+           a room, shows that it is tall, or shows neither. */
+        const su = cast(spx, spy, tx, ty, zUp), sm = cast(spx, spy, tx, ty, zMid), sb = cast(spx, spy, tx, ty, zBody);
+        if (su.ok) O.spUp++;
+        if (sm.ok) O.spMid++;
+        if (sb.ok) O.spBody++;
+        const d = Math.hypot(tx + 0.5 - spx, ty + 0.5 - spy);
+        if (su.ok && (O.spDist < 0 || d < O.spDist)) O.spDist = d;
+        if (!su.ok && (O.spNear < 0 || d < O.spNear)) {   // nearest column the seat cannot look up into, and why
+          O.spNear = d; O.spKind = ['-', 'WALL/RISER', 'CEILING', 'OWN FLOOR', 'NOTHING'][su.kind];
+        }
+      }
+      P.x = save.x; P.y = save.y; P.z = save.z; P.crouch = save.c; P.air = save.a; P.vz = save.v;
+      ENEMIES.length = 0; PROPS.length = 0;
+      for (const e of en) ENEMIES.push(e);
+      for (const p of pr) PROPS.push(p);
+      return O;
+    })()`, ctxVm);
+    const vMean = V.upSeen ? V.stands / V.upSeen : 0, vDist = V.stands ? V.dsum / V.stands : 0;
+    row(`L${li} that volume is visible from a floor you can stand on`,
+      V.tall >= 1 && V.cols >= 1 && V.upSeen >= 1 && V.casts > 0 && V.stands > 0,
+      `${V.tall} tall column(s) (>= 2 units of headroom), ${V.cols} of them with a ceiling plane above a ` +
+      `1-unit lintel to look up into, and ${V.upSeen} of those are reached by hitscan from at least one of the ` +
+      `${V.lowStands} open cells whose OWN headroom is < 2 on the same band (mean ${vMean.toFixed(1)} such stands see ` +
+      `each one, mean ${vDist.toFixed(1)} m away). The aim is ONE QUANTUM UNDER each column's own ceiling plane - the ` +
+      `surface a player looks up at - so the ray must cross the ceiling of the room it was fired under, and only air ` +
+      `taller than that room lets it: ${V.stands} of ${V.casts} look-up casts reach at range 20. CONTROL (same casts, ` +
+      `same geometry, aim at EYE HEIGHT 0.75 up the span, which a 1-unit doorway passes): ${V.bodyStands} of ` +
+      `${V.casts} reach and ${V.bodySeen} of ${V.cols} columns are seen, so plain line of fire is ${V.bodyStands ? (100 * V.bodyStands / V.casts).toFixed(0) : 0}% of the ` +
+      `casts while the look-up aim is ${V.stands ? (100 * V.stands / V.casts).toFixed(0) : 0}% - a generator that stopped ` +
+      `authoring the tall mouths (js/20_level.js' TALL ROOM gives CZ_TALL to the corridor cells feeding a tall room, ` +
+      `because an open doorway draws no face and its lintel IS the ceiling you see through) would move the second ` +
+      `number to 0 and leave the first alone. CZ_TALL back to CZ_DEF (the tall term deleted) takes the first clause to 0 - the sabotage this ` +
+      `row was written against, which is why 0 tall / 0 seen / 0 from spawn is a FAIL here and never a pass with an ` +
+      `explanation attached (${V.tall} tall, ${V.upSeen} seen, ${V.spUp} from spawn)`);
+    krow(`L${li} that volume is visible on arrival`, V.spUp >= 1,
+      `${V.spUp} of ${V.cols} tall columns are look-up-visible from the SPAWN SEAT (baseline RECORDED 0: this row's ` +
+      `purpose is to make that number move, not to flatter the deal) - ${V.spMid} of ${V.cols} at the midpoint of the ` +
+      `span above the lintel and ${V.spBody} at eye height, so the seat${V.spBody && !V.spUp ? ' shows rooms but not that any is tall' : ' shows ' + (V.spUp ? 'tall volume' : 'neither a tall column nor much else')} ` +
+      `${V.spDist < 0 ? '' : '(nearest seen ' + V.spDist.toFixed(1) + ' m)'}, of headroom ${V.spH.toFixed(2)} - a low seat, ` +
+      `so this is arrival and not a walked-up-to view${V.spUp ? '' : `; the NEAREST column the seat cannot look up into is ` +
+      `${V.spNear.toFixed(1)} m away and the cast stops on a ${V.spKind}`}. Recorded cause, measured across SEED ` +
+      `12345/7/99 x 3 levels (9 deals) at the time this row was written: spawn look-up 0 EVERY time, because ` +
+      `genLevel excludes room 0 from tallRooms and gives CZ_TALL only to corridor cells hugging a chosen room ` +
+      `(js/20_level.js tallWant/filter/mouth, ~:637-661), so no tall air ever reaches the spawn room. Volume is ` +
+      `authored and hidden behind the door rather than absent - the row above proves it is visible from ` +
+      `${V.upSeen} ordinary floors at mean ${vDist.toFixed(1)} m. STRICT=1 gates this; the fix belongs to generation ` +
+      `(carry tall air along the spawn lane's mouth, or let room 0 be a tall-room candidate), and a deal that ` +
+      `produces 0 tall columns at all is the row above's failure, not this one's`);
     row(`L${li} off the datum is reachable from spawn, up AND down`, r.reachUp >= 1 && r.reachDown >= 1,
       `${r.reachUp} cell(s) above the datum and ${r.reachDown} below it reached from spawn by the crossing rule ` +
       `(furthest ${r.farReach} crossings away); a level with no sunken band reports 0 below`);
@@ -1018,8 +1149,9 @@ if (MODE === 'alt') {
         + `cannot see this layer, px is the buffer the world pass wrote before it.`);
     }
   }
-  console.log(bad ? `ALT ${bad} FAILURES - the bands are not there, not linked, or there is nothing to look at`
-    : 'ALT ok - bands authored, linked, reachable, and there is volume to look at');
+  console.log((bad ? `ALT ${bad} FAILURES - the bands are not there, not linked, or there is nothing to look at`
+    : `ALT ok - bands authored, linked, reachable, and there is volume to look at`) +
+    `  |  ${rowsN} row(s), ${knownN} known-issue row(s)${knownN ? (STRICT ? ' (FAILED under STRICT=1)' : ' (reporting: #15 M4 arrival view - STRICT=1 gates)') : ''}`);
   process.exit(bad ? 1 : 0);
 }
 
