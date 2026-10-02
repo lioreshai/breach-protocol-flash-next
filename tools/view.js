@@ -288,6 +288,15 @@ const sbMath = Object.create(Math);
 sbMath.random = () => { rs ^= rs << 13; rs >>>= 0; rs ^= rs >>> 17; rs ^= rs << 5; rs >>>= 0; return rs / 4294967296; };
 let sandbox, ctxVm;
 const run = code => vm.runInContext(code, ctxVm, { filename: 'view' });
+/* Rest the VIEWMODEL, as a statement to prefix a renderWorld() with. drawViewModel damps its look-lag
+   against WALL time (VM.now = performance.now(), js/40_render.js:1548) and the harness stubs that clock
+   as Date.now() (:319), so two renders of ONE state are not the same frame: the gun rig has swung about
+   the eye by whatever milliseconds happened to elapse between them. A probe whose oracle is a PAIR of
+   renders measures that swing unless it rests the rig in both - which is why contrast arms it (#180) and
+   why bands does now (#266: the seam A/B counted 777-917 px of rifle with no seam term in the build at
+   all, so its row could not fail on its own subject). VM.ang = P.ang matters as much as the zeros: dAng
+   is what the lag damps TOWARD, and after one frame it is already 0. */
+const VMREST = 'if (typeof VM !== "undefined") { VM.ang = P.ang; VM.lag = 0; VM.vy = 0; }';
 // levels lay themselves out with Math.random, so measurements need a seeded one
 function seedRng(seed) {
   run(`(()=>{let a=${seed | 0}>>>0;Math.random=()=>{a=(a+0x6D2B79F5)>>>0;` +
@@ -4041,7 +4050,9 @@ if (MODE === 'exposure') {
         P.z=floorAt(sx,sy); for(const e of ENEMIES) e.state='sleep';
         return {z:P.z, f:floorAt(P.x,P.y)}})()`);
       if (!(pose.z === pose.f)) console.log('  SPAWN-POSE FAIL level ' + lv + ' roll ' + r + ': P.z ' + pose.z + ' is not floorAt ' + pose.f);
-      run('renderWorld()');
+      // the viewmodel is part of the frame this mean measures, and it damps against wall time: at rest
+      // the spawn seat's exact mean stops depending on how many ms the previous roll took (#266)
+      run(VMREST + '; renderWorld()');
       const sW = run('BW'), sH = run('BH'), sd = new Uint32Array(run('px'));
       let sSum = 0; for (let i = 0; i < sd.length; i++) sSum += lumOf(sd[i]);
       spawnMeans.push(sSum / sd.length); spawnMids.push(midOf(sd, sW, sH));
@@ -4052,7 +4063,7 @@ if (MODE === 'exposure') {
           const c=cs[((cs.length*0.31+${r})|0)%cs.length];
           P.x=c[0]+.5;P.y=c[1]+.5;P.ang=${w}*Math.PI/3+0.13;P.pitch=BH*0.02;P.z=floorAt(P.x,P.y);
           for(const e of ENEMIES)e.state='sleep';})()`);
-        run('renderWorld()');
+        run(VMREST + '; renderWorld()');          // same rest as the spawn seat above, so a roll is one pose
         const BW = run('BW'), BH = run('BH'), d = new Uint32Array(run('px')), m = d.length;
         for (let i = 0; i < m; i++) {
           const c = d[i], L = 0.2126 * (c & 255) + 0.7152 * (c >> 8 & 255) + 0.0722 * (c >> 16 & 255);
@@ -4829,9 +4840,8 @@ if (MODE === 'contrast') {
      owes. The coverage mask never saw it either way - MESH.draw carries body: 0 for the rig, so tri()
      stamps 0 and the mask stays 999 / 2838 / 431 px, identical to main. Putting the rig at rest before
      BOTH sampled frames removes the cause instead of the symptom and leaves the gun in the picture;
-     this is the same REST the viewmodel probe uses for the same reason (#180). VM.ang = P.ang matters
-     as much as the zeros: dAng is what the lag damps TOWARD, and after one frame it is already 0. */
-  const VMREST = 'if (typeof VM !== "undefined") { VM.ang = P.ang; VM.lag = 0; VM.vy = 0; }';
+     this is the same REST the viewmodel probe uses for the same reason (#180), and the statement itself
+     now sits beside run() so bands rests it the same way (#266). */
   for (let cam = 0; cam < 3; cam++) {
     run(`startLevel(${LVL}, true); S.mode='play'; S.locked=false;`);
     if (FLAT) run('MAP.fz.fill(0); MAP.cz.fill(CZ_DEF); linkBoundaries(); for (const e of ENEMIES) e.z = floorAt(e.x, e.y);');
@@ -7112,11 +7122,12 @@ if (MODE === 'bands') {
         if (process.env.SEAMU) run('SEAMU = ' + Number(process.env.SEAMU));
         if (process.env.SEAMW) run('SEAMW = ' + Number(process.env.SEAMW));
       }
-      run('S.t = 3.5; renderWorld()');
+      // the lip-band rows below read their pair off these two frames, so VMREST goes in both (#266)
+      run('S.t = 3.5; ' + VMREST + ' renderWorld()');
       const A = new Uint32Array(run('px')), zb = new Float32Array(run('zbuf'));
       const hor = run('horizon'), eye = run('eyeZ'), risers = run('MAP.riserStops');
       let B = A;
-      if (seam === 1) { run('SEAM = 0'); run('S.t = 3.5; renderWorld()'); B = new Uint32Array(run('px')); run('SEAM = 1'); }
+      if (seam === 1) { run('SEAM = 0'); run('S.t = 3.5; ' + VMREST + ' renderWorld()'); B = new Uint32Array(run('px')); run('SEAM = 1'); }
       const m = march(L.cx, L.cy);
       /* Every crease each column contains, not just the one the row measures: a staircase puts the
          next tread's lip above this one and the sunken block's riser behind it, and the seam paints
@@ -7416,10 +7427,15 @@ if (MODE === 'bands') {
         domF > Math.ceil(n * FAR_DOM_DEBT));
     }
     if (seam === 1) {
+      /* The seam term's own A/B: the SAME state, rendered twice, differing by one byte of SEAM. The
+         viewmodel has to be at rest in both (#266) - it damps against wall time, so an unrest pair
+         differs by the rifle's swing (measured 777-917 px with seamCrease deleted: this row read ok on
+         a build whose seam paints nothing). Rested, the pair is byte-identical with the term deleted
+         and diffPx is exactly what the term contributes. */
       {
-        run('SEAM = 1; S.t = 3.5; renderWorld()');
+        run('SEAM = 1; S.t = 3.5; ' + VMREST + ' renderWorld()');
         const A = new Uint32Array(run('px'));
-        run('SEAM = 0; S.t = 3.5; renderWorld()');
+        run('SEAM = 0; S.t = 3.5; ' + VMREST + ' renderWorld()');
         const B = new Uint32Array(run('px'));
         run('SEAM = 1');
         for (let i = 0; i < A.length; i += 7) if (Math.abs(lum(A, i) - lum(B, i)) > 4) diffPx += 7;
@@ -7629,7 +7645,7 @@ if (MODE === 'bands') {
     let fSamples = 0, fStep = 0, fWorst = 0, fVac = 0, fDark = 0, fMean = 0, fParts = [];
     for (const [fx, fy] of cams) for (const fyaw of YAWS) {
       pose(fx, fy, fyaw);
-      run('S.t = 3.5; renderWorld()');
+      run('S.t = 3.5; ' + VMREST + ' renderWorld()');
       const fr = farFrame();
       fDark += fr.dark; fMean += fr.mean;
       for (const h of farProbe()) {

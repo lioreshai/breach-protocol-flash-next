@@ -51,6 +51,38 @@
   a directory with no PNGs in it.
 ### Fixed
 
+- **`bands` diffed two renders with the viewmodel still damping, so its seam row could not fail** (#266).
+  `L<n> the seam term is in the build and moves pixels` counts pixels that differ between a `SEAM=1` and a
+  `SEAM=0` render of one state, and both renders are `S.t = 3.5; renderWorld()` — identical but for one
+  byte of the term. They were not the same frame: `drawViewModel` damps its look-lag against **wall time**
+  (`VM.now = performance.now()`, `js/40_render.js:1548`, and the harness stubs that clock as `Date.now()`,
+  `tools/view.js:319`), so the rifle had swung by whatever milliseconds elapsed between the two calls and
+  its swing was in the count. Two consequences, both measured on an unchanged tree. The row could not fail
+  on its own subject: with `seamCrease` deleted so the term paints nothing, all three seam rows still read
+  **ok at 777 / 917 / 784 px** while 15 lip rows correctly FAILed (exit 1) — and the row is in `ci.yml`'s
+  blocking roster (`ci.yml:127`). And it could not be reproduced: four processes of one seed gave L1
+  **11438 / 11592 / 11459 / 11550** and L2 **14021 / 14028 / 13993 / 13986** px, which is the drift #266
+  reported (~3 % on an 11.2 k figure), and the reason its numbers could not be hashed for #216's programme.
+  The fix is contrast's existing `VMREST` (`VM.ang = P.ang; VM.lag = 0; VM.vy = 0`, #180) put at the five
+  `renderWorld()` calls in the `bands` block, so each pair starts from the same rig pose; the literal now
+  sits once beside `run()` instead of twice in two mode blocks. The threshold stays `> 0` and no tolerance
+  was added — rested, the deleted-term pair is **byte-identical**, so the row now measures exactly what the
+  term contributes: **with `seamCrease` deleted the three rows FAIL at `0 px` and `bands` exits 1**, and the
+  built-in `SEAM=0` control fails too. Restored, four fresh processes print byte-identical logs (same md5,
+  **14028 / 10465 / 13237** px) with **48 rows, 2 known-issue (#257, #203)** and exit 0; the figures dropped
+  5–9 % because the rifle is no longer part of the difference. `SEED` still moves the number far more than
+  process identity does (the issue's `SEED=999` → 5.4 k), so the remaining variance is the deal, not the
+  frame — that half of #266's fix shape (a per-level reseat, a `BANDS-DETERMINISM` hash row) is **not** in
+  this commit. The same rest went onto `exposure`'s two render sites, where the recorded rows compare
+  **exact** integers: its per-process jitter is only ±0.01 of a luma, but two of those decimals sat 0.2 from
+  a rounding boundary, and with the rig at rest three processes now print identical digits (69.43 / 56.89 /
+  64.80 / 71.06 / 59.95 / 50.31 / 83.45 / 63.41 / 73.32) with every recorded integer unchanged — **69/71/83**
+  and **57/65 / 60/50 / 63/73** — 10 rows ok, exit 0, no `refs.lock` re-record. No `js/` byte moved, so
+  nothing shipped: LOCK `060da4cd…`, PARITY `f9e4da3a…` and DEALT `bb12ef3e…` are unchanged and no capture is
+  owed; `flatparity`, `contrast` (0 failures of 27), `cull`, `alt`, `planes`, `heights`, `stats`, `sheets`
+  ok, `smoke` PASSED at raster median 12.47 ms (batches 12.3/12.4/12.5/12.7/12.8), VERT 25 gating rows and 0
+  known-issue.
+
 - **A bullet hole in a step was drawn above the step** (#15, #120's unfinished half). `addWallMark` has
   carried absolute altitude since #120, but the window it clamps into used the solid-column rule for every
   face: `[max floor, ceilAt(air)]`. On an air-to-air boundary that is self-cancelling arithmetic, because
