@@ -6694,6 +6694,85 @@ if (MODE === 'props') {
       ') - this probe cannot see scene light, so every other (E) row here is worthless');
     else console.log('    lit by light, as it should be (control): ' + full.toFixed(0) + ' -> ' + dark.toFixed(0) +
       ' (x' + rat.toFixed(2) + ')');
+    /* (E2) the CORE, not the ratio - #84. Row (E) asks whether emissive pixels survive the lights
+       going out; #84 asks whether the aperture ever reaches the top of the byte, and those are
+       different questions at different distances. The arithmetic has no tone curve in it (no tonemap /
+       reinhard / filmic anywhere in js/), so clipping is literal: the aperture is authored
+       [255,226,166] (js/13_mesh.js:331), geoFor's propTex lift multiplies it by 1.35 and adds 6
+       (js/13_mesh.js:664-666, 83d9411 - NOT ec271fb, which is what #84's comment names), giving
+       [255,255,230] = luminance 253.2; an emissive triangle is albedo*(1-fog)+FOGC*fog with NO scene
+       light (js/13_mesh.js:958,:977), so the SAME pixel stops satisfying R>253 once
+       fog > (255-253)/(255-FOGC[0]), about 0.008, which fogAt reaches at ~2.5 m. Measured curve for
+       one lamp on this camera: 1928 px at 0.50 m, 263 at 1.00, 76 at 1.40, 20 at 2.30, 0 from 2.60 up
+       - and this mode parks its prop at 2.90 m, where fog is 0.027 and the count is 0 however bright
+       the art gets. A row parked THERE cannot fail (#148: name the geometry that exercises the
+       branch), so this row re-seats the SAME authored lamp on the SAME sight line at CORE_D, inside
+       the fog-free radius, and gates two numbers INSIDE the silhouette against the literals below:
+       the count of R>253 && G>253 and the top-decile luminance (hi(), the same statistic row (E) and
+       the three print-only blown blocks use, but scoped by the mask instead of the frame).
+       In-mask rather than frame-wide, because frame-wide "is anything blown" is not this question: the
+       level-1 frame at this seat holds 266 px over luminance 250 and 3 of them are not the core, so
+       with the lift deleted the frame-wide count is 3 - still > 0, still green - while the in-mask
+       count goes 263 -> 0. On level 0 the same control takes the frame-wide count to 0 as well, so a
+       frame-wide rule is not merely looser here, it is level-dependent, which is worse. */
+    if (kind === 'lamp') {
+      const CORE_D = 1.0;                  // m along the sight line: fogAt(1.0) is 0, fogAt(2.9) is not
+      // [saturated px, top-decile luminance] per level, recorded by `node tools/view.js refs --record`
+      const CORE_REC = refRecord('props', 'LAMPCORE', 'num', [263, 239.6, 263, 239.5, 263, 239.5]);   // saturated px, top-decile luminance, per level 0/1/2 at CORE_D
+      const seat = run(`(()=>{const x=P.x+Math.cos(P.ang)*${CORE_D},y=P.y+Math.sin(P.ang)*${CORE_D};` +
+        `return {x:+x.toFixed(4),y:+y.toFixed(4),open:!isSolid(x,y),fog:+fogAt(${CORE_D}).toFixed(5)}})()`);
+      /* the distance at which the R>253 rule dies, solved from the game's own fog rather than typed in,
+         so the sentence cannot rot when FOGC or visAt moves */
+      const dLim = run('(()=>{let d=0;for(let x=0.05;x<9;x+=0.05)if(255*(1-fogAt(x))+FOGC[0]*fogAt(x)>253)d=x;' +
+        'return +d.toFixed(2)})()');
+      const fogNeed = run('(2/(255-FOGC[0]))');
+      if (!seat.open) {
+        fail('(E2) vacuity: ' + CORE_D.toFixed(2) + ' m along the sight line from ' + seat.x + ',' + seat.y +
+          ' is SOLID, so no lamp was in frame to measure - the row tested nothing (cam ' + CAM.x.toFixed(2) +
+          ',' + CAM.y.toFixed(2) + ', clear ray ' + CAM.ray + ' m)');
+      } else {
+        const putC = 'exitX=-40;exitY=-40;PROPS.length=0;PROPS.push({tex:PROP.lamp,x:' + seat.x + ',y:' + seat.y +
+          ',z:floorAt(' + seat.x + ',' + seat.y + '),scale:0.95,kind:\'lamp\'})';
+        const s3 = pair(putC, 'exitX=-40;exitY=-40;PROPS.length=0', REST), m3 = mask(s3);
+        let csat = 0, cmax = 0, ctop = hi(s3.A, m3, 0.1), blownF = 0, satF = 0, notCore = 0;
+        for (let i = 0; i < N; i++) {
+          const c = s3.A[i], L = lum(s3.A, i), hot = (c & 255) > 253 && ((c >> 8) & 255) > 253;
+          if (L > 250) blownF++;                                     // the blown rows' rule, frame-wide
+          if (hot) satF++;
+          if (L > 250 && !hot) notCore++;                             // bright, and NOT the core
+          if (!m3.cov[i]) continue;
+          if (L > cmax) cmax = L;
+          if (hot) csat++;
+        }
+        const recN = LI >= 0 && LI <= 2 ? LI * 2 : -1;               // the record covers the 3 authored levels
+        const rSat = recN >= 0 ? +CORE_REC[recN] : NaN, rTop = recN >= 0 ? +CORE_REC[recN + 1] : NaN;
+        const det = csat + ' px of R>253&&G>253 in the ' + m3.n + ' px mask at ' + CORE_D.toFixed(2) + ' m'
+          + ' (maxLum ' + cmax.toFixed(1) + ', top-decile ' + ctop.toFixed(1) + ', fogAt(seat) '
+          + seat.fog.toFixed(4) + '); the rule needs fog < ' + fogNeed.toFixed(5) + ' and survives to '
+          + dLim.toFixed(2) + ' m, so the mode\'s ' + SPOT.d.toFixed(2) + ' m seat above reports 0 px by '
+          + 'fog, not by art. Frame-wide this frame holds ' + blownF + ' px over luminance 250 and '
+          + notCore + ' of them are NOT the core, which is why the count is in-mask: a frame-wide '
+          + '"blown > 0" gate is satisfied by those ' + notCore + ' px alone, so it stays green on a dead '
+          + 'core on any frame where something else is bright (control (a), level 1: the in-mask count '
+          + 'goes to 0 and the frame-wide one survives).';
+        if (m3.n < 250) fail('(E2) lamp core: the mask is ' + m3.n + ' px at ' + CORE_D.toFixed(2) +
+          ' m - nothing to judge (seat ' + seat.x + ',' + seat.y + ')');
+        else if (recN < 0) fail('(E2) lamp core: level ' + LI + ' has no record (the literals cover levels '
+          + '0..2), so nothing was compared - ' + det);
+        else if (csat !== rSat || Math.round(ctop * 10) / 10 !== Math.round(rTop * 10) / 10)
+          fail('(E2) lamp core: ' + csat + ' saturated px / top-decile ' + ctop.toFixed(2) +
+            ' against the recorded ' + rSat + ' / ' + rTop + ' - ' +
+            (csat === 0 ? 'the core no longer reaches the top of the byte at all (that is the lift at '
+              + 'js/13_mesh.js:664-666 or the authored aperture at :330-331 going away, which is #84)'
+              : 'the number moved') + '. ' + det + ' A re-record is deliberate: refs.lock plus these '
+            + 'literals plus any caption that quotes the curve.');
+        else console.log('    core: ' + csat + ' px saturated at ' + CORE_D.toFixed(2) + ' m of '
+          + dLim.toFixed(2) + ' allowed, top-decile ' + ctop.toFixed(1) + ' = the recorded ' + rSat +
+          '/' + rTop + ' (maxLum ' + cmax.toFixed(1) + ', fog ' + seat.fog.toFixed(4) + ', mask '
+          + m3.n + ' px; frame-wide ' + blownF + ' px over luminance 250, ' + notCore +
+          ' of them not the core - the count is in-mask for that reason)');
+      }
+    }
     /* (F) feet on the floor. For the three kinds the generator authors this runs on a REAL prop from
        the census, with the camera moved onto a clear sight line beside it: the z a prop carries is
        written at 20_level.js:397,400, so an entry hand-written here could not tell floorAt from the
