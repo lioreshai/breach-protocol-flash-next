@@ -81,10 +81,7 @@ fall damage, climb; bands and links generated~~ · **M4 + M5 — what a player c
 ← *here* · **M6** a hand-authored two-storey level.
 
 **M3 is complete and the levels still read flat.** That is not a contradiction, it is the finding:
-`alt` reports 5 floor values per level, 125–153 cells off the datum, 3 climbable staircase runs,
-77–111 step faces and 0 unreachable cells — while the raised band is ~116 of 572 cells, a
-staircase is ~15, and **no column is authored with a ceiling above one unit**. Being in the grid is
-not being perceivable: there is nothing to look *up* into. The next milestone is **authored volume
+`alt` on 2026-10-02 (SEED 12345) reports **9 distinct floor values** per level, **170 / 251 / 307 cells off the datum** on L0 / L1 / L2, **2 staircase runs of >= 3 cells** (10 cells) rising one quantum each, **46 / 52 / 52 step faces** and 0 unreachable cells, with headroom columns >= 2 units at **86 on L0 and 45 on L1, tallest 3.00 m**. Volume therefore exists: `CZ_TALL = 12`, three units of air, is authored at `js/20_level.js:434` and written to the largest rooms and their mouth ring at `:649`, `:651-661`, and ladder shafts get `cz = |band| + 2` at `:512`. What is true is narrower than "nothing is hollow": **coverage** - `tallWant` is `rooms.length >= 8 ? 2 : 1` (`:637`, filter `:638-646`), so one or two rooms per level get it, and ~70 % of open columns keep a 1.00 ceiling - and **reach** - the mouth ring carries the tall air exactly one cell past the wall, so from a corridor the volume sits behind a 1-unit duct. The third limiter is not geometry at all: **light** - ceiling rows take the same per-column lightmap value as the floor rows below them with no height term (`js/40_render.js:581`, `lt = cellTint(cIdx); li = lm[cIdx]`), so a 3-unit ceiling is lit exactly like the floor it stands on, and a tall room reads as a short one. Being in the grid is not being perceivable. The next milestone is **authored volume
 and findability**, not another shading term.
 
 - **M4** — everything sits at a height: `hitscan` including the entered column's ceiling plane
