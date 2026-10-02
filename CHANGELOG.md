@@ -10,21 +10,25 @@
   disc of `e.r + 0.30` m plus a band up the whole height of the body, and on the coverage-rule oracle that
   read as a separation *cost*: edge dL fell 50 → 46 on cam 0 and 29 → 25 on cam 2 while 1886 / 2134 world
   px changed outside the body mask. It is now a **patch at the contact line** — radius pulled 10 cm
-  *inside* a body's own collision radius (0.32 m for a grunt, its visible falloff reaching 0.84 R = 0.27 m,
+  *inside* a body's own collision radius (0.32 m for a grunt, its visible falloff reaching 0.89 R = 0.28 m
+  where `D·t^F` falls under 1/255,
   so no pixel it can darken lies outside the footprint the silhouette already occupies), a tighter core
   (`SHADOW_F` 2 → 3), shallower strength (`SHADOW_D` 0.55 → 0.42) and a face term confined to a band as
   tall as the patch is wide, quadratic to nothing, instead of keeping 75 % of the term to the crown
   (`SHADOW_ZF` 0.75 → 0.25). The band test on the floor is unchanged, so a body one slab up still answers
   nothing on the floor below it and the patch stops at a lip or a pit edge. Measured on the coverage-rule
-  oracle, `contrast` cam 0 is **48 dL / 14 % lost** against main's 50 / 14 and cam 2 **28 / 15 %** against
-  29 / 15, so the cue costs about 2 points of edge contrast and buys the grounding; no probe here measures
-  grounding, and that is stated rather than scored.
+  oracle, `contrast` cam 0 is **48.2 dL / 14 % lost** against main's 50.0 / 14 and cam 2 **27.8 / 15 %**
+  against 28.8 / 15, so the cue costs 1–2 points of edge contrast and buys the grounding; no probe here
+  measures grounding, and that is stated rather than scored.
 
   What the probes now gate: `contrast` grew two rows per camera that bound the world-side footprint from
   **both** ends, because "a patch small enough to pass the leak rows while painting nothing" is the failure
   this shape has to refuse. The leak row reports `#18` as a KNOWN debt while the footprint is under **0.15×
-  the body's own silhouette** (measured residue 0.064–0.115× over ten cells: 214/1924 and 193/2143 on
-  LVL 0 SEED 12345 with N = 5 identical runs, 207/1924 and 468/4146 on LVL 1, 320/4594 and 447/4680 on
+  the body's own silhouette** — 1.31× the worst of the ten samples, deliberately not the worst sample
+  itself, because a cap at the maximum would sit inside the spread of content that already passes and this
+  is the reporting half of a debt (the disc it exists to catch reads 0.98, 6.5× past the cap) — measured
+  residue 0.064–0.115× over ten cells: 214/1924 and 193/2143 on
+  LVL 0 SEED 12345, whose repeats agree to the pixel, 207/1924 and 468/4146 on LVL 1, 320/4594 and 447/4680 on
   LVL 2, 542/8421 and 152/1932 at SEED 777, 227/1979 and 164/1932 at SEED 4242 — all of the leak darker,
   which is what makes it attributable to the term) and goes red past it; the patch row requires at least
   **0.03× that silhouette** (max(8, …)), half the weakest sample, and prints the mean darkening of those

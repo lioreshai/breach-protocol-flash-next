@@ -35,9 +35,10 @@ let SEAM = 1, SEAMD = 0.62, SEAMU = 0.13, SEAMW = 0.16, SEAMC = 0.22;
    behind a dark body lowers edge dL (cam 0 50 -> 46, cam 2 29 -> 25) and every darkened world pixel is
    counted as leak. So the term is now a PATCH at the contact line: the radius is pulled 10 cm INSIDE
    the body's own collision radius (so the patch cannot darken a world pixel outside the footprint the
-   silhouette already occupies), the falloff exponent is raised so the VISIBLE edge sits at 0.84 R
-   rather than 0.95 R (D*t^F falls under 1/255 at t = (1/(255*D))^(1/F): R = 0.32 m for a grunt, visible
-   to 0.27 m, inside its 0.42 m footprint), and the face term is confined to a band as tall as the patch
+   silhouette already occupies), the falloff exponent is raised so the VISIBLE edge sits at 0.89 R
+   rather than 0.95 R (D*t^F falls under 1/255 at t = (1/(255*D))^(1/F) = 0.2106, so the edge is at
+   sqrt(1-t) R = 0.888 R: R = 0.32 m for a grunt, visible to 0.28 m, inside its 0.42 m footprint), and
+   the face term is confined to a band as tall as the patch
    is wide, zero above it, instead of keeping 75% of the term to the crown.
    SHADOW_R is metres added to a body's collision radius to get the patch radius (negative = the patch
    stops inside the footprint);

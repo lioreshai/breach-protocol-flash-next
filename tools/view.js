@@ -4480,19 +4480,24 @@ if (MODE === 'contrast') {
      body projects a bigger patch and a nearer body projects more pixels of it, so a bare pixel literal
      would be a statement about the camera rather than about the term.
      MEASURED residue of the retuned term (js/40_render.js D 0.42, R -0.10 m past a body's own collision
-     radius, F 3, ZF 0.25 - visible edge at 0.84 R = 0.27 m, inside a grunt's 0.42 m footprint),
-     leak px / mask px, all of the leak DARKER so patch == leak on every one of these cells:
-       LVL 0 SEED 12345  cam 0  214/1924 = 0.111   cam 2  193/2143 = 0.090   (N = 5 runs, identical:
-       the probe is deterministic, so repeats agree to the pixel and only the cells below give spread)
+     radius, F 3, ZF 0.25 - visible edge at 0.89 R = 0.28 m, inside a grunt's 0.42 m footprint),
+     leak px / mask px, all of the leak DARKER so patch == leak on every one of these cells (N = 10
+     samples, 5 cells x 2 measuring cameras; the probe is deterministic and the LVL 0 SEED 12345 cell was
+     repeated 3 times in one session with identical pixels, so the spread below is CONTENT spread):
        LVL 0 SEED 12345  cam 0  214/1924 = 0.111   cam 2  193/2143 = 0.090
        LVL 1             cam 0  207/1924 = 0.108   cam 2  468/4146 = 0.113
        LVL 2             cam 0  320/4594 = 0.070   cam 2  447/4680 = 0.096
        LVL 0 SEED 777    cam 0  542/8421 = 0.064   cam 2  152/1932 = 0.079
        LVL 0 SEED 4242   cam 0  227/1979 = 0.115   cam 2  164/1932 = 0.085
-     worst ratio 0.115 -> cap 0.15 (1.3x the worst sample); floor 0.03 sits at half the weakest sample
-     (0.064) and is 6x above "nothing". For scale: the disc this term used to cast leaked 1886 / 2134 px
+     min 0.064, max 0.115, spread 1.78x. worst ratio 0.115 -> cap 0.15, 1.31x the worst sample: a cap AT
+     the worst sample would sit inside the spread of content that already passes, and this row is the
+     reporting half of a debt, so it must not go red on a room nobody sampled; the disc it exists to catch
+     reads 0.98, 6.5x past the cap, so it is the row that fails the disc, not a tight cap. The floor 0.03
+     sits at 0.47x the weakest sample, which is the direction a lower bound goes - it fails "nothing paints"
+     (both the deleted-paint-sites control and the SHADOW=0 arm read exactly 0 px there) while the weakest
+     real term still clears it 2.15x. For scale: the disc this term used to cast leaked 1886 / 2134 px
      (ratios ~0.98 / 1.00 - it covered as much world as the bodies did), and the delete-the-term control
-     reads 0 px with main's exact 50 / 29 dL. */
+     reads 0 px with main's exact 50.0 / 28.8 dL. */
   const LEAKFRAC = 0.15, PATCHFRAC = 0.03, PATCHMIN = 8;
   /* Per-frame edge statistics, factored out of the camera loop so the posed frame, the found frame and
      the flat control are measured by the SAME arithmetic as the crowd frame - a control computed by a
