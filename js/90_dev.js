@@ -120,10 +120,12 @@
     ENEMIES.length = 0; PROJ.length = 0; PARTS.length = 0;
     return r;
   }
-  // Keys the QUAL table knows about, plus the one that lives in RIG instead of in a tier.
+  // Keys the QUAL table knows about, plus the ones that live in a renderer global instead of a tier.
   const RESIZED = { res: 1, bloom: 1, grain: 1, scan: 1 };
   function set(name, value) {
-    if (name === 'rim') { RIG.setRim(value === undefined ? true : !!value); return { rim: RIG.rim, note: 'pose cache cleared' }; }
+    if (name === 'rim') { RIG.setRim(value === undefined ? true : !!value); return { rim: RIG.rim, note: 'pose cache cleared' };
+    }
+    if (name === 'shadow') { SHADOW = (value === undefined ? true : !!value) ? 1 : 0; return { shadow: SHADOW > 0 }; }
     if (name === 'gfx') {
       const i = typeof value === 'string' ? QUAL.findIndex(q => q.name.toLowerCase() === String(value).toLowerCase()) : clamp(value | 0, 0, QUAL.length - 1);
       if (i < 0) throw new Error('DEV.set("gfx", …) wants 0..' + (QUAL.length - 1) + ' or ' + QUAL.map(q => q.name).join('|'));
@@ -131,7 +133,7 @@
       return { tier: QUAL[i].name, buf: [BW, BH] };
     }
     const q = tier();
-    if (!(name in q)) throw new Error('DEV.set: unknown "' + name + '" — tier keys: ' + Object.keys(q).join(', ') + ', plus rim');
+    if (!(name in q)) throw new Error('DEV.set: unknown "' + name + '" — tier keys: ' + Object.keys(q).join(', ') + ', plus rim, shadow');
     q[name] = value;
     if (RESIZED[name]) resize();
     return { name: name, value: q[name], tier: q.name, buf: [BW, BH], frozen: FROZEN };
