@@ -51,6 +51,34 @@
   a directory with no PNGs in it.
 ### Fixed
 
+- **A bullet hole in a step was drawn above the step** (#15, #120's unfinished half). `addWallMark` has
+  carried absolute altitude since #120, but the window it clamps into used the solid-column rule for every
+  face: `[max floor, ceilAt(air)]`. On an air-to-air boundary that is self-cancelling arithmetic, because
+  `ceilAt` of the lower cell **is** the upper cell's floor — the slab underside — so `[max floor, min
+  ceiling]` has zero height on every riser and `clamp` pinned every mark to `maxFloor + r`, one disc above
+  the geometry the wall pass paints there (which is the slab side `[min floor, max floor]`,
+  `js/40_render.js:864`, #100/#192). A shot reaches this code: `hitscan` reports a riser as a wall hit
+  (`js/30_entities.js:149`), and a flat level — where every face spans 0..1 — is byte-identical under both
+  rules, which is why no row had ever seen it. The window is now the span the renderer draws, per case, and
+  a strip thinner than the disc (a 0.25 m tread against a 0.22–0.30 m disc) is **centred** rather than pinned
+  to its bottom edge. `view.js decal` grew 15 rows over the three generated levels: containment on the drawn
+  strip, a request inside the inset window stored untouched, requests below the bottom and above the top
+  clamping to the **edges** (the old rule stored `max floor + r` for both), the thin-face case following
+  whichever rule its own geometry selects — L0 and L1 differ, `1q:6 2q:2 3q:2 4q:37` against `4q:32`, so the
+  row cannot quietly become a tautology — and a registration row so an altitude verdict cannot pass on decals
+  nobody draws. **With the old rule restored, 12 of 15 rows FAIL and `decal` exits 1** (marks at
+  1.111–1.147 on a strip `[0.000, 1.000]`); on the fixed tree all 15 are ok. Flat parity is untouched:
+  LOCK `060da4cd…`, PARITY `f9e4da3a…`, DEALT `bb12ef3e…` unchanged, `heights`/`bands`/`cull`/`alt` ok,
+  `smoke` PASSED (raster median 11.78 ms, batches 11.8/11.8/11.8/11.8/12.1), VERT 25 gating rows, `refs` 7
+  records, recap 0 of 28. The pixels only move where a shot meets a step, so the README's spawn-seat captures
+  are unaffected — a level that has just loaded has no decals in it, and `recap check` stays green. The same premise lived in a **shipped** row: VERT's *a shot at a step-up band hits the riser, not the
+  wall behind the drop* required `mark.z >= step top`, which the pin satisfied by putting every mark on the
+  lip. It now requires the mark to lie inside the strip inset by the disc's radius, and the x-plane test that
+  already in the row is what proves the shot stopped at the step. On the fixed tree the bullet crosses at eye
+  height and the mark reads **z 0.496** in a strip `[0.00, 0.75]`; with the pre-fix rule it reads **0.9**, above
+  the strip, and `SMOKE FAILED` — seen in a worktree carrying *this* `smoke.js` against sabotaged `js`, because
+  a control that runs the old assertion against the old code passes on a lie.
+
 - **The wrong-band light row was counting stairs, not light** (#189). `alt`'s
   `delivered wrong-band light does not spread` gated `A.oob <= MAIN_OOB[lv]` with `MAIN_OOB = [19, 10, 16]`
   (#206's recorded kernel), and `the glow is admitted by the SURFACE's band` carried the same census in its
