@@ -124,6 +124,11 @@ Append **`?dev=1`** to the URL and the game boots itself — no click, no pointe
 one global, `DEV`. Without that flag `js/90_dev.js` returns immediately: no globals, no wrappers, no
 behaviour change, so the flag cannot leak into normal play. `DEV.help()` prints this list.
 
+Append **`&seed=<int>`** too and the boot becomes reproducible (#166): the level is laid out from
+`Math.random`, so the dev file installs the game's own `mulberry` generator over it before the deal,
+and one URL now deals one level on every load of that build. With no `seed` parameter `Math.random` is
+not touched at all. `&seed=` and `#seed=` parse the same way.
+
 | Call | What it does |
 |---|---|
 | `DEV.boot()` | Starts the run through the deploy button's own code path. |
@@ -135,7 +140,9 @@ behaviour change, so the flag cannot leak into normal play. `DEV.help()` prints 
 | `DEV.spawn(kind[, n, dist])`, `DEV.clear()` | Place `grunt\|hound\|brute` in a deterministic fan `dist` metres ahead; clear entities. |
 | `DEV.set(name, value)` | Runtime overrides of the quality tier (`res, bloom, grade, grain, far, glow, rigH, rast, dmax, scan, vec, min, max`). |
 | `DEV.tiers()` / `DEV.stats()` | The `QUAL` table as it stands; frame ms (`n/med/p95/last`), fps, buffer, draw calls, poses rasterised, `RIG.stats`. |
-| `DEV.state()` | JSON-safe snapshot: player (heading under `ang`), level, enemies, counts, `S` flags. |
+| `DEV.state()` | JSON-safe snapshot: player (heading under `ang`), level, enemies, counts, `S` flags — plus `seed` (the uint32 pinning this deal, `null` if the URL named none) and `layout`. |
+| `?dev=1&seed=<int>` | Pins the level so a deployed frame can be named and re-taken: same URL ⇒ same layout (#166). Reports itself as `DEV.seed`; the value is the generator's state, so `?seed=-5` and `?seed=4294967291` deal the same level. |
+| `DEV.layoutSig()` | FNV-1a over `MAP.fz` then `MAP.cell`: the level's identity. Two boots of one seeded URL must agree, and two unseeded boots must not — which is what makes it the check rather than `DEV.seed`. |
 | `DEV.ray(x, y[, z], dx, dy, dz[, maxD])` | Steps the real DDA and reports the first wall: distance, cell, face. |
 
 ```
@@ -177,6 +184,14 @@ path. Levels lay themselves out with `Math.random`, so `exposure` seeds it: one 
 fixed pose is a view class, not a property of the level — measured 21 to 137 composited mean across
 five spawn frames of one level (#155), which straddles both failure anchors. That is why both
 brightness assertions read the **median** of seeded rolls and print the per-roll values.
+
+That seeding is `SEED=` in the probe's environment (`tools/view.js:285`), and until #166 it never
+reached a browser: the shots under *How it looks* come from the deployed build at a **seed nobody
+recorded**, so they could not be re-taken. `?dev=1&seed=<n>` is the page-side half of that knob. It
+installs the same recurrence (`js/05_paint.js:10`, bit-for-bit what `tools/view.js:301` and
+`tools/ci/assert.js:186` install) without sharing the harness's draw order, so a seed names a deal
+*within* one environment: seed 12345 folds to 2229721315 in a browser and 3367779095 under the node
+harness. Quote the environment beside the seed, as this file quotes the roll count beside a median.
 
 ## How work is tracked
 
