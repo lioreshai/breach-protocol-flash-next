@@ -124,6 +124,8 @@
   a directory with no PNGs in it.
 ### Fixed
 
+- **`?dev=1&seed=<n>` makes a live boot deterministic** (#166). Generation takes its places from `Math.random` (`js/20_level.js:898, 911, 962, 1077`) and the page parsed only `?dev=1` / `?boot=0`, so one URL was a different level every boot - measured on the deployed page as `layoutSig` 2513589791 then 1446704314 - which made the standing rule "capture the README screenshots from the deployed build" impossible to honour. Under `?seed=<int>` the probes' mulberry recurrence (`js/05_paint.js:10`, inlined because that one is module-scoped) replaces `Math.random` before `DEV.boot()` runs; with no seed parameter the branch is not entered and `Math.random` is never touched, so play is byte-identical. `DEV.seedValue` reports the seed in effect (`null` when off) and `DEV.layoutSig()` folds `MAP.fz` then `MAP.cell` into one integer, a level identity independent of rendering.
+
 - **`bands` diffed two renders with the viewmodel still damping, so its seam row could not fail** (#266).
   `L<n> the seam term is in the build and moves pixels` counts pixels that differ between a `SEAM=1` and a
   `SEAM=0` render of one state, and both renders are `S.t = 3.5; renderWorld()` — identical but for one
