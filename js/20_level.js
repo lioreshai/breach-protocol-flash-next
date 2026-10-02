@@ -819,10 +819,11 @@ function updateDecals(dt) {
    (js/40_render.js: syTop = horizon + (eyeZ - (dc.z + dc.r)) * hpx), so above the datum the hole was
    painted into the floor slab of a room whose floor was higher than 0.88 - and the caller's h.z < 0.96
    window, testing an absolute altitude against the same flat window, usually dropped the mark first.
-   A face spans from the higher of the two floors to the ceiling plane of the AIR side, so that is the
-   window now, inset by the mark's own radius so a disc cannot hang over a band it was not punched in.
-   The hit point lies on the boundary, so the face is the pair of cells sharing the integer line it hit;
-   isSolid reads an off-map cell as solid, so the map edge resolves to the cell that exists. */
+   A face against a SOLID column spans from the higher of the two floors to the ceiling plane of the AIR
+   side; a face between two OPEN cells is the side of a floor slab and spans [min floor, max floor]. Those
+   are the two windows below, each inset by the mark's own radius so a disc cannot hang over a band it was
+   not punched in. The hit point lies on the boundary, so the face is the pair of cells sharing the integer
+   line it hit; isSolid reads an off-map cell as solid, so the map edge resolves to the cell that exists. */
 function addWallMark(x, y, z, side, kind) {
   if (side === undefined) return;
   const r = 0.11 + Math.random() * 0.04;
@@ -831,15 +832,22 @@ function addWallMark(x, y, z, side, kind) {
   const c2 = side ? [x | 0, b] : [b, y | 0];
   const air = isSolid(c1[0] + 0.5, c1[1] + 0.5) ? c2 : c1;
   const wall = air === c1 ? c2 : c1;
-  const z0 = Math.max(floorAt(air[0] + 0.5, air[1] + 0.5), floorAt(wall[0] + 0.5, wall[1] + 0.5));
-  /* Two open cells (a riser between bands) bound the face from BOTH sides, and the mark must stay inside the
-     opening [max floor, min ceiling] - ceilAt of whichever cell happened to be non-solid would let a mark float
-     up into the higher band's ceiling. A solid side is skipped: its ceilAt is the fiction (floor + 0.25), which
-     is why this is a min over air cells only and not a general rule. */
+  const fAir = floorAt(air[0] + 0.5, air[1] + 0.5), fWall = floorAt(wall[0] + 0.5, wall[1] + 0.5);
+  /* The air->air case had the WRONG rule until #15's last item, and the reason it was invisible is
+     arithmetic: ceilAt of the LOWER cell is floor + max(1 unit, the slabs above) = the UPPER cell's floor,
+     so "min of the two ceilings" equals max floor exactly, the window [max floor, min ceiling] has zero
+     height on every riser, and clamp pinned every mark to maxFloor + r - above the strip the wall pass
+     paints (js/40_render.js:864 draws an air->air boundary as the slab side [min, max], #100 and #192,
+     gated by `cull`'s step rows). A shot reaches this line: hitscan reports a riser as a wall hit
+     (js/30_entities.js:149, `wall: riser || ...`, `side: riser ? bx.side : wall.side`), so a bullet hole
+     in a step has been drawn above the step, on the band's own wall, not on the riser. A strip thinner
+     than the disc is CENTRED rather than pinned to its bottom edge - a one-quantum tread is 0.25 m and
+     the disc is 0.22-0.30 m, so no centre-free position exists inside it. */
   const bothAir = !isSolid(c1[0] + 0.5, c1[1] + 0.5) && !isSolid(c2[0] + 0.5, c2[1] + 0.5);
-  const z1 = bothAir ? Math.min(ceilAt(c1[0] + 0.5, c1[1] + 0.5), ceilAt(c2[0] + 0.5, c2[1] + 0.5))
-    : ceilAt(air[0] + 0.5, air[1] + 0.5);
-  addDecal({ x, y, z: clamp(z, z0 + r, Math.max(z0 + r, z1 - r)), r, side: side + 1,
+  const z0 = bothAir ? Math.min(fAir, fWall) : Math.max(fAir, fWall);
+  const z1 = bothAir ? Math.max(fAir, fWall) : ceilAt(air[0] + 0.5, air[1] + 0.5);
+  const zLo = z0 + r, zHi = z1 - r;
+  addDecal({ x, y, z: zHi >= zLo ? clamp(z, zLo, zHi) : (z0 + z1) * 0.5, r, side: side + 1,
     tex: kind === 'scorch' ? DECAL.scorch : DECAL.bullet, a: 0.9 });
 }
 function addGroundSplat(x, y, r, kind) {
