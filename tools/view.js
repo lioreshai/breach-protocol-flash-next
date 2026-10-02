@@ -5567,7 +5567,10 @@ if (MODE === 'anim') {
      The mask is the `contrast` technique - render the frame, render it again with ENEMIES emptied -
      so the difference IS the silhouette and nothing else in the world can enter it: the dust a
      footfall just splatted, the cycling portal, cell light, fog and decals are all present in both
-     renders and cancel. The `replay` row renders ONE phase twice and must read ~0 changed pixels;
+     renders and cancel. That sentence had one exception, and it is the `contrast` trap in this file:
+     a term that the BODY causes vanishes from the enemy-free render too, so it does not cancel - the
+     #178 contact shadow paints floor and wall pixels that are darker only while the body is there.
+     Hence the arm below. The `replay` row renders ONE phase twice and must read ~0 changed pixels;
      that is the noise floor which makes every number below mean "the shape moved" rather than
      "something in the room moved".
 
@@ -5580,6 +5583,25 @@ if (MODE === 'anim') {
      Poses are quantized into buckets by design, so pairs are measured over >= 0.1 s windows; the
      `distinct` count says the cycle is more than a two-frame shuffle. */
   const W = run('BW'), H = run('BH'), N = W * H;
+  /* #18 on #73's own trap: the mask is a RENDER DIFFERENCE, so the #178 contact shadow enters it.
+     The term multiplies floor and face pixels by up to SHADOW_D 0.42 while the body is in the frame
+     and answers nothing in the enemy-free render, so the patch is mask by construction - measured in
+     the attach loop at the chosen distance, the same frame both ways: 324 / 275 / 950 px of the
+     grunt / hound / brute mask are the patch and nothing else, in rows 241..251, i.e. BELOW the
+     body's own bottom row (hound: 275 of 275 of them), and 0 px of the DEPTH signal changes because
+     the term never writes zbuf (js/40_render.js:390). Those rows are wider than the body, so the
+     "widest row" that #74's shoulder line keys on lands on the FLOOR, `shRow` moves from the
+     shoulders (grunt 121) to the patch (241), and every row of daylight between torso and patch is
+     then counted as a head gap: 5 poses printed GAP 79 of 106..150 head rows = DETACHED on a body
+     that is bit-for-bit the shipped one. A contact patch is not body shape, so the term is switched
+     off for this mode - one arm here, the same shape contrast's uses (view.js:4876, including the
+     -1 answer for a tree that has no SHADOW global, which is origin/main). MODE is one mode per
+     process, so this cannot reach another probe's sandbox, and nothing here renders with it off that
+     would render with it on. What the term itself does is gated where that is the claim:
+     contrast's SHADOW=0 A/B rows and `cull`'s step rows. */
+  const shArm = run('(function(){ if (typeof SHADOW !== "number") return -1; SHADOW = 0; return SHADOW; })()');
+  console.log(shArm < 0 ? 'shadow: no SHADOW global in js/ - nothing to arm, the mask below is body paint alone'
+    : 'shadow: #178 contact term OFF in this mode - the mask is the BODY (the term\'s own rows are in contrast)');
   const KIND = process.env.KIND || 'grunt';
   const lum = (b, i) => 0.2126 * (b[i] & 255) + 0.7152 * (b[i] >> 8 & 255) + 0.0722 * (b[i] >> 16 & 255);
   /* the treadmill: record every body, run ONE real updateEnemies step, put them back. Pinning all
