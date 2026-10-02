@@ -26,6 +26,27 @@
   a directory with no PNGs in it.
 ### Fixed
 
+- **The wrong-band light row was counting stairs, not light** (#189). `alt`'s
+  `delivered wrong-band light does not spread` gated `A.oob <= MAIN_OOB[lv]` with `MAIN_OOB = [19, 10, 16]`
+  (#206's recorded kernel), and `the glow is admitted by the SURFACE's band` carried the same census in its
+  clause 4 against `RECOOB = [19, 10, 16]`. Splitting the count by `MAP.feat` says what those numbers were:
+  **the non-climb population is 0 / 0 / 0** — every cell that ever tripped either row was an **authored
+  stair or ladder step**, a column that no lamp stands on because lamps are authored on room floors. So both
+  gates were a census of *where the stairs are*: they could move by relocating a staircase, and a genuine
+  bleed into ordinary geography could hide beneath the stair allowance. Each census now separates
+  `oobClimb` from the geographic count, both rows gate the **geographic** count at **zero**, and the climb
+  share prints beside the verdict instead of buying it. Seen to bite: with `blurLight`'s #206 band gate
+  replaced by `false ? 0 :` (marker `SABOOBGATE`, printed by nothing and read by the row's own clause) the
+  geographic counts are **15 / 28 / 54** and `alt` exits **1** with 6 failures; restored, `ALT ok` with all
+  three geo figures 0. Probe-only: no `js/` byte, `flatparity` ok with LOCK `060da4cd…` / PARITY
+  `f9e4da3a…` / DEALT `bb12ef3e…` unchanged, `refs ok` 5 records, smoke PASSED (raster median 11.88 ms,
+  batches 11.8/11.9/11.9/11.9/12.0), VERT 25 gating rows, recap 0 of 28 — no deploy proof and no recapture
+  owed. **What this found on the way**: fixing #189's link anchor (stairs 7–35 cells from the spawn seat,
+  3 of every deal's 6 links on the map's outer ring) is not a probe change — moving the mouth re-rolls the
+  dice stream for every later feature, and measured on that variant the pit mean moves to
+  0.297 / 0.304 / 0.300 against the recorded 0.293 / 0.299 / 0.314 with L2 **14 thousandths dimmer**, which
+  is a generation-era re-record, not a threshold to widen. Recorded on #189 rather than shipped here.
+
 - **The step-lip contrast row now measures the plane the renderer paints, and says which one it used**
   (#257). `bands`' face-kind pair anchored on the **height-sorted** lower floor
   (`zCam = kind === 'face' ? zLo : c[4]`), so on a step DOWN — where the lower floor is the FAR side and
