@@ -67,7 +67,7 @@ this deal's, and a caption that cannot name its seed cannot be re-measured.
 ![the spawn seat on a lit datum floor](docs/screens/level0-spawn.png)
 
 The spawn seat on a lit datum floor, which is the exposure the tonal gates are tuned against:
-**58 of 763 rows average below luminance 24, the longest unbroken run 55 rows starting at row 273**.
+**58 of 763 rows average below luminance 24 and the longest unbroken run is 55 rows from row 273**.
 The light here is the cell's own ambient - `MAP.light` **0.81** - with no lamp in frame, and a red
 barrel prop stands centre-frame under a one-unit ceiling that fills the top of the shot. Nothing here is off-band, so this is the frame that
 has to stay bit-identical when a height term is added — `flatparity`'s backwards-compat senses.
@@ -102,7 +102,7 @@ gate in `splatLight` admitting light per run of a scanline by the band of the su
 ![standing in the hole, inside the lamp's own cell, on the band the glow refuses](docs/screens/level0-pitfloor.png)
 
 Standing in the hole at (19.5, 14.5): feet on **floor −1.00**, own ceiling **0.00**, eye **−0.50**,
-`MAP.light` **0.23**. **17 rows average under luminance 24, longest run 9 from row 32** — the brightest
+`MAP.light` **0.23**. **17 rows average under luminance 24 and the longest unbroken run is 9 rows from row 32** — the brightest
 of the five at 91.99 despite standing in the darkest cell of the grid, which is the glow working from
 inside the band it refuses from above.
 
