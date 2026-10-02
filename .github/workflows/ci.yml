@@ -239,9 +239,12 @@ jobs:
           # something else. What changed is that each probe's own exit code is now captured and
           # printed. Before, this step ran `set -uo pipefail` with no -e and six bare commands, so its
           # status was the LAST probe's and a failure in the first five was thrown away (#89).
-          # Read the list below as measurements, not as coverage: alt, exposure, contrast, decal,
-          # diag, stats and sheets compute no exit code at all, and rig has a problem counter that is
-          # printed but not wired to one. A "pass" line here does not mean checked.
+          # Read the list below as measurements, not as coverage. Measured on this tree rather than
+          # remembered - a per-block grep of tools/view.js for process.exit says 17 of its 21 verdict-
+          # printing blocks end in one (alt, contrast and exposure now do, and exposure's rows are
+          # hash-free but numeric-locked - #216). The four that still compute no exit code at all are
+          # play, decal, diag and stats, and rig has a problem counter that is printed but not wired to
+          # one. A "pass" line here does not mean checked; `refs` prints how many records exist.
           status=0
           for p in alt exposure contrast rig stats sheets decal diag; do
             if node tools/view.js "$p" >/tmp/probe_$p.log 2>&1; then r=pass; else r=FAIL; status=1; fi

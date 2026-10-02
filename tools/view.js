@@ -64,6 +64,8 @@ const refHex8 = n => '0x' + (n >>> 0).toString(16).padStart(8, '0');
 function refRecord(mode, rowName, kind, vals) {
   for (const v of vals) {
     if (kind === 'md5' && !(/^[0-9a-f]{32}$/.test(v))) throw new TypeError('refRecord ' + mode + '/' + rowName + ': md5 value "' + v + '" is not 32 hex');
+    if (kind === 'num' && !(vals.length && vals.every(v => /^\d+(\.\d+)?$/.test(String(v)))))
+      throw new TypeError('refRecord ' + mode + '/' + rowName + ': num value must be a bare decimal literal');
     if (kind === 'crc32' && !(typeof v === 'number' && v >= 0 && v <= 0xffffffff)) throw new TypeError('refRecord ' + mode + '/' + rowName + ': crc32 value "' + v + '" is not a uint32');
   }
   return vals;
@@ -81,8 +83,14 @@ function refScan() {
     const vals = [];
     for (const raw of m[5].split(',')) {
       const t = raw.trim();
-      const q = /^'([^']*)'$/.exec(t), h = /^0x([0-9a-f]{1,8})$/i.exec(t);
+      const q = /^'([^']*)'$/.exec(t), h = /^0x([0-9a-f]{1,8})$/i.exec(t),
+        // #216: a probe that measures a SCALAR (a median luminance, a unique-colour count) records a
+        // number, and until now the only literals this scanner could read were quoted strings and hex -
+        // so a numeric record died in REFS-DECL-FORM with values silently empty. Bare decimals are a
+        // literal the same as the others; a computed or wrapped value is still refused.
+        nd = /^\d+(\.\d+)?$/.exec(t);
       if (q) vals.push(q[1]);
+      else if (nd) vals.push(nd[0]);
       else if (h) vals.push(refHex8(parseInt(h[1], 16)));
       else badform.push(i + 1);
     }
@@ -3989,6 +3997,32 @@ if (MODE === 'exposure') {
   console.log('  spawn column = the FIRST FRAME, no update(): the pose startLevel leaves (js/20_level.js:562-563\n' +
     '  sets P.x/P.y from nearestOpen of the spawn room centre, P.ang is authored as a constant 0.6 there, and\n' +
     '  P.z is the FEET - js/40_render.js:103 adds cfg.eye). One pose, one roll each, same dice as the rolls column.');
+  /* #216: this block used to be pure print, which is how "exposure 77/62/59" could live in AGENTS.md as
+     a measured claim while no row could fail on any of it. Two of the numbers it prints are now records:
+     the MEDIAN of the seeded rolls (the statistic the header says is the one to read, not the mean) and
+     the SPAWN seat's mean + centre-half region mean. All three are reproducible across processes - three
+     runs of this block on one tree printed identical digits, which is why an exact lock is the honest
+     form here rather than a tolerance nobody measured. The 77/62/59 quoted in AGENTS.md before this
+     belonged to the era before #96 moved makeEnemy's draws (a seed-to-layout change re-rolls the level),
+     so it is labelled historical there and the record below is what fails now.
+     What this lock can and cannot see, measured by running four controls rather than by reading code:
+       MOVES IT - the ground pass's light multiply (js/40_render.js:548, `c * lr + fR`): lr * 0.5 takes
+         the medians 69/71/83 -> 41/43/56 and 9 of 10 rows here FAIL with exit 1. That is the term the
+         record is a lock on.
+       DOES NOT MOVE IT (3 edits, all self-cancelling, which is the lesson rather than a footnote) -
+         `let FARB = 22, AMB = 0.13` at js/40_render.js:15 and `let FOGC = [9,12,20]` at js/00_core.js:30
+         are re-authored before any pixel is drawn (`FARB = q.far` at :45 from the quality tier, `AMB =
+         MAP.amb` at :115 because MAP.amb is authored), and the :115 fallback literal itself is dead for
+         the same reason; `visAt` (:86) carries no FARB term at all, so even a working FARB would not be
+         fog distance here. Byte-identical medians (69.45/71.08/83.49) under all four. A control that
+         cannot reach the pixels is the same trap as a row that cannot fail (#148 family): the number
+         that proves the plumbing is a mutation INSIDE the pixels, not a constant at the top of a file. */
+  let bad = 0, rowsN = 0;
+  const row = (label, ok, detail) => { rowsN++; if (!ok) bad++; console.log('  ' + (ok ? 'ok  ' : 'FAIL') + ' ' + (label + '                                     ').slice(0, 52) + ' ' + detail); };
+  const EXPO_MED = refRecord('exposure', 'MEDIAN', 'num', [69, 71, 83]);
+  const EXPO_SPAWN = refRecord('exposure', 'SPAWN', 'num', [57, 65, 60, 50, 63, 73]);   // mean, mid per level
+  const LUM_WANT = [60, 100];       // the documented window (README: targets 60-100), median not mean
+  const medRec = [], spawnRec = [];
   for (let lv = 0; lv < N; lv++) {
     let sum = 0, n = 0;
     const hist = new Array(8).fill(0);
@@ -4043,10 +4077,48 @@ if (MODE === 'exposure') {
       '  mid ' + pad(med2(spawnMids).toFixed(0), 3) +
       '  rolls ' + spawnMeans.map(v => pad(v.toFixed(0), 3)).join(' ') +
       '  spread ' + pad((spSorted[spSorted.length - 1] - spSorted[0]).toFixed(0), 3));
+    medRec.push({ med: Math.round(med), raw: med, rolls: rolls.map(v => Math.round(v)),
+      spread: Math.round(sorted[sorted.length - 1] - sorted[0]), mean: sum / n,
+      dark: 100 * hist[0] / n, n });
+    spawnRec.push({ mean: Math.round(med2(spawnMeans)), mid: Math.round(med2(spawnMids)),
+      rawMean: med2(spawnMeans), rawMid: med2(spawnMids),
+      spread: Math.round(spSorted[spSorted.length - 1] - spSorted[0]) });
   }
   console.log('  ALL       mean ' + pad((grand / gpix).toFixed(0), 3) + '  buckets ' +
     buckets.map(v => (100 * v / gpix).toFixed(0)).join(',') +
     '   <24: ' + (100 * gdark / gpix).toFixed(0) + '%  blown ' + (100 * gclip / gpix).toFixed(2) + '%');
+  for (let lv = 0; lv < N; lv++) {
+    const m = medRec[lv], sp = spawnRec[lv];
+    row('L' + lv + ' the seeded median is the recorded exposure',
+      +EXPO_MED[lv] === m.med && m.n > 0,
+      'median ' + m.med + ' against the recorded ' + +EXPO_MED[lv] + ' (' + m.raw.toFixed(2) + ' exact; rolls '
+      + m.rolls.join(' ') + ', spread ' + m.spread + '; mean ' + m.mean.toFixed(1) + ' is NOT the statistic - '
+      + m.dark.toFixed(1) + '% of these pixels are under luminance 24). '
+      + 'A move here is a shading or generation change, and a re-record is deliberate: refs.lock plus these '
+      + 'literals plus any README caption that quotes the number.');
+    row('L' + lv + ' the median sits in the documented 60-100 window',
+      m.med >= LUM_WANT[0] && m.med <= LUM_WANT[1],
+      m.med + ' against [' + LUM_WANT[0] + ', ' + LUM_WANT[1] + '] (README: exposure targets; a single ROLL '
+      + 'may sit outside - rolls ' + m.rolls.join(' ') + ' - which is why the window is read on the median of '
+      + reps + ' seeded rolls, not on one frame and not on a screenshot, whose bloom/grade/grain move the mean '
+      + 'by +20/-21 and cancel unevenly per room (#85).');
+    row('L' + lv + ' the spawn seat frames the recorded exposure',
+      +EXPO_SPAWN[lv * 2] === sp.mean && +EXPO_SPAWN[lv * 2 + 1] === sp.mid,
+      'spawn mean ' + sp.mean + ' and centre-half mid ' + sp.mid + ' against the recorded '
+      + +EXPO_SPAWN[lv * 2] + '/' + +EXPO_SPAWN[lv * 2 + 1] + ' (' + sp.rawMean.toFixed(2) + ' / '
+      + sp.rawMid.toFixed(2) + ' exact, spread ' + sp.spread + '). mid is the region DEV.lum calls mid '
+      + '(js/90_dev.js:235), so this is the number tools/ci/assert.js can reproduce off the live page.');
+  }
+  row('the sampled frames are not vacuous',
+    gpix > 0 && grand / gpix > 5 && grand / gpix < 250 && 100 * gdark / gpix < 80,
+    (grand / gpix).toFixed(1) + ' grand mean over ' + gpix + ' px, ' + (100 * gdark / gpix).toFixed(1)
+    + '% under 24, ' + (100 * gclip / gpix).toFixed(2) + '% blown - a black or white frame would satisfy a '
+    + 'wrong-looking record by being wrong everywhere, which is why this is a row and not an assumption');
+  console.log(bad ? 'EXPOSURE ' + bad + ' FAILURE(S) of ' + rowsN + ' rows - the frame is not the recorded frame'
+    : 'EXPOSURE ok - ' + rowsN + ' rows: seeded medians, the documented window, the spawn seats, and the '
+    + 'records behind them (' + EXPO_MED.map(Number).join('/') + ' medians, '
+    + EXPO_SPAWN.map(Number).join('/') + ' spawn mean/mid)');
+  process.exit(bad ? 1 : 0);
 }
 if (MODE === 'heights') {
   /* The ground pass solves each pixel against the plane of the cell its own ray lands in, and

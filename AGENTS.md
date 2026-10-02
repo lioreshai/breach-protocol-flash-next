@@ -40,9 +40,13 @@ Order of evidence, strongest first:
 2. **`node tools/view.js <probe>`** — geometry, lighting, budgets: deterministic and diffable.
 3. **the smoke verdict** — must stay green; proves nothing about how anything looks.
 
-**Five recorded references stand behind item 2, and a row now counts them.** `flatparity` compares
-three recorded md5 triples — PARITY, LOCK and the DEALT sense over the dealt frame — and `cull`
-records a crc32 triple for the ceiling-step ground (`CZBAND_REF`). Each is *declared* through
+**Recorded references stand behind item 2, and a row counts them — read the count off
+`node tools/view.js refs` rather than off this sentence, because the sentence rots and the row cannot.**
+`flatparity` compares three recorded md5 triples — PARITY, LOCK and the DEALT sense over the dealt frame —
+`cull` records a crc32 triple for the ceiling-step ground (`CZBAND_REF`), and `exposure` records two
+numeric rows over the seeded rolls (#216: `MEDIAN`, the statistic its own header says to read, and `SPAWN`,
+the spawn seat's mean + centre-half region mean — the first records the instrument could hold as bare
+decimals, which is why `refScan` reads them at all). Each is *declared* through
 `refRecord`, which returns the very literals its compare reads, so the declaration is the compare and
 a reference cannot be gained, lost or edited without the inventory moving. `tools/refs.lock` is the
 machine-readable table of those declarations (`node tools/view.js refs --record` regenerates it) and
@@ -572,9 +576,16 @@ bands in one column, or a floor overhanging the cell it sits above.
   `d = (isF ? eyeZ : 1 - eyeZ) * BH / |p|` with the same expression solved against the plane of the
   cell the pixel's own ray lands in (`floorAt` below the horizon, `MAP.ceilPlane` above), kept as a
   *predictor*: a pixel whose cell is at the eye's altitude reuses the row's distance untouched, so a
-  flat level runs the old arithmetic bit for bit (measured: 4 frames md5-identical, exposure
-  77/62/59 unchanged - partial today: 3 spawn frames are gated by `flatparity`'s flat senses, while
-  `exposure` has no `process.exit` at all, so 77/62/59 is a record of a run and not a gate). What is left of the flat assumption is the decal/`zbuf` span math, which
+  flat level runs the old arithmetic bit for bit (measured then: 4 frames md5-identical, exposure
+  77/62/59 unchanged — the md5 half was a one-off comparison in that session, and 77/62/59 is an era
+  figure: #96 moved `makeEnemy`'s draws, which re-rolls a level's layout, so the number that reproduces
+  now is `exposure`'s record, medians **69/71/83** with spawn mean/mid **57/65 / 60/50 / 63/73**, which
+  #216 turned into rows with an exit code: halving the ground pass's light multiply moves them to
+  **41/43/56** and 9 of 10 rows FAIL. Four declaration-site controls across three terms that did NOT move
+  them, each self-cancelling for a different reason,
+  are written in that block's header — `FOGC`/`FARB`/`AMB` at their *declaration* in `js/40_render.js:15`
+  are re-authored by `startLevel` (`FARB = q.far`, `AMB = MAP.amb`), and `visAt` carries no `FARB` at all,
+  so editing a default in this file is not an A/B of a shipped term). What is left of the flat assumption is the decal/`zbuf` span math, which
   still assumes faces span 0..1. `castWalls`' `y0 = horizon + (eyeZ - 1) * hpx` went in M1: the
   face's `z0/z1` comes from the grid and `tstep = mh * dz / (y1 - y0)` tiles a wall texture per
   **world unit**, not per face. Every new formula must collapse to the old one exactly, bit for
