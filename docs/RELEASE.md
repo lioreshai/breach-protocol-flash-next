@@ -2,8 +2,6 @@
 
 A release is the moment the repo can be **pointed at**: a tag, a changelog section with a date,
 screenshots that came from the build the tag names, and a GitHub release listing what shipped.
-Before this document existed the project merged 67 PRs against a single tag (`baseline-v1`,
-2026-09-25) and published nothing — direction lived in issues, but there was no build to name.
 
 ## When
 
@@ -28,8 +26,7 @@ than leaving the count to rise silently.
 underneath it:
 
 * **`v1.0`** aliases `baseline-v1` (`git tag v1.0 baseline-v1`) so the published section has a tag.
-* **MINOR** per release: `v1.1` = M0–M3, the verticality foundation — which is what the current
-  68-PR debt pays.
+* **MINOR** per release: `v1.1` = M0–M3, the verticality foundation.
 * **MAJOR** marks a new playable-complete era: **`v2.0`** when M6's two-storey level is authored, the
   VERT lane prints `0 known-issue row(s)`, both smoke lanes are green and no P0 issue is open.
 * **Patch** releases (`v1.1.1`) are for a defect that ships in a release and gets fixed shortly after;
@@ -57,11 +54,9 @@ git checkout -b release/vX.Y main
 2. **Screenshots, from the deployed build** into `docs/screens/`, and any defect visible in a shot
    goes into its caption rather than being cropped (`AGENTS.md`, hard rule). Not from a headless
    dump, not from an older checkout — `https://lioreshai.github.io/breach-protocol-flash-next/`.
-   The *capture* happens on the host; the *files* do not live there. `pages.yml` publishes
-   `index.html` + `js/` only, so `docs/screens/*.png` answers **404** on the Pages URL and GitHub
-   renders them from the repo instead. A docs PR is therefore verified against the **merged tree**
-   (`git show origin/main:docs/screens/x.png | md5sum`), never against a fetch of the host — a
-   404 body hashes to `d41d8cd9…` and reads as a stale deploy.
+   Then `node tools/recap.js check`, which gates the README's quoted numbers against the files it
+   embeds. The capture happens on the host; the files do not live there, so a docs PR is verified
+   against the **merged tree** ([`ENGINEERING.md`](ENGINEERING.md), "Deploys, docs and git").
 3. **Direction.** `docs/ROADMAP.md` gets its constraints updated if measurements moved (frame
    budgets, raster medians). No status tables.
 4. **Gates**, with the numbers in the release PR body:
@@ -92,8 +87,8 @@ git checkout -b release/vX.Y main
      --notes-file /tmp/notes.md          # milestones closed and issues since the last tag
    ```
 7. **Verify the page** the tag describes: the GitHub Pages deploy, then a `?dev=1` boot with no
-   thrown errors and the probes' claims re-checked through `DEV` (`AGENTS.md`: *Driving the game from
-   a console*). The deployed build is the source of truth for a merged commit.
+   thrown errors and the probes' claims re-checked through `DEV` (`README.md`: *Driving the game
+   from a console*). The deployed build is the source of truth for a merged commit.
 
 ## How the debt reads
 
