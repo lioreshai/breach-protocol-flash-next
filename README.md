@@ -51,39 +51,60 @@ PR that changes the picture. `node tools/recap.js check` decodes these files and
 quoted below against them, so a caption cannot drift from its image. What *changed* between two
 recaptures is a question for `CHANGELOG.md` and the PR that moved it — it is not kept here.
 
-The five frames decode to **87.53 / 23.05 / 87.45 / 31.05 / 139.46** mean luma
+The five frames decode to **58.44 / 21.33 / 58.37 / 58.10 / 91.99** mean luma
 (`0.2126 R + 0.7152 G + 0.0722 B`, the rule `DEV.lum` uses), in the order they appear below.
+
+All five come from the **deployed build** at `?dev=1&seed=60`, whose `DEV.layoutSig()` is
+**735688443**, with the clock frozen, vitals pinned at 100 and every other enemy cleared so each
+frame shows only what its caption names. That seed was chosen for **feature coverage**, not looks: a
+sweep of the generator's first 60 seeds scores the longest monotone `MAP.fz` run, the number of
+straight datum-to-pit lanes and the count of columns with `MAP.cz >= 8`, and seed 60 tops it (a
+five-tread climb, five pit lanes, 86 tall columns). The probes' seeds are a different deal in a
+different environment - the browser's seed 12345 folds to `2229721315`, the harness's to `3367779095`,
+because the two consume different numbers of draws before generation - so the coordinates below are
+this deal's, and a caption that cannot name its seed cannot be re-measured.
 
 ![the spawn seat on a lit datum floor](docs/screens/level0-spawn.png)
 
-The datum floor under a lamp, which is the exposure the tonal gates are tuned against:
-**0 of 763 rows average below luminance 24**. Nothing here is off-band, so this is the frame that
+The spawn seat on a lit datum floor, which is the exposure the tonal gates are tuned against:
+**58 of 763 rows average below luminance 24, the longest unbroken run 55 rows starting at row 273**.
+The light here is the cell's own ambient - `MAP.light` **0.81** - with no lamp in frame, and a red
+barrel prop stands centre-frame under a one-unit ceiling that fills the top of the shot. Nothing here is off-band, so this is the frame that
 has to stay bit-identical when a height term is added — `flatparity`'s backwards-compat senses.
 
 ![four risers up to the raised band, and the dark above them](docs/screens/level0-facing-wall.png)
 
-Four risers up to a raised band.
-**467 of 763 rows average under luminance 24 and the longest unbroken run is 245 rows, starting at row 0** —
-that run is the unlit volume above the band, and it is the honest shape of the open problem: the
-grid is multi-storey and there is nothing authored to look up into
+Five risers up to a raised band: cell (1, 9) steps `MAP.fz` **0, 1, 2, 3, 4**, so 1.00 m of climb
+seen from the tread below it at (1.5, 8.5). **483 of 763 rows average under luminance 24 and the
+longest unbroken run is 277 rows, starting at row 0** — that run is the unlit volume above the band,
+and it is still the honest shape of the open problem: the band above is authored and its own floor is
+lit, but nothing above it is (see [`docs/VERTICALITY.md`](docs/VERTICALITY.md), M4/M5 and the #275
+correction to what `alt` actually reports).
 (see [`docs/VERTICALITY.md`](docs/VERTICALITY.md), M4/M5).
 
 ![one posed grunt, 6 m out, on the camera's own band](docs/screens/level0-enemies.png)
 
-One posed grunt at 6 m on the camera's own band. Bodies are meshes from `js/13_mesh.js`; the
-silhouette-separation debt against a busy wall is issue #17.
+One grunt at 6 m on the camera's own band — `DEV.clear()` then `DEV.spawn('grunt', 1, 6)`, which is
+why the HUD reads **1 LEFT**, and it lands on `MAP.fz` 0 like the camera. Its `e.anim` is **0**, so
+this is the rest pose rather than a stride: `view.js anim`'s walk-cycle rows are what gate motion, and
+#274 records why a pose-domain assertion is the honest form of that claim. Bodies are meshes from
+`js/13_mesh.js`; the silhouette-separation debt against a busy wall is issue #17 — and here the
+candidate also stands in front of a red barrel, which is the same confusion that issue is about.
 
 ![the pit lip from three metres out, lit by a lamp standing in the pit](docs/screens/level0-props.png)
 
 The pit lip from three metres out, lit by a lamp standing in the pit.
-**370 rows average under luminance 24 here and the longest unbroken run is 301 rows from row 0.**
-The lamp lights the pit floor and not the lip above it, which is the band gate in `splatLight`
-admitting light per run of a scanline by the band of the surface the pixel shows.
+**208 rows average under luminance 24 here and the longest unbroken run is 137 rows from row 138.**
+The pit cell is (19, 14) at `MAP.fz` **-4** with its own ceiling `MAP.cz` 4, and the lamp stands in it
+at (20.5, 16.5) on band **-1.00**. It lights the pit floor and not the lip above it, which is the band
+gate in `splatLight` admitting light per run of a scanline by the band of the surface the pixel shows.
 
 ![standing in the hole, inside the lamp's own cell, on the band the glow refuses](docs/screens/level0-pitfloor.png)
 
-Standing in the hole, inside the lamp's own cell — the brightest frame of the five, and the one
-that shows the glow working from inside the band it refuses from above.
+Standing in the hole at (19.5, 14.5): feet on **floor −1.00**, own ceiling **0.00**, eye **−0.50**,
+`MAP.light` **0.23**. **17 rows average under luminance 24, longest run 9 from row 32** — the brightest
+of the five at 91.99 despite standing in the darkest cell of the grid, which is the glow working from
+inside the band it refuses from above.
 
 ## How it works
 * **Renderer** is a software raycaster (Wolfenstein-style DDA) writing into an `ImageData`'s
