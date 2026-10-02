@@ -972,7 +972,8 @@ if (MODE === 'alt') {
     for (let lv = 0; lv < 3; lv++) {
       const G = { rolls: 0, noSceneAt: [], worstFrac: 0, worstAt: '-', crossN: 0, dqMax: 0, spanMax: 0,
         lampsMin: 1e9, lampsSum: 0, rectMax: 0, pit: 0, pitDark: 0, pitSum: 0, oob: 0, lipRoll: -1, lipDeliv: 1,
-        lipOn: 0, lipOnN: 0, lipCross: 0, lipSel: null, lipLamps: 0 };
+        lipOn: 0, lipOnN: 0, lipCross: 0, lipSel: null, lipLamps: 0,
+        oobClimb: 0, oobSum: 0 };  // #275: :978 accumulates G.oobClimb, and a missing key here printed NaN
       for (let r = 0; r < 12; r++) {
         const g = glowAt(lv, r, 1);
         G.pit += g.pit; G.pitDark += g.pitDark; G.pitSum += g.pitSum; G.oob += g.oob; G.oobClimb += g.oobClimb;
