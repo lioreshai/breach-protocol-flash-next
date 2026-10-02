@@ -2,6 +2,48 @@
 
 ### Added
 
+- **Bodies cast a contact shadow, tight to the feet** (#18, mechanism from #178). A rim is additive and
+  the rig raster is multiplied by scene light at composite, so at `AMB 0.19` it floors out in exactly the
+  dark rooms that need separation; this SUBTRACTS from the world a body occludes instead — a multiply on
+  the lit pixel under and behind the feet, so it grounds a character without competing with a light
+  constant, and it never writes `zbuf` (a shadow is not an occluder, #163/#170). The first version was a
+  disc of `e.r + 0.30` m plus a band up the whole height of the body, and on the coverage-rule oracle that
+  read as a separation *cost*: edge dL fell 50 → 46 on cam 0 and 29 → 25 on cam 2 while 1886 / 2134 world
+  px changed outside the body mask. It is now a **patch at the contact line** — radius pulled 10 cm
+  *inside* a body's own collision radius (0.32 m for a grunt, its visible falloff reaching 0.89 R = 0.28 m
+  where `D·t^F` falls under 1/255,
+  so no pixel it can darken lies outside the footprint the silhouette already occupies), a tighter core
+  (`SHADOW_F` 2 → 3), shallower strength (`SHADOW_D` 0.55 → 0.42) and a face term confined to a band as
+  tall as the patch is wide, quadratic to nothing, instead of keeping 75 % of the term to the crown
+  (`SHADOW_ZF` 0.75 → 0.25). The band test on the floor is unchanged, so a body one slab up still answers
+  nothing on the floor below it and the patch stops at a lip or a pit edge. Measured on the coverage-rule
+  oracle, `contrast` cam 0 is **48.2 dL / 14 % lost** against main's 50.0 / 14 and cam 2 **27.8 / 15 %**
+  against 28.8 / 15, so the cue costs 1–2 points of edge contrast and buys the grounding; no probe here
+  measures grounding, and that is stated rather than scored.
+
+  What the probes now gate: `contrast` grew two rows per camera that bound the world-side footprint from
+  **both** ends, because "a patch small enough to pass the leak rows while painting nothing" is the failure
+  this shape has to refuse. The leak row reports `#18` as a KNOWN debt while the footprint is under **0.15×
+  the body's own silhouette** — 1.31× the worst of the ten samples, deliberately not the worst sample
+  itself, because a cap at the maximum would sit inside the spread of content that already passes and this
+  is the reporting half of a debt (the disc it exists to catch reads 0.98, 6.5× past the cap) — measured
+  residue 0.064–0.115× over ten cells: 214/1924 and 193/2143 on
+  LVL 0 SEED 12345, whose repeats agree to the pixel, 207/1924 and 468/4146 on LVL 1, 320/4594 and 447/4680 on
+  LVL 2, 542/8421 and 152/1932 at SEED 777, 227/1979 and 164/1932 at SEED 4242 — all of the leak darker,
+  which is what makes it attributable to the term) and goes red past it; the patch row requires at least
+  **0.03× that silhouette** (max(8, …)), half the weakest sample, and prints the mean darkening of those
+  pixels — 214 px at mean 14.5 and 193 px at mean 12.8 of luminance on the CI cell, all below the horizon.
+  The verdict line reads `0 FAILURE(S) of 30 rows, 10 known-issue rows (#18 #189)` and `STRICT=1` promotes
+  every debt to a failure (10 failures, exit 1). `cull` is back to **CULL ok** with no threshold moved: its
+  render-difference silhouette, which the disc inflated 1580 → 2591 px on L0, now reads 1695 with the term
+  on and 1580 with it deleted, and the pit row's "crown only" survives at 9.4 % against the 8.4–8.7 % the
+  geometry was recorded at. Seen to fail: with the three paint sites neutralised in a second detached
+  worktree — invisible to the `SHADOW=0` arm, which still prints *contact shadow ON* — `contrast` returns to
+  main's exact 50 / 29 dL with **leak 0** and the new patch row **FAILs at 0 px**, and `cull`'s L0 reference
+  returns to 1580 px. The switch reaches the draw path, unlike the dead rim toggle: `PIXHASH=1` frame hashes
+  differ on cam 0 and cam 2 (`11379818` → `c6b14130`, `de1d4d6c` → `91c974f8`) and agree on cam 1, whose
+  cone hides every body behind a slab. Cost is not concluded: 6 interleaved `smoke` pairs at load1 2.6–6.3
+  (median-of-medians 12.15 vs 12.24 ms, inside both sides' spread) never saw a quiet window.
 - **`props` gates the lamp core's saturation, so #84 can finally fail** (#84). Probe-only: the game is
   byte-identical and a player sees nothing new. Row (E) asked whether emissive pixels survive the lights
   going out, and #84 asks a different question — whether the aperture ever reaches the top of the byte —
@@ -113,6 +155,22 @@
   owed; `flatparity`, `contrast` (0 failures of 27), `cull`, `alt`, `planes`, `heights`, `stats`, `sheets`
   ok, `smoke` PASSED at raster median 12.47 ms (batches 12.3/12.4/12.5/12.7/12.8), VERT 25 gating rows and 0
   known-issue.
+
+- **`anim` read the contact patch as a detached head; a player sees nothing new** (#18, probe-side
+  only, no `js/` byte changed). The mode's silhouette is a render difference against the same frame with
+  `ENEMIES` emptied, which cancels everything the world does on its own — but not a term the *body*
+  causes: the contact patch is absent from the enemy-free render, so its ground pixels entered the mask
+  by construction. They sit in rows 241–251, below the body's own bottom row (grunt 324 px of 2222,
+  hound 275 of 757 — all 275 below the body, brute 950 of 10411), they are wider than the body, and
+  #74's shoulder line is the widest mask row, so `shRow` moved off the shoulders (grunt 121) onto the
+  floor (241) and every row of daylight between torso and patch counted as a head gap: **5 poses
+  `DETACHED`, GAP 79 of 106–150 head rows**, on bodies bit-for-bit identical to the shipped ones. The
+  depth half of the mask never saw it (0 px differ — the term writes no `zbuf`). `anim` now arms
+  `SHADOW = 0` for its own pass, the way `contrast` arms it as an A/B, because a contact patch is not
+  body shape; the term's own behaviour stays gated by `contrast`'s rows and `cull`. Seen to fail both
+  ways: with the neck join deleted from `js/13_mesh.js` the rows print `GAP … DETACHED` and exit 1, and
+  with the gait phase frozen they print `IDENTICAL - static body`. Attach rows after the fix match
+  `origin/main` exactly (grunt `shRow 121`, hound at 2.1 m).
 
 - **A bullet hole in a step was drawn above the step** (#15, #120's unfinished half). `addWallMark` has
   carried absolute altitude since #120, but the window it clamps into used the solid-column rule for every
