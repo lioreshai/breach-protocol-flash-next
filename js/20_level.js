@@ -404,17 +404,22 @@ function pickWallTex(cfgL) { return Math.random() < 0.78 ? cfgL.wall : cfgL.wall
    scattered room interiors one unit up leaves a histogram that is 78% datum, off-datum cells too
    scattered to stand ON, and MAP.cz at one unit in every column - multi-storey in MAP.fz, a crawlway
    on screen. So this authors three named FEATURES per level instead of a scatter, each a shape the
-   probes already know how to read:
+   probes already know how to read - and in THIS order, which #282 had to fix: the tall-air feature
+   used to run last and disqualified any room a floor feature had already stepped, so a deal could
+   author no volume at all. Being first also means the ceiling feature and the floor features write
+   different fields of the grid, which is why adding volume cannot move the occupancy gate.
 
-     RAISED SIDE  every open cell on one side of the map sits a unit above the datum, so the altitude
-                  difference is legible from the rooms that touch it. Room 0's cells stay down (the
-                  spawn), and each stranded part of the side gets its own stair or ladder.
-     SUNKEN ROOM  the room furthest from spawn drops a unit, with the bases of the walls around it
-                  carried down with it - the cheapest "down there" a player can see.
      TALL ROOM    the largest rooms get CZ_TALL quanta of their own, which is the only way a column
                   can be looked UP in, and the mouths into them get it too: an open doorway draws no
                   face at all, so its lintel IS the ceiling you see through it, and a one-unit lintel
                   would hide a three-unit room from the corridor you entered it from.
+     RAISED SIDE  every open cell on one side of the map sits a unit above the datum, so the altitude
+                  difference is legible from the rooms that touch it. Room 0's cells stay down (the
+                  spawn), and each stranded part of the side gets its own stair or ladder.
+     SUNKEN ROOM  the room furthest from spawn drops a unit, with the bases of the walls around it
+                  carried down with it - the cheapest "down there" a player can see. Its own cells take
+                  their ceiling back to one unit, so a pit that lands in a room feature 1 made tall is
+                  still a hole under a lip and not a shaft.
 
    Three rules this pass is written against, all of them already paid for:
    - NO draw from Math.random anywhere in here. The scatter pass downstream takes its places from
@@ -434,6 +439,10 @@ const BAND_DOWN = -BAND_UP;                                 // one unit below it
 const CZ_TALL = 12;                                         // three units of headroom; the gate is 2
 const LINK_STEPS = 40;                                      // link-or-give-back rounds per band, per pass
 const STAIR_CELLS = 4;                                      // cells a 1-unit climb needs: 3 steps + 1
+/* How many rooms get tall air on a map that does not need more: at least TWO, so a deal is never one
+   filter term away from authoring no volume at all (the old rule was `rooms.length >= 8 ? 2 : 1` and
+   rooms.length runs 4..7 on this generator, so every deal in the game had a single candidate). */
+const TALL_WANT_MIN = 2;
 const PIT_W = 5, PIT_H = 4, PIT_MIN = 6;                    // sunken cells: see feature 2's budget note
 
 function authorVolume(cell, N, rooms, fz, vb, feat, cz) {
@@ -509,7 +518,7 @@ function authorVolume(cell, N, rooms, fz, vb, feat, cz) {
     }
     if (!line.length || !ladder) return false;
     const i = mark(line[0]);
-    feat[i] = FEAT_LADDER; cz[i] = Math.abs(band) + 2;
+    feat[i] = FEAT_LADDER; cz[i] = Math.max(cz[i], Math.abs(band) + 2);   // never take tall air back down
     vb[i] |= VB_LADDER << ((md ^ 2) << 2);
     vb[mi] |= VB_LADDER << (md << 2);
     return true;
@@ -561,7 +570,84 @@ function authorVolume(cell, N, rooms, fz, vb, feat, cz) {
   const d0 = reach();
   const authored = [];
 
-  /* ---- feature 1: a QUADRANT or SIDE of the level stands a unit up --------
+  /* ---- feature 1: rooms you can stand up in ------------------------------
+     FIRST, before any floor has been stepped - and that ordering is the #282 fix. TALL ROOM used to run
+     LAST and required the WHOLE room to sit on one floor; the raised band and the pit had already
+     stepped floors through these rooms by then, so the binding term of the candidate filter was
+     uniformity, not size, and a deal could find no candidate at all. Measured on 17e83ba across SEED
+     1..12 x 3 levels (tools/view.js volume, BOOT=1): 33 deals authored volume and 3 authored NONE -
+     SEED 2 levels 0 and 2, SEED 7 level 2 - with big rooms in the maps that authored nothing (SEED 7 L0
+     dims 9x5,7x6,6x6,5x5), and `keeps(d0)` true on every deal that chose a room, so the filter, not the
+     occupancy gate, was what came back empty. `SEED=7 node tools/view.js alt` prints
+     "0 open column(s) ... tallest 1.00" and exits 1 on exactly that deal.
+     Run first, every room is uniform by construction, so the filter cannot come back empty, and the tall
+     air lands on WHOLE rooms instead of on whatever uniform sliver a staircase left behind. The
+     uniformity test stays as a guard (tall air across two bands would make the mouth rule below author a
+     half-open doorway), but it no longer chooses the rooms.
+
+     MORE THAN ONE CANDIDATE, because one shot at one room is one way to author nothing: the two largest
+     rooms, three on a map of eight or more (TALL_WANT_MIN), where the rule was `rooms.length >= 8 ? 2 : 1`
+     and rooms.length runs 4..7 - so every deal in the game had exactly one candidate.
+
+     AND NOT ROOM 0 - measured, not assumed (#282's second half is therefore NOT closed here). The
+     arrival row aims one quantum under the target's own ceiling plane, so the ray must climb over the
+     ceiling of whatever room the seat stands in: with a flat spawn room it crosses that 1-unit plane
+     about a fifth of the way to the target and dies there, which is why the recorded baseline is
+     0 of 86/45/100 columns seen from the seat (nearest cast stopping on a CEILING 7..12 m away).
+     Giving the spawn room tall air does move that row to green on every deal - and costs the frame more
+     than the raster budget has left. Measured with tools/smoke.js' own batches (SEED 12345, L0, spawn
+     pose, 601x338, load average ~2.4), median ms/frame against 12.30 for this commit's parent:
+       spawn room tall, 2 cells of tall mouth            20.5 ms   (+8.2)  arrival 0 blind deals
+       spawn room tall, mouths only, CZ_TALL 8 (2 units)  23.4 ms  (+11.1) arrival 0 blind deals
+       tall air hugging the spawn room, 6 cells of run    21.3 ms   (+9.0)  arrival 2 blind deals
+       one doorway's run of 6 tall corridor cells         18.3 ms   (+6.0)  arrival 25 blind deals
+       EVERY open cell at two units (no boundary at all)  17.4 ms   (+5.1)  the floor this costs
+     so the +5 ms is the ceiling distance itself and the rest is the tall/flat boundary feeding the
+     deferred pixel body (the same mechanism as the sunken block's +42 ms note above); 16 ms is the
+     gate. The shapes that buy arrival were tried and are not in this file. What IS here - the ordering,
+     the pillar fix, two candidates instead of one - authors volume in every deal for no frame cost at
+     all (12.35 ms), and the row that asks for arrival stays a reported debt until the ground pass can
+     afford a taller ceiling: see tools/view.js volume's arrival row and alt's krow. */
+  const tallWant = rooms.length >= 8 ? 3 : TALL_WANT_MIN;
+  /* The room's ONE floor, or null if it does not have one. Two ways a room is not one room: a floor
+     feature stepped part of it (a straddling room is two bands at once, and the mouth rule below would
+     author a half-open doorway), and a pillar inside it - which is NOT a reason to refuse the room its
+     ceiling, because the wall pass paints the pillar under the tall air like any other column. The old
+     filter answered `!open(x,y)` with "not a candidate", and pillars only ever appear in rooms of 8x8
+     or more, so that term is why the spawn room still had a one-unit ceiling on ~30% of deals: the
+     arrival row stayed at 0 while the volume row went green. */
+  const roomFloor = r => {
+    let f = null;
+    for (let y = r.y; y < r.y + r.h; y++) for (let x = r.x; x < r.x + r.w; x++) {
+      if (cell[y * N + x]) continue;                        // a pillar in a room is still in that room
+      const q = fz[y * N + x];
+      if (f === null) f = q; else if (q !== f) return null;
+    }
+    return f;
+  };
+  const tallRooms = [];
+  for (const r of rooms.filter(r => r !== spawnR && r.w >= 5 && r.h >= 5 && roomFloor(r) !== null)
+                       .sort((a, b) => b.w * b.h - a.w * a.h || a.cx - b.cx || a.cy - b.cy).slice(0, tallWant)) {
+    tallRooms.push([r, roomFloor(r)]);
+  }
+  for (const [r, f] of tallRooms) {
+    const cp = cut();
+    const set = i => { mark(i); cz[i] = CZ_TALL; };
+    for (let y = r.y; y < r.y + r.h; y++) for (let x = r.x; x < r.x + r.w; x++) if (!cell[y * N + x]) set(y * N + x);
+    for (let y = r.y - 1; y <= r.y + r.h; y++) for (let x = r.x - 1; x <= r.x + r.w; x++) {
+      if (!open(x, y) || fz[y * N + x] !== f || roomAt(x, y) !== null) continue;   // corridor cells only
+      const i = y * N + x;
+      for (let d = 0; d < 4; d++) {
+        const nx = x + DIRX[d], ny = y + DIRY[d];
+        if (nx < 0 || ny < 0 || nx >= N || ny >= N) continue;
+        const j = ny * N + nx;
+        if (!cell[j] && fz[j] === f && roomAt(nx, ny) === r) { if (cz[i] !== CZ_TALL) set(i); break; }
+      }
+    }
+    if (keeps(d0)) authored.push('tallRoom'); else rewind(cp);
+  }
+
+  /* ---- feature 2: a QUADRANT or SIDE of the level stands a unit up --------
      Eight candidate regions - the four quadrants first, then the four half-planes. A quadrant goes
      first because it leaves three quarters flat for the pit, the tall rooms, the exit and the flat
      lane the VERT lane aims its gun down, and its seam is no longer than a half-plane's: two
@@ -599,7 +685,7 @@ function authorVolume(cell, N, rooms, fz, vb, feat, cz) {
     rewind(cp);
   }
 
-  /* ---- feature 2: a sunken block in the room furthest from spawn ---------
+  /* ---- feature 3: a sunken block in the room furthest from spawn ---------
      The RASTER BUDGET caps this shape, and that is a measured fact rather than a taste: a cell below
      the eye disagrees with the row's plane in BOTH halves (its floor is under the eye, and its ceiling
      is the lip's floor plane under the row's ceiling), so every pixel of it goes through the deferred
@@ -623,7 +709,12 @@ function authorVolume(cell, N, rooms, fz, vb, feat, cz) {
     const cp = cut(), sel = new Uint8Array(N * N);
     for (let y = by; y < by + bh; y++) for (let x = bx; x < bx + bw; x++) {
       const i = y * N + x;
-      sel[i] = 1; mark(i); fz[i] = BAND_DOWN; feat[i] = FEAT_PIT;
+      // cz goes BACK to one unit on the hole's own cells: a pit's ceiling is the lip's floor plane, and
+      // under the 3-unit air feature 1 may have authored in this room the hole would stop reading as a
+      // hole under a lip and become a shaft. The lip keeps its tall air, so the cue stays "stand in a
+      // room, look DOWN" - and the pit still gets any room the distance ranking offered it, which is
+      // why this is a write here rather than a term in the candidate filter above.
+      sel[i] = 1; mark(i); fz[i] = BAND_DOWN; feat[i] = FEAT_PIT; cz[i] = CZ_DEF;
     }
     // Stairs only, no ladder fallback: dropping into a pit is free (a drop is never a wall), so the
     // only way out is the climb, and a flagged crossing is a link the occupancy gate can see and the
@@ -631,35 +722,6 @@ function authorVolume(cell, N, rooms, fz, vb, feat, cz) {
     const ok = linkBand(sel, BAND_DOWN, d0, false);
     if (ok) { authored.push('sunkenRoom'); break; }
     rewind(cp);
-  }
-
-  /* ---- feature 3: rooms you can stand up in ------------------------------ */
-  const tallWant = rooms.length >= 8 ? 2 : 1;
-  const tallRooms = rooms.slice(1).filter(r => {
-    let f = -99;
-    for (let y = r.y; y < r.y + r.h; y++) for (let x = r.x; x < r.x + r.w; x++) {
-      if (!open(x, y)) return false;
-      const q = fz[y * N + x];
-      if (f === -99) f = q; else if (q !== f) return false;      // a straddling room is two bands at once
-    }
-    return r.w >= 5 && r.h >= 5 && r !== spawnR;
-  }).sort((a, b) => b.w * b.h - a.w * a.h || a.cx - b.cx || a.cy - b.cy).slice(0, tallWant);
-  for (const r of tallRooms) {
-    const cp = cut(), f = fz[r.cy * N + r.cx];
-    const set = i => { mark(i); cz[i] = CZ_TALL; };
-    for (let y = r.y; y < r.y + r.h; y++) for (let x = r.x; x < r.x + r.w; x++) if (!cell[y * N + x]) set(y * N + x);
-    for (let y = r.y - 1; y <= r.y + r.h; y++) for (let x = r.x - 1; x <= r.x + r.w; x++) {
-      if (!open(x, y) || fz[y * N + x] !== f || roomAt(x, y) !== null) continue;   // corridor cells only
-      const i = y * N + x;
-      if (cz[i] === CZ_TALL) continue;
-      for (let d = 0; d < 4; d++) {
-        const nx = x + DIRX[d], ny = y + DIRY[d];
-        if (nx < 0 || ny < 0 || nx >= N || ny >= N) continue;
-        const j = ny * N + nx;
-        if (!cell[j] && fz[j] === f && roomAt(nx, ny) === r) { set(i); break; }
-      }
-    }
-    if (keeps(d0)) authored.push('tallRoom'); else rewind(cp);
   }
 
   /* Carry the base of every solid column down to the lowest band it bounds. A face spans
