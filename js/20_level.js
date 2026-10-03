@@ -17,6 +17,13 @@ const LEVELS = [
     name: 'ABATOIR CORE', size: 36, rooms: 11, maxRoom: 11, wall: WT.FLESH, wall2: WT.TECH2,
     floor: 'FLESH', ceil: 'SINEW', amb: 0.3, lampCol: [190, 255, 150], fogCol: [21, 8, 11],
     lamps: 16, crates: 9, barrels: 12, spawn: { grunt: 8, hound: 7, brute: 3 }, pick: { health: 5, ammo: 6, armor: 2 }
+  },
+  {
+    // M6 (#16): the hand-authored two-storey level - `authored` means genLevel loads AUTHORED
+    // instead of rolling rooms, so lamps/crates/barrels/pick/spawn are placed by the plan's marks.
+    name: 'THE STACK', size: 20, authored: true, wall: WT.STONE, wall2: WT.TECH,
+    floor: 'STONE', ceil: 'ROCK', amb: 0.2, lampCol: [255, 196, 120], fogCol: [17, 13, 10],
+    lamps: 0, crates: 0, barrels: 0, spawn: { grunt: 0, hound: 0, brute: 0 }, pick: {}
   }
 ];
 
@@ -1071,8 +1078,194 @@ function addGroundSplat(x, y, r, kind) {
    built around them. Nothing else in the generator consults it. */
 function topUpEnabled() { return true; }
 
+/* ---- M6: the hand-authored level (#16) -------------------------------------------------
+   Everything in this file above is a generator: it rolls rooms and hopes altitude falls out. This
+   is the opposite - a plan written cell by cell whose single job is to read, from the seat the
+   player spawns in, as a building with two walkable storeys. Being multi-storey in MAP.fz was never
+   the same thing as being perceivable: a staircase is ~2.6% of a generated floorplan and no column
+   is authored hollow, so the levels still read as crawlways. Authoring a level by hand also removes
+   the excuse: a regression in how a level reads can no longer be blamed on the seed stream.
+
+   Three layers of equal-length rows, because a cell carries three independent facts:
+     geo  '#' wall  '.' open  'P' spawn seat  'E' exit pad  'L' lamp  'B' barrel  'C' crate
+          'A' ammo  'H' health  'g' grunt  'h' hound  'b' brute
+     alt  one digit, q = MAP.fz + 4, so '4' is the datum, '8' is one unit up and '0' would be a -4
+          pit floor. No negatives, nothing to reinterpret.
+     feat '.' none  'S' stair tread (FEAT_STAIR: the cell the minimap draws and findability counts)
+          'P' pit cell (FEAT_PIT)  'T' tall air - this cell's OWN ceiling is CZ_AUTH_TALL quanta
+          rather than CZ_DEF, which is what makes a storey read as a room and not a crawlway.
+   Altitude is deliberately NOT derived from neighbours here. If the plan and a derivation could
+   disagree, the probe would end up testing the derivation instead of the level. The plan is one
+   storey up plus the datum: two bands joined by a four-tread stair, no pit, because a pit needs a
+   flagged climb to be reachable by bfsReach and this increment is about volume you can SEE. */
+const CZ_AUTH_TALL = 16;                              // four units, the constant #300 gives the spawn room
+const AUTHORED = {
+  size: 20,
+  rects: [{ x: 1, y: 1, w: 8, h: 18, cx: 5, cy: 9 }, { x: 13, y: 1, w: 6, h: 18, cx: 16, cy: 9 }],
+  geo: [
+    "####" + "####" + "####" + "####" + "####",   //  0
+    "#..." + "...." + ".###" + "#..." + "...#",   //  1
+    "#P.." + "...." + ".###" + "#..." + "...#",   //  2
+    "#..." + "...." + ".###" + "#.B." + "...#",   //  3
+    "#..." + "...." + ".###" + "#..." + "...#",   //  4
+    "#..." + "L..." + ".###" + "#..." + "...#",   //  5
+    "#.A." + "...." + ".###" + "#..." + "...#",   //  6
+    "#..." + "...." + ".###" + "#..." + "g..#",   //  7
+    "#..." + "...." + ".###" + "#..." + "...#",   //  8
+    "#..." + "...." + "...." + "L..." + "...#",   //  9
+    "#..." + "...." + ".###" + "#..." + "...#",   // 10
+    "#..." + "...." + ".###" + "#..." + "C..#",   // 11
+    "#.L." + "...." + ".###" + "#..L" + "...#",   // 12
+    "#..." + "...." + ".###" + "#..." + "...#",   // 13
+    "#..." + "L.B." + ".###" + "#..." + "...#",   // 14
+    "#..." + "...." + ".###" + "#..." + "...#",   // 15
+    "#.L." + "...g" + ".###" + "#..." + "...#",   // 16
+    "#..." + "...." + ".###" + "#..." + ".h.#",   // 17
+    "#..." + "...." + "E###" + "#..." + "b..#",   // 18
+    "####" + "####" + "####" + "####" + "####",   // 19
+  ],
+  alt: [
+    "4444" + "4444" + "4444" + "4444" + "4444",   //  0
+    "4444" + "4444" + "4444" + "4888" + "8884",   //  1
+    "4444" + "4444" + "4444" + "4888" + "8884",   //  2
+    "4444" + "4444" + "4444" + "4888" + "8884",   //  3
+    "4444" + "4444" + "4444" + "4888" + "8884",   //  4
+    "4444" + "4444" + "4444" + "4888" + "8884",   //  5
+    "4444" + "4444" + "4444" + "4888" + "8884",   //  6
+    "4444" + "4444" + "4444" + "4888" + "8884",   //  7
+    "4444" + "4444" + "4444" + "4888" + "8884",   //  8
+    "4444" + "4444" + "4456" + "7888" + "8884",   //  9
+    "4444" + "4444" + "4444" + "4888" + "8884",   // 10
+    "4444" + "4444" + "4444" + "4888" + "8884",   // 11
+    "4444" + "4444" + "4444" + "4888" + "8884",   // 12
+    "0333" + "4444" + "4444" + "4888" + "8884",   // 13
+    "0222" + "4444" + "4444" + "4888" + "8884",   // 14
+    "0111" + "4444" + "4444" + "4888" + "8884",   // 15
+    "0000" + "0000" + "4444" + "4888" + "8884",   // 16
+    "0000" + "0000" + "4444" + "4888" + "8884",   // 17
+    "4444" + "4444" + "4444" + "4888" + "8884",   // 18
+    "4444" + "4444" + "4444" + "4444" + "4444",   // 19
+  ],
+  feat: [
+    "...." + "...." + "...." + "...." + "....",   //  0
+    "...." + "...." + "...." + ".TTT" + "TTT.",   //  1
+    "..TT" + "TTTT" + "...." + ".TTT" + "TTT.",   //  2
+    "..TT" + "TTTT" + "...." + ".TTT" + "TTT.",   //  3
+    "..TT" + "TTTT" + "...." + ".TTT" + "TTT.",   //  4
+    "..TT" + "TTTT" + "...." + ".TTT" + "TTT.",   //  5
+    "..TT" + "TTTT" + "...." + ".TTT" + "TTT.",   //  6
+    "..TT" + "TTTT" + "...." + ".TTT" + "TTT.",   //  7
+    ".TTT" + "...." + "...." + ".TTT" + "TTT.",   //  8
+    ".TTT" + "...." + "..SS" + "STTT" + "TTT.",   //  9
+    ".TTT" + "...." + "...." + ".TTT" + "TTT.",   // 10
+    ".TTT" + "...." + "...." + ".TTT" + "TTT.",   // 11
+    ".TTT" + "...." + "...." + ".TTT" + "TTT.",   // 12
+    ".SSS" + "TTTT" + "...." + ".TTT" + "TTT.",   // 13
+    ".SSS" + "TTTT" + "...." + ".TTT" + "TTT.",   // 14
+    ".SSS" + "TTTT" + "...." + ".TTT" + "TTT.",   // 15
+    ".PPP" + "PPP." + "...." + ".TTT" + "TTT.",   // 16
+    ".PPP" + "PPP." + "...." + ".TTT" + "TTT.",   // 17
+    "...." + "...." + "...." + ".TTT" + "TTT.",   // 18
+    "...." + "...." + "...." + "...." + "....",   // 19
+  ]
+};
+
+function buildAuthored(li) {
+  const cfgL = LEVELS[li], A = AUTHORED, N = A.size;
+  const bad = m => { console.warn('AUTHORED REJECTED (level ' + li + '): ' + m); return false; };
+  for (const pair of [['geo', A.geo], ['alt', A.alt], ['feat', A.feat]]) {
+    if (pair[1].length !== N) return bad(pair[0] + ' has ' + pair[1].length + ' rows, size says ' + N);
+    for (let y = 0; y < N; y++) if (pair[1][y].length !== N)
+      return bad(pair[0] + ' row ' + y + ' is ' + pair[1][y].length + ' chars, not ' + N);
+  }
+  const cell = new Uint8Array(N * N), fz = new Int8Array(N * N),
+    cz = new Uint8Array(N * N).fill(CZ_DEF), feat = new Uint8Array(N * N);
+  const spots = [];
+  let sx = -1, sy = -1, ex = -1, ey = -1, openCells = 0;
+  for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+    const i = y * N + x, g = A.geo[y][x], q = A.alt[y][x].charCodeAt(0) - 48, f = A.feat[y][x];
+    if (q < 0 || q > 9) return bad('alt row ' + y + ' col ' + x + ' is not a digit 0..9');
+    if (y === 0 || y === N - 1 || x === 0 || x === N - 1) {
+      if (g !== '#') return bad('the border must be wall, found ' + JSON.stringify(g) + ' at ' + x + ',' + y);
+      // The border ring is a wall column like any other. Where the plan carries it down to a pit
+      // band, its base has to go down too, or the face between it and the pit spans [0.00..0.00]:
+      // a column the DDA stops at that paints nothing (the #120 fault family, authored rather dealt).
+      cell[i] = pickWallTex(cfgL); fz[i] = q - 4; continue;
+    }
+    // A solid column's floor comes from the plan too: "solid from its floor up" means its base
+    // must reach the lowest band it bounds, or the face it shows spans to the air side's ceiling
+    // plane and has zero height - the #120 generator-fault family, authored rather than dealt.
+    if (g === '#') { cell[i] = pickWallTex(cfgL); fz[i] = q - 4; continue; }
+    cell[i] = 0; openCells++; fz[i] = q - 4;
+    if (f === 'T') cz[i] = CZ_AUTH_TALL;
+    else if (f === 'P') feat[i] = FEAT_PIT;
+    else if (f === 'S') feat[i] = FEAT_STAIR;
+    if (g === 'P') { sx = x; sy = y; }
+    else if (g === 'E') { ex = x; ey = y; }
+    else if (g !== '.') spots.push([x, y, g]);
+  }
+  if (sx < 0) return bad('the plan has no spawn seat');
+  if (ex < 0) return bad('the plan has no exit pad');
+  MAP = {
+    w: N, h: N, cell, light: new Float32Array(N * N), rooms: A.rects,
+    lR: new Float32Array(N * N).fill(0.6), lG: new Float32Array(N * N).fill(0.6),
+    lB: new Float32Array(N * N).fill(0.6), lw: new Float32Array(N * N),
+    lt: new Uint8Array(N * N * 3).fill(128), amb: cfgL.amb, tintDirty: false,
+    floorTex: FLOORS[cfgL.floor], ceilTex: CEILS[cfgL.ceil],
+    fz, cz, vb: new Uint16Array(N * N), feat, ceilPlane: new Float64Array(N * N)
+  };
+  // the same finalisation every path through this file ends with: the derived arrays are derived,
+  // never authored, and anything that wrote MAP.fz/MAP.cz without this would ship last frame's ceilings
+  MW = N; MH = N; linkBoundaries(); decalGridInit(); explored = new Uint8Array(N * N); S.revealed = 0;
+  LIGHTS = []; PROPS = []; PICKUPS = []; PROJ = []; PARTS = []; ENEMIES = [];
+  for (const s of spots) {
+    const px = s[0] + 0.5, py = s[1] + 0.5, fl = floorAt(px, py);
+    if (s[2] === 'L') {
+      /* #213's band rule, now applied to AUTHORED lamps as well as the generator's top-up: strength by
+         the number of open columns in the lamp's OWN band. Before this an authored lamp was a fixed
+         str 1 / r 7.2 source, so the 15-cell pit and the 300-cell datum floor received identical light -
+         the exact asymmetry #213 recorded as a white box in a hole (DEV.lum 168 mean / 229 mid) while the
+         big floor stayed under-lit. A pit lamp therefore lands on cov/TARGET = 15/32 = 0.47, clamped to
+         TOPUP_MINF = 0.5, which is what a generated pit of that size already gets; the flood is over
+         columns at the same fz and runs once per lamp at build on a 20x20 grid. */
+      const f0 = fz[(s[1] | 0) * N + (s[0] | 0)];
+      let cov = 0;
+      { const seen = new Uint8Array(N * N), st = [(s[1] | 0) * N + (s[0] | 0)];
+        seen[st[0]] = 1;
+        while (st.length) { const c = st.pop(); cov++; const cx = c % N, cy = (c / N) | 0;
+          for (let d = 0; d < 4; d++) { const nx = cx + DIRX[d], ny = cy + DIRY[d]; if (nx < 0 || ny < 0 || nx >= N || ny >= N) continue;
+            const ni = ny * N + nx; if (seen[ni] || fz[ni] !== f0 || cell[ni]) continue;
+            seen[ni] = 1; st.push(ni); } } }
+      const lstr = Math.max(TOPUP_MINF, Math.min(1, cov / TOPUP_TARGET));
+      LIGHTS.push({ x: px, y: py, z: fl + LHOVER, r: 7.2, str: lstr, col: cfgL.lampCol, stat: 1 });
+      PROPS.push({ tex: PROP.lamp, x: px, y: py, scale: 0.95, z: fl, kind: 'lamp' });
+    } else if (s[2] === 'B') PROPS.push({ tex: PROP.barrel, x: px, y: py, scale: 0.86, z: fl, kind: 'barrel' });
+    else if (s[2] === 'C') PROPS.push({ tex: PROP.crate, x: px, y: py, scale: 1, z: fl, kind: 'crate' });
+    else if (s[2] === 'A' || s[2] === 'H') PICKUPS.push({ type: s[2] === 'A' ? 'ammo' : 'health', x: px, y: py, bob: 0, dead: false });
+    else if (s[2] === 'g' || s[2] === 'h' || s[2] === 'b')
+      ENEMIES.push(makeEnemy(s[2] === 'g' ? 'grunt' : s[2] === 'h' ? 'hound' : 'brute', px, py));
+  }
+  // The exit pad is a static, Z-LESS light in the generator path (:1352); an authored level that
+  // skips it ships a pad with no glow and leaves alt's wrong-band census with no population at all.
+  // It has to be pushed BEFORE the splat loop below to be baked into MAP.light like the lamps.
+  LIGHTS.push({ x: ex + 0.5, y: ey + 0.5, r: 5.5, str: 0.75, col: [140, 225, 255], stat: 1 });
+  for (const L of LIGHTS) splatLight(L, L.str);
+  exitX = ex + 0.5; exitY = ey + 0.5;
+  const sp = nearestOpen(sx + 0.5, sy + 0.5);          // never spawn inside geometry: the collision
+  P.x = sp[0]; P.y = sp[1]; P.ang = 0.6; P.vx = P.vy = 0; P.z = floorAt(sp[0], sp[1]);  // probes read P
+  buildTint();
+  return true;
+}
 function genLevel(li) {
   const cfgL = LEVELS[li];
+  /* An authored plan is data, so it is validated rather than hoped for: if the layers disagree the
+     loader says so loudly and the generator's own path still ships a playable level, and `alt`'s
+     rows on this level then fail because a generated box has no authored bands in it. Silently
+     falling back and reporting the fallback as the authored level is the trap this comment is for. */
+  if (cfgL.authored) {
+    if (buildAuthored(li)) return true;
+    console.warn('genLevel: authored plan for level ' + li + ' was rejected, generating instead');
+  }
   if (cfgL.fogCol) { FOGC[0] = cfgL.fogCol[0]; FOGC[1] = cfgL.fogCol[1]; FOGC[2] = cfgL.fogCol[2]; }
   for (let attempt = 0; attempt < 80; attempt++) {
     const N = cfgL.size, cell = new Uint8Array(N * N);

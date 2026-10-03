@@ -649,12 +649,17 @@ if (MODE === 'alt') {
     rowsN++;
     if (!ok) { if (STRICT) bad++; else knownN++; }
   };
-  for (let li = 0; li < 3; li++) {
+  // LEVELS.length and not 3 (#16): an authored level is precisely what this verdict must not be
+  // blind to, and a hardcoded 3 would have kept THE STACK out of every row while still printing "alt ok".
+  for (let li = 0; li < run('LEVELS.length'); li++) {
     const r = vm.runInContext(`(function(){
       startLevel(${li}, true);
       const N = MAP.w, cell = MAP.cell, fz = MAP.fz, vb = MAP.vb, feat = MAP.feat;
       let open = 0, nonFlat = 0, minF = 9e9, maxF = -9e9, faces = 0, faceUnblocked = 0, blockedFlat = [0,0,0,0];
       let bfaces = 0, badSpan = 0, minSpan = 9e9, maxSpan = 0;
+      // A count of zero-span faces tells an author nothing to edit: name the boundaries, so a
+      // FAIL row says which wall base is not carried down instead of how many times it disagreed.
+      const badAt = [];
       const bands = {};
       for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
         const i = y * N + x;
@@ -673,7 +678,10 @@ if (MODE === 'alt') {
             // the face the wall pass draws here, measured with the renderer's own pair
             const sp = ceilAt(x, y) - faceZ0(x, y, d);
             bfaces++;
-            if (!(sp > 0)) badSpan++;
+            if (!(sp > 0)) {
+              badSpan++;
+              if (badAt.length < 4) badAt.push(x + "," + y + "->" + nx + "," + ny + "[" + faceZ0(x, y, d).toFixed(2) + ".." + ceilAt(x, y).toFixed(2) + "]");
+            }
             else { if (sp < minSpan) minSpan = sp; if (sp > maxSpan) maxSpan = sp; }
             continue;
           }
@@ -778,7 +786,7 @@ if (MODE === 'alt') {
         if (n > runMax) { runMax = n; runFloor = q * ZQ; }
       }
       return { open, nonFlat, minF, maxF, faces, faceUnblocked, blockedFlat,
-        bfaces, badSpan, minSpan, maxSpan, bands, bandsN: MAP.bands, nBands, unreach, sealed,
+        bfaces, badSpan, badAt, minSpan, maxSpan, bands, bandsN: MAP.bands, nBands, unreach, sealed,
         linkIn, blockedStep, stairs, stairCells, ladCells, bandLink, noLink, steps: MAP.steps,
         headMax, headCols, runMax, runFloor, runTot, runs, reachUp, reachDown, reachOff, farReach,
         spawnBand: floorAt(P.x, P.y), exitBand: floorAt(exitX, exitY) };
@@ -800,7 +808,8 @@ if (MODE === 'alt') {
       `${r.stairs} run(s) of >=3 cells rising one quantum each (${r.stairCells} cells), ${r.faces} step faces, ` +
       `MAP.steps ${r.steps} (a step face with the flag at 0 draws nothing - #100 on generated content)`);
     row(`L${li} spawn and exit stay on the datum`, r.spawnBand === 0 && r.exitBand === 0 && r.badSpan === 0,
-      `spawn floor ${r.spawnBand.toFixed(2)}, exit floor ${r.exitBand.toFixed(2)}, faces of span<=0 ${r.badSpan}`);
+      `spawn floor ${r.spawnBand.toFixed(2)}, exit floor ${r.exitBand.toFixed(2)}, faces of span<=0 ${r.badSpan}` +
+      (r.badSpan ? " at " + r.badAt.join(" ") + (r.badSpan > r.badAt.length ? " …" : "") : ""));
     // #181: being in the grid is not being perceivable. These three rows are the difference between a
     // level that is multi-storey in MAP.fz and one that reads as a crawlway, and every one of them is
     // RED ON MAIN - main authors no CZ_TALL column, no cell below the datum, and no off-datum patch
@@ -1686,7 +1695,15 @@ if (MODE === 'flatparity') {
      build's shipped path prints. L1 is byte-identical in both senses at this dice - the top-up adds no
      lamp to level 1 here (the counts are printed in the decomposition rows), so only 2 of 3 levels can
      tell the senses apart, and the control row says so instead of claiming a triple moved. */
-  const OLD = refRecord('flatparity', 'PARITY', 'md5', ['f9e4da3af18836db903fd7cbdf2b0206', 'f05beeb58f1266a1aea7e44712995292', 'd4b2d2cd539c3b620ea0ce5ab115d50a']);
+  // #303's fourth level MOVES these three rosters: each array is indexed by level, so gaining a level
+  // gains a value rather than changing one (levels 0..2 are byte-identical, which is the control). This
+  // is #284's rule in a new costume - a record that gains an entry is re-recorded WITH the reason, never
+  // widened until the row cannot fail. L3's PARITY and LOCK values are the SAME md5, and that is the
+  // claim rather than a lost control: LAMPS=off removes the generator's coverage top-up, an authored level
+  // authors its lamps from the plan and has no top-up to remove, so the two senses must agree while every
+  // dealt level's pair still differs (f9e4da3a vs 060da4cd on L0). If the authored path ever inherits the
+  // top-up, L3's pair diverges and PARITY fails by itself.
+  const OLD = refRecord('flatparity', 'PARITY', 'md5', ['f9e4da3af18836db903fd7cbdf2b0206', 'f05beeb58f1266a1aea7e44712995292', 'd4b2d2cd539c3b620ea0ce5ab115d50a', 'c857fe56f870a447052641f917d500fc']);
   const OLDM = [79.7, 34.1, 47.5];
   /* #213 moves SHIP[0] to 060da4cd (80.8, from 4262d051/81.3) and nothing else: a coverage top-up's
      intensity now scales with the cells it covers, so the shipped world gains DIMMER sources and L0's
@@ -1696,7 +1713,7 @@ if (MODE === 'flatparity') {
   // #284 re-keyed L2 only, mean identical (51.7 vs 51.7): a deal that now sinks a hole has one more
   // band for the top-up to serve, so one lamp stands elsewhere. PARITY is bit-identical on 3/3, which
   // is the sense that would move if a height term broke the flat-world collapse.
-  const SHIP = refRecord('flatparity', 'LOCK', 'md5', ['060da4cdaadc2e4a4276ce8f06b0eecf', 'f05beeb58f1266a1aea7e44712995292', 'ae47d409d2e2b945831144ce5152454b']);
+  const SHIP = refRecord('flatparity', 'LOCK', 'md5', ['060da4cdaadc2e4a4276ce8f06b0eecf', 'f05beeb58f1266a1aea7e44712995292', 'ae47d409d2e2b945831144ce5152454b', 'c857fe56f870a447052641f917d500fc']);
   const SHIPM = [80.8, 34.1, 51.7];
   /* #219's DEALT triple, #226's camera: the frame of each level AS DEALTED - bands, band term, shipped
      lamp record, same dice (1000 + level*97) and the same pinned-clock ninth render - but at a seat
@@ -1746,7 +1763,15 @@ if (MODE === 'flatparity') {
   const DEALT_SEATS = [
     [14.5, 12.5, 2.356194490192345],  // L0 dice 1000: 137/165 off-datum open cells in view, gap 195,990 px
     [14.5, 7.5, 0],                   // L1 dice 1097: 174/246 in view, gap 195,621 px
-    [15.5, 17.5, 1.9634954084936207]  // L2 dice 1194: 184/292 in view, gap 198,984 px
+    [15.5, 17.5, 1.9634954084936207], // L2 dice 1194: 184/292 in view, gap 198,984 px
+    /* L3 is AUTHORED, so this seat is read off the plan rather than found by dice (#303's fourth level:
+       DEALT_SEATS[lv] had no fourth entry and the child died on `s[0]` of undefined, which the parent can
+       only report as "the dealt hashes describe nothing"). The plan puts the spawn `P` at cell (1,2) on the
+       datum digit, a full-height datum -> +1.00 riser along the x=9 boundary, the -1.00 pit at x1..3/y13..17
+       and a staircase at y15; yaw 0 looks straight down the datum corridor at that riser, perpendicular to
+       the view, with the +1.00 band's floor and ceiling plane behind it. Gap and coverage are printed per
+       seat below - a seat whose dealt-vs-flat difference falls under DEALTVAC is a FAILURE, not a pass. */
+    [1.5, 2.5, 0]
   ];
   const DEALTVAC = 4096;  // px of the 203,138-px frame (2%) - #226 vacuity floor, see the DEALT-VACUOUS row
   /* #243 re-recorded this triple for L1 and L2, and NOTHING about the world moved.
@@ -1778,7 +1803,9 @@ if (MODE === 'flatparity') {
   // #284 re-keyed L2 only: off-datum cells at that dice go 292 -> 314 because the deal now authors a
   // reachable sunken floor it used to skip (that is the feature). DEALT-ORDER hashes this frame alone
   // in its own process and AGREES with this literal, so the move is the level's, not the harness's.
-  const DEALT = refRecord('flatparity', 'DEALT', 'md5', ['f7baf61773bb8469c5a8cf0b95681dd4', '370d3f7a88596a5bfc36bfc9c98b6858', 'aa18d43e1fbd55b40eb4500dd745a3d6']);
+  // L3's dealt hash is recorded from a sampler that now has a fourth seat (see DEALT_SEATS); DEALT-ORDER
+  // proved it is a property of the level - hashed alone and hashed after levels 0..2 it is the same value.
+  const DEALT = refRecord('flatparity', 'DEALT', 'md5', ['f7baf61773bb8469c5a8cf0b95681dd4', '370d3f7a88596a5bfc36bfc9c98b6858', 'aa18d43e1fbd55b40eb4500dd745a3d6', 'b63a56f241b0981dafd733353e5da76b']);
   const DEALTM = [55.5, 57.8, 85.1];
   const OFF = process.env.LAMPS === 'off';
   const f1 = v => (v === undefined || v === null ? '-' : (+v).toFixed(1));
@@ -2235,7 +2262,8 @@ if (MODE === 'vert') {
   /* M3 step 1: cell heights have to reach the occupancy gate. This calls bfsReach, the one BFS the
      generator uses, so it tests the function the gate runs rather than a copy that can drift. */
   let bad = 0;
-  for (let li = 0; li < 3; li++) {
+  const NL = run('LEVELS.length');   // #303: a bound of 3 would skip an authored level, and the
+  for (let li = 0; li < NL; li++) {  // occupancy gate is exactly where a two-storey plan can fail
     const r = vm.runInContext(`(function(){
       const warns = []; const ow = console.warn; console.warn = function (m) { warns.push(String(m)); };
       startLevel(${li}, true);
@@ -2634,7 +2662,8 @@ if (MODE === 'sight') {
     console.log('  ' + label.padEnd(44) + (ok ? ' ok  ' : ' FAIL') + '  ' + detail);
     if (!ok) bad++;
   };
-  for (let li = 0; li < 3; li++) {
+  const NL = run('LEVELS.length');   // #303: the authored level is the case these rows exist for
+  for (let li = 0; li < NL; li++) {
     const res = run(`(function(){
       const out = {skip: null, rows: []};
       let lane = null;
@@ -3235,7 +3264,8 @@ if (MODE === 'cull') {
     return { px: n, cy: n ? sy / n : -1, top: bot >= 0 ? top : -1, bot };
   };
 
-  for (let li = 0; li < 3; li++) {
+  const NL = run('LEVELS.length');   // #303: culling a two-storey plan is a different problem than
+  for (let li = 0; li < NL; li++) {  // culling a flat one, and a bound of 3 could not tell them apart
     const setup = run(`(function(){
       startLevel(${li}, true);
       /* #223: the lightmap THIS level was generated with, stamped before any row can splat a
@@ -4186,7 +4216,8 @@ if (MODE === 'planes') {
   // (linkBoundaries fills it from ceilAt), so the same loop checks it is not stale: a write to
   // MAP.fz or MAP.cz that skips linkBoundaries would render last frame's ceilings, silently.
   let staleAll = 0;
-  for (let li = 0; li < 3; li++) {
+  const NL = run('LEVELS.length');   // #303: an authored plan is the likeliest place for a write
+  for (let li = 0; li < NL; li++) {  // that skips linkBoundaries, so the staleness row must run there
     const r = vm.runInContext(`(function(){
       startLevel(${li}, true);
       const N = MAP.w; let fmin = 9e9, fmax = -9e9, cmin = 9e9, cmax = -9e9, open = 0, cnot1 = 0, stale = 0;
@@ -4659,7 +4690,14 @@ if (MODE === 'exposure') {
      are exactly themselves again. A record that only moved down would be a frame going dark; this one
      reads upward on the level that gained 4 units of air and flat on the two that did not. The 60-100
      window row (75 / 72 / 83 here), not this one, is what gates the look. */
-  const EXPO_MED = refRecord('exposure', 'MEDIAN', 'num', [75, 72, 83]);
+  // #304 (M6): the fourth level is the AUTHORED one, so its median is authored too - 64 (63.61 exact,
+  //   rolls 68 65 62 60, spread 8: the tightest distribution in the table, because the level is a fixed
+  //   plan rather than a deal). It sits inside the window on purpose: a hand-built level must not be
+  //   brighter than the generated ones it follows. Before this row the array had three entries and the
+  //   L3 row compared against a missing value and printed "the recorded NaN", which reads as a
+  //   brightness failure and is a missing declaration - #303's hardcoded-count defect, here in a
+  //   statistic rather than a loop bound.
+  const EXPO_MED = refRecord('exposure', 'MEDIAN', 'num', [75, 72, 83, 64]);
   // #284: L2's spawn-seat MEAN moves 64 -> 63 (64.33 -> 63.22) while the CENTRE-HALF mid is identical to
   //   the hundredth (73.31) and the spread is identical (65), L0 and L1 are byte-identical (56.89/64.80 and
   //   59.95/50.31), PARITY is bit-identical on all three levels, and the deal's mean is unchanged in the
@@ -4672,7 +4710,13 @@ if (MODE === 'exposure') {
      unlit recipe reads 50/54, 57/48, 63/71 on these same seats (#299 §3), so the term is what lifts them
      and the atrium alone would have taken them DOWN - both directions are on the table in that pair of
      triples, which is what makes this a re-record rather than a ratchet. */
-  const EXPO_SPAWN = refRecord('exposure', 'SPAWN', 'num', [61, 69, 64, 59, 64, 73]);   // mean, mid per level
+  // #304 (M6) L3 = mean 94, centre-half mid 110 (rolls 94-ish, see the row's own detail). This is the
+  //   one number here that says something about LOOK rather than parity: the authored spawn corridor is
+  //   lit by a lamp in a 2-unit-tall volume, so its centre reads above the window's upper edge while the
+  //   level's MEDIAN - the statistic the window is documented against - is 64 and comfortably inside.
+  //   Recorded, not gated: the window's own text says "median not mean", and dimming a room to move a
+  //   ungated average would be a look change with no check behind it (#306 tracks the residue).
+  const EXPO_SPAWN = refRecord('exposure', 'SPAWN', 'num', [61, 69, 64, 59, 64, 73, 94, 110]);   // mean, mid per level
   const LUM_WANT = [60, 100];       // the documented window (README: targets 60-100), median not mean
   const medRec = [], spawnRec = [];
   for (let lv = 0; lv < N; lv++) {
@@ -4841,7 +4885,24 @@ if (MODE === 'heights') {
     ['pit', '(()=>{for(let i=0;i<MW*MH;i++){const x=i%MW,y=(i/MW)|0;if(Math.hypot(x+0.5-P.x,y+0.5-P.y)>3)MAP.fz[i]-=4;}})()' + CARRY, 'move', 'still', false, false, true],
     // every other 4-column band is a metre down, walls included: maximum plane churn per row while
     // every boundary keeps a face of positive span, and ceilAt of a sunk band lands below the eye
-    ['stripes', 'for(let i=0;i<MW*MH;i++)if(((i%MW)>>2)&1)MAP.fz[i]-=4' + CARRY + SPLAT, 'move', 'still', true, true, true],
+    /* The stripe BAND the eye stands in is excluded from this poke. The poke keys on (i%MW)>>2 and
+       CAMSET seats the camera at a fixed fraction of the open-cell list (:4786), so whether the eye's
+       column gets sunk was a property of the MAP WIDTH, not of the test: the 26- and 30-wide dealt
+       levels put it at x=9 / x=19, inside a flat band, while the 20-wide authored level seats it at
+       x=14, inside a sunk one. Sinking it drops the camera a full metre, the whole frame repaints
+       (measured floor 98.07% AND ceiling 99.33%, with DEFERRED-STALE-DEPTH and DEPTH-DISAGREES) and the
+       row's "floors moved, ceilings still" claim then measures a moved camera, not a solved plane - the
+       same family as CAMSET's longest-ray yaw making a branch unreachable. Two wrong fixes were tried
+       first: excluding the eye's CELL leaves a one-cell datum island ringed by sunken ground, which the
+       plane fixed point cannot settle (re-solves bad 9943 on L3), and excluding its BAND keeps the
+       geometry sane but sinks only one band of a 20-wide map, so the floor half moves 5.76% and the row
+       rightly fails as FLOOR-IGNORED. The pattern is therefore expressed RELATIVE TO THE EYE'S BAND:
+       sink the bands an odd number of bands away from the one the camera stands in. Half the columns
+       always sink, the eye is always dry, at any map width - and on the dealt levels it is arithmetic
+       identity, because their eye band index (2, 2, 2, 4) is even, so (q-even)&1 === q&1 and the poke
+       selects the same cells it always did. Which is also the lesson: this claim was safe on every level
+       the probe had ever run, and safety that comes from a coincidence of map width is not a gate. */
+    ['stripes', 'for(let i=0;i<MW*MH;i++)if((((i%MW)>>2)-((P.x|0)>>2))&1)MAP.fz[i]-=4' + CARRY + SPLAT, 'move', 'still', true, true, true],
     // the border-facing camera: rays that LEAVE the level, so the out-of-map fallbacks run at all.
     // It queues NO deferred pixel though, and that is the rule rather than a gap: a column outside the
     // map has no plane of its own, so those pixels keep the row's predictor (wantDepth stays false).
@@ -8633,6 +8694,19 @@ if (MODE === 'stats') {
       for(let s=1;s<=6;s++){const nx=P.x+Math.cos(best)*s,ny=P.y+Math.sin(best)*s;if(isSolid(nx,ny))break;bx=nx;by=ny;}
       e.x=bx;e.y=by;e.state='idle';e.anim=0.37;}
   })()`);
+  /* SEAT=x,y,ang re-points the camera at the cell the player actually starts on. The derived camera
+     above picks an open cell by list index and turns toward the longest sight line, which can answer
+     "does this level have depth" but NOT "can the player see the way down from where they begin" - and
+     a claim about the player's seat taken from a camera no player ever occupies is the trap this guards
+     against (it is how a flat-looking render got described as "the spawn view" this session). Probe-only:
+     off unless SEAT is set, and the derived camera still runs so nothing else changes when it is unset. */
+  if (process.env.SEAT) {
+    const s = String(process.env.SEAT).split(',').map(v => Number(v));
+    if (s.length === 3 && s.every(v => Number.isFinite(v))) {
+      run(`P.x=${s[0]};P.y=${s[1]};P.ang=${s[2]};P.pitch=BH*0.02;`);
+      console.log('SEAT override: x ' + s[0] + ' y ' + s[1] + ' ang ' + s[2].toFixed(4));
+    } else console.log('SEAT ignored, want "x,y,ang": ' + process.env.SEAT);
+  }
   run('renderWorld()');
   const BW = run('BW'), BH = run('BH'), buf = new Uint32Array(run('px'));
   stats('frame', buf, BW, BH);
