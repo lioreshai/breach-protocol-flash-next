@@ -3509,7 +3509,7 @@ if (MODE === 'cull') {
       run('var GD={set:new Uint8Array(0),a:[],n:0,cap:400000};');
       const GRES = '(()=>{if(GD.set.length<BW*BH)GD.set=new Uint8Array(BW*BH);else GD.set.fill(0);GD.a.length=0;GD.n=0})()';
       const GON = `(()=>{if(!globalThis.__gpL){globalThis.__gpL=groundPixel;const O=groundPixel;groundPixel=` +
-        `function(x,pl,row){GD.set[row+x]=1;if(GD.a.length<GD.cap)GD.a.push(row+x,pl);GD.n++;return O.apply(this,arguments)}}})()`;
+        `function(x0,x1,pl,row){for(let x=x0;x<x1;x++)GD.set[row+x]=1;if(GD.a.length<GD.cap)GD.a.push(row+x0,pl);GD.n+=x1-x0;return O.apply(this,arguments)}}})()`;
       const GOFF = '(()=>{if(globalThis.__gpL){groundPixel=globalThis.__gpL;globalThis.__gpL=null}})()';
       const CUT = Math.ceil(RISE_TOP);
       let defPx = 0;
@@ -3591,7 +3591,7 @@ if (MODE === 'cull') {
             perRow.push(r.dg[i] ? 'D' : 'R');
           }
         }
-        console.log(`    L${li} ${cfg.padEnd(9)} patch ${r.patched}  groundPixel-calls/frame ${String(r.def).padStart(6)} ` +
+        console.log(`    L${li} ${cfg.padEnd(9)} patch ${r.patched}  deferredPx/frame (columns, coalesced calls counted as their run) ${String(r.def).padStart(6)} ` +
           `(ground-only ${r.defG}) | RAISED mask ${f.n} px rows ${f.top}..${f.bot}, CLEAN y<${CUT} ${f.clean} px | ` +
           `on the ship-config leak set (${refIdx.length} px): visible ${s.vis}, row-painted ${s.row}, deferred ${s.def}, ` +
           `wall/mesh overwrote ${s.ovr}, ground z ${s.mn.toFixed(2)}..${s.mx.toFixed(2)}, occluder z ${s.omn.toFixed(2)}..${s.omx.toFixed(2)}` +
@@ -4778,7 +4778,7 @@ if (MODE === 'heights') {
   const ZRESET = '(()=>{if(ZD.set.length<BW*BH)ZD.set=new Uint8Array(BW*BH);else ZD.set.fill(0);'
     + 'ZD.a.length=0;ZD.n=0})()';
   const ZON = `(()=>{if(!globalThis.__gpO){globalThis.__gpO=groundPixel;const O=groundPixel;groundPixel=` +
-    `function(x,pl,row){ZD.set[row+x]=1;if((ZD.n++&31)===0&&ZD.a.length<12288)ZD.a.push(x,row,pl);` +
+    `function(x0,x1,pl,row){for(let x=x0;x<x1;x++)ZD.set[row+x]=1;ZD.n+=x1-x0;if((ZD.n&31)===0&&ZD.a.length<12288)ZD.a.push(x0,row,pl);` +
     `return O.apply(this,arguments)}}})()`;
   const ZOFF = '(()=>{if(globalThis.__gpO){groundPixel=globalThis.__gpO;globalThis.__gpO=null}})()';
   /* Per config: what to poke, and which half of the frame has to move. 'still' is the assertion that

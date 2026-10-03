@@ -1,6 +1,22 @@
 ## Unreleased
 
 ### Changed
+- **A queued ceiling run is painted by one deferred call instead of one per column** (part of #15 M4).
+  On a frame with a real run - a tall spawn room, 22,000 queued ceiling pixels - paired probes price the
+  deferred path at **5.73 ms**, of which the shading **arithmetic is -0.03 ms**: what costs is the
+  **call**, ~220 ns of it per column (an added per-pixel `mipSel()` call measured **+4.83 ms**), which is
+  this repo's one-indirection cliff arriving at the deferred copy. Queued pixels arrive in runs of ~268
+  columns sharing their constants, so a contiguous same-plane ceiling **run** now takes one call the way
+  the row loop always did - **22,000 calls → 86**, worth **~2.4 ms** on that frame (A/B/A deltas on a
+  loaded box), and it is a prerequisite rather than a finish: the shape it prices still lands ~1 ms over
+  the budget. **Floor pixels keep one call each** - a floor's plane is a property of its own column, from
+  its fixed point and its march under a slab, so coalescing them would be a look change, not a speedup.
+  `smoke`'s median is unchanged (11.97 ms), and flat and dealt ground stay hash-identical: `flatparity`
+  lands PARITY `2c5a94f` and `cull`'s `CZBAND` crc32 over the ceiling-step ground is unmoved.
+  The probes assert this call shape: `tools/view.js:3511` and `:4780` wrap `groundPixel` reading argument 1
+  as the plane, so with the renderer changed and the probes untouched `heights` fails **12 configs** with
+  `STALE (row distance)` rows - they now take the run's `x0..x1`, and the census row counts **pixels**,
+  because a `calls/frame` row would stop meaning deferred pixels the moment one call paints a run.
 - **Looking up at a banded ceiling is ~20x cheaper on the pixels that needed it** (#293, part of #15 M4).
   Deciding *which cell's slab reaches the point a ceiling pixel's ray arrives at* used to run a full DDA
   **per pixel**, on the pixels the row loop could not solve from its own row plane - 4,571 of them a frame
