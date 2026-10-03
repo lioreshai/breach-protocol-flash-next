@@ -630,12 +630,17 @@ if (MODE === 'alt') {
     rowsN++;
     if (!ok) { if (STRICT) bad++; else knownN++; }
   };
-  for (let li = 0; li < 3; li++) {
+  // LEVELS.length and not 3 (#16): an authored level is precisely what this verdict must not be
+  // blind to, and a hardcoded 3 would have kept THE STACK out of every row while still printing "alt ok".
+  for (let li = 0; li < run('LEVELS.length'); li++) {
     const r = vm.runInContext(`(function(){
       startLevel(${li}, true);
       const N = MAP.w, cell = MAP.cell, fz = MAP.fz, vb = MAP.vb, feat = MAP.feat;
       let open = 0, nonFlat = 0, minF = 9e9, maxF = -9e9, faces = 0, faceUnblocked = 0, blockedFlat = [0,0,0,0];
       let bfaces = 0, badSpan = 0, minSpan = 9e9, maxSpan = 0;
+      // A count of zero-span faces tells an author nothing to edit: name the boundaries, so a
+      // FAIL row says which wall base is not carried down instead of how many times it disagreed.
+      const badAt = [];
       const bands = {};
       for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
         const i = y * N + x;
@@ -654,7 +659,10 @@ if (MODE === 'alt') {
             // the face the wall pass draws here, measured with the renderer's own pair
             const sp = ceilAt(x, y) - faceZ0(x, y, d);
             bfaces++;
-            if (!(sp > 0)) badSpan++;
+            if (!(sp > 0)) {
+              badSpan++;
+              if (badAt.length < 4) badAt.push(x + "," + y + "->" + nx + "," + ny + "[" + faceZ0(x, y, d).toFixed(2) + ".." + ceilAt(x, y).toFixed(2) + "]");
+            }
             else { if (sp < minSpan) minSpan = sp; if (sp > maxSpan) maxSpan = sp; }
             continue;
           }
@@ -759,7 +767,7 @@ if (MODE === 'alt') {
         if (n > runMax) { runMax = n; runFloor = q * ZQ; }
       }
       return { open, nonFlat, minF, maxF, faces, faceUnblocked, blockedFlat,
-        bfaces, badSpan, minSpan, maxSpan, bands, bandsN: MAP.bands, nBands, unreach, sealed,
+        bfaces, badSpan, badAt, minSpan, maxSpan, bands, bandsN: MAP.bands, nBands, unreach, sealed,
         linkIn, blockedStep, stairs, stairCells, ladCells, bandLink, noLink, steps: MAP.steps,
         headMax, headCols, runMax, runFloor, runTot, runs, reachUp, reachDown, reachOff, farReach,
         spawnBand: floorAt(P.x, P.y), exitBand: floorAt(exitX, exitY) };
@@ -781,7 +789,8 @@ if (MODE === 'alt') {
       `${r.stairs} run(s) of >=3 cells rising one quantum each (${r.stairCells} cells), ${r.faces} step faces, ` +
       `MAP.steps ${r.steps} (a step face with the flag at 0 draws nothing - #100 on generated content)`);
     row(`L${li} spawn and exit stay on the datum`, r.spawnBand === 0 && r.exitBand === 0 && r.badSpan === 0,
-      `spawn floor ${r.spawnBand.toFixed(2)}, exit floor ${r.exitBand.toFixed(2)}, faces of span<=0 ${r.badSpan}`);
+      `spawn floor ${r.spawnBand.toFixed(2)}, exit floor ${r.exitBand.toFixed(2)}, faces of span<=0 ${r.badSpan}` +
+      (r.badSpan ? " at " + r.badAt.join(" ") + (r.badSpan > r.badAt.length ? " …" : "") : ""));
     // #181: being in the grid is not being perceivable. These three rows are the difference between a
     // level that is multi-storey in MAP.fz and one that reads as a crawlway, and every one of them is
     // RED ON MAIN - main authors no CZ_TALL column, no cell below the datum, and no off-datum patch
@@ -2216,7 +2225,8 @@ if (MODE === 'vert') {
   /* M3 step 1: cell heights have to reach the occupancy gate. This calls bfsReach, the one BFS the
      generator uses, so it tests the function the gate runs rather than a copy that can drift. */
   let bad = 0;
-  for (let li = 0; li < 3; li++) {
+  const NL = run('LEVELS.length');   // #303: a bound of 3 would skip an authored level, and the
+  for (let li = 0; li < NL; li++) {  // occupancy gate is exactly where a two-storey plan can fail
     const r = vm.runInContext(`(function(){
       const warns = []; const ow = console.warn; console.warn = function (m) { warns.push(String(m)); };
       startLevel(${li}, true);
@@ -2615,7 +2625,8 @@ if (MODE === 'sight') {
     console.log('  ' + label.padEnd(44) + (ok ? ' ok  ' : ' FAIL') + '  ' + detail);
     if (!ok) bad++;
   };
-  for (let li = 0; li < 3; li++) {
+  const NL = run('LEVELS.length');   // #303: the authored level is the case these rows exist for
+  for (let li = 0; li < NL; li++) {
     const res = run(`(function(){
       const out = {skip: null, rows: []};
       let lane = null;
@@ -3216,7 +3227,8 @@ if (MODE === 'cull') {
     return { px: n, cy: n ? sy / n : -1, top: bot >= 0 ? top : -1, bot };
   };
 
-  for (let li = 0; li < 3; li++) {
+  const NL = run('LEVELS.length');   // #303: culling a two-storey plan is a different problem than
+  for (let li = 0; li < NL; li++) {  // culling a flat one, and a bound of 3 could not tell them apart
     const setup = run(`(function(){
       startLevel(${li}, true);
       /* #223: the lightmap THIS level was generated with, stamped before any row can splat a
@@ -4167,7 +4179,8 @@ if (MODE === 'planes') {
   // (linkBoundaries fills it from ceilAt), so the same loop checks it is not stale: a write to
   // MAP.fz or MAP.cz that skips linkBoundaries would render last frame's ceilings, silently.
   let staleAll = 0;
-  for (let li = 0; li < 3; li++) {
+  const NL = run('LEVELS.length');   // #303: an authored plan is the likeliest place for a write
+  for (let li = 0; li < NL; li++) {  // that skips linkBoundaries, so the staleness row must run there
     const r = vm.runInContext(`(function(){
       startLevel(${li}, true);
       const N = MAP.w; let fmin = 9e9, fmax = -9e9, cmin = 9e9, cmax = -9e9, open = 0, cnot1 = 0, stale = 0;
@@ -4822,7 +4835,24 @@ if (MODE === 'heights') {
     ['pit', '(()=>{for(let i=0;i<MW*MH;i++){const x=i%MW,y=(i/MW)|0;if(Math.hypot(x+0.5-P.x,y+0.5-P.y)>3)MAP.fz[i]-=4;}})()' + CARRY, 'move', 'still', false, false, true],
     // every other 4-column band is a metre down, walls included: maximum plane churn per row while
     // every boundary keeps a face of positive span, and ceilAt of a sunk band lands below the eye
-    ['stripes', 'for(let i=0;i<MW*MH;i++)if(((i%MW)>>2)&1)MAP.fz[i]-=4' + CARRY + SPLAT, 'move', 'still', true, true, true],
+    /* The stripe BAND the eye stands in is excluded from this poke. The poke keys on (i%MW)>>2 and
+       CAMSET seats the camera at a fixed fraction of the open-cell list (:4786), so whether the eye's
+       column gets sunk was a property of the MAP WIDTH, not of the test: the 26- and 30-wide dealt
+       levels put it at x=9 / x=19, inside a flat band, while the 20-wide authored level seats it at
+       x=14, inside a sunk one. Sinking it drops the camera a full metre, the whole frame repaints
+       (measured floor 98.07% AND ceiling 99.33%, with DEFERRED-STALE-DEPTH and DEPTH-DISAGREES) and the
+       row's "floors moved, ceilings still" claim then measures a moved camera, not a solved plane - the
+       same family as CAMSET's longest-ray yaw making a branch unreachable. Two wrong fixes were tried
+       first: excluding the eye's CELL leaves a one-cell datum island ringed by sunken ground, which the
+       plane fixed point cannot settle (re-solves bad 9943 on L3), and excluding its BAND keeps the
+       geometry sane but sinks only one band of a 20-wide map, so the floor half moves 5.76% and the row
+       rightly fails as FLOOR-IGNORED. The pattern is therefore expressed RELATIVE TO THE EYE'S BAND:
+       sink the bands an odd number of bands away from the one the camera stands in. Half the columns
+       always sink, the eye is always dry, at any map width - and on the dealt levels it is arithmetic
+       identity, because their eye band index (2, 2, 2, 4) is even, so (q-even)&1 === q&1 and the poke
+       selects the same cells it always did. Which is also the lesson: this claim was safe on every level
+       the probe had ever run, and safety that comes from a coincidence of map width is not a gate. */
+    ['stripes', 'for(let i=0;i<MW*MH;i++)if((((i%MW)>>2)-((P.x|0)>>2))&1)MAP.fz[i]-=4' + CARRY + SPLAT, 'move', 'still', true, true, true],
     // the border-facing camera: rays that LEAVE the level, so the out-of-map fallbacks run at all.
     // It queues NO deferred pixel though, and that is the rule rather than a gap: a column outside the
     // map has no plane of its own, so those pixels keep the row's predictor (wantDepth stays false).
