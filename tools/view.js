@@ -8703,7 +8703,21 @@ if (MODE === 'stats') {
     const ms = run(`(()=>{const t=[];for(let f=0;f<180;f++){P.ang+=0.05;updatePlayer(1/60);updateEnemies(1/60);const t0=Date.now();renderWorld();t.push(Date.now()-t0);}return t})()`);
     const sum = ms.reduce((a, b) => a + b, 0);
     console.log('180 frames of play: raster avg ' + (sum / ms.length).toFixed(2) + 'ms, worst ' + Math.max(...ms) + 'ms, wall ' + (Date.now() - t0) + 'ms');
-    console.log('rig cache', JSON.stringify(run('RIG.stats()')));
+      // #97: this line must describe the cache the DRAW PATH consults. Bodies became meshes in #72
+      // and nothing in the draw path calls RIG outside tools, so RIG.stats() answers
+      // {entries:0,mb:0,made:0,poses:0} now and forever - it cannot distinguish "the cache stopped
+      // making poses" from "poses are built somewhere else", which is the failure WARM exists to
+      // catch (a broken rig cache once hid 5 ms by not building poses at all). MESH.stats()
+      // (js/13_mesh.js:1008) is the live one: poseEntries/poseMade are the LRU the mesh draw reads.
+      // Falsy control: MESH.setCache(false) -> every draw builds, the LRU stays empty, this row FAILs.
+      const MCS = run('MESH.stats()'), made = MCS.poseMade, ent = MCS.poseEntries;
+      console.log('mesh pose cache', JSON.stringify(MCS));
+      const nE = run('ENEMIES.length');
+      const okW = made > 0 && ent > 0;
+      console.log((okW ? '  ok   ' : '  FAIL ') + 'WARM builds poses in the cache the draw path reads (#97) - '
+        + made + ' pose(s) built, ' + ent + ' resident in the LRU, cap ' + MCS.capMB + ' MB, '
+        + nE + ' enemy(ies) on the level' + (okW ? '' : ' - ZERO poses in a cache that is supposed to be read'));
+      if (!okW) { console.log('WARM FAILED #97: the pose cache the mesh path reads made nothing'); process.exit(1); }
   }
 }
 
