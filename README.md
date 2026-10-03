@@ -51,22 +51,25 @@ PR that changes the picture. `node tools/recap.js check` decodes these files and
 quoted below against them, so a caption cannot drift from its image. What *changed* between two
 recaptures is a question for `CHANGELOG.md` and the PR that moved it — it is not kept here.
 
-The five frames decode to **56.27 / 21.22 / 55.72 / 57.89 / 91.63** mean luma
+The five frames decode to **63.63 / 36.79 / 63.26 / 50.51 / 68.71** mean luma
 (`0.2126 R + 0.7152 G + 0.0722 B`, the rule `DEV.lum` uses), in the order they appear below.
 
 All five come from the **deployed build** at `?dev=1&seed=60`, with the clock frozen, vitals pinned at
 100 and every other enemy cleared so each frame shows only what its caption names. The build is proved
 by a **code** marker rather than a prose one: `authorVolume.toString()` contains the shipped statement
 `rooms.length >= 8 ? 3 : TALL_WANT_MIN` (#283), and every deployed `js/` blob is md5-identical to the
-tree at `e692019`. `DEV.layoutSig()` for this deal is **735688443** - the same number the previous
+tree at **`f927335`**. `DEV.layoutSig()` for this deal is **735688443** - the same number the previous
 recapture printed, and that is not staleness: the signature is FNV-1a over `MAP.fz` then `MAP.cell`,
 and #283 moved *which rooms get tall air*, a `MAP.cz` write, so the floors and walls of this deal are
-unchanged and only its ceilings are not. The columns you can look up in went **70 to 129**: the room at
+unchanged and only its ceilings are not. The columns you can look up in went **70 to 129** and now **174** (the deployed page's own
+`MAP.cz` histogram over the 676 columns reads 502 at 4, 129 at 12 and 45 at 16): the room at
 (2..9, 1..9) was already three units of air, and #283 added a second one on the raised band at
 (6..12, 16..24), both at `MAP.cz` 12, together with the doorway mouths that carry that air out of the
 rooms - and it reset the ceiling inside the pit. `tools/view.js volume` on this tree reads 0 of 12 deals
-per level authoring no volume at all (which is what #282 was about), and its arrival row reads **0 of 12**
-deals showing any of it from the spawn seat (that sweep is 12 rounds of one stream, i.e. the deal `alt`
+per level authoring no volume at all (which is what #282 was about), and its arrival row prints **0 of 12 deals show no tall column to the SPAWN SEAT** on every level
+(min 30, median 42 to 60.5, max 76 look-up columns seen from the seat across the three sweeps, and the
+seat's own headroom **4.00** on all 36 deals). The seat looking up into four units of its own air is
+#300's doing; #283 is what put tall columns in the map for that row to find. (that sweep is 12 rounds of one stream, i.e. the deal `alt`
 gates plus 11 redraws; `BOOT=1` instead boots 12 separate `SEED=n` deals, which is the path that reproduces
 issue #282's three) - which is why the first frame below still has a one-unit
 ceiling over its head.
@@ -83,21 +86,26 @@ this deal's, and a caption that cannot name its seed cannot be re-measured.
 ![the spawn seat on a lit datum floor](docs/screens/level0-spawn.png)
 
 The spawn seat (18.5, 5.5) on a lit datum floor, which is the exposure the tonal gates are tuned
-against: **59 of 763 rows average below luminance 24 and the longest unbroken run is 55 rows from row 273**.
+against: **0 of 763 rows average below luminance 24** - there is no dark band left in this frame to count,
+and its darkest third averages 44.9 against 54.0 in the middle and 92.1 at the feet.
 The light here is the cell's own ambient - `MAP.light` **0.81** at (18,5), whose `MAP.fz` is 0
-and whose `MAP.cz` is 4, the one unit of ceiling that fills the top of the shot - and there is no lamp
+and whose `MAP.cz` is **16**, four units of authored air over the seat - and there is no lamp
 in frame: the only prop inside the camera's ±35.75° (cfg.plane 0.72) from this seat is the red barrel at
 (22.5, 8.5), 5.00 m out and 2.5 degrees off the heading, which is the drum standing centre-frame. Nothing here is
-off-band, so this is the frame that has to stay bit-identical when a height term is added —
-`flatparity`'s backwards-compat senses.
+off-band, so the floor, walls and props here are still the frame
+`flatparity`'s PARITY and LOCK senses hold to a literal. What moved is the ceiling: the ground
+pass's per-row term (`CEILHI` 3.0, `CEILG` 1.4, `CEILGM` 0.9) is exactly 0 while a plane solves
+within 3.0 of the eye - every pixel of a one-unit level - and this seat, 3.50 under a 4.00 plane,
+is the first place it is allowed to do something.
 
-![four risers up to the raised band, and the dark above them](docs/screens/level0-facing-wall.png)
+![four risers up to the raised band, and the air above them that is now lit](docs/screens/level0-facing-wall.png)
 
 Four risers in five cells: the flight at (1, 9) steps `MAP.fz` **0, 1, 2, 3, 4** up to (1,13), three of
 those cells flagged `MAP.feat` STAIR, so 1.00 m of climb seen from the tread below it at (1.5, 8.5).
-**471 of 763 rows average under luminance 24 and the longest unbroken run is 158 rows, starting at row 119**
-— the frame reads dark from row 0 to 105, lit for thirteen rows (106..118, row means 25 to 34) where
-the band shows through, and dark again from 119 to 276. That darkness is the absence of a lamp rather
+**10 of 763 rows average under luminance 24 and the longest unbroken run is 3 rows, starting at row 711**
+— the frame this one replaces (471 rows under 24, a 158-row run from row 119) is lit through
+nearly all of it now, mean 36.79 against 21.22: the ceiling plane over the flight solves past `CEILHI`
+from the tread, so the term paints it. What is left under 24 is 10 rows, and they are at row 711. That darkness is the absence of a lamp rather
 than a ceiling: the camera's own cell reads `MAP.light` 0.02 and the flight's 0.01 to 0.12, while the
 band's cells run 0.26 → 1.20 along +y because two lamps stand ON it at (4.5,16.5) and (1.5,21.5), both
 at floor +1.00. What the camera can look UP into is not the flight - (1,10)…(1,13) are one unit of air,
@@ -125,7 +133,7 @@ is the busy red face that issue #17's silhouette-separation debt is about. Bodie
 ![the pit lip from 2.5 m out, lit by a lamp standing in the pit](docs/screens/level0-props.png)
 
 The pit lip from 2.5 m out, lit by a lamp standing in the pit.
-**244 rows average under luminance 24 and the longest unbroken run is 146 rows from row 129.** The hole
+**305 of 763 rows average under luminance 24 and the longest unbroken run is 255 rows from row 31.** The hole
 is the 3x3 block (19..21, 14..16) at `MAP.fz` **-4**, and its own `MAP.cz` is **4** - #283 resets a
 pit's ceiling to one unit, so a hole that lands in a room the tall-air feature made tall stays a hole
 under a lip instead of becoming a shaft. The lamp stands in it at (20.5, 16.5) on band **-1.00**, 5.10 m
@@ -138,8 +146,8 @@ light per run of a scanline by the band of the surface the pixel shows.
 
 Standing in the hole at (19.5, 14.5), cell (19,14): feet on **floor −1.00**, own ceiling **0.00**, eye
 **−0.50**, `MAP.light` **0.23**. The lamp doing the work stands one cell over and two further along at
-(20.5, 16.5), 2.24 m away and in this same band. **20 rows average under luminance 24 and the longest unbroken run is 9 rows from row 32**
-— the brightest of the five at 91.63 on a cell reading less than a third of
+(20.5, 16.5), 2.24 m away and in this same band. **200 of 763 rows average under luminance 24 and the longest unbroken run is 175 rows from row 31**
+— 68.71 mean, on a cell reading less than a third of
 the spawn seat's light, which is the glow working from inside the band it refuses from above.
 
 ## How it works
