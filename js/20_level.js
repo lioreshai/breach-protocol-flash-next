@@ -1094,6 +1094,17 @@ function topUpEnabled() { return true; }
      feat '.' none  'S' stair tread (FEAT_STAIR: the cell the minimap draws and findability counts)
           'P' pit cell (FEAT_PIT)  'T' tall air - this cell's OWN ceiling is CZ_AUTH_TALL quanta
           rather than CZ_DEF, which is what makes a storey read as a room and not a crawlway.
+   A lamp is placed where the SEAT cannot see it, not merely where the room needs light: the seat is
+   (1,2) at P.ang 0.6, and the camera plane 0.72 puts the frame edge atan(0.72) = 0.624 rad to either
+   side of the heading, so the lens covers bearings -0.02..1.22 from that cell. A lamp with line of
+   sight inside that wedge composites as an emissive billboard 4 m away: bloom took the centre-half of
+   the first frame to 181 and the composited spawn median to 120, against a band whose upper anchor is
+   the dimmest lamp-in-the-lens, 79.4 (#304). In geo the datum lamp therefore sits at (2,9), not at
+   (4,5) on the axis: same band, so the same band-scaled strength and the same 6-yaw median (those rolls
+   are unchanged), but bearing 1.43 from the seat, 0.21 rad past the frame edge - out of frame. The two
+   lamps whose bearing is nearly on the axis, (12,9) on the stair tread and (15,12) on the upper band,
+   are already hidden by the wall cell (9,7) the axis ray stops at, and the pit lamp at (2,16) is
+   0.9 rad off axis.
    Altitude is deliberately NOT derived from neighbours here. If the plan and a derivation could
    disagree, the probe would end up testing the derivation instead of the level. The plan is one
    storey up plus the datum: two bands joined by a four-tread stair, no pit, because a pit needs a
@@ -1108,11 +1119,11 @@ const AUTHORED = {
     "#P.." + "...." + ".###" + "#..." + "...#",   //  2
     "#..." + "...." + ".###" + "#.B." + "...#",   //  3
     "#..." + "...." + ".###" + "#..." + "...#",   //  4
-    "#..." + "L..." + ".###" + "#..." + "...#",   //  5
+    "#..." + "...." + ".###" + "#..." + "...#",   //  5
     "#.A." + "...." + ".###" + "#..." + "...#",   //  6
     "#..." + "...." + ".###" + "#..." + "g..#",   //  7
     "#..." + "...." + ".###" + "#..." + "...#",   //  8
-    "#..." + "...." + "...." + "L..." + "...#",   //  9
+    "#.L." + "...." + "...." + "L..." + "...#",   //  9
     "#..." + "...." + ".###" + "#..." + "...#",   // 10
     "#..." + "...." + ".###" + "#..." + "C..#",   // 11
     "#.L." + "...." + ".###" + "#..L" + "...#",   // 12

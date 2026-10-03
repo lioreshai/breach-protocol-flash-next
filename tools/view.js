@@ -1707,7 +1707,14 @@ if (MODE === 'flatparity') {
   // authors its lamps from the plan and has no top-up to remove, so the two senses must agree while every
   // dealt level's pair still differs (f9e4da3a vs 060da4cd on L0). If the authored path ever inherits the
   // top-up, L3's pair diverges and PARITY fails by itself.
-  const OLD = refRecord('flatparity', 'PARITY', 'md5', ['f9e4da3af18836db903fd7cbdf2b0206', 'f05beeb58f1266a1aea7e44712995292', 'd4b2d2cd539c3b620ea0ce5ab115d50a', 'c857fe56f870a447052641f917d500fc']);
+  // #304 re-keys the FOURTH element of all three rosters - L3's authored lamp moved a cell (see the
+  // exposure/SPAWN block for why) - and levels 0..2 are byte-identical in all three, which is the control:
+  // the generator's placement rules were not touched, one plan glyph was. PARITY[3] and LOCK[3] are still
+  // the SAME value - the one on the two declaration lines below - so the authored path still has no top-up to remove,
+  // and DEALT[3] 046f2a22 is the value DEALT-ORDER reproduces both alone and after levels 0..2, so it is a
+  // property of the level rather than of the roster. L3's vacuity row still reports 62.78% of the frame
+  // differing from its flattened twin, so the re-key is not a lock resting on a frame that sees no band.
+  const OLD = refRecord('flatparity', 'PARITY', 'md5', ['f9e4da3af18836db903fd7cbdf2b0206', 'f05beeb58f1266a1aea7e44712995292', 'd4b2d2cd539c3b620ea0ce5ab115d50a', '2df6e7607c5a8e9c3304f698e68c31a4']);
   const OLDM = [79.7, 34.1, 47.5];
   /* #213 moves SHIP[0] to 060da4cd (80.8, from 4262d051/81.3) and nothing else: a coverage top-up's
      intensity now scales with the cells it covers, so the shipped world gains DIMMER sources and L0's
@@ -1717,7 +1724,7 @@ if (MODE === 'flatparity') {
   // #284 re-keyed L2 only, mean identical (51.7 vs 51.7): a deal that now sinks a hole has one more
   // band for the top-up to serve, so one lamp stands elsewhere. PARITY is bit-identical on 3/3, which
   // is the sense that would move if a height term broke the flat-world collapse.
-  const SHIP = refRecord('flatparity', 'LOCK', 'md5', ['060da4cdaadc2e4a4276ce8f06b0eecf', 'f05beeb58f1266a1aea7e44712995292', 'ae47d409d2e2b945831144ce5152454b', 'c857fe56f870a447052641f917d500fc']);
+  const SHIP = refRecord('flatparity', 'LOCK', 'md5', ['060da4cdaadc2e4a4276ce8f06b0eecf', 'f05beeb58f1266a1aea7e44712995292', 'ae47d409d2e2b945831144ce5152454b', '2df6e7607c5a8e9c3304f698e68c31a4']);
   const SHIPM = [80.8, 34.1, 51.7];
   /* #219's DEALT triple, #226's camera: the frame of each level AS DEALTED - bands, band term, shipped
      lamp record, same dice (1000 + level*97) and the same pinned-clock ninth render - but at a seat
@@ -1809,7 +1816,7 @@ if (MODE === 'flatparity') {
   // in its own process and AGREES with this literal, so the move is the level's, not the harness's.
   // L3's dealt hash is recorded from a sampler that now has a fourth seat (see DEALT_SEATS); DEALT-ORDER
   // proved it is a property of the level - hashed alone and hashed after levels 0..2 it is the same value.
-  const DEALT = refRecord('flatparity', 'DEALT', 'md5', ['f7baf61773bb8469c5a8cf0b95681dd4', '370d3f7a88596a5bfc36bfc9c98b6858', 'aa18d43e1fbd55b40eb4500dd745a3d6', 'b63a56f241b0981dafd733353e5da76b']);
+  const DEALT = refRecord('flatparity', 'DEALT', 'md5', ['f7baf61773bb8469c5a8cf0b95681dd4', '370d3f7a88596a5bfc36bfc9c98b6858', 'aa18d43e1fbd55b40eb4500dd745a3d6', '046f2a221ed2c2d66dc0ffa4fd2bec4e']);
   const DEALTM = [55.5, 57.8, 85.1];
   const OFF = process.env.LAMPS === 'off';
   const f1 = v => (v === undefined || v === null ? '-' : (+v).toFixed(1));
@@ -3746,7 +3753,16 @@ if (MODE === 'cull') {
          already taken L0 to 0x4f7e5e28 (#299's unlit recipe, reproduced on two trees there); the ceiling
          term re-moves the same lane, so the number below is geometry PLUS light and is not interchangeable
          with that one. */
-      const CZBAND_REF = refRecord('cull', 'CZBAND', 'crc32', [0x13702f3c, 0xd34608c0, 0x7dd66c40, 0x1535e2e8]);   // LEAK=1 CZBAND=1, cull's own step rows
+      /* #304 moves BOTH L3 senses and holds levels 0..2 on both - LANE 0x13702f3c / 0xd34608c0 /
+         0x7dd66c40 and WORLD 0xb0988514 / 0xb54c0a14 / 0xcb62daf2 are byte-identical, which is the control
+         that says this is one authored lamp relocated, not the lightmodel. The plan's datum lamp stood at
+         (4,5), in the spawn seat's lens (see the exposure/SPAWN block and the AUTHORED header in
+         js/20_level.js); it now stands at (2,9), same band so same band-scaled strength, and the only
+         difference is where the 1/r^2 lands: L3's WORLD 0x23c3a694 -> 0x6b8394bc with the sum it hashes
+         130.36 -> 125.11 over the same 400 cells (-4%), and the LANE follows because that camera's ground
+         pass rasterizes the lightmap under it (0x1535e2e8 -> 0x29ed8bf4). The GRID is untouched - `planes`
+         and `alt` count the same bands and steps as before this line. */
+      const CZBAND_REF = refRecord('cull', 'CZBAND', 'crc32', [0x13702f3c, 0xd34608c0, 0x7dd66c40, 0x29ed8bf4]);   // LEAK=1 CZBAND=1, cull's own step rows
       /* #223: the WORLD sense, recorded beside the lane sense, because czS.h above is a lightmap
          instrument only ON ONE CAMERA'S FRAME: it moves when the lightmap changed somewhere that frame
          rasterizes and holds when it changed somewhere it cannot, so its green never proves "the
@@ -3778,7 +3794,7 @@ if (MODE === 'cull') {
          The printed drift (MAP.light now vs the snapshot taken straight after startLevel) is 0 on all
          three levels, so on this path they are the same array; a nonzero drift would mean a row had
          splatted a transient into the frame and the pair had stopped being comparable. */
-      const CZLIGHT_REF = refRecord('cull', 'CZBAND-LIGHT', 'crc32', [0xb0988514, 0xb54c0a14, 0xcb62daf2, 0x23c3a694]);
+      const CZLIGHT_REF = refRecord('cull', 'CZBAND-LIGHT', 'crc32', [0xb0988514, 0xb54c0a14, 0xcb62daf2, 0x6b8394bc]);
       if (process.env.CZBAND) {
         czRows++;
         run(`(function(){ window.__cz0b = MAP.cz.slice(); ${JSON.stringify(BG.cells)}
@@ -4725,13 +4741,21 @@ if (MODE === 'exposure') {
      unlit recipe reads 50/54, 57/48, 63/71 on these same seats (#299 §3), so the term is what lifts them
      and the atrium alone would have taken them DOWN - both directions are on the table in that pair of
      triples, which is what makes this a re-record rather than a ratchet. */
-  // #304 (M6) L3 = mean 94, centre-half mid 110 (rolls 94-ish, see the row's own detail). This is the
-  //   one number here that says something about LOOK rather than parity: the authored spawn corridor is
-  //   lit by a lamp in a 2-unit-tall volume, so its centre reads above the window's upper edge while the
-  //   level's MEDIAN - the statistic the window is documented against - is 64 and comfortably inside.
-  //   Recorded, not gated: the window's own text says "median not mean", and dimming a room to move a
-  //   ungated average would be a look change with no check behind it (#306 tracks the residue).
-  const EXPO_SPAWN = refRecord('exposure', 'SPAWN', 'num', [61, 69, 64, 59, 64, 73, 94, 110]);   // mean, mid per level
+  /* #304 (M6) re-keys L3's pair DOWN, 94/110 -> 56/60 (56.10 / 59.86 exact, spread 0), and the level that
+     moved is the AUTHORED one. The plan had a datum lamp at (4,5), which is 4.24 m from the seat at (1,2)
+     on a bearing of 0.785 against the authored heading 0.6: inside the camera plane's 0.624 rad frame and
+     with a clear line of sight, so the emissive billboard was in the lens and bloom put the COMPOSITED
+     first frame at median 119.8 / centre-half 181 against a spawn band whose upper anchor is the dimmest
+     lamp-in-the-lens, 79.4 (assert.js:84-85). The content fix moves that lamp to (2,9) - same datum band,
+     so the same band-scaled strength, and 1.43 rad from the seat, out of frame. What did NOT move is the
+     control: the 6-yaw MEDIAN record is untouched (63.61 -> 63.62 exact, 64 rounded, rolls 68 65 62 60
+     identical) and L0-L2's six digits are byte-identical, so this is one authored cell's lamp relocated,
+     not the room going dark. Composited side, same tree: L3 spawn median 119.8 -> 56.1 and mid 181 -> 80,
+     which puts the first frame in the middle of the 35-75 band the way L0-L2 are (64/58/61) instead of
+     45 above it - that is #306's L3 spawn half, and it is now a re-record rather than a residue. Re-seating
+     the camera instead was measured and does not work: yaw 1.36 reads 115.3 and yaw 0.1 reads 96.7, because
+     turning away from the lamp puts LIT GEOMETRY in the lens instead of an emissive prop. */
+  const EXPO_SPAWN = refRecord('exposure', 'SPAWN', 'num', [61, 69, 64, 59, 64, 73, 56, 60]);   // mean, mid per level
   const LUM_WANT = [60, 100];       // the documented window (README: targets 60-100), median not mean
   const medRec = [], spawnRec = [];
   for (let lv = 0; lv < N; lv++) {
