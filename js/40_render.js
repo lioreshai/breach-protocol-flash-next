@@ -604,6 +604,35 @@ function castGround(flash, fcR, fcG, fcB) {
            never above the eye, so no flat pixel is queued and the flat row stays bit-identical. */
         planeC = (isF ? (pl < eyeZ || (gx >= 0 && gy >= 0 && gx < N && gy < N && !cellArr[cIdx] && pl >= eyeZ))
           : pl > eyeZ) ? pl : planeA;                          // a ceiling below the eye reaches nothing
+        /* ONE MARCH PER (ROW, CELL), on the ray of the column that crossed into the cell, instead of one
+           per queued pixel of the run (#170's mechanism, #15's arrival half). This is the row loop's own
+           predictor applied to the deferred half: the answer is a property of the CELL SEQUENCE the ray
+           walks, and a run's rays differ only by the fan of the frustum. Measured per pixel, both answers
+           computed in one process from the same state: they agree on 100% of the queued ceiling pixels of
+           25 configs (queue nonempty in 20, up to 74,833 px in a frame, runs up to 314 columns), and the
+           compare is seen to fire - against the UNMARCHED cell plane it reads 100%, and a deliberate
+           0.05 rad (30-column) ray swap reads 1.03% on the far-ceiling poke, so the predictor is stable at
+           a column step and not at thirty of them. CEILING ROWS ONLY, for the reason the block above
+           states: the FLOOR half's fixed point ADOPTS a lower plane further along the ray, so walking that
+           half is a look change with its own gate. Cells come from the march's own DDA, the quantum test
+           is an exit and not a convergence proof, and both axes are bounds-tested inside planeAlong; this
+           changes how often the march runs, not what it does.
+           What it is worth and what it costs, measured on GROUND-PASS dumps because the wall pass repaints
+           rows and a composited md5 cannot see this half: 156 marches a frame at the Lv1 SEED 12345 spawn
+           seat instead of 4,571 (642 against 51,938 at the flatparity DEALT camera), 1.5 ms of a 15 ms
+           frame and 22 ms of an 85 ms one. zbuf is BIT-IDENTICAL on all 48 configs measured - arrivals on
+           three levels x two seeds, the three DEALT seats, turn sweeps and the poked stepped bands - so no
+           occlusion test can flip, and the mover silhouette and MESH's drawn-pixel count are identical on
+           the 36 configs that draw one; cull/heights/bands/planes/sight and the PARITY/LOCK/DEALT and
+           CZBAND locks print the same text either side. On the two DEALT-seat frames 264 and 696 ceiling
+           ground pixels (rows 54..59) do change colour by up to 7.1 luminance: their march answers the
+           ROW's plane, so they stop going through the deferred body at all, and the two copies of the
+           pixel body pick slightly different mips at the same distance. Every one of those pixels is
+           repainted by the wall pass, so the composited frame is identical in all 48 configs. */
+        if (!isF && planeC !== planeA) {
+          const cam0 = x * stepBase - 1;
+          planeC = planeAlong(dirX + planeX * cam0, dirY + planeY * cam0, planeC, isF, absP);
+        }
       }
       /* A plane is only honest if the cell carrying it reaches the point this column's ray arrives at,
          so ask the march, not the cell the row's WALK happened to enter: a raised floor one boundary
@@ -813,8 +842,12 @@ function groundPixel(x, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb, dP,
       else { pl = plA; dOv = -1; }
     }
   } else {
-    // the CEILING half walks the ray: which cell's slab reaches the point this column arrives at
-    pl = planeAlong(rx, ry, pl, isF, absP);
+    /* The CEILING half needs no march here: the ROW marched this pixel's cell once, at the column that
+       crossed into it, and queued the plane that answer produced (#15's per-cell decision). Keeping a
+       march in this copy is what made the deferred path cost one 40-step DDA per pixel of a run - the
+       same cliff the row loop's own comment refuses. The FLOOR half keeps its fixed point and its
+       under-a-slab march per pixel: those are a different question (which plane places this pixel), and
+       walking the floor half is a look change the bands gate has not been re-based for. */
   }
   if (gMRow !== row || gMPl !== pl || gMDist !== dOv || gMSer !== gSer)
     gndBuild(row, isF, absP, pl, tex, sc, fcR, fcG, fcB, fl, amb, dOv);
