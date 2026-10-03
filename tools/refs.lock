@@ -8,8 +8,8 @@
 ref	cull	CZBAND	crc32	0x71a20264 0xd34608c0 0x7dd66c40
 ref	cull	CZBAND-LIGHT	crc32	0xb0988514 0xb54c0a14 0xcb62daf2
 ref	exposure	MEDIAN	num	70 72 83
-ref	exposure	SPAWN	num	57 65 60 50 64 73
-ref	flatparity	DEALT	md5	f7baf61773bb8469c5a8cf0b95681dd4 370d3f7a88596a5bfc36bfc9c98b6858 3a51e659bf0b5cd60985447928db01cf
-ref	flatparity	LOCK	md5	060da4cdaadc2e4a4276ce8f06b0eecf f05beeb58f1266a1aea7e44712995292 050b225e3f295b3ca991d59addea2f1c
+ref	exposure	SPAWN	num	57 65 60 50 63 73
+ref	flatparity	DEALT	md5	f7baf61773bb8469c5a8cf0b95681dd4 370d3f7a88596a5bfc36bfc9c98b6858 aa18d43e1fbd55b40eb4500dd745a3d6
+ref	flatparity	LOCK	md5	060da4cdaadc2e4a4276ce8f06b0eecf f05beeb58f1266a1aea7e44712995292 ae47d409d2e2b945831144ce5152454b
 ref	flatparity	PARITY	md5	f9e4da3af18836db903fd7cbdf2b0206 f05beeb58f1266a1aea7e44712995292 d4b2d2cd539c3b620ea0ce5ab115d50a
 ref	props	LAMPCORE	num	263 239.6 263 239.5 263 239.5

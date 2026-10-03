@@ -132,6 +132,15 @@ jobs:
           #            direction rows are ALSO the only thing here that sees the SIGN of the band term
           #            - see the flatparity note below, and run both when a band term is in the diff.
           node tools/view.js alt
+          #   volume   #282/#284's seed gate, and the only roster row that looks at MORE THAN ONE deal:
+          #            12 generations x 3 levels with no raster (~1.4 s), verdict + exit. It fails a deal
+          #            that authors no volume at all (#282 - 3 of 36 deals on main, every one of them
+          #            because the tall-room candidate filter came back empty) or no sunken floor
+          #            REACHABLE FROM THE SPAWN SEAT (#284 - SEED 3 level 0 reached 146 cells above the
+          #            datum and 0 below it), so a level cannot be multi-storey in MAP.fz and still flat
+          #            for whoever spawns in it. Per-seed deals need BOOT=1; the default sweeps rounds of
+          #            one stream and says so in its own verdict line.
+          node tools/view.js volume
           #   flatparity  the invariant AGENTS.md names as the backwards-compat test for every vertical
           #            change - "every new formula must collapse to the old one exactly, bit for bit" -
           #            existed only as a sentence in PR bodies until #210 gave it md5 literals, and no
