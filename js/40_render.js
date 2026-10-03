@@ -685,7 +685,14 @@ function castGround(flash, fcR, fcG, fcB) {
     }
     /* second pass over the columns this row could not solve, in column order; each writes its own
        pixel so the order within the row cannot change the image, and the wall pass has not run yet */
-    for (let q = 0; q < nm; q++) groundPixel(RX[q], RP[q], row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb, dRow, planeA);
+    /* #prototype: a ceiling run of contiguous columns shares one plane, so it takes ONE call. Floors keep one call per column because their plane is solved per column. */
+    for (let q = 0; q < nm; ) {
+      const x0 = RX[q], plq = RP[q];
+      let e = q + 1;
+      if (!isF) while (e < nm && RP[e] === plq && RX[e] === RX[e - 1] + 1) e++;
+      groundPixel(x0, RX[e - 1] + 1, plq, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb, dRow, planeA);
+      q = e;
+    }
   }
 }
 
@@ -787,9 +794,11 @@ function slabT(rx, ry, absP) {
   return -1;
 }
 
-function groundPixel(x, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb, dP, plA) {
+function groundPixel(x0, x1, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb, dP, plA) {
   const N = MAP.w, cellArr = MAP.cell, lm = MAP.light, fzs = MAP.fz, stepBase = 2 / BW;
   const shm = SHADOW ? SH_HEAD : null;                      // #178, second copy of the ground pixel body
+  /* RUN LOOP (#prototype): one call per run of columns that share (row, plane); x1 is exclusive. */
+  for (let x = x0; x < x1; x++) {
   const cam = x * stepBase - 1, rx = dirX + planeX * cam, ry = dirY + planeY * cam;
   // the cell this pixel's ray reaches at the ROW's distance: the shipped out-of-map fallback cell and
   // the anchor the floor half's settle test measures its two-cell proximity against
@@ -893,7 +902,7 @@ function groundPixel(x, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb, dP,
   if (mir & 2) ty = maskH - ty;
   const c = td[ty * mw + tx];
   const i = row + x;
-  if ((c >>> 24) === 253) { px[i] = 0xFF000000 | clampi((c >> 16 & 255) * gMInv + gMFB) << 16 | clampi((c >> 8 & 255) * gMInv + gMFG) << 8 | clampi((c & 255) * gMInv + gMFR); return; }
+  if ((c >>> 24) === 253) { px[i] = 0xFF000000 | clampi((c >> 16 & 255) * gMInv + gMFB) << 16 | clampi((c >> 8 & 255) * gMInv + gMFG) << 8 | clampi((c & 255) * gMInv + gMFR); continue; }
   let r = (c & 255) * lr + gMFR, g = (c >> 8 & 255) * lg + gMFG, b = (c >> 16 & 255) * lb + gMFB;
   const dl = isF && inMap && DECAL_MASK ? DECAL_MASK[cIdx] : 0;
   if (dl !== 0) {
@@ -922,6 +931,7 @@ function groundPixel(x, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb, dP,
     }
   }
   px[i] = 0xFF000000 | clampi(b) << 16 | clampi(g) << 8 | clampi(r);
+  }
 }
 
 function decalAlpha(dc, wx, wy, dfade) {
