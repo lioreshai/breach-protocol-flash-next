@@ -51,60 +51,96 @@ PR that changes the picture. `node tools/recap.js check` decodes these files and
 quoted below against them, so a caption cannot drift from its image. What *changed* between two
 recaptures is a question for `CHANGELOG.md` and the PR that moved it — it is not kept here.
 
-The five frames decode to **58.44 / 21.33 / 58.37 / 58.10 / 91.99** mean luma
+The five frames decode to **56.27 / 21.22 / 55.72 / 57.89 / 91.63** mean luma
 (`0.2126 R + 0.7152 G + 0.0722 B`, the rule `DEV.lum` uses), in the order they appear below.
 
-All five come from the **deployed build** at `?dev=1&seed=60`, whose `DEV.layoutSig()` is
-**735688443**, with the clock frozen, vitals pinned at 100 and every other enemy cleared so each
-frame shows only what its caption names. That seed was chosen for **feature coverage**, not looks: a
-sweep of the generator's first 60 seeds scores the longest monotone `MAP.fz` run, the number of
-straight datum-to-pit lanes and the count of columns with `MAP.cz >= 8`, and seed 60 tops it (a
-five-tread climb, five pit lanes, 86 tall columns). The probes' seeds are a different deal in a
+All five come from the **deployed build** at `?dev=1&seed=60`, with the clock frozen, vitals pinned at
+100 and every other enemy cleared so each frame shows only what its caption names. The build is proved
+by a **code** marker rather than a prose one: `authorVolume.toString()` contains the shipped statement
+`rooms.length >= 8 ? 3 : TALL_WANT_MIN` (#283), and every deployed `js/` blob is md5-identical to the
+tree at `e692019`. `DEV.layoutSig()` for this deal is **735688443** - the same number the previous
+recapture printed, and that is not staleness: the signature is FNV-1a over `MAP.fz` then `MAP.cell`,
+and #283 moved *which rooms get tall air*, a `MAP.cz` write, so the floors and walls of this deal are
+unchanged and only its ceilings are not. The columns you can look up in went **70 to 129**: the room at
+(2..9, 1..9) was already three units of air, and #283 added a second one on the raised band at
+(6..12, 16..24), both at `MAP.cz` 12, together with the doorway mouths that carry that air out of the
+rooms - and it reset the ceiling inside the pit. `tools/view.js volume` on this tree reads 0 of 12 deals
+per level authoring no volume at all (which is what #282 was about), and its arrival row reads **0 of 12**
+deals showing any of it from the spawn seat (that sweep is 12 rounds of one stream, i.e. the deal `alt`
+gates plus 11 redraws; `BOOT=1` instead boots 12 separate `SEED=n` deals, which is the path that reproduces
+issue #282's three) - which is why the first frame below still has a one-unit
+ceiling over its head.
+
+Seed 60 was chosen for **feature coverage** by a sweep of the generator's first 60 seeds - longest
+monotone `MAP.fz` run, straight datum-to-pit lanes, count of columns with `MAP.cz >= 8` - and this
+pass re-checked that coverage on the merged build rather than re-running the sweep: level 0 still has
+the five-cell flight at (1,9)→(1,13), the 3x3 sunken block at (19..21, 14..16), props to shoot at (9
+lamps, 7 crates, 7 barrels) and now *more* tall air. The probes' seeds are a different deal in a
 different environment - the browser's seed 12345 folds to `2229721315`, the harness's to `3367779095`,
 because the two consume different numbers of draws before generation - so the coordinates below are
 this deal's, and a caption that cannot name its seed cannot be re-measured.
 
 ![the spawn seat on a lit datum floor](docs/screens/level0-spawn.png)
 
-The spawn seat on a lit datum floor, which is the exposure the tonal gates are tuned against:
-**58 of 763 rows average below luminance 24 and the longest unbroken run is 55 rows from row 273**.
-The light here is the cell's own ambient - `MAP.light` **0.81** - with no lamp in frame, and a red
-barrel prop stands centre-frame under a one-unit ceiling that fills the top of the shot. Nothing here is off-band, so this is the frame that
-has to stay bit-identical when a height term is added — `flatparity`'s backwards-compat senses.
+The spawn seat (18.5, 5.5) on a lit datum floor, which is the exposure the tonal gates are tuned
+against: **59 of 763 rows average below luminance 24 and the longest unbroken run is 55 rows from row 273**.
+The light here is the cell's own ambient - `MAP.light` **0.81** at (18,5), whose `MAP.fz` is 0
+and whose `MAP.cz` is 4, the one unit of ceiling that fills the top of the shot - and there is no lamp
+in frame: the only prop inside the camera's ±35.75° (cfg.plane 0.72) from this seat is the red barrel at
+(22.5, 8.5), 5.00 m out and 2.5 degrees off the heading, which is the drum standing centre-frame. Nothing here is
+off-band, so this is the frame that has to stay bit-identical when a height term is added —
+`flatparity`'s backwards-compat senses.
 
 ![four risers up to the raised band, and the dark above them](docs/screens/level0-facing-wall.png)
 
-Five risers up to a raised band: cell (1, 9) steps `MAP.fz` **0, 1, 2, 3, 4**, so 1.00 m of climb
-seen from the tread below it at (1.5, 8.5). **483 of 763 rows average under luminance 24 and the
-longest unbroken run is 277 rows, starting at row 0** — that run is the unlit volume above the band,
-and it is still the honest shape of the open problem: the band above is authored and its own floor is
-lit, but nothing above it is (see [`docs/VERTICALITY.md`](docs/VERTICALITY.md), M4/M5 and the #275
-correction to what `alt` actually reports).
-(see [`docs/VERTICALITY.md`](docs/VERTICALITY.md), M4/M5).
+Four risers in five cells: the flight at (1, 9) steps `MAP.fz` **0, 1, 2, 3, 4** up to (1,13), three of
+those cells flagged `MAP.feat` STAIR, so 1.00 m of climb seen from the tread below it at (1.5, 8.5).
+**471 of 763 rows average under luminance 24 and the longest unbroken run is 158 rows, starting at row 119**
+— the frame reads dark from row 0 to 105, lit for thirteen rows (106..118, row means 25 to 34) where
+the band shows through, and dark again from 119 to 276. That darkness is the absence of a lamp rather
+than a ceiling: the camera's own cell reads `MAP.light` 0.02 and the flight's 0.01 to 0.12, while the
+band's cells run 0.26 → 1.20 along +y because two lamps stand ON it at (4.5,16.5) and (1.5,21.5), both
+at floor +1.00. What the camera can look UP into is not the flight - (1,10)…(1,13) are one unit of air,
+`MAP.cz` 4 - but the room one cell over at +x, whose columns are `MAP.cz` 12: three units of air,
+through a doorway so open it draws no face at all.
+That is still the honest shape of the open problem: volume is authored room by room, and a stairwell is
+not a room
+(see [`docs/VERTICALITY.md`](docs/VERTICALITY.md), M4/M5 and the #275 correction to what `alt` reports).
 
 ![one posed grunt, 6 m out, on the camera's own band](docs/screens/level0-enemies.png)
 
-One grunt at 6 m on the camera's own band — `DEV.clear()` then `DEV.spawn('grunt', 1, 6)`, which is
-why the HUD reads **1 LEFT**, and it lands on `MAP.fz` 0 like the camera. Its `e.anim` is **0**, so
-this is the rest pose rather than a stride: `view.js anim`'s walk-cycle rows are what gate motion, and
-#274 records why a pose-domain assertion is the honest form of that claim. Bodies are meshes from
-`js/13_mesh.js`; the silhouette-separation debt against a busy wall is issue #17 — and here the
-candidate also stands in front of a red barrel, which is the same confusion that issue is about.
+One grunt at 6 m on the camera's own band — the spawn seat, then `DEV.clear()` and
+`DEV.spawn('grunt', 1, 6)`, whose arguments are `kind, n, dist`: **one** grunt **6 m in front of this
+camera**, in a fan, which is why the HUD reads **1 LEFT**. It lands at (24.23, 7.27), cell
+(24,7), on `MAP.fz` 0 like the camera, in a cell whose `MAP.light` is 0.13, and `DEV.spawn` pins
+`e.anim` to **0**, so this is the rest pose rather than a stride: `view.js anim`'s walk-cycle rows are
+what gate motion, and #274 records why a pose-domain assertion is the honest form of that claim. The
+heading is 0.30 rad rather than the seat's dealt 0.60, and that is a capture fix, not a pose: on the
+0.60 line the deal's barrel at (22.5, 8.5) passes 0.22 m off the ray five metres out, and the body a
+metre behind it reads as a drum with an arm poking out - the first capture of this frame is that
+picture. On the 0.30 line the nearest prop is 1.68 m off, so the body reads whole. Behind it, at 6.80 m,
+is the busy red face that issue #17's silhouette-separation debt is about. Bodies are meshes from
+`js/13_mesh.js`.
 
-![the pit lip from three metres out, lit by a lamp standing in the pit](docs/screens/level0-props.png)
+![the pit lip from 2.5 m out, lit by a lamp standing in the pit](docs/screens/level0-props.png)
 
-The pit lip from three metres out, lit by a lamp standing in the pit.
-**208 rows average under luminance 24 here and the longest unbroken run is 137 rows from row 138.**
-The pit cell is (19, 14) at `MAP.fz` **-4** with its own ceiling `MAP.cz` 4, and the lamp stands in it
-at (20.5, 16.5) on band **-1.00**. It lights the pit floor and not the lip above it, which is the band
-gate in `splatLight` admitting light per run of a scanline by the band of the surface the pixel shows.
+The pit lip from 2.5 m out, lit by a lamp standing in the pit.
+**244 rows average under luminance 24 and the longest unbroken run is 146 rows from row 129.** The hole
+is the 3x3 block (19..21, 14..16) at `MAP.fz` **-4**, and its own `MAP.cz` is **4** - #283 resets a
+pit's ceiling to one unit, so a hole that lands in a room the tall-air feature made tall stays a hole
+under a lip instead of becoming a shaft. The lamp stands in it at (20.5, 16.5) on band **-1.00**, 5.10 m
+from this camera. The nine hole cells read `MAP.light` 0.23 to 0.41 while column x=19 falls 0.75 → 0.41
+from the spawn row down to the lip, so the pool of light in this
+frame is the lamp's own band and the lip is lit by the lane - the band gate in `splatLight` admitting
+light per run of a scanline by the band of the surface the pixel shows.
 
-![standing in the hole, inside the lamp's own cell, on the band the glow refuses](docs/screens/level0-pitfloor.png)
+![standing in the hole, two cells from the lamp that lights it, on the band the glow refuses](docs/screens/level0-pitfloor.png)
 
-Standing in the hole at (19.5, 14.5): feet on **floor −1.00**, own ceiling **0.00**, eye **−0.50**,
-`MAP.light` **0.23**. **17 rows average under luminance 24 and the longest unbroken run is 9 rows from row 32** — the brightest
-of the five at 91.99 despite standing in the darkest cell of the grid, which is the glow working from
-inside the band it refuses from above.
+Standing in the hole at (19.5, 14.5), cell (19,14): feet on **floor −1.00**, own ceiling **0.00**, eye
+**−0.50**, `MAP.light` **0.23**. The lamp doing the work stands one cell over and two further along at
+(20.5, 16.5), 2.24 m away and in this same band. **20 rows average under luminance 24 and the longest unbroken run is 9 rows from row 32**
+— the brightest of the five at 91.63 on a cell reading less than a third of
+the spawn seat's light, which is the glow working from inside the band it refuses from above.
 
 ## How it works
 * **Renderer** is a software raycaster (Wolfenstein-style DDA) writing into an `ImageData`'s
