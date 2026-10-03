@@ -13,6 +13,23 @@
   What is NOT fixed: seeing that volume **on arrival** still needs tall air in the spawn room's own frame,
   and every shape that buys it costs +5 to +11 ms against a 16 ms gate - recorded in
   `tools/view.js volume` and `alt` as a reported debt that `STRICT=1` gates.
+- **Every generated level now has a DOWN you can reach** (#284, part of #15 M4). "Where is down" used to
+  be a property of the dice: `SEED 3` level 0 reached **146 cells above the datum and 0 below it**, and
+  seeds 4, 5 and 11 printed the same zero, because the sunken-room pass drew its candidates from
+  `rooms.slice(1)` and then skipped any room too small for a lip - so a deal whose far rooms had already
+  been stepped or sunk authored no hole at all, in silence. The room pass is kept as-is and a position
+  pass now backs it up: shapes of 8-12 cells, ranked by distance from spawn, needing a datum **ring**
+  rather than a datum room, never overlapping the spawn cell or smoke's flat test lane, and required to
+  put at least one hole cell on the walkable set before any link is authored. A 3x2 hole was tried and
+  rejected - below the top-up's `MIN_BAND` it shipped a **dark pit floor** (`alt` read 1 of 229) - which
+  is why the window is 8..12 rather than "whatever fits". Seeds 3/4/5/11 go from `0dn` to `11dn` and
+  **32 of 36 deals stay byte-identical**. `tools/view.js volume` grew the matching row (12 deals x 3
+  levels, no raster, ~1.4 s) and is now in `ci.yml`, which is where the seed-dependence of #282 and #284
+  stopped being invisible: CI ran one deal, so it could not see either defect. Two recorded references
+  moved on level 2 and both are geometry, not shading - LOCK `050b225e..` to `ae47d409..` with the mean
+  identical (51.7), DEALT `3a51e659..` to `aa18d43e..` with off-datum cells 292 to 314 - while **PARITY
+  stays bit-identical on all three levels**, so the flat-world collapse AGENTS.md gates on is untouched.
+  Interleaved cost: 12.40 ms median against 12.55 for the parent (N = 5 batches each).
 
 ### Added
 
