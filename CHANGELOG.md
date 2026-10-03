@@ -1,4 +1,4 @@
-## Unreleased
+## [v1.3] - 2026-10-03
 
 ### Changed
 - **The raster budget now reports every level, not just the one the run loop happens to reach** (#296).
