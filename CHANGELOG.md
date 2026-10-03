@@ -1,6 +1,27 @@
 ## Unreleased
 
 ### Changed
+- **The raster budget now reports every level, not just the one the run loop happens to reach** (#296).
+  `smoke`'s budget row times `startGame()`'s level 0 - 20 frames in, after a walk and a look - so a level
+  the player reaches later is invisible to it: on these bytes it reads **12.4 ms/frame** while level 2's
+  arrival seat times **25.1** and level 0's *own* spawn view times **18.8**. Three rows now sit after the
+  `report` line, last in the file on purpose: re-entering a level regenerates the grid **and** reseeds the
+  stream, and V16/V17/V19 already call `startLevel(li,true)` without reseeding, so a row placed earlier
+  would shift every world the asserts above it build. Each level re-seeds with `vboot`'s own snippet, so a
+  scene is a function of SEED + level index and not of how many draws the run made upstream (#96), then
+  times 5 batches x 60 `renderWorld()+renderOverlay()` at its arrival seat - no `update()` in the measured
+  loop, so no AI, no physics, no camera drift - and prints its own frame content (grid, rooms, cells off
+  the datum, enemies, centre-row pixels that are not fog) so three rows that were secretly one frame would
+  say so in their own text. **Reported, not gated**: `rlrow(label, detail, gate?)` leaves `gate`
+  undefined, and the census `raster per level: 3 row(s), 0 gating row(s), 3 reported` is what moves when a
+  later commit gives one level a measured threshold. Measured twice on this box at load average 2.6-3.5
+  (SEED 12345, N = 5 batches per level, medians 18.28/18.77, 13.35/13.87, 24.53/25.07 for L0/L1/L2): the
+  expensive level is the one that arrives **last**, not the biggest grid. Seen to fail by attribution - a
+  4 ms/frame busy-wait behind `if (S.level === 1)`, scratch copies only, moves L1 **13.87 -> 17.07** while
+  L0 moves 0.01 and L2 0.16 - and with `gate` flipped for L1 the same sabotage prints
+  `RASTER L1 ... FAIL`, `3 row(s), 1 gating row(s), 2 reported` and `SMOKE FAILED`. Cost **+16.8 s** on
+  the plain suite (68.15 -> 84.93 s) and **+17.7 s** on `VERT=1` (83.73 -> 101.40 s), both at load ~3.5;
+  `VERT lane: 25 gating row(s), 0 known-issue row(s)` and every existing row unchanged.
 - **A queued ceiling run is painted by one deferred call instead of one per column** (part of #15 M4).
   On a frame with a real run - a tall spawn room, 22,000 queued ceiling pixels - paired probes price the
   deferred path at **5.73 ms**, of which the shading **arithmetic is -0.03 ms**: what costs is the
