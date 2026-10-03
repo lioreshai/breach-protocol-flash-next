@@ -111,6 +111,27 @@ function buildGrain() {
   grainPat = ctx.createPattern(grainCv, 'repeat');
 }
 
+/* #299 candidate (c): a LIT CEILING SURFACE, no lightmap change. A ceiling plane that solves more
+   than CEILHI above the eye is a vault - there is no floor lamp within reach of it, because the
+   lightmap is one value per column taken at the column's FLOOR band (splatLight's band term), and a
+   4-unit ceiling is 3.5 units above it. The term is a per-ROW and per-(row,plane) constant added to
+   the ground pass's `base`, i.e. the same place AMB and the muzzle flash live: it scales the ceiling
+   TEXEL (so it cannot blow a white texel any harder than a lamp does) and it is exactly 0 while the
+   plane is within CEILHI of the eye, which is every pixel of a one-unit level - so flatparity's
+   PARITY/LOCK senses stay byte-identical. Both copies of the pixel body get it: castGround's row
+   (dzA, the plane the row paints) and gndBuild (pl, the plane the deferred pixel paints), so a pixel
+   does not depend on which path painted it. Above CEILHI the term grows linearly with the height
+   above that threshold and saturates at CEILGM. With THESE constants it is exactly 0 in the CZ_TALL
+   rooms feature 1 authors: CZ_TALL = 12 quanta is the tallest own-ceiling main has, so a seat under one
+   solves plane 3.00 at dzA 2.50 - at most 2.88, since eyeZ is never below floorAt + 0.12 (js/40_render.js
+   :156) - and both are under CEILHI. The 0.14 once quoted here was the rejected CEILHI 1.0 tuning's
+   number at that same dzA, not this pair's. CZ_SPAWN_TALL = 16 over the spawn room (plane 4.00, dzA 3.50
+   -> 0.70) is the first column that clears the threshold from the floor under it, and the key is still
+   the PLANE and not a room test: the term can reach main's own bytes at the DEFERRED site, where a
+   CZ_TALL column the raised band also lifted has plane 4.00 and a datum eye solves it at 3.50 - measured
+   over 8 seeds x 3 levels in 1 pose of 24 (SEED 3 L0: 67 of 189 deferred ceiling runs; the other 23
+   frames byte-identical with the term zeroed). */
+const CEILHI = 3.0, CEILG = 1.4, CEILGM = 0.9;
 const visAt = d => 1 / (1 + d * d * 0.010) + 0.06 * Math.exp(-d * 0.06);
 const fogAt = d => clamp(1 - visAt(d), 0, 1);
 const clampi = v => v < 0 ? 0 : v > 255 ? 255 : v | 0;
@@ -464,7 +485,7 @@ function castGround(flash, fcR, fcG, fcB) {
     const fogRow = fogAt(dRow);
     const invRow = 1 - fogRow, fRRow = fcR * fogRow, fGRow = fcG * fogRow, fBRow = fcB * fogRow;
     const flashRow = fl * Math.exp(-dRow * 0.30);
-    const baseRow = amb + flashRow * 0.9;
+    const baseRow = amb + flashRow * 0.9 + (isF || dzA <= CEILHI ? 0 : Math.min(CEILGM, CEILG * (dzA - CEILHI)));
     let tex, sc;
     if (isF) { tex = floorTex; sc = 1 / tileF; } else { tex = ceilTex; sc = 1 / tileC; }
     if (dRow > FARB || !(tex && tex.mips)) {                     // far band: light-tinted fog, no texture
@@ -743,7 +764,8 @@ function gndBuild(row, isF, absP, pl, tex, sc, fcR, fcG, fcB, fl, amb, dOv) {
   gMSer = gSer; gMRow = row; gMPl = pl; gMDS = dc; gMDist = dOv === undefined ? -1 : dOv;
   gMDfa = 0.4 + 0.6 * Math.exp(-dc * 0.02);
   gMFog = fog; gMInv = 1 - fog; gMFR = fcR * fog; gMFG = fcG * fog; gMFB = fcB * fog;
-  gMBase = amb + fl * Math.exp(-dc * 0.30) * 0.9;
+  gMBase = amb + fl * Math.exp(-dc * 0.30) * 0.9 +
+    (!isF && pl - eyeZ > CEILHI ? Math.min(CEILGM, CEILG * (pl - eyeZ - CEILHI)) : 0);
   /* the sampled point is LINEAR in the column: camX + (dirX + planeX*(x*stepBase-1))*dS, so a pixel
      of this run needs two multiplies, not a ray build. Same algebra the row uses for its own wx/wys. */
   const sb = 2 / BW;
