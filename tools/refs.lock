@@ -7,9 +7,9 @@
 # warning, and the row runs inside flatparity, which ci.yml runs blocking.
 ref	cull	CZBAND	crc32	0x8f763884 0x77511300 0x7dd66c40
 ref	cull	CZBAND-LIGHT	crc32	0xb0988514 0xb54c0a14 0xcb62daf2
-ref	exposure	MEDIAN	num	69 71 83
-ref	exposure	SPAWN	num	57 65 60 50 63 73
-ref	flatparity	DEALT	md5	bb12ef3e81443b9260a0827b55a6154f 370d3f7a88596a5bfc36bfc9c98b6858 3a51e659bf0b5cd60985447928db01cf
+ref	exposure	MEDIAN	num	70 72 83
+ref	exposure	SPAWN	num	57 65 60 50 64 73
+ref	flatparity	DEALT	md5	f7baf61773bb8469c5a8cf0b95681dd4 370d3f7a88596a5bfc36bfc9c98b6858 3a51e659bf0b5cd60985447928db01cf
 ref	flatparity	LOCK	md5	060da4cdaadc2e4a4276ce8f06b0eecf f05beeb58f1266a1aea7e44712995292 050b225e3f295b3ca991d59addea2f1c
 ref	flatparity	PARITY	md5	f9e4da3af18836db903fd7cbdf2b0206 f05beeb58f1266a1aea7e44712995292 d4b2d2cd539c3b620ea0ce5ab115d50a
 ref	props	LAMPCORE	num	263 239.6 263 239.5 263 239.5

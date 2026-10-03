@@ -17,7 +17,8 @@ const CAM = +(process.argv[4] || 0);
 // An unknown name used to fall through to the scene dump and exit 0, so a typo in a CI probe list
 // ran something, painted a PNG and reported a passing gate (#89).
 const PROBES = ['scene', 'alt', 'anim', 'bands', 'contrast', 'cull', 'decal', 'diag', 'exposure', 'flatparity', 'heights',
-  'drop', 'horizon', 'mip', 'planes', 'play', 'props', 'rig', 'sheets', 'sight', 'stats', 'vert', 'viewmodel', 'refs'];
+  'drop', 'horizon', 'mip', 'planes', 'play', 'props', 'rig', 'sheets', 'sight', 'stats', 'vert', 'viewmodel',
+  'volume', 'refs'];
 if (!PROBES.includes(MODE)) {
   console.error('unknown probe "' + MODE + '" - known: ' + PROBES.join(' '));
   process.exit(2);
@@ -314,8 +315,8 @@ function seedRng(seed) {
                  so without the reset boot N would texture the world further along the stream.
    The LAMPS knob used to be applied after the load loop at module scope; it is applied here instead,
    in the same position, so a re-boot honours it exactly as the first boot did. */
-function boot(knob) {
-  elements = {}; rs = SEED;
+function boot(knob, seed) {
+  elements = {}; rs = seed === undefined ? SEED : seed >>> 0;
   sandbox = {
     console, Math: sbMath, Date, JSON, Object, Array, String, Number, Boolean, Error, isNaN, isFinite, parseInt, parseFloat,
     setTimeout, clearTimeout, Uint8Array, Uint16Array, Uint32Array, Int8Array, Int16Array, Int32Array, Float32Array, Float64Array, Uint8ClampedArray,
@@ -722,11 +723,14 @@ if (MODE === 'alt') {
       `${V.spNear.toFixed(1)} m away and the cast stops on a ${V.spKind}`}. Recorded cause, measured across SEED ` +
       `12345/7/99 x 3 levels (9 deals) at the time this row was written: spawn look-up 0 EVERY time, because ` +
       `genLevel excludes room 0 from tallRooms and gives CZ_TALL only to corridor cells hugging a chosen room ` +
-      `(js/20_level.js tallWant/filter/mouth, ~:637-661), so no tall air ever reaches the spawn room. Volume is ` +
+      `(js/20_level.js tallWant / roomFloor / the mouth loop, ~:611-650), so no tall air ever reaches the spawn ` +
+      `room. Volume is ` +
       `authored and hidden behind the door rather than absent - the row above proves it is visible from ` +
-      `${V.upSeen} ordinary floors at mean ${vDist.toFixed(1)} m. STRICT=1 gates this; the fix belongs to generation ` +
-      `(carry tall air along the spawn lane's mouth, or let room 0 be a tall-room candidate), and a deal that ` +
-      `produces 0 tall columns at all is the row above's failure, not this one's`);
+      `${V.upSeen} ordinary floors at mean ${vDist.toFixed(1)} m. STRICT=1 gates this, and #282 measured what the ` +
+      `shapes that fix it in GENERATION cost - a tall spawn room, tall mouths, tall air run out from the seat - ` +
+      `+5.1 to +11.1 ms/frame against tools/smoke.js' 16 ms gate (js/20_level.js feature 1 carries the four ` +
+      `medians against a 12.30 ms parent), so what is left of this debt is a cheaper ceiling plane in the ground ` +
+      `pass, not a bigger CZ_TALL; a deal that produces 0 tall columns at all is the row above's failure, not this one's`);
     row(`L${li} off the datum is reachable from spawn, up AND down`, r.reachUp >= 1 && r.reachDown >= 1,
       `${r.reachUp} cell(s) above the datum and ${r.reachDown} below it reached from spawn by the crossing rule ` +
       `(furthest ${r.farReach} crossings away); a level with no sunken band reports 0 below`);
@@ -1155,6 +1159,161 @@ if (MODE === 'alt') {
   process.exit(bad ? 1 : 0);
 }
 
+/* --------------------------------------------------------------------------- #282 ask 2 -------
+   VOLUME - a SEED gate that GENERATES and does not render.
+
+   `alt` can already answer "does every deal author volume, and does arrival show it?", but a deal
+   costs ~35 s of it - most of that is 12 rendered cameras per level plus a look-up cast from every
+   standable cell to every tall column - so a 12-seed sweep through it is ~7 minutes and CI cannot
+   have it. This mode keeps those two claims and drops the frame: genLevel per level, the two numbers
+   read off the grid, N rounds of it per process. NO raster, no pose cache, no renderWorld, no
+   startLevel; a deal costs ~120 ms and the whole sweep runs in seconds. The elapsed ms is printed
+   because "it does not render" should be visible in the cost, not claimed in a comment.
+
+   The two numbers are the same two formulas alt's rows compare, not a second dialect of them:
+     VOLUME   ceilAt(x,y) - floorAt of an OPEN column >= 2 units - alt's headCols and V.tall
+     ARRIVAL  from the SPAWN SEAT js/30_entities.js' hitscan aimed one quantum under each tall
+              column's OWN ceiling plane - alt's look-up aim, its range 20 and its 0.35 m near gate,
+              with bodies and props out of the lane because sight's rule is that a body is not
+              geometry. No second LOS rule is invented here either.
+
+   Faithfulness is stated per path, and the two paths answer two different questions:
+     STREAM (default) one boot, then N rounds of genLevel(0), genLevel(1), genLevel(2) on the stream,
+                      so each round is the NEXT deal the generator deals. Round 1 is exactly what a
+                      fresh process at this SEED deals - which is the deal `node tools/view.js alt`
+                      gates at the CI seed - and every later round is the same claim on a different
+                      layout for ~120 ms instead of 4.5 s. That is what makes the sweep affordable.
+     BOOT=1           re-instantiate the js per seed, which is literally a fresh process at SEED=n, so
+                      row r is the deal `SEED=r node tools/view.js alt` prints. Costs ~4.5 s a seed
+                      (boot paints every texture in the game), so it is the control and the per-seed
+                      attribution tool, not the CI cell.
+
+   WHY THERE IS NO CHEAPER FAITHFUL PATH, measured here so nobody re-derives it: the obvious trick is
+   to replay the boot's draw count on each seed's stream and skip the painting. It does not work,
+   because the boot's draw count is a function of the seed - SEED 12345 draws 5089 before the mode
+   block while a re-boot at seed 1 draws 5923, the asset painters having value-dependent loops. Aligned
+   that way SEED 7 reads 52/0/78 tall columns where a re-boot and `SEED=7 node tools/view.js alt` both
+   read 71/77/0: a silent instrument measuring a different world than the one it names. Only re-running
+   the boot puts the stream where a fresh process puts it.
+
+   RECORDED ON THE PARENT COMMIT (BOOT=1, SEED 1..12, js untouched): L0 1 of 12 deals authored no
+   volume (seed 2), L2 2 of 12 (seeds 2 and 7), L1 none - 3 of 36 deals, and the seed 2/seed 7 rows are
+   the ones `SEED=n node tools/view.js alt` already fails. Same sweep on the commit that fixes the order:
+   0 of 36, min 111 tall columns on the sparsest faithful deal (BOOT=1; the STREAM sweep's sparsest is
+   95). That pair of runs is the row's seen-to-fail proof;
+   no sabotage is needed to see it, because the parent commit is the sabotage.
+
+   The DISTINCT-GRID row is the sweep's own non-vacuity: genLevel that exhausted its attempts ships
+   the same flat lit box whatever the seed, so a seed sweep whose grids collide is measuring one
+   level many times. FNV over cell + fz + cz per deal (the FNV constants are the ones crc32 uses). */
+if (MODE === 'volume') {
+  const NDEALS = Math.max(1, +(process.env.DEALS || 12) || 12);
+  const STRICT = !!process.env.STRICT;
+  let vbad = 0, vrows = 0, vknown = 0;
+  const vrow = (label, ok, detail) => {
+    console.log('  ' + label.padEnd(50) + (ok ? ' ok  ' : ' FAIL') + '  ' + detail);
+    vrows++;
+    if (!ok) vbad++;
+  };
+  /* The arrival half of #15, reported at its measured baseline rather than widened until it cannot
+     fail - the shape smoke's VERT lanes and alt's own krow use. The row is true-but-red because
+     generation cannot buy it inside the raster budget: js/20_level.js feature 1's note carries the
+     four shapes that were tried and the ms/frame each cost against tools/smoke.js' 16 ms gate. */
+  const krow = (label, ok, detail) => {
+    console.log('  ' + label.padEnd(50) + (ok ? ' ok  ' : (STRICT ? ' FAIL' : 'KNOWN')) + '  ' + detail);
+    vrows++;
+    if (!ok) { if (STRICT) vbad++; else vknown++; }
+  };
+  const REC = [[], [], []];
+  const USEBOOT = process.env.BOOT === '1';
+  const t0 = Date.now();
+  for (let s = 1; s <= NDEALS; s++) {
+    const tb = Date.now();
+    if (USEBOOT) boot(true, s);            // otherwise the stream simply carries on to the next deal
+    const tg = Date.now();
+    const line = [`${USEBOOT ? 'seed' : 'round'} ${String(s).padStart(5)}`];
+    for (let li = 0; li < 3; li++) {
+      const c = vm.runInContext(`(function(){
+        genLevel(${li});
+        const N = MAP.w, cell = MAP.cell, fz = MAP.fz, cz = MAP.cz;
+        ENEMIES.length = 0; PROPS.length = 0;
+        const spx = P.x, spy = P.y, sz = floorAt(spx, spy) + cfg.eye;
+        P.z = sz - cfg.eye; P.crouch = 0; P.air = false; P.vz = 0;
+        let open = 0, tall = 0, maxHead = 0, bandsN = 0; const cols = [], seenB = {};
+        for (let y = 1; y < N - 1; y++) for (let x = 1; x < N - 1; x++) {
+          const i = y * N + x; if (cell[i]) continue;
+          open++;
+          const h = ceilAt(x, y) - fz[i] * ZQ;
+          if (!seenB[fz[i]]) { seenB[fz[i]] = 1; bandsN++; }
+          if (h > maxHead) maxHead = h;
+          if (h >= 2) { tall++; cols.push(i); }
+        }
+        const RANGE = 20;
+        let arr = 0, near = -1, kind = '-';
+        for (const i of cols) {
+          const tx = i % N, ty = (i / N) | 0, tc = ceilAt(tx, ty);
+          const dx = tx + 0.5 - spx, dy = ty + 0.5 - spy, hh = Math.hypot(dx, dy);
+          if (hh < 0.35 || hh > RANGE) continue;
+          const zUp = tc - ZQ, dist = Math.hypot(hh, zUp - sz);
+          const hs = hitscan(Math.atan2(dy, dx), (zUp - sz) / hh, dist + 2);
+          if (hs.t >= dist - 1e-6) arr++;
+          else if (hs.wall === 1) { const d = Math.hypot(dx, dy); if (near < 0 || d < near) { near = d; kind = 'WALL'; } }
+          else { const d = Math.hypot(dx, dy); if (near < 0 || d < near) { near = d; kind = hs.wall ? 'WALL/RISER' : hs.band ? 'CEILING' : hs.floor ? 'OWN FLOOR' : 'NOTHING'; } }
+        }
+        let hsh = 2166136261;
+        for (let i = 0; i < N * N; i++) {
+          hsh = Math.imul(hsh ^ cell[i], 16777619) >>> 0;
+          hsh = Math.imul(hsh ^ (fz[i] & 255), 16777619) >>> 0;
+          hsh = Math.imul(hsh ^ cz[i], 16777619) >>> 0;
+        }
+        return { open, tall, arr, maxHead, bandsN, seats: cols.length, hash: hsh >>> 0,
+                 near, kind, head: ceilAt(spx | 0, spy | 0) - floorAt(spx, spy) };
+      })()`, ctxVm);
+      REC[li].push(c);
+      line.push(`L${li} ${String(c.tall).padStart(3)} tall ${String(c.arr).padStart(3)} from seat`);
+    }
+    line.push(`${tg - tb} ms ${USEBOOT ? 'boot' : 'carry'} + ${Date.now() - tg} ms gen`);
+    console.log('  ' + line.join('   '));
+  }
+  const ms = Date.now() - t0;
+  const med = a => { const s = a.slice().sort((x, y) => x - y); return s.length & 1 ? s[(s.length - 1) >> 1]
+    : (s[s.length / 2 - 1] + s[s.length / 2]) / 2; };
+  for (let li = 0; li < 3; li++) {
+    const R = REC[li], n = R.length;
+    const tall = R.map(c => c.tall), arr = R.map(c => c.arr);
+    const noVol = R.map((c, k) => c.tall ? -1 : k + 1).filter(k => k > 0);
+    const noArr = R.map((c, k) => c.arr ? -1 : k + 1).filter(k => k > 0);
+    const spread = a => `min ${Math.min(...a)} median ${med(a)} of ${n} max ${Math.max(...a)}`;
+    vrow(`L${li} every deal authors a column you can stand up in`, noVol.length === 0,
+      `${noVol.length} of ${n} deals author no volume (tall columns per deal: ${spread(tall)}; tallest headroom seen ` +
+      `across the sweep ${Math.max(...R.map(c => c.maxHead)).toFixed(2)} m, and a flat column reads exactly 1.00) ` +
+      `${noVol.length ? 'ZERO-VOLUME ' + (USEBOOT ? 'SEEDS' : 'ROUNDS') + ' [' + noVol.join(' ') + ']' : 'every deal authored at least one'} - a deal with no ` +
+      `CZ_TALL column is the level that reads as a crawlway, and it is a GENERATION property, so it is checkable ` +
+      `without a frame (alt's per-level row gates the same formula on the same grids, at 35 s a deal)`);
+    krow(`L${li} every deal shows that volume on arrival`, noArr.length === 0,
+      `${noArr.length} of ${n} deals show no tall column to the SPAWN SEAT (look-up columns seen from the seat: ` +
+      `${spread(arr)}; the seat's own headroom across the sweep reads ${Math.min(...R.map(c => c.head)).toFixed(2)}..` +
+      `${Math.max(...R.map(c => c.head)).toFixed(2)}) ` +
+      `${noArr.length ? 'BLIND-ARRIVAL ' + (USEBOOT ? 'SEEDS' : 'ROUNDS') + ' [' + noArr.join(' ') + '] - nearest column the seat cannot look up into is ' +
+      R.find(c => !c.arr).near.toFixed(1) + ' m and the cast stops on a ' + R.find(c => !c.arr).kind
+        : 'arrival shows volume on every deal'} - the seat's own ceiling is ${Math.min(...R.map(c => c.head)).toFixed(2)} m, and a look-up ray has to climb over that before it can see that any room is tall: with a flat spawn room the row stays at 0 whatever the rest of the map does. Generation can move this by putting tall air in the arrival frame, and every shape that does costs the frame more than tools/smoke.js' 16 ms gate has left (js/20_level.js feature 1 carries the four shapes and their medians, +5.1 to +11.1 ms against 12.30): STRICT=1 gates it, and the fix is a cheaper ceiling in the ground pass, not a bigger CZ_TALL.`);
+    const distinct = new Set(R.map(c => c.hash)).size;
+    vrow(`L${li} the sweep deals a different grid per deal`, distinct === n,
+      `${distinct} distinct cell+fz+cz grids over ${n} deals (${n - distinct} collision(s)); ${Math.min(...R.map(c => c.open))} ` +
+      `open cells is the sparsest deal and ${Math.min(...R.map(c => c.bandsN))} bands its fewest - the fallback box is the ` +
+      `same lit box for every deal, so a collision here means generation gave up and this sweep would be one level ` +
+      `measured ${n} times (no frame is rendered anywhere in this mode: ${ms} ms for ${n * 3} generations, ${
+        USEBOOT ? 'each one a fresh boot, so row r is the deal SEED=r alt gates'
+                : 'round 1 is the deal a fresh process at this SEED deals, later rounds are later deals on the same stream'}`);
+  }
+  console.log((vbad ? `VOLUME ${vbad} FAILURES - some deal authors no volume, or shows none on arrival`
+    : `VOLUME ok - ${NDEALS} deals x 3 levels, every deal authors volume`) +
+    `  |  ${vrows} row(s), ${vknown} known-issue row(s)${vknown ? (STRICT ? ' (FAILED under STRICT=1)' : ' (reporting: #282 arrival view - STRICT=1 gates)') : ''}` +
+    `, ${ms} ms total, no raster, ${USEBOOT ? `BOOT=1: ${NDEALS} fresh boots, row r = the deal SEED=r alt gates`
+      : `STREAM: ${NDEALS} rounds of genLevel on the SEED ${SEED} stream, round 1 = the deal SEED ${SEED} alt gates`}`);
+  process.exit(vbad ? 1 : 0);
+}
+
 if (MODE === 'flatparity') {
   /* The backwards-compatibility test every altitude change has passed: force the grid flat and
      the spawn-camera frame must hash bit-identical against the build before the change. The
@@ -1312,8 +1471,15 @@ if (MODE === 'flatparity') {
      58.7 / 86.0 -> 55.3 / 57.8 / 85.1), and the dealt wrong-band population fell 37/49/75 ->
      19/10/16 per 12 rolls. The two FLAT senses (LOCK, PARITY) did not move a bit under the same
      change - which is what makes this a light-population move rather than a renderer move. */
-  const DEALT = refRecord('flatparity', 'DEALT', 'md5', ['bb12ef3e81443b9260a0827b55a6154f', '370d3f7a88596a5bfc36bfc9c98b6858', '3a51e659bf0b5cd60985447928db01cf']);
-  const DEALTM = [55.3, 57.8, 85.1];
+  /* #282 re-keyed the FIRST element of this triple, and here the world did move in generation rather
+     than in the renderer: js/20_level.js' TALL ROOM now runs before the floor features, admits rooms a
+     pillar stands in, and takes two candidates instead of one, so the level dealt at dice 1000 has
+     tall air in columns it did not have (L0's dealt frame mean 55.3 -> 55.5, the sampler and the seat
+     unchanged at 14.5,12.5 / 2.356 rad). Levels 1 and 2 dealt byte-identical, and the two FLAT senses
+     (LOCK, PARITY) did not move a bit under the same change - which is what makes this an authored-
+     volume move rather than a renderer move, the same discriminator #206 used. */
+  const DEALT = refRecord('flatparity', 'DEALT', 'md5', ['f7baf61773bb8469c5a8cf0b95681dd4', '370d3f7a88596a5bfc36bfc9c98b6858', '3a51e659bf0b5cd60985447928db01cf']);
+  const DEALTM = [55.5, 57.8, 85.1];
   const OFF = process.env.LAMPS === 'off';
   const f1 = v => (v === undefined || v === null ? '-' : (+v).toFixed(1));
   const md5of = () => { const d = new Uint32Array(run('px'));
@@ -4161,8 +4327,15 @@ if (MODE === 'exposure') {
          that proves the plumbing is a mutation INSIDE the pixels, not a constant at the top of a file. */
   let bad = 0, rowsN = 0;
   const row = (label, ok, detail) => { rowsN++; if (!ok) bad++; console.log('  ' + (ok ? 'ok  ' : 'FAIL') + ' ' + (label + '                                     ').slice(0, 52) + ' ' + detail); };
-  const EXPO_MED = refRecord('exposure', 'MEDIAN', 'num', [69, 71, 83]);
-  const EXPO_SPAWN = refRecord('exposure', 'SPAWN', 'num', [57, 65, 60, 50, 63, 73]);   // mean, mid per level
+  /* #282 re-keyed two of these six numbers, and the move is small and in one direction: authoring tall
+     air in rooms that had a one-unit ceiling puts more ceiling (and a farther one) in the frame. Exact
+     medians 69.43 / 71.06 / 83.44 on the parent commit -> 70.08 / 71.63 / 83.39 here, and the spawn
+     seats move only on level 2 (mean 63.41 -> 64.33, every mid unchanged). Every median still sits
+     inside the documented 60-100 window, and the raster cost is unchanged (tools/smoke.js 12.35 ms vs
+     12.30 ms on the parent) - so this is the picture of a level with more volume in it, not an exposure
+     change. The window row, not this one, gates the look. */
+  const EXPO_MED = refRecord('exposure', 'MEDIAN', 'num', [70, 72, 83]);
+  const EXPO_SPAWN = refRecord('exposure', 'SPAWN', 'num', [57, 65, 60, 50, 64, 73]);   // mean, mid per level
   const LUM_WANT = [60, 100];       // the documented window (README: targets 60-100), median not mean
   const medRec = [], spawnRec = [];
   for (let lv = 0; lv < N; lv++) {
