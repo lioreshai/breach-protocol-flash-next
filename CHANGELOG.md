@@ -85,6 +85,19 @@
 
 ### Added
 
+- **`JSDIR=` is a real A/B knob instead of a documented promise** (#289). `docs/DEVELOPMENT.md` and
+  `AGENTS.md` both tell you to bisect a hot-loop regression by pointing a probe at a variant tree, and no
+  harness implemented it: `tools/view.js:333` and `tools/smoke.js:75` built their path from `__dirname`, so a
+  `JSDIR=` run booted *this* checkout's scripts and printed a verdict about them — a control that silently
+  cancels itself, which is #148's failure mode with a knob's name on it. Both harnesses now resolve every game
+  script (and `view.js`'s `13_mesh.js` source-text assert, so a text check cannot disagree with the scripts it
+  loaded) through one `JSDIR` constant; unset changes nothing byte for byte. The variant side prints
+  `# JSDIR <path> js-sha256 <16> N files`, so a transcript carries which bytes produced each number, and a
+  variant directory with no `.js` in it exits 1 instead of booting an empty sandbox. Seen to work in both
+  directions: `scene 0 0` hashes `ed8585fa…` at baseline and `ed8585fa…` with `JSDIR` at its own tree (the
+  knob must not perturb the render), and `e9652ccc…` against a tree whose `visAt` was changed from
+  `d*d*0.010` to `d*d*0.040`.
+
 - **The spawn room has four units of air the seat can look up into, and a ceiling beyond lamp reach is now
   lit** (#299, part of #15 M5). `volume`'s arrival row has been blind on every deal: from a seat under a
   one-unit ceiling the ray to the nearest tall column crosses that plane a fifth of the way out and dies on
