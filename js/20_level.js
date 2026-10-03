@@ -444,6 +444,14 @@ const STAIR_CELLS = 4;                                      // cells a 1-unit cl
    rooms.length runs 4..7 on this generator, so every deal in the game had a single candidate). */
 const TALL_WANT_MIN = 2;
 const PIT_W = 5, PIT_H = 4, PIT_MIN = 6;                    // sunken cells: see feature 2's budget note
+/* #284's rect pass. LOWER bound: the coverage top-up below serves a band only from MIN_BAND = 8
+   reachable cells, and a hole it refuses to put a lamp on is a DARK pit floor - which is alt's "a pit
+   reads lit, not blown" row, FAILed at 1 of 229 cells on the first version of this code, where a 3x2
+   rect was legal. UPPER bound: feature 2's note prices a sunken block at ~+5 ms of a 16 ms frame, so a
+   hole that exists only because a bigger one was impossible stays small - the deal keeps the DOWN and
+   does not buy the frame cost of a full-size pit on top of it. */
+const PIT_RECT_MIN = 8, PIT_RECT_MAX = 12;
+const DIG_BUDGET = 12;                                // linkBand calls the #284 rect hunt may spend
 
 function authorVolume(cell, N, rooms, fz, vb, feat, cz) {
   const open = (x, y) => x > 0 && y > 0 && x < N - 1 && y < N - 1 && cell[y * N + x] === 0;
@@ -693,19 +701,45 @@ function authorVolume(cell, N, rooms, fz, vb, feat, cz) {
      pixels of 194,123; the same level with the sunken block removed measured +5. So the pit is a
      BLOCK with a lip around it, not a whole room: you stand in the room and look DOWN into a hole,
      which is the cue the row is about, and the frame stays inside the budget it is gated on. */
-  const sunkRooms = rooms.slice(1).filter(r => {
-    for (let y = r.y; y < r.y + r.h; y++) for (let x = r.x; x < r.x + r.w; x++) {
-      if (!open(x, y) || fz[y * N + x] !== 0 || flat[y * N + x]) return false;
+  /* The hole's own legality, for both passes below: a `bw x bh` RECT at (bx,by) whose RING (the rect
+     expanded by one cell) is open too. Every cell of hole and ring must be on the datum, out of the
+     reserved flat lane and out of the spawn room, the ring must belong to the host room (so the lip is
+     the floor of a room and not a corridor's), and at least one hole cell must already be walkable in
+     d0 - a hole in a pocket the spawn can never reach is decoration, and it would let linkBand report
+     success with nothing linked, because nothing was stranded. That is the whole geometric contract a
+     pit has: the room-level test the first pass uses asks for it of an ENTIRE room, which is more than
+     the feature needs and is why a deal can reach this line and author nothing. */
+  const holeOK = (room, bx, by, bw, bh) => {
+    let seen = false;
+    for (let y = by - 1; y <= by + bh; y++) for (let x = bx - 1; x <= bx + bw; x++) {
+      if (!open(x, y)) return false;
+      const i = y * N + x;
+      if (fz[i] !== 0 || flat[i] || inSpawn(x, y)) return false;
+      if ((x === bx - 1 || x === bx + bw || y === by - 1 || y === by + bh) && roomAt(x, y) !== room) return false;
+      if (!seen && x >= bx && x < bx + bw && y >= by && y < by + bh && d0[i] >= 0) seen = true;
     }
-    return r.w >= 4 && r.h >= 4;
-  }).sort((a, b) => {
-    const da = d0[a.cy * N + a.cx], db = d0[b.cy * N + b.cx];
-    return (db < 0 ? -1 : db) - (da < 0 ? -1 : da) || b.w * b.h - a.w * a.h || a.cx - b.cx || a.cy - b.cy;
-  });
-  for (const room of sunkRooms.slice(0, 4)) {
-    const bw = Math.min(room.w - 2, PIT_W), bh = Math.min(room.h - 2, PIT_H);
-    if (bw * bh < PIT_MIN) continue;                 // no room for a hole with a lip around it
-    const bx = room.x + ((room.w - bw) >> 1), by = room.y + ((room.h - bh) >> 1);
+    return seen;
+  };
+  /* A hole needs a way out on foot: linkBand only ever links a cell that was reachable in d0 and is not
+     now, and its stair wants four datum cells in a straight line from the mouth. Asking that of the
+     rect before writing it costs a few hundred compares and keeps linkBand - which re-runs bfsReach
+     per round - off the inside of a position scan. */
+  const stairNear = (bx, by, bw, bh) => {
+    for (let y = by; y < by + bh; y++) for (let x = bx; x < bx + bw; x++) for (let d = 0; d < 4; d++) {
+      let n = 0;
+      for (let k = 1; k <= STAIR_CELLS; k++) {
+        const px = x + DIRX[d] * k, py = y + DIRY[d] * k;
+        if (!open(px, py)) break;
+        const j = py * N + px;
+        if (fz[j] !== 0 || flat[j] || (px >= bx && px < bx + bw && py >= by && py < by + bh)) break;
+        n++;
+      }
+      if (n >= STAIR_CELLS) return true;
+    }
+    return false;
+  };
+  /* Cut it, link it, and hand the whole rectangle back if the link does not hold. */
+  const dig = (bx, by, bw, bh, tag) => {
     const cp = cut(), sel = new Uint8Array(N * N);
     for (let y = by; y < by + bh; y++) for (let x = bx; x < bx + bw; x++) {
       const i = y * N + x;
@@ -719,9 +753,88 @@ function authorVolume(cell, N, rooms, fz, vb, feat, cz) {
     // Stairs only, no ladder fallback: dropping into a pit is free (a drop is never a wall), so the
     // only way out is the climb, and a flagged crossing is a link the occupancy gate can see and the
     // player may not be able to use. A pit that will not take a stair is not authored at all.
-    const ok = linkBand(sel, BAND_DOWN, d0, false);
-    if (ok) { authored.push('sunkenRoom'); break; }
+    if (linkBand(sel, BAND_DOWN, d0, false)) { authored.push(tag); return true; }
     rewind(cp);
+    return false;
+  };
+  const sunkRooms = rooms.slice(1).filter(r => {
+    for (let y = r.y; y < r.y + r.h; y++) for (let x = r.x; x < r.x + r.w; x++) {
+      if (!open(x, y) || fz[y * N + x] !== 0 || flat[y * N + x]) return false;
+    }
+    return r.w >= 4 && r.h >= 4;
+  }).sort((a, b) => {
+    const da = d0[a.cy * N + a.cx], db = d0[b.cy * N + b.cx];
+    return (db < 0 ? -1 : db) - (da < 0 ? -1 : da) || b.w * b.h - a.w * a.h || a.cx - b.cx || a.cy - b.cy;
+  });
+  let pitted = false;
+  for (const room of sunkRooms.slice(0, 4)) {
+    const bw = Math.min(room.w - 2, PIT_W), bh = Math.min(room.h - 2, PIT_H);
+    if (bw * bh < PIT_MIN) continue;                 // no room for a hole with a lip around it
+    const bx = room.x + ((room.w - bw) >> 1), by = room.y + ((room.h - bh) >> 1);
+    if (dig(bx, by, bw, bh, 'sunkenRoom')) { pitted = true; break; }
+  }
+
+  /* ---- feature 3b: when no ROOM qualified, look for a HOLE -------------------------------
+     #284: on some deals every candidate the pass above will accept is disqualified before the geometry
+     is looked at, and the level ships with its only off-datum floor ABOVE the seat - nothing to climb
+     down into, while every band/link/reach row stays green. The pass above asks a ROOM to be uniform,
+     and three ordinary things break that term, all three measured on an unmodified tree (the deals are
+     the ones tools/view.js volume's DOWN row fails; room cells counted over AIR cells only):
+       a PILLAR in a room of 8x8 or more      SEED 5 L1's 9x10 room, entirely on the datum, refused for
+                                             2 pillar cells - the term #283 removed from the tall-air
+                                             filter for exactly this reason, still live here;
+       the RAISED BAND stepping part of it    SEED 3 L0 room 1: 26 of its 81 cells at floor 1.00;
+       the V15 FLAT LANE crossing it          SEED 3 L0 room 2 (3 of its cells) and SEED 4 L0 room 3 (4).
+     None of the three is a reason a hole cannot be cut THERE: a pit needs a rect of datum cells with a
+     ring of datum cells around it, not a whole room of them. So when the room pass authored nothing,
+     scan positions: the same rooms, ranked the same way by how far the centre sits from spawn (with
+     centres bfsReach cannot reach ranked LAST rather than first, because a hole you cannot walk to is
+     not a DOWN), then the sizes PIT_RECT_MIN..PIT_RECT_MAX cells with no side thinner than 2 - a 1-cell
+     strip is a slot, not a block with a lip - cheapest first, and within a size the positions by
+     distance from the room centre, so the centred placement the room pass already used stays the first
+     thing tried and a deal that had a pit keeps the pit it had.
+
+     WHY THIS CANNOT MOVE A DEAL THAT ALREADY HAD A DOWN: the loop is behind `if (!pitted)`, it draws NO
+     randomness, and on a deal where the room pass succeeded the grid is not touched again. The CI deal
+     (SEED 12345) pits on all three levels in the first pass, so every recorded reference - flatparity's
+     spawn-frame md5s included - is computed on the same grid it always was. */
+  if (!pitted) {
+    const sizes = [];
+    for (let bw = PIT_W; bw >= 2; bw--) for (let bh = PIT_H; bh >= 2; bh--) {
+      const a = bw * bh;
+      if (a >= PIT_RECT_MIN && a <= PIT_RECT_MAX) sizes.push([bw, bh, a]);
+    }
+    // cheapest legal hole first (a and bw tie-break deterministically), so the first hole the scan
+    // finds is also the smallest one that could have served the level
+    sizes.sort((x, y) => x[2] - y[2] || y[0] - x[0] || x[1] - y[1]);
+    const hosts = rooms.slice(1).map(r => ({ r, d: d0[r.cy * N + r.cx] })).sort((a, b) =>
+      (a.d < 0 ? 1e6 : a.d) - (b.d < 0 ? 1e6 : b.d) || b.r.w * b.r.h - a.r.w * a.r.h || a.r.cx - b.r.cx || a.r.cy - b.r.cy);
+    let digs = 0;
+    for (const h of hosts) {
+      const room = h.r;
+      if (room.w < 4 || room.h < 4) continue;         // the room pass's own floor, kept
+      for (const [bw, bh] of sizes) {
+        if (bw > room.w - 2 || bh > room.h - 2 || digs > DIG_BUDGET) continue;
+        const xs = [], ys = [];
+        for (let x = room.x + 1; x + bw <= room.x + room.w - 1; x++) xs.push(x);
+        for (let y = room.y + 1; y + bh <= room.y + room.h - 1; y++) ys.push(y);
+        if (!xs.length || !ys.length) continue;
+        const mx = room.x + ((room.w - bw) >> 1), my = room.y + ((room.h - bh) >> 1);
+        const spots = [];
+        for (const bx of xs) for (const by of ys) spots.push([bx, by, Math.abs(bx - mx) + Math.abs(by - my)]);
+        spots.sort((a, b) => a[2] - b[2] || a[1] - b[1] || a[0] - b[0]);
+        for (const s of spots) {
+          if (!stairNear(s[0], s[1], bw, bh) || !holeOK(room, s[0], s[1], bw, bh)) continue;
+          /* A scan is a couple of hundred compares; a DIG is a linkBand, which re-runs bfsReach per
+             round. The cap therefore binds on digs, and a cap on the scans instead is what left the
+             first legal rect of the deal that opened #284 unexamined: the four sizes larger than it
+             cost 48 positions and the budget died on cells that were never candidates. */
+          if (++digs > DIG_BUDGET) break;
+          if (dig(s[0], s[1], bw, bh, 'sunkenRect')) { pitted = true; break; }
+        }
+      }
+      if (pitted || digs > DIG_BUDGET) break;
+    }
   }
 
   /* Carry the base of every solid column down to the lowest band it bounds. A face spans

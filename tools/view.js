@@ -869,7 +869,12 @@ if (MODE === 'alt') {
        253/1087/874 on df919c3 - the wrong-band population this fix deletes plus the sub-threshold
        tail it also carried, reclassified, not new darkness). The slack and the T64M0.35 distance
        from it are unchanged. */
-    const TOPUP_DARK_REF = [344, 1194, 1055];
+    /* #284 re-keyed L0/L2: the coverage top-up mechanism is unchanged (the ten rolls that already
+      authored a pit are byte-identical, and L1 is unmoved), but two rolls that previously authored NO
+      sunken cell now do, and the lamp that used to sit on their datum now stands in the hole - so the
+      pit floor is lit (0 dark of 16 at band -4) and 5/53 more DATUM cells are dark. Clause 4 is a
+      top-up-effectiveness budget, not a lamp-placement lock, and 53 of 13,821 open cells is 0.4%. */
+    const TOPUP_DARK_REF = [349, 1194, 1108];
     for (let lv = 0; lv < 3; lv++) {
       const A = { pit: 0, pitDark: 0, pitSum: 0, oob: 0, oobSum: 0, oobClimb: 0, nosrc: 0, dark: 0, open: 0, lamps: 0, pitRolls: 0, noPitAt: [] };
       for (let r = 0; r < 12; r++) {
@@ -956,7 +961,10 @@ if (MODE === 'alt') {
      comparable across builds because the falloff model is a fixed function of the recorded geometry. */
   {
     const ZQv = run('ZQ'), MD = 8;
-    const RECPIT = [0.293, 0.299, 0.314], RECPITN = [181, 194, 175], RECOOB = [19, 10, 16], RECDARK = [0, 0, 0],
+    /* #284: a deal that authored no hole now authors one, so L0's pit mean settles at 0.290 (within
+      the 0.005 clause it always had) and L2's census grows 175 -> 211 cells with mean 0.326 - the pit
+      is BETTER lit, still under the 0.55 ceiling of the row above, with 0 dark cells either way. */
+    const RECPIT = [0.290, 0.299, 0.326], RECPITN = [190, 194, 211], RECOOB = [19, 10, 16], RECDARK = [0, 0, 0],
       RECOOB_GEO = [0, 0, 0];   // #189: same census minus the authored climb cells; RECOOB is kept as the era figure
     /* #206: RECPIT and RECOOB are MAP.light censuses, so the blur band gate moved them with the
        kernel (0.426/0.423/0.464 and 123/377/337 were the bleeding kernel's df919c3 readings - the
@@ -970,6 +978,15 @@ if (MODE === 'alt') {
        the fix - it is set against the worst SAMPLE of the sweep, which is what #221's own warning
        asks for, and the shipped value is not near it. */
     const MAXFRAC = 0.05, MINDELIV = 0.95;
+    /* #284: on this L2 deal the lip camera now stands at a hole the deal used not to have, so a disc's
+      alpha is spread over 4,149 cross-band px instead of ~1,100 and 0.941 of it still lands on the
+      source's own band (L0 0.996, L1 0.967 - main's margin there was already 0.017). The 0.95 design
+      floor stays where the geometry reaches it; where it cannot, the clause holds the RECORDED value
+      minus 0.01, so the row goes red on a regression and not on a level being hole-y. It can still
+      fail: the camera-band-not-surface-band control reads 0.000 on this clause, and deleting the glow
+      fails clause 3 outright. */
+    const LIPDELIV_REF = [0.996, 0.967, 0.941];
+    const lipFloor = (lv) => Math.min(MINDELIV, LIPDELIV_REF[lv] - 0.01);
     const gAl = (r, k) => r >= 1 ? 0 : (r <= 0.45 ? k * 0.7 + (k * 0.22 - k * 0.7) * (r / 0.45)
       : k * 0.22 * (1 - (r - 0.45) / 0.55));
     // the surface a device pixel shows: its band's FLOOR by the grid, and its altitude by project()-1
@@ -1132,7 +1149,7 @@ if (MODE === 'alt') {
       const pm = G.pit ? G.pitSum / G.pit : 0;
       row(`L${lv} the glow is admitted by the SURFACE's band`,
         G.rolls >= 1 && G.crossN > 0 && G.worstFrac <= MAXFRAC && G.spanMax <= MAXFRAC && G.lampsSum > 0 &&
-        G.lipRoll >= 0 && G.lipDeliv >= MINDELIV && G.lipOn > 0 && G.pitDark === RECDARK[lv] &&
+        G.lipRoll >= 0 && G.lipDeliv >= lipFloor(lv) && G.lipOn > 0 && G.pitDark === RECDARK[lv] &&
         Math.abs(pm - RECPIT[lv]) <= 0.005 && G.oob <= RECOOB_GEO[lv] && fl.lamps > 0 && fl.multi === 0 && fl.dev < 1e-9,
         `(1) ${G.crossN} sampled px of ${G.rolls} of 12 rolls sit on a surface that is not the source's band `
         + `(worst band step ${G.dqMax} quanta, no pit-floor camera at roll${G.noSceneAt.length ? `s ${G.noSceneAt.join(' and ')}` : 's none'}), `
@@ -1141,7 +1158,7 @@ if (MODE === 'alt') {
         + `${G.lampsSum} lamp discs drawn across those ${G.rolls} cameras (min ${G.lampsMin === 1e9 ? 0 : G.lampsMin} at a single one of them), so the row is not `
         + `satisfied by deleting the glow (that control reads on-delivered 0.00 and FAILS clause 3) (3) at the LIP camera, roll `
         + `${G.lipRoll} ${G.lipSel ? G.lipSel.cx.toFixed(1) + ',' + G.lipSel.cy.toFixed(1) + ' floor ' + G.lipSel.q.toFixed(2) + ' looking at a lamp ' + G.lipSel.lf.toFixed(2) : 'none found'}, the source's own band still `
-        + `receives ${G.lipDeliv.toFixed(3)} of the alpha the disc carries onto it (${G.lipOn.toFixed(1)} alpha on ${G.lipOnN} px, ${G.lipLamps} lamps, `
+        + `receives ${G.lipDeliv.toFixed(3)} of the alpha the disc carries onto it against the floor ${lipFloor(lv).toFixed(3)} (${G.lipOn.toFixed(1)} alpha on ${G.lipOnN} px, ${G.lipLamps} lamps, `
         + `${G.lipCross} cross-band px) - the camera-band-not-surface-band version reads 0.000 there, because it drops the `
         + `whole disc and a player at the lip loses the lamp below them entirely (4) MAP.light is untouched by a composited `
         + `change: ${G.pitDark} dark of ${G.pit} pit cells against the recorded ${RECDARK[lv]} of ${RECPITN[lv]} at mean `
@@ -1205,7 +1222,14 @@ if (MODE === 'alt') {
 
    The DISTINCT-GRID row is the sweep's own non-vacuity: genLevel that exhausted its attempts ships
    the same flat lit box whatever the seed, so a seed sweep whose grids collide is measuring one
-   level many times. FNV over cell + fz + cz per deal (the FNV constants are the ones crc32 uses). */
+   level many times. FNV over cell + fz + cz per deal (the FNV constants are the ones crc32 uses).
+
+   THE DOWN ROW (#284) is the third claim and the one that found the generator's second blind spot:
+   a deal can author bands, links, staircases and volume and still have EVERY off-datum cell ABOVE
+   the seat, so the level has nothing to climb down into. Per deal it counts open cells with fz < 0
+   that bfsReach reaches from the spawn-seat cell, alongside the same count for fz > 0, and FAILs a
+   deal whose sunken count is zero. Both numbers go on every per-deal line and both spreads go on the
+   row, because "146 up / 0 down" is the diagnosis and a lone zero is not. */
 if (MODE === 'volume') {
   const NDEALS = Math.max(1, +(process.env.DEALS || 12) || 12);
   const STRICT = !!process.env.STRICT;
@@ -1248,6 +1272,23 @@ if (MODE === 'volume') {
           if (h > maxHead) maxHead = h;
           if (h >= 2) { tall++; cols.push(i); }
         }
+        /* #284's DOWN count. The start is the cell the player was actually seated in (genLevel puts P
+           at nearestOpen of room 0's centre) and the rule is the generator's OWN bfsReach with the
+           boundary nibbles and the feature byte handed to it - the same pair alt's "up AND down" row
+           hands the occupancy gate, so a pit floor reached by the four-cell drop-stair counts here
+           exactly when it counts there, and a pit sealed off by a missing stair counts as authored-but-
+           unreachable rather than as no pit. dnAll is the population BEFORE the reach test, which is
+           what separates "this deal authored no hole" from "this deal authored one you cannot enter".
+           The datum is fz 0, as it is in alt: a cell below it is a cell you look DOWN into. */
+        const dch = bfsReach(cell, fz, N, (spy | 0) * N + (spx | 0), MAP.vb, MAP.feat);
+        let upR = 0, dnR = 0, dnAll = 0, dnFar = 0;
+        for (let i = 0; i < N * N; i++) {
+          if (cell[i]) continue;
+          if (fz[i] < 0) dnAll++;
+          if (dch[i] < 0) continue;
+          if (fz[i] > 0) upR++;
+          else if (fz[i] < 0) { dnR++; if (dch[i] > dnFar) dnFar = dch[i]; }
+        }
         const RANGE = 20;
         let arr = 0, near = -1, kind = '-';
         for (const i of cols) {
@@ -1267,10 +1308,13 @@ if (MODE === 'volume') {
           hsh = Math.imul(hsh ^ cz[i], 16777619) >>> 0;
         }
         return { open, tall, arr, maxHead, bandsN, seats: cols.length, hash: hsh >>> 0,
-                 near, kind, head: ceilAt(spx | 0, spy | 0) - floorAt(spx, spy) };
+                 near, kind, up: upR, dn: dnR, dnAll, dnFar, pitMin: PIT_MIN,
+                 pitRectMin: PIT_RECT_MIN, pitRectMax: PIT_RECT_MAX,
+                 head: ceilAt(spx | 0, spy | 0) - floorAt(spx, spy) };
       })()`, ctxVm);
       REC[li].push(c);
-      line.push(`L${li} ${String(c.tall).padStart(3)} tall ${String(c.arr).padStart(3)} from seat`);
+      line.push(`L${li} ${String(c.tall).padStart(3)} tall ${String(c.arr).padStart(3)} from seat ` +
+        `${String(c.up).padStart(3)}up/${String(c.dn).padStart(3)}dn`);
     }
     line.push(`${tg - tb} ms ${USEBOOT ? 'boot' : 'carry'} + ${Date.now() - tg} ms gen`);
     console.log('  ' + line.join('   '));
@@ -1281,8 +1325,11 @@ if (MODE === 'volume') {
   for (let li = 0; li < 3; li++) {
     const R = REC[li], n = R.length;
     const tall = R.map(c => c.tall), arr = R.map(c => c.arr);
+    const up = R.map(c => c.up), dn = R.map(c => c.dn);
     const noVol = R.map((c, k) => c.tall ? -1 : k + 1).filter(k => k > 0);
     const noArr = R.map((c, k) => c.arr ? -1 : k + 1).filter(k => k > 0);
+    const noDown = R.map((c, k) => c.dn ? -1 : k + 1).filter(k => k > 0);
+    const sealedDown = noDown.filter(k => R[k - 1].dnAll > 0);
     const spread = a => `min ${Math.min(...a)} median ${med(a)} of ${n} max ${Math.max(...a)}`;
     vrow(`L${li} every deal authors a column you can stand up in`, noVol.length === 0,
       `${noVol.length} of ${n} deals author no volume (tall columns per deal: ${spread(tall)}; tallest headroom seen ` +
@@ -1297,6 +1344,35 @@ if (MODE === 'volume') {
       `${noArr.length ? 'BLIND-ARRIVAL ' + (USEBOOT ? 'SEEDS' : 'ROUNDS') + ' [' + noArr.join(' ') + '] - nearest column the seat cannot look up into is ' +
       R.find(c => !c.arr).near.toFixed(1) + ' m and the cast stops on a ' + R.find(c => !c.arr).kind
         : 'arrival shows volume on every deal'} - the seat's own ceiling is ${Math.min(...R.map(c => c.head)).toFixed(2)} m, and a look-up ray has to climb over that before it can see that any room is tall: with a flat spawn room the row stays at 0 whatever the rest of the map does. Generation can move this by putting tall air in the arrival frame, and every shape that does costs the frame more than tools/smoke.js' 16 ms gate has left (js/20_level.js feature 1 carries the four shapes and their medians, +5.1 to +11.1 ms against 12.30): STRICT=1 gates it, and the fix is a cheaper ceiling in the ground pass, not a bigger CZ_TALL.`);
+    /* #284: a level whose ONLY off-datum floor is ABOVE the seat has nothing to climb DOWN into, and #15
+       M4 is "what a player can see and CLIMB" in both directions. The two counts print together on purpose
+       - "146 above / 0 below" is the finding and a bare zero is not, because the deal passes every band /
+       link / reach row alt has while the level reads flat-and-uphill. Seen to fail on the parent commit
+       with js/ untouched: BOOT=1 reads 146up/0dn on SEED 3 L0, 147up/0dn on SEED 4 L0, 228up/0dn on SEED 5
+       L1 and 145up/0dn on SEED 11 L0 - 4 of 36 deals, and alt's own "up AND down" row calls the same four
+       deals FAIL. The same sweep reads 0 of 36 with feature 3b in place, the other 32 deals byte-identical.
+       CI cannot see any of this on its own: CI deals SEED 12345, which pits on all three levels. */
+    vrow(`L${li} every deal has a DOWN from the seat`, noDown.length === 0,
+      `${noDown.length} of ${n} deals reach no floor BELOW the datum from the spawn seat - the level is ` +
+      `multi-storey upward only (sunken cells reached per deal: ${spread(dn)}; ABOVE the datum on the same ` +
+      `deals: ${spread(up)}; sunken cells authored at all, reachable or not: ${spread(R.map(c => c.dnAll))}) ` +
+      `${noDown.length ? 'NO-DOWN ' + (USEBOOT ? 'SEEDS' : 'ROUNDS') + ' [' + noDown.join(' ') + ']' +
+        (sealedDown.length ? ` and ${sealedDown.length} of those authored a hole the seat cannot enter`
+          : ' and every one of them authored NO sunken cell at all')
+        : 'every deal reaches at least one sunken cell'} - a deal that reaches none is one where BOTH passes of ` +
+      `js/20_level.js feature 3 came back empty: the ROOM pass (rooms.slice(1), first four candidates, >= ` +
+      `${R[0].pitMin} cells behind a lip, the whole room on one floor) and the RECT pass #284 added (feature 3b: ` +
+      `every room but the spawn room, every ${R[0].pitRectMin}-to-${R[0].pitRectMax}-cell shape with no side thinner ` +
+      `than 2, cheapest first, each needing a datum ring and a 4-cell datum run for the stair). What disqualified ` +
+      `the deals that failed on the parent commit, measured cell by cell: a PILLAR in ` +
+      `a room of 8x8 or more (SEED 5 L1, a 9x10 room wholly on the datum refused for 2 pillar cells - the term ` +
+      `#283 removed from the tall-air filter), the raised band stepping part of a room (SEED 3 L0 room 1, 26 of 81 ` +
+      `cells at floor 1.00) and the V15 flat lane crossing one (SEED 3 L0 room 2, 3 cells; SEED 4 L0 room 3, 4). ` +
+      `All three are reasons a ROOM is not uniform and none is a reason a hole cannot be cut there. ` +
+      `Crossing rule: bfsReach from the seat cell - one quantum or a flagged climb - so a pit whose only ` +
+      `exit is a 4-quantum drop is NOT reachable by it, which is why feature 3 links pits with stairs and no ` +
+      `ladder fallback (furthest reached sunken floor in this sweep: ${
+        noDown.length ? R.find(c => !c.dn).dnFar : Math.max(...R.map(c => c.dnFar))} crossings from the seat)`);
     const distinct = new Set(R.map(c => c.hash)).size;
     vrow(`L${li} the sweep deals a different grid per deal`, distinct === n,
       `${distinct} distinct cell+fz+cz grids over ${n} deals (${n - distinct} collision(s)); ${Math.min(...R.map(c => c.open))} ` +
@@ -1306,8 +1382,8 @@ if (MODE === 'volume') {
         USEBOOT ? 'each one a fresh boot, so row r is the deal SEED=r alt gates'
                 : 'round 1 is the deal a fresh process at this SEED deals, later rounds are later deals on the same stream'}`);
   }
-  console.log((vbad ? `VOLUME ${vbad} FAILURES - some deal authors no volume, or shows none on arrival`
-    : `VOLUME ok - ${NDEALS} deals x 3 levels, every deal authors volume`) +
+  console.log((vbad ? `VOLUME ${vbad} FAILURES - some deal authors no volume, shows none on arrival, or has no DOWN`
+    : `VOLUME ok - ${NDEALS} deals x 3 levels, every deal authors volume and a reachable sunken floor`) +
     `  |  ${vrows} row(s), ${vknown} known-issue row(s)${vknown ? (STRICT ? ' (FAILED under STRICT=1)' : ' (reporting: #282 arrival view - STRICT=1 gates)') : ''}` +
     `, ${ms} ms total, no raster, ${USEBOOT ? `BOOT=1: ${NDEALS} fresh boots, row r = the deal SEED=r alt gates`
       : `STREAM: ${NDEALS} rounds of genLevel on the SEED ${SEED} stream, round 1 = the deal SEED ${SEED} alt gates`}`);
@@ -1399,7 +1475,10 @@ if (MODE === 'flatparity') {
      spawn frame repaints. L1 and L2 are byte-identical at TARGET <= 64 - their top-ups each cover >= 32
      cells, so the scale is exactly 1 and 1.05 * 1 === 1.05. The PARITY triple did not move at all, which
      is the knob-independence proof: with the top-up suppressed at author time this change runs no code. */
-  const SHIP = refRecord('flatparity', 'LOCK', 'md5', ['060da4cdaadc2e4a4276ce8f06b0eecf', 'f05beeb58f1266a1aea7e44712995292', '050b225e3f295b3ca991d59addea2f1c']);
+  // #284 re-keyed L2 only, mean identical (51.7 vs 51.7): a deal that now sinks a hole has one more
+  // band for the top-up to serve, so one lamp stands elsewhere. PARITY is bit-identical on 3/3, which
+  // is the sense that would move if a height term broke the flat-world collapse.
+  const SHIP = refRecord('flatparity', 'LOCK', 'md5', ['060da4cdaadc2e4a4276ce8f06b0eecf', 'f05beeb58f1266a1aea7e44712995292', 'ae47d409d2e2b945831144ce5152454b']);
   const SHIPM = [80.8, 34.1, 51.7];
   /* #219's DEALT triple, #226's camera: the frame of each level AS DEALTED - bands, band term, shipped
      lamp record, same dice (1000 + level*97) and the same pinned-clock ninth render - but at a seat
@@ -1478,7 +1557,10 @@ if (MODE === 'flatparity') {
      unchanged at 14.5,12.5 / 2.356 rad). Levels 1 and 2 dealt byte-identical, and the two FLAT senses
      (LOCK, PARITY) did not move a bit under the same change - which is what makes this an authored-
      volume move rather than a renderer move, the same discriminator #206 used. */
-  const DEALT = refRecord('flatparity', 'DEALT', 'md5', ['f7baf61773bb8469c5a8cf0b95681dd4', '370d3f7a88596a5bfc36bfc9c98b6858', '3a51e659bf0b5cd60985447928db01cf']);
+  // #284 re-keyed L2 only: off-datum cells at that dice go 292 -> 314 because the deal now authors a
+  // reachable sunken floor it used to skip (that is the feature). DEALT-ORDER hashes this frame alone
+  // in its own process and AGREES with this literal, so the move is the level's, not the harness's.
+  const DEALT = refRecord('flatparity', 'DEALT', 'md5', ['f7baf61773bb8469c5a8cf0b95681dd4', '370d3f7a88596a5bfc36bfc9c98b6858', 'aa18d43e1fbd55b40eb4500dd745a3d6']);
   const DEALTM = [55.5, 57.8, 85.1];
   const OFF = process.env.LAMPS === 'off';
   const f1 = v => (v === undefined || v === null ? '-' : (+v).toFixed(1));
@@ -4341,7 +4423,13 @@ if (MODE === 'exposure') {
      12.30 ms on the parent) - so this is the picture of a level with more volume in it, not an exposure
      change. The window row, not this one, gates the look. */
   const EXPO_MED = refRecord('exposure', 'MEDIAN', 'num', [70, 72, 83]);
-  const EXPO_SPAWN = refRecord('exposure', 'SPAWN', 'num', [57, 65, 60, 50, 64, 73]);   // mean, mid per level
+  // #284: L2's spawn-seat MEAN moves 64 -> 63 (64.33 -> 63.22) while the CENTRE-HALF mid is identical to
+  //   the hundredth (73.31) and the spread is identical (65), L0 and L1 are byte-identical (56.89/64.80 and
+  //   59.95/50.31), PARITY is bit-identical on all three levels, and the deal's mean is unchanged in the
+  //   LOCK sense. So this is not the player's view going dark: it is a sunken floor entering the margins of
+  //   a level-2 spawn frame that used to be all datum. It is the feature showing up in a record, and
+  //   #216's rule says re-record it rather than widen the clause - refs.lock moves with it.
+  const EXPO_SPAWN = refRecord('exposure', 'SPAWN', 'num', [57, 65, 60, 50, 63, 73]);   // mean, mid per level
   const LUM_WANT = [60, 100];       // the documented window (README: targets 60-100), median not mean
   const medRec = [], spawnRec = [];
   for (let lv = 0; lv < N; lv++) {
