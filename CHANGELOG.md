@@ -1,6 +1,21 @@
 ## Unreleased
 
 ### Changed
+- **Looking up at a banded ceiling is ~20x cheaper on the pixels that needed it** (#293, part of #15 M4).
+  Deciding *which cell's slab reaches the point a ceiling pixel's ray arrives at* used to run a full DDA
+  **per pixel**, on the pixels the row loop could not solve from its own row plane - 4,571 of them a frame
+  at the level-1 spawn seat, 51,938 at a spawn seat looking down a stepped corridor, against 156 and 642
+  cell crossings that answer the same question for the whole run of a row. It is now decided **once per
+  (row, cell)**, at the crossing, which is where the row loop has always decided it for the pixels it
+  paints itself. Worth **1.5 ms of a 15.1 ms frame** at the spawn seat and **22 ms of an 85 ms** one in
+  the corridor case (A/B/A deltas on a loaded box, so deltas, not absolutes); `smoke`'s median is
+  unchanged at 12.2 ms because flat content barely queues this path at all - the expensive case is the
+  banded one the generator now ships on every deal (#275, #284). Equivalence was tested on **ground-pass
+  dumps** rather than screenshots, because the wall pass repaints ceiling rows and a composited md5 cannot
+  see this half: 48 config pairs give **bit-identical `zbuf`** and byte-identical frames, and the
+  264/696 ceiling pixels that do change colour on two dealt seats are repainted by the wall pass, so none
+  reach the frame. Ceiling rows only: the floor half's solver adopts a lower plane as the ray goes, so
+  walking it is a look change with its own gate.
 - **Every generated level now contains rooms you can look up in** (#282, part of #15 M4). The tall-air
   feature used to run LAST, after the raised band and the pits had stepped floors through the rooms, so
   its own "whole room on one floor" test disqualified the candidates it existed to find - and because a
