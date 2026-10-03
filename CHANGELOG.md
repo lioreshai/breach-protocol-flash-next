@@ -85,6 +85,42 @@
 
 ### Added
 
+- **The spawn room has four units of air the seat can look up into, and a ceiling beyond lamp reach is now
+  lit** (#299, part of #15 M5). `volume`'s arrival row has been blind on every deal: from a seat under a
+  one-unit ceiling the ray to the nearest tall column crosses that plane a fifth of the way out and dies on
+  it, so a level could be multi-storey in `MAP.fz` and still show a player nothing. The generator now
+  authors `CZ_SPAWN_TALL = 16` quanta over the **open cells of its own spawn room** (`js/20_level.js`, inside
+  the `cut()/keeps()/rewind()` shape the other features use, so a room that would break a legality test gives
+  its air back), and the ground pass lights what that shape makes visible: one constant per row added to
+  `base`, keyed on **the height of the plane the pixel is painted on** (`CEILHI 3.0, CEILG 1.4, CEILGM 0.9`),
+  in **both copies** of the ground pixel body — `castGround`'s row (`dzA`) and `gndBuild`'s deferred run
+  (`pl`) — so no pixel depends on which path painted it. It is not a lamp and it does not touch the lightmap:
+  a lamp cannot reach there, because the lightmap is one value per column taken at the column's *floor* band
+  (maxing every open column buys 38.2 where the seat needs 55), and a ceiling plane 3.5 m over the eye solves
+  4x farther out than the one-unit plane it replaced. At the arrival seat (SEED 12345, L0, 601x338) the upper
+  half goes **31.9 -> 56.5** with `blown 0.00 %` and the **lower half bit-identical**, `fogpx 0.0 %` on every
+  band, and the term is exactly `+0` for every pixel whose plane is within 3 m of the eye — which is what
+  keeps `flatparity`'s PARITY, LOCK and DEALT senses hashing to their records, and what makes a one-unit
+  level run the old arithmetic untouched. Cost: **0.00 ms paired** (N = 8) at that seat against the same
+  geometry unlit, **+0.2…+0.6 ms** at `smoke`'s three arrival seats (gating median 12.35 vs 12.23 on main);
+  the atrium's own **+1.28 ms** (N = 8, 15.18 ms absolute) is the price the #15 shape ladder measured for the
+  geometry and is not paid to this term. `alt`/`volume` print **0 known-issue rows on 7 fresh SEEDs**, 42…56
+  arrival-visible tall columns on L0, headroom 4.00 at the seat, `FALLBACK 0`.
+  **Three records moved, through `refRecord` and `refs.lock`, and the rows they gate are seen to fail on
+  main's bytes.** `cull`'s `CZBAND` ground lane for **L0 only**, `0x71a20264 -> 0x13702f3c` (L1 `0xd34608c0`
+  and L2 `0x7dd66c40` hold, and the row's `CZBAND-LIGHT` world sense is byte-identical on 3 of 3 with lightmap
+  sums 300.47 / 392.00 / 773.20 unchanged — so a reader sees one lane move because the *spawn room's* ceiling
+  plane changed under that camera and its ceiling pixels are now lit, not because the level's light did);
+  `exposure`'s `MEDIAN` `70 72 83 -> 75 72 83` (L0 75.34 exact; L1 71.72 and L2 83.31 come back onto the
+  record they had before the branch) and `SPAWN` `57 65 / 60 50 / 63 73 -> 61 69 / 64 59 / 64 73` (61.33 /
+  69.11, 64.49 / 58.60, 64.42 / 72.63 exact). Both directions are measured rather than asserted: the atrium
+  *geometry* alone takes L0's median down to 67 and its spawn seat to 50/54, and the ceiling term lifts them
+  back past the datum frame — so the number a reader sees is geometry **plus** light and would differ again if
+  either half came back. The new records were then run against main's `js/` in a tree carrying only the new
+  probes: there `CULL 1 FAILURES` (`LANE 0x71a20264 vs recorded 0x13702f3c`) and `EXPOSURE 4 FAILURE(S) of 10
+  rows`, which is what makes a re-record a record rather than a rubber stamp. `tools/refs.lock` is
+  regenerated, not hand-edited (`node tools/view.js refs --record`): **8 records in 4 of 24 probes, table
+  agrees**.
 - **Bodies cast a contact shadow, tight to the feet** (#18, mechanism from #178). A rim is additive and
   the rig raster is multiplied by scene light at composite, so at `AMB 0.19` it floors out in exactly the
   dark rooms that need separation; this SUBTRACTS from the world a body occludes instead — a multiply on

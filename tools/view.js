@@ -3677,7 +3677,18 @@ if (MODE === 'cull') {
          byte-identical on 3 of 3 (0xb0988514 / 0xb54c0a14 / 0xcb62daf2), so the generated lightmap did not
          move and js/40_render.js is untouched - this is geometry, not the ceiling ANSWER, which is the
          distinction that keeps this record from being the #177 wrong fix wearing a re-key. */
-      const CZBAND_REF = refRecord('cull', 'CZBAND', 'crc32', [0x71a20264, 0xd34608c0, 0x7dd66c40]);   // LEAK=1 CZBAND=1, cull's own step rows
+      /* #299 re-keys L0's LANE only, and the row's own WORLD sense says why: 0xb0988514 / 0xb54c0a14 /
+         0xcb62daf2 byte-identical on 3 of 3, sums 300.47 / 392.00 / 773.20 unchanged, so the generated
+         lightmap did not move one hair - the spawn atrium raises `cz`, and `splatLight`'s band term reads
+         the floor band. What moved is the ceiling the step grid hashes: room 0's plane goes to
+         CZ_SPAWN_TALL = 16 quanta and those pixels are painted with base + min(CEILGM, CEILG*(dzA-CEILHI))
+         = +0.70 (js/40_render.js:126). L0 0x71a20264 -> 0x13702f3c; L1 0xd34608c0 and L2 0x7dd66c40 HOLD,
+         which is the same "band weight, not global brightness" control #203/#206/#208 read off these rows,
+         and it is why this is a re-key of one lane rather than of the triple. The atrium's own geometry had
+         already taken L0 to 0x4f7e5e28 (#299's unlit recipe, reproduced on two trees there); the ceiling
+         term re-moves the same lane, so the number below is geometry PLUS light and is not interchangeable
+         with that one. */
+      const CZBAND_REF = refRecord('cull', 'CZBAND', 'crc32', [0x13702f3c, 0xd34608c0, 0x7dd66c40]);   // LEAK=1 CZBAND=1, cull's own step rows
       /* #223: the WORLD sense, recorded beside the lane sense, because czS.h above is a lightmap
          instrument only ON ONE CAMERA'S FRAME: it moves when the lightmap changed somewhere that frame
          rasterizes and holds when it changed somewhere it cannot, so its green never proves "the
@@ -4621,14 +4632,28 @@ if (MODE === 'exposure') {
      inside the documented 60-100 window, and the raster cost is unchanged (tools/smoke.js 12.35 ms vs
      12.30 ms on the parent) - so this is the picture of a level with more volume in it, not an exposure
      change. The window row, not this one, gates the look. */
-  const EXPO_MED = refRecord('exposure', 'MEDIAN', 'num', [70, 72, 83]);
+  /* #299 re-keys L0's median, UP: 70 -> 75 (75.34 exact, rolls 82 104 69 49 at 4 seeded rolls), while L1
+     72 (71.72) and L2 83 (83.31) come back ONTO the record they had before this branch. Both halves are
+     quoted because they move in opposite directions: the spawn atrium's unlit air took L0 to 67 (66.69) on
+     the same dice - the -3 the #15 ladder measured - and the ceiling term lifts the ceiling pixels past
+     the datum frame, so the net over record is +5 and the two medians that the geometry had not touched
+     are exactly themselves again. A record that only moved down would be a frame going dark; this one
+     reads upward on the level that gained 4 units of air and flat on the two that did not. The 60-100
+     window row (75 / 72 / 83 here), not this one, is what gates the look. */
+  const EXPO_MED = refRecord('exposure', 'MEDIAN', 'num', [75, 72, 83]);
   // #284: L2's spawn-seat MEAN moves 64 -> 63 (64.33 -> 63.22) while the CENTRE-HALF mid is identical to
   //   the hundredth (73.31) and the spread is identical (65), L0 and L1 are byte-identical (56.89/64.80 and
   //   59.95/50.31), PARITY is bit-identical on all three levels, and the deal's mean is unchanged in the
   //   LOCK sense. So this is not the player's view going dark: it is a sunken floor entering the margins of
   //   a level-2 spawn frame that used to be all datum. It is the feature showing up in a record, and
   //   #216's rule says re-record it rather than widen the clause - refs.lock moves with it.
-  const EXPO_SPAWN = refRecord('exposure', 'SPAWN', 'num', [57, 65, 60, 50, 63, 73]);   // mean, mid per level
+  /* #299 moves all three spawn seats UP, and that is the feature: the seat now looks up into 4 units of lit
+     air instead of a one-unit ceiling. Exact 61.33/69.11, 64.49/58.60, 64.42/72.63 against the recorded
+     57/65, 60/50, 63/73, i.e. mean +4/+4/+1 and mid +4/+9/0, with L2's mid unchanged to the record. The
+     unlit recipe reads 50/54, 57/48, 63/71 on these same seats (#299 §3), so the term is what lifts them
+     and the atrium alone would have taken them DOWN - both directions are on the table in that pair of
+     triples, which is what makes this a re-record rather than a ratchet. */
+  const EXPO_SPAWN = refRecord('exposure', 'SPAWN', 'num', [61, 69, 64, 59, 64, 73]);   // mean, mid per level
   const LUM_WANT = [60, 100];       // the documented window (README: targets 60-100), median not mean
   const medRec = [], spawnRec = [];
   for (let lv = 0; lv < N; lv++) {

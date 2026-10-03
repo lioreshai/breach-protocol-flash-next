@@ -437,6 +437,9 @@ function pickWallTex(cfgL) { return Math.random() < 0.78 ? cfgL.wall : cfgL.wall
 const BAND_UP = 4;                                          // one unit above the datum, in quanta
 const BAND_DOWN = -BAND_UP;                                 // one unit below it
 const CZ_TALL = 12;                                         // three units of headroom; the gate is 2
+const CZ_SPAWN_TALL = 16;                                   // 4 units: the rung the #15 M4 shape ladder
+//   measured to fit the 16 ms raster gate at the arrival seat (+0.9 ms paired, N=8); CZ_TALL's 3 units
+//   over the same cells cost +2.7 and do not, and 2 units cost +5.1 - see feature 1's note.
 const LINK_STEPS = 40;                                      // link-or-give-back rounds per band, per pass
 const STAIR_CELLS = 4;                                      // cells a 1-unit climb needs: 3 steps + 1
 /* How many rooms get tall air on a map that does not need more: at least TWO, so a deal is never one
@@ -653,6 +656,34 @@ function authorVolume(cell, N, rooms, fz, vb, feat, cz) {
       }
     }
     if (keeps(d0)) authored.push('tallRoom'); else rewind(cp);
+  }
+
+  /* ---- the SPAWN ROOM's own ceiling: volume the seat can look up into on arrival --------
+     Feature 1 deliberately skips room 0, and that exclusion is why `volume`'s arrival row is blind on
+     every deal: from a seat under a one-unit ceiling the ray to any tall column crosses that plane a
+     fifth of the way out and dies on it (control's own nearest blocked cast stops on a CEILING 8 m
+     away). Giving the spawn room its own air is therefore the smallest shape that answers the row -
+     and the shape ladder priced its two axes at the arrival seat, paired A/B/A against these bytes:
+     the number of tall CELLS barely moves the frame (12 cells +3.1 ms, the whole 54-cell room +2.7),
+     the ceiling's HEIGHT moves it the other way (2 units +5.1, 3 units +2.7, 4 units +0.9, 6 units
+     -0.7, with the march counter falling in the same order 609 -> 460 -> 270 -> 46). So this authors
+     CZ_SPAWN_TALL over the room's OWN cells: tall mouths measured worse (+8.2 for two cells of tall
+     mouth in feature 1's table) for no arrival gain, and a smaller disc than the room buys nothing at
+     CZ_TALL while costing more boundary. roomFloor's #283 rule is the same test here: a pillar is not
+     a second band, but a spawn room a floor feature stepped keeps its one-unit ceiling rather than
+     authoring a half-open room. `bfsReach` reads fz/vb/feat and never cz, so this cannot cost the
+     occupancy gate a cell, and it writes no floor, so the flat 8-cell lane V14/V15 aim down is
+     untouched. */
+  {
+    const cp = cut();
+    const f = roomFloor(spawnR);
+    if (f !== null) {
+      for (let y = spawnR.y; y < spawnR.y + spawnR.h; y++) for (let x = spawnR.x; x < spawnR.x + spawnR.w; x++) {
+        const i = y * N + x;
+        if (!cell[i] && cz[i] < CZ_SPAWN_TALL) { mark(i); cz[i] = CZ_SPAWN_TALL; }
+      }
+      if (keeps(d0)) authored.push('spawnAtrium'); else rewind(cp);
+    }
   }
 
   /* ---- feature 2: a QUADRANT or SIDE of the level stands a unit up --------
