@@ -1676,7 +1676,15 @@ if (MODE === 'flatparity') {
      build's shipped path prints. L1 is byte-identical in both senses at this dice - the top-up adds no
      lamp to level 1 here (the counts are printed in the decomposition rows), so only 2 of 3 levels can
      tell the senses apart, and the control row says so instead of claiming a triple moved. */
-  const OLD = refRecord('flatparity', 'PARITY', 'md5', ['f9e4da3af18836db903fd7cbdf2b0206', 'f05beeb58f1266a1aea7e44712995292', 'd4b2d2cd539c3b620ea0ce5ab115d50a']);
+  // #303's fourth level MOVES these three rosters: each array is indexed by level, so gaining a level
+  // gains a value rather than changing one (levels 0..2 are byte-identical, which is the control). This
+  // is #284's rule in a new costume - a record that gains an entry is re-recorded WITH the reason, never
+  // widened until the row cannot fail. L3's PARITY and LOCK values are the SAME md5, and that is the
+  // claim rather than a lost control: LAMPS=off removes the generator's coverage top-up, an authored level
+  // authors its lamps from the plan and has no top-up to remove, so the two senses must agree while every
+  // dealt level's pair still differs (f9e4da3a vs 060da4cd on L0). If the authored path ever inherits the
+  // top-up, L3's pair diverges and PARITY fails by itself.
+  const OLD = refRecord('flatparity', 'PARITY', 'md5', ['f9e4da3af18836db903fd7cbdf2b0206', 'f05beeb58f1266a1aea7e44712995292', 'd4b2d2cd539c3b620ea0ce5ab115d50a', '6e16106488db1079e026d70fdf1b1fed']);
   const OLDM = [79.7, 34.1, 47.5];
   /* #213 moves SHIP[0] to 060da4cd (80.8, from 4262d051/81.3) and nothing else: a coverage top-up's
      intensity now scales with the cells it covers, so the shipped world gains DIMMER sources and L0's
@@ -1686,7 +1694,7 @@ if (MODE === 'flatparity') {
   // #284 re-keyed L2 only, mean identical (51.7 vs 51.7): a deal that now sinks a hole has one more
   // band for the top-up to serve, so one lamp stands elsewhere. PARITY is bit-identical on 3/3, which
   // is the sense that would move if a height term broke the flat-world collapse.
-  const SHIP = refRecord('flatparity', 'LOCK', 'md5', ['060da4cdaadc2e4a4276ce8f06b0eecf', 'f05beeb58f1266a1aea7e44712995292', 'ae47d409d2e2b945831144ce5152454b']);
+  const SHIP = refRecord('flatparity', 'LOCK', 'md5', ['060da4cdaadc2e4a4276ce8f06b0eecf', 'f05beeb58f1266a1aea7e44712995292', 'ae47d409d2e2b945831144ce5152454b', '6e16106488db1079e026d70fdf1b1fed']);
   const SHIPM = [80.8, 34.1, 51.7];
   /* #219's DEALT triple, #226's camera: the frame of each level AS DEALTED - bands, band term, shipped
      lamp record, same dice (1000 + level*97) and the same pinned-clock ninth render - but at a seat
@@ -1736,7 +1744,15 @@ if (MODE === 'flatparity') {
   const DEALT_SEATS = [
     [14.5, 12.5, 2.356194490192345],  // L0 dice 1000: 137/165 off-datum open cells in view, gap 195,990 px
     [14.5, 7.5, 0],                   // L1 dice 1097: 174/246 in view, gap 195,621 px
-    [15.5, 17.5, 1.9634954084936207]  // L2 dice 1194: 184/292 in view, gap 198,984 px
+    [15.5, 17.5, 1.9634954084936207], // L2 dice 1194: 184/292 in view, gap 198,984 px
+    /* L3 is AUTHORED, so this seat is read off the plan rather than found by dice (#303's fourth level:
+       DEALT_SEATS[lv] had no fourth entry and the child died on `s[0]` of undefined, which the parent can
+       only report as "the dealt hashes describe nothing"). The plan puts the spawn `P` at cell (1,2) on the
+       datum digit, a full-height datum -> +1.00 riser along the x=9 boundary, the -1.00 pit at x1..3/y13..17
+       and a staircase at y15; yaw 0 looks straight down the datum corridor at that riser, perpendicular to
+       the view, with the +1.00 band's floor and ceiling plane behind it. Gap and coverage are printed per
+       seat below - a seat whose dealt-vs-flat difference falls under DEALTVAC is a FAILURE, not a pass. */
+    [1.5, 2.5, 0]
   ];
   const DEALTVAC = 4096;  // px of the 203,138-px frame (2%) - #226 vacuity floor, see the DEALT-VACUOUS row
   /* #243 re-recorded this triple for L1 and L2, and NOTHING about the world moved.
@@ -1768,7 +1784,9 @@ if (MODE === 'flatparity') {
   // #284 re-keyed L2 only: off-datum cells at that dice go 292 -> 314 because the deal now authors a
   // reachable sunken floor it used to skip (that is the feature). DEALT-ORDER hashes this frame alone
   // in its own process and AGREES with this literal, so the move is the level's, not the harness's.
-  const DEALT = refRecord('flatparity', 'DEALT', 'md5', ['f7baf61773bb8469c5a8cf0b95681dd4', '370d3f7a88596a5bfc36bfc9c98b6858', 'aa18d43e1fbd55b40eb4500dd745a3d6']);
+  // L3's dealt hash is recorded from a sampler that now has a fourth seat (see DEALT_SEATS); DEALT-ORDER
+  // proved it is a property of the level - hashed alone and hashed after levels 0..2 it is the same value.
+  const DEALT = refRecord('flatparity', 'DEALT', 'md5', ['f7baf61773bb8469c5a8cf0b95681dd4', '370d3f7a88596a5bfc36bfc9c98b6858', 'aa18d43e1fbd55b40eb4500dd745a3d6', '2bf6d74c1d74f7471364f99a63ce7ca2']);
   const DEALTM = [55.5, 57.8, 85.1];
   const OFF = process.env.LAMPS === 'off';
   const f1 = v => (v === undefined || v === null ? '-' : (+v).toFixed(1));

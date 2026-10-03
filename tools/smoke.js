@@ -71,6 +71,12 @@ const sandbox = {
 };
 sandbox.window = sandbox; sandbox.globalThis = sandbox;
 const ctxVm = vm.createContext(sandbox);
+/* Every level-bound in this harness used to be the literal 3 (#303's family inside the harness, not
+   the probe): a lane that steps "clear 3" and then expects `win` fails on a CORRECT run the moment a
+   fourth level exists - the run advanced into the authored level instead of ending. Read the count out of
+   the game so an authored level is driven by the same lanes as a dealt one. A function, not a const, so
+   nothing is evaluated before the js files are evaluated into the context. */
+const nLevels = () => vm.runInContext('LEVELS.length', ctxVm);
 
 const files = fs.readdirSync(path.join(__dirname, '..', 'js')).filter(f => f.endsWith('.js')).sort();
 let ts = 0;
@@ -135,8 +141,8 @@ const release = () => fire('mouseup', { button: 0 });
   step('title frames', 'null');
   console.log('title buffer colors:', bufCheck());
   expect('title screen renders more than fog', bufCheck() > 8);
-  step('gen 0/1/2', 'for(let i=0;i<3;i++){genLevel(i)}');
-  for (let li = 0; li < 3; li++) {
+  step('gen every level', 'for(let i=0;i<LEVELS.length;i++){genLevel(i)}');
+  for (let li = 0; li < nLevels(); li++) {
     const bad = vm.runInContext(`(()=>{let b=0;for(let g=0;g<60;g++){genLevel(${li});
       if(bfsDist[(exitY|0)*MW+(exitX|0)]<0)b++;
       for(const e of ENEMIES)if(bfsDist[(e.y|0)*MW+(e.x|0)]<0)b++;if(!enemiesLeft())b++}return b})()`, ctxVm);
@@ -272,14 +278,25 @@ const release = () => fire('mouseup', { button: 0 });
   step('M via event', 'null'); press('KeyM'); press('KeyM'); press('F3'); press('F3'); frames(5);
   step('pitch holds', 'P.pitch=-40; mouse.dx=0; mouse.dy=0'); frames(40);
   expect('manual pitch is not auto-levelled', Math.abs(vm.runInContext('P.pitch', ctxVm) + 40) < 1, 'pitch=' + vm.runInContext('P.pitch', ctxVm));
-  step('clear level 1', 'for(const e of ENEMIES) damageEnemy(e,99999,false,1,0)'); frames(20);
-  step('to exit', 'P.x=exitX;P.y=exitY'); frames(5);
-  step('level 2 loop', 'for(const e of ENEMIES) e.alert=true'); survive(120);
-  step('clear level 2', 'for(const e of ENEMIES) damageEnemy(e,99999,true,1,0)'); frames(10);
-  step('exit 2', 'P.x=exitX;P.y=exitY'); frames(5);
-  step('level 3', 'for(const e of ENEMIES) e.alert=true; damagePlayer(10,0)'); survive(150);
-  step('clear 3', 'for(const e of ENEMIES) damageEnemy(e,99999,false,1,0)'); frames(10);
-  step('win', 'P.x=exitX;P.y=exitY'); frames(10);
+  /* The run walks EVERY level now instead of three named ones. This lane is where smoke's
+     "run reached the win screen" assert failed on the four-level tree: it cleared level 1, exited, cleared
+     level 2, exited, cleared 3, exited and THEN expected `win` - so with an authored fourth level the run
+     was behaving correctly (it advanced into THE STACK, as it must) and the assert was reading a stale
+     count. Beats keep their shape: clear the level, stand on the exit, and on the way into each next level
+     survive an alerted swarm; damage is still taken exactly once, on the way into the last-but-one level,
+     so nothing about the HP or damage maths the later stats line reports has moved. */
+  const NLW = nLevels();
+  for (let li = 1; li <= NLW; li++) {
+    step(`clear ${li}`, `for(const e of ENEMIES) damageEnemy(e,99999,${li % 2 === 0},1,0)`);
+    frames(li === 1 ? 20 : 10);
+    step(`exit ${li}`, 'P.x=exitX;P.y=exitY'); frames(5);
+    if (li < NLW) {
+      const nxt = li + 1;
+      step(`level ${nxt}`, 'for(const e of ENEMIES) e.alert=true' + (li === NLW - 1 ? '; damagePlayer(10,0)' : ''));
+      survive(li % 2 ? 120 : 150);
+    }
+  }
+  frames(10);
   expect('run reached the win screen', vm.runInContext('S.mode', ctxVm) === 'win', vm.runInContext('S.mode', ctxVm));
   console.log('run stats:', JSON.stringify(vm.runInContext('({kills:P.kills,shots:P.shots,dmg:Math.round(P.dmg)})', ctxVm)));
   step('restart from win', 'null'); el('again2').onclick && el('again2').onclick(); frames(20);
@@ -1005,7 +1022,7 @@ const release = () => fire('mouseup', { button: 0 });
     // above it). Risk #3 in AGENTS.md names this gap - nearly every other assert compares x and y. Both rows
     // are SELF-CONTROLLED: the same pose minus the altitude poke must give the opposite answer, so deleting
     // the band test turns the row red instead of quietly passing, the failure mode this lane keeps hitting.
-    for (let li = 0; li < 3; li++) {                                // three levels, as at :139
+    for (let li = 0; li < nLevels(); li++) {                                // three levels, as at :139
       // vrestore() below restores the snapshot vboot took, and this loop enters the level through
       // startLevel instead of vboot, so the snapshot has to be re-taken here. On flat generation the
       // distinction is invisible - the snapshot is all zeros, so restoring it makes the grid flat and the
@@ -1147,7 +1164,7 @@ const release = () => fire('mouseup', { button: 0 });
     // steps are still required to be open, collinear, one quantum apart and off the solid border, and the
     // start cell to sit at the datum, so a flat grid yields nothing at any y or x: with authorVolume's
     // writes erased the setup fails on all three levels and the lane prints 22 gating rows, not 25.
-    for (let li = 0; li < 3; li++) {
+    for (let li = 0; li < nLevels(); li++) {
       V('startLevel(' + li + ', true); S.mode = "play"; S.locked = false; S.exitOpen = false;');
       V('for (const e of ENEMIES) { e.state = "sleep"; e.cd = 999; e.alert = false; }'
         + ' PROJ.length = 0; PICKUPS.length = 0; PROPS.length = 0; for (const k in keys) delete keys[k];');
@@ -1237,7 +1254,7 @@ const release = () => fire('mouseup', { button: 0 });
   };
   {
     const RL_BATCHES = 5, RL_FRAMES = 60;
-    for (let li = 0; li < 3; li++) {
+    for (let li = 0; li < nLevels(); li++) {
       RLV(`(()=>{let a=(${SEED}+90210)>>>0;Math.random=()=>{a=(a+0x6D2B79F5)>>>0;let t=a;t=Math.imul(t^t>>>15,t|1);t^=Math.imul(t^t>>>7,t|61);return((t^t>>>14)>>>0)/4294967296};})()`);
       RLV(`startLevel(${li}, true); S.mode = "play"; S.locked = true; S.exitOpen = false;`);
       RLV('for (const k in keys) delete keys[k]; PROJ.length = 0; PARTS.length = 0; DECALS.length = 0;');

@@ -97,6 +97,7 @@
 ### Added
 
 - **THE STACK (`LEVELS[3]`, #16 M6): the first hand-authored level, and it is two storeys you can walk,
+  - The pit band now carries a lamp of its own, and authored lamps are scaled by the band they sit in (#213's rule: strength by the count of open columns in the lamp's own band, so a 15-cell pit gets cov/TARGET = 0.47 clamped to 0.5 rather than the str 1 / r 7.2 source that painted a hole white while a 300-cell floor stayed under-lit).
   climb and be shot across.** The plan is literal data - three 20x20 layers (geometry, floor quantum,
   feature) validated before a single cell is written, so a layer that disagrees with another makes the
   loader say so and the generator's own path still ships a playable level rather than a fallback that
