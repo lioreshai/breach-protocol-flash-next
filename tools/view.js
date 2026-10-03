@@ -8718,6 +8718,26 @@ if (MODE === 'stats') {
         + made + ' pose(s) built, ' + ent + ' resident in the LRU, cap ' + MCS.capMB + ' MB, '
         + nE + ' enemy(ies) on the level' + (okW ? '' : ' - ZERO poses in a cache that is supposed to be read'));
       if (!okW) { console.log('WARM FAILED #97: the pose cache the mesh path reads made nothing'); process.exit(1); }
+    // #66: the PNG above is dumped BEFORE this loop, so it cannot depend on any of these 180 frames -
+    // a WARM=1 parity pair therefore compared two identical COLD frames and reported parity it never
+    // measured (that false pair cost #25 a cycle). Dump the frame the loop actually left behind,
+    // under its own path so the cold PNG that docs/recap depend on does not move, and assert the two
+    // differ: identical hashes mean this dump is still reading the pre-loop buffer, which IS #66, so
+    // it FAILs with an exit code instead of printing a number that cannot be wrong.
+    const coldPath = OUT, warmPath = process.env.SAB66 ? OUT : '/tmp/fps_scene_warm.png';
+    run('renderWorld()');
+    const bufW = new Uint32Array(run('px'));
+    // OUT is a const (:212): the first version of this assigned to it and died on a TypeError before
+    // printing a single row, which the driver's grep then hid. Write the warmed PNG directly instead.
+    if (!ASCII) console.log(`scene L${LVL} cam${CAM} warmed -> ` + writePNG(warmPath, BW, BH, toRGBA(bufW), 2) + '  (' + warmPath + ')');
+    else dump(`scene L${LVL} cam${CAM} warmed`, bufW, BW, BH, 2);
+    const md5f = f => { try { return require('crypto').createHash('md5').update(require('fs').readFileSync(f)).digest('hex'); } catch (e) { return 'no-file'; } };
+    const hC = md5f(coldPath), hW = ASCII ? 'ascii' : md5f(warmPath);
+    const okD = !ASCII && hW !== 'no-file' && hC !== hW;
+    console.log((okD ? '  ok   ' : '  FAIL ') + 'WARM dumps a frame the loop produced (#66) - cold '
+      + hC.slice(0, 12) + ' vs warmed ' + hW.slice(0, 12) + (ASCII ? ' (ASCII mode: no PNG written)'
+        : (hC === hW ? ' IDENTICAL - the dump is still the pre-loop buffer' : '')));
+    if (!okD && !ASCII) { console.log('WARM FAILED #66: warmed dump is not a warmed frame'); process.exit(1); }
   }
 }
 
