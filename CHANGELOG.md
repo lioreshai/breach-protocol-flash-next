@@ -1,5 +1,19 @@
 ## Unreleased
 
+### Changed
+- **Every generated level now contains rooms you can look up in** (#282, part of #15 M4). The tall-air
+  feature used to run LAST, after the raised band and the pits had stepped floors through the rooms, so
+  its own "whole room on one floor" test disqualified the candidates it existed to find - and because a
+  pillar is not `open`, that same test refused every room of 8x8 or more. With 4-7 rooms per map the old
+  `rooms.length >= 8 ? 2 : 1` gave each deal exactly one candidate, so one filter term away from nothing
+  the level shipped with a one-unit ceiling everywhere (`alt` at SEED 7 prints `0 open column(s) ...
+  tallest 1.00`): measured on 36 deals, **3 authored no volume at all**. Tall air is now authored FIRST,
+  the room test ignores pillars and refuses only genuinely straddling rooms, and each deal gets two
+  candidates (three on a large map). Frame cost is nil (12.05 ms median against 12.03 for the parent).
+  What is NOT fixed: seeing that volume **on arrival** still needs tall air in the spawn room's own frame,
+  and every shape that buys it costs +5 to +11 ms against a 16 ms gate - recorded in
+  `tools/view.js volume` and `alt` as a reported debt that `STRICT=1` gates.
+
 ### Added
 
 - **Bodies cast a contact shadow, tight to the feet** (#18, mechanism from #178). A rim is additive and
