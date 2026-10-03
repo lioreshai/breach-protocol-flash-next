@@ -1466,7 +1466,11 @@ if (MODE === 'volume') {
     vrows++;
     if (!ok) { if (STRICT) vbad++; else vknown++; }
   };
-  const REC = [[], [], []];
+  /* #304: a LEVEL LIST, not a literal three. volume's deal loop and its per-level median rows both
+     bound at 3, so the authored level was skipped in silence - the same trap #303 fixed in the
+     occupancy gate (:2265) one block over, and the reason REC was three arrays deep. */
+  const NLV = run('LEVELS.length');
+  const REC = Array.from({ length: NLV }, () => []);
   const USEBOOT = process.env.BOOT === '1';
   const t0 = Date.now();
   for (let s = 1; s <= NDEALS; s++) {
@@ -1474,7 +1478,7 @@ if (MODE === 'volume') {
     if (USEBOOT) boot(true, s);            // otherwise the stream simply carries on to the next deal
     const tg = Date.now();
     const line = [`${USEBOOT ? 'seed' : 'round'} ${String(s).padStart(5)}`];
-    for (let li = 0; li < 3; li++) {
+    for (let li = 0; li < NLV; li++) {
       const c = vm.runInContext(`(function(){
         genLevel(${li});
         const N = MAP.w, cell = MAP.cell, fz = MAP.fz, cz = MAP.cz;
@@ -1549,7 +1553,7 @@ if (MODE === 'volume') {
   reachSelfTestRow(vrow, 'the arrival reach test answers its own control pair');
   const med = a => { const s = a.slice().sort((x, y) => x - y); return s.length & 1 ? s[(s.length - 1) >> 1]
     : (s[s.length / 2 - 1] + s[s.length / 2]) / 2; };
-  for (let li = 0; li < 3; li++) {
+  for (let li = 0; li < NLV; li++) {
     const R = REC[li], n = R.length;
     const tall = R.map(c => c.tall), arr = R.map(c => c.arr);
     const up = R.map(c => c.up), dn = R.map(c => c.dn);
@@ -1610,7 +1614,7 @@ if (MODE === 'volume') {
                 : 'round 1 is the deal a fresh process at this SEED deals, later rounds are later deals on the same stream'}`);
   }
   console.log((vbad ? `VOLUME ${vbad} FAILURES - some deal authors no volume, shows none on arrival, or has no DOWN`
-    : `VOLUME ok - ${NDEALS} deals x 3 levels, every deal authors volume and a reachable sunken floor`) +
+    : `VOLUME ok - ${NDEALS} deals x ${NLV} levels, every deal authors volume and a reachable sunken floor`) +
     `  |  ${vrows} row(s), ${vknown} known-issue row(s)${vknown ? (STRICT ? ' (FAILED under STRICT=1)' : ' (reporting: #282 arrival view - STRICT=1 gates)') : ''}` +
     `, ${ms} ms total, no raster, ${USEBOOT ? `BOOT=1: ${NDEALS} fresh boots, row r = the deal SEED=r alt gates`
       : `STREAM: ${NDEALS} rounds of genLevel on the SEED ${SEED} stream, round 1 = the deal SEED ${SEED} alt gates`}`);
@@ -3742,7 +3746,7 @@ if (MODE === 'cull') {
          already taken L0 to 0x4f7e5e28 (#299's unlit recipe, reproduced on two trees there); the ceiling
          term re-moves the same lane, so the number below is geometry PLUS light and is not interchangeable
          with that one. */
-      const CZBAND_REF = refRecord('cull', 'CZBAND', 'crc32', [0x13702f3c, 0xd34608c0, 0x7dd66c40]);   // LEAK=1 CZBAND=1, cull's own step rows
+      const CZBAND_REF = refRecord('cull', 'CZBAND', 'crc32', [0x13702f3c, 0xd34608c0, 0x7dd66c40, 0x1535e2e8]);   // LEAK=1 CZBAND=1, cull's own step rows
       /* #223: the WORLD sense, recorded beside the lane sense, because czS.h above is a lightmap
          instrument only ON ONE CAMERA'S FRAME: it moves when the lightmap changed somewhere that frame
          rasterizes and holds when it changed somewhere it cannot, so its green never proves "the
@@ -3774,7 +3778,7 @@ if (MODE === 'cull') {
          The printed drift (MAP.light now vs the snapshot taken straight after startLevel) is 0 on all
          three levels, so on this path they are the same array; a nonzero drift would mean a row had
          splatted a transient into the frame and the pair had stopped being comparable. */
-      const CZLIGHT_REF = refRecord('cull', 'CZBAND-LIGHT', 'crc32', [0xb0988514, 0xb54c0a14, 0xcb62daf2]);
+      const CZLIGHT_REF = refRecord('cull', 'CZBAND-LIGHT', 'crc32', [0xb0988514, 0xb54c0a14, 0xcb62daf2, 0x23c3a694]);
       if (process.env.CZBAND) {
         czRows++;
         run(`(function(){ window.__cz0b = MAP.cz.slice(); ${JSON.stringify(BG.cells)}
@@ -3818,7 +3822,10 @@ if (MODE === 'cull') {
         const lampF = run(`(function(){ const C = ${BG.lx - 4}, D = ${BG.ly}; let n = 0;
           for (const L of LIGHTS) if (L.stat === 1 && Math.hypot(L.x - C, L.y - D) < ${FARBV}) n++; return n; })()`);
         const cpFar = run(`MAP.ceilPlane[${Math.floor(setup.lane.y)} * MW + ${Math.floor(setup.lane.x) + 4}]`);
-        const hex = v => '0x' + v.toString(16).padStart(8, '0');
+        /* An ERRORED czS/czN probe has no hash to format: the verdict below already fails on
+           czS.p !== 'ok', so only this string needed the missing number. Printing 'no-hash' keeps the
+           row a FAIL row instead of a TypeError that hides every row after it (CI, level 3, #170). */
+        const hex = v => Number.isFinite(v) ? '0x' + (v >>> 0).toString(16).padStart(8, '0') : 'no-hash';
         row(`L${li} the ceiling-step frame exercises the deferred pass`, czS.p === 'ok' && czN.h !== czS.h,
           `ceilings ${CAMCP.toFixed(2)} -> ${cpFar.toFixed(2)} four cells out, floors flat: ground-pass hash ` +
           `${hex(czS.h)} (${czS.dfl} px differ from the composited frame) | nodefer control ${czN.p} ` +
@@ -3846,8 +3853,11 @@ if (MODE === 'cull') {
       }
     }
   }
-  if (process.env.CZBAND) row('CZBAND emitted a hash for every level', czRows === 3,
-    `${czRows} of 3 levels printed a ceiling-step hash - an absent row reads as silence, not as a pass (#177)`);
+  /* #304: the census counted LEVELS, not a literal - a fourth level made "every level emitted a hash"
+     false by arithmetic (4 of 3) while every level in fact emitted one. Same family as #16 and #303,
+     both of which fixed a literal 3 elsewhere in this file. */
+  if (process.env.CZBAND) row('CZBAND emitted a hash for every level', czRows === run('LEVELS.length'),
+    `${czRows} of ${run('LEVELS.length')} levels printed a ceiling-step hash - an absent row reads as silence, not as a pass (#177)`);
 
 
   /* ---- #192: what DEPTH the far surface of a generated lip carries -------------------

@@ -5,8 +5,8 @@
 # A declaration with no row here fails REFS-DECLARED-MISSING; a row with no declaration fails
 # REFS-IN-TABLE-UNDECLARED; an edited literal fails REFS-VALUES-MOVED. None of the three is a
 # warning, and the row runs inside flatparity, which ci.yml runs blocking.
-ref	cull	CZBAND	crc32	0x13702f3c 0xd34608c0 0x7dd66c40
-ref	cull	CZBAND-LIGHT	crc32	0xb0988514 0xb54c0a14 0xcb62daf2
+ref	cull	CZBAND	crc32	0x13702f3c 0xd34608c0 0x7dd66c40 0x1535e2e8
+ref	cull	CZBAND-LIGHT	crc32	0xb0988514 0xb54c0a14 0xcb62daf2 0x23c3a694
 ref	exposure	MEDIAN	num	75 72 83 64
 ref	exposure	SPAWN	num	61 69 64 59 64 73 94 110
 ref	flatparity	DEALT	md5	f7baf61773bb8469c5a8cf0b95681dd4 370d3f7a88596a5bfc36bfc9c98b6858 aa18d43e1fbd55b40eb4500dd745a3d6 b63a56f241b0981dafd733353e5da76b
