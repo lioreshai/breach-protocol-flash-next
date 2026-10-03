@@ -1,6 +1,17 @@
 ## [v1.3] - 2026-10-03
 
 ### Changed
+
+- **`vert`, `sight`, `cull` and `planes` boot every level in `LEVELS`, not the first three** (#303). With a
+  fourth, hand-authored level in the table these four would have gone on printing verdicts about three
+  generated levels while their summary lines looked untouched - the question AGENTS.md tells you to ask of
+  a green vertical row, *which line creates the geometry this row needs?*, had no answer for them.
+  `volume`'s two loops are deliberately left at 3: their rows are **records** phrased over three levels
+  ("33 deals authored volume and 3 authored NONE"), so gaining a level moves a recorded statistic and
+  needs re-recording with attribution (#284), not the loop and its sentence edited together in silence.
+  Measured cost of the change: `sight` and `cull` now drive their 240-frame loops once per level, so the
+  reporting job's wall clock goes up by roughly a level's worth; `heights` gained a fourth level's 6
+  configs, and one of them found a camera-seat defect (under Fixed below).
 - **The raster budget now reports every level, not just the one the run loop happens to reach** (#296).
   `smoke`'s budget row times `startGame()`'s level 0 - 20 frames in, after a walk and a look - so a level
   the player reaches later is invisible to it: on these bytes it reads **12.4 ms/frame** while level 2's
@@ -100,6 +111,21 @@
 
 - **The spawn room has four units of air the seat can look up into, and a ceiling beyond lamp reach is now
   lit** (#299, part of #15 M5). `volume`'s arrival row has been blind on every deal: from a seat under a
+
+- **THE STACK (`LEVELS[3]`, #16 M6): the first hand-authored level, and it is two storeys you can walk,
+  climb and be shot across.** The plan is literal data - three 20x20 layers (geometry, floor quantum,
+  feature) validated before a single cell is written, so a layer that disagrees with another makes the
+  loader say so and the generator's own path still ships a playable level rather than a fallback that
+  gets reported as the authored one. `view.js alt` reads it as **256 open cells, 9 distinct floor values,
+  129 cells off the datum, a 108-cell band you can walk on rather than hop onto, 144 columns with two
+  units of headroom or more (tallest 4.00 m), 18 of them look-up-visible from the spawn seat, 2 climbable
+  stair runs over 14 step faces, and 18 cells below the datum reached from spawn**, with spawn and exit
+  both on the datum and **no face of span <= 0**; `volume`'s records are unchanged because they are
+  phrased over the three dealt levels.
+- **`alt`'s zero-span row names the boundaries it counted** (`x,y->nx,ny[z0..z1]`). A count of invisible
+  faces told an author nothing to edit; the coordinates turned a FAIL row into a one-pass fix, and they
+  are what found the border defect under Fixed.
+ `volume`'s arrival row has been blind on every deal: from a seat under a
   one-unit ceiling the ray to the nearest tall column crosses that plane a fifth of the way out and dies on
   it, so a level could be multi-storey in `MAP.fz` and still show a player nothing. The generator now
   authors `CZ_SPAWN_TALL = 16` quanta over the **open cells of its own spawn room** (`js/20_level.js`, inside
@@ -283,6 +309,32 @@
   sheets and `WARM=1 scene 0 3` at exit 0 (22 probes, load average 2.5–3.1). No recapture is owed.
 ### Fixed
 
+- **An authored level shipped no lights at all** (#16). `buildAuthored` pushed lamps **without the
+  `stat: 1` flag** the light census keys on, and never pushed the **exit-pad light** the generator pushes
+  at `js/20_level.js:1352`. So an authored exit pad rendered with no glow, and `alt`'s three wrong-band
+  census rows reported `0 cell(s)` - not because light crossed a band wrongly but because there was no
+  static light to measure. Their own population guards (`popGeo >= 1`, `geoN >= 1`) are what refused to
+  bless that as a pass, which is the only reason it surfaced; the row detail's *"over splat+un-splat of
+  all **0** static lamps"* is what pointed at the cause. An authored level now reads **7 static lamps**,
+  keeps wrong-band **deliveries at 0 with population present**, and lamp splat/un-splat stays reversible
+  to **1.2e-7**, the number smoke's fade asserts stand on.
+- **A wall column on the map border kept floor 0 however low the band it bounded** (#16, the #120 family,
+  authored rather than dealt). `buildAuthored`'s border branch wrote `cell[i]` and `continue`d **without
+  writing `fz`**, so a face between the border and the authored pit spanned `[0.00..0.00]`: a column the
+  DDA stops at that paints nothing - a step you can neither see nor walk. Interior wall cells take their
+  floor from the plan too now, and the pit's lip draws.
+- **`heights`' `stripes` config could sink the band the camera is standing in** (#16). The poke keys on
+  `(i % MW) >> 2` and `CAMSET` seats the eye at a fixed fraction of the open-cell list
+  (`tools/view.js:4786`), so whether the eye's column gets sunk was a property of the **map width**: the
+  26- and 30-wide dealt levels put it at x=9 / x=19, inside a flat stripe, while the 20-wide authored
+  level seats it at x=14, inside a sunk one. Sinking it drops the camera a full metre, the whole frame
+  repaints - measured floor **98.07%** *and* ceiling **99.33%*, with `DEFERRED-STALE-DEPTH` and
+  `DEPTH-DISAGREES` alongside - and the row's "floors moved, ceilings still" claim then measures a moved
+  camera instead of a solved plane. The poke now skips the **band** the eye stands in; excluding only the
+  eye's *cell* was tried first and is wrong geometry - a one-cell datum island ringed by sunken ground is
+  something the plane fixed point cannot settle (`re-solves bad 9943` on L3) - while skipping the band
+  reproduces the dealt topology, which is why those three rows read the same to the decimal. What made
+  this look safe for this many commits is that it *was* safe on every level the probe had ever run.
 - **`alt`'s glow census printed `NaN` instead of a number** (#275). The glow aggregator literal at `tools/view.js:973-975` declared every field except `oobClimb` / `oobSum`, while `:978` accumulates `G.oobClimb += g.oobClimb`, so the row detail at `:1013` rendered "NaN climb cells of this deal's NaN" on all three levels. The assertion was unaffected - it gates `G.oob` - so the row stayed green while printing nothing quotable; the sibling accumulator at `:739` has both keys, which is why only this path broke. main prints the phrase 3 times, this tree prints 10 / 16 / 19 with `grep -c NaN` = 0, verdict unchanged. `docs/VERTICALITY.md`'s census paragraph is replaced with what `alt` reports today (9 floor values, 170/251/307 cells off the datum, 46/52/52 step faces, headroom 86 on L0 and 45 on L1 at tallest 3.00 m) and with the claim "no column is authored with a ceiling above one unit" removed: `CZ_TALL = 12` authors three units of air at `js/20_level.js:434`/`:649`, so a level reads flat from coverage, corridor reach and lamp-flat ceiling light, not from absent volume.
 
 - **`bands` diffed two renders with the viewmodel still damping, so its seam row could not fail** (#266).
