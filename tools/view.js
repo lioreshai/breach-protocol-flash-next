@@ -8,6 +8,15 @@
 */
 const vm = require('vm'), fs = require('fs'), path = require('path');
 const { writePNG, toRGBA } = require('./png');
+/* JSDIR=path - the A/B knob docs/DEVELOPMENT.md and AGENTS.md already tell you to use (#289). Without it
+   nothing changes: the probe loads this checkout's js/ exactly as before. With it, every game script AND
+   every source-text assertion below reads the variant tree, so a documented control measures the variant it
+   names instead of silently re-measuring the current tree and reporting the delta as the variant's (#148's
+   self-cancelling harness, in a new costume). The loaded bytes are hashed and printed on the variant side,
+   because "I promise I pointed at the other tree" is not evidence - the baseline side is identified by its
+   git SHA, the variant side by this digest. */
+const JSDIR = process.env.JSDIR ? path.resolve(process.env.JSDIR) : path.join(__dirname, '..', 'js');
+const jsFile = f => path.join(JSDIR, f);
 const noop = () => {};
 const W = +(process.env.VW || 1280), H = +(process.env.VH || 720);   // VW/VH: the sway rows are resolution tests
 const MODE = process.argv[2] || 'scene';
@@ -330,10 +339,20 @@ function boot(knob, seed) {
   };
   sandbox.window = sandbox; sandbox.globalThis = sandbox;
   ctxVm = vm.createContext(sandbox);
-  for (const f of fs.readdirSync(path.join(__dirname, '..', 'js')).filter(f => f.endsWith('.js')).sort()) {
-    try { run(fs.readFileSync(path.join(__dirname, '..', 'js', f), 'utf8')); }
+  const jfiles = fs.readdirSync(JSDIR).filter(f => f.endsWith('.js')).sort();
+  if (process.env.JSDIR && !jfiles.length) {
+    console.log('JSDIR ' + JSDIR + ' holds no .js files - a variant tree that loads nothing measures nothing');
+    process.exit(1);
+  }
+  const jhash = process.env.JSDIR ? require('crypto').createHash('sha256') : null;
+  for (const f of jfiles) {
+    const src = fs.readFileSync(jsFile(f), 'utf8');
+    if (jhash) jhash.update(f + '\0' + src);
+    try { run(src); }
     catch (e) { console.log('LOAD FAIL ' + f + ': ' + e.stack.split('\n').slice(0, 4).join('\n')); process.exit(1); }
   }
+  if (jhash) console.log('# JSDIR ' + JSDIR + '  js-sha256 ' + jhash.digest('hex').slice(0, 16) + '  ' +
+    jfiles.length + ' files loaded from the VARIANT tree (baseline side is identified by its git SHA)');
   /* LAMPS=off suppresses the #204 coverage top-up at AUTHOR time and nothing else. js/20_level.js
      topUpEnabled() is the one call site, so the budget lamps, the exit pad, the grid and every global
      Math.random draw are the ones the shipped path makes - the difference between the two records is the
@@ -5306,7 +5325,7 @@ if (MODE === 'contrast') {
      revert arm and the shading A/B provable rather than "I promise I pointed at the other tree". */
   const TG_MARK = (() => {
     try {
-      const src = fs.readFileSync(path.join(__dirname, '..', 'js', '13_mesh.js'), 'utf8');
+      const src = fs.readFileSync(jsFile('13_mesh.js'), 'utf8');
       if (!/TS_SLOPE \* TPR \* 0\.25/.test(src)) return 'js/13_mesh.js term ABSENT (no per-pixel torso term in this tree)';
       const k = /TS_CYC = ([0-9.]+)[^;]*?TS_SLOPE = ([-0-9.]+)/.exec(src);
       return 'js/13_mesh.js term PRESENT (TS_CYC ' + (k ? k[1] : '?') + ', TS_SLOPE ' + (k ? k[2] : '?') + ')';
