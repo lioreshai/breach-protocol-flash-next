@@ -425,6 +425,188 @@ function texStats(label, tex) {
     ' emis ' + emis + ' avgRGB ' + ((lr / n) | 0) + ',' + ((lg / n) | 0) + ',' + ((lbb / n) | 0) +
     ' blown ' + (100 * clip / n).toFixed(2) + '%' + dbg);
 }
+/* ---------------------------------------------------------------------------------------------
+ * ONE ARRIVAL-REACH TEST, TWO CALLERS (#290).
+ *
+ * `alt`'s "volume is visible on arrival" row and `volume`'s "every deal shows that volume on
+ * arrival" row ask ONE question - from the seat the generator dealt, can the eye look up into that
+ * tall column - and until #290 each block wrote its own compare to answer it. Two copies of a reach
+ * test is how one wrong compare can live in two rows with two different symptoms, and the row's own
+ * three aims already disagree about a single frame on main (SEED 12345 level 1: 0 of 179 columns at
+ * the ceiling-plane aim, 10 of 179 at the span midpoint, measured from this file) - quote the row,
+ * not one number from it. The text below is interpolated into both vm bodies. It is
+ * a STRING and not a sandbox global because boot() re-instantiates the context (#243): a global the
+ * second boot silently drops is a ReferenceError three modes from here.
+ *
+ * WHAT hitscan ANSWERS, read at js/30_entities.js:108-150 rather than remembered: the ray is marched
+ * HORIZONTALLY - dx = cos(ang), dy = sin(ang) are a unit horizontal pair and the hit is placed at
+ * (ox + dx*t, oy + dy*t, eyeH() + tanP*t) - so `t` is metres ALONG THE FLOOR and `tanP` is metres of
+ * rise per metre of RUN. A target at horizontal offset `hh` and height `tz` is therefore ON the ray
+ * at t == hh, and the reach test is `t >= hh`. Comparing t with hypot(hh, tz - az) - the 3D distance
+ * to that aim point, which is what the old line did - demands that an upward ray overshoot by
+ * sqrt(1 + tanP^2): 10-125% across the aims this row casts, measured per column in #290's trace,
+ * because the look-up aim is a ceiling plane metres above the eye. The eye-height CONTROL in the
+ * same row (tanP ~ 0, where t == the 3D distance) is immune to the same error, which is exactly why
+ * the pair reported "volume exists, just not from here" instead of reporting broken. The rule this
+ * enforces is: convert, never reinterpret. `hh` and `RANGE` are horizontal and so is the compare;
+ * `dist3` is 3D, is carried for the detail strings, and is never compared with `t`.
+ *
+ * THE AIM IS A PARAMETER, NOT A SECOND RULE. `alt` casts each column at three heights (ceiling plane,
+ * span midpoint, eye height) and `volume` casts the ceiling-plane aim only. That is the one place the
+ * two callers genuinely differ, so the helper takes `tz` and no block keeps a private reach test.
+ *
+ * THE COLUMN THE EYE STANDS IN IS ANSWERED, NOT SKIPPED. The guard was `hh < 0.35`, and the only cast
+ * that can satisfy it is the one whose target is the eye's OWN cell - every other column's centre is
+ * at least 0.5 m away - so it deleted exactly one case, and that case is the strongest arrival-volume
+ * signal there is: a seat under a 3 m ceiling was scored blind to that ceiling without a ray being
+ * fired. The vertical above the eye also has no horizontal parameter for `t` to march: at hh = 0 the
+ * aim is (tz - az) / 0 = Infinity and atan2(0, 0) answers 0, so a hitscan cast there is a ray up a
+ * division by zero rather than a look-up, and it answers nothing. It is answered from the geometry
+ * instead: seen iff the aim point is above the eye AND inside that column's own air, which is the
+ * shipped `bandOf` - and `bandOf` is also what refuses a solid column, so a probe bug answers "not
+ * visible" rather than "volume".
+ */
+const REACH_SRC = `
+      function reachVisible(ax, ay, tx, ty, tz, RANGE) {
+        /* ONE reach test, both arrival rows. (ax,ay) is the EYE in world xy, (tx,ty) the TARGET
+           column, tz the height of the point being aimed at, RANGE a HORIZONTAL bound on the march.
+           Returns {ok, kind, why, d, dist3, t, h}: d = horizontal eye-to-centre metres, dist3 = the
+           3D distance to the aim point (reported, never compared), t = hitscan's march parameter,
+           why = what stopped it, h = the raw hitscan answer or null when no ray was applicable. */
+        const dx = tx + 0.5 - ax, dy = ty + 0.5 - ay, hh = Math.hypot(dx, dy);
+        const own = (tx === (ax | 0) && ty === (ay | 0));          // the column the eye is standing in
+        P.x = ax; P.y = ay; P.z = floorAt(ax, ay); P.crouch = 0; P.air = false; P.vz = 0;
+        const az = eyeH();                                          // ask the game where the eye is
+        const dist3 = Math.hypot(hh, tz - az);
+        if (own) {
+          const seen = tz > az + 1e-9 && bandOf(ax, ay, tz) === 0;
+          return { ok: seen ? 1 : 0, kind: seen ? 0 : 6, d: hh, dist3: dist3, t: NaN, h: null,
+                   why: seen ? 'OWN COLUMN ABOVE EYE' : 'OWN COLUMN BELOW EYE' };
+        }
+        if (hh > RANGE) return { ok: 0, kind: 5, d: hh, dist3: dist3, t: NaN, h: null, why: 'OUT OF RANGE' };
+        /* hh is the reach test and hh + 2 the bound, because both are measured in the same horizontal
+           metres as t (js/30_entities.js:110 marches castRayDist with the unit pair dx,dy). Passing
+           the 3D distance as the range would only ever have MADE the march longer, so this narrowing
+           cannot flip a visible column: any stop beyond hh is still beyond hh, and a march capped at
+           hh + 2 still answers t >= hh. */
+        const h = hitscan(Math.atan2(dy, dx), (tz - az) / hh, hh + 2);
+        return { ok: h.t >= hh - 1e-6 ? 1 : 0, kind: h.wall ? 1 : h.band ? 2 : h.floor ? 3 : 4,
+                 why: h.wall ? 'WALL/RISER' : h.band ? 'CEILING' : h.floor ? 'OWN FLOOR' : 'NOTHING',
+                 d: hh, dist3: dist3, t: h.t, h: h };
+      }`;
+
+/* THE SYNTHETIC PAIR (#290 requirement 4): four cases this file BUILDS, at distances it fixes rather
+   than finds, so the reach test is seen to answer the question rather than to agree with the level.
+   The lane is five cells wide - four of air, one solid wall behind the target so no cast can sail off
+   the map - and every floor in it is the datum, so the ONLY geometry a cast can read is the ceiling
+   plane the case is about. Two of the four cases are the required pair (a 3.00 m column at 3.00 m
+   reads VISIBLE; the same column behind a 1.00 m corridor ceiling reads INVISIBLE) and two are the
+   own-column rule that replaced the 0.35 m guard (tall air above the eye reads VISIBLE, an aim point
+   at or below the eye reads INVISIBLE, so neither "own column always visible" nor "always skipped"
+   can satisfy the row). The visible case carries its own anti-widening clause: its stop must land in
+   the window [hh, dist3), i.e. past the target horizontally and SHORT of the 3D distance - which is
+   precisely where the old compare answered "invisible". Restore is by array copy plus linkBoundaries,
+   and the grid is hashed before and after so a poke that leaked is the row's failure too. */
+const REACH_ST_SRC = REACH_SRC + `
+      function reachSelfTest() {
+        const N = MAP.w, cell = MAP.cell, y0 = 2, x0 = 1, IX = (x, y) => y * N + x;
+        if (N < 8) return { err: 'the grid is ' + N + ' wide - too narrow for a 5-cell lane, so no case was built' };
+        const save = { cell: cell.slice(), fz: MAP.fz.slice(), cz: MAP.cz.slice(), vb: MAP.vb.slice(),
+          feat: MAP.feat.slice(), p: { x: P.x, y: P.y, z: P.z, c: P.crouch, a: P.air, v: P.vz },
+          en: ENEMIES.slice(), pr: PROPS.slice() };
+        const sig = function () {
+          let h = 2166136261;
+          const a = [MAP.cell, MAP.fz, MAP.cz];
+          for (let k = 0; k < 3; k++) for (let i = 0; i < a[k].length; i++) h = Math.imul(h ^ a[k][i], 16777619) >>> 0;
+          return h >>> 0;
+        };
+        const sig0 = sig(), nBody = save.en.length + save.pr.length;
+        ENEMIES.length = 0; PROPS.length = 0;                  // a body in the lane is not geometry (#96)
+        function build(laneCz) {                               // four lane cells + the wall behind them
+          for (let y = y0 - 1; y <= y0 + 1; y++) for (let x = x0; x <= x0 + 4; x++) {
+            const i = IX(x, y);
+            MAP.fz[i] = 0; MAP.cz[i] = CZ_DEF; MAP.feat[i] = FEAT_NONE;
+            cell[i] = (x === x0 + 4 && y === y0) ? 1 : 0;
+          }
+          for (let k = 0; k < 4; k++) MAP.cz[IX(x0 + k, y0)] = laneCz[k];
+          linkBoundaries();                                    // anything writing cz/vb must relink (planes)
+        }
+        const ex = x0 + 0.5, ey = y0 + 0.5, tx = x0 + 3, ty = y0;   // target centre EXACTLY 3.00 m out
+        const cases = [];
+        function shot(name, ax, ay, bx, by, tz, want, rayCase) {
+          const r = reachVisible(ax, ay, bx, by, tz, 20), az = eyeH();
+          const win = rayCase
+            ? (want ? (r.t >= r.d - 1e-9 && r.t < r.dist3 - 1e-9) : (r.t < r.d - 1e-9))
+            : (want ? (ceilAt(bx, by) - floorAt(bx, by) >= 2 && tz > az) : (tz <= az + 1e-9));
+          cases.push({ name: name, want: want, got: r.ok, win: win ? 1 : 0, t: r.t, hh: r.d, dist3: r.dist3,
+            tz: tz, az: az, ceil: ceilAt(bx, by), fl: floorAt(bx, by), kind: r.why, ray: r.h ? 1 : 0,
+            behind: cell[IX(bx + 1, by)] });
+        }
+        build([12, 12, 12, 12]);                               // 3.00 m of air the whole way
+        shot('TALL COLUMN at 3.00 m', ex, ey, tx, ty, ceilAt(tx, ty) - ZQ, 1, true);
+        build([4, 4, 4, 12]);                                 // same column, 1.00 m corridor in front
+        shot('1.00 m CORRIDOR CEILING at 3.00 m', ex, ey, tx, ty, ceilAt(tx, ty) - ZQ, 0, true);
+        build([12, 4, 4, 4]);                                 // the tall air is the eye's OWN column
+        shot('OWN COLUMN, ceiling plane above the eye', ex, ey, x0, y0, ceilAt(x0, y0) - ZQ, 1, false);
+        shot('OWN COLUMN, aim at its own floor', ex, ey, x0, y0, floorAt(x0, y0), 0, false);
+        for (let i = 0; i < cell.length; i++) {
+          cell[i] = save.cell[i]; MAP.fz[i] = save.fz[i]; MAP.cz[i] = save.cz[i];
+          MAP.vb[i] = save.vb[i]; MAP.feat[i] = save.feat[i];
+        }
+        linkBoundaries();
+        P.x = save.p.x; P.y = save.p.y; P.z = save.p.z; P.crouch = save.p.c; P.air = save.p.a; P.vz = save.p.v;
+        ENEMIES.length = 0; PROPS.length = 0;
+        for (let i = 0; i < save.en.length; i++) ENEMIES.push(save.en[i]);
+        for (let i = 0; i < save.pr.length; i++) PROPS.push(save.pr[i]);
+        return { cases: cases, sig0: sig0, sig1: sig(), nBody: nBody, nBody1: ENEMIES.length + PROPS.length,
+                 lane: [x0, y0, tx, ty, ex, ey] };
+      }`;
+
+/* One row, two callers: alt prints it into its own tally, volume into volume's. The row is HARD in
+   both - it asserts nothing about the level, only about the predicate, so there is no baseline for
+   it to widen and no deal that can make it red. A pair that could not be built is a FAILURE and not
+   a skip: an instrument that cannot run has never been shown to answer anything. */
+function reachSelfTestRow(row, label) {
+  let S = null, err = '';
+  try { S = run('(function(){' + REACH_ST_SRC + 'return reachSelfTest();})()'); }
+  catch (e) { err = (e && e.message) ? e.message : String(e); }
+  const cases = S && S.cases ? S.cases : [];
+  if (!S || S.err || cases.length !== 4) {
+    row(label, false, 'VACUITY - the synthetic pair did not run, so it cannot fail: ' +
+      (err ? 'the build threw ' + err : (S && S.err) ? S.err : 'it returned ' + JSON.stringify(S)) +
+      '. A self-test that cannot build its geometry is a FAILURE, never a skip.');
+    return;
+  }
+  const one = c => c.name + ' -> ' + (c.got ? 'VISIBLE' : 'INVISIBLE') + ', want ' +
+    (c.want ? 'VISIBLE' : 'INVISIBLE') + ' [' + (c.ray ? 't ' + (Number.isFinite(c.t) ? c.t.toFixed(3) : 'NaN') +
+      ' vs hh ' + c.hh.toFixed(2) + ', dist3 ' + c.dist3.toFixed(2) + ', stops on ' + c.kind +
+      ', wall behind ' + c.behind : 'no ray: own column, tz ' + c.tz.toFixed(2) + ' vs eye ' + c.az.toFixed(2) +
+      ', span ' + (c.ceil - c.fl).toFixed(2) + ' m') + '] ' + (c.win ? 'IN-TERM' : 'TERM-FAILED');
+  const rays = cases.filter(c => c.ray).length;
+  const bad = cases.filter(c => c.got !== c.want || !c.win);
+  const distOK = cases.filter(c => c.ray).every(c => Math.abs(c.hh - 3) < 1e-9 && c.behind === 1);
+  const backOK = S.sig0 === S.sig1 && S.nBody === S.nBody1;
+  const pairOK = cases.some(c => c.want) && cases.some(c => !c.want) && rays >= 2;
+  row(label, bad.length === 0 && distOK && backOK && pairOK,
+    cases.map(one).join('  ||  ') +
+    '  ---  the lane is five cells at row ' + S.lane[1] + ', target centre fixed at hh 3.00 m, all floors datum, '
+    + 'so the ceiling plane is the only geometry any cast can read and the distances are THIS file\'s rather '
+    + 'than the level\'s. The visible case must stop in [hh, dist3) = past the target horizontally and SHORT of '
+    + 'the 3D distance, which is the window the old t-vs-3D-distance compare called invisible (#290); the '
+    + 'invisible case stops at ' + cases[1].t.toFixed(3) + ' m, on the corridor\'s own ceiling plane, so a '
+    + 'predicate that simply returned 1 fails THIS pair and a threshold cannot be widened to avoid it. '
+    + 'OWN-COLUMN DECISION: the cell the eye stands in is answered from the geometry - seen iff the aim point '
+    + 'is ABOVE the eye and inside that column\'s own air (bandOf === 0, which also refuses a solid column) - '
+    + 'NOT by a ray, because a vertical has no horizontal parameter for t to march (at hh 0 the aim is a '
+    + 'division by zero and atan2(0,0) points the march at +x); the 0.35 m guard it replaces could only '
+    + 'ever fire on this one column, since every other column\'s centre is >= 0.5 m away, so it skipped the '
+    + 'seat\'s own volume and nothing else. '
+    + 'Non-vacuity: ' + rays + ' of 4 cases fired a ray through the shipped hitscan, the pair has one want '
+    + 'and one dont-want, and the grid came back as it went in (cell+fz+cz hash ' +
+    (backOK ? 'restored, ' + S.sig0.toString(16) : 'NOT RESTORED ' + S.sig0.toString(16) + ' -> ' + S.sig1.toString(16)) +
+    ', bodies ' + S.nBody1 + ' of ' + S.nBody + ' restored)');
+}
+
 if (MODE === 'alt') {
   /* Altitude cross-section. Until #152 this probe's verdict was FLATNESS - M0's exit gate, "the flat
      world is bit-identical" - which is now precisely what generation must NOT produce. The verdict is
@@ -628,7 +810,17 @@ if (MODE === 'alt') {
        (an open doorway draws no face, so its lintel IS the ceiling you see through). The row gates on the
        look-up count; the eye-height count is its control, and a generator that stopped authoring the
        mouths would leave the control standing and the gate at 0. CZ_TALL back to CZ_DEF (no tall term)
-       takes the FIRST clause to 0, which is the sabotage this row was written against. */
+       takes the FIRST clause to 0, which is the sabotage this row was written against.
+       #290 fixed what "reached" MEANT here, and no number printed before it is comparable with any number
+       printed after: hitscan answers the HORIZONTAL march parameter, so the reach test is against hh, not
+       against the 3D distance the aim point happens to sit at. The old compare made every look-up cast
+       demand sqrt(1+tanP^2) more reach than a ray can have - 10-125% at these aims - while the eye-height
+       CONTROL (tanP ~ 0, t == dist) was immune, which is how a row whose control passes reported a debt
+       that is partly a units bug. The column the eye stands in is now answered directly instead of being
+       skipped by a 0.35 m guard that could only ever fire on that column. Both halves are gated by the
+       synthetic pair at the end of this block, which builds its own lane at a known distance; on the deals
+       GENERATION runs the row still reads 0 of 150/179/187, so the fix aimed the cast rather than widening
+       it (the poked discrimination table lives with #290, not in this file). */
     const V = vm.runInContext(`(function(){
       const N = MAP.w, cell = MAP.cell, fz = MAP.fz;
       const save = { x: P.x, y: P.y, z: P.z, c: P.crouch, a: P.air, v: P.vz };
@@ -646,15 +838,8 @@ if (MODE === 'alt') {
          it left through (kind 1, the #261 term this row exists to exercise) or its own floor (#131).
          "Not visible because a wall is in the way" and "not visible because the ceiling of the room you
          stand in is in the way" are different defects, and only the second one is this row's subject. */
-      function cast(ax, ay, tx, ty, tz) {
-        const az = floorAt(ax, ay) + cfg.eye;
-        const dx = tx + 0.5 - ax, dy = ty + 0.5 - ay, hh = Math.hypot(dx, dy);
-        if (hh < 0.35 || hh > RANGE) return { ok: 0, kind: 4, d: hh };
-        const dist = Math.hypot(hh, tz - az);
-        P.x = ax; P.y = ay; P.z = floorAt(ax, ay); P.crouch = 0; P.air = false; P.vz = 0;
-        const h = hitscan(Math.atan2(dy, dx), (tz - az) / hh, dist + 2);
-        return { ok: h.t >= dist - 1e-6 ? 1 : 0, kind: h.wall ? 1 : h.band ? 2 : h.floor ? 3 : 4, d: dist };
-      }
+      ${REACH_SRC}
+      function cast(ax, ay, tx, ty, tz) { return reachVisible(ax, ay, tx, ty, tz, RANGE); }
       const O = { tall: tall.length, cols: 0, upSeen: 0, bodySeen: 0, stands: 0, bodyStands: 0, dsum: 0,
                   casts: 0, spUp: 0, spMid: 0, spBody: 0, spDist: -1, spH: 0, spKind: '-', spNear: -1, lowStands: 0 };
       for (const k in stands) O.lowStands += stands[k].length;
@@ -688,7 +873,7 @@ if (MODE === 'alt') {
         const d = Math.hypot(tx + 0.5 - spx, ty + 0.5 - spy);
         if (su.ok && (O.spDist < 0 || d < O.spDist)) O.spDist = d;
         if (!su.ok && (O.spNear < 0 || d < O.spNear)) {   // nearest column the seat cannot look up into, and why
-          O.spNear = d; O.spKind = ['-', 'WALL/RISER', 'CEILING', 'OWN FLOOR', 'NOTHING'][su.kind];
+          O.spNear = d; O.spKind = su.why;                 // the name comes from the reach test (#290)
         }
       }
       P.x = save.x; P.y = save.y; P.z = save.z; P.crouch = save.c; P.air = save.a; P.vz = save.v;
@@ -1170,6 +1355,10 @@ if (MODE === 'alt') {
         + `cannot see this layer, px is the buffer the world pass wrote before it.`);
     }
   }
+  /* #290: the row above gates a NUMBER about a level; this one gates the PREDICATE that produced it,
+     on geometry this file writes at distances it fixes. It runs last, on the level-2 grid, restores
+     every array it touched, and asserts its own restoration, so it cannot contaminate the rows above. */
+  reachSelfTestRow(row, 'the arrival reach test answers its own control pair');
   console.log((bad ? `ALT ${bad} FAILURES - the bands are not there, not linked, or there is nothing to look at`
     : `ALT ok - bands authored, linked, reachable, and there is volume to look at`) +
     `  |  ${rowsN} row(s), ${knownN} known-issue row(s)${knownN ? (STRICT ? ' (FAILED under STRICT=1)' : ' (reporting: #15 M4 arrival view - STRICT=1 gates)') : ''}`);
@@ -1190,9 +1379,10 @@ if (MODE === 'alt') {
    The two numbers are the same two formulas alt's rows compare, not a second dialect of them:
      VOLUME   ceilAt(x,y) - floorAt of an OPEN column >= 2 units - alt's headCols and V.tall
      ARRIVAL  from the SPAWN SEAT js/30_entities.js' hitscan aimed one quantum under each tall
-              column's OWN ceiling plane - alt's look-up aim, its range 20 and its 0.35 m near gate,
-              with bodies and props out of the lane because sight's rule is that a body is not
-              geometry. No second LOS rule is invented here either.
+              column's OWN ceiling plane - alt's look-up aim, its range 20, #290's horizontal reach
+              test and its own-column rule, with bodies and props out of the lane because sight's rule
+              is that a body is not geometry. The reach test itself is not re-implemented here at all:
+              it is REACH_SRC, the same text alt's cast interpolates.
 
    Faithfulness is stated per path, and the two paths answer two different questions:
      STREAM (default) one boot, then N rounds of genLevel(0), genLevel(1), genLevel(2) on the stream,
@@ -1291,15 +1481,21 @@ if (MODE === 'volume') {
         }
         const RANGE = 20;
         let arr = 0, near = -1, kind = '-';
+        ${REACH_SRC}
         for (const i of cols) {
-          const tx = i % N, ty = (i / N) | 0, tc = ceilAt(tx, ty);
-          const dx = tx + 0.5 - spx, dy = ty + 0.5 - spy, hh = Math.hypot(dx, dy);
-          if (hh < 0.35 || hh > RANGE) continue;
-          const zUp = tc - ZQ, dist = Math.hypot(hh, zUp - sz);
-          const hs = hitscan(Math.atan2(dy, dx), (zUp - sz) / hh, dist + 2);
-          if (hs.t >= dist - 1e-6) arr++;
-          else if (hs.wall === 1) { const d = Math.hypot(dx, dy); if (near < 0 || d < near) { near = d; kind = 'WALL'; } }
-          else { const d = Math.hypot(dx, dy); if (near < 0 || d < near) { near = d; kind = hs.wall ? 'WALL/RISER' : hs.band ? 'CEILING' : hs.floor ? 'OWN FLOOR' : 'NOTHING'; } }
+          const tx = i % N, ty = (i / N) | 0, zUp = ceilAt(tx, ty) - ZQ;
+          /* ONE reach test, shared with alt's cast: the same aim through the same compare, because two
+             copies of it are how these two rows read one frame two ways (#290). t is horizontal, so the
+             compare is horizontal, and the column the seat stands in is answered from geometry instead
+             of skipped. The rc.h.wall === 1 clause is kept verbatim and is structurally dead: hitscan
+             answers a BOOLEAN wall (js/30_entities.js:149), so the reported kind has always come from
+             the chain after it - deferred, deliberately unchanged in a reach-test fix. */
+          const rc = reachVisible(spx, spy, tx, ty, zUp, RANGE);
+          if (rc.ok) arr++;
+          else if (rc.h) {
+            const d = Math.hypot(tx + 0.5 - spx, ty + 0.5 - spy);
+            if (near < 0 || d < near) { near = d; kind = rc.h.wall === 1 ? 'WALL' : rc.h.wall ? 'WALL/RISER' : rc.h.band ? 'CEILING' : rc.h.floor ? 'OWN FLOOR' : 'NOTHING'; }
+          }
         }
         let hsh = 2166136261;
         for (let i = 0; i < N * N; i++) {
@@ -1320,6 +1516,9 @@ if (MODE === 'volume') {
     console.log('  ' + line.join('   '));
   }
   const ms = Date.now() - t0;
+  /* #290: the predicate these 36 deals were scored with, gated on a lane this file builds at a known
+     distance. It is a vrow, not a krow: it asserts nothing about any deal, so it has no baseline. */
+  reachSelfTestRow(vrow, 'the arrival reach test answers its own control pair');
   const med = a => { const s = a.slice().sort((x, y) => x - y); return s.length & 1 ? s[(s.length - 1) >> 1]
     : (s[s.length / 2 - 1] + s[s.length / 2]) / 2; };
   for (let li = 0; li < 3; li++) {
