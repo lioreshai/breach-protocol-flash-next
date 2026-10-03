@@ -1117,7 +1117,7 @@ const AUTHORED = {
     "#..." + "...." + ".###" + "#..." + "C..#",   // 11
     "#.L." + "...." + ".###" + "#..L" + "...#",   // 12
     "#..." + "...." + ".###" + "#..." + "...#",   // 13
-    "#..." + "L.B." + ".###" + "#..." + "...#",   // 14
+    "#.L." + "L.B." + ".###" + "#..." + "...#",   // 14
     "#..L" + "...." + ".###" + "#..." + "...#",   // 15
     "#..." + "...g" + ".###" + "#..." + "...#",   // 16
     "#..." + "...." + ".###" + "#..." + ".h.#",   // 17
@@ -1221,7 +1221,23 @@ function buildAuthored(li) {
   for (const s of spots) {
     const px = s[0] + 0.5, py = s[1] + 0.5, fl = floorAt(px, py);
     if (s[2] === 'L') {
-      LIGHTS.push({ x: px, y: py, z: fl + LHOVER, r: 7.2, str: 1, col: cfgL.lampCol, stat: 1 });
+      /* #213's band rule, now applied to AUTHORED lamps as well as the generator's top-up: strength by
+         the number of open columns in the lamp's OWN band. Before this an authored lamp was a fixed
+         str 1 / r 7.2 source, so the 15-cell pit and the 300-cell datum floor received identical light -
+         the exact asymmetry #213 recorded as a white box in a hole (DEV.lum 168 mean / 229 mid) while the
+         big floor stayed under-lit. A pit lamp therefore lands on cov/TARGET = 15/32 = 0.47, clamped to
+         TOPUP_MINF = 0.5, which is what a generated pit of that size already gets; the flood is over
+         columns at the same fz and runs once per lamp at build on a 20x20 grid. */
+      const f0 = fz[(s[1] | 0) * N + (s[0] | 0)];
+      let cov = 0;
+      { const seen = new Uint8Array(N * N), st = [(s[1] | 0) * N + (s[0] | 0)];
+        seen[st[0]] = 1;
+        while (st.length) { const c = st.pop(); cov++; const cx = c % N, cy = (c / N) | 0;
+          for (let d = 0; d < 4; d++) { const nx = cx + DIRX[d], ny = cy + DIRY[d]; if (nx < 0 || ny < 0 || nx >= N || ny >= N) continue;
+            const ni = ny * N + nx; if (seen[ni] || fz[ni] !== f0 || cell[ni]) continue;
+            seen[ni] = 1; st.push(ni); } } }
+      const lstr = Math.max(TOPUP_MINF, Math.min(1, cov / TOPUP_TARGET));
+      LIGHTS.push({ x: px, y: py, z: fl + LHOVER, r: 7.2, str: lstr, col: cfgL.lampCol, stat: 1 });
       PROPS.push({ tex: PROP.lamp, x: px, y: py, scale: 0.95, z: fl, kind: 'lamp' });
     } else if (s[2] === 'B') PROPS.push({ tex: PROP.barrel, x: px, y: py, scale: 0.86, z: fl, kind: 'barrel' });
     else if (s[2] === 'C') PROPS.push({ tex: PROP.crate, x: px, y: py, scale: 1, z: fl, kind: 'crate' });
