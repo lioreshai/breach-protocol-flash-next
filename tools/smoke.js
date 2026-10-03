@@ -1197,6 +1197,77 @@ const release = () => fire('mouseup', { button: 0 });
     parts:PARTS.length,proj:PROJ.length,enemies:ENEMIES.length,left:enemiesLeft(),fps:S.fps,
     mapOk:(MAP.w===MW&&MAP.cell.length===MW*MH)})`, ctxVm);
   console.log('report', rep);
+
+  /* ---------------- raster per level (#296) ----------------------------------------------
+     The budget row above times ONE scene: startGame()'s level 0, 20 frames in, after a walk and a
+     look. So a level whose arrival seat is three times the cost (measured on these bytes: 42.88 ms
+     and 134,860 wall px at the level-1 arrival seat against L0's 11.9 ms) is invisible to it, and a
+     regression that only appears past the first level stays green. These rows time every level at
+     ITS OWN arrival seat.
+
+     Each level re-seeds the stream with the exact snippet vboot uses above before it builds the
+     world, so the scene is a function of SEED + level index and not of how many Math.random draws
+     the run happened to make upstream (#96 moved makeEnemy's ten draws and re-rolled every world
+     built downstream of the same SEED). startLevel(li,true) then runs genLevel + resetRun and seats
+     P.z from floorAt on every path, and nothing in the measured loop calls update(): no AI, no
+     physics, no camera drift - the loop measures the rasterizer on a fixed frame, which is what a
+     cost row has to be to mean the same thing twice.
+
+     REPORTED, NOT GATED. L1/L2 absolutes are this box's numbers at this load average; a threshold
+     copied from them would be red on a slower runner, and a permanently-red row teaches everyone to
+     ignore rows. The third argument of rlrow is the ONE thing a later commit flips to a boolean to
+     gate a level, and the census line prints the move from "reported" to "gating" so the change is
+     visible in the verdict rather than buried in a diff.
+
+     Last in the file on purpose: re-entering a level regenerates the grid AND reseeds the stream, so
+     a row placed earlier would shift every world the asserts above build - V16/V17/V19 already call
+     startLevel(li,true) without reseeding, so they inherit whatever seed is live at that point.
+     ------------------------------------------------------------------------------------------ */
+  const RLV = code => vm.runInContext(code, ctxVm);
+  let rlN = 0, rlGate = 0;
+  // gate === undefined  -> the row reports: printed, never asserted
+  // gate === true/false -> the row is a gate: printed with the verdict and passed to expect
+  const rlrow = (label, detail, gate) => {
+    const verdict = gate === undefined ? 'rpt  ' : gate ? 'ok   ' : 'FAIL ';
+    console.log('  RASTER ' + label.padEnd(48) + verdict + ' ' + detail);
+    rlN++;
+    if (gate === undefined) return;
+    rlGate++;
+    expect('RASTER ' + label, gate, detail);
+  };
+  {
+    const RL_BATCHES = 5, RL_FRAMES = 60;
+    for (let li = 0; li < 3; li++) {
+      RLV(`(()=>{let a=(${SEED}+90210)>>>0;Math.random=()=>{a=(a+0x6D2B79F5)>>>0;let t=a;t=Math.imul(t^t>>>15,t|1);t^=Math.imul(t^t>>>7,t|61);return((t^t>>>14)>>>0)/4294967296};})()`);
+      RLV(`startLevel(${li}, true); S.mode = "play"; S.locked = true; S.exitOpen = false;`);
+      RLV('for (const k in keys) delete keys[k]; PROJ.length = 0; PARTS.length = 0; DECALS.length = 0;');
+      const samples = [];
+      for (let b = 0; b < RL_BATCHES; b++) {
+        const t0 = Date.now();
+        RLV(`for (let i = 0; i < ${RL_FRAMES}; i++) { renderWorld(); renderOverlay(); }`);
+        samples.push((Date.now() - t0) / RL_FRAMES);
+      }
+      samples.sort((a, b) => a - b);
+      const med = samples[RL_BATCHES >> 1];
+      // Name the scene IN the line, in the same shape as the budget row, plus what only a per-level
+      // row can show: off-datum cells and the count of centre-row pixels that are not fog. Three
+      // rows that were secretly timing the same frame would say so in their own text.
+      const sc = RLV(`(()=>{let off = 0; for (let i = 0; i < MW * MH; i++) if (MAP.fz[i]) off++;
+        let alive = 0; for (const e of ENEMIES) if (e.state !== 'dead') alive++;
+        const fc = (255 << 24 | (FOGC[2] << 16) | (FOGC[1] << 8) | FOGC[0]) >>> 0, row = (BH >> 1) * BW;
+        let nf = 0; for (let x = 0; x < BW; x++) if (px[row + x] !== fc) nf++;
+        return [S.level, LEVELS[S.level].name, P.x, P.y, P.z, MW, MH, MAP.rooms.length, off,
+          ENEMIES.length, alive, nf, BW, BH]})()`);
+      rlrow('L' + li + ' raster at its arrival seat',
+        `median ${med.toFixed(2)} ms/frame of ${RL_BATCHES} batches x ${RL_FRAMES} renders, batches `
+        + samples.map(v => v.toFixed(1)).join('/')
+        + ` | SEED ${SEED} - L${sc[0]} ${sc[1]} - player ${sc[2].toFixed(1)},${sc[3].toFixed(1)} z ${sc[4].toFixed(2)}`
+        + ` - grid ${sc[5]}x${sc[6]} - ${sc[7]} rooms - ${sc[8]} cells off datum - ${sc[9]} enemies (${sc[10]} alive)`
+        + ` - centre row ${sc[11]}/${sc[12]} px not fog - buffer ${sc[12]}x${sc[13]}`);
+    }
+    console.log('raster per level: ' + rlN + ' row(s), ' + rlGate + ' gating row(s), ' + (rlN - rlGate) + ' reported');
+  }
+
   console.log(`${failed} assertion(s) failed`);
   console.log(process.exitCode ? 'SMOKE FAILED' : 'SMOKE PASSED');
 })();
