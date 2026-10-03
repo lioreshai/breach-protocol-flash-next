@@ -1684,7 +1684,7 @@ if (MODE === 'flatparity') {
   // authors its lamps from the plan and has no top-up to remove, so the two senses must agree while every
   // dealt level's pair still differs (f9e4da3a vs 060da4cd on L0). If the authored path ever inherits the
   // top-up, L3's pair diverges and PARITY fails by itself.
-  const OLD = refRecord('flatparity', 'PARITY', 'md5', ['f9e4da3af18836db903fd7cbdf2b0206', 'f05beeb58f1266a1aea7e44712995292', 'd4b2d2cd539c3b620ea0ce5ab115d50a', '6e16106488db1079e026d70fdf1b1fed']);
+  const OLD = refRecord('flatparity', 'PARITY', 'md5', ['f9e4da3af18836db903fd7cbdf2b0206', 'f05beeb58f1266a1aea7e44712995292', 'd4b2d2cd539c3b620ea0ce5ab115d50a', 'c857fe56f870a447052641f917d500fc']);
   const OLDM = [79.7, 34.1, 47.5];
   /* #213 moves SHIP[0] to 060da4cd (80.8, from 4262d051/81.3) and nothing else: a coverage top-up's
      intensity now scales with the cells it covers, so the shipped world gains DIMMER sources and L0's
@@ -1694,7 +1694,7 @@ if (MODE === 'flatparity') {
   // #284 re-keyed L2 only, mean identical (51.7 vs 51.7): a deal that now sinks a hole has one more
   // band for the top-up to serve, so one lamp stands elsewhere. PARITY is bit-identical on 3/3, which
   // is the sense that would move if a height term broke the flat-world collapse.
-  const SHIP = refRecord('flatparity', 'LOCK', 'md5', ['060da4cdaadc2e4a4276ce8f06b0eecf', 'f05beeb58f1266a1aea7e44712995292', 'ae47d409d2e2b945831144ce5152454b', '6e16106488db1079e026d70fdf1b1fed']);
+  const SHIP = refRecord('flatparity', 'LOCK', 'md5', ['060da4cdaadc2e4a4276ce8f06b0eecf', 'f05beeb58f1266a1aea7e44712995292', 'ae47d409d2e2b945831144ce5152454b', 'c857fe56f870a447052641f917d500fc']);
   const SHIPM = [80.8, 34.1, 51.7];
   /* #219's DEALT triple, #226's camera: the frame of each level AS DEALTED - bands, band term, shipped
      lamp record, same dice (1000 + level*97) and the same pinned-clock ninth render - but at a seat
@@ -1786,7 +1786,7 @@ if (MODE === 'flatparity') {
   // in its own process and AGREES with this literal, so the move is the level's, not the harness's.
   // L3's dealt hash is recorded from a sampler that now has a fourth seat (see DEALT_SEATS); DEALT-ORDER
   // proved it is a property of the level - hashed alone and hashed after levels 0..2 it is the same value.
-  const DEALT = refRecord('flatparity', 'DEALT', 'md5', ['f7baf61773bb8469c5a8cf0b95681dd4', '370d3f7a88596a5bfc36bfc9c98b6858', 'aa18d43e1fbd55b40eb4500dd745a3d6', '2bf6d74c1d74f7471364f99a63ce7ca2']);
+  const DEALT = refRecord('flatparity', 'DEALT', 'md5', ['f7baf61773bb8469c5a8cf0b95681dd4', '370d3f7a88596a5bfc36bfc9c98b6858', 'aa18d43e1fbd55b40eb4500dd745a3d6', 'b63a56f241b0981dafd733353e5da76b']);
   const DEALTM = [55.5, 57.8, 85.1];
   const OFF = process.env.LAMPS === 'off';
   const f1 = v => (v === undefined || v === null ? '-' : (+v).toFixed(1));
@@ -4671,7 +4671,14 @@ if (MODE === 'exposure') {
      are exactly themselves again. A record that only moved down would be a frame going dark; this one
      reads upward on the level that gained 4 units of air and flat on the two that did not. The 60-100
      window row (75 / 72 / 83 here), not this one, is what gates the look. */
-  const EXPO_MED = refRecord('exposure', 'MEDIAN', 'num', [75, 72, 83]);
+  // #304 (M6): the fourth level is the AUTHORED one, so its median is authored too - 64 (63.61 exact,
+  //   rolls 68 65 62 60, spread 8: the tightest distribution in the table, because the level is a fixed
+  //   plan rather than a deal). It sits inside the window on purpose: a hand-built level must not be
+  //   brighter than the generated ones it follows. Before this row the array had three entries and the
+  //   L3 row compared against a missing value and printed "the recorded NaN", which reads as a
+  //   brightness failure and is a missing declaration - #303's hardcoded-count defect, here in a
+  //   statistic rather than a loop bound.
+  const EXPO_MED = refRecord('exposure', 'MEDIAN', 'num', [75, 72, 83, 64]);
   // #284: L2's spawn-seat MEAN moves 64 -> 63 (64.33 -> 63.22) while the CENTRE-HALF mid is identical to
   //   the hundredth (73.31) and the spread is identical (65), L0 and L1 are byte-identical (56.89/64.80 and
   //   59.95/50.31), PARITY is bit-identical on all three levels, and the deal's mean is unchanged in the
@@ -4684,7 +4691,13 @@ if (MODE === 'exposure') {
      unlit recipe reads 50/54, 57/48, 63/71 on these same seats (#299 §3), so the term is what lifts them
      and the atrium alone would have taken them DOWN - both directions are on the table in that pair of
      triples, which is what makes this a re-record rather than a ratchet. */
-  const EXPO_SPAWN = refRecord('exposure', 'SPAWN', 'num', [61, 69, 64, 59, 64, 73]);   // mean, mid per level
+  // #304 (M6) L3 = mean 94, centre-half mid 110 (rolls 94-ish, see the row's own detail). This is the
+  //   one number here that says something about LOOK rather than parity: the authored spawn corridor is
+  //   lit by a lamp in a 2-unit-tall volume, so its centre reads above the window's upper edge while the
+  //   level's MEDIAN - the statistic the window is documented against - is 64 and comfortably inside.
+  //   Recorded, not gated: the window's own text says "median not mean", and dimming a room to move a
+  //   ungated average would be a look change with no check behind it (#306 tracks the residue).
+  const EXPO_SPAWN = refRecord('exposure', 'SPAWN', 'num', [61, 69, 64, 59, 64, 73, 94, 110]);   // mean, mid per level
   const LUM_WANT = [60, 100];       // the documented window (README: targets 60-100), median not mean
   const medRec = [], spawnRec = [];
   for (let lv = 0; lv < N; lv++) {
@@ -8662,6 +8675,19 @@ if (MODE === 'stats') {
       for(let s=1;s<=6;s++){const nx=P.x+Math.cos(best)*s,ny=P.y+Math.sin(best)*s;if(isSolid(nx,ny))break;bx=nx;by=ny;}
       e.x=bx;e.y=by;e.state='idle';e.anim=0.37;}
   })()`);
+  /* SEAT=x,y,ang re-points the camera at the cell the player actually starts on. The derived camera
+     above picks an open cell by list index and turns toward the longest sight line, which can answer
+     "does this level have depth" but NOT "can the player see the way down from where they begin" - and
+     a claim about the player's seat taken from a camera no player ever occupies is the trap this guards
+     against (it is how a flat-looking render got described as "the spawn view" this session). Probe-only:
+     off unless SEAT is set, and the derived camera still runs so nothing else changes when it is unset. */
+  if (process.env.SEAT) {
+    const s = String(process.env.SEAT).split(',').map(v => Number(v));
+    if (s.length === 3 && s.every(v => Number.isFinite(v))) {
+      run(`P.x=${s[0]};P.y=${s[1]};P.ang=${s[2]};P.pitch=BH*0.02;`);
+      console.log('SEAT override: x ' + s[0] + ' y ' + s[1] + ' ang ' + s[2].toFixed(4));
+    } else console.log('SEAT ignored, want "x,y,ang": ' + process.env.SEAT);
+  }
   run('renderWorld()');
   const BW = run('BW'), BH = run('BH'), buf = new Uint32Array(run('px'));
   stats('frame', buf, BW, BH);
