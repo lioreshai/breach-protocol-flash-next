@@ -4423,7 +4423,13 @@ if (MODE === 'exposure') {
      12.30 ms on the parent) - so this is the picture of a level with more volume in it, not an exposure
      change. The window row, not this one, gates the look. */
   const EXPO_MED = refRecord('exposure', 'MEDIAN', 'num', [70, 72, 83]);
-  const EXPO_SPAWN = refRecord('exposure', 'SPAWN', 'num', [57, 65, 60, 50, 64, 73]);   // mean, mid per level
+  // #284: L2's spawn-seat MEAN moves 64 -> 63 (64.33 -> 63.22) while the CENTRE-HALF mid is identical to
+  //   the hundredth (73.31) and the spread is identical (65), L0 and L1 are byte-identical (56.89/64.80 and
+  //   59.95/50.31), PARITY is bit-identical on all three levels, and the deal's mean is unchanged in the
+  //   LOCK sense. So this is not the player's view going dark: it is a sunken floor entering the margins of
+  //   a level-2 spawn frame that used to be all datum. It is the feature showing up in a record, and
+  //   #216's rule says re-record it rather than widen the clause - refs.lock moves with it.
+  const EXPO_SPAWN = refRecord('exposure', 'SPAWN', 'num', [57, 65, 60, 50, 63, 73]);   // mean, mid per level
   const LUM_WANT = [60, 100];       // the documented window (README: targets 60-100), median not mean
   const medRec = [], spawnRec = [];
   for (let lv = 0; lv < N; lv++) {
