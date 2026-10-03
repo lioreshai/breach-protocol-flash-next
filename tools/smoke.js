@@ -72,7 +72,17 @@ const sandbox = {
 sandbox.window = sandbox; sandbox.globalThis = sandbox;
 const ctxVm = vm.createContext(sandbox);
 
-const files = fs.readdirSync(path.join(__dirname, '..', 'js')).filter(f => f.endsWith('.js')).sort();
+/* JSDIR=path - the same A/B knob tools/view.js implements (#289): smoke's rows then run against the variant
+   tree's scripts and source-text asserts, so a budget A/B measures the variant it names. Unset = unchanged. */
+const JSDIR = process.env.JSDIR ? path.resolve(process.env.JSDIR) : path.join(__dirname, '..', 'js');
+const jsFile = f => path.join(JSDIR, f);
+const jfiles = fs.readdirSync(JSDIR).filter(f => f.endsWith('.js')).sort();
+if (process.env.JSDIR && !jfiles.length) {
+  console.log('JSDIR ' + JSDIR + ' holds no .js files - a variant tree that loads nothing measures nothing');
+  process.exit(1);
+}
+const jhash = process.env.JSDIR ? require('crypto').createHash('sha256') : null;
+const files = jfiles;
 let ts = 0;
 function frames(n) { try { for (let i = 0; i < n; i++) { ts += 16.7; sandbox.__raf(ts); if (ctxDepth !== 0) throw new Error('unbalanced ctx save/restore, depth=' + ctxDepth); } } catch (e) { console.log('FRAME FAIL: ' + e.stack.split('\n').slice(0, 5).join('\n')); process.exitCode = 1; } }
 function step(label, code) {
@@ -100,9 +110,13 @@ const release = () => fire('mouseup', { button: 0 });
 
 (async () => {
   for (const f of files) {
-    try { vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'js', f), 'utf8'), ctxVm, { filename: f }); }
+    const jsrc = fs.readFileSync(jsFile(f), 'utf8');
+    if (jhash) jhash.update(f + '\0' + jsrc);
+    try { vm.runInContext(jsrc, ctxVm, { filename: f }); }
     catch (e) { console.log(`LOAD FAIL ${f}: ${e.stack.split('\n').slice(0, 5).join('\n')}`); process.exit(1); }
   }
+  if (jhash) console.log('# JSDIR ' + JSDIR + '  js-sha256 ' + jhash.digest('hex').slice(0, 16) + '  ' +
+    files.length + ' files loaded from the VARIANT tree (baseline side is identified by its git SHA)');
   console.log('boot ok · mode=', vm.runInContext('S.mode', ctxVm), 'buf=', vm.runInContext('[BW,BH]', ctxVm).join('x'));
   frames(30);
   const bufCheck = () => vm.runInContext(`(()=>{const s=new Set();for(let i=0;i<px.length;i+=997)s.add(px[i]);return s.size})()`, ctxVm);
