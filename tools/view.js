@@ -3390,7 +3390,13 @@ if (MODE === 'cull') {
          ground beside a band boundary any more. L2 held - the same "band weight, not global
          brightness" control #203 noted - and the px-difference counts held at 51048 / 49614 / 49586,
          so the ground pass changed because the LIGHT under it did and not because the geometry did. */
-      const CZBAND_REF = refRecord('cull', 'CZBAND', 'crc32', [0x8f763884, 0x77511300, 0x7dd66c40]);   // LEAK=1 CZBAND=1, cull's own step rows
+      /* L0/L1 re-keyed by #282 off 17e83ba: tall air is now authored BEFORE the raised band and the pits,
+         so the ceiling-step frames carry a different near-ceiling/farther-ceiling pair and the GROUND lane
+         moves (L0 0x8f763884 -> 0x71a20264, L1 0x77511300 -> 0xd34608c0, L2 unchanged). The WORLD sense is
+         byte-identical on 3 of 3 (0xb0988514 / 0xb54c0a14 / 0xcb62daf2), so the generated lightmap did not
+         move and js/40_render.js is untouched - this is geometry, not the ceiling ANSWER, which is the
+         distinction that keeps this record from being the #177 wrong fix wearing a re-key. */
+      const CZBAND_REF = refRecord('cull', 'CZBAND', 'crc32', [0x71a20264, 0xd34608c0, 0x7dd66c40]);   // LEAK=1 CZBAND=1, cull's own step rows
       /* #223: the WORLD sense, recorded beside the lane sense, because czS.h above is a lightmap
          instrument only ON ONE CAMERA'S FRAME: it moves when the lightmap changed somewhere that frame
          rasterizes and holds when it changed somewhere it cannot, so its green never proves "the
