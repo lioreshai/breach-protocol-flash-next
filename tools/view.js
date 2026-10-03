@@ -5379,6 +5379,11 @@ if (MODE === 'contrast') {
      number the #189 conditional is measured against. One constant on purpose: the row that says "the
      cone cannot reach the pose floor" and the pose that cannot reach it must read the same value. */
   const POSEFLOOR = 1.2;
+  /* #178 seat selection. A camera whose cone is shallower than a body can neither be placed nor
+     walked into: the cone is the constraint, not the enemy. SEAT=0 restores the old behaviour and is
+     that row's control. SEATMIN is the axis depth at which the placement loop already stops trying
+     (the Math.min(3.5, ...) at the spot search), so a seat chosen here is one that loop can use. */
+  const SEATMIN = 3.5, SEATFIX = process.env.SEAT !== '0';
   /* The window the POSED/FOUND read rows report #179 in is [floor, gate), floor = max(POSE_FLOOR,
      flatControl - BANDTOL), and both terms are measured, not rounded:
        POSE_FLOOR = one dL under the worst number the sweep of this branch produced anywhere; see the
@@ -5580,6 +5585,58 @@ if (MODE === 'contrast') {
       let coneMax = 0, spotTried = 0, spotBand = 0, spotPlace = 0, spotOff = 0;
       const alive = ENEMIES.reduce((n, q) => n + (q.state !== 'dead' ? 1 : 0), 0);
       const band = floorAt(P.x, P.y);
+      /* #178: measure the canonical cone over the same 11 yaw samples the spot search uses, and if it
+         is shallower than a body can stand, take the first seat the LEVEL offers instead - row-major,
+         open, on the camera's OWN band, its longest ray at least SEATMIN and its own cone deep enough
+         to hold a body at POSEFLOOR. No randomness and the canonical seat wins whenever it works, so
+         a cam that already poses measures the identical pixels it measured before. */
+      const coneOf = (ox, oy, ang) => { let c = 0;
+        for (let w = 0; w < 11; w++) { const s = w === 0 ? 0 : (w & 1 ? (w + 1) >> 1 : -((w + 1) >> 1));
+          const a = ang + s * ${FOVH_JS} * 0.6 / 5;
+          const d = __march(ox, oy, Math.cos(a), Math.sin(a), 8).dist - ${BRAD};
+          if (d > c) c = d; }
+        return c; };
+      const seat = { moved: 0, from: [+P.x.toFixed(2), +P.y.toFixed(2)], cone: 0, fromCone: 0, to: null, nb: 0, near: 0, hit: null, fb: null, why: '' };
+      if (${SEATFIX ? 'true' : 'false'} && ENEMIES.length) {
+        const cone0 = coneOf(P.x, P.y, P.ang);
+        seat.cone = seat.fromCone = +cone0.toFixed(2);
+        if (cone0 < ${POSEFLOOR} + 0.6) {
+          for (let y = 2; y < MH - 2 && !seat.hit; y++) for (let x = 2; x < MW - 8 && !seat.hit; x++) {
+            if (MAP.cell[y * MW + x]) continue;
+            if (Math.abs(floorAt(x + .5, y + .5) - band) > 1e-6) continue;
+            let best = 0, ba = 0;
+            for (let k = 0; k < 48; k++) { const a = k * Math.PI / 24;
+              const d = castRayDist(x + .5, y + .5, Math.cos(a), Math.sin(a), 9).dist;
+              if (d > best) { best = d; ba = a; } }
+            if (best < ${SEATMIN}) continue;
+            const c1 = coneOf(x + .5, y + .5, ba);
+            if (c1 < ${POSEFLOOR} + 0.6) continue;
+            /* Prefer a seat the GAME's own bodies can be SEEN from: the FOUND half of #178's acceptance
+               is judged on coverage the LEVEL's bodies paint, and a seat deep enough for the posed body
+               can still see none of them (measured: seat (2.5,2.5), 2 of 5 bodies clear, 162 px - a
+               vacuous row). Counted geometrically - frustum predicate plus one march per body, no
+               render - so the choice stays deterministic and costs milliseconds. */
+            let nb = 0, near = 1e9;
+            for (const q of ENEMIES) {
+              if (q.state === 'dead') continue;
+              const dx = q.x - (x + .5), dy = q.y - (y + .5), d = Math.hypot(dx, dy);
+              if (d < 0.6 || d > 8) continue;
+              if ((dx * Math.cos(ba) + dy * Math.sin(ba)) / d < 0.2) continue;
+              if (__march(x + .5, y + .5, dx / d, dy / d, 8).dist < d - ${BRAD}) continue;
+              nb++; if (d < near) near = d;
+            }
+            const cand = { x: +(x + .5).toFixed(2), y: +(y + .5).toFixed(2), a: ba, c: +c1.toFixed(2), nb: nb, nd: +near.toFixed(2) };
+            if (!seat.fb) seat.fb = cand;
+            if (near <= 5) seat.hit = cand;
+          }
+          const pick = seat.hit || seat.fb;
+          if (pick) {
+            seat.to = [pick.x, pick.y]; seat.cone = pick.c; seat.nb = pick.nb; seat.near = pick.nd; seat.moved = 1;
+            P.x = pick.x; P.y = pick.y; P.z = floorAt(P.x, P.y); P.ang = pick.a;
+            if (!seat.hit) seat.why = 'nothing was clear within 5 m of any deep seat; took the first deep one';
+          } else seat.why = 'no seat on band ' + band.toFixed(2) + ' is deep enough';
+        }
+      }
       if (ENEMIES.length) {
         const cx0 = Math.cos(P.ang), cy0 = Math.sin(P.ang);
         const axq = __march(P.x, P.y, cx0, cy0, 8);
@@ -5618,7 +5675,7 @@ if (MODE === 'contrast') {
       for(const e of ENEMIES)e.state='sleep';
       return {n:ENEMIES.length, pose:poseD, why:poseWhy, clear:clear, band:band, off:poseOff, poseClear:poseClear,
         coneMax:coneMax, spotBand:spotBand, spotPlace:spotPlace, spotOff:spotOff, tried:spotTried, alive:alive,
-        clearWhy:clearWhy, clearDz:clearDz, spots:spots};
+        clearWhy:clearWhy, clearDz:clearDz, spots:spots, seat:seat};
     })()`);
     // arm the mask (null in play; this probe is its only caller) and any shading control
     run('if (!COV || COV.length !== BW * BH) COV = new Uint8Array(BW * BH);');
@@ -5947,6 +6004,9 @@ if (MODE === 'contrast') {
        that counts the ROOM, a partition that does not add up - is never labelled. */
     const m189vac = m189 && nM === 0;
     const poseOk = camG.pose > 0 && !!posedB && !!posedB.vis && posedPx >= MINMASK;
+    /* #178: say which seat these numbers came from. A cone shallower than a body is the level's
+       geometry (#189 part 2 keeps that report), so only a MOVED seat or a dead band prints. */
+    if (SEATFIX && camG.seat && (camG.seat.moved || camG.seat.cone < POSEFLOOR)) console.log('  seat       ' + (camG.seat.moved ? 'MOVED (#178): canonical (' + camG.seat.from + ') cone ' + camG.seat.fromCone + ' m < ' + POSEFLOOR + ' -> seat (' + camG.seat.to + ') cone ' + camG.seat.cone + ' m, sees ' + camG.seat.nb + ' body(ies) the level placed, nearest ' + camG.seat.near + ' m' + (camG.seat.why ? ' [' + camG.seat.why + ']' : '') : 'no seat on band ' + camG.band.toFixed(2) + ' reaches ' + POSEFLOOR + ' m - ' + camG.seat.why));
     row('cam ' + cam + ' has a POSED body it can see', poseOk,
       camG.pose ? 'POSED at ' + camG.pose.toFixed(2) + ' m on band ' + camG.band.toFixed(2) +
         (Math.abs(camG.off) > 1e-6 ? ', ' + (camG.off * 180 / Math.PI).toFixed(1) + ' deg off the axis (which stops at ' + camG.clear.toFixed(2) + ' m)' : '') +
