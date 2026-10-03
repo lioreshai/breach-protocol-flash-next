@@ -1,3 +1,32 @@
+## [Unreleased]
+
+### Changed
+
+- **The hand-authored level's descent is now in the corridor the player spawns facing, and the corridor
+  has volume** (#16, #181). The stair had been authored in the far column of the west wall — outside
+  every seeded camera's frame, and therefore outside every screenshot that ever justified it. `alt`
+  rows 13–15 are now `0333 / 0222 / 0111`: three one-quantum treads across the corridor's whole width,
+  pit floor at −1.00 from y16, `feat` marking the flight `.SSS`; the pit lamp moved from the datum cell
+  above the hole to the **foot** of the stair (2,16) so the flight is lit from below. Height came from
+  the mark that already existed rather than a new layer: the feat layer's `T` sets `CZ_AUTH_TALL` and
+  `ceilAt` honours `cz` (`js/20_level.js:83`), so `T` along the corridor (rows 8–12) and in the hall
+  beside the hole (rows 13–15) is authored volume with no new machinery — and because the
+  `T`/`P`/`S` branch is exclusive, no pit or stair cell lost its minimap cue to buy ceiling.
+  `alt` reports **three** unblocked crossings into the −1.00 band (was one), exit 0, no failing rows.
+  Verdict from the spawn seat is honest, not triumphant: the floor now ends in a visible dark band with
+  a lit strip under it, but at ~10 m and a 0.6 m eye three 0.25 m risers subtend a few pixels each and
+  merge, so the flight reads as a lip, not as stairs — the next lever is the stair's distance or a lip
+  highlight, not tread count (#181 stays open).
+
+### Added
+
+- **`SEAT=x,y,ang` for `node tools/view.js scene <li> <cam>`**. The mode seats its camera at open-cell
+  index `(len*0.31 + cam)` and turns it toward the longest sight line, which can answer "does this level
+  have depth" and structurally cannot answer "can the player see the way down from where they start" —
+  two renders described as "the spawn view" during this work were that derived camera looking at
+  geometry the player never sees. The override re-points `P.x/P.y/P.ang` after the derivation, is off
+  unless the variable is set, and prints the pose it used so a claim names its own camera.
+
 ## [v1.3] - 2026-10-03
 
 ### Changed

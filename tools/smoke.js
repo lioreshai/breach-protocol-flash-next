@@ -171,6 +171,27 @@ const release = () => fire('mouseup', { button: 0 });
     // One 120-frame sample was the whole verdict, and on this machine that sample
     // swings 5-18 ms for identical code, so the budget tripped on noise. Five batches,
     // judged on the median, with the worst batch printed rather than hidden.
+    //
+    // Re-seat FIRST, and the reason is #96 arriving in a budget row. The 'gen every level' step above
+    // runs 60 genLevel calls per level, genLevel draws from the shared stream, and the batches time
+    // whatever world startGame() left behind - so gaining a level shifts the stream by 60 draws and
+    // re-rolls level 0's layout under the same SEED. That is exactly how a fourth level appeared to
+    // "regress" this assert while level 0's own raster cost was unchanged (main passes at <16 ms; the
+    // four-level tree measured 19.6-20.5 ms on byte-identical raster arithmetic, and level 0's
+    // report-only medians agreed across the trees at 25.1-25.9). A gate whose subject is re-rolled by
+    // an unrelated merge cannot show a regression, so the seat is pinned to SEED + index: same ordering
+    // as the path it replaces (warm 20 frames, THEN set the look state, because the batches call no
+    // update()), salted like the VERT lane's vboot but a separate call so this row's world does not
+    // move when that lane's boot changes. Pinning changes WHICH level 0 is timed - main's world came
+    // from wherever the stream sat after boot plus 3x60 gen draws, a position no reseed can reproduce -
+    // so this row's absolute number is a NEW measurement, not main's historical ~12-14 ms, and it is
+    // judged on the CI runner: a dev box at load 2.2 (measured 2.26 -> 2.35 across this run) sits inside
+    // the range where this repo's own timing rule says identical code reads 17-46 ms.
+    vm.runInContext("keys['KeyW']=false", ctxVm);
+    vm.runInContext(`(()=>{let a=(${SEED}+90210)>>>0;Math.random=()=>{a=(a+0x6D2B79F5)>>>0;let t=a;t=Math.imul(t^t>>>15,t|1);t^=Math.imul(t^t>>>7,t|61);return((t^t>>>14)>>>0)/4294967296};})()`, ctxVm);
+    vm.runInContext('genLevel(0); startLevel(0,true); S.mode="play"; S.locked=true; S.exitOpen=false', ctxVm);
+    frames(20);
+    vm.runInContext("keys['KeyW']=true; mouse.dx=6; mouse.dy=-3", ctxVm);
     const samples = [];
     for (let b = 0; b < 5; b++) {
       const t0 = Date.now();

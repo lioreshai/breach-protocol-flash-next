@@ -7,9 +7,9 @@
 # warning, and the row runs inside flatparity, which ci.yml runs blocking.
 ref	cull	CZBAND	crc32	0x13702f3c 0xd34608c0 0x7dd66c40
 ref	cull	CZBAND-LIGHT	crc32	0xb0988514 0xb54c0a14 0xcb62daf2
-ref	exposure	MEDIAN	num	75 72 83
-ref	exposure	SPAWN	num	61 69 64 59 64 73
-ref	flatparity	DEALT	md5	f7baf61773bb8469c5a8cf0b95681dd4 370d3f7a88596a5bfc36bfc9c98b6858 aa18d43e1fbd55b40eb4500dd745a3d6 2bf6d74c1d74f7471364f99a63ce7ca2
-ref	flatparity	LOCK	md5	060da4cdaadc2e4a4276ce8f06b0eecf f05beeb58f1266a1aea7e44712995292 ae47d409d2e2b945831144ce5152454b 6e16106488db1079e026d70fdf1b1fed
-ref	flatparity	PARITY	md5	f9e4da3af18836db903fd7cbdf2b0206 f05beeb58f1266a1aea7e44712995292 d4b2d2cd539c3b620ea0ce5ab115d50a 6e16106488db1079e026d70fdf1b1fed
+ref	exposure	MEDIAN	num	75 72 83 64
+ref	exposure	SPAWN	num	61 69 64 59 64 73 94 110
+ref	flatparity	DEALT	md5	f7baf61773bb8469c5a8cf0b95681dd4 370d3f7a88596a5bfc36bfc9c98b6858 aa18d43e1fbd55b40eb4500dd745a3d6 b63a56f241b0981dafd733353e5da76b
+ref	flatparity	LOCK	md5	060da4cdaadc2e4a4276ce8f06b0eecf f05beeb58f1266a1aea7e44712995292 ae47d409d2e2b945831144ce5152454b c857fe56f870a447052641f917d500fc
+ref	flatparity	PARITY	md5	f9e4da3af18836db903fd7cbdf2b0206 f05beeb58f1266a1aea7e44712995292 d4b2d2cd539c3b620ea0ce5ab115d50a c857fe56f870a447052641f917d500fc
 ref	props	LAMPCORE	num	263 239.6 263 239.5 263 239.5
