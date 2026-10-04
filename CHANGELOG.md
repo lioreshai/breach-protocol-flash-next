@@ -23,6 +23,15 @@
   the crossfade half of the hoist is dead code at the default graphics tier anyway (`G_TRI`, ULTRA only).
   Column counts come from a counting tree because the zbuf-inferred census over-counts ~1.7x: the mesh
   pass stamps one view-space distance down a face, so a walls-off frame reports **0** runs.
+- **Four probes stopped describing three levels while players are dealt four** (#303). `props`' cost
+  census and collision rows, `bands`' per-level loop and `decal`'s riser punch loop each ended at a
+  literal `3`, so every row they printed about altitude or clearance described a generated level and the
+  verdict line never said a fourth level had been skipped. They now read the level list, the way `alt`,
+  `volume`, `vert`, `sight`, `cull` and `planes` already did. Two loops keep a literal bound on purpose:
+  `alt`'s top-up and glow censuses index three-value recorded literals, so raising their bound would
+  read `undefined` at level 3 instead of turning a row red — that re-record decision, plus `props`'
+  three-level LAMPCORE record and `bands`' floors calibrated on "the six lips of each tree", is
+  [issue #314](https://github.com/lioreshai/breach-protocol-flash-next/issues/314).
 
 - **The hand-authored level's descent is now in the corridor the player spawns facing, and the corridor
   has volume** (#16, #181). The stair had been authored in the far column of the west wall — outside
