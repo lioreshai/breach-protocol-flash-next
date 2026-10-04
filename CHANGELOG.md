@@ -2,6 +2,39 @@
 
 ### Changed
 
+- **The local verify command now runs CI's roster instead of a hand-copied subset of it** (#338).
+  `AGENTS.md` and `ci.yml` listed the same commands in two places and they drifted: on PR #337's head
+  `node tools/view.js cull` - the command the doc told you to run - printed **`CULL ok`, exit 0**, while
+  `ci.yml`'s second, env-gated `LEAK=1 CZBAND=1 node tools/view.js cull` printed **`CULL 3 FAILURES`,
+  exit 1** on identical bytes, because the `CZBAND`/`CZBAND-LIGHT` records live only in that invocation.
+  `tools/roster.js` has **no list of modes**: it parses `.github/workflows/ci.yml` by two independent
+  means (a structural walk of jobs/steps/run blocks, a structure-blind scan of every non-comment line)
+  and replays the blocking steps with each line's own `VAR=` prefix, printing one verdict line plus an
+  exit code per invocation, continuing past failures, ending in a census like
+  `ROSTER 17 invocation(s), 0 failed, 14 ok, 3 known-reporting`. The two parses' counts must agree,
+  a blocking command that cannot be replayed as stated fails rather than running nothing, and a command
+  commented out in a gate fails by name - retiring a verdict means deleting the line.
+  Teeth, each on a scratch copy: re-indenting a gates step's commands out of their step body makes
+  `--list` exit **1** with `parsed 3 != raw 17` and names the fourteen `ci.yml:` lines it would have
+  dropped (the env-gated line, left at its own indent, is the third the walk still sees); a
+  commented-out gates invocation exits **1** (`COMMENTED-OUT GATE INVOCATION at ci.yml:138`); a
+  guaranteed-failing invocation added to a blocking step exits **1** naming it, printing the last lines
+  of its output, and still runs the entries after it; a plain deletion of one
+  gates line leaves both parses agreeing at **16** and exits **0**, because the workflow is the list and
+  the roster must follow it - which is also why the count is printed in the census, and why that one
+  hole is stated rather than papered over. On untouched `main`
+  the two cull invocations differ exactly as the issue says: the plain one emits **0** `CZBAND` lines,
+  the derived env-gated one **4**, both exit 0 (nothing is red on `main` - #337's three failures were
+  that branch's lamp moves, and they need a re-record, not a fix). `ci.yml` gained one blocking step
+  running `--list`, under a second; the full roster on this tree ran all 17 in **682 s at load average
+  3.8-4.3**, sixteen green and one red - `node tools/smoke.js` at pooled raster median **32.37 ms**
+  against its 32 ms floor - and that same invocation alone at load 3.3 reads **28.90** and passes, so the
+  red is this box's load, not this change (per-invocation times ran 0.1 s - 206 s; the timings are load,
+  not budget). Not done here: ask #2,
+  naming an env-suppressed row inside each mode's own summary, needs edits in 25 verdict blocks of
+  `tools/view.js` - the census of the 89 `process.env.` reads that gate a row is in `tools/roster.js`'s
+  header until that lands.
+
 - **No big band is left without a light source standing in it** (#149). Lamp placement had scored seats
   for the dark *cells* a lamp would cover and then spread the remainder, so a band whose cells were each
   individually dim could still end up with no lamp inside it at all. On untouched `main` the new rows fail:

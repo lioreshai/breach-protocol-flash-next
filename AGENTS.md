@@ -55,12 +55,42 @@ rule it taught stays and the archaeology goes; git remembers the rest.
 ## Verify before you commit
 
 ```
+node tools/roster.js                    # EVERY invocation ci.yml's blocking steps run, in ci.yml's
+                                        # order: one verdict line + exit code each, continues past
+                                        # failures, exits non-zero iff any failed
+node tools/roster.js --list             # that roster + the drift check, running nothing
+node tools/roster.js --quick 3          # the first three (census says PARTIAL)
 node tools/smoke.js                     # save/restore balance, colour variety,
                                         # raster median < 16 ms/frame, asset mem < 40 MB
 VERT=1 node tools/smoke.js              # the vertical lane
 node tools/view.js <probe>              # see docs/DEVELOPMENT.md for the catalogue
 node --check <each changed file>        # cross-file work: parse index.html's order
 ```
+
+**Run the roster, not a favourite probe.** `tools/roster.js` carries **no list of modes**: it parses
+`.github/workflows/ci.yml` twice - a structural walk of jobs/steps/run blocks, and a structure-blind
+scan of every non-comment line - and replays the blocking steps, each command with the `VAR=` prefix
+that sits in front of it in the workflow. The two counts must agree or it fails naming the line numbers,
+and `ci.yml` runs `--list` as a blocking step so the agreement cannot rot.
+
+This replaces a hand-copied subset. The same list lived here *and* in `ci.yml`, maintained twice, and
+they drifted: `node tools/view.js cull` printed `CULL ok` (exit 0) on bytes where `ci.yml`'s second,
+env-gated `LEAK=1 CZBAND=1 node tools/view.js cull` printed `CULL 3 FAILURES` (exit 1) - PR #337 went
+to CI red on that gap. **A probe's rows can hide behind an env var**, and the ones that gate are
+`cull`'s `LEAK`/`CZBAND`, `smoke`'s `VERT`, `bands`' `SEAM`, `flatparity`'s `LAMPS`/`FP_DEALT*`,
+`refs`' `LAMPS`/`NOCAP`, `volume`'s `BOOT`/`DEALS`, `columns`' `TURN` and `mip`'s `BANDS`; `STRICT`
+applies to a different half of the same question - it promotes filed debt from a reported row to a
+gating one in `alt`, `volume`, `horizon`, `cull`, `contrast`, `anim`, `bands` and smoke's VERT lane -
+the full
+census, with line numbers, is the header of `tools/roster.js`. So a per-mode run you enjoy is a subset
+of the gate; ask which invocations ran, not which word printed.
+
+Each child runs with that line's own prefix plus PATH/HOME/TMPDIR/TEMP/TMP/LANG/LC_ALL/TZ/CI and `OUT`,
+and nothing
+else from your shell - an ambient `LEAK=1` or `STRICT=1` you exported weeks ago would otherwise change
+which rows exist, and it is named on the entry's line when dropped. Blocking steps that run something
+other than `view.js`/`smoke.js` (`recap.js`, `ci/assert.js`, `wfyaml.rb`) are printed as a named gap in
+that step's coverage, never as a silent ok.
 
 **Gate on the tool's verdict, never on a grep for a line.** Grepping `raster cost` matched
 while the assert was failing and produced commits with known-failing budgets; the VERT lane's
