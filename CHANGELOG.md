@@ -2,6 +2,24 @@
 
 ### Changed
 
+- **The mesh path now reads the quality tier, and every kind's geometry is counted** (#78). `NS` was a module
+  constant the tier table never touched, so "author it more detailed" had no place to go on the lowest tier
+  and nothing to fall back to - and the only readout was a `KIND` list a probe remembered by hand. Bodies are
+  still authored at the same grade: **the census measured grunt/hound/brute at 252 verts / 180 tris, not the
+  240 / 168 this issue was filed with**, because the gun and neck parts landed since that count was taken, and
+  props are counted for the first time (barrel 96/84, crate 96/48, lamp 72/60, pickups 96/48).
+
+  `MESH.setDetail(n)` is the hook: it rebuilds the per-tier cos/sin table, **deletes every cached rest model
+  and clears the pose cache**, because tube sides are baked into vertex data - an LOD switch that left the
+  pose cache warm would draw the previous tier's geometry, which is the same warm-state bug this repo has
+  already paid for twice elsewhere. `QUAL` gains `ns` and `resize()`, the one place the tier resolves, drives
+  it. **All three tiers stay at 6, so this changes no geometry and no md5**: `flatparity` exits 0 on this
+  commit with its records untouched, which is the promise the whole branch rests on. `rig` prints the census
+  from `MESH.kinds()` (so a kind nobody enumerated cannot be silently left out) and proves the hook is wired
+  by forcing `ns=4` and requiring the counts to move - **180 -> 144 tris** - then restoring 6 so the sheet is
+  rasterized untouched. That row's failure mode is a broken wire, not frame content: `HOOK INERT` is the only
+  new exit path, and no change to art, level or lighting can reach it.
+
 - **No big band is left without a light source standing in it** (#149). Lamp placement had scored seats
   for the dark *cells* a lamp would cover and then spread the remainder, so a band whose cells were each
   individually dim could still end up with no lamp inside it at all. On untouched `main` the new rows fail:

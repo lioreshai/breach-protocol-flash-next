@@ -9883,6 +9883,27 @@ if (MODE === 'stats') {
   // pose sheet + silhouette sanity for the vector rigs
   run('S.mode="play"; startLevel(0, true); RIG.beginFrame(1e6);');
   const kinds = (process.env.KIND || 'grunt,hound,brute').split(',').filter(s => s), PH = 6, YAW = 6, HH = 150;
+  /* #78 asked for per-kind geometry counts, and the hook it says does not exist. Print both here rather
+     than in prose: the kinds come from MESH.kinds() (SPEC + PROPGEO), so a kind nobody enumerated cannot be
+     left out of the census the way the fixed `KIND` default quietly leaves props out; and the hook is shown
+     MOVING, which is the only way to tell a wired tier key from an inert one. Detail is restored to 6
+     straight after, so the sheet this mode rasterizes is untouched by the census. */
+  {
+    const kn = run('MESH.kinds()');
+    const geo = kn.map(k => run('[MESH.vertsFor(' + JSON.stringify(k) + '), MESH.trisFor(' + JSON.stringify(k) + ')]'));
+    console.log('geometry census (MESH.kinds, ns=' + run('MESH.detailNS()') + '): ' +
+      kn.map((k, i) => k + ' ' + geo[i][0] + 'v/' + geo[i][1] + 't').join(', '));
+    const tiers = run('QUAL.map(function(q){return q.name+":"+q.ns}).join(" ")');
+    const base = run('[MESH.trisFor("grunt"), MESH.trisFor("hound"), MESH.trisFor("brute")]');
+    run('MESH.setDetail(4)');
+    const low = run('[MESH.trisFor("grunt"), MESH.trisFor("hound"), MESH.trisFor("brute")]');
+    run('MESH.setDetail(6)');
+    const moved = low.some((v, i) => v !== base[i]);
+    console.log('lod hook: tiers [' + tiers + '] -> grunt/hound/brute at 6 = ' + base.join('/') +
+      ', forced ns4 = ' + low.join('/') + ' => ' + (moved ? 'MOVES (wired)' : 'IDENTICAL (the key is inert!)') +
+      '; restored to ns ' + run('MESH.detailNS()'));
+    if (!moved) { console.log('FAIL lod hook is inert: QUAL.ns reaches neither the geometry nor the cache'); process.exitCode = 1; }
+  }
   const W = 150 * 2, cells = [];
   for (const k of kinds) for (let y = 0; y < YAW; y++) for (let p = 0; p < PH; p++) cells.push({ k, y, p });
   const cols = PH, rows = kinds.length * YAW, cw = 170, chh = 175;

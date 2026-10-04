@@ -69,9 +69,21 @@ const MESH = (function () {
   const DARK = { grunt: [35, 42, 53], hound: [35, 44, 26], brute: [36, 26, 44] };
   const CLOTH = { grunt: [74, 85, 104], hound: [92, 112, 64], brute: [90, 64, 104] };
 
-  const NS = 6;                                    // tube sides; 6 keeps <=260 tris/enemy
-  const RC = new Float32Array(NS * 2);
-  for (let i = 0; i < NS; i++) { const a = i * Math.PI * 2 / NS; RC[i * 2] = Math.cos(a); RC[i * 2 + 1] = Math.sin(a); }
+  /* #78: this used to be `const NS = 6` with no way in. The mesh path never read the tier table, so a
+     detail pass had nowhere to drop on the lowest tier and nothing to fall back to - QUAL carries rigH,
+     rast and vec but no geometry key, and 13_mesh is loaded before 40_render so it could not read one at
+     parse time either. NS is now settable through MESH.setDetail, which 40_render's resize() drives from
+     QUAL.ns; every tier authors at 6 today, so the shipped geometry - and every md5 in this repo - is
+     unchanged by construction. The point is that the NEXT pass has a hook and a cache to clear. */
+  const RC_CACHE = {};
+  function buildRC(n) {
+    const a = new Float32Array(n * 2);
+    for (let i = 0; i < n; i++) { const t = i * Math.PI * 2 / n; a[i * 2] = Math.cos(t); a[i * 2 + 1] = Math.sin(t); }
+    return a;
+  }
+  let NS = 6;                                      // tube sides; 6 keeps <=260 tris/enemy
+  RC_CACHE[NS] = buildRC(NS);
+  let RC = RC_CACHE[NS];
 
   /* How far a part reaches INTO the part it joins, in fractions of body height (#74). Parts that
      butt exactly leave a seam that opens at oblique yaw, because each box's silhouette edge is
@@ -1040,6 +1052,23 @@ const MESH = (function () {
     stats: () => ({ tris, pxFilled, trisCulled, poseEntries: POSE.size, poseMB: +(poseBytes / 1048576).toFixed(2), poseMade, capMB: PCAP / 1048576 }),
     reset: () => { tris = 0; pxFilled = 0; trisCulled = 0; },
     setCache: v => { CACHE = !!v; POSE.clear(); poseBytes = 0; poseMade = 0; return CACHE; },
+    /* #78's hook. Tube sides are baked into VERTEX DATA, so changing them invalidates every cached rest
+       model and every pose built from one - an LOD switch that left the pose cache warm would render the
+       previous tier's geometry, which is the one-indirection bug this repo has already paid for twice. */
+    setDetail: n => {
+      n = n | 0;
+      if (!(n >= 3 && n <= 32)) throw new Error('MESH.setDetail: tube sides must be 3..32, got ' + n);
+      if (n === NS) return NS;
+      NS = n; RC = RC_CACHE[n] || (RC_CACHE[n] = buildRC(n));
+      for (const k in MODELS) delete MODELS[k];
+      POSE.clear(); poseBytes = 0;
+      return NS;
+    },
+    detailNS: () => NS,
+    /* #78's census needs the kind LIST, not one representative body, and SPEC/PROPGEO are inside this
+       closure - the probe could only reach them by guessing names, which is how a per-kind table quietly
+       stops covering the kinds that were added last. */
+    kinds: () => Object.keys(SPEC).concat(Object.keys(PROPGEO)),
     trisFor: k => model(k || 'grunt').tris,
     foot: k => FOOT[k] || 0,
     vertsFor: k => model(k || 'grunt').nV,

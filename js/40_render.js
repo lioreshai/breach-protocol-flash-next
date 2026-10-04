@@ -78,9 +78,14 @@ let SHADOW = 1, SHADOW_D = 0.42, SHADOW_R = -0.10, SHADOW_ZT = 0.02, SHADOW_F = 
 const VM = { vy: 0, ang: 0, lag: 0, now: 0, t: 0 };
 
 const QUAL = [
-  { name: 'PERFORMANCE', res: 0.34, min: 170, max: 430, bloom: false, grade: false, grain: 0, far: 15, dmax: 8, glow: 0, scan: 0.5, vec: 0, rast: 0, rigH: 0 },
-  { name: 'BALANCED', res: 0.47, min: 220, max: 760, bloom: true, grade: true, grain: 0.05, far: 22, dmax: 13, glow: 6, scan: 0.18, vec: 1, rast: 2, rigH: 300 },
-  { name: 'ULTRA', res: 0.62, min: 260, max: 780, bloom: true, grade: true, grain: 0.04, far: 30, dmax: 19, glow: 9, scan: 0.1, vec: 1, rast: 4, rigH: 216 }
+  /* ns = tube sides the bodies are authored at (#78). Every tier is 6 today, so this commit changes no
+     geometry and no md5; what it changes is that a detail pass now has a tier to drop into instead of one
+     global constant, which is the half of #78 that made any future detail work a rewrite rather than a
+     tuning. Dropping ns also clears the mesh caches (MESH.setDetail), so a tier switch cannot render the
+     previous tier's vertices. */
+  { name: 'PERFORMANCE', res: 0.34, min: 170, max: 430, bloom: false, grade: false, grain: 0, far: 15, dmax: 8, glow: 0, scan: 0.5, vec: 0, rast: 0, rigH: 0, ns: 6 },
+  { name: 'BALANCED', res: 0.47, min: 220, max: 760, bloom: true, grade: true, grain: 0.05, far: 22, dmax: 13, glow: 6, scan: 0.18, vec: 1, rast: 2, rigH: 300, ns: 6 },
+  { name: 'ULTRA', res: 0.62, min: 260, max: 780, bloom: true, grade: true, grain: 0.04, far: 30, dmax: 19, glow: 9, scan: 0.1, vec: 1, rast: 4, rigH: 216, ns: 6 }
 ];
 
 function resize() {
@@ -91,6 +96,10 @@ function resize() {
   const q = QUAL[clamp(S.gfx | 0, 0, QUAL.length - 1)];
   GQ = q; FARB = q.far;
   G_TRI = q.rast >= 4; G_GRIT = q.rast >= 4 ? 0.85 : (q.rast >= 2 ? 0.5 : 0);
+  /* #78: the mesh path used to be invisible to the tier table. resize() is the one place the tier is
+     resolved, so it drives the geometry detail from here; a no-op while every tier's ns is the current NS
+     (which is all of them today), and a cache-clearing rebuild the moment a tier differs. */
+  if (q.ns && MESH && MESH.setDetail) MESH.setDetail(q.ns);
   BH = clamp(Math.round(DH * q.res), q.min, q.max);
   BW = Math.max(160, Math.round(BH * DW / DH));
   bufCv.width = BW; bufCv.height = BH;
