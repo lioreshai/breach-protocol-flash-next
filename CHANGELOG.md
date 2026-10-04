@@ -2,6 +2,49 @@
 
 ### Changed
 
+- **The two blocks whose verdict numbers were computed rather than hashed now carry records** (#216,
+  records half). `refs` counted **13 records in 6 of 25 probes** before this and named `alt` and
+  `heights` among the blocks whose figures were one session's measurement, so "9 distinct floor
+  values, 170 cells off the datum, 2 staircases, 46 step faces" and "the floor half moved 82%, the
+  ceiling half 0.00%" could be quoted from prose and no row could disagree. Two declarations, in the
+  form where the declaration *is* the compare (`refRecord` returns the literals the compare reads):
+  **`alt GRID-CENSUS`** = per level, `floor values / cells off datum / staircase runs / step faces`
+  = `9 170 2 46`, `9 251 2 52`, `9 307 2 52`, `9 134 4 15`; **`heights HALF-MOVE`** = per level, the
+  percentage of the half each config's own verdict says must move (`tallRoom` ceiling, then pit /
+  stripes / border / stepUp / eyeUp floors) = `97.62 31.18 82.01 95.42 42.87 61.92`, `98.12 33.83
+  29.81 95.64 42.82 64.49`, `98.86 32.57 81.56 95.51 42.87 63.31`, `97.74 23.55 21.23 95.46 38.09
+  54.23`. What is deliberately **not** recorded: `alt`'s unreachable-cell count and `heights`' "still"
+  halves - both are criteria the threshold rows already assert at zero, not censuses, the same reason
+  `RECDARK` stayed undeclared beside the pit rows; and `heights`' `flat` config, which is the frame
+  every other config is diffed against.
+  **Determinism was measured before any literal was written**, because a figure that moves between
+  runs on identical bytes is not recordable: two fresh processes of each probe are byte-identical
+  (`alt` 87 lines, `heights` 9444 bytes, both exit 0), `WARM=1` changes neither (both modes exit long
+  before the warm loop at `tools/view.js:10024`), `SEED=7` changes `heights`' percentages not at all
+  (the block reseeds itself at `:5795`) while it does re-deal `alt`'s levels (573 open cells and 40
+  step faces on L0 instead of 576 and 46). So each row is guarded on the knob that was *measured* to
+  move it - `SEED` for `alt`, `VW`/`VH`/`LAMPS`/`NOCAP` for `heights` (640x360 reads 97.62 → 97.33,
+  `LAMPS=off` 97.62 → 97.60, `NOCAP=1` one config 38.75 → 38.76) - and reports NOT COMPARED rather
+  than a regression there. `JSDIR` is guarded in neither: a record that abstains under the repo's own
+  A/B knob has no teeth (#148's control rule), and nothing here reads a clock.
+  **Teeth, by control tree** (branch `js/` copied, one or two lines patched, run with `JSDIR=`, whose
+  `js-sha256` line names the bytes that answered): `fzTry.fill(0)` after `authorVolume` (js-sha256
+  `98bd625e66e0549a`) exits 1 with `L0/L1/L2 the deal is the recorded geometry census FAIL 1 / 0 / 0 /
+  0 against the recorded 9 / 170 / 2 / 46 MOVED: …`; the same tool against unmodified js
+  (`36b879f381c35048`, the repo's own tree hashed identically) exits 0. Note the flat deal leaves
+  **level 3 green** - it is the authored level, so a generator sabotage cannot reach it, which is the
+  census being level-specific rather than one global gate. For `heights`, solving the three ceiling
+  plane reads against the flat world's `1` (`0a48a2f01c2d6f53`) exits 1 with
+  `FAIL HALF-MOVE-MOVED: tallRoom ceiling 0.00 against recorded 97.62` on all four levels, and the
+  unmodified copy exits 0. Three other sabotages were tried first and were **inert**, which is worth
+  recording because it says what these numbers do and do not read: deleting the ceiling row's own-ray
+  march on rows near the horizon (`absP > 8`), replacing only the row loop's *crossing* ceiling reads
+  with the row predictor, and making `planeAlong` keep the plane it was handed all left every
+  percentage byte-identical - `tallRoom` raises `MAP.cz` in every air cell at once, so on that config
+  the ceiling plane is uniform and only the row predictor can disagree with the flat frame.
+  Census after: **15 records in 7 of 25 probes**; `tools/refs.lock` gained exactly two `ref` lines and
+  no existing value moved.
+
 - **No big band is left without a light source standing in it** (#149). Lamp placement had scored seats
   for the dark *cells* a lamp would cover and then spread the remainder, so a band whose cells were each
   individually dim could still end up with no lamp inside it at all. On untouched `main` the new rows fail:
