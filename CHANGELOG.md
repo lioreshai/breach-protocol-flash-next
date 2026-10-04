@@ -28,6 +28,25 @@
   32.54/32.56/32.92/42.33 ms), on stepped ceiling rows only; the cost rows stay reported, which is
   the number #307 needs before `RASTER_FLOOR` moves.
 
+- **`DEV.spawn`'s fan could put a crowd in one cell and say nothing** (#93, #63). The fan clamped each
+  body **radially** to the first open cell, so `DEV.clear(); DEV.spawn('hound', 2, 7.5)` reported
+  distances `[7.48, 7.48]` and the frame drew **one** hound where the HUD counted two; posed where a
+  wall sits 1.5 m ahead, `DEV.spawn(hound, 2, 3.2)` realised **1.50 m** for a requested 3.2 m and said
+  nothing about it. `DEV.spawn` is the sanctioned way to verify live behaviour, so every probe that
+  assumed a spread crowd was weaker than it read. The fan now backs off **laterally** before it backs
+  off radially, never reuses a cell, and returns what it actually did (`placed[]`, `cells`, `collapsed`,
+  `sep`, `why`) with `kind`/`made`/`dist` unchanged, so a caller can assert instead of assume. Measured
+  over 80 pose x distance rows: rows with fewer than two distinct cells **40 -> 16**, and all 16 are the
+  one pose whose first open cell sits 0.55 m ahead - the cone really does hold a single cell there, and
+  the return now says `collapsed: 1, why: 'crowded'` rather than reporting success. A `smoke` row gates
+  it on distinct cells counted over `ENEMIES`, not on the tool's own claim:
+  `dev spawn: 4 row(s), 4 gating row(s), 0 reported`, and pointed at `origin/main`'s `js/` through
+  `JSDIR` the same row prints `FAIL ... 2/3 cells of 3 bodies at 6.00/6.00/6.00 m` and `SMOKE FAILED`.
+  `DEV` is a dev-only path, so a correct fix moves no pixels: `flatparity` exit 0, 8/8 scene md5s
+  identical to main, `tools/refs.lock` md5 unchanged. Still open and now visible instead of hidden: the
+  fan is only 0.32 rad wide, so at 2 m six rows have distinct cells with the bodies overlapping - the
+  return calls that `sep`.
+
 - **smoke now prints what `update()` costs** (#53, tooling). Every cost row in the harness times
   `renderWorld()` + `renderOverlay()`, so nothing inside `update()` - player physics, enemy AI,
   `hitscan`, projectiles, particles, pickups - has ever had a number, while the vertical work is
