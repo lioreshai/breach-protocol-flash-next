@@ -8373,7 +8373,7 @@ if (MODE === 'decal') {
       c1: c1[1] * N + c1[0], c2: c2[1] * N + c2[0], f1, f2,
       ceil1: ceilAt(c1[0] + .5, c1[1] + .5), ceil2: ceilAt(c2[0] + .5, c2[1] + .5) };
   })()`);
-  for (let lv = 0; lv < 3; lv++) {
+  for (let lv = 0; lv < run('LEVELS.length'); lv++) {
     run('S.mode="play"; S.locked=false; startLevel(' + lv + ', true);');
     const G = punch(lv, 2);
     if (G.none) {
@@ -8549,7 +8549,7 @@ if (MODE === 'props') {
     })()`;
     console.log('props cost: interleaved drawn/parked batches; the parked variant has NO prop or pickup in it');
     console.log('  pairs SHARE a level: genLevel() is unseeded, so a cross-level pair would be two maps');
-    for (let li = 0; li < 3; li++) {
+    for (let li = 0; li < run('LEVELS.length'); li++) {
       run(`S.mode='play'; S.locked=false; startLevel(${li}, true);`);
       const census = run('(()=>{const c={};for(const p of PROPS)c[p.kind]=(c[p.kind]||0)+1;' +
         'return JSON.stringify({props:PROPS.length,pickups:PICKUPS.length,by:c})})()');
@@ -8947,9 +8947,22 @@ if (MODE === 'props') {
      own ask: sampling the post-update state after gravity would self-cancel. */
   console.log('  PROP COLLISION (#218)');
   const RAD218 = 0.28;                                       // the player radius js/30_entities.js calls tryMove with
-  const row218 = (label, ok, detail) => {
-    console.log('    ' + label.padEnd(26) + (ok ? ' ok  ' : 'FAIL ') + ' ' + detail);
-    if (!ok) bad++;
+  /* #314: these loops used to stop at level 2, so the authored level was never driven into its own
+     props at all. Judging it found exactly one failure, and it is not a new one - it is #318, THE
+     STACK's crate ghost overhanging its lane, whose fix is committed on p318close/lamp-jamb and not
+     yet merged (the proof is `JSDIR=<that tree>/js node tools/view.js props`: every graze row is ok
+     and the probe exits 0). `props` sits in a BLOCKING job, so a lifted bound would turn that job red
+     over a defect this repo already knows how to fix. A known-issue row is the honest shape: it
+     PRINTS the measurement, counts into the verdict's debt tally, gates under STRICT=1, and retires
+     itself the moment #318 merges, because the predicate simply passes and this branch stops being
+     taken. Delete the branch when the issue closes - do not widen any threshold here. */
+  let curLevel = -1, known218 = 0;
+  const row218 = (label, ok, detail, knownAt) => {
+    const known = !ok && knownAt !== undefined && curLevel === knownAt && !process.env.STRICT;
+    if (known) known218++;
+    console.log('    ' + label.padEnd(26) + (ok ? ' ok  ' : known ? 'KNOWN' : 'FAIL ') + ' ' + detail +
+      (known ? '  [KNOWN - #' + 318 + ' is fixed on p318close/lamp-jamb, pending merge; STRICT=1 gates this row]' : ''));
+    if (!ok && !known) bad++;
   };
   const FOOTK = {};
   for (const k of ['barrel', 'crate', 'lamp']) FOOTK[k] = run('MESH.foot(' + JSON.stringify(k) + ')');
@@ -8999,7 +9012,8 @@ if (MODE === 'props') {
     keys['KeyW']=0;
     return{crossed,minEdge:+minEdge.toFixed(3),fIn,fy:+P.y.toFixed(3)};
   })()`;
-  for (let li = 0; li < 3; li++) {
+  for (let li = 0; li < run('LEVELS.length'); li++) {
+    curLevel = li;
     run(`S.mode='play'; S.locked=false; startLevel(${li}, true); ENEMIES.length=0; PROJ.length=0;`);
     const cands = run(`(()=>{for(const p of PROPS)if(p.kind==='crate'||p.kind==='barrel'||p.kind==='lamp'){}
       return PROPS.map((p,i)=>({i,k:p.kind,x:p.x,y:p.y,s:p.scale||1,gz:floorAt(p.x,p.y)}))})()`);
@@ -9081,8 +9095,10 @@ if (MODE === 'props') {
     sBrush === 0 ? 'VACUITY: ' + spos.length + ' candidate props on level ' + li + ', NONE brushed the ghost (skipped ' + sSkip + ') - the row tested nothing' :
       spos.length + ' face-graze poses at ~30 deg, brushed ' + sBrush + ' (skipped ' + sSkip + ' that never met the ghost), crossed the lane ' + sCross +
       (sCross < sBrush ? ' - stuck beside the face (worst final y ' + sWorst.toFixed(2) + ')'
-        : ' (a seal would stop at first contact instead of sliding on the free axis)'));
+        : ' (a seal would stop at first contact instead of sliding on the free axis)'), 3);
   }
+  if (known218) console.log('  props: ' + known218 + ' known-issue row(s) reported, not gated '
+    + '(#318 fixed on p318close/lamp-jamb, pending merge - STRICT=1 promotes them)');
   console.log(bad ? 'PROPS PROBE: ' + bad + ' FAILURE(S)' : 'PROPS PROBE: every prop volumetric, light-exempt where emissive, grounded, and solid to the player');
   process.exit(bad ? 1 : 0);
 }

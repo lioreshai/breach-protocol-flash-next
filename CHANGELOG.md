@@ -522,6 +522,20 @@
   across a band boundary — the record moves that level's line with it, and the gap is written up in
   the roadmap rather than averaged away.
 
+### Added
+
+- **The decal and prop probes now drive the authored level too
+  ([#314](https://github.com/lioreshai/breach-protocol-flash-next/issues/314)).** Three loops that
+  stopped at level 2 — `decal`'s riser-punch census and props' interleaved cost census and collision
+  census — now run the whole level list, so THE STACK's wall marks are checked against the strip its
+  own faces paint and its crate ghosts are driven into from four directions. Levels 0–2 are
+  byte-for-byte unchanged; the diffs contain only added rows. Level 3's graze row (`slides, does not
+  seal`) reports one stuck pose, and because that is **#318** — fixed on a committed branch that has
+  not merged, proven by running the probe with `JSDIR=` pointed at that branch's js, where every
+  graze row is ok — the row prints as `KNOWN` with a debt tally instead of turning the blocking
+  `props` job red. `STRICT=1` promotes it back to a failure, and when #318 merges the predicate
+  passes and the branch stops firing.
+
 ### Fixed
 
 - **An authored level shipped no lights at all** (#16). `buildAuthored` pushed lamps **without the

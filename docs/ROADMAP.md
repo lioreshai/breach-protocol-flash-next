@@ -142,6 +142,18 @@ still blind (`VERTICALITY.md`, risk 1).
 - Every raster number recorded before the seeding fix is a luck draw — directional only.
 - `#216` is open until the probe blocks whose verdicts are computed rather than hashed have
   recorded rows; `#226` is open on the DEALT sampler's camera.
+- **Three of #314's silent level-3 loops are lifted; bands' is not, on purpose.** `decal`'s `lv < 3`
+  and props' two `li < 3` loops now run `LEVELS.length`, so the authored level's wall marks and prop
+  collisions are judged (5 decal rows ok; drove-in and band rows ok, its `respects the band` row
+  reporting the 0.16 m crate overhang by itself). Judging the graze row found one failure, and it is
+  **#318, not a new defect**: the same row is `ok` against `p318close/lamp-jamb`'s js
+  (`JSDIR=<that tree>/js node tools/view.js props` → exit 0, zero KNOWN lines), whose fix is committed
+  but unmerged. `props` sits in a blocking job, so the row reports as `KNOWN`, counts into the
+  verdict's debt tally, gates under `STRICT=1`, and retires itself when #318 merges. Two debts survive
+  this: `bands`' `:9331` loop (the WITHIN_MAX calibration decision, owned by the user, untouched
+  here) and the **12 rows `props 3` fails through its single-level path** — 5 `(E) CONTROL did not
+  fall`, 5 `orb` at a 0 px silhouette, 2 prop-collision rows — which are comparisons assuming
+  generated geometry and need their own probes, not a bound lift.
 - **The authored level is judged only by the records it was measured into (#314, items 3+).**
   Items 1 and 2 shipped: `LAMPCORE` carries level 3's own pair (245 px / 239.1, measured by that
   row's own `(E2)` branch before the record existed) and indexes by `LEVELS.length`; `alt`'s pit,
