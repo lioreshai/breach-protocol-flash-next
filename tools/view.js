@@ -640,6 +640,7 @@ if (MODE === 'alt') {
      gate sets the exit code (this probe used to always exit 0, which is why it was only ever reporting).
      Nothing here pokes MAP.fz: these are the bands the generator authored, or the row is lying. */
   let bad = 0, knownN = 0, rowsN = 0;
+  let pitRecN = 0;   // #216: how many levels the pit/lip RECORDS cover - the verdict says what is not covered
   /* STRICT=1 promotes the arrival row below from a reported debt to a gate, the same shape contrast
      (:2641) and cull (:2719) use: a true-but-red finding is RECORDED at a measured baseline rather
      than widened until it cannot fail, and the debt is counted in the verdict line. */
@@ -1182,8 +1183,25 @@ if (MODE === 'alt') {
     /* #284: a deal that authored no hole now authors one, so L0's pit mean settles at 0.290 (within
       the 0.005 clause it always had) and L2's census grows 175 -> 211 cells with mean 0.326 - the pit
       is BETTER lit, still under the 0.55 ceiling of the row above, with 0 dark cells either way. */
-    const RECPIT = [0.290, 0.299, 0.326], RECPITN = [190, 194, 211], RECOOB = [19, 10, 16], RECDARK = [0, 0, 0],
-      RECOOB_GEO = [0, 0, 0];   // #189: same census minus the authored climb cells; RECOOB is kept as the era figure
+    /* #216 (half): these four censuses are now DECLARED records. refRecord returns the literals it is
+       handed, so the line that registers each one is the line the compare at the glow row and the detail
+       print read them from: `node tools/view.js refs` counts them, refs.lock carries them, and an edit to
+       one of these numbers moves the table or fails REFS-VALUES-MOVED instead of being invisible.
+       THREE values, not four: the pit/lip loop below is a hardcoded `lv < 3`, so these rows sample levels
+       0..2 and THE STACK has no pit row - its column is absent from the table rather than invented, and
+       the verdict line prints that gap (#314 owns closing it). RECDARK is deliberately NOT declared:
+       [0, 0, 0] there is the criterion "no pit cell may be dark" - the same zero the row above asserts as
+       `A.pitDark === 0` - it is identical on every level while the neighbouring censuses differ per level,
+       #206's own comment derives it from the mechanism ("RECDARK stays 0: coverage authors a source per
+       band") rather than reading it off a deal, and it is the one literal on that line every re-key left
+       alone. RECOOB_GEO *is* declared: #189 introduced it as the measured non-climb population ("the
+       non-climb population of alt's oob census is 0/0/0") and the compare reads it. */
+    const RECPIT = refRecord('alt', 'PIT-MEAN', 'num', [0.262, 0.294, 0.297]);
+    const RECPITN = refRecord('alt', 'PIT-CELLS', 'num', [190, 194, 211]);
+    const RECOOB = refRecord('alt', 'OOB-ERA', 'num', [19, 10, 16]);   // #189 era figure, climb cells included
+    const RECOOB_GEO = refRecord('alt', 'OOB-NONCLIMB', 'num', [0, 0, 0]);   // same census minus authored climb cells
+    const RECDARK = [0, 0, 0];   // the criterion (clause 1 above asserts the same zero), not a census - see above
+    pitRecN = RECPIT.length;   // coverage of the records above, printed in the verdict line
     /* #206: RECPIT and RECOOB are MAP.light censuses, so the blur band gate moved them with the
        kernel (0.426/0.423/0.464 and 123/377/337 were the bleeding kernel's df919c3 readings - the
        pit means carried a real cross-band tail on top of the direct coverage light, which is what
@@ -1394,7 +1412,9 @@ if (MODE === 'alt') {
   reachSelfTestRow(row, 'the arrival reach test answers its own control pair');
   console.log((bad ? `ALT ${bad} FAILURES - the bands are not there, not linked, or there is nothing to look at`
     : `ALT ok - bands authored, linked, reachable, and there is volume to look at`) +
-    `  |  ${rowsN} row(s), ${knownN} known-issue row(s)${knownN ? (STRICT ? ' (FAILED under STRICT=1)' : ' (reporting: #15 M4 arrival view - STRICT=1 gates)') : ''}`);
+    `  |  ${rowsN} row(s), ${knownN} known-issue row(s)${knownN ? (STRICT ? ' (FAILED under STRICT=1)' : ' (reporting: #15 M4 arrival view - STRICT=1 gates)') : ''}` +
+    `  |  ${pitRecN} recorded pit/lip level(s) of ${run('LEVELS.length')}` +
+    (pitRecN < run('LEVELS.length') ? ` - levels ${pitRecN}..${run('LEVELS.length') - 1} have no pit row and no record (#314)` : ''));
   process.exit(bad ? 1 : 0);
 }
 
@@ -1447,6 +1467,45 @@ if (MODE === 'alt') {
    the same flat lit box whatever the seed, so a seed sweep whose grids collide is measuring one
    level many times. FNV over cell + fz + cz per deal (the FNV constants are the ones crc32 uses).
 
+   #181 ITEM 1 ADDS THE FOUR GRID CLAIMS THAT WERE NOWHERE PER DEAL. The block used to answer "does a
+   deal author volume (derived), does the SEAT see it, is there a DOWN" and nothing else, so four
+   claims that `alt` or `planes` make on the THREE deals CI renders were unmade by the other 45:
+     HOLLOW     open cells whose OWN `MAP.cz` is >= 2 units. The volume row above reads
+                `ceilAt - floorAt`, which a neighbour's floor two units above ALSO satisfies, so that
+                row can read ok on a map with no hollow column in it at all. This is the same 2 units
+                expressed in the byte the generator writes.
+     SPAN<=0    faces the DDA stops at and the wall pass draws nothing (`alt`'s FACES row, per deal).
+     PLANES     `MAP.ceilPlane[i] === ceilAt(x,y)` per column - `planes`' agreement claim with no
+                render and no relink control, so a forgotten `linkBoundaries()` after a `cz` write is
+                caught on 48 deals instead of 3.
+     REACH      open cells the generator's own crossing rule cannot reach from the seat. Raising `cz`
+                must not move this number at all (`bfsReach` reads fz/vb/feat and never cz), which is
+                what makes "volume cost nothing" a check rather than a sentence.
+   plus VISIBLE-FROM-THE-FLOOR-YOU-ENTER-IT, alt's perception claim on the RING of cells that touch a
+   hollow column rather than on every standable cell (the unsampled form is what makes alt cost 35 s a
+   deal). The ring is counted apart by its own headroom, which turned out to be the interesting number:
+   a one-unit mouth cannot show a 3-unit ceiling from 1 m away at any distance, so what this row gates
+   is "perceivable from SOME floor", not feature 1's mouth rule - alt's own row owns that A/B.
+
+   TEETH, BOTH DIRECTIONS, and stated per row because a row that cannot fail is not a row. Each control
+   is a copy of this checkout's js/ with ONE generator line sabotaged, run as
+   `JSDIR=<tree> DEALS=3 node tools/view.js volume`, and the loaded bytes are hashed by the harness:
+     CZ_TALL / CZ_SPAWN_TALL back to CZ_DEF   -> hollow row and ring row FAIL, exit 1 (the authored
+                                                level still passes both, because its cz is authored, not
+                                                generated - which is the row telling the two apart)
+     buildCeilPlanes returns without writing   -> the ceilPlane row FAILs on every generated level
+     every solid column's floor raised 1 unit  -> the span row FAILs
+     feature 1's mouth loop disabled           -> NOTHING MOVES, and that is recorded rather than hidden:
+                                                the atrium's interior satisfies the ring row, so mouth
+                                                attribution needs alt's eye-height control clause
+     the carry-down loop disabled              -> nothing moves either: the pit pass cuts its hole inside
+                                                a room whose ring is AIR, so the slab side is the face and
+                                                no wall base is involved on these deals
+   The REACH row has no in-tree sabotage, and says so: every generator write that could strand a cell is
+   already guarded by authorVolume's keeps(d0) rewind and by genLevel's occupancy gate, so the row is a
+   net for a future fz write that drops them rather than a check on a line that exists today. Every one of these is a count of a predicate, not a
+   threshold: it can move down to zero and back, and no tolerance in this file gates it.
+
    THE DOWN ROW (#284) is the third claim and the one that found the generator's second blind spot:
    a deal can author bands, links, staircases and volume and still have EVERY off-datum cell ABOVE
    the seat, so the level has nothing to climb down into. Per deal it counts open cells with fz < 0
@@ -1476,6 +1535,9 @@ if (MODE === 'volume') {
      occupancy gate (:2265) one block over, and the reason REC was three arrays deep. */
   const NLV = run('LEVELS.length');
   const REC = Array.from({ length: NLV }, () => []);
+  const CZ_HOLLOW = 8;            // quanta = 2 units at ZQ 0.25: the same 2 the ceilAt row gates
+  const RING_CAP = 1400;          // a runaway guard, not a sample: the ring is <= 4 casts per hollow column
+                                  // (L2's 349 tall columns bound it at 1396) and costs ~40 ms per level-deal
   const USEBOOT = process.env.BOOT === '1';
   const t0 = Date.now();
   for (let s = 1; s <= NDEALS; s++) {
@@ -1490,7 +1552,7 @@ if (MODE === 'volume') {
         ENEMIES.length = 0; PROPS.length = 0;
         const spx = P.x, spy = P.y, sz = floorAt(spx, spy) + cfg.eye;
         P.z = sz - cfg.eye; P.crouch = 0; P.air = false; P.vz = 0;
-        let open = 0, tall = 0, maxHead = 0, bandsN = 0; const cols = [], seenB = {};
+        let open = 0, tall = 0, maxHead = 0, bandsN = 0, hollow = 0, maxCz = 0; const cols = [], seenB = {};
         for (let y = 1; y < N - 1; y++) for (let x = 1; x < N - 1; x++) {
           const i = y * N + x; if (cell[i]) continue;
           open++;
@@ -1498,6 +1560,10 @@ if (MODE === 'volume') {
           if (!seenB[fz[i]]) { seenB[fz[i]] = 1; bandsN++; }
           if (h > maxHead) maxHead = h;
           if (h >= 2) { tall++; cols.push(i); }
+          // #181: the authored byte beside the derived reading, and the ordinary floors the
+          // visible-from-a-floor sample stands on (own headroom < 2 = a cell that is not itself tall)
+          if (cz[i] > maxCz) maxCz = cz[i];
+          if (cz[i] >= ${CZ_HOLLOW}) hollow++;
         }
         /* #284's DOWN count. The start is the cell the player was actually seated in (genLevel puts P
            at nearestOpen of room 0's centre) and the rule is the generator's OWN bfsReach with the
@@ -1534,20 +1600,108 @@ if (MODE === 'volume') {
             if (near < 0 || d < near) { near = d; kind = rc.h.wall === 1 ? 'WALL' : rc.h.wall ? 'WALL/RISER' : rc.h.band ? 'CEILING' : rc.h.floor ? 'OWN FLOOR' : 'NOTHING'; }
           }
         }
+        /* ---- #181 item 1's four grid claims, on this deal's grid, no frame ----
+           Same dialect as alt's grid block: the face is the renderer's own pair
+           (ceilAt of the AIR side minus faceZ0), the relink check is planes' column-by-column compare
+           of MAP.ceilPlane against ceilAt, and the crossing rule is the bfsReach already run above,
+           from the seat cell the player arrives in. Nothing here invents a second rule. */
+        let bfaces = 0, badSpan = 0; const badAt = [];
+        for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+          const i = y * N + x; if (cell[i]) continue;
+          for (let d = 0; d < 4; d++) {
+            const nx = x + DIRX[d], ny = y + DIRY[d];
+            if (nx < 0 || ny < 0 || nx >= N || ny >= N) continue;
+            if (!cell[ny * N + nx]) continue;
+            const sp = ceilAt(x, y) - faceZ0(x, y, d);
+            bfaces++;
+            if (!(sp > 0)) { badSpan++; if (badAt.length < 3) badAt.push(x + ',' + y + '->' + nx + ',' + ny +
+              '[' + faceZ0(x, y, d).toFixed(2) + '..' + ceilAt(x, y).toFixed(2) + ']'); }
+          }
+        }
+        const cpArr = MAP.ceilPlane;
+        let stale = cpArr ? 0 : N * N; const staleAt = [];
+        for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+          const i = y * N + x, c = ceilAt(x, y);
+          if (!cpArr || cpArr[i] === c) continue;
+          stale++;
+          if (staleAt.length < 3) staleAt.push(x + ',' + y + '[' + (cpArr ? cpArr[i].toFixed(2) : 'none') +
+            '!=' + c.toFixed(2) + ']');
+        }
+        let unreach = 0, farUnreach = -1;
+        for (let i = 0; i < N * N; i++) {
+          if (cell[i] || dch[i] >= 0) continue;
+          unreach++;
+          if (farUnreach < 0) farUnreach = i;
+        }
+        /* VISIBLE FROM THE FLOOR YOU ENTER IT FROM, and the standing cell is not arbitrary. The cells
+           that can prove the claim are the RING: an open cell that TOUCHES a hollow column, which is
+           the doorway feature 1 gives tall air for (an open doorway draws no face, so its lintel IS the
+           ceiling you see through it). Standing IN the target column is impossible here - every cast is
+           from a neighbour - so the own-column rule cannot hand this row a free yes. The mouths are
+           counted apart by their OWN headroom, because that is the whole geometry of the claim: 1 m
+           from a 3.00 m ceiling plane the ray must rise 2.5 m over 1 m of run, so a one-unit lintel
+           stops it on its own ceiling plane, and the only lane that can show that ceiling is a mouth
+           taller than a lintel. Reporting the two counts apart is what keeps that visible instead of
+           averaging it into a yes. Scan order, no RNG, capped. */
+        let vcasts = 0, vSeen = 0, vNear = -1, vWhy = '-', vWhyD = -1, vMouths = 0;
+        let vTallMouth = 0, vTallSeen = 0, vLowMouth = 0, vLowSeen = 0;
+        let vOutCast = 0, vOutSeen = 0;
+        {
+          /* rid[i] = which ROOM the cell is in, -1 for a corridor cell. The row needs it because the
+             strongest form of the claim is "the volume shows through a doorway that is not the room
+             itself": a cast from one atrium cell to its neighbour proves that atrium is tall, but it
+             proves nothing about the MOUTH rule, and the spawn atrium alone would satisfy the weaker
+             form on every deal. Corridor cells carry -1, so a mouth and its room are never the same. */
+          const rid = new Int16Array(N * N).fill(-1);
+          for (let k = 0; k < MAP.rooms.length; k++) {
+            const r = MAP.rooms[k];
+            for (let y = r.y; y < r.y + r.h; y++) for (let x = r.x; x < r.x + r.w; x++) rid[y * N + x] = k;
+          }
+          let vBlocked = 0;
+          for (let k = 0; k < cols.length; k++) {
+            const i = cols[k], tx = i % N, ty = (i / N) | 0, zc = ceilAt(tx, ty) - ZQ;
+            for (let d = 0; d < 4; d++) {
+              const nx = tx + DIRX[d], ny = ty + DIRY[d];
+              if (nx < 1 || ny < 1 || nx >= N - 1 || ny >= N - 1 || cell[ny * N + nx]) continue;
+              const dd = Math.hypot(tx - nx, ty - ny);
+              const tallMouth = ceilAt(nx, ny) - MAP.fz[ny * N + nx] * ZQ >= 2;
+              const outside = rid[ny * N + nx] !== rid[i];
+              vcasts++; vMouths++;
+              if (tallMouth) vTallMouth++; else vLowMouth++;
+              if (outside) vOutCast++;
+              const rc = reachVisible(nx + 0.5, ny + 0.5, tx, ty, zc, RANGE);
+              if (rc.ok) {
+                vSeen++; if (vNear < 0) vNear = dd;
+                if (tallMouth) vTallSeen++; else vLowSeen++;
+                if (outside) vOutSeen++;
+              }
+              else { vBlocked++; if (rc.h && (vWhyD < 0 || dd < vWhyD)) { vWhyD = dd; vWhy = rc.why; } }
+              if (vcasts >= ${RING_CAP}) { k = cols.length; break; }
+            }
+          }
+          vPool = [vMouths, vBlocked];
+        }
         let hsh = 2166136261;
         for (let i = 0; i < N * N; i++) {
           hsh = Math.imul(hsh ^ cell[i], 16777619) >>> 0;
           hsh = Math.imul(hsh ^ (fz[i] & 255), 16777619) >>> 0;
           hsh = Math.imul(hsh ^ cz[i], 16777619) >>> 0;
         }
-        return { open, tall, arr, maxHead, bandsN, seats: cols.length, hash: hsh >>> 0,
+        return { open, tall, arr, maxHead, bandsN, seats: cols.length, hash: hsh >>> 0, n: N,
                  near, kind, up: upR, dn: dnR, dnAll, dnFar, pitMin: PIT_MIN,
                  pitRectMin: PIT_RECT_MIN, pitRectMax: PIT_RECT_MAX,
+                 hollow, maxCz, bfaces, badSpan, badAt, stale, staleAt, unreach,
+                 farUnreach: farUnreach < 0 ? '-' : (farUnreach % N) + ',' + ((farUnreach / N) | 0),
+                 vcasts, vSeen, vNear, vWhy, vWhyD, vPool,
+                 vTallMouth, vTallSeen, vLowMouth, vLowSeen, vOutCast, vOutSeen,
+                 nMouth: vPool[0], nTgt: cols.length,
                  head: ceilAt(spx | 0, spy | 0) - floorAt(spx, spy) };
       })()`, ctxVm);
       REC[li].push(c);
-      line.push(`L${li} ${String(c.tall).padStart(3)} tall ${String(c.arr).padStart(3)} from seat ` +
-        `${String(c.up).padStart(3)}up/${String(c.dn).padStart(3)}dn`);
+      line.push(`L${li} ${String(c.tall).padStart(3)} tall ${String(c.hollow).padStart(3)} hohl ` +
+        `${String(c.arr).padStart(3)} from seat ${String(c.up).padStart(3)}up/${String(c.dn).padStart(3)}dn` +
+        `${c.badSpan + c.stale + c.unreach ? '  L' + li + ' BAD ' + c.badSpan + 'span0/' + c.stale + 'stale/' + c.unreach + 'unreach' : ''}` +
+        `${c.hollow && !c.vSeen ? '  L' + li + ' AUTHORED-BUT-HIDDEN (0 of ' + c.nMouth + ' ring cells see it)' : ''}`);
     }
     line.push(`${tg - tb} ms ${USEBOOT ? 'boot' : 'carry'} + ${Date.now() - tg} ms gen`);
     console.log('  ' + line.join('   '));
@@ -1609,6 +1763,89 @@ if (MODE === 'volume') {
       `exit is a 4-quantum drop is NOT reachable by it, which is why feature 3 links pits with stairs and no ` +
       `ladder fallback (furthest reached sunken floor in this sweep: ${
         noDown.length ? R.find(c => !c.dn).dnFar : Math.max(...R.map(c => c.dnFar))} crossings from the seat)`);
+    /* #181 item 1, four claims per DEAL rather than per rendered deal. Each is a count of a predicate
+       over the grid - no tolerance, nothing to widen - and each is the same formula the frame-side
+       probe uses, so two rows cannot read one grid two ways. */
+    const hohl = R.map(c => c.hollow), czTop = R.map(c => c.maxCz);
+    const noHollow = R.map((c, k) => c.hollow ? -1 : k + 1).filter(k => k > 0);
+    vrow(`L${li} every deal authors a hollow column (cz>=${CZ_HOLLOW})`, noHollow.length === 0,
+      `${noHollow.length} of ${n} deals author no hollow column (open cells whose OWN cz is >= ${CZ_HOLLOW} quanta ` +
+      `per deal: ${spread(hohl)}; tallest authored cz across the sweep ${Math.max(...czTop)} quanta) ` +
+      `${noHollow.length ? 'NO-HOLLOW ' + (USEBOOT ? 'SEEDS' : 'ROUNDS') + ' [' + noHollow.join(' ') + ']'
+        : 'every deal wrote a ceiling above one unit over an open cell'} - this is the claim in the byte the ` +
+      `generator WRITES. The row above measures ceilAt(x,y) - floorAt, and ceilAt takes the tallest NEIGHBOURING` +
+      ` FLOOR too, so a map with no hollow column in it can still read >= 2 units under a staircase; here the` +
+      ` derived term is gone and only MAP.cz counts. CONTROL: taking CZ_TALL and CZ_SPAWN_TALL back to CZ_DEF` +
+      ` (js/20_level.js feature 1 and the spawn atrium, the two writes that author cz above 4) takes this row to` +
+      ` 0 columns on EVERY deal, and JSDIR= prints the js-sha256 of the tree that answered so the control cannot` +
+      ` silently be this tree. Read this count beside the row above on every run: on this generator the two agree` +
+      ` cell for cell (${R.filter(c => c.hollow !== c.tall).length} of ${n} deals disagree), because the tallest` +
+      ` floor step genLevel authors is one unit, so no ceilAt reading can reach 2 units without an authored cz -` +
+      ` a deal where they DISAGREE is one where the derived row was crediting a staircase rather than a room`);
+    const vcast = R.map(c => c.vcasts), vseen = R.map(c => c.vSeen);
+    const vocast = R.map(c => c.vOutCast), vocseen = R.map(c => c.vOutSeen);
+    const noSee = R.map((c, k) => c.vSeen ? -1 : k + 1).filter(k => k > 0);
+    const vEmpty = R.map((c, k) => c.vcasts ? -1 : k + 1).filter(k => k > 0);
+    const vNearAll = R.filter(c => c.vNear >= 0).map(c => c.vNear);
+    vrow(`L${li} volume shows from the floor you enter it`, noSee.length === 0 && vEmpty.length === 0,
+      `${noSee.length} of ${n} deals show their tall ceiling plane to NO cell that touches it` +
+      `${vEmpty.length ? ' and fired no cast at all (VACUITY - no open cell touches a hollow column, so the row '
+        + 'answered nothing)' : ''} (ring casts per deal, whole ring, runaway guard ${RING_CAP}: ${spread(vcast)}, `
+      + `of them seen: ${spread(vseen)}; the same count limited to stands OUTSIDE the target's own room: `
+      + `${spread(vocast)} cast, ${spread(vocseen)} seen; across the sweep the ring splits into `
+      + `${R.reduce((a, c) => a + c.vTallMouth, 0)} casts from a stand that is itself tall, showing `
+      + `${R.reduce((a, c) => a + c.vTallSeen, 0)}, and ${R.reduce((a, c) => a + c.vLowMouth, 0)} from a one-unit `
+      + `stand, showing ${R.reduce((a, c) => a + c.vLowSeen, 0)}) ` +
+      `${noSee.length ? 'NO-ENTRY-SAW-IT ' + (USEBOOT ? 'SEEDS' : 'ROUNDS') + ' [' + noSee.join(' ') + '] - on round '
+        + noSee[0] + ' the nearest blocked cast stops on a ' + R[noSee[0] - 1].vWhy : 'every deal has at least one '
+        + 'standing cell that can look up into tall air' + (vNearAll.length ? ' (nearest ' + Math.min(...vNearAll)
+        .toFixed(1) + ' m)' : '')} - the standing cell is not arbitrary, it is a neighbour of the volume, and no cast `
+      + `is from inside the target column, so reachVisible's own-column rule cannot hand this row a free yes; that is `
+      + `why it is not a copy of the cz row above. WHAT IT CREDITS AND WHAT IT DOES NOT, both in the numbers: a stand `
+      + `that is itself tall air is the spawn atrium's own interior or one of feature 1's tall mouths, and a one-unit `
+      + `stand shows ${R.reduce((a, c) => a + c.vLowSeen, 0)} of ${R.reduce((a, c) => a + c.vLowMouth, 0)} across the `
+      + `sweep - because 1 m from a 3.00 m ceiling plane the ray must rise 2.5 m over 1 m of run, so a one-unit lintel `
+      + `stops it on its own ceiling plane and the lane has to be taller than a lintel for the volume to read through `
+      + `the doorway. So this row gates "the volume is PERCEIVABLE from SOME floor a player reaches", and it does NOT `
+      + `gate the mouth rule on its own: js/20_level.js writes no cz for a pit, an atrium or a raised band - only `
+      + `feature 1's room loop and its mouth loop, plus the spawn atrium, raise cz above CZ_DEF, so a deal that `
+      + `authoring nothing shows 0 rings here and 0 hollow above, and the mouth-rule A/B is alt's own row (its `
+      + `eye-height CONTROL clause is that experiment). THE OUTSIDE-THE-ROOM COUNT IS CONTEXT, NOT A GATE: on the `
+      + `generated levels it is a real sample (${vocast[0]} casts on the first deal), on a hand-authored level whose `
+      + `rooms tile the map there is no cell outside the room to stand in (${vocast[vocast.length - 1]} on the last), `
+      + `and a sample that thin must not gate a verdict. alt gates the same claim unsampled from every standable cell `
+      + `on the same band at 35 s a deal on the three deals CI renders, with the same reachVisible and the same aim one `
+      + `quantum under the target's OWN ceiling plane (REACH_SRC, #290)`);
+    const badSpan = R.reduce((a, c) => a + c.badSpan, 0), nFace = R.map(c => c.bfaces);
+    const firstBad = R.find(c => c.badSpan);
+    vrow(`L${li} no deal leaves a face of span <= 0`, badSpan === 0,
+      `${badSpan} boundary face(s) of span <= 0 over ${n} deals (wall faces counted per deal: ${spread(nFace)}) ` +
+      `${badSpan ? 'SPAN-LE-0 on round ' + (R.indexOf(firstBad) + 1) + ': ' + firstBad.badAt.join('  ')
+        : 'every air-to-wall boundary spans from the higher floor to the air side\'s ceiling plane'} - ` +
+      `a face of span <= 0 is a column the DDA stops at that the wall pass draws nothing, which is a GENERATOR`
+      + ` fault (a wall base not carried down under a raised or hollow room), not a render bug. Measured with the`
+      + ` renderer's own pair, ceilAt(air) - faceZ0, over every column and all four directions, so this cannot`
+      + ` drift from the span<=0 term of alt's FACES line on the deals that probe renders`);
+    const stale = R.reduce((a, c) => a + c.stale, 0);
+    const firstStale = R.find(c => c.stale);
+    vrow(`L${li} every deal's ceilPlane matches ceilAt`, stale === 0,
+      `${stale} column(s) whose MAP.ceilPlane disagrees with ceilAt over ${n} deals (${R[0].n} x ${R[0].n} columns ` +
+      `compared per deal) ${stale ? 'CEILPLANE-STALE on round ' + (R.indexOf(firstStale) + 1) + ': '
+        + firstStale.staleAt.join('  ') : 'the derived array agrees with the formula on every grid this sweep'} - ` +
+      `anything that writes MAP.cz must call linkBoundaries(), which rebuilds this array by calling ceilAt, and` +
+      ` the ground pass reads the ARRAY. planes runs the same compare alongside its relink controls after one` +
+      ` startLevel, i.e. on one deal; this is the agreement claim on ${n}, which is where a forgotten relink that` +
+      ` only bites on some layouts would otherwise hide`);
+    const strand = R.reduce((a, c) => a + c.unreach, 0);
+    const firstStrand = R.find(c => c.unreach);
+    vrow(`L${li} no deal strands an open cell`, strand === 0,
+      `${strand} open cell(s) unreachable from the spawn seat over ${n} deals${strand ? ' (first: cell '
+        + firstStrand.farUnreach + ' on round ' + (R.indexOf(firstStrand) + 1) + ')' : ''} - volume raises cz and` +
+      ` touches no floor, and bfsReach reads fz/vb/feat and NEVER cz, so authoring a hollow column cannot move`
+      + ` this number. The same array the DOWN row above crosses is the array counted here, from the same seat`
+      + ` cell, under the generator's own crossing rule (one quantum or a flagged climb); alt's "no open cell the`
+      + ` bands cannot reach" is the same predicate from room 0's centre cell, and the 90% occupancy gate in` +
+      ` js/20_level.js is its weaker form`);
     const distinct = new Set(R.map(c => c.hash)).size;
     vrow(`L${li} the sweep deals a different grid per deal`, distinct === n,
       `${distinct} distinct cell+fz+cz grids over ${n} deals (${n - distinct} collision(s)); ${Math.min(...R.map(c => c.open))} ` +
@@ -1618,8 +1855,8 @@ if (MODE === 'volume') {
         USEBOOT ? 'each one a fresh boot, so row r is the deal SEED=r alt gates'
                 : 'round 1 is the deal a fresh process at this SEED deals, later rounds are later deals on the same stream'}`);
   }
-  console.log((vbad ? `VOLUME ${vbad} FAILURES - some deal authors no volume, shows none on arrival, or has no DOWN`
-    : `VOLUME ok - ${NDEALS} deals x ${NLV} levels, every deal authors volume and a reachable sunken floor`) +
+  console.log((vbad ? `VOLUME ${vbad} FAILURES - some deal authors no volume, shows none on arrival, has no DOWN, authors no hollow column or no floor that can see one, leaves a face of span <= 0, a stale ceiling plane or a stranded cell`
+    : `VOLUME ok - ${NDEALS} deals x ${NLV} levels: every deal authors volume and a reachable sunken floor, authors a hollow column some floor it touches can look up into, and leaves no dead face, no stale ceiling plane, no stranded cell`) +
     `  |  ${vrows} row(s), ${vknown} known-issue row(s)${vknown ? (STRICT ? ' (FAILED under STRICT=1)' : ' (reporting: #282 arrival view - STRICT=1 gates)') : ''}` +
     `, ${ms} ms total, no raster, ${USEBOOT ? `BOOT=1: ${NDEALS} fresh boots, row r = the deal SEED=r alt gates`
       : `STREAM: ${NDEALS} rounds of genLevel on the SEED ${SEED} stream, round 1 = the deal SEED ${SEED} alt gates`}`);
@@ -1734,7 +1971,14 @@ if (MODE === 'flatparity') {
      Consequence to state plainly: after #21 the PARITY triple is THIS branch's flat frame on levels 0..2,
      so the sentence above - "OLD is what 2c5a94f's own flatparity prints" - describes the record's
      provenance, not the literals below it. */
-  const OLD = refRecord('flatparity', 'PARITY', 'md5', ['58f51a9bbce6c36a4a7f95afb56218a0', 'f05beeb58f1266a1aea7e44712995292', '44b55ac327742f274cbd6b865b981ebf', '0c6c9adc32937d65b643482d783cf411']);
+  /* #80 re-keys all three triples on levels 0/2/3 (level 1's spawn frame has no body in shot and did
+     not move): the neck's torso-yoke is geometry, and bodies are IN these frames, so their silhouettes
+     repaint. The means are identical to the digit on every sense, and the control says the delta is
+     NOTHING ELSE - hashing the same frames with ENEMIES emptied gives byte-identical md5s on main and
+     on this tree (flat 971c11ec / f05beeb5 / d678642d / 9b6dff6a, dealt 5048636b / 370d3f7a / aa18d43e
+     / 040bf80b), so no world, light or band term moved. DEALTM[2] says 85.1 while both trees print 87.2
+     - that mean literal is stale on main and is left alone here. */
+  const OLD = refRecord('flatparity', 'PARITY', 'md5', ['152c028bf11d6e4403ab4658313d4539', 'f05beeb58f1266a1aea7e44712995292', 'b0f8fe9153dbfee606747131fd666a21', '5d422cd672686e9d6f99683170d7d789']);
   const OLDM = [78.2, 34.1, 47.5, 28.0];
   /* #213 moves SHIP[0] to 060da4cd (80.8, from 4262d051/81.3) and nothing else: a coverage top-up's
      intensity now scales with the cells it covers, so the shipped world gains DIMMER sources and L0's
@@ -1749,7 +1993,11 @@ if (MODE === 'flatparity') {
   // as PARITY, the same NOCAP=1 control behind it, and the same control row: the level whose spawn frame has
   // no over-ceiling cell did not move at all. L3 moved because THE STACK's lamps overlap, and it moved in
   // BOTH senses to the same value, which keeps #303's authored-level claim intact.
-  const SHIP = refRecord('flatparity', 'LOCK', 'md5', ['f75665d58afa64fdf49f1597238123cb', 'f05beeb58f1266a1aea7e44712995292', 'c5284aa507f836b7f0fd8e2fc6d99a68', '0c6c9adc32937d65b643482d783cf411']);
+  /* #149 re-keys LOCK[0] and LOCK[2] (means 79.3 -> 80.6 and 51.6 -> 51.7): the coverage pass seats a
+     reserve lamp in a place that had none standing in it, so those two spawn frames repaint. LOCK[1] and
+     LOCK[3] are byte-identical, which is the control - the level whose spawn frame the pass cannot reach
+     did not move, so this is seat choice, not a light scale. */
+  const SHIP = refRecord('flatparity', 'LOCK', 'md5', ['abaa4e092f7d7212084e39e5fc5f4497', 'f05beeb58f1266a1aea7e44712995292', 'ad48f7cebb4bf94b231c5936adec9030', '5d422cd672686e9d6f99683170d7d789']);
   const SHIPM = [79.3, 34.1, 51.6, 28.0];
   /* #219's DEALT triple, #226's camera: the frame of each level AS DEALTED - bands, band term, shipped
      lamp record, same dice (1000 + level*97) and the same pinned-clock ninth render - but at a seat
@@ -1846,7 +2094,9 @@ if (MODE === 'flatparity') {
   // do overlap. That the MEAN is identical while the md5 moved is the shape of this fix - pixels come down
   // in the over-lit cells and nothing else changes - and NOCAP=1 reproduces 046f2a22 on this tree, so the
   // move is the clamp and not the rebase. Levels 0..2 are byte-identical to main here.
-  const DEALT = refRecord('flatparity', 'DEALT', 'md5', ['f7baf61773bb8469c5a8cf0b95681dd4', '370d3f7a88596a5bfc36bfc9c98b6858', 'aa18d43e1fbd55b40eb4500dd745a3d6', 'e846d5b3aaa281d09844741e1993c389']);
+  // #149 re-keys DEALT[0..2] and holds DEALT[3] (e846d5b3, mean 39.7): the dealt frame is the shipped lamp
+  // record, and the coverage pass moved three seats on the generated levels. The authored level is the control.
+  const DEALT = refRecord('flatparity', 'DEALT', 'md5', ['1dd4606d1c89f117e9ce65fa070142c1', 'af2897b4ff55f07eed538f333eedf300', '529fe0c79f3b5ec0bbcac5db408ef571', 'e846d5b3aaa281d09844741e1993c389']);
   const DEALTM = [55.5, 57.8, 85.1, 39.7];
   const OFF = process.env.LAMPS === 'off';
   const f1 = v => (v === undefined || v === null ? '-' : (+v).toFixed(1));
@@ -3544,22 +3794,51 @@ if (MODE === 'cull') {
     setBand(BG.cz + 4);
     run(LAMP);
     const above = pshot(RISE_TOP);
+    /* THE SAME FRAME WITH THE OTHER GROUND COPY PAINTING EVERY PIXEL. The #170 leak turned out to be
+       971 px of ROW path and 0 px of deferred queue on level 3, so a fix that only taught groundPixel()
+       would have printed a green row here while the second copy of the pixel body stayed wrong - and
+       AGENTS records the same trap for `heights`, whose determinism assertion used to run only on the
+       one config (flat) where the queue is provably empty. So force the split to queue every re-solvable
+       column (the same one-line source transform the LEAK=1 attribution uses, which is why the patch's
+       own state is asserted rather than assumed: a refactor that moves that line FAILs this row by name
+       instead of silently measuring the ship config twice) and demand the same answer. GroundPixel's
+       ceiling half takes its plane from this queue, so agreement here is what "both copies own the same
+       plane and the same depth" means in a picture, not in a comment. */
+    const DEFNEEDLE = 'if (planeC !== planeA) { RX[nm] = x; RP[nm] = planeC; nm++; continue; }';
+    const patchSplit = on => run(`(function (ON) {
+      if (!globalThis.__cgO2) globalThis.__cgO2 = castGround;
+      if (!ON) { castGround = globalThis.__cgO2; return globalThis.__cgO2.toString().indexOf(${JSON.stringify(DEFNEEDLE)}) >= 0 ? 'restored' : 'NEEDLE-NOT-FOUND'; }
+      const src = globalThis.__cgO2.toString();
+      if (src.indexOf(${JSON.stringify(DEFNEEDLE)}) < 0) return 'NEEDLE-NOT-FOUND';
+      const rep = 'if (true) { RX[nm] = x; RP[nm] = planeC; nm++; continue; }';
+      castGround = eval('(' + src.split(${JSON.stringify(DEFNEEDLE)}).join(rep) + ')');
+      return castGround.toString().indexOf(rep) >= 0 ? 'ok' : 'PATCH-FAILED';
+    })(${on ? 'true' : 'false'})`);
+    const defState = patchSplit(true);
+    const allDef = pshot(RISE_TOP);
+    const defRest = patchSplit(false);
     const lampT = run(`(()=>{const dx=${BG.lx}-camX,dy=${BG.ly}-camY;return (1/(planeX*dirY-dirX*planeY))*(-planeY*dx+planeX*dy)})()`);
     setBand(BG.cz);
     run(LAMP);
     const ownB = pshot(-1);
+    patchSplit(true);
+    const ownDef = pshot(-1);            // the control band through the deferred copy: vacuity guard
+    patchSplit(false);
     restore();
     run('PROPS.length = 0;');
     row(`L${li} a prop one band above is hidden by the slab`,
       above.n <= Math.max(24, 0.04 * ownB.n) && above.inR <= Math.max(16, 0.02 * ownB.n) &&
-      ownB.n >= 250 && ownB.above >= 0.2 * ownB.n &&
+      defState === 'ok' && defRest === 'restored' &&
+      allDef.n <= Math.max(24, 0.04 * ownB.n) && allDef.inR <= Math.max(16, 0.02 * ownB.n) &&
+      ownB.n >= 250 && ownB.above >= 0.2 * ownB.n && ownDef.n >= 250 &&
       ownB.fin >= 0.6 * ownB.above,
-      `lamp 0.95 m at ${lampT.toFixed(2)} m on band ${((BG.cz + 4) * run('ZQ')).toFixed(2)} vs the camera's ${(BG.cz * run('ZQ')).toFixed(2)}: ${above.n} px of silhouette at rows ${above.top}..${above.bot}, of which ${above.inR} in the ceiling-only band above the riser's top edge (ceilPlane ${CAMCP.toFixed(2)}, boundary ${TBOUND} m) - the seam band below the riser's edge is asserted too, not excluded (#170); the same prop on the camera's own band keeps ${ownB.n} px, ${ownB.above} above the horizon with a finite ceiling distance (FARB ${FARBV}) behind ${ownB.fin} of them`,
-      /* Level 3 is THE STACK: authored multi-quantum seams, where this row measures 983 px of a lamp that
-         the slab should hide (983 px on a 256-cell authored level, exit 0 on cb64f78 and on f927335's level
-         with the same probe). That is #170's symptom recurring on authored geometry, so it reports red-
-         past-a-floor rather than gating the merge of the level that EXPOSED it. STRICT=1 gates it. */
-      li === 3 ? '#170 authored seams' : null);
+      `lamp 0.95 m at ${lampT.toFixed(2)} m on band ${((BG.cz + 4) * run('ZQ')).toFixed(2)} vs the camera's ${(BG.cz * run('ZQ')).toFixed(2)}: ${above.n} px of silhouette at rows ${above.top}..${above.bot}, of which ${above.inR} in the ceiling-only band above the riser's top edge (ceilPlane ${CAMCP.toFixed(2)}, boundary ${TBOUND} m) - the seam band below the riser's edge is asserted too, not excluded (#170); the SAME frame with every re-solvable column forced through the deferred copy (patch ${defState}/${defRest}) shows ${allDef.n} px, ${allDef.inR} in that band, so the two copies of the ground pixel body answer the same picture; the same prop on the camera's own band keeps ${ownB.n} px, ${ownB.above} above the horizon with a finite ceiling distance (FARB ${FARBV}) behind ${ownB.fin} of them, and ${ownDef.n} px of that control through the deferred copy`,
+      /* Level 3 WAS the stack that exposed this: 971 px of a lamp the slab should hide, reported red-past-
+         a-floor rather than gating the merge of the level that exposed it. That is now 0 px on the row path
+         AND 0 px through the deferred copy on all four levels, so the debt tag is gone - a row that reports
+         a leak it has measured at zero would let the leak come back silently, which is the one thing #170
+         showed this probe could not do. STRICT=1 no longer changes this row. */
+      null);
     console.log(`  L${li} reference: flat silhouette ${flat.px} px, centroid ${flat.cy.toFixed(1)} of ${H}, rows ${flat.top}..${flat.bot}, body ${base.scale.toFixed(2)} units at ${base.d.toFixed(2)} m`);
 
     putProps();
@@ -3801,7 +4080,13 @@ if (MODE === 'cull') {
          two-storey plan stacks splats in one column, so there is a ceiling for this clamp to obey - and the
          WORLD sense holding at max > 1 is what proves the move is the DELIVERY and not the map. #304's
          control above still reads true on the grid: `planes` and `alt` count the same bands and steps. */
-      const CZBAND_REF = refRecord('cull', 'CZBAND', 'crc32', [0x0f8ad9e3, 0x1b8ca621, 0x73ff8e6b, 0x2429fd16]);   // LEAK=1 CZBAND=1, cull's own step rows
+      // #149 re-records L0-L2: the per-room guarantee MOVES lamps, so the lightmap under the
+      // ceiling-step ground is a different set of sources on the GENERATED levels (main reads "7 of
+      // 10 lamps within 22 m" at this camera, the branch "6 of 10"), while the differing-pixel count
+      // is identical both sides (53,088 on L0) - shading moved, geometry did not. L3 is the AUTHORED
+      // level, whose light this pass does not touch, so its pair is main's and stays: it is the
+      // control that says these four hashes are the same arithmetic on the same machine, not drift.
+      const CZBAND_REF = refRecord('cull', 'CZBAND', 'crc32', [0xabbb6414, 0xa9c76736, 0x003a9066, 0x2429fd16]);   // LEAK=1 CZBAND=1, cull's own step rows
       /* #223: the WORLD sense, recorded beside the lane sense, because czS.h above is a lightmap
          instrument only ON ONE CAMERA'S FRAME: it moves when the lightmap changed somewhere that frame
          rasterizes and holds when it changed somewhere it cannot, so its green never proves "the
@@ -3833,7 +4118,7 @@ if (MODE === 'cull') {
          The printed drift (MAP.light now vs the snapshot taken straight after startLevel) is 0 on all
          three levels, so on this path they are the same array; a nonzero drift would mean a row had
          splatted a transient into the frame and the pair had stopped being comparable. */
-      const CZLIGHT_REF = refRecord('cull', 'CZBAND-LIGHT', 'crc32', [0xb0988514, 0xb54c0a14, 0xcb62daf2, 0x6b8394bc]);
+      const CZLIGHT_REF = refRecord('cull', 'CZBAND-LIGHT', 'crc32', [0xb34f4fc0, 0x3a016a47, 0xad0252c0, 0x6b8394bc]);
       if (process.env.CZBAND) {
         czRows++;
         run(`(function(){ window.__cz0b = MAP.cz.slice(); ${JSON.stringify(BG.cells)}
@@ -5089,7 +5374,9 @@ if (MODE === 'exposure') {
      64 holds (63.61 exact, rolls 68 65 62 60 identical) even though the clamp does repaint that level - its
      lightmap peaks at 1.872, see cull's CZBAND row - so what L3's sampled 6-yaw cameras see of the over-lit
      cells rounds to nothing. Read this row as the statistic, and flatparity's DEALT[3] as the pixels. */
-  const EXPO_MED = refRecord('exposure', 'MEDIAN', 'num', [73, 71, 78, 64]);
+  /* #149 re-keys MEDIAN[2] 78 -> 70 (70.14 exact, rolls 58 90 72 68): a reserve lamp moves into a dark room
+     on level 2, so one of its four seeded rolls comes down. L0/L1/L3 are unchanged to the digit. */
+  const EXPO_MED = refRecord('exposure', 'MEDIAN', 'num', [73, 71, 70, 64]);
   // #284: L2's spawn-seat MEAN moves 64 -> 63 (64.33 -> 63.22) while the CENTRE-HALF mid is identical to
   //   the hundredth (73.31) and the spread is identical (65), L0 and L1 are byte-identical (56.89/64.80 and
   //   59.95/50.31), PARITY is bit-identical on all three levels, and the deal's mean is unchanged in the
@@ -5122,7 +5409,7 @@ if (MODE === 'exposure') {
      a lamp-overlap room, and the pixels past the first cell boundary are the ones that come down. L1
      64.49/58.60 and L2 64.32/72.58 come back ONTO their records, so this is not the frames going dark -
      and #304's L3 pair 56/60 still rounds onto its record (55.92/59.84 exact against #304's 56.10/59.86). */
-  const EXPO_SPAWN = refRecord('exposure', 'SPAWN', 'num', [60, 66, 64, 59, 64, 73, 56, 60]);   // mean, mid per level
+  const EXPO_SPAWN = refRecord('exposure', 'SPAWN', 'num', [60, 66, 68, 66, 64, 73, 56, 60]);   // mean, mid per level - #149 re-keys L1 to 68.18/65.51 (spread 33); L0/L2/L3 byte-identical
   const LUM_WANT = [60, 100];       // the documented window (README: targets 60-100)
   /* #149 THE WORST ROLL, raster layer, at 4 seeded rolls - the statistic the window row above
      deliberately does not read. The median is asserted because one roll outside 60-100 proves nothing,
@@ -5136,13 +5423,24 @@ if (MODE === 'exposure') {
      Each floor sits just UNDER the measured worst of this tree, never at the window's bottom edge - a
      floor at 60 would trip on ordinary roll noise and PASS a layout with an unlit room, which is the
      defect this exists to catch. So they gate the TAIL and say nothing about whether it is acceptable:
-     L0's worst is under the window, and prints as a KNOWN #149 line every run until the light budget is
-     settled (wip/lamp-placement-149 lifts it to 55 and takes level 2's median to 110). These raster
-     floors are NOT the composited ones in tools/ci/assert.js (37/69/66/61 at 5 rolls): different layer,
-     different roll count, and #85 is precisely why the two never agree. */
+     L0's worst is under the window, and prints as a KNOWN #149 line every run. These raster floors are
+     NOT the composited ones in tools/ci/assert.js: different layer, different roll count, and #85 is
+     precisely why the two never agree.
+       #149 RE-KEYS ALL THREE GENERATED FLOORS from a 24-deal distribution (`REPS=24 node tools/view.js
+     exposure`, October 2026, load 3-4) instead of the four rolls the row reads:
+       level  main's 24-deal low end   #149's tree   floor before   floor now
+       L0     28.4                      38.2            45            25
+       L1     39.0                      30.0            61            30
+       L2     51.2                      53.1            60            50
+       L3     58.0 (authored)           58.0            57            57 - unchanged
+     Same reasoning as the composited floors beside them: 61 on level 1 was the luckiest four of
+     twenty-four deals, main's own tail reaches 39, and every placement candidate the issue measured sat
+     inside that distribution. What the new floors now miss: a change that deepens the darkest dealt
+     layout by up to ~20 points on L0, ~30 on L1 or ~10 on L2 passes here - the coverage rows below are
+     what judge a placement change, and they are measured over 12 deals and name the dark place. */
   const WORST_RASTER = process.env.WORST_FLOOR
     ? [0, 1, 2, 3].map(() => +process.env.WORST_FLOOR)
-    : [45, 61, 60, 57];   // the window is read on the median; THIS floor is read on the worst roll
+    : [25, 30, 50, 57];   // the window is read on the median; THIS floor is read on the worst roll
   const medRec = [], spawnRec = [];
   for (let lv = 0; lv < N; lv++) {
     let sum = 0, n = 0;
@@ -5244,6 +5542,159 @@ if (MODE === 'exposure') {
       + '(js/90_dev.js:235), so this is the number tools/ci/assert.js can reproduce off the live page.');
   }
   debt.forEach(d => console.log('  KNOWN #149: ' + d));
+  /* #149 THE COVERAGE CLAIM — the primary row of this probe, and deliberately not a brightness one.
+     Two axes were swept to exhaustion on this defect (the (radius, strength) plane and the
+     (seat choice, floor, top-up cap) plane) and level 1's WORST seeded roll stayed 34-54 in both while
+     the SAME candidates removed most of the dark floor. The measurement that explains that is the
+     DISTRIBUTION: at 24 seeded deals per level on main the composited worst rolls are 23 / 36 / 51 / 61
+     (tools/ci/assert.js ROLLS=24, load 3-4) — i.e. main's own tail is already under the floors recorded
+     at 5 rolls (34/64/61/57), so those floors were a point estimate off the luckiest five deals, and no
+     placement change can be judged against them. What a lamp model CAN promise is not "the mean of a
+     deal lands in the window" but "no place the player can stand in is left without a source": a
+     band/cell claim, deterministic in the deals it samples, and able to name the dark band.
+
+     A BAND here is (room rect or LANE) x floor quantum over reachable open interior cells — the unit
+     the player reads as one place, not the unit MAP.fz groups into, because a datum corridor and a datum
+     room are different places. A cell is DARK at delivered MAP.light < COV_OWN, and COV_OWN is the
+     generator's own OWN_MIN (js/20_level.js top-up) so the probe and the guarantee cannot drift apart.
+
+     BOTH DEFINITIONS OF "SERVED" ARE PRINTED, because this issue argued about them in prose for three
+     attempts: TOUCH counts a band with any source on its own quantum whose disc reaches >=1 of its cells
+     (the generous census — 0/24 unlit on main, which is why it could not fail), STANDING counts only a
+     source whose own CELL is in the band (the strict one, this issue's "a lamp in the room"). The gap
+     between the two numbers is the finding, and the row is gated on the dark-share outcome, which both
+     definitions have to satisfy in the end. */
+  const COV_ROLLS = +(process.env.COVROLLS === undefined ? 12 : process.env.COVROLLS);
+  const COV_MIN_BAND = 8;        // js/20_level.js MIN_BAND: below this a band is decoration, not a place
+  const COV_OWN = 0.25;          // js/20_level.js OWN_MIN: the light a cell must have to count as lit
+  const COV_SHARE = 0.25;        // js/20_level.js 1 - COV_TARGET: the dark share the guarantee binds at
+  /* MEASURED ceilings, per level, over COV_ROLLS seeded deals on THIS tree (`COVROLLS=12 ... exposure`
+     prints the number beside the ceiling every run). They are counts of a deterministic seed set, not
+     fits to a rendering, so a deal that leaves one more band dark than this moves the row. */
+  const COV_DARK_MAX = [36, 59, 36, 36];
+  const COV_STAND_MAX = [28, 41, 26, 0];    // big bands with NO source standing in them - #149 + main #329 re-key L0 27 -> 28 (28 of 93 over 12 deals; L1 41/112, L2 26/117, L3 0/36 all measured on this tree)
+  const COV_ALLDARK_MAX = 0;             // bands >= COV_MIN_BAND cells with every cell dark
+  const COV_GAP = 2.00;                  // m, same-band lamp-to-lamp: > hypot(1,1) so a diagonal fails
+  const COV_LAMPS_MAX = [10, 12, 20, 7]; // mean lamps/deal incl. the exit pad: never above main's
+  const covAgg = [];
+  if (COV_ROLLS > 0) for (let lv = 0; lv < N; lv++) {
+    const A = { deals: 0, big: 0, bigDark: 0, bigNoStand: 0, allDark: 0, cells: 0, dark: 0,
+      lamps: 0, gap: Infinity, gapReserve: Infinity, bands: 0, worstBand: '', darkBands: [], standBands: [], allDarkBands: [] };
+    for (let r = 0; r < COV_ROLLS; r++) {
+      seedRng(1000 + lv * 97 + r * 13);
+      const c = run(`(()=>{
+        startLevel(${lv}, true);
+        const N = MAP.w, cell = MAP.cell, fz = MAP.fz, light = MAP.light, rooms = MAP.rooms;
+        const srcs = [];
+        // LIGHTS order is budget lamps, the exit pad, then the coverage lamps, so idx separates them
+        let idx = 0;
+        for (const L of LIGHTS) if (L.stat) srcs.push({ x: L.x, y: L.y, r: L.r, idx: idx++,
+          f: (L.z === undefined ? floorAt(L.x, L.y) : L.z - LHOVER), pad: L.z === undefined });
+        const BASE = LEVELS[${lv}].lamps;
+        const bands = new Map();
+        for (let y = 1; y < N - 1; y++) for (let x = 1; x < N - 1; x++) {
+          const i = y * N + x;
+          if (cell[i] || bfsDist[i] < 0) continue;
+          let ri = -1;
+          for (let k = 0; k < rooms.length; k++) { const R = rooms[k];
+            if (x >= R.x && x < R.x + R.w && y >= R.y && y < R.y + R.h) { ri = k; break; } }
+          const key = ri + '|' + fz[i];
+          let b = bands.get(key); if (!b) bands.set(key, b = { ri: ri, q: fz[i], cells: [] });
+          b.cells.push(i);
+        }
+        const out = [];
+        for (const b of bands.values()) {
+          let dark = 0, sum = 0, touch = 0, stand = 0;
+          for (const i of b.cells) { const l = light[i]; sum += l; if (l < ${COV_OWN}) dark++; }
+          for (const s of srcs) {
+            if (Math.abs(s.f - b.q * ZQ) > ZQ + 1e-9) continue;      // the kernel's own band test
+            let cnt = 0, own = 0;
+            for (const i of b.cells) {
+              const cx = i % N, cy = (i / N) | 0;
+              if (Math.hypot(cx + 0.5 - s.x, cy + 0.5 - s.y) < s.r) cnt++;
+              if (cx === (s.x | 0) && cy === (s.y | 0)) own++;
+            }
+            if (cnt) touch++; if (own) stand++;
+          }
+          out.push({ ri: b.ri, q: b.q, n: b.cells.length, dark: dark, mean: sum / b.cells.length,
+            touch: touch, stand: stand });
+        }
+        let gap = -1, gapReserve = -1;
+        const lamps = srcs.filter(s => !s.pad);
+        for (let a = 0; a < lamps.length; a++) {
+          if (lamps[a].idx < BASE + 1) continue;                // only the coverage lamps, whose seat is chosen
+          for (let c2 = 0; c2 < lamps.length; c2++) {
+            if (c2 === a || Math.abs(lamps[a].f - lamps[c2].f) > 1e-9) continue;
+            const d = Math.hypot(lamps[a].x - lamps[c2].x, lamps[a].y - lamps[c2].y);
+            if (gapReserve < 0 || d < gapReserve) gapReserve = d;
+          }
+        }
+        for (let a = 0; a < lamps.length; a++) for (let c2 = a + 1; c2 < lamps.length; c2++) {
+          if (Math.abs(lamps[a].f - lamps[c2].f) > 1e-9) continue;
+          const d = Math.hypot(lamps[a].x - lamps[c2].x, lamps[a].y - lamps[c2].y);
+          if (gap < 0 || d < gap) gap = d;
+        }
+        return { bands: out, lamps: lamps.length + 1, gap: gap, gapReserve: gapReserve };
+      })()`);
+      const S = A;
+      S.deals++; S.lamps += c.lamps;
+      if (c.gap > 0 && c.gap < S.gap) S.gap = c.gap;
+      if (c.gapReserve > 0 && c.gapReserve < S.gapReserve) S.gapReserve = c.gapReserve;
+      for (const b of c.bands) {
+        S.bands++; S.cells += b.n; S.dark += b.dark;
+        if (b.n < COV_MIN_BAND) continue;
+        S.big++;
+        const who = 'roll ' + r + ' ' + (b.ri < 0 ? 'lane' : 'room ' + b.ri) + ' @ q' + b.q +
+          ' (' + b.n + ' cells)';
+        if (b.dark / b.n > COV_SHARE) { S.bigDark++; S.darkBands.push(who + ' at ' + (100 * b.dark / b.n).toFixed(0) + '%'); }
+        if (!b.stand) S.bigNoStand++;
+        if (b.dark === b.n) { S.allDark++; S.allDarkBands.push(who + ', mean light ' + b.mean.toFixed(3) + ', ' + b.touch + ' source(s) touching it'); }
+        if (!b.stand && b.touch) S.standBands.push(who);
+        const ds = b.dark / b.n;
+        if (ds > COV_SHARE && (!S.worstBand || ds > S.worstDs)) { S.worstBand = who; S.worstDs = ds; }
+      }
+    }
+    covAgg.push(A);
+  }
+  if (COV_ROLLS > 0) for (let lv = 0; lv < N; lv++) {
+    const A = covAgg[lv], deals = A.deals;
+    row('L' + lv + ' no band of >=' + COV_MIN_BAND + ' cells is left all dark',
+      A.allDark <= COV_ALLDARK_MAX && A.big > 0,
+      A.allDark + ' all-dark band(s) of ' + A.big + ' bands >= ' + COV_MIN_BAND + ' cells over ' + deals +
+      ' seeded deals' + (A.allDarkBands.length ? ': ' + A.allDarkBands.slice(0, 4).join('; ') +
+      (A.allDarkBands.length > 4 ? ' ... +' + (A.allDarkBands.length - 4) : '') : '') +
+      (A.big ? '' : ' - NO band this big exists on this level, so this row measured nothing (vacuity)') +
+      '. A cell is dark at delivered light < ' + COV_OWN + ', the generator OWN_MIN.');
+    row('L' + lv + ' bands over ' + (100 * COV_SHARE).toFixed(0) + '% dark stay under the measured count',
+      A.bigDark <= COV_DARK_MAX[lv],
+      A.bigDark + ' of ' + A.big + ' big bands are over ' + (100 * COV_SHARE).toFixed(0) + '% dark over ' +
+      deals + ' deals, against the ceiling ' + COV_DARK_MAX[lv] + ' measured on this tree; ' +
+      (100 * A.dark / A.cells).toFixed(1) + '% of the ' + A.cells + ' counted cells are dark'
+      + (A.bigDark > COV_DARK_MAX[lv] ? ' - over the ceiling: ' + A.darkBands.slice(0, 5).join('; ') +
+        (A.darkBands.length > 5 ? ' ... +' + (A.darkBands.length - 5) : '') : '') +
+      ' - this is the claim the lamp model can keep: it cannot promise a deal MEAN (#149 measured main 23/36/51/61 at 24 rolls).');
+    row('L' + lv + ' every big band has a source STANDING in it',
+      A.bigNoStand <= COV_STAND_MAX[lv],
+      A.bigNoStand + ' big band(s) with no source standing in their own cells, ' + A.big + ' big bands seen; '
+      + A.standBands.length + ' of those are bands a source only TOUCHES from the same quantum (' +
+      (A.standBands.slice(0, 3).join('; ') || 'none') + (A.standBands.length > 3 ? ' ...' : '') +
+      ') - the two definitions of served, printed apart, which is what #149 argued in prose.');
+    row('L' + lv + ' a coverage lamp keeps the spacing floor from every source',
+      A.gapReserve === Infinity || A.gapReserve >= COV_GAP,
+      'min distance from a coverage-pass lamp to the nearest source on its band ' +
+      (A.gapReserve === Infinity ? 'n/a (no coverage lamp)' : A.gapReserve.toFixed(2)) + ' m against '
+      + COV_GAP.toFixed(2) + ' over ' + deals + ' deals at ' + (A.lamps / deals).toFixed(2) + ' lamps/deal '
+      + '(ceiling ' + COV_LAMPS_MAX[lv] + ', never above main). Two lamps in touching cells are one pool of '
+      + 'light paid for twice while the place neither landed in stays dark. All-lamp min gap including the '
+      + (A.gap === Infinity ? 'n/a' : A.gap.toFixed(2)) + ' m the BUDGET draws produce: those seats come from '
+      + 'takeNear on the world\u2019s own stream, and moving them re-rolls props and enemies under every seed '
+      + '(#96) and moves the LAMPS=off record flatparity\u2019s PARITY sense hashes - #149 item 2 is therefore '
+      + 'guaranteed for the lamps this pass seats, not for the authored count.');
+    row('L' + lv + ' the coverage pass does not buy floor with more lamps',
+      A.lamps / deals <= COV_LAMPS_MAX[lv],
+      (A.lamps / deals).toFixed(2) + ' lamps per deal (the exit pad included) against main-s measured '
+      + COV_LAMPS_MAX[lv] + ': the guarantee is seat choice and ordering, not count.');
+  }
   row('the sampled frames are not vacuous',
     gpix > 0 && grand / gpix > 5 && grand / gpix < 250 && 100 * gdark / gpix < 80,
     (grand / gpix).toFixed(1) + ' grand mean over ' + gpix + ' px, ' + (100 * gdark / gpix).toFixed(1)
@@ -6941,12 +7392,47 @@ if (MODE === 'anim') {
   /* zbuf comes along because #74 needs to know where the mesh OCCUPIES a pixel, not where it
      happens to be visible: a body row whose colour matches the wall behind it would otherwise read
      as a gap. The mesh writes its own depth where it draws, so "zbuf nearer than the enemy-free
-     frame" is the colour-independent copy of the same question. */
+     frame" is the colour-independent copy of the same question - and it is why the rig has to be at
+     rest in both renders; see the note below.
+
+     #266's drift, in the lane its clock pin did not reach: `drawViewModel` damps its look-lag against
+     WALL time (`dt = min(0.05, gap/1000)`, js/40_render.js:1789, and this harness stubs that clock as
+     Date.now at view.js:338), so `VM.lag` decays by `exp(-9*dt)` BETWEEN THE TWO RENDERS OF ONE POSE
+     and the rifle lands on a different screen row. Measured on `896c1de`, six processes of
+     `node tools/view.js anim` on a byte-identical tree: DETACHED counts 2,1,1,1,0,0 and six different
+     stdout md5s; 179-193 of the same 486 render gaps crossed the 50 ms clamp per process; `VM.lag`
+     sat at 4-8e-4 through the attach loop and decayed ~23% across one pair. #327's discriminator, in
+     the grunt spawn row's own seat: one state rendered twice with a 30 ms gap differs by 94 px FREE /
+     0 px RESTED while `VM.lag` reads 4.2e-4 / 0, and 0 px / 0 px in the rows where the lag has already
+     damped out - the pixels are the swing, not the world and not a random draw. Ruled out the same
+     way: seeded `Math.random` reads identical (335), `S.t`/`runT`/shake read 0.00 through the attach
+     loop, and the rested frame's md5 is identical across processes.
+     Why the swing reaches these masks at all: the rig WRITES DEPTH (zbuf ~1 m at its muzzle), so its
+     edges enter through the depth term as well as the colour term. Two consequences, both measured:
+     the attach rows' widest-row rule counted those edge pixels as a body row - in the flagged
+     processes the mask reached rows 334..337, i.e. the whole viewmodel region, and the widest-row
+     contest was decided there, so `shRow` landed at 241..326, every row between it and the body
+     counted as a head gap, and DETACHED flipped with the machine's timing; and the `replay` row's #170
+     churn verdict was the same defect wearing a different name - rested, that row reads 0.00 % of 4010
+     mask px where it read 13.4-14.4 %, so `churnGroup` goes false and this mode's shape rows stop
+     being reported as #170 debt and gate instead. Nothing else in what this mode renders reads the
+     clock (`VM.vy` is the only other dt-fed state and VMREST zeroes it too), so the gait,
+     distinct-silhouette, IoU and death rows keep their thresholds and still measure the BODY moving -
+     the mask they measure on is now the body's, which is what their prose always claimed it was.
+     What resting does NOT fix is recorded rather than smoothed over: below row 200 the mask still
+     carries a deterministic ~45 px band (rows 241..245, widest span 23..39 px against a body row of
+     45..113) that the widest-row rule cannot tell from a body, so the rule stays one content change
+     from landing on it again - the real fix is a mask filter on the search, the way HEAD_HW/NECK_R0
+     filter the neck band in #326, and that is a separate lane. */
   function shot() {
-    run('renderWorld()');
+    run(VMREST + 'renderWorld()');
     const A = new Uint32Array(run('px')), zA = new Float32Array(run('zbuf'));
-    run(BARE);
-    return { A, B: new Uint32Array(run('px')), zA, zB: new Float32Array(run('zbuf')) };
+    /* COV, when the neck row below has armed it, describes THIS render and must be read before the
+       enemy-free render wipes it (js/40_render.js:271 fills it at the top of every frame). Null in
+       every other row, where the global is null and this costs one compare. */
+    const C = run('COV ? COV.length : 0') === N ? new Uint8Array(run('COV')) : null;
+    run(VMREST + BARE);
+    return { A, B: new Uint32Array(run('px')), zA, zB: new Float32Array(run('zbuf')), cov: C };
   }
   function maskOf(s) {
     const cov = new Uint8Array(N); let n = 0, top = H, bot = -1;
@@ -7209,6 +7695,112 @@ if (MODE === 'anim') {
       `e.ang=Math.atan2(P.y-e.y,P.x-e.x)+${dy};e.anim=${ph};e.movingAmt=${mv};ENEMIES.push(e)})()`);
     return maskCount(shot());
   }
+  /* ---- #80: does the NECK READ, or does the head float? ---------------------------------------
+     The rows below prove the junction contains no daylight. They cannot say whether the band that
+     fills it is VISIBLE: a neck that paints the same luminance as the wall behind it stitches the
+     geometry and still leaves a head hanging in the room, which is what #80 reports on a grunt at
+     2.4 m. Rules, all three taken from contrast rather than re-derived (view.js:5637 onward):
+       mask        COV, stamped by the mesh's own pixel writes and armed the same way contrast arms it
+                   (view.js:6256) - NOT a render difference, which structurally cannot contain a body
+                   pixel that matches the wall behind it (#179).
+       band        pixels the mask calls a body whose AUTHORED height, solved with contrast's own
+                   projection row (`rowH`, view.js:5866, feet = the draw site's floorAt at
+                   js/40_render.js:258), lies between the torso box's top face and the head box's
+                   bottom face. Those two fractions come from MESH.neckBand so the band follows the
+                   geometry; a js/ that predates it falls back to [sh, head - 0.35*headR], which is
+                   that tree's own gap, and says so in the line.
+       background  the MEDIAN luminance of the outside-mask neighbours in the pixel's 3x3, from the
+                   SAME composited frame. Taking it from the enemy-free render is the mistake #179
+                   records: the shadow is not in that frame, so the term cannot be credited.
+       "within 10" contrast's DLLOST (view.js:5697) - a body pixel under 10 dL from what is behind it
+                   is a pixel the eye does not get. A literal in a REPORTED number, not a gate.
+     A pixel with no outside-mask neighbour is skipped and counted (contrast's `noBg`), so a band that
+     has gone too wide to have a background says so instead of quietly averaging its own interior. */
+  const ANB = [[-1, -1], [0, -1], [1, -1], [-1, 0], [1, 0], [-1, 1], [0, 1], [1, 1]];   // contrast's NB
+  const AWITHIN = 10;                                  // contrast's DLLOST, same meaning here
+  const NECK = [];
+  run('if (!COV || COV.length !== BW * BH) COV = new Uint8Array(BW * BH);');
+  function neckRow(k, s, dk) {
+    const out = { k, dk };
+    const cm = run('({camX, camY, dirX, dirY, planeX, planeY, eyeZ, hz: horizon, BW, BH})');
+    const en = run('ENEMIES.length ? {x: ENEMIES[0].x, y: ENEMIES[0].y, s: ENEMIES[0].scale, ' +
+      'f: floorAt(ENEMIES[0].x, ENEMIES[0].y), c: ((ENEMIES[0].y|0)*MW+(ENEMIES[0].x|0))} : null');
+    if (!s.cov) { out.why = 'COV not armed - the row has no body mask'; return out; }
+    if (!en) { out.why = 'no body in the frame'; return out; }
+    const nb = run('MESH.neckBand ? MESH.neckBand(' + JSON.stringify(k) + ') : null');
+    const sp = run('MESH.SPEC[' + JSON.stringify(k) + '] || MESH.SPEC.grunt');
+    const band = nb || [sp.sh, sp.head - sp.headR * 0.35, sp.headR * 0.52];
+    out.src = nb ? 'MESH.neckBand' : 'SPEC fallback (this js/ has no neckBand)';
+    const invDet = 1 / (cm.planeX * cm.dirY - cm.dirX * cm.planeY);
+    const dx = en.x - cm.camX, dy = en.y - cm.camY;
+    const tY = invDet * (-cm.planeY * dx + cm.planeX * dy);
+    if (tY < 0.3) { out.why = 'body behind the lens'; return out; }
+    out.d = tY; out.cell = en.c; out.light = run('MAP.light[' + en.c + ']');
+    const rowH = h => cm.hz + cm.BH * (cm.eyeZ - (en.f + h * en.s)) / tY;   // contrast's rowH, view.js:5866
+    const sp2 = run('MESH.spanFor(' + JSON.stringify(k) + ')');
+    out.bodyPx = Math.abs(rowH(sp2.y1) - rowH(sp2.y0));  // the drawn body's own projected height
+    /* A row belongs to the band when its CENTRE's authored height lies between the two faces. A
+       ceil/floor window hands the measurement the torso box's own top row - the face the #80 fix
+       moved, not the band it left - and that row is torso, so it averages the answer toward the
+       bright side and the row would improve without the neck changing at all. */
+    const hAt = y => (cm.eyeZ - (y + 0.5 - cm.hz) * tY / cm.BH - en.f) / en.s;
+    /* ... and a row's pixel belongs to the band only while it is also inside the HEAD'S OWN WIDTH in
+       plan. Perspective makes this band a STACK of horizontal faces rather than a slot: the head box's
+       underside, the tube and the torso box's top face all land in these rows, while the arm tubes -
+       whose caps reach sh + arm, above the shoulder plane on every kind - start at shLat, further out
+       than the head is wide (js/13_mesh.js's HEAD_HW carries the window and its margins). Unfiltered,
+       the window measures shoulders, calls the band as wide as the torso and credits the arms' SKIN
+       colour to the neck. The axis is a vertical world line, so it projects to one tX, and a pixel's
+       tX is the same solve torsoStats uses (view.js:5865). */
+    const hw = W * 0.5, tXax = invDet * (cm.dirY * dx - cm.dirX * dy), rmax = band[2] * en.s;
+    const latOf = x => (x / hw - 1) * tY - tXax;
+    out.rmax = rmax;
+    const yT = Math.max(1, Math.ceil(rowH(band[1])) - 1), yB = Math.min(H - 2, Math.floor(rowH(band[0])) + 1);
+    if (yB < yT) { out.why = 'neck band projects off the frame (rows ' + yT + '..' + yB + ')'; return out; }
+    out.band = band.map(v => +v.toFixed(3));
+    let n = 0, noBg = 0, sum = 0, within = 0, lsum = 0, bsum = 0, rLo = 1e9, rHi = -1e9, wide = 0;
+    for (let y = yT; y <= yB; y++) {
+      const h0 = hAt(y);
+      if (!(h0 > band[0] && h0 < band[1])) continue;
+      const rw = y * W;
+      let lo = -1, hi = -1;
+      for (let x = 1; x < W - 1; x++) {
+        const i = rw + x;
+        if (!s.cov[i]) continue;
+        if (Math.abs(latOf(x)) > rmax) continue;
+        if (lo < 0) lo = x; hi = x;
+        const vals = [];
+        for (const o of ANB) { const j = i + o[1] * W + o[0]; if (!s.cov[j]) vals.push(lum(s.A, j)); }
+        if (!vals.length) { noBg++; continue; }
+        const srt = vals.slice().sort((p, q) => p - q);
+        const med = srt.length & 1 ? srt[srt.length >> 1] : (srt[(srt.length >> 1) - 1] + srt[srt.length >> 1]) * 0.5;
+        const dl = Math.abs(lum(s.A, i) - med);
+        n++; sum += dl; lsum += lum(s.A, i); bsum += med;
+        if (dl < AWITHIN) within++;
+      }
+      if (lo >= 0) { if (hi - lo + 1 > wide) wide = hi - lo + 1; if (y < rLo) rLo = y; if (y > rHi) rHi = y; }
+    }
+    out.n = n + noBg; out.meas = n; out.noBg = noBg; out.rows = rHi >= rLo ? rHi - rLo + 1 : 0;
+    out.rLo = rLo; out.rHi = rHi; out.wide = wide;
+    out.dl = n ? sum / n : 0; out.within = n ? 100 * within / n : 0;
+    out.lum = n ? lsum / n : 0; out.bg = n ? bsum / n : 0;
+    // torso width for scale: the widest body row in the torso band (shoulder line -> hip)
+    const tT = Math.max(1, Math.ceil(rowH(sp.sh)) - 1), tB = Math.min(H - 2, Math.floor(rowH(sp.hip)) + 1);
+    let twide = 0;
+    for (let y = tT; y <= tB; y++) {
+      const ht = hAt(y);
+      if (!(ht < sp.sh && ht > sp.hip)) continue;
+      const rw = y * W; let lo = -1, hi = -1;
+      for (let x = 1; x < W - 1; x++) { const i = rw + x; if (!s.cov[i]) continue; if (lo < 0) lo = x; hi = x; }
+      if (lo >= 0 && hi - lo + 1 > twide) twide = hi - lo + 1;
+    }
+    out.torsoWide = twide;
+    out.pct = out.bodyPx > 0 ? 100 * out.rows / out.bodyPx : 0;
+    if (!out.rows) out.why = 'no body pixel inside the band window';
+    else if (!out.meas) out.why = 'none of the ' + (out.n + out.noBg) + ' band pixels had an outside-mask neighbour' +
+      ' (all interior: the band is narrower than the silhouette around it)';
+    return out;
+  }
   const DK = {};
   for (const k of AKIND) {
     let picked = 0;
@@ -7316,7 +7908,104 @@ if (MODE === 'anim') {
           : 'no background between head and torso  ATTACHED') + (noHead ? '  NO HEAD TO JUDGE' : ''));
     }
   }
+  /* The seat is chosen DARK, because that is where #80 says the head floats: at a lit cell the neck's
+     own colour is far from the wall's and the question does not arise (measured on the seat the rows
+     above use, level 0 spawn, cell light 0.559: grunt band dL 15.4, hound 18.3 - the neck reads). So
+     the row seats the body in the darkest cell the level itself offers: every cell that is open, on
+     the player's own floor band, tall enough to stand in and 2..4 m from the lens, ranked by
+     MAP.light, darkest first. The floor on distance is not taste - at 1.4 m a brute's crown is above
+     the frame and its neck band projects to rows that do not exist, which is a vacuous row (measured:
+     0 rows, band above row 1). The darkest candidate that actually PAINTS at least MASKMIN pixels -
+     the visibility check is the measurement, not a ray the probe invents - is the one measured; P.ang
+     is set to look at it and restored after. That is a seat choice, not a threshold: nothing is gated
+     on the light number, and the line prints the cell, its light and the background luminance measured.
+     Cell light alone does not make a dark BACKGROUND: level 0's darkest standable seat (0.378) still
+     has a wall behind it reading 83 luminance, so the second half of each number is the SAME seat and
+     pose with the level's lamps removed - MAP.light/lR/lG/lB/lw zeroed, AMB and the geometry untouched,
+     the control this file already uses at :1337, :1905 and :2194. That is the AMB 0.19 regime #33 says
+     floors an additive rim, and the only dark room the probe can name without inventing content. */
+  /* THREE LIGHTING CASES, because the measurement disagrees with the issue's premise depending on
+     which one is read - and saying so is the point of the row (#80 quotes a neck pixel 2 luminance
+     from the wall behind it, [11,12,11] against [13,15,6]):
+       as dealt   the seat the rows above already use - __bandSpot at the kind's distance along the
+                  player's facing, level 0's spawn seat, cell light 0.559. This is the 2.4 m seat the
+                  issue's numbers come from, and here the wall behind the neck does sit near the
+                  neck's own colour (on main: grunt 33 body vs 21 behind, 31% of the band's pixels
+                  within 10; brute 32 vs 32, 47% within 10).
+       lamps off  the SAME seat and pose with MAP.light/lR/lG/lB/lw zeroed and AMB untouched - the
+                  control this file already uses at :1337, :1905 and :2194. Level 0 has no dark CELL
+                  a body can be stood in (next case), so this is the only way to reach the AMB 0.19
+                  regime #33 says floors an additive rim without inventing content.
+       darkest    the darkest cell the level offers: open, on the player's own floor band, tall enough
+                  to stand in, 2..4 m from the lens, ranked by MAP.light; the first that PAINTS at
+                  least MASKMIN pixels is measured - the visibility check is the measurement, not a ray
+                  the probe invents - with P.ang turned to it and restored after. The floor on distance
+                  is not taste: at 1.4 m a brute's crown leaves the frame, its band projects to rows
+                  that do not exist, and the row would print 0 px as if it had measured something.
+     What this found on main is that the two cases DISAGREE: at the spawn seat the band is dim against
+     its wall, while at the level's darkest standable cell (light 0.387) the wall behind it reads 46-83
+     luminance - cell light is not background luminance - and the band reads as a DARK slot, dL 44.
+     "The neck does not read" is therefore a statement about the wall behind the body, not about the
+     room; the number a geometry fix moves is the band's SIZE - its rows as a share of body height and
+     its width against the torso's - and both are printed first and gated by nothing. */
+  const zf0 = run('floorAt(P.x, P.y)');
+  const LAMPS_OFF = 'window.__LM=[MAP.light.slice(),MAP.lR.slice(),MAP.lG.slice(),MAP.lB.slice(),MAP.lw.slice()];' +
+    'MAP.light.fill(0);MAP.lR.fill(0);MAP.lG.fill(0);MAP.lB.fill(0);MAP.lw.fill(0);';
+  const LAMPS_ON = 'MAP.light.set(window.__LM[0]);MAP.lR.set(window.__LM[1]);MAP.lG.set(window.__LM[2]);' +
+    'MAP.lB.set(window.__LM[3]);MAP.lw.set(window.__LM[4]);';
+  for (const k of AKIND) {
+    const rec = { k }, a0 = run('P.ang');
+    run(`(()=>{const s=window.__bandSpot(${(+DK[k]).toFixed(2)});ENEMIES.length=0;` +
+      `const e=makeEnemy('${k}',s[0],s[1]);${PIN}ENEMIES.push(e)})()`);
+    rec.dealt = neckRow(k, shot(), DK[k]);
+    run(LAMPS_OFF);
+    rec.dim = neckRow(k, shot(), DK[k]);
+    run(LAMPS_ON);
+    const cand = run(`(()=>{const o=[],zf=${zf0};for(let y=1;y<MH-1;y++)for(let x=1;x<MW-1;x++){` +
+      `const i=y*MW+x;if(MAP.cell[i])continue;const cx=x+0.5,cy=y+0.5,f=floorAt(cx,cy);` +
+      `if(Math.abs(f-zf)>1e-6)continue;if(ceilAt(cx,cy)-f<1-1e-6)continue;` +
+      `const d=Math.hypot(cx-camX,cy-camY);if(d<2||d>4)continue;` +
+      `o.push({a:Math.atan2(cy-P.y,cx-P.x),x:cx,y:cy,d:d,i:i,li:MAP.light[i]})}` +
+      `o.sort((p,q)=>p.li-q.li||p.i-q.i);return o.slice(0,6)})()`);
+    let dark = null, tries = 0;
+    for (const seat of cand) {
+      tries++;
+      run(`(()=>{P.ang=${seat.a};ENEMIES.length=0;const e=makeEnemy('${k}',${seat.x},${seat.y});${PIN}ENEMIES.push(e)})()`);
+      const s = shot();
+      if (maskCount(s) < MASKMIN) continue;
+      dark = neckRow(k, s, seat.d); dark.cell = seat.i; dark.light = seat.li; dark.tried = tries;
+      break;
+    }
+    run('P.ang=' + a0 + ';');
+    rec.dark = dark || { why: cand.length ? 'none of the ' + tries + ' darkest cells painted MASKMIN ' + MASKMIN + ' px' +
+      ' (occluded from the lens)' : 'no open, standable, same-band cell 2..4 m from the lens' };
+    NECK.push(rec);
+  }
+  const r1fmt = v => (v === undefined ? '-' : v.toFixed(3));
+  const nf = o => !o || o.why ? (o ? o.why : 'no measurement') : 'dL ' + o.dl.toFixed(1) + ' (' + o.lum.toFixed(0) +
+    ' body vs ' + o.bg.toFixed(0) + ' behind), ' + o.within.toFixed(0) + '% within ' + AWITHIN + ' on ' +
+    o.meas + '/' + o.n + ' px';
+  const cxy = o => !o || o.cell === undefined ? '-' : (o.cell % W) + ',' + ((o.cell / W) | 0);
+  const lit = o => !o || o.light === undefined ? '-' : o.light.toFixed(3);
+  console.log('  neck vs room   the band between the torso top face and the head box, on the COMPOSITED frame,'
+    + ' masked by COV (the mesh\'s own pixel writes, not a render difference), background = median of the'
+    + ' outside-mask 3x3 of that SAME frame; band from ' + (NECK[0] && NECK[0].dealt ? NECK[0].dealt.src : '-') +
+    ', within-' + AWITHIN + ' is contrast\'s DLLOST.  REPORTED, not gated (#80)');
+  for (const o of NECK) {
+    console.log('    ' + o.k.padEnd(6) +
+      (o.dealt && !o.dealt.why
+        ? 'band ' + o.dealt.rows + ' px = ' + o.dealt.pct.toFixed(1) + '% of body height (rows ' + o.dealt.rLo +
+          '-' + o.dealt.rHi + ' of ' + o.dealt.bodyPx.toFixed(0) + '), ' + o.dealt.wide + ' px wide vs ' +
+          o.dealt.torsoWide + ' px torso, plan filter +' + r1fmt(o.dealt.rmax) + ' m'
+        : o.dealt ? o.dealt.why : 'no seat at that distance') +
+      '  |  as dealt ' + nf(o.dealt) + ' @ ' + (o.dealt && o.dealt.d ? o.dealt.d.toFixed(2) : '-') + ' m, cell ' +
+      cxy(o.dealt) + ', light ' + lit(o.dealt) +
+      '  |  lamps off ' + nf(o.dim) +
+      '  |  darkest cell ' + nf(o.dark) + (o.dark && o.dark.cell !== undefined ? ' (' + cxy(o.dark) + ', light '
+        + lit(o.dark) + ', @ ' + o.dark.d.toFixed(2) + ' m, ' + o.dark.tried + ' seat(s) tried)' : ''));
+  }
   const why = [];
+  run('COV = null;');
   if (bad - attachBad - judgeBad) why.push('bodies are drawn in a static stance');
   if (attachBad) why.push(attachBad + ' pose(s) with DETACHED parts');
   if (judgeBad) why.push(judgeBad + ' pose(s) too small to judge at ANY distance - a probe-geometry problem, not a detachment failure');
@@ -8426,6 +9115,22 @@ if (MODE === 'bands') {
      out of the renderer's ray and the seam A/B out of the SEAM global, so no row can be satisfied by
      geometry the probe drew for itself (the trap every vertical row in this file used to have), and
      every number counts columns, rows and pixels because an average cannot see the WIDTH of a band. */
+  /* #266: pin the sandbox CLOCK, not only the viewmodel state. The one wall-clock term that reaches a
+     pixel is the rig's look-lag dt (`performance.now()` at js/40_render.js:1789, which the harness
+     stubs as Date.now()), and its input is the gap between two renders: measured over one bands run
+     that gap is p50 33 ms with a max of 228 ms, so dt sits exactly on its `Math.min(0.05, ...)` clamp
+     and HOW MANY of the run's renders are clamped moves between processes - 22, 27 and 30 of the same
+     180 render gaps were >= 50 ms in three processes of a byte-identical tree. That is what made the
+     seam A/B read 11214/11242/11305/11543/11466/11361 px at 1436754: the pair's second frame had the
+     rifle still swinging by whatever ms elapsed, and `lag = damp(lag, -dAng/dt ... , 9, dt)` is a
+     function of the machine. VMREST (view.js:309) zeroes the lag STATE in both renders, which is why
+     main reproduces today; the pin below makes that reproducibility not depend on every present and
+     future render site remembering it - with the clock a constant, dt is a constant and no band row
+     can be a function of load. Same shape as the clock pins `alt` and `flatparity` already set
+     (view.js:1277, :1343, :1900); the lag terms are at rest either way, so no pixel moves. Nothing
+     else in what bands runs reads the clock - the other reader is DEV's frame timer
+     (js/90_dev.js:30) and bands never enters DEV. */
+  run('performance.now = () => 5; VM.t = 5;');
   let bad = 0, knownN = 0, rowsN = 0, STRICT = !!process.env.STRICT;   // debt rows go red under STRICT=1
   const debts = new Set();
   const W = run('BW'), H = run('BH'), ZQS = run('ZQ');
@@ -8626,6 +9331,23 @@ if (MODE === 'bands') {
      band in it at all is VACUOUS and counts against the row, never in its favour. */
   const FARB_STEP_MAX = +(process.env.FARB_STEP_MAX || 8);
   const FARDARK_MAX = +(process.env.FARDARK_MAX || 55), FARDARK_L = +(process.env.FARDARK_L || 24);
+  /* #216's missing row for THIS block: bands was one of the blocks whose verdicts are computed rather
+     than hashed, which is exactly why #266's drift survived a whole session - six processes, six
+     different seam counts, every verdict green, and no literal anywhere that could disagree. What is
+     recorded here is the SEAM=1 half of the seam A/B pair: the cheapest frame that carries the whole
+     ground + wall + riser + viewmodel path at a GENERATED lip camera, and the frame the lip rows above
+     are read off. It is reproducible now because the block pins the clock; recorded on e712916 with
+     that pin in. A move is one of two things, and the row says which: the shading, art or generation
+     moved (a deliberate re-record, named in the source the way flatparity re-keys its triples), or the
+     frame stopped being reproducible - measured: with VMREST dropped from these render sites the frame
+     is b1b8032b instead of 91eccb66 while every other row here stays green and every process agrees,
+     so WITHOUT this record the #266 defect is silent even after the drift is gone. Gated on the plain
+     run, which is what ci.yml runs; every knob that moves the frame or where it is shot from is
+     reported as not-comparable instead of being called a regression. */
+  const md5u32 = b => require('crypto').createHash('md5').update(Buffer.from(b.buffer, b.byteOffset, b.byteLength)).digest('hex');
+  const KNOBS = ['DIST', 'SEAMD', 'SEAMU', 'SEAMW', 'VW', 'VH', 'SEED', 'JSDIR', 'LAMPS'].filter(k => process.env[k]);
+  // #149 re-keys all three: the seam frame carries lamp light, and three seats moved on the generated levels.
+  const RECSEAM = refRecord('bands', 'SEAM-FRAME', 'md5', ['578af03db244ce393b18b485eff38175', '1ff2a28dc260cda32fde6f6188578653', '4a7aca639c0cda2bcfef27f44b5cd435', '35b63dc85129ddaa8005ff5c872ceff4']);
   // #303: the rows below are labelled by their own level index and every lip comes out of the GENERATED
   // grid, so a bound of 3 simply never asks the authored plan.
   for (let li = 0; li < run('LEVELS.length'); li++) {
@@ -8633,7 +9355,7 @@ if (MODE === 'bands') {
     // SEAM=0 runs this whole probe with the term switched off in the renderer, so the same rows can
     // be shown red against the shipped build rather than only against a base checkout
     const seam = seamArm(process.env.SEAM === '0' ? 0 : 1);
-    let diffPx = 0;
+    let diffPx = 0, seamFrame = '';
     for (const kind of ['face', 'walk']) {
       const L = lipFor(kind, spawn[0], spawn[1]);
       if (L.skip) { row(`L${li} ${kind} lip exists to measure`, false, L.skip); continue; }
@@ -8956,17 +9678,23 @@ if (MODE === 'bands') {
          and diffPx is exactly what the term contributes. */
       {
         run('SEAM = 1; S.t = 3.5; ' + VMREST + ' renderWorld()');
-        const A = new Uint32Array(run('px'));
+        const A = new Uint32Array(run('px')); seamFrame = md5u32(A);
         run('SEAM = 0; S.t = 3.5; ' + VMREST + ' renderWorld()');
         const B = new Uint32Array(run('px'));
         run('SEAM = 1');
         for (let i = 0; i < A.length; i += 7) if (Math.abs(lum(A, i) - lum(B, i)) > 4) diffPx += 7;
       }
     }
-    row(`L${li} the seam term is in the build and moves pixels`, seam === 1 && diffPx > 0,
+    row(`L${li} the seam term is in the build and moves pixels`,
+      seam === 1 && diffPx > 0 && (KNOBS.length > 0 || seamFrame === RECSEAM[li]),
       seam === -1 ? 'no SEAM global in js/: the A/B control cannot arm, so no lip row above it means anything'
         : seam === 0 ? `the term is switched OFF for this control run (SEAM=0): the lips above have no edge`
-        : `SEAM=1 vs SEAM=0 moves ${diffPx} px of the frame (every 7th sampled)`);
+        : `SEAM=1 vs SEAM=0 moves ${diffPx} px of the frame (every 7th sampled)`
+        + `; the SEAM=1 frame those lip rows were measured on is ${seamFrame}`
+        + (KNOBS.length ? ` - frame not compared, ${KNOBS.join('/')} moves it or the camera`
+          : seamFrame === RECSEAM[li] ? ' (the recorded frame: same tree, same bytes, every process)'
+            : ` - MOVED from the recorded ${RECSEAM[li]}: the frame is no longer reproducible (#266) ` +
+              `or its shading did, which is a deliberate re-record`));
 
     // the band cue in the minimap: colours paired to cells by recording the layer's own fillRects
     const mm = run(`(function () {

@@ -2,6 +2,203 @@
 
 ### Changed
 
+- **No big band is left without a light source standing in it** (#149). Lamp placement had scored seats
+  for the dark *cells* a lamp would cover and then spread the remainder, so a band whose cells were each
+  individually dim could still end up with no lamp inside it at all. On untouched `main` the new rows fail:
+  L1 reports **2 all-dark bands of 112 bands >= 8 cells over 12 seeded deals** (`roll 2 room 2 @ q0`, 21
+  cells, mean light **0.036**; `roll 11 room 1 @ q0`, 30 cells, mean light **0.011**) and the *standing in it*
+  row fails **L0 29 / L1 48 / L2 43** big bands with no source inside them. **L0's all-dark count on main is
+  0**, so L0's teeth are the standing and density rows, not the count row - stated because a row whose teeth
+  exist on two of three levels is not a row whose teeth exist everywhere. The seat pass now scores a
+  candidate by the band it serves, reserves one lamp per unserved band before any spreading happens, and
+  takes band seats into account; **no new `Math.random` draw is taken**, because #96 established that a draw
+  on the generation path re-rolls the seed-to-layout mapping and every held record would move. All-dark
+  bands go to **0 on every level** and the standing-in-it count to **0 / 0 / 0**.
+  Buying that coverage moved light, and the moves are recorded rather than absorbed: six lamp-dependent
+  references were re-recorded from measurement on this tree (`flatparity LOCK` L0/L2, `flatparity DEALT`
+  L0/L1/L2, `bands SEAM-FRAME` x3, `exposure MEDIAN` L2 78 -> 70, `exposure SPAWN` L1 64/59 -> 68/66,
+  `alt PIT-MEAN` 0.290/0.299/0.326 -> 0.262/0.294/0.297), and `COV_STAND_MAX` L0 moved 27 -> 28 because
+  main's #329 spawn-clearance change re-deals layouts while staying draw-stream-neutral. **`flatparity
+  PARITY` x4, `cull CZBAND` / `CZBAND-LIGHT`, `props LAMPCORE`, `alt PIT-CELLS` and the OOB rows did not
+  move**, which is the proof that the deal mapping is intact (`refs`: 13 records, 0 missing, 0 orphaned,
+  0 moved). The tail floors moved where the measurement said they already were: `WORST_REC` is
+  `[20, 25, 50, 57]` and `WORST_RASTER` `[25, 30, 50, 57]`, against main's own 24-deal low ends of
+  **23.2 / 36.3 / 51.0 / 61** - the old 64 on L1 was a promise main does not keep.
+  **The cost has its own issue: pits read ~9 % dimmer** (#336) - `PIT-MEAN` above, with `PIT-CELLS`
+  unchanged at **0 of 190 / 194 / 211**, so no pit cell went dark but the pit lips lose a share of light to
+  the bands the new pass feeds. That is what made `alt`'s glow row fail L0/L2 while L1 passed: the row's
+  predicate carries a `+-0.005` pit-mean clause (`tools/view.js:1389`), so near-identical pixel counts
+  split on the lightmap canary. The rows that carry the guarantee were seen to fail before they were
+  trusted: against untouched `main` js the coverage rows FAIL with exit 1 - 11 FAILURE(S) of 37 rows, naming
+  `roll 2 room 2 @ q0 (21 cells), mean light 0.036` - and making the reserve pass place nothing brings the
+  **all-dark** counts back to 10 / 11 / 9 (`11 FAILURE(S) of 37 rows`, exit 1) while the opposite byte,
+  reserving every candidate, moves the count rows to 0 and turns the **density** rows red instead (7 FAILs,
+  L0 38 > 36, L1 60 > 59). Both directions of the same mechanism are red, which is why the count and density
+  rows both exist.
+- **All six README screenshots are re-captured from the deployed bytes, and two captions stopped
+  describing a picture that is no longer there** (#333). The facing-wall frame changed: **10 dark rows
+  → 488 of 763** - a run of 277 from the top of the frame, mean 36.79 → 20.87, top band 36.2 → 9.5 -
+  so its caption now says black air instead of claiming the air above the lip is lit. **That delta is not a
+  regression, and #333 is closed on the measurement.** On the page's own deal - reached for the first time
+  by advancing `mulberry(60)` to draw **66,153**, which is where the page's audio buffer leaves the PRNG
+  (`SND.init` burns `floor(sampleRate * 1.5)` = 66,150 draws at `js/00_core.js:90`, plus 3 from
+  `startAmbient`) - the facing-wall seat renders mean **21.51 with #311's clamp against 21.67 without it**,
+  N=7 renders per side, spread 0.00, and the clamp-as-no-op control is worth **+0.17 luma**. Every build
+  renders this frame dark, including `98a33b5`, the build behind the frame this entry replaced; that frame
+  decodes to mean 36.79 with 10 dark rows, which no render of this deal in any build reproduces, so it was
+  a capture or caption mismatch - tracked in #335. **A page deal is a triple of seed, sample rate and audio
+  draw count**: the harness sandbox has `AudioContext: undefined`, so `SND.init` returns early and spends
+  zero draws, and `SEED=60` there deals `1284359329` - a world with no staircase at this camera. That is why
+  three earlier attempts produced three confident, contradictory verdicts, and why a capture must record
+  `DEV.state().layout` rather than a seed string. The STACK caption's "that slab seen from
+  below" is a **wall** in this build - level 3's `wall2` TECH panels, with the 4.00 plane being the
+  streaked `ROCK` ceiling - and the spawn caption's "one-unit ceiling over its head" contradicted the
+  `cz 16` printed in the same sentence. Frames came from `index.html` + `js/` whose md5s match the
+  Pages deploy exactly; `docs/` is 404 there by design, so the tree is the reference.
+
+- **A prop could stand 1.41 m from the spawn cell, inside the spawn heading's cone** (#154). The prop
+  pass drew cells from the same pool as every other feature and subtracted nothing around the seat,
+  while the seat itself is chosen by a different pass - the same shape as #149, placement passes that
+  do not know about each other. `SPAWN_CLEAR = 2` (`js/20_level.js:40`, a `let` so a probe can A/B it
+  like `topUpEnabled`) is now excluded at the three prop push sites and at the coverage top-up, and
+  the new row reads the constant out of `js/` instead of a literal so the knob cannot silence it.
+  **Draw-stream neutrality was the constraint, not a nicety**: rejecting a candidate inside `takeNear`
+  costs a draw and re-rolls every world built downstream of the same SEED - measured, one rejected
+  lamp candidate moved a *clear* deal from 1424 draws to 343 and turned three `props` rows red. What
+  ships picks the cell exactly as before and walks an in-disc pick out of the disc **without touching
+  the RNG**, so the fix and "a different level" stay distinguishable: over N=36 deals the deals with a
+  prop under 2 m went **3/12, 2/12, 1/12 → 0/12** (L0/L1/L2), world state is identical on 30/36, dealt
+  md5s are identical on both sides for L0-L3, and spawn-frame md5s on 14/15 - the exception being one
+  of the violating deals, which is the pixel that moved. Gated by
+  `VERT L* the prop pool keeps 2.00 m around the spawn seat`; deleting the clearance fails exactly
+  those four rows (`keeps 0.00 m`) and moves nothing else. The issue's exact L2 reading did **not**
+  reproduce at these seeds - that barrel sits ~111 degrees off the heading with the forward ray open at
+  10.30 m - while the shape reproduces on L0 r9 and L1 r8, where a crate at 1.39 m in the +-17 degree
+  cone ends up at 2.78 / 4.17 m. Unsettled: pickups are still pool-placed with no clearance, so a
+  pickup can hover 1 m from the seat.
+- **The raster budget now measures a pair, not a moment** (#170's instrument, perf). The pooled-seats row
+  runs control and candidate **interleaved in the same process** — the kill switch at `js/40_render.js:376`
+  is flipped between batches — and gates `REGRESSION FAIL` on `cand > ctrl × 1.05 + 0.3 ms`, while an
+  absolute over `RASTER_FLOOR` with a clean paired arm reads `MODE PASS`: the absolute belongs to the
+  runner. The reason is CI, not theory — identical bytes gave head-ref 24.73 ms PASS against merge-ref
+  33.88 ms FAIL, and a **tools-only** PR (#340, zero bytes of `js/`) drew seat 0 at 127.3 ms and pooled
+  38.58. `RASTER_FLOOR` set explicitly still gates on the **absolute** (measured `CONTROL FAIL` at 32.43
+  against floor 16 with the paired arm at +0.10), so the documented cheaper-code control survives, and a
+  js tree with no switch prints `paired arm VACUOUS` rather than passing on a delta of nothing. What the
+  change does *not* claim: the march skip is **neutral, not cheaper** — paired delta −0.22 to +0.43 ms over
+  6 draws at load 3.1–4.9 — and #307 still owns driving 32 → 16 with real cost work.
+
+- **A prop standing on the band above no longer draws through the slab** (#170, rendering), and the
+  march that does it now skips the walks that provably cannot answer. The leak was **L3 only - 971 px
+  at rows 58..127** - and it had been carried as a silent `KNOWN(#170 authored seams)` debt row, which
+  is why it survived review: `cull` tagged level 3 as debt **unconditionally**, so the row reported
+  instead of failing even while measuring 971 px. Attribution before editing: all 971 px came from the
+  **row path** (far-band row fill 312 + textured row loop 659) and **0** from the deferred queue, and
+  forcing every pixel through the deferred copy still showed **971** - the leak is invariant to which
+  copy paints, so the two-copies trap was not the way in. Every leaking pixel answered **plane 4.00,
+  the eye's own `planeA`**, while an honest march on the pixel's **own ray** answered **1.00 on
+  971/971** (nearer than the lamp at 4.00 m on 938 of them), with `reSolveBad` **0** throughout - the
+  exhaustion counter is blind here exactly as the lore said. Cause was a **guard, not arithmetic**: the
+  row marched only when `planeC !== planeA`, so a run whose cell agreed with the predictor never asked.
+  The fix is **depth-only** (no repaint) and gated by `MAP.steps`, so a flat level pays nothing: the
+  far-band row fill sweeps `GOCCS = 8` slices marched on their own rays, the textured row loop carries
+  row-scope occlusion and flushes at crossings and row end, and `groundPixel`'s ceiling half answers the
+  same depth when `pl === plA && MAP.steps` so both copies agree. `cull`'s L3 debt tag is **removed** -
+  a promotion, no threshold touched - and the row now also forces every re-solvable column through the
+  deferred copy on the same frame, failing by name as `NEEDLE-NOT-FOUND`/`PATCH-FAILED`; measured on
+  one tree with only `JSDIR=` changed, **fixed `ok … 0 px` exit 0, unfixed `FAIL … 971 px` exit 1**.
+  The cost was then attacked, because the march landed on CI's raster budget on the margin rather than
+  on merit: `planeAlong` only ever answers a plane the grid *has*, on the far side of the eye and nearer
+  than its own `cap`, so a marching frame collects the level's altitude set once (`buildPlaneInv`) and
+  reduces it to two scalars against `eyeZ` (`splitPlaneInv`), and a walk whose nearest candidate cannot
+  answer is skipped in three flops. **No pixel moved** - 12/12 frame pairs identical in px *and* zbuf
+  (72 FNV hashes, L0-L2 × cam0-3) between the march and the march+skip, which is also the proof that the
+  skipped walks were silent - and `tools/refs.lock` md5 `ca797d0b…` is unchanged with `refs ok - 13
+  recorded reference(s)`, `flatparity` exit 0 (PARITY `2c5a94f`), `heights` all configs ok. Deterministic
+  work on the probe layout fell **21.2k → 2.6k DDA steps/frame (−88 %)**; the ms win is layout-dependent,
+  because at seeds 7/99/2024 **87–97 % of those walks answer**, so ~1 ms there is real work this test
+  cannot skip (that case needs row-shared traversal, not a bigger `GOCCS`). Three interleaved `smoke`
+  pairs at load 3.1–5.5 put the march alone at **31.37/32.68/33.22 ms** - 2 of 3 over the 32 ms floor -
+  and this tree at **30.90/31.75/31.27 ms, every one `SMOKE PASSED`**, while a 12-sample paired `WARM`
+  run across 6 seeds sits inside the instrument's ~0.5 ms noise floor. The visible consequence is
+  measured, not asserted: L1 cam0's scene frame differs from main by **664 px of 812,552 (0.082 %)**
+  confined to rows 248..299 with mean `|Δ|` 40.7 - a prop's edges disappearing, not a shading wash.
+  **CI stays the arbiter of the budget**, and one figure this file carried is corrected here: main's own
+  run on the same fleet reads pooled **25.42/24.15 ms** against floor 32, so an earlier "main passes at
+  31.3–31.7" was a comparison against a contended run, not a margin.
+
+- **The shoulders now carry the head instead of a dark tube filling the gap beside it** (#80, refs; the
+  light-independent half stays with #18). The torso box's top face is lifted `0.25 × headR` into the
+  bottom of the neck gap (`js/13_mesh.js:88`, used at `:611`), so the band between head and shoulder
+  reads as a lit box top - flat-shaded against the key light, carrying the #232 structure term - where
+  it used to be the side of a neck cylinder, which cannot read at any ambient. On a grunt at 2.40 m the
+  band is **9 px = 6.1% of body height** instead of **11 px = 7.5%**, and **14 px wide against a 45 px
+  torso** instead of 10 px; triangles are byte-identical (518/857/1024) and 9 yaws × 3 kinds stay
+  `ATTACHED`, so #74's closure is not re-opened. `anim` gains a **reported** row per kind giving the
+  band's rows, share of body height, width against the torso, and ΔL as-dealt / lamps-off /
+  darkest-cell. **ΔL does not improve** (8.6 → 9.7 dealt, 3.5 → 4.5 lamps-off): geometry changes which
+  face sits there, not its colour, and at `AMB 0.19` the head still separates from the wall by ~4
+  luminance - that is #18's contact shadow, which is why this references #80 rather than closing it.
+
+- **`bands` now pins the clock it renders with, and has a recorded row** (#266). The frame that lane
+  measures used to depend on wall-clock `dt` reaching the viewmodel's lag damp
+  (`js/40_render.js:1789`: `dt = min(0.05, gap/1000)` → `lag = damp(lag, -dAng/dt, 9, dt)`), so one
+  unchanged tree printed **11214 / 11242 / 11305 / 11543 / 11466 / 11361 px** in six processes and no
+  number from it could be recorded. #273's `VMREST` already quieted most of that; pinning
+  `performance.now` inside the `bands` block makes determinism stop depending on every render site
+  remembering it, and **`bands/SEAM-FRAME`** (3 md5s, `refs` inventory 12 → 13) is now the row that
+  goes red with `MOVED from the recorded …` if the drift - or a dropped `VMREST` - comes back.
+
+- **`DEV.spawn`'s fan could put a crowd in one cell and say nothing** (#93, #63). The fan clamped each
+  body **radially** to the first open cell, so `DEV.clear(); DEV.spawn('hound', 2, 7.5)` reported
+  distances `[7.48, 7.48]` and the frame drew **one** hound where the HUD counted two; posed where a
+  wall sits 1.5 m ahead, `DEV.spawn(hound, 2, 3.2)` realised **1.50 m** for a requested 3.2 m and said
+  nothing about it. `DEV.spawn` is the sanctioned way to verify live behaviour, so every probe that
+  assumed a spread crowd was weaker than it read. The fan now backs off **laterally** before it backs
+  off radially, never reuses a cell, and returns what it actually did (`placed[]`, `cells`, `collapsed`,
+  `sep`, `why`) with `kind`/`made`/`dist` unchanged, so a caller can assert instead of assume. Measured
+  over 80 pose x distance rows: rows with fewer than two distinct cells **40 -> 16**, and all 16 are the
+  one pose whose first open cell sits 0.55 m ahead - the cone really does hold a single cell there, and
+  the return now says `collapsed: 1, why: 'crowded'` rather than reporting success. A `smoke` row gates
+  it on distinct cells counted over `ENEMIES`, not on the tool's own claim:
+  `dev spawn: 4 row(s), 4 gating row(s), 0 reported`, and pointed at `origin/main`'s `js/` through
+  `JSDIR` the same row prints `FAIL ... 2/3 cells of 3 bodies at 6.00/6.00/6.00 m` and `SMOKE FAILED`.
+  `DEV` is a dev-only path, so a correct fix moves no pixels: `flatparity` exit 0, 8/8 scene md5s
+  identical to main, `tools/refs.lock` md5 unchanged. Still open and now visible instead of hidden: the
+  fan is only 0.32 rad wide, so at 2 m six rows have distinct cells with the bodies overlapping - the
+  return calls that `sep`.
+
+- **smoke now prints what `update()` costs** (#53, tooling). Every cost row in the harness times
+  `renderWorld()` + `renderOverlay()`, so nothing inside `update()` - player physics, enemy AI,
+  `hitscan`, projectiles, particles, pickups - has ever had a number, while the vertical work is
+  almost entirely update-side. Per level the harness now re-deals the level (`startLevel(li, true)`
+  under the same SEED-derived stream) **before every batch** and times 60 `update(0.016)` calls,
+  printing `update at its arrival seat` beside the existing `raster at its arrival seat`, with the
+  player at rest (keys cleared by the reseat) and AI, projectiles and particles running. Reported,
+  **not gated**: these are one box's numbers at load ~3, and #307 is the shape of a floor copied
+  from a single run. Measured here (5 batches x 60 frames, load 2.9-3.3, one session): **0.18 /
+  0.28 / 0.48 / 0.05 ms/frame** for L0-L3 against raster **27.1 / 20.6 / 30.4 / 31.9 ms** at the
+  same seats. The row was seen to move when a busy term was added inside `update()` (0.18 -> 0.55,
+  0.28 -> 0.60, 0.48 -> 0.85, 0.05 -> 0.40) while the four raster medians did **not** (27.10 ->
+  27.15, 20.60 -> 20.90, 30.40 -> 30.08, 31.92 -> 32.62) and `SMOKE PASSED` still printed - which
+  is #53's claim demonstrated rather than argued. No existing assert changed verdict: with digits
+  normalized, this tree's output differs from `origin/main`'s by exactly the five new lines.
+
+- **`alt`'s pit records are declared now, so a lighting change can be judged at all** (#216, tooling).
+  `RECPIT`, `RECPITN`, `RECOOB` and `RECOOB_GEO` were plain literals sitting behind a `+-0.005` bracket, so
+  `tools/refs.lock` could not see them, `refs --record` could not move them, and any change to lamp strength
+  failed the row for a reason no rule explains (a placement tree that took unlit-room deals from 24/24 to
+  0/24 still FAILed on pit mean 0.259 against a recorded 0.299). They are now
+  `refRecord('alt', 'PIT-MEAN' | 'PIT-CELLS' | 'OOB-ERA' | 'OOB-NONCLIMB', 'num', …)` - **same values, same
+  bracket** - and `node tools/view.js refs` reads **12 recorded reference(s) in 5 of 25 probes** (was 8 in 4).
+  `RECDARK` is deliberately *not* declared: `G.pitDark === RECDARK[lv]` is the criterion "no pit cell may be
+  unlit", a constant 0, not a census that could be re-measured. Level 3 gets no number, because it has no
+  recorded figure and inventing one would be the record-rot this change exists to stop; the verdict line says
+  `3 recorded pit/lip level(s) of 4` instead. Value-preserving by construction - all 78 `alt` rows print
+  identical verdicts *and* numbers against the previous build, plain and under `STRICT=1`, with both exit 0 -
+  and the guard was seen to fire both ways on the new rows: `REFS-VALUES-MOVED` when a table value moved
+  (0.326 -> 0.327) and `REFS-LOCK-FORM` when a row stopped parsing.
+
 - **The exposure gate now reads the floor of the dealt rolls, not only their median** (#149, tooling).
   `tools/ci/assert.js exposure` prints `WORST n` and `out k/5` beside each level's median and fails a
   level whose darkest seeded layout drops under a recorded floor, and `tools/view.js exposure` does the

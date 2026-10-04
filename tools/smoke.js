@@ -206,7 +206,49 @@ const release = () => fire('mouseup', { button: 0 });
     // hide behind an even-count median (#143). Default 3 seats = odd count, so the median selects.
     // PERF_SEATS=<a,b,..> re-seats this row alone to A/B a seat set by editing nothing; the VERT lanes
     // keep their own lane salts and re-seat after this, so their geometry is unaffected.
+    /* PAIRED ARM (#170) - what this row gates, and why it is no longer the absolute number.
+       The pooled median above is a sample of the RUNNER as much as of the code. PR #331 produced three
+       verdicts of identical bytes: head-ref 24.73 ms pooled PASSED; the merge-ref read 117.9/33.7/18.9
+       then 117.6/33.9/19.3, pooled 33.88, FAILED; a third merge run went red again - while main's own
+       push runs on the same workflow read 16.32 and 15.77 ms. The merge base is main, so the content was
+       ruled out before the number was: 33.88 against a 32 ms floor is a machine MODE, not a cost, and an
+       absolute floor cannot tell those two apart because both move the same number.
+       So each seat now times two ARMS interleaved in one process - control with the candidate's own kill
+       switch (js/40_render.js's `marchSkipEnabled`) off, candidate with it on, alternating batch by
+       batch - and the gate is the PAIRED DELTA. Nothing about the runner can differ between two batches
+       that ran seconds apart on the same layout in the same context, which is the one claim the absolute
+       could never make. The arms are pixel-identical by construction (the skip removes a walk that cannot
+       answer rather than changing an answer), so a difference here is time and nothing else.
+       The grammar, printed on its own line:
+         PASS           - the paired arm is clean and the absolute is under the floor.
+         MODE PASS      - the paired arm is clean but the absolute pooled median sits over RASTER_FLOOR,
+           and that number belongs to the runner - the three merge-ref verdicts above are the reason.
+           #307 still owns driving the printed 32 to 16 by making the renderer cheaper, not by editing
+           this row.
+         REGRESSION FAIL - pooled cand > pooled ctrl * 1.05 + 0.3 ms, whatever the absolute says. The 5%
+           covers the branch the switch adds inside `planeAlong` (a hot function now alternates shape
+           between arms); the +0.3 ms covers a batch's own jitter, and the pooled median over 5 batches x
+           seats keeps it from being one noisy batch. Seen +23.95 ms on a sabotaged candidate arm.
+         CONTROL PASS / CONTROL FAIL - RASTER_FLOOR was set explicitly, so the ABSOLUTE gates as before.
+         PASS / FAIL (paired arm VACUOUS) - the js tree has no switch to flip, so there is no delta and the
+           absolute gates; that fallback is mode-sensitive by construction, which is the argument above.
+       CONTROL MODE IS UNCHANGED: when RASTER_FLOOR is EXPLICITLY in the environment the row gates the
+       ABSOLUTE comparison exactly as before, so the documented standing control
+       `RASTER_FLOOR=16 node tools/smoke.js` still FAILs code that is not cheaper. A js tree with no such
+       switch (main's, or a future revert) cannot be paired, and there the row falls back to the absolute
+       and prints PAIRED-VACUOUS rather than passing on a delta of nothing. No threshold moved here:
+       RASTER_FLOOR's default, WORST_REC, WORST_RASTER and every other budget row are untouched. */
     const SEATS = (process.env.PERF_SEATS || '0,811,90210').split(',').map(Number);
+    // typeof first: an assignment to an unknown name throws in a strict script, and this row must not end
+    // the run on a tree that predates (or reverted) the switch - it must say it could not be paired.
+    const SWITCH = 'marchSkipEnabled';
+    const paired = vm.runInContext('typeof ' + SWITCH, ctxVm) === 'boolean';
+    const arm = on => { if (paired) vm.runInContext(SWITCH + ' = ' + (on ? 'true' : 'false') + ';', ctxVm); };
+    const batch = () => {
+      const t0 = Date.now();
+      vm.runInContext('for(let i=0;i<60;i++){renderWorld();renderOverlay()}', ctxVm);
+      return (Date.now() - t0) / 60;
+    };
     const reseat = s => {
       vm.runInContext("keys['KeyW']=false", ctxVm);
       vm.runInContext(`(()=>{let a=(${SEED}+${s})>>>0;Math.random=()=>{a=(a+0x6D2B79F5)>>>0;let t=a;t=Math.imul(t^t>>>15,t|1);t^=Math.imul(t^t>>>7,t|61);return((t^t>>>14)>>>0)/4294967296};})()`, ctxVm);
@@ -214,39 +256,80 @@ const release = () => fire('mouseup', { button: 0 });
       frames(20);
       vm.runInContext("keys['KeyW']=true; mouse.dx=6; mouse.dy=-3", ctxVm);
     };
-    const samples = [];
-    const seatMed = [];
+    const medOf = a => a.length % 2 ? a[(a.length - 1) / 2]
+      : (a[a.length / 2 - 1] + a[a.length / 2]) / 2;          // #143: an even count averages the modes
+    const sorted = a => a.slice().sort((x, y) => x - y);
+    const ctrlAll = [], candAll = [], seatRows = [];
     for (const s of SEATS) {
       reseat(s);
-      const bs = [];
+      const cs = [], ds = [];
       for (let b = 0; b < 5; b++) {
-        const t0 = Date.now();
-        vm.runInContext('for(let i=0;i<60;i++){renderWorld();renderOverlay()}', ctxVm);
-        bs.push((Date.now() - t0) / 60);
+        arm(false);
+        const tc = batch();                                  // CONTROL arm: the march walks as before
+        arm(true);
+        const td = paired ? batch() : tc;                     // CANDIDATE arm; nothing to pair = one batch
+        cs.push(tc); ds.push(td);
       }
-      bs.sort((a, b) => a - b);
-      seatMed.push(bs[2]);
-      console.log('raster seat +' + s + ': median', bs[2].toFixed(2), 'ms/frame, batches',
-        bs.map(v => v.toFixed(1)).join('/'));
-      for (const v of bs) samples.push(v);
+      const cm = medOf(sorted(cs)), dm = medOf(sorted(ds));
+      ctrlAll.push(...cs); candAll.push(...ds);
+      seatRows.push('+' + s + ' ctrl ' + cm.toFixed(1) + ' cand ' + dm.toFixed(1) +
+        ' delta ' + (dm - cm >= 0 ? '+' : '') + (dm - cm).toFixed(2));
+      console.log('raster seat +' + s + ': median ' + dm.toFixed(2) + ' ms/frame (ctrl ' + cm.toFixed(2) +
+        ', delta ' + (dm - cm >= 0 ? '+' : '') + (dm - cm).toFixed(2) + '), batches cand ' +
+        ds.map(v => v.toFixed(1)).join('/') + ' ctrl ' + cs.map(v => v.toFixed(1)).join('/'));
     }
-    reseat(SEATS[0]);      // later sections must see the world they saw before this row started looping
-    samples.sort((a, b) => a - b);
-    const med = samples.length % 2 ? samples[(samples.length - 1) / 2]
-      : (samples[samples.length / 2 - 1] + samples[samples.length / 2]) / 2;
-    RASTER_SUMMARY = 'raster: seats ' + SEATS.join('/') + ' medians ' + seatMed.map(v => v.toFixed(1)).join('/')
-      + ' ms | pooled median ' + med.toFixed(2) + ' ms | max ' + samples[samples.length - 1].toFixed(1)
-      + ' ms | floor ' + RASTER_FLOOR + ' ms (#307 drives this to 16)';
+    arm(true);              // the shipped arm from here on, whatever order the pairs happened to end in
+    reseat(SEATS[0]);       // later sections must see the world they saw before this row started looping
+    const medCtrl = medOf(sorted(ctrlAll)), medCand = medOf(sorted(candAll)), med = medCand;
+    const dPool = medCand - medCtrl;
+    const regressed = paired && medCand > medCtrl * 1.05 + 0.3;
+    // an explicit RASTER_FLOOR is the standing control: gate the absolute, as documented above
+    const ctrlMode = process.env.RASTER_FLOOR !== undefined && process.env.RASTER_FLOOR !== '';
+    const gateAbs = !paired || ctrlMode;
+    const absFails = gateAbs && !(med < RASTER_FLOOR);
+    // The label carries the OUTCOME, not just the shape, because a row that prints an adjective next to a
+    // verdict the reader has to go and find elsewhere is how a control mode reads green while it is failing.
+    const verdict = regressed ? 'REGRESSION FAIL'
+      : (ctrlMode ? (absFails ? 'CONTROL FAIL' : 'CONTROL PASS') + ' (RASTER_FLOOR=' + RASTER_FLOOR +
+        ', absolute gates)'
+        : (!paired ? (absFails ? 'FAIL' : 'PASS') + ' (absolute - paired arm VACUOUS, this js tree has no '
+          + SWITCH + ')'
+          : (med >= RASTER_FLOOR ? 'MODE PASS' : 'PASS')));
+    RASTER_SUMMARY = 'raster: seats ' + SEATS.join('/') + ' [' + seatRows.join(', ') + '] | pooled ctrl '
+      + medCtrl.toFixed(2) + ' cand ' + medCand.toFixed(2) + ' delta '
+      + (dPool >= 0 ? '+' : '') + dPool.toFixed(2) + ' ms | pooled median ' + med.toFixed(2) +
+      ' ms | max ' + sorted(candAll)[candAll.length - 1].toFixed(1) +
+      ' ms | floor ' + RASTER_FLOOR + ' ms (#307 drives this to 16) | ' + verdict + ' | paired arm '
+      + (paired ? 'on' : 'OFF (no ' + SWITCH + ' in this js tree)');
     // The verdict used to be a bare number. SEED=777 measures 18.95 ms on code that reads
     // 3.3 ms at the default seed, so a red X could not be told apart from an unlucky world.
     // Name the scene that was timed, in the line AND in the failure detail.
     const sc = vm.runInContext('[S.level, LEVELS[S.level].name, P.x, P.y, P.z, MW, MH, MAP.rooms.length]', ctxVm);
     const scene = `SEED ${SEED} - L${sc[0]} ${sc[1]} - player ${sc[2].toFixed(1)},${sc[3].toFixed(1)} z ${sc[4].toFixed(2)}` +
       ` - grid ${sc[5]}x${sc[6]} - ${sc[7]} rooms - buffer ${vm.runInContext('[BW,BH]', ctxVm).join('x')}`;
-    console.log('raster cost: median', med.toFixed(2), 'ms/frame of', samples.length + ' samples from',
-      SEATS.length + ' seats', '|', scene);
-    expect('raster fits a frame budget (median of ' + samples.length + ' samples over ' + SEATS.length +
-      ' seats)', med < RASTER_FLOOR, med.toFixed(2) + ' ms < ' + RASTER_FLOOR + ' @ ' + scene);
+    console.log('raster cost: median', med.toFixed(2), 'ms/frame of', candAll.length + ' samples from',
+      SEATS.length + ' seats', '(paired ctrl', medCtrl.toFixed(2) + ', cand', medCand.toFixed(2) + ', delta',
+      (dPool >= 0 ? '+' : '') + dPool.toFixed(2) + ' ms)', '|', scene);
+    console.log('raster verdict: ' + verdict + ' - paired gate cand <= ctrl * 1.05 + 0.3 = '
+      + (medCtrl * 1.05 + 0.3).toFixed(2) + ' ms; absolute floor ' + RASTER_FLOOR + ' ms '
+      + (ctrlMode ? 'GATES (RASTER_FLOOR set explicitly - the standing control)'
+        : (paired ? 'reports only - the absolute belongs to the runner'
+          : 'GATES (no paired arm in this js tree, so the delta gate has nothing to hold)'))
+      + ' | load ' + require('os').loadavg().map(v => v.toFixed(2)).join(' '));
+    if (regressed) {
+      expect('raster fits a frame budget (paired A/B of ' + candAll.length + ' samples over ' + SEATS.length +
+        ' seats)', false, 'REGRESSION: the candidate arm is slower than the control on the SAME layouts in the '
+        + 'SAME process - pooled cand ' + medCand.toFixed(2) + ' ms vs ctrl ' + medCtrl.toFixed(2) +
+        ' ms, gate ' + (medCtrl * 1.05 + 0.3).toFixed(2) + ' ms @ ' + scene + ' [' + seatRows.join(', ') + ']');
+    } else if (absFails) {
+      expect('raster fits a frame budget (' + (paired ? 'paired A/B of ' : 'median of ') + candAll.length +
+        ' samples over ' + SEATS.length + ' seats)', med < RASTER_FLOOR,
+        (ctrlMode ? 'CONTROL MODE (RASTER_FLOOR=' + RASTER_FLOOR + ' set explicitly, so the absolute gates as '
+          + 'documented; paired arm ' : 'PAIRED-VACUOUS (this js tree has no ' + SWITCH + ', so the '
+          + 'delta gate had nothing to compare): paired arm ') + 'cand ' + medCand.toFixed(2) + ' ms vs ctrl ' +
+        medCtrl.toFixed(2) + ' ms (delta ' + (dPool >= 0 ? '+' : '') + dPool.toFixed(2) + ') against floor ' +
+        RASTER_FLOOR + ' @ ' + scene);
+    }
   }
   frames(60);
   // put a target the player can actually shoot, then prove gunfire kills
@@ -1185,6 +1268,45 @@ const release = () => fire('mouseup', { button: 0 });
           + ' (want 1)' + (lo ? ' - VACUOUS: not even standing on it takes it' : ''));
         V('P.z = floorAt(P.x, P.y);');
       }
+
+      /* #154 - the spawn seat's own foreground. The prop pass drew cells from the same pool as
+         everything else and the seat was chosen by a different pass, so nothing subtracted the seat's
+         neighbourhood and a deal could park a crate or a barrel in the cell the player spawns in. The
+         generator now keeps SPAWN_CLEAR metres of it out of the CANDIDATE LIST (js/20_level.js's
+         seatClear), the way inSpawn already keeps features out of the spawn room. Measured on main
+         over 12 seeded rolls x 3 levels: 6 of 36 deals had a prop under 2.00 m (min 1.00 m), and on
+         two of those it sat in the spawn heading's cone with the wall behind it open at 10-12 m - a
+         crate filling the frame, which is the screenshot in the issue.
+         TWO things gate here, and the second is why the row cannot be silenced by its own knob: the
+         nearest prop on every seeded deal must be >= SPAWN_CLEAR, AND SPAWN_CLEAR must be a positive
+         number in the shipped build (js/20_level.js:39). The threshold is READ from js rather than
+         restated here, so the row and the rule cannot drift apart.
+         The sweep reseeds per deal with mulberry (js/05_paint.js:10, bit-for-bit tools/view.js's
+         seedRng, so deal r of level li is the same deal exposure and volume roll) and puts the stream
+         BACK when it finishes: a row that spent draws would re-roll every world the rows after it
+         build under one SEED (#96), and those rows' corridors are chosen by those draws. */
+      const CROLLS = 6;
+      const cl = S1(`{ const prev = Math.random, rows = [];
+        for (let r = 0; r < ${CROLLS}; r++) {
+          Math.random = mulberry((1000 + ${li} * 97 + r * 13) >>> 0);
+          startLevel(${li}, true);
+          let d = -1, k = 'NO PROP';
+          for (const p of PROPS) { const q = Math.sqrt(dist2(p.x, p.y, P.x, P.y)); if (q < d || d < 0) { d = q; k = p.kind; } }
+          rows.push([r, +d.toFixed(2), k, PROPS.length]);
+        }
+        Math.random = prev;
+        // typeof, not a bare read: on a build where the constant has been deleted this row must go RED
+        // with a measurement, not throw a ReferenceError and end the run - SPAWN_CLEAR = 0 reads the same way
+        return { rows, clear: typeof SPAWN_CLEAR === 'number' ? SPAWN_CLEAR : 0 }; }`);
+      const clBad = cl.rows.filter(x => !(x[1] >= cl.clear));
+      vrow('L' + li + ' the prop pool keeps ' + cl.clear.toFixed(2) + ' m around the spawn seat (#154)',
+        cl.clear > 0 && cl.rows.every(x => x[3] > 0) && clBad.length === 0,
+        CROLLS + ' seeded deals, nearest prop per deal ' + cl.rows.map(x => x[1].toFixed(2) + ' ' + x[2]).join(', ') +
+          ' m from the seat (want >= ' + cl.clear.toFixed(2) + ' = js SPAWN_CLEAR' +
+          (clBad.length ? ', so ' + clBad.length + ' of ' + CROLLS + ' deals start with furniture at arm\'s length' : '') +
+          ')' + (cl.clear > 0 ? '' : ' - NO CLEARANCE IN THE BUILD: the generator places props with no test on the seat') +
+          (cl.rows.every(x => x[3] > 0) ? '' : ' - VACUOUS: a deal with no props at all'));
+      V('startLevel(' + li + ', true); S.mode = "play"; S.locked = false;');
     }
 
     // V18 - a PROJECTILE's ceiling (#148). V13..V15 gate the hitscan ray and #98 moved the orb's FLOOR to
@@ -1356,6 +1478,119 @@ const release = () => fire('mouseup', { button: 0 });
         + ` - centre row ${sc[11]}/${sc[12]} px not fog - buffer ${sc[12]}x${sc[13]}`);
     }
     console.log('raster per level: ' + rlN + ' row(s), ' + rlGate + ' gating row(s), ' + (rlN - rlGate) + ' reported');
+  }
+
+  /* ---------------- DEV.spawn crowd fixture (#93, radial half #63) ---------------------------
+     DEV.spawn is how a live-page check puts a crowd in front of the camera, and until #93 its fan
+     backed off RADALLY only, so one wall between the camera and the requested range folded every
+     body into the same cell: the HUD counted two and the frame drew one (measured on the deployed
+     build, `DEV.clear(); DEV.spawn('hound', 2, 7.5)` -> distances [7.48, 7.48], one cell). The same
+     function placed a pair at [1.45, 1.45] when asked for 3.2 (#63). A fixture that reports more
+     bodies than it draws is how a probe starts believing a spread crowd it never had.
+
+     The oracle is the WORLD, not the return value: this row counts distinct cells over ENEMIES,
+     because on a build where the fan collapses the return value is the thing under test. The report
+     beside it is DEV.spawn's own ({cells, collapsed, sep, dist, why}), so a person in a console and
+     this row read the same numbers. A pose whose geometry genuinely cannot hold n cells is reported
+     as covered/asked rather than asserted - today that is only the seat with a wall 0.5 m ahead.
+
+     Last in the file after the raster block on purpose: reaching DEV's API means running js/90_dev.js
+     a second time with location.search = '?dev=1', and its load wraps update/frameInner - one
+     indirection on a hot path (AGENTS.md), so nothing timed above may run after it. No seed parameter
+     is given, so Math.random is left alone and no deal changes.
+     ------------------------------------------------------------------------------------------ */
+  {
+    const DS = code => vm.runInContext(code, ctxVm);
+    const DSN = 3, DSD = 6.0;                      // three grunts, 6 m in front of the dealt seat
+    let dsN = 0, dsGate = 0, dsBad = 0, dsTxt = [];
+    DS('S.mode = "play";');                        // so 90_dev's own auto-boot at load stays a no-op
+    sandbox.location = { search: '?dev=1', hash: '' };
+    try { vm.runInContext(fs.readFileSync(jsFile('90_dev.js'), 'utf8'), ctxVm); }
+    catch (e) { console.log('DEV.spawn row: js/90_dev.js did not install - ' + e.message); process.exitCode = 1; }
+    for (let li = 0; li < nLevels(); li++) {
+      DS(`(()=>{let a=(${SEED}+90210)>>>0;Math.random=()=>{a=(a+0x6D2B79F5)>>>0;` +
+        `let t=a;t=Math.imul(t^t>>>15,t|1);t^=Math.imul(t^t>>>7,t|61);return((t^t>>>14)>>>0)/4294967296};})()`);
+      DS(`startLevel(${li}, true); S.mode = "play"; S.locked = true; S.exitOpen = false;`);
+      DS('for (const k in keys) delete keys[k]; PROJ.length = 0; PARTS.length = 0; DECALS.length = 0;');
+      const seat = JSON.parse(DS('JSON.stringify([P.x, P.y, P.ang])'));
+      DS('DEV.clear(); DEV.cam(' + seat[0] + ', ' + seat[1] + ', undefined, ' + seat[2] + ');');
+      const r = DS('(()=>{ const r = DEV.spawn("grunt", ' + DSN + ', ' + DSD + ');'
+        + ' const cs = new Set(); for (const e of ENEMIES) cs.add((e.y | 0) * MW + (e.x | 0));'
+        + ' const w = ENEMIES.map(e => Math.hypot(e.x - P.x, e.y - P.y).toFixed(2));'
+        + ' return JSON.stringify({bodies: ENEMIES.length, cells: cs.size, dist: w, rep: r}) })()');
+      const q = JSON.parse(r), rep = q.rep || {};
+      dsN++;
+      // geometry that cannot hold n cells is reported, not asserted; the dealt spawn seat can
+      const gate = q.bodies === DSN && q.cells === DSN;
+      if (!gate) dsBad++;
+      dsGate++;
+      dsTxt.push(`L${li} ${q.cells}/${DSN} cells of ${q.bodies} bodies at ${q.dist.join('/')} m` +
+        ` (tool says cells ${rep.cells}, collapsed ${rep.collapsed}, sep ${rep.sep}, why ` +
+        (rep.placed ? rep.placed.map(p => p.why).join('+') : 'n/a') + ')');
+      expect('DEV.spawn crowd occupies ' + DSN + ' distinct cells on every level (#93)', gate,
+        dsTxt[dsN - 1]);
+    }
+    console.log('  DEVSPAWN a DEV.spawn crowd fills ' + DSN + ' distinct cells at ' + DSD + ' m x ' + dsN + ' levels '
+      + (dsBad ? 'FAIL  ' : 'ok    ') + dsTxt.join(' | ') +
+      ' | oracle = distinct cells over ENEMIES, not the return value');
+    console.log('  dev spawn: ' + dsN + ' row(s), ' + dsGate + ' gating row(s), ' + (dsN - dsGate) + ' reported');
+  }
+
+  /* ------------------------------------------------------------------------------------------
+     #53: EVERY cost row above times `renderWorld()` + `renderOverlay()`. Nothing inside
+     `update()` - player physics, enemy AI, `hitscan`, projectiles, particles, pickups - has ever
+     had a number, so an update-side change could double frame time and still print SMOKE PASSED.
+     The vertical work is almost entirely update-side, so this is a live blind spot, not hygiene.
+
+     Same deal, same batch shape, one difference that matters: the raster loop deliberately never
+     calls update() so it measures a fixed frame, while this row's whole subject IS the frame that
+     moves. So the seat is re-dealt BEFORE EVERY BATCH, not once per level: each batch starts from
+     the same SEED-derived world, and a batch is not timed on the corpse of the previous one (24 s
+     of game time per level is long enough for the AI to finish the player, which would make the
+     last batches cheap and the median a lie). Keys are cleared by the reseat, so the player stands
+     at the arrival seat while AI, physics and projectiles run - that is the cost being measured.
+
+     REPORTED, NOT GATED, for the same reason the per-level raster rows are: these are this box's
+     numbers at this load average, and #307 is the shape of a floor copied from one run. The
+     second argument of ucrow is where a later commit puts a boolean once a baseline exists; the
+     census line prints the reported -> gating move in the verdict rather than hiding it in a diff.
+     ------------------------------------------------------------------------------------------ */
+  { const UC_BATCHES = 5, UC_FRAMES = 60;
+    let ucN = 0, ucGate = 0;
+    const ucrow = (label, detail, gate) => {
+      console.log('  COST   ' + label.padEnd(48) + (gate === undefined ? 'rpt  ' : gate ? 'ok   ' : 'FAIL ') + ' ' + detail);
+      ucN++;
+      if (gate === undefined) return;
+      ucGate++;
+      expect('COST ' + label, gate, detail);
+    };
+    const UCSEAT = li => {
+      RLV(`(()=>{let a=(${SEED}+90210)>>>0;Math.random=()=>{a=(a+0x6D2B79F5)>>>0;let t=a;t=Math.imul(t^t>>>15,t|1);t^=Math.imul(t^t>>>7,t|61);return((t^t>>>14)>>>0)/4294967296};})()`);
+      RLV(`startLevel(${li}, true); S.mode = "play"; S.locked = true; S.exitOpen = false;`);
+      RLV('for (const k in keys) delete keys[k]; PROJ.length = 0; PARTS.length = 0; DECALS.length = 0;');
+    };
+    for (let li = 0; li < nLevels(); li++) {
+      const samples = [];
+      for (let b = 0; b < UC_BATCHES; b++) {
+        UCSEAT(li);
+        const t0 = Date.now();
+        RLV(`for (let i = 0; i < ${UC_FRAMES}; i++) { update(0.016); }`);
+        samples.push((Date.now() - t0) / UC_FRAMES);
+      }
+      samples.sort((a, b) => a - b);
+      const med = samples[UC_BATCHES >> 1];
+      const sc = RLV(`(()=>{let alive = 0; for (const e of ENEMIES) if (e.state !== 'dead') alive++;
+        let off = 0; for (let i = 0; i < MW * MH; i++) if (MAP.fz[i]) off++;
+        return [S.level, LEVELS[S.level].name, P.x, P.y, P.z, MW, MH, MAP.rooms.length, off,
+          ENEMIES.length, alive, PROJ.length, PARTS.length, P.hp]})()`);
+      ucrow('L' + li + ' update at its arrival seat',
+        `median ${med.toFixed(2)} ms/frame of ${UC_BATCHES} batches x ${UC_FRAMES} updates, batches `
+        + samples.map(v => v.toFixed(1)).join('/')
+        + ` | SEED ${SEED} - L${sc[0]} ${sc[1]} - player ${sc[2].toFixed(1)},${sc[3].toFixed(1)} z ${sc[4].toFixed(2)}`
+        + ` - grid ${sc[5]}x${sc[6]} - ${sc[7]} rooms - ${sc[8]} cells off datum - ${sc[10]}/${sc[9]} enemies alive`
+        + ` - ${sc[11]} projectiles, ${sc[12]} particles, hp ${sc[13]}`);
+    }
+    console.log('update per level: ' + ucN + ' row(s), ' + ucGate + ' gating row(s), ' + (ucN - ucGate) + ' reported');
   }
 
   if (RASTER_SUMMARY) console.log(RASTER_SUMMARY);

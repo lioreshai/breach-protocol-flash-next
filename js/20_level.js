@@ -33,6 +33,11 @@ let LIGHTS = [], PROPS = [], PICKUPS = [], ENEMIES = [], PROJ = [], PARTS = [];
 /* decals are stored per cell so the wall/floor loops can skip cells with none */
 let DECALS = [], DECAL_GRID = [], DECAL_MASK = null;
 let exitX = 0, exitY = 0, explored = null, bfsDist = null;   // read by an assertion in tools/smoke.js
+/* #154: metres of clear ground the prop passes keep off the spawn seat. A `let` rather than a literal
+   so a probe can A/B it the way it reassigns topUpEnabled and groundPixel (`SPAWN_CLEAR = 0` is the
+   shipped behaviour, no clearance), and so smoke's spawn-clearance row can name what it moved.
+   It is a RADIUS measured from the seat, which is the same number the row asserts. */
+let SPAWN_CLEAR = 2;
 
 const cellIdx = (x, y) => (y | 0) * MW + (x | 0);
 
@@ -1352,6 +1357,45 @@ function genLevel(li) {
 
     const freeCells = [];
     for (let y = 1; y < N - 1; y++) for (let x = 1; x < N - 1; x++) if (cell[y * N + x] === 0) freeCells.push([x, y]);
+    /* #154: the seat, taken HERE rather than at the spawn line below - nearestOpen reads no RNG and
+       touches no grid, so this costs the draw stream nothing, and it is the only way the prop passes
+       can subtract the cell the player will actually stand in. The defect was that the prop pool and
+       the seat were chosen by passes that do not know about each other (#149's shape), so a deal could
+       hand the player a crate at arm's length (measured on main, 12 seeded rolls x 3 levels: 6 of 36
+       deals had a prop under 2.00 m, min 1.00 m, and on two of those it sat in the spawn heading's
+       cone with the wall behind it open at 10-12 m).
+       WHERE the clearance sits is the whole design. It is NOT a rejected candidate inside takeNear: a
+       `continue` there costs one more rndi draw, and #96's rule is that a pass which spends extra draws
+       re-rolls every world built downstream of the same SEED. That is not hypothetical - the first
+       version of this change did exactly that and moved a level whose props were ALREADY clear: at the
+       props probe's ambient stream (SEED 12345, level 0, nearest prop 2.00 m) generation consumed 1424
+       draws and seated the player at 19.5,6.5 on main against 343 draws at 11.5,8.5 on that branch,
+       because one rejected lamp candidate shifted every draw after it - and three rows of
+       `view.js props` went red for a level the clearance had no business touching. So the draw still
+       picks the cell exactly as it always did (takeNear is untouched below) and a pick inside the disc
+       is walked OUT of it by clearSpot, which draws nothing and rolls no dice: the level downstream of
+       a prop that had to move stays bit-for-bit the level main built, and the only thing that changes
+       is the prop's own square metre.
+       The predicate is the same shape as inSpawn one level up - a rule over candidate cells, consulted
+       by the passes that opt in. Lamps, crates and barrels opt in; pickups and enemies do not: a
+       pickup floats and blocks nothing, and enemies already keep takeNear(7+) metres. */
+    const seat = nearestOpen(px0, py0);
+    const seatClear = (x, y) => dist2(x + 0.5, y + 0.5, seat[0], seat[1]) >= SPAWN_CLEAR * SPAWN_CLEAR;
+    // deterministic and RNG-free: the nearest open reachable cell outside the disc, Chebyshev rings
+    // first, scan order within a ring. Three rings is 48 cells; nothing moves when none qualifies.
+    const clearSpot = c => {
+      if (!(SPAWN_CLEAR > 0) || seatClear(c[0], c[1])) return c;
+      for (let r = 1; r <= 3; r++)
+        for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
+          if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+          const nx = c[0] + dx, ny = c[1] + dy;
+          if (nx < 1 || ny < 1 || nx >= N - 1 || ny >= N - 1) continue;
+          const i = ny * N + nx;
+          if (cell[i] || dist[i] < 0 || !seatClear(nx, ny)) continue;
+          return [nx, ny];
+        }
+      return c;
+    };
     const takeNear = (minD, maxD) => {
       for (let tries = 0; tries < 200; tries++) {
         const c = freeCells[rndi(freeCells.length)], d = dist[c[1] * N + c[0]];
@@ -1368,7 +1412,9 @@ function genLevel(li) {
 
     LIGHTS = []; PROPS = []; PICKUPS = []; PROJ = []; PARTS = []; ENEMIES = [];
     for (let i = 0; i < cfgL.lamps; i++) {
-      const c = takeNear(1);
+      const c = clearSpot(takeNear(1));      // #154: a lamp is a prop - it draws, and FOOT.lamp blocks.
+      // one clearSpot call feeds the LIGHTS entry and the PROPS entry below, so light and prop disagree
+      // with each other on no deal;
       LIGHTS.push({ x: c[0] + 0.5, y: c[1] + 0.5, z: floorAt(c[0] + 0.5, c[1] + 0.5) + LHOVER, r: 7.2 + Math.random() * 2.8, str: 1.05, col: cfgL.lampCol, stat: 1 });
       PROPS.push({ tex: PROP.lamp, x: c[0] + 0.5, y: c[1] + 0.5, scale: 0.95, z: floorAt(c[0] + 0.5, c[1] + 0.5), kind: 'lamp' });
     }
@@ -1405,6 +1451,25 @@ function genLevel(li) {
        MAP.fz is smoke's V15 flat lane. */
     if (topUpEnabled()) {                                // LAMPS=off in tools/view.js runs the kernel without this
       const MIN_BAND = 8, PER_BAND = 2, MAX_ADD = 3, OWN_MIN = 0.25, COV_TARGET = 0.75;
+      /* #149: the guarantee this pass owes the player, and the two rules that make it real.
+         SPACING  LAMPGAP cells from every source standing on the same quantum, the exit pad included.
+                  2 cells is > hypot(1,1), so the diagonal neighbour fails too: two lamps in touching
+                  cells are one pool of light paid for twice while the place neither one landed in stays
+                  dark. Measured on main over 12 seeded deals x 3 levels, the minimum same-band lamp-to-
+                  lamp distance a deal can deal is 1.00 m (two budget draws in adjacent cells).
+         RESERVE  a band with NO source standing in it is served before any band gets a second lamp.
+                  The loop this replaces could spend all three adds on the datum floor (PER_BAND is 2)
+                  while a 20-cell room stayed dark, which is the "18 of 24 rolls carry an unlit room" of
+                  the issue body, restated in the unit the coverage test actually uses.
+         SEAT     the cell whose disc DELIVERS the most light that nothing delivers today, scored by
+                  running the shipped kernel (below), with the cheapest test first and no dice - a dark
+                  deal must stop being a dice accident, and #320 showed the score has to be the band's
+                  OWN cells or a stair tread wins the seat from the room it borders.
+         The budget loop above this block is untouched: its seats are drawn from the world's own stream,
+         so moving them would re-roll props and enemies under every probe seed (#96) and move the
+         LAMPS=off record flatparity's PARITY sense hashes. Nothing here draws from that stream. */
+      const LAMPGAP = 2;
+      const SEAT_ANG = 0.6, LENS_HALF = 0.66, LENS_R = 8, SEAT_FLOOR = 4;   // :1489's heading, #304's cone
       let ps = ((li * 7919 + rooms.length * 104729 + ((exitX * 1000) | 0) * 13 + 12345) >>> 0) || 1;
       const prnd = () => { ps = (Math.imul(ps, 1664525) + 1013904223) >>> 0; return ps / 4294967296; };
       // the source's own FLOOR - the same recovery splatLight makes, restated here only to pick a band
@@ -1414,72 +1479,223 @@ function genLevel(li) {
         for (let oy = -1; oy <= 1; oy++) for (let ox = -1; ox <= 1; ox++) if (!cell[(cy + oy) * N + (cx + ox)] && cy + oy > 0 && cx + ox > 0) n++;
         return n;
       };
-      // reachable open interior cells, grouped by band, biggest band first (the datum, then the rest)
-      const bandCells = new Map();
+      /* Reachable open interior cells grouped by PLACE-BAND: (room rect or LANE) x floor quantum.
+         The quantum alone is the unit the KERNEL lights in, but it is not the unit a player reads as one
+         place: a datum corridor and a datum room are the same quantum and different places, and a lamp
+         whose disc merely CLIPS one cell of a room's floor counts as covering that quantum while the room
+         stays dark - the definition gap this issue argued in prose for three attempts (#149's census
+         correction). Naming the place is what turns "the quantum is covered" into "no room is dark", and
+         it is the same grouping tools/view.js exposure's coverage census measures, so the promise and the
+         row cannot drift apart. LANE = the cells that are in no room rect, and on a generated level that
+         is 55-71% of the floor, which is why the lane is a band and not a remainder. */
+      const roomAt = (x, y) => {
+        for (let k = 0; k < rooms.length; k++) { const r = rooms[k];
+          if (x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h) return k; }
+        return -1;
+      };
+      const BANDS = []; const bOf = new Int16Array(N * N).fill(-1);
       for (let i = 0; i < N * N; i++) {
         if (cell[i] || dist[i] < 0) continue;
         const x = i % N, y = (i / N) | 0;
         if (x < 1 || y < 1 || x >= N - 1 || y >= N - 1) continue;
-        let a = bandCells.get(fzTry[i]);
-        if (!a) bandCells.set(fzTry[i], a = []);
-        a.push(i);
+        const ri = roomAt(x, y), q = fzTry[i];
+        let id = -1;
+        for (let k = 0; k < BANDS.length; k++) if (BANDS[k].ri === ri && BANDS[k].q === q) { id = k; break; }
+        if (id < 0) { id = BANDS.length; BANDS.push({ ri: ri, q: q, cells: [] }); }
+        BANDS[id].cells.push(i); bOf[i] = id;
       }
-      const bandOrder = [...bandCells.keys()].sort((a, b) => bandCells.get(b).length - bandCells.get(a).length || b - a);
+      const bandOrder = BANDS.map((b, k) => k).sort((a, b) =>
+        BANDS[b].cells.length - BANDS[a].cells.length || a - b);      // biggest place first (the datum)
       const taken = new Set();
       for (const L of LIGHTS) taken.add(((L.y | 0) * N) + (L.x | 0));
+      /* How many sources STAND IN each place-band - the strict definition of served, the one this
+         guarantee is written against. A source on the same quantum whose disc merely reaches the band is
+         TOUCH and does not count here; that asymmetry is the finding, not an oversight. */
+      const standIn = () => {
+        const s = new Int32Array(BANDS.length);
+        for (const L of LIGHTS) { const i = ((L.y | 0) * N) + (L.x | 0); if (bOf[i] >= 0) s[bOf[i]]++; }
+        return s;
+      };
+      const spaced = (i, q) => {
+        const x = (i % N) + 0.5, y = ((i / N) | 0) + 0.5;
+        for (const L of LIGHTS) {
+          if (Math.abs(srcFloor(L) - q * ZQ) > ZQ + 1e-9) continue;
+          if (Math.hypot(L.x - x, L.y - y) < LAMPGAP) return false;
+        }
+        return true;
+      };
+      /* A bulb inside the first frame's lens is not a light source in that frame, it is the sun in the
+         player's eye: the composited spawn median lands past the 35-75 band whose upper anchor is the
+         dimmest lamp-1-m-in-the-lens render (tools/ci/assert.js's SPAWN block, #304). The utility likes
+         the middle of the spawn room, which is where the player wakes, so the seat test asks. Two clauses,
+         because a bulb that is NOT in the cone still lifts the frame by lighting the walls inside it: a
+         seat 5 m off the axis with a clear sight of the room took level 2's spawn mean 64 -> 85 (raster),
+         above the band's 75, without ever being in the cone. So there is also a distance floor - #319's
+         gap, applied here because a reserve pass that reaches into the spawn room makes it every pass.
+         A cell behind a wall is not in the lens - it is dark on both sides - hence the los test. */
+      const inLens = (i) => {
+        const x = (i % N) + 0.5, y = ((i / N) | 0) + 0.5;
+        const dx = x - px0, dy = y - py0, d = Math.hypot(dx, dy);
+        if (d < SEAT_FLOOR) return true;                          // the seat's own room, however far off axis
+        if (d > LENS_R) return false;
+        let e = Math.atan2(dy, dx) - SEAT_ANG;
+        while (e > Math.PI) e -= TAU;
+        while (e < -Math.PI) e += TAU;
+        return Math.abs(e) < LENS_HALF && los(px0, py0, x, y);
+      };
+      const seatOK = i => !taken.has(i) && dist[i] >= 2 && OPENAT(i % N, (i / N) | 0) >= 3;
       /* What the sources standing on band b deliver to b's own cells, through the shipped kernel, on a
          scratch lightmap put back exactly as found. It is all zeros at this point and the real splat
          runs below, so this leaves no residue behind - the arrays are swapped out rather than cleared. */
-      const ownLight = b => {
-        const keep = [MAP.light, MAP.lR, MAP.lG, MAP.lB, MAP.lw];
-        MAP.light = new Float32Array(N * N); MAP.lR = new Float32Array(N * N);
-        MAP.lG = new Float32Array(N * N); MAP.lB = new Float32Array(N * N); MAP.lw = new Float32Array(N * N);
-        for (const L of LIGHTS) if (Math.abs(srcFloor(L) - b * ZQ) <= ZQ + 1e-9) splatLight(L, L.str);
-        const lm = MAP.light, out = [];
-        for (const i of bandCells.get(b)) out.push(lm[i]);
-        MAP.light = keep[0]; MAP.lR = keep[1]; MAP.lG = keep[2]; MAP.lB = keep[3]; MAP.lw = keep[4];
-        return out;
+      const SC = [new Float32Array(N * N), new Float32Array(N * N), new Float32Array(N * N),
+        new Float32Array(N * N), new Float32Array(N * N)];
+      const SC2 = [new Float32Array(N * N), new Float32Array(N * N), new Float32Array(N * N),
+        new Float32Array(N * N), new Float32Array(N * N)];
+      /* Direct light per QUANTUM from the sources standing on that quantum, through the shipped kernel,
+         on a scratch map swapped out and back exactly as found (the arrays are the game's, and leaving
+         one of them swapped would light the world from a choice that was never made). Cached per
+         placement - qOwn is rebuilt when LIGHTS grows, so a band's dark share costs one splat per source
+         per added lamp instead of one per candidate. */
+      let qOwn = null;
+      const ownMaps = () => {
+        if (qOwn) return qOwn;
+        const m = new Map(), keep = [MAP.light, MAP.lR, MAP.lG, MAP.lB, MAP.lw];
+        for (const bd of BANDS) {
+          if (m.has(bd.q)) continue;
+          for (const a of SC) a.fill(0);
+          MAP.light = SC[0]; MAP.lR = SC[1]; MAP.lG = SC[2]; MAP.lB = SC[3]; MAP.lw = SC[4];
+          for (const L of LIGHTS) if (Math.abs(srcFloor(L) - bd.q * ZQ) <= ZQ + 1e-9) splatLight(L, L.str);
+          m.set(bd.q, MAP.light.slice());
+          MAP.light = keep[0]; MAP.lR = keep[1]; MAP.lG = keep[2]; MAP.lB = keep[3]; MAP.lw = keep[4];
+        }
+        qOwn = m;
+        return m;
       };
-      const darkShare = b => { const v = ownLight(b); let d = 0; for (const x of v) if (x < OWN_MIN) d++; return d / v.length; };
+      const darkShare = bd => { const v = ownMaps().get(bd.q); let d = 0;
+        for (const i of bd.cells) if (v[i] < OWN_MIN) d++; return d / bd.cells.length; };
+      /* The cells a seat on a quantum can reach = the union of the place-bands standing on that quantum,
+         concatenated in BANDS order so a band's own slice is contiguous (bd.off .. bd.off+bd.len) and one
+         pass over the quantum can report both "how many dark cells did this lamp light" and "how many are
+         left in the place the lamp stands in". */
+      const qCells = new Map();
+      for (const bd of BANDS) {
+        let a = qCells.get(bd.q); if (!a) qCells.set(bd.q, a = []);
+        bd.off = a.length;
+        for (const i of bd.cells) a.push(i);
+        bd.len = bd.cells.length;
+      }
+      /* What one lamp on cell i would DO: FIXED counts the cells on this quantum that are dark today and
+         lit afterwards, AFTER counts the ones still dark in the place the seat stands in. The light each
+         cell receives is the shipped kernel run for that seat, not a restatement of the disc (#204's
+         rule), and the objective is PLACES FINISHED rather than LIGHT DELIVERED: a seat that empties a
+         band's dark list buys the guarantee, a seat that nibbles 15% off a 500-cell lane buys a slightly
+         brighter lane. Summing gains is the right rule for a brightness budget and the wrong one for a
+         coverage promise, which is why this replaced #204's `score = cells covered * 16 + openness`. */
+      const evalSeat = (i, bd, r) => {
+        const x = (i % N) + 0.5, y = ((i / N) | 0) + 0.5;
+        for (const a of SC2) a.fill(0);
+        const keep = [MAP.light, MAP.lR, MAP.lG, MAP.lB, MAP.lw];
+        MAP.light = SC2[0]; MAP.lR = SC2[1]; MAP.lG = SC2[2]; MAP.lB = SC2[3]; MAP.lw = SC2[4];
+        splatLight({ x: x, y: y, z: floorAt(x, y) + LHOVER, r: r, str: TOPUP_BASE, col: cfgL.lampCol, stat: 1 }, 1);
+        const lm = MAP.light, v = ownMaps().get(bd.q), cells = qCells.get(bd.q);
+        let fixed = 0, inBd = 0, after = 0;
+        for (let k = 0; k < cells.length; k++) {
+          const a = v[cells[k]];
+          if (a >= OWN_MIN) continue;                     // already lit: this seat buys nothing here
+          const lit = a + lm[cells[k]] >= OWN_MIN;
+          if (lit) fixed++;
+          if (k >= bd.off && k < bd.off + bd.len) { inBd += lit ? 1 : 0; if (!lit) after++; }
+        }
+        MAP.light = keep[0]; MAP.lR = keep[1]; MAP.lG = keep[2]; MAP.lB = keep[3]; MAP.lw = keep[4];
+        return { fixed: fixed, inBd: inBd, after: after };
+      };
+      /* The seat scan for one band: cheapest test first (a cell that is not seatable, sits within LAMPGAP
+         of a source on this quantum, or is inside the first frame's lens costs three comparisons and no
+         kernel run), determinism over cleverness (cell order breaks ties, no dice are drawn), and a stride
+         on a band too big to scan whole - one disc is 15 cells across, so a stride of 4 over a contiguous
+         lane cannot step over a place a whole disc would have lit. The lens is preferred, not required: a
+         band whose only seat is in the frame gets a lamp rather than a dark room. */
+      const bestSeat = (bd, r, lensOK, finishFirst) => {
+        let bi = -1, be = null, bo = -1;
+        const stride = bd.cells.length > 240 ? 4 : 1;
+        for (let k = 0; k < bd.cells.length; k += stride) {
+          const i = bd.cells[k];
+          if (!seatOK(i) || !spaced(i, bd.q)) continue;
+          if (lensOK && inLens(i)) continue;
+          const e = evalSeat(i, bd, r), op = OPENAT(i % N, (i / N) | 0);
+          const under = e.after * 4 <= bd.len ? 1 : 0;      // this seat finishes the place
+          const sv = (finishFirst ? under * 1e6 : 0) + e.fixed;   // a RESERVE seat finishes the place first;
+          if (!be || sv > be.sv || (sv === be.sv && op > bo)) { be = { under: under, fixed: e.fixed, after: e.after, sv: sv }; bo = op; bi = i; }
+        }
+        return bi < 0 ? null : { i: bi, e: be };
+      };
       const perBand = new Map();
       for (let added = 0; added < MAX_ADD; added++) {
-        let wb, worst = 1 - COV_TARGET;                       // a band needs >25% of its cells unserved
-        for (const b of bandOrder) {
-          if (bandCells.get(b).length < MIN_BAND || (perBand.get(b) || 0) >= PER_BAND) continue;
-          const ds = darkShare(b);
-          if (ds > worst) { worst = ds; wb = b; }
-        }
-        if (wb === undefined) break;
-        const list = bandCells.get(wb), cov = ownLight(wb);
-        const unserved = list.filter((i, k) => cov[k] < OWN_MIN);
         const r = 7.2 + prnd() * 2.8;
-        let best = -1, bs = -1, bcov = 0;
-        for (let tries = 0; tries < 400 && unserved.length; tries++) {
-          const q = list[(prnd() * list.length) | 0];
-          if (q === best || taken.has(q)) continue;
-          const qx = q % N, qy = (q / N) | 0;
-          let sc = 0;
-          for (const j of unserved) if (Math.hypot((j % N) - qx, ((j / N) | 0) - qy) < r) sc++;
-          const score = sc * 16 + OPENAT(qx, qy);             // openness breaks ties, never outranks a cell
-          if (score > bs) { bs = score; best = q; bcov = sc; }   // the placement's coverage, for its intensity
+        const stand = standIn();
+        /* RESERVE BEFORE SPREAD, twice over: a place with NO source standing in it is served before any
+           place gets a second lamp (PER_BAND then applies to the remainder), and within that the seat is
+           taken from the place this one lamp can FINISH. The loop this replaces ranked the bands by dark
+           share alone and asked 400 dice for a seat in the worst one, so three adds could all land on the
+           datum floor - the median goes up, a room stays dark, and that is precisely the tail the median
+           was introduced to hide (#87). Deterministic from here on, so a dark deal stops being a dice
+           accident: the same seed always gets the same lamps. */
+        let wb = -1, bs = -1, bfix = -1, bseat = -1, bds = -1;
+        for (let reserve = 0; reserve < 2 && wb < 0; reserve++) {
+          for (const id of bandOrder) {
+            const bd = BANDS[id];
+            if (bd.cells.length < MIN_BAND || (perBand.get(id) || 0) >= PER_BAND) continue;
+            const ds = darkShare(bd);
+            if (ds <= 1 - COV_TARGET) continue;                // a band needs >25% of its cells unserved
+            if (reserve === 0 && (stand[id] > 0 || ds <= 0.9)) continue;   // nothing in it AND nothing on it
+            let s = bestSeat(bd, r, true, reserve === 0);
+            if (!s) s = bestSeat(bd, r, false, reserve === 0);
+            if (!s) continue;
+            /* The place that is darkest wins the slot, not the place a lamp helps most: ranked by dark
+               share, an all-dark pit floor outranks a brightening corridor, and a greedy on FIXED cells
+               starves exactly the small holes it is hardest to seat (measured: ranking by FIXED left
+               4/9/6 all-dark bands over 12 deals x 3 levels where ranking by need left 1/0/0). The SEAT
+               inside that place is then chosen to finish it. */
+            /* Two objectives, one per pass, because the two passes answer different questions.
+               RESERVE: a place with NO source standing in it AND more than half its floor dark wins the
+               slot outright. Ranked by cells fixed instead, an all-dark 15-cell pit loses to a corridor
+               and starves - measured 4/9/6 all-dark bands over 12 deals x 3 levels where ranking by need
+               left 0/0/0; ranked by need at ANY dark share, the 25%-dark corridor outbids the half-dark
+               hole and alt's dark-open-cell census grows (measured 555 dark cells on level 0 against the
+               356 this row caps at). The SEAT inside that place is the one that finishes it.
+               SPREAD (no place is left with nothing): the seat that FINISHES a place, else the one that
+               lights the most dark cells - the density term #149's last comment identified as the only
+               lever left once ordering is exhausted. */
+            const sc = reserve === 0 ? ds * 1e6 + s.e.fixed : s.e.fixed;
+            if (sc > bs || (sc === bs && s.e.fixed > bfix)) { bs = sc; bfix = s.e.fixed; wb = id; bseat = s; }
+          }
         }
-        if (best < 0) {                                       // deterministic sweep: the band still gets one
-          let bo = -1;
-          for (const q of list) { const op = OPENAT(q % N, (q / N) | 0); if (op > bo) { bo = op; best = q; } }
-          if (best < 0) break;
-          bcov = unserved.length;
+        if (wb < 0) break;
+        const bd = BANDS[wb], best = bseat.i;
+        let bcov = 0;
+        {
+          const v = ownMaps().get(bd.q);
+          for (const j of bd.cells) if (v[j] < OWN_MIN &&
+            Math.hypot((j % N) - (best % N), ((j / N) | 0) - ((best / N) | 0)) < r) bcov++;
         }
         taken.add(best);
+        qOwn = null;                                          // the new source changes every band's own light
         perBand.set(wb, (perBand.get(wb) || 0) + 1);
-        const bx = best % N, by = (best / N) | 0;
+        // #154: the coverage top-up drops a lamp too. Its draws come from the private LCG, so the
+        // global stream is untouched either way, but the seat's clearance is a PLACEMENT rule, and a
+        // lamp is FOOT.lamp wide to a player who walks into it: nudge the chosen cell, keep the
+        // coverage score and intensity that selected it.
+        const bq = clearSpot([best % N, (best / N) | 0]);
+        const bx = bq[0], by = bq[1];
+        taken.add(by * N + bx);           // the cell the lamp STANDS in is the one that must stay unique
         const tsc = Math.min(1, Math.max(TOPUP_MINF, (bcov || 1) / TOPUP_TARGET));   // 0 coverage keeps a full lamp: a dim source that covers nothing would only darken the band
         LIGHTS.push({ x: bx + 0.5, y: by + 0.5, z: floorAt(bx + 0.5, by + 0.5) + LHOVER, r, str: TOPUP_BASE * tsc, col: cfgL.lampCol, stat: 1 });
         PROPS.push({ tex: PROP.lamp, x: bx + 0.5, y: by + 0.5, scale: 0.95, z: floorAt(bx + 0.5, by + 0.5), kind: 'lamp' });
       }
     }
-    for (let i = 0; i < cfgL.crates; i++) { const c = takeNear(2); PROPS.push({ tex: PROP.crate, x: c[0] + 0.5, y: c[1] + 0.5, scale: 0.72, z: floorAt(c[0] + 0.5, c[1] + 0.5), kind: 'crate' }); }
+    for (let i = 0; i < cfgL.crates; i++) { const c = clearSpot(takeNear(2)); PROPS.push({ tex: PROP.crate, x: c[0] + 0.5, y: c[1] + 0.5, scale: 0.72, z: floorAt(c[0] + 0.5, c[1] + 0.5), kind: 'crate' }); }
     for (let i = 0; i < cfgL.barrels; i++) {
-      const c = takeNear(2);
+      const c = clearSpot(takeNear(2));
       PROPS.push({ tex: PROP.barrel, x: c[0] + 0.5, y: c[1] + 0.5, scale: 0.86, z: floorAt(c[0] + 0.5, c[1] + 0.5), kind: 'barrel', hp: 26, dead: false });
     }
     for (const k in cfgL.pick) for (let i = 0; i < cfgL.pick[k]; i++) {
@@ -1503,7 +1719,7 @@ function genLevel(li) {
     // The scatter pass can drop a pillar on the room centre, and starting inside
     // geometry is unrecoverable - the collision probes would sample the player's own
     // cell - so walk out to the nearest open cell instead of spawning into a wall.
-    const sp = nearestOpen(px0, py0);
+    const sp = seat;                    // #154: the same nearestOpen the prop passes subtracted
     P.x = sp[0]; P.y = sp[1]; P.ang = 0.6; P.vx = P.vy = 0; P.z = floorAt(sp[0], sp[1]);
     return true;
   }
