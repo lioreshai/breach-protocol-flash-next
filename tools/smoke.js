@@ -1185,6 +1185,45 @@ const release = () => fire('mouseup', { button: 0 });
           + ' (want 1)' + (lo ? ' - VACUOUS: not even standing on it takes it' : ''));
         V('P.z = floorAt(P.x, P.y);');
       }
+
+      /* #154 - the spawn seat's own foreground. The prop pass drew cells from the same pool as
+         everything else and the seat was chosen by a different pass, so nothing subtracted the seat's
+         neighbourhood and a deal could park a crate or a barrel in the cell the player spawns in. The
+         generator now keeps SPAWN_CLEAR metres of it out of the CANDIDATE LIST (js/20_level.js's
+         seatClear), the way inSpawn already keeps features out of the spawn room. Measured on main
+         over 12 seeded rolls x 3 levels: 6 of 36 deals had a prop under 2.00 m (min 1.00 m), and on
+         two of those it sat in the spawn heading's cone with the wall behind it open at 10-12 m - a
+         crate filling the frame, which is the screenshot in the issue.
+         TWO things gate here, and the second is why the row cannot be silenced by its own knob: the
+         nearest prop on every seeded deal must be >= SPAWN_CLEAR, AND SPAWN_CLEAR must be a positive
+         number in the shipped build (js/20_level.js:39). The threshold is READ from js rather than
+         restated here, so the row and the rule cannot drift apart.
+         The sweep reseeds per deal with mulberry (js/05_paint.js:10, bit-for-bit tools/view.js's
+         seedRng, so deal r of level li is the same deal exposure and volume roll) and puts the stream
+         BACK when it finishes: a row that spent draws would re-roll every world the rows after it
+         build under one SEED (#96), and those rows' corridors are chosen by those draws. */
+      const CROLLS = 6;
+      const cl = S1(`{ const prev = Math.random, rows = [];
+        for (let r = 0; r < ${CROLLS}; r++) {
+          Math.random = mulberry((1000 + ${li} * 97 + r * 13) >>> 0);
+          startLevel(${li}, true);
+          let d = -1, k = 'NO PROP';
+          for (const p of PROPS) { const q = Math.sqrt(dist2(p.x, p.y, P.x, P.y)); if (q < d || d < 0) { d = q; k = p.kind; } }
+          rows.push([r, +d.toFixed(2), k, PROPS.length]);
+        }
+        Math.random = prev;
+        // typeof, not a bare read: on a build where the constant has been deleted this row must go RED
+        // with a measurement, not throw a ReferenceError and end the run - SPAWN_CLEAR = 0 reads the same way
+        return { rows, clear: typeof SPAWN_CLEAR === 'number' ? SPAWN_CLEAR : 0 }; }`);
+      const clBad = cl.rows.filter(x => !(x[1] >= cl.clear));
+      vrow('L' + li + ' the prop pool keeps ' + cl.clear.toFixed(2) + ' m around the spawn seat (#154)',
+        cl.clear > 0 && cl.rows.every(x => x[3] > 0) && clBad.length === 0,
+        CROLLS + ' seeded deals, nearest prop per deal ' + cl.rows.map(x => x[1].toFixed(2) + ' ' + x[2]).join(', ') +
+          ' m from the seat (want >= ' + cl.clear.toFixed(2) + ' = js SPAWN_CLEAR' +
+          (clBad.length ? ', so ' + clBad.length + ' of ' + CROLLS + ' deals start with furniture at arm\'s length' : '') +
+          ')' + (cl.clear > 0 ? '' : ' - NO CLEARANCE IN THE BUILD: the generator places props with no test on the seat') +
+          (cl.rows.every(x => x[3] > 0) ? '' : ' - VACUOUS: a deal with no props at all'));
+      V('startLevel(' + li + ', true); S.mode = "play"; S.locked = false;');
     }
 
     // V18 - a PROJECTILE's ceiling (#148). V13..V15 gate the hitscan ray and #98 moved the orb's FLOOR to
