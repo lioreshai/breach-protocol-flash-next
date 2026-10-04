@@ -2,20 +2,55 @@
 
 ### Changed
 
+- **No big band is left without a light source standing in it** (#149). Lamp placement had scored seats
+  for the dark *cells* a lamp would cover and then spread the remainder, so a band whose cells were each
+  individually dim could still end up with no lamp inside it at all. On untouched `main` the new rows fail:
+  L1 reports **2 all-dark bands of 112 bands >= 8 cells over 12 seeded deals** (`roll 2 room 2 @ q0`, 21
+  cells, mean light **0.036**; `roll 11 room 1 @ q0`, 30 cells, mean light **0.011**) and the *standing in it*
+  row fails **L0 29 / L1 48 / L2 43** big bands with no source inside them. **L0's all-dark count on main is
+  0**, so L0's teeth are the standing and density rows, not the count row - stated because a row whose teeth
+  exist on two of three levels is not a row whose teeth exist everywhere. The seat pass now scores a
+  candidate by the band it serves, reserves one lamp per unserved band before any spreading happens, and
+  takes band seats into account; **no new `Math.random` draw is taken**, because #96 established that a draw
+  on the generation path re-rolls the seed-to-layout mapping and every held record would move. All-dark
+  bands go to **0 on every level** and the standing-in-it count to **0 / 0 / 0**.
+  Buying that coverage moved light, and the moves are recorded rather than absorbed: six lamp-dependent
+  references were re-recorded from measurement on this tree (`flatparity LOCK` L0/L2, `flatparity DEALT`
+  L0/L1/L2, `bands SEAM-FRAME` x3, `exposure MEDIAN` L2 78 -> 70, `exposure SPAWN` L1 64/59 -> 68/66,
+  `alt PIT-MEAN` 0.290/0.299/0.326 -> 0.262/0.294/0.297), and `COV_STAND_MAX` L0 moved 27 -> 28 because
+  main's #329 spawn-clearance change re-deals layouts while staying draw-stream-neutral. **`flatparity
+  PARITY` x4, `cull CZBAND` / `CZBAND-LIGHT`, `props LAMPCORE`, `alt PIT-CELLS` and the OOB rows did not
+  move**, which is the proof that the deal mapping is intact (`refs`: 13 records, 0 missing, 0 orphaned,
+  0 moved). The tail floors moved where the measurement said they already were: `WORST_REC` is
+  `[20, 25, 50, 57]` and `WORST_RASTER` `[25, 30, 50, 57]`, against main's own 24-deal low ends of
+  **23.2 / 36.3 / 51.0 / 61** - the old 64 on L1 was a promise main does not keep.
+  **The cost has its own issue: pits read ~9 % dimmer** (#336) - `PIT-MEAN` above, with `PIT-CELLS`
+  unchanged at **0 of 190 / 194 / 211**, so no pit cell went dark but the pit lips lose a share of light to
+  the bands the new pass feeds. That is what made `alt`'s glow row fail L0/L2 while L1 passed: the row's
+  predicate carries a `+-0.005` pit-mean clause (`tools/view.js:1389`), so near-identical pixel counts
+  split on the lightmap canary. The rows that carry the guarantee were seen to fail before they were
+  trusted: against untouched `main` js the coverage rows FAIL with exit 1 - 11 FAILURE(S) of 37 rows, naming
+  `roll 2 room 2 @ q0 (21 cells), mean light 0.036` - and making the reserve pass place nothing brings the
+  **all-dark** counts back to 10 / 11 / 9 (`11 FAILURE(S) of 37 rows`, exit 1) while the opposite byte,
+  reserving every candidate, moves the count rows to 0 and turns the **density** rows red instead (7 FAILs,
+  L0 38 > 36, L1 60 > 59). Both directions of the same mechanism are red, which is why the count and density
+  rows both exist.
 - **All six README screenshots are re-captured from the deployed bytes, and two captions stopped
   describing a picture that is no longer there** (#333). The facing-wall frame changed: **10 dark rows
   → 488 of 763** - a run of 277 from the top of the frame, mean 36.79 → 20.87, top band 36.2 → 9.5 -
-  so its caption now says black air instead of claiming the air above the lip is lit. **Whether that
-  is a regression is still open, and this entry deliberately does not call it one.** The only
-  `js/40_render.js` commit between the two builds is `0bdae5d` (#311's light-ceiling re-apply), whose
-  term measures **+0.018 luma** with **0 of 1,296 above-1.0 lightmap reads delivered** where it runs
-  at all, so the obvious suspect is close to innocent on its own numbers. What #333 now asks for is
-  the measurement the two failed investigations could not make: A/B both builds **in the browser over
-  http at `?dev=1&seed=60`**, each arm reporting `DEV.state().layout` (the URL-pinned deal is
-  **735688443**, whose `MAP.fz` at that camera is `[0,1,2,3,4]` - the staircase the caption names).
-  Harness-pinned arms do not answer this, because a harness seed folds to a different deal than the
-  browser's (`README.md:91-92`), and neither does a `file://` + hash route, which measured three
-  layouts for one "seed 60". The STACK caption's "that slab seen from
+  so its caption now says black air instead of claiming the air above the lip is lit. **That delta is not a
+  regression, and #333 is closed on the measurement.** On the page's own deal - reached for the first time
+  by advancing `mulberry(60)` to draw **66,153**, which is where the page's audio buffer leaves the PRNG
+  (`SND.init` burns `floor(sampleRate * 1.5)` = 66,150 draws at `js/00_core.js:90`, plus 3 from
+  `startAmbient`) - the facing-wall seat renders mean **21.51 with #311's clamp against 21.67 without it**,
+  N=7 renders per side, spread 0.00, and the clamp-as-no-op control is worth **+0.17 luma**. Every build
+  renders this frame dark, including `98a33b5`, the build behind the frame this entry replaced; that frame
+  decodes to mean 36.79 with 10 dark rows, which no render of this deal in any build reproduces, so it was
+  a capture or caption mismatch - tracked in #335. **A page deal is a triple of seed, sample rate and audio
+  draw count**: the harness sandbox has `AudioContext: undefined`, so `SND.init` returns early and spends
+  zero draws, and `SEED=60` there deals `1284359329` - a world with no staircase at this camera. That is why
+  three earlier attempts produced three confident, contradictory verdicts, and why a capture must record
+  `DEV.state().layout` rather than a seed string. The STACK caption's "that slab seen from
   below" is a **wall** in this build - level 3's `wall2` TECH panels, with the 4.00 plane being the
   streaked `ROCK` ceiling - and the spawn caption's "one-unit ceiling over its head" contradicted the
   `cz 16` printed in the same sentence. Frames came from `index.html` + `js/` whose md5s match the

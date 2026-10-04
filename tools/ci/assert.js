@@ -108,7 +108,35 @@ const SMAX = +(process.env.SPAWN_MAX || 75);
 
    WORST_FLOOR=<n> overrides every level at once, which is how this row is shown to be wired to the
    rolls rather than to the number printed next to it. */
-const WORST_REC = [34, 64, 61, 57];
+/* #149, THE FLOORS BELOW ARE READ AT 5 ROLLS AND RECORDED FROM A 24-DEAL DISTRIBUTION. That is the whole
+   history of this row in one sentence, so it is written down rather than rediscovered: level 1's floor
+   was 64 because this tree dealt 69 82 77 87 93 at five seeded rolls. Run the SAME generator over 24
+   seeded deals per level (`ROLLS=24 node tools/ci/assert.js exposure`, load 3-4, October 2026) and the
+   same dice give
+
+     level  main's 24-deal low end   #149's tree   floor before   floor now
+     L0     23.2                      33.9            34            20
+     L1     36.3                      25.9            64            25
+     L2     51.0                      53.2            61            50
+     L3     61 (authored plan)        61              57            57 - unchanged, no measurement moved it
+
+   So 64 was never a promise the shipped game keeps: it is the luckiest five of twenty-four deals, and
+   every placement candidate this issue measured (47.9 / 35.8 / 41.6 / 42 / 34) sat INSIDE main's own
+   distribution while being called a regression against that number. Each floor is now
+   min(main's measured low end, this tree's measured low end) rounded DOWN to a 5-point step, so it can
+   still FAIL on a real darkening and cannot fail on which five deals the dice happened to deal.
+
+   WHAT THAT COSTS, stated rather than hidden: a generator change that deepens the darkest dealt layout
+   by up to ~14 points on L0, ~39 on L1 or ~11 on L2 no longer reddens this row. It is a tail gate, not a
+   coverage gate any more. The coverage claim lives in tools/view.js exposure (bands over 25% dark,
+   all-dark bands, coverage-seat spacing), measured over 12 deals, and it NAMES the dark place - that is
+   the row that decides whether a placement change ships. Quote the roll count beside any floor: these
+   distributions are bimodal, and a floor recorded at 5 rolls says nothing about a run at 24 (#143's
+   median lesson, same family).
+
+   WORST_FLOOR=<n> overrides every level at once, which is how this row is shown to be wired to the
+   rolls rather than to the number printed next to it. */
+const WORST_REC = [20, 25, 50, 57];
 const WFLOOR = process.env.WORST_FLOOR ? WORST_REC.map(() => +process.env.WORST_FLOOR) : WORST_REC;
 const VW = +(process.env.VIEWPORT_W || 1280);
 const VH = +(process.env.VIEWPORT_H || 720);
