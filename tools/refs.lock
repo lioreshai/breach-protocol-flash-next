@@ -9,6 +9,7 @@ ref	alt	OOB-ERA	num	19 10 16
 ref	alt	OOB-NONCLIMB	num	0 0 0
 ref	alt	PIT-CELLS	num	190 194 211
 ref	alt	PIT-MEAN	num	0.290 0.299 0.326
+ref	bands	SEAM-FRAME	md5	91eccb6618c29a8f1cec99fa9be8e3b4 96804149a1b44090b3e29c8cb356aa07 a4a887ac18688d18d5d5d7b0d99efea6
 ref	cull	CZBAND	crc32	0x0f8ad9e3 0x1b8ca621 0x73ff8e6b 0x2429fd16
 ref	cull	CZBAND-LIGHT	crc32	0xb0988514 0xb54c0a14 0xcb62daf2 0x6b8394bc
 ref	exposure	MEDIAN	num	73 71 78 64
