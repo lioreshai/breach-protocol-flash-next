@@ -51,15 +51,19 @@ PR that changes the picture. `node tools/recap.js check` decodes these files and
 quoted below against them, so a caption cannot drift from its image. What *changed* between two
 recaptures is a question for `CHANGELOG.md` and the PR that moved it — it is not kept here.
 
-The six frames decode to **63.63 / 36.79 / 63.26 / 50.51 / 68.71 / 54.49** mean luma
+The six frames decode to **63.44 / 20.87 / 63.06 / 47.81 / 68.50 / 55.81** mean luma
 (`0.2126 R + 0.7152 G + 0.0722 B`, the rule `DEV.lum` uses), in the order they appear below.
 
-All five come from the **deployed build** at `?dev=1&seed=60`, with the clock frozen, vitals pinned at
-100 and every other enemy cleared so each frame shows only what its caption names. The build is proved
+All six come from the **deployed build** at `?dev=1&seed=60`, with the clock frozen, vitals pinned at
+100, the level's own hostiles cleared so each frame shows only what its caption names, and any level
+banner taken down with the game's own `banner('', 0)` - a frozen clock stops the banner's timer, so a
+frame entered through `startLevel` would otherwise carry its sector title card across the picture
+forever. The build is proved
 by a **code** marker rather than a prose one: `authorVolume.toString()` contains the shipped statement
-`rooms.length >= 8 ? 3 : TALL_WANT_MIN` (#283), and every deployed `js/` blob is md5-identical to the
-tree at **`f927335`**. `DEV.layoutSig()` for this deal is **735688443** - the same number the previous
-recapture printed, and that is not staleness: the signature is FNV-1a over `MAP.fz` then `MAP.cell`,
+`rooms.length >= 8 ? 3 : TALL_WANT_MIN` (#283), and `MESH.neckBand` exists (#326) - both read off the
+shipped statements, and every deployed `js/` blob is md5-identical to the
+tree at **`ce9d39d`**. `DEV.layoutSig()` for this deal is **735688443** - the same number the previous
+recapture printed on level 0, and that is not staleness: the signature is FNV-1a over `MAP.fz` then `MAP.cell`,
 and #283 moved *which rooms get tall air*, a `MAP.cz` write, so the floors and walls of this deal are
 unchanged and only its ceilings are not. The columns you can look up in went **70 to 129** and now **174** (the deployed page's own
 `MAP.cz` histogram over the 676 columns reads 502 at 4, 129 at 12 and 45 at 16): the room at
@@ -72,8 +76,13 @@ seat's own headroom **4.00** on all 36 generated deals — the authored level's 
 is the seat-under-a-slab geometry its own caption names). The seat looking up into four units of its own air is
 #300's doing; #283 is what put tall columns in the map for that row to find. (that sweep is 12 rounds of one stream, i.e. the deal `alt`
 gates plus 11 redraws; `BOOT=1` instead boots 12 separate `SEED=n` deals, which is the path that reproduces
-issue #282's three) - which is why the first frame below still has a one-unit
-ceiling over its head.
+issue #282's three) - which is why the one unit of headroom in these frames belongs to the **authored**
+level's seat (the last frame below, `MAP.cz` 4 over a floor of 0.00) and not to the level-0 spawn seat,
+whose own column is `MAP.cz` **16**. The sixth frame is the exception on deals too: THE STACK's `MAP.fz`
+is authored and therefore identical every load, but `MAP.cell` also carries the wall-texture choices
+`pickWallTex` draws (`js/20_level.js:408`), so entering that level by `startLevel(3, true)` from a fresh
+`?dev=1&seed=60` boot hashes to **3084649030** while the same plan reached after other generations hashes
+differently - same geometry, different panels.
 
 Seed 60 was chosen for **feature coverage** by a sweep of the generator's first 60 seeds - longest
 monotone `MAP.fz` run, straight datum-to-pit lanes, count of columns with `MAP.cz >= 8` - and this
@@ -88,7 +97,7 @@ this deal's, and a caption that cannot name its seed cannot be re-measured.
 
 The spawn seat (18.5, 5.5) on a lit datum floor, which is the exposure the tonal gates are tuned
 against: **0 of 763 rows average below luminance 24** - there is no dark band left in this frame to count,
-and its darkest third averages 44.9 against 54.0 in the middle and 92.1 at the feet.
+and its darkest third averages 44.9 against 54.0 in the middle and 91.5 at the feet.
 The light here is the cell's own ambient - `MAP.light` **0.81** at (18,5), whose `MAP.fz` is 0
 and whose `MAP.cz` is **16**, four units of authored air over the seat - and there is no lamp
 in frame: the only prop inside the camera's ±35.75° (cfg.plane 0.72) from this seat is the red barrel at
@@ -99,15 +108,15 @@ pass's per-row term (`CEILHI` 3.0, `CEILG` 1.4, `CEILGM` 0.9) is exactly 0 while
 within 3.0 of the eye - every pixel of a one-unit level - and this seat, 3.50 under a 4.00 plane,
 is the first place it is allowed to do something.
 
-![four risers up to the raised band, and the air above them that is now lit](docs/screens/level0-facing-wall.png)
+![four risers up to the raised band, and the black air above them](docs/screens/level0-facing-wall.png)
 
 Four risers in five cells: the flight at (1, 9) steps `MAP.fz` **0, 1, 2, 3, 4** up to (1,13), three of
 those cells flagged `MAP.feat` STAIR, so 1.00 m of climb seen from the tread below it at (1.5, 8.5).
-**10 of 763 rows average under luminance 24 and the longest unbroken run is 3 rows, starting at row 711**
-— the frame this one replaces (471 rows under 24, a 158-row run from row 119) is lit through
-nearly all of it now, mean 36.79 against 21.22: the ceiling plane over the flight solves past `CEILHI`
-from the tread, so the term paints it. What is left under 24 is 10 rows, and they are at row 711. That darkness is the absence of a lamp rather
-than a ceiling: the camera's own cell reads `MAP.light` 0.02 and the flight's 0.01 to 0.12, while the
+**488 of 763 rows average under luminance 24 and the longest unbroken run is 277 rows, starting at row 0**
+(mean 20.87, band means 9.5 / 32.1 / 21.0). The reader sees the flight — lit treads stepping up the middle
+of the frame to a lit floor one band higher — under **black air**: the top two fifths of the frame are dark
+from row 0, and the light ceiling term that lit this camera in an earlier build does not reach it here.
+That darkness is the absence of a lamp rather than a ceiling: the camera's own cell reads `MAP.light` 0.02 and the flight's 0.01 to 0.12, while the
 band's cells run 0.26 → 1.20 along +y because two lamps stand ON it at (4.5,16.5) and (1.5,21.5), both
 at floor +1.00. What the camera can look UP into is not the flight - (1,10)…(1,13) are one unit of air,
 `MAP.cz` 4 - but the room one cell over at +x, whose columns are `MAP.cz` 12: three units of air,
@@ -133,22 +142,25 @@ is the busy red face that issue #17's silhouette-separation debt is about. Bodie
 
 ![the pit lip from 2.5 m out, lit by a lamp standing in the pit](docs/screens/level0-props.png)
 
-The pit lip from 2.5 m out, lit by a lamp standing in the pit.
-**305 of 763 rows average under luminance 24 and the longest unbroken run is 255 rows from row 31.** The hole
+The pit lip from 2.5 m out — camera **(20.5, 11.5)**, yaw **π/2**, feet on the datum, the lip plane
+exactly 2.50 m ahead — lit by a lamp standing in the pit.
+**307 of 763 rows average under luminance 24 and the longest unbroken run is 251 rows from row 32** (mean
+47.81). The hole
 is the 3x3 block (19..21, 14..16) at `MAP.fz` **-4**, and its own `MAP.cz` is **4** - #283 resets a
 pit's ceiling to one unit, so a hole that lands in a room the tall-air feature made tall stays a hole
-under a lip instead of becoming a shaft. The lamp stands in it at (20.5, 16.5) on band **-1.00**, 5.10 m
-from this camera. The nine hole cells read `MAP.light` 0.23 to 0.41 while column x=19 falls 0.75 → 0.41
+under a lip instead of becoming a shaft. The lamp stands in it at (20.5, 16.5) on band **-1.00**, 5.00 m
+from this camera (5.05 m to its own `z`). The nine hole cells read `MAP.light` 0.20 to 0.41 while column x=19 falls 0.75 → 0.41
 from the spawn row down to the lip, so the pool of light in this
 frame is the lamp's own band and the lip is lit by the lane - the band gate in `splatLight` admitting
 light per run of a scanline by the band of the surface the pixel shows.
 
 ![standing in the hole, two cells from the lamp that lights it, on the band the glow refuses](docs/screens/level0-pitfloor.png)
 
-Standing in the hole at (19.5, 14.5), cell (19,14): feet on **floor −1.00**, own ceiling **0.00**, eye
+Standing in the hole at (19.5, 14.5), cell (19,14), heading **atan2(2,1) = 1.11 rad** so the lamp sits on
+the crosshair: feet on **floor −1.00**, own ceiling **0.00**, eye
 **−0.50**, `MAP.light` **0.23**. The lamp doing the work stands one cell over and two further along at
-(20.5, 16.5), 2.24 m away and in this same band. **200 of 763 rows average under luminance 24 and the longest unbroken run is 175 rows from row 31**
-— 68.71 mean, on a cell reading less than a third of
+(20.5, 16.5), 2.24 m away and in this same band. **201 of 763 rows average under luminance 24 and the longest unbroken run is 175 rows from row 31**
+— 68.50 mean, on a cell reading less than a third of
 the spawn seat's light, which is the glow working from inside the band it refuses from above.
 
 ![the authored two-storey level from its own spawn seat](docs/screens/level3-stack.png)
@@ -156,9 +168,11 @@ the spawn seat's light, which is the glow working from inside the band it refuse
 **THE STACK** (`#16`, M6) is the first hand-authored level, and this is its spawn seat: (1.5, 2.5) on the
 datum, heading 0.60, 4 hostiles left. The seat's own cell carries a ceiling at **1.00** — you are standing
 under the slab — and seven cells along the heading the plan opens into an atrium whose ceiling solves at
-**4.00** over a `floor 0.00`, so the blue-lit band across the middle of the frame is that slab seen from
-below, the upper storey's underside rather than a wall you shoot at; the stepped glyphs on the minimap at
-right are the staircase that gets you up there. Authoring it by hand removes the old excuse — a level that
+**4.00** over a `floor 0.00`. What crosses the middle of the frame is not that ceiling but the **wall** of
+the room the seat opens into: blue `TECH` panels (this level's `wall2`, drawn by the wall pass in wall
+material) with the atrium's lit floor visible above their top edge, and the 4.00 plane itself is the
+streaked `ROCK` ceiling filling the upper half — a surface you cannot shoot at, over a wall you can; the
+stepped glyphs on the minimap at right are the staircase that gets you up there. Authoring it by hand removes the old excuse — a level that
 reads badly can no longer be blamed on the seed stream, because this plan is written cell by cell over a
 20 × 20 grid.
 

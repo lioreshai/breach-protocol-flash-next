@@ -2,6 +2,25 @@
 
 ### Changed
 
+- **All six README screenshots are re-captured from the deployed bytes, and two captions stopped
+  describing a picture that is no longer there** (#333). The facing-wall frame changed: **10 dark rows
+  → 488 of 763** - a run of 277 from the top of the frame, mean 36.79 → 20.87, top band 36.2 → 9.5 -
+  so its caption now says black air instead of claiming the air above the lip is lit. **Whether that
+  is a regression is still open, and this entry deliberately does not call it one.** The only
+  `js/40_render.js` commit between the two builds is `0bdae5d` (#311's light-ceiling re-apply), whose
+  term measures **+0.018 luma** with **0 of 1,296 above-1.0 lightmap reads delivered** where it runs
+  at all, so the obvious suspect is close to innocent on its own numbers. What #333 now asks for is
+  the measurement the two failed investigations could not make: A/B both builds **in the browser over
+  http at `?dev=1&seed=60`**, each arm reporting `DEV.state().layout` (the URL-pinned deal is
+  **735688443**, whose `MAP.fz` at that camera is `[0,1,2,3,4]` - the staircase the caption names).
+  Harness-pinned arms do not answer this, because a harness seed folds to a different deal than the
+  browser's (`README.md:91-92`), and neither does a `file://` + hash route, which measured three
+  layouts for one "seed 60". The STACK caption's "that slab seen from
+  below" is a **wall** in this build - level 3's `wall2` TECH panels, with the 4.00 plane being the
+  streaked `ROCK` ceiling - and the spawn caption's "one-unit ceiling over its head" contradicted the
+  `cz 16` printed in the same sentence. Frames came from `index.html` + `js/` whose md5s match the
+  Pages deploy exactly; `docs/` is 404 there by design, so the tree is the reference.
+
 - **A prop could stand 1.41 m from the spawn cell, inside the spawn heading's cone** (#154). The prop
   pass drew cells from the same pool as every other feature and subtracted nothing around the seat,
   while the seat itself is chosen by a different pass - the same shape as #149, placement passes that
