@@ -1754,7 +1754,14 @@ if (MODE === 'flatparity') {
      Consequence to state plainly: after #21 the PARITY triple is THIS branch's flat frame on levels 0..2,
      so the sentence above - "OLD is what 2c5a94f's own flatparity prints" - describes the record's
      provenance, not the literals below it. */
-  const OLD = refRecord('flatparity', 'PARITY', 'md5', ['58f51a9bbce6c36a4a7f95afb56218a0', 'f05beeb58f1266a1aea7e44712995292', '44b55ac327742f274cbd6b865b981ebf', '0c6c9adc32937d65b643482d783cf411']);
+  /* #80 re-keys all three triples on levels 0/2/3 (level 1's spawn frame has no body in shot and did
+     not move): the neck's torso-yoke is geometry, and bodies are IN these frames, so their silhouettes
+     repaint. The means are identical to the digit on every sense, and the control says the delta is
+     NOTHING ELSE - hashing the same frames with ENEMIES emptied gives byte-identical md5s on main and
+     on this tree (flat 971c11ec / f05beeb5 / d678642d / 9b6dff6a, dealt 5048636b / 370d3f7a / aa18d43e
+     / 040bf80b), so no world, light or band term moved. DEALTM[2] says 85.1 while both trees print 87.2
+     - that mean literal is stale on main and is left alone here. */
+  const OLD = refRecord('flatparity', 'PARITY', 'md5', ['152c028bf11d6e4403ab4658313d4539', 'f05beeb58f1266a1aea7e44712995292', 'b0f8fe9153dbfee606747131fd666a21', '5d422cd672686e9d6f99683170d7d789']);
   const OLDM = [78.2, 34.1, 47.5, 28.0];
   /* #213 moves SHIP[0] to 060da4cd (80.8, from 4262d051/81.3) and nothing else: a coverage top-up's
      intensity now scales with the cells it covers, so the shipped world gains DIMMER sources and L0's
@@ -1769,7 +1776,7 @@ if (MODE === 'flatparity') {
   // as PARITY, the same NOCAP=1 control behind it, and the same control row: the level whose spawn frame has
   // no over-ceiling cell did not move at all. L3 moved because THE STACK's lamps overlap, and it moved in
   // BOTH senses to the same value, which keeps #303's authored-level claim intact.
-  const SHIP = refRecord('flatparity', 'LOCK', 'md5', ['f75665d58afa64fdf49f1597238123cb', 'f05beeb58f1266a1aea7e44712995292', 'c5284aa507f836b7f0fd8e2fc6d99a68', '0c6c9adc32937d65b643482d783cf411']);
+  const SHIP = refRecord('flatparity', 'LOCK', 'md5', ['a84babafc3673e3633ea8f9f2733eaac', 'f05beeb58f1266a1aea7e44712995292', '65b81621f47796a362c8354b9be1b3b8', '5d422cd672686e9d6f99683170d7d789']);
   const SHIPM = [79.3, 34.1, 51.6, 28.0];
   /* #219's DEALT triple, #226's camera: the frame of each level AS DEALTED - bands, band term, shipped
      lamp record, same dice (1000 + level*97) and the same pinned-clock ninth render - but at a seat
@@ -1866,7 +1873,7 @@ if (MODE === 'flatparity') {
   // do overlap. That the MEAN is identical while the md5 moved is the shape of this fix - pixels come down
   // in the over-lit cells and nothing else changes - and NOCAP=1 reproduces 046f2a22 on this tree, so the
   // move is the clamp and not the rebase. Levels 0..2 are byte-identical to main here.
-  const DEALT = refRecord('flatparity', 'DEALT', 'md5', ['f7baf61773bb8469c5a8cf0b95681dd4', '370d3f7a88596a5bfc36bfc9c98b6858', 'aa18d43e1fbd55b40eb4500dd745a3d6', 'e846d5b3aaa281d09844741e1993c389']);
+  const DEALT = refRecord('flatparity', 'DEALT', 'md5', ['2f1b8e3cf594c61d118383616a44707d', '370d3f7a88596a5bfc36bfc9c98b6858', 'aa18d43e1fbd55b40eb4500dd745a3d6', 'e846d5b3aaa281d09844741e1993c389']);
   const DEALTM = [55.5, 57.8, 85.1, 39.7];
   const OFF = process.env.LAMPS === 'off';
   const f1 = v => (v === undefined || v === null ? '-' : (+v).toFixed(1));
@@ -6965,8 +6972,12 @@ if (MODE === 'anim') {
   function shot() {
     run('renderWorld()');
     const A = new Uint32Array(run('px')), zA = new Float32Array(run('zbuf'));
+    /* COV, when the neck row below has armed it, describes THIS render and must be read before the
+       enemy-free render wipes it (js/40_render.js:271 fills it at the top of every frame). Null in
+       every other row, where the global is null and this costs one compare. */
+    const C = run('COV ? COV.length : 0') === N ? new Uint8Array(run('COV')) : null;
     run(BARE);
-    return { A, B: new Uint32Array(run('px')), zA, zB: new Float32Array(run('zbuf')) };
+    return { A, B: new Uint32Array(run('px')), zA, zB: new Float32Array(run('zbuf')), cov: C };
   }
   function maskOf(s) {
     const cov = new Uint8Array(N); let n = 0, top = H, bot = -1;
@@ -7229,6 +7240,112 @@ if (MODE === 'anim') {
       `e.ang=Math.atan2(P.y-e.y,P.x-e.x)+${dy};e.anim=${ph};e.movingAmt=${mv};ENEMIES.push(e)})()`);
     return maskCount(shot());
   }
+  /* ---- #80: does the NECK READ, or does the head float? ---------------------------------------
+     The rows below prove the junction contains no daylight. They cannot say whether the band that
+     fills it is VISIBLE: a neck that paints the same luminance as the wall behind it stitches the
+     geometry and still leaves a head hanging in the room, which is what #80 reports on a grunt at
+     2.4 m. Rules, all three taken from contrast rather than re-derived (view.js:5637 onward):
+       mask        COV, stamped by the mesh's own pixel writes and armed the same way contrast arms it
+                   (view.js:6256) - NOT a render difference, which structurally cannot contain a body
+                   pixel that matches the wall behind it (#179).
+       band        pixels the mask calls a body whose AUTHORED height, solved with contrast's own
+                   projection row (`rowH`, view.js:5866, feet = the draw site's floorAt at
+                   js/40_render.js:258), lies between the torso box's top face and the head box's
+                   bottom face. Those two fractions come from MESH.neckBand so the band follows the
+                   geometry; a js/ that predates it falls back to [sh, head - 0.35*headR], which is
+                   that tree's own gap, and says so in the line.
+       background  the MEDIAN luminance of the outside-mask neighbours in the pixel's 3x3, from the
+                   SAME composited frame. Taking it from the enemy-free render is the mistake #179
+                   records: the shadow is not in that frame, so the term cannot be credited.
+       "within 10" contrast's DLLOST (view.js:5697) - a body pixel under 10 dL from what is behind it
+                   is a pixel the eye does not get. A literal in a REPORTED number, not a gate.
+     A pixel with no outside-mask neighbour is skipped and counted (contrast's `noBg`), so a band that
+     has gone too wide to have a background says so instead of quietly averaging its own interior. */
+  const ANB = [[-1, -1], [0, -1], [1, -1], [-1, 0], [1, 0], [-1, 1], [0, 1], [1, 1]];   // contrast's NB
+  const AWITHIN = 10;                                  // contrast's DLLOST, same meaning here
+  const NECK = [];
+  run('if (!COV || COV.length !== BW * BH) COV = new Uint8Array(BW * BH);');
+  function neckRow(k, s, dk) {
+    const out = { k, dk };
+    const cm = run('({camX, camY, dirX, dirY, planeX, planeY, eyeZ, hz: horizon, BW, BH})');
+    const en = run('ENEMIES.length ? {x: ENEMIES[0].x, y: ENEMIES[0].y, s: ENEMIES[0].scale, ' +
+      'f: floorAt(ENEMIES[0].x, ENEMIES[0].y), c: ((ENEMIES[0].y|0)*MW+(ENEMIES[0].x|0))} : null');
+    if (!s.cov) { out.why = 'COV not armed - the row has no body mask'; return out; }
+    if (!en) { out.why = 'no body in the frame'; return out; }
+    const nb = run('MESH.neckBand ? MESH.neckBand(' + JSON.stringify(k) + ') : null');
+    const sp = run('MESH.SPEC[' + JSON.stringify(k) + '] || MESH.SPEC.grunt');
+    const band = nb || [sp.sh, sp.head - sp.headR * 0.35, sp.headR * 0.52];
+    out.src = nb ? 'MESH.neckBand' : 'SPEC fallback (this js/ has no neckBand)';
+    const invDet = 1 / (cm.planeX * cm.dirY - cm.dirX * cm.planeY);
+    const dx = en.x - cm.camX, dy = en.y - cm.camY;
+    const tY = invDet * (-cm.planeY * dx + cm.planeX * dy);
+    if (tY < 0.3) { out.why = 'body behind the lens'; return out; }
+    out.d = tY; out.cell = en.c; out.light = run('MAP.light[' + en.c + ']');
+    const rowH = h => cm.hz + cm.BH * (cm.eyeZ - (en.f + h * en.s)) / tY;   // contrast's rowH, view.js:5866
+    const sp2 = run('MESH.spanFor(' + JSON.stringify(k) + ')');
+    out.bodyPx = Math.abs(rowH(sp2.y1) - rowH(sp2.y0));  // the drawn body's own projected height
+    /* A row belongs to the band when its CENTRE's authored height lies between the two faces. A
+       ceil/floor window hands the measurement the torso box's own top row - the face the #80 fix
+       moved, not the band it left - and that row is torso, so it averages the answer toward the
+       bright side and the row would improve without the neck changing at all. */
+    const hAt = y => (cm.eyeZ - (y + 0.5 - cm.hz) * tY / cm.BH - en.f) / en.s;
+    /* ... and a row's pixel belongs to the band only while it is also inside the HEAD'S OWN WIDTH in
+       plan. Perspective makes this band a STACK of horizontal faces rather than a slot: the head box's
+       underside, the tube and the torso box's top face all land in these rows, while the arm tubes -
+       whose caps reach sh + arm, above the shoulder plane on every kind - start at shLat, further out
+       than the head is wide (js/13_mesh.js's HEAD_HW carries the window and its margins). Unfiltered,
+       the window measures shoulders, calls the band as wide as the torso and credits the arms' SKIN
+       colour to the neck. The axis is a vertical world line, so it projects to one tX, and a pixel's
+       tX is the same solve torsoStats uses (view.js:5865). */
+    const hw = W * 0.5, tXax = invDet * (cm.dirY * dx - cm.dirX * dy), rmax = band[2] * en.s;
+    const latOf = x => (x / hw - 1) * tY - tXax;
+    out.rmax = rmax;
+    const yT = Math.max(1, Math.ceil(rowH(band[1])) - 1), yB = Math.min(H - 2, Math.floor(rowH(band[0])) + 1);
+    if (yB < yT) { out.why = 'neck band projects off the frame (rows ' + yT + '..' + yB + ')'; return out; }
+    out.band = band.map(v => +v.toFixed(3));
+    let n = 0, noBg = 0, sum = 0, within = 0, lsum = 0, bsum = 0, rLo = 1e9, rHi = -1e9, wide = 0;
+    for (let y = yT; y <= yB; y++) {
+      const h0 = hAt(y);
+      if (!(h0 > band[0] && h0 < band[1])) continue;
+      const rw = y * W;
+      let lo = -1, hi = -1;
+      for (let x = 1; x < W - 1; x++) {
+        const i = rw + x;
+        if (!s.cov[i]) continue;
+        if (Math.abs(latOf(x)) > rmax) continue;
+        if (lo < 0) lo = x; hi = x;
+        const vals = [];
+        for (const o of ANB) { const j = i + o[1] * W + o[0]; if (!s.cov[j]) vals.push(lum(s.A, j)); }
+        if (!vals.length) { noBg++; continue; }
+        const srt = vals.slice().sort((p, q) => p - q);
+        const med = srt.length & 1 ? srt[srt.length >> 1] : (srt[(srt.length >> 1) - 1] + srt[srt.length >> 1]) * 0.5;
+        const dl = Math.abs(lum(s.A, i) - med);
+        n++; sum += dl; lsum += lum(s.A, i); bsum += med;
+        if (dl < AWITHIN) within++;
+      }
+      if (lo >= 0) { if (hi - lo + 1 > wide) wide = hi - lo + 1; if (y < rLo) rLo = y; if (y > rHi) rHi = y; }
+    }
+    out.n = n + noBg; out.meas = n; out.noBg = noBg; out.rows = rHi >= rLo ? rHi - rLo + 1 : 0;
+    out.rLo = rLo; out.rHi = rHi; out.wide = wide;
+    out.dl = n ? sum / n : 0; out.within = n ? 100 * within / n : 0;
+    out.lum = n ? lsum / n : 0; out.bg = n ? bsum / n : 0;
+    // torso width for scale: the widest body row in the torso band (shoulder line -> hip)
+    const tT = Math.max(1, Math.ceil(rowH(sp.sh)) - 1), tB = Math.min(H - 2, Math.floor(rowH(sp.hip)) + 1);
+    let twide = 0;
+    for (let y = tT; y <= tB; y++) {
+      const ht = hAt(y);
+      if (!(ht < sp.sh && ht > sp.hip)) continue;
+      const rw = y * W; let lo = -1, hi = -1;
+      for (let x = 1; x < W - 1; x++) { const i = rw + x; if (!s.cov[i]) continue; if (lo < 0) lo = x; hi = x; }
+      if (lo >= 0 && hi - lo + 1 > twide) twide = hi - lo + 1;
+    }
+    out.torsoWide = twide;
+    out.pct = out.bodyPx > 0 ? 100 * out.rows / out.bodyPx : 0;
+    if (!out.rows) out.why = 'no body pixel inside the band window';
+    else if (!out.meas) out.why = 'none of the ' + (out.n + out.noBg) + ' band pixels had an outside-mask neighbour' +
+      ' (all interior: the band is narrower than the silhouette around it)';
+    return out;
+  }
   const DK = {};
   for (const k of AKIND) {
     let picked = 0;
@@ -7336,7 +7453,104 @@ if (MODE === 'anim') {
           : 'no background between head and torso  ATTACHED') + (noHead ? '  NO HEAD TO JUDGE' : ''));
     }
   }
+  /* The seat is chosen DARK, because that is where #80 says the head floats: at a lit cell the neck's
+     own colour is far from the wall's and the question does not arise (measured on the seat the rows
+     above use, level 0 spawn, cell light 0.559: grunt band dL 15.4, hound 18.3 - the neck reads). So
+     the row seats the body in the darkest cell the level itself offers: every cell that is open, on
+     the player's own floor band, tall enough to stand in and 2..4 m from the lens, ranked by
+     MAP.light, darkest first. The floor on distance is not taste - at 1.4 m a brute's crown is above
+     the frame and its neck band projects to rows that do not exist, which is a vacuous row (measured:
+     0 rows, band above row 1). The darkest candidate that actually PAINTS at least MASKMIN pixels -
+     the visibility check is the measurement, not a ray the probe invents - is the one measured; P.ang
+     is set to look at it and restored after. That is a seat choice, not a threshold: nothing is gated
+     on the light number, and the line prints the cell, its light and the background luminance measured.
+     Cell light alone does not make a dark BACKGROUND: level 0's darkest standable seat (0.378) still
+     has a wall behind it reading 83 luminance, so the second half of each number is the SAME seat and
+     pose with the level's lamps removed - MAP.light/lR/lG/lB/lw zeroed, AMB and the geometry untouched,
+     the control this file already uses at :1337, :1905 and :2194. That is the AMB 0.19 regime #33 says
+     floors an additive rim, and the only dark room the probe can name without inventing content. */
+  /* THREE LIGHTING CASES, because the measurement disagrees with the issue's premise depending on
+     which one is read - and saying so is the point of the row (#80 quotes a neck pixel 2 luminance
+     from the wall behind it, [11,12,11] against [13,15,6]):
+       as dealt   the seat the rows above already use - __bandSpot at the kind's distance along the
+                  player's facing, level 0's spawn seat, cell light 0.559. This is the 2.4 m seat the
+                  issue's numbers come from, and here the wall behind the neck does sit near the
+                  neck's own colour (on main: grunt 33 body vs 21 behind, 31% of the band's pixels
+                  within 10; brute 32 vs 32, 47% within 10).
+       lamps off  the SAME seat and pose with MAP.light/lR/lG/lB/lw zeroed and AMB untouched - the
+                  control this file already uses at :1337, :1905 and :2194. Level 0 has no dark CELL
+                  a body can be stood in (next case), so this is the only way to reach the AMB 0.19
+                  regime #33 says floors an additive rim without inventing content.
+       darkest    the darkest cell the level offers: open, on the player's own floor band, tall enough
+                  to stand in, 2..4 m from the lens, ranked by MAP.light; the first that PAINTS at
+                  least MASKMIN pixels is measured - the visibility check is the measurement, not a ray
+                  the probe invents - with P.ang turned to it and restored after. The floor on distance
+                  is not taste: at 1.4 m a brute's crown leaves the frame, its band projects to rows
+                  that do not exist, and the row would print 0 px as if it had measured something.
+     What this found on main is that the two cases DISAGREE: at the spawn seat the band is dim against
+     its wall, while at the level's darkest standable cell (light 0.387) the wall behind it reads 46-83
+     luminance - cell light is not background luminance - and the band reads as a DARK slot, dL 44.
+     "The neck does not read" is therefore a statement about the wall behind the body, not about the
+     room; the number a geometry fix moves is the band's SIZE - its rows as a share of body height and
+     its width against the torso's - and both are printed first and gated by nothing. */
+  const zf0 = run('floorAt(P.x, P.y)');
+  const LAMPS_OFF = 'window.__LM=[MAP.light.slice(),MAP.lR.slice(),MAP.lG.slice(),MAP.lB.slice(),MAP.lw.slice()];' +
+    'MAP.light.fill(0);MAP.lR.fill(0);MAP.lG.fill(0);MAP.lB.fill(0);MAP.lw.fill(0);';
+  const LAMPS_ON = 'MAP.light.set(window.__LM[0]);MAP.lR.set(window.__LM[1]);MAP.lG.set(window.__LM[2]);' +
+    'MAP.lB.set(window.__LM[3]);MAP.lw.set(window.__LM[4]);';
+  for (const k of AKIND) {
+    const rec = { k }, a0 = run('P.ang');
+    run(`(()=>{const s=window.__bandSpot(${(+DK[k]).toFixed(2)});ENEMIES.length=0;` +
+      `const e=makeEnemy('${k}',s[0],s[1]);${PIN}ENEMIES.push(e)})()`);
+    rec.dealt = neckRow(k, shot(), DK[k]);
+    run(LAMPS_OFF);
+    rec.dim = neckRow(k, shot(), DK[k]);
+    run(LAMPS_ON);
+    const cand = run(`(()=>{const o=[],zf=${zf0};for(let y=1;y<MH-1;y++)for(let x=1;x<MW-1;x++){` +
+      `const i=y*MW+x;if(MAP.cell[i])continue;const cx=x+0.5,cy=y+0.5,f=floorAt(cx,cy);` +
+      `if(Math.abs(f-zf)>1e-6)continue;if(ceilAt(cx,cy)-f<1-1e-6)continue;` +
+      `const d=Math.hypot(cx-camX,cy-camY);if(d<2||d>4)continue;` +
+      `o.push({a:Math.atan2(cy-P.y,cx-P.x),x:cx,y:cy,d:d,i:i,li:MAP.light[i]})}` +
+      `o.sort((p,q)=>p.li-q.li||p.i-q.i);return o.slice(0,6)})()`);
+    let dark = null, tries = 0;
+    for (const seat of cand) {
+      tries++;
+      run(`(()=>{P.ang=${seat.a};ENEMIES.length=0;const e=makeEnemy('${k}',${seat.x},${seat.y});${PIN}ENEMIES.push(e)})()`);
+      const s = shot();
+      if (maskCount(s) < MASKMIN) continue;
+      dark = neckRow(k, s, seat.d); dark.cell = seat.i; dark.light = seat.li; dark.tried = tries;
+      break;
+    }
+    run('P.ang=' + a0 + ';');
+    rec.dark = dark || { why: cand.length ? 'none of the ' + tries + ' darkest cells painted MASKMIN ' + MASKMIN + ' px' +
+      ' (occluded from the lens)' : 'no open, standable, same-band cell 2..4 m from the lens' };
+    NECK.push(rec);
+  }
+  const r1fmt = v => (v === undefined ? '-' : v.toFixed(3));
+  const nf = o => !o || o.why ? (o ? o.why : 'no measurement') : 'dL ' + o.dl.toFixed(1) + ' (' + o.lum.toFixed(0) +
+    ' body vs ' + o.bg.toFixed(0) + ' behind), ' + o.within.toFixed(0) + '% within ' + AWITHIN + ' on ' +
+    o.meas + '/' + o.n + ' px';
+  const cxy = o => !o || o.cell === undefined ? '-' : (o.cell % W) + ',' + ((o.cell / W) | 0);
+  const lit = o => !o || o.light === undefined ? '-' : o.light.toFixed(3);
+  console.log('  neck vs room   the band between the torso top face and the head box, on the COMPOSITED frame,'
+    + ' masked by COV (the mesh\'s own pixel writes, not a render difference), background = median of the'
+    + ' outside-mask 3x3 of that SAME frame; band from ' + (NECK[0] && NECK[0].dealt ? NECK[0].dealt.src : '-') +
+    ', within-' + AWITHIN + ' is contrast\'s DLLOST.  REPORTED, not gated (#80)');
+  for (const o of NECK) {
+    console.log('    ' + o.k.padEnd(6) +
+      (o.dealt && !o.dealt.why
+        ? 'band ' + o.dealt.rows + ' px = ' + o.dealt.pct.toFixed(1) + '% of body height (rows ' + o.dealt.rLo +
+          '-' + o.dealt.rHi + ' of ' + o.dealt.bodyPx.toFixed(0) + '), ' + o.dealt.wide + ' px wide vs ' +
+          o.dealt.torsoWide + ' px torso, plan filter +' + r1fmt(o.dealt.rmax) + ' m'
+        : o.dealt ? o.dealt.why : 'no seat at that distance') +
+      '  |  as dealt ' + nf(o.dealt) + ' @ ' + (o.dealt && o.dealt.d ? o.dealt.d.toFixed(2) : '-') + ' m, cell ' +
+      cxy(o.dealt) + ', light ' + lit(o.dealt) +
+      '  |  lamps off ' + nf(o.dim) +
+      '  |  darkest cell ' + nf(o.dark) + (o.dark && o.dark.cell !== undefined ? ' (' + cxy(o.dark) + ', light '
+        + lit(o.dark) + ', @ ' + o.dark.d.toFixed(2) + ' m, ' + o.dark.tried + ' seat(s) tried)' : ''));
+  }
   const why = [];
+  run('COV = null;');
   if (bad - attachBad - judgeBad) why.push('bodies are drawn in a static stance');
   if (attachBad) why.push(attachBad + ' pose(s) with DETACHED parts');
   if (judgeBad) why.push(judgeBad + ' pose(s) too small to judge at ANY distance - a probe-geometry problem, not a detachment failure');

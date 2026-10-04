@@ -78,6 +78,34 @@ const MESH = (function () {
      solved on its own; an overlap makes the junction one silhouette at every angle. */
   const JOIN = 0.02;
 
+  /* How far the torso box's TOP face is lifted above the shoulder line, in fractions of headR (#80).
+     The neck gap this tube used to fill was `head - 0.35*headR - sh` of flat DARK: 7.5% of a grunt's
+     body height, and in a dim cell that band renders the same luminance as the wall behind it, so the
+     geometry was stitched and the head still floated - a shading problem wearing a geometry fix, since
+     the light-independent mechanism is a contact shadow (#18), not a rim (#33 floored one at AMB 0.19).
+     Lifting the shoulders' top face into the bottom of the gap changes which face the eye gets there:
+     a box top is flat-shaded against the key light (`sh = R0 + R1*N.KEY`, below) and carries the #232
+     structure term, so it reads at any ambient, while a tube's side never can. The band left to the
+     tube becomes 5.9% of a grunt's height and the shoulder plane carries the head's weight. */
+  const SHOULDER_LIFT = 0.25;
+
+  /* The neck tube's own radii, in fractions of headR (base, then crown). They are named because
+     tools/view.js #80 has to know where the tube ENDS laterally: at the shoulder line the arm tubes
+     start on the body's side, so a band window without a plan filter measures shoulders and calls the
+     neck as wide as the torso. */
+  const NECK_R0 = 0.62, NECK_R1 = 0.54;
+
+  /* The head box's half-width in fractions of headR - named for two reasons: it is the head's own
+     silhouette width, and it is the LATERAL WINDOW tools/view.js #80 measures the neck band inside.
+     The pixels between the head's underside and the shoulders' top face are the tube, the head box's
+     underside seen from below and the torso box's top face, all of them inside the head's width; the
+     arm tubes that also rise into those rows (their caps reach sh + arm, i.e. 0.847 on a grunt against
+     a shoulder plane of 0.832) start at shLat, further out than the head is wide on every kind - grunt
+     inner edge 0.068 m against a 0.060 m window, hound 0.0745 against 0.064, brute 0.236 against 0.104,
+     in metres at the shipped scales. That is what keeps the row's mean from being the ARMS' SKIN
+     colour while the neck itself goes unmeasured. */
+  const HEAD_HW = 0.86;
+
   // boot-time drift detector: these three numbers must match js/11_rig.js SPEC
   const SRC = { hip: 0.50, torso: 0.235, limb: 0.040 };
   if (SPEC.grunt.hip !== SRC.hip || SPEC.grunt.torso !== SRC.torso || SPEC.grunt.limb !== SRC.limb)
@@ -580,6 +608,7 @@ const MESH = (function () {
   function emit(kind, q) {
     const s = SPEC[kind], sk = SKIN[kind], dk = DARK[kind], cl = CLOTH[kind];
     const b = new Builder(), hipY = s.hip + q.bob, shY = s.sh + q.bob;
+    const shTop = shY + s.headR * SHOULDER_LIFT;      // the torso box's top face, #80 - see above
     b.tip(q.topple, 0.02, 0);                        // a corpse turns about its CONTACT LINE, at the feet
     for (let i = 0; i < 2; i++) {
       const L = q.leg[i], hx = (i ? 1 : -1) * s.hipLat;
@@ -590,17 +619,20 @@ const MESH = (function () {
     }
     b.tip(q.pitch, hipY, 0);                         // the wind-up tips everything above the hip
     b.rg = 1;                                        // #232: the torso is the region that gets structure
-    b.box(0, (hipY + shY) * 0.5, 0, s.shLat * 1.05, (shY - hipY) * 0.5, s.torso * 0.42, sk);
+    b.box(0, (hipY + shTop) * 0.5, 0, s.shLat * 1.05, (shTop - hipY) * 0.5, s.torso * 0.42, sk);
     b.rg = 0;
     b.box(0, hipY + 0.02, 0, s.hipLat * 1.3, 0.045, s.torso * 0.34, dk);
-    /* The neck. The torso box ends at the shoulder line and the head box starts above it, and what
-       sat between them was the level behind: 9 rows of daylight on a grunt at 2.4 m (#74). This
-       spans the whole gap plus JOIN into each end, so the junction is solid at any yaw - a prism
-       silhouette is convex and the body axis is inside the prism, so that column is covered by
-       construction. Emitted between the two boxes it stitches, and the emit ORDER is the pose
-       table's vertex order, so it stays here rather than moving with the head. */
-    b.tube(0, shY - JOIN, 0, 0, s.head + q.bob - s.headR * 0.35 + JOIN, 0, s.headR * 0.52, s.headR * 0.46, dk);
-    b.box(0, s.head + q.bob + s.headR * 0.6, 0, s.headR * 0.86, s.headR * 0.95, s.headR * 0.80, dk);
+    /* The neck. The torso box's top face now sits SHOULDER_LIFT*headR above the shoulder line and the
+       head box starts above it, so the band this tube has to fill is shorter than the gap between the
+       two authored heights. It still spans that band plus JOIN into each end, so the junction is solid
+       at any yaw - a prism silhouette is convex and the body axis is inside the prism, so that column
+       is covered by construction (#74 - 9 rows of daylight on a grunt at 2.4 m before that was true).
+       The radius is wider than the one that shipped (0.62/0.54 headR against 0.52/0.46) for the same
+       reason: a column 22% of the torso's width reads as a gap between two parts, and one 36-41% of it
+       reads as the part's own base. Emitted between the two boxes it stitches, and the emit ORDER is
+       the pose table's vertex order, so it stays here rather than moving with the head. */
+    b.tube(0, shTop - JOIN, 0, 0, s.head + q.bob - s.headR * 0.35 + JOIN, 0, s.headR * NECK_R0, s.headR * NECK_R1, dk);
+    b.box(0, s.head + q.bob + s.headR * 0.6, 0, s.headR * HEAD_HW, s.headR * 0.95, s.headR * 0.80, dk);
     b.box(0, s.head + q.bob + s.headR * 0.7, s.headR * 0.72, s.headR * 0.62, s.headR * 0.30, s.headR * 0.22, [255, 208, 138]);
     for (let i = 0; i < 2; i++) {
       const A = q.arm[i], ax = (i ? 1 : -1) * s.shLat;
@@ -1019,6 +1051,12 @@ const MESH = (function () {
        lets a height claim about `scale` test the CONVENTION instead of the art, because a solid does not
        project to BH*span/t at its centre - its near edge is nearer than its centre, which is a thing a
        flat quad never had to say. Throws on an unauthored kind, like everything else here. */
+    /* The band a body leaves to the neck, in fractions of body height, plus the tube's widest radius:
+       [torso top face, head box bottom face, radius]. These are the numbers emit() builds the tube
+       between, published so tools/view.js #80 measures the band the geometry paints instead of
+       re-deriving its own. The third number is the window's half-width: the head box's own half-width,
+       which contains the tube, the head's underside and the shoulders' top face but not the arms. */
+    neckBand: k => { const s = SPEC[k] || SPEC.grunt; return [s.sh + s.headR * SHOULDER_LIFT, s.head - s.headR * 0.35, s.headR * HEAD_HW]; },
     spanFor: k => {
       const m = model(k);
       if (!m.span) {
