@@ -76,6 +76,18 @@
   10.30 m - while the shape reproduces on L0 r9 and L1 r8, where a crate at 1.39 m in the +-17 degree
   cone ends up at 2.78 / 4.17 m. Unsettled: pickups are still pool-placed with no clearance, so a
   pickup can hover 1 m from the seat.
+- **The raster budget now measures a pair, not a moment** (#170's instrument, perf). The pooled-seats row
+  runs control and candidate **interleaved in the same process** — the kill switch at `js/40_render.js:376`
+  is flipped between batches — and gates `REGRESSION FAIL` on `cand > ctrl × 1.05 + 0.3 ms`, while an
+  absolute over `RASTER_FLOOR` with a clean paired arm reads `MODE PASS`: the absolute belongs to the
+  runner. The reason is CI, not theory — identical bytes gave head-ref 24.73 ms PASS against merge-ref
+  33.88 ms FAIL, and a **tools-only** PR (#340, zero bytes of `js/`) drew seat 0 at 127.3 ms and pooled
+  38.58. `RASTER_FLOOR` set explicitly still gates on the **absolute** (measured `CONTROL FAIL` at 32.43
+  against floor 16 with the paired arm at +0.10), so the documented cheaper-code control survives, and a
+  js tree with no switch prints `paired arm VACUOUS` rather than passing on a delta of nothing. What the
+  change does *not* claim: the march skip is **neutral, not cheaper** — paired delta −0.22 to +0.43 ms over
+  6 draws at load 3.1–4.9 — and #307 still owns driving 32 → 16 with real cost work.
+
 - **A prop standing on the band above no longer draws through the slab** (#170, rendering), and the
   march that does it now skips the walks that provably cannot answer. The leak was **L3 only - 971 px
   at rows 58..127** - and it had been carried as a silent `KNOWN(#170 authored seams)` debt row, which

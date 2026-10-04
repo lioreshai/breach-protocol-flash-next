@@ -366,6 +366,14 @@ function mipSel(ax0, ax1, ay0, ay1, sc, tex) {
    between the eye and its own ceiling plane, the 971 px of the L3 stack - hold such an altitude, so they
    still march. Altitudes outside the indexed range disable the test rather than skip on a guess, and a
    plane exactly at `cap` solves no nearer, which is the same answer the branches' comparison gives. */
+/* MARCH-SKIP KILL SWITCH — `topUpEnabled`'s idiom (js/20_level.js:1079): a name a probe can reassign
+   from outside, so the same process can time the march with the skip and without it. `let`, not `const`,
+   for exactly that; `tools/smoke.js`'s pooled raster row flips it batch by batch to A/B the two arms on
+   one layout in one context (#170). OFF the skip is a no-op and `planeAlong` walks as it did before this
+   file changed; ON is the shipped path. The two arms are pixel-identical — the skip removes a walk that
+   cannot answer, it does not change an answer (see buildPlaneInv) — and `view.js flatparity`'s records
+   hold with the switch either way, which is what makes the paired timing a measurement of time. */
+let marchSkipEnabled = true;
 const PV_W = 128;                                    // plane/ZQ indices [-64 .. 63] = altitudes -16 .. 15.75 m
 const PV_FLAG = new Uint8Array(PV_W), PV_VAL = new Float64Array(PV_W);
 let PV_N = 0, gPVSer = -1, gPVFz = null, gPVCp = null, gPVWide = 0;
@@ -422,7 +430,7 @@ function planeAlong(rx, ry, pl, isF, absP) {
   const cap = dzPl > 1e-9 && dzPl * invAbsP < FARB * 4 ? dzPl * invAbsP : FARB * 4;
   /* the plane-inventory skip, see buildPlaneInv: the nearest altitude this level has on this side of the
      eye does not solve inside this ray's reach, so no altitude does and the walk has no answer to find */
-  if (dzPl > 1e-9) {
+  if (marchSkipEnabled && dzPl > 1e-9) {
     if (gPVSer !== gSer || gPVFz !== fzs || gPVCp !== cp) buildPlaneInv();
     if (gPVEye !== eyeZ) splitPlaneInv();
     if (!gPVWide) {
