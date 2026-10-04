@@ -1358,6 +1358,63 @@ const release = () => fire('mouseup', { button: 0 });
     console.log('raster per level: ' + rlN + ' row(s), ' + rlGate + ' gating row(s), ' + (rlN - rlGate) + ' reported');
   }
 
+  /* ------------------------------------------------------------------------------------------
+     #53: EVERY cost row above times `renderWorld()` + `renderOverlay()`. Nothing inside
+     `update()` - player physics, enemy AI, `hitscan`, projectiles, particles, pickups - has ever
+     had a number, so an update-side change could double frame time and still print SMOKE PASSED.
+     The vertical work is almost entirely update-side, so this is a live blind spot, not hygiene.
+
+     Same deal, same batch shape, one difference that matters: the raster loop deliberately never
+     calls update() so it measures a fixed frame, while this row's whole subject IS the frame that
+     moves. So the seat is re-dealt BEFORE EVERY BATCH, not once per level: each batch starts from
+     the same SEED-derived world, and a batch is not timed on the corpse of the previous one (24 s
+     of game time per level is long enough for the AI to finish the player, which would make the
+     last batches cheap and the median a lie). Keys are cleared by the reseat, so the player stands
+     at the arrival seat while AI, physics and projectiles run - that is the cost being measured.
+
+     REPORTED, NOT GATED, for the same reason the per-level raster rows are: these are this box's
+     numbers at this load average, and #307 is the shape of a floor copied from one run. The
+     second argument of ucrow is where a later commit puts a boolean once a baseline exists; the
+     census line prints the reported -> gating move in the verdict rather than hiding it in a diff.
+     ------------------------------------------------------------------------------------------ */
+  { const UC_BATCHES = 5, UC_FRAMES = 60;
+    let ucN = 0, ucGate = 0;
+    const ucrow = (label, detail, gate) => {
+      console.log('  COST   ' + label.padEnd(48) + (gate === undefined ? 'rpt  ' : gate ? 'ok   ' : 'FAIL ') + ' ' + detail);
+      ucN++;
+      if (gate === undefined) return;
+      ucGate++;
+      expect('COST ' + label, gate, detail);
+    };
+    const UCSEAT = li => {
+      RLV(`(()=>{let a=(${SEED}+90210)>>>0;Math.random=()=>{a=(a+0x6D2B79F5)>>>0;let t=a;t=Math.imul(t^t>>>15,t|1);t^=Math.imul(t^t>>>7,t|61);return((t^t>>>14)>>>0)/4294967296};})()`);
+      RLV(`startLevel(${li}, true); S.mode = "play"; S.locked = true; S.exitOpen = false;`);
+      RLV('for (const k in keys) delete keys[k]; PROJ.length = 0; PARTS.length = 0; DECALS.length = 0;');
+    };
+    for (let li = 0; li < nLevels(); li++) {
+      const samples = [];
+      for (let b = 0; b < UC_BATCHES; b++) {
+        UCSEAT(li);
+        const t0 = Date.now();
+        RLV(`for (let i = 0; i < ${UC_FRAMES}; i++) { update(0.016); }`);
+        samples.push((Date.now() - t0) / UC_FRAMES);
+      }
+      samples.sort((a, b) => a - b);
+      const med = samples[UC_BATCHES >> 1];
+      const sc = RLV(`(()=>{let alive = 0; for (const e of ENEMIES) if (e.state !== 'dead') alive++;
+        let off = 0; for (let i = 0; i < MW * MH; i++) if (MAP.fz[i]) off++;
+        return [S.level, LEVELS[S.level].name, P.x, P.y, P.z, MW, MH, MAP.rooms.length, off,
+          ENEMIES.length, alive, PROJ.length, PARTS.length, P.hp]})()`);
+      ucrow('L' + li + ' update at its arrival seat',
+        `median ${med.toFixed(2)} ms/frame of ${UC_BATCHES} batches x ${UC_FRAMES} updates, batches `
+        + samples.map(v => v.toFixed(1)).join('/')
+        + ` | SEED ${SEED} - L${sc[0]} ${sc[1]} - player ${sc[2].toFixed(1)},${sc[3].toFixed(1)} z ${sc[4].toFixed(2)}`
+        + ` - grid ${sc[5]}x${sc[6]} - ${sc[7]} rooms - ${sc[8]} cells off datum - ${sc[10]}/${sc[9]} enemies alive`
+        + ` - ${sc[11]} projectiles, ${sc[12]} particles, hp ${sc[13]}`);
+    }
+    console.log('update per level: ' + ucN + ' row(s), ' + ucGate + ' gating row(s), ' + (ucN - ucGate) + ' reported');
+  }
+
   if (RASTER_SUMMARY) console.log(RASTER_SUMMARY);
   console.log(`${failed} assertion(s) failed`);
   console.log(process.exitCode ? 'SMOKE FAILED' : 'SMOKE PASSED');
