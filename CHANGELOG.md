@@ -2,6 +2,41 @@
 
 ### Changed
 
+- **`DEV.spawn`'s fan could put a crowd in one cell and say nothing** (#93, #63). The fan clamped each
+  body **radially** to the first open cell, so `DEV.clear(); DEV.spawn('hound', 2, 7.5)` reported
+  distances `[7.48, 7.48]` and the frame drew **one** hound where the HUD counted two; posed where a
+  wall sits 1.5 m ahead, `DEV.spawn(hound, 2, 3.2)` realised **1.50 m** for a requested 3.2 m and said
+  nothing about it. `DEV.spawn` is the sanctioned way to verify live behaviour, so every probe that
+  assumed a spread crowd was weaker than it read. The fan now backs off **laterally** before it backs
+  off radially, never reuses a cell, and returns what it actually did (`placed[]`, `cells`, `collapsed`,
+  `sep`, `why`) with `kind`/`made`/`dist` unchanged, so a caller can assert instead of assume. Measured
+  over 80 pose x distance rows: rows with fewer than two distinct cells **40 -> 16**, and all 16 are the
+  one pose whose first open cell sits 0.55 m ahead - the cone really does hold a single cell there, and
+  the return now says `collapsed: 1, why: 'crowded'` rather than reporting success. A `smoke` row gates
+  it on distinct cells counted over `ENEMIES`, not on the tool's own claim:
+  `dev spawn: 4 row(s), 4 gating row(s), 0 reported`, and pointed at `origin/main`'s `js/` through
+  `JSDIR` the same row prints `FAIL ... 2/3 cells of 3 bodies at 6.00/6.00/6.00 m` and `SMOKE FAILED`.
+  `DEV` is a dev-only path, so a correct fix moves no pixels: `flatparity` exit 0, 8/8 scene md5s
+  identical to main, `tools/refs.lock` md5 unchanged. Still open and now visible instead of hidden: the
+  fan is only 0.32 rad wide, so at 2 m six rows have distinct cells with the bodies overlapping - the
+  return calls that `sep`.
+
+- **smoke now prints what `update()` costs** (#53, tooling). Every cost row in the harness times
+  `renderWorld()` + `renderOverlay()`, so nothing inside `update()` - player physics, enemy AI,
+  `hitscan`, projectiles, particles, pickups - has ever had a number, while the vertical work is
+  almost entirely update-side. Per level the harness now re-deals the level (`startLevel(li, true)`
+  under the same SEED-derived stream) **before every batch** and times 60 `update(0.016)` calls,
+  printing `update at its arrival seat` beside the existing `raster at its arrival seat`, with the
+  player at rest (keys cleared by the reseat) and AI, projectiles and particles running. Reported,
+  **not gated**: these are one box's numbers at load ~3, and #307 is the shape of a floor copied
+  from a single run. Measured here (5 batches x 60 frames, load 2.9-3.3, one session): **0.18 /
+  0.28 / 0.48 / 0.05 ms/frame** for L0-L3 against raster **27.1 / 20.6 / 30.4 / 31.9 ms** at the
+  same seats. The row was seen to move when a busy term was added inside `update()` (0.18 -> 0.55,
+  0.28 -> 0.60, 0.48 -> 0.85, 0.05 -> 0.40) while the four raster medians did **not** (27.10 ->
+  27.15, 20.60 -> 20.90, 30.40 -> 30.08, 31.92 -> 32.62) and `SMOKE PASSED` still printed - which
+  is #53's claim demonstrated rather than argued. No existing assert changed verdict: with digits
+  normalized, this tree's output differs from `origin/main`'s by exactly the five new lines.
+
 - **`alt`'s pit records are declared now, so a lighting change can be judged at all** (#216, tooling).
   `RECPIT`, `RECPITN`, `RECOOB` and `RECOOB_GEO` were plain literals sitting behind a `+-0.005` bracket, so
   `tools/refs.lock` could not see them, `refs --record` could not move them, and any change to lamp strength
