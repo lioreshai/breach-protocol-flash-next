@@ -580,13 +580,52 @@ const MESH = (function () {
      that for a body at 3 m. The flash is emitted into the SAME builder with `b.em = 1` rather than
      into a second one, so the view model is one draw and its emissive parts carry the light exemption
      per vertex (EM) instead of needing a second set of shading registers. */
-  function weaponGeo(kind, st) {
-    const g = VMGEO[kind];
-    if (!g) throw new Error('MESH: no view model authored for weapon "' + kind + '"');
-    const b = g(new Builder(), st || {});
+  /* ---- #186: the weapon's geometry, cached on QUANTIZED travel -------------------------------
+     The issue's own reason for skipping a cache is correct as stated: ejector, pump and magazine travel
+     continuously (`mz, magOut, slideBack, pump, shellIn` are 0..1 envelopes - js/40_render.js:1824-1836), so
+     a key over the travel itself misses every frame and a miss costs the build it was meant to skip. That is
+     the documented cliff - cull before the fetch, and cost the work the cache avoids - and the way off it is
+     the one the body poses already use (PB buckets, js/13_mesh.js:749): key on the travel QUANTIZED, and make
+     the quantum small enough that the part cannot be seen to jump.
+     WQK sizes each term by itself: the row measured 4.17 mm at 1/16 for magOut (0.10 m of travel, the largest
+     in the rig, magOut at :559) against a 4 mm floor while every other part sat under it, so the magazine
+     alone went to 1/32 and the rest stayed at 1/16 - the bound sets the quantum, and the row measures it rather
+     than arithmetic, because these terms move a box's DIMENSIONS
+     exact and quantized geometry across each envelope and reports the largest vertex displacement it finds.
+     `wq(0) === 0` exactly, so an at-rest rig - every hashed frame this repo owns - builds the same numbers it
+     did before this cache existed, and parity is a fact of the key rather than a hope. */
+  const WQK = { mz: 16, magOut: 32, slideBack: 16, pump: 16, shellIn: 16 };   // steps in each term's own travel
+  const WPCAP = 64;                                   // entries; eviction is the rig cache's, evict before build
+  const WEPO = new Map(); let wBytes = 0; const wStat = [0, 0];   // [misses, hits]
+  /* Probe-only teeth arm (#186): when set, every fetch builds and counts a MISS, which is what a key over the
+     raw travel does. view.js's viewmodel block arms it for one row so the failure the issue named - "the key
+     would be wrong" - is driven through the SHIPPED reload timeline instead of being simulated beside it. The
+     shape is the COV/GLOWREC one: inert in play, armed by the probe that needs it. */
+  let WRAW = false;
+  const wq = (n, x) => x > 0 ? Math.round(x * n) / n : 0;   // 0 stays exactly 0, not 1/WQK
+  function wKey(k, s) {
+    return k + '|' + wq(WQK.mz, s.mz) + '|' + wq(WQK.magOut, s.magOut) + '|' + wq(WQK.slideBack, s.slideBack) +
+      '|' + wq(WQK.pump, s.pump) + '|' + wq(WQK.shellIn, s.shellIn);
+  }
+  function wBuild(kind, st) {
+    const b = VMGEO[kind](new Builder(), st || {});
     const p = new Float32Array(b.p), v = new Float32Array(b.p.length / 2);
     for (let i = 0; i < b.p.length / 6; i++) { v[i * 3] = b.p[i * 6]; v[i * 3 + 1] = b.p[i * 6 + 1]; v[i * 3 + 2] = b.p[i * 6 + 2]; }
-    return { kind, p, v, t: new Uint16Array(b.t), em: Uint8Array.from(b.e), nV: b.p.length / 6, tris: b.t.length / 3 };
+    const geo = { kind, p, v, t: new Uint16Array(b.t), em: Uint8Array.from(b.e), nV: b.p.length / 6, tris: b.t.length / 3 };
+    geo.byteLength = p.byteLength + v.byteLength + geo.t.byteLength + geo.em.byteLength;
+    return geo;
+  }
+  function weaponGeo(kind, st) {
+    if (!VMGEO[kind]) throw new Error('MESH: no view model authored for weapon "' + kind + '"');
+    if (WRAW) { wStat[0]++; return wBuild(kind, st); }        // probe arm: never serves, never stores
+    const qk = wKey(kind, st || {});
+    const hit = WEPO.get(qk);
+    if (hit !== undefined) { WEPO.delete(qk); WEPO.set(qk, hit); wStat[1]++; return hit; }
+    if (WEPO.size >= WPCAP) { const k0 = WEPO.keys().next().value; const g0 = WEPO.get(k0); WEPO.delete(k0); wBytes -= g0.byteLength; }
+    wStat[0]++;
+    const geo = wBuild(kind, st);
+    WEPO.set(qk, geo); wBytes += geo.byteLength;
+    return geo;
   }
 
   /* boot-time drift detector for the view models, same shape as SPEC/SRC higher up: VMUZZLE is the
@@ -1037,14 +1076,19 @@ const MESH = (function () {
 
   return {
     draw,
-    stats: () => ({ tris, pxFilled, trisCulled, poseEntries: POSE.size, poseMB: +(poseBytes / 1048576).toFixed(2), poseMade, capMB: PCAP / 1048576 }),
+    stats: () => ({ tris, pxFilled, trisCulled, poseEntries: POSE.size, poseMB: +(poseBytes / 1048576).toFixed(2), poseMade, capMB: PCAP / 1048576,
+      wGeo: WEPO.size, wMiss: wStat[0], wHit: wStat[1], wMB: +(wBytes / 1048576).toFixed(3), wQ: WQK, wCap: WPCAP }),
     reset: () => { tris = 0; pxFilled = 0; trisCulled = 0; },
     setCache: v => { CACHE = !!v; POSE.clear(); poseBytes = 0; poseMade = 0; return CACHE; },
+    setWRaw: v => { WRAW = !!v; return WRAW; },          // probe-only (#186): make the key serve nothing
     trisFor: k => model(k || 'grunt').tris,
     foot: k => FOOT[k] || 0,
     vertsFor: k => model(k || 'grunt').nV,
     /* the view model's geometry: rebuilt per frame, never cached, and the numbers the probes need */
     weapon: (k, st) => weaponGeo(k, st),
+    /* probe-only (#186): the builder with NO quantum applied, so a probe can measure the displacement the
+       quantum is paid with instead of taking the arithmetic on faith. Nothing in the draw path calls this. */
+    weaponRaw: (k, st) => { const b = VMGEO[k](new Builder(), st || {}); return { p: b.p, nV: b.p.length / 6 }; },
     muzzleFor: k => VMUZZLE[k],
     maxVerts: MAXV,
     /* the rest model's own extent in body space: its height span and its radius in plan. This is what
