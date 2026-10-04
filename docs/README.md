@@ -11,7 +11,7 @@ agreement for whoever — human or agent — is editing here). Everything else l
 | [`VERTICALITY.md`](VERTICALITY.md) | The height-grid design, its milestones and its open risks. |
 | [`ROADMAP.md`](ROADMAP.md) | Direction, the priority rubric, and measured constraints. Not status: status is [issues](https://github.com/lioreshai/breach-protocol-flash-next/issues). |
 | [`RELEASE.md`](RELEASE.md) | When this ships a version, and the exact steps that make one. Enforced by the `release` check in `.github/workflows/release-guard.yml`. |
-| [`screens/`](screens/) | The README's screenshots, captured from the deployed build. Refreshed by a release PR, and by any PR that changes the picture. |
+| [`screens/`](screens/) | The README's screenshots, captured from the deployed build. Refreshed by a release PR, and by any PR that changes the picture. A capture is only reproducible if it names a seed — see [`RELEASE.md`](RELEASE.md) step 2. |
 
 Three rules keep these honest, and they are the reason this set is short:
 
