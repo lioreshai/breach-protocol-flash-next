@@ -2,6 +2,21 @@
 
 ### Changed
 
+- **`alt`'s pit records are declared now, so a lighting change can be judged at all** (#216, tooling).
+  `RECPIT`, `RECPITN`, `RECOOB` and `RECOOB_GEO` were plain literals sitting behind a `+-0.005` bracket, so
+  `tools/refs.lock` could not see them, `refs --record` could not move them, and any change to lamp strength
+  failed the row for a reason no rule explains (a placement tree that took unlit-room deals from 24/24 to
+  0/24 still FAILed on pit mean 0.259 against a recorded 0.299). They are now
+  `refRecord('alt', 'PIT-MEAN' | 'PIT-CELLS' | 'OOB-ERA' | 'OOB-NONCLIMB', 'num', …)` - **same values, same
+  bracket** - and `node tools/view.js refs` reads **12 recorded reference(s) in 5 of 25 probes** (was 8 in 4).
+  `RECDARK` is deliberately *not* declared: `G.pitDark === RECDARK[lv]` is the criterion "no pit cell may be
+  unlit", a constant 0, not a census that could be re-measured. Level 3 gets no number, because it has no
+  recorded figure and inventing one would be the record-rot this change exists to stop; the verdict line says
+  `3 recorded pit/lip level(s) of 4` instead. Value-preserving by construction - all 78 `alt` rows print
+  identical verdicts *and* numbers against the previous build, plain and under `STRICT=1`, with both exit 0 -
+  and the guard was seen to fire both ways on the new rows: `REFS-VALUES-MOVED` when a table value moved
+  (0.326 -> 0.327) and `REFS-LOCK-FORM` when a row stopped parsing.
+
 - **The exposure gate now reads the floor of the dealt rolls, not only their median** (#149, tooling).
   `tools/ci/assert.js exposure` prints `WORST n` and `out k/5` beside each level's median and fails a
   level whose darkest seeded layout drops under a recorded floor, and `tools/view.js exposure` does the
