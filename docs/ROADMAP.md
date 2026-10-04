@@ -79,9 +79,17 @@ the three hashes — so DEALT is a lock that re-records often, not a proof that 
 has the right sign.
 
 **The frontier is no longer whether altitude is authored.** `authorVolume` (`js/20_level.js:401`)
-runs before the occupancy gate and `alt` measures the result. What is left is perceivability: a
-raised band is a minority of the floorplan and no column is authored hollow, so a level is
-multi-storey in `MAP.fz` and still *reads* flat to a player. That is M4/M5, not generation.
+runs before the occupancy gate and `alt` measures the result. **This paragraph used to claim that no
+column was authored hollow, and that was false** — tall air is authored in three places: `CZ_TALL = 12`
+and `CZ_SPAWN_TALL = 16` quanta (`js/20_level.js:446-447`), the room loop and mouth loop (`:651`, `:656`),
+and the spawn atrium (`:690`). Measured across 12 deals x 4 levels: **157-349 open cells at >= 2 units of
+own ceiling per deal (L0 157/202/233, L1 178/227/268, L2 185/274/349 min/median/max; L3 171, hand-authored),
+tallest authored `cz` 16 quanta = 4.00 m**, and the spawn seat sees a taller ceiling plane on every deal
+(`volume`'s rows, 17 -> 37, each sabotage-tested: flattening `CZ_TALL` to `CZ_DEF` yields 9 FAIL rows and
+exit 1). What is left is **perceivability through the openings**, not the ceiling: a 1 m lane under a 3.00 m
+cell shows that ceiling to **0 of ~4,400 casts**, because the ray must climb 2.5 m over 1 m, and the tall
+mouth that would fix it is the shape feature 1 measured at **+8.2 ms/frame** against a 16 ms gate. So the
+next move is a cheaper ceiling in the ground pass (`js/40_render.js`, #307's lane), not a bigger `cz`.
 
 Still green while broken: **`genLevel`'s occupancy gate is height-blind past one quantum**, so a
 generator that authors a ramp or ladder degrades to the fallback box — the warn ships, the gate is
