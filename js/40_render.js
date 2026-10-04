@@ -16,6 +16,25 @@ let FARB = 22, AMB = 0.13, GQ = null;
 // samples across one row's fan used to find the light of a far-band row (#197): a row at FARB spans
 // ~1.4*FARB world metres, so ONE cell would book a 30 m wide band to one lamp. Lookups per ROW.
 const FARFAN = 8;
+/* #21: the ground pass's light ceiling. The row-init lookup has always clamped `li` to 1, but the
+   lookups reached AFTER a crossing - the cell crossing inside the row loop, the deferred/off-plane
+   copy in groundPixel, and the far-band fan - did not, so a cell entered mid-row contributed the raw
+   lightmap value, which splatLight accumulates without a ceiling (`lm[i] += amt * w`). Those pixels
+   shaded past their lamp's ceiling while the pixels before the crossing did not, which is a seam, not
+   a brightness choice: row init (:597), the wall pass (:1170) and the billboard term (:1330) all
+   clamp, so ground was the odd one out. `LGCAP` is the ceiling
+   and `LGCNT` the opt-in counter - both are read as a const of the pass (see the register rule in the
+   row loop) and `LGCNT` is null in play, so shipping cost is the compare alone. `view.js NOCAP=1`
+   raises LGCAP to Infinity to reproduce the unclamped behaviour and prove the row can fail.
+   LGCNT is an Int32Array(LG_N*3) of families: slots 0.. count LOOKUPS at the site (a site that never
+   ran means the pass was restructured, which is vacuity, not green), slots LG_N.. count the ones whose
+   lightmap read above LG_CEIL (coverage), slots 2*LG_N.. count the ones still above LG_CEIL when they
+   reached the shade - the defect itself, read off what the pass delivered. A run with LGCAP raised to
+   Infinity makes the second and third families equal, so a leak count cannot pass by being empty. */
+let LGCAP = 1;
+let LGCNT = null;                          // Int32Array(LG_N*3) or null; armed by tools/view.js only
+const LG_CEIL = 1;                          // the invariant's ceiling: what row init clamps to
+const LG_ROW = 0, LG_DEF = 1, LG_FAR = 2, LG_N = 3;
 let G_TRI = false, G_GRIT = 0;                                  // derived from QUAL.rast
 /* #164: altitude reached the geometry and no pixels. A seam at the CREASE of every step the render
    ray crosses - the foot darkened, the far lip lifted - is the one cue that survives a dark room, so
@@ -458,6 +477,7 @@ function castGround(flash, fcR, fcG, fcB) {
   const tileF = MAP.floorTile || 1.15, tileC = MAP.ceilTile || 0.9;
   const dMasks = DECAL_MASK, dGrid = DECAL_GRID;
   const shm = SHADOW ? SH_HEAD : null;                     // #178, hoisted so the pixel loop reads a local
+  const lgc = LGCAP, cnt = LGCNT;                     // #21, consts of the pass for the same reason
   const amb = AMB, fl = flash;
   const gndSteps = MAP.steps ? 1 : 0;                 // #170: 0 on every flat level, which is what keeps
   //                                      a flat frame free of any call to planeAlong and thus md5-clean
@@ -533,7 +553,11 @@ function castGround(flash, fcR, fcG, fcB) {
         const cm = fcam + fstep * s;
         const sx = (camX + (dirX + planeX * cm) * dRaw) | 0, sy = (camY + (dirY + planeY * cm) * dRaw) | 0;
         const inMap = !!lta && sx >= 0 && sy >= 0 && sx < N && sy < N;
-        const ci = inMap ? sy * N + sx : 0, li = inMap && lm ? lm[ci] : 0;   // off-map -> light 0
+        const ci = inMap ? sy * N + sx : 0;
+        let li = inMap && lm ? lm[ci] : 0;                    // off-map -> light 0
+        if (cnt) { cnt[LG_FAR]++; if (li > LG_CEIL) cnt[LG_FAR + LG_N]++; }   // site run / lookup above 1.0
+        if (li > lgc) li = lgc;                                      // #21, these cells are not the camera's
+        if (cnt && li > LG_CEIL) cnt[LG_FAR + 2 * LG_N]++;              // delivered above 1.0 = the defect
         ar += wLit * dcN[0] * (baseRow + li * (inMap ? lta[ci * 3] * inv128 : 1));
         ag += wLit * dcN[1] * (baseRow + li * (inMap ? lta[ci * 3 + 1] * inv128 : 1));
         ab += wLit * dcN[2] * (baseRow + li * (inMap ? lta[ci * 3 + 2] * inv128 : 1));
@@ -600,6 +624,11 @@ function castGround(flash, fcR, fcG, fcB) {
         inMap = gx >= 0 && gy >= 0 && gx < N && gy < N;
         if (inMap) {
           lt = cellTint(cIdx); li = lm ? lm[cIdx] : 0.4;
+          // #21: the row's own pixels are clamped at row init; a crossing re-lookup must clamp too,
+          // or the same lamp renders twice at two different ceilings inside one row.
+          if (cnt) { cnt[LG_ROW]++; if (li > LG_CEIL) cnt[LG_ROW + LG_N]++; }   // site run / lookup above 1.0
+          if (li > lgc) li = lgc;                                    // #21, the clamp this issue is about
+          if (cnt && li > LG_CEIL) cnt[LG_ROW + 2 * LG_N]++;              // delivered above 1.0 = the defect
           lr = base + li * lt[0]; lg = base + li * lt[1]; lb = base + li * lt[2];
           mir = (hash2(gx, gy) * 4) | 0;                        // per-cell mirror kills the tiling tell
         } else { gndOffMap++; lt = TINT_WHITE; li = 0; lr = lg = lb = base; }
@@ -819,6 +848,7 @@ function slabT(rx, ry, absP) {
 function groundPixel(x0, x1, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb, dP, plA) {
   const N = MAP.w, cellArr = MAP.cell, lm = MAP.light, fzs = MAP.fz, stepBase = 2 / BW;
   const shm = SHADOW ? SH_HEAD : null;                      // #178, second copy of the ground pixel body
+  const lgc = LGCAP, cnt = LGCNT;                     // #21, second copy of the light ceiling too
   /* RUN LOOP (#prototype): one call per run of columns that share (row, plane); x1 is exclusive. */
   for (let x = x0; x < x1; x++) {
   const cam = x * stepBase - 1, rx = dirX + planeX * cam, ry = dirY + planeY * cam;
@@ -912,8 +942,14 @@ function groundPixel(x0, x1, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb
     gLSer = gSer; gLSX = sx; gLSY = sy; gML0 = gML1 = gML2 = 0; gMMir = 0;
     const lta = MAP.lt, kk = cIdx * 3;
     if (inMap && lta && cIdx >= 0 && kk + 2 < lta.length) {
-      const li = lm ? lm[cIdx] : 0.4;                     // no li>1 clamp here either, matching the
-      gML0 = li * lta[kk] / 128; gML1 = li * lta[kk + 1] / 128; gML2 = li * lta[kk + 2] / 128;   // loop's
+      /* #21: this is the SECOND copy of the ground pixel body, so it carries the same `li > LGCAP`
+         ceiling the row loop's crossing carries. Without it light is a property of WHICH PATH painted
+         the pixel, and `heights` is the probe that paints pixels through both. */
+      let li = lm ? lm[cIdx] : 0.4;
+      if (cnt) { cnt[LG_DEF]++; if (li > LG_CEIL) cnt[LG_DEF + LG_N]++; }   // site run / lookup above 1.0
+      if (li > lgc) li = lgc;
+      if (cnt && li > LG_CEIL) cnt[LG_DEF + 2 * LG_N]++;              // delivered above 1.0 = the defect
+      gML0 = li * lta[kk] / 128; gML1 = li * lta[kk + 1] / 128; gML2 = li * lta[kk + 2] / 128;
       gMMir = (hash2(sx, sy) * 4) | 0;                    // cell crossing
     }
   }
