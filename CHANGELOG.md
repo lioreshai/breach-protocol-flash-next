@@ -2,6 +2,18 @@
 
 ### Changed
 
+- **The authored finale now obeys the game's own rules** (#354, #355). The plan parser that builds THE
+  STACK pushed barrels as `{ kind: 'barrel' }` with no `hp` at all, so `hurtBarrel`'s `p.hp -= dmg` produced
+  `NaN`, `NaN <= 0` is never true, and the finale's barrels absorbed every shot and every blast while the
+  menu promises *Barrels are not your friends* — they now read one shared `BARREL_HP` that the generator
+  path already used. And `DIFFS[S.diff].cnt` was applied at exactly one site, the generator's placement
+  loop, so Recruit and Nightmare shipped an identical 4-body finale (hp and incoming damage did scale;
+  only the count never did). The authored count now honours the multiplier, seated at the plan's own
+  enemy spots, and Marine asks for exactly the authored number so the shipped default is unchanged.
+  Smoke's `barrels` step used to call `hurtBarrel` and assert nothing, so neither defect could fail it:
+  it now asserts which barrels are down, and a new step boots the authored level at Recruit and Nightmare
+  — the path every existing barrel and difficulty check was blind to.
+
 - **No big band is left without a light source standing in it** (#149). Lamp placement had scored seats
   for the dark *cells* a lamp would cover and then spread the remainder, so a band whose cells were each
   individually dim could still end up with no lamp inside it at all. On untouched `main` the new rows fail:

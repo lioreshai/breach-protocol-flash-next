@@ -1186,7 +1186,13 @@ const AUTHORED = {
   ]
 };
 
+/* #354: one source of truth for barrel hit points. The authored plan parser used to push barrels with no
+   hp at all, so hurtBarrel's `p.hp -= dmg` produced NaN, `NaN <= 0` is never true, and THE STACK's barrels
+   absorbed shots and splash forever while index.html promises "Barrels are not your friends." */
+const BARREL_HP = 26;
+
 function buildAuthored(li) {
+  const authSeats = {};   // #355: the plan's own enemy seats per kind, so difficulty can scale the count
   const cfgL = LEVELS[li], A = AUTHORED, N = A.size;
   const bad = m => { console.warn('AUTHORED REJECTED (level ' + li + '): ' + m); return false; };
   for (const pair of [['geo', A.geo], ['alt', A.alt], ['feat', A.feat]]) {
@@ -1255,11 +1261,34 @@ function buildAuthored(li) {
       const lstr = Math.max(TOPUP_MINF, Math.min(1, cov / TOPUP_TARGET));
       LIGHTS.push({ x: px, y: py, z: fl + LHOVER, r: 7.2, str: lstr, col: cfgL.lampCol, stat: 1 });
       PROPS.push({ tex: PROP.lamp, x: px, y: py, scale: 0.95, z: fl, kind: 'lamp' });
-    } else if (s[2] === 'B') PROPS.push({ tex: PROP.barrel, x: px, y: py, scale: 0.86, z: fl, kind: 'barrel' });
+    } else if (s[2] === 'B') PROPS.push({ tex: PROP.barrel, x: px, y: py, scale: 0.86, z: fl, kind: 'barrel', hp: BARREL_HP, dead: false });
     else if (s[2] === 'C') PROPS.push({ tex: PROP.crate, x: px, y: py, scale: 1, z: fl, kind: 'crate' });
     else if (s[2] === 'A' || s[2] === 'H') PICKUPS.push({ type: s[2] === 'A' ? 'ammo' : 'health', x: px, y: py, bob: 0, dead: false });
-    else if (s[2] === 'g' || s[2] === 'h' || s[2] === 'b')
-      ENEMIES.push(makeEnemy(s[2] === 'g' ? 'grunt' : s[2] === 'h' ? 'hound' : 'brute', px, py));
+    else if (s[2] === 'g' || s[2] === 'h' || s[2] === 'b') {
+      const ak = s[2] === 'g' ? 'grunt' : s[2] === 'h' ? 'hound' : 'brute';
+      ENEMIES.push(makeEnemy(ak, px, py));
+      (authSeats[ak] = authSeats[ak] || []).push([px, py]);
+    }
+  }
+  /* #355: DIFFS[S.diff].cnt reached only the generator's placement loop, so the authored finale shipped an
+     identical 2 grunt + 1 hound + 1 brute on Recruit and on Nightmare. hp and incoming damage DO scale
+     (makeEnemy reads DIFFS.hp at js/30_entities.js:37, damagePlayer reads DIFFS.dmg at :294), so the last
+     level was the one place difficulty had no say in how many bodies stood up. Marine (cnt 1.0) asks for
+     exactly the authored count, so the shipped default is unchanged here. Extras are seated at the plan's
+     OWN enemy spots rather than nudged off one, because an authored cell is guaranteed open and a 0.7 m
+     offset is not; a plan's body is a designed beat, so rounding can never remove the last one.
+     makeEnemy draws from the level's own xorshift, so this count shifts that stream - harmless on an
+     authored map, where every seat comes from the plan and no layout roll follows it. */
+  { const cnt = DIFFS[S.diff].cnt, all = [];
+    for (const k in authSeats) for (const s of authSeats[k]) all.push(s);
+    for (const k in authSeats) {
+      const seats = authSeats[k], want = Math.max(1, Math.round(seats.length * cnt));
+      for (let i = seats.length; i < want && all.length; i++) ENEMIES.push(makeEnemy(k, all[i % all.length][0], all[i % all.length][1]));
+      for (let i = seats.length - 1; i >= want; i--) {
+        const s = seats[i];
+        for (let j = ENEMIES.length - 1; j >= 0; j--) if (ENEMIES[j].kind === k && Math.hypot(ENEMIES[j].x - s[0], ENEMIES[j].y - s[1]) < 0.01) { ENEMIES.splice(j, 1); break; }
+      }
+    }
   }
   // The exit pad is a static, Z-LESS light in the generator path (:1352); an authored level that
   // skips it ships a pad with no glow and leaves alt's wrong-band census with no population at all.
@@ -1696,7 +1725,7 @@ function genLevel(li) {
     for (let i = 0; i < cfgL.crates; i++) { const c = clearSpot(takeNear(2)); PROPS.push({ tex: PROP.crate, x: c[0] + 0.5, y: c[1] + 0.5, scale: 0.72, z: floorAt(c[0] + 0.5, c[1] + 0.5), kind: 'crate' }); }
     for (let i = 0; i < cfgL.barrels; i++) {
       const c = clearSpot(takeNear(2));
-      PROPS.push({ tex: PROP.barrel, x: c[0] + 0.5, y: c[1] + 0.5, scale: 0.86, z: floorAt(c[0] + 0.5, c[1] + 0.5), kind: 'barrel', hp: 26, dead: false });
+      PROPS.push({ tex: PROP.barrel, x: c[0] + 0.5, y: c[1] + 0.5, scale: 0.86, z: floorAt(c[0] + 0.5, c[1] + 0.5), kind: 'barrel', hp: BARREL_HP, dead: false });
     }
     for (const k in cfgL.pick) for (let i = 0; i < cfgL.pick[k]; i++) {
       const c = takeNear(2);

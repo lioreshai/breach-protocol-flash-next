@@ -363,6 +363,13 @@ const release = () => fire('mouseup', { button: 0 });
   step('crouch', "keys['KeyC']=true"); frames(40); step('stand', "keys['KeyC']=false"); frames(10);
   step('sprint', "keys['ShiftLeft']=true; keys['KeyW']=true"); frames(50); step('idle', "keys['ShiftLeft']=false; keys['KeyW']=false"); frames(10);
   step('barrels', 'P.hp=100; for(const p of PROPS) if(p.kind==="barrel") hurtBarrel(p,40)'); frames(80);
+  /* This step used to drive hurtBarrel and assert nothing at all, so it could not fail on any build -
+     the same "assert the placeholder" defect #163 recorded for CEILING-SENTINEL. 40 damage is past
+     BARREL_HP for every barrel, so the claim is simply that the barrels the player shot are down. */
+  const nbGen = vm.runInContext('PROPS.filter(p => p.kind === "barrel").length', ctxVm);
+  const nbGenAlive = vm.runInContext('PROPS.filter(p => p.kind === "barrel" && !p.dead).length', ctxVm);
+  expect('shot barrels are destroyed', nbGen > 0 && nbGenAlive === 0,
+    `${nbGen - nbGenAlive} of ${nbGen} level-0 barrels dead after 40 damage, ${nbGenAlive} still standing`);
   const lm0 = vm.runInContext('MAP.light[(P.y|0)*MW+(P.x|0)]', ctxVm);
   step('explode near', 'explode(P.x+2,P.y+1,0.5,3.2,70,30)');
   const lm1 = vm.runInContext('MAP.light[(P.y|0)*MW+(P.x|0)]', ctxVm);
@@ -370,6 +377,30 @@ const release = () => fire('mouseup', { button: 0 });
   frames(60);
   const lm2 = vm.runInContext('MAP.light[(P.y|0)*MW+(P.x|0)]', ctxVm);
   expect('blast light fully fades out', Math.abs(lm2 - lm0) < 0.01, `${lm0.toFixed(3)} -> ${lm2.toFixed(3)}`);
+  /* #354 / #355: everything above this block runs on level 0, which is GENERATED, and the authored level
+     is built by a different function that parses the plan's marks - so the barrels step could shoot every
+     authored barrel in existence and still say nothing, and DIFFS.cnt had no authored call site either.
+     Boot the authored finale at both ends of the difficulty table and assert the two things that path
+     used to skip, then put the run back on level 0 at Marine so nothing downstream shifts. */
+  {
+    const NL = nLevels(), la = {};
+    for (const d of [0, 2]) {
+      vm.runInContext(`S.diff=${d}; startLevel(${NL - 1}, true); S.mode="play"; S.locked=true; S.exitOpen=false;`, ctxVm);
+      frames(2);
+      const nAuth = vm.runInContext('ENEMIES.length', ctxVm);
+      const nbA = vm.runInContext('PROPS.filter(p => p.kind === "barrel").length', ctxVm);
+      vm.runInContext('P.hp = 100; for (const p of PROPS) if (p.kind === "barrel") hurtBarrel(p, 40);', ctxVm);
+      frames(4);
+      const alive = vm.runInContext('PROPS.filter(p => p.kind === "barrel" && !p.dead).length', ctxVm);
+      la[d] = { n: nAuth, nb: nbA, alive };
+    }
+    expect('authored barrels are destructible (#354)', la[0].nb > 0 && la[0].alive === 0 && la[2].alive === 0,
+      `THE STACK: ${la[0].nb} barrels, after 40 damage ${la[0].alive} still standing at Recruit and ${la[2].alive} at Nightmare (an authored barrel with no hp field takes NaN and never dies)`);
+    expect('the authored finale scales with difficulty (#355)', la[2].n > la[0].n,
+      `ENEMIES on the authored level: Recruit ${la[0].n}, Nightmare ${la[2].n} (DIFFS.cnt 0.8 vs 1.35 - the generator multiplies at js/20_level.js:1707, the plan parser used not to)`);
+    vm.runInContext('S.diff = 1; startLevel(0, true); S.mode = "play"; S.locked = true; S.exitOpen = false;', ctxVm);
+    frames(2);
+  }
   /* #206 targeted check: a transient splat whose disc straddles a BAND BOUNDARY. The permanent-light
      risk this repo carries is "a fading transient re-splats its delta; if light were per-band, an
      un-splat could land in a band the source never lit and leave light behind". Light stayed ONE
