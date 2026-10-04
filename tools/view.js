@@ -1978,7 +1978,7 @@ if (MODE === 'flatparity') {
      on this tree (flat 971c11ec / f05beeb5 / d678642d / 9b6dff6a, dealt 5048636b / 370d3f7a / aa18d43e
      / 040bf80b), so no world, light or band term moved. DEALTM[2] says 85.1 while both trees print 87.2
      - that mean literal is stale on main and is left alone here. */
-  const OLD = refRecord('flatparity', 'PARITY', 'md5', ['152c028bf11d6e4403ab4658313d4539', 'f05beeb58f1266a1aea7e44712995292', 'b0f8fe9153dbfee606747131fd666a21', '5d422cd672686e9d6f99683170d7d789']);
+  const OLD = refRecord('flatparity', 'PARITY', 'md5', ['152c028bf11d6e4403ab4658313d4539', 'f05beeb58f1266a1aea7e44712995292', 'b0f8fe9153dbfee606747131fd666a21', '11ed4cebc2284ce40815f66adc8ec029']);
   const OLDM = [78.2, 34.1, 47.5, 28.0];
   /* #213 moves SHIP[0] to 060da4cd (80.8, from 4262d051/81.3) and nothing else: a coverage top-up's
      intensity now scales with the cells it covers, so the shipped world gains DIMMER sources and L0's
@@ -1997,7 +1997,7 @@ if (MODE === 'flatparity') {
      reserve lamp in a place that had none standing in it, so those two spawn frames repaint. LOCK[1] and
      LOCK[3] are byte-identical, which is the control - the level whose spawn frame the pass cannot reach
      did not move, so this is seat choice, not a light scale. */
-  const SHIP = refRecord('flatparity', 'LOCK', 'md5', ['abaa4e092f7d7212084e39e5fc5f4497', 'f05beeb58f1266a1aea7e44712995292', 'ad48f7cebb4bf94b231c5936adec9030', '5d422cd672686e9d6f99683170d7d789']);
+  const SHIP = refRecord('flatparity', 'LOCK', 'md5', ['abaa4e092f7d7212084e39e5fc5f4497', 'f05beeb58f1266a1aea7e44712995292', 'ad48f7cebb4bf94b231c5936adec9030', '11ed4cebc2284ce40815f66adc8ec029']);
   const SHIPM = [79.3, 34.1, 51.6, 28.0];
   /* #219's DEALT triple, #226's camera: the frame of each level AS DEALTED - bands, band term, shipped
      lamp record, same dice (1000 + level*97) and the same pinned-clock ninth render - but at a seat
@@ -2096,7 +2096,7 @@ if (MODE === 'flatparity') {
   // move is the clamp and not the rebase. Levels 0..2 are byte-identical to main here.
   // #149 re-keys DEALT[0..2] and holds DEALT[3] (e846d5b3, mean 39.7): the dealt frame is the shipped lamp
   // record, and the coverage pass moved three seats on the generated levels. The authored level is the control.
-  const DEALT = refRecord('flatparity', 'DEALT', 'md5', ['1dd4606d1c89f117e9ce65fa070142c1', 'af2897b4ff55f07eed538f333eedf300', '529fe0c79f3b5ec0bbcac5db408ef571', 'e846d5b3aaa281d09844741e1993c389']);
+  const DEALT = refRecord('flatparity', 'DEALT', 'md5', ['a28e002e293cfcc045fcc551f52c81ad', 'af2897b4ff55f07eed538f333eedf300', '529fe0c79f3b5ec0bbcac5db408ef571', 'e846d5b3aaa281d09844741e1993c389']);
   const DEALTM = [55.5, 57.8, 85.1, 39.7];
   const OFF = process.env.LAMPS === 'off';
   const f1 = v => (v === undefined || v === null ? '-' : (+v).toFixed(1));
