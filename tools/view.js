@@ -8423,6 +8423,22 @@ if (MODE === 'bands') {
      out of the renderer's ray and the seam A/B out of the SEAM global, so no row can be satisfied by
      geometry the probe drew for itself (the trap every vertical row in this file used to have), and
      every number counts columns, rows and pixels because an average cannot see the WIDTH of a band. */
+  /* #266: pin the sandbox CLOCK, not only the viewmodel state. The one wall-clock term that reaches a
+     pixel is the rig's look-lag dt (`performance.now()` at js/40_render.js:1789, which the harness
+     stubs as Date.now()), and its input is the gap between two renders: measured over one bands run
+     that gap is p50 33 ms with a max of 228 ms, so dt sits exactly on its `Math.min(0.05, ...)` clamp
+     and HOW MANY of the run's renders are clamped moves between processes - 22, 27 and 30 of the same
+     180 render gaps were >= 50 ms in three processes of a byte-identical tree. That is what made the
+     seam A/B read 11214/11242/11305/11543/11466/11361 px at 1436754: the pair's second frame had the
+     rifle still swinging by whatever ms elapsed, and `lag = damp(lag, -dAng/dt ... , 9, dt)` is a
+     function of the machine. VMREST (view.js:309) zeroes the lag STATE in both renders, which is why
+     main reproduces today; the pin below makes that reproducibility not depend on every present and
+     future render site remembering it - with the clock a constant, dt is a constant and no band row
+     can be a function of load. Same shape as the clock pins `alt` and `flatparity` already set
+     (view.js:1277, :1343, :1900); the lag terms are at rest either way, so no pixel moves. Nothing
+     else in what bands runs reads the clock - the other reader is DEV's frame timer
+     (js/90_dev.js:30) and bands never enters DEV. */
+  run('performance.now = () => 5; VM.t = 5;');
   let bad = 0, knownN = 0, rowsN = 0, STRICT = !!process.env.STRICT;   // debt rows go red under STRICT=1
   const debts = new Set();
   const W = run('BW'), H = run('BH'), ZQS = run('ZQ');
@@ -8623,12 +8639,28 @@ if (MODE === 'bands') {
      band in it at all is VACUOUS and counts against the row, never in its favour. */
   const FARB_STEP_MAX = +(process.env.FARB_STEP_MAX || 8);
   const FARDARK_MAX = +(process.env.FARDARK_MAX || 55), FARDARK_L = +(process.env.FARDARK_L || 24);
+  /* #216's missing row for THIS block: bands was one of the blocks whose verdicts are computed rather
+     than hashed, which is exactly why #266's drift survived a whole session - six processes, six
+     different seam counts, every verdict green, and no literal anywhere that could disagree. What is
+     recorded here is the SEAM=1 half of the seam A/B pair: the cheapest frame that carries the whole
+     ground + wall + riser + viewmodel path at a GENERATED lip camera, and the frame the lip rows above
+     are read off. It is reproducible now because the block pins the clock; recorded on e712916 with
+     that pin in. A move is one of two things, and the row says which: the shading, art or generation
+     moved (a deliberate re-record, named in the source the way flatparity re-keys its triples), or the
+     frame stopped being reproducible - measured: with VMREST dropped from these render sites the frame
+     is b1b8032b instead of 91eccb66 while every other row here stays green and every process agrees,
+     so WITHOUT this record the #266 defect is silent even after the drift is gone. Gated on the plain
+     run, which is what ci.yml runs; every knob that moves the frame or where it is shot from is
+     reported as not-comparable instead of being called a regression. */
+  const md5u32 = b => require('crypto').createHash('md5').update(Buffer.from(b.buffer, b.byteOffset, b.byteLength)).digest('hex');
+  const KNOBS = ['DIST', 'SEAMD', 'SEAMU', 'SEAMW', 'VW', 'VH', 'SEED', 'JSDIR', 'LAMPS'].filter(k => process.env[k]);
+  const RECSEAM = refRecord('bands', 'SEAM-FRAME', 'md5', ['91eccb6618c29a8f1cec99fa9be8e3b4', '96804149a1b44090b3e29c8cb356aa07', 'a4a887ac18688d18d5d5d7b0d99efea6']);
   for (let li = 0; li < 3; li++) {
     const spawn = run(`(function () { startLevel(${li}, true); return [P.x, P.y]; })()`);
     // SEAM=0 runs this whole probe with the term switched off in the renderer, so the same rows can
     // be shown red against the shipped build rather than only against a base checkout
     const seam = seamArm(process.env.SEAM === '0' ? 0 : 1);
-    let diffPx = 0;
+    let diffPx = 0, seamFrame = '';
     for (const kind of ['face', 'walk']) {
       const L = lipFor(kind, spawn[0], spawn[1]);
       if (L.skip) { row(`L${li} ${kind} lip exists to measure`, false, L.skip); continue; }
@@ -8951,17 +8983,23 @@ if (MODE === 'bands') {
          and diffPx is exactly what the term contributes. */
       {
         run('SEAM = 1; S.t = 3.5; ' + VMREST + ' renderWorld()');
-        const A = new Uint32Array(run('px'));
+        const A = new Uint32Array(run('px')); seamFrame = md5u32(A);
         run('SEAM = 0; S.t = 3.5; ' + VMREST + ' renderWorld()');
         const B = new Uint32Array(run('px'));
         run('SEAM = 1');
         for (let i = 0; i < A.length; i += 7) if (Math.abs(lum(A, i) - lum(B, i)) > 4) diffPx += 7;
       }
     }
-    row(`L${li} the seam term is in the build and moves pixels`, seam === 1 && diffPx > 0,
+    row(`L${li} the seam term is in the build and moves pixels`,
+      seam === 1 && diffPx > 0 && (KNOBS.length > 0 || seamFrame === RECSEAM[li]),
       seam === -1 ? 'no SEAM global in js/: the A/B control cannot arm, so no lip row above it means anything'
         : seam === 0 ? `the term is switched OFF for this control run (SEAM=0): the lips above have no edge`
-        : `SEAM=1 vs SEAM=0 moves ${diffPx} px of the frame (every 7th sampled)`);
+        : `SEAM=1 vs SEAM=0 moves ${diffPx} px of the frame (every 7th sampled)`
+        + `; the SEAM=1 frame those lip rows were measured on is ${seamFrame}`
+        + (KNOBS.length ? ` - frame not compared, ${KNOBS.join('/')} moves it or the camera`
+          : seamFrame === RECSEAM[li] ? ' (the recorded frame: same tree, same bytes, every process)'
+            : ` - MOVED from the recorded ${RECSEAM[li]}: the frame is no longer reproducible (#266) ` +
+              `or its shading did, which is a deliberate re-record`));
 
     // the band cue in the minimap: colours paired to cells by recording the layer's own fillRects
     const mm = run(`(function () {

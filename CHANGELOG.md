@@ -2,6 +2,15 @@
 
 ### Changed
 
+- **`bands` now pins the clock it renders with, and has a recorded row** (#266). The frame that lane
+  measures used to depend on wall-clock `dt` reaching the viewmodel's lag damp
+  (`js/40_render.js:1789`: `dt = min(0.05, gap/1000)` → `lag = damp(lag, -dAng/dt, 9, dt)`), so one
+  unchanged tree printed **11214 / 11242 / 11305 / 11543 / 11466 / 11361 px** in six processes and no
+  number from it could be recorded. #273's `VMREST` already quieted most of that; pinning
+  `performance.now` inside the `bands` block makes determinism stop depending on every render site
+  remembering it, and **`bands/SEAM-FRAME`** (3 md5s, `refs` inventory 12 → 13) is now the row that
+  goes red with `MOVED from the recorded …` if the drift - or a dropped `VMREST` - comes back.
+
 - **`DEV.spawn`'s fan could put a crowd in one cell and say nothing** (#93, #63). The fan clamped each
   body **radially** to the first open cell, so `DEV.clear(); DEV.spawn('hound', 2, 7.5)` reported
   distances `[7.48, 7.48]` and the frame drew **one** hound where the HUD counted two; posed where a
