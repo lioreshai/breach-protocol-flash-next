@@ -3365,6 +3365,91 @@ if (MODE === 'sight') {
         PK.dmg0 > 0 && PK.dmg2 / PK.dmg0 >= 1.08,
         `first-hit damage ${PK.dmg0} at level 0 vs ${PK.dmg2} at level 2, ratio ${PK.dmg0 ? (PK.dmg2 / PK.dmg0).toFixed(3) : 'n/a'} (LVL_RAMP 0.06 predicts 1.120, floor 1.08)`);
     }
+    /* #356: the melee SWING resolves ~0.35 s after the wind-up, and the wind-up's band-aware `see`
+       (losZ at js/30_entities.js:567) is stale by then, while the swing's own test had no z in it at
+       all. So each trial seats the pair on one band so the wind-up starts LEGITIMATELY, then moves a
+       band under one of them mid-wind-up - the dodge that made this a defect rather than a tidying -
+       and lets the swing land. The 2-D `los` walks straight through a slab of floor
+       (js/20_level.js:267, #118), which is why the swing used to damage a player standing under the
+       floor the body is on. Same-band and one-quantum controls must keep landing, so the slab case
+       cannot be bought with step-edge melee: a torso-to-torso ray passes over a 0.25 riser. */
+    const MB = run(`(function(){
+      startLevel(${li}, true);
+      let lane = null;
+      for (let y = 2; y < MH - 2 && !lane; y++) for (let x = 2; x < MW - 6 && !lane; x++) {
+        let n = 0; for (let k = 0; k < 5; k++) if (!MAP.cell[y * MW + x + k]) n++;
+        if (n >= 5) lane = { x: x, y: y };
+      }
+      if (!lane) return { skip: 'no 5-cell straight run on this level' };
+      const a = ENEMIES[0];
+      if (!a) return { skip: 'no body generated' };
+      ENEMIES.length = 0; ENEMIES.push(a); PROJ.length = 0;
+      const R0 = Math.random; let rs = 7;
+      Math.random = () => { rs = (rs * 1103515245 + 12345) & 0x7fffffff; return rs / 0x7fffffff; };
+      const pCol = () => ((lane.y | 0) * MW) + ((lane.x + 2.5) | 0);
+      const bCol = () => ((lane.y | 0) * MW) + ((lane.x + 3.5) | 0);
+      const seat = () => {
+        P.x = lane.x + 2.5; P.y = lane.y + 0.5; P.ang = 0; P.hp = 100; P.armor = 0; P.deadT = 0;
+        P.crouch = 0; P.air = false; P.vz = 0; P.z = floorAt(P.x, P.y);
+        a.x = lane.x + 3.5; a.y = lane.y + 0.5; a.z = floorAt(a.x, a.y);
+        a.state = 'chase'; a.alert = true; a.loseT = 9; a.search = 0; a.vx = 0; a.vy = 0;
+        a.hp = a.type.hp; a.dead = false; a.lx = a.x; a.ly = a.y; a.atkT = 0; a.cd = 0;
+        a.stagger = 0; a.stgx = 0; a.stgy = 0; a.sideT = 0; a.stuck = 0; a.atkMode = '';
+        S.mode = 'play'; S.locked = false;
+      };
+      /* RAISE AMOUNT IS PART OF THE ASSERTION. A boundary's opening is [max floor, min ceiling], so a
+         one-quantum raise next to a cell with one unit of headroom is a slab, but the same raise beside
+         the AUTHORED level's CZ_SPAWN_TALL = 16 quanta (4 units) is a LEDGE with 3 units of clearance, and
+         a torso-height ray legitimately passes over it - which is how the first version of these rows
+         passed on L0-L2 (where the body also walked in to dd 0.43) and failed on L3 for the right reason
+         about the wrong geometry. So the slab trials raise by the LOW cell's own ceiling in quanta and the
+         compare is on DAMAGE plus the ray's own lz answer; the one-quantum case stays as its own control.
+         Note the asymmetry the numbers exposed: raising the CELL BEHIND THE RAY's target closes nothing,
+         because ceilAt of the low cell grows to meet it, so only the down case has opening 0. */
+      const closeQ = (x, y) => Math.max(1, Math.round((ceilAt(x, y) - floorAt(x, y)) / ZQ));
+      const trial = (mode) => {
+        const fz0 = MAP.fz.slice();
+        seat();
+        let wind = 0;
+        for (let f = 0; f < 40 && !wind; f++) { update(1 / 60); if (a.atkT > 0 && a.atkMode === 'melee') wind = f; }
+        if (!wind) return { wind: 0, dmg: 0, dz: 0 };
+        let dz = 0;
+        if (mode === 'step') dz = 1;
+        else if (mode === 'up') dz = closeQ(P.x, P.y);
+        else if (mode === 'down') dz = closeQ(a.x, a.y);
+        if (mode === 'step') MAP.fz[bCol()] += 1;
+        else if (mode === 'up') MAP.fz[bCol()] += dz;
+        else if (mode === 'down') MAP.fz[pCol()] += dz;
+        if (dz) { linkBoundaries(); P.z = floorAt(P.x, P.y); a.z = floorAt(a.x, a.y); }
+        // sample the opening at POKE time: after the frames it depends on when the swing landed, which
+        // made the same geometry read 0 m on a build that damages and 1 m on one that does not.
+        const gapAt = +(Math.min(ceilAt(P.x, P.y), ceilAt(a.x, a.y)) -
+                        Math.max(floorAt(P.x, P.y), floorAt(a.x, a.y))).toFixed(2);
+        let dmg = 0;
+        for (let f = 0; f < 90 && !dmg; f++) { update(1 / 60); if (P.hp < 100) dmg = +(100 - P.hp).toFixed(2); }
+        const dbg = { pf: +floorAt(P.x, P.y).toFixed(2), bf: +floorAt(a.x, a.y).toFixed(2),
+                      dd: +Math.hypot(P.x - a.x, P.y - a.y).toFixed(2),
+                      l2: los(a.x, a.y, P.x, P.y) ? 1 : 0,
+                      lz: losZ(a.x, a.y, floorAt(a.x, a.y) + a.scale * 0.5, P.x, P.y, floorAt(P.x, P.y) + 0.55) ? 1 : 0,
+                      gap: +(Math.min(ceilAt(P.x, P.y), ceilAt(a.x, a.y)) - Math.max(floorAt(P.x, P.y), floorAt(a.x, a.y))).toFixed(2) };
+        MAP.fz.set(fz0); linkBoundaries();
+        return { wind: wind, dmg: dmg, dz: dz, gapAt: gapAt, dbg: dbg };
+      };
+      const same = trial('flat'), step = trial('step'), bandB = trial('up'), bandP = trial('down');
+      Math.random = R0; S.level = ${li};
+      return { skip: null, same: same, step: step, bandB: bandB, bandP: bandP, reach: a.type.reach };
+    })()`);
+    if (MB.skip) row(`L${li} melee band rows`, false, MB.skip + ' - VACUOUS');
+    else {
+      row(`L${li} same-band melee lands (control)`, MB.same.wind > 0 && MB.same.dmg > 0,
+        MB.same.wind ? `wind-up at frame ${MB.same.wind}, damage ${MB.same.dmg} (reach ${MB.reach})` : 'NO WIND-UP - row vacuous');
+      row(`L${li} a swing still lands across a one-quantum step`, MB.step.wind > 0 && MB.step.dmg > 0,
+        MB.step.wind ? `damage ${MB.step.dmg} at a 0.25 m step vs ${MB.same.dmg} flat - the auto-step edge must stay a fight, not a whiff` : 'NO WIND-UP - row vacuous');
+      row(`L${li} a swing started above does not follow you THROUGH the slab`, MB.bandB.wind > 0 && MB.bandB.dmg === 0,
+        MB.bandB.wind ? `damage ${MB.bandB.dmg} with the body ${MB.bandB.dz} quanta above at swing time (want 0); opening at poke time ${MB.bandB.gapAt} m. The compare credits DAMAGE only, and the claim it can honestly make is that the trajectory is identical on both trees while the outcome is not: pristine main lands the swing here, this build does not. The exit-time lz is not part of the verdict - over the 90 frames the body walks in, so it can read 1 (visible) long AFTER the swing resolved, which is exactly the staleness this row is about. On main the swing resolves on a 2-D los that walks through a floor slab (js/20_level.js:267)` : 'NO WIND-UP - row vacuous');
+      row(`L${li} and a swing started below does not reach up through the floor`, MB.bandP.wind > 0 && MB.bandP.dmg === 0,
+        MB.bandP.wind ? `damage ${MB.bandP.dmg} with the body ${MB.bandP.dz} quanta below at swing time (want 0); opening at poke time ${MB.bandP.gapAt} m (closed here - the raised cell is the PLAYER's, so its own ceiling already cleared the raise before the poke), ray lz ${MB.bandP.dbg.lz}` : 'NO WIND-UP - row vacuous');
+    }
   }
   console.log(bad ? `SIGHT ${bad} FAILURES` : 'SIGHT ok - hit tests follow the body they hit');
   process.exit(bad ? 1 : 0);
