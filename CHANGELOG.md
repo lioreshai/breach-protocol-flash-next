@@ -2,6 +2,12 @@
 
 ### Changed
 
+- **The menu now tells you that you can jump and climb** (#357). `index.html`'s control list stopped at
+  `Shift/C`, `R/1 2 3`, `G`, `Esc/M/T` — so neither `Space` (jump, `js/30_entities.js:388`) nor `E`/`Q`
+  (climb, gated by `onLadder` at `:385`) appeared anywhere in the screen a player reads before deploying,
+  and the staircase the generator puts in every level (#152) was unreachable by accident rather than by
+  design. The list gains one row, worded *on a ladder*, because the key does nothing off one.
+
 - **No big band is left without a light source standing in it** (#149). Lamp placement had scored seats
   for the dark *cells* a lamp would cover and then spread the remainder, so a band whose cells were each
   individually dim could still end up with no lamp inside it at all. On untouched `main` the new rows fail:
