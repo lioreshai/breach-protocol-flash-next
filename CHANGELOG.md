@@ -54,6 +54,19 @@
   #72 took out of the draw loop, and this branch's sheet is byte-identical to `main`'s (`e9d88fd3…`, 0 of
   9,742,430 bytes differ) while `stats` reports the +36 triangles. Filed as #352; the rows added here live
   in `stats`, where the numbers can move, and they fail under `HELD_FLOOR=999` / `HELD_DELTA=999`.
+- **The simulation is now inside a frame-budget gate** (#53). Every perf row in `node tools/smoke.js`
+  timed `renderWorld()` + `renderOverlay()` — the raster row that gates PRs included — so a change that
+  made the *simulation* expensive (an AI pass, a per-cell sweep, a lightmap rebuild in `update()`) passed
+  every perf gate in the repo while the shipped frame cost more than the number printed. smoke now also
+  times `update()` on its own at the three perf seats and gates the median against `TICK_FLOOR`
+  (default 1.5 ms, derived: the sim measured a median **0.18 ms/frame** over 9 samples from 3 seats,
+  max 0.3, against a raster median of 30.7 ms on the same machine — so the floor is ~8× the measured
+  cost and under 10% of the 16 ms frame #307 is driving the raster floor to; setting `TICK_FLOOR`
+  explicitly remains the standing control for A/B work, as with `RASTER_FLOOR`). Timing it honestly
+  needed a reseat per batch rather than a paired arm: `update()` *advances* the world, so a batch that
+  follows another would be timing a later scene — and, per the trap where a spinning camera also walks
+  the player, would drag the player into where the grid is undefined.
+
 - **No big band is left without a light source standing in it** (#149). Lamp placement had scored seats
   for the dark *cells* a lamp would cover and then spread the remainder, so a band whose cells were each
   individually dim could still end up with no lamp inside it at all. On untouched `main` the new rows fail:
