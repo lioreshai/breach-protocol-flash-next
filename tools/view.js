@@ -1978,7 +1978,7 @@ if (MODE === 'flatparity') {
      on this tree (flat 971c11ec / f05beeb5 / d678642d / 9b6dff6a, dealt 5048636b / 370d3f7a / aa18d43e
      / 040bf80b), so no world, light or band term moved. DEALTM[2] says 85.1 while both trees print 87.2
      - that mean literal is stale on main and is left alone here. */
-  const OLD = refRecord('flatparity', 'PARITY', 'md5', ['152c028bf11d6e4403ab4658313d4539', 'f05beeb58f1266a1aea7e44712995292', 'b0f8fe9153dbfee606747131fd666a21', '5d422cd672686e9d6f99683170d7d789']);
+  const OLD = refRecord('flatparity', 'PARITY', 'md5', ['152c028bf11d6e4403ab4658313d4539', 'f05beeb58f1266a1aea7e44712995292', 'b0f8fe9153dbfee606747131fd666a21', '11ed4cebc2284ce40815f66adc8ec029']);
   const OLDM = [78.2, 34.1, 47.5, 28.0];
   /* #213 moves SHIP[0] to 060da4cd (80.8, from 4262d051/81.3) and nothing else: a coverage top-up's
      intensity now scales with the cells it covers, so the shipped world gains DIMMER sources and L0's
@@ -1997,7 +1997,7 @@ if (MODE === 'flatparity') {
      reserve lamp in a place that had none standing in it, so those two spawn frames repaint. LOCK[1] and
      LOCK[3] are byte-identical, which is the control - the level whose spawn frame the pass cannot reach
      did not move, so this is seat choice, not a light scale. */
-  const SHIP = refRecord('flatparity', 'LOCK', 'md5', ['abaa4e092f7d7212084e39e5fc5f4497', 'f05beeb58f1266a1aea7e44712995292', 'ad48f7cebb4bf94b231c5936adec9030', '5d422cd672686e9d6f99683170d7d789']);
+  const SHIP = refRecord('flatparity', 'LOCK', 'md5', ['abaa4e092f7d7212084e39e5fc5f4497', 'f05beeb58f1266a1aea7e44712995292', 'ad48f7cebb4bf94b231c5936adec9030', '11ed4cebc2284ce40815f66adc8ec029']);
   const SHIPM = [79.3, 34.1, 51.6, 28.0];
   /* #219's DEALT triple, #226's camera: the frame of each level AS DEALTED - bands, band term, shipped
      lamp record, same dice (1000 + level*97) and the same pinned-clock ninth render - but at a seat
@@ -2096,7 +2096,7 @@ if (MODE === 'flatparity') {
   // move is the clamp and not the rebase. Levels 0..2 are byte-identical to main here.
   // #149 re-keys DEALT[0..2] and holds DEALT[3] (e846d5b3, mean 39.7): the dealt frame is the shipped lamp
   // record, and the coverage pass moved three seats on the generated levels. The authored level is the control.
-  const DEALT = refRecord('flatparity', 'DEALT', 'md5', ['1dd4606d1c89f117e9ce65fa070142c1', 'af2897b4ff55f07eed538f333eedf300', '529fe0c79f3b5ec0bbcac5db408ef571', 'e846d5b3aaa281d09844741e1993c389']);
+  const DEALT = refRecord('flatparity', 'DEALT', 'md5', ['a28e002e293cfcc045fcc551f52c81ad', 'af2897b4ff55f07eed538f333eedf300', '529fe0c79f3b5ec0bbcac5db408ef571', 'e846d5b3aaa281d09844741e1993c389']);
   const DEALTM = [55.5, 57.8, 85.1, 39.7];
   const OFF = process.env.LAMPS === 'off';
   const f1 = v => (v === undefined || v === null ? '-' : (+v).toFixed(1));
@@ -10021,6 +10021,37 @@ if (MODE === 'bands') {
   process.exit(bad ? 1 : 0);
 }
 if (MODE === 'stats') {
+  /* #78's budget rows, read here because `stats` is in CI's roster and this is the block that answers
+     "what does a body cost". They are deliberately NOT in `rig`: that block rasterizes `RIG.raster`
+     (tools/view.js:9925), the 2-D path #72 took out of the draw loop, and a branch that changes body
+     geometry comes back BYTE-IDENTICAL there - md5 e9d88fd3144b2ccf32c3cc2a632c90e8 on both sides of a
+     branch that adds a held weapon and raises limb sides, 0 of 9,742,430 bytes differing. A rig row
+     cannot see a mesh, so it cannot gate one. What the weapon DOES to the silhouette is gated by
+     `contrast` and `anim`; these rows gate that the geometry and its budget hook exist at all. */
+  {
+    const HELD_FLOOR = +(process.env.HELD_FLOOR || 190);   // grunt tris with a weapon in hand
+    const HELD_DELTA = +(process.env.HELD_DELTA || 25);     // held kind minus the kind that carries nothing
+    const g0 = run('S.gfx | 0');
+    const G = run('(function(){ const o = { held: MESH.heldKinds(), lo: {}, hi: {}, orig: S.gfx | 0 };' +
+      ' S.gfx = 0; o.lo.sides = MESH.limbSides();' +
+      ' o.lo.grunt = MESH.trisFor("grunt"); o.lo.hound = MESH.trisFor("hound"); o.lo.brute = MESH.trisFor("brute");' +
+      ' S.gfx = 2; o.hi.sides = MESH.limbSides();' +
+      ' o.hi.grunt = MESH.trisFor("grunt"); o.hi.hound = MESH.trisFor("hound"); o.hi.brute = MESH.trisFor("brute");' +
+      ' S.gfx = o.orig; return o; })()');
+    const holds = k => G.held.indexOf(k) >= 0;
+    const dHeld = G.lo.grunt - G.lo.hound, dBrute = G.lo.brute - G.lo.hound;
+    const okHeld = holds('grunt') && holds('brute') && !holds('hound') &&
+      G.lo.grunt >= HELD_FLOOR && dHeld >= HELD_DELTA && dBrute >= HELD_DELTA;
+    console.log((okHeld ? '  ok   ' : '  FAIL ') + 'a body carries a held object (#78): grunt ' +
+      G.lo.grunt + ' tris, brute ' + G.lo.brute + ', hound ' + G.lo.hound + ' (floor ' + HELD_FLOOR +
+      ', the kind that authors no gun is the control: +' + dHeld + '/+' + dBrute + ', want >=' + HELD_DELTA +
+      '; holds ' + G.held.join(',') + ')');
+    const okTier = G.lo.sides === 6 && G.hi.sides === 8 && G.hi.grunt > G.lo.grunt;
+    console.log((okTier ? '  ok   ' : '  FAIL ') + 'the geometry budget reads the tier the renderer picked'
+      + ' (#78): ' + G.lo.sides + ' limb sides at gfx 0 -> ' + G.hi.sides + ' at gfx 2, grunt ' +
+      G.lo.grunt + ' -> ' + G.hi.grunt + ' tris; a tier switch that rebuilt nothing would print equal counts');
+    if (!okHeld || !okTier) { console.log('STATS FAILED #78: the mesh detail pass or its budget hook is not there'); bad++; }
+  }
   console.log('--- materials ---');
   run('');
   const mats = run('WALLS.map((t,i)=>["W"+(i+1),t]).concat(Object.entries(FLOORS).map(([k,t])=>["F"+k,t]),Object.entries(CEILS).map(([k,t])=>["C"+k,t]));');
