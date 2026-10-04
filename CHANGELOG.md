@@ -2,6 +2,24 @@
 
 ### Changed
 
+- **Dark ground now has a bound, and the bound says which kind of dark it is** (#199). The issue asked for its
+  coverage statistic to be "bounded by a threshold measured across >= 5 seeds rather than guessed"; the
+  `alt` census had been printing that number inside the pit row's detail text ever since #204, next to a
+  sentence admitting no threshold was asserted. Two rows' worth of records now sit beside the census -
+  **`DARK-SHARE`** (the share of open cells the delivered lightmap leaves under 0.05, bounded ABOVE: more
+  darkness is a regression, less is not) and **`DARK-COVERED`** (the share of *those* cells that do have a
+  lamp's XY disc over them, held two-sided because it is an attribution and not a quality bar - a swing in
+  either direction means the mechanism moved and the claim needs re-measuring) - over the same 12 seeded
+  rolls per level, so no pose and no frame mean enters them. **What the measurement did to the issue's own
+  diagnosis is the interesting part.** #199's title says 63-72% of dark cells have no source in the disc at
+  all, read on `5f14a09` when `splatLight` was a 2-D disc that ignored `L.z`. That kernel is gone: the band
+  term at `js/20_level.js:939` (#203/#208) and the same predicate in `blurLight` (#206) are why a disc now
+  stops at a riser. Under that kernel the census reads the other way round - **L0 5.1% / L1 29.5% / L2 32.3%
+  of dark cells are uncovered, and 94.9% / 70.5% / 67.7% of them have a lamp right over them** and are dark
+  from the disc's own `(1-d/r)^1.6` falloff, which is the thing #206 reclassified on purpose. Dark cells per
+  level read 276 of 6899, 1158 of 10788, 845 of 13821. The issue's premise that no band term existed is
+  corrected where it will be hit: `bandOf` genuinely has no callers in `js/` (only `tools/view.js` calls it),
+  which is how "the term does not exist" survived while the term was sitting inline in the splat kernel.
 - **No big band is left without a light source standing in it** (#149). Lamp placement had scored seats
   for the dark *cells* a lamp would cover and then spread the remainder, so a band whose cells were each
   individually dim could still end up with no lamp inside it at all. On untouched `main` the new rows fail:
