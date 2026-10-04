@@ -1419,7 +1419,9 @@ const release = () => fire('mouseup', { button: 0 });
   {
     const DS = code => vm.runInContext(code, ctxVm);
     const DSN = 3, DSD = 6.0;                      // three grunts, 6 m in front of the dealt seat
+    const DSS = [2, 4, 7.5, 12], BODYW = 0.5;      // #321's sweep ranges, and one body width in metres
     let dsN = 0, dsGate = 0, dsBad = 0, dsTxt = [];
+    let sepN = 0, sepGate = 0, sepBad = 0, sepTxt = [];
     DS('S.mode = "play";');                        // so 90_dev's own auto-boot at load stays a no-op
     sandbox.location = { search: '?dev=1', hash: '' };
     try { vm.runInContext(fs.readFileSync(jsFile('90_dev.js'), 'utf8'), ctxVm); }
@@ -1446,11 +1448,42 @@ const release = () => fire('mouseup', { button: 0 });
         (rep.placed ? rep.placed.map(p => p.why).join('+') : 'n/a') + ')');
       expect('DEV.spawn crowd occupies ' + DSN + ' distinct cells on every level (#93)', gate,
         dsTxt[dsN - 1]);
+
+      /* #321: the row above is a CELL oracle, and a body is ~0.5 m wide, so a crowd can fill DSN cells
+         and still be ONE blob in the frame. Each body searches along its own off-axis fan ray, so a body
+         pushed sideways by a wall lands where a neighbour's ray crosses (and at 2 m the ±0.16-rad fan is
+         only 0.32 m wide, narrower than a body). On main's js this pose reads 0.32 m at 2 m on L0/L1/L3
+         and 0.29 m at 4 m on L2 with 3/3 cells, so the cell row stayed green over an overlapping crowd.
+         Same oracle as above - the closest pair measured over ENEMIES, not DEV.spawn's own `sep` - over
+         the four ranges the #321 sweep used, so a row here and a row there are the same measurement.
+         A distance whose geometry cannot hold DSN cells is reported as geom, not asserted; a level where
+         NO distance holds them measured nothing, which is a FAILURE rather than a quiet ok. */
+      const sq = JSON.parse(DS(`(()=>{const o=[];for(const d of ${JSON.stringify(DSS)}){`
+        + 'DEV.clear(); DEV.cam(' + seat[0] + ', ' + seat[1] + ', undefined, ' + seat[2] + ');'
+        + `DEV.spawn("grunt", ${DSN}, d);`
+        + ' const s = new Set(); for (const e of ENEMIES) s.add((e.y | 0) * MW + (e.x | 0));'
+        + ' let sp = null; for (let a = 0; a < ENEMIES.length; a++) for (let b = a + 1; b < ENEMIES.length; b++) {'
+        + ' const g = Math.hypot(ENEMIES[a].x - ENEMIES[b].x, ENEMIES[a].y - ENEMIES[b].y);'
+        + ' sp = sp === null ? g : Math.min(sp, g); }'
+        + ' o.push([s.size, sp === null ? null : +sp.toFixed(2)]); } return JSON.stringify(o) })()'));
+      sepN++;
+      const held = sq.filter(v => v[0] === DSN);
+      const gate2 = held.length > 0 && held.every(v => v[1] >= BODYW);
+      if (!gate2) sepBad++;
+      sepGate++;
+      sepTxt.push(`L${li} closest pair ` + sq.map(v => (v[0] === DSN ? v[1] : 'geom' + v[0] + '/' + DSN)).join('/')
+        + ` m at ${DSS.join('/')} m, floor ${BODYW} m, n=${DSN}`);
+      expect('DEV.spawn crowd keeps one body width between bodies on every level (#321)', gate2,
+        sepTxt[sepN - 1]);
     }
     console.log('  DEVSPAWN a DEV.spawn crowd fills ' + DSN + ' distinct cells at ' + DSD + ' m x ' + dsN + ' levels '
       + (dsBad ? 'FAIL  ' : 'ok    ') + dsTxt.join(' | ') +
       ' | oracle = distinct cells over ENEMIES, not the return value');
     console.log('  dev spawn: ' + dsN + ' row(s), ' + dsGate + ' gating row(s), ' + (dsN - dsGate) + ' reported');
+    console.log('  DEVSEP a DEV.spawn crowd keeps >= ' + BODYW + ' m (one body width) at '
+      + DSS.join('/') + ' m x ' + sepN + ' levels ' + (sepBad ? 'FAIL  ' : 'ok    ') + sepTxt.join(' | ')
+      + ' | oracle = closest pair over ENEMIES, not the cell count');
+    console.log('  dev sep: ' + sepN + ' row(s), ' + sepGate + ' gating row(s), ' + (sepN - sepGate) + ' reported');
   }
 
   /* ------------------------------------------------------------------------------------------

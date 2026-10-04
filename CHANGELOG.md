@@ -2,6 +2,28 @@
 
 ### Changed
 
+- **A spawned crowd could fill three cells and draw one body** (#321). `DEV.spawn` searches for each body
+  along **its own** off-axis fan ray, and the distinct-cell set #93 added was the whole oracle — so a body
+  that a wall pushed sideways onto a lateral column landed exactly where a neighbour's ray crosses, and at
+  2 m the ±0.16-rad fan is only 0.32 m wide, narrower than a body. On `main`'s js the dealt-seat fixture
+  stands L0/L1/L3's pair **0.32 m** apart at 2 m and L2's **0.28 m** at 4 m while reporting `cells 3/3,
+  collapsed 0`; the same pose at the other three seeds and ranges, and an 80-row sweep (4 levels × 5
+  grid-chosen poses × d {2, 4, 7.5, 12}, n = 3, 1 roll per row), put **7 of 80** sweep rows in three
+  distinct cells with the closest pair **0.13–0.41 m** apart. The candidate fix the issue ranked first —
+  solve the fan step for the range instead of the fixed angle — repaired **0 of those 7**, because six of
+  them are at 7.5 m, where the fan is already 2.4 m wide and the collision is between a *sidestep and a
+  ray*, not inside the fan. So the fix is the metric one: a candidate must now stand **one lattice column
+  (0.55 m, `FANLAT[1]` ≈ one body width) from every body already placed**, demanded at both stages of the
+  search, so `why:'crowded'` can mean a worse column but never a shared one. After: sweep **0 of 80** bad,
+  closest pair ≥ **0.57 m**; dealt seats ≥ **0.64 m** (the three 0.32 rows go to 0.87, the 0.28 row to
+  **0.66**), across SEED 12345/60/777/4242/900, and no crowd needed `rescue` or lost a cell on any of them.
+  Gated by a new smoke row per level — *closest pair over `ENEMIES`, not the cell count* — at the four
+  ranges the sweep used: `dev sep: 4 row(s), 4 gating row(s), 0 reported`, which FAILs 4 of 4 on untouched
+  `main` js (`JSDIR=`, marker `js-sha256 36b879f381c35048`, exit 1) while the existing
+  `dev spawn: 4 row(s), 4 gating row(s), 0 reported` row passes on **both** sides — that row was never the
+  problem, which is exactly what #321 was about. No shipped pixel moves: `DEV` boots only under `?dev=1`,
+  `flatparity` exits 0 and `tools/refs.lock` is byte-unchanged.
+
 - **No big band is left without a light source standing in it** (#149). Lamp placement had scored seats
   for the dark *cells* a lamp would cover and then spread the remainder, so a band whose cells were each
   individually dim could still end up with no lamp inside it at all. On untouched `main` the new rows fail:
