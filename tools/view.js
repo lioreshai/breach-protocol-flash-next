@@ -7424,7 +7424,7 @@ if (MODE === 'anim') {
     }
     return { n, pct: 100 * n / (m.n || 1), dl: n ? sum / n : 0 };
   }
-  let bad = 0, attachBad = 0, judgeBad = 0, knownChurn = 0;
+  let bad = 0, attachBad = 0, judgeBad = 0, knownChurn = 0, neckBad = 0;
   let churnGroup = false;                        // #170: on THIS level, two renders of one state differed
   const STRICT = !!process.env.STRICT;           // promotes the #170 debt rows below into gates
   const row = (name, d, m, note) => {
@@ -7726,6 +7726,21 @@ if (MODE === 'anim') {
     const hw = W * 0.5, tXax = invDet * (cm.dirY * dx - cm.dirX * dy), rmax = band[2] * en.s;
     const latOf = x => (x / hw - 1) * tY - tXax;
     out.rmax = rmax;
+    /* Two AUTHORED widths next to the painted one, because "how wide is the neck" is only a claim about
+       the tube while the widest painted band row is narrower than the window it was measured in. latOf
+       maps the screen's half width to tY metres, so the plan window spans W * rmax / tY px and the tube
+       the mesh authored spans 2 * band[3] * scale * (hw / tY). A painted row that equals the window is the
+       envelope around the tube - head box, shoulders - and the row says so rather than blaming the art:
+       on a brute at the dealt seat that is exactly the case, and widening its tube 36% left the painted
+       row at the same 26 px, which is how this was caught (#80). */
+    out.windowW = tY > 0 ? W * rmax / tY : 0;
+    out.tubeW = tY > 0 && band.length > 3 ? 2 * band[3] * en.s * (hw / tY) : 0;
+    /* ... and the number js/13_mesh.js actually reasons about, in AUTHORED units: the tube's diameter over
+       the torso BOX's width (the box is drawn 1.05 * shLat wide). Dividing the PAINTED row by the painted
+       torso instead - which is what this row did first - compares the head's envelope with a torso that
+       includes the arm tubes, and reports 23% on a brute for a tube that is 29.5% of its own torso, and
+       31% on a grunt for a tube that is 41% of its own. */
+    out.tubeFrac = band.length > 3 && sp.shLat ? 100 * band[3] / (sp.shLat * 1.05) : 0;
     const yT = Math.max(1, Math.ceil(rowH(band[1])) - 1), yB = Math.min(H - 2, Math.floor(rowH(band[0])) + 1);
     if (yB < yT) { out.why = 'neck band projects off the frame (rows ' + yT + '..' + yB + ')'; return out; }
     out.band = band.map(v => +v.toFixed(3));
@@ -7768,8 +7783,14 @@ if (MODE === 'anim') {
     out.torsoWide = twide;
     out.pct = out.bodyPx > 0 ? 100 * out.rows / out.bodyPx : 0;
     if (!out.rows) out.why = 'no body pixel inside the band window';
-    else if (!out.meas) out.why = 'none of the ' + (out.n + out.noBg) + ' band pixels had an outside-mask neighbour' +
-      ' (all interior: the band is narrower than the silhouette around it)';
+    /* An all-interior band is NOT a failed measurement of the geometry: rows, pct, wide and torsoWide are
+       already computed above and stay in `out`. Only the ΔL question has no pixels there - at this
+       distance the tube is inside the silhouette around it, so no band pixel has a background neighbour
+       to be compared against. Saying which question went unanswered is what makes brute's row report a
+       fact about its proportions instead of ending the row as prose (#80). */
+    else if (!out.meas) out.bgWhy = 'no band pixel has an outside-mask neighbour (' + (out.n + out.noBg) +
+      ' px all interior - at this distance the tube is inside the silhouette around it), so ΔL has no'
+      + ' pixels here and the GEOMETRY rows answer for this kind';
     return out;
   }
   const DK = {};
@@ -7953,7 +7974,8 @@ if (MODE === 'anim') {
     NECK.push(rec);
   }
   const r1fmt = v => (v === undefined ? '-' : v.toFixed(3));
-  const nf = o => !o || o.why ? (o ? o.why : 'no measurement') : 'dL ' + o.dl.toFixed(1) + ' (' + o.lum.toFixed(0) +
+  const nf = o => !o ? 'no measurement' : (o.why || o.bgWhy)
+    ? (o.why || o.bgWhy) : 'dL ' + o.dl.toFixed(1) + ' (' + o.lum.toFixed(0) +
     ' body vs ' + o.bg.toFixed(0) + ' behind), ' + o.within.toFixed(0) + '% within ' + AWITHIN + ' on ' +
     o.meas + '/' + o.n + ' px';
   const cxy = o => !o || o.cell === undefined ? '-' : (o.cell % W) + ',' + ((o.cell / W) | 0);
@@ -7964,7 +7986,7 @@ if (MODE === 'anim') {
     ', within-' + AWITHIN + ' is contrast\'s DLLOST.  REPORTED, not gated (#80)');
   for (const o of NECK) {
     console.log('    ' + o.k.padEnd(6) +
-      (o.dealt && !o.dealt.why
+      (o.dealt && o.dealt.rows
         ? 'band ' + o.dealt.rows + ' px = ' + o.dealt.pct.toFixed(1) + '% of body height (rows ' + o.dealt.rLo +
           '-' + o.dealt.rHi + ' of ' + o.dealt.bodyPx.toFixed(0) + '), ' + o.dealt.wide + ' px wide vs ' +
           o.dealt.torsoWide + ' px torso, plan filter +' + r1fmt(o.dealt.rmax) + ' m'
@@ -7975,9 +7997,134 @@ if (MODE === 'anim') {
       '  |  darkest cell ' + nf(o.dark) + (o.dark && o.dark.cell !== undefined ? ' (' + cxy(o.dark) + ', light '
         + lit(o.dark) + ', @ ' + o.dark.d.toFixed(2) + ' m, ' + o.dark.tried + ' seat(s) tried)' : ''));
   }
+  /* (#80, the ask #326 left as prose) The neck block above REPORTED; these rows gate. Two numbers per
+     kind carry the whole claim, and both are geometry, so they answer for every kind whether or not a
+     background neighbour exists: the band's rows as a share of the drawn body's projected height, and
+     the tube's widest row against the torso's widest row.
+       NECK_PCT_MAX  #80 measured 36 px of a 337 px body = 10.7% and called that "long and thin enough to
+                     read as a stalk at close range"; js/13_mesh.js's SHOULDER_LIFT comment records the
+                     band going 7.5% -> 5.9% when the shoulders' top face moved under the head. 8% sits
+                     between the stalk that was reported and the geometry that fixed it.
+       NECK_W_MIN    js/13_mesh.js's NECK_R0 comment: a tube 22% of the torso's width "reads as a gap
+                     between two parts", 36-41% reads as "the part's own base" - in AUTHORED units (the
+                     torso BOX is drawn 1.05*shLat wide), which is where the shipped geometry sits at 41.0%
+                     on a grunt, 43.2% on a hound and 40.0% on a brute (29.5% before NECK_R_SHLAT, which is
+                     what this floor exists to keep from going back).
+       NECK_DL_MIN   #80's failing case measured mean 5.7 luminance against the wall behind the body, on
+                     a seat where the visor scores 171-250; 8 sits above that measurement. It is read on
+                     the dealt seat only, where the band has a background to be compared against.
+     All three are env-overridable for A/B work and an override is printed, as with RASTER_FLOOR and
+     TICK_FLOOR. An all-interior band (a brute at this seat) is not a debt row and not a pass either: it
+     is reported as the geometry answer it is, and the row below that requires SOME kind to have answered
+     ΔL is what stops the whole block from quietly becoming that. */
+  const NECK_PCT_MAX = +(process.env.NECK_PCT_MAX || 8);
+  /* 38, not 32. js/13_mesh.js floors the tube at NECK_R_SHLAT * shLat = 0.42·shLat, which is exactly
+     40.0% of the torso box on EVERY kind, so a lower bar could never be tripped by geometry - the
+     stalk control (NECK_R0 = 0.30, /tmp/p80sA) proved it by leaving all three kinds green at 40.0/40.0/
+     40.0 and failing only the RECORD rows. 38 sits just under the promise so floating point cannot fail
+     it, far above the 29.5% that was the defect, and the records beside it catch what the floor cannot:
+     thinning NECK_R0 took grunt 41.0 -> 40.0 and hound 43.2 -> 40.0 and those two rows went red. */
+  const NECK_W_MIN = +(process.env.NECK_W_MIN || 38);
+  const NECK_DL_MIN = +(process.env.NECK_DL_MIN || 8);
+  /* The six numbers the rows read, recorded (#216: a verdict with no number behind it is a paragraph).
+     Both are deterministic at this seat - NECK-TUBE is pure authored geometry and cannot move without an
+     edit to js/13_mesh.js, NECK-BAND is the band's projected rows on the seeded dealt seat - so a move is
+     a deliberate re-record: refs.lock, these literals, and any caption or CHANGELOG line quoting them.
+     Brute's tube is recorded at the value NECK_R_SHLAT produces; the day someone reverts that constant the
+     row reads 29.5 and fails, which is the whole point of recording it. */
+  const NECKREC_TUBE = refRecord('anim', 'NECK-TUBE', 'num', [41, 43.2, 40]);
+  const NECKREC_BAND = refRecord('anim', 'NECK-BAND', 'num', [6.1, 2.7, 3.4]);
+  const NECK_TOL = +(process.env.NECK_TOL || 0.05);
+  {
+    const envd = [NECK_PCT_MAX, NECK_W_MIN, NECK_DL_MIN].map((v, i) =>
+      [process.env.NECK_PCT_MAX, process.env.NECK_W_MIN, process.env.NECK_DL_MIN][i] !== undefined
+        ? v + ' (env)' : String(v)).join('/');
+    let dlAnswered = 0, wAnswered = 0, dlWorst = null;
+    console.log('  neck geometry rows - band rows as % of the drawn body height <= ' + NECK_PCT_MAX +
+      ', tube width as % of torso width >= ' + NECK_W_MIN + ', band-vs-wall dL >= ' + NECK_DL_MIN +
+      ' (' + envd + '); a kind whose band is all-interior answers the geometry rows only, and a band row as'
+      + ' wide as the plan window itself reports n/a for width - that pixel span is the envelope, not the tube');
+    for (const [ki, o] of NECK.entries()) {
+      const g = o.dealt;
+      if (!g || !g.rows) {
+        bad++; neckBad++;
+        console.log('  FAIL ' + o.k.padEnd(6) + 'band projects no row inside the frame - ' +
+          (g ? g.why : 'no seat at that distance') + ': nothing below can be measured (#80)');
+        continue;
+      }
+      const okP = g.pct <= NECK_PCT_MAX;
+      if (!okP) { bad++; neckBad++; }
+      console.log('  ' + (okP ? 'ok  ' : 'FAIL') + ' ' + o.k.padEnd(6) + 'neck band ' + g.pct.toFixed(1) +
+        '% of body height (' + g.rows + ' px of ' + g.bodyPx.toFixed(0) + ') against the stalk ceiling ' +
+        NECK_PCT_MAX + '% - #80 measured 10.7% as a stalk' +
+        (okP ? '' : ': the band grew back into the geometry that was reported'));
+      const winW = g.windowW || 0, tubeW = g.tubeW || 0;
+      /* The floor sits on the AUTHORED tube over the AUTHORED torso box (neckRow's tubeFrac), because that
+         is the quantity js/13_mesh.js reasons about and the only width that responds to NECK_R0/NECK_R1 on
+         every kind. The painted widest band row is the HEAD's envelope on all three kinds - the head box is
+         emitted after the tube, so it stamps the rows sampled (grunt 14 px of a 15 px window, hound 18 of
+         18, brute 26 of 26, authored tubes 11/13/19 px) - and a row built on painted pixels therefore
+         cannot see a tube change at all: widening brute's tube 36% left its painted row at the same 26 px.
+         That is how a first version of this row read a brute's HEAD as its neck and reported a defect the
+         control then disproved. */
+      const frac = g.tubeFrac || 0;
+      if (frac > 0) wAnswered++;
+      const okW = frac >= NECK_W_MIN;
+      if (!okW) { bad++; neckBad++; }
+      console.log('  ' + (okW ? 'ok  ' : 'FAIL') + ' ' + o.k.padEnd(6) + 'neck tube is ' + frac.toFixed(1) +
+        '% of its torso BOX (authored 2*r over 2*1.05*shLat) against the ' + NECK_W_MIN + '% floor -' +
+        ' js/13_mesh.js records 22% reading as a gap between two parts and 36-41% as the part\'s own base' +
+        (okW ? '' : ' : this kind sits below the regime its own file describes'));
+      console.log('        painted context: widest band row ' + g.wide + ' px, plan window ' + winW.toFixed(0) +
+        ' px, projected authored tube ' + tubeW.toFixed(0) + ' px - ' +
+        (g.wide >= winW - 1 ? 'the painted row IS the envelope (the head box is emitted after the tube and'
+          + ' stamps these rows), which is why width is measured authored and not painted' : 'the tube sits'
+          + ' inside the window here, so a painted row would also see it'));
+      /* The records next to the floors: the floor says the geometry is in the regime the file describes, the
+         record says it is the geometry that was measured, and a move that passes one still trips the other. */
+      const okRec = frac > 0 && g.rows > 0 && Math.abs(frac - NECKREC_TUBE[ki]) <= NECK_TOL &&
+        Math.abs(g.pct - NECKREC_BAND[ki]) <= NECK_TOL;
+      if (!okRec) { bad++; neckBad++; }
+      console.log('  ' + (okRec ? 'ok  ' : 'FAIL') + ' ' + o.k.padEnd(6) + 'neck geometry sits at the recorded '
+        + 'numbers (tube ' + NECKREC_TUBE[ki] + '%, band ' + NECKREC_BAND[ki] + '% of body height, tolerance '
+        + NECK_TOL + ') measured ' + frac.toFixed(1) + ' / ' + g.pct.toFixed(1) + (okRec ? ''
+          : ' - a move here is a deliberate re-record: refs.lock, the literals in tools/view.js, and any caption'
+            + ' that quotes them'));
+      if (g.meas) {
+        dlAnswered++;
+        if (dlWorst === null || g.dl < dlWorst) dlWorst = g.dl;
+        const okD = g.dl >= NECK_DL_MIN;
+        if (!okD) { bad++; neckBad++; }
+        console.log('  ' + (okD ? 'ok  ' : 'FAIL') + ' ' + o.k.padEnd(6) + 'neck band vs the wall behind it dL ' +
+          g.dl.toFixed(1) + ' (' + g.lum.toFixed(0) + ' body, ' + g.bg.toFixed(0) + ' behind, ' +
+          g.within.toFixed(0) + '% within ' + AWITHIN + ') against ' + NECK_DL_MIN +
+          ' - #80 measured 5.7 mean there, the visor 171-250' + (okD ? '' : ' : the head is floating again'));
+      } else {
+        console.log('  n/a ' + o.k.padEnd(6) + 'no dL at this seat: ' + (g.bgWhy || g.why) +
+          ' - geometry rows above are this kind\'s answer (#80)');
+      }
+    }
+    if (!wAnswered) {
+      bad++; neckBad++;
+      console.log('  FAIL no kind produced an authored tube number: neckBand gave no radius, so the width'
+        + ' rows measure nothing and cannot show a tube reading as a base or as a gap (#80 vacuity)');
+    }
+    if (!dlAnswered) {
+      bad++; neckBad++;
+      console.log('  FAIL no kind answered the band-vs-wall question: every band is all-interior, so this' +
+        ' block is measuring nothing and cannot show the neck reading or not reading (#80 vacuity)');
+    }
+    if (dlAnswered || wAnswered) console.log('  ok   ' + dlAnswered + '/' + NECK.length + ' kind(s) answered dL' +
+      (dlWorst !== null ? ', worst ' + dlWorst.toFixed(1) : '') + ', ' + wAnswered + '/' + NECK.length +
+      ' produced an authored tube number - an all-interior band or an envelope-wide painted row is geometry,'
+      + ' not a'
+      + ' skipped measurement');
+  }
   const why = [];
   run('COV = null;');
-  if (bad - attachBad - judgeBad) why.push('bodies are drawn in a static stance');
+  if (bad - attachBad - judgeBad - neckBad) why.push('bodies are drawn in a static stance');
+  if (neckBad) why.push(neckBad + ' neck row(s) - the band is a stalk, the tube is a gap, or nothing answered '
+    + 'the background question (#80)');
   if (attachBad) why.push(attachBad + ' pose(s) with DETACHED parts');
   if (judgeBad) why.push(judgeBad + ' pose(s) too small to judge at ANY distance - a probe-geometry problem, not a detachment failure');
   console.log(bad ? 'anim: ' + bad + ' assertion(s) FAILED - ' + why.join('; ')
