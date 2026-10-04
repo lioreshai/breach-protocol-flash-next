@@ -32,6 +32,13 @@
   read `undefined` at level 3 instead of turning a row red — that re-record decision, plus `props`'
   three-level LAMPCORE record and `bands`' floors calibrated on "the six lips of each tree", is
   [issue #314](https://github.com/lioreshai/breach-protocol-flash-next/issues/314).
+  Running level 3 for real also found a defect rather than a number: `props`' `slides, does not seal`
+  row crossed 3 of 4 face-graze poses there, because THE STACK's one authored crate is `r 0.655` and
+  overhangs its lane by **0.16 m** where a generated crate overhangs 0.05 m — one ~30° graze pose snags
+  at the face ([issue #318](https://github.com/lioreshai/breach-protocol-flash-next/issues/318)). That
+  row now reports the authored case as debt **at the measured geometry** (overhang past `OVERHANG_MAX`,
+  default 0.12 m — an A/B knob, not a tolerance baked into a verdict), so a generated-geometry snag, a
+  two-pose shortfall, and `STRICT=1` all still go red, and the fix retires the row.
 
 - **The hand-authored level's descent is now in the corridor the player spawns facing, and the corridor
   has volume** (#16, #181). The stair had been authored in the far column of the west wall — outside
