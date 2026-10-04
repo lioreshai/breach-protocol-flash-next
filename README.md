@@ -67,8 +67,9 @@ unchanged and only its ceilings are not. The columns you can look up in went **7
 (6..12, 16..24), both at `MAP.cz` 12, together with the doorway mouths that carry that air out of the
 rooms - and it reset the ceiling inside the pit. `tools/view.js volume` on this tree reads 0 of 12 deals
 per level authoring no volume at all (which is what #282 was about), and its arrival row prints **0 of 12 deals show no tall column to the SPAWN SEAT** on every level
-(min 30, median 42 to 60.5, max 76 look-up columns seen from the seat across the three sweeps, and the
-seat's own headroom **4.00** on all 36 deals). The seat looking up into four units of its own air is
+(min 18, median 18 to 54, max 85 look-up columns seen from the seat across the four sweeps, and the
+seat's own headroom **4.00** on all 36 generated deals — the authored level's 12 deals read **1.00**, which
+is the seat-under-a-slab geometry its own caption names). The seat looking up into four units of its own air is
 #300's doing; #283 is what put tall columns in the map for that row to find. (that sweep is 12 rounds of one stream, i.e. the deal `alt`
 gates plus 11 redraws; `BOOT=1` instead boots 12 separate `SEED=n` deals, which is the path that reproduces
 issue #282's three) - which is why the first frame below still has a one-unit
