@@ -7862,7 +7862,9 @@ if (MODE === 'props') {
     })()`;
     console.log('props cost: interleaved drawn/parked batches; the parked variant has NO prop or pickup in it');
     console.log('  pairs SHARE a level: genLevel() is unseeded, so a cross-level pair would be two maps');
-    for (let li = 0; li < 3; li++) {
+    // #303: the census prices a prop on every level the player is dealt, and an authored plan is the
+    // level whose prop count this sentence cannot assume.
+    for (let li = 0; li < run('LEVELS.length'); li++) {
       run(`S.mode='play'; S.locked=false; startLevel(${li}, true);`);
       const census = run('(()=>{const c={};for(const p of PROPS)c[p.kind]=(c[p.kind]||0)+1;' +
         'return JSON.stringify({props:PROPS.length,pickups:PICKUPS.length,by:c})})()');
@@ -8307,7 +8309,8 @@ if (MODE === 'props') {
     keys['KeyW']=0;
     return{crossed,minEdge:+minEdge.toFixed(3),fIn,fy:+P.y.toFixed(3)};
   })()`;
-  for (let li = 0; li < 3; li++) {
+  const NL = run('LEVELS.length');   // #303: the authored plan places its props by plan marks, so the
+  for (let li = 0; li < NL; li++) {  // population these rows drive has to be read per level, not assumed
     run(`S.mode='play'; S.locked=false; startLevel(${li}, true); ENEMIES.length=0; PROJ.length=0;`);
     const cands = run(`(()=>{for(const p of PROPS)if(p.kind==='crate'||p.kind==='barrel'||p.kind==='lamp'){}
       return PROPS.map((p,i)=>({i,k:p.kind,x:p.x,y:p.y,s:p.scale||1,gz:floorAt(p.x,p.y)}))})()`);
@@ -8603,7 +8606,9 @@ if (MODE === 'bands') {
      band in it at all is VACUOUS and counts against the row, never in its favour. */
   const FARB_STEP_MAX = +(process.env.FARB_STEP_MAX || 8);
   const FARDARK_MAX = +(process.env.FARDARK_MAX || 55), FARDARK_L = +(process.env.FARDARK_L || 24);
-  for (let li = 0; li < 3; li++) {
+  // #303: the rows below are labelled by their own level index and every lip comes out of the GENERATED
+  // grid, so a bound of 3 simply never asks the authored plan.
+  for (let li = 0; li < run('LEVELS.length'); li++) {
     const spawn = run(`(function () { startLevel(${li}, true); return [P.x, P.y]; })()`);
     // SEAM=0 runs this whole probe with the term switched off in the renderer, so the same rows can
     // be shown red against the shipped build rather than only against a base checkout
