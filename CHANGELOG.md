@@ -2,6 +2,23 @@
 
 ### Changed
 
+- **Enemies carry a weapon, and the geometry budget has a hook** (#78). Bodies were still authored at spike
+  fidelity: one global `NS = 6` gave every tube the same prism, so a thigh and a visor were equally faceted,
+  and no part carried an object - the attack bucket had nothing to move. Limbs now take 8 sides on the tier
+  the renderer picked (`S.gfx`, the index `QUAL[]` is addressed by at `js/40_render.js:91`) and 6 elsewhere,
+  and grunt and brute hold a 4-part weapon - stock, receiver, barrel, magazine - placed at the right hand so
+  the gait, the wind-up, the topple and the death pose carry it for free. It is canted **across** the body
+  rather than laid along the aim axis: aimed forward it has almost no screen-space extent the moment the
+  enemy faces the player, which is the difference between carrying something and carrying something visible.
+  Measured at the low tier, grunt and brute are **216 tris against the gun-less hound's 180** (the hound
+  authors no `gun` row, and that absence is what makes the floor mean something), and the tier hook answers
+  **6 → 8 limb sides, grunt 216 → 248 tris**. The model cache key is now `kind#seg` and the pose key carries
+  the same count, so a tier switch rebuilds instead of handing back the previous geometry - #186's lesson
+  that a key must hold every term the geometry reads, applied before it could bite. Verifying the pass also
+  established that **`view.js rig` cannot see mesh geometry at all**: it rasterizes `RIG.raster`, the path
+  #72 took out of the draw loop, and this branch's sheet is byte-identical to `main`'s (`e9d88fd3…`, 0 of
+  9,742,430 bytes differ) while `stats` reports the +36 triangles. Filed as #352; the rows added here live
+  in `stats`, where the numbers can move, and they fail under `HELD_FLOOR=999` / `HELD_DELTA=999`.
 - **No big band is left without a light source standing in it** (#149). Lamp placement had scored seats
   for the dark *cells* a lamp would cover and then spread the remainder, so a band whose cells were each
   individually dim could still end up with no lamp inside it at all. On untouched `main` the new rows fail:

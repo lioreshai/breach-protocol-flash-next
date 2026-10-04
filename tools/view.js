@@ -9899,6 +9899,37 @@ if (MODE === 'bands') {
   process.exit(bad ? 1 : 0);
 }
 if (MODE === 'stats') {
+  /* #78's budget rows, read here because `stats` is in CI's roster and this is the block that answers
+     "what does a body cost". They are deliberately NOT in `rig`: that block rasterizes `RIG.raster`
+     (tools/view.js:9925), the 2-D path #72 took out of the draw loop, and a branch that changes body
+     geometry comes back BYTE-IDENTICAL there - md5 e9d88fd3144b2ccf32c3cc2a632c90e8 on both sides of a
+     branch that adds a held weapon and raises limb sides, 0 of 9,742,430 bytes differing. A rig row
+     cannot see a mesh, so it cannot gate one. What the weapon DOES to the silhouette is gated by
+     `contrast` and `anim`; these rows gate that the geometry and its budget hook exist at all. */
+  {
+    const HELD_FLOOR = +(process.env.HELD_FLOOR || 190);   // grunt tris with a weapon in hand
+    const HELD_DELTA = +(process.env.HELD_DELTA || 25);     // held kind minus the kind that carries nothing
+    const g0 = run('S.gfx | 0');
+    const G = run('(function(){ const o = { held: MESH.heldKinds(), lo: {}, hi: {}, orig: S.gfx | 0 };' +
+      ' S.gfx = 0; o.lo.sides = MESH.limbSides();' +
+      ' o.lo.grunt = MESH.trisFor("grunt"); o.lo.hound = MESH.trisFor("hound"); o.lo.brute = MESH.trisFor("brute");' +
+      ' S.gfx = 2; o.hi.sides = MESH.limbSides();' +
+      ' o.hi.grunt = MESH.trisFor("grunt"); o.hi.hound = MESH.trisFor("hound"); o.hi.brute = MESH.trisFor("brute");' +
+      ' S.gfx = o.orig; return o; })()');
+    const holds = k => G.held.indexOf(k) >= 0;
+    const dHeld = G.lo.grunt - G.lo.hound, dBrute = G.lo.brute - G.lo.hound;
+    const okHeld = holds('grunt') && holds('brute') && !holds('hound') &&
+      G.lo.grunt >= HELD_FLOOR && dHeld >= HELD_DELTA && dBrute >= HELD_DELTA;
+    console.log((okHeld ? '  ok   ' : '  FAIL ') + 'a body carries a held object (#78): grunt ' +
+      G.lo.grunt + ' tris, brute ' + G.lo.brute + ', hound ' + G.lo.hound + ' (floor ' + HELD_FLOOR +
+      ', the kind that authors no gun is the control: +' + dHeld + '/+' + dBrute + ', want >=' + HELD_DELTA +
+      '; holds ' + G.held.join(',') + ')');
+    const okTier = G.lo.sides === 6 && G.hi.sides === 8 && G.hi.grunt > G.lo.grunt;
+    console.log((okTier ? '  ok   ' : '  FAIL ') + 'the geometry budget reads the tier the renderer picked'
+      + ' (#78): ' + G.lo.sides + ' limb sides at gfx 0 -> ' + G.hi.sides + ' at gfx 2, grunt ' +
+      G.lo.grunt + ' -> ' + G.hi.grunt + ' tris; a tier switch that rebuilt nothing would print equal counts');
+    if (!okHeld || !okTier) { console.log('STATS FAILED #78: the mesh detail pass or its budget hook is not there'); bad++; }
+  }
   console.log('--- materials ---');
   run('');
   const mats = run('WALLS.map((t,i)=>["W"+(i+1),t]).concat(Object.entries(FLOORS).map(([k,t])=>["F"+k,t]),Object.entries(CEILS).map(([k,t])=>["C"+k,t]));');
