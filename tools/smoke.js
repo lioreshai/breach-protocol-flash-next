@@ -214,7 +214,49 @@ const release = () => fire('mouseup', { button: 0 });
     // hide behind an even-count median (#143). Default 3 seats = odd count, so the median selects.
     // PERF_SEATS=<a,b,..> re-seats this row alone to A/B a seat set by editing nothing; the VERT lanes
     // keep their own lane salts and re-seat after this, so their geometry is unaffected.
+    /* PAIRED ARM (#170) - what this row gates, and why it is no longer the absolute number.
+       The pooled median above is a sample of the RUNNER as much as of the code. PR #331 produced three
+       verdicts of identical bytes: head-ref 24.73 ms pooled PASSED; the merge-ref read 117.9/33.7/18.9
+       then 117.6/33.9/19.3, pooled 33.88, FAILED; a third merge run went red again - while main's own
+       push runs on the same workflow read 16.32 and 15.77 ms. The merge base is main, so the content was
+       ruled out before the number was: 33.88 against a 32 ms floor is a machine MODE, not a cost, and an
+       absolute floor cannot tell those two apart because both move the same number.
+       So each seat now times two ARMS interleaved in one process - control with the candidate's own kill
+       switch (js/40_render.js's `marchSkipEnabled`) off, candidate with it on, alternating batch by
+       batch - and the gate is the PAIRED DELTA. Nothing about the runner can differ between two batches
+       that ran seconds apart on the same layout in the same context, which is the one claim the absolute
+       could never make. The arms are pixel-identical by construction (the skip removes a walk that cannot
+       answer rather than changing an answer), so a difference here is time and nothing else.
+       The grammar, printed on its own line:
+         PASS           - the paired arm is clean and the absolute is under the floor.
+         MODE PASS      - the paired arm is clean but the absolute pooled median sits over RASTER_FLOOR,
+           and that number belongs to the runner - the three merge-ref verdicts above are the reason.
+           #307 still owns driving the printed 32 to 16 by making the renderer cheaper, not by editing
+           this row.
+         REGRESSION FAIL - pooled cand > pooled ctrl * 1.05 + 0.3 ms, whatever the absolute says. The 5%
+           covers the branch the switch adds inside `planeAlong` (a hot function now alternates shape
+           between arms); the +0.3 ms covers a batch's own jitter, and the pooled median over 5 batches x
+           seats keeps it from being one noisy batch. Seen +23.95 ms on a sabotaged candidate arm.
+         CONTROL PASS / CONTROL FAIL - RASTER_FLOOR was set explicitly, so the ABSOLUTE gates as before.
+         PASS / FAIL (paired arm VACUOUS) - the js tree has no switch to flip, so there is no delta and the
+           absolute gates; that fallback is mode-sensitive by construction, which is the argument above.
+       CONTROL MODE IS UNCHANGED: when RASTER_FLOOR is EXPLICITLY in the environment the row gates the
+       ABSOLUTE comparison exactly as before, so the documented standing control
+       `RASTER_FLOOR=16 node tools/smoke.js` still FAILs code that is not cheaper. A js tree with no such
+       switch (main's, or a future revert) cannot be paired, and there the row falls back to the absolute
+       and prints PAIRED-VACUOUS rather than passing on a delta of nothing. No threshold moved here:
+       RASTER_FLOOR's default, WORST_REC, WORST_RASTER and every other budget row are untouched. */
     const SEATS = (process.env.PERF_SEATS || '0,811,90210').split(',').map(Number);
+    // typeof first: an assignment to an unknown name throws in a strict script, and this row must not end
+    // the run on a tree that predates (or reverted) the switch - it must say it could not be paired.
+    const SWITCH = 'marchSkipEnabled';
+    const paired = vm.runInContext('typeof ' + SWITCH, ctxVm) === 'boolean';
+    const arm = on => { if (paired) vm.runInContext(SWITCH + ' = ' + (on ? 'true' : 'false') + ';', ctxVm); };
+    const batch = () => {
+      const t0 = Date.now();
+      vm.runInContext('for(let i=0;i<60;i++){renderWorld();renderOverlay()}', ctxVm);
+      return (Date.now() - t0) / 60;
+    };
     const reseat = s => {
       vm.runInContext("keys['KeyW']=false", ctxVm);
       vm.runInContext(`(()=>{let a=(${SEED}+${s})>>>0;Math.random=()=>{a=(a+0x6D2B79F5)>>>0;let t=a;t=Math.imul(t^t>>>15,t|1);t^=Math.imul(t^t>>>7,t|61);return((t^t>>>14)>>>0)/4294967296};})()`, ctxVm);
@@ -222,39 +264,83 @@ const release = () => fire('mouseup', { button: 0 });
       frames(20);
       vm.runInContext("keys['KeyW']=true; mouse.dx=6; mouse.dy=-3", ctxVm);
     };
-    const samples = [];
-    const seatMed = [];
+    const medOf = a => a.length % 2 ? a[(a.length - 1) / 2]
+      : (a[a.length / 2 - 1] + a[a.length / 2]) / 2;          // #143: an even count averages the modes
+    const sorted = a => a.slice().sort((x, y) => x - y);
+    const ctrlAll = [], candAll = [], seatRows = [];
     for (const s of SEATS) {
       reseat(s);
-      const bs = [];
+      const cs = [], ds = [];
       for (let b = 0; b < 5; b++) {
-        const t0 = Date.now();
-        vm.runInContext('for(let i=0;i<60;i++){renderWorld();renderOverlay()}', ctxVm);
-        bs.push((Date.now() - t0) / 60);
+        arm(false);
+        const tc = batch();                                  // CONTROL arm: the march walks as before
+        arm(true);
+        const td = paired ? batch() : tc;                     // CANDIDATE arm; nothing to pair = one batch
+        cs.push(tc); ds.push(td);
       }
-      bs.sort((a, b) => a - b);
-      seatMed.push(bs[2]);
-      console.log('raster seat +' + s + ': median', bs[2].toFixed(2), 'ms/frame, batches',
-        bs.map(v => v.toFixed(1)).join('/'));
-      for (const v of bs) samples.push(v);
+      const cm = medOf(sorted(cs)), dm = medOf(sorted(ds));
+      ctrlAll.push(...cs); candAll.push(...ds);
+      seatRows.push('+' + s + ' ctrl ' + cm.toFixed(1) + ' cand ' + dm.toFixed(1) +
+        ' delta ' + (dm - cm >= 0 ? '+' : '') + (dm - cm).toFixed(2));
+      console.log('raster seat +' + s + ': median ' + dm.toFixed(2) + ' ms/frame (ctrl ' + cm.toFixed(2) +
+        ', delta ' + (dm - cm >= 0 ? '+' : '') + (dm - cm).toFixed(2) + '), batches cand ' +
+        ds.map(v => v.toFixed(1)).join('/') + ' ctrl ' + cs.map(v => v.toFixed(1)).join('/'));
     }
-    reseat(SEATS[0]);      // later sections must see the world they saw before this row started looping
-    samples.sort((a, b) => a - b);
-    const med = samples.length % 2 ? samples[(samples.length - 1) / 2]
-      : (samples[samples.length / 2 - 1] + samples[samples.length / 2]) / 2;
-    RASTER_SUMMARY = 'raster: seats ' + SEATS.join('/') + ' medians ' + seatMed.map(v => v.toFixed(1)).join('/')
-      + ' ms | pooled median ' + med.toFixed(2) + ' ms | max ' + samples[samples.length - 1].toFixed(1)
-      + ' ms | floor ' + RASTER_FLOOR + ' ms (#307 drives this to 16)';
+    arm(true);              // the shipped arm from here on, whatever order the pairs happened to end in
+    reseat(SEATS[0]);       // later sections must see the world they saw before this row started looping
+    const medCtrl = medOf(sorted(ctrlAll)), medCand = medOf(sorted(candAll)), med = medCand;
+    const dPool = medCand - medCtrl;
+    const regressed = paired && medCand > medCtrl * 1.05 + 0.3;
+    // an explicit RASTER_FLOOR is the standing control: gate the absolute, as documented above
+    const ctrlMode = process.env.RASTER_FLOOR !== undefined && process.env.RASTER_FLOOR !== '';
+    const gateAbs = !paired || ctrlMode;
+    const absFails = gateAbs && !(med < RASTER_FLOOR);
+    // The label carries the OUTCOME, not just the shape, because a row that prints an adjective next to a
+    // verdict the reader has to go and find elsewhere is how a control mode reads green while it is failing.
+    const verdict = regressed ? 'REGRESSION FAIL'
+      : (ctrlMode ? (absFails ? 'CONTROL FAIL' : 'CONTROL PASS') + ' (RASTER_FLOOR=' + RASTER_FLOOR +
+        ', absolute gates)'
+        : (!paired ? (absFails ? 'FAIL' : 'PASS') + ' (absolute - paired arm VACUOUS, this js tree has no '
+          + SWITCH + ')'
+          : (med >= RASTER_FLOOR ? 'MODE PASS' : 'PASS')));
+    RASTER_SUMMARY = 'raster: seats ' + SEATS.join('/') + ' [' + seatRows.join(', ') + '] | pooled ctrl '
+      + medCtrl.toFixed(2) + ' cand ' + medCand.toFixed(2) + ' delta '
+      + (dPool >= 0 ? '+' : '') + dPool.toFixed(2) + ' ms | pooled median ' + med.toFixed(2) +
+      ' ms | max ' + sorted(candAll)[candAll.length - 1].toFixed(1) +
+      ' ms | floor ' + RASTER_FLOOR + ' ms (#307 drives this to 16) | ' + verdict + ' | paired arm '
+      + (paired ? 'on' : 'OFF (no ' + SWITCH + ' in this js tree)');
     // The verdict used to be a bare number. SEED=777 measures 18.95 ms on code that reads
     // 3.3 ms at the default seed, so a red X could not be told apart from an unlucky world.
     // Name the scene that was timed, in the line AND in the failure detail.
     const sc = vm.runInContext('[S.level, LEVELS[S.level].name, P.x, P.y, P.z, MW, MH, MAP.rooms.length]', ctxVm);
     const scene = `SEED ${SEED} - L${sc[0]} ${sc[1]} - player ${sc[2].toFixed(1)},${sc[3].toFixed(1)} z ${sc[4].toFixed(2)}` +
       ` - grid ${sc[5]}x${sc[6]} - ${sc[7]} rooms - buffer ${vm.runInContext('[BW,BH]', ctxVm).join('x')}`;
-    console.log('raster cost: median', med.toFixed(2), 'ms/frame of', samples.length + ' samples from',
-      SEATS.length + ' seats', '|', scene);
-    expect('raster fits a frame budget (median of ' + samples.length + ' samples over ' + SEATS.length +
-      ' seats)', med < RASTER_FLOOR, med.toFixed(2) + ' ms < ' + RASTER_FLOOR + ' @ ' + scene);
+    console.log('raster cost: median', med.toFixed(2), 'ms/frame of', candAll.length + ' samples from',
+      SEATS.length + ' seats', '(paired ctrl', medCtrl.toFixed(2) + ', cand', medCand.toFixed(2) + ', delta',
+      (dPool >= 0 ? '+' : '') + dPool.toFixed(2) + ' ms)', '|', scene);
+    console.log('raster verdict: ' + verdict + ' - paired gate cand <= ctrl * 1.05 + 0.3 = '
+      + (medCtrl * 1.05 + 0.3).toFixed(2) + ' ms; absolute floor ' + RASTER_FLOOR + ' ms '
+      + (ctrlMode ? 'GATES (RASTER_FLOOR set explicitly - the standing control)'
+        : (paired ? 'reports only - the absolute belongs to the runner'
+          : 'GATES (no paired arm in this js tree, so the delta gate has nothing to hold)'))
+      + ' | load ' + require('os').loadavg().map(v => v.toFixed(2)).join(' '));
+    if (regressed) {
+      expect('raster fits a frame budget (paired A/B of ' + candAll.length + ' samples over ' + SEATS.length +
+        ' seats)', false, 'REGRESSION: the candidate arm is slower than the control on the SAME layouts in the '
+        + 'SAME process - pooled cand ' + medCand.toFixed(2) + ' ms vs ctrl ' + medCtrl.toFixed(2) +
+        ' ms, gate ' + (medCtrl * 1.05 + 0.3).toFixed(2) + ' ms @ ' + scene + ' [' + seatRows.join(', ') + ']');
+    } else if (absFails) {
+      expect('raster fits a frame budget (' + (paired ? 'paired A/B of ' : 'median of ') + candAll.length +
+        ' samples over ' + SEATS.length + ' seats)', med < RASTER_FLOOR,
+        (ctrlMode ? 'CONTROL MODE (RASTER_FLOOR=' + RASTER_FLOOR + ' set explicitly, so the absolute gates as '
+          + 'documented; paired arm ' : 'PAIRED-VACUOUS (this js tree has no ' + SWITCH + ', so the '
+          + 'delta gate had nothing to compare): paired arm ') + 'cand ' + medCand.toFixed(2) + ' ms vs ctrl ' +
+        medCtrl.toFixed(2) + ' ms (delta ' + (dPool >= 0 ? '+' : '') + dPool.toFixed(2) + ') against floor ' +
+        RASTER_FLOOR + ' @ ' + scene);
+    }   // closes the else-if above. #53's sim block goes AFTER it, not inside it: a sim gate that only
+        // runs when the absolute raster row failed is a gate that never runs - measured, TICK_FLOOR=0.01
+        // passed with update() at 0.18 ms, because the block was unreachable on a clean run.
+
     /* (#53) Everything timed above is renderWorld()+renderOverlay(), so update() - the AI, the player,
        projectiles, props, pickups, lights, decals - is in no gate at all: a change that makes the SIM
        expensive sails through smoke while the shipped frame costs more than the number this file prints.
