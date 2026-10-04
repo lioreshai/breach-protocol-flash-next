@@ -33,6 +33,11 @@ let LIGHTS = [], PROPS = [], PICKUPS = [], ENEMIES = [], PROJ = [], PARTS = [];
 /* decals are stored per cell so the wall/floor loops can skip cells with none */
 let DECALS = [], DECAL_GRID = [], DECAL_MASK = null;
 let exitX = 0, exitY = 0, explored = null, bfsDist = null;   // read by an assertion in tools/smoke.js
+/* #154: metres of clear ground the prop passes keep off the spawn seat. A `let` rather than a literal
+   so a probe can A/B it the way it reassigns topUpEnabled and groundPixel (`SPAWN_CLEAR = 0` is the
+   shipped behaviour, no clearance), and so smoke's spawn-clearance row can name what it moved.
+   It is a RADIUS measured from the seat, which is the same number the row asserts. */
+let SPAWN_CLEAR = 2;
 
 const cellIdx = (x, y) => (y | 0) * MW + (x | 0);
 
@@ -1352,6 +1357,45 @@ function genLevel(li) {
 
     const freeCells = [];
     for (let y = 1; y < N - 1; y++) for (let x = 1; x < N - 1; x++) if (cell[y * N + x] === 0) freeCells.push([x, y]);
+    /* #154: the seat, taken HERE rather than at the spawn line below - nearestOpen reads no RNG and
+       touches no grid, so this costs the draw stream nothing, and it is the only way the prop passes
+       can subtract the cell the player will actually stand in. The defect was that the prop pool and
+       the seat were chosen by passes that do not know about each other (#149's shape), so a deal could
+       hand the player a crate at arm's length (measured on main, 12 seeded rolls x 3 levels: 6 of 36
+       deals had a prop under 2.00 m, min 1.00 m, and on two of those it sat in the spawn heading's
+       cone with the wall behind it open at 10-12 m).
+       WHERE the clearance sits is the whole design. It is NOT a rejected candidate inside takeNear: a
+       `continue` there costs one more rndi draw, and #96's rule is that a pass which spends extra draws
+       re-rolls every world built downstream of the same SEED. That is not hypothetical - the first
+       version of this change did exactly that and moved a level whose props were ALREADY clear: at the
+       props probe's ambient stream (SEED 12345, level 0, nearest prop 2.00 m) generation consumed 1424
+       draws and seated the player at 19.5,6.5 on main against 343 draws at 11.5,8.5 on that branch,
+       because one rejected lamp candidate shifted every draw after it - and three rows of
+       `view.js props` went red for a level the clearance had no business touching. So the draw still
+       picks the cell exactly as it always did (takeNear is untouched below) and a pick inside the disc
+       is walked OUT of it by clearSpot, which draws nothing and rolls no dice: the level downstream of
+       a prop that had to move stays bit-for-bit the level main built, and the only thing that changes
+       is the prop's own square metre.
+       The predicate is the same shape as inSpawn one level up - a rule over candidate cells, consulted
+       by the passes that opt in. Lamps, crates and barrels opt in; pickups and enemies do not: a
+       pickup floats and blocks nothing, and enemies already keep takeNear(7+) metres. */
+    const seat = nearestOpen(px0, py0);
+    const seatClear = (x, y) => dist2(x + 0.5, y + 0.5, seat[0], seat[1]) >= SPAWN_CLEAR * SPAWN_CLEAR;
+    // deterministic and RNG-free: the nearest open reachable cell outside the disc, Chebyshev rings
+    // first, scan order within a ring. Three rings is 48 cells; nothing moves when none qualifies.
+    const clearSpot = c => {
+      if (!(SPAWN_CLEAR > 0) || seatClear(c[0], c[1])) return c;
+      for (let r = 1; r <= 3; r++)
+        for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
+          if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+          const nx = c[0] + dx, ny = c[1] + dy;
+          if (nx < 1 || ny < 1 || nx >= N - 1 || ny >= N - 1) continue;
+          const i = ny * N + nx;
+          if (cell[i] || dist[i] < 0 || !seatClear(nx, ny)) continue;
+          return [nx, ny];
+        }
+      return c;
+    };
     const takeNear = (minD, maxD) => {
       for (let tries = 0; tries < 200; tries++) {
         const c = freeCells[rndi(freeCells.length)], d = dist[c[1] * N + c[0]];
@@ -1368,7 +1412,9 @@ function genLevel(li) {
 
     LIGHTS = []; PROPS = []; PICKUPS = []; PROJ = []; PARTS = []; ENEMIES = [];
     for (let i = 0; i < cfgL.lamps; i++) {
-      const c = takeNear(1);
+      const c = clearSpot(takeNear(1));      // #154: a lamp is a prop - it draws, and FOOT.lamp blocks.
+      // one clearSpot call feeds the LIGHTS entry and the PROPS entry below, so light and prop disagree
+      // with each other on no deal;
       LIGHTS.push({ x: c[0] + 0.5, y: c[1] + 0.5, z: floorAt(c[0] + 0.5, c[1] + 0.5) + LHOVER, r: 7.2 + Math.random() * 2.8, str: 1.05, col: cfgL.lampCol, stat: 1 });
       PROPS.push({ tex: PROP.lamp, x: c[0] + 0.5, y: c[1] + 0.5, scale: 0.95, z: floorAt(c[0] + 0.5, c[1] + 0.5), kind: 'lamp' });
     }
@@ -1635,15 +1681,21 @@ function genLevel(li) {
         taken.add(best);
         qOwn = null;                                          // the new source changes every band's own light
         perBand.set(wb, (perBand.get(wb) || 0) + 1);
-        const bx = best % N, by = (best / N) | 0;
+        // #154: the coverage top-up drops a lamp too. Its draws come from the private LCG, so the
+        // global stream is untouched either way, but the seat's clearance is a PLACEMENT rule, and a
+        // lamp is FOOT.lamp wide to a player who walks into it: nudge the chosen cell, keep the
+        // coverage score and intensity that selected it.
+        const bq = clearSpot([best % N, (best / N) | 0]);
+        const bx = bq[0], by = bq[1];
+        taken.add(by * N + bx);           // the cell the lamp STANDS in is the one that must stay unique
         const tsc = Math.min(1, Math.max(TOPUP_MINF, (bcov || 1) / TOPUP_TARGET));   // 0 coverage keeps a full lamp: a dim source that covers nothing would only darken the band
         LIGHTS.push({ x: bx + 0.5, y: by + 0.5, z: floorAt(bx + 0.5, by + 0.5) + LHOVER, r, str: TOPUP_BASE * tsc, col: cfgL.lampCol, stat: 1 });
         PROPS.push({ tex: PROP.lamp, x: bx + 0.5, y: by + 0.5, scale: 0.95, z: floorAt(bx + 0.5, by + 0.5), kind: 'lamp' });
       }
     }
-    for (let i = 0; i < cfgL.crates; i++) { const c = takeNear(2); PROPS.push({ tex: PROP.crate, x: c[0] + 0.5, y: c[1] + 0.5, scale: 0.72, z: floorAt(c[0] + 0.5, c[1] + 0.5), kind: 'crate' }); }
+    for (let i = 0; i < cfgL.crates; i++) { const c = clearSpot(takeNear(2)); PROPS.push({ tex: PROP.crate, x: c[0] + 0.5, y: c[1] + 0.5, scale: 0.72, z: floorAt(c[0] + 0.5, c[1] + 0.5), kind: 'crate' }); }
     for (let i = 0; i < cfgL.barrels; i++) {
-      const c = takeNear(2);
+      const c = clearSpot(takeNear(2));
       PROPS.push({ tex: PROP.barrel, x: c[0] + 0.5, y: c[1] + 0.5, scale: 0.86, z: floorAt(c[0] + 0.5, c[1] + 0.5), kind: 'barrel', hp: 26, dead: false });
     }
     for (const k in cfgL.pick) for (let i = 0; i < cfgL.pick[k]; i++) {
@@ -1667,7 +1719,7 @@ function genLevel(li) {
     // The scatter pass can drop a pillar on the room centre, and starting inside
     // geometry is unrecoverable - the collision probes would sample the player's own
     // cell - so walk out to the nearest open cell instead of spawning into a wall.
-    const sp = nearestOpen(px0, py0);
+    const sp = seat;                    // #154: the same nearestOpen the prop passes subtracted
     P.x = sp[0]; P.y = sp[1]; P.ang = 0.6; P.vx = P.vy = 0; P.z = floorAt(sp[0], sp[1]);
     return true;
   }
