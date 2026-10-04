@@ -142,6 +142,23 @@ still blind (`VERTICALITY.md`, risk 1).
 - Every raster number recorded before the seeding fix is a luck draw — directional only.
 - `#216` is open until the probe blocks whose verdicts are computed rather than hashed have
   recorded rows; `#226` is open on the DEALT sampler's camera.
+- **The authored level is judged only by the records it was measured into (#314, items 3+).**
+  Items 1 and 2 shipped: `LAMPCORE` carries level 3's own pair (245 px / 239.1, measured by that
+  row's own `(E2)` branch before the record existed) and indexes by `LEVELS.length`; `alt`'s pit,
+  wrong-band, coverage and lip records each carry a fourth value with their bound moved in the same
+  commit; era figures print *no era figure for this level* rather than `undefined`. What remains is
+  a decision and three gaps. The decision: `bands`' `:9299` loop is still `li < 3` and `RECSEAM` is
+  3-wide, so level 3 prints nothing there — lifting it is not a record edit, because the authored
+  level's **walk lip measures 27% contrast with 51.4% of lip px within 10 of their neighbour**
+  against floors calibrated on three generated levels' six lips (`WITHIN_MAX` 35%), and its face lip
+  sits at exactly the 45% `want` with no slack. Say whether an authored level with authored light
+  belongs inside a floor derived from generated ones before moving a number. The gaps, found by the
+  same sweep: `props 3` still fails **12 rows** unrelated to the lamp core (5 × `(E) the CONTROL did
+  not fall`, 5 × `orb` at a 0 px silhouette, 2 prop-collision rows) because those comparisons assume
+  generated geometry, and three more silent `li < 3` loops print nothing at level 3 — `:8349` decal,
+  `:8525` and `:8970` props. One real finding rides with the records: the authored lip delivers
+  **0.919** on-band against 0.941/0.967/0.996, so 8.1% of its lip pixels take light across a band
+  boundary; the record moves the level's line with it, and the shortfall is the point.
 
 ## Decision log (details in the commits)
 

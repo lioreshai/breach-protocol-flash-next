@@ -1073,7 +1073,18 @@ if (MODE === 'alt') {
      0.092/0.121/0.132 (the bleeding kernel measured 37/49/75 on df919c3 there). A pit-dark of 0 with pit 0 would be vacuity rather than a fix, so the population
      rides along in the detail and pit > 0 is part of the assertion. */
   {
-    const MAIN_PIT = [181, 194, 175], MAIN_OOB = [19, 10, 16], MAIN_OOB_GEO = [0, 0, 0];
+    // #314: MAIN_OOB_GEO is read by a PREDICATE (`A.oob <= MAIN_OOB_GEO[lv]`), not only by prose, so
+    // it needs level 3's value in the array: measured 0 non-climb wrong-band cells there (0 of 0 -
+    // the authored level has no such cell to leak through, and the row prints its own population).
+    // MAIN_PIT and MAIN_OOB are quoted in text only, and an authored level has no main-era figure to
+    // quote, so those two stay three wide and go through eraOf() below.
+    const MAIN_PIT = [181, 194, 175], MAIN_OOB = [19, 10, 16], MAIN_OOB_GEO = [0, 0, 0, 0];
+    // #314: these three are era readings taken on the three GENERATED levels, so level 3 - authored,
+    // written by hand in js/20_level.js - has no comparison to quote. Indexing the array past its
+    // length printed the literal word `undefined` inside a row that still PASSED, which is how a
+    // raised bound turns into a silent arithmetic miss: say "no era figure" instead, and keep the
+    // measured level-3 value on the row itself, where the census already prints it.
+    const eraOf = (arr, lv) => lv < arr.length ? String(arr[lv]) : 'no era figure for this level';
   // MAIN_OOB is the ALL-CELL figure (#206, era: stairs hugged the outer ring); MAIN_OOB_GEO is the
   // same census with the authored climb cells removed, recorded on the tree that moved the mouths
   // (#189). The row gates the GEO figure, so stair placement cannot buy it and light bleed still trips it.   // #206: recorded on the gated kernel; the bleeding kernel was 123/377/337 (2c5a94f) / 37/49/75 (df919c3)
@@ -1093,8 +1104,12 @@ if (MODE === 'alt') {
       sunken cell now do, and the lamp that used to sit on their datum now stands in the hole - so the
       pit floor is lit (0 dark of 16 at band -4) and 5/53 more DATUM cells are dark. Clause 4 is a
       top-up-effectiveness budget, not a lamp-placement lock, and 53 of 13,821 open cells is 0.4%. */
-    const TOPUP_DARK_REF = [349, 1194, 1108];
-    for (let lv = 0; lv < 3; lv++) {
+    // #314 item 2: the fourth literal is level 3's own measurement (744 dark-of-open cells summed
+    // over the same 12 rolls = 62 of its 256 open cells per deal, against L0's 29 per deal), and it
+    // lands IN THE SAME COMMIT as the bound. Raising the bound first would index past the array and
+    // compare against `undefined` - an arithmetic miss that prints no red row at all.
+    const TOPUP_DARK_REF = [349, 1194, 1108, 744];
+    for (let lv = 0; lv < run('LEVELS.length'); lv++) {
       const A = { pit: 0, pitDark: 0, pitSum: 0, oob: 0, oobSum: 0, oobClimb: 0, nosrc: 0, dark: 0, open: 0, lamps: 0, pitRolls: 0, noPitAt: [] };
       for (let r = 0; r < 12; r++) {
         seedRng(1000 + lv * 97 + r * 13);
@@ -1144,7 +1159,7 @@ if (MODE === 'alt') {
          reason no lamp change can fix. The recorded frame numbers ride along beside the verdict instead. */
       row(`L${lv} a pit reads lit, not blown`,
         A.pitDark === 0 && A.pit > 0 && A.pitSum / A.pit <= 0.55 && A.dark <= dref,
-        `(1) ${A.pitDark} of ${A.pit} pit cells (MAP.fz <= -3, main has ${MAIN_PIT[lv]} of them) hold less than 0.05 delivered`
+        `(1) ${A.pitDark} of ${A.pit} pit cells (MAP.fz <= -3, main has ${eraOf(MAIN_PIT, lv)} of them) hold less than 0.05 delivered`
         + ` light (the LAMPS=off control measures 181/177/146 here on the gated kernel - 118/72/62 before #206, when datum tails reached into pits, and 117/71/62 on 2c5a94f) - (2) that population exists in ${A.pitRolls} of`
         + ` the 12 rolls${A.noPitAt.length ? `, no pit at roll${A.noPitAt.length > 1 ? 's' : ''} ${A.noPitAt.join(' and ')}` : ''}, so this is not a row silently running on two levels - (3) mean delivered light there ${A.pit ? (A.pitSum / A.pit).toFixed(3) : 'no pit at all'} against the 0.55 ceiling`
         + ` (main's unscaled top-up 0.672/0.631/0.647, which is the #213 white box) - (4) ${A.dark} dark of ${A.open} open cells against`
@@ -1154,7 +1169,7 @@ if (MODE === 'alt') {
         + ` these parameters and is unchanged by lamp intensity at all (#221, the glow overlay has no altitude term).`);
       row(`L${lv} delivered wrong-band light does not spread`, A.oob <= MAIN_OOB_GEO[lv],
         `${A.oob} NON-CLIMB open cell(s) hold delivered light with NO source standing on their own band within `
-        + `reach against the recorded ${MAIN_OOB_GEO[lv]} (the ALL-CELL figure was ${MAIN_OOB[lv]} on the tree`
+        + `reach against the recorded ${eraOf(MAIN_OOB_GEO, lv)} (the ALL-CELL figure was ${eraOf(MAIN_OOB, lv)} on the tree`
         + `that put stair mouths on the map's outer ring; this tree's climb-cell share is ${A.oobClimb}, i.e. `
         + `${A.oobClimb} of ${A.oob + A.oobClimb} such cells are authored steps, which take datum light by construction`
         + `(no lamp stands on a stair) - counting them made this row a census of stair placement, which #189 moved`
@@ -1196,11 +1211,17 @@ if (MODE === 'alt') {
        band") rather than reading it off a deal, and it is the one literal on that line every re-key left
        alone. RECOOB_GEO *is* declared: #189 introduced it as the measured non-climb population ("the
        non-climb population of alt's oob census is 0/0/0") and the compare reads it. */
-    const RECPIT = refRecord('alt', 'PIT-MEAN', 'num', [0.262, 0.294, 0.297]);
-    const RECPITN = refRecord('alt', 'PIT-CELLS', 'num', [190, 194, 211]);
-    const RECOOB = refRecord('alt', 'OOB-ERA', 'num', [19, 10, 16]);   // #189 era figure, climb cells included
-    const RECOOB_GEO = refRecord('alt', 'OOB-NONCLIMB', 'num', [0, 0, 0]);   // same census minus authored climb cells
-    const RECDARK = [0, 0, 0];   // the criterion (clause 1 above asserts the same zero), not a census - see above
+    // #314: a fourth value per row, measured on the authored level's own 12 rolls (cell 2.5,18.5
+    // floor 0.00 with its lamp at -1.00; the pit camera was found in 12 of 12 rolls, so this is not
+    // a vacuous record). PIT-CELLS 204 and PIT-MEAN 0.287 sit inside the generated levels' range.
+    // OOB-ERA/OOB-NONCLIMB record ZERO because level 3 has NO non-climb wrong-band cell to leak
+    // through (0 of 0): the row reports its population, so a zero population reads as zero
+    // population rather than as a pass.
+    const RECPIT = refRecord('alt', 'PIT-MEAN', 'num', [0.262, 0.294, 0.297, 0.287]);
+    const RECPITN = refRecord('alt', 'PIT-CELLS', 'num', [190, 194, 211, 204]);
+    const RECOOB = refRecord('alt', 'OOB-ERA', 'num', [19, 10, 16, 0]);   // #189 era figure, climb cells included; L3 has none
+    const RECOOB_GEO = refRecord('alt', 'OOB-NONCLIMB', 'num', [0, 0, 0, 0]);   // same census minus authored climb cells
+    const RECDARK = [0, 0, 0, 0];   // the criterion (clause 1 above asserts the same zero), not a census - see above
     pitRecN = RECPIT.length;   // coverage of the records above, printed in the verdict line
     /* #206: RECPIT and RECOOB are MAP.light censuses, so the blur band gate moved them with the
        kernel (0.426/0.423/0.464 and 123/377/337 were the bleeding kernel's df919c3 readings - the
@@ -1221,7 +1242,13 @@ if (MODE === 'alt') {
       minus 0.01, so the row goes red on a regression and not on a level being hole-y. It can still
       fail: the camera-band-not-surface-band control reads 0.000 on this clause, and deleting the glow
       fails clause 3 outright. */
-    const LIPDELIV_REF = [0.996, 0.967, 0.941];
+    // #314: level 3's authored lip DELIVERS LESS than any generated level - 0.919 against 0.996 /
+    // 0.967 / 0.941, i.e. 8.1% of its lip pixels take light from a different band, on a 4-quantum
+    // step whose lamp sits one floor below the datum. Recording it moves that level's line with it
+    // (the row compares against min(0.95, record - 0.01)), which is what a per-level record is FOR,
+    // but it is a shortfall, not a clean row: it is written up in docs/ROADMAP.md's known-debt table
+    // and it is why this branch carries Refs #314 rather than Closes #314.
+    const LIPDELIV_REF = [0.996, 0.967, 0.941, 0.919];
     const lipFloor = (lv) => Math.min(MINDELIV, LIPDELIV_REF[lv] - 0.01);
     const gAl = (r, k) => r >= 1 ? 0 : (r <= 0.45 ? k * 0.7 + (k * 0.22 - k * 0.7) * (r / 0.45)
       : k * 0.22 * (1 - (r - 0.45) / 0.55));
@@ -1357,7 +1384,7 @@ if (MODE === 'alt') {
         return out;
       })()`, ctxVm);
     };
-    for (let lv = 0; lv < 3; lv++) {
+    for (let lv = 0; lv < run('LEVELS.length'); lv++) {
       const G = { rolls: 0, noSceneAt: [], worstFrac: 0, worstAt: '-', crossN: 0, dqMax: 0, spanMax: 0,
         lampsMin: 1e9, lampsSum: 0, rectMax: 0, pit: 0, pitDark: 0, pitSum: 0, oob: 0, lipRoll: -1, lipDeliv: 1,
         lipOn: 0, lipOnN: 0, lipCross: 0, lipSel: null, lipLamps: 0,
@@ -8796,7 +8823,12 @@ if (MODE === 'props') {
     if (kind === 'lamp') {
       const CORE_D = 1.0;                  // m along the sight line: fogAt(1.0) is 0, fogAt(2.9) is not
       // [saturated px, top-decile luminance] per level, recorded by `node tools/view.js refs --record`
-      const CORE_REC = refRecord('props', 'LAMPCORE', 'num', [263, 239.6, 263, 239.5, 263, 239.5]);   // saturated px, top-decile luminance, per level 0/1/2 at CORE_D
+      // #314 item 1: level 3's own pair, measured by this row's own (E2) branch on the tree before
+      // the record existed - 245 saturated px and a 239.1 top decile at the 1.00 m seat, against
+      // 263 / 239.5 on the generated levels. 18 fewer saturated px on a 20-cell authored map with 6
+      // authored lamps is the authored level's own optics, not a regression: the row keeps its
+      // tolerance rule and the re-record is attributed here rather than folded into the guard.
+      const CORE_REC = refRecord('props', 'LAMPCORE', 'num', [263, 239.6, 263, 239.5, 263, 239.5, 245, 239.1]);   // saturated px, top-decile luminance, per level 0/1/2 at CORE_D
       const seat = run(`(()=>{const x=P.x+Math.cos(P.ang)*${CORE_D},y=P.y+Math.sin(P.ang)*${CORE_D};` +
         `return {x:+x.toFixed(4),y:+y.toFixed(4),open:!isSolid(x,y),fog:+fogAt(${CORE_D}).toFixed(5)}})()`);
       /* the distance at which the R>253 rule dies, solved from the game's own fog rather than typed in,
@@ -8822,7 +8854,7 @@ if (MODE === 'props') {
           if (L > cmax) cmax = L;
           if (hot) csat++;
         }
-        const recN = LI >= 0 && LI <= 2 ? LI * 2 : -1;               // the record covers the 3 authored levels
+        const recN = LI >= 0 && LI < run('LEVELS.length') ? LI * 2 : -1;   // #314: the record now covers every level               // the record covers the 3 authored levels
         const rSat = recN >= 0 ? +CORE_REC[recN] : NaN, rTop = recN >= 0 ? +CORE_REC[recN + 1] : NaN;
         const det = csat + ' px of R>253&&G>253 in the ' + m3.n + ' px mask at ' + CORE_D.toFixed(2) + ' m'
           + ' (maxLum ' + cmax.toFixed(1) + ', top-decile ' + ctop.toFixed(1) + ', fogAt(seat) '

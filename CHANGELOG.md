@@ -506,6 +506,22 @@
   **69/71/83** and spawn **57/65/60/50/63/73** exact, `contrast` **0 FAILURE(S) of 30 rows**, and bands,
   alt, planes, heights, cull, `LEAK=1 CZBAND=1 cull`, anim, props, sight, drop, horizon, mip, vert, stats,
   sheets and `WARM=1 scene 0 3` at exit 0 (22 probes, load average 2.5–3.1). No recapture is owed.
+### Added
+
+- **The probes judge the authored level instead of reporting that it has no record
+  ([#314](https://github.com/lioreshai/breach-protocol-flash-next/issues/314)).** Level 3 is
+  hand-authored while the records gating it were written over three generated levels, so `props 3`
+  answered *level 3 has no record* and `alt`'s censuses would have compared against `undefined` had
+  their bounds moved. `LAMPCORE` now carries level 3's own measured pair and takes its index from
+  the level list; `alt`'s pit, wrong-band, coverage and lip-delivery records each gained a fourth
+  value **and** their `lv < 3` bounds moved in the same commit, because a bound that outruns its
+  literals is an arithmetic miss that prints no red row. A main-era figure no authored level can
+  have now prints *no era figure for this level* rather than the word `undefined` inside a row that
+  still passes. One honest shortfall ships with the record: the authored level's lip delivers
+  **0.919** on-band against 0.941–0.996 on generated levels, so 8.1% of its lip pixels take light
+  across a band boundary — the record moves that level's line with it, and the gap is written up in
+  the roadmap rather than averaged away.
+
 ### Fixed
 
 - **An authored level shipped no lights at all** (#16). `buildAuthored` pushed lamps **without the
