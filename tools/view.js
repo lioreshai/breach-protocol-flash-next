@@ -25,7 +25,7 @@ const LVL = +(process.argv[3] || 0);
 const CAM = +(process.argv[4] || 0);
 // An unknown name used to fall through to the scene dump and exit 0, so a typo in a CI probe list
 // ran something, painted a PNG and reported a passing gate (#89).
-const PROBES = ['scene', 'alt', 'anim', 'bands', 'contrast', 'cull', 'decal', 'diag', 'exposure', 'flatparity', 'heights',
+const PROBES = ['scene', 'alt', 'anim', 'bands', 'columns', 'contrast', 'cull', 'decal', 'diag', 'exposure', 'flatparity', 'heights',
   'drop', 'horizon', 'mip', 'planes', 'play', 'props', 'rig', 'sheets', 'sight', 'stats', 'vert', 'viewmodel',
   'volume', 'refs'];
 if (!PROBES.includes(MODE)) {
@@ -4436,6 +4436,320 @@ if (MODE === 'planes') {
   // RELINK-VB is the #55 stale-blocker guard, and it used to print into a step that exited 0.
   // STEPS-FLAG is the same coupling for the #100 riser flag: a stale flag is an invisible step.
   process.exit(staleAll || !stOk || (!idem.skip && !idemOk) || (!stp.skip && !stepsOk) || !genOk ? 1 : 0);
+}
+
+if (MODE === 'columns') {
+  /* #65: what does one WALL COLUMN cost, and how much of that cost is per-ray rather than per-pixel?
+     #25 hoisted two texel pairs out of castWalls' per-pixel body into its per-ray prologue
+     (js/40_render.js:1155 the horizontal pair, :1156-1160 the crossfade-mips pair), measured
+     -24% at a static camera and +6% at a camera turning at 3 rad/s, and the hypothesis offered was
+     amortisation: ~10 ops moved from per-pixel to per-ray pay on a 60-pixel column and cost on a
+     3-pixel one, and a turning camera makes a lot of short columns. That needs two coefficients,
+     not an argument, so this mode holds the MAP and the camera still and sweeps the PROJECTION only:
+
+          hpx = BH / perp                      (js/40_render.js:1130)
+
+     is the entire vertical scale, so a column's drawn height is proportional to BH at fixed
+     geometry - and BH is one resize() away. resize() sets BH = clamp(round(DH*q.res), lo, hi) and
+     BW = round(BH*DW/DH), so raising innerHeight at fixed innerWidth grows BH while BW - the rays
+     per frame, and hence the number of columns - stays where it was (~DW*q.res). Every row of the
+     table below is therefore the same faces at the same distances with the same rays per frame;
+     only the pixels per column move. Column height is swept 3.5:1 without touching MAP.
+
+     Two timings per config, both batched and timed NODE-side with hrtime (the harness stubs
+     performance.now as Date.now, 1 ms ticks, and one wall pass is under that - the same reason
+     :6685 batches):
+       wall   castWalls alone, called from a closure built once here, never from a wrapper around
+              the loop (AGENTS.md's one-indirection cliff). The pass needs nothing behind it: its
+              only zbuf statement is the WRITE at :1209, it reads no depth, and px keeps the
+              previous frame's contents, which costs the same stores. NOT a parity frame and never
+              used as one - repeated wall passes re-blend decals and re-multiply seams.
+       frame  renderWorld, ground + walls + meshes + viewmodel, for how much of a frame the wall
+              pass even is.
+
+     Counts: two sources, and the mode says which one it used.
+       COUNTED  a two-line census in castWalls (COLS_N / COLS_SUM / COLS_H beside the shipped
+              `pixFilled +=` at :1255, reset at the top of renderWorld) in a SEPARATE tree that
+              `JSDIR=` points at - the documented A/B knob, and the instrument is proven
+              paint-neutral by flatparity printing the same md5 triples on it. Use
+              `JSDIR=/path/to/counted/js node tools/view.js columns`.
+       INFERRED on the tree as it ships, where nothing counts columns, the census is read back out of
+              zbuf: the wall pass stamps the SAME perp into every row of the span it draws (:1209)
+              while the ground pass writes a per-row solve (:919), different for every row, so a
+              vertical run of identical finite distances nearer than 3*FARB (the `continue` at :1118)
+              is one wall column. It cannot see a 1-row column, which is why it is checked against
+              pixFilled (:1255) on every config, and it is reported rather than trusted: on this tree
+              the mode says so, prints the numbers it can prove (px/frame is pixFilled), and points at
+              the counting tree for the rest.
+     Either way px/frame is pixFilled's own delta, which needs no instrument.
+
+     Reporting only. No ms threshold is declared here and none may be added (issue #65 asks for a
+     curve, AGENTS.md owns the timing discipline), and this mode is in no CI roster - the two exits
+     below are instrument checks, not gates on the picture or on time. REPS rounds INTERLEAVE the
+     configs so a machine that gets busier mid-run moves every config, not one. */
+  const NT = Math.max(2, +(process.env.NT || 3));            // column HEIGHTS (BH) - the swept variable
+  const NW = Math.max(2, +(process.env.NW || 3));            // rays == columns per frame (BW), same FOV
+  const PITCH = (process.env.PITCH || '0.02').split(',').map(Number);
+  const REPS = Math.max(3, +(process.env.REPS || 9));
+  const BATCH = Math.max(2, +(process.env.BATCH || 10));
+  // GFX=2 moves the whole sweep to the tier where G_TRI is on, which is the only tier where the
+  // crossfade-mips half of the #25 prologue computes anything at all (G_TRI = q.rast >= 4).
+  if (process.env.GFX) run(`S.gfx=${Math.min(2, Math.max(0, +process.env.GFX | 0))};resize();`);
+  const T = run('({gfx:S.gfx,tier:GQ.name,res:GQ.res,lo:GQ.min,hi:GQ.max,tri:G_TRI,grit:G_GRIT,far:FARB,BW,BH,DW,DH})');
+  // resize(): BH = clamp(round(DH*res), lo, hi) and BW = round(BH*DW/DH), so DH = BH/res and DW = BW/res
+  // set the two INDEPENDENTLY. FOV does not depend on BW (planeX/Y are dir rotated by cfg.plane, never
+  // by the ray count), so a wider BW samples the SAME view with more rays: column heights stay where
+  // they were while columns/frame move. That decorrelation is the whole point - at fixed BW the two
+  // regressors are the same column (BW rays, BW*h pixels), and no split of per-ray against per-pixel
+  // cost is identifiable however clean the fit looks (#65's curve needs two axes, not one).
+  const TARGETS = [];
+  // BHS=/BWS= override the two axes explicitly - `BHS=338 BWS=601` is the resolution the game boots at,
+  // which is what an A/B of two trees has to be measured at.
+  const BHS = (process.env.BHS || '').split(',').filter(Boolean).map(Number);
+  const BWS = (process.env.BWS || '').split(',').filter(Boolean).map(Number);
+  if (BHS.length) TARGETS.length = 0;
+  for (const pt of PITCH) {
+    for (let i = 0; i < (BHS.length || NT); i++) {
+      const bh = BHS.length ? BHS[i] : Math.round(T.lo + (T.hi - T.lo) * i / (NT - 1));
+      for (let j = 0; j < (BWS.length || NW); j++) {
+        const bw = BWS.length ? BWS[j] : Math.round(240 + (1000 - 240) * j / (NW - 1));
+        TARGETS.push({ bh, bw, pt });
+      }
+    }
+  }
+  const load = () => { try { return fs.readFileSync('/proc/loadavg', 'utf8').trim(); } catch (e) { return 'loadavg unreadable'; } };
+  const med = a => { const s = a.slice().sort((x, y) => x - y), k = s.length; return k % 2 ? s[(k / 2) | 0] : (s[k / 2 - 1] + s[k / 2]) / 2; };
+  const spread = a => Math.min(...a).toFixed(2) + '..' + Math.max(...a).toFixed(2);
+  console.log('columns: wall-column cost vs column height at FIXED geometry (#65). Level ' + LVL + ', cam seat '
+    + CAM + ', SEED ' + SEED + ', ' + T.tier + ' tier (res ' + T.res + ', BH clamped to ' + T.lo + '..' + T.hi
+    + '), G_TRI ' + (T.tri ? 'ON' : 'off') + ', G_GRIT ' + T.grit + ', FARB ' + T.far);
+  console.log('  ' + TARGETS.length + ' configs: BH ' + TARGETS.filter((c, i) => i % NW === 0).map(c => c.bh).join('/')
+    + ' (column height) x BW ' + TARGETS.slice(0, NW).map(c => c.bw).join('/')
+    + ' (rays = columns/frame) x pitch ' + PITCH.join('/') + ' of BH, x ' + REPS
+    + ' interleaved rounds x ' + BATCH + ' timed frames; counts '
+    + (run('typeof COLS_N !== "undefined"') ? 'COUNTED by the tree in play' : 'INFERRED from zbuf (run the counting tree for exact counts)')
+    + '; load at start ' + load() + ' - AGENTS.md: load ~3 has inflated unchanged code 3.4 -> 17-46 ms');
+
+  // the camera `scene` uses (longest sight line from an open cell), then FROZEN: no update() anywhere
+  // below, so every frame of every config is the same state and the curve cannot be a dice roll.
+  run('S.mode="play"; S.locked=false;');
+  run(`startLevel(${LVL}, true); S.mode='play';`);
+  run(`(()=>{
+    const cs=[];for(let y=1;y<MH-1;y++)for(let x=1;x<MW-1;x++)if(!isSolid(x+.5,y+.5))cs.push([x,y]);
+    const c=cs.length?cs[((cs.length*0.31+${CAM})|0)%cs.length]:[P.x|0,P.y|0];
+    let best=${CAM}*0.7,bd=-1;
+    for(let k=0;k<48;k++){const a=k*Math.PI/24;
+      const d=castRayDist(c[0]+.5,c[1]+.5,Math.cos(a),Math.sin(a),9).dist;if(d>bd){bd=d;best=a;}}
+    P.x=c[0]+.5;P.y=c[1]+.5;P.ang=best;
+    for(const e of ENEMIES)e.state='sleep';
+  })()`);
+  run('globalThis.__c65w=(n)=>{for(let i=0;i<n;i++)castWalls(S.flash,FOGC[0],FOGC[1],FOGC[2]);};'
+    + 'globalThis.__c65r=(n)=>{for(let i=0;i<n;i++)renderWorld();};');
+  const ANALYZE = `(()=>{const hs=[];let sum=0;
+    const cap=3*FARB,cl=FARB*4;let nb=0,nf=0,nc=0,sb=0,sf=0,sc=0;
+    for(let x=0;x<BW;x++){let y=0;
+      while(y<BH){const v=zbuf[y*BW+x];let k=y+1;
+        while(k<BH&&zbuf[k*BW+x]===v)k++;
+        const len=k-y;
+        if(len>=2&&isFinite(v)&&v<cap){hs.push(len);sum+=len;if(v===FARB){nb++;sb+=len}else if(v>=FARB){nf++;sf+=len}else{nc++;sc+=len}}
+        y=k}}
+    return {bw:BW,bh:BH,cols:hs.length,sum,hs,band:{nearRuns:nc,nearPx:sc,farRuns:nf,farPx:sf,clampRuns:nb,clampPx:sb}}})()`;
+  // the census lives in the counting tree only; on a plain tree this stays 0 and INFERRED is used
+  const INSTR = run('typeof COLS_N !== "undefined" ? (COLS_REC = 1, 1) : 0');
+
+  const data = TARGETS.map(c => ({ c, wall: [], frame: [], counts: [] }));
+  for (let r = 0; r < REPS; r++) {
+    for (let ci = 0; ci < TARGETS.length; ci++) {
+      const d = data[ci], cg = d.c;
+      run(`innerWidth=${Math.max(320, Math.round(cg.bw / T.res))};innerHeight=${Math.max(200, Math.round(cg.bh / T.res))};resize();`);
+      // P.pitch is PIXELS (js/30_entities.js:53), so the pitch that clips a face at 2% of the frame
+      // at BH 220 is 2% of the frame at BH 760. MESH.reset with the rest: poses are authored at an
+      // on-screen height, so a cache carried across a resize is the wrong shape (AGENTS.md).
+      run(`P.pitch=BH*${cg.pt};P.z=floorAt(P.x,P.y);` + VMREST + 'MESH.reset();renderWorld();' + VMREST + 'renderWorld();');
+      const pf0 = run('pixFilled');
+      run(VMREST + 'renderWorld();');
+      const A = run(ANALYZE);
+      A.px = run('pixFilled') - pf0;
+      A.c = INSTR ? run('({n:COLS_N,sum:COLS_SUM,h:COLS_H.slice()})') : null;
+      d.counts.push(A);
+      let t0 = process.hrtime.bigint(); run(`__c65w(${BATCH})`);
+      d.wall.push(Number(process.hrtime.bigint() - t0) / 1e6 / BATCH);
+      t0 = process.hrtime.bigint(); run(`__c65r(${BATCH})`);
+      d.frame.push(Number(process.hrtime.bigint() - t0) / 1e6 / BATCH);
+    }
+    process.stderr.write('columns round ' + (r + 1) + '/' + REPS + ' load ' + load() + '\n');
+  }
+
+  /* WALLS-OFF control, because the INFERRED census was WRONG and an assumption about why would have
+     been worse than the bug. Reading columns back out of zbuf assumes a vertical run of one distance
+     is a wall column. A frame whose wall pass never ran (this frame: castGround alone into a fog
+     fill) contains NO such run - measured 0 - so the ground's per-row solve is honest and the
+     hypothesis that the far band or a clamped plane forged plateaus is false. The over-count
+     (measured: the inference reports ~1.7x the pixels the wall pass painted) therefore belongs to
+     the pass between them: MESH.draw and drawBillboard stamp their own view-space depth into zbuf,
+     and a face parallel to the image plane carries ONE distance down its whole span, which is
+     exactly the signature the inference reads as a column. It cannot be separated from a wall column
+     without the coverage stamp the contrast probe arms, which is not free in play - so the exact
+     census comes from the counting tree, and this control is measured on every run to keep that
+     statement about the present build rather than about a past reading of the code. */
+  run(`innerWidth=${W};innerHeight=${H};resize();P.pitch=BH*0.02;P.z=floorAt(P.x,P.y);` + VMREST + 'renderWorld();');
+  const PLATEAU = run('px.fill(pack(FOGC[0],FOGC[1],FOGC[2]));castGround(S.flash,FOGC[0],FOGC[1],FOGC[2]);' + ANALYZE);
+
+  let bad = 0;
+  const row = (label, ok, detail) => { if (!ok) bad++; console.log('  ' + (ok ? 'ok  ' : 'FAIL') + '  ' + label + ' - ' + detail); return ok; };
+  const rows = [];
+  for (const d of data) {
+    const c = d.counts[0];
+    // determinism: the same config re-counted in the same process must give the same census
+    const same = d.counts.every(q => q.cols === c.cols && q.sum === c.sum && q.bw === c.bw &&
+      (!q.c || (q.c.n === c.c.n && q.c.sum === c.c.sum)));
+    const hs = (c.c ? c.c.h : c.hs).slice().sort((x, y) => x - y);
+    const n = hs.length;
+    const medH = n ? (n % 2 ? hs[(n - 1) >> 1] : (hs[n / 2 - 1] + hs[n / 2]) / 2) : 0;
+    // bucket the heights: the hypothesis is about 2-3 px columns, so the short end needs its own numbers
+    const B = [1, 2, 4, 8, 16, 32, 64, 128, 256];
+    const buck = B.map(k => hs.filter(v => v >= k && v < 2 * k).length);
+    const wall = med(d.wall), frame = med(d.frame);
+    rows.push({ tag: 'BH' + c.bh + '/BW' + c.bw + (d.c.pt === 0.02 ? '' : '/p' + d.c.pt), bh: c.bh, bw: c.bw, pt: d.c.pt,
+      band: c.band,
+      cols: c.c ? c.c.n : c.cols, px: c.px, csum: c.c ? c.c.sum : 0, detSum: c.sum,
+      medH, meanH: c.px / Math.max(1, (c.c ? c.c.n : c.cols)),
+      wall, frame, wallAll: d.wall.slice(), frameAll: d.frame.slice(), buck, detOk: same });
+    if (!same) console.log('  NOTE  config BH ' + c.bh + ' BW ' + c.bw + ' counted differently in two rounds (' +
+      d.counts.map(q => q.cols + '/' + q.sum).join(' ') + ') - see COUNT-DETERMINISM');
+  }
+  console.log('  config            BH   BW  columns  px/frame  px/col  median col  height buckets 1|2|4|8|16|32|64|128|256 px'
+    + '   wall ms/f  (spread)      frame ms/f');
+  for (const r of rows) {
+    console.log(`  ${r.tag.padEnd(15)} ${String(r.bh).padStart(4)} ${String(r.bw).padStart(4)} ${String(r.cols).padStart(8)} `
+      + `${String(r.px).padStart(8)} ${r.meanH.toFixed(1).padStart(7)} ${r.medH.toFixed(1).padStart(9)}  `
+      + `[${r.buck.map(v => (100 * v / Math.max(1, r.cols)).toFixed(0)).join('|')}]%  `
+      + `${r.wall.toFixed(2).padStart(7)} (${spread(r.wallAll)}) ${r.frame.toFixed(2).padStart(9)} (${spread(r.frameAll)})`);
+  }
+  // detector vs the pass's own bookkeeping, per config
+  const worst = rows.reduce((m, r) => Math.max(m, Math.abs(r.detSum - r.px) / Math.max(1, r.px)), 0);
+  const platTxt = 'on a frame with NO wall pass the same detector calls ' + PLATEAU.cols + ' runs totalling '
+    + PLATEAU.sum + ' px "columns" at BW ' + PLATEAU.bw + ' x BH ' + PLATEAU.bh + ' - that is the inference\'s '
+    + 'false-positive floor, measured not argued';
+  if (INSTR) {
+    // both numbers come out of the pass here, so they must be EQUAL, not merely close
+    const bad1 = rows.filter(r => r.csum !== r.px);
+    row('COUNT-VS-PIXFILLED the counted columns add up to the pass\'s own pixel count', bad1.length === 0,
+      bad1.length ? bad1.map(r => r.tag + ' counted ' + r.csum + ' vs pixFilled ' + r.px).join(' ')
+        : 'every config: COLS_SUM === the pixFilled delta of the same frame (exact, not a tolerance)');
+    const worstC = rows.reduce((m, r) => Math.max(m, Math.abs(r.detSum - r.csum) / Math.max(1, r.csum)), 0);
+    // A report, not a verdict: on this tree the census came from the pass itself, so the fallback
+    // inference is not what the numbers below rest on and a row cannot be allowed to fail the mode.
+    console.log('  report  CENSUS-VS-DETECTOR the read-only zbuf inference disagrees with the counting tree by '
+      + (100 * worstC).toFixed(2) + ' worst - ' + platTxt + ', so the extra runs are the MESH pass stamping one '
+      + 'view-space distance down a face; the counting tree is the census this mode quotes numbers from');
+  } else {
+    console.log('  report  CENSUS is INFERRED from zbuf in this tree (no counters): px/frame is pixFilled and '
+      + 'exact, columns and heights are the inference in the table above, and ' + platTxt + '. For the curve run '
+      + 'the counting tree: JSDIR=<js with the two-line COLS_ census> node tools/view.js columns');
+  }
+  row('COUNT-DETERMINISM every config counted the same way in every round', rows.every(r => r.detOk),
+    rows.filter(r => !r.detOk).map(r => r.tag).join(' ') || (REPS + ' rounds x ' + rows.length + ' configs agree'));
+  // At fixed BH the map, the camera and the FOV are the same and only the ray density moved, so the
+  // height census must not move. If it does, BW is not the clean second regressor the fit needs.
+  const byBH = {};
+  for (const r of rows) (byBH[r.bh + '|' + r.pt] = byBH[r.bh + '|' + r.pt] || []).push(r);
+  const driftOf = rs => 100 * (Math.max(...rs.map(r => r.meanH)) - Math.min(...rs.map(r => r.meanH))) /
+    Math.max(1e-9, Math.min(...rs.map(r => r.meanH)));
+  const driftMax = Math.max(...Object.values(byBH).map(driftOf));
+  row('HEIGHT-STABLE-WHILE-RAYS-MOVE mean column height is the same at every BW for one BH', driftMax <= 25,
+    'per BH, BW ascending: ' + Object.entries(byBH).map(([k, rs]) => k.split('|')[0] + ' '
+      + rs.map(r => r.meanH.toFixed(1)).join('/') + ' (' + driftOf(rs).toFixed(0) + '%)').join('   ')
+    + ' - a big drift would mean the second regressor moved the first, and the fit would be one axis in disguise');
+
+  // ms = a*columns + b*pixels, least squares with no intercept (0 columns costs 0 ms by construction).
+  const fit = (useC, useP) => {
+    let Scc = 0, Scp = 0, Spp = 0, Swc = 0, Swp = 0;
+    for (const r of rows) {
+      const c = useC ? r.cols : 0, p = useP ? r.px : 0;
+      Scc += c * c; Scp += c * p; Spp += p * p; Swc += r.wall * c; Swp += r.wall * p;
+    }
+    let a = 0, b = 0;
+    if (useC && useP) {
+      const det = Scc * Spp - Scp * Scp;
+      a = det ? (Spp * Swc - Scp * Swp) / det : 0; b = det ? (Scc * Swp - Scp * Swc) / det : 0;
+    } else if (useC) a = Scc ? Swc / Scc : 0;
+    else b = Spp ? Swp / Spp : 0;
+    let sse = 0, sst = 0;
+    const mean = rows.reduce((s, r) => s + r.wall, 0) / rows.length;
+    for (const r of rows) {
+      const m = a * r.cols + b * r.px;
+      if (useC && useP) r.pred = m;
+      sse += (r.wall - m) ** 2; sst += (r.wall - mean) ** 2;
+    }
+    return { a, b, r2: sst ? 1 - sse / sst : 0 };
+  };
+  const both = fit(true, true), onlyP = fit(false, true), onlyC = fit(true, false);
+  const breakeven = both.b > 0 ? both.a / both.b : Infinity;
+  const corr = (x, y) => {
+    const mx = x.reduce((s, v) => s + v, 0) / x.length, my = y.reduce((s, v) => s + v, 0) / y.length;
+    let sxy = 0, sxx = 0, syy = 0;
+    for (let i = 0; i < x.length; i++) { sxy += (x[i] - mx) * (y[i] - my); sxx += (x[i] - mx) ** 2; syy += (y[i] - my) ** 2; }
+    return sxy / Math.sqrt(sxx * syy || 1);
+  };
+  if (!INSTR) console.log('  fit NOT reported here: the census is inferred and the control above prices its error. Run the counting tree for the coefficients.');
+  else {
+    console.log('  fit  ms/frame = ' + (both.a * 1000).toFixed(2) + ' us/column + ' + (both.b * 1e6).toFixed(2)
+      + ' ns/pixel   R2 ' + both.r2.toFixed(4) + '   (pixels only R2 ' + onlyP.r2.toFixed(4)
+      + ', columns only R2 ' + onlyC.r2.toFixed(4) + '; corr(columns,pixels) ' + corr(rows.map(r => r.cols), rows.map(r => r.px)).toFixed(3)
+      + ' - above ~0.99 the SPLIT of us/column against ns/pixel is not identifiable, only their sum is)');
+    console.log('  ratio  the whole per-ray cost of one column buys ' + breakeven.toFixed(1)
+      + ' pixels at the measured per-pixel rate (' + (both.a * 1000).toFixed(2) + ' us of setup against '
+      + (both.b * 1e6).toFixed(1) + ' ns/px). Setup share of a column\'s cost, by config: '
+      + rows.map(r => r.tag + ' ' + (100 * both.a / (both.a + both.b * r.meanH)).toFixed(1) + '%').join(', ')
+      + '   [an op hoisted from per-pixel to per-ray wins only on columns taller than its OWN cost ratio, '
+      + 'which cannot exceed the number above]');
+  }
+  console.log('  columns by height: '
+    + rows.map(r => r.tag + ' ' + (100 * r.buck[0] / Math.max(1, r.cols)).toFixed(0) + '% at 1 px, '
+      + (100 * (r.buck[1] + r.buck[2]) / Math.max(1, r.cols)).toFixed(0) + '% at 2-7 px, '
+      + (100 * r.buck.slice(5).reduce((s, v) => s + v, 0) / Math.max(1, r.cols)).toFixed(0) + '% at 32+ px').join(', '));
+
+  /* TURN=1: the premise of #65's hypothesis, measured instead of assumed. The hypothesis says the
+     turning camera is slow because it draws many SHORT columns, so count the columns the turn
+     actually draws - the WARM loop (P.ang += 0.05 per frame at 1/60 s = 3 rad/s, js/view's own
+     :8975) with the same census the static configs used, one frame at a time so the heights can be
+     pooled. Static-only numbers cannot answer this: the same level at the same seat presents a
+     different face to every heading, and column height is BH/perp, so the distribution belongs to
+     the turn, not to the level. Needs the counting tree; without it the mode says so and skips. */
+  if (process.env.TURN) {
+    if (!INSTR) console.log('  TURN skipped - no census in this tree; run it with JSDIR=<counting tree> to count the turn');
+    else {
+      const FR = Math.max(30, +(process.env.FRAMES || 180));
+      run(`innerWidth=${W};innerHeight=${H};resize();P.pitch=BH*0.02;P.z=floorAt(P.x,P.y);` + VMREST + 'renderWorld();');
+      const hsT = [], colsT = [], msT = [], pxT = [];
+      for (let f = 0; f < FR; f++) {
+        const t0 = process.hrtime.bigint();
+        run('P.ang+=0.05;updatePlayer(1/60);updateEnemies(1/60);renderWorld();');
+        msT.push(Number(process.hrtime.bigint() - t0) / 1e6);
+        const q = run('({n:COLS_N,sum:COLS_SUM,h:COLS_H.slice()})');
+        colsT.push(q.n); pxT.push(q.sum); for (const v of q.h) hsT.push(v);
+      }
+      const pct = (a, p) => { const s = a.slice().sort((x, y) => x - y); return s[Math.min(s.length - 1, Math.max(0, Math.round(p * (s.length - 1))))]; };
+      const meanT = hsT.reduce((s, v) => s + v, 0) / Math.max(1, hsT.length);
+      const bwT = run('BW'), bhT = run('BH');
+      console.log('  TURN census ' + FR + ' frames at 3 rad/s (BW ' + bwT + ' x BH ' + bhT + ', load ' + load() + '): '
+        + hsT.length.toLocaleString() + ' columns, mean ' + meanT.toFixed(1) + ' px, median ' + pct(hsT, 0.5)
+        + ', p10 ' + pct(hsT, 0.1) + ', p90 ' + pct(hsT, 0.9) + ', max ' + Math.max(...hsT)
+        + '; ' + (100 * hsT.filter(v => v <= 3).length / Math.max(1, hsT.length)).toFixed(1) + '% at <=3 px, '
+        + (100 * hsT.filter(v => v <= 8).length / Math.max(1, hsT.length)).toFixed(1) + '% at <=8 px, '
+        + (100 * hsT.filter(v => v >= 32).length / Math.max(1, hsT.length)).toFixed(1) + '% at 32+ px; '
+        + colsT.reduce((s, v) => s + v, 0) / FR + ' columns/frame, ' + (pxT.reduce((s, v) => s + v, 0) / FR).toFixed(0)
+        + ' px/frame, renderWorld median ' + med(msT).toFixed(2) + ' ms (' + spread(msT) + ')');
+      console.log('  vs the static config at the same resolution: mean column ' + meanT.toFixed(1)
+        + ' px in the turn against the static table at BH ' + bhT + ' - the hypothesis needs the turn to be SHORTER, '
+        + 'and the fit above already prices any height: cost = us/column + ns/pixel x height.');
+    }
+  }
+  console.log('  load at end ' + load());
+  console.log((bad ? 'COLUMNS ' + bad + ' INSTRUMENT FAILURE(S)' : 'columns ok - curve above is the deliverable; no perf threshold is declared or gated here')
+    + ' - wall pass median of ' + REPS + ' batches per config, interleaved; read the spread column before the median.');
+  process.exit(bad ? 1 : 0);
 }
 
 if (MODE === 'mip') {
