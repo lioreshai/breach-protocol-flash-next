@@ -349,6 +349,49 @@ function mipSel(ax0, ax1, ay0, ay1, sc, tex) {
   return k < n ? k : n - 1;
 }
 
+/* THE MARCH'S PLANE INVENTORY - what the march costs and why much of it is free.
+   A planeAlong answer is always STRICTLY NEARER THAN THE CALLER'S OWN SOLVE: both branches require the
+   candidate to be on the far side of the eye AND to solve nearer than `cap`, and `cap` is at most the
+   distance at which the caller's plane solves. Both branches also answer a plane the GRID HAS at a cell -
+   a floor (`fzs*ZQ`), a boundary's floor, or a ceiling plane (`ceilAt`) - so which altitudes exist at all
+   is a property of the LEVEL, not of the ray, and there are only a handful of them.
+   So collect them once per frame that marches at all (one O(1) step per cell) and keep the two that
+   matter as SCALARS against the frame's eye altitude: the lowest altitude above the eye and the highest
+   one below it. Because distance grows monotonically as the candidate moves away from the eye, the FIRST
+   candidate on the far side is the only one whose reach decides the answer - so the test is that
+   candidate's own predicate, three flops, no loop and no call: if the nearest altitude on this side of
+   the eye does not solve inside `cap`, no altitude does, and the walk would run to its cap (up to 40
+   crossings on a far row) and hand back the caller's `pl`. Skipping it is therefore not "probably fine":
+   it removes no answer, only a walk that could not produce one. The rows #170 exists for - a slab's floor
+   between the eye and its own ceiling plane, the 971 px of the L3 stack - hold such an altitude, so they
+   still march. Altitudes outside the indexed range disable the test rather than skip on a guess, and a
+   plane exactly at `cap` solves no nearer, which is the same answer the branches' comparison gives. */
+const PV_W = 128;                                    // plane/ZQ indices [-64 .. 63] = altitudes -16 .. 15.75 m
+const PV_FLAG = new Uint8Array(PV_W), PV_VAL = new Float64Array(PV_W);
+let PV_N = 0, gPVSer = -1, gPVFz = null, gPVCp = null, gPVWide = 0;
+let gPVEye = NaN, gPVAbove = Infinity, gPVCbelow = -Infinity;
+function buildPlaneInv() {
+  const fzs = MAP.fz, cp = MAP.ceilPlane, n = fzs && cp ? fzs.length : 0;
+  PV_FLAG.fill(0); gPVWide = cp && fzs ? 0 : 1;
+  for (let i = 0; i < n; i++) {
+    let v = fzs[i] * 4;                              // floors: fz * ZQ, and 4*ZQ is exactly 1
+    if (v >= -64 && v <= 63 && v === (v | 0)) PV_FLAG[v + 64] = 1; else gPVWide = 1;
+    v = cp[i] * 4;                                   // ceilAt; a solid column's floor counts too
+    if (v >= -64 && v <= 63 && v === (v | 0)) PV_FLAG[v + 64] = 1; else gPVWide = 1;
+  }
+  PV_N = 0;
+  for (let k = -64; k <= 63; k++) if (PV_FLAG[k + 64]) PV_VAL[PV_N++] = k * ZQ;
+  gPVSer = gSer; gPVFz = fzs; gPVCp = cp; gPVEye = NaN;      // the split is rebuilt on the first march
+}
+/* The two altitudes the test needs, as of this eye altitude: ascending values, so two short scans, and
+   only when the eye moved - which is once per frame, renderWorld having set eyeZ once. */
+function splitPlaneInv() {
+  gPVAbove = Infinity; gPVCbelow = -Infinity;
+  for (let i = 0; i < PV_N; i++) if (PV_VAL[i] > eyeZ) { gPVAbove = PV_VAL[i]; break; }
+  for (let i = PV_N - 1; i >= 0; i--) if (PV_VAL[i] < eyeZ) { gPVCbelow = PV_VAL[i]; break; }
+  gPVEye = eyeZ;
+}
+
 /* Which plane's own CELL reaches the point this ray arrives at: march the ray from the eye cell and
    take the first surface honestly in the way - the plane of a cell the ray reaches while it is still
    INSIDE that cell, or the floor of a boundary whose slab closes over the ray's altitude. Altitude is
@@ -377,6 +420,17 @@ function planeAlong(rx, ry, pl, isF, absP) {
   const invAbsP = BH / absP;
   const dzPl = (pl - eyeZ) * sgn;
   const cap = dzPl > 1e-9 && dzPl * invAbsP < FARB * 4 ? dzPl * invAbsP : FARB * 4;
+  /* the plane-inventory skip, see buildPlaneInv: the nearest altitude this level has on this side of the
+     eye does not solve inside this ray's reach, so no altitude does and the walk has no answer to find */
+  if (dzPl > 1e-9) {
+    if (gPVSer !== gSer || gPVFz !== fzs || gPVCp !== cp) buildPlaneInv();
+    if (gPVEye !== eyeZ) splitPlaneInv();
+    if (!gPVWide) {
+      const plQ = (isF ? gPVCbelow : gPVAbove);      // nearest altitude this level has on this side
+      const dpQ = (plQ - eyeZ) * sgn;
+      if (!(dpQ > 1e-9 && dpQ * invAbsP < cap)) return pl;
+    }
+  }
   let cx = camX | 0, cy = camY | 0, tIn = 0, g = 0;
   const sx = rx > 0 ? 1 : -1, sy = ry > 0 ? 1 : -1;
   let tx = ax > 0 ? (rx > 0 ? cx + 1 - camX : camX - cx) / ax : 1e30;
@@ -562,8 +616,39 @@ function castGround(flash, fcR, fcG, fcB) {
         ag += wLit * dcN[1] * (baseRow + li * (inMap ? lta[ci * 3 + 1] * inv128 : 1));
         ab += wLit * dcN[2] * (baseRow + li * (inMap ? lta[ci * 3 + 2] * inv128 : 1));
       }
+      /* DEPTH of the far band, ceiling rows of a stepped grid: the fill's COLOUR says "everything past
+         FARB", and on a flat level that is true of every column of the row. It is not true under a
+         multi-quantum riser, where the row's own ceiling plane is 10-28 m out while a slab one band up
+         closes the same rays at 1-4 m - and `occ < z` in js/13_mesh.js:524 then lets a prop standing on
+         that slab draw through it (measured #170: 312 of the 971 leaking px of the L3 stack are these
+         rows, and no per-pixel rule can reach them, because this branch never runs one). Ask the march
+         once per row on the row's own centre ray - the same row-constant answer the fill is built from,
+         so the fill stays a fill - and take the nearer solve. The wash itself stays: this row is about
+         depth, and repainting these rows textured is the far-band look change the `bands`/`exposure`
+         gates have not been re-based for. gndSteps is 0 on every flat level, so no flat frame runs it. */
+      let dBand = dRaw;
       px.fill(pack(clampi(ar + fRRow), clampi(ag + fGRow), clampi(ab + fBRow)), y * BW, y * BW + BW);
-      zbuf.fill(dRaw, y * BW, y * BW + BW);                    // depth = the row's own solve, unclamped
+      zbuf.fill(dBand, y * BW, y * BW + BW);              // depth = the row's own solve, unclamped
+      if (!isF && gndSteps) {
+        /* A whole-row fill cannot carry a per-ray answer, and the slab that closes these rays covers only
+           part of the fan - one answer for the row is either too near at the edges (hides props an edge
+           ray sees) or too far in the middle (the leak). So sweep the row in GOCCS-column slices, ask the
+           march once per slice on that slice's own ray, and pull that slice nearer. Colour stays the wash:
+           #170 is an occlusion defect, and the cost is rows x BW/GOCCS marches per frame - measured
+           against the raster budget in the commit, not assumed. A slice whose ray says "nothing nearer"
+           keeps the fill above, so this can hide no more than the ray in the middle of it honestly sees,
+           and every column of the row still carries a depth (the fill runs first). */
+        const GOCCS = 8;
+        for (let x = 0; x < BW; x += GOCCS) {
+          const cam0 = (x + (GOCCS >> 1)) * stepBase - 1;
+          const plS = planeAlong(dirX + planeX * cam0, dirY + planeY * cam0, planeA, isF, absP);
+          const dzS = plS - eyeZ;
+          if (plS === planeA || dzS <= 1e-9) continue;
+          const dS = dzS * BH / absP;
+          if (dS >= dRaw) continue;
+          zbuf.fill(dS, y * BW + x, y * BW + Math.min(x + GOCCS, BW));
+        }
+      }
       continue;
     }
     /* row ray span: column x has cam offset (x*stepBase-1) */
@@ -603,11 +688,31 @@ function castGround(flash, fcR, fcG, fcB) {
        and those never write a pixel here. planeC is the plane of the cell the walk is standing in,
        or planeA when that column has no plane of its own or a plane these rows cannot reach. */
     let planeC = planeA;
+    /* #170, the row path's own occluder (the rule and its evidence are on the march below): the run of
+       columns about to be painted carries occluder depth occD for [-occX0 .. this crossing]. Row scope,
+       because the flush after the pixel loop has to see it. */
+    let occX0 = 0, occD = -1;
     if (pxi >= 0 && pyi >= 0 && pxi < N && pyi < N && !cellArr[cIdx]) {
       const pl0 = isF ? fzs[cIdx] * ZQ : cp[cIdx];
       planeC = (isF ? pl0 < eyeZ : pl0 > eyeZ) ? pl0 : planeA;
       // the first column's ray is the row's left edge, dir - plane. Ceiling rows only, see below.
       if (!isF && planeC !== planeA) planeC = planeAlong(dirX - planeX, dirY - planeY, planeC, isF, absP);
+      /* #170, the row path's own occluder. The march above answers the pixel the row will PAINT
+         DIFFERENTLY; it never runs when the walk's cell carries the row's own plane, and that is exactly
+         where the leak lives: on a multi-quantum stack the row's ceiling plane can be 10-28 m out while
+         a slab one band up closes the same rays at 1-4 m (measured: 971 px of L3 silhouette, 0 of them
+         deferred, and the march asked on each pixel's OWN ray answered 1.00 on all 971). So ask the march
+         for the DEPTH of the run the row is about to paint, and write the nearer solve into zbuf - the
+         colour of the run stays the row's, because #170 is an occlusion defect and repainting these rows
+         is the ceiling look change the CZBAND/`bands` gates have not been re-based for. gndSteps is
+         MAP.steps, which is 1 only where a boundary differs by more than one quantum: a flat level (and
+         a level of pure single-quantum steps, where the slab's underside IS the eye's own ceiling plane)
+         runs no line of this and stays bit for bit what it was. */
+      if (!isF && gndSteps && planeC === planeA) {
+        const plO = planeAlong(dirX - planeX, dirY - planeY, planeA, isF, absP);
+        const dzO = plO - eyeZ;
+        if (plO !== planeA && dzO > 1e-9) { const dO = dzO * BH / absP; if (dO < dRaw) occD = dO; }
+      }
     }
     /* Everything the pixel body reads is a const of this row, and that is not style: the day these
        became per-pixel `let`s, a 1202x676 frame cost 2.5 ms more for pixels nothing re-solves,
@@ -679,9 +784,24 @@ function castGround(flash, fcR, fcG, fcB) {
            ROW's plane, so they stop going through the deferred body at all, and the two copies of the
            pixel body pick slightly different mips at the same distance. Every one of those pixels is
            repainted by the wall pass, so the composited frame is identical in all 48 configs. */
-        if (!isF && planeC !== planeA) {
+        if (!isF && (planeC !== planeA)) {
           const cam0 = x * stepBase - 1;
           planeC = planeAlong(dirX + planeX * cam0, dirY + planeY * cam0, planeC, isF, absP);
+        }
+        /* The run that just ENDED carried the occluder decided at its own crossing: give its columns the
+           nearer depth, then decide the new run's on this column's ray (one march per (row, cell), the
+           same coalescing and the same fan claim the block above documents). Queued columns are skipped
+           here - groundPixel() writes their depth after the row, from the plane the row marched for them,
+           so depth stays a property of the geometry rather than of which path painted the pixel. */
+        if (!isF && gndSteps) {
+          if (occD >= 0) zbuf.fill(occD, row + occX0, row + x);
+          occD = -1; occX0 = x;
+          if (planeC === planeA) {
+            const cam0 = x * stepBase - 1;
+            const plO = planeAlong(dirX + planeX * cam0, dirY + planeY * cam0, planeA, isF, absP);
+            const dzO = plO - eyeZ;
+            if (plO !== planeA && dzO > 1e-9) { const dO = dzO * BH / absP; if (dO < dRaw) occD = dO; }
+          }
         }
       }
       /* A plane is only honest if the cell carrying it reaches the point this column's ray arrives at,
@@ -735,6 +855,7 @@ function castGround(flash, fcR, fcG, fcB) {
     }
     /* second pass over the columns this row could not solve, in column order; each writes its own
        pixel so the order within the row cannot change the image, and the wall pass has not run yet */
+    if (occD >= 0) zbuf.fill(occD, row + occX0, row + BW);   // the last run of the row, #170
     /* #prototype: a ceiling run of contiguous columns shares one plane, so it takes ONE call. Floors keep one call per column because their plane is solved per column. */
     for (let q = 0; q < nm; ) {
       const x0 = RX[q], plq = RP[q];
@@ -902,13 +1023,27 @@ function groundPixel(x0, x1, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb
       if (st >= 0) { dOv = st; }
       else { pl = plA; dOv = -1; }
     }
-  } else {
+  } else if (pl === plA && MAP.steps) {
     /* The CEILING half needs no march here: the ROW marched this pixel's cell once, at the column that
        crossed into it, and queued the plane that answer produced (#15's per-cell decision). Keeping a
        march in this copy is what made the deferred path cost one 40-step DDA per pixel of a run - the
        same cliff the row loop's own comment refuses. The FLOOR half keeps its fixed point and its
        under-a-slab march per pixel: those are a different question (which plane places this pixel), and
-       walking the floor half is a look change the bands gate has not been re-based for. */
+       walking the floor half is a look change the bands gate has not been re-based for.
+       EXCEPT, precisely, when the queued plane IS the row's predictor: then no march produced it, this
+       copy inherited the row's guess, and the row's guess is what #170 measured wrong (its own occluder
+       block answers that question for the pixels the row paints; it cannot reach the ones queued here).
+       The queue condition is `planeC !== planeA`, so no shipped frame ever arrives in this branch - one
+       compare per deferred pixel, no march, no picture - and `cull`'s deferred-copy control, which forces
+       every re-solvable column through here, is what makes the agreement between the two copies of this
+       body a row rather than a claim. A future split that queues what the row used to paint therefore
+       still hides the prop, because the rule lives in both copies and not in which path ran. */
+    const plO = planeAlong(rx, ry, plA, false, absP);
+    const dzO = plO - eyeZ;
+    if (plO !== plA && dzO > 1e-9) {
+      const dO = dzO * BH / absP;
+      if (dO < (pl - eyeZ) * BH / absP) dOv = dO;   // the slab's solve places this pixel, not the row's plane
+    }
   }
   if (gMRow !== row || gMPl !== pl || gMDist !== dOv || gMSer !== gSer)
     gndBuild(row, isF, absP, pl, tex, sc, fcR, fcG, fcB, fl, amb, dOv);

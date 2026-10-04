@@ -3794,22 +3794,51 @@ if (MODE === 'cull') {
     setBand(BG.cz + 4);
     run(LAMP);
     const above = pshot(RISE_TOP);
+    /* THE SAME FRAME WITH THE OTHER GROUND COPY PAINTING EVERY PIXEL. The #170 leak turned out to be
+       971 px of ROW path and 0 px of deferred queue on level 3, so a fix that only taught groundPixel()
+       would have printed a green row here while the second copy of the pixel body stayed wrong - and
+       AGENTS records the same trap for `heights`, whose determinism assertion used to run only on the
+       one config (flat) where the queue is provably empty. So force the split to queue every re-solvable
+       column (the same one-line source transform the LEAK=1 attribution uses, which is why the patch's
+       own state is asserted rather than assumed: a refactor that moves that line FAILs this row by name
+       instead of silently measuring the ship config twice) and demand the same answer. GroundPixel's
+       ceiling half takes its plane from this queue, so agreement here is what "both copies own the same
+       plane and the same depth" means in a picture, not in a comment. */
+    const DEFNEEDLE = 'if (planeC !== planeA) { RX[nm] = x; RP[nm] = planeC; nm++; continue; }';
+    const patchSplit = on => run(`(function (ON) {
+      if (!globalThis.__cgO2) globalThis.__cgO2 = castGround;
+      if (!ON) { castGround = globalThis.__cgO2; return globalThis.__cgO2.toString().indexOf(${JSON.stringify(DEFNEEDLE)}) >= 0 ? 'restored' : 'NEEDLE-NOT-FOUND'; }
+      const src = globalThis.__cgO2.toString();
+      if (src.indexOf(${JSON.stringify(DEFNEEDLE)}) < 0) return 'NEEDLE-NOT-FOUND';
+      const rep = 'if (true) { RX[nm] = x; RP[nm] = planeC; nm++; continue; }';
+      castGround = eval('(' + src.split(${JSON.stringify(DEFNEEDLE)}).join(rep) + ')');
+      return castGround.toString().indexOf(rep) >= 0 ? 'ok' : 'PATCH-FAILED';
+    })(${on ? 'true' : 'false'})`);
+    const defState = patchSplit(true);
+    const allDef = pshot(RISE_TOP);
+    const defRest = patchSplit(false);
     const lampT = run(`(()=>{const dx=${BG.lx}-camX,dy=${BG.ly}-camY;return (1/(planeX*dirY-dirX*planeY))*(-planeY*dx+planeX*dy)})()`);
     setBand(BG.cz);
     run(LAMP);
     const ownB = pshot(-1);
+    patchSplit(true);
+    const ownDef = pshot(-1);            // the control band through the deferred copy: vacuity guard
+    patchSplit(false);
     restore();
     run('PROPS.length = 0;');
     row(`L${li} a prop one band above is hidden by the slab`,
       above.n <= Math.max(24, 0.04 * ownB.n) && above.inR <= Math.max(16, 0.02 * ownB.n) &&
-      ownB.n >= 250 && ownB.above >= 0.2 * ownB.n &&
+      defState === 'ok' && defRest === 'restored' &&
+      allDef.n <= Math.max(24, 0.04 * ownB.n) && allDef.inR <= Math.max(16, 0.02 * ownB.n) &&
+      ownB.n >= 250 && ownB.above >= 0.2 * ownB.n && ownDef.n >= 250 &&
       ownB.fin >= 0.6 * ownB.above,
-      `lamp 0.95 m at ${lampT.toFixed(2)} m on band ${((BG.cz + 4) * run('ZQ')).toFixed(2)} vs the camera's ${(BG.cz * run('ZQ')).toFixed(2)}: ${above.n} px of silhouette at rows ${above.top}..${above.bot}, of which ${above.inR} in the ceiling-only band above the riser's top edge (ceilPlane ${CAMCP.toFixed(2)}, boundary ${TBOUND} m) - the seam band below the riser's edge is asserted too, not excluded (#170); the same prop on the camera's own band keeps ${ownB.n} px, ${ownB.above} above the horizon with a finite ceiling distance (FARB ${FARBV}) behind ${ownB.fin} of them`,
-      /* Level 3 is THE STACK: authored multi-quantum seams, where this row measures 983 px of a lamp that
-         the slab should hide (983 px on a 256-cell authored level, exit 0 on cb64f78 and on f927335's level
-         with the same probe). That is #170's symptom recurring on authored geometry, so it reports red-
-         past-a-floor rather than gating the merge of the level that EXPOSED it. STRICT=1 gates it. */
-      li === 3 ? '#170 authored seams' : null);
+      `lamp 0.95 m at ${lampT.toFixed(2)} m on band ${((BG.cz + 4) * run('ZQ')).toFixed(2)} vs the camera's ${(BG.cz * run('ZQ')).toFixed(2)}: ${above.n} px of silhouette at rows ${above.top}..${above.bot}, of which ${above.inR} in the ceiling-only band above the riser's top edge (ceilPlane ${CAMCP.toFixed(2)}, boundary ${TBOUND} m) - the seam band below the riser's edge is asserted too, not excluded (#170); the SAME frame with every re-solvable column forced through the deferred copy (patch ${defState}/${defRest}) shows ${allDef.n} px, ${allDef.inR} in that band, so the two copies of the ground pixel body answer the same picture; the same prop on the camera's own band keeps ${ownB.n} px, ${ownB.above} above the horizon with a finite ceiling distance (FARB ${FARBV}) behind ${ownB.fin} of them, and ${ownDef.n} px of that control through the deferred copy`,
+      /* Level 3 WAS the stack that exposed this: 971 px of a lamp the slab should hide, reported red-past-
+         a-floor rather than gating the merge of the level that exposed it. That is now 0 px on the row path
+         AND 0 px through the deferred copy on all four levels, so the debt tag is gone - a row that reports
+         a leak it has measured at zero would let the leak come back silently, which is the one thing #170
+         showed this probe could not do. STRICT=1 no longer changes this row. */
+      null);
     console.log(`  L${li} reference: flat silhouette ${flat.px} px, centroid ${flat.cy.toFixed(1)} of ${H}, rows ${flat.top}..${flat.bot}, body ${base.scale.toFixed(2)} units at ${base.d.toFixed(2)} m`);
 
     putProps();

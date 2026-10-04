@@ -76,6 +76,44 @@
   10.30 m - while the shape reproduces on L0 r9 and L1 r8, where a crate at 1.39 m in the +-17 degree
   cone ends up at 2.78 / 4.17 m. Unsettled: pickups are still pool-placed with no clearance, so a
   pickup can hover 1 m from the seat.
+- **A prop standing on the band above no longer draws through the slab** (#170, rendering), and the
+  march that does it now skips the walks that provably cannot answer. The leak was **L3 only - 971 px
+  at rows 58..127** - and it had been carried as a silent `KNOWN(#170 authored seams)` debt row, which
+  is why it survived review: `cull` tagged level 3 as debt **unconditionally**, so the row reported
+  instead of failing even while measuring 971 px. Attribution before editing: all 971 px came from the
+  **row path** (far-band row fill 312 + textured row loop 659) and **0** from the deferred queue, and
+  forcing every pixel through the deferred copy still showed **971** - the leak is invariant to which
+  copy paints, so the two-copies trap was not the way in. Every leaking pixel answered **plane 4.00,
+  the eye's own `planeA`**, while an honest march on the pixel's **own ray** answered **1.00 on
+  971/971** (nearer than the lamp at 4.00 m on 938 of them), with `reSolveBad` **0** throughout - the
+  exhaustion counter is blind here exactly as the lore said. Cause was a **guard, not arithmetic**: the
+  row marched only when `planeC !== planeA`, so a run whose cell agreed with the predictor never asked.
+  The fix is **depth-only** (no repaint) and gated by `MAP.steps`, so a flat level pays nothing: the
+  far-band row fill sweeps `GOCCS = 8` slices marched on their own rays, the textured row loop carries
+  row-scope occlusion and flushes at crossings and row end, and `groundPixel`'s ceiling half answers the
+  same depth when `pl === plA && MAP.steps` so both copies agree. `cull`'s L3 debt tag is **removed** -
+  a promotion, no threshold touched - and the row now also forces every re-solvable column through the
+  deferred copy on the same frame, failing by name as `NEEDLE-NOT-FOUND`/`PATCH-FAILED`; measured on
+  one tree with only `JSDIR=` changed, **fixed `ok … 0 px` exit 0, unfixed `FAIL … 971 px` exit 1**.
+  The cost was then attacked, because the march landed on CI's raster budget on the margin rather than
+  on merit: `planeAlong` only ever answers a plane the grid *has*, on the far side of the eye and nearer
+  than its own `cap`, so a marching frame collects the level's altitude set once (`buildPlaneInv`) and
+  reduces it to two scalars against `eyeZ` (`splitPlaneInv`), and a walk whose nearest candidate cannot
+  answer is skipped in three flops. **No pixel moved** - 12/12 frame pairs identical in px *and* zbuf
+  (72 FNV hashes, L0-L2 × cam0-3) between the march and the march+skip, which is also the proof that the
+  skipped walks were silent - and `tools/refs.lock` md5 `ca797d0b…` is unchanged with `refs ok - 13
+  recorded reference(s)`, `flatparity` exit 0 (PARITY `2c5a94f`), `heights` all configs ok. Deterministic
+  work on the probe layout fell **21.2k → 2.6k DDA steps/frame (−88 %)**; the ms win is layout-dependent,
+  because at seeds 7/99/2024 **87–97 % of those walks answer**, so ~1 ms there is real work this test
+  cannot skip (that case needs row-shared traversal, not a bigger `GOCCS`). Three interleaved `smoke`
+  pairs at load 3.1–5.5 put the march alone at **31.37/32.68/33.22 ms** - 2 of 3 over the 32 ms floor -
+  and this tree at **30.90/31.75/31.27 ms, every one `SMOKE PASSED`**, while a 12-sample paired `WARM`
+  run across 6 seeds sits inside the instrument's ~0.5 ms noise floor. The visible consequence is
+  measured, not asserted: L1 cam0's scene frame differs from main by **664 px of 812,552 (0.082 %)**
+  confined to rows 248..299 with mean `|Δ|` 40.7 - a prop's edges disappearing, not a shading wash.
+  **CI stays the arbiter of the budget**, and one figure this file carried is corrected here: main's own
+  run on the same fleet reads pooled **25.42/24.15 ms** against floor 32, so an earlier "main passes at
+  31.3–31.7" was a comparison against a contended run, not a margin.
 
 - **The shoulders now carry the head instead of a dark tube filling the gap beside it** (#80, refs; the
   light-independent half stays with #18). The torso box's top face is lifted `0.25 × headR` into the
