@@ -106,21 +106,76 @@
     TS = t;
     return { frames: cnt, frozen: FROZEN, mode: S.mode };
   }
-  // Walk back along the ray before giving up, so "in front of the camera" survives a wall
-  // at the requested range; nearestOpen is the last resort and can land somewhere else.
-  function openAlong(a, d) {
-    const cx = Math.cos(a), sy = Math.sin(a);
-    for (let t = d; t >= 0.4; t -= 0.25) {
-      const x = P.x + cx * t, y = P.y + sy * t;
-      if (!isSolid(x, y)) return [x, y];
+  /* Where one body of the fan can go. The requested point first; then, BEFORE any shorter range,
+     the points perpendicular to the ray at that same range (#93: backing off radially only moved a
+     crowd along the ray, so a wall 1.5 m ahead folded every body into the camera's own cell and the
+     HUD counted two hounds the frame drew as one); then the same two passes 0.5 m nearer, and so on
+     down to 0.5 m. `used` is the set of cell indices this call has already taken, so n bodies land
+     in n cells instead of n copies of one — which also separates the short-range case, where the
+     0.16-rad fan is only 0.32 m wide at 2 m and two bodies share a cell with no wall anywhere.
+     A candidate is refused unless the camera can actually reach it, asked two ways of the game's own
+     code, because each sees what the other cannot: the wall DDA (ray, below) says no SOLID cell is in
+     the way, and canEnter (js/20_level.js:215) says every CROSSING the straight line makes is
+     walkable — a band one quantum up with no climb bit blocks the second way and draws no solid cell,
+     so DDA alone would let a sidestep park a body in a sealed band. That is the same failure as the
+     plane-read-through-a-wall trap in AGENTS.md: open, unused, and impossible to see or walk to.
+     Stage 0 also demands an UNUSED cell and a spot inside the camera's own frustum (|perp| <=
+     cfg.plane * along, the same screen-x test castWalls uses), because a fan that spreads a body 39
+     deg off-axis at 1.5 m is "in front of the camera" in the return value only. Stage 1 drops those
+     two demands and keeps open + reachable, which is the old rule; nearestOpen is the last resort and
+     reports why:'rescue'. A crowd that has to fall through a stage is reported, not quietly absorbed. */
+  const FANLAT = [0, 0.55, -0.55, 1.1, -1.1, 1.65, -1.65];   // half-cell steps across the ray, + side first
+  function openAlong(a, d, used) {
+    const cx = Math.cos(a), sy = Math.sin(a), lx = -sy, ly = cx;
+    const ax = Math.cos(P.ang), ay = Math.sin(P.ang);           // the camera's axis, for "in front of"
+    const reach = (x, y) => {
+      const dd = Math.hypot(x - P.x, y - P.y) || 1e-9, ux = (x - P.x) / dd, uy = (y - P.y) / dd;
+      const w = ray(P.x, P.y, undefined, ux, uy, 0, dd);          // a solid cell in the line means no
+      if (w.hit && w.dist < dd - 0.02) return false;
+      const n = Math.max(1, Math.ceil(dd * 4));                   // crossings, sampled along the line
+      let px = P.x, py = P.y;
+      for (let i = 1; i <= n; i++) {
+        const qx = P.x + (x - P.x) * i / n, qy = P.y + (y - P.y) * i / n;
+        if (!canEnter(px, py, qx, qy)) return false;
+        px = qx; py = qy;
+      }
+      return true;
+    };
+    // Radii: the requested one, then 0.5 m nearer, and the LAST one tried is always exactly 0.5 m —
+    // a ladder of d - 0.5*k would stop at 0.7 for d = 3.2 and let the rescue put a body across the map.
+    for (let stage = 0; stage < 2; stage++) {
+      for (let k = 0; k < 64; k++) {
+        const r = Math.max(d - 0.5 * k, 0.5);
+        for (let j = 0; j < FANLAT.length; j++) {
+          const x = P.x + cx * r + lx * FANLAT[j], y = P.y + sy * r + ly * FANLAT[j];
+          if (isSolid(x, y)) continue;
+          if (stage === 0) {
+            if (used && used.has((y | 0) * MW + (x | 0))) continue;
+            const along = (x - P.x) * ax + (y - P.y) * ay;
+            if (along <= 0 || Math.abs((y - P.y) * ax - (x - P.x) * ay) > cfg.plane * along * 0.98) continue;
+          }
+          if (!reach(x, y)) continue;
+          const exact = stage === 0 && r === d && FANLAT[j] === 0;
+          return { x: x, y: y, d: r, lat: FANLAT[j], exact: exact,
+            why: stage ? 'crowded' : exact ? 'exact'
+              : (FANLAT[j] === 0 ? 'short' : (r === d ? 'sidestep' : 'short+sidestep')) };
+        }
+        if (r === 0.5) break;
+      }
     }
-    return nearestOpen(P.x + cx * d, P.y + sy * d);
+    const o = nearestOpen(P.x + cx * d, P.y + sy * d);
+    return { x: o[0], y: o[1], d: Math.hypot(o[0] - P.x, o[1] - P.y), lat: 0, exact: false, why: 'rescue' };
   }
+  /* Returns what it ACTUALLY did (#93): `dist` stays the realised range of each body (the field a
+     console reader already used), and `placed` / `cells` / `collapsed` make a crowd's spread
+     assertable instead of assumable — collapsed = bodies that ended up in another body's cell, so
+     a fixture that wants n separate bodies asserts collapsed === 0 rather than counting the HUD. */
   function spawn(kind, n, dist) {
     const k = ETYPE[kind] ? kind : 'grunt', cnt = Math.max(1, (n === undefined ? 1 : n) | 0), d = dist === undefined ? 3 : +dist;
+    const used = new Set(), placed = [];
     for (let i = 0; i < cnt; i++) {
       const off = cnt === 1 ? 0 : (i % 2 ? 1 : -1) * 0.16 * Math.ceil(i / 2);
-      const o = openAlong(P.ang + off, d), e = makeEnemy(k, o[0], o[1]);
+      const o = openAlong(P.ang + off, d, used), e = makeEnemy(k, o.x, o.y);
       // makeEnemy scatters gait phase, tint and facing: pin them so two spawns agree
       e.anim = 0; e.stepPhase = 0; e.ph = 0; e.tint = [1, 1, 1]; e.state = 'sleep'; e.alert = false;
       // dv is pinned too, and to i rather than to 0: DEV.tick never seeds RNG, so a random variant
@@ -129,8 +184,24 @@
       e.dv = i % MESH.DIEV;
       e.ang = Math.atan2(P.y - e.y, P.x - e.x);
       ENEMIES.push(e);
+      used.add((e.y | 0) * MW + (e.x | 0));
+      placed.push({ x: num(e.x, 2), y: num(e.y, 2), cell: [e.x | 0, e.y | 0],
+        d: num(Math.hypot(e.x - P.x, e.y - P.y), 2), off: num(off, 3), lat: num(o.lat, 2),
+        clamped: !o.exact, why: o.why });
     }
-    return { kind: k, made: cnt, dist: ENEMIES.slice(-cnt).map(e => num(Math.hypot(e.x - P.x, e.y - P.y), 2)) };
+    const cells = new Set(placed.map(p => p.cell[1] * MW + p.cell[0]));
+    // sep = closest two centres get, in metres. Distinct cells is the reachability claim; this is the
+    // visual one — a body is ~0.5 m wide, so sep under that means the frame still shows one blob even
+    // though every body stands in its own cell (the ±0.16-rad fan is only 0.32 m wide at 2 m).
+    let sep = null;
+    for (let i = 0; i < cnt; i++) for (let j = i + 1; j < cnt; j++) {
+      const g = Math.hypot(placed[i].x - placed[j].x, placed[i].y - placed[j].y);
+      sep = sep === null ? g : Math.min(sep, g);
+    }
+    return {
+      kind: k, made: cnt, n: cnt, wanted: num(d, 2), dist: placed.map(p => p.d),
+      placed: placed, cells: cells.size, collapsed: cnt - cells.size, sep: sep === null ? null : num(sep, 2)
+    };
   }
   function clear() {
     const r = { enemies: ENEMIES.length, proj: PROJ.length, parts: PARTS.length };
@@ -292,7 +363,12 @@
       '  DEV.nearestEnemy()              nearest living enemy object, or null',
       '  DEV.freeze([bool])              stop update() and pin the clock; rendering continues, so two shots of a frame match',
       '  DEV.tick([n])                   run exactly n update+render frames at dt=1/60 with no vsync (returns {frames})',
-      '  DEV.spawn(kind[, n, dist])      grunt|hound|brute, n in a fan dist metres in front of the camera, deterministic',
+      '  DEV.spawn(kind[, n, dist])      grunt|hound|brute, n in a fan dist metres in front of the camera, deterministic;',
+      '                                  a blocked target steps SIDEWAYS before it steps nearer, and never reuses a cell.',
+      '                                  returns {kind,n,wanted,dist[],placed[{x,y,cell,d,lat,clamped,why}],cells,collapsed,sep}',
+      '                                  — cells = distinct cells occupied, collapsed = bodies sharing one (the frame will',
+      '                                  show one of them), sep = closest two centres get (under ~0.5 m reads as one blob),',
+      '                                  why: exact | sidestep | short | short+sidestep | crowded | rescue',
       '  DEV.clear()                     drop enemies, projectiles and particles; returns what it removed',
       '  DEV.set(name, value)            tier keys (res, bloom, grade, grain, far, glow, rigH, rast, dmax, scan, vec, min, max)',
       '                                  plus gfx (0..2 or a tier name) and rim (bool; clears the pose cache)',
