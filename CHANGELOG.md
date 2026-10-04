@@ -2,6 +2,18 @@
 
 ### Changed
 
+- **Grenades are now a resource you can run out of and win back** (#361). `P.gren` was written in exactly
+  two places — the default at `js/00_core.js:58` and `resetRun` — and decremented in one, so the whole
+  four-level campaign was four grenades, counted down on the HUD from second zero, with no restock path
+  anywhere. `takePickup` had no `gren` arm either, so a grenade box would have fed `P.reserve` through the
+  ammo branch. Kills now drop grenades (one draw, three bands, so the level's random stream does not shift
+  with the outcome) and a grenade box tops the pouch up to a cap of 6, leaving the box on the floor when
+  full the way the ammo branch does at full reserves. Placed boxes were deliberately **not** added to
+  `LEVELS[].pick`: that changes every generated level's pickup census, and with it the pixels `flatparity`
+  and the means `exposure` record — a larger blast radius than a restock deserves, and drops reach the
+  authored finale too, whose `pick` entry is empty. Smoke asserts all three claims; on pristine code all
+  three fail (`0/0/0/0` drops, `P.reserve` sum 80 instead of `P.gren` rising, boxes eaten at full pouch).
+
 - **No big band is left without a light source standing in it** (#149). Lamp placement had scored seats
   for the dark *cells* a lamp would cover and then spread the remainder, so a band whose cells were each
   individually dim could still end up with no lamp inside it at all. On untouched `main` the new rows fail:

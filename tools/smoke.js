@@ -429,6 +429,41 @@ const release = () => fire('mouseup', { button: 0 });
   step('aggro all', 'for(const e of ENEMIES) e.alert=true'); survive(240);
   step('damage', 'damagePlayer(25,1.1)'); frames(15);
   step('pickups', 'for(const k of PICKUPS) takePickup(k)'); frames(10);
+  /* #361: P.gren was written only as a default (js/00_core.js:58, resetRun) and decremented on a throw
+     (:215), so four grenades was the entire campaign - and a gren box, had one existed, would have fallen
+     through takePickup's health/armor arms into the ammo branch and fed P.reserve. Both sources this
+     branch adds are asserted here, then the run is put back on the level and economy it had. */
+  {
+    vm.runInContext('P.gren = 1; P.reserve = P.reserve.map(() => 0); PICKUPS.push({ type: "gren", x: P.x, y: P.y, bob: 0, dead: false });', ctxVm);
+    step('grenade box', 'for (const k of PICKUPS) if (k.type === "gren") takePickup(k);'); frames(6);
+    const gUp = vm.runInContext('P.gren', ctxVm);
+    const resSum = vm.runInContext('P.reserve.reduce((a, b) => a + b, 0)', ctxVm);
+    expect('a grenade box restocks grenades and not ammo (#361)', gUp === 3 && resSum === 0,
+      `P.gren 1 -> ${gUp} (box size 2), P.reserve sum ${resSum}: a gren box reaching the ammo arm moves the second number and not the first`);
+    vm.runInContext('P.gren = 6; PICKUPS.push({ type: "gren", x: P.x, y: P.y, bob: 0, dead: false });', ctxVm);
+    step('grenade box at cap', 'for (const k of PICKUPS) if (k.type === "gren" && !k.dead) takePickup(k);'); frames(4);
+    const gCap = vm.runInContext('P.gren', ctxVm);
+    const left = vm.runInContext('PICKUPS.filter(k => k.type === "gren" && !k.dead).length', ctxVm);
+    expect('a full grenade pouch leaves the box on the floor (#361)', gCap === 6 && left >= 1,
+      `P.gren ${gCap} against cap 6, ${left} uneaten gren box left (the ammo arm eats any box it can top up)`);
+    const nGen = vm.runInContext('LEVELS.length', ctxVm), drops = [];
+    // Kills are the only source this branch ships, deliberately: placing grenade boxes in LEVELS[].pick
+    // changes every generated level's pickup census and therefore the pixels and mean luminance that
+    // flatparity and exposure record, which is a far larger blast radius than a grenade restock deserves.
+    // Dropping from kills also reaches the authored finale, whose pick entry is empty either way.
+    for (let li = 0; li < nGen; li++) {
+      vm.runInContext(`startLevel(${li}, true); PICKUPS.length = 0;`, ctxVm);
+      vm.runInContext('for (const e of ENEMIES) if (e.state !== "dead") { e.hp = 1; damageEnemy(e, 9, false, 1, 0); }', ctxVm);
+      drops.push(vm.runInContext('PICKUPS.filter(k => k.type === "gren").length', ctxVm));
+    }
+    const totalDrop = drops.reduce((a, b) => a + b, 0);
+    // code, not prose: the marker has to sit in the statement that picks the dropped type
+    const dropArm = vm.runInContext('damageEnemy.toString()', ctxVm).includes("'gren'");
+    expect('kills can restock grenades (#361)', totalDrop >= 1 && dropArm,
+      `${drops.join('/')} gren drops per level by killing every body on it, kill-drop statement arms grenades: ${dropArm ? 'yes' : 'NO - no gren band in the drop arm'}`);
+    vm.runInContext('S.diff = 1; startLevel(0, true); S.mode = "play"; S.locked = true; S.exitOpen = false;', ctxVm);
+    frames(2);
+  }
   step('minimap off', "keys['KeyM']=true"); frames(5); step('minimap on', "keys['KeyM']=false"); frames(5);
   step('perf on', "keys['F3']=true"); frames(5); step('perf off', "keys['F3']=false"); frames(5);
   step('M via event', 'null'); press('KeyM'); press('KeyM'); press('F3'); press('F3'); frames(5);

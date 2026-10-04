@@ -2143,7 +2143,7 @@ function drawMinimap(U) {
   // pickups
   for (const k of PICKUPS) {
     if (k.dead || !explored[(k.y | 0) * MW + (k.x | 0)]) continue;
-    ctx.fillStyle = k.type === 'health' ? '#5ce07a' : k.type === 'armor' ? '#4ab0ff' : '#ffcf6a';
+    ctx.fillStyle = k.type === 'health' ? '#5ce07a' : k.type === 'armor' ? '#4ab0ff' : k.type === 'gren' ? '#c8e05a' : '#ffcf6a';
     ctx.fillRect(x0 + k.x * s - 1.5 * U, y0 + k.y * s - 1.5 * U, 3 * U, 3 * U);
   }
   // enemies (visible / close)
