@@ -7563,7 +7563,14 @@ if (MODE === 'anim') {
         '   colour hashes ' + seenCol.size + '/9 reported only - the gate is COV shape, not colour');
       if (seen.size < 4) bad++;
     }
-    for (const s of [2, 4, 6, 8]) row('walk +' + (s * 0.05).toFixed(2) + 's', cmp(s0, m0, samples[s]), m0);
+    /* These four rows are a pixel delta against MINMOVE and nothing more: a rigid table that shifts
+       once from the spawn stance to one walk stance scores 6.6 % at every offset, so they CANNOT
+       distinguish one stance shift from a gait, and #274 says so. They stay because the delta is the
+       number `contrast` and the world-churn control are read against, and because raising MINMOVE to
+       reject 6.6 % would trade a 3.0 bar for a 1.8-point margin against a real 8.2 %. They do not gate
+       the gait - `gait shape` and `gait phase` below do - and the detail says so on the row itself. */
+    for (const s of [2, 4, 6, 8]) row('walk +' + (s * 0.05).toFixed(2) + 's', cmp(s0, m0, samples[s]),
+      m0 + '  pixel delta vs MINMOVE only - one stance shift scores this too (#274); the gait gate is the pose rows');
     /* ---- #82: does EVERY enemy die the same way? -------------------------------------
        One corpse per death variant, sampled by setting e.dv - a field the renderer is supposed
        to read and main does not, so setting it there changes nothing and every variant renders
