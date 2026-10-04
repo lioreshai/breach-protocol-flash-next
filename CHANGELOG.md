@@ -2,6 +2,27 @@
 
 ### Changed
 
+- **A prop could stand 1.41 m from the spawn cell, inside the spawn heading's cone** (#154). The prop
+  pass drew cells from the same pool as every other feature and subtracted nothing around the seat,
+  while the seat itself is chosen by a different pass - the same shape as #149, placement passes that
+  do not know about each other. `SPAWN_CLEAR = 2` (`js/20_level.js:40`, a `let` so a probe can A/B it
+  like `topUpEnabled`) is now excluded at the three prop push sites and at the coverage top-up, and
+  the new row reads the constant out of `js/` instead of a literal so the knob cannot silence it.
+  **Draw-stream neutrality was the constraint, not a nicety**: rejecting a candidate inside `takeNear`
+  costs a draw and re-rolls every world built downstream of the same SEED - measured, one rejected
+  lamp candidate moved a *clear* deal from 1424 draws to 343 and turned three `props` rows red. What
+  ships picks the cell exactly as before and walks an in-disc pick out of the disc **without touching
+  the RNG**, so the fix and "a different level" stay distinguishable: over N=36 deals the deals with a
+  prop under 2 m went **3/12, 2/12, 1/12 → 0/12** (L0/L1/L2), world state is identical on 30/36, dealt
+  md5s are identical on both sides for L0-L3, and spawn-frame md5s on 14/15 - the exception being one
+  of the violating deals, which is the pixel that moved. Gated by
+  `VERT L* the prop pool keeps 2.00 m around the spawn seat`; deleting the clearance fails exactly
+  those four rows (`keeps 0.00 m`) and moves nothing else. The issue's exact L2 reading did **not**
+  reproduce at these seeds - that barrel sits ~111 degrees off the heading with the forward ray open at
+  10.30 m - while the shape reproduces on L0 r9 and L1 r8, where a crate at 1.39 m in the +-17 degree
+  cone ends up at 2.78 / 4.17 m. Unsettled: pickups are still pool-placed with no clearance, so a
+  pickup can hover 1 m from the seat.
+
 - **The shoulders now carry the head instead of a dark tube filling the gap beside it** (#80, refs; the
   light-independent half stays with #18). The torso box's top face is lifted `0.25 × headR` into the
   bottom of the neck gap (`js/13_mesh.js:88`, used at `:611`), so the band between head and shoulder
