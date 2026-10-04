@@ -2,6 +2,19 @@
 
 ### Changed
 
+- **All six README screenshots are re-captured from the deployed bytes, and two captions stopped
+  describing a picture that is no longer there** (#333). Re-capturing the set owed since #326 turned
+  up a real regression rather than a cosmetic shift: the facing-wall lane went from **10 dark rows to
+  488 of 763** - a run of 277 from the top of the frame, mean 36.79 → 20.87, top band 36.2 → 9.5 - so
+  its caption now says black air instead of claiming the air above the lip is lit, and issue #333
+  carries the measurement plus the same-pose discriminator that has to run before any renderer change
+  (the only `js/40_render.js` commit between the two builds is `0bdae5d`, #311's light-ceiling
+  re-apply; that is a labelled hypothesis, not a finding). The STACK caption's "that slab seen from
+  below" is a **wall** in this build - level 3's `wall2` TECH panels, with the 4.00 plane being the
+  streaked `ROCK` ceiling - and the spawn caption's "one-unit ceiling over its head" contradicted the
+  `cz 16` printed in the same sentence. Frames came from `index.html` + `js/` whose md5s match the
+  Pages deploy exactly; `docs/` is 404 there by design, so the tree is the reference.
+
 - **A prop could stand 1.41 m from the spawn cell, inside the spawn heading's cone** (#154). The prop
   pass drew cells from the same pool as every other feature and subtracted nothing around the seat,
   while the seat itself is chosen by a different pass - the same shape as #149, placement passes that
