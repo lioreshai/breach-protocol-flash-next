@@ -7,6 +7,20 @@
   (climb, gated by `onLadder` at `:385`) appeared anywhere in the screen a player reads before deploying,
   and the staircase the generator puts in every level (#152) was unreachable by accident rather than by
   design. The list gains one row, worded *on a ladder*, because the key does nothing off one.
+- **A room now behaves like a room** (#358). `alertEnemies` had exactly one call site — the player's own
+  gunshot — and `damageEnemy` raised only the victim, so a body shot three metres from its pack mate, or a
+  body that came down in front of one, told nobody. Break line of sight and the whole encounter de-escalated
+  on a 1.6 s timer, dropping the body into the idle branch that *fidgets in place* while still holding the
+  seat it last saw you at. Now damage and death carry a wake probability through the `report` parameter that
+  was already there (so a silenced approach stays a stealth route), a woken body is stamped with **where the
+  noise came from** rather than the spawn seat its `lx/ly` were seeded to, and `alert` survives `loseT` while
+  that seat is still more than a metre away, then looks around before giving up. Levels also trade harder,
+  not just faster: one `LVL_RAMP` scales incoming melee/orb damage and reaction cooldown, where previously
+  the only per-level term in the simulation was a 5 % speed bump — and no enemy was faster than a walk
+  (`ETYPE.spd` 1.85/3.25/1.55 against `spd = 3.55 + 2.15·sprint`). `sight` gates all four claims through the
+  real `update()` loop over 240-frame runs, with the wake draws replayed from a fixed stream so a rate row
+  cannot flake; on pristine code the same rows read **0/40 wakes, 0.09 m of pursuit, damage ratio 1.000**.
+
 
 - **Enemies carry a weapon, and the geometry budget has a hook** (#78). Bodies were still authored at spike
   fidelity: one global `NS = 6` gave every tube the same prism, so a thigh and a visor were equally faceted,

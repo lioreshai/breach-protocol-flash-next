@@ -3284,6 +3284,87 @@ if (MODE === 'sight') {
         arrived(PU.flat) && PU.flat.sees > 200,
         pf(PU.flat));
     }
+    /* #358: coordination and persistence, driven through the real update loop the way #263's arrival
+       rows are. alertEnemies' wake draw is a REAL Math.random, so a single trial could never be a gate:
+       each trial reseats both bodies and replays a fixed LCG stream, which makes the measured rate a
+       reproducible number rather than a coin flip (the stream also advances through the particle/drop
+       draws damageEnemy makes, and it advances in the same order every run). Sight is narrowed on the
+       witness rather than walled off, so "cannot see you now" is true BY CONSTRUCTION and not because
+       this level happens to have a corner - the trap #263's +1-band rows fell into. */
+    const PK = run(`(function(){
+      startLevel(${li}, true);
+      let lane = null;
+      for (let y = 2; y < MH - 2 && !lane; y++) for (let x = 2; x < MW - 8 && !lane; x++) {
+        let n = 0; for (let k = 0; k < 7; k++) if (!MAP.cell[y * MW + x + k]) n++;
+        if (n >= 7) lane = { x: x, y: y };
+      }
+      if (!lane) return { skip: 'no 7-cell straight run on this level' };
+      const a = ENEMIES[0], b = ENEMIES[1];
+      if (!a || !b) return { skip: 'fewer than two bodies generated' };
+      ENEMIES.length = 0; ENEMIES.push(a, b);
+      const R0 = Math.random; let rs = 1;
+      const rnd = () => { rs = (rs * 1103515245 + 12345) & 0x7fffffff; return rs / 0x7fffffff; };
+      const seat = (e, k) => {
+        e.x = lane.x + k + 0.5; e.y = lane.y + 0.5; e.z = floorAt(e.x, e.y); e.state = 'sleep';
+        e.alert = false; e.loseT = 0; e.search = 0; e.vx = 0; e.vy = 0; e.hp = e.type.hp;
+        e.dead = false; e.lx = e.x; e.ly = e.y; e.atkT = 0; e.cd = 0; e.stagger = 0;
+        e.stgx = 0; e.stgy = 0; e.sideT = 0; e.stuck = 0;
+      };
+      Math.random = rnd;
+      const T = 40, GAP = 4, o = { T, gap: GAP, wound: 0, dead: 0 };
+      for (let i = 0; i < T; i++) {
+        seat(a, 1); seat(b, 1 + GAP); rs = 101 + i * 7919;
+        damageEnemy(a, 1, false, 1, 0);
+        if (b.alert) o.wound++;
+      }
+      for (let i = 0; i < T; i++) {
+        seat(a, 1); seat(b, 1 + GAP); a.hp = 1; rs = 907 + i * 7919;
+        damageEnemy(a, 9, false, 1, 0);
+        if (b.alert) o.dead++;
+      }
+      const sv = b.type.sight; b.type.sight = 0.1;
+      o.closure = 0; o.gap0 = 0; o.gapEnd = 99;
+      for (let i = 0; i < T; i++) {
+        seat(b, 1); b.state = 'chase'; b.alert = true; b.loseT = 0.05;
+        b.lx = lane.x + 1 + GAP + 1.5; b.ly = lane.y + 0.5;
+        rs = 313 + i * 7919;
+        const d0 = Math.hypot(b.lx - b.x, b.ly - b.y);
+        for (let f = 0; f < 150; f++) update(1 / 60);
+        const d1 = Math.hypot(b.lx - b.x, b.ly - b.y);
+        o.closure += d0 - d1;
+        if (i === 0) { o.gap0 = d0; o.gapEnd = d1; }
+      }
+      b.type.sight = sv; o.closure = +(o.closure / T).toFixed(2);
+      o.gap0 = +o.gap0.toFixed(2); o.gapEnd = +o.gapEnd.toFixed(2);
+      const dmgAt = (lvl) => {
+        S.level = lvl;
+        seat(b, 1); b.state = 'chase'; b.alert = true; b.loseT = 9;
+        P.x = lane.x + 2.4; P.y = lane.y + 0.5; P.ang = Math.PI; P.hp = 100; P.armor = 0;
+        P.deadT = 0; P.air = false; P.vz = 0; P.z = floorAt(P.x, P.y); P.crouch = 0;
+        b.cd = 0; b.atkT = 0; b.alert = true; S.mode = 'play'; S.locked = false; PROJ.length = 0;
+        let hit = 0;
+        for (let f = 0; f < 180 && !hit; f++) { update(1 / 60); if (P.hp < 100) hit = 100 - P.hp; }
+        return hit ? +(+hit).toFixed(2) : 0;
+      };
+      o.dmg0 = dmgAt(0); o.dmg2 = dmgAt(2);
+      Math.random = R0; S.level = ${li};
+      return o; })()`);
+    if (PK.skip) row(`L${li} pack rows`, false, PK.skip + ' - VACUOUS');
+    else {
+      const wr = PK.wound / PK.T, dr = PK.dead / PK.T;
+      row(`L${li} a body that is hit wakes the room (wound, ${PK.gap} m apart)`,
+        wr >= 0.30,
+        `${PK.wound}/${PK.T} trials the sleeping neighbour came alert = ${(wr * 100).toFixed(0)}% (PACK_WOUND 0.45, deterministic stream, floor 30%)`);
+      row(`L${li} watching a neighbour come down wakes it too (death)`,
+        dr >= 0.45,
+        `${PK.dead}/${PK.T} = ${(dr * 100).toFixed(0)}% (PACK_DEAD 0.75, floor 45%)`);
+      row(`L${li} losing sight sends it to where you were last seen, not back to its stance`,
+        PK.closure >= 2.0,
+        `closed ${PK.closure} m of a ${PK.gap0} m gap to the last-known seat on average over ${PK.T} trials (first trial ${PK.gap0} -> ${PK.gapEnd}); on main alert drops at 1.6 s and the idle branch fidgets in place`);
+      row(`L${li} a higher level trades harder per hit, not only faster`,
+        PK.dmg0 > 0 && PK.dmg2 / PK.dmg0 >= 1.08,
+        `first-hit damage ${PK.dmg0} at level 0 vs ${PK.dmg2} at level 2, ratio ${PK.dmg0 ? (PK.dmg2 / PK.dmg0).toFixed(3) : 'n/a'} (LVL_RAMP 0.06 predicts 1.120, floor 1.08)`);
+    }
   }
   console.log(bad ? `SIGHT ${bad} FAILURES` : 'SIGHT ok - hit tests follow the body they hit');
   process.exit(bad ? 1 : 0);
