@@ -6968,15 +6968,46 @@ if (MODE === 'anim') {
   /* zbuf comes along because #74 needs to know where the mesh OCCUPIES a pixel, not where it
      happens to be visible: a body row whose colour matches the wall behind it would otherwise read
      as a gap. The mesh writes its own depth where it draws, so "zbuf nearer than the enemy-free
-     frame" is the colour-independent copy of the same question. */
+     frame" is the colour-independent copy of the same question - and it is why the rig has to be at
+     rest in both renders; see the note below.
+
+     #266's drift, in the lane its clock pin did not reach: `drawViewModel` damps its look-lag against
+     WALL time (`dt = min(0.05, gap/1000)`, js/40_render.js:1789, and this harness stubs that clock as
+     Date.now at view.js:338), so `VM.lag` decays by `exp(-9*dt)` BETWEEN THE TWO RENDERS OF ONE POSE
+     and the rifle lands on a different screen row. Measured on `896c1de`, six processes of
+     `node tools/view.js anim` on a byte-identical tree: DETACHED counts 2,1,1,1,0,0 and six different
+     stdout md5s; 179-193 of the same 486 render gaps crossed the 50 ms clamp per process; `VM.lag`
+     sat at 4-8e-4 through the attach loop and decayed ~23% across one pair. #327's discriminator, in
+     the grunt spawn row's own seat: one state rendered twice with a 30 ms gap differs by 94 px FREE /
+     0 px RESTED while `VM.lag` reads 4.2e-4 / 0, and 0 px / 0 px in the rows where the lag has already
+     damped out - the pixels are the swing, not the world and not a random draw. Ruled out the same
+     way: seeded `Math.random` reads identical (335), `S.t`/`runT`/shake read 0.00 through the attach
+     loop, and the rested frame's md5 is identical across processes.
+     Why the swing reaches these masks at all: the rig WRITES DEPTH (zbuf ~1 m at its muzzle), so its
+     edges enter through the depth term as well as the colour term. Two consequences, both measured:
+     the attach rows' widest-row rule counted those edge pixels as a body row - in the flagged
+     processes the mask reached rows 334..337, i.e. the whole viewmodel region, and the widest-row
+     contest was decided there, so `shRow` landed at 241..326, every row between it and the body
+     counted as a head gap, and DETACHED flipped with the machine's timing; and the `replay` row's #170
+     churn verdict was the same defect wearing a different name - rested, that row reads 0.00 % of 4010
+     mask px where it read 13.4-14.4 %, so `churnGroup` goes false and this mode's shape rows stop
+     being reported as #170 debt and gate instead. Nothing else in what this mode renders reads the
+     clock (`VM.vy` is the only other dt-fed state and VMREST zeroes it too), so the gait,
+     distinct-silhouette, IoU and death rows keep their thresholds and still measure the BODY moving -
+     the mask they measure on is now the body's, which is what their prose always claimed it was.
+     What resting does NOT fix is recorded rather than smoothed over: below row 200 the mask still
+     carries a deterministic ~45 px band (rows 241..245, widest span 23..39 px against a body row of
+     45..113) that the widest-row rule cannot tell from a body, so the rule stays one content change
+     from landing on it again - the real fix is a mask filter on the search, the way HEAD_HW/NECK_R0
+     filter the neck band in #326, and that is a separate lane. */
   function shot() {
-    run('renderWorld()');
+    run(VMREST + 'renderWorld()');
     const A = new Uint32Array(run('px')), zA = new Float32Array(run('zbuf'));
     /* COV, when the neck row below has armed it, describes THIS render and must be read before the
        enemy-free render wipes it (js/40_render.js:271 fills it at the top of every frame). Null in
        every other row, where the global is null and this costs one compare. */
     const C = run('COV ? COV.length : 0') === N ? new Uint8Array(run('COV')) : null;
-    run(BARE);
+    run(VMREST + BARE);
     return { A, B: new Uint32Array(run('px')), zA, zB: new Float32Array(run('zbuf')), cov: C };
   }
   function maskOf(s) {
