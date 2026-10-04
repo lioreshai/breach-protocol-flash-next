@@ -694,6 +694,19 @@ const MESH = (function () {
          animation puts it, and the muzzle pitch must not swallow the cant. */
       const el = Math.max(-1, Math.min(1, (A.hy - A.ey) / s.fore));
       let gy = -0.06 + 0.22 * (el + 1), gx = 0.78, gz = 0.55;
+      /* A corpse must not be able to hold its own top edge up. `anim`'s topple rows found this at once:
+         silhouette top moved 8 px of a 272 px body where main moves it 88..91, and the row wants 15% of
+         the body's rise - so the corpse stopped reading as collapsed even though 89% of its pixels moved.
+         The cause is that a held rigid object EXTENDS the silhouette envelope, and a death row that
+         raises the shoulder (`aa 1.15` in variant 1) puts the hand high. Two things to get right here,
+         both learned by getting them wrong: body space is **y-UP** (the prop barrels step 0 -> 0.5 in the
+         second coordinate; SPEC hip 0.50 < sh 0.815), so "down the body" is -y, and a version of this
+         that used +y stood the rifle on end at that raised hand and pinned the top exactly as badly as
+         the port cant did. And the guard reads `q.dying`, NOT `q.topple`: a variant can die by yaw and
+         sink with `tp = 0`, and a guard on the topple angle silently skips exactly those rows.
+         Laid down the body it still hangs from the hand and turns with `tip(topple)`, but no longer
+         reaches above the envelope the body draws by itself. */
+      if (q.dying) { gx = 0; gy = -1; gz = 0.15; }
       const gL = Math.hypot(gx, gy, gz) || 1e-6; gx /= gL; gy /= gL; gz /= gL;
       const hx = A.hx, hy = A.hy, hz = A.hz;
       b.ns = 4;
@@ -718,10 +731,11 @@ const MESH = (function () {
        with. The mesh authors pitch from atk and die instead, where the bucket means what it says. */
   function joints(kind, p, mv, atk, die, dv) {
     const s = SPEC[kind], dying = die > 0.01, dr = dying ? dieRow(kind, dv) : null;
-    const q = { bob: 0, pitch: 0, topple: 0, leg: [], arm: [] };
+    const q = { bob: 0, pitch: 0, topple: 0, dying: 0, leg: [], arm: [] };
     q.bob = dying ? -die * dr.sk : -mv * 0.016 * Math.abs(Math.sin(p * TAU));
     q.pitch = dying ? 0 : atk * 0.20;
     q.topple = dying ? die * dr.tp : 0;               // the rig's die pitch, now about the ground line
+    q.dying = dying ? 1 : 0;                          // a part that must lie down with the body reads THIS, not `topple`
     for (let i = 0; i < 2; i++) {
       const side = i ? 1 : -1, a2 = p * TAU + (i ? Math.PI : 0);
       const sw = dying ? dr.sw[i] : Math.sin(a2) * (0.06 + 0.30 * mv);
