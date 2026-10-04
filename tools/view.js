@@ -8578,6 +8578,26 @@ if (MODE === 'props') {
     process.exit(0);
   }
 
+  /* Which world a row builds has to be a function of the LEVEL, not of the command line. genLevel draws
+     from the harness's own xorshift (`rs`, :296) and nothing in this block re-seated it, so `props 3`
+     entered the collision loop 4 draws into the stream where `props` entered it ~1284 in, and
+     startLevel(0,true) built a DIFFERENT level 0 - a different crate at index 9, in a different room -
+     while the row's head text, `ghost r` off foot*scale, printed identically: identical prose, opposite
+     verdict (#314). The repair is to make the stream position a function of the level too: rest seat to
+     where this block began, replay the generations a `props` run would have performed before this load
+     (the LI seat's level 0, then the loop's own earlier levels), and only then generate the level wanted.
+     Those positions are what today's green run judged - level 0 at RS0+D0, level 1 at RS0+2*D0, level 2 at
+     RS0+2*D0+D1 - so `props` and `props 0` stay byte-identical and `props 1/2/3` stop disagreeing with them;
+     the command line now chooses only which level the level-specific sections above judge. `seedRng()`
+     (:311) is NOT used: it installs a different generator than boot's, which would re-baseline every world. */
+  const RS0 = rs;
+  const SEAT0 = `S.mode='play'; S.locked=false; startLevel(0, true);`;
+  const GEN = li => `S.mode='play'; S.locked=false; startLevel(${li}, true);`;
+  const loadLevel = k => {
+    rs = RS0; run(SEAT0);
+    for (let j = 0; j < k; j++) run(GEN(j));
+    run(GEN(k));
+  };
   run(`S.mode='play'; S.locked=false; startLevel(${LI}, true);`);
   run('var PKP = [], PKK = [], PKP2 = [];');
   const CAMSET = `(()=>{
@@ -8653,14 +8673,21 @@ if (MODE === 'props') {
        0.3 m body centred at 0.9 in a one-unit room stands with half its span INSIDE the slab, so (S)
        measured a clipped 30 px instead of the 34-37 px its own authored span gives. It is now hung
        0.35 m under the ceiling of its own cell - under the slab at any band, still above the floor at
-       every band, and (F) already reports the orb as airborne because 30_entities.js owns its arc. */
+       every band, and (F) already reports the orb as airborne because 30_entities.js owns its arc.
+       THE STACK (#16) breaks that rule the other way: every cell on the sight line has `ceilAt` 4.00 m,
+       so "0.35 under the ceiling" hung the orb four metres up - out of the frame, (A) 0 px, (S) -338 px
+       (the mask.bot -1 sentinel) and four rows judging a prop that was never on screen. A hanging light
+       is bounded by the room it is IN, so the z is min(ceiling-0.35, floor+0.9): 0.65 in a one-unit room
+       - L0 (S) stays 34 px, parity - and 0.9 in a five-metre atrium, where (S) reads 35 px. The floor
+       term alone is NOT the rule: floorAt+0.9 measures 30 px on L0, the very clipped number recorded
+       above, because half a 0.3 m body then stands inside the slab at any band. */
     barrel: `PROPS.length=0;PROPS.push({tex:PROP.barrel,x:${SX},y:${SY},z:floorAt(${SX},${SY}),scale:0.86,kind:'barrel',hp:26,dead:false});globalThis.__p=PROPS[0]`,
     crate: `PROPS.length=0;PROPS.push({tex:PROP.crate,x:${SX},y:${SY},z:floorAt(${SX},${SY}),scale:0.72,kind:'crate'});globalThis.__p=PROPS[0]`,
     lamp: `PROPS.length=0;PROPS.push({tex:PROP.lamp,x:${SX},y:${SY},z:floorAt(${SX},${SY}),scale:0.95,kind:'lamp'});globalThis.__p=PROPS[0]`,
     pickupHealth: `PROPS.length=0;PICKUPS.length=0;PICKUPS.push({type:'health',x:${SX},y:${SY},bob:0,dead:false});globalThis.__p=PICKUPS[0]`,
     pickupAmmo: `PROPS.length=0;PICKUPS.length=0;PICKUPS.push({type:'ammo',x:${SX},y:${SY},bob:0,dead:false});globalThis.__p=PICKUPS[0]`,
     pickupArmor: `PROPS.length=0;PICKUPS.length=0;PICKUPS.push({type:'armor',x:${SX},y:${SY},bob:0,dead:false});globalThis.__p=PICKUPS[0]`,
-    orb: `PROPS.length=0;PROJ.length=0;PROJ.push({kind:'orb',x:${SX},y:${SY},z:ceilAt(${SX},${SY})-0.35,scale:0.3,vx:0,vy:0,vz:0,t:0,tex:PROP.orb[0]});globalThis.__p=PROJ[0]`,
+    orb: `PROPS.length=0;PROJ.length=0;PROJ.push({kind:'orb',x:${SX},y:${SY},z:Math.min(ceilAt(${SX},${SY})-0.35,floorAt(${SX},${SY})+0.9),scale:0.3,vx:0,vy:0,vz:0,t:0,tex:PROP.orb[0]});globalThis.__p=PROJ[0]`,
     portal: `PROPS.length=0;exitX=${SX};exitY=${SY};S.exitOpen=true;globalThis.__p={x:${SX},y:${SY},scale:1.5,z:0.02}`,
   };
   /* The second render of every pair has to have the OBJECT out of it, not just the array emptied:
@@ -8713,6 +8740,20 @@ if (MODE === 'props') {
   let bad = 0;
   const fail = msg => { bad++; console.log('    FAIL ' + msg); };
   const gruntTris = run('MESH.trisFor("grunt")'), gruntVerts = run('MESH.vertsFor("grunt")');
+  /* (#314) The CONTROL's ratio is a property of the SEAT, not of the renderer: zeroing MAP.light leaves
+     the mesh's light-independent floor (js/13_mesh.js:996, 0.30*visAt = 0.292 at 2.9 m on every level)
+     plus fog, so the ratio measures how much light was THERE to remove. Maxima over the five
+     non-emissive kinds, with the seat cell's own lightmap in brackets: L0 0.479 [0.180], L1 0.551
+     [0.079], L2 0.306 [0.623], L3 0.716 [0.014] - THE STACK's seat is a dark corridor, so its body is
+     nearly all residual and x0.71 (170 -> 122 top decile) is the honest reading of a control that DOES
+     fall. One 0.7 floor across four levels therefore failed the authored level by 0.007-0.016 while
+     passing a level whose seat carried 40x the light. The magnitude is now a recorded per-level number
+     (the refRecord shape, so it cannot be re-tuned to quiet a row) and what stays a hard gate is the
+     semantic question: a body that loses less than 10% of its top decile is not seeing scene light at
+     all, and then every other (E) row here is worthless. */
+  const CTRL_REF = refRecord('props', 'CTRL-RAT', 'num', [0.479, 0.551, 0.306, 0.716]);
+  const CTRL_CEIL = 0.9;
+  let ctrlMax = 0, seatLtNow = 0;
   const KINDS = ['barrel', 'crate', 'lamp', 'pickupHealth', 'pickupAmmo', 'pickupArmor', 'orb', 'portal'];
   const EMISSIVE = { lamp: 1, orb: 1, portal: 1 };
   console.log('props: level ' + LI + '  cam ' + CAM.x.toFixed(2) + ',' + CAM.y.toFixed(2) +
@@ -8789,14 +8830,17 @@ if (MODE === 'props') {
     const m2 = mask(s2);
     if (m2.n < 250) fail('(E) ' + kind + ': invisible once the lights are off (' + m2.n + ' px) - cannot judge emissive');
     const full = hi(s.A, m, 0.1), dark = hi(s2.A, m, 0.1), rat = full > 0 ? dark / full : 1;
+    const seatLt = +run('MAP.light[(' + SY + '|0)*MW+(' + SX + '|0)]');
+    if (!EMISSIVE[kind] && rat > ctrlMax) { ctrlMax = rat; seatLtNow = seatLt; }
     if (EMISSIVE[kind]) {
       if (rat < 0.85) fail('(E) ' + kind + ': emissive pixels FALL with scene light - top-decile luminance ' +
         full.toFixed(0) + ' lit, ' + dark.toFixed(0) + ' dark (x' + rat.toFixed(2) +
         '): it is multiplied by li, so it goes dark in the rooms where it is the only light source');
       else console.log('    emissive: top-decile ' + full.toFixed(0) + ' -> ' + dark.toFixed(0) +
         ' (x' + rat.toFixed(2) + ') - light-exempt');
-    } else if (rat > 0.7) fail('(E) ' + kind + ': the CONTROL did not fall (x' + rat.toFixed(2) +
-      ') - this probe cannot see scene light, so every other (E) row here is worthless');
+    } else if (rat > CTRL_CEIL) fail('(E) ' + kind + ': the CONTROL did not fall (x' + rat.toFixed(2) +
+      ') - this probe cannot see scene light, so every other (E) row here is worthless (seat lightmap '
+      + seatLt.toFixed(3) + ')');
     else console.log('    lit by light, as it should be (control): ' + full.toFixed(0) + ' -> ' + dark.toFixed(0) +
       ' (x' + rat.toFixed(2) + ')');
     /* (E2) the CORE, not the ratio - #84. Row (E) asks whether emissive pixels survive the lights
@@ -9014,7 +9058,7 @@ if (MODE === 'props') {
   })()`;
   for (let li = 0; li < run('LEVELS.length'); li++) {
     curLevel = li;
-    run(`S.mode='play'; S.locked=false; startLevel(${li}, true); ENEMIES.length=0; PROJ.length=0;`);
+    loadLevel(li); run('ENEMIES.length=0; PROJ.length=0');
     const cands = run(`(()=>{for(const p of PROPS)if(p.kind==='crate'||p.kind==='barrel'||p.kind==='lamp'){}
       return PROPS.map((p,i)=>({i,k:p.kind,x:p.x,y:p.y,s:p.scale||1,gz:floorAt(p.x,p.y)}))})()`);
     const cen = {}; let nSolidProp = 0;
@@ -9099,6 +9143,20 @@ if (MODE === 'props') {
   }
   if (known218) console.log('  props: ' + known218 + ' known-issue row(s) reported, not gated '
     + '(#318 fixed on p318close/lamp-jamb, pending merge - STRICT=1 promotes them)');
+  {
+    const cRef = LI >= 0 && LI < CTRL_REF.length ? CTRL_REF[LI] : -1;
+    if (cRef < 0) console.log('  control ratio ' + ctrlMax.toFixed(3) + ' (seat lightmap ' +
+      seatLtNow.toFixed(3) + ') - no record for level ' + LI + '; run `node tools/view.js refs --record`');
+    else if (Math.abs(ctrlMax - cRef) > 0.05) {
+      bad++;
+      console.log('  FAIL control ratio moved: ' + ctrlMax.toFixed(3) + ' against the recorded ' +
+        cRef.toFixed(3) + ' - ' + (100 * (1 - ctrlMax)).toFixed(0) + '% off the lit body at a seat carrying '
+        + seatLtNow.toFixed(3) + ' of lightmap: the light-independent mesh floor, the fog term or the seat '
+        + 'has moved, and every (E) row above is worth only what this number says it is.');
+    } else console.log('  control ratio ' + ctrlMax.toFixed(3) + ' = the recorded ' + cRef.toFixed(3) +
+      ' (' + (100 * (1 - ctrlMax)).toFixed(0) + '% off the lit body at the seat, lightmap ' +
+      seatLtNow.toFixed(3) + ')');
+  }
   console.log(bad ? 'PROPS PROBE: ' + bad + ' FAILURE(S)' : 'PROPS PROBE: every prop volumetric, light-exempt where emissive, grounded, and solid to the player');
   process.exit(bad ? 1 : 0);
 }

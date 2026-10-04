@@ -2,6 +2,21 @@
 
 ### Changed
 
+- **The prop probe now judges the hand-authored level, and a level's world no longer depends on the
+  command line** (#314). `node tools/view.js props` was green while `node tools/view.js props 3` — the
+  same probe asked about THE STACK — failed 12 rows. All three causes were the probe's, not the level's:
+  the scene-light **control** compared every level against one 0.7 fall bar, though that ratio measures
+  how much light the seat *had* to lose (THE STACK's seat cell carries lightmap 0.014 against level 2's
+  0.623, so its body falls 28% and landed at 0.716) — the magnitude is now a recorded per-level number
+  and only "fell by less than 10%, therefore sees no light at all" stays a hard gate; the **orb** was
+  hung `0.35 m` under its ceiling, which in a room whose ceiling is 4 m up puts it out of the frame
+  (0 px, a −338 px silhouette) — it now hangs at `min(ceiling−0.35, floor+0.9)`, 34 px on the generated
+  levels as before and 35 px on the authored one; and the **prop-collision** rows turned out to judge a
+  *different world* depending on which level the argument named, because level generation draws from the
+  harness's shared random stream and the loop inherited wherever that stream had got to — a different
+  crate at the same index, in a different room, printing identical text with the opposite verdict. Each
+  level load there now rest seats and replays the generations a plain `props` run performed, so which
+  world a row builds is a function of the level and its seed only, and `props` and `props 3` agree.
 - **No big band is left without a light source standing in it** (#149). Lamp placement had scored seats
   for the dark *cells* a lamp would cover and then spread the remainder, so a band whose cells were each
   individually dim could still end up with no lamp inside it at all. On untouched `main` the new rows fail:
