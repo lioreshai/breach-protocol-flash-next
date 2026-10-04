@@ -83,6 +83,33 @@ const SEED = (+(process.env.ROLLSEED || 1000)) >>> 0;
 */
 const SMIN = +(process.env.SPAWN_MIN || 35);
 const SMAX = +(process.env.SPAWN_MAX || 75);
+/* #149 THE WORST ROLL, composited, at ROLLS = 5.
+
+   The median is asserted above for a reason - one roll outside 60-100 proves nothing (#87) - and that
+   same reason is exactly what lets a DARK INSTANCE hide in the number: level 0 on this tree deals
+   94 120 75 46 37, a median of 75 that is inside the window and a darkest layout that reads 37, below
+   it. A player who gets dealt that layout does not get the median. So the floor of the SAME batch is
+   read here, beside the median, with the count of rolls outside the window.
+
+     level  measured worst roll (5 rolls)   floor recorded   rolls outside 60-100
+     L0     37  (94 120 75 46 37)           34               3
+     L1     69  (69 82 77 87 93)            64               0
+     L2     66  (66 108 82 98 92)           61               1
+     L3     61  (74 70 66 62 61)            57               0
+
+   Each floor sits just UNDER the measured worst of the tree it was recorded on, never at the window's
+   bottom edge: a floor at 60 would fail on ordinary roll noise and PASS on a layout with an unlit room,
+   which is the defect this row exists to catch. The floors are therefore a regression gate on the tail,
+   and they are NOT a claim that the tail is acceptable - level 0's worst roll is below the window, so it
+   prints as a known-issue naming #149 on every run until the generator's light budget is settled
+   (wip/lamp-placement-149 lifts it to 55 and moves level 2's median to 110, so the budget, not the
+   placement, is what is left). Quote the roll count beside any floor: these distributions are bimodal,
+   and a floor recorded at 5 rolls says nothing about a run at 9.
+
+   WORST_FLOOR=<n> overrides every level at once, which is how this row is shown to be wired to the
+   rolls rather than to the number printed next to it. */
+const WORST_REC = [34, 64, 61, 57];
+const WFLOOR = process.env.WORST_FLOOR ? WORST_REC.map(() => +process.env.WORST_FLOOR) : WORST_REC;
 const VW = +(process.env.VIEWPORT_W || 1280);
 const VH = +(process.env.VIEWPORT_H || 720);
 const STRIDE = +(process.env.STRIDE || 4);
@@ -483,7 +510,7 @@ async function main() {
     console.log('  (same seeded dice as tools/view.js exposure; its "raster BEFORE bloom/grade/grain" column '
       + 'below is the layer that prints there - the two are not comparable, which is what #85 was about)');
 
-    const bad = [], badSpawn = [];
+    const bad = [], badSpawn = [], badWorst = [], debtWorst = [];
     let allMed = 0;
     for (let lv = 0; lv < nLevels; lv++) {
       const rolls = [], mids = [], rasts = [], spM = [], spMid = [], spAng = [];
@@ -502,6 +529,16 @@ async function main() {
       allMed += med;
       const okv = med >= MIN && med <= MAX;
       if (!okv) bad.push('level ' + lv + ' median ' + med.toFixed(1) + ' outside ' + MIN + '-' + MAX);
+      // #149: the floor of the same batch, and how many rolls fell outside the window.
+      const worst = sorted[0], outN = rolls.filter(v => v < MIN || v > MAX).length;
+      if (worst < WFLOOR[lv]) badWorst.push('level ' + lv + ' WORST roll ' + worst.toFixed(1)
+        + ' below the recorded floor ' + WFLOOR[lv] + ' (rolls ' + rolls.map(v => v.toFixed(0)).join(' ')
+        + (med >= MIN && med <= MAX
+          ? ', median ' + med.toFixed(1) + ' is inside the window - that is how this hides)'
+          : ', median ' + med.toFixed(1) + ' is outside it too)'));
+      else if (worst < MIN) debtWorst.push('level ' + lv + ' worst roll ' + worst.toFixed(1)
+        + ' is below the ' + MIN + '-' + MAX + ' window (floor ' + WFLOOR[lv] + ', ' + outN + ' of '
+        + ROLLS + ' rolls outside) - known #149: the darkest layout this level deals');
       const spMed = median(spM), spSorted = spM.slice().sort((a, b) => a - b);
       const oksp = spMed >= SMIN && spMed <= SMAX;
       if (!oksp) badSpawn.push('level ' + lv + ' spawn median ' + spMed.toFixed(1) + ' outside ' + SMIN + '-' + SMAX
@@ -513,6 +550,8 @@ async function main() {
         + pad('  mid ' + median(mids).toFixed(0), 7)
         + pad('  raster ' + median(rasts).toFixed(0), 11)
         + (okv ? '  ok' : '  OUTSIDE')
+        + pad('  WORST ' + worst.toFixed(0), 10) + 'floor ' + WFLOOR[lv]
+        + pad('  out ' + outN + '/' + ROLLS, 8)
         + '  | spawn ' + pad(spMed.toFixed(0), 4) + pad(' mid ' + median(spMid).toFixed(0), 6)
         + '  rolls ' + spM.map(v => pad(v.toFixed(0), 3)).join(' ')
         + pad('  spread ' + (spSorted[spSorted.length - 1] - spSorted[0]).toFixed(0), 9)
@@ -520,10 +559,12 @@ async function main() {
     }
     allMed /= nLevels;
     console.log('  ALL     median ' + allMed.toFixed(1) + '  (mean of the per-level medians)');
-    if (bad.length || badSpawn.length) {
+    if (bad.length || badSpawn.length || badWorst.length) {
       console.log('EXPOSURE GATE FAIL: composited frame outside the ' + MIN + '-' + MAX
-        + (badSpawn.length ? ' window, or the first frame at spawn outside ' + SMIN + '-' + SMAX : '') + ' (both on the composited frame)');
-      bad.concat(badSpawn).forEach(b => console.log('  ' + b));
+        + (badSpawn.length ? ', or the first frame at spawn outside ' + SMIN + '-' + SMAX : '')
+        + (badWorst.length ? ', or a level\'s WORST seeded roll below its recorded floor' : '')
+        + ' (all on the composited frame)');
+      bad.concat(badWorst, badSpawn).forEach(b => console.log('  ' + b));
       console.log('  the window is the documented exposure target (AGENTS.md: 60-100), here from LUM_MIN/LUM_MAX;');
       console.log('  a median this far off is a shading or post-FX change, and the per-roll values are printed');
       console.log('  above because the roll spread is wider than the window (#87) and is not asserted.');
@@ -539,7 +580,9 @@ async function main() {
       }
       return 1;
     }
-    console.log('EXPOSURE ok: every level medians inside ' + MIN + '-' + MAX + ' and every level spawn frame inside '
+    debtWorst.forEach(b => console.log('  KNOWN #149: ' + b));
+    console.log('EXPOSURE ok: every level medians inside ' + MIN + '-' + MAX + ', every level worst roll at or above '
+      + WORST_REC.join('/') + ', and every level spawn frame inside '
       + SMIN + '-' + SMAX + ' on the composited frame');
     return 0;
   } catch (e) {

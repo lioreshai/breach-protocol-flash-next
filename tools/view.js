@@ -4809,7 +4809,26 @@ if (MODE === 'exposure') {
      64.49/58.60 and L2 64.32/72.58 come back ONTO their records, so this is not the frames going dark -
      and #304's L3 pair 56/60 still rounds onto its record (55.92/59.84 exact against #304's 56.10/59.86). */
   const EXPO_SPAWN = refRecord('exposure', 'SPAWN', 'num', [60, 66, 64, 59, 64, 73, 56, 60]);   // mean, mid per level
-  const LUM_WANT = [60, 100];       // the documented window (README: targets 60-100), median not mean
+  const LUM_WANT = [60, 100];       // the documented window (README: targets 60-100)
+  /* #149 THE WORST ROLL, raster layer, at 4 seeded rolls - the statistic the window row above
+     deliberately does not read. The median is asserted because one roll outside 60-100 proves nothing,
+     and that is exactly the cover a dark layout hides under: level 0 deals 79 101 68 48, a median of 73
+     inside the window and a darkest layout 12 points below it.
+       level  worst roll (4 rolls)     floor   rolls outside the window
+       L0     48  (79 101 68 48)        45      1
+       L1     65  (65 74 68 80)         61      0
+       L2     63  (63 91 72 84)         60      0
+       L3     60  (68 65 62 60)         57      0
+     Each floor sits just UNDER the measured worst of this tree, never at the window's bottom edge - a
+     floor at 60 would trip on ordinary roll noise and PASS a layout with an unlit room, which is the
+     defect this exists to catch. So they gate the TAIL and say nothing about whether it is acceptable:
+     L0's worst is under the window, and prints as a KNOWN #149 line every run until the light budget is
+     settled (wip/lamp-placement-149 lifts it to 55 and takes level 2's median to 110). These raster
+     floors are NOT the composited ones in tools/ci/assert.js (37/69/66/61 at 5 rolls): different layer,
+     different roll count, and #85 is precisely why the two never agree. */
+  const WORST_RASTER = process.env.WORST_FLOOR
+    ? [0, 1, 2, 3].map(() => +process.env.WORST_FLOOR)
+    : [45, 61, 60, 57];   // the window is read on the median; THIS floor is read on the worst roll
   const medRec = [], spawnRec = [];
   for (let lv = 0; lv < N; lv++) {
     let sum = 0, n = 0;
@@ -4862,12 +4881,14 @@ if (MODE === 'exposure') {
       '  median ' + pad(med.toFixed(0), 3) +
       '  rolls ' + rolls.map(v => pad(v.toFixed(0), 3)).join(' ') +
       '  spread ' + pad((sorted[sorted.length - 1] - sorted[0]).toFixed(0), 3) +
+      '  WORST ' + pad(sorted[0].toFixed(0), 3) +
       '  buckets ' + hist.map(v => (100 * v / n).toFixed(0)).join(',') +
       '  | spawn mean ' + pad(med2(spawnMeans).toFixed(0), 3) +
       '  mid ' + pad(med2(spawnMids).toFixed(0), 3) +
       '  rolls ' + spawnMeans.map(v => pad(v.toFixed(0), 3)).join(' ') +
       '  spread ' + pad((spSorted[spSorted.length - 1] - spSorted[0]).toFixed(0), 3));
     medRec.push({ med: Math.round(med), raw: med, rolls: rolls.map(v => Math.round(v)),
+      worst: Math.round(sorted[0]), worstRaw: sorted[0], outN: rolls.filter(v => v < LUM_WANT[0] || v > LUM_WANT[1]).length,
       spread: Math.round(sorted[sorted.length - 1] - sorted[0]), mean: sum / n,
       dark: 100 * hist[0] / n, n });
     spawnRec.push({ mean: Math.round(med2(spawnMeans)), mid: Math.round(med2(spawnMids)),
@@ -4877,6 +4898,7 @@ if (MODE === 'exposure') {
   console.log('  ALL       mean ' + pad((grand / gpix).toFixed(0), 3) + '  buckets ' +
     buckets.map(v => (100 * v / gpix).toFixed(0)).join(',') +
     '   <24: ' + (100 * gdark / gpix).toFixed(0) + '%  blown ' + (100 * gclip / gpix).toFixed(2) + '%');
+  const debt = [];
   for (let lv = 0; lv < N; lv++) {
     const m = medRec[lv], sp = spawnRec[lv];
     row('L' + lv + ' the seeded median is the recorded exposure',
@@ -4892,6 +4914,14 @@ if (MODE === 'exposure') {
       + 'may sit outside - rolls ' + m.rolls.join(' ') + ' - which is why the window is read on the median of '
       + reps + ' seeded rolls, not on one frame and not on a screenshot, whose bloom/grade/grain move the mean '
       + 'by +20/-21 and cancel unevenly per room (#85).');
+    row('L' + lv + ' the worst seeded roll stays at or above the #149 floor',
+      m.worstRaw >= WORST_RASTER[lv],
+      'WORST ' + m.worst.toFixed(0) + ' (' + m.worstRaw.toFixed(2) + ' exact) against the floor '
+      + WORST_RASTER[lv] + ' - ' + m.outN + ' of ' + reps + ' rolls outside ' + LUM_WANT[0] + '-' + LUM_WANT[1]
+      + ' while the median is ' + m.med + '. A tail past this floor is a generation or lighting change that made the DARKEST dealt layout worse, whatever the median did.');
+    if (m.worstRaw >= WORST_RASTER[lv] && m.worstRaw < LUM_WANT[0]) debt.push('L' + lv + ' worst roll '
+      + m.worst.toFixed(0) + ' sits below the ' + LUM_WANT[0] + '-' + LUM_WANT[1] + ' window (floor '
+      + WORST_RASTER[lv] + ', ' + m.outN + ' of ' + reps + ' rolls outside) - the darkest layout dealt');
     row('L' + lv + ' the spawn seat frames the recorded exposure',
       +EXPO_SPAWN[lv * 2] === sp.mean && +EXPO_SPAWN[lv * 2 + 1] === sp.mid,
       'spawn mean ' + sp.mean + ' and centre-half mid ' + sp.mid + ' against the recorded '
@@ -4899,13 +4929,14 @@ if (MODE === 'exposure') {
       + sp.rawMid.toFixed(2) + ' exact, spread ' + sp.spread + '). mid is the region DEV.lum calls mid '
       + '(js/90_dev.js:235), so this is the number tools/ci/assert.js can reproduce off the live page.');
   }
+  debt.forEach(d => console.log('  KNOWN #149: ' + d));
   row('the sampled frames are not vacuous',
     gpix > 0 && grand / gpix > 5 && grand / gpix < 250 && 100 * gdark / gpix < 80,
     (grand / gpix).toFixed(1) + ' grand mean over ' + gpix + ' px, ' + (100 * gdark / gpix).toFixed(1)
     + '% under 24, ' + (100 * gclip / gpix).toFixed(2) + '% blown - a black or white frame would satisfy a '
     + 'wrong-looking record by being wrong everywhere, which is why this is a row and not an assumption');
   console.log(bad ? 'EXPOSURE ' + bad + ' FAILURE(S) of ' + rowsN + ' rows - the frame is not the recorded frame'
-    : 'EXPOSURE ok - ' + rowsN + ' rows: seeded medians, the documented window, the spawn seats, and the '
+    : 'EXPOSURE ok - ' + rowsN + ' rows: seeded medians, the documented window, the worst-roll floors ('
     + 'records behind them (' + EXPO_MED.map(Number).join('/') + ' medians, '
     + EXPO_SPAWN.map(Number).join('/') + ' spawn mean/mid)');
   process.exit(bad ? 1 : 0);
