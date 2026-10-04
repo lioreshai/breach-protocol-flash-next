@@ -7686,7 +7686,7 @@ if (MODE === 'decal') {
       c1: c1[1] * N + c1[0], c2: c2[1] * N + c2[0], f1, f2,
       ceil1: ceilAt(c1[0] + .5, c1[1] + .5), ceil2: ceilAt(c2[0] + .5, c2[1] + .5) };
   })()`);
-  for (let lv = 0; lv < 3; lv++) {
+  for (let lv = 0; lv < run('LEVELS.length'); lv++) {
     run('S.mode="play"; S.locked=false; startLevel(' + lv + ', true);');
     const G = punch(lv, 2);
     if (G.none) {
