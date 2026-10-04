@@ -41,6 +41,7 @@ const MESH = (function () {
   const SPEC = {
     grunt: {
       aspect: 0.62, hip: 0.50, sh: 0.815, head: 0.915, headR: 0.068, torso: 0.235, hipLat: 0.055, shLat: 0.098, thigh: 0.245, shin: 0.235, upper: 0.175, fore: 0.165, limb: 0.040, arm: 0.031,
+      gun: { len: 0.34, cal: 0.016, mag: 0.055 },   // #78: held by the right hand, laid forward along the aim
       die: [
         { tp: 1.35, yw: 0.0, sw: [0.45, -0.45], bd: [0.85, 0.85], aa: [0.50, 0.50], sa: [-0.20, -0.20], sk: 0.02 },
         { tp: 1.20, yw: TAU * 0.25, sw: [0.80, -0.15], bd: [0.40, 1.15], aa: [1.15, 0.20], sa: [-0.30, -0.55], sk: 0.03 },
@@ -57,6 +58,7 @@ const MESH = (function () {
     },
     brute: {
       aspect: 0.80, hip: 0.44, sh: 0.775, head: 0.855, headR: 0.080, torso: 0.33, hipLat: 0.075, shLat: 0.16, thigh: 0.205, shin: 0.20, upper: 0.20, fore: 0.18, limb: 0.052, arm: 0.046,
+      gun: { len: 0.46, cal: 0.024, mag: 0.075 },    // a brute's weapon is a slab; the hound authors none
       die: [
         { tp: 1.35, yw: 0.0, sw: [0.45, -0.45], bd: [0.85, 0.85], aa: [0.50, 0.50], sa: [-0.20, -0.20], sk: 0.02 },
         { tp: -1.15, yw: 0.0, sw: [0.20, -0.20], bd: [0.30, 0.30], aa: [1.00, 0.90], sa: [0.35, 0.30], sk: 0.03 },
@@ -72,6 +74,29 @@ const MESH = (function () {
   const NS = 6;                                    // tube sides; 6 keeps <=260 tris/enemy
   const RC = new Float32Array(NS * 2);
   for (let i = 0; i < NS; i++) { const a = i * Math.PI * 2 / NS; RC[i * 2] = Math.cos(a); RC[i * 2 + 1] = Math.sin(a); }
+  const GUNM = [30, 34, 42], GUNM2 = [46, 52, 62];   // gunmetal: darker than every SKIN above, so a held
+  //                                                  object reads as an object, not as another limb
+
+  /* #78: one subdivision knob for every part was the spike's last leftover - a thigh and a visor got
+     the same 6-sided prism, so the silhouette faceted exactly where it is widest while the small parts
+     were already over-tessellated. `ns` is a per-CALL register on the Builder, the same shape as `em`
+     and the region register below, and rings are built once per side count rather than once per call
+     (emit builds a pose, not a frame, but it must not allocate either). The limb count reads `S.gfx`,
+     which is the index the renderer's own tier table is addressed by (`QUAL[clamp(S.gfx…)]`,
+     js/40_render.js:91) - that is what "the geometry budget has no hook" was asking for: the top tier
+     spends the extra sides, the lower tiers cost exactly what they cost today. */
+  const NS_HI = 8;
+  const RINGS = { 6: RC };
+  function ring(n) {
+    let r = RINGS[n];
+    if (!r) {
+      r = new Float32Array(n * 2);
+      for (let i = 0; i < n; i++) { const a = i * Math.PI * 2 / n; r[i * 2] = Math.cos(a); r[i * 2 + 1] = Math.sin(a); }
+      RINGS[n] = r;
+    }
+    return r;
+  }
+  const segLimbs = () => (S && (S.gfx | 0) >= 2 ? NS_HI : NS);
 
   /* How far a part reaches INTO the part it joins, in fractions of body height (#74). Parts that
      butt exactly leave a seam that opens at oblique yaw, because each box's silhouette edge is
@@ -211,6 +236,7 @@ const MESH = (function () {
      texture and no alpha channel to hide a marker in, so the exemption is a vertex flag instead - and
      it must be per PART, not per entry, because a lamp is a metal post with a bulb in it. */
   Builder.prototype.em = 0;
+  Builder.prototype.ns = 0;                          // tube sides for the NEXT tube; 0 = the shipped NS
 
   /* compose "rotate by ang about the pivot (py,pz)" into the current transform:
      R2(R1 p + c1) = R(a1+a2) p + (R2 c1 + c2), so one angle and one vector carry the whole chain */
@@ -245,17 +271,18 @@ const MESH = (function () {
     const UL = Math.hypot(u[0], u[1], u[2]) || 1e-6; u = [u[0] / UL, u[1] / UL, u[2] / UL];
     const v = B.cross(dx, dy, dz, u[0], u[1], u[2]);
     const base = this.p.length / 6;
-    for (let i = 0; i < NS; i++) {
-      const cx = u[0] * RC[i * 2] + v[0] * RC[i * 2 + 1], cy = u[1] * RC[i * 2] + v[1] * RC[i * 2 + 1], cz = u[2] * RC[i * 2] + v[2] * RC[i * 2 + 1];
+    const n = this.ns || NS, RN = ring(n);           // #78: per-part subdivision, ring cached per count
+    for (let i = 0; i < n; i++) {
+      const cx = u[0] * RN[i * 2] + v[0] * RN[i * 2 + 1], cy = u[1] * RN[i * 2] + v[1] * RN[i * 2 + 1], cz = u[2] * RN[i * 2] + v[2] * RN[i * 2 + 1];
       this.p.push(ax + cx * ra, ay + cy * ra, az + cz * ra, c[0], c[1], c[2]); this.e.push(this.em); this.s.push(sva);
     }
-    for (let i = 0; i < NS; i++) {
-      const cx = u[0] * RC[i * 2] + v[0] * RC[i * 2 + 1], cy = u[1] * RC[i * 2] + v[1] * RC[i * 2 + 1], cz = u[2] * RC[i * 2] + v[2] * RC[i * 2 + 1];
+    for (let i = 0; i < n; i++) {
+      const cx = u[0] * RN[i * 2] + v[0] * RN[i * 2 + 1], cy = u[1] * RN[i * 2] + v[1] * RN[i * 2 + 1], cz = u[2] * RN[i * 2] + v[2] * RN[i * 2 + 1];
       this.p.push(bx + cx * rb, by + cy * rb, bz + cz * rb, c[0], c[1], c[2]); this.e.push(this.em); this.s.push(svb);
     }
-    for (let i = 0; i < NS; i++) {
-      const j = (i + 1) % NS;
-      this.t.push(base + i, base + NS + i, base + NS + j, base + i, base + NS + j, base + j);
+    for (let i = 0; i < n; i++) {
+      const j = (i + 1) % n;
+      this.t.push(base + i, base + n + i, base + n + j, base + i, base + n + j, base + j);
     }
     return this;
   };
@@ -608,13 +635,16 @@ const MESH = (function () {
   function emit(kind, q) {
     const s = SPEC[kind], sk = SKIN[kind], dk = DARK[kind], cl = CLOTH[kind];
     const b = new Builder(), hipY = s.hip + q.bob, shY = s.sh + q.bob;
+    const seg = segLimbs();                            // #78: limb sides at the tier the page is on
     const shTop = shY + s.headR * SHOULDER_LIFT;      // the torso box's top face, #80 - see above
     b.tip(q.topple, 0.02, 0);                        // a corpse turns about its CONTACT LINE, at the feet
     for (let i = 0; i < 2; i++) {
       const L = q.leg[i], hx = (i ? 1 : -1) * s.hipLat;
+      b.ns = seg;                                      // #78: thighs and shins are the widest tubes on the body
       // leg: hip -> knee -> foot, swung by the gait (these were straight: "animation plugs in here")
       b.tube(hx, hipY, 0, L.kx, L.ky, L.kz, s.limb, s.limb * 0.86, cl);
       b.tube(L.kx, L.ky, L.kz, L.fx, L.fy, L.fz, s.limb * 0.86, s.limb * 0.7, cl);
+      b.ns = 0;
       b.box(L.fx, Math.max(0.03, L.fy + 0.01), L.fz + 0.04, s.limb * 1.1, 0.03, s.limb * 1.8, dk);
     }
     b.tip(q.pitch, hipY, 0);                         // the wind-up tips everything above the hip
@@ -636,8 +666,57 @@ const MESH = (function () {
     b.box(0, s.head + q.bob + s.headR * 0.7, s.headR * 0.72, s.headR * 0.62, s.headR * 0.30, s.headR * 0.22, [255, 208, 138]);
     for (let i = 0; i < 2; i++) {
       const A = q.arm[i], ax = (i ? 1 : -1) * s.shLat;
+      b.ns = seg;                                      // #78: the limbs are where 6 sides show
       b.tube(ax, shY, 0, A.ex, A.ey, A.ez, s.arm, s.arm * 0.86, sk);
       b.tube(A.ex, A.ey, A.ez, A.hx, A.hy, A.hz, s.arm * 0.86, s.arm * 0.7, sk);
+      b.ns = 0;
+    }
+    /* #78: a held object. An enemy that goes through the whole attack bucket with nothing in its hands
+       reads as a mannequin, and the wind-up had no object to move. The weapon is placed AT the right
+       hand and laid FORWARD, so it inherits the gait, the wind-up, the topple and the death pose from
+       `joints()` for free - the hand is where the animation puts it, and a gun that ignored those
+       numbers would float beside the body instead of being aimed by it. Its muzzle pitch comes from the
+       arm's own ELEVATION (hand above elbow ⇒ muzzle up), not from the forearm direction, which at rest
+       points at the floor: the ready slope is -0.10 (about 6° down) and it swings with the arm. Four
+       parts on 4-sided tubes: a gun is a slab, not a limb, and extra sides would be spent on the wrong
+       silhouette. The hound authors no `gun` row and must come out carrying nothing - that absence is
+       the control the rig row reads. */
+    if (s.gun) {
+      const A = q.arm[0], gl = s.gun.len, cal = s.gun.cal;
+      /* PORT ARMS, not aim-down-sight. The first cut laid the barrel along the body's +z, and the
+         composited frame at cam0 showed why that is wrong: the enemy was facing the camera, the rifle
+         pointed at it, and a 1.6 cm calibre projected to a two-pixel dot - a body that carries something
+         which cannot be seen carries nothing. A held object has to have screen-space extent at EVERY yaw,
+         so the weapon is canted across the body: 0.78 across, 0.55 forward, lightly down. Held in the
+         right hand at x = -shLat*1.1, that reaches past the far edge of the torso (grunt 0.26 of reach
+         against 0.10 half-width) so the silhouette gains an edge on BOTH sides, in plan view as well as
+         in profile. The arm's elevation still rides on it, but as a small term: the hand is where the
+         animation puts it, and the muzzle pitch must not swallow the cant. */
+      const el = Math.max(-1, Math.min(1, (A.hy - A.ey) / s.fore));
+      let gy = -0.06 + 0.22 * (el + 1), gx = 0.78, gz = 0.55;
+      /* A corpse must not be able to hold its own top edge up. `anim`'s topple rows found this at once:
+         silhouette top moved 8 px of a 272 px body where main moves it 88..91, and the row wants 15% of
+         the body's rise - so the corpse stopped reading as collapsed even though 89% of its pixels moved.
+         The cause is that a held rigid object EXTENDS the silhouette envelope, and a death row that
+         raises the shoulder (`aa 1.15` in variant 1) puts the hand high. Two things to get right here,
+         both learned by getting them wrong: body space is **y-UP** (the prop barrels step 0 -> 0.5 in the
+         second coordinate; SPEC hip 0.50 < sh 0.815), so "down the body" is -y, and a version of this
+         that used +y stood the rifle on end at that raised hand and pinned the top exactly as badly as
+         the port cant did. And the guard reads `q.dying`, NOT `q.topple`: a variant can die by yaw and
+         sink with `tp = 0`, and a guard on the topple angle silently skips exactly those rows.
+         Laid down the body it still hangs from the hand and turns with `tip(topple)`, but no longer
+         reaches above the envelope the body draws by itself. */
+      if (q.dying) { gx = 0; gy = -1; gz = 0.15; }
+      const gL = Math.hypot(gx, gy, gz) || 1e-6; gx /= gL; gy /= gL; gz /= gL;
+      const hx = A.hx, hy = A.hy, hz = A.hz;
+      b.ns = 4;
+      b.tube(hx - gx * gl * 0.30, hy - gy * gl * 0.30, hz - gz * gl * 0.30, hx, hy, hz, cal * 1.15, cal * 0.95, dk);
+      b.tube(hx, hy, hz, hx + gx * gl * 0.62, hy + gy * gl * 0.62, hz + gz * gl * 0.62, cal, cal * 0.92, GUNM);
+      b.tube(hx + gx * gl * 0.62, hy + gy * gl * 0.62, hz + gz * gl * 0.62,
+        hx + gx * gl, hy + gy * gl, hz + gz * gl, cal * 0.60, cal * 0.48, GUNM2);   // barrel: the longest edge
+      b.box(hx + gx * gl * 0.30, hy + gy * gl * 0.30 - s.gun.mag * 0.55, hz + gz * gl * 0.30,
+        cal * 0.8, s.gun.mag * 0.5, cal * 0.8, dk);    // magazine, hung under the receiver
+      b.ns = 0;
     }
     return b;
   }
@@ -652,10 +731,11 @@ const MESH = (function () {
        with. The mesh authors pitch from atk and die instead, where the bucket means what it says. */
   function joints(kind, p, mv, atk, die, dv) {
     const s = SPEC[kind], dying = die > 0.01, dr = dying ? dieRow(kind, dv) : null;
-    const q = { bob: 0, pitch: 0, topple: 0, leg: [], arm: [] };
+    const q = { bob: 0, pitch: 0, topple: 0, dying: 0, leg: [], arm: [] };
     q.bob = dying ? -die * dr.sk : -mv * 0.016 * Math.abs(Math.sin(p * TAU));
     q.pitch = dying ? 0 : atk * 0.20;
     q.topple = dying ? die * dr.tp : 0;               // the rig's die pitch, now about the ground line
+    q.dying = dying ? 1 : 0;                          // a part that must lie down with the body reads THIS, not `topple`
     for (let i = 0; i < 2; i++) {
       const side = i ? 1 : -1, a2 = p * TAU + (i ? Math.PI : 0);
       const sw = dying ? dr.sw[i] : Math.sin(a2) * (0.06 + 0.30 * mv);
@@ -700,14 +780,18 @@ const MESH = (function () {
     return b;
   }
   function model(kind) {
-    if (MODELS[kind]) return MODELS[kind];
+    /* #78: the key carries the limb side count, because that is now part of what a model IS. Keying on
+       kind alone would hand back the 6-sided rest model after the graphics tier changes - the same shape
+       as #186's lesson, that a cache key must contain every term the geometry reads. */
+    const mk = kind + '#' + segLimbs();
+    if (MODELS[mk]) return MODELS[mk];
     /* NO fallback. This used to read SPEC[kind] || SPEC.grunt, so a kind nobody authored answered with
        a grunt - a prop converted by mistake would have shipped as a small grey soldier, which is the
        failure #76 asks to make loud. A missing row is a bug in the caller, so it throws. */
     if (!SPEC[kind] && !PROPGEO[kind]) throw new Error('MESH: no geometry authored for kind "' + kind + '"');
     const b = geoFor(kind, 0, 0, 0, 0, 0);
-    const mdl = { kind, p: new Float32Array(b.p), t: new Uint16Array(b.t), em: Uint8Array.from(b.e), st: Float32Array.from(b.s), nV: b.p.length / 6, tris: b.t.length / 3 };
-    MODELS[kind] = mdl;
+    const mdl = { kind, seg: segLimbs(), p: new Float32Array(b.p), t: new Uint16Array(b.t), em: Uint8Array.from(b.e), st: Float32Array.from(b.s), nV: b.p.length / 6, tris: b.t.length / 3 };
+    MODELS[mk] = mdl;
     return mdl;
   }
 
@@ -746,8 +830,8 @@ const MESH = (function () {
        built for one and the same corpse. */
     const dv = db > 0 ? ((o.dv | 0) % DIEV + DIEV) % DIEV : 0;
     if (!CACHE) return buildPose(m, ph / PB.ph, mv / (PB.mv - 1), ab / (PB.atk - 1), db / (PB.die - 1), dv);
-    const key = db > 0 ? m.kind + '|d' + dv + '|' + db
-      : m.kind + '|' + ph + '|' + mv + '|' + ab;
+    const key = db > 0 ? m.kind + '#' + m.seg + '|d' + dv + '|' + db
+      : m.kind + '#' + m.seg + '|' + ph + '|' + mv + '|' + ab;
     const hit = POSE.get(key);
     if (hit !== undefined) { POSE.delete(key); POSE.set(key, hit); return hit; }
     // evict before building, the rig's lesson: a cache that can only shrink on an insert stalls
@@ -1041,6 +1125,10 @@ const MESH = (function () {
     reset: () => { tris = 0; pxFilled = 0; trisCulled = 0; },
     setCache: v => { CACHE = !!v; POSE.clear(); poseBytes = 0; poseMade = 0; return CACHE; },
     trisFor: k => model(k || 'grunt').tris,
+    // #78's readout: which kinds carry something, and how many sides the limbs get at the tier the page
+    // is on. Both exist so a probe row can gate the detail instead of a screenshot describing it.
+    heldKinds: () => Object.keys(SPEC).filter(k => SPEC[k].gun),
+    limbSides: () => segLimbs(),
     foot: k => FOOT[k] || 0,
     vertsFor: k => model(k || 'grunt').nV,
     /* the view model's geometry: rebuilt per frame, never cached, and the numbers the probes need */
