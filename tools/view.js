@@ -4051,7 +4051,13 @@ if (MODE === 'cull') {
          two-storey plan stacks splats in one column, so there is a ceiling for this clamp to obey - and the
          WORLD sense holding at max > 1 is what proves the move is the DELIVERY and not the map. #304's
          control above still reads true on the grid: `planes` and `alt` count the same bands and steps. */
-      const CZBAND_REF = refRecord('cull', 'CZBAND', 'crc32', [0x0f8ad9e3, 0x1b8ca621, 0x73ff8e6b, 0x2429fd16]);   // LEAK=1 CZBAND=1, cull's own step rows
+      // #149 re-records L0-L2: the per-room guarantee MOVES lamps, so the lightmap under the
+      // ceiling-step ground is a different set of sources on the GENERATED levels (main reads "7 of
+      // 10 lamps within 22 m" at this camera, the branch "6 of 10"), while the differing-pixel count
+      // is identical both sides (53,088 on L0) - shading moved, geometry did not. L3 is the AUTHORED
+      // level, whose light this pass does not touch, so its pair is main's and stays: it is the
+      // control that says these four hashes are the same arithmetic on the same machine, not drift.
+      const CZBAND_REF = refRecord('cull', 'CZBAND', 'crc32', [0xabbb6414, 0xa9c76736, 0x003a9066, 0x2429fd16]);   // LEAK=1 CZBAND=1, cull's own step rows
       /* #223: the WORLD sense, recorded beside the lane sense, because czS.h above is a lightmap
          instrument only ON ONE CAMERA'S FRAME: it moves when the lightmap changed somewhere that frame
          rasterizes and holds when it changed somewhere it cannot, so its green never proves "the
@@ -4083,7 +4089,7 @@ if (MODE === 'cull') {
          The printed drift (MAP.light now vs the snapshot taken straight after startLevel) is 0 on all
          three levels, so on this path they are the same array; a nonzero drift would mean a row had
          splatted a transient into the frame and the pair had stopped being comparable. */
-      const CZLIGHT_REF = refRecord('cull', 'CZBAND-LIGHT', 'crc32', [0xb0988514, 0xb54c0a14, 0xcb62daf2, 0x6b8394bc]);
+      const CZLIGHT_REF = refRecord('cull', 'CZBAND-LIGHT', 'crc32', [0xb34f4fc0, 0x3a016a47, 0xad0252c0, 0x6b8394bc]);
       if (process.env.CZBAND) {
         czRows++;
         run(`(function(){ window.__cz0b = MAP.cz.slice(); ${JSON.stringify(BG.cells)}
