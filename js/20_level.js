@@ -1352,11 +1352,24 @@ function genLevel(li) {
 
     const freeCells = [];
     for (let y = 1; y < N - 1; y++) for (let x = 1; x < N - 1; x++) if (cell[y * N + x] === 0) freeCells.push([x, y]);
-    const takeNear = (minD, maxD) => {
+    /* #149: SPACING IS PART OF THE CANDIDATE TEST, not an afterthought. Two lamps in touching cells
+       are one pool of light paid for twice - 1 m apart orthogonally, 1.41 m diagonally, against a
+       disc of radius 7.2 - while the room neither one landed in stays dark. `gap` is asked for by the
+       lamp path only: crates, barrels, pickups and spawns keep the old rule, where a pile is the
+       feature. The tail below is unchanged on purpose: when 200 spaced tries find nothing it still
+       returns a cell, because dropping a lamp to honour a preference would make the count a knob
+       (#149 item 3 - the count in LEVELS is not edited by this change). */
+    const LAMPGAP = 2;                                  // cells; > 1.41 so a diagonal neighbour fails too
+    const srcCells = [[exitX | 0, exitY | 0]];           // the exit pad pushed at :1381 is a source too
+    const spaced = (x, y) => {
+      for (const u of srcCells) if (Math.hypot(u[0] - x, u[1] - y) < LAMPGAP) return false;
+      return true;
+    };
+    const takeNear = (minD, maxD, gap) => {
       for (let tries = 0; tries < 200; tries++) {
         const c = freeCells[rndi(freeCells.length)], d = dist[c[1] * N + c[0]];
         if (d < 0) continue;
-        if (d >= minD && (!maxD || d <= maxD)) {
+        if (d >= minD && (!maxD || d <= maxD) && (!gap || spaced(c[0], c[1]))) {
           // require some openness (not a 1x1 pocket)
           let open = 0;
           for (let oy = -1; oy <= 1; oy++) for (let ox = -1; ox <= 1; ox++) if (!cell[(c[1] + oy) * N + (c[0] + ox)] && c[1] + oy > 0 && c[0] + ox > 0) open++;
@@ -1367,11 +1380,196 @@ function genLevel(li) {
     };
 
     LIGHTS = []; PROPS = []; PICKUPS = []; PROJ = []; PARTS = []; ENEMIES = [];
-    for (let i = 0; i < cfgL.lamps; i++) {
-      const c = takeNear(1);
-      LIGHTS.push({ x: c[0] + 0.5, y: c[1] + 0.5, z: floorAt(c[0] + 0.5, c[1] + 0.5) + LHOVER, r: 7.2 + Math.random() * 2.8, str: 1.05, col: cfgL.lampCol, stat: 1 });
-      PROPS.push({ tex: PROP.lamp, x: c[0] + 0.5, y: c[1] + 0.5, scale: 0.95, z: floorAt(c[0] + 0.5, c[1] + 0.5), kind: 'lamp' });
+    /* #149: EVERY ROOM IS SERVED FIRST, AND THE REST GOES WHERE THE FLOOR IS DARKEST.
+       The loop this replaces asked `takeNear(1)` for `cfgL.lamps` random open cells: no spacing, no
+       per-room guarantee. Measured on 6 seeded rolls of the three generated levels on the parent, that
+       left a room of the level with NO source in 18 of the 24 rolls, and put two lamps in touching
+       cells on 9 of them (min lamp-to-lamp distance 0.00 - the same cell twice - and 1.00).
+       Why placement and not a threshold is the fix: the exposure gate reads the MEDIAN of the seeded
+       rolls, because #87 measured the roll-to-roll spread (18-70 points) as wider than the 40-point
+       window, so a deal that leaves one place unserved is invisible in the statistic and obvious on
+       the screen. The tail is the feature, and dice decided the tail.
+       Two passes place the budget, and neither draws from the world's stream:
+         A  one source per room, biggest room first - a room is the unit the player reads as one place
+            and the unit authorVolume works in, and an unserved room is a dark ROOM. It is NOT the unit
+            of the level's floor: measured on the same rolls, only 29-45% of a generated level's
+            walkable cells lie inside a room rect at all (level 3, the authored one, is 98%), so a
+            remainder spent inside rooms would leave the lanes between them unlit - which is where the
+            sampled camera usually sits, and why the first version of this line, which spent the
+            remainder on the sparsest ROOM, moved level 0 up 7 points and level 1 DOWN 9.
+         B  the remainder by coverage over EVERY seatable cell, room rect or not: each lamp goes to the
+            cell whose disc delivers the most light that no source delivers to today.
+       The grid these lamps land on is built ABOVE this block and reads no lamp draw, so a seed keeps
+       its rooms and its altitudes here and only its SOURCES move; crates, barrels, pickups and spawns
+       do move, because the budget no longer consumes the world's own draws. That is #96's re-roll, and
+       it is why this branch re-records the exposure and parity literals instead of nudging a threshold.
+       The per-lamp radius draw stays a global one, so the authored disc distribution is untouched.
+       Three rules every seat obeys, each measured rather than argued:
+         SPACING  >= LAMPGAP from every source placed so far, the exit pad included (see takeNear above).
+         BAND     no band filter: the kernel's own band term (#208) is inside the score, so a seat on a
+                  stair tread scores the one cell it serves and loses. Filtering the room to its modal
+                  band instead - the first version - cost level 0 4 points of median, and changed no
+                  level's band histogram at all (7/3/1 lamps on datum/+4/-4 on L1 either way).
+         SEAT     the cell whose disc delivers the most extra LIGHT (see below).
+       No dice are drawn by these two passes, which is the point: the dark deal was a dice accident. */
+    const SCR = [new Float32Array(N * N), new Float32Array(N * N), new Float32Array(N * N),
+      new Float32Array(N * N), new Float32Array(N * N)];
+    const padSrc = { x: exitX, y: exitY, r: 5.5, str: 0.75, col: [140, 225, 255], stat: 1 };
+    const openOf = new Map();
+    const openAt = (x, y) => {
+      let n = 0;
+      for (let oy = -1; oy <= 1; oy++) for (let ox = -1; ox <= 1; ox++) if (!cell[(y + oy) * N + (x + ox)] && y + oy > 0 && x + ox > 0) n++;
+      return n;
+    };
+    /* SEAT = THE CELL WHOSE DISC DELIVERS THE MOST LIGHT THAT NOTHING DELIVERS TO. That is #204's
+       top-up objective (:1455, `score = cells covered * 16 + openness`) applied to the BUDGET rather
+       than after it, and it is #199's finding read the other way round: 63-72% of the dark ground a
+       player can see has no source inside the disc radius in XY at all, so the question a seat has to
+       answer is what a disc reaches that nothing reaches today.
+       Two rules that LOOK like this and are not, both measured on 6 seeded rolls of levels 0-2:
+         "nearest the room's seat centroid" satisfies the words one lamp per room and cost level 1
+          15 points of roll median (77 -> 53.5, the sampled cell's own neighbourhood light 0.39 ->
+          0.33), because a centroid sits away from the lanes the light has to reach;
+         "maximise the COUNT of cells above the LIT threshold" satisfies #204's OWN_MIN literally and
+          lost level 0 5 points of median (69.9 -> 65.2), because a cell at 0.24 and a cell at 0.02
+          count the same while the frame reads them differently. Summing DELIVERED light, capped at one
+          unit per cell (the renderer's own `li > 1` clamp), is the form that moved every level's tail
+          the way the issue says it should. */
+    const LAMP_R = 7.2;                                    // the shipped floor of the authored radius
+    /* The kernel's OWN weights for a seat, taken by running splatLight once per seat onto a scratch
+       lightmap (str 1.05, the shipped lamp strength, so the numbers are delivered light and not a
+       restatement of the falloff - #204's "measure by running the kernel, do not restate the disc"
+       rule, which is the same rule that keeps a probe from drifting away from the pixels). Cached per
+       seat for the whole build, so the cost is one splat per seatable cell, once. */
+    const wCache = new Map();
+    const weightsOf = (i) => {
+      let e = wCache.get(i);
+      if (e) return e;
+      const x = i % N, y = (i / N) | 0;
+      for (const a of SCR) a.fill(0);
+      const keep = [MAP.light, MAP.lR, MAP.lG, MAP.lB, MAP.lw];
+      MAP.light = SCR[0]; MAP.lR = SCR[1]; MAP.lG = SCR[2]; MAP.lB = SCR[3]; MAP.lw = SCR[4];
+      splatLight({ x: x + 0.5, y: y + 0.5, z: floorAt(x + 0.5, y + 0.5) + LHOVER, r: LAMP_R, str: 1.05, col: cfgL.lampCol, stat: 1 }, 1);
+      MAP.light = keep[0]; MAP.lR = keep[1]; MAP.lG = keep[2]; MAP.lB = keep[3]; MAP.lw = keep[4];
+      e = [];
+      for (let j = 0, n = N * N; j < n; j++) if (SCR[0][j] > 0 && !cell[j] && dist[j] >= 0) e.push(j, SCR[0][j]);
+      wCache.set(i, e);
+      return e;
+    };
+    /* What the sources placed SO FAR deliver to each cell, through the shipped splatLight onto a
+       scratch lightmap swapped out and back exactly as found - #204's `ownLight` pattern. The exit pad
+       is included because it is a source the budget must not duplicate; it is pushed after these passes
+       in the shipped order (:1487) and that order is left alone, since MAP.light is a float sum and
+       re-ordering the splats would move a last bit that flatparity hashes.
+       One refresh per PLACEMENT (covStamp), not per candidate. */
+    let covStamp = -1;
+    const coverMap = () => {
+      if (covStamp === LIGHTS.length) return SCR[0];
+      for (const a of SCR) a.fill(0);
+      const keep = [MAP.light, MAP.lR, MAP.lG, MAP.lB, MAP.lw];
+      MAP.light = SCR[0]; MAP.lR = SCR[1]; MAP.lG = SCR[2]; MAP.lB = SCR[3]; MAP.lw = SCR[4];
+      splatLight(padSrc, padSrc.str);
+      for (const L of LIGHTS) if (L.stat === 1 && L.z !== undefined) splatLight(L, L.str);
+      MAP.light = keep[0]; MAP.lR = keep[1]; MAP.lG = keep[2]; MAP.lB = keep[3]; MAP.lw = keep[4];
+      covStamp = LIGHTS.length;
+      return SCR[0];
+    };
+    /* One seatable-cell list, built once from every open interior cell the generator can put a prop
+       on, and the rooms are a VIEW of it rather than a second scan. The tests are takeNear's own -
+       not a pocket (open >= 6) and not the cell the player wakes on (bfs dist >= 2) - so a seat is a
+       cell the shipped path would already have accepted, minus the dice. */
+    const allSeats = [];
+    for (const c of freeCells) {
+      const i = c[1] * N + c[0];
+      if (dist[i] < 2) continue;
+      const op = openAt(c[0], c[1]);
+      openOf.set(i, op);
+      if (op >= 6) allSeats.push(i);
     }
+    const seats = rooms.map((r, ri) => ({
+      ri, n: 0, spawn: ri === 0,
+      list: allSeats.filter(i => i % N >= r.x && i % N < r.x + r.w && ((i / N) | 0) >= r.y && ((i / N) | 0) < r.y + r.h)
+    }));
+    /* THE FIRST FRAME IS NOT A VIEW THE BUDGET MAY SPEND. The spawn seat is authored at the spawn
+       room's centre looking at P.ang = 0.6 (:1678), and a lamp inside that cone is not a light source
+       in the frame, it is a BULB IN THE LENS: measured on this generator with no such rule, the
+       composited spawn median lands at 95.6 / 83.0 / 102.4 against a band whose ceiling is 75, whose
+       upper anchor is the DIMMEST lamp-1-m-in-the-lens render (79.4 - the SPAWN block of
+       tools/ci/assert.js). #304 fixed the same defect in the authored level by moving one lamp out of
+       frame and recorded the reason there: the answer is a placement rule, never a wider band. It
+       bites here because the cell the utility likes best in the spawn room is the room's centre, which
+       is exactly where the player wakes. A cell is in the lens when it lies inside the disc the lamp
+       would light, inside the frame's half-angle (0.624 rad per #304, widened here for the bulb's own
+       width) and a clear line runs to it - a lamp behind a wall is not in the lens, it is dark on both
+       sides. A room whose every seat sits in the cone is handled by the fallback under pass A, which
+       takes the FARTHEST legal cell rather than leaving the room dark. */
+    const SEAT_ANG = 0.6, LENS_HALF = 0.66, LENS_R = 8;   // :1678's authored heading; #304's frame cone
+    const inLens = (x, y) => {
+      const dx = x - px0, dy = y - py0, d = Math.hypot(dx, dy);
+      if (d > LENS_R) return false;
+      if (d < 1.5) return true;                            // the cell the player wakes on, any heading
+      let e = Math.atan2(dy, dx) - SEAT_ANG;
+      while (e > Math.PI) e -= TAU;
+      while (e < -Math.PI) e += TAU;
+      return Math.abs(e) < LENS_HALF && los(px0, py0, x, y);
+    };
+    const lampAt = new Set();
+    const putLamp = (i) => {
+      const x = i % N, y = (i / N) | 0;
+      lampAt.add(i); srcCells.push([x, y]);
+      LIGHTS.push({ x: x + 0.5, y: y + 0.5, z: floorAt(x + 0.5, y + 0.5) + LHOVER, r: 7.2 + Math.random() * 2.8, str: 1.05, col: cfgL.lampCol, stat: 1 });
+      PROPS.push({ tex: PROP.lamp, x: x + 0.5, y: y + 0.5, scale: 0.95, z: floorAt(x + 0.5, y + 0.5), kind: 'lamp' });
+    };
+    // the best remaining seat of a list of cells: spacing filters, then how much more LIGHT the disc
+    // delivers (each cell's gain capped at 1, which is the renderer's own light clamp, so a second
+    // disc on bright ground scores nothing while one on dim ground scores the whole of its overlap),
+    // then openness, then scan order - no dice, so a dark deal stops being a dice accident.
+    const bestSeat = (list, lensOK) => {
+      const lm = coverMap();
+      let bi = -1, bv = -1, bo = -1;
+      for (const i of list) {
+        if (lampAt.has(i) || !spaced(i % N, (i / N) | 0)) continue;
+        if (!lensOK && inLens(i % N + 0.5, (i / N) + 0.5)) continue;
+        const w = weightsOf(i);
+        let s = 0;
+        for (let k = 0; k < w.length; k += 2) {
+          const j = w[k], a = lm[j], g = w[k + 1];
+          s += a >= 1 ? 0 : (a + g > 1 ? 1 : a + g) - a;
+        }
+        const op = openOf.get(i) || 0;
+        if (s > bv || (s === bv && op > bo)) { bv = s; bo = op; bi = i; }
+      }
+      return bi;
+    };
+    let placed = 0;
+    // pass A - one source per room, biggest room first, so a budget smaller than the room count
+    // (rooms.length runs 4..9 against cfgL.lamps 6..16) spends it where an unserved room costs floor.
+    for (const ro of seats.slice().sort((a, b) => b.list.length - a.list.length || a.ri - b.ri)) {
+      if (placed >= cfgL.lamps) break;
+      let i = bestSeat(ro.list, false);
+      if (i < 0 && ro.spawn) {                              // a room that is ALL cone: take its far side
+        let bd = -1;
+        for (const j of ro.list) {
+          if (lampAt.has(j) || !spaced(j % N, (j / N) | 0)) continue;
+          const d = Math.hypot(j % N + 0.5 - px0, ((j / N) | 0) + 0.5 - py0);
+          if (d > bd) { bd = d; i = j; }
+        }
+      }
+      if (i < 0) continue;
+      putLamp(i); placed++; ro.n++;
+    }
+    // pass B - the remainder where the floor is darkest, over EVERY seatable cell of the level: the
+    // lanes between rooms are 55-71% of the walkable floor, and a room-bounded spend leaves them dark.
+    while (placed < cfgL.lamps) {
+      const i = bestSeat(allSeats, false);
+      if (i < 0) break;
+      putLamp(i); placed++;
+    }
+    /* pass C - nothing seatable outside the lens, or no seat at all, yet the count is still short.
+       takeNear's own tail keeps the COUNT exact (the count in LEVELS is not a knob this branch turns);
+       the lens rule is dropped here because a lamp never placed darkens the level AND leaves the frame
+       unchanged. Measured over 6 seeded rolls x 3 levels this path runs on 0 deals. */
+    for (; placed < cfgL.lamps; placed++) { const c = takeNear(1, 0, LAMPGAP); putLamp(c[1] * N + c[0]); }
     /* The pad light deliberately carries NO z: it is drawn as a glow AT the floor, so it
        emits from the floor of its own cell - the documented splatLight default, the same
        rule the transients use (#203). Its band is thereby defined (the exit is datum-pinned),
@@ -1456,7 +1654,10 @@ function genLevel(li) {
         let best = -1, bs = -1, bcov = 0;
         for (let tries = 0; tries < 400 && unserved.length; tries++) {
           const q = list[(prnd() * list.length) | 0];
-          if (q === best || taken.has(q)) continue;
+          // #149: the same spacing the budget honours. A top-up lamp in the cell next to a budget lamp
+          // is the scarce +3 spent on ground that was already lit, which is the one thing this pass
+          // exists to stop.
+          if (q === best || taken.has(q) || !spaced(q % N, (q / N) | 0)) continue;
           const qx = q % N, qy = (q / N) | 0;
           let sc = 0;
           for (const j of unserved) if (Math.hypot((j % N) - qx, ((j / N) | 0) - qy) < r) sc++;
@@ -1470,6 +1671,7 @@ function genLevel(li) {
           bcov = unserved.length;
         }
         taken.add(best);
+        srcCells.push([best % N, (best / N) | 0]);          // #149: the top-up joins the spacing set
         perBand.set(wb, (perBand.get(wb) || 0) + 1);
         const bx = best % N, by = (best / N) | 0;
         const tsc = Math.min(1, Math.max(TOPUP_MINF, (bcov || 1) / TOPUP_TARGET));   // 0 coverage keeps a full lamp: a dim source that covers nothing would only darken the band

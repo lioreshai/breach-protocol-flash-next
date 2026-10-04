@@ -1734,8 +1734,15 @@ if (MODE === 'flatparity') {
      Consequence to state plainly: after #21 the PARITY triple is THIS branch's flat frame on levels 0..2,
      so the sentence above - "OLD is what 2c5a94f's own flatparity prints" - describes the record's
      provenance, not the literals below it. */
-  const OLD = refRecord('flatparity', 'PARITY', 'md5', ['58f51a9bbce6c36a4a7f95afb56218a0', 'f05beeb58f1266a1aea7e44712995292', '44b55ac327742f274cbd6b865b981ebf', '0c6c9adc32937d65b643482d783cf411']);
-  const OLDM = [78.2, 34.1, 47.5, 28.0];
+  /* #149 re-keys all three triples on levels 0..2 (L3, the authored level, is byte-identical in every
+     sense and is the control that says the move is lamp placement and not a renderer change). The era
+     these replace measured PARITY 58f51a9b/f05beeb5/44b55ac3, LOCK f75665d5/f05beeb5/c5284aa5 and DEALT
+     f7baf617/370d3f7a/aa18d43e: the build where the budget lamps were thrown at random open cells by
+     takeNear(1). A generator change that consumes different global draws re-rolls what the SAME seed
+     deals downstream of the lamps (#96 is the precedent), so props and enemies move with the lamps;
+     the grids these frames are drawn on are unchanged, because the lamps read no grid draw. */
+  const OLD = refRecord('flatparity', 'PARITY', 'md5', ['d7861e8cd472480df912e7919e09817d', '0c61959def342a3463436ee6fb49da47', '6b8693d6c98190d59c0c6cbebbab25ee', '0c6c9adc32937d65b643482d783cf411']);
+  const OLDM = [78.9, 80.2, 99.9, 28.0];
   /* #213 moves SHIP[0] to 060da4cd (80.8, from 4262d051/81.3) and nothing else: a coverage top-up's
      intensity now scales with the cells it covers, so the shipped world gains DIMMER sources and L0's
      spawn frame repaints. L1 and L2 are byte-identical at TARGET <= 64 - their top-ups each cover >= 32
@@ -1749,8 +1756,8 @@ if (MODE === 'flatparity') {
   // as PARITY, the same NOCAP=1 control behind it, and the same control row: the level whose spawn frame has
   // no over-ceiling cell did not move at all. L3 moved because THE STACK's lamps overlap, and it moved in
   // BOTH senses to the same value, which keeps #303's authored-level claim intact.
-  const SHIP = refRecord('flatparity', 'LOCK', 'md5', ['f75665d58afa64fdf49f1597238123cb', 'f05beeb58f1266a1aea7e44712995292', 'c5284aa507f836b7f0fd8e2fc6d99a68', '0c6c9adc32937d65b643482d783cf411']);
-  const SHIPM = [79.3, 34.1, 51.6, 28.0];
+  const SHIP = refRecord('flatparity', 'LOCK', 'md5', ['27ff52c07efb23be2a46af0b60814b6c', '0c61959def342a3463436ee6fb49da47', '1e3c94182672fa686969a66c3df2a01f', '0c6c9adc32937d65b643482d783cf411']);
+  const SHIPM = [79.7, 80.2, 101.7, 28.0];
   /* #219's DEALT triple, #226's camera: the frame of each level AS DEALTED - bands, band term, shipped
      lamp record, same dice (1000 + level*97) and the same pinned-clock ninth render - but at a seat
      CHOSEN FROM THE GRID, not the spawn seat #219 inherited. Where LOCK is a
@@ -1846,8 +1853,8 @@ if (MODE === 'flatparity') {
   // do overlap. That the MEAN is identical while the md5 moved is the shape of this fix - pixels come down
   // in the over-lit cells and nothing else changes - and NOCAP=1 reproduces 046f2a22 on this tree, so the
   // move is the clamp and not the rebase. Levels 0..2 are byte-identical to main here.
-  const DEALT = refRecord('flatparity', 'DEALT', 'md5', ['f7baf61773bb8469c5a8cf0b95681dd4', '370d3f7a88596a5bfc36bfc9c98b6858', 'aa18d43e1fbd55b40eb4500dd745a3d6', 'e846d5b3aaa281d09844741e1993c389']);
-  const DEALTM = [55.5, 57.8, 85.1, 39.7];
+  const DEALT = refRecord('flatparity', 'DEALT', 'md5', ['f1bc27f50dfde403dc1e7d07d9f2addb', '7347e21ef6e2db810ada04183ee44d12', '281623d02ac041873fe6537cf4fdcc2b', 'e846d5b3aaa281d09844741e1993c389']);
+  const DEALTM = [54.3, 48.9, 94.0, 39.7];
   const OFF = process.env.LAMPS === 'off';
   const f1 = v => (v === undefined || v === null ? '-' : (+v).toFixed(1));
   const md5of = () => { const d = new Uint32Array(run('px'));
@@ -4775,7 +4782,14 @@ if (MODE === 'exposure') {
      64 holds (63.61 exact, rolls 68 65 62 60 identical) even though the clamp does repaint that level - its
      lightmap peaks at 1.872, see cull's CZBAND row - so what L3's sampled 6-yaw cameras see of the over-lit
      cells rounds to nothing. Read this row as the statistic, and flatparity's DEALT[3] as the pixels. */
-  const EXPO_MED = refRecord('exposure', 'MEDIAN', 'num', [73, 71, 78, 64]);
+  /* #149 (lamp placement) re-keys the first THREE medians and leaves L3's: 73/71/78 -> 76/72/90 on the
+     same dice. The era the old literals measured placed the budget lamps with `takeNear(1)`, which left
+     a room of the level with no source in 18 of 24 generated rolls and put two lamps in touching cells
+     on 9 of them; spreading the SAME count over rooms first and then over the darkest floor raises the
+     level mean, and L2 by +12 because it has the most lamps to spread. The median this branch cannot
+     reach is L3's 64: that level places its lamps from the plan's marks, and its rolls (68 65 62 60)
+     are identical to the record above. The tail is what the WORST ROLL row below now reads. */
+  const EXPO_MED = refRecord('exposure', 'MEDIAN', 'num', [76, 72, 90, 64]);
   // #284: L2's spawn-seat MEAN moves 64 -> 63 (64.33 -> 63.22) while the CENTRE-HALF mid is identical to
   //   the hundredth (73.31) and the spread is identical (65), L0 and L1 are byte-identical (56.89/64.80 and
   //   59.95/50.31), PARITY is bit-identical on all three levels, and the deal's mean is unchanged in the
@@ -4808,7 +4822,41 @@ if (MODE === 'exposure') {
      a lamp-overlap room, and the pixels past the first cell boundary are the ones that come down. L1
      64.49/58.60 and L2 64.32/72.58 come back ONTO their records, so this is not the frames going dark -
      and #304's L3 pair 56/60 still rounds onto its record (55.92/59.84 exact against #304's 56.10/59.86). */
-  const EXPO_SPAWN = refRecord('exposure', 'SPAWN', 'num', [60, 66, 64, 59, 64, 73, 56, 60]);   // mean, mid per level
+  /* #149 re-keys the first THREE pairs and leaves L3's alone (the authored level places its lamps from
+     the plan's marks, so this branch cannot reach it - the control half of this row). The era these
+     replace measured 60/66, 64/59, 64/73, 56/60, i.e. the build where `takeNear(1)` threw the budget at
+     random open cells. The spawn seats move UP by +21/+16/+21 mean because the placement pass
+     guarantees a source in the SPAWN ROOM on every deal, which the dice often missed (measured on the
+     parent: 18 of 24 generated rolls left some room of the level with no source at all, and the spawn
+     room is one of them). That brightening is a real look change, and it is the half that
+     tools/ci/assert.js - which reads the COMPOSITED frame, where bloom and grade add 15-20 points on an
+     evenly lit level - does not accept at its current 35-75 band. Stated here rather than smoothed
+     over: #304 settled the same collision by moving one authored lamp, and the cone rule in
+     js/20_level.js is this branch's version of that; on the generated levels it is not enough. */
+  const EXPO_SPAWN = refRecord('exposure', 'SPAWN', 'num', [81, 81, 80, 69, 85, 78, 56, 60]);   // mean, mid per level
+  /* #149 THE WORST ROLL. The window row above is read on the MEDIAN precisely because #87 measured the
+     roll-to-roll spread as wider than the 40-point band - and that is also what lets a real dark
+     INSTANCE hide inside it, which is #149's complaint: on the parent, level 0's rolls were
+     79 101 68 48 and the gate printed "73, inside 60-100". The median cannot see the tail, so this is
+     a second row over the SAME rolls, and its floor is a measured floor, not the window's bottom edge.
+     DERIVED by running the seeded rolls on both trees (REPS=4, seeds 1000+level*97+roll*13):
+       level  worst roll BEFORE  ->  worst roll AFTER   floor recorded
+       L0        48              ->      53                 50
+       L1        65              ->      49                 45
+       L2        63              ->      80                 75
+       L3        60 (authored, untouched - this branch cannot move it, which is the control)
+     Each floor sits just under the measured worst of the FIXED build, so the row is a regression gate
+     on the tail and not a second window. L1's worst is 49, BELOW the 60 window, and is reported as
+     it reads rather than having its floor lowered to 60 to look clean: the placement fix removed
+     every unlit ROOM (18 of 24 generated rolls had one on the parent, 0 of 24 here) and lifted that
+     level's mean delivered light per walkable cell from 0.475 to 0.523, and the roll still reads 49 -
+     the six sampled seats on a level are adjacent cells along one scan-order row, so on L1 the tail
+     is a property of where the probe looks as much as of how the level is lit. #149's own falsifying
+     clause: the tail moved on two levels of three, so it WAS about lamps, and not only about lamps.
+     WORST_FLOOR=<n> overrides every level's floor to prove the row can fail; the honest control is a
+     JSDIR tree with the placement passes removed (see AGENTS.md: a row has to be seen to fail). */
+  const WORST_REC = [50, 45, 75, 55];
+  const WORST_FLOOR = process.env.WORST_FLOOR ? [0, 1, 2, 3].map(() => +process.env.WORST_FLOOR) : WORST_REC;
   const LUM_WANT = [60, 100];       // the documented window (README: targets 60-100), median not mean
   const medRec = [], spawnRec = [];
   for (let lv = 0; lv < N; lv++) {
@@ -4860,6 +4908,8 @@ if (MODE === 'exposure') {
     const spSorted = spawnMeans.slice().sort((a, b) => a - b);
     console.log('  level ' + lv + '  mean ' + pad((sum / n).toFixed(0), 3) +
       '  median ' + pad(med.toFixed(0), 3) +
+      '  WORST ' + pad(sorted[0].toFixed(0), 3) +
+      '  outside ' + rolls.filter(v => v < 60 || v > 100).length + '/' + reps +
       '  rolls ' + rolls.map(v => pad(v.toFixed(0), 3)).join(' ') +
       '  spread ' + pad((sorted[sorted.length - 1] - sorted[0]).toFixed(0), 3) +
       '  buckets ' + hist.map(v => (100 * v / n).toFixed(0)).join(',') +
@@ -4869,7 +4919,8 @@ if (MODE === 'exposure') {
       '  spread ' + pad((spSorted[spSorted.length - 1] - spSorted[0]).toFixed(0), 3));
     medRec.push({ med: Math.round(med), raw: med, rolls: rolls.map(v => Math.round(v)),
       spread: Math.round(sorted[sorted.length - 1] - sorted[0]), mean: sum / n,
-      dark: 100 * hist[0] / n, n });
+      dark: 100 * hist[0] / n, n, worst: sorted[0],
+      out: rolls.filter(v => v < LUM_WANT[0] || v > LUM_WANT[1]).length });
     spawnRec.push({ mean: Math.round(med2(spawnMeans)), mid: Math.round(med2(spawnMids)),
       rawMean: med2(spawnMeans), rawMid: med2(spawnMids),
       spread: Math.round(spSorted[spSorted.length - 1] - spSorted[0]) });
@@ -4892,6 +4943,13 @@ if (MODE === 'exposure') {
       + 'may sit outside - rolls ' + m.rolls.join(' ') + ' - which is why the window is read on the median of '
       + reps + ' seeded rolls, not on one frame and not on a screenshot, whose bloom/grade/grain move the mean '
       + 'by +20/-21 and cancel unevenly per room (#85).');
+    row('L' + lv + ' the worst seeded roll is above the recorded floor',
+      m.worst >= WORST_FLOOR[lv],
+      'WORST ' + m.worst.toFixed(1) + ' against the floor ' + WORST_FLOOR[lv] + ' (' + m.out + ' of ' + reps +
+      ' rolls outside 60-100; rolls ' + m.rolls.join(' ') + '; the median row above reads ' + m.med +
+      ', which is the statistic that let a 48-point deal print as 73 before #149). The floor is the '
+      + 'measured worst of the fixed build rounded down (before: ' + [48, 65, 63, 60][lv] + '), NOT 60:'
+      + ' a floor at the window edge is a row that fails on noise and passes on a dark layout.');
     row('L' + lv + ' the spawn seat frames the recorded exposure',
       +EXPO_SPAWN[lv * 2] === sp.mean && +EXPO_SPAWN[lv * 2 + 1] === sp.mid,
       'spawn mean ' + sp.mean + ' and centre-half mid ' + sp.mid + ' against the recorded '
@@ -4905,8 +4963,9 @@ if (MODE === 'exposure') {
     + '% under 24, ' + (100 * gclip / gpix).toFixed(2) + '% blown - a black or white frame would satisfy a '
     + 'wrong-looking record by being wrong everywhere, which is why this is a row and not an assumption');
   console.log(bad ? 'EXPOSURE ' + bad + ' FAILURE(S) of ' + rowsN + ' rows - the frame is not the recorded frame'
-    : 'EXPOSURE ok - ' + rowsN + ' rows: seeded medians, the documented window, the spawn seats, and the '
-    + 'records behind them (' + EXPO_MED.map(Number).join('/') + ' medians, '
+    : 'EXPOSURE ok - ' + rowsN + ' rows: seeded medians, the worst roll of each level, the documented '
+    + 'window, the spawn seats, and the records behind them (' + EXPO_MED.map(Number).join('/') + ' medians, '
+    + WORST_REC.join('/') + ' worst-roll floors, '
     + EXPO_SPAWN.map(Number).join('/') + ' spawn mean/mid)');
   process.exit(bad ? 1 : 0);
 }
