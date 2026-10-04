@@ -2,6 +2,22 @@
 
 ### Changed
 
+- **smoke now prints what `update()` costs** (#53, tooling). Every cost row in the harness times
+  `renderWorld()` + `renderOverlay()`, so nothing inside `update()` - player physics, enemy AI,
+  `hitscan`, projectiles, particles, pickups - has ever had a number, while the vertical work is
+  almost entirely update-side. Per level the harness now re-deals the level (`startLevel(li, true)`
+  under the same SEED-derived stream) **before every batch** and times 60 `update(0.016)` calls,
+  printing `update at its arrival seat` beside the existing `raster at its arrival seat`, with the
+  player at rest (keys cleared by the reseat) and AI, projectiles and particles running. Reported,
+  **not gated**: these are one box's numbers at load ~3, and #307 is the shape of a floor copied
+  from a single run. Measured here (5 batches x 60 frames, load 2.9-3.3, one session): **0.18 /
+  0.28 / 0.48 / 0.05 ms/frame** for L0-L3 against raster **27.1 / 20.6 / 30.4 / 31.9 ms** at the
+  same seats. The row was seen to move when a busy term was added inside `update()` (0.18 -> 0.55,
+  0.28 -> 0.60, 0.48 -> 0.85, 0.05 -> 0.40) while the four raster medians did **not** (27.10 ->
+  27.15, 20.60 -> 20.90, 30.40 -> 30.08, 31.92 -> 32.62) and `SMOKE PASSED` still printed - which
+  is #53's claim demonstrated rather than argued. No existing assert changed verdict: with digits
+  normalized, this tree's output differs from `origin/main`'s by exactly the five new lines.
+
 - **The exposure gate now reads the floor of the dealt rolls, not only their median** (#149, tooling).
   `tools/ci/assert.js exposure` prints `WORST n` and `out k/5` beside each level's median and fails a
   level whose darkest seeded layout drops under a recorded floor, and `tools/view.js exposure` does the
