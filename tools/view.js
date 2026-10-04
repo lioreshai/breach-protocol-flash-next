@@ -363,6 +363,11 @@ function boot(knob, seed) {
      that mode's header before quoting either triple. It sat at module scope until #243 moved it in here,
      one line after the load loop, so a re-boot applies it exactly as the first boot did. */
   if (knob !== false && process.env.LAMPS === 'off') run('topUpEnabled = function () { return false; };');
+  /* NOCAP=1 is the #21 CONTROL SWITCH: it raises the ground pass's light ceiling (LGCAP in
+     js/40_render.js) to Infinity, which is the shipped defect reproduced - a cell reached after a
+     crossing shades from the raw, unclamped lightmap - so `heights`' LIGHTCAP rows can be SEEN to
+     fail. Shading only; no geometry, no lamp, no seed moves. */
+  if (process.env.NOCAP === '1') run('LGCAP = Infinity;');
 }
 boot();
 function newTex(t) { return { w: t.w, h: t.h, data: new Uint32Array(t.data), dbg: t.dbg }; }
@@ -1713,9 +1718,24 @@ if (MODE === 'flatparity') {
   // the SAME value - the one on the two declaration lines below - so the authored path still has no top-up to remove,
   // and DEALT[3] 046f2a22 is the value DEALT-ORDER reproduces both alone and after levels 0..2, so it is a
   // property of the level rather than of the roster. L3's vacuity row still reports 62.78% of the frame
-  // differing from its flattened twin, so the re-key is not a lock resting on a frame that sees no band.
-  const OLD = refRecord('flatparity', 'PARITY', 'md5', ['f9e4da3af18836db903fd7cbdf2b0206', 'f05beeb58f1266a1aea7e44712995292', 'd4b2d2cd539c3b620ea0ce5ab115d50a', '2df6e7607c5a8e9c3304f698e68c31a4']);
-  const OLDM = [79.7, 34.1, 47.5];
+  //   differing from its flattened twin, so the re-key is not a lock resting on a frame that sees no band.
+  /* #21 re-keys OLD[0], OLD[2] AND OLD[3] (f9e4da3a -> 58f51a9b, mean 79.7 -> 78.2; d4b2d2cd -> 44b55ac3,
+     mean identical 47.5; 2df6e760 -> 0c6c9adc, mean 28.1 -> 28.0): the ground light ceiling repaints the
+     pixels a row crosses INTO a lamp-overlap cell, which is the documented way this class of fix moves flat
+     parity - brightest rooms first, not everywhere. L1 is byte-identical in both senses at 34.1 (a dark
+     level with no cell above the ceiling in its spawn frame), and that is the control: the fix is a ceiling,
+     not a brightness scale. #304's claim about L3 survives the re-key in the form that matters: PARITY[3]
+     and LOCK[3] are STILL the same md5 (0c6c9adc both senses), because the authored plan has no coverage
+     top-up to remove - only its value moved, and it moved for the same reason levels 0..2 did, because
+     THE STACK does stack lamps (the two-storey plan puts two bands' splats in one column). The attribution
+     is measured, not assumed: `NOCAP=1 node tools/view.js flatparity` on THIS tree raises the ceiling to
+     Infinity and reproduces main's four levels digit for digit (f9e4da3a/060da4cd, f05beeb5, and
+     2df6e760/2df6e760 on L3), so every digit below that differs from main differs because of this clamp.
+     Consequence to state plainly: after #21 the PARITY triple is THIS branch's flat frame on levels 0..2,
+     so the sentence above - "OLD is what 2c5a94f's own flatparity prints" - describes the record's
+     provenance, not the literals below it. */
+  const OLD = refRecord('flatparity', 'PARITY', 'md5', ['58f51a9bbce6c36a4a7f95afb56218a0', 'f05beeb58f1266a1aea7e44712995292', '44b55ac327742f274cbd6b865b981ebf', '0c6c9adc32937d65b643482d783cf411']);
+  const OLDM = [78.2, 34.1, 47.5, 28.0];
   /* #213 moves SHIP[0] to 060da4cd (80.8, from 4262d051/81.3) and nothing else: a coverage top-up's
      intensity now scales with the cells it covers, so the shipped world gains DIMMER sources and L0's
      spawn frame repaints. L1 and L2 are byte-identical at TARGET <= 64 - their top-ups each cover >= 32
@@ -1724,8 +1744,13 @@ if (MODE === 'flatparity') {
   // #284 re-keyed L2 only, mean identical (51.7 vs 51.7): a deal that now sinks a hole has one more
   // band for the top-up to serve, so one lamp stands elsewhere. PARITY is bit-identical on 3/3, which
   // is the sense that would move if a height term broke the flat-world collapse.
-  const SHIP = refRecord('flatparity', 'LOCK', 'md5', ['060da4cdaadc2e4a4276ce8f06b0eecf', 'f05beeb58f1266a1aea7e44712995292', 'ae47d409d2e2b945831144ce5152454b', '2df6e7607c5a8e9c3304f698e68c31a4']);
-  const SHIPM = [80.8, 34.1, 51.7];
+  // #21 re-keys SHIP[0], SHIP[2] and SHIP[3] with SHIP[1] byte-identical (060da4cd -> f75665d5, mean 80.8
+  // -> 79.3; ae47d409 -> c5284aa5, mean 51.7 -> 51.6; 2df6e760 -> 0c6c9adc, mean 28.1 -> 28.0). Same cause
+  // as PARITY, the same NOCAP=1 control behind it, and the same control row: the level whose spawn frame has
+  // no over-ceiling cell did not move at all. L3 moved because THE STACK's lamps overlap, and it moved in
+  // BOTH senses to the same value, which keeps #303's authored-level claim intact.
+  const SHIP = refRecord('flatparity', 'LOCK', 'md5', ['f75665d58afa64fdf49f1597238123cb', 'f05beeb58f1266a1aea7e44712995292', 'c5284aa507f836b7f0fd8e2fc6d99a68', '0c6c9adc32937d65b643482d783cf411']);
+  const SHIPM = [79.3, 34.1, 51.6, 28.0];
   /* #219's DEALT triple, #226's camera: the frame of each level AS DEALTED - bands, band term, shipped
      lamp record, same dice (1000 + level*97) and the same pinned-clock ninth render - but at a seat
      CHOSEN FROM THE GRID, not the spawn seat #219 inherited. Where LOCK is a
@@ -1816,8 +1841,13 @@ if (MODE === 'flatparity') {
   // in its own process and AGREES with this literal, so the move is the level's, not the harness's.
   // L3's dealt hash is recorded from a sampler that now has a fourth seat (see DEALT_SEATS); DEALT-ORDER
   // proved it is a property of the level - hashed alone and hashed after levels 0..2 it is the same value.
-  const DEALT = refRecord('flatparity', 'DEALT', 'md5', ['f7baf61773bb8469c5a8cf0b95681dd4', '370d3f7a88596a5bfc36bfc9c98b6858', 'aa18d43e1fbd55b40eb4500dd745a3d6', '046f2a221ed2c2d66dc0ffa4fd2bec4e']);
-  const DEALTM = [55.5, 57.8, 85.1];
+  // #21 re-keys DEALT[3] (046f2a22 -> e846d5b3, mean identical 39.7): the dealt frame of the AUTHORED level
+  // is the one dealt hash the clamp can reach, because that frame is never flattened and THE STACK's lamps
+  // do overlap. That the MEAN is identical while the md5 moved is the shape of this fix - pixels come down
+  // in the over-lit cells and nothing else changes - and NOCAP=1 reproduces 046f2a22 on this tree, so the
+  // move is the clamp and not the rebase. Levels 0..2 are byte-identical to main here.
+  const DEALT = refRecord('flatparity', 'DEALT', 'md5', ['f7baf61773bb8469c5a8cf0b95681dd4', '370d3f7a88596a5bfc36bfc9c98b6858', 'aa18d43e1fbd55b40eb4500dd745a3d6', 'e846d5b3aaa281d09844741e1993c389']);
+  const DEALTM = [55.5, 57.8, 85.1, 39.7];
   const OFF = process.env.LAMPS === 'off';
   const f1 = v => (v === undefined || v === null ? '-' : (+v).toFixed(1));
   const md5of = () => { const d = new Uint32Array(run('px'));
@@ -3762,7 +3792,16 @@ if (MODE === 'cull') {
          130.36 -> 125.11 over the same 400 cells (-4%), and the LANE follows because that camera's ground
          pass rasterizes the lightmap under it (0x1535e2e8 -> 0x29ed8bf4). The GRID is untouched - `planes`
          and `alt` count the same bands and steps as before this line. */
-      const CZBAND_REF = refRecord('cull', 'CZBAND', 'crc32', [0x13702f3c, 0xd34608c0, 0x7dd66c40, 0x29ed8bf4]);   // LEAK=1 CZBAND=1, cull's own step rows
+      /* #21 re-keys the LANES of ALL FOUR levels (0x13702f3c -> 0x0f8ad9e3, 0xd34608c0 -> 0x1b8ca621,
+         0x7dd66c40 -> 0x73ff8e6b, #304's 0x29ed8bf4 -> 0x2429fd16) while the WORLD sense stays byte-identical
+         on all four (0xb0988514 / 0xb54c0a14 / 0xcb62daf2 / 0x6b8394bc, max 1.699 / 1.647 / 2.045 / 1.872):
+         the generated lightmap is untouched and only what the ground pass DELIVERS from it changed, which is
+         exactly the pair this row was built to be able to tell apart. 53088 / 49614 / 49586 / 47449 ground px
+         of the lane differ. L3 is in that list because THE STACK's lightmap peaks at 1.872 - the authored
+         two-storey plan stacks splats in one column, so there is a ceiling for this clamp to obey - and the
+         WORLD sense holding at max > 1 is what proves the move is the DELIVERY and not the map. #304's
+         control above still reads true on the grid: `planes` and `alt` count the same bands and steps. */
+      const CZBAND_REF = refRecord('cull', 'CZBAND', 'crc32', [0x0f8ad9e3, 0x1b8ca621, 0x73ff8e6b, 0x2429fd16]);   // LEAK=1 CZBAND=1, cull's own step rows
       /* #223: the WORLD sense, recorded beside the lane sense, because czS.h above is a lightmap
          instrument only ON ONE CAMERA'S FRAME: it moves when the lightmap changed somewhere that frame
          rasterizes and holds when it changed somewhere it cannot, so its green never proves "the
@@ -4727,8 +4766,16 @@ if (MODE === 'exposure') {
   //   brighter than the generated ones it follows. Before this row the array had three entries and the
   //   L3 row compared against a missing value and printed "the recorded NaN", which reads as a
   //   brightness failure and is a missing declaration - #303's hardcoded-count defect, here in a
-  //   statistic rather than a loop bound.
-  const EXPO_MED = refRecord('exposure', 'MEDIAN', 'num', [75, 72, 83, 64]);
+  //   statistic rather than a loop bound. #21 re-keys the first THREE of these and leaves 64 alone.
+  /* #21 re-keys the medians DOWN by 2/1/5 (75 -> 73.11, 72 -> 71.03, 83 -> 78.02 on 4 seeded rolls):
+     cells whose lightmap exceeds 1.0 are the lamp-overlap ones, and a row that crossed into one used to
+     shade above the ceiling its own row-init pixels obeyed. All three stay inside the 60-100 window row,
+     which is the row that gates the look, and the spawn-seat rows for L1 (64/59) and L2 (64/73) are
+     unchanged to the hundredth - the drop is localized to the rooms that were over-lit, not a scale. L3's
+     64 holds (63.61 exact, rolls 68 65 62 60 identical) even though the clamp does repaint that level - its
+     lightmap peaks at 1.872, see cull's CZBAND row - so what L3's sampled 6-yaw cameras see of the over-lit
+     cells rounds to nothing. Read this row as the statistic, and flatparity's DEALT[3] as the pixels. */
+  const EXPO_MED = refRecord('exposure', 'MEDIAN', 'num', [73, 71, 78, 64]);
   // #284: L2's spawn-seat MEAN moves 64 -> 63 (64.33 -> 63.22) while the CENTRE-HALF mid is identical to
   //   the hundredth (73.31) and the spread is identical (65), L0 and L1 are byte-identical (56.89/64.80 and
   //   59.95/50.31), PARITY is bit-identical on all three levels, and the deal's mean is unchanged in the
@@ -4754,8 +4801,14 @@ if (MODE === 'exposure') {
      which puts the first frame in the middle of the 35-75 band the way L0-L2 are (64/58/61) instead of
      45 above it - that is #306's L3 spawn half, and it is now a re-record rather than a residue. Re-seating
      the camera instead was measured and does not work: yaw 1.36 reads 115.3 and yaw 0.1 reads 96.7, because
-     turning away from the lamp puts LIT GEOMETRY in the lens instead of an emissive prop. */
-  const EXPO_SPAWN = refRecord('exposure', 'SPAWN', 'num', [61, 69, 64, 59, 64, 73, 56, 60]);   // mean, mid per level
+     turning away from the lamp puts LIT GEOMETRY in the lens instead of an emissive prop. #21 holds this
+     pair: the clamp repaints pixels here (flatparity's DEALT[3] moved for it), but 56.10 -> 55.92 and
+     59.86 -> 59.84 round to the same digits, so this sampled seat cannot see the fix. */
+  /* #21 re-keys L0's spawn seat only, 61.33/69.11 -> 60.25/66.39 (-1 mean, -3 mid): the seat looks across
+     a lamp-overlap room, and the pixels past the first cell boundary are the ones that come down. L1
+     64.49/58.60 and L2 64.32/72.58 come back ONTO their records, so this is not the frames going dark -
+     and #304's L3 pair 56/60 still rounds onto its record (55.92/59.84 exact against #304's 56.10/59.86). */
+  const EXPO_SPAWN = refRecord('exposure', 'SPAWN', 'num', [60, 66, 64, 59, 64, 73, 56, 60]);   // mean, mid per level
   const LUM_WANT = [60, 100];       // the documented window (README: targets 60-100), median not mean
   const medRec = [], spawnRec = [];
   for (let lv = 0; lv < N; lv++) {
@@ -4951,9 +5004,25 @@ if (MODE === 'heights') {
     // the eye stands on the raised band, so the row predictor comes from floorAt, not from eyeZ
     ['eyeUp', '(()=>{for(let i=0;i<MW*MH;i++){if(MAP.cell[i])continue;const x=i%MW,y=(i/MW)|0;if(Math.hypot(x+0.5-P.x,y+0.5-P.y)<=1.5)MAP.fz[i]+=1;}P.z=floorAt(P.x,P.y)})()', 'move', 'any', false, false, true]
   ];
+  /* #21 GROUND LIGHT CEILING. `lm[i] += amt * w` in splatLight accumulates with no ceiling, so a cell
+     where two lamps overlap carries more than 1.0 of light (measured on the generated levels: max
+     1.70 / 1.65 / 2.04 on levels 0/1/2, over 1.0 on 49 / 38 / 238 open cells). The ground pass clamps
+     that at ROW INIT and - until #21 - did not on a lookup reached AFTER a crossing: the cell crossing
+     inside the row loop, the deferred/off-plane copy in groundPixel (the second copy of the pixel body,
+     which is what the configs below with wantDepth exercise), and the far-band fan. Those pixels shaded
+     past their lamp's ceiling while the pixels before the crossing did not, and the wall pass (:1135)
+     and hitscan (:1295) both clamp, so ground was the odd one out.
+     The rows below read what the PASSES used, through LGCNT (js/40_render.js), armed around the two
+     renders of every config and summed per level: slots 0-2 count light lookups above 1.0 (coverage -
+     a level that sees none proves nothing), slots 3-5 count the ones still above 1.0 when they reached
+     the shade, which is the defect. NOCAP=1 raises the ceiling to Infinity so the second family is the
+     first and these rows go RED on the shipped behaviour (js/40_render.js's header, tools' boot knob).
+     Deliberately not a threshold and not a brightness number: it is a count of a thing that must be 0. */
   let bad = 0;
+  const FARBFAR = run('FARB');
   for (let li = 0; li < run('LEVELS.length'); li++) {
-    let ref = null, refF = null, flatMean = 0;
+    let ref = null, refF = null, flatMean = 0, farSeen = 0;
+    const lgn = [0, 0, 0, 0, 0, 0, 0, 0, 0];    // LGCNT summed over this level: 3 sites x 3 families
     console.log(`level ${li}`);
     for (const [name, poke, wantFloor, wantCeil, wantDecals, wantOutMap, wantDepth] of cfgs) {
       seedRng(4242 + li * 31);
@@ -4970,12 +5039,18 @@ if (MODE === 'heights') {
          legitimately redraws rows the moment a face's z span changes (a taller ceiling retiles the
          wall it caps, including the rows below the eye line) and counting that as the floor solver
          having moved would blame the wrong pass. */
+      run('LGCNT = new Int32Array(9);');      // #21: count what BOTH ground renders of this config use
       run('renderWorld()');
       const BW = run('BW'), BH = run('BH'), hInt = run('Math.round(horizon)'), n = BW * BH;
       const full = new Uint32Array(run('px'));
       run(ZRESET + ';' + ZON);
       run('px.fill(pack(FOGC[0],FOGC[1],FOGC[2]));reSolveBad=0;gndOffMap=0;castGround(S.flash,FOGC[0],FOGC[1],FOGC[2]);');
       run(ZOFF);
+      // #21: disarm and fold this config's ground-light counts into the level's total
+      {
+        const c = run('(()=>{const c=LGCNT;LGCNT=null;return c?[c[0],c[1],c[2],c[3],c[4],c[5],c[6],c[7],c[8]]:[0,0,0,0,0,0,0,0,0]})()');
+        for (let q = 0; q < 9; q++) lgn[q] += c[q];
+      }
       const cur = new Uint32Array(run('px'));
       const reS = run('({bad:reSolveBad,off:gndOffMap})');   // this ground pass only, not the renderWorld before it
       let sum = 0, dark = 0, lo = 0, hi = 0, loDiff = 0, hiDiff = 0, fullDiff = 0;
@@ -5131,6 +5206,41 @@ if (MODE === 'heights') {
       if (rms) { bad++; console.log(`  replay    ${rms} ground pixels differ from the same seed: the pass is not deterministic FAIL`); }
       if (!poke) { ref = cur; refF = full; flatMean = mean; }   // every poked frame is judged against the FLAT one
     }
+    /* The far-band fan is the third ground light lookup, and no config above reaches it: that branch
+       wants a row whose own plane solve exceeds FARB, and CAMSET's sight is ~9 m (its ray search is
+       capped at 9, so it cannot even name a yaw that long). So the spawn seat is rendered again, after
+       every verdict above has been taken, at the yaws whose ray the level itself says is longest - the
+       pose that exercises a site has to be chosen FROM THE GRID, not from the compass, which is the
+       CAMSET lesson in AGENTS.md. If a level has no ray past FARB from its spawn seat the site is
+       genuinely unreachable there and the row prints 0 rather than failing: total-vacuum is the FAILURE,
+       and a permanently-red row teaches everyone to ignore the rows that mean something. */
+    seedRng(4242 + li * 31);
+    run(`S.mode='play';S.locked=false;startLevel(${li},true);`);
+    const lgy = run(`(()=>{const s=[];for(let k=0;k<48;k++){const a=k*Math.PI/24;
+      s.push([castRayDist(P.x,P.y,Math.cos(a),Math.sin(a),FARB*4).dist,a]);}
+      s.sort((u,v)=>v[0]-u[0]);return s.slice(0,4).map(u=>[u[0],u[1]])})()`);
+    for (const [dY, yaw] of lgy) {
+      run('LGCNT = new Int32Array(9);');
+      run(`P.ang = ${yaw}; P.pitch = 0; P.z = floorAt(P.x, P.y);` + VMREST + 'renderWorld()');
+      const c = run('(()=>{const c=LGCNT;LGCNT=null;return c?[c[0],c[1],c[2],c[3],c[4],c[5],c[6],c[7],c[8]]:[0,0,0,0,0,0,0,0,0]})()');
+      for (let q = 0; q < 9; q++) lgn[q] += c[q];
+      if (dY > FARBFAR) farSeen = Math.max(farSeen, dY);
+    }
+    /* One verdict per level over every render above. LIGHTCAP-LEAK is the fix: a ground or mirror pixel
+       that shaded from a light value above 1.0, counted by the pass that used it (js/40_render.js LGCNT).
+       LIGHTCAP-VACUUM is its honesty, per SITE: a site whose lookup total is 0 executed nothing, so its
+       leak count is trivially 0 and the row would be green on an absence - the failure this repo has
+       already paid for repeatedly. NOCAP=1 raises the ceiling to Infinity and turns every lookup above
+       1.0 into a leak, which is how this row is seen to fail on the shipped behaviour. */
+    const lgRun = lgn[0] + lgn[1] + lgn[2];
+    const lgSeen = lgn[3] + lgn[4] + lgn[5], lgLeak = lgn[6] + lgn[7] + lgn[8];
+    let lgFail = '';
+    if (lgLeak) lgFail += ' LIGHTCAP-LEAK';
+    if (!lgSeen) lgFail += ' LIGHTCAP-VACUUM';
+    if (!lgn[0] || !lgn[1] || !lgn[2]) lgFail += ' LIGHTCAP-SITE-UNRUN';
+    if (lgFail) bad++;
+    console.log(`  ${pad('lightcap', 9)} ${lgRun} ground light lookups (row ${lgn[0]}, deferred ${lgn[1]}, far band ${lgn[2]}${lgn[2] || lgn[5] ? '' : '; longest spawn ray ' + farSeen.toFixed(1) + ' m vs FARB ' + FARBFAR}), ` +
+      `${lgSeen} above 1.0, ${lgLeak} of them DELIVERED to a pixel above the ceiling  ${lgFail ? 'FAIL' + lgFail : 'ok'}`);
   }
   console.log(bad ? `heights: ${bad} config(s) FAILED` : 'heights: all configs ok');
   process.exit(bad ? 1 : 0);
