@@ -35,6 +35,37 @@
   `tools/view.js` - the census of the 89 `process.env.` reads that gate a row is in `tools/roster.js`'s
   header until that lands.
 
+- **A room now behaves like a room** (#358). `alertEnemies` had exactly one call site — the player's own
+  gunshot — and `damageEnemy` raised only the victim, so a body shot three metres from its pack mate, or a
+  body that came down in front of one, told nobody. Break line of sight and the whole encounter de-escalated
+  on a 1.6 s timer, dropping the body into the idle branch that *fidgets in place* while still holding the
+  seat it last saw you at. Now damage and death carry a wake probability through the `report` parameter that
+  was already there (so a silenced approach stays a stealth route), a woken body is stamped with **where the
+  noise came from** rather than the spawn seat its `lx/ly` were seeded to, and `alert` survives `loseT` while
+  that seat is still more than a metre away, then looks around before giving up. Levels also trade harder,
+  not just faster: one `LVL_RAMP` scales incoming melee/orb damage and reaction cooldown, where previously
+  the only per-level term in the simulation was a 5 % speed bump — and no enemy was faster than a walk
+  (`ETYPE.spd` 1.85/3.25/1.55 against `spd = 3.55 + 2.15·sprint`). `sight` gates all four claims through the
+  real `update()` loop over 240-frame runs, with the wake draws replayed from a fixed stream so a rate row
+  cannot flake; on pristine code the same rows read **0/40 wakes, 0.09 m of pursuit, damage ratio 1.000**.
+
+- **Enemies carry a weapon, and the geometry budget has a hook** (#78). Bodies were still authored at spike
+  fidelity: one global `NS = 6` gave every tube the same prism, so a thigh and a visor were equally faceted,
+  and no part carried an object - the attack bucket had nothing to move. Limbs now take 8 sides on the tier
+  the renderer picked (`S.gfx`, the index `QUAL[]` is addressed by at `js/40_render.js:91`) and 6 elsewhere,
+  and grunt and brute hold a 4-part weapon - stock, receiver, barrel, magazine - placed at the right hand so
+  the gait, the wind-up, the topple and the death pose carry it for free. It is canted **across** the body
+  rather than laid along the aim axis: aimed forward it has almost no screen-space extent the moment the
+  enemy faces the player, which is the difference between carrying something and carrying something visible.
+  Measured at the low tier, grunt and brute are **216 tris against the gun-less hound's 180** (the hound
+  authors no `gun` row, and that absence is what makes the floor mean something), and the tier hook answers
+  **6 → 8 limb sides, grunt 216 → 248 tris**. The model cache key is now `kind#seg` and the pose key carries
+  the same count, so a tier switch rebuilds instead of handing back the previous geometry - #186's lesson
+  that a key must hold every term the geometry reads, applied before it could bite. Verifying the pass also
+  established that **`view.js rig` cannot see mesh geometry at all**: it rasterizes `RIG.raster`, the path
+  #72 took out of the draw loop, and this branch's sheet is byte-identical to `main`'s (`e9d88fd3…`, 0 of
+  9,742,430 bytes differ) while `stats` reports the +36 triangles. Filed as #352; the rows added here live
+  in `stats`, where the numbers can move, and they fail under `HELD_FLOOR=999` / `HELD_DELTA=999`.
 - **No big band is left without a light source standing in it** (#149). Lamp placement had scored seats
   for the dark *cells* a lamp would cover and then spread the remainder, so a band whose cells were each
   individually dim could still end up with no lamp inside it at all. On untouched `main` the new rows fail:
@@ -253,6 +284,22 @@
   the crossfade half of the hoist is dead code at the default graphics tier anyway (`G_TRI`, ULTRA only).
   Column counts come from a counting tree because the zbuf-inferred census over-counts ~1.7x: the mesh
   pass stamps one view-space distance down a face, so a walls-off frame reports **0** runs.
+- **Four probes stopped describing three levels while players are dealt four** (#303). `props`' cost
+  census and collision rows, `bands`' per-level loop and `decal`'s riser punch loop each ended at a
+  literal `3`, so every row they printed about altitude or clearance described a generated level and the
+  verdict line never said a fourth level had been skipped. They now read the level list, the way `alt`,
+  `volume`, `vert`, `sight`, `cull` and `planes` already did. Two loops keep a literal bound on purpose:
+  `alt`'s top-up and glow censuses index three-value recorded literals, so raising their bound would
+  read `undefined` at level 3 instead of turning a row red — that re-record decision, plus `props`'
+  three-level LAMPCORE record and `bands`' floors calibrated on "the six lips of each tree", is
+  [issue #314](https://github.com/lioreshai/breach-protocol-flash-next/issues/314).
+  Running level 3 for real also found a defect rather than a number: `props`' `slides, does not seal`
+  row crossed 3 of 4 face-graze poses there, because THE STACK's one authored crate is `r 0.655` and
+  overhangs its lane by **0.16 m** where a generated crate overhangs 0.05 m — one ~30° graze pose snags
+  at the face ([issue #318](https://github.com/lioreshai/breach-protocol-flash-next/issues/318)). That
+  row now reports the authored case as debt **at the measured geometry** (overhang past `OVERHANG_MAX`,
+  default 0.12 m — an A/B knob, not a tolerance baked into a verdict), so a generated-geometry snag, a
+  two-pose shortfall, and `STRICT=1` all still go red, and the fix retires the row.
 
 - **The hand-authored level's descent is now in the corridor the player spawns facing, and the corridor
   has volume** (#16, #181). The stair had been authored in the far column of the west wall — outside
