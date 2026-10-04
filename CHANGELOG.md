@@ -12,6 +12,17 @@
   trips on roll noise and passes an unlit room. A level whose worst roll is under 60 but above its floor
   prints as `KNOWN #149` instead of being floored away. No record moved: `tools/refs.lock` is
   byte-identical, since nothing here changes how anything is lit.
+- **The wall pass was measured against the hypothesis that motivated it, and the hypothesis is wrong**
+  (#65, tooling). A new read-only probe, `node tools/view.js columns`, renders one frozen frame while
+  `BH` sweeps wall-column height and `BW` sweeps rays per frame, so the two costs separate: over 9 configs
+  x 9 interleaved rounds the wall pass fits **2.69 µs/column + 27.6 ns/pixel, R² 0.9988**, and the per-ray
+  share is **54-81% of the pass at every height reached** - the pass is per-ray-dominated, so hoisting
+  work *into* the per-ray prologue should pay rather than cost. The other half of #65's premise, "a camera
+  turning at 3 rad/s produces many short columns", is measured false by `TURN=1`: **108,180 columns, mean
+  44.6 px, median 38, p10 24, p90 77, and 0.0% at or under 3 px or 8 px**. No renderer change ships, and
+  the crossfade half of the hoist is dead code at the default graphics tier anyway (`G_TRI`, ULTRA only).
+  Column counts come from a counting tree because the zbuf-inferred census over-counts ~1.7x: the mesh
+  pass stamps one view-space distance down a face, so a walls-off frame reports **0** runs.
 
 - **The hand-authored level's descent is now in the corridor the player spawns facing, and the corridor
   has volume** (#16, #181). The stair had been authored in the far column of the west wall — outside
