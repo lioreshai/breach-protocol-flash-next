@@ -223,7 +223,7 @@ not touched at all. `&seed=` and `#seed=` parse the same way.
 | `DEV.face([enemy])`, `DEV.nearestEnemy()` | Aim at the nearest living enemy, or a given one. |
 | `DEV.freeze([bool])` | Stops `update()` and pins the clock; rendering continues, so two screenshots of "the same frame" really match. |
 | `DEV.tick([n])` | Exactly `n` update+render frames at `dt = 1/60`, no vsync. |
-| `DEV.spawn(kind[, n, dist])`, `DEV.clear()` | Place `grunt\|hound\|brute` in a deterministic fan `dist` metres ahead; clear entities. |
+| `DEV.spawn(kind[, n, dist])`, `DEV.clear()` | Place `grunt\|hound\|brute` in a deterministic fan `dist` metres ahead: a target blocked by a wall steps **sideways** before it steps nearer, and no two bodies share a cell, so `n` bodies are `n` bodies in the frame and not one body drawn `n` times. Returns what it did — `cells`, `collapsed`, `sep`, `placed[{x,y,cell,d,why}]`. Clears entities. |
 | `DEV.set(name, value)` | Runtime overrides of the quality tier (`res, bloom, grade, grain, far, glow, rigH, rast, dmax, scan, vec, min, max`). |
 | `DEV.tiers()` / `DEV.stats()` | The `QUAL` table as it stands; frame ms (`n/med/p95/last`), fps, buffer, draw calls, poses rasterised, `RIG.stats`. |
 | `DEV.state()` | JSON-safe snapshot: player (heading under `ang`), level, enemies, counts, `S` flags — plus `seed` (the uint32 pinning this deal, `null` if the URL named none) and `layout`. |

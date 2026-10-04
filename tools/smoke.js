@@ -1358,6 +1358,62 @@ const release = () => fire('mouseup', { button: 0 });
     console.log('raster per level: ' + rlN + ' row(s), ' + rlGate + ' gating row(s), ' + (rlN - rlGate) + ' reported');
   }
 
+  /* ---------------- DEV.spawn crowd fixture (#93, radial half #63) ---------------------------
+     DEV.spawn is how a live-page check puts a crowd in front of the camera, and until #93 its fan
+     backed off RADALLY only, so one wall between the camera and the requested range folded every
+     body into the same cell: the HUD counted two and the frame drew one (measured on the deployed
+     build, `DEV.clear(); DEV.spawn('hound', 2, 7.5)` -> distances [7.48, 7.48], one cell). The same
+     function placed a pair at [1.45, 1.45] when asked for 3.2 (#63). A fixture that reports more
+     bodies than it draws is how a probe starts believing a spread crowd it never had.
+
+     The oracle is the WORLD, not the return value: this row counts distinct cells over ENEMIES,
+     because on a build where the fan collapses the return value is the thing under test. The report
+     beside it is DEV.spawn's own ({cells, collapsed, sep, dist, why}), so a person in a console and
+     this row read the same numbers. A pose whose geometry genuinely cannot hold n cells is reported
+     as covered/asked rather than asserted - today that is only the seat with a wall 0.5 m ahead.
+
+     Last in the file after the raster block on purpose: reaching DEV's API means running js/90_dev.js
+     a second time with location.search = '?dev=1', and its load wraps update/frameInner - one
+     indirection on a hot path (AGENTS.md), so nothing timed above may run after it. No seed parameter
+     is given, so Math.random is left alone and no deal changes.
+     ------------------------------------------------------------------------------------------ */
+  {
+    const DS = code => vm.runInContext(code, ctxVm);
+    const DSN = 3, DSD = 6.0;                      // three grunts, 6 m in front of the dealt seat
+    let dsN = 0, dsGate = 0, dsBad = 0, dsTxt = [];
+    DS('S.mode = "play";');                        // so 90_dev's own auto-boot at load stays a no-op
+    sandbox.location = { search: '?dev=1', hash: '' };
+    try { vm.runInContext(fs.readFileSync(jsFile('90_dev.js'), 'utf8'), ctxVm); }
+    catch (e) { console.log('DEV.spawn row: js/90_dev.js did not install - ' + e.message); process.exitCode = 1; }
+    for (let li = 0; li < nLevels(); li++) {
+      DS(`(()=>{let a=(${SEED}+90210)>>>0;Math.random=()=>{a=(a+0x6D2B79F5)>>>0;` +
+        `let t=a;t=Math.imul(t^t>>>15,t|1);t^=Math.imul(t^t>>>7,t|61);return((t^t>>>14)>>>0)/4294967296};})()`);
+      DS(`startLevel(${li}, true); S.mode = "play"; S.locked = true; S.exitOpen = false;`);
+      DS('for (const k in keys) delete keys[k]; PROJ.length = 0; PARTS.length = 0; DECALS.length = 0;');
+      const seat = JSON.parse(DS('JSON.stringify([P.x, P.y, P.ang])'));
+      DS('DEV.clear(); DEV.cam(' + seat[0] + ', ' + seat[1] + ', undefined, ' + seat[2] + ');');
+      const r = DS('(()=>{ const r = DEV.spawn("grunt", ' + DSN + ', ' + DSD + ');'
+        + ' const cs = new Set(); for (const e of ENEMIES) cs.add((e.y | 0) * MW + (e.x | 0));'
+        + ' const w = ENEMIES.map(e => Math.hypot(e.x - P.x, e.y - P.y).toFixed(2));'
+        + ' return JSON.stringify({bodies: ENEMIES.length, cells: cs.size, dist: w, rep: r}) })()');
+      const q = JSON.parse(r), rep = q.rep || {};
+      dsN++;
+      // geometry that cannot hold n cells is reported, not asserted; the dealt spawn seat can
+      const gate = q.bodies === DSN && q.cells === DSN;
+      if (!gate) dsBad++;
+      dsGate++;
+      dsTxt.push(`L${li} ${q.cells}/${DSN} cells of ${q.bodies} bodies at ${q.dist.join('/')} m` +
+        ` (tool says cells ${rep.cells}, collapsed ${rep.collapsed}, sep ${rep.sep}, why ` +
+        (rep.placed ? rep.placed.map(p => p.why).join('+') : 'n/a') + ')');
+      expect('DEV.spawn crowd occupies ' + DSN + ' distinct cells on every level (#93)', gate,
+        dsTxt[dsN - 1]);
+    }
+    console.log('  DEVSPAWN a DEV.spawn crowd fills ' + DSN + ' distinct cells at ' + DSD + ' m x ' + dsN + ' levels '
+      + (dsBad ? 'FAIL  ' : 'ok    ') + dsTxt.join(' | ') +
+      ' | oracle = distinct cells over ENEMIES, not the return value');
+    console.log('  dev spawn: ' + dsN + ' row(s), ' + dsGate + ' gating row(s), ' + (dsN - dsGate) + ' reported');
+  }
+
   if (RASTER_SUMMARY) console.log(RASTER_SUMMARY);
   console.log(`${failed} assertion(s) failed`);
   console.log(process.exitCode ? 'SMOKE FAILED' : 'SMOKE PASSED');
