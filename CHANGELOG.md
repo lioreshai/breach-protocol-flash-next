@@ -2,6 +2,17 @@
 
 ### Changed
 
+- **The exposure gate now reads the floor of the dealt rolls, not only their median** (#149, tooling).
+  `tools/ci/assert.js exposure` prints `WORST n` and `out k/5` beside each level's median and fails a
+  level whose darkest seeded layout drops under a recorded floor, and `tools/view.js exposure` does the
+  same on the raster layer over its 4 rolls. The medians were never wrong — level 0 deals
+  `94 120 75 46 37` for a median of 75, inside 60-100, while the darkest layout a player can be dealt
+  reads 37. Floors sit just **under** the measured worst of this tree (composited **34/64/61/57** at
+  5 rolls, raster **45/61/60/57** at 4) and never at the window's bottom edge, because a floor at 60
+  trips on roll noise and passes an unlit room. A level whose worst roll is under 60 but above its floor
+  prints as `KNOWN #149` instead of being floored away. No record moved: `tools/refs.lock` is
+  byte-identical, since nothing here changes how anything is lit.
+
 - **The hand-authored level's descent is now in the corridor the player spawns facing, and the corridor
   has volume** (#16, #181). The stair had been authored in the far column of the west wall — outside
   every seeded camera's frame, and therefore outside every screenshot that ever justified it. `alt`
