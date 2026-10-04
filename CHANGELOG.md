@@ -35,6 +35,26 @@
   reserving every candidate, moves the count rows to 0 and turns the **density** rows red instead (7 FAILs,
   L0 38 > 36, L1 60 > 59). Both directions of the same mechanism are red, which is why the count and density
   rows both exist.
+- **All six README screenshots are re-captured from the deployed bytes, and two captions stopped
+  describing a picture that is no longer there** (#333). The facing-wall frame changed: **10 dark rows
+  → 488 of 763** - a run of 277 from the top of the frame, mean 36.79 → 20.87, top band 36.2 → 9.5 -
+  so its caption now says black air instead of claiming the air above the lip is lit. **That delta is not a
+  regression, and #333 is closed on the measurement.** On the page's own deal - reached for the first time
+  by advancing `mulberry(60)` to draw **66,153**, which is where the page's audio buffer leaves the PRNG
+  (`SND.init` burns `floor(sampleRate * 1.5)` = 66,150 draws at `js/00_core.js:90`, plus 3 from
+  `startAmbient`) - the facing-wall seat renders mean **21.51 with #311's clamp against 21.67 without it**,
+  N=7 renders per side, spread 0.00, and the clamp-as-no-op control is worth **+0.17 luma**. Every build
+  renders this frame dark, including `98a33b5`, the build behind the frame this entry replaced; that frame
+  decodes to mean 36.79 with 10 dark rows, which no render of this deal in any build reproduces, so it was
+  a capture or caption mismatch - tracked in #335. **A page deal is a triple of seed, sample rate and audio
+  draw count**: the harness sandbox has `AudioContext: undefined`, so `SND.init` returns early and spends
+  zero draws, and `SEED=60` there deals `1284359329` - a world with no staircase at this camera. That is why
+  three earlier attempts produced three confident, contradictory verdicts, and why a capture must record
+  `DEV.state().layout` rather than a seed string. The STACK caption's "that slab seen from
+  below" is a **wall** in this build - level 3's `wall2` TECH panels, with the 4.00 plane being the
+  streaked `ROCK` ceiling - and the spawn caption's "one-unit ceiling over its head" contradicted the
+  `cz 16` printed in the same sentence. Frames came from `index.html` + `js/` whose md5s match the
+  Pages deploy exactly; `docs/` is 404 there by design, so the tree is the reference.
 
 - **A prop could stand 1.41 m from the spawn cell, inside the spawn heading's cone** (#154). The prop
   pass drew cells from the same pool as every other feature and subtracted nothing around the seat,
