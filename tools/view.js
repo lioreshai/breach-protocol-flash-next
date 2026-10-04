@@ -9593,7 +9593,15 @@ if (MODE === 'bands') {
         + `sort and the eye's plane disagree (measured with ANCHOR=lower: 299 of 299 on L0 face, 0 of 240 and 0 of `
         + `239 on L1/L2 whose lip is UP, and the walk kind's anchor has been c[4] since #192)`);
       row(`L${li} ${kind} lip: luminance steps where depth steps`,
-        n >= 24 && meanCon >= (kind === 'walk' ? CON_WFLOOR : CON_FLOOR) && pctW <= WITHIN_MAX,
+        /* #303 corrected the code to its own comment. The comment below says the walk kind's luminance
+           half "reports as debt above a floor", but pctW sat inside the hard `ok`, so the authored level's
+           lip FAILED a term this row says should report: contrast 27% (over the 6% floor, and already
+           tagged as debt) with 51.4% of its lip pixels within 10 luminance of their neighbour. The hard
+           gate stays where the cliff is - no luminance step at all, and an unpainted riser still lands at
+           0% - and the 35% locality bar now participates in belowBar, for the WALK kind only. The face
+           kind's gate is untouched, so no generated level's verdict moves. */
+        n >= 24 && meanCon >= (kind === 'walk' ? CON_WFLOOR : CON_FLOOR) &&
+          (kind === 'walk' || pctW <= WITHIN_MAX),
         `contrast across the lip ${(100 * meanCon).toFixed(0)}% (want >= ${(100 * CON_MIN).toFixed(0)}%`
         + (kind === 'walk' ? `, hard floor ${(100 * CON_WFLOOR).toFixed(0)}%`
           : `, hard floor ${(100 * CON_FLOOR).toFixed(0)}%`) + `), anchored on the `
@@ -9615,8 +9623,16 @@ if (MODE === 'bands') {
         // cast DOWN onto the lip floor - #203's own example of the bug - and the L2 lip measured
         // 0.46 (main) -> 0.43 (fixed) against the 0.45 bar; the same light-independent riser
         // tuning gap, the same hard fail past CON_FLOOR.
-        meanCon < CON_MIN ? (kind === 'walk' ? '#195' : '#203') : undefined,
-        meanCon < CON_MIN);
+        // One tag, because it is one gap: the walk lip's luminance half - how big the step is AND how much
+        // of the lip actually carries it. #195 owns that tuning question (a riser that reads as an edge in
+        // a dark room needs the light-independent mechanism, same tension as the body rim), but #195 was
+        // closed when the level list had three entries and said "2 of 3 levels"; #303's wider loop is what
+        // found the authored level in the same state, so the tag NAMES THE LEVEL. The row is the tracker -
+        // the numbers are in its detail, and a closed issue number alone would send a reader somewhere
+        // that says nothing about this level.
+        meanCon < CON_MIN || (kind === 'walk' && pctW > WITHIN_MAX)
+          ? (kind === 'walk' ? '#195 + L' + li : '#203') : undefined,
+        meanCon < CON_MIN || (kind === 'walk' && pctW > WITHIN_MAX));
       row(`L${li} ${kind} lip: a seam band at the crease, not a shade`,
         seam === 1 && dropCon >= DROP_CON_MIN && wideSum / (n || 1) >= 1 &&
         wideSum / (spanSum || 1) <= 0.45 && farSum / (farN || 1) <= 5 &&
