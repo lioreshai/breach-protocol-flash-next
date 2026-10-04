@@ -2,6 +2,40 @@
 
 ### Changed
 
+- **No big band is left without a light source standing in it** (#149). Lamp placement had scored seats
+  for the dark *cells* a lamp would cover and then spread the remainder, so a band whose cells were each
+  individually dim could still end up with no lamp inside it at all. On untouched `main` the new rows fail:
+  L1 reports **2 all-dark bands of 112 bands >= 8 cells over 12 seeded deals** (`roll 2 room 2 @ q0`, 21
+  cells, mean light **0.036**; `roll 11 room 1 @ q0`, 30 cells, mean light **0.011**) and the *standing in it*
+  row fails **L0 29 / L1 48 / L2 43** big bands with no source inside them. **L0's all-dark count on main is
+  0**, so L0's teeth are the standing and density rows, not the count row - stated because a row whose teeth
+  exist on two of three levels is not a row whose teeth exist everywhere. The seat pass now scores a
+  candidate by the band it serves, reserves one lamp per unserved band before any spreading happens, and
+  takes band seats into account; **no new `Math.random` draw is taken**, because #96 established that a draw
+  on the generation path re-rolls the seed-to-layout mapping and every held record would move. All-dark
+  bands go to **0 on every level** and the standing-in-it count to **0 / 0 / 0**.
+  Buying that coverage moved light, and the moves are recorded rather than absorbed: six lamp-dependent
+  references were re-recorded from measurement on this tree (`flatparity LOCK` L0/L2, `flatparity DEALT`
+  L0/L1/L2, `bands SEAM-FRAME` x3, `exposure MEDIAN` L2 78 -> 70, `exposure SPAWN` L1 64/59 -> 68/66,
+  `alt PIT-MEAN` 0.290/0.299/0.326 -> 0.262/0.294/0.297), and `COV_STAND_MAX` L0 moved 27 -> 28 because
+  main's #329 spawn-clearance change re-deals layouts while staying draw-stream-neutral. **`flatparity
+  PARITY` x4, `cull CZBAND` / `CZBAND-LIGHT`, `props LAMPCORE`, `alt PIT-CELLS` and the OOB rows did not
+  move**, which is the proof that the deal mapping is intact (`refs`: 13 records, 0 missing, 0 orphaned,
+  0 moved). The tail floors moved where the measurement said they already were: `WORST_REC` is
+  `[20, 25, 50, 57]` and `WORST_RASTER` `[25, 30, 50, 57]`, against main's own 24-deal low ends of
+  **23.2 / 36.3 / 51.0 / 61** - the old 64 on L1 was a promise main does not keep.
+  **The cost has its own issue: pits read ~9 % dimmer** (#336) - `PIT-MEAN` above, with `PIT-CELLS`
+  unchanged at **0 of 190 / 194 / 211**, so no pit cell went dark but the pit lips lose a share of light to
+  the bands the new pass feeds. That is what made `alt`'s glow row fail L0/L2 while L1 passed: the row's
+  predicate carries a `+-0.005` pit-mean clause (`tools/view.js:1389`), so near-identical pixel counts
+  split on the lightmap canary. The rows that carry the guarantee were seen to fail before they were
+  trusted: against untouched `main` js the coverage rows FAIL with exit 1 - 11 FAILURE(S) of 37 rows, naming
+  `roll 2 room 2 @ q0 (21 cells), mean light 0.036` - and making the reserve pass place nothing brings the
+  **all-dark** counts back to 10 / 11 / 9 (`11 FAILURE(S) of 37 rows`, exit 1) while the opposite byte,
+  reserving every candidate, moves the count rows to 0 and turns the **density** rows red instead (7 FAILs,
+  L0 38 > 36, L1 60 > 59). Both directions of the same mechanism are red, which is why the count and density
+  rows both exist.
+
 - **A prop could stand 1.41 m from the spawn cell, inside the spawn heading's cone** (#154). The prop
   pass drew cells from the same pool as every other feature and subtracted nothing around the seat,
   while the seat itself is chosen by a different pass - the same shape as #149, placement passes that

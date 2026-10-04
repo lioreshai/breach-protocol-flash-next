@@ -1196,7 +1196,7 @@ if (MODE === 'alt') {
        band") rather than reading it off a deal, and it is the one literal on that line every re-key left
        alone. RECOOB_GEO *is* declared: #189 introduced it as the measured non-climb population ("the
        non-climb population of alt's oob census is 0/0/0") and the compare reads it. */
-    const RECPIT = refRecord('alt', 'PIT-MEAN', 'num', [0.290, 0.299, 0.326]);
+    const RECPIT = refRecord('alt', 'PIT-MEAN', 'num', [0.262, 0.294, 0.297]);
     const RECPITN = refRecord('alt', 'PIT-CELLS', 'num', [190, 194, 211]);
     const RECOOB = refRecord('alt', 'OOB-ERA', 'num', [19, 10, 16]);   // #189 era figure, climb cells included
     const RECOOB_GEO = refRecord('alt', 'OOB-NONCLIMB', 'num', [0, 0, 0]);   // same census minus authored climb cells
@@ -1993,7 +1993,11 @@ if (MODE === 'flatparity') {
   // as PARITY, the same NOCAP=1 control behind it, and the same control row: the level whose spawn frame has
   // no over-ceiling cell did not move at all. L3 moved because THE STACK's lamps overlap, and it moved in
   // BOTH senses to the same value, which keeps #303's authored-level claim intact.
-  const SHIP = refRecord('flatparity', 'LOCK', 'md5', ['a84babafc3673e3633ea8f9f2733eaac', 'f05beeb58f1266a1aea7e44712995292', '65b81621f47796a362c8354b9be1b3b8', '5d422cd672686e9d6f99683170d7d789']);
+  /* #149 re-keys LOCK[0] and LOCK[2] (means 79.3 -> 80.6 and 51.6 -> 51.7): the coverage pass seats a
+     reserve lamp in a place that had none standing in it, so those two spawn frames repaint. LOCK[1] and
+     LOCK[3] are byte-identical, which is the control - the level whose spawn frame the pass cannot reach
+     did not move, so this is seat choice, not a light scale. */
+  const SHIP = refRecord('flatparity', 'LOCK', 'md5', ['abaa4e092f7d7212084e39e5fc5f4497', 'f05beeb58f1266a1aea7e44712995292', 'ad48f7cebb4bf94b231c5936adec9030', '5d422cd672686e9d6f99683170d7d789']);
   const SHIPM = [79.3, 34.1, 51.6, 28.0];
   /* #219's DEALT triple, #226's camera: the frame of each level AS DEALTED - bands, band term, shipped
      lamp record, same dice (1000 + level*97) and the same pinned-clock ninth render - but at a seat
@@ -2090,7 +2094,9 @@ if (MODE === 'flatparity') {
   // do overlap. That the MEAN is identical while the md5 moved is the shape of this fix - pixels come down
   // in the over-lit cells and nothing else changes - and NOCAP=1 reproduces 046f2a22 on this tree, so the
   // move is the clamp and not the rebase. Levels 0..2 are byte-identical to main here.
-  const DEALT = refRecord('flatparity', 'DEALT', 'md5', ['2f1b8e3cf594c61d118383616a44707d', '370d3f7a88596a5bfc36bfc9c98b6858', 'aa18d43e1fbd55b40eb4500dd745a3d6', 'e846d5b3aaa281d09844741e1993c389']);
+  // #149 re-keys DEALT[0..2] and holds DEALT[3] (e846d5b3, mean 39.7): the dealt frame is the shipped lamp
+  // record, and the coverage pass moved three seats on the generated levels. The authored level is the control.
+  const DEALT = refRecord('flatparity', 'DEALT', 'md5', ['1dd4606d1c89f117e9ce65fa070142c1', 'af2897b4ff55f07eed538f333eedf300', '529fe0c79f3b5ec0bbcac5db408ef571', 'e846d5b3aaa281d09844741e1993c389']);
   const DEALTM = [55.5, 57.8, 85.1, 39.7];
   const OFF = process.env.LAMPS === 'off';
   const f1 = v => (v === undefined || v === null ? '-' : (+v).toFixed(1));
@@ -5333,7 +5339,9 @@ if (MODE === 'exposure') {
      64 holds (63.61 exact, rolls 68 65 62 60 identical) even though the clamp does repaint that level - its
      lightmap peaks at 1.872, see cull's CZBAND row - so what L3's sampled 6-yaw cameras see of the over-lit
      cells rounds to nothing. Read this row as the statistic, and flatparity's DEALT[3] as the pixels. */
-  const EXPO_MED = refRecord('exposure', 'MEDIAN', 'num', [73, 71, 78, 64]);
+  /* #149 re-keys MEDIAN[2] 78 -> 70 (70.14 exact, rolls 58 90 72 68): a reserve lamp moves into a dark room
+     on level 2, so one of its four seeded rolls comes down. L0/L1/L3 are unchanged to the digit. */
+  const EXPO_MED = refRecord('exposure', 'MEDIAN', 'num', [73, 71, 70, 64]);
   // #284: L2's spawn-seat MEAN moves 64 -> 63 (64.33 -> 63.22) while the CENTRE-HALF mid is identical to
   //   the hundredth (73.31) and the spread is identical (65), L0 and L1 are byte-identical (56.89/64.80 and
   //   59.95/50.31), PARITY is bit-identical on all three levels, and the deal's mean is unchanged in the
@@ -5366,7 +5374,7 @@ if (MODE === 'exposure') {
      a lamp-overlap room, and the pixels past the first cell boundary are the ones that come down. L1
      64.49/58.60 and L2 64.32/72.58 come back ONTO their records, so this is not the frames going dark -
      and #304's L3 pair 56/60 still rounds onto its record (55.92/59.84 exact against #304's 56.10/59.86). */
-  const EXPO_SPAWN = refRecord('exposure', 'SPAWN', 'num', [60, 66, 64, 59, 64, 73, 56, 60]);   // mean, mid per level
+  const EXPO_SPAWN = refRecord('exposure', 'SPAWN', 'num', [60, 66, 68, 66, 64, 73, 56, 60]);   // mean, mid per level - #149 re-keys L1 to 68.18/65.51 (spread 33); L0/L2/L3 byte-identical
   const LUM_WANT = [60, 100];       // the documented window (README: targets 60-100)
   /* #149 THE WORST ROLL, raster layer, at 4 seeded rolls - the statistic the window row above
      deliberately does not read. The median is asserted because one roll outside 60-100 proves nothing,
@@ -5529,7 +5537,7 @@ if (MODE === 'exposure') {
      prints the number beside the ceiling every run). They are counts of a deterministic seed set, not
      fits to a rendering, so a deal that leaves one more band dark than this moves the row. */
   const COV_DARK_MAX = [36, 59, 36, 36];
-  const COV_STAND_MAX = [27, 41, 26, 0];    // big bands with NO source standing in them
+  const COV_STAND_MAX = [28, 41, 26, 0];    // big bands with NO source standing in them - #149 + main #329 re-key L0 27 -> 28 (28 of 93 over 12 deals; L1 41/112, L2 26/117, L3 0/36 all measured on this tree)
   const COV_ALLDARK_MAX = 0;             // bands >= COV_MIN_BAND cells with every cell dark
   const COV_GAP = 2.00;                  // m, same-band lamp-to-lamp: > hypot(1,1) so a diagonal fails
   const COV_LAMPS_MAX = [10, 12, 20, 7]; // mean lamps/deal incl. the exit pad: never above main's
@@ -9280,7 +9288,8 @@ if (MODE === 'bands') {
      reported as not-comparable instead of being called a regression. */
   const md5u32 = b => require('crypto').createHash('md5').update(Buffer.from(b.buffer, b.byteOffset, b.byteLength)).digest('hex');
   const KNOBS = ['DIST', 'SEAMD', 'SEAMU', 'SEAMW', 'VW', 'VH', 'SEED', 'JSDIR', 'LAMPS'].filter(k => process.env[k]);
-  const RECSEAM = refRecord('bands', 'SEAM-FRAME', 'md5', ['91eccb6618c29a8f1cec99fa9be8e3b4', '96804149a1b44090b3e29c8cb356aa07', 'a4a887ac18688d18d5d5d7b0d99efea6']);
+  // #149 re-keys all three: the seam frame carries lamp light, and three seats moved on the generated levels.
+  const RECSEAM = refRecord('bands', 'SEAM-FRAME', 'md5', ['578af03db244ce393b18b485eff38175', '1ff2a28dc260cda32fde6f6188578653', '4a7aca639c0cda2bcfef27f44b5cd435']);
   for (let li = 0; li < 3; li++) {
     const spawn = run(`(function () { startLevel(${li}, true); return [P.x, P.y]; })()`);
     // SEAM=0 runs this whole probe with the term switched off in the renderer, so the same rows can
