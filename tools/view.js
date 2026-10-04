@@ -640,6 +640,7 @@ if (MODE === 'alt') {
      gate sets the exit code (this probe used to always exit 0, which is why it was only ever reporting).
      Nothing here pokes MAP.fz: these are the bands the generator authored, or the row is lying. */
   let bad = 0, knownN = 0, rowsN = 0;
+  let pitRecN = 0;   // #216: how many levels the pit/lip RECORDS cover - the verdict says what is not covered
   /* STRICT=1 promotes the arrival row below from a reported debt to a gate, the same shape contrast
      (:2641) and cull (:2719) use: a true-but-red finding is RECORDED at a measured baseline rather
      than widened until it cannot fail, and the debt is counted in the verdict line. */
@@ -1182,8 +1183,25 @@ if (MODE === 'alt') {
     /* #284: a deal that authored no hole now authors one, so L0's pit mean settles at 0.290 (within
       the 0.005 clause it always had) and L2's census grows 175 -> 211 cells with mean 0.326 - the pit
       is BETTER lit, still under the 0.55 ceiling of the row above, with 0 dark cells either way. */
-    const RECPIT = [0.290, 0.299, 0.326], RECPITN = [190, 194, 211], RECOOB = [19, 10, 16], RECDARK = [0, 0, 0],
-      RECOOB_GEO = [0, 0, 0];   // #189: same census minus the authored climb cells; RECOOB is kept as the era figure
+    /* #216 (half): these four censuses are now DECLARED records. refRecord returns the literals it is
+       handed, so the line that registers each one is the line the compare at the glow row and the detail
+       print read them from: `node tools/view.js refs` counts them, refs.lock carries them, and an edit to
+       one of these numbers moves the table or fails REFS-VALUES-MOVED instead of being invisible.
+       THREE values, not four: the pit/lip loop below is a hardcoded `lv < 3`, so these rows sample levels
+       0..2 and THE STACK has no pit row - its column is absent from the table rather than invented, and
+       the verdict line prints that gap (#314 owns closing it). RECDARK is deliberately NOT declared:
+       [0, 0, 0] there is the criterion "no pit cell may be dark" - the same zero the row above asserts as
+       `A.pitDark === 0` - it is identical on every level while the neighbouring censuses differ per level,
+       #206's own comment derives it from the mechanism ("RECDARK stays 0: coverage authors a source per
+       band") rather than reading it off a deal, and it is the one literal on that line every re-key left
+       alone. RECOOB_GEO *is* declared: #189 introduced it as the measured non-climb population ("the
+       non-climb population of alt's oob census is 0/0/0") and the compare reads it. */
+    const RECPIT = refRecord('alt', 'PIT-MEAN', 'num', [0.290, 0.299, 0.326]);
+    const RECPITN = refRecord('alt', 'PIT-CELLS', 'num', [190, 194, 211]);
+    const RECOOB = refRecord('alt', 'OOB-ERA', 'num', [19, 10, 16]);   // #189 era figure, climb cells included
+    const RECOOB_GEO = refRecord('alt', 'OOB-NONCLIMB', 'num', [0, 0, 0]);   // same census minus authored climb cells
+    const RECDARK = [0, 0, 0];   // the criterion (clause 1 above asserts the same zero), not a census - see above
+    pitRecN = RECPIT.length;   // coverage of the records above, printed in the verdict line
     /* #206: RECPIT and RECOOB are MAP.light censuses, so the blur band gate moved them with the
        kernel (0.426/0.423/0.464 and 123/377/337 were the bleeding kernel's df919c3 readings - the
        pit means carried a real cross-band tail on top of the direct coverage light, which is what
@@ -1394,7 +1412,9 @@ if (MODE === 'alt') {
   reachSelfTestRow(row, 'the arrival reach test answers its own control pair');
   console.log((bad ? `ALT ${bad} FAILURES - the bands are not there, not linked, or there is nothing to look at`
     : `ALT ok - bands authored, linked, reachable, and there is volume to look at`) +
-    `  |  ${rowsN} row(s), ${knownN} known-issue row(s)${knownN ? (STRICT ? ' (FAILED under STRICT=1)' : ' (reporting: #15 M4 arrival view - STRICT=1 gates)') : ''}`);
+    `  |  ${rowsN} row(s), ${knownN} known-issue row(s)${knownN ? (STRICT ? ' (FAILED under STRICT=1)' : ' (reporting: #15 M4 arrival view - STRICT=1 gates)') : ''}` +
+    `  |  ${pitRecN} recorded pit/lip level(s) of ${run('LEVELS.length')}` +
+    (pitRecN < run('LEVELS.length') ? ` - levels ${pitRecN}..${run('LEVELS.length') - 1} have no pit row and no record (#314)` : ''));
   process.exit(bad ? 1 : 0);
 }
 
