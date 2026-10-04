@@ -100,6 +100,14 @@ const RASTER_FLOOR = +(process.env.RASTER_FLOOR || 32);
 // shows the tail of the run (the workflow echoes `tail -20` of smoke's output; the budget rows print
 // early). Tool-side on purpose: nothing about how a run is gated is changed by reporting it.
 let RASTER_SUMMARY = '';
+/* TICK_FLOOR gates update() - the SIM - which no perf row in this repo times (#53). The default GATES: a
+   report-only row would leave #53 exactly as it was found. It is derived, not wished - see the numbers in
+   the row below, printed on the tree that ships it - and it sits several times above the measured sim cost
+   while staying under 10% of the 16 ms frame #307 is driving RASTER_FLOOR to, so a sim pass that costs real
+   frame time trips it and ordinary load noise does not. Setting TICK_FLOOR explicitly keeps the
+   standing-control semantics RASTER_FLOOR documents: TICK_FLOOR=16 must pass, TICK_FLOOR=0.01 must fail. */
+const TICK_FLOOR = +(process.env.TICK_FLOOR || 1.5);
+let SIM_SUMMARY = '';
 if (process.env.JSDIR && !jfiles.length) {
   console.log('JSDIR ' + JSDIR + ' holds no .js files - a variant tree that loads nothing measures nothing');
   process.exit(1);
@@ -247,6 +255,51 @@ const release = () => fire('mouseup', { button: 0 });
       SEATS.length + ' seats', '|', scene);
     expect('raster fits a frame budget (median of ' + samples.length + ' samples over ' + SEATS.length +
       ' seats)', med < RASTER_FLOOR, med.toFixed(2) + ' ms < ' + RASTER_FLOOR + ' @ ' + scene);
+    /* (#53) Everything timed above is renderWorld()+renderOverlay(), so update() - the AI, the player,
+       projectiles, props, pickups, lights, decals - is in no gate at all: a change that makes the SIM
+       expensive sails through smoke while the shipped frame costs more than the number this file prints.
+       M4 (#15) is almost entirely update-side, which is why this row is not a nicety.
+       Each batch RESEATS first, which the render arms above must not do and this one may not skip: update()
+       ADVANCES the world, so a batch that follows another times a later scene and - per the trap where a
+       spinning camera also walks the player - drags the player into the void where the grid is undefined.
+       The floor is absolute for the same reason the raster row's pairing does not transfer here: there is no
+       second arm to delta against, because update() is one number and 60 frames of it is what a 60 Hz frame
+       gets. 3 batches x 3 seats = 9 samples, an ODD count, so the median selects rather than averaging two
+       modes (#143). Re-seating the first seat after the loop restores what later sections expect. */
+    {
+      const tkAll = [], tkSeats = [];
+      for (const s of SEATS) {
+        const ms = [];
+        for (let b = 0; b < 3; b++) {
+          reseat(s);
+          const t0 = Date.now();
+          vm.runInContext('for(let i=0;i<60;i++) update(0.016);', ctxVm);
+          ms.push((Date.now() - t0) / 60);
+        }
+        ms.sort((a, b) => a - b);
+        tkSeats.push('+' + s + ' ' + ms[1].toFixed(2));
+        for (const v of ms) tkAll.push(v);
+      }
+      reseat(SEATS[0]);
+      tkAll.sort((a, b) => a - b);
+      const tkMed = tkAll.length % 2 ? tkAll[(tkAll.length - 1) / 2]
+        : (tkAll[tkAll.length / 2 - 1] + tkAll[tkAll.length / 2]) / 2;
+      const tkMax = tkAll[tkAll.length - 1];
+      SIM_SUMMARY = 'sim: seats ' + SEATS.join('/') + ' medians ' + tkSeats.map(v => v.split(' ')[1]).join('/')
+        + ' ms of update() | pooled median ' + tkMed.toFixed(2) + ' ms | max ' + tkMax.toFixed(1)
+        + ' ms | floor ' + TICK_FLOOR + ' ms | tick ' + (med + tkMed).toFixed(2)
+        + ' ms = raster ' + med.toFixed(2) + ' + sim ' + tkMed.toFixed(2) + ' (#53)';
+      console.log('sim cost: median', tkMed.toFixed(2), 'ms/frame of update() over', tkAll.length,
+        'samples from', SEATS.length + ' seats', '(max ' + tkMax.toFixed(2) + ', seats ' + tkSeats.join(', ') +
+        ') | tick ' + (med + tkMed).toFixed(2) + ' ms = raster ' + med.toFixed(2) + ' + sim ' +
+        tkMed.toFixed(2) + ' | floor ' + TICK_FLOOR + ' ms | load ' +
+        require('os').loadavg().map(v => v.toFixed(2)).join(' ') + ' | ' + scene);
+      expect('the sim fits a frame budget - update() median under ' + TICK_FLOOR + ' ms over ' +
+        tkAll.length + ' samples from ' + SEATS.length + ' seats', tkMed < TICK_FLOOR,
+        'update() alone measured ' + tkMed.toFixed(2) + ' ms/frame (max ' + tkMax.toFixed(2) + ', seats ' +
+        tkSeats.join(', ') + ') against floor ' + TICK_FLOOR + ', on top of raster ' + med.toFixed(2) +
+        ' ms, at ' + scene + ' - no other perf row in this file times the sim (#53)');
+    }
   }
   frames(60);
   // put a target the player can actually shoot, then prove gunfire kills
@@ -1511,6 +1564,7 @@ const release = () => fire('mouseup', { button: 0 });
   }
 
   if (RASTER_SUMMARY) console.log(RASTER_SUMMARY);
+  if (SIM_SUMMARY) console.log(SIM_SUMMARY);
   console.log(`${failed} assertion(s) failed`);
   console.log(process.exitCode ? 'SMOKE FAILED' : 'SMOKE PASSED');
 })();

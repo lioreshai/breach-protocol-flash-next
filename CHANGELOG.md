@@ -2,6 +2,23 @@
 
 ### Changed
 
+- **The simulation is inside a perf gate** (#53). Every perf row in `tools/smoke.js` timed
+  `renderWorld()+renderOverlay()`, so `update()` - the AI, the player, projectiles, props, pickups, lights,
+  decals - was in no gate at all, and a change that made the sim expensive sailed through while the shipped
+  frame cost more than the number the run printed. M4 (#15) is almost entirely update-side, which is why this
+  is not a nicety. `TICK_FLOOR` (default **1.5 ms**) now gates a pooled median of `update(0.016)` over
+  9 samples - 3 batches at each of the 3 `PERF_SEATS`, an odd count so the median selects rather than
+  averaging two modes (#143) - and the run prints `tick = raster + sim` with the machine's load beside it.
+  Each batch **reseats first**, which the render arms above must not do and this one may not skip: `update()`
+  advances the world, so a batch following another times a later scene and, per the trap where a spinning
+  camera also walks the player, drags the player into the void where the grid is undefined.
+  Measured on this tree before the floor was written: **0.18 ms/frame** (seats 0.18 / 0.15 / 0.22, max 0.23)
+  against a raster median of 29.7 ms at load 2.4 - so the floor is ~8x the sim's actual cost and under 10% of
+  the 16 ms frame #307 is driving `RASTER_FLOOR` to. Seen to respond to the cost it claims to gate: a `JSDIR`
+  copy whose `update()` spins 2 ms/frame measures **2.00 ms** and ends `SMOKE FAILED`, `TICK_FLOOR=0.01`
+  fails naming the measured 0.18, and `TICK_FLOOR=16` passes as the standing control. No existing threshold
+  moved, and `ci.yml` needed no change - it already runs plain and `VERT=1` smoke as blocking steps.
+
 - **No big band is left without a light source standing in it** (#149). Lamp placement had scored seats
   for the dark *cells* a lamp would cover and then spread the remainder, so a band whose cells were each
   individually dim could still end up with no lamp inside it at all. On untouched `main` the new rows fail:
