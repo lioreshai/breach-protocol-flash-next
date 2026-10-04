@@ -2,6 +2,19 @@
 
 ### Changed
 
+- **The shoulders now carry the head instead of a dark tube filling the gap beside it** (#80, refs; the
+  light-independent half stays with #18). The torso box's top face is lifted `0.25 × headR` into the
+  bottom of the neck gap (`js/13_mesh.js:88`, used at `:611`), so the band between head and shoulder
+  reads as a lit box top - flat-shaded against the key light, carrying the #232 structure term - where
+  it used to be the side of a neck cylinder, which cannot read at any ambient. On a grunt at 2.40 m the
+  band is **9 px = 6.1% of body height** instead of **11 px = 7.5%**, and **14 px wide against a 45 px
+  torso** instead of 10 px; triangles are byte-identical (518/857/1024) and 9 yaws × 3 kinds stay
+  `ATTACHED`, so #74's closure is not re-opened. `anim` gains a **reported** row per kind giving the
+  band's rows, share of body height, width against the torso, and ΔL as-dealt / lamps-off /
+  darkest-cell. **ΔL does not improve** (8.6 → 9.7 dealt, 3.5 → 4.5 lamps-off): geometry changes which
+  face sits there, not its colour, and at `AMB 0.19` the head still separates from the wall by ~4
+  luminance - that is #18's contact shadow, which is why this references #80 rather than closing it.
+
 - **`bands` now pins the clock it renders with, and has a recorded row** (#266). The frame that lane
   measures used to depend on wall-clock `dt` reaching the viewmodel's lag damp
   (`js/40_render.js:1789`: `dt = min(0.05, gap/1000)` → `lag = damp(lag, -dAng/dt, 9, dt)`), so one
