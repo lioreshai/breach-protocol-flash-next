@@ -2,6 +2,32 @@
 
 ### Changed
 
+- **A prop standing on the band above no longer draws through the slab** (#170, rendering). The leak
+  was **L3 only - 971 px at rows 58..127** - and it had been carried as a silent `KNOWN(#170 authored
+  seams)` debt row; the figure this file quoted (398-438 px at rows 102..127) is already answered on
+  L0-L2 by `planeAlong`'s march. Attribution rather than guessing: all 971 px came from the **row
+  path** (far-band row fill 312 + textured row loop 659) and **0** from the deferred queue, and
+  forcing every pixel through the deferred copy still showed **971** - the leak is invariant to which
+  copy paints, so the two-copies trap was not the way in. Every leaking pixel answered **plane 4.00,
+  the eye's own `planeA`**, while an honest march on the pixel's **own ray** answered **1.00 on
+  971/971** (nearer than the lamp at 4.00 m on 938 of them), with `reSolveBad` **0** throughout - the
+  exhaustion counter is blind here exactly as the lore said. Cause was a **guard, not arithmetic**:
+  the row marched only when `planeC !== planeA`, so a run whose cell agreed with the predictor never
+  asked. The fix is **depth-only** (no repaint) and gated by `MAP.steps`, so a flat level pays
+  nothing: the far-band row fill sweeps `GOCCS = 8` slices marched on their own rays
+  (`js/40_render.js:587-596`), the textured row loop carries row-scope occlusion and flushes at
+  crossings and row end (`:640`, `:646`, `:741-752`, `:770`), and `groundPixel`'s ceiling half
+  answers the same depth when `pl === plA && MAP.steps` (`:930`) so both copies agree. `cull`'s L3
+  debt tag is **removed** - a promotion, no threshold touched - and the row now also forces every
+  re-solvable column through the deferred copy on the same frame, failing by name as
+  `NEEDLE-NOT-FOUND`/`PATCH-FAILED`. Flat parity holds: `flatparity` exit 0 and `tools/refs.lock`
+  md5 `5184d5a8…` **unchanged**; the visible consequence is measured, not asserted - L1 cam0's scene
+  frame differs by **664 px of 812,552 (0.082%)** confined to **rows 248..299** with mean `|Δ|` 40.7,
+  which is a prop's edges disappearing rather than a shading wash. Cost: **~+0.9 ms of a ~33 ms WARM
+  frame** (4 interleaved pairs, load 4.9-5.9 - fix 33.13/33.44/33.76/34.43 vs main
+  32.54/32.56/32.92/42.33 ms), on stepped ceiling rows only; the cost rows stay reported, which is
+  the number #307 needs before `RASTER_FLOOR` moves.
+
 - **`alt`'s pit records are declared now, so a lighting change can be judged at all** (#216, tooling).
   `RECPIT`, `RECPITN`, `RECOOB` and `RECOOB_GEO` were plain literals sitting behind a `+-0.005` bracket, so
   `tools/refs.lock` could not see them, `refs --record` could not move them, and any change to lamp strength
