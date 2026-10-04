@@ -51,7 +51,7 @@ PR that changes the picture. `node tools/recap.js check` decodes these files and
 quoted below against them, so a caption cannot drift from its image. What *changed* between two
 recaptures is a question for `CHANGELOG.md` and the PR that moved it — it is not kept here.
 
-The five frames decode to **63.63 / 36.79 / 63.26 / 50.51 / 68.71** mean luma
+The six frames decode to **63.63 / 36.79 / 63.26 / 50.51 / 68.71 / 54.49** mean luma
 (`0.2126 R + 0.7152 G + 0.0722 B`, the rule `DEV.lum` uses), in the order they appear below.
 
 All five come from the **deployed build** at `?dev=1&seed=60`, with the clock frozen, vitals pinned at
@@ -149,6 +149,26 @@ Standing in the hole at (19.5, 14.5), cell (19,14): feet on **floor −1.00**, o
 (20.5, 16.5), 2.24 m away and in this same band. **200 of 763 rows average under luminance 24 and the longest unbroken run is 175 rows from row 31**
 — 68.71 mean, on a cell reading less than a third of
 the spawn seat's light, which is the glow working from inside the band it refuses from above.
+
+![the authored two-storey level from its own spawn seat](docs/screens/level3-stack.png)
+
+**THE STACK** (`#16`, M6) is the first hand-authored level, and this is its spawn seat: (1.5, 2.5) on the
+datum, heading 0.60, 4 hostiles left. The seat's own cell carries a ceiling at **1.00** — you are standing
+under the slab — and seven cells along the heading the plan opens into an atrium whose ceiling solves at
+**4.00** over a `floor 0.00`, so the blue-lit band across the middle of the frame is that slab seen from
+below, the upper storey's underside rather than a wall you shoot at; the stepped glyphs on the minimap at
+right are the staircase that gets you up there. Authoring it by hand removes the old excuse — a level that
+reads badly can no longer be blamed on the seed stream, because this plan is written cell by cell over a
+20 × 20 grid.
+
+Two things this frame does not yet do, said here rather than cropped out. The ceiling over the seat fills
+the upper half of the frame and shows **strong radial streaking**: that is mip selection with no anisotropy
+at a grazing angle, the artifact the ceiling of a one-unit world has always had, now at four units. And what
+the eye gets is a **1.00** ceiling directly overhead against 4.00 units further in — `tools/view.js volume`
+reports that seat headroom as `1.00..1.00` with 18 look-up columns across the sweep, against 40/54/85 and
+`4.00` on level 0. So the level is genuinely two-storey in `MAP.fz` and still reads as a low room with a
+bright slit in it, until M5's per-band glow and a seat with air above it make the second floor something you
+can look *up* into.
 
 ## How it works
 * **Renderer** is a software raycaster (Wolfenstein-style DDA) writing into an `ImageData`'s
