@@ -1467,6 +1467,45 @@ if (MODE === 'alt') {
    the same flat lit box whatever the seed, so a seed sweep whose grids collide is measuring one
    level many times. FNV over cell + fz + cz per deal (the FNV constants are the ones crc32 uses).
 
+   #181 ITEM 1 ADDS THE FOUR GRID CLAIMS THAT WERE NOWHERE PER DEAL. The block used to answer "does a
+   deal author volume (derived), does the SEAT see it, is there a DOWN" and nothing else, so four
+   claims that `alt` or `planes` make on the THREE deals CI renders were unmade by the other 45:
+     HOLLOW     open cells whose OWN `MAP.cz` is >= 2 units. The volume row above reads
+                `ceilAt - floorAt`, which a neighbour's floor two units above ALSO satisfies, so that
+                row can read ok on a map with no hollow column in it at all. This is the same 2 units
+                expressed in the byte the generator writes.
+     SPAN<=0    faces the DDA stops at and the wall pass draws nothing (`alt`'s FACES row, per deal).
+     PLANES     `MAP.ceilPlane[i] === ceilAt(x,y)` per column - `planes`' agreement claim with no
+                render and no relink control, so a forgotten `linkBoundaries()` after a `cz` write is
+                caught on 48 deals instead of 3.
+     REACH      open cells the generator's own crossing rule cannot reach from the seat. Raising `cz`
+                must not move this number at all (`bfsReach` reads fz/vb/feat and never cz), which is
+                what makes "volume cost nothing" a check rather than a sentence.
+   plus VISIBLE-FROM-THE-FLOOR-YOU-ENTER-IT, alt's perception claim on the RING of cells that touch a
+   hollow column rather than on every standable cell (the unsampled form is what makes alt cost 35 s a
+   deal). The ring is counted apart by its own headroom, which turned out to be the interesting number:
+   a one-unit mouth cannot show a 3-unit ceiling from 1 m away at any distance, so what this row gates
+   is "perceivable from SOME floor", not feature 1's mouth rule - alt's own row owns that A/B.
+
+   TEETH, BOTH DIRECTIONS, and stated per row because a row that cannot fail is not a row. Each control
+   is a copy of this checkout's js/ with ONE generator line sabotaged, run as
+   `JSDIR=<tree> DEALS=3 node tools/view.js volume`, and the loaded bytes are hashed by the harness:
+     CZ_TALL / CZ_SPAWN_TALL back to CZ_DEF   -> hollow row and ring row FAIL, exit 1 (the authored
+                                                level still passes both, because its cz is authored, not
+                                                generated - which is the row telling the two apart)
+     buildCeilPlanes returns without writing   -> the ceilPlane row FAILs on every generated level
+     every solid column's floor raised 1 unit  -> the span row FAILs
+     feature 1's mouth loop disabled           -> NOTHING MOVES, and that is recorded rather than hidden:
+                                                the atrium's interior satisfies the ring row, so mouth
+                                                attribution needs alt's eye-height control clause
+     the carry-down loop disabled              -> nothing moves either: the pit pass cuts its hole inside
+                                                a room whose ring is AIR, so the slab side is the face and
+                                                no wall base is involved on these deals
+   The REACH row has no in-tree sabotage, and says so: every generator write that could strand a cell is
+   already guarded by authorVolume's keeps(d0) rewind and by genLevel's occupancy gate, so the row is a
+   net for a future fz write that drops them rather than a check on a line that exists today. Every one of these is a count of a predicate, not a
+   threshold: it can move down to zero and back, and no tolerance in this file gates it.
+
    THE DOWN ROW (#284) is the third claim and the one that found the generator's second blind spot:
    a deal can author bands, links, staircases and volume and still have EVERY off-datum cell ABOVE
    the seat, so the level has nothing to climb down into. Per deal it counts open cells with fz < 0
@@ -1496,6 +1535,9 @@ if (MODE === 'volume') {
      occupancy gate (:2265) one block over, and the reason REC was three arrays deep. */
   const NLV = run('LEVELS.length');
   const REC = Array.from({ length: NLV }, () => []);
+  const CZ_HOLLOW = 8;            // quanta = 2 units at ZQ 0.25: the same 2 the ceilAt row gates
+  const RING_CAP = 1400;          // a runaway guard, not a sample: the ring is <= 4 casts per hollow column
+                                  // (L2's 349 tall columns bound it at 1396) and costs ~40 ms per level-deal
   const USEBOOT = process.env.BOOT === '1';
   const t0 = Date.now();
   for (let s = 1; s <= NDEALS; s++) {
@@ -1510,7 +1552,7 @@ if (MODE === 'volume') {
         ENEMIES.length = 0; PROPS.length = 0;
         const spx = P.x, spy = P.y, sz = floorAt(spx, spy) + cfg.eye;
         P.z = sz - cfg.eye; P.crouch = 0; P.air = false; P.vz = 0;
-        let open = 0, tall = 0, maxHead = 0, bandsN = 0; const cols = [], seenB = {};
+        let open = 0, tall = 0, maxHead = 0, bandsN = 0, hollow = 0, maxCz = 0; const cols = [], seenB = {};
         for (let y = 1; y < N - 1; y++) for (let x = 1; x < N - 1; x++) {
           const i = y * N + x; if (cell[i]) continue;
           open++;
@@ -1518,6 +1560,10 @@ if (MODE === 'volume') {
           if (!seenB[fz[i]]) { seenB[fz[i]] = 1; bandsN++; }
           if (h > maxHead) maxHead = h;
           if (h >= 2) { tall++; cols.push(i); }
+          // #181: the authored byte beside the derived reading, and the ordinary floors the
+          // visible-from-a-floor sample stands on (own headroom < 2 = a cell that is not itself tall)
+          if (cz[i] > maxCz) maxCz = cz[i];
+          if (cz[i] >= ${CZ_HOLLOW}) hollow++;
         }
         /* #284's DOWN count. The start is the cell the player was actually seated in (genLevel puts P
            at nearestOpen of room 0's centre) and the rule is the generator's OWN bfsReach with the
@@ -1554,20 +1600,108 @@ if (MODE === 'volume') {
             if (near < 0 || d < near) { near = d; kind = rc.h.wall === 1 ? 'WALL' : rc.h.wall ? 'WALL/RISER' : rc.h.band ? 'CEILING' : rc.h.floor ? 'OWN FLOOR' : 'NOTHING'; }
           }
         }
+        /* ---- #181 item 1's four grid claims, on this deal's grid, no frame ----
+           Same dialect as alt's grid block: the face is the renderer's own pair
+           (ceilAt of the AIR side minus faceZ0), the relink check is planes' column-by-column compare
+           of MAP.ceilPlane against ceilAt, and the crossing rule is the bfsReach already run above,
+           from the seat cell the player arrives in. Nothing here invents a second rule. */
+        let bfaces = 0, badSpan = 0; const badAt = [];
+        for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+          const i = y * N + x; if (cell[i]) continue;
+          for (let d = 0; d < 4; d++) {
+            const nx = x + DIRX[d], ny = y + DIRY[d];
+            if (nx < 0 || ny < 0 || nx >= N || ny >= N) continue;
+            if (!cell[ny * N + nx]) continue;
+            const sp = ceilAt(x, y) - faceZ0(x, y, d);
+            bfaces++;
+            if (!(sp > 0)) { badSpan++; if (badAt.length < 3) badAt.push(x + ',' + y + '->' + nx + ',' + ny +
+              '[' + faceZ0(x, y, d).toFixed(2) + '..' + ceilAt(x, y).toFixed(2) + ']'); }
+          }
+        }
+        const cpArr = MAP.ceilPlane;
+        let stale = cpArr ? 0 : N * N; const staleAt = [];
+        for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+          const i = y * N + x, c = ceilAt(x, y);
+          if (!cpArr || cpArr[i] === c) continue;
+          stale++;
+          if (staleAt.length < 3) staleAt.push(x + ',' + y + '[' + (cpArr ? cpArr[i].toFixed(2) : 'none') +
+            '!=' + c.toFixed(2) + ']');
+        }
+        let unreach = 0, farUnreach = -1;
+        for (let i = 0; i < N * N; i++) {
+          if (cell[i] || dch[i] >= 0) continue;
+          unreach++;
+          if (farUnreach < 0) farUnreach = i;
+        }
+        /* VISIBLE FROM THE FLOOR YOU ENTER IT FROM, and the standing cell is not arbitrary. The cells
+           that can prove the claim are the RING: an open cell that TOUCHES a hollow column, which is
+           the doorway feature 1 gives tall air for (an open doorway draws no face, so its lintel IS the
+           ceiling you see through it). Standing IN the target column is impossible here - every cast is
+           from a neighbour - so the own-column rule cannot hand this row a free yes. The mouths are
+           counted apart by their OWN headroom, because that is the whole geometry of the claim: 1 m
+           from a 3.00 m ceiling plane the ray must rise 2.5 m over 1 m of run, so a one-unit lintel
+           stops it on its own ceiling plane, and the only lane that can show that ceiling is a mouth
+           taller than a lintel. Reporting the two counts apart is what keeps that visible instead of
+           averaging it into a yes. Scan order, no RNG, capped. */
+        let vcasts = 0, vSeen = 0, vNear = -1, vWhy = '-', vWhyD = -1, vMouths = 0;
+        let vTallMouth = 0, vTallSeen = 0, vLowMouth = 0, vLowSeen = 0;
+        let vOutCast = 0, vOutSeen = 0;
+        {
+          /* rid[i] = which ROOM the cell is in, -1 for a corridor cell. The row needs it because the
+             strongest form of the claim is "the volume shows through a doorway that is not the room
+             itself": a cast from one atrium cell to its neighbour proves that atrium is tall, but it
+             proves nothing about the MOUTH rule, and the spawn atrium alone would satisfy the weaker
+             form on every deal. Corridor cells carry -1, so a mouth and its room are never the same. */
+          const rid = new Int16Array(N * N).fill(-1);
+          for (let k = 0; k < MAP.rooms.length; k++) {
+            const r = MAP.rooms[k];
+            for (let y = r.y; y < r.y + r.h; y++) for (let x = r.x; x < r.x + r.w; x++) rid[y * N + x] = k;
+          }
+          let vBlocked = 0;
+          for (let k = 0; k < cols.length; k++) {
+            const i = cols[k], tx = i % N, ty = (i / N) | 0, zc = ceilAt(tx, ty) - ZQ;
+            for (let d = 0; d < 4; d++) {
+              const nx = tx + DIRX[d], ny = ty + DIRY[d];
+              if (nx < 1 || ny < 1 || nx >= N - 1 || ny >= N - 1 || cell[ny * N + nx]) continue;
+              const dd = Math.hypot(tx - nx, ty - ny);
+              const tallMouth = ceilAt(nx, ny) - MAP.fz[ny * N + nx] * ZQ >= 2;
+              const outside = rid[ny * N + nx] !== rid[i];
+              vcasts++; vMouths++;
+              if (tallMouth) vTallMouth++; else vLowMouth++;
+              if (outside) vOutCast++;
+              const rc = reachVisible(nx + 0.5, ny + 0.5, tx, ty, zc, RANGE);
+              if (rc.ok) {
+                vSeen++; if (vNear < 0) vNear = dd;
+                if (tallMouth) vTallSeen++; else vLowSeen++;
+                if (outside) vOutSeen++;
+              }
+              else { vBlocked++; if (rc.h && (vWhyD < 0 || dd < vWhyD)) { vWhyD = dd; vWhy = rc.why; } }
+              if (vcasts >= ${RING_CAP}) { k = cols.length; break; }
+            }
+          }
+          vPool = [vMouths, vBlocked];
+        }
         let hsh = 2166136261;
         for (let i = 0; i < N * N; i++) {
           hsh = Math.imul(hsh ^ cell[i], 16777619) >>> 0;
           hsh = Math.imul(hsh ^ (fz[i] & 255), 16777619) >>> 0;
           hsh = Math.imul(hsh ^ cz[i], 16777619) >>> 0;
         }
-        return { open, tall, arr, maxHead, bandsN, seats: cols.length, hash: hsh >>> 0,
+        return { open, tall, arr, maxHead, bandsN, seats: cols.length, hash: hsh >>> 0, n: N,
                  near, kind, up: upR, dn: dnR, dnAll, dnFar, pitMin: PIT_MIN,
                  pitRectMin: PIT_RECT_MIN, pitRectMax: PIT_RECT_MAX,
+                 hollow, maxCz, bfaces, badSpan, badAt, stale, staleAt, unreach,
+                 farUnreach: farUnreach < 0 ? '-' : (farUnreach % N) + ',' + ((farUnreach / N) | 0),
+                 vcasts, vSeen, vNear, vWhy, vWhyD, vPool,
+                 vTallMouth, vTallSeen, vLowMouth, vLowSeen, vOutCast, vOutSeen,
+                 nMouth: vPool[0], nTgt: cols.length,
                  head: ceilAt(spx | 0, spy | 0) - floorAt(spx, spy) };
       })()`, ctxVm);
       REC[li].push(c);
-      line.push(`L${li} ${String(c.tall).padStart(3)} tall ${String(c.arr).padStart(3)} from seat ` +
-        `${String(c.up).padStart(3)}up/${String(c.dn).padStart(3)}dn`);
+      line.push(`L${li} ${String(c.tall).padStart(3)} tall ${String(c.hollow).padStart(3)} hohl ` +
+        `${String(c.arr).padStart(3)} from seat ${String(c.up).padStart(3)}up/${String(c.dn).padStart(3)}dn` +
+        `${c.badSpan + c.stale + c.unreach ? '  L' + li + ' BAD ' + c.badSpan + 'span0/' + c.stale + 'stale/' + c.unreach + 'unreach' : ''}` +
+        `${c.hollow && !c.vSeen ? '  L' + li + ' AUTHORED-BUT-HIDDEN (0 of ' + c.nMouth + ' ring cells see it)' : ''}`);
     }
     line.push(`${tg - tb} ms ${USEBOOT ? 'boot' : 'carry'} + ${Date.now() - tg} ms gen`);
     console.log('  ' + line.join('   '));
@@ -1629,6 +1763,89 @@ if (MODE === 'volume') {
       `exit is a 4-quantum drop is NOT reachable by it, which is why feature 3 links pits with stairs and no ` +
       `ladder fallback (furthest reached sunken floor in this sweep: ${
         noDown.length ? R.find(c => !c.dn).dnFar : Math.max(...R.map(c => c.dnFar))} crossings from the seat)`);
+    /* #181 item 1, four claims per DEAL rather than per rendered deal. Each is a count of a predicate
+       over the grid - no tolerance, nothing to widen - and each is the same formula the frame-side
+       probe uses, so two rows cannot read one grid two ways. */
+    const hohl = R.map(c => c.hollow), czTop = R.map(c => c.maxCz);
+    const noHollow = R.map((c, k) => c.hollow ? -1 : k + 1).filter(k => k > 0);
+    vrow(`L${li} every deal authors a hollow column (cz>=${CZ_HOLLOW})`, noHollow.length === 0,
+      `${noHollow.length} of ${n} deals author no hollow column (open cells whose OWN cz is >= ${CZ_HOLLOW} quanta ` +
+      `per deal: ${spread(hohl)}; tallest authored cz across the sweep ${Math.max(...czTop)} quanta) ` +
+      `${noHollow.length ? 'NO-HOLLOW ' + (USEBOOT ? 'SEEDS' : 'ROUNDS') + ' [' + noHollow.join(' ') + ']'
+        : 'every deal wrote a ceiling above one unit over an open cell'} - this is the claim in the byte the ` +
+      `generator WRITES. The row above measures ceilAt(x,y) - floorAt, and ceilAt takes the tallest NEIGHBOURING` +
+      ` FLOOR too, so a map with no hollow column in it can still read >= 2 units under a staircase; here the` +
+      ` derived term is gone and only MAP.cz counts. CONTROL: taking CZ_TALL and CZ_SPAWN_TALL back to CZ_DEF` +
+      ` (js/20_level.js feature 1 and the spawn atrium, the two writes that author cz above 4) takes this row to` +
+      ` 0 columns on EVERY deal, and JSDIR= prints the js-sha256 of the tree that answered so the control cannot` +
+      ` silently be this tree. Read this count beside the row above on every run: on this generator the two agree` +
+      ` cell for cell (${R.filter(c => c.hollow !== c.tall).length} of ${n} deals disagree), because the tallest` +
+      ` floor step genLevel authors is one unit, so no ceilAt reading can reach 2 units without an authored cz -` +
+      ` a deal where they DISAGREE is one where the derived row was crediting a staircase rather than a room`);
+    const vcast = R.map(c => c.vcasts), vseen = R.map(c => c.vSeen);
+    const vocast = R.map(c => c.vOutCast), vocseen = R.map(c => c.vOutSeen);
+    const noSee = R.map((c, k) => c.vSeen ? -1 : k + 1).filter(k => k > 0);
+    const vEmpty = R.map((c, k) => c.vcasts ? -1 : k + 1).filter(k => k > 0);
+    const vNearAll = R.filter(c => c.vNear >= 0).map(c => c.vNear);
+    vrow(`L${li} volume shows from the floor you enter it`, noSee.length === 0 && vEmpty.length === 0,
+      `${noSee.length} of ${n} deals show their tall ceiling plane to NO cell that touches it` +
+      `${vEmpty.length ? ' and fired no cast at all (VACUITY - no open cell touches a hollow column, so the row '
+        + 'answered nothing)' : ''} (ring casts per deal, whole ring, runaway guard ${RING_CAP}: ${spread(vcast)}, `
+      + `of them seen: ${spread(vseen)}; the same count limited to stands OUTSIDE the target's own room: `
+      + `${spread(vocast)} cast, ${spread(vocseen)} seen; across the sweep the ring splits into `
+      + `${R.reduce((a, c) => a + c.vTallMouth, 0)} casts from a stand that is itself tall, showing `
+      + `${R.reduce((a, c) => a + c.vTallSeen, 0)}, and ${R.reduce((a, c) => a + c.vLowMouth, 0)} from a one-unit `
+      + `stand, showing ${R.reduce((a, c) => a + c.vLowSeen, 0)}) ` +
+      `${noSee.length ? 'NO-ENTRY-SAW-IT ' + (USEBOOT ? 'SEEDS' : 'ROUNDS') + ' [' + noSee.join(' ') + '] - on round '
+        + noSee[0] + ' the nearest blocked cast stops on a ' + R[noSee[0] - 1].vWhy : 'every deal has at least one '
+        + 'standing cell that can look up into tall air' + (vNearAll.length ? ' (nearest ' + Math.min(...vNearAll)
+        .toFixed(1) + ' m)' : '')} - the standing cell is not arbitrary, it is a neighbour of the volume, and no cast `
+      + `is from inside the target column, so reachVisible's own-column rule cannot hand this row a free yes; that is `
+      + `why it is not a copy of the cz row above. WHAT IT CREDITS AND WHAT IT DOES NOT, both in the numbers: a stand `
+      + `that is itself tall air is the spawn atrium's own interior or one of feature 1's tall mouths, and a one-unit `
+      + `stand shows ${R.reduce((a, c) => a + c.vLowSeen, 0)} of ${R.reduce((a, c) => a + c.vLowMouth, 0)} across the `
+      + `sweep - because 1 m from a 3.00 m ceiling plane the ray must rise 2.5 m over 1 m of run, so a one-unit lintel `
+      + `stops it on its own ceiling plane and the lane has to be taller than a lintel for the volume to read through `
+      + `the doorway. So this row gates "the volume is PERCEIVABLE from SOME floor a player reaches", and it does NOT `
+      + `gate the mouth rule on its own: js/20_level.js writes no cz for a pit, an atrium or a raised band - only `
+      + `feature 1's room loop and its mouth loop, plus the spawn atrium, raise cz above CZ_DEF, so a deal that `
+      + `authoring nothing shows 0 rings here and 0 hollow above, and the mouth-rule A/B is alt's own row (its `
+      + `eye-height CONTROL clause is that experiment). THE OUTSIDE-THE-ROOM COUNT IS CONTEXT, NOT A GATE: on the `
+      + `generated levels it is a real sample (${vocast[0]} casts on the first deal), on a hand-authored level whose `
+      + `rooms tile the map there is no cell outside the room to stand in (${vocast[vocast.length - 1]} on the last), `
+      + `and a sample that thin must not gate a verdict. alt gates the same claim unsampled from every standable cell `
+      + `on the same band at 35 s a deal on the three deals CI renders, with the same reachVisible and the same aim one `
+      + `quantum under the target's OWN ceiling plane (REACH_SRC, #290)`);
+    const badSpan = R.reduce((a, c) => a + c.badSpan, 0), nFace = R.map(c => c.bfaces);
+    const firstBad = R.find(c => c.badSpan);
+    vrow(`L${li} no deal leaves a face of span <= 0`, badSpan === 0,
+      `${badSpan} boundary face(s) of span <= 0 over ${n} deals (wall faces counted per deal: ${spread(nFace)}) ` +
+      `${badSpan ? 'SPAN-LE-0 on round ' + (R.indexOf(firstBad) + 1) + ': ' + firstBad.badAt.join('  ')
+        : 'every air-to-wall boundary spans from the higher floor to the air side\'s ceiling plane'} - ` +
+      `a face of span <= 0 is a column the DDA stops at that the wall pass draws nothing, which is a GENERATOR`
+      + ` fault (a wall base not carried down under a raised or hollow room), not a render bug. Measured with the`
+      + ` renderer's own pair, ceilAt(air) - faceZ0, over every column and all four directions, so this cannot`
+      + ` drift from the span<=0 term of alt's FACES line on the deals that probe renders`);
+    const stale = R.reduce((a, c) => a + c.stale, 0);
+    const firstStale = R.find(c => c.stale);
+    vrow(`L${li} every deal's ceilPlane matches ceilAt`, stale === 0,
+      `${stale} column(s) whose MAP.ceilPlane disagrees with ceilAt over ${n} deals (${R[0].n} x ${R[0].n} columns ` +
+      `compared per deal) ${stale ? 'CEILPLANE-STALE on round ' + (R.indexOf(firstStale) + 1) + ': '
+        + firstStale.staleAt.join('  ') : 'the derived array agrees with the formula on every grid this sweep'} - ` +
+      `anything that writes MAP.cz must call linkBoundaries(), which rebuilds this array by calling ceilAt, and` +
+      ` the ground pass reads the ARRAY. planes runs the same compare alongside its relink controls after one` +
+      ` startLevel, i.e. on one deal; this is the agreement claim on ${n}, which is where a forgotten relink that` +
+      ` only bites on some layouts would otherwise hide`);
+    const strand = R.reduce((a, c) => a + c.unreach, 0);
+    const firstStrand = R.find(c => c.unreach);
+    vrow(`L${li} no deal strands an open cell`, strand === 0,
+      `${strand} open cell(s) unreachable from the spawn seat over ${n} deals${strand ? ' (first: cell '
+        + firstStrand.farUnreach + ' on round ' + (R.indexOf(firstStrand) + 1) + ')' : ''} - volume raises cz and` +
+      ` touches no floor, and bfsReach reads fz/vb/feat and NEVER cz, so authoring a hollow column cannot move`
+      + ` this number. The same array the DOWN row above crosses is the array counted here, from the same seat`
+      + ` cell, under the generator's own crossing rule (one quantum or a flagged climb); alt's "no open cell the`
+      + ` bands cannot reach" is the same predicate from room 0's centre cell, and the 90% occupancy gate in` +
+      ` js/20_level.js is its weaker form`);
     const distinct = new Set(R.map(c => c.hash)).size;
     vrow(`L${li} the sweep deals a different grid per deal`, distinct === n,
       `${distinct} distinct cell+fz+cz grids over ${n} deals (${n - distinct} collision(s)); ${Math.min(...R.map(c => c.open))} ` +
@@ -1638,8 +1855,8 @@ if (MODE === 'volume') {
         USEBOOT ? 'each one a fresh boot, so row r is the deal SEED=r alt gates'
                 : 'round 1 is the deal a fresh process at this SEED deals, later rounds are later deals on the same stream'}`);
   }
-  console.log((vbad ? `VOLUME ${vbad} FAILURES - some deal authors no volume, shows none on arrival, or has no DOWN`
-    : `VOLUME ok - ${NDEALS} deals x ${NLV} levels, every deal authors volume and a reachable sunken floor`) +
+  console.log((vbad ? `VOLUME ${vbad} FAILURES - some deal authors no volume, shows none on arrival, has no DOWN, authors no hollow column or no floor that can see one, leaves a face of span <= 0, a stale ceiling plane or a stranded cell`
+    : `VOLUME ok - ${NDEALS} deals x ${NLV} levels: every deal authors volume and a reachable sunken floor, authors a hollow column some floor it touches can look up into, and leaves no dead face, no stale ceiling plane, no stranded cell`) +
     `  |  ${vrows} row(s), ${vknown} known-issue row(s)${vknown ? (STRICT ? ' (FAILED under STRICT=1)' : ' (reporting: #282 arrival view - STRICT=1 gates)') : ''}` +
     `, ${ms} ms total, no raster, ${USEBOOT ? `BOOT=1: ${NDEALS} fresh boots, row r = the deal SEED=r alt gates`
       : `STREAM: ${NDEALS} rounds of genLevel on the SEED ${SEED} stream, round 1 = the deal SEED ${SEED} alt gates`}`);
