@@ -189,6 +189,35 @@
 
 ### Added
 
+- **Every captured frame now names the instrument that made it** (#335). `docs/screens/provenance.json`
+  holds one row per PNG, written **at capture time**: `sha256` + `canvas` from the bytes, and `origin` +
+  `install` + `url` + `seed` + `level` + `layout` + `build` read off `DEV.state()` in the page that made
+  the pixels, which nothing can recover afterwards. `node tools/recap.js check` — the existing
+  `Capture-caption gate` in `ci.yml`, unchanged — verifies it offline: no browser, no network, and no
+  re-deriving a layout from a live page. The issue's own retraction is why the row names the *route* and
+  not just the seed: reloading `?dev=1&seed=60` on the deployed page dealt **735688443** on both loads,
+  while the investigating harness — DEV installed from a `#…&dev=1&seed=60` hash on a **`file://`** page,
+  because its browser's `open` dropped the query — dealt **3443423558 / 1707513801 / 1284359329** for that
+  same typed URL. `origin` and `install` are therefore a closed vocabulary declared once in `tools/recap.js`
+  with the verdicts next to the words that read them (this repo's `refRecord` shape: the declaration *is*
+  the compare), so a fourth instrument must be declared there before a shot can claim one. Teeth, each run
+  against a sabotaged copy of the artifact in a control dir under `.worktrees/`, with a `build SABx-…`
+  marker stamped into the rows the sabotage left intact so the tool's own echo names the bytes it read:
+  two shots of `(seed 60, level 0)` recording different layouts → **exit 1** `PROVENANCE-DISAGREE … one
+  seed deals one level`; one of the six shots with its row deleted → **exit 1** `PROVENANCE-MISSING
+  level0-props`; a shot routed `file` + `hash` → **exit 1** `PROVENANCE-ROUTE … origin file: file:// dropped
+  the query`; a row addressed to other bytes, a null `seed`, a `url` whose `seed=7` contradicts its row, an
+  invented `install` word, a `canvas` the decode contradicts → **exit 1** `PROVENANCE-BAD`; `https` +
+  `in-page-nav`, the route nobody has measured binding a deal → **exit 0** with `PROVENANCE-UNPROVEN`
+  counted on the verdict line, never passed in silence; the untouched tree → **exit 0**. The census goes
+  from `RECAP 0 FAILURE(S) of 28 rows` to `RECAP 0 FAILURE(S) of 34 rows, 6 shot(s) with a binding route`,
+  so a provenance row gained or lost moves the number. **A missing artifact is a FAIL**: the first version
+  of this check exited 0 on a tree with no `provenance.json` at all — the vacuity hole the gate exists to
+  close, found by running it before wiring it, now named `PROVENANCE-ARTIFACT`. `--record` derives only the
+  two byte-addressed fields and, on a row whose bytes moved, **clears** the deal fields instead of letting
+  the recorder launder an old claim onto new pixels. `pngDecode`/`measure` stay exported unchanged, so
+  `release-guard.yml`'s pixel-share trigger keeps exactly one PNG reader (#235). No `js/` change, no new
+  `Math.random` draw, no workflow change.
 - **`SEAT=x,y,ang` for `node tools/view.js scene <li> <cam>`**. The mode seats its camera at open-cell
   index `(len*0.31 + cam)` and turns it toward the longest sight line, which can answer "does this level
   have depth" and structurally cannot answer "can the player see the way down from where they start" —

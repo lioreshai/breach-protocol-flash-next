@@ -54,18 +54,48 @@ git checkout -b release/vX.Y main
 2. **Screenshots, from the deployed build** into `docs/screens/`, and any defect visible in a shot
    goes into its caption rather than being cropped (`AGENTS.md`, hard rule). Not from a headless
    dump, not from an older checkout — `https://lioreshai.github.io/breach-protocol-flash-next/`.
-   Then `node tools/recap.js check`, which gates the README's quoted numbers against the files it
-   embeds. The capture happens on the host; the files do not live there, so a docs PR is verified
+   Then `node tools/recap.js check`, which gates the README's quoted numbers **and every shot's
+   provenance row** against the files it embeds — a new PNG with no row in
+   `docs/screens/provenance.json` is a FAIL there, not an omission. The capture happens on the host; the files do not live there, so a docs PR is verified
    against the **merged tree** ([`ENGINEERING.md`](ENGINEERING.md), "Deploys, docs and git").
 
-   **Name the deal the photograph took, because five caption numbers depend on it.** Open
-   **`?dev=1&seed=<n>`**, never `?dev=1` alone: without the seed `Math.random` is unseeded
-   (`js/90_dev.js:23-26`), so **every boot deals a different level** — `DEV.state().seed` reads
+   **Name the deal the photograph took — and the instrument that read it — because five caption numbers
+   depend on both.** Open **`?dev=1&seed=<n>`**, never `?dev=1` alone: without the seed `Math.random` is
+   unseeded (`js/90_dev.js:23-26`), so **every boot deals a different level** — `DEV.state().seed` reads
    `null`, and that file's own comment records two unseeded layouts (`2016015967` vs `34562729`). A
    caption's mean luma is then a property of one session's random draw, and `recap check` is gating a
-   number nobody can re-derive. The PNGs in `docs/screens/` were captured 2026-10-01 (`8f34527`);
-   the seed parameter landed 2026-10-02 (`8c7a626`). **Their numbers are era measurements, not
-   reproducible claims** — record the seed beside each shot, in the caption or the commit body.
+   number nobody can re-derive.
+
+   **A seed is not enough, because "seed 60" is not one instrument** (#335). Opening the deployed URL at
+   `?dev=1&seed=60` dealt layout **735688443** on both loads; the harness that investigated #333 installed
+   DEV with `location.hash = 'x&dev=1&seed=60'` + reload on a **`file://`** page (its browser's `open`
+   dropped the query) and dealt **3443423558**, **1707513801** and **1284359329** for that same typed URL.
+   So a shot records *how DEV got installed*, not only where it pointed:
+
+   - `docs/screens/provenance.json` carries **one row per PNG, written at capture time**: `sha256` and
+     `canvas`, which `node tools/recap.js --record` derives from the file, plus `origin` + `install` +
+     `url` + `seed` + `level` + `layout` + `build`, which nothing can derive afterwards — read those off
+     `DEV.state()` in the page that made the pixels, because the frame is not decodable back to a deal.
+   - `origin` is `https` or `file`; `install` is `url-open` (what `open <url>` does), `in-page-nav` or
+     `hash`. Those words and their verdicts are declared once, in `tools/recap.js`, and the declaration is
+     the check: `node tools/recap.js check` — the `Capture-caption gate` in `ci.yml` — FAILs a shot with no
+     row (`PROVENANCE-MISSING`), a row addressed to different bytes (`PROVENANCE-BAD`), a route that cannot
+     bind the seed it claims (`PROVENANCE-ROUTE`), and two shots of one `(seed, level)` that record
+     different layouts (`PROVENANCE-DISAGREE`). An `install` the repo has not measured binding a deal
+     (`in-page-nav`, `hash` on `https`) reports as `PROVENANCE-UNPROVEN` and is counted on the verdict
+     line rather than passed in silence.
+   - **Prefer the deployed `https://` URL** for any claim about a *specific* world. `file://` is fine for
+     geometry and shading A/B where the harness pins the deal itself, and a row that claims a world
+     through it is declined by name.
+   - A recapture moves the bytes, so the row's `sha256` stops matching and `check` FAILs until the deal is
+     re-declared. `--record` re-addresses `sha256`/`canvas` and **clears** the deal fields; it cannot
+     launder an old claim onto new pixels.
+
+   The six files in `docs/screens/` now were recaptured 2026-10-04 (`8be1f96`) from the deployed build at
+   `?dev=1&seed=60`, and their rows carry that deal — README's capture block is the source, and THE STACK's
+   `layout` **3084649030** is the `startLevel(3, true)`-from-a-fresh-boot case that block already names.
+   The set they replaced (2026-10-01, `8f34527`) predates the seed parameter (`8c7a626`, 2026-10-02) and
+   was an era measurement; those pixels are gone and their numbers are not cited as re-derivable.
 
    The rest of the recipe, one line per wrong shot:
 

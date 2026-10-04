@@ -1,6 +1,7 @@
 'use strict';
 /*
- * tools/recap.js - print the capture-caption table from the committed PNGs (#235).
+ * tools/recap.js - print the capture-caption table and the capture provenance from the committed PNGs
+ * (#235, #335).
  *
  * Zero dependencies, no build step: the PNG is decoded here (chunk walk + zlib.inflateSync +
  * the five scanline filters) because node core has no image decoder and adding one is not
@@ -10,11 +11,25 @@
  *
  *   node tools/recap.js                 table for docs/screens/*.png in the working tree
  *   node tools/recap.js --rev=<sha>     same table for the blobs committed at <sha>
- *   node tools/recap.js check           gate: README.md's quoted numbers vs. the files
+ *   node tools/recap.js check           gate: README.md's quoted numbers + provenance vs. the files
+ *   node tools/recap.js --record        add rows for PNGs whose bytes have no row yet (it can fill
+ *                                       the byte-addressed fields - sha256, canvas - and NOTHING
+ *                                       about the deal: seed/layout/url/route are written by the
+ *                                       session that took the shot, `check` then refuses a null)
  *
  * Env knobs (defaults are what `check` uses): STRIDE=n x-sampling step (default 1, every
  * column), DARK=n dark-row threshold (default 24), DARK_ALT=n second threshold printed (34),
- * DIR=path, README=path.
+ * DIR=path, README=path, PROV=path (the provenance artifact).
+ *
+ * Provenance (#335), because a caption that quotes a mean and a seed cannot be re-measured unless
+ * the instrument that made the pixels is named too: docs/screens/provenance.json carries one row
+ * per PNG, written AT CAPTURE TIME, and `check` verifies it offline against the bytes it decodes -
+ * no browser, no network, no re-derivation of DEV.state().layout from a live page. The finding it
+ * encodes is that "seed 60" is not one instrument: `open` of the deployed https URL dealt
+ * 735688443 across reloads, while the investigating harness - which installed DEV by hash on a
+ * file:// page because its `open` dropped the query - dealt 3443423558, 1707513801 and 1284359329
+ * for the same typed URL. So a row states origin + install + url + seed + level + layout, and the
+ * vocabulary in ORIGINS/INSTALLS below carries the verdict, at the one site the compare reads.
  *
  * check convention, stated because a gate nobody can read is not a gate:
  *   mean   - every `decode to **a / b / c / d / e**` list in README.md with one value per PNG,
@@ -31,6 +46,7 @@
 const fs = require('fs');
 const path = require('path');
 const zlib = require('zlib');
+const crypto = require('crypto');
 const cp = require('child_process');
 
 const ROOT = path.resolve(__dirname, '..');
@@ -169,7 +185,10 @@ function loadAll(rev, dir) {
     const buf = rev ? cp.execFileSync('git', ['show', rev + ':' + pair[1]], { cwd: ROOT, maxBuffer: 1 << 28 })
       : fs.readFileSync(path.join(dir || path.join(ROOT, 'docs/screens'), pair[1]));
     const img = pngDecode(buf, pair[0]);
-    out.push({ name: pair[0], img: img, s: measure(img, STRIDE, DARK), s34: measure(img, STRIDE, DARK_ALT) });
+    // sha256 of the bytes that were decoded, so a provenance row addresses THIS frame and cannot be
+    // carried over a recapture (a shot is only re-measurable if the claim is tied to the pixels).
+    out.push({ name: pair[0], img: img, sha: crypto.createHash('sha256').update(buf).digest('hex'),
+      s: measure(img, STRIDE, DARK), s34: measure(img, STRIDE, DARK_ALT) });
   }
   return out;
 }
@@ -247,12 +266,186 @@ function decodeLists(text) {
   return out;
 }
 
-function checkMode(rows) {
+/* ---------------------------------------------------------------- provenance */
+
+// The whole vocabulary of instruments, and the only place the verdicts are written. Everything the
+// tool says about a route is read from these two tables, so a row cannot gain a milder label by
+// rewording itself, and a fourth instrument has to be declared here before a shot can claim it.
+// The verdicts are #335's measurements, not judgements.
+const ORIGINS = {
+  https: { verdict: 'ok', why: 'the deployed page keeps the query string, so the URL the operator opened is the URL js/90_dev.js:23 reads' },
+  file: { verdict: 'DECLINE', why: 'file:// dropped the query in the harness whose three deals this issue records, so DEV was never installed by the URL that names the seed' }
+};
+const INSTALLS = {
+  'url-open': { verdict: 'BIND', why: 'open <url> on the deployed page: #335 reloaded ?dev=1&seed=60 and read layout 735688443 twice' },
+  'in-page-nav': { verdict: 'REPORT', why: 'location change + reload on an https page: the reader regex does see ?seed=, but no measurement in this repo binds a deal to this route' },
+  'hash': { verdict: 'REPORT', why: 'DEV installed from a #...&seed= fragment: the regex at js/90_dev.js:23 accepts it, and the route that produced three deals for one "seed 60" is this family' }
+};
+const PROV_REL = 'docs/screens/provenance.json';
+const URL_SEED = /[?&#]seed=(-?\d+)/;      // js/90_dev.js:23 - the seed the running page actually reads
+const ABOUT = 'Capture-time provenance for docs/screens/*.png (#335). One row per shot, written by the session that '
+  + 'took the pixels: sha256/canvas are properties of the bytes, origin/install/url/seed/level/layout/build are '
+  + 'properties of the instrument and cannot be recovered from the PNG afterwards. `node tools/recap.js check` '
+  + 'verifies each row against the file it addresses and against every other row of the same (seed, level); '
+  + 'the vocabulary and the route verdicts live in tools/recap.js, not here.';
+
+function provPath() { return process.env.PROV || path.join(ROOT, PROV_REL); }
+
+function loadProv(rev) {
+  let txt;
+  try {
+    txt = rev ? cp.execFileSync('git', ['show', rev + ':' + PROV_REL], { cwd: ROOT, encoding: 'utf8' })
+      : fs.readFileSync(provPath(rev), 'utf8');
+  } catch (e) { return { err: 'no readable provenance artifact at ' + (rev ? rev + ':' : '') + PROV_REL + ' (' + e.message.split('\n')[0] + ')' }; }
+  let doc;
+  try { doc = JSON.parse(txt); }
+  catch (e) { return { err: PROV_REL + ' is not valid JSON: ' + e.message.split('\n')[0] }; }
+  if (!doc || !Array.isArray(doc.shots)) return { err: PROV_REL + ' has no `shots` array' };
+  const byFile = {};
+  for (const s of doc.shots) {
+    if (!s || typeof s.file !== 'string') return { err: PROV_REL + ': a shot row has no file name' };
+    if (byFile[s.file]) return { err: PROV_REL + ': ' + s.file + ' has ' + (byFile[s.file].n + 1) + ' rows - one shot, one declaration' };
+    byFile[s.file] = { row: s, n: 1 };
+  }
+  return { byFile: byFile, shots: doc.shots };
+}
+
+// The instrument's verdict on a row: can this route bind a seed at all?
+function routeVerdict(p) {
+  const o = ORIGINS[p.origin], i = INSTALLS[p.install];
+  if (!o || !i) return { kind: 'VOCAB', text: 'route ' + JSON.stringify(p.origin) + ' + ' + JSON.stringify(p.install) +
+    ' is not in the declared vocabulary (origins: ' + Object.keys(ORIGINS).join('/') + ', installs: ' + Object.keys(INSTALLS).join('/') + ')' };
+  if (o.verdict === 'DECLINE') return { kind: 'DECLINE', text: 'origin ' + p.origin + ': ' + o.why };
+  if (i.verdict === 'DECLINE') return { kind: 'DECLINE', text: 'install ' + p.install + ': ' + i.why };
+  return { kind: i.verdict, text: p.origin + ' + ' + p.install + ': ' + i.why };
+}
+
+function deal(p) {
+  return 'seed ' + (p.seed === null || p.seed === undefined ? 'null' : p.seed) + ' level ' +
+    (p.level === null || p.level === undefined ? 'null' : p.level) + ' layout ' +
+    (p.layout === null || p.layout === undefined ? 'null' : p.layout) + ' via ' + p.origin + '/' + p.install;
+}
+
+/*
+ * One row per decoded PNG: the entry must exist, must address the bytes on disk, must name a route
+ * that can bind a seed, and must agree with every other shot of the same (seed, level). An entry
+ * that is absent, orphaned, stale or routed through an instrument that cannot bind is a named
+ * FAILURE; the only row that reports without failing is an unproven-but-declared route.
+ */
+function provCheck(rows, prov, fails) {
+  let nrows = 0, bind = 0, report = 0;
+  if (prov.err) {
+    console.log('PROVENANCE-ARTIFACT      ' + prov.err);
+    fails.push('no usable provenance artifact - every shot in the set is undeclared');
+    return { nrows: nrows + 1, bind: 0, report: 0 };
+  }
+  const keys = {};
+  for (const r of rows) {
+    const e = prov.byFile[r.name];
+    nrows++;
+    if (!e) {
+      console.log('PROVENANCE-MISSING ' + r.name.padEnd(20) + 'docs/screens/' + r.name + '.png has no row in ' + PROV_REL +
+        ' - a shot nobody can re-take cannot be a verification');
+      fails.push(r.name + '.png has no provenance row');
+      continue;
+    }
+    const p = e.row;
+    const v = routeVerdict(p);
+    const bad = [];
+    if (v.kind === 'VOCAB') bad.push(v.text);
+    if (p.sha256 !== r.sha) bad.push('the row addresses ' + String(p.sha256).slice(0, 12) + ' and the file is ' + r.sha.slice(0, 12) +
+      ' - this entry describes different bytes than the PNG (recapture: re-declare the deal)');
+    const canvas = r.s.w + 'x' + r.s.h;
+    if (p.canvas !== canvas) bad.push('the row says canvas ' + JSON.stringify(p.canvas) + ', the PNG decodes ' + canvas);
+    if (p.seed === null || p.seed === undefined) bad.push('DEV.state().seed is null - an unseeded boot deals a different level every load, so this frame is an era measurement');
+    if (p.level === null || p.level === undefined) bad.push('no level - (seed, level) is the key that identifies a deal');
+    if (p.layout === null || p.layout === undefined) bad.push('DEV.state().layout not recorded, so nothing downstream can re-measure this shot');
+    const m = URL_SEED.exec(String(p.url || ''));
+    if (!m) bad.push('the url names no seed=, so the page cannot have read one');
+    else if (p.seed !== null && p.seed !== undefined && (m[1] | 0) !== (p.seed | 0) && (parseInt(m[1], 10) >>> 0) !== (p.seed >>> 0))
+      bad.push('the url carries seed=' + m[1] + ' and the row claims seed ' + p.seed);
+    if (bad.length || v.kind === 'DECLINE') {
+      console.log((v.kind === 'DECLINE' ? 'PROVENANCE-ROUTE   ' : 'PROVENANCE-BAD     ') + r.name.padEnd(20) + deal(p) +
+        (v.kind === 'DECLINE' ? '\n' + ' '.repeat(21) + 'route declined - ' + v.text : '') +
+        bad.map(function (b) { return '\n' + ' '.repeat(21) + '- ' + b; }).join(''));
+      fails.push(r.name + ': ' + (v.kind === 'DECLINE' ? 'route cannot bind the seed it claims' : 'provenance row does not hold'));
+      if (v.kind === 'DECLINE') continue;
+    } else if (v.kind === 'REPORT') {
+      console.log('PROVENANCE-UNPROVEN' + ' ' + r.name.padEnd(20) + deal(p) + ' - route declared, not measured to bind: ' + v.text);
+      report++;
+    } else {
+      console.log('ok      ' + r.name.padEnd(20) + deal(p) + '  bytes ' + r.sha.slice(0, 8) + '  ' + canvas +
+        (p.build ? '  build ' + p.build : ''));
+      bind++;
+    }
+    if (p.seed !== null && p.seed !== undefined && p.level !== null && p.level !== undefined) {
+      const key = (p.seed >>> 0) + '/' + p.level;
+      if (keys[key] && keys[key].layout !== p.layout) {
+        console.log('PROVENANCE-DISAGREE' + ' ' + r.name.padEnd(20) + 'seed ' + (p.seed >>> 0) + ' level ' + p.level +
+          ' is layout ' + p.layout + ' here and ' + keys[key].layout + ' in ' + keys[key].row.file +
+          ' - one seed deals one level, so one of these two shots was not taken by the route it claims');
+        fails.push('seed ' + (p.seed >>> 0) + ' level ' + p.level + ' has two layouts (' + keys[key].row.file + ' vs ' + r.name + ')');
+        nrows++;
+      } else if (!keys[key]) keys[key] = { layout: p.layout, row: p };
+    }
+  }
+  for (const s of prov.shots) if (!rows.some(function (r) { return r.name === s.file; })) {
+    console.log('PROVENANCE-ORPHAN  ' + String(s.file).padEnd(20) + 'a provenance row names no PNG that decodes');
+    fails.push((s.file || '?') + ': provenance row with no PNG behind it');
+    nrows++;
+  }
+  console.log('note                   provenance gated: one row per PNG, its sha256 against the bytes, its canvas against the '
+    + 'decode, its url against its seed, and (seed, level) against every other shot of that deal; '
+    + 'printed and not gated: build, at, note, which are prose about the session');
+  console.log('RECAP-PROVENANCE ' + bind + ' shot(s) binding, ' + report + ' unproven-route, '
+    + (prov.shots.length) + ' row(s) in ' + PROV_REL);
+  return { nrows: nrows, bind: bind, report: report };
+}
+
+function recordMode(rows) {
+  const doc = (() => { try { return JSON.parse(fs.readFileSync(provPath(), 'utf8')); } catch (e) { return { about: ABOUT, shots: [] }; } })();
+  const have = {};
+  for (const s of doc.shots || []) have[s.file] = s;
+  let added = 0, stale = 0;
+  for (const r of rows) {
+    const s = have[r.name];
+    if (s && s.sha256 === r.sha) { console.log('ok      ' + r.name.padEnd(20) + 'row addresses these bytes - ' + deal(s)); continue; }
+    if (s) {
+      // The bytes moved, so the deal this row declares is addressed to a frame that no longer exists.
+      // Re-addressing the sha and keeping seed/layout would turn a byte-mismatch FAILURE into a silent
+      // pass as soon as anyone ran the recorder, so the claim goes with the bytes it described.
+      s.sha256 = r.sha; s.canvas = r.s.w + 'x' + r.s.h; stale++;
+      for (const k of ['origin', 'install', 'url', 'seed', 'level', 'layout', 'build']) s[k] = null;
+      s.note = 'RE-ADDRESSED by tools/recap.js --record: the PNG bytes moved, so the deal this row carried belonged to the previous frame. Fill origin/install/url/seed/level/layout from DEV.state() at capture time - if the same route and the same URL produced these pixels, that is the same six values re-stated by hand. `check` FAILs the row until then.';
+      console.log('STALE   ' + r.name.padEnd(20) + 'bytes moved; sha256+canvas re-addressed and the deal fields CLEARED:');
+      console.log(' '.repeat(21) + 'the old seed/layout pair was a claim about the previous pixels, not these');
+      continue;
+    }
+    doc.shots.push({ file: r.name, sha256: r.sha, canvas: r.s.w + 'x' + r.s.h, origin: null, install: null, url: null,
+      seed: null, level: null, layout: null, build: null, at: null, note: 'FILL AT CAPTURE TIME - recap can derive sha256 and canvas from the PNG, nothing else' });
+    added++;
+    console.log('NEW     ' + r.name.padEnd(20) + 'row added with the byte-addressed fields only; DEV.state() side is null');
+  }
+  doc.shots.sort(function (a, b) { return a.file < b.file ? -1 : 1; });
+  if (added || stale) {
+    fs.writeFileSync(provPath(), JSON.stringify(doc, null, 2) + '\n');
+    console.log('wrote ' + PROV_REL + ': ' + added + ' new row(s), ' + stale + ' re-addressed');
+  }
+  console.log('RECAP-RECORD ' + rows.length + ' PNG(s), ' + added + ' row(s) added, ' + stale + ' re-addressed - a null deal field is a FAILURE in `check`, never a pass');
+  return 0;
+}
+
+function checkMode(rows, rev) {
   const txt = readReadme();
   const fails = [], notes = [];
   const byName = {};
   let nrows = 0;
   for (const r of rows) byName[r.name] = r;
+
+  // Field 0 - provenance (#335). Before any caption number is compared: a caption whose pixels cannot
+  // be re-taken is not made true by the number matching.
+  const pv = provCheck(rows, loadProv(rev), fails);
+  nrows += pv.nrows;
 
   // Vacuity first: a run that decoded nothing, or decoded something that is not a page screenshot,
   // is a FAILURE - it must never print as an empty table that passes (#235, AGENTS.md).
@@ -325,11 +518,12 @@ function checkMode(rows) {
     }
     if (q.thr !== DARK) labels[q.thr] = (labels[q.thr] || 0) + 1;
   }
-  console.log('note                   gated: the ' + rows.length + ' means and the row statistics; printed and not gated:' +
+  console.log('note                   gated: the ' + rows.length + ' means, the row statistics and every shot\'s provenance; printed and not gated:' +
     ' the >=240 / >=200 shares and the band means, which the captions quote beside canvas numbers');
   for (const k in labels) notes.push(labels[k] + ' caption(s) label the threshold ' + k + ', the tool measures at ' + DARK);
   for (const n of notes) console.log('note                   ' + n);
-  console.log('RECAP ' + fails.length + ' FAILURE(S) of ' + nrows + ' rows' + (notes.length ? ', ' + notes.length + ' note(s)' : ''));
+  console.log('RECAP ' + fails.length + ' FAILURE(S) of ' + nrows + ' rows, ' + pv.bind + ' shot(s) with a binding route' +
+    (pv.report ? ', ' + pv.report + ' with an unproven route' : '') + (notes.length ? ', ' + notes.length + ' note(s)' : ''));
   return fails.length ? 1 : 0;
 }
 
@@ -341,7 +535,7 @@ if (require.main === module) main();
 
 function main() {
   const argv = process.argv.slice(2);
-  const mode = argv[0] === 'check' ? 'check' : 'stats';
+  const mode = argv[0] === 'check' ? 'check' : (argv.indexOf('--record') >= 0 ? 'record' : 'stats');
   let rev = null;
   for (const a of argv) if (a.indexOf('--rev=') === 0) rev = a.slice(6);
   let rows = [];
@@ -351,7 +545,13 @@ function main() {
     console.log('RECAP 1 FAILURE(S), nothing decoded - vacuity is a failure, not a pass');
     process.exit(1);
   }
+  if (mode === 'record') process.exit(recordMode(rows));
   if (rows.length) printTable(rows);
+  if (mode === 'stats') {
+    console.log('');
+    console.log('# provenance (#335) - the instrument each frame came from, read from ' + PROV_REL + ', not derived here');
+    provCheck(rows, loadProv(rev), []);
+  }
   if (mode === 'check') console.log('');
-  process.exit(mode === 'check' ? checkMode(rows) : 0);
+  process.exit(mode === 'check' ? checkMode(rows, rev) : 0);
 }
