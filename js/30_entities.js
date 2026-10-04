@@ -36,7 +36,7 @@ function makeEnemy(kind, x, y) {
     kind, type: t, x, y, vx: 0, vy: 0, r: t.r, scale: t.scale,
     hp: Math.round(t.hp * DIFFS[S.diff].hp), maxhp: Math.round(t.hp * DIFFS[S.diff].hp),
     state: 'sleep', anim: crnd() * 4, atkT: 0, cd: crnd() * 1.2, dieT: 0, flashT: 0, stagger: 0, loseT: 1.6,
-    alert: false, lx: x, ly: y, stuck: 0, side: crnd() < 0.5 ? 1 : -1, sideT: 0, movingAmt: 0,
+    alert: false, lx: x, ly: y, search: 0, stuck: 0, side: crnd() < 0.5 ? 1 : -1, sideT: 0, movingAmt: 0,
     dv: dvNext,                                       // which death this one gets (#82), fixed at spawn
     tint: [1 + (crnd() - 0.5) * 0.16, 1 + (crnd() - 0.5) * 0.14, 1 + (crnd() - 0.5) * 0.12],
     atkMode: 'melee', ph: crnd() * TAU,
@@ -221,9 +221,18 @@ function throwGrenade() {
 }
 
 /* ---------------- damage ---------------- */
+// #358: how a body tells the room, and how hard the level trades back.
+// PACK_* are wake probabilities handed to alertEnemies' existing `report` parameter - nothing
+// propagates unless a body is actually hit or killed, so a silenced approach stays a stealth route.
+// LVL_RAMP is the aggression scale the simulation never had: only speed used to rise with the level.
+const PACK_WOUND = 0.45, PACK_DEAD = 0.75, PACK_SEARCH = 2.2, LVL_RAMP = 0.06;
+
 function damageEnemy(e, dmg, head, dx, dy) {
   if (e.state === 'dead') return;
   e.hp -= dmg; P.dmg += dmg; e.flashT = 0.09; e.alert = true;
+  // #358: a body that is hit is the loudest evidence the room gets. alertEnemies used to have one
+  // call site - the player's own gun - so a neighbour 3 m away carried on breathing.
+  alertEnemies(e.x, e.y, e.type.sight * 0.75, PACK_WOUND);
   // stagger is a decaying shove along the shot direction, not just a slow-down flag
   e.stagger = 0.26; e.stgx = (dx || 0) * 2.2; e.stgy = (dy || 0) * 2.2;
   const c = head ? '#ff4a4a' : '#b81a2a';
@@ -237,6 +246,8 @@ function damageEnemy(e, dmg, head, dx, dy) {
   SND.flesh(0);
   if (e.hp <= 0) {
     e.state = 'dead'; e.dieT = 0; P.kills++; S.shake += 2;
+    // #358: watching a pack mate come down is louder than a gunshot across the room.
+    alertEnemies(e.x, e.y, e.type.sight, PACK_DEAD);
     // a body falls the way it was hit, not the way it was walking
     e.dieAng = (dx || dy) ? Math.atan2(dy, dx) : e.ang + Math.random() * 0.8 - 0.4;
     e.vx += (dx || 0) * 1.5; e.vy += (dy || 0) * 1.5;
@@ -476,7 +487,13 @@ function alertEnemies(x, y, r, report) {
     // `report` is the wake probability for a shot fired here. It used to be multiplied
     // by 3, and the only call site passed 0.35 - i.e. 1.05, so every sleeping enemy in
     // radius woke on every shot and the parameter was decoration.
-    if (Math.hypot(e.x - x, e.y - y) < r && (!report || Math.random() < report)) { e.alert = true; e.state = 'chase'; if (Math.random() < 0.5) SND.growl(e.kind, panOf(e)); }
+    if (Math.hypot(e.x - x, e.y - y) < r && (!report || Math.random() < report)) {
+      e.alert = true; e.state = 'chase';
+      // #358: a body woken by a noise has to go and look. lx/ly are seeded to the body's SPAWN seat,
+      // so without this stamp the woken body investigates where it has always stood.
+      e.lx = x; e.ly = y; e.loseT = Math.max(e.loseT || 0, PACK_SEARCH); e.search = PACK_SEARCH;
+      if (Math.random() < 0.5) SND.growl(e.kind, panOf(e));
+    }
   }
 }
 function panOf(e) {
@@ -494,7 +511,16 @@ function updateEnemies(dt) {
     // The muzzle altitude is the same convention the orb spawn uses (#117).
     const see = d < e.type.sight && losZ(e.x, e.y, floorAt(e.x, e.y) + e.scale * 0.62, P.x, P.y, eyeH()) && P.deadT === 0;
     if (see) { e.alert = true; e.lx = P.x; e.ly = P.y; e.loseT = 1.6; }
-    else if (e.alert) { e.loseT -= dt; if (e.loseT <= 0 && d > e.type.sight * 1.6) e.alert = false; }
+    else if (e.alert) {
+      e.loseT -= dt;
+      // #358: losing line of sight used to end the fight on a 1.6 s timer, dropping the body back to
+      // the idle branch (which fidgets in place) while still holding the seat it last saw you at.
+      // Now it walks that seat and looks around before giving up.
+      if (e.loseT <= 0) {
+        if (Math.hypot(e.lx - e.x, e.ly - e.y) > 1.1) { e.loseT = 0.5; e.search = PACK_SEARCH; }
+        else if ((e.search -= dt) <= 0) { e.alert = false; e.search = 0; }
+      }
+    }
     if (e.alert && e.state === 'sleep') { e.state = 'chase'; SND.growl(e.kind, panOf(e)); }
     e.cd -= dt;
     if (e.atkT > 0) {
@@ -511,9 +537,9 @@ function updateEnemies(dt) {
           SND.enemyShot(panOf(e));
         } else {
           const dd = Math.hypot(P.x - e.x, P.y - e.y);
-          if (dd < t.reach * 1.25 && los(e.x, e.y, P.x, P.y)) damagePlayer(t.melee, Math.atan2(e.y - P.y, e.x - P.x));
+          if (dd < t.reach * 1.25 && los(e.x, e.y, P.x, P.y)) damagePlayer(t.melee * (1 + S.level * LVL_RAMP), Math.atan2(e.y - P.y, e.x - P.x));
         }
-        e.cd = t.cd * (0.75 + Math.random() * 0.6);
+        e.cd = t.cd * (0.75 + Math.random() * 0.6) / (1 + S.level * LVL_RAMP);   // #358: harder to trade with, not just faster
       }
       // winding up and driving through the swing shifts the whole body forward
       const pr = 1 - clamp(e.atkT / e.type.wind, 0, 1);
@@ -641,7 +667,7 @@ function updateProjectiles(dt) {
       // crouch allowance up to playerTop(), which already carries P.z.
       const inZ = p.z > P.z + (P.crouch ? 0.16 : 0.02) && p.z < playerTop();
       if (dd < 0.45 && inZ && P.deadT === 0) {
-        damagePlayer(p.dmg, Math.atan2(p.y - P.y, p.x - P.x));
+        damagePlayer(p.dmg * (1 + S.level * LVL_RAMP), Math.atan2(p.y - P.y, p.x - P.x));   // #358 ramp
         burstParts(p.x, p.y, p.z, 12, 2.2, '#b6ff7a', 0.4, 0.08, true, 1);
         SND.enemyShot(0); PROJ.splice(i, 1); continue;
       }
