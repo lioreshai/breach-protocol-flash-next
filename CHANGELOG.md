@@ -2,7 +2,15 @@
 
 ### Changed
 
-- **The menu now tells you that you can jump and climb** (#357). `index.html`'s control list stopped at
+-- **The simulation got a second perf arm** (#53 part 2). The frame-budget row ported from the unmerged
+  `14bb9b7` gates `update()` at an absolute 1.5 ms, 8x its measured median, which passes a 5.7x AI
+  regression (a busy loop in `update()` moved the median 0.17 to 0.97 ms/frame and SMOKE still PASSED).
+  Each batch now also runs the same 60 frames on the same seat with `ENEMIES` emptied, so the row can
+  price the AI alone by paired difference instead of by an absolute budget a loaded box would blur:
+  150 us/frame of a 0.18 ms sim on `main`, floor `AI_FLOOR` 0.6 ms (4x that median). A busy loop inside
+  `updateEnemies()` takes the marginal to 967 us/frame and fails the row while the absolute row still
+  passes at sim 1.02 ms - the two rows disagree, and that disagreement is the gate.
+ **The menu now tells you that you can jump and climb** (#357). `index.html`'s control list stopped at
   `Shift/C`, `R/1 2 3`, `G`, `Esc/M/T` — so neither `Space` (jump, `js/30_entities.js:388`) nor `E`/`Q`
   (climb, gated by `onLadder` at `:385`) appeared anywhere in the screen a player reads before deploying,
   and the staircase the generator puts in every level (#152) was unreachable by accident rather than by
