@@ -10204,6 +10204,83 @@ if (MODE === 'stats') {
   }
   console.log(bad.length ? 'RIG PROBLEMS:\n  ' + bad.join('\n  ') : 'rig silhouettes: all ' + rep.length + ' poses sane');
   console.log('cache', JSON.stringify(run('RIG.stats()')), '->', OUT);
+  /* #352: everything above rasterizes RIG.raster - the 2-D sheet path #72 took out of the draw list,
+     so a js/13_mesh.js geometry change leaves that whole block byte-identical. Same family as
+     DEV.set('rim'), which moves no pixel because bodies became meshes. The rows below ask the same
+     questions of the path the page actually draws. The oracle is COV: null in play, armed here,
+     stamped per pixel by the mesh raster for characters (js/13_mesh.js:887, tag 1), cleared once per
+     frame - so a silhouette here is whoever painted LAST in a real frame, walls included, with no
+     diff mask for a shadow to join and no second geometry that can drift from the first (the #179
+     mistake). Yaws are scanned in a fixed order and the yaw that worked is printed, so the pose is a
+     choice the row declares, not a seat found by luck (CAMSET's longest-ray mistake). */
+  {
+    const mkinds = (process.env.KIND || 'grunt,hound,brute').split(',').filter(function (s) { return s; });
+    const MPH = [0, 0.25, 0.5, 0.75], MDIST = 2.2;
+    /* Floors are 0.6 of the drawn height measured on main by these rows, so a part that is scaled,
+       moved or dropped out of a rig moves a row; they are literals, not a threshold widened later. */
+    const HHMIN = { grunt: 139, hound: 93, brute: 206 };
+    const BWc = run('BW'), BHc = run('BH');
+    let rigBad = 0;
+    run('S.mode="play"; startLevel(0, true);');
+    run('if (!COV || COV.length !== BW * BH) COV = new Uint8Array(BW * BH);');
+    function rigRow(label, ok, detail) {
+      console.log('  ' + label.padEnd(44) + (ok ? 'ok  ' : 'FAIL') + ' ' + detail);
+      if (!ok) { rigBad++; console.log('ASSERT FAIL: rig ' + label + ' -> ' + detail); }
+    }
+    for (const k of mkinds) {
+      const rs = [];
+      /* ONE individual for the whole kind, and only e.anim moves between renders. Creating an enemy per
+         phase (the first version) made makeEnemy consume its per-individual draws each time, so dv and
+         tint changed with the phase and the row measured the RNG stream: with p frozen at 0 the first
+         pose was bit-identical and the other three still moved (5705/172/163 then 6025/231/164,
+         6307/199/166, 5955/190/166), which is a row that cannot attribute what it reports. */
+      run('ENEMIES.length = 0; S.t = 3.5; P.ang = 0;' +
+        'ENEMIES.push(makeEnemy(' + JSON.stringify(k) + ', P.x + Math.cos(P.ang) * ' + MDIST +
+        ', P.y + Math.sin(P.ang) * ' + MDIST + '));' +
+        'ENEMIES[0].movingAmt = 0.5; ENEMIES[0].atkT = 0; ENEMIES[0].dieT = 0;' +
+        'if (ENEMIES[0].hp < 1) ENEMIES[0].hp = 1;');
+      for (const ph of MPH) {
+        let best = null;
+        for (let yi = 0; yi < 8; yi++) {
+          const yaw = (yi * Math.PI / 4).toFixed(4);
+          run('P.ang = ' + yaw + '; ENEMIES[0].x = P.x + Math.cos(P.ang) * ' + MDIST +
+            '; ENEMIES[0].y = P.y + Math.sin(P.ang) * ' + MDIST + '; ENEMIES[0].anim = ' + ph + ';' +
+            VMREST + ' renderWorld();');
+          const m = new Uint8Array(run('COV'));
+          let n = 0, x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9, runs = 0;
+          for (let y = 0; y < BHc; y++) {
+            let inr = 0;
+            for (let x = 0; x < BWc; x++) {
+              if (m[y * BWc + x] !== 1) { inr = 0; continue; }
+              n++;
+              if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
+              if (!inr) { inr = 1; runs++; }
+            }
+          }
+          best = { ph: ph, yaw: +yaw, n: n, runs: runs, h: n ? y1 - y0 + 1 : 0, w: n ? x1 - x0 + 1 : 0 };
+          if (n > 0) break;
+        }
+        rs.push(best);
+      }
+      const alive = rs.every(function (r) { return r.n > 0; });
+      const shapes = new Set(rs.map(function (r) { return r.n + ':' + r.runs + 'x' + r.w; }));
+      const detail = rs.map(function (r) { return 'ph' + r.ph + ' n' + r.n + ' runs' + r.runs + ' h' + r.h; }).join(' ');
+      rigRow(k + ' mesh path paints the body (#352)', alive, alive
+        ? 'COV tag 1 on ' + rs[0].n + ' px at yaw ' + rs[0].yaw.toFixed(2) + ' rad, ' + MDIST + ' m, drawn h ' + rs[0].h +
+          ' px - silhouette is who painted last, not a render difference'
+        : 'VACUITY: no COV tag 1 anywhere in 8 yaws at ' + MDIST + ' m, so the body pass is not being observed');
+      rigRow(k + ' gait changes the SHAPE drawn (#352)', alive && shapes.size > 1, alive
+        ? shapes.size + ' distinct (area, limb runs, width) over gait phases ' + MPH.join(',') + ' - ' + detail
+        : 'not judgeable: the body was never drawn above');
+      rigRow(k + ' drawn height keeps its authored span (#352)', alive && rs[0].h >= HHMIN[k], alive
+        ? 'drawn h ' + rs[0].h + ' px, floor ' + HHMIN[k] + ' px at ' + MDIST + ' m - a part scaled, moved or dropped out of the rig moves this'
+        : 'not judgeable: the body was never drawn above');
+      console.log('    ' + k + ' phases: ' + rs.map(function (r) { return r.n + '/' + r.runs + '/' + r.h; }).join('  '));
+    }
+    console.log('rig mesh-path rows: ' + (rigBad ? rigBad + ' FAILURE(S)' : '0 failures') +
+      ' (oracle COV, drawn by MESH.draw - #352)');
+    if (rigBad) process.exit(1);
+  }
 } else if (MODE === 'sheets') {
   // contact sheet: each material tiled 2x2 (tileability), each sprite frame at native size
   const spec = run(`(()=>{
