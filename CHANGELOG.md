@@ -13,6 +13,12 @@
   Smoke's `barrels` step used to call `hurtBarrel` and assert nothing, so neither defect could fail it:
   it now asserts which barrels are down, and a new step boots the authored level at Recruit and Nightmare
   — the path every existing barrel and difficulty check was blind to.
+- **The menu now tells you that you can jump and climb** (#357). `index.html`'s control list stopped at
+  `Shift/C`, `R/1 2 3`, `G`, `Esc/M/T` — so neither `Space` (jump, `js/30_entities.js:388`) nor `E`/`Q`
+  (climb, gated by `onLadder` at `:385`) appeared anywhere in the screen a player reads before deploying,
+  and the staircase the generator puts in every level (#152) was unreachable by accident rather than by
+  design. The list gains one row, worded *on a ladder*, because the key does nothing off one.
+
 - **Dropping to the band below during a body's wind-up no longer gets you hit through the floor** (#356).
   The wind-up is band-aware (`js/30_entities.js:567` asks `losZ`, since #118), but the swing resolved ~0.35 s
   later on `Math.hypot` with no z plus a 2-D `los` that walks straight through a slab of floor
