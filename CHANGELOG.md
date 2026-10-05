@@ -2,6 +2,15 @@
 
 ### Changed
 
+-- **The simulation got a second perf arm** (#53 part 2). The frame-budget row ported from the unmerged
+  `14bb9b7` gates `update()` at an absolute 1.5 ms, 8x its measured median, which passes a 5.7x AI
+  regression (a busy loop in `update()` moved the median 0.17 to 0.97 ms/frame and SMOKE still PASSED).
+  Each batch now also runs the same 60 frames on the same seat with `ENEMIES` emptied, so the row can
+  price the AI alone by paired difference instead of by an absolute budget a loaded box would blur:
+  150 us/frame of a 0.18 ms sim on `main`, floor `AI_FLOOR` 0.6 ms (4x that median). A busy loop inside
+  `updateEnemies()` takes the marginal to 967 us/frame and fails the row while the absolute row still
+  passes at sim 1.02 ms - the two rows disagree, and that disagreement is the gate.
+ **The menu now tells you that you can jump and climb** (#357). `index.html`'s control list stopped at
 -- **The rig probe now measures the body path the game draws** (#352). `view.js rig` rasterized
   `RIG.raster`, the 2-D sheet path #72 removed when bodies became meshes, so a `js/13_mesh.js`
   geometry change came back byte-identical. Nine rows (three per kind) now read the shipped path
@@ -15,6 +24,7 @@
   was attributing to gait.
  **Dropping to the band below during a body's wind-up no longer gets you hit through the floor** (#356).
 - **The menu now tells you that you can jump and climb** (#357). `index.html`'s control list stopped at
+
   `Shift/C`, `R/1 2 3`, `G`, `Esc/M/T` — so neither `Space` (jump, `js/30_entities.js:388`) nor `E`/`Q`
   (climb, gated by `onLadder` at `:385`) appeared anywhere in the screen a player reads before deploying,
   and the staircase the generator puts in every level (#152) was unreachable by accident rather than by
@@ -67,6 +77,19 @@
   #72 took out of the draw loop, and this branch's sheet is byte-identical to `main`'s (`e9d88fd3…`, 0 of
   9,742,430 bytes differ) while `stats` reports the +36 triangles. Filed as #352; the rows added here live
   in `stats`, where the numbers can move, and they fail under `HELD_FLOOR=999` / `HELD_DELTA=999`.
+- **The simulation is now inside a frame-budget gate** (#53). Every perf row in `node tools/smoke.js`
+  timed `renderWorld()` + `renderOverlay()` — the raster row that gates PRs included — so a change that
+  made the *simulation* expensive (an AI pass, a per-cell sweep, a lightmap rebuild in `update()`) passed
+  every perf gate in the repo while the shipped frame cost more than the number printed. smoke now also
+  times `update()` on its own at the three perf seats and gates the median against `TICK_FLOOR`
+  (default 1.5 ms, derived: the sim measured a median **0.18 ms/frame** over 9 samples from 3 seats,
+  max 0.3, against a raster median of 30.7 ms on the same machine — so the floor is ~8× the measured
+  cost and under 10% of the 16 ms frame #307 is driving the raster floor to; setting `TICK_FLOOR`
+  explicitly remains the standing control for A/B work, as with `RASTER_FLOOR`). Timing it honestly
+  needed a reseat per batch rather than a paired arm: `update()` *advances* the world, so a batch that
+  follows another would be timing a later scene — and, per the trap where a spinning camera also walks
+  the player, would drag the player into where the grid is undefined.
+
 - **No big band is left without a light source standing in it** (#149). Lamp placement had scored seats
   for the dark *cells* a lamp would cover and then spread the remainder, so a band whose cells were each
   individually dim could still end up with no lamp inside it at all. On untouched `main` the new rows fail:
