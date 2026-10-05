@@ -14,7 +14,15 @@
   because an enemy per phase let `makeEnemy`'s per-individual draws move the silhouette the row
   was attributing to gait.
  **Dropping to the band below during a body's wind-up no longer gets you hit through the floor** (#356).
-- **The menu now tells you that you can jump and climb** (#357). `index.html`'s control list stopped at
+-- **A lamp's band term got a graded reach** (#199). Light used to stop dead one quantum from the
+  source's own floor, which measured as 38-62% of a level's dark ground (same 20 seeded samples with
+  the gate on vs off): floors beside a step rendered at zero. Widening the binary reach is not the
+  fix - #203 tightened it precisely so a column 7 quanta above a lamp could not take light at full
+  weight - so the weight now ramps linearly to zero over one unit past the quantum, for LAMPS only:
+  `splatLight` stays binary for transients, which is what smoke's band-edge splat row asserts. Dark
+  ground over the census fell 7.1% -> 5.5% of open cells; flat frames stay bit-identical (fd = 0 gives
+  exactly 1) and the dealt/spawn references moved brighter, not darker, inside the 60-100 window.
+ **The menu now tells you that you can jump and climb** (#357). `index.html`'s control list stopped at
   `Shift/C`, `R/1 2 3`, `G`, `Esc/M/T` — so neither `Space` (jump, `js/30_entities.js:388`) nor `E`/`Q`
   (climb, gated by `onLadder` at `:385`) appeared anywhere in the screen a player reads before deploying,
   and the staircase the generator puts in every level (#152) was unreachable by accident rather than by
