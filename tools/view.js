@@ -9265,6 +9265,116 @@ if (MODE === 'props') {
             ' luminance apart, rel ' + rel.toFixed(2) + at + ' - a lit side and a shaded one');
         }
       }
+      /* ---- (T) TURN: walk round it and the bright side moves to the other flank (#371) -------------
+         The issue's second acceptance line is "circling a crate swaps which face is bright", and that is
+         a statement about MORE THAN ONE FRAME, so (Y) cannot make it: at one seat the bright flank is
+         simply whichever of the two visible normals happens to carry the larger d. TWO seats are used - the
+         seat (Y) posed, and the seat on the OPPOSITE side of the same box at the same distance, which is
+         literally the walk round the issue describes. Both sit 45 deg between two adjacent face normals (the
+         normals repeat every 90 deg, so half a turn brings you back to the same two planes with their normals
+         flipped), and both put the two visible faces at equal width on screen, so flanks are comparable.
+         What is measured at each seat is the frame's answer to ONE question, asked in a way the prop's
+         PAINT cannot answer: render the seat, then render it again with the key light's horizontal
+         direction REVERSED (`KEY[0], KEY[1] -> -KEY[0], -KEY[1]` - the same tilt, the opposite azimuth,
+         so every `d = max(0, N·KEY)` in the frame is re-answered and no albedo, texture, light cell or
+         fog term moves). Pixels whose luminance does not move are not directional; a painted card, a
+         face-on board and a flat-shaded quad all give a still frame, and so does every FRAME-coloured
+         band, lid and skid on the crate, which is the contamination a level census has to avoid (row (Y)
+         counts levels, and a level can be a stripe of paint). Of the pixels that DO move, take the ones that
+         got BRIGHTER at the shipped key - those are by construction the flank the key is lighting - and take
+         their centroid against the centroid of everything that moved, normalised by the body's own
+         half-width: `lit`, in [-1, 1], says which flank the key is lighting, right-positive. A box with a yaw
+         puts it off centre and the two seats put it off centre on OPPOSITE sides - that is the swap, and no
+         amount of paint can produce it, because paint does not move when the key turns. A prop with NO yaw
+         answers the SAME d on both visible faces, so no pixel is brighter under one key than the other, `lit`
+         has no support, and the row goes red as VACUITY rather than as a debt. A seat whose two visible faces
+         both sit on the same side of the key moves as one piece: big response, `lit` near 0, which is the box
+         lit from in front of or behind you - a tie, printed rather than failed. */
+      const LIT_MIN = 0.15, RESP_MIN = 3, DIF_TOL = 2;
+      if (pose && kind !== 'lamp') {
+        const KX = run('KEY[0]'), KY = run('KEY[1]');
+        const bandOf = (s, m, sK) => {
+          const y0 = m.top + Math.round(0.66 * m.h), y1 = m.top + Math.round(0.95 * m.h);
+          let n = 0, sa = 0, np = 0, sp = 0, xp = 0, wx = 0;
+          for (let y = y0 + CUSH; y <= y1 - CUSH && y < H - CUSH; y++) {
+            for (let x = m.lft + CUSH; x <= m.rgt - CUSH && x < W - CUSH; x++) {
+              const i = y * W + x;
+              if (!m.cov[i]) continue;
+              let all = true;
+              for (let dy = -CUSH; dy <= CUSH && all; dy++) for (let dx = -CUSH; dx <= CUSH && all; dx++) if (!m.cov[i + dy * W + dx]) { all = false; break; }
+              if (!all) continue;
+              const dif = lum(s.A, i) - lum(sK.A, i);
+              if (Math.abs(dif) <= DIF_TOL) continue;
+              n++; sa += Math.abs(dif); wx += Math.abs(dif) * x;
+              if (dif > DIF_TOL) { np++; sp += dif; xp += dif * x; }
+            }
+          }
+          if (!n) return { n: 0, np: 0, resp: 0, lit: 0 };
+          const hw = Math.max(1, (m.rgt - m.lft) / 2);
+          return { n, np, resp: sa / n, lit: np ? (xp / sp - wx / sa) / hw : 0 };
+        };
+        /* The first seat is (Y)'s, already rendered; the far one is placed by the same rule and
+           the same distance ladder, and a seat that lands in a wall or on another band is skipped -
+           a lens inside a slab shows no box at all, and (Y) already fails when NONE of them is open. */
+        const seats = [{ th: pose.th, d: pose.d, s: sY, m: mY }];
+        for (const k of [2]) {
+          const th = pose.th + k * Math.PI * 0.5;
+          for (const dd of [pose.d, 2.9, 2.6, 2.3, 2.0, 1.7]) {
+            const sx = fX + Math.cos(th) * dd, sy = fY + Math.sin(th) * dd;
+            const ok = run('(()=>{const x=' + sx.toFixed(4) + ',y=' + sy.toFixed(4) + ';return !isSolid(x,y) && '
+              + 'floorAt(x,y)===floorAt(' + fX.toFixed(4) + ',' + fY.toFixed(4) + ')})()');
+            if (!ok) continue;
+            run('P.x=' + sx.toFixed(4) + ';P.y=' + sy.toFixed(4) + ';P.ang=Math.atan2(' + fY.toFixed(4) +
+              '-P.y,' + fX.toFixed(4) + '-P.x);P.pitch=0;P.z=floorAt(P.x,P.y)');
+            const s = pair(fcode, foff, fon);
+            seats.push({ th, d: dd, s, m: mask(s) });
+            break;
+          }
+        }
+        /* The second render of each pair is the SAME frame with the key turned round: the prop is in
+           both, the world is in both, only the sign of every N·KEY differs. */
+        for (const st of seats) {
+          /* Park the lens back on THIS seat first: a frame taken from anywhere else compares the prop
+             against itself in a different place, and the diff is then a translation, not shading. */
+          run('P.x=' + (fX + Math.cos(st.th) * st.d).toFixed(4) + ';P.y=' + (fY + Math.sin(st.th) * st.d).toFixed(4) +
+            ';P.ang=Math.atan2(' + fY.toFixed(4) + '-P.y,' + fX.toFixed(4) + '-P.x);P.pitch=0;P.z=floorAt(P.x,P.y)');
+          run('KEY[0]=' + (-KX).toFixed(6) + ';KEY[1]=' + (-KY).toFixed(6));
+          st.sK = pair(fcode, foff, fon);
+          run('KEY[0]=' + KX.toFixed(6) + ';KEY[1]=' + KY.toFixed(6));
+        }
+        const bs = seats.map(st => bandOf(st.s, st.m, st.sK));
+        const dec = bs.filter(b => b.np >= 60 && b.resp >= RESP_MIN && Math.abs(b.lit) >= LIT_MIN);
+        const moved = bs.filter(b => b.np >= 60 && b.resp >= RESP_MIN);
+        const at = ' (' + seats.length + ' seats on OPPOSITE sides of the same box at ' + pose.d.toFixed(2) + ' m, azimuth '
+          + seats.map(s => (s.th * 180 / Math.PI).toFixed(0) + 'deg').join(' and ') + ', yaw '
+          + (yv * 180 / Math.PI).toFixed(1) + 'deg off PROPS[' + (fstate ? fstate.i : '?') + '].yaw)';
+        const num = bs.map(b => b.np + '/' + b.n + 'px r' + b.resp.toFixed(1) + ' lit' + (b.lit >= 0 ? '+' : '') + b.lit.toFixed(2)).join(' then ');
+        if (seats.length < 2) fail('(T) ' + kind + ': there is no seat on the far side of prop ' + fstate.i + ' - every '
+          + 'open spot 180deg round lands in a wall or on another band, so the walk round could not be taken' + at);
+        else if (!moved.length) fail('(T) ' + kind + ': vacuity - neither seat has 60 face-band pixels the key light '
+          + 'lights more than ' + DIF_TOL + ' luminance brighter than the same pixels with the key turned round ('
+          + num + at + '). A prop with no yaw answers the SAME d on both visible faces, so the key cannot be '
+          + 'shown to be lighting either flank and nothing was measured');
+        else if (dec.length < 2) fail('(T) ' + kind + ': only ' + dec.length + ' of 2 seats put the lit flank decisively '
+          + 'off centre - ' + num + at + ' - so the walk round cannot be scored; a flank within ' + LIT_MIN +
+          ' of the body half-width is a tie, and a tie at BOTH seats is a box lit from in front of or behind you');
+        else if (Math.sign(dec[0].lit) === Math.sign(dec[dec.length - 1].lit)) fail('(T) ' + kind + ': the lit flank is on '
+          + 'the same side from both seats (' + num + at + ') - walking round the prop changes nothing, which is '
+          + 'what a prop whose bright side is painted on looks like, and the issue\u2019s claim is that it is lit');
+        else console.log('    turn: the lit flank SWAPS when you walk round it - lit' + (bs[0].lit >= 0 ? '+' : '') +
+          bs[0].lit.toFixed(2) + ' (' + (bs[0].lit >= 0 ? 'right' : 'left') + ' flank) from azimuth '
+          + (seats[0].th * 180 / Math.PI).toFixed(0) + 'deg, lit' + (bs[1].lit >= 0 ? '+' : '') + bs[1].lit.toFixed(2) +
+          ' (' + (bs[1].lit >= 0 ? 'right' : 'left') + ') from ' + (seats[1].th * 180 / Math.PI).toFixed(0) + 'deg; '
+          + num + at + ' - the two shots the issue asked for, taken by turning the KEY 180deg at each seat so the '
+          + 'prop\u2019s PAINT cannot answer it: only pixels the key light reaches move between the pair');
+        /* (Y) left the lens on its own pose and (P) measures from there, so the circle has to hand the
+           camera back where it found it or this row would move the contact patch beneath its own feet. */
+        run('P.x=' + (fX + Math.cos(pose.th) * pose.d).toFixed(4) + ';P.y=' + (fY + Math.sin(pose.th) * pose.d).toFixed(4) +
+          ';P.ang=Math.atan2(' + fY.toFixed(4) + '-P.y,' + fX.toFixed(4) + '-P.x);P.pitch=0;P.z=floorAt(P.x,P.y)');
+      } else if (pose && kind === 'lamp') {
+        console.log('    turn: not run on a lamp - a post and a cone show one lit side from every seat, so '
+          + 'there is no flank to swap; its yaw is what (Y) prints');
+      }
       /* ---- (P) the prop sits ON the floor: #178's contact patch, extended to props (#371) --------
          The same A/B #18's body row is written as: render this frame twice, once with the prop's disc
          registered in the shadow grid and once without, and count the pixels OUTSIDE the prop's own
