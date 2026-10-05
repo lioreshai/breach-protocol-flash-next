@@ -105,6 +105,12 @@ const RASTER_FLOOR = +(process.env.RASTER_FLOOR || 32);
    (the 2x a busy runner costs the raster numbers) does not. Setting TICK_FLOOR explicitly stays the
    standing control for A/B work, same shape as RASTER_FLOOR. */
 const TICK_FLOOR = +(process.env.TICK_FLOOR || 1.5);
+/* AI_FLOOR gates the AI's MARGINAL cost (#53 part 2). The absolute floor above cannot catch an AI
+   regression at any load-safe value: a busy loop in update() moved the median 0.17 -> 0.97 ms/frame
+   and SMOKE still PASSED, because 1.5 ms is 8x the measured sim cost and tightening it would make the
+   row a machine-load thermometer. The paired difference cancels the machine, so this floor is 4x the
+   measured AI marginal cost (recorded below in this row's own detail line). */
+const AI_FLOOR = +(process.env.AI_FLOOR || 0.6);   // 4x the 150 us/frame median recorded above
 // The row's summary, printed again in the verdict block so the number is visible in any log that only
 // shows the tail of the run (the workflow echoes `tail -20` of smoke's output; the budget rows print
 // early). Tool-side on purpose: nothing about how a run is gated is changed by reporting it.
@@ -349,14 +355,26 @@ const release = () => fire('mouseup', { button: 0 });
        second arm to delta against - update() is one number, and 60 frames of it is what a 60 Hz frame
        gets. Re-seating the first seat after restores what the later sections expect. */
     {
-      const tk = [], tkRows = [];
+      const tk = [], tkRows = [], aiD = [], aiRows = [];
       for (const s of SEATS) {
-        const ms = [];
+        const ms = [], off = [];
         for (let b = 0; b < 3; b++) {
           reseat(s);
           const t0 = Date.now();
           vm.runInContext('for(let i=0;i<60;i++) update(1/60);', ctxVm);
           ms.push((Date.now() - t0) / 60);
+          /* Arm B (#53 part 2): the SAME 60 frames on the SAME seat in the SAME process with the AI
+             population emptied, so the row below can price the AI rather than the box. Whatever the
+             machine costs, it costs twice - player, projectiles, props, pickups and lights still run in
+             this arm, which is why the number is the AI's marginal cost and not update()'s total. The
+             cast is put back before anything else reads ENEMIES. */
+          vm.runInContext('window.__aiKeep = ENEMIES.slice(); ENEMIES.length = 0;', ctxVm);
+          const t1 = Date.now();
+          vm.runInContext('for(let i=0;i<60;i++) update(1/60);', ctxVm);
+          off.push((Date.now() - t1) / 60);
+          vm.runInContext('ENEMIES.length = 0; for (const e of __aiKeep) ENEMIES.push(e); delete window.__aiKeep;', ctxVm);
+          aiD.push(ms[b] - off[b]);
+          if (b === 2) aiRows.push('+' + s + ' ' + (ms[b] - off[b]).toFixed(3));
         }
         tk.push(...ms);
         tkRows.push('+' + s + ' ' + medOf(sorted(ms)).toFixed(2));
@@ -374,6 +392,21 @@ const release = () => fire('mouseup', { button: 0 });
         'update() alone measured ' + tkMed.toFixed(2) + ' ms/frame (max ' + tkMax.toFixed(1) + ', seats ' +
         tkRows.join(', ') + ') against floor ' + TICK_FLOOR + ', on top of raster ' + med.toFixed(2) +
         ' ms, at ' + scene + ' - no other perf row in this file times the sim (#53)');
+      /* #53 part 2: the row above is an absolute budget, so it says nothing about whether the AI got
+         more expensive. This one prices the AI alone by pairing each batch against the same batch with
+         ENEMIES emptied, per batch (a paired difference, not a difference of medians, so bimodal
+         batches cannot average their way past it). N = the same 9 samples from 3 seats. */
+      const aiSorted = sorted(aiD), aiMed = medOf(aiSorted), aiMax = aiSorted[aiSorted.length - 1];
+      console.log('ai cost: median', (aiMed * 1000).toFixed(0), 'us/frame of the AI alone over', aiD.length,
+        'paired batches (max ' + (aiMax * 1000).toFixed(0) + ' us, seats ' + aiRows.join(', ') +
+        ') | sim median ' + tkMed.toFixed(2) + ' ms includes it | floor ' + AI_FLOOR + ' ms' +
+        (process.env.AI_FLOOR ? ' (AI_FLOOR set explicitly - the standing control)' : '') +
+        ' | load ' + require('os').loadavg().map(v => v.toFixed(2)).join(' '));
+      expect('the AI fits a frame budget - update() minus update() with no enemies, median under ' + AI_FLOOR +
+        ' ms over ' + aiD.length + ' paired batches', aiMed < AI_FLOOR,
+        'the AI alone measured ' + (aiMed * 1000).toFixed(0) + ' us/frame (max ' + (aiMax * 1000).toFixed(0) +
+        ' us, seats ' + aiRows.join(', ') + ') against floor ' + AI_FLOOR + ' ms at ' + scene +
+        '; paired arms in one process, so a slower box moves both sides and the delta survives (#53)');
       reseat(SEATS[0]);
     }
   }
