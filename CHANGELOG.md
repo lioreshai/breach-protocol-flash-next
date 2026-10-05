@@ -2,6 +2,11 @@
 
 ### Changed
 
+- **The menu now tells you that you can jump and climb** (#357). `index.html`'s control list stopped at
+  `Shift/C`, `R/1 2 3`, `G`, `Esc/M/T` — so neither `Space` (jump, `js/30_entities.js:388`) nor `E`/`Q`
+  (climb, gated by `onLadder` at `:385`) appeared anywhere in the screen a player reads before deploying,
+  and the staircase the generator puts in every level (#152) was unreachable by accident rather than by
+  design. The list gains one row, worded *on a ladder*, because the key does nothing off one.
 - **Dropping to the band below during a body's wind-up no longer gets you hit through the floor** (#356).
   The wind-up is band-aware (`js/30_entities.js:567` asks `losZ`, since #118), but the swing resolved ~0.35 s
   later on `Math.hypot` with no z plus a 2-D `los` that walks straight through a slab of floor
@@ -16,6 +21,7 @@
   quanta; and raising the cell behind the ray's target **closes no opening**, because
   `ceilAt = floor + max(1 unit, neighbour floors above)` grows the low ceiling to meet it.
 
+
 - **A room now behaves like a room** (#358). `alertEnemies` had exactly one call site — the player's own
   gunshot — and `damageEnemy` raised only the victim, so a body shot three metres from its pack mate, or a
   body that came down in front of one, told nobody. Break line of sight and the whole encounter de-escalated
@@ -29,6 +35,7 @@
   (`ETYPE.spd` 1.85/3.25/1.55 against `spd = 3.55 + 2.15·sprint`). `sight` gates all four claims through the
   real `update()` loop over 240-frame runs, with the wake draws replayed from a fixed stream so a rate row
   cannot flake; on pristine code the same rows read **0/40 wakes, 0.09 m of pursuit, damage ratio 1.000**.
+
 
 - **Enemies carry a weapon, and the geometry budget has a hook** (#78). Bodies were still authored at spike
   fidelity: one global `NS = 6` gave every tube the same prism, so a thigh and a visor were equally faceted,
