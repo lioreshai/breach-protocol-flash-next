@@ -2,6 +2,36 @@
 
 ### Changed
 
+-- **Floors and ceilings stopped drawing a fan of radial spokes** (#19). Three terms of the ground pass were
+  functions of the CELL, and a cell boundary seen in perspective is a straight line to the vanishing point,
+  so each one drew a spoke over the largest area of the frame while walls, props and bodies stayed clean.
+  The per-cell texture mirror is now DISTANCE-GATED - it stays where a fold reads as the edge of a panel and
+  stops where the fold *is* the spoke; the ground's light walks its cell's own bilinear (four taps, cross
+  term included, advanced by two adds a channel) instead of taking one value per cell, which is the one
+  thing the wall pass has always done and the ground never did; a pixel whose footprint is longer than
+  one texel now takes a tap on EITHER side of the point it already sampled, which is the box over the
+  strip it covers rather than a mean centred half a footprint past it; that same fetch now also lerps
+  across the footprint's SUB-texel side, which is the side that made the material's own grit into a hard
+  strip (worth 8-11% of the streak metric, and no more); and the deferred copy of the ground pixel body,
+  which paints every pixel whose cell is not on the row's plane, stops EXTRAPOLATING its light ramp away
+  from the cell it fell back to - a ray that landed at world (62, 44) of a 26x26 map was interpolating the
+  fallback cell's slopes 40 cells in x, delivering a light multiplier of up to 136 and multiplying the
+  ceiling past the map edge into clipping. Ceiling streak per level (`view.js mip`) 47→38, 49→38,
+  114→74, 34→26 and the floor's own streak 74→57, 103→80, 117→93, 81→64, with the along-row detail
+  column still 3.4-6.5x the mush control's, so this is not a blur. All five are switches in the running
+  page (`DEV.set('gndjit'|'gndlight'|'gndax'|'gndfilt'|'gndramp', …)`, `DEV.state().gnd` reads them back),
+  so an A/B is one call and not a worktree - and the last one is visibly one band wide: `gndramp 0` puts
+  the blown wedge back and moves 8.9% of the level-0 cam1 frame's pixels and nothing outside the far-
+  ceiling band. Re-recorded flatparity's DEALT, cull's CZBAND, `bands`' SEAM-FRAME and two exposure
+  figures - all frame hashes over ground shading, none of them a widened threshold; flatparity's PARITY
+  and LOCK did NOT move, because a flattened level defers no pixels at all, and cull's world lightmap
+  digest is byte-identical on all four levels, so no lamp moved either. Raster delta +0.02 ms pooled
+  against the control. The dealt grids' off-datum cell counts are 165/246/314/134 here and on `main`.
+  A faint radial structure is still readable on a far ceiling near the horizon. The issue carries six
+  controls that ruled mip depth, tap count, tile scale, a wall-style light falloff and the per-cell mirror
+  out, and one of them turned out to be FALSE - "the deferred pixel copy paints nothing at this seat"; on
+  that frame 18,704 pixels are painted by it, which is where the defect was hiding.
+
 -- **The simulation got a second perf arm** (#53 part 2). The frame-budget row ported from the unmerged
   `14bb9b7` gates `update()` at an absolute 1.5 ms, 8x its measured median, which passes a 5.7x AI
   regression (a busy loop in `update()` moved the median 0.17 to 0.97 ms/frame and SMOKE still PASSED).
