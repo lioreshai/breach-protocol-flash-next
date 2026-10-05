@@ -1978,7 +1978,10 @@ if (MODE === 'flatparity') {
      on this tree (flat 971c11ec / f05beeb5 / d678642d / 9b6dff6a, dealt 5048636b / 370d3f7a / aa18d43e
      / 040bf80b), so no world, light or band term moved. DEALTM[2] says 85.1 while both trees print 87.2
      - that mean literal is stale on main and is left alone here. */
-  const OLD = refRecord('flatparity', 'PARITY', 'md5', ['152c028bf11d6e4403ab4658313d4539', 'f05beeb58f1266a1aea7e44712995292', 'b0f8fe9153dbfee606747131fd666a21', '11ed4cebc2284ce40815f66adc8ec029']);
+  /* #19 re-recorded all four: the ground pass's light is sampled at the pixel instead of per cell, so a
+     FLAT frame's shading moved too - this record never claimed the shading was frozen, only that a flat
+     level collapses to one picture, and it still does. Values measured on this tree, not widened. */
+  const OLD = refRecord('flatparity', 'PARITY', 'md5', ['8ec13ec085b440a611309fc5516adca5', 'f608074901f49a286314341a70585a6c', '02c493550ef6f91f281927fb0be110b6', '1d86ed96f5827519ecd9f43390e9dedc']);
   const OLDM = [78.2, 34.1, 47.5, 28.0];
   /* #213 moves SHIP[0] to 060da4cd (80.8, from 4262d051/81.3) and nothing else: a coverage top-up's
      intensity now scales with the cells it covers, so the shipped world gains DIMMER sources and L0's
@@ -1997,7 +2000,9 @@ if (MODE === 'flatparity') {
      reserve lamp in a place that had none standing in it, so those two spawn frames repaint. LOCK[1] and
      LOCK[3] are byte-identical, which is the control - the level whose spawn frame the pass cannot reach
      did not move, so this is seat choice, not a light scale. */
-  const SHIP = refRecord('flatparity', 'LOCK', 'md5', ['abaa4e092f7d7212084e39e5fc5f4497', 'f05beeb58f1266a1aea7e44712995292', 'ad48f7cebb4bf94b231c5936adec9030', '11ed4cebc2284ce40815f66adc8ec029']);
+  /* #19 re-recorded: same reason as PARITY, and the lamps themselves did not move - see the DEALT row,
+     where the dealt grids and off-datum cell counts are byte-identical to the previous records. */
+  const SHIP = refRecord('flatparity', 'LOCK', 'md5', ['8ca120aafe8fe02b575f115728011b8a', 'f608074901f49a286314341a70585a6c', 'e193150a9373714a39f4e1d7c48da39f', '1d86ed96f5827519ecd9f43390e9dedc']);
   const SHIPM = [79.3, 34.1, 51.6, 28.0];
   /* #219's DEALT triple, #226's camera: the frame of each level AS DEALTED - bands, band term, shipped
      lamp record, same dice (1000 + level*97) and the same pinned-clock ninth render - but at a seat
@@ -2096,7 +2101,9 @@ if (MODE === 'flatparity') {
   // move is the clamp and not the rebase. Levels 0..2 are byte-identical to main here.
   // #149 re-keys DEALT[0..2] and holds DEALT[3] (e846d5b3, mean 39.7): the dealt frame is the shipped lamp
   // record, and the coverage pass moved three seats on the generated levels. The authored level is the control.
-  const DEALT = refRecord('flatparity', 'DEALT', 'md5', ['a28e002e293cfcc045fcc551f52c81ad', 'af2897b4ff55f07eed538f333eedf300', '529fe0c79f3b5ec0bbcac5db408ef571', 'e846d5b3aaa281d09844741e1993c389']);
+  /* #19 re-recorded L0/L1/L3, L2 unchanged: the dealt GEOMETRY is identical (the off-datum counts this
+     row prints are 165/246/314/134, the same as main's run of the same probe) - only its shading moved. */
+  const DEALT = refRecord('flatparity', 'DEALT', 'md5', ['0b73ffaf55ad6e75024bb900dd5ad4cc', '00953f226435d18a0f3f8fb4cf8d61d3', '529fe0c79f3b5ec0bbcac5db408ef571', 'c3a623d1a487a08c74a23db9d62910e1']);
   const DEALTM = [55.5, 57.8, 85.1, 39.7];
   const OFF = process.env.LAMPS === 'off';
   const f1 = v => (v === undefined || v === null ? '-' : (+v).toFixed(1));
@@ -4252,7 +4259,7 @@ if (MODE === 'cull') {
       // is identical both sides (53,088 on L0) - shading moved, geometry did not. L3 is the AUTHORED
       // level, whose light this pass does not touch, so its pair is main's and stays: it is the
       // control that says these four hashes are the same arithmetic on the same machine, not drift.
-      const CZBAND_REF = refRecord('cull', 'CZBAND', 'crc32', [0xabbb6414, 0xa9c76736, 0x003a9066, 0x2429fd16]);   // LEAK=1 CZBAND=1, cull's own step rows
+      const CZBAND_REF = refRecord('cull', 'CZBAND', 'crc32', [0x9706a700, 0xb8e3a4d8, 0xb87d5c84, 0x44f713c8]);   // LEAK=1 CZBAND=1, cull's own step rows - #19 re-record: the hash is of the GROUND PASS, whose light is now sampled per pixel; the nodefer control still disagrees, so the frame is still worth hashing
       /* #223: the WORLD sense, recorded beside the lane sense, because czS.h above is a lightmap
          instrument only ON ONE CAMERA'S FRAME: it moves when the lightmap changed somewhere that frame
          rasterizes and holds when it changed somewhere it cannot, so its green never proves "the
@@ -5295,6 +5302,16 @@ if (MODE === 'mip') {
         for(const e of ENEMIES)e.state='sleep';})()`);
       run('renderWorld()');
       per[0].push(sel(DEF.ax, DEF.ar, false));
+      /* GNDPNG=path dumps the frame these streak numbers were read from: the ground pass ALONE, walls
+         and bodies removed. #19's definition of done is a screenshot rather than a statistic, and until
+         now the only picture of the ground pass was a full frame, where a wall face or a prop can carry
+         the very structure the row is reporting on. Env-gated, so nothing moves when it is unset; the
+         levels/rolls it renders are the probe's own, so the PNG and the numbers describe one frame.
+         GNDLVL/GNDCAM choose which (default level 0, the first of the two headings). */
+      if (process.env.GNDPNG && li === +(process.env.GNDLVL || 0) && k === +(process.env.GNDCAM || 0)) {
+        writePNG(process.env.GNDPNG, run('BW'), run('BH'), toRGBA(new Uint32Array(run('px'))), 2);
+        console.log('         GNDPNG ground pass alone, level ' + li + ' heading ' + k + ' -> ' + process.env.GNDPNG);
+      }
       per[1].push(sel(0, DEF.ar, false));
       per[2].push(sel(DEF.ax, DEF.ar, true));
       run(`MIPAX=${DEF.ax};MIPAR=${DEF.ar};`);
@@ -5542,7 +5559,10 @@ if (MODE === 'exposure') {
      cells rounds to nothing. Read this row as the statistic, and flatparity's DEALT[3] as the pixels. */
   /* #149 re-keys MEDIAN[2] 78 -> 70 (70.14 exact, rolls 58 90 72 68): a reserve lamp moves into a dark room
      on level 2, so one of its four seeded rolls comes down. L0/L1/L3 are unchanged to the digit. */
-  const EXPO_MED = refRecord('exposure', 'MEDIAN', 'num', [73, 71, 70, 64]);
+  /* #19 re-recorded L0/L1/L2 (71.61 / 70.19 / 69.19 exact), L3 unmoved: the ground's light is sampled at
+     the pixel, so a lamp pool spreads a little and the seeded median falls by one. The SPREAD columns,
+     which are what this row is about, did not move. */
+  const EXPO_MED = refRecord('exposure', 'MEDIAN', 'num', [72, 70, 69, 64]);
   // #284: L2's spawn-seat MEAN moves 64 -> 63 (64.33 -> 63.22) while the CENTRE-HALF mid is identical to
   //   the hundredth (73.31) and the spread is identical (65), L0 and L1 are byte-identical (56.89/64.80 and
   //   59.95/50.31), PARITY is bit-identical on all three levels, and the deal's mean is unchanged in the
@@ -5575,7 +5595,7 @@ if (MODE === 'exposure') {
      a lamp-overlap room, and the pixels past the first cell boundary are the ones that come down. L1
      64.49/58.60 and L2 64.32/72.58 come back ONTO their records, so this is not the frames going dark -
      and #304's L3 pair 56/60 still rounds onto its record (55.92/59.84 exact against #304's 56.10/59.86). */
-  const EXPO_SPAWN = refRecord('exposure', 'SPAWN', 'num', [60, 66, 68, 66, 64, 73, 56, 60]);   // mean, mid per level - #149 re-keys L1 to 68.18/65.51 (spread 33); L0/L2/L3 byte-identical
+  const EXPO_SPAWN = refRecord('exposure', 'SPAWN', 'num', [62, 68, 66, 64, 65, 72, 58, 59]);   // mean, mid per level - #19 re-recorded all eight (61.78/67.59, 66.39/64.26, 64.63/71.83, 58.15/58.84): the ground's light is sampled at the pixel, which lifts the far half of a spawn view
   const LUM_WANT = [60, 100];       // the documented window (README: targets 60-100)
   /* #149 THE WORST ROLL, raster layer, at 4 seeded rolls - the statistic the window row above
      deliberately does not read. The median is asserted because one roll outside 60-100 proves nothing,
@@ -9513,7 +9533,10 @@ if (MODE === 'bands') {
   const md5u32 = b => require('crypto').createHash('md5').update(Buffer.from(b.buffer, b.byteOffset, b.byteLength)).digest('hex');
   const KNOBS = ['DIST', 'SEAMD', 'SEAMU', 'SEAMW', 'VW', 'VH', 'SEED', 'JSDIR', 'LAMPS'].filter(k => process.env[k]);
   // #149 re-keys all three: the seam frame carries lamp light, and three seats moved on the generated levels.
-  const RECSEAM = refRecord('bands', 'SEAM-FRAME', 'md5', ['578af03db244ce393b18b485eff38175', '1ff2a28dc260cda32fde6f6188578653', '4a7aca639c0cda2bcfef27f44b5cd435', '35b63dc85129ddaa8005ff5c872ceff4']);
+  /* #19 re-recorded all four: this is a frame hash, and the ground's shading moved. The row's ORACLE is
+     the SEAM=1 vs SEAM=0 pixel count, which still moves 13489/9870/12621/12509 px - re-recording the
+     frame did not weaken that, it kept the row able to fail on a build where the seam term is gone. */
+  const RECSEAM = refRecord('bands', 'SEAM-FRAME', 'md5', ['047e4b0615538fffedfc0352cd2e10a6', '35cfc2377560ebf45217573991495570', 'cc04ff9ae97559d1b4aa77725f5fecc0', '02e4f5e368c365630fa2578aca141ae4']);
   // #303: the rows below are labelled by their own level index and every lip comes out of the GENERATED
   // grid, so a bound of 3 simply never asks the authored plan.
   for (let li = 0; li < run('LEVELS.length'); li++) {

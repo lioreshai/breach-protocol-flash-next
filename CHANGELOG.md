@@ -2,6 +2,27 @@
 
 ### Changed
 
+-- **Floors and ceilings stopped drawing a fan of radial spokes** (#19). Three terms of the ground pass were
+  functions of the CELL, and a cell boundary seen in perspective is a straight line to the vanishing point,
+  so each one drew a spoke over the largest area of the frame while walls, props and bodies stayed clean.
+  The per-cell texture mirror is now DISTANCE-GATED - it stays where a fold reads as the edge of a panel and
+  stops where the fold *is* the spoke; the ground's light walks its cell's own bilinear (four taps, cross
+  term included, advanced by two adds a channel) instead of taking one value per cell, which is the one
+  thing the wall pass has always done and the ground never did; and a pixel whose footprint is longer than
+  one texel now takes a tap on EITHER side of the point it already sampled, which is the box over the strip
+  it covers rather than a mean centred half a footprint past it. Ceiling streak per level (`view.js mip`)
+  47→42, 49→52, 114→84, 34→27 and the floor's own streak 74→64, 103→93, 117→104, 81→74, with the along-row
+  detail column still 3-4x the mush control's, so this is not a blur. All three are switches in the running
+  page (`DEV.set('gndjit'|'gndlight'|'gndax', …)`, `DEV.state().gnd` reads them back), so an A/B is one call
+  and not a worktree. Re-recorded flatparity's PARITY/LOCK/DEALT, cull's CZBAND, `bands`' SEAM-FRAME and
+  exposure's eight spawn figures - all frame hashes over ground shading, none of them a widened threshold;
+  the dealt grids' off-datum cell counts are 165/246/314/134 on this tree and on `main`, so no lamp moved.
+  Raster delta +0.03 ms pooled against the control. A paler, finer version of the fan still survives on a
+  bright far ceiling at the level-0 cam1 seat, where that seat's frame now reads 4.5 luminance brighter and
+  1.36% of its pixels clip; the six controls that rule mip depth, tap count, tile scale, a wall-style light
+  falloff, the per-cell mirror and the deferred pixel copy out are on the issue, so the next hunt does not
+  re-sweep them.
+
 -- **The simulation got a second perf arm** (#53 part 2). The frame-budget row ported from the unmerged
   `14bb9b7` gates `update()` at an absolute 1.5 ms, 8x its measured median, which passes a 5.7x AI
   regression (a busy loop in `update()` moved the median 0.17 to 0.97 ms/frame and SMOKE still PASSED).

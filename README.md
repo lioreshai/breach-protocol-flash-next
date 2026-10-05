@@ -177,8 +177,12 @@ reads badly can no longer be blamed on the seed stream, because this plan is wri
 20 × 20 grid.
 
 Two things this frame does not yet do, said here rather than cropped out. The ceiling over the seat fills
-the upper half of the frame and shows **strong radial streaking**: that is mip selection with no anisotropy
-at a grazing angle, the artifact the ceiling of a one-unit world has always had, now at four units. And what
+the upper half of the frame: the radial comb that used to lie over it is **mostly** gone — the ground pass
+now samples light and texture at the pixel instead of once per cell, and a cell boundary seen in perspective
+was the fan (#19). What survives near the horizon is a paler, finer version of it; `tools/view.js mip`
+prints the figure and `GNDPNG=/tmp/g.png node tools/view.js mip` draws the ground pass on its own, and
+issue #19 carries the controls that already ruled mip depth, tap count, tile scale and the per-cell mirror
+out — so the next hunt starts elsewhere. And what
 the eye gets is a **1.00** ceiling directly overhead against 4.00 units further in — `tools/view.js volume`
 reports that seat headroom as `1.00..1.00` with 18 look-up columns across the sweep, against 40/54/85 and
 `4.00` on level 0. So the level is genuinely two-storey in `MAP.fz` and still reads as a low room with a
