@@ -550,7 +550,16 @@ function updateEnemies(dt) {
           SND.enemyShot(panOf(e));
         } else {
           const dd = Math.hypot(P.x - e.x, P.y - e.y);
-          if (dd < t.reach * 1.25 && los(e.x, e.y, P.x, P.y)) damagePlayer(t.melee * (1 + S.level * LVL_RAMP), Math.atan2(e.y - P.y, e.x - P.x));
+          /* The swing lands ~0.35 s after the wind-up, and the wind-up's `see` (losZ) is stale by
+             then, so a player who dropped to the band below during the wind-up was damaged THROUGH
+             the slab: this test had no z in it at all. Ask the same solver the wind-up used, at TORSO
+             heights rather than eye heights - a body and a player one quantum apart (the auto-step
+             edge) keep their melee, because a torso-to-torso ray passes over a 0.25 riser, while a
+             full band between them is a floor plane the ray crosses. The 2-D `los` stays as the cheap
+             first test, so a wall in front of the body still costs one call, not a plane march. */
+          const ezM = floorAt(e.x, e.y) + e.scale * 0.5, pzM = floorAt(P.x, P.y) + 0.55;
+          if (dd < t.reach * 1.25 && los(e.x, e.y, P.x, P.y) && losZ(e.x, e.y, ezM, P.x, P.y, pzM))
+            damagePlayer(t.melee * (1 + S.level * LVL_RAMP), Math.atan2(e.y - P.y, e.x - e.x));
         }
         e.cd = t.cd * (0.75 + Math.random() * 0.6) / (1 + S.level * LVL_RAMP);   // #358: harder to trade with, not just faster
       }
