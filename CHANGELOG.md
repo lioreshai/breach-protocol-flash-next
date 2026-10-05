@@ -13,6 +13,19 @@
   Smoke's `barrels` step used to call `hurtBarrel` and assert nothing, so neither defect could fail it:
   it now asserts which barrels are down, and a new step boots the authored level at Recruit and Nightmare
   — the path every existing barrel and difficulty check was blind to.
+-- **The rig probe now measures the body path the game draws** (#352). `view.js rig` rasterized
+  `RIG.raster`, the 2-D sheet path #72 removed when bodies became meshes, so a `js/13_mesh.js`
+  geometry change came back byte-identical. Nine rows (three per kind) now read the shipped path
+  through `COV`, the opt-in coverage mask `MESH.draw` stamps per character pixel: whether the body
+  is painted at all, whether four gait phases give four distinct silhouettes through the pose
+  wiring, and whether drawn height keeps its authored span (floors 139/93/206 px at 2.2 m,
+  recorded from `main`). Both failure modes were seen: freezing `p: e.anim` at the draw site
+  collapses every kind to one shape and exits 1; shortening the grunt's thigh and shin takes drawn
+  height 163 to 120 px and fails the height row. The probe creates ONE individual per kind,
+  because an enemy per phase let `makeEnemy`'s per-individual draws move the silhouette the row
+  was attributing to gait.
+ **Dropping to the band below during a body's wind-up no longer gets you hit through the floor** (#356).
+
 - **The menu now tells you that you can jump and climb** (#357). `index.html`'s control list stopped at
   `Shift/C`, `R/1 2 3`, `G`, `Esc/M/T` — so neither `Space` (jump, `js/30_entities.js:388`) nor `E`/`Q`
   (climb, gated by `onLadder` at `:385`) appeared anywhere in the screen a player reads before deploying,
@@ -20,6 +33,7 @@
   design. The list gains one row, worded *on a ladder*, because the key does nothing off one.
 
 - **Dropping to the band below during a body's wind-up no longer gets you hit through the floor** (#356).
+
   The wind-up is band-aware (`js/30_entities.js:567` asks `losZ`, since #118), but the swing resolved ~0.35 s
   later on `Math.hypot` with no z plus a 2-D `los` that walks straight through a slab of floor
   (`js/20_level.js:267`). The swing now asks the same solver at **torso** heights — `floorAt + scale*0.5` to
