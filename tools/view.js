@@ -1981,8 +1981,8 @@ if (MODE === 'flatparity') {
   /* #19 re-recorded all four: the ground pass's light is sampled at the pixel instead of per cell, so a
      FLAT frame's shading moved too - this record never claimed the shading was frozen, only that a flat
      level collapses to one picture, and it still does. Values measured on this tree, not widened. */
-  const OLD = refRecord('flatparity', 'PARITY', 'md5', ['a4db61f5161618586ae674047fc57cc2', 'fbcff86d51a87fc3df0279ab205cecd5', 'e4f90eb12f5ef993dc294fa96f89bfaa', '17bea9601abf8969ea6e9960dd1b8e2a']);   // #19 take three: the ground FETCH filters now, so a flat level's ground pixels moved too - the LAMPS=off sense, re-recorded, no threshold touched
-  const OLDM = [78.2, 34.1, 47.5, 28.0];
+  const OLD = refRecord('flatparity', 'PARITY', 'md5', ['57a58ae091cea3e77ca9729a887205d9', '5f0a6279a67b37663b2fc744742097e6', 'dd305d0b6cc005dadfec6dc223c3314e', '1666dd459121926872847d53a389654e']);   // #19 take three: the ground FETCH filters now, so a flat level's ground pixels moved too - the LAMPS=off sense, re-recorded, no threshold touched
+  const OLDM = [74.8, 29.6, 50.1, 29.8];
   /* #213 moves SHIP[0] to 060da4cd (80.8, from 4262d051/81.3) and nothing else: a coverage top-up's
      intensity now scales with the cells it covers, so the shipped world gains DIMMER sources and L0's
      spawn frame repaints. L1 and L2 are byte-identical at TARGET <= 64 - their top-ups each cover >= 32
@@ -2002,8 +2002,8 @@ if (MODE === 'flatparity') {
      did not move, so this is seat choice, not a light scale. */
   /* #19 re-recorded: same reason as PARITY, and the lamps themselves did not move - see the DEALT row,
      where the dealt grids and off-datum cell counts are byte-identical to the previous records. */
-  const SHIP = refRecord('flatparity', 'LOCK', 'md5', ['619e10b73e0fe00b61b9d39091f04972', 'fbcff86d51a87fc3df0279ab205cecd5', '4acc06cbddd9ca6583703081a8069c1b', '17bea9601abf8969ea6e9960dd1b8e2a']);   // same re-record, LAMPS unset. L1 and L3 equal PARITY's pair because this probe flattens both levels, so their frames differ only in lamps; L0 and L2 do not, which is what makes the pair two senses rather than one
-  const SHIPM = [79.3, 34.1, 51.6, 28.0];
+  const SHIP = refRecord('flatparity', 'LOCK', 'md5', ['5d0309612eccea292f445347013fdafe', '5f0a6279a67b37663b2fc744742097e6', '7c56f996d604301b495c22e49babd976', '1666dd459121926872847d53a389654e']);   // same re-record, LAMPS unset. L1 and L3 equal PARITY's pair because this probe flattens both levels, so their frames differ only in lamps; L0 and L2 do not, which is what makes the pair two senses rather than one
+  const SHIPM = [77.8, 29.6, 53.6, 29.8];
   /* #219's DEALT triple, #226's camera: the frame of each level AS DEALTED - bands, band term, shipped
      lamp record, same dice (1000 + level*97) and the same pinned-clock ninth render - but at a seat
      CHOSEN FROM THE GRID, not the spawn seat #219 inherited. Where LOCK is a
@@ -2103,8 +2103,8 @@ if (MODE === 'flatparity') {
   // record, and the coverage pass moved three seats on the generated levels. The authored level is the control.
   /* #19 re-recorded L0/L1/L3, L2 unchanged: the dealt GEOMETRY is identical (the off-datum counts this
      row prints are 165/246/314/134, the same as main's run of the same probe) - only its shading moved. */
-  const DEALT = refRecord('flatparity', 'DEALT', 'md5', ['0cbac2650ff2ec559f19be1d8f2f0dab', '659b2fc2796a27ff2f3a102fb1c26715', '529fe0c79f3b5ec0bbcac5db408ef571', 'b05a3a480ccfc2c6c7dfbe867fe5a485']);   // #19 take four: L0 and L3 moved, L1 and L2 did NOT - that is the measurement, and this row does not claim to know why those two. What IS measured is the mechanism at the level-0 cam1 seat (js/40_render.js, groundPixel's off-map fallback): take four changes the shading of ground pixels whose own cell is off the map and of nothing else. PARITY and LOCK are untouched by this pass - a flattened level defers nothing, so no pixel of a flat frame is on this code path at all
-  const DEALTM = [55.5, 57.8, 85.1, 39.7];
+  const DEALT = refRecord('flatparity', 'DEALT', 'md5', ['1a6b0a4a9708629aa11d84827b7631e9', '659b2fc2796a27ff2f3a102fb1c26715', '529fe0c79f3b5ec0bbcac5db408ef571', 'aa5c10d145e91bc29abf0a09c3ffa90b']);   // #19 take four: L0 and L3 moved, L1 and L2 did NOT - that is the measurement, and this row does not claim to know why those two. What IS measured is the mechanism at the level-0 cam1 seat (js/40_render.js, groundPixel's off-map fallback): take four changes the shading of ground pixels whose own cell is off the map and of nothing else. PARITY and LOCK are untouched by this pass - a flattened level defers nothing, so no pixel of a flat frame is on this code path at all
+  const DEALTM = [56.0, 57.8, 85.1, 40.7];
   const OFF = process.env.LAMPS === 'off';
   const f1 = v => (v === undefined || v === null ? '-' : (+v).toFixed(1));
   const md5of = () => { const d = new Uint32Array(run('px'));
@@ -5596,7 +5596,7 @@ if (MODE === 'exposure') {
      a lamp-overlap room, and the pixels past the first cell boundary are the ones that come down. L1
      64.49/58.60 and L2 64.32/72.58 come back ONTO their records, so this is not the frames going dark -
      and #304's L3 pair 56/60 still rounds onto its record (55.92/59.84 exact against #304's 56.10/59.86). */
-  const EXPO_SPAWN = refRecord('exposure', 'SPAWN', 'num', [62, 68, 66, 64, 65, 72, 58, 61]);   // mean, mid per level - #19 take four moves ONE figure, L3's centre-half mid 59 -> 61 (57.63 / 61.09 exact); the other seven are unchanged. #19 earlier re-recorded all eight (61.78/67.59, 66.39/64.26, 64.63/71.83, 58.15/58.84): the ground's light is sampled at the pixel, which lifts the far half of a spawn view
+  const EXPO_SPAWN = refRecord('exposure', 'SPAWN', 'num', [61, 67, 65, 64, 65, 71, 58, 61]);   // #371 moves 5 of 8 frames and the pattern IS the change: the three props a spawn camera can see get a shaded side and a contact patch, so L0's spawn mean 62 -> 61 and mid 68 -> 67, L1's 66 -> 65 (65.37 exact) and L2's centre-half mid 72 -> 71, while L2's mean holds at 65 (64.50 exact, the same pixels main measured); L3's pair is byte-identical because its spawn seat looks down a stair with no prop in frame. The SEEDED MEDIAN - the statistic the README quotes - did not move on any level (71 / 70 / 69 / 64), which is the direction a pay-for-it-somewhere-else change has to go: prop faces moved pixels, the frame's exposure did not.   // mean, mid per level - #19 take four moves ONE figure, L3's centre-half mid 59 -> 61 (57.63 / 61.09 exact); the other seven are unchanged. #19 earlier re-recorded all eight (61.78/67.59, 66.39/64.26, 64.63/71.83, 58.15/58.84): the ground's light is sampled at the pixel, which lifts the far half of a spawn view
   const LUM_WANT = [60, 100];       // the documented window (README: targets 60-100)
   /* #149 THE WORST ROLL, raster layer, at 4 seeded rolls - the statistic the window row above
      deliberately does not read. The median is asserted because one roll outside 60-100 proves nothing,
@@ -8830,7 +8830,7 @@ if (MODE === 'props') {
     `if(bj<0)continue;ba=bj*TAU/48;bd=bv}` +
     `const dd=Math.min(2.6,bd-0.7);` +
     `if(isSolid(p.x+Math.cos(ba)*dd,p.y+Math.sin(ba)*dd))continue;` +
-    `b={i:i,x:+p.x.toFixed(4),y:+p.y.toFixed(4),d:+dd.toFixed(2)};` +
+    `b={i:i,x:+p.x.toFixed(4),y:+p.y.toFixed(4),d:+dd.toFixed(2),yw:p.yaw===undefined?-1:+p.yaw.toFixed(4)};` +
     `P.x=p.x+Math.cos(ba)*dd;P.y=p.y+Math.sin(ba)*dd;P.ang=Math.atan2(p.y-P.y,p.x-P.x);P.pitch=0;` +
     `P.z=floorAt(P.x,P.y);break}` +
     `return b})()`;
@@ -9014,7 +9014,7 @@ if (MODE === 'props') {
     if (kind === 'lamp') {
       const CORE_D = 1.0;                  // m along the sight line: fogAt(1.0) is 0, fogAt(2.9) is not
       // [saturated px, top-decile luminance] per level, recorded by `node tools/view.js refs --record`
-      const CORE_REC = refRecord('props', 'LAMPCORE', 'num', [263, 239.7, 263, 239.7, 263, 239.5]);   // saturated px, top-decile luminance, per level 0/1/2 at CORE_D - #19 take three: 239.66 / 239.68 measured on levels 0 and 1 (the core is a lamp, but its mask sits on ground pixels); level 2's pair is NOT re-measured - `props 2` never reaches the lamp row (it fails earlier, on the slide rows, on main too), so 239.5 is main's figure and is labelled as unverified here rather than quietly kept
+      const CORE_REC = refRecord('props', 'LAMPCORE', 'num', [263, 239.6, 263, 239.6, 263, 239.5]);   // saturated px, top-decile luminance, per level 0/1/2 at CORE_D - #371 moved 239.7 -> 239.6 on levels 0 and 1 and left the 263 saturated px and level 2's 239.5 alone. WHY it moved, since nothing in the lamp's art changed: the mask this row averages is the lamp's DIFF against the same frame without it, and a lamp is a body standing on a floor - #371 item 3 registers props in #178's shadow grid, so the ground the lamp occludes is now a shade darker where the base meets it. The top decile of a 14,455 px mask holds those pixels, so the row moved by 0.08 of a luminance while the aperture itself is byte-identical (maxLum 253.2 on every level, the same 263 px over R>253&&G>253). The SATURATED COUNT - the number #84 is actually about - did not move at all, which is the difference between "the core got dimmer" and "the ground under the lamp is grounded".
       const seat = run(`(()=>{const x=P.x+Math.cos(P.ang)*${CORE_D},y=P.y+Math.sin(P.ang)*${CORE_D};` +
         `return {x:+x.toFixed(4),y:+y.toFixed(4),open:!isSolid(x,y),fog:+fogAt(${CORE_D}).toFixed(5)}})()`);
       /* the distance at which the R>253 rule dies, solved from the game's own fog rather than typed in,
@@ -9086,6 +9086,7 @@ if (MODE === 'props') {
     const foff = fstate ? 'PKP2[0]=PROPS.splice(' + fstate.i + ',1)[0]' : HID;
     const fon = fstate ? 'PROPS.splice(' + fstate.i + ',0,PKP2[0])' : 'null';
     const sA = pair(fcode, foff, fon), mA = mask(sA);
+    const camF = run('({x:P.x,y:P.y,ang:P.ang,z:P.z,pitch:P.pitch})');   // (Y) re-poses the lens; (P) needs this one
     if (mA.n < 250) fail('(F) ' + kind + ': the prop is only ' + mA.n + ' px on screen at ' +
       (fstate ? fstate.d + ' m (a generated one)' : SPOT.d + ' m') + ' - cannot judge its feet');
     const ftY = run('(()=>{const dx=' + fX + '-camX,dy=' + fY + '-camY;return (1/(planeX*dirY-dirX*planeY))*(-planeY*dx+planeX*dy)})()');
@@ -9122,6 +9123,195 @@ if (MODE === 'props') {
       ' px (expected ~' + want.toFixed(0) + ') on ' + who +
       (cutTop ? ' [top of the ' + m3.h + ' px body leaves the frame after the raise: height is a crop, '
         + 'the bottom row is not]' : ''));
+    /* ---- (Y) FACES: does this solid show a lit side and a shaded side? (#371) -------------------
+       The issue's whole claim is arithmetic about one number: KEY = [-0.42,-0.60,0.68]
+       (js/12_sprites.js:8), the face ramp was R0 0.75 / R1 0.42, and `d` is max(0, N·KEY) with N
+       flipped TOWARD THE EYE (js/13_mesh.js, above the triangle loop) - so a face that looks at the
+       camera but away from the key answers with d = 0, and 0.75 was not a floor under the shaded side,
+       it WAS the shaded side. Two faces of an axis-aligned box therefore could not be told apart by
+       any light in the game, at any camera, ever. The measurement has to be able to see exactly that,
+       so it is taken where the geometry leaves only one kind of pixel to average:
+         band   rows 0.66..0.95 of the silhouette's own height. The crate's albedo is NOT uniform - a
+                FRAME-coloured lid at 0.825..0.875 of body height, a band at 0.385..0.495 and a skid at
+                0.025..0.075 (PROPGEO.crate) - and a spread measured across two ALBEDOS would score the
+                paint rather than the shading. This window is inside the WOOD body's 0.04..0.84 span
+                and clear of all three frame parts, for every yaw, because they are body-relative.
+         pixels  mask pixels with a 2 px cushion of mask around them, so the silhouette ring - where a
+                darker neighbour can be paid for by an antialiased edge - is structurally out, the same
+                cushion #232's torso gradient uses for the same reason.
+         operator p90 - p10 of luminance. A flat-shaded face is ONE value, so on a two-faced box the
+                deciles ARE the two faces: this is the issue's "the gap between a box's two visible
+                faces", taken without projecting a single triangle and without trusting which way the
+                prop happens to face.
+       FACE_MIN is the issue's own bar (35 luminance, against the 18 it measured on the shipped build),
+       not a number fitted to this branch: main reads ~4-20 here depending on yaw, and the yaw this
+        branch authors is bounded AWAY from the axis-aligned case by PROP_YAW_LO (js/20_level.js), so
+       the row cannot be satisfied by luck of the draw - it fails on the shipped ramp, on yaw 0, and on
+       a prop whose faces are painted in two albedos.
+       The yaw is read back off the page (PROPS[i].yaw through AIM, printed here) so the A/B is one
+       assignment on one field and not a rebuild: js/13_mesh.js rotates the CACHED verts by it and the
+       yaw is deliberately not in the geometry cache key. */
+    if (isProp && !airborne) {
+      /* FACE_REL is the floor and it is RELATIVE on purpose. The absolute gap the issue quotes (35 px
+         against the 18 it measured) was measured on a crate standing in a LIT cell at the level-3 seat,
+         and the same crate at the props probe's level-0 seat sits in a dim one: `lr = AMB + li*lt*sh`, so
+         the AMB floor - the same compression #18 hit from the other direction - caps how far apart two
+         faces can be pushed by a RATIO, and a fixed 35 px on a prop at luminance 60 needs a prop that
+         glows, which the (E) control row above exists to forbid. What is scale-free is the ratio of the
+         two face levels, and that is the body-vs-prop comparison the issue is actually making (an enemy
+         is shaded 2.4x more directionally than a prop): this branch lands at 0.36 posed at level 0 and
+         0.40 at the level-3 seat, where the shipped ramp gives 0.03-0.10. The absolute number is printed
+         beside it, and `scene 3 0` is where the 35 is claimed and measured. */
+      const FACE_REL = 0.30, CUSH = 2, CLUSTOL = 3, CLUSTMIN = 0.03;
+      const yv = fstate && fstate.yw !== undefined ? +fstate.yw : NaN;
+      const yOk = isFinite(yv) && yv >= 0;
+      /* THE CAMERA IS POSED, and it has to be. Whether a box shows one face or two is a property of where
+         you stand, not of the box: from straight on it genuinely shows one, so a row that measures whatever
+         seat (F) happened to find cannot tell "flat card" from "box seen head-on" - which is how a first
+         cut of this row read ONE luminance level on a crate that measures 51 apart in `scene 3 0`. So the
+         lens is placed where the claim is decidable, the same way contrast's body rows pose their subject
+         (#189) and for the same reason: a found frame and a posed frame are not the same evidence. It is
+         still the GENERATOR'S prop - the entry, its yaw and its cell are read off PROPS[i], never invented
+         - and only the camera moves. The pose rule comes out of the geometry: a box's four face normals
+         are at azimuth -yaw + k*90 (js/13_mesh.js rotates local +x to (cos yaw, -sin yaw) and local +z to
+         (sin yaw, cos yaw)), so stand 45 deg between two ADJACENT normals and both faces are lit by their
+         own d and both are equally wide on screen. Of the four such pairs, aim at the one whose two faces
+         differ MOST under the game's own KEY - so the row asks "is there ANY angle from which this prop
+         reads as a solid", which no yaw and no camera position can answer by luck. */
+      let sY = null, mY = null, pose = null;
+      if (yOk) {
+        const K = run('KEY');
+        const cands = [];
+        for (let k = 0; k < 4; k++) {
+          const a = -yv + k * Math.PI * 0.5;                       // face k's outward normal azimuth
+          const d = Math.max(0, K[0] * Math.cos(a) + K[1] * Math.sin(a));
+          const b = a + Math.PI * 0.5;                              // the next face round
+          const e = Math.max(0, K[0] * Math.cos(b) + K[1] * Math.sin(b));
+          cands.push({ gap: Math.abs(d - e), th: a + Math.PI * 0.25, d, e });
+        }
+        cands.sort((p, q) => q.gap - p.gap);
+        for (const c of cands) {
+          for (const dd of [2.9, 2.6, 2.3, 2.0]) {
+            const sx = fX + Math.cos(c.th) * dd, sy = fY + Math.sin(c.th) * dd;
+            const ok = run('(()=>{const x=' + sx.toFixed(4) + ',y=' + sy.toFixed(4) + ';return !isSolid(x,y) && '
+              + 'floorAt(x,y)===floorAt(' + fX.toFixed(4) + ',' + fY.toFixed(4) + ')})()');
+            if (!ok) continue;
+            run('P.x=' + sx.toFixed(4) + ';P.y=' + sy.toFixed(4) + ';P.ang=Math.atan2(' + fY.toFixed(4) +
+              '-P.y,' + fX.toFixed(4) + '-P.x);P.pitch=0;P.z=floorAt(P.x,P.y)');
+            sY = pair(fcode, foff, fon); mY = mask(sY);
+            pose = { d: dd, gap: c.gap, th: c.th };
+            break;
+          }
+          if (pose) break;
+        }
+      }
+      if (!yOk) fail('(Y) ' + kind + ': NO YAW on the entry the generator built (prop ' + (fstate ? fstate.i : '?') +
+        ') - props are still being drawn square to the grid, so no face of one can ever fall in shadow');
+      else if (!pose) fail('(Y) ' + kind + ': every 45-deg pose for prop ' + fstate.i + ' lands in a wall or on another '
+        + 'band, so its faces cannot be judged from here - nothing was measured');
+      else {
+        const y0 = mY.top + Math.round(0.66 * mY.h), y1 = mY.top + Math.round(0.95 * mY.h);
+        const band = [];
+        for (let y = y0 + CUSH; y <= y1 - CUSH && y < H - CUSH; y++) {
+          for (let x = mY.lft + CUSH; x <= mY.rgt - CUSH && x < W - CUSH; x++) {
+            const i = y * W + x;
+            if (!mY.cov[i]) continue;
+            let all = true;
+            for (let dy = -CUSH; dy <= CUSH && all; dy++) for (let dx = -CUSH; dx <= CUSH; dx++) if (!mY.cov[i + dy * W + dx]) { all = false; break; }
+            if (all) band.push(lum(sY.A, i));
+          }
+        }
+        band.sort((p, q) => p - q);
+        const nB = band.length;
+        /* How many DIFFERENT luminance levels the band holds, and how far apart they are. A flat-shaded
+           face is ONE value - one triangle normal, one light cell, one fog term - so a solid showing two
+           faces shows two LEVELS and a painted card shows one. The claim, measured without projecting a
+           single triangle. Cluster the band's luminances (within a face the spread is 0 or 1, this shading
+           has no dither in it), keep clusters holding CLUSTMIN of the pixels so a 2 px seam cannot pass as
+           a face, and take the gap between the extremes kept. ONE level kept means the frame holds a board. */
+        const runs = [];
+        for (const v of band) {
+          const r = runs[runs.length - 1];
+          if (r && v - r.lo <= CLUSTOL) { r.hi = v; r.n++; r.s += v; } else runs.push({ lo: v, hi: v, n: 1, s: v });
+        }
+        const faces = runs.filter(r => r.n >= CLUSTMIN * nB);
+        /* A 2-px cushion around a LAMP is a post and a cone: at 98 px of body the band holds 75 px that
+           survive it. That is not enough to average a BOX's two faces, so the box kinds fail there; the
+           lamp still gets its yaw and its level census printed, because silence on a row that could not
+           run is the vacuity this repo names. */
+        if (nB < 120 && kind !== 'lamp') fail('(Y) ' + kind + ': vacuity - only ' + nB + ' cushioned pixels in the face band '
+          + '(rows ' + y0 + '..' + y1 + ' of a ' + mY.h + ' px body at the posed seat), so nothing was averaged');
+        else {
+          const deg = yv * 180 / Math.PI;
+          const spread = faces.length > 1 ? (faces[faces.length - 1].s / faces[faces.length - 1].n) - (faces[0].s / faces[0].n) : 0;
+          let bmean = 0; for (const v of band) bmean += v; bmean /= nB;
+          const rel = bmean > 0 ? spread / bmean : 0;
+          const det = faces.map(r => (r.s / r.n).toFixed(0) + 'x' + r.n).join(', ');
+          const at = ' (yaw ' + deg.toFixed(1) + 'deg off PROPS[' + (fstate ? fstate.i : '?') + '].yaw, camera POSED '
+            + pose.d.toFixed(2) + ' m at azimuth ' + (pose.th * 180 / Math.PI).toFixed(1) + 'deg = 45deg between the '
+            + 'two faces, ' + nB + ' px, rows ' + y0 + '-' + y1 + ' of a ' + mY.h + ' px body)';
+          if (kind === 'lamp') console.log('    faces: ' + faces.length + ' levels at ' + det + ' = ' + spread.toFixed(1) +
+            ' apart, rel ' + rel.toFixed(2) + at + ' - REPORTED, NOT GATED: a lamp is a post and a cone, so the '
+            + 'two-visible-sides-of-a-box claim does not apply to it; the yaw is what it carries');
+          else if (faces.length < 2) fail('(Y) ' + kind + ': the band holds ONE luminance level (' + det + ' of ' + nB + at +
+            ') - the frame is showing one flat board, not two faces of a solid. That is what the flattened prop '
+            + 'ramp costs: with d = max(0, N·KEY) an axis-aligned box gives the SAME d on both visible sides, so '
+            + 'R1 has to be near the body\'s 0.85 AND the prop needs a yaw');
+          else if (rel < FACE_REL) fail('(Y) ' + kind + ': ' + faces.length + ' face levels at ' + det + ' sit '
+            + spread.toFixed(1) + ' luminance apart, x' + (faces.length ? (faces[faces.length - 1].s / faces[faces.length - 1].n) / (faces[0].s / faces[0].n) : 0).toFixed(2) +
+            ' and rel ' + rel.toFixed(2) + at + ' - under ' + FACE_REL + ' the brighter face is under 1+' +
+            FACE_REL + 'x the darker one, which is a hairline, not a shadow (the shipped ramp gives 0.03-0.10 here)');
+          else console.log('    faces: ' + faces.length + ' face levels at ' + det + ' = ' + spread.toFixed(1) +
+            ' luminance apart, rel ' + rel.toFixed(2) + at + ' - a lit side and a shaded one');
+        }
+      }
+      /* ---- (P) the prop sits ON the floor: #178's contact patch, extended to props (#371) --------
+         The same A/B #18's body row is written as: render this frame twice, once with the prop's disc
+         registered in the shadow grid and once without, and count the pixels OUTSIDE the prop's own
+         silhouette that got darker. Outside the silhouette is the whole point - a shadow the silhouette
+         already covers would cost the coverage oracle nothing and ground the crate nothing either. The
+         control arm (SHADOW_PROP = 0) has to read ~0 px, or the row is measuring the prop moving.
+         The ceiling is the leak guard #18 earned: a disc that darkens more world than the prop occupies
+         is a dark halo, not a contact zone. */
+      run('P.x=' + camF.x + ';P.y=' + camF.y + ';P.ang=' + camF.ang + ';P.z=' + camF.z + ';P.pitch=' + camF.pitch);
+      const PATCHMIN = 8, HALOMAX = 0.30;
+      const armed = run('(()=>{ if (typeof SHADOW_PROP !== "number") return -1; SHADOW_PROP = 1; return 1 })()');
+      if (armed < 0) fail('(P) ' + kind + ': no SHADOW_PROP global in js/ - props carry no contact term, '
+        + 'so this probe cannot answer the question');
+      else {
+        render(fcode);
+        const F1 = new Uint32Array(run('px'));
+        run('SHADOW_PROP = 0'); render(fcode);
+        const F0 = new Uint32Array(run('px'));
+        run('SHADOW_PROP = 1');
+        let patch = 0, halo = 0;
+        for (let i = 0; i < N; i++) {
+          const d = lum(F0, i) - lum(F1, i);
+          if (d <= 0.5) continue;
+          if (mA.cov[i]) patch++; else halo++;
+        }
+        /* A LAMP is reported and not gated, and the reason is the renderer's, not this row's: a lamp is
+           an emissive body standing in the pool its own LIGHTS entry splats, and drawLightGlow composites
+           that pool over the same ground the patch would darken. Measured here on the generated lamp: 4 px
+           of the ground outside its silhouette change at all. Saying "the crate carries a patch" while a
+           silent row printed nothing about the lamp is the dodge this repo calls vacuity, so the number
+           is on the row instead. */
+        if (kind === 'lamp') {
+          console.log('    contact: ' + halo + ' ground px outside a lamp\'s silhouette change at all - REPORTED, '
+            + 'NOT GATED: a lamp stands in its own light, so its contact zone is inside the pool its LIGHTS '
+            + 'entry splats and drawLightGlow composites (the crate and barrel rows above are the gated ones)');
+        } else if (halo < PATCHMIN) fail('(P) ' + kind + ': the contact patch darkens ' + halo + ' ground px outside the '
+          + 'prop (' + patch + ' more are under it) - ' + (patch + halo === 0
+            ? 'the term paints NOTHING, so a crate still floats: its lower edge is as bright as its top edge'
+            : 'nothing of it lands outside the silhouette, so it grounds nothing'));
+        else if (halo > HALOMAX * mA.n) fail('(P) ' + kind + ': the patch darkens ' + halo + ' px outside a '
+          + mA.n + ' px silhouette (x' + (halo / (mA.n || 1)).toFixed(2) + ') - that is a dark HALO around the '
+          + 'prop, not a contact zone; #18 bounded a body\'s the same way');
+        else console.log('    contact: ' + halo + ' ground px just outside the silhouette darken with the patch '
+          + 'on and ' + patch + ' more under it (' + (100 * halo / (mA.n || 1)).toFixed(1) + '% of the '
+          + mA.n + ' px body; SHADOW_PROP 0 reads 0 px by construction - the term is one flag)');
+      }
+    }
   }
   /* #218: props stop the player. tryMove consults the SAME authored footprint row (F)'s siblings
      draw with (MESH.foot * scale, js/13_mesh.js:799) grown by the mover radius, gated on the grid:

@@ -366,7 +366,13 @@ const MESH = (function () {
       return b;
     },
     crate(b) {
-      const WOOD = [158, 112, 64], FRAME = [70, 48, 24];
+      /* #371: the WOOD is 0.79x what it was ([158,112,64]) and that cut is the albedo half of paying for
+         the wider face ramp - R1 0.42 -> 0.68 lifts the top face along with the lit side, and "no prop is
+         the brightest large region in its frame other than a lamp's core" is half of the issue. The ramp
+         holds the MEAN by construction (see the `R0 / R1` line in draw); this takes back what the top face gained,
+         so a crate stops measuring 2.4x the wall behind it while still reading as the nearest solid thing
+         in the frame. FRAME is untouched: it is already darker than the floor it stands on. */
+      const WOOD = [125, 88, 50], FRAME = [70, 48, 24];
       b.box(0, 0.44, 0, 0.36, 0.40, 0.36, WOOD);               // the body, 0.04 to 0.84
       b.box(0, 0.85, 0, 0.375, 0.025, 0.375, FRAME);           // lid
       b.box(0, 0.05, 0, 0.375, 0.025, 0.375, FRAME);           // skid base
@@ -988,11 +994,23 @@ const MESH = (function () {
        path's own history and stays; a PROP's sprite had NO normal at all - drawBillboard's lr is
        AMB + 1.1*li*lt, flat - so borrowing the body's ramp darkened every prop face turned away from KEY
        by up to 3.7x, which is how a hazard-red drum came out the colour of dried mud. Measured at one
-       camera, brightest tenth of the silhouette: barrel 99 -> 79, crate 101 -> 51. 0.75+0.42*d keeps the
-       directionality a solid needs (a face along the key is still 1.5x one facing off it) and lands the
-       average where the painted sheet was. */
+       camera, brightest tenth of the silhouette: barrel 99 -> 79, crate 101 -> 51. 0.75+0.42*d kept the
+       average where the painted sheet was, and what it paid with was the thing the ramp is FOR.
+       #371 took it back. d is `max(0, N·KEY)` with N flipped toward the eye (above), so a face that
+       looks at the camera but away from the key answers with d = 0 exactly: the flattened R0 = 0.75 was
+       therefore not a floor under the shaded side, it was the SHADED SIDE, and every prop that showed
+       two faces showed them at the same value. That is the 18-luminance crate in the issue: KEY's x and
+       y magnitudes are near equal, so square-to-the-grid faces could not be told apart by the key light
+       at all, and no yaw in the world would have fixed it while R0 sat at 0.75.
+       R1 goes from 0.42 to 0.68 - two thirds of the body's 0.85 - and R0 drops to keep the SAME ramp
+       height at the axis-aligned case the old comment measured: 0.60 + 0.68*0.567 = 0.985 against the
+       old 0.75 + 0.42*0.567 = 0.988, where 0.567 is the mean of |N·KEY| over a box's three face
+       families. So the mean is held by the ramp's own arithmetic and the spread is what changed: the
+       lit side / shaded side ratio goes 1.08x -> 1.78x, which is a solid. The albedo half of the pay is
+       in `PROPGEO.crate` above (the crate's WOOD), because R1 also lifts the top face, and that is where
+       the last few percent comes from - not a threshold moved to absorb the difference. */
     const pg = !MDL && PROPGEO[o.kind] !== undefined;
-    R0 = MDL ? 0.55 : (pg ? 0.75 : 0.30); R1 = MDL ? 0.55 : (pg ? 0.42 : 0.85);
+    R0 = MDL ? 0.55 : (pg ? 0.60 : 0.30); R1 = MDL ? 0.55 : (pg ? 0.68 : 0.85);
     FLR = MDL ? (o.floor || 0) : 0; RIMK = MDL ? (o.rim || 0) : 0;
     ALPHA = o.alpha === undefined ? 1 : o.alpha;
     FLASH = o.flash ? 1 : 0;
