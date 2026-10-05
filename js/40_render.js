@@ -350,10 +350,38 @@ let MIPAX = 1, MIPAR = 4;
             tap HALF a footprint to each side of the point it already took; 0 = the single tap as it
             shipped. One extra texel load, and only on the rows that are actually undersampled.
 
-   All three are read once per row, never per pixel, and none of them adds a THIRD copy of the ground
-   pixel body: a switch shows up as a zero slope, a zero offset or one fewer load, not as a new loop. */
-let GJIT = 1, GLRP = 1, GNDAX = 1, AXMIN = 1.5, GLC = null;
+   All of them are read once per row (the last one once per deferred pixel), never per pixel of a row, and
+   none of them adds a THIRD copy of the ground pixel body: a switch shows up as a zero slope, a zero
+   offset or one fewer load, not as a new loop. */
+let GJIT = 1, GLRP = 1, GNDAX = 1, AXMIN = 1.5, GLC = null, GNDFT = 1, GNDRO = 1;
 const GJITPX = 48;      // GJIT 1 keeps the mirror only where a cell is this many px wide or wider
+
+/* #19, TAKE THREE - THE FETCH. The two terms above are not what combs a plane, and neither is the mip
+   choice. On the row loop's own pixels - the NEAR and MID field - what combs it is that the pass takes
+   ONE texel per pixel. A row walks its plane by (wxs,wys) per column, which on a plane of this world is a
+   FRACTION of a texel: measured on a ceiling row at the level-0 cam1 seat, the texel index does not change
+   at all along most of the row. So the pixel is smaller than the texel it reads, the tile is magnified,
+   and every texel of the material is drawn as a hard-edged strip whose long direction is the line from the
+   pixel to the vanishing point - the material's own grit becomes a radial comb, floor and ceiling alike,
+   at every distance. Walls, props and bodies never wear it because they are fetched with texBil(), which
+   has always interpolated. The fix is that interpolation ACROSS the footprint's short side, and it costs
+   ONE extra texel load and one lerp; a full bilinear costs three loads and four mults a channel for
+   little more than this buys, and most of what it adds is blur. Which axis to lerp is decided per ROW from
+   the row's own deltas (the long side is the column delta, so the axis the walk crosses texel boundaries
+   along is the one with the larger component), and the deferred copy decides it from its pixel's OWN
+   footprint, exactly as the axial pair already does.
+   Measured against this same tree with GNDFT 0 (`view.js mip`): ceiling streak 42 -> 38, 52 -> 48,
+   84 -> 75, 27 -> 26 and floor 64 -> 58, 92 -> 87, 104 -> 93, 74 -> 66, with the `detail` column held well
+   above its mush control - smoothing, not blur. GNDFT 0 = one texel per pixel as this shipped, 1 = the
+   lerp, so the A/B is one DEV.set call and the frame visibly changes.
+
+   Two things this does NOT reach, both named rather than cropped. The FAR field is not painted by this
+   loop at all: 18,704 pixels of the level-0 cam1 frame go through groundPixel(), 53-64% of every row of
+   the bright ceiling wedge, and take four (there) is what fixed that half. And one control that got run
+   here is a trap worth naming: swapping the ceiling for a flat grey texture collapses the far-band
+   gradient from 13 to 4 - while also lifting that band's mean luminance from 85 to 123, where it clips.
+   A render difference can see geometry, never the shading inside it; at a grey that does not clip the same
+   swap leaves the far band at -61%, and the term that is left there is the light, not the texel. */
 
 /* The lightmap as a plane each PIXEL walks (#19). Stored per cell as
      value(fx,fy) = V + A*fx + B*fy + D*fx*fy  per channel,
@@ -844,6 +872,9 @@ function castGround(flash, fcR, fcG, fcB) {
        groundPixel(), and the flat case - every pixel of every level shipped - never touches one. */
     const dfade = dfadeRow, fog = fogRow, inv = invRow, fR = fRRow, fG = fGRow, fB = fBRow, base = baseRow;
     const mw = mRow.w, mh = mRow.h, ms = sc * mRow.w, td = mRow.data, mask = mw - 1, maskH = mh - 1;
+    /* Which texture axis the ROW walks, in texels: ms scales both terms equally, so comparing the world
+       deltas compares the texel deltas. The fetch lerps along this one (#19 take three). */
+    const ftV = Math.abs(wys) >= Math.abs(wxs) ? 1 : 0;
     /* #19: the axial fetch's tap offset - HALF THE FOOTPRINT, along whichever axis of this pixel's
        footprint is the long one, and the fetch takes one tap on EITHER side of the point it already
        sampled. That geometry matters more than the filter itself: the pixel's strip on the plane runs
@@ -1007,13 +1038,30 @@ function castGround(flash, fcR, fcG, fcB) {
          walk reached, and groundPixel() marches that pixel - which is where all 438/401/398 leaking
          pixels are (measured: 0 px row-painted), so the row copy needs no rule of its own. */
       if (planeC !== planeA) { RX[nm] = x; RP[nm] = planeC; nm++; continue; }
-      let tx = (wx * ms) | 0, ty = (wy * ms) | 0;
+      const ux = wx * ms, uy = wy * ms;
+      let tx = ux | 0, ty = uy | 0, ufx = ux - tx, ufy = uy - ty;
+      /* floor, not truncate: |0 rounds toward zero, so a coordinate in (-1,0) would index texel 0 with a
+         NEGATIVE fraction and the lerp would extrapolate outside the tile it is reading. The point is in
+         the texel below, and that is the pair the lerp takes. */
+      if (ufx < 0) { tx--; ufx++; }
+      if (ufy < 0) { ty--; ufy++; }
       tx &= mask; ty &= maskH;
-      if (mir & 1) tx = mask - tx;
-      if (mir & 2) ty = maskH - ty;
+      /* A mirror flips the pattern, so the texel the walk enters NEXT is the one at the LOWER index: same
+         mask-as-mirror the point fetch does, one texel earlier, with the fraction read backwards. At
+         ufraction 0 this is bit for bit the texel that shipped. */
+      if (mir & 1) { tx = (mask - tx - 1) & mask; ufx = 1 - ufx; }
+      if (mir & 2) { ty = (maskH - ty - 1) & maskH; ufy = 1 - ufy; }
       const c = td[ty * mw + tx];
       const i = row + x;
       let cr = c & 255, cg = c >> 8 & 255, cb = c >> 16 & 255, em = c >>> 24;
+      if (GNDFT) {                              // the filtered half: one texel across the sub-texel side
+        const c1 = ftV ? td[((ty + 1) & maskH) * mw + tx] : td[ty * mw + ((tx + 1) & mask)];
+        const wf = ftV ? ufy : ufx;
+        cr += ((c1 & 255) - cr) * wf;
+        cg += ((c1 >> 8 & 255) - cg) * wf;
+        cb += ((c1 >> 16 & 255) - cb) * wf;
+        if ((c1 >>> 24) === 253) em = 253;      // 253 is a FLAG, not a coverage value (#20)
+      }
       if (axOn) {                                // the anisotropic HALF of anisotropic filtering: one
         const oxi = (ox + 0.5) | 0, oyi = (oy + 0.5) | 0;    // tap on each side of the point, so the
         const c1 = td[((ty - oyi) & maskH) * mw + ((tx - oxi) & mask)];   // pair is the box over the
@@ -1259,8 +1307,23 @@ function groundPixel(x0, x1, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb
   let sx = cx | 0, sy = cy | 0;
   /* a re-solved pixel that leaves the map falls back to the predictor's cell - the cell the row's own
      walk would have reached - so it shades like a flat pixel at that distance instead of wrapping to a
-     cell on the far side of the level */
-  if (sx < 0 || sy < 0 || sx >= N || sy >= N) { gndOffMap++; sx = ax; sy = ay; }
+     cell on the far side of the level. `own` records that the fallback FIRED, which the ramp below
+     needs: (cx - sx) stops being a fraction the moment sx is somebody else's cell.
+     #19: this is where the far field's fan lived. Measured at the level-0 cam1 seat on THIS tree, with
+     the per-pixel light on: 18,704 deferred pixels in one frame, EVERY one of them with |fx| > 1 and the
+     worst at 68.37 - a pixel whose ray landed at world (62.2, 44.2) of a 26x26 map fell back to the camera's
+     own cell (22, 15) and then interpolated that cell's slopes 40 cells in x and 29 in y. The delivered
+     light multiplier reached 136 (11,117 of those pixels sat outside [0.2, 1.5]), so the ceiling
+     past the map edge is not shaded, it is multiplied into clipping, and its level sets are straight
+     world-aligned lines - which in perspective is a fan of spokes meeting at the vanishing point, brightest
+     exactly where the lamp pool is brightest. `main` cannot show this term because its deferred copy has
+     no ramp at all (`lr = gMBase + gML0`), so the runaway is take two's regression, not the shipped look.
+     The rule the row copy already obeys is restated here: the ramp is an interpolation INSIDE the cell whose
+     light it reads, so when the pixel has no cell of its own its fraction is 0 and it takes that cell's
+     value whole - which is bit for bit what `main` delivers at the same pixel. GNDRO 0 puts the
+     extrapolation back, so the A/B is one DEV.set call and the blown wedge comes back visibly. */
+  const own = sx >= 0 && sy >= 0 && sx < N && sy < N;
+  if (!own) { gndOffMap++; sx = ax; sy = ay; }
   let k;
   if (gMAn) {
     const cfS = gMCf, qx = rx * cfS, qy = ry * cfS;
@@ -1305,8 +1368,10 @@ function groundPixel(x0, x1, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb
   }
   /* The same patch the row loop walks, and the same floor on it: the four weights sum to 1 and every
      tap is >= 0, so the only way below the ambient base is a NEGATIVE fx or fy - cx can sit in (-1,0)
-     and still index cell 0, which is in-map, and the patch then extrapolates off the map's own edge. */
-  const fx = (cx - sx) * GLRP, fy = (cy - sy) * GLRP;
+     and still index cell 0, which is in-map, and the patch then extrapolates off the map's own edge.
+     `own` closes the OTHER way out of the patch, the one that reaches 136 rather than below zero: a
+     pixel that fell back to the predictor has an (cx - sx) of whole cells, not a fraction (#19). */
+  const fx = (own || !GNDRO) ? (cx - sx) * GLRP : 0, fy = (own || !GNDRO) ? (cy - sy) * GLRP : 0;   // GNDRO 0 reproduces the extrapolation for the A/B
   const vr = gMBase + gML0 + (gMA0 + gMD0 * fy) * fx + gMB0 * fy,
     vg = gMBase + gML1 + (gMA1 + gMD1 * fy) * fx + gMB1 * fy,
     vb = gMBase + gML2 + (gMA2 + gMD2 * fy) * fx + gMB2 * fy;
@@ -1325,13 +1390,25 @@ function groundPixel(x0, x1, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb
     else { const rowT = Math.sqrt(rowT2); if (rowT > AXMIN) { axOn = 1; ox = gMCxs * ms * 0.5; oy = gMCys * ms * 0.5; } }
     ox = (ox + 0.5) | 0; oy = (oy + 0.5) | 0;
   }
-  let tx = (cx * ms) | 0, ty = (cy * ms) | 0;
+  const uxp = cx * ms, uyp = cy * ms;
+  let tx = uxp | 0, ty = uyp | 0, ufx = uxp - tx, ufy = uyp - ty;
+  if (ufx < 0) { tx--; ufx++; }                 // floor, not truncate - same guard as the row copy
+  if (ufy < 0) { ty--; ufy++; }
   tx &= mask; ty &= maskH;
-  if (mir & 1) tx = mask - tx;
-  if (mir & 2) ty = maskH - ty;
+  if (mir & 1) { tx = (mask - tx - 1) & mask; ufx = 1 - ufx; }
+  if (mir & 2) { ty = (maskH - ty - 1) & maskH; ufy = 1 - ufy; }
   const c = td[ty * mw + tx];
   const i = row + x;
   let cr = c & 255, cg = c >> 8 & 255, cb = c >> 16 & 255, em = c >>> 24;
+  if (GNDFT) {                                 // the same lerp as the row copy, across THIS pixel's
+    const c0 = Math.abs(gMCys) >= Math.abs(gMCxs) ? 1 : 0;    // short side, decided from its own footprint
+    const c1 = c0 ? td[((ty + 1) & maskH) * mw + tx] : td[ty * mw + ((tx + 1) & mask)];
+    const wf = c0 ? ufy : ufx;
+    cr += ((c1 & 255) - cr) * wf;
+    cg += ((c1 >> 8 & 255) - cg) * wf;
+    cb += ((c1 >> 16 & 255) - cb) * wf;
+    if ((c1 >>> 24) === 253) em = 253;         // the FLAG rule, same as the row copy
+  }
   if (axOn) {                                  // the same symmetric pair as the row copy, from this
     const c1 = td[((ty - oy) & maskH) * mw + ((tx - ox) & mask)];    // pixel's OWN footprint, which is
     const c2 = td[((ty + oy) & maskH) * mw + ((tx + ox) & mask)];    // what the march above just solved
