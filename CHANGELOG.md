@@ -13,6 +13,21 @@
   Smoke's `barrels` step used to call `hurtBarrel` and assert nothing, so neither defect could fail it:
   it now asserts which barrels are down, and a new step boots the authored level at Recruit and Nightmare
   — the path every existing barrel and difficulty check was blind to.
+- **Dropping to the band below during a body's wind-up no longer gets you hit through the floor** (#356).
+  The wind-up is band-aware (`js/30_entities.js:567` asks `losZ`, since #118), but the swing resolved ~0.35 s
+  later on `Math.hypot` with no z plus a 2-D `los` that walks straight through a slab of floor
+  (`js/20_level.js:267`). The swing now asks the same solver at **torso** heights — `floorAt + scale*0.5` to
+  `floorAt + 0.55` — which keeps a body one quantum away across an auto-step edge landing (that ray passes
+  over the 0.25 m riser) while a full band between them is a floor plane it crosses. Four `sight` rows per
+  level start the wind-up legitimately on one band, then move a band under one of the pair mid-wind-up:
+  same-band and one-quantum damage is unchanged (11 / 11.66 / 12.32 / 12.98), both slab directions land 0 on
+  this branch and land full damage on pristine `main`, which fails those two rows on every level.
+  Two geometry traps the rows now carry in their own comments: a fixed +4-quantum raise beside the authored
+  level's 4-unit room is a **ledge**, not a slab, so the raise is taken from the low cell's own ceiling in
+  quanta; and raising the cell behind the ray's target **closes no opening**, because
+  `ceilAt = floor + max(1 unit, neighbour floors above)` grows the low ceiling to meet it.
+
+
 - **A room now behaves like a room** (#358). `alertEnemies` had exactly one call site — the player's own
   gunshot — and `damageEnemy` raised only the victim, so a body shot three metres from its pack mate, or a
   body that came down in front of one, told nobody. Break line of sight and the whole encounter de-escalated
