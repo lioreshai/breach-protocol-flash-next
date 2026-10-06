@@ -211,6 +211,43 @@
   `updateEnemies()` takes the marginal to 967 us/frame and fails the row while the absolute row still
   passes at sim 1.02 ms - the two rows disagree, and that disagreement is the gate.
  **The menu now tells you that you can jump and climb** (#357). `index.html`'s control list stopped at
+- **The local verify command now runs CI's roster instead of a hand-copied subset of it** (#338).
+  `AGENTS.md` and `ci.yml` listed the same commands in two places and they drifted: on PR #337's head
+  `node tools/view.js cull` - the command the doc told you to run - printed **`CULL ok`, exit 0**, while
+  `ci.yml`'s second, env-gated `LEAK=1 CZBAND=1 node tools/view.js cull` printed **`CULL 3 FAILURES`,
+  exit 1** on identical bytes, because the `CZBAND`/`CZBAND-LIGHT` records live only in that invocation.
+  `tools/roster.js` has **no list of modes**: it parses `.github/workflows/ci.yml` by two independent
+  means (a structural walk of jobs/steps/run blocks, a structure-blind scan of every non-comment line)
+  and replays the blocking steps with each line's own `VAR=` prefix, printing one verdict line plus an
+  exit code per invocation, continuing past failures, ending in a census like
+  `ROSTER 17 invocation(s), 0 failed, 14 ok, 3 known-reporting`. `ci.yml` gained one step running
+  `--list`: it renders nothing, takes under a second, and runs before the probes it audits, so a gate
+  line that stops being replayable fails first. The two parses' counts must agree,
+  a blocking command that cannot be replayed as stated fails rather than running nothing, and a command
+  commented out in a gate fails by name - retiring a verdict means deleting the line.
+  Teeth, each re-run at this head on a throwaway copy of the tree: dedenting one gates command out of
+  its step body makes `--list` exit **1** with `parsed 16 != raw 17` and names `ci.yml:124` as "a
+  blocking invocation the roster would DROP"; commenting out a gates invocation exits **1** with
+  `COMMENTED-OUT GATE INVOCATION at ci.yml:138`; DELETING that line outright leaves both parses
+  agreeing at **16** and exits **0**, because the workflow *is* the list and the roster must follow it -
+  which is why the count is printed on the census line and why that hole is stated rather than papered
+  over; a guaranteed-failing invocation added to a blocking step exits **1** naming it, printing the
+  last lines of its output, and still running the entries after it. On this tree the two cull
+  invocations differ exactly as the issue says: the plain one emits **0** `CZBAND` lines, the derived
+  env-gated one **5** (one per dealt level, plus the row asserting a hash was emitted for every level),
+  and both exit 0 - nothing is red here, since #337's three failures were that branch's lamp moves,
+  which need a re-record and not a fix. Both smoke lanes pass at this head: **326 s** and **353 s**,
+  each ending `SMOKE PASSED`, so the pooled-raster-median red an earlier revision of this entry
+  reported was that box's load and not this change. `js/` and `index.html` are byte-identical to
+  `main` on this branch, so no pixel moves and no recorded reference is re-cut.
+  The census this file's header used to carry as transcribed line numbers is now derived: `node
+  tools/roster.js --env` prints every `process.env.` read in the two harnesses - **113** env-read lines,
+  142 reads, 95 names in `view.js`; 14 / 17 / 8 in `smoke.js` - each with its class (does the var decide
+  whether a ROW EXISTS, or only whether filed debt gates, or just what is measured) and the live
+  `file:line` of the read, and it fails if a classified name stops being read anywhere. Those numbers
+  had rotted in the header within a week of being written, which is the same trap in a new costume.
+  Not done here: ask #2, naming an env-suppressed row inside each mode's own summary - that edit
+  belongs in `tools/view.js`'s verdict blocks.
 -- **The rig probe now measures the body path the game draws** (#352). `view.js rig` rasterized
   `RIG.raster`, the 2-D sheet path #72 removed when bodies became meshes, so a `js/13_mesh.js`
   geometry change came back byte-identical. Nine rows (three per kind) now read the shipped path
@@ -223,6 +260,7 @@
   because an enemy per phase let `makeEnemy`'s per-individual draws move the silhouette the row
   was attributing to gait.
  **Dropping to the band below during a body's wind-up no longer gets you hit through the floor** (#356).
+
 - **The menu now tells you that you can jump and climb** (#357). `index.html`'s control list stopped at
 
   `Shift/C`, `R/1 2 3`, `G`, `Esc/M/T` — so neither `Space` (jump, `js/30_entities.js:388`) nor `E`/`Q`
@@ -243,6 +281,7 @@
   level's 4-unit room is a **ledge**, not a slab, so the raise is taken from the low cell's own ceiling in
   quanta; and raising the cell behind the ray's target **closes no opening**, because
   `ceilAt = floor + max(1 unit, neighbour floors above)` grows the low ceiling to meet it.
+
 
 
 - **A room now behaves like a room** (#358). `alertEnemies` had exactly one call site — the player's own
