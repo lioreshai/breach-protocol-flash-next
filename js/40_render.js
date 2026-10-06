@@ -177,6 +177,14 @@ function cellTint(idx) {
 }
 const TINT_WHITE = [1, 1, 1];
 
+/* What mesh each pickup type draws as (#76, and #361 for the fourth row). This is the ONLY place a
+   pickup `type` becomes geometry, so it is every type the economy can put on the floor: `takePickup`
+   (js/30_entities.js) and the kill-drop table own the types, and a type missing HERE is not an
+   invisible box - `draw` used to answer an undefined kind with a grunt, and now throws. It sits at file
+   scope rather than inside renderWorld so tools/smoke.js can assert the coverage instead of trusting a
+   list of types kept by hand next to the one kept here. */
+const PKKIND = { health: 'pickupHealth', ammo: 'pickupAmmo', armor: 'pickupArmor', gren: 'pickupGren' };
+
 function renderWorld() {
   const bobP = P.bob * 1.4 + P.kick * 0.4;
   const flash = S.flash;
@@ -216,11 +224,11 @@ function renderWorld() {
      the FEET, resolved at DRAW time like an enemy's already was (below) - a prop that stores
      generation-time floorAt still sinks when a band changes under it, which is what M3 makes routine.
      What the billboard had and the mesh cannot keep is the texture: each prop was one painted Surf, so
-     js/13_mesh.js authors parts for it. The grenade stays a billboard - no geometry is authored for it
-     and MESH.draw now throws rather than answer with a grunt. The `glow` field the pickup entries
+     js/13_mesh.js authors parts for it. The GRENADE YOU THREW stays a billboard - it is a PROJ, not a
+     pickup, and no geometry is authored for it - but a grenade BOX on the floor is geometry, which is
+     PKKIND's `gren` row (#361). The `glow` field the pickup entries
      carried is gone: drawBillboard never read it, glow comes from LIGHTS in drawLightGlow (#76). */
   const list = [];
-  const PKKIND = { health: 'pickupHealth', ammo: 'pickupAmmo', armor: 'pickupArmor' };
   for (const p of PROPS) {
     if (p.dead && p.kind === 'barrel') continue;
     /* A prop the EYE is inside paints the whole frame with its own mesh magnified to the near plane:

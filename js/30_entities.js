@@ -259,9 +259,12 @@ function damageEnemy(e, dmg, head, dx, dy) {
       // #361: the campaign's only grenade source besides the boxes on the floor. One draw, three bands,
       // so the level's random stream does not shift with the outcome (#96: moving makeEnemy's draws
       // re-rolled a level's layout). This is also the only economy that reaches the authored finale,
-      // whose LEVELS pick entry is empty.
+      // whose LEVELS pick entry is empty. The cut points give grenades AMMO's share and not health's:
+      // ammo 55 -> 35, health stays at its shipped 45, gren 20. Healing is the axis the campaign's
+      // difficulty actually rides on, so taking a third of it away was a balance change this PR did not
+      // sign up to (review on #362); ammo is the pickup the levels already scatter boxes of.
       const dk = Math.random();
-      PICKUPS.push({ type: dk < 0.5 ? 'ammo' : dk < 0.8 ? 'health' : 'gren', x: e.x, y: e.y, bob: 0, dead: false });
+      PICKUPS.push({ type: dk < 0.35 ? 'ammo' : dk < 0.8 ? 'health' : 'gren', x: e.x, y: e.y, bob: 0, dead: false });
     }
     if (ENEMIES.every(z => z.state === 'dead') && !S.exitOpen) openExit();
   } else if (Math.random() < 0.35) SND.growl(e.kind, 0);

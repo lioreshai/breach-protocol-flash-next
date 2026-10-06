@@ -8,11 +8,23 @@
   anywhere. `takePickup` had no `gren` arm either, so a grenade box would have fed `P.reserve` through the
   ammo branch. Kills now drop grenades (one draw, three bands, so the level's random stream does not shift
   with the outcome) and a grenade box tops the pouch up to a cap of 6, leaving the box on the floor when
-  full the way the ammo branch does at full reserves. Placed boxes were deliberately **not** added to
+  full the way the ammo branch does at full reserves. One kill in five is now a grenade, and it comes out
+  of **ammo**'s share (ammo 55 → 35 %, health held at its shipped 45) rather than health's, because
+  healing is the axis the campaign's difficulty rides on. A box on the floor is a new mesh row,
+  `pickupGren` (`js/13_mesh.js`), carrying the HUD's own grenade colour on its plate — without it the
+  pickup draw handed the rasterizer an *undefined* kind and the box stood on the floor as a 0.42-scale
+  grunt. `MESH.draw` no longer defaults an absent kind to a grunt (`model` already threw on an unknown
+  NAMED kind; the default sat one line before the check that could see it), and two smoke rows now sweep
+  the drop table's arms and record what the draw site hands the mesh, so the next pickup type cannot fail
+  the same silent way. Placed boxes were deliberately **not** added to
   `LEVELS[].pick`: that changes every generated level's pickup census, and with it the pixels `flatparity`
   and the means `exposure` record — a larger blast radius than a restock deserves, and drops reach the
-  authored finale too, whose `pick` entry is empty. Smoke asserts all three claims; on pristine code all
-  three fail (`0/0/0/0` drops, `P.reserve` sum 80 instead of `P.gren` rising, boxes eaten at full pouch).
+  authored finale too, whose `pick` entry is empty. Smoke asserts five claims; on pristine code all five
+  fail (`0/0/0/0` drops, `P.reserve` sum 80 instead of `P.gren` rising, boxes eaten at full pouch,
+  `drop arms swept 2/3`, `MESH.draw kinds … [portal, undefined]`). `node tools/view.js props` gained a
+  `PICKUPGREN` block on all four levels: 48 triangles of its own, 100 % of its 899-px silhouette owned in
+  depth, and the same fall with the lights out as the other three boxes (x0.47, against the recorded
+  0.479 control, which did not move).
 - **The prop probe now judges the hand-authored level, and a level's world no longer depends on the
   command line** (#314). `node tools/view.js props` was green while `node tools/view.js props 3` — the
   same probe asked about THE STACK — failed 13 rows on current `main` (`props 2` failed 4). All three

@@ -9586,7 +9586,7 @@ if (MODE === 'props') {
   /* ONE thing in the world at a time, at the spot, with the generator's own scale. __p is what the
      rows read back for z and scale, so the entry the probe writes is the entry the game draws. */
   const SX = SPOT.x.toFixed(4), SY = SPOT.y.toFixed(4);
-  const SC = { barrel: 0.86, crate: 0.72, lamp: 0.95, pickupHealth: 0.42, pickupAmmo: 0.42, pickupArmor: 0.42, orb: 0.3, portal: 1.5 };
+  const SC = { barrel: 0.86, crate: 0.72, lamp: 0.95, pickupHealth: 0.42, pickupAmmo: 0.42, pickupArmor: 0.42, pickupGren: 0.42, orb: 0.3, portal: 1.5 };
   const put = {
     /* The orb's z used to be the literal 0.9. Since #163 a mesh is occluded by the ceiling plane, and a
        0.3 m body centred at 0.9 in a one-unit room stands with half its span INSIDE the slab, so (S)
@@ -9606,6 +9606,12 @@ if (MODE === 'props') {
     pickupHealth: `PROPS.length=0;PICKUPS.length=0;PICKUPS.push({type:'health',x:${SX},y:${SY},bob:0,dead:false});globalThis.__p=PICKUPS[0]`,
     pickupAmmo: `PROPS.length=0;PICKUPS.length=0;PICKUPS.push({type:'ammo',x:${SX},y:${SY},bob:0,dead:false});globalThis.__p=PICKUPS[0]`,
     pickupArmor: `PROPS.length=0;PICKUPS.length=0;PICKUPS.push({type:'armor',x:${SX},y:${SY},bob:0,dead:false});globalThis.__p=PICKUPS[0]`,
+    /* #361's fourth pickup type, and it is here because the drop census in smoke.js kills everything on a
+       level WITHOUT rendering between kills, so nothing else in the tree ever looked at a live one. A
+       pickup type with no PKKIND row (js/40_render.js) reaches MESH.draw as kind undefined, which is the
+       one case the "no fallback" note in js/13_mesh.js used to miss - the default sat in draw(), before
+       the lookup that could throw - and the box stood on the floor as a small grey soldier. */
+    pickupGren: `PROPS.length=0;PICKUPS.length=0;PICKUPS.push({type:'gren',x:${SX},y:${SY},bob:0,dead:false});globalThis.__p=PICKUPS[0]`,
     orb: `PROPS.length=0;PROJ.length=0;PROJ.push({kind:'orb',x:${SX},y:${SY},z:Math.min(ceilAt(${SX},${SY})-0.35,floorAt(${SX},${SY})+0.9),scale:0.3,vx:0,vy:0,vz:0,t:0,tex:PROP.orb[0]});globalThis.__p=PROJ[0]`,
     portal: `PROPS.length=0;exitX=${SX};exitY=${SY};S.exitOpen=true;globalThis.__p={x:${SX},y:${SY},scale:1.5,z:0.02}`,
   };
@@ -9615,7 +9621,7 @@ if (MODE === 'props') {
      silhouette - the contrast/anim technique, and why no projection math appears below. */
   const hide = {
     barrel: 'PROPS.length=0', crate: 'PROPS.length=0', lamp: 'PROPS.length=0',
-    pickupHealth: 'PICKUPS.length=0', pickupAmmo: 'PICKUPS.length=0', pickupArmor: 'PICKUPS.length=0',
+    pickupHealth: 'PICKUPS.length=0', pickupAmmo: 'PICKUPS.length=0', pickupArmor: 'PICKUPS.length=0', pickupGren: 'PICKUPS.length=0',
     orb: 'PROJ.length=0', portal: 'exitX=-40;exitY=-40',
   };
   const render = code => { run(code + ';S.t=3.5;renderWorld()'); };
@@ -9673,7 +9679,7 @@ if (MODE === 'props') {
   const CTRL_REF = refRecord('props', 'CTRL-RAT', 'num', [0.479, 0.551, 0.306, 0.716]);
   const CTRL_CEIL = 0.9;
   let ctrlMax = 0, seatLtNow = 0;
-  const KINDS = ['barrel', 'crate', 'lamp', 'pickupHealth', 'pickupAmmo', 'pickupArmor', 'orb', 'portal'];
+  const KINDS = ['barrel', 'crate', 'lamp', 'pickupHealth', 'pickupAmmo', 'pickupArmor', 'pickupGren', 'orb', 'portal'];
   const EMISSIVE = { lamp: 1, orb: 1, portal: 1 };
   console.log('props: level ' + LI + '  cam ' + CAM.x.toFixed(2) + ',' + CAM.y.toFixed(2) +
     ' (clear ray ' + CAM.ray + ' m)  prop at ' + SPOT.d + ' m  grunt = ' + gruntTris + ' tris');

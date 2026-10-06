@@ -540,6 +540,55 @@ const release = () => fire('mouseup', { button: 0 });
     const dropArm = vm.runInContext('damageEnemy.toString()', ctxVm).includes("'gren'");
     expect('kills can restock grenades (#361)', totalDrop >= 1 && dropArm,
       `${drops.join('/')} gren drops per level by killing every body on it, kill-drop statement arms grenades: ${dropArm ? 'yes' : 'NO - no gren band in the drop arm'}`);
+    /* A type the economy can put on the floor needs a mesh. PKKIND (js/40_render.js) is the ONLY place a
+       pickup type becomes geometry, and a type missing there is not an invisible box: renderSprites hands
+       MESH.draw `kind: undefined`, which #362's review found drawn as a 0.42 grunt body. The three drop
+       arms are SWEPT rather than hoped for - the rate draw is forced to pass by lifting this difficulty's
+       droprate and every draw inside the one kill returns the band value - so no census roll can make the
+       row come up short, and a fourth band added later is named by the sweep instead of by this file. */
+    vm.runInContext('startLevel(0, true); PICKUPS.length = 0;', ctxVm);
+    const swept = vm.runInContext(`(() => {
+      const rnd = Math.random, dr = DIFFS[S.diff].droprate, out = [];
+      DIFFS[S.diff].droprate = 100;                      // the rate draw always passes; only the band matters
+      for (const dk of [0.05, 0.5, 0.95]) {
+        Math.random = () => dk; PICKUPS.length = 0;
+        const e = ENEMIES.find(z => z.state !== 'dead');
+        if (e) { e.hp = 1; damageEnemy(e, 9, false, 1, 0); }
+        for (const k of PICKUPS) if (out.indexOf(k.type) < 0) out.push(k.type);
+      }
+      Math.random = rnd; DIFFS[S.diff].droprate = dr; return out;
+    })()`, ctxVm);
+    const placedTypes = vm.runInContext("[...new Set([].concat(...LEVELS.map(l => Object.keys(l.pick || {})), ['ammo', 'health']))]", ctxVm);
+    const types = [...new Set([...swept, ...placedTypes])];
+    const noMesh = [];
+    for (const t of types) {
+      const kind = vm.runInContext(`typeof PKKIND === 'undefined' ? undefined : PKKIND[${JSON.stringify(t)}]`, ctxVm);
+      if (!kind) { noMesh.push(`${t}: no PKKIND row, so the draw gets kind undefined`); continue; }
+      let tris;
+      try { tris = vm.runInContext(`MESH.trisFor(${JSON.stringify(kind)})`, ctxVm); }
+      catch (e) { noMesh.push(`${t} -> ${kind}: nothing authored, trisFor throws`); continue; }
+      if (tris === vm.runInContext('MESH.trisFor("grunt")', ctxVm)) noMesh.push(`${t} -> ${kind}: the grunt's own geometry (${tris} tris)`);
+    }
+    expect('every pickup type the game can put on the floor names a mesh (#361)',
+      noMesh.length === 0 && swept.length === 3,
+      `${types.join(', ')} - drop arms swept ${swept.length}/3 (${swept.join('/')})${noMesh.length ? ': ' + noMesh.join('; ') : ''}`);
+    /* And on the DRAW PATH, not just in the table: with everything else out of the world, the only meshes
+       renderWorld can push are the box and the portal. On the pre-fix tree the box's kind is undefined and
+       the mesh answers with a grunt - the row records what the call site actually handed MESH.draw, so it
+       fails there for the reason it exists, and a render of the box on a real frame is what it catches. */
+    const drew = vm.runInContext(`(() => {
+      ENEMIES.length = 0; PROPS.length = 0; PROJ.length = 0;
+      PICKUPS.length = 0; PICKUPS.push({ type: 'gren', x: P.x + 1.5, y: P.y + 0.5, bob: 0, dead: false });
+      const seen = []; let err = null; const orig = MESH.draw;
+      MESH.draw = function (a) { if (!a.mdl) seen.push(String(a.kind)); return orig.apply(this, arguments); };
+      try { renderWorld(); } catch (e) { err = String((e && e.message) || e); }
+      MESH.draw = orig;
+      return { seen, err };
+    })()`, ctxVm);
+    const badKind = drew.seen.filter(k => k === 'undefined' || k === 'null' || k === 'grunt');
+    expect('a live grenade box reaches the mesh as a box and not as a body (#361)',
+      drew.err === null && drew.seen.length >= 2 && badKind.length === 0,
+      `MESH.draw kinds for a world holding one gren box: [${drew.seen.join(', ')}]${drew.err ? ', renderWorld threw ' + drew.err : ''}`);
     vm.runInContext('S.diff = 1; startLevel(0, true); S.mode = "play"; S.locked = true; S.exitOpen = false;', ctxVm);
     frames(2);
   }
