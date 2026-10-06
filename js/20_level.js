@@ -82,6 +82,16 @@ const cellIdx = (x, y) => (y | 0) * MW + (x | 0);
 const ZQ = 0.25;
 const CZ_DEF = 4;                                        // 4 quanta = one unit of ceiling
 const LHOVER = 0.78;                     // a lamp light's authored hover above its own floor (:845)
+/* #199 asked whether the band gate below should RAMP instead of cutting off - a graded reach, full
+   weight to +-ZQ then a linear fade to zero one metre past it, for lamps only. It was built, measured on
+   that head (review of PR #368: pooled dark ground 8.7% -> 7.0% of open cells, 12 rolls x 4 levels) and
+   REJECTED: `alt`'s
+   `no column is lit from a band ABOVE/BELOW it` and `w(+/-2q) <= 0.02` rows exist because #203, #205,
+   #206 and #209 chose to make a band boundary a LIGHT boundary, and a ramp is that decision reversed,
+   not a reference refresh. The gate below stays binary. Where the dark floor actually is, `exposure`'s
+   coverage census now prints beside its own row: only 2-6% of the dark cells it counts sit on bands under
+   MIN_BAND cells, so placement is already nearly exhausted (#337 leaves no big band all dark) and the
+   residual is the disc's own falloff inside served bands - what #206 reclassified on purpose. */
 /* #213: a coverage TOP-UP source is scaled by the band it was placed to cover, because a 16-cell pit
    and a 300-cell floor otherwise receive identical sources - which is why standing inside a lit pit
    read DEV.lum 168 mean / 229 mid (a white box) while the big floor stayed under-lit. str is
