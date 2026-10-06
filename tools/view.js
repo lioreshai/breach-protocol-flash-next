@@ -1144,8 +1144,25 @@ if (MODE === 'alt') {
        by a two-sided band because it is an ATTRIBUTION, not a quality bar: it says which mechanism the dark
        cells belong to, and a swing either way means the mechanism moved and this row's claim needs re-measuring.
        Both are percentages to one decimal over the same 12 rolls the pit row rolls, deterministic by dice. */
-    const REFDARKSH = refRecord('alt', 'DARK-SHARE', 'num', [4.0, 10.7, 6.1]);
-    const REFDARKCOV = refRecord('alt', 'DARK-COVERED', 'num', [94.9, 70.5, 67.7]);
+    const REFDARKSH = refRecord('alt', 'DARK-SHARE', 'num', [4.0, 10.7, 6.1, 24.2]);
+    const REFDARKCOV = refRecord('alt', 'DARK-COVERED', 'num', [94.9, 70.5, 67.7, 48.4]);
+    /* #314: the fourth value in each is THE STACK's own census over the same 12 dice - 744 dark of
+       3072 open cells, 360 of those 744 under a lamp's XY disc. The SHARE is bigger (24.2% against the
+       generated 4.0-10.7%) and the ATTRIBUTION smaller (48.4% against 67.7-94.9%) because an authored
+       plan has dark geography no lamp was placed to cover: a description of the plan, not a regression,
+       and the reason the row keeps the share bounded ABOVE and the attribution two-sided.
+       The non-vacuity clause below needed the same treatment. `A.open > 5000` counts open cells summed
+       over the 12 rolls, and a generated map yields 575-1150 open cells a deal while THE STACK's 20-cell
+       plan yields 256 - so an absolute floor written off generated maps excludes the authored level by
+       the size of its geometry, which is not the question the clause asks. It is per level now: the
+       three generated floors are UNCHANGED and the authored one is half its own measured census
+       (3072 -> 1500), which still trips if the roll set collapses. No measured percentage moved because
+       of this row - they are recorded above and asserted against, which is the half that gates. */
+    const DSK_OPEN_MIN = [5000, 5000, 5000, 1500];
+    // #314: a record shorter than the level list must read as a FAILURE with a sentence, not as a
+    // TypeError - an exception in a probe kills every row after it, including the rows that were fine.
+    const darkRec = (arr, lv) => lv < arr.length ? arr[lv].toFixed(1)
+      : 'NO RECORD for level ' + lv + ' (the record is ' + arr.length + ' wide, the level list is not)';
     const DSH_SLACK = +(process.env.DARKSH_SLACK || 0.6);    // pp above the recorded share
     const DCV_TOL = +(process.env.DARKCOV_TOL || 6);         // pp either side of the recorded attribution
   // MAIN_OOB is the ALL-CELL figure (#206, era: stairs hugged the outer ring); MAIN_OOB_GEO is the
@@ -1240,14 +1257,17 @@ if (MODE === 'alt') {
       const dsh = 100 * A.dark / A.open;
       const dcv = A.dark ? 100 * (A.dark - A.nosrc) / A.dark : 0;
       row(`L${lv} dark ground is bounded and says which half it is`,
-        dsh <= REFDARKSH[lv] + DSH_SLACK && Math.abs(dcv - REFDARKCOV[lv]) <= DCV_TOL && A.dark > 0 && A.open > 5000,
-        `${A.dark} of ${A.open} open cells (${dsh.toFixed(1)}%, recorded ${REFDARKSH[lv].toFixed(1)}%, slack ${DSH_SLACK} pp; counts sum all 12 rolls) hold < 0.05 `
-        + `delivered light, and of those ${A.dark - A.nosrc} (${dcv.toFixed(1)}%, recorded ${REFDARKCOV[lv].toFixed(1)}%, tol ${DCV_TOL} pp) DO have `
+        dsh <= REFDARKSH[lv] + DSH_SLACK && Math.abs(dcv - REFDARKCOV[lv]) <= DCV_TOL && A.dark > 0 && A.open > DSK_OPEN_MIN[lv],
+        `${A.dark} of ${A.open} open cells (${dsh.toFixed(1)}%, recorded ${darkRec(REFDARKSH, lv)}, slack ${DSH_SLACK} pp; counts sum all 12 rolls) hold < 0.05 `
+        + `delivered light, and of those ${A.dark - A.nosrc} (${dcv.toFixed(1)}%, recorded ${darkRec(REFDARKCOV, lv)}, tol ${DCV_TOL} pp) DO have `
         + `a lamp whose XY disc contains them - so that share is dark from the disc's own (1-d/r)^1.6 falloff and the band term at `
         + `js/20_level.js:939, which is what #206 reclassified on purpose, while ${A.nosrc} cells (${(100 - dcv).toFixed(1)}%) are `
         + `uncovered geography in the sense #199's title meant (it read 63-72% on 5f14a09, when the kernel still ignored L.z). `
         + `${(A.lamps / 12).toFixed(2)} lamps/instance. A row that gated the UNCOVERED share upward would assert the diagnosis and `
-        + `go red the day lamp placement improved, so the share is reported and the two numbers above are what gate.`);
+        + `go red the day lamp placement improved, so the share is reported and the two numbers above are what gate. `
+        + `The non-vacuity floor here is ${DSK_OPEN_MIN[lv]} open cells and it is PER LEVEL (#314: an authored plan is a `
+        + `smaller map than a generated one, so an absolute count of open cells would exclude level 3 by its size `
+        + `rather than by its coverage - the generated three keep main's 5000 unchanged).`);
       row(`L${lv} delivered wrong-band light does not spread`, A.oob <= MAIN_OOB_GEO[lv],
         `${A.oob} NON-CLIMB open cell(s) hold delivered light with NO source standing on their own band within `
         + `reach against the recorded ${eraOf(MAIN_OOB_GEO, lv)} (the ALL-CELL figure was ${eraOf(MAIN_OOB, lv)} on the tree`
