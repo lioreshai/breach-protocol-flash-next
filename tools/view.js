@@ -8692,6 +8692,43 @@ if (MODE === 'viewmodel') {
     problems.length ? '<< ' + problems.join(', ') : '');
   bad += problems.length ? 1 : 0;
 
+  /* ONE KEY, ONE GEOMETRY (#186). The row above measures how far the served geometry sits from the exact
+     one; this one asks the cheaper and more structural question - does the geometry a key serves depend on
+     the KEY, or on which frame built it first? Two frames in one bucket must hand back the same vertex set,
+     because parts here are authored as `if (s.slideBack)` / `if (s.shellIn)` / `if (s.mz > 0.004)` and a part
+     that exists in one bucket-mate and not the other is a part that appears at a time the quantum did not
+     choose: a reload's last frame carries a still-moving but sub-quantum slideBack, so if it builds the rest
+     key the rifle spends the rest of the game with a brass casing welded beside the slide. Nothing in a
+     millisecond row sees that and no pixel row can, because both geometries are plausible. The sweep visits
+     bucket-mates ADJACENTLY so the LRU keeps the earlier entry resident - a sweep that thrashed the table
+     would make every call a miss and the row would pass by never looking. The comparison is exact apart
+     from 1e-6, which is the storage difference between the raw builder's float64 array and a served
+     geometry's float32 one - the same numbers, the narrower container; not a tolerance on the geometry. */
+  const VIDENT = run(`(()=>{const T=['mz','magOut','slideBack','pump','shellIn'];
+    if(typeof MESH.wQuant!=='function'||typeof MESH.weaponRaw!=='function')
+      return {cmp:0,bad:0,who:'the build publishes no quantized-state hook, so identity is unmeasured here'};
+    let cmp=0,bad=0,who='',worst=0;const seen=new Set();
+    for(let wi=0;wi<WEAPONS.length;wi++){const k=WEAPONS[wi].kind;
+      for(const term of T){for(let i=1;i<48;i++){const f=i/48;
+        const st={mz:0,magOut:0,slideBack:0,pump:0,shellIn:0};st[term]=f;
+        const q=MESH.wQuant(st);
+        const key=k+'|'+[q.mz,q.magOut,q.slideBack,q.pump,q.shellIn].join(',');const first=seen.has(key);seen.add(key);if(!first)continue;
+        const want=MESH.weaponRaw(k,q),got=MESH.weapon(k,st);
+        cmp++;
+        if(want.nV!==got.nV){bad++;if(!who)who=k+' '+term+' at '+f.toFixed(3)+' has '+want.nV+' verts, its bucket-mate served '+got.nV;continue;}
+        let d=0;for(let j=0;j<want.nV*6;j++){const e=Math.abs(want.p[j]-got.p[j]);if(e>d)d=e;}
+        if(d>1e-6){bad++;if(d*1000>worst){worst=d*1000;who=k+' '+term+' at '+f.toFixed(3)+' served '+(d*1000).toFixed(2)+' mm off its own key';}}}}}
+    return {cmp,bad,who,worst}})()`);
+  problems = [];
+  if (!(VIDENT.cmp > 100)) problems.push('only ' + VIDENT.cmp + ' bucket-mate pairs compared (' + VIDENT.who +
+    ') - the identity claim is measuring almost nothing, which is a FAILURE and not a debt');
+  else if (VIDENT.bad) problems.push(VIDENT.bad + ' of ' + VIDENT.cmp + ' served geometries disagree with their own key - ' +
+    VIDENT.who + '. A key whose geometry depends on the frame that built it is the cache cliff wearing a hit counter.');
+  console.log('key identity'.padEnd(24), VIDENT.cmp + ' bucket-mate pairs, ' + VIDENT.bad + ' disagree with their own key' +
+    (VIDENT.worst ? ' (worst ' + VIDENT.worst.toFixed(2) + ' mm: ' + VIDENT.who + ')' : (VIDENT.who ? ' (' + VIDENT.who + ')' : '')),
+    problems.length ? '<< ' + problems.join(', ') : '');
+  bad += problems.length ? 1 : 0;
+
   /* ---- COST (#186): the rig's share of a frame, measured inside the frame it costs ------------
      #186's numbers came from two branches run separately through smoke, and what it asked for was not a
      median but a verdict: "a zero-pixel regression in the rig would again ship green". So the milliseconds

@@ -630,6 +630,18 @@ const MESH = (function () {
      shape is the COV/GLOWREC one: inert in play, armed by the probe that needs it. */
   let WRAW = false;
   const wq = (n, x) => x > 0 ? Math.round(x * n) / n : 0;   // 0 stays exactly 0, not 1/WQK
+  /* The state a key's geometry is BUILT at, so one key maps to exactly one geometry. Building from the
+     frame that happened to land in the bucket first makes presence a matter of luck: parts are authored as
+     `if (s.slideBack)` / `if (s.shellIn)` / `if (s.mz > 0.004)`, so a frame in the last breath of a reload
+     (slideBack still > 0, still under half a quantum) would build the REST key with a brass casing in it,
+     and every frame at rest after it would be served that casing. The quantum is already what decides the
+     key, so it decides the geometry too - which is also what makes the quantum-price row a statement about
+     the shipped path rather than about scheduling. `wq(0) === 0`, so an at-rest build is unchanged. */
+  function wState(s) {
+    s = s || {};
+    return { mz: wq(WQK.mz, s.mz || 0), magOut: wq(WQK.magOut, s.magOut || 0), slideBack: wq(WQK.slideBack, s.slideBack || 0),
+      pump: wq(WQK.pump, s.pump || 0), shellIn: wq(WQK.shellIn, s.shellIn || 0) };
+  }
   function wKey(k, s) {
     return k + '|' + wq(WQK.mz, s.mz) + '|' + wq(WQK.magOut, s.magOut) + '|' + wq(WQK.slideBack, s.slideBack) +
       '|' + wq(WQK.pump, s.pump) + '|' + wq(WQK.shellIn, s.shellIn);
@@ -650,7 +662,7 @@ const MESH = (function () {
     if (hit !== undefined) { WEPO.delete(qk); WEPO.set(qk, hit); wStat[1]++; return hit; }
     if (WEPO.size >= WPCAP) { const k0 = WEPO.keys().next().value; const g0 = WEPO.get(k0); WEPO.delete(k0); wBytes -= g0.byteLength; }
     wStat[0]++;
-    const geo = wBuild(kind, st);
+    const geo = wBuild(kind, wState(st));
     WEPO.set(qk, geo); wBytes += geo.byteLength;
     return geo;
   }
@@ -1183,6 +1195,9 @@ const MESH = (function () {
     vertsFor: k => model(k || 'grunt').nV,
     /* the view model's geometry: rebuilt per frame, never cached, and the numbers the probes need */
     weapon: (k, st) => weaponGeo(k, st),
+    /* #186: the state the key's geometry is built at. The key and the build are the same function of the
+       pose, and view.js's identity row asserts that from the outside against `weaponRaw`. */
+    wQuant: st => wState(st),
     /* probe-only (#186): the builder with NO quantum applied, so a probe can measure the displacement the
        quantum is paid with instead of taking the arithmetic on faith. Nothing in the draw path calls this. */
     weaponRaw: (k, st) => { const b = VMGEO[k](new Builder(), st || {}); return { p: b.p, nV: b.p.length / 6 }; },

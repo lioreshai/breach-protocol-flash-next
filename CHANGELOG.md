@@ -19,17 +19,26 @@
   the shipped path, and the row says that in words instead of going red, because a row that fails when an
   optimization lands is the row people learn to ignore. Two rows come with it: the real reload timeline at 60
   fps driving `drawViewModel` and reading the cache's own counters (**30 hits / 30 misses over 60 frames**), and
-  the quantum's price measured rather than derived: **worst gun-part move 2.08 mm** over 693 exact-vs-quantized
-  builds, muzzle flare **5.63 mm**, reported separately, plus a count of *presence shifts* (12 here) - parts
+  the quantum's price measured rather than derived: **worst gun-part move 1.04 mm** over 693 exact-vs-quantized
+  builds, muzzle flare **2.81 mm**, reported separately, plus a count of *presence shifts* (12 here) - parts
   authored as `if (travel)` exist only while moving, so the quantum shifts WHEN they appear, not where. A
   uniform 1/32 read 4.17 mm of part move at 22 misses; per-term halves the geometry error and costs eight more
-  misses, because a finer quantum necessarily makes more distinct keys while travel moves. **That is why the row
+  misses, because a finer quantum necessarily makes more distinct keys while travel moves (both of those figures
+  are bucket-luck numbers, measured while the build still followed the frame rather than the key). **That is why the row
   no longer asserts a miss count.** No single quantum satisfies a count bound and the geometry bound at once, and
   a row that trades one property for the other is a row someone will re-tune. It asserts what a cache actually
   fails by instead: that the key **repeats** (a key over raw travel would read 0 hits / 60 misses here), that
   geometry entries stay **under the cap** - evicting every frame is the quiet way this becomes a memory cost and
   no saving, which a millisecond row on a shared runner would miss - and that the rebuild fraction stays inside
-  the recorded `VM-REBUILD [0.50]` ± 0.15 rather than an invented count. `MESH.stats()` publishes `wCap` for the
+  the recorded `VM-REBUILD [0.50]` ± 0.15 rather than an invented count. A third row closes the hole the first
+  two left open: the geometry a key serves is now built from the **quantized** pose rather than from whichever
+  frame happened to land in the bucket first, so one key maps to exactly one geometry. That matters because the
+  moving parts are authored as `if (travel)` - a frame in the last breath of a reload carries a `slideBack` that
+  is still moving and still under half a quantum, so if it builds the REST key the rifle keeps a brass casing
+  beside the slide for as long as that entry lives, and no millisecond or pixel row can see it because both
+  geometries are plausible. Measured over 417 bucket-mate pairs: **0 disagree**, and 22 of 417 on a tree with
+  the one-line build reverted, which is the row's teeth. The same revert leaves the at-rest rig bit-identical
+  (`wq(0) === 0`), which is why `flatparity`'s three hashes did not move. `MESH.stats()` publishes `wCap` for the
   cap clause, and a probe-only arm (`MESH.setWRaw`, inert in play, armed by `VMRAW=1`) makes the key serve
   nothing on demand, so the cliff is demonstrated through the **shipped reload timeline** rather than simulated
   beside it. The milliseconds stay reported, not gated - a wall-clock threshold on a shared runner is the
