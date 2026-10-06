@@ -2,6 +2,46 @@
 
 ### Changed
 
+- **THE STACK's doorway opens again: the lamp that stood in it moved one cell** (#318). Level 3's mid
+  wall is solid on 19 of its 20 rows, and the one open cell — the doorway between the two rects — also
+  held a lamp glyph. A floor lamp blocks the player, so its collision ghost (r 0.442 m) reached into
+  the wall faces above and below and left about **0.34 m of passage**: narrower than a body. Walking
+  the doorway straight through worked; brushing it at an angle stopped the move dead instead of
+  sliding along the free axis, so the authored level's one connecting doorway was a place you got
+  wedged. The glyph moved one cell east (`AUTHORED.geo` row 9, x12 → x13) and the lamp now stands
+  just inside the room, where a lamp should be. `props`' face-graze row on that level goes from
+  *crossed the lane 3* to **4 of 4**, and it is green without `STRICT` help.
+  **It was never the crate** the issue was filed against. The row aggregates up to four candidate
+  props while a neighbouring row prints the crate's own geometry, so the crate's name sat next to a
+  number about a different body — and the row was printing its own initialiser as a measurement:
+  `sWorst` started at 9, a body that stopped at y 9.716 never registered against it, and the failure
+  read "worst final y 9.00". Both are reporting bugs, and the first one was found by running the new
+  reporter against the unfixed `js/`: `crossed the lane 3 - stuck beside the face on prop#2 (lamp at
+  [12.5,9.5], ghost r 0.442 m): must pass y 9.941, reached 9.716`. That is what a snag prints now —
+  the body, its cell, its ghost radius, and the coordinate the pose had to clear.
+  **The debt row goes with the defect.** `props` reported this geometry as `KNOWN #318` at its measured
+  overhang against an `OVERHANG_MAX` knob, exactly so it could not quietly become normal, and said it
+  would retire itself when the level was fixed. It has, so the escape hatch is gone with it: any graze
+  pose that snags beside a face is now a FAILURE on every level and no environment variable makes it
+  ok, while row (B) still prints each blocker's measured overhang (the authored crate's 0.16 m is a
+  real overhang and the band row proves it is survivable — one pose short is still a FAILURE). Note the
+  changelog claim this corrects: an earlier revision of this work said it retired the `KNOWN` row about
+  L3's *worst seeded roll* sitting below the 60–100 window. That row was already gone on `main`; this
+  change only lifts the worst roll from 64 to 73.
+  **A player also sees a brighter authored level**, because a lamp whose flood is truncated by the wall
+  it stands in contributes less than one standing in the room: L3's seeded exposure median moves
+  **69 → 82.52** (rolls 89 85 80 73) and its spawn-seat pair to 51.72 / 56.99. Eight recorded references
+  in four blocking probes were therefore re-declared through `refRecord` with that attribution and
+  `tools/refs.lock` regenerated — `exposure` MEDIAN and SPAWN, `cull` CZBAND (lane `0x52487fb4`) and
+  CZBAND-LIGHT (world `0x04c0b554`, sum 137.63 over 400 cells), `flatparity` L3 PARITY/LOCK
+  (`98c22412…`, mean 36.0) and DEALT (`bf6c8907…`, mean 38.1), and `heights` HALF-MOVE's two authored
+  figures (38.08/54.25 → 38.09/54.26). **Levels 0–2 are byte-identical in every one of them**, so they
+  — not L3 — are now the control that says those hashes are the same arithmetic on the same machine, and
+  the comment above `CZBAND_REF` that credited that claim to L3 is corrected in place. No threshold was
+  widened and no record was re-keyed outside level 3's own slot. Rejected, so it is not retried: giving
+  the authored crate the generator's `scale` 0.72 (measured at the branch point) hands the *generated*
+  levels a 0.05 m overhang, still snags the L3 graze pose, and takes L3's median the wrong way, 64 → 63.
+
 - **The prop probe now judges the hand-authored level, and a level's world no longer depends on the
   command line** (#314). `node tools/view.js props` was green while `node tools/view.js props 3` — the
   same probe asked about THE STACK — failed 13 rows on current `main` (`props 2` failed 4). All three
