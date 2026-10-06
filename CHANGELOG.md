@@ -216,6 +216,36 @@
   reserving every candidate, moves the count rows to 0 and turns the **density** rows red instead (7 FAILs,
   L0 38 > 36, L1 60 > 59). Both directions of the same mechanism are red, which is why the count and density
   rows both exist.
+- **`anim` can now fail on a gait, and it turned out the game had one** (#274). The rows could not
+  see the phase: pinning the pose table's phase term so the body shifts from its spawn stance to
+  **one** walk stance and stops exited **0**, four `walk +Ns` rows printing the same number at every
+  offset (**6.6 / 6.6 / 6.6 / 6.6 %** on level 0, **4.7-4.9 %** on level 3) against `MINMOVE` 3.0 -
+  one stance shift, credited four times as walking - while the row that *named* the cycle reported
+  **9 distinct bodies in 9 samples** on that same rigid mesh once a colour term was keyed on
+  `e.anim`, because it hashed pixel colours. Two rows now assert in the domains that own the claim:
+  **`gait shape`** reads `MESH.poseVerts` (new export; the same `bucketOf` + `poseOf` the draw site
+  goes through, so it is the vertex set an enemy is rasterized from) and gates metres a vertex
+  travels between buckets - half-cycle **≥ 0.10 m** (measured 0.137-0.278), adjacent bucket
+  **≥ 0.03 m** (0.058-0.137), each at least **2x** the same sweep at `mv = 0`, which is the idle
+  weight-shift and moves 0.000-0.058 m, not the 0 the issue's proposed control assumed. **`gait
+  phase`** walks a real enemy on the mode's own treadmill for 2 strides and gates that the draw's
+  bucket index reaches **8/8** buckets, advances **+1 mod 8**, and that the phase equals **metres
+  walked / SPEC stride** (measured drift **-0.0000 to 0.0000** - the phase is distance-driven, so it
+  cannot become frame-rate-driven without tripping this). The `walk cycle` row gates on the
+  **coverage** mask now (`COV`, stamped only by body paint, armed for the mode - no pixel changes),
+  with the colour hash kept **reported** beside it, so colour-9-of-9 against shape-2-of-9 is the
+  sabotage in plain sight. Teeth, each run with the sabotaged file loaded by the same process that
+  asserts (`JSDIR=`, whose js-sha256 the tool prints): rigid table **exit 1**, `gait shape ... min
+  0.000 < 0.10 m FAIL` x3; rigid **plus** a phase-keyed colour term **exit 1** with that row's colour
+  hash reading 9/9; frozen `e.stepPhase` **exit 1**, `NO PHASE - the walk reaches 1 of 8 buckets;
+  phase advanced LESS than the distance walked`. Pristine `origin/main` behaviour is unchanged:
+  `anim` exits 0, half-cycle min 0.137/0.137/0.144, 8/8 buckets monotone, every other row of the
+  run byte-identical to the pre-change output, `flatparity`'s flat triple `060da4cd/f05beeb5/050b225e`
+  and DEALT `2f1b8e3c/370d3f7a/aa18d43e/e846d5b3` unmoved, `refs ok - 13 recorded reference(s) in 6 of
+  25 probes`, `SMOKE PASSED`. The four `walk +Ns` rows keep `MINMOVE` 3.0 untouched - raising it to
+  reject 6.6 % was the wrong fix (#274: still a pixel count, and 1.8 points from a real 8.2 %), so on
+  a rigid body they still print MOVES and the verdict is red because of the two pose rows.
+
 - **All six README screenshots are re-captured from the deployed bytes, and two captions stopped
   describing a picture that is no longer there** (#333). The facing-wall frame changed: **10 dark rows
   → 488 of 763** - a run of 277 from the top of the frame, mean 36.79 → 20.87, top band 36.2 → 9.5 -
