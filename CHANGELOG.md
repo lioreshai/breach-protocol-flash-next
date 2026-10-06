@@ -22,9 +22,10 @@
   authored finale too, whose `pick` entry is empty. Smoke asserts five claims; on pristine code all five
   fail (`0/0/0/0` drops, `P.reserve` sum 80 instead of `P.gren` rising, boxes eaten at full pouch,
   `drop arms swept 2/3`, `MESH.draw kinds … [portal, undefined]`). `node tools/view.js props` gained a
-  `PICKUPGREN` block on all four levels: 48 triangles of its own, 100 % of its 899-px silhouette owned in
-  depth, and the same fall with the lights out as the other three boxes (x0.47, against the recorded
-  0.479 control, which did not move).
+  `PICKUPGREN` block on all four levels: 48 triangles of its own, 100 % of its silhouette owned in depth
+  (899 / 879 / 934 / 1146 px at the seat), and the same fall with the lights out as the other three boxes
+  (x0.47 / 0.55 / 0.29 / 0.71). Each level's recorded `CTRL-RAT` (0.479 / 0.551 / 0.306 / 0.716) is
+  unchanged, so no existing (E) row was weakened to admit the fourth.
 - **The prop probe now judges the hand-authored level, and a level's world no longer depends on the
   command line** (#314). `node tools/view.js props` was green while `node tools/view.js props 3` — the
   same probe asked about THE STACK — failed 13 rows on current `main` (`props 2` failed 4). All three
