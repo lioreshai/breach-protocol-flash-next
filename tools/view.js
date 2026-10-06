@@ -5898,7 +5898,7 @@ if (MODE === 'exposure') {
   const COV_LAMPS_MAX = [10, 12, 20, 7]; // mean lamps/deal incl. the exit pad: never above main's
   const covAgg = [];
   if (COV_ROLLS > 0) for (let lv = 0; lv < N; lv++) {
-    const A = { deals: 0, big: 0, bigDark: 0, bigNoStand: 0, allDark: 0, cells: 0, dark: 0,
+    const A = { deals: 0, big: 0, bigDark: 0, bigNoStand: 0, allDark: 0, cells: 0, dark: 0, smallCells: 0, smallDark: 0,
       lamps: 0, gap: Infinity, gapReserve: Infinity, bands: 0, worstBand: '', darkBands: [], standBands: [], allDarkBands: [] };
     for (let r = 0; r < COV_ROLLS; r++) {
       seedRng(1000 + lv * 97 + r * 13);
@@ -5962,7 +5962,7 @@ if (MODE === 'exposure') {
       if (c.gapReserve > 0 && c.gapReserve < S.gapReserve) S.gapReserve = c.gapReserve;
       for (const b of c.bands) {
         S.bands++; S.cells += b.n; S.dark += b.dark;
-        if (b.n < COV_MIN_BAND) continue;
+        if (b.n < COV_MIN_BAND) { S.smallCells += b.n; S.smallDark += b.dark; continue; }
         S.big++;
         const who = 'roll ' + r + ' ' + (b.ri < 0 ? 'lane' : 'room ' + b.ri) + ' @ q' + b.q +
           ' (' + b.n + ' cells)';
@@ -5989,7 +5989,9 @@ if (MODE === 'exposure') {
       A.bigDark <= COV_DARK_MAX[lv],
       A.bigDark + ' of ' + A.big + ' big bands are over ' + (100 * COV_SHARE).toFixed(0) + '% dark over ' +
       deals + ' deals, against the ceiling ' + COV_DARK_MAX[lv] + ' measured on this tree; ' +
-      (100 * A.dark / A.cells).toFixed(1) + '% of the ' + A.cells + ' counted cells are dark'
+      (100 * A.dark / A.cells).toFixed(1) + '% of the ' + A.cells + ' counted cells are dark, of which '
+      + A.smallDark + ' (' + (100 * A.smallDark / Math.max(1, A.dark)).toFixed(0) + '% of the dark cells) sit on '
+      + 'the ' + A.smallCells + ' cells of bands under ' + COV_MIN_BAND + ' cells, which the guarantee does not reach'
       + (A.bigDark > COV_DARK_MAX[lv] ? ' - over the ceiling: ' + A.darkBands.slice(0, 5).join('; ') +
         (A.darkBands.length > 5 ? ' ... +' + (A.darkBands.length - 5) : '') : '') +
       ' - this is the claim the lamp model can keep: it cannot promise a deal MEAN (#149 measured main 23/36/51/61 at 24 rolls).');

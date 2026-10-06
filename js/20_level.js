@@ -82,15 +82,16 @@ const cellIdx = (x, y) => (y | 0) * MW + (x | 0);
 const ZQ = 0.25;
 const CZ_DEF = 4;                                        // 4 quanta = one unit of ceiling
 const LHOVER = 0.78;                     // a lamp light's authored hover above its own floor (:845)
-/* BAND_SOFT is the graded reach of a lamp's band term, in metres PAST the quantum (#199). The gate
-   used to be binary: full weight within one quantum of the source's own floor, nothing beyond, which
-   measured as 38-62% of a level's dark ground (gate off vs on, 4 levels, deterministic `cov` census).
-   A wider BINARY reach is not the fix - #203 tightened it to +-ZQ precisely because a column 7 quanta
-   above a lamp was taking light at full weight. A graded ramp keeps that: weight falls linearly to
-   zero one unit past the quantum, so distant bands stay dark while the cliff edge stops reading as a
-   black floor. fd = 0 gives exactly 1, so a flat level is bit-identical, and the term depends only on
-   geometry, so splat and un-splat stay identical and blast light still fully fades (smoke). */
-const BAND_SOFT = 1.0;
+/* #199 asked whether the band gate below should RAMP instead of cutting off - a graded reach, full
+   weight to +-ZQ then a linear fade to zero one metre past it, for lamps only. It was built, measured on
+   that head (review of PR #368: pooled dark ground 8.7% -> 7.0% of open cells, 12 rolls x 4 levels) and
+   REJECTED: `alt`'s
+   `no column is lit from a band ABOVE/BELOW it` and `w(+/-2q) <= 0.02` rows exist because #203, #205,
+   #206 and #209 chose to make a band boundary a LIGHT boundary, and a ramp is that decision reversed,
+   not a reference refresh. The gate below stays binary. Where the dark floor actually is, `exposure`'s
+   coverage census now prints beside its own row: only 2-6% of the dark cells it counts sit on bands under
+   MIN_BAND cells, so placement is already nearly exhausted (#337 leaves no big band all dark) and the
+   residual is the disc's own falloff inside served bands - what #206 reclassified on purpose. */
 /* #213: a coverage TOP-UP source is scaled by the band it was placed to cover, because a 16-cell pit
    and a 300-cell floor otherwise receive identical sources - which is why standing inside a lit pit
    read DEV.lum 168 mean / 229 mid (a white box) while the big floor stayed under-lit. str is
@@ -972,8 +973,7 @@ function splatLight(L, amt) {
          literal 1, and every flat frame reproduces bit for bit. This same function runs the delta
          un-splat, so the kernel is identical for add and remove and a fading transient leaves no
          permanent light (smoke's "blast light fully fades out", unchanged). */
-      const bfd = Math.abs(lf - floorAt(x + 0.5, y + 0.5));
-      const wv = bfd <= ZQ + 1e-9 ? 1 : (L.soft ? Math.max(0, 1 - (bfd - ZQ) / BAND_SOFT) : 0);
+      const wv = Math.abs(lf - floorAt(x + 0.5, y + 0.5)) <= ZQ + 1e-9 ? 1 : 0;
       const w = Math.pow(1 - d / L.r, 1.6) * wv, i = y * N + x;
       lm[i] += amt * w;
       const k = Math.abs(amt * w);
@@ -1291,7 +1291,7 @@ function buildAuthored(li) {
             const ni = ny * N + nx; if (seen[ni] || fz[ni] !== f0 || cell[ni]) continue;
             seen[ni] = 1; st.push(ni); } } }
       const lstr = Math.max(TOPUP_MINF, Math.min(1, cov / TOPUP_TARGET));
-      LIGHTS.push({ soft: 1, x: px, y: py, z: fl + LHOVER, r: 7.2, str: lstr, col: cfgL.lampCol, stat: 1 });
+      LIGHTS.push({ x: px, y: py, z: fl + LHOVER, r: 7.2, str: lstr, col: cfgL.lampCol, stat: 1 });
       PROPS.push({ tex: PROP.lamp, x: px, y: py, scale: 0.95, z: fl, kind: 'lamp' });
     } else if (s[2] === 'B') PROPS.push({ tex: PROP.barrel, x: px, y: py, scale: 0.86, z: fl, kind: 'barrel' });
     else if (s[2] === 'C') PROPS.push({ tex: PROP.crate, x: px, y: py, scale: 1, z: fl, kind: 'crate' });
@@ -1454,7 +1454,7 @@ function genLevel(li) {
       const c = clearSpot(takeNear(1));      // #154: a lamp is a prop - it draws, and FOOT.lamp blocks.
       // one clearSpot call feeds the LIGHTS entry and the PROPS entry below, so light and prop disagree
       // with each other on no deal;
-      LIGHTS.push({ soft: 1, x: c[0] + 0.5, y: c[1] + 0.5, z: floorAt(c[0] + 0.5, c[1] + 0.5) + LHOVER, r: 7.2 + Math.random() * 2.8, str: 1.05, col: cfgL.lampCol, stat: 1 });
+      LIGHTS.push({ x: c[0] + 0.5, y: c[1] + 0.5, z: floorAt(c[0] + 0.5, c[1] + 0.5) + LHOVER, r: 7.2 + Math.random() * 2.8, str: 1.05, col: cfgL.lampCol, stat: 1 });
       PROPS.push({ tex: PROP.lamp, x: c[0] + 0.5, y: c[1] + 0.5, scale: 0.95, z: floorAt(c[0] + 0.5, c[1] + 0.5), kind: 'lamp' });
     }
     /* The pad light deliberately carries NO z: it is drawn as a glow AT the floor, so it
@@ -1728,7 +1728,7 @@ function genLevel(li) {
         const bx = bq[0], by = bq[1];
         taken.add(by * N + bx);           // the cell the lamp STANDS in is the one that must stay unique
         const tsc = Math.min(1, Math.max(TOPUP_MINF, (bcov || 1) / TOPUP_TARGET));   // 0 coverage keeps a full lamp: a dim source that covers nothing would only darken the band
-        LIGHTS.push({ soft: 1, x: bx + 0.5, y: by + 0.5, z: floorAt(bx + 0.5, by + 0.5) + LHOVER, r, str: TOPUP_BASE * tsc, col: cfgL.lampCol, stat: 1 });
+        LIGHTS.push({ x: bx + 0.5, y: by + 0.5, z: floorAt(bx + 0.5, by + 0.5) + LHOVER, r, str: TOPUP_BASE * tsc, col: cfgL.lampCol, stat: 1 });
         PROPS.push({ tex: PROP.lamp, x: bx + 0.5, y: by + 0.5, scale: 0.95, z: floorAt(bx + 0.5, by + 0.5), kind: 'lamp' });
       }
     }
