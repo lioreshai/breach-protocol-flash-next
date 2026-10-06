@@ -120,6 +120,19 @@ const MESH = (function () {
      neck as wide as the torso. */
   const NECK_R0 = 0.62, NECK_R1 = 0.54;
 
+  /* A headR fraction alone answers to the head, not to the torso the tube must not look like a gap beside
+     (#80): the tube's share of its own torso BOX is 0.62*headR/(1.05*shLat) = 41% on a grunt, 43% on a
+     hound and 29.5% on a brute - the mesh comment above calls 22% "a gap between two parts" and 36-41% "the
+     part's own base", so brute sits alone below the regime its own file describes, because its shLat is 1.6x
+     a grunt's while its headR is only 1.18x. The floor below leaves grunt and hound EXACTLY as they are
+     (0.42*0.098 < 0.62*0.068 and 0.42*0.13 < 0.62*0.095, so their headR term still wins and their geometry
+     is byte-identical) and takes brute to 40% - the same share of its torso a grunt has. The taper rides
+     with the base. Proportioned this way, not in pixels: the painted band row measures the HEAD's envelope,
+     because the head box is emitted after the tube and stamps the rows the probe samples (#80's rows print
+     both numbers side by side so the difference stays visible). */
+  const NECK_R_SHLAT = 0.42;
+  const neckR = s => Math.max(s.headR * NECK_R0, s.shLat * NECK_R_SHLAT);
+
   /* The head box's half-width in fractions of headR - named for two reasons: it is the head's own
      silhouette width, and it is the LATERAL WINDOW tools/view.js #80 measures the neck band inside.
      The pixels between the head's underside and the shoulders' top face are the tube, the head box's
@@ -607,13 +620,64 @@ const MESH = (function () {
      that for a body at 3 m. The flash is emitted into the SAME builder with `b.em = 1` rather than
      into a second one, so the view model is one draw and its emissive parts carry the light exemption
      per vertex (EM) instead of needing a second set of shading registers. */
-  function weaponGeo(kind, st) {
-    const g = VMGEO[kind];
-    if (!g) throw new Error('MESH: no view model authored for weapon "' + kind + '"');
-    const b = g(new Builder(), st || {});
+  /* ---- #186: the weapon's geometry, cached on QUANTIZED travel -------------------------------
+     The issue's own reason for skipping a cache is correct as stated: ejector, pump and magazine travel
+     continuously (`mz, magOut, slideBack, pump, shellIn` are 0..1 envelopes - js/40_render.js:1824-1836), so
+     a key over the travel itself misses every frame and a miss costs the build it was meant to skip. That is
+     the documented cliff - cull before the fetch, and cost the work the cache avoids - and the way off it is
+     the one the body poses already use (PB buckets, js/13_mesh.js:749): key on the travel QUANTIZED, and make
+     the quantum small enough that the part cannot be seen to jump.
+     WQK sizes each term by itself: the row measured 4.17 mm at 1/16 for magOut (0.10 m of travel, the largest
+     in the rig, magOut at :559) against a 4 mm floor while every other part sat under it, so the magazine
+     alone went to 1/32 and the rest stayed at 1/16 - the bound sets the quantum, and the row measures it rather
+     than arithmetic, because these terms move a box's DIMENSIONS
+     exact and quantized geometry across each envelope and reports the largest vertex displacement it finds.
+     `wq(0) === 0` exactly, so an at-rest rig - every hashed frame this repo owns - builds the same numbers it
+     did before this cache existed, and parity is a fact of the key rather than a hope. */
+  const WQK = { mz: 16, magOut: 32, slideBack: 16, pump: 16, shellIn: 16 };   // steps in each term's own travel
+  const WPCAP = 64;                                   // entries; eviction is the rig cache's, evict before build
+  const WEPO = new Map(); let wBytes = 0; const wStat = [0, 0];   // [misses, hits]
+  /* Probe-only teeth arm (#186): when set, every fetch builds and counts a MISS, which is what a key over the
+     raw travel does. view.js's viewmodel block arms it for one row so the failure the issue named - "the key
+     would be wrong" - is driven through the SHIPPED reload timeline instead of being simulated beside it. The
+     shape is the COV/GLOWREC one: inert in play, armed by the probe that needs it. */
+  let WRAW = false;
+  const wq = (n, x) => x > 0 ? Math.round(x * n) / n : 0;   // 0 stays exactly 0, not 1/WQK
+  /* The state a key's geometry is BUILT at, so one key maps to exactly one geometry. Building from the
+     frame that happened to land in the bucket first makes presence a matter of luck: parts are authored as
+     `if (s.slideBack)` / `if (s.shellIn)` / `if (s.mz > 0.004)`, so a frame in the last breath of a reload
+     (slideBack still > 0, still under half a quantum) would build the REST key with a brass casing in it,
+     and every frame at rest after it would be served that casing. The quantum is already what decides the
+     key, so it decides the geometry too - which is also what makes the quantum-price row a statement about
+     the shipped path rather than about scheduling. `wq(0) === 0`, so an at-rest build is unchanged. */
+  function wState(s) {
+    s = s || {};
+    return { mz: wq(WQK.mz, s.mz || 0), magOut: wq(WQK.magOut, s.magOut || 0), slideBack: wq(WQK.slideBack, s.slideBack || 0),
+      pump: wq(WQK.pump, s.pump || 0), shellIn: wq(WQK.shellIn, s.shellIn || 0) };
+  }
+  function wKey(k, s) {
+    return k + '|' + wq(WQK.mz, s.mz) + '|' + wq(WQK.magOut, s.magOut) + '|' + wq(WQK.slideBack, s.slideBack) +
+      '|' + wq(WQK.pump, s.pump) + '|' + wq(WQK.shellIn, s.shellIn);
+  }
+  function wBuild(kind, st) {
+    const b = VMGEO[kind](new Builder(), st || {});
     const p = new Float32Array(b.p), v = new Float32Array(b.p.length / 2);
     for (let i = 0; i < b.p.length / 6; i++) { v[i * 3] = b.p[i * 6]; v[i * 3 + 1] = b.p[i * 6 + 1]; v[i * 3 + 2] = b.p[i * 6 + 2]; }
-    return { kind, p, v, t: new Uint16Array(b.t), em: Uint8Array.from(b.e), nV: b.p.length / 6, tris: b.t.length / 3 };
+    const geo = { kind, p, v, t: new Uint16Array(b.t), em: Uint8Array.from(b.e), nV: b.p.length / 6, tris: b.t.length / 3 };
+    geo.byteLength = p.byteLength + v.byteLength + geo.t.byteLength + geo.em.byteLength;
+    return geo;
+  }
+  function weaponGeo(kind, st) {
+    if (!VMGEO[kind]) throw new Error('MESH: no view model authored for weapon "' + kind + '"');
+    if (WRAW) { wStat[0]++; return wBuild(kind, st); }        // probe arm: never serves, never stores
+    const qk = wKey(kind, st || {});
+    const hit = WEPO.get(qk);
+    if (hit !== undefined) { WEPO.delete(qk); WEPO.set(qk, hit); wStat[1]++; return hit; }
+    if (WEPO.size >= WPCAP) { const k0 = WEPO.keys().next().value; const g0 = WEPO.get(k0); WEPO.delete(k0); wBytes -= g0.byteLength; }
+    wStat[0]++;
+    const geo = wBuild(kind, wState(st));
+    WEPO.set(qk, geo); wBytes += geo.byteLength;
+    return geo;
   }
 
   /* boot-time drift detector for the view models, same shape as SPEC/SRC higher up: VMUZZLE is the
@@ -661,7 +725,7 @@ const MESH = (function () {
        reason: a column 22% of the torso's width reads as a gap between two parts, and one 36-41% of it
        reads as the part's own base. Emitted between the two boxes it stitches, and the emit ORDER is
        the pose table's vertex order, so it stays here rather than moving with the head. */
-    b.tube(0, shTop - JOIN, 0, 0, s.head + q.bob - s.headR * 0.35 + JOIN, 0, s.headR * NECK_R0, s.headR * NECK_R1, dk);
+    b.tube(0, shTop - JOIN, 0, 0, s.head + q.bob - s.headR * 0.35 + JOIN, 0, neckR(s), neckR(s) * (NECK_R1 / NECK_R0), dk);
     b.box(0, s.head + q.bob + s.headR * 0.6, 0, s.headR * HEAD_HW, s.headR * 0.95, s.headR * 0.80, dk);
     b.box(0, s.head + q.bob + s.headR * 0.7, s.headR * 0.72, s.headR * 0.62, s.headR * 0.30, s.headR * 0.22, [255, 208, 138]);
     for (let i = 0; i < 2; i++) {
@@ -818,7 +882,11 @@ const MESH = (function () {
     return v;
   }
 
-  function poseOf(m, o) {
+  /* The bucket quantization on its own, so `MESH.poseBucket` can name the entry a draw is about to
+     use. One rule lives here and poseOf reads it: an Anim row that computed its own bucket from
+     o.p would be a second rule, and a pose table whose phase term is pinned (the #274 sabotage)
+     would leave the row green while every body in the game stood still. */
+  function bucketOf(o) {
     const ph = Math.floor(((((o.p || 0) % 1) + 1) % 1) * PB.ph);
     const mv = Math.min(PB.mv - 1, (clamp(o.mv || 0, 0, 0.999) * PB.mv) | 0);
     const ab = Math.min(PB.atk - 1, (clamp(o.atk || 0, 0, 0.999) * PB.atk) | 0);
@@ -828,7 +896,12 @@ const MESH = (function () {
        exact rather than approximate - the vertices cannot depend on them - and it is what pays for
        DIEV: 5 buckets x 3 variants per kind replaces the 96 entries per phase that main keyed and
        built for one and the same corpse. */
-    const dv = db > 0 ? ((o.dv | 0) % DIEV + DIEV) % DIEV : 0;
+    return { ph, mv, ab, db, dv: db > 0 ? ((o.dv | 0) % DIEV + DIEV) % DIEV : 0 };
+  }
+
+  function poseOf(m, o) {
+    const b = bucketOf(o);
+    const ph = b.ph, mv = b.mv, ab = b.ab, db = b.db, dv = b.dv;
     if (!CACHE) return buildPose(m, ph / PB.ph, mv / (PB.mv - 1), ab / (PB.atk - 1), db / (PB.die - 1), dv);
     const key = db > 0 ? m.kind + '#' + m.seg + '|d' + dv + '|' + db
       : m.kind + '#' + m.seg + '|' + ph + '|' + mv + '|' + ab;
@@ -1121,9 +1194,11 @@ const MESH = (function () {
 
   return {
     draw,
-    stats: () => ({ tris, pxFilled, trisCulled, poseEntries: POSE.size, poseMB: +(poseBytes / 1048576).toFixed(2), poseMade, capMB: PCAP / 1048576 }),
+    stats: () => ({ tris, pxFilled, trisCulled, poseEntries: POSE.size, poseMB: +(poseBytes / 1048576).toFixed(2), poseMade, capMB: PCAP / 1048576,
+      wGeo: WEPO.size, wMiss: wStat[0], wHit: wStat[1], wMB: +(wBytes / 1048576).toFixed(3), wQ: WQK, wCap: WPCAP }),
     reset: () => { tris = 0; pxFilled = 0; trisCulled = 0; },
     setCache: v => { CACHE = !!v; POSE.clear(); poseBytes = 0; poseMade = 0; return CACHE; },
+    setWRaw: v => { WRAW = !!v; return WRAW; },          // probe-only (#186): make the key serve nothing
     trisFor: k => model(k || 'grunt').tris,
     // #78's readout: which kinds carry something, and how many sides the limbs get at the tier the page
     // is on. Both exist so a probe row can gate the detail instead of a screenshot describing it.
@@ -1133,6 +1208,12 @@ const MESH = (function () {
     vertsFor: k => model(k || 'grunt').nV,
     /* the view model's geometry: rebuilt per frame, never cached, and the numbers the probes need */
     weapon: (k, st) => weaponGeo(k, st),
+    /* #186: the state the key's geometry is built at. The key and the build are the same function of the
+       pose, and view.js's identity row asserts that from the outside against `weaponRaw`. */
+    wQuant: st => wState(st),
+    /* probe-only (#186): the builder with NO quantum applied, so a probe can measure the displacement the
+       quantum is paid with instead of taking the arithmetic on faith. Nothing in the draw path calls this. */
+    weaponRaw: (k, st) => { const b = VMGEO[k](new Builder(), st || {}); return { p: b.p, nV: b.p.length / 6 }; },
     muzzleFor: k => VMUZZLE[k],
     maxVerts: MAXV,
     /* the rest model's own extent in body space: its height span and its radius in plan. This is what
@@ -1144,7 +1225,7 @@ const MESH = (function () {
        between, published so tools/view.js #80 measures the band the geometry paints instead of
        re-deriving its own. The third number is the window's half-width: the head box's own half-width,
        which contains the tube, the head's underside and the shoulders' top face but not the arms. */
-    neckBand: k => { const s = SPEC[k] || SPEC.grunt; return [s.sh + s.headR * SHOULDER_LIFT, s.head - s.headR * 0.35, s.headR * HEAD_HW]; },
+    neckBand: k => { const s = SPEC[k] || SPEC.grunt; return [s.sh + s.headR * SHOULDER_LIFT, s.head - s.headR * 0.35, s.headR * HEAD_HW, neckR(s)]; },   // [bandLo, bandHi, plan window, AUTHORED tube half-width] - the 4th lets a probe measure the tube the mesh wrote rather than the envelope that paints over it (#80)
     spanFor: k => {
       const m = model(k);
       if (!m.span) {
@@ -1161,5 +1242,12 @@ const MESH = (function () {
     PB,
     SPEC,
     DIEV,
+    /* The pose the DRAW would produce, for tools/view.js `anim` (#274): the same bucketOf + poseOf
+       the draw site goes through, so a row that reads this measures the vertex set an enemy is
+       actually rasterized from - not a re-derivation of it. poseVerts returns a copy (a caller that
+       wrote to it would otherwise poison the table); poseBucket returns {ph,mv,atk,die,dv}, the
+       bucket indices that entry is keyed by. Both take the same options object as draw(). */
+    poseVerts: o => poseOf(model(o.kind || 'grunt'), o).slice(),
+    poseBucket: o => { const b = bucketOf(o); return { ph: b.ph, mv: b.mv, atk: b.ab, die: b.db, dv: b.dv }; },
   };
 })();

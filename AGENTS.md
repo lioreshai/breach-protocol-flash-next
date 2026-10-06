@@ -191,16 +191,22 @@ They generalize; the measurements that found them are in that file.
   PR whose base branch is deleted, and `delete_branch_on_merge` is on, so merging the parent
   does exactly that — silently. Verify a fix reached `main` by grepping its content
   (`git show origin/main:js/11_rig.js | grep -c rimSil`), never by PR bookkeeping.
-- **Merge through the API, not `gh pr merge --admin`** — that printed nothing and merged
-  nothing (#98). Use `gh api -X PUT /repos/<repo>/pulls/<N>/merge -f sha=<full 40-char head>
-  -f merge_method=squash -f commit_message="… Closes #N"`, which answers 422 on a stale SHA and
-  `{"merged":true}` when it worked. **Redirect nothing from a merge call.**
-- **Read `mergeStateStatus` before merging.** `BLOCKED` with every row green means a stale
-  merge ref — rebase onto current `main` and force-push so CI runs against the real target,
-  never admin-merge past it. The refusal is a `405`.
-- Merges here are **squash** merges, so a merged branch's commit is not an ancestor of `main`.
-  Detect merged branches by PR state (`gh pr list --state merged --head <branch>`), never by
-  `merge-base --is-ancestor`; that is why `prune.yml` carries no ancestry check.
+- **Every commit uses `Liore Shai <liores@gmail.com>` as both author and committer.**
+  Do not use account, role or placeholder identities or attribute work to another name.
+  `tools/check_identity.py` verifies the actual objects, including author trailers.
+- **Integrate the exact reviewed head with a locally created merge commit and a normal
+  fast-forward push.** Check current-head CI and mergeability first, retain the old `main`
+  as the first parent and the reviewed PR head as the second, and confirm publication.
+  If main is not already an ancestor of the PR head, first push that canonical merge
+  to the same PR branch. Let CI run and review its new exact head before a fast-forward
+  push to main. Required checks remain enforced; do not wait inside an integration.
+  GitHub API/UI merges substitute a platform committer and do not meet this identity rule.
+  Never admin-bypass a conflict, changed head or policy block. No routine force push to `main`.
+- **Read `mergeStateStatus` before merging.** A blocked or stale merge result must be
+  resolved against current `main`; do not treat HTTP 405 as a transient retry.
+- New integrations are ordinary merge commits, so the reviewed head is reachable from
+  `main`. Older integrations were squashed: confirm historical merges by PR state and
+  actual contents rather than assuming their branch commits are ancestors of `main`.
 - **A YAML step `name:` cannot contain `': '`** — a plain scalar cannot hold colon-space, so
   the whole workflow fails to parse and nothing reports (#107). `tools/wfyaml.rb` asserts each
   workflow parses and that no job runs nothing; it cannot check its own file, so `ci.yml` and
@@ -209,12 +215,12 @@ They generalize; the measurements that found them are in that file.
 ## Issue tracking
 
 A PR body carries `Closes #N` — **the keyword as plain text**, not a bare `#N` and not inside
-backticks. Squash merges mean a bare reference links the issue and leaves it open, and a
+backticks. A bare reference links the issue and leaves it open, and a
 closing keyword inside a code span links nothing while the `issue` check in `pr-guard.yml`
 stays green, because it greps raw text. `[no-issue]` is the opt-out, same shape as
 `[no-changelog]`.
 
-- **Confirm the close** with `gh issue view N --json state` after an admin squash merge. An
+- **Confirm the close** with `gh issue view N --json state` after integration. An
   issue left open after its work shipped is worse than no issue: the next reader re-does it.
 - **File a measured defect as an issue in the session that measured it**, numbers in the body.
   Parked in a transcript it evaporates.

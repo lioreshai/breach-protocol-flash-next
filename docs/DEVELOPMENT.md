@@ -55,6 +55,7 @@ permanently-red row teaches everyone to ignore the rows that mean something.
 | `exposure` | mean luminance over levels × seeds × 6 view angles, as **medians of seeded rolls**, plus the spawn-seat column. Carries recorded rows and an exit code (#216) |
 | `contrast` | do the characters read against what is behind them. Mask is `COV` (who painted each pixel last), ring is an 8-neighbourhood, background is the median of outside-mask neighbours of the same frame |
 | `bands` | the legibility pair |
+| `surface` | the value order between surfaces (#369): ceiling-vs-floor band means and the per-column seam where a ceiling meets what is under it, from three renders that differ only in the level's own `floorBias`/`ceilBias`. **Reported, not gated** — not in `ci.yml`'s roster. `CAMS=`, `TARGET=`, `MIN_COLS=` |
 | `mip` | streak counts; clears `zbuf` to the sentinel per isolated `castWalls` call |
 
 **Geometry and verticality**
@@ -73,8 +74,9 @@ permanently-red row teaches everyone to ignore the rows that mean something.
 | `refs` | the recorded-reference inventory, printed with no render |
 
 Knobs: `REPS=n` and `ONLY=W1` narrow runs, `ASCII=1` prints text instead of a PNG, `OUT=`
-redirects the path, `SEED=`, `TINT=k` A/Bs body shading, `JSDIR=` points at a variant tree,
-`PIXHASH=1` hashes frames, `STRICT=1` promotes debt rows.
+redirects the path, `SEED=`, `TINT=k` A/Bs body shading, `SET=code` runs in the game context
+before the frame (`SET='GNDRO=0'` A/Bs a renderer global in a screenshot), `JSDIR=` points at a
+variant tree, `PIXHASH=1` hashes frames, `STRICT=1` promotes debt rows.
 
 **Recorded references:** read the count, kind and values off `node tools/view.js refs`.
 `tools/refs.lock` is the table, regenerated with `refs --record`, and `refInventory` asserts
