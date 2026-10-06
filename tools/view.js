@@ -1981,8 +1981,16 @@ if (MODE === 'flatparity') {
   /* #19 re-recorded all four: the ground pass's light is sampled at the pixel instead of per cell, so a
      FLAT frame's shading moved too - this record never claimed the shading was frozen, only that a flat
      level collapses to one picture, and it still does. Values measured on this tree, not widened. */
-  const OLD = refRecord('flatparity', 'PARITY', 'md5', ['57a58ae091cea3e77ca9729a887205d9', '5f0a6279a67b37663b2fc744742097e6', 'dd305d0b6cc005dadfec6dc223c3314e', '1666dd459121926872847d53a389654e']);   // #19 take three: the ground FETCH filters now, so a flat level's ground pixels moved too - the LAMPS=off sense, re-recorded, no threshold touched
-  const OLDM = [74.8, 29.6, 50.1, 29.8];
+  /* #371 re-keys L0 and L3, returns L1 to MAIN's byte and leaves L2 at this branch's value - and the
+     four outcomes ARE the census of what the prop shading touched. Prop faces and their contact patch
+     move a flat frame's pixels on every level, so all four moved once; the level whose flat spawn frame
+     the PORTAL was the only thing in has come back to main's hash now the portal keeps its own ramp
+     (js/13_mesh.js PROPKIND), and the level where only props show moved once and not twice. Measured per
+     level as main -> with the ramp keyed on PROPGEO -> keyed on the prop kinds:
+     L0 a4db61f5 -> 57a58ae0 -> 3e6cd8f0   L1 fbcff86d -> 5f0a6279 -> fbcff86d
+     L2 e4f90eb1 -> dd305d0b -> dd305d0b   L3 17bea960 -> 1666dd45 -> 72213b7c. Nothing was widened. */
+  const OLD = refRecord('flatparity', 'PARITY', 'md5', ['3e6cd8f04aab5a133d70ac363e1f85e5', 'fbcff86d51a87fc3df0279ab205cecd5', 'dd305d0b6cc005dadfec6dc223c3314e', '72213b7c25359107eb4d33007f01e735']);   // #19 take three: the ground FETCH filters now, so a flat level's ground pixels moved too - the LAMPS=off sense, re-recorded, no threshold touched
+  const OLDM = [74.9, 29.6, 50.1, 29.8];
   /* #213 moves SHIP[0] to 060da4cd (80.8, from 4262d051/81.3) and nothing else: a coverage top-up's
      intensity now scales with the cells it covers, so the shipped world gains DIMMER sources and L0's
      spawn frame repaints. L1 and L2 are byte-identical at TARGET <= 64 - their top-ups each cover >= 32
@@ -2002,8 +2010,12 @@ if (MODE === 'flatparity') {
      did not move, so this is seat choice, not a light scale. */
   /* #19 re-recorded: same reason as PARITY, and the lamps themselves did not move - see the DEALT row,
      where the dealt grids and off-datum cell counts are byte-identical to the previous records. */
-  const SHIP = refRecord('flatparity', 'LOCK', 'md5', ['5d0309612eccea292f445347013fdafe', '5f0a6279a67b37663b2fc744742097e6', '7c56f996d604301b495c22e49babd976', '1666dd459121926872847d53a389654e']);   // same re-record, LAMPS unset. L1 and L3 equal PARITY's pair because this probe flattens both levels, so their frames differ only in lamps; L0 and L2 do not, which is what makes the pair two senses rather than one
-  const SHIPM = [77.8, 29.6, 53.6, 29.8];
+  /* #371 moves L0 and L3 to the same hashes PARITY now prints, gives L1 back to main, and leaves L2
+     alone - the same four-way census as PARITY's comment, read off the LAMPS-unset sense. L1 and L3 equal
+     PARITY's pair because this probe flattens both levels, so their frames differ only in lamps; L0 and
+     L2 do not, which is what makes the pair two senses rather than one. */
+  const SHIP = refRecord('flatparity', 'LOCK', 'md5', ['b481df75df0e87c8c336038e69431050', 'fbcff86d51a87fc3df0279ab205cecd5', '7c56f996d604301b495c22e49babd976', '72213b7c25359107eb4d33007f01e735']);   // same re-record, LAMPS unset. L1 and L3 equal PARITY's pair because this probe flattens both levels, so their frames differ only in lamps; L0 and L2 do not, which is what makes the pair two senses rather than one
+  const SHIPM = [77.9, 29.6, 53.6, 29.8];
   /* #219's DEALT triple, #226's camera: the frame of each level AS DEALTED - bands, band term, shipped
      lamp record, same dice (1000 + level*97) and the same pinned-clock ninth render - but at a seat
      CHOSEN FROM THE GRID, not the spawn seat #219 inherited. Where LOCK is a
@@ -9146,8 +9158,18 @@ if (MODE === 'props') {
        FACE_MIN is the issue's own bar (35 luminance, against the 18 it measured on the shipped build),
        not a number fitted to this branch: main reads ~4-20 here depending on yaw, and the yaw this
         branch authors is bounded AWAY from the axis-aligned case by PROP_YAW_LO (js/20_level.js), so
-       the row cannot be satisfied by luck of the draw - it fails on the shipped ramp, on yaw 0, and on
-       a prop whose faces are painted in two albedos.
+       the row cannot be satisfied by luck of the draw.
+       WHICH of the two changes this row prices is measured, not assumed - three sabotage trees against
+       this probe, JSDIR=, at this head:
+         yaw -> 0, ramp kept     (Y) PASSES (41.3-49.8 apart, rel 0.64-0.70)   (T) FAILS, crate and barrel
+         ramp -> 0.75+0.42 d     (Y) FAILS on the crate (16.3 apart, rel 0.22)  (T) passes
+         both at once            (Y) FAILS (14.9 apart, rel 0.19)               (T) FAILS
+       So (Y) prices the RAMP and (T) prices the YAW: a row that reads a visible outcome can be satisfied
+       by either half of the change, and the pair together is what makes the mechanism covered. Saying
+       "it fails on yaw 0" would be wrong - the ramp alone carries (Y) - and a reader who runs only (Y)
+       would conclude the field does nothing. It does not do nothing: it is the only thing (T) can see.
+       (A prop entry with `yaw: 0` written on it also satisfies yOk - only a MISSING field trips the NO
+       YAW branch, so the row proves the renderer rotates by an angle, not that the generator chose one.)
        The yaw is read back off the page (PROPS[i].yaw through AIM, printed here) so the A/B is one
        assignment on one field and not a rebuild: js/13_mesh.js rotates the CACHED verts by it and the
        yaw is deliberately not in the geometry cache key. */
@@ -9843,7 +9865,7 @@ if (MODE === 'bands') {
      across take four because the pixels the seam A/B compares are shaded by the deferred path; L0's did
      not move at all, which is the control that says the oracle is still measuring the seam and not this
      change.) */
-  const RECSEAM = refRecord('bands', 'SEAM-FRAME', 'md5', ['4bfb28ba4ea318905a9741ad6b4537fe', '19f18bf3e1e813bbf183c20f5e47c67d', '214b8a1439d72c51a4286c15db5aaceb', '15344b2491d563c43a9cc9561a8d59e8']);   // #19 take four: L0's frame held and L1-L3 moved - again, the three generated seats are the ones whose frame reaches past the map edge
+  const RECSEAM = refRecord('bands', 'SEAM-FRAME', 'md5', ['4bfb28ba4ea318905a9741ad6b4537fe', '19f18bf3e1e813bbf183c20f5e47c67d', '214b8a1439d72c51a4286c15db5aaceb', '15344b2491d563c43a9cc9561a8d59e8']);   // #19 take four: L0's frame held and L1-L3 moved - again, the three generated seats are the ones whose frame reaches past the map edge. #371 moved this record on TWO levels and then moved it BACK: a first cut selected the steeper prop face ramp by PROPGEO, which is also the orb's and the portal's geometry table, so the SEAM frame of the two levels whose SHUT portal is in view repainted (L1 19f18bf3 -> 91659a45, L3 15344b24 -> ba439491, both reproducible, both attributable by variant - the SEAM=1-vs-0 pixel count moved on none of the four, which is the row's own oracle and says the seam did not move). The ramp is keyed on the prop kinds now (js/13_mesh.js PROPKIND) and all four hashes here are #19's again, so this record moved ZERO levels for #371 - the row's pose clears PROPS, ENEMIES, PROJ and PARTS, so a prop cannot reach this frame at all.
   // #303: the rows below are labelled by their own level index and every lip comes out of the GENERATED
   // grid, so a bound of 3 simply never asks the authored plan.
   for (let li = 0; li < run('LEVELS.length'); li++) {

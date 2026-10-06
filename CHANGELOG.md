@@ -12,7 +12,10 @@
   lit side, which holds the frame's exposure where it was: the seeded medians are unchanged at 71/70/69/64.
   A crate now reads as a solid you could walk behind - a lit face and a face in shadow, 40-60 luminance
   apart at the level-3 seat where it was 18 - and two crates in a row are no longer the same box. Props
-  also get #18's contact patch, so a crate's lower edge no longer glows as bright as its top one. What a
+  also get #18's contact patch, so a crate's lower edge no longer glows as bright as its top one. That
+  patch is small in the shipped frames - 139-194 px of ground outside a prop's silhouette at the probe's
+  2.6 m seat, 212-992 px of frame at the two documented seats - so at arm's length it reads as a thin dark
+  line hugging the base, not a pool. What a
   prop does NOT do is light itself: the `props` control still drops a crate to x0.46 with the lights off.
 -- **Floors and ceilings stopped drawing a fan of radial spokes** (#19). Three terms of the ground pass were
   functions of the CELL, and a cell boundary seen in perspective is a straight line to the vanishing point,

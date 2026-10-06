@@ -432,6 +432,19 @@ const MESH = (function () {
     },
   };
 
+  /* PROPGEO is TWO tables wearing one name: the props, and the two sprites that were converted to mesh
+     in #76 because the Builder was already there (orb, portal). Anything that asks "is this a prop?" by
+   testing PROPGEO gets those two as well - which is exactly how #371's steeper face ramp reached the
+     exit frame. Measured by variant against `bands`: with the pair selected by table, the SEAM=1 frame
+     moves at L1 and L3 and holds, byte for byte, at L0 and L2, while the SEAM=1-vs-SEAM=0 pixel count is
+     identical on all four. That probe's pose clears PROPS, ENEMIES, PROJ and PARTS before it renders, so
+     the only object the table can name in that frame is the portal - and which levels move is which of
+     them has the SHUT portal in frame (`dim 0.55`, lit by the room, so the ramp shows; open, it is
+     `emis` and no ramp applies to it at all). The orb never moves: it is `emis` in both states.
+     So the ramp below is keyed on the prop kinds, not on the table. A portal frame is not a crate and the
+     issue never asks for its jambs to carry a lit side. */
+  const PROPKIND = { barrel: 1, crate: 1, lamp: 1 };
+
   /* ---- the weapon in the player's hands (#...) ---------------------------------
      The three view models were 2-D canvas path art in js/40_render.js. They are geometry here, on the
      same Builder the bodies and props use, so their pixels come out of the same perspective projection
@@ -1010,7 +1023,9 @@ const MESH = (function () {
        in `PROPGEO.crate` above (the crate's WOOD), because R1 also lifts the top face, and that is where
        the last few percent comes from - not a threshold moved to absorb the difference. */
     const pg = !MDL && PROPGEO[o.kind] !== undefined;
-    R0 = MDL ? 0.55 : (pg ? 0.60 : 0.30); R1 = MDL ? 0.55 : (pg ? 0.68 : 0.85);
+    const pr = pg && PROPKIND[o.kind] === 1;         // a prop, not merely something built by PROPGEO
+    R0 = MDL ? 0.55 : (pr ? 0.60 : pg ? 0.75 : 0.30);
+    R1 = MDL ? 0.55 : (pr ? 0.68 : pg ? 0.42 : 0.85);
     FLR = MDL ? (o.floor || 0) : 0; RIMK = MDL ? (o.rim || 0) : 0;
     ALPHA = o.alpha === undefined ? 1 : o.alpha;
     FLASH = o.flash ? 1 : 0;
