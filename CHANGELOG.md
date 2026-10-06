@@ -3,6 +3,48 @@
 ### Changed
 
 - **Two levels now tell you which surface you are looking at** (#369). ABATOIR CORE painted its floor, its walls and its ceiling from one red — `CEILS.SINEW` was `FLOORS.FLESH` at a different scale, with emissive veins the renderer cannot shade down because an emissive texel is exempt from scene light — so in the largest level in the campaign every step, ledge and pit lip was an edge between two things of the same colour. THE STACK had the order upside down: its 4 m vault cleared the `CEILHI` height threshold, picked up the vault lift, and became the brightest region of the frame while the walkable floor — the level authors `lamps: 0` — was the darkest thing in it, in a level whose whole idea is a walkway above your head. A level now authors a **surface value order**: walls carry the highest value, the floor sits mid, the ceiling sits lowest. Three fields (`floorBias`, `ceilBias`, `ceilLead`) sit beside `amb` and apply one row class each, and a level that does not author them is byte-identical — every flat frame and levels 0 and 1 included. Measured on rendered frames, Rec.601 luminance over screen-row bands: ABATOIR CORE's ceiling was 3.7–5.0 below the wall it meets, and is **19.8** below it at `scene 2 1` (67.1 → 52.3 against an unmoved 72.1 wall band) and **17.3** at a second camera; THE STACK's spawn seat went ceiling 68.6 / wall 65.8 / **floor 32.3** (the floor the darkest thing you can see) to ceiling 37.7 / wall 71.8 / **floor 47.2**, so the room you are in is now brighter than the roof over it. `ceilLead` is authored to a stated rule rather than a taste number: a vault may not lead the floor it covers, so it stays at or under `floorBias − ceilBias` (0.12 ≤ 0.22). **One claim here is not machine-checked, and is labelled rather than quietly asserted.** The ceiling-below-wall gaps above are hand samples of screen-row bands off `view.js scene` frames; no probe in the repo yet measures the issue's "15 luminance below the wall band it meets". A horizon-centred band (rows `horizon-24` to `horizon+8`) reads only **4.7** under the top-third ceiling band on the same level-2 frame, because that window also averages the flat far band past `FARB`, which sits about 25 points darker than the wall faces above and below it (#375). The gap the eye uses is the per-column seam where a ceiling meets the wall face under it, and nothing censuses that seam today. So read the ceiling figures as "clearly lower, and visibly a different surface" — which the frames bear out — and not as a threshold this build holds. Recording the seam census as the remaining work. Records move where the picture moved and nowhere else — `exposure` MEDIAN L2 69 → 65 / L3 64 → 69 and the two SPAWN pairs, `flatparity` PARITY and LOCK on levels 2 and 3 plus DEALT on 3 (L0 and L1 are byte-identical in every one of those rows, which is the proof the change is level-scoped), `bands` SEAM-FRAME on 2 and 3, `heights` HALF-MOVE 4 of 24. One number is NOT fixed by this and is stated rather than absorbed: `tools/ci/assert.js exposure` reads level 2's *composited* first frame at 77.7 against the band's 75 upper anchor, where `main` reads 74, on a median of 5 rolls whose own spread is 54 — see #369.
+- **The gun in your hands stops rebuilding its own geometry every frame** (#186). The view model was the
+  largest single frame cost landed in a while (+2.2 ms of a WARM frame, +2.3 ms of flat raster), and a worker
+  had deliberately left it uncached: a key over continuous ejector and pump travel would invalidate every
+  frame, which is the documented cliff - cull before the fetch, and cost the work the cache avoids. The key
+  quantizes the transform instead, **per term rather than uniformly** - `mz`, the slide-back metre and both
+  fractions at 1/16 m, `magOut` at 1/32 m - so each quantity is rounded at its own authored resolution, which is
+  the same argument the rig cache's per-key rates make; with the body cache's evict-before-build LRU and a
+  64-entry cap. **`wq(0) === 0` exactly**, so an at-rest rig - every hashed frame this repo owns - builds the
+  same numbers it did before the cache existed: parity is a property of the key rather than something the
+  probes have to catch. `viewmodel` now times three arms interleaved in one page over one pose sequence -
+  drawn, geometry-memoized, rig-suppressed - in batches of 20 frames, because this sandbox's
+  `performance.now()` is quantized to whole milliseconds and a 0.45 ms component simply does not appear in a
+  one-frame sample. Measured here: the rig costs **1.85 ms/frame (11.8% of the frame)** before the cache and
+  **10.4%** after, of which **0.45 ms** was the rebuild this pays for; the rebuild arm has since converged on
+  the shipped path, and the row says that in words instead of going red, because a row that fails when an
+  optimization lands is the row people learn to ignore. Two rows come with it: the real reload timeline at 60
+  fps driving `drawViewModel` and reading the cache's own counters (**30 hits / 30 misses over 60 frames**), and
+  the quantum's price measured rather than derived: **worst gun-part move 1.04 mm** over 693 exact-vs-quantized
+  builds, muzzle flare **2.81 mm**, reported separately, plus a count of *presence shifts* (12 here) - parts
+  authored as `if (travel)` exist only while moving, so the quantum shifts WHEN they appear, not where. A
+  uniform 1/32 read 4.17 mm of part move at 22 misses; per-term halves the geometry error and costs eight more
+  misses, because a finer quantum necessarily makes more distinct keys while travel moves (both of those figures
+  are bucket-luck numbers, measured while the build still followed the frame rather than the key). **That is why the row
+  no longer asserts a miss count.** No single quantum satisfies a count bound and the geometry bound at once, and
+  a row that trades one property for the other is a row someone will re-tune. It asserts what a cache actually
+  fails by instead: that the key **repeats** (a key over raw travel would read 0 hits / 60 misses here), that
+  geometry entries stay **under the cap** - evicting every frame is the quiet way this becomes a memory cost and
+  no saving, which a millisecond row on a shared runner would miss - and that the rebuild fraction stays inside
+  the recorded `VM-REBUILD [0.50]` ± 0.15 rather than an invented count. A third row closes the hole the first
+  two left open: the geometry a key serves is now built from the **quantized** pose rather than from whichever
+  frame happened to land in the bucket first, so one key maps to exactly one geometry. That matters because the
+  moving parts are authored as `if (travel)` - a frame in the last breath of a reload carries a `slideBack` that
+  is still moving and still under half a quantum, so if it builds the REST key the rifle keeps a brass casing
+  beside the slide for as long as that entry lives, and no millisecond or pixel row can see it because both
+  geometries are plausible. Measured over 417 bucket-mate pairs: **0 disagree**, and 22 of 417 on a tree with
+  the one-line build reverted, which is the row's teeth. The same revert leaves the at-rest rig bit-identical
+  (`wq(0) === 0`), which is why `flatparity`'s three hashes did not move. `MESH.stats()` publishes `wCap` for the
+  cap clause, and a probe-only arm (`MESH.setWRaw`, inert in play, armed by `VMRAW=1`) makes the key serve
+  nothing on demand, so the cliff is demonstrated through the **shipped reload timeline** rather than simulated
+  beside it. The milliseconds stay reported, not gated - a wall-clock threshold on a shared runner is the
+  documented flake - and the records behind the rows are the dimensionless share and fraction for the same
+  reason.
 - **The neck is now a measured part, and it is held there** (#80). `node tools/view.js anim` had a neck
   block that printed band heights, widths and luminance deltas and then said *"REPORTED, not gated"* —
   which is why #80 survived the geometry fix in #326: nothing could fail. The rows now gate, per kind
