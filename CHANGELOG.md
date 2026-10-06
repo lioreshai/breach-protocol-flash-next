@@ -568,6 +568,27 @@
 
 ### Added
 
+- **`node tools/view.js surface`, which measures the surface value order instead of describing it**
+  (#369). The issue's definition of done is "the ceiling band sits at least 15 luminance below the wall
+  band it meets", and no probe could print that number: a horizon-centred rectangle averages the far wash
+  in with the wall faces, so the one figure available (4.7 on ABATOIR CORE) was neither the seam nor a
+  band. The census asks the renderer which pixels are ceiling rather than guessing from colour — it
+  renders one seated frame three times, authored and once with each of the level's own `floorBias` /
+  `ceilBias` one whole unit lower, and keeps the pixels that moved; `js/40_render.js` applies each bias to
+  exactly one surface class, so bodies, props, the viewmodel and every wall face are byte-identical
+  between the three and drop out of both masks. Rows per level, seated on the level's own spawn cell:
+  **SEAM** is the median over columns of (what sits under the ceiling's edge) − (the ceiling above it),
+  **ORDER** is the ceiling's band mean against the floor's, and **CONTROL** re-asks both questions with
+  the authored order zeroed — which is the pre-#369 build, in the same process, so a row that never fails
+  there is a row that has never been seen to fail. Measured here: THE STACK seam **45.2** and its ceiling
+  42.0 under a floor of 60.6; RING TRANSPORT 26.5; ARCHIVE SUBLEVEL **12.1**, which is under the bar; and
+  ABATOIR CORE **reports 2 qualifying columns and therefore FAILs as vacuous** — from its spawn cell that
+  level's ceiling edge dissolves into the far wash, so the seam #369 names does not exist in that pose and
+  the wash step belongs to #375, not here. Columns whose window is the flat `px.fill` wash are excluded
+  by an exact test (a wash row repeats byte for byte horizontally), because counting them is what made an
+  early version of this row read −15 on a level whose ceiling clearly reads dark in the frame. `surface`
+  is **not in `ci.yml`'s roster**, so its exit code gates nothing yet; promoting it is the next decision
+  and it is red on two of four levels for the two reasons above.
 - **`SEAT=x,y,ang` for `node tools/view.js scene <li> <cam>`**. The mode seats its camera at open-cell
   index `(len*0.31 + cam)` and turns it toward the longest sight line, which can answer "does this level
   have depth" and structurally cannot answer "can the player see the way down from where they start" —

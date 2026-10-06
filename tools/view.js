@@ -26,7 +26,7 @@ const CAM = +(process.argv[4] || 0);
 // An unknown name used to fall through to the scene dump and exit 0, so a typo in a CI probe list
 // ran something, painted a PNG and reported a passing gate (#89).
 const PROBES = ['scene', 'alt', 'anim', 'bands', 'columns', 'contrast', 'cull', 'decal', 'diag', 'exposure', 'flatparity', 'heights',
-  'drop', 'horizon', 'mip', 'planes', 'play', 'props', 'rig', 'sheets', 'sight', 'stats', 'vert', 'viewmodel',
+  'drop', 'horizon', 'mip', 'planes', 'play', 'props', 'rig', 'sheets', 'sight', 'stats', 'surface', 'vert', 'viewmodel',
   'volume', 'refs'];
 if (!PROBES.includes(MODE)) {
   console.error('unknown probe "' + MODE + '" - known: ' + PROBES.join(' '));
@@ -10744,6 +10744,152 @@ if (MODE === 'bands') {
     'BANDS ok - the step lip reads as an edge, the seam is a band not a tint, the far band reads the cell it solves into, and the minimap shows the band') +
     `, ${bad} gating row(s) of ${rowsN}, ${knownN} known-issue row(s)` + (knownN ? ' (' + [...debts].join(', ') + ')' : '') +
     (STRICT && knownN ? ' - STRICT=1: debt rows counted as failures' : ''));
+  process.exit(bad ? 1 : 0);
+}
+if (MODE === 'surface') {
+  /* #369's definition of done, as a row that can fail. The criterion is stated in bands a person reads
+     off a frame - "the ceiling band above is at least 15 luminance below the wall band it meets" - and
+     nothing censused that seam: a horizon-centred rectangle averages the far wash in with the wall
+     faces, so the one figure a probe could print (4.7 on ABATOIR CORE, PR #380) described neither the
+     seam nor a band, and the number the issue quotes stayed hand-taken.
+     This asks the RENDERER which pixels are ceiling instead of guessing from colour. A level authors
+     `ceilBias` / `floorBias` (js/20_level.js) and js/40_render.js applies each to one surface class -
+     `isF ? FLOORB : CEILB` on the ground pass's base - so rendering one seated frame three times, once
+     authored and once with each bias one whole unit lower, marks exactly the pixels of that class and
+     no others: bodies, props, the viewmodel and wall faces are byte-identical between the three and
+     drop out of both masks. One full unit is not subtle - it is the whole ambient term - so a pixel
+     that did not move was not painted by that surface.
+     Rows, per level, seated on the level's own spawn cell, turned to its longest sight line (cam n
+     adds n*90 degrees, so CAMS=0,1,2,3 walks the room from one pose a player actually occupies):
+       SEAM   median over columns of (what sits under the ceiling's edge) - (the ceiling above it).
+              This is the gap the eye uses to decide a room has a ceiling in it.
+       ORDER  the ceiling's band mean against the floor's. A ceiling brighter than the deck under it is
+              the THE STACK bug in #369 as written: the roof was the brightest large surface in a level
+              about a walkable roof.
+       CONTROL the same two questions with the authored biases zeroed and `ceilLead` back at the old
+              flat 0.9, which IS the pre-#369 build. A census whose rows never fail there has never
+              been seen to fail anywhere (AGENTS.md, "a probe passing is not a probe being capable of
+              failing"), so this runs in the same process and its verdict is printed as its own row. */
+  const BW = run('BW'), BH = run('BH'), NL = run('LEVELS.length');
+  const CAMS = (process.env.CAMS || '0').split(',').map(Number);
+  const TARGET = process.env.TARGET !== undefined ? +process.env.TARGET : 15;
+  const MIN_COLS = process.env.MIN_COLS !== undefined ? +process.env.MIN_COLS : 60;
+  let bad = 0, known = 0, rowsN = 0, ctrlRan = 0, ctrlMiss = 0;
+  const STRICT = !!process.env.STRICT;
+  const row = (label, ok, detail, knownIssue) => {
+    const tag = ok ? ' ok  ' : knownIssue ? 'KNOWN' : ' FAIL';
+    console.log('  ' + label.padEnd(50) + tag + '  ' + detail + (ok || !knownIssue ? '' : '  [' + knownIssue + ']'));
+    rowsN++;
+    if (ok) return;
+    if (knownIssue && !STRICT) known++; else bad++;
+  };
+  // the seat is the level's OWN spawn cell, turned to its longest sight line. `scene`'s derived camera
+  // picks an open cell by list index, which answers "does this level have depth" but not "what does the
+  // player see" - and #369's criteria are about what the player sees (its level-3 frame IS the README's
+  // spawn-seat shot), so a census taken from a cell nobody is ever parked in would be quoting a pose.
+  const seat = (li, cam) => run(`(function(){
+    S.mode='play'; S.locked=false; startLevel(${li}, true); S.mode='play';
+    let best=${cam}*0.7, bd=-1;
+    for(let k=0;k<48;k++){const a=k*Math.PI/24;
+      const d=castRayDist(P.x+.0,P.y+.0,Math.cos(a),Math.sin(a),9).dist;if(d>bd){bd=d;best=a;}}
+    P.ang = best + ${cam} * Math.PI / 2; P.pitch = BH * 0.02; P.z = floorAt(P.x, P.y);
+    P.vx = P.vy = P.vz = 0; P.air = false; P.crouch = 0;
+    for(const e of ENEMIES){e.state='sleep';e.anim=0.3+((e.x*3)%1);}
+    return 1; })()`);
+  /* Render with one authored bias moved, and put it back. The value is parked on globalThis rather
+     than captured in node because a level that does not author the field has it `undefined`, and
+     `MAP.floorBias = undefined` is what restores that (the renderer reads `MAP.x || 0`). */
+  const frame = () => { run('renderWorld()'); return new Uint32Array(run('px')); };
+  const frameBias = (field, d) => {
+    run(`(function(){ globalThis.__b0 = MAP.${field}; MAP.${field} = (MAP.${field} || 0) + ${d}; return 1; })()`);
+    const f = frame();
+    run(`(function(){ MAP.${field} = globalThis.__b0; delete globalThis.__b0; return 1; })()`);
+    return f;
+  };
+  const LUM = (b, i) => { const c = b[i]; return 0.2126 * (c & 255) + 0.7152 * (c >> 8 & 255) + 0.0722 * (c >> 16 & 255); };
+  const med = arr => arr.length ? arr[arr.length >> 1] : NaN;
+  /* Which pixels belong to which surface is a per-pixel fact; the census below is arithmetic on the
+     three frames, so it lives here in node and not in a sandbox string. */
+  function classify(a, cf, ff) {
+    const n = BW * BH, cl = new Uint8Array(n), fo = new Uint8Array(n);
+    for (let i = 0; i < n; i++) {
+      if (Math.abs(LUM(a, i) - LUM(cf, i)) > 4) cl[i] = 1;
+      if (Math.abs(LUM(a, i) - LUM(ff, i)) > 4) fo[i] = 1;
+    }
+    let cs = 0, cn = 0, fs = 0, fn = 0;
+    for (let i = 0; i < n; i++) {
+      if (cl[i]) { cs += LUM(a, i); cn++; } else if (fo[i]) { fs += LUM(a, i); fn++; }
+    }
+    const gaps = [];
+    /* Past FARB a ground row is one flat fill (js/40_render.js does `px.fill` across the whole row), so a
+       row whose pixels repeat byte for byte horizontally is the distance wash, not a surface. Comparing a
+       ceiling against the wash under it is what made the first version of this row read -15 on ABATOIR
+       CORE: the seam there was the ceiling's edge dissolving into the wash, and the #375 wash step was
+       being charged to #369's ledger. Only columns where BOTH windows are textured surfaces are counted. */
+    const washAt = (x, y) => { const i = y * BW + x; return x + 2 < BW && a[i] === a[i + 1] && a[i] === a[i + 2]; };
+    for (let x = 0; x < BW; x++) {
+      let r = -1;
+      for (let y = 0; y < BH; y++) if (cl[y * BW + x]) r = y;
+      if (r < 9 || r > BH - 10) continue;
+      if (washAt(x, r) || washAt(x, r + 4)) continue;
+      let s1 = 0, n1 = 0, s2 = 0, n2 = 0, w = 0;
+      for (let y = r - 8; y < r; y++) { const i = y * BW + x; if (cl[i] && !washAt(x, y)) { s1 += LUM(a, i); n1++; } }
+      for (let y = r + 1; y <= r + 8; y++) { const i = y * BW + x; if (!cl[i] && !washAt(x, y)) { s2 += LUM(a, i); n2++; } }
+      if (n1 >= 4 && n2 >= 6) gaps.push(s2 / n2 - s1 / n1);
+    }
+    gaps.sort((p, q) => p - q);
+    return {
+      ceil: cn ? cs / cn : NaN, ceilPct: 100 * cn / n,
+      floor: fn ? fs / fn : NaN, floorPct: 100 * fn / n,
+      other: (n - cn - fn) ? NaN : NaN,
+      seam: med(gaps), seamP10: gaps.length ? gaps[Math.floor(gaps.length * 0.1)] : NaN,
+      cols: gaps.length
+    };
+  }
+  console.log('surface value order - ceiling must sit under the surface its edge meets by >= ' + TARGET +
+    ' luma (Rec.709), and under the floor it covers');
+  for (let li = 0; li < NL; li++) {
+    for (const cam of CAMS) {
+      seat(li, cam);
+      const authored = run('(MAP.floorBias || 0)') + '/' + run('(MAP.ceilBias || 0)') + '/' + run('MAP.ceilLead === undefined ? "default" : MAP.ceilLead');
+      const a = frame(), cf = frameBias('ceilBias', -1), ff = frameBias('floorBias', -1);
+      const c = classify(a, cf, ff);
+      console.log(`L${li} cam${cam} (${run('LEVELS[' + li + '].name')}), authored floorBias/ceilBias/ceilLead ${authored}, ` +
+        `${c.cols} seam columns, ceiling ${c.ceilPct.toFixed(0)}% of frame / floor ${c.floorPct.toFixed(0)}%:`);
+      row(`L${li} cam${cam} SEAM ceiling under what it meets >= ${TARGET}`,
+        c.cols >= MIN_COLS && c.seam >= TARGET,
+        `median gap ${c.seam.toFixed(1)} (p10 ${c.seamP10.toFixed(1)}) over ${c.cols} columns, ` +
+        `ceiling band ${c.ceil.toFixed(1)}, floor ${c.floor.toFixed(1)}`,
+        // Vacuity is a FAILURE, never a debt (AGENTS.md): a row decided by two columns is not a row.
+        c.cols >= MIN_COLS && c.seam < TARGET ? '#369' : undefined);
+      row(`L${li} cam${cam} ORDER ceiling not brighter than the deck`,
+        c.ceil < c.floor, `ceiling ${c.ceil.toFixed(1)} vs floor ${c.floor.toFixed(1)}`,
+        c.ceil >= c.floor && c.ceil < c.floor + 6 ? '#369' : undefined);
+      if (cam === CAMS[0] || CAMS.length === 1) {
+        /* the pre-#369 build, in this same process: zero the authored order and ask the same questions.
+           Only meaningful on a level that AUTHORS one - on a level whose fields are absent the zeroed
+           render is the same render, so the control would be measuring nothing and reporting it as a
+           pass is exactly the vacuity AGENTS.md refuses. */
+        const authoredOrder = run(`(MAP.floorBias || 0) !== 0 || (MAP.ceilBias || 0) !== 0 || MAP.ceilLead !== undefined`);
+        if (!authoredOrder) { console.log(`     control: L${li} authors no order, so nothing to A/B here (counted below)`); continue; }
+        ctrlRan++;
+        run(`(function(){ MAP.floorBias = 0; MAP.ceilBias = 0; MAP.ceilLead = ${run('CEILGM')}; return 1; })()`);
+        const a0 = frame(), c0f = frameBias('ceilBias', -1), f0f = frameBias('floorBias', -1);
+        const c0 = classify(a0, c0f, f0f);
+        const survived = c0.seam >= TARGET && c0.ceil < c0.floor;
+        if (survived) ctrlMiss++;
+        row(`L${li} cam${cam} CONTROL the census can see the bug`,
+          !survived, `order zeroed: seam ${c0.seam.toFixed(1)}, ceiling ${c0.ceil.toFixed(1)} vs floor ${c0.floor.toFixed(1)}` +
+          (survived ? ' - both rows still pass a build with no authored order, so they prove nothing' : ' (a row fails there, as it must)'));
+      }
+    }
+  }
+  row('CONTROL the census runs its counterfactual somewhere', ctrlRan > 0 && ctrlMiss === 0,
+    ctrlRan + ' level(s) with an authored order A/B\'d, ' + ctrlMiss + ' of them indistinguishable from the bug');
+  console.log((bad ? `SURFACE ${bad} FAILURE(S)` : 'SURFACE ok') + ` - ${bad} gating row(s) of ${rowsN}, ${known} known-issue row(s)` +
+    ' - REPORTED, not gated: `surface` is not in ci.yml\'s roster, so this exit code changes no gate' +
+    (known ? ' (debt: the ceiling half of the order holds, the floor-vs-wall half is judged at the seam only)' : '') +
+    (STRICT && known ? ' - STRICT=1: debt rows counted as failures' : ''));
   process.exit(bad ? 1 : 0);
 }
 if (MODE === 'stats') {
