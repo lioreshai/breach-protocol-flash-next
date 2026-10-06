@@ -6582,6 +6582,26 @@ if (MODE === 'contrast') {
      strongest termless cell and 0.64 of the weakest shipped one: it trips on a term that loses a third
      of its slope, not on a dark room.                                                        */
   const TG_PRE = 0.68, TG_POST = 2.17, TG_FLOOR = 1.40, TG_MINPX = 60;
+  /* #216: this block printed verdict numbers with nothing recorded behind them - the exact shape #244 was
+     filed for, one gradient defined three ways in three sessions, none of which could fail. TG_FLOOR stays
+     what it always was, a catastrophe detector set between two measured trees; what it cannot do is see
+     SLOW drift, because a gradient that slides 3.5 -> 1.41 keeps passing until someone re-tunes the floor
+     from the frame they are staring at. These are the block's first records: the gradient each camera
+     measures on its OWN deterministic frame at this cell, bounded BELOW - structure lost is the defect,
+     structure gained is not, so a two-sided band would legislate today's art rather than the claim - with
+     TG_SLACK for a tree that legitimately improves the shading. The input is deterministic - three separate
+     processes print the same three numbers to 2 dp - but the RECORD IS A ROUNDED PRINT, and that is why
+     TG_SLACK cannot be 0: at TG_SLACK=0 cam 0 FAILs while still printing 2.52, because its true value is
+     just under the rounded literal (cam 1 and cam 2, which round the other way, pass). So the slack must
+     clear half the print's last digit, and 0.35 does that while staying far below the drift being hunted -
+     a term thinning from 2.4 toward TG_FLOOR's 1.4. What the row has been seen to respond to: the GATE, via
+     TG_SLACK=-1 (record + 1) failing all three cameras and exiting 1; and BODY SHADING, via TINT=2 moving
+     cam 1 2.17 -> 2.53 and cam 2 2.41 -> 2.53 with the silhouette mask fixed, which is the control #240
+     demanded of this statistic. AMBX=0 moves it NOT AT ALL (2.52/2.17/2.41 unchanged) and must not be quoted
+     as a control: AMB is re-authored from MAP.amb inside startLevel, so that knob edits a default, not a
+     shipped term. */
+  const TG_REF = refRecord('contrast', 'TORSO-DL', 'num', [2.52, 2.17, 2.41]);
+  const TG_SLACK = +(process.env.TG_SLACK !== undefined ? +process.env.TG_SLACK : 0.35);
   /* The mean and motion halves, measured on the same nine cells of both trees. The mean channel is the
      DC of the wave: the mean of the SIGNED slope less the frame\'s own, which cancels on a zero-mean
      triangle (0.00 to 0.53 with no term in js/, 0.00 to 0.80 shipped - the widest legit cell is L2 cam 1,
@@ -7553,6 +7573,20 @@ if (MODE === 'contrast') {
         + ' delivers ' + (tstat.room ? (100 * tstat.grad / tstat.room).toFixed(0) : '0') + '% of what the'
         + ' walls do on screen' + (tgVac ? '' : tgWhy) + ' [' + TG_MARK + ']' +
         (tgSamePx ? ' | NOTE: the re-render differs from the coverage frame on ' + tgSamePx + ' px' : ''), tgDebt);
+      /* The drift row this block did not have (#216). It is not a second floor over the same number: the row
+         above asks "is there any surface structure at all" against a constant chosen from two trees, this
+         one asks "is the structure this cell was measured with still there" against a declared literal, so
+         a term that thins out without vanishing trips here first. Vacuity is a FAILURE, not the debt the row
+         above carries: nM > 0 got us into this branch, so a body is in the mask and fewer than TG_MINPX
+         interior torso px is the instrument losing its subject, which #244 already ruled is not a debt. */
+      row('cam ' + cam + ' torso gradient is the recorded value',
+        tgVac && tstat.grad >= TG_REF[cam] - TG_SLACK,
+        'torso gradient ' + tstat.grad.toFixed(2) + ' dL/px against the recorded ' + TG_REF[cam] +
+        ' minus ' + TG_SLACK + ' on ' + tstat.px + ' interior torso px' +
+        (tgVac ? '' : ' - NOTHING TO AVERAGE over ' + tstat.px + ' px: a body is in the mask (' + nM +
+          ' px) but the torso box yields no interior, so this is the instrument, not the art') +
+        '; TG_FLOOR ' + TG_FLOOR + ' above stays the catastrophe detector, this row is what sees the slow way down',
+        undefined);
       row('cam ' + cam + ' torso gradient not paid by mean or edge', tgVac && tstat.bias <= TG_BIAS,
         'DC of the wave ' + tstat.bias.toFixed(2) + ' dL/px vs floor ' + TG_BIAS + ' (mean of the SIGNED'
         + " slope less the frame's own " + tstat.roomBias.toFixed(2) + ': a zero-mean triangle cancels, a'

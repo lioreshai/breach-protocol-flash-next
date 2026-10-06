@@ -346,6 +346,24 @@
   needed a reseat per batch rather than a paired arm: `update()` *advances* the world, so a batch that
   follows another would be timing a later scene — and, per the trap where a spinning camera also walks
   the player, would drag the player into where the grid is undefined.
+- **`contrast`'s torso gradient now has a recorded value behind it** (#216). The block printed verdicts that
+  were computed rather than recorded, and #244 wrote down what that cost: one gradient defined three ways in
+  three sessions, none of which could fail. `TG_FLOOR 1.40` stays exactly what it was - a catastrophe detector
+  chosen between two measured trees (0.68 with no term in `js/`, 2.17 shipped) - but a floor cannot see a slow
+  slide: a gradient that drifts from 3.5 to 1.41 keeps passing until someone re-tunes the floor from the frame
+  in front of them, which is how a shading term quietly thins out. `contrast` now declares
+  `TORSO-DL num [2.52, 2.17, 2.41]`, the gradient each of its three cameras measures on its own deterministic
+  frame (fixed seat, fixed `S.t`, frozen gait - three separate processes print the same three numbers to 2 dp),
+  and gates each camera at **the record minus 0.35**, below only: structure lost is the defect, structure
+  gained is not, so a two-sided band would legislate today's art instead of the claim. The slack is not
+  decoration: the record is a **rounded** print, so `TG_SLACK=0` fails cam 0 - which still prints `2.52`, its
+  true value sitting just under the literal - while cams 1 and 2, which round the other way, pass. The row has
+  been seen to respond to its gate (`TG_SLACK=-1` fails all three cameras, exit 1) and to **body shading**
+  (`TINT=2` moves cam 1 2.17 → 2.53 and cam 2 2.41 → 2.53 with the silhouette mask fixed); `AMBX=0` moves it
+  not at all and is not a control, because `AMB` is re-authored from `MAP.amb` inside `startLevel`. A camera
+  whose mask has a body in it but yields fewer
+  than 60 interior torso px FAILs rather than joining the #189 debt - that is the instrument losing its
+  subject, and the census of recorded references moves because this is the block's first one.
 
 - **No big band is left without a light source standing in it** (#149). Lamp placement had scored seats
   for the dark *cells* a lamp would cover and then spread the remainder, so a band whose cells were each
