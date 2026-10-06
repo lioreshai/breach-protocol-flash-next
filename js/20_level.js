@@ -1274,19 +1274,67 @@ function buildAuthored(li) {
      identical 2 grunt + 1 hound + 1 brute on Recruit and on Nightmare. hp and incoming damage DO scale
      (makeEnemy reads DIFFS.hp at js/30_entities.js:37, damagePlayer reads DIFFS.dmg at :294), so the last
      level was the one place difficulty had no say in how many bodies stood up. Marine (cnt 1.0) asks for
-     exactly the authored count, so the shipped default is unchanged here. Extras are seated at the plan's
-     OWN enemy spots rather than nudged off one, because an authored cell is guaranteed open and a 0.7 m
-     offset is not; a plan's body is a designed beat, so rounding can never remove the last one.
+     exactly the authored count, so the shipped default is unchanged here, and a plan's body is a designed
+     beat, so rounding can never remove the last one of a kind.
+     An extra gets a cell NO OTHER BODY OWNS - the guard DEV.tick's openAlong already keeps for spawned
+     crowds, whose originating failure (#93) was a HUD counting two bodies the frame drew as one. The plan
+     marks four enemy squares and Nightmare wants a fifth body, so the pool is: any authored seat a lower
+     count has vacated, then the nearest free open square an authored seat REACHES - cell by cell through
+     canEnter, the one movement test, so the extra is reachable by construction and not by hope. The first
+     version of this cycled the plan's seats and put the added grunt in the hound's own square: 0.000 m
+     apart, and the separation term at js/30_entities.js:596 is skipped when two centres coincide
+     (sd > 1e-6), so the pair stayed overlapped while idle and one body's pixels just changed species.
      makeEnemy draws from the level's own xorshift, so this count shifts that stream - harmless on an
      authored map, where every seat comes from the plan and no layout roll follows it. */
-  { const cnt = DIFFS[S.diff].cnt, all = [];
-    for (const k in authSeats) for (const s of authSeats[k]) all.push(s);
+  { const cnt = DIFFS[S.diff].cnt, all = [], used = new Set(), cellOf = (x, y) => ((y | 0) * N + (x | 0));
+    for (const k in authSeats) for (const s of authSeats[k]) { all.push(s); used.add(cellOf(s[0], s[1])); }
+    // every crossing of an L-path between two squares, one cell at a time - a two-cell straight hop would
+    // test only its end square, and canEnter is a CROSSING test, not a ray
+    const reaches = (ax, ay, bx, by) => {
+      const walk = (st, dx, dy) => {                       // one axis, one cell per canEnter
+        if (!dx && !dy) return true;
+        while (dx ? st.x !== bx : st.y !== by) {
+          if (!canEnter(st.x + 0.5, st.y + 0.5, st.x + dx + 0.5, st.y + dy + 0.5)) return false;
+          st.x += dx; st.y += dy;
+        }
+        return true;
+      };
+      const legs = (xfirst) => {                           // x-then-y, or y-then-x: either way round counts
+        const st = { x: ax, y: ay }, xs = Math.sign(bx - ax), ys = Math.sign(by - ay);
+        const l1 = xfirst ? [xs, 0] : [0, ys], l2 = xfirst ? [0, ys] : [xs, 0];
+        return walk(st, l1[0], l1[1]) && walk(st, l2[0], l2[1]);
+      };
+      return legs(true) || legs(false);
+    };
+    const freeSeat = () => {
+      for (const s of all) if (!used.has(cellOf(s[0], s[1]))) return [s[0], s[1]];   // a seat a lower count vacated
+      for (let r = 1; r <= 2; r++)            // Manhattan rings: nearest first, and every leg of a path is one step
+        for (const s of all) { const cx = s[0] | 0, cy = s[1] | 0;
+          for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
+            if (Math.abs(dx) + Math.abs(dy) !== r) continue;
+            const nx = cx + dx, ny = cy + dy;
+            if (nx < 1 || ny < 1 || nx >= N - 1 || ny >= N - 1) continue;
+            const i = ny * N + nx;
+            if (cell[i] || used.has(i) || (nx === sx && ny === sy)) continue;   // open, unowned, never the spawn square
+            if (reaches(cx, cy, nx, ny)) return [nx + 0.5, ny + 0.5];
+          }
+        }
+      return null;
+    };
+    // DROP first, so a square a lower count vacates is on the table for the kinds below it
     for (const k in authSeats) {
       const seats = authSeats[k], want = Math.max(1, Math.round(seats.length * cnt));
-      for (let i = seats.length; i < want && all.length; i++) ENEMIES.push(makeEnemy(k, all[i % all.length][0], all[i % all.length][1]));
       for (let i = seats.length - 1; i >= want; i--) {
-        const s = seats[i];
+        const s = seats[i]; used.delete(cellOf(s[0], s[1]));
         for (let j = ENEMIES.length - 1; j >= 0; j--) if (ENEMIES[j].kind === k && Math.hypot(ENEMIES[j].x - s[0], ENEMIES[j].y - s[1]) < 0.01) { ENEMIES.splice(j, 1); break; }
+      }
+    }
+    for (const k in authSeats) {
+      const seats = authSeats[k], want = Math.max(1, Math.round(seats.length * cnt));
+      for (let i = seats.length; i < want; i++) {
+        const s = freeSeat();
+        if (!s) break;                        // no free reachable square: keep the authored beat rather than overlap it
+        ENEMIES.push(makeEnemy(k, s[0], s[1])); used.add(cellOf(s[0], s[1]));
       }
     }
   }

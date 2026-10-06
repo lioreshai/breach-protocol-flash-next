@@ -380,24 +380,36 @@ const release = () => fire('mouseup', { button: 0 });
   /* #354 / #355: everything above this block runs on level 0, which is GENERATED, and the authored level
      is built by a different function that parses the plan's marks - so the barrels step could shoot every
      authored barrel in existence and still say nothing, and DIFFS.cnt had no authored call site either.
-     Boot the authored finale at both ends of the difficulty table and assert the two things that path
-     used to skip, then put the run back on level 0 at Marine so nothing downstream shifts. */
+     Boot the authored finale at all three difficulties and assert the three things that path used to skip,
+     then put the run back on level 0 at Marine so nothing downstream shifts. */
   {
-    const NL = nLevels(), la = {};
-    for (const d of [0, 2]) {
+    const NL = nLevels(), la = {}, DN = ['Recruit', 'Marine', 'Nightmare'];
+    const nPlan = vm.runInContext('(AUTHORED.geo.join("").match(/[ghb]/g) || []).length', ctxVm);
+    for (const d of [0, 1, 2]) {
       vm.runInContext(`S.diff=${d}; startLevel(${NL - 1}, true); S.mode="play"; S.locked=true; S.exitOpen=false;`, ctxVm);
       frames(2);
-      const nAuth = vm.runInContext('ENEMIES.length', ctxVm);
+      const pts = vm.runInContext('ENEMIES.map(e => [e.x, e.y])', ctxVm);
+      const cells = vm.runInContext('ENEMIES.map(e => (e.y|0)*MW + (e.x|0))', ctxVm);
+      let sep = Infinity;
+      for (let i = 0; i < pts.length; i++) for (let j = i + 1; j < pts.length; j++)
+        sep = Math.min(sep, Math.hypot(pts[i][0] - pts[j][0], pts[i][1] - pts[j][1]));
       const nbA = vm.runInContext('PROPS.filter(p => p.kind === "barrel").length', ctxVm);
       vm.runInContext('P.hp = 100; for (const p of PROPS) if (p.kind === "barrel") hurtBarrel(p, 40);', ctxVm);
       frames(4);
       const alive = vm.runInContext('PROPS.filter(p => p.kind === "barrel" && !p.dead).length', ctxVm);
-      la[d] = { n: nAuth, nb: nbA, alive };
+      la[d] = { n: pts.length, dup: pts.length - new Set(cells).size, sep: pts.length > 1 ? sep : 0, nb: nbA, alive };
     }
     expect('authored barrels are destructible (#354)', la[0].nb > 0 && la[0].alive === 0 && la[2].alive === 0,
       `THE STACK: ${la[0].nb} barrels, after 40 damage ${la[0].alive} still standing at Recruit and ${la[2].alive} at Nightmare (an authored barrel with no hp field takes NaN and never dies)`);
-    expect('the authored finale scales with difficulty (#355)', la[2].n > la[0].n,
-      `ENEMIES on the authored level: Recruit ${la[0].n}, Nightmare ${la[2].n} (DIFFS.cnt 0.8 vs 1.35 - the generator multiplies at js/20_level.js:1707, the plan parser used not to)`);
+    expect('the authored finale scales with difficulty (#355)', la[1].n === nPlan && la[2].n > la[1].n,
+      `THE STACK's plan carries ${nPlan} enemy marks; Marine stands up ${la[1].n} (the plan's own count, so the shipped default and flatparity's picture do not move), Nightmare ${la[2].n}, Recruit ${la[0].n} - DIFFS.cnt 0.8/1.0/1.35 reached only the generator's placement loop`);
+    /* A body counts on the HUD and in the frame only if it is somewhere the other bodies are not: the
+       separation term at js/30_entities.js:596 is skipped when two centres coincide (sd > 1e-6), so an
+       overlapped pair draws as ONE body forever while standing still and reads as a kind swap. Bodies are
+       about 0.5 m wide, so distinct cells alone are not enough - the closest pair is named too (#93's
+       shape, which DEV.tick's openAlong already keeps for a spawned crowd). */
+    expect('the authored finale seats one body per cell (#355)', [0, 1, 2].every(d => la[d].dup === 0 && la[d].sep > 0.5),
+      'THE STACK ' + [0, 1, 2].map(d => `${DN[d]} ${la[d].n} bodies / ${la[d].n - la[d].dup} cells, closest pair ${la[d].sep.toFixed(3)} m`).join(', '));
     vm.runInContext('S.diff = 1; startLevel(0, true); S.mode = "play"; S.locked = true; S.exitOpen = false;', ctxVm);
     frames(2);
   }
