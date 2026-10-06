@@ -17,6 +17,41 @@
   2.6 m seat, 212-992 px of frame at the two documented seats - so at arm's length it reads as a thin dark
   line hugging the base, not a pool. What a
   prop does NOT do is light itself: the `props` control still drops a crate to x0.46 with the lights off.
+ 
+- **The neck is now a measured part, and it is held there** (#80). `node tools/view.js anim` had a neck
+  block that printed band heights, widths and luminance deltas and then said *"REPORTED, not gated"* —
+  which is why #80 survived the geometry fix in #326: nothing could fail. The rows now gate, per kind
+  (grunt / hound / brute), on the dealt seat, and the verdict line names a neck failure as a neck failure
+  instead of "a static stance": the band's rows as a share of the drawn body's height against an **8%**
+  ceiling (#80 measured 10.7% and called it a stalk; #326 took it to 5.9% — measured here at 6.1 / 2.7 /
+  3.4%), the tube's width as a share of its **torso box** against a **38%** floor (the geometry floors the
+  tube at `0.42·shLat`, which is 40.0% of the box on every kind, so the bar sits just under that promise —
+  a 32% bar could never have failed, and the stalk control proved it by leaving all three kinds green at
+  40.0% and tripping only the records), and the band's luminance
+  against the wall behind it against **8** (#80's failing case measured a mean 5.7 there, where the visor
+  scores 171-250 — measured here at 10.2 and 38.7, with brute's band all-interior at that seat so the
+  question is reported as having no pixels rather than skipped). One of those numbers moved the geometry:
+  measuring the tube in **authored** units (`2·r / (2·1.05·shLat)`, the units `js/13_mesh.js` reasons in)
+  puts a grunt at **41%** and a hound at **43%** — inside the 36-41% the file calls "the part's own base" —
+  and a brute at **29.5%**, so `NECK_R_SHLAT` now gives the tube a floor of `0.42·shLat` and a brute's neck
+  is the same share of its own body a grunt's is (grunt and hound are byte-identical: their `headR` term
+  still wins).
+
+  The width row is authored-on-purpose, and the reason is worth keeping: measured in **pixels** the widest
+  band row equals the probe's own plan window on every kind (grunt 14 px of a 15 px window, hound 18 of 18,
+  brute 26 of 26) because the head box is emitted after the tube and stamps the rows sampled. A first
+  version of this row read that as "brute's neck is a gap", and widening brute's tube 36% left the painted
+  number at exactly 26 px — a number that does not move when you move the geometry it claims to measure is
+  measuring something else, so the art change that finding produced was reverted and the row rebuilt to
+  print the painted row, the window and the authored tube side by side and gate on the one that answers to
+  the geometry.
+
+  What a player sees differently is very little, and that is worth saying out loud: an isolated A/B of just
+  the tube (one brute parked on the sight line, both trees identical except the `neckR` line) moves
+  **64 px of 812,552** across six screen rows, worst channel delta 11, and the grunt frame in the same seat
+  is byte-identical, because the head box is emitted after the tube and envelopes it at every yaw. This is a
+  gate that pins a proportion, not a repaint, so no README screenshot moves with it.
+
 -- **Floors and ceilings stopped drawing a fan of radial spokes** (#19). Three terms of the ground pass were
   functions of the CELL, and a cell boundary seen in perspective is a straight line to the vanishing point,
   so each one drew a spoke over the largest area of the frame while walls, props and bodies stayed clean.
