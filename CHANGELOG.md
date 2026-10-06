@@ -53,6 +53,34 @@
   frame budget. No player-visible byte changes here; the next increment for #199 has to be that pricing,
   not a wider gate.
 
+- **The gun in your hands stops taking the room's colour** (#376). The rifle you carry is bolted to the
+  eye, but it was being shaded like something standing on the floor: every weapon pixel was multiplied by
+  the lamp tint of the cell the player happened to occupy. Walk from a rust-coloured corridor into a cold
+  blue room and the weapon changed *substance* in the doorway — same silhouette, same geometry, different
+  object. Measured on four of the game's own spawn seats at one fixed hip pose, the same pixels inside the
+  weapon came out near-grey in one sector (channel spread 0.113), violently blue in the next (0.585), and
+  greenish in a third: a 31-point swing in red-minus-blue on an object that never changed. The view model
+  now keeps every **intensity** term of that cell's light — the lightmap, the distance falloff, the key
+  light, the muzzle's own wash — and drops the hue. Walking up to a lamp still brightens the gun (1.79x
+  between a dark cell and a fully lit one at the same seat) and firing it still washes it warm (1.72x);
+  walking between rooms no longer re-casts it. The world's props and bodies keep their room's tint, which
+  is what #76 decided for them: they are *in* the room.
+  **The row that would have caught this.** Nothing in the probe roster could see the defect, which is the
+  only reason it survived from #371's measurement to now. `viewmodel` now renders one fixed pose at every
+  level's spawn seat and requires the weapon's own channel spread to land within 0.05 across them; the
+  seats must also actually sit in different tints (their own gap prints, 0.648 against a 0.15 floor) so the
+  row cannot pass by comparing one room with itself, and a second row fires the muzzle and sweeps
+  `MAP.light` so a change that neutralised the *light* instead of the hue — a flat sticker of a gun —
+  fails there instead. It has been seen to fail on `main` (spread 0.4726, named failure, exit 1) and
+  passes here at 0.0074.
+  **What moved in the records.** Every frame that carries the first-person weapon moved, so `flatparity`'s
+  three md5 triples and `exposure`'s L3 median are re-keyed, with the reason beside each. The control is
+  level 3: its authored spawn cell carries a neutral lamp tint, so its flat frames are byte-identical to
+  the previous records, and the delivered-light and per-lamp census rows beside those records did not move
+  at all — the world and its lamps are the same, and only the gun drawn in front of them changed. `bands`
+  re-keys all four seam frames while its own `SEAM=1` vs `SEAM=0` moved-pixel counts come out one and the
+  same (13608 / 10689 / 12551 / 13510), which says those rows still measure the seam and not this change.
+
 - **THE STACK's doorway opens again: the lamp that stood in it moved one cell** (#318). Level 3's mid
   wall is solid on 19 of its 20 rows, and the one open cell — the doorway between the two rects — also
   held a lamp glyph. A floor lamp blocks the player, so its collision ghost (r 0.442 m) reached into
