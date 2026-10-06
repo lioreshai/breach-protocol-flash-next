@@ -645,6 +645,32 @@ if (MODE === 'alt') {
      (:2641) and cull (:2719) use: a true-but-red finding is RECORDED at a measured baseline rather
      than widened until it cannot fail, and the debt is counted in the verdict line. */
   const STRICT = !!process.env.STRICT;
+  /* #216 (remaining half): THE CENSUS THIS VERDICT PRINTS IS NOW A RECORDED REFERENCE.
+     Four levels x four integers, in level order, four per level:
+        distinct floor values | cells off the datum | staircase runs | step faces
+     Those are the quantities the gate rows below count and the verdict line prints, and until now
+     none of them was falsifiable: a session could say "5 floor values per level, 125-153 cells off
+     the datum, 3 climbable staircases, 77-111 step faces" from prose and no row could disagree.
+     (Those particular figures were the pre-#162 deal; this record binds the deal that ships now.)
+     Why these four and not the others the header lists:
+       - unreachable cells is a CRITERION (the row asserts === 0), not a census - same reasoning that
+         keeps RECDARK undeclared below;
+       - band links are a JSON map per band, not a scalar this table can hold honestly;
+       - headroom / tall-column counts are already records elsewhere (volume's rows) and are deals of
+         a different sampler.
+     Determinism, measured on this tree before the literals were written: two fresh processes of
+     `node tools/view.js alt` are byte-identical and both exit 0 (re-checked after #370, which touched
+     ground shading and not the grid - the census survived it), and WARM=1 changes the
+     census not at all - the WARM branch sits at the end of this file and neither `alt` nor `heights`
+     reaches it, so no timing from a warmed loop can reach either record.
+     SEED DOES move it (`SEED=7` re-deals L0 to 9 / 159 / 2 / 40 against the recorded 9 / 170 / 2 / 46),
+     so the compare is gated on SEED below - and JSDIR is deliberately NOT gated, because a record that
+     abstains under the repo's own A/B knob has no teeth (#148's control rule). Under the gate the row
+     prints NOT COMPARED and exits 0, which is an ABSTENTION, not a pass: a deal other than SEED 12345
+     is unfalsifiable by this row, and that is the design rather than an oversight. */
+  const RECGEOM = refRecord('alt', 'GRID-CENSUS', 'num', [9, 170, 2, 46, 9, 251, 2, 52, 9, 307, 2, 52, 9, 134, 4, 15]);
+  const GEOMK = ['floor values', 'cells off datum', 'staircase runs', 'step faces'];
+  const SEEDK = SEED !== 12345;      // the deal the record binds is the SEED-12345 deal
   const row = (label, ok, detail) => {
     console.log('  ' + label.padEnd(44) + (ok ? ' ok  ' : ' FAIL') + '  ' + detail);
     rowsN++;
@@ -813,6 +839,26 @@ if (MODE === 'alt') {
     row(`L${li} a staircase can be climbed on foot`, r.stairs >= 1 && r.faces > 0 && r.steps === 1,
       `${r.stairs} run(s) of >=3 cells rising one quantum each (${r.stairCells} cells), ${r.faces} step faces, ` +
       `MAP.steps ${r.steps} (a step face with the flag at 0 draws nothing - #100 on generated content)`);
+    /* The record row. Thresholds above say a level is not flat; this says it is the SAME level as the
+       one the reference was taken from, in either direction of error: a generator that stops raising
+       bands, stops authoring stairs, or loses the step flag trips it, and so does one that quietly
+       starts authoring MORE than it used to, which no threshold row can see. A level the record does
+       not cover is a FAILURE, not a silence (#216's vacuity rule - the pit rows above report their
+       uncovered level in the verdict line because a pit row cannot exist there; a geometry row can). */
+    {
+      const gm = [r.nBands, r.nonFlat, r.stairs, r.faces], at = li * GEOMK.length;
+      const cov = at + GEOMK.length <= RECGEOM.length;
+      const rec = cov ? RECGEOM.slice(at, at + GEOMK.length) : [];
+      const mv = cov ? gm.map((v, k) => (+rec[k] === v ? '' : `${GEOMK[k]} ${v} against recorded ${rec[k]}`)
+        ).filter(Boolean) : ['RECORD SHORT'];
+      let gdetail;
+      if (!cov) gdetail = `RECGEOM covers ${RECGEOM.length / GEOMK.length} level(s), this is level ${li} - a level with no recorded column cannot be checked`;
+      else if (!mv.length) gdetail = gm.join(' / ') + ` against the recorded ${rec.join(' / ')} (the recorded deal: every process, no timing in the census)`;
+      else if (SEEDK) gdetail = gm.join(' / ') + ` against the recorded ${rec.join(' / ')} - NOT COMPARED (SEED ${SEED} re-deals the level; the record binds SEED 12345): ` + mv.join(', ');
+      else gdetail = gm.join(' / ') + ` against the recorded ${rec.join(' / ')} MOVED: ` + mv.join(', ') +
+        ' - the deal is no longer the recorded one, so refs.lock must be re-keyed by the change that moved it';
+      row(`L${li} the deal is the recorded geometry census`, cov && (SEEDK || mv.length === 0), gdetail);
+    }
     row(`L${li} spawn and exit stay on the datum`, r.spawnBand === 0 && r.exitBand === 0 && r.badSpan === 0,
       `spawn floor ${r.spawnBand.toFixed(2)}, exit floor ${r.exitBand.toFixed(2)}, faces of span<=0 ${r.badSpan}` +
       (r.badSpan ? " at " + r.badAt.join(" ") + (r.badSpan > r.badAt.length ? " …" : "") : ""));
@@ -6003,8 +6049,44 @@ if (MODE === 'heights') {
      Deliberately not a threshold and not a brightness number: it is a count of a thing that must be 0. */
   let bad = 0;
   const FARBFAR = run('FARB');
+  /* #216 (remaining half): WHICH HALF MOVED, AT WHAT MAGNITUDE, IS NOW A RECORDED REFERENCE.
+     Four levels x six numbers, in level order; within a level the six configs that poke a plane, in
+     cfgs order, and for each the HALF THE VERDICT SAYS MUST MOVE - tallRoom's ceiling (its floor must
+     stay at 0.00%) and every other config's floor. The 'still' halves are deliberately NOT recorded:
+     they are a criterion the rows above already assert at > 0.2%, not a census, which is the same
+     reasoning that keeps alt's RECDARK undeclared. 'flat' is the reference frame, 0 by construction.
+     Why a percentage and not a hash: the claim this probe makes is not "these bytes" (flatparity
+     owns that) but "the floor half moved 82%, the ceiling half did not", and until now that figure
+     was one session's measurement in prose - "12 of its 18 configs FAIL at 0.00% moved" is exactly
+     the sentence this record can now contradict.
+     Determinism and knob sensitivity were MEASURED before the literals were written, because a number
+     that moves between runs on identical bytes is not recordable. The figures below were re-measured
+     on the tree that carries #370's ground re-key, which is the tree these literals bind: #370 changed
+     which pixels of the frame are the same as their neighbour, so HALF-MOVE - which is exactly that
+     count - moved on 11 of the 24, by 0.01 to 0.43 points. The row found it: it printed FAIL
+     HALF-MOVE-MOVED on all four levels before the literals were re-keyed, which is the first time this
+     record contradicted anything.
+       two fresh processes    -> all 24 recorded figures byte-identical, twice, on this tree
+       WARM=1                 -> every recorded figure equal (the WARM branch is at the end of this
+                                file and this mode never reaches it)
+       SEED=7                 -> every percentage equal; the block reseeds itself per level
+                                (seedRng(4242 + li*31) opens every level's config loop), so the deal is
+                                the probe's, not the environment's - no guard needed
+       VW=640 VH=360          -> L0 tallRoom 97.66 -> 97.28, stripes 82.05 -> 82.22; all four
+                                levels move                                     GUARDED
+       LAMPS=off              -> L0 tallRoom 97.66 -> 97.57, stripes 82.05 -> 82.01             GUARDED
+       NOCAP=1 (the #21 arm)  -> one figure, L1 eyeUp floor 64.45 -> 64.46                      GUARDED
+     JSDIR is deliberately NOT guarded: a record that abstains under the repo's own A/B knob has no
+     teeth (#148's control rule), and nothing here reads a clock. Guarded means ABSTAIN, not pass: a
+     row under a knob prints NOT COMPARED and counts nothing in `bad`, which is why the guard list has
+     to be the measured one and not a guess. */
+  const RECHALF = refRecord('heights', 'HALF-MOVE', 'num', [97.66, 31.21, 82.05, 95.47, 42.83, 61.97, 98.03, 33.83, 29.81, 95.62, 42.81, 64.45, 98.86, 32.57, 81.13, 95.34, 42.88, 63.32, 97.74, 23.55, 21.23, 95.41, 38.07, 54.25]);
+  const HALFK = ['tallRoom ceiling', 'pit floor', 'stripes floor', 'border floor', 'stepUp floor', 'eyeUp floor'];
+  const HALFCOL = { tallRoom: 0, pit: 1, stripes: 2, border: 3, stepUp: 4, eyeUp: 5 };
+  const FRAMEK = ['VW', 'VH', 'LAMPS', 'NOCAP'].filter(k => process.env[k]);
   for (let li = 0; li < run('LEVELS.length'); li++) {
     let ref = null, refF = null, flatMean = 0, farSeen = 0;
+    const halfNow = [];                 // the recorded statistic, filled by the config loop below
     const lgn = [0, 0, 0, 0, 0, 0, 0, 0, 0];    // LGCNT summed over this level: 3 sites x 3 families
     console.log(`level ${li}`);
     for (const [name, poke, wantFloor, wantCeil, wantDecals, wantOutMap, wantDepth] of cfgs) {
@@ -6051,6 +6133,12 @@ if (MODE === 'heights') {
         }
       }
       const mean = sum / n, loP = ref ? 100 * loDiff / lo : 0, hiP = ref ? 100 * hiDiff / hi : 0;
+      // the recorded column for this config, derived from the tuple's OWN want-flags so the record
+      // cannot drift from the verdict; two 'move' halves would be ambiguous, and ambiguous is a FAIL
+      if (HALFCOL[name] !== undefined) {
+        if (wantFloor === 'move' && wantCeil === 'move') halfNow[HALFCOL[name]] = NaN;
+        else halfNow[HALFCOL[name]] = +(100 * (wantFloor === 'move' ? loDiff / lo : hiDiff / hi)).toFixed(2);
+      }
       /* Depth agreement. For a sampled deferred pixel the STORED value is turned back into the plane
          it implies (d = dz*BH/|p| inverted), and that plane has to be either the plane the pixel was
          queued with or the plane of the cell the pixel landed in - which is the settle condition the
@@ -6188,6 +6276,32 @@ if (MODE === 'heights') {
          there, and a diff measured on the composite would be a lie about determinism. */
       if (rms) { bad++; console.log(`  replay    ${rms} ground pixels differ from the same seed: the pass is not deterministic FAIL`); }
       if (!poke) { ref = cur; refF = full; flatMean = mean; }   // every poked frame is judged against the FLAT one
+    }
+    /* The record row for this level. The thresholds above say the RIGHT half moved; this says it moved
+       by the recorded amount, which is the half no threshold can hold - a solver that re-solves every
+       other column still clears `loP >= 2` and reads half the recorded percentage here. A frame knob
+       that was measured to move the percentage (FRAMEK above) reports NOT COMPARED rather than a
+       regression, the way bands' SEAM-FRAME row does; SEED and WARM are not in that list because they
+       were measured NOT to move it. A level the record does not cover is a FAILURE, never a silence. */
+    {
+      const at = li * HALFK.length;
+      const cov = at + HALFK.length <= RECHALF.length && halfNow.filter(v => v !== undefined).length === HALFK.length;
+      const rec = cov ? RECHALF.slice(at, at + HALFK.length) : [];
+      const mv = cov ? halfNow.map((v, k) => (+rec[k] === v ? '' : `${HALFK[k]} ${v.toFixed(2)} against recorded ${(+rec[k]).toFixed(2)}`)
+        ).filter(Boolean) : [`RECORD SHORT (${halfNow.filter(v => v !== undefined).length}/${HALFK.length} configs measured)`];
+      /* The gate, in the SAME shape as alt's census row at :856 (`cov && (SEEDK || mv.length === 0)`):
+         abstain when a frame knob is set, FAIL when the measured halves disagree with the record and no
+         knob explains it. Written `FRAMEK.length === 0 ||` instead it short-circuits to `cov` on the
+         config CI runs - the row then prints FAIL HALF-MOVE-MOVED, counts nothing in `bad`, and the
+         block exits 0 with four FAILs in the log (review of #340). */
+      const okR = cov && (FRAMEK.length > 0 || mv.length === 0);
+      if (!okR) bad++;
+      let hdetail;
+      if (!cov) hdetail = `RECHALF covers ${RECHALF.length / HALFK.length} level(s) and this level measured ${halfNow.filter(v => v !== undefined).length}/${HALFK.length} configs - a level with no recorded column cannot be checked`;
+      else if (!mv.length) hdetail = halfNow.map(v => v.toFixed(2)).join(' / ') + ' against the recorded ' + rec.map(v => (+v).toFixed(2)).join(' / ') + ' (the recorded frame: every process, no clock in the measurement)';
+      else if (FRAMEK.length) hdetail = halfNow.map(v => v.toFixed(2)).join(' / ') + ' against the recorded ' + rec.map(v => (+v).toFixed(2)).join(' / ') + ` - NOT COMPARED (${FRAMEK.join('/')} moves the frame, measured): ` + mv.join(', ');
+      else hdetail = halfNow.map(v => v.toFixed(2)).join(' / ') + ' against the recorded ' + rec.map(v => (+v).toFixed(2)).join(' / ') + ' FAIL HALF-MOVE-MOVED: ' + mv.join(', ') + ' - the plane solver no longer moves the recorded share of the frame; re-key refs.lock only if the change is the one you meant';
+      console.log(`  ${pad('record', 9)} the half that moved is the recorded half: ` + hdetail + `  ${okR ? 'ok' : 'FAIL'}`);
     }
     /* The far-band fan is the third ground light lookup, and no config above reaches it: that branch
        wants a row whose own plane solve exceeds FARB, and CAMSET's sight is ~9 m (its ray search is
