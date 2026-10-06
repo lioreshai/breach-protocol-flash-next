@@ -145,68 +145,60 @@ still blind (`VERTICALITY.md`, risk 1).
 - Every raster number recorded before the seeding fix is a luck draw — directional only.
 - `#216` is open until the probe blocks whose verdicts are computed rather than hashed have
   recorded rows; `#226` is open on the DEALT sampler's camera.
-- **Three of #314's silent level-3 loops are lifted; bands' is not, on purpose.** `decal`'s `lv < 3`
-  and props' two `li < 3` loops now run `LEVELS.length`, so the authored level's wall marks and prop
-  collisions are judged (5 decal rows ok; drove-in and band rows ok, its `respects the band` row
-  reporting the 0.16 m crate overhang by itself). Judging the graze row found one failure, and it is
-  **#318, not a new defect**: the same row is `ok` against `p318close/lamp-jamb`'s js
-  (`JSDIR=<that tree>/js node tools/view.js props` → exit 0, zero KNOWN lines), whose fix is committed
-  but unmerged. `props` sits in a blocking job, so the row reports as `KNOWN`, counts into the
-  verdict's debt tally, gates under `STRICT=1`, and retires itself when #318 merges. Two debts survive
-  this: `bands`' `:9331` loop (the WITHIN_MAX calibration decision, owned by the user, untouched
-  here) and the **12 rows `props 3` failed through its single-level path** — closed by the last bullet
-  of this list, where the cause of each is named.
-- **The authored level is judged only by the records it was measured into (#314, items 3+).**
-  Items 1 and 2 shipped: `LAMPCORE` carries level 3's own pair (245 px / 239.1, measured by that
-  row's own `(E2)` branch before the record existed) and indexes by `LEVELS.length`; `alt`'s pit,
-  wrong-band, coverage and lip records each carry a fourth value with their bound moved in the same
-  commit; era figures print *no era figure for this level* rather than `undefined`. What remains is
-  a decision and three gaps. The decision: `bands`' `:9299` loop is still `li < 3` and `RECSEAM` is
-  3-wide, so level 3 prints nothing there — lifting it is not a record edit, because the authored
-  level's **walk lip measures 27% contrast with 51.4% of lip px within 10 of their neighbour**
-  against floors calibrated on three generated levels' six lips (`WITHIN_MAX` 35%), and its face lip
-  sits at exactly the 45% `want` with no slack. Say whether an authored level with authored light
-  belongs inside a floor derived from generated ones before moving a number. The gaps, found by the
-  same sweep are closed except for the decision above: the three silent `li < 3` loops were lifted
-  (earlier bullet) and the **12 rows** `props 3` failed are gone (last bullet). One real finding rides
-  with the records: the authored lip delivers
-  **0.919** on-band against 0.941/0.967/0.996, so 8.1% of its lip pixels take light across a band
-  boundary; the record moves the level's line with it, and the shortfall is the point.
+- **Every level loop in `tools/view.js` runs the level list now (#314).** `decal`'s riser census,
+  props' cost and collision censuses and `alt`'s two `lv < 3` loops were the last ones that stopped at
+  level 2; `bands`' was lifted by #303's conversion. No probe answers *level 3 has no record* any more
+  — `node tools/view.js props <0..3>` and `node tools/view.js alt` print its rows, and `alt`'s verdict
+  line still says how many levels its records cover, because a record that stopped covering a level is
+  the failure this sweep was about. Judging props' graze row on the authored level found one stuck
+  pose, and it is **#318, not a new defect**: the same row is `ok` against that branch's js
+  (`JSDIR=<that tree>/js node tools/view.js props`), whose fix is committed but unmerged. `props` sits
+  in a blocking job, so the row reports `KNOWN` at its **measured** overhang against `OVERHANG_MAX`
+  (an A/B knob), counts into the verdict's debt tally, gates under `STRICT=1`, and retires itself when
+  #318 merges. It gates on geometry, never on level index — a KNOWN row keyed on *which* level it ran
+  on would quiet any future defect on the authored level for the wrong reason.
+- **One shortfall ships with the authored level's records (#314, items 1–2).** `LAMPCORE` carries its
+  own pair and indexes by `LEVELS.length`; `alt`'s pit, wrong-band, coverage and lip records each
+  gained a fourth value **in the same commit as the bound**, because a bound that outruns its literals
+  compares against `undefined` and prints no red row at all; era figures print *no era figure for this
+  level*. The table is `node tools/view.js refs`. One figure is worse than the generated levels', not
+  equal: the authored **lip delivers less on-band** than any generated level, so a real share of its
+  lip pixels take light across a band boundary. The record moves that level's line with it — which is
+  what a per-level record is for — and the gap stays visible rather than being averaged into the
+  three-level floor or absorbed by raising `MINDELIV`.
 
 - **`props <level>` judges the authored level, and which world a row builds is a function of the level
-  (#314, closed).** `props 3` failed 12 rows that `props` passed. Three causes, none of them "authored
-  geometry is unjudgeable". **(a) 5 × `the CONTROL did not fall (x0.71)`.** The control zeroes `MAP.amb`
-  and all of `MAP.light` and requires the non-emissive top decile to fall to 0.7 of lit; what that ratio
-  measures is how much light was **there to remove**, because the lights-off body is the mesh's
-  light-independent floor (`js/13_mesh.js:965`, `0.30*visAt` ≈ 0.292 at 2.9 m) plus fog. It therefore
-  tracks the **seat cell's lightmap**: measured maxima L0 0.479 [0.180], L1 0.551 [0.079], L2 0.306
-  [0.623], L3 **0.716 [0.014]** — THE STACK's seat is a dark corridor, its body goes 170 → 122 top
-  decile, and one 0.7 floor failed the authored level by 0.007–0.016 while passing a level whose seat
-  carried 40× the light. The magnitude is now a `refRecord` row per level (`props/CTRL-RAT`, ±0.05) and
-  the hard gate is the semantic one (`CTRL_CEIL` 0.9 = fell by less than 10%, so it sees no scene light
-  at all). Teeth, both directions: zeroing THE STACK's authored `amb` in a `JSDIR=` copy puts all five
-  rows at **x0.97** and the lock at 0.970 → exit 1; `LAMPS=off props` moves L0 0.479 → **0.601** → exit 1
-  (and trips the `#84` lamp-core record, 263 px / 239.28 against 239.6, in the same run). **(b) 5 ×
-  `orb` at 0 px.** The orb is *synthesized* and hung at `ceilAt−0.35` (#163), and every cell on THE
-  STACK's sight line has `ceilAt` **4.00 m**, so it hung four metres up — out of frame, `(S)` −338 px
-  (the `mask.bot −1` sentinel), five rows judging a prop that was never on screen. A hanging light is
-  bounded by the room it is IN: `min(ceilAt−0.35, floorAt+0.9)` keeps L0 at **34 px** (parity) and puts
-  L3 at **35 px**, inside the 34–37 window; `floorAt+0.9` alone is not the rule — it measures 30 px on
-  L0, the clipped number #163 recorded. **(c) the 2 collision rows were never about level 3.**
-  `props <li>` changes how many draws `genLevel` has taken from the harness's xorshift (`:296`) before
-  the collision loop regenerates levels 0–2 — measured ~1284 for `props`/`props 0`, ~308 for `props 1`,
-  ~427 for `props 2`, ~4 for `props 3` (an authored level draws ~0), while the KINDS loop takes **0** —
-  so `props 3` judged a **different level 0**: a different crate at index 9 in a different room, while
-  the row's head text (`ghost r` off `foot*scale`) printed identically. Identical prose, opposite
-  verdict, and a CI-blocking row whose meaning depended on a command-line argument. The repair is not
-  `seedRng()` (:311 installs a different generator than boot's and would re-baseline every world in the
-  block): the loop's loads rest seat to where the block began and **replay the generations a `props`
-  run performed before that load**, so a world is a function of (level, SEED) and every invocation
-  prints the same collision rows. `props`' output then differs from its parent tree by exactly one
-  added line — the lock row — with `SMOKE PASSED`, `VERT=1 SMOKE PASSED` at 32 gating rows, `refs` at 14
-  records, and `props 3` md5-identical across repeat runs. Deferred from the same sweep, an observation
-  and not an assignment: the candidate scan accepts a crate at x 2.50 whose flanking lane sits one cell
-  off the map border, so that world's vacuity test is weaker than it looks.
+  (#314).** On the tree below this one `props 3` failed rows that `props` passed, in CI-facing jobs.
+  Three causes, none of them "authored geometry is unjudgeable". **(a) `the CONTROL did not fall`.**
+  The control zeroes `MAP.amb` and all of `MAP.light` and requires the non-emissive top decile to fall
+  by a fixed factor; what that ratio measures is how much light was **there to remove**, because the lights-off body is the mesh's
+  light-independent floor (`0.30*visAt` in `js/13_mesh.js`) plus fog. It therefore tracks the **seat
+  cell's lightmap**: the authored level's seat is a dark corridor, so its body is nearly all residual
+  and falls by a smaller *ratio* than a bright room's, while a single floor calibrated on the bright
+  seats passed those and failed this one. The magnitude is a `refRecord` row per level
+  (`props/CTRL-RAT`, in `tools/refs.lock`) and the hard gate is the semantic one — `CTRL_CEIL`, "fell
+  by less than 10%, therefore sees no scene light and every other (E) row here is worthless" — and the
+  row prints its seat's lightmap so the ratio is readable. Teeth both ways: zeroing the authored `amb`
+  in a `JSDIR=` copy sends every (E) row and the record past the ceiling → exit 1; `LAMPS=off props`
+  moves level 0's ratio the other way → exit 1, and trips the lamp-core record in the same run. **(b)
+  `orb` at a 0 px silhouette.** The orb is *synthesized* and hung `0.35` under its ceiling (#163), and
+  every cell on THE STACK's sight line has a 4 m ceiling, so it hung four metres up — out of frame, a
+  `mask.bot −1` silhouette sentinel, and rows judging a prop that was never on screen. A hanging light
+  is bounded by the room it is **in**: `min(ceilAt−0.35, floorAt+0.9)` leaves the low-ceiling levels at
+  their previous silhouette and puts the authored one inside its own window. `floorAt+0.9` alone is not
+  the rule — on a one-unit room it measures the clipped number #163 recorded, because half a 0.3 m body
+  stands inside the slab. **(c) the collision rows were never about level 3.** `props <li>` changes how
+  many draws `genLevel` has taken from the harness's shared xorshift before the collision loop
+  regenerates levels, and an authored level draws almost none — so `props 3` judged a **different level
+  0**: a different crate at the same index in a different room, printing identical text with the
+  opposite verdict, in a CI-blocking job. The repair is not `seedRng()`, which installs a different
+  generator than boot's and would re-baseline every world in the block: each load in that loop rest
+  seats to where the block began and **replays the generations a plain `props` run performed before
+  it**, so which world a row builds is a function of (level, SEED) and the argument chooses only which
+  level the level-specific sections judge — the green run's own positions, reproduced rather than
+  replaced. Deferred from the same sweep, an observation and not an assignment: that older world's
+  candidate scan accepted a crate whose flanking lane sits one cell off the map border, so its vacuity
+  test was weaker than it looks; the re-seated loads no longer select that crate.
 
 ## Decision log (details in the commits)
 
