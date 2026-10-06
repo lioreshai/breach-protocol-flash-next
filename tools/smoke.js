@@ -96,6 +96,21 @@ const jfiles = fs.readdirSync(JSDIR).filter(f => f.endsWith('.js')).sort();
    layout costs 5.8x another in the same binary - and its acceptance is to drive this floor back to 16
    ms by making the renderer cheaper. RASTER_FLOOR=16 is the standing control: it must still FAIL. */
 const RASTER_FLOOR = +(process.env.RASTER_FLOOR || 32);
+/* TICK_FLOOR gates update() - the SIM - which no perf row in this repo timed (#53). The default GATES:
+   a report-only row would leave #53 exactly as found. It is derived, not wished - measured on this tree
+   at load 2.9 before the row existed, update() cost a median 0.18 ms/frame over 9 samples from 3 seats
+   (max 0.2, per-seat 0.20/0.17/0.18) against a raster median of 30.7 ms on the same machine, so 1.5 ms is
+   roughly 8x the measured sim cost and under 10% of the 16 ms frame #307 is driving RASTER_FLOOR to. A
+   regression that adds a per-pixel or per-cell pass to update() lands far above it; ordinary load noise
+   (the 2x a busy runner costs the raster numbers) does not. Setting TICK_FLOOR explicitly stays the
+   standing control for A/B work, same shape as RASTER_FLOOR. */
+const TICK_FLOOR = +(process.env.TICK_FLOOR || 1.5);
+/* AI_FLOOR gates the AI's MARGINAL cost (#53 part 2). The absolute floor above cannot catch an AI
+   regression at any load-safe value: a busy loop in update() moved the median 0.17 -> 0.97 ms/frame
+   and SMOKE still PASSED, because 1.5 ms is 8x the measured sim cost and tightening it would make the
+   row a machine-load thermometer. The paired difference cancels the machine, so this floor is 4x the
+   measured AI marginal cost (recorded below in this row's own detail line). */
+const AI_FLOOR = +(process.env.AI_FLOOR || 0.6);   // 4x the 150 us/frame median recorded above
 // The row's summary, printed again in the verdict block so the number is visible in any log that only
 // shows the tail of the run (the workflow echoes `tail -20` of smoke's output; the budget rows print
 // early). Tool-side on purpose: nothing about how a run is gated is changed by reporting it.
@@ -329,6 +344,70 @@ const release = () => fire('mouseup', { button: 0 });
           + 'delta gate had nothing to compare): paired arm ') + 'cand ' + medCand.toFixed(2) + ' ms vs ctrl ' +
         medCtrl.toFixed(2) + ' ms (delta ' + (dPool >= 0 ? '+' : '') + dPool.toFixed(2) + ') against floor ' +
         RASTER_FLOOR + ' @ ' + scene);
+    }
+    /* (#53) Every perf gate above times renderWorld()+renderOverlay(), so update() - the AI, the player,
+       projectiles, props, pickups, lights, decals - is in no gate at all: a change that makes the SIM
+       expensive sails through smoke while the shipped frame costs more than the number this file prints.
+       Each batch RESEATS first, which the render arms above must not do and this one may not skip:
+       update() ADVANCES the world, so a batch that follows another is timing a later scene (and, per the
+       camera-drives-the-player trap, walking the player into the void where the grid is undefined). The
+       floor is an absolute for the same reason the raster row's pairing does not transfer: there is no
+       second arm to delta against - update() is one number, and 60 frames of it is what a 60 Hz frame
+       gets. Re-seating the first seat after restores what the later sections expect. */
+    {
+      const tk = [], tkRows = [], aiD = [], aiRows = [];
+      for (const s of SEATS) {
+        const ms = [], off = [];
+        for (let b = 0; b < 3; b++) {
+          reseat(s);
+          const t0 = Date.now();
+          vm.runInContext('for(let i=0;i<60;i++) update(1/60);', ctxVm);
+          ms.push((Date.now() - t0) / 60);
+          /* Arm B (#53 part 2): the SAME 60 frames on the SAME seat in the SAME process with the AI
+             population emptied, so the row below can price the AI rather than the box. Whatever the
+             machine costs, it costs twice - player, projectiles, props, pickups and lights still run in
+             this arm, which is why the number is the AI's marginal cost and not update()'s total. The
+             cast is put back before anything else reads ENEMIES. */
+          vm.runInContext('window.__aiKeep = ENEMIES.slice(); ENEMIES.length = 0;', ctxVm);
+          const t1 = Date.now();
+          vm.runInContext('for(let i=0;i<60;i++) update(1/60);', ctxVm);
+          off.push((Date.now() - t1) / 60);
+          vm.runInContext('ENEMIES.length = 0; for (const e of __aiKeep) ENEMIES.push(e); delete window.__aiKeep;', ctxVm);
+          aiD.push(ms[b] - off[b]);
+          if (b === 2) aiRows.push('+' + s + ' ' + (ms[b] - off[b]).toFixed(3));
+        }
+        tk.push(...ms);
+        tkRows.push('+' + s + ' ' + medOf(sorted(ms)).toFixed(2));
+      }
+      const tkSorted = sorted(tk), tkMed = medOf(tkSorted), tkMax = tkSorted[tkSorted.length - 1];
+      const tkGate = process.env.TICK_FLOOR !== undefined && process.env.TICK_FLOOR !== '';
+      console.log('sim cost: median', tkMed.toFixed(2), 'ms/frame of update() over', tk.length,
+        'samples from', SEATS.length, 'seats (max ' + tkMax.toFixed(1) + ', seats ' + tkRows.join(', ') +
+        ') | raster median ' + med.toFixed(2) + ' => tick ' + (med + tkMed).toFixed(2) + ' ms | floor ' +
+        TICK_FLOOR + ' ms' + (tkGate ? ' (TICK_FLOOR set explicitly - the standing control)'
+          : ' (derived: measured 0.18 ms median, 8x headroom, #53)') +
+        ' | load ' + require('os').loadavg().map(v => v.toFixed(2)).join(' '));
+      expect('the sim fits a frame budget - update() median under ' + TICK_FLOOR + ' ms over ' + tk.length +
+        ' samples from ' + SEATS.length + ' seats', tkMed < TICK_FLOOR,
+        'update() alone measured ' + tkMed.toFixed(2) + ' ms/frame (max ' + tkMax.toFixed(1) + ', seats ' +
+        tkRows.join(', ') + ') against floor ' + TICK_FLOOR + ', on top of raster ' + med.toFixed(2) +
+        ' ms, at ' + scene + ' - no other perf row in this file times the sim (#53)');
+      /* #53 part 2: the row above is an absolute budget, so it says nothing about whether the AI got
+         more expensive. This one prices the AI alone by pairing each batch against the same batch with
+         ENEMIES emptied, per batch (a paired difference, not a difference of medians, so bimodal
+         batches cannot average their way past it). N = the same 9 samples from 3 seats. */
+      const aiSorted = sorted(aiD), aiMed = medOf(aiSorted), aiMax = aiSorted[aiSorted.length - 1];
+      console.log('ai cost: median', (aiMed * 1000).toFixed(0), 'us/frame of the AI alone over', aiD.length,
+        'paired batches (max ' + (aiMax * 1000).toFixed(0) + ' us, seats ' + aiRows.join(', ') +
+        ') | sim median ' + tkMed.toFixed(2) + ' ms includes it | floor ' + AI_FLOOR + ' ms' +
+        (process.env.AI_FLOOR ? ' (AI_FLOOR set explicitly - the standing control)' : '') +
+        ' | load ' + require('os').loadavg().map(v => v.toFixed(2)).join(' '));
+      expect('the AI fits a frame budget - update() minus update() with no enemies, median under ' + AI_FLOOR +
+        ' ms over ' + aiD.length + ' paired batches', aiMed < AI_FLOOR,
+        'the AI alone measured ' + (aiMed * 1000).toFixed(0) + ' us/frame (max ' + (aiMax * 1000).toFixed(0) +
+        ' us, seats ' + aiRows.join(', ') + ') against floor ' + AI_FLOOR + ' ms at ' + scene +
+        '; paired arms in one process, so a slower box moves both sides and the delta survives (#53)');
+      reseat(SEATS[0]);
     }
   }
   frames(60);
@@ -1502,7 +1581,9 @@ const release = () => fire('mouseup', { button: 0 });
   {
     const DS = code => vm.runInContext(code, ctxVm);
     const DSN = 3, DSD = 6.0;                      // three grunts, 6 m in front of the dealt seat
+    const DSS = [2, 4, 7.5, 12], BODYW = 0.5;      // #321's sweep ranges, and one body width in metres
     let dsN = 0, dsGate = 0, dsBad = 0, dsTxt = [];
+    let sepN = 0, sepGate = 0, sepBad = 0, sepTxt = [];
     DS('S.mode = "play";');                        // so 90_dev's own auto-boot at load stays a no-op
     sandbox.location = { search: '?dev=1', hash: '' };
     try { vm.runInContext(fs.readFileSync(jsFile('90_dev.js'), 'utf8'), ctxVm); }
@@ -1529,11 +1610,42 @@ const release = () => fire('mouseup', { button: 0 });
         (rep.placed ? rep.placed.map(p => p.why).join('+') : 'n/a') + ')');
       expect('DEV.spawn crowd occupies ' + DSN + ' distinct cells on every level (#93)', gate,
         dsTxt[dsN - 1]);
+
+      /* #321: the row above is a CELL oracle, and a body is ~0.5 m wide, so a crowd can fill DSN cells
+         and still be ONE blob in the frame. Each body searches along its own off-axis fan ray, so a body
+         pushed sideways by a wall lands where a neighbour's ray crosses (and at 2 m the ±0.16-rad fan is
+         only 0.32 m wide, narrower than a body). On main's js this pose reads 0.32 m at 2 m on L0/L1/L3
+         and 0.29 m at 4 m on L2 with 3/3 cells, so the cell row stayed green over an overlapping crowd.
+         Same oracle as above - the closest pair measured over ENEMIES, not DEV.spawn's own `sep` - over
+         the four ranges the #321 sweep used, so a row here and a row there are the same measurement.
+         A distance whose geometry cannot hold DSN cells is reported as geom, not asserted; a level where
+         NO distance holds them measured nothing, which is a FAILURE rather than a quiet ok. */
+      const sq = JSON.parse(DS(`(()=>{const o=[];for(const d of ${JSON.stringify(DSS)}){`
+        + 'DEV.clear(); DEV.cam(' + seat[0] + ', ' + seat[1] + ', undefined, ' + seat[2] + ');'
+        + `DEV.spawn("grunt", ${DSN}, d);`
+        + ' const s = new Set(); for (const e of ENEMIES) s.add((e.y | 0) * MW + (e.x | 0));'
+        + ' let sp = null; for (let a = 0; a < ENEMIES.length; a++) for (let b = a + 1; b < ENEMIES.length; b++) {'
+        + ' const g = Math.hypot(ENEMIES[a].x - ENEMIES[b].x, ENEMIES[a].y - ENEMIES[b].y);'
+        + ' sp = sp === null ? g : Math.min(sp, g); }'
+        + ' o.push([s.size, sp === null ? null : +sp.toFixed(2)]); } return JSON.stringify(o) })()'));
+      sepN++;
+      const held = sq.filter(v => v[0] === DSN);
+      const gate2 = held.length > 0 && held.every(v => v[1] >= BODYW);
+      if (!gate2) sepBad++;
+      sepGate++;
+      sepTxt.push(`L${li} closest pair ` + sq.map(v => (v[0] === DSN ? v[1] : 'geom' + v[0] + '/' + DSN)).join('/')
+        + ` m at ${DSS.join('/')} m, floor ${BODYW} m, n=${DSN}`);
+      expect('DEV.spawn crowd keeps one body width between bodies on every level (#321)', gate2,
+        sepTxt[sepN - 1]);
     }
     console.log('  DEVSPAWN a DEV.spawn crowd fills ' + DSN + ' distinct cells at ' + DSD + ' m x ' + dsN + ' levels '
       + (dsBad ? 'FAIL  ' : 'ok    ') + dsTxt.join(' | ') +
       ' | oracle = distinct cells over ENEMIES, not the return value');
     console.log('  dev spawn: ' + dsN + ' row(s), ' + dsGate + ' gating row(s), ' + (dsN - dsGate) + ' reported');
+    console.log('  DEVSEP a DEV.spawn crowd keeps >= ' + BODYW + ' m (one body width) at '
+      + DSS.join('/') + ' m x ' + sepN + ' levels ' + (sepBad ? 'FAIL  ' : 'ok    ') + sepTxt.join(' | ')
+      + ' | oracle = closest pair over ENEMIES, not the cell count');
+    console.log('  dev sep: ' + sepN + ' row(s), ' + sepGate + ' gating row(s), ' + (sepN - sepGate) + ' reported');
   }
 
   /* ------------------------------------------------------------------------------------------

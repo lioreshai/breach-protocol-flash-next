@@ -14,15 +14,42 @@ const LEVELS = [
     lamps: 8, crates: 8, barrels: 9, spawn: { grunt: 6, hound: 5, brute: 1 }, pick: { health: 4, ammo: 5, armor: 2 }
   },
   {
+    // #369: floorBias / ceilBias / ceilLead are the authored SURFACE VALUE ORDER - see js/40_render.js
+    // :15. Walls already carry the highest value (the wall kernel multiplies its light by 1.05 and the
+    // ground kernel does not), so what a level authors here is where the FLOOR and the CEILING sit under
+    // them. Absent means 0 / the old 0.9 vault lead, which is every level that already reads right.
+    // This level's ceiling is pushed down rather than re-materialised only in part: CEILS.SINEW got its
+    // own albedo (js/10_assets.js:443) and ceilBias takes 0.12 off every ceiling row on top, which is
+    // what puts the overhead band 23.4 below the wall it meets at `scene 2 1` (it was 5.0 below) and
+    // 17-23 below at a second camera. Its first frame sits at the COMPOSITED band's upper anchor (75,
+    // tools/ci/assert.js exposure, where main reads 74), which is the reason this is the level that
+    // needed the bias and not only the texture: with -0.06 that frame measured 77.7 and went red.
     name: 'ABATOIR CORE', size: 36, rooms: 11, maxRoom: 11, wall: WT.FLESH, wall2: WT.TECH2,
-    floor: 'FLESH', ceil: 'SINEW', amb: 0.3, lampCol: [190, 255, 150], fogCol: [21, 8, 11],
+    floor: 'FLESH', ceil: 'SINEW', amb: 0.3, lampCol: [190, 255, 150], fogCol: [21, 8, 11], ceilBias: -0.12,
     lamps: 16, crates: 9, barrels: 12, spawn: { grunt: 8, hound: 7, brute: 3 }, pick: { health: 5, ammo: 6, armor: 2 }
   },
   {
     // M6 (#16): the hand-authored two-storey level - `authored` means genLevel loads AUTHORED
     // instead of rolling rooms, so lamps/crates/barrels/pick/spawn are placed by the plan's marks.
+    // #369: this level authors `lamps: 0`, so the light delivered to its walkable floors is near zero
+    // while its 4 m vault clears the CEILHI threshold and picks up the vault lift - the brightest region
+    // of the frame was its roof and its floors the darkest. The three numbers are authored to one rule:
+    // a VAULT may not lead the floor it covers. The ceiling's base is amb + ceilBias + ceilLead and the
+    // floor's is amb + floorBias, so the rule is ceilLead <= floorBias - ceilBias, and here that is
+    // 0.12 <= 0.18 - (-0.04) = 0.22. The vault is still lifted off black; it just cannot out-light the
+    // surface you stand on. At the seat the player spawns in, the order is wall 71.8, floor 47.2,
+    // ceiling 37.7, where main read wall 65.8, floor 32.3, ceiling 68.6.
+    // One caveat, so nobody "fixes" the finale: the rule authored here constrains the VAULT against the
+    // FLOOR it covers, not the floor against the walls. At the finale seat (`view.js scene 3 0`) the lit
+    // floor near the camera reads ABOVE the far wall faces (floor rows 87-90, wall faces 71-73, Rec.601
+    // over screen rows - the ceiling band stays lowest in the frame), and it is left that way on purpose:
+    // in a level whose idea is a walkable surface over your head, the last room reading floor-brightest is
+    // the read we want. Walls lead floors at the spawn seat above. Say it here because the entry's rule
+    // sentence does not cover it.
+    // Height is already said by the riser seam and the minimap band cue (#164).
     name: 'THE STACK', size: 20, authored: true, wall: WT.STONE, wall2: WT.TECH,
     floor: 'STONE', ceil: 'ROCK', amb: 0.2, lampCol: [255, 196, 120], fogCol: [17, 13, 10],
+    floorBias: 0.18, ceilBias: -0.04, ceilLead: 0.12,
     lamps: 0, crates: 0, barrels: 0, spawn: { grunt: 0, hound: 0, brute: 0 }, pick: {}
   }
 ];
@@ -1227,6 +1254,7 @@ function buildAuthored(li) {
     lR: new Float32Array(N * N).fill(0.6), lG: new Float32Array(N * N).fill(0.6),
     lB: new Float32Array(N * N).fill(0.6), lw: new Float32Array(N * N),
     lt: new Uint8Array(N * N * 3).fill(128), amb: cfgL.amb, tintDirty: false,
+    floorBias: cfgL.floorBias || 0, ceilBias: cfgL.ceilBias || 0, ceilLead: cfgL.ceilLead,
     floorTex: FLOORS[cfgL.floor], ceilTex: CEILS[cfgL.ceil],
     fz, cz, vb: new Uint16Array(N * N), feat, ceilPlane: new Float64Array(N * N)
   };
@@ -1343,6 +1371,7 @@ function genLevel(li) {
     MAP = { w: N, h: N, cell, light: new Float32Array(N * N), rooms,
       lR: new Float32Array(N * N), lG: new Float32Array(N * N), lB: new Float32Array(N * N), lw: new Float32Array(N * N),
       lt: new Uint8Array(N * N * 3), amb: cfgL.amb === undefined ? 0.13 : cfgL.amb, tintDirty: true,
+      floorBias: cfgL.floorBias || 0, ceilBias: cfgL.ceilBias || 0, ceilLead: cfgL.ceilLead,
       floorTex: FLOORS[cfgL.floor] || FLOORS.CONCRETE, ceilTex: CEILS[cfgL.ceil] || CEILS.CONCRETE,
       floorTile: 1.15, ceilTile: 0.9,
       fz: fzTry, cz: czTry,
