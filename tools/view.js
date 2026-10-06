@@ -7466,10 +7466,15 @@ if (MODE === 'contrast') {
 }
 if (MODE === 'anim') {
   /* #73: does an enemy's body change SHAPE while it walks? Asked literally - diff the body pixels
-     between t and t + 0.4 s. Since #72 the mesh path gets no animation input at all
-     (js/40_render.js hands MESH.draw {kind,x,y,z,yaw,scale,alpha,flash,tint}) and js/13_mesh.js
-     builds its legs "straight for the spike", so a body is one static stance however far it
-     walks and a corpse fades in place instead of toppling.
+     between t and t + 0.4 s. What that question was ASKED of is history: the header of this mode
+     used to say the mesh path got no animation input at all and "a body is one static stance however
+     far it walks", and since #73 that was false - js/40_render.js hands draw() four pose signals
+     (p, mv, atk, die, dv) and js/13_mesh.js authors 8 phase buckets. What #274 found is that the
+     PICTURE rows could not tell the shipped gait from a body that shifts stance once and stops, so
+     the claim is now made twice more, in the pose domain, at the end of this block: `gait shape`
+     measures metres a VERTEX travels between buckets of the table the draw reads, and `gait phase`
+     measures the buckets a real walk reaches. Read the pixel rows as "the picture moves" and the two
+     pose rows as "there is a gait".
 
      The mask is the `contrast` technique - render the frame, render it again with ENEMIES emptied -
      so the difference IS the silhouette and nothing else in the world can enter it: the dust a
@@ -7506,6 +7511,16 @@ if (MODE === 'anim') {
      process, so this cannot reach another probe's sandbox, and nothing here renders with it off that
      would render with it on. What the term itself does is gated where that is the claim:
      contrast's SHADOW=0 A/B rows and `cull`'s step rows. */
+  /* #274 also arms the coverage mask for the whole mode, because the `walk cycle` row below can no
+     longer hash COLOUR: a colour term keyed on the gait phase made that row print "9 distinct bodies
+     in 9 samples" on a mesh whose vertices never moved (measured on a sabotaged tree, js-sha256
+     5084cf0b10a55135 - 9/9 on all four levels while the shape row beside it read a constant 5-9 %).
+     COV is stamped by the mesh's own pixel writes and only for bodies (js/00_core.js:23), so a shade
+     cannot move it - which is what the row now needs it for. Arming it costs a byte write per body
+     pixel and NO pixel: nothing in the draw path branches on COV except the stamp itself
+     (js/40_render.js:271,:1396, js/13_mesh.js:803), so every px/zbuf number in this mode is the number
+     it was before. The neck rows already armed it the same way and set COV = null on the way out. */
+  run('if (!COV || COV.length !== BW * BH) COV = new Uint8Array(BW * BH);');
   const shArm = run('(function(){ if (typeof SHADOW !== "number") return -1; SHADOW = 0; return SHADOW; })()');
   console.log(shArm < 0 ? 'shadow: no SHADOW global in js/ - nothing to arm, the mask below is body paint alone'
     : 'shadow: #178 contact term OFF in this mode - the mask is the BODY (the term\'s own rows are in contrast)');
@@ -7640,7 +7655,7 @@ if (MODE === 'anim') {
     }
     return { n, pct: 100 * n / (m.n || 1), dl: n ? sum / n : 0 };
   }
-  let bad = 0, attachBad = 0, judgeBad = 0, knownChurn = 0;
+  let bad = 0, attachBad = 0, judgeBad = 0, knownChurn = 0, gaitBad = 0;
   let churnGroup = false;                        // #170: on THIS level, two renders of one state differed
   const STRICT = !!process.env.STRICT;           // promotes the #170 debt rows below into gates
   const row = (name, d, m, note) => {
@@ -7742,16 +7757,36 @@ if (MODE === 'anim') {
                   : 'noise floor, so the rows below are shape'));
     const samples = [s0];
     for (let s = 1; s <= 8; s++) { step(3); samples.push(shot()); }   // 3 steps = 0.05 s
-    const seen = new Set();
+    /* Two counts, because they answer different questions and only one of them can be forged.
+       SHAPE is maskHash over COV: who painted each body pixel, bbox-normalised - a phase-keyed
+       colour term cannot move it, and a body that changes STANCE once instead of cycling lands on
+       one hash (measured: 5 distinct colour hashes on the frozen-pose tree against the 8-9 a real
+       walk gives). COLOUR is the hash this row used to gate on, kept REPORTED ONLY so the gap
+       between the two - colour high, shape low - is the sabotage signature in plain sight rather
+       than a claim in an issue. The gate is the SHAPE count. */
+    const seen = new Set(), seenCol = new Set();
+    let covOK = true;
     for (const s of samples) {
       let h = 0;
       for (let i = 0; i < N; i++) if (m0.cov[i]) h = (h * 31 + s.A[i]) | 0;
-      seen.add(h);
+      seenCol.add(h);
+      if (!s.cov) covOK = false; else seen.add(maskHash({ cov: s.cov }));
     }
-    console.log('  walk cycle     ' + seen.size + ' distinct bodies in 9 samples over 0.40 s' +
-      (seen.size < 4 ? '  IDENTICAL - no gait' : '  ok'));
-    if (seen.size < 4) bad++;
-    for (const s of [2, 4, 6, 8]) row('walk +' + (s * 0.05).toFixed(2) + 's', cmp(s0, m0, samples[s]), m0);
+    if (!covOK) { bad++; console.log('  walk cycle     NO COVERAGE MASK - the shape oracle is missing, so the row cannot pass'); }
+    else {
+      console.log('  walk cycle     ' + seen.size + ' distinct bodies in 9 samples over 0.40 s' +
+        (seen.size < 4 ? '  IDENTICAL - no gait' : '  ok') +
+        '   colour hashes ' + seenCol.size + '/9 reported only - the gate is COV shape, not colour');
+      if (seen.size < 4) bad++;
+    }
+    /* These four rows are a pixel delta against MINMOVE and nothing more: a rigid table that shifts
+       once from the spawn stance to one walk stance scores 6.6 % at every offset, so they CANNOT
+       distinguish one stance shift from a gait, and #274 says so. They stay because the delta is the
+       number `contrast` and the world-churn control are read against, and because raising MINMOVE to
+       reject 6.6 % would trade a 3.0 bar for a 1.8-point margin against a real 8.2 %. They do not gate
+       the gait - `gait shape` and `gait phase` below do - and the detail says so on the row itself. */
+    for (const s of [2, 4, 6, 8]) row('walk +' + (s * 0.05).toFixed(2) + 's', cmp(s0, m0, samples[s]),
+      m0 + '  pixel delta vs MINMOVE only - one stance shift scores this too (#274); the gait gate is the pose rows');
     /* ---- #82: does EVERY enemy die the same way? -------------------------------------
        One corpse per death variant, sampled by setting e.dv - a field the renderer is supposed
        to read and main does not, so setting it there changes nothing and every variant renders
@@ -8191,10 +8226,118 @@ if (MODE === 'anim') {
       '  |  darkest cell ' + nf(o.dark) + (o.dark && o.dark.cell !== undefined ? ' (' + cxy(o.dark) + ', light '
         + lit(o.dark) + ', @ ' + o.dark.d.toFixed(2) + ' m, ' + o.dark.tried + ' seat(s) tried)' : ''));
   }
+  /* ---- #274: the gait asserted in the POSE domain, where a colour term cannot reach --------------
+     Every row above this line answers "did some pixel change?", and two different fakes answer yes.
+     Measured on sabotaged trees, both exiting 0 with this mode's verdict reading "bodies change shape
+     while they move":
+       (a) the pose table's phase term pinned after the bucketing - the body shifts from its spawn
+           stance to ONE walk stance and then stops. The four `walk +Ns` rows print the SAME number at
+           every offset (6.6/6.6/6.6/6.6 % on L0, 4.7-4.9 on L3) because a rigid body has no time
+           dependence to sample, and 6.6 > MINMOVE 3.0, so four rows gate on one stance shift;
+       (b) the same rig plus a colour term keyed on e.anim - and the row that NAMED the gait cycle
+           printed "9 distinct bodies in 9 samples" on all four levels, because it hashed colours.
+     So both are asserted here instead, in the two domains the game actually has to get right:
+       SHAPE  MESH.poseVerts goes through the SAME bucketOf+poseOf the draw site uses (js/13_mesh.js),
+              so it is the vertex set an enemy is rasterized from, not a re-derivation. A half-cycle
+              (bucket i vs i+ph/2) and an adjacent bucket must each move the mesh by metres: floors
+              WDEL/ Adel, measured on this tree at min 0.137 m and min 0.058 m, with the idle sweep at
+              mv = 0 as the control - the walk must beat the weight-shift by IRATIO x (measured min
+              4.3 x). Note the issue's proposed control, "identical at mv = 0", is NOT true: the idle
+              term is sin(a2)*(0.06 + 0.30*mv), so buckets 1..3 move 0.034-0.058 m standing still
+              (only the 0<->4 pair is exactly 0). A relation, not an equality, is what the geometry
+              supports.
+       PHASE  a real walk on the mode's OWN treadmill (updateEnemies + teleport back, so translation
+              cannot fake it and a field the game never sets cannot satisfy it): over 2 strides the
+              draw's own bucket index must hit every bucket of the table, advance by +1 mod ph, and
+              the phase must advance by the distance the body ACTUALLY moved divided by the kind's
+              SPEC stride - which is what keeps the phase distance-driven, because a dt-driven phase
+              makes stride length depend on frame rate. The mv bucket must reach its top at least once
+              or the "walk" was a shuffle and the SHAPE rows beside it would be vacuous.
+     A row that can only be satisfied by the thing it names: (a) fails SHAPE and passes PHASE, (b)
+     fails SHAPE and passes PHASE and the colour count, a frozen e.stepPhase fails PHASE and passes
+     SHAPE. Neither fake passes the set. AKIND, not ENEMIES[0]: three kinds author three strides. */
+  const GPH = run('MESH.PB.ph'), GMV = run('MESH.PB.mv');
+  const PVOK = run('typeof MESH.poseVerts === "function" && typeof MESH.poseBucket === "function"');
+  const WDEL = 0.10, ADEL = 0.03, IRATIO = 2, PDRIFT = 0.02;   // metres, metres, x, phase units
+  run('window.__WALK1 = function () { const n = ENEMIES.length;' +
+      'for (let i = 0; i < n; i++) { AX[i] = ENEMIES[i].x; AY[i] = ENEMIES[i].y }' +
+      'updateEnemies(1/60); let m = 0;' +
+      'for (let i = 0; i < n; i++) { m += Math.hypot(ENEMIES[i].x - AX[i], ENEMIES[i].y - AY[i]);' +
+      'ENEMIES[i].x = AX[i]; ENEMIES[i].y = AY[i] } P.z = floorAt(P.x, P.y); return m };');
+  const pv = (k, p, mv) => new Float32Array(run(
+    `MESH.poseVerts({kind:${JSON.stringify(k)},p:${p},mv:${mv},atk:0,die:0,dv:0})`));
+  const bkt = k => run(`MESH.poseBucket({kind:${JSON.stringify(k)},p:ENEMIES[0].anim,mv:ENEMIES[0].movingAmt,` +
+    'atk:0,die:0,dv:ENEMIES[0].dv|0})');
+  const maxD = (a, b) => { let d = 0; for (let i = 0; i < a.length; i++) { const x = Math.abs(a[i] - b[i]); if (x > d) d = x; } return d; };
+  const gmn = a => Math.min.apply(null, a);
+  const g4 = a => a.map(v => v.toFixed(3)).join(' ');
+  console.log(`gait (pose domain) ${GPH} phase buckets x ${GMV} move levels: the statistic is METRES A VERTEX TRAVELS` +
+    ` between buckets of the table the draw reads, so no shading term can reach it. Floors ${WDEL.toFixed(2)} m` +
+    ` half-cycle, ${ADEL.toFixed(2)} m adjacent and ${IRATIO}x the idle (mv=0) sweep - measured on this tree at` +
+    ` 0.137 m, 0.058 m and 4.3x.`);
+  if (!PVOK) {
+    bad++;
+    console.log('  NO poseVerts/poseBucket in this js/ - the gait rows have no vertex oracle, so they FAIL rather' +
+      ' than fall back to a pixel count that ONE stance shift satisfies (#274)');
+  }
+  for (const k of AKIND) {
+    if (!PVOK) break;
+    const KJ = JSON.stringify(k), H2 = Math.floor(GPH / 2);
+    const half = [], adj = [], idle = [], ratio = [];
+    for (let i = 0; i < GPH; i++) {
+      const A = pv(k, i / GPH, 1), B = pv(k, ((i + H2) % GPH) / GPH, 1), C = pv(k, ((i + 1) % GPH) / GPH, 1);
+      const I0 = pv(k, i / GPH, 0), I1 = pv(k, ((i + H2) % GPH) / GPH, 0);
+      const dh = maxD(A, B), da = maxD(A, C), di = maxD(I0, I1);
+      half.push(dh); adj.push(da); idle.push(di);
+      if (di > 1e-6) ratio.push(dh / di);
+    }
+    const mh = gmn(half), ma = gmn(adj), mr = ratio.length ? gmn(ratio) : Infinity;
+    const okS = mh >= WDEL && ma >= ADEL && mr >= IRATIO;
+    if (!okS) { bad++; gaitBad++; }
+    const sTag = (v, f) => (v >= f ? '' : ' < ' + f.toFixed(2) + ' m FAIL');
+    console.log(`  ${k.padEnd(6)}gait shape   half-cycle max|dv| ${g4(half)} m  min ${mh.toFixed(3)}${sTag(mh, WDEL)}\n` +
+      `             adjacent bucket ${g4(adj)} m  min ${ma.toFixed(3)}${sTag(ma, ADEL)}\n` +
+      `             idle mv=0     ${g4(idle)} m  walk/idle ${isFinite(mr) ? mr.toFixed(1) + 'x' : 'inf'}` +
+      `${mr >= IRATIO ? '' : ' < ' + IRATIO + 'x FAIL'}  ` +
+      `${okS ? 'CYCLES - the table holds a different stance per phase bucket'
+             : 'IDENTICAL - the table answers with the SAME vertices for a different phase bucket'}`);
+    /* the walk: 2 strides of the game's own distance-driven advance, the bucket read the way the draw
+       site reads it (p = e.anim, mv = e.movingAmt, atk/die pinned by PIN) */
+    run(`(()=>{const s=window.__bandSpot(${(+DK[k]).toFixed(2)});ENEMIES.length=0;` +
+      `const e=makeEnemy(${KJ},s[0],s[1]);${PIN}ENEMIES.push(e)})()`);
+    const stride = Number(run(`ETYPE[${KJ}].stride`)), p0 = Number(run('ENEMIES[0].anim'));
+    let metres = 0, ticks = 0, prevB = -1, mono = true, mvMax = 0, seq = '';
+    while (metres < 2 * stride && ticks < 480) {
+      metres += Number(run('__WALK1()')); ticks++;
+      const r = bkt(k);
+      if (r.mv > mvMax) mvMax = r.mv;
+      if (prevB >= 0 && r.ph !== prevB && (r.ph - prevB + GPH) % GPH !== 1) mono = false;
+      prevB = r.ph; seq += String(r.ph);
+    }
+    const dp = Number(run('ENEMIES[0].anim')) - p0, pred = metres / stride;
+    const nb = new Set(seq.split('')).size;
+    const okP = nb === GPH && mono && dp >= pred - 1e-9 && dp <= pred + PDRIFT && mvMax === GMV - 1 && ticks < 480;
+    if (!okP) { bad++; gaitBad++; }
+    let whyP = '';
+    if (!okP) {
+      if (!mono) whyP += 'bucket order is not monotone mod ' + GPH + '; ';
+      if (nb !== GPH) whyP += `the walk reaches ${nb} of ${GPH} buckets; `;
+      if (dp < pred - 1e-9) whyP += 'phase advanced LESS than the distance walked, so it is not distance-driven; ';
+      if (dp > pred + PDRIFT) whyP += `phase advanced MORE than the distance walked by ${(dp - pred).toFixed(3)}; `;
+      if (mvMax !== GMV - 1) whyP += 'the body never reached the full-gait move bucket; ';
+      if (ticks >= 480) whyP += 'the walk stalled before 2 strides';
+    }
+    console.log(`  ${k.padEnd(6)}gait phase   ${nb}/${GPH} buckets in ${metres.toFixed(2)} m ` +
+      `(${(metres / stride).toFixed(2)} strides of ${stride} m, ${ticks} ticks), monotone mod ${GPH} ${mono ? 'yes' : 'NO'}, ` +
+      `phase ${dp.toFixed(3)} vs metres/stride ${pred.toFixed(3)} (drift ${(dp - pred).toFixed(4)}), ` +
+      `mv bucket reached ${mvMax}/${GMV - 1}\n             sequence   ${seq.slice(0, 96)}${seq.length > 96 ? ' ...' : ''}  ` +
+      `${okP ? 'ADVANCES' : 'NO PHASE - ' + whyP}`);
+  }
   const why = [];
   run('COV = null;');
   if (bad - attachBad - judgeBad) why.push('bodies are drawn in a static stance');
   if (attachBad) why.push(attachBad + ' pose(s) with DETACHED parts');
+  if (gaitBad) why.push(gaitBad + ' gait row(s) with no stance or no phase behind them (#274 - see the gait shape / gait phase lines above)');
   if (judgeBad) why.push(judgeBad + ' pose(s) too small to judge at ANY distance - a probe-geometry problem, not a detachment failure');
   console.log(bad ? 'anim: ' + bad + ' assertion(s) FAILED - ' + why.join('; ')
     : 'anim: bodies change shape while they move and their parts are attached');
