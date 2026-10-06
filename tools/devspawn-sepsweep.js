@@ -98,7 +98,7 @@ const DISTS = [2, 4, 7.5, 12];
   try { vm.runInContext(fs.readFileSync(jsFile('90_dev.js'), 'utf8'), ctxVm); }
   catch (e) { console.log('90_dev.js did not install - ' + e.message); process.exit(1); }
 
-  let rows = 0, bad = 0, collapsedRows = 0, gotPoses = 0;
+  let rows = 0, bad = 0, collapsedRows = 0, gotPoses = 0;   // collapsedRows = rows whose crowd missed a cell
   const badList = [];
   for (let li = 0; li < nl; li++) {
     // the DEV.spawn block's own seat deal, so a level here is the level smoke's row stands in
@@ -140,7 +140,10 @@ const DISTS = [2, 4, 7.5, 12];
             seat: [+(P.x.toFixed(2)), +(P.y.toFixed(2)), +(P.ang.toFixed(3))]}) })()`));
         rows++;
         const badRow = r.cells === N && r.sep !== null && r.sep < BODY_W;
-        if (r.cells !== N) { reported++; collapsedRows++; }
+        // collapsedRows is the count of these rows, printed in the census below. It used to also bump
+        // a `reported` counter that was never declared, so any run where a crowd did NOT fill N cells
+        // threw ReferenceError and died before reaching the line that exists to report those rows.
+        if (r.cells !== N) collapsedRows++;
         if (badRow) { bad++; badList.push(`L${li} pose ${pi} @ ${seat[0].toFixed(1)},${seat[1].toFixed(1)} d=${d}: `
           + `cells ${r.cells}/${N} sep ${r.sep} dist ${r.dist.join('/')} why ${r.why} seat ${JSON.stringify(r.seat)}`); }
         console.log(`row ${rows} L${li} pose ${pi} d=${d} cells ${r.cells}/${N} sep ${r.sep === null ? 'n/a' : r.sep}`
