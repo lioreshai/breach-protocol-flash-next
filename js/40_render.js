@@ -69,6 +69,19 @@ let SEAM = 1, SEAMD = 0.62, SEAMU = 0.13, SEAMW = 0.16, SEAMC = 0.22;
    nothing). */
 let SHADOW = 1, SHADOW_D = 0.42, SHADOW_R = -0.10, SHADOW_ZT = 0.02, SHADOW_F = 3,
     SHADOW_ZF = 0.25, SHADOW_FAR = 18;
+/* #371 item 3: the same term, on a PROP. A crate's lower edge used to be as bright as its upper edge,
+   because nothing said where the crate meets the floor. This is not a new mechanism - it registers the
+   prop in the SAME grid #178 built, so both ground copies and the wall loop darkening happens once per
+   pixel for a body AND a prop, and a prop that leaves the frame's radius costs the loop nothing.
+   The radius differs from a body's on purpose. SHADOW_R pulls a BODY's patch inside its own collision
+   radius because a body's collision radius is a circle the silhouette always covers; a prop's footprint
+   (`MESH.foot`) is the radius to the CORNER of a box, so a patch pulled inside it would sit under the
+   crate's inscribed circle and be hidden by the crate itself at eye height. SHADOW_PR is measured in
+   the other direction: the crate's authored box is 0.375*0.72 = 0.19 m to its FACE against 0.27 m to
+   its corner, so +0.04 puts the visible edge of the patch a few centimetres outside the face, which is
+   where a contact zone actually is, while staying well inside the footprint the prop already occludes.
+   SHADOW_PROP 0 is the A/B the `props` probe's patch row runs against - one assignment, no rebuild. */
+let SHADOW_PROP = 1, SHADOW_PR = 0.04;
 /* The wall bilinear fetch is inlined at its one call site below rather than factored into a
    function that writes its result into a scratch array: a module-global typed-array out-param
    blocks V8 inlining and register allocation, and the same code inlined measured 21 -> 12 ms
@@ -217,7 +230,11 @@ function renderWorld() {
        is called out in the PR instead of riding along in a render fix. */
     const pf = MESH.foot(p.kind) * (p.scale || 1);
     if (pf > 0 && Math.abs(p.x - camX) < pf && Math.abs(p.y - camY) < pf) continue;
-    list.push({ mesh: true, kind: p.kind, x: p.x, y: p.y, z: floorAt(p.x, p.y), scale: p.scale, alpha: p.dead ? 0.35 : 1 });
+    /* #371: the orientation the generator chose. It rides the entry rather than being derived here so
+       that what a probe or the console reads back (PROPS[i].yaw) is what the frame drew, and so a
+       save/restore of the entries carries the pose with them. `propYaw` consumes no draw from the
+       world's stream (js/20_level.js), which is why adding it moved no other prop, lamp or enemy. */
+    list.push({ mesh: true, kind: p.kind, x: p.x, y: p.y, z: floorAt(p.x, p.y), scale: p.scale, alpha: p.dead ? 0.35 : 1, yaw: p.yaw || 0 });
   }
   for (const k of PICKUPS) {
     if (k.dead) continue;
@@ -631,6 +648,28 @@ function buildShadowGrid() {
       }
     }
     SH_N++;
+  }
+  /* #371: props join the same grid. Static per level, so the distance cull is what makes this cheap -
+     a level's ~30 props cost one hypot-free dot each, and only the few near the eye reach the cells. */
+  if (SHADOW_PROP) {
+    for (let q = 0; q < PROPS.length && SH_N < SH_CAP; q++) {
+      const p = PROPS[q];
+      if (p.dead && p.kind === 'barrel') continue;      // drawn as rubble, grounds no patch either
+      const px = p.x - camX, py = p.y - camY;
+      if (px * px + py * py > far2) continue;
+      const n = SH_N, r = MESH.foot(p.kind) * (p.scale || 1) + SHADOW_PR;
+      if (r <= 0) continue;                             // a kind with no authored footprint grounds nothing
+      SH_X[n] = p.x; SH_Y[n] = p.y; SH_Z[n] = floorAt(p.x, p.y); SH_I[n] = 1 / (r * r); SH_H[n] = r;
+      const x0 = (p.x - r) | 0, x1 = (p.x + r) | 0, y0 = (p.y - r) | 0, y1 = (p.y + r) | 0;
+      for (let cy = y0; cy <= y1; cy++) {
+        if (cy < 0 || cy >= N) continue;
+        for (let cx = x0; cx <= x1; cx++) {
+          if (cx < 0 || cx >= N) continue;
+          SH_NEXT[n] = head[cy * N + cx]; head[cy * N + cx] = n;
+        }
+      }
+      SH_N++;
+    }
   }
 }
 

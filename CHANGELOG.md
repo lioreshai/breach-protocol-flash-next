@@ -2,6 +2,21 @@
 
 ### Changed
 
+-- **Crates, barrels and lamps are boxes now, and they are turned** (#371). Every prop used to be drawn
+  square to the grid with a shading ramp so flat that the key light could not tell two of its faces apart,
+  so a crate's left side and right side sat 18 luminance apart - three faces of one solid inside a 21-level
+  band, on an object 2.4x brighter than the wall behind it. On screen that is a bright orange card with a
+  hairline down the middle, and it was in almost every frame that contained a prop. Each placed prop now
+  carries an orientation chosen from its own cell (no dice, so nothing else in the level moves), the prop
+  face ramp went from `0.75 + 0.42·d` to `0.60 + 0.68·d`, and the crate's wood came down 21% to pay for the
+  lit side, which holds the frame's exposure where it was: the seeded medians are unchanged at 71/70/69/64.
+  A crate now reads as a solid you could walk behind - a lit face and a face in shadow, 40-60 luminance
+  apart at the level-3 seat where it was 18 - and two crates in a row are no longer the same box. Props
+  also get #18's contact patch, so a crate's lower edge no longer glows as bright as its top one. That
+  patch is small in the shipped frames - 139-194 px of ground outside a prop's silhouette at the probe's
+  2.6 m seat, 212-992 px of frame at the two documented seats - so at arm's length it reads as a thin dark
+  line hugging the base, not a pool. What a
+  prop does NOT do is light itself: the `props` control still drops a crate to x0.46 with the lights off.
 -- **Floors and ceilings stopped drawing a fan of radial spokes** (#19). Three terms of the ground pass were
   functions of the CELL, and a cell boundary seen in perspective is a straight line to the vanishing point,
   so each one drew a spoke over the largest area of the frame while walls, props and bodies stayed clean.
