@@ -5,6 +5,8 @@
 # A declaration with no row here fails REFS-DECLARED-MISSING; a row with no declaration fails
 # REFS-IN-TABLE-UNDECLARED; an edited literal fails REFS-VALUES-MOVED. None of the three is a
 # warning, and the row runs inside flatparity, which ci.yml runs blocking.
+ref	alt	DARK-COVERED	num	94.9 70.5 67.7
+ref	alt	DARK-SHARE	num	4.0 10.7 6.1
 ref	alt	GRID-CENSUS	num	9 170 2 46 9 251 2 52 9 307 2 52 9 134 4 15
 ref	alt	OOB-ERA	num	19 10 16
 ref	alt	OOB-NONCLIMB	num	0 0 0
