@@ -478,6 +478,8 @@ const release = () => fire('mouseup', { button: 0 });
       const alive = vm.runInContext('PROPS.filter(p => p.kind === "barrel" && !p.dead).length', ctxVm);
       la[d] = { n: pts.length, dup: pts.length - new Set(cells).size, sep: pts.length > 1 ? sep : 0, nb: nbA, alive };
     }
+    const authOK = la[0].nb > 0 && la[0].alive === 0 && la[2].alive === 0 && la[1].n === nPlan && la[2].n > la[1].n
+      && [0, 1, 2].every(d => la[d].dup === 0 && la[d].sep > 0.5);
     expect('authored barrels are destructible (#354)', la[0].nb > 0 && la[0].alive === 0 && la[2].alive === 0,
       `THE STACK: ${la[0].nb} barrels, after 40 damage ${la[0].alive} still standing at Recruit and ${la[2].alive} at Nightmare (an authored barrel with no hp field takes NaN and never dies)`);
     expect('the authored finale scales with difficulty (#355)', la[1].n === nPlan && la[2].n > la[1].n,
@@ -489,6 +491,10 @@ const release = () => fire('mouseup', { button: 0 });
        shape, which DEV.tick's openAlong already keeps for a spawned crowd). */
     expect('the authored finale seats one body per cell (#355)', [0, 1, 2].every(d => la[d].dup === 0 && la[d].sep > 0.5),
       'THE STACK ' + [0, 1, 2].map(d => `${DN[d]} ${la[d].n} bodies / ${la[d].n - la[d].dup} cells, closest pair ${la[d].sep.toFixed(3)} m`).join(', '));
+    // the census row carries the verdict so the row cannot be read as a pass on its own
+    console.log('  AUTHORED THE STACK: plan carries ' + nPlan + ' marks - '
+      + [0, 1, 2].map(d => `${DN[d]} ${la[d].n} bodies in ${la[d].n - la[d].dup} cells, closest pair ${la[d].sep.toFixed(2)} m`).join(' · ')
+      + `; ${la[0].nb} barrels, ${la[0].alive} standing after 40 damage -> ` + (authOK ? 'ok' : 'FAILED, see the ASSERT FAIL lines above'));
     vm.runInContext('S.diff = 1; startLevel(0, true); S.mode = "play"; S.locked = true; S.exitOpen = false;', ctxVm);
     frames(2);
   }
