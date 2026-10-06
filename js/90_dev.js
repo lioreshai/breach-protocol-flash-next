@@ -254,6 +254,7 @@
     if (name === 'gndax') { GNDAX = value === undefined ? 1 : (value ? 1 : 0); return { gndax: GNDAX, AXMIN: AXMIN }; }
     if (name === 'gndfilt') { GNDFT = value === undefined ? 1 : (value ? 1 : 0); return { gndfilt: GNDFT }; }
     if (name === 'gndramp') { GNDRO = value === undefined ? 1 : (value ? 1 : 0); return { gndramp: GNDRO }; }
+    if (name === 'gndfar') { GNDFB = value === undefined ? 1 : (value ? 1 : 0); return { gndfar: GNDFB, far: GQ.far }; }
     if (name === 'gfx') {
       const i = typeof value === 'string' ? QUAL.findIndex(q => q.name.toLowerCase() === String(value).toLowerCase()) : clamp(value | 0, 0, QUAL.length - 1);
       if (i < 0) throw new Error('DEV.set("gfx", …) wants 0..' + (QUAL.length - 1) + ' or ' + QUAL.map(q => q.name).join('|'));
@@ -293,7 +294,7 @@
       map: { w: MW, h: MH, exit: [num(exitX, 2), num(exitY, 2)] },
       /* #19's ground-shading state in one line, so an A/B claim can be read off the live page instead
          of off a worktree: which of the three mechanisms is on, and what mip policy is in force. */
-      gnd: { jit: GJIT, jitMinPx: GJITPX, light: GLRP, ax: GNDAX, axMin: AXMIN, filt: GNDFT, ramp: GNDRO, mipax: MIPAX, mipar: MIPAR }
+      gnd: { jit: GJIT, jitMinPx: GJITPX, light: GLRP, ax: GNDAX, axMin: AXMIN, filt: GNDFT, ramp: GNDRO, far: GNDFB, mipax: MIPAX, mipar: MIPAR }
     };
   }
   /* The wall DDA from castWalls, run for one caller-supplied ray instead of every column:
@@ -419,7 +420,8 @@
       '                                  1 mirror wide cells only / 0 never), gndlight (0 per cell / 1 per pixel),',
       '                                  gndax (0 point fetch / 1 filtered along the footprint), and',
       '                                  gndfilt (0 one texel per pixel / 1 lerp across the short side), and',
-      '                                  gndramp (0 extrapolate the deferred light ramp off-map / 1 stop at the cell)',
+      '                                  gndramp (0 extrapolate the deferred light ramp off-map / 1 stop at the cell), and',
+      '                                  gndfar (0 the deferred copy textures its far field / 1 it washes it like the row does)',
       '  DEV.tiers()                     the QUAL table as it now stands, including any overrides set() made',
       '  DEV.layoutSig()                  FNV-1a over MAP.fz then MAP.cell — the level\'s identity (#166).',
       '                                  Two boots of one ?dev=1&seed=<n> URL must agree; with no seed they must not.',

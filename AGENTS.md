@@ -45,7 +45,9 @@ rule it taught stays and the archaeology goes; git remembers the rest.
   light.
 - The ground pixel body exists **twice** — the row loop in `castGround`, and `groundPixel()`
   for off-plane columns. The duplication is a measured perf fix, not taste. Change one copy
-  and you have changed the other.
+  and you have changed the other. **Both copies must also carry the far answer:** past `FARB`
+  a ground pixel is the mip-mean wash, in the row loop *and* in `groundPixel()` — a textured
+  deferred far field aliases along the ray into radial spokes (#19).
 - `'use strict'` cannot go in `js/11_rig.js`; it relies on implicit globals.
 - Current enemies and the first-person model use `js/13_mesh.js`. The old `RIG` sheets and
   the `rim` toggle still exist and move no shipped pixel — trace the live call site before

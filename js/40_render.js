@@ -365,11 +365,20 @@ let MIPAX = 1, MIPAR = 4;
             the spokes on the half of the frame seen most edge-on, which is the CEILING. 1 adds a second
             tap HALF a footprint to each side of the point it already took; 0 = the single tap as it
             shipped. One extra texel load, and only on the rows that are actually undersampled.
+     GNDFB  the FAR ANSWER, and the one #19 take five adds. Past FARB the row loop stops fetching and
+            fills the row with the material's mip mean; the DEFERRED copy had no such branch and textured
+            every pixel out to FARB*4, and on a stepped level its pixels ARE the far field. A pixel whose
+            footprint runs hundreds of texels down its own ray cannot average that with three taps, so it
+            drew one texel as a strip along the pixel-to-VP line - the fan. 1 gives that copy the answer
+            the row already gives at the same distance, taken from the pixel's own solve; 0 = the
+            textured far field as it shipped, which is the A/B and brings the wedge's comb back. Not a
+            blur: it changes no pixel the row loop would still fetch, and past FARB it is CHEAPER (no mip
+            select, no mirror hash, no texel load, no decal).
 
    All of them are read once per row (the last one once per deferred pixel), never per pixel of a row, and
    none of them adds a THIRD copy of the ground pixel body: a switch shows up as a zero slope, a zero
    offset or one fewer load, not as a new loop. */
-let GJIT = 1, GLRP = 1, GNDAX = 1, AXMIN = 1.5, GLC = null, GNDFT = 1, GNDRO = 1;
+let GJIT = 1, GLRP = 1, GNDAX = 1, AXMIN = 1.5, GLC = null, GNDFT = 1, GNDRO = 1, GNDFB = 1;
 const GJITPX = 48;      // GJIT 1 keeps the mirror only where a cell is this many px wide or wider
 
 /* #19, TAKE THREE - THE FETCH. The two terms above are not what combs a plane, and neither is the mip
@@ -665,6 +674,27 @@ function shadowFloor(wx, wy, plane, k) {
   return 0;
 }
 
+/* The average of one mip, split the way the PIXEL shades it: emissive texels carry their own value and
+   no light, lit texels are a colour the light multiplies. Computed once per mip and cached on it, and
+   SHARED by the two far answers of the ground pass - castGround's row fill and groundPixel's deferred
+   far band (#19) - because a material's mean is one fact and two copies of it would drift the same way
+   the light ramp drifted when it lived twice. The split is not refinement: without it a material that is
+   mostly emissive at the coarsest mip (level 2's floor: 52 of 64 texels) overstates the band by +28. */
+function texAvg(mm) {
+  if (mm.meanNE) return mm;
+  let sr = 0, sg = 0, sb = 0, er = 0, eg = 0, eb = 0, nLit = 0, nEm = 0;
+  for (let i = 0; i < mm.data.length; i++) {
+    const v = mm.data[i];
+    if ((v >>> 24) === 253) { er += v & 255; eg += (v >> 8) & 255; eb += (v >> 16) & 255; nEm++; }
+    else { sr += v & 255; sg += v >> 8 & 255; sb += v >> 16 & 255; nLit++; }
+  }
+  const n = mm.data.length || 1;
+  mm.meanNE = nLit ? [sr / nLit, sg / nLit, sb / nLit] : [sr / n, sg / n, sb / n];
+  mm.meanEM = nEm ? [er / nEm, eg / nEm, eb / nEm] : mm.meanNE;
+  mm.emFrac = nEm / n;
+  return mm;
+}
+
 function castGround(flash, fcR, fcG, fcB) {
   gSer++;                                  // invalidates the deferred-pixel constant memo
   const hInt = Math.round(horizon);
@@ -734,18 +764,7 @@ function castGround(flash, fcR, fcG, fcB) {
          bright haze this row used to be instead of the room behind it. */
       const lta = MAP.lt, inv128 = 1 / 128, fstep = 2 / FARFAN, fcam = -1 + fstep * 0.5;
       const mm = tex && tex.mips ? tex.mips[tex.mips.length - 1] : tex;
-      if (!mm.meanNE) {                                   // once per mip, on the mip the band replaces
-        let sr = 0, sg = 0, sb = 0, er = 0, eg = 0, eb = 0, nLit = 0, nEm = 0;
-        for (let i = 0; i < mm.data.length; i++) {
-          const v = mm.data[i];
-          if ((v >>> 24) === 253) { er += v & 255; eg += (v >> 8) & 255; eb += (v >> 16) & 255; nEm++; }
-          else { sr += v & 255; sg += v >> 8 & 255; sb += v >> 16 & 255; nLit++; }
-        }
-        const n = mm.data.length || 1;
-        mm.meanNE = nLit ? [sr / nLit, sg / nLit, sb / nLit] : [sr / n, sg / n, sb / n];
-        mm.meanEM = nEm ? [er / nEm, eg / nEm, eb / nEm] : mm.meanNE;
-        mm.emFrac = nEm / n;
-      }
+      texAvg(mm);
       const dcN = mm.meanNE, dcE = mm.meanEM, wEm = mm.emFrac, wLit = (1 - mm.emFrac) * (1 / FARFAN);
       let ar = wEm * dcE[0] * invRow, ag = wEm * dcE[1] * invRow, ab = wEm * dcE[2] * invRow;
       for (let s = 0; s < FARFAN; s++) {
@@ -1164,6 +1183,7 @@ function castGround(flash, fcR, fcG, fcB) {
 let gSer = 0, gMSer = -1, gMRow = -1, gMPl = 0, gMDS = 0, gMDfa = 0, gMFog = 0, gMInv = 0, gMFR = 0,
   gMFG = 0, gMFB = 0, gMBase = 0, gMCx0 = 0, gMCy0 = 0, gMCxs = 0, gMCys = 0,
   gMCf = 0, gMAx = 0, gMWs = 0, gMAn = 1, gMAr = 4, gMN = 0, gMDist = -1, gMMirOn = 0,
+  gMFar = 0, gMWnR = 0, gMWnG = 0, gMWnB = 0, gMWErr = 0, gMWEg = 0, gMWEm = 0,
   gLSer = -1, gLSX = 0, gLSY = 0, gML0 = 0, gML1 = 0, gML2 = 0, gMMir = 0,
   gMA0 = 0, gMA1 = 0, gMA2 = 0, gMB0 = 0, gMB1 = 0, gMB2 = 0, gMD0 = 0, gMD1 = 0, gMD2 = 0;
 
@@ -1196,6 +1216,28 @@ function gndBuild(row, isF, absP, pl, tex, sc, fcR, fcG, fcB, fl, amb, dOv) {
   /* #19: the mirror gate again from THIS run's own distance - a deferred pixel is a different plane and
      so a different distance - same test, same constant, one divide. */
   gMMirOn = GJIT === 2 ? 1 : (GJIT === 1 && BH / dc >= GJITPX ? 1 : 0);
+  /* #19 take five - THE FAR ANSWER. Past FARB the ROW loop stops fetching: it fills the row with the
+     material's own mip mean, tinted by the row's light and fog, because a row out there spans more
+     world than the mip chain holds (the chain ends at 8x8; the census in issue #19 measured a far
+     ceiling pixel whose ideal mip was 11). The DEFERRED copy had no such branch - it textured every
+     pixel out to FARB*4, and its pixels are the far field of a stepped level (18,704 of the level-0
+     cam1 frame, 53-64% of every row of the bright ceiling wedge). One fetch per pixel of a footprint
+     that long is a single texel stretched into a strip whose long axis is the pixel-to-VP line: the
+     fan of spokes, and the reason forcing that copy's texel to flat grey is the control that makes the
+     spokes go away. So the far field now answers the SAME QUESTION the same way in both copies of this
+     body: same threshold (the pixel's own solve against FARB, not the row's), same mip mean, same
+     emissive split, that pixel's own light. It is not a blur - nothing is averaged that the row loop
+     would still fetch, and past FARB it is CHEAPER than the path it replaces (no mip select, no
+     mirror hash, three texel loads become none). GNDFB 0 puts the textured far field back, which is
+     the A/B: `DEV.set('gndfar', 0)` brings the wedge's comb back in the running page. */
+  if (GNDFB && dc > FARB) {
+    const mm = tex.mips ? tex.mips[gMN - 1] : tex;
+    texAvg(mm);
+    const wLit = 1 - mm.emFrac, wEm = mm.emFrac * gMInv;
+    gMFar = 1;
+    gMWnR = mm.meanNE[0] * wLit; gMWnG = mm.meanNE[1] * wLit; gMWnB = mm.meanNE[2] * wLit;
+    gMWErr = mm.meanEM[0] * wEm; gMWEg = mm.meanEM[1] * wEm; gMWEm = mm.meanEM[2] * wEm;
+  } else gMFar = 0;
 }
 
 /* Where a DESCENDING ray goes under a slab, as the crossing's own distance along (dir + plane*cam) - or
@@ -1341,16 +1383,6 @@ function groundPixel(x0, x1, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb
      extrapolation back, so the A/B is one DEV.set call and the blown wedge comes back visibly. */
   const own = sx >= 0 && sy >= 0 && sx < N && sy < N;
   if (!own) { gndOffMap++; sx = ax; sy = ay; }
-  let k;
-  if (gMAn) {
-    const cfS = gMCf, qx = rx * cfS, qy = ry * cfS;
-    const ay = Math.sqrt(qx * qx + qy * qy) * gMWs;
-    const rho = gMAx >= ay ? gMAx : ay < gMAx * gMAr ? ay : gMAx * gMAr;
-    k = rho >= 16 ? 4 : rho >= 8 ? 3 : rho >= 4 ? 2 : rho >= 2 ? 1 : 0;
-    if (k >= gMN) k = gMN - 1;
-  } else k = mipSel(planeX * stepBase * dS, planeY * stepBase * dS, rx * (dS / absP), ry * (dS / absP), sc, tex);
-  const m = tex.mips[k];
-  const mw = m.w, mh = m.h, ms = sc * m.w, td = m.data, mask = mw - 1, maskH = mh - 1;
   const inMap = sx >= 0 && sy >= 0 && sx < N && sy < N, cIdx = sy * N + sx;
   let lr, lg, lb, mir;
   /* Light and jitter are functions of the CELL, not of the pixel: the row loop recomputes them at a
@@ -1394,6 +1426,30 @@ function groundPixel(x0, x1, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb
     vb = gMBase + gML2 + (gMA2 + gMD2 * fy) * fx + gMB2 * fy;
   lr = vr < gMBase ? gMBase : vr; lg = vg < gMBase ? gMBase : vg; lb = vb < gMBase ? gMBase : vb;
   mir = gMMir;
+  /* #19 take five: past FARB this pixel's own solve puts it in the band the ROW loop fills with the
+     material's mean, so it is filled the same way here - see the gate in gndBuild. Everything below
+     this line is the FETCH, and a far pixel runs none of it: no mip select, no mirror hash, no texel
+     load, no decal, no contact shadow (a row-wide fill carries none of those either). The colour is
+     that pixel's own light times the mean, plus the wash's emissive share, which takes no light and
+     keeps only the fog term, exactly as an emissive texel does one screen nearer in either copy. */
+  if (gMFar) {
+    px[row + x] = 0xFF000000 | clampi(gMWnB * lb + gMWEm + gMFB) << 16 |
+      clampi(gMWnG * lg + gMWEg + gMFG) << 8 | clampi(gMWnR * lr + gMWErr + gMFR);
+    continue;
+  }
+  /* The mip SELECTION is here rather than with the other per-pixel setup because the band above must
+     be able to skip it: it reads the pixel's own footprint and nothing else, so moving it costs the
+     pixels it still answers exactly what it cost them before. */
+  let k;
+  if (gMAn) {
+    const cfS = gMCf, qx = rx * cfS, qy = ry * cfS;
+    const ay = Math.sqrt(qx * qx + qy * qy) * gMWs;
+    const rho = gMAx >= ay ? gMAx : ay < gMAx * gMAr ? ay : gMAx * gMAr;
+    k = rho >= 16 ? 4 : rho >= 8 ? 3 : rho >= 4 ? 2 : rho >= 2 ? 1 : 0;
+    if (k >= gMN) k = gMN - 1;
+  } else k = mipSel(planeX * stepBase * dS, planeY * stepBase * dS, rx * (dS / absP), ry * (dS / absP), sc, tex);
+  const m = tex.mips[k];
+  const mw = m.w, mh = m.h, ms = sc * m.w, td = m.data, mask = mw - 1, maskH = mh - 1;
   /* The same two-sample fetch as the row loop, from this pixel's OWN footprint: its row delta is
      (gMCxs,gMCys) world units per column and its column delta is its own ray times gMCf, so the long
      axis in texels of THIS pixel's mip is whichever of the two is longer. No square root on the common
