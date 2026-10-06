@@ -106,9 +106,12 @@ still blind (`VERTICALITY.md`, risk 1).
 - **Ceiling streaking** near the horizon at grazing angles: the mip footprint's anisotropy ratio is
   clamped at 4:1 (#57) because 8:1 erased the floor's grout lines — a deliberate residual, not an
   absent feature.
-- **Mesh characters are not *animated* geometry.** Legs are straight, so a walking enemy keeps a
-  static stance and a dying one fades in place; `anim` is the row that says so. #41's edge still
-  stair-steps at 6 tube sides.
+- **Mesh characters are posed geometry, not skinned geometry.** The gait is authored as 8 phase
+  buckets x 3 move levels per kind (`js/13_mesh.js`), a walking body moves its vertices
+  0.137-0.278 m between half-cycle buckets and a corpse topples through 5 distinct silhouettes, and
+  since #274 `anim` says so in the pose domain rather than by counting changed pixels. What is still
+  true is the shape of the parts: tubes and boxes, 6 sides, so #41's edge still stair-steps and no
+  joint bends anything that was not authored to bend.
 - **Silhouette separation against a busy wall** (#17) — and the rim/contact-shadow tension in
   [`ENGINEERING.md`](ENGINEERING.md) is the reason it is not a one-line fix.
 

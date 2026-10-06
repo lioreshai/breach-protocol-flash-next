@@ -857,7 +857,11 @@ const MESH = (function () {
     return v;
   }
 
-  function poseOf(m, o) {
+  /* The bucket quantization on its own, so `MESH.poseBucket` can name the entry a draw is about to
+     use. One rule lives here and poseOf reads it: an Anim row that computed its own bucket from
+     o.p would be a second rule, and a pose table whose phase term is pinned (the #274 sabotage)
+     would leave the row green while every body in the game stood still. */
+  function bucketOf(o) {
     const ph = Math.floor(((((o.p || 0) % 1) + 1) % 1) * PB.ph);
     const mv = Math.min(PB.mv - 1, (clamp(o.mv || 0, 0, 0.999) * PB.mv) | 0);
     const ab = Math.min(PB.atk - 1, (clamp(o.atk || 0, 0, 0.999) * PB.atk) | 0);
@@ -867,7 +871,12 @@ const MESH = (function () {
        exact rather than approximate - the vertices cannot depend on them - and it is what pays for
        DIEV: 5 buckets x 3 variants per kind replaces the 96 entries per phase that main keyed and
        built for one and the same corpse. */
-    const dv = db > 0 ? ((o.dv | 0) % DIEV + DIEV) % DIEV : 0;
+    return { ph, mv, ab, db, dv: db > 0 ? ((o.dv | 0) % DIEV + DIEV) % DIEV : 0 };
+  }
+
+  function poseOf(m, o) {
+    const b = bucketOf(o);
+    const ph = b.ph, mv = b.mv, ab = b.ab, db = b.db, dv = b.dv;
     if (!CACHE) return buildPose(m, ph / PB.ph, mv / (PB.mv - 1), ab / (PB.atk - 1), db / (PB.die - 1), dv);
     const key = db > 0 ? m.kind + '#' + m.seg + '|d' + dv + '|' + db
       : m.kind + '#' + m.seg + '|' + ph + '|' + mv + '|' + ab;
@@ -1205,5 +1214,12 @@ const MESH = (function () {
     PB,
     SPEC,
     DIEV,
+    /* The pose the DRAW would produce, for tools/view.js `anim` (#274): the same bucketOf + poseOf
+       the draw site goes through, so a row that reads this measures the vertex set an enemy is
+       actually rasterized from - not a re-derivation of it. poseVerts returns a copy (a caller that
+       wrote to it would otherwise poison the table); poseBucket returns {ph,mv,atk,die,dv}, the
+       bucket indices that entry is keyed by. Both take the same options object as draw(). */
+    poseVerts: o => poseOf(model(o.kind || 'grunt'), o).slice(),
+    poseBucket: o => { const b = bucketOf(o); return { ph: b.ph, mv: b.mv, atk: b.ab, die: b.db, dv: b.dv }; },
   };
 })();
