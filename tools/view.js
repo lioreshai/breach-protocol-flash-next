@@ -8864,7 +8864,214 @@ if (MODE === 'viewmodel') {
     problems.length ? '<< ' + problems.join(', ') : '');
   bad += problems.length ? 1 : 0;
 
+  /* ---- THE KEY (#186): does the cache save the work, and what did the quantum cost ----------------
+     #186 skipped a cache because a key over continuous travel would invalidate wrongly. That failure mode
+     leaves the picture perfect and the milliseconds unspent, so no pixel row can see it - only counters can.
+     These rows are the cliff made visible: drive the REAL reload timeline at 60 fps (the same envelope
+     js/40_render.js:1824-1836 computes) through drawViewModel and read MESH.stats()'s hit/miss deltas. A key
+     over the travel itself scores 60 misses and 0 hits here, which is the row failing rather than a number
+     that looks like a saving. */
+  /* VMRAW=1 arms the js-side teeth switch: the shipped timeline runs, the key serves nothing, and the row
+     below must fail at 0 hits. That is #186's own failure mode driven through the real draw path rather than
+     described beside it. */
+  const VMRAW_JS = process.env.VMRAW ? 'true' : 'false';
+  const VCACHE = run(`(()=>{MESH.setWRaw&&MESH.setWRaw(${VMRAW_JS});const a=MESH.stats(),w=P.weapon,T=WEAPONS[w].reload;
+    P.reloadT=T*0.999;
+    for(let i=0;i<60;i++){P.reloadT=Math.max(0,P.reloadT-1/60);drawViewModel();}
+    const b=MESH.stats();P.reloadT=0;MESH.setWRaw&&MESH.setWRaw(false);
+    return {miss:b.wMiss-a.wMiss,hit:b.wHit-a.wHit,entries:b.wGeo,mb:b.wMB,cap:b.wCap}})()`);
+  /* What this row may assert, rewritten once the measurement disagreed with the bound.
+     The first version bounded the MISS COUNT (<= 20), calibrated at a uniform 1/16 quantum. Sizing the quantum
+     per term - magOut to 1/32, because it alone measured 4.17 mm against the 4 mm floor while every other part
+     sat under it - moved that count to 30/60 and failed the row with nothing broken: the geometry error fell
+     from 4.17 mm to 2.08 mm and the cache got no worse at its job. A finer quantum necessarily produces more
+     distinct keys while travel moves every frame, so a miss-count bound is not a property of the cache, it is a
+     shadow of the OTHER row's bound, and the two could never both be satisfied by moving one number.
+     So what the row exists to prove is that the cache SAVES work, which has two failure modes and neither is
+     "missed 30 times": (1) a key that never repeats - hit == 0, which is exactly what a key over raw travel
+     looks like and what VMRAW=1 reproduces through the shipped path; (2) eviction running because the table
+     filled - entries at the cap, which is the quiet way this becomes a memory cost and nothing else. What is
+     LEFT of the count is recorded rather than guessed: VM-REBUILD is the rebuild fraction of the interval, one
+     record the row compares against, so a drift toward rebuilding-every-frame trips a row instead of turning
+     this detail string into folklore. The milliseconds that fraction buys are gated by VM-SHARE below. */
+  const VREB = refRecord('viewmodel', 'VM-REBUILD', 'num', [0.50]);
+  const VREB_TOL = +(process.env.VMREB_TOL || 0.15);
+  const vFrac = VCACHE.miss / 60;
+  problems = [];
+  if (!(VCACHE.hit > 0)) problems.push('the weapon geometry cache hit ' + VCACHE.hit + ' times over 60 frames of a '
+    + 'reload - a key over the travel itself would look exactly like this, which is the cliff #186 named');
+  if (vFrac > VREB[0] + VREB_TOL) problems.push('rebuilt on ' + VCACHE.miss + ' of 60 frames (fraction '
+    + vFrac.toFixed(2) + ') against the recorded ' + VREB[0].toFixed(2) + ' + ' + VREB_TOL.toFixed(2) +
+    '; near 1.00 the cache is a memory cost and no saving at all');
+  if (VCACHE.entries >= VCACHE.cap) problems.push('the geometry table sits AT its cap of ' + VCACHE.cap + ' entries - '
+    + 'eviction is running every frame, which is the other way a cache stops saving and the one a millisecond row on a '
+    + 'shared runner would miss');
+  console.log('travel key'.padEnd(24), VCACHE.hit + ' hits / ' + VCACHE.miss + ' misses over 60 frames of reload '
+    + '(rebuild fraction ' + vFrac.toFixed(2) + ' vs recorded ' + VREB[0].toFixed(2) + ' + ' + VREB_TOL.toFixed(2)
+    + '), ' + VCACHE.entries + '/' + VCACHE.cap + ' geometry entries, ' + VCACHE.mb + ' MB - a key over the travel '
+    + 'itself would read 0 hits / 60 misses here' + (process.env.VMRAW ? '  [VMRAW: the key is serving nothing, so '
+      + 'this arm exists to be failed]' : ''), problems.length ? '<< ' + problems.length + ' problem(s): '
+    + problems.join(', ') : '');
+  bad += problems.length ? 1 : 0;
+
+  /* What the quantum is paid with, measured rather than derived: sweep each travel envelope and compare the
+     shipped (quantized) geometry against weaponRaw's exact build. Positional error is gated; a PRESENCE shift
+     is reported and not gated, because those parts are authored as `if (s.slideBack)` - they exist only while
+     the part is moving, so the quantum shifts WHEN they appear by up to half a quantum of the envelope and
+     does not move them. Saying so out loud is the honest form of a row that would otherwise hide a pop behind
+     a pass. */
+  /* What the quantum is paid with, measured rather than derived.
+     A part authored as `if (s.slideBack)` is EMITTED or NOT emitted on the strength of the travel, so below the
+     first quantum step the two builds have different vertex COUNTS, and comparing them index by index aligns
+     part N of one with part N+1 of the other - which is how a first version of this row reported 470 mm of
+     "vertex movement" that was really a whole part missing from one side. Those states are counted as presence
+     shifts and skipped; the positional bound is measured where both builds emit the same parts, which is the
+     claim the bound actually makes. (This prose lives OUTSIDE the in-page string on purpose: a backtick inside
+     the template literal below ends the string, and the file stops parsing - a syntax error that made every
+     control in /tmp/p186verify.sh print exit 1 for the wrong reason.) */
+  const VBOUND = run(`(()=>{const T=['mz','magOut','slideBack','pump','shellIn'];const WQ=MESH.stats().wQ;
+    if(!WQ)return {mxP:NaN,whoP:'the build publishes no per-term quantum',mxF:NaN,whoF:'',shift:0,cmp:0};
+    let mxP=0,whoP='',mxF=0,whoF='',shift=0,cmp=0;
+    for(let wi=0;wi<WEAPONS.length;wi++){const k=WEAPONS[wi].kind;
+      for(const term of T){for(let i=1;i<48;i++){const f=i/48;
+        const qf=Math.round(f*WQ[term])/WQ[term]; if(qf===0){shift++;continue;}   // presence would flip: counted, skipped
+        const st={mz:0,magOut:0,slideBack:0,pump:0,shellIn:0};st[term]=f;
+        if(typeof MESH.weaponRaw!=='function')return {mxP:NaN,whoP:'the build has no exact-geometry hook',mxF:NaN,whoF:'',shift:0,cmp:0};
+        const a=MESH.weaponRaw(k,st),b=MESH.weapon(k,st);
+        if(a.nV!==b.nV){shift++;continue;} cmp++;
+        const flash=(term==='mz');
+        for(let j=0;j<a.nV;j++){for(let c=0;c<3;c++){const d=Math.abs(a.p[j*6+c]-b.p[j*6+c]);
+          if(flash){if(d>mxF){mxF=d;whoF=k+' mz at '+f.toFixed(3);}}
+          else if(d>mxP){mxP=d;whoP=k+' '+term+' at '+f.toFixed(3);}}}}}}
+    return {mxP,whoP,mxF,whoF,shift,cmp}})()`);
+  const VMAX_MM = +(process.env.VGEO_MAX_MM || 4), VFLASH_MM = +(process.env.VGEO_MAX_FLASH_MM || 8);
+  problems = [];
+  /* Two bounds, because the terms are not the same kind of thing. magOut / slideBack / pump / shellIn move
+     SOLID parts of the gun, and half a quantum of their travel is the largest error the cache may buy its
+     saving with. mz is the MUZZLE FLASH's intensity and scales a flare ~0.18 m across: a first version of this
+     row put it in the same bin and reported 5.63 mm as a defect, when what it had found was a fraction of a
+     flash's own size on a frame that exists for one frame of a shot. Splitting them keeps the solids' bound
+     where the eye is instead of letting a flare's number set the gate. */
+  if (!(VBOUND.mxP * 1000 <= VMAX_MM)) problems.push('quantizing travel moves a GUN PART ' + (VBOUND.mxP * 1000).toFixed(2) +
+    ' mm at ' + VBOUND.whoP + ', past the ' + VMAX_MM + ' mm the 1/32 quantum is supposed to cost');
+  if (!(VBOUND.mxF * 1000 <= VFLASH_MM)) problems.push('quantizing the flash intensity moves the flare '
+    + (VBOUND.mxF * 1000).toFixed(2) + ' mm at ' + VBOUND.whoF + ', past ' + VFLASH_MM + ' mm');
+  if (!(VBOUND.cmp > 200)) problems.push('only ' + VBOUND.cmp + ' state pairs compared geometry - the bound row is '
+    + 'measuring almost nothing');
+  console.log('quantum price'.padEnd(24), 'worst part move ' + (VBOUND.mxP * 1000).toFixed(2) + ' mm (' + VBOUND.whoP +
+    ') and flare move ' + (VBOUND.mxF * 1000).toFixed(2) + ' mm (' + VBOUND.whoF + ') over ' + VBOUND.cmp +
+    ' exact-vs-quantized builds; ' + VBOUND.shift + ' presence shifts (parts authored as `if (travel)`, so the '
+    + 'quantum moves WHEN they appear - up to half a quantum of the envelope - not where they are)',
+    problems.length ? '<< ' + problems.join(', ') : '');
+  bad += problems.length ? 1 : 0;
+
+  /* ONE KEY, ONE GEOMETRY (#186). The row above measures how far the served geometry sits from the exact
+     one; this one asks the cheaper and more structural question - does the geometry a key serves depend on
+     the KEY, or on which frame built it first? Two frames in one bucket must hand back the same vertex set,
+     because parts here are authored as `if (s.slideBack)` / `if (s.shellIn)` / `if (s.mz > 0.004)` and a part
+     that exists in one bucket-mate and not the other is a part that appears at a time the quantum did not
+     choose: a reload's last frame carries a still-moving but sub-quantum slideBack, so if it builds the rest
+     key the rifle spends the rest of the game with a brass casing welded beside the slide. Nothing in a
+     millisecond row sees that and no pixel row can, because both geometries are plausible. The sweep visits
+     bucket-mates ADJACENTLY so the LRU keeps the earlier entry resident - a sweep that thrashed the table
+     would make every call a miss and the row would pass by never looking. The comparison is exact apart
+     from 1e-6, which is the storage difference between the raw builder's float64 array and a served
+     geometry's float32 one - the same numbers, the narrower container; not a tolerance on the geometry. */
+  const VIDENT = run(`(()=>{const T=['mz','magOut','slideBack','pump','shellIn'];
+    if(typeof MESH.wQuant!=='function'||typeof MESH.weaponRaw!=='function')
+      return {cmp:0,bad:0,who:'the build publishes no quantized-state hook, so identity is unmeasured here'};
+    let cmp=0,bad=0,who='',worst=0;const seen=new Set();
+    for(let wi=0;wi<WEAPONS.length;wi++){const k=WEAPONS[wi].kind;
+      for(const term of T){for(let i=1;i<48;i++){const f=i/48;
+        const st={mz:0,magOut:0,slideBack:0,pump:0,shellIn:0};st[term]=f;
+        const q=MESH.wQuant(st);
+        const key=k+'|'+[q.mz,q.magOut,q.slideBack,q.pump,q.shellIn].join(',');const first=seen.has(key);seen.add(key);if(!first)continue;
+        const want=MESH.weaponRaw(k,q),got=MESH.weapon(k,st);
+        cmp++;
+        if(want.nV!==got.nV){bad++;if(!who)who=k+' '+term+' at '+f.toFixed(3)+' has '+want.nV+' verts, its bucket-mate served '+got.nV;continue;}
+        let d=0;for(let j=0;j<want.nV*6;j++){const e=Math.abs(want.p[j]-got.p[j]);if(e>d)d=e;}
+        if(d>1e-6){bad++;if(d*1000>worst){worst=d*1000;who=k+' '+term+' at '+f.toFixed(3)+' served '+(d*1000).toFixed(2)+' mm off its own key';}}}}}
+    return {cmp,bad,who,worst}})()`);
+  problems = [];
+  if (!(VIDENT.cmp > 100)) problems.push('only ' + VIDENT.cmp + ' bucket-mate pairs compared (' + VIDENT.who +
+    ') - the identity claim is measuring almost nothing, which is a FAILURE and not a debt');
+  else if (VIDENT.bad) problems.push(VIDENT.bad + ' of ' + VIDENT.cmp + ' served geometries disagree with their own key - ' +
+    VIDENT.who + '. A key whose geometry depends on the frame that built it is the cache cliff wearing a hit counter.');
+  console.log('key identity'.padEnd(24), VIDENT.cmp + ' bucket-mate pairs, ' + VIDENT.bad + ' disagree with their own key' +
+    (VIDENT.worst ? ' (worst ' + VIDENT.worst.toFixed(2) + ' mm: ' + VIDENT.who + ')' : (VIDENT.who ? ' (' + VIDENT.who + ')' : '')),
+    problems.length ? '<< ' + problems.join(', ') : '');
+  bad += problems.length ? 1 : 0;
+
+  /* ---- COST (#186): the rig's share of a frame, measured inside the frame it costs ------------
+     #186's numbers came from two branches run separately through smoke, and what it asked for was not a
+     median but a verdict: "a zero-pixel regression in the rig would again ship green". So the milliseconds
+     are REPORTED here and the rows that FAIL are structural, because a wall-clock threshold on a shared CI
+     runner is the documented flake - load ~3 moved unchanged code from 3.4 ms to 17-46 ms (AGENTS.md).
+     Three arms, one page, one pose sequence, interleaved so drift cannot land on one side:
+       on    renderWorld() with the rig drawn as shipped
+       memo  the same with MESH.weapon memoized per kind - geometry built once, states ignored. That is the
+             rebuild's share, measured in process rather than by a second js/ tree, and it is the number
+             that tells a future session whether the ~0.4 ms the issue attributes to the rebuild is still
+             there before anyone writes a cache for it. The memo is WRONG on purpose (it ignores pump and
+             ejector travel); it is an arm, never a shipped path.
+       off   the same with drawViewModel stubbed to nothing - this probe's own zero-pixel control, which is
+             what makes "the rig costs nothing" a FAILURE instead of a quiet number.
+     The stub also freezes the sway state (drawViewModel damps against wall-clock dt), and every timed frame
+     is preceded by REST, so the three arms draw the SAME rig and what differs is the work, not the pose. */
+  /* Batch-timed on purpose: this sandbox's performance.now() is quantized to whole milliseconds - every
+     single-frame sample this row took came back an integer - so a 0.4 ms component is invisible one frame at
+     a time and each arm times a BATCH of frames instead, which is the shape tools/smoke.js already uses for
+     the same reason. The value returned is still ms/frame, and the share is taken between medians of
+     batches, so neither the resolution nor the pose drift inside a batch enters the number. */
+  const VCOST_BATCH = +(process.env.VMCOST_BATCH || 20), VCOST_REPS = +(process.env.VMCOST_REPS || 7);
+  run('window.__VMWEAPON = MESH.weapon; window.__VMWEAPON_MEMO = (function () { var M = {}; return function (k, st) '
+    + '{ var h = M[k]; if (h !== undefined) return h; var g = window.__VMWEAPON(k, st); M[k] = g; return g; }; })();'
+    + 'window.__vmCost = function (mode, n) { window.drawViewModel = (mode === "off") ? function () {} : window.__VMSAVE;'
+    + ' MESH.weapon = (mode === "memo") ? window.__VMWEAPON_MEMO : window.__VMWEAPON;'
+    + ' var t = performance.now(); for (var i = 0; i < n; i++) renderWorld(); return (performance.now() - t) / n; };');
+  const vmed = a => { const s = a.slice().sort((x, y) => x - y); return s.length & 1 ? s[s.length >> 1]
+    : (s[s.length / 2 - 1] + s[s.length / 2]) * 0.5; };
+  const vspread = a => vmed(a).toFixed(2) + ' (' + Math.min(...a).toFixed(2) + '..' + Math.max(...a).toFixed(2) + ')';
+  const tOn = [], tMemo = [], tOff = [];
+  run('P.ads=0; P.kick=0; P.reloadT=0; P.swapT=0; P.sprint=0; P.air=false; P.vz=0; P.bobPhase=0; S.muzzle=0; keys.KeyW=0; P.vx=0; P.vy=0; P.weapon=0;');
+  for (let i = 0; i < VCOST_REPS; i++) {
+    for (const [arm, sink] of [['on', tOn], ['memo', tMemo], ['off', tOff]]) {
+      run(REST);                    // settle once per batch; the pose is constant across a batch
+      sink.push(+run('window.__vmCost("' + arm + '", ' + VCOST_BATCH + ')'));
+    }
+  }
+  run('window.drawViewModel = window.__VMSAVE; MESH.weapon = window.__VMWEAPON;');
+  const vmD = vmed(tOn) - vmed(tOff), vmShare = vmD / Math.max(1e-6, vmed(tOn));
+  const vmRebuild = vmed(tOn) - vmed(tMemo);
+  problems = [];
+  /* The zero-pixel regression #186 named: a rig that draws nothing costs nothing, and every pixel row in
+     this block would still pass because they diff a frame against a frame. The pixel rows above prove the
+     rig PAINTS; this one proves the cost instrument can see it drawing. */
+  /* The memo arm is a measurement, not a promise. If the shipped path ever stops rebuilding weapon geometry
+     per frame, on and memo converge and the line below says so in words instead of going red: a row that
+     fails because an optimization landed is the row everyone learns to ignore. */
+  if (!(vmD > 0)) problems.push('the rig costs ' + vmD.toFixed(2) + ' ms of a frame while the rows above say it '
+    + 'paints pixels - the cost arm is measuring nothing');
+  console.log('rig cost'.padEnd(24), 'on ' + vspread(tOn) + '  memo ' + vspread(tMemo) + '  off ' + vspread(tOff) +
+    ' ms/frame over ' + VCOST_REPS + ' batches of ' + VCOST_BATCH + ' frames - rig share ' + (100 * vmShare).toFixed(1) +
+    '%, of which the per-frame geometry rebuild is ' + vmRebuild.toFixed(2) + ' ms'
+    + (Math.abs(vmRebuild) < 0.1 ? ' (this arm has converged on the shipped path: the build is not being'
+      + ' repeated per frame any more, so it measures nothing)' : '') + '. ms are THIS machine\'s numbers (#216:'
+    + ' not a row); the share is the recorded value.', problems.length ? '<< ' + problems.join(', ') : '');
+  bad += problems.length ? 1 : 0;
+  /* One record, and it is the dimensionless one on purpose: an absolute millisecond would re-baseline on
+     every runner this job lands on, which is how a budget row becomes a weather report. */
+  const VCOST_REF = refRecord('viewmodel', 'VM-SHARE', 'num', [0.10]);
+  const vcTol = +(process.env.VCOST_TOL || 0.06);
+  const vcMoved = Math.abs(vmShare - VCOST_REF[0]) > vcTol;
+  console.log('  record'.padEnd(22), (vcMoved ? 'FAIL' : 'ok  ') + ' the rig costs ' + (100 * vmShare).toFixed(1) +
+    '% of the frame against the recorded ' + (100 * VCOST_REF[0]).toFixed(1) + '% (tolerance ' + vcTol.toFixed(2) +
+    ') - ' + (vcMoved ? 'a move here is a deliberate re-record: node tools/view.js refs --record' :
+      'a rig that stops paying, or starts paying, trips this before a pixel row notices') + '\n');
+  if (vcMoved) bad++;
+
   console.log(bad ? bad + ' viewmodel states with problems' : 'viewmodel: all states paint geometry in the lower-right quadrant, no depth written, shots unaffected, sway travels as authored');
+
   /* The counter was already here, it just never reached an exit code, so four weapons problems and
      zero were the same green. Without this exit the block also fell through to the scene dump,
      painting a PNG whose mean depends on where this probe left the RNG stream (#89). */
