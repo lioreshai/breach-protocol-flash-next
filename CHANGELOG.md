@@ -29,6 +29,30 @@
   (x0.47 / 0.55 / 0.29 / 0.71). Each level's recorded `CTRL-RAT` (0.479 / 0.551 / 0.306 / 0.716) is
   unchanged, so no existing (E) row was weakened to admit the fourth.
 
+- **A lamp's light still stops dead at a step, and the census now says where the dark floor left over
+  actually is** (#199). Unlit ground looked like a shading bug, so a *graded* band term was built: full
+  weight within one quantum of the lamp's own floor, then a linear fade to nothing one metre past it, for
+  lamps only, so the black band beside a riser would soften without lighting a distant storey. It does
+  soften it — pooled dark ground 8.7 % → 7.0 % of open cells over 12 rolls × 4 levels, measured in review
+  of the head that carried it. **It is not shipped.** `alt` asserts, per level and at exactly zero, that *no column is lit from
+  a band above it* and *none from a band below*, and that a lamp's weight at ±2 quanta is ≤ 0.02. Those
+  rows are not guards against a bug; #203, #205, #206 and #209 each tightened that reach on purpose, so a
+  pit floor stays dark while the floor a metre above it is lit. That review's census moved 55–291 open
+  cells per level across the line and takes `w(±2q)` from 0 to 0.75 — a design reversal arriving as a set of refreshed
+  reference hashes, which is why this branch carries the measurement and leaves the mechanism out. The
+  term in `js/20_level.js` is unchanged from `main`, and so is every recorded hash: `flatparity`,
+  `exposure` (37 rows), the `LEAK=1 CZBAND=1` half of `cull`, `alt` (89 rows) and `bands` all hold at
+  their existing records, and both smoke lanes pass. **What replaced the claim is an instrument.**
+  `exposure`'s coverage census now prints, inside the row it already gated, how many of the cells it calls
+  dark (delivered light < 0.25) sit on a band of fewer than 8 cells — the only dark population lamp
+  *placement* is not already serving, since #337 guarantees no big band is left without a source standing
+  in it. Over 12 seeded deals per level that is **61 / 67 / 66 / 72 cells: 4 % / 2 % / 2 % / 6 %** of the
+  dark cells on levels 0–3. So dropping the 8-cell floor would move at most one dark cell in sixteen, and
+  the residual is the disc's own `(1 − d/r)^1.6` falloff in the interior of bands that *are* served — the
+  half #206 reclassified deliberately, and the half whose price (more lamps) #204 measured against the
+  frame budget. No player-visible byte changes here; the next increment for #199 has to be that pricing,
+  not a wider gate.
+
 - **THE STACK's doorway opens again: the lamp that stood in it moved one cell** (#318). Level 3's mid
   wall is solid on 19 of its 20 rows, and the one open cell — the doorway between the two rects — also
   held a lamp glyph. A floor lamp blocks the player, so its collision ghost (r 0.442 m) reached into
