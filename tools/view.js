@@ -1120,6 +1120,23 @@ if (MODE === 'alt') {
      rides along in the detail and pit > 0 is part of the assertion. */
   {
     const MAIN_PIT = [181, 194, 175], MAIN_OOB = [19, 10, 16], MAIN_OOB_GEO = [0, 0, 0];
+    /* #199 asked for its coverage statistic "bounded by a threshold measured across >= 5 seeds rather than
+       guessed", and the census above has been printing the number inside the pit row's detail ever since #204
+       measured it, next to a sentence admitting no threshold was asserted. These two records are that
+       threshold. They also correct the issue's own diagnosis, which is worth putting where a reader will hit
+       it: #199's title says 63-72% of dark cells have NO source in the disc at all, measured on 5f14a09 when
+       splatLight was a 2-D disc that ignored L.z. That kernel is gone - the band term at js/20_level.js:939
+       (#203/#208) and the same predicate in blurLight (#206) are why a disc now stops at a riser - and the
+       census under it reads the other way round: MOST dark cells do have a source inside their disc, and are
+       dark because of that disc's own falloff and band limit. So DARK-SHARE is bounded ABOVE (darkness that
+       grows past the recorded share is a regression, darkness that shrinks is not), and DARK-COVERED is held
+       by a two-sided band because it is an ATTRIBUTION, not a quality bar: it says which mechanism the dark
+       cells belong to, and a swing either way means the mechanism moved and this row's claim needs re-measuring.
+       Both are percentages to one decimal over the same 12 rolls the pit row rolls, deterministic by dice. */
+    const REFDARKSH = refRecord('alt', 'DARK-SHARE', 'num', [4.0, 10.7, 6.1]);
+    const REFDARKCOV = refRecord('alt', 'DARK-COVERED', 'num', [94.9, 70.5, 67.7]);
+    const DSH_SLACK = +(process.env.DARKSH_SLACK || 0.6);    // pp above the recorded share
+    const DCV_TOL = +(process.env.DARKCOV_TOL || 6);         // pp either side of the recorded attribution
   // MAIN_OOB is the ALL-CELL figure (#206, era: stairs hugged the outer ring); MAIN_OOB_GEO is the
   // same census with the authored climb cells removed, recorded on the tree that moved the mouths
   // (#189). The row gates the GEO figure, so stair placement cannot buy it and light bleed still trips it.   // #206: recorded on the gated kernel; the bleeding kernel was 123/377/337 (2c5a94f) / 37/49/75 (df919c3)
@@ -1198,6 +1215,24 @@ if (MODE === 'alt') {
         + ` source in the XY disc (the #199 coverage half). No frame threshold is asserted: the worst sampled pit`
         + ` frame is 157.1/162.5/183.8 mean and 206.6/213.9/245.0 centre-half mid in the COMPOSITED page for`
         + ` these parameters and is unchanged by lamp intensity at all (#221, the glow overlay has no altitude term).`);
+      /* The gate #199 asked for, in the form the census can actually hold. The issue phrased it as a pixel
+         statistic ("ground-visible px within FARB whose column light is < 0.05 while the camera column is lit");
+         this is the same columns counted without a camera, which is the stronger form for a coverage claim -
+         no pose to argue about, no dependence on where the probe happens to stand, and FARB only decides which
+         of the columns a pixel would have reached, not whether the lightmap is dark in them. The camera-
+         conditioned half lives in `exposure`, which renders frames and reports them, and no number here is
+         inherited from a frame mean. */
+      const dsh = 100 * A.dark / A.open;
+      const dcv = A.dark ? 100 * (A.dark - A.nosrc) / A.dark : 0;
+      row(`L${lv} dark ground is bounded and says which half it is`,
+        dsh <= REFDARKSH[lv] + DSH_SLACK && Math.abs(dcv - REFDARKCOV[lv]) <= DCV_TOL && A.dark > 0 && A.open > 5000,
+        `${A.dark} of ${A.open} open cells (${dsh.toFixed(1)}%, recorded ${REFDARKSH[lv].toFixed(1)}%, slack ${DSH_SLACK} pp; counts sum all 12 rolls) hold < 0.05 `
+        + `delivered light, and of those ${A.dark - A.nosrc} (${dcv.toFixed(1)}%, recorded ${REFDARKCOV[lv].toFixed(1)}%, tol ${DCV_TOL} pp) DO have `
+        + `a lamp whose XY disc contains them - so that share is dark from the disc's own (1-d/r)^1.6 falloff and the band term at `
+        + `js/20_level.js:939, which is what #206 reclassified on purpose, while ${A.nosrc} cells (${(100 - dcv).toFixed(1)}%) are `
+        + `uncovered geography in the sense #199's title meant (it read 63-72% on 5f14a09, when the kernel still ignored L.z). `
+        + `${(A.lamps / 12).toFixed(2)} lamps/instance. A row that gated the UNCOVERED share upward would assert the diagnosis and `
+        + `go red the day lamp placement improved, so the share is reported and the two numbers above are what gate.`);
       row(`L${lv} delivered wrong-band light does not spread`, A.oob <= MAIN_OOB_GEO[lv],
         `${A.oob} NON-CLIMB open cell(s) hold delivered light with NO source standing on their own band within `
         + `reach against the recorded ${MAIN_OOB_GEO[lv]} (the ALL-CELL figure was ${MAIN_OOB[lv]} on the tree`
