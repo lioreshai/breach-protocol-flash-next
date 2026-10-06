@@ -5,6 +5,7 @@
 # A declaration with no row here fails REFS-DECLARED-MISSING; a row with no declaration fails
 # REFS-IN-TABLE-UNDECLARED; an edited literal fails REFS-VALUES-MOVED. None of the three is a
 # warning, and the row runs inside flatparity, which ci.yml runs blocking.
+ref	alt	GRID-CENSUS	num	9 170 2 46 9 251 2 52 9 307 2 52 9 134 4 15
 ref	alt	OOB-ERA	num	19 10 16
 ref	alt	OOB-NONCLIMB	num	0 0 0
 ref	alt	PIT-CELLS	num	190 194 211
@@ -17,4 +18,5 @@ ref	exposure	SPAWN	num	62 68 66 64 65 72 58 61
 ref	flatparity	DEALT	md5	0cbac2650ff2ec559f19be1d8f2f0dab 659b2fc2796a27ff2f3a102fb1c26715 529fe0c79f3b5ec0bbcac5db408ef571 b05a3a480ccfc2c6c7dfbe867fe5a485
 ref	flatparity	LOCK	md5	619e10b73e0fe00b61b9d39091f04972 fbcff86d51a87fc3df0279ab205cecd5 4acc06cbddd9ca6583703081a8069c1b 17bea9601abf8969ea6e9960dd1b8e2a
 ref	flatparity	PARITY	md5	a4db61f5161618586ae674047fc57cc2 fbcff86d51a87fc3df0279ab205cecd5 e4f90eb12f5ef993dc294fa96f89bfaa 17bea9601abf8969ea6e9960dd1b8e2a
+ref	heights	HALF-MOVE	num	97.66 31.21 82.05 95.47 42.83 61.97 98.03 33.83 29.81 95.62 42.81 64.45 98.86 32.57 81.13 95.34 42.88 63.32 97.74 23.55 21.23 95.41 38.07 54.25
 ref	props	LAMPCORE	num	263 239.7 263 239.7 263 239.5

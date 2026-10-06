@@ -659,11 +659,15 @@ if (MODE === 'alt') {
        - headroom / tall-column counts are already records elsewhere (volume's rows) and are deals of
          a different sampler.
      Determinism, measured on this tree before the literals were written: two fresh processes of
-     `node tools/view.js alt` are byte-identical (87 lines, both exit 0), and WARM=1 changes the
-     census not at all - this mode exits long before :10024's warm loop, so no timing reaches it.
-     SEED DOES move it (`SEED=7` deals 573 open cells and 40 step faces on L0 instead of 576/46), so
-     the compare is gated on SEED below - and JSDIR is deliberately NOT gated, because a record that
-     abstains under the repo's own A/B knob has no teeth (#148's control rule). */
+     `node tools/view.js alt` are byte-identical and both exit 0 (re-checked after #370, which touched
+     ground shading and not the grid - the census survived it), and WARM=1 changes the
+     census not at all - the WARM branch sits at the end of this file and neither `alt` nor `heights`
+     reaches it, so no timing from a warmed loop can reach either record.
+     SEED DOES move it (`SEED=7` re-deals L0 to 9 / 159 / 2 / 40 against the recorded 9 / 170 / 2 / 46),
+     so the compare is gated on SEED below - and JSDIR is deliberately NOT gated, because a record that
+     abstains under the repo's own A/B knob has no teeth (#148's control rule). Under the gate the row
+     prints NOT COMPARED and exits 0, which is an ABSTENTION, not a pass: a deal other than SEED 12345
+     is unfalsifiable by this row, and that is the design rather than an oversight. */
   const RECGEOM = refRecord('alt', 'GRID-CENSUS', 'num', [9, 170, 2, 46, 9, 251, 2, 52, 9, 307, 2, 52, 9, 134, 4, 15]);
   const GEOMK = ['floor values', 'cells off datum', 'staircase runs', 'step faces'];
   const SEEDK = SEED !== 12345;      // the deal the record binds is the SEED-12345 deal
@@ -6056,18 +6060,27 @@ if (MODE === 'heights') {
      was one session's measurement in prose - "12 of its 18 configs FAIL at 0.00% moved" is exactly
      the sentence this record can now contradict.
      Determinism and knob sensitivity were MEASURED before the literals were written, because a number
-     that moves between runs on identical bytes is not recordable:
-       two fresh processes                     -> 9444 bytes byte-identical, 28/28 percentages equal
-       WARM=1                                  -> byte-identical (this mode exits before :10024's loop)
-       SEED=7                                  -> every percentage equal; the block reseeds itself
-                                                  (:5795 seedRng(4242+li*31)), so the deal is the
-                                                  probe's, not the environment's - no guard needed
-       VW=640 VH=360                           -> 97.62 -> 97.33, 82.01 -> 82.20  GUARDED
-       LAMPS=off                               -> 97.62 -> 97.60, 82.01 -> 82.03  GUARDED
-       NOCAP=1 (the #21 control)               -> 38.75 -> 38.76 on one config      GUARDED
+     that moves between runs on identical bytes is not recordable. The figures below were re-measured
+     on the tree that carries #370's ground re-key, which is the tree these literals bind: #370 changed
+     which pixels of the frame are the same as their neighbour, so HALF-MOVE - which is exactly that
+     count - moved on 11 of the 24, by 0.01 to 0.43 points. The row found it: it printed FAIL
+     HALF-MOVE-MOVED on all four levels before the literals were re-keyed, which is the first time this
+     record contradicted anything.
+       two fresh processes    -> all 24 recorded figures byte-identical, twice, on this tree
+       WARM=1                 -> every recorded figure equal (the WARM branch is at the end of this
+                                file and this mode never reaches it)
+       SEED=7                 -> every percentage equal; the block reseeds itself per level
+                                (seedRng(4242 + li*31) opens every level's config loop), so the deal is
+                                the probe's, not the environment's - no guard needed
+       VW=640 VH=360          -> L0 tallRoom 97.66 -> 97.28, stripes 82.05 -> 82.22; all four
+                                levels move                                     GUARDED
+       LAMPS=off              -> L0 tallRoom 97.66 -> 97.57, stripes 82.05 -> 82.01             GUARDED
+       NOCAP=1 (the #21 arm)  -> one figure, L1 eyeUp floor 64.45 -> 64.46                      GUARDED
      JSDIR is deliberately NOT guarded: a record that abstains under the repo's own A/B knob has no
-     teeth (#148's control rule), and nothing here reads a clock. */
-  const RECHALF = refRecord('heights', 'HALF-MOVE', 'num', [97.62, 31.18, 82.01, 95.42, 42.87, 61.92, 98.12, 33.83, 29.81, 95.64, 42.82, 64.49, 98.86, 32.57, 81.56, 95.51, 42.87, 63.31, 97.74, 23.55, 21.23, 95.46, 38.09, 54.23]);
+     teeth (#148's control rule), and nothing here reads a clock. Guarded means ABSTAIN, not pass: a
+     row under a knob prints NOT COMPARED and counts nothing in `bad`, which is why the guard list has
+     to be the measured one and not a guess. */
+  const RECHALF = refRecord('heights', 'HALF-MOVE', 'num', [97.66, 31.21, 82.05, 95.47, 42.83, 61.97, 98.03, 33.83, 29.81, 95.62, 42.81, 64.45, 98.86, 32.57, 81.13, 95.34, 42.88, 63.32, 97.74, 23.55, 21.23, 95.41, 38.07, 54.25]);
   const HALFK = ['tallRoom ceiling', 'pit floor', 'stripes floor', 'border floor', 'stepUp floor', 'eyeUp floor'];
   const HALFCOL = { tallRoom: 0, pit: 1, stripes: 2, border: 3, stepUp: 4, eyeUp: 5 };
   const FRAMEK = ['VW', 'VH', 'LAMPS', 'NOCAP'].filter(k => process.env[k]);
