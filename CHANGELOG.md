@@ -2,6 +2,28 @@
 
 ### Changed
 
+- **Bloom is a bright pass now, so a lit level is not a white sheet** (#377). `drawBloom`
+  (`js/40_render.js`) filtered the whole finished raster with `brightness(1.5) contrast(2.1)
+  saturate(1.25)` and composited it back with `'lighter'` at 0.42 — per pixel, that is
+  `min(255, 3.15v − 140) × 0.42`, so it pivoted at 18% grey and paid out the same +107 on every pixel
+  above about 48% grey. A metal deck sits at 130-170, so it received the identical lift a lamp core
+  receives: RING TRANSPORT delivered a frame mean of 107.9 with **9.0% of its pixels above luminance
+  224**, and `saturate(1.25)` rewrote the palette on the way (mean channel spread ×1.44-1.91 against
+  the same frame with the pass off). The pass is now a threshold: per 3×3 block of the raster it keeps
+  only the energy above luma 140 on an easing curve, capped at 18 and composited at 0.55, re-applied to
+  the block's own colour as a gain so highlights keep their hue. **At most 9.9 luma can be added to any
+  pixel, whatever the room looks like.** In the same seat the deck now reads as metal with bright studs
+  and a visible floor-to-wall junction, crates keep their bottom edges, and the >224 share is 0.44%
+  against the shipped 9.03%; lamp discs (251 against a shipped 255) and a muzzle flash (245 against
+  245) are untouched, and the pass is additive-only. Because the shape is now in the bytes it writes and
+  not in `ctx.filter`, the browser without filter support gets the same picture instead of a flat 42%
+  lift. `node tools/ci/assert.js bloom` is new and measures all of it as one A/B (`DEV.set('bloom', …)`
+  at one frozen pose, four levels, two seats each, 29 rows); it FAILs 4-6 rows on the shipped pass and
+  is green here. **What it does not yet solve:** removing the veil takes the composited frame mean down
+  by 20-25 points — the 60-100 exposure window in `docs/ROADMAP.md` was being met largely *by* the veil
+  — so `assert.js exposure` now reports level medians 48.7/54.8/53.5/46.8 against 70/80/80/67 on
+  `main`. That is a lighting decision, not a threshold, and #377 stays open on it.
+
 - **The neck is now a measured part, and it is held there** (#80). `node tools/view.js anim` had a neck
   block that printed band heights, widths and luminance deltas and then said *"REPORTED, not gated"* —
   which is why #80 survived the geometry fix in #326: nothing could fail. The rows now gate, per kind

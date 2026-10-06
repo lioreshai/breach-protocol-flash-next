@@ -1862,21 +1862,86 @@ function drawBillboard(o) {
 /* ------------------------------------------------------------------
    post FX: bloom from the bright pass, lamp glow, film grain
    ------------------------------------------------------------------ */
+/* ---- the bright pass (#377) ------------------------------------------------
+   What shipped before this was not a bright pass. It filtered the WHOLE finished raster with
+   `brightness(1.5) contrast(2.1) saturate(1.25)` and composited it back with 'lighter' at 0.42.
+   Composed per pixel that is `min(255, 3.15v - 140) * 0.42`: zero below v = 45, and from v = 124 up
+   it is the SAME +107 on every pixel because the filter output has clipped to white. A lit metal
+   deck sits at v 130-170, so it received the identical +107 a lamp core receives - which is the
+   white sheet of #377 (measured on the deployed build: RING TRANSPORT's frame mean 83.8 -> 107.9,
+   12.0% of delivered pixels above luma 224), and `saturate(1.25)` rewrote the palette on the way
+   (mean channel spread 53 -> 87 on ABATOIR CORE). The `canFilter === false` path skipped the curve
+   entirely and composited the frame back at 0.42 with no shape at all - a flat 42 % lift.
+
+   This is a real threshold. For every 3x3 block of the raster: take the block's luma, keep only the
+   energy ABOVE BLOOM_KNEE on a curve that eases in (d squared over BLOOM_CURVE), cap it at BLOOM_CAP,
+   and re-apply it to the block's own RGB as a gain so the highlight keeps its hue and only loses its
+   level. Everything at or below the knee composites as literal zero, so a floor, a wall or a crate at
+   mid grey is untouched and the pass's total added energy is bounded by BLOOM_MIX * BLOOM_CAP per
+   pixel - a constant nobody can exceed by authoring a brighter room. There is no `filter` and no `saturate` anywhere in it,
+   so the no-ctx.filter browser gets the same picture instead of the flat 42 % lift.
+
+   The knee is a RASTER luma, not a delivered one: the source is bufCv, before the grade filter
+   renderOverlay applies on the way to the display canvas. With contrast(1.06) brightness(1.02) that
+   is within about 4 luma units of the delivered value at these levels.
+
+   3x3 because the buffer is exactly BW/3 x BH/3: one non-overlapping block per output pixel, so this
+   is a box downsample (the blur the old pass got from the bilinear upscale alone), and it is what
+   stops a single bright stud from blooming as a hard sparkly dot. 22 k pixels x 9 reads per frame at
+   BALANCED - the whole pass costs well under a millisecond and no GPU readback. */
+const BLOOM_KNEE = 140;        // luma (0-255) where the pass starts: below this it adds exactly zero
+const BLOOM_CURVE = 128;       // highlight = d*d / this, so it eases in and only a real core gets much
+const BLOOM_CAP = 18;          // and never more than this, so the pass cannot run away on a bright room
+const BLOOM_MIX = 0.55;        // composited alpha: added luma per pixel <= BLOOM_MIX * BLOOM_CAP = 9.9
+let bloomImg = null;
+
 function drawBloom(q) {
   const bw = Math.max(24, (BW / 3) | 0), bh = Math.max(16, (BH / 3) | 0);
-  if (bloomCv.width !== bw || bloomCv.height !== bh) { bloomCv.width = bw; bloomCv.height = bh; }
-  bloomCtx.save();
+  if (bloomCv.width !== bw || bloomCv.height !== bh) { bloomCv.width = bw; bloomCv.height = bh; bloomImg = null; }
+  if (!bloomImg) bloomImg = bloomCtx.createImageData(bw, bh);
+  const d = bloomImg.data;
+  // The knee and the cap are applied to a 9-pixel SUM, so scale both by 9 once instead of dividing
+  // the sum in the inner loop.
+  const xs = BW / bw, ys = BH / bh, ylim = Math.max(0, BH - 3), xlim = Math.max(0, BW - 3);
+  let o = 0;
+  for (let y = 0; y < bh; y++) {
+    const y0 = Math.min((y * ys) | 0, ylim);
+    for (let x = 0; x < bw; x++, o += 4) {
+      const x0 = Math.min((x * xs) | 0, xlim);
+      /* The block's BRIGHTEST channel values, not its average. Averaging 9 px washes the highlight
+         out of the very things this pass is for: a lamp core or a lit stud is a handful of raster
+         pixels, and inside a 3x3 block of 60-luma floor its AVERAGE never crosses the knee, so the
+         first version of this pass measured +0.05 mean at a lamp seat and bloomed nothing. Per-channel
+         max is a dilation, one compare per channel instead of a luma per sample, and the bilinear
+         upscale below is what turns it back into a soft halo. It costs a little whiteness (the three
+         maxima can come from different pixels) and nothing else: the energy is still capped. */
+      let mR = 0, mG = 0, mB = 0;
+      for (let j = 0; j < 3; j++) {
+        let idx = (y0 + j) * BW + x0;
+        for (let i = 0; i < 3; i++, idx++) {
+          const c = px[idx], cr = c & 255, cg = c >> 8 & 255, cb = c >> 16 & 255;
+          if (cr > mR) mR = cr;
+          if (cg > mG) mG = cg;
+          if (cb > mB) mB = cb;
+        }
+      }
+      d[o + 3] = 255;
+      const L = 0.2126 * mR + 0.7152 * mG + 0.0722 * mB;
+      if (L <= BLOOM_KNEE) { d[o] = 0; d[o + 1] = 0; d[o + 2] = 0; continue; }
+      const over = L - BLOOM_KNEE;                 // (not `d` - that is the buffer above)
+      let add = over * over / BLOOM_CURVE;         // eases in: knee+30 gets 7, knee+60 is at the cap
+      if (add > BLOOM_CAP) add = BLOOM_CAP;
+      const k = add / L;                           // hue-preserving gain: the written pixel has luma `add`
+      d[o] = mR * k; d[o + 1] = mG * k; d[o + 2] = mB * k;
+    }
+  }
+  /* putImageData writes the buffer raw - no composite, no alpha, no filter - which is the point: the
+     pass's shape is entirely in the bytes above, on every browser, filter support or not. */
   bloomCtx.setTransform(1, 0, 0, 1, 0, 0);
-  if (canFilter) bloomCtx.filter = 'brightness(1.5) contrast(2.1) saturate(1.25)';
-  bloomCtx.globalCompositeOperation = 'source-over';
-  bloomCtx.globalAlpha = 1;
-  bloomCtx.clearRect(0, 0, bw, bh);
-  bloomCtx.drawImage(bufCv, 0, 0, bw, bh);
-  bloomCtx.filter = 'none';
-  bloomCtx.restore();
+  bloomCtx.putImageData(bloomImg, 0, 0);
   ctx.save();
   ctx.globalCompositeOperation = 'lighter';
-  ctx.globalAlpha = 0.42;
+  ctx.globalAlpha = BLOOM_MIX;
   ctx.imageSmoothingEnabled = true;
   ctx.drawImage(bloomCv, 0, 0, DW, DH);
   ctx.restore();
