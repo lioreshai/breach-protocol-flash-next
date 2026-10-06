@@ -39,6 +39,13 @@ const LEVELS = [
     // 0.12 <= 0.18 - (-0.04) = 0.22. The vault is still lifted off black; it just cannot out-light the
     // surface you stand on. At the seat the player spawns in, the order is wall 71.8, floor 47.2,
     // ceiling 37.7, where main read wall 65.8, floor 32.3, ceiling 68.6.
+    // One caveat, so nobody "fixes" the finale: the rule authored here constrains the VAULT against the
+    // FLOOR it covers, not the floor against the walls. At the finale seat (`view.js scene 3 0`) the lit
+    // floor near the camera reads ABOVE the far wall faces (floor rows 87-90, wall faces 71-73, Rec.601
+    // over screen rows - the ceiling band stays lowest in the frame), and it is left that way on purpose:
+    // in a level whose idea is a walkable surface over your head, the last room reading floor-brightest is
+    // the read we want. Walls lead floors at the spawn seat above. Say it here because the entry's rule
+    // sentence does not cover it.
     // Height is already said by the riser seam and the minimap band cue (#164).
     name: 'THE STACK', size: 20, authored: true, wall: WT.STONE, wall2: WT.TECH,
     floor: 'STONE', ceil: 'ROCK', amb: 0.2, lampCol: [255, 196, 120], fogCol: [17, 13, 10],
