@@ -1119,7 +1119,18 @@ if (MODE === 'alt') {
      0.092/0.121/0.132 (the bleeding kernel measured 37/49/75 on df919c3 there). A pit-dark of 0 with pit 0 would be vacuity rather than a fix, so the population
      rides along in the detail and pit > 0 is part of the assertion. */
   {
-    const MAIN_PIT = [181, 194, 175], MAIN_OOB = [19, 10, 16], MAIN_OOB_GEO = [0, 0, 0];
+    // #314: MAIN_OOB_GEO is read by a PREDICATE (`A.oob <= MAIN_OOB_GEO[lv]`), not only by prose, so
+    // it needs level 3's value in the array: measured 0 non-climb wrong-band cells there (0 of 0 -
+    // the authored level has no such cell to leak through, and the row prints its own population).
+    // MAIN_PIT and MAIN_OOB are quoted in text only, and an authored level has no main-era figure to
+    // quote, so those two stay three wide and go through eraOf() below.
+    const MAIN_PIT = [181, 194, 175], MAIN_OOB = [19, 10, 16], MAIN_OOB_GEO = [0, 0, 0, 0];
+    // #314: these are era readings taken on the three GENERATED levels, so level 3 - authored,
+    // written by hand in js/20_level.js - has no comparison to quote. Indexing an array past its
+    // length printed the literal word `undefined` inside a row that still PASSED, which is how a
+    // raised bound turns into a silent arithmetic miss: say "no era figure" instead, and keep the
+    // measured level-3 value on the row itself, where the census already prints it.
+    const eraOf = (arr, lv) => lv < arr.length ? String(arr[lv]) : 'no era figure for this level';
     /* #199 asked for its coverage statistic "bounded by a threshold measured across >= 5 seeds rather than
        guessed", and the census above has been printing the number inside the pit row's detail ever since #204
        measured it, next to a sentence admitting no threshold was asserted. These two records are that
@@ -1133,8 +1144,25 @@ if (MODE === 'alt') {
        by a two-sided band because it is an ATTRIBUTION, not a quality bar: it says which mechanism the dark
        cells belong to, and a swing either way means the mechanism moved and this row's claim needs re-measuring.
        Both are percentages to one decimal over the same 12 rolls the pit row rolls, deterministic by dice. */
-    const REFDARKSH = refRecord('alt', 'DARK-SHARE', 'num', [4.0, 10.7, 6.1]);
-    const REFDARKCOV = refRecord('alt', 'DARK-COVERED', 'num', [94.9, 70.5, 67.7]);
+    const REFDARKSH = refRecord('alt', 'DARK-SHARE', 'num', [4.0, 10.7, 6.1, 24.2]);
+    const REFDARKCOV = refRecord('alt', 'DARK-COVERED', 'num', [94.9, 70.5, 67.7, 48.4]);
+    /* #314: the fourth value in each is THE STACK's own census over the same 12 dice - 744 dark of
+       3072 open cells, 360 of those 744 under a lamp's XY disc. The SHARE is bigger (24.2% against the
+       generated 4.0-10.7%) and the ATTRIBUTION smaller (48.4% against 67.7-94.9%) because an authored
+       plan has dark geography no lamp was placed to cover: a description of the plan, not a regression,
+       and the reason the row keeps the share bounded ABOVE and the attribution two-sided.
+       The non-vacuity clause below needed the same treatment. `A.open > 5000` counts open cells summed
+       over the 12 rolls, and a generated map yields 575-1150 open cells a deal while THE STACK's 20-cell
+       plan yields 256 - so an absolute floor written off generated maps excludes the authored level by
+       the size of its geometry, which is not the question the clause asks. It is per level now: the
+       three generated floors are UNCHANGED and the authored one is half its own measured census
+       (3072 -> 1500), which still trips if the roll set collapses. No measured percentage moved because
+       of this row - they are recorded above and asserted against, which is the half that gates. */
+    const DSK_OPEN_MIN = [5000, 5000, 5000, 1500];
+    // #314: a record shorter than the level list must read as a FAILURE with a sentence, not as a
+    // TypeError - an exception in a probe kills every row after it, including the rows that were fine.
+    const darkRec = (arr, lv) => lv < arr.length ? arr[lv].toFixed(1)
+      : 'NO RECORD for level ' + lv + ' (the record is ' + arr.length + ' wide, the level list is not)';
     const DSH_SLACK = +(process.env.DARKSH_SLACK || 0.6);    // pp above the recorded share
     const DCV_TOL = +(process.env.DARKCOV_TOL || 6);         // pp either side of the recorded attribution
   // MAIN_OOB is the ALL-CELL figure (#206, era: stairs hugged the outer ring); MAIN_OOB_GEO is the
@@ -1156,8 +1184,12 @@ if (MODE === 'alt') {
       sunken cell now do, and the lamp that used to sit on their datum now stands in the hole - so the
       pit floor is lit (0 dark of 16 at band -4) and 5/53 more DATUM cells are dark. Clause 4 is a
       top-up-effectiveness budget, not a lamp-placement lock, and 53 of 13,821 open cells is 0.4%. */
-    const TOPUP_DARK_REF = [349, 1194, 1108];
-    for (let lv = 0; lv < 3; lv++) {
+    // #314 item 2: the fourth literal is level 3's own measurement (744 dark-of-open cells summed
+    // over the same 12 rolls = 62 of its 256 open cells per deal, against L0's 29 per deal), and it
+    // lands IN THE SAME COMMIT as the bound. Raising the bound first would index past the array and
+    // compare against `undefined` - an arithmetic miss that prints no red row at all.
+    const TOPUP_DARK_REF = [349, 1194, 1108, 744];
+    for (let lv = 0; lv < run('LEVELS.length'); lv++) {
       const A = { pit: 0, pitDark: 0, pitSum: 0, oob: 0, oobSum: 0, oobClimb: 0, nosrc: 0, dark: 0, open: 0, lamps: 0, pitRolls: 0, noPitAt: [] };
       for (let r = 0; r < 12; r++) {
         seedRng(1000 + lv * 97 + r * 13);
@@ -1207,7 +1239,7 @@ if (MODE === 'alt') {
          reason no lamp change can fix. The recorded frame numbers ride along beside the verdict instead. */
       row(`L${lv} a pit reads lit, not blown`,
         A.pitDark === 0 && A.pit > 0 && A.pitSum / A.pit <= 0.55 && A.dark <= dref,
-        `(1) ${A.pitDark} of ${A.pit} pit cells (MAP.fz <= -3, main has ${MAIN_PIT[lv]} of them) hold less than 0.05 delivered`
+        `(1) ${A.pitDark} of ${A.pit} pit cells (MAP.fz <= -3, main has ${eraOf(MAIN_PIT, lv)} of them) hold less than 0.05 delivered`
         + ` light (the LAMPS=off control measures 181/177/146 here on the gated kernel - 118/72/62 before #206, when datum tails reached into pits, and 117/71/62 on 2c5a94f) - (2) that population exists in ${A.pitRolls} of`
         + ` the 12 rolls${A.noPitAt.length ? `, no pit at roll${A.noPitAt.length > 1 ? 's' : ''} ${A.noPitAt.join(' and ')}` : ''}, so this is not a row silently running on two levels - (3) mean delivered light there ${A.pit ? (A.pitSum / A.pit).toFixed(3) : 'no pit at all'} against the 0.55 ceiling`
         + ` (main's unscaled top-up 0.672/0.631/0.647, which is the #213 white box) - (4) ${A.dark} dark of ${A.open} open cells against`
@@ -1225,17 +1257,20 @@ if (MODE === 'alt') {
       const dsh = 100 * A.dark / A.open;
       const dcv = A.dark ? 100 * (A.dark - A.nosrc) / A.dark : 0;
       row(`L${lv} dark ground is bounded and says which half it is`,
-        dsh <= REFDARKSH[lv] + DSH_SLACK && Math.abs(dcv - REFDARKCOV[lv]) <= DCV_TOL && A.dark > 0 && A.open > 5000,
-        `${A.dark} of ${A.open} open cells (${dsh.toFixed(1)}%, recorded ${REFDARKSH[lv].toFixed(1)}%, slack ${DSH_SLACK} pp; counts sum all 12 rolls) hold < 0.05 `
-        + `delivered light, and of those ${A.dark - A.nosrc} (${dcv.toFixed(1)}%, recorded ${REFDARKCOV[lv].toFixed(1)}%, tol ${DCV_TOL} pp) DO have `
+        dsh <= REFDARKSH[lv] + DSH_SLACK && Math.abs(dcv - REFDARKCOV[lv]) <= DCV_TOL && A.dark > 0 && A.open > DSK_OPEN_MIN[lv],
+        `${A.dark} of ${A.open} open cells (${dsh.toFixed(1)}%, recorded ${darkRec(REFDARKSH, lv)}, slack ${DSH_SLACK} pp; counts sum all 12 rolls) hold < 0.05 `
+        + `delivered light, and of those ${A.dark - A.nosrc} (${dcv.toFixed(1)}%, recorded ${darkRec(REFDARKCOV, lv)}, tol ${DCV_TOL} pp) DO have `
         + `a lamp whose XY disc contains them - so that share is dark from the disc's own (1-d/r)^1.6 falloff and the band term at `
         + `js/20_level.js:939, which is what #206 reclassified on purpose, while ${A.nosrc} cells (${(100 - dcv).toFixed(1)}%) are `
         + `uncovered geography in the sense #199's title meant (it read 63-72% on 5f14a09, when the kernel still ignored L.z). `
         + `${(A.lamps / 12).toFixed(2)} lamps/instance. A row that gated the UNCOVERED share upward would assert the diagnosis and `
-        + `go red the day lamp placement improved, so the share is reported and the two numbers above are what gate.`);
+        + `go red the day lamp placement improved, so the share is reported and the two numbers above are what gate. `
+        + `The non-vacuity floor here is ${DSK_OPEN_MIN[lv]} open cells and it is PER LEVEL (#314: an authored plan is a `
+        + `smaller map than a generated one, so an absolute count of open cells would exclude level 3 by its size `
+        + `rather than by its coverage - the generated three keep main's 5000 unchanged).`);
       row(`L${lv} delivered wrong-band light does not spread`, A.oob <= MAIN_OOB_GEO[lv],
         `${A.oob} NON-CLIMB open cell(s) hold delivered light with NO source standing on their own band within `
-        + `reach against the recorded ${MAIN_OOB_GEO[lv]} (the ALL-CELL figure was ${MAIN_OOB[lv]} on the tree`
+        + `reach against the recorded ${eraOf(MAIN_OOB_GEO, lv)} (the ALL-CELL figure was ${eraOf(MAIN_OOB, lv)} on the tree`
         + `that put stair mouths on the map's outer ring; this tree's climb-cell share is ${A.oobClimb}, i.e. `
         + `${A.oobClimb} of ${A.oob + A.oobClimb} such cells are authored steps, which take datum light by construction`
         + `(no lamp stands on a stair) - counting them made this row a census of stair placement, which #189 moved`
@@ -1268,20 +1303,27 @@ if (MODE === 'alt') {
        handed, so the line that registers each one is the line the compare at the glow row and the detail
        print read them from: `node tools/view.js refs` counts them, refs.lock carries them, and an edit to
        one of these numbers moves the table or fails REFS-VALUES-MOVED instead of being invisible.
-       THREE values, not four: the pit/lip loop below is a hardcoded `lv < 3`, so these rows sample levels
-       0..2 and THE STACK has no pit row - its column is absent from the table rather than invented, and
-       the verdict line prints that gap (#314 owns closing it). RECDARK is deliberately NOT declared:
+       FOUR values now (#314): the pit/lip loop below runs the level list, so the authored level is
+       sampled like the generated three and its column is a measurement rather than a gap. The verdict
+       line still prints how many levels the records cover, because a record that stopped covering a
+       level is the failure this whole sweep was about. RECDARK is deliberately NOT declared:
        [0, 0, 0] there is the criterion "no pit cell may be dark" - the same zero the row above asserts as
        `A.pitDark === 0` - it is identical on every level while the neighbouring censuses differ per level,
        #206's own comment derives it from the mechanism ("RECDARK stays 0: coverage authors a source per
        band") rather than reading it off a deal, and it is the one literal on that line every re-key left
        alone. RECOOB_GEO *is* declared: #189 introduced it as the measured non-climb population ("the
        non-climb population of alt's oob census is 0/0/0") and the compare reads it. */
-    const RECPIT = refRecord('alt', 'PIT-MEAN', 'num', [0.262, 0.294, 0.297]);
-    const RECPITN = refRecord('alt', 'PIT-CELLS', 'num', [190, 194, 211]);
-    const RECOOB = refRecord('alt', 'OOB-ERA', 'num', [19, 10, 16]);   // #189 era figure, climb cells included
-    const RECOOB_GEO = refRecord('alt', 'OOB-NONCLIMB', 'num', [0, 0, 0]);   // same census minus authored climb cells
-    const RECDARK = [0, 0, 0];   // the criterion (clause 1 above asserts the same zero), not a census - see above
+    // #314: a fourth value per row, measured on the authored level's own 12 rolls (cell 2.5,18.5
+    // floor 0.00 with its lamp at -1.00; the pit camera was found in 12 of 12 rolls, so this is not
+    // a vacuous record). PIT-CELLS 204 and PIT-MEAN 0.287 sit inside the generated levels' range.
+    // OOB-ERA/OOB-NONCLIMB record ZERO because level 3 has NO non-climb wrong-band cell to leak
+    // through (0 of 0): the row reports its population, so a zero population reads as zero
+    // population rather than as a pass.
+    const RECPIT = refRecord('alt', 'PIT-MEAN', 'num', [0.262, 0.294, 0.297, 0.287]);
+    const RECPITN = refRecord('alt', 'PIT-CELLS', 'num', [190, 194, 211, 204]);
+    const RECOOB = refRecord('alt', 'OOB-ERA', 'num', [19, 10, 16, 0]);   // #189 era figure, climb cells included; L3 has none
+    const RECOOB_GEO = refRecord('alt', 'OOB-NONCLIMB', 'num', [0, 0, 0, 0]);   // same census minus authored climb cells
+    const RECDARK = [0, 0, 0, 0];   // the criterion (clause 1 above asserts the same zero), not a census - see above
     pitRecN = RECPIT.length;   // coverage of the records above, printed in the verdict line
     /* #206: RECPIT and RECOOB are MAP.light censuses, so the blur band gate moved them with the
        kernel (0.426/0.423/0.464 and 123/377/337 were the bleeding kernel's df919c3 readings - the
@@ -1302,7 +1344,13 @@ if (MODE === 'alt') {
       minus 0.01, so the row goes red on a regression and not on a level being hole-y. It can still
       fail: the camera-band-not-surface-band control reads 0.000 on this clause, and deleting the glow
       fails clause 3 outright. */
-    const LIPDELIV_REF = [0.996, 0.967, 0.941];
+    // #314: level 3's authored lip DELIVERS LESS than any generated level - 0.919 against 0.996 /
+    // 0.967 / 0.941, i.e. 8.1% of its lip pixels take light from a different band, on a 4-quantum
+    // step whose lamp sits one floor below the datum. Recording it moves that level's line with it
+    // (the row compares against min(0.95, record - 0.01)), which is what a per-level record is FOR,
+    // but it is a shortfall, not a clean row: it is written up in docs/ROADMAP.md's known-debt table
+    // and it is why this branch carries Refs #314 rather than Closes #314.
+    const LIPDELIV_REF = [0.996, 0.967, 0.941, 0.919];
     const lipFloor = (lv) => Math.min(MINDELIV, LIPDELIV_REF[lv] - 0.01);
     const gAl = (r, k) => r >= 1 ? 0 : (r <= 0.45 ? k * 0.7 + (k * 0.22 - k * 0.7) * (r / 0.45)
       : k * 0.22 * (1 - (r - 0.45) / 0.55));
@@ -1438,7 +1486,7 @@ if (MODE === 'alt') {
         return out;
       })()`, ctxVm);
     };
-    for (let lv = 0; lv < 3; lv++) {
+    for (let lv = 0; lv < run('LEVELS.length'); lv++) {
       const G = { rolls: 0, noSceneAt: [], worstFrac: 0, worstAt: '-', crossN: 0, dqMax: 0, spanMax: 0,
         lampsMin: 1e9, lampsSum: 0, rectMax: 0, pit: 0, pitDark: 0, pitSum: 0, oob: 0, lipRoll: -1, lipDeliv: 1,
         lipOn: 0, lipOnN: 0, lipCross: 0, lipSel: null, lipLamps: 0,
@@ -9449,6 +9497,26 @@ if (MODE === 'props') {
     process.exit(0);
   }
 
+  /* Which world a row builds has to be a function of the LEVEL, not of the command line. genLevel draws
+     from the harness's own xorshift (`rs`, :296) and nothing in this block re-seated it, so `props 3`
+     entered the collision loop 4 draws into the stream where `props` entered it ~1284 in, and
+     startLevel(0,true) built a DIFFERENT level 0 - a different crate at index 9, in a different room -
+     while the row's head text, `ghost r` off foot*scale, printed identically: identical prose, opposite
+     verdict (#314). The repair is to make the stream position a function of the level too: rest seat to
+     where this block began, replay the generations a `props` run would have performed before this load
+     (the LI seat's level 0, then the loop's own earlier levels), and only then generate the level wanted.
+     Those positions are what today's green run judged - level 0 at RS0+D0, level 1 at RS0+2*D0, level 2 at
+     RS0+2*D0+D1 - so `props` and `props 0` stay byte-identical and `props 1/2/3` stop disagreeing with them;
+     the command line now chooses only which level the level-specific sections above judge. `seedRng()`
+     (:311) is NOT used: it installs a different generator than boot's, which would re-baseline every world. */
+  const RS0 = rs;
+  const SEAT0 = `S.mode='play'; S.locked=false; startLevel(0, true);`;
+  const GEN = li => `S.mode='play'; S.locked=false; startLevel(${li}, true);`;
+  const loadLevel = k => {
+    rs = RS0; run(SEAT0);
+    for (let j = 0; j < k; j++) run(GEN(j));
+    run(GEN(k));
+  };
   run(`S.mode='play'; S.locked=false; startLevel(${LI}, true);`);
   run('var PKP = [], PKK = [], PKP2 = [];');
   const CAMSET = `(()=>{
@@ -9524,14 +9592,21 @@ if (MODE === 'props') {
        0.3 m body centred at 0.9 in a one-unit room stands with half its span INSIDE the slab, so (S)
        measured a clipped 30 px instead of the 34-37 px its own authored span gives. It is now hung
        0.35 m under the ceiling of its own cell - under the slab at any band, still above the floor at
-       every band, and (F) already reports the orb as airborne because 30_entities.js owns its arc. */
+       every band, and (F) already reports the orb as airborne because 30_entities.js owns its arc.
+       THE STACK (#16) breaks that rule the other way: every cell on the sight line has `ceilAt` 4.00 m,
+       so "0.35 under the ceiling" hung the orb four metres up - out of the frame, (A) 0 px, (S) -338 px
+       (the mask.bot -1 sentinel) and four rows judging a prop that was never on screen. A hanging light
+       is bounded by the room it is IN, so the z is min(ceiling-0.35, floor+0.9): 0.65 in a one-unit room
+       - L0 (S) stays 34 px, parity - and 0.9 in a five-metre atrium, where (S) reads 35 px. The floor
+       term alone is NOT the rule: floorAt+0.9 measures 30 px on L0, the very clipped number recorded
+       above, because half a 0.3 m body then stands inside the slab at any band. */
     barrel: `PROPS.length=0;PROPS.push({tex:PROP.barrel,x:${SX},y:${SY},z:floorAt(${SX},${SY}),scale:0.86,kind:'barrel',hp:26,dead:false});globalThis.__p=PROPS[0]`,
     crate: `PROPS.length=0;PROPS.push({tex:PROP.crate,x:${SX},y:${SY},z:floorAt(${SX},${SY}),scale:0.72,kind:'crate'});globalThis.__p=PROPS[0]`,
     lamp: `PROPS.length=0;PROPS.push({tex:PROP.lamp,x:${SX},y:${SY},z:floorAt(${SX},${SY}),scale:0.95,kind:'lamp'});globalThis.__p=PROPS[0]`,
     pickupHealth: `PROPS.length=0;PICKUPS.length=0;PICKUPS.push({type:'health',x:${SX},y:${SY},bob:0,dead:false});globalThis.__p=PICKUPS[0]`,
     pickupAmmo: `PROPS.length=0;PICKUPS.length=0;PICKUPS.push({type:'ammo',x:${SX},y:${SY},bob:0,dead:false});globalThis.__p=PICKUPS[0]`,
     pickupArmor: `PROPS.length=0;PICKUPS.length=0;PICKUPS.push({type:'armor',x:${SX},y:${SY},bob:0,dead:false});globalThis.__p=PICKUPS[0]`,
-    orb: `PROPS.length=0;PROJ.length=0;PROJ.push({kind:'orb',x:${SX},y:${SY},z:ceilAt(${SX},${SY})-0.35,scale:0.3,vx:0,vy:0,vz:0,t:0,tex:PROP.orb[0]});globalThis.__p=PROJ[0]`,
+    orb: `PROPS.length=0;PROJ.length=0;PROJ.push({kind:'orb',x:${SX},y:${SY},z:Math.min(ceilAt(${SX},${SY})-0.35,floorAt(${SX},${SY})+0.9),scale:0.3,vx:0,vy:0,vz:0,t:0,tex:PROP.orb[0]});globalThis.__p=PROJ[0]`,
     portal: `PROPS.length=0;exitX=${SX};exitY=${SY};S.exitOpen=true;globalThis.__p={x:${SX},y:${SY},scale:1.5,z:0.02}`,
   };
   /* The second render of every pair has to have the OBJECT out of it, not just the array emptied:
@@ -9584,6 +9659,20 @@ if (MODE === 'props') {
   let bad = 0;
   const fail = msg => { bad++; console.log('    FAIL ' + msg); };
   const gruntTris = run('MESH.trisFor("grunt")'), gruntVerts = run('MESH.vertsFor("grunt")');
+  /* (#314) The CONTROL's ratio is a property of the SEAT, not of the renderer: zeroing MAP.light leaves
+     the mesh's light-independent floor (js/13_mesh.js:996, 0.30*visAt = 0.292 at 2.9 m on every level)
+     plus fog, so the ratio measures how much light was THERE to remove. Maxima over the five
+     non-emissive kinds, with the seat cell's own lightmap in brackets: L0 0.479 [0.180], L1 0.551
+     [0.079], L2 0.306 [0.623], L3 0.716 [0.014] - THE STACK's seat is a dark corridor, so its body is
+     nearly all residual and x0.71 (170 -> 122 top decile) is the honest reading of a control that DOES
+     fall. One 0.7 floor across four levels therefore failed the authored level by 0.007-0.016 while
+     passing a level whose seat carried 40x the light. The magnitude is now a recorded per-level number
+     (the refRecord shape, so it cannot be re-tuned to quiet a row) and what stays a hard gate is the
+     semantic question: a body that loses less than 10% of its top decile is not seeing scene light at
+     all, and then every other (E) row here is worthless. */
+  const CTRL_REF = refRecord('props', 'CTRL-RAT', 'num', [0.479, 0.551, 0.306, 0.716]);
+  const CTRL_CEIL = 0.9;
+  let ctrlMax = 0, seatLtNow = 0;
   const KINDS = ['barrel', 'crate', 'lamp', 'pickupHealth', 'pickupAmmo', 'pickupArmor', 'orb', 'portal'];
   const EMISSIVE = { lamp: 1, orb: 1, portal: 1 };
   console.log('props: level ' + LI + '  cam ' + CAM.x.toFixed(2) + ',' + CAM.y.toFixed(2) +
@@ -9660,14 +9749,17 @@ if (MODE === 'props') {
     const m2 = mask(s2);
     if (m2.n < 250) fail('(E) ' + kind + ': invisible once the lights are off (' + m2.n + ' px) - cannot judge emissive');
     const full = hi(s.A, m, 0.1), dark = hi(s2.A, m, 0.1), rat = full > 0 ? dark / full : 1;
+    const seatLt = +run('MAP.light[(' + SY + '|0)*MW+(' + SX + '|0)]');
+    if (!EMISSIVE[kind] && rat > ctrlMax) { ctrlMax = rat; seatLtNow = seatLt; }
     if (EMISSIVE[kind]) {
       if (rat < 0.85) fail('(E) ' + kind + ': emissive pixels FALL with scene light - top-decile luminance ' +
         full.toFixed(0) + ' lit, ' + dark.toFixed(0) + ' dark (x' + rat.toFixed(2) +
         '): it is multiplied by li, so it goes dark in the rooms where it is the only light source');
       else console.log('    emissive: top-decile ' + full.toFixed(0) + ' -> ' + dark.toFixed(0) +
         ' (x' + rat.toFixed(2) + ') - light-exempt');
-    } else if (rat > 0.7) fail('(E) ' + kind + ': the CONTROL did not fall (x' + rat.toFixed(2) +
-      ') - this probe cannot see scene light, so every other (E) row here is worthless');
+    } else if (rat > CTRL_CEIL) fail('(E) ' + kind + ': the CONTROL did not fall (x' + rat.toFixed(2) +
+      ') - this probe cannot see scene light, so every other (E) row here is worthless (seat lightmap '
+      + seatLt.toFixed(3) + ')');
     else console.log('    lit by light, as it should be (control): ' + full.toFixed(0) + ' -> ' + dark.toFixed(0) +
       ' (x' + rat.toFixed(2) + ')');
     /* (E2) the CORE, not the ratio - #84. Row (E) asks whether emissive pixels survive the lights
@@ -9694,7 +9786,18 @@ if (MODE === 'props') {
     if (kind === 'lamp') {
       const CORE_D = 1.0;                  // m along the sight line: fogAt(1.0) is 0, fogAt(2.9) is not
       // [saturated px, top-decile luminance] per level, recorded by `node tools/view.js refs --record`
-      const CORE_REC = refRecord('props', 'LAMPCORE', 'num', [263, 239.7, 263, 239.7, 263, 239.5]);   // saturated px, top-decile luminance, per level 0/1/2 at CORE_D - #19 take three: 239.66 / 239.68 measured on levels 0 and 1 (the core is a lamp, but its mask sits on ground pixels); level 2's pair is NOT re-measured - `props 2` never reaches the lamp row (it fails earlier, on the slide rows, on main too), so 239.5 is main's figure and is labelled as unverified here rather than quietly kept
+      // #314 item 1: the record now carries a FOURTH pair - THE STACK's own authored optics, measured
+      // by this row's own (E2) branch at the 1.00 m seat. 18 fewer saturated px than the generated
+      // levels on a 20-cell authored map with 6 authored lamps is that level's lighting, not a
+      // regression, and the row keeps its exact-match rule rather than widening it.
+      // #19 take three moved the generated pairs to 239.66 / 239.68 (the core is a lamp, but its mask
+      // sits on ground pixels). main labels level 2's pair "NOT re-measured"; measuring it on main
+      // itself says why that label is wrong twice over - main's own `props 2` DOES reach this row, and
+      // reads 263 px / top-decile 239.42 there, so 239.5 was a figure inherited from an older tree
+      // rather than a verified one. Saturated count identical, a hundredth of a byte on the top decile
+      // of a 15,487 px mask: the same lamp seen through a ground pass that has since learned to filter
+      // and wash. Re-recorded from measurement here; no tolerance moved.
+      const CORE_REC = refRecord('props', 'LAMPCORE', 'num', [263, 239.7, 263, 239.7, 263, 239.4, 245, 239.5]);   // saturated px, top-decile luminance, per level 0/1/2/3 at CORE_D
       const seat = run(`(()=>{const x=P.x+Math.cos(P.ang)*${CORE_D},y=P.y+Math.sin(P.ang)*${CORE_D};` +
         `return {x:+x.toFixed(4),y:+y.toFixed(4),open:!isSolid(x,y),fog:+fogAt(${CORE_D}).toFixed(5)}})()`);
       /* the distance at which the R>253 rule dies, solved from the game's own fog rather than typed in,
@@ -9720,7 +9823,7 @@ if (MODE === 'props') {
           if (L > cmax) cmax = L;
           if (hot) csat++;
         }
-        const recN = LI >= 0 && LI <= 2 ? LI * 2 : -1;               // the record covers the 3 authored levels
+        const recN = LI >= 0 && LI < run('LEVELS.length') ? LI * 2 : -1;   // #314: the record now covers every level               // the record covers the 3 authored levels
         const rSat = recN >= 0 ? +CORE_REC[recN] : NaN, rTop = recN >= 0 ? +CORE_REC[recN + 1] : NaN;
         const det = csat + ' px of R>253&&G>253 in the ' + m3.n + ' px mask at ' + CORE_D.toFixed(2) + ' m'
           + ' (maxLum ' + cmax.toFixed(1) + ', top-decile ' + ctop.toFixed(1) + ', fogAt(seat) '
@@ -9820,7 +9923,11 @@ if (MODE === 'props') {
      level list. It is reported as debt at the MEASURED GEOMETRY - overhang past OVER318, an A/B knob, not
      a tolerance written into a verdict - so it cannot quietly become normal: a blocker that overhangs only
      0.05 m and snags a pose is a FAILURE, two poses short is a FAILURE, and STRICT=1 gates even the
-     authored case. Fixing #318 (move the crate or widen the corridor) retires this row. */
+     authored case. Fixing #318 (move the crate or widen the corridor) retires this row.
+     #314: these loops used to stop at level 2, so the authored level was never driven into its own props
+     at all; lifting the bound is what found the geometry above, and main's measured-geometry debt shape
+     is what reports it - a KNOWN row that reads the OVERHANG, never one gated by level index, which
+     would quiet any future defect on the authored level for the wrong reason. */
   const OVER318 = process.env.OVERHANG_MAX !== undefined ? +process.env.OVERHANG_MAX : 0.12;
   const STRICTP = !!process.env.STRICT;
   let knownP = 0;
@@ -9878,7 +9985,9 @@ if (MODE === 'props') {
   })()`;
   const NL = run('LEVELS.length');   // #303: the authored plan places its props by plan marks, so the
   for (let li = 0; li < NL; li++) {  // population these rows drive has to be read per level, not assumed
-    run(`S.mode='play'; S.locked=false; startLevel(${li}, true); ENEMIES.length=0; PROJ.length=0;`);
+    // #314: loadLevel, not startLevel - the world this drive judges is a function of (level, SEED),
+    // not of how many generations the command line happened to spend getting here.
+    loadLevel(li); run('ENEMIES.length=0; PROJ.length=0');
     const cands = run(`(()=>{for(const p of PROPS)if(p.kind==='crate'||p.kind==='barrel'||p.kind==='lamp'){}
       return PROPS.map((p,i)=>({i,k:p.kind,x:p.x,y:p.y,s:p.scale||1,gz:floorAt(p.x,p.y)}))})()`);
     const cen = {}; let nSolidProp = 0;
@@ -9966,6 +10075,20 @@ if (MODE === 'props') {
           + ' m (OVERHANG_MAX ' + OVER318 + '), so one pose snags at the face; the floor here is ' + (sCross + 1)
           + ' of ' + sBrush + ' crossings at this overhang - reported, not floored' : '')
         : ' (a seal would stop at first contact instead of sliding on the free axis)'));
+  }
+  {
+    const cRef = LI >= 0 && LI < CTRL_REF.length ? CTRL_REF[LI] : -1;
+    if (cRef < 0) console.log('  control ratio ' + ctrlMax.toFixed(3) + ' (seat lightmap ' +
+      seatLtNow.toFixed(3) + ') - no record for level ' + LI + '; run `node tools/view.js refs --record`');
+    else if (Math.abs(ctrlMax - cRef) > 0.05) {
+      bad++;
+      console.log('  FAIL control ratio moved: ' + ctrlMax.toFixed(3) + ' against the recorded ' +
+        cRef.toFixed(3) + ' - ' + (100 * (1 - ctrlMax)).toFixed(0) + '% off the lit body at a seat carrying '
+        + seatLtNow.toFixed(3) + ' of lightmap: the light-independent mesh floor, the fog term or the seat '
+        + 'has moved, and every (E) row above is worth only what this number says it is.');
+    } else console.log('  control ratio ' + ctrlMax.toFixed(3) + ' = the recorded ' + cRef.toFixed(3) +
+      ' (' + (100 * (1 - ctrlMax)).toFixed(0) + '% off the lit body at the seat, lightmap ' +
+      seatLtNow.toFixed(3) + ')');
   }
   if (knownP) console.log('  |  ' + knownP + ' known-issue row(s) reporting #318 (an authored blocker overhangs its'
     + ' lane by more than ' + OVER318 + ' m, so a ~30 deg graze pose snags instead of sliding)'

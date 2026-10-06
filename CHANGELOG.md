@@ -2,6 +2,27 @@
 
 ### Changed
 
+- **The prop probe now judges the hand-authored level, and a level's world no longer depends on the
+  command line** (#314). `node tools/view.js props` was green while `node tools/view.js props 3` — the
+  same probe asked about THE STACK — failed 13 rows on current `main` (`props 2` failed 4). All three
+  causes were the probe's, not the level's:
+  the scene-light **control** compared every level against one 0.7 fall bar, though that ratio measures
+  how much light the seat *had* to lose (THE STACK's seat cell carries lightmap 0.014 against level 2's
+  0.623, so its body falls 28% and landed at 0.716) — the magnitude is now a recorded per-level number
+  and only "fell by less than 10%, therefore sees no light at all" stays a hard gate; the **orb** was
+  hung `0.35 m` under its ceiling, which in a room whose ceiling is 4 m up puts it out of the frame
+  (0 px, a −338 px silhouette) — it now hangs at `min(ceiling−0.35, floor+0.9)`, 34 px on the generated
+  levels as before and 35 px on the authored one; and the **prop-collision** rows turned out to judge a
+  *different world* depending on which level the argument named, because level generation draws from the
+  harness's shared random stream and the loop inherited wherever that stream had got to — a different
+  crate at the same index, in a different room, printing identical text with the opposite verdict. Each
+  level load there now rest seats and replays the generations a plain `props` run performed, so which
+  world a row builds is a function of the level and its seed only, and `props` and `props 3` agree.
+  Measuring all four levels also found one stale figure in the lamp-core record: level 2's pair read
+  239.5 from an older tree while the row, run on current `main`, reads 263 px / 239.4 — a hundredth of a
+  byte on the top decile of a 15,487 px mask whose saturated count is identical. Both that pair and the
+  authored level's pair are now re-recorded from measurement, and `node tools/view.js refs` prints 22
+  records with the table agreeing. No player-visible byte changed: no `js/` file is touched by this work.
 - **A far ceiling stopped drawing a fan of spokes** (#19, one half of it). The renderer paints a floor or ceiling pixel in one of two places, and until now they disagreed about what a distant surface looks like. The row loop has always stopped texturing past `FARB` (22 m at the current tier) and filled the row with the material's own average — honest, because a row out there spans more world than the mip chain holds: the chain ends at 8×8 while the ideal mip of a far ceiling pixel is 5–11. The second copy, `groundPixel()`, which paints every ground pixel whose cell sits on a *different storey* than the row it belongs to, had no such branch and textured out to four times that distance. On a stepped level those pixels **are** the far field. A pixel there reads one texel for a footprint that runs hundreds of texels down its own ray, so the material's grit is drawn as hard strips whose long axis is the line from the pixel to the vanishing point — which in perspective is a fan of straight spokes meeting under the roof, and it is the reason a screenshot of this game reads as a broken renderer rather than a retro one. A far pixel now takes the same mip-mean wash in **both** copies, from its own solve, with emissive texels averaged by their own rule so a mostly-emissive material cannot over-light the band.
   **What a player sees.** At `node tools/view.js scene 0 1` the pale far-ceiling region past 22 m reads as a smooth gradient: **38,040 px of a 203,138 px frame** differ from the same build with the term switched off, mean pixel difference 12.4, and the frame's own statistics do not move at all — mean 52.7, blown 0.00 %, both arms. At THE STACK's spawn seat 9,992 px change. Nothing is blurred that the row loop would still fetch, and past `FARB` the new path is *cheaper* than the one it replaces (no mip select, no mirror hash, no texel load, no decal); smoke's paired raster arm reads **−0.15 ms** pooled, and `mip` still reports every level better than the 1-D control with `detail` 4–8× its mush floor, which is the row that says "filtering, not blur". The A/B is one call in the running page: `DEV.set('gndfar', 0)` puts the textured far field back and the comb returns.
   **What is not fixed, and where it lives.** The spokes do not vanish. At the same seat the band between the near field and 22 m still combs — the top third of that region, buffer rows 107–122, whose pixels solve to 18–22 m where the footprint along the ray is 4–16 texels of the fetched mip and the fetch takes three taps. That half is **not** this copy of the pixel body: the two copies alias there identically, and two measurements say so — `scene 1 1` and `scene 2 0` are **bit-identical** with the switch off (0 differing px), and this change touches buffer rows 123–161 of the seat above and none above them. Fixing it means more taps *along* the ray. One guard rail says do not simply widen the filter: adding taps also raises how often a footprint **touches** an emissive texel, and the fetch's flag rule makes "touches" a threshold, so on a material like level 2's ceiling floor — 52 of 64 texels of its coarsest mip flagged — extra taps convert streaking into brightness. The wash path added here avoids that trap by averaging lit and emissive texels separately; a tap increase has to do the same. The bright wedge as a *shape* — a hard luminance step where the level's own boundary projects onto the ceiling plane — is #375 and is untouched.
@@ -647,6 +668,34 @@
   highlight, not tread count (#181 stays open).
 
 ### Added
+
+- **The probes judge the authored level instead of reporting that it has no record
+  ([#314](https://github.com/lioreshai/breach-protocol-flash-next/issues/314)).** Level 3 is
+  hand-authored while the records gating it were written over three generated levels, so `props 3`
+  answered *level 3 has no record* and `alt`'s censuses would have compared against `undefined` had
+  their bounds moved. `LAMPCORE` now carries level 3's own measured pair and takes its index from
+  the level list; `alt`'s pit, wrong-band, coverage and lip-delivery records each gained a fourth
+  value **and** their `lv < 3` bounds moved in the same commit, because a bound that outruns its
+  literals is an arithmetic miss that prints no red row. A main-era figure no authored level can
+  have now prints *no era figure for this level* rather than the word `undefined` inside a row that
+  still passes. One honest shortfall ships with the record: the authored level's lip delivers
+  **0.919** on-band against 0.941–0.996 on generated levels, so 8.1% of its lip pixels take light
+  across a band boundary — the record moves that level's line with it, and the gap is written up in
+  the roadmap rather than averaged away.
+
+- **The decal and prop probes now drive the authored level too
+  ([#314](https://github.com/lioreshai/breach-protocol-flash-next/issues/314)).** Three loops that
+  stopped at level 2 — `decal`'s riser-punch census and props' interleaved cost census and collision
+  census — now run the whole level list, so THE STACK's wall marks are checked against the strip its
+  own faces paint and its crate ghosts are driven into from four directions. Levels 0–2 are
+  byte-for-byte unchanged; the diffs contain only added rows. Level 3's graze row (`slides, does not
+  seal`) reports one stuck pose, and that is **#318** — an authored crate whose collision ghost overhangs
+  the lane beside it by 0.16 m against a generated crate's 0.05 m. It is reported as debt at the
+  *measured geometry*: the row reads the overhang against `OVERHANG_MAX` (default 0.12 m, an A/B knob),
+  prints `KNOWN` with that figure beside it, and goes red if a blocker that overhangs less snags a pose,
+  if two poses are short, or under `STRICT=1`. Moving the crate or widening the corridor retires the row.
+  No threshold in the row was widened, and nothing here gates by level index — a KNOWN row that keyed on
+  *which level* it was would quiet any future defect on the authored level for the wrong reason.
 
 - **`node tools/view.js surface`, which measures the surface value order instead of describing it**
   (#369). The issue's definition of done is "the ceiling band sits at least 15 luminance below the wall

@@ -5,13 +5,13 @@
 # A declaration with no row here fails REFS-DECLARED-MISSING; a row with no declaration fails
 # REFS-IN-TABLE-UNDECLARED; an edited literal fails REFS-VALUES-MOVED. None of the three is a
 # warning, and the row runs inside flatparity, which ci.yml runs blocking.
-ref	alt	DARK-COVERED	num	94.9 70.5 67.7
-ref	alt	DARK-SHARE	num	4.0 10.7 6.1
+ref	alt	DARK-COVERED	num	94.9 70.5 67.7 48.4
+ref	alt	DARK-SHARE	num	4.0 10.7 6.1 24.2
 ref	alt	GRID-CENSUS	num	9 170 2 46 9 251 2 52 9 307 2 52 9 134 4 15
-ref	alt	OOB-ERA	num	19 10 16
-ref	alt	OOB-NONCLIMB	num	0 0 0
-ref	alt	PIT-CELLS	num	190 194 211
-ref	alt	PIT-MEAN	num	0.262 0.294 0.297
+ref	alt	OOB-ERA	num	19 10 16 0
+ref	alt	OOB-NONCLIMB	num	0 0 0 0
+ref	alt	PIT-CELLS	num	190 194 211 204
+ref	alt	PIT-MEAN	num	0.262 0.294 0.297 0.287
 ref	anim	NECK-BAND	num	6.1 2.7 3.4
 ref	anim	NECK-TUBE	num	41 43.2 40
 ref	bands	SEAM-FRAME	md5	4bfb28ba4ea318905a9741ad6b4537fe 86af95a3ee5af5c501f62d70f9895e80 b0c06b292a11dbe9a0eaee3c953a220d 265f1474888c6b724c3dfca64f2632b7
@@ -24,6 +24,7 @@ ref	flatparity	DEALT	md5	583bb866c425f7a16954d6a9a5de876f 659b2fc2796a27ff2f3a10
 ref	flatparity	LOCK	md5	619e10b73e0fe00b61b9d39091f04972 fbcff86d51a87fc3df0279ab205cecd5 c6e09c0c32aaa6369afc9c0d8f3168cb f95291bb61df29589e872d068e36d1ef
 ref	flatparity	PARITY	md5	a4db61f5161618586ae674047fc57cc2 fbcff86d51a87fc3df0279ab205cecd5 0a99b0ed747c9732792fc474bf5211ad f95291bb61df29589e872d068e36d1ef
 ref	heights	HALF-MOVE	num	97.66 31.21 82.05 95.47 42.83 61.97 98.03 33.82 29.80 95.62 42.81 64.45 97.73 32.57 81.13 95.34 42.88 63.32 97.74 23.55 21.24 95.58 38.08 54.25
-ref	props	LAMPCORE	num	263 239.7 263 239.7 263 239.5
+ref	props	CTRL-RAT	num	0.479 0.551 0.306 0.716
+ref	props	LAMPCORE	num	263 239.7 263 239.7 263 239.4 245 239.5
 ref	viewmodel	VM-REBUILD	num	0.50
 ref	viewmodel	VM-SHARE	num	0.10
