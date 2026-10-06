@@ -151,11 +151,13 @@ still blind (`VERTICALITY.md`, risk 1).
   — `node tools/view.js props <0..3>` and `node tools/view.js alt` print its rows, and `alt`'s verdict
   line still says how many levels its records cover, because a record that stopped covering a level is
   the failure this sweep was about. Judging props' graze row on the authored level found one stuck
-  pose, and it is **#318, not a new defect**: the same row is `ok` against that branch's js
-  (`JSDIR=<that tree>/js node tools/view.js props`), whose fix is committed but unmerged. `props` sits
-  in a blocking job, so the row reports `KNOWN` at its **measured** overhang against `OVERHANG_MAX`
-  (an A/B knob), counts into the verdict's debt tally, gates under `STRICT=1`, and retires itself when
-  #318 merges. It gates on geometry, never on level index — a KNOWN row keyed on *which* level it ran
+  pose — **#318**, and it was a real defect in authored content, not a new one: a lamp glyph stood in
+  the one open cell of column 12, the doorway, so its ghost ate the passage and an angled body sealed
+  instead of sliding. That is **fixed**: the glyph is one cell inside the room, the row crosses 4 of 4
+  on all four levels, and the `KNOWN`/`OVERHANG_MAX` debt row that reported it is retired with it, so a
+  snag is a FAILURE on every level with no knob that makes it ok. The A/B that proves the row has teeth
+  is still `JSDIR=<tree without the glyph move>/js node tools/view.js props` — it fails there and names
+  the body it blames. It gates on geometry, never on level index — a row keyed on *which* level it ran
   on would quiet any future defect on the authored level for the wrong reason.
 - **One shortfall ships with the authored level's records (#314, items 1–2).** `LAMPCORE` carries its
   own pair and indexes by `LEVELS.length`; `alt`'s pit, wrong-band, coverage and lip records each
