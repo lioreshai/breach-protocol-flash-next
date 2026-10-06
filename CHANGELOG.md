@@ -2,6 +2,36 @@
 
 ### Changed
 
+- **The surface census now looks around one room instead of dealing four** (#369, tooling only — the
+  picture is untouched). `node tools/view.js surface` asks which pixels are ceiling by rendering one
+  seated frame three times with the level's own surface biases moved, so it never guesses from colour.
+  Its seat used to call `startLevel`, and `startLevel` *generates*: the level's layout is drawn from the
+  harness's seeded stream, which advances on every call, so turning the camera by 90 degrees also dealt a
+  different level. `CAMS=0,0` — one pose, twice — printed two worlds (ARCHIVE SUBLEVEL 79 qualifying
+  seam columns and a 12.1 gap, then 2 columns and -0.8; RING TRANSPORT 118 columns then 2), which is why
+  the issue's "the wall band it meets" criterion could not be stated over more than one pose: a row that
+  moves when only the camera moved is not measuring the camera. Dealing and aiming are now separate,
+  every row prints the **deal hash** it was measured on, and a `POSE` row checks the sweep two ways — the
+  grid hash after aiming must equal the deal's, and returning to the first pose must reproduce its frame
+  byte for byte. Run against an `aim` that re-deals, that row FAILs on all four levels, so it is a row
+  that has been seen to fail. Two faults came out of it: the `CONTROL` block zeroed the
+  authored order and never put it back, so any pose after the control was measuring the pre-#380 build
+  and calling it the shipped one; and the viewmodel was not rested between the three renders, so the
+  rifle had swung with the wall clock, its pixels failed the "identical, therefore not a surface" test,
+  and the columns whose seam window straddled them dropped out (RING TRANSPORT 138 qualifying columns
+  before, 213 now; THE STACK 113 → 191; the medians move by under 0.4, so this was the census losing its
+  columns, not the bands reading wrong). A pose with nothing to score prints `n/a` and judges nothing, and
+  a level the whole sweep cannot read fails one `SWEEP` row — vacuity is a failure, not a debt.
+  **What the sweep then says about ABATOIR CORE, which is the point of the change.** From its spawn cell
+  the ceiling seam never enters any pose (2/4/3/2 qualifying columns), so the issue's "ceiling 15 under
+  the wall" criterion cannot be scored there at all — that is #375's distance wash swallowing the edge,
+  not new shading. But two poses where the bands *are* measurable put the ceiling **above** the deck
+  (ceiling 66.0 against floor 48.7, and 65.3 against 34.3, Rec.709), so the level the issue calls out
+  still has its ceiling out-shining its floor at three-quarters of a turn away from the spawn angle.
+  Those two rows are gating failures of this probe, which is `surface` and is not in `ci.yml`'s roster,
+  so no gate moved and nothing was widened: `TARGET`, `MIN_COLS` and the 6-point ORDER tolerance are
+  unchanged. No `js/**` file changed, so no render reference moves.
+
 - **A far ceiling stopped drawing a fan of spokes** (#19, one half of it). The renderer paints a floor or ceiling pixel in one of two places, and until now they disagreed about what a distant surface looks like. The row loop has always stopped texturing past `FARB` (22 m at the current tier) and filled the row with the material's own average — honest, because a row out there spans more world than the mip chain holds: the chain ends at 8×8 while the ideal mip of a far ceiling pixel is 5–11. The second copy, `groundPixel()`, which paints every ground pixel whose cell sits on a *different storey* than the row it belongs to, had no such branch and textured out to four times that distance. On a stepped level those pixels **are** the far field. A pixel there reads one texel for a footprint that runs hundreds of texels down its own ray, so the material's grit is drawn as hard strips whose long axis is the line from the pixel to the vanishing point — which in perspective is a fan of straight spokes meeting under the roof, and it is the reason a screenshot of this game reads as a broken renderer rather than a retro one. A far pixel now takes the same mip-mean wash in **both** copies, from its own solve, with emissive texels averaged by their own rule so a mostly-emissive material cannot over-light the band.
   **What a player sees.** At `node tools/view.js scene 0 1` the pale far-ceiling region past 22 m reads as a smooth gradient: **38,040 px of a 203,138 px frame** differ from the same build with the term switched off, mean pixel difference 12.4, and the frame's own statistics do not move at all — mean 52.7, blown 0.00 %, both arms. At THE STACK's spawn seat 9,992 px change. Nothing is blurred that the row loop would still fetch, and past `FARB` the new path is *cheaper* than the one it replaces (no mip select, no mirror hash, no texel load, no decal); smoke's paired raster arm reads **−0.15 ms** pooled, and `mip` still reports every level better than the 1-D control with `detail` 4–8× its mush floor, which is the row that says "filtering, not blur". The A/B is one call in the running page: `DEV.set('gndfar', 0)` puts the textured far field back and the comb returns.
   **What is not fixed, and where it lives.** The spokes do not vanish. At the same seat the band between the near field and 22 m still combs — the top third of that region, buffer rows 107–122, whose pixels solve to 18–22 m where the footprint along the ray is 4–16 texels of the fetched mip and the fetch takes three taps. That half is **not** this copy of the pixel body: the two copies alias there identically, and two measurements say so — `scene 1 1` and `scene 2 0` are **bit-identical** with the switch off (0 differing px), and this change touches buffer rows 123–161 of the seat above and none above them. Fixing it means more taps *along* the ray. One guard rail says do not simply widen the filter: adding taps also raises how often a footprint **touches** an emissive texel, and the fetch's flag rule makes "touches" a threshold, so on a material like level 2's ceiling floor — 52 of 64 texels of its coarsest mip flagged — extra taps convert streaking into brightness. The wash path added here avoids that trap by averaging lit and emissive texels separately; a tap increase has to do the same. The bright wedge as a *shape* — a hard luminance step where the level's own boundary projects onto the ceiling plane — is #375 and is untouched.
