@@ -60,60 +60,33 @@
  * anyone deliberately A/B-ing a knob.
  *
  * ---------------------------------------------------------------------------------------------
- * CENSUS OF ENV-GATED VERDICT ROWS (the artifact ask #2 of #338 needs; re-derived by parsing
- * `tools/view.js` and `tools/smoke.js`, not remembered: `grep -c process.env.` on each gives LINES,
- * `grep -oE 'process\.env\.[A-Za-z_0-9]+' | wc -l` gives READS). view.js: 89 lines, 108 reads, 74
- * distinct names. smoke.js: 9 lines, 10 reads, 6 names. What matters is not the count but which change
- * whether a ROW EXISTS or a ROW COUNTS, as opposed to changing a number or a print:
+ * CENSUS OF ENV-GATED VERDICT ROWS (ask #2 of #338). `node tools/roster.js --env` prints it: every
+ * `process.env.` read in `tools/view.js` and `tools/smoke.js`, its class, and the LIVE `file:line` of
+ * each read. It replaces a block of this header that transcribed those line numbers - `main` grew
+ * rows in view.js, every number in it went stale inside a week, and a reader who trusted one would
+ * have gone looking at the wrong code. AGENTS.md's rule: a transcribed number rots and the tool
+ * cannot. What is left here is the part a tool cannot derive, the CLASSIFICATION (the `ENV_CLASS` map
+ * below is the only copy, and `--env` reads it rather than restating it):
+ *   A  a ROW EXISTS only when the var is set - the #338 shape: unset env, silent row, the summary
+ *      still prints `ok`, and nothing in the default output names the missing row;
+ *   B  the row prints either way but its EXIT CODE does not unless the var is set (filed debt promoted
+ *      to a gate - `STRICT`). CI never sets it, so local and CI agree; an ambient STRICT=1 is still a
+ *      different verdict, which is the safe direction and still the reason children are scrubbed;
+ *   C  the var changes WHICH ROWS OR INPUTS are measured, not whether a row exists;
+ *   D  a threshold, floor or print - hides no row.
+ * A name the map does not carry is printed unclassified and COUNTED, so a knob someone adds later is
+ * visible as unclassified rather than quietly assumed harmless; a name the map carries and the tools
+ * no longer read FAILS the census, which is exactly the rot this block used to be.
  *
- * (A) A ROW EXISTS ONLY UNDER AN ENV VAR. These are the #338 shape: unset env => the row is silent,
- *     the summary still prints `ok`, and nothing in the default output names the missing row.
- *       cull  LEAK      :3848  the whole "which ground path paints a seam pixel" block, every config
- *             CFG       :3853  the config LIST that block iterates (default ship,nodefer,alldefer) -
- *                             so it also changes how many leak rows there are
- *             LEAKROW   :3932  per-row R/D dump (print only, no row)
- *             CZBAND    :4093  the ceiling-step ground-hash + lightmap rows, and :4170 the
- *                             "emitted a hash for every level" row. THE row the issue is about.
- *       alt   -         none (alt's rows are unconditional)
- *       volume BOOT     :1541  per-seed deals vs the default one-stream sweep: same rows, DIFFERENT
- *                             coverage measured; the verdict line says which ran
- *              DEALS    :1516  how many deals (rows) the verdict is over
- *       bands SEAM      :9303  arms/disarms the seam term the seam rows measure (SEAM=0 disarms)
- *       mip   BANDS     :5121  an extra smoothness-vs-mush line (print only)
- *       refs  LAMPS     :365   whether the lamp-authoring knob row runs at all; NOCAP :370
- *       flatparity LAMPS:2101  selects PARITY vs LOCK sense; FP_DEALT :2138 / FP_DEALT1 :2148 select
- *                             the DEALT sampler, FP_CHILD :2201 is the cold-child marker
- *       smoke VERT      :413   the entire VERT lane - every mover/portal/blast row at altitude
- *       columns TURN    :4976  the turning sweep block
- *
- * (B) A ROW IS DEMOTED TO DEBT UNLESS THE VAR IS SET - the row prints either way, its exit code does
- *     not. `STRICT` promotes filed debt to a gate in: alt :647, volume :1517, horizon :3448,
- *     cull :3526, contrast :6402, anim :7429, bands :9082, and smoke.js :440 (a VERT KNOWN row
- *     becomes an `expect(...,false,...)` failure). CI never sets STRICT, so local and CI agree here;
- *     an ambient STRICT=1 would make a local run STRICTER than the gate, which is the safe direction
- *     but still a different verdict - hence the scrub.
- *
- * (C) THE VAR CHANGES WHICH ROWS ARE MEASURED (inputs, not thresholds): cull STEP :3644, mip AR
- *     :5088, anim KIND :7296 / FRAMES,ROUNDS :7462, props FRAMES,ROUNDS :8503, columns
- *     NT,NW,PITCH,REPS,BATCH,BHS,BWS,GFX :4746-4765, exposure REPS :5276 / COVROLLS :5538, stats
- *     ONLY, KIND, SEAT, WARM, SAB66, shared VW,VH :21, ASCII :23.
- *
- * (D) THRESHOLDS / FLOORS / PRINTS (do not hide rows): cull FARBACK,FARTOL,FARMIN,FARD :4212-4213
- *     and DBG :4214; bands TOL, DIST, STRIDE, ANCHOR, FAR_DOM_MAX, FAR_DOM_DEBT, WITHIN_MAX, CON_MIN,
- *     CON_WFLOOR, CON_FLOOR, DROP_CON_MIN, FARB_STEP_MAX, FARDARK_MAX, FARDARK_L, DBG, SEAMD/U/W;
- *     exposure WORST_FLOOR :5412; smoke RASTER_FLOOR :98, PERF_SEATS :209, SEED :53; contrast
- *     DARKRING, NOBODY, POSEONLY, FLAT, RIM, TINT, PIXHASH, SEAT, SHADOW, ARMCOST (A/B controls);
- *     shared JSDIR :18 and REFS_LOCK :65 - not thresholds: they choose WHICH CODE and WHICH REFERENCE
- *     TABLE the verdicts are of, so the roster scrubs them like any other ambient var.
- *
- * Row-gating names that CI's roster steps DO set (and so are carried, not scrubbed): VERT (smoke,
- * ci.yml:72), LEAK + CZBAND (cull, ci.yml:120). Everything in (A) that CI does not set is what ask
- * #2 wants named inside each mode's own summary; that edit belongs in tools/view.js's 25 verdict
- * blocks and is deliberately NOT part of this increment.
+ * Row-gating names that CI's roster steps DO set, and so are carried into the child instead of being
+ * scrubbed: VERT (smoke) and LEAK + CZBAND (cull) - `--env` prints the ci.yml line for each. Everything
+ * in A that CI does not set is what ask #2 wants named inside each mode's own summary; that edit
+ * belongs in tools/view.js's verdict blocks and is deliberately NOT part of this increment.
  *
  * USAGE.  node tools/roster.js            run the whole roster in ci.yml's order
  *         node tools/roster.js --quick 3  the first 3 only (census says PARTIAL)
  *         node tools/roster.js --list     parse + drift check + yaml lint, run nothing
+ *         node tools/roster.js --env      the env-gated row census above, with live line numbers
  * --------------------------------------------------------------------------------------------- */
 
 const fs = require('fs');
@@ -136,6 +109,7 @@ const PASSTHROUGH = process.env.ROSTER_KEEP_ENV === '1';
 
 const argv = process.argv.slice(2);
 const LIST = argv.includes('--list');
+const ENVC = argv.includes('--env');
 const qIdx = argv.indexOf('--quick');
 const QUICK = qIdx >= 0 ? Math.max(1, +(argv[qIdx + 1] || 1) || 1) : 0;
 
@@ -266,6 +240,124 @@ function toolEnvNames() {
     while ((m = re.exec(src)) !== null) names.add(m[1]);
   }
   return names;
+}
+
+/* ---------------------------------------------------------------- the env-gated row census (#338 ask #2) */
+
+/* The classification half of the census; the LINE half is read out of the tools at run time, and
+ * `--env` prints the two together. Class letters are explained in this file's header. Attribution is
+ * by NAME, and a name that appears in more than one mode is classified by its most consequential use
+ * - which is why every row also prints where it is read, so the reader can check the attribution
+ * rather than take it. */
+const ENV_CLASS = {
+  LEAK: ['A', 'cull: the whole "which ground path paints a seam pixel" block, every config'],
+  CFG: ['A', 'cull: the config LIST that block iterates, so it also sets HOW MANY leak rows there are'],
+  LEAKROW: ['A', 'cull: per-row R/D dump (print only, adds no row)'],
+  CZBAND: ['A', 'cull: the ceiling-step ground-hash + lightmap rows and the "one hash per level" row. THE row #338 is about'],
+  BOOT: ['A', 'volume: per-seed deals vs the default one-stream sweep - same rows, DIFFERENT coverage measured'],
+  DEALS: ['A', 'volume: how many deals (rows) the verdict is over'],
+  SEAM: ['A', 'bands: arms/disarms the seam term the seam rows measure (SEAM=0 disarms)'],
+  BANDS: ['A', 'mip: the extra smoothness-vs-mush line'],
+  LAMPS: ['A', 'refs / flatparity: whether the lamp-authoring row runs at all; selects PARITY vs LOCK sense'],
+  NOCAP: ['A', 'refs: the lamp sweep cap'],
+  FP_DEALT: ['A', 'flatparity: selects the DEALT sampler'],
+  FP_DEALT1: ['A', 'flatparity: the second DEALT sampler'],
+  FP_CHILD: ['A', 'flatparity: the cold-child marker'],
+  VERT: ['A', 'smoke: the entire VERT lane - every mover/portal/blast row at altitude'],
+  TURN: ['A', 'columns: the turning sweep block'],
+  STRICT: ['B', 'promotes filed debt to a gating row (alt, volume, horizon, cull, contrast, anim, bands, smoke VERT)'],
+  STEP: ['C', 'cull: the step the leak walk takes'],
+  AR: ['C', 'mip: the strip aspect ratio'],
+  KIND: ['C', 'anim / stats: which kind is measured'],
+  FRAMES: ['C', 'anim / props: frames per roll'],
+  ROUNDS: ['C', 'anim / props: rolls'],
+  REPS: ['C', 'exposure / columns: rolls'],
+  COVROLLS: ['C', 'exposure: coverage rolls'],
+  NT: ['C', 'columns: sweep lattice/batch inputs'],
+  NW: ['C', 'columns: sweep lattice/batch inputs'],
+  PITCH: ['C', 'columns: sweep lattice/batch inputs'],
+  BATCH: ['C', 'columns: sweep lattice/batch inputs'],
+  BHS: ['C', 'columns: sweep lattice/batch inputs'],
+  BWS: ['C', 'columns: sweep lattice/batch inputs'],
+  GFX: ['C', 'columns: which gfx set'],
+  VW: ['C', 'the render size both harnesses measure at'],
+  VH: ['C', 'the render size both harnesses measure at'],
+  ASCII: ['C', 'the ASCII print path'],
+  SEED: ['C', 'the dealt seed'],
+  JSDIR: ['C', 'WHICH CODE the verdict is of - a knob, so it is scrubbed like any other'],
+  REFS_LOCK: ['C', 'WHICH REFERENCE TABLE the verdicts are against - same'],
+  OUT: ['D', 'where a PNG dump goes; changes no row, so it is carried rather than scrubbed'],
+};
+
+function envCensus() {
+  const reads = new Map();               // name -> Map(file -> Set(line))
+  const perFile = [];
+  for (const f of ['view.js', 'smoke.js']) {
+    let src;
+    try { src = fs.readFileSync(path.join(ROOT, 'tools', f), 'utf8').split('\n'); }
+    catch (e) { perFile.push(`${f}: UNREADABLE (${e.code || e.message})`); continue; }
+    const re = /process\.env\.([A-Za-z_][A-Za-z0-9_]*)/g;
+    let hitLines = 0, occurrences = 0;
+    const names = new Set();
+    src.forEach((line, i) => {
+      re.lastIndex = 0;
+      let m, n = 0;
+      while ((m = re.exec(line)) !== null) {
+        if (!reads.has(m[1])) reads.set(m[1], new Map());
+        const byFile = reads.get(m[1]);
+        if (!byFile.has(f)) byFile.set(f, new Set());
+        byFile.get(f).add(i + 1);
+        names.add(m[1]); n++;
+      }
+      if (n) { hitLines++; occurrences += n; }
+    });
+    perFile.push(`${f}: ${hitLines} line(s), ${occurrences} read(s), ${names.size} distinct name(s)`);
+  }
+  // Which ci.yml line sets each name: derived from the workflow, never typed here - the roster carries
+  // these into the child instead of scrubbing them, which is what makes them not-ambient.
+  let ciLines = [];
+  try { ciLines = fs.readFileSync(CI_FILE, 'utf8').split('\n'); } catch (e) { /* printed as a gap below */ }
+  const setAt = (name) => {
+    const out = [];
+    ciLines.forEach((line, i) => {
+      if (/^\s*#/.test(line)) return;
+      if (new RegExp(`\\b${name}=[^\\s]+`).test(line) && /\bnode\s+[^|&;]*tools\/(view|smoke)\.js/.test(line)) out.push(i + 1);
+    });
+    return out;
+  };
+
+  console.log(`ENV-CENSUS  ${perFile.join('; ')}`);
+  const rows = [...reads.entries()].map(([name, at]) => ({
+    name, at, n: [...at.values()].reduce((a, s) => a + s.size, 0),
+    cls: ENV_CLASS[name] ? ENV_CLASS[name][0] : '-', why: ENV_CLASS[name] ? ENV_CLASS[name][1] : '',
+  }));
+  rows.sort((a, b) => (a.cls === b.cls ? a.name.localeCompare(b.name) : (a.cls === '-' ? 1 : b.cls === '-' ? -1 : a.cls.localeCompare(b.cls))));
+  const where = (at) => {                      // view.js:18,343 +4  smoke.js:83  - deduped, grouped by file
+    const parts = [];
+    for (const [f, set] of at) {
+      const l = [...set].sort((x, y) => x - y);
+      parts.push(`${f}:${l.slice(0, 4).join(',')}` + (l.length > 4 ? ` +${l.length - 4}` : ''));
+    }
+    return parts.join(' ');
+  };
+  for (const r of rows) {
+    console.log(`  ${r.cls}  ${r.name.padEnd(11)} ${where(r.at).padEnd(44)} ${r.why}`);
+    const s = r.cls === 'A' || r.cls === 'B' ? setAt(r.name) : [];
+    if (s.length) console.log(`        ci.yml sets it at ${s.map((n) => 'ci.yml:' + n).join(', ')} - carried into the child, not scrubbed`);
+  }
+  const counts = { A: 0, B: 0, C: 0, D: 0, '-': 0 };
+  for (const r of rows) counts[r.cls]++;
+  // The rot this replaces: a name the map classifies that neither harness reads any more. The census
+  // would then be pointing at code that moved, which is the failure mode of a hand-kept table.
+  const stale = Object.keys(ENV_CLASS).filter((n) => !reads.has(n));
+  console.log(`ENV-CENSUS ${stale.length ? 'FAIL' : 'ok'} - ` +
+    `A ${counts.A} name(s) gate whether a ROW EXISTS, B ${counts.B}, C ${counts.C} change what is measured, ` +
+    `D ${counts.D}, ${counts['-']} read but unclassified (thresholds, floors, prints) - ` +
+    `${stale.length} classified name(s) no longer read: ${stale.join(', ') || 'none'}`);
+  if (stale.length)
+    console.log('  A classification that points at a read which no longer exists is the rot this census\n' +
+      '  replaces: update ENV_CLASS to match the tools, do not leave the row described here.');
+  return stale.length ? 1 : 0;
 }
 
 /* ---------------------------------------------------------------- the yaml lint (#107) */
@@ -499,4 +591,4 @@ function main() {
   return failed || problems.length ? 1 : 0;
 }
 
-process.exit(main());
+process.exit(ENVC ? envCensus() : main());
