@@ -120,6 +120,19 @@ const MESH = (function () {
      neck as wide as the torso. */
   const NECK_R0 = 0.62, NECK_R1 = 0.54;
 
+  /* A headR fraction alone answers to the head, not to the torso the tube must not look like a gap beside
+     (#80): the tube's share of its own torso BOX is 0.62*headR/(1.05*shLat) = 41% on a grunt, 43% on a
+     hound and 29.5% on a brute - the mesh comment above calls 22% "a gap between two parts" and 36-41% "the
+     part's own base", so brute sits alone below the regime its own file describes, because its shLat is 1.6x
+     a grunt's while its headR is only 1.18x. The floor below leaves grunt and hound EXACTLY as they are
+     (0.42*0.098 < 0.62*0.068 and 0.42*0.13 < 0.62*0.095, so their headR term still wins and their geometry
+     is byte-identical) and takes brute to 40% - the same share of its torso a grunt has. The taper rides
+     with the base. Proportioned this way, not in pixels: the painted band row measures the HEAD's envelope,
+     because the head box is emitted after the tube and stamps the rows the probe samples (#80's rows print
+     both numbers side by side so the difference stays visible). */
+  const NECK_R_SHLAT = 0.42;
+  const neckR = s => Math.max(s.headR * NECK_R0, s.shLat * NECK_R_SHLAT);
+
   /* The head box's half-width in fractions of headR - named for two reasons: it is the head's own
      silhouette width, and it is the LATERAL WINDOW tools/view.js #80 measures the neck band inside.
      The pixels between the head's underside and the shoulders' top face are the tube, the head box's
@@ -661,7 +674,7 @@ const MESH = (function () {
        reason: a column 22% of the torso's width reads as a gap between two parts, and one 36-41% of it
        reads as the part's own base. Emitted between the two boxes it stitches, and the emit ORDER is
        the pose table's vertex order, so it stays here rather than moving with the head. */
-    b.tube(0, shTop - JOIN, 0, 0, s.head + q.bob - s.headR * 0.35 + JOIN, 0, s.headR * NECK_R0, s.headR * NECK_R1, dk);
+    b.tube(0, shTop - JOIN, 0, 0, s.head + q.bob - s.headR * 0.35 + JOIN, 0, neckR(s), neckR(s) * (NECK_R1 / NECK_R0), dk);
     b.box(0, s.head + q.bob + s.headR * 0.6, 0, s.headR * HEAD_HW, s.headR * 0.95, s.headR * 0.80, dk);
     b.box(0, s.head + q.bob + s.headR * 0.7, s.headR * 0.72, s.headR * 0.62, s.headR * 0.30, s.headR * 0.22, [255, 208, 138]);
     for (let i = 0; i < 2; i++) {
@@ -1153,7 +1166,7 @@ const MESH = (function () {
        between, published so tools/view.js #80 measures the band the geometry paints instead of
        re-deriving its own. The third number is the window's half-width: the head box's own half-width,
        which contains the tube, the head's underside and the shoulders' top face but not the arms. */
-    neckBand: k => { const s = SPEC[k] || SPEC.grunt; return [s.sh + s.headR * SHOULDER_LIFT, s.head - s.headR * 0.35, s.headR * HEAD_HW]; },
+    neckBand: k => { const s = SPEC[k] || SPEC.grunt; return [s.sh + s.headR * SHOULDER_LIFT, s.head - s.headR * 0.35, s.headR * HEAD_HW, neckR(s)]; },   // [bandLo, bandHi, plan window, AUTHORED tube half-width] - the 4th lets a probe measure the tube the mesh wrote rather than the envelope that paints over it (#80)
     spanFor: k => {
       const m = model(k);
       if (!m.span) {
