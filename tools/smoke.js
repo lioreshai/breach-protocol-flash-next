@@ -478,12 +478,16 @@ const release = () => fire('mouseup', { button: 0 });
       const alive = vm.runInContext('PROPS.filter(p => p.kind === "barrel" && !p.dead).length', ctxVm);
       la[d] = { n: pts.length, dup: pts.length - new Set(cells).size, sep: pts.length > 1 ? sep : 0, nb: nbA, alive };
     }
-    const authOK = la[0].nb > 0 && la[0].alive === 0 && la[2].alive === 0 && la[1].n === nPlan && la[2].n > la[1].n
+    const authOK = la[0].nb > 0 && la[0].alive === 0 && la[2].alive === 0 && la[1].n === nPlan
+      && la[0].n < la[2].n && la[2].n > la[1].n
       && [0, 1, 2].every(d => la[d].dup === 0 && la[d].sep > 0.5);
     expect('authored barrels are destructible (#354)', la[0].nb > 0 && la[0].alive === 0 && la[2].alive === 0,
       `THE STACK: ${la[0].nb} barrels, after 40 damage ${la[0].alive} still standing at Recruit and ${la[2].alive} at Nightmare (an authored barrel with no hp field takes NaN and never dies)`);
-    expect('the authored finale scales with difficulty (#355)', la[1].n === nPlan && la[2].n > la[1].n,
-      `THE STACK's plan carries ${nPlan} enemy marks; Marine stands up ${la[1].n} (the plan's own count, so the shipped default and flatparity's picture do not move), Nightmare ${la[2].n}, Recruit ${la[0].n} - DIFFS.cnt 0.8/1.0/1.35 reached only the generator's placement loop`);
+    /* #355's acceptance is that the count DIFFERS BETWEEN RECRUIT AND NIGHTMARE, so both ends are in the
+       predicate, not just Marine-vs-plan: Recruit's number used to ride along in the census only, where a
+       row can be read as a pass while one end of the ramp silently stopped scaling. */
+    expect('the authored finale scales with difficulty (#355)', la[1].n === nPlan && la[0].n < la[2].n && la[2].n > la[1].n,
+      `THE STACK's plan carries ${nPlan} enemy marks; Marine stands up ${la[1].n} (the plan's own count, so the shipped default and flatparity's picture do not move), Recruit ${la[0].n}, Nightmare ${la[2].n} - the two ends must differ, and DIFFS.cnt 0.8/1.0/1.35 used to reach only the generator's placement loop`);
     /* A body counts on the HUD and in the frame only if it is somewhere the other bodies are not: the
        separation term at js/30_entities.js:596 is skipped when two centres coincide (sd > 1e-6), so an
        overlapped pair draws as ONE body forever while standing still and reads as a kind swap. Bodies are
