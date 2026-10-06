@@ -320,6 +320,125 @@ let RX = new Int32Array(0), RP = new Float64Array(0);   // columns of one row th
    that tools/view.js mip uses as its negative control. Both are read once per row, never per pixel. */
 let MIPAX = 1, MIPAR = 4;
 
+/* #19, TAKE TWO: three terms of the ground pass were FUNCTIONS OF THE CELL, and a cell boundary seen
+   in perspective is a straight line to the vanishing point - so anything that STEPS at a boundary draws
+   a fan of radial spokes over the largest area of the frame, while walls, props and bodies, which have
+   no such step, stay clean. Mip SELECTION is not one of them: `mip AR=8/16` moves ceiling streak by one
+   point and the picture not at all (issue #19), so mipSel/MIPAX/MIPAR are untouched here.
+   Each term is a switch with a value that reproduces what shipped, so an A/B is one assignment in the
+   running page (`DEV.set('gndjit', 2)`) and not a worktree:
+
+     GJIT   the per-cell texture-coordinate jitter that "kills the tiling tell". A MIRROR FLIP is a
+            DISCONTINUITY OF SCALE - flipping u makes the pattern run backwards inside that cell - so
+            every boundary the row walks into folds the pattern, and the fold projects to a spoke. It is
+            now DISTANCE-GATED rather than per-cell: the mirror stays where a cell is GJITPX px
+            wide or wider, where a fold reads as the edge of a panel (what it was put in for), and is
+            dropped where a cell is a handful of px, where the fold IS the spoke and the tile is too
+            small to tell anyway. A per-cell PHASE OFFSET was tried first and is the wrong instrument:
+            an offset of a repeating tile is still a seam at every boundary and buys no variety, so it
+            drew its own, finer fan. 2 = the mirror on every cell as it shipped (the A/B control),
+            1 = distance-gated, 0 = never mirrored (the tiling tell comes back, which is what makes
+            1 a mechanism rather than a no-op).
+     GLRP   the ground's light. The wall pass has always sampled the lightmap at the point its ray
+            hits; the ground read ONE cell value per pixel, so the lightmap's own 1 m grid showed up as
+            a second family of radial steps - 20 m out a cell is a handful of pixels. The pixel now
+            walks its cell's own ramp (see buildLightRamp). 0 = the per-cell value as it shipped
+            (bit-identical: the shipped statement stays, the ramp terms are multiplied by zero), 1 = on.
+     GNDAX  the fetch. A pixel whose footprint is eight texels long along the view direction took ONE
+            texel from it, so every texel was magnified into a wedge narrowing at the vanishing point -
+            the spokes on the half of the frame seen most edge-on, which is the CEILING. 1 adds a second
+            tap HALF a footprint to each side of the point it already took; 0 = the single tap as it
+            shipped. One extra texel load, and only on the rows that are actually undersampled.
+
+   All of them are read once per row (the last one once per deferred pixel), never per pixel of a row, and
+   none of them adds a THIRD copy of the ground pixel body: a switch shows up as a zero slope, a zero
+   offset or one fewer load, not as a new loop. */
+let GJIT = 1, GLRP = 1, GNDAX = 1, AXMIN = 1.5, GLC = null, GNDFT = 1, GNDRO = 1;
+const GJITPX = 48;      // GJIT 1 keeps the mirror only where a cell is this many px wide or wider
+
+/* #19, TAKE THREE - THE FETCH. The two terms above are not what combs a plane, and neither is the mip
+   choice. On the row loop's own pixels - the NEAR and MID field - what combs it is that the pass takes
+   ONE texel per pixel. A row walks its plane by (wxs,wys) per column, which on a plane of this world is a
+   FRACTION of a texel: measured on a ceiling row at the level-0 cam1 seat, the texel index does not change
+   at all along most of the row. So the pixel is smaller than the texel it reads, the tile is magnified,
+   and every texel of the material is drawn as a hard-edged strip whose long direction is the line from the
+   pixel to the vanishing point - the material's own grit becomes a radial comb, floor and ceiling alike,
+   at every distance. Walls, props and bodies never wear it because they are fetched with texBil(), which
+   has always interpolated. The fix is that interpolation ACROSS the footprint's short side, and it costs
+   ONE extra texel load and one lerp; a full bilinear costs three loads and four mults a channel for
+   little more than this buys, and most of what it adds is blur. Which axis to lerp is decided per ROW from
+   the row's own deltas (the long side is the column delta, so the axis the walk crosses texel boundaries
+   along is the one with the larger component), and the deferred copy decides it from its pixel's OWN
+   footprint, exactly as the axial pair already does.
+   Measured against this same tree with GNDFT 0 (`view.js mip`): ceiling streak 42 -> 38, 52 -> 48,
+   84 -> 75, 27 -> 26 and floor 64 -> 58, 92 -> 87, 104 -> 93, 74 -> 66, with the `detail` column held well
+   above its mush control - smoothing, not blur. GNDFT 0 = one texel per pixel as this shipped, 1 = the
+   lerp, so the A/B is one DEV.set call and the frame visibly changes.
+
+   Two things this does NOT reach, both named rather than cropped. The FAR field is not painted by this
+   loop at all: 18,704 pixels of the level-0 cam1 frame go through groundPixel(), 53-64% of every row of
+   the bright ceiling wedge, and take four (there) is what fixed that half. And one control that got run
+   here is a trap worth naming: swapping the ceiling for a flat grey texture collapses the far-band
+   gradient from 13 to 4 - while also lifting that band's mean luminance from 85 to 123, where it clips.
+   A render difference can see geometry, never the shading inside it; at a grey that does not clip the same
+   swap leaves the far band at -61%, and the term that is left there is the light, not the texel. */
+
+/* The lightmap as a plane each PIXEL walks (#19). Stored per cell as
+     value(fx,fy) = V + A*fx + B*fy + D*fx*fy  per channel,
+   with V the cell's own colour light (clamped intensity x tint - the product both pixel bodies already
+   multiply the texel by), A the slope to the cell to the RIGHT, B the slope to the cell BELOW, D the
+   cross term (diagonal - right - below + own). This is not an approximation of a bilinear: it IS the
+   bilinear of the four cells around the point, written so a pixel can ADVANCE it, and `cellLightAt`
+   (js/20_level.js:254) is the same map sampled at a point that the WALL pass has always used - the
+   ground was the only pass that quantized to one cell value, which is why walls never wore the fan.
+   The cross term is not a refinement. Drop it and three bad things happen at once, all of them measured
+   on the first version of this pass: the patch stops being a CONVEX combination (past fx+fy = 1 a cell
+   brighter than both neighbours extrapolates its far corner BELOW zero, which is not dark, it is
+   negative light, and it clamps to black fill - `heights`' pit config read 3.13% of the frame that way);
+   it becomes DISCONTINUOUS across the fy = 1 edge, and a discontinuity in perspective is a spoke, which
+   is the defect this is here to remove; and it DOUBLE-COUNTS the two taps it knows - a dark cell with a
+   lamp to its right and below rendered (Vright+Vbelow)/2 over its whole area instead of the four-tap
+   mean, which is what put the frame at mean 57.7 with 0.63% blown pixels where main reads 52.4 / 0.00%.
+   Along a row the patch is quadratic, so a pixel carries TWO increments (the slope, and the slope's own
+   slope) and the whole thing still costs two adds a channel - the reason this is affordable in the
+   hottest loop in the game. A tap outside the map is 0, which is exactly what the shipped path gives an
+   off-map column: white tint, light 0. The #21 light ceiling is applied PER CELL here, so it stays a
+   property of the grid rather than of which path painted the pixel, and because every tap is clamped and
+   the four weights sum to 1, a bilinear cannot deliver above it either. */
+function buildLightRamp() {
+  const N = MAP.w, NN = N * N, lm = MAP.light, lt = MAP.lt, n3 = N * 3, lgc = LGCAP;
+  if (!GLC || GLC.length < NN * 12) GLC = new Float64Array(NN * 12);
+  const hasL = !!lm && !!lt && NN * 3 <= lt.length;
+  for (let y = 0; y < N; y++) {
+    const r0 = y * N, hasD = y + 1 < N;
+    for (let x = 0; x < N; x++) {
+      const i = r0 + x, k = i * 12;
+      let vr = 0, vg = 0, vb = 0, ur = 0, ug = 0, ub = 0, wr = 0, wg = 0, wb = 0, dr = 0, dg = 0, db = 0;
+      if (hasL) {
+        const i3 = i * 3, a = lm[i] > lgc ? lgc : lm[i];
+        vr = a * lt[i3] / 128; vg = a * lt[i3 + 1] / 128; vb = a * lt[i3 + 2] / 128;
+        if (x + 1 < N) {                            // BOTH axes tested before an index is used: an
+          const j3 = i3 + 3, b = lm[i + 1] > lgc ? lgc : lm[i + 1];   // index is one number and an x of
+          ur = b * lt[j3] / 128; ug = b * lt[j3 + 1] / 128; ub = b * lt[j3 + 2] / 128;   // -1 is a valid
+        }                                          // one for somewhere else in the level (AGENTS.md)
+        if (hasD) {
+          const j3 = i3 + n3, c = lm[i + N] > lgc ? lgc : lm[i + N];
+          wr = c * lt[j3] / 128; wg = c * lt[j3 + 1] / 128; wb = c * lt[j3 + 2] / 128;
+          if (x + 1 < N) {                          // the DIAGONAL tap. Without this one the patch is a
+            const j32 = j3 + 3, e = lm[i + N + 1] > lgc ? lgc : lm[i + N + 1];   // plane, not a bilinear,
+            dr = e * lt[j32] / 128; dg = e * lt[j32 + 1] / 128; db = e * lt[j32 + 2] / 128;  // and a plane
+          }                                         // is what drew the spokes in the first place.
+        }
+      }
+      GLC[k] = vr; GLC[k + 1] = vg; GLC[k + 2] = vb;         // V. The pixel bodies take this from their
+      GLC[k + 3] = ur - vr; GLC[k + 4] = ug - vg; GLC[k + 5] = ub - vb;   // own shipped `li * tint` and
+      GLC[k + 6] = wr - vr; GLC[k + 7] = wg - vg; GLC[k + 8] = wb - vb;   // read only the SLOPES, so V
+      GLC[k + 9] = dr - ur - wr + vr; GLC[k + 10] = dg - ug - wg + vg;    // stays exactly what #21
+      GLC[k + 11] = db - ub - wb + vb;                                     // clamped at the site.
+    }
+  }
+}
+
 /* The mip for a ground pixel from the WORLD footprint of one pixel, given the two screen-axis
    deltas in world units: (ax0,ax1) is how far the sampled point moves along a row, (ay0,ay1) how
    far down a column. For a plane the row delta is plane*step*d, which is ALMOST constant in
@@ -541,6 +660,7 @@ function castGround(flash, fcR, fcG, fcB) {
   const shm = SHADOW ? SH_HEAD : null;                     // #178, hoisted so the pixel loop reads a local
   const lgc = LGCAP, cnt = LGCNT;                     // #21, consts of the pass for the same reason
   const amb = AMB, fl = flash;
+  if (GLRP) buildLightRamp();       // #19: nine floats a cell, once a frame - this is the only write
   const gndSteps = MAP.steps ? 1 : 0;                 // #170: 0 on every flat level, which is what keeps
   //                                      a flat frame free of any call to planeAlong and thus md5-clean
   /* Scratch for the columns of one row that had to be re-solved off the row's plane. Sized to a
@@ -685,11 +805,34 @@ function castGround(flash, fcR, fcG, fcB) {
        what the floor half has always written.
        Columns this row cannot solve are queued below and get their own depth in groundPixel(). */
     zbuf.fill(dRaw, row, row + BW);
-    let pxi = wx | 0, pyi = wy | 0, cIdx = pyi * N + pxi, mir = 0;
+    /* mirOn: does THIS row mirror at all? A 1 m cell at distance d is BH/d px across, so the test is one
+       divide per row: wide enough that a fold reads as a panel edge -> keep the shipped mirror; a cell
+       only a handful of px wide -> the fold is the spoke, and there is no repetition left to tell.
+       GJIT 2 answers 1 without looking (the shipped behaviour, the A/B control); 0 answers 0. */
+    const mirOn = GJIT === 2 ? 1 : (GJIT === 1 && BH / dRow >= GJITPX ? 1 : 0);
+    let pxi = wx | 0, pyi = wy | 0, cIdx = pyi * N + pxi, mir = 0,
+      ldr = 0, ldg = 0, ldb = 0, lhr = 0, lhg = 0, lhb = 0;
     let inMap = pxi >= 0 && pyi >= 0 && pxi < N && pyi < N;
     let lt = inMap ? cellTint(cIdx) : TINT_WHITE, li = inMap && lm ? lm[cIdx] : 0;
     if (li > 1) li = 1;
     let lr = baseRow + li * lt[0], lg = baseRow + li * lt[1], lb = baseRow + li * lt[2];
+    /* The row's FIRST pixel is seeded here because the crossing branch below cannot see it. These are
+       the same expressions that branch runs and they must move with it, exactly as the pixel body in
+       castGround and the one in groundPixel() must move together. */
+    if (inMap) {
+      if (GLRP) {
+        const k12 = cIdx * 12, fx = (wx - pxi) * GLRP, fy = (wy - pyi) * GLRP;
+        lr += (GLC[k12 + 3] + GLC[k12 + 9] * fy) * fx + GLC[k12 + 6] * fy;
+        lg += (GLC[k12 + 4] + GLC[k12 + 10] * fy) * fx + GLC[k12 + 7] * fy;
+        lb += (GLC[k12 + 5] + GLC[k12 + 11] * fy) * fx + GLC[k12 + 8] * fy;
+        ldr = (GLC[k12 + 3] * wxs + GLC[k12 + 6] * wys + GLC[k12 + 9] * (wxs * fy + wys * fx + wxs * wys)) * GLRP;
+        ldg = (GLC[k12 + 4] * wxs + GLC[k12 + 7] * wys + GLC[k12 + 10] * (wxs * fy + wys * fx + wxs * wys)) * GLRP;
+        ldb = (GLC[k12 + 5] * wxs + GLC[k12 + 8] * wys + GLC[k12 + 11] * (wxs * fy + wys * fx + wxs * wys)) * GLRP;
+        lhr = 2 * GLC[k12 + 9] * wxs * wys * GLRP; lhg = 2 * GLC[k12 + 10] * wxs * wys * GLRP;
+        lhb = 2 * GLC[k12 + 11] * wxs * wys * GLRP;
+      }
+      if (mirOn) mir = (hash2(pxi, pyi) * 4) | 0;
+    }
     /* One cell-crossing test per pixel, as the pass has always had it. pxi/pyi is that walk and,
        when nothing is being re-solved, it is also the walk of the plane - the cell being shaded and
        the cell whose plane the row solved for only part company at a pixel that gets queued below,
@@ -729,8 +872,54 @@ function castGround(flash, fcR, fcG, fcB) {
        groundPixel(), and the flat case - every pixel of every level shipped - never touches one. */
     const dfade = dfadeRow, fog = fogRow, inv = invRow, fR = fRRow, fG = fGRow, fB = fBRow, base = baseRow;
     const mw = mRow.w, mh = mRow.h, ms = sc * mRow.w, td = mRow.data, mask = mw - 1, maskH = mh - 1;
+    /* Which texture axis the ROW walks, in texels: ms scales both terms equally, so comparing the world
+       deltas compares the texel deltas. The fetch lerps along this one (#19 take three). */
+    const ftV = Math.abs(wys) >= Math.abs(wxs) ? 1 : 0;
+    /* #19: the axial fetch's tap offset - HALF THE FOOTPRINT, along whichever axis of this pixel's
+       footprint is the long one, and the fetch takes one tap on EITHER side of the point it already
+       sampled. That geometry matters more than the filter itself: the pixel's strip on the plane runs
+       from d(row-0.5) to d(row+0.5), i.e. about half a footprint each side of the point the row solved,
+       so a pair at +-colT/2 is the box over the strip the pixel actually covers (its response is
+       cos(pi*f*colT), which nulls exactly at the aliasing frequency the undersampled fetch creates),
+       while a tap at ONE footprint - which is what the first version here did - estimates a mean
+       centred half a footprint PAST the sample point and its response has a null at half that frequency,
+       so it blurred detail and left the streak. The row loop already loads one texel a pixel, so the
+       filter costs one more load, and only on the rows whose footprint is genuinely long.
+       In world units the row delta is (wxs,wys) per column and the column delta is the ray times cfRow,
+       so in TEXELS of this row's mip they are rowT and colT; colT > AXMIN means a pixel covers more
+       world than one texel along its long axis and a single tap magnifies that texel into a radial
+       wedge. The column axis is the long one on every row that was measured (the ratio reaches ~50 near
+       the horizon), and the column ray is LINEAR in x - cam advances by stepBase per pixel, so rx
+       advances by planeX*stepBase - which is why the offset can ride the same update clause as wx and
+       cost two adds per pixel instead of a ray build. The row-long branch leaves the offset constant,
+       which the loop already handles.
+       GATE ON THE MAGNITUDE, OFFSET BY THE SIGNED VALUE: cfRow is negative when the column delta points
+       back along the ray, and a squared comparison would read a long negative footprint as a short one
+       and silently drop the filter the geometry is asking for. The offset keeps the sign; the pair is
+       +-ox either way, so the filter stays symmetric whichever way that ray points. */
+    const colT = cfRow * ms * 0.5, colA = colT < 0 ? -colT : colT, rowT2 = (wxs * wxs + wys * wys) * ms * ms;
+    let axOn = 0, ox = 0, oy = 0, oxs = 0, oys = 0;
+    if (GNDAX) {
+      if (colA * colA * 4 >= rowT2) {
+        if (colA * 2 > AXMIN) { axOn = 1; ox = (dirX - planeX) * colT; oy = (dirY - planeY) * colT; oxs = planeX * stepBase * colT; oys = planeY * stepBase * colT; }
+      } else {
+        const rowT = Math.sqrt(rowT2);
+        if (rowT > AXMIN) { axOn = 1; ox = wxs * ms * 0.5; oy = wys * ms * 0.5; }
+      }
+      ox |= 0; oy |= 0;
+    }
     let nm = 0;
-    for (let x = 0; x < BW; x++, wx += wxs, wy += wys) {
+    for (let x = 0; x < BW; x++, wx += wxs, wy += wys, lr += ldr, lg += ldg, lb += ldb,
+      ldr += lhr, ldg += lhg, ldb += lhb, ox += oxs, oy += oys) {
+      /* The bilinear is a CONVEX combination of four non-negative taps, so it cannot fall below the
+         row's own base - EXCEPT where fx or fy is negative, which is the map's own left/top edge:
+         gx = wx|0 truncates toward zero, so a wx of -0.5 indexes cell 0 (inMap TRUE, so this is the
+         shipped light cell) with fx = -0.5, and the patch then extrapolates away from a bright cell at
+         x = 0 into negative light - which is not dark, it is black fill. Three compares against the
+         row's own floor; `heights`' pit config is the case that fills 3.13% of a frame with it. */
+      if (lr < base) lr = base;
+      if (lg < base) lg = base;
+      if (lb < base) lb = base;
       const gx = wx | 0, gy = wy | 0;
       if (gx !== pxi || gy !== pyi) {                          // crossed into another cell
         pxi = gx; pyi = gy; cIdx = gy * N + gx;
@@ -743,8 +932,27 @@ function castGround(flash, fcR, fcG, fcB) {
           if (li > lgc) li = lgc;                                    // #21, the clamp this issue is about
           if (cnt && li > LG_CEIL) cnt[LG_ROW + 2 * LG_N]++;              // delivered above 1.0 = the defect
           lr = base + li * lt[0]; lg = base + li * lt[1]; lb = base + li * lt[2];
-          mir = (hash2(gx, gy) * 4) | 0;                        // per-cell mirror kills the tiling tell
-        } else { gndOffMap++; lt = TINT_WHITE; li = 0; lr = lg = lb = base; }
+          /* #19: the cell's own value above stays EXACTLY the shipped one - buildLightRamp clamps per
+             cell with the same LGCAP, so the ramp's V and this `li * tint` agree and all that is added is
+             the in-cell ramp (zero at fx = fy = 0, and zero outright when GLRP is 0). The census just ran
+             on the lookup this site performs, which is what keeps #21's rows about this pass rather than
+             about the ramp that now carries its answer. */
+          if (GLRP) {
+            const k12 = cIdx * 12, fx = (wx - gx) * GLRP, fy = (wy - gy) * GLRP;
+            lr += (GLC[k12 + 3] + GLC[k12 + 9] * fy) * fx + GLC[k12 + 6] * fy;
+            lg += (GLC[k12 + 4] + GLC[k12 + 10] * fy) * fx + GLC[k12 + 7] * fy;
+            lb += (GLC[k12 + 5] + GLC[k12 + 11] * fy) * fx + GLC[k12 + 8] * fy;
+            ldr = (GLC[k12 + 3] * wxs + GLC[k12 + 6] * wys + GLC[k12 + 9] * (wxs * fy + wys * fx + wxs * wys)) * GLRP;
+            ldg = (GLC[k12 + 4] * wxs + GLC[k12 + 7] * wys + GLC[k12 + 10] * (wxs * fy + wys * fx + wxs * wys)) * GLRP;
+            ldb = (GLC[k12 + 5] * wxs + GLC[k12 + 8] * wys + GLC[k12 + 11] * (wxs * fy + wys * fx + wxs * wys)) * GLRP;
+            lhr = 2 * GLC[k12 + 9] * wxs * wys * GLRP; lhg = 2 * GLC[k12 + 10] * wxs * wys * GLRP;
+            lhb = 2 * GLC[k12 + 11] * wxs * wys * GLRP;
+          } else ldr = ldg = ldb = lhr = lhg = lhb = 0;
+          /* per-cell PHASE offset of the same tile, amplitude faded with the cell's on-screen width, in
+             place of the per-cell MIRROR: a flip reverses the pattern inside the cell, so every boundary
+             folds it, and a fold in perspective is a spoke (#19). GJIT 2 keeps the mirror for the A/B. */
+          mir = mirOn ? (hash2(gx, gy) * 4) | 0 : 0;    // per-cell mirror, dropped in the far field
+        } else { gndOffMap++; lt = TINT_WHITE; li = 0; lr = lg = lb = base; ldr = ldg = ldb = lhr = lhg = lhb = 0; mir = 0; }
         /* Only AIR columns have a floor and a ceiling: a solid column has no air, so its ceilAt is a
            fiction, and the void outside the map is today's flat ground - both mean "no plane of your
            own". Both axes are tested here even though inMap tested the index, because the index is
@@ -830,14 +1038,45 @@ function castGround(flash, fcR, fcG, fcB) {
          walk reached, and groundPixel() marches that pixel - which is where all 438/401/398 leaking
          pixels are (measured: 0 px row-painted), so the row copy needs no rule of its own. */
       if (planeC !== planeA) { RX[nm] = x; RP[nm] = planeC; nm++; continue; }
-      let tx = (wx * ms) | 0, ty = (wy * ms) | 0;
+      const ux = wx * ms, uy = wy * ms;
+      let tx = ux | 0, ty = uy | 0, ufx = ux - tx, ufy = uy - ty;
+      /* floor, not truncate: |0 rounds toward zero, so a coordinate in (-1,0) would index texel 0 with a
+         NEGATIVE fraction and the lerp would extrapolate outside the tile it is reading. The point is in
+         the texel below, and that is the pair the lerp takes. */
+      if (ufx < 0) { tx--; ufx++; }
+      if (ufy < 0) { ty--; ufy++; }
       tx &= mask; ty &= maskH;
-      if (mir & 1) tx = mask - tx;
-      if (mir & 2) ty = maskH - ty;
+      /* A mirror flips the pattern, so the texel the walk enters NEXT is the one at the LOWER index: same
+         mask-as-mirror the point fetch does, one texel earlier, with the fraction read backwards. At
+         ufraction 0 this is bit for bit the texel that shipped. */
+      if (mir & 1) { tx = (mask - tx - 1) & mask; ufx = 1 - ufx; }
+      if (mir & 2) { ty = (maskH - ty - 1) & maskH; ufy = 1 - ufy; }
       const c = td[ty * mw + tx];
       const i = row + x;
-      if ((c >>> 24) === 253) { px[i] = 0xFF000000 | clampi((c >> 16 & 255) * inv + fB) << 16 | clampi((c >> 8 & 255) * inv + fG) << 8 | clampi((c & 255) * inv + fR); continue; }
-      let r = (c & 255) * lr + fR, g = (c >> 8 & 255) * lg + fG, b = (c >> 16 & 255) * lb + fB;
+      let cr = c & 255, cg = c >> 8 & 255, cb = c >> 16 & 255, em = c >>> 24;
+      if (GNDFT) {                              // the filtered half: one texel across the sub-texel side
+        const c1 = ftV ? td[((ty + 1) & maskH) * mw + tx] : td[ty * mw + ((tx + 1) & mask)];
+        const wf = ftV ? ufy : ufx;
+        cr += ((c1 & 255) - cr) * wf;
+        cg += ((c1 >> 8 & 255) - cg) * wf;
+        cb += ((c1 >> 16 & 255) - cb) * wf;
+        if ((c1 >>> 24) === 253) em = 253;      // 253 is a FLAG, not a coverage value (#20)
+      }
+      if (axOn) {                                // the anisotropic HALF of anisotropic filtering: one
+        const oxi = (ox + 0.5) | 0, oyi = (oy + 0.5) | 0;    // tap on each side of the point, so the
+        const c1 = td[((ty - oyi) & maskH) * mw + ((tx - oxi) & mask)];   // pair is the box over the
+        const c2 = td[((ty + oyi) & maskH) * mw + ((tx + oxi) & mask)];   // strip this pixel covers
+        cr = cr * 0.5 + (c1 & 255) * 0.25 + (c2 & 255) * 0.25;
+        cg = cg * 0.5 + (c1 >> 8 & 255) * 0.25 + (c2 >> 8 & 255) * 0.25;
+        cb = cb * 0.5 + (c1 >> 16 & 255) * 0.25 + (c2 >> 16 & 255) * 0.25;
+        /* 253 is a FLAG, not a coverage value (#20), so a mean of alpha bytes is not it and the pixel
+           would silently lose its light-exempt path - which on level 2's ceiling, where mip 4 is 52 of
+           64 texels flagged, is most of the far field. A footprint that touches an emissive texel
+           emits, exactly as the wall pass decides it for a bilinear quartet (js/40_render.js:1568). */
+        if ((c1 >>> 24) === 253 || (c2 >>> 24) === 253) em = 253;
+      }
+      if (em === 253) { px[i] = 0xFF000000 | clampi(cb * inv + fB) << 16 | clampi(cg * inv + fG) << 8 | clampi(cr * inv + fR); continue; }
+      let r = cr * lr + fR, g = cg * lg + fG, b = cb * lb + fB;
       const dl = isF && inMap && dMasks ? dMasks[cIdx] : 0;
       if (dl !== 0) {                                          // blood/scorch in world space, floor only
         const gl = dGrid[cIdx];
@@ -907,8 +1146,9 @@ function castGround(flash, fcR, fcG, fcB) {
    here at all, so this path cannot move a pixel of one. */
 let gSer = 0, gMSer = -1, gMRow = -1, gMPl = 0, gMDS = 0, gMDfa = 0, gMFog = 0, gMInv = 0, gMFR = 0,
   gMFG = 0, gMFB = 0, gMBase = 0, gMCx0 = 0, gMCy0 = 0, gMCxs = 0, gMCys = 0,
-  gMCf = 0, gMAx = 0, gMWs = 0, gMAn = 1, gMAr = 4, gMN = 0, gMDist = -1,
-  gLSer = -1, gLSX = 0, gLSY = 0, gML0 = 0, gML1 = 0, gML2 = 0, gMMir = 0;
+  gMCf = 0, gMAx = 0, gMWs = 0, gMAn = 1, gMAr = 4, gMN = 0, gMDist = -1, gMMirOn = 0,
+  gLSer = -1, gLSX = 0, gLSY = 0, gML0 = 0, gML1 = 0, gML2 = 0, gMMir = 0,
+  gMA0 = 0, gMA1 = 0, gMA2 = 0, gMB0 = 0, gMB1 = 0, gMB2 = 0, gMD0 = 0, gMD1 = 0, gMD2 = 0;
 
 function gndBuild(row, isF, absP, pl, tex, sc, fcR, fcG, fcB, fl, amb, dOv) {
   /* dOv >= 0 replaces the PLANE SOLVE with a distance the caller already knows - the only caller that
@@ -936,6 +1176,9 @@ function gndBuild(row, isF, absP, pl, tex, sc, fcR, fcG, fcB, fl, amb, dOv) {
   const ax0 = planeX * sb * dc, ax1 = planeY * sb * dc, ws = tex.mips[0].w * sc;
   gMAx = Math.sqrt(ax0 * ax0 + ax1 * ax1) * ws; gMCf = dc / absP; gMN = tex.mips.length;
   gMAn = MIPAX; gMAr = MIPAR; gMWs = ws;
+  /* #19: the mirror gate again from THIS run's own distance - a deferred pixel is a different plane and
+     so a different distance - same test, same constant, one divide. */
+  gMMirOn = GJIT === 2 ? 1 : (GJIT === 1 && BH / dc >= GJITPX ? 1 : 0);
 }
 
 /* Where a DESCENDING ray goes under a slab, as the crossing's own distance along (dir + plane*cam) - or
@@ -1064,8 +1307,23 @@ function groundPixel(x0, x1, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb
   let sx = cx | 0, sy = cy | 0;
   /* a re-solved pixel that leaves the map falls back to the predictor's cell - the cell the row's own
      walk would have reached - so it shades like a flat pixel at that distance instead of wrapping to a
-     cell on the far side of the level */
-  if (sx < 0 || sy < 0 || sx >= N || sy >= N) { gndOffMap++; sx = ax; sy = ay; }
+     cell on the far side of the level. `own` records that the fallback FIRED, which the ramp below
+     needs: (cx - sx) stops being a fraction the moment sx is somebody else's cell.
+     #19: this is where the far field's fan lived. Measured at the level-0 cam1 seat on THIS tree, with
+     the per-pixel light on: 18,704 deferred pixels in one frame, EVERY one of them with |fx| > 1 and the
+     worst at 68.37 - a pixel whose ray landed at world (62.2, 44.2) of a 26x26 map fell back to the camera's
+     own cell (22, 15) and then interpolated that cell's slopes 40 cells in x and 29 in y. The delivered
+     light multiplier reached 136 (11,117 of those pixels sat outside [0.2, 1.5]), so the ceiling
+     past the map edge is not shaded, it is multiplied into clipping, and its level sets are straight
+     world-aligned lines - which in perspective is a fan of spokes meeting at the vanishing point, brightest
+     exactly where the lamp pool is brightest. `main` cannot show this term because its deferred copy has
+     no ramp at all (`lr = gMBase + gML0`), so the runaway is take two's regression, not the shipped look.
+     The rule the row copy already obeys is restated here: the ramp is an interpolation INSIDE the cell whose
+     light it reads, so when the pixel has no cell of its own its fraction is 0 and it takes that cell's
+     value whole - which is bit for bit what `main` delivers at the same pixel. GNDRO 0 puts the
+     extrapolation back, so the A/B is one DEV.set call and the blown wedge comes back visibly. */
+  const own = sx >= 0 && sy >= 0 && sx < N && sy < N;
+  if (!own) { gndOffMap++; sx = ax; sy = ay; }
   let k;
   if (gMAn) {
     const cfS = gMCf, qx = rx * cfS, qy = ry * cfS;
@@ -1078,33 +1336,89 @@ function groundPixel(x0, x1, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb
   const mw = m.w, mh = m.h, ms = sc * m.w, td = m.data, mask = mw - 1, maskH = mh - 1;
   const inMap = sx >= 0 && sy >= 0 && sx < N && sy < N, cIdx = sy * N + sx;
   let lr, lg, lb, mir;
-  /* Light and mirror are functions of the CELL, not of the pixel: the row loop recomputes them at a
-     crossing for exactly that reason, and here they are the same three loads plus one hash per crossing
-     instead of per pixel. Keyed by the frame serial too, because the lightmap fades between frames. */
+  /* Light and jitter are functions of the CELL, not of the pixel: the row loop recomputes them at a
+     crossing for exactly that reason, and here they are the same three loads plus one hash pair per cell
+     change instead of per pixel. Keyed by the frame serial too, because the lightmap fades between
+     frames. #19: BOTH were cell-CONSTANT here - one light value and one mirror flip per cell - and that
+     is what drew the fan of spokes; see the same two terms in castGround's row. The six ramp SLOPES are
+     memoised as scalars rather than read out of GLC per pixel: this copy already costs a march, and nine
+     random reads into a 100 KB array per deferred pixel is not the way to spend them. */
   if (gLSer !== gSer || sx !== gLSX || sy !== gLSY) {
-    gLSer = gSer; gLSX = sx; gLSY = sy; gML0 = gML1 = gML2 = 0; gMMir = 0;
+    gLSer = gSer; gLSX = sx; gLSY = sy;
+    gML0 = gML1 = gML2 = 0; gMA0 = gMA1 = gMA2 = gMB0 = gMB1 = gMB2 = gMD0 = gMD1 = gMD2 = 0; gMMir = 0;
     const lta = MAP.lt, kk = cIdx * 3;
     if (inMap && lta && cIdx >= 0 && kk + 2 < lta.length) {
       /* #21: this is the SECOND copy of the ground pixel body, so it carries the same `li > LGCAP`
          ceiling the row loop's crossing carries. Without it light is a property of WHICH PATH painted
-         the pixel, and `heights` is the probe that paints pixels through both. */
+         the pixel, and `heights` is the probe that paints pixels through both. buildLightRamp applies
+         the same ceiling per cell, so the ramp this site adds is smooth across a clamped lamp too. */
       let li = lm ? lm[cIdx] : 0.4;
       if (cnt) { cnt[LG_DEF]++; if (li > LG_CEIL) cnt[LG_DEF + LG_N]++; }   // site run / lookup above 1.0
       if (li > lgc) li = lgc;
       if (cnt && li > LG_CEIL) cnt[LG_DEF + 2 * LG_N]++;              // delivered above 1.0 = the defect
       gML0 = li * lta[kk] / 128; gML1 = li * lta[kk + 1] / 128; gML2 = li * lta[kk + 2] / 128;
-      gMMir = (hash2(sx, sy) * 4) | 0;                    // cell crossing
+      if (GLRP) {                                // GLC is null until a frame has run with GLRP on
+        const k12 = cIdx * 12;                   // it covers every in-map cell: built from MAP.w
+        gMA0 = GLC[k12 + 3]; gMA1 = GLC[k12 + 4]; gMA2 = GLC[k12 + 5];
+        gMB0 = GLC[k12 + 6]; gMB1 = GLC[k12 + 7]; gMB2 = GLC[k12 + 8];
+        gMD0 = GLC[k12 + 9]; gMD1 = GLC[k12 + 10]; gMD2 = GLC[k12 + 11];
+      }
+      if (gMMirOn) gMMir = (hash2(sx, sy) * 4) | 0;        // the same gate as the row loop's mirOn
     }
   }
-  lr = gMBase + gML0; lg = gMBase + gML1; lb = gMBase + gML2; mir = gMMir;
-  let tx = (cx * ms) | 0, ty = (cy * ms) | 0;
+  /* The same patch the row loop walks, and the same floor on it: the four weights sum to 1 and every
+     tap is >= 0, so the only way below the ambient base is a NEGATIVE fx or fy - cx can sit in (-1,0)
+     and still index cell 0, which is in-map, and the patch then extrapolates off the map's own edge.
+     `own` closes the OTHER way out of the patch, the one that reaches 136 rather than below zero: a
+     pixel that fell back to the predictor has an (cx - sx) of whole cells, not a fraction (#19). */
+  const fx = (own || !GNDRO) ? (cx - sx) * GLRP : 0, fy = (own || !GNDRO) ? (cy - sy) * GLRP : 0;   // GNDRO 0 reproduces the extrapolation for the A/B
+  const vr = gMBase + gML0 + (gMA0 + gMD0 * fy) * fx + gMB0 * fy,
+    vg = gMBase + gML1 + (gMA1 + gMD1 * fy) * fx + gMB1 * fy,
+    vb = gMBase + gML2 + (gMA2 + gMD2 * fy) * fx + gMB2 * fy;
+  lr = vr < gMBase ? gMBase : vr; lg = vg < gMBase ? gMBase : vg; lb = vb < gMBase ? gMBase : vb;
+  mir = gMMir;
+  /* The same two-sample fetch as the row loop, from this pixel's OWN footprint: its row delta is
+     (gMCxs,gMCys) world units per column and its column delta is its own ray times gMCf, so the long
+     axis in texels of THIS pixel's mip is whichever of the two is longer. No square root on the common
+     path - which axis is longer is decided on squared lengths, and the row-long branch, the one the
+     measurements never took, is where the root lives. One rule, two copies of the arithmetic, exactly
+     like every other term in these two bodies (AGENTS.md). */
+  let axOn = 0, ox = 0, oy = 0;
+  if (GNDAX) {
+    const colT = gMCf * ms * 0.5, colA = colT < 0 ? -colT : colT, rowT2 = (gMCxs * gMCxs + gMCys * gMCys) * ms * ms;
+    if (colA * colA * 4 >= rowT2) { if (colA * 2 > AXMIN) { axOn = 1; ox = rx * colT; oy = ry * colT; } }
+    else { const rowT = Math.sqrt(rowT2); if (rowT > AXMIN) { axOn = 1; ox = gMCxs * ms * 0.5; oy = gMCys * ms * 0.5; } }
+    ox = (ox + 0.5) | 0; oy = (oy + 0.5) | 0;
+  }
+  const uxp = cx * ms, uyp = cy * ms;
+  let tx = uxp | 0, ty = uyp | 0, ufx = uxp - tx, ufy = uyp - ty;
+  if (ufx < 0) { tx--; ufx++; }                 // floor, not truncate - same guard as the row copy
+  if (ufy < 0) { ty--; ufy++; }
   tx &= mask; ty &= maskH;
-  if (mir & 1) tx = mask - tx;
-  if (mir & 2) ty = maskH - ty;
+  if (mir & 1) { tx = (mask - tx - 1) & mask; ufx = 1 - ufx; }
+  if (mir & 2) { ty = (maskH - ty - 1) & maskH; ufy = 1 - ufy; }
   const c = td[ty * mw + tx];
   const i = row + x;
-  if ((c >>> 24) === 253) { px[i] = 0xFF000000 | clampi((c >> 16 & 255) * gMInv + gMFB) << 16 | clampi((c >> 8 & 255) * gMInv + gMFG) << 8 | clampi((c & 255) * gMInv + gMFR); continue; }
-  let r = (c & 255) * lr + gMFR, g = (c >> 8 & 255) * lg + gMFG, b = (c >> 16 & 255) * lb + gMFB;
+  let cr = c & 255, cg = c >> 8 & 255, cb = c >> 16 & 255, em = c >>> 24;
+  if (GNDFT) {                                 // the same lerp as the row copy, across THIS pixel's
+    const c0 = Math.abs(gMCys) >= Math.abs(gMCxs) ? 1 : 0;    // short side, decided from its own footprint
+    const c1 = c0 ? td[((ty + 1) & maskH) * mw + tx] : td[ty * mw + ((tx + 1) & mask)];
+    const wf = c0 ? ufy : ufx;
+    cr += ((c1 & 255) - cr) * wf;
+    cg += ((c1 >> 8 & 255) - cg) * wf;
+    cb += ((c1 >> 16 & 255) - cb) * wf;
+    if ((c1 >>> 24) === 253) em = 253;         // the FLAG rule, same as the row copy
+  }
+  if (axOn) {                                  // the same symmetric pair as the row copy, from this
+    const c1 = td[((ty - oy) & maskH) * mw + ((tx - ox) & mask)];    // pixel's OWN footprint, which is
+    const c2 = td[((ty + oy) & maskH) * mw + ((tx + ox) & mask)];    // what the march above just solved
+    cr = cr * 0.5 + (c1 & 255) * 0.25 + (c2 & 255) * 0.25;
+    cg = cg * 0.5 + (c1 >> 8 & 255) * 0.25 + (c2 >> 8 & 255) * 0.25;
+    cb = cb * 0.5 + (c1 >> 16 & 255) * 0.25 + (c2 >> 16 & 255) * 0.25;
+    if ((c1 >>> 24) === 253 || (c2 >>> 24) === 253) em = 253;    // the FLAG rule, same as the row copy
+  }
+  if (em === 253) { px[i] = 0xFF000000 | clampi(cb * gMInv + gMFB) << 16 | clampi(cg * gMInv + gMFG) << 8 | clampi(cr * gMInv + gMFR); continue; }
+  let r = cr * lr + gMFR, g = cg * lg + gMFG, b = cb * lb + gMFB;
   const dl = isF && inMap && DECAL_MASK ? DECAL_MASK[cIdx] : 0;
   if (dl !== 0) {
     const gl = DECAL_GRID[cIdx];

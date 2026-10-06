@@ -234,6 +234,26 @@
     if (name === 'rim') { RIG.setRim(value === undefined ? true : !!value); return { rim: RIG.rim, note: 'pose cache cleared' };
     }
     if (name === 'shadow') { SHADOW = (value === undefined ? true : !!value) ? 1 : 0; return { shadow: SHADOW > 0 }; }
+    /* #19's three ground terms, switchable without editing the renderer - the issue's "each mechanism is
+       switchable from the console". They are script-scope `let`s in js/40_render.js, and a top-level
+       `let` lives in the global lexical environment every later script shares, so assigning the name
+       here IS the switch; an explicit branch per term because you cannot assign to a binding by string.
+       Each has a value that reproduces what shipped, so an A/B is one call and not a worktree:
+         gndjit    2 = mirror every cell (shipped), 1 = mirror only wide cells, 0 = never
+         gndlight  0 = one light value per cell (how it shipped), 1 = sampled at the pixel
+         gndax     0 = one texel per pixel (shipped), 1 = a second tap along the footprint's long axis
+         gndfilt   0 = one texel per pixel (shipped), 1 = the fetch lerps across the footprint's short
+                   side - 3-11% of the ground streak metric (#19 take three), no more
+         gndramp   0 = the deferred pixel's light ramp extrapolates away from the fallback cell, 1 = it
+                   stops at the cell boundary. 0 is the far-field fan, with a light multiplier of up to 136
+                   on a pixel whose ray landed 40 cells off the map (#19 take four); at 1 those pixels take
+                   exactly what `main` delivers at the same pixel.
+       mip selection is already covered by DEV.ar, buffer scale by the tier keys. */
+    if (name === 'gndjit') { GJIT = value === undefined ? 1 : value | 0; return { gndjit: GJIT, minPx: GJITPX }; }
+    if (name === 'gndlight') { GLRP = value === undefined ? 1 : (value ? 1 : 0); return { gndlight: GLRP }; }
+    if (name === 'gndax') { GNDAX = value === undefined ? 1 : (value ? 1 : 0); return { gndax: GNDAX, AXMIN: AXMIN }; }
+    if (name === 'gndfilt') { GNDFT = value === undefined ? 1 : (value ? 1 : 0); return { gndfilt: GNDFT }; }
+    if (name === 'gndramp') { GNDRO = value === undefined ? 1 : (value ? 1 : 0); return { gndramp: GNDRO }; }
     if (name === 'gfx') {
       const i = typeof value === 'string' ? QUAL.findIndex(q => q.name.toLowerCase() === String(value).toLowerCase()) : clamp(value | 0, 0, QUAL.length - 1);
       if (i < 0) throw new Error('DEV.set("gfx", …) wants 0..' + (QUAL.length - 1) + ' or ' + QUAL.map(q => q.name).join('|'));
@@ -270,7 +290,10 @@
       })),
       counts: { enemies: ENEMIES.length, alive: enemiesLeft(), parts: PARTS.length, proj: PROJ.length, decals: DECALS.length, props: PROPS.length, pickups: PICKUPS.length, lights: LIGHTS.length },
       flags: { locked: !!S.locked, sound: !!S.sound, audioBroken: !!S.audioBroken, exitOpen: !!S.exitOpen, perf: !!S.perf, showMap: !!S.showMap, gfx: S.gfx, err: S.err || null },
-      map: { w: MW, h: MH, exit: [num(exitX, 2), num(exitY, 2)] }
+      map: { w: MW, h: MH, exit: [num(exitX, 2), num(exitY, 2)] },
+      /* #19's ground-shading state in one line, so an A/B claim can be read off the live page instead
+         of off a worktree: which of the three mechanisms is on, and what mip policy is in force. */
+      gnd: { jit: GJIT, jitMinPx: GJITPX, light: GLRP, ax: GNDAX, axMin: AXMIN, filt: GNDFT, ramp: GNDRO, mipax: MIPAX, mipar: MIPAR }
     };
   }
   /* The wall DDA from castWalls, run for one caller-supplied ray instead of every column:
@@ -391,7 +414,12 @@
       '                                  why: exact | sidestep | short | short+sidestep | crowded | rescue',
       '  DEV.clear()                     drop enemies, projectiles and particles; returns what it removed',
       '  DEV.set(name, value)            tier keys (res, bloom, grade, grain, far, glow, rigH, rast, dmax, scan, vec, min, max)',
-      '                                  plus gfx (0..2 or a tier name) and rim (bool; clears the pose cache)',
+      '                                  plus gfx (0..2 or a tier name), rim (bool; clears the pose cache), and the',
+      '                                  three ground terms #19 made switchable: gndjit (2 mirror every cell /',
+      '                                  1 mirror wide cells only / 0 never), gndlight (0 per cell / 1 per pixel),',
+      '                                  gndax (0 point fetch / 1 filtered along the footprint), and',
+      '                                  gndfilt (0 one texel per pixel / 1 lerp across the short side), and',
+      '                                  gndramp (0 extrapolate the deferred light ramp off-map / 1 stop at the cell)',
       '  DEV.tiers()                     the QUAL table as it now stands, including any overrides set() made',
       '  DEV.layoutSig()                  FNV-1a over MAP.fz then MAP.cell — the level\'s identity (#166).',
       '                                  Two boots of one ?dev=1&seed=<n> URL must agree; with no seed they must not.',
