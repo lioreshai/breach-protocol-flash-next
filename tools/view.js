@@ -10391,6 +10391,16 @@ if (MODE === 'stats') {
       console.log('SEAT override: x ' + s[0] + ' y ' + s[1] + ' ang ' + s[2].toFixed(4));
     } else console.log('SEAT ignored, want "x,y,ang": ' + process.env.SEAT);
   }
+  /* SET=code runs in the game context immediately BEFORE the frame is painted, so an A/B of a renderer term
+     is one command instead of an edited file - #19's definition of done asks that each ground term be
+     switchable and that the frame visibly change, and the console switch (`DEV.set`) is not loaded headless,
+     so until now the only way to A/B a screenshot was a worktree. `SET='GNDRO=0'` (renderer globals: GJIT,
+     GLRP, GNDAX, GNDFT, GNDRO, MIPAX, MIPAR, FARB, AMB - `let`s in js/40_render.js, which every script's
+     global scope shares) paints the frame with that term off. Wrapping renderWorld inside SET is how a run
+     prints a counter the frame fills:
+       SET='(()=>{const rw=renderWorld;globalThis.renderWorld=()=>{rw();console.log(gndOffMap)}})()'
+     Unset changes nothing: the PNG is byte-identical to the same run without it. */
+  if (process.env.SET) run(String(process.env.SET));
   run('renderWorld()');
   const BW = run('BW'), BH = run('BH'), buf = new Uint32Array(run('px'));
   stats('frame', buf, BW, BH);
