@@ -38,9 +38,16 @@
   figures (38.08/54.25 → 38.09/54.26). **Levels 0–2 are byte-identical in every one of them**, so they
   — not L3 — are now the control that says those hashes are the same arithmetic on the same machine, and
   the comment above `CZBAND_REF` that credited that claim to L3 is corrected in place. No threshold was
-  widened and no record was re-keyed outside level 3's own slot. Rejected, so it is not retried: giving
-  the authored crate the generator's `scale` 0.72 (measured at the branch point) hands the *generated*
-  levels a 0.05 m overhang, still snags the L3 graze pose, and takes L3's median the wrong way, 64 → 63.
+  widened and no record was re-keyed outside level 3's own slot. The other candidate this issue argued
+  for — giving the authored crate the generator's `scale` (the plan parser pushes 1, the generator pushes
+  0.72, so the same plan mark is a 0.655 m ghost in THE STACK and a 0.55 m one on the generated levels) —
+  is deliberately not in this change. Measured on the issue while the lamp still stood in the jamb it left
+  the pose snagging at 3 of 4 and removed the excuse, which is how it would have turned a reported row
+  into a permanently red one. Re-measured here, with the doorway clear, the parity change crosses 4 of 4
+  as well: the lamp was the cause and the footprint was never the snag. It is therefore an authoring
+  question of its own, worth one more re-record of L3 (measured on this tree: median 82.52 → 82.38, worst
+  roll 73 either way) and no player-visible gain beyond a crate that is no longer a third larger than the
+  ones the generator places.
 
 - **The prop probe now judges the hand-authored level, and a level's world no longer depends on the
   command line** (#314). `node tools/view.js props` was green while `node tools/view.js props 3` — the
