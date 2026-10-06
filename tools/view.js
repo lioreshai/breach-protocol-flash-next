@@ -2027,7 +2027,7 @@ if (MODE === 'flatparity') {
   /* #19 re-recorded all four: the ground pass's light is sampled at the pixel instead of per cell, so a
      FLAT frame's shading moved too - this record never claimed the shading was frozen, only that a flat
      level collapses to one picture, and it still does. Values measured on this tree, not widened. */
-  const OLD = refRecord('flatparity', 'PARITY', 'md5', ['a4db61f5161618586ae674047fc57cc2', 'fbcff86d51a87fc3df0279ab205cecd5', 'e4f90eb12f5ef993dc294fa96f89bfaa', '17bea9601abf8969ea6e9960dd1b8e2a']);   // #19 take three: the ground FETCH filters now, so a flat level's ground pixels moved too - the LAMPS=off sense, re-recorded, no threshold touched
+  const OLD = refRecord('flatparity', 'PARITY', 'md5', ['a4db61f5161618586ae674047fc57cc2', 'fbcff86d51a87fc3df0279ab205cecd5', '0a99b0ed747c9732792fc474bf5211ad', 'f95291bb61df29589e872d068e36d1ef']);   // #369 re-keys L2 and L3 ONLY (frame mean 47.5 -> 39.8 and 28 -> 36.0): a ceiling that no longer shares its floor's material, plus the authored floorBias/ceilBias/ceilLead the two levels now carry. L0 and L1 are byte-identical to the record, which is the point - neither level authors the new fields, so their flat frames do not move at all and these are a level-scoped change, not a renderer-wide one. #19 take three: the ground FETCH filters now, so a flat level's ground pixels moved too - the LAMPS=off sense, re-recorded, no threshold touched
   const OLDM = [78.2, 34.1, 47.5, 28.0];
   /* #213 moves SHIP[0] to 060da4cd (80.8, from 4262d051/81.3) and nothing else: a coverage top-up's
      intensity now scales with the cells it covers, so the shipped world gains DIMMER sources and L0's
@@ -2048,7 +2048,7 @@ if (MODE === 'flatparity') {
      did not move, so this is seat choice, not a light scale. */
   /* #19 re-recorded: same reason as PARITY, and the lamps themselves did not move - see the DEALT row,
      where the dealt grids and off-datum cell counts are byte-identical to the previous records. */
-  const SHIP = refRecord('flatparity', 'LOCK', 'md5', ['619e10b73e0fe00b61b9d39091f04972', 'fbcff86d51a87fc3df0279ab205cecd5', '4acc06cbddd9ca6583703081a8069c1b', '17bea9601abf8969ea6e9960dd1b8e2a']);   // same re-record, LAMPS unset. L1 and L3 equal PARITY's pair because this probe flattens both levels, so their frames differ only in lamps; L0 and L2 do not, which is what makes the pair two senses rather than one
+  const SHIP = refRecord('flatparity', 'LOCK', 'md5', ['619e10b73e0fe00b61b9d39091f04972', 'fbcff86d51a87fc3df0279ab205cecd5', 'c6e09c0c32aaa6369afc9c0d8f3168cb', 'f95291bb61df29589e872d068e36d1ef']);   // #369, same two levels as PARITY (mean 51.6 -> 45.0 and 28 -> 36.0) and the same statement: the lightmap the lamps produce is untouched, so this is shading, not placement - L0/L1 bytes unmoved. same re-record, LAMPS unset. L1 and L3 equal PARITY's pair because this probe flattens both levels, so their frames differ only in lamps; L0 and L2 do not, which is what makes the pair two senses rather than one
   const SHIPM = [79.3, 34.1, 51.6, 28.0];
   /* #219's DEALT triple, #226's camera: the frame of each level AS DEALTED - bands, band term, shipped
      lamp record, same dice (1000 + level*97) and the same pinned-clock ninth render - but at a seat
@@ -2149,7 +2149,7 @@ if (MODE === 'flatparity') {
   // record, and the coverage pass moved three seats on the generated levels. The authored level is the control.
   /* #19 re-recorded L0/L1/L3, L2 unchanged: the dealt GEOMETRY is identical (the off-datum counts this
      row prints are 165/246/314/134, the same as main's run of the same probe) - only its shading moved. */
-  const DEALT = refRecord('flatparity', 'DEALT', 'md5', ['0cbac2650ff2ec559f19be1d8f2f0dab', '659b2fc2796a27ff2f3a102fb1c26715', '529fe0c79f3b5ec0bbcac5db408ef571', 'b05a3a480ccfc2c6c7dfbe867fe5a485']);   // #19 take four: L0 and L3 moved, L1 and L2 did NOT - that is the measurement, and this row does not claim to know why those two. What IS measured is the mechanism at the level-0 cam1 seat (js/40_render.js, groundPixel's off-map fallback): take four changes the shading of ground pixels whose own cell is off the map and of nothing else. PARITY and LOCK are untouched by this pass - a flattened level defers nothing, so no pixel of a flat frame is on this code path at all
+  const DEALT = refRecord('flatparity', 'DEALT', 'md5', ['0cbac2650ff2ec559f19be1d8f2f0dab', '659b2fc2796a27ff2f3a102fb1c26715', '529fe0c79f3b5ec0bbcac5db408ef571', '91f0a24db67adbdc7b1e2f0886b2cb28']);   // #369 re-keys L3 ONLY (mean 39.7 -> 36.0 at dice 1291, the authored level). L2's dealt frame is BYTE-IDENTICAL - same md5 in both flatparity runs, and it is a frame whose shading did change (LOCK[2] above moved) - so whatever this seat at dice 1194 looks at, the ceiling is not where the difference lands. The row does not claim to know why; it is recorded as a measurement, not an explanation. #19 take four: L0 and L3 moved, L1 and L2 did NOT - that is the measurement, and this row does not claim to know why those two. What IS measured is the mechanism at the level-0 cam1 seat (js/40_render.js, groundPixel's off-map fallback): take four changes the shading of ground pixels whose own cell is off the map and of nothing else. PARITY and LOCK are untouched by this pass - a flattened level defers nothing, so no pixel of a flat frame is on this code path at all
   const DEALTM = [55.5, 57.8, 85.1, 39.7];
   const OFF = process.env.LAMPS === 'off';
   const f1 = v => (v === undefined || v === null ? '-' : (+v).toFixed(1));
@@ -5609,7 +5609,7 @@ if (MODE === 'exposure') {
   /* #19 re-recorded L0/L1/L2 (71.61 / 70.19 / 69.19 exact), L3 unmoved: the ground's light is sampled at
      the pixel, so a lamp pool spreads a little and the seeded median falls by one. The SPREAD columns,
      which are what this row is about, did not move. */
-  const EXPO_MED = refRecord('exposure', 'MEDIAN', 'num', [71, 70, 69, 64]);   // #19 take four: L0 72 -> 71 (71.04 measured); L1-L3 did not move. This is the exposure half of the same fix - the far-field ceiling was being multiplied into clipping by a light ramp that extrapolated 40 cells off the map, and the level-0 spawn frame reaches past the map edge
+  const EXPO_MED = refRecord('exposure', 'MEDIAN', 'num', [71, 70, 63, 69]);   // #369: L2 69 -> 63 (62.96 exact, rolls 54 81 66 60) and L3 64 -> 69 (68.74, rolls 73 70 67 64); L0 and L1 byte-identical. The two moves are the fix and they are in OPPOSITE directions on purpose: ABATOIR CORE loses the emissive ceiling veins it was painting over its own head, THE STACK gains a floor that is no longer outside the light its lamps deliver. Both stay inside the 60-100 window row, which is the row that gates the look, and each level's worst seeded roll prints as a KNOWN #149 line rather than being absorbed. #19 take four: L0 72 -> 71 (71.04 measured); L1-L3 did not move. This is the exposure half of the same fix - the far-field ceiling was being multiplied into clipping by a light ramp that extrapolated 40 cells off the map, and the level-0 spawn frame reaches past the map edge
   // #284: L2's spawn-seat MEAN moves 64 -> 63 (64.33 -> 63.22) while the CENTRE-HALF mid is identical to
   //   the hundredth (73.31) and the spread is identical (65), L0 and L1 are byte-identical (56.89/64.80 and
   //   59.95/50.31), PARITY is bit-identical on all three levels, and the deal's mean is unchanged in the
@@ -5642,7 +5642,7 @@ if (MODE === 'exposure') {
      a lamp-overlap room, and the pixels past the first cell boundary are the ones that come down. L1
      64.49/58.60 and L2 64.32/72.58 come back ONTO their records, so this is not the frames going dark -
      and #304's L3 pair 56/60 still rounds onto its record (55.92/59.84 exact against #304's 56.10/59.86). */
-  const EXPO_SPAWN = refRecord('exposure', 'SPAWN', 'num', [62, 68, 66, 64, 65, 72, 58, 61]);   // mean, mid per level - #19 take four moves ONE figure, L3's centre-half mid 59 -> 61 (57.63 / 61.09 exact); the other seven are unchanged. #19 earlier re-recorded all eight (61.78/67.59, 66.39/64.26, 64.63/71.83, 58.15/58.84): the ground's light is sampled at the pixel, which lifts the far half of a spawn view
+  const EXPO_SPAWN = refRecord('exposure', 'SPAWN', 'num', [62, 68, 66, 64, 65, 75, 51, 56]);   // mean, mid per level - #369 moves the two pairs of the two levels that author a value order: L2 65/72 -> 65/75 (65.28 / 74.66 exact), L3 58/61 -> 51/56 (51.03 / 55.91). Same sign as the medians and for the same reason: a ceiling that stops out-shading the surfaces under it. #19 take four moves ONE figure, #19 take four moves ONE figure, L3's centre-half mid 59 -> 61 (57.63 / 61.09 exact); the other seven are unchanged. #19 earlier re-recorded all eight (61.78/67.59, 66.39/64.26, 64.63/71.83, 58.15/58.84): the ground's light is sampled at the pixel, which lifts the far half of a spawn view
   const LUM_WANT = [60, 100];       // the documented window (README: targets 60-100)
   /* #149 THE WORST ROLL, raster layer, at 4 seeded rolls - the statistic the window row above
      deliberately does not read. The median is asserted because one roll outside 60-100 proves nothing,
@@ -6080,7 +6080,7 @@ if (MODE === 'heights') {
      teeth (#148's control rule), and nothing here reads a clock. Guarded means ABSTAIN, not pass: a
      row under a knob prints NOT COMPARED and counts nothing in `bad`, which is why the guard list has
      to be the measured one and not a guess. */
-  const RECHALF = refRecord('heights', 'HALF-MOVE', 'num', [97.66, 31.21, 82.05, 95.47, 42.83, 61.97, 98.03, 33.83, 29.81, 95.62, 42.81, 64.45, 98.86, 32.57, 81.13, 95.34, 42.88, 63.32, 97.74, 23.55, 21.23, 95.41, 38.07, 54.25]);
+  const RECHALF = refRecord('heights', 'HALF-MOVE', 'num', [97.66, 31.21, 82.05, 95.47, 42.83, 61.97, 98.03, 33.83, 29.81, 95.62, 42.81, 64.45, 97.73, 32.57, 81.13, 95.34, 42.88, 63.32, 97.74, 23.55, 21.24, 95.58, 38.08, 54.25]);   // #369 re-keys 4 of 24, all share-of-frame percentages: L2 tallRoom ceiling 98.86 -> 97.73 and L3's stripes floor 21.23 -> 21.24, border floor 95.41 -> 95.58, stepUp floor 38.07 -> 38.08. A dimmer ceiling diffs LESS against the frame one quantum above it, so the moved-half census of a tall room shrinks - the solver is unchanged, the pixels are quieter. The other 20 are byte-identical, and no level that does not author the fields moved.
   const HALFK = ['tallRoom ceiling', 'pit floor', 'stripes floor', 'border floor', 'stepUp floor', 'eyeUp floor'];
   const HALFCOL = { tallRoom: 0, pit: 1, stripes: 2, border: 3, stepUp: 4, eyeUp: 5 };
   const FRAMEK = ['VW', 'VH', 'LAMPS', 'NOCAP'].filter(k => process.env[k]);
@@ -9947,7 +9947,7 @@ if (MODE === 'bands') {
      across take four because the pixels the seam A/B compares are shaded by the deferred path; L0's did
      not move at all, which is the control that says the oracle is still measuring the seam and not this
      change.) */
-  const RECSEAM = refRecord('bands', 'SEAM-FRAME', 'md5', ['4bfb28ba4ea318905a9741ad6b4537fe', '19f18bf3e1e813bbf183c20f5e47c67d', '214b8a1439d72c51a4286c15db5aaceb', '15344b2491d563c43a9cc9561a8d59e8']);   // #19 take four: L0's frame held and L1-L3 moved - again, the three generated seats are the ones whose frame reaches past the map edge
+  const RECSEAM = refRecord('bands', 'SEAM-FRAME', 'md5', ['4bfb28ba4ea318905a9741ad6b4537fe', '19f18bf3e1e813bbf183c20f5e47c67d', '85f2c955c81ccef1f80bfb43616d912f', 'c29057f35bc3ad6d4962696d2339284f']);   // #369 re-keys L2 and L3 (the frames the lip rows were measured on carry the changed ceiling material and the authored biases; SEAM=1 vs SEAM=0 still moves 12551 / 13552 px, so the seam rows themselves did not weaken). L0 and L1 held. #19 take four: L0's frame held and L1-L3 moved - again, the three generated seats are the ones whose frame reaches past the map edge
   // #303: the rows below are labelled by their own level index and every lip comes out of the GENERATED
   // grid, so a bound of 3 simply never asks the authored plan.
   for (let li = 0; li < run('LEVELS.length'); li++) {

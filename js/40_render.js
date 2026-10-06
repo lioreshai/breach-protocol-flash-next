@@ -13,6 +13,12 @@ let drawCalls = 0, pixFilled = 0, reSolveBad = 0, gndOffMap = 0;   // last two: 
 let gndWalkEdge = 0;                                 // deferred pixels the ray march handed to the wall pass: a slab EDGE, no plane of its own
 let bloomCv = null, bloomCtx = null, canFilter = false, grainCv = null, grainPat = null, grainSeed = 0;
 let FARB = 22, AMB = 0.13, GQ = null;
+/* #369: the authored SURFACE VALUE ORDER. Two row constants that sit in the same place AMB lives and
+   apply to one surface class each - FLOORB on floor rows, CEILB on ceiling rows - so a level can say
+   "walls brightest, floor mid, ceiling lowest" without touching a texture or a lightmap. Both are 0 on
+   every level that does not author them, which is every flat level, so their arithmetic costs nothing
+   and byte-matches there. See LEVELS floorBias/ceilBias in js/20_level.js. */
+let FLOORB = 0, CEILB = 0, CEILLD = 0.9;
 // samples across one row's fan used to find the light of a far-band row (#197): a row at FARB spans
 // ~1.4*FARB world metres, so ONE cell would book a 30 m wide band to one lamp. Lookups per ROW.
 const FARFAN = 8;
@@ -150,6 +156,13 @@ function buildGrain() {
    CZ_TALL column the raised band also lifted has plane 4.00 and a datum eye solves it at 3.50 - measured
    over 8 seeds x 3 levels in 1 pose of 24 (SEED 3 L0: 67 of 189 deferred ceiling runs; the other 23
    frames byte-identical with the term zeroed). */
+/* #369: this cap is the most a VAULT may LEAD the floor under it by. It used to be a flat +0.9 with no
+   reference to anything, and on THE STACK (amb 0.2, `lamps: 0`, a floor band the lamps do not cover) it
+   put a vault's base at 1.10 against the floor's 0.20 - the roof became the brightest large surface in
+   a level whose whole idea is a walkway above your head, and the walkable floor the darkest thing in the
+   frame. Levels that do not author `ceilLead` still get 0.9, so their bytes do not move; the term is
+   still exactly 0 within CEILHI of the eye, so every flat frame is unchanged. CEILG/CEILHI are
+   unchanged: a vault is still lifted off black, it just cannot out-light the surface you stand on. */
 const CEILHI = 3.0, CEILG = 1.4, CEILGM = 0.9;
 const visAt = d => 1 / (1 + d * d * 0.010) + 0.06 * Math.exp(-d * 0.06);
 const fogAt = d => clamp(1 - visAt(d), 0, 1);
@@ -181,6 +194,9 @@ function renderWorld() {
   const pfl = floorAt(P.x, P.y);
   eyeZ = clamp(cfg.eye + P.z - P.crouch * 0.19, pfl + 0.12, ceilAt(P.x, P.y) - 0.06);
   AMB = MAP && MAP.amb !== undefined ? MAP.amb : 0.13;
+  FLOORB = MAP ? MAP.floorBias || 0 : 0;
+  CEILB = MAP ? MAP.ceilBias || 0 : 0;
+  CEILLD = MAP && MAP.ceilLead !== undefined ? MAP.ceilLead : CEILGM;
   horizon = BH * 0.5 + aimPx() + bobP * (BH / 400) * 3 + shakeY;
   const fcR = FOGC[0], fcG = FOGC[1], fcB = FOGC[2];
   const fcol = pack(FOGC[0], FOGC[1], FOGC[2]);
@@ -687,7 +703,8 @@ function castGround(flash, fcR, fcG, fcB) {
     const fogRow = fogAt(dRow);
     const invRow = 1 - fogRow, fRRow = fcR * fogRow, fGRow = fcG * fogRow, fBRow = fcB * fogRow;
     const flashRow = fl * Math.exp(-dRow * 0.30);
-    const baseRow = amb + flashRow * 0.9 + (isF || dzA <= CEILHI ? 0 : Math.min(CEILGM, CEILG * (dzA - CEILHI)));
+    const baseRow = amb + flashRow * 0.9 + (isF ? FLOORB : CEILB) +
+      (isF || dzA <= CEILHI ? 0 : Math.min(CEILLD, CEILG * (dzA - CEILHI)));
     let tex, sc;
     if (isF) { tex = floorTex; sc = 1 / tileF; } else { tex = ceilTex; sc = 1 / tileC; }
     if (dRow > FARB || !(tex && tex.mips)) {                     // far band: light-tinted fog, no texture
@@ -1162,8 +1179,8 @@ function gndBuild(row, isF, absP, pl, tex, sc, fcR, fcG, fcB, fl, amb, dOv) {
   gMSer = gSer; gMRow = row; gMPl = pl; gMDS = dc; gMDist = dOv === undefined ? -1 : dOv;
   gMDfa = 0.4 + 0.6 * Math.exp(-dc * 0.02);
   gMFog = fog; gMInv = 1 - fog; gMFR = fcR * fog; gMFG = fcG * fog; gMFB = fcB * fog;
-  gMBase = amb + fl * Math.exp(-dc * 0.30) * 0.9 +
-    (!isF && pl - eyeZ > CEILHI ? Math.min(CEILGM, CEILG * (pl - eyeZ - CEILHI)) : 0);
+  gMBase = amb + fl * Math.exp(-dc * 0.30) * 0.9 + (isF ? FLOORB : CEILB) +
+    (!isF && pl - eyeZ > CEILHI ? Math.min(CEILLD, CEILG * (pl - eyeZ - CEILHI)) : 0);
   /* the sampled point is LINEAR in the column: camX + (dirX + planeX*(x*stepBase-1))*dS, so a pixel
      of this run needs two multiplies, not a ray build. Same algebra the row uses for its own wx/wys. */
   const sb = 2 / BW;
