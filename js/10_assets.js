@@ -441,14 +441,26 @@ CEILS.ROCK = matTex(T2, T2, p => {
   moss(p, 0.1, 71);                                               // seam moss, not floor moss
 }, { bump: 1.6, amb: 0.4, spec: 0.07, ao: 0.9, grain: 10 });
 CEILS.SINEW = matTex(64, 64, p => {
+  /* #369: this used to be FLOORS.FLESH at a different scale - 104/40/50 albedo with EMISSIVE veins at
+     180,96,60 - so ABATOIR CORE, the largest level in the campaign, put its floor, its walls and its
+     ceiling on one red (one rendered frame, whole screen-row bands: ceiling 67.1, far wall 72.1, near
+     floor 68.1 mean Rec.601 luminance) and every step, ledge and pit lip in it was an edge between two
+     things of the same colour. It now states the rule the other three ceilings already state in their own
+     comments - a desaturated, cooler albedo than any floor, so overhead reads as overhead - and its veins
+     are RECESSES in the hide rather than the emissive threads the floor owns (an emissive texel is exempt
+     from scene light, which is why a ceiling carrying them could not be shaded down at all). The emissive
+     removal plus a desaturated albedo, with the level's own ceilBias on top (js/20_level.js:22), takes
+     that ceiling band from 67.1 to 48.7 at the same seat, against a wall band that does not move: the
+     5.0-point gap the issue measured becomes 23.4, and 17.3 at a second camera. The remaining
+     ordering (floorBias / ceilBias / ceilLead) is authored per level and applied in js/40_render.js. */
   const n = fbm(p.u, p.v, 4, 4, 0.55, 5);
-  let v = 0.5 + n * 0.6;
-  p.r = 104 * v; p.g = 40 * v; p.b = 50 * v;
-  p.h = 0.55 + (n - 0.5) * 0.2;
+  let v = 0.46 + n * 0.5;
+  p.r = 92 * v; p.g = 74 * v; p.b = 90 * v;
+  p.h = 0.5 + (n - 0.5) * 0.2;
   const vk = veinMask(p, 0.18, 3, 23);
-  p.r += (150 - p.r) * vk * 0.4; p.g += (50 - p.g) * vk * 0.5; p.b += (60 - p.b) * vk * 0.5; p.h += vk * 0.12;
-  if (vk > 0.9) { p.e = 1; p.r = 180; p.g = 96; p.b = 60; }
-}, { bump: 1.3, amb: 0.48, spec: 0.4, specPow: 18, ao: 0.7, grain: 9 });
+  p.r += (42 - p.r) * vk * 0.55; p.g += (38 - p.g) * vk * 0.55; p.b += (46 - p.b) * vk * 0.55;
+  p.h -= vk * 0.1;
+}, { bump: 1.3, amb: 0.42, spec: 0.16, specPow: 18, ao: 0.8, grain: 9 });
 
 /* ============================ decals ============================ */
 const DECAL = {};

@@ -8,11 +8,299 @@
   menu promises *Barrels are not your friends* — they now read one shared `BARREL_HP` that the generator
   path already used. And `DIFFS[S.diff].cnt` was applied at exactly one site, the generator's placement
   loop, so Recruit and Nightmare shipped an identical 4-body finale (hp and incoming damage did scale;
-  only the count never did). The authored count now honours the multiplier, seated at the plan's own
-  enemy spots, and Marine asks for exactly the authored number so the shipped default is unchanged.
+  only the count never did). The authored count now honours the multiplier, and an extra body gets a cell
+  **no other body owns** — a plan seat a lower count vacated, else the nearest free open square an authored
+  seat can step into — because two bodies in one square draw as one body and read as a species swap. Marine
+  asks for exactly the authored number, so the shipped default is unchanged.
   Smoke's `barrels` step used to call `hurtBarrel` and assert nothing, so neither defect could fail it:
-  it now asserts which barrels are down, and a new step boots the authored level at Recruit and Nightmare
+  it now asserts which barrels are down, and a new step boots the authored level at all three difficulties
   — the path every existing barrel and difficulty check was blind to.
+
+- **The prop probe now judges the hand-authored level, and a level's world no longer depends on the
+  command line** (#314). `node tools/view.js props` was green while `node tools/view.js props 3` — the
+  same probe asked about THE STACK — failed 13 rows on current `main` (`props 2` failed 4). All three
+  causes were the probe's, not the level's:
+  the scene-light **control** compared every level against one 0.7 fall bar, though that ratio measures
+  how much light the seat *had* to lose (THE STACK's seat cell carries lightmap 0.014 against level 2's
+  0.623, so its body falls 28% and landed at 0.716) — the magnitude is now a recorded per-level number
+  and only "fell by less than 10%, therefore sees no light at all" stays a hard gate; the **orb** was
+  hung `0.35 m` under its ceiling, which in a room whose ceiling is 4 m up puts it out of the frame
+  (0 px, a −338 px silhouette) — it now hangs at `min(ceiling−0.35, floor+0.9)`, 34 px on the generated
+  levels as before and 35 px on the authored one; and the **prop-collision** rows turned out to judge a
+  *different world* depending on which level the argument named, because level generation draws from the
+  harness's shared random stream and the loop inherited wherever that stream had got to — a different
+  crate at the same index, in a different room, printing identical text with the opposite verdict. Each
+  level load there now rest seats and replays the generations a plain `props` run performed, so which
+  world a row builds is a function of the level and its seed only, and `props` and `props 3` agree.
+  Measuring all four levels also found one stale figure in the lamp-core record: level 2's pair read
+  239.5 from an older tree while the row, run on current `main`, reads 263 px / 239.4 — a hundredth of a
+  byte on the top decile of a 15,487 px mask whose saturated count is identical. Both that pair and the
+  authored level's pair are now re-recorded from measurement, and `node tools/view.js refs` prints 22
+  records with the table agreeing. No player-visible byte changed: no `js/` file is touched by this work.
+- **A far ceiling stopped drawing a fan of spokes** (#19, one half of it). The renderer paints a floor or ceiling pixel in one of two places, and until now they disagreed about what a distant surface looks like. The row loop has always stopped texturing past `FARB` (22 m at the current tier) and filled the row with the material's own average — honest, because a row out there spans more world than the mip chain holds: the chain ends at 8×8 while the ideal mip of a far ceiling pixel is 5–11. The second copy, `groundPixel()`, which paints every ground pixel whose cell sits on a *different storey* than the row it belongs to, had no such branch and textured out to four times that distance. On a stepped level those pixels **are** the far field. A pixel there reads one texel for a footprint that runs hundreds of texels down its own ray, so the material's grit is drawn as hard strips whose long axis is the line from the pixel to the vanishing point — which in perspective is a fan of straight spokes meeting under the roof, and it is the reason a screenshot of this game reads as a broken renderer rather than a retro one. A far pixel now takes the same mip-mean wash in **both** copies, from its own solve, with emissive texels averaged by their own rule so a mostly-emissive material cannot over-light the band.
+  **What a player sees.** At `node tools/view.js scene 0 1` the pale far-ceiling region past 22 m reads as a smooth gradient: **38,040 px of a 203,138 px frame** differ from the same build with the term switched off, mean pixel difference 12.4, and the frame's own statistics do not move at all — mean 52.7, blown 0.00 %, both arms. At THE STACK's spawn seat 9,992 px change. Nothing is blurred that the row loop would still fetch, and past `FARB` the new path is *cheaper* than the one it replaces (no mip select, no mirror hash, no texel load, no decal); smoke's paired raster arm reads **−0.15 ms** pooled, and `mip` still reports every level better than the 1-D control with `detail` 4–8× its mush floor, which is the row that says "filtering, not blur". The A/B is one call in the running page: `DEV.set('gndfar', 0)` puts the textured far field back and the comb returns.
+  **What is not fixed, and where it lives.** The spokes do not vanish. At the same seat the band between the near field and 22 m still combs — the top third of that region, buffer rows 107–122, whose pixels solve to 18–22 m where the footprint along the ray is 4–16 texels of the fetched mip and the fetch takes three taps. That half is **not** this copy of the pixel body: the two copies alias there identically, and two measurements say so — `scene 1 1` and `scene 2 0` are **bit-identical** with the switch off (0 differing px), and this change touches buffer rows 123–161 of the seat above and none above them. Fixing it means more taps *along* the ray. One guard rail says do not simply widen the filter: adding taps also raises how often a footprint **touches** an emissive texel, and the fetch's flag rule makes "touches" a threshold, so on a material like level 2's ceiling floor — 52 of 64 texels of its coarsest mip flagged — extra taps convert streaking into brightness. The wash path added here avoids that trap by averaging lit and emissive texels separately; a tap increase has to do the same. The bright wedge as a *shape* — a hard luminance step where the level's own boundary projects onto the ceiling plane — is #375 and is untouched.
+  Records move where the picture moved and nowhere else: `flatparity` DEALT L0 and L3 (**L1 and L2 byte-identical, and both flat senses PARITY and LOCK byte-identical on all four levels** — a flat level queues no deferred pixel, so no pixel of a flat frame is on this code path), `bands` SEAM-FRAME L1–L3 (L0 held; SEAM=1 vs SEAM=0 still moves 10,689/12,551/13,510 px, so the seam rows did not weaken), `heights` HALF-MOVE 2 of 24 by hundredths of a percent, and `cull` CZBAND L0/L1 — that last only runs under `LEAK=1 CZBAND=1`, and its own WORLD lightmap half matches the recording byte-for-byte on both levels, so no lamp moved while the ground-pass lane did. `exposure` and plain `cull` did not move at all. No threshold was widened.
+
+- **Dark ground now has a bound, and the bound says which kind of dark it is** (#199). The issue asked for its
+  coverage statistic to be "bounded by a threshold measured across >= 5 seeds rather than guessed"; the
+  `alt` census had been printing that number inside the pit row's detail text ever since #204, next to a
+  sentence admitting no threshold was asserted. Two rows' worth of records now sit beside the census -
+  **`DARK-SHARE`** (the share of open cells the delivered lightmap leaves under 0.05, bounded ABOVE: more
+  darkness is a regression, less is not) and **`DARK-COVERED`** (the share of *those* cells that do have a
+  lamp's XY disc over them, held two-sided because it is an attribution and not a quality bar - a swing in
+  either direction means the mechanism moved and the claim needs re-measuring) - over the same 12 seeded
+  rolls per level, so no pose and no frame mean enters them. **What the measurement did to the issue's own
+  diagnosis is the interesting part.** #199's title says 63-72% of dark cells have no source in the disc at
+  all, read on `5f14a09` when `splatLight` was a 2-D disc that ignored `L.z`. That kernel is gone: the band
+  term at `js/20_level.js:939` (#203/#208) and the same predicate in `blurLight` (#206) are why a disc now
+  stops at a riser. Under that kernel the census reads the other way round - **L0 5.1% / L1 29.5% / L2 32.3%
+  of dark cells are uncovered, and 94.9% / 70.5% / 67.7% of them have a lamp right over them** and are dark
+  from the disc's own `(1-d/r)^1.6` falloff, which is the thing #206 reclassified on purpose. Dark cells per
+  level read 276 of 6899, 1158 of 10788, 845 of 13821. The issue's premise that no band term existed is
+  corrected where it will be hit: `bandOf` genuinely has no callers in `js/` (only `tools/view.js` calls it),
+  which is how "the term does not exist" survived while the term was sitting inline in the splat kernel.
+- **Two levels now tell you which surface you are looking at** (#369). ABATOIR CORE painted its floor, its walls and its ceiling from one red — `CEILS.SINEW` was `FLOORS.FLESH` at a different scale, with emissive veins the renderer cannot shade down because an emissive texel is exempt from scene light — so in the largest level in the campaign every step, ledge and pit lip was an edge between two things of the same colour. THE STACK had the order upside down: its 4 m vault cleared the `CEILHI` height threshold, picked up the vault lift, and became the brightest region of the frame while the walkable floor — the level authors `lamps: 0` — was the darkest thing in it, in a level whose whole idea is a walkway above your head. A level now authors a **surface value order**: walls carry the highest value, the floor sits mid, the ceiling sits lowest. Three fields (`floorBias`, `ceilBias`, `ceilLead`) sit beside `amb` and apply one row class each, and a level that does not author them is byte-identical — every flat frame and levels 0 and 1 included. Measured on rendered frames, Rec.601 luminance over screen-row bands: ABATOIR CORE's ceiling was 3.7–5.0 below the wall it meets, and is **19.8** below it at `scene 2 1` (67.1 → 52.3 against an unmoved 72.1 wall band) and **17.3** at a second camera; THE STACK's spawn seat went ceiling 68.6 / wall 65.8 / **floor 32.3** (the floor the darkest thing you can see) to ceiling 37.7 / wall 71.8 / **floor 47.2**, so the room you are in is now brighter than the roof over it. **Where the ordering is not complete, it is said rather than implied.** The ceiling rule holds at both seats; the floor-vs-wall half does not — at THE STACK's finale (`view.js scene 3 0`) the lit floor near you reads *above* the far wall faces (rows below the horizon mean 87–90, the wall faces above it 71–73, Rec.601 over screen rows) where at the spawn seat it sits under them (floor 47.2 against wall 71.8). For a level whose whole idea is a walkable surface over your head, a floor that leads the walls in the last room is the read this change wants, so it is left as it renders and labelled here instead of smoothed over. `ceilLead` is authored to a stated rule rather than a taste number: a vault may not lead the floor it covers, so it stays at or under `floorBias − ceilBias` (0.12 ≤ 0.22). **One claim here is not machine-checked, and is labelled rather than quietly asserted.** The ceiling-below-wall gaps above are hand samples of screen-row bands off `view.js scene` frames; no probe in the repo yet measures the issue's "15 luminance below the wall band it meets". A horizon-centred band (rows `horizon-24` to `horizon+8`) reads only **4.7** under the top-third ceiling band on the same level-2 frame, because that window also averages the flat far band past `FARB`, which sits about 25 points darker than the wall faces above and below it (#375). The gap the eye uses is the per-column seam where a ceiling meets the wall face under it, and nothing censuses that seam today. So read the ceiling figures as "clearly lower, and visibly a different surface" — which the frames bear out — and not as a threshold this build holds. Recording the seam census as the remaining work. Records move where the picture moved and nowhere else — `exposure` MEDIAN L2 69 → 63 (62.96 exact) / L3 64 → 69 and the two SPAWN pairs, `flatparity` PARITY and LOCK on levels 2 and 3 plus DEALT on 3 (L0 and L1 are byte-identical in every one of those rows, which is the proof the change is level-scoped), `bands` SEAM-FRAME on 2 and 3, `heights` HALF-MOVE 4 of 24, and `cull` CZBAND on 2 and 3 — that last one only runs under `LEAK=1 CZBAND=1`, so it is a CI step rather than part of a plain `cull`, and the row's own second clause is what shows it is a stale record and not a regression: its WORLD (generated-lightmap) half matches the recording byte-for-byte on both levels while only the ground-pass lane moved, which is exactly what dimming ceiling rows does to the deferred copy of the ground pixel body on a ceiling-step frame. One number is NOT fixed by this and is stated rather than absorbed: `tools/ci/assert.js exposure` reads level 2's *composited* first spawn frame at **exactly 75**, the upper anchor of its 35–75 band, where `main` reads 74. That 75 is the median of five seeded rolls (`56 90 54 113 75`, spread 58), so it is a data point sitting on the anchor rather than a fitted margin and a shading change one point off can flip the row. The 77.7 an earlier revision of this entry carried is the `ceilBias: -0.06` counterfactual stated in `js/20_level.js`, not a reading of this build — see #369.
+- **A spawned crowd could fill three cells and draw one body** (#321). `DEV.spawn` searches for each body
+  along **its own** off-axis fan ray, and the distinct-cell set #93 added was the whole oracle — so a body
+  that a wall pushed sideways onto a lateral column landed exactly where a neighbour's ray crosses, and at
+  2 m the ±0.16-rad fan is only 0.32 m wide, narrower than a body. On `main`'s js the dealt-seat fixture
+  stands L0/L1/L3's pair **0.32 m** apart at 2 m and L2's **0.28 m** at 4 m while reporting `cells 3/3,
+  collapsed 0`; the same pose at the other three seeds and ranges, and an 80-row sweep (4 levels × 5
+  grid-chosen poses × d {2, 4, 7.5, 12}, n = 3, 1 roll per row), put **7 of 80** sweep rows in three
+  distinct cells with the closest pair **0.13–0.41 m** apart. The candidate fix the issue ranked first —
+  solve the fan step for the range instead of the fixed angle — repaired **0 of those 7**, because six of
+  them are at 7.5 m, where the fan is already 2.4 m wide and the collision is between a *sidestep and a
+  ray*, not inside the fan. So the fix is the metric one: a candidate must now stand **one lattice column
+  (0.55 m, `FANLAT[1]` ≈ one body width) from every body already placed**, demanded at both stages of the
+  search, so `why:'crowded'` can mean a worse column but never a shared one. After: sweep **0 of 80** bad,
+  closest pair ≥ **0.57 m**; dealt seats ≥ **0.64 m** (the three 0.32 rows go to 0.87, the 0.28 row to
+  **0.66**), across SEED 12345/60/777/4242/900, and no crowd needed `rescue` or lost a cell on any of them.
+  Gated by a new smoke row per level — *closest pair over `ENEMIES`, not the cell count* — at the four
+  ranges the sweep used: `dev sep: 4 row(s), 4 gating row(s), 0 reported`, which FAILs 4 of 4 on untouched
+  `main` js (`JSDIR=<a pristine main/js>`, whose run prints its own `js-sha256` tree hash, exit 1) while the existing
+  `dev spawn: 4 row(s), 4 gating row(s), 0 reported` row passes on **both** sides — that row was never the
+  problem, which is exactly what #321 was about. No shipped pixel moves: `DEV` boots only under `?dev=1`,
+  `flatparity` exits 0 and `tools/refs.lock` is byte-unchanged.
+
+- **The gun in your hands stops rebuilding its own geometry every frame** (#186). The view model was the
+  largest single frame cost landed in a while (+2.2 ms of a WARM frame, +2.3 ms of flat raster), and a worker
+  had deliberately left it uncached: a key over continuous ejector and pump travel would invalidate every
+  frame, which is the documented cliff - cull before the fetch, and cost the work the cache avoids. The key
+  quantizes the transform instead, **per term rather than uniformly** - `mz`, the slide-back metre and both
+  fractions at 1/16 m, `magOut` at 1/32 m - so each quantity is rounded at its own authored resolution, which is
+  the same argument the rig cache's per-key rates make; with the body cache's evict-before-build LRU and a
+  64-entry cap. **`wq(0) === 0` exactly**, so an at-rest rig - every hashed frame this repo owns - builds the
+  same numbers it did before the cache existed: parity is a property of the key rather than something the
+  probes have to catch. `viewmodel` now times three arms interleaved in one page over one pose sequence -
+  drawn, geometry-memoized, rig-suppressed - in batches of 20 frames, because this sandbox's
+  `performance.now()` is quantized to whole milliseconds and a 0.45 ms component simply does not appear in a
+  one-frame sample. Measured here: the rig costs **1.85 ms/frame (11.8% of the frame)** before the cache and
+  **10.4%** after, of which **0.45 ms** was the rebuild this pays for; the rebuild arm has since converged on
+  the shipped path, and the row says that in words instead of going red, because a row that fails when an
+  optimization lands is the row people learn to ignore. Two rows come with it: the real reload timeline at 60
+  fps driving `drawViewModel` and reading the cache's own counters (**30 hits / 30 misses over 60 frames**), and
+  the quantum's price measured rather than derived: **worst gun-part move 1.04 mm** over 693 exact-vs-quantized
+  builds, muzzle flare **2.81 mm**, reported separately, plus a count of *presence shifts* (12 here) - parts
+  authored as `if (travel)` exist only while moving, so the quantum shifts WHEN they appear, not where. A
+  uniform 1/32 read 4.17 mm of part move at 22 misses; per-term halves the geometry error and costs eight more
+  misses, because a finer quantum necessarily makes more distinct keys while travel moves (both of those figures
+  are bucket-luck numbers, measured while the build still followed the frame rather than the key). **That is why the row
+  no longer asserts a miss count.** No single quantum satisfies a count bound and the geometry bound at once, and
+  a row that trades one property for the other is a row someone will re-tune. It asserts what a cache actually
+  fails by instead: that the key **repeats** (a key over raw travel would read 0 hits / 60 misses here), that
+  geometry entries stay **under the cap** - evicting every frame is the quiet way this becomes a memory cost and
+  no saving, which a millisecond row on a shared runner would miss - and that the rebuild fraction stays inside
+  the recorded `VM-REBUILD [0.50]` ± 0.15 rather than an invented count. A third row closes the hole the first
+  two left open: the geometry a key serves is now built from the **quantized** pose rather than from whichever
+  frame happened to land in the bucket first, so one key maps to exactly one geometry. That matters because the
+  moving parts are authored as `if (travel)` - a frame in the last breath of a reload carries a `slideBack` that
+  is still moving and still under half a quantum, so if it builds the REST key the rifle keeps a brass casing
+  beside the slide for as long as that entry lives, and no millisecond or pixel row can see it because both
+  geometries are plausible. Measured over 417 bucket-mate pairs: **0 disagree**, and 22 of 417 on a tree with
+  the one-line build reverted, which is the row's teeth. The same revert leaves the at-rest rig bit-identical
+  (`wq(0) === 0`), which is why `flatparity`'s three hashes did not move. `MESH.stats()` publishes `wCap` for the
+  cap clause, and a probe-only arm (`MESH.setWRaw`, inert in play, armed by `VMRAW=1`) makes the key serve
+  nothing on demand, so the cliff is demonstrated through the **shipped reload timeline** rather than simulated
+  beside it. The milliseconds stay reported, not gated - a wall-clock threshold on a shared runner is the
+  documented flake - and the records behind the rows are the dimensionless share and fraction for the same
+  reason.
+- **The neck is now a measured part, and it is held there** (#80). `node tools/view.js anim` had a neck
+  block that printed band heights, widths and luminance deltas and then said *"REPORTED, not gated"* —
+  which is why #80 survived the geometry fix in #326: nothing could fail. The rows now gate, per kind
+  (grunt / hound / brute), on the dealt seat, and the verdict line names a neck failure as a neck failure
+  instead of "a static stance": the band's rows as a share of the drawn body's height against an **8%**
+  ceiling (#80 measured 10.7% and called it a stalk; #326 took it to 5.9% — measured here at 6.1 / 2.7 /
+  3.4%), the tube's width as a share of its **torso box** against a **38%** floor (the geometry floors the
+  tube at `0.42·shLat`, which is 40.0% of the box on every kind, so the bar sits just under that promise —
+  a 32% bar could never have failed, and the stalk control proved it by leaving all three kinds green at
+  40.0% and tripping only the records), and the band's luminance
+  against the wall behind it against **8** (#80's failing case measured a mean 5.7 there, where the visor
+  scores 171-250 — measured here at 10.2 and 38.7, with brute's band all-interior at that seat so the
+  question is reported as having no pixels rather than skipped). One of those numbers moved the geometry:
+  measuring the tube in **authored** units (`2·r / (2·1.05·shLat)`, the units `js/13_mesh.js` reasons in)
+  puts a grunt at **41%** and a hound at **43%** — inside the 36-41% the file calls "the part's own base" —
+  and a brute at **29.5%**, so `NECK_R_SHLAT` now gives the tube a floor of `0.42·shLat` and a brute's neck
+  is the same share of its own body a grunt's is (grunt and hound are byte-identical: their `headR` term
+  still wins).
+
+  The width row is authored-on-purpose, and the reason is worth keeping: measured in **pixels** the widest
+  band row equals the probe's own plan window on every kind (grunt 14 px of a 15 px window, hound 18 of 18,
+  brute 26 of 26) because the head box is emitted after the tube and stamps the rows sampled. A first
+  version of this row read that as "brute's neck is a gap", and widening brute's tube 36% left the painted
+  number at exactly 26 px — a number that does not move when you move the geometry it claims to measure is
+  measuring something else, so the art change that finding produced was reverted and the row rebuilt to
+  print the painted row, the window and the authored tube side by side and gate on the one that answers to
+  the geometry.
+
+  What a player sees differently is very little, and that is worth saying out loud: an isolated A/B of just
+  the tube (one brute parked on the sight line, both trees identical except the `neckR` line) moves
+  **64 px of 812,552** across six screen rows, worst channel delta 11, and the grunt frame in the same seat
+  is byte-identical, because the head box is emitted after the tube and envelopes it at every yaw. This is a
+  gate that pins a proportion, not a repaint, so no README screenshot moves with it.
+
+- **The two blocks whose verdict numbers were computed rather than hashed now carry records** (#216,
+  records half). `refs` counted **13 records in 6 of 25 probes** before this and named `alt` and
+  `heights` among the blocks whose figures were one session's measurement, so "9 distinct floor
+  values, 170 cells off the datum, 2 staircases, 46 step faces" and "the floor half moved 82%, the
+  ceiling half 0.00%" could be quoted from prose and no row could disagree. Two declarations, in the
+  form where the declaration *is* the compare (`refRecord` returns the literals the compare reads):
+  **`alt GRID-CENSUS`** = per level, `floor values / cells off datum / staircase runs / step faces`
+  = `9 170 2 46`, `9 251 2 52`, `9 307 2 52`, `9 134 4 15`; **`heights HALF-MOVE`** = per level, the
+  percentage of the half each config's own verdict says must move (`tallRoom` ceiling, then pit /
+  stripes / border / stepUp / eyeUp floors) = `97.66 31.21 82.05 95.47 42.83 61.97`, `98.03 33.83
+  29.81 95.62 42.81 64.45`, `98.86 32.57 81.13 95.34 42.88 63.32`, `97.74 23.55 21.23 95.41 38.07
+  54.25`. What is deliberately **not** recorded: `alt`'s unreachable-cell count and `heights`' "still"
+  halves - both are criteria the threshold rows already assert at zero, not censuses, the same reason
+  `RECDARK` stayed undeclared beside the pit rows; and `heights`' `flat` config, which is the frame
+  every other config is diffed against.
+  **Determinism was measured before any literal was written**, because a figure that moves between
+  runs on identical bytes is not recordable, and it was measured again after the merge because #370
+  moved the renderer under these numbers: two fresh processes of `heights` give identical figures on
+  this tree (all 24, twice), `SEED=7` changes none of them (the block reseeds itself per level, so the
+  deal is the probe's and that row needs no guard - it exits 0 at `SEED=7` with every percentage
+  matching), `WARM=1` changes neither probe (the WARM branch sits at the end of `tools/view.js` and
+  neither mode reaches it), while `SEED` does re-deal `alt`'s levels, which is why that row is
+  seed-guarded. So each row is guarded on the knob that was *measured* to
+  move it - `SEED` for `alt`, `VW`/`VH`/`LAMPS`/`NOCAP` for `heights` (640x360 moves L0's tallRoom
+  ceiling 97.66 → 97.28 and its stripes floor 82.05 → 82.22 with every level shifting, `LAMPS=off`
+  97.66 → 97.57, `NOCAP=1` one figure, L1's eyeUp floor 64.45 → 64.46) - and reports NOT COMPARED
+  rather than a regression there. `JSDIR` is guarded in neither: a record that abstains under the
+  repo's own A/B knob has no teeth (#148's control rule), and nothing here reads a clock.
+  **The gate itself was wrong on the first cut and that is the part worth reading.** The HALF-MOVE row
+  was written `cov && (FRAMEK.length === 0 || mv.length === 0)`. With no frame knob set - which is
+  every config CI runs - the first term is true, the `||` short-circuits, and the compare result is
+  thrown away: the row printed `FAIL HALF-MOVE-MOVED` four times over and `heights` still exited **0**,
+  while under `VW=639` it printed the documented NOT COMPARED and exited **1**. It failed where it
+  should abstain and abstained where it had to fail, which is a record as decoration - exactly the
+  thing #216 exists to stop. It now reads in `alt`'s census row's shape, `cov && (FRAMEK.length > 0 ||
+  mv.length === 0)` (`tools/view.js`'s HALF-MOVE row and `alt`'s census row, same form).
+  Fixing that is also what made the re-key necessary rather than optional: `heights` measures which
+  pixels of each half are unchanged, so #370's ground re-key moved **11 of the 24** figures, by 0.01 to
+  0.43 points, and the repaired row said so on the merged tree before a single literal was touched -
+  four `FAIL HALF-MOVE-MOVED`, exit 1, on a tree that had done nothing wrong. That is the row's first
+  real contradiction, and the 24 literals above are the values it measured afterwards, twice, identical.
+  **Teeth, by control tree** (branch `js/` copied, one or two lines patched, run with `JSDIR=`, whose
+  `js-sha256` line names the bytes that answered; all re-measured on this merged tree, where unmodified
+  js hashes `36bf239523b5d54c` and exits 0 under both probes): `fzTry.fill(0)` after `authorVolume`
+  (`a667625cafd50a13`) exits 1 with `L0 the deal is the recorded geometry census FAIL 1 / 0 / 0 / 0
+  against the recorded 9 / 170 / 2 / 46 MOVED: …`. Level 3 stays **green** there - it is the authored
+  level, so a generator sabotage cannot reach it, which makes the census level-specific rather than one
+  global gate. For `heights` the control that matters is the one that trips **nothing but the new row**:
+  nudging the ground mirror gate `GJITPX` 48 → 40 in `js/40_render.js` (`0b9cdcdd71a3c076`) shifts two
+  figures in the last digit - L1 tallRoom 98.03 → 98.02 with its eyeUp floor 64.45 → 64.46, L2 tallRoom
+  98.86 → 98.87 - every coverage and "still" threshold stays green, and the block exits 1 with the two
+  record rows as the only FAIL lines in the log. The ceiling-plane control from the first cut
+  (solve the three ceiling reads against the flat world's `1`, `0a48a2f01c2d6f53`) also reddens the
+  block, on all four levels, but it trips the config thresholds on the way, so it is not the evidence
+  that this row has teeth; `GJITPX` is. Four other sabotages were tried and were
+  **inert**, which is worth recording because it says what these numbers do and do not read: deleting
+  the ceiling row's own-ray march on rows near the horizon (`absP > 8`), replacing only the row loop's
+  *crossing* ceiling reads with the row predictor, making `planeAlong` keep the plane it was handed, and
+  the same class of partial regression inside the ceiling-crossing path - all left every percentage
+  byte-identical, because `tallRoom` raises `MAP.cz` in every air cell at once, so on that config the
+  ceiling plane is uniform and only the row predictor can disagree with the flat frame.
+  Census after: **15 records in 7 of 25 probes**; `tools/refs.lock` gained exactly two `ref` lines and
+  no existing value moved. On the tree with main's #80 landed beside this one the same instrument reads
+  **17 records in 8 of 25 probes** - the two extra rows are `anim`'s neck records, main's, not two more
+  from here - so read a census off `node tools/view.js refs`, which counts compares, not off prose.
+
+-- **Floors and ceilings stopped drawing a fan of radial spokes** (#19). Three terms of the ground pass were
+  functions of the CELL, and a cell boundary seen in perspective is a straight line to the vanishing point,
+  so each one drew a spoke over the largest area of the frame while walls, props and bodies stayed clean.
+  The per-cell texture mirror is now DISTANCE-GATED - it stays where a fold reads as the edge of a panel and
+  stops where the fold *is* the spoke; the ground's light walks its cell's own bilinear (four taps, cross
+  term included, advanced by two adds a channel) instead of taking one value per cell, which is the one
+  thing the wall pass has always done and the ground never did; a pixel whose footprint is longer than
+  one texel now takes a tap on EITHER side of the point it already sampled, which is the box over the
+  strip it covers rather than a mean centred half a footprint past it; that same fetch now also lerps
+  across the footprint's SUB-texel side, which is the side that made the material's own grit into a hard
+  strip (worth 8-11% of the streak metric, and no more); and the deferred copy of the ground pixel body,
+  which paints every pixel whose cell is not on the row's plane, stops EXTRAPOLATING its light ramp away
+  from the cell it fell back to - a ray that landed at world (62, 44) of a 26x26 map was interpolating the
+  fallback cell's slopes 40 cells in x, delivering a light multiplier of up to 136 and multiplying the
+  ceiling past the map edge into clipping. Ceiling streak per level (`view.js mip`) 47→38, 49→38,
+  114→74, 34→26 and the floor's own streak 74→57, 103→80, 117→93, 81→64, with the along-row detail
+  column still 3.4-6.5x the mush control's, so this is not a blur. All five are switches in the running
+  page (`DEV.set('gndjit'|'gndlight'|'gndax'|'gndfilt'|'gndramp', …)`, `DEV.state().gnd` reads them back),
+  so an A/B is one call and not a worktree - and the last one is visibly one band wide: `gndramp 0` puts
+  the blown wedge back and moves 8.9% of the level-0 cam1 frame's pixels and nothing outside the far-
+  ceiling band. Re-recorded flatparity's DEALT, cull's CZBAND, `bands`' SEAM-FRAME and two exposure
+  figures - all frame hashes over ground shading, none of them a widened threshold; flatparity's PARITY
+  and LOCK did NOT move, because a flattened level defers no pixels at all, and cull's world lightmap
+  digest is byte-identical on all four levels, so no lamp moved either. Raster delta +0.02 ms pooled
+  against the control. The dealt grids' off-datum cell counts are 165/246/314/134 here and on `main`.
+  A faint radial structure is still readable on a far ceiling near the horizon. The issue carries six
+  controls that ruled mip depth, tap count, tile scale, a wall-style light falloff and the per-cell mirror
+  out, and one of them turned out to be FALSE - "the deferred pixel copy paints nothing at this seat"; on
+  that frame 18,704 pixels are painted by it, which is where the defect was hiding.
+
+-- **The simulation got a second perf arm** (#53 part 2). The frame-budget row ported from the unmerged
+  `14bb9b7` gates `update()` at an absolute 1.5 ms, 8x its measured median, which passes a 5.7x AI
+  regression (a busy loop in `update()` moved the median 0.17 to 0.97 ms/frame and SMOKE still PASSED).
+  Each batch now also runs the same 60 frames on the same seat with `ENEMIES` emptied, so the row can
+  price the AI alone by paired difference instead of by an absolute budget a loaded box would blur:
+  150 us/frame of a 0.18 ms sim on `main`, floor `AI_FLOOR` 0.6 ms (4x that median). A busy loop inside
+  `updateEnemies()` takes the marginal to 967 us/frame and fails the row while the absolute row still
+  passes at sim 1.02 ms - the two rows disagree, and that disagreement is the gate.
+ **The menu now tells you that you can jump and climb** (#357). `index.html`'s control list stopped at
+- **The local verify command now runs CI's roster instead of a hand-copied subset of it** (#338).
+  `AGENTS.md` and `ci.yml` listed the same commands in two places and they drifted: on PR #337's head
+  `node tools/view.js cull` - the command the doc told you to run - printed **`CULL ok`, exit 0**, while
+  `ci.yml`'s second, env-gated `LEAK=1 CZBAND=1 node tools/view.js cull` printed **`CULL 3 FAILURES`,
+  exit 1** on identical bytes, because the `CZBAND`/`CZBAND-LIGHT` records live only in that invocation.
+  `tools/roster.js` has **no list of modes**: it parses `.github/workflows/ci.yml` by two independent
+  means (a structural walk of jobs/steps/run blocks, a structure-blind scan of every non-comment line)
+  and replays the blocking steps with each line's own `VAR=` prefix, printing one verdict line plus an
+  exit code per invocation, continuing past failures, ending in a census like
+  `ROSTER 17 invocation(s), 0 failed, 14 ok, 3 known-reporting`. `ci.yml` gained one step running
+  `--list`: it renders nothing, takes under a second, and runs before the probes it audits, so a gate
+  line that stops being replayable fails first. The two parses' counts must agree,
+  a blocking command that cannot be replayed as stated fails rather than running nothing, and a command
+  commented out in a gate fails by name - retiring a verdict means deleting the line.
+  Teeth, each re-run at this head on a throwaway copy of the tree: dedenting one gates command out of
+  its step body makes `--list` exit **1** with `parsed 16 != raw 17` and names `ci.yml:124` as "a
+  blocking invocation the roster would DROP"; commenting out a gates invocation exits **1** with
+  `COMMENTED-OUT GATE INVOCATION at ci.yml:138`; DELETING that line outright leaves both parses
+  agreeing at **16** and exits **0**, because the workflow *is* the list and the roster must follow it -
+  which is why the count is printed on the census line and why that hole is stated rather than papered
+  over; a guaranteed-failing invocation added to a blocking step exits **1** naming it, printing the
+  last lines of its output, and still running the entries after it. On this tree the two cull
+  invocations differ exactly as the issue says: the plain one emits **0** `CZBAND` lines, the derived
+  env-gated one **5** (one per dealt level, plus the row asserting a hash was emitted for every level),
+  and both exit 0 - nothing is red here, since #337's three failures were that branch's lamp moves,
+  which need a re-record and not a fix. Both smoke lanes pass at this head: **326 s** and **353 s**,
+  each ending `SMOKE PASSED`, so the pooled-raster-median red an earlier revision of this entry
+  reported was that box's load and not this change. `js/` and `index.html` are byte-identical to
+  `main` on this branch, so no pixel moves and no recorded reference is re-cut.
+  The census this file's header used to carry as transcribed line numbers is now derived: `node
+  tools/roster.js --env` prints every `process.env.` read in the two harnesses - **113** env-read lines,
+  142 reads, 95 names in `view.js`; 14 / 17 / 8 in `smoke.js` - each with its class (does the var decide
+  whether a ROW EXISTS, or only whether filed debt gates, or just what is measured) and the live
+  `file:line` of the read, and it fails if a classified name stops being read anywhere. Those numbers
+  had rotted in the header within a week of being written, which is the same trap in a new costume.
+  Not done here: ask #2, naming an env-suppressed row inside each mode's own summary - that edit
+  belongs in `tools/view.js`'s verdict blocks.
 -- **The rig probe now measures the body path the game draws** (#352). `view.js rig` rasterized
   `RIG.raster`, the 2-D sheet path #72 removed when bodies became meshes, so a `js/13_mesh.js`
   geometry change came back byte-identical. Nine rows (three per kind) now read the shipped path
@@ -27,11 +315,11 @@
  **Dropping to the band below during a body's wind-up no longer gets you hit through the floor** (#356).
 
 - **The menu now tells you that you can jump and climb** (#357). `index.html`'s control list stopped at
+
   `Shift/C`, `R/1 2 3`, `G`, `Esc/M/T` — so neither `Space` (jump, `js/30_entities.js:388`) nor `E`/`Q`
   (climb, gated by `onLadder` at `:385`) appeared anywhere in the screen a player reads before deploying,
   and the staircase the generator puts in every level (#152) was unreachable by accident rather than by
   design. The list gains one row, worded *on a ladder*, because the key does nothing off one.
-
 - **Dropping to the band below during a body's wind-up no longer gets you hit through the floor** (#356).
 
   The wind-up is band-aware (`js/30_entities.js:567` asks `losZ`, since #118), but the swing resolved ~0.35 s
@@ -46,6 +334,7 @@
   level's 4-unit room is a **ledge**, not a slab, so the raise is taken from the low cell's own ceiling in
   quanta; and raising the cell behind the ray's target **closes no opening**, because
   `ceilAt = floor + max(1 unit, neighbour floors above)` grows the low ceiling to meet it.
+
 
 
 - **A room now behaves like a room** (#358). `alertEnemies` had exactly one call site — the player's own
@@ -80,6 +369,37 @@
   #72 took out of the draw loop, and this branch's sheet is byte-identical to `main`'s (`e9d88fd3…`, 0 of
   9,742,430 bytes differ) while `stats` reports the +36 triangles. Filed as #352; the rows added here live
   in `stats`, where the numbers can move, and they fail under `HELD_FLOOR=999` / `HELD_DELTA=999`.
+- **The simulation is now inside a frame-budget gate** (#53). Every perf row in `node tools/smoke.js`
+  timed `renderWorld()` + `renderOverlay()` — the raster row that gates PRs included — so a change that
+  made the *simulation* expensive (an AI pass, a per-cell sweep, a lightmap rebuild in `update()`) passed
+  every perf gate in the repo while the shipped frame cost more than the number printed. smoke now also
+  times `update()` on its own at the three perf seats and gates the median against `TICK_FLOOR`
+  (default 1.5 ms, derived: the sim measured a median **0.18 ms/frame** over 9 samples from 3 seats,
+  max 0.3, against a raster median of 30.7 ms on the same machine — so the floor is ~8× the measured
+  cost and under 10% of the 16 ms frame #307 is driving the raster floor to; setting `TICK_FLOOR`
+  explicitly remains the standing control for A/B work, as with `RASTER_FLOOR`). Timing it honestly
+  needed a reseat per batch rather than a paired arm: `update()` *advances* the world, so a batch that
+  follows another would be timing a later scene — and, per the trap where a spinning camera also walks
+  the player, would drag the player into where the grid is undefined.
+- **`contrast`'s torso gradient now has a recorded value behind it** (#216). The block printed verdicts that
+  were computed rather than recorded, and #244 wrote down what that cost: one gradient defined three ways in
+  three sessions, none of which could fail. `TG_FLOOR 1.40` stays exactly what it was - a catastrophe detector
+  chosen between two measured trees (0.68 with no term in `js/`, 2.17 shipped) - but a floor cannot see a slow
+  slide: a gradient that drifts from 3.5 to 1.41 keeps passing until someone re-tunes the floor from the frame
+  in front of them, which is how a shading term quietly thins out. `contrast` now declares
+  `TORSO-DL num [2.52, 2.17, 2.41]`, the gradient each of its three cameras measures on its own deterministic
+  frame (fixed seat, fixed `S.t`, frozen gait - three separate processes print the same three numbers to 2 dp),
+  and gates each camera at **the record minus 0.35**, below only: structure lost is the defect, structure
+  gained is not, so a two-sided band would legislate today's art instead of the claim. The slack is not
+  decoration: the record is a **rounded** print, so `TG_SLACK=0` fails cam 0 - which still prints `2.52`, its
+  true value sitting just under the literal - while cams 1 and 2, which round the other way, pass. The row has
+  been seen to respond to its gate (`TG_SLACK=-1` fails all three cameras, exit 1) and to **body shading**
+  (`TINT=2` moves cam 1 2.17 → 2.53 and cam 2 2.41 → 2.53 with the silhouette mask fixed); `AMBX=0` moves it
+  not at all and is not a control, because `AMB` is re-authored from `MAP.amb` inside `startLevel`. A camera
+  whose mask has a body in it but yields fewer
+  than 60 interior torso px FAILs rather than joining the #189 debt - that is the instrument losing its
+  subject, and the census of recorded references moves because this is the block's first one.
+
 - **No big band is left without a light source standing in it** (#149). Lamp placement had scored seats
   for the dark *cells* a lamp would cover and then spread the remainder, so a band whose cells were each
   individually dim could still end up with no lamp inside it at all. On untouched `main` the new rows fail:
@@ -113,6 +433,36 @@
   reserving every candidate, moves the count rows to 0 and turns the **density** rows red instead (7 FAILs,
   L0 38 > 36, L1 60 > 59). Both directions of the same mechanism are red, which is why the count and density
   rows both exist.
+- **`anim` can now fail on a gait, and it turned out the game had one** (#274). The rows could not
+  see the phase: pinning the pose table's phase term so the body shifts from its spawn stance to
+  **one** walk stance and stops exited **0**, four `walk +Ns` rows printing the same number at every
+  offset (**6.6 / 6.6 / 6.6 / 6.6 %** on level 0, **4.7-4.9 %** on level 3) against `MINMOVE` 3.0 -
+  one stance shift, credited four times as walking - while the row that *named* the cycle reported
+  **9 distinct bodies in 9 samples** on that same rigid mesh once a colour term was keyed on
+  `e.anim`, because it hashed pixel colours. Two rows now assert in the domains that own the claim:
+  **`gait shape`** reads `MESH.poseVerts` (new export; the same `bucketOf` + `poseOf` the draw site
+  goes through, so it is the vertex set an enemy is rasterized from) and gates metres a vertex
+  travels between buckets - half-cycle **≥ 0.10 m** (measured 0.137-0.278), adjacent bucket
+  **≥ 0.03 m** (0.058-0.137), each at least **2x** the same sweep at `mv = 0`, which is the idle
+  weight-shift and moves 0.000-0.058 m, not the 0 the issue's proposed control assumed. **`gait
+  phase`** walks a real enemy on the mode's own treadmill for 2 strides and gates that the draw's
+  bucket index reaches **8/8** buckets, advances **+1 mod 8**, and that the phase equals **metres
+  walked / SPEC stride** (measured drift **-0.0000 to 0.0000** - the phase is distance-driven, so it
+  cannot become frame-rate-driven without tripping this). The `walk cycle` row gates on the
+  **coverage** mask now (`COV`, stamped only by body paint, armed for the mode - no pixel changes),
+  with the colour hash kept **reported** beside it, so colour-9-of-9 against shape-2-of-9 is the
+  sabotage in plain sight. Teeth, each run with the sabotaged file loaded by the same process that
+  asserts (`JSDIR=`, whose js-sha256 the tool prints): rigid table **exit 1**, `gait shape ... min
+  0.000 < 0.10 m FAIL` x3; rigid **plus** a phase-keyed colour term **exit 1** with that row's colour
+  hash reading 9/9; frozen `e.stepPhase` **exit 1**, `NO PHASE - the walk reaches 1 of 8 buckets;
+  phase advanced LESS than the distance walked`. Pristine `origin/main` behaviour is unchanged:
+  `anim` exits 0, half-cycle min 0.137/0.137/0.144, 8/8 buckets monotone, every other row of the
+  run byte-identical to the pre-change output, `flatparity`'s flat triple `060da4cd/f05beeb5/050b225e`
+  and DEALT `2f1b8e3c/370d3f7a/aa18d43e/e846d5b3` unmoved, `refs ok - 13 recorded reference(s) in 6 of
+  25 probes`, `SMOKE PASSED`. The four `walk +Ns` rows keep `MINMOVE` 3.0 untouched - raising it to
+  reject 6.6 % was the wrong fix (#274: still a pixel count, and 1.8 points from a real 8.2 %), so on
+  a rigid body they still print MOVES and the verdict is red because of the two pose rows.
+
 - **All six README screenshots are re-captured from the deployed bytes, and two captions stopped
   describing a picture that is no longer there** (#333). The facing-wall frame changed: **10 dark rows
   → 488 of 763** - a run of 277 from the top of the frame, mean 36.79 → 20.87, top band 36.2 → 9.5 -
@@ -333,12 +683,68 @@
 
 ### Added
 
+- **The probes judge the authored level instead of reporting that it has no record
+  ([#314](https://github.com/lioreshai/breach-protocol-flash-next/issues/314)).** Level 3 is
+  hand-authored while the records gating it were written over three generated levels, so `props 3`
+  answered *level 3 has no record* and `alt`'s censuses would have compared against `undefined` had
+  their bounds moved. `LAMPCORE` now carries level 3's own measured pair and takes its index from
+  the level list; `alt`'s pit, wrong-band, coverage and lip-delivery records each gained a fourth
+  value **and** their `lv < 3` bounds moved in the same commit, because a bound that outruns its
+  literals is an arithmetic miss that prints no red row. A main-era figure no authored level can
+  have now prints *no era figure for this level* rather than the word `undefined` inside a row that
+  still passes. One honest shortfall ships with the record: the authored level's lip delivers
+  **0.919** on-band against 0.941–0.996 on generated levels, so 8.1% of its lip pixels take light
+  across a band boundary — the record moves that level's line with it, and the gap is written up in
+  the roadmap rather than averaged away.
+
+- **The decal and prop probes now drive the authored level too
+  ([#314](https://github.com/lioreshai/breach-protocol-flash-next/issues/314)).** Three loops that
+  stopped at level 2 — `decal`'s riser-punch census and props' interleaved cost census and collision
+  census — now run the whole level list, so THE STACK's wall marks are checked against the strip its
+  own faces paint and its crate ghosts are driven into from four directions. Levels 0–2 are
+  byte-for-byte unchanged; the diffs contain only added rows. Level 3's graze row (`slides, does not
+  seal`) reports one stuck pose, and that is **#318** — an authored crate whose collision ghost overhangs
+  the lane beside it by 0.16 m against a generated crate's 0.05 m. It is reported as debt at the
+  *measured geometry*: the row reads the overhang against `OVERHANG_MAX` (default 0.12 m, an A/B knob),
+  prints `KNOWN` with that figure beside it, and goes red if a blocker that overhangs less snags a pose,
+  if two poses are short, or under `STRICT=1`. Moving the crate or widening the corridor retires the row.
+  No threshold in the row was widened, and nothing here gates by level index — a KNOWN row that keyed on
+  *which level* it was would quiet any future defect on the authored level for the wrong reason.
+
+- **`node tools/view.js surface`, which measures the surface value order instead of describing it**
+  (#369). The issue's definition of done is "the ceiling band sits at least 15 luminance below the wall
+  band it meets", and no probe could print that number: a horizon-centred rectangle averages the far wash
+  in with the wall faces, so the one figure available (4.7 on ABATOIR CORE) was neither the seam nor a
+  band. The census asks the renderer which pixels are ceiling rather than guessing from colour — it
+  renders one seated frame three times, authored and once with each of the level's own `floorBias` /
+  `ceilBias` one whole unit lower, and keeps the pixels that moved; `js/40_render.js` applies each bias to
+  exactly one surface class, so bodies, props, the viewmodel and every wall face are byte-identical
+  between the three and drop out of both masks. Rows per level, seated on the level's own spawn cell:
+  **SEAM** is the median over columns of (what sits under the ceiling's edge) − (the ceiling above it),
+  **ORDER** is the ceiling's band mean against the floor's, and **CONTROL** re-asks both questions with
+  the authored order zeroed — which is the pre-#369 build, in the same process, so a row that never fails
+  there is a row that has never been seen to fail. Measured here: THE STACK seam **45.2** and its ceiling
+  42.0 under a floor of 60.6; RING TRANSPORT 26.5; ARCHIVE SUBLEVEL **12.1**, which is under the bar; and
+  ABATOIR CORE **reports 2 qualifying columns and therefore FAILs as vacuous** — from its spawn cell that
+  level's ceiling edge dissolves into the far wash, so the seam #369 names does not exist in that pose and
+  the wash step belongs to #375, not here. Columns whose window is the flat `px.fill` wash are excluded
+  by an exact test (a wash row repeats byte for byte horizontally), because counting them is what made an
+  early version of this row read −15 on a level whose ceiling clearly reads dark in the frame. `surface`
+  is **not in `ci.yml`'s roster**, so its exit code gates nothing yet; promoting it is the next decision
+  and it is red on two of four levels for the two reasons above.
 - **`SEAT=x,y,ang` for `node tools/view.js scene <li> <cam>`**. The mode seats its camera at open-cell
   index `(len*0.31 + cam)` and turns it toward the longest sight line, which can answer "does this level
   have depth" and structurally cannot answer "can the player see the way down from where they start" —
   two renders described as "the spawn view" during this work were that derived camera looking at
   geometry the player never sees. The override re-points `P.x/P.y/P.ang` after the derivation, is off
   unless the variable is set, and prints the pose it used so a claim names its own camera.
+- **`SET=code` for `node tools/view.js scene <li> <cam>`** (#19). The ground terms are switches in the
+  running page, but `DEV` is not loaded headless, so an A/B of a *screenshot* still meant a worktree, and
+  the control that decides whether a look fix is a fix gets skipped because it is expensive. `SET` runs
+  one string in the game context immediately before the frame is painted, so `SET='GNDRO=0'` renders the
+  same seat with that term switched off and `SET='GNDFT=0;MIPAR=8'` renders any pair. Wrapping
+  `renderWorld` inside it prints a counter the frame fills rather than a constant. Unset, it is inert: two
+  runs of `scene 0 1` are byte-identical with and without the variable, and `SET='GNDRO=0'` is not.
 
 ## [v1.3] - 2026-10-03
 
