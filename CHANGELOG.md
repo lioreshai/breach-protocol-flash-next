@@ -13,7 +13,7 @@
   a 32% bar could never have failed, and the stalk control proved it by leaving all three kinds green at
   40.0% and tripping only the records), and the band's luminance
   against the wall behind it against **8** (#80's failing case measured a mean 5.7 there, where the visor
-  scores 171-250 — measured here at 9.7 and 38.7, with brute's band all-interior at that seat so the
+  scores 171-250 — measured here at 10.2 and 38.7, with brute's band all-interior at that seat so the
   question is reported as having no pixels rather than skipped). One of those numbers moved the geometry:
   measuring the tube in **authored** units (`2·r / (2·1.05·shLat)`, the units `js/13_mesh.js` reasons in)
   puts a grunt at **41%** and a hound at **43%** — inside the 36-41% the file calls "the part's own base" —
@@ -29,6 +29,13 @@
   measuring something else, so the art change that finding produced was reverted and the row rebuilt to
   print the painted row, the window and the authored tube side by side and gate on the one that answers to
   the geometry.
+
+  What a player sees differently is very little, and that is worth saying out loud: an isolated A/B of just
+  the tube (one brute parked on the sight line, both trees identical except the `neckR` line) moves
+  **64 px of 812,552** across six screen rows, worst channel delta 11, and the grunt frame in the same seat
+  is byte-identical, because the head box is emitted after the tube and envelopes it at every yaw. This is a
+  gate that pins a proportion, not a repaint, so no README screenshot moves with it.
+
 -- **Floors and ceilings stopped drawing a fan of radial spokes** (#19). Three terms of the ground pass were
   functions of the CELL, and a cell boundary seen in perspective is a straight line to the vanishing point,
   so each one drew a spoke over the largest area of the frame while walls, props and bodies stayed clean.
