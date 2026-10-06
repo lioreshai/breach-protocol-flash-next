@@ -2,6 +2,48 @@
 
 ### Changed
 
+- **The gun in your hands stops rebuilding its own geometry every frame** (#186). The view model was the
+  largest single frame cost landed in a while (+2.2 ms of a WARM frame, +2.3 ms of flat raster), and a worker
+  had deliberately left it uncached: a key over continuous ejector and pump travel would invalidate every
+  frame, which is the documented cliff - cull before the fetch, and cost the work the cache avoids. The key
+  quantizes the transform instead, **per term rather than uniformly** - `mz`, the slide-back metre and both
+  fractions at 1/16 m, `magOut` at 1/32 m - so each quantity is rounded at its own authored resolution, which is
+  the same argument the rig cache's per-key rates make; with the body cache's evict-before-build LRU and a
+  64-entry cap. **`wq(0) === 0` exactly**, so an at-rest rig - every hashed frame this repo owns - builds the
+  same numbers it did before the cache existed: parity is a property of the key rather than something the
+  probes have to catch. `viewmodel` now times three arms interleaved in one page over one pose sequence -
+  drawn, geometry-memoized, rig-suppressed - in batches of 20 frames, because this sandbox's
+  `performance.now()` is quantized to whole milliseconds and a 0.45 ms component simply does not appear in a
+  one-frame sample. Measured here: the rig costs **1.85 ms/frame (11.8% of the frame)** before the cache and
+  **10.4%** after, of which **0.45 ms** was the rebuild this pays for; the rebuild arm has since converged on
+  the shipped path, and the row says that in words instead of going red, because a row that fails when an
+  optimization lands is the row people learn to ignore. Two rows come with it: the real reload timeline at 60
+  fps driving `drawViewModel` and reading the cache's own counters (**30 hits / 30 misses over 60 frames**), and
+  the quantum's price measured rather than derived: **worst gun-part move 1.04 mm** over 693 exact-vs-quantized
+  builds, muzzle flare **2.81 mm**, reported separately, plus a count of *presence shifts* (12 here) - parts
+  authored as `if (travel)` exist only while moving, so the quantum shifts WHEN they appear, not where. A
+  uniform 1/32 read 4.17 mm of part move at 22 misses; per-term halves the geometry error and costs eight more
+  misses, because a finer quantum necessarily makes more distinct keys while travel moves (both of those figures
+  are bucket-luck numbers, measured while the build still followed the frame rather than the key). **That is why the row
+  no longer asserts a miss count.** No single quantum satisfies a count bound and the geometry bound at once, and
+  a row that trades one property for the other is a row someone will re-tune. It asserts what a cache actually
+  fails by instead: that the key **repeats** (a key over raw travel would read 0 hits / 60 misses here), that
+  geometry entries stay **under the cap** - evicting every frame is the quiet way this becomes a memory cost and
+  no saving, which a millisecond row on a shared runner would miss - and that the rebuild fraction stays inside
+  the recorded `VM-REBUILD [0.50]` ± 0.15 rather than an invented count. A third row closes the hole the first
+  two left open: the geometry a key serves is now built from the **quantized** pose rather than from whichever
+  frame happened to land in the bucket first, so one key maps to exactly one geometry. That matters because the
+  moving parts are authored as `if (travel)` - a frame in the last breath of a reload carries a `slideBack` that
+  is still moving and still under half a quantum, so if it builds the REST key the rifle keeps a brass casing
+  beside the slide for as long as that entry lives, and no millisecond or pixel row can see it because both
+  geometries are plausible. Measured over 417 bucket-mate pairs: **0 disagree**, and 22 of 417 on a tree with
+  the one-line build reverted, which is the row's teeth. The same revert leaves the at-rest rig bit-identical
+  (`wq(0) === 0`), which is why `flatparity`'s three hashes did not move. `MESH.stats()` publishes `wCap` for the
+  cap clause, and a probe-only arm (`MESH.setWRaw`, inert in play, armed by `VMRAW=1`) makes the key serve
+  nothing on demand, so the cliff is demonstrated through the **shipped reload timeline** rather than simulated
+  beside it. The milliseconds stay reported, not gated - a wall-clock threshold on a shared runner is the
+  documented flake - and the records behind the rows are the dimensionless share and fraction for the same
+  reason.
 - **The neck is now a measured part, and it is held there** (#80). `node tools/view.js anim` had a neck
   block that printed band heights, widths and luminance deltas and then said *"REPORTED, not gated"* —
   which is why #80 survived the geometry fix in #326: nothing could fail. The rows now gate, per kind
