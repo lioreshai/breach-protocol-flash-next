@@ -409,6 +409,13 @@
   two renders described as "the spawn view" during this work were that derived camera looking at
   geometry the player never sees. The override re-points `P.x/P.y/P.ang` after the derivation, is off
   unless the variable is set, and prints the pose it used so a claim names its own camera.
+- **`SET=code` for `node tools/view.js scene <li> <cam>`** (#19). The ground terms are switches in the
+  running page, but `DEV` is not loaded headless, so an A/B of a *screenshot* still meant a worktree, and
+  the control that decides whether a look fix is a fix gets skipped because it is expensive. `SET` runs
+  one string in the game context immediately before the frame is painted, so `SET='GNDRO=0'` renders the
+  same seat with that term switched off and `SET='GNDFT=0;MIPAR=8'` renders any pair. Wrapping
+  `renderWorld` inside it prints a counter the frame fills rather than a constant. Unset, it is inert: two
+  runs of `scene 0 1` are byte-identical with and without the variable, and `SET='GNDRO=0'` is not.
 
 ## [v1.3] - 2026-10-03
 
