@@ -8,8 +8,10 @@
   anywhere. `takePickup` had no `gren` arm either, so a grenade box would have fed `P.reserve` through the
   ammo branch. Kills now drop grenades (one draw, three bands, so the level's random stream does not shift
   with the outcome) and a grenade box tops the pouch up to a cap of 6, leaving the box on the floor when
-  full the way the ammo branch does at full reserves. One kill in five is now a grenade, and it comes out
-  of **ammo**'s share (ammo 55 → 35 %, health held at its shipped 45) rather than health's, because
+  full the way the ammo branch does at full reserves. That works out at **one kill in fourteen** on Marine
+  — measured, 60 rolls of level 0, 34 grenade boxes among 210 drops from 480 kills — because a drop happens
+  on 42 % of kills (210 of 480) and the band's cut points give 20 % of those drops to grenades. That share
+  comes out of **ammo** (ammo 55 → 35 %, health held at its shipped 45) rather than health's, because
   healing is the axis the campaign's difficulty rides on. A box on the floor is a new mesh row,
   `pickupGren` (`js/13_mesh.js`), carrying the HUD's own grenade colour on its plate — without it the
   pickup draw handed the rasterizer an *undefined* kind and the box stood on the floor as a 0.42-scale
