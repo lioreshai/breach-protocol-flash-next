@@ -52,6 +52,72 @@
   is byte-identical, because the head box is emitted after the tube and envelopes it at every yaw. This is a
   gate that pins a proportion, not a repaint, so no README screenshot moves with it.
 
+- **The two blocks whose verdict numbers were computed rather than hashed now carry records** (#216,
+  records half). `refs` counted **13 records in 6 of 25 probes** before this and named `alt` and
+  `heights` among the blocks whose figures were one session's measurement, so "9 distinct floor
+  values, 170 cells off the datum, 2 staircases, 46 step faces" and "the floor half moved 82%, the
+  ceiling half 0.00%" could be quoted from prose and no row could disagree. Two declarations, in the
+  form where the declaration *is* the compare (`refRecord` returns the literals the compare reads):
+  **`alt GRID-CENSUS`** = per level, `floor values / cells off datum / staircase runs / step faces`
+  = `9 170 2 46`, `9 251 2 52`, `9 307 2 52`, `9 134 4 15`; **`heights HALF-MOVE`** = per level, the
+  percentage of the half each config's own verdict says must move (`tallRoom` ceiling, then pit /
+  stripes / border / stepUp / eyeUp floors) = `97.66 31.21 82.05 95.47 42.83 61.97`, `98.03 33.83
+  29.81 95.62 42.81 64.45`, `98.86 32.57 81.13 95.34 42.88 63.32`, `97.74 23.55 21.23 95.41 38.07
+  54.25`. What is deliberately **not** recorded: `alt`'s unreachable-cell count and `heights`' "still"
+  halves - both are criteria the threshold rows already assert at zero, not censuses, the same reason
+  `RECDARK` stayed undeclared beside the pit rows; and `heights`' `flat` config, which is the frame
+  every other config is diffed against.
+  **Determinism was measured before any literal was written**, because a figure that moves between
+  runs on identical bytes is not recordable, and it was measured again after the merge because #370
+  moved the renderer under these numbers: two fresh processes of `heights` give identical figures on
+  this tree (all 24, twice), `SEED=7` changes none of them (the block reseeds itself per level, so the
+  deal is the probe's and that row needs no guard - it exits 0 at `SEED=7` with every percentage
+  matching), `WARM=1` changes neither probe (the WARM branch sits at the end of `tools/view.js` and
+  neither mode reaches it), while `SEED` does re-deal `alt`'s levels, which is why that row is
+  seed-guarded. So each row is guarded on the knob that was *measured* to
+  move it - `SEED` for `alt`, `VW`/`VH`/`LAMPS`/`NOCAP` for `heights` (640x360 moves L0's tallRoom
+  ceiling 97.66 → 97.28 and its stripes floor 82.05 → 82.22 with every level shifting, `LAMPS=off`
+  97.66 → 97.57, `NOCAP=1` one figure, L1's eyeUp floor 64.45 → 64.46) - and reports NOT COMPARED
+  rather than a regression there. `JSDIR` is guarded in neither: a record that abstains under the
+  repo's own A/B knob has no teeth (#148's control rule), and nothing here reads a clock.
+  **The gate itself was wrong on the first cut and that is the part worth reading.** The HALF-MOVE row
+  was written `cov && (FRAMEK.length === 0 || mv.length === 0)`. With no frame knob set - which is
+  every config CI runs - the first term is true, the `||` short-circuits, and the compare result is
+  thrown away: the row printed `FAIL HALF-MOVE-MOVED` four times over and `heights` still exited **0**,
+  while under `VW=639` it printed the documented NOT COMPARED and exited **1**. It failed where it
+  should abstain and abstained where it had to fail, which is a record as decoration - exactly the
+  thing #216 exists to stop. It now reads in `alt`'s census row's shape, `cov && (FRAMEK.length > 0 ||
+  mv.length === 0)` (`tools/view.js`'s HALF-MOVE row and `alt`'s census row, same form).
+  Fixing that is also what made the re-key necessary rather than optional: `heights` measures which
+  pixels of each half are unchanged, so #370's ground re-key moved **11 of the 24** figures, by 0.01 to
+  0.43 points, and the repaired row said so on the merged tree before a single literal was touched -
+  four `FAIL HALF-MOVE-MOVED`, exit 1, on a tree that had done nothing wrong. That is the row's first
+  real contradiction, and the 24 literals above are the values it measured afterwards, twice, identical.
+  **Teeth, by control tree** (branch `js/` copied, one or two lines patched, run with `JSDIR=`, whose
+  `js-sha256` line names the bytes that answered; all re-measured on this merged tree, where unmodified
+  js hashes `36bf239523b5d54c` and exits 0 under both probes): `fzTry.fill(0)` after `authorVolume`
+  (`a667625cafd50a13`) exits 1 with `L0 the deal is the recorded geometry census FAIL 1 / 0 / 0 / 0
+  against the recorded 9 / 170 / 2 / 46 MOVED: …`. Level 3 stays **green** there - it is the authored
+  level, so a generator sabotage cannot reach it, which makes the census level-specific rather than one
+  global gate. For `heights` the control that matters is the one that trips **nothing but the new row**:
+  nudging the ground mirror gate `GJITPX` 48 → 40 in `js/40_render.js` (`0b9cdcdd71a3c076`) shifts two
+  figures in the last digit - L1 tallRoom 98.03 → 98.02 with its eyeUp floor 64.45 → 64.46, L2 tallRoom
+  98.86 → 98.87 - every coverage and "still" threshold stays green, and the block exits 1 with the two
+  record rows as the only FAIL lines in the log. The ceiling-plane control from the first cut
+  (solve the three ceiling reads against the flat world's `1`, `0a48a2f01c2d6f53`) also reddens the
+  block, on all four levels, but it trips the config thresholds on the way, so it is not the evidence
+  that this row has teeth; `GJITPX` is. Four other sabotages were tried and were
+  **inert**, which is worth recording because it says what these numbers do and do not read: deleting
+  the ceiling row's own-ray march on rows near the horizon (`absP > 8`), replacing only the row loop's
+  *crossing* ceiling reads with the row predictor, making `planeAlong` keep the plane it was handed, and
+  the same class of partial regression inside the ceiling-crossing path - all left every percentage
+  byte-identical, because `tallRoom` raises `MAP.cz` in every air cell at once, so on that config the
+  ceiling plane is uniform and only the row predictor can disagree with the flat frame.
+  Census after: **15 records in 7 of 25 probes**; `tools/refs.lock` gained exactly two `ref` lines and
+  no existing value moved. On the tree with main's #80 landed beside this one the same instrument reads
+  **17 records in 8 of 25 probes** - the two extra rows are `anim`'s neck records, main's, not two more
+  from here - so read a census off `node tools/view.js refs`, which counts compares, not off prose.
+
 -- **Floors and ceilings stopped drawing a fan of radial spokes** (#19). Three terms of the ground pass were
   functions of the CELL, and a cell boundary seen in perspective is a straight line to the vanishing point,
   so each one drew a spoke over the largest area of the frame while walls, props and bodies stayed clean.
