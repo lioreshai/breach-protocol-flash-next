@@ -1,0 +1,24 @@
+name: Commit identity
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  identity:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Verify actual commit authors and committers
+        env:
+          CHECKED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          # Use the default branch's checker, including for older PR branches.
+          git show origin/main:tools/check_identity.py > "$RUNNER_TEMP/check_identity.py"
+          python3 "$RUNNER_TEMP/check_identity.py" "$CHECKED_HEAD"

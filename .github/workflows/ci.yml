@@ -80,6 +80,24 @@ jobs:
             *) echo "vert smoke gate: FAIL"; exit 1 ;;
           esac
 
+      - name: The local verify roster is this workflow, not a copy of it (#338)
+        run: |
+          set -euo pipefail
+          # AGENTS.md's verify block used to be a hand-copied SUBSET of the commands below, and the two
+          # lists drifted: `node tools/view.js cull` printed `CULL ok` on bytes where this file's
+          # env-gated `LEAK=1 CZBAND=1 node tools/view.js cull` printed `CULL 3 FAILURES` (#338). The
+          # defect was which invocations run, not how strict a compare is.
+          # tools/roster.js therefore carries NO list of modes: it parses this file, with each line's own
+          # VAR= prefix and line number, by two independent means (a structural walk of jobs/steps/run
+          # blocks, and a structure-blind scan of every non-comment line attributed by line range), and
+          # this step fails if those two disagree, if a blocking invocation cannot be replayed as stated,
+          # or if a command sits commented-out in a gate. Runs nothing, under a second, so it can fail
+          # before the probes it audits.
+          # What a developer runs locally is the same parse: `node tools/roster.js` replays every
+          # blocking invocation below in order and prints one verdict line plus an exit code per
+          # invocation, continuing past failures and exiting non-zero iff any failed.
+          node tools/roster.js --list
+
       - name: Probe gates (deterministic verdicts, must stay green)
         run: |
           set -euo pipefail
