@@ -73,8 +73,9 @@ permanently-red row teaches everyone to ignore the rows that mean something.
 | `refs` | the recorded-reference inventory, printed with no render |
 
 Knobs: `REPS=n` and `ONLY=W1` narrow runs, `ASCII=1` prints text instead of a PNG, `OUT=`
-redirects the path, `SEED=`, `TINT=k` A/Bs body shading, `JSDIR=` points at a variant tree,
-`PIXHASH=1` hashes frames, `STRICT=1` promotes debt rows.
+redirects the path, `SEED=`, `TINT=k` A/Bs body shading, `SET=code` runs in the game context
+before the frame (`SET='GNDRO=0'` A/Bs a renderer global in a screenshot), `JSDIR=` points at a
+variant tree, `PIXHASH=1` hashes frames, `STRICT=1` promotes debt rows.
 
 **Recorded references:** read the count, kind and values off `node tools/view.js refs`.
 `tools/refs.lock` is the table, regenerated with `refs --record`, and `refInventory` asserts

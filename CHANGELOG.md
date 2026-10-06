@@ -29,6 +29,123 @@
   measuring something else, so the art change that finding produced was reverted and the row rebuilt to
   print the painted row, the window and the authored tube side by side and gate on the one that answers to
   the geometry.
+-- **Floors and ceilings stopped drawing a fan of radial spokes** (#19). Three terms of the ground pass were
+  functions of the CELL, and a cell boundary seen in perspective is a straight line to the vanishing point,
+  so each one drew a spoke over the largest area of the frame while walls, props and bodies stayed clean.
+  The per-cell texture mirror is now DISTANCE-GATED - it stays where a fold reads as the edge of a panel and
+  stops where the fold *is* the spoke; the ground's light walks its cell's own bilinear (four taps, cross
+  term included, advanced by two adds a channel) instead of taking one value per cell, which is the one
+  thing the wall pass has always done and the ground never did; a pixel whose footprint is longer than
+  one texel now takes a tap on EITHER side of the point it already sampled, which is the box over the
+  strip it covers rather than a mean centred half a footprint past it; that same fetch now also lerps
+  across the footprint's SUB-texel side, which is the side that made the material's own grit into a hard
+  strip (worth 8-11% of the streak metric, and no more); and the deferred copy of the ground pixel body,
+  which paints every pixel whose cell is not on the row's plane, stops EXTRAPOLATING its light ramp away
+  from the cell it fell back to - a ray that landed at world (62, 44) of a 26x26 map was interpolating the
+  fallback cell's slopes 40 cells in x, delivering a light multiplier of up to 136 and multiplying the
+  ceiling past the map edge into clipping. Ceiling streak per level (`view.js mip`) 47→38, 49→38,
+  114→74, 34→26 and the floor's own streak 74→57, 103→80, 117→93, 81→64, with the along-row detail
+  column still 3.4-6.5x the mush control's, so this is not a blur. All five are switches in the running
+  page (`DEV.set('gndjit'|'gndlight'|'gndax'|'gndfilt'|'gndramp', …)`, `DEV.state().gnd` reads them back),
+  so an A/B is one call and not a worktree - and the last one is visibly one band wide: `gndramp 0` puts
+  the blown wedge back and moves 8.9% of the level-0 cam1 frame's pixels and nothing outside the far-
+  ceiling band. Re-recorded flatparity's DEALT, cull's CZBAND, `bands`' SEAM-FRAME and two exposure
+  figures - all frame hashes over ground shading, none of them a widened threshold; flatparity's PARITY
+  and LOCK did NOT move, because a flattened level defers no pixels at all, and cull's world lightmap
+  digest is byte-identical on all four levels, so no lamp moved either. Raster delta +0.02 ms pooled
+  against the control. The dealt grids' off-datum cell counts are 165/246/314/134 here and on `main`.
+  A faint radial structure is still readable on a far ceiling near the horizon. The issue carries six
+  controls that ruled mip depth, tap count, tile scale, a wall-style light falloff and the per-cell mirror
+  out, and one of them turned out to be FALSE - "the deferred pixel copy paints nothing at this seat"; on
+  that frame 18,704 pixels are painted by it, which is where the defect was hiding.
+
+-- **The simulation got a second perf arm** (#53 part 2). The frame-budget row ported from the unmerged
+  `14bb9b7` gates `update()` at an absolute 1.5 ms, 8x its measured median, which passes a 5.7x AI
+  regression (a busy loop in `update()` moved the median 0.17 to 0.97 ms/frame and SMOKE still PASSED).
+  Each batch now also runs the same 60 frames on the same seat with `ENEMIES` emptied, so the row can
+  price the AI alone by paired difference instead of by an absolute budget a loaded box would blur:
+  150 us/frame of a 0.18 ms sim on `main`, floor `AI_FLOOR` 0.6 ms (4x that median). A busy loop inside
+  `updateEnemies()` takes the marginal to 967 us/frame and fails the row while the absolute row still
+  passes at sim 1.02 ms - the two rows disagree, and that disagreement is the gate.
+ **The menu now tells you that you can jump and climb** (#357). `index.html`'s control list stopped at
+-- **The rig probe now measures the body path the game draws** (#352). `view.js rig` rasterized
+  `RIG.raster`, the 2-D sheet path #72 removed when bodies became meshes, so a `js/13_mesh.js`
+  geometry change came back byte-identical. Nine rows (three per kind) now read the shipped path
+  through `COV`, the opt-in coverage mask `MESH.draw` stamps per character pixel: whether the body
+  is painted at all, whether four gait phases give four distinct silhouettes through the pose
+  wiring, and whether drawn height keeps its authored span (floors 139/93/206 px at 2.2 m,
+  recorded from `main`). Both failure modes were seen: freezing `p: e.anim` at the draw site
+  collapses every kind to one shape and exits 1; shortening the grunt's thigh and shin takes drawn
+  height 163 to 120 px and fails the height row. The probe creates ONE individual per kind,
+  because an enemy per phase let `makeEnemy`'s per-individual draws move the silhouette the row
+  was attributing to gait.
+ **Dropping to the band below during a body's wind-up no longer gets you hit through the floor** (#356).
+- **The menu now tells you that you can jump and climb** (#357). `index.html`'s control list stopped at
+
+  `Shift/C`, `R/1 2 3`, `G`, `Esc/M/T` — so neither `Space` (jump, `js/30_entities.js:388`) nor `E`/`Q`
+  (climb, gated by `onLadder` at `:385`) appeared anywhere in the screen a player reads before deploying,
+  and the staircase the generator puts in every level (#152) was unreachable by accident rather than by
+  design. The list gains one row, worded *on a ladder*, because the key does nothing off one.
+- **Dropping to the band below during a body's wind-up no longer gets you hit through the floor** (#356).
+
+  The wind-up is band-aware (`js/30_entities.js:567` asks `losZ`, since #118), but the swing resolved ~0.35 s
+  later on `Math.hypot` with no z plus a 2-D `los` that walks straight through a slab of floor
+  (`js/20_level.js:267`). The swing now asks the same solver at **torso** heights — `floorAt + scale*0.5` to
+  `floorAt + 0.55` — which keeps a body one quantum away across an auto-step edge landing (that ray passes
+  over the 0.25 m riser) while a full band between them is a floor plane it crosses. Four `sight` rows per
+  level start the wind-up legitimately on one band, then move a band under one of the pair mid-wind-up:
+  same-band and one-quantum damage is unchanged (11 / 11.66 / 12.32 / 12.98), both slab directions land 0 on
+  this branch and land full damage on pristine `main`, which fails those two rows on every level.
+  Two geometry traps the rows now carry in their own comments: a fixed +4-quantum raise beside the authored
+  level's 4-unit room is a **ledge**, not a slab, so the raise is taken from the low cell's own ceiling in
+  quanta; and raising the cell behind the ray's target **closes no opening**, because
+  `ceilAt = floor + max(1 unit, neighbour floors above)` grows the low ceiling to meet it.
+
+
+- **A room now behaves like a room** (#358). `alertEnemies` had exactly one call site — the player's own
+  gunshot — and `damageEnemy` raised only the victim, so a body shot three metres from its pack mate, or a
+  body that came down in front of one, told nobody. Break line of sight and the whole encounter de-escalated
+  on a 1.6 s timer, dropping the body into the idle branch that *fidgets in place* while still holding the
+  seat it last saw you at. Now damage and death carry a wake probability through the `report` parameter that
+  was already there (so a silenced approach stays a stealth route), a woken body is stamped with **where the
+  noise came from** rather than the spawn seat its `lx/ly` were seeded to, and `alert` survives `loseT` while
+  that seat is still more than a metre away, then looks around before giving up. Levels also trade harder,
+  not just faster: one `LVL_RAMP` scales incoming melee/orb damage and reaction cooldown, where previously
+  the only per-level term in the simulation was a 5 % speed bump — and no enemy was faster than a walk
+  (`ETYPE.spd` 1.85/3.25/1.55 against `spd = 3.55 + 2.15·sprint`). `sight` gates all four claims through the
+  real `update()` loop over 240-frame runs, with the wake draws replayed from a fixed stream so a rate row
+  cannot flake; on pristine code the same rows read **0/40 wakes, 0.09 m of pursuit, damage ratio 1.000**.
+
+
+- **Enemies carry a weapon, and the geometry budget has a hook** (#78). Bodies were still authored at spike
+  fidelity: one global `NS = 6` gave every tube the same prism, so a thigh and a visor were equally faceted,
+  and no part carried an object - the attack bucket had nothing to move. Limbs now take 8 sides on the tier
+  the renderer picked (`S.gfx`, the index `QUAL[]` is addressed by at `js/40_render.js:91`) and 6 elsewhere,
+  and grunt and brute hold a 4-part weapon - stock, receiver, barrel, magazine - placed at the right hand so
+  the gait, the wind-up, the topple and the death pose carry it for free. It is canted **across** the body
+  rather than laid along the aim axis: aimed forward it has almost no screen-space extent the moment the
+  enemy faces the player, which is the difference between carrying something and carrying something visible.
+  Measured at the low tier, grunt and brute are **216 tris against the gun-less hound's 180** (the hound
+  authors no `gun` row, and that absence is what makes the floor mean something), and the tier hook answers
+  **6 → 8 limb sides, grunt 216 → 248 tris**. The model cache key is now `kind#seg` and the pose key carries
+  the same count, so a tier switch rebuilds instead of handing back the previous geometry - #186's lesson
+  that a key must hold every term the geometry reads, applied before it could bite. Verifying the pass also
+  established that **`view.js rig` cannot see mesh geometry at all**: it rasterizes `RIG.raster`, the path
+  #72 took out of the draw loop, and this branch's sheet is byte-identical to `main`'s (`e9d88fd3…`, 0 of
+  9,742,430 bytes differ) while `stats` reports the +36 triangles. Filed as #352; the rows added here live
+  in `stats`, where the numbers can move, and they fail under `HELD_FLOOR=999` / `HELD_DELTA=999`.
+- **The simulation is now inside a frame-budget gate** (#53). Every perf row in `node tools/smoke.js`
+  timed `renderWorld()` + `renderOverlay()` — the raster row that gates PRs included — so a change that
+  made the *simulation* expensive (an AI pass, a per-cell sweep, a lightmap rebuild in `update()`) passed
+  every perf gate in the repo while the shipped frame cost more than the number printed. smoke now also
+  times `update()` on its own at the three perf seats and gates the median against `TICK_FLOOR`
+  (default 1.5 ms, derived: the sim measured a median **0.18 ms/frame** over 9 samples from 3 seats,
+  max 0.3, against a raster median of 30.7 ms on the same machine — so the floor is ~8× the measured
+  cost and under 10% of the 16 ms frame #307 is driving the raster floor to; setting `TICK_FLOOR`
+  explicitly remains the standing control for A/B work, as with `RASTER_FLOOR`). Timing it honestly
+  needed a reseat per batch rather than a paired arm: `update()` *advances* the world, so a batch that
+  follows another would be timing a later scene — and, per the trap where a spinning camera also walks
+  the player, would drag the player into where the grid is undefined.
 
 - **No big band is left without a light source standing in it** (#149). Lamp placement had scored seats
   for the dark *cells* a lamp would cover and then spread the remainder, so a band whose cells were each
@@ -63,6 +180,36 @@
   reserving every candidate, moves the count rows to 0 and turns the **density** rows red instead (7 FAILs,
   L0 38 > 36, L1 60 > 59). Both directions of the same mechanism are red, which is why the count and density
   rows both exist.
+- **`anim` can now fail on a gait, and it turned out the game had one** (#274). The rows could not
+  see the phase: pinning the pose table's phase term so the body shifts from its spawn stance to
+  **one** walk stance and stops exited **0**, four `walk +Ns` rows printing the same number at every
+  offset (**6.6 / 6.6 / 6.6 / 6.6 %** on level 0, **4.7-4.9 %** on level 3) against `MINMOVE` 3.0 -
+  one stance shift, credited four times as walking - while the row that *named* the cycle reported
+  **9 distinct bodies in 9 samples** on that same rigid mesh once a colour term was keyed on
+  `e.anim`, because it hashed pixel colours. Two rows now assert in the domains that own the claim:
+  **`gait shape`** reads `MESH.poseVerts` (new export; the same `bucketOf` + `poseOf` the draw site
+  goes through, so it is the vertex set an enemy is rasterized from) and gates metres a vertex
+  travels between buckets - half-cycle **≥ 0.10 m** (measured 0.137-0.278), adjacent bucket
+  **≥ 0.03 m** (0.058-0.137), each at least **2x** the same sweep at `mv = 0`, which is the idle
+  weight-shift and moves 0.000-0.058 m, not the 0 the issue's proposed control assumed. **`gait
+  phase`** walks a real enemy on the mode's own treadmill for 2 strides and gates that the draw's
+  bucket index reaches **8/8** buckets, advances **+1 mod 8**, and that the phase equals **metres
+  walked / SPEC stride** (measured drift **-0.0000 to 0.0000** - the phase is distance-driven, so it
+  cannot become frame-rate-driven without tripping this). The `walk cycle` row gates on the
+  **coverage** mask now (`COV`, stamped only by body paint, armed for the mode - no pixel changes),
+  with the colour hash kept **reported** beside it, so colour-9-of-9 against shape-2-of-9 is the
+  sabotage in plain sight. Teeth, each run with the sabotaged file loaded by the same process that
+  asserts (`JSDIR=`, whose js-sha256 the tool prints): rigid table **exit 1**, `gait shape ... min
+  0.000 < 0.10 m FAIL` x3; rigid **plus** a phase-keyed colour term **exit 1** with that row's colour
+  hash reading 9/9; frozen `e.stepPhase` **exit 1**, `NO PHASE - the walk reaches 1 of 8 buckets;
+  phase advanced LESS than the distance walked`. Pristine `origin/main` behaviour is unchanged:
+  `anim` exits 0, half-cycle min 0.137/0.137/0.144, 8/8 buckets monotone, every other row of the
+  run byte-identical to the pre-change output, `flatparity`'s flat triple `060da4cd/f05beeb5/050b225e`
+  and DEALT `2f1b8e3c/370d3f7a/aa18d43e/e846d5b3` unmoved, `refs ok - 13 recorded reference(s) in 6 of
+  25 probes`, `SMOKE PASSED`. The four `walk +Ns` rows keep `MINMOVE` 3.0 untouched - raising it to
+  reject 6.6 % was the wrong fix (#274: still a pixel count, and 1.8 points from a real 8.2 %), so on
+  a rigid body they still print MOVES and the verdict is red because of the two pose rows.
+
 - **All six README screenshots are re-captured from the deployed bytes, and two captions stopped
   describing a picture that is no longer there** (#333). The facing-wall frame changed: **10 dark rows
   → 488 of 763** - a run of 277 from the top of the frame, mean 36.79 → 20.87, top band 36.2 → 9.5 -
@@ -248,6 +395,22 @@
   the crossfade half of the hoist is dead code at the default graphics tier anyway (`G_TRI`, ULTRA only).
   Column counts come from a counting tree because the zbuf-inferred census over-counts ~1.7x: the mesh
   pass stamps one view-space distance down a face, so a walls-off frame reports **0** runs.
+- **Four probes stopped describing three levels while players are dealt four** (#303). `props`' cost
+  census and collision rows, `bands`' per-level loop and `decal`'s riser punch loop each ended at a
+  literal `3`, so every row they printed about altitude or clearance described a generated level and the
+  verdict line never said a fourth level had been skipped. They now read the level list, the way `alt`,
+  `volume`, `vert`, `sight`, `cull` and `planes` already did. Two loops keep a literal bound on purpose:
+  `alt`'s top-up and glow censuses index three-value recorded literals, so raising their bound would
+  read `undefined` at level 3 instead of turning a row red — that re-record decision, plus `props`'
+  three-level LAMPCORE record and `bands`' floors calibrated on "the six lips of each tree", is
+  [issue #314](https://github.com/lioreshai/breach-protocol-flash-next/issues/314).
+  Running level 3 for real also found a defect rather than a number: `props`' `slides, does not seal`
+  row crossed 3 of 4 face-graze poses there, because THE STACK's one authored crate is `r 0.655` and
+  overhangs its lane by **0.16 m** where a generated crate overhangs 0.05 m — one ~30° graze pose snags
+  at the face ([issue #318](https://github.com/lioreshai/breach-protocol-flash-next/issues/318)). That
+  row now reports the authored case as debt **at the measured geometry** (overhang past `OVERHANG_MAX`,
+  default 0.12 m — an A/B knob, not a tolerance baked into a verdict), so a generated-geometry snag, a
+  two-pose shortfall, and `STRICT=1` all still go red, and the fix retires the row.
 
 - **The hand-authored level's descent is now in the corridor the player spawns facing, and the corridor
   has volume** (#16, #181). The stair had been authored in the far column of the west wall — outside
@@ -273,6 +436,13 @@
   two renders described as "the spawn view" during this work were that derived camera looking at
   geometry the player never sees. The override re-points `P.x/P.y/P.ang` after the derivation, is off
   unless the variable is set, and prints the pose it used so a claim names its own camera.
+- **`SET=code` for `node tools/view.js scene <li> <cam>`** (#19). The ground terms are switches in the
+  running page, but `DEV` is not loaded headless, so an A/B of a *screenshot* still meant a worktree, and
+  the control that decides whether a look fix is a fix gets skipped because it is expensive. `SET` runs
+  one string in the game context immediately before the frame is painted, so `SET='GNDRO=0'` renders the
+  same seat with that term switched off and `SET='GNDFT=0;MIPAR=8'` renders any pair. Wrapping
+  `renderWorld` inside it prints a counter the frame fills rather than a constant. Unset, it is inert: two
+  runs of `scene 0 1` are byte-identical with and without the variable, and `SET='GNDRO=0'` is not.
 
 ## [v1.3] - 2026-10-03
 
