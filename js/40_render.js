@@ -49,7 +49,8 @@ const LG_ROW = 0, LG_DEF = 1, LG_FAR = 2, LG_N = 3;
    #375's fix is made of: a pixel the level has no lamp for takes ambient, so that maximum is 0.
    It is not 0 on the behaviour before the fix, which handed every off-map pixel the light of the cell
    the row's walk last reached, at any distance. Scaled to an int because LGCNT is an Int32Array. */
-const LG_OFFMAP = 9, LG_OFFMAX = 10, LG_ROWOFF = 11, LG_ROWOFFMAX = 12, LG_OFFCEIL = 13, LG_OFFCMAX = 14, LG_NTOT = 15;
+const LG_OFFMAP = 9, LG_OFFMAX = 10, LG_ROWOFF = 11, LG_ROWOFFMAX = 12, LG_OFFCEIL = 13, LG_OFFCMAX = 14,
+  LG_OFFLIFT = 15, LG_NTOT = 16;   // #375: the tall-ceiling LIFT charged to a pixel with no ceiling
 let G_TRI = false, G_GRIT = 0;                                  // derived from QUAL.rast
 /* #164: altitude reached the geometry and no pixels. A seam at the CREASE of every step the render
    ray crosses - the foot darkened, the far lip lifted - is the one cue that survives a dark room, so
@@ -1225,7 +1226,7 @@ function castGround(flash, fcR, fcG, fcB) {
 let gSer = 0, gMSer = -1, gMRow = -1, gMPl = 0, gMDS = 0, gMDfa = 0, gMFog = 0, gMInv = 0, gMFR = 0,
   gMFG = 0, gMFB = 0, gMBase = 0, gMCx0 = 0, gMCy0 = 0, gMCxs = 0, gMCys = 0,
   gMCf = 0, gMAx = 0, gMWs = 0, gMAn = 1, gMAr = 4, gMN = 0, gMDist = -1, gMMirOn = 0,
-  gMFar = 0, gMWnR = 0, gMWnG = 0, gMWnB = 0, gMWErr = 0, gMWEg = 0, gMWEm = 0,
+  gMFar = 0, gMWnR = 0, gMWnG = 0, gMWnB = 0, gMWErr = 0, gMWEg = 0, gMWEm = 0, gMLift = 0,
   gLSer = -1, gLSX = 0, gLSY = 0, gML0 = 0, gML1 = 0, gML2 = 0, gMMir = 0,
   gMA0 = 0, gMA1 = 0, gMA2 = 0, gMB0 = 0, gMB1 = 0, gMB2 = 0, gMD0 = 0, gMD1 = 0, gMD2 = 0;
 
@@ -1241,8 +1242,8 @@ function gndBuild(row, isF, absP, pl, tex, sc, fcR, fcG, fcB, fl, amb, dOv) {
   gMSer = gSer; gMRow = row; gMPl = pl; gMDS = dc; gMDist = dOv === undefined ? -1 : dOv;
   gMDfa = 0.4 + 0.6 * Math.exp(-dc * 0.02);
   gMFog = fog; gMInv = 1 - fog; gMFR = fcR * fog; gMFG = fcG * fog; gMFB = fcB * fog;
-  gMBase = amb + fl * Math.exp(-dc * 0.30) * 0.9 + (isF ? FLOORB : CEILB) +
-    (!isF && pl - eyeZ > CEILHI ? Math.min(CEILLD, CEILG * (pl - eyeZ - CEILHI)) : 0);
+  gMLift = !isF && pl - eyeZ > CEILHI ? Math.min(CEILLD, CEILG * (pl - eyeZ - CEILHI)) : 0;
+  gMBase = amb + fl * Math.exp(-dc * 0.30) * 0.9 + (isF ? FLOORB : CEILB) + gMLift;
   /* the sampled point is LINEAR in the column: camX + (dirX + planeX*(x*stepBase-1))*dS, so a pixel
      of this run needs two multiplies, not a ray build. Same algebra the row uses for its own wx/wys. */
   const sb = 2 / BW;
@@ -1426,7 +1427,7 @@ function groundPixel(x0, x1, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb
   const own = sx >= 0 && sy >= 0 && sx < N && sy < N;
   if (!own) { gndOffMap++; sx = ax; sy = ay; }
   const inMap = sx >= 0 && sy >= 0 && sx < N && sy < N, cIdx = sy * N + sx;
-  let lr, lg, lb, mir;
+  let lr, lg, lb, mir, liftChg = 0;   // #375: the ceiling lift an OFF-MAP pixel is NOT charged
   /* Light and jitter are functions of the CELL, not of the pixel: the row loop recomputes them at a
      crossing for exactly that reason, and here they are the same three loads plus one hash pair per cell
      change instead of per pixel. Keyed by the frame serial too, because the lightmap fades between
@@ -1495,7 +1496,31 @@ function groundPixel(x0, x1, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb
      (#385). Do not fold the halves back together without re-running `bands` at the L3 camera. */
   if (!own && GNDOF && !isF) {
     const lta = MAP.lt;
-    lr = lg = lb = gMBase;
+    /* #375's SECOND charge, found after #392 shipped and the wedge stayed. gMLift is the tall-ceiling
+       bounce term (CEILG above CEILHI); it is a property of a PLANE, so a pixel whose ray left the level
+       paid it at full strength for a ceiling it never reached, at any distance. Measured at the level-0
+       cam1 seat on main 91e07d4 (instrumented JSDIR variant, one frame): 13,444 off-map deferred ceiling
+       pixels, mean base 0.866 at a mean plane of 3.97 and a mean distance of 38.5 m, against 0.190 for
+       the row copy's own far fill - a flat, textureless trapezoid at 57.0 mean luminance where the
+       ceiling overhead reads 40.5 - and DELIVERED LIGHT EQUALS BASE there to the last bit, which is why
+       #392's fix could not reach it and why its census still prints 0.0000: the lamp taps are zero, the
+       LIFT is not. A ceiling that is not there cannot bounce light at you, for the same reason a lamp
+       that is not there cannot light you, so this term now rides the same tap coverage the lamp taps
+       already ride: whole on the boundary lattice line, where it is continuous with the in-map side -
+       which is what removes the STEP, and never a hole: the term it pays instead is the row's own.
+       The term is `!isF`, so the floor half, #385's debt and `bands`' step-lip gate do not move.
+       GNDOF 0 puts the whole charge back, wedge included, for the A/B. The ROW copy needs no clause: its
+       lift is computed from dzA, a per-ROW constant, so it is the same value on both sides of the level's
+       edge and cannot draw the footprint's outline - the 0.866/0.190 above is the whole difference. */
+    /* WHICH lift an off-map pixel may claim: the one the ROW's own plane carries, which is exactly what
+       the row copy pays these same rays (dzA, a per-ROW constant). Zero here would be a hole - measured:
+       base 0.130 against the row copy's 0.190 and a frame that reads a dark trapezoid instead of a bright
+       one, an edge in the other direction rather than no edge. The plane this pixel's ray never reached
+       pays nothing; the space the camera is standing in pays its own, at any distance, which is also what
+       makes the two copies agree on the same pixel. */
+    const liftRow = plA - eyeZ > CEILHI ? Math.min(CEILLD, CEILG * (plA - eyeZ - CEILHI)) : 0;
+    lr = lg = lb = gMBase - gMLift + liftRow;
+    liftChg = gMLift - liftRow;
     if (lta) {
       const gx = Math.floor(cx), gy = Math.floor(cy), ux = cx - gx, uy = cy - gy;
       for (let q = 0; q < 4; q++) {
@@ -1520,6 +1545,13 @@ function groundPixel(x0, x1, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb
     const oi = om > 0 ? (om * 1000 + 0.5) | 0 : 0;
     const sl = isF ? LG_OFFMAX : LG_OFFCMAX;
     if (oi > cnt[sl]) cnt[sl] = oi;
+    /* The LIFT half, counted apart: #392's row prints 0.000 whether or not THIS term is fixed, because
+       the lamp taps are zero off-map either way. This is the term the surviving wedge is made of, and
+       GNDOF=0 puts the whole of it back, so the same A/B reddens this row too. */
+    if (!isF) {
+      const lf = (liftChg * 1000 + 0.5) | 0;
+      if (lf > cnt[LG_OFFLIFT]) cnt[LG_OFFLIFT] = lf;
+    }
   }
   /* #19 take five: past FARB this pixel's own solve puts it in the band the ROW loop fills with the
      material's mean, so it is filled the same way here - see the gate in gndBuild. Everything below

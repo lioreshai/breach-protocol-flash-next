@@ -6183,7 +6183,7 @@ if (MODE === 'heights') {
   for (let li = 0; li < run('LEVELS.length'); li++) {
     let ref = null, refF = null, flatMean = 0, farSeen = 0;
     const halfNow = [];                 // the recorded statistic, filled by the config loop below
-    const lgn = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];   // LGCNT summed over this level: 3 sites x 3 families, + #375's off-map run counts (9, 11) and worst delivered light above ambient (10, 12)
+    const lgn = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];   // LGCNT summed over this level: 3 sites x 3 families, + #375's off-map run counts (9, 11) and worst delivered light above ambient (10, 12), + the ceiling lift charged off-map (15)
     console.log(`level ${li}`);
     for (const [name, poke, wantFloor, wantCeil, wantDecals, wantOutMap, wantDepth] of cfgs) {
       seedRng(4242 + li * 31);
@@ -6456,6 +6456,8 @@ if (MODE === 'heights') {
     if (lgn[14] > OFFMAPFLOOR) offFail.push(' OFFMAP-LIGHT-CEILING');
     if (lgn[12] > OFFMAPFLOOR) offFail.push(' OFFMAP-LIGHT-ROW');
     if (lgn[10] > OFFMAPDEBT) offFail.push(' OFFMAP-DEBT-EXCEEDED');
+    // #375's second half: the tall-ceiling LIFT a pixel with no ceiling of its own is still charged.
+    if (lgn[15] > OFFMAPFLOOR) offFail.push(' OFFMAP-LIFT');
     if (!lgn[13] && !lgn[11]) offFail.push(' OFFMAP-VACUUM');
     offDefRun += lgn[13];
     if (offFail.length) bad++;
@@ -6463,6 +6465,7 @@ if (MODE === 'heights') {
       + `(deferred ${lgn[13].toLocaleString()}, row ${lgn[11]}), worst light delivered above ambient `
       + `deferred ${(lgn[14] / 1000).toFixed(4)}, row ${(lgn[12] / 1000).toFixed(4)} (floor ${(OFFMAPFLOOR / 1000).toFixed(4)})`
       + `${lgn[13] ? '' : ' - deferred ceiling site unrun on this level'}`
+      + ` | LIFT charged past the level ${(lgn[15] / 1000).toFixed(4)} (floor ${(OFFMAPFLOOR / 1000).toFixed(4)}, #375)`
       + ` | FLOOR-half debt ${lgn[9].toLocaleString()} px, worst ${(lgn[10] / 1000).toFixed(4)} (debt floor ${(OFFMAPDEBT / 1000).toFixed(4)}, #385)`
       + `${offFail.length ? '  FAIL' + offFail.join('') : lgn[10] ? '  ok (floor half carries the #385 debt)' : '  ok'}`);
   }
