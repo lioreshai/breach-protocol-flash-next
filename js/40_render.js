@@ -1704,6 +1704,7 @@ function castWalls(flash, fcR, fcG, fcB) {
   const flR = S.flashCol[0] / 255, flG = S.flashCol[1] / 255, flB = S.flashCol[2] / 255;
   const flashK0 = flash;
   const dmax = GQ ? GQ.dmax : 13, dMask = DECAL_MASK, dGrid = DECAL_GRID;
+  const mMask = DECOR_MASK, mGrid = DECOR_GRID;        // #400 authored wall decor; one byte test per column
   const shm = SHADOW ? SH_HEAD : null;                      // #178 contact shadow
   for (let x = 0; x < BW; x++) {
     const cam = x * stepBase - 1;
@@ -1937,6 +1938,40 @@ function castWalls(flash, fcR, fcG, fcB) {
             (clampi((s & 255) * sa + (dst & 255) * (1 - sa))) |
             (clampi((s >> 8 & 255) * sa + (dst >> 8 & 255) * (1 - sa)) << 8) |
             (clampi((s >> 16 & 255) * sa + (dst >> 16 & 255) * (1 - sa)) << 16)) >>> 0;
+        }
+      }
+    }
+    /* #400: AUTHORED wall decor, painted with THIS FACE'S OWN LIGHT. That modulation is the whole
+       point of the block: the transient blit above composites the splat's RGB straight over the wall,
+       which is right for a bullet hole in soot and wrong for a thing standing in the room - it would
+       sit at full brightness in a corridor no lamp reaches, and the issue's "not a brighter square"
+       criterion is exactly that failure. So a fixture's albedo goes through lr/lg/lb and picks up the
+       same fog add the body rows used, and the fixture is clipped to the face's drawn span [ds, de],
+       so nothing here can paint the slab above a riser or the ceiling band. It is NOT on the transient
+       decal list: those fade (life defaults to 40) and the list evicts at 180 entries. */
+    if (mMask && mMask[my * N + mx]) {
+      const ml = mGrid[my * N + mx];
+      const wx = camX + rdx * perp, wy = camY + rdy * perp;
+      for (let q = 0; q < ml.length; q++) {
+        const mo = ml[q];
+        if (mo.side !== side + 1) continue;
+        const along = side === 0 ? wy - mo.y : wx - mo.x;
+        const u = along / (mo.hw * 2) + 0.5;
+        if (!(u >= 0 && u < 1)) continue;
+        const zT = mo.z + mo.hh, zB = mo.z - mo.hh;
+        const syTop = Math.max(ds, Math.ceil(horizon + (eyeZ - zT) * hpx));
+        const syBot = Math.min(de, Math.floor(horizon + (eyeZ - zB) * hpx));
+        const dt = mo.tex, mwx = dt.w, ih = 1 / (zT - zB);
+        for (let y = syTop; y <= syBot; y++) {
+          const zv = (eyeZ - ((y - horizon) / hpx) - zB) * ih;
+          if (!(zv >= 0 && zv < 1)) continue;
+          const s = dt.data[(zv * dt.h | 0) * mwx + (u * mwx | 0)], sa = (s >>> 24) / 255;
+          if (sa < 0.02) continue;
+          const i = y * BW + x, dst = px[i], ia = 1 - sa;
+          px[i] = (0xFF000000 |
+            (clampi(((s >> 16 & 255) * lb + fB) * sa + (dst >> 16 & 255) * ia) << 16) |
+            (clampi(((s >> 8 & 255) * lg + fG) * sa + (dst >> 8 & 255) * ia) << 8) |
+            clampi(((s & 255) * lr + fR) * sa + (dst & 255) * ia)) >>> 0;
         }
       }
     }
