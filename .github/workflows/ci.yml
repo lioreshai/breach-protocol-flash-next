@@ -31,6 +31,17 @@ jobs:
         # worse than a failing one.
         run: ruby tools/wfyaml.rb --dir .github/workflows
 
+      - name: Release policy regression checks
+        run: python3 -m unittest discover -s tools -p test_release_policy.py
+
+      - name: README keeps deployed screenshots
+        run: |
+          python3 - <<'PY_CHECK'
+          from pathlib import Path
+          import re
+          assert re.search(r'!\[[^\]]*\]\([^)]*docs/screens/[^)]*\.png[^)]*\)', Path('README.md').read_text()), 'README must embed deployed screenshots'
+          PY_CHECK
+
       - name: Must stay dependency-free
         run: |
           set -euo pipefail

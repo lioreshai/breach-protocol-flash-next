@@ -132,7 +132,7 @@ behind them — a figure quoted from their prose is one session's measurement, s
 from the deployed build into `docs/screens/` — not a headless dump, not an older build — and
 put any defect visible in a shot into its caption rather than cropping it out. A defect in a
 caption is known; a cropped defect becomes a bug report about someone's display.
-`release-guard.yml` requires the README to embed at least one `docs/screens/*.png`.
+`ci.yml` requires the README to embed at least one `docs/screens/*.png`.
 
 ## How a check earns trust
 
@@ -220,8 +220,7 @@ They generalize; the measurements that found them are in that file.
 A PR body carries `Closes #N` — **the keyword as plain text**, not a bare `#N` and not inside
 backticks. A bare reference links the issue and leaves it open, and a
 closing keyword inside a code span links nothing while the `issue` check in `pr-guard.yml`
-stays green, because it greps raw text. `[no-issue]` is the opt-out, same shape as
-`[no-changelog]`.
+stays green, because it greps raw text. `[no-issue]` is the explicit opt-out for genuinely untracked work.
 
 - **Confirm the close** with `gh issue view N --json state` after integration. An
   issue left open after its work shipped is worse than no issue: the next reader re-does it.
@@ -231,3 +230,12 @@ stays green, because it greps raw text. `[no-issue]` is the opt-out, same shape 
   **Strike a milestone only with the verdict that proves it beside it** — "done" is not
   something you edit into a list, it is something a tool prints.
 - **Prose status tables are not to be reintroduced** in any document here.
+
+## Release notes
+
+Feature PRs leave CHANGELOG.md, release.json and release-policy.json unchanged.
+The product lead owns scheduled releases and writes concise player-facing notes
+only in release/vX.Y.Z PRs. The release cadence is in release-policy.json and is
+measured from successful GitHub publication, not a tag or an attempted cycle.
+See docs/RELEASE.md. Keep the authorized author and committer identity for tags
+and release commits; do not bypass required checks.
