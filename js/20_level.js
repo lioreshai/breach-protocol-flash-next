@@ -457,6 +457,34 @@ function bandExitT(ax, ay, dx, dy, az, tanP, maxT) {
 
 function pickWallTex(cfgL) { return Math.random() < 0.78 ? cfgL.wall : cfgL.wall2; }
 
+/* #371: which way a prop FACES. Every prop used to be drawn square to the grid, which is the one
+   thing that makes a solid read as a sticker: the key light (js/12_sprites.js:8 KEY) runs at
+   (-0.42, -0.60, +0.68), so an axis-aligned box presents two faces to any camera with the SAME
+   |N·KEY|, and no face of it can ever fall in shadow. Turning the box a dozen-odd degrees buys a lit
+   side and a shaded side for one field on the entry (js/13_mesh.js rotates the cached verts by it, and
+   the yaw is deliberately NOT in the geometry cache key, so this costs a rotation per vertex and no
+   memory), and it stops two crates in a row being mirror-image clones of the same box.
+   WHERE the angle comes from is the whole design, and it is not a dice roll. #90/#96: a generator pass
+   whose Math.random draw COUNT moves re-rolls every world downstream of the same seed, and #154 was
+   bitten by exactly that - so this takes its angle from a hash of the prop's OWN cell. Zero draws, so
+   every level downstream of a prop is bit-for-bit the level main built; deterministic per layout, so a
+   probe can name a prop's yaw and a save/restore of the entry keeps it; and different cells disagree
+   by construction, which is the tiling tell being paid as a side effect.
+   The hash lands in [PROP_YAW_LO, 90deg - PROP_YAW_LO], not in [0, 90deg). A box's faces repeat every
+   quarter turn, so one quadrant holds every distinct orientation - and the two ends of that quadrant
+   ARE the axis-aligned case this exists to kill. PROP_YAW_LO is the margin: at 18deg the worst-oriented
+   crate in a level still shows a lit face and a shaded one, while a uniform 0..90 would put ~40% of
+   the game's props back within a few degrees of the tell. The extra `+ k*90deg` is free variety: it
+   cannot change a box's silhouette, but it does turn the asymmetric props (a barrel's bung, a crate's
+   lid seam) differently. */
+const PROP_YAW_LO = 18 * Math.PI / 180;
+function propYaw(x, y) {
+  let h = (Math.imul(x | 0, 0x9E3779B1) ^ Math.imul(y | 0, 0x85EBCA6B)) >>> 0;
+  h ^= h >>> 16; h = Math.imul(h, 0x7FEB352D) >>> 0; h ^= h >>> 15;
+  const t = (h & 0xFFFF) / 65536;                 // low bits: the angle within the band
+  return ((h >>> 30) * Math.PI * 0.5) + PROP_YAW_LO + t * (Math.PI * 0.5 - 2 * PROP_YAW_LO);
+}
+
 /* #152 put bands in the grid; #181 is about what that grid then contains. Raising `rooms>>1`
    scattered room interiors one unit up leaves a histogram that is 78% datum, off-datum cells too
    scattered to stand ON, and MAP.cz at one unit in every column - multi-storey in MAP.fz, a crawlway
@@ -1405,9 +1433,9 @@ function buildAuthored(li) {
             seen[ni] = 1; st.push(ni); } } }
       const lstr = Math.max(TOPUP_MINF, Math.min(1, cov / TOPUP_TARGET));
       LIGHTS.push({ x: px, y: py, z: fl + LHOVER, r: 7.2, str: lstr, col: cfgL.lampCol, stat: 1 });
-      PROPS.push({ tex: PROP.lamp, x: px, y: py, scale: 0.95, z: fl, kind: 'lamp' });
-    } else if (s[2] === 'B') PROPS.push({ tex: PROP.barrel, x: px, y: py, scale: 0.86, z: fl, kind: 'barrel' });
-    else if (s[2] === 'C') PROPS.push({ tex: PROP.crate, x: px, y: py, scale: 1, z: fl, kind: 'crate' });
+      PROPS.push({ tex: PROP.lamp, x: px, y: py, scale: 0.95, z: fl, kind: 'lamp', yaw: propYaw(px, py) });
+    } else if (s[2] === 'B') PROPS.push({ tex: PROP.barrel, x: px, y: py, scale: 0.86, z: fl, kind: 'barrel', yaw: propYaw(px, py) });
+    else if (s[2] === 'C') PROPS.push({ tex: PROP.crate, x: px, y: py, scale: 1, z: fl, kind: 'crate', yaw: propYaw(px, py) });
     else if (s[2] === 'A' || s[2] === 'H') PICKUPS.push({ type: s[2] === 'A' ? 'ammo' : 'health', x: px, y: py, bob: 0, dead: false });
     else if (s[2] === 'g' || s[2] === 'h' || s[2] === 'b')
       ENEMIES.push(makeEnemy(s[2] === 'g' ? 'grunt' : s[2] === 'h' ? 'hound' : 'brute', px, py));
@@ -1569,7 +1597,7 @@ function genLevel(li) {
       // one clearSpot call feeds the LIGHTS entry and the PROPS entry below, so light and prop disagree
       // with each other on no deal;
       LIGHTS.push({ x: c[0] + 0.5, y: c[1] + 0.5, z: floorAt(c[0] + 0.5, c[1] + 0.5) + LHOVER, r: 7.2 + Math.random() * 2.8, str: 1.05, col: cfgL.lampCol, stat: 1 });
-      PROPS.push({ tex: PROP.lamp, x: c[0] + 0.5, y: c[1] + 0.5, scale: 0.95, z: floorAt(c[0] + 0.5, c[1] + 0.5), kind: 'lamp' });
+      PROPS.push({ tex: PROP.lamp, x: c[0] + 0.5, y: c[1] + 0.5, scale: 0.95, z: floorAt(c[0] + 0.5, c[1] + 0.5), kind: 'lamp', yaw: propYaw(c[0] + 0.5, c[1] + 0.5) });
     }
     /* The pad light deliberately carries NO z: it is drawn as a glow AT the floor, so it
        emits from the floor of its own cell - the documented splatLight default, the same
@@ -1843,13 +1871,13 @@ function genLevel(li) {
         taken.add(by * N + bx);           // the cell the lamp STANDS in is the one that must stay unique
         const tsc = Math.min(1, Math.max(TOPUP_MINF, (bcov || 1) / TOPUP_TARGET));   // 0 coverage keeps a full lamp: a dim source that covers nothing would only darken the band
         LIGHTS.push({ x: bx + 0.5, y: by + 0.5, z: floorAt(bx + 0.5, by + 0.5) + LHOVER, r, str: TOPUP_BASE * tsc, col: cfgL.lampCol, stat: 1 });
-        PROPS.push({ tex: PROP.lamp, x: bx + 0.5, y: by + 0.5, scale: 0.95, z: floorAt(bx + 0.5, by + 0.5), kind: 'lamp' });
+        PROPS.push({ tex: PROP.lamp, x: bx + 0.5, y: by + 0.5, scale: 0.95, z: floorAt(bx + 0.5, by + 0.5), kind: 'lamp', yaw: propYaw(bx + 0.5, by + 0.5) });
       }
     }
-    for (let i = 0; i < cfgL.crates; i++) { const c = clearSpot(takeNear(2)); PROPS.push({ tex: PROP.crate, x: c[0] + 0.5, y: c[1] + 0.5, scale: 0.72, z: floorAt(c[0] + 0.5, c[1] + 0.5), kind: 'crate' }); }
+    for (let i = 0; i < cfgL.crates; i++) { const c = clearSpot(takeNear(2)); PROPS.push({ tex: PROP.crate, x: c[0] + 0.5, y: c[1] + 0.5, scale: 0.72, z: floorAt(c[0] + 0.5, c[1] + 0.5), kind: 'crate', yaw: propYaw(c[0] + 0.5, c[1] + 0.5) }); }
     for (let i = 0; i < cfgL.barrels; i++) {
       const c = clearSpot(takeNear(2));
-      PROPS.push({ tex: PROP.barrel, x: c[0] + 0.5, y: c[1] + 0.5, scale: 0.86, z: floorAt(c[0] + 0.5, c[1] + 0.5), kind: 'barrel', hp: 26, dead: false });
+      PROPS.push({ tex: PROP.barrel, x: c[0] + 0.5, y: c[1] + 0.5, scale: 0.86, z: floorAt(c[0] + 0.5, c[1] + 0.5), kind: 'barrel', hp: 26, dead: false, yaw: propYaw(c[0] + 0.5, c[1] + 0.5) });
     }
     for (const k in cfgL.pick) for (let i = 0; i < cfgL.pick[k]; i++) {
       const c = takeNear(2);
