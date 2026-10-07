@@ -255,8 +255,17 @@ function damageEnemy(e, dmg, head, dx, dy) {
     SND.gib(0);
     burstParts(e.x, e.y, floorAt(e.x, e.y) + e.scale * 0.5, 26, 3.4, e.type.blood, 0.9, 0.11, false, 1.2);
     if (!isSolid(e.x, e.y)) addGroundSplat(e.x, e.y, e.scale * 0.42, e.kind === 'hound' ? 'goo' : 'blood');
-    if (Math.random() < 0.42 * DIFFS[S.diff].droprate)
-      PICKUPS.push({ type: Math.random() < 0.55 ? 'ammo' : 'health', x: e.x, y: e.y, bob: 0, dead: false });
+    if (Math.random() < 0.42 * DIFFS[S.diff].droprate) {
+      // #361: the campaign's only grenade source besides the boxes on the floor. One draw, three bands,
+      // so the level's random stream does not shift with the outcome (#96: moving makeEnemy's draws
+      // re-rolled a level's layout). This is also the only economy that reaches the authored finale,
+      // whose LEVELS pick entry is empty. The cut points give grenades AMMO's share and not health's:
+      // ammo 55 -> 35, health stays at its shipped 45, gren 20. Healing is the axis the campaign's
+      // difficulty actually rides on, so taking a third of it away was a balance change this PR did not
+      // sign up to (review on #362); ammo is the pickup the levels already scatter boxes of.
+      const dk = Math.random();
+      PICKUPS.push({ type: dk < 0.35 ? 'ammo' : dk < 0.8 ? 'health' : 'gren', x: e.x, y: e.y, bob: 0, dead: false });
+    }
     if (ENEMIES.every(z => z.state === 'dead') && !S.exitOpen) openExit();
   } else if (Math.random() < 0.35) SND.growl(e.kind, 0);
 }
@@ -466,6 +475,13 @@ function takePickup(k) {
   } else if (k.type === 'armor') {
     if (P.armor >= 100) { k.dead = false; return; }
     P.armor = Math.min(100, P.armor + 45); killfeed('+45 ARMOR', '#7ad0ff');
+  } else if (k.type === 'gren') {
+    // #361: without this arm a grenade box dropped into the ammo branch and fed P.reserve, so the GL
+    // counter - the only grenade economy a player can see - could never rise. At the cap the box is
+    // left where it is, the same way the ammo branch refuses to consume itself at full reserves.
+    if (P.gren >= GREN_CAP) { k.dead = false; return; }
+    const gadd = Math.min(GREN_RESTOCK, GREN_CAP - P.gren); P.gren += gadd;
+    killfeed('+' + gadd + ' GRENADES', '#c8e05a');
   } else {
     let got = false;
     for (let i = 0; i < WEAPONS.length; i++) {
@@ -537,7 +553,16 @@ function updateEnemies(dt) {
           SND.enemyShot(panOf(e));
         } else {
           const dd = Math.hypot(P.x - e.x, P.y - e.y);
-          if (dd < t.reach * 1.25 && los(e.x, e.y, P.x, P.y)) damagePlayer(t.melee * (1 + S.level * LVL_RAMP), Math.atan2(e.y - P.y, e.x - P.x));
+          /* The swing lands ~0.35 s after the wind-up, and the wind-up's `see` (losZ) is stale by
+             then, so a player who dropped to the band below during the wind-up was damaged THROUGH
+             the slab: this test had no z in it at all. Ask the same solver the wind-up used, at TORSO
+             heights rather than eye heights - a body and a player one quantum apart (the auto-step
+             edge) keep their melee, because a torso-to-torso ray passes over a 0.25 riser, while a
+             full band between them is a floor plane the ray crosses. The 2-D `los` stays as the cheap
+             first test, so a wall in front of the body still costs one call, not a plane march. */
+          const ezM = floorAt(e.x, e.y) + e.scale * 0.5, pzM = floorAt(P.x, P.y) + 0.55;
+          if (dd < t.reach * 1.25 && los(e.x, e.y, P.x, P.y) && losZ(e.x, e.y, ezM, P.x, P.y, pzM))
+            damagePlayer(t.melee * (1 + S.level * LVL_RAMP), Math.atan2(e.y - P.y, e.x - e.x));
         }
         e.cd = t.cd * (0.75 + Math.random() * 0.6) / (1 + S.level * LVL_RAMP);   // #358: harder to trade with, not just faster
       }

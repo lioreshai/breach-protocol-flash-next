@@ -45,7 +45,9 @@ rule it taught stays and the archaeology goes; git remembers the rest.
   light.
 - The ground pixel body exists **twice** — the row loop in `castGround`, and `groundPixel()`
   for off-plane columns. The duplication is a measured perf fix, not taste. Change one copy
-  and you have changed the other.
+  and you have changed the other. **Both copies must also carry the far answer:** past `FARB`
+  a ground pixel is the mip-mean wash, in the row loop *and* in `groundPixel()` — a textured
+  deferred far field aliases along the ray into radial spokes (#19).
 - `'use strict'` cannot go in `js/11_rig.js`; it relies on implicit globals.
 - Current enemies and the first-person model use `js/13_mesh.js`. The old `RIG` sheets and
   the `rim` toggle still exist and move no shipped pixel — trace the live call site before
@@ -55,12 +57,43 @@ rule it taught stays and the archaeology goes; git remembers the rest.
 ## Verify before you commit
 
 ```
+node tools/roster.js                    # EVERY invocation ci.yml's blocking steps run, in ci.yml's
+                                        # order: one verdict line + exit code each, continues past
+                                        # failures, exits non-zero iff any failed
+node tools/roster.js --list             # that roster + the drift check, running nothing
+node tools/roster.js --env              # which env vars gate whether a ROW EXISTS, with live line numbers
+node tools/roster.js --quick 3          # the first three (census says PARTIAL)
 node tools/smoke.js                     # save/restore balance, colour variety,
                                         # raster median < 16 ms/frame, asset mem < 40 MB
 VERT=1 node tools/smoke.js              # the vertical lane
 node tools/view.js <probe>              # see docs/DEVELOPMENT.md for the catalogue
 node --check <each changed file>        # cross-file work: parse index.html's order
 ```
+
+**Run the roster, not a favourite probe.** `tools/roster.js` carries **no list of modes**: it parses
+`.github/workflows/ci.yml` twice - a structural walk of jobs/steps/run blocks, and a structure-blind
+scan of every non-comment line - and replays the blocking steps, each command with the `VAR=` prefix
+that sits in front of it in the workflow. The two counts must agree or it fails naming the line numbers,
+and `ci.yml` runs `--list` as a blocking step so the agreement cannot rot.
+
+This replaces a hand-copied subset. The same list lived here *and* in `ci.yml`, maintained twice, and
+they drifted: `node tools/view.js cull` printed `CULL ok` (exit 0) on bytes where `ci.yml`'s second,
+env-gated `LEAK=1 CZBAND=1 node tools/view.js cull` printed `CULL 3 FAILURES` (exit 1) - PR #337 went
+to CI red on that gap. **A probe's rows can hide behind an env var** - and which ones is a census, not
+a list to keep in prose: `node tools/roster.js --env` prints every `process.env.` read in the two
+harnesses with its class (`A` = the row exists only under that var, `B` = debt `STRICT` promotes to a
+gate, `C` = changes what is measured, `D` = a threshold or print) and the **live** `file:line` of each
+read, and fails if a classified name stops being read anywhere. The classification is one table in
+`tools/roster.js`; the numbers are derived, never transcribed, because a transcribed line number rots
+the first time a probe grows a row. So a per-mode run you enjoy is a subset
+of the gate; ask which invocations ran, not which word printed.
+
+Each child runs with that line's own prefix plus PATH/HOME/TMPDIR/TEMP/TMP/LANG/LC_ALL/TZ/CI and `OUT`,
+and nothing
+else from your shell - an ambient `LEAK=1` or `STRICT=1` you exported weeks ago would otherwise change
+which rows exist, and it is named on the entry's line when dropped. Blocking steps that run something
+other than `view.js`/`smoke.js` (`recap.js`, `ci/assert.js`, `wfyaml.rb`) are printed as a named gap in
+that step's coverage, never as a silent ok.
 
 **Gate on the tool's verdict, never on a grep for a line.** Grepping `raster cost` matched
 while the assert was failing and produced commits with known-failing budgets; the VERT lane's
@@ -99,7 +132,7 @@ behind them — a figure quoted from their prose is one session's measurement, s
 from the deployed build into `docs/screens/` — not a headless dump, not an older build — and
 put any defect visible in a shot into its caption rather than cropping it out. A defect in a
 caption is known; a cropped defect becomes a bug report about someone's display.
-`release-guard.yml` requires the README to embed at least one `docs/screens/*.png`.
+`ci.yml` requires the README to embed at least one `docs/screens/*.png`.
 
 ## How a check earns trust
 
@@ -161,16 +194,22 @@ They generalize; the measurements that found them are in that file.
   PR whose base branch is deleted, and `delete_branch_on_merge` is on, so merging the parent
   does exactly that — silently. Verify a fix reached `main` by grepping its content
   (`git show origin/main:js/11_rig.js | grep -c rimSil`), never by PR bookkeeping.
-- **Merge through the API, not `gh pr merge --admin`** — that printed nothing and merged
-  nothing (#98). Use `gh api -X PUT /repos/<repo>/pulls/<N>/merge -f sha=<full 40-char head>
-  -f merge_method=squash -f commit_message="… Closes #N"`, which answers 422 on a stale SHA and
-  `{"merged":true}` when it worked. **Redirect nothing from a merge call.**
-- **Read `mergeStateStatus` before merging.** `BLOCKED` with every row green means a stale
-  merge ref — rebase onto current `main` and force-push so CI runs against the real target,
-  never admin-merge past it. The refusal is a `405`.
-- Merges here are **squash** merges, so a merged branch's commit is not an ancestor of `main`.
-  Detect merged branches by PR state (`gh pr list --state merged --head <branch>`), never by
-  `merge-base --is-ancestor`; that is why `prune.yml` carries no ancestry check.
+- **Every commit uses `Liore Shai <liores@gmail.com>` as both author and committer.**
+  Do not use account, role or placeholder identities or attribute work to another name.
+  `tools/check_identity.py` verifies the actual objects, including author trailers.
+- **Integrate the exact reviewed head with a locally created merge commit and a normal
+  fast-forward push.** Check current-head CI and mergeability first, retain the old `main`
+  as the first parent and the reviewed PR head as the second, and confirm publication.
+  If main is not already an ancestor of the PR head, first push that canonical merge
+  to the same PR branch. Let CI run and review its new exact head before a fast-forward
+  push to main. Required checks remain enforced; do not wait inside an integration.
+  GitHub API/UI merges substitute a platform committer and do not meet this identity rule.
+  Never admin-bypass a conflict, changed head or policy block. No routine force push to `main`.
+- **Read `mergeStateStatus` before merging.** A blocked or stale merge result must be
+  resolved against current `main`; do not treat HTTP 405 as a transient retry.
+- New integrations are ordinary merge commits, so the reviewed head is reachable from
+  `main`. Older integrations were squashed: confirm historical merges by PR state and
+  actual contents rather than assuming their branch commits are ancestors of `main`.
 - **A YAML step `name:` cannot contain `': '`** — a plain scalar cannot hold colon-space, so
   the whole workflow fails to parse and nothing reports (#107). `tools/wfyaml.rb` asserts each
   workflow parses and that no job runs nothing; it cannot check its own file, so `ci.yml` and
@@ -179,12 +218,11 @@ They generalize; the measurements that found them are in that file.
 ## Issue tracking
 
 A PR body carries `Closes #N` — **the keyword as plain text**, not a bare `#N` and not inside
-backticks. Squash merges mean a bare reference links the issue and leaves it open, and a
+backticks. A bare reference links the issue and leaves it open, and a
 closing keyword inside a code span links nothing while the `issue` check in `pr-guard.yml`
-stays green, because it greps raw text. `[no-issue]` is the opt-out, same shape as
-`[no-changelog]`.
+stays green, because it greps raw text. `[no-issue]` is the explicit opt-out for genuinely untracked work.
 
-- **Confirm the close** with `gh issue view N --json state` after an admin squash merge. An
+- **Confirm the close** with `gh issue view N --json state` after integration. An
   issue left open after its work shipped is worse than no issue: the next reader re-does it.
 - **File a measured defect as an issue in the session that measured it**, numbers in the body.
   Parked in a transcript it evaporates.
@@ -192,3 +230,12 @@ stays green, because it greps raw text. `[no-issue]` is the opt-out, same shape 
   **Strike a milestone only with the verdict that proves it beside it** — "done" is not
   something you edit into a list, it is something a tool prints.
 - **Prose status tables are not to be reintroduced** in any document here.
+
+## Release notes
+
+Feature PRs leave CHANGELOG.md, release.json and release-policy.json unchanged.
+The product lead owns scheduled releases and writes concise player-facing notes
+only in release/vX.Y.Z PRs. The release cadence is in release-policy.json and is
+measured from successful GitHub publication, not a tag or an attempted cycle.
+See docs/RELEASE.md. Keep the authorized author and committer identity for tags
+and release commits; do not bypass required checks.

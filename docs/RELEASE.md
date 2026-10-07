@@ -1,171 +1,37 @@
-# Release process
+# Releases
 
-A release is the moment the repo can be **pointed at**: a tag, a changelog section with a date,
-screenshots that came from the build the tag names, and a GitHub release listing what shipped.
+The product lead owns releases and their changelog. Features describe their
+changes in PRs; they do not add Unreleased entries. CHANGELOG.md starts fresh and
+contains only named releases from this policy onward.
 
-## When
+## Cadence
 
-Any one of these, whichever comes first:
+release-policy.json sets a daily interval (86400 seconds), measured from the
+last successfully published stable GitHub release. New merged changes become
+release debt when that interval expires. No changes means no empty release.
+Failed attempts, tags without a published release, and product reviews do not
+reset the clock. The required release check enforces debt on feature PRs;
+versioned release PRs can pay it. An hourly scheduled check records overdue
+releases in a release-due issue. API errors fail instead of reporting no debt.
 
-1. **A milestone issue closes.** The milestones are issues too (M3 = #14, M4 = #15, M5+M6 = #16), so
-   "is a milestone done" is a query, not a paragraph.
-2. **50 merged PRs since the newest tag.** This is the enforcement floor, and it is the one the
-   `release` status check computes. 50 PRs here is roughly a week of work; past that the distance
-   between "what is deployed" and "what is named" stops being reconstructible.
-3. **A picture or feel change worth a baseline.** If the README's screenshots stop describing the
-   game, the README is lying, so the fix is a release, not a caption edit.
+## Prepare and publish
 
-The session that crosses a trigger runs this checklist. If it cannot finish, it files the debt
-issue (`.github/workflows/release-guard.yml` opens one automatically on the weekly schedule) rather
-than leaving the count to rise silently.
+1. The product lead reviews changes since the last published version and writes
+   concise player-facing Added, Changed and Fixed notes. Link relevant PRs and
+   state unfinished work honestly. Use a new version, normally the next patch.
+2. Open a release/vX.Y.Z PR containing the new CHANGELOG.md section and
+   release.json. Metadata pins the merged source commit and previous version.
+   Preserve earlier released sections. Release PRs package already merged work;
+   implementation belongs in feature PRs.
+3. The reviewer checks the release notes against the actual changes and verifies
+   required CI. Integrate the exact reviewed head with the authorized author and
+   committer identity and a normal fast-forward push. Never bypass protection.
+4. The product lead verifies the merged release PR and green checks on its exact
+   merge commit, creates an annotated tag on that commit, and publishes a GitHub
+   release whose notes match the changelog. Later main commits belong to the
+   next release. Verify publication; a tag alone does not complete the handoff.
+5. Verify the deployed game and record any concrete blocker. Do not silently
+   postpone the due date or treat a failed publication as a release.
 
-## Versioning
-
-`## 1.0` already exists in the changelog, and its own sentence says that section is tag
-`baseline-v1`. The numbering therefore runs **forward from the baseline** rather than being re-derived
-underneath it:
-
-* **`v1.0`** aliases `baseline-v1` (`git tag v1.0 baseline-v1`) so the published section has a tag.
-* **MINOR** per release: `v1.1` = M0–M3, the verticality foundation.
-* **MAJOR** marks a new playable-complete era: **`v2.0`** when M6's two-storey level is authored, the
-  VERT lane prints `0 known-issue row(s)`, both smoke lanes are green and no P0 issue is open.
-* **Patch** releases (`v1.1.1`) are for a defect that ships in a release and gets fixed shortly after;
-  they carry a changelog section and nothing else.
-
-A release whose gates are not green is not a release: if a known-issue row is red, either it is fixed
-or the release notes say so and it stays an issue.
-
-## Checklist
-
-Work on a branch named `release/vX.Y`. That name matters: the guard waives debt **only** for a
-branch starting `release/`, which is what keeps the release PR itself mergeable while the debt is
-what the PR exists to pay.
-
-```bash
-git checkout -b release/vX.Y main
-```
-
-1. **Changelog.** Move everything under `Unreleased` into `## [vX.Y] – YYYY-MM-DD`, keeping the
-   Added / Changed / Fixed split and keeping the measured numbers in the text. `Unreleased` must carry
-   **exactly one** heading of each kind before you re-header it: a PR that adds its own `### Fixed`
-   instead of appending to the existing one is how the section ends up with two, and the second set
-   silently survives a release as part of the wrong version. A release section that says "various
-   fixes" is the thing this repo's changelog was written to not be.
-2. **Screenshots, from the deployed build** into `docs/screens/`, and any defect visible in a shot
-   goes into its caption rather than being cropped (`AGENTS.md`, hard rule). Not from a headless
-   dump, not from an older checkout — `https://lioreshai.github.io/breach-protocol-flash-next/`.
-   Then `node tools/recap.js check`, which gates the README's quoted numbers **and every shot's
-   provenance row** against the files it embeds — a new PNG with no row in
-   `docs/screens/provenance.json` is a FAIL there, not an omission. The capture happens on the host; the files do not live there, so a docs PR is verified
-   against the **merged tree** ([`ENGINEERING.md`](ENGINEERING.md), "Deploys, docs and git").
-
-   **Name the deal the photograph took — and the instrument that read it — because five caption numbers
-   depend on both.** Open **`?dev=1&seed=<n>`**, never `?dev=1` alone: without the seed `Math.random` is
-   unseeded (`js/90_dev.js:23-26`), so **every boot deals a different level** — `DEV.state().seed` reads
-   `null`, and that file's own comment records two unseeded layouts (`2016015967` vs `34562729`). A
-   caption's mean luma is then a property of one session's random draw, and `recap check` is gating a
-   number nobody can re-derive.
-
-   **A seed is not enough, because "seed 60" is not one instrument** (#335). Opening the deployed URL at
-   `?dev=1&seed=60` dealt layout **735688443** on both loads; the harness that investigated #333 installed
-   DEV with `location.hash = 'x&dev=1&seed=60'` + reload on a **`file://`** page (its browser's `open`
-   dropped the query) and dealt **3443423558**, **1707513801** and **1284359329** for that same typed URL.
-   So a shot records *how DEV got installed*, not only where it pointed:
-
-   - `docs/screens/provenance.json` carries **one row per PNG, written at capture time**: `sha256` and
-     `canvas`, which `node tools/recap.js --record` derives from the file, plus `origin` + `install` +
-     `url` + `seed` + `level` + `layout` + `build`, which nothing can derive afterwards — read those off
-     `DEV.state()` in the page that made the pixels, because the frame is not decodable back to a deal.
-   - `origin` is `https` or `file`; `install` is `url-open` (what `open <url>` does), `in-page-nav` or
-     `hash`. Those words and their verdicts are declared once, in `tools/recap.js`, and the declaration is
-     the check: `node tools/recap.js check` — the `Capture-caption gate` in `ci.yml` — FAILs a shot with no
-     row (`PROVENANCE-MISSING`), a row addressed to different bytes (`PROVENANCE-BAD`), a route that cannot
-     bind the seed it claims (`PROVENANCE-ROUTE`), and two shots of one `(seed, level)` that record
-     different layouts (`PROVENANCE-DISAGREE`). An `install` the repo has not measured binding a deal
-     (`in-page-nav`, `hash` on `https`) reports as `PROVENANCE-UNPROVEN` and is counted on the verdict
-     line rather than passed in silence.
-   - **Prefer the deployed `https://` URL** for any claim about a *specific* world. `file://` is fine for
-     geometry and shading A/B where the harness pins the deal itself, and a row that claims a world
-     through it is declined by name.
-   - A recapture moves the bytes, so the row's `sha256` stops matching and `check` FAILs until the deal is
-     re-declared. `--record` re-addresses `sha256`/`canvas` and **clears** the deal fields; it cannot
-     launder an old claim onto new pixels.
-
-   The six files in `docs/screens/` now were recaptured 2026-10-04 (`8be1f96`) from the deployed build at
-   `?dev=1&seed=60`, and their rows carry that deal — README's capture block is the source, and THE STACK's
-   `layout` **3084649030** is the `startLevel(3, true)`-from-a-fresh-boot case that block already names.
-   The set they replaced (2026-10-01, `8f34527`) predates the seed parameter (`8c7a626`, 2026-10-02) and
-   was an era measurement; those pixels are gone and their numbers are not cited as re-derivable.
-
-   The rest of the recipe, one line per wrong shot:
-
-   - **Window 1440×763.** The canvas buffer equals the CSS size, which is the geometry every existing
-     PNG has; another window changes every row statistic silently.
-   - **`DEV.boot(); DEV.freeze(true); DEV.tick(30)`**, then `DEV.cam(...)` and one `DEV.tick(1)` per
-     shot. `freeze` pins the clock but `S.t` cannot be assigned (a write snapped back to 5.13), so
-     pickup and portal bob stay wall-clock dependent and **two sessions' PNGs will never be
-     md5-equal** — compare statistics, never hashes.
-   - **Never reach for `DEV.clear()` to get an enemy out of frame.** It leaves **`0 LEFT`** on the
-     HUD, a dev artifact rather than a game state, and it lands in the caption. Re-`boot()` instead:
-     the seed restores that level's own enemies. To *add* a posed body use `DEV.spawn(kind, 1, 6)`.
-   - **Rank poses with `DEV.lum()`, not with screenshots.** Same Rec.709 rule `recap` uses, and it
-     tracked the decoded PNG to one point (58.3 against 57.41), so a sweep of yaws and cells costs
-     renders instead of round trips. It ranks candidates; it does not accept them — still look.
-   - **Prove which build the page runs with an eval-visible marker.** A function-local `const` is not
-     one: `typeof SHOULDER_LIFT` read `undefined` on a page that *had* the change, because the
-     declaration sits inside a function (`js/13_mesh.js:90`). A name on a shipped export table works
-     and can carry the claim with it — `MESH.neckBand` exists only in that build and returned the
-     band it was verifying.
-   - **A pose must show what its caption says.** A staircase found by scanning `MAP.fz` along +x is a
-     row of cells the camera *stands in*: viewed along the row it reads as one band whatever the
-     feature byte says (`FEAT_STAIR`, no ramp bits, `(9..12, 1)` looked like a single step in three
-     framings). Confirm the risers are in the frame before writing the caption, and re-derive the
-     pose when they are not.
-3. **Direction.** `docs/ROADMAP.md` gets its constraints updated if measurements moved (frame
-   budgets, raster medians). No status tables.
-4. **Gates**, with the numbers in the release PR body:
-
-   ```bash
-   node tools/smoke.js                      # must print SMOKE PASSED
-   VERT=1 node tools/smoke.js               # row count and known-issue count, both quoted
-   for p in heights mip anim props vert planes sight drop horizon cull exposure; do
-     node tools/view.js $p >/dev/null 2>&1; printf "[%s] %s  " "$?" "$p"; done
-   ```
-
-   A red gate is not a release. If a known-issue row is red, either it is fixed or it stays an issue
-   and the release says so in its notes.
-5. **Merge by API with the full head SHA** (never `gh pr merge`, and never swallow the merge's
-   stderr — a `405 … required status checks are expected` means the merge ref is stale):
-
-   ```bash
-   R=lioreshai/breach-protocol-flash-next
-   sha=$(gh pr view N --repo "$R" --json headRefOid --jq .headRefOid)
-   gh api -X PUT "repos/$R/pulls/N/merge" -f sha="$sha" -f merge_method=squash
-   ```
-6. **Tag the merge commit and publish** — the tag goes on `main` after the merge, not on the branch:
-
-   ```bash
-   git checkout main && git pull --ff-only
-   git tag -a vX.Y -m "vX.Y: <milestone> — <one line>" && git push --follow-tags
-   gh release create vX.Y --generate-notes --title "vX.Y <name>" \
-     --notes-file /tmp/notes.md          # milestones closed and issues since the last tag
-   ```
-7. **Verify the page** the tag describes: the GitHub Pages deploy, then a `?dev=1` boot with no
-   thrown errors and the probes' claims re-checked through `DEV` (`README.md`: *Driving the game
-   from a console*). The deployed build is the source of truth for a merged commit.
-
-## How the debt reads
-
-`.github/workflows/release-guard.yml` runs on every PR, weekly, and on demand. It counts merged PRs
-whose `mergedAt` is newer than the newest tag (`gh pr list --state merged --limit 500 --json
-mergedAt` — the same command a human would run; a REST `sort=updated` paginate can hide a merged PR
-behind closed ones inside the page budget, so it is not used), and:
-
-* **≥ 50** → the `release` check fails, naming the count and the tag. It is a required check, so
-  merges stop until a release lands.
-* **API error** → the check fails too, never "0 merged PRs, all clear". A guard that reports clean on
-  a query that errored is worse than no guard (issue #122).
-* **Weekly, if due** → opens or updates one issue titled `Release debt: N merged PRs since vX`, so
-  the debt is visible in the tracker and not only as a red check on someone's PR.
-* **Branch `release/*`** → the verdict is waived for that PR, printed as waived, and the merge is what
-  clears the count. This is the only exemption, and it is a branch name a reviewer can see.
+The one-time release/changelog-policy-reset PR clears the old cumulative log.
+That exception expires once the old Unreleased section is gone.

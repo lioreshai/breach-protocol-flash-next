@@ -51,7 +51,7 @@ PR that changes the picture. `node tools/recap.js check` decodes these files and
 quoted below against them, so a caption cannot drift from its image. What *changed* between two
 recaptures is a question for `CHANGELOG.md` and the PR that moved it — it is not kept here.
 
-The six frames decode to **63.44 / 20.87 / 63.06 / 47.81 / 68.50 / 55.81** mean luma
+The six frames decode to **63.44 / 20.87 / 63.06 / 47.81 / 68.50 / 47.77** mean luma
 (`0.2126 R + 0.7152 G + 0.0722 B`, the rule `DEV.lum` uses), in the order they appear below.
 
 All six come from the **deployed build** at `?dev=1&seed=60`, with the clock frozen, vitals pinned at
@@ -62,7 +62,19 @@ forever. The build is proved
 by a **code** marker rather than a prose one: `authorVolume.toString()` contains the shipped statement
 `rooms.length >= 8 ? 3 : TALL_WANT_MIN` (#283), and `MESH.neckBand` exists (#326) - both read off the
 shipped statements, and every deployed `js/` blob is md5-identical to the
-tree at **`ce9d39d`**. `DEV.layoutSig()` for this deal is **735688443** - the same number the previous
+tree at **`ce9d39d`**. **One frame is newer than the other five.** `level3-stack.png` was re-taken at
+**`34d58d0`** (#388): #318 moved that level's doorway lamp one cell east, out of the wall jamb, and #375
+cancelled one lamp's borrowed lamp from its far ceiling, so the file on `main` framed a level that no
+longer exists. That capture renders `index.html` and the eleven `js/` blobs of that exact tree, and the
+identity is proved by bytes rather than by assertion: all twelve are md5-identical to the twelve the
+deployed page serves, which is what lets the frame count as the deployed build's rather than an older
+checkout's. It is stored as colour type 2 (truecolour, no alpha) like the other five: Chromium hands the
+capture over as RGBA and `tools/png_rgb.js` makes that hop losslessly (0 differing RGB values, alpha
+minimum 255), because the decoder in `tools/recap.js` reads an alpha PNG's channels in the wrong order
+(#394) - which is how this frame was first captioned at 42.89, a figure that is its own luma with two
+channels swapped and one the gate could not contradict, since it compared the caption through the same
+swap. Its `DEV.layoutSig()` reads **1475729271** at the same `seed=60`. The five level-0 frames did
+not move, so the `ce9d39d` identity and the signature below still describe them. `DEV.layoutSig()` for this deal is **735688443** - the same number the previous
 recapture printed on level 0, and that is not staleness: the signature is FNV-1a over `MAP.fz` then `MAP.cell`,
 and #283 moved *which rooms get tall air*, a `MAP.cz` write, so the floors and walls of this deal are
 unchanged and only its ceilings are not. The columns you can look up in went **70 to 129** and now **174** (the deployed page's own
@@ -172,13 +184,22 @@ under the slab — and seven cells along the heading the plan opens into an atri
 the room the seat opens into: blue `TECH` panels (this level's `wall2`, drawn by the wall pass in wall
 material) with the atrium's lit floor visible above their top edge, and the 4.00 plane itself is the
 streaked `ROCK` ceiling filling the upper half — a surface you cannot shoot at, over a wall you can; the
-stepped glyphs on the minimap at right are the staircase that gets you up there. Authoring it by hand removes the old excuse — a level that
+stepped glyphs on the minimap at right are the staircase that gets you up there. The lit gap at the middle
+of that wall is the doorway, and the lamp lighting it now stands one cell inside the room: it used to stand
+in the doorway cell itself, in a wall jamb, where its own collision ghost left about 0.34 m of passage and
+wedged a body in the one place the level connects (#318). Authoring it by hand removes the old excuse — a level that
 reads badly can no longer be blamed on the seed stream, because this plan is written cell by cell over a
 20 × 20 grid.
 
 Two things this frame does not yet do, said here rather than cropped out. The ceiling over the seat fills
-the upper half of the frame and shows **strong radial streaking**: that is mip selection with no anisotropy
-at a grazing angle, the artifact the ceiling of a one-unit world has always had, now at four units. And what
+the upper half of the frame: the radial comb that used to lie over it is **mostly** gone — the ground pass
+now samples light and texture at the pixel instead of once per cell, a cell boundary seen in perspective
+was the fan, and the copy of the ground pixel body that paints pixels whose cell is not on the row's plane
+no longer extrapolates its light 40 cells away from the map edge it fell back to (#19). What survives near
+the horizon is a faint version of it; `tools/view.js mip` prints the figure and `GNDPNG=/tmp/g.png node
+tools/view.js mip` draws the ground pass on its own, `DEV.state().gnd` names every term that is switched
+on, and issue #19 carries the controls that already ruled mip depth, tap count, tile scale and the
+per-cell mirror out — so the next hunt starts elsewhere. And what
 the eye gets is a **1.00** ceiling directly overhead against 4.00 units further in — `tools/view.js volume`
 reports that seat headroom as `1.00..1.00` with 18 look-up columns across the sweep, against 40/54/85 and
 `4.00` on level 0. So the level is genuinely two-storey in `MAP.fz` and still reads as a low room with a
