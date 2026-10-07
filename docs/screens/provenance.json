@@ -1,6 +1,6 @@
 {
-  "about": "Capture-time provenance for docs/screens/*.png (#335). One row per shot, written by the session that took the pixels: sha256/canvas are properties of the bytes, origin/install/url/seed/level/layout/build are properties of the instrument and cannot be recovered from the PNG afterwards. `node tools/recap.js check` verifies each row against the file it addresses and against every other row of the same (seed, level); the vocabulary and the route verdicts live in tools/recap.js, not here.",
-  "plan": "Shared by all six shots and recorded in README.md's capture block: window 1440x763 on the deployed build at ?dev=1&seed=60, DEV.boot(); DEV.freeze(true); DEV.tick(30), then DEV.cam(...) and one DEV.tick(1) per shot, vitals pinned at 100, the level's own hostiles cleared (never DEV.clear()), level banner taken down with banner('', 0). A frozen clock does not stop S.t, so these frames are reproducible by statistics and never by md5. **One instrument property this plan cannot pin, stated rather than assumed:** the deal also depends on the audio device, because startGame() runs SND.init() before startLevel(0, true) (js/50_ui_input.js:60-61, reached by DEV.boot() at js/90_dev.js:61) and SND.init fills its noise buffer with Math.floor(ac.sampleRate * 1.5) draws from the installed seeded Math.random (js/00_core.js:95-96) - 66,150 draws at 44.1 kHz against 72,000 at 48 kHz. By #96's rule (a pass whose draw count moves re-rolls every world downstream of the same seed) the same URL therefore deals a different level at a different sample rate, so `layout` here is a claim about this instrument's audio device too. Filed as an issue; the rows below record what the capture actually dealt.",
+  "about": "Capture-time provenance for docs/screens/*.png (#335). One row per shot, written by the session that took the pixels: sha256/canvas are properties of the bytes, origin/install/url/seed/level/layout/sampleRate/build are properties of the instrument and cannot be recovered from the PNG afterwards. `node tools/recap.js check` verifies each row against the file it addresses and against every other row of the same (seed, level, sampleRate); the vocabulary, the route verdicts and the audio-draw rule live in tools/recap.js, not here.",
+  "plan": "Shared by all six shots and recorded in README.md's capture block: window 1440x763 on the deployed build at ?dev=1&seed=60, DEV.boot(); DEV.freeze(true); DEV.tick(30), then DEV.cam(...) and one DEV.tick(1) per shot, vitals pinned at 100, the level's own hostiles cleared (never DEV.clear()), level banner taken down with banner('', 0). A frozen clock does not stop S.t, so these frames are reproducible by statistics and never by md5. **One term this plan did not record: the audio device.** A live boot advances the seeded stream through SND.init's noise buffer before the generator runs, so one seed deals one level per sample rate (#404, and the rule the tool prints as HW_WHY). These six captures read no SND.ac.sampleRate, so every row carries `sampleRate: null`, `check` prints each one as a device-scoped deal, and the binding below is per-machine: it says this frame is what ?dev=1&seed=60 dealt on the capture's audio device, not that every machine deals it. `STRICT=1 node tools/recap.js check` gates the missing term. A capture that reads the rate turns its own row into a cross-machine binding with no change to the tool.",
   "shots": [
     {
       "file": "level0-enemies",
@@ -14,6 +14,7 @@
       "layout": 735688443,
       "build": "ce9d39d",
       "at": "2026-10-04",
+      "sampleRate": null,
       "note": "Deal transcribed from README.md's capture block, which names all six shots as one route: the deployed page opened at ?dev=1&seed=60, build proved by eval-visible code markers, every deployed js blob md5-identical to the tree at ce9d39d. layout is that block's DEV.layoutSig() for the deal. Pose: one posed grunt 6 m out on the camera's own band (a posed body added with DEV.spawn, never DEV.clear, which would leave 0 LEFT on the HUD)."
     },
     {
@@ -28,6 +29,7 @@
       "layout": 735688443,
       "build": "ce9d39d",
       "at": "2026-10-04",
+      "sampleRate": null,
       "note": "Same route as level0-spawn; see that row for where each field was recorded. Shot 8be1f96 is the one whose caption names black air above the four risers - the reason #333 reopened, and the reason this artifact exists."
     },
     {
@@ -42,6 +44,7 @@
       "layout": 735688443,
       "build": "ce9d39d",
       "at": "2026-10-04",
+      "sampleRate": null,
       "note": "Same route as level0-spawn. Feet on floor -1.00 in the pit, lamp at (20.5, 16.5) one cell over - a pose named in the caption, so the deal field is what makes it re-takeable rather than a description."
     },
     {
@@ -56,6 +59,7 @@
       "layout": 735688443,
       "build": "ce9d39d",
       "at": "2026-10-04",
+      "sampleRate": null,
       "note": "Same route as level0-spawn. The pit lip from 2.5 m out; the props the caption counts (9 lamps, 7 crates, 7 barrels) are this deal's, which is why seed and layout are gated and the counts are not."
     },
     {
@@ -70,6 +74,7 @@
       "layout": 735688443,
       "build": "ce9d39d",
       "at": "2026-10-04",
+      "sampleRate": null,
       "note": "The reference shot for the block: the route and every deal field in these six rows are transcribed from README.md's capture block (deployed build, ?dev=1&seed=60, DEV.layoutSig 735688443, js blobs md5-identical to ce9d39d) rather than re-measured here. #335 measured this route: reloading the same URL read DEV.seed 60 and layout 735688443 on both loads, which is what makes origin+install=url-open a binding route."
     },
     {
@@ -84,6 +89,7 @@
       "layout": 1475729271,
       "build": "34d58d0",
       "at": "2026-10-07",
+      "sampleRate": null,
       "note": "Re-taken at 34d58d0 (#388): the frame on main before that framed a level that no longer exists (#318 moved the doorway lamp one cell east, #375 cancelled one lamp's borrowed lamp from its far ceiling). Route is the same instrument as the other five - the deployed page opened at ?dev=1&seed=60 - and the build is proved by bytes, not assertion: index.html and the eleven js/ blobs of 34d58d0 are md5-identical to the twelve the deployed page served at capture time. layout 1475729271 is that capture's DEV.layoutSig(), stated in README.md's capture block; it differs from the level-0 rows' 735688443 because it is a different level, not a different deal. THE STACK's MAP.fz is authored, so the geometry is identical every load, but MAP.cell also carries pickWallTex's wall-texture draws (js/20_level.js:408), so this signature reproduces via startLevel(3, true) from a fresh ?dev=1&seed=60 boot; reached after other generations the same plan hashes differently - same geometry, different panels."
     }
   ]
