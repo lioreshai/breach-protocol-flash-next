@@ -11,12 +11,29 @@
   the same one the caption names — (1.5, 2.5), heading 0.60, `?dev=1&seed=60`, 1440 × 763 — and the
   caption's geometry claims re-read true: the `TECH` wall across the middle, the atrium floor above its
   top edge, the `ROCK` 4.00 plane over it, 4 hostiles on the HUD. What a player sees differently: the
-  lamp now stands in the room and is visible through the doorway, and the frame decodes **42.89** mean
-  luma against the stale file's 55.81 — the mid landing the lamp lights is brighter, the far ceiling
-  that used to be lit by a lamp it never reached is darker, and the darker term is the larger one.
+  lamp now stands in the room, visible through the doorway it used to stand in, and the frame decodes
+  **47.77** mean luma against the stale file's 55.81. That delta is a move rather than a dimming: band by
+  band of frame height (16 bands, both files decoded at the same seat on the same deal) the top eight
+  bands — rows 0..375, the far ceiling and the upper wall — read 75.8 → 36.6, every one of them darker,
+  the worst −66 per band where #375 cancelled a lamp's borrowed light from ceiling the ray never reached;
+  rows 423..762, the ground out to the doorway, read 29.6 → 54.8, every band brighter, which is #318's
+  lamp one cell east lighting the room instead of a wall jamb. Net −8.0 and the larger term is still the
+  dark one. By thirds top→bottom the stale frame reads **72.0 / 75.1 / 20.3** and the new one
+  **34.7 / 64.1 / 44.6**, so the band that got brighter is the LOWER third, not the middle — the first
+  caption for this frame said "the mid landing is brighter", and the picture does not say that.
   `flatparity`'s L3 spawn-seat pair is the same picture in hash form: `f95291bb61df29589e872d068e36d1ef`
   (mean 28.0) before #318, `98c22412cc7da19fe5d7205fa637392f` (mean 36.0) on `main`, both measured here.
-  No reference, threshold or gate moved; `node tools/recap.js check` reads 0 failures of 28 rows.
+  The capture arrives RGBA from the browser and is stored as colour type 2 like the other five, via
+  `tools/png_rgb.js` (0 differing RGB values, alpha minimum 255, 1.73 MB → 1.61 MB). That hop is the
+  reason the number moved without the picture moving: the decoder in `tools/recap.js` reads an alpha PNG's
+  channels as G,B,R into the R,G,B slots (#394), so the RGBA bytes evaluate luma as 0.2126 G + 0.7152 B +
+  0.0722 R = 42.89 — and `recap check` compared the caption through the same rotation, so it printed ok
+  on a frame whose own stated rule gives 47.77. A gate that cannot disagree with its caption is not a gate.
+  No reference, threshold or gate moved. `node tools/recap.js check` reads 0 failures of 28 rows and now
+  has the power to fail on this file: against the pre-re-encode caption it prints
+  `MISMATCH level3-stack mean README 42.89 file 47.77 d 4.877`. The decoder bug itself stays open as #394 —
+  until it is fixed, any future capture left as RGBA is mis-measured again, and
+  `node tools/png_rgb.js --check docs/screens/<frame>.png` is the one-line test for it.
 - **The title screen's jump/climb row stops printing its own separator as escape text** (#387). That row
   read `Space / E\u00b7Q` and `E up, Q down \u00b7 auto-steps one ledge`, twice on one line, while every
   other row in the same block separates with a real `·`. `\uXXXX` is a JavaScript string escape and has no

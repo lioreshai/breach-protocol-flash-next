@@ -51,7 +51,7 @@ PR that changes the picture. `node tools/recap.js check` decodes these files and
 quoted below against them, so a caption cannot drift from its image. What *changed* between two
 recaptures is a question for `CHANGELOG.md` and the PR that moved it — it is not kept here.
 
-The six frames decode to **63.44 / 20.87 / 63.06 / 47.81 / 68.50 / 42.89** mean luma
+The six frames decode to **63.44 / 20.87 / 63.06 / 47.81 / 68.50 / 47.77** mean luma
 (`0.2126 R + 0.7152 G + 0.0722 B`, the rule `DEV.lum` uses), in the order they appear below.
 
 All six come from the **deployed build** at `?dev=1&seed=60`, with the clock frozen, vitals pinned at
@@ -68,7 +68,12 @@ cancelled one lamp's borrowed lamp from its far ceiling, so the file on `main` f
 longer exists. That capture renders `index.html` and the eleven `js/` blobs of that exact tree, and the
 identity is proved by bytes rather than by assertion: all twelve are md5-identical to the twelve the
 deployed page serves, which is what lets the frame count as the deployed build's rather than an older
-checkout's. Its `DEV.layoutSig()` reads **1475729271** at the same `seed=60`. The five level-0 frames did
+checkout's. It is stored as colour type 2 (truecolour, no alpha) like the other five: Chromium hands the
+capture over as RGBA and `tools/png_rgb.js` makes that hop losslessly (0 differing RGB values, alpha
+minimum 255), because the decoder in `tools/recap.js` reads an alpha PNG's channels in the wrong order
+(#394) - which is how this frame was first captioned at 42.89, a figure that is its own luma with two
+channels swapped and one the gate could not contradict, since it compared the caption through the same
+swap. Its `DEV.layoutSig()` reads **1475729271** at the same `seed=60`. The five level-0 frames did
 not move, so the `ce9d39d` identity and the signature below still describe them. `DEV.layoutSig()` for this deal is **735688443** - the same number the previous
 recapture printed on level 0, and that is not staleness: the signature is FNV-1a over `MAP.fz` then `MAP.cell`,
 and #283 moved *which rooms get tall air*, a `MAP.cz` write, so the floors and walls of this deal are
