@@ -2,6 +2,12 @@
 
 ### Changed
 
+- **The title screen's jump/climb row stops printing its own separator as escape text** (#387). That row
+  read `Space / E\u00b7Q` and `E up, Q down \u00b7 auto-steps one ledge`, twice on one line, while every
+  other row in the same block separates with a real `·`. `\uXXXX` is a JavaScript string escape and has no
+  meaning in HTML text, so the browser printed the six characters verbatim — on the first screen a player
+  reads, before there is anything to click. The two escapes are now the literal middle dot the neighbouring
+  rows use; no other markup moved.
 - **Grenades are now a resource you can run out of and win back** (#361). `P.gren` was written in exactly
   two places — the default at `js/00_core.js:58` and `resetRun` — and decremented in one, so the whole
   four-level campaign was four grenades, counted down on the HUD from second zero, with no restock path
