@@ -92,10 +92,44 @@ let SHADOW = 1, SHADOW_D = 0.42, SHADOW_R = -0.10, SHADOW_ZT = 0.02, SHADOW_F = 
 // viewmodel spring state: sway lag, previous look angle, eject timing
 const VM = { vy: 0, ang: 0, lag: 0, now: 0, t: 0 };
 
+/* ---- the room's exposure term (#377) ------------------------------------------
+   The bloom pass this branch replaces was doing two jobs: it was a glow, which the bright pass now
+   does properly, and it was an EXPOSURE, which nothing else in the pipeline does. With the veil gone
+   the composited medians fall to 48.7 / 54.0 / 47.8 / 60.3 against the documented 60-100 window
+   (measured on main with the composite call disabled, so it is the room and not the pass), which is
+   a frame you cannot see into: at a median of 49 a hostile standing in a lit doorway is a rumour
+   until it shoots. This is the light the pass was supplying, put back as one term on the room.
+
+   The term is a BLACK-POINT LIFT: v' = v * (1 - A/255) + A, i.e. [0,255] mapped onto [A,255]. It is
+   monotone and it vanishes at white, so it moves shadows far more than highlights - the exact
+   opposite of the clipped-contrast pass it replaces, which added the same +107 to a lamp core and to
+   the floor under it. At A = 22 a pixel at 40 gains 18 and a pixel at 220 gains 2; measured on one
+   RING TRANSPORT seat (n = 210,560 delivered pixels) the share above luma 224 moves 0.10% -> 0.11%, so
+   it buys its median without re-clipping the highlights the bright pass just un-clipped. What it costs,
+   stated: 8.6% of the absolute contrast range, a tenth of what the removed pass was taking off the top.
+
+   One constant for all four levels - no per-level table, because applied to the measured pass-off
+   medians it predicts 66 / 71 / 65 / 77, all inside the window - and it is weighted toward dark pixels,
+   which is where the darkest dealt layouts (#149's tail) actually are. It is NOT a lamp-coverage fix
+   and does not close #199.
+
+   Three properties this term must keep, because of how this repo has been bitten:
+   - it is TWO COMPOSITED FILLS (`multiply` by flat 255-A, then `lighter` with flat A), so it is the
+     same picture on a browser with no `ctx.filter`. A filter-only path would give that browser a game
+     two stops darker than every other one - the `canFilter` defect the bright pass just removed.
+   - it is a CONSTANT. No per-frame statistic, nothing derived from the frame's own mean: a
+     frame-adaptive exposure pumps as the player walks between rooms and breaks the seeded determinism
+     every probe in the roster depends on.
+   - it is applied to the ROOM, after the grade composite and before the bright pass, the lamp glow,
+     the particles and the HUD (renderOverlay). drawBloom reads the raster buffer, not the display
+     canvas, so a lift here can never push a floor over the bright pass's knee. That ordering is what
+     makes it safe, and it stops being safe if the term moves below the raster.
+   DEV.set('expose', 0) is the A/B: the term off, everything else identical. */
+const EXPOSE_A = 22;             // the black point: added luma at v = 0, and 0 at v = 255
 const QUAL = [
-  { name: 'PERFORMANCE', res: 0.34, min: 170, max: 430, bloom: false, grade: false, grain: 0, far: 15, dmax: 8, glow: 0, scan: 0.5, vec: 0, rast: 0, rigH: 0 },
-  { name: 'BALANCED', res: 0.47, min: 220, max: 760, bloom: true, grade: true, grain: 0.05, far: 22, dmax: 13, glow: 6, scan: 0.18, vec: 1, rast: 2, rigH: 300 },
-  { name: 'ULTRA', res: 0.62, min: 260, max: 780, bloom: true, grade: true, grain: 0.04, far: 30, dmax: 19, glow: 9, scan: 0.1, vec: 1, rast: 4, rigH: 216 }
+  { name: 'PERFORMANCE', res: 0.34, min: 170, max: 430, bloom: false, grade: false, grain: 0, far: 15, dmax: 8, glow: 0, scan: 0.5, vec: 0, rast: 0, rigH: 0, expose: EXPOSE_A },
+  { name: 'BALANCED', res: 0.47, min: 220, max: 760, bloom: true, grade: true, grain: 0.05, far: 22, dmax: 13, glow: 6, scan: 0.18, vec: 1, rast: 2, rigH: 300, expose: EXPOSE_A },
+  { name: 'ULTRA', res: 0.62, min: 260, max: 780, bloom: true, grade: true, grain: 0.04, far: 30, dmax: 19, glow: 9, scan: 0.1, vec: 1, rast: 4, rigH: 216, expose: EXPOSE_A }
 ];
 
 function resize() {
@@ -2312,6 +2346,20 @@ function renderOverlay() {
   ctx.drawImage(bufCv, 0, 0, DW, DH);
   ctx.filter = 'none';
   ctx.imageSmoothingEnabled = true;
+  /* The exposure term, on the room and before anything else composites onto it - see EXPOSE_A. Two
+     flat fills: `multiply` by (255-A)/255 is the gain, `lighter` with flat A is the offset, and the
+     composed curve is v*(1-A/255)+A exactly. No `filter`, so the no-ctx.filter browser gets this
+     picture rather than a game two stops darker. */
+  if (q.expose > 0) {
+    const eg = 255 - (q.expose | 0);
+    ctx.globalCompositeOperation = 'multiply';
+    ctx.fillStyle = 'rgb(' + eg + ',' + eg + ',' + eg + ')';
+    ctx.fillRect(0, 0, DW, DH);
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.fillStyle = 'rgb(' + (q.expose | 0) + ',' + (q.expose | 0) + ',' + (q.expose | 0) + ')';
+    ctx.fillRect(0, 0, DW, DH);
+    ctx.globalCompositeOperation = 'source-over';
+  }
   if (q.bloom && bloomCv) drawBloom(q);
   drawLightGlow(q);
   const U = DH / 900;
