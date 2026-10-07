@@ -508,6 +508,90 @@ const release = () => fire('mouseup', { button: 0 });
   step('aggro all', 'for(const e of ENEMIES) e.alert=true'); survive(240);
   step('damage', 'damagePlayer(25,1.1)'); frames(15);
   step('pickups', 'for(const k of PICKUPS) takePickup(k)'); frames(10);
+  /* #361: P.gren was written only as a default (js/00_core.js:58, resetRun) and decremented on a throw
+     (:215), so four grenades was the entire campaign - and a gren box, had one existed, would have fallen
+     through takePickup's health/armor arms into the ammo branch and fed P.reserve. Both sources this
+     branch adds are asserted here, then the run is put back on the level and economy it had. */
+  {
+    vm.runInContext('P.gren = 1; P.reserve = P.reserve.map(() => 0); PICKUPS.push({ type: "gren", x: P.x, y: P.y, bob: 0, dead: false });', ctxVm);
+    step('grenade box', 'for (const k of PICKUPS) if (k.type === "gren") takePickup(k);'); frames(6);
+    const gUp = vm.runInContext('P.gren', ctxVm);
+    const resSum = vm.runInContext('P.reserve.reduce((a, b) => a + b, 0)', ctxVm);
+    expect('a grenade box restocks grenades and not ammo (#361)', gUp === 3 && resSum === 0,
+      `P.gren 1 -> ${gUp} (box size 2), P.reserve sum ${resSum}: a gren box reaching the ammo arm moves the second number and not the first`);
+    vm.runInContext('P.gren = 6; PICKUPS.push({ type: "gren", x: P.x, y: P.y, bob: 0, dead: false });', ctxVm);
+    step('grenade box at cap', 'for (const k of PICKUPS) if (k.type === "gren" && !k.dead) takePickup(k);'); frames(4);
+    const gCap = vm.runInContext('P.gren', ctxVm);
+    const left = vm.runInContext('PICKUPS.filter(k => k.type === "gren" && !k.dead).length', ctxVm);
+    expect('a full grenade pouch leaves the box on the floor (#361)', gCap === 6 && left >= 1,
+      `P.gren ${gCap} against cap 6, ${left} uneaten gren box left (the ammo arm eats any box it can top up)`);
+    const nGen = vm.runInContext('LEVELS.length', ctxVm), drops = [];
+    // Kills are the only source this branch ships, deliberately: placing grenade boxes in LEVELS[].pick
+    // changes every generated level's pickup census and therefore the pixels and mean luminance that
+    // flatparity and exposure record, which is a far larger blast radius than a grenade restock deserves.
+    // Dropping from kills also reaches the authored finale, whose pick entry is empty either way.
+    for (let li = 0; li < nGen; li++) {
+      vm.runInContext(`startLevel(${li}, true); PICKUPS.length = 0;`, ctxVm);
+      vm.runInContext('for (const e of ENEMIES) if (e.state !== "dead") { e.hp = 1; damageEnemy(e, 9, false, 1, 0); }', ctxVm);
+      drops.push(vm.runInContext('PICKUPS.filter(k => k.type === "gren").length', ctxVm));
+    }
+    const totalDrop = drops.reduce((a, b) => a + b, 0);
+    // code, not prose: the marker has to sit in the statement that picks the dropped type
+    const dropArm = vm.runInContext('damageEnemy.toString()', ctxVm).includes("'gren'");
+    expect('kills can restock grenades (#361)', totalDrop >= 1 && dropArm,
+      `${drops.join('/')} gren drops per level by killing every body on it, kill-drop statement arms grenades: ${dropArm ? 'yes' : 'NO - no gren band in the drop arm'}`);
+    /* A type the economy can put on the floor needs a mesh. PKKIND (js/40_render.js) is the ONLY place a
+       pickup type becomes geometry, and a type missing there is not an invisible box: renderSprites hands
+       MESH.draw `kind: undefined`, which #362's review found drawn as a 0.42 grunt body. The three drop
+       arms are SWEPT rather than hoped for - the rate draw is forced to pass by lifting this difficulty's
+       droprate and every draw inside the one kill returns the band value - so no census roll can make the
+       row come up short, and a fourth band added later is named by the sweep instead of by this file. */
+    vm.runInContext('startLevel(0, true); PICKUPS.length = 0;', ctxVm);
+    const swept = vm.runInContext(`(() => {
+      const rnd = Math.random, dr = DIFFS[S.diff].droprate, out = [];
+      DIFFS[S.diff].droprate = 100;                      // the rate draw always passes; only the band matters
+      for (const dk of [0.05, 0.5, 0.95]) {
+        Math.random = () => dk; PICKUPS.length = 0;
+        const e = ENEMIES.find(z => z.state !== 'dead');
+        if (e) { e.hp = 1; damageEnemy(e, 9, false, 1, 0); }
+        for (const k of PICKUPS) if (out.indexOf(k.type) < 0) out.push(k.type);
+      }
+      Math.random = rnd; DIFFS[S.diff].droprate = dr; return out;
+    })()`, ctxVm);
+    const placedTypes = vm.runInContext("[...new Set([].concat(...LEVELS.map(l => Object.keys(l.pick || {})), ['ammo', 'health']))]", ctxVm);
+    const types = [...new Set([...swept, ...placedTypes])];
+    const noMesh = [];
+    for (const t of types) {
+      const kind = vm.runInContext(`typeof PKKIND === 'undefined' ? undefined : PKKIND[${JSON.stringify(t)}]`, ctxVm);
+      if (!kind) { noMesh.push(`${t}: no PKKIND row, so the draw gets kind undefined`); continue; }
+      let tris;
+      try { tris = vm.runInContext(`MESH.trisFor(${JSON.stringify(kind)})`, ctxVm); }
+      catch (e) { noMesh.push(`${t} -> ${kind}: nothing authored, trisFor throws`); continue; }
+      if (tris === vm.runInContext('MESH.trisFor("grunt")', ctxVm)) noMesh.push(`${t} -> ${kind}: the grunt's own geometry (${tris} tris)`);
+    }
+    expect('every pickup type the game can put on the floor names a mesh (#361)',
+      noMesh.length === 0 && swept.length === 3,
+      `${types.join(', ')} - drop arms swept ${swept.length}/3 (${swept.join('/')})${noMesh.length ? ': ' + noMesh.join('; ') : ''}`);
+    /* And on the DRAW PATH, not just in the table: with everything else out of the world, the only meshes
+       renderWorld can push are the box and the portal. On the pre-fix tree the box's kind is undefined and
+       the mesh answers with a grunt - the row records what the call site actually handed MESH.draw, so it
+       fails there for the reason it exists, and a render of the box on a real frame is what it catches. */
+    const drew = vm.runInContext(`(() => {
+      ENEMIES.length = 0; PROPS.length = 0; PROJ.length = 0;
+      PICKUPS.length = 0; PICKUPS.push({ type: 'gren', x: P.x + 1.5, y: P.y + 0.5, bob: 0, dead: false });
+      const seen = []; let err = null; const orig = MESH.draw;
+      MESH.draw = function (a) { if (!a.mdl) seen.push(String(a.kind)); return orig.apply(this, arguments); };
+      try { renderWorld(); } catch (e) { err = String((e && e.message) || e); }
+      MESH.draw = orig;
+      return { seen, err };
+    })()`, ctxVm);
+    const badKind = drew.seen.filter(k => k === 'undefined' || k === 'null' || k === 'grunt');
+    expect('a live grenade box reaches the mesh as a box and not as a body (#361)',
+      drew.err === null && drew.seen.length >= 2 && badKind.length === 0,
+      `MESH.draw kinds for a world holding one gren box: [${drew.seen.join(', ')}]${drew.err ? ', renderWorld threw ' + drew.err : ''}`);
+    vm.runInContext('S.diff = 1; startLevel(0, true); S.mode = "play"; S.locked = true; S.exitOpen = false;', ctxVm);
+    frames(2);
+  }
   step('minimap off', "keys['KeyM']=true"); frames(5); step('minimap on', "keys['KeyM']=false"); frames(5);
   step('perf on', "keys['F3']=true"); frames(5); step('perf off', "keys['F3']=false"); frames(5);
   step('M via event', 'null'); press('KeyM'); press('KeyM'); press('F3'); press('F3'); frames(5);
@@ -1581,7 +1665,9 @@ const release = () => fire('mouseup', { button: 0 });
   {
     const DS = code => vm.runInContext(code, ctxVm);
     const DSN = 3, DSD = 6.0;                      // three grunts, 6 m in front of the dealt seat
+    const DSS = [2, 4, 7.5, 12], BODYW = 0.5;      // #321's sweep ranges, and one body width in metres
     let dsN = 0, dsGate = 0, dsBad = 0, dsTxt = [];
+    let sepN = 0, sepGate = 0, sepBad = 0, sepTxt = [];
     DS('S.mode = "play";');                        // so 90_dev's own auto-boot at load stays a no-op
     sandbox.location = { search: '?dev=1', hash: '' };
     try { vm.runInContext(fs.readFileSync(jsFile('90_dev.js'), 'utf8'), ctxVm); }
@@ -1608,11 +1694,42 @@ const release = () => fire('mouseup', { button: 0 });
         (rep.placed ? rep.placed.map(p => p.why).join('+') : 'n/a') + ')');
       expect('DEV.spawn crowd occupies ' + DSN + ' distinct cells on every level (#93)', gate,
         dsTxt[dsN - 1]);
+
+      /* #321: the row above is a CELL oracle, and a body is ~0.5 m wide, so a crowd can fill DSN cells
+         and still be ONE blob in the frame. Each body searches along its own off-axis fan ray, so a body
+         pushed sideways by a wall lands where a neighbour's ray crosses (and at 2 m the ±0.16-rad fan is
+         only 0.32 m wide, narrower than a body). On main's js this pose reads 0.32 m at 2 m on L0/L1/L3
+         and 0.29 m at 4 m on L2 with 3/3 cells, so the cell row stayed green over an overlapping crowd.
+         Same oracle as above - the closest pair measured over ENEMIES, not DEV.spawn's own `sep` - over
+         the four ranges the #321 sweep used, so a row here and a row there are the same measurement.
+         A distance whose geometry cannot hold DSN cells is reported as geom, not asserted; a level where
+         NO distance holds them measured nothing, which is a FAILURE rather than a quiet ok. */
+      const sq = JSON.parse(DS(`(()=>{const o=[];for(const d of ${JSON.stringify(DSS)}){`
+        + 'DEV.clear(); DEV.cam(' + seat[0] + ', ' + seat[1] + ', undefined, ' + seat[2] + ');'
+        + `DEV.spawn("grunt", ${DSN}, d);`
+        + ' const s = new Set(); for (const e of ENEMIES) s.add((e.y | 0) * MW + (e.x | 0));'
+        + ' let sp = null; for (let a = 0; a < ENEMIES.length; a++) for (let b = a + 1; b < ENEMIES.length; b++) {'
+        + ' const g = Math.hypot(ENEMIES[a].x - ENEMIES[b].x, ENEMIES[a].y - ENEMIES[b].y);'
+        + ' sp = sp === null ? g : Math.min(sp, g); }'
+        + ' o.push([s.size, sp === null ? null : +sp.toFixed(2)]); } return JSON.stringify(o) })()'));
+      sepN++;
+      const held = sq.filter(v => v[0] === DSN);
+      const gate2 = held.length > 0 && held.every(v => v[1] >= BODYW);
+      if (!gate2) sepBad++;
+      sepGate++;
+      sepTxt.push(`L${li} closest pair ` + sq.map(v => (v[0] === DSN ? v[1] : 'geom' + v[0] + '/' + DSN)).join('/')
+        + ` m at ${DSS.join('/')} m, floor ${BODYW} m, n=${DSN}`);
+      expect('DEV.spawn crowd keeps one body width between bodies on every level (#321)', gate2,
+        sepTxt[sepN - 1]);
     }
     console.log('  DEVSPAWN a DEV.spawn crowd fills ' + DSN + ' distinct cells at ' + DSD + ' m x ' + dsN + ' levels '
       + (dsBad ? 'FAIL  ' : 'ok    ') + dsTxt.join(' | ') +
       ' | oracle = distinct cells over ENEMIES, not the return value');
     console.log('  dev spawn: ' + dsN + ' row(s), ' + dsGate + ' gating row(s), ' + (dsN - dsGate) + ' reported');
+    console.log('  DEVSEP a DEV.spawn crowd keeps >= ' + BODYW + ' m (one body width) at '
+      + DSS.join('/') + ' m x ' + sepN + ' levels ' + (sepBad ? 'FAIL  ' : 'ok    ') + sepTxt.join(' | ')
+      + ' | oracle = closest pair over ENEMIES, not the cell count');
+    console.log('  dev sep: ' + sepN + ' row(s), ' + sepGate + ' gating row(s), ' + (sepN - sepGate) + ' reported');
   }
 
   /* ------------------------------------------------------------------------------------------

@@ -441,14 +441,26 @@ CEILS.ROCK = matTex(T2, T2, p => {
   moss(p, 0.1, 71);                                               // seam moss, not floor moss
 }, { bump: 1.6, amb: 0.4, spec: 0.07, ao: 0.9, grain: 10 });
 CEILS.SINEW = matTex(64, 64, p => {
+  /* #369: this used to be FLOORS.FLESH at a different scale - 104/40/50 albedo with EMISSIVE veins at
+     180,96,60 - so ABATOIR CORE, the largest level in the campaign, put its floor, its walls and its
+     ceiling on one red (one rendered frame, whole screen-row bands: ceiling 67.1, far wall 72.1, near
+     floor 68.1 mean Rec.601 luminance) and every step, ledge and pit lip in it was an edge between two
+     things of the same colour. It now states the rule the other three ceilings already state in their own
+     comments - a desaturated, cooler albedo than any floor, so overhead reads as overhead - and its veins
+     are RECESSES in the hide rather than the emissive threads the floor owns (an emissive texel is exempt
+     from scene light, which is why a ceiling carrying them could not be shaded down at all). The emissive
+     removal plus a desaturated albedo, with the level's own ceilBias on top (js/20_level.js:22), takes
+     that ceiling band from 67.1 to 48.7 at the same seat, against a wall band that does not move: the
+     5.0-point gap the issue measured becomes 23.4, and 17.3 at a second camera. The remaining
+     ordering (floorBias / ceilBias / ceilLead) is authored per level and applied in js/40_render.js. */
   const n = fbm(p.u, p.v, 4, 4, 0.55, 5);
-  let v = 0.5 + n * 0.6;
-  p.r = 104 * v; p.g = 40 * v; p.b = 50 * v;
-  p.h = 0.55 + (n - 0.5) * 0.2;
+  let v = 0.46 + n * 0.5;
+  p.r = 92 * v; p.g = 74 * v; p.b = 90 * v;
+  p.h = 0.5 + (n - 0.5) * 0.2;
   const vk = veinMask(p, 0.18, 3, 23);
-  p.r += (150 - p.r) * vk * 0.4; p.g += (50 - p.g) * vk * 0.5; p.b += (60 - p.b) * vk * 0.5; p.h += vk * 0.12;
-  if (vk > 0.9) { p.e = 1; p.r = 180; p.g = 96; p.b = 60; }
-}, { bump: 1.3, amb: 0.48, spec: 0.4, specPow: 18, ao: 0.7, grain: 9 });
+  p.r += (42 - p.r) * vk * 0.55; p.g += (38 - p.g) * vk * 0.55; p.b += (46 - p.b) * vk * 0.55;
+  p.h -= vk * 0.1;
+}, { bump: 1.3, amb: 0.42, spec: 0.16, specPow: 18, ao: 0.8, grain: 9 });
 
 /* ============================ decals ============================ */
 const DECAL = {};
@@ -508,6 +520,133 @@ DECAL.dust = decalTex(32, (s, n) => {
     const t = clamp(1 + d / (n * 0.45), 0, 1);
     return [150, 140, 120, Math.pow(t, 1.6) * 0.3 * (0.4 + fbm(x / n, y / n, 7, 2, 0.6, 3) * 1.2)];
   });
+});
+
+/* ============================ wall fixtures (#400) ============================
+   Things MOUNTED ON A WALL. A wall in this game used to be one material, floor to ceiling, for as
+   far as the eye reached, and the generator's whole vocabulary of props stood on the floor at cell
+   centres - so a room could only ever be identified by its colour. These four patches are painted
+   at boot like every other material and placed by the generator (js/20_level.js placeWallFixtures)
+   on geometry the wall pass already draws.
+   They are ALBEDO + alpha, not light: the wall pass multiplies them by the face's own per-column
+   light and fog (js/40_render.js, the fixture block), so a fixture in an unlit corner is dark and
+   one under a lamp is bright. That is why their mid-tones sit close to the walls they hang on -
+   these are decoration, and the exposure gate must not move because of them. */
+const WFIX = {};
+function fixTex(w, h, fn) {
+  const s = new Surf(w, h);
+  fn(s, w, h);
+  const t = { w, h, data: s.data };
+  t.mips = buildMips(t.w, t.h, t.data);
+  return t;
+}
+/* speckle + a top-to-bottom grime wash, shared by all four: a fixture that is cleaner than the wall
+   it is bolted to reads as a sticker. BOTH passes are multiply-only and alpha-preserving, and that is
+   a measurement rather than a style rule. `lgrad` composites SOURCE-OVER, so the first draft's white
+   stops (0.72 -> 1.0 alpha) laid a white sheet across the lower 55 % of every fixture: THE STACK's
+   composited median went 89 -> 121.3 with no lamp in the level to compete with, and its own walls
+   went with it (#403 review). And because a source-over pass writes ALPHA wherever it lands, a PIPE
+   run - whose painter clears the sheet and paints only two conduits - came out of the wash with
+   0 % transparent pixels, i.e. a translucent grey slab with pipes drawn on it.
+   So the wash rides RGB only, and darkens TOWARD THE FLOOR, which is texture v = 0 here: the wall
+   pass solves zv = (z - zB) / (zT - zB) (js/40_render.js, the fixture block), so texel row 0 is the
+   bottom of the face. The silhouette the painter drew is restored afterwards, so speckle and wash
+   together add no coverage a fixture did not ask for. */
+function fixAge(s, w, h) {
+  const D = s.data, A = new Uint8Array(D.length);
+  for (let i = 0; i < D.length; i++) A[i] = D[i] >>> 24;
+  s.grain(2.2, [[150, 152, 158], [42, 43, 47], [96, 84, 62]], 0.16);
+  for (let y = 0; y < h; y++) {
+    const t = y / (h - 1);
+    const k = t < 0.55 ? 0.88 + (t / 0.55) * 0.12 : 1 - ((t - 0.55) / 0.45) * 0.12;
+    for (let x = 0; x < w; x++) {
+      const i = y * w + x, c = D[i];
+      D[i] = pk((c & 255) * k, (c >> 8 & 255) * k, (c >> 16 & 255) * k, A[i]);
+    }
+  }
+}
+
+/* A DOOR FRAME for the reveal faces at a doorway: stiles with bolt heads, a lintel and a kick plate
+   around a MIDDLE THAT IS NOT PAINTED AT ALL, so the mouth you walk through keeps the sector's own
+   wall material and the frame reads as a frame (#403 review: an opaque plate across 94 % of the face
+   replaced the brick instead of decorating it). v = 0 is the floor, so the kick plate is at the bottom
+   and the lintel at the top - the first draft had both the other way round, because v runs from the
+   face's low edge up. */
+WFIX.DOOR = fixTex(64, 96, (s, w, h) => {
+  s.rect(0, 0, w, h, [106, 110, 118], 1);                                 // frame plate, mid steel
+  s.lgrad(0, 0, w, h, [[0, [140, 144, 152], 1], [0.5, [110, 114, 122], 1], [1, [84, 88, 96], 1]], 0);
+  for (let y = h * 0.14 | 0; y < h * 0.80; y++)                           // punch the opening out
+    for (let x = w * 0.20 | 0; x < w * 0.80; x++) s.data[y * w + x] = 0;
+  for (const jx of [w * 0.10, w * 0.90]) {                                // jamb stiles
+    s.rect(jx - w * 0.07, 0, w * 0.14, h, [118, 122, 130], 1);
+    for (let k = 0; k < 6; k++) s.circle(jx, h * (0.08 + k * 0.168), 1.9, [122, 124, 130], 0.9);
+  }
+  s.rect(0, h * 0.02, w, h * 0.13, [94, 98, 106], 1);                      // kick plate, floor side
+  s.rect(0, h * 0.15, w, h * 0.02, [168, 150, 62], 0.85);                 // one hazard line
+  for (let k = 0; k < 8; k++) s.rect(k * w / 8, h * 0.15, w / 16, h * 0.02, [40, 38, 20], 0.8);
+  s.rect(0, h * 0.86, w, h * 0.05, [36, 37, 42], 1);                      // lintel shadow, ceiling side
+  fixAge(s, w, h);
+});
+
+/* A PIPE RUN: two conduits with saddle brackets and one valve wheel, dark enough to sit under a
+   wall light without lifting the frame's exposure. */
+WFIX.PIPE = fixTex(64, 64, (s, w, h) => {
+  s.clear();
+  const yA = h * 0.42, yB = h * 0.62;
+  for (const y of [yA, yB]) {
+    s.rect(0, y - h * 0.055, w, h * 0.11, [118, 122, 130], 1);
+    s.lgrad(0, y - h * 0.055, w, h * 0.11, [[0, [46, 47, 52], 1], [0.3, [124, 128, 136], 1], [1, [40, 41, 46], 1]], Math.PI / 2);
+  }
+  for (let k = 0; k < 3; k++) {                                          // saddle brackets
+    const bx = w * (0.12 + k * 0.38);
+    s.rect(bx - w * 0.035, yA - h * 0.085, w * 0.07, (yB - yA) + h * 0.17, [102, 106, 114], 1);
+    s.rect(bx - w * 0.05, yA - h * 0.09, w * 0.1, h * 0.03, [74, 76, 82], 1);
+    s.rect(bx - w * 0.05, yB + h * 0.06, w * 0.1, h * 0.03, [74, 76, 82], 1);
+  }
+  const vx = w * 0.68;
+  s.circle(vx, (yA + yB) / 2, h * 0.13, [96, 62, 48], 1);                 // valve wheel, rusted
+  s.circle(vx, (yA + yB) / 2, h * 0.055, [58, 58, 64], 1);
+  for (let k = 0; k < 4; k++) {
+    const a = k * Math.PI / 2 + 0.35;
+    s.line(vx, (yA + yB) / 2, vx + Math.cos(a) * h * 0.12, (yA + yB) / 2 + Math.sin(a) * h * 0.12, 2.6, [112, 74, 58], 1);
+  }
+  s.rect(vx - w * 0.02, yB - h * 0.02, w * 0.04, h * 0.1, [70, 72, 78], 1);
+  fixAge(s, w, h);
+});
+
+/* A HAZARD BAND: chevron stripe between two seams, with rust bleeding out of the seams. Reads as
+   "this is a service run" from across a room. */
+WFIX.STRIPE = fixTex(64, 48, (s, w, h) => {
+  s.rect(0, 0, w, h, [108, 112, 120], 1);
+  const by = h * 0.30, bh = h * 0.40;
+  s.rect(0, by, w, bh, [150, 134, 56], 1);
+  for (let k = -1; k < 10; k++) {
+    const x0 = k * w / 9;
+    s.polygon([[x0, by], [x0 + w / 18, by], [x0 + w / 9, by + bh], [x0 + w / 18, by + bh]], [34, 33, 36], 1);
+  }
+  s.rect(0, by - h * 0.03, w, h * 0.03, [40, 41, 45], 1);
+  s.rect(0, by + bh, w, h * 0.03, [40, 41, 45], 1);
+  for (let k = 0; k < 5; k++) {                                          // panel seams + rust runs
+    const sx = w * (0.06 + k * 0.23);
+    s.rect(sx, 0, 1.4, h, [38, 39, 43], 0.9);
+    s.rect(sx - 2, by * 0.4, 5, by * 0.55, [96, 58, 38], 0.4);
+  }
+  fixAge(s, w, h);
+});
+
+/* A VENT: a louvered grille in a bolted frame, the darkest thing on the wall - it puts a real
+   black hole in an otherwise unbroken sheet, which is what makes a wall read as built. */
+WFIX.VENT = fixTex(64, 48, (s, w, h) => {
+  s.rect(0, 0, w, h, [110, 114, 122], 1);
+  s.rect(w * 0.07, h * 0.09, w * 0.86, h * 0.82, [38, 40, 46], 1);
+  for (let k = 0; k < 7; k++) {
+    const ly = h * (0.12 + k * 0.112);
+    s.rect(w * 0.07, ly, w * 0.86, h * 0.055, [104, 108, 116], 1);
+    s.rect(w * 0.07, ly + h * 0.055, w * 0.86, h * 0.018, [44, 46, 52], 1);
+  }
+  for (const bx of [w * 0.035, w * 0.965]) for (const by of [h * 0.14, h * 0.86]) s.circle(bx, by, 2.1, [126, 128, 134], 0.9);
+  s.rect(0, 0, w, h * 0.03, [48, 50, 55], 0.8);
+  fixAge(s, w, h);
 });
 
 /* Screen-space detail field: a smooth value-noise height map plus fine speckle,
