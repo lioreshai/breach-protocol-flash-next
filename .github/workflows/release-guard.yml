@@ -12,6 +12,9 @@ permissions:
 
 jobs:
   release:
+    # Scheduled debt must not overwrite the reviewed PR's required release check
+    # on the same commit while publication is still completing.
+    name: ${{ github.event_name == 'pull_request' && 'release' || 'release cadence (scheduled)' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
