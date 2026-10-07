@@ -27,6 +27,8 @@
   not in the renderer; `tools/refs.lock` is re-keyed by `node tools/view.js refs --record` for it. The
   `alt` GRID-CENSUS record does not move: the pass writes no floor, stair or step bit.
 
+### Changed
+
 - **The README's THE STACK frame is the level you can actually walk** (#388). The file on `main` was shot
   on 2026-10-04, and two merged PRs have moved that level's spawn-seat picture since: #318 moved the
   authored doorway lamp from the doorway cell (12.5, 9.5) one cell east to (13.5, 9.5) — it had been
