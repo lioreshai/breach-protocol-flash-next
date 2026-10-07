@@ -541,28 +541,50 @@ function fixTex(w, h, fn) {
   return t;
 }
 /* speckle + a top-to-bottom grime wash, shared by all four: a fixture that is cleaner than the wall
-   it is bolted to reads as a sticker */
+   it is bolted to reads as a sticker. BOTH passes are multiply-only and alpha-preserving, and that is
+   a measurement rather than a style rule. `lgrad` composites SOURCE-OVER, so the first draft's white
+   stops (0.72 -> 1.0 alpha) laid a white sheet across the lower 55 % of every fixture: THE STACK's
+   composited median went 89 -> 121.3 with no lamp in the level to compete with, and its own walls
+   went with it (#403 review). And because a source-over pass writes ALPHA wherever it lands, a PIPE
+   run - whose painter clears the sheet and paints only two conduits - came out of the wash with
+   0 % transparent pixels, i.e. a translucent grey slab with pipes drawn on it.
+   So the wash rides RGB only, and darkens TOWARD THE FLOOR, which is texture v = 0 here: the wall
+   pass solves zv = (z - zB) / (zT - zB) (js/40_render.js, the fixture block), so texel row 0 is the
+   bottom of the face. The silhouette the painter drew is restored afterwards, so speckle and wash
+   together add no coverage a fixture did not ask for. */
 function fixAge(s, w, h) {
+  const D = s.data, A = new Uint8Array(D.length);
+  for (let i = 0; i < D.length; i++) A[i] = D[i] >>> 24;
   s.grain(2.2, [[150, 152, 158], [42, 43, 47], [96, 84, 62]], 0.16);
-  s.lgrad(0, 0, w, h, [[0, [255, 255, 255], 0.72], [0.55, [255, 255, 255], 1], [1, [150, 150, 152], 0.34]], Math.PI / 2);
+  for (let y = 0; y < h; y++) {
+    const t = y / (h - 1);
+    const k = t < 0.55 ? 0.88 + (t / 0.55) * 0.12 : 1 - ((t - 0.55) / 0.45) * 0.12;
+    for (let x = 0; x < w; x++) {
+      const i = y * w + x, c = D[i];
+      D[i] = pk((c & 255) * k, (c >> 8 & 255) * k, (c >> 16 & 255) * k, A[i]);
+    }
+  }
 }
 
-/* A DOOR FRAME for the reveal faces of a doorway neck: jambs with bolt heads, a lintel, a kick
-   plate, and a dark slot at the centre line so the mouth you walk through reads as an opening
-   rather than a gap in a sheet. v = 0 is the floor. */
+/* A DOOR FRAME for the reveal faces at a doorway: stiles with bolt heads, a lintel and a kick plate
+   around a MIDDLE THAT IS NOT PAINTED AT ALL, so the mouth you walk through keeps the sector's own
+   wall material and the frame reads as a frame (#403 review: an opaque plate across 94 % of the face
+   replaced the brick instead of decorating it). v = 0 is the floor, so the kick plate is at the bottom
+   and the lintel at the top - the first draft had both the other way round, because v runs from the
+   face's low edge up. */
 WFIX.DOOR = fixTex(64, 96, (s, w, h) => {
-  s.rect(0, 0, w, h, [58, 60, 66], 1);                                   // frame plate, mid steel
-  s.lgrad(0, 0, w, h, [[0, [96, 98, 104], 1], [0.5, [64, 66, 72], 1], [1, [44, 46, 52], 1]], 0);
-  s.rect(w * 0.42, h * 0.06, w * 0.16, h * 0.88, [16, 15, 17], 1);        // the slot / closed leaf
-  s.rect(w * 0.46, h * 0.06, w * 0.08, h * 0.88, [30, 29, 33], 1);
+  s.rect(0, 0, w, h, [106, 110, 118], 1);                                 // frame plate, mid steel
+  s.lgrad(0, 0, w, h, [[0, [140, 144, 152], 1], [0.5, [110, 114, 122], 1], [1, [84, 88, 96], 1]], 0);
+  for (let y = h * 0.14 | 0; y < h * 0.80; y++)                           // punch the opening out
+    for (let x = w * 0.20 | 0; x < w * 0.80; x++) s.data[y * w + x] = 0;
   for (const jx of [w * 0.10, w * 0.90]) {                                // jamb stiles
-    s.rect(jx - w * 0.07, 0, w * 0.14, h, [78, 80, 86], 1);
+    s.rect(jx - w * 0.07, 0, w * 0.14, h, [118, 122, 130], 1);
     for (let k = 0; k < 6; k++) s.circle(jx, h * (0.08 + k * 0.168), 1.9, [122, 124, 130], 0.9);
   }
-  s.rect(0, h * 0.80, w, h * 0.16, [50, 52, 57], 1);                      // kick plate
-  s.rect(0, h * 0.785, w, h * 0.02, [168, 150, 62], 0.85);                // one hazard line
-  for (let k = 0; k < 8; k++) s.rect(k * w / 8, h * 0.785, w / 16, h * 0.02, [40, 38, 20], 0.8);
-  s.rect(0, h * 0.02, w, h * 0.035, [36, 37, 42], 1);                     // lintel shadow
+  s.rect(0, h * 0.02, w, h * 0.13, [94, 98, 106], 1);                      // kick plate, floor side
+  s.rect(0, h * 0.15, w, h * 0.02, [168, 150, 62], 0.85);                 // one hazard line
+  for (let k = 0; k < 8; k++) s.rect(k * w / 8, h * 0.15, w / 16, h * 0.02, [40, 38, 20], 0.8);
+  s.rect(0, h * 0.86, w, h * 0.05, [36, 37, 42], 1);                      // lintel shadow, ceiling side
   fixAge(s, w, h);
 });
 
@@ -572,12 +594,12 @@ WFIX.PIPE = fixTex(64, 64, (s, w, h) => {
   s.clear();
   const yA = h * 0.42, yB = h * 0.62;
   for (const y of [yA, yB]) {
-    s.rect(0, y - h * 0.055, w, h * 0.11, [86, 88, 94], 1);
+    s.rect(0, y - h * 0.055, w, h * 0.11, [118, 122, 130], 1);
     s.lgrad(0, y - h * 0.055, w, h * 0.11, [[0, [46, 47, 52], 1], [0.3, [124, 128, 136], 1], [1, [40, 41, 46], 1]], Math.PI / 2);
   }
   for (let k = 0; k < 3; k++) {                                          // saddle brackets
     const bx = w * (0.12 + k * 0.38);
-    s.rect(bx - w * 0.035, yA - h * 0.085, w * 0.07, (yB - yA) + h * 0.17, [62, 64, 70], 1);
+    s.rect(bx - w * 0.035, yA - h * 0.085, w * 0.07, (yB - yA) + h * 0.17, [102, 106, 114], 1);
     s.rect(bx - w * 0.05, yA - h * 0.09, w * 0.1, h * 0.03, [74, 76, 82], 1);
     s.rect(bx - w * 0.05, yB + h * 0.06, w * 0.1, h * 0.03, [74, 76, 82], 1);
   }
@@ -595,7 +617,7 @@ WFIX.PIPE = fixTex(64, 64, (s, w, h) => {
 /* A HAZARD BAND: chevron stripe between two seams, with rust bleeding out of the seams. Reads as
    "this is a service run" from across a room. */
 WFIX.STRIPE = fixTex(64, 48, (s, w, h) => {
-  s.rect(0, 0, w, h, [64, 65, 70], 1);
+  s.rect(0, 0, w, h, [108, 112, 120], 1);
   const by = h * 0.30, bh = h * 0.40;
   s.rect(0, by, w, bh, [150, 134, 56], 1);
   for (let k = -1; k < 10; k++) {
@@ -615,12 +637,12 @@ WFIX.STRIPE = fixTex(64, 48, (s, w, h) => {
 /* A VENT: a louvered grille in a bolted frame, the darkest thing on the wall - it puts a real
    black hole in an otherwise unbroken sheet, which is what makes a wall read as built. */
 WFIX.VENT = fixTex(64, 48, (s, w, h) => {
-  s.rect(0, 0, w, h, [70, 72, 78], 1);
-  s.rect(w * 0.07, h * 0.09, w * 0.86, h * 0.82, [14, 15, 18], 1);
+  s.rect(0, 0, w, h, [110, 114, 122], 1);
+  s.rect(w * 0.07, h * 0.09, w * 0.86, h * 0.82, [38, 40, 46], 1);
   for (let k = 0; k < 7; k++) {
     const ly = h * (0.12 + k * 0.112);
     s.rect(w * 0.07, ly, w * 0.86, h * 0.055, [104, 108, 116], 1);
-    s.rect(w * 0.07, ly + h * 0.055, w * 0.86, h * 0.018, [26, 27, 31], 1);
+    s.rect(w * 0.07, ly + h * 0.055, w * 0.86, h * 0.018, [44, 46, 52], 1);
   }
   for (const bx of [w * 0.035, w * 0.965]) for (const by of [h * 0.14, h * 0.86]) s.circle(bx, by, 2.1, [126, 128, 134], 0.9);
   s.rect(0, 0, w, h * 0.03, [48, 50, 55], 0.8);

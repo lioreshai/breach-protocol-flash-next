@@ -1097,14 +1097,26 @@ function placeWallFixtures(cfgL) {
     placed++;
     return true;
   };
-  /* 1. DOOR FRAMES at the mouths the player walks through. A neck is an open cell open on exactly one
-     pair of opposite sides - a corridor's end, a room's door - and the two solid cells beside it are
-     the jambs. Mounting on the jamb faces is what makes the opening read as a DOOR: the reveal is
-     geometry the wall pass already draws, it is simply never been given a material of its own. */
+  /* 1. DOOR FRAMES at the mouths the player walks through. A neck - an open cell open on exactly one
+     pair of opposite sides - is the jambs' location, but it is ALSO the definition of a straight
+     corridor cell, and mounting on every neck plated both walls of every corridor in steel: L0's
+     spawn seat read as one pale band with a seam every metre and L0's fixCount was DOOR 56 of 59,
+     which is what starved the long-run pass (#403 review). The difference is whether the PASSAGE
+     CONTINUES. Along the axis of the opening, a room's doorway has a room cell on at least one side
+     - a cell open perpendicular too, so the space opens up and the passage is over - while a cell in
+     the middle of a straight corridor has a narrow cell on both sides and goes on forever. So: mount
+     only where the passage runs out. A corridor therefore gets a frame at each mouth and nothing down
+     its length, and a room-to-room door gets one at the door itself. */
+  const narrowOn = (x, y, across) => isOpen(x, y) && !isOpen(x + DIRX[across], y + DIRY[across])
+    && !isOpen(x - DIRX[across], y - DIRY[across]);   // open along the passage, walled across it
   for (let y = 1; y < N - 1 && placed < 56; y++) for (let x = 1; x < N - 1; x++) {
     if (!isOpen(x, y)) continue;
     const we = isOpen(x - 1, y) && isOpen(x + 1, y), ns = isOpen(x, y - 1) && isOpen(x, y + 1);
     if (we === ns) continue;                        // a room, a corner, or a dead end
+    const along = we ? 0 : 1, across = we ? 1 : 0;  // the passage axis, and the axis it is walled on
+    if (!narrowOn(x, y, across)) continue;          // a room's own edge cell is open on three sides
+    if (narrowOn(x + DIRX[along], y + DIRY[along], across)
+      && narrowOn(x - DIRX[along], y - DIRY[along], across)) continue;
     if (we) { mount('DOOR', x, y, 1); mount('DOOR', x, y, 3); }
     else { mount('DOOR', x, y, 0); mount('DOOR', x, y, 2); }
   }

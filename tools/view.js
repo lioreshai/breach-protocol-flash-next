@@ -25,7 +25,7 @@ const LVL = +(process.argv[3] || 0);
 const CAM = +(process.argv[4] || 0);
 // An unknown name used to fall through to the scene dump and exit 0, so a typo in a CI probe list
 // ran something, painted a PNG and reported a passing gate (#89).
-const PROBES = ['scene', 'alt', 'anim', 'bands', 'columns', 'contrast', 'cull', 'decal', 'diag', 'exposure', 'flatparity', 'heights',
+const PROBES = ['scene', 'alt', 'anim', 'bands', 'columns', 'contrast', 'cull', 'decal', 'diag', 'exposure', 'fixtures', 'flatparity', 'heights',
   'drop', 'horizon', 'mip', 'planes', 'play', 'props', 'rig', 'sheets', 'sight', 'stats', 'surface', 'vert', 'viewmodel',
   'volume', 'refs'];
 if (!PROBES.includes(MODE)) {
@@ -9268,6 +9268,92 @@ if (MODE === 'play') {
     bad += report(`L${L} portal+swap`, 'S.mode="play"; P.x=exitX; P.y=exitY; nextLevel(); for(let i=0;i<90;i++) frame(7000+i*16.7)') ? 1 : 0;
   }
   console.log(bad ? bad + ' loop states threw' : 'gameplay loop: every state ran clean');
+}
+if (MODE === 'fixtures') {
+  /* #400: are the walls actually decorated, and is the DECORATION the thing that is not a wash?
+     The issue's criterion is "no visible wall face is one uninterrupted repeat from floor to
+     ceiling", which is a statement about GEOMETRY the generator wrote, so it is checkable without
+     rendering: walk every straight wall face line, and every run of it at least FIX_RUN_MIN metres
+     long must carry a fixture. Two failures this can see and the frame mean cannot:
+       - a pass that paints a corridor instead of a doorway (the #403 review finding: a "neck" is
+         also the definition of a straight corridor cell, so DOOR tiled every corridor and ate the
+         budget the long-run pass needed - this reads the kind histogram for exactly that);
+       - a fixture texture whose alpha got written by its own age pass, i.e. a translucent slab
+         rather than a thing bolted to the wall. Read the alpha channel off the finished texture.
+     Rows are per level; the deal is seeded so the counts are reproducible across processes. */
+  const N = run('MAP.w'), RUNMIN = run('FIX_RUN_MIN');
+  const kinds = ['DOOR', 'PIPE', 'STRIPE', 'VENT'];
+  let bad = 0;
+  /* alpha census: what fraction of the finished patch actually covers the wall */
+  const cov = run(`(()=>{const o={};for(const k of ['DOOR','PIPE','STRIPE','VENT']){const t=WFIX[k];
+    let op=0,se=0,tr=0,sum=0;for(let i=0;i<t.data.length;i++){const a=t.data[i]>>>24;
+      sum+=a; if(!a)tr++; else if(a>250)op++; else se++;}
+      o[k]=[tr/t.data.length, op/t.data.length, sum/255/t.data.length];}return o})()`);
+  console.log('fixtures: #400 wall decor - the issue criterion is a geometry claim, so it is walked, not rendered;'
+    + ' every straight face line of >= ' + RUNMIN + ' m must carry one');
+  for (const k of kinds) {
+    const c = cov[k];
+    console.log('  ' + k.padEnd(7) + ' alpha: ' + (c[0] * 100).toFixed(1) + '% transparent, '
+      + (c[1] * 100).toFixed(1) + '% opaque, mean ' + c[2].toFixed(2)
+      + (k === 'PIPE' && c[0] < 0.2 ? '   << THE WASH WROTE OPACITY: a pipe run is a slab' : ''));
+    if (k === 'PIPE' && c[0] < 0.2) bad++;
+  }
+  for (let L = 0; L < run('LEVELS.length'); L++) {
+    seedRng(1000 + L * 97);
+    run(`S.mode="play"; S.locked=false; startLevel(${L}, true);`);
+    /* the long-run walk runs INSIDE the game context: one vm hop per cell would be 4 x 24 x 24 x 4
+       round trips per level, and a probe that takes a minute per level does not get run. */
+    const r = run(`(()=>{const N=MAP.w, cell=MAP.cell, DX=[1,0,-1,0], DY=[0,1,0,-1];
+      const op=(x,y)=>x>0&&y>0&&x<N-1&&y<N-1&&cell[y*N+x]===0;
+      const wl=(x,y)=>x>=0&&y>=0&&x<N&&y<N&&cell[y*N+x]!==0;
+      const P=[];for(const f of DECOR)P.push([f.side, f.side===1?f.x:f.y, f.side===1?f.y:f.x]);
+      let runs=0, bare=0;
+      for(let d=0;d<4;d++){const ax=DX[d]!==0;let a=0,b=0;
+        for(a=1;a<N-1;a++){let len=0,at=0;
+          for(b=1;b<N-1;b++){
+            const gx=ax?a:b, gy=ax?b:a, ok=op(gx,gy)&&wl(gx+DX[d],gy+DY[d]);
+            if(!ok){
+              if(len>=FIX_RUN_MIN){runs++;
+                const plane=(ax?gx+DX[d]:gy+DY[d])+0.5, side=ax?1:2;
+                const has=P.some(e=>e[0]===side&&Math.abs(e[1]-plane)<0.01&&e[2]>=at+0.5&&e[2]<=b-0.5);
+                if(!has)bare++;}
+              len=0;at=0;continue;}
+            if(!len)at=b;len++;}
+          if(len>=FIX_RUN_MIN){runs++;
+            const gx=ax?a:b-1, gy=ax?b-1:a, plane=(ax?gx+DX[d]:gy+DY[d])+0.5, side=ax?1:2;
+            if(!P.some(e=>e[0]===side&&Math.abs(e[1]-plane)<0.01&&e[2]>=at+0.5&&e[2]<=b-0.5))bare++;}}}
+      const t={};for(const k of ['DOOR','PIPE','STRIPE','VENT'])t[k]=0;
+      for(const f of DECOR)for(const k of ['DOOR','PIPE','STRIPE','VENT'])if(f.tex===WFIX[k])t[k]++;
+      /* THE #403 FINDING, AS A ROW: a DOOR may not sit on a cell whose passage keeps going. For a
+         face on an x-plane the air cell is the one the face looks into, at (gx+1, gy); a y-plane
+         face looks into (gx, gy+1). From there the passage axis is the OTHER axis, and a cell that
+         is narrow along it with a narrow cell on both sides is a corridor, not a doorway. */
+      let cont=0;
+      for(const f of DECOR){ if(f.tex!==WFIX.DOOR)continue;
+        const gx=f.side===1?(f.x|0):(f.x|0), gy=f.side===1?(f.y|0):((f.y|0)+1);
+        const ax=f.side===1?gx+1:gx, ay=f.side===1?gy:gy+1;
+        if(!op(ax,ay))continue;
+        const we=op(ax-1,ay)&&op(ax+1,ay), ns=op(ax,ay-1)&&op(ax,ay+1);
+        if(we===ns)continue;
+        const c=(x,y,cross)=>op(x,y)&&!op(x+DX[cross],y+DY[cross])&&!op(x-DX[cross],y-DY[cross]);
+        if(we){ if(c(ax,ay,1)&&c(ax+1,ay,1)&&c(ax-1,ay,1))cont++; }
+        else  { if(c(ax,ay,0)&&c(ax,ay+1,0)&&c(ax,ay-1,0))cont++; }
+      }
+      const t2=t;return [runs,bare,t2,MAP.fixCount,cont]})()`);
+    const [runs, bare, tally, nFix, cont] = r;
+    const tot = kinds.reduce((s, k) => s + tally[k], 0);
+    const dom = tally.DOOR > tot * 0.6;
+    console.log('  L' + L + '  fixCount ' + String(nFix).padStart(3) + '  '
+      + kinds.map(k => k + ' ' + String(tally[k]).padStart(2)).join('  ')
+      + '  | long runs ' + String(runs).padStart(3) + ', bare ' + String(bare).padStart(3)
+      + '  | DOOR on a continuing passage ' + cont
+      + '  ' + (runs && bare / runs > 0.25 ? '<< 1 in 4 long walls is still one flat repeat' : ''));
+    if (!tot) { console.log('     << NOTHING PLACED: the whole feature is inert on this deal'); bad++; }
+    if (runs && bare / runs > 0.25) bad++;
+    if (cont) { console.log('     << A DOOR IS PAINTED DOWN A CORRIDOR: the neck test is not separating a doorway from a passage (#403)'); bad++; }
+  }
+  console.log(bad ? 'FIXTURES ' + bad + ' FAILURES - a long wall is still bare, a kind has become a wash,'
+    : 'FIXTURES ok - every long wall run carries something, no kind is a wash, no fixture is a slab');
 }
 if (MODE === 'decal') {
   // ground decals used to sample texel (0,0) and vanish; this counts what actually reaches the floor
