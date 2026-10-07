@@ -25,7 +25,7 @@ const LVL = +(process.argv[3] || 0);
 const CAM = +(process.argv[4] || 0);
 // An unknown name used to fall through to the scene dump and exit 0, so a typo in a CI probe list
 // ran something, painted a PNG and reported a passing gate (#89).
-const PROBES = ['scene', 'alt', 'anim', 'bands', 'columns', 'contrast', 'cull', 'decal', 'diag', 'exposure', 'flatparity', 'heights',
+const PROBES = ['scene', 'alt', 'anim', 'bands', 'columns', 'contrast', 'cull', 'decal', 'diag', 'exposure', 'fixtures', 'flatparity', 'heights',
   'drop', 'horizon', 'mip', 'planes', 'play', 'props', 'rig', 'sheets', 'sight', 'stats', 'surface', 'vert', 'viewmodel',
   'volume', 'refs'];
 if (!PROBES.includes(MODE)) {
@@ -2110,8 +2110,8 @@ if (MODE === 'flatparity') {
   /* #19 re-recorded all four: the ground pass's light is sampled at the pixel instead of per cell, so a
      FLAT frame's shading moved too - this record never claimed the shading was frozen, only that a flat
      level collapses to one picture, and it still does. Values measured on this tree, not widened. */
-  const OLD = refRecord('flatparity', 'PARITY', 'md5', ['28620072ce36739e54c7545f6d0b4646', 'e06556bbeabbfd36a45da65278a5b328', '1b1fe6770a3e79497be00a3d1d9a86c0', '98c22412cc7da19fe5d7205fa637392f']);   // #376 re-keys L0-L2 with L3 BYTE-IDENTICAL: the view model stopped multiplying the room's lamp tint into its own pixels and the first-person weapon is IN these frames. The frame means move by <= 0.3 (75.0/29.5/39.7 here against HEAD's 74.9/29.6/39.8 on the same cameras) because what moved is a HUE inside roughly 8% of the frame, not a light level - and L3 holding to the byte is the control: the authored level's spawn cell carries a neutral lamp tint, so cellTint already returned identity there and this change runs no different arithmetic on that frame. No world, lamp or band term is touched here; the 15 other blocking roster invocations are byte-green on the same tree.   // #318 re-keys L3 ONLY (f95291bb -> 98c22412, frame mean 28.0 -> 36.0): the authored level's DOORWAY cell (column 12 is solid on 19 of 20 rows, so x12 is the opening) no longer holds a lamp glyph, and a lamp standing in a wall jamb had its own-band flood truncated at the wall. L0-L2 are byte-identical, which is the level-scoped control - this change touches one glyph in AUTHORED.geo and runs no code on a generated level.   // #369 re-keys L2 and L3 ONLY (frame mean 47.5 -> 39.8 and 28 -> 36.0): a ceiling that no longer shares its floor's material, plus the authored floorBias/ceilBias/ceilLead the two levels now carry. L0 and L1 are byte-identical to the record, which is the point - neither level authors the new fields, so their flat frames do not move at all and these are a level-scoped change, not a renderer-wide one. #19 take three: the ground FETCH filters now, so a flat level's ground pixels moved too - the LAMPS=off sense, re-recorded, no threshold touched
-  const OLDM = [78.2, 34.1, 47.5, 36.0];   // #318: L3's mean literal follows its re-keyed hash (was 28.0)
+  const OLD = refRecord('flatparity', 'PARITY', 'md5', ['28620072ce36739e54c7545f6d0b4646', 'e06556bbeabbfd36a45da65278a5b328', '1b1fe6770a3e79497be00a3d1d9a86c0', 'd84ebcbd80009568585fa9fc2189649a']);   // #400 re-keys L3 ONLY (98c22412 -> d84ebcbd, frame mean 36.0 -> 36.0, two cold samplers agree): wall fixtures are painted on the faces of the authored level, so a flat frame's pixels move while its average brightness does not. L0-L2 are BYTE-IDENTICAL to the record, which is the control that makes this a picture change and not a renderer change - those three levels' flat frames carry their own fixtures and were re-confirmed unchanged to the byte in this run, so only THE STACK's authored faces repainted at this camera. The LAMPS=off sense is the one being read here; no threshold moved and the mean literal did not follow because it did not move.   // #318 re-keys L3 ONLY (f95291bb -> 98c22412, frame mean 28.0 -> 36.0): the authored level's DOORWAY cell (column 12 is solid on 19 of 20 rows, so x12 is the opening) no longer holds a lamp glyph, and a lamp standing in a wall jamb had its own-band flood truncated at the wall. L0-L2 are byte-identical, which is the level-scoped control - this change touches one glyph in AUTHORED.geo and runs no code on a generated level.   // #369 re-keys L2 and L3 ONLY (frame mean 47.5 -> 39.8 and 28 -> 36.0): a ceiling that no longer shares its floor's material, plus the authored floorBias/ceilBias/ceilLead the two levels now carry. L0 and L1 are byte-identical to the record, which is the point - neither level authors the new fields, so their flat frames do not move at all and these are a level-scoped change, not a renderer-wide one. #19 take three: the ground FETCH filters now, so a flat level's ground pixels moved too - the LAMPS=off sense, re-recorded, no threshold touched   // MAIN-SYNC #376 onto #400's tree re-keys L0-L2 to the frames THIS tree measures and holds L3 to main's byte d84ebcbd - the same level-scoped control the branch recorded (the authored spawn cell's neutral lamp tint means cellTint returned identity there, so the weapon term runs no different arithmetic on that frame). Read as main's triple -> this tree: L0 a4db61f5 -> 28620072 (mean 78.2 -> 75.0), L1 fbcff86d -> e06556bb (34.1 -> 29.5), L2 0a99b0ed -> 1b1fe677 (47.5 -> 39.7), L3 unchanged. Nothing widened: a hue term inside the view model moved a flat frame's pixels on the three generated levels.
+  const OLDM = [75.0, 29.5, 39.7, 36.0];   // #318: L3's mean literal follows its re-keyed hash (was 28.0)
   /* #213 moves SHIP[0] to 060da4cd (80.8, from 4262d051/81.3) and nothing else: a coverage top-up's
      intensity now scales with the cells it covers, so the shipped world gains DIMMER sources and L0's
      spawn frame repaints. L1 and L2 are byte-identical at TARGET <= 64 - their top-ups each cover >= 32
@@ -2131,8 +2131,8 @@ if (MODE === 'flatparity') {
      did not move, so this is seat choice, not a light scale. */
   /* #19 re-recorded: same reason as PARITY, and the lamps themselves did not move - see the DEALT row,
      where the dealt grids and off-datum cell counts are byte-identical to the previous records. */
-  const SHIP = refRecord('flatparity', 'LOCK', 'md5', ['bb7feb0f711bf3ce3b5fef4aad491e9b', 'e06556bbeabbfd36a45da65278a5b328', 'f82fe1f9ebb902899710e56f77bc5fce', '98c22412cc7da19fe5d7205fa637392f']);   // #376 re-keys L0-L2, L3 byte-identical, for the same reason and with the same control as PARITY above: these are the LAMPS=on senses of the same frames, and the weapon sits in both. The lamp PLACEMENT this row locks did not move - the delivered-light and per-lamp census rows printed beside it are unchanged, and L1's two senses still collapse to one identical md5, which only happens when the only difference between them is lamps.   // #318 re-keys L3 ONLY (f95291bb -> 98c22412, mean 28.0 -> 36.0), to the SAME value as PARITY[3]: on this level the probe's two senses differ only in lamps, so one lamp moving takes both to one picture - which is also why this row is no longer the authored-level control it was for #303 and #21.   // #369, same two levels as PARITY (mean 51.6 -> 45.0 and 28 -> 36.0) and the same statement: the lightmap the lamps produce is untouched, so this is shading, not placement - L0/L1 bytes unmoved. same re-record, LAMPS unset. L1 and L3 equal PARITY's pair because this probe flattens both levels, so their frames differ only in lamps; L0 and L2 do not, which is what makes the pair two senses rather than one
-  const SHIPM = [79.3, 34.1, 51.6, 36.0];   // #318: L3's mean literal follows its re-keyed hash (was 28.0)
+  const SHIP = refRecord('flatparity', 'LOCK', 'md5', ['bb7feb0f711bf3ce3b5fef4aad491e9b', 'e06556bbeabbfd36a45da65278a5b328', 'f82fe1f9ebb902899710e56f77bc5fce', 'd84ebcbd80009568585fa9fc2189649a']);   // #400 re-keys L3 ONLY, to the SAME new value as PARITY[3], for the reason this pair already carries: on the authored level the probe's two senses differ only in lamps, and a fixture changes neither, so both senses land on one picture. LOCK is a regression lock on lamp PLACEMENT - the fixtures place no lamp, and the row's own lightmap-sum clause is unmoved - so this re-key does not widen what the lock can see; it records that THE STACK's spawn frame now has things mounted on its walls.   // #318 re-keys L3 ONLY (f95291bb -> 98c22412, mean 28.0 -> 36.0), to the SAME value as PARITY[3]: on this level the probe's two senses differ only in lamps, so one lamp moving takes both to one picture - which is also why this row is no longer the authored-level control it was for #303 and #21.   // #369, same two levels as PARITY (mean 51.6 -> 45.0 and 28 -> 36.0) and the same statement: the lightmap the lamps produce is untouched, so this is shading, not placement - L0/L1 bytes unmoved. same re-record, LAMPS unset. L1 and L3 equal PARITY's pair because this probe flattens both levels, so their frames differ only in lamps; L0 and L2 do not, which is what makes the pair two senses rather than one   // MAIN-SYNC #376 onto #400's tree: same four outcomes as PARITY, read off the LAMPS-unset sense, and the lamp-placement census rows beside this one print unchanged counts, so the lights this row locks did not move - only the gun drawn in front of them. The mean literal is the DEALT-style printed annotation: it now carries the frame this tree measures.
+  const SHIPM = [78.0, 29.5, 44.9, 36.0];   // #318: L3's mean literal follows its re-keyed hash (was 28.0)
   /* #219's DEALT triple, #226's camera: the frame of each level AS DEALTED - bands, band term, shipped
      lamp record, same dice (1000 + level*97) and the same pinned-clock ninth render - but at a seat
      CHOSEN FROM THE GRID, not the spawn seat #219 inherited. Where LOCK is a
@@ -2232,8 +2232,8 @@ if (MODE === 'flatparity') {
   // record, and the coverage pass moved three seats on the generated levels. The authored level is the control.
   /* #19 re-recorded L0/L1/L3, L2 unchanged: the dealt GEOMETRY is identical (the off-datum counts this
      row prints are 165/246/314/134, the same as main's run of the same probe) - only its shading moved. */
-  const DEALT = refRecord('flatparity', 'DEALT', 'md5', ['f7052d6368a1b3283e934ef5e703ef2e', 'f190d397e0c301e831099aad476b91ba', '986b50705bdf98491859f86b8eacce85', 'bf6c8907728d1ac9cf486061e4e9f7b2']);   // #376 re-keys L0-L2, L3 byte-identical again (and DEALT-ORDER's alone-vs-in-order hashes agree on each new value, so these remain a property of the level and not of the roster order). The off-datum cell counts the population half of this row asserts are unchanged - 165/246/314/134 at the same dice - so the DEALT world is the same deal; only the gun drawn in front of it changed colour.   // #318 re-keys L3 ONLY (2fde377e -> bf6c8907, mean 39.7 -> 38.1 at dice 1291, two cold samplers agreeing; the DEALT-ORDER row's alone-vs-in-order hashes are the same value, so this is the level, not the render order). The dealt GEOMETRY clause is unchanged - 134 of 256 open cells off the datum, identical to main - so this is one lamp's light in the dealt frame, not the grid. L0-L2 byte-identical.   // #19 take five re-keys L0 and L3 ONLY, and this row's own second clause is the control that makes it a record rather than a regression: PARITY and LOCK are byte-identical on all four levels, because a flattened level queues no deferred pixel and nothing else in the renderer is on this code path. What moved is the SHADED far field of a banded level - a deferred ground pixel whose OWN solve exceeds FARB now takes the material's mip mean instead of one texel stretched along its ray, which is the far answer castGround's row fill has always had (js/40_render.js gndBuild, GNDFB). At the level-0 cam1 seat that is 38,040 px of a 203,138 px frame. L1 and L2's dealt frames re-confirmed unchanged to the byte. #369 re-keys L3 ONLY (mean 39.7 -> 36.0 at dice 1291, the authored level). L2's dealt frame is BYTE-IDENTICAL - same md5 in both flatparity runs, and it is a frame whose shading did change (LOCK[2] above moved) - so whatever this seat at dice 1194 looks at, the ceiling is not where the difference lands. The row does not claim to know why; it is recorded as a measurement, not an explanation. #19 take four: L0 and L3 moved, L1 and L2 did NOT - that is the measurement, and this row does not claim to know why those two. What IS measured is the mechanism at the level-0 cam1 seat (js/40_render.js, groundPixel's off-map fallback): take four changes the shading of ground pixels whose own cell is off the map and of nothing else. PARITY and LOCK are untouched by this pass - a flattened level defers nothing, so no pixel of a flat frame is on this code path at all
-  const DEALTM = [55.5, 57.8, 85.1, 38.1];   // #318: L3's mean literal follows its re-keyed hash (was 39.7)
+  const DEALT = refRecord('flatparity', 'DEALT', 'md5', ['b0d2595e27d63cc977d6c6b775df8160', 'f190d397e0c301e831099aad476b91ba', '986b50705bdf98491859f86b8eacce85', 'df052323ed44655019f22e44b76b7925']);   // #400 re-keys L3 ONLY (98ff9df4 -> df052323, mean 37.9 -> 37.8, both cold samplers). The dealt GEOMETRY clause is the control and it is unchanged - 134 of 256 open cells off the datum, identical to main - so the grid the generator dealt is the grid it dealt before; what moved is that the faces of that world now carry fixtures. L0-L2 byte-identical: three of four dealt frames re-confirmed to the byte in this run, which is why this is a re-record and not a widening.   // #375 re-keys L0 and L3 (583bb866 -> 20f65505, bf6c8907 -> 98ff9df4) and leaves L1 and L2 BYTE-IDENTICAL, which is the scope control: the change is the deferred copy's off-map CEILING light, so a level whose dealt seat has no deferred ceiling pixel landing past its own edge is untouched. Both means move DOWN, 56.0 -> 55.7 and 38.1 -> 37.9 (main measured in the same harness at the same dice), because a pixel past the level's boundary now takes the light FIELD where its ray landed instead of the lamp of the cell the row's walk last reached.   // #318 re-keys L3 ONLY (2fde377e -> bf6c8907, mean 39.7 -> 38.1 at dice 1291, two cold samplers agreeing; the DEALT-ORDER row's alone-vs-in-order hashes are the same value, so this is the level, not the render order). The dealt GEOMETRY clause is unchanged - 134 of 256 open cells off the datum, identical to main - so this is one lamp's light in the dealt frame, not the grid. L0-L2 byte-identical.   // #19 take five re-keys L0 and L3 ONLY, and this row's own second clause is the control that makes it a record rather than a regression: PARITY and LOCK are byte-identical on all four levels, because a flattened level queues no deferred pixel and nothing else in the renderer is on this code path. What moved is the SHADED far field of a banded level - a deferred ground pixel whose OWN solve exceeds FARB now takes the material's mip mean instead of one texel stretched along its ray, which is the far answer castGround's row fill has always had (js/40_render.js gndBuild, GNDFB). At the level-0 cam1 seat that is 38,040 px of a 203,138 px frame. L1 and L2's dealt frames re-confirmed unchanged to the byte. #369 re-keys L3 ONLY (mean 39.7 -> 36.0 at dice 1291, the authored level). L2's dealt frame is BYTE-IDENTICAL - same md5 in both flatparity runs, and it is a frame whose shading did change (LOCK[2] above moved) - so whatever this seat at dice 1194 looks at, the ceiling is not where the difference lands. The row does not claim to know why; it is recorded as a measurement, not an explanation. #19 take four: L0 and L3 moved, L1 and L2 did NOT - that is the measurement, and this row does not claim to know why those two. What IS measured is the mechanism at the level-0 cam1 seat (js/40_render.js, groundPixel's off-map fallback): take four changes the shading of ground pixels whose own cell is off the map and of nothing else. PARITY and LOCK are untouched by this pass - a flattened level defers nothing, so no pixel of a flat frame is on this code path at all   // MAIN-SYNC #376 onto #400's tree re-keys L0-L2 and holds L3 to main's df052323 byte. The off-datum population this row asserts is unchanged - 165/246/314/134 at the same dice - so the dealt world is the same deal; what moved is the weapon in the frame, and at a DEALT seat the gun sits in a cell whose tint was multiplying it down, which is why L1's and L2's frame means rise 57.8 -> 78.3 and 85.1 -> 98.7 while their spawn-seat medians do not move at all. That asymmetry is the change: dropping the HUE leaves every INTENSITY term, so a gun in a dark tinted room is no longer painted near-black.
+  const DEALTM = [55.7, 78.3, 98.7, 37.8];   // #400: L3's mean follows its re-keyed hash (37.9 -> 37.8) - a fixture is an albedo at the wall's own mid-tone, so a dealt frame is a hair darker and nothing else about its average character changes.   // #318: L3's mean literal follows its re-keyed hash (was 39.7). #375 moves the two re-keyed levels' means DOWN (56.0 -> 55.7, 38.1 -> 37.9, each measured twice in this run and on main in the same harness): off-map ceiling pixels stop borrowing a lamp, so a dealt frame is a shade darker without changing its average character.
   const OFF = process.env.LAMPS === 'off';
   const f1 = v => (v === undefined || v === null ? '-' : (+v).toFixed(1));
   const md5of = () => { const d = new Uint32Array(run('px'));
@@ -4393,7 +4393,7 @@ if (MODE === 'cull') {
       // authored level's GENERATED lightmap is a different set of sources and its WORLD digest moves
       // with its lane (0x6b8394bc -> 0x04c0b554, sum 137.63 / 400 cells, max 1.872, drift 0). The
       // byte-identical control is now levels 0-2, in both senses.
-      const CZBAND_REF = refRecord('cull', 'CZBAND', 'crc32', [0x5b8808c8, 0xc381f775, 0x85722368, 0x52487fb4]);   // #318 re-keys L3 ONLY (0x77ecff4d -> 0x52487fb4) - the authored doorway lamp moved one cell out of the x12 wall jamb, so the light under the ceiling-step ground at this camera is a different set of sources; L0-L2 byte-identical in both senses, which is the control.   // #19 take five re-keys the FIRST TWO (L0 0xabb4ee14 -> 0x5b8808c8, L1 0x69425d54 -> 0xc381f775) with the row's own WORLD digest as the control: it matches its recording byte for byte on both levels (0xb34f4fc0, 0x3a016a47), so no lamp moved while the ground-pass lane did - which is what washing a deferred far pixel does, and the AUTHORED level's pair holds again. LEAK=1 CZBAND=1, cull's own step rows - #369 re-keys the LAST TWO (L2 0xed78a5b0 -> 0x85722368, L3 0x401524ac -> 0x77ecff4d), and the row's own second clause is the evidence that this is a record and not a regression: the WORLD (generated-lightmap) digest matches its recording byte-for-byte on BOTH levels (0xad0252c0, 0x6b8394bc), so no light moved, while the ground-pass LANE hash moved - which is exactly what dimming the ceiling rows does to the deferred copy of the ground pixel body on a ceiling-step frame. L0 and L1's lanes are unchanged to the byte, which is the same level-scoped control PARITY/LOCK/DEALT print. This row only runs under LEAK=1 CZBAND=1, so it is easy to miss: it is a CI step, not part of a plain `cull`. Both values reproduced identically over two runs. #19 take four: THREE moved and the AUTHORED level's pair (0x401524ac) held, which is the control: this pass changes the shading of ground pixels whose own cell is off the map, and the authored level's camera has none. The WORLD lightmap digest is byte-identical on all four (measured this run), which is the other half - no lamp moved
+      const CZBAND_REF = refRecord('cull', 'CZBAND', 'crc32', [0x4f9392a0, 0xe4dd7718, 0x4abfcb22, 0x52487fb4]);   // #375 re-keys the LANE on L0-L2 (0x5b8808c8 -> 0x4f9392a0, 0xc381f775 -> 0xe4dd7718, 0x85722368 -> 0x4abfcb22) and leaves the AUTHORED level's lane at its recorded 0x52487fb4, while the row's own second clause - WORLD, the generated lightmap - is BYTE-IDENTICAL on all four (0xb34f4fc0 / 0x3a016a47 / 0xad0252c0 / 0x04c0b554). That pair is the shape of this change: nothing the level generates moved, only how the deferred copy of the ground pixel body READS the field for a ceiling pixel whose ray landed past the level's edge, which is exactly the pixel this synthetic ceiling-step poke produces. L3 holding is the scope control #19 take four already recorded for this camera - the authored level's poke has no off-map deferred ceiling pixel to re-light.   // #318 re-keys L3 ONLY (0x77ecff4d -> 0x52487fb4) - the authored doorway lamp moved one cell out of the x12 wall jamb, so the light under the ceiling-step ground at this camera is a different set of sources; L0-L2 byte-identical in both senses, which is the control.   // #19 take five re-keys the FIRST TWO (L0 0xabb4ee14 -> 0x5b8808c8, L1 0x69425d54 -> 0xc381f775) with the row's own WORLD digest as the control: it matches its recording byte for byte on both levels (0xb34f4fc0, 0x3a016a47), so no lamp moved while the ground-pass lane did - which is what washing a deferred far pixel does, and the AUTHORED level's pair holds again. LEAK=1 CZBAND=1, cull's own step rows - #369 re-keys the LAST TWO (L2 0xed78a5b0 -> 0x85722368, L3 0x401524ac -> 0x77ecff4d), and the row's own second clause is the evidence that this is a record and not a regression: the WORLD (generated-lightmap) digest matches its recording byte-for-byte on BOTH levels (0xad0252c0, 0x6b8394bc), so no light moved, while the ground-pass LANE hash moved - which is exactly what dimming the ceiling rows does to the deferred copy of the ground pixel body on a ceiling-step frame. L0 and L1's lanes are unchanged to the byte, which is the same level-scoped control PARITY/LOCK/DEALT print. This row only runs under LEAK=1 CZBAND=1, so it is easy to miss: it is a CI step, not part of a plain `cull`. Both values reproduced identically over two runs. #19 take four: THREE moved and the AUTHORED level's pair (0x401524ac) held, which is the control: this pass changes the shading of ground pixels whose own cell is off the map, and the authored level's camera has none. The WORLD lightmap digest is byte-identical on all four (measured this run), which is the other half - no lamp moved
       /* #223: the WORLD sense, recorded beside the lane sense, because czS.h above is a lightmap
          instrument only ON ONE CAMERA'S FRAME: it moves when the lightmap changed somewhere that frame
          rasterizes and holds when it changed somewhere it cannot, so its green never proves "the
@@ -5696,7 +5696,7 @@ if (MODE === 'exposure') {
   /* #19 re-recorded L0/L1/L2 (71.61 / 70.19 / 69.19 exact), L3 unmoved: the ground's light is sampled at
      the pixel, so a lamp pool spreads a little and the seeded median falls by one. The SPREAD columns,
      which are what this row is about, did not move. */
-  const EXPO_MED = refRecord('exposure', 'MEDIAN', 'num', [71, 70, 63, 82]);   // #376 re-keys L3 83 -> 82 (81.90 exact, rolls 89 84 80 73 against the recorded 89 85 80 73): the neutralised weapon covers its share of the authored level's spawn frame and one of four seeded rolls loses one median point. L0-L2 are byte-identical to their records and the SPAWN pairs are unchanged to the digit, so this is the weapon's pixels entering a median, not the room going darker; the worst seeded roll 73 stays well above the #149 floor 57.   // #318 re-keys L3 69 -> 83 (82.52 exact, rolls 89 85 80 73, spread 16): the doorway lamp left the x12 wall jamb, its own-band flood is no longer truncated at the wall, so its strength leaves the coverage top-up's minimum-floor path and the authored level gets brighter - worst seeded roll 73 against the #149 floor 57, so no L3 KNOWN row remains. L0-L2 byte-identical.   // #369: L2 69 -> 63 (62.96 exact, rolls 54 81 66 60) and L3 64 -> 69 (68.74, rolls 73 70 67 64); L0 and L1 byte-identical. The two moves are the fix and they are in OPPOSITE directions on purpose: ABATOIR CORE loses the emissive ceiling veins it was painting over its own head, THE STACK gains a floor that is no longer outside the light its lamps deliver. Both stay inside the 60-100 window row, which is the row that gates the look, and each level's worst seeded roll prints as a KNOWN #149 line rather than being absorbed. #19 take four: L0 72 -> 71 (71.04 measured); L1-L3 did not move. This is the exposure half of the same fix - the far-field ceiling was being multiplied into clipping by a light ramp that extrapolated 40 cells off the map, and the level-0 spawn frame reaches past the map edge
+  const EXPO_MED = refRecord('exposure', 'MEDIAN', 'num', [69, 70, 62, 82]);   // #403 re-keys L3 83 -> 82 (82.33 exact, rolls 89 85 80 73 and spread 16 BOTH unchanged, and L0-L2 byte-identical to the hundredth): the wall-fixture pass repaints faces, and THE STACK's 6-yaw sampled mean falls 82.52 -> 82.33, i.e. 0.19 of luminance crossing a rounding boundary. The ROLLS are identical, so no layout and no light source moved - the row's own statistic is unchanged and only its last digit is now honest. flatparity's DEALT[3]/LOCK[3]/PARITY[3] were re-keyed for the same repaint at 95fce7a; this is that re-record's exposure half, the one this probe's literals had not caught up with.   // #375 re-keys L0 71 -> 69 (69.39 exact) and L2 63 -> 62 (61.90 exact) and leaves L1 and L3 alone: the seeded frames are shot from the spawn seats, where the ceiling past the level's own boundary is part of the frame, and that ceiling now fades to ambient instead of carrying a lamp 40 m back - a two-glyph and a one-glyph drop, in the same direction as the DEALT means, and the two levels whose dealt hash did NOT move are the two whose median did not move either.   // #318 re-keys L3 69 -> 83 (82.52 exact, rolls 89 85 80 73, spread 16): the doorway lamp left the x12 wall jamb, its own-band flood is no longer truncated at the wall, so its strength leaves the coverage top-up's minimum-floor path and the authored level gets brighter - worst seeded roll 73 against the #149 floor 57, so no L3 KNOWN row remains. L0-L2 byte-identical.   // #369: L2 69 -> 63 (62.96 exact, rolls 54 81 66 60) and L3 64 -> 69 (68.74, rolls 73 70 67 64); L0 and L1 byte-identical. The two moves are the fix and they are in OPPOSITE directions on purpose: ABATOIR CORE loses the emissive ceiling veins it was painting over its own head, THE STACK gains a floor that is no longer outside the light its lamps deliver. Both stay inside the 60-100 window row, which is the row that gates the look, and each level's worst seeded roll prints as a KNOWN #149 line rather than being absorbed. #19 take four: L0 72 -> 71 (71.04 measured); L1-L3 did not move. This is the exposure half of the same fix - the far-field ceiling was being multiplied into clipping by a light ramp that extrapolated 40 cells off the map, and the level-0 spawn frame reaches past the map edge
   // #284: L2's spawn-seat MEAN moves 64 -> 63 (64.33 -> 63.22) while the CENTRE-HALF mid is identical to
   //   the hundredth (73.31) and the spread is identical (65), L0 and L1 are byte-identical (56.89/64.80 and
   //   59.95/50.31), PARITY is bit-identical on all three levels, and the deal's mean is unchanged in the
@@ -5729,7 +5729,7 @@ if (MODE === 'exposure') {
      a lamp-overlap room, and the pixels past the first cell boundary are the ones that come down. L1
      64.49/58.60 and L2 64.32/72.58 come back ONTO their records, so this is not the frames going dark -
      and #304's L3 pair 56/60 still rounds onto its record (55.92/59.84 exact against #304's 56.10/59.86). */
-  const EXPO_SPAWN = refRecord('exposure', 'SPAWN', 'num', [62, 68, 66, 64, 65, 75, 52, 57]);   // mean, mid per level - #318 re-keys L3's pair 51/56 -> 52/57 (51.72 / 56.99 exact, spread 0): same one-glyph move as MEDIAN, and the spread-0 spawn seat is the authored level's, so this is a placed source, not a deal. L0-L2 unchanged.   // the rest is #369's clause: moves the two pairs of the two levels that author a value order: L2 65/72 -> 65/75 (65.28 / 74.66 exact), L3 58/61 -> 51/56 (51.03 / 55.91). Same sign as the medians and for the same reason: a ceiling that stops out-shading the surfaces under it. #19 take four moves ONE figure, L3's centre-half mid 59 -> 61 (57.63 / 61.09 exact); the other seven are unchanged. #19 earlier re-recorded all eight (61.78/67.59, 66.39/64.26, 64.63/71.83, 58.15/58.84): the ground's light is sampled at the pixel, which lifts the far half of a spawn view
+  const EXPO_SPAWN = refRecord('exposure', 'SPAWN', 'num', [62, 68, 66, 64, 60, 69, 50, 54]);   // mean, mid per level - #403 re-keys L2's pair 65/75 -> 60/69 (60.27 / 68.67 exact, spread 42) and L3's centre-half mid 55 -> 54 (49.85 / 54.30, spread 0). L2's is the fixture, not a darkening: the ABATOIR spawn face now carries a STRIPE patch, and the grime wash on it became a MULTIPLY ramp instead of the source-over white sheet the review caught, so that wall renders darker than it did on main (65.29 / 74.67). Both figures stay inside every threshold, and the row that actually gates the look - tools/ci/assert.js exposure on the COMPOSITED frame, with bloom and grade - reads `EXPOSURE ok` here. L3's mid is the same 0.4-of-a-glyph rounding crossing as its MEDIAN. L0's and L1's four digits are unchanged to the hundredth, so this is two faces being painted, not the frames going dark.   // #375 re-keys the AUTHORED level's pair 52/57 -> 50/55 (49.95 / 54.70 exact, spread 0): THE STACK is the one level whose dealt seat runs thousands of deferred ceiling pixels past its own edge, and they are lit here by the same term.   // #318 re-keys L3's pair 51/56 -> 52/57 (51.72 / 56.99 exact, spread 0): same one-glyph move as MEDIAN, and the spread-0 spawn seat is the authored level's, so this is a placed source, not a deal. L0-L2 unchanged.   // the rest is #369's clause: moves the two pairs of the two levels that author a value order: L2 65/72 -> 65/75 (65.28 / 74.66 exact), L3 58/61 -> 51/56 (51.03 / 55.91). Same sign as the medians and for the same reason: a ceiling that stops out-shading the surfaces under it. #19 take four moves ONE figure, L3's centre-half mid 59 -> 61 (57.63 / 61.09 exact); the other seven are unchanged. #19 earlier re-recorded all eight (61.78/67.59, 66.39/64.26, 64.63/71.83, 58.15/58.84): the ground's light is sampled at the pixel, which lifts the far half of a spawn view
   const LUM_WANT = [60, 100];       // the documented window (README: targets 60-100)
   /* #149 THE WORST ROLL, raster layer, at 4 seeded rolls - the statistic the window row above
      deliberately does not read. The median is asserted because one roll outside 60-100 proves nothing,
@@ -6169,14 +6169,21 @@ if (MODE === 'heights') {
      teeth (#148's control rule), and nothing here reads a clock. Guarded means ABSTAIN, not pass: a
      row under a knob prints NOT COMPARED and counts nothing in `bad`, which is why the guard list has
      to be the measured one and not a guess. */
-  const RECHALF = refRecord('heights', 'HALF-MOVE', 'num', [97.66, 31.21, 82.05, 95.47, 42.83, 61.97, 98.03, 33.82, 29.80, 95.62, 42.81, 64.45, 97.73, 32.57, 81.13, 95.34, 42.88, 63.32, 97.74, 23.55, 21.24, 95.58, 38.09, 54.26]);   // #318 re-keys 2 of 24, both on L3 (stepUp floor 38.08 -> 38.09, eyeUp floor 54.25 -> 54.26): the authored doorway lamp moved one cell, so two of the authored level's moved-half percentages shift by a hundredth of a percent. The other 22 are byte-identical.   // #19 take five re-keys TWO of 24, both on L1: pit floor 33.83 -> 33.82, stripes floor 29.81 -> 29.80 - hundredths of a percent, same mechanism the DEALT and CZBAND rows describe (a deferred pixel past FARB is quieter, so it diffs less against the frame one quantum away). The other 22 are byte-identical. #369 re-keys 4 of 24, all share-of-frame percentages: L2 tallRoom ceiling 98.86 -> 97.73 and L3's stripes floor 21.23 -> 21.24, border floor 95.41 -> 95.58, stepUp floor 38.07 -> 38.08. A dimmer ceiling diffs LESS against the frame one quantum above it, so the moved-half census of a tall room shrinks - the solver is unchanged, the pixels are quieter. The other 20 are byte-identical, and no level that does not author the fields moved.
+  const RECHALF = refRecord('heights', 'HALF-MOVE', 'num', [97.66, 31.21, 82.05, 95.47, 42.83, 61.97, 98.03, 33.82, 29.80, 95.62, 42.81, 64.45, 97.73, 32.57, 81.13, 95.34, 42.88, 63.32, 97.74, 23.55, 21.24, 95.58, 38.09, 54.26]);   // #375 needs NO re-key of any of these 24, and that green is the scope showing up in a record: every config this row counts is a FLOOR-half pixel, and the off-map light fix is applied to the CEILING half only (js/40_render.js, `&& !isF`). The FLOOR half is #385 and carries its own measurements there.   // #318 re-keys 2 of 24, both on L3 (stepUp floor 38.08 -> 38.09, eyeUp floor 54.25 -> 54.26): the authored doorway lamp moved one cell, so two of the authored level's moved-half percentages shift by a hundredth of a percent. The other 22 are byte-identical.   // #19 take five re-keys TWO of 24, both on L1: pit floor 33.83 -> 33.82, stripes floor 29.81 -> 29.80 - hundredths of a percent, same mechanism the DEALT and CZBAND rows describe (a deferred pixel past FARB is quieter, so it diffs less against the frame one quantum away). The other 22 are byte-identical. #369 re-keys 4 of 24, all share-of-frame percentages: L2 tallRoom ceiling 98.86 -> 97.73 and L3's stripes floor 21.23 -> 21.24, border floor 95.41 -> 95.58, stepUp floor 38.07 -> 38.08. A dimmer ceiling diffs LESS against the frame one quantum above it, so the moved-half census of a tall room shrinks - the solver is unchanged, the pixels are quieter. The other 20 are byte-identical, and no level that does not author the fields moved.
   const HALFK = ['tallRoom ceiling', 'pit floor', 'stripes floor', 'border floor', 'stepUp floor', 'eyeUp floor'];
   const HALFCOL = { tallRoom: 0, pit: 1, stripes: 2, border: 3, stepUp: 4, eyeUp: 5 };
   const FRAMEK = ['VW', 'VH', 'LAMPS', 'NOCAP'].filter(k => process.env[k]);
+  /* #375's floor, in 1/1000 of a light unit: one step of the 8-bit light multiply. The fixed deferred
+     copy delivers EXACTLY ambient on a ceiling pixel whose four taps are all off the map, so this is not
+     a tuned number; it is the arithmetic's own resolution. OFFMAPDEBT is the FLOOR half, which #375
+     scopes OUT (see js/40_render.js's `&& !isF`): measured on this tree at its worst level, so the row
+     goes red only if that half gets WORSE than the shipped behaviour it reproduces. */
+  const OFFMAPFLOOR = 2, OFFMAPDEBT = 1900;
+  let offDefRun = 0;
   for (let li = 0; li < run('LEVELS.length'); li++) {
     let ref = null, refF = null, flatMean = 0, farSeen = 0;
     const halfNow = [];                 // the recorded statistic, filled by the config loop below
-    const lgn = [0, 0, 0, 0, 0, 0, 0, 0, 0];    // LGCNT summed over this level: 3 sites x 3 families
+    const lgn = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];   // LGCNT summed over this level: 3 sites x 3 families, + #375's off-map run counts (9, 11) and worst delivered light above ambient (10, 12)
     console.log(`level ${li}`);
     for (const [name, poke, wantFloor, wantCeil, wantDecals, wantOutMap, wantDepth] of cfgs) {
       seedRng(4242 + li * 31);
@@ -6193,7 +6200,7 @@ if (MODE === 'heights') {
          legitimately redraws rows the moment a face's z span changes (a taller ceiling retiles the
          wall it caps, including the rows below the eye line) and counting that as the floor solver
          having moved would blame the wrong pass. */
-      run('LGCNT = new Int32Array(9);');      // #21: count what BOTH ground renders of this config use
+      run('LGCNT = new Int32Array(LG_NTOT);');      // #21: count what BOTH ground renders of this config use
       run('renderWorld()');
       const BW = run('BW'), BH = run('BH'), hInt = run('Math.round(horizon)'), n = BW * BH;
       const full = new Uint32Array(run('px'));
@@ -6202,8 +6209,10 @@ if (MODE === 'heights') {
       run(ZOFF);
       // #21: disarm and fold this config's ground-light counts into the level's total
       {
-        const c = run('(()=>{const c=LGCNT;LGCNT=null;return c?[c[0],c[1],c[2],c[3],c[4],c[5],c[6],c[7],c[8]]:[0,0,0,0,0,0,0,0,0]})()');
+        const c = run('(()=>{const c=LGCNT;LGCNT=null;return c?Array.from(c):[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]})()');
         for (let q = 0; q < 9; q++) lgn[q] += c[q];
+        lgn[9] += c[9]; lgn[11] += c[11]; lgn[13] += c[13];          // #375: off-map pixels RUN, summed
+        for (const q of [10, 12, 14]) if (c[q] > lgn[q]) lgn[q] = c[q];   // and the WORST light delivered
       }
       const cur = new Uint32Array(run('px'));
       const reS = run('({bad:reSolveBad,off:gndOffMap})');   // this ground pass only, not the renderWorld before it
@@ -6406,10 +6415,12 @@ if (MODE === 'heights') {
       s.push([castRayDist(P.x,P.y,Math.cos(a),Math.sin(a),FARB*4).dist,a]);}
       s.sort((u,v)=>v[0]-u[0]);return s.slice(0,4).map(u=>[u[0],u[1]])})()`);
     for (const [dY, yaw] of lgy) {
-      run('LGCNT = new Int32Array(9);');
+      run('LGCNT = new Int32Array(LG_NTOT);');
       run(`P.ang = ${yaw}; P.pitch = 0; P.z = floorAt(P.x, P.y);` + VMREST + 'renderWorld()');
-      const c = run('(()=>{const c=LGCNT;LGCNT=null;return c?[c[0],c[1],c[2],c[3],c[4],c[5],c[6],c[7],c[8]]:[0,0,0,0,0,0,0,0,0]})()');
+      const c = run('(()=>{const c=LGCNT;LGCNT=null;return c?Array.from(c):[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]})()');
       for (let q = 0; q < 9; q++) lgn[q] += c[q];
+      lgn[9] += c[9]; lgn[11] += c[11]; lgn[13] += c[13];           // #375, same fold as the config loop
+      for (const q of [10, 12, 14]) if (c[q] > lgn[q]) lgn[q] = c[q];
       if (dY > FARBFAR) farSeen = Math.max(farSeen, dY);
     }
     /* One verdict per level over every render above. LIGHTCAP-LEAK is the fix: a ground or mirror pixel
@@ -6427,6 +6438,39 @@ if (MODE === 'heights') {
     if (lgFail) bad++;
     console.log(`  ${pad('lightcap', 9)} ${lgRun} ground light lookups (row ${lgn[0]}, deferred ${lgn[1]}, far band ${lgn[2]}${lgn[2] || lgn[5] ? '' : '; longest spawn ray ' + farSeen.toFixed(1) + ' m vs FARB ' + FARBFAR}), ` +
       `${lgSeen} above 1.0, ${lgLeak} of them DELIVERED to a pixel above the ceiling  ${lgFail ? 'FAIL' + lgFail : 'ok'}`);
+    /* #375 OFF-MAP LIGHT, per level. A ground pixel whose ray LANDED OFF THE LEVEL has no lamp of its
+       own. Until #375 the deferred copy gave it the light of the cell the row's walk last reached, at
+       ANY distance, and the set of rays that land off-map is bounded by the map's own side edges - which
+       along an axis are straight lines through the vanishing point - so the level's footprint drew as a
+       bright trapezoid with a one-pixel edge in the far ceiling (the level-0 cam1 seat, both arms in one
+       process: frame mean 52.7 with GNDOF off and 50.6 with it on, 18,035 px differing, all of them in
+       buffer rows 109..161, and the worst one-pixel luminance step inside that band 89.8 against 45.9).
+       The invariant is not a brightness number: a pixel a WHOLE CELL clear of the level has no bilinear
+       tap left in the field (offMapClear), so it must deliver ambient and nothing more. The floor is two
+       units of this counter's own 1/1000 quantization (the max is stored x1000 in an Int32Array), not a
+       tuned threshold: the fixed arithmetic delivers exactly 0.000 there,
+       and the same run with GNDOF=0 (js/40_render.js's A/B switch, JSDIR variant for this probe) prints
+       the borrowed cell's light here, which is how this row is seen to FAIL on the shipped behaviour.
+       Vacuity is a FAILURE, per site: a level whose pixels never left the map measured nothing. */
+    const offFail = [];
+    if (lgn[14] > OFFMAPFLOOR) offFail.push(' OFFMAP-LIGHT-CEILING');
+    if (lgn[12] > OFFMAPFLOOR) offFail.push(' OFFMAP-LIGHT-ROW');
+    if (lgn[10] > OFFMAPDEBT) offFail.push(' OFFMAP-DEBT-EXCEEDED');
+    if (!lgn[13] && !lgn[11]) offFail.push(' OFFMAP-VACUUM');
+    offDefRun += lgn[13];
+    if (offFail.length) bad++;
+    console.log(`  ${pad('offmap', 9)} CEILING ${(lgn[13] + lgn[11]).toLocaleString()} ground pixel(s) landed a whole cell clear of the level `
+      + `(deferred ${lgn[13].toLocaleString()}, row ${lgn[11]}), worst light delivered above ambient `
+      + `deferred ${(lgn[14] / 1000).toFixed(4)}, row ${(lgn[12] / 1000).toFixed(4)} (floor ${(OFFMAPFLOOR / 1000).toFixed(4)})`
+      + `${lgn[13] ? '' : ' - deferred ceiling site unrun on this level'}`
+      + ` | FLOOR-half debt ${lgn[9].toLocaleString()} px, worst ${(lgn[10] / 1000).toFixed(4)} (debt floor ${(OFFMAPDEBT / 1000).toFixed(4)}, #385)`
+      + `${offFail.length ? '  FAIL' + offFail.join('') : lgn[10] ? '  ok (floor half carries the #385 debt)' : '  ok'}`);
+  }
+  /* The site #375 actually fixed has to have run SOMETHING, somewhere: a per-level 0 is a level with no
+     long sight line, but four of those means the row has stopped measuring the copy it is about. */
+  if (!offDefRun) {
+    console.log('  ' + pad('offmap', 9) + ' FAIL OFFMAP-DEFERRED-UNRUN: no level painted a deferred ceiling pixel clear of the map, so no frame exercised the fixed path');
+    bad++;
   }
   console.log(bad ? `heights: ${bad} config(s) FAILED` : 'heights: all configs ok');
   process.exit(bad ? 1 : 0);
@@ -9320,6 +9364,92 @@ if (MODE === 'play') {
   }
   console.log(bad ? bad + ' loop states threw' : 'gameplay loop: every state ran clean');
 }
+if (MODE === 'fixtures') {
+  /* #400: are the walls actually decorated, and is the DECORATION the thing that is not a wash?
+     The issue's criterion is "no visible wall face is one uninterrupted repeat from floor to
+     ceiling", which is a statement about GEOMETRY the generator wrote, so it is checkable without
+     rendering: walk every straight wall face line, and every run of it at least FIX_RUN_MIN metres
+     long must carry a fixture. Two failures this can see and the frame mean cannot:
+       - a pass that paints a corridor instead of a doorway (the #403 review finding: a "neck" is
+         also the definition of a straight corridor cell, so DOOR tiled every corridor and ate the
+         budget the long-run pass needed - this reads the kind histogram for exactly that);
+       - a fixture texture whose alpha got written by its own age pass, i.e. a translucent slab
+         rather than a thing bolted to the wall. Read the alpha channel off the finished texture.
+     Rows are per level; the deal is seeded so the counts are reproducible across processes. */
+  const N = run('MAP.w'), RUNMIN = run('FIX_RUN_MIN');
+  const kinds = ['DOOR', 'PIPE', 'STRIPE', 'VENT'];
+  let bad = 0;
+  /* alpha census: what fraction of the finished patch actually covers the wall */
+  const cov = run(`(()=>{const o={};for(const k of ['DOOR','PIPE','STRIPE','VENT']){const t=WFIX[k];
+    let op=0,se=0,tr=0,sum=0;for(let i=0;i<t.data.length;i++){const a=t.data[i]>>>24;
+      sum+=a; if(!a)tr++; else if(a>250)op++; else se++;}
+      o[k]=[tr/t.data.length, op/t.data.length, sum/255/t.data.length];}return o})()`);
+  console.log('fixtures: #400 wall decor - the issue criterion is a geometry claim, so it is walked, not rendered;'
+    + ' every straight face line of >= ' + RUNMIN + ' m must carry one');
+  for (const k of kinds) {
+    const c = cov[k];
+    console.log('  ' + k.padEnd(7) + ' alpha: ' + (c[0] * 100).toFixed(1) + '% transparent, '
+      + (c[1] * 100).toFixed(1) + '% opaque, mean ' + c[2].toFixed(2)
+      + (k === 'PIPE' && c[0] < 0.2 ? '   << THE WASH WROTE OPACITY: a pipe run is a slab' : ''));
+    if (k === 'PIPE' && c[0] < 0.2) bad++;
+  }
+  for (let L = 0; L < run('LEVELS.length'); L++) {
+    seedRng(1000 + L * 97);
+    run(`S.mode="play"; S.locked=false; startLevel(${L}, true);`);
+    /* the long-run walk runs INSIDE the game context: one vm hop per cell would be 4 x 24 x 24 x 4
+       round trips per level, and a probe that takes a minute per level does not get run. */
+    const r = run(`(()=>{const N=MAP.w, cell=MAP.cell, DX=[1,0,-1,0], DY=[0,1,0,-1];
+      const op=(x,y)=>x>0&&y>0&&x<N-1&&y<N-1&&cell[y*N+x]===0;
+      const wl=(x,y)=>x>=0&&y>=0&&x<N&&y<N&&cell[y*N+x]!==0;
+      const P=[];for(const f of DECOR)P.push([f.side, f.side===1?f.x:f.y, f.side===1?f.y:f.x]);
+      let runs=0, bare=0;
+      for(let d=0;d<4;d++){const ax=DX[d]!==0;let a=0,b=0;
+        for(a=1;a<N-1;a++){let len=0,at=0;
+          for(b=1;b<N-1;b++){
+            const gx=ax?a:b, gy=ax?b:a, ok=op(gx,gy)&&wl(gx+DX[d],gy+DY[d]);
+            if(!ok){
+              if(len>=FIX_RUN_MIN){runs++;
+                const plane=(ax?gx+DX[d]:gy+DY[d])+0.5, side=ax?1:2;
+                const has=P.some(e=>e[0]===side&&Math.abs(e[1]-plane)<0.01&&e[2]>=at+0.5&&e[2]<=b-0.5);
+                if(!has)bare++;}
+              len=0;at=0;continue;}
+            if(!len)at=b;len++;}
+          if(len>=FIX_RUN_MIN){runs++;
+            const gx=ax?a:b-1, gy=ax?b-1:a, plane=(ax?gx+DX[d]:gy+DY[d])+0.5, side=ax?1:2;
+            if(!P.some(e=>e[0]===side&&Math.abs(e[1]-plane)<0.01&&e[2]>=at+0.5&&e[2]<=b-0.5))bare++;}}}
+      const t={};for(const k of ['DOOR','PIPE','STRIPE','VENT'])t[k]=0;
+      for(const f of DECOR)for(const k of ['DOOR','PIPE','STRIPE','VENT'])if(f.tex===WFIX[k])t[k]++;
+      /* THE #403 FINDING, AS A ROW: a DOOR may not sit on a cell whose passage keeps going. For a
+         face on an x-plane the air cell is the one the face looks into, at (gx+1, gy); a y-plane
+         face looks into (gx, gy+1). From there the passage axis is the OTHER axis, and a cell that
+         is narrow along it with a narrow cell on both sides is a corridor, not a doorway. */
+      let cont=0;
+      for(const f of DECOR){ if(f.tex!==WFIX.DOOR)continue;
+        const gx=f.side===1?(f.x|0):(f.x|0), gy=f.side===1?(f.y|0):((f.y|0)+1);
+        const ax=f.side===1?gx+1:gx, ay=f.side===1?gy:gy+1;
+        if(!op(ax,ay))continue;
+        const we=op(ax-1,ay)&&op(ax+1,ay), ns=op(ax,ay-1)&&op(ax,ay+1);
+        if(we===ns)continue;
+        const c=(x,y,cross)=>op(x,y)&&!op(x+DX[cross],y+DY[cross])&&!op(x-DX[cross],y-DY[cross]);
+        if(we){ if(c(ax,ay,1)&&c(ax+1,ay,1)&&c(ax-1,ay,1))cont++; }
+        else  { if(c(ax,ay,0)&&c(ax,ay+1,0)&&c(ax,ay-1,0))cont++; }
+      }
+      const t2=t;return [runs,bare,t2,MAP.fixCount,cont]})()`);
+    const [runs, bare, tally, nFix, cont] = r;
+    const tot = kinds.reduce((s, k) => s + tally[k], 0);
+    const dom = tally.DOOR > tot * 0.6;
+    console.log('  L' + L + '  fixCount ' + String(nFix).padStart(3) + '  '
+      + kinds.map(k => k + ' ' + String(tally[k]).padStart(2)).join('  ')
+      + '  | long runs ' + String(runs).padStart(3) + ', bare ' + String(bare).padStart(3)
+      + '  | DOOR on a continuing passage ' + cont
+      + '  ' + (runs && bare / runs > 0.25 ? '<< 1 in 4 long walls is still one flat repeat' : ''));
+    if (!tot) { console.log('     << NOTHING PLACED: the whole feature is inert on this deal'); bad++; }
+    if (runs && bare / runs > 0.25) bad++;
+    if (cont) { console.log('     << A DOOR IS PAINTED DOWN A CORRIDOR: the neck test is not separating a doorway from a passage (#403)'); bad++; }
+  }
+  console.log(bad ? 'FIXTURES ' + bad + ' FAILURES - a long wall is still bare, a kind has become a wash,'
+    : 'FIXTURES ok - every long wall run carries something, no kind is a wash, no fixture is a slab');
+}
 if (MODE === 'decal') {
   // ground decals used to sample texel (0,0) and vanish; this counts what actually reaches the floor
   run('S.mode="play"; S.locked=false; startLevel(0, true);');
@@ -10462,11 +10592,7 @@ if (MODE === 'bands') {
      across take four because the pixels the seam A/B compares are shaded by the deferred path; L0's did
      not move at all, which is the control that says the oracle is still measuring the seam and not this
      change.) */
-  const RECSEAM = refRecord('bands', 'SEAM-FRAME', 'md5', ['3a78e385e4d719f8aafb67752d2d6549', '83b293ba6c312af0c392bdfba80f505b', '5b964a868a170053e3a095b33e9679bf', '5609f917e55acb8f72378979cf6a36e9']);   // #376 re-keys ALL FOUR: the view model stopped multiplying the room's tint into its own pixels, so the
-  // resting rifle sitting inside these frames is a few units cooler where the walls are rust and the same
-  // steel everywhere. SEAM=1 vs SEAM=0 still moves 13608 / 10689 / 12551 / 13510 px, one and the same set of
-  // counts as the ones recorded below, so the seam rows measure exactly what they measured before the move.
-  // #19 take five re-keys L1-L3 (L0's frame held): the frames the lip rows are measured on are now shaded past FARB the way the row fill shades them. SEAM=1 vs SEAM=0 still moves 10689 / 12551 / 13510 px against L0's 13608, so the seam rows themselves did not weaken. #369 re-keys L2 and L3 (the frames the lip rows were measured on carry the changed ceiling material and the authored biases; SEAM=1 vs SEAM=0 still moves 12551 / 13552 px, so the seam rows themselves did not weaken). L0 and L1 held. #19 take four: L0's frame held and L1-L3 moved - again, the three generated seats are the ones whose frame reaches past the map edge
+  const RECSEAM = refRecord('bands', 'SEAM-FRAME', 'md5', ['3a78e385e4d719f8aafb67752d2d6549', '179ce8b7f5cd8df9c790926ce1cc00d2', 'd17716aaa9dda6a0705ab129cf4060e3', '5609f917e55acb8f72378979cf6a36e9']);   // #400 re-keys L1 ONLY (bb692a87 -> d8842929). These are the frames the lip rows are measured on, and the row's ORACLE is not this hash but the SEAM=1 vs SEAM=0 pixel count, which still moves 13608 / 10689 / 12551 / 13510 px on this tree - re-recording the frame has not weakened the row that can fail a build with no seam term. L0, L2 and L3 hold to the byte here even though fixtures are on all four levels: this camera's frame is the one where the archive's pipework lands on a face the lip rows read, so the move is scoped by the camera, not by the renderer.   // #375 re-keys L1 and L2 and leaves L0 and L3 at their shipped bytes. These are the frames the lip rows are measured on, and the two that moved are the two whose SEAM=1 frame reaches past the level's own edge in the CEILING half: an off-map ceiling pixel now samples the light field where its ray landed (taps off the map read 0) instead of taking the lamp of the cell the row's walk last reached, so the far ceiling past the boundary reads ambient and the wedge outline goes. L3 holding is the scope's own control - the authored level's ceiling geometry did not change, and its FLOOR-half off-map pixels are the #385 debt this change deliberately does not touch. SEAM=1 vs SEAM=0 still moves 13608 / 10689 / 12551 / 13510 px, so the seam rows themselves did not weaken. #19 take five re-keys L1-L3 (L0's frame held): the frames the lip rows are measured on are now shaded past FARB the way the row fill shades them. SEAM=1 vs SEAM=0 still moves 10689 / 12551 / 13510 px against L0's 13608, so the seam rows themselves did not weaken. #369 re-keys L2 and L3 (the frames the lip rows were measured on carry the changed ceiling material and the authored biases; SEAM=1 vs SEAM=0 still moves 12551 / 13552 px, so the seam rows themselves did not weaken). L0 and L1 held. #19 take four: L0's frame held and L1-L3 moved - again, the three generated seats are the ones whose frame reaches past the map edge   // MAIN-SYNC #376 onto #400's tree re-keys all four frames, and the row's ORACLE is untouched: SEAM=1 vs SEAM=0 still moves 13608 / 10689 / 12551 / 13510 px on this tree, one and the same set the branch recorded, so these rows still measure the seam and not the re-key.
   // #303: the rows below are labelled by their own level index and every lip comes out of the GENERATED
   // grid, so a bound of 3 simply never asks the authored plan.
   for (let li = 0; li < run('LEVELS.length'); li++) {

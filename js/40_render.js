@@ -41,6 +41,15 @@ let LGCAP = 1;
 let LGCNT = null;                          // Int32Array(LG_N*3) or null; armed by tools/view.js only
 const LG_CEIL = 1;                          // the invariant's ceiling: what row init clamps to
 const LG_ROW = 0, LG_DEF = 1, LG_FAR = 2, LG_N = 3;
+/* #375: two more families, OFF-MAP LIGHT, and they are the same instrument for both copies of the
+   ground pixel body. Slots LG_OFFMAP / LG_ROWOFF count the ground pixels whose ray LANDED OFF THE
+   LEVEL (run count - a site that ran nothing is vacuity, not green); slots LG_OFFMAX / LG_ROWOFFMAX
+   hold, scaled by 1000, the LARGEST light above the ambient base that any of those pixels DELIVERED,
+   counted only where every bilinear tap is off the map (see offMapClear). The invariant is the one
+   #375's fix is made of: a pixel the level has no lamp for takes ambient, so that maximum is 0.
+   It is not 0 on the behaviour before the fix, which handed every off-map pixel the light of the cell
+   the row's walk last reached, at any distance. Scaled to an int because LGCNT is an Int32Array. */
+const LG_OFFMAP = 9, LG_OFFMAX = 10, LG_ROWOFF = 11, LG_ROWOFFMAX = 12, LG_OFFCEIL = 13, LG_OFFCMAX = 14, LG_NTOT = 15;
 let G_TRI = false, G_GRIT = 0;                                  // derived from QUAL.rast
 /* #164: altitude reached the geometry and no pixels. A seam at the CREASE of every step the render
    ray crosses - the foot darkened, the far lip lifted - is the one cue that survives a dark room, so
@@ -386,7 +395,7 @@ let MIPAX = 1, MIPAR = 4;
    All of them are read once per row (the last one once per deferred pixel), never per pixel of a row, and
    none of them adds a THIRD copy of the ground pixel body: a switch shows up as a zero slope, a zero
    offset or one fewer load, not as a new loop. */
-let GJIT = 1, GLRP = 1, GNDAX = 1, AXMIN = 1.5, GLC = null, GNDFT = 1, GNDRO = 1, GNDFB = 1;
+let GJIT = 1, GLRP = 1, GNDAX = 1, AXMIN = 1.5, GLC = null, GNDFT = 1, GNDRO = 1, GNDFB = 1, GNDOF = 1;
 const GJITPX = 48;      // GJIT 1 keeps the mirror only where a cell is this many px wide or wider
 
 /* #19, TAKE THREE - THE FETCH. The two terms above are not what combs a plane, and neither is the mip
@@ -470,6 +479,17 @@ function buildLightRamp() {
       GLC[k + 11] = db - ub - wb + vb;                                     // clamped at the site.
     }
   }
+}
+
+/* #375: does this landing point have NO light tap left? The ground light field is a bilinear whose
+   taps are the four cells around the lattice point, and a tap off the map reads 0, so a pixel still
+   has a tap while EITHER axis has an in-map cell adjacent to it: cx in (-1, N+1) and cy in (-1, N+1).
+   Once either axis is a whole cell clear of the level every tap is off the map and the field is
+   exactly 0 - which is the assertion `heights` reads out of LG_OFFMAX / LG_ROWOFFMAX. Both axes are
+   tested on their own because a cell index is one number (AGENTS.md). Called only on off-map pixels,
+   never on the in-map path, so the shipped cost is the branch that skips it. */
+function offMapClear(cx, cy, N) {
+  return cx <= -1 || cx >= N + 1 || cy <= -1 || cy >= N + 1;
 }
 
 /* The mip for a ground pixel from the WORLD footprint of one pixel, given the two screen-axis
@@ -996,7 +1016,21 @@ function castGround(flash, fcR, fcG, fcB) {
              place of the per-cell MIRROR: a flip reverses the pattern inside the cell, so every boundary
              folds it, and a fold in perspective is a spoke (#19). GJIT 2 keeps the mirror for the A/B. */
           mir = mirOn ? (hash2(gx, gy) * 4) | 0 : 0;    // per-cell mirror, dropped in the far field
-        } else { gndOffMap++; lt = TINT_WHITE; li = 0; lr = lg = lb = base; ldr = ldg = ldb = lhr = lhg = lhb = 0; mir = 0; }
+        } else {
+          gndOffMap++; lt = TINT_WHITE; li = 0; lr = lg = lb = base; ldr = ldg = ldb = lhr = lhg = lhb = 0; mir = 0;
+          /* #375 census, ROW COPY. Read at the crossing, once, not per pixel: this branch zeroes the
+             light AND its three deltas, so every pixel until the next crossing keeps exactly this value
+             - which makes the site representative of the run of off-map pixels it starts, and that run
+             is what the wedge would be. The limitation is stated, not glossed: a future edit that left
+             this site at ambient and put light back in the DELTAS would not move the counter (the row's
+             ramp terms are covered by mip's gradient rows and by #21's census). */
+          if (cnt && !inMap && offMapClear(wx, wy, N)) {
+            cnt[LG_ROWOFF]++;
+            const om = Math.max(lr, lg, lb) - base;
+            const oi = om > 0 ? (om * 1000 + 0.5) | 0 : 0;
+            if (oi > cnt[LG_ROWOFFMAX]) cnt[LG_ROWOFFMAX] = oi;
+          }
+        }
         /* Only AIR columns have a floor and a ceiling: a solid column has no air, so its ceilAt is a
            fiction, and the void outside the map is today's flat ground - both mean "no plane of your
            own". Both axes are tested here even though inMap tested the index, because the index is
@@ -1434,6 +1468,59 @@ function groundPixel(x0, x1, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb
     vb = gMBase + gML2 + (gMA2 + gMD2 * fy) * fx + gMB2 * fy;
   lr = vr < gMBase ? gMBase : vr; lg = vg < gMBase ? gMBase : vg; lb = vb < gMBase ? gMBase : vb;
   mir = gMMir;
+  /* #375: A PIXEL WITH NO CELL STILL HAS A PLACE, and light belongs to the place, not to whichever cell
+     the row happened to walk last. `!own` means the ray left the level and met the plane in empty space.
+     What it took there was the light of the ANCHOR cell - the cell the row's walk reached at the row's own
+     distance - at full strength, with no ramp and no falloff: one lamp then lights the entire off-map half
+     of the ceiling plane, and the set of rays that land off-map is bounded by the map's own side edges,
+     which along an axis are straight lines through the vanishing point. So the level's footprint is drawn
+     on the ceiling as a bright trapezoid with a one-pixel straight edge at any distance - measured at the
+     level-0 cam1 seat as the brightest large region of the frame (both arms in one process: frame mean
+     52.7 with GNDOF off, 50.6 with it on, 18,035 px differing and every one of them in buffer rows
+     109..161; the issue's own control, zeroing this copy's light, removes the outline the same way).
+     The fix is not a new rule: it is the SAME field the row loop walks. buildLightRamp's patch is a
+     bilinear whose taps are cell light vectors and read 0 off the map, so the field is already 0 by the
+     time a ray crosses the boundary lattice line, and the last in-map column already ramps down to it.
+     The deferred copy only has to EVALUATE that field at the point it landed on instead of borrowing a
+     cell it never reached: the four lattice taps around (cx, cy), out-of-map taps 0, weights a convex
+     combination - which is also why this cannot exceed the LGCAP ceiling #21 counts above, since it is a
+     weighted mean of taps that are each already clamped. Math.floor, not |0: a lattice point at -1 is
+     OFF the map and truncation toward zero would call it cell 0 and extrapolate away from it (#19).
+     GNDOF 0 = the anchor's light as this shipped, so the wedge comes back for the A/B with one DEV.set.
+     THE CEILING HALF ONLY (`&& !isF`), and that is a measured scope, not a taste: the same rule applied
+     to the FLOOR half dims the far floor on the authored level - the L3 step-lip pair in `bands` falls
+     from mean |dL| 63.4 to 25.2, and the far floor it measures against from 57 to 38 - which is #203's
+     depth cue at a step, a different increment with its own gate. `heights`' offmap row prints that
+     half's worst delivered light as debt, so the number is in the tree rather than in a transcript
+     (#385). Do not fold the halves back together without re-running `bands` at the L3 camera. */
+  if (!own && GNDOF && !isF) {
+    const lta = MAP.lt;
+    lr = lg = lb = gMBase;
+    if (lta) {
+      const gx = Math.floor(cx), gy = Math.floor(cy), ux = cx - gx, uy = cy - gy;
+      for (let q = 0; q < 4; q++) {
+        const ix = gx + (q & 1), iy = gy + (q >> 1);
+        if (ix < 0 || iy < 0 || ix >= N || iy >= N) continue;      // a tap off the map reads 0
+        const w = (q & 1 ? ux : 1 - ux) * (q >> 1 ? uy : 1 - uy);
+        if (w <= 0) continue;
+        const j = iy * N + ix, j3 = j * 3;
+        if (j3 + 2 >= lta.length) continue;
+        let li = lm ? lm[j] : 0.4;
+        if (li > lgc) li = lgc;
+        lr += w * li * lta[j3] / 128; lg += w * li * lta[j3 + 1] / 128; lb += w * li * lta[j3 + 2] / 128;
+      }
+    }
+  }
+  /* #375 census, DEFERRED COPY - deliberately OUTSIDE the GNDOF gate above, so the A/B that puts the
+     wedge back makes this row go RED instead of measuring the fixed arithmetic either way. */
+  if (cnt && !own && offMapClear(cx, cy, N)) {
+    cnt[isF ? LG_OFFMAP : LG_OFFCEIL]++;   // the two halves are counted and maxed SEPARATELY: the
+    // ceiling half is fixed (#375) and the floor half is measured debt, so one number cannot carry both
+    const om = Math.max(lr, lg, lb) - gMBase;
+    const oi = om > 0 ? (om * 1000 + 0.5) | 0 : 0;
+    const sl = isF ? LG_OFFMAX : LG_OFFCMAX;
+    if (oi > cnt[sl]) cnt[sl] = oi;
+  }
   /* #19 take five: past FARB this pixel's own solve puts it in the band the ROW loop fills with the
      material's mean, so it is filled the same way here - see the gate in gndBuild. Everything below
      this line is the FETCH, and a far pixel runs none of it: no mip select, no mirror hash, no texel
@@ -1585,6 +1672,7 @@ function castWalls(flash, fcR, fcG, fcB) {
   const flR = S.flashCol[0] / 255, flG = S.flashCol[1] / 255, flB = S.flashCol[2] / 255;
   const flashK0 = flash;
   const dmax = GQ ? GQ.dmax : 13, dMask = DECAL_MASK, dGrid = DECAL_GRID;
+  const mMask = DECOR_MASK, mGrid = DECOR_GRID;        // #400 authored wall decor; one byte test per column
   const shm = SHADOW ? SH_HEAD : null;                      // #178 contact shadow
   for (let x = 0; x < BW; x++) {
     const cam = x * stepBase - 1;
@@ -1818,6 +1906,40 @@ function castWalls(flash, fcR, fcG, fcB) {
             (clampi((s & 255) * sa + (dst & 255) * (1 - sa))) |
             (clampi((s >> 8 & 255) * sa + (dst >> 8 & 255) * (1 - sa)) << 8) |
             (clampi((s >> 16 & 255) * sa + (dst >> 16 & 255) * (1 - sa)) << 16)) >>> 0;
+        }
+      }
+    }
+    /* #400: AUTHORED wall decor, painted with THIS FACE'S OWN LIGHT. That modulation is the whole
+       point of the block: the transient blit above composites the splat's RGB straight over the wall,
+       which is right for a bullet hole in soot and wrong for a thing standing in the room - it would
+       sit at full brightness in a corridor no lamp reaches, and the issue's "not a brighter square"
+       criterion is exactly that failure. So a fixture's albedo goes through lr/lg/lb and picks up the
+       same fog add the body rows used, and the fixture is clipped to the face's drawn span [ds, de],
+       so nothing here can paint the slab above a riser or the ceiling band. It is NOT on the transient
+       decal list: those fade (life defaults to 40) and the list evicts at 180 entries. */
+    if (mMask && mMask[my * N + mx]) {
+      const ml = mGrid[my * N + mx];
+      const wx = camX + rdx * perp, wy = camY + rdy * perp;
+      for (let q = 0; q < ml.length; q++) {
+        const mo = ml[q];
+        if (mo.side !== side + 1) continue;
+        const along = side === 0 ? wy - mo.y : wx - mo.x;
+        const u = along / (mo.hw * 2) + 0.5;
+        if (!(u >= 0 && u < 1)) continue;
+        const zT = mo.z + mo.hh, zB = mo.z - mo.hh;
+        const syTop = Math.max(ds, Math.ceil(horizon + (eyeZ - zT) * hpx));
+        const syBot = Math.min(de, Math.floor(horizon + (eyeZ - zB) * hpx));
+        const dt = mo.tex, mwx = dt.w, ih = 1 / (zT - zB);
+        for (let y = syTop; y <= syBot; y++) {
+          const zv = (eyeZ - ((y - horizon) / hpx) - zB) * ih;
+          if (!(zv >= 0 && zv < 1)) continue;
+          const s = dt.data[(zv * dt.h | 0) * mwx + (u * mwx | 0)], sa = (s >>> 24) / 255;
+          if (sa < 0.02) continue;
+          const i = y * BW + x, dst = px[i], ia = 1 - sa;
+          px[i] = (0xFF000000 |
+            (clampi(((s >> 16 & 255) * lb + fB) * sa + (dst >> 16 & 255) * ia) << 16) |
+            (clampi(((s >> 8 & 255) * lg + fG) * sa + (dst >> 8 & 255) * ia) << 8) |
+            clampi(((s & 255) * lr + fR) * sa + (dst & 255) * ia)) >>> 0;
         }
       }
     }
