@@ -2,6 +2,21 @@
 
 ### Changed
 
+- **The README's THE STACK frame is the level you can actually walk** (#388). The file on `main` was shot
+  on 2026-10-04, and two merged PRs have moved that level's spawn-seat picture since: #318 moved the
+  authored doorway lamp from the doorway cell (12.5, 9.5) one cell east to (13.5, 9.5) — it had been
+  standing in a wall jamb, where its collision ghost left ~0.34 m of passage and wedged a body in the
+  authored level's only connecting doorway — and #375 cancelled one lamp's borrowed light from the far
+  ceiling past the level's edge. The frame therefore showed a level that no longer exists. The seat is
+  the same one the caption names — (1.5, 2.5), heading 0.60, `?dev=1&seed=60`, 1440 × 763 — and the
+  caption's geometry claims re-read true: the `TECH` wall across the middle, the atrium floor above its
+  top edge, the `ROCK` 4.00 plane over it, 4 hostiles on the HUD. What a player sees differently: the
+  lamp now stands in the room and is visible through the doorway, and the frame decodes **42.89** mean
+  luma against the stale file's 55.81 — the mid landing the lamp lights is brighter, the far ceiling
+  that used to be lit by a lamp it never reached is darker, and the darker term is the larger one.
+  `flatparity`'s L3 spawn-seat pair is the same picture in hash form: `f95291bb61df29589e872d068e36d1ef`
+  (mean 28.0) before #318, `98c22412cc7da19fe5d7205fa637392f` (mean 36.0) on `main`, both measured here.
+  No reference, threshold or gate moved; `node tools/recap.js check` reads 0 failures of 28 rows.
 - **The title screen's jump/climb row stops printing its own separator as escape text** (#387). That row
   read `Space / E\u00b7Q` and `E up, Q down \u00b7 auto-steps one ledge`, twice on one line, while every
   other row in the same block separates with a real `·`. `\uXXXX` is a JavaScript string escape and has no
