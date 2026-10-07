@@ -100,13 +100,13 @@ const VM = { vy: 0, ang: 0, lag: 0, now: 0, t: 0 };
    a frame you cannot see into: at a median of 49 a hostile standing in a lit doorway is a rumour
    until it shoots. This is the light the pass was supplying, put back as one term on the room.
 
-   The term is a BLACK-POINT LIFT: v' = v * (1 - A/255) + A, i.e. [0,255] mapped onto [A,255]. It is
-   monotone and it vanishes at white, so it moves shadows far more than highlights - the exact
-   opposite of the clipped-contrast pass it replaces, which added the same +107 to a lamp core and to
-   the floor under it. At A = 22 a pixel at 40 gains 18 and a pixel at 220 gains 2; measured on one
-   RING TRANSPORT seat (n = 210,560 delivered pixels) the share above luma 224 moves 0.10% -> 0.11%, so
-   it buys its median without re-clipping the highlights the bright pass just un-clipped. What it costs,
-   stated: 8.6% of the absolute contrast range, a tenth of what the removed pass was taking off the top.
+   The term is a SHOULDered BLACK-POINT LIFT: below luma EXPOSE_T it is v' = v*(1 - A/T) + A - a
+   black-point lift that moves shadows far more than highlights, the exact opposite of the
+   clipped-contrast pass it replaces, which added the same +107 to a lamp core and to the floor under it
+   - and at or above EXPOSE_T it is the identity. At A = 22, T = 200 a pixel at 40 gains 19, a pixel at
+   150 gains 6, and a pixel at 200 or above gains nothing at all. What it costs, stated: on the lifted
+   range it gives up A/T = 11% of the contrast slope, a tenth of what the removed pass was taking off
+   the top, and it is flat above 200, so the top of the range stops compressing instead of compressing.
 
    One constant for all four levels - no per-level table, because applied to the measured pass-off
    medians it predicts 66 / 71 / 65 / 77, all inside the window - and it is weighted toward dark pixels,
@@ -125,7 +125,8 @@ const VM = { vy: 0, ang: 0, lag: 0, now: 0, t: 0 };
      canvas, so a lift here can never push a floor over the bright pass's knee. That ordering is what
      makes it safe, and it stops being safe if the term moves below the raster.
    DEV.set('expose', 0) is the A/B: the term off, everything else identical. */
-const EXPOSE_A = 22;             // the black point: added luma at v = 0, and 0 at v = 255
+const EXPOSE_A = 22;             // the black point: added luma at v = 0, and 0 at v = EXPOSE_T
+const EXPOSE_T = 200;            // the shoulder: at or above this luma the term is the identity
 const QUAL = [
   { name: 'PERFORMANCE', res: 0.34, min: 170, max: 430, bloom: false, grade: false, grain: 0, far: 15, dmax: 8, glow: 0, scan: 0.5, vec: 0, rast: 0, rigH: 0, expose: EXPOSE_A },
   { name: 'BALANCED', res: 0.47, min: 220, max: 760, bloom: true, grade: true, grain: 0.05, far: 22, dmax: 13, glow: 6, scan: 0.18, vec: 1, rast: 2, rigH: 300, expose: EXPOSE_A },
@@ -2183,6 +2184,52 @@ function drawBloom(q) {
   ctx.drawImage(bloomCv, 0, 0, DW, DH);
   ctx.restore();
 }
+/* ---- applying the exposure term (#377) ------------------------------------------
+   Two parts, and the second one is the whole reason this is not three lines of fillRect.
+
+   (1) A lifted COPY of the room at raster size: `multiply` by flat g, then `lighter` with flat A -
+       affine, so the copy is exactly v*g/255 + A with g = 255 - 255*A/EXPOSE_T.
+   (2) `lighten` that copy onto the frame. `lighten` is a per-channel MAX, so what the player gets is
+       v' = max(v, v*g/255 + A): the lift BELOW luma EXPOSE_T and the untouched pixel above it. The
+       two branches meet exactly at EXPOSE_T, so the curve is continuous - a shoulder, not a step.
+
+   Why the max and not just the affine pair: an affine lift is v' > v EVERYWHERE, so it moves the top
+   of the range too, and any A that buys the median pushes the pixels just under the clipping line over
+   it - the band that newly crosses luma 224 is 31A/(255-A) wide, so at A = 22 it is ~2.9 luma wide. On
+   the L3 lamp seat that band is a lamp-lit wall with a flat value in it, and the affine version measured
+   3.79% of the delivered frame above 224 against the bloom gate's 2% bound - the exposure row buying its
+   median by re-clipping the highlights the bright pass just un-clipped, which is exactly the failure
+   #377 says means the term is wrong and the bound is right. With the max, every pixel at or above
+   EXPOSE_T (200, under the 224 the gate measures) is BIT-IDENTICAL to the frame without the term, so the
+   term cannot add clipping at all; and because a max can only choose the original, it cannot darken one
+   either. Both bounds are structural rather than measured.
+
+   The copy is made from bufCv at raster size and upscaled bilinearly into the max, which costs one
+   downsample blit, two small flat fills and one upscale blit - no per-pixel loop and no GPU readback.
+   It is the pre-grade raster, within a few luma of the delivered value at these levels, so the shoulder
+   lands a few units below 200 on the graded frame; that direction is the safe one, since being under
+   EXPOSE_T means being lifted, never being clipped.
+   DEV.set('expose', 0) skips this whole function - the A/B the exposure rows are measured with. */
+let liftCv = null, liftCtx = null;
+function drawExposure(A) {
+  const T = EXPOSE_T;
+  if (!liftCv) { liftCv = document.createElement('canvas'); liftCtx = liftCv.getContext('2d', { alpha: false }); }
+  if (liftCv.width !== BW || liftCv.height !== BH) { liftCv.width = BW; liftCv.height = BH; }
+  const g = 255 - Math.round(255 * A / T);            // so v*g/255 + A crosses v at exactly v = T
+  liftCtx.setTransform(1, 0, 0, 1, 0, 0);
+  liftCtx.globalCompositeOperation = 'source-over';
+  liftCtx.drawImage(bufCv, 0, 0, BW, BH);
+  liftCtx.globalCompositeOperation = 'multiply';
+  liftCtx.fillStyle = 'rgb(' + g + ',' + g + ',' + g + ')';
+  liftCtx.fillRect(0, 0, BW, BH);
+  liftCtx.globalCompositeOperation = 'lighter';
+  liftCtx.fillStyle = 'rgb(' + A + ',' + A + ',' + A + ')';
+  liftCtx.fillRect(0, 0, BW, BH);
+  ctx.globalCompositeOperation = 'lighten';
+  ctx.drawImage(liftCv, 0, 0, BW, BH, 0, 0, DW, DH);
+  ctx.globalCompositeOperation = 'source-over';
+}
+
 /* ---- the glow's band gate (#221) ---------------------------------
    The disc a lamp draws is a SCREEN-space object, and until #221 it covered whatever pixels it
    landed on: a lamp standing on the datum painted additive light into the pixels of a pit a unit
@@ -2350,16 +2397,7 @@ function renderOverlay() {
      flat fills: `multiply` by (255-A)/255 is the gain, `lighter` with flat A is the offset, and the
      composed curve is v*(1-A/255)+A exactly. No `filter`, so the no-ctx.filter browser gets this
      picture rather than a game two stops darker. */
-  if (q.expose > 0) {
-    const eg = 255 - (q.expose | 0);
-    ctx.globalCompositeOperation = 'multiply';
-    ctx.fillStyle = 'rgb(' + eg + ',' + eg + ',' + eg + ')';
-    ctx.fillRect(0, 0, DW, DH);
-    ctx.globalCompositeOperation = 'lighter';
-    ctx.fillStyle = 'rgb(' + (q.expose | 0) + ',' + (q.expose | 0) + ',' + (q.expose | 0) + ')';
-    ctx.fillRect(0, 0, DW, DH);
-    ctx.globalCompositeOperation = 'source-over';
-  }
+  if (q.expose > 0) drawExposure(q.expose | 0);
   if (q.bloom && bloomCv) drawBloom(q);
   drawLightGlow(q);
   const U = DH / 900;
