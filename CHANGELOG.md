@@ -1,6 +1,31 @@
 ## [Unreleased]
 
-### Changed
+### Added
+
+- **A level now has something to shoot UP at** (#353). A tall ground-floor room used to sit next to a
+  raised room without ever touching it, so the tall air was scenery: on the CI deal 204-217 columns per
+  level measured 2 units of headroom and 3-6 bodies stood off the spawn band, but ONE of those 42 enemies
+  could be engaged from where the level starts. `authorVolume` now runs a fourth bounded pass after the
+  tall-room, raised-band and pit features: a reachable air cell whose air neighbour sits >= 2 floor quanta
+  higher gets its OWN ceiling raised to `CZ_AUTH_TALL`, at most 3 pairs per level and 5 cells apart, no
+  `Math.random` draw, and the same `mark/cut/rewind/keeps` undo as the other features — so a level grows a
+  mezzanine opening rather than a canyon. `cz` is the only write: `linkBoundaries()` derives `VB_BLOCK`
+  from the FLOOR step and never reads `cz`, and `bfsReach` never reads it either, so the riser still
+  refuses to be walked (you take the stairs) and no cell can be lost from the reachable set. One
+  already-placed body is then moved onto the pair's upper cell when nothing stands above it — same draws,
+  same enemy count, one grunt on the mezzanine. `tools/view.js alt` gates it: 5 / 5 / 8 overlook pairs and
+  2 / 1 / 1 enemy standing >= 0.50 m above tall air on levels 0 / 1 / 2, the upward shot HITS at t 0.58 and
+  the row goes red on all three levels under `OVERLOOK=off` (2 / 2 / 5 pairs and 1 / 0 / 0 enemies, which
+  are the pre-existing ladder-shaft pairs counted without the pass). Level 3 — THE STACK — is built from
+  `AUTHORED` and never runs the generator's passes, so it authors zero pairs and its row is a named KNOWN
+  row rather than a silent skip; the return shot DOWN is printed and not gated, because across a one-unit
+  step the downward flight meets #131's own-floor term at t ~ 0.97 before it reaches the boundary, and a
+  `CZ_DEF` block there would be crediting a slab. `flatparity`'s DEALT triples move on the two levels whose
+  dealt seat can see the new opening — L0 `20f65505 -> ccaf58c2`, its frame mean IDENTICAL at 55.7, and L1
+  `659b2fc2 -> 724968f0` at mean 78.3 -> 82.3 — while L2 and L3 are byte-identical and the two FLAT senses
+  (LOCK, PARITY) do not move on any of the four, which is what makes this a move in the authored volume and
+  not in the renderer; `tools/refs.lock` is re-keyed by `node tools/view.js refs --record` for it. The
+  `alt` GRID-CENSUS record does not move: the pass writes no floor, stair or step bit.
 
 - **The README's THE STACK frame is the level you can actually walk** (#388). The file on `main` was shot
   on 2026-10-04, and two merged PRs have moved that level's spawn-seat picture since: #318 moved the
