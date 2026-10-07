@@ -49,8 +49,7 @@ const LG_ROW = 0, LG_DEF = 1, LG_FAR = 2, LG_N = 3;
    #375's fix is made of: a pixel the level has no lamp for takes ambient, so that maximum is 0.
    It is not 0 on the behaviour before the fix, which handed every off-map pixel the light of the cell
    the row's walk last reached, at any distance. Scaled to an int because LGCNT is an Int32Array. */
-const LG_OFFMAP = 9, LG_OFFMAX = 10, LG_ROWOFF = 11, LG_ROWOFFMAX = 12, LG_OFFCEIL = 13, LG_OFFCMAX = 14,
-  LG_OFFLIFT = 15, LG_NTOT = 16;   // #375: the tall-ceiling LIFT charged to a pixel with no ceiling
+const LG_OFFMAP = 9, LG_OFFMAX = 10, LG_ROWOFF = 11, LG_ROWOFFMAX = 12, LG_OFFCEIL = 13, LG_OFFCMAX = 14, LG_NTOT = 15;
 let G_TRI = false, G_GRIT = 0;                                  // derived from QUAL.rast
 /* #164: altitude reached the geometry and no pixels. A seam at the CREASE of every step the render
    ray crosses - the foot darkened, the far lip lifted - is the one cue that survives a dark room, so
@@ -1427,7 +1426,7 @@ function groundPixel(x0, x1, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb
   const own = sx >= 0 && sy >= 0 && sx < N && sy < N;
   if (!own) { gndOffMap++; sx = ax; sy = ay; }
   const inMap = sx >= 0 && sy >= 0 && sx < N && sy < N, cIdx = sy * N + sx;
-  let lr, lg, lb, mir, liftChg = 0;   // #375: the ceiling lift an OFF-MAP pixel is NOT charged
+  let lr, lg, lb, mir;
   /* Light and jitter are functions of the CELL, not of the pixel: the row loop recomputes them at a
      crossing for exactly that reason, and here they are the same three loads plus one hash pair per cell
      change instead of per pixel. Keyed by the frame serial too, because the lightmap fades between
@@ -1520,7 +1519,6 @@ function groundPixel(x0, x1, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb
        makes the two copies agree on the same pixel. */
     const liftRow = plA - eyeZ > CEILHI ? Math.min(CEILLD, CEILG * (plA - eyeZ - CEILHI)) : 0;
     lr = lg = lb = gMBase - gMLift + liftRow;
-    liftChg = gMLift - liftRow;
     if (lta) {
       const gx = Math.floor(cx), gy = Math.floor(cy), ux = cx - gx, uy = cy - gy;
       for (let q = 0; q < 4; q++) {
@@ -1537,7 +1535,14 @@ function groundPixel(x0, x1, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb
     }
   }
   /* #375 census, DEFERRED COPY - deliberately OUTSIDE the GNDOF gate above, so the A/B that puts the
-     wedge back makes this row go RED instead of measuring the fixed arithmetic either way. */
+     wedge back makes this row go RED instead of measuring the fixed arithmetic either way.
+     No LIFT sub-figure lives here. One did, and it was VACUOUS: measured on the arm with the charge
+     restored (`lr = lg = lb = gMBase`, js/40_render.js:1522) it printed 0.0000 on all four levels while
+     that same arm moves cull's L0 lane and flatparity's L3 dealt frame to the byte - at these cameras
+     `pl` and `plA` carry the same lift, so the difference it counted is 0 by geometry whether or not the
+     term is fixed. Whatever counts this term must run where the two lifts differ, which is cull's poked
+     ceiling-step camera or flatparity's L3 dealt seat - i.e. the two LOCK rows above are the falsifiable
+     half, and a green census here proves nothing about it. */
   if (cnt && !own && offMapClear(cx, cy, N)) {
     cnt[isF ? LG_OFFMAP : LG_OFFCEIL]++;   // the two halves are counted and maxed SEPARATELY: the
     // ceiling half is fixed (#375) and the floor half is measured debt, so one number cannot carry both
@@ -1545,13 +1550,6 @@ function groundPixel(x0, x1, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb
     const oi = om > 0 ? (om * 1000 + 0.5) | 0 : 0;
     const sl = isF ? LG_OFFMAX : LG_OFFCMAX;
     if (oi > cnt[sl]) cnt[sl] = oi;
-    /* The LIFT half, counted apart: #392's row prints 0.000 whether or not THIS term is fixed, because
-       the lamp taps are zero off-map either way. This is the term the surviving wedge is made of, and
-       GNDOF=0 puts the whole of it back, so the same A/B reddens this row too. */
-    if (!isF) {
-      const lf = (liftChg * 1000 + 0.5) | 0;
-      if (lf > cnt[LG_OFFLIFT]) cnt[LG_OFFLIFT] = lf;
-    }
   }
   /* #19 take five: past FARB this pixel's own solve puts it in the band the ROW loop fills with the
      material's mean, so it is filled the same way here - see the gate in gndBuild. Everything below
