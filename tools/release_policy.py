@@ -81,7 +81,7 @@ def check_changelog(branch, changed, before, after, manifest):
         if match or branch == RESET_BRANCH:
             raise ValueError('reserved release branches must contain their release package')
         return
-    if branch == RESET_BRANCH and re.search(r'^## Unreleased\s*$', before, re.M):
+    if branch == RESET_BRANCH and re.search(r'^## (?:Unreleased|\[Unreleased\])\s*$', before, re.M):
         if after != RESET_TEXT or 'release.json' in touched:
             raise ValueError('the one-time reset must leave only the release-notes heading')
         return
@@ -99,7 +99,7 @@ def check_changelog(branch, changed, before, after, manifest):
     header = f'## [{match[1]}] - {date}\n'
     if not after.startswith('# Changelog\n\n' + header):
         raise ValueError('the newest changelog section must name this release and its date')
-    if re.search(r'^## Unreleased\s*$', after, re.M):
+    if re.search(r'^## (?:Unreleased|\[Unreleased\])\s*$', after, re.M):
         raise ValueError('Unreleased notes are no longer supported')
     old_sections = re.search(r'^## \[v', before, re.M)
     if old_sections and not after.endswith(before[old_sections.start():]):

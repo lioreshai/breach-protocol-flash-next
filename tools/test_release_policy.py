@@ -57,6 +57,7 @@ class ReleasePolicyTests(unittest.TestCase):
 
     def test_reset_is_once_only_and_has_no_historical_notes(self):
         policy.check_changelog(policy.RESET_BRANCH, ['CHANGELOG.md', 'release-policy.json'], '## Unreleased\nold notes', policy.RESET_TEXT, None)
+        policy.check_changelog(policy.RESET_BRANCH, ['CHANGELOG.md', 'release-policy.json'], '## [Unreleased]\nold notes', policy.RESET_TEXT, None)
         with self.assertRaises(ValueError):
             policy.check_changelog(policy.RESET_BRANCH, ['CHANGELOG.md'], policy.RESET_TEXT, policy.RESET_TEXT, None)
 
