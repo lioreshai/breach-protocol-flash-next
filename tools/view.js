@@ -368,6 +368,10 @@ function boot(knob, seed) {
      crossing shades from the raw, unclamped lightmap - so `heights`' LIGHTCAP rows can be SEEN to
      fail. Shading only; no geometry, no lamp, no seed moves. */
   if (process.env.NOCAP === '1') run('LGCAP = Infinity;');
+  /* OVERLOOK=off is #353's CONTROL SWITCH: it disables the pairing pass at AUTHOR time and nothing
+     else - same rooms, same draws, same bands, no lamp and no seed moves - so alt's overlook row can
+     be SEEN to fail rather than assumed to be load-bearing (js/20_level.js overlookEnabled). */
+  if (process.env.OVERLOOK === 'off') run('overlookEnabled = function () { return false; };');
 }
 boot();
 function newTex(t) { return { w: t.w, h: t.h, data: new Uint32Array(t.data), dbg: t.dbg }; }
@@ -780,6 +784,71 @@ if (MODE === 'alt') {
           if (len >= 3 && walk) { stairs++; stairCells += len; }
         }
       }
+      /* #353's overlook census. A tall column is only worth having if something stands ABOVE it: the
+         pair is an air cell whose own ceiling was authored above CZ_DEF with an air neighbour at least
+         2 quanta (0.50 m) up. Both sides have to be reachable - an overlook onto a sealed pocket is
+         scenery, which is the defect this issue was filed about (main authors 204-217 tall columns and
+         2/2/5/0 of them sit beside a band). The shot is the game's own hitscan, aimed from the low
+         cell's eye at a body on the upper cell, then BACK with the eye on the upper band, then the
+         same two flights with the tall ceiling taken back to CZ_DEF: the control arm is what credits
+         the CEILING and not the geometry, because [max floor, min ceiling] at CZ_DEF against a 1-unit
+         step is [1.00, 1.00] - nothing. */
+      let ovl = 0, ovlAt = null, ovlEnemy = 0;
+      for (let y = 1; y < N - 1; y++) for (let x = 1; x < N - 1; x++) {
+        const i = y * N + x;
+        if (cell[i] || MAP.cz[i] <= CZ_DEF) continue;
+        for (let d = 0; d < 4; d++) {
+          const nx = x + DIRX[d], ny = y + DIRY[d];
+          if (nx < 1 || ny < 1 || nx >= N - 1 || ny >= N - 1) continue;
+          const j = ny * N + nx;
+          if (cell[j] || dBand[j] < 0 || dBand[i] < 0) continue;
+          if ((fz[j] - fz[i]) * ZQ < 0.5) continue;
+          ovl++; if (!ovlAt) ovlAt = [x, y, nx, ny, fz[i], fz[j]];
+          break;
+        }
+      }
+      for (const e of ENEMIES) {
+        const ex = e.x | 0, ey = e.y | 0;
+        for (let d = 0; d < 4; d++) {
+          const nx = ex + DIRX[d], ny = ey + DIRY[d];
+          if (nx < 1 || ny < 1 || nx >= N - 1 || ny >= N - 1 || cell[ny * N + nx]) continue;
+          if ((fz[ey * N + ex] - fz[ny * N + nx]) * ZQ >= 0.5 && MAP.cz[ny * N + nx] > CZ_DEF) { ovlEnemy++; break; }
+        }
+      }
+      const ovlShot = ovlAt ? (() => {
+        const lx = ovlAt[0] + 0.5, ly = ovlAt[1] + 0.5, ux = ovlAt[2] + 0.5, uy = ovlAt[3] + 0.5;
+        const en = ENEMIES[0]; if (!en) return null;
+        const sv = { x: en.x, y: en.y, st: en.state, hp: en.hp };
+        const pv = { x: P.x, y: P.y, z: P.z };
+        const fire = (ax, ay, tx, ty) => {
+          P.x = ax; P.y = ay; P.z = floorAt(ax, ay); P.air = false; P.vz = 0; P.crouch = 0;
+          const oz = floorAt(ax, ay) + cfg.eye, tz = floorAt(tx, ty) + 0.5;
+          const ang = Math.atan2(ty - ay, tx - ax), dd = Math.hypot(tx - ax, ty - ay);
+          const r = hitscan(ang, (tz - oz) / dd, 20);
+          return { hit: r.enemy ? 1 : 0, band: r.band ? 1 : 0, wall: r.wall ? 1 : 0, t: +r.t.toFixed(2) };
+        };
+        /* STAND AT THE EDGE, both ways. The eye goes 0.35 of the way from the upper cell's centre
+           toward the low cell, and the same on the low side: at a CELL CENTRE the downward flight is
+           geometrically a floor slab (from an eye at f+1.50 to a chest at f+0.50 across 1.00 m the ray
+           meets its own floor plane at t 0.50, which is #131's floor term, not a ceiling), and the row
+           would then be crediting a slab for the overlook. Standing at the lip - which is what a player
+           does to shoot down a mezzanine - the flight clears its own floor before the boundary and the
+           only thing that can stop it is the low room's CEILING. That is the whole claim, so the aim
+           has to be the one the claim is about. */
+        const dxu = (lx - ux) * 0.35, dyu = (ly - uy) * 0.35;
+        const edx = ux + dxu, edy = uy + dyu;
+        en.state = 'idle'; en.hp = 1e6; en.dead = false;
+        en.x = ux; en.y = uy; const up = fire(lx, ly, ux, uy);
+        en.x = lx; en.y = ly; const dn = fire(edx, edy, lx, ly);
+        const cz0 = MAP.cz[ (ovlAt[1] | 0) * N + (ovlAt[0] | 0) ];
+        MAP.cz[ovlAt[1] * N + ovlAt[0]] = CZ_DEF; linkBoundaries();
+        en.x = ux; en.y = uy; const upB = fire(lx, ly, ux, uy);
+        en.x = lx; en.y = ly; const dnB = fire(edx, edy, lx, ly);
+        MAP.cz[ovlAt[1] * N + ovlAt[0]] = cz0; linkBoundaries();
+        en.x = sv.x; en.y = sv.y; en.state = sv.st; en.hp = sv.hp; en.dead = false;
+        P.x = pv.x; P.y = pv.y; P.z = pv.z;                    // alt's own rows read P as the seat
+        return { up, dn, upB, dnB, at: ovlAt };
+      })() : null;
       const nBands = Object.keys(bands).length;
       let bandLink = 0, noLink = [];
       for (const k of Object.keys(bands)) if (+k !== 0) { if (linkIn[k]) bandLink++; else noLink.push(k); }
@@ -821,6 +890,7 @@ if (MODE === 'alt') {
         bfaces, badSpan, badAt, minSpan, maxSpan, bands, bandsN: MAP.bands, nBands, unreach, sealed,
         linkIn, blockedStep, stairs, stairCells, ladCells, bandLink, noLink, steps: MAP.steps,
         headMax, headCols, runMax, runFloor, runTot, runs, reachUp, reachDown, reachOff, farReach,
+        ovl, ovlAt, ovlEnemy, ovlShot, auth: !!(LEVELS[${li}] && LEVELS[${li}].authored),
         spawnBand: floorAt(P.x, P.y), exitBand: floorAt(exitX, exitY) };
     })()`, ctxVm);
     console.log(`level ${li}  open ${r.open}  floors ${r.minF}..${r.maxF}  bands ${JSON.stringify(r.bands)}`);
@@ -866,6 +936,38 @@ if (MODE === 'alt') {
     // level that is multi-storey in MAP.fz and one that reads as a crawlway, and every one of them is
     // RED ON MAIN - main authors no CZ_TALL column, no cell below the datum, and no off-datum patch
     // larger than a single room.
+    /* #353: an OVERLOOK. Main authored tall air and bands and still had ONE of 42 off-band enemies
+       hittable from the seat, because no tall column stood under anything. This row is the difference
+       between a level that is multi-storey in MAP.fz and one where two bands can fight: the pair is
+       tall air on the low side of a boundary whose air neighbour is >= 0.50 m up, both sides reachable,
+       and a body standing on that upper cell. `OVERLOOK=off` re-runs the deal with the pairing pass
+       disabled (js/20_level.js overlookEnabled) and this row goes red - a row that has never been seen
+       to fail has not been tested. THE STACK authors its grid from a plan the pass never runs on, so
+       its row is a named KNOWN debt, not a silent skip. */
+    {
+      const S = r.ovlShot, at = r.ovlAt;
+      const atFz = a => (a[0] === undefined ? '-' : (at[4] === undefined ? '-' : at[4])) + ' -> ' + (at[5] === undefined ? '-' : at[5]);
+      const shotTxt = S ? `shot UP ${S.up.hit ? 'HITS at ' + S.up.t : 'misses (band ' + S.up.band + ', t ' + S.up.t + ')'} / `
+        + `DOWN from the lip ${S.dn.hit ? 'HITS at ' + S.dn.t : 'misses at t ' + S.dn.t + ' (its own floor plane, #131 - NOT the ceiling: this half is measured, not gated)'}`
+          : 'no pair to aim'
+        + (S ? `; CZ_DEF control: UP ${S.upB.hit ? 'STILL HITS - the ceiling is not what opens it' : 'blocked (band stop ' + S.upB.band + ' at t ' + S.upB.t + ')'} / `
+             + `DOWN ${S.dnB.hit ? 'still hits' : 'blocked at t ' + S.dnB.t} (t ${S.upB.t}/${S.dnB.t})` : '');
+      /* What this row GATES, and what it only measures. UP is gated: the shot leaves the low room's
+         eye and reaches a body one band up, and dies the moment that room's ceiling goes back to
+         CZ_DEF - the ceiling is what opens it. DOWN is PRINTED, not gated: across a one-unit step the
+         downward flight from the lip meets #131's own-floor term before it meets the boundary, so on
+         this geometry the return shot is stopped by the slab it stands on and NOT by the ceiling -
+         crediting a CZ_DEF block there would be vacuous, and a row that passes for the wrong reason is
+         the failure mode this repo has been bitten by repeatedly (#129, #189). Both CZ_DEF arms are
+         printed so the asymmetry is visible rather than asserted away. #353's downward half stays open. */
+      const credited = !!S && S.upB.hit === 0;
+      const ok = r.ovl >= 1 && r.ovlEnemy >= 1 && !!S && S.up.hit === 1 && credited;
+      (r.auth ? krow : row)(`L${li} an overlook: tall air under a body's floor`, ok,
+        `${r.ovl} overlook pair(s)${at ? ` (first ${at[0]},${at[1]} -> ${at[2]},${at[3]}, floors ` +
+        (atFz(at)) + ')' : ''}, ${r.ovlEnemy} enemy(s) stand on a band >= 0.50 m above tall air, ` +
+        `${r.unreach} unreachable. ${shotTxt}` +
+        (r.auth ? `  AUTHORED plan: genLevel's passes never run on level ${li}, so it authors no pair by that route` : ''));
+    }
     row(`L${li} a column you can stand up in (>=2 units)`, r.headCols >= 1,
       `${r.headCols} open column(s) measure >= 2 units from floorAt to ceilAt, tallest ${r.headMax.toFixed(2)}; ` +
       `a flat level reads exactly 1.00 there and a ladder shaft reaches 1.50, so 0 is the flat-world answer`);
