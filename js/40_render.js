@@ -1487,13 +1487,15 @@ function groundPixel(x0, x1, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb
      weighted mean of taps that are each already clamped. Math.floor, not |0: a lattice point at -1 is
      OFF the map and truncation toward zero would call it cell 0 and extrapolate away from it (#19).
      GNDOF 0 = the anchor's light as this shipped, so the wedge comes back for the A/B with one DEV.set.
-     THE CEILING HALF ONLY (`&& !isF`), and that is a measured scope, not a taste: the same rule applied
-     to the FLOOR half dims the far floor on the authored level - the L3 step-lip pair in `bands` falls
-     from mean |dL| 63.4 to 25.2, and the far floor it measures against from 57 to 38 - which is #203's
-     depth cue at a step, a different increment with its own gate. `heights`' offmap row prints that
-     half's worst delivered light as debt, so the number is in the tree rather than in a transcript
-     (#385). Do not fold the halves back together without re-running `bands` at the L3 camera. */
-  if (!own && GNDOF && !isF) {
+     BOTH HALVES (#385). This was the ceiling half only for one increment: applied to the FLOOR half the
+     same rule dims the far floor on the authored level - the L3 step-lip pair in `bands` falls from mean
+     |dL| 63.4 to 25.2 and the far floor it measures against from 57 to 38 in frame luminance - and that
+     step is #203's depth cue, so the halves were left different while the value question was open. It is
+     answered: past a level's own footprint there is no floor to walk on, so that pixel belongs to the
+     depth cue and not to the room, and a lamp 40 m back has no business lighting it. The step-lip contrast
+     is re-baselined from this build rather than held up by the artefact (`bands`' L3 lip rows and the
+     CHANGELOG carry the moved numbers). Do not re-light the far floor to recover a contrast figure. */
+  if (!own && GNDOF) {
     const lta = MAP.lt;
     lr = lg = lb = gMBase;
     if (lta) {
@@ -1512,10 +1514,11 @@ function groundPixel(x0, x1, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb
     }
   }
   /* #375 census, DEFERRED COPY - deliberately OUTSIDE the GNDOF gate above, so the A/B that puts the
-     wedge back makes this row go RED instead of measuring the fixed arithmetic either way. */
+     wedge back makes this row go RED instead of measuring the fixed arithmetic either way. Both halves
+     are counted and maxed SEPARATELY (#385): the fix is one term for both, but the two halves land on
+     different geometry and only this split shows a build that fixes one and not the other. */
   if (cnt && !own && offMapClear(cx, cy, N)) {
-    cnt[isF ? LG_OFFMAP : LG_OFFCEIL]++;   // the two halves are counted and maxed SEPARATELY: the
-    // ceiling half is fixed (#375) and the floor half is measured debt, so one number cannot carry both
+    cnt[isF ? LG_OFFMAP : LG_OFFCEIL]++;
     const om = Math.max(lr, lg, lb) - gMBase;
     const oi = om > 0 ? (om * 1000 + 0.5) | 0 : 0;
     const sl = isF ? LG_OFFMAX : LG_OFFCMAX;

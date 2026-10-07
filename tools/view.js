@@ -6169,16 +6169,19 @@ if (MODE === 'heights') {
      teeth (#148's control rule), and nothing here reads a clock. Guarded means ABSTAIN, not pass: a
      row under a knob prints NOT COMPARED and counts nothing in `bad`, which is why the guard list has
      to be the measured one and not a guess. */
-  const RECHALF = refRecord('heights', 'HALF-MOVE', 'num', [97.66, 31.21, 82.05, 95.47, 42.83, 61.97, 98.03, 33.82, 29.80, 95.62, 42.81, 64.45, 97.73, 32.57, 81.13, 95.34, 42.88, 63.32, 97.74, 23.55, 21.24, 95.58, 38.09, 54.26]);   // #375 needs NO re-key of any of these 24, and that green is the scope showing up in a record: every config this row counts is a FLOOR-half pixel, and the off-map light fix is applied to the CEILING half only (js/40_render.js, `&& !isF`). The FLOOR half is #385 and carries its own measurements there.   // #318 re-keys 2 of 24, both on L3 (stepUp floor 38.08 -> 38.09, eyeUp floor 54.25 -> 54.26): the authored doorway lamp moved one cell, so two of the authored level's moved-half percentages shift by a hundredth of a percent. The other 22 are byte-identical.   // #19 take five re-keys TWO of 24, both on L1: pit floor 33.83 -> 33.82, stripes floor 29.81 -> 29.80 - hundredths of a percent, same mechanism the DEALT and CZBAND rows describe (a deferred pixel past FARB is quieter, so it diffs less against the frame one quantum away). The other 22 are byte-identical. #369 re-keys 4 of 24, all share-of-frame percentages: L2 tallRoom ceiling 98.86 -> 97.73 and L3's stripes floor 21.23 -> 21.24, border floor 95.41 -> 95.58, stepUp floor 38.07 -> 38.08. A dimmer ceiling diffs LESS against the frame one quantum above it, so the moved-half census of a tall room shrinks - the solver is unchanged, the pixels are quieter. The other 20 are byte-identical, and no level that does not author the fields moved.
+  const RECHALF = refRecord('heights', 'HALF-MOVE', 'num', [97.66, 31.21, 82.05, 95.47, 42.83, 61.98, 98.03, 33.84, 29.82, 95.62, 42.81, 64.47, 97.73, 32.57, 81.13, 95.34, 42.88, 63.32, 97.74, 23.55, 21.24, 95.58, 38.09, 54.26]);   // #385 re-keys 4 of 24 — L0 eyeUp floor 61.97 -> 61.98, L1 pit floor 33.82 -> 33.84, L1 stripes floor 29.80 -> 29.82, L1 eyeUp floor 64.45 -> 64.47 — and the other 20 are byte-identical, which is the scope: this is the deferred copy's off-map FLOOR light, so only configs whose moved-half census is FLOOR pixels on a level with an unwalled edge within the sight line shift, and by hundredths of a percent because a DARKER deferred floor pixel differs LESS from the frame one quantum away.   // #375 needed NO re-key of these 24, and that green was the scope showing up in a record: the off-map light fix was applied to the CEILING half only (js/40_render.js, the old `&& !isF`); #385 is the FLOOR half.   // #318 re-keys 2 of 24, both on L3 (stepUp floor 38.08 -> 38.09, eyeUp floor 54.25 -> 54.26): the authored doorway lamp moved one cell, so two of the authored level's moved-half percentages shift by a hundredth of a percent. The other 22 are byte-identical.   // #19 take five re-keys TWO of 24, both on L1: pit floor 33.83 -> 33.82, stripes floor 29.81 -> 29.80 - hundredths of a percent, same mechanism the DEALT and CZBAND rows describe (a deferred pixel past FARB is quieter, so it diffs less against the frame one quantum away). The other 22 are byte-identical. #369 re-keys 4 of 24, all share-of-frame percentages: L2 tallRoom ceiling 98.86 -> 97.73 and L3's stripes floor 21.23 -> 21.24, border floor 95.41 -> 95.58, stepUp floor 38.07 -> 38.08. A dimmer ceiling diffs LESS against the frame one quantum above it, so the moved-half census of a tall room shrinks - the solver is unchanged, the pixels are quieter. The other 20 are byte-identical, and no level that does not author the fields moved.
   const HALFK = ['tallRoom ceiling', 'pit floor', 'stripes floor', 'border floor', 'stepUp floor', 'eyeUp floor'];
   const HALFCOL = { tallRoom: 0, pit: 1, stripes: 2, border: 3, stepUp: 4, eyeUp: 5 };
   const FRAMEK = ['VW', 'VH', 'LAMPS', 'NOCAP'].filter(k => process.env[k]);
   /* #375's floor, in 1/1000 of a light unit: one step of the 8-bit light multiply. The fixed deferred
      copy delivers EXACTLY ambient on a ceiling pixel whose four taps are all off the map, so this is not
-     a tuned number; it is the arithmetic's own resolution. OFFMAPDEBT is the FLOOR half, which #375
-     scopes OUT (see js/40_render.js's `&& !isF`): measured on this tree at its worst level, so the row
-     goes red only if that half gets WORSE than the shipped behaviour it reproduces. */
-  const OFFMAPFLOOR = 2, OFFMAPDEBT = 1900;
+     a tuned number; it is the arithmetic's own resolution. #385 put the FLOOR half under the SAME floor:
+     an off-map floor pixel now evaluates the light field where its ray landed, exactly as the ceiling
+     half has since #375, so a pixel a whole cell clear of the level has no tap left to borrow and reads
+     ambient. The 1.900 debt floor that #375 left for that half is gone rather than widened — the fixed
+     arithmetic delivers 0.0000 at every level, and `GNDOF=0` (the A/B in js/40_render.js) puts the
+     borrowed lamp back and turns both halves red, which is how these two rows are seen to fail. */
+  const OFFMAPFLOOR = 2;
   let offDefRun = 0;
   for (let li = 0; li < run('LEVELS.length'); li++) {
     let ref = null, refF = null, flatMean = 0, farSeen = 0;
@@ -6455,7 +6458,7 @@ if (MODE === 'heights') {
     const offFail = [];
     if (lgn[14] > OFFMAPFLOOR) offFail.push(' OFFMAP-LIGHT-CEILING');
     if (lgn[12] > OFFMAPFLOOR) offFail.push(' OFFMAP-LIGHT-ROW');
-    if (lgn[10] > OFFMAPDEBT) offFail.push(' OFFMAP-DEBT-EXCEEDED');
+    if (lgn[10] > OFFMAPFLOOR) offFail.push(' OFFMAP-LIGHT-FLOOR');
     if (!lgn[13] && !lgn[11]) offFail.push(' OFFMAP-VACUUM');
     offDefRun += lgn[13];
     if (offFail.length) bad++;
@@ -6463,8 +6466,8 @@ if (MODE === 'heights') {
       + `(deferred ${lgn[13].toLocaleString()}, row ${lgn[11]}), worst light delivered above ambient `
       + `deferred ${(lgn[14] / 1000).toFixed(4)}, row ${(lgn[12] / 1000).toFixed(4)} (floor ${(OFFMAPFLOOR / 1000).toFixed(4)})`
       + `${lgn[13] ? '' : ' - deferred ceiling site unrun on this level'}`
-      + ` | FLOOR-half debt ${lgn[9].toLocaleString()} px, worst ${(lgn[10] / 1000).toFixed(4)} (debt floor ${(OFFMAPDEBT / 1000).toFixed(4)}, #385)`
-      + `${offFail.length ? '  FAIL' + offFail.join('') : lgn[10] ? '  ok (floor half carries the #385 debt)' : '  ok'}`);
+      + ` | FLOOR ${(lgn[9] + lgn[11]).toLocaleString()} px, worst deferred ${(lgn[10] / 1000).toFixed(4)}, row ${(lgn[12] / 1000).toFixed(4)} (floor ${(OFFMAPFLOOR / 1000).toFixed(4)}, both halves #385)`
+      + `${offFail.length ? '  FAIL' + offFail.join('') : '  ok'}`);
   }
   /* The site #375 actually fixed has to have run SOMETHING, somewhere: a per-level 0 is a level with no
      long sight line, but four of those means the row has stopped measuring the copy it is about. */
@@ -10378,6 +10381,18 @@ if (MODE === 'bands') {
      stays KNOWN for the #203 debt (a light-independent riser mechanism - same tension as the body
      rim) and still goes hard-red on any build removing more edge than this kernel does. */
   const CON_FLOOR = +(process.env.CON_FLOOR || 0.36);
+  /* #385 re-baselines the AUTHORED level's face-lip floor and leaves the generated three at 0.36, so
+     the three levels whose off-map floor light did not change keep the gate they were measured on.
+     On L3 the pair's far sample is the floor past the level's own edge, and until now that floor took
+     the lamp of the cell the row's walk last reached: the step scored 57% with 31.9 mean |dL| of which
+     the far half was borrowed. With the off-map floor reading ambient the same pair measures 35% and
+     mean |dL| 25.2 (far floor frame luminance 57 -> 38, near side unchanged). The floor goes one notch
+     under the new worst, exactly as it moved under #203 and #206, so the row stays KNOWN for the #203
+     debt and still fails hard at 0% on any build that draws no step at all. The value call is the
+     issue's: a gate that only holds because a pixel borrows a lamp it never reached is measuring the
+     artefact (owner note on #385, 2026-10-07). */
+  const CON_FLOOR_AUTH = +(process.env.CON_FLOOR || 0.32);
+  const AUTHLV = run('LEVELS.length') - 1;      // #314: the last entry is the authored plan
   // the same rule for the seam band's depth: mean(B-A) over the band, over mean(A) over that band.
   // Measured 1.13-1.45 on all six lips of the branch with the term on, 0.00 with SEAM=0.
   const DROP_CON_MIN = +(process.env.DROP_CON_MIN || 0.45);
@@ -10411,7 +10426,7 @@ if (MODE === 'bands') {
      across take four because the pixels the seam A/B compares are shaded by the deferred path; L0's did
      not move at all, which is the control that says the oracle is still measuring the seam and not this
      change.) */
-  const RECSEAM = refRecord('bands', 'SEAM-FRAME', 'md5', ['4bfb28ba4ea318905a9741ad6b4537fe', 'bb692a87fc84cfc90e4257c27c9ee673', 'ff870cd3709c9710e51614ae47b8247c', '265f1474888c6b724c3dfca64f2632b7']);   // #375 re-keys L1 and L2 and leaves L0 and L3 at their shipped bytes. These are the frames the lip rows are measured on, and the two that moved are the two whose SEAM=1 frame reaches past the level's own edge in the CEILING half: an off-map ceiling pixel now samples the light field where its ray landed (taps off the map read 0) instead of taking the lamp of the cell the row's walk last reached, so the far ceiling past the boundary reads ambient and the wedge outline goes. L3 holding is the scope's own control - the authored level's ceiling geometry did not change, and its FLOOR-half off-map pixels are the #385 debt this change deliberately does not touch. SEAM=1 vs SEAM=0 still moves 13608 / 10689 / 12551 / 13510 px, so the seam rows themselves did not weaken. #19 take five re-keys L1-L3 (L0's frame held): the frames the lip rows are measured on are now shaded past FARB the way the row fill shades them. SEAM=1 vs SEAM=0 still moves 10689 / 12551 / 13510 px against L0's 13608, so the seam rows themselves did not weaken. #369 re-keys L2 and L3 (the frames the lip rows were measured on carry the changed ceiling material and the authored biases; SEAM=1 vs SEAM=0 still moves 12551 / 13552 px, so the seam rows themselves did not weaken). L0 and L1 held. #19 take four: L0's frame held and L1-L3 moved - again, the three generated seats are the ones whose frame reaches past the map edge
+  const RECSEAM = refRecord('bands', 'SEAM-FRAME', 'md5', ['4bfb28ba4ea318905a9741ad6b4537fe', '07c02489beda13ab1943247816b3ba07', 'ff870cd3709c9710e51614ae47b8247c', '4ada1fa2a5233f311d9e351f6e4fa05f']);   // #385 re-keys L1 and L3 and leaves L0 and L2 at their bytes from #375 — the two that moved are the two SEAM=1 frames whose FLOOR pixels reach past the level's own edge, and SEAM=1 vs SEAM=0 still moves 13608 / 10689 / 12551 / 13132 px, so the seam oracle itself is untouched.   // #375 re-keys L1 and L2 and leaves L0 and L3 at their shipped bytes. These are the frames the lip rows are measured on, and the two that moved are the two whose SEAM=1 frame reaches past the level's own edge in the CEILING half: an off-map ceiling pixel now samples the light field where its ray landed (taps off the map read 0) instead of taking the lamp of the cell the row's walk last reached, so the far ceiling past the boundary reads ambient and the wedge outline goes. L3 holding is the scope's own control - the authored level's ceiling geometry did not change, and its FLOOR-half off-map pixels are the #385 debt this change deliberately does not touch. SEAM=1 vs SEAM=0 still moves 13608 / 10689 / 12551 / 13510 px, so the seam rows themselves did not weaken. #19 take five re-keys L1-L3 (L0's frame held): the frames the lip rows are measured on are now shaded past FARB the way the row fill shades them. SEAM=1 vs SEAM=0 still moves 10689 / 12551 / 13510 px against L0's 13608, so the seam rows themselves did not weaken. #369 re-keys L2 and L3 (the frames the lip rows were measured on carry the changed ceiling material and the authored biases; SEAM=1 vs SEAM=0 still moves 12551 / 13552 px, so the seam rows themselves did not weaken). L0 and L1 held. #19 take four: L0's frame held and L1-L3 moved - again, the three generated seats are the ones whose frame reaches past the map edge
   // #303: the rows below are labelled by their own level index and every lip comes out of the GENERATED
   // grid, so a bound of 3 simply never asks the authored plan.
   for (let li = 0; li < run('LEVELS.length'); li++) {
@@ -10664,11 +10679,11 @@ if (MODE === 'bands') {
            gate stays where the cliff is - no luminance step at all, and an unpainted riser still lands at
            0% - and the 35% locality bar now participates in belowBar, for the WALK kind only. The face
            kind's gate is untouched, so no generated level's verdict moves. */
-        n >= 24 && meanCon >= (kind === 'walk' ? CON_WFLOOR : CON_FLOOR) &&
+        n >= 24 && meanCon >= (kind === 'walk' ? CON_WFLOOR : (li === AUTHLV ? CON_FLOOR_AUTH : CON_FLOOR)) &&
           (kind === 'walk' || pctW <= WITHIN_MAX),
         `contrast across the lip ${(100 * meanCon).toFixed(0)}% (want >= ${(100 * CON_MIN).toFixed(0)}%`
         + (kind === 'walk' ? `, hard floor ${(100 * CON_WFLOOR).toFixed(0)}%`
-          : `, hard floor ${(100 * CON_FLOOR).toFixed(0)}%`) + `), anchored on the `
+          : `, hard floor ${(100 * (li === AUTHLV ? CON_FLOOR_AUTH : CON_FLOOR)).toFixed(0)}%`) + `), anchored on the `
         + (ANCHOR === 'lower' ? 'height-sorted LOWER floor (near-anchor: lower, pre-#257)' : 'plane the renderer paints on the EYE side (near-anchor: visible)') + `, `
         + `mean |dL| ${meanD.toFixed(1)}, ${(pctW).toFixed(1)}% of lip pixels within 10 of their neighbour `
         + `(want <= ${WITHIN_MAX}%), signed ${(n ? sgn / n : 0).toFixed(1)} `

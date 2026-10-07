@@ -2,6 +2,36 @@
 
 ### Changed
 
+- **The floor past the level's own edge stops borrowing a lamp from inside it** (#385). A ground pixel
+  whose ray crossed a floor plane OUTSIDE the level's footprint has no lamp of its own, and the deferred
+  copy of the ground-pixel body lit it with the light of whichever cell the row's walk had last reached,
+  at full strength and with no falloff. #375 fixed that for the ceiling half, where it drew the level's
+  outline as a bright trapezoid with a one-pixel edge; this is the same rule applied to the floor half,
+  which is the half a player looks DOWN at. **What a player sees:** past a level's boundary there is no
+  floor anyone can walk on, so that pixel belongs to the depth cue and not to the room — it now reads
+  the level's own ambient, the way the row loop has always painted an off-map column and the way the far
+  field reads at any distance, instead of a lit strip running to a hard line on the horizon because a
+  lamp 40 m away and behind a wall was still lighting it. The instrument #375 left in the tree counts
+  it: `heights`' `offmap` row printed a worst delivered light of **1.125 / 1.219 / 1.219 / 1.836** over
+  the four levels on its floor half (against **0.0000** on the ceiling half) and it now reads **0.0000
+  on both halves at every level** — on the authored finale that is **52,880 deferred off-map floor
+  pixels**, and the `1.900` debt floor that row carried is gone rather than widened. `DEV.set('gndoff',
+  0)` puts the borrowed lamp back: the same probe then prints `FAIL OFFMAP-LIGHT-FLOOR` on all four
+  levels and **6 configs FAILED**, which is how the green was seen to be capable of failing.
+  **The gate this moves, moved on purpose.** On the authored level the far side of the step-lip pair
+  `bands` scores at a down-step is that same off-map floor, so the step loses the part of its luminance
+  change that was borrowed: contrast **57% → 35%**, mean |dL| **63.4 → 25.2**, the far floor **57 → 38**
+  in frame luminance with the near side unchanged. That row's hard floor sat at 36%, one point above the
+  new measurement, and it is re-baselined from the fixed build rather than held up by the artefact: the
+  authored level's face-lip floor becomes `CON_FLOOR_AUTH = 0.32`, one notch under the new measurement
+  exactly as it moved under #203 and #206, and the three GENERATED levels keep 0.36 unchanged — their
+  lip rows measure 65 / 74 / 52% as before, which is the control that says this is one level's far field
+  and not a renderer-wide dimming. Records that moved with the picture: `heights`' HALF-MOVE re-keys
+  **4 of 24** (L0 eyeUp 61.98; L1 pit 33.84, stripes 29.82, eyeUp 64.47 — hundredths, because a darker
+  deferred floor pixel differs LESS from the frame one quantum away) and `bands`' SEAM-FRAME re-keys
+  **L1 and L3**, while SEAM=1 vs SEAM=0 still moves 13608 / 9772 / 12551 / 13132 px, so the seam oracle
+  itself is untouched. No other threshold moved.
+
 - **The title screen's jump/climb row stops printing its own separator as escape text** (#387). That row
   read `Space / E\u00b7Q` and `E up, Q down \u00b7 auto-steps one ledge`, twice on one line, while every
   other row in the same block separates with a real `·`. `\uXXXX` is a JavaScript string escape and has no
