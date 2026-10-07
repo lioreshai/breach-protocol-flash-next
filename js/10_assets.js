@@ -522,6 +522,111 @@ DECAL.dust = decalTex(32, (s, n) => {
   });
 });
 
+/* ============================ wall fixtures (#400) ============================
+   Things MOUNTED ON A WALL. A wall in this game used to be one material, floor to ceiling, for as
+   far as the eye reached, and the generator's whole vocabulary of props stood on the floor at cell
+   centres - so a room could only ever be identified by its colour. These four patches are painted
+   at boot like every other material and placed by the generator (js/20_level.js placeWallFixtures)
+   on geometry the wall pass already draws.
+   They are ALBEDO + alpha, not light: the wall pass multiplies them by the face's own per-column
+   light and fog (js/40_render.js, the fixture block), so a fixture in an unlit corner is dark and
+   one under a lamp is bright. That is why their mid-tones sit close to the walls they hang on -
+   these are decoration, and the exposure gate must not move because of them. */
+const WFIX = {};
+function fixTex(w, h, fn) {
+  const s = new Surf(w, h);
+  fn(s, w, h);
+  const t = { w, h, data: s.data };
+  t.mips = buildMips(t.w, t.h, t.data);
+  return t;
+}
+/* speckle + a top-to-bottom grime wash, shared by all four: a fixture that is cleaner than the wall
+   it is bolted to reads as a sticker */
+function fixAge(s, w, h) {
+  s.grain(2.2, [[150, 152, 158], [42, 43, 47], [96, 84, 62]], 0.16);
+  s.lgrad(0, 0, w, h, [[0, [255, 255, 255], 0.72], [0.55, [255, 255, 255], 1], [1, [150, 150, 152], 0.34]], Math.PI / 2);
+}
+
+/* A DOOR FRAME for the reveal faces of a doorway neck: jambs with bolt heads, a lintel, a kick
+   plate, and a dark slot at the centre line so the mouth you walk through reads as an opening
+   rather than a gap in a sheet. v = 0 is the floor. */
+WFIX.DOOR = fixTex(64, 96, (s, w, h) => {
+  s.rect(0, 0, w, h, [58, 60, 66], 1);                                   // frame plate, mid steel
+  s.lgrad(0, 0, w, h, [[0, [96, 98, 104], 1], [0.5, [64, 66, 72], 1], [1, [44, 46, 52], 1]], 0);
+  s.rect(w * 0.42, h * 0.06, w * 0.16, h * 0.88, [16, 15, 17], 1);        // the slot / closed leaf
+  s.rect(w * 0.46, h * 0.06, w * 0.08, h * 0.88, [30, 29, 33], 1);
+  for (const jx of [w * 0.10, w * 0.90]) {                                // jamb stiles
+    s.rect(jx - w * 0.07, 0, w * 0.14, h, [78, 80, 86], 1);
+    for (let k = 0; k < 6; k++) s.circle(jx, h * (0.08 + k * 0.168), 1.9, [122, 124, 130], 0.9);
+  }
+  s.rect(0, h * 0.80, w, h * 0.16, [50, 52, 57], 1);                      // kick plate
+  s.rect(0, h * 0.785, w, h * 0.02, [168, 150, 62], 0.85);                // one hazard line
+  for (let k = 0; k < 8; k++) s.rect(k * w / 8, h * 0.785, w / 16, h * 0.02, [40, 38, 20], 0.8);
+  s.rect(0, h * 0.02, w, h * 0.035, [36, 37, 42], 1);                     // lintel shadow
+  fixAge(s, w, h);
+});
+
+/* A PIPE RUN: two conduits with saddle brackets and one valve wheel, dark enough to sit under a
+   wall light without lifting the frame's exposure. */
+WFIX.PIPE = fixTex(64, 64, (s, w, h) => {
+  s.clear();
+  const yA = h * 0.42, yB = h * 0.62;
+  for (const y of [yA, yB]) {
+    s.rect(0, y - h * 0.055, w, h * 0.11, [86, 88, 94], 1);
+    s.lgrad(0, y - h * 0.055, w, h * 0.11, [[0, [46, 47, 52], 1], [0.3, [124, 128, 136], 1], [1, [40, 41, 46], 1]], Math.PI / 2);
+  }
+  for (let k = 0; k < 3; k++) {                                          // saddle brackets
+    const bx = w * (0.12 + k * 0.38);
+    s.rect(bx - w * 0.035, yA - h * 0.085, w * 0.07, (yB - yA) + h * 0.17, [62, 64, 70], 1);
+    s.rect(bx - w * 0.05, yA - h * 0.09, w * 0.1, h * 0.03, [74, 76, 82], 1);
+    s.rect(bx - w * 0.05, yB + h * 0.06, w * 0.1, h * 0.03, [74, 76, 82], 1);
+  }
+  const vx = w * 0.68;
+  s.circle(vx, (yA + yB) / 2, h * 0.13, [96, 62, 48], 1);                 // valve wheel, rusted
+  s.circle(vx, (yA + yB) / 2, h * 0.055, [58, 58, 64], 1);
+  for (let k = 0; k < 4; k++) {
+    const a = k * Math.PI / 2 + 0.35;
+    s.line(vx, (yA + yB) / 2, vx + Math.cos(a) * h * 0.12, (yA + yB) / 2 + Math.sin(a) * h * 0.12, 2.6, [112, 74, 58], 1);
+  }
+  s.rect(vx - w * 0.02, yB - h * 0.02, w * 0.04, h * 0.1, [70, 72, 78], 1);
+  fixAge(s, w, h);
+});
+
+/* A HAZARD BAND: chevron stripe between two seams, with rust bleeding out of the seams. Reads as
+   "this is a service run" from across a room. */
+WFIX.STRIPE = fixTex(64, 48, (s, w, h) => {
+  s.rect(0, 0, w, h, [64, 65, 70], 1);
+  const by = h * 0.30, bh = h * 0.40;
+  s.rect(0, by, w, bh, [150, 134, 56], 1);
+  for (let k = -1; k < 10; k++) {
+    const x0 = k * w / 9;
+    s.polygon([[x0, by], [x0 + w / 18, by], [x0 + w / 9, by + bh], [x0 + w / 18, by + bh]], [34, 33, 36], 1);
+  }
+  s.rect(0, by - h * 0.03, w, h * 0.03, [40, 41, 45], 1);
+  s.rect(0, by + bh, w, h * 0.03, [40, 41, 45], 1);
+  for (let k = 0; k < 5; k++) {                                          // panel seams + rust runs
+    const sx = w * (0.06 + k * 0.23);
+    s.rect(sx, 0, 1.4, h, [38, 39, 43], 0.9);
+    s.rect(sx - 2, by * 0.4, 5, by * 0.55, [96, 58, 38], 0.4);
+  }
+  fixAge(s, w, h);
+});
+
+/* A VENT: a louvered grille in a bolted frame, the darkest thing on the wall - it puts a real
+   black hole in an otherwise unbroken sheet, which is what makes a wall read as built. */
+WFIX.VENT = fixTex(64, 48, (s, w, h) => {
+  s.rect(0, 0, w, h, [70, 72, 78], 1);
+  s.rect(w * 0.07, h * 0.09, w * 0.86, h * 0.82, [14, 15, 18], 1);
+  for (let k = 0; k < 7; k++) {
+    const ly = h * (0.12 + k * 0.112);
+    s.rect(w * 0.07, ly, w * 0.86, h * 0.055, [104, 108, 116], 1);
+    s.rect(w * 0.07, ly + h * 0.055, w * 0.86, h * 0.018, [26, 27, 31], 1);
+  }
+  for (const bx of [w * 0.035, w * 0.965]) for (const by of [h * 0.14, h * 0.86]) s.circle(bx, by, 2.1, [126, 128, 134], 0.9);
+  s.rect(0, 0, w, h * 0.03, [48, 50, 55], 0.8);
+  fixAge(s, w, h);
+});
+
 /* Screen-space detail field: a smooth value-noise height map plus fine speckle,
  * sampled by pixel coordinates so material grain keeps constant on-screen size
  * instead of collapsing into the base texture's own frequency. */
