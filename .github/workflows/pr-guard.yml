@@ -1,9 +1,6 @@
 name: PR guard
 
-# A pull request must carry a CHANGELOG entry, because the changelog is the only place the
-# history of this repo reads as intent rather than as diffs. Tooling-only PRs are exempt by
-# marker, not by judgement - "does not affect the player" is exactly the claim most likely to be
-# wrong, so it has to be written down where a reviewer can disagree with it.
+# Features leave release notes untouched. Versioned release PRs own them.
 
 on:
   pull_request:
@@ -19,29 +16,11 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: CHANGELOG entry required
+      - name: Changelog changes only with releases
         env:
-          # Passed as env, never spliced into the script. The previous version put
-          # ${{ github.event.pull_request.body }} inside single quotes in the command, so a body
-          # containing an apostrophe ("the repo's real gates") closed the quote and broke the
-          # test - and any body at all was being interpreted by the shell, which is the same bug
-          # with a security label on it.
-          PR_BODY: ${{ github.event.pull_request.body }}
-          BASE: ${{ github.base_ref }}
-        run: |
-          set -euo pipefail
-          git fetch -q origin "$BASE"
-          if git diff --name-only "origin/$BASE"...HEAD | grep -qx 'CHANGELOG.md'; then
-            echo "CHANGELOG.md is updated by this PR"
-            exit 0
-          fi
-          if printf '%s' "$PR_BODY" | grep -q '\[no-changelog\]'; then
-            echo "exempt: PR body carries [no-changelog]"
-            exit 0
-          fi
-          echo "CHANGELOG.md was not touched."
-          echo "Add a line under Unreleased, or put [no-changelog] in the PR body for tooling-only work."
-          exit 1
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_BRANCH: ${{ github.head_ref }}
+        run: python3 tools/release_policy.py check-changelog --base "$BASE_SHA" --branch "$HEAD_BRANCH"
 
   issue:
     runs-on: ubuntu-latest

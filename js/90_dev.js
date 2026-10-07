@@ -125,9 +125,27 @@
      two demands and keeps open + reachable, which is the old rule; nearestOpen is the last resort and
      reports why:'rescue'. A crowd that has to fall through a stage is reported, not quietly absorbed. */
   const FANLAT = [0, 0.55, -0.55, 1.1, -1.1, 1.65, -1.65];   // half-cell steps across the ray, + side first
-  function openAlong(a, d, used) {
+  /* #321: a candidate must also keep BODY_SEP from every body already standing in the fan. The used-cell
+     set is a CELL oracle - it made the crowd's cells distinct and left the metres unclaimed, because
+     each body searches along ITS OWN ray and a body pushed sideways by a wall can land on the spot a
+     neighbour's off-axis fan ray crosses. Measured on main with n = 3 at the four dealt seats: L0/L1/L3
+     stand two bodies 0.32 m apart at 2 m (the ±0.16-rad fan is 0.32 m wide there, narrower than a body)
+     and L2 0.29 m at 4 m, every pair in three DISTINCT cells; an 80-row sweep (4 levels x 5 grid-chosen
+     poses x d {2, 4, 7.5, 12}) found 7 such rows, closest pair 0.13-0.41 m. Solving the fan step for the
+     range instead - the other candidate fix - repaired 0 of those 7, because at 7.5 m the fan is already
+     2.4 m wide and the collision is between a sidestep and a ray, not inside the fan. The radius is one
+     lattice column (FANLAT[1]) so the keep-out and the sidestep ladder cannot disagree about the step.
+     It gates both stages: stage 1 drops the cell and frustum demands, not the metres, so "crowded" can
+     still mean a body that had to take a worse column but never one standing on another. */
+  const BODY_SEP = FANLAT[1];
+  function openAlong(a, d, used, keep) {
     const cx = Math.cos(a), sy = Math.sin(a), lx = -sy, ly = cx;
     const ax = Math.cos(P.ang), ay = Math.sin(P.ang);           // the camera's axis, for "in front of"
+    const bsep2 = BODY_SEP * BODY_SEP;
+    const clearOf = (x, y) => {
+      for (let q = 0; keep && q < keep.length; q++) if (dist2(x, y, keep[q].x, keep[q].y) < bsep2) return false;
+      return true;
+    };
     const reach = (x, y) => {
       const dd = Math.hypot(x - P.x, y - P.y) || 1e-9, ux = (x - P.x) / dd, uy = (y - P.y) / dd;
       const w = ray(P.x, P.y, undefined, ux, uy, 0, dd);          // a solid cell in the line means no
@@ -149,6 +167,7 @@
         for (let j = 0; j < FANLAT.length; j++) {
           const x = P.x + cx * r + lx * FANLAT[j], y = P.y + sy * r + ly * FANLAT[j];
           if (isSolid(x, y)) continue;
+          if (!clearOf(x, y)) continue;                          // metres, not cells: never on a neighbour
           if (stage === 0) {
             if (used && used.has((y | 0) * MW + (x | 0))) continue;
             const along = (x - P.x) * ax + (y - P.y) * ay;
@@ -172,10 +191,10 @@
      a fixture that wants n separate bodies asserts collapsed === 0 rather than counting the HUD. */
   function spawn(kind, n, dist) {
     const k = ETYPE[kind] ? kind : 'grunt', cnt = Math.max(1, (n === undefined ? 1 : n) | 0), d = dist === undefined ? 3 : +dist;
-    const used = new Set(), placed = [];
+    const used = new Set(), keep = [], placed = [];
     for (let i = 0; i < cnt; i++) {
       const off = cnt === 1 ? 0 : (i % 2 ? 1 : -1) * 0.16 * Math.ceil(i / 2);
-      const o = openAlong(P.ang + off, d, used), e = makeEnemy(k, o.x, o.y);
+      const o = openAlong(P.ang + off, d, used, keep), e = makeEnemy(k, o.x, o.y);
       // makeEnemy scatters gait phase, tint and facing: pin them so two spawns agree
       e.anim = 0; e.stepPhase = 0; e.ph = 0; e.tint = [1, 1, 1]; e.state = 'sleep'; e.alert = false;
       // dv is pinned too, and to i rather than to 0: DEV.tick never seeds RNG, so a random variant
@@ -185,6 +204,7 @@
       e.ang = Math.atan2(P.y - e.y, P.x - e.x);
       ENEMIES.push(e);
       used.add((e.y | 0) * MW + (e.x | 0));
+      keep.push({ x: e.x, y: e.y });            // exact, not the 2-dp value the return rounds
       placed.push({ x: num(e.x, 2), y: num(e.y, 2), cell: [e.x | 0, e.y | 0],
         d: num(Math.hypot(e.x - P.x, e.y - P.y), 2), off: num(off, 3), lat: num(o.lat, 2),
         clamped: !o.exact, why: o.why });
@@ -228,12 +248,18 @@
                    stops at the cell boundary. 0 is the far-field fan, with a light multiplier of up to 136
                    on a pixel whose ray landed 40 cells off the map (#19 take four); at 1 those pixels take
                    exactly what `main` delivers at the same pixel.
+       gndoff   1 = a ground pixel whose ray landed OFF the level takes the light FIELD sampled at the
+                   point it landed on, with taps outside the map reading 0 (#375); 0 = the light of the
+                   cell the row's walk last reached, which paints the level's own outline as a bright
+                   wedge in the far ceiling.
        mip selection is already covered by DEV.ar, buffer scale by the tier keys. */
     if (name === 'gndjit') { GJIT = value === undefined ? 1 : value | 0; return { gndjit: GJIT, minPx: GJITPX }; }
     if (name === 'gndlight') { GLRP = value === undefined ? 1 : (value ? 1 : 0); return { gndlight: GLRP }; }
     if (name === 'gndax') { GNDAX = value === undefined ? 1 : (value ? 1 : 0); return { gndax: GNDAX, AXMIN: AXMIN }; }
     if (name === 'gndfilt') { GNDFT = value === undefined ? 1 : (value ? 1 : 0); return { gndfilt: GNDFT }; }
     if (name === 'gndramp') { GNDRO = value === undefined ? 1 : (value ? 1 : 0); return { gndramp: GNDRO }; }
+    if (name === 'gndfar') { GNDFB = value === undefined ? 1 : (value ? 1 : 0); return { gndfar: GNDFB, far: GQ.far }; }
+    if (name === 'gndoff') { GNDOF = value === undefined ? 1 : (value ? 1 : 0); return { gndoff: GNDOF }; }
     if (name === 'gfx') {
       const i = typeof value === 'string' ? QUAL.findIndex(q => q.name.toLowerCase() === String(value).toLowerCase()) : clamp(value | 0, 0, QUAL.length - 1);
       if (i < 0) throw new Error('DEV.set("gfx", …) wants 0..' + (QUAL.length - 1) + ' or ' + QUAL.map(q => q.name).join('|'));
@@ -273,7 +299,7 @@
       map: { w: MW, h: MH, exit: [num(exitX, 2), num(exitY, 2)] },
       /* #19's ground-shading state in one line, so an A/B claim can be read off the live page instead
          of off a worktree: which of the three mechanisms is on, and what mip policy is in force. */
-      gnd: { jit: GJIT, jitMinPx: GJITPX, light: GLRP, ax: GNDAX, axMin: AXMIN, filt: GNDFT, ramp: GNDRO, mipax: MIPAX, mipar: MIPAR }
+      gnd: { jit: GJIT, jitMinPx: GJITPX, light: GLRP, ax: GNDAX, axMin: AXMIN, filt: GNDFT, ramp: GNDRO, far: GNDFB, mipax: MIPAX, mipar: MIPAR }
     };
   }
   /* The wall DDA from castWalls, run for one caller-supplied ray instead of every column:
@@ -399,7 +425,8 @@
       '                                  1 mirror wide cells only / 0 never), gndlight (0 per cell / 1 per pixel),',
       '                                  gndax (0 point fetch / 1 filtered along the footprint), and',
       '                                  gndfilt (0 one texel per pixel / 1 lerp across the short side), and',
-      '                                  gndramp (0 extrapolate the deferred light ramp off-map / 1 stop at the cell)',
+      '                                  gndramp (0 extrapolate the deferred light ramp off-map / 1 stop at the cell), and',
+      '                                  gndfar (0 the deferred copy textures its far field / 1 it washes it like the row does)',
       '  DEV.tiers()                     the QUAL table as it now stands, including any overrides set() made',
       '  DEV.layoutSig()                  FNV-1a over MAP.fz then MAP.cell — the level\'s identity (#166).',
       '                                  Two boots of one ?dev=1&seed=<n> URL must agree; with no seed they must not.',

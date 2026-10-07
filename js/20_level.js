@@ -6,24 +6,55 @@ const LEVELS = [
   {
     name: 'ARCHIVE SUBLEVEL', size: 26, rooms: 7, maxRoom: 9, wall: WT.BRICK, wall2: WT.STONE,
     floor: 'STONE', ceil: 'ROCK', amb: 0.19, lampCol: [255, 196, 120], fogCol: [17, 13, 10],
-    lamps: 6, crates: 7, barrels: 7, spawn: { grunt: 5, hound: 3, brute: 0 }, pick: { health: 3, ammo: 4, armor: 1 }
+    lamps: 6, crates: 7, barrels: 7, spawn: { grunt: 5, hound: 3, brute: 0 }, pick: { health: 3, ammo: 4, armor: 1 },
+    fixtures: ['PIPE', 'VENT']            // #400: the archive is a place with old pipework in it
   },
   {
     name: 'RING TRANSPORT', size: 32, rooms: 9, maxRoom: 10, wall: WT.TECH, wall2: WT.METAL,
     floor: 'METAL', ceil: 'PANEL', amb: 0.185, lampCol: [170, 226, 255], fogCol: [10, 14, 21],
-    lamps: 8, crates: 8, barrels: 9, spawn: { grunt: 6, hound: 5, brute: 1 }, pick: { health: 4, ammo: 5, armor: 2 }
+    lamps: 8, crates: 8, barrels: 9, spawn: { grunt: 6, hound: 5, brute: 1 }, pick: { health: 4, ammo: 5, armor: 2 },
+    fixtures: ['STRIPE', 'PIPE']          // #400: a transport ring is striped and stencilled
   },
   {
+    // #369: floorBias / ceilBias / ceilLead are the authored SURFACE VALUE ORDER - see js/40_render.js
+    // :15. Walls already carry the highest value (the wall kernel multiplies its light by 1.05 and the
+    // ground kernel does not), so what a level authors here is where the FLOOR and the CEILING sit under
+    // them. Absent means 0 / the old 0.9 vault lead, which is every level that already reads right.
+    // This level's ceiling is pushed down rather than re-materialised only in part: CEILS.SINEW got its
+    // own albedo (js/10_assets.js:443) and ceilBias takes 0.12 off every ceiling row on top, which is
+    // what puts the overhead band 23.4 below the wall it meets at `scene 2 1` (it was 5.0 below) and
+    // 17-23 below at a second camera. Its first frame sits at the COMPOSITED band's upper anchor (75,
+    // tools/ci/assert.js exposure, where main reads 74), which is the reason this is the level that
+    // needed the bias and not only the texture: with -0.06 that frame measured 77.7 and went red.
     name: 'ABATOIR CORE', size: 36, rooms: 11, maxRoom: 11, wall: WT.FLESH, wall2: WT.TECH2,
-    floor: 'FLESH', ceil: 'SINEW', amb: 0.3, lampCol: [190, 255, 150], fogCol: [21, 8, 11],
-    lamps: 16, crates: 9, barrels: 12, spawn: { grunt: 8, hound: 7, brute: 3 }, pick: { health: 5, ammo: 6, armor: 2 }
+    floor: 'FLESH', ceil: 'SINEW', amb: 0.3, lampCol: [190, 255, 150], fogCol: [21, 8, 11], ceilBias: -0.12,
+    lamps: 16, crates: 9, barrels: 12, spawn: { grunt: 8, hound: 7, brute: 3 }, pick: { health: 5, ammo: 6, armor: 2 },
+    fixtures: ['VENT', 'STRIPE']          // #400: the abattoir breathes; everything here is a duct
   },
   {
     // M6 (#16): the hand-authored two-storey level - `authored` means genLevel loads AUTHORED
     // instead of rolling rooms, so lamps/crates/barrels/pick/spawn are placed by the plan's marks.
+    // #369: this level authors `lamps: 0`, so the light delivered to its walkable floors is near zero
+    // while its 4 m vault clears the CEILHI threshold and picks up the vault lift - the brightest region
+    // of the frame was its roof and its floors the darkest. The three numbers are authored to one rule:
+    // a VAULT may not lead the floor it covers. The ceiling's base is amb + ceilBias + ceilLead and the
+    // floor's is amb + floorBias, so the rule is ceilLead <= floorBias - ceilBias, and here that is
+    // 0.12 <= 0.18 - (-0.04) = 0.22. The vault is still lifted off black; it just cannot out-light the
+    // surface you stand on. At the seat the player spawns in, the order is wall 71.8, floor 47.2,
+    // ceiling 37.7, where main read wall 65.8, floor 32.3, ceiling 68.6.
+    // One caveat, so nobody "fixes" the finale: the rule authored here constrains the VAULT against the
+    // FLOOR it covers, not the floor against the walls. At the finale seat (`view.js scene 3 0`) the lit
+    // floor near the camera reads ABOVE the far wall faces (floor rows 87-90, wall faces 71-73, Rec.601
+    // over screen rows - the ceiling band stays lowest in the frame), and it is left that way on purpose:
+    // in a level whose idea is a walkable surface over your head, the last room reading floor-brightest is
+    // the read we want. Walls lead floors at the spawn seat above. Say it here because the entry's rule
+    // sentence does not cover it.
+    // Height is already said by the riser seam and the minimap band cue (#164).
     name: 'THE STACK', size: 20, authored: true, wall: WT.STONE, wall2: WT.TECH,
     floor: 'STONE', ceil: 'ROCK', amb: 0.2, lampCol: [255, 196, 120], fogCol: [17, 13, 10],
-    lamps: 0, crates: 0, barrels: 0, spawn: { grunt: 0, hound: 0, brute: 0 }, pick: {}
+    floorBias: 0.18, ceilBias: -0.04, ceilLead: 0.12,
+    lamps: 0, crates: 0, barrels: 0, spawn: { grunt: 0, hound: 0, brute: 0 }, pick: {},
+    fixtures: ['PIPE', 'STRIPE', 'VENT']  // #400: three rooms, three kinds - the finale should look BUILT
   }
 ];
 
@@ -32,6 +63,10 @@ let MW = 0, MH = 0;
 let LIGHTS = [], PROPS = [], PICKUPS = [], ENEMIES = [], PROJ = [], PARTS = [];
 /* decals are stored per cell so the wall/floor loops can skip cells with none */
 let DECALS = [], DECAL_GRID = [], DECAL_MASK = null;
+/* #400: wall-mounted decor, PART OF THE LEVEL the way PROPS are. It deliberately does not ride the
+   transient decal list above: addDecal entries default to life 40 and the list is capped at 180 with
+   the oldest evicted, so a door frame placed there would fade out and be pushed off by bullet hits. */
+let DECOR = [], DECOR_GRID = [], DECOR_MASK = null;
 let exitX = 0, exitY = 0, explored = null, bfsDist = null;   // read by an assertion in tools/smoke.js
 /* #154: metres of clear ground the prop passes keep off the spawn seat. A `let` rather than a literal
    so a probe can A/B it the way it reassigns topUpEnabled and groundPixel (`SPAWN_CLEAR = 0` is the
@@ -55,6 +90,16 @@ const cellIdx = (x, y) => (y | 0) * MW + (x | 0);
 const ZQ = 0.25;
 const CZ_DEF = 4;                                        // 4 quanta = one unit of ceiling
 const LHOVER = 0.78;                     // a lamp light's authored hover above its own floor (:845)
+/* #199 asked whether the band gate below should RAMP instead of cutting off - a graded reach, full
+   weight to +-ZQ then a linear fade to zero one metre past it, for lamps only. It was built, measured on
+   that head (review of PR #368: pooled dark ground 8.7% -> 7.0% of open cells, 12 rolls x 4 levels) and
+   REJECTED: `alt`'s
+   `no column is lit from a band ABOVE/BELOW it` and `w(+/-2q) <= 0.02` rows exist because #203, #205,
+   #206 and #209 chose to make a band boundary a LIGHT boundary, and a ramp is that decision reversed,
+   not a reference refresh. The gate below stays binary. Where the dark floor actually is, `exposure`'s
+   coverage census now prints beside its own row: only 2-6% of the dark cells it counts sit on bands under
+   MIN_BAND cells, so placement is already nearly exhausted (#337 leaves no big band all dark) and the
+   residual is the disc's own falloff inside served bands - what #206 reclassified on purpose. */
 /* #213: a coverage TOP-UP source is scaled by the band it was placed to cover, because a 16-cell pit
    and a 300-cell floor otherwise receive identical sources - which is why standing inside a lit pit
    read DEV.lum 168 mean / 229 mid (a white box) while the big floor stayed under-lit. str is
@@ -1034,6 +1079,111 @@ function buildTint() {
 function decalGridInit() {
   const N = MAP.w;
   DECALS = []; DECAL_GRID = new Array(N * N); DECAL_MASK = new Uint8Array(N * N);
+  DECOR = []; DECOR_GRID = new Array(N * N); DECOR_MASK = new Uint8Array(N * N);
+}
+/* ---------------- wall fixtures (#400) ----------------
+   A fixture is a rectangle painted ON A WALL FACE by the wall pass. It is registered in the SOLID
+   cell, because that is the cell the wall pass reads its per-cell mask for (the transient decal list
+   is looked up by `my*N+mx`, the column the ray stopped at); registering the air side would draw
+   nothing. Heights come from faceZ0 / ceilAt of the AIR cell - the same span the wall pass actually
+   paints - so a fixture on a room whose floor is not the datum lands on the face rather than in the
+   slab above it (the #120 fault family).
+   FIXTURE_SPAN is (centre, height) as FRACTIONS OF THE FACE, per kind: a door frame fills the mouth,
+   a pipe runs and a hazard band sit at eye height, a vent sits high. Expressed as fractions because
+   the same generator writes 1 m flat rooms and 3 m vaults. */
+const FIX_RUN_MIN = 6;                     // metres of straight wall worth a fixture (#400)
+const FIX_SPAN = { DOOR: [0.50, 0.94], PIPE: [0.66, 0.30], STRIPE: [0.56, 0.20], VENT: [0.72, 0.26] };
+function addWFix(tex, gx, gy, side, along, zc, hh, hw) {
+  const N = MAP.w;
+  if (gx < 0 || gy < 0 || gx >= N || gy >= N) return;
+  const ci = gy * N + gx;
+  const f = { x: side === 0 ? gx + 0.5 : along, y: side === 0 ? along : gy + 0.5,
+    z: zc, hw: hw, hh: Math.max(0.05, hh), tex: tex, side: side + 1 };
+  DECOR.push(f);
+  if (!DECOR_GRID[ci]) DECOR_GRID[ci] = [];
+  DECOR_GRID[ci].push(f); DECOR_MASK[ci] = 1;
+}
+function placeWallFixtures(cfgL) {
+  const kinds = (cfgL.fixtures || ['PIPE', 'STRIPE', 'VENT']).filter(k => WFIX[k]);
+  if (!kinds.length) return;
+  const N = MAP.w, cell = MAP.cell;
+  const isOpen = (x, y) => x > 0 && y > 0 && x < N - 1 && y < N - 1 && cell[y * N + x] === 0;
+  const isWall = (x, y) => x >= 0 && y >= 0 && x < N && y < N && cell[y * N + x] !== 0;
+  const used = new Uint8Array(N * N * 4);           // one flag per (wall cell, direction), so a face
+  let placed = 0;                                   // never gets two fixtures
+  const mount = (kind, ax, ay, d) => {
+    const wx = ax + DIRX[d], wy = ay + DIRY[d];
+    if (placed > 120 || !isWall(wx, wy)) return false;
+    const k = (wy * N + wx) * 4 + d;
+    if (used[k]) return false;
+    const z0 = faceZ0(ax, ay, d), z1 = ceilAt(ax + 0.5, ay + 0.5), span = z1 - z0;
+    if (!(span > 0.35)) return false;               // no face here to hang anything on
+    used[k] = 1;
+    const sp = FIX_SPAN[kind] || FIX_SPAN.PIPE;
+    addWFix(WFIX[kind], wx, wy, DIRX[d] !== 0 ? 0 : 1, DIRX[d] !== 0 ? ay + 0.5 : ax + 0.5,
+      z0 + span * sp[0], span * sp[1] * 0.5, 0.5);
+    placed++;
+    return true;
+  };
+  /* 1. DOOR FRAMES at the mouths the player walks through. A neck - an open cell open on exactly one
+     pair of opposite sides - is the jambs' location, but it is ALSO the definition of a straight
+     corridor cell, and mounting on every neck plated both walls of every corridor in steel: L0's
+     spawn seat read as one pale band with a seam every metre and L0's fixCount was DOOR 56 of 59,
+     which is what starved the long-run pass (#403 review). The difference is whether the PASSAGE
+     CONTINUES. Along the axis of the opening, a room's doorway has a room cell on at least one side
+     - a cell open perpendicular too, so the space opens up and the passage is over - while a cell in
+     the middle of a straight corridor has a narrow cell on both sides and goes on forever. So: mount
+     only where the passage runs out. A corridor therefore gets a frame at each mouth and nothing down
+     its length, and a room-to-room door gets one at the door itself. */
+  const narrowOn = (x, y, across) => isOpen(x, y) && !isOpen(x + DIRX[across], y + DIRY[across])
+    && !isOpen(x - DIRX[across], y - DIRY[across]);   // open along the passage, walled across it
+  for (let y = 1; y < N - 1 && placed < 56; y++) for (let x = 1; x < N - 1; x++) {
+    if (!isOpen(x, y)) continue;
+    const we = isOpen(x - 1, y) && isOpen(x + 1, y), ns = isOpen(x, y - 1) && isOpen(x, y + 1);
+    if (we === ns) continue;                        // a room, a corner, or a dead end
+    const along = we ? 0 : 1, across = we ? 1 : 0;  // the passage axis, and the axis it is walled on
+    if (!narrowOn(x, y, across)) continue;          // a room's own edge cell is open on three sides
+    if (narrowOn(x + DIRX[along], y + DIRY[along], across)
+      && narrowOn(x - DIRX[along], y - DIRY[along], across)) continue;
+    if (we) { mount('DOOR', x, y, 1); mount('DOOR', x, y, 3); }
+    else { mount('DOOR', x, y, 0); mount('DOOR', x, y, 2); }
+  }
+  /* 2. ONE FIXTURE PER ROOM, cycling the level's own kinds so sector 0 is a place with pipework and
+     sector 2 is a place with vents. Faces come out in scan order, so the pick is deal-deterministic
+     and no RNG is consumed: adding this pass moves no roll, no light and no prop. */
+  const rooms = MAP.rooms || [];
+  for (let ri = 0; ri < rooms.length; ri++) {
+    const r = rooms[ri], faces = [];
+    for (let y = r.y; y < r.y + r.h && faces.length < 96; y++) for (let x = r.x; x < r.x + r.w; x++) {
+      if (!isOpen(x, y)) continue;
+      for (let d = 0; d < 4; d++) if (isWall(x + DIRX[d], y + DIRY[d])) faces.push([x, y, d]);
+    }
+    if (!faces.length) continue;
+    const f = faces[(ri * 7 + 3) % faces.length];
+    mount(kinds[ri % kinds.length], f[0], f[1], f[2]);
+  }
+  /* 3. ONE ALONG EVERY LONG RUN: a straight wall you can see down for more than six metres is the
+     sight line the issue names, and it is today one unbroken repeat across the whole frame. Walk each
+     face line, and drop one fixture wherever a run that long ends. */
+  for (let d = 0; d < 4 && placed < 112; d++) {
+    const face = DIRX[d] !== 0 ? 0 : 1;
+    for (let a = 1; a < N - 1; a++) {
+      let run = 0, at = null;
+      for (let b = 1; b < N - 1; b++) {
+        const ax = face === 0 ? a : b, ay = face === 0 ? b : a;
+        const wx = ax + DIRX[d], wy = ay + DIRY[d];
+        const ok = isOpen(ax, ay) && isWall(wx, wy) && !used[(wy * N + wx) * 4 + d];
+        if (!ok) {
+          if (run >= FIX_RUN_MIN && at) mount(kinds[(a + d) % kinds.length], at[0], at[1], d);
+          run = 0; at = null; continue;
+        }
+        if (!run) at = [ax, ay];
+        run++;
+      }
+      if (run >= FIX_RUN_MIN && at) mount(kinds[(a + d) % kinds.length], at[0], at[1], d);
+    }
+  }
+  MAP.fixCount = placed;                            // read by view.js fixtures
 }
 function addDecal(o) {
   const N = MAP.w, cx = clamp(o.x | 0, 0, N - 1), cy = clamp(o.y | 0, 0, N - 1), ci = cy * N + cx;
@@ -1156,7 +1306,7 @@ const AUTHORED = {
     "#.A." + "...." + ".###" + "#..." + "...#",   //  6
     "#..." + "...." + ".###" + "#..." + "g..#",   //  7
     "#..." + "...." + ".###" + "#..." + "...#",   //  8
-    "#.L." + "...." + "...." + "L..." + "...#",   //  9
+    "#.L." + "...." + "...." + ".L.." + "...#",   //  9   // #318: this lamp x12 -> x13, out of the doorway (see PROP COLLISION note in tools/view.js)
     "#..." + "...." + ".###" + "#..." + "...#",   // 10
     "#..." + "...." + ".###" + "#..." + "C..#",   // 11
     "#.L." + "...." + ".###" + "#..L" + "...#",   // 12
@@ -1255,6 +1405,7 @@ function buildAuthored(li) {
     lR: new Float32Array(N * N).fill(0.6), lG: new Float32Array(N * N).fill(0.6),
     lB: new Float32Array(N * N).fill(0.6), lw: new Float32Array(N * N),
     lt: new Uint8Array(N * N * 3).fill(128), amb: cfgL.amb, tintDirty: false,
+    floorBias: cfgL.floorBias || 0, ceilBias: cfgL.ceilBias || 0, ceilLead: cfgL.ceilLead,
     floorTex: FLOORS[cfgL.floor], ceilTex: CEILS[cfgL.ceil],
     fz, cz, vb: new Uint16Array(N * N), feat, ceilPlane: new Float64Array(N * N)
   };
@@ -1294,6 +1445,7 @@ function buildAuthored(li) {
   // It has to be pushed BEFORE the splat loop below to be baked into MAP.light like the lamps.
   LIGHTS.push({ x: ex + 0.5, y: ey + 0.5, r: 5.5, str: 0.75, col: [140, 225, 255], stat: 1 });
   for (const L of LIGHTS) splatLight(L, L.str);
+  placeWallFixtures(cfgL);                      // #400: the authored finale gets walls too
   exitX = ex + 0.5; exitY = ey + 0.5;
   const sp = nearestOpen(sx + 0.5, sy + 0.5);          // never spawn inside geometry: the collision
   P.x = sp[0]; P.y = sp[1]; P.ang = 0.6; P.vx = P.vy = 0; P.z = floorAt(sp[0], sp[1]);  // probes read P
@@ -1371,6 +1523,7 @@ function genLevel(li) {
     MAP = { w: N, h: N, cell, light: new Float32Array(N * N), rooms,
       lR: new Float32Array(N * N), lG: new Float32Array(N * N), lB: new Float32Array(N * N), lw: new Float32Array(N * N),
       lt: new Uint8Array(N * N * 3), amb: cfgL.amb === undefined ? 0.13 : cfgL.amb, tintDirty: true,
+      floorBias: cfgL.floorBias || 0, ceilBias: cfgL.ceilBias || 0, ceilLead: cfgL.ceilLead,
       floorTex: FLOORS[cfgL.floor] || FLOORS.CONCRETE, ceilTex: CEILS[cfgL.ceil] || CEILS.CONCRETE,
       floorTile: 1.15, ceilTile: 0.9,
       fz: fzTry, cz: czTry,
@@ -1744,6 +1897,7 @@ function genLevel(li) {
     // lightmap splat, then a smoothing pass and the per-cell tint
     for (const L of LIGHTS) splatLight(L, L.str);
     blurLight(); buildTint();
+    placeWallFixtures(cfgL);                    // #400: decor goes on the walls, after the walls exist
     // The scatter pass can drop a pillar on the room centre, and starting inside
     // geometry is unrecoverable - the collision probes would sample the player's own
     // cell - so walk out to the nearest open cell instead of spawning into a wall.

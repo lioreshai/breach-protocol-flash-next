@@ -36,6 +36,12 @@ const cfg = {
 };
 
 /* ---------------- global state ---------------- */
+/* #361: grenades had no cap because they had no source - P.gren is written only as a default
+   (js/00_core.js:58, resetRun) and decremented on a throw (js/30_entities.js:215) - so the restock needs
+   a ceiling a pickup can refuse against, the way the ammo branch refuses to consume itself at full
+   reserves. GREN_RESTOCK is the box size; a campaign now yields restocks instead of four and done. */
+const GREN_CAP = 6, GREN_RESTOCK = 2;
+
 const DIFFS = [
   { name: 'Recruit', dmg: 0.55, hp: 0.8, cnt: 0.8, droprate: 1.35 },
   { name: 'Marine', dmg: 1.0, hp: 1.0, cnt: 1.0, droprate: 1.0 },

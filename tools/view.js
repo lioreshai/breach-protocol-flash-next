@@ -25,8 +25,8 @@ const LVL = +(process.argv[3] || 0);
 const CAM = +(process.argv[4] || 0);
 // An unknown name used to fall through to the scene dump and exit 0, so a typo in a CI probe list
 // ran something, painted a PNG and reported a passing gate (#89).
-const PROBES = ['scene', 'alt', 'anim', 'bands', 'columns', 'contrast', 'cull', 'decal', 'diag', 'exposure', 'flatparity', 'heights',
-  'drop', 'horizon', 'mip', 'planes', 'play', 'props', 'rig', 'sheets', 'sight', 'stats', 'vert', 'viewmodel',
+const PROBES = ['scene', 'alt', 'anim', 'bands', 'columns', 'contrast', 'cull', 'decal', 'diag', 'exposure', 'fixtures', 'flatparity', 'heights',
+  'drop', 'horizon', 'mip', 'planes', 'play', 'props', 'rig', 'sheets', 'sight', 'stats', 'surface', 'vert', 'viewmodel',
   'volume', 'refs'];
 if (!PROBES.includes(MODE)) {
   console.error('unknown probe "' + MODE + '" - known: ' + PROBES.join(' '));
@@ -1119,7 +1119,52 @@ if (MODE === 'alt') {
      0.092/0.121/0.132 (the bleeding kernel measured 37/49/75 on df919c3 there). A pit-dark of 0 with pit 0 would be vacuity rather than a fix, so the population
      rides along in the detail and pit > 0 is part of the assertion. */
   {
-    const MAIN_PIT = [181, 194, 175], MAIN_OOB = [19, 10, 16], MAIN_OOB_GEO = [0, 0, 0];
+    // #314: MAIN_OOB_GEO is read by a PREDICATE (`A.oob <= MAIN_OOB_GEO[lv]`), not only by prose, so
+    // it needs level 3's value in the array: measured 0 non-climb wrong-band cells there (0 of 0 -
+    // the authored level has no such cell to leak through, and the row prints its own population).
+    // MAIN_PIT and MAIN_OOB are quoted in text only, and an authored level has no main-era figure to
+    // quote, so those two stay three wide and go through eraOf() below.
+    const MAIN_PIT = [181, 194, 175], MAIN_OOB = [19, 10, 16], MAIN_OOB_GEO = [0, 0, 0, 0];
+    // #314: these are era readings taken on the three GENERATED levels, so level 3 - authored,
+    // written by hand in js/20_level.js - has no comparison to quote. Indexing an array past its
+    // length printed the literal word `undefined` inside a row that still PASSED, which is how a
+    // raised bound turns into a silent arithmetic miss: say "no era figure" instead, and keep the
+    // measured level-3 value on the row itself, where the census already prints it.
+    const eraOf = (arr, lv) => lv < arr.length ? String(arr[lv]) : 'no era figure for this level';
+    /* #199 asked for its coverage statistic "bounded by a threshold measured across >= 5 seeds rather than
+       guessed", and the census above has been printing the number inside the pit row's detail ever since #204
+       measured it, next to a sentence admitting no threshold was asserted. These two records are that
+       threshold. They also correct the issue's own diagnosis, which is worth putting where a reader will hit
+       it: #199's title says 63-72% of dark cells have NO source in the disc at all, measured on 5f14a09 when
+       splatLight was a 2-D disc that ignored L.z. That kernel is gone - the band term at js/20_level.js:939
+       (#203/#208) and the same predicate in blurLight (#206) are why a disc now stops at a riser - and the
+       census under it reads the other way round: MOST dark cells do have a source inside their disc, and are
+       dark because of that disc's own falloff and band limit. So DARK-SHARE is bounded ABOVE (darkness that
+       grows past the recorded share is a regression, darkness that shrinks is not), and DARK-COVERED is held
+       by a two-sided band because it is an ATTRIBUTION, not a quality bar: it says which mechanism the dark
+       cells belong to, and a swing either way means the mechanism moved and this row's claim needs re-measuring.
+       Both are percentages to one decimal over the same 12 rolls the pit row rolls, deterministic by dice. */
+    const REFDARKSH = refRecord('alt', 'DARK-SHARE', 'num', [4.0, 10.7, 6.1, 24.2]);
+    const REFDARKCOV = refRecord('alt', 'DARK-COVERED', 'num', [94.9, 70.5, 67.7, 48.4]);
+    /* #314: the fourth value in each is THE STACK's own census over the same 12 dice - 744 dark of
+       3072 open cells, 360 of those 744 under a lamp's XY disc. The SHARE is bigger (24.2% against the
+       generated 4.0-10.7%) and the ATTRIBUTION smaller (48.4% against 67.7-94.9%) because an authored
+       plan has dark geography no lamp was placed to cover: a description of the plan, not a regression,
+       and the reason the row keeps the share bounded ABOVE and the attribution two-sided.
+       The non-vacuity clause below needed the same treatment. `A.open > 5000` counts open cells summed
+       over the 12 rolls, and a generated map yields 575-1150 open cells a deal while THE STACK's 20-cell
+       plan yields 256 - so an absolute floor written off generated maps excludes the authored level by
+       the size of its geometry, which is not the question the clause asks. It is per level now: the
+       three generated floors are UNCHANGED and the authored one is half its own measured census
+       (3072 -> 1500), which still trips if the roll set collapses. No measured percentage moved because
+       of this row - they are recorded above and asserted against, which is the half that gates. */
+    const DSK_OPEN_MIN = [5000, 5000, 5000, 1500];
+    // #314: a record shorter than the level list must read as a FAILURE with a sentence, not as a
+    // TypeError - an exception in a probe kills every row after it, including the rows that were fine.
+    const darkRec = (arr, lv) => lv < arr.length ? arr[lv].toFixed(1)
+      : 'NO RECORD for level ' + lv + ' (the record is ' + arr.length + ' wide, the level list is not)';
+    const DSH_SLACK = +(process.env.DARKSH_SLACK || 0.6);    // pp above the recorded share
+    const DCV_TOL = +(process.env.DARKCOV_TOL || 6);         // pp either side of the recorded attribution
   // MAIN_OOB is the ALL-CELL figure (#206, era: stairs hugged the outer ring); MAIN_OOB_GEO is the
   // same census with the authored climb cells removed, recorded on the tree that moved the mouths
   // (#189). The row gates the GEO figure, so stair placement cannot buy it and light bleed still trips it.   // #206: recorded on the gated kernel; the bleeding kernel was 123/377/337 (2c5a94f) / 37/49/75 (df919c3)
@@ -1139,8 +1184,12 @@ if (MODE === 'alt') {
       sunken cell now do, and the lamp that used to sit on their datum now stands in the hole - so the
       pit floor is lit (0 dark of 16 at band -4) and 5/53 more DATUM cells are dark. Clause 4 is a
       top-up-effectiveness budget, not a lamp-placement lock, and 53 of 13,821 open cells is 0.4%. */
-    const TOPUP_DARK_REF = [349, 1194, 1108];
-    for (let lv = 0; lv < 3; lv++) {
+    // #314 item 2: the fourth literal is level 3's own measurement (744 dark-of-open cells summed
+    // over the same 12 rolls = 62 of its 256 open cells per deal, against L0's 29 per deal), and it
+    // lands IN THE SAME COMMIT as the bound. Raising the bound first would index past the array and
+    // compare against `undefined` - an arithmetic miss that prints no red row at all.
+    const TOPUP_DARK_REF = [349, 1194, 1108, 744];
+    for (let lv = 0; lv < run('LEVELS.length'); lv++) {
       const A = { pit: 0, pitDark: 0, pitSum: 0, oob: 0, oobSum: 0, oobClimb: 0, nosrc: 0, dark: 0, open: 0, lamps: 0, pitRolls: 0, noPitAt: [] };
       for (let r = 0; r < 12; r++) {
         seedRng(1000 + lv * 97 + r * 13);
@@ -1190,7 +1239,7 @@ if (MODE === 'alt') {
          reason no lamp change can fix. The recorded frame numbers ride along beside the verdict instead. */
       row(`L${lv} a pit reads lit, not blown`,
         A.pitDark === 0 && A.pit > 0 && A.pitSum / A.pit <= 0.55 && A.dark <= dref,
-        `(1) ${A.pitDark} of ${A.pit} pit cells (MAP.fz <= -3, main has ${MAIN_PIT[lv]} of them) hold less than 0.05 delivered`
+        `(1) ${A.pitDark} of ${A.pit} pit cells (MAP.fz <= -3, main has ${eraOf(MAIN_PIT, lv)} of them) hold less than 0.05 delivered`
         + ` light (the LAMPS=off control measures 181/177/146 here on the gated kernel - 118/72/62 before #206, when datum tails reached into pits, and 117/71/62 on 2c5a94f) - (2) that population exists in ${A.pitRolls} of`
         + ` the 12 rolls${A.noPitAt.length ? `, no pit at roll${A.noPitAt.length > 1 ? 's' : ''} ${A.noPitAt.join(' and ')}` : ''}, so this is not a row silently running on two levels - (3) mean delivered light there ${A.pit ? (A.pitSum / A.pit).toFixed(3) : 'no pit at all'} against the 0.55 ceiling`
         + ` (main's unscaled top-up 0.672/0.631/0.647, which is the #213 white box) - (4) ${A.dark} dark of ${A.open} open cells against`
@@ -1198,9 +1247,30 @@ if (MODE === 'alt') {
         + ` source in the XY disc (the #199 coverage half). No frame threshold is asserted: the worst sampled pit`
         + ` frame is 157.1/162.5/183.8 mean and 206.6/213.9/245.0 centre-half mid in the COMPOSITED page for`
         + ` these parameters and is unchanged by lamp intensity at all (#221, the glow overlay has no altitude term).`);
+      /* The gate #199 asked for, in the form the census can actually hold. The issue phrased it as a pixel
+         statistic ("ground-visible px within FARB whose column light is < 0.05 while the camera column is lit");
+         this is the same columns counted without a camera, which is the stronger form for a coverage claim -
+         no pose to argue about, no dependence on where the probe happens to stand, and FARB only decides which
+         of the columns a pixel would have reached, not whether the lightmap is dark in them. The camera-
+         conditioned half lives in `exposure`, which renders frames and reports them, and no number here is
+         inherited from a frame mean. */
+      const dsh = 100 * A.dark / A.open;
+      const dcv = A.dark ? 100 * (A.dark - A.nosrc) / A.dark : 0;
+      row(`L${lv} dark ground is bounded and says which half it is`,
+        dsh <= REFDARKSH[lv] + DSH_SLACK && Math.abs(dcv - REFDARKCOV[lv]) <= DCV_TOL && A.dark > 0 && A.open > DSK_OPEN_MIN[lv],
+        `${A.dark} of ${A.open} open cells (${dsh.toFixed(1)}%, recorded ${darkRec(REFDARKSH, lv)}, slack ${DSH_SLACK} pp; counts sum all 12 rolls) hold < 0.05 `
+        + `delivered light, and of those ${A.dark - A.nosrc} (${dcv.toFixed(1)}%, recorded ${darkRec(REFDARKCOV, lv)}, tol ${DCV_TOL} pp) DO have `
+        + `a lamp whose XY disc contains them - so that share is dark from the disc's own (1-d/r)^1.6 falloff and the band term at `
+        + `js/20_level.js:939, which is what #206 reclassified on purpose, while ${A.nosrc} cells (${(100 - dcv).toFixed(1)}%) are `
+        + `uncovered geography in the sense #199's title meant (it read 63-72% on 5f14a09, when the kernel still ignored L.z). `
+        + `${(A.lamps / 12).toFixed(2)} lamps/instance. A row that gated the UNCOVERED share upward would assert the diagnosis and `
+        + `go red the day lamp placement improved, so the share is reported and the two numbers above are what gate. `
+        + `The non-vacuity floor here is ${DSK_OPEN_MIN[lv]} open cells and it is PER LEVEL (#314: an authored plan is a `
+        + `smaller map than a generated one, so an absolute count of open cells would exclude level 3 by its size `
+        + `rather than by its coverage - the generated three keep main's 5000 unchanged).`);
       row(`L${lv} delivered wrong-band light does not spread`, A.oob <= MAIN_OOB_GEO[lv],
         `${A.oob} NON-CLIMB open cell(s) hold delivered light with NO source standing on their own band within `
-        + `reach against the recorded ${MAIN_OOB_GEO[lv]} (the ALL-CELL figure was ${MAIN_OOB[lv]} on the tree`
+        + `reach against the recorded ${eraOf(MAIN_OOB_GEO, lv)} (the ALL-CELL figure was ${eraOf(MAIN_OOB, lv)} on the tree`
         + `that put stair mouths on the map's outer ring; this tree's climb-cell share is ${A.oobClimb}, i.e. `
         + `${A.oobClimb} of ${A.oob + A.oobClimb} such cells are authored steps, which take datum light by construction`
         + `(no lamp stands on a stair) - counting them made this row a census of stair placement, which #189 moved`
@@ -1233,20 +1303,27 @@ if (MODE === 'alt') {
        handed, so the line that registers each one is the line the compare at the glow row and the detail
        print read them from: `node tools/view.js refs` counts them, refs.lock carries them, and an edit to
        one of these numbers moves the table or fails REFS-VALUES-MOVED instead of being invisible.
-       THREE values, not four: the pit/lip loop below is a hardcoded `lv < 3`, so these rows sample levels
-       0..2 and THE STACK has no pit row - its column is absent from the table rather than invented, and
-       the verdict line prints that gap (#314 owns closing it). RECDARK is deliberately NOT declared:
+       FOUR values now (#314): the pit/lip loop below runs the level list, so the authored level is
+       sampled like the generated three and its column is a measurement rather than a gap. The verdict
+       line still prints how many levels the records cover, because a record that stopped covering a
+       level is the failure this whole sweep was about. RECDARK is deliberately NOT declared:
        [0, 0, 0] there is the criterion "no pit cell may be dark" - the same zero the row above asserts as
        `A.pitDark === 0` - it is identical on every level while the neighbouring censuses differ per level,
        #206's own comment derives it from the mechanism ("RECDARK stays 0: coverage authors a source per
        band") rather than reading it off a deal, and it is the one literal on that line every re-key left
        alone. RECOOB_GEO *is* declared: #189 introduced it as the measured non-climb population ("the
        non-climb population of alt's oob census is 0/0/0") and the compare reads it. */
-    const RECPIT = refRecord('alt', 'PIT-MEAN', 'num', [0.262, 0.294, 0.297]);
-    const RECPITN = refRecord('alt', 'PIT-CELLS', 'num', [190, 194, 211]);
-    const RECOOB = refRecord('alt', 'OOB-ERA', 'num', [19, 10, 16]);   // #189 era figure, climb cells included
-    const RECOOB_GEO = refRecord('alt', 'OOB-NONCLIMB', 'num', [0, 0, 0]);   // same census minus authored climb cells
-    const RECDARK = [0, 0, 0];   // the criterion (clause 1 above asserts the same zero), not a census - see above
+    // #314: a fourth value per row, measured on the authored level's own 12 rolls (cell 2.5,18.5
+    // floor 0.00 with its lamp at -1.00; the pit camera was found in 12 of 12 rolls, so this is not
+    // a vacuous record). PIT-CELLS 204 and PIT-MEAN 0.287 sit inside the generated levels' range.
+    // OOB-ERA/OOB-NONCLIMB record ZERO because level 3 has NO non-climb wrong-band cell to leak
+    // through (0 of 0): the row reports its population, so a zero population reads as zero
+    // population rather than as a pass.
+    const RECPIT = refRecord('alt', 'PIT-MEAN', 'num', [0.262, 0.294, 0.297, 0.287]);
+    const RECPITN = refRecord('alt', 'PIT-CELLS', 'num', [190, 194, 211, 204]);
+    const RECOOB = refRecord('alt', 'OOB-ERA', 'num', [19, 10, 16, 0]);   // #189 era figure, climb cells included; L3 has none
+    const RECOOB_GEO = refRecord('alt', 'OOB-NONCLIMB', 'num', [0, 0, 0, 0]);   // same census minus authored climb cells
+    const RECDARK = [0, 0, 0, 0];   // the criterion (clause 1 above asserts the same zero), not a census - see above
     pitRecN = RECPIT.length;   // coverage of the records above, printed in the verdict line
     /* #206: RECPIT and RECOOB are MAP.light censuses, so the blur band gate moved them with the
        kernel (0.426/0.423/0.464 and 123/377/337 were the bleeding kernel's df919c3 readings - the
@@ -1267,7 +1344,13 @@ if (MODE === 'alt') {
       minus 0.01, so the row goes red on a regression and not on a level being hole-y. It can still
       fail: the camera-band-not-surface-band control reads 0.000 on this clause, and deleting the glow
       fails clause 3 outright. */
-    const LIPDELIV_REF = [0.996, 0.967, 0.941];
+    // #314: level 3's authored lip DELIVERS LESS than any generated level - 0.919 against 0.996 /
+    // 0.967 / 0.941, i.e. 8.1% of its lip pixels take light from a different band, on a 4-quantum
+    // step whose lamp sits one floor below the datum. Recording it moves that level's line with it
+    // (the row compares against min(0.95, record - 0.01)), which is what a per-level record is FOR,
+    // but it is a shortfall, not a clean row: it is written up in docs/ROADMAP.md's known-debt table
+    // and it is why this branch carries Refs #314 rather than Closes #314.
+    const LIPDELIV_REF = [0.996, 0.967, 0.941, 0.919];
     const lipFloor = (lv) => Math.min(MINDELIV, LIPDELIV_REF[lv] - 0.01);
     const gAl = (r, k) => r >= 1 ? 0 : (r <= 0.45 ? k * 0.7 + (k * 0.22 - k * 0.7) * (r / 0.45)
       : k * 0.22 * (1 - (r - 0.45) / 0.55));
@@ -1403,7 +1486,7 @@ if (MODE === 'alt') {
         return out;
       })()`, ctxVm);
     };
-    for (let lv = 0; lv < 3; lv++) {
+    for (let lv = 0; lv < run('LEVELS.length'); lv++) {
       const G = { rolls: 0, noSceneAt: [], worstFrac: 0, worstAt: '-', crossN: 0, dqMax: 0, spanMax: 0,
         lampsMin: 1e9, lampsSum: 0, rectMax: 0, pit: 0, pitDark: 0, pitSum: 0, oob: 0, lipRoll: -1, lipDeliv: 1,
         lipOn: 0, lipOnN: 0, lipCross: 0, lipSel: null, lipLamps: 0,
@@ -2027,16 +2110,8 @@ if (MODE === 'flatparity') {
   /* #19 re-recorded all four: the ground pass's light is sampled at the pixel instead of per cell, so a
      FLAT frame's shading moved too - this record never claimed the shading was frozen, only that a flat
      level collapses to one picture, and it still does. Values measured on this tree, not widened. */
-  /* #371 re-keys L0 and L3, returns L1 to MAIN's byte and leaves L2 at this branch's value - and the
-     four outcomes ARE the census of what the prop shading touched. Prop faces and their contact patch
-     move a flat frame's pixels on every level, so all four moved once; the level whose flat spawn frame
-     the PORTAL was the only thing in has come back to main's hash now the portal keeps its own ramp
-     (js/13_mesh.js PROPKIND), and the level where only props show moved once and not twice. Measured per
-     level as main -> with the ramp keyed on PROPGEO -> keyed on the prop kinds:
-     L0 a4db61f5 -> 57a58ae0 -> 3e6cd8f0   L1 fbcff86d -> 5f0a6279 -> fbcff86d
-     L2 e4f90eb1 -> dd305d0b -> dd305d0b   L3 17bea960 -> 1666dd45 -> 72213b7c. Nothing was widened. */
-  const OLD = refRecord('flatparity', 'PARITY', 'md5', ['3e6cd8f04aab5a133d70ac363e1f85e5', 'fbcff86d51a87fc3df0279ab205cecd5', 'dd305d0b6cc005dadfec6dc223c3314e', '72213b7c25359107eb4d33007f01e735']);   // #19 take three: the ground FETCH filters now, so a flat level's ground pixels moved too - the LAMPS=off sense, re-recorded, no threshold touched
-  const OLDM = [74.9, 29.6, 50.1, 29.8];
+  const OLD = refRecord('flatparity', 'PARITY', 'md5', ['a4db61f5161618586ae674047fc57cc2', 'fbcff86d51a87fc3df0279ab205cecd5', '0a99b0ed747c9732792fc474bf5211ad', 'd84ebcbd80009568585fa9fc2189649a']);   // #400 re-keys L3 ONLY (98c22412 -> d84ebcbd, frame mean 36.0 -> 36.0, two cold samplers agree): wall fixtures are painted on the faces of the authored level, so a flat frame's pixels move while its average brightness does not. L0-L2 are BYTE-IDENTICAL to the record, which is the control that makes this a picture change and not a renderer change - those three levels' flat frames carry their own fixtures and were re-confirmed unchanged to the byte in this run, so only THE STACK's authored faces repainted at this camera. The LAMPS=off sense is the one being read here; no threshold moved and the mean literal did not follow because it did not move.   // #318 re-keys L3 ONLY (f95291bb -> 98c22412, frame mean 28.0 -> 36.0): the authored level's DOORWAY cell (column 12 is solid on 19 of 20 rows, so x12 is the opening) no longer holds a lamp glyph, and a lamp standing in a wall jamb had its own-band flood truncated at the wall. L0-L2 are byte-identical, which is the level-scoped control - this change touches one glyph in AUTHORED.geo and runs no code on a generated level.   // #369 re-keys L2 and L3 ONLY (frame mean 47.5 -> 39.8 and 28 -> 36.0): a ceiling that no longer shares its floor's material, plus the authored floorBias/ceilBias/ceilLead the two levels now carry. L0 and L1 are byte-identical to the record, which is the point - neither level authors the new fields, so their flat frames do not move at all and these are a level-scoped change, not a renderer-wide one. #19 take three: the ground FETCH filters now, so a flat level's ground pixels moved too - the LAMPS=off sense, re-recorded, no threshold touched
+  const OLDM = [78.2, 34.1, 47.5, 36.0];   // #318: L3's mean literal follows its re-keyed hash (was 28.0)
   /* #213 moves SHIP[0] to 060da4cd (80.8, from 4262d051/81.3) and nothing else: a coverage top-up's
      intensity now scales with the cells it covers, so the shipped world gains DIMMER sources and L0's
      spawn frame repaints. L1 and L2 are byte-identical at TARGET <= 64 - their top-ups each cover >= 32
@@ -2056,12 +2131,8 @@ if (MODE === 'flatparity') {
      did not move, so this is seat choice, not a light scale. */
   /* #19 re-recorded: same reason as PARITY, and the lamps themselves did not move - see the DEALT row,
      where the dealt grids and off-datum cell counts are byte-identical to the previous records. */
-  /* #371 moves L0 and L3 to the same hashes PARITY now prints, gives L1 back to main, and leaves L2
-     alone - the same four-way census as PARITY's comment, read off the LAMPS-unset sense. L1 and L3 equal
-     PARITY's pair because this probe flattens both levels, so their frames differ only in lamps; L0 and
-     L2 do not, which is what makes the pair two senses rather than one. */
-  const SHIP = refRecord('flatparity', 'LOCK', 'md5', ['b481df75df0e87c8c336038e69431050', 'fbcff86d51a87fc3df0279ab205cecd5', '7c56f996d604301b495c22e49babd976', '72213b7c25359107eb4d33007f01e735']);   // same re-record, LAMPS unset. L1 and L3 equal PARITY's pair because this probe flattens both levels, so their frames differ only in lamps; L0 and L2 do not, which is what makes the pair two senses rather than one
-  const SHIPM = [77.9, 29.6, 53.6, 29.8];
+  const SHIP = refRecord('flatparity', 'LOCK', 'md5', ['619e10b73e0fe00b61b9d39091f04972', 'fbcff86d51a87fc3df0279ab205cecd5', 'c6e09c0c32aaa6369afc9c0d8f3168cb', 'd84ebcbd80009568585fa9fc2189649a']);   // #400 re-keys L3 ONLY, to the SAME new value as PARITY[3], for the reason this pair already carries: on the authored level the probe's two senses differ only in lamps, and a fixture changes neither, so both senses land on one picture. LOCK is a regression lock on lamp PLACEMENT - the fixtures place no lamp, and the row's own lightmap-sum clause is unmoved - so this re-key does not widen what the lock can see; it records that THE STACK's spawn frame now has things mounted on its walls.   // #318 re-keys L3 ONLY (f95291bb -> 98c22412, mean 28.0 -> 36.0), to the SAME value as PARITY[3]: on this level the probe's two senses differ only in lamps, so one lamp moving takes both to one picture - which is also why this row is no longer the authored-level control it was for #303 and #21.   // #369, same two levels as PARITY (mean 51.6 -> 45.0 and 28 -> 36.0) and the same statement: the lightmap the lamps produce is untouched, so this is shading, not placement - L0/L1 bytes unmoved. same re-record, LAMPS unset. L1 and L3 equal PARITY's pair because this probe flattens both levels, so their frames differ only in lamps; L0 and L2 do not, which is what makes the pair two senses rather than one
+  const SHIPM = [79.3, 34.1, 51.6, 36.0];   // #318: L3's mean literal follows its re-keyed hash (was 28.0)
   /* #219's DEALT triple, #226's camera: the frame of each level AS DEALTED - bands, band term, shipped
      lamp record, same dice (1000 + level*97) and the same pinned-clock ninth render - but at a seat
      CHOSEN FROM THE GRID, not the spawn seat #219 inherited. Where LOCK is a
@@ -2161,8 +2232,8 @@ if (MODE === 'flatparity') {
   // record, and the coverage pass moved three seats on the generated levels. The authored level is the control.
   /* #19 re-recorded L0/L1/L3, L2 unchanged: the dealt GEOMETRY is identical (the off-datum counts this
      row prints are 165/246/314/134, the same as main's run of the same probe) - only its shading moved. */
-  const DEALT = refRecord('flatparity', 'DEALT', 'md5', ['1a6b0a4a9708629aa11d84827b7631e9', '659b2fc2796a27ff2f3a102fb1c26715', '529fe0c79f3b5ec0bbcac5db408ef571', 'aa5c10d145e91bc29abf0a09c3ffa90b']);   // #19 take four: L0 and L3 moved, L1 and L2 did NOT - that is the measurement, and this row does not claim to know why those two. What IS measured is the mechanism at the level-0 cam1 seat (js/40_render.js, groundPixel's off-map fallback): take four changes the shading of ground pixels whose own cell is off the map and of nothing else. PARITY and LOCK are untouched by this pass - a flattened level defers nothing, so no pixel of a flat frame is on this code path at all
-  const DEALTM = [56.0, 57.8, 85.1, 40.7];
+  const DEALT = refRecord('flatparity', 'DEALT', 'md5', ['20f65505af2a3139cbd567b77d424184', '659b2fc2796a27ff2f3a102fb1c26715', '529fe0c79f3b5ec0bbcac5db408ef571', 'df052323ed44655019f22e44b76b7925']);   // #400 re-keys L3 ONLY (98ff9df4 -> df052323, mean 37.9 -> 37.8, both cold samplers). The dealt GEOMETRY clause is the control and it is unchanged - 134 of 256 open cells off the datum, identical to main - so the grid the generator dealt is the grid it dealt before; what moved is that the faces of that world now carry fixtures. L0-L2 byte-identical: three of four dealt frames re-confirmed to the byte in this run, which is why this is a re-record and not a widening.   // #375 re-keys L0 and L3 (583bb866 -> 20f65505, bf6c8907 -> 98ff9df4) and leaves L1 and L2 BYTE-IDENTICAL, which is the scope control: the change is the deferred copy's off-map CEILING light, so a level whose dealt seat has no deferred ceiling pixel landing past its own edge is untouched. Both means move DOWN, 56.0 -> 55.7 and 38.1 -> 37.9 (main measured in the same harness at the same dice), because a pixel past the level's boundary now takes the light FIELD where its ray landed instead of the lamp of the cell the row's walk last reached.   // #318 re-keys L3 ONLY (2fde377e -> bf6c8907, mean 39.7 -> 38.1 at dice 1291, two cold samplers agreeing; the DEALT-ORDER row's alone-vs-in-order hashes are the same value, so this is the level, not the render order). The dealt GEOMETRY clause is unchanged - 134 of 256 open cells off the datum, identical to main - so this is one lamp's light in the dealt frame, not the grid. L0-L2 byte-identical.   // #19 take five re-keys L0 and L3 ONLY, and this row's own second clause is the control that makes it a record rather than a regression: PARITY and LOCK are byte-identical on all four levels, because a flattened level queues no deferred pixel and nothing else in the renderer is on this code path. What moved is the SHADED far field of a banded level - a deferred ground pixel whose OWN solve exceeds FARB now takes the material's mip mean instead of one texel stretched along its ray, which is the far answer castGround's row fill has always had (js/40_render.js gndBuild, GNDFB). At the level-0 cam1 seat that is 38,040 px of a 203,138 px frame. L1 and L2's dealt frames re-confirmed unchanged to the byte. #369 re-keys L3 ONLY (mean 39.7 -> 36.0 at dice 1291, the authored level). L2's dealt frame is BYTE-IDENTICAL - same md5 in both flatparity runs, and it is a frame whose shading did change (LOCK[2] above moved) - so whatever this seat at dice 1194 looks at, the ceiling is not where the difference lands. The row does not claim to know why; it is recorded as a measurement, not an explanation. #19 take four: L0 and L3 moved, L1 and L2 did NOT - that is the measurement, and this row does not claim to know why those two. What IS measured is the mechanism at the level-0 cam1 seat (js/40_render.js, groundPixel's off-map fallback): take four changes the shading of ground pixels whose own cell is off the map and of nothing else. PARITY and LOCK are untouched by this pass - a flattened level defers nothing, so no pixel of a flat frame is on this code path at all
+  const DEALTM = [55.7, 57.8, 85.1, 37.8];   // #400: L3's mean follows its re-keyed hash (37.9 -> 37.8) - a fixture is an albedo at the wall's own mid-tone, so a dealt frame is a hair darker and nothing else about its average character changes.   // #318: L3's mean literal follows its re-keyed hash (was 39.7). #375 moves the two re-keyed levels' means DOWN (56.0 -> 55.7, 38.1 -> 37.9, each measured twice in this run and on main in the same harness): off-map ceiling pixels stop borrowing a lamp, so a dealt frame is a shade darker without changing its average character.
   const OFF = process.env.LAMPS === 'off';
   const f1 = v => (v === undefined || v === null ? '-' : (+v).toFixed(1));
   const md5of = () => { const d = new Uint32Array(run('px'));
@@ -4318,7 +4389,11 @@ if (MODE === 'cull') {
       // level's pair and held through take two because that pass changed only the light; take three
       // changes the FETCH, so it moves too. The control that says these four hashes are the same
       // arithmetic on the same machine is now the WORLD sense below, which is byte-identical.
-      const CZBAND_REF = refRecord('cull', 'CZBAND', 'crc32', [0xabb4ee14, 0x69425d54, 0xed78a5b0, 0x401524ac]);   // LEAK=1 CZBAND=1, cull's own step rows - #19 take four: THREE moved and the AUTHORED level's pair (0x401524ac) held, which is the control: this pass changes the shading of ground pixels whose own cell is off the map, and the authored level's camera has none. The WORLD lightmap digest is byte-identical on all four (measured this run), which is the other half - no lamp moved
+      // #318 corrects that last sentence for L3: the doorway lamp moved out of the wall jamb, so the
+      // authored level's GENERATED lightmap is a different set of sources and its WORLD digest moves
+      // with its lane (0x6b8394bc -> 0x04c0b554, sum 137.63 / 400 cells, max 1.872, drift 0). The
+      // byte-identical control is now levels 0-2, in both senses.
+      const CZBAND_REF = refRecord('cull', 'CZBAND', 'crc32', [0x4f9392a0, 0xe4dd7718, 0x4abfcb22, 0x52487fb4]);   // #375 re-keys the LANE on L0-L2 (0x5b8808c8 -> 0x4f9392a0, 0xc381f775 -> 0xe4dd7718, 0x85722368 -> 0x4abfcb22) and leaves the AUTHORED level's lane at its recorded 0x52487fb4, while the row's own second clause - WORLD, the generated lightmap - is BYTE-IDENTICAL on all four (0xb34f4fc0 / 0x3a016a47 / 0xad0252c0 / 0x04c0b554). That pair is the shape of this change: nothing the level generates moved, only how the deferred copy of the ground pixel body READS the field for a ceiling pixel whose ray landed past the level's edge, which is exactly the pixel this synthetic ceiling-step poke produces. L3 holding is the scope control #19 take four already recorded for this camera - the authored level's poke has no off-map deferred ceiling pixel to re-light.   // #318 re-keys L3 ONLY (0x77ecff4d -> 0x52487fb4) - the authored doorway lamp moved one cell out of the x12 wall jamb, so the light under the ceiling-step ground at this camera is a different set of sources; L0-L2 byte-identical in both senses, which is the control.   // #19 take five re-keys the FIRST TWO (L0 0xabb4ee14 -> 0x5b8808c8, L1 0x69425d54 -> 0xc381f775) with the row's own WORLD digest as the control: it matches its recording byte for byte on both levels (0xb34f4fc0, 0x3a016a47), so no lamp moved while the ground-pass lane did - which is what washing a deferred far pixel does, and the AUTHORED level's pair holds again. LEAK=1 CZBAND=1, cull's own step rows - #369 re-keys the LAST TWO (L2 0xed78a5b0 -> 0x85722368, L3 0x401524ac -> 0x77ecff4d), and the row's own second clause is the evidence that this is a record and not a regression: the WORLD (generated-lightmap) digest matches its recording byte-for-byte on BOTH levels (0xad0252c0, 0x6b8394bc), so no light moved, while the ground-pass LANE hash moved - which is exactly what dimming the ceiling rows does to the deferred copy of the ground pixel body on a ceiling-step frame. L0 and L1's lanes are unchanged to the byte, which is the same level-scoped control PARITY/LOCK/DEALT print. This row only runs under LEAK=1 CZBAND=1, so it is easy to miss: it is a CI step, not part of a plain `cull`. Both values reproduced identically over two runs. #19 take four: THREE moved and the AUTHORED level's pair (0x401524ac) held, which is the control: this pass changes the shading of ground pixels whose own cell is off the map, and the authored level's camera has none. The WORLD lightmap digest is byte-identical on all four (measured this run), which is the other half - no lamp moved
       /* #223: the WORLD sense, recorded beside the lane sense, because czS.h above is a lightmap
          instrument only ON ONE CAMERA'S FRAME: it moves when the lightmap changed somewhere that frame
          rasterizes and holds when it changed somewhere it cannot, so its green never proves "the
@@ -4350,7 +4425,7 @@ if (MODE === 'cull') {
          The printed drift (MAP.light now vs the snapshot taken straight after startLevel) is 0 on all
          three levels, so on this path they are the same array; a nonzero drift would mean a row had
          splatted a transient into the frame and the pair had stopped being comparable. */
-      const CZLIGHT_REF = refRecord('cull', 'CZBAND-LIGHT', 'crc32', [0xb34f4fc0, 0x3a016a47, 0xad0252c0, 0x6b8394bc]);
+      const CZLIGHT_REF = refRecord('cull', 'CZBAND-LIGHT', 'crc32', [0xb34f4fc0, 0x3a016a47, 0xad0252c0, 0x04c0b554]);   // #318 re-keys L3 ONLY (0x6b8394bc -> 0x04c0b554, sum 137.63 over 400 cells, max 1.872): the WORLD sense is the one that had to move, because this is a source placement change on the authored level and the lane hash on its own would have held while a source off-camera moved. L0-L2 byte-identical - the same arithmetic on the same machine.
       if (process.env.CZBAND) {
         czRows++;
         run(`(function(){ window.__cz0b = MAP.cz.slice(); ${JSON.stringify(BG.cells)}
@@ -5621,7 +5696,7 @@ if (MODE === 'exposure') {
   /* #19 re-recorded L0/L1/L2 (71.61 / 70.19 / 69.19 exact), L3 unmoved: the ground's light is sampled at
      the pixel, so a lamp pool spreads a little and the seeded median falls by one. The SPREAD columns,
      which are what this row is about, did not move. */
-  const EXPO_MED = refRecord('exposure', 'MEDIAN', 'num', [71, 70, 69, 64]);   // #19 take four: L0 72 -> 71 (71.04 measured); L1-L3 did not move. This is the exposure half of the same fix - the far-field ceiling was being multiplied into clipping by a light ramp that extrapolated 40 cells off the map, and the level-0 spawn frame reaches past the map edge
+  const EXPO_MED = refRecord('exposure', 'MEDIAN', 'num', [69, 70, 62, 82]);   // #403 re-keys L3 83 -> 82 (82.33 exact, rolls 89 85 80 73 and spread 16 BOTH unchanged, and L0-L2 byte-identical to the hundredth): the wall-fixture pass repaints faces, and THE STACK's 6-yaw sampled mean falls 82.52 -> 82.33, i.e. 0.19 of luminance crossing a rounding boundary. The ROLLS are identical, so no layout and no light source moved - the row's own statistic is unchanged and only its last digit is now honest. flatparity's DEALT[3]/LOCK[3]/PARITY[3] were re-keyed for the same repaint at 95fce7a; this is that re-record's exposure half, the one this probe's literals had not caught up with.   // #375 re-keys L0 71 -> 69 (69.39 exact) and L2 63 -> 62 (61.90 exact) and leaves L1 and L3 alone: the seeded frames are shot from the spawn seats, where the ceiling past the level's own boundary is part of the frame, and that ceiling now fades to ambient instead of carrying a lamp 40 m back - a two-glyph and a one-glyph drop, in the same direction as the DEALT means, and the two levels whose dealt hash did NOT move are the two whose median did not move either.   // #318 re-keys L3 69 -> 83 (82.52 exact, rolls 89 85 80 73, spread 16): the doorway lamp left the x12 wall jamb, its own-band flood is no longer truncated at the wall, so its strength leaves the coverage top-up's minimum-floor path and the authored level gets brighter - worst seeded roll 73 against the #149 floor 57, so no L3 KNOWN row remains. L0-L2 byte-identical.   // #369: L2 69 -> 63 (62.96 exact, rolls 54 81 66 60) and L3 64 -> 69 (68.74, rolls 73 70 67 64); L0 and L1 byte-identical. The two moves are the fix and they are in OPPOSITE directions on purpose: ABATOIR CORE loses the emissive ceiling veins it was painting over its own head, THE STACK gains a floor that is no longer outside the light its lamps deliver. Both stay inside the 60-100 window row, which is the row that gates the look, and each level's worst seeded roll prints as a KNOWN #149 line rather than being absorbed. #19 take four: L0 72 -> 71 (71.04 measured); L1-L3 did not move. This is the exposure half of the same fix - the far-field ceiling was being multiplied into clipping by a light ramp that extrapolated 40 cells off the map, and the level-0 spawn frame reaches past the map edge
   // #284: L2's spawn-seat MEAN moves 64 -> 63 (64.33 -> 63.22) while the CENTRE-HALF mid is identical to
   //   the hundredth (73.31) and the spread is identical (65), L0 and L1 are byte-identical (56.89/64.80 and
   //   59.95/50.31), PARITY is bit-identical on all three levels, and the deal's mean is unchanged in the
@@ -5654,7 +5729,7 @@ if (MODE === 'exposure') {
      a lamp-overlap room, and the pixels past the first cell boundary are the ones that come down. L1
      64.49/58.60 and L2 64.32/72.58 come back ONTO their records, so this is not the frames going dark -
      and #304's L3 pair 56/60 still rounds onto its record (55.92/59.84 exact against #304's 56.10/59.86). */
-  const EXPO_SPAWN = refRecord('exposure', 'SPAWN', 'num', [61, 67, 65, 64, 65, 71, 58, 61]);   // #371 moves 5 of 8 frames and the pattern IS the change: the three props a spawn camera can see get a shaded side and a contact patch, so L0's spawn mean 62 -> 61 and mid 68 -> 67, L1's 66 -> 65 (65.37 exact) and L2's centre-half mid 72 -> 71, while L2's mean holds at 65 (64.50 exact, the same pixels main measured); L3's pair is byte-identical because its spawn seat looks down a stair with no prop in frame. The SEEDED MEDIAN - the statistic the README quotes - did not move on any level (71 / 70 / 69 / 64), which is the direction a pay-for-it-somewhere-else change has to go: prop faces moved pixels, the frame's exposure did not.   // mean, mid per level - #19 take four moves ONE figure, L3's centre-half mid 59 -> 61 (57.63 / 61.09 exact); the other seven are unchanged. #19 earlier re-recorded all eight (61.78/67.59, 66.39/64.26, 64.63/71.83, 58.15/58.84): the ground's light is sampled at the pixel, which lifts the far half of a spawn view
+  const EXPO_SPAWN = refRecord('exposure', 'SPAWN', 'num', [62, 68, 66, 64, 60, 69, 50, 54]);   // mean, mid per level - #403 re-keys L2's pair 65/75 -> 60/69 (60.27 / 68.67 exact, spread 42) and L3's centre-half mid 55 -> 54 (49.85 / 54.30, spread 0). L2's is the fixture, not a darkening: the ABATOIR spawn face now carries a STRIPE patch, and the grime wash on it became a MULTIPLY ramp instead of the source-over white sheet the review caught, so that wall renders darker than it did on main (65.29 / 74.67). Both figures stay inside every threshold, and the row that actually gates the look - tools/ci/assert.js exposure on the COMPOSITED frame, with bloom and grade - reads `EXPOSURE ok` here. L3's mid is the same 0.4-of-a-glyph rounding crossing as its MEDIAN. L0's and L1's four digits are unchanged to the hundredth, so this is two faces being painted, not the frames going dark.   // #375 re-keys the AUTHORED level's pair 52/57 -> 50/55 (49.95 / 54.70 exact, spread 0): THE STACK is the one level whose dealt seat runs thousands of deferred ceiling pixels past its own edge, and they are lit here by the same term.   // #318 re-keys L3's pair 51/56 -> 52/57 (51.72 / 56.99 exact, spread 0): same one-glyph move as MEDIAN, and the spread-0 spawn seat is the authored level's, so this is a placed source, not a deal. L0-L2 unchanged.   // the rest is #369's clause: moves the two pairs of the two levels that author a value order: L2 65/72 -> 65/75 (65.28 / 74.66 exact), L3 58/61 -> 51/56 (51.03 / 55.91). Same sign as the medians and for the same reason: a ceiling that stops out-shading the surfaces under it. #19 take four moves ONE figure, L3's centre-half mid 59 -> 61 (57.63 / 61.09 exact); the other seven are unchanged. #19 earlier re-recorded all eight (61.78/67.59, 66.39/64.26, 64.63/71.83, 58.15/58.84): the ground's light is sampled at the pixel, which lifts the far half of a spawn view
   const LUM_WANT = [60, 100];       // the documented window (README: targets 60-100)
   /* #149 THE WORST ROLL, raster layer, at 4 seeded rolls - the statistic the window row above
      deliberately does not read. The median is asserted because one roll outside 60-100 proves nothing,
@@ -5823,7 +5898,7 @@ if (MODE === 'exposure') {
   const COV_LAMPS_MAX = [10, 12, 20, 7]; // mean lamps/deal incl. the exit pad: never above main's
   const covAgg = [];
   if (COV_ROLLS > 0) for (let lv = 0; lv < N; lv++) {
-    const A = { deals: 0, big: 0, bigDark: 0, bigNoStand: 0, allDark: 0, cells: 0, dark: 0,
+    const A = { deals: 0, big: 0, bigDark: 0, bigNoStand: 0, allDark: 0, cells: 0, dark: 0, smallCells: 0, smallDark: 0,
       lamps: 0, gap: Infinity, gapReserve: Infinity, bands: 0, worstBand: '', darkBands: [], standBands: [], allDarkBands: [] };
     for (let r = 0; r < COV_ROLLS; r++) {
       seedRng(1000 + lv * 97 + r * 13);
@@ -5887,7 +5962,7 @@ if (MODE === 'exposure') {
       if (c.gapReserve > 0 && c.gapReserve < S.gapReserve) S.gapReserve = c.gapReserve;
       for (const b of c.bands) {
         S.bands++; S.cells += b.n; S.dark += b.dark;
-        if (b.n < COV_MIN_BAND) continue;
+        if (b.n < COV_MIN_BAND) { S.smallCells += b.n; S.smallDark += b.dark; continue; }
         S.big++;
         const who = 'roll ' + r + ' ' + (b.ri < 0 ? 'lane' : 'room ' + b.ri) + ' @ q' + b.q +
           ' (' + b.n + ' cells)';
@@ -5914,7 +5989,9 @@ if (MODE === 'exposure') {
       A.bigDark <= COV_DARK_MAX[lv],
       A.bigDark + ' of ' + A.big + ' big bands are over ' + (100 * COV_SHARE).toFixed(0) + '% dark over ' +
       deals + ' deals, against the ceiling ' + COV_DARK_MAX[lv] + ' measured on this tree; ' +
-      (100 * A.dark / A.cells).toFixed(1) + '% of the ' + A.cells + ' counted cells are dark'
+      (100 * A.dark / A.cells).toFixed(1) + '% of the ' + A.cells + ' counted cells are dark, of which '
+      + A.smallDark + ' (' + (100 * A.smallDark / Math.max(1, A.dark)).toFixed(0) + '% of the dark cells) sit on '
+      + 'the ' + A.smallCells + ' cells of bands under ' + COV_MIN_BAND + ' cells, which the guarantee does not reach'
       + (A.bigDark > COV_DARK_MAX[lv] ? ' - over the ceiling: ' + A.darkBands.slice(0, 5).join('; ') +
         (A.darkBands.length > 5 ? ' ... +' + (A.darkBands.length - 5) : '') : '') +
       ' - this is the claim the lamp model can keep: it cannot promise a deal MEAN (#149 measured main 23/36/51/61 at 24 rolls).');
@@ -6092,14 +6169,21 @@ if (MODE === 'heights') {
      teeth (#148's control rule), and nothing here reads a clock. Guarded means ABSTAIN, not pass: a
      row under a knob prints NOT COMPARED and counts nothing in `bad`, which is why the guard list has
      to be the measured one and not a guess. */
-  const RECHALF = refRecord('heights', 'HALF-MOVE', 'num', [97.66, 31.21, 82.05, 95.47, 42.83, 61.97, 98.03, 33.83, 29.81, 95.62, 42.81, 64.45, 98.86, 32.57, 81.13, 95.34, 42.88, 63.32, 97.74, 23.55, 21.23, 95.41, 38.07, 54.25]);
+  const RECHALF = refRecord('heights', 'HALF-MOVE', 'num', [97.66, 31.21, 82.05, 95.47, 42.83, 61.97, 98.03, 33.82, 29.80, 95.62, 42.81, 64.45, 97.73, 32.57, 81.13, 95.34, 42.88, 63.32, 97.74, 23.55, 21.24, 95.58, 38.09, 54.26]);   // #375 needs NO re-key of any of these 24, and that green is the scope showing up in a record: every config this row counts is a FLOOR-half pixel, and the off-map light fix is applied to the CEILING half only (js/40_render.js, `&& !isF`). The FLOOR half is #385 and carries its own measurements there.   // #318 re-keys 2 of 24, both on L3 (stepUp floor 38.08 -> 38.09, eyeUp floor 54.25 -> 54.26): the authored doorway lamp moved one cell, so two of the authored level's moved-half percentages shift by a hundredth of a percent. The other 22 are byte-identical.   // #19 take five re-keys TWO of 24, both on L1: pit floor 33.83 -> 33.82, stripes floor 29.81 -> 29.80 - hundredths of a percent, same mechanism the DEALT and CZBAND rows describe (a deferred pixel past FARB is quieter, so it diffs less against the frame one quantum away). The other 22 are byte-identical. #369 re-keys 4 of 24, all share-of-frame percentages: L2 tallRoom ceiling 98.86 -> 97.73 and L3's stripes floor 21.23 -> 21.24, border floor 95.41 -> 95.58, stepUp floor 38.07 -> 38.08. A dimmer ceiling diffs LESS against the frame one quantum above it, so the moved-half census of a tall room shrinks - the solver is unchanged, the pixels are quieter. The other 20 are byte-identical, and no level that does not author the fields moved.
   const HALFK = ['tallRoom ceiling', 'pit floor', 'stripes floor', 'border floor', 'stepUp floor', 'eyeUp floor'];
   const HALFCOL = { tallRoom: 0, pit: 1, stripes: 2, border: 3, stepUp: 4, eyeUp: 5 };
   const FRAMEK = ['VW', 'VH', 'LAMPS', 'NOCAP'].filter(k => process.env[k]);
+  /* #375's floor, in 1/1000 of a light unit: one step of the 8-bit light multiply. The fixed deferred
+     copy delivers EXACTLY ambient on a ceiling pixel whose four taps are all off the map, so this is not
+     a tuned number; it is the arithmetic's own resolution. OFFMAPDEBT is the FLOOR half, which #375
+     scopes OUT (see js/40_render.js's `&& !isF`): measured on this tree at its worst level, so the row
+     goes red only if that half gets WORSE than the shipped behaviour it reproduces. */
+  const OFFMAPFLOOR = 2, OFFMAPDEBT = 1900;
+  let offDefRun = 0;
   for (let li = 0; li < run('LEVELS.length'); li++) {
     let ref = null, refF = null, flatMean = 0, farSeen = 0;
     const halfNow = [];                 // the recorded statistic, filled by the config loop below
-    const lgn = [0, 0, 0, 0, 0, 0, 0, 0, 0];    // LGCNT summed over this level: 3 sites x 3 families
+    const lgn = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];   // LGCNT summed over this level: 3 sites x 3 families, + #375's off-map run counts (9, 11) and worst delivered light above ambient (10, 12)
     console.log(`level ${li}`);
     for (const [name, poke, wantFloor, wantCeil, wantDecals, wantOutMap, wantDepth] of cfgs) {
       seedRng(4242 + li * 31);
@@ -6116,7 +6200,7 @@ if (MODE === 'heights') {
          legitimately redraws rows the moment a face's z span changes (a taller ceiling retiles the
          wall it caps, including the rows below the eye line) and counting that as the floor solver
          having moved would blame the wrong pass. */
-      run('LGCNT = new Int32Array(9);');      // #21: count what BOTH ground renders of this config use
+      run('LGCNT = new Int32Array(LG_NTOT);');      // #21: count what BOTH ground renders of this config use
       run('renderWorld()');
       const BW = run('BW'), BH = run('BH'), hInt = run('Math.round(horizon)'), n = BW * BH;
       const full = new Uint32Array(run('px'));
@@ -6125,8 +6209,10 @@ if (MODE === 'heights') {
       run(ZOFF);
       // #21: disarm and fold this config's ground-light counts into the level's total
       {
-        const c = run('(()=>{const c=LGCNT;LGCNT=null;return c?[c[0],c[1],c[2],c[3],c[4],c[5],c[6],c[7],c[8]]:[0,0,0,0,0,0,0,0,0]})()');
+        const c = run('(()=>{const c=LGCNT;LGCNT=null;return c?Array.from(c):[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]})()');
         for (let q = 0; q < 9; q++) lgn[q] += c[q];
+        lgn[9] += c[9]; lgn[11] += c[11]; lgn[13] += c[13];          // #375: off-map pixels RUN, summed
+        for (const q of [10, 12, 14]) if (c[q] > lgn[q]) lgn[q] = c[q];   // and the WORST light delivered
       }
       const cur = new Uint32Array(run('px'));
       const reS = run('({bad:reSolveBad,off:gndOffMap})');   // this ground pass only, not the renderWorld before it
@@ -6329,10 +6415,12 @@ if (MODE === 'heights') {
       s.push([castRayDist(P.x,P.y,Math.cos(a),Math.sin(a),FARB*4).dist,a]);}
       s.sort((u,v)=>v[0]-u[0]);return s.slice(0,4).map(u=>[u[0],u[1]])})()`);
     for (const [dY, yaw] of lgy) {
-      run('LGCNT = new Int32Array(9);');
+      run('LGCNT = new Int32Array(LG_NTOT);');
       run(`P.ang = ${yaw}; P.pitch = 0; P.z = floorAt(P.x, P.y);` + VMREST + 'renderWorld()');
-      const c = run('(()=>{const c=LGCNT;LGCNT=null;return c?[c[0],c[1],c[2],c[3],c[4],c[5],c[6],c[7],c[8]]:[0,0,0,0,0,0,0,0,0]})()');
+      const c = run('(()=>{const c=LGCNT;LGCNT=null;return c?Array.from(c):[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]})()');
       for (let q = 0; q < 9; q++) lgn[q] += c[q];
+      lgn[9] += c[9]; lgn[11] += c[11]; lgn[13] += c[13];           // #375, same fold as the config loop
+      for (const q of [10, 12, 14]) if (c[q] > lgn[q]) lgn[q] = c[q];
       if (dY > FARBFAR) farSeen = Math.max(farSeen, dY);
     }
     /* One verdict per level over every render above. LIGHTCAP-LEAK is the fix: a ground or mirror pixel
@@ -6350,6 +6438,39 @@ if (MODE === 'heights') {
     if (lgFail) bad++;
     console.log(`  ${pad('lightcap', 9)} ${lgRun} ground light lookups (row ${lgn[0]}, deferred ${lgn[1]}, far band ${lgn[2]}${lgn[2] || lgn[5] ? '' : '; longest spawn ray ' + farSeen.toFixed(1) + ' m vs FARB ' + FARBFAR}), ` +
       `${lgSeen} above 1.0, ${lgLeak} of them DELIVERED to a pixel above the ceiling  ${lgFail ? 'FAIL' + lgFail : 'ok'}`);
+    /* #375 OFF-MAP LIGHT, per level. A ground pixel whose ray LANDED OFF THE LEVEL has no lamp of its
+       own. Until #375 the deferred copy gave it the light of the cell the row's walk last reached, at
+       ANY distance, and the set of rays that land off-map is bounded by the map's own side edges - which
+       along an axis are straight lines through the vanishing point - so the level's footprint drew as a
+       bright trapezoid with a one-pixel edge in the far ceiling (the level-0 cam1 seat, both arms in one
+       process: frame mean 52.7 with GNDOF off and 50.6 with it on, 18,035 px differing, all of them in
+       buffer rows 109..161, and the worst one-pixel luminance step inside that band 89.8 against 45.9).
+       The invariant is not a brightness number: a pixel a WHOLE CELL clear of the level has no bilinear
+       tap left in the field (offMapClear), so it must deliver ambient and nothing more. The floor is two
+       units of this counter's own 1/1000 quantization (the max is stored x1000 in an Int32Array), not a
+       tuned threshold: the fixed arithmetic delivers exactly 0.000 there,
+       and the same run with GNDOF=0 (js/40_render.js's A/B switch, JSDIR variant for this probe) prints
+       the borrowed cell's light here, which is how this row is seen to FAIL on the shipped behaviour.
+       Vacuity is a FAILURE, per site: a level whose pixels never left the map measured nothing. */
+    const offFail = [];
+    if (lgn[14] > OFFMAPFLOOR) offFail.push(' OFFMAP-LIGHT-CEILING');
+    if (lgn[12] > OFFMAPFLOOR) offFail.push(' OFFMAP-LIGHT-ROW');
+    if (lgn[10] > OFFMAPDEBT) offFail.push(' OFFMAP-DEBT-EXCEEDED');
+    if (!lgn[13] && !lgn[11]) offFail.push(' OFFMAP-VACUUM');
+    offDefRun += lgn[13];
+    if (offFail.length) bad++;
+    console.log(`  ${pad('offmap', 9)} CEILING ${(lgn[13] + lgn[11]).toLocaleString()} ground pixel(s) landed a whole cell clear of the level `
+      + `(deferred ${lgn[13].toLocaleString()}, row ${lgn[11]}), worst light delivered above ambient `
+      + `deferred ${(lgn[14] / 1000).toFixed(4)}, row ${(lgn[12] / 1000).toFixed(4)} (floor ${(OFFMAPFLOOR / 1000).toFixed(4)})`
+      + `${lgn[13] ? '' : ' - deferred ceiling site unrun on this level'}`
+      + ` | FLOOR-half debt ${lgn[9].toLocaleString()} px, worst ${(lgn[10] / 1000).toFixed(4)} (debt floor ${(OFFMAPDEBT / 1000).toFixed(4)}, #385)`
+      + `${offFail.length ? '  FAIL' + offFail.join('') : lgn[10] ? '  ok (floor half carries the #385 debt)' : '  ok'}`);
+  }
+  /* The site #375 actually fixed has to have run SOMETHING, somewhere: a per-level 0 is a level with no
+     long sight line, but four of those means the row has stopped measuring the copy it is about. */
+  if (!offDefRun) {
+    console.log('  ' + pad('offmap', 9) + ' FAIL OFFMAP-DEFERRED-UNRUN: no level painted a deferred ceiling pixel clear of the map, so no frame exercised the fixed path');
+    bad++;
   }
   console.log(bad ? `heights: ${bad} config(s) FAILED` : 'heights: all configs ok');
   process.exit(bad ? 1 : 0);
@@ -6559,6 +6680,26 @@ if (MODE === 'contrast') {
      strongest termless cell and 0.64 of the weakest shipped one: it trips on a term that loses a third
      of its slope, not on a dark room.                                                        */
   const TG_PRE = 0.68, TG_POST = 2.17, TG_FLOOR = 1.40, TG_MINPX = 60;
+  /* #216: this block printed verdict numbers with nothing recorded behind them - the exact shape #244 was
+     filed for, one gradient defined three ways in three sessions, none of which could fail. TG_FLOOR stays
+     what it always was, a catastrophe detector set between two measured trees; what it cannot do is see
+     SLOW drift, because a gradient that slides 3.5 -> 1.41 keeps passing until someone re-tunes the floor
+     from the frame they are staring at. These are the block's first records: the gradient each camera
+     measures on its OWN deterministic frame at this cell, bounded BELOW - structure lost is the defect,
+     structure gained is not, so a two-sided band would legislate today's art rather than the claim - with
+     TG_SLACK for a tree that legitimately improves the shading. The input is deterministic - three separate
+     processes print the same three numbers to 2 dp - but the RECORD IS A ROUNDED PRINT, and that is why
+     TG_SLACK cannot be 0: at TG_SLACK=0 cam 0 FAILs while still printing 2.52, because its true value is
+     just under the rounded literal (cam 1 and cam 2, which round the other way, pass). So the slack must
+     clear half the print's last digit, and 0.35 does that while staying far below the drift being hunted -
+     a term thinning from 2.4 toward TG_FLOOR's 1.4. What the row has been seen to respond to: the GATE, via
+     TG_SLACK=-1 (record + 1) failing all three cameras and exiting 1; and BODY SHADING, via TINT=2 moving
+     cam 1 2.17 -> 2.53 and cam 2 2.41 -> 2.53 with the silhouette mask fixed, which is the control #240
+     demanded of this statistic. AMBX=0 moves it NOT AT ALL (2.52/2.17/2.41 unchanged) and must not be quoted
+     as a control: AMB is re-authored from MAP.amb inside startLevel, so that knob edits a default, not a
+     shipped term. */
+  const TG_REF = refRecord('contrast', 'TORSO-DL', 'num', [2.52, 2.17, 2.41]);
+  const TG_SLACK = +(process.env.TG_SLACK !== undefined ? +process.env.TG_SLACK : 0.35);
   /* The mean and motion halves, measured on the same nine cells of both trees. The mean channel is the
      DC of the wave: the mean of the SIGNED slope less the frame\'s own, which cancels on a zero-mean
      triangle (0.00 to 0.53 with no term in js/, 0.00 to 0.80 shipped - the widest legit cell is L2 cam 1,
@@ -7530,6 +7671,20 @@ if (MODE === 'contrast') {
         + ' delivers ' + (tstat.room ? (100 * tstat.grad / tstat.room).toFixed(0) : '0') + '% of what the'
         + ' walls do on screen' + (tgVac ? '' : tgWhy) + ' [' + TG_MARK + ']' +
         (tgSamePx ? ' | NOTE: the re-render differs from the coverage frame on ' + tgSamePx + ' px' : ''), tgDebt);
+      /* The drift row this block did not have (#216). It is not a second floor over the same number: the row
+         above asks "is there any surface structure at all" against a constant chosen from two trees, this
+         one asks "is the structure this cell was measured with still there" against a declared literal, so
+         a term that thins out without vanishing trips here first. Vacuity is a FAILURE, not the debt the row
+         above carries: nM > 0 got us into this branch, so a body is in the mask and fewer than TG_MINPX
+         interior torso px is the instrument losing its subject, which #244 already ruled is not a debt. */
+      row('cam ' + cam + ' torso gradient is the recorded value',
+        tgVac && tstat.grad >= TG_REF[cam] - TG_SLACK,
+        'torso gradient ' + tstat.grad.toFixed(2) + ' dL/px against the recorded ' + TG_REF[cam] +
+        ' minus ' + TG_SLACK + ' on ' + tstat.px + ' interior torso px' +
+        (tgVac ? '' : ' - NOTHING TO AVERAGE over ' + tstat.px + ' px: a body is in the mask (' + nM +
+          ' px) but the torso box yields no interior, so this is the instrument, not the art') +
+        '; TG_FLOOR ' + TG_FLOOR + ' above stays the catastrophe detector, this row is what sees the slow way down',
+        undefined);
       row('cam ' + cam + ' torso gradient not paid by mean or edge', tgVac && tstat.bias <= TG_BIAS,
         'DC of the wave ' + tstat.bias.toFixed(2) + ' dL/px vs floor ' + TG_BIAS + ' (mean of the SIGNED'
         + " slope less the frame's own " + tstat.roomBias.toFixed(2) + ': a zero-mean triangle cancels, a'
@@ -9114,6 +9269,92 @@ if (MODE === 'play') {
   }
   console.log(bad ? bad + ' loop states threw' : 'gameplay loop: every state ran clean');
 }
+if (MODE === 'fixtures') {
+  /* #400: are the walls actually decorated, and is the DECORATION the thing that is not a wash?
+     The issue's criterion is "no visible wall face is one uninterrupted repeat from floor to
+     ceiling", which is a statement about GEOMETRY the generator wrote, so it is checkable without
+     rendering: walk every straight wall face line, and every run of it at least FIX_RUN_MIN metres
+     long must carry a fixture. Two failures this can see and the frame mean cannot:
+       - a pass that paints a corridor instead of a doorway (the #403 review finding: a "neck" is
+         also the definition of a straight corridor cell, so DOOR tiled every corridor and ate the
+         budget the long-run pass needed - this reads the kind histogram for exactly that);
+       - a fixture texture whose alpha got written by its own age pass, i.e. a translucent slab
+         rather than a thing bolted to the wall. Read the alpha channel off the finished texture.
+     Rows are per level; the deal is seeded so the counts are reproducible across processes. */
+  const N = run('MAP.w'), RUNMIN = run('FIX_RUN_MIN');
+  const kinds = ['DOOR', 'PIPE', 'STRIPE', 'VENT'];
+  let bad = 0;
+  /* alpha census: what fraction of the finished patch actually covers the wall */
+  const cov = run(`(()=>{const o={};for(const k of ['DOOR','PIPE','STRIPE','VENT']){const t=WFIX[k];
+    let op=0,se=0,tr=0,sum=0;for(let i=0;i<t.data.length;i++){const a=t.data[i]>>>24;
+      sum+=a; if(!a)tr++; else if(a>250)op++; else se++;}
+      o[k]=[tr/t.data.length, op/t.data.length, sum/255/t.data.length];}return o})()`);
+  console.log('fixtures: #400 wall decor - the issue criterion is a geometry claim, so it is walked, not rendered;'
+    + ' every straight face line of >= ' + RUNMIN + ' m must carry one');
+  for (const k of kinds) {
+    const c = cov[k];
+    console.log('  ' + k.padEnd(7) + ' alpha: ' + (c[0] * 100).toFixed(1) + '% transparent, '
+      + (c[1] * 100).toFixed(1) + '% opaque, mean ' + c[2].toFixed(2)
+      + (k === 'PIPE' && c[0] < 0.2 ? '   << THE WASH WROTE OPACITY: a pipe run is a slab' : ''));
+    if (k === 'PIPE' && c[0] < 0.2) bad++;
+  }
+  for (let L = 0; L < run('LEVELS.length'); L++) {
+    seedRng(1000 + L * 97);
+    run(`S.mode="play"; S.locked=false; startLevel(${L}, true);`);
+    /* the long-run walk runs INSIDE the game context: one vm hop per cell would be 4 x 24 x 24 x 4
+       round trips per level, and a probe that takes a minute per level does not get run. */
+    const r = run(`(()=>{const N=MAP.w, cell=MAP.cell, DX=[1,0,-1,0], DY=[0,1,0,-1];
+      const op=(x,y)=>x>0&&y>0&&x<N-1&&y<N-1&&cell[y*N+x]===0;
+      const wl=(x,y)=>x>=0&&y>=0&&x<N&&y<N&&cell[y*N+x]!==0;
+      const P=[];for(const f of DECOR)P.push([f.side, f.side===1?f.x:f.y, f.side===1?f.y:f.x]);
+      let runs=0, bare=0;
+      for(let d=0;d<4;d++){const ax=DX[d]!==0;let a=0,b=0;
+        for(a=1;a<N-1;a++){let len=0,at=0;
+          for(b=1;b<N-1;b++){
+            const gx=ax?a:b, gy=ax?b:a, ok=op(gx,gy)&&wl(gx+DX[d],gy+DY[d]);
+            if(!ok){
+              if(len>=FIX_RUN_MIN){runs++;
+                const plane=(ax?gx+DX[d]:gy+DY[d])+0.5, side=ax?1:2;
+                const has=P.some(e=>e[0]===side&&Math.abs(e[1]-plane)<0.01&&e[2]>=at+0.5&&e[2]<=b-0.5);
+                if(!has)bare++;}
+              len=0;at=0;continue;}
+            if(!len)at=b;len++;}
+          if(len>=FIX_RUN_MIN){runs++;
+            const gx=ax?a:b-1, gy=ax?b-1:a, plane=(ax?gx+DX[d]:gy+DY[d])+0.5, side=ax?1:2;
+            if(!P.some(e=>e[0]===side&&Math.abs(e[1]-plane)<0.01&&e[2]>=at+0.5&&e[2]<=b-0.5))bare++;}}}
+      const t={};for(const k of ['DOOR','PIPE','STRIPE','VENT'])t[k]=0;
+      for(const f of DECOR)for(const k of ['DOOR','PIPE','STRIPE','VENT'])if(f.tex===WFIX[k])t[k]++;
+      /* THE #403 FINDING, AS A ROW: a DOOR may not sit on a cell whose passage keeps going. For a
+         face on an x-plane the air cell is the one the face looks into, at (gx+1, gy); a y-plane
+         face looks into (gx, gy+1). From there the passage axis is the OTHER axis, and a cell that
+         is narrow along it with a narrow cell on both sides is a corridor, not a doorway. */
+      let cont=0;
+      for(const f of DECOR){ if(f.tex!==WFIX.DOOR)continue;
+        const gx=f.side===1?(f.x|0):(f.x|0), gy=f.side===1?(f.y|0):((f.y|0)+1);
+        const ax=f.side===1?gx+1:gx, ay=f.side===1?gy:gy+1;
+        if(!op(ax,ay))continue;
+        const we=op(ax-1,ay)&&op(ax+1,ay), ns=op(ax,ay-1)&&op(ax,ay+1);
+        if(we===ns)continue;
+        const c=(x,y,cross)=>op(x,y)&&!op(x+DX[cross],y+DY[cross])&&!op(x-DX[cross],y-DY[cross]);
+        if(we){ if(c(ax,ay,1)&&c(ax+1,ay,1)&&c(ax-1,ay,1))cont++; }
+        else  { if(c(ax,ay,0)&&c(ax,ay+1,0)&&c(ax,ay-1,0))cont++; }
+      }
+      const t2=t;return [runs,bare,t2,MAP.fixCount,cont]})()`);
+    const [runs, bare, tally, nFix, cont] = r;
+    const tot = kinds.reduce((s, k) => s + tally[k], 0);
+    const dom = tally.DOOR > tot * 0.6;
+    console.log('  L' + L + '  fixCount ' + String(nFix).padStart(3) + '  '
+      + kinds.map(k => k + ' ' + String(tally[k]).padStart(2)).join('  ')
+      + '  | long runs ' + String(runs).padStart(3) + ', bare ' + String(bare).padStart(3)
+      + '  | DOOR on a continuing passage ' + cont
+      + '  ' + (runs && bare / runs > 0.25 ? '<< 1 in 4 long walls is still one flat repeat' : ''));
+    if (!tot) { console.log('     << NOTHING PLACED: the whole feature is inert on this deal'); bad++; }
+    if (runs && bare / runs > 0.25) bad++;
+    if (cont) { console.log('     << A DOOR IS PAINTED DOWN A CORRIDOR: the neck test is not separating a doorway from a passage (#403)'); bad++; }
+  }
+  console.log(bad ? 'FIXTURES ' + bad + ' FAILURES - a long wall is still bare, a kind has become a wash,'
+    : 'FIXTURES ok - every long wall run carries something, no kind is a wash, no fixture is a slab');
+}
 if (MODE === 'decal') {
   // ground decals used to sample texel (0,0) and vanish; this counts what actually reaches the floor
   run('S.mode="play"; S.locked=false; startLevel(0, true);');
@@ -9392,6 +9633,26 @@ if (MODE === 'props') {
     process.exit(0);
   }
 
+  /* Which world a row builds has to be a function of the LEVEL, not of the command line. genLevel draws
+     from the harness's own xorshift (`rs`, :296) and nothing in this block re-seated it, so `props 3`
+     entered the collision loop 4 draws into the stream where `props` entered it ~1284 in, and
+     startLevel(0,true) built a DIFFERENT level 0 - a different crate at index 9, in a different room -
+     while the row's head text, `ghost r` off foot*scale, printed identically: identical prose, opposite
+     verdict (#314). The repair is to make the stream position a function of the level too: rest seat to
+     where this block began, replay the generations a `props` run would have performed before this load
+     (the LI seat's level 0, then the loop's own earlier levels), and only then generate the level wanted.
+     Those positions are what today's green run judged - level 0 at RS0+D0, level 1 at RS0+2*D0, level 2 at
+     RS0+2*D0+D1 - so `props` and `props 0` stay byte-identical and `props 1/2/3` stop disagreeing with them;
+     the command line now chooses only which level the level-specific sections above judge. `seedRng()`
+     (:311) is NOT used: it installs a different generator than boot's, which would re-baseline every world. */
+  const RS0 = rs;
+  const SEAT0 = `S.mode='play'; S.locked=false; startLevel(0, true);`;
+  const GEN = li => `S.mode='play'; S.locked=false; startLevel(${li}, true);`;
+  const loadLevel = k => {
+    rs = RS0; run(SEAT0);
+    for (let j = 0; j < k; j++) run(GEN(j));
+    run(GEN(k));
+  };
   run(`S.mode='play'; S.locked=false; startLevel(${LI}, true);`);
   run('var PKP = [], PKK = [], PKP2 = [];');
   const CAMSET = `(()=>{
@@ -9461,20 +9722,33 @@ if (MODE === 'props') {
   /* ONE thing in the world at a time, at the spot, with the generator's own scale. __p is what the
      rows read back for z and scale, so the entry the probe writes is the entry the game draws. */
   const SX = SPOT.x.toFixed(4), SY = SPOT.y.toFixed(4);
-  const SC = { barrel: 0.86, crate: 0.72, lamp: 0.95, pickupHealth: 0.42, pickupAmmo: 0.42, pickupArmor: 0.42, orb: 0.3, portal: 1.5 };
+  const SC = { barrel: 0.86, crate: 0.72, lamp: 0.95, pickupHealth: 0.42, pickupAmmo: 0.42, pickupArmor: 0.42, pickupGren: 0.42, orb: 0.3, portal: 1.5 };
   const put = {
     /* The orb's z used to be the literal 0.9. Since #163 a mesh is occluded by the ceiling plane, and a
        0.3 m body centred at 0.9 in a one-unit room stands with half its span INSIDE the slab, so (S)
        measured a clipped 30 px instead of the 34-37 px its own authored span gives. It is now hung
        0.35 m under the ceiling of its own cell - under the slab at any band, still above the floor at
-       every band, and (F) already reports the orb as airborne because 30_entities.js owns its arc. */
+       every band, and (F) already reports the orb as airborne because 30_entities.js owns its arc.
+       THE STACK (#16) breaks that rule the other way: every cell on the sight line has `ceilAt` 4.00 m,
+       so "0.35 under the ceiling" hung the orb four metres up - out of the frame, (A) 0 px, (S) -338 px
+       (the mask.bot -1 sentinel) and four rows judging a prop that was never on screen. A hanging light
+       is bounded by the room it is IN, so the z is min(ceiling-0.35, floor+0.9): 0.65 in a one-unit room
+       - L0 (S) stays 34 px, parity - and 0.9 in a five-metre atrium, where (S) reads 35 px. The floor
+       term alone is NOT the rule: floorAt+0.9 measures 30 px on L0, the very clipped number recorded
+       above, because half a 0.3 m body then stands inside the slab at any band. */
     barrel: `PROPS.length=0;PROPS.push({tex:PROP.barrel,x:${SX},y:${SY},z:floorAt(${SX},${SY}),scale:0.86,kind:'barrel',hp:26,dead:false});globalThis.__p=PROPS[0]`,
     crate: `PROPS.length=0;PROPS.push({tex:PROP.crate,x:${SX},y:${SY},z:floorAt(${SX},${SY}),scale:0.72,kind:'crate'});globalThis.__p=PROPS[0]`,
     lamp: `PROPS.length=0;PROPS.push({tex:PROP.lamp,x:${SX},y:${SY},z:floorAt(${SX},${SY}),scale:0.95,kind:'lamp'});globalThis.__p=PROPS[0]`,
     pickupHealth: `PROPS.length=0;PICKUPS.length=0;PICKUPS.push({type:'health',x:${SX},y:${SY},bob:0,dead:false});globalThis.__p=PICKUPS[0]`,
     pickupAmmo: `PROPS.length=0;PICKUPS.length=0;PICKUPS.push({type:'ammo',x:${SX},y:${SY},bob:0,dead:false});globalThis.__p=PICKUPS[0]`,
     pickupArmor: `PROPS.length=0;PICKUPS.length=0;PICKUPS.push({type:'armor',x:${SX},y:${SY},bob:0,dead:false});globalThis.__p=PICKUPS[0]`,
-    orb: `PROPS.length=0;PROJ.length=0;PROJ.push({kind:'orb',x:${SX},y:${SY},z:ceilAt(${SX},${SY})-0.35,scale:0.3,vx:0,vy:0,vz:0,t:0,tex:PROP.orb[0]});globalThis.__p=PROJ[0]`,
+    /* #361's fourth pickup type, and it is here because the drop census in smoke.js kills everything on a
+       level WITHOUT rendering between kills, so nothing else in the tree ever looked at a live one. A
+       pickup type with no PKKIND row (js/40_render.js) reaches MESH.draw as kind undefined, which is the
+       one case the "no fallback" note in js/13_mesh.js used to miss - the default sat in draw(), before
+       the lookup that could throw - and the box stood on the floor as a small grey soldier. */
+    pickupGren: `PROPS.length=0;PICKUPS.length=0;PICKUPS.push({type:'gren',x:${SX},y:${SY},bob:0,dead:false});globalThis.__p=PICKUPS[0]`,
+    orb: `PROPS.length=0;PROJ.length=0;PROJ.push({kind:'orb',x:${SX},y:${SY},z:Math.min(ceilAt(${SX},${SY})-0.35,floorAt(${SX},${SY})+0.9),scale:0.3,vx:0,vy:0,vz:0,t:0,tex:PROP.orb[0]});globalThis.__p=PROJ[0]`,
     portal: `PROPS.length=0;exitX=${SX};exitY=${SY};S.exitOpen=true;globalThis.__p={x:${SX},y:${SY},scale:1.5,z:0.02}`,
   };
   /* The second render of every pair has to have the OBJECT out of it, not just the array emptied:
@@ -9483,7 +9757,7 @@ if (MODE === 'props') {
      silhouette - the contrast/anim technique, and why no projection math appears below. */
   const hide = {
     barrel: 'PROPS.length=0', crate: 'PROPS.length=0', lamp: 'PROPS.length=0',
-    pickupHealth: 'PICKUPS.length=0', pickupAmmo: 'PICKUPS.length=0', pickupArmor: 'PICKUPS.length=0',
+    pickupHealth: 'PICKUPS.length=0', pickupAmmo: 'PICKUPS.length=0', pickupArmor: 'PICKUPS.length=0', pickupGren: 'PICKUPS.length=0',
     orb: 'PROJ.length=0', portal: 'exitX=-40;exitY=-40',
   };
   const render = code => { run(code + ';S.t=3.5;renderWorld()'); };
@@ -9527,7 +9801,21 @@ if (MODE === 'props') {
   let bad = 0;
   const fail = msg => { bad++; console.log('    FAIL ' + msg); };
   const gruntTris = run('MESH.trisFor("grunt")'), gruntVerts = run('MESH.vertsFor("grunt")');
-  const KINDS = ['barrel', 'crate', 'lamp', 'pickupHealth', 'pickupAmmo', 'pickupArmor', 'orb', 'portal'];
+  /* (#314) The CONTROL's ratio is a property of the SEAT, not of the renderer: zeroing MAP.light leaves
+     the mesh's light-independent floor (js/13_mesh.js:996, 0.30*visAt = 0.292 at 2.9 m on every level)
+     plus fog, so the ratio measures how much light was THERE to remove. Maxima over the five
+     non-emissive kinds, with the seat cell's own lightmap in brackets: L0 0.479 [0.180], L1 0.551
+     [0.079], L2 0.306 [0.623], L3 0.716 [0.014] - THE STACK's seat is a dark corridor, so its body is
+     nearly all residual and x0.71 (170 -> 122 top decile) is the honest reading of a control that DOES
+     fall. One 0.7 floor across four levels therefore failed the authored level by 0.007-0.016 while
+     passing a level whose seat carried 40x the light. The magnitude is now a recorded per-level number
+     (the refRecord shape, so it cannot be re-tuned to quiet a row) and what stays a hard gate is the
+     semantic question: a body that loses less than 10% of its top decile is not seeing scene light at
+     all, and then every other (E) row here is worthless. */
+  const CTRL_REF = refRecord('props', 'CTRL-RAT', 'num', [0.479, 0.551, 0.306, 0.716]);
+  const CTRL_CEIL = 0.9;
+  let ctrlMax = 0, seatLtNow = 0;
+  const KINDS = ['barrel', 'crate', 'lamp', 'pickupHealth', 'pickupAmmo', 'pickupArmor', 'pickupGren', 'orb', 'portal'];
   const EMISSIVE = { lamp: 1, orb: 1, portal: 1 };
   console.log('props: level ' + LI + '  cam ' + CAM.x.toFixed(2) + ',' + CAM.y.toFixed(2) +
     ' (clear ray ' + CAM.ray + ' m)  prop at ' + SPOT.d + ' m  grunt = ' + gruntTris + ' tris');
@@ -9603,14 +9891,17 @@ if (MODE === 'props') {
     const m2 = mask(s2);
     if (m2.n < 250) fail('(E) ' + kind + ': invisible once the lights are off (' + m2.n + ' px) - cannot judge emissive');
     const full = hi(s.A, m, 0.1), dark = hi(s2.A, m, 0.1), rat = full > 0 ? dark / full : 1;
+    const seatLt = +run('MAP.light[(' + SY + '|0)*MW+(' + SX + '|0)]');
+    if (!EMISSIVE[kind] && rat > ctrlMax) { ctrlMax = rat; seatLtNow = seatLt; }
     if (EMISSIVE[kind]) {
       if (rat < 0.85) fail('(E) ' + kind + ': emissive pixels FALL with scene light - top-decile luminance ' +
         full.toFixed(0) + ' lit, ' + dark.toFixed(0) + ' dark (x' + rat.toFixed(2) +
         '): it is multiplied by li, so it goes dark in the rooms where it is the only light source');
       else console.log('    emissive: top-decile ' + full.toFixed(0) + ' -> ' + dark.toFixed(0) +
         ' (x' + rat.toFixed(2) + ') - light-exempt');
-    } else if (rat > 0.7) fail('(E) ' + kind + ': the CONTROL did not fall (x' + rat.toFixed(2) +
-      ') - this probe cannot see scene light, so every other (E) row here is worthless');
+    } else if (rat > CTRL_CEIL) fail('(E) ' + kind + ': the CONTROL did not fall (x' + rat.toFixed(2) +
+      ') - this probe cannot see scene light, so every other (E) row here is worthless (seat lightmap '
+      + seatLt.toFixed(3) + ')');
     else console.log('    lit by light, as it should be (control): ' + full.toFixed(0) + ' -> ' + dark.toFixed(0) +
       ' (x' + rat.toFixed(2) + ')');
     /* (E2) the CORE, not the ratio - #84. Row (E) asks whether emissive pixels survive the lights
@@ -9637,7 +9928,18 @@ if (MODE === 'props') {
     if (kind === 'lamp') {
       const CORE_D = 1.0;                  // m along the sight line: fogAt(1.0) is 0, fogAt(2.9) is not
       // [saturated px, top-decile luminance] per level, recorded by `node tools/view.js refs --record`
-      const CORE_REC = refRecord('props', 'LAMPCORE', 'num', [263, 239.6, 263, 239.6, 263, 239.5]);   // saturated px, top-decile luminance, per level 0/1/2 at CORE_D - #371 moved 239.7 -> 239.6 on levels 0 and 1 and left the 263 saturated px and level 2's 239.5 alone. WHY it moved, since nothing in the lamp's art changed: the mask this row averages is the lamp's DIFF against the same frame without it, and a lamp is a body standing on a floor - #371 item 3 registers props in #178's shadow grid, so the ground the lamp occludes is now a shade darker where the base meets it. The top decile of a 14,455 px mask holds those pixels, so the row moved by 0.08 of a luminance while the aperture itself is byte-identical (maxLum 253.2 on every level, the same 263 px over R>253&&G>253). The SATURATED COUNT - the number #84 is actually about - did not move at all, which is the difference between "the core got dimmer" and "the ground under the lamp is grounded".
+      // #314 item 1: the record now carries a FOURTH pair - THE STACK's own authored optics, measured
+      // by this row's own (E2) branch at the 1.00 m seat. 18 fewer saturated px than the generated
+      // levels on a 20-cell authored map with 6 authored lamps is that level's lighting, not a
+      // regression, and the row keeps its exact-match rule rather than widening it.
+      // #19 take three moved the generated pairs to 239.66 / 239.68 (the core is a lamp, but its mask
+      // sits on ground pixels). main labels level 2's pair "NOT re-measured"; measuring it on main
+      // itself says why that label is wrong twice over - main's own `props 2` DOES reach this row, and
+      // reads 263 px / top-decile 239.42 there, so 239.5 was a figure inherited from an older tree
+      // rather than a verified one. Saturated count identical, a hundredth of a byte on the top decile
+      // of a 15,487 px mask: the same lamp seen through a ground pass that has since learned to filter
+      // and wash. Re-recorded from measurement here; no tolerance moved.
+      const CORE_REC = refRecord('props', 'LAMPCORE', 'num', [263, 239.7, 263, 239.7, 263, 239.4, 245, 239.5]);   // saturated px, top-decile luminance, per level 0/1/2/3 at CORE_D
       const seat = run(`(()=>{const x=P.x+Math.cos(P.ang)*${CORE_D},y=P.y+Math.sin(P.ang)*${CORE_D};` +
         `return {x:+x.toFixed(4),y:+y.toFixed(4),open:!isSolid(x,y),fog:+fogAt(${CORE_D}).toFixed(5)}})()`);
       /* the distance at which the R>253 rule dies, solved from the game's own fog rather than typed in,
@@ -9663,7 +9965,7 @@ if (MODE === 'props') {
           if (L > cmax) cmax = L;
           if (hot) csat++;
         }
-        const recN = LI >= 0 && LI <= 2 ? LI * 2 : -1;               // the record covers the 3 authored levels
+        const recN = LI >= 0 && LI < run('LEVELS.length') ? LI * 2 : -1;   // #314: the record now covers every level               // the record covers the 3 authored levels
         const rSat = recN >= 0 ? +CORE_REC[recN] : NaN, rTop = recN >= 0 ? +CORE_REC[recN + 1] : NaN;
         const det = csat + ' px of R>253&&G>253 in the ' + m3.n + ' px mask at ' + CORE_D.toFixed(2) + ' m'
           + ' (maxLum ' + cmax.toFixed(1) + ', top-decile ' + ctop.toFixed(1) + ', fogAt(seat) '
@@ -10066,17 +10368,20 @@ if (MODE === 'props') {
      own ask: sampling the post-update state after gravity would self-cancel. */
   console.log('  PROP COLLISION (#218)');
   const RAD218 = 0.28;                                       // the player radius js/30_entities.js calls tryMove with
-  /* #318: THE STACK's single authored crate is r 0.655, so its collision ghost overhangs the lane beside
-     it by 0.16 m where a generated crate (r 0.55) overhangs by 0.05 m. At that geometry one of four ~30
-     deg graze poses snags beside the face instead of sliding through (worst final y 9.00 on the current
-     build), and that is a real defect in authored content, found only once #303 made this block read the
-     level list. It is reported as debt at the MEASURED GEOMETRY - overhang past OVER318, an A/B knob, not
-     a tolerance written into a verdict - so it cannot quietly become normal: a blocker that overhangs only
-     0.05 m and snags a pose is a FAILURE, two poses short is a FAILURE, and STRICT=1 gates even the
-     authored case. Fixing #318 (move the crate or widen the corridor) retires this row. */
-  const OVER318 = process.env.OVERHANG_MAX !== undefined ? +process.env.OVERHANG_MAX : 0.12;
-  const STRICTP = !!process.env.STRICT;
-  let knownP = 0;
+  /* #318 IS FIXED, and the debt row that reported it is retired with it - which is what that row said
+     it would do. THE STACK's single authored crate is r 0.655 and overhangs its lane by 0.16 m, and
+     until this change the ONE open cell of column 12 - the doorway between the two rects, solid on the
+     other 19 rows - also carried a LAMP glyph, r 0.442. A ~30 deg graze pose that failed to clear the
+     lamp's ghost had no free axis left to slide on and sealed: on the authored level only, where the
+     same row was green on every generated level (their crates overhang 0.05 m). While that geometry was
+     live it was reported as KNOWN debt at its MEASURED overhang against an A/B knob, never widened into
+     a tolerance. The lamp now stands one cell inside the room, all four poses on all four levels slide
+     through, and an excuse that cannot fire again is the kind that hides the next snag - so the escape
+     hatch goes with the defect it excused: ANY graze pose that snags beside a face is now a FAILURE on
+     EVERY level, no knob makes it ok, and row (B) still prints each blocker's measured overhang.
+     #314's structural point is untouched: this loop runs the LEVEL LIST, not a literal, so the authored
+     level is driven into its own props and can be the one that goes red - and the verdict is never gated
+     on WHICH level it ran on, which would quiet a future authored-level defect for the wrong reason. */
   const row218 = (label, ok, detail) => {
     console.log('    ' + label.padEnd(26) + (ok ? ' ok  ' : 'FAIL ') + ' ' + detail);
     if (!ok) bad++;
@@ -10131,7 +10436,9 @@ if (MODE === 'props') {
   })()`;
   const NL = run('LEVELS.length');   // #303: the authored plan places its props by plan marks, so the
   for (let li = 0; li < NL; li++) {  // population these rows drive has to be read per level, not assumed
-    run(`S.mode='play'; S.locked=false; startLevel(${li}, true); ENEMIES.length=0; PROJ.length=0;`);
+    // #314: loadLevel, not startLevel - the world this drive judges is a function of (level, SEED),
+    // not of how many generations the command line happened to spend getting here.
+    loadLevel(li); run('ENEMIES.length=0; PROJ.length=0');
     const cands = run(`(()=>{for(const p of PROPS)if(p.kind==='crate'||p.kind==='barrel'||p.kind==='lamp'){}
       return PROPS.map((p,i)=>({i,k:p.kind,x:p.x,y:p.y,s:p.scale||1,gz:floorAt(p.x,p.y)}))})()`);
     const cen = {}; let nSolidProp = 0;
@@ -10199,30 +10506,54 @@ if (MODE === 'props') {
       if (laneOK) spos.push(c);
       if (spos.length >= 4) break;
     }
-    let sBrush = 0, sCross = 0, sSkip = 0, sWorst = 9, sOverMax = -1;
+    /* #318: two reporting faults here, both of which pointed a reader at the wrong body.
+       (1) sWorst began at 9, so any body that stopped below y 9 was beaten by its own SENTINEL and the
+           detail line printed "worst final y 9.00" as a measurement (the true figure was 9.716).
+       (2) The row aggregates up to four candidate props while row (B) prints a crate's geometry, so an
+           unattributed "stuck beside the face" read as "the crate" - and the body that held the player
+           was a LAMP standing in the authored level's only doorway. A tally that cannot name the body
+           it blames sends the next reader to re-derive what this row already knows. */
+    let sBrush = 0, sCross = 0, sSkip = 0, sWorst = null, sOverMax = -1, sFail = null;
     for (const c of spos) {
       const o = run(SLIDE218(c.i, 60));
       if (o.minEdge > 0.12) { sSkip++; continue; }        // the lane never met the ghost: pose tests nothing
       sBrush++;
       sOverMax = Math.max(sOverMax, FOOTK[c.k] * c.s + RAD218 - 0.5);
       if (o.crossed) sCross++;
-      else sWorst = Math.min(sWorst, o.fy);
+      else {
+        if (sWorst === null || o.fy < sWorst) sFail = { i: c.i, k: c.k, x: +c.x.toFixed(2), y: +c.y.toFixed(2),
+          r: +(FOOTK[c.k] * c.s + RAD218).toFixed(3), need: +(c.y + FOOTK[c.k] * c.s + RAD218).toFixed(3) };
+        sWorst = sWorst === null ? o.fy : Math.min(sWorst, o.fy);
+      }
     }
-    const debt318 = sBrush > 1 && sCross === sBrush - 1 && sOverMax > OVER318;
-    if (debt318) knownP++;
+    /* who318 is what a snag prints. #318 retired the excuse, and a snag row that names nothing sends the
+       reader to re-derive which of these candidates held the body - see the accumulator note above. */
+    const who318 = sFail === null ? 'prop#? (identity unknown)'
+      : 'prop#' + sFail.i + ' (' + sFail.k + ' at [' + sFail.x + ',' + sFail.y + '], ghost r ' + sFail.r +
+        ' m): must pass y ' + sFail.need + ', reached ' + (sWorst === null ? '?' : sWorst.toFixed(3));
     row218('slides, does not seal',
-      sBrush > 0 && (sCross === sBrush || (debt318 && !STRICTP)),
+      sBrush > 0 && sCross === sBrush,
     sBrush === 0 ? 'VACUITY: ' + spos.length + ' candidate props on level ' + li + ', NONE brushed the ghost (skipped ' + sSkip + ') - the row tested nothing' :
       spos.length + ' face-graze poses at ~30 deg, brushed ' + sBrush + ' (skipped ' + sSkip + ' that never met the ghost), crossed the lane ' + sCross +
-      (sCross < sBrush ? ' - stuck beside the face (worst final y ' + sWorst.toFixed(2) + ')' +
-        (debt318 ? '  |  KNOWN #318: the blocker overhangs the lane by ' + sOverMax.toFixed(2)
-          + ' m (OVERHANG_MAX ' + OVER318 + '), so one pose snags at the face; the floor here is ' + (sCross + 1)
-          + ' of ' + sBrush + ' crossings at this overhang - reported, not floored' : '')
+      (sCross < sBrush ? ' - stuck beside the face on ' + who318 + ', max ghost overhang here ' +
+        sOverMax.toFixed(2) + ' m (#318 retired the KNOWN row that used to excuse a snag past 0.12 m,'
+        + ' so a seal is a FAILURE on every level now)'
         : ' (a seal would stop at first contact instead of sliding on the free axis)'));
   }
-  if (knownP) console.log('  |  ' + knownP + ' known-issue row(s) reporting #318 (an authored blocker overhangs its'
-    + ' lane by more than ' + OVER318 + ' m, so a ~30 deg graze pose snags instead of sliding)'
-    + '  |  STRICT=1 gates them, OVERHANG_MAX=<m> moves the A/B knob');
+  {
+    const cRef = LI >= 0 && LI < CTRL_REF.length ? CTRL_REF[LI] : -1;
+    if (cRef < 0) console.log('  control ratio ' + ctrlMax.toFixed(3) + ' (seat lightmap ' +
+      seatLtNow.toFixed(3) + ') - no record for level ' + LI + '; run `node tools/view.js refs --record`');
+    else if (Math.abs(ctrlMax - cRef) > 0.05) {
+      bad++;
+      console.log('  FAIL control ratio moved: ' + ctrlMax.toFixed(3) + ' against the recorded ' +
+        cRef.toFixed(3) + ' - ' + (100 * (1 - ctrlMax)).toFixed(0) + '% off the lit body at a seat carrying '
+        + seatLtNow.toFixed(3) + ' of lightmap: the light-independent mesh floor, the fog term or the seat '
+        + 'has moved, and every (E) row above is worth only what this number says it is.');
+    } else console.log('  control ratio ' + ctrlMax.toFixed(3) + ' = the recorded ' + cRef.toFixed(3) +
+      ' (' + (100 * (1 - ctrlMax)).toFixed(0) + '% off the lit body at the seat, lightmap ' +
+      seatLtNow.toFixed(3) + ')');
+  }
   console.log(bad ? 'PROPS PROBE: ' + bad + ' FAILURE(S)' : 'PROPS PROBE: every prop volumetric, light-exempt where emissive, grounded, and solid to the player');
   process.exit(bad ? 1 : 0);
 }
@@ -10476,7 +10807,7 @@ if (MODE === 'bands') {
      across take four because the pixels the seam A/B compares are shaded by the deferred path; L0's did
      not move at all, which is the control that says the oracle is still measuring the seam and not this
      change.) */
-  const RECSEAM = refRecord('bands', 'SEAM-FRAME', 'md5', ['4bfb28ba4ea318905a9741ad6b4537fe', '19f18bf3e1e813bbf183c20f5e47c67d', '214b8a1439d72c51a4286c15db5aaceb', '15344b2491d563c43a9cc9561a8d59e8']);   // #19 take four: L0's frame held and L1-L3 moved - again, the three generated seats are the ones whose frame reaches past the map edge. #371 moved this record on TWO levels and then moved it BACK: a first cut selected the steeper prop face ramp by PROPGEO, which is also the orb's and the portal's geometry table, so the SEAM frame of the two levels whose SHUT portal is in view repainted (L1 19f18bf3 -> 91659a45, L3 15344b24 -> ba439491, both reproducible, both attributable by variant - the SEAM=1-vs-0 pixel count moved on none of the four, which is the row's own oracle and says the seam did not move). The ramp is keyed on the prop kinds now (js/13_mesh.js PROPKIND) and all four hashes here are #19's again, so this record moved ZERO levels for #371 - the row's pose clears PROPS, ENEMIES, PROJ and PARTS, so a prop cannot reach this frame at all.
+  const RECSEAM = refRecord('bands', 'SEAM-FRAME', 'md5', ['4bfb28ba4ea318905a9741ad6b4537fe', 'd88429294175c9ae3c539ae648cb4ac8', 'ff870cd3709c9710e51614ae47b8247c', '265f1474888c6b724c3dfca64f2632b7']);   // #400 re-keys L1 ONLY (bb692a87 -> d8842929). These are the frames the lip rows are measured on, and the row's ORACLE is not this hash but the SEAM=1 vs SEAM=0 pixel count, which still moves 13608 / 10689 / 12551 / 13510 px on this tree - re-recording the frame has not weakened the row that can fail a build with no seam term. L0, L2 and L3 hold to the byte here even though fixtures are on all four levels: this camera's frame is the one where the archive's pipework lands on a face the lip rows read, so the move is scoped by the camera, not by the renderer.   // #375 re-keys L1 and L2 and leaves L0 and L3 at their shipped bytes. These are the frames the lip rows are measured on, and the two that moved are the two whose SEAM=1 frame reaches past the level's own edge in the CEILING half: an off-map ceiling pixel now samples the light field where its ray landed (taps off the map read 0) instead of taking the lamp of the cell the row's walk last reached, so the far ceiling past the boundary reads ambient and the wedge outline goes. L3 holding is the scope's own control - the authored level's ceiling geometry did not change, and its FLOOR-half off-map pixels are the #385 debt this change deliberately does not touch. SEAM=1 vs SEAM=0 still moves 13608 / 10689 / 12551 / 13510 px, so the seam rows themselves did not weaken. #19 take five re-keys L1-L3 (L0's frame held): the frames the lip rows are measured on are now shaded past FARB the way the row fill shades them. SEAM=1 vs SEAM=0 still moves 10689 / 12551 / 13510 px against L0's 13608, so the seam rows themselves did not weaken. #369 re-keys L2 and L3 (the frames the lip rows were measured on carry the changed ceiling material and the authored biases; SEAM=1 vs SEAM=0 still moves 12551 / 13552 px, so the seam rows themselves did not weaken). L0 and L1 held. #19 take four: L0's frame held and L1-L3 moved - again, the three generated seats are the ones whose frame reaches past the map edge
   // #303: the rows below are labelled by their own level index and every lip comes out of the GENERATED
   // grid, so a bound of 3 simply never asks the authored plan.
   for (let li = 0; li < run('LEVELS.length'); li++) {
@@ -11066,6 +11397,152 @@ if (MODE === 'bands') {
     'BANDS ok - the step lip reads as an edge, the seam is a band not a tint, the far band reads the cell it solves into, and the minimap shows the band') +
     `, ${bad} gating row(s) of ${rowsN}, ${knownN} known-issue row(s)` + (knownN ? ' (' + [...debts].join(', ') + ')' : '') +
     (STRICT && knownN ? ' - STRICT=1: debt rows counted as failures' : ''));
+  process.exit(bad ? 1 : 0);
+}
+if (MODE === 'surface') {
+  /* #369's definition of done, as a row that can fail. The criterion is stated in bands a person reads
+     off a frame - "the ceiling band above is at least 15 luminance below the wall band it meets" - and
+     nothing censused that seam: a horizon-centred rectangle averages the far wash in with the wall
+     faces, so the one figure a probe could print (4.7 on ABATOIR CORE, PR #380) described neither the
+     seam nor a band, and the number the issue quotes stayed hand-taken.
+     This asks the RENDERER which pixels are ceiling instead of guessing from colour. A level authors
+     `ceilBias` / `floorBias` (js/20_level.js) and js/40_render.js applies each to one surface class -
+     `isF ? FLOORB : CEILB` on the ground pass's base - so rendering one seated frame three times, once
+     authored and once with each bias one whole unit lower, marks exactly the pixels of that class and
+     no others: bodies, props, the viewmodel and wall faces are byte-identical between the three and
+     drop out of both masks. One full unit is not subtle - it is the whole ambient term - so a pixel
+     that did not move was not painted by that surface.
+     Rows, per level, seated on the level's own spawn cell, turned to its longest sight line (cam n
+     adds n*90 degrees, so CAMS=0,1,2,3 walks the room from one pose a player actually occupies):
+       SEAM   median over columns of (what sits under the ceiling's edge) - (the ceiling above it).
+              This is the gap the eye uses to decide a room has a ceiling in it.
+       ORDER  the ceiling's band mean against the floor's. A ceiling brighter than the deck under it is
+              the THE STACK bug in #369 as written: the roof was the brightest large surface in a level
+              about a walkable roof.
+       CONTROL the same two questions with the authored biases zeroed and `ceilLead` back at the old
+              flat 0.9, which IS the pre-#369 build. A census whose rows never fail there has never
+              been seen to fail anywhere (AGENTS.md, "a probe passing is not a probe being capable of
+              failing"), so this runs in the same process and its verdict is printed as its own row. */
+  const BW = run('BW'), BH = run('BH'), NL = run('LEVELS.length');
+  const CAMS = (process.env.CAMS || '0').split(',').map(Number);
+  const TARGET = process.env.TARGET !== undefined ? +process.env.TARGET : 15;
+  const MIN_COLS = process.env.MIN_COLS !== undefined ? +process.env.MIN_COLS : 60;
+  let bad = 0, known = 0, rowsN = 0, ctrlRan = 0, ctrlMiss = 0;
+  const STRICT = !!process.env.STRICT;
+  const row = (label, ok, detail, knownIssue) => {
+    const tag = ok ? ' ok  ' : knownIssue ? 'KNOWN' : ' FAIL';
+    console.log('  ' + label.padEnd(50) + tag + '  ' + detail + (ok || !knownIssue ? '' : '  [' + knownIssue + ']'));
+    rowsN++;
+    if (ok) return;
+    if (knownIssue && !STRICT) known++; else bad++;
+  };
+  // the seat is the level's OWN spawn cell, turned to its longest sight line. `scene`'s derived camera
+  // picks an open cell by list index, which answers "does this level have depth" but not "what does the
+  // player see" - and #369's criteria are about what the player sees (its level-3 frame IS the README's
+  // spawn-seat shot), so a census taken from a cell nobody is ever parked in would be quoting a pose.
+  const seat = (li, cam) => run(`(function(){
+    S.mode='play'; S.locked=false; startLevel(${li}, true); S.mode='play';
+    let best=${cam}*0.7, bd=-1;
+    for(let k=0;k<48;k++){const a=k*Math.PI/24;
+      const d=castRayDist(P.x+.0,P.y+.0,Math.cos(a),Math.sin(a),9).dist;if(d>bd){bd=d;best=a;}}
+    P.ang = best + ${cam} * Math.PI / 2; P.pitch = BH * 0.02; P.z = floorAt(P.x, P.y);
+    P.vx = P.vy = P.vz = 0; P.air = false; P.crouch = 0;
+    for(const e of ENEMIES){e.state='sleep';e.anim=0.3+((e.x*3)%1);}
+    return 1; })()`);
+  /* Render with one authored bias moved, and put it back. The value is parked on globalThis rather
+     than captured in node because a level that does not author the field has it `undefined`, and
+     `MAP.floorBias = undefined` is what restores that (the renderer reads `MAP.x || 0`). */
+  const frame = () => { run('renderWorld()'); return new Uint32Array(run('px')); };
+  const frameBias = (field, d) => {
+    run(`(function(){ globalThis.__b0 = MAP.${field}; MAP.${field} = (MAP.${field} || 0) + ${d}; return 1; })()`);
+    const f = frame();
+    run(`(function(){ MAP.${field} = globalThis.__b0; delete globalThis.__b0; return 1; })()`);
+    return f;
+  };
+  const LUM = (b, i) => { const c = b[i]; return 0.2126 * (c & 255) + 0.7152 * (c >> 8 & 255) + 0.0722 * (c >> 16 & 255); };
+  const med = arr => arr.length ? arr[arr.length >> 1] : NaN;
+  /* Which pixels belong to which surface is a per-pixel fact; the census below is arithmetic on the
+     three frames, so it lives here in node and not in a sandbox string. */
+  function classify(a, cf, ff) {
+    const n = BW * BH, cl = new Uint8Array(n), fo = new Uint8Array(n);
+    for (let i = 0; i < n; i++) {
+      if (Math.abs(LUM(a, i) - LUM(cf, i)) > 4) cl[i] = 1;
+      if (Math.abs(LUM(a, i) - LUM(ff, i)) > 4) fo[i] = 1;
+    }
+    let cs = 0, cn = 0, fs = 0, fn = 0;
+    for (let i = 0; i < n; i++) {
+      if (cl[i]) { cs += LUM(a, i); cn++; } else if (fo[i]) { fs += LUM(a, i); fn++; }
+    }
+    const gaps = [];
+    /* Past FARB a ground row is one flat fill (js/40_render.js does `px.fill` across the whole row), so a
+       row whose pixels repeat byte for byte horizontally is the distance wash, not a surface. Comparing a
+       ceiling against the wash under it is what made the first version of this row read -15 on ABATOIR
+       CORE: the seam there was the ceiling's edge dissolving into the wash, and the #375 wash step was
+       being charged to #369's ledger. Only columns where BOTH windows are textured surfaces are counted. */
+    const washAt = (x, y) => { const i = y * BW + x; return x + 2 < BW && a[i] === a[i + 1] && a[i] === a[i + 2]; };
+    for (let x = 0; x < BW; x++) {
+      let r = -1;
+      for (let y = 0; y < BH; y++) if (cl[y * BW + x]) r = y;
+      if (r < 9 || r > BH - 10) continue;
+      if (washAt(x, r) || washAt(x, r + 4)) continue;
+      let s1 = 0, n1 = 0, s2 = 0, n2 = 0, w = 0;
+      for (let y = r - 8; y < r; y++) { const i = y * BW + x; if (cl[i] && !washAt(x, y)) { s1 += LUM(a, i); n1++; } }
+      for (let y = r + 1; y <= r + 8; y++) { const i = y * BW + x; if (!cl[i] && !washAt(x, y)) { s2 += LUM(a, i); n2++; } }
+      if (n1 >= 4 && n2 >= 6) gaps.push(s2 / n2 - s1 / n1);
+    }
+    gaps.sort((p, q) => p - q);
+    return {
+      ceil: cn ? cs / cn : NaN, ceilPct: 100 * cn / n,
+      floor: fn ? fs / fn : NaN, floorPct: 100 * fn / n,
+      other: (n - cn - fn) ? NaN : NaN,
+      seam: med(gaps), seamP10: gaps.length ? gaps[Math.floor(gaps.length * 0.1)] : NaN,
+      cols: gaps.length
+    };
+  }
+  console.log('surface value order - ceiling must sit under the surface its edge meets by >= ' + TARGET +
+    ' luma (Rec.709), and under the floor it covers');
+  for (let li = 0; li < NL; li++) {
+    for (const cam of CAMS) {
+      seat(li, cam);
+      const authored = run('(MAP.floorBias || 0)') + '/' + run('(MAP.ceilBias || 0)') + '/' + run('MAP.ceilLead === undefined ? "default" : MAP.ceilLead');
+      const a = frame(), cf = frameBias('ceilBias', -1), ff = frameBias('floorBias', -1);
+      const c = classify(a, cf, ff);
+      console.log(`L${li} cam${cam} (${run('LEVELS[' + li + '].name')}), authored floorBias/ceilBias/ceilLead ${authored}, ` +
+        `${c.cols} seam columns, ceiling ${c.ceilPct.toFixed(0)}% of frame / floor ${c.floorPct.toFixed(0)}%:`);
+      row(`L${li} cam${cam} SEAM ceiling under what it meets >= ${TARGET}`,
+        c.cols >= MIN_COLS && c.seam >= TARGET,
+        `median gap ${c.seam.toFixed(1)} (p10 ${c.seamP10.toFixed(1)}) over ${c.cols} columns, ` +
+        `ceiling band ${c.ceil.toFixed(1)}, floor ${c.floor.toFixed(1)}`,
+        // Vacuity is a FAILURE, never a debt (AGENTS.md): a row decided by two columns is not a row.
+        c.cols >= MIN_COLS && c.seam < TARGET ? '#369' : undefined);
+      row(`L${li} cam${cam} ORDER ceiling not brighter than the deck`,
+        c.ceil < c.floor, `ceiling ${c.ceil.toFixed(1)} vs floor ${c.floor.toFixed(1)}`,
+        c.ceil >= c.floor && c.ceil < c.floor + 6 ? '#369' : undefined);
+      if (cam === CAMS[0] || CAMS.length === 1) {
+        /* the pre-#369 build, in this same process: zero the authored order and ask the same questions.
+           Only meaningful on a level that AUTHORS one - on a level whose fields are absent the zeroed
+           render is the same render, so the control would be measuring nothing and reporting it as a
+           pass is exactly the vacuity AGENTS.md refuses. */
+        const authoredOrder = run(`(MAP.floorBias || 0) !== 0 || (MAP.ceilBias || 0) !== 0 || MAP.ceilLead !== undefined`);
+        if (!authoredOrder) { console.log(`     control: L${li} authors no order, so nothing to A/B here (counted below)`); continue; }
+        ctrlRan++;
+        run(`(function(){ MAP.floorBias = 0; MAP.ceilBias = 0; MAP.ceilLead = ${run('CEILGM')}; return 1; })()`);
+        const a0 = frame(), c0f = frameBias('ceilBias', -1), f0f = frameBias('floorBias', -1);
+        const c0 = classify(a0, c0f, f0f);
+        const survived = c0.seam >= TARGET && c0.ceil < c0.floor;
+        if (survived) ctrlMiss++;
+        row(`L${li} cam${cam} CONTROL the census can see the bug`,
+          !survived, `order zeroed: seam ${c0.seam.toFixed(1)}, ceiling ${c0.ceil.toFixed(1)} vs floor ${c0.floor.toFixed(1)}` +
+          (survived ? ' - both rows still pass a build with no authored order, so they prove nothing' : ' (a row fails there, as it must)'));
+      }
+    }
+  }
+  row('CONTROL the census runs its counterfactual somewhere', ctrlRan > 0 && ctrlMiss === 0,
+    ctrlRan + ' level(s) with an authored order A/B\'d, ' + ctrlMiss + ' of them indistinguishable from the bug');
+  console.log((bad ? `SURFACE ${bad} FAILURE(S)` : 'SURFACE ok') + ` - ${bad} gating row(s) of ${rowsN}, ${known} known-issue row(s)` +
+    ' - REPORTED, not gated: `surface` is not in ci.yml\'s roster, so this exit code changes no gate' +
+    (known ? ' (debt: the ceiling half of the order holds, the floor-vs-wall half is judged at the seam only)' : '') +
+    (STRICT && known ? ' - STRICT=1: debt rows counted as failures' : ''));
   process.exit(bad ? 1 : 0);
 }
 if (MODE === 'stats') {

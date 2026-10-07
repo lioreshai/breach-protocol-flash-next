@@ -413,6 +413,13 @@ const MESH = (function () {
     pickupHealth: pickParts([228, 234, 242], [136, 148, 166], [214, 44, 36]),
     pickupAmmo: pickParts([124, 138, 86], [64, 74, 44], [212, 168, 74]),
     pickupArmor: pickParts([54, 124, 168], [180, 240, 255], [110, 220, 255]),
+    /* #361's fourth row, and it is a ROW rather than a tint for the reason just stated: PKKIND
+       (js/40_render.js) maps a pickup's `type` onto one of these names, so a kind missing here is not
+       a grey box, it is whatever `draw` falls back to - which until now was a grunt. The plate carries
+       the HUD's own grenade colour (#c8e05a, the killfeed text and the minimap dot) so the box on the
+       floor and the `GL` counter in the corner say the same thing; the shell is a step darker and
+       greener than the ammo tin so the two do not read as one pickup across a room. */
+    pickupGren: pickParts([96, 122, 70], [46, 60, 34], [206, 232, 92]),
     orb(b) {
       b.em = 1;
       b.bip(0, 0.50, 0, 0.42, 0.50, 0.42, [150, 255, 90]);    // the shell, filling the quad's height
@@ -1043,8 +1050,14 @@ const MESH = (function () {
   function draw(o) {
     /* A view model brings its own vertex set (`mdl`): its parts travel continuously - ejector, pump,
      a shell sliding in - so the caller rebuilds it per frame instead of bucketing it (weaponGeo).
-     A prebuilt model has no pose table, no death variant and no kind in SPEC. */
-    const m = o.mdl || model(o.kind || 'grunt'), sc = o.scale || 1,
+     A prebuilt model has no pose table, no death variant and no kind in SPEC - and it never evaluates
+     the right-hand side below, so removing the fallback there costs the view models nothing.
+     There is NO `|| 'grunt'` on this line: `model` already throws on a kind nobody authored, but an
+     ABSENT kind used to reach here and be answered with a standing soldier. #361 added a `gren` kill
+     drop before PKKIND had a row for it, so `kind` arrived undefined and a grenade box drew as a
+     0.42 grunt - the exact failure #76 asks to make loud, arriving silently because the default sat
+     one line before the check that could see it. */
+    const m = o.mdl || model(o.kind), sc = o.scale || 1,
       MDL = o.mdl || null, ROT = o.rot || null;      // rot: a 3x3 row-major world rotation
     /* The variant's FALL DIRECTION rides in the yaw, which is free: the yaw is applied to the
        cached verts below and is not in the key, so "topples onto its own side" is the same vertex
