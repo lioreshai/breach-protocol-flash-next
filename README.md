@@ -51,7 +51,7 @@ PR that changes the picture. `node tools/recap.js check` decodes these files and
 quoted below against them, so a caption cannot drift from its image. What *changed* between two
 recaptures is a question for `CHANGELOG.md` and the PR that moved it — it is not kept here.
 
-The six frames decode to **63.44 / 20.87 / 63.06 / 47.81 / 68.50 / 50.54** mean luma
+The six frames decode to **63.44 / 20.87 / 63.06 / 47.81 / 68.50 / 50.50** mean luma
 (`0.2126 R + 0.7152 G + 0.0722 B`, the rule `DEV.lum` uses), in the order they appear below.
 
 All six come from the **deployed build** at `?dev=1&seed=60`, with the clock frozen, vitals pinned at
@@ -61,47 +61,59 @@ frame entered through `startLevel` would otherwise carry its sector title card a
 forever. The build is proved
 by a **code** marker rather than a prose one: `authorVolume.toString()` contains the shipped statement
 `rooms.length >= 8 ? 3 : TALL_WANT_MIN` (#283), and `MESH.neckBand` exists (#326) - both read off the
-shipped statements, and every deployed `js/` blob is md5-identical to the
-tree at **`ce9d39d`**. **One frame is newer than the other five.** `level3-stack.png` was re-taken from the
-deployed page at **`8eade8f`** (#388), and the instrument is the URL itself: headless
-Chromium opened the deployed page at a 1440 × 763 viewport and drove the dev hooks there, instead of
-rendering a checkout over loopback and arguing from md5. The bytes were still read - `index.html` and all
-eleven `js/` blobs served by the deployed page are md5-identical to this tree, which now merges
-**`c6a9b4c`** - `js/40_render.js` `5f4726b7`, `js/20_level.js` `5792aeb3` and `js/13_mesh.js` `c2f98a53`
-among them - so the route, the served page and this tree name one build. The one blob that moved between
-the build those pixels were drawn at and the one served now is `js/13_mesh.js` (`a9f01984` → `c2f98a53`,
-#376), and it moves no pixel at this seat: `SEAT=1.5,2.5,0.6 node tools/view.js scene 3` renders the *same
-framebuffer md5* (`d65879e5`) against both trees, because #376 substitutes identity for a room hue that
-reads `MAP.lt` 128/128/128 at this seat anyway. Five merged PRs have moved that seat's picture since `34d58d0` last sat here: #318 walked
+shipped statements, and both still read on the deployed page. That pair is the identity of the
+five level-0 frames, taken while the deployed build *was* **`ce9d39d`**; the page has moved past that build
+since, and those five are stale by exactly that much. **One frame is newer than the other five.**
+`level3-stack.png` was re-taken from the deployed page at **`fc7a555`** (#388), and the instrument is the
+URL itself: headless Chromium opened the deployed page at a 1440 × 763 viewport and drove the dev hooks
+there, instead of rendering a checkout over loopback and arguing from md5. The bytes were still read -
+`index.html` `44b7f0ca` and all eleven `js/` blobs served by the deployed page are md5-identical to this
+tree, which now merges **`fc7a555`** - `js/40_render.js` `60af7c97`, `js/90_dev.js` `7c2373a3`,
+`js/20_level.js` `5792aeb3` and `js/13_mesh.js` `c2f98a53` among them - so the route, the served page and
+this tree name one build. This time the frame was re-taken rather than argued into place, because the
+merged renderer really does draw this seat differently: `DEV.state().gnd` on that page reports `fade: 1`,
+#19's footprint blend, and applying its own switch backwards - `DEV.set('gndfade', 0)` between the route
+and the shutter, on the deployed page, after the frame was already frozen - brings this seat back to the
+frame the previous build drew within the route's noise (6,474 of 1,098,720 px over 2 luma, worst 11, mean
+|delta| 0.16, every row-mean third unchanged to 0.00), against 78,954 px and worst 23.6 with the shipped
+value left alone. Six merged PRs have moved that seat's picture since `34d58d0` last sat here: #318 walked
 the doorway lamp one cell east out of the wall jamb, #375 cancelled a lamp's borrowed light on the far
 ceiling past the level's edge - in three takes, the last of them landed while this frame was being taken,
 #373 turned props into shaded solids, #403 mounted fixtures on walls and #400 set them back off the wall
 face so they keep a shape at an angle, and #379 replaced bloom's flat gain over every mid-bright pixel
 with a bright pass and one shouldered black-point lift on the room. Against the frame it replaces this one
-decodes **50.44 → 50.54** by thirds **41.8 / 58.6 / 50.9 → 41.8 / 58.9 / 50.9** (`tools/recap.js`'s own
-band means, which are what the tool prints and gates against, not a hand-taken third). 15,807 of its
-1,098,720 pixels move by more than 2 luma, 13,184 of them in the middle third, and they are not scattered:
-they fill one band, x 660-1295 × y 340-422, the `TECH` wall's face and the strip of far ceiling above it,
-which reads 71.4 there and 87.5 here. No renderer term is in that difference - #375's band term is in both
-frames and rows 300-330 read 38.2 in each, floor-third rows move by 0.30 in row mean and the floor third by
--0.00 - so what moved is the *deal*: which panels that wall drew. Frame channels read 49.6 / 51.1 / 47.7
-against 49.5 / 51.0 / 47.7, so the picture is the same colour a hair brighter, not a different one. It is stored as colour type 2 (truecolour, no
+decodes **50.54 → 50.50** by thirds **41.85 / 58.94 / 50.87 → 41.82 / 58.88 / 50.83** (`tools/recap.js`'s
+own band means, which are what the tool prints and gates against, not a hand-taken third). 78,954 of its
+1,098,720 pixels move by more than 2 luma - 4,793 / 45,098 / 29,063 by thirds, worst 23.6 - and they sit in
+rows 400-600, the lit floor in front of the `TECH` wall and the wall's lower face, where that footprint
+blend does its work; the wall's own band, x 660-1295 × y 340-422, reads 83.2 in *both* frames, as do rows
+300-330 at 38.2 and the streaked 4.00 plane at rows 140-180, 44.7. So the wall did not move and the floor
+under it did, and unlike the last re-take of this row the difference is a renderer term and not a deal
+term: `DEV.layoutSig()` reads the same 2733654509 on both sides, the row mean moves by 0.00 / 0.05 / 0.04,
+and `DEV.set('gndfade', 0)` on the live page accounts for the whole of it as measured above. Frame
+channels read 49.6 / 51.1 / 47.7 in both, so the picture is the same colour a hair dimmer, not a different
+one. It is stored as colour type 2 (truecolour, no
 alpha) like the other five; a capture that arrives as RGBA has to be put through `tools/png_rgb.js`
 first, because the decoder in `tools/recap.js` reads an alpha PNG's channels in the wrong order (#394).
-Its `DEV.layoutSig()` read **2733654509** at that `seed=60`. That number is a property of the capture
-*run*, not of the URL, and this cycle measured it rather than assuming it: two re-reads of the same route
-on the deployed page read **3233039185** both times, a re-read issued several seconds later than the route
-read a fourth value (1900969947), and calling `startLevel(3, true)` twice inside one already-open page read
-1730990788 and then 1523817166. `startLevel` generates from wherever the seeded stream has reached, and
-generation advances it, so one seed re-deals every time the route runs; the signatures this seat has worn
-(3233039185, 2307539281, 2733654509) are three such runs, not three builds. The authored `MAP.fz` is
+Its `DEV.layoutSig()` read **2733654509** at that `seed=60`, and at this head two runs of the documented
+route read that same number, so these pixels are re-takeable on the build that ships. That was not true of
+the build before it, and the reason is worth keeping: the same route against the previous deployed build
+read **3233039185** twice and, issued several seconds later than the route, a fourth value (1900969947),
+and calling `startLevel(3, true)` twice inside one already-open page read 1730990788 and then 1523817166.
+`startLevel` generates from wherever the seeded stream has reached and generation advances it, so the
+number is a property of the capture *run* - how many draws the build ahead of it consumed - and not of the
+URL; the signatures this seat has worn (3233039185, 2307539281, 2733654509) are such runs, not builds. The authored `MAP.fz` is
 unchanged - this level's floors are written, not rolled - and what moves between them is the `MAP.cell`
 half of the hash, the `pickWallTex` panel choices, which #400's fixture placement draws from a different
-point in the seeded stream. Same room, same geometry, different wall panels; and that band above is what a
-signature difference *looks like* once it reaches a caption. The corollary is the honest limit of this
-frame: the *build* it came from is proved by the served md5s above, but the panels in it are not
-reproducible by re-running this route - pinning the stream before `startLevel`, the way `tools/view.js`
-does at a deal, is what a future capture route has to do to make a stored frame re-takeable. The tone figures
+point in the seeded stream - so a run that lands elsewhere shows the same room and the same geometry with
+different wall panels, which is what the x 660-1295 × y 340-422 band looked like in the last re-take of this
+row, and is why that band is quoted twice here: 83.2 in both frames this time, and the deal did not move.
+The corollary is the honest limit of this frame: the *build* it came from is proved by the served md5s
+above; the deal reproduced at this head, but nothing in the route *pins* it - two runs agreeing is an
+observation, not a guarantee, and the previous build's two runs disagreed with it - so a stored frame is
+only re-takeable while the stream ahead of `startLevel` happens to land where it did. Pinning that stream,
+the way `tools/view.js` does at a deal, is what would make a re-take and a deal number a fact of the URL
+rather than of the run (#420). The tone figures
 below are `tools/recap.js` decoding the shipped bytes, which is the only reading the gate compares. One
 deviation the route has to state, because it changes the deal: a page that never gets a pointer lock
 pauses on the first blur and the pause overlay dims everything under it, so this capture ends with the
@@ -110,7 +122,7 @@ shuts the shutter - see the row's `note`. That is also why this route runs after
 ready rather than from a script injected at document time: injected early, the route finishes before the
 first `blur`, so the page pauses again afterwards and the capture is a dimmed one.
 **The five level-0 frames have not been re-taken.** They still carry the `ce9d39d` identity and the
-signature below, and #373, #403 and #379 have all merged since - so those five describe the picture their
+signature below, and #373, #403, #379, #400 and #19 have all merged since - so those five describe the picture their
 own build drew, not the one the deployed page draws today. `DEV.layoutSig()` for this deal is **735688443** - the same number the previous
 recapture printed on level 0, and that is not staleness: the signature is FNV-1a over `MAP.fz` then `MAP.cell`,
 and #283 moved *which rooms get tall air*, a `MAP.cz` write, so the floors and walls of this deal are
@@ -231,7 +243,7 @@ is drawn by the build that stands it off (`FIX_DEP` in `js/20_level.js`, the box
 both read out of the page that served this capture, which reports `DECOR` at 14) — and the whole
 picture is flatter than its predecessor: the flat bloom gain that
 used to sit over every mid-bright pixel is gone and a black-point lift is on the room instead (#379), so
-the lit patches read dimmer, the dark ones lift, and the mean lands at 50.54 against 47.77. One term in
+the lit patches read dimmer, the dark ones lift, and the mean lands at 50.50 against 47.77. One term in
 this frame is newer than that sentence: the far ceiling above the `TECH` wall's top edge sits in a band of
 rows 300-330 reading **38.2** mean, which is where #375's third take stopped a ray that leaves the level
 paying a tall ceiling's bounce light - and the frame one build earlier reads 38.2 there too, so that
