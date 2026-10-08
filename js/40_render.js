@@ -1561,13 +1561,15 @@ function groundPixel(x0, x1, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb
      weighted mean of taps that are each already clamped. Math.floor, not |0: a lattice point at -1 is
      OFF the map and truncation toward zero would call it cell 0 and extrapolate away from it (#19).
      GNDOF 0 = the anchor's light as this shipped, so the wedge comes back for the A/B with one DEV.set.
-     THE CEILING HALF ONLY (`&& !isF`), and that is a measured scope, not a taste: the same rule applied
-     to the FLOOR half dims the far floor on the authored level - the L3 step-lip pair in `bands` falls
-     from mean |dL| 63.4 to 25.2, and the far floor it measures against from 57 to 38 - which is #203's
-     depth cue at a step, a different increment with its own gate. `heights`' offmap row prints that
-     half's worst delivered light as debt, so the number is in the tree rather than in a transcript
-     (#385). Do not fold the halves back together without re-running `bands` at the L3 camera. */
-  if (!own && GNDOF && !isF) {
+     BOTH HALVES (#385). This was the ceiling half only for one increment: applied to the FLOOR half the
+     same rule dims the far floor on the authored level - the L3 step-lip pair in `bands` falls from mean
+     |dL| 63.4 to 25.2 and the far floor it measures against from 57 to 38 in frame luminance - and that
+     step is #203's depth cue, so the halves were left different while the value question was open. It is
+     answered: past a level's own footprint there is no floor to walk on, so that pixel belongs to the
+     depth cue and not to the room, and a lamp 40 m back has no business lighting it. The step-lip contrast
+     is re-baselined from this build rather than held up by the artefact (`bands`' L3 lip rows and the
+     CHANGELOG carry the moved numbers). Do not re-light the far floor to recover a contrast figure. */
+  if (!own && GNDOF) {
     const lta = MAP.lt;
     /* #375's SECOND charge, found after #392 shipped and the wedge stayed. gMLift is the tall-ceiling
        bounce term (CEILG above CEILHI); it is a property of a PLANE, so a pixel whose ray left the level
@@ -1581,7 +1583,10 @@ function groundPixel(x0, x1, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb
        that is not there cannot light you, so this term now rides the same tap coverage the lamp taps
        already ride: whole on the boundary lattice line, where it is continuous with the in-map side -
        which is what removes the STEP, and never a hole: the term it pays instead is the row's own.
-       The term is `!isF`, so the floor half, #385's debt and `bands`' step-lip gate do not move.
+       Both lift terms are ZERO for a FLOOR pixel - `gMLift` is built `!isF && …` (js/40_render.js:1318)
+       and `liftRow` needs `plA - eyeZ > CEILHI`, which a floor plane below the eye cannot satisfy - so
+       the clause widening this to the floor half (#385) does not change what the floor half pays here:
+       it is still exactly `gMBase`, which is what `heights`' offmap row gates at 0.0000.
        GNDOF 0 puts the whole charge back, wedge included, for the A/B. The ROW copy needs no clause: its
        lift is computed from dzA, a per-ROW constant, so it is the same value on both sides of the level's
        edge and cannot draw the footprint's outline - the 0.866/0.190 above is the whole difference. */
@@ -1609,17 +1614,19 @@ function groundPixel(x0, x1, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb
     }
   }
   /* #375 census, DEFERRED COPY - deliberately OUTSIDE the GNDOF gate above, so the A/B that puts the
-     wedge back makes this row go RED instead of measuring the fixed arithmetic either way.
-     No LIFT sub-figure lives here. One did, and it was VACUOUS: measured on the arm with the charge
-     restored (`lr = lg = lb = gMBase`, js/40_render.js:1522) it printed 0.0000 on all four levels while
-     that same arm moves cull's L0 lane and flatparity's L3 dealt frame to the byte - at these cameras
-     `pl` and `plA` carry the same lift, so the difference it counted is 0 by geometry whether or not the
-     term is fixed. Whatever counts this term must run where the two lifts differ, which is cull's poked
-     ceiling-step camera or flatparity's L3 dealt seat - i.e. the two LOCK rows above are the falsifiable
-     half, and a green census here proves nothing about it. */
+     wedge back makes this row go RED instead of measuring the fixed arithmetic either way. Both halves
+     are counted and maxed SEPARATELY (#385): the fix is one term for both, but the two halves land on
+     different geometry and only this split shows a build that fixes one and not the other.
+     No LIFT sub-figure lives here. One did, and it was VACUOUS: measured on the arm with the light
+     charge restored it printed 0.0000 on all four levels while that same arm moves cull's L0 lane and
+     flatparity's L3 dealt frame to the byte - at these cameras `pl` and `plA` carry the same lift, so
+     the difference it counted is 0 by geometry whether or not the term is fixed. Whatever counts this
+     term must run where the two lifts differ, which is cull's poked ceiling-step camera or flatparity's
+     L3 dealt seat - i.e. the two LOCK rows above are the falsifiable half, and a green census here
+     proves nothing about it. What this census DOES count - the lamp field, both halves - is falsifiable
+     here, and the same `GNDOF = 0` arm prints FAIL OFFMAP-LIGHT-FLOOR on all four levels. */
   if (cnt && !own && offMapClear(cx, cy, N)) {
-    cnt[isF ? LG_OFFMAP : LG_OFFCEIL]++;   // the two halves are counted and maxed SEPARATELY: the
-    // ceiling half is fixed (#375) and the floor half is measured debt, so one number cannot carry both
+    cnt[isF ? LG_OFFMAP : LG_OFFCEIL]++;
     const om = Math.max(lr, lg, lb) - gMBase;
     const oi = om > 0 ? (om * 1000 + 0.5) | 0 : 0;
     const sl = isF ? LG_OFFMAX : LG_OFFCMAX;
