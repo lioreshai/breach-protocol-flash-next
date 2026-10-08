@@ -26,6 +26,18 @@ let BW = 0, BH = 0, imgBuf = null, px = null, zbuf = null;
    draw, 0 = anything else). tools/view.js contrast is the only caller. */
 let COV = null;
 
+/* #407: BODYDIST arms the SECOND camera-distance attenuation of the lamp field on bodies and props.
+   Default 1 = OFF, the field is taken whole at the body's own cell, which is what a wall column and a
+   ground pixel already do (`li = lm[cIdx]`, no distance term). 0 = the pre-#407 term comes back,
+   `lm * exp(-distance * 0.14)`, in BOTH copies that ever carried it - js/13_mesh.js's triangle shading
+   and js/40_render.js's billboard - so the A/B is one `DEV.set('bodydist', 0)` and the distance rows
+   in tools/view.js contrast can be seen to fail.
+   It lives HERE rather than in either renderer because the two copies must read ONE value (js/13_mesh.js
+   loads before js/40_render.js in numeric order, so a module-scope register in either file would leave
+   the other reading a different binding - the two-copies trap AGENTS.md names), and because 90_dev.js's
+   set() assigns to it by name. */
+var BODYDIST = 1;
+
 /* ---------------- config ---------------- */
 let FOGC = [9, 12, 20];   // per level: air has a colour
 const LVL = 32;                       // light/fog buckets
