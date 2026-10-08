@@ -248,10 +248,15 @@
                    stops at the cell boundary. 0 is the far-field fan, with a light multiplier of up to 136
                    on a pixel whose ray landed 40 cells off the map (#19 take four); at 1 those pixels take
                    exactly what `main` delivers at the same pixel.
-       gndoff   1 = a ground pixel whose ray landed OFF the level takes the light FIELD sampled at the
+         gndoff   1 = a ground pixel whose ray landed OFF the level takes the light FIELD sampled at the
                    point it landed on, with taps outside the map reading 0 (#375); 0 = the light of the
                    cell the row's walk last reached, which paints the level's own outline as a bright
                    wedge in the far ceiling.
+       gndfade  the share of a pixel's along-ray footprint its selected mip cannot carry, blended in from
+                   one level coarser: w = GNDFA * (1 - 1/F) for a footprint of F texels of that level, and
+                   0 where F <= 1, so the near field keeps mip 0. 1 = shipped (#19 take six); 0 = the
+                   single-level fetch, which brings the fan back. A number between blends part of the
+                   share, which is how the strength is swept.
        mip selection is already covered by DEV.ar, buffer scale by the tier keys. */
     if (name === 'gndjit') { GJIT = value === undefined ? 1 : value | 0; return { gndjit: GJIT, minPx: GJITPX }; }
     if (name === 'gndlight') { GLRP = value === undefined ? 1 : (value ? 1 : 0); return { gndlight: GLRP }; }
@@ -260,6 +265,10 @@
     if (name === 'gndramp') { GNDRO = value === undefined ? 1 : (value ? 1 : 0); return { gndramp: GNDRO }; }
     if (name === 'gndfar') { GNDFB = value === undefined ? 1 : (value ? 1 : 0); return { gndfar: GNDFB, far: GQ.far }; }
     if (name === 'gndoff') { GNDOF = value === undefined ? 1 : (value ? 1 : 0); return { gndoff: GNDOF }; }
+    if (name === 'gndfade') {
+      GNDFA = value === undefined ? 1 : +value;
+      return { gndfade: GNDFA };
+    }
     if (name === 'gfx') {
       const i = typeof value === 'string' ? QUAL.findIndex(q => q.name.toLowerCase() === String(value).toLowerCase()) : clamp(value | 0, 0, QUAL.length - 1);
       if (i < 0) throw new Error('DEV.set("gfx", …) wants 0..' + (QUAL.length - 1) + ' or ' + QUAL.map(q => q.name).join('|'));
@@ -299,7 +308,7 @@
       map: { w: MW, h: MH, exit: [num(exitX, 2), num(exitY, 2)] },
       /* #19's ground-shading state in one line, so an A/B claim can be read off the live page instead
          of off a worktree: which of the three mechanisms is on, and what mip policy is in force. */
-      gnd: { jit: GJIT, jitMinPx: GJITPX, light: GLRP, ax: GNDAX, axMin: AXMIN, filt: GNDFT, ramp: GNDRO, far: GNDFB, mipax: MIPAX, mipar: MIPAR }
+      gnd: { jit: GJIT, jitMinPx: GJITPX, light: GLRP, ax: GNDAX, axMin: AXMIN, filt: GNDFT, ramp: GNDRO, far: GNDFB, fade: GNDFA, mipax: MIPAX, mipar: MIPAR }
     };
   }
   /* The wall DDA from castWalls, run for one caller-supplied ray instead of every column:
