@@ -1647,6 +1647,36 @@ function genLevel(li) {
        pickup floats and blocks nothing, and enemies already keep takeNear(7+) metres. */
     const seat = nearestOpen(px0, py0);
     const seatClear = (x, y) => dist2(x + 0.5, y + 0.5, seat[0], seat[1]) >= SPAWN_CLEAR * SPAWN_CLEAR;
+    /* #405: the first frame's lens, as ONE definition used by every pass that seats a light source.
+       A bulb inside it is not a light source in that frame, it is the sun in the player's eye: the
+       composited spawn median lands past the 35-75 band whose upper anchor is the dimmest
+       lamp-1-m-in-the-lens render (tools/ci/assert.js's SPAWN block, #304). Two clauses, because a
+       bulb that is NOT in the cone still lifts the frame by lighting the walls inside it: a seat 5 m
+       off the axis with a clear sight of the room took level 2's spawn mean 64 -> 85 (raster), above
+       the band's 75, without ever being in the cone. So there is a distance floor as well as a cone -
+       #319's gap, and #405's finding that it has to bind on the BUDGET lamps too, not only the
+       reserve. A cell behind a wall is not in the lens - it is dark on both sides - hence the los
+       test. LENS_WALK is how far the walk below is allowed to look for such a cell: the disc is 4 m
+       and the cone reaches 8 m, so eight Chebyshev rings is the radius at which a seat outside both
+       always exists in a room this generator builds. */
+    const SEAT_ANG = 0.6, LENS_HALF = 0.66, LENS_R = 8, SEAT_FLOOR = 4;   // :1489's heading, #304's cone
+    const LENS_WALK = 8;
+    const LENS_DIM = 0.5;   // #405: a bulb INSIDE the first frame's lens is paid for by the room, not by the frame
+    /* The cone: this side of 8 m, inside the frame's 0.66 rad half-angle, with a clear line of sight -
+       the geometry of "the sun in the player's eye". */
+    const inCone = (x, y) => {
+      const dx = x - px0, dy = y - py0, d = Math.hypot(dx, dy);
+      if (d > LENS_R) return false;
+      let e = Math.atan2(dy, dx) - SEAT_ANG;
+      while (e > Math.PI) e -= TAU;
+      while (e < -Math.PI) e += TAU;
+      return Math.abs(e) < LENS_HALF && los(px0, py0, x, y);
+    };
+    const inLens = (i) => {
+      const x = (i % N) + 0.5, y = ((i / N) | 0) + 0.5;
+      if (Math.hypot(x - px0, y - py0) < SEAT_FLOOR) return true;   // the seat's own room, however far off axis
+      return inCone(x, y);
+    };
     // deterministic and RNG-free: the nearest open reachable cell outside the disc, Chebyshev rings
     // first, scan order within a ring. Three rings is 48 cells; nothing moves when none qualifies.
     const clearSpot = c => {
@@ -1661,6 +1691,37 @@ function genLevel(li) {
           return [nx, ny];
         }
       return c;
+    };
+    /* #405: the SAME walk, asked of the first frame's LENS rather than the spawn disc, and applied to
+       the one prop class that emits light. #319 paid for the lens rule and proved it works on authored
+       content (#304 moved one authored cell's bulb and level 3's composited first frame fell 119.8 ->
+       56.1), but the rule was only ever consulted by the RESERVE pass below, which seats three lamps.
+       The budget pass that seats the other thirteen through sixteen draws asked nothing about the lens
+       but the 2 m SPAWN_CLEAR disc, so on a 36x36 ABATOIR deal a strength-1.05 bulb with a radius of up
+       to 10 m may stand 2.1 m in front of the face the player wakes with - legal on every deal, and the
+       reason this level's first frame crept to the band's upper anchor while its two sibling levels sat
+       in the middle of it. Re-seating the camera was measured (#304) and does not work: turning away
+       from the source puts LIT GEOMETRY in the lens instead. So the rule is hoisted here, above the
+       pass that needed it, and the top-up block below now shares this one definition instead of owning
+       a copy of its own.
+         Like clearSpot this is a WALK, not a rejected candidate: the draw picks the cell exactly as it
+       always did, so the stream downstream (props, pickups, enemies) rolls the same world it rolled on
+       main (#96), and only a bulb that actually landed in the frame moves. A cell qualifies when it is
+       outside the disc AND outside the lens; scan order breaks ties; nothing moves when a deal puts no
+       bulb in the lens at all, which is the control that keeps the other levels' digits theirs. */
+    const lensSpot = c => {
+      if (!inCone(c[0] + 0.5, c[1] + 0.5)) return c;
+      for (let r = 1; r <= LENS_WALK; r++)
+        for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
+          if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+          const nx = c[0] + dx, ny = c[1] + dy;
+          if (nx < 1 || ny < 1 || nx >= N - 1 || ny >= N - 1) continue;
+          const i = ny * N + nx;
+          if (cell[i] || dist[i] < 0 || !seatClear(nx, ny) || inCone(nx + 0.5, ny + 0.5)) continue;
+          if (MAP.fz[i] !== MAP.fz[c[1] * N + c[0]]) continue;          // keep the band's own source standing in it
+          return [nx, ny];
+        }
+      return c;   // #319's fallback: a bulb the frame cannot look away from beats a dark room
     };
     const takeNear = (minD, maxD) => {
       for (let tries = 0; tries < 200; tries++) {
@@ -1678,10 +1739,12 @@ function genLevel(li) {
 
     LIGHTS = []; PROPS = []; PICKUPS = []; PROJ = []; PARTS = []; ENEMIES = [];
     for (let i = 0; i < cfgL.lamps; i++) {
-      const c = clearSpot(takeNear(1));      // #154: a lamp is a prop - it draws, and FOOT.lamp blocks.
+      // #154: a lamp is a prop - it draws, and FOOT.lamp blocks. #405: and it dims inside the frame.
+      const c = clearSpot(takeNear(1));
+      const lstr = inCone(c[0] + 0.5, c[1] + 0.5) ? LENS_DIM : 1.05;
       // one clearSpot call feeds the LIGHTS entry and the PROPS entry below, so light and prop disagree
       // with each other on no deal;
-      LIGHTS.push({ x: c[0] + 0.5, y: c[1] + 0.5, z: floorAt(c[0] + 0.5, c[1] + 0.5) + LHOVER, r: 7.2 + Math.random() * 2.8, str: 1.05, col: cfgL.lampCol, stat: 1 });
+      LIGHTS.push({ x: c[0] + 0.5, y: c[1] + 0.5, z: floorAt(c[0] + 0.5, c[1] + 0.5) + LHOVER, r: 7.2 + Math.random() * 2.8, str: lstr, col: cfgL.lampCol, stat: 1 });
       PROPS.push({ tex: PROP.lamp, x: c[0] + 0.5, y: c[1] + 0.5, scale: 0.95, z: floorAt(c[0] + 0.5, c[1] + 0.5), kind: 'lamp', yaw: propYaw(c[0] + 0.5, c[1] + 0.5) });
     }
     /* The pad light deliberately carries NO z: it is drawn as a glow AT the floor, so it
@@ -1735,7 +1798,6 @@ function genLevel(li) {
          so moving them would re-roll props and enemies under every probe seed (#96) and move the
          LAMPS=off record flatparity's PARITY sense hashes. Nothing here draws from that stream. */
       const LAMPGAP = 2;
-      const SEAT_ANG = 0.6, LENS_HALF = 0.66, LENS_R = 8, SEAT_FLOOR = 4;   // :1489's heading, #304's cone
       let ps = ((li * 7919 + rooms.length * 104729 + ((exitX * 1000) | 0) * 13 + 12345) >>> 0) || 1;
       const prnd = () => { ps = (Math.imul(ps, 1664525) + 1013904223) >>> 0; return ps / 4294967296; };
       // the source's own FLOOR - the same recovery splatLight makes, restated here only to pick a band
@@ -1790,25 +1852,8 @@ function genLevel(li) {
         }
         return true;
       };
-      /* A bulb inside the first frame's lens is not a light source in that frame, it is the sun in the
-         player's eye: the composited spawn median lands past the 35-75 band whose upper anchor is the
-         dimmest lamp-1-m-in-the-lens render (tools/ci/assert.js's SPAWN block, #304). The utility likes
-         the middle of the spawn room, which is where the player wakes, so the seat test asks. Two clauses,
-         because a bulb that is NOT in the cone still lifts the frame by lighting the walls inside it: a
-         seat 5 m off the axis with a clear sight of the room took level 2's spawn mean 64 -> 85 (raster),
-         above the band's 75, without ever being in the cone. So there is also a distance floor - #319's
-         gap, applied here because a reserve pass that reaches into the spawn room makes it every pass.
-         A cell behind a wall is not in the lens - it is dark on both sides - hence the los test. */
-      const inLens = (i) => {
-        const x = (i % N) + 0.5, y = ((i / N) | 0) + 0.5;
-        const dx = x - px0, dy = y - py0, d = Math.hypot(dx, dy);
-        if (d < SEAT_FLOOR) return true;                          // the seat's own room, however far off axis
-        if (d > LENS_R) return false;
-        let e = Math.atan2(dy, dx) - SEAT_ANG;
-        while (e > Math.PI) e -= TAU;
-        while (e < -Math.PI) e += TAU;
-        return Math.abs(e) < LENS_HALF && los(px0, py0, x, y);
-      };
+      // inLens / SEAT_ANG / LENS_HALF / LENS_R / SEAT_FLOOR are hoisted above the budget pass (#405),
+      // which now obeys the same rule; this pass keeps its lens preference (lensOK below) unchanged.
       const seatOK = i => !taken.has(i) && dist[i] >= 2 && OPENAT(i % N, (i / N) | 0) >= 3;
       /* What the sources standing on band b deliver to b's own cells, through the shipped kernel, on a
          scratch lightmap put back exactly as found. It is all zeros at this point and the real splat
