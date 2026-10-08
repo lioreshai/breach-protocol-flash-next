@@ -1196,7 +1196,20 @@ const MESH = (function () {
         // no tint and no dim, because all of those are terms of the light the pixel is exempt from
         lr = inv; lg = inv; lb = inv;
       } else {
-        const li = Math.min(1, (lm ? lm[cc] : 0.5) * Math.exp(-dc * 0.14) + 0.30 * visAt(dc));
+        /* #407: the lamp field is taken WHOLE at the body's own cell. `MAP.light` is a baked LAMP
+           field - splatLight (js/20_level.js) spreads every lamp over a disc of its radius, so a cell's
+           value already carries the lamp's falloff out to that cell. Multiplying it by exp(-camera
+           distance) booked a SECOND falloff, cell -> eye, that no other surface pays: a wall column and
+           a floor pixel read `li = lm[cIdx]` with no distance term at all (js/40_render.js:921, :1037,
+           :1485), so a body 10 m inside a lit room kept 25% of the room's light while the wall two
+           metres behind it kept 100%, and the hostile in front of that wall arrived as a black cut-out.
+           Distance is not unpaid here - it is carried by the HAZE, which this same block already pays
+           (`fog = fogAt(dc)`, `inv = 1 - fog`, the FOGC add below), exactly as #197/#375/#385 settled it
+           for every other surface. The `0.30 * visAt(dc)` term stays: it is the body's own FILL, and it
+           fades with visibility in step with the haze rather than attenuating the field twice.
+           BODYDIST 0 puts the second falloff back in this copy AND in the billboard copy - the A/B the
+           distance rows in tools/view.js contrast are meant to be seen failing. */
+        const li = Math.min(1, (lm ? lm[cc] : 0.5) * (BODYDIST ? 1 : Math.exp(-dc * 0.14)) + 0.30 * visAt(dc));
         const sh = R0 + R1 * d;
         const fk = FL ? FL * 1.1 * Math.exp(-dc * 0.30) : 0;
         lr = (AMB + li * lt[0] * sh + fk * (FC[0] / 255)) * inv;
