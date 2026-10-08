@@ -76,6 +76,11 @@ const MESH = (function () {
   for (let i = 0; i < NS; i++) { const a = i * Math.PI * 2 / NS; RC[i * 2] = Math.cos(a); RC[i * 2 + 1] = Math.sin(a); }
   const GUNM = [30, 34, 42], GUNM2 = [46, 52, 62];   // gunmetal: darker than every SKIN above, so a held
   //                                                  object reads as an object, not as another limb
+  /* The view model's tint register (#376): identity, so the cell's hue multiplies out of the weapon's
+     light while its INTENSITY terms stay live. js/40_render.js calls the same thing TINT_WHITE and uses
+     it for geometry drawn outside any map; it is not imported here because a draw() that reads a global
+     from a later-loaded file for its OWN constant is a tie no reader can see from this file. */
+  const TINT_NEUTRAL = [1, 1, 1];
 
   /* #78: one subdivision knob for every part was the spike's last leftover - a thigh and a visor got
      the same 6-sided prism, so the silhouette faceted exactly where it is widest while the small parts
@@ -1163,9 +1168,20 @@ const MESH = (function () {
       }
     /* The light cell is the PLAYER's cell, not the anchor's: a muzzle 0.15 m ahead of the eye is
        over the boundary into whatever is in front, and taking the light of that - a wall column,
-       or the room behind a door - would make the gun dim when it points at a wall. */
+       or the room behind a door - would make the gun dim when it points at a wall.
+       The cell's HUE is a different term and the view model must not read it (#376). A room's tint is
+       the colour of that room's lamps, and multiplying it into every weapon pixel meant the rifle you
+       are carrying changed substance in a doorway - warm rust in one sector, blue in the next, green in
+       a third, at pixel coordinates no geometry moved between. The gun is the one object in the frame
+       the player never stops looking at, and it is not in the room the way a barrel is: it is bolted to
+       the eye. So a view-model draw keeps every INTENSITY term of the cell's light - MAP.light, the
+       distance falloff, KEY's Lambert, the muzzle's own wash, so walking up to a lamp and firing still
+       change how bright it is - and drops only the hue, which is what #76 already decided for the
+       world's props and bodies: they are lit by their own room, and they are allowed to look like it.
+       The cell lookup and the falloff above stay exactly as they were; deleting `cell:` from the
+       call site would have traded one defect for the dim-the-gun-when-you-aim-at-a-wall one. */
     const cc = o.cell === undefined ? cellIdx(o.x, o.y) : o.cell;
-    const lt = cellTint(cc), lm = MAP.light;
+    const lt = o.near ? TINT_NEUTRAL : cellTint(cc), lm = MAP.light;
     const FL = S.flash, FC = S.flashCol;                // the muzzle's own light, the billboard's term
     for (let k = 0, K = T.length; k < K; k += 3) {
       const i0 = T[k], i1 = T[k + 1], i2 = T[k + 2];
