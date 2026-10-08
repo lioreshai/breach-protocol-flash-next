@@ -269,6 +269,11 @@
       GNDFA = value === undefined ? 1 : +value;
       return { gndfade: GNDFA };
     }
+    /* #407's A/B. 1 (shipped) = a body or prop takes MAP.light WHOLE at its own cell, exactly as a wall
+       column and a ground pixel do; 0 = the pre-#407 second falloff (lm * exp(-distance * 0.14)) is back
+       in BOTH copies - the mesh triangle shading and the billboard. One register, two read sites, so it
+       cannot half-apply. */
+    if (name === 'bodydist') { BODYDIST = value === undefined ? 1 : (value ? 1 : 0); return { bodydist: BODYDIST }; }
     if (name === 'gfx') {
       const i = typeof value === 'string' ? QUAL.findIndex(q => q.name.toLowerCase() === String(value).toLowerCase()) : clamp(value | 0, 0, QUAL.length - 1);
       if (i < 0) throw new Error('DEV.set("gfx", …) wants 0..' + (QUAL.length - 1) + ' or ' + QUAL.map(q => q.name).join('|'));
@@ -435,7 +440,10 @@
       '                                  gndax (0 point fetch / 1 filtered along the footprint), and',
       '                                  gndfilt (0 one texel per pixel / 1 lerp across the short side), and',
       '                                  gndramp (0 extrapolate the deferred light ramp off-map / 1 stop at the cell), and',
-      '                                  gndfar (0 the deferred copy textures its far field / 1 it washes it like the row does)',
+      '                                  gndfar (0 the deferred copy textures its far field / 1 it washes it like the row does), and',
+      '                                  bodydist (1 a body or prop keeps the lamp field whole at its own cell, the shipped',
+      '                                  #407 behaviour / 0 the second camera-distance falloff is back on BOTH the mesh and',
+      '                                  the billboard copy, which is how a body 10 m away goes dark)',
       '  DEV.tiers()                     the QUAL table as it now stands, including any overrides set() made',
       '  DEV.layoutSig()                  FNV-1a over MAP.fz then MAP.cell — the level\'s identity (#166).',
       '                                  Two boots of one ?dev=1&seed=<n> URL must agree; with no seed they must not.',

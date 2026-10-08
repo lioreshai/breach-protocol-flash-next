@@ -217,9 +217,27 @@ function buildGrain() {
    reference to anything, and on THE STACK (amb 0.2, `lamps: 0`, a floor band the lamps do not cover) it
    put a vault's base at 1.10 against the floor's 0.20 - the roof became the brightest large surface in
    a level whose whole idea is a walkway above your head, and the walkable floor the darkest thing in the
-   frame. Levels that do not author `ceilLead` still get 0.9, so their bytes do not move; the term is
-   still exactly 0 within CEILHI of the eye, so every flat frame is unchanged. CEILG/CEILHI are
-   unchanged: a vault is still lifted off black, it just cannot out-light the surface you stand on. */
+   frame. The term is still exactly 0 within CEILHI of the eye, so every flat frame is unchanged, and
+   CEILG/CEILHI are unchanged: a vault is still lifted off black, it just cannot out-light the surface
+   you stand on.
+   WHAT #380 LEFT OPEN, AND WHAT THIS IS. It made the cap a per-level EXCEPTION: a level that authored
+   `ceilLead` got it and every other level kept the flat +0.9. Measured on main that is not enough -
+   ABATOIR CORE authors a `ceilBias` (-0.12, js/20_level.js:30) and no `ceilLead`, so the +0.70 its
+   CZ_SPAWN_TALL spawn room picks up (plane 4.00 at eye ~3.50, js/20_level.js:525) cancelled that -0.12
+   twice over: at `view.js surface` cam3 the ceiling band reads 66.3 against a deck of 47.4, the same
+   inversion #369 was filed for, in the largest level in the campaign, at the seat the player arrives in.
+   So the cap is now a rule the renderer derives from the order a level states, not a number only one
+   level chose to write: a level that authors a surface order (either bias, or an explicit lead) gets
+   the lift capped where that order ends,
+
+     AMB + CEILB + lift <= AMB + FLOORB   =>   lift <= max(0, FLOORB - CEILB)
+
+   and a level that authors NEITHER keeps the flat 0.9 exactly as before - inventing a bound for a level
+   that chose no order would be a shading change dressed as an invariant, and it would move the bytes of
+   the two levels that are the census's control. An authored `ceilLead` still wins outright, which is
+   what lets `surface`'s CONTROL block reproduce the pre-#369 build by writing CEILGM itself. ABATOIR
+   needs no new number: -0.12 is already the cap, 0 - (-0.12). Height is said by the riser seam and the
+   minimap band cue (#164), not by light. */
 const CEILHI = 3.0, CEILG = 1.4, CEILGM = 0.9;
 const visAt = d => 1 / (1 + d * d * 0.010) + 0.06 * Math.exp(-d * 0.06);
 const fogAt = d => clamp(1 - visAt(d), 0, 1);
@@ -261,7 +279,11 @@ function renderWorld() {
   AMB = MAP && MAP.amb !== undefined ? MAP.amb : 0.13;
   FLOORB = MAP ? MAP.floorBias || 0 : 0;
   CEILB = MAP ? MAP.ceilBias || 0 : 0;
-  CEILLD = MAP && MAP.ceilLead !== undefined ? MAP.ceilLead : CEILGM;
+  /* #369: the vault's ceiling. An authored `ceilLead` is the level's own word and wins; otherwise a
+     level that authored a floor/ceiling order is capped by that order (see CEILGM), and a level that
+     authored nothing keeps the flat CEILGM so its bytes do not move. */
+  CEILLD = !MAP ? CEILGM : MAP.ceilLead !== undefined ? MAP.ceilLead
+    : FLOORB !== 0 || CEILB !== 0 ? Math.min(CEILGM, Math.max(0, FLOORB - CEILB)) : CEILGM;
   horizon = BH * 0.5 + aimPx() + bobP * (BH / 400) * 3 + shakeY;
   const fcR = FOGC[0], fcG = FOGC[1], fcB = FOGC[2];
   const fcol = pack(FOGC[0], FOGC[1], FOGC[2]);
@@ -2206,7 +2228,12 @@ function drawBillboard(o) {
   const fog = fogAt(tY), inv = 1 - fog;
   const fR = FOGC[0] * fog, fG = FOGC[1] * fog, fB = FOGC[2] * fog;
   const idx0 = cellIdx(o.x, o.y);
-  const li = Math.min(1, (MAP.light ? MAP.light[idx0] : 0.5) * Math.exp(-tY * 0.14) + 0.30 * visAt(tY));
+  // #407: the SECOND copy of the body light lookup - the two-copies rule in AGENTS.md. It must read
+  // the same BODYDIST as js/13_mesh.js:1212, and it does: BODYDIST is one global in js/00_core.js, so
+  // switching the term in a live page changes sprites and meshes together. See that file and the mesh
+  // copy for why the field is taken whole at the sprite's own cell (a billboard is a body seen from
+  // farther off than most meshes, so this copy is where the defect showed worst).
+  const li = Math.min(1, (MAP.light ? MAP.light[idx0] : 0.5) * (BODYDIST ? 1 : Math.exp(-tY * 0.14)) + 0.30 * visAt(tY));
   const lt = cellTint(idx0);
   const fk = S.flash * Math.exp(-tY * 0.30);
   let lr = AMB + (li * lt[0] + fk * (S.flashCol[0] / 255)) * 1.1;
