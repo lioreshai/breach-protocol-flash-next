@@ -11440,48 +11440,100 @@ if (MODE === 'surface') {
      authored and once with each bias one whole unit lower, marks exactly the pixels of that class and
      no others: bodies, props, the viewmodel and wall faces are byte-identical between the three and
      drop out of both masks. One full unit is not subtle - it is the whole ambient term - so a pixel
-     that did not move was not painted by that surface.
-     Rows, per level, seated on the level's own spawn cell, turned to its longest sight line (cam n
-     adds n*90 degrees, so CAMS=0,1,2,3 walks the room from one pose a player actually occupies):
+     that did not move was not painted by that surface. The viewmodel has to be RESTED for that sentence
+     to be true (VMREST): it damps toward the aim against wall time, so across three renders of one state
+     the rifle had swung, its pixels failed the "identical, so not a surface" test, and a column whose
+     seam window straddled them dropped out of the census - 138 qualifying columns on RING TRANSPORT
+     without the rest against 213 with it, 113 -> 191 on THE STACK (the medians move by under 0.4, so
+     this is the census losing its columns rather than the bands reading wrong, which is the kind of
+     thing that only shows up as a row that cannot fail).
+     Rows. The level is DEALT once and then POSED: `deal` puts a layout in memory and hashes it, `aim`
+     only turns the camera in the level's own spawn cell, and cam n adds n*90 degrees, so CAMS=0,1,2,3
+     (the default) walks around ONE room instead of dealing four different worlds. The deal hash is
+     printed on every row so a figure can be tied to the geometry it was measured on.
+     The spawn cell is used rather than `scene`'s derived camera because that one picks an open cell by
+     list index - it answers "does this level have depth", not "what does the player see", and #369's
+     criteria are about what the player sees (its level-3 frame IS the README's spawn-seat shot).
        SEAM   median over columns of (what sits under the ceiling's edge) - (the ceiling above it).
-              This is the gap the eye uses to decide a room has a ceiling in it.
+              This is the gap the eye uses to decide a room has a ceiling in it. A pose whose ceiling
+              seam never enters the frame prints n/a and judges nothing; the SWEEP row below is where
+              that runs out into a verdict.
        ORDER  the ceiling's band mean against the floor's. A ceiling brighter than the deck under it is
               the THE STACK bug in #369 as written: the roof was the brightest large surface in a level
               about a walkable roof.
+       POSE   every pose of the sweep was rendered on the deal that was printed, checked two ways: the
+              grid hash after aiming equals the deal's, and coming back to the first pose reproduces its
+              frame byte for byte. This is the row that makes a multi-pose criterion mean something; it
+              is also what found that the CONTROL block was leaving the authored order zeroed.
+       SWEEP  the sweep could read the level at all: some pose with enough qualifying columns for the
+              seam, AND some pose where both bands cover >= 1% of the frame for the ORDER row. Vacuity is
+              a FAILURE, never a debt (AGENTS.md), so a level the whole sweep cannot read fails here
+              rather than passing by printing nothing. A single pose prints n/a and judges nothing.
        CONTROL the same two questions with the authored biases zeroed and `ceilLead` back at the old
               flat 0.9, which IS the pre-#369 build. A census whose rows never fail there has never
               been seen to fail anywhere (AGENTS.md, "a probe passing is not a probe being capable of
               failing"), so this runs in the same process and its verdict is printed as its own row. */
   const BW = run('BW'), BH = run('BH'), NL = run('LEVELS.length');
-  const CAMS = (process.env.CAMS || '0').split(',').map(Number);
+  const CAMS = (process.env.CAMS || '0,1,2,3').split(',').map(Number);
   const TARGET = process.env.TARGET !== undefined ? +process.env.TARGET : 15;
   const MIN_COLS = process.env.MIN_COLS !== undefined ? +process.env.MIN_COLS : 60;
   let bad = 0, known = 0, rowsN = 0, ctrlRan = 0, ctrlMiss = 0;
   const STRICT = !!process.env.STRICT;
-  const row = (label, ok, detail, knownIssue) => {
-    const tag = ok ? ' ok  ' : knownIssue ? 'KNOWN' : ' FAIL';
-    console.log('  ' + label.padEnd(50) + tag + '  ' + detail + (ok || !knownIssue ? '' : '  [' + knownIssue + ']'));
+  const row = (label, ok, detail, knownIssue, na) => {
+    const tag = na ? ' n/a ' : ok ? ' ok  ' : knownIssue ? 'KNOWN' : ' FAIL';
+    console.log('  ' + label.padEnd(50) + tag + '  ' + detail + (ok || na || !knownIssue ? '' : '  [' + knownIssue + ']'));
     rowsN++;
-    if (ok) return;
+    if (ok || na) return;
     if (knownIssue && !STRICT) known++; else bad++;
   };
-  // the seat is the level's OWN spawn cell, turned to its longest sight line. `scene`'s derived camera
-  // picks an open cell by list index, which answers "does this level have depth" but not "what does the
-  // player see" - and #369's criteria are about what the player sees (its level-3 frame IS the README's
-  // spawn-seat shot), so a census taken from a cell nobody is ever parked in would be quoting a pose.
-  const seat = (li, cam) => run(`(function(){
+  /* THE DEAL AND THE POSE ARE SEPARATE CALLS, and that separation is the whole point.
+     The first version of this census dealt the level INSIDE its seat, because `startLevel` is how every
+     other probe gets a level into memory. But `startLevel` calls `genLevel`, the generator draws from
+     `Math.random`, and the harness's seeded stream advances on EVERY call - so turning the camera by 90
+     degrees also re-dealt the level. `CAMS=0,0`, the same pose twice, printed two different worlds
+     (ARCHIVE SUBLEVEL 79 columns / 12.1 then 2 columns / -0.8; RING TRANSPORT 118 columns then 2), which
+     is why the "wall band it meets" criterion could not be stated against it: a row that changes when
+     the knob only moves the camera is not measuring the camera.
+     So `deal()` lays the level out ONCE and returns a hash of that layout, `aim()` only turns the camera
+     in the cell it dealt, and the deal hash is printed on every row so a figure can be tied to the
+     geometry it was measured on. The POSE row below is the row that can see this break. */
+  const gridHash = () => run(`(function(){
+    let h = 2166136261 >>> 0;
+    const mix = v => { h = Math.imul(h ^ (v & 255), 16777619) >>> 0; };
+    mix(MW); mix(MW >>> 8); mix(MH); mix(MH >>> 8); mix(S.level);
+    for (let i = 0; i < MAP.fz.length; i++) { mix(MAP.fz[i] | 0); mix((MAP.fz[i] | 0) >> 8); mix(MAP.cz[i] | 0); }
+    return h >>> 0;
+  })()`);
+  const deal = li => run(`(function(){
     S.mode='play'; S.locked=false; startLevel(${li}, true); S.mode='play';
-    let best=${cam}*0.7, bd=-1;
+    globalThis.__spawn = [P.x, P.y];
+    PARTS.length = 0; PROJ.length = 0;
+    for(const e of ENEMIES){e.state='sleep';e.anim=0.3+((e.x*3)%1);}
+    return 1;
+  })()`);
+  // the pose is the deal's OWN spawn cell, turned to its longest sight line; cam n adds n*90 degrees.
+  // `scene`'s derived camera picks an open cell by list index, which answers "does this level have
+  // depth" but not "what does the player see" - and #369's criteria are about what the player sees (its
+  // level-3 frame IS the README's spawn-seat shot), so a census taken from a cell nobody is ever parked
+  // in would be quoting a pose. Aiming re-reads the spawn cell from the deal, so no pose can walk the
+  // player out of the room the census is measuring (AGENTS.md: a camera probe that drives the player
+  // ends up in the void where the grid is undefined and the DDA never hits).
+  const aim = cam => run(`(function(){
+    P.x = globalThis.__spawn[0]; P.y = globalThis.__spawn[1];
+    let bd = -1, best = 0;
     for(let k=0;k<48;k++){const a=k*Math.PI/24;
       const d=castRayDist(P.x+.0,P.y+.0,Math.cos(a),Math.sin(a),9).dist;if(d>bd){bd=d;best=a;}}
     P.ang = best + ${cam} * Math.PI / 2; P.pitch = BH * 0.02; P.z = floorAt(P.x, P.y);
     P.vx = P.vy = P.vz = 0; P.air = false; P.crouch = 0;
-    for(const e of ENEMIES){e.state='sleep';e.anim=0.3+((e.x*3)%1);}
     return 1; })()`);
   /* Render with one authored bias moved, and put it back. The value is parked on globalThis rather
      than captured in node because a level that does not author the field has it `undefined`, and
-     `MAP.floorBias = undefined` is what restores that (the renderer reads `MAP.x || 0`). */
-  const frame = () => { run('renderWorld()'); return new Uint32Array(run('px')); };
+     `MAP.floorBias = undefined` is what restores that (the renderer reads `MAP.x || 0`). The viewmodel
+     is rested on every render: this census A/Bs THREE renders of one state and calls the pixels that
+     differ surfaces, so a rifle that swung with the wall clock between two of them would be counted as
+     a ceiling (see VMREST). */
+  const frame = () => { run(VMREST + ' renderWorld()'); return new Uint32Array(run('px')); };
+  const fhash = buf => { let h = 2166136261 >>> 0; for (let i = 0; i < buf.length; i += 7) h = Math.imul(h ^ buf[i], 16777619) >>> 0; return h >>> 0; };
   const frameBias = (field, d) => {
     run(`(function(){ globalThis.__b0 = MAP.${field}; MAP.${field} = (MAP.${field} || 0) + ${d}; return 1; })()`);
     const f = frame();
@@ -11531,22 +11583,42 @@ if (MODE === 'surface') {
   console.log('surface value order - ceiling must sit under the surface its edge meets by >= ' + TARGET +
     ' luma (Rec.709), and under the floor it covers');
   for (let li = 0; li < NL; li++) {
+    const dealt = (deal(li), gridHash()), dh = dealt.toString(16).padStart(8, '0');
+    const name = run('LEVELS[' + li + '].name');
+    let poseCols = [], poseOk = true, firstHash = 0, measPoses = [], bandPoses = [];
     for (const cam of CAMS) {
-      seat(li, cam);
+      aim(cam);
+      // the hash is read AFTER aiming, so a pose that moved the geometry shows up here rather than
+      // being smoothed over by a figure taken before it.
+      const gh = gridHash();
+      if (gh !== dealt) poseOk = false;
       const authored = run('(MAP.floorBias || 0)') + '/' + run('(MAP.ceilBias || 0)') + '/' + run('MAP.ceilLead === undefined ? "default" : MAP.ceilLead');
       const a = frame(), cf = frameBias('ceilBias', -1), ff = frameBias('floorBias', -1);
       const c = classify(a, cf, ff);
-      console.log(`L${li} cam${cam} (${run('LEVELS[' + li + '].name')}), authored floorBias/ceilBias/ceilLead ${authored}, ` +
+      if (cam === CAMS[0]) firstHash = fhash(a);
+      poseCols.push(c.cols);
+      // A pose whose ceiling edge is not in the frame is NOT MEASURED - it is neither a pass nor a debt.
+      // Vacuity is still a FAILURE (AGENTS.md), just charged where it belongs: to the level whose whole
+      // sweep produced no measurable pose, which is the row after the loop.
+      const meas = c.cols >= MIN_COLS;
+      if (meas) measPoses.push(cam);
+      // The same vacuity rule for the band means: a surface covering 1% of the frame is a sliver, and a
+      // mean over a sliver is not a band. Charged to the SWEEP row like the seam's.
+      const bands = c.ceilPct >= 1 && c.floorPct >= 1;
+      if (bands) bandPoses.push(cam);
+      console.log(`L${li} cam${cam} (${name}), deal ${gh.toString(16).padStart(8, '0')}, authored floorBias/ceilBias/ceilLead ${authored}, ` +
         `${c.cols} seam columns, ceiling ${c.ceilPct.toFixed(0)}% of frame / floor ${c.floorPct.toFixed(0)}%:`);
       row(`L${li} cam${cam} SEAM ceiling under what it meets >= ${TARGET}`,
-        c.cols >= MIN_COLS && c.seam >= TARGET,
+        meas && c.seam >= TARGET,
         `median gap ${c.seam.toFixed(1)} (p10 ${c.seamP10.toFixed(1)}) over ${c.cols} columns, ` +
-        `ceiling band ${c.ceil.toFixed(1)}, floor ${c.floor.toFixed(1)}`,
-        // Vacuity is a FAILURE, never a debt (AGENTS.md): a row decided by two columns is not a row.
-        c.cols >= MIN_COLS && c.seam < TARGET ? '#369' : undefined);
+        `ceiling band ${c.ceil.toFixed(1)}, floor ${c.floor.toFixed(1)}` +
+        (meas ? '' : ` - NOT MEASURED: ${c.cols} qualifying columns (< ${MIN_COLS}); the ceiling seam is not in this pose, so this pose judges nothing`),
+        meas && c.seam < TARGET ? '#369' : undefined, !meas);
       row(`L${li} cam${cam} ORDER ceiling not brighter than the deck`,
-        c.ceil < c.floor, `ceiling ${c.ceil.toFixed(1)} vs floor ${c.floor.toFixed(1)}`,
-        c.ceil >= c.floor && c.ceil < c.floor + 6 ? '#369' : undefined);
+        c.ceil < c.floor, `ceiling ${c.ceil.toFixed(1)} (${c.ceilPct.toFixed(0)}% of frame) vs floor ` +
+        `${c.floor.toFixed(1)} (${c.floorPct.toFixed(0)}%)` +
+        (bands ? '' : ' - NOT MEASURED: one surface covers under 1% of this pose'),
+        bands && c.ceil >= c.floor && c.ceil < c.floor + 6 ? '#369' : undefined, !bands);
       if (cam === CAMS[0] || CAMS.length === 1) {
         /* the pre-#369 build, in this same process: zero the authored order and ask the same questions.
            Only meaningful on a level that AUTHORS one - on a level whose fields are absent the zeroed
@@ -11555,8 +11627,15 @@ if (MODE === 'surface') {
         const authoredOrder = run(`(MAP.floorBias || 0) !== 0 || (MAP.ceilBias || 0) !== 0 || MAP.ceilLead !== undefined`);
         if (!authoredOrder) { console.log(`     control: L${li} authors no order, so nothing to A/B here (counted below)`); continue; }
         ctrlRan++;
-        run(`(function(){ MAP.floorBias = 0; MAP.ceilBias = 0; MAP.ceilLead = ${run('CEILGM')}; return 1; })()`);
+        /* Zero the authored order, render, and PUT IT BACK. It used to be left zeroed: with one pose per
+           level the damage was invisible (the control is the last thing a level does), but as soon as a
+           second pose runs every pose after the control is measured on the pre-#369 build and reports
+           the bug as if it were the shipped one. The POSE row caught it by rendering the first pose a
+           second time and getting different bytes with an unchanged grid. */
+        run(`(function(){ globalThis.__o = [MAP.floorBias, MAP.ceilBias, MAP.ceilLead];
+          MAP.floorBias = 0; MAP.ceilBias = 0; MAP.ceilLead = ${run('CEILGM')}; return 1; })()`);
         const a0 = frame(), c0f = frameBias('ceilBias', -1), f0f = frameBias('floorBias', -1);
+        run('MAP.floorBias = globalThis.__o[0]; MAP.ceilBias = globalThis.__o[1]; MAP.ceilLead = globalThis.__o[2]; delete globalThis.__o;');
         const c0 = classify(a0, c0f, f0f);
         const survived = c0.seam >= TARGET && c0.ceil < c0.floor;
         if (survived) ctrlMiss++;
@@ -11565,6 +11644,30 @@ if (MODE === 'surface') {
           (survived ? ' - both rows still pass a build with no authored order, so they prove nothing' : ' (a row fails there, as it must)'));
       }
     }
+    /* THE ROW THAT MAKES THE MULTI-POSE CRITERION MEAN SOMETHING. Every pose above must have been
+       rendered on the layout `deal` produced: the grid hash must not have moved, and coming back to the
+       first pose must reproduce its frame byte for byte. Run against a `aim` that re-deals (the pre-fix
+       seat), both halves fail - the hash moves and the frame is a different room. Until this row
+       existed, a row could move when only the camera moved, so the issue's "the band it meets" criterion
+       could not be stated over more than one pose. */
+    aim(CAMS[0]);
+    const againHash = fhash(frame());
+    row(`L${li} POSE every pose is measured on deal ${dh}`,
+      poseOk && againHash === firstHash,
+      `${CAMS.length} pose(s), grid hash ${poseOk ? 'unchanged' : 'CHANGED by aiming'}; cam${CAMS[0]} re-rendered ` +
+      (againHash === firstHash ? 'identical' : `as ${againHash.toString(16).padStart(8, '0')} against ${firstHash.toString(16).padStart(8, '0')} - the pose re-dealt the level`) +
+      `, seam columns per pose ` + poseCols.join('/'));
+    // A level the sweep cannot see a ceiling seam in is a FAILURE, not a gap in the print: that is the
+    // same vacuity the per-pose row refuses to score, counted once where the evidence actually runs out.
+    row(`L${li} SWEEP the census can read this level`, measPoses.length > 0 && bandPoses.length > 0,
+      `seam measurable in ${measPoses.length} of ${CAMS.length} pose(s)` +
+      (measPoses.length ? ' (cam ' + measPoses.join(',') + ')' : ` - columns per pose ` + poseCols.join('/') +
+        ': the ceiling edge never lands in a frame this probe can score') +
+      `, bands in ${bandPoses.length}` + (bandPoses.length ? '' : ' - no pose left a band to average'),
+      // Vacuity is a FAILURE, never a debt (AGENTS.md) - so no `knownIssue` tag on this row. Both halves
+      // must be readable: a level whose seam is never in frame fails even where its bands are scoreable,
+      // because the seam is the criterion this issue's definition of done is stated in.
+      undefined);
   }
   row('CONTROL the census runs its counterfactual somewhere', ctrlRan > 0 && ctrlMiss === 0,
     ctrlRan + ' level(s) with an authored order A/B\'d, ' + ctrlMiss + ' of them indistinguishable from the bug');
