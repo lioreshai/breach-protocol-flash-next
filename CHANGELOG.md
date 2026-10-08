@@ -45,10 +45,11 @@
 - Long walls are still mostly bare between the fixtures, and small rooms get none at all (#400).
 - Some ceilings still show a faint radial structure toward the vanishing point (#19), and the far
   ceiling is now a falloff rather than a solved surface, so its boundary can still be traced (#375).
-- Enemy bodies still read as dark cut-outs against a lit wall - the contact shadow that would fix it is
-  measured but not yet drawn (#179).
-- Level 2 still paints floor, walls and ceiling at close to the same brightness; only two of the four
-  levels author a value order (#369).
+- A hostile standing well inside a lit room is still one of the darkest things in the frame: the room's
+  light field is attenuated a second time on bodies and props, once on the world (#407). The contact
+  shadow that grounds a body on the floor IS drawn now; this is a light problem, not a missing patch.
+- ABATOIR CORE's vault can still out-light the floor you stand on at one arrival pose, and two of the
+  four levels author no surface value order at all (#369).
 - Two merged changes here are diagnostics only and move no pixels: a screenshot now states the route that
   bound its seed (#344), and the scene render can look around one level instead of dealing four (#384).
 
