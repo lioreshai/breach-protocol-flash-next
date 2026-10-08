@@ -1299,7 +1299,7 @@ function castGround(flash, fcR, fcG, fcB) {
 let gSer = 0, gMSer = -1, gMRow = -1, gMPl = 0, gMDS = 0, gMDfa = 0, gMFog = 0, gMInv = 0, gMFR = 0,
   gMFG = 0, gMFB = 0, gMBase = 0, gMCx0 = 0, gMCy0 = 0, gMCxs = 0, gMCys = 0,
   gMCf = 0, gMAx = 0, gMWs = 0, gMAn = 1, gMAr = 4, gMN = 0, gMDist = -1, gMMirOn = 0,
-  gMFar = 0, gMWnR = 0, gMWnG = 0, gMWnB = 0, gMWErr = 0, gMWEg = 0, gMWEm = 0,
+  gMFar = 0, gMWnR = 0, gMWnG = 0, gMWnB = 0, gMWErr = 0, gMWEg = 0, gMWEm = 0, gMLift = 0,
   gLSer = -1, gLSX = 0, gLSY = 0, gML0 = 0, gML1 = 0, gML2 = 0, gMMir = 0,
   gMA0 = 0, gMA1 = 0, gMA2 = 0, gMB0 = 0, gMB1 = 0, gMB2 = 0, gMD0 = 0, gMD1 = 0, gMD2 = 0;
 
@@ -1315,8 +1315,8 @@ function gndBuild(row, isF, absP, pl, tex, sc, fcR, fcG, fcB, fl, amb, dOv) {
   gMSer = gSer; gMRow = row; gMPl = pl; gMDS = dc; gMDist = dOv === undefined ? -1 : dOv;
   gMDfa = 0.4 + 0.6 * Math.exp(-dc * 0.02);
   gMFog = fog; gMInv = 1 - fog; gMFR = fcR * fog; gMFG = fcG * fog; gMFB = fcB * fog;
-  gMBase = amb + fl * Math.exp(-dc * 0.30) * 0.9 + (isF ? FLOORB : CEILB) +
-    (!isF && pl - eyeZ > CEILHI ? Math.min(CEILLD, CEILG * (pl - eyeZ - CEILHI)) : 0);
+  gMLift = !isF && pl - eyeZ > CEILHI ? Math.min(CEILLD, CEILG * (pl - eyeZ - CEILHI)) : 0;
+  gMBase = amb + fl * Math.exp(-dc * 0.30) * 0.9 + (isF ? FLOORB : CEILB) + gMLift;
   /* the sampled point is LINEAR in the column: camX + (dirX + planeX*(x*stepBase-1))*dS, so a pixel
      of this run needs two multiplies, not a ray build. Same algebra the row uses for its own wx/wys. */
   const sb = 2 / BW;
@@ -1569,7 +1569,30 @@ function groundPixel(x0, x1, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb
      (#385). Do not fold the halves back together without re-running `bands` at the L3 camera. */
   if (!own && GNDOF && !isF) {
     const lta = MAP.lt;
-    lr = lg = lb = gMBase;
+    /* #375's SECOND charge, found after #392 shipped and the wedge stayed. gMLift is the tall-ceiling
+       bounce term (CEILG above CEILHI); it is a property of a PLANE, so a pixel whose ray left the level
+       paid it at full strength for a ceiling it never reached, at any distance. Measured at the level-0
+       cam1 seat on main 91e07d4 (instrumented JSDIR variant, one frame): 13,444 off-map deferred ceiling
+       pixels, mean base 0.866 at a mean plane of 3.97 and a mean distance of 38.5 m, against 0.190 for
+       the row copy's own far fill - a flat, textureless trapezoid at 57.0 mean luminance where the
+       ceiling overhead reads 40.5 - and DELIVERED LIGHT EQUALS BASE there to the last bit, which is why
+       #392's fix could not reach it and why its census still prints 0.0000: the lamp taps are zero, the
+       LIFT is not. A ceiling that is not there cannot bounce light at you, for the same reason a lamp
+       that is not there cannot light you, so this term now rides the same tap coverage the lamp taps
+       already ride: whole on the boundary lattice line, where it is continuous with the in-map side -
+       which is what removes the STEP, and never a hole: the term it pays instead is the row's own.
+       The term is `!isF`, so the floor half, #385's debt and `bands`' step-lip gate do not move.
+       GNDOF 0 puts the whole charge back, wedge included, for the A/B. The ROW copy needs no clause: its
+       lift is computed from dzA, a per-ROW constant, so it is the same value on both sides of the level's
+       edge and cannot draw the footprint's outline - the 0.866/0.190 above is the whole difference. */
+    /* WHICH lift an off-map pixel may claim: the one the ROW's own plane carries, which is exactly what
+       the row copy pays these same rays (dzA, a per-ROW constant). Zero here would be a hole - measured:
+       base 0.130 against the row copy's 0.190 and a frame that reads a dark trapezoid instead of a bright
+       one, an edge in the other direction rather than no edge. The plane this pixel's ray never reached
+       pays nothing; the space the camera is standing in pays its own, at any distance, which is also what
+       makes the two copies agree on the same pixel. */
+    const liftRow = plA - eyeZ > CEILHI ? Math.min(CEILLD, CEILG * (plA - eyeZ - CEILHI)) : 0;
+    lr = lg = lb = gMBase - gMLift + liftRow;
     if (lta) {
       const gx = Math.floor(cx), gy = Math.floor(cy), ux = cx - gx, uy = cy - gy;
       for (let q = 0; q < 4; q++) {
@@ -1586,7 +1609,14 @@ function groundPixel(x0, x1, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb
     }
   }
   /* #375 census, DEFERRED COPY - deliberately OUTSIDE the GNDOF gate above, so the A/B that puts the
-     wedge back makes this row go RED instead of measuring the fixed arithmetic either way. */
+     wedge back makes this row go RED instead of measuring the fixed arithmetic either way.
+     No LIFT sub-figure lives here. One did, and it was VACUOUS: measured on the arm with the charge
+     restored (`lr = lg = lb = gMBase`, js/40_render.js:1522) it printed 0.0000 on all four levels while
+     that same arm moves cull's L0 lane and flatparity's L3 dealt frame to the byte - at these cameras
+     `pl` and `plA` carry the same lift, so the difference it counted is 0 by geometry whether or not the
+     term is fixed. Whatever counts this term must run where the two lifts differ, which is cull's poked
+     ceiling-step camera or flatparity's L3 dealt seat - i.e. the two LOCK rows above are the falsifiable
+     half, and a green census here proves nothing about it. */
   if (cnt && !own && offMapClear(cx, cy, N)) {
     cnt[isF ? LG_OFFMAP : LG_OFFCEIL]++;   // the two halves are counted and maxed SEPARATELY: the
     // ceiling half is fixed (#375) and the floor half is measured debt, so one number cannot carry both
