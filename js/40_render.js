@@ -105,10 +105,45 @@ let SHADOW_PROP = 1, SHADOW_PR = 0.04;
 // viewmodel spring state: sway lag, previous look angle, eject timing
 const VM = { vy: 0, ang: 0, lag: 0, now: 0, t: 0 };
 
+/* ---- the room's exposure term (#377) ------------------------------------------
+   The bloom pass this branch replaces was doing two jobs: it was a glow, which the bright pass now
+   does properly, and it was an EXPOSURE, which nothing else in the pipeline does. With the veil gone
+   the composited medians fall to 48.7 / 54.0 / 47.8 / 60.3 against the documented 60-100 window
+   (measured on main with the composite call disabled, so it is the room and not the pass), which is
+   a frame you cannot see into: at a median of 49 a hostile standing in a lit doorway is a rumour
+   until it shoots. This is the light the pass was supplying, put back as one term on the room.
+
+   The term is a SHOULDered BLACK-POINT LIFT: below luma EXPOSE_T it is v' = v*(1 - A/T) + A - a
+   black-point lift that moves shadows far more than highlights, the exact opposite of the
+   clipped-contrast pass it replaces, which added the same +107 to a lamp core and to the floor under it
+   - and at or above EXPOSE_T it is the identity. At A = 22, T = 200 a pixel at 40 gains 19, a pixel at
+   150 gains 6, and a pixel at 200 or above gains nothing at all. What it costs, stated: on the lifted
+   range it gives up A/T = 11% of the contrast slope, a tenth of what the removed pass was taking off
+   the top, and it is flat above 200, so the top of the range stops compressing instead of compressing.
+
+   One constant for all four levels - no per-level table, because applied to the measured pass-off
+   medians it predicts 66 / 71 / 65 / 77, all inside the window - and it is weighted toward dark pixels,
+   which is where the darkest dealt layouts (#149's tail) actually are. It is NOT a lamp-coverage fix
+   and does not close #199.
+
+   Three properties this term must keep, because of how this repo has been bitten:
+   - it is TWO COMPOSITED FILLS (`multiply` by flat 255-A, then `lighter` with flat A), so it is the
+     same picture on a browser with no `ctx.filter`. A filter-only path would give that browser a game
+     two stops darker than every other one - the `canFilter` defect the bright pass just removed.
+   - it is a CONSTANT. No per-frame statistic, nothing derived from the frame's own mean: a
+     frame-adaptive exposure pumps as the player walks between rooms and breaks the seeded determinism
+     every probe in the roster depends on.
+   - it is applied to the ROOM, after the grade composite and before the bright pass, the lamp glow,
+     the particles and the HUD (renderOverlay). drawBloom reads the raster buffer, not the display
+     canvas, so a lift here can never push a floor over the bright pass's knee. That ordering is what
+     makes it safe, and it stops being safe if the term moves below the raster.
+   DEV.set('expose', 0) is the A/B: the term off, everything else identical. */
+const EXPOSE_A = 22;             // the black point: added luma at v = 0, and 0 at v = EXPOSE_T
+const EXPOSE_T = 200;            // the shoulder: at or above this luma the term is the identity
 const QUAL = [
-  { name: 'PERFORMANCE', res: 0.34, min: 170, max: 430, bloom: false, grade: false, grain: 0, far: 15, dmax: 8, glow: 0, scan: 0.5, vec: 0, rast: 0, rigH: 0 },
-  { name: 'BALANCED', res: 0.47, min: 220, max: 760, bloom: true, grade: true, grain: 0.05, far: 22, dmax: 13, glow: 6, scan: 0.18, vec: 1, rast: 2, rigH: 300 },
-  { name: 'ULTRA', res: 0.62, min: 260, max: 780, bloom: true, grade: true, grain: 0.04, far: 30, dmax: 19, glow: 9, scan: 0.1, vec: 1, rast: 4, rigH: 216 }
+  { name: 'PERFORMANCE', res: 0.34, min: 170, max: 430, bloom: false, grade: false, grain: 0, far: 15, dmax: 8, glow: 0, scan: 0.5, vec: 0, rast: 0, rigH: 0, expose: EXPOSE_A },
+  { name: 'BALANCED', res: 0.47, min: 220, max: 760, bloom: true, grade: true, grain: 0.05, far: 22, dmax: 13, glow: 6, scan: 0.18, vec: 1, rast: 2, rigH: 300, expose: EXPOSE_A },
+  { name: 'ULTRA', res: 0.62, min: 260, max: 780, bloom: true, grade: true, grain: 0.04, far: 30, dmax: 19, glow: 9, scan: 0.1, vec: 1, rast: 4, rigH: 216, expose: EXPOSE_A }
 ];
 
 function resize() {
@@ -1264,7 +1299,7 @@ function castGround(flash, fcR, fcG, fcB) {
 let gSer = 0, gMSer = -1, gMRow = -1, gMPl = 0, gMDS = 0, gMDfa = 0, gMFog = 0, gMInv = 0, gMFR = 0,
   gMFG = 0, gMFB = 0, gMBase = 0, gMCx0 = 0, gMCy0 = 0, gMCxs = 0, gMCys = 0,
   gMCf = 0, gMAx = 0, gMWs = 0, gMAn = 1, gMAr = 4, gMN = 0, gMDist = -1, gMMirOn = 0,
-  gMFar = 0, gMWnR = 0, gMWnG = 0, gMWnB = 0, gMWErr = 0, gMWEg = 0, gMWEm = 0,
+  gMFar = 0, gMWnR = 0, gMWnG = 0, gMWnB = 0, gMWErr = 0, gMWEg = 0, gMWEm = 0, gMLift = 0,
   gLSer = -1, gLSX = 0, gLSY = 0, gML0 = 0, gML1 = 0, gML2 = 0, gMMir = 0,
   gMA0 = 0, gMA1 = 0, gMA2 = 0, gMB0 = 0, gMB1 = 0, gMB2 = 0, gMD0 = 0, gMD1 = 0, gMD2 = 0;
 
@@ -1280,8 +1315,8 @@ function gndBuild(row, isF, absP, pl, tex, sc, fcR, fcG, fcB, fl, amb, dOv) {
   gMSer = gSer; gMRow = row; gMPl = pl; gMDS = dc; gMDist = dOv === undefined ? -1 : dOv;
   gMDfa = 0.4 + 0.6 * Math.exp(-dc * 0.02);
   gMFog = fog; gMInv = 1 - fog; gMFR = fcR * fog; gMFG = fcG * fog; gMFB = fcB * fog;
-  gMBase = amb + fl * Math.exp(-dc * 0.30) * 0.9 + (isF ? FLOORB : CEILB) +
-    (!isF && pl - eyeZ > CEILHI ? Math.min(CEILLD, CEILG * (pl - eyeZ - CEILHI)) : 0);
+  gMLift = !isF && pl - eyeZ > CEILHI ? Math.min(CEILLD, CEILG * (pl - eyeZ - CEILHI)) : 0;
+  gMBase = amb + fl * Math.exp(-dc * 0.30) * 0.9 + (isF ? FLOORB : CEILB) + gMLift;
   /* the sampled point is LINEAR in the column: camX + (dirX + planeX*(x*stepBase-1))*dS, so a pixel
      of this run needs two multiplies, not a ray build. Same algebra the row uses for its own wx/wys. */
   const sb = 2 / BW;
@@ -1534,7 +1569,30 @@ function groundPixel(x0, x1, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb
      (#385). Do not fold the halves back together without re-running `bands` at the L3 camera. */
   if (!own && GNDOF && !isF) {
     const lta = MAP.lt;
-    lr = lg = lb = gMBase;
+    /* #375's SECOND charge, found after #392 shipped and the wedge stayed. gMLift is the tall-ceiling
+       bounce term (CEILG above CEILHI); it is a property of a PLANE, so a pixel whose ray left the level
+       paid it at full strength for a ceiling it never reached, at any distance. Measured at the level-0
+       cam1 seat on main 91e07d4 (instrumented JSDIR variant, one frame): 13,444 off-map deferred ceiling
+       pixels, mean base 0.866 at a mean plane of 3.97 and a mean distance of 38.5 m, against 0.190 for
+       the row copy's own far fill - a flat, textureless trapezoid at 57.0 mean luminance where the
+       ceiling overhead reads 40.5 - and DELIVERED LIGHT EQUALS BASE there to the last bit, which is why
+       #392's fix could not reach it and why its census still prints 0.0000: the lamp taps are zero, the
+       LIFT is not. A ceiling that is not there cannot bounce light at you, for the same reason a lamp
+       that is not there cannot light you, so this term now rides the same tap coverage the lamp taps
+       already ride: whole on the boundary lattice line, where it is continuous with the in-map side -
+       which is what removes the STEP, and never a hole: the term it pays instead is the row's own.
+       The term is `!isF`, so the floor half, #385's debt and `bands`' step-lip gate do not move.
+       GNDOF 0 puts the whole charge back, wedge included, for the A/B. The ROW copy needs no clause: its
+       lift is computed from dzA, a per-ROW constant, so it is the same value on both sides of the level's
+       edge and cannot draw the footprint's outline - the 0.866/0.190 above is the whole difference. */
+    /* WHICH lift an off-map pixel may claim: the one the ROW's own plane carries, which is exactly what
+       the row copy pays these same rays (dzA, a per-ROW constant). Zero here would be a hole - measured:
+       base 0.130 against the row copy's 0.190 and a frame that reads a dark trapezoid instead of a bright
+       one, an edge in the other direction rather than no edge. The plane this pixel's ray never reached
+       pays nothing; the space the camera is standing in pays its own, at any distance, which is also what
+       makes the two copies agree on the same pixel. */
+    const liftRow = plA - eyeZ > CEILHI ? Math.min(CEILLD, CEILG * (plA - eyeZ - CEILHI)) : 0;
+    lr = lg = lb = gMBase - gMLift + liftRow;
     if (lta) {
       const gx = Math.floor(cx), gy = Math.floor(cy), ux = cx - gx, uy = cy - gy;
       for (let q = 0; q < 4; q++) {
@@ -1551,7 +1609,14 @@ function groundPixel(x0, x1, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb
     }
   }
   /* #375 census, DEFERRED COPY - deliberately OUTSIDE the GNDOF gate above, so the A/B that puts the
-     wedge back makes this row go RED instead of measuring the fixed arithmetic either way. */
+     wedge back makes this row go RED instead of measuring the fixed arithmetic either way.
+     No LIFT sub-figure lives here. One did, and it was VACUOUS: measured on the arm with the charge
+     restored (`lr = lg = lb = gMBase`, js/40_render.js:1522) it printed 0.0000 on all four levels while
+     that same arm moves cull's L0 lane and flatparity's L3 dealt frame to the byte - at these cameras
+     `pl` and `plA` carry the same lift, so the difference it counted is 0 by geometry whether or not the
+     term is fixed. Whatever counts this term must run where the two lifts differ, which is cull's poked
+     ceiling-step camera or flatparity's L3 dealt seat - i.e. the two LOCK rows above are the falsifiable
+     half, and a green census here proves nothing about it. */
   if (cnt && !own && offMapClear(cx, cy, N)) {
     cnt[isF ? LG_OFFMAP : LG_OFFCEIL]++;   // the two halves are counted and maxed SEPARATELY: the
     // ceiling half is fixed (#375) and the floor half is measured debt, so one number cannot carry both
@@ -1956,29 +2021,65 @@ function castWalls(flash, fcR, fcG, fcB) {
        same fog add the body rows used, and the fixture is clipped to the face's drawn span [ds, de],
        so nothing here can paint the slab above a riser or the ceiling band. It is NOT on the transient
        decal list: those fade (life defaults to 40) and the list evicts at 180 entries. */
+    /* #400 take two: a fixture is a BOX that STANDS OFF the face, not a rectangle on it. Coplanar
+       art has one silhouette term - the face's own foreshortening, cos(theta) - so 30 degrees off the
+       wall normal a door frame is already a third of its front-on width and along a corridor it is
+       nothing at all, which is the review's "still reads as bare once you are not facing it square".
+       A box has a second term: its FLANK, whose width goes as dep*sin(theta) and does not collapse.
+       So the pass solves the ray against the box, not the face. `d` is the distance along the ray from
+       the face plane back to the box's front plane (dep / the ray's normal component), so the front
+       plane's own depth is perp - d and its along-coordinate is `along - ra*d` - that shift IS the
+       parallax, and where it carries the ray past the box's edge the surface the ray meets is the
+       flank at the depth tS where the along-coordinate crosses that edge. Both surfaces are drawn at
+       their OWN depth (BH/t, not BH/perp), which is what makes the thing sit in the room instead of on
+       the wall. The flank keeps the fixture's own material, dimmed, and both go through this face's lr
+       /lg/lb and the same fog add, so a fixture in an unlit corner stays dark: this is geometry and
+       albedo, never a light. Clipping to [ds,de] is unchanged - a box may not paint the slab above a
+       riser or the ceiling band any more than a decal could. */
     if (mMask && mMask[my * N + mx]) {
       const ml = mGrid[my * N + mx];
       const wx = camX + rdx * perp, wy = camY + rdy * perp;
+      const rn = side === 0 ? rdx : rdy;        // this ray's component along the face normal
+      const ra = side === 0 ? rdy : rdx;        // ... and along the face
+      const an = Math.abs(rn);
       for (let q = 0; q < ml.length; q++) {
         const mo = ml[q];
         if (mo.side !== side + 1) continue;
-        const along = side === 0 ? wy - mo.y : wx - mo.x;
-        const u = along / (mo.hw * 2) + 0.5;
-        if (!(u >= 0 && u < 1)) continue;
+        const hw = mo.hw, along = side === 0 ? wy - mo.y : wx - mo.x;
+        let u, tM, dim = 1;
+        if (mo.dep > 0 && an > 1e-4) {
+          const d = mo.dep / an, tN = perp - d;
+          if (!(tN > 0.12)) continue;                  // edge-on, or the eye is inside the box
+          const aN = along - ra * d;
+          if (aN > -hw && aN < hw) { u = aN / (hw * 2) + 0.5; tM = tN; }
+          else {
+            if (Math.abs(ra) < 1e-6) continue;          // dead-on: no flank is ever turned this way
+            const left = aN < -hw;
+            const tS = perp + ((left ? -hw : hw) - along) / ra;
+            if (!(tS > tN && tS < perp)) continue;      // both ends past the same edge: no flank
+            u = left ? 0.03 : 0.97;                     // the material AT that edge, not across it
+            tM = tS; dim = 0.62;                        // a face turned 90 deg from the wall
+          }
+        } else {
+          u = along / (hw * 2) + 0.5;
+          if (!(u >= 0 && u < 1)) continue;
+          tM = perp;
+        }
+        const hpxM = BH / tM;
         const zT = mo.z + mo.hh, zB = mo.z - mo.hh;
-        const syTop = Math.max(ds, Math.ceil(horizon + (eyeZ - zT) * hpx));
-        const syBot = Math.min(de, Math.floor(horizon + (eyeZ - zB) * hpx));
+        const syTop = Math.max(ds, Math.ceil(horizon + (eyeZ - zT) * hpxM));
+        const syBot = Math.min(de, Math.floor(horizon + (eyeZ - zB) * hpxM));
         const dt = mo.tex, mwx = dt.w, ih = 1 / (zT - zB);
         for (let y = syTop; y <= syBot; y++) {
-          const zv = (eyeZ - ((y - horizon) / hpx) - zB) * ih;
+          const zv = (eyeZ - ((y - horizon) / hpxM) - zB) * ih;
           if (!(zv >= 0 && zv < 1)) continue;
           const s = dt.data[(zv * dt.h | 0) * mwx + (u * mwx | 0)], sa = (s >>> 24) / 255;
           if (sa < 0.02) continue;
           const i = y * BW + x, dst = px[i], ia = 1 - sa;
           px[i] = (0xFF000000 |
-            (clampi(((s >> 16 & 255) * lb + fB) * sa + (dst >> 16 & 255) * ia) << 16) |
-            (clampi(((s >> 8 & 255) * lg + fG) * sa + (dst >> 8 & 255) * ia) << 8) |
-            clampi(((s & 255) * lr + fR) * sa + (dst & 255) * ia)) >>> 0;
+            (clampi(((s >> 16 & 255) * lb * dim + fB) * sa + (dst >> 16 & 255) * ia) << 16) |
+            (clampi(((s >> 8 & 255) * lg * dim + fG) * sa + (dst >> 8 & 255) * ia) << 8) |
+            clampi(((s & 255) * lr * dim + fR) * sa + (dst & 255) * ia)) >>> 0;
         }
       }
     }
@@ -2104,25 +2205,136 @@ function drawBillboard(o) {
 /* ------------------------------------------------------------------
    post FX: bloom from the bright pass, lamp glow, film grain
    ------------------------------------------------------------------ */
+/* ---- the bright pass (#377) ------------------------------------------------
+   What shipped before this was not a bright pass. It filtered the WHOLE finished raster with
+   `brightness(1.5) contrast(2.1) saturate(1.25)` and composited it back with 'lighter' at 0.42.
+   Composed per pixel that is `min(255, 3.15v - 140) * 0.42`: zero below v = 45, and from v = 124 up
+   it is the SAME +107 on every pixel because the filter output has clipped to white. A lit metal
+   deck sits at v 130-170, so it received the identical +107 a lamp core receives - which is the
+   white sheet of #377 (measured on the deployed build: RING TRANSPORT's frame mean 83.8 -> 107.9,
+   12.0% of delivered pixels above luma 224), and `saturate(1.25)` rewrote the palette on the way
+   (mean channel spread 53 -> 87 on ABATOIR CORE). The `canFilter === false` path skipped the curve
+   entirely and composited the frame back at 0.42 with no shape at all - a flat 42 % lift.
+
+   This is a real threshold. For every 3x3 block of the raster: take the block's luma, keep only the
+   energy ABOVE BLOOM_KNEE on a curve that eases in (d squared over BLOOM_CURVE), cap it at BLOOM_CAP,
+   and re-apply it to the block's own RGB as a gain so the highlight keeps its hue and only loses its
+   level. Everything at or below the knee composites as literal zero, so a floor, a wall or a crate at
+   mid grey is untouched and the pass's total added energy is bounded by BLOOM_MIX * BLOOM_CAP per
+   pixel - a constant nobody can exceed by authoring a brighter room. There is no `filter` and no `saturate` anywhere in it,
+   so the no-ctx.filter browser gets the same picture instead of the flat 42 % lift.
+
+   The knee is a RASTER luma, not a delivered one: the source is bufCv, before the grade filter
+   renderOverlay applies on the way to the display canvas. With contrast(1.06) brightness(1.02) that
+   is within about 4 luma units of the delivered value at these levels.
+
+   3x3 because the buffer is exactly BW/3 x BH/3: one non-overlapping block per output pixel, so this
+   is a box downsample (the blur the old pass got from the bilinear upscale alone), and it is what
+   stops a single bright stud from blooming as a hard sparkly dot. 22 k pixels x 9 reads per frame at
+   BALANCED - the whole pass costs well under a millisecond and no GPU readback. */
+const BLOOM_KNEE = 140;        // luma (0-255) where the pass starts: below this it adds exactly zero
+const BLOOM_CURVE = 128;       // highlight = d*d / this, so it eases in and only a real core gets much
+const BLOOM_CAP = 18;          // and never more than this, so the pass cannot run away on a bright room
+const BLOOM_MIX = 0.55;        // composited alpha: added luma per pixel <= BLOOM_MIX * BLOOM_CAP = 9.9
+let bloomImg = null;
+
 function drawBloom(q) {
   const bw = Math.max(24, (BW / 3) | 0), bh = Math.max(16, (BH / 3) | 0);
-  if (bloomCv.width !== bw || bloomCv.height !== bh) { bloomCv.width = bw; bloomCv.height = bh; }
-  bloomCtx.save();
+  if (bloomCv.width !== bw || bloomCv.height !== bh) { bloomCv.width = bw; bloomCv.height = bh; bloomImg = null; }
+  if (!bloomImg) bloomImg = bloomCtx.createImageData(bw, bh);
+  const d = bloomImg.data;
+  // The knee and the cap are applied to a 9-pixel SUM, so scale both by 9 once instead of dividing
+  // the sum in the inner loop.
+  const xs = BW / bw, ys = BH / bh, ylim = Math.max(0, BH - 3), xlim = Math.max(0, BW - 3);
+  let o = 0;
+  for (let y = 0; y < bh; y++) {
+    const y0 = Math.min((y * ys) | 0, ylim);
+    for (let x = 0; x < bw; x++, o += 4) {
+      const x0 = Math.min((x * xs) | 0, xlim);
+      /* The block's BRIGHTEST channel values, not its average. Averaging 9 px washes the highlight
+         out of the very things this pass is for: a lamp core or a lit stud is a handful of raster
+         pixels, and inside a 3x3 block of 60-luma floor its AVERAGE never crosses the knee, so the
+         first version of this pass measured +0.05 mean at a lamp seat and bloomed nothing. Per-channel
+         max is a dilation, one compare per channel instead of a luma per sample, and the bilinear
+         upscale below is what turns it back into a soft halo. It costs a little whiteness (the three
+         maxima can come from different pixels) and nothing else: the energy is still capped. */
+      let mR = 0, mG = 0, mB = 0;
+      for (let j = 0; j < 3; j++) {
+        let idx = (y0 + j) * BW + x0;
+        for (let i = 0; i < 3; i++, idx++) {
+          const c = px[idx], cr = c & 255, cg = c >> 8 & 255, cb = c >> 16 & 255;
+          if (cr > mR) mR = cr;
+          if (cg > mG) mG = cg;
+          if (cb > mB) mB = cb;
+        }
+      }
+      d[o + 3] = 255;
+      const L = 0.2126 * mR + 0.7152 * mG + 0.0722 * mB;
+      if (L <= BLOOM_KNEE) { d[o] = 0; d[o + 1] = 0; d[o + 2] = 0; continue; }
+      const over = L - BLOOM_KNEE;                 // (not `d` - that is the buffer above)
+      let add = over * over / BLOOM_CURVE;         // eases in: knee+30 gets 7, knee+60 is at the cap
+      if (add > BLOOM_CAP) add = BLOOM_CAP;
+      const k = add / L;                           // hue-preserving gain: the written pixel has luma `add`
+      d[o] = mR * k; d[o + 1] = mG * k; d[o + 2] = mB * k;
+    }
+  }
+  /* putImageData writes the buffer raw - no composite, no alpha, no filter - which is the point: the
+     pass's shape is entirely in the bytes above, on every browser, filter support or not. */
   bloomCtx.setTransform(1, 0, 0, 1, 0, 0);
-  if (canFilter) bloomCtx.filter = 'brightness(1.5) contrast(2.1) saturate(1.25)';
-  bloomCtx.globalCompositeOperation = 'source-over';
-  bloomCtx.globalAlpha = 1;
-  bloomCtx.clearRect(0, 0, bw, bh);
-  bloomCtx.drawImage(bufCv, 0, 0, bw, bh);
-  bloomCtx.filter = 'none';
-  bloomCtx.restore();
+  bloomCtx.putImageData(bloomImg, 0, 0);
   ctx.save();
   ctx.globalCompositeOperation = 'lighter';
-  ctx.globalAlpha = 0.42;
+  ctx.globalAlpha = BLOOM_MIX;
   ctx.imageSmoothingEnabled = true;
   ctx.drawImage(bloomCv, 0, 0, DW, DH);
   ctx.restore();
 }
+/* ---- applying the exposure term (#377) ------------------------------------------
+   Two parts, and the second one is the whole reason this is not three lines of fillRect.
+
+   (1) A lifted COPY of the room at raster size: `multiply` by flat g, then `lighter` with flat A -
+       affine, so the copy is exactly v*g/255 + A with g = 255 - 255*A/EXPOSE_T.
+   (2) `lighten` that copy onto the frame. `lighten` is a per-channel MAX, so what the player gets is
+       v' = max(v, v*g/255 + A): the lift BELOW luma EXPOSE_T and the untouched pixel above it. The
+       two branches meet exactly at EXPOSE_T, so the curve is continuous - a shoulder, not a step.
+
+   Why the max and not just the affine pair: an affine lift is v' > v EVERYWHERE, so it moves the top
+   of the range too, and any A that buys the median pushes the pixels just under the clipping line over
+   it - the band that newly crosses luma 224 is 31A/(255-A) wide, so at A = 22 it is ~2.9 luma wide. On
+   the L3 lamp seat that band is a lamp-lit wall with a flat value in it, and the affine version measured
+   3.79% of the delivered frame above 224 against the bloom gate's 2% bound - the exposure row buying its
+   median by re-clipping the highlights the bright pass just un-clipped, which is exactly the failure
+   #377 says means the term is wrong and the bound is right. With the max, every pixel at or above
+   EXPOSE_T (200, under the 224 the gate measures) is BIT-IDENTICAL to the frame without the term, so the
+   term cannot add clipping at all; and because a max can only choose the original, it cannot darken one
+   either. Both bounds are structural rather than measured.
+
+   The copy is made from bufCv at raster size and upscaled bilinearly into the max, which costs one
+   downsample blit, two small flat fills and one upscale blit - no per-pixel loop and no GPU readback.
+   It is the pre-grade raster, within a few luma of the delivered value at these levels, so the shoulder
+   lands a few units below 200 on the graded frame; that direction is the safe one, since being under
+   EXPOSE_T means being lifted, never being clipped.
+   DEV.set('expose', 0) skips this whole function - the A/B the exposure rows are measured with. */
+let liftCv = null, liftCtx = null;
+function drawExposure(A) {
+  const T = EXPOSE_T;
+  if (!liftCv) { liftCv = document.createElement('canvas'); liftCtx = liftCv.getContext('2d', { alpha: false }); }
+  if (liftCv.width !== BW || liftCv.height !== BH) { liftCv.width = BW; liftCv.height = BH; }
+  const g = 255 - Math.round(255 * A / T);            // so v*g/255 + A crosses v at exactly v = T
+  liftCtx.setTransform(1, 0, 0, 1, 0, 0);
+  liftCtx.globalCompositeOperation = 'source-over';
+  liftCtx.drawImage(bufCv, 0, 0, BW, BH);
+  liftCtx.globalCompositeOperation = 'multiply';
+  liftCtx.fillStyle = 'rgb(' + g + ',' + g + ',' + g + ')';
+  liftCtx.fillRect(0, 0, BW, BH);
+  liftCtx.globalCompositeOperation = 'lighter';
+  liftCtx.fillStyle = 'rgb(' + A + ',' + A + ',' + A + ')';
+  liftCtx.fillRect(0, 0, BW, BH);
+  ctx.globalCompositeOperation = 'lighten';
+  ctx.drawImage(liftCv, 0, 0, BW, BH, 0, 0, DW, DH);
+  ctx.globalCompositeOperation = 'source-over';
+}
+
 /* ---- the glow's band gate (#221) ---------------------------------
    The disc a lamp draws is a SCREEN-space object, and until #221 it covered whatever pixels it
    landed on: a lamp standing on the datum painted additive light into the pixels of a pit a unit
@@ -2286,6 +2498,11 @@ function renderOverlay() {
   ctx.drawImage(bufCv, 0, 0, DW, DH);
   ctx.filter = 'none';
   ctx.imageSmoothingEnabled = true;
+  /* The exposure term, on the room and before anything else composites onto it - see EXPOSE_A. Two
+     flat fills: `multiply` by (255-A)/255 is the gain, `lighter` with flat A is the offset, and the
+     composed curve is v*(1-A/255)+A exactly. No `filter`, so the no-ctx.filter browser gets this
+     picture rather than a game two stops darker. */
+  if (q.expose > 0) drawExposure(q.expose | 0);
   if (q.bloom && bloomCv) drawBloom(q);
   drawLightGlow(q);
   const U = DH / 900;
