@@ -448,6 +448,27 @@ let MIPAX = 1, MIPAR = 4;
    none of them adds a THIRD copy of the ground pixel body: a switch shows up as a zero slope, a zero
    offset or one fewer load, not as a new loop. */
 let GJIT = 1, GLRP = 1, GNDAX = 1, AXMIN = 1.5, GLC = null, GNDFT = 1, GNDRO = 1, GNDFB = 1, GNDOF = 1;
+/* #19 take six - THE GRADED BLEND, and the strength of it. The five takes above change WHERE a pixel
+   reads and HOW the texel is fetched; none of them changes WHAT AREA GETS AVERAGED, which is the only
+   term issue #19's band table says is still unaccounted for. A pixel's strip on the plane runs about one
+   footprint along the ray, and the axial pair spans that strip with TWO taps about one texel apart - so
+   for a pixel whose footprint in texels of the level it selected is F, the selected level carries 1 of
+   those F and cannot carry the other F-1. The blend hands that share to the next coarser level:
+
+     f = max footprint along either screen axis, in texels of the SELECTED mip
+     w = GNDFA * (1 - 1/f)  for f > 1, and 0 for f <= 1.
+
+   So a well-sampled pixel (f <= 1, which is every pixel under the player's feet) blends NOTHING and
+   keeps mip 0 - this is not the uniform deep-mip arm, which emptied mip 0 and pushed the chain-end
+   census from 44 of 284 to 103. Mip SELECTION is untouched: `view.js mip` reads its histogram out of
+   mipSel, so the histogram and the chain-end census cannot move here, and what moves is the fetch.
+   Cost is one texel load and three lerps, and only on the pixels whose footprint is already long enough
+   that the axial pair is running. 0 = the single-level fetch as it shipped, so `DEV.set('gndfade', 0)`
+   is the A/B and the wedge comes back. GNDFA is a MULTIPLIER so an A/B can also sweep the strength.
+   The coarser tap contributes COLOUR only: it does not set the 253 flag, because a coarse texel's alpha
+   describes an AREA, not this pixel's footprint, and deeper mips go uniformly 253 (#124) - letting it
+   decide would take whole bands light-exempt, which is a relight, not a filter. */
+let GNDFA = 1;
 const GJITPX = 48;      // GJIT 1 keeps the mirror only where a cell is this many px wide or wider
 
 /* #19, TAKE THREE - THE FETCH. The two terms above are not what combs a plane, and neither is the mip
@@ -1046,6 +1067,18 @@ function castGround(flash, fcR, fcG, fcB) {
       }
       ox |= 0; oy |= 0;
     }
+    /* #19 take six, the ROW copy: F is a row constant here, because the row's mip, its texel scale and
+       its column delta all are - so the blend is graded per ROW in this copy and per PIXEL in the other
+       one, which is the same grading at the resolution each copy resolves its mip at. */
+    let ftd = null, fW = 0, fmw = 0, fmx = 0, fmy = 0, fms = 0;
+    if (GNDFA && kRow + 1 < tex.mips.length) {
+      const fLong = colA * colA * 4 >= rowT2 ? colA * 2 : Math.sqrt(rowT2);
+      if (fLong > 1) {
+        const mu = tex.mips[kRow + 1];
+        ftd = mu.data; fmw = mu.w; fmx = mu.w - 1; fmy = mu.h - 1; fms = sc * mu.w;
+        fW = GNDFA * (1 - 1 / fLong);
+      }
+    }
     let nm = 0;
     for (let x = 0; x < BW; x++, wx += wxs, wy += wys, lr += ldr, lg += ldg, lb += ldb,
       ldr += lhr, ldg += lhg, ldb += lhb, ox += oxs, oy += oys) {
@@ -1226,6 +1259,19 @@ function castGround(flash, fcR, fcG, fcB) {
            64 texels flagged, is most of the far field. A footprint that touches an emissive texel
            emits, exactly as the wall pass decides it for a bilinear quartet (js/40_render.js:1568). */
         if ((c1 >>> 24) === 253 || (c2 >>> 24) === 253) em = 253;
+      }
+      if (fW > 0) {                          // #19 take six: the share of this pixel's footprint its
+        const vx = wx * fms, vy = wy * fms;  // own level cannot carry, from one level coarser
+        let t2 = vx | 0, t3 = vy | 0;
+        if (vx < 0) t2--;
+        if (vy < 0) t3--;                    // floor, not truncate - the same guard as the point fetch
+        t2 &= fmx; t3 &= fmy;
+        if (mir & 1) t2 = (fmx - t2 - 1) & fmx;
+        if (mir & 2) t3 = (fmy - t3 - 1) & fmy;
+        const c3 = ftd[t3 * fmw + t2];
+        cr += ((c3 & 255) - cr) * fW;
+        cg += ((c3 >> 8 & 255) - cg) * fW;
+        cb += ((c3 >> 16 & 255) - cb) * fW;
       }
       if (em === 253) { px[i] = 0xFF000000 | clampi(cb * inv + fB) << 16 | clampi(cg * inv + fG) << 8 | clampi(cr * inv + fR); continue; }
       let r = cr * lr + fR, g = cg * lg + fG, b = cb * lb + fB;
@@ -1619,6 +1665,18 @@ function groundPixel(x0, x1, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb
   } else k = mipSel(planeX * stepBase * dS, planeY * stepBase * dS, rx * (dS / absP), ry * (dS / absP), sc, tex);
   const m = tex.mips[k];
   const mw = m.w, mh = m.h, ms = sc * m.w, td = m.data, mask = mw - 1, maskH = mh - 1;
+  /* #19 take six, the DEFERRED copy: this pixel's own mip, so its own F. Same rule, same arithmetic,
+     second copy - AGENTS.md counts the duplication as the price of the row loop's registers. */
+  let ftd = null, fW = 0, fmw = 0, fmx = 0, fmy = 0, fms = 0;
+  if (GNDFA && k + 1 < gMN) {
+    const colT = gMCf * ms * 0.5, colA = colT < 0 ? -colT : colT, rowT2 = (gMCxs * gMCxs + gMCys * gMCys) * ms * ms;
+    const fLong = colA * colA * 4 >= rowT2 ? colA * 2 : Math.sqrt(rowT2);
+    if (fLong > 1) {
+      const mu = tex.mips[k + 1];
+      ftd = mu.data; fmw = mu.w; fmx = mu.w - 1; fmy = mu.h - 1; fms = sc * mu.w;
+      fW = GNDFA * (1 - 1 / fLong);
+    }
+  }
   /* The same two-sample fetch as the row loop, from this pixel's OWN footprint: its row delta is
      (gMCxs,gMCys) world units per column and its column delta is its own ray times gMCf, so the long
      axis in texels of THIS pixel's mip is whichever of the two is longer. No square root on the common
@@ -1658,6 +1716,19 @@ function groundPixel(x0, x1, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb
     cg = cg * 0.5 + (c1 >> 8 & 255) * 0.25 + (c2 >> 8 & 255) * 0.25;
     cb = cb * 0.5 + (c1 >> 16 & 255) * 0.25 + (c2 >> 16 & 255) * 0.25;
     if ((c1 >>> 24) === 253 || (c2 >>> 24) === 253) em = 253;    // the FLAG rule, same as the row copy
+  }
+  if (fW > 0) {                          // the same graded blend, from this pixel's OWN mip and F
+    const vx = cx * fms, vy = cy * fms;
+    let t2 = vx | 0, t3 = vy | 0;
+    if (vx < 0) t2--;
+    if (vy < 0) t3--;
+    t2 &= fmx; t3 &= fmy;
+    if (mir & 1) t2 = (fmx - t2 - 1) & fmx;
+    if (mir & 2) t3 = (fmy - t3 - 1) & fmy;
+    const c3 = ftd[t3 * fmw + t2];
+    cr += ((c3 & 255) - cr) * fW;
+    cg += ((c3 >> 8 & 255) - cg) * fW;
+    cb += ((c3 >> 16 & 255) - cb) * fW;   // colour only: see the flag rule at the switch declaration
   }
   if (em === 253) { px[i] = 0xFF000000 | clampi(cb * gMInv + gMFB) << 16 | clampi(cg * gMInv + gMFG) << 8 | clampi(cr * gMInv + gMFR); continue; }
   let r = cr * lr + gMFR, g = cg * lg + gMFG, b = cb * lb + gMFB;
