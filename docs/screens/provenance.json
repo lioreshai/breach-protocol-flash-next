@@ -79,18 +79,18 @@
     },
     {
       "file": "level3-stack",
-      "sha256": "1a8b49ca4207466638e004ebb570bdd3926dbdcfc86c9c4726d2791be036d105",
+      "sha256": "f3f2f798f0148f10aa9b0a6a05c77f7f1d135ec054daf09ece4eb5b696917367",
       "canvas": "1440x763",
       "origin": "https",
       "install": "url-open",
       "url": "https://lioreshai.github.io/breach-protocol-flash-next/?dev=1&seed=60",
       "seed": 60,
       "level": 3,
-      "layout": 3233039185,
-      "build": "b1d90fb",
+      "layout": 2307539281,
+      "build": "cc10ef4",
       "at": "2026-10-08",
-      "sampleRate": null,
-      "note": "Re-taken at b1d90fb (#388, second frame for this issue): four merged PRs moved this seat since 34d58d0 - #379 replaced bloom's flat gain with a bright pass plus a shouldered black-point lift, #373 turned props into shaded solids, #403 mounted fixtures on walls, #385 lifted off-map floor light. Route is the same instrument as the other five and is now the URL itself: headless Chromium opened this row's url at a 1440x763 viewport, then DEV.boot(); startLevel(3, true); banner('', 0); DEV.freeze(true); DEV.tick(30); P.hp = 100; DEV.cam(1.5, 2.5, <floor>, 0.60, 0); DEV.tick(1); the level's own 4 hostiles left standing. The previous capture of this seat rendered a checkout over loopback and proved the build by md5; that deviation is closed - the deployed index.html and all eleven js/ blobs were still read over the wire at capture time and are md5-identical to b1d90fb, so the URL and the tree name one build. The default cycle-quality tier (BALANCED, res 0.47) renders into a 678x359 buffer and the page upscales it into the 1440x763 canvas the screenshot captures; nothing in the route sets a tier. layout 3233039185 is DEV.layoutSig() read back from the page after that route, and it reproduced on four consecutive loads. It does NOT reproduce on an arbitrary load: the title screen animates and draws from the seeded stream while the page waits, so a route run later than ~60 ms after boot deals the same authored MAP.fz with different pickWallTex panels (js/20_level.js:458) - measured on this build at 2733654509 and 1720097874 for the same URL. Frame mean luma is 50.88-50.89 across those four loads, so the deal varies in panels and not in tone."
+      "sampleRate": 44100,
+      "note": "Re-taken at cc10ef4 (#388, third frame for this issue) because main's third take of #375 - the far ceiling stops paying a tall ceiling's bounce light to rays that reach no ceiling - paints into this exact seat, and the deployed page began serving it while the previous capture of this row was in review. Route is the same instrument as the other five and is the URL itself: headless Chromium opened this row's url with a 1440x763 device-metrics override at scale 1, and the route ran from a script injected at document so it fires the moment js/90_dev.js installs DEV rather than one CDP round trip later: DEV.boot(); startLevel(3, true); banner('', 0); DEV.freeze(true); DEV.tick(30); P.hp = 100; DEV.cam(1.5, 2.5, floorAt(1.5, 2.5), 0.60, 0); DEV.tick(1); the level's own 4 hostiles left standing. One step the earlier rows did not need: a page that never acquires a pointer lock pauses on the first blur, and the pause overlay dims everything beneath it, so the route ends with the game's own resume() and one more DEV.tick(1) when S.mode is not 'play'. Without that step the frame is a paused frame and reads 14.48 mean, which is how it was caught. The deployed index.html and all eleven js/ blobs were read over the wire at capture time and are md5-identical to this tree, whose js/ is main's at cc10ef4 - so the URL and the tree name one build, which is the claim the previous row could no longer make. layout 2307539281 is DEV.layoutSig() read back after that route and reproduced on six consecutive loads; it is NOT the 3233039185 the previous row carried. The difference is the MAP.cell half of the hash - pickWallTex panel choices (js/20_level.js) drawn from a different point in the seeded stream, now that #400's fixture placement also draws from it - not MAP.fz, which this level authors cell by cell. Geometry and tone reproduce; panel choice does not, and this row now says so with a measured number instead of an apology. SND.ac.sampleRate read 44100 at capture time, so this row is a cross-machine binding where the other five are device-scoped. Frame mean luma 50.44, thirds 41.8 / 58.6 / 50.9; against the bytes it replaces, 150,360 px moved by more than 2 luma and 124,799 of them are in the middle third, the far ceiling above the TECH wall, with the floor third moving 0.01."
     }
   ]
 }

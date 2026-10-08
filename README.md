@@ -51,7 +51,7 @@ PR that changes the picture. `node tools/recap.js check` decodes these files and
 quoted below against them, so a caption cannot drift from its image. What *changed* between two
 recaptures is a question for `CHANGELOG.md` and the PR that moved it — it is not kept here.
 
-The six frames decode to **63.44 / 20.87 / 63.06 / 47.81 / 68.50 / 50.89** mean luma
+The six frames decode to **63.44 / 20.87 / 63.06 / 47.81 / 68.50 / 50.44** mean luma
 (`0.2126 R + 0.7152 G + 0.0722 B`, the rule `DEV.lum` uses), in the order they appear below.
 
 All six come from the **deployed build** at `?dev=1&seed=60`, with the clock frozen, vitals pinned at
@@ -63,21 +63,34 @@ by a **code** marker rather than a prose one: `authorVolume.toString()` contains
 `rooms.length >= 8 ? 3 : TALL_WANT_MIN` (#283), and `MESH.neckBand` exists (#326) - both read off the
 shipped statements, and every deployed `js/` blob is md5-identical to the
 tree at **`ce9d39d`**. **One frame is newer than the other five.** `level3-stack.png` was re-taken at
-**`b1d90fb`** (#388), and this time the instrument was the URL itself: headless Chromium opened the
-deployed page at a 1440 × 763 viewport and drove the dev hooks there, instead of rendering a checkout
-over loopback and arguing from md5. The bytes were still read - `index.html` and all eleven `js/` blobs
-served by the deployed page are md5-identical to that tree - so the route and the tree name one build.
-Four merged PRs have moved that seat's picture since the file last sat here: #318 walked the doorway lamp
-one cell east out of the wall jamb, #375 cancelled a lamp's borrowed light on the far ceiling past the
-level's edge, #373 turned props into shaded solids, #403 mounted fixtures on walls, and #379 replaced
-bloom's flat gain over every mid-bright pixel with a bright pass and one shouldered black-point lift on
-the room. The frame decodes 47.77 → **50.89** by thirds **34.7 / 64.1 / 44.6 → 42.1 / 60.2 / 50.9**: the
-lift raises what was dark and the removed gain takes the brightness off what was already lit - the `TECH`
-panel band reads 97/101/96 where it read 121/139/137, so the green cast the old frame carried is gone and
-its mid-bright band is the only third that went down. It is stored as colour type 2 (truecolour, no
+**`cc10ef4`**, what the deployed page serves now (#388), and the instrument is the URL itself: headless
+Chromium opened the deployed page at a 1440 × 763 viewport and drove the dev hooks there, instead of
+rendering a checkout over loopback and arguing from md5. The bytes were still read - `index.html` and all
+eleven `js/` blobs served by the deployed page are md5-identical to that tree - so the route and the tree
+name one build. Five merged PRs have moved that seat's picture since `34d58d0` last sat here: #318 walked
+the doorway lamp one cell east out of the wall jamb, #375 cancelled a lamp's borrowed light on the far
+ceiling past the level's edge - in three takes, the last of them landed while this frame was being taken,
+#373 turned props into shaded solids, #403 mounted fixtures on walls and #400 set them back off the wall
+face so they keep a shape at an angle, and #379 replaced bloom's flat gain over every mid-bright pixel
+with a bright pass and one shouldered black-point lift on the room. Against the frame it replaces this one
+decodes **50.89 → 50.44** by thirds **42.1 / 59.7 / 50.9 → 41.8 / 58.6 / 50.9** (`tools/recap.js`'s own
+band means, which are what the tool prints and gates against, not a hand-taken third). 150,360 of its
+1,098,720 pixels move by more than 2 luma and they are not scattered: 124,799 of them are in the middle
+third, the far ceiling above the `TECH` wall, which is exactly where #375's third take cancels a tall
+ceiling's bounce light from rays that reach no ceiling; the floor third moves by 0.01. Frame channels
+read 49.5 / 51.0 / 47.7 against 49.9 / 51.5 / 48.1, so the picture is the same colour one shade quieter
+rather than a different colour. It is stored as colour type 2 (truecolour, no
 alpha) like the other five; a capture that arrives as RGBA has to be put through `tools/png_rgb.js`
 first, because the decoder in `tools/recap.js` reads an alpha PNG's channels in the wrong order (#394).
-Its `DEV.layoutSig()` reads **3233039185** at the same `seed=60`, reproduced on four consecutive loads.
+Its `DEV.layoutSig()` reads **2307539281** at the same `seed=60`, on every one of six loads. That is not
+the signature the previous frame of this seat carried (3233039185): the authored `MAP.fz` is unchanged -
+this level's floors are written, not rolled - and what moved is the `MAP.cell` half of the hash, the
+`pickWallTex` panel choices, which #400's fixture placement and the route's own timing draw from a
+different point in the seeded stream. Same room, same geometry, different wall panels; the tone figures
+below are `tools/recap.js` decoding the shipped bytes, which is the only reading the gate compares. One
+deviation the route has to state, because it changes the deal: a page that never gets a pointer lock
+pauses on the first blur and the pause overlay dims everything under it, so this capture ends with the
+game's own `resume()` and one more `DEV.tick(1)` - see the row's `note`.
 **The five level-0 frames have not been re-taken.** They still carry the `ce9d39d` identity and the
 signature below, and #373, #403 and #379 have all merged since - so those five describe the picture their
 own build drew, not the one the deployed page draws today. `DEV.layoutSig()` for this deal is **735688443** - the same number the previous
@@ -194,10 +207,16 @@ stepped glyphs on the minimap at right are the staircase that gets you up there.
 of that wall is the doorway, and the lamp lighting it now stands one cell inside the room: it used to stand
 in the doorway cell itself, in a wall jamb, where its own collision ghost left about 0.34 m of passage and
 wedged a body in the one place the level connects (#318). The pale panel mounted high on that wall beside
-the doorway is one of the 14 wall fixtures this level now places (#403) — the frame this one replaces
-showed bare stone there — and the whole picture is flatter than its predecessor: the flat bloom gain that
+the doorway is one of the 14 wall fixtures this level now places (#403), stood off the wall face so it
+keeps a shape at an angle (#400) — the frame `34d58d0` left behind showed bare stone there — and the whole
+picture is flatter than its predecessor: the flat bloom gain that
 used to sit over every mid-bright pixel is gone and a black-point lift is on the room instead (#379), so
-the lit patches read dimmer, the dark ones lift, and the mean lands at 50.89 against 47.77. Authoring it by hand removes the old excuse — a level that
+the lit patches read dimmer, the dark ones lift, and the mean lands at 50.44 against 47.77. One term in
+this frame is newer than that sentence: the far ceiling above the `TECH` wall's top edge is a band of rows
+300-330 darker than the frame it replaces (41.4 → 37.9 mean) because #375's third take stopped a ray that
+leaves the level paying a tall ceiling's bounce light. The streaked 4.00 plane itself is untouched - the
+same rectangle two hundred rows higher reads 41.3/40.4/37.7 in both frames - so the change is the borrowed
+light, not the ceiling. Authoring it by hand removes the old excuse — a level that
 reads badly can no longer be blamed on the seed stream, because this plan is written cell by cell over a
 20 × 20 grid.
 
