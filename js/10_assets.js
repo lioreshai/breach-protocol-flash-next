@@ -649,6 +649,76 @@ WFIX.VENT = fixTex(64, 48, (s, w, h) => {
   fixAge(s, w, h);
 });
 
+/* #400 take three: PURPOSE fixtures. DOOR/PIPE/STRIPE/VENT say "industrial", but a player can walk
+   into a room and learn only its COLOUR from the walls. These three name what a room is FOR: a RACK
+   is storage, a TANK holds fluid, a BOARD over a doorway points somewhere. They are albedo + alpha
+   like the other four, painted at boot and placed by the generator's per-room pass; the wall pass
+   lights them with the face's own light (js/40_render.js, the fixture block), so none of them is a
+   brighter square. All three keep their silhouette mostly OPEN - shelf gaps, wall showing beside a
+   tank, a board that is small on a big face - because a fixture that covers its whole face is a
+   repaint of the wall, and the exposure gate is the proof that it is not. */
+WFIX.RACK = fixTex(64, 64, (s, w, h) => {
+  s.clear();
+  for (const sx of [w * 0.04, w * 0.96])                       // two uprights, floor to near the top
+    s.rect(sx - w * 0.05, h * 0.02, w * 0.10, h * 0.96, [104, 108, 116], 1);
+  for (let k = 0; k < 3; k++) {
+    const sy = h * (0.16 + k * 0.30);                           // shelf plate + its shadow line
+    s.rect(0, sy, w, h * 0.05, [116, 120, 128], 1);
+    s.rect(0, sy + h * 0.05, w, h * 0.02, [44, 45, 50], 0.9);
+    for (let i = 0; i < 3; i++) {                               // what is standing on this shelf
+      const cx = w * (0.20 + i * 0.30), hh = h * (0.10 + ((k + i) % 3) * 0.026);
+      if ((k * 3 + i) % 4 === 3) {                              // a drum, on one shelf in three
+        s.rect(cx - w * 0.075, sy - hh, w * 0.15, hh, [92, 96, 104], 1);
+        s.rect(cx - w * 0.075, sy - hh * 0.62, w * 0.15, hh * 0.14, [150, 134, 56], 0.85);
+      } else {                                                 // a crate, stencilled on one face
+        s.rect(cx - w * 0.09, sy - hh, w * 0.18, hh, [110, 100, 84], 1);
+        s.rect(cx - w * 0.09, sy - hh, w * 0.18, h * 0.012, [72, 66, 56], 0.9);
+        s.rect(cx - w * 0.03, sy - hh * 0.7, w * 0.06, hh * 0.34, [150, 148, 152], 0.55);
+      }
+    }
+  }
+  s.rect(0, h * 0.94, w, h * 0.06, [86, 90, 98], 1);            // sill the uprights are bolted to
+  fixAge(s, w, h);
+});
+
+/* A TANK: a vessel end-on, with a label band, a sight glass and the two stub pipes that make it a
+   thing plumbed into the room rather than a panel bolted to it. */
+WFIX.TANK = fixTex(64, 64, (s, w, h) => {
+  s.clear();
+  const x0 = w * 0.16, bw = w * 0.68;
+  s.rrect(x0, h * 0.06, bw, h * 0.86, w * 0.10, [112, 116, 124], 1);
+  s.lgrad(x0, 0, bw, h, [[0, [52, 54, 60], 1], [0.34, [126, 130, 138], 1], [0.72, [96, 100, 108], 1], [1, [46, 48, 54], 1]], 0);
+  for (const by of [h * 0.20, h * 0.62])                        // hoop bands, and the rivets on them
+    for (let x = x0; x < x0 + bw; x += 3) s.dot(x, by, 96, 100, 108, 0.8);
+  s.rect(x0 + bw * 0.12, h * 0.34, bw * 0.76, h * 0.13, [58, 60, 66], 1);   // label plate
+  for (let i = 0; i < 3; i++)                                   // stencilled marks, unreadable but
+    s.rect(x0 + bw * (0.2 + i * 0.22), h * 0.375, bw * 0.12, h * 0.05, [178, 172, 160], 0.7);
+  s.rect(x0 + bw * 0.72, h * 0.30, bw * 0.14, h * 0.40, [36, 44, 46], 1);   // sight glass
+  s.rect(x0 + bw * 0.72, h * 0.52, bw * 0.14, h * 0.18, [86, 132, 122], 0.8);
+  for (const px of [x0 + bw * 0.18, x0 + bw * 0.6])             // the two stubs it is plumbed in by
+    s.rect(px - w * 0.03, h * 0.92, w * 0.06, h * 0.08, [98, 102, 110], 1);
+  s.circle(x0 + bw * 0.5, h * 0.15, w * 0.05, [70, 72, 78], 1);             // manway cover
+  fixAge(s, w, h);
+});
+
+/* A BOARD over the doorway: an arrow and a stencilled strip in a lit frame. It sits high on the face
+   (FIX_SPAN puts it above the mouth), which is where a sign that means "this way to X" goes. */
+WFIX.BOARD = fixTex(64, 40, (s, w, h) => {
+  s.clear();
+  s.rect(0, h * 0.10, w, h * 0.80, [98, 102, 110], 1);                        // plate
+  s.lgrad(0, h * 0.10, w, h * 0.80, [[0, [130, 134, 142], 1], [1, [70, 73, 80], 1]], 0);
+  s.rect(0, h * 0.10, w, h * 0.06, [56, 58, 64], 1);                          // top rail
+  s.rect(w * 0.06, h * 0.26, w * 0.30, h * 0.44, [36, 38, 44], 1);            // sign field
+  s.polygon([[w * 0.09, h * 0.48], [w * 0.22, h * 0.48], [w * 0.22, h * 0.36],
+             [w * 0.31, h * 0.52], [w * 0.22, h * 0.68], [w * 0.22, h * 0.56],
+             [w * 0.09, h * 0.56]], [196, 188, 150], 0.9);                    // the arrow
+  for (let i = 0; i < 4; i++)                                                 // the words under it
+    s.rect(w * (0.42 + i * 0.13), h * 0.44, w * 0.09, h * 0.10, [168, 164, 154], 0.65);
+  for (const bx of [w * 0.03, w * 0.97]) for (const by of [h * 0.2, h * 0.8])
+    s.circle(bx, by, 1.8, [126, 128, 134], 0.9);
+  fixAge(s, w, h);
+});
+
 /* Screen-space detail field: a smooth value-noise height map plus fine speckle,
  * sampled by pixel coordinates so material grain keeps constant on-screen size
  * instead of collapsing into the base texture's own frequency. */
