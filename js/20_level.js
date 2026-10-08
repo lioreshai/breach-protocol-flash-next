@@ -1093,12 +1093,20 @@ function decalGridInit() {
    the same generator writes 1 m flat rooms and 3 m vaults. */
 const FIX_RUN_MIN = 6;                     // metres of straight wall worth a fixture (#400)
 const FIX_SPAN = { DOOR: [0.50, 0.94], PIPE: [0.66, 0.30], STRIPE: [0.56, 0.20], VENT: [0.72, 0.26] };
-function addWFix(tex, gx, gy, side, along, zc, hh, hw) {
+/* FIX_DEP is how far each kind STANDS OFF the face, in metres (#400 take two). A rectangle painted on
+   the wall plane has a silhouette proportional to cos(theta) off the face normal, so seen along a
+   corridor it collapses to nothing and a long wall reads bare again; a box also shows its flank, whose
+   width goes as dep*sin(theta) and does NOT collapse. The numbers are object depths, not a look knob: a
+   door reveal is 12 cm of jamb, a pipe run sits on 10 cm of saddle bracket, a duct collar 8 cm, and a
+   hazard band is a thin plate. The wall pass reads this to draw the box (#40_render.js, the fixture
+   block); 0 would fall back to the old coplanar blit, which is why the flat path stays in the renderer. */
+const FIX_DEP = { DOOR: 0.12, PIPE: 0.10, STRIPE: 0.03, VENT: 0.08 };
+function addWFix(tex, gx, gy, side, along, zc, hh, hw, dep) {
   const N = MAP.w;
   if (gx < 0 || gy < 0 || gx >= N || gy >= N) return;
   const ci = gy * N + gx;
   const f = { x: side === 0 ? gx + 0.5 : along, y: side === 0 ? along : gy + 0.5,
-    z: zc, hw: hw, hh: Math.max(0.05, hh), tex: tex, side: side + 1 };
+    z: zc, hw: hw, hh: Math.max(0.05, hh), tex: tex, side: side + 1, dep: dep || 0 };
   DECOR.push(f);
   if (!DECOR_GRID[ci]) DECOR_GRID[ci] = [];
   DECOR_GRID[ci].push(f); DECOR_MASK[ci] = 1;
@@ -1121,7 +1129,7 @@ function placeWallFixtures(cfgL) {
     used[k] = 1;
     const sp = FIX_SPAN[kind] || FIX_SPAN.PIPE;
     addWFix(WFIX[kind], wx, wy, DIRX[d] !== 0 ? 0 : 1, DIRX[d] !== 0 ? ay + 0.5 : ax + 0.5,
-      z0 + span * sp[0], span * sp[1] * 0.5, 0.5);
+      z0 + span * sp[0], span * sp[1] * 0.5, 0.5, FIX_DEP[kind] || 0);
     placed++;
     return true;
   };
