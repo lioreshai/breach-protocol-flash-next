@@ -442,6 +442,13 @@ const release = () => fire('mouseup', { button: 0 });
   step('crouch', "keys['KeyC']=true"); frames(40); step('stand', "keys['KeyC']=false"); frames(10);
   step('sprint', "keys['ShiftLeft']=true; keys['KeyW']=true"); frames(50); step('idle', "keys['ShiftLeft']=false; keys['KeyW']=false"); frames(10);
   step('barrels', 'P.hp=100; for(const p of PROPS) if(p.kind==="barrel") hurtBarrel(p,40)'); frames(80);
+  /* This step used to drive hurtBarrel and assert nothing at all, so it could not fail on any build -
+     the same "assert the placeholder" defect #163 recorded for CEILING-SENTINEL. 40 damage is past
+     BARREL_HP for every barrel, so the claim is simply that the barrels the player shot are down. */
+  const nbGen = vm.runInContext('PROPS.filter(p => p.kind === "barrel").length', ctxVm);
+  const nbGenAlive = vm.runInContext('PROPS.filter(p => p.kind === "barrel" && !p.dead).length', ctxVm);
+  expect('shot barrels are destroyed', nbGen > 0 && nbGenAlive === 0,
+    `${nbGen - nbGenAlive} of ${nbGen} level-0 barrels dead after 40 damage, ${nbGenAlive} still standing`);
   const lm0 = vm.runInContext('MAP.light[(P.y|0)*MW+(P.x|0)]', ctxVm);
   step('explode near', 'explode(P.x+2,P.y+1,0.5,3.2,70,30)');
   const lm1 = vm.runInContext('MAP.light[(P.y|0)*MW+(P.x|0)]', ctxVm);
@@ -449,6 +456,52 @@ const release = () => fire('mouseup', { button: 0 });
   frames(60);
   const lm2 = vm.runInContext('MAP.light[(P.y|0)*MW+(P.x|0)]', ctxVm);
   expect('blast light fully fades out', Math.abs(lm2 - lm0) < 0.01, `${lm0.toFixed(3)} -> ${lm2.toFixed(3)}`);
+  /* #354 / #355: everything above this block runs on level 0, which is GENERATED, and the authored level
+     is built by a different function that parses the plan's marks - so the barrels step could shoot every
+     authored barrel in existence and still say nothing, and DIFFS.cnt had no authored call site either.
+     Boot the authored finale at all three difficulties and assert the three things that path used to skip,
+     then put the run back on level 0 at Marine so nothing downstream shifts. */
+  {
+    const NL = nLevels(), la = {}, DN = ['Recruit', 'Marine', 'Nightmare'];
+    const nPlan = vm.runInContext('(AUTHORED.geo.join("").match(/[ghb]/g) || []).length', ctxVm);
+    for (const d of [0, 1, 2]) {
+      vm.runInContext(`S.diff=${d}; startLevel(${NL - 1}, true); S.mode="play"; S.locked=true; S.exitOpen=false;`, ctxVm);
+      frames(2);
+      const pts = vm.runInContext('ENEMIES.map(e => [e.x, e.y])', ctxVm);
+      const cells = vm.runInContext('ENEMIES.map(e => (e.y|0)*MW + (e.x|0))', ctxVm);
+      let sep = Infinity;
+      for (let i = 0; i < pts.length; i++) for (let j = i + 1; j < pts.length; j++)
+        sep = Math.min(sep, Math.hypot(pts[i][0] - pts[j][0], pts[i][1] - pts[j][1]));
+      const nbA = vm.runInContext('PROPS.filter(p => p.kind === "barrel").length', ctxVm);
+      vm.runInContext('P.hp = 100; for (const p of PROPS) if (p.kind === "barrel") hurtBarrel(p, 40);', ctxVm);
+      frames(4);
+      const alive = vm.runInContext('PROPS.filter(p => p.kind === "barrel" && !p.dead).length', ctxVm);
+      la[d] = { n: pts.length, dup: pts.length - new Set(cells).size, sep: pts.length > 1 ? sep : 0, nb: nbA, alive };
+    }
+    const authOK = la[0].nb > 0 && la[0].alive === 0 && la[2].alive === 0 && la[1].n === nPlan
+      && la[0].n < la[2].n && la[2].n > la[1].n
+      && [0, 1, 2].every(d => la[d].dup === 0 && la[d].sep > 0.5);
+    expect('authored barrels are destructible (#354)', la[0].nb > 0 && la[0].alive === 0 && la[2].alive === 0,
+      `THE STACK: ${la[0].nb} barrels, after 40 damage ${la[0].alive} still standing at Recruit and ${la[2].alive} at Nightmare (an authored barrel with no hp field takes NaN and never dies)`);
+    /* #355's acceptance is that the count DIFFERS BETWEEN RECRUIT AND NIGHTMARE, so both ends are in the
+       predicate, not just Marine-vs-plan: Recruit's number used to ride along in the census only, where a
+       row can be read as a pass while one end of the ramp silently stopped scaling. */
+    expect('the authored finale scales with difficulty (#355)', la[1].n === nPlan && la[0].n < la[2].n && la[2].n > la[1].n,
+      `THE STACK's plan carries ${nPlan} enemy marks; Marine stands up ${la[1].n} (the plan's own count, so the shipped default and flatparity's picture do not move), Recruit ${la[0].n}, Nightmare ${la[2].n} - the two ends must differ, and DIFFS.cnt 0.8/1.0/1.35 used to reach only the generator's placement loop`);
+    /* A body counts on the HUD and in the frame only if it is somewhere the other bodies are not: the
+       separation term at js/30_entities.js:596 is skipped when two centres coincide (sd > 1e-6), so an
+       overlapped pair draws as ONE body forever while standing still and reads as a kind swap. Bodies are
+       about 0.5 m wide, so distinct cells alone are not enough - the closest pair is named too (#93's
+       shape, which DEV.tick's openAlong already keeps for a spawned crowd). */
+    expect('the authored finale seats one body per cell (#355)', [0, 1, 2].every(d => la[d].dup === 0 && la[d].sep > 0.5),
+      'THE STACK ' + [0, 1, 2].map(d => `${DN[d]} ${la[d].n} bodies / ${la[d].n - la[d].dup} cells, closest pair ${la[d].sep.toFixed(3)} m`).join(', '));
+    // the census row carries the verdict so the row cannot be read as a pass on its own
+    console.log('  AUTHORED THE STACK: plan carries ' + nPlan + ' marks - '
+      + [0, 1, 2].map(d => `${DN[d]} ${la[d].n} bodies in ${la[d].n - la[d].dup} cells, closest pair ${la[d].sep.toFixed(2)} m`).join(' · ')
+      + `; ${la[0].nb} barrels, ${la[0].alive} standing after 40 damage -> ` + (authOK ? 'ok' : 'FAILED, see the ASSERT FAIL lines above'));
+    vm.runInContext('S.diff = 1; startLevel(0, true); S.mode = "play"; S.locked = true; S.exitOpen = false;', ctxVm);
+    frames(2);
+  }
   /* #206 targeted check: a transient splat whose disc straddles a BAND BOUNDARY. The permanent-light
      risk this repo carries is "a fading transient re-splats its delta; if light were per-band, an
      un-splat could land in a band the source never lit and leave light behind". Light stayed ONE

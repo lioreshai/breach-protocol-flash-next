@@ -58,7 +58,7 @@ permanently-red row teaches everyone to ignore the rows that mean something.
 | `exposure` | mean luminance over levels × seeds × 6 view angles, as **medians of seeded rolls**, plus the spawn-seat column. Carries recorded rows and an exit code (#216) |
 | `contrast` | do the characters read against what is behind them. Mask is `COV` (who painted each pixel last), ring is an 8-neighbourhood, background is the median of outside-mask neighbours of the same frame |
 | `bands` | the legibility pair |
-| `surface` | the value order between surfaces (#369): ceiling-vs-floor band means and the per-column seam where a ceiling meets what is under it, from three renders that differ only in the level's own `floorBias`/`ceilBias`. **Reported, not gated** — not in `ci.yml`'s roster. `CAMS=`, `TARGET=`, `MIN_COLS=` |
+| `surface` | the value order between surfaces (#369): ceiling-vs-floor band means and the per-column seam where a ceiling meets what is under it, from three renders that differ only in the level's own `floorBias`/`ceilBias`. Deals each level once, then sweeps four poses of that one layout (`CAMS=0,1,2,3` default; `CAMS=0` is the single spawn pose) and prints the deal hash on every row, with `POSE`/`SWEEP` rows for "was this measured on one room" and "is there anything here to score". **Reported, not gated** — not in `ci.yml`'s roster. `CAMS=`, `TARGET=`, `MIN_COLS=` |
 | `mip` | streak counts; clears `zbuf` to the sentinel per isolated `castWalls` call |
 
 **Geometry and verticality**
