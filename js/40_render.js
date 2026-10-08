@@ -2043,29 +2043,65 @@ function castWalls(flash, fcR, fcG, fcB) {
        same fog add the body rows used, and the fixture is clipped to the face's drawn span [ds, de],
        so nothing here can paint the slab above a riser or the ceiling band. It is NOT on the transient
        decal list: those fade (life defaults to 40) and the list evicts at 180 entries. */
+    /* #400 take two: a fixture is a BOX that STANDS OFF the face, not a rectangle on it. Coplanar
+       art has one silhouette term - the face's own foreshortening, cos(theta) - so 30 degrees off the
+       wall normal a door frame is already a third of its front-on width and along a corridor it is
+       nothing at all, which is the review's "still reads as bare once you are not facing it square".
+       A box has a second term: its FLANK, whose width goes as dep*sin(theta) and does not collapse.
+       So the pass solves the ray against the box, not the face. `d` is the distance along the ray from
+       the face plane back to the box's front plane (dep / the ray's normal component), so the front
+       plane's own depth is perp - d and its along-coordinate is `along - ra*d` - that shift IS the
+       parallax, and where it carries the ray past the box's edge the surface the ray meets is the
+       flank at the depth tS where the along-coordinate crosses that edge. Both surfaces are drawn at
+       their OWN depth (BH/t, not BH/perp), which is what makes the thing sit in the room instead of on
+       the wall. The flank keeps the fixture's own material, dimmed, and both go through this face's lr
+       /lg/lb and the same fog add, so a fixture in an unlit corner stays dark: this is geometry and
+       albedo, never a light. Clipping to [ds,de] is unchanged - a box may not paint the slab above a
+       riser or the ceiling band any more than a decal could. */
     if (mMask && mMask[my * N + mx]) {
       const ml = mGrid[my * N + mx];
       const wx = camX + rdx * perp, wy = camY + rdy * perp;
+      const rn = side === 0 ? rdx : rdy;        // this ray's component along the face normal
+      const ra = side === 0 ? rdy : rdx;        // ... and along the face
+      const an = Math.abs(rn);
       for (let q = 0; q < ml.length; q++) {
         const mo = ml[q];
         if (mo.side !== side + 1) continue;
-        const along = side === 0 ? wy - mo.y : wx - mo.x;
-        const u = along / (mo.hw * 2) + 0.5;
-        if (!(u >= 0 && u < 1)) continue;
+        const hw = mo.hw, along = side === 0 ? wy - mo.y : wx - mo.x;
+        let u, tM, dim = 1;
+        if (mo.dep > 0 && an > 1e-4) {
+          const d = mo.dep / an, tN = perp - d;
+          if (!(tN > 0.12)) continue;                  // edge-on, or the eye is inside the box
+          const aN = along - ra * d;
+          if (aN > -hw && aN < hw) { u = aN / (hw * 2) + 0.5; tM = tN; }
+          else {
+            if (Math.abs(ra) < 1e-6) continue;          // dead-on: no flank is ever turned this way
+            const left = aN < -hw;
+            const tS = perp + ((left ? -hw : hw) - along) / ra;
+            if (!(tS > tN && tS < perp)) continue;      // both ends past the same edge: no flank
+            u = left ? 0.03 : 0.97;                     // the material AT that edge, not across it
+            tM = tS; dim = 0.62;                        // a face turned 90 deg from the wall
+          }
+        } else {
+          u = along / (hw * 2) + 0.5;
+          if (!(u >= 0 && u < 1)) continue;
+          tM = perp;
+        }
+        const hpxM = BH / tM;
         const zT = mo.z + mo.hh, zB = mo.z - mo.hh;
-        const syTop = Math.max(ds, Math.ceil(horizon + (eyeZ - zT) * hpx));
-        const syBot = Math.min(de, Math.floor(horizon + (eyeZ - zB) * hpx));
+        const syTop = Math.max(ds, Math.ceil(horizon + (eyeZ - zT) * hpxM));
+        const syBot = Math.min(de, Math.floor(horizon + (eyeZ - zB) * hpxM));
         const dt = mo.tex, mwx = dt.w, ih = 1 / (zT - zB);
         for (let y = syTop; y <= syBot; y++) {
-          const zv = (eyeZ - ((y - horizon) / hpx) - zB) * ih;
+          const zv = (eyeZ - ((y - horizon) / hpxM) - zB) * ih;
           if (!(zv >= 0 && zv < 1)) continue;
           const s = dt.data[(zv * dt.h | 0) * mwx + (u * mwx | 0)], sa = (s >>> 24) / 255;
           if (sa < 0.02) continue;
           const i = y * BW + x, dst = px[i], ia = 1 - sa;
           px[i] = (0xFF000000 |
-            (clampi(((s >> 16 & 255) * lb + fB) * sa + (dst >> 16 & 255) * ia) << 16) |
-            (clampi(((s >> 8 & 255) * lg + fG) * sa + (dst >> 8 & 255) * ia) << 8) |
-            clampi(((s & 255) * lr + fR) * sa + (dst & 255) * ia)) >>> 0;
+            (clampi(((s >> 16 & 255) * lb * dim + fB) * sa + (dst >> 16 & 255) * ia) << 16) |
+            (clampi(((s >> 8 & 255) * lg * dim + fG) * sa + (dst >> 8 & 255) * ia) << 8) |
+            clampi(((s & 255) * lr * dim + fR) * sa + (dst & 255) * ia)) >>> 0;
         }
       }
     }
