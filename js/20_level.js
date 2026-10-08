@@ -1446,7 +1446,20 @@ function buildAuthored(li) {
             const ni = ny * N + nx; if (seen[ni] || fz[ni] !== f0 || cell[ni]) continue;
             seen[ni] = 1; st.push(ni); } } }
       const lstr = Math.max(TOPUP_MINF, Math.min(1, cov / TOPUP_TARGET));
-      LIGHTS.push({ x: px, y: py, z: fl + LHOVER, r: 7.2, str: lstr, col: cfgL.lampCol, stat: 1 });
+      /* #408: the REACH, not just the strength. 7.2 m is the disc the generated maps are laid out
+         for - they are 26, 32 and 36 cells across, so one lamp covers 20-28% of a side and two
+         neighbouring discs overlap only at their edges. THE STACK is 20 cells across with six of
+         these lamps down its two lanes, so the same disc spans over a third of the plan and every
+         pool overlaps its neighbours: `MAP.light` there peaks at 1.87, nearly twice the ceiling
+         every ground site clamps at (LGCAP, js/40_render.js:40). Where the sum is over the ceiling
+         the floor stops being shaded and becomes a plateau AT the ceiling - which is what reads as
+         the white pool that swallows the deck's studs. Scaling the reach by the plan's own width
+         keeps a lamp's pool a pool; at 28 cells and wider the factor is 1 and no generated map, or
+         any frame record taken on one, moves. The strength stays exactly what #213's band rule
+         gives it, so the glow the lamp disc draws (drawLightGlow reads `str`, not `r`) is untouched
+         and the bloom rows that guard that glow cannot be satisfied by a dimmer lamp. */
+      const lr = 7.2 * Math.min(1, N / 28);                       // 5.14 on a 20-cell plan
+      LIGHTS.push({ x: px, y: py, z: fl + LHOVER, r: lr, str: lstr, col: cfgL.lampCol, stat: 1 });
       PROPS.push({ tex: PROP.lamp, x: px, y: py, scale: 0.95, z: fl, kind: 'lamp', yaw: propYaw(px, py) });
     } else if (s[2] === 'B') PROPS.push({ tex: PROP.barrel, x: px, y: py, scale: 0.86, z: fl, kind: 'barrel', hp: BARREL_HP, dead: false, yaw: propYaw(px, py) });
     else if (s[2] === 'C') PROPS.push({ tex: PROP.crate, x: px, y: py, scale: 1, z: fl, kind: 'crate', yaw: propYaw(px, py) });
