@@ -27,6 +27,18 @@ level by *calling* `ceilAt` per column, so the formula stays in one place, and
 disagree — the only thing standing between a forgotten `linkBoundaries()` and last frame's
 ceilings.
 
+**A gate can be scoring a rendering artefact and still be green.** #385: the step-lip contrast pair
+`bands` scores on the authored level measured 57% because the FAR sample was off-map floor taking the
+light of the cell the row's walk last reached — a lamp the player cannot see, at any distance. Fix the
+borrow and the same pair measures 35%, so the gate that was "holding" was holding the artefact. When
+the two disagree, attribute the luminance to a path before editing it, and when the artefact goes, say
+so where the number lives (a per-level floor, re-measured, with the old value beside it) instead of
+quietly widening a threshold until the row cannot fail. `heights`' `offmap` row is the instrument that
+says which pixels are affected: it counts ground pixels whose ray landed a WHOLE CELL clear of the
+level and reports the worst light above ambient each one delivered, split by half and by copy — and it
+counts that census outside the `GNDOF` A/B switch, so putting the borrowed lamp back turns the row RED
+rather than measuring the fixed arithmetic twice.
+
 **The row loop's mip/fog/light values must stay `const` of the row.** Writing them per pixel —
 the obvious way to say "this pixel has its own distance" — cost **+2.5 ms of a 1202×676 frame
 for pixels nothing re-solves**: V8 keeps a loop-invariant in a register only while nothing
