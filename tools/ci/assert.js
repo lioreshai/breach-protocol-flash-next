@@ -21,7 +21,7 @@ const path = require('path'), fs = require('fs'), os = require('os'), cp = requi
 
 const ROOT = path.resolve(__dirname, '..', '..');
 const MODE = process.argv[2] || 'exposure';
-const ASSERTS = ['exposure', 'audio'];
+const ASSERTS = ['exposure', 'audio', 'bloom'];
 const TAG = MODE.toUpperCase() + ' GATE:';
 if (!ASSERTS.includes(MODE)) {
   console.error('unknown assertion "' + MODE + '" - known: ' + ASSERTS.join(' '));
@@ -632,7 +632,229 @@ async function main() {
   }
 }
 
-(MODE === 'audio' ? mainAudio() : main()).then(c => { process.exitCode = c; }, e => { console.log(TAG + ' NOT MEASURED - ' + (e && e.stack || e)); process.exitCode = 3; });
+/* dispatch lives at the end of the file, after the #377 bloom consts it reads */
+
+/* ---------------- bloom (#377) ----------------
+   What the pass the player receives actually does, on the COMPOSITED frame, measured as one A/B:
+   DEV.set('bloom', 1) against DEV.set('bloom', 0) at one frozen pose, so every other post term
+   (grade, grain, lamp glow, HUD) is identical in the two samples and the delta is the pass.
+
+   Four claims, all of them #377's acceptance criteria, and all four able to fail:
+     SPREAD - the share of delivered pixels above luma HI. #377 measured 12.0 % on RING TRANSPORT
+              with the shipped pass, against 1.2 % with it off. A pass that whitens a metal deck is
+              what this row is for; the bound is 2 %, i.e. the noise a lit frame makes on its own.
+     LEVEL  - one-sided: the spawn-seat frame must not deliver ABOVE the documented 60-100 window.
+              The lower half of that window is already gated by `exposure` (medians, worst rolls and
+              the spawn band), and asserting it twice here would only double-report one mechanism -
+              while #377's failure was one-sided (107.9 on a 100 ceiling), so a two-sided row would
+              have been a second gate wearing this one's clothes.
+     GLOW   - the peak inside a lamp's disc and the peak of a muzzle flash stay within 10 % of the
+              shipped figures below. Those figures are the SAME probe run against the shipped pass
+              (see the provenance on each), so this row is the difference between a bright pass and
+              the pass being switched off, which is the failure mode #377 explicitly forbids.
+     COLOUR - the pass must not rewrite the palette. Measured as mean channel spread, on against off.
+              The shipped pass called saturate(1.25) on the whole frame: 53 -> 87 on ABATOIR CORE.
+   A pass that adds NOTHING fails too: see the vacuity row - an empty bloom source would otherwise
+   clear SPREAD and COLOUR by being absent (AGENTS.md: vacuity is a FAILURE, never a debt).
+*/
+const HI = +(process.env.HI || 224);            // "above this the frame is clipping to white"
+const HI_MAX = +(process.env.HI_MAX || 2);      // % of delivered pixels allowed above HI
+/* Shipped peaks, recorded by THIS probe against origin/main at 0ed935b (Chromium 154, 1280x720,
+   BALANCED, seed 1000 + level*97, roll 0): the peak inside a lamp's disc 252 / 255 / 255 / 255 and the
+   peak of one muzzle-flash frame 245 / 245 / 245 / 245. They are the #377 "the glow survives" bar - a
+   bright pass that quietly stopped blooming lamps and shots would clear the SPREAD rows by being
+   absent, and these two rows are what stops that. Overridable with LAMP_PEAK= / FLASH_PEAK= for an
+   A/B, never to widen a verdict. */
+const LAMP_PEAK = (process.env.LAMP_PEAK || '252/255/255/255').split('/').map(Number);
+const FLASH_PEAK = (process.env.FLASH_PEAK || '245/245/245/245').split('/').map(Number);
+const PEAK_TOL = +(process.env.PEAK_TOL || 0.10);   // #377: the glow stays within 10 % of shipped
+const SPREAD_MAX = +(process.env.SPREAD_MAX || 1.10);
+const CAPTURE = process.env.CAPTURE === undefined ? -1 : +process.env.CAPTURE;   // level to write PNGs for
+async function shot(cdp, file) {
+  const r = await cdp.send('Page.captureScreenshot', { format: 'png' });
+  fs.writeFileSync(file, Buffer.from(r.data, 'base64'));
+}
+const BLOOM_PROBE = `(function (lv, stride, hi, hold) {
+  (function (a) { a = a >>> 0; Math.random = function () { a = (a + 0x6D2B79F5) >>> 0; let t = a; t = Math.imul(t ^ t >>> 15, t | 1); t ^= t + Math.imul(t ^ t >>> 7, t | 61); return ((t ^ t >>> 14) >>> 0) / 4294967296; }; })(1000 + lv * 97);
+  startLevel(lv, true);
+  S.banner = ''; S.bannerT = 0;
+  for (const e of ENEMIES) e.state = 'sleep';
+  DEV.freeze(true);
+  P.pitch = 0; P.vx = P.vy = P.vz = 0; P.air = false; P.crouch = 0; P.z = floorAt(P.x, P.y);
+  function measure() {
+    const d = ctx.getImageData(0, 0, cv.width, cv.height).data, w = cv.width;
+    let sum = 0, n = 0, hiN = 0, peak = 0, spread = 0;
+    for (let y = 0; y < cv.height; y += stride) {
+      for (let x = 0; x < w; x += stride) {
+        const i = ((y * w) + x) << 2, r = d[i], g = d[i + 1], b = d[i + 2];
+        const L = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+        sum += L; n++;
+        if (L > hi) hiN++;
+        if (L > peak) peak = L;
+        spread += (Math.max(r, g, b) - Math.min(r, g, b));
+      }
+    }
+    if (!n) throw new Error('measured ' + n + ' canvas pixels - nothing to read');
+    return { mean: +(sum / n).toFixed(2), hiPct: +(100 * hiN / n).toFixed(2), peak: +peak.toFixed(1),
+             spread: +(spread / n).toFixed(2), n: n };
+  }
+  function ab() {
+    DEV.set('bloom', 1); DEV.tick(1); const on = measure();
+    DEV.set('bloom', 0); DEV.tick(1); const off = measure();
+    DEV.set('bloom', 1);
+    return { on: on, off: off };
+  }
+  DEV.tick(1);
+  const spawn = ab();
+  // A lamp, dead ahead at 3 m: the glow has to survive on the disc itself, not on the room around it.
+  let lamp = null, bd = Infinity;
+  for (const L of LIGHTS) {
+    if (!L.stat) continue;
+    const dd = dist2(L.x, L.y, P.x, P.y);
+    if (dd < bd && dd > 1) { bd = dd; lamp = L; }
+  }
+  let at = null, lampPose = null;
+  if (lamp) {
+    const sx = P.x, sy = P.y, sa = P.ang;
+    const ang = Math.atan2(lamp.y - P.y, lamp.x - P.x);
+    DEV.cam(lamp.x - 3 * Math.cos(ang), lamp.y - 3 * Math.sin(ang), undefined, ang, 0);
+    lampPose = [+P.x.toFixed(3), +P.y.toFixed(3), +P.ang.toFixed(5)];
+    DEV.tick(2);
+    at = ab();
+    // the same seat with the muzzle flash up: S.muzzle is the flash sprite, S.flash its level, and
+    // with update() frozen neither decays, so this is one deterministic flash frame.
+    S.muzzle = 1; S.flash = 0.45; DEV.tick(1);
+    DEV.set('bloom', 1); DEV.tick(1); const fOn = measure();
+    DEV.set('bloom', 0); DEV.tick(1); const fOff = measure();
+    DEV.set('bloom', 1);
+    at.flash = { on: fOn, off: fOff };
+    DEV.cam(sx, sy, undefined, sa, 0);
+  }
+  S.muzzle = 0; S.flash = 0;
+  if (!hold) DEV.freeze(false);
+  return { name: LEVELS[lv].name, spawn: spawn, lamp: at, lampPose: lampPose, lampSeen: lamp ? [+(lamp.x).toFixed(2), +(lamp.y).toFixed(2)] : null };
+})(%LV%, %STRIDE%, %HI%, %HOLD%)`;
+
+async function mainBloom() {
+  const bin = chromeBin();
+  const ver = cp.execFileSync(bin, ['--version'], { encoding: 'utf8' }).trim();
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'breach-bloom-'));
+  const proc = cp.spawn(bin, ['--headless=new', '--remote-debugging-port=0', '--disable-gpu', '--no-sandbox',
+    '--disable-dev-shm-usage', '--no-first-run', '--no-default-browser-check', '--mute-audio',
+    '--window-size=' + VW + ',' + VH, '--user-data-dir=' + dir, url],
+    { stdio: ['ignore', 'ignore', 'pipe'] });
+  let cdp = null;
+  const watchdog = setTimeout(() => { try { proc.kill('SIGKILL'); } catch (e) {} die(3, [TAG + ' NOT MEASURED - timed out after ' + DEADLINE / 1000 + ' s']); }, DEADLINE);
+  try {
+    const port = await waitPort(dir, proc);
+    const targets = await (await fetch('http://127.0.0.1:' + port + '/json/list')).json();
+    const page = targets.find(t => t.type === 'page' && t.webSocketDebuggerUrl);
+    if (!page) throw new Error('no page target among ' + targets.map(t => t.type).join(','));
+    cdp = await connect(page.webSocketDebuggerUrl);
+    await cdp.send('Emulation.setDeviceMetricsOverride', { width: VW, height: VH, deviceScaleFactor: 1, mobile: false });
+    for (let waited = 0; ; waited += 200) {
+      if (await evaluate(cdp, '!!(window.DEV && DEV.on && typeof DEV.lum === "function")')) break;
+      if (waited > 20000) throw new Error('window.DEV.lum never appeared - is the page loading with ?dev=1?');
+      await new Promise(r => setTimeout(r, 200));
+    }
+    const booted = await evaluate(cdp, '(()=>{ resize(); if (S.mode !== "play") DEV.boot(); return { mode: S.mode, err: S.err || null }; })()');
+    if (booted.mode !== 'play') throw new Error('DEV.boot() left S.mode at "' + booted.mode + '" (S.err ' + booted.err + ')');
+    const nLevels = await evaluate(cdp, 'LEVELS.length');
+    const env = await evaluate(cdp, '[cv.width, cv.height, QUAL[S.gfx].name, BW, BH, BW/3|0, BH/3|0, typeof bloomCtx.filter === "string", QUAL[S.gfx].bloom ? 1 : 0]');
+    console.log('bloom: COMPOSITED frame ' + env[0] + 'x' + env[1] + ' (' + env[2] + ' tier, raster ' + env[3] + 'x' + env[4]
+      + ', bloom buffer ' + env[5] + 'x' + env[6] + ', ctx.filter ' + (env[7] ? 'yes' : 'NO') + '), ' + ver);
+    console.log('  one A/B per pose: DEV.set(bloom,1) against DEV.set(bloom,0) at one frozen pose, so grade, grain,');
+    console.log('  lamp glow and the HUD are identical in both samples and the delta is this pass alone.');
+    console.log('  ceiling on pixels above luma ' + HI + ' is ' + HI_MAX + ' % of the frame; exposure ceiling ' + MAX + '.');
+    if (!env[8]) throw new Error('the tier under test has bloom OFF - this run would measure nothing');
+    const bad = [];
+    let rows = 0, maxAdd = 0;
+    const row = (label, ok, detail) => { rows++; if (!ok) bad.push(label + ' - ' + detail); console.log('  ' + (ok ? 'ok  ' : 'FAIL') + ' ' + (label + '                                        ').slice(0, 56) + detail); };
+    for (let lv = 0; lv < nLevels; lv++) {
+      const cap = CAPTURE === lv;
+      const v = await evaluate(cdp, BLOOM_PROBE.replace('%LV%', lv).replace('%STRIDE%', STRIDE).replace('%HI%', HI)
+        .replace('%HOLD%', cap ? 1 : 0));
+      if (cap) {
+        /* CAPTURE=n writes two PNGs of ONE pose at level n's lamp seat with a muzzle flash up, frozen,
+           differing only in DEV.set('bloom', …) - the A/B #377 asks a reader to make. The frame clock is
+           pinned by DEV.freeze, so nothing else in the frame moves; the only other per-frame term is the
+           grain pattern's offset (0.05 alpha at BALANCED). */
+        if (!v.lampPose) throw new Error('CAPTURE=' + lv + ' found no lamp to shoot at');
+        const P2 = v.lampPose;
+        await evaluate(cdp, 'DEV.freeze(true); DEV.set("bloom",0); DEV.cam(' + P2[0] + ',' + P2[1] + ',undefined,' + P2[2] + ',0); S.muzzle=1; S.flash=0.45; DEV.tick(2); 1');
+        await shot(cdp, '/tmp/fps_bloom_' + lv + '_off.png');
+        await evaluate(cdp, 'DEV.set("bloom",1); S.muzzle=1; S.flash=0.45; DEV.tick(1); 1');
+        await shot(cdp, '/tmp/fps_bloom_' + lv + '_on.png');
+        await evaluate(cdp, 'DEV.freeze(false); S.muzzle=0; S.flash=0; 1');
+        console.log('  shot: /tmp/fps_bloom_' + lv + '_off.png vs _on.png - one lamp-seat pose, one flash, frozen');
+      }
+      const s = v.spawn, lp = v.lamp;
+      console.log('  level ' + lv + ' ' + v.name + '  spawn seat ' + (v.lamp ? '| lamp seat ' + v.lampSeen.join(',') : '| NO LAMP IN LEVEL'));
+      const line = a => 'on ' + pad(a.on.mean.toFixed(1), 6) + ' off ' + pad(a.off.mean.toFixed(1), 6)
+        + '  gain ' + (a.on.mean / a.off.mean).toFixed(3)
+        + '  >' + HI + ' ' + pad(a.on.hiPct.toFixed(2), 5) + '% / ' + pad(a.off.hiPct.toFixed(2), 5) + '%'
+        + '  peak ' + pad(a.on.peak.toFixed(0), 4) + '/' + pad(a.off.peak.toFixed(0), 4)
+        + '  spread ' + a.on.spread.toFixed(1) + '/' + a.off.spread.toFixed(1);
+      console.log('    ' + line(s));
+      if (s.on.mean - s.off.mean > maxAdd) maxAdd = s.on.mean - s.off.mean;
+      if (lp && lp.on.mean - lp.off.mean > maxAdd) maxAdd = lp.on.mean - lp.off.mean;
+      row('L' + lv + ' share above ' + HI + ' at spawn <= ' + HI_MAX + '%', s.on.hiPct <= HI_MAX,
+        'on ' + s.on.hiPct.toFixed(2) + '% off ' + s.off.hiPct.toFixed(2) + '%');
+      row('L' + lv + ' spawn frame not above the ' + MIN + '-' + MAX + ' ceiling', s.on.mean <= MAX,
+        'mean ' + s.on.mean.toFixed(1) + ' (off ' + s.off.mean.toFixed(1) + ', the pass adds '
+        + (s.on.mean - s.off.mean).toFixed(1) + ')');
+      row('L' + lv + ' the pass only ADDS at a lamp, never darkens',
+        lp ? lp.on.mean >= lp.off.mean && lp.on.peak >= lp.off.peak : false,
+        lp ? 'frame ' + (lp.on.mean - lp.off.mean).toFixed(2) + ', peak ' + (lp.on.peak - lp.off.peak).toFixed(1)
+           + ' - additive-only is the bound; how MUCH it adds at a lamp is reported and judged by the'
+           + ' two peak rows below, because a lamp disc is drawn by drawLightGlow AFTER this pass and'
+           + ' was never in its source'
+           : 'no stat lamp in the level, so nothing to bloom');
+      if (lp) {
+        row('L' + lv + ' share above ' + HI + ' at the lamp seat <= ' + HI_MAX + '%', lp.on.hiPct <= HI_MAX,
+          'on ' + lp.on.hiPct.toFixed(2) + '% off ' + lp.off.hiPct.toFixed(2) + '% - the shipped pass put 9.04%'
+          + ' here on L1 and 13.58% on L3, which is the white sheet of #377');
+        row('L' + lv + ' lamp peak within ' + (PEAK_TOL * 100).toFixed(0) + '% of shipped',
+          lp.on.peak >= LAMP_PEAK[lv] * (1 - PEAK_TOL),
+          'now ' + lp.on.peak.toFixed(0) + ' against shipped ' + LAMP_PEAK[lv]);
+        row('L' + lv + ' muzzle peak within ' + (PEAK_TOL * 100).toFixed(0) + '% of shipped',
+          lp.flash.on.peak >= FLASH_PEAK[lv] * (1 - PEAK_TOL),
+          'now ' + lp.flash.on.peak.toFixed(0) + ' against shipped ' + FLASH_PEAK[lv]);
+        const ratio = lp.on.spread / lp.off.spread;
+        row('L' + lv + ' pass does not rewrite the palette', ratio <= SPREAD_MAX,
+          'channel spread ' + lp.on.spread.toFixed(1) + ' on against ' + lp.off.spread.toFixed(1) + ' off (x' + ratio.toFixed(2) + ')');
+        console.log('    lamp disc ' + line(lp) + '  flash ' + lp.flash.on.peak.toFixed(0) + '/' + lp.flash.off.peak.toFixed(0));
+      }
+    }
+    row('the pass is not dead somewhere', maxAdd > 0.5,
+      'largest energy it adds in any seat measured here: +' + maxAdd.toFixed(2)
+      + ' mean (the shipped pass put +3.9 to +16.8 at these same seats; a pass switched off reads +0.00)');
+    if (bad.length) {
+      console.log('BLOOM GATE FAIL: ' + bad.length + ' of ' + rows + ' rows outside their bound');
+      bad.forEach(b => console.log('  ' + b));
+      console.log('  #377: the shipped pass was a whole-frame curve with no threshold, so it whitened rooms it');
+      console.log('  was supposed to leave alone. The glow rows fail the other way - a pass that stopped blooming');
+      console.log('  lamps and shots clears the spread rows by being absent, which is not a fix.');
+      return 1;
+    }
+    console.log('BLOOM ok: ' + rows + ' rows - no level delivers above ' + HI_MAX + '% of pixels over ' + HI
+      + ', no spawn frame above the ' + MAX + ' ceiling, lamp and flash peaks within ' + (PEAK_TOL * 100).toFixed(0)
+      + '% of shipped, and the pass still adds energy where it should');
+    return 0;
+  } catch (e) {
+    console.log('BLOOM GATE: NOT MEASURED - ' + (e && e.message ? e.message : e));
+    console.log('  this is a failure of the harness, not a passing grade: nothing was compared.');
+    return 3;
+  } finally {
+    clearTimeout(watchdog);
+    if (cdp) cdp.close();
+    proc.kill('SIGTERM');
+    setTimeout(() => { if (proc.exitCode === null) proc.kill('SIGKILL'); }, 3000).unref();
+    await exited(proc, 4000);
+    try { fs.rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }); }
+    catch (e) { console.error('note: left ' + dir + ' behind: ' + e.message + ' - remove it manually'); }
+  }
+}
 
 // resolve when the child is really gone (or after ms), so cleanup cannot race its profile writes (#145)
 function exited(p, ms) {
@@ -642,3 +864,7 @@ function exited(p, ms) {
     p.once('exit', () => { clearTimeout(t); res(); });
   });
 }
+
+// LAST statement: the bloom rows read consts declared in its own block, and a top-level call
+// above them is a TDZ hit rather than a measurement.
+(MODE === 'audio' ? mainAudio() : MODE === 'bloom' ? mainBloom() : main()).then(c => { process.exitCode = c; }, e => { console.log(TAG + ' NOT MEASURED - ' + (e && e.stack || e)); process.exitCode = 3; });
