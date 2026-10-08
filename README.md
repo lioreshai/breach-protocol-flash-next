@@ -51,7 +51,7 @@ PR that changes the picture. `node tools/recap.js check` decodes these files and
 quoted below against them, so a caption cannot drift from its image. What *changed* between two
 recaptures is a question for `CHANGELOG.md` and the PR that moved it — it is not kept here.
 
-The six frames decode to **63.44 / 20.87 / 63.06 / 47.81 / 68.50 / 50.44** mean luma
+The six frames decode to **63.44 / 20.87 / 63.06 / 47.81 / 68.50 / 50.54** mean luma
 (`0.2126 R + 0.7152 G + 0.0722 B`, the rule `DEV.lum` uses), in the order they appear below.
 
 All six come from the **deployed build** at `?dev=1&seed=60`, with the clock frozen, vitals pinned at
@@ -63,7 +63,7 @@ by a **code** marker rather than a prose one: `authorVolume.toString()` contains
 `rooms.length >= 8 ? 3 : TALL_WANT_MIN` (#283), and `MESH.neckBand` exists (#326) - both read off the
 shipped statements, and every deployed `js/` blob is md5-identical to the
 tree at **`ce9d39d`**. **One frame is newer than the other five.** `level3-stack.png` was re-taken at
-**`cc10ef4`**, what the deployed page serves now (#388), and the instrument is the URL itself: headless
+**`8eade8f`**, what the deployed page serves now (#388), and the instrument is the URL itself: headless
 Chromium opened the deployed page at a 1440 × 763 viewport and drove the dev hooks there, instead of
 rendering a checkout over loopback and arguing from md5. The bytes were still read - `index.html` and all
 eleven `js/` blobs served by the deployed page are md5-identical to that tree - so the route and the tree
@@ -73,24 +73,29 @@ ceiling past the level's edge - in three takes, the last of them landed while th
 #373 turned props into shaded solids, #403 mounted fixtures on walls and #400 set them back off the wall
 face so they keep a shape at an angle, and #379 replaced bloom's flat gain over every mid-bright pixel
 with a bright pass and one shouldered black-point lift on the room. Against the frame it replaces this one
-decodes **50.89 → 50.44** by thirds **42.1 / 59.7 / 50.9 → 41.8 / 58.6 / 50.9** (`tools/recap.js`'s own
-band means, which are what the tool prints and gates against, not a hand-taken third). 150,360 of its
-1,098,720 pixels move by more than 2 luma and they are not scattered: 124,799 of them are in the middle
-third, the far ceiling above the `TECH` wall, which is exactly where #375's third take cancels a tall
-ceiling's bounce light from rays that reach no ceiling; the floor third moves by 0.01. Frame channels
-read 49.5 / 51.0 / 47.7 against 49.9 / 51.5 / 48.1, so the picture is the same colour one shade quieter
-rather than a different colour. It is stored as colour type 2 (truecolour, no
+decodes **50.44 → 50.54** by thirds **41.8 / 58.6 / 50.9 → 41.8 / 58.9 / 50.9** (`tools/recap.js`'s own
+band means, which are what the tool prints and gates against, not a hand-taken third). 15,807 of its
+1,098,720 pixels move by more than 2 luma, 13,184 of them in the middle third, and they are not scattered:
+they fill one band, x 660-1295 × y 340-422, the `TECH` wall's face and the strip of far ceiling above it,
+which reads 71.4 there and 87.5 here. No renderer term is in that difference - #375's band term is in both
+frames and rows 300-330 read 38.2 in each, floor-third rows move by 0.30 in row mean and the floor third by
+-0.00 - so what moved is the *deal*: which panels that wall drew. Frame channels read 49.6 / 51.1 / 47.7
+against 49.5 / 51.0 / 47.7, so the picture is the same colour a hair brighter, not a different one. It is stored as colour type 2 (truecolour, no
 alpha) like the other five; a capture that arrives as RGBA has to be put through `tools/png_rgb.js`
 first, because the decoder in `tools/recap.js` reads an alpha PNG's channels in the wrong order (#394).
-Its `DEV.layoutSig()` reads **2307539281** at the same `seed=60`, on every one of six loads. That is not
-the signature the previous frame of this seat carried (3233039185): the authored `MAP.fz` is unchanged -
-this level's floors are written, not rolled - and what moved is the `MAP.cell` half of the hash, the
-`pickWallTex` panel choices, which #400's fixture placement and the route's own timing draw from a
-different point in the seeded stream. Same room, same geometry, different wall panels; the tone figures
+Its `DEV.layoutSig()` reads **2733654509** at the same `seed=60`. That is not the signature the previous
+frame of this seat carried (2307539281), which was itself not the one before it (3233039185): the authored
+`MAP.fz` is unchanged - this level's floors are written, not rolled - and what moves between them is the
+`MAP.cell` half of the hash, the `pickWallTex` panel choices, which #400's fixture placement draws from a
+different point in the seeded stream. Same room, same geometry, different wall panels; and that band above
+is what a signature difference *looks like* once it reaches a caption. The tone figures
 below are `tools/recap.js` decoding the shipped bytes, which is the only reading the gate compares. One
 deviation the route has to state, because it changes the deal: a page that never gets a pointer lock
 pauses on the first blur and the pause overlay dims everything under it, so this capture ends with the
-game's own `resume()` and one more `DEV.tick(1)` - see the row's `note`.
+game's own `resume()` and one more `DEV.tick(1)`, and the harness re-reads `S.mode` immediately before it
+shuts the shutter - see the row's `note`. That is also why this route runs after the page reports itself
+ready rather than from a script injected at document time: injected early, the route finishes before the
+first `blur`, so the page pauses again afterwards and the capture is a dimmed one.
 **The five level-0 frames have not been re-taken.** They still carry the `ce9d39d` identity and the
 signature below, and #373, #403 and #379 have all merged since - so those five describe the picture their
 own build drew, not the one the deployed page draws today. `DEV.layoutSig()` for this deal is **735688443** - the same number the previous
@@ -208,15 +213,17 @@ of that wall is the doorway, and the lamp lighting it now stands one cell inside
 in the doorway cell itself, in a wall jamb, where its own collision ghost left about 0.34 m of passage and
 wedged a body in the one place the level connects (#318). The pale panel mounted high on that wall beside
 the doorway is one of the 14 wall fixtures this level now places (#403), stood off the wall face so it
-keeps a shape at an angle (#400) — the frame `34d58d0` left behind showed bare stone there — and the whole
+keeps a shape at an angle (#400) — the frame `34d58d0` left behind showed bare stone there, and this frame
+is drawn by the build that stands it off (`FIX_DEP` in `js/20_level.js`, the box branch in `js/40_render.js`,
+both read out of the page that served this capture, which reports `DECOR` at 14) — and the whole
 picture is flatter than its predecessor: the flat bloom gain that
 used to sit over every mid-bright pixel is gone and a black-point lift is on the room instead (#379), so
-the lit patches read dimmer, the dark ones lift, and the mean lands at 50.44 against 47.77. One term in
-this frame is newer than that sentence: the far ceiling above the `TECH` wall's top edge is a band of rows
-300-330 darker than the frame it replaces (41.4 → 37.9 mean) because #375's third take stopped a ray that
-leaves the level paying a tall ceiling's bounce light. The streaked 4.00 plane itself is untouched - the
-same rectangle two hundred rows higher reads 41.3/40.4/37.7 in both frames - so the change is the borrowed
-light, not the ceiling. Authoring it by hand removes the old excuse — a level that
+the lit patches read dimmer, the dark ones lift, and the mean lands at 50.54 against 47.77. One term in
+this frame is newer than that sentence: the far ceiling above the `TECH` wall's top edge sits in a band of
+rows 300-330 reading **38.2** mean, which is where #375's third take stopped a ray that leaves the level
+paying a tall ceiling's bounce light - and the frame one build earlier reads 38.2 there too, so that
+cancellation is already in the picture this frame replaced and is not what moved. The streaked 4.00 plane
+two hundred rows higher reads 44.7 in both. Authoring it by hand removes the old excuse — a level that
 reads badly can no longer be blamed on the seed stream, because this plan is written cell by cell over a
 20 × 20 grid.
 
