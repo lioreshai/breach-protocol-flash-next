@@ -9342,10 +9342,10 @@ if (MODE === 'fixtures') {
              the room's own rect. The along axis is the room cell's centre and lies inside. Testing
              both axes against the room rect therefore misses every fixture on the room's west and
              north walls, which is a census bug, not a placement bug: the player sees the fixture. */
-          const ax=f.side===1?0:1;                        // 0 = the face normal runs along x
-          const loA=ax?rr.y:rr.x, hiA=ax?rr.y+rr.h:rr.x+rr.w;   // bounds ALONG the face
-          const loP=ax?rr.x:rr.y, hiP=ax?rr.y+rr.h:rr.x+rr.w;   // bounds across it
-          const al=ax?f.y:f.x, px=ax?f.x:f.y;
+          const xp=f.side===1;                            // true: the face normal runs along x
+          const al=xp?f.y:f.x, px=xp?f.x:f.y;             // along the face, and across it
+          const loA=xp?rr.y:rr.x, hiA=xp?rr.y+rr.h:rr.x+rr.w;
+          const loP=xp?rr.x:rr.y, hiP=xp?rr.x+rr.w:rr.y+rr.h;
           if(al>loA-0.01&&al<hiA+0.01&&px>loP-1.01&&px<hiP+1.01){ok=true;break;}}
         if(ok)rOk++;}
       const t={};for(const k of ['DOOR','PIPE','STRIPE','VENT','RACK','TANK','BOARD'])t[k]=0;
