@@ -13,6 +13,9 @@ VERT=1 node tools/smoke.js     the vertical lane, on top of the above
 node tools/view.js <mode>      instruments: geometry, lighting, budgets
 node tools/recap.js check      the README's quoted numbers against docs/screens/*.png
 node tools/ci/assert.js audio  the only thing that can verify audio (see below)
+node tools/ci/assert.js bloom  #377's A/B: what the bloom pass adds to the delivered frame, per level
+                               (CAPTURE=n also writes /tmp/fps_bloom_n_on.png and _off.png — one pose,
+                               frozen, differing only in DEV.set('bloom', …))
 node tools/wfyaml.rb           every workflow parses, and no job runs nothing
 ```
 
