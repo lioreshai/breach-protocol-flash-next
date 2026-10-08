@@ -1093,12 +1093,20 @@ function decalGridInit() {
    the same generator writes 1 m flat rooms and 3 m vaults. */
 const FIX_RUN_MIN = 6;                     // metres of straight wall worth a fixture (#400)
 const FIX_SPAN = { DOOR: [0.50, 0.94], PIPE: [0.66, 0.30], STRIPE: [0.56, 0.20], VENT: [0.72, 0.26] };
-function addWFix(tex, gx, gy, side, along, zc, hh, hw) {
+/* FIX_DEP is how far each kind STANDS OFF the face, in metres (#400 take two). A rectangle painted on
+   the wall plane has a silhouette proportional to cos(theta) off the face normal, so seen along a
+   corridor it collapses to nothing and a long wall reads bare again; a box also shows its flank, whose
+   width goes as dep*sin(theta) and does NOT collapse. The numbers are object depths, not a look knob: a
+   door reveal is 12 cm of jamb, a pipe run sits on 10 cm of saddle bracket, a duct collar 8 cm, and a
+   hazard band is a thin plate. The wall pass reads this to draw the box (#40_render.js, the fixture
+   block); 0 would fall back to the old coplanar blit, which is why the flat path stays in the renderer. */
+const FIX_DEP = { DOOR: 0.12, PIPE: 0.10, STRIPE: 0.03, VENT: 0.08 };
+function addWFix(tex, gx, gy, side, along, zc, hh, hw, dep) {
   const N = MAP.w;
   if (gx < 0 || gy < 0 || gx >= N || gy >= N) return;
   const ci = gy * N + gx;
   const f = { x: side === 0 ? gx + 0.5 : along, y: side === 0 ? along : gy + 0.5,
-    z: zc, hw: hw, hh: Math.max(0.05, hh), tex: tex, side: side + 1 };
+    z: zc, hw: hw, hh: Math.max(0.05, hh), tex: tex, side: side + 1, dep: dep || 0 };
   DECOR.push(f);
   if (!DECOR_GRID[ci]) DECOR_GRID[ci] = [];
   DECOR_GRID[ci].push(f); DECOR_MASK[ci] = 1;
@@ -1121,7 +1129,7 @@ function placeWallFixtures(cfgL) {
     used[k] = 1;
     const sp = FIX_SPAN[kind] || FIX_SPAN.PIPE;
     addWFix(WFIX[kind], wx, wy, DIRX[d] !== 0 ? 0 : 1, DIRX[d] !== 0 ? ay + 0.5 : ax + 0.5,
-      z0 + span * sp[0], span * sp[1] * 0.5, 0.5);
+      z0 + span * sp[0], span * sp[1] * 0.5, 0.5, FIX_DEP[kind] || 0);
     placed++;
     return true;
   };
@@ -1364,7 +1372,13 @@ const AUTHORED = {
   ]
 };
 
+/* #354: one source of truth for barrel hit points. The authored plan parser used to push barrels with no
+   hp at all, so hurtBarrel's `p.hp -= dmg` produced NaN, `NaN <= 0` is never true, and THE STACK's barrels
+   absorbed shots and splash forever while index.html promises "Barrels are not your friends." */
+const BARREL_HP = 26;
+
 function buildAuthored(li) {
+  const authSeats = {};   // #355: the plan's own enemy seats per kind, so difficulty can scale the count
   const cfgL = LEVELS[li], A = AUTHORED, N = A.size;
   const bad = m => { console.warn('AUTHORED REJECTED (level ' + li + '): ' + m); return false; };
   for (const pair of [['geo', A.geo], ['alt', A.alt], ['feat', A.feat]]) {
@@ -1434,11 +1448,82 @@ function buildAuthored(li) {
       const lstr = Math.max(TOPUP_MINF, Math.min(1, cov / TOPUP_TARGET));
       LIGHTS.push({ x: px, y: py, z: fl + LHOVER, r: 7.2, str: lstr, col: cfgL.lampCol, stat: 1 });
       PROPS.push({ tex: PROP.lamp, x: px, y: py, scale: 0.95, z: fl, kind: 'lamp', yaw: propYaw(px, py) });
-    } else if (s[2] === 'B') PROPS.push({ tex: PROP.barrel, x: px, y: py, scale: 0.86, z: fl, kind: 'barrel', yaw: propYaw(px, py) });
+    } else if (s[2] === 'B') PROPS.push({ tex: PROP.barrel, x: px, y: py, scale: 0.86, z: fl, kind: 'barrel', hp: BARREL_HP, dead: false, yaw: propYaw(px, py) });
     else if (s[2] === 'C') PROPS.push({ tex: PROP.crate, x: px, y: py, scale: 1, z: fl, kind: 'crate', yaw: propYaw(px, py) });
     else if (s[2] === 'A' || s[2] === 'H') PICKUPS.push({ type: s[2] === 'A' ? 'ammo' : 'health', x: px, y: py, bob: 0, dead: false });
-    else if (s[2] === 'g' || s[2] === 'h' || s[2] === 'b')
-      ENEMIES.push(makeEnemy(s[2] === 'g' ? 'grunt' : s[2] === 'h' ? 'hound' : 'brute', px, py));
+    else if (s[2] === 'g' || s[2] === 'h' || s[2] === 'b') {
+      const ak = s[2] === 'g' ? 'grunt' : s[2] === 'h' ? 'hound' : 'brute';
+      ENEMIES.push(makeEnemy(ak, px, py));
+      (authSeats[ak] = authSeats[ak] || []).push([px, py]);
+    }
+  }
+  /* #355: DIFFS[S.diff].cnt reached only the generator's placement loop, so the authored finale shipped an
+     identical 2 grunt + 1 hound + 1 brute on Recruit and on Nightmare. hp and incoming damage DO scale
+     (makeEnemy reads DIFFS.hp at js/30_entities.js:37, damagePlayer reads DIFFS.dmg at :294), so the last
+     level was the one place difficulty had no say in how many bodies stood up. Marine (cnt 1.0) asks for
+     exactly the authored count, so the shipped default is unchanged here, and a plan's body is a designed
+     beat, so rounding can never remove the last one of a kind.
+     An extra gets a cell NO OTHER BODY OWNS - the guard DEV.tick's openAlong already keeps for spawned
+     crowds, whose originating failure (#93) was a HUD counting two bodies the frame drew as one. The plan
+     marks four enemy squares and Nightmare wants a fifth body, so the pool is: any authored seat a lower
+     count has vacated, then the nearest free open square an authored seat REACHES - cell by cell through
+     canEnter, the one movement test, so the extra is reachable by construction and not by hope. The first
+     version of this cycled the plan's seats and put the added grunt in the hound's own square: 0.000 m
+     apart, and the separation term at js/30_entities.js:596 is skipped when two centres coincide
+     (sd > 1e-6), so the pair stayed overlapped while idle and one body's pixels just changed species.
+     makeEnemy draws from the level's own xorshift, so this count shifts that stream - harmless on an
+     authored map, where every seat comes from the plan and no layout roll follows it. */
+  { const cnt = DIFFS[S.diff].cnt, all = [], used = new Set(), cellOf = (x, y) => ((y | 0) * N + (x | 0));
+    for (const k in authSeats) for (const s of authSeats[k]) { all.push(s); used.add(cellOf(s[0], s[1])); }
+    // every crossing of an L-path between two squares, one cell at a time - a two-cell straight hop would
+    // test only its end square, and canEnter is a CROSSING test, not a ray
+    const reaches = (ax, ay, bx, by) => {
+      const walk = (st, dx, dy) => {                       // one axis, one cell per canEnter
+        if (!dx && !dy) return true;
+        while (dx ? st.x !== bx : st.y !== by) {
+          if (!canEnter(st.x + 0.5, st.y + 0.5, st.x + dx + 0.5, st.y + dy + 0.5)) return false;
+          st.x += dx; st.y += dy;
+        }
+        return true;
+      };
+      const legs = (xfirst) => {                           // x-then-y, or y-then-x: either way round counts
+        const st = { x: ax, y: ay }, xs = Math.sign(bx - ax), ys = Math.sign(by - ay);
+        const l1 = xfirst ? [xs, 0] : [0, ys], l2 = xfirst ? [0, ys] : [xs, 0];
+        return walk(st, l1[0], l1[1]) && walk(st, l2[0], l2[1]);
+      };
+      return legs(true) || legs(false);
+    };
+    const freeSeat = () => {
+      for (const s of all) if (!used.has(cellOf(s[0], s[1]))) return [s[0], s[1]];   // a seat a lower count vacated
+      for (let r = 1; r <= 2; r++)            // Manhattan rings: nearest first, and every leg of a path is one step
+        for (const s of all) { const cx = s[0] | 0, cy = s[1] | 0;
+          for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
+            if (Math.abs(dx) + Math.abs(dy) !== r) continue;
+            const nx = cx + dx, ny = cy + dy;
+            if (nx < 1 || ny < 1 || nx >= N - 1 || ny >= N - 1) continue;
+            const i = ny * N + nx;
+            if (cell[i] || used.has(i) || (nx === sx && ny === sy)) continue;   // open, unowned, never the spawn square
+            if (reaches(cx, cy, nx, ny)) return [nx + 0.5, ny + 0.5];
+          }
+        }
+      return null;
+    };
+    // DROP first, so a square a lower count vacates is on the table for the kinds below it
+    for (const k in authSeats) {
+      const seats = authSeats[k], want = Math.max(1, Math.round(seats.length * cnt));
+      for (let i = seats.length - 1; i >= want; i--) {
+        const s = seats[i]; used.delete(cellOf(s[0], s[1]));
+        for (let j = ENEMIES.length - 1; j >= 0; j--) if (ENEMIES[j].kind === k && Math.hypot(ENEMIES[j].x - s[0], ENEMIES[j].y - s[1]) < 0.01) { ENEMIES.splice(j, 1); break; }
+      }
+    }
+    for (const k in authSeats) {
+      const seats = authSeats[k], want = Math.max(1, Math.round(seats.length * cnt));
+      for (let i = seats.length; i < want; i++) {
+        const s = freeSeat();
+        if (!s) break;                        // no free reachable square: keep the authored beat rather than overlap it
+        ENEMIES.push(makeEnemy(k, s[0], s[1])); used.add(cellOf(s[0], s[1]));
+      }
+    }
   }
   // The exit pad is a static, Z-LESS light in the generator path (:1352); an authored level that
   // skips it ships a pad with no glow and leaves alt's wrong-band census with no population at all.
@@ -1877,7 +1962,7 @@ function genLevel(li) {
     for (let i = 0; i < cfgL.crates; i++) { const c = clearSpot(takeNear(2)); PROPS.push({ tex: PROP.crate, x: c[0] + 0.5, y: c[1] + 0.5, scale: 0.72, z: floorAt(c[0] + 0.5, c[1] + 0.5), kind: 'crate', yaw: propYaw(c[0] + 0.5, c[1] + 0.5) }); }
     for (let i = 0; i < cfgL.barrels; i++) {
       const c = clearSpot(takeNear(2));
-      PROPS.push({ tex: PROP.barrel, x: c[0] + 0.5, y: c[1] + 0.5, scale: 0.86, z: floorAt(c[0] + 0.5, c[1] + 0.5), kind: 'barrel', hp: 26, dead: false, yaw: propYaw(c[0] + 0.5, c[1] + 0.5) });
+      PROPS.push({ tex: PROP.barrel, x: c[0] + 0.5, y: c[1] + 0.5, scale: 0.86, z: floorAt(c[0] + 0.5, c[1] + 0.5), kind: 'barrel', hp: BARREL_HP, dead: false, yaw: propYaw(c[0] + 0.5, c[1] + 0.5) });
     }
     for (const k in cfgL.pick) for (let i = 0; i < cfgL.pick[k]; i++) {
       const c = takeNear(2);
