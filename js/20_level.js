@@ -7,13 +7,15 @@ const LEVELS = [
     name: 'ARCHIVE SUBLEVEL', size: 26, rooms: 7, maxRoom: 9, wall: WT.BRICK, wall2: WT.STONE,
     floor: 'STONE', ceil: 'ROCK', amb: 0.19, lampCol: [255, 196, 120], fogCol: [17, 13, 10],
     lamps: 6, crates: 7, barrels: 7, spawn: { grunt: 5, hound: 3, brute: 0 }, pick: { health: 3, ammo: 4, armor: 1 },
-    fixtures: ['PIPE', 'VENT']            // #400: the archive is a place with old pipework in it
+    fixtures: ['PIPE', 'VENT'],           // #400: the archive is a place with old pipework in it
+    purpose: ['RACK', 'BOARD']            // #400: and it is where they KEPT things - shelving and signage
   },
   {
     name: 'RING TRANSPORT', size: 32, rooms: 9, maxRoom: 10, wall: WT.TECH, wall2: WT.METAL,
     floor: 'METAL', ceil: 'PANEL', amb: 0.185, lampCol: [170, 226, 255], fogCol: [10, 14, 21],
     lamps: 8, crates: 8, barrels: 9, spawn: { grunt: 6, hound: 5, brute: 1 }, pick: { health: 4, ammo: 5, armor: 2 },
-    fixtures: ['STRIPE', 'PIPE']          // #400: a transport ring is striped and stencilled
+    fixtures: ['STRIPE', 'PIPE'],         // #400: a transport ring is striped and stencilled
+    purpose: ['TANK', 'BOARD']            // #400: a transfer ring is tanks and directions
   },
   {
     // #369: floorBias / ceilBias / ceilLead are the authored SURFACE VALUE ORDER - see js/40_render.js
@@ -29,7 +31,8 @@ const LEVELS = [
     name: 'ABATOIR CORE', size: 36, rooms: 11, maxRoom: 11, wall: WT.FLESH, wall2: WT.TECH2,
     floor: 'FLESH', ceil: 'SINEW', amb: 0.3, lampCol: [190, 255, 150], fogCol: [21, 8, 11], ceilBias: -0.12,
     lamps: 16, crates: 9, barrels: 12, spawn: { grunt: 8, hound: 7, brute: 3 }, pick: { health: 5, ammo: 6, armor: 2 },
-    fixtures: ['VENT', 'STRIPE']          // #400: the abattoir breathes; everything here is a duct
+    fixtures: ['VENT', 'STRIPE'],         // #400: the abattoir breathes; everything here is a duct
+    purpose: ['TANK', 'RACK']             // #400: what it breathes and what it drains
   },
   {
     // M6 (#16): the hand-authored two-storey level - `authored` means genLevel loads AUTHORED
@@ -54,7 +57,9 @@ const LEVELS = [
     floor: 'STONE', ceil: 'ROCK', amb: 0.2, lampCol: [255, 196, 120], fogCol: [17, 13, 10],
     floorBias: 0.18, ceilBias: -0.04, ceilLead: 0.12,
     lamps: 0, crates: 0, barrels: 0, spawn: { grunt: 0, hound: 0, brute: 0 }, pick: {},
-    fixtures: ['PIPE', 'STRIPE', 'VENT']  // #400: three rooms, three kinds - the finale should look BUILT
+    fixtures: ['PIPE', 'STRIPE', 'VENT'], // #400: three rooms, three kinds - the finale should look BUILT
+    purpose: ['RACK', 'TANK', 'BOARD']    // #400: three rooms, three PURPOSES - one thing per room that
+                                         // reads as storage, fluid, or a way to go
   }
 ];
 
@@ -1092,7 +1097,8 @@ function decalGridInit() {
    a pipe runs and a hazard band sit at eye height, a vent sits high. Expressed as fractions because
    the same generator writes 1 m flat rooms and 3 m vaults. */
 const FIX_RUN_MIN = 6;                     // metres of straight wall worth a fixture (#400)
-const FIX_SPAN = { DOOR: [0.50, 0.94], PIPE: [0.66, 0.30], STRIPE: [0.56, 0.20], VENT: [0.72, 0.26] };
+const FIX_SPAN = { DOOR: [0.50, 0.94], PIPE: [0.66, 0.30], STRIPE: [0.56, 0.20], VENT: [0.72, 0.26],
+  RACK: [0.46, 0.62], TANK: [0.46, 0.72], BOARD: [0.82, 0.14] };
 /* FIX_DEP is how far each kind STANDS OFF the face, in metres (#400 take two). A rectangle painted on
    the wall plane has a silhouette proportional to cos(theta) off the face normal, so seen along a
    corridor it collapses to nothing and a long wall reads bare again; a box also shows its flank, whose
@@ -1100,7 +1106,7 @@ const FIX_SPAN = { DOOR: [0.50, 0.94], PIPE: [0.66, 0.30], STRIPE: [0.56, 0.20],
    door reveal is 12 cm of jamb, a pipe run sits on 10 cm of saddle bracket, a duct collar 8 cm, and a
    hazard band is a thin plate. The wall pass reads this to draw the box (#40_render.js, the fixture
    block); 0 would fall back to the old coplanar blit, which is why the flat path stays in the renderer. */
-const FIX_DEP = { DOOR: 0.12, PIPE: 0.10, STRIPE: 0.03, VENT: 0.08 };
+const FIX_DEP = { DOOR: 0.12, PIPE: 0.10, STRIPE: 0.03, VENT: 0.08, RACK: 0.20, TANK: 0.24, BOARD: 0.06 };
 function addWFix(tex, gx, gy, side, along, zc, hh, hw, dep) {
   const N = MAP.w;
   if (gx < 0 || gy < 0 || gx >= N || gy >= N) return;
@@ -1114,6 +1120,11 @@ function addWFix(tex, gx, gy, side, along, zc, hh, hw, dep) {
 function placeWallFixtures(cfgL) {
   const kinds = (cfgL.fixtures || ['PIPE', 'STRIPE', 'VENT']).filter(k => WFIX[k]);
   if (!kinds.length) return;
+  /* #400 take three: the level's VOCABULARY (`fixtures`) says what a place is MADE of; its PURPOSE
+     list says what a room is FOR. Rooms draw from `purpose` when the level authors one, so sector 0
+     is a place with shelving in it and sector 1 is a place with tanks in it, and the long-run pass
+     keeps drawing the vocabulary kinds down the corridors. */
+  const purposes = (cfgL.purpose || []).filter(k => WFIX[k]);
   const N = MAP.w, cell = MAP.cell;
   const isOpen = (x, y) => x > 0 && y > 0 && x < N - 1 && y < N - 1 && cell[y * N + x] === 0;
   const isWall = (x, y) => x >= 0 && y >= 0 && x < N && y < N && cell[y * N + x] !== 0;
@@ -1153,8 +1164,16 @@ function placeWallFixtures(cfgL) {
     if (!narrowOn(x, y, across)) continue;          // a room's own edge cell is open on three sides
     if (narrowOn(x + DIRX[along], y + DIRY[along], across)
       && narrowOn(x - DIRX[along], y - DIRY[along], across)) continue;
+    const out = narrowOn(x + DIRX[along], y + DIRY[along], across) ? along ^ 2 : along;
     if (we) { mount('DOOR', x, y, 1); mount('DOOR', x, y, 3); }
     else { mount('DOOR', x, y, 0); mount('DOOR', x, y, 2); }
+    /* A sign BESIDE the mouth, on the first wall past the jambs on the side the space opens up to -
+       where a "this way to the coolant" board actually goes. It is attempted, never required: a
+       mount that finds no face there (or a face another fixture already owns) simply places nothing. */
+    if (WFIX.BOARD) {
+      const bx = x + DIRX[out], by = y + DIRY[out];
+      if (isOpen(bx, by)) mount('BOARD', bx, by, 1) || mount('BOARD', bx, by, 3);
+    }
   }
   /* 2. ONE FIXTURE PER ROOM, cycling the level's own kinds so sector 0 is a place with pipework and
      sector 2 is a place with vents. Faces come out in scan order, so the pick is deal-deterministic
@@ -1167,8 +1186,19 @@ function placeWallFixtures(cfgL) {
       for (let d = 0; d < 4; d++) if (isWall(x + DIRX[d], y + DIRY[d])) faces.push([x, y, d]);
     }
     if (!faces.length) continue;
-    const f = faces[(ri * 7 + 3) % faces.length];
-    mount(kinds[ri % kinds.length], f[0], f[1], f[2]);
+    /* THE FIRST FACE TRIED IS UNCHANGED and that is deliberate: the face this pass occupies is what
+       pass 3 later treats as already used, so re-picking would move long-run coverage and turn this
+       increment into a placement change instead of a material one. What was MISSING was that a room
+       whose first-choice face is already owned by a door frame got NOTHING - so on most deals only
+       two or three rooms carried a purpose fixture at all. The walk now continues around the room's
+       own faces until one takes; the starting face is the same deal-deterministic pick, so no roll,
+       light or prop moves and the long-run pass still sees the same first-choice faces occupied. */
+    const pk = purposes.length ? purposes : kinds;
+    const start = (ri * 7 + 3) % faces.length;
+    for (let k = 0; k < faces.length; k++) {
+      const f = faces[(start + k) % faces.length];
+      if (mount(pk[(ri + k) % pk.length], f[0], f[1], f[2])) break;
+    }
   }
   /* 3. ONE ALONG EVERY LONG RUN: a straight wall you can see down for more than six metres is the
      sight line the issue names, and it is today one unbroken repeat across the whole frame. Walk each
