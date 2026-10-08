@@ -62,12 +62,17 @@ forever. The build is proved
 by a **code** marker rather than a prose one: `authorVolume.toString()` contains the shipped statement
 `rooms.length >= 8 ? 3 : TALL_WANT_MIN` (#283), and `MESH.neckBand` exists (#326) - both read off the
 shipped statements, and every deployed `js/` blob is md5-identical to the
-tree at **`ce9d39d`**. **One frame is newer than the other five.** `level3-stack.png` was re-taken at
-**`8eade8f`**, what the deployed page serves now (#388), and the instrument is the URL itself: headless
+tree at **`ce9d39d`**. **One frame is newer than the other five.** `level3-stack.png` was re-taken from the
+deployed page at **`8eade8f`** (#388), and the instrument is the URL itself: headless
 Chromium opened the deployed page at a 1440 × 763 viewport and drove the dev hooks there, instead of
 rendering a checkout over loopback and arguing from md5. The bytes were still read - `index.html` and all
-eleven `js/` blobs served by the deployed page are md5-identical to that tree - so the route and the tree
-name one build. Five merged PRs have moved that seat's picture since `34d58d0` last sat here: #318 walked
+eleven `js/` blobs served by the deployed page are md5-identical to this tree, which now merges
+**`c6a9b4c`** - `js/40_render.js` `5f4726b7`, `js/20_level.js` `5792aeb3` and `js/13_mesh.js` `c2f98a53`
+among them - so the route, the served page and this tree name one build. The one blob that moved between
+the build those pixels were drawn at and the one served now is `js/13_mesh.js` (`a9f01984` → `c2f98a53`,
+#376), and it moves no pixel at this seat: `SEAT=1.5,2.5,0.6 node tools/view.js scene 3` renders the *same
+framebuffer md5* (`d65879e5`) against both trees, because #376 substitutes identity for a room hue that
+reads `MAP.lt` 128/128/128 at this seat anyway. Five merged PRs have moved that seat's picture since `34d58d0` last sat here: #318 walked
 the doorway lamp one cell east out of the wall jamb, #375 cancelled a lamp's borrowed light on the far
 ceiling past the level's edge - in three takes, the last of them landed while this frame was being taken,
 #373 turned props into shaded solids, #403 mounted fixtures on walls and #400 set them back off the wall
@@ -83,12 +88,20 @@ frames and rows 300-330 read 38.2 in each, floor-third rows move by 0.30 in row 
 against 49.5 / 51.0 / 47.7, so the picture is the same colour a hair brighter, not a different one. It is stored as colour type 2 (truecolour, no
 alpha) like the other five; a capture that arrives as RGBA has to be put through `tools/png_rgb.js`
 first, because the decoder in `tools/recap.js` reads an alpha PNG's channels in the wrong order (#394).
-Its `DEV.layoutSig()` reads **2733654509** at the same `seed=60`. That is not the signature the previous
-frame of this seat carried (2307539281), which was itself not the one before it (3233039185): the authored
-`MAP.fz` is unchanged - this level's floors are written, not rolled - and what moves between them is the
-`MAP.cell` half of the hash, the `pickWallTex` panel choices, which #400's fixture placement draws from a
-different point in the seeded stream. Same room, same geometry, different wall panels; and that band above
-is what a signature difference *looks like* once it reaches a caption. The tone figures
+Its `DEV.layoutSig()` read **2733654509** at that `seed=60`. That number is a property of the capture
+*run*, not of the URL, and this cycle measured it rather than assuming it: two re-reads of the same route
+on the deployed page read **3233039185** both times, a re-read issued several seconds later than the route
+read a fourth value (1900969947), and calling `startLevel(3, true)` twice inside one already-open page read
+1730990788 and then 1523817166. `startLevel` generates from wherever the seeded stream has reached, and
+generation advances it, so one seed re-deals every time the route runs; the signatures this seat has worn
+(3233039185, 2307539281, 2733654509) are three such runs, not three builds. The authored `MAP.fz` is
+unchanged - this level's floors are written, not rolled - and what moves between them is the `MAP.cell`
+half of the hash, the `pickWallTex` panel choices, which #400's fixture placement draws from a different
+point in the seeded stream. Same room, same geometry, different wall panels; and that band above is what a
+signature difference *looks like* once it reaches a caption. The corollary is the honest limit of this
+frame: the *build* it came from is proved by the served md5s above, but the panels in it are not
+reproducible by re-running this route - pinning the stream before `startLevel`, the way `tools/view.js`
+does at a deal, is what a future capture route has to do to make a stored frame re-takeable. The tone figures
 below are `tools/recap.js` decoding the shipped bytes, which is the only reading the gate compares. One
 deviation the route has to state, because it changes the deal: a page that never gets a pointer lock
 pauses on the first blur and the pause overlay dims everything under it, so this capture ends with the
