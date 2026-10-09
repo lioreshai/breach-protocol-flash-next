@@ -64,14 +64,31 @@ by a **code** marker rather than a prose one: `authorVolume.toString()` contains
 shipped statements, and both still read on the deployed page. That pair is the identity of the
 five level-0 frames, taken while the deployed build *was* **`ce9d39d`**; the page has moved past that build
 since, and those five are stale by exactly that much. **One frame is newer than the other five.**
-`level3-stack.png` was re-taken from the deployed page at **`ed5faf4`** (#388), and the instrument is the
+`level3-stack.png` was drawn by the build **`ed5faf4`** (#388), and the instrument is the
 URL itself: headless Chromium opened the deployed page at a 1440 × 763 viewport and drove the dev hooks
-there, instead of rendering a checkout over loopback and arguing from md5. The bytes were still read -
-`index.html` `44b7f0ca` and all eleven `js/` blobs served by the deployed page are md5-identical to this
-tree, which now merges **`ed5faf4`** - `js/40_render.js` `7942de4b`, `js/90_dev.js` `c36909c9`,
-`js/00_core.js` `ac12ee35`, `js/13_mesh.js` `f222d5ec`, `js/20_level.js` `9b24d5c4` and
-`js/10_assets.js` `3f00716c` among them - so the route, the served page and this tree name one build.
-This take had to re-render rather than re-label, because the renderer the merge ships draws this seat
+there, instead of rendering a checkout over loopback and arguing from md5. The bytes were read too, and
+they are recorded as a property of the **capture**, never of the tree you are reading this in: the page
+that served this frame ran `index.html` `44b7f0ca` over `js/40_render.js` `7942de4b`, `js/90_dev.js`
+`c36909c9`, `js/00_core.js` `ac12ee35`, `js/13_mesh.js` `f222d5ec`, `js/20_level.js` `9b24d5c4` and
+`js/10_assets.js` `3f00716c`. **Nothing in this row claims the merged tree's `js/` blobs are
+md5-identical to the served page's.** A docs-only PR ships whatever `main`'s renderer is at merge time,
+so such a sentence is false from the moment any `js/` file lands, and it has been false on arrival three
+cycles running. What is claimed instead is measured on both trees. This branch merges
+`main` at **`b85a671`**, and its one `js/` difference from the capture build is `js/20_level.js`
+`9b24d5c4` → `deb7e867` - #353's overlook pairing pass; `index.html` and the other ten blobs are
+identical on both sides. That pass cannot reach this seat: `LEVELS[3].authored === true`, so `genLevel`
+returns at the `buildAuthored` branch before the pairing pass and before `authorOverlooked`, and
+`overlookPairs` is filled only inside `authorVolume`. The measurement agrees with the code - at this
+caption's own seat `SEAT=1.5,2.5,0.6 node tools/view.js scene 3` prints framebuffer md5
+`340f2e85989a19ea34a908dab8eefb05` at mean 49.5 on this branch's `js/`, on `main`'s `js/`, and again on a
+second untouched run; `FP_DEALT=1 FP_DEALT1=3 node tools/view.js flatparity` prints dealt level 3
+`4b644b164e5b63b09fc69d5fc3256971`, mean 37.2, off-datum 134/256 on both trees, which is the value
+`tools/refs.lock` carries at `main`. A `cz`-only pass on *generated* levels does not reach the
+hand-authored finale, so the picture beside this sentence is still the one the shipping build draws and
+this pass re-labelled rather than re-rendered. (Read again at the merge, the deployed page does serve
+this tree's twelve files byte for byte - an observation about this afternoon, and precisely not the
+basis of anything here; making that basis a gate instead of a sentence is #395's.)
+That take had to re-render rather than re-label, because the renderer #407 put on `main` draws this seat
 differently: #407 let a body or a prop ten metres out keep the lamp field of the cell it stands in instead
 of paying `exp(-d × 0.14)` of it, so the things standing in this room read brighter than they did in the
 frame beside this sentence. That term is read on the deployed page rather than inferred from a changelog -
@@ -117,8 +134,9 @@ half of the hash, the `pickWallTex` panel choices, which #400's fixture placemen
 point in the seeded stream - so a run that lands elsewhere shows the same room and the same geometry with
 different wall panels, which is what the x 660-1295 × y 340-422 band looked like in the last re-take of this
 row, and is why that band is quoted twice here: 83.2 in both frames this time, and the deal did not move.
-The corollary is the honest limit of this frame: the *build* it came from is proved by the served md5s
-above; the deal reproduced at this head, but nothing in the route *pins* it - two runs agreeing is an
+The corollary is the honest limit of this frame: the *build* it came from is the capture's, recorded
+above and in `docs/screens/provenance.json`, and the md5s above prove only that capture; the deal
+reproduced at this head, but nothing in the route *pins* it - two runs agreeing is an
 observation, not a guarantee, and the previous build's two runs disagreed with it - so a stored frame is
 only re-takeable while the stream ahead of `startLevel` happens to land where it did. Pinning that stream,
 the way `tools/view.js` does at a deal, is what would make a re-take and a deal number a fact of the URL
