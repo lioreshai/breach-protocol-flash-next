@@ -2228,7 +2228,12 @@ function drawBillboard(o) {
   const fog = fogAt(tY), inv = 1 - fog;
   const fR = FOGC[0] * fog, fG = FOGC[1] * fog, fB = FOGC[2] * fog;
   const idx0 = cellIdx(o.x, o.y);
-  const li = Math.min(1, (MAP.light ? MAP.light[idx0] : 0.5) * Math.exp(-tY * 0.14) + 0.30 * visAt(tY));
+  // #407: the SECOND copy of the body light lookup - the two-copies rule in AGENTS.md. It must read
+  // the same BODYDIST as js/13_mesh.js:1212, and it does: BODYDIST is one global in js/00_core.js, so
+  // switching the term in a live page changes sprites and meshes together. See that file and the mesh
+  // copy for why the field is taken whole at the sprite's own cell (a billboard is a body seen from
+  // farther off than most meshes, so this copy is where the defect showed worst).
+  const li = Math.min(1, (MAP.light ? MAP.light[idx0] : 0.5) * (BODYDIST ? 1 : Math.exp(-tY * 0.14)) + 0.30 * visAt(tY));
   const lt = cellTint(idx0);
   const fk = S.flash * Math.exp(-tY * 0.30);
   let lr = AMB + (li * lt[0] + fk * (S.flashCol[0] / 255)) * 1.1;
