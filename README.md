@@ -129,9 +129,9 @@ first, because the decoder in `tools/recap.js` reads an alpha PNG's channels in 
 Its `DEV.layoutSig()` read **2733654509** at that `seed=60` on all three of that take's runs. This take
 reads **3233039185**, on both of its runs and at the same `seed=60` - so a signature reproduces at a
 given build and does not travel between builds, which is the whole reason the number is printed instead of
-assumed. What those bytes re-takeable on the build that ships meant was: that build's runs agreed with
-each other. That was true of
-the build before it, and the reason is worth keeping: the same route against the previous deployed build
+assumed. "Re-takeable on the build that ships" therefore meant that build's runs agreed with each other,
+which is all any of these numbers has ever claimed - and why a run lands where it does is worth keeping: the
+same route against an earlier deployed build
 read **3233039185** twice and, issued several seconds later than the route, a fourth value (1900969947),
 and calling `startLevel(3, true)` twice inside one already-open page read 1730990788 and then 1523817166.
 `startLevel` generates from wherever the seeded stream has reached and generation advances it, so the
