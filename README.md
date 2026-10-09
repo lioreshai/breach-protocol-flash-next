@@ -84,10 +84,18 @@ caption's own seat `SEAT=1.5,2.5,0.6 node tools/view.js scene 3` prints framebuf
 second untouched run; `FP_DEALT=1 FP_DEALT1=3 node tools/view.js flatparity` prints dealt level 3
 `4b644b164e5b63b09fc69d5fc3256971`, mean 37.2, off-datum 134/256 on both trees, which is the value
 `tools/refs.lock` carries at `main`. A `cz`-only pass on *generated* levels does not reach the
-hand-authored finale, so the picture beside this sentence is still the one the shipping build draws and
-this pass re-labelled rather than re-rendered. (Read again at the merge, the deployed page does serve
-this tree's twelve files byte for byte - an observation about this afternoon, and precisely not the
-basis of anything here; making that basis a gate instead of a sentence is #395's.)
+hand-authored finale, so the picture beside this sentence is the one the build at `b85a671` draws and
+this pass re-labelled rather than re-rendered. (Read at the merge, the deployed page serves this tree's
+twelve files byte for byte - an observation about a few minutes of this afternoon, and precisely not the
+basis of anything here; making that basis a gate instead of a sentence is #395's.) **The same measurement
+now says the next take of this row is a capture rather than a caption.** `main` moved again while this
+sentence was being written - `cd191ca`, #408 scaling an authored lamp's pool to the plan it stands in -
+and that term *does* reach this seat: the identical harness and seat with `main`'s `js/` prints
+framebuffer md5 `1cf43eac4ac2af7f6f1dac2a7f96ab35` at mean **48.9**, against the
+`340f2e85989a19ea34a908dab8eefb05` at 49.5 this branch's `js/` prints in the same minute. So the bytes
+embedded here are stale by #408 alone - a lamp one cell inside the room giving back some of the light it
+was over-spilling, which is most of what this frame's brightest patch is made of - and no sentence about
+md5s, honest or not, can cover that.
 That take had to re-render rather than re-label, because the renderer #407 put on `main` draws this seat
 differently: #407 let a body or a prop ten metres out keep the lamp field of the cell it stands in instead
 of paying `exp(-d × 0.14)` of it, so the things standing in this room read brighter than they did in the
