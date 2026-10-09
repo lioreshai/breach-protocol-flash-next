@@ -51,7 +51,7 @@ PR that changes the picture. `node tools/recap.js check` decodes these files and
 quoted below against them, so a caption cannot drift from its image. What *changed* between two
 recaptures is a question for `CHANGELOG.md` and the PR that moved it — it is not kept here.
 
-The six frames decode to **63.44 / 20.87 / 63.06 / 47.81 / 68.50 / 50.50** mean luma
+The six frames decode to **63.44 / 20.87 / 63.06 / 47.81 / 68.50 / 50.60** mean luma
 (`0.2126 R + 0.7152 G + 0.0722 B`, the rule `DEV.lum` uses), in the order they appear below.
 
 All six come from the **deployed build** at `?dev=1&seed=60`, with the clock frozen, vitals pinned at
@@ -64,39 +64,48 @@ by a **code** marker rather than a prose one: `authorVolume.toString()` contains
 shipped statements, and both still read on the deployed page. That pair is the identity of the
 five level-0 frames, taken while the deployed build *was* **`ce9d39d`**; the page has moved past that build
 since, and those five are stale by exactly that much. **One frame is newer than the other five.**
-`level3-stack.png` was re-taken from the deployed page at **`fc7a555`** (#388), and the instrument is the
+`level3-stack.png` was re-taken from the deployed page at **`ed5faf4`** (#388), and the instrument is the
 URL itself: headless Chromium opened the deployed page at a 1440 × 763 viewport and drove the dev hooks
 there, instead of rendering a checkout over loopback and arguing from md5. The bytes were still read -
 `index.html` `44b7f0ca` and all eleven `js/` blobs served by the deployed page are md5-identical to this
-tree, which now merges **`fc7a555`** - `js/40_render.js` `60af7c97`, `js/90_dev.js` `7c2373a3`,
-`js/20_level.js` `5792aeb3` and `js/13_mesh.js` `c2f98a53` among them - so the route, the served page and
-this tree name one build. This time the frame was re-taken rather than argued into place, because the
-merged renderer really does draw this seat differently: `DEV.state().gnd` on that page reports `fade: 1`,
-#19's footprint blend, and applying its own switch backwards - `DEV.set('gndfade', 0)` between the route
-and the shutter, on the deployed page, after the frame was already frozen - brings this seat back to the
-frame the previous build drew within the route's noise (6,474 of 1,098,720 px over 2 luma, worst 11, mean
-|delta| 0.16, every row-mean third unchanged to 0.00), against 78,954 px and worst 23.6 with the shipped
-value left alone. Six merged PRs have moved that seat's picture since `34d58d0` last sat here: #318 walked
+tree, which now merges **`ed5faf4`** - `js/40_render.js` `7942de4b`, `js/90_dev.js` `c36909c9`,
+`js/00_core.js` `ac12ee35`, `js/13_mesh.js` `f222d5ec`, `js/20_level.js` `9b24d5c4` and
+`js/10_assets.js` `3f00716c` among them - so the route, the served page and this tree name one build.
+This take had to re-render rather than re-label, because the renderer the merge ships draws this seat
+differently: #407 let a body or a prop ten metres out keep the lamp field of the cell it stands in instead
+of paying `exp(-d × 0.14)` of it, so the things standing in this room read brighter than they did in the
+frame beside this sentence. That term is read on the deployed page rather than inferred from a changelog -
+`DEV.set('bodydist', 0)` between the route and the shutter, after the frame was already frozen, brings
+this seat back to the frame it replaces within the route's own noise (6,516 of 1,098,720 px over 2 luma,
+worst 6.0, mean |delta| 2.42, every row-mean third unchanged to 0.01), against 11,712 px and worst 73.2
+with the shipped `BODYDIST` 1 left alone; two runs of the route with no switch touched at all differ by
+6,925 px at worst 6.0, which is the floor both of those are read against. `DEV.state()` prints `gnd` but
+not `bodydist`, so the shipped value quoted here is the `BODYDIST` global itself, read off the page that
+served this capture. Seven merged PRs have moved that seat's picture since `34d58d0` last sat here: #318 walked
 the doorway lamp one cell east out of the wall jamb, #375 cancelled a lamp's borrowed light on the far
 ceiling past the level's edge - in three takes, the last of them landed while this frame was being taken,
-#373 turned props into shaded solids, #403 mounted fixtures on walls and #400 set them back off the wall
-face so they keep a shape at an angle, and #379 replaced bloom's flat gain over every mid-bright pixel
-with a bright pass and one shouldered black-point lift on the room. Against the frame it replaces this one
-decodes **50.54 → 50.50** by thirds **41.85 / 58.94 / 50.87 → 41.82 / 58.88 / 50.83** (`tools/recap.js`'s
-own band means, which are what the tool prints and gates against, not a hand-taken third). 78,954 of its
-1,098,720 pixels move by more than 2 luma - 4,793 / 45,098 / 29,063 by thirds, worst 23.6 - and they sit in
-rows 400-600, the lit floor in front of the `TECH` wall and the wall's lower face, where that footprint
-blend does its work; the wall's own band, x 660-1295 × y 340-422, reads 83.2 in *both* frames, as do rows
-300-330 at 38.2 and the streaked 4.00 plane at rows 140-180, 44.7. So the wall did not move and the floor
-under it did, and unlike the last re-take of this row the difference is a renderer term and not a deal
-term: `DEV.layoutSig()` reads the same 2733654509 on both sides, the row mean moves by 0.00 / 0.05 / 0.04,
-and `DEV.set('gndfade', 0)` on the live page accounts for the whole of it as measured above. Frame
-channels read 49.6 / 51.1 / 47.7 in both, so the picture is the same colour a hair dimmer, not a different
-one. It is stored as colour type 2 (truecolour, no
+#373 turned props into shaded solids, #403 mounted fixtures on walls, #400 set them back off the wall face
+so they keep a shape at an angle, #379 replaced bloom's flat gain over every mid-bright pixel with a bright
+pass and one shouldered black-point lift on the room, and #407 is the one that moved these bytes. Against
+the frame it replaces this one decodes **50.50 → 50.60** by thirds **41.82 / 58.88 / 50.83 → 41.82 /
+59.19 / 50.82** (`tools/recap.js`'s own band means, which are what the tool prints and gates against, not
+a hand-taken third). 11,712 of its 1,098,720 pixels move by more than 2 luma - 1,648 / 8,947 / 1,117 by
+thirds, worst 73.2, mean |delta| over those pixels 10.89 - and 233 of them move by more than 50, all of
+them inside x 644-1392 × y 328-390: the standing things in the room, at the foot of the `TECH` wall. By
+row band the move is rows 317-444, 7,069 px there against the 2,552 the same bands account for in route
+noise, and the one place it lands on geometry rather than on a body is rows 300-330, **38.2** there and
+**38.8** here. Everything that does not stand still reads the same: the wall's own band, x 660-1295 ×
+y 340-422, is 83.2 in *both* frames, as is the streaked 4.00 plane at rows 140-180, 44.7, and the lit
+floor at rows 400-600 reads 64.6 in both. So the wall did not move and neither did the floor under it;
+what moved is how much of a room's light something ten metres away is allowed to keep, and that is a
+renderer term and not a deal term - `DEV.layoutSig()` reads the same 2733654509 on both sides and the
+row-mean thirds move 0.00 / -0.31 / 0.00. Frame channels read 49.6 / 51.1 / 47.7 there and 49.8 / 51.1 /
+47.7 here, so the picture is the same colour a hair brighter, not a different one. It is stored as colour type 2 (truecolour, no
 alpha) like the other five; a capture that arrives as RGBA has to be put through `tools/png_rgb.js`
 first, because the decoder in `tools/recap.js` reads an alpha PNG's channels in the wrong order (#394).
-Its `DEV.layoutSig()` read **2733654509** at that `seed=60`, and at this head two runs of the documented
-route read that same number, so these pixels are re-takeable on the build that ships. That was not true of
+Its `DEV.layoutSig()` read **2733654509** at that `seed=60`, and at this head all three runs of the
+documented route read that same number - the two untouched ones and the `bodydist` A/B - so these pixels
+are re-takeable on the build that ships. That was not true of
 the build before it, and the reason is worth keeping: the same route against the previous deployed build
 read **3233039185** twice and, issued several seconds later than the route, a fourth value (1900969947),
 and calling `startLevel(3, true)` twice inside one already-open page read 1730990788 and then 1523817166.
@@ -243,12 +252,12 @@ is drawn by the build that stands it off (`FIX_DEP` in `js/20_level.js`, the box
 both read out of the page that served this capture, which reports `DECOR` at 14) — and the whole
 picture is flatter than its predecessor: the flat bloom gain that
 used to sit over every mid-bright pixel is gone and a black-point lift is on the room instead (#379), so
-the lit patches read dimmer, the dark ones lift, and the mean lands at 50.50 against 47.77. One term in
+the lit patches read dimmer, the dark ones lift, and the mean lands at 50.60 against 47.77. One term in
 this frame is newer than that sentence: the far ceiling above the `TECH` wall's top edge sits in a band of
-rows 300-330 reading **38.2** mean, which is where #375's third take stopped a ray that leaves the level
-paying a tall ceiling's bounce light - and the frame one build earlier reads 38.2 there too, so that
-cancellation is already in the picture this frame replaced and is not what moved. The streaked 4.00 plane
-two hundred rows higher reads 44.7 in both. Authoring it by hand removes the old excuse — a level that
+rows 300-330 reading **38.8** mean, where #375's third take stopped a ray that leaves the level paying a
+tall ceiling's bounce light - and the frame two builds earlier reads 38.2 there, so the 0.6 difference is
+#407 giving the bodies and props out in that room their cell's light, not that cancellation arriving. The
+streaked 4.00 plane two hundred rows higher reads 44.7 in both. Authoring it by hand removes the old excuse — a level that
 reads badly can no longer be blamed on the seed stream, because this plan is written cell by cell over a
 20 × 20 grid.
 
