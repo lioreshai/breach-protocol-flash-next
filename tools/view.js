@@ -6621,6 +6621,158 @@ if (MODE === 'heights') {
     console.log('  ' + pad('offmap', 9) + ' FAIL OFFMAP-DEFERRED-UNRUN: no level painted a deferred ceiling pixel clear of the map, so no frame exercised the fixed path');
     bad++;
   }
+  /* #385 CLAUSE 1 - THE PICTURE, env-gated so nothing here runs unless it is asked for. OFFLOOK=path
+     seats the eye on a RAISED BAND within OFFNEIGH cells of the level's own OUTLINE, with the air beyond
+     that outline unobstructed, and looks OUT of the level at a grazing pitch - the one seat this issue
+     says no preset camera occupies, because CAMSET's longest-ray yaw always turns the lens back inward.
+     The same frame is then rendered TWICE in one process: once as shipped (GNDOF 1) and once with the
+     borrowed anchor light put back by DEV.set('gndoff', 0) (js/90_dev.js:267, the A/B). That pair is the
+     whole row: the set of pixels the two arms disagree on IS the set of deferred ground pixels whose ray
+     landed off the level, because GNDOF touches nothing else, so the outline's position in the picture is
+     MEASURED rather than guessed, and the number clause 1 asks for is the worst one-pixel luminance step
+     from such a pixel to a neighbour of its own - the step ACROSS the level's edge, which is what a
+     second hard edge would be. The bar it is quoted against is the ceiling half's own pair, 89.8 with
+     the bug against 45.9 fixed. A RAMP shows up as a fixed-arm step near the ambient step of the wash;
+     a second hard edge shows up as a fixed-arm step near the buggy arm's. Env-gated: unset, no frame is
+     rendered, no counter moves, and every row above is byte-identical to a run without this block. */
+  if (process.env.OFFLOOK) {
+    const li = +(process.env.OFFLVL !== undefined ? process.env.OFFLVL : 3);
+    const NEIGH = +(process.env.OFFNEIGH || 6), PITCH = +(process.env.OFFPITCH || 0.06);
+    const NBMAX = +(process.env.OFFNBMAX || NEIGH);
+    /* BOTH ARMS BOOT FROM ONE STATE. renderWorld advances S.t and the view model sways with it, so a
+       second render of an unchanged seat is a DIFFERENT PICTURE at the rifle's silhouette - a 100-luma
+       edge of its own. Measured here: rendering the same seat twice with the same GNDOF moves 1,018 px,
+       every one of them under the rifle, and the floor term is in none of them. That number was read
+       as this row's result for one attempt. Each arm therefore re-seeds, re-deals and re-seats before
+       it renders, so the only thing separating the two frames is the term under test - and the pair is
+       now identical to zero pixels wherever the term cannot reach, which is itself a result. */
+    const BOOT = `S.mode='play';S.locked=false;startLevel(${li},true);`;
+    /* OFFSEAT=band is the seat the census itself already stands in, built the way `heights`' border and
+       eyeUp configs build it: the eye on a band ONE METRE ABOVE the datum, in the level's own border
+       column, with the air beyond it unwalled, looking straight OUT at a grazing pitch. It is a
+       construction - no shipped level puts a raised band beside an unwalled edge, which is exactly why
+       no preset camera has ever taken this picture - and the row's own text says so. The band write
+       goes through linkBoundaries, the invariant every writer of MAP.fz owes (AGENTS.md). */
+    const BAND = +(process.env.OFFBAND || 4);
+    const bandPoke = `;(()=>{let by=1.5;for(let y=1;y<MH-1;y++)if(!isSolid(1.5,y+.5)){by=y+.5;break;}`
+      + `for(let i=0;i<MW*MH;i++){if(MAP.cell[i])continue;const x=i%MW,y=(i/MW)|0;`
+      + `if(Math.hypot(x+.5-1.5,y+.5-by)<=1.5)MAP.fz[i]+=${BAND};}`
+      + `linkBoundaries();P.x=1.5;P.y=by;P.ang=Math.PI;P.pitch=BH*${PITCH};P.z=floorAt(P.x,P.y);`
+      + `for(const e of ENEMIES)e.state='sleep';return {x:1.5,y:by,f:${BAND},k:'the level own border column'}})()`;
+    const SEATQ = `(()=>{let b=null,bs=-1;for(let y=1;y<MH-1;y++)for(let x=1;x<MW-1;x++){`
+      + `if(isSolid(x+.5,y+.5))continue;const f=MAP.fz[y*MW+x];if(f<=0)continue;`
+      + `const nb=Math.min(x,MW-1-x,y,MH-1-y);if(nb>${NBMAX})continue;`
+      + `const ox=nb===x?-1:nb===MW-1-x?1:0,oy=nb===y?-1:nb===MH-1-y?1:0;`
+      + `let k2=0;for(;;){const qx=x+ox*(k2+1),qy=y+oy*(k2+1);`
+      + `if(qx<0||qy<0||qx>=MW||qy>=MH)break;if(isSolid(qx+.5,qy+.5))break;k2++;}`
+      + `if(!k2)continue;`
+      + `const s=f*16+k2;if(s>bs){bs=s;b={x:x+.5,y:y+.5,f:f,ox:ox,oy:oy,k:k2};}}return b})()`;
+    seedRng(4242 + li * 31);
+    run(BOOT);
+    const BANDSEAT = process.env.OFFSEAT === 'band';
+    const seat = process.env.OFFSEAT === 'cfg' || BANDSEAT ? run(BANDSEAT ? bandPoke : 'null') : run(SEATQ);
+    const CFGROW = cfgs.find(c => c[0] === (process.env.OFFCFG || ''));
+    const seatOn = (BANDSEAT || CFGROW) ? '' : `(()=>{P.x=${seat ? seat.x : 0};P.y=${seat ? seat.y : 0};P.z=floorAt(P.x,P.y);`
+      + `P.ang=${seat ? Math.atan2(seat.oy, seat.ox) : 0};P.pitch=BH*${PITCH};for(const e of ENEMIES)e.state='sleep';})()`;
+    /* OFFSEAT=cfg asks the cheaper question first: WHICH of the configs this probe already runs puts a
+       deferred ground pixel's own solve off the level at all? One line each, diff count and the two
+       census halves, and it is the survey that decides which seat is worth a picture (OFFCFG=<name>). */
+    if (process.env.OFFSEAT === 'cfg' && !CFGROW) {
+      for (const [cname, cpoke] of cfgs) {
+        const pair = [1, 0].map((g) => {
+          seedRng(4242 + li * 31);
+          run(BOOT + CAMSET + ';' + (cpoke ? cpoke + ';linkBoundaries();' : '') + `GNDOF=${g};LGCNT=new Int32Array(LG_NTOT);` + 'renderWorld();');
+          return { px: new Uint32Array(run('px')), off: run('[LG_OFFMAP, LG_OFFCEIL].map(k=>LGCNT[k])') };
+        });
+        let d = 0;
+        for (let i = 0; i < pair[0].px.length; i++) if (pair[0].px[i] !== pair[1].px[i]) d++;
+        console.log(`  ${pad('offcfg', 9)} L${li} ${pad(cname, 9)} ${d.toLocaleString()} px differ, deferred off-map floor ${pair[0].off[0].toLocaleString()}, ceiling ${pair[0].off[1].toLocaleString()}, eye ${run('P.x').toFixed(1)},${run('P.y').toFixed(1)} pitch ${run('P.pitch').toFixed(1)}`);
+      }
+    }
+    if (!seat) {
+      console.log(`  ${pad('offlook', 9)} level ${li} has NO raised band with an open line toward its own border (every band cell is walled off), so this seat is a construction, not a place a player can stand on on that level`);
+    }
+    const frames = [];
+    for (const [g, vm] of [[1, 1], [0, 1], [1, 0], [0, 0]]) {
+      seedRng(4242 + li * 31);
+      run(BOOT + (BANDSEAT ? bandPoke + ';' : (CFGROW ? CAMSET + ';' + CFGROW[1] + ';linkBoundaries();' : (seat ? seatOn + ';' : ''))) + `GNDOF=${g};LGCNT=new Int32Array(LG_NTOT);`
+        + (vm ? '' : 'globalThis.VMD=drawViewModel;drawViewModel=function(){};') + 'renderWorld();'
+        + (vm ? '' : 'drawViewModel=globalThis.VMD;'));
+      frames.push({ px: new Uint32Array(run('px')), off: run('[LG_OFFMAP, LG_OFFCEIL].map(k=>LGCNT[k])'),
+        BW: run('BW'), BH: run('BH'), hz: Math.round(run('horizon')) });
+    }
+    run('GNDOF=1;');
+    /* The view model is drawn OVER the floor and its silhouette is a hard edge of its own, so every
+       number below is read on the rifle-free pair (frames 2 and 3); the PNGs stay the frame a player
+       actually sees. The two pairs must agree on the diff COUNT - they differ only by what is drawn on
+       top - and the row prints both so a reader can see the silhouette did not leak into the figure. */
+    if (seat || CFGROW) {
+      const fix = frames[0], bug = frames[1], bf = frames[2].px, bb = frames[3].px, BW = frames[2].BW, BH = frames[2].BH, n = BW * BH;
+      const lum = (c) => 0.2126 * (c & 255) + 0.7152 * ((c >> 8) & 255) + 0.0722 * ((c >> 16) & 255);
+      let diff = 0, diffVM = 0, rowsLo = BH, rowsHi = -1, sumF = 0, sumB = 0, stepF = 0, stepB = 0, meanF = 0, meanB = 0, floorPx = 0;
+      /* How many screen pixels the edge takes to settle: from the first pixel the term touches, walk
+         inwards along the row until the luminance is within one step of what the far field settles at.
+         A RAMP is a wide one of these; a SECOND HARD EDGE is 0 or 1. Read on both arms at the same
+         boundaries, so the pair says what the fix did to the edge rather than to the brightness. */
+      /* How many of those crossings are still a HARD EDGE: a step past BAR, the ceiling half's own
+         fixed-arm figure (45.9 luma, against 89.8 with its bug). A RAMP puts almost none of its
+         crossings over that line; a SECOND HARD EDGE puts most of them there. Counted on the same
+         pixel pairs in both arms, so the pair is a statement about the edge and not about brightness. */
+      const BAR = 45.9;
+      let hardF = 0, hardB = 0, crossN = 0;
+      for (let i = 0; i < n; i++) {
+        sumF += lum(bf[i]); sumB += lum(bb[i]);
+        if (bf[i] !== bb[i]) diff++;
+        if (fix.px[i] !== bug.px[i]) diffVM++;
+      }
+      meanF = sumF / n; meanB = sumB / n;
+      /* The step that matters is the one ACROSS the outline: a pixel the term touches next to one it does
+         not. Both numbers are read on that same pair of pixels, so 74.2 vs 83.7 would be a difference in
+         where the geometry is bright, while these are the same two pixels under the two rules. */
+      for (let i = 0; i < n; i++) {
+        if (bf[i] === bb[i]) continue;
+        const x = i % BW, y = (i / BW) | 0;
+        if (y < rowsLo) rowsLo = y; if (y > rowsHi) rowsHi = y;
+        if (y > fix.hz) floorPx++;
+        for (const nb of [x > 0 ? i - 1 : -1, x + 1 < BW ? i + 1 : -1, i - BW, i + BW]) {
+          if (nb < 0 || nb >= n || bf[nb] !== bb[nb]) continue;      // a neighbour the term also touched is inside the far field, not across its edge
+          const sf = Math.abs(lum(bf[i]) - lum(bf[nb])), sb = Math.abs(lum(bb[i]) - lum(bb[nb]));
+          if (sf > stepF) stepF = sf;
+          if (sb > stepB) stepB = sb;
+        }
+        if (x > 0 && bf[i - 1] === bb[i - 1]) {                        // this pixel is the FIRST one past the outline along its row
+          crossN++;
+          if (Math.abs(lum(bf[i]) - lum(bf[i - 1])) > BAR) hardF++;
+          if (Math.abs(lum(bb[i]) - lum(bb[i - 1])) > BAR) hardB++;
+        }
+      }
+      if (process.env.OFFPNG0) writePNG(process.env.OFFPNG0, BW, BH, toRGBA(bug.px), 2);
+      if (process.env.OFFMASK) {                                  // where in the picture is the far floor? a bin map of the diff
+        let m = '';
+        for (let by = 0; by < 22; by++) {
+          let line = '';
+          for (let bx = 0; bx < 79; bx++) {
+            let d = 0;
+            for (let yy = (by * BH / 22) | 0; yy < ((by + 1) * BH / 22) | 0; yy++) for (let xx = (bx * BW / 79) | 0; xx < ((bx + 1) * BW / 79) | 0; xx++) if (bf[yy * BW + xx] !== bb[yy * BW + xx]) d = 1;
+            line += d ? '#' : '.';
+          }
+          m += line + (by * BH / 22 <= fix.hz && (by + 1) * BH / 22 > fix.hz ? '   <- horizon' : '') + '\n';
+        }
+        console.log('  offlook mask: # = this bin holds a pixel the two arms disagree on\n' + m);
+      }
+      writePNG(process.env.OFFLOOK, BW, BH, toRGBA(fix.px), 2);
+      console.log(`  ${pad('offlook', 9)} seat ${run('P.x').toFixed(2)},${run('P.y').toFixed(2)} band ${seat ? seat.f : 'cfg ' + process.env.OFFCFG} z ${run('eyeZ').toFixed(2)}`
+        + ` looking outward over ${seat ? seat.k : 'the pit lip'} open cell(s) at pitch ${(PITCH * BH).toFixed(1)} px -> ${(fix.off[0]).toLocaleString()} deferred FLOOR and ${(fix.off[1]).toLocaleString()} deferred CEILING ground pixels landed a whole cell clear of the level,`
+        + ` ${diff.toLocaleString()} px differ between the arms (rows ${rowsLo}..${rowsHi} of ${BH}, ${floorPx.toLocaleString()} of them BELOW the horizon at row ${fix.hz})`
+        + `; frame mean ${meanF.toFixed(1)} fixed / ${meanB.toFixed(1)} borrowed;`
+        + ` worst one-pixel step ACROSS that edge ${stepF.toFixed(1)} fixed vs ${stepB.toFixed(1)} borrowed luma, on the same pixel pairs (ceiling half's pair: 45.9 / 89.8);`
+        + ` ${crossN} row crossings of the outline are a one-pixel step over ${BAR} luma (the ceiling half's fixed-arm figure) at ${hardF} of them fixed against ${hardB} borrowed;`
+        + `${diff === 0 && fix.off[0] ? ' FAIL OFFLOOK-VACUUM: the census counts deferred off-map floor pixels in this frame but the two arms are byte-identical, so the diff is not measuring the term' : ''}`
+        + `${crossN && hardF > hardB ? ' FAIL OFFLOOK-SECOND-EDGE: the fixed arm leaves MORE hard crossings at the level outline than the borrowed one, so the far floor ends at a second edge rather than a ramp' : ''}`
+        + `${!crossN && diff ? ' FAIL OFFLOOK-NO-CROSSING: the arms differ but no differing pixel has a non-differing neighbour to its left, so the outline is not inside this frame' : ''}`
+        + `${crossN && hardF <= hardB ? '  ok: the edge across the outline is the geometry\'s own lip, not a light artefact' : ''}`);
+    }
+  }
   console.log(bad ? `heights: ${bad} config(s) FAILED` : 'heights: all configs ok');
   process.exit(bad ? 1 : 0);
 }
