@@ -7847,6 +7847,30 @@ if (MODE === 'contrast') {
      the generator's stream and re-deal the NEXT level, which would silently change what every later row
      in this probe measures); a level that spawns nobody gets one grunt, said on the row. */
   const DIST_D = [8, 16], DIST_TOL = 20, DIST_MINPX = 12, DIST_ARM = 2;
+  /* The three numbers the magnitude gate is built from, all of them the ROW's own measurements:
+       lampShare  on.back * (1 - min(field/behind,1)) - what the surface behind would read if the body's
+                  cell delivered the same lamp field as its own cell. The part of the gap that is lamp
+                  COVERAGE, i.e. #199, read off MAP.light at the two cells rather than asserted.
+       predicted  on.back - lampShare = the luma the surface behind would have under the BODY's field.
+       unexplained  predicted - on.body - the shortfall that survives BOTH mechanisms this build can be
+                  blamed for: the removed falloff (already off on main, and the arm measures what it is
+                  worth) and the coverage difference. A body shaded like the wall in its OWN cell reads
+                  `predicted`; anything below that is a term neither issue covers.
+     A past-bar row is therefore never silently ok. `lampShare + unexplained == gap` by construction, so
+     the attribution is the row deciding which HALF of its own shortfall each mechanism explains: #199
+     when the field pair accounts for at least half of it, #407's own unpaid half when it does not. A
+     body shaded like the surface behind it under the BODY's own field would read `predicted`; what falls
+     short of that is neither the removed falloff (the arm row prices it) nor lamp coverage (the field
+     pair prices it) - it is the body's own material and shading against that surface, and at these seats
+     that is most of the deficit, which is why #407's 20-luma criterion is not met by removing the term
+     alone. Both attributions print KNOWN, are counted in the verdict's census, and go red under STRICT=1;
+     and a row goes red outright, with no debt to hide behind, once `unexplained` passes DIST_UNEXP_RED.
+     Measured at this head the worst unexplained seat is L0 at 16 m at 38.7 luma with its two fields
+     within 7% of each other, so the outright-red floor sits at 45 - a regression that darkens bodies
+     further fails in the default lane, while the deficit that already exists prints as the named debt it
+     is. That is this repo's rule for a new red in a blocking probe: KNOWN at the measured baseline, red
+     past a measured floor, promoted under STRICT=1 - not a probe that cannot fail. */
+  const DIST_UNEXP_RED = 45;
   // BODYDIST=0 on the command line runs THIS PROBE with the second falloff restored in both copies,
   // which is how the distance rows below are seen to fail. The A/B inside each row is the same switch
   // moved for one render, so the shipped run says what the arm is worth without leaving it armed.
@@ -7906,22 +7930,25 @@ if (MODE === 'contrast') {
       if (hasArm) run('BODYDIST = ' + BD0 + ';');
       const gap = on.back - on.body, vac = on.n < DIST_MINPX;
       const fr = g.behind > 1e-6 ? g.field / g.behind : 1;      // the body's field as a share of the field behind
-      /* Which half a shortfall belongs to, decided by the ARM rather than by prose: `mv` is what the
-         second falloff is worth on these exact pixels, so (gap - mv) is the part a removed multiplier
-         CANNOT be blamed for. Past the bar with the term's own worth removed is #199's unpaid lamp
-         coverage and reports as that debt; past the bar even after the whole term is added back is a
-         regression in this term and goes red. Measured at this head the whole deficit is the second
-         kind nowhere and the first kind at five of the eight seats - which is what #199 now owns. */
-      /* Which half a shortfall belongs to, decided by the ARM rather than by prose. `termWorth` is what
-         the second falloff costs on these exact pixels, so anything past it is NOT this term: at every
-         seat measured here the whole term is worth 3-10 luma while the residual is 12-39, which is #199's
-         unpaid lamp coverage and reports as that debt. The one thing this row CAN go red on, besides
-         emptiness, is the sign: if putting the term DOWN (BODYDIST = 0) made the same pixels LIGHTER
-         than the shipped frame, the field is being attenuated more than once, which is the bug. */
+      /* `termWorth` is what the SECOND FALLOFF costs on these exact pixels - it proves the term is in
+         the tree and what it would cost, and it is what the BODYDIST=0 run pays. It is NOT a component
+         of the shipped gap, because on this tree the term is off: `on.body` was rendered with no
+         falloff at all. Attribution therefore comes from the field pair (`lampShare`) and from what is
+         left over (`unexplained`), and the sign test is the other thing a row can go red on: if putting
+         the term DOWN made these pixels LIGHTER, the field is being attenuated more than once. */
       const termWorth = off ? on.body - off.body : 0;
       const twice = !!off && off.body > on.body + 0.5;
-      const starved = !vac && gap > DIST_TOL && !twice;
-      row(seatRay + ' keeps its room\'s light (#407)', !vac && (gap <= DIST_TOL || starved) && BD0 !== 0,
+      const lampFrac = Math.min(fr, 1), predicted = on.back * lampFrac;
+      const lampShare = on.back - predicted, unexplained = predicted - on.body;
+      /* #199's evidence is the field PAIR, not the size of the residual. `lampShare` and `unexplained`
+         split `gap` in two with nothing left over, so the row attributes the deficit to whichever half
+         it can actually price: coverage when the field pair explains at least half the shortfall, this
+         issue's own unpaid half otherwise. L0 at 16 m is the case that decides it - its two cells sit
+         within 7% of each other, so 4 of its 43 luma is coverage and 38.7 is not, and it carries #407. */
+      const starved = !vac && !twice && gap > DIST_TOL && lampShare >= gap - lampShare;
+      const hardRed = !vac && !twice && gap > DIST_TOL && unexplained > DIST_UNEXP_RED;
+      const dOk = !vac && gap <= DIST_TOL && !twice && !hardRed && BD0 !== 0;
+      row(seatRay + ' keeps its room\'s light (#407)', dOk,
         vac ? 'vacuous: the body paints ' + on.n + ' px alone at ' + D + ' m, under the ' + DIST_MINPX
           + ' px floor - a mean over that is not a measurement'
           : 'silhouette mean ' + on.body.toFixed(1) + ' against the surface behind it at the same pixels '
@@ -7933,11 +7960,24 @@ if (MODE === 'contrast') {
             + (100 * fr).toFixed(0) + '%), the ray reaching it past ' + g.stop.toFixed(1) + ' m of march. '
             + (twice ? 'RED on the SIGN: putting the term down made these px ' + (-termWorth).toFixed(1)
               + ' luma LIGHTER, so the field is being attenuated more than once on bodies'
-              : starved ? 'The whole term is worth ' + termWorth.toFixed(1) + ' luma here and the residual is '
-                + (gap - termWorth).toFixed(1) + ', so that part is lamp coverage - #199 - and not this term, '
-                + 'which the arm row beside it shows is paid.'
-                : 'The gap is inside the bar (' + termWorth.toFixed(1) + ' luma of it is this term).'),
-        starved && BD0 !== 0 ? '#199' : undefined);
+              : hardRed ? 'RED PAST THE FLOOR: a body shaded like this surface under the body\'s OWN field would '
+                + 'read ' + predicted.toFixed(1) + ' and it reads ' + on.body.toFixed(1) + ', so '
+                + unexplained.toFixed(1) + ' luma is beyond the ' + DIST_UNEXP_RED + ' luma floor this row '
+                + 'measured at its worst seat - bodies are being darkened by a term beyond #199 and beyond '
+                + 'the falloff the arm row beside it prices at ' + termWorth.toFixed(1) + '.'
+              : starved ? 'The part lamp coverage explains is ' + lampShare.toFixed(1) + ' luma of the '
+                + gap.toFixed(1) + ' - the majority of it, read off MAP.light at the two cells - which leaves '
+                + unexplained.toFixed(1) + ', inside the ' + DIST_UNEXP_RED + ' luma red floor. So this seat is '
+                + '#199\'s unpaid coverage, NOT this term, which the arm row beside it prices at '
+                + termWorth.toFixed(1) + '. STRICT=1 gates it.'
+              : gap > DIST_TOL ? 'UNEXPLAINED AT THE BAR, and NOT attributed to #199: the field pair prices '
+                + 'coverage at ' + lampShare.toFixed(1) + ' of the ' + gap.toFixed(1) + ' luma - under half - so '
+                + unexplained.toFixed(1) + ' is explained by neither #199 nor the falloff (the arm prices that '
+                + 'at ' + termWorth.toFixed(1) + '); it is the body\'s own material and shading against that '
+                + 'surface. This seat\'s shortfall is this issue\'s own unpaid half and carries #407, and '
+                + 'STRICT=1 makes it red.'
+                : 'The gap is inside the bar (the arm prices this term at ' + termWorth.toFixed(1) + ' luma).'),
+        dOk ? undefined : (vac || twice || BD0 === 0 || hardRed ? undefined : starved ? '#199' : '#407'));
       if (off) {
         const mv = on.body - off.body;
         row(seatRay + ': the bodydist arm moves the same px (#407 A/B)', mv >= DIST_ARM,
