@@ -11864,7 +11864,11 @@ if (MODE === 'surface') {
               been seen to fail anywhere (AGENTS.md, "a probe passing is not a probe being capable of
               failing"), so this runs in the same process and its verdict is printed as its own row. */
   const BW = run('BW'), BH = run('BH'), NL = run('LEVELS.length');
-  const CAMS = (process.env.CAMS || '0,1,2,3').split(',').map(Number);
+  /* The pose SET. 0-3 are the spawn cell turned to its longest sight line, quarter-turned; `N` is the
+     same cell turned to the NEAREST wall it can see at arm's length-or-further (#369, see `aim`). */
+  const CAMS = (process.env.CAMS || '0,1,2,3,N').split(',');
+  // the `N` pose's floor on how close that wall may be, so it cannot pick a wall the lens is inside
+  const NEARD = process.env.NEARD !== undefined ? +process.env.NEARD : 3.5;
   const TARGET = process.env.TARGET !== undefined ? +process.env.TARGET : 15;
   const MIN_COLS = process.env.MIN_COLS !== undefined ? +process.env.MIN_COLS : 60;
   // the fraction of the frame's WIDTH that must separate the deck from the face meeting it (#369:
@@ -11907,19 +11911,36 @@ if (MODE === 'surface') {
   })()`);
   // the pose is the deal's OWN spawn cell, turned to its longest sight line; cam n adds n*90 degrees.
   // `scene`'s derived camera picks an open cell by list index, which answers "does this level have
-  // depth" but not "what does the player see" - and #369's criteria are about what the player sees (its
-  // level-3 frame IS the README's spawn-seat shot), so a census taken from a cell nobody is ever parked
+  // depth" but not "what does the player sees", so a census taken from a cell nobody is ever parked
   // in would be quoting a pose. Aiming re-reads the spawn cell from the deal, so no pose can walk the
   // player out of the room the census is measuring (AGENTS.md: a camera probe that drives the player
   // ends up in the void where the grid is undefined and the DDA never hits).
-  const aim = cam => run(`(function(){
+  /* THE `N` POSE, AND WHY THE LONGEST SIGHT LINE CANNOT READ EVERY LEVEL. Picking the longest ray is
+     the right seat for "does this room have depth", and it is also the reason ABATOIR CORE could not be
+     judged at all: the longest sight line is the one direction whose far wall sits PAST FARB, and past
+     FARB a ground row is a flat wash - so the ceiling's last pixel in every column is wash, every column
+     is dropped by `washAt`, and the SEAM row prints n/a in 4 of 4 poses while `SWEEP` fails (measured:
+     589 of 601 columns dropped on the wash test at cam0, seam columns 2/4/3/2). Facing the NEAREST wall
+     at least NEARD metres away puts a wall face under the ceiling inside FARB, which is the only place
+     the seam this issue's criterion is stated on can exist. It is the same cell and the same deal - a
+     heading, not a seat - and it is the pose of a player who has walked up to a wall and looked at it.
+     The row prints the distance it chose, so the pose is declared rather than found by luck. */
+  const aim = cam => {
+    // the heading a pose means, said as an expression so the sandbox never sees a pose name it cannot
+    // resolve: 0-3 quarter-turn the longest sight line, `N` faces the nearest wall NEARD m or further
+    const ang = cam === 'N' ? 'bestn' : `best + ${Number(cam) || 0} * Math.PI / 2`;
+    return run(`(function(){
     P.x = globalThis.__spawn[0]; P.y = globalThis.__spawn[1];
-    let bd = -1, best = 0;
+    let bd = -1, best = 0, bn = 1e9, bestn = 0;
     for(let k=0;k<48;k++){const a=k*Math.PI/24;
-      const d=castRayDist(P.x+.0,P.y+.0,Math.cos(a),Math.sin(a),9).dist;if(d>bd){bd=d;best=a;}}
-    P.ang = best + ${cam} * Math.PI / 2; P.pitch = BH * 0.02; P.z = floorAt(P.x, P.y);
+      const d=castRayDist(P.x+.0,P.y+.0,Math.cos(a),Math.sin(a),9).dist;
+      if(d>bd){bd=d;best=a;}
+      if(d>=${NEARD}&&d<bn){bn=d;bestn=a;}}
+    globalThis.__poseD = ${cam === 'N' ? 'bn' : 'bd'};
+    P.ang = ${ang}; P.pitch = BH * 0.02; P.z = floorAt(P.x, P.y);
     P.vx = P.vy = P.vz = 0; P.air = false; P.crouch = 0;
     return 1; })()`);
+  };
   /* Render with one authored bias moved, and put it back. The value is parked on globalThis rather
      than captured in node because a level that does not author the field has it `undefined`, and
      `MAP.floorBias = undefined` is what restores that (the renderer reads `MAP.x || 0`). The viewmodel
@@ -11954,16 +11975,34 @@ if (MODE === 'surface') {
        ceiling against the wash under it is what made the first version of this row read -15 on ABATOIR
        CORE: the seam there was the ceiling's edge dissolving into the wash, and the #375 wash step was
        being charged to #369's ledger. Only columns where BOTH windows are textured surfaces are counted. */
-    const washAt = (x, y) => { const i = y * BW + x; return x + 2 < BW && a[i] === a[i + 1] && a[i] === a[i + 2]; };
+    /* THE FAR WASH, and how much of a row has to be identical to prove it. This used to ask for THREE
+       equal bytes, which a flat run of a dark ceiling texel also produces: measured on ABATOIR CORE at
+       its spawn heading that one test dropped 589 of 601 columns, every one of them a ceiling the walk
+       never got to score. The fill the renderer does past FARB paints a WHOLE row (`px.fill` across the
+       row, js/40_render.js), so eight equal bytes in a row still says wash and says it about less else.
+       The A/B is one tree, one knob: `WASHRUN=3` is the pre-fix test. Measured at CAMS=0,N on this head -
+       seam columns 3 -> 8 : L0 86 -> 116, L1 209 -> 311, L2 2 -> 8, L3 168 -> 246, and every median moves
+       by under 1.4 luma (L0 11.9 -> 11.4, L1 18.6 -> 19.9, L3 38.0 -> 37.6), so NO verdict moves: this is
+       the census recovering columns, not a threshold being widened to let a level through. */
+    const WRUN = process.env.WASHRUN !== undefined ? +process.env.WASHRUN : 8;
+    const washAt = (x, y) => {
+      const i = y * BW + x; if (x + WRUN >= BW) return false;
+      for (let k = 1; k < WRUN; k++) if (a[i + k] !== a[i]) return false;
+      return true;
+    };
+    /* WHERE A COLUMN DIES, counted. `SWEEP` has to say WHY a level is unreadable, and "the ceiling edge
+       never lands in a frame" was a guess printed over a measurement: naming the filter is what turns
+       "the probe cannot read this level" into a claim a reader can check and a next worker can act on. */
+    const drop = { range: 0, wash: 0, win: 0 };
     for (let x = 0; x < BW; x++) {
       let r = -1;
       for (let y = 0; y < BH; y++) if (cl[y * BW + x]) r = y;
-      if (r < 9 || r > BH - 10) continue;
-      if (washAt(x, r) || washAt(x, r + 4)) continue;
+      if (r < 9 || r > BH - 10) { drop.range++; continue; }
+      if (washAt(x, r) || washAt(x, r + 4)) { drop.wash++; continue; }
       let s1 = 0, n1 = 0, s2 = 0, n2 = 0, w = 0;
       for (let y = r - 8; y < r; y++) { const i = y * BW + x; if (cl[i] && !washAt(x, y)) { s1 += LUM(a, i); n1++; } }
       for (let y = r + 1; y <= r + 8; y++) { const i = y * BW + x; if (!cl[i] && !washAt(x, y)) { s2 += LUM(a, i); n2++; } }
-      if (n1 >= 4 && n2 >= 6) gaps.push(s2 / n2 - s1 / n1);
+      if (n1 >= 4 && n2 >= 6) gaps.push(s2 / n2 - s1 / n1); else drop.win++;
     }
     gaps.sort((p, q) => p - q);
     /* THE OTHER HALF OF #369'S RULE, measured where the issue states it: "walls carry the detail and the
@@ -12008,7 +12047,8 @@ if (MODE === 'surface') {
       seam: med(gaps), seamP10: gaps.length ? gaps[Math.floor(gaps.length * 0.1)] : NaN,
       cols: gaps.length,
       wgap: med(wg), wcols: wg.length, wsep: wg.length ? wOk / wg.length : NaN,
-      wmin: wg.length ? wg[Math.floor(wg.length * 0.1)] : NaN
+      wmin: wg.length ? wg[Math.floor(wg.length * 0.1)] : NaN,
+      drop
     };
   }
   console.log('surface value order - ceiling must sit under the surface its edge meets by >= ' + TARGET +
@@ -12047,7 +12087,7 @@ if (MODE === 'surface') {
       `wall ${fams.wall} + wall2 ${fams.wall2} over a ${fams.floor} deck - ` +
       (hit.length ? 'names its own floor on ' + hit.join(' and ')
         : 'both faces are a different family from the deck'), fams.cw || fams.c2 ? '#369' : undefined);
-    let poseCols = [], poseOk = true, firstHash = 0, measPoses = [], bandPoses = [];
+    let poseCols = [], dropCols = [], poseOk = true, firstHash = 0, measPoses = [], bandPoses = [];
     for (const cam of CAMS) {
       aim(cam);
       // the hash is read AFTER aiming, so a pose that moved the geometry shows up here rather than
@@ -12059,6 +12099,7 @@ if (MODE === 'surface') {
       const c = classify(a, cf, ff);
       if (cam === CAMS[0]) firstHash = fhash(a);
       poseCols.push(c.cols);
+      dropCols.push(c.drop);
       // A pose whose ceiling edge is not in the frame is NOT MEASURED - it is neither a pass nor a debt.
       // Vacuity is still a FAILURE (AGENTS.md), just charged where it belongs: to the level whose whole
       // sweep produced no measurable pose, which is the row after the loop.
@@ -12069,7 +12110,9 @@ if (MODE === 'surface') {
       const bands = c.ceilPct >= 1 && c.floorPct >= 1;
       if (bands) bandPoses.push(cam);
       console.log(`L${li} cam${cam} (${name}), deal ${gh.toString(16).padStart(8, '0')}, authored floorBias/ceilBias/ceilLead ${authored}, ` +
-        `${c.cols} seam columns, ceiling ${c.ceilPct.toFixed(0)}% of frame / floor ${c.floorPct.toFixed(0)}%:`);
+        `${c.cols} seam columns, ceiling ${c.ceilPct.toFixed(0)}% of frame / floor ${c.floorPct.toFixed(0)}%, ` +
+        `wall ${run('globalThis.__poseD').toFixed(1)} m ahead${cam === 'N' ? ' (NEAREST)' : ''}, ` +
+        `columns dropped by pose: ${c.drop.range} seam out of frame, ${c.drop.wash} far wash, ${c.drop.win} thin window:`);
       row(`L${li} cam${cam} SEAM ceiling under what it meets >= ${TARGET}`,
         meas && c.seam >= TARGET,
         `median gap ${c.seam.toFixed(1)} (p10 ${c.seamP10.toFixed(1)}) over ${c.cols} columns, ` +
@@ -12140,7 +12183,10 @@ if (MODE === 'surface') {
       measPoses.length > 0 && bandPoses.length > 0 && wMax > 0,
       `seam measurable in ${measPoses.length} of ${CAMS.length} pose(s)` +
       (measPoses.length ? ' (cam ' + measPoses.join(',') + ')' : ` - columns per pose ` + poseCols.join('/') +
-        ': the ceiling edge never lands in a frame this probe can score') +
+        ': the ceiling edge never lands in a frame this probe can score (across the sweep ' +
+        dropCols.reduce((s, d) => s + d.range, 0) + ' columns had no ceiling seam above the horizon, ' +
+        dropCols.reduce((s, d) => s + d.wash, 0) + ' met only the far wash, ' +
+        dropCols.reduce((s, d) => s + d.win, 0) + ' had too thin a window either side)') +
       `, bands in ${bandPoses.length}` + (bandPoses.length ? '' : ' - no pose left a band to average') +
       `, wall/deck columns up to ${wMax}` +
       (wMax > 0 ? '' : ' - the deck/face walk found NO column in any pose, so the wall half measures nothing here'),
