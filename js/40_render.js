@@ -56,6 +56,28 @@ let G_TRI = false, G_GRIT = 0;                                  // derived from 
    it is a MULTIPLY on composited pixels, not an additive term the AMB floor sinks. World-scaled, so
    it stays SEAMW metres wide at any depth, and narrow, so it is an edge and not a shade. */
 let SEAM = 1, SEAMD = 0.62, SEAMU = 0.13, SEAMW = 0.16, SEAMC = 0.22;
+/* #385: the crease's ABSOLUTE half, and it is AUTHORED content, not a global.
+
+   A multiply is scale-invariant: `kk` takes 84% off a lip row whether the deck it sits on reads 37
+   luma or 77, so in luminance the edge is 6 units on one and 13 on the other. That is why THE STACK's
+   down-step into its pit is quiet while every generated level's lip reads: the authored level authors
+   `lamps: 0` (js/20_level.js), so the deck this lip is scored on is the darkest in the game. Deepening
+   SEAMD globally was measured and declined - it hardens the three lips that already read and re-keys
+   their recorded frames to buy one authored row (issue #385). What a dark room needs is an edge in
+   LUMAS, not another fraction.
+
+   `stepEdge` is that: a per-level absolute subtraction in luma units, applied to the same rows the
+   multiply already touches (so the band's WIDTH and its locality are unchanged), and faded by the
+   luminance of the DECK the eye stands on at that lip - read off the composited floor pixel just under
+   the band, not off the crease row itself, because the crease row is dark by construction on every lip
+   and would switch this term on everywhere. Above `SEAMK` deck luma the fade is 0 and the pixel is the
+   byte it always was; a level that authors nothing gets 0 and moves nothing.
+
+   The fade keys on the deck and not on the crease pixel on purpose, and `bands`' L3 walk lip (deck 77,
+   same level, same renderer, authored value live) is the control that proves it: that lip is byte-for-byte
+   what it was while the dark one three cells away is not. */
+let SEAMA = 0;
+const SEAMK = 0.45;                             // deck LIGHT at which the absolute term has faded out
 /* #178: contact shadow. A rim ADDS to the body, and the rig raster is multiplied by scene light at
    composite, so an additive rim is weakest in the dark rooms that need separation most - AMB 0.19
    floors it. This SUBTRACTS from the world a body occludes instead: a short radial falloff on the
@@ -279,6 +301,7 @@ function renderWorld() {
   AMB = MAP && MAP.amb !== undefined ? MAP.amb : 0.13;
   FLOORB = MAP ? MAP.floorBias || 0 : 0;
   CEILB = MAP ? MAP.ceilBias || 0 : 0;
+  SEAMA = MAP ? MAP.stepEdge || 0 : 0;        // #385: an authored absolute crease, 0 on every level that authors none
   /* #369: the vault's ceiling. An authored `ceilLead` is the level's own word and wins; otherwise a
      level that authored a floor/ceiling order is capped by that order (see CEILGM), and a level that
      authored nothing keeps the flat CEILGM so its bytes do not move. */
@@ -1843,7 +1866,7 @@ function decalAlpha(dc, wx, wy, dfade) {
    half the riser's projected height, so a 1 m face gets a seam at its foot, not a gradient.
    amp < 0 shades a crease, amp > 0 lifts a lip; a multiply either way, so the AMB floor that sinks an
    additive rim in a dark room cannot sink this. */
-function seamCrease(x, t, zA, zB, amp, dir) {
+function seamCrease(x, t, zA, zB, amp, dir, deckLit) {
   if (!(t > 0.001)) return;
   const hp = BH / t, yA = horizon + (eyeZ - zA) * hp, yB = horizon + (eyeZ - zB) * hp;
   const bw = Math.min(Math.abs(yB - yA) * 0.5, hp * SEAMW);
@@ -1851,6 +1874,14 @@ function seamCrease(x, t, zA, zB, amp, dir) {
   // the anchor row is the face's own edge row on this side: floor() coming up from below, ceil()
   // coming down from above - the same pair castWalls uses for de and ds
   const y0 = dir > 0 ? Math.ceil(yA) : Math.floor(yA);
+  /* #385: how much ABSOLUTE edge this lip gets, from the deck the eye is standing on. Rows under the
+     lip's own row are that floor either way the step goes, so read one just clear of the band; a row
+     that lands off-screen contributes nothing. */
+  let ab = 0;
+  if (SEAMA > 0 && amp < 0 && deckLit < SEAMK) {
+    ab = SEAMA * (1 - deckLit / SEAMK);
+    if (ab > SEAMA) ab = SEAMA;
+  }
   for (let k = 0; k <= bw; k++) {
     const y = y0 + dir * k;
     if (y < 0) { if (dir < 0) break; continue; }
@@ -1861,7 +1892,8 @@ function seamCrease(x, t, zA, zB, amp, dir) {
     // vanishes (measured on L1: mean |dL| 25 with the gradient, and the sign of the difference
     // changes across levels, so an unsigned threshold cannot be the whole gate)
     const kk = 1 + amp * (1 - k / bw) - (!k && amp < 0 ? SEAMC : 0);
-    px[i] = (0xFF000000 | clampi((v >> 16 & 255) * kk) << 16 | clampi((v >> 8 & 255) * kk) << 8 | clampi((v & 255) * kk)) >>> 0;
+    const d = ab * (1 - k / bw);
+    px[i] = (0xFF000000 | clampi((v >> 16 & 255) * kk - d) << 16 | clampi((v >> 8 & 255) * kk - d) << 8 | clampi((v & 255) * kk - d)) >>> 0;
   }
 }
 
@@ -2194,9 +2226,10 @@ function castWalls(flash, fcR, fcG, fcB) {
          lower floor's got one: for a step DOWN that is the edge the eye does NOT stand at, so the
          visible lip carried no edge at all (up lips 57/77/59% contrast, down lips 17/17/29%). The
          lower floor's crease stays exactly where it was, because for a step UP it is the same row. */
-      seamCrease(x, perp, rze, rzf, -SEAMD, rzf > rze ? -1 : 1);
-      if (rze !== rz0) seamCrease(x, perp, rz0, rz1, -SEAMD, -1);
-      seamCrease(x, perp, rz1, rz0, SEAMU, -1);
+      const seamLit = li - AMB;                  // the deck's own LIGHT, fog and ambient out (#385)
+      seamCrease(x, perp, rze, rzf, -SEAMD, rzf > rze ? -1 : 1, seamLit);
+      if (rze !== rz0) seamCrease(x, perp, rz0, rz1, -SEAMD, -1, seamLit);
+      seamCrease(x, perp, rz1, rz0, SEAMU, -1, seamLit);
     }
   }
 }
