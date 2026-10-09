@@ -67,15 +67,23 @@ const LEVELS = [
     // the read we want. Walls lead floors at the spawn seat above. Say it here because the entry's rule
     // sentence does not cover it.
     // Height is already said by the riser seam and the minimap band cue (#164).
-    // #369's FAMILY rule, DECIDED rather than assumed: this level keeps `wall: WT.STONE` over a STONE
-    // deck. The rule exists because a wall that repeats its deck's material gives the eye no edge, and
-    // here light already gives it one that the census can read - `surface` reports L3's SEAM at 45.0 /
-    // 59.8 / 68.3 / 50.7 luma over 168 / 212 / 87 / 351 columns in its four poses and its ORDER row puts
-    // the ceiling 24-30 under the deck, all of it at 4 of 4 measurable poses where ABATOIR CORE manages 0.
-    // The deck's floorBias 0.18 is doing the work the family rule usually does. So the collision stays
-    // declared here as a KNOWN row, and the reason is this comment: a stone silo with a stone floor is
-    // allowed to be one stone, as long as the picture still says which side of the edge you are on.
-    name: 'THE STACK', size: 20, authored: true, wall: WT.STONE, wall2: WT.TECH,
+    // #369's FAMILY rule. This level USED to keep `wall: WT.STONE` over its STONE deck, and the ruling on
+    // that came back: a level's wall may not name its own deck's material, because the edge between them is
+    // the one edge the player has to see in order to know which side of a lip they are on - and THE STACK
+    // is a level whose whole idea is a lip. The old defence of the collision was that light already
+    // separates the two faces here, and the measurement says why that is not enough: `surface`'s WALL row
+    // (the deck-vs-the-face-meeting-it census, added with this change) reads that gap at 54.0 / 38.2 /
+    // 26.6 luma across 96 / 96 / 79% of the frame's width in three of its four poses and NOTHING
+    // measurable in the fourth. A gap that lives in the LAMP rather than in the surface collapses wherever
+    // the deck sits outside a pool - which is most of a level that authors `lamps: 0`. So the wall now
+    // wears WT.SLAB: rectified ashlar, a different family from the flagstone deck, at WTEX.STONE's own mean
+    // albedo on purpose. The first attempt here used WT.CONCRETE: it moved the family and LOST the
+    // separation (26.6 across 79% of the width down to 16.2 across 57% at cam3), because CONCRETE's 130-
+    // grey base is darker than the stone it replaced while the deck under this level's floorBias did not
+    // move. Same brightness, different structure: the family rule paid for without spending the luminance
+    // seam the level already had, which is the order the top of this file authors and `surface` reads.
+    // `wall2` stays TECH: already another family, and the room-scale face the finale's fit-out is made of.
+    name: 'THE STACK', size: 20, authored: true, wall: WT.SLAB, wall2: WT.TECH,
     floor: 'STONE', ceil: 'ROCK', amb: 0.2, lampCol: [255, 196, 120], fogCol: [17, 13, 10],
     floorBias: 0.18, ceilBias: -0.04, ceilLead: 0.12,
     lamps: 0, crates: 0, barrels: 0, spawn: { grunt: 0, hound: 0, brute: 0 }, pick: {},
