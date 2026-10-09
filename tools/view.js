@@ -11823,6 +11823,37 @@ if (MODE === 'surface') {
   for (let li = 0; li < NL; li++) {
     const dealt = (deal(li), gridHash()), dh = dealt.toString(16).padStart(8, '0');
     const name = run('LEVELS[' + li + '].name');
+    /* #369's OTHER acceptance bullet is not a frame measurement at all, it is a rule at the place a
+       level's palette is DECLARED: no level's `wall`/`wall2` may name its own floor's material family.
+       It has never been checked by anything, which is why three of the four sectors collide and the one
+       that reads well does so by luck (the issue's own note: THE STACK puts its deck 57-80 luma above
+       its walls because its wall happened to land in another family). The collision is a MATERIAL
+       question, not a light question - the prior cycle measured the light route on ABATOIR CORE and it
+       fails `exposure`'s worst-roll floor at -0.10 and sits at the composited upper anchor at +anything,
+       so neither end of the value order can pay for a 15-luma seam.
+       The families come out of the tables the game already builds - `WT`'s keys and `LEVELS[].floor`, a
+       key of `FLOORS` - not out of a list typed into this file, so adding a material or renaming one
+       cannot hide from the row. A family is a material key with its variant suffix folded away: TECH2 is
+       the TECH family, which is what the generator's own naming says. The row names WHICH face collides,
+       because that is the pixel cost: `pickWallTex` (js/20_level.js:468) paints the primary face 78% of
+       the time and `wall2` 22%, so a primary-face collision is the frame the criterion is stated on and
+       a minority-face one is a seam every few metres. Reported as debt, not as a new gate: `surface` is
+       not in ci.yml's roster and these four collisions are pre-existing, so the exit code stays the
+   vacuity row's. */
+    const fams = run(`(function(){
+      const rev = {}; for (const k in WT) rev[WT[k]] = k;
+      const fam = s => String(s).replace(/2$/, '');
+      const L = LEVELS[${li}], w = rev[L.wall], w2 = rev[L.wall2];
+      return { wall: w, wall2: w2, floor: L.floor,
+        cw: fam(w) === fam(L.floor), c2: fam(w2) === fam(L.floor) };
+    })()`);
+    const hit = [];
+    if (fams.cw) hit.push('the PRIMARY face (78% of faces, the frame the criterion is stated on)');
+    if (fams.c2) hit.push('the minority face (wall2, 22%)');
+    row(`L${li} FAMILY no wall face names its own floor's material family`, !fams.cw && !fams.c2,
+      `wall ${fams.wall} + wall2 ${fams.wall2} over a ${fams.floor} deck - ` +
+      (hit.length ? 'names its own floor on ' + hit.join(' and ')
+        : 'both faces are a different family from the deck'), fams.cw || fams.c2 ? '#369' : undefined);
     let poseCols = [], poseOk = true, firstHash = 0, measPoses = [], bandPoses = [];
     for (const cam of CAMS) {
       aim(cam);
