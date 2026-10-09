@@ -837,17 +837,31 @@ if (MODE === 'alt') {
            has to be the one the claim is about. */
         const dxu = (lx - ux) * 0.35, dyu = (ly - uy) * 0.35;
         const edx = ux + dxu, edy = uy + dyu;
+        /* The OPENING across the boundary, in metres: [max floor, min ceilAt]. Both arms solve it from
+           the shipped ceilAt/floorAt rather than quoting a constant, because this is the arithmetic the
+           row's whole claim rests on and sight's slab/eye rows set the precedent: a block is stated as
+           "VACUOUS - the boundary has a X m opening", never as a bare zero. openLive is the authored
+           tall ceiling, openCtl the SAME cell with its ceiling back at CZ_DEF. An overlook is a
+           CEILING fact only if the first is > 0 and the second is 0; if CZ_DEF also leaves a hole, the
+           step alone is doing the work and the shot outcomes would prove nothing about cz. NOTE: this
+           block is inside a template literal, so it carries no backticks - a backtick here ends the
+           string and the whole probe dies at load with "missing ) after argument list". */
+        const openSpan = () => +(
+          Math.min(ceilAt(lx, ly), ceilAt(ux, uy)) -
+          Math.max(floorAt(lx, ly), floorAt(ux, uy))).toFixed(2);
         en.state = 'idle'; en.hp = 1e6; en.dead = false;
         en.x = ux; en.y = uy; const up = fire(lx, ly, ux, uy);
         en.x = lx; en.y = ly; const dn = fire(edx, edy, lx, ly);
+        const openLive = openSpan();
         const cz0 = MAP.cz[ (ovlAt[1] | 0) * N + (ovlAt[0] | 0) ];
         MAP.cz[ovlAt[1] * N + ovlAt[0]] = CZ_DEF; linkBoundaries();
+        const openCtl = openSpan();
         en.x = ux; en.y = uy; const upB = fire(lx, ly, ux, uy);
         en.x = lx; en.y = ly; const dnB = fire(edx, edy, lx, ly);
         MAP.cz[ovlAt[1] * N + ovlAt[0]] = cz0; linkBoundaries();
         en.x = sv.x; en.y = sv.y; en.state = sv.st; en.hp = sv.hp; en.dead = false;
         P.x = pv.x; P.y = pv.y; P.z = pv.z;                    // alt's own rows read P as the seat
-        return { up, dn, upB, dnB, at: ovlAt };
+        return { up, dn, upB, dnB, at: ovlAt, openLive, openCtl };
       })() : null;
       const nBands = Object.keys(bands).length;
       let bandLink = 0, noLink = [];
@@ -952,11 +966,19 @@ if (MODE === 'alt') {
     {
       const S = r.ovlShot, at = r.ovlAt;
       const atFz = a => (a[0] === undefined ? '-' : (at[4] === undefined ? '-' : at[4])) + ' -> ' + (at[5] === undefined ? '-' : at[5]);
-      const shotTxt = S ? `shot UP ${S.up.hit ? 'HITS at ' + S.up.t : 'misses (band ' + S.up.band + ', t ' + S.up.t + ')'} / `
+      /* The `CZ_DEF control:` clause used to be concatenated onto the TERNARY'S FALSE BRANCH: `?:`
+         binds looser than `+`, so `S ? A : B + C` is `S ? A : (B + C)`. On a level WITH a pair - every
+         level this row is about - the four control numbers were computed, gated the row through
+         `credited`, and never once appeared: the row read ok and a reader could not see the
+         0.312/0.325 margin it depended on, which is the number this issue's control arms are about.
+         Parenthesised, and both arms now also print the opening they were solved from. */
+      const shotTxt = S ? (`shot UP ${S.up.hit ? 'HITS at ' + S.up.t : 'misses (band ' + S.up.band + ', t ' + S.up.t + ')'} / `
         + `DOWN from the lip ${S.dn.hit ? 'HITS at ' + S.dn.t : 'misses at t ' + S.dn.t + (S.dn.floor ? ' on the floor plane it stands on' : '')}`
-          : 'no pair to aim'
-        + (S ? `; CZ_DEF control: UP ${S.upB.hit ? 'STILL HITS - the ceiling is not what opens it' : 'blocked (band stop at t ' + S.upB.t + ')'} / `
-             + `DOWN ${S.dnB.hit ? 'STILL HITS - the ceiling is not what opens it' : 'blocked at t ' + S.dnB.t} (t ${S.upB.t}/${S.dnB.t})` : '');
+          + `; boundary opening ${S.openLive > 0 ? 'OPEN ' + S.openLive.toFixed(2) + ' m' : 'CLOSED ' + S.openLive.toFixed(2) + ' m'} at the authored ceiling, `
+          + `CZ_DEF control: opening ${S.openCtl > 0 ? 'STILL OPEN ' + S.openCtl.toFixed(2) + ' m - the STEP is what lets the shot through, not cz' : 'CLOSED ' + S.openCtl.toFixed(2) + ' m'}, `
+          + `UP ${S.upB.hit ? 'STILL HITS - the ceiling is not what opens it' : 'blocked (band stop at t ' + S.upB.t + ')'} / `
+          + `DOWN ${S.dnB.hit ? 'STILL HITS - the ceiling is not what opens it' : 'blocked at t ' + S.dnB.t} (t ${S.upB.t}/${S.dnB.t})`)
+        : 'no pair to aim';
       /* What this row GATES: the shot is open in BOTH directions and the CZ_DEF arm blocks in BOTH.
          UP - the shot leaves the low room's eye and reaches a body one band up, and dies the moment that
          room's ceiling goes back to CZ_DEF (a band stop, kind 1, at t 0.50 on all four levels).
@@ -972,7 +994,13 @@ if (MODE === 'alt') {
          above would otherwise be hittable THROUGH the slab and make the control arm pass for nothing.
          The margin is small and it is the honest one: both arms are printed so a reader can see the
          0.312/0.325 pair rather than a bare ok. */
-      const credited = !!S && S.upB.hit === 0 && S.dnB.hit === 0;
+      /* Two clauses, one per direction of error. The shot arms say the flight is open both ways and
+         dies at CZ_DEF both ways. The opening arms say WHY: a hole at the authored ceiling and none at
+         CZ_DEF. Without them a step big enough to be a hole on its own could satisfy the shot arms and
+         the row would credit `cz` for geometry that never needed it (#353's own acceptance wording:
+         "the row credits the ceiling, not the geometry"). */
+      const credited = !!S && S.upB.hit === 0 && S.dnB.hit === 0
+        && S.openLive > 0 && S.openCtl <= 0;
       const ok = r.ovl >= 1 && r.ovlEnemy >= 1 && !!S && S.up.hit === 1 && S.dn.hit === 1 && credited;
       /* An AUTHORED plan is gated the same way as a deal once it declares an overlook: THE STACK now
          carries a 'V' glyph (js/20_level.js buildAuthored), so its row is a real gate and OVERLOOK=off
