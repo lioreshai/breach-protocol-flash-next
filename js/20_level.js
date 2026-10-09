@@ -4,14 +4,21 @@
    ================================================================== */
 const LEVELS = [
   {
-    name: 'ARCHIVE SUBLEVEL', size: 26, rooms: 7, maxRoom: 9, wall: WT.BRICK, wall2: WT.STONE,
+    // #369: `wall2` used to be WT.STONE, which is this level's own deck (`floor: 'STONE'`) - the minority
+    // face, 22% of faces by pickWallTex, and every one of them an edge that goes nowhere. CONCRETE is the
+    // same grey masonry family to the eye - form-panelled, dusty, cracked - over flagstones, so the wall
+    // keeps the archive's colour and stops repeating the floor it stands on.
+    name: 'ARCHIVE SUBLEVEL', size: 26, rooms: 7, maxRoom: 9, wall: WT.BRICK, wall2: WT.CONCRETE,
     floor: 'STONE', ceil: 'ROCK', amb: 0.19, lampCol: [255, 196, 120], fogCol: [17, 13, 10],
     lamps: 6, crates: 7, barrels: 7, spawn: { grunt: 5, hound: 3, brute: 0 }, pick: { health: 3, ammo: 4, armor: 1 },
     fixtures: ['PIPE', 'VENT'],           // #400: the archive is a place with old pipework in it
     purpose: ['RACK', 'BOARD']            // #400: and it is where they KEPT things - shelving and signage
   },
   {
-    name: 'RING TRANSPORT', size: 32, rooms: 9, maxRoom: 10, wall: WT.TECH, wall2: WT.METAL,
+    // #369: `wall2` used to be WT.METAL, the deck material again. A transport ring is plated AND gratted,
+    // so the minority face is now WT.GRATE - same grey-blue, and its dark gaps say "wall" against a deck
+    // you walk on rather than continuing the floor up the face.
+    name: 'RING TRANSPORT', size: 32, rooms: 9, maxRoom: 10, wall: WT.TECH, wall2: WT.GRATE,
     floor: 'METAL', ceil: 'PANEL', amb: 0.185, lampCol: [170, 226, 255], fogCol: [10, 14, 21],
     lamps: 8, crates: 8, barrels: 9, spawn: { grunt: 6, hound: 5, brute: 1 }, pick: { health: 4, ammo: 5, armor: 2 },
     fixtures: ['STRIPE', 'PIPE'],         // #400: a transport ring is striped and stencilled
@@ -28,7 +35,14 @@ const LEVELS = [
     // 17-23 below at a second camera. Its first frame sits at the COMPOSITED band's upper anchor (75,
     // tools/ci/assert.js exposure, where main reads 74), which is the reason this is the level that
     // needed the bias and not only the texture: with -0.06 that frame measured 77.7 and went red.
-    name: 'ABATOIR CORE', size: 36, rooms: 11, maxRoom: 11, wall: WT.FLESH, wall2: WT.TECH2,
+    // #369, the material half: `wall` used to be WT.FLESH, which is the SAME GENERATOR as this level's
+    // `floor: 'FLESH'` (js/10_assets.js), so ABATOIR CORE painted its deck and 78% of its wall faces with
+    // one pattern in one red and the level read as one material seen from three angles. The walls are now
+    // WT.MUSCLE - fibre bundles under folds, same mean albedo so no exposure term moves, no emissive
+    // texels. The deck could not be the face that moved: darkening it is measured to break `exposure`'s
+    // worst-roll floor at ceilBias terms (see the #369 note on this level in the issue) and lightening it
+    // runs into the composited upper anchor above, so the deck keeps its light and the walls change.
+    name: 'ABATOIR CORE', size: 36, rooms: 11, maxRoom: 11, wall: WT.MUSCLE, wall2: WT.TECH2,
     floor: 'FLESH', ceil: 'SINEW', amb: 0.3, lampCol: [190, 255, 150], fogCol: [21, 8, 11], ceilBias: -0.12,
     lamps: 16, crates: 9, barrels: 12, spawn: { grunt: 8, hound: 7, brute: 3 }, pick: { health: 5, ammo: 6, armor: 2 },
     fixtures: ['VENT', 'STRIPE'],         // #400: the abattoir breathes; everything here is a duct
@@ -53,6 +67,14 @@ const LEVELS = [
     // the read we want. Walls lead floors at the spawn seat above. Say it here because the entry's rule
     // sentence does not cover it.
     // Height is already said by the riser seam and the minimap band cue (#164).
+    // #369's FAMILY rule, DECIDED rather than assumed: this level keeps `wall: WT.STONE` over a STONE
+    // deck. The rule exists because a wall that repeats its deck's material gives the eye no edge, and
+    // here light already gives it one that the census can read - `surface` reports L3's SEAM at 45.0 /
+    // 59.8 / 68.3 / 50.7 luma over 168 / 212 / 87 / 351 columns in its four poses and its ORDER row puts
+    // the ceiling 24-30 under the deck, all of it at 4 of 4 measurable poses where ABATOIR CORE manages 0.
+    // The deck's floorBias 0.18 is doing the work the family rule usually does. So the collision stays
+    // declared here as a KNOWN row, and the reason is this comment: a stone silo with a stone floor is
+    // allowed to be one stone, as long as the picture still says which side of the edge you are on.
     name: 'THE STACK', size: 20, authored: true, wall: WT.STONE, wall2: WT.TECH,
     floor: 'STONE', ceil: 'ROCK', amb: 0.2, lampCol: [255, 196, 120], fogCol: [17, 13, 10],
     floorBias: 0.18, ceilBias: -0.04, ceilLead: 0.12,

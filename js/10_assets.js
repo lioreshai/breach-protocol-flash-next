@@ -301,6 +301,35 @@ WTEX.FLESH = matTex(T2, T2, p => {
   p.r += nod * 60; p.g += nod * 46; p.b += nod * 40; p.h += nod * 0.08;
 }, { bump: 1.35, amb: 0.40, spec: 0.5, specPow: 22, ao: 0.7, grain: 9 });
 
+/* #369: ABATOIR CORE's wall. WTEX.FLESH and FLOORS.FLESH are the SAME generator at two scales (same
+   fbm seed 3, the same veinMask family), so the largest level in the campaign painted its deck and 78%
+   of its wall faces with one pattern in one red - `surface`'s FAMILY row names it as a PRIMARY-face
+   collision, and every step, ledge and pit lip in that level is an edge between two things that agree in
+   both colour and texture. This is the wall's own meat: fibre BUNDLES running across the surface under
+   broad folds, which is a different structure from the deck's lump-and-vein network at the same scale.
+   Two deliberate choices, both measured:
+   - the MEAN albedo is FLESH's (v averages 0.98 against FLESH's 0.975, and the base channels are the
+     same thirds). The level sits under the composited upper anchor that `js/20_level.js` records, so a
+     wall material that also moved the light would be an exposure re-record wearing a texture's clothes;
+     wall and deck are separated by STRUCTURE, not by brightness, and the FAMILY rule is a material rule.
+   - NO emissive vein cores. FLESH carries texels at 210,60,52 with p.e = 1, and an emissive texel is
+     exempt from scene light, so a surface wearing them cannot be shaded by the level at all (the same
+     finding that took the emissive threads out of CEILS.SINEW). A wall the level can shade down is the
+     half of "walls carry the detail, the ceiling sits lowest" that has to stay reachable. */
+WTEX.MUSCLE = matTex(T2, T2, p => {
+  const fold = fbm(p.u, p.v, 2, 3, 0.55, 61);                 // broad folds the bundles hang in
+  const fib = 0.5 + 0.5 * Math.sin((p.u * 11 + fold * 1.1) * Math.PI * 2);   // 11 bundles a tile, tileable
+  const grain = fbm(p.u, p.v, 24, 3, 0.5, 17);                // fine meat grain along the bundles
+  let v = 0.98 + (fib - 0.5) * 0.30 + (fold - 0.5) * 0.30 + (grain - 0.5) * 0.20;
+  p.r = 148 * v; p.g = 52 * v + 10; p.b = 66 * v + 12;
+  p.h = 0.58 + (fib - 0.5) * 0.26 + (fold - 0.5) * 0.12 + (grain - 0.5) * 0.05;
+  // the seam between two bundles reads cooler and wetter, so the striation survives flat lamp light
+  const gap = smoothstep(0.22, 0.0, fib);
+  p.r -= gap * 26; p.g -= gap * 4; p.b += gap * 6; p.h -= gap * 0.14;
+  const wet = smoothstep(0.62, 0.94, fbm(p.u, p.v, 9, 3, 0.6, 12));
+  p.r += wet * 26; p.g += wet * 11; p.b += wet * 16; p.h += wet * 0.04;
+}, { bump: 1.5, amb: 0.40, spec: 0.46, specPow: 22, ao: 0.72, grain: 9 });
+
 WTEX.GRATE = matTex(T2, T2, p => {
   const gx = (p.u * 4) % 1, gy = (p.v * 4) % 1;
   const bar = Math.min(Math.abs(gx - 0.5), Math.abs(gy - 0.5));
@@ -317,7 +346,9 @@ WTEX.GRATE = matTex(T2, T2, p => {
 
 const WALLS = [];
 const WT = {};
-['BRICK', 'TECH', 'STONE', 'METAL', 'FLESH', 'TECH2', 'CONCRETE', 'GRATE'].forEach((k, i) => { WALLS.push(WTEX[k]); WT[k] = i + 1; });
+/* MUSCLE is APPENDED, not inserted: WT's values are indices into WALLS, and a level's `wall` field is
+   one of those numbers in every recorded frame, so a renumbering would move frames no change touched. */
+['BRICK', 'TECH', 'STONE', 'METAL', 'FLESH', 'TECH2', 'CONCRETE', 'GRATE', 'MUSCLE'].forEach((k, i) => { WALLS.push(WTEX[k]); WT[k] = i + 1; });
 
 /* ============================ FLOORS / CEILINGS ============================ */
 const FLOORS = {}, CEILS = {};
