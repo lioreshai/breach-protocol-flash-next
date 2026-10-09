@@ -2551,11 +2551,12 @@ function drawLightGlow(q) {
     const rx = Math.max(0, s.x - rad), ry = Math.max(0, s.y - rad);
     const rw = Math.min(DW, s.x + rad) - rx, rh = Math.min(DH, s.y + rad) - ry;
     if (rw > 0 && rh > 0) {
-      /* The source's own band, once per lamp: an authored lamp hangs LHOVER above the floor it stands
-         on, so the floor comes back off the emitter height exactly the way splatLight's `lf` does,
-         and a light with no z is already standing on its floor. One floorAt call per lamp, never per
-         pixel, and no ceilAt at all - the surface's own cell decides the band. */
-      const lf = L.z === undefined ? floorAt(L.x, L.y) : L.z - LHOVER;   // the source's FLOOR, as splatLight reads it
+      /* The source's own band, once per lamp, from the ONE derivation (js/20_level.js `lightBand`):
+         a lamp's hover comes off, a z-less source is already on its floor, and a ceiling fitting
+         (#413) states its floor explicitly. This call site used to restate the first two rules only,
+         so a fitting hung under a slab got its glow rects cut to a band four quanta above the room -
+         the glow the player was supposed to see ON the ceiling landed in the slab and vanished. */
+      const lf = lightBand(L);
       glowBandRects(rx, ry, rw, rh, lf);
       for (let i = 0; i < GR.length; i += 5) {
         if (GR[i + 2] <= 0 || GR[i + 3] <= 0) continue;

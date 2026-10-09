@@ -1076,6 +1076,25 @@ function authorVolume(cell, N, rooms, fz, vb, feat, cz) {
 }
 
 
+/* THE source-floor derivation, in one place (#413).
+   A light's BAND is the FLOOR of the surface its source belongs to, not the height it emits from:
+   the band term in `splatLight` compares this value against each column's own floor. Three kinds of
+   source exist and each states it differently:
+     - an ordinary lamp authored at `floor + LHOVER`  -> take the hover back off (`L.z - LHOVER`);
+     - a source with NO z (muzzle flash, explosion, the exit pad) -> it stands on its own floor;
+     - a FITTING HUNG UNDER A CEILING (#413) -> neither: it is not LHOVER above anything, so it
+       carries its floor explicitly in `band`.
+   Every reader of a light's band calls THIS function - the splat kernel, the generator's own band
+   pick, the lamp-glow rects in js/40_render.js and the probe copies in tools/view.js. It used to be
+   restated at seven call sites, and when `band` was added only the kernel learned about it: the
+   renderer and the gates kept reading a ceiling fitting as a lamp standing four quanta above the
+   room it hangs over, which lit nothing and made `alt` report 266 cells "lit from a band above".
+   A rule restated is a rule that drifts; state it once and call it. */
+function lightBand(L) {
+  if (L.band !== undefined) return L.band;
+  return L.z === undefined ? floorAt(L.x, L.y) : L.z - LHOVER;
+}
+
 /* Adds one light's contribution to the lightmap; a negative amount takes it back out.
    Static lights are splatted once at generation, transient ones re-splat their delta
    each frame as they fade, which keeps add/remove exactly reversible. */
@@ -1095,8 +1114,7 @@ function splatLight(L, amt) {
      the room it is in). Such a source carries its own floor explicitly in `band` and the band term
      reads that; every entry without the field derives it exactly as before, so no existing lamp,
      muzzle flash or explosion changes a value, and the un-splat still uses this same kernel. */
-  const lf = L.band !== undefined ? L.band
-    : (L.z === undefined ? floorAt(L.x, L.y) : L.z - LHOVER);
+  const lf = lightBand(L);
   for (let y = Math.max(0, (L.y - R) | 0); y < Math.min(N, L.y + R); y++)
     for (let x = Math.max(0, (L.x - R) | 0); x < Math.min(N, L.x + R); x++) {
       const d = Math.hypot(x + 0.5 - L.x, y + 0.5 - L.y);
@@ -1368,6 +1386,7 @@ const CFIX_HANG = 0.12;                    // a fitting's lens sits under the sl
 const CFIX_MIN_CLEAR = 1.7;                // a ceiling this low is above your hairline, not your eye
 const CFIX_SEP = 3.0;                      // metres between fittings, so a room is not a grid of them
 function placeCeilFixtures(cfgL) {
+  if (!ceilFixEnabled()) return;
   const N = MAP.w, cell = MAP.cell;
   const isOpen = (x, y) => x > 0 && y > 0 && x < N - 1 && y < N - 1 && cell[y * N + x] === 0;
   const hung = [];
@@ -1489,6 +1508,15 @@ function topUpEnabled() { return true; }
    runs the deal without it and the overlook rows are seen to fail. A row that has never been seen to
    fail has not been tested (AGENTS.md). */
 function overlookEnabled() { return true; }
+/* #413's ceiling fittings, in the same idiom as the two above: ONE call site, so
+   `LAMPS=off node tools/view.js flatparity` builds a level with NO generator-added fill light and
+   flatparity's PARITY sense stays a COUNTERFACTUAL rather than becoming a second picture. The row's
+   claim is "the flattened frame with the top-up never authored reproduces the pre-#204 byte", which
+   is a formula-collapse proof; a fitting in every room is authored fill light of exactly the kind
+   that proof subtracts, so the knob that removes the top-up has to remove these too or the row stops
+   being able to fail. It is NOT a threshold: the shipped path is unchanged, and the fittings are
+   still lit, hashed and gated on the LAMPS-unset (LOCK/DEALT) senses of the same probe. */
+function ceilFixEnabled() { return true; }
 
 /* ---- M6: the hand-authored level (#16) -------------------------------------------------
    Everything in this file above is a generator: it rolls rooms and hopes altitude falls out. This
@@ -2001,9 +2029,8 @@ function genLevel(li) {
       const SEAT_ANG = 0.6, LENS_HALF = 0.66, LENS_R = 8, SEAT_FLOOR = 4;   // :1489's heading, #304's cone
       let ps = ((li * 7919 + rooms.length * 104729 + ((exitX * 1000) | 0) * 13 + 12345) >>> 0) || 1;
       const prnd = () => { ps = (Math.imul(ps, 1664525) + 1013904223) >>> 0; return ps / 4294967296; };
-      // the source's own FLOOR - the same recovery splatLight makes, restated here only to pick a band
-      const srcFloor = L => (L.band !== undefined ? L.band
-        : (L.z === undefined ? floorAt(L.x, L.y) : L.z - LHOVER));
+      // the source's own FLOOR - the ONE derivation, see lightBand
+      const srcFloor = lightBand;
       const OPENAT = (cx, cy) => {
         let n = 0;
         for (let oy = -1; oy <= 1; oy++) for (let ox = -1; ox <= 1; ox++) if (!cell[(cy + oy) * N + (cx + ox)] && cy + oy > 0 && cx + ox > 0) n++;
