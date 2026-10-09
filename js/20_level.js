@@ -1114,6 +1114,35 @@ function splatLight(L, amt) {
    On a flat level every quantum is equal, every neighbour contributes at its original weight in
    its original order, and the pass is BIT-IDENTICAL to the old one: that collapse is what keeps
    flatparity's two FLAT senses (LOCK, PARITY) where they are, and they hash these frames. */
+/* #408: a SOFT KNEE on the baked lamp field of an authored plan, and it runs on the authored path
+   only - no generated level, and therefore no frame record taken on one, is touched by this line.
+   THE STACK is 20 cells across with six lamps down its two lanes, all of them carrying the 7.2 m disc
+   the generated maps (26, 32, 36 cells) are laid out for, so the pools overlap and `MAP.light` peaks
+   at 1.87 - nearly twice the ceiling every ground site clamps at (LGCAP / LG_CEIL, js/40_render.js:40).
+   Past that ceiling the floor is not shaded at all: every ground pixel of the pool lands on the same
+   clamped value and clips to 255, which is what reads as a pale plateau with no surface in it.
+   Shrinking the REACH removes the overlap and does fix the seat (measured: 3.45 -> 2.70 % of the frame
+   above luma 224), but it removes half the LIT AREA with it - THE STACK's whole lightmap sum falls
+   137.63 -> 83.83, its seeded exposure median 82 -> 64, its spawn frame 49/53 -> 38/41 - a dimming of
+   the campaign's finale far larger than the 2-3 % pool it was bought for. Review on #419 named that
+   trade, and #408 asks for the pool's radius OR its peak at 3 m. This is the peak.
+   The curve is the standard C1 soft knee: below LK_KNEE a cell is untouched (every deck cell outside a
+   pool core, which is most of the plan - the field's mean is 0.34 against a ceiling of 1.0), above it a
+   cell keeps LK_SLOPE of its excess, so the field STAYS ORDERED - a monotone ramp the floor can be
+   shaded against - instead of collapsing onto a plateau at the ceiling and keeping it for a whole pool. Values are
+   never raised, so no cell gets brighter, no dark band is created (exposure's big-band census cannot
+   lose a cell to this), and the hue carried in lR/lG/lB/lw is untouched because buildTint reads ratios.
+   It runs AFTER the authored splats and before the tint is built; transient lights re-splat their delta
+   on top of the compressed field with the same kernel, so add/remove stays exactly reversible. */
+const LK_KNEE = 0.7, LK_SLOPE = 0.35;
+function kneeLampField() {
+  const lm = MAP.light;
+  if (!lm) return;
+  for (let i = 0; i < lm.length; i++) {
+    const v = lm[i];
+    if (v > LK_KNEE) lm[i] = LK_KNEE + LK_SLOPE * (v - LK_KNEE);
+  }
+}
 function blurLight() {
   const N = MAP.w, s = MAP.light, fz = MAP.fz, o = new Float32Array(s.length);
   for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
@@ -1627,6 +1656,7 @@ function buildAuthored(li) {
   // It has to be pushed BEFORE the splat loop below to be baked into MAP.light like the lamps.
   LIGHTS.push({ x: ex + 0.5, y: ey + 0.5, r: 5.5, str: 0.75, col: [140, 225, 255], stat: 1 });
   for (const L of LIGHTS) splatLight(L, L.str);
+  kneeLampField();                              // #408: the authored pool's PEAK, its radius untouched
   placeWallFixtures(cfgL);                      // #400: the authored finale gets walls too
   exitX = ex + 0.5; exitY = ey + 0.5;
   const sp = nearestOpen(sx + 0.5, sy + 0.5);          // never spawn inside geometry: the collision
