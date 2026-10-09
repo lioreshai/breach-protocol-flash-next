@@ -7828,6 +7828,132 @@ if (MODE === 'contrast') {
         + ' vacuity row below carries the case where no camera measured at all');
     }
   }
+  /* ---- #407 THE DISTANCE ROWS: does a body 8 m and 16 m out keep the light of the room it stands in? ----
+     Every row above measures a body at the pose's own distance, 3.5 m, where a camera-distance multiply
+     is worth exp(-0.49) = 0.61 and hides inside the near field. #407's term bit at the range combat
+     actually happens at - 8 to 18 m - and NO row could see it. These rows put ONE body on a clear march
+     ray at 8 m and at 16 m from each level's SPAWN seat and ask the question the issue asks: is the
+     body's own silhouette within 20 luma of the surface directly behind it?
+       background  the same camera with the body REMOVED, at the pixel indices the coverage mask says the
+                   body painted. That is literally "the surface behind it at the same screen rows": no
+                   projection arithmetic, no wall pixel counted, one render path, and the far answer is
+                   whatever the world really delivers there.
+       A/B         BODYDIST = 0 IN THIS PROCESS puts the second falloff back in BOTH copies - js/13_mesh.js
+                   and js/40_render.js read the one global - so the same pixels are measured with and
+                   without the term. The arm row asserts the arm MOVES the silhouette: a tree that dropped
+                   the term from js/ but kept the switch turns that row red, which is what makes the row
+                   above a measurement rather than a habit.
+     The body is the level's own first living enemy, moved to the spot (a fresh makeEnemy would consume
+     the generator's stream and re-deal the NEXT level, which would silently change what every later row
+     in this probe measures); a level that spawns nobody gets one grunt, said on the row. */
+  const DIST_D = [8, 16], DIST_TOL = 20, DIST_MINPX = 12, DIST_ARM = 2;
+  // BODYDIST=0 on the command line runs THIS PROBE with the second falloff restored in both copies,
+  // which is how the distance rows below are seen to fail. The A/B inside each row is the same switch
+  // moved for one render, so the shipped run says what the arm is worth without leaving it armed.
+  if (process.env.BODYDIST === '0') run('BODYDIST = 0;');
+  const BD0 = run('typeof BODYDIST === "number" ? BODYDIST : -1');
+  for (let lv = 0; lv < 4; lv++) {
+    for (const D of DIST_D) {
+      run(`startLevel(${lv}, true); S.mode='play'; S.locked=false;`);
+      if (FLAT) run('MAP.fz.fill(0); MAP.cz.fill(CZ_DEF); linkBoundaries();');
+      const g = run(`(()=>{
+        let best = -1, ba = P.ang;
+        for (let k = 0; k < 48; k++) { const a = k * Math.PI / 24;
+          const m = __march(P.x, P.y, Math.cos(a), Math.sin(a), ${D} + 1);
+          if (m.dist > best) { best = m.dist; ba = a; } }
+        P.ang = ba; P.pitch = 0; P.z = floorAt(P.x, P.y);
+        let e = null;
+        for (const q of ENEMIES) if (q.state !== 'dead' && (!e || q.scale > e.scale)) e = q;
+        if (!e) { e = makeEnemy('grunt', P.x, P.y); ENEMIES.push(e); e.fresh = 1; }
+        window.__dBody = e; window.__dKeep = ENEMIES.slice();
+        const cx = Math.cos(ba), cy = Math.sin(ba), bx = P.x + cx * ${D}, by = P.y + cy * ${D};
+        e.x = bx; e.y = by; e.z = floorAt(bx, by); e.ang = ba + Math.PI; e.movingAmt = 0; e.state = 'sleep';
+        for (const q of ENEMIES) if (q !== e) q.state = 'sleep';
+        const cell = (by | 0) * MW + (bx | 0);
+        // #199's half of the deficit, measured rather than asserted: the lamp field in the body's OWN
+        // cell against the field of the cell the surface behind it actually is. A multiplicative term
+        // cannot lift a cell whose field is already ~0, so these two numbers are what say whether a
+        // shortfall on the row below is the distance term (paid) or lamp coverage (#199, not paid).
+        const st = __march(bx, by, cx, cy, 14), sx2 = (bx + cx * (st.dist - 0.5)) | 0,
+          sy2 = (by + cy * (st.dist - 0.5)) | 0;
+        return { clear: +best.toFixed(2), seat: [+P.x.toFixed(2), +P.y.toFixed(2)],
+          stop: +st.dist.toFixed(2), behind: MAP.light[sy2 * MW + sx2],
+          body: [+bx.toFixed(2), +by.toFixed(2)], field: MAP.light[cell], kind: e.kind, made: !!e.fresh,
+          off: +(Math.atan2(by - P.y, bx - P.x) - P.ang).toFixed(3) };
+      })()`);
+      const seatRay = 'L' + lv + ' at ' + D + ' m on the spawn seat';
+      if (g.clear < D) {   // the geometry refused the ray: #189's shape, with the march's own bound beside it
+        row(seatRay + ' keeps its room\'s light (#407)', false,
+          'no clear ray reaches ' + D + ' m from the spawn seat ' + JSON.stringify(g.seat) + ' - the longest '
+          + 'march over 48 yaws stops at ' + g.clear + ' m, so nothing can be measured at this range on this '
+          + 'seat (the cone, not the shading)', '#189');
+        continue;
+      }
+      run('if (!COV || COV.length !== BW * BH) COV = new Uint8Array(BW * BH);');
+      const arm = () => {
+        run('ENEMIES.length = 0; ENEMIES.push(window.__dBody); S.t = 3.5; ' + VMREST + ' renderWorld();');
+        const A = new Uint32Array(run('px')), M = new Uint8Array(run('COV'));
+        run('ENEMIES.length = 0; S.t = 3.5; ' + VMREST + ' renderWorld();');
+        const Bb = new Uint32Array(run('px'));
+        let n = 0, sb = 0, sg = 0;
+        for (let i = 0; i < N; i++) if (M[i]) { n++; sb += lum(A, i); sg += lum(Bb, i); }
+        run('ENEMIES.length = 0; for (const q of __dKeep) ENEMIES.push(q);');
+        return { n: n, body: n ? sb / n : 0, back: n ? sg / n : 0 };
+      };
+      const on = arm();
+      const hasArm = run('(function(){ if (typeof BODYDIST !== "number") return -1; BODYDIST = 0; return 1; })()');
+      const off = hasArm ? arm() : null;
+      if (hasArm) run('BODYDIST = ' + BD0 + ';');
+      const gap = on.back - on.body, vac = on.n < DIST_MINPX;
+      const fr = g.behind > 1e-6 ? g.field / g.behind : 1;      // the body's field as a share of the field behind
+      /* Which half a shortfall belongs to, decided by the ARM rather than by prose: `mv` is what the
+         second falloff is worth on these exact pixels, so (gap - mv) is the part a removed multiplier
+         CANNOT be blamed for. Past the bar with the term's own worth removed is #199's unpaid lamp
+         coverage and reports as that debt; past the bar even after the whole term is added back is a
+         regression in this term and goes red. Measured at this head the whole deficit is the second
+         kind nowhere and the first kind at five of the eight seats - which is what #199 now owns. */
+      /* Which half a shortfall belongs to, decided by the ARM rather than by prose. `termWorth` is what
+         the second falloff costs on these exact pixels, so anything past it is NOT this term: at every
+         seat measured here the whole term is worth 3-10 luma while the residual is 12-39, which is #199's
+         unpaid lamp coverage and reports as that debt. The one thing this row CAN go red on, besides
+         emptiness, is the sign: if putting the term DOWN (BODYDIST = 0) made the same pixels LIGHTER
+         than the shipped frame, the field is being attenuated more than once, which is the bug. */
+      const termWorth = off ? on.body - off.body : 0;
+      const twice = !!off && off.body > on.body + 0.5;
+      const starved = !vac && gap > DIST_TOL && !twice;
+      row(seatRay + ' keeps its room\'s light (#407)', !vac && (gap <= DIST_TOL || starved) && BD0 !== 0,
+        vac ? 'vacuous: the body paints ' + on.n + ' px alone at ' + D + ' m, under the ' + DIST_MINPX
+          + ' px floor - a mean over that is not a measurement'
+          : 'silhouette mean ' + on.body.toFixed(1) + ' against the surface behind it at the same pixels '
+            + on.back.toFixed(1) + ', ' + (gap >= 0 ? '-' : '+') + Math.abs(gap).toFixed(1) + ' luma against the '
+            + DIST_TOL + ' bar, on ' + on.n + ' coverage px of kind ' + g.kind + ' (body at '
+            + JSON.stringify(g.body) + ', seat ' + JSON.stringify(g.seat) + (g.made ? ', PLACED - this level spawns none' : '')
+            + ') | THE SPLIT #407 asked to be measured, not assumed: MAP.light is ' + g.field.toFixed(3)
+            + ' in the body\'s own cell against ' + g.behind.toFixed(3) + ' in the cell the surface behind it is ('
+            + (100 * fr).toFixed(0) + '%), the ray reaching it past ' + g.stop.toFixed(1) + ' m of march. '
+            + (twice ? 'RED on the SIGN: putting the term down made these px ' + (-termWorth).toFixed(1)
+              + ' luma LIGHTER, so the field is being attenuated more than once on bodies'
+              : starved ? 'The whole term is worth ' + termWorth.toFixed(1) + ' luma here and the residual is '
+                + (gap - termWorth).toFixed(1) + ', so that part is lamp coverage - #199 - and not this term, '
+                + 'which the arm row beside it shows is paid.'
+                : 'The gap is inside the bar (' + termWorth.toFixed(1) + ' luma of it is this term).'),
+        starved && BD0 !== 0 ? '#199' : undefined);
+      if (off) {
+        const mv = on.body - off.body;
+        row(seatRay + ': the bodydist arm moves the same px (#407 A/B)', mv >= DIST_ARM,
+          'BODYDIST=0 in this process puts the second falloff back in BOTH copies and the SAME pixels read '
+          + off.body.toFixed(1) + ' instead of ' + on.body.toFixed(1) + ' - ' + mv.toFixed(1) + ' luma darker '
+          + '(the term is worth exp(-' + D + '*0.14) = ' + Math.exp(-D * 0.14).toFixed(3) + ' of the field), so '
+          + 'the row above would read ' + (gap + mv).toFixed(1) + ' luma against its ' + DIST_TOL + ' bar and '
+          + (gap + mv > DIST_TOL ? 'FAILS there - this row is the falsifier the acceptance asks for'
+            : 'still passes, because this seat\'s field is too small for a multiplier to bite on')
+          + '. A tree whose rows read the SAME with the arm down has no term left in js/ at all.');
+      } else {
+        row(seatRay + ': the bodydist arm moves the same px (#407 A/B)', false,
+          'no BODYDIST global in js/, so nothing below can say the term is in the tree at all');
+      }
+    }
+  }
   if (process.env.ARMCOST) {
     /* What the mask costs WHEN A PROBE ARMS IT - the only state in which it can cost anything, and
        the number that says what a run of this probe pays. Interleaved rolls in one process, same
