@@ -344,11 +344,52 @@ WTEX.GRATE = matTex(T2, T2, p => {
   rust(p, 0.5, 61);
 }, { bump: 1.1, amb: 0.44, spec: 0.34, specPow: 34, ao: 0.9, grain: 8 });
 
+/* #369: THE STACK's wall. Its deck is FLOORS.STONE and the level used to paint 78% of its wall faces
+   with WTEX.STONE - the SAME masonry-and-mortor family at a different scale - so the edge between "the
+   floor you are on" and "the face in front of you" joined two things that agree in colour and in
+   texture, in a level whose whole idea is an edge you can fall off. The ruling on that collision is on
+   the issue; this is the material that answers it. Two constraints, both measured:
+   - the MEAN ALBEDO is WTEX.STONE's (r averages ~152 against its ~155). The first attempt at this change
+     used WT.CONCRETE and moved the family without moving the picture: `surface`'s WALL row fell from
+     26.6 luma of deck-vs-wall separation across 79% of the frame's width to 16.2 across 57%, because
+     CONCRETE's 130-grey base is DARKER than the stone it replaced while the deck under this level's
+     `floorBias: 0.18` did not move. A family rule paid for by giving up the luminance gap is a worse
+     picture wearing a green row, so this is a different STRUCTURE at the brightness the level had.
+   - the STRUCTURE is rectified ashlar: tall squarish blocks, incised narrow joints, a pour lift line
+     across each course and tie holes at their quarter points. No mortar beds, no flagstone jitter, so
+     at any distance the face reads as a wall the eye is looking AT rather than the floor carried upward.
+   No emissive texels, for the same reason MUSCLE has none: an emissive texel is exempt from scene light,
+   so a surface wearing them cannot be shaded by the level at all. */
+WTEX.SLAB = matTex(T2, T2, p => {
+  const by = p.v * 2, ry = Math.floor(by), fy = by - ry;              // 2 courses a tile: tall blocks
+  const off = (ry & 1) ? 0.5 : 0;
+  const bx = (p.u + off) * 3, rx = Math.floor(bx), fx = bx - rx;
+  const ex = Math.min(fx, 1 - fx) * 3, ey = Math.min(fy, 1 - fy) * 2;
+  const joint = 1 - smoothstep(0.03, 0.075, Math.min(ex, ey));        // incised, rectified, narrow
+  const j = hash2(rx * 7 + ry * 13, 23);
+  const n = fbm(p.u, p.v, 6, 4, 0.56, 41);
+  let v = 0.80 + j * 0.20 + n * 0.34;                                 // mean albedo 145: WTEX.STONE's own
+  p.r = 130 * v; p.g = 130 * v; p.b = 136 * v;
+  p.h = 0.70 + (n - 0.5) * 0.10 + (j - 0.5) * 0.06;
+  // the joint is a shadow line, not a colour: it drops the height and only darkens a little
+  p.r -= joint * 36; p.g -= joint * 35; p.b -= joint * 32; p.h -= joint * 0.24;
+  const lift = 1 - smoothstep(0.0, 0.025, Math.abs(fy - 0.5));        // form lift across each course
+  p.r -= lift * 15; p.g -= lift * 15; p.b -= lift * 13; p.h -= lift * 0.09;
+  const tie = smoothstep(0.03, -0.03, Math.min(sdCircle(fx - 0.25, fy - 0.5, 0.035),
+                                                 sdCircle(fx - 0.75, fy - 0.5, 0.035)));
+  p.r -= tie * 40; p.g -= tie * 38; p.b -= tie * 34; p.h -= tie * 0.22;
+  const streak = fbm(p.u * 3, p.v * 0.4, 8, 3, 0.6, 77);              // damp runs from the joints down
+  const st = smoothstep(0.55, 0.9, streak) * 0.30;
+  p.r -= st * 20; p.g -= st * 22; p.b -= st * 14; p.h -= st * 0.05;
+  grain(p, 26, 26, 30);
+}, { bump: 1.15, amb: 0.44, spec: 0.06, specPow: 26, ao: 0.78, grain: 11 });
+
 const WALLS = [];
 const WT = {};
-/* MUSCLE is APPENDED, not inserted: WT's values are indices into WALLS, and a level's `wall` field is
-   one of those numbers in every recorded frame, so a renumbering would move frames no change touched. */
-['BRICK', 'TECH', 'STONE', 'METAL', 'FLESH', 'TECH2', 'CONCRETE', 'GRATE', 'MUSCLE'].forEach((k, i) => { WALLS.push(WTEX[k]); WT[k] = i + 1; });
+/* MUSCLE and SLAB are APPENDED, not inserted: WT's values are indices into WALLS, and a level's `wall`
+   field is one of those numbers in every recorded frame, so a renumbering would move frames no change
+   touched. */
+['BRICK', 'TECH', 'STONE', 'METAL', 'FLESH', 'TECH2', 'CONCRETE', 'GRATE', 'MUSCLE', 'SLAB'].forEach((k, i) => { WALLS.push(WTEX[k]); WT[k] = i + 1; });
 
 /* ============================ FLOORS / CEILINGS ============================ */
 const FLOORS = {}, CEILS = {};
