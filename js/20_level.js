@@ -73,6 +73,11 @@ let DECALS = [], DECAL_GRID = [], DECAL_MASK = null;
    the oldest evicted, so a door frame placed there would fade out and be pushed off by bullet hits. */
 let DECOR = [], DECOR_GRID = [], DECOR_MASK = null;
 let exitX = 0, exitY = 0, explored = null, bfsDist = null;   // read by an assertion in tools/smoke.js
+/* #353: the overlook pairs authorVolume actually authored, as [lowIdx, upIdx] cell indices. A module
+   global rather than a return value because genLevel RETRIES the whole layout up to 80 times and the
+   list must be rebuilt by the attempt that ships - it is reset at the top of authorVolume for exactly
+   that reason. The placement pass below reads it to garrison the mezzanine. */
+let overlookPairs = [];
 /* #154: metres of clear ground the prop passes keep off the spawn seat. A `let` rather than a literal
    so a probe can A/B it the way it reassigns topUpEnabled and groundPixel (`SPAWN_CLEAR = 0` is the
    shipped behaviour, no clearance), and so smoke's spawn-clearance row can name what it moved.
@@ -536,6 +541,10 @@ const STAIR_CELLS = 4;                                      // cells a 1-unit cl
    filter term away from authoring no volume at all (the old rule was `rooms.length >= 8 ? 2 : 1` and
    rooms.length runs 4..7 on this generator, so every deal in the game had a single candidate). */
 const TALL_WANT_MIN = 2;
+/* #353's overlook pass: the minimum STEP (in floor quanta) that counts as "a band above it" - 2 quanta
+   is the 0.50 m the acceptance row counts - how many pairs a level may grow, and how far apart they
+   must sit (Chebyshev, in cells) so three pairs do not become one continuous canyon. */
+const OVERLOOK_STEP_Q = 2, OVERLOOK_MAX = 3, OVERLOOK_SPACING = 5;
 const PIT_W = 5, PIT_H = 4, PIT_MIN = 6;                    // sunken cells: see feature 2's budget note
 /* #284's rect pass. LOWER bound: the coverage top-up below serves a band only from MIN_BAND = 8
    reachable cells, and a hole it refuses to put a lamp on is a DARK pit floor - which is alt's "a pit
@@ -670,6 +679,7 @@ function authorVolume(cell, N, rooms, fz, vb, feat, cz) {
 
   const d0 = reach();
   const authored = [];
+  overlookPairs = [];                       // #353: the retry loop above must not inherit the last attempt
 
   /* ---- feature 1: rooms you can stand up in ------------------------------
      FIRST, before any floor has been stepped - and that ordering is the #282 fix. TALL ROOM used to run
@@ -956,6 +966,59 @@ function authorVolume(cell, N, rooms, fz, vb, feat, cz) {
       }
       if (pitted || digs > DIG_BUDGET) break;
     }
+  }
+
+  /* ---- feature 4: an OVERLOOK - tall air under a body that can stand in it ----
+     #353 measured the defect this writes: a deal authors 204-217 tall columns and 3-6 bodies off the
+     spawn band, and EXACTLY ONE of those 42 enemies across the four levels can be engaged from the seat,
+     because a tall column is only useful if something stands ABOVE it. The tall-room chooser ranks rooms
+     by area and never looks at the floor next door, so on the CI deal 2/2/5/0 of those tall columns sit
+     beside a band at all - and THE STACK, the two-storey hand-authored finale, authors ZERO.
+
+     The shape is one cell of tall air on the LOW side of a boundary, so the crossing carries an opening
+     [max floor, min ceiling] instead of a slab: with the low cell at CZ_AUTH_TALL (4 units) and the
+     neighbour 4 quanta (1 unit) up, that opening is [+1.00 .. +2.00] - a grunt on the mezzanine shoots
+     down into a room the player stands in and the return shot goes up through the same hole. Walking is
+     NOT opened: linkBoundaries derives VB_BLOCK from the FLOOR step alone and never reads cz, so the
+     riser still says "stairs" (#152's rule). That is the tactical point, and the reason this pass can
+     cost the occupancy gate nothing: bfsReach reads fz/vb/feat and never cz, exactly as feature 1's
+     spawn atrium argued, so `keeps(d0)` is asked only as the habit.
+
+     BOUNDED, because a canyon is the failure mode: OVERLOOK_MAX pairs per level, chosen by the size of
+     the step (a whole band before a stair tread) and then scan order - never a Math.random draw, per the
+     rule at the top of this function - and OVERLOOK_SPACING apart so three pairs do not tile one wall.
+     The pair also has to be REACHABLE on both sides: an overlook whose up-side is a sealed pocket is
+     scenery, which is the vacuity this issue is about. `overlookEnabled()` is the A/B knob in the
+     `topUpEnabled` idiom (tools/view.js runs the pairing pass off to prove the new rows can fail). */
+  if (overlookEnabled()) {
+    const cp = cut(), cand = [], picked = [];
+    for (let y = 1; y < N - 1; y++) for (let x = 1; x < N - 1; x++) {
+      const i = y * N + x;
+      if (cell[i] || d0[i] < 0 || flat[i] || feat[i] === FEAT_PIT) continue;
+      for (let d = 0; d < 4; d++) {
+        const nx = x + DIRX[d], ny = y + DIRY[d];
+        if (!open(nx, ny)) continue;
+        const j = ny * N + nx;
+        if (d0[j] < 0 || fz[j] - fz[i] < OVERLOOK_STEP_Q) continue;   // an air neighbour a band ABOVE it
+        cand.push({ i, j, x, y, dq: fz[j] - fz[i] });
+        break;
+      }
+    }
+    cand.sort((a, b) => b.dq - a.dq || a.i - b.i);
+    for (const c of cand) {
+      if (picked.length >= OVERLOOK_MAX) break;
+      if (picked.some(o => Math.max(Math.abs(o.x - c.x), Math.abs(o.y - c.y)) < OVERLOOK_SPACING)) continue;
+      picked.push(c);
+    }
+    // cz is the whole write. In an AUTHORED plan the same intent is the 'T' glyph, which buildAuthored
+    // applies as `cz[i] = CZ_AUTH_TALL` and nothing else (js/20_level.js:1253), so this is the same
+    // fact in the generator's dialect: a FEAT_* byte would be wrong here, it drives canEnter and the
+    // minimap, and an overlook is deliberately NOT a way to walk.
+    for (const c of picked) { mark(c.i); cz[c.i] = Math.max(cz[c.i], CZ_AUTH_TALL); }
+    if (picked.length && keeps(d0)) {
+      authored.push('overlook:' + picked.length);
+      for (const c of picked) overlookPairs.push([c.i, c.j]);
+    } else rewind(cp);
   }
 
   /* Carry the base of every solid column down to the lowest band it bounds. A face spans
@@ -1298,6 +1361,10 @@ function addGroundSplat(x, y, r, kind) {
    so the suppression removes lamps from the record rather than deleting them after the world was
    built around them. Nothing else in the generator consults it. */
 function topUpEnabled() { return true; }
+/* #353's pairing pass, in the same idiom: ONE call site so `OVERLOOK=off node tools/view.js alt|sight`
+   runs the deal without it and the overlook rows are seen to fail. A row that has never been seen to
+   fail has not been tested (AGENTS.md). */
+function overlookEnabled() { return true; }
 
 /* ---- M6: the hand-authored level (#16) -------------------------------------------------
    Everything in this file above is a generator: it rolls rooms and hopes altitude falls out. This
@@ -1567,6 +1634,34 @@ function buildAuthored(li) {
   buildTint();
   return true;
 }
+/* #353: an overlook is only a fight if somebody stands above it. The pairing pass finds the geometry;
+   this puts a body on it. Placement above is a `takeNear` draw and cannot be asked for a specific cell
+   without drawing from Math.random a second time (#90/#96: a generator whose draw count moves makes
+   every downstream measurement incomparable), so this is a POST-HOC relocation of an enemy that is
+   already on the list - the same number of bodies, the same draws, one of them standing on the
+   mezzanine instead of wherever the stream put it. Deterministic (scan order, then BFS distance), and
+   it only fires when NOTHING stands above an authored pair, so a deal that already garrisons one keeps
+   the placement it had.
+   The cell it moves to is reachable by construction: the pairing pass required both cells of the pair
+   to answer `d0[i] >= 0`, so this cannot strand a body the occupancy gate is counting. */
+function authorOverlooked(dist) {
+  if (!overlookPairs.length || !ENEMIES.length) return;
+  const N = MAP.w;
+  const seats = overlookPairs.map(p => [p[1] % N, (p[1] / N) | 0]);
+  for (const e of ENEMIES) {
+    const ex = e.x | 0, ey = e.y | 0;
+    for (const s of seats) if (s[0] === ex && s[1] === ey) return;      // already garrisoned
+  }
+  let pick = null, best = -1;
+  for (const e of ENEMIES) {
+    const d = dist[(e.y | 0) * N + (e.x | 0)];
+    if (d > best) { best = d; pick = e; }                               // furthest from the seat
+  }
+  if (!pick) return;
+  const up = seats[0];
+  pick.x = up[0] + 0.5; pick.y = up[1] + 0.5; pick.lx = pick.x; pick.ly = pick.y;
+}
+
 function genLevel(li) {
   const cfgL = LEVELS[li];
   /* An authored plan is data, so it is validated rather than hoped for: if the layers disagree the
@@ -2009,6 +2104,8 @@ function genLevel(li) {
         si++;
       }
     }
+    // #353: an overlook nobody stands above is scenery. See authorOverlooked below.
+    authorOverlooked(dist);
     // lightmap splat, then a smoothing pass and the per-cell tint
     for (const L of LIGHTS) splatLight(L, L.str);
     blurLight(); buildTint();
