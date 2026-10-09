@@ -226,3 +226,15 @@ never that the reference exists.
 - Three.js port (in a branch): `BufferGeometry` needs the `uv2 → uv` copy; no `ShaderMaterial`
   tonemapping; `CircleGeometry`'s `thetaLength` is a delta; `InstancedMesh` count must be an
   exact multiple of vertices-per-instance; additive blending cannot read its destination.
+
+## Measuring an A/B of two renders
+
+**Rendering the same seat twice is not a control.** `renderWorld` advances `S.t` and the view model
+sways with it, so an A/B that renders arm A, then arm B, at one seat measures the rifle as well as the
+term under test. Measured at a `heights` seat while building `offlook`: 1,018 pixels "differed between
+the arms" of a `DEV.set('gndoff', …)` pair, every one of them inside the weapon's silhouette, and the
+floor term was in none of them - the rifle had moved by a pixel. Both arms now re-seed, re-deal and
+re-seat before rendering (`tools/view.js`'s `OFFLOOK` block), which makes the pair identical to zero
+pixels wherever the term cannot reach - a null result that is worth more than the number it replaced.
+Read the diff on a rifle-free render too: the view model's edge is a 100-luma step of its own and it
+lands exactly where a level outline would.

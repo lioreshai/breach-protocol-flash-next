@@ -37,6 +37,14 @@ function matTex(w, h, paint, opt) {
   const aoK = opt.ao === undefined ? 0.55 : opt.ao;
   const gr = opt.grain === undefined ? 9 : opt.grain;      // per-texel speckle amplitude
   const tint = opt.tint || [1, 1, 1];
+  /* #416: one albedo scalar per material, applied to the PAINTED albedo and to nothing else - not the
+     height field, not an emissive texel (an emissive texel is exempt from scene light and is a light
+     source, not a surface). matTex has always taken its albedo as literal constants, which is how 19
+     tiles came to span 3.8x in mean luma with nothing bounding one against another: two rooms under the
+     same lamp read as glaring tile or murky panel depending which face the generator drew. The band is
+     asserted by `node tools/view.js matband`; scaling albedo keeps every tile's own hue and structure and
+     moves only what it is worth under a lamp. */
+  const alb = opt.alb === undefined ? 1 : opt.alb;
   const N = w * h, Hm = new Float32Array(N), AL = new Uint8Array(N * 3), EM = new Uint8Array(N);
   const p = { u: 0, v: 0, h: 0.62, r: 128, g: 128, b: 128, e: 0 };
   for (let y = 0; y < h; y++) {
@@ -44,6 +52,7 @@ function matTex(w, h, paint, opt) {
       const i = y * w + x;
       p.u = (x + 0.5) / w; p.v = (y + 0.5) / h; p.h = 0.62; p.r = p.g = p.b = 128; p.e = 0;
       paint(p);
+      if (alb !== 1 && p.e <= 0.5) { p.r *= alb; p.g *= alb; p.b *= alb; }
       // per-texel speckle: real surfaces are noisy at the sampling scale, and fbm cannot say so
       const hsh = hash2(x, y + (gr > 0 ? 0 : 0)) - 0.5;
       p.r += hsh * gr * 2; p.g += hsh * gr * 1.9; p.b += hsh * gr * 1.7;
@@ -184,13 +193,13 @@ WTEX.STONE = matTex(T2, T2, p => {
   const v = 0.62 + j * 0.5 + (fbm(p.u, p.v, 7, 4, 0.58, 17) - 0.5) * 0.5;
   p.r = 132 * v + 40; p.g = 136 * v + 40; p.b = 140 * v + 40;
   p.h = 0.68 + (fbm(p.u, p.v, 9, 4, 0.6, 3) - 0.5) * 0.16 + (c.edge - 1) * 0.07;
-  grain(p, 30, 44, 26);
+  grain(p, 8, 44, 26);
   // pitted rock
-  const pit = smoothstep(0.66, 0.9, fbm(p.u, p.v, 18, 3, 0.6, 71));
-  p.h -= pit * 0.13; p.r -= pit * 22; p.g -= pit * 22; p.b -= pit * 20;
+  const pit = smoothstep(0.60, 0.96, fbm(p.u, p.v, 18, 3, 0.6, 71));
+  p.h -= pit * 0.09; p.r -= pit * 13; p.g -= pit * 13; p.b -= pit * 12;
   moss(p, 0.34, 12);
   cracks(p, 0.09, 0.12, 4, 88, [46, 48, 52]);
-}, { bump: 1.25, amb: 0.42, spec: 0.045, ao: 0.8, grain: 13 });
+}, { bump: 1.25, amb: 0.42, spec: 0.045, ao: 0.8, grain: 6, alb: 0.89 });   // #416: grain fbm 30 -> 13, speckle 13 -> 6 and 0.89 albedo - the mossy rock tile measured 33.9 luma of mean step per 2 px, the second-busiest background in the table
 
 WTEX.CONCRETE = matTex(T2, T2, p => {
   const formY = Math.abs(((p.v * 2) % 1) - 0.5) * 2;           // form panel seam banding
@@ -214,7 +223,7 @@ WTEX.CONCRETE = matTex(T2, T2, p => {
   const streak = fbm(p.u * 3, p.v * 0.4, 8, 3, 0.6, 77);
   const k2 = smoothstep(0.5, 0.9, streak) * 0.35;
   p.r -= k2 * 30; p.g -= k2 * 28; p.b -= k2 * 22;
-}, { bump: 1.0, amb: 0.44, spec: 0.05, ao: 0.6, grain: 12 });
+}, { bump: 1.0, amb: 0.44, spec: 0.05, ao: 0.6, grain: 12, alb: 0.95 });
 
 WTEX.TECH = matTex(T2, T2, p => {
   // 2x2 inset panels with bevels + a glowing conduit lane
@@ -259,7 +268,7 @@ WTEX.TECH2 = matTex(T2, T2, p => {
   if (vein > 0.1) { p.r = 255; p.g = 90 + 60 * n; p.b = 190; p.h = 0.52; p.e = 1; }
   dust(p, 0.20, [70, 52, 84]);
   grain(p, 16, 9, 20);
-}, { bump: 1.0, amb: 0.40, spec: 0.26, specPow: 30, ao: 0.6, grain: 7 });
+}, { bump: 1.0, amb: 0.40, spec: 0.26, specPow: 30, ao: 0.6, grain: 7, alb: 1.14 });   // #416: the darkest wall tile in the table at 82.3 mean luma, raised into band
 
 WTEX.METAL = matTex(T2, T2, p => {
   const n = fbm(p.u * 8, p.v * 0.5, 9, 3, 0.55, 17);
@@ -281,7 +290,7 @@ WTEX.METAL = matTex(T2, T2, p => {
   if (bolt < 0.01) { const k = smoothstep(0.01, -0.02, bolt); p.h += k * 0.16; p.r += k * 30; p.g += k * 32; p.b += k * 36; }
   rust(p, 0.55, 88);
   dust(p, 0.16, [120, 118, 112]);
-}, { bump: 1.2, amb: 0.40, spec: 0.42, specPow: 40, ao: 0.5, grain: 8 });
+}, { bump: 1.2, amb: 0.40, spec: 0.34, specPow: 40, ao: 0.5, grain: 8, alb: 0.86 });   // #416: brightest wall tile at 153.2 mean luma, pulled into band; spec 0.42 -> 0.34 so its highlight stops reaching white across 1% of the tile
 
 WTEX.FLESH = matTex(T2, T2, p => {
   const n = fbm(p.u, p.v, 5, 4, 0.55, 3);
@@ -318,9 +327,9 @@ WTEX.FLESH = matTex(T2, T2, p => {
      half of "walls carry the detail, the ceiling sits lowest" that has to stay reachable. */
 WTEX.MUSCLE = matTex(T2, T2, p => {
   const fold = fbm(p.u, p.v, 2, 3, 0.55, 61);                 // broad folds the bundles hang in
-  const fib = 0.5 + 0.5 * Math.sin((p.u * 11 + fold * 1.1) * Math.PI * 2);   // 11 bundles a tile, tileable
+  const fib = 0.50 + 0.24 * Math.sin((p.u * 11 + fold * 1.1) * Math.PI * 2);   // 11 bundles a tile, tileable; #416 took the swing from +-0.50 to +-0.24
   const grain = fbm(p.u, p.v, 24, 3, 0.5, 17);                // fine meat grain along the bundles
-  let v = 0.98 + (fib - 0.5) * 0.30 + (fold - 0.5) * 0.30 + (grain - 0.5) * 0.20;
+  let v = 0.98 + (fib - 0.5) * 0.24 + (fold - 0.5) * 0.30 + (grain - 0.5) * 0.10;
   p.r = 148 * v; p.g = 52 * v + 10; p.b = 66 * v + 12;
   p.h = 0.58 + (fib - 0.5) * 0.26 + (fold - 0.5) * 0.12 + (grain - 0.5) * 0.05;
   // the seam between two bundles reads cooler and wetter, so the striation survives flat lamp light
@@ -328,7 +337,7 @@ WTEX.MUSCLE = matTex(T2, T2, p => {
   p.r -= gap * 26; p.g -= gap * 4; p.b += gap * 6; p.h -= gap * 0.14;
   const wet = smoothstep(0.62, 0.94, fbm(p.u, p.v, 9, 3, 0.6, 12));
   p.r += wet * 26; p.g += wet * 11; p.b += wet * 16; p.h += wet * 0.04;
-}, { bump: 1.5, amb: 0.40, spec: 0.46, specPow: 22, ao: 0.72, grain: 9 });
+}, { bump: 1.5, amb: 0.40, spec: 0.46, specPow: 22, ao: 0.72, grain: 5, alb: 1.14 });   // #416: the busiest tile in the table at 35.6 luma of mean step per 2 px - ABATOIR's wall was the sharpest thing in front of a body standing on it
 
 WTEX.GRATE = matTex(T2, T2, p => {
   const gx = (p.u * 4) % 1, gy = (p.v * 4) % 1;
@@ -342,13 +351,54 @@ WTEX.GRATE = matTex(T2, T2, p => {
   const wear = smoothstep(0.45, 0.8, fbm(p.u, p.v, 4, 3, 0.6, 33));
   p.r += wear * 26; p.g += wear * 26; p.b += wear * 28;
   rust(p, 0.5, 61);
-}, { bump: 1.1, amb: 0.44, spec: 0.34, specPow: 34, ao: 0.9, grain: 8 });
+}, { bump: 1.1, amb: 0.44, spec: 0.34, specPow: 34, ao: 0.9, grain: 8, alb: 1.12 });   // #416: darkest tile in the table at 81.8 - the dark GAP texels stay at 12,13,16, so this lifts the bars, not the holes
+
+/* #369: THE STACK's wall. Its deck is FLOORS.STONE and the level used to paint 78% of its wall faces
+   with WTEX.STONE - the SAME masonry-and-mortor family at a different scale - so the edge between "the
+   floor you are on" and "the face in front of you" joined two things that agree in colour and in
+   texture, in a level whose whole idea is an edge you can fall off. The ruling on that collision is on
+   the issue; this is the material that answers it. Two constraints, both measured:
+   - the MEAN ALBEDO is WTEX.STONE's (r averages ~152 against its ~155). The first attempt at this change
+     used WT.CONCRETE and moved the family without moving the picture: `surface`'s WALL row fell from
+     26.6 luma of deck-vs-wall separation across 79% of the frame's width to 16.2 across 57%, because
+     CONCRETE's 130-grey base is DARKER than the stone it replaced while the deck under this level's
+     `floorBias: 0.18` did not move. A family rule paid for by giving up the luminance gap is a worse
+     picture wearing a green row, so this is a different STRUCTURE at the brightness the level had.
+   - the STRUCTURE is rectified ashlar: tall squarish blocks, incised narrow joints, a pour lift line
+     across each course and tie holes at their quarter points. No mortar beds, no flagstone jitter, so
+     at any distance the face reads as a wall the eye is looking AT rather than the floor carried upward.
+   No emissive texels, for the same reason MUSCLE has none: an emissive texel is exempt from scene light,
+   so a surface wearing them cannot be shaded by the level at all. */
+WTEX.SLAB = matTex(T2, T2, p => {
+  const by = p.v * 2, ry = Math.floor(by), fy = by - ry;              // 2 courses a tile: tall blocks
+  const off = (ry & 1) ? 0.5 : 0;
+  const bx = (p.u + off) * 3, rx = Math.floor(bx), fx = bx - rx;
+  const ex = Math.min(fx, 1 - fx) * 3, ey = Math.min(fy, 1 - fy) * 2;
+  const joint = 1 - smoothstep(0.03, 0.075, Math.min(ex, ey));        // incised, rectified, narrow
+  const j = hash2(rx * 7 + ry * 13, 23);
+  const n = fbm(p.u, p.v, 6, 4, 0.56, 41);
+  let v = 0.80 + j * 0.20 + n * 0.34;                                 // mean albedo 145: WTEX.STONE's own
+  p.r = 130 * v; p.g = 130 * v; p.b = 136 * v;
+  p.h = 0.70 + (n - 0.5) * 0.10 + (j - 0.5) * 0.06;
+  // the joint is a shadow line, not a colour: it drops the height and only darkens a little
+  p.r -= joint * 36; p.g -= joint * 35; p.b -= joint * 32; p.h -= joint * 0.24;
+  const lift = 1 - smoothstep(0.0, 0.025, Math.abs(fy - 0.5));        // form lift across each course
+  p.r -= lift * 15; p.g -= lift * 15; p.b -= lift * 13; p.h -= lift * 0.09;
+  const tie = smoothstep(0.03, -0.03, Math.min(sdCircle(fx - 0.25, fy - 0.5, 0.035),
+                                                 sdCircle(fx - 0.75, fy - 0.5, 0.035)));
+  p.r -= tie * 40; p.g -= tie * 38; p.b -= tie * 34; p.h -= tie * 0.22;
+  const streak = fbm(p.u * 3, p.v * 0.4, 8, 3, 0.6, 77);              // damp runs from the joints down
+  const st = smoothstep(0.55, 0.9, streak) * 0.30;
+  p.r -= st * 20; p.g -= st * 22; p.b -= st * 14; p.h -= st * 0.05;
+  grain(p, 20, 26, 30);
+}, { bump: 1.15, amb: 0.44, spec: 0.06, specPow: 26, ao: 0.78, grain: 11, alb: 0.89 });   // #416: moves WITH WTEX.STONE's alb, so #369's "authored at the deck's own mean albedo" still holds
 
 const WALLS = [];
 const WT = {};
-/* MUSCLE is APPENDED, not inserted: WT's values are indices into WALLS, and a level's `wall` field is
-   one of those numbers in every recorded frame, so a renumbering would move frames no change touched. */
-['BRICK', 'TECH', 'STONE', 'METAL', 'FLESH', 'TECH2', 'CONCRETE', 'GRATE', 'MUSCLE'].forEach((k, i) => { WALLS.push(WTEX[k]); WT[k] = i + 1; });
+/* MUSCLE and SLAB are APPENDED, not inserted: WT's values are indices into WALLS, and a level's `wall`
+   field is one of those numbers in every recorded frame, so a renumbering would move frames no change
+   touched. */
+['BRICK', 'TECH', 'STONE', 'METAL', 'FLESH', 'TECH2', 'CONCRETE', 'GRATE', 'MUSCLE', 'SLAB'].forEach((k, i) => { WALLS.push(WTEX[k]); WT[k] = i + 1; });
 
 /* ============================ FLOORS / CEILINGS ============================ */
 const FLOORS = {}, CEILS = {};
@@ -380,7 +430,7 @@ FLOORS.TILE = matTex(T2, T2, p => {
   const chip = smoothstep(0.5, 0.9, Math.hypot(Math.max(cx, 0), Math.max(cy, 0)) * 3.6 + hash2(id, 9) * 0.4);
   p.h -= chip * 0.12; p.r -= chip * 30; p.g -= chip * 28; p.b -= chip * 22;
   dust(p, 0.26, [104, 100, 92]);
-}, { bump: 0.85, amb: 0.48, spec: 0.34, specPow: 44, ao: 0.7, grain: 7 });
+}, { bump: 0.85, amb: 0.48, spec: 0.34, specPow: 44, ao: 0.7, grain: 7, alb: 0.81 });   // #416: the glaring near-white tile of the issue's first sentence - brightest tile in the game at 166.7 mean luma
 FLOORS.METAL = matTex(T2, T2, p => {
   const n = fbm(p.u * 7, p.v * 0.7, 9, 3, 0.55, 23);
   let v = 0.82 + n * 0.4;
@@ -398,7 +448,7 @@ FLOORS.METAL = matTex(T2, T2, p => {
   }
   rust(p, 0.42, 73);
   dust(p, 0.14, [110, 112, 116]);
-}, { bump: 1.2, amb: 0.46, spec: 0.44, specPow: 46, ao: 0.55, grain: 8 });
+}, { bump: 1.2, amb: 0.46, spec: 0.30, specPow: 46, ao: 0.55, grain: 8, alb: 0.95 });   // #416: spec 0.44 -> 0.30 - this deck's own 1%-clipping highlight measured 249 luma, i.e. 1% of the floor read as a mirror
 FLOORS.STONE = matTex(T2, T2, p => {
   // irregular flagstones from a jittered grid
   const s = 3, gx = p.u * s, gy = p.v * s;
@@ -419,7 +469,7 @@ FLOORS.STONE = matTex(T2, T2, p => {
   p.h = 0.64 - edge * 0.2 + (n - 0.5) * 0.12;
   moss(p, 0.4, 15);
   dust(p, 0.2, [92, 90, 84]);
-}, { bump: 1.1, amb: 0.5, spec: 0.08, specPow: 20, ao: 0.8, grain: 12 });
+}, { bump: 1.1, amb: 0.5, spec: 0.08, specPow: 20, ao: 0.8, grain: 12, alb: 1.05 });
 FLOORS.FLESH = matTex(T2, T2, p => {
   const n = fbm(p.u, p.v, 5, 4, 0.55, 3);
   let v = 0.66 + n * 0.6;
@@ -430,7 +480,7 @@ FLOORS.FLESH = matTex(T2, T2, p => {
   if (vk > 0.9) { p.e = 1; p.r = 208; p.g = 74; p.b = 66; }
   const pool = smoothstep(0.62, 0.86, fbm(p.u, p.v, 3, 3, 0.6, 92));
   p.r -= pool * 26; p.g -= pool * 12; p.b -= pool * 6; p.h -= pool * 0.05;
-}, { bump: 1.3, amb: 0.42, spec: 0.55, specPow: 20, ao: 0.7, grain: 9 });
+}, { bump: 1.3, amb: 0.42, spec: 0.55, specPow: 20, ao: 0.7, grain: 9, alb: 1.08 });   // #416: darkest floor at 88.6; the emissive vein cores at 208,74,66 are NOT scaled - alb skips emissive texels
 
 CEILS.CONCRETE = matTex(T2, T2, p => {
   const sx = (p.u * 2) % 1, sy = (p.v * 2) % 1;
