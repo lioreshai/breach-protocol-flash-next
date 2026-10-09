@@ -1,5 +1,68 @@
 # Changelog
 
+## [v1.4.2] - 2026-10-09
+
+### Added
+- **Two storeys can fight each other now** (#397, #423, issue #353). Dealt levels pair a tall room with a
+  mezzanine one floor up and put a hostile standing on it - up to three pairs per level - and THE STACK's
+  finale authors its own overlook: a pit floor with a grunt on the lip a metre above it. The riser still
+  blocks walking, so you still take the stairs, but shots pass through the opening. An enemy on a raised
+  band is now a tactical fact rather than scenery.
+- **Rooms say what they are for** (#414, issue #400). Three new wall fixtures built at boot - a stock rack,
+  a tank with a sight glass and its two plumbing stubs, and an arrow board beside a doorway - and each
+  sector authors its own pair: shelving in the ARCHIVE, tanks on the RING, vats and shelving in the
+  ABATOIR, one of each in THE STACK's three rooms. Every room now gets one; previously a room whose
+  first-choice face was already a door frame got nothing at all.
+
+### Changed
+- **Floors and ceilings stop drawing a fan of spokes** (#409, issue #19). A ground or ceiling pixel now
+  averages the strip of material it actually covers instead of reading two texels about one texel apart,
+  so the streaking that converged on the vanishing point is gone through the mid field - the largest area
+  on screen. The floor under your feet keeps its finest detail. `DEV.set('gndfade', 0)` shows the old fetch.
+- **A hostile 10 m away keeps his room's light** (#415, issue #407). The baked lamp field was being
+  attenuated a second time on bodies and props only, so a grunt standing well inside a lit room read as a
+  black cut-out with no lit flank. Distance is now carried by the haze alone, the way walls and floors
+  already paid it.
+- **No level paints its walls in its own floor's material** (#426, #428, issue #369). ABATOIR CORE's walls
+  are now meat with fibre bundles under broad folds rather than its floor's flesh; THE STACK's wear new
+  ashlar blockwork over their flagstone deck, authored at the same brightness, so a lip reads as a lip at
+  any distance; the ARCHIVE's minority face is form-panelled concrete and the RING's is a grate. Edges that
+  used to join two things agreeing in both colour and texture now separate.
+- **ABATOIR CORE's roof stops out-lighting the floor you stand on** (#410, issue #369). The lift that keeps
+  a 4 m vault from going black is capped by the surface order that level already states: its ceiling band
+  falls 66 to 27 against a deck of 49, so the room reads as three surfaces and a tall room reads as *high*
+  rather than as *bright*.
+- **THE STACK's lamp pools stop bleaching the deck** (#419, issue #408). Six lamps on a 20-cell plan
+  overlapped into a plateau above the renderer's ceiling, where the metal's studs had nothing to modulate
+  against. The baked field now has a soft knee, so the deck keeps its shading right up to the lamp's base
+  and the finale stays as bright as it was (its spawn pair holds at 49/53).
+- **The floor past a level's edge belongs to the depth cue** (#396, issue #385). Off-map floor pixels kept
+  whichever lamp the ray's walk had passed, at full strength, and ended on a hard line. They now read the
+  level's own ambient the way far walls do, so the far field ramps into the fog wash instead of drawing a
+  second hard edge where the footprint ends.
+
+### Fixed
+- **A shot fired down from a mezzanine hits what you aimed at** (#425, issue #353). Every overlook in the
+  game was one-way: the shot from the room up to a body on a band landed, and the return shot flew over his
+  head and slapped the floor behind him, because the hit test sampled the ray's height at the near edge of
+  the body rather than along it. A grunt firing down from the edge can now be answered.
+- **THE STACK's frame in the README is drawn by the build that ships** (#411, issue #388), re-taken from
+  the deployed page after the lamp and lighting work above.
+
+### Known in this build
+- Only THE STACK authors an overlook; the dealt levels get 0-3 pairs from the generator's pairing pass, and
+  the row that proves one is aimable is gated on the authored level only (#353).
+- Radial structure is still faintly legible on bright far-ceiling panels. That residual is a level's own
+  edge landing on the ceiling plane, not the texture fetch (#19, #375).
+- The very core of THE STACK's lamp pool still sits just past the clamp, so the brightest few pixels at a
+  lamp's base are flatter than the deck around them (#408).
+- ABATOIR CORE still fails its own surface sweep at one pose, and long walls stay bare between fixtures
+  (`surface L2 SWEEP`, #369, #400).
+- No probe measures a body at 8-16 m yet, so the range lighting above is not pinned by a distance row
+  (#407 stays open).
+- Two merged increments move no pixels: the surface census now names which face repeats a level's own deck
+  material (#424), and the off-map floor fix gains a rendered before/after of the level's outline (#429).
+
 ## [v1.4.1] - 2026-10-08
 
 ### Added
