@@ -86,6 +86,12 @@ const LEVELS = [
     name: 'THE STACK', size: 20, authored: true, wall: WT.SLAB, wall2: WT.TECH,
     floor: 'STONE', ceil: 'ROCK', amb: 0.2, lampCol: [255, 196, 120], fogCol: [17, 13, 10],
     floorBias: 0.18, ceilBias: -0.04, ceilLead: 0.12,
+    // #385: the absolute half of the step crease, in luma (js/40_render.js SEAMA). This level authors
+    // `lamps: 0`, so its decks are the darkest in the game and a MULTIPLY-only crease is 6 luma deep on
+    // the pit lip against 13 on a lit one - the same edge, half the legibility. It is authored HERE and
+    // nowhere else: the three generated levels keep 0, so their recorded frames do not move at all, and
+    // this level's own lit walk lip (deck 77) is past the term's fade and stays byte-identical too.
+    stepEdge: 10,
     lamps: 0, crates: 0, barrels: 0, spawn: { grunt: 0, hound: 0, brute: 0 }, pick: {},
     fixtures: ['PIPE', 'STRIPE', 'VENT'], // #400: three rooms, three kinds - the finale should look BUILT
     purpose: ['RACK', 'TANK', 'BOARD']    // #400: three rooms, three PURPOSES - one thing per room that
@@ -1588,6 +1594,7 @@ function buildAuthored(li) {
     lB: new Float32Array(N * N).fill(0.6), lw: new Float32Array(N * N),
     lt: new Uint8Array(N * N * 3).fill(128), amb: cfgL.amb, tintDirty: false,
     floorBias: cfgL.floorBias || 0, ceilBias: cfgL.ceilBias || 0, ceilLead: cfgL.ceilLead,
+    stepEdge: cfgL.stepEdge || 0,                    // #385: the authored absolute crease, 0 unless the level authors one
     floorTex: FLOORS[cfgL.floor], ceilTex: CEILS[cfgL.ceil],
     fz, cz, vb: new Uint16Array(N * N), feat, ceilPlane: new Float64Array(N * N)
   };
@@ -1806,6 +1813,7 @@ function genLevel(li) {
       lR: new Float32Array(N * N), lG: new Float32Array(N * N), lB: new Float32Array(N * N), lw: new Float32Array(N * N),
       lt: new Uint8Array(N * N * 3), amb: cfgL.amb === undefined ? 0.13 : cfgL.amb, tintDirty: true,
       floorBias: cfgL.floorBias || 0, ceilBias: cfgL.ceilBias || 0, ceilLead: cfgL.ceilLead,
+      stepEdge: cfgL.stepEdge || 0,                  // #385: as above; the generator authors none
       floorTex: FLOORS[cfgL.floor] || FLOORS.CONCRETE, ceilTex: CEILS[cfgL.ceil] || CEILS.CONCRETE,
       floorTile: 1.15, ceilTile: 0.9,
       fz: fzTry, cz: czTry,
