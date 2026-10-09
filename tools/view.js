@@ -953,20 +953,27 @@ if (MODE === 'alt') {
       const S = r.ovlShot, at = r.ovlAt;
       const atFz = a => (a[0] === undefined ? '-' : (at[4] === undefined ? '-' : at[4])) + ' -> ' + (at[5] === undefined ? '-' : at[5]);
       const shotTxt = S ? `shot UP ${S.up.hit ? 'HITS at ' + S.up.t : 'misses (band ' + S.up.band + ', t ' + S.up.t + ')'} / `
-        + `DOWN from the lip ${S.dn.hit ? 'HITS at ' + S.dn.t : 'misses at t ' + S.dn.t + ' (its own floor plane, #131 - NOT the ceiling: this half is measured, not gated)'}`
+        + `DOWN from the lip ${S.dn.hit ? 'HITS at ' + S.dn.t : 'misses at t ' + S.dn.t + (S.dn.floor ? ' on the floor plane it stands on' : '')}`
           : 'no pair to aim'
-        + (S ? `; CZ_DEF control: UP ${S.upB.hit ? 'STILL HITS - the ceiling is not what opens it' : 'blocked (band stop ' + S.upB.band + ' at t ' + S.upB.t + ')'} / `
-             + `DOWN ${S.dnB.hit ? 'still hits' : 'blocked at t ' + S.dnB.t} (t ${S.upB.t}/${S.dnB.t})` : '');
-      /* What this row GATES, and what it only measures. UP is gated: the shot leaves the low room's
-         eye and reaches a body one band up, and dies the moment that room's ceiling goes back to
-         CZ_DEF - the ceiling is what opens it. DOWN is PRINTED, not gated: across a one-unit step the
-         downward flight from the lip meets #131's own-floor term before it meets the boundary, so on
-         this geometry the return shot is stopped by the slab it stands on and NOT by the ceiling -
-         crediting a CZ_DEF block there would be vacuous, and a row that passes for the wrong reason is
-         the failure mode this repo has been bitten by repeatedly (#129, #189). Both CZ_DEF arms are
-         printed so the asymmetry is visible rather than asserted away. #353's downward half stays open. */
-      const credited = !!S && S.upB.hit === 0;
-      const ok = r.ovl >= 1 && r.ovlEnemy >= 1 && !!S && S.up.hit === 1 && credited;
+        + (S ? `; CZ_DEF control: UP ${S.upB.hit ? 'STILL HITS - the ceiling is not what opens it' : 'blocked (band stop at t ' + S.upB.t + ')'} / `
+             + `DOWN ${S.dnB.hit ? 'STILL HITS - the ceiling is not what opens it' : 'blocked at t ' + S.dnB.t} (t ${S.upB.t}/${S.dnB.t})` : '');
+      /* What this row GATES: the shot is open in BOTH directions and the CZ_DEF arm blocks in BOTH.
+         UP - the shot leaves the low room's eye and reaches a body one band up, and dies the moment that
+         room's ceiling goes back to CZ_DEF (a band stop, kind 1, at t 0.50 on all four levels).
+         DOWN - from the lip into the room below. It was printed, not gated, because it missed: aimed
+         from 0.15 m back of the edge at a chest 1.00 m down and 0.65 m out, the ray entered the body's
+         COLUMN above its head (hz 1.146 against a window ending at 1.02) and landed on the pit floor at
+         t 0.975, so the row could not say "open" without lying. That was a hitscan bug, not geometry -
+         js/30_entities.js tested the body's z window at ONE t, the cylinder's near edge, which is right
+         for a level shot and wrong for a steep one (#353, this head). With the window solved as the
+         volume it is, DOWN hits at t 0.312 and the CZ_DEF arm blocks at t 0.325, 13 mm later, on the
+         plane at the low column's CZ_DEF ceiling - which is why the body's top is clipped to that
+         ceiling in hitscan: a grunt is 1.02 tall in a 1.00 room, and the 2 cm of head inside the slab
+         above would otherwise be hittable THROUGH the slab and make the control arm pass for nothing.
+         The margin is small and it is the honest one: both arms are printed so a reader can see the
+         0.312/0.325 pair rather than a bare ok. */
+      const credited = !!S && S.upB.hit === 0 && S.dnB.hit === 0;
+      const ok = r.ovl >= 1 && r.ovlEnemy >= 1 && !!S && S.up.hit === 1 && S.dn.hit === 1 && credited;
       /* An AUTHORED plan is gated the same way as a deal once it declares an overlook: THE STACK now
          carries a 'V' glyph (js/20_level.js buildAuthored), so its row is a real gate and OVERLOOK=off
          shows it red. A plan that declares none stays a named KNOWN row - the difference between "this

@@ -124,12 +124,33 @@ function hitscan(ang, tanP, range) {
     if (proj < 0 || proj - e.r > bestT) continue;
     const perp = Math.abs(dx * ey - dy * ex);
     if (perp > e.r) continue;
-    const th = proj - Math.sqrt(Math.max(0, e.r * e.r - perp * perp));
-    if (th < 0.25) continue;
+    const tj = Math.sqrt(Math.max(0, e.r * e.r - perp * perp));
+    const th = proj - tj;                   // where the ray ENTERS the body's column
     const ez = floorAt(e.x, e.y);            // the body stands on its own band, not on absolute zero (#98)
-    const hz = oz + tanP * th;
-    if (hz < ez + 0.02 || hz > ez + e.scale) continue;
-    if (th < bestT) { bestT = th; best = e; hitObj = { head: hz > ez + e.scale * 0.78, z: hz }; }
+    /* #353: the body is a VOLUME, not a point. The test above asked the ray's height at ONE t - the
+       cylinder's near edge - and that is the right answer for a flat shot and the wrong one for a steep
+       one: aimed down over a mezzanine lip the ray enters the column above the head (measured hz 1.146
+       against a window ending at 1.02, from an eye 1.50 onto a chest 0.50 across 0.65 m) and flies on to
+       land on the floor behind, so the return shot of an overlook missed a body it was aimed at. The
+       body's solid is {column distance <= r} AND {feet <= z <= top}; each half is an interval in t, so
+       the hit is the first t in their intersection. Flat and level this is the SAME t the old test
+       accepted - the z window is wide and the ray is under its ceiling - so no shipped shot moves.
+       The top is CLIPPED to the air the body's own column has: a grunt is 1.02 tall in a one-unit room,
+       and the 2 cm of head inside the slab above is not hittable through that slab (#189's cull row
+       already calls a body one band up hidden). That clip is also what makes the overlook's CZ_DEF
+       control arm block - with the ceiling back at CZ_DEF the last hittable centimetre sits exactly at
+       the plane the shot dies on, so the ceiling, not the body, decides the row. */
+    const hi = Math.min(ez + e.scale, ceilAt(e.x, e.y)), lo = ez + 0.02;
+    let tz0, tz1;
+    if (Math.abs(tanP) < 1e-6) { if (oz < lo || oz > hi) continue; tz0 = -Infinity; tz1 = Infinity; }
+    else { tz0 = (lo - oz) / tanP; tz1 = (hi - oz) / tanP; if (tz0 > tz1) { const s = tz0; tz0 = tz1; tz1 = s; } }
+    const tz = Math.max(th, tz0);
+    if (tz < 0.25) continue;                // the muzzle guard now reads the HIT distance, not the column
+                                             // entry: a body one metre below a lip enters the ray at 0.23 and
+                                             // is struck at 0.31, and the old guard discarded it as self
+    if (tz > Math.min(proj + tj, tz1) || tz >= bestT) continue;
+    const hz = oz + tanP * tz;
+    bestT = tz; best = e; hitObj = { head: hz > ez + e.scale * 0.78, z: hz };
   }
   if (!best) {
     for (const p of PROPS) {
