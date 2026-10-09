@@ -1411,6 +1411,9 @@ function overlookEnabled() { return true; }
      feat '.' none  'S' stair tread (FEAT_STAIR: the cell the minimap draws and findability counts)
           'P' pit cell (FEAT_PIT)  'T' tall air - this cell's OWN ceiling is CZ_AUTH_TALL quanta
           rather than CZ_DEF, which is what makes a storey read as a room and not a crawlway.
+          'V' an OVERLOOK (#353): tall air, written through overlookEnabled() - the authored route to
+          the same switch the generator's pairing pass reads, so alt's overlook row can be shown to
+          fail on THIS level too. cz only: it opens a SHOT across the riser, never a walk.
    A lamp is placed where the SEAT cannot see it, not merely where the room needs light: the seat is
    (1,2) at P.ang 0.6, and the camera plane 0.72 puts the frame edge atan(0.72) = 0.624 rad to either
    side of the heading, so the lens covers bearings -0.02..1.22 from that cell. A lamp with line of
@@ -1446,8 +1449,8 @@ const AUTHORED = {
     "#.L." + "...." + ".###" + "#..L" + "...#",   // 12
     "#..." + "...." + ".###" + "#..." + "...#",   // 13
     "#..." + "L.B." + ".###" + "#..." + "...#",   // 14
-    "#..." + "...." + ".###" + "#..." + "...#",   // 15
-    "#.L." + "...g" + ".###" + "#..." + "...#",   // 16
+    "#..." + "...g" + ".###" + "#..." + "...#",   // 15  #353: the overlook body, on the pit lip
+    "#.L." + "...." + ".###" + "#..." + "...#",   // 16
     "#..." + "...." + ".###" + "#..." + ".h.#",   // 17
     "#..." + "...." + "E###" + "#..." + "b..#",   // 18
     "####" + "####" + "####" + "####" + "####",   // 19
@@ -1491,7 +1494,7 @@ const AUTHORED = {
     ".SSS" + "TTTT" + "...." + ".TTT" + "TTT.",   // 13
     ".SSS" + "TTTT" + "...." + ".TTT" + "TTT.",   // 14
     ".SSS" + "TTTT" + "...." + ".TTT" + "TTT.",   // 15
-    ".PPP" + "PPP." + "...." + ".TTT" + "TTT.",   // 16
+    ".PPP" + "PPPV" + "...." + ".TTT" + "TTT.",   // 16  #353: V = the overlook column, tall air under the lip
     ".PPP" + "PPP." + "...." + ".TTT" + "TTT.",   // 17
     "...." + "...." + "...." + ".TTT" + "TTT.",   // 18
     "...." + "...." + "...." + "...." + "....",   // 19
@@ -1534,6 +1537,15 @@ function buildAuthored(li) {
     if (f === 'T') cz[i] = CZ_AUTH_TALL;
     else if (f === 'P') feat[i] = FEAT_PIT;
     else if (f === 'S') feat[i] = FEAT_STAIR;
+    /* #353: an OVERLOOK, authored. cz is the whole write, exactly as in the generator's pairing pass
+       (js/20_level.js feature 4): a tall column whose OWN ceiling clears the band next door, so the
+       crossing carries an opening instead of a slab, and a FEAT_* byte would be WRONG here - those
+       drive canEnter and the minimap, and an overlook is deliberately not a way to walk. It is a
+       separate glyph from 'T' because it is the authored route to the SAME A/B knob the pairing pass
+       reads, `overlookEnabled()`: genLevel's passes never run on an authored plan, so without this the
+       overlook row on THIS level could never be red, and a row that has never been seen to fail has
+       not been tested. tools/view.js runs the deal with OVERLOOK=off to show it. */
+    else if (f === 'V') { if (overlookEnabled()) cz[i] = CZ_AUTH_TALL; }
     if (g === 'P') { sx = x; sy = y; }
     else if (g === 'E') { ex = x; ey = y; }
     else if (g !== '.') spots.push([x, y, g]);
