@@ -669,13 +669,6 @@ const LAMP_PEAK = (process.env.LAMP_PEAK || '252/255/255/255').split('/').map(Nu
 const FLASH_PEAK = (process.env.FLASH_PEAK || '245/245/245/245').split('/').map(Number);
 const PEAK_TOL = +(process.env.PEAK_TOL || 0.10);   // #377: the glow stays within 10 % of shipped
 const SPREAD_MAX = +(process.env.SPREAD_MAX || 1.10);
-/* #408: standing debt, printed as debt. THE STACK's lamp seat is the one seat whose floor pool sits
-   on top of the brightest authored floor base of the four levels (amb 0.2 + floorBias 0.18), so its
-   pool still runs past luma 224 after #408's reach fix. The bound stays 2 %; this is the measured
-   baseline the row is tolerated UP TO, not a widened bound: above it the row FAILS again. The figure
-   is main's own reading at this seat before the fix (3.45 % on / 2.26 % off, HEAD f0db0fe), so the
-   row cannot be satisfied by the defect getting worse. */
-const HI_KNOWN = +(process.env.HI_KNOWN || 3.45);   // #408: main's own reading at THE STACK's lamp seat
 const CAPTURE = process.env.CAPTURE === undefined ? -1 : +process.env.CAPTURE;   // level to write PNGs for
 async function shot(cdp, file) {
   const r = await cdp.send('Page.captureScreenshot', { format: 'png' });
@@ -775,7 +768,7 @@ async function mainBloom() {
     console.log('  ceiling on pixels above luma ' + HI + ' is ' + HI_MAX + ' % of the frame; exposure ceiling ' + MAX + '.');
     if (!env[8]) throw new Error('the tier under test has bloom OFF - this run would measure nothing');
     const bad = [];
-    let rows = 0, maxAdd = 0, debt408 = 0;
+    let rows = 0, maxAdd = 0;
     const row = (label, ok, detail) => { rows++; if (!ok) bad.push(label + ' - ' + detail); console.log('  ' + (ok ? 'ok  ' : 'FAIL') + ' ' + (label + '                                        ').slice(0, 56) + detail); };
     for (let lv = 0; lv < nLevels; lv++) {
       const cap = CAPTURE === lv;
@@ -818,17 +811,9 @@ async function mainBloom() {
            + ' was never in its source'
            : 'no stat lamp in the level, so nothing to bloom');
       if (lp) {
-        const seatBad = lp.on.hiPct > HI_MAX && lp.on.hiPct <= HI_KNOWN && v.name === 'THE STACK';
-        if (seatBad) {                              // #408: the seat is over the bound, the debt is named
-          rows++; debt408++;
-          console.log('  KNOWN L' + lv + ' share above ' + HI + ' at the lamp seat over ' + HI_MAX + '%  on '
-            + lp.on.hiPct.toFixed(2) + '% off ' + lp.off.hiPct.toFixed(2) + '% - KNOWN #408, up to '
-            + HI_KNOWN.toFixed(2) + '% measured on main before the fix; past that this row FAILS');
-        } else {
         row('L' + lv + ' share above ' + HI + ' at the lamp seat <= ' + HI_MAX + '%', lp.on.hiPct <= HI_MAX,
           'on ' + lp.on.hiPct.toFixed(2) + '% off ' + lp.off.hiPct.toFixed(2) + '% - the shipped pass put 9.04%'
           + ' here on L1 and 13.58% on L3, which is the white sheet of #377');
-        }
         row('L' + lv + ' lamp peak within ' + (PEAK_TOL * 100).toFixed(0) + '% of shipped',
           lp.on.peak >= LAMP_PEAK[lv] * (1 - PEAK_TOL),
           'now ' + lp.on.peak.toFixed(0) + ' against shipped ' + LAMP_PEAK[lv]);
@@ -854,8 +839,7 @@ async function mainBloom() {
     }
     console.log('BLOOM ok: ' + rows + ' rows - no level delivers above ' + HI_MAX + '% of pixels over ' + HI
       + ', no spawn frame above the ' + MAX + ' ceiling, lamp and flash peaks within ' + (PEAK_TOL * 100).toFixed(0)
-      + '% of shipped, and the pass still adds energy where it should'
-      + (debt408 ? ' - ' + debt408 + ' KNOWN row(s): THE STACK\'s lamp-seat pool (#408)' : ''));
+      + '% of shipped, and the pass still adds energy where it should');
     return 0;
   } catch (e) {
     console.log('BLOOM GATE: NOT MEASURED - ' + (e && e.message ? e.message : e));
