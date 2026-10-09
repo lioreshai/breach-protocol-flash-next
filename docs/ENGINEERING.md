@@ -238,3 +238,20 @@ re-seat before rendering (`tools/view.js`'s `OFFLOOK` block), which makes the pa
 pixels wherever the term cannot reach - a null result that is worth more than the number it replaced.
 Read the diff on a rifle-free render too: the view model's edge is a 100-luma step of its own and it
 lands exactly where a level outline would.
+## A crease that is a fraction is quiet in a dark room
+
+`seamCrease` shades a step lip by MULTIPLYING its pixels, which is scale-invariant: the same fraction
+of a bright deck is twice the luminance of the same fraction of a dark one. On the four levels the
+authored finale owns the darkest scored deck in the game (it authors `lamps: 0`), and its down-step into
+the pit is the one lip in the game that reads flat — `bands` scored it 40% against a 45% want while its
+own walk lip, three cells away on a deck twice as bright, scored 70%. Deepening the multiply was
+measured and declined: it hardens three lips that already read and re-keys their recorded frames
+(3.71% of pixels moved, mean 3.2 luma) to buy one authored row.
+
+**Lighting it was tried first and made it worse.** An authored lamp two cells from that lip took the row
+from 40% to **35%**: the pit floor a unit below is inside a datum lamp's band reach, so the lamp raised
+the far side of the measured pair faster than the near one (`NOCAP=1` rules out the light ceiling). The
+term that works is an ABSOLUTE subtraction in luma, authored per level (`stepEdge`, THE STACK only) and
+faded out by the deck's own light above `SEAMK`, so a lit lip — including this level's own walk lip — is
+the byte it always was. `bands` L3 face lip 40% -> 49%, the `KNOWN [#203]` tag gone, L0/L1/L2 and every
+`flatparity`, `heights` and `exposure` record unmoved in the same tree.
