@@ -1373,11 +1373,12 @@ function placeWallFixtures(cfgL) {
         }
         if (!run) at = [ax, ay];
         run++; since++;
-        /* one every FIX_REPEAT metres once the run is long enough to be a sight line at all */
-        if (run >= FIX_RUN_MIN && since >= FIX_REPEAT) {
-          mount(kinds[(a + d) % kinds.length], ax, ay, d);
+        /* one every FIX_REPEAT metres once the run is long enough to be a sight line at all. The
+           spacing advances only when the mount PLACED something (#400 review): a face already owned by
+           a doorway or a room fixture does not cost the slot, so a run that passes a door still gets
+           its next fixture six metres on rather than six metres past the door. */
+        if (run >= FIX_RUN_MIN && since >= FIX_REPEAT && mount(kinds[(a + d) % kinds.length], ax, ay, d))
           since = 0;
-        }
       }
       if (run >= FIX_RUN_MIN && at && !used[(at[1] * N + at[0]) * 4 + d])
         mount(kinds[(a + d) % kinds.length], at[0], at[1], d);
