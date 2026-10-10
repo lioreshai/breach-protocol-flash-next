@@ -519,7 +519,19 @@ let MIPAX = 1, MIPAR = 4;
    All of them are read once per row (the last one once per deferred pixel), never per pixel of a row, and
    none of them adds a THIRD copy of the ground pixel body: a switch shows up as a zero slope, a zero
    offset or one fewer load, not as a new loop. */
-let GJIT = 1, GLRP = 1, GNDAX = 1, AXMIN = 1.5, GLC = null, GNDFT = 1, GNDRO = 1, GNDFB = 1, GNDOF = 1;
+let GJIT = 1, GLRP = 1, GNDAX = 1, AXMIN = 1.5, GLC = null, GNDFT = 1, GNDRO = 1, GNDFB = 1, GNDOF = 1, GNDEX = 1, GNDEXM = 1;
+/* #375 - THE DISTANCE A RAY ACTUALLY TRAVELLED. A ground pixel whose ray left the level's footprint and
+   met the plane in empty space used to shade at THAT PLANE'S SOLVE (measured mean 41.9 m at the level-0
+   cam1 seat) while the pixel one column over was a real ceiling at 15-20 m. Both copies of the ground
+   pixel body fog and select their mip from a distance, so the phantom one draws the level's own footprint
+   as a straight-edged region at any range: the edge is where the renderer stops knowing where the surface
+   is. GNDEX replaces that distance with the one the ray can prove - where it crossed the level's border
+   rectangle, closed form, two divides and a min, no march - for the FAR-ANSWER THRESHOLD and the FOG
+   TERM. Light is untouched: ambient and nothing more past the boundary, which is what keeps `heights`'
+   offmap census at 0.0000. The texture address is the pixel's own landing point, NOT the border point:
+   moving it would smear the border's material over the whole far field. GNDEXM is the ruled third clause
+   (the mip selection too) kept as the A/B, and `DEV.set('gndexit', 0)` puts the phantom back for the
+   two-arm measurement this issue's acceptance asks for. */
 /* #19 take six - THE GRADED BLEND, and the strength of it. The five takes above change WHERE a pixel
    reads and HOW the texel is fetched; none of them changes WHAT AREA GETS AVERAGED, which is the only
    term issue #19's band table says is still unaccounted for. A pixel's strip on the plane runs about one
@@ -888,6 +900,28 @@ function texAvg(mm) {
   mm.meanEM = nEm ? [er / nEm, eg / nEm, eb / nEm] : mm.meanNE;
   mm.emFrac = nEm / n;
   return mm;
+}
+
+/* #375: how far a ray travels BEFORE IT LEAVES THE LEVEL'S OWN FOOTPRINT.
+   Closed form against the border rectangle - two divides and a min, no march, no per-cell walk. A
+   ground pixel whose ray met the plane outside that rectangle has no surface there at all: the plane it
+   solved has no cells under it, so its solve is arithmetic about a surface that does not exist (measured
+   mean 41.9 m on a 26x26 level, while the pixel one column over was a real ceiling at 15-20 m). Both
+   copies of the ground pixel body pick their haze, their far-answer threshold and their mip blur from a
+   DISTANCE, so a phantom one is not a wrong number - it is a different LOOK, and its level set is the
+   projected footprint, whose boundary along an axis is a straight line through the vanishing point. That
+   is the hard-edged flat region in the far ceiling. The distance the ray can prove is the border it
+   crossed, and it is continuous with the in-map pixel next to it by construction: at the edge the two
+   are the same number, so the haze becomes a ramp instead of a step.
+   The engine's `d` is the parameter of cam + (dir + plane*cam)*d, which is what `point = cam + ray*d`
+   means in both bodies, so the border crossing is in the same units as any plane solve. A ray parallel
+   to an axis never crosses it; a camera outside the map (never in play, guarded anyway) exits
+   immediately. */
+function exitDist(rx, ry, N) {
+  const tx = rx > 0 ? (N - camX) / rx : rx < 0 ? -camX / rx : 1e30;
+  const ty = ry > 0 ? (N - camY) / ry : ry < 0 ? -camY / ry : 1e30;
+  const t = tx < ty ? tx : ty;
+  return t > 0 ? t : 0;
 }
 
 function castGround(flash, fcR, fcG, fcB) {
@@ -1425,6 +1459,7 @@ let gSer = 0, gMSer = -1, gMRow = -1, gMPl = 0, gMDS = 0, gMDfa = 0, gMFog = 0, 
   gMFG = 0, gMFB = 0, gMBase = 0, gMCx0 = 0, gMCy0 = 0, gMCxs = 0, gMCys = 0,
   gMCf = 0, gMAx = 0, gMWs = 0, gMAn = 1, gMAr = 4, gMN = 0, gMDist = -1, gMMirOn = 0,
   gMFar = 0, gMWnR = 0, gMWnG = 0, gMWnB = 0, gMWErr = 0, gMWEg = 0, gMWEm = 0, gMLift = 0,
+  gMWeR = 0, gMWeG = 0, gMWeB = 0, gMEmF = 0,
   gLSer = -1, gLSX = 0, gLSY = 0, gML0 = 0, gML1 = 0, gML2 = 0, gMMir = 0,
   gMA0 = 0, gMA1 = 0, gMA2 = 0, gMB0 = 0, gMB1 = 0, gMB2 = 0, gMD0 = 0, gMD1 = 0, gMD2 = 0;
 
@@ -1478,6 +1513,11 @@ function gndBuild(row, isF, absP, pl, tex, sc, fcR, fcG, fcB, fl, amb, dOv) {
     gMFar = 1;
     gMWnR = mm.meanNE[0] * wLit; gMWnG = mm.meanNE[1] * wLit; gMWnB = mm.meanNE[2] * wLit;
     gMWErr = mm.meanEM[0] * wEm; gMWEg = mm.meanEM[1] * wEm; gMWEm = mm.meanEM[2] * wEm;
+    /* #375: the wash's emissive share with the fog term TAKEN OUT. A pixel whose ray left the level
+       fogs at a different distance than its run (see GNDEX), so it needs the raw mean and the raw
+       emissive fraction; multiplying them back in the same order reproduces gMWErr exactly for every
+       pixel the override does not fire on. */
+    gMWeR = mm.meanEM[0]; gMWeG = mm.meanEM[1]; gMWeB = mm.meanEM[2]; gMEmF = mm.emFrac;
   } else gMFar = 0;
 }
 
@@ -1738,6 +1778,31 @@ function groundPixel(x0, x1, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb
       }
     }
   }
+  /* #375 - THE DISTANCE THAT PIXEL CAN PROVE. See exitDist. An off-map pixel keeps its LIGHT exactly as
+     the block above left it (ambient, nothing more) and keeps its SAMPLE POINT exactly as the plane put
+     it; only the three terms that are functions of DISTANCE move to the distance the ray can prove:
+     the far-answer threshold (so a pixel whose ray left the level 15 m ago is TEXTURED like the pixel
+     beside it instead of filled with the material's mean - "a surface", not "a slab"), the haze, and
+     the mip the fetch selects. Every mip/fog term in this body is LINEAR in the distance it was built
+     from, so the override is one ratio, not a second gndBuild: re-running gndBuild would move the
+     SAMPLE POINT too, and the border point is inside the map, so the light taps above would start
+     paying a lamp to a pixel whose ray never entered a room - which is exactly what the offmap census
+     is there to catch. In-map pixels take every one of these p* values straight from the memo, so the
+     rest of the frame is byte-for-byte what it was. */
+  let pD = gMDS, pFar = gMFar, pInv = gMInv, pR = gMFR, pG = gMFG, pB = gMFB,
+    pWr = gMWErr, pWg = gMWEg, pWb = gMWEm, pCf = gMCf, pAx = gMAx, pXs = gMCxs, pYs = gMCys;
+  if (!own && GNDEX) {
+    const dE = exitDist(rx, ry, N);
+    if (dE < pD) {
+      const dc = dE > FARB * 4 ? FARB * 4 : dE;
+      const fog = fogAt(dc);
+      pD = dc; pInv = 1 - fog; pR = fcR * fog; pG = fcG * fog; pB = fcB * fog;
+      pFar = GNDFB && dc > FARB ? 1 : 0;
+      const kE = dc / gMDS;
+      pWr = gMWeR * gMEmF * pInv; pWg = gMWeG * gMEmF * pInv; pWb = gMWeB * gMEmF * pInv;
+      if (GNDEXM) { pCf = gMCf * kE; pAx = gMAx * kE; pXs = gMCxs * kE; pYs = gMCys * kE; }
+    }
+  }
   /* #375 census, DEFERRED COPY - deliberately OUTSIDE the GNDOF gate above, so the A/B that puts the
      wedge back makes this row go RED instead of measuring the fixed arithmetic either way. Both halves
      are counted and maxed SEPARATELY (#385): the fix is one term for both, but the two halves land on
@@ -1763,9 +1828,9 @@ function groundPixel(x0, x1, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb
      load, no decal, no contact shadow (a row-wide fill carries none of those either). The colour is
      that pixel's own light times the mean, plus the wash's emissive share, which takes no light and
      keeps only the fog term, exactly as an emissive texel does one screen nearer in either copy. */
-  if (gMFar) {
-    px[row + x] = 0xFF000000 | clampi(gMWnB * lb + gMWEm + gMFB) << 16 |
-      clampi(gMWnG * lg + gMWEg + gMFG) << 8 | clampi(gMWnR * lr + gMWErr + gMFR);
+  if (pFar) {
+    px[row + x] = 0xFF000000 | clampi(gMWnB * lb + pWb + pB) << 16 |
+      clampi(gMWnG * lg + pWg + pG) << 8 | clampi(gMWnR * lr + pWr + pR);
     continue;
   }
   /* The mip SELECTION is here rather than with the other per-pixel setup because the band above must
@@ -1773,19 +1838,19 @@ function groundPixel(x0, x1, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb
      pixels it still answers exactly what it cost them before. */
   let k;
   if (gMAn) {
-    const cfS = gMCf, qx = rx * cfS, qy = ry * cfS;
+    const cfS = pCf, qx = rx * cfS, qy = ry * cfS;
     const ay = Math.sqrt(qx * qx + qy * qy) * gMWs;
-    const rho = gMAx >= ay ? gMAx : ay < gMAx * gMAr ? ay : gMAx * gMAr;
+    const rho = pAx >= ay ? pAx : ay < pAx * gMAr ? ay : pAx * gMAr;
     k = rho >= 16 ? 4 : rho >= 8 ? 3 : rho >= 4 ? 2 : rho >= 2 ? 1 : 0;
     if (k >= gMN) k = gMN - 1;
-  } else k = mipSel(planeX * stepBase * dS, planeY * stepBase * dS, rx * (dS / absP), ry * (dS / absP), sc, tex);
+  } else k = mipSel(planeX * stepBase * pD, planeY * stepBase * pD, rx * (pD / absP), ry * (pD / absP), sc, tex);
   const m = tex.mips[k];
   const mw = m.w, mh = m.h, ms = sc * m.w, td = m.data, mask = mw - 1, maskH = mh - 1;
   /* #19 take six, the DEFERRED copy: this pixel's own mip, so its own F. Same rule, same arithmetic,
      second copy - AGENTS.md counts the duplication as the price of the row loop's registers. */
   let ftd = null, fW = 0, fmw = 0, fmx = 0, fmy = 0, fms = 0;
   if (GNDFA && k + 1 < gMN) {
-    const colT = gMCf * ms * 0.5, colA = colT < 0 ? -colT : colT, rowT2 = (gMCxs * gMCxs + gMCys * gMCys) * ms * ms;
+    const colT = pCf * ms * 0.5, colA = colT < 0 ? -colT : colT, rowT2 = (pXs * pXs + pYs * pYs) * ms * ms;
     const fLong = colA * colA * 4 >= rowT2 ? colA * 2 : Math.sqrt(rowT2);
     if (fLong > 1) {
       const mu = tex.mips[k + 1];
@@ -1801,9 +1866,9 @@ function groundPixel(x0, x1, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb
      like every other term in these two bodies (AGENTS.md). */
   let axOn = 0, ox = 0, oy = 0;
   if (GNDAX) {
-    const colT = gMCf * ms * 0.5, colA = colT < 0 ? -colT : colT, rowT2 = (gMCxs * gMCxs + gMCys * gMCys) * ms * ms;
+    const colT = pCf * ms * 0.5, colA = colT < 0 ? -colT : colT, rowT2 = (pXs * pXs + pYs * pYs) * ms * ms;
     if (colA * colA * 4 >= rowT2) { if (colA * 2 > AXMIN) { axOn = 1; ox = rx * colT; oy = ry * colT; } }
-    else { const rowT = Math.sqrt(rowT2); if (rowT > AXMIN) { axOn = 1; ox = gMCxs * ms * 0.5; oy = gMCys * ms * 0.5; } }
+    else { const rowT = Math.sqrt(rowT2); if (rowT > AXMIN) { axOn = 1; ox = pXs * ms * 0.5; oy = pYs * ms * 0.5; } }
     ox = (ox + 0.5) | 0; oy = (oy + 0.5) | 0;
   }
   const uxp = cx * ms, uyp = cy * ms;
@@ -1846,8 +1911,8 @@ function groundPixel(x0, x1, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb
     cg += ((c3 >> 8 & 255) - cg) * fW;
     cb += ((c3 >> 16 & 255) - cb) * fW;   // colour only: see the flag rule at the switch declaration
   }
-  if (em === 253) { px[i] = 0xFF000000 | clampi(cb * gMInv + gMFB) << 16 | clampi(cg * gMInv + gMFG) << 8 | clampi(cr * gMInv + gMFR); continue; }
-  let r = cr * lr + gMFR, g = cg * lg + gMFG, b = cb * lb + gMFB;
+  if (em === 253) { px[i] = 0xFF000000 | clampi(cb * pInv + pB) << 16 | clampi(cg * pInv + pG) << 8 | clampi(cr * pInv + pR); continue; }
+  let r = cr * lr + pR, g = cg * lg + pG, b = cb * lb + pB;
   /* #413 ceiling fitting, DEFERRED COPY - same one byte, same helper, same two lines. A plate that
      drew in the row loop and not here would alias at every band boundary the column re-solves. */
   if (!isF && inMap && CF_FIX !== null && CF_FIX[cIdx] !== 0 && ceilFixAt(cx, cy)) {
