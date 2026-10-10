@@ -180,6 +180,7 @@ const MESH = (function () {
   let BODY = false;                                   // o.body: a character, not a prop (COV stamp)
   let ALPHA = 1, FLASH = 0, TINT = null;               // per-draw terms the enemy list carries
   let EMIS = false, DIM = 0, EM = null;                // the light-exempt registers: entry-wide, per-vertex
+  let PKN = 0;                                         // #371: is THIS triangle a lit prop face? see pkneeling
   /* Two terms only a view model needs, and both are A/B-able from tools/view.js because they are
      module registers rather than baked arithmetic:
      FLR  - a floor on the LIGHT MULTIPLIER, not an additive. The 2-D art multiplied its albedo by
@@ -229,6 +230,26 @@ const MESH = (function () {
   let srx0 = 0, srx1 = -1, sry0 = 0, sry1 = -1;      // the rectangle the last view-model draw wrote
   let R0 = 0.30, R1 = 0.85;                            // the Lambert ramp, per kind - see draw()
   let CR = 0, CG = 0, CB = 0;                       // shaded colour of the current triangle
+  /* #371: the prop paint's CLIP bound. PROPGEO's numbers are authored albedo, and the prop lift below
+     multiplies them by 1.35 ("sprites are albedo: they get lit again", js/05_paint.js) - so the crate's
+     WOOD enters the shading with red at 175 where green is 125 and blue 73. The face ramp then
+     multiplies the room's light by `R0 + R1*d` with R1 0.68, while a wall column pays NO shape ramp at
+     all (js/40_render.js:1043), so a prop face turned into the key is lit up to 1.28x what the same
+     light does to the wall behind it - and 175 x that is past 255 at the pack line under this comment.
+     Once a channel is pinned the face CANNOT answer the lamp: at the level-3 seat (`node tools/view.js
+     scene 3 0`, the crate's lit flank, 7,371 px) 75.6% of it sat at red 255 with its green still at 192,
+     while the wall behind it pinned 0 of 49,051. That is the "bright card with a hairline down the
+     middle" the issue is about, and it is a CLIP, not a lighting choice - which is why the fix is a
+     ceiling on the prop's own shading and not a dim of the room (#377's frame-wide shoulder folds
+     highlights AFTER the raster, and it cannot reach a channel already pinned here).
+     One fold, monotone, applied to a lit PROP triangle and to nothing else: not to an emissive part (a
+     lamp's aperture is a light source and the `props` LAMPCORE census reads it), not to a body, not to
+     the view model. Below PKNU it is the identity to the byte, so a prop in a dim cell is untouched;
+     above it every channel approaches 255 without reaching it, so a lit face keeps a gradient. The
+     frame-wide rule this copies is #377's; the reason it is paid here is that #377's own note says it
+     cannot un-clip a pixel that arrived clipped. */
+  const PKNU = 227, PKD = 28;                         // fold from 227; 227+28 = 255 is the asymptote
+  const pkneeling = v => v <= PKNU ? v : PKNU + PKD * (v - PKNU) / ((v - PKNU) + PKD);
 
   /* ---- geometry emit: tubes and boxes into a flat vertex/index list ----
      Every vertex leaves through the builder's current transform: a rotation about the body's
@@ -1211,6 +1232,7 @@ const MESH = (function () {
         // texel whose alpha byte is 253 or a sprite drawn self:true - no AMB, no scene light, no ramp,
         // no tint and no dim, because all of those are terms of the light the pixel is exempt from
         lr = inv; lg = inv; lb = inv;
+        PKN = 0;                                     // a light source is not a surface: no bound on it
       } else {
         /* #407: the lamp field is taken WHOLE at the body's own cell. `MAP.light` is a baked LAMP
            field - splatLight (js/20_level.js) spreads every lamp over a disc of its radius, so a cell's
@@ -1242,6 +1264,10 @@ const MESH = (function () {
         lg = (AMB + li * lt[1] * sh + fk * (FC[1] / 255)) * inv;
         lb = (AMB + li * lt[2] * sh + fk * (FC[2] / 255)) * inv;
         if (DIM) { lr *= 1 - DIM; lg *= 1 - DIM; lb *= 1 - DIM; }   // the portal's shut-and-dimmed term
+        /* #371: the fold is a bound on the PRODUCT (albedo x light), not on the light, so it rides where
+           the product is finished and the light-exempt branch has already been taken round. PKN is a
+           module register for the same reason CR is: tri() reads registers, not the argument list. */
+        PKN = pr ? 1 : 0;
         if (TINT) { lr *= TINT[0]; lg *= TINT[1]; lb *= TINT[2]; }
         if (FLR > lr) lr = FLR;
         if (FLR > lg) lg = FLR;
@@ -1268,6 +1294,7 @@ const MESH = (function () {
           TQ0 = sa * TS_CYC; TQ1 = sb * TS_CYC; TQ2 = sz * TS_CYC;
         } else TK = 0;
       } else TK = 0;
+      if (PKN) { r = pkneeling(r); g = pkneeling(g); b = pkneeling(b); }
       CR = r > 255 ? 255 : r | 0; CG = g > 255 ? 255 : g | 0; CB = b > 255 ? 255 : b | 0;
       // the hit flash the billboard applied per pixel is per triangle here: a flat-shaded face has
       // one colour, so the same 0.72 pull toward white after fog lands in the three registers
