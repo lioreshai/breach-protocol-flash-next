@@ -2530,10 +2530,13 @@ function drawExposure(A) {
      within one luma and the fold is derived from the two lumas, not tuned: 200 -> 200, 255 -> 224.
      A channel already at or under the pivot is untouched by construction, so a saturated lamp tint
      loses only the channel that was clipping - which is a roll-off, not a desaturate.
-     Everything drawn after this - the bright pass reads bufCv and not this canvas, the lamp discs,
-     the particles, the HUD - is untouched, which is why the recorded lamp and muzzle peaks do not
-     move. A pixel at 224 receives min(224, 224) = 224 exactly, so this term cannot create a clipped
-     pixel either; it can only ever remove one. */
+     Everything drawn AFTER this - the bright pass reads bufCv and not this canvas, the lamp discs,
+     the particles, the HUD - is untouched by the fold. That is why the recorded glow peaks barely
+     move, but it is NOT "cannot move": a disc whose sprite lands on a deck that was already past
+     EXPOSE_T is composited over pixels this term has folded, so it arrives lower with them - measured
+     at the L3 lamp seat, disc peak 253 -> 242, the L0-L2 discs 248/250/250 unchanged and muzzle flash
+     243-245 -> 242, all inside the bloom gate's PEAK_TOL. A pixel at 224 receives min(224, 224) = 224
+     exactly, so this term cannot CREATE a clipped pixel; it can only ever remove one. */
   if (SHOULDER) {
     const G = Math.round(255 * (EXPOSE_TOP - EXPOSE_T) / (255 - EXPOSE_T));
     const C = Math.round(EXPOSE_T * (255 - G) / 255);
