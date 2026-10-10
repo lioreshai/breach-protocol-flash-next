@@ -12214,6 +12214,7 @@ if (MODE === 'surface') {
     return {
       ceil: cn ? cs / cn : NaN, ceilPct: 100 * cn / n,
       floor: fn ? fs / fn : NaN, floorPct: 100 * fn / n,
+      foMask: fo,
       other: (n - cn - fn) ? NaN : NaN,
       seam: med(gaps), seamP10: gaps.length ? gaps[Math.floor(gaps.length * 0.1)] : NaN,
       cols: gaps.length,
@@ -12320,6 +12321,46 @@ if (MODE === 'surface') {
         (wPass || !wMeas ? '' : ` - the wall and the deck it stands on read as one surface over ` +
           `${(100 * (1 - c.wsep)).toFixed(0)}% of the width`),
         wMeas && !wPass ? '#369' : undefined, !wMeas);
+      /* THE THIRD SURFACE CLASS: what stands ON the deck (#369's remaining half, and the one no row ever
+         judged). The issue's rule is walls highest, floor mid, ceiling lowest, and the ruling on the issue
+         added a third term to it: the brightest thing in a room must be a light or a body, never a crate.
+         It was true of nothing - measured on main from the `scene` seats, THE STACK's deck is 141.9 luma,
+         a crate on that deck 165.0 and the wall behind it 77.9, so a wooden box was the loudest element in
+         a level that authors `lamps: 0`.
+         WHICH pixels are a prop is a per-pixel fact, and the census gets it by REMOVING the props: park
+         PROPS, render, put the entries back in the same order. A pixel that changed is either the prop's
+         own face or the contact patch it grounds on the floor (js/40_render.js SHADOW_PROP), and the two
+         are told apart by the masks the bias A/B already built - the patch is a GROUND pixel, so it is in
+         `fo`, and a prop's faces are shaded by the mesh pass, which reads neither row constant, so they
+         are in neither. Removing a prop can only reveal what was behind it, never repaint a prop that is
+         still there, so this mask cannot grow by accident.
+         The comparison is against the frame's own FLOOR band, which is the deck the prop stands on, and
+         the criterion is the one the ruling states: within about 25 luma of it. These rows are a CENSUS,
+         not a gate: `surface` is not in ci.yml's roster, and where a level fails one it is tagged as debt
+         at the measured baseline. What they buy is the answer to a question nothing has ever asked - is
+         the brightest thing in this room a light, a body, or a box? - and the numbers to answer it with. */
+      const PROPT = process.env.PROPT !== undefined ? +process.env.PROPT : 25;
+      run('window.__prp = PROPS.slice(); PROPS.length = 0;');
+      const ap = frame();
+      run('PROPS.length = 0; for (const q of window.__prp) PROPS.push(q); delete window.__prp;');
+      let pS = 0, pN = 0, pPatch = 0;
+      for (let i = 0; i < BW * BH; i++) {
+        if (Math.abs(LUM(a, i) - LUM(ap, i)) <= 4) continue;
+        if (c.clMask[i]) continue;
+        if (c.foMask[i]) { pPatch++; continue; }
+        pS += LUM(a, i); pN++;
+      }
+      const pMean = pN ? pS / pN : NaN;
+      const pPct = 100 * pN / (BW * BH);
+      const pMeas = pN >= 0.002 * BW * BH;              // under 0.2% of the frame is a sliver, not a prop
+      const pOk = pMeas && Math.abs(pMean - c.floor) <= PROPT;
+      row(`L${li} cam${cam} PROP a prop sits within ${PROPT} luma of the deck it stands on`,
+        pOk, `prop ${pMeas ? pMean.toFixed(1) : 'n/a'} vs deck ${c.floor.toFixed(1)} (gap ${
+          pMeas ? (pMean - c.floor).toFixed(1) : 'n/a'}), ${pN} prop px (${pPct.toFixed(1)}% of frame), ` +
+        `${pPatch} contact px excluded` +
+        (pMeas ? '' : ` - NOT MEASURED: no prop of this size is in this pose`) +
+        (pOk || !pMeas ? '' : ` - a prop is outside the level's value order by ${(Math.abs(pMean - c.floor) - PROPT).toFixed(1)}`),
+        pMeas && !pOk ? '#369' : undefined, !pMeas);
       /* #413's own "done when", per pose, and THE COUNTERFACTUAL IT NEEDS.
          "Delivered ceiling pixels within about 3 m of a fitting sit measurably above ceiling pixels
          8 m away on the same band - a lamp you can see, not just a number in MAP.light." Both buckets
@@ -12371,8 +12412,8 @@ if (MODE === 'surface') {
            second pose runs every pose after the control is measured on the pre-#369 build and reports
            the bug as if it were the shipped one. The POSE row caught it by rendering the first pose a
            second time and getting different bytes with an unchanged grid. */
-        run(`(function(){ globalThis.__o = [MAP.floorBias, MAP.ceilBias, MAP.ceilLead];
-          MAP.floorBias = 0; MAP.ceilBias = 0; MAP.ceilLead = ${run('CEILGM')}; return 1; })()`);
+        run(`(function(){ globalThis.__o = [MAP.floorBias, MAP.ceilBias, MAP.ceilLead, MAP.wallBias];
+          MAP.floorBias = 0; MAP.ceilBias = 0; MAP.wallBias = 0; MAP.ceilLead = ${run('CEILGM')}; return 1; })()`);
         /* #413: AND the hung ceiling fill has to come out of the SAME arm, by re-baking the lightmap
            without the `ceil` sources rather than by a literal. The counterfactual this row is supposed
            to render is THE PRE-#369 BUILD, and the pre-#369 build had no fitting over each room either;
@@ -12397,7 +12438,7 @@ if (MODE === 'surface') {
           buildTint(); MAP.tintDirty = false;
           return 1; })()`);
         const a0 = frame(), c0f = frameBias('ceilBias', -1), f0f = frameBias('floorBias', -1);
-        run('MAP.floorBias = globalThis.__o[0]; MAP.ceilBias = globalThis.__o[1]; MAP.ceilLead = globalThis.__o[2]; delete globalThis.__o;');
+        run('MAP.floorBias = globalThis.__o[0]; MAP.ceilBias = globalThis.__o[1]; MAP.ceilLead = globalThis.__o[2]; MAP.wallBias = globalThis.__o[3]; delete globalThis.__o;');
         run(`(function(){ MAP.light.set(globalThis.__lm[0]); MAP.lR.set(globalThis.__lm[1]); MAP.lG.set(globalThis.__lm[2]);
           MAP.lB.set(globalThis.__lm[3]); MAP.lw.set(globalThis.__lm[4]); MAP.lt.set(globalThis.__lm[5]);
           MAP.tintDirty = false; delete globalThis.__lm; return 1; })()`);
