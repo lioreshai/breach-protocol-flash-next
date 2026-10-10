@@ -77,6 +77,10 @@ let SEAM = 1, SEAMD = 0.62, SEAMU = 0.13, SEAMW = 0.16, SEAMC = 0.22;
    same level, same renderer, authored value live) is the control that proves it: that lip is byte-for-byte
    what it was while the dark one three cells away is not. */
 let SEAMA = 0;
+/* #413: which cells have a fitting hung over them, read once a frame alongside the other per-level
+   surface terms. null whenever the level was built with the fittings suppressed (LAMPS=off), which is
+   what keeps that counterfactual byte-identical - the ceiling pass pays one null test and stops. */
+let CF_FIX = null;
 const SEAMK = 0.45;                             // deck LIGHT at which the absolute term has faded out
 /* #178: contact shadow. A rim ADDS to the body, and the rig raster is multiplied by scene light at
    composite, so an additive rim is weakest in the dark rooms that need separation most - AMB 0.19
@@ -162,6 +166,27 @@ const VM = { vy: 0, ang: 0, lag: 0, now: 0, t: 0 };
    DEV.set('expose', 0) is the A/B: the term off, everything else identical. */
 const EXPOSE_A = 22;             // the black point: added luma at v = 0, and 0 at v = EXPOSE_T
 const EXPOSE_T = 200;            // the shoulder: at or above this luma the term is the identity
+/* EXPOSE_TOP is where the term ENDS the delivered range, and it is the same luma as BLOOM_CLIP - the
+   clipping line #377 counts, the value above which the frame carries white instead of a level. The two
+   are written separately because `const` at file scope cannot forward-reference BLOOM_CLIP (it is declared
+   2,200 lines further down, below the raster passes that do not need it); if one moves, move the other.
+
+   WHY THE ROOM NEEDS A TOP AT ALL. The two previous #377 increments bounded the two POST terms - the
+   bright pass got a threshold and a headroom slope, this term got a shoulder under the line - and
+   THE STACK still delivers 1.85 % of one lamp-seat frame above 224 with the bloom pass switched off
+   (2.07 % at ULTRA), because that light is in the ROOM: a lamp pool on a pale deck has nothing above
+   EXPOSE_T stopping it, and neither `lighter` nor the grade clamps. The frame is not over-bright,
+   it is over the showable range: every one of those pixels is white, and white is why the slab face
+   and the floor pool read as one flat sheet. A top on this term folds the 200-255 range into
+   200-EXPOSE_TOP, which puts the gradient back in the band the gate counts.
+
+   It is the exact mirror of the lift: the lift is `lighten` (a per-channel MAX) against a line that
+   runs ABOVE v below EXPOSE_T, and this is `darken` (a per-channel MIN) against a line that runs
+   BELOW v above EXPOSE_T. Both lines cross v at the same luma, so the delivered curve is one
+   continuous piece with one pivot: shadows lifted, highlights folded, nothing at all changed within
+   a luma of EXPOSE_T. `DEV.set('shoulder', 0)` is the A/B. */
+const EXPOSE_TOP = 224;
+let SHOULDER = 1;
 const QUAL = [
   { name: 'PERFORMANCE', res: 0.34, min: 170, max: 430, bloom: false, grade: false, grain: 0, far: 15, dmax: 8, glow: 0, scan: 0.5, vec: 0, rast: 0, rigH: 0, expose: EXPOSE_A },
   { name: 'BALANCED', res: 0.47, min: 220, max: 760, bloom: true, grade: true, grain: 0.05, far: 22, dmax: 13, glow: 6, scan: 0.18, vec: 1, rast: 2, rigH: 300, expose: EXPOSE_A },
@@ -301,6 +326,7 @@ function renderWorld() {
   AMB = MAP && MAP.amb !== undefined ? MAP.amb : 0.13;
   FLOORB = MAP ? MAP.floorBias || 0 : 0;
   CEILB = MAP ? MAP.ceilBias || 0 : 0;
+  CF_FIX = MAP ? MAP.ceilFix || null : null;          // #413 ceiling fitting plates
   WALLB = MAP ? MAP.wallBias || 0 : 0;
   SEAMA = MAP ? MAP.stepEdge || 0 : 0;        // #385: an authored absolute crease, 0 on every level that authors none
   /* #369: the vault's ceiling. An authored `ceilLead` is the level's own word and wins; otherwise a
@@ -1321,6 +1347,13 @@ function castGround(flash, fcR, fcG, fcB) {
       }
       if (em === 253) { px[i] = 0xFF000000 | clampi(cb * inv + fB) << 16 | clampi(cg * inv + fG) << 8 | clampi(cr * inv + fR); continue; }
       let r = cr * lr + fR, g = cg * lg + fG, b = cb * lb + fB;
+      /* #413: a FITTING on the ceiling of this cell, ceiling rows only. One byte per cell decides it,
+         so the cost on the 99 % of cells with no fitting overhead is that read. The plate is shaded by
+         THIS column's light and fog - the same terms the sheet behind it used a line above - and the
+         source it houses is what put that light here, so the object and its pool always agree. */
+      if (!isF && inMap && CF_FIX !== null && CF_FIX[cIdx] !== 0 && ceilFixAt(wx, wy)) {
+        r += (CF_R * lr + fR - r) * CF_A; g += (CF_G * lg + fG - g) * CF_A; b += (CF_B * lb + fB - b) * CF_A;
+      }
       const dl = isF && inMap && dMasks ? dMasks[cIdx] : 0;
       if (dl !== 0) {                                          // blood/scorch in world space, floor only
         const gl = dGrid[cIdx];
@@ -1815,6 +1848,11 @@ function groundPixel(x0, x1, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb
   }
   if (em === 253) { px[i] = 0xFF000000 | clampi(cb * gMInv + gMFB) << 16 | clampi(cg * gMInv + gMFG) << 8 | clampi(cr * gMInv + gMFR); continue; }
   let r = cr * lr + gMFR, g = cg * lg + gMFG, b = cb * lb + gMFB;
+  /* #413 ceiling fitting, DEFERRED COPY - same one byte, same helper, same two lines. A plate that
+     drew in the row loop and not here would alias at every band boundary the column re-solves. */
+  if (!isF && inMap && CF_FIX !== null && CF_FIX[cIdx] !== 0 && ceilFixAt(cx, cy)) {
+    r += (CF_R * lr + gMFR - r) * CF_A; g += (CF_G * lg + gMFG - g) * CF_A; b += (CF_B * lb + gMFB - b) * CF_A;
+  }
   const dl = isF && inMap && DECAL_MASK ? DECAL_MASK[cIdx] : 0;
   if (dl !== 0) {
     const gl = DECAL_GRID[cIdx];
@@ -1850,6 +1888,35 @@ function decalAlpha(dc, wx, wy, dfade) {
   if (r2 >= dc.r * dc.r) return 0;
   const t = 1 - r2 / (dc.r * dc.r);
   return dc.a * t * dfade;
+}
+
+/* #413: the FITTING itself, drawn on the ceiling plane. One byte per cell (MAP.ceilFix, authored by
+   placeCeilFixtures) says whether this cell has a source hung over it; the plate is one painted
+   texture (js/10_assets.js CFIX.STRIP) addressed in WORLD metres off the cell CENTRE, so a fitting is
+   the same size in every room and does not ride the ceiling material's tiling at all. Like the wall
+   fixtures (#400) it is ALBEDO and nothing more: this function returns the plate's colour and coverage
+   and the CALLER multiplies by that column's own light and fog, which is the only reason a fitting in a
+   room with no lamp in it is not a bright square. It is also why a fitting reads bright where it works:
+   the source it is the housing for is the brightest light splat on that very column.
+   The two ground copies call this ONE function - AGENTS.md counts the duplicated pixel body as a trap,
+   and a plate that only appeared in the row-loop copy would be a seam between the deferred and the
+   rasterized picture. Sets CF_A to 0 when this pixel is off the plate. */
+const CF_PLATE = 1.0;                     // one CELL of ceiling is the fitting: frame at the cell edge,
+                                          // diffuser inside it. At 0.68 the plate was 25 px of picture at
+                                          // 8 m and read as a bright dot; a flush fitting has to own its
+                                          // cell to look like the cause of the pool under it.
+let CF_R = 0, CF_G = 0, CF_B = 0, CF_A = 0;
+function ceilFixAt(wx, wy) {
+  CF_A = 0;
+  const t = CFIX.STRIP, uv = t.w / CF_PLATE;
+  const u = (wx - Math.floor(wx) - 0.5) * uv + t.w * 0.5;
+  const v = (wy - Math.floor(wy) - 0.5) * uv + t.h * 0.5;
+  if (u < 0 || v < 0 || u >= t.w || v >= t.h) return 0;
+  const s = t.data[((v | 0) * t.w + (u | 0)) >>> 0];
+  const a = (s >>> 24) / 255;
+  if (a < 0.02) return 0;
+  CF_R = s & 255; CF_G = s >> 8 & 255; CF_B = s >> 16 & 255; CF_A = a;
+  return 1;
 }
 
 /* Paint the seam of one step lip in one column. zA is the floor on the side of the lip the ray is
@@ -2503,7 +2570,36 @@ function drawExposure(A) {
   liftCtx.fillRect(0, 0, BW, BH);
   ctx.globalCompositeOperation = 'lighten';
   ctx.drawImage(liftCv, 0, 0, BW, BH, 0, 0, DW, DH);
-  ctx.globalCompositeOperation = 'source-over';
+  /* The highlight shoulder, on the same buffer and by the same trick (see EXPOSE_TOP). `darken` is a
+     per-channel MIN, so what the player gets is v' = min(v, v*G/255 + C): the pixel itself below the
+     pivot and the folded line above it. G is the slope from (EXPOSE_T, EXPOSE_T) to (255, EXPOSE_TOP)
+     and C is whatever puts the line back through the pivot at that slope, so BOTH ends are exact to
+     within one luma and the fold is derived from the two lumas, not tuned: 200 -> 200, 255 -> 224.
+     A channel already at or under the pivot is untouched by construction, so a saturated lamp tint
+     loses only the channel that was clipping - which is a roll-off, not a desaturate.
+     Everything drawn AFTER this - the bright pass reads bufCv and not this canvas, the lamp discs,
+     the particles, the HUD - is untouched by the fold. That is why the recorded glow peaks barely
+     move, but it is NOT "cannot move": a disc whose sprite lands on a deck that was already past
+     EXPOSE_T is composited over pixels this term has folded, so it arrives lower with them - measured
+     at the L3 lamp seat, disc peak 253 -> 242, the L0-L2 discs 248/250/250 unchanged and muzzle flash
+     243-245 -> 242, all inside the bloom gate's PEAK_TOL. A pixel at 224 receives min(224, 224) = 224
+     exactly, so this term cannot CREATE a clipped pixel; it can only ever remove one. */
+  if (SHOULDER) {
+    const G = Math.round(255 * (EXPOSE_TOP - EXPOSE_T) / (255 - EXPOSE_T));
+    const C = Math.round(EXPOSE_T * (255 - G) / 255);
+    liftCtx.setTransform(1, 0, 0, 1, 0, 0);
+    liftCtx.globalCompositeOperation = 'source-over';
+    liftCtx.drawImage(bufCv, 0, 0, BW, BH);
+    liftCtx.globalCompositeOperation = 'multiply';
+    liftCtx.fillStyle = 'rgb(' + G + ',' + G + ',' + G + ')';
+    liftCtx.fillRect(0, 0, BW, BH);
+    liftCtx.globalCompositeOperation = 'lighter';
+    liftCtx.fillStyle = 'rgb(' + C + ',' + C + ',' + C + ')';
+    liftCtx.fillRect(0, 0, BW, BH);
+    ctx.globalCompositeOperation = 'darken';
+    ctx.drawImage(liftCv, 0, 0, BW, BH, 0, 0, DW, DH);
+    ctx.globalCompositeOperation = 'source-over';
+  }
 }
 
 /* ---- the glow's band gate (#221) ---------------------------------

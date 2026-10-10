@@ -274,6 +274,11 @@
        in BOTH copies - the mesh triangle shading and the billboard. One register, two read sites, so it
        cannot half-apply. */
     if (name === 'bodydist') { BODYDIST = value === undefined ? 1 : (value ? 1 : 0); return { bodydist: BODYDIST }; }
+    /* #377: the highlight shoulder on the room's exposure term. 1 (shipped) = the delivered range ENDS
+       at EXPOSE_TOP, so a lamp-lit deck keeps a gradient instead of clipping to white; 0 = the term is
+       the black-point lift alone, which is what the > luma 224 rows were measured against before. Both
+       halves of the term still run; only the `darken` fold is skipped. */
+    if (name === 'shoulder') { SHOULDER = value === undefined ? 1 : (value ? 1 : 0); return { shoulder: SHOULDER, top: EXPOSE_TOP }; }
     /* #407 half two's A/B. 1 (shipped) = a body's shape ramp also SCALES the directionless lamp field,
        so the field reaches it at R0 + R1/2 of what the wall behind keeps; 0 = the same ramp centred on
        the field (mean 1 over its own domain) in the one mesh site that carries it. The gun keeps the
