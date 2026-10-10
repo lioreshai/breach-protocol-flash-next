@@ -289,6 +289,11 @@
        silhouette can be rendered wearing the colour of the surface behind it. tools/view.js contrast
        uses it to split a distance row's residual into paint and shading; set it to a colour by hand
        with `BPAINT_RGB = 0xrrggbb` after `DEV.set('bodypaint', 0)`. */
+    /* #407 half four's A/B. 0 (shipped) = a body's light is not scaled by the haze and the wash is added
+       the way every world surface adds it; 1 = the pre-fix form, `light * (1 - fogAt(dc))` AND the wash,
+       in the one mesh read site that ever carried it (js/13_mesh.js, and js/00_core.js for why the
+       billboard needs no copy). Calling it with no value ARMS the second charge. See js/00_core.js. */
+    if (name === 'bodyhaze') { BODYHAZE = value === undefined ? 1 : (value ? 1 : 0); return { bodyhaze: BODYHAZE }; }
     if (name === 'bodypaint') { BODYPAINT = value === undefined ? 1 : (value ? 1 : 0); return { bodypaint: BODYPAINT, rgb: BPAINT_RGB }; }
     if (name === 'gfx') {
       const i = typeof value === 'string' ? QUAL.findIndex(q => q.name.toLowerCase() === String(value).toLowerCase()) : clamp(value | 0, 0, QUAL.length - 1);
@@ -459,7 +464,10 @@
       '                                  gndfar (0 the deferred copy textures its far field / 1 it washes it like the row does), and',
       '                                  bodydist (1 a body or prop keeps the lamp field whole at its own cell, the shipped',
       '                                  #407 behaviour / 0 the second camera-distance falloff is back on BOTH the mesh and',
-      '                                  the billboard copy, which is how a body 10 m away goes dark)',
+      '                                  the billboard copy, which is how a body 10 m away goes dark), and',
+      '                                  bodyhaze (0 the wash is only ADDED to a body, the shipped #407 behaviour, every',
+      '                                  world surface form / 1 the light is ALSO multiplied by 1 - fogAt, which is how a',
+      '                                  body at 16 m keeps a third of the light its own wall keeps), and',
       '                                  bodypaint (1 a body wears its own texel albedo, the shipped / 0 it wears BPAINT_RGB',
       '                                  with every light term unchanged - the PAINT half of a #407 distance row)',
       '  DEV.tiers()                     the QUAL table as it now stands, including any overrides set() made',

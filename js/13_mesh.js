@@ -1248,6 +1248,14 @@ const MESH = (function () {
            BODYDIST 0 puts the second falloff back in this copy AND in the billboard copy - the A/B the
            distance rows in tools/view.js contrast are meant to be seen failing. */
         const li = Math.min(1, (lm ? lm[cc] : 0.5) * (BODYDIST ? 1 : Math.exp(-dc * 0.14)) + 0.30 * visAt(dc));
+        /* #407 half four: the haze is ADDED to a world pixel, never multiplied over its light - the row
+           loop (:1349), a wall face (:2183) and a billboard (:2397) all end at `texel*light + FOGC*fog`,
+           and `* inv` is left on light-EXEMPT texels only. This branch was the one place a LIT surface
+           got scaled by `inv` as well, so a body paid the wash twice: 0.647 of its light left at 8 m and
+           0.304 at 16 m, which is the 37-44 luma the distance rows have been calling the light path.
+           BODYHAZE 1 puts that second charge back in this single read site (the billboard never had it),
+           and js/00_core.js carries the register so a live page and the probe arm one value. */
+        const hz = BODYHAZE ? inv : 1;
         /* #407 half two, priced by tools/view.js contrast's distance rows. `li` is a DIRECTIONLESS baked
            field and a ground pixel takes it flat (js/40_render.js:1043 `lr = baseRow + li*lt`, no N*L),
            but multiplying it by R0 + R1*d makes the shape ramp also a SCALE on that field: its mean over
@@ -1260,9 +1268,9 @@ const MESH = (function () {
            path has no N*L at all (js/40_render.js:2291) - so unlike BODYDIST one read site is enough. */
         const sh = MDL || BODYSHADE ? R0 + R1 * d : 1 + R1 * (d - 0.5);
         const fk = FL ? FL * 1.1 * Math.exp(-dc * 0.30) : 0;
-        lr = (AMB + li * lt[0] * sh + fk * (FC[0] / 255)) * inv;
-        lg = (AMB + li * lt[1] * sh + fk * (FC[1] / 255)) * inv;
-        lb = (AMB + li * lt[2] * sh + fk * (FC[2] / 255)) * inv;
+        lr = (AMB + li * lt[0] * sh + fk * (FC[0] / 255)) * hz;
+        lg = (AMB + li * lt[1] * sh + fk * (FC[1] / 255)) * hz;
+        lb = (AMB + li * lt[2] * sh + fk * (FC[2] / 255)) * hz;
         if (DIM) { lr *= 1 - DIM; lg *= 1 - DIM; lb *= 1 - DIM; }   // the portal's shut-and-dimmed term
         /* #371: the fold is a bound on the PRODUCT (albedo x light), not on the light, so it rides where
            the product is finished and the light-exempt branch has already been taken round. PKN is a
