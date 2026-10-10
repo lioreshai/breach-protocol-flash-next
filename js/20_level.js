@@ -1436,6 +1436,13 @@ function placeCeilFixtures(cfgL) {
   if (!ceilFixEnabled()) return;
   const N = MAP.w, cell = MAP.cell;
   const isOpen = (x, y) => x > 0 && y > 0 && x < N - 1 && y < N - 1 && cell[y * N + x] === 0;
+  /* The renderer needs to know WHICH cell has a fitting overhead, not just that one exists somewhere
+     in the level: the ceiling pass reads one byte per cell, exactly like DECAL_MASK, and draws the
+     plate (js/10_assets.js CFIX.STRIP) on that cell's own ceiling plane. Allocated here so a level
+     built with the fittings suppressed (LAMPS=off, see ceilFixEnabled) has no array at all and the
+     ceiling pass costs it nothing - which is also what keeps flatparity's PARITY counterfactual
+     byte-identical. */
+  MAP.ceilFix = new Uint8Array(N * N);
   const hung = [];
   const hang = (x, y, sep) => {
     const cz = ceilAt(x, y), fl = floorAt(x, y);
@@ -1443,6 +1450,8 @@ function placeCeilFixtures(cfgL) {
     for (let k = 0; k < hung.length; k++)
       if (Math.hypot(hung[k][0] - x, hung[k][1] - y) < (sep || CFIX_SEP)) return false;
     hung.push([x, y]);
+    const gx = x | 0, gy = y | 0;                       // BOTH axes tested before the index: one cell
+    if (gx >= 0 && gy >= 0 && gx < N && gy < N) MAP.ceilFix[gy * N + gx] = 1;   // index is one number
     LIGHTS.push({ x: x, y: y, z: cz - CFIX_HANG, band: fl, r: 5.4, str: 0.55, col: cfgL.lampCol, stat: 1, ceil: 1 });
     return true;
   };
