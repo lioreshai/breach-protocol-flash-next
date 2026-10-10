@@ -11900,6 +11900,7 @@ if (MODE === 'surface') {
   // "across the width", so a third of a frame carrying the whole criterion is not enough)
   const WSEP = process.env.WSEP !== undefined ? +process.env.WSEP : 0.6;
   let bad = 0, known = 0, rowsN = 0, ctrlRan = 0, ctrlMiss = 0;
+  const poolGain = [];
   const wPoses = []; let wMax = 0;
   const STRICT = !!process.env.STRICT;
   const row = (label, ok, detail, knownIssue, na) => {
@@ -11982,8 +11983,125 @@ if (MODE === 'surface') {
   };
   const LUM = (b, i) => { const c = b[i]; return 0.2126 * (c & 255) + 0.7152 * (c >> 8 & 255) + 0.0722 * (c >> 16 & 255); };
   const med = arr => arr.length ? arr[arr.length >> 1] : NaN;
-  /* Which pixels belong to which surface is a per-pixel fact; the census below is arithmetic on the
-     three frames, so it lives here in node and not in a sandbox string. */
+  /* #413'S OWN CRITERIUM, AS A ROW THAT CAN FAIL: "delivered ceiling pixels within about 3 m of a
+     fitting sit measurably above ceiling pixels 8 m away on the same band - a lamp you can see, not
+     just a number in MAP.light." Nothing in this repo has ever measured a POOL: `exposure` censuses
+     the whole frame, SEAM measures a ceiling against what it meets, ORDER a ceiling against a deck.
+     A row that averages a band cannot tell a pool from a wash - which is exactly the distinction the
+     issue draws, and the reason #413 stayed open with its light half landed.
+     The pixels are found in the renderer's own depth, not by colour: `cl` (which pixels the ceilBias
+     A/B moved) says ceiling, `zbuf` says how far along the column ray that surface sits, and the
+     camera basis turns a device pixel into a world point - the same unprojection `alt`'s `surf`
+     helper uses, so this is the DELIVERED surface point and not a guess at one:
+        wx = camX + d*(dirX + planeX*c),  wz = eyeZ - ((y - horizon)/BH)*d.
+     The pixel's BAND is the floor of the air cell it covers, found by stepping back off the slab the
+     same way `surf` does, and it is what makes the comparison local: near pixels must be under a
+     fitting ON THAT BAND and far pixels must be ceiling of a band that HAS a fitting but sit FARR m
+     from every one. Without the band term the far set reaches a neighbouring storey and the row
+     measures two rooms, which is the mistake #221's control already names.
+     Past FARB a ceiling pixel is the mip-mean wash, not a surface (AGENTS.md, #19), so the census
+     stops at the renderer's own far distance instead of inventing a second one. */
+  const ZQv = run('ZQ'), FARBv = run('FARB');
+  const NEARR = process.env.POOL_NEAR !== undefined ? +process.env.POOL_NEAR : 3.0;
+  const FARR = process.env.POOL_FAR !== undefined ? +process.env.POOL_FAR : 8.0;
+  // the far set is the FITTING'S neighbourhood, not the level: beyond this the pixels are another room
+  const FARMAX = process.env.POOL_FARMAX !== undefined ? +process.env.POOL_FARMAX : 16.0;
+  // how many delivered pixels a fitting needs in EACH bucket before its contrast means anything
+  const POOL_MIN = process.env.POOL_MIN !== undefined ? +process.env.POOL_MIN : 120;
+  const POOL_GAP = process.env.POOL_GAP !== undefined ? +process.env.POOL_GAP : 8;
+  // how much of the pool must be the FITTING'S rather than the room's, in luma
+  const POOL_GAIN = process.env.POOL_GAIN !== undefined ? +process.env.POOL_GAIN : 6;
+  // the un-authored counterfactual must fall below HALF the shipped pool, or the row is a room, not a source
+  const POOL_CTRL = process.env.POOL_CTRL !== undefined ? +process.env.POOL_CTRL : 0.5;
+  const ZQv_ = ZQv;
+  const poolCam = () => run(`({BW: BW, BH: BH, horizon: horizon, eyeZ: eyeZ, camX: camX, camY: camY,
+    dirX: dirX, dirY: dirY, planeX: planeX, planeY: planeY})`);
+  const poolFits = () => run(`LIGHTS.filter(function(L){return L.ceil;}).map(function(L){
+    return {x: L.x, y: L.y, z: L.z, band: lightBand(L)}; })`);
+  /* Un-author the hung fill IN MEMORY, render, and put it back. `ceilFixEnabled()` is the author-time
+     knob (the same idiom as #204's top-up and #353's overlook) but it cannot be flipped after the
+     fact: a fitting is baked into MAP.light by the splat loop in genLevel/buildAuthored. So this
+     re-runs the level's own bake from the lamp list minus the `ceil` entries, then the post-pass that
+     level's own generator runs - `kneeLampField` for the authored plan, `blurLight` for a generated
+     one. No second kernel, so the counterfactual cannot disagree with the shipped frame about what a
+     lamp costs. The arrays are snapshotted by reference and restored whole, so every later pose and
+     the POSE row's re-render of cam0 are measured on the shipped field byte for byte. */
+  function poolRebake(li) {
+    return run(`(function(){
+      globalThis.__pl = [MAP.light.slice(), MAP.lR.slice(), MAP.lG.slice(), MAP.lB.slice(), MAP.lw.slice(), MAP.lt.slice()];
+      MAP.light.fill(0); MAP.lR.fill(0); MAP.lG.fill(0); MAP.lB.fill(0); MAP.lw.fill(0); MAP.lt.fill(0);
+      for (const L of LIGHTS) if (!L.ceil) splatLight(L, L.str);
+      if (${run(`!!LEVELS[${li}].authored`)}) kneeLampField(); else blurLight();
+      buildTint(); MAP.tintDirty = false; return 1; })()`);
+  }
+  function poolRestore() {
+    run(`(function(){ MAP.light.set(globalThis.__pl[0]); MAP.lR.set(globalThis.__pl[1]); MAP.lG.set(globalThis.__pl[2]);
+      MAP.lB.set(globalThis.__pl[3]); MAP.lw.set(globalThis.__pl[4]); MAP.lt.set(globalThis.__pl[5]);
+      MAP.tintDirty = false; delete globalThis.__pl; return 1; })()`);
+  }
+  function poolStats(a, cl, zb, cam, grid, fits, bandSet) {
+    const BWp = cam.BW, BHp = cam.BH;
+    const nS = new Float64Array(fits.length), nN = new Float64Array(fits.length);
+    const fS = new Float64Array(fits.length), fN = new Float64Array(fits.length);
+    let noBand = 0, otherBand = 0, wash = 0, noDist = 0;
+    for (let y = 0; y < BHp; y++) {
+      const dy = (y - cam.horizon) / BHp;
+      for (let x = 0; x < BWp; x++) {
+        const i = y * BWp + x;
+        if (!cl[i]) continue;
+        const d = zb[i];
+        if (!isFinite(d) || d <= 0 || d >= FARBv) { wash++; continue; }
+        const c = x * 2 / BWp - 1;
+        const rx = cam.dirX + cam.planeX * c, ry = cam.dirY + cam.planeY * c;
+        const wx = cam.camX + d * rx, wy = cam.camY + d * ry, wz = cam.eyeZ - dy * d;
+        /* The floor THIS ceiling covers. The hit point is tried at its OWN distance first: a ceiling
+           is hit from inside the cell it caps, so (unlike `surf`'s wall hit, which lands exactly on a
+           boundary) the cell holding the point is the answer and the step-backs are only the fallback
+           for a pixel whose solve was carried across a lip. */
+        let f = NaN;
+        for (const bk of [0, 0.05, 0.2, 0.5, 1.2]) {
+          const rr = d - bk; if (rr < 0) continue;
+          const gx = Math.floor(cam.camX + rr * rx), gy = Math.floor(cam.camY + rr * ry);
+          if (gx < 0 || gy < 0 || gx >= grid.N || gy >= grid.N) continue;
+          const j = gy * grid.N + gx;
+          if (grid.cell[j]) continue;
+          f = grid.fz[j] * ZQv; break;
+        }
+        if (!isFinite(f)) { noBand++; continue; }
+        if (!bandSet.has(Math.round(f * 100) / 100)) { otherBand++; continue; }
+        const l = LUM(a, i);
+        let any = false;
+        for (let k = 0; k < fits.length; k++) {
+          const F = fits[k];
+          if (Math.abs(F.band - f) > 0.01) continue;          // a fitting on another band is not this pool
+          const md = Math.hypot(F.x - wx, F.y - wy, F.z - wz);
+          any = true;
+          if (md <= NEARR) { nS[k] += l; nN[k]++; }
+          else if (md >= FARR && md <= FARMAX) { fS[k] += l; fN[k]++; }
+        }
+        if (!any) noDist++;
+      }
+    }
+    const g = [];
+    for (let k = 0; k < fits.length; k++)
+      if (nN[k] >= POOL_MIN && fN[k] >= POOL_MIN) g.push({k, d: nS[k] / nN[k] - fS[k] / fN[k], nN: nN[k], fN: fN[k],
+        near: nS[k] / nN[k], far: fS[k] / fN[k]});
+    return {g, nN, fN, noBand, otherBand, wash, noDist};
+  }
+  function poolAcc(acc, P) {
+    for (const o of P.g) { const A = acc[o.k]; A.nS += o.near * o.nN; A.nN += o.nN; A.fS += o.far * o.fN; A.fN += o.fN; }
+    for (let k = 0; k < acc.length; k++) if (!P.g.some(o => o.k === k)) { acc[k].nN += P.nN[k]; acc[k].fN += P.fN[k]; }
+  }
+  const poolMed = acc => {
+    const g = [];
+    for (let k = 0; k < acc.length; k++) {
+      const A = acc[k];
+      if (A.nN >= POOL_MIN && A.fN >= POOL_MIN) g.push(A.nS / A.nN - A.fS / A.fN);
+    }
+    g.sort((x, y) => x - y);
+    return {n: g.length, med: g.length ? g[g.length >> 1] : NaN, all: g};
+  };
+  const poolBandSet = fits => new Set(fits.map(F => Math.round(F.band * 100) / 100));
   function classify(a, cf, ff) {
     const n = BW * BH, cl = new Uint8Array(n), fo = new Uint8Array(n);
     for (let i = 0; i < n; i++) {
@@ -12073,7 +12191,7 @@ if (MODE === 'surface') {
       cols: gaps.length,
       wgap: med(wg), wcols: wg.length, wsep: wg.length ? wOk / wg.length : NaN,
       wmin: wg.length ? wg[Math.floor(wg.length * 0.1)] : NaN,
-      drop
+      drop, clMask: cl
     };
   }
   console.log('surface value order - ceiling must sit under the surface its edge meets by >= ' + TARGET +
@@ -12081,6 +12199,13 @@ if (MODE === 'surface') {
   for (let li = 0; li < NL; li++) {
     const dealt = (deal(li), gridHash()), dh = dealt.toString(16).padStart(8, '0');
     const name = run('LEVELS[' + li + '].name');
+    /* The fitting census for this deal: the hung sources themselves (a `ceil` LIGHTS entry, authored
+       before the splat by `placeCeilFixtures`, js/20_level.js:1435) and the grid their bands are read
+       against. Read ONCE per deal, like the deal hash: a pose turns the camera and must not change
+       which fittings exist, and a POOL figure that moved with a heading would be measuring the pose. */
+    const fits = poolFits();
+    const fitBands = poolBandSet(fits);   // the set of FLOORS a hung fitting serves
+    const grid = run(`({N: MAP.w, cell: MAP.cell, fz: MAP.fz})`);
     /* #369's OTHER acceptance bullet is not a frame measurement at all, it is a rule at the place a
        level's palette is DECLARED: no level's `wall`/`wall2` may name its own floor's material family.
        It has never been checked by anything, which is why three of the four sectors collide and the one
@@ -12113,6 +12238,8 @@ if (MODE === 'surface') {
       (hit.length ? 'names its own floor on ' + hit.join(' and ')
         : 'both faces are a different family from the deck'), fams.cw || fams.c2 ? '#369' : undefined);
     let poseCols = [], dropCols = [], poseOk = true, firstHash = 0, measPoses = [], bandPoses = [];
+    const pAcc = fits.map(() => ({nS: 0, nN: 0, fS: 0, fN: 0}));
+    const qAcc = fits.map(() => ({nS: 0, nN: 0, fS: 0, fN: 0}));
     for (const cam of CAMS) {
       aim(cam);
       // the hash is read AFTER aiming, so a pose that moved the geometry shows up here rather than
@@ -12120,7 +12247,8 @@ if (MODE === 'surface') {
       const gh = gridHash();
       if (gh !== dealt) poseOk = false;
       const authored = run('(MAP.floorBias || 0)') + '/' + run('(MAP.ceilBias || 0)') + '/' + run('MAP.ceilLead === undefined ? "default" : MAP.ceilLead');
-      const a = frame(), cf = frameBias('ceilBias', -1), ff = frameBias('floorBias', -1);
+      const a = frame(), zb = new Float32Array(run('zbuf')), ccam = poolCam();
+      const cf = frameBias('ceilBias', -1), ff = frameBias('floorBias', -1);
       const c = classify(a, cf, ff);
       if (cam === CAMS[0]) firstHash = fhash(a);
       poseCols.push(c.cols);
@@ -12164,6 +12292,44 @@ if (MODE === 'surface') {
         (wPass || !wMeas ? '' : ` - the wall and the deck it stands on read as one surface over ` +
           `${(100 * (1 - c.wsep)).toFixed(0)}% of the width`),
         wMeas && !wPass ? '#369' : undefined, !wMeas);
+      /* #413's own "done when", per pose, and THE COUNTERFACTUAL IT NEEDS.
+         "Delivered ceiling pixels within about 3 m of a fitting sit measurably above ceiling pixels
+         8 m away on the same band - a lamp you can see, not just a number in MAP.light." Both buckets
+         are pixels THIS FRAME DELIVERS (the ceilBias A/B says which pixels are ceiling; zbuf and the
+         camera basis say where each one sits in the world), so a fitting behind a wall or outside the
+         frustum contributes nothing, and neither does a source that is bright only in the lightmap.
+         `far` is ceiling on a band a fitting serves but FARR m or more from every one - LOCAL, not a
+         whole-ceiling average, and a neighbouring storey is excluded because a pixel counts only when
+         a fitting serves ITS band.
+         The VERDICT is per level, not per pose, and that is a fact about the rooms rather than a
+         convenience: which of the two buckets a pose can fill is a question of frustum. Measured on
+         this head, L0 cam0 delivers 1028 near pixels and 100 far ones while L0 cam1 delivers 2155 and
+         6855 - the same deal, turned 90 degrees. A per-pose pool row would therefore be an n/a row
+         three poses out of four and a criterion stated against whichever way the lens happened to
+         point. So the sums accumulate across the sweep of ONE deal and the level answers the question;
+         the per-pose populations are printed on the pose's own line so a thin bucket is still visible.
+         A POOL GAP THAT SURVIVES DELETING EVERY FITTING IS NOT A POOL - it is the room's palette or
+         the distance falloff, and the row would stay green on a build that hangs nothing. The same
+         census therefore runs a second time on every pose with the hung sources un-authored. A fitting
+         cannot be un-authored by a flag after the fact (it is baked into MAP.light by the splat loop in
+         genLevel/buildAuthored), so this re-runs the level's OWN bake from the lamp list minus the
+         `ceil` entries and puts all six arrays back whole - the route this block's CONTROL arm uses,
+         WITHOUT the bias zeroing, so the only thing the A/B can see is whether a source hangs over each
+         room. zbuf is reused for the second census: a lightmap change writes no depth (AGENTS.md). */
+      const P = poolStats(a, c.clMask, zb, ccam, grid, fits, fitBands);
+      poolAcc(pAcc, P);
+      const nOff = fits.length ? poolRebake(li) : 0;
+      const Pn = fits.length ? poolStats(frame(), c.clMask, zb, ccam, grid, fits, fitBands) : null;
+      if (nOff) poolRestore();
+      if (Pn) poolAcc(qAcc, Pn);
+      console.log(`     pool: ` + (fits.length
+        ? P.g.length + '/' + fits.length + ' fitting(s) with both buckets delivered, contrasts '
+          + P.g.map(o => (o.d >= 0 ? '+' : '') + o.d.toFixed(1) + ' (' + o.nN + '/' + o.fN + ' px)').join(', ')
+          + (Pn ? ' | un-authored ' + Pn.g.length + '/' + fits.length + ' at '
+            + Pn.g.map(o => (o.d >= 0 ? '+' : '') + o.d.toFixed(1)).join(', ') : '')
+        : 'no fitting was authored on this deal')
+        + ` | ${P.wash} ceiling px past FARB or depthless, ${P.noBand} with no floor resolved under them, `
+        + `${P.otherBand} on a band no fitting serves`);
       if (cam === CAMS[0] || CAMS.length === 1) {
         /* the pre-#369 build, in this same process: zero the authored order and ask the same questions.
            Only meaningful on a level that AUTHORS one - on a level whose fields are absent the zeroed
@@ -12223,6 +12389,27 @@ if (MODE === 'surface') {
        seat), both halves fail - the hash moves and the frame is a different room. Until this row
        existed, a row could move when only the camera moved, so the issue's "the band it meets" criterion
        could not be stated over more than one pose. */
+    /* THE POOL VERDICT and its counterfactual, one row each per level. The statistic is the MEDIAN
+       over the fittings whose BOTH buckets were delivered somewhere in the sweep of this one deal -
+       median, not mean, because one fitting whose far set happened to catch a bright neighbouring
+       room must not carry or sink a level, and a count is printed beside it so a verdict resting on
+       one fitting says so. A level where NO fitting delivers both buckets is a FAILURE of vacuity
+       (AGENTS.md), never a print gap: that is exactly the case the issue's criterion cannot answer. */
+    const PS = poolMed(pAcc), QS = poolMed(qAcc);
+    row(`L${li} POOL ceiling within ${NEARR} m of a fitting above its own band at ${FARR} m`,
+      PS.n > 0 && PS.med >= POOL_GAP,
+      PS.n ? `median pool ${PS.med >= 0 ? '+' : ''}${PS.med.toFixed(1)} over ${PS.n} of ${fits.length} fitting(s) `
+        + `[${PS.all.map(v => (v >= 0 ? '+' : '') + v.toFixed(1)).join(', ')}], each >= ${POOL_MIN} px in both `
+        + `buckets (${NEARR} m / ${FARR}-${FARMAX} m on the fitting's own band)`
+        : `NO fitting delivered both buckets in ${CAMS.length} pose(s): ${fits.length} fitting(s) authored, `
+        + `pool UNMEASURED - the criterion cannot be answered for this level from this deal`,
+      undefined, PS.n > 0 ? undefined : true);
+    const poolMeasN = PS.n;
+    poolGain[li] = PS.n && QS.n ? {a: PS.med, b: QS.med, n: PS.n} : null;
+    console.log(`     pool control: ${fits.length} fitting(s) authored; median over the ${PS.n || 0} fitting(s)`
+      + ` that deliver both buckets goes ${PS.n ? (PS.med >= 0 ? '+' : '') + PS.med.toFixed(1) : 'n/a'} shipped -> `
+      + `${QS.n ? (QS.med >= 0 ? '+' : '') + QS.med.toFixed(1) : 'n/a'} with the hung fill un-authored`
+      + ` (${PS.n && QS.n ? (PS.med - QS.med >= 0 ? '+' : '') + (PS.med - QS.med).toFixed(1) : 'n/a'} attributable)`);
     aim(CAMS[0]);
     const againHash = fhash(frame());
     row(`L${li} POSE every pose is measured on deal ${dh}`,
@@ -12233,7 +12420,7 @@ if (MODE === 'surface') {
     // A level the sweep cannot see a ceiling seam in is a FAILURE, not a gap in the print: that is the
     // same vacuity the per-pose row refuses to score, counted once where the evidence actually runs out.
     row(`L${li} SWEEP the census can read this level`,
-      measPoses.length > 0 && bandPoses.length > 0 && wMax > 0,
+      measPoses.length > 0 && bandPoses.length > 0 && wMax > 0 && poolMeasN > 0,
       `seam measurable in ${measPoses.length} of ${CAMS.length} pose(s)` +
       (measPoses.length ? ' (cam ' + measPoses.join(',') + ')' : ` - columns per pose ` + poseCols.join('/') +
         ': the ceiling edge never lands in a frame this probe can score (across the sweep ' +
@@ -12241,6 +12428,10 @@ if (MODE === 'surface') {
         dropCols.reduce((s, d) => s + d.wash, 0) + ' met only the far wash, ' +
         dropCols.reduce((s, d) => s + d.win, 0) + ' had too thin a window either side)') +
       `, bands in ${bandPoses.length}` + (bandPoses.length ? '' : ' - no pose left a band to average') +
+
+      `, pools: ${poolMeasN} of ${fits.length} fitting(s) delivered both buckets` +
+      (poolMeasN ? '' : ` - ${fits.length} fitting(s) authored and NONE delivered a near and a far bucket in `
+        + `${CAMS.length} pose(s), so #413's pool criterion cannot be answered for this level from this deal`) +
       `, wall/deck columns up to ${wMax}` +
       (wMax > 0 ? '' : ' - the deck/face walk found NO column in any pose, so the wall half measures nothing here'),
       // Vacuity is a FAILURE, never a debt (AGENTS.md) - so no `knownIssue` tag on this row. Both halves
@@ -12248,6 +12439,22 @@ if (MODE === 'surface') {
       // because the seam is the criterion this issue's definition of done is stated in.
       undefined);
   }
+  /* THE POOL'S OWN CONTROL, one row for the run, in the shape this block already uses for the
+     ORDER control. Every per-fitting contrast is measured twice - once shipped, once with the hung
+     fill un-authored out of the lightmap - and the row asks the only question that makes the POOL row
+     more than a statement about the room: does a fitting CAUSE part of the pool anywhere? Where both
+     arms measured, the attributable part is printed per level. It is an aggregate rather than a
+     per-level gate because on ARCHIVE SUBLEVEL the deck lamps already pool the ceiling over the room
+     centre (+55.0 un-authored against +57.2 shipped, i.e. +2.2 from the fitting): the criterion holds
+     there, the ATTRIBUTION is small, and a per-level threshold would fail a level for the room being
+     well lit rather than for anything #413 did. */
+  const pgs = poolGain.filter(Boolean);
+  const bestGain = pgs.length ? Math.max(...pgs.map(g => g.a - g.b)) : NaN;
+  row('POOL-CONTROL the fittings cause part of the pool somewhere', pgs.length > 0 && bestGain >= POOL_GAIN,
+    pgs.length + ' level(s) ran both arms; the largest attributable part is '
+    + (isFinite(bestGain) ? (bestGain >= 0 ? '+' : '') + bestGain.toFixed(1) + ' luma' : 'n/a')
+    + ` against a ${POOL_GAIN}-luma floor` + (pgs.length ? '' : ' - no level delivered both buckets in both arms'),
+    undefined, pgs.length ? undefined : true);
   row('CONTROL the census runs its counterfactual somewhere', ctrlRan > 0 && ctrlMiss === 0,
     ctrlRan + ' level(s) with an authored order A/B\'d, ' + ctrlMiss + ' of them indistinguishable from the bug');
   console.log((bad ? `SURFACE ${bad} FAILURE(S)` : 'SURFACE ok') + ` - ${bad} gating row(s) of ${rowsN}, ${known} known-issue row(s)` +
