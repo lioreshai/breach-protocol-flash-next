@@ -279,6 +279,11 @@
        the black-point lift alone, which is what the > luma 224 rows were measured against before. Both
        halves of the term still run; only the `darken` fold is skipped. */
     if (name === 'shoulder') { SHOULDER = value === undefined ? 1 : (value ? 1 : 0); return { shoulder: SHOULDER, top: EXPOSE_TOP }; }
+    /* #407 half two's A/B. 1 (shipped) = a body's shape ramp also SCALES the directionless lamp field,
+       so the field reaches it at R0 + R1/2 of what the wall behind keeps; 0 = the same ramp centred on
+       the field (mean 1 over its own domain) in the one mesh site that carries it. The gun keeps the
+       shipped form either way - #376 owns that. See js/00_core.js. */
+    if (name === 'bodyshade') { BODYSHADE = value === undefined ? 1 : (value ? 1 : 0); return { bodyshade: BODYSHADE }; }
     if (name === 'gfx') {
       const i = typeof value === 'string' ? QUAL.findIndex(q => q.name.toLowerCase() === String(value).toLowerCase()) : clamp(value | 0, 0, QUAL.length - 1);
       if (i < 0) throw new Error('DEV.set("gfx", …) wants 0..' + (QUAL.length - 1) + ' or ' + QUAL.map(q => q.name).join('|'));

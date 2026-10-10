@@ -1226,7 +1226,17 @@ const MESH = (function () {
            BODYDIST 0 puts the second falloff back in this copy AND in the billboard copy - the A/B the
            distance rows in tools/view.js contrast are meant to be seen failing. */
         const li = Math.min(1, (lm ? lm[cc] : 0.5) * (BODYDIST ? 1 : Math.exp(-dc * 0.14)) + 0.30 * visAt(dc));
-        const sh = R0 + R1 * d;
+        /* #407 half two, priced by tools/view.js contrast's distance rows. `li` is a DIRECTIONLESS baked
+           field and a ground pixel takes it flat (js/40_render.js:1043 `lr = baseRow + li*lt`, no N*L),
+           but multiplying it by R0 + R1*d makes the shape ramp also a SCALE on that field: its mean over
+           d is R0 + R1/2 = 0.725 for the enemy pair, so a body in its own lit cell kept under three
+           quarters of the light the wall behind it keeps, and a face turned off the key kept R0 alone.
+           BODYSHADE 0 centres the SAME ramp on the field instead of on zero - `1 + R1*(d - 0.5)`, mean 1
+           over the ramp's own domain - so form keeps its full spread and the field arrives whole in the
+           average. The VIEW MODEL keeps the shipped form either way: #376 owns the gun's shading, and
+           the pair below is not the gun's history. There is no billboard copy of this term - the sprite
+           path has no N*L at all (js/40_render.js:2291) - so unlike BODYDIST one read site is enough. */
+        const sh = MDL || BODYSHADE ? R0 + R1 * d : 1 + R1 * (d - 0.5);
         const fk = FL ? FL * 1.1 * Math.exp(-dc * 0.30) : 0;
         lr = (AMB + li * lt[0] * sh + fk * (FC[0] / 255)) * inv;
         lg = (AMB + li * lt[1] * sh + fk * (FC[1] / 255)) * inv;
