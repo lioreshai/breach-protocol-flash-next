@@ -12904,10 +12904,12 @@ if (MODE === 'stats') {
     for(const k in CEILS)m.push({n:'CEILS.'+k,fam:'ceil',t:CEILS[k]});return m})()`);
   const rows = spec.map(m => {
     const { w, h, data } = m.t, L = new Float64Array(w * h), lum = [];
+    let em = 0, emLum = 0;
     for (let i = 0; i < w * h; i++) {
       const c = data[i];
       L[i] = 0.2126 * (c & 255) + 0.7152 * (c >> 8 & 255) + 0.0722 * (c >> 16 & 255);
-      if ((c >>> 24) !== 253) lum.push(L[i]);   // an emissive texel is a light source, not a surface: it is not a clip risk
+      if ((c >>> 24) === 253) { em++; emLum += L[i]; }   // an emissive texel is a light source, not a surface: it is not a clip risk
+      else lum.push(L[i]);
     }
     let sum = 0, g = 0, gn = 0;
     for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
@@ -12915,10 +12917,12 @@ if (MODE === 'stats') {
       g += Math.abs(L[y * w + ((x + 2) % w)] - L[y * w + x]); gn++;
     }
     lum.sort((a, b) => a - b);
-    return { n: m.n, fam: m.fam, mean: sum / (w * h), grain: g / gn, p99: lum[Math.min(lum.length - 1, Math.floor(lum.length * 0.99))] };
+    return { n: m.n, fam: m.fam, mean: sum / (w * h), grain: g / gn, em: em / (w * h),
+      emLum: em ? emLum / em : 0, p99: lum[Math.min(lum.length - 1, Math.floor(lum.length * 0.99))] };
   });
-  console.log('material                 mean   grain   p99   (Rec.709 luma of the baked tile)');
-  for (const r of rows) console.log(r.n.padEnd(22) + r.mean.toFixed(1).padStart(6) + r.grain.toFixed(1).padStart(8) + r.p99.toFixed(1).padStart(7));
+  console.log('material                 mean   grain   p99   emA   (Rec.709 luma of the baked tile; emA = emissive area %)');
+  for (const r of rows) console.log(r.n.padEnd(22) + r.mean.toFixed(1).padStart(6) + r.grain.toFixed(1).padStart(8) + r.p99.toFixed(1).padStart(7) +
+    (r.em ? (100 * r.em).toFixed(1).padStart(6) : ''.padStart(6)));
   let fails = 0;
   for (const fam of ['wall', 'floor']) {
     const rs = rows.filter(r => r.fam === fam);
@@ -12943,17 +12947,44 @@ if (MODE === 'stats') {
     `${cspread.toFixed(2)}x (census - one ceiling material per level) ; ceil below every face ` +
     `${cmax.toFixed(1)} < ${fmin.toFixed(1)} ${forder ? 'ok' : 'FAIL'}`);
   let grainDebt = 0;
+  /* The "before" figure is a RECORDED measurement per tile, kept in a table - not a value keyed on the
+     name a tile happens to have. #438's review caught the previous form (`r.n === 'STONE' ? 33.9 : 35.6`)
+     saying the wrong number for any future tile that lands in this band; a tile with no recorded figure
+     now says so instead of borrowing another tile's. */
+  const GRAIN_BEFORE = { STONE: 33.9, MUSCLE: 35.6 };
   for (const r of rows) if (r.grain > MAXGRAIN) {
     if (r.grain > GRAINFLOOR) { fails++; console.log(`MATBAND grain ${r.n} ${r.grain.toFixed(1)} is past the measured floor ${GRAINFLOOR} FAIL`); }
-    else { grainDebt++; console.log(`MATBAND KNOWN #416: grain ${r.n} ${r.grain.toFixed(1)} sits above the band ${MAXGRAIN} - it measured ${r.n === 'STONE' ? '33.9' : '35.6'} before the band and its RELIEF carries the rest of the step, so a further albedo/speckle cut would flatten the surface rather than quiet it (floor ${GRAINFLOOR})`); }
+    else {
+      grainDebt++;
+      const was = GRAIN_BEFORE[r.n];
+      console.log(`MATBAND KNOWN #416: grain ${r.n} ${r.grain.toFixed(1)} sits above the band ${MAXGRAIN}` +
+        (was ? ` - it measured ${was} before the band and its RELIEF carries the rest of the step, so a further albedo/speckle cut would flatten the surface rather than quiet it` : ' - no before figure is RECORDED for this tile, so this row states the band and the measured floor only') +
+        ` (floor ${GRAINFLOOR})`);
+    }
   }
   for (const r of rows) if (r.p99 > MAXCLIP) { fails++; console.log(`MATBAND clip ${r.n} p99 ${r.p99.toFixed(1)} > ${MAXCLIP} FAIL`); }
+  /* The exempt-area census. `alb` in js/10_assets.js is applied to the painted albedo and to NO emissive
+     texel - an emissive texel is a light source and js/40_render.js reads its alpha 253 as a FLAG, so
+     scene light never touches it - which means part of every flagged tile sits outside anything the value
+     band or a per-level bias can move. #438 shipped that exemption on purpose and #416 is still owed the
+     half of the picture it leaves behind (ABATOIR CORE's deck veins stay the loudest thing in the lower
+     half of the frame at any lamp strength), so the exempt SHARE is now printed next to the band it is
+     outside of. Census, not a threshold: nothing here yet says how small it must be. */
+  const exempt = rows.filter(r => r.em > 0);
+  console.log('MATBAND exempt ' + (exempt.length ? exempt.map(r => `${r.n} ${(100 * r.em).toFixed(1)}% at luma ${r.emLum.toFixed(0)} (tile mean ${r.mean.toFixed(1)})`).join('; ') : 'NONE') +
+    ' - emissive area is outside what alb and every per-level bias can move');
+  if (!exempt.length) { fails++; console.log('MATBAND exempt census found no emissive texel in ANY tile - a census of nothing proves nothing (vacuity is a FAILURE) FAIL'); }
   const worst = rows.slice().sort((a, b) => b.grain - a.grain)[0];
   console.log(`MATBAND ${fails ? fails + ' FAIL' : 'ok'} - ${rows.length} tiles, grain max ${worst.grain.toFixed(1)} (${worst.n}), ` +
     `${grainDebt} grain debt row(s) under the ${GRAINFLOOR} floor, ` +
     `floor/ceil mean ${rows.filter(r => r.fam === 'floor').reduce((a, r) => Math.max(a, r.mean), 0).toFixed(1)} / ` +
     `${rows.filter(r => r.fam === 'ceil').reduce((a, r) => Math.max(a, r.mean), 0).toFixed(1)}`);
-  if (fails && !process.env.MATBAND_OK) process.exit(1);
+  /* #438's review: this exit honoured a `MATBAND_OK=1` escape that existed so a session could measure
+     past the band. A run that can be silenced is a row that has never been seen to fail, so the escape is
+     gone and the verdict is the exit code. What has NOT changed is that matband still has no row in
+     ci.yml, so this is a probe a person runs with an honest exit, not a CI gate - adding that row is the
+     other half of the pairing #438 asked for and is outside the paths this cycle was authorised to edit. */
+  if (fails) process.exit(1);
 } else if (MODE === 'sheets') {
   // contact sheet: each material tiled 2x2 (tileability), each sprite frame at native size
   const spec = run(`(()=>{
