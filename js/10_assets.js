@@ -800,6 +800,33 @@ WFIX.BOARD = fixTex(64, 40, (s, w, h) => {
   fixAge(s, w, h);
 });
 
+/* ============================ ceiling fittings (#413) ============================
+   The plate you see when you look UP. #437 hung a light source on the ceiling over each room, which
+   gave the sheet a pool of light and nothing to look at: the brightest thing in the frame had no
+   cause in it. This is that cause - a surface-mounted strip light, painted at boot like every other
+   material and placed by the generator wherever placeCeilFixtures hangs a source
+   (js/20_level.js:MAP.ceilFix marks the cell). It is ALBEDO + alpha, exactly like the wall fixtures
+   above (#400): the ceiling pass multiplies it by the column's own light and fog, so a fitting in an
+   unlit bay is dim and one over a walkway is bright, and the plate never becomes a second lightmap.
+   Its diffuser is a warm near-white rather than a blown-out white because the same pass still has to
+   keep the ceiling band under the deck band (`view.js surface` ORDER) - the plate is about a metre
+   across in a 40%-of-frame surface, so it reads as an object without lifting the band. */
+const CFIX = {};
+CFIX.STRIP = fixTex(48, 48, (s, w, h) => {
+  s.clear();
+  const c = w * 0.5;
+  s.rrect(w * 0.05, h * 0.05, w * 0.90, h * 0.90, w * 0.10, [78, 82, 92], 1);      // housing tray
+  s.rrect(w * 0.10, h * 0.10, w * 0.80, h * 0.80, w * 0.07, [42, 44, 50], 1);      // recessed rim
+  s.rrect(w * 0.15, h * 0.15, w * 0.70, h * 0.70, w * 0.05, [212, 196, 162], 1);   // diffuser panel
+  s.rgrad(c, c, w * 0.30, [[0, [244, 232, 204], 1], [1, [206, 188, 152], 0]], 0);  // hot at the tube
+  for (const by of [h * 0.115, h * 0.885])                                         // the two tubes
+    s.rect(w * 0.17, by - h * 0.028, w * 0.66, h * 0.056, [250, 242, 220], 0.85);
+  for (const bx of [w * 0.09, w * 0.91]) for (const by of [h * 0.09, h * 0.91])     // corner bolts
+    s.circle(bx, by, 1.9, [132, 134, 140], 0.9);
+  s.rect(w * 0.05, h * 0.05, w * 0.90, h * 0.05, [58, 60, 66], 0.7);               // cast shade, one side
+  fixAge(s, w, h);
+});
+
 /* Screen-space detail field: a smooth value-noise height map plus fine speckle,
  * sampled by pixel coordinates so material grain keeps constant on-screen size
  * instead of collapsing into the base texture's own frequency. */

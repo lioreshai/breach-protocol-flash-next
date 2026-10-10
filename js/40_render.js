@@ -77,6 +77,10 @@ let SEAM = 1, SEAMD = 0.62, SEAMU = 0.13, SEAMW = 0.16, SEAMC = 0.22;
    same level, same renderer, authored value live) is the control that proves it: that lip is byte-for-byte
    what it was while the dark one three cells away is not. */
 let SEAMA = 0;
+/* #413: which cells have a fitting hung over them, read once a frame alongside the other per-level
+   surface terms. null whenever the level was built with the fittings suppressed (LAMPS=off), which is
+   what keeps that counterfactual byte-identical - the ceiling pass pays one null test and stops. */
+let CF_FIX = null;
 const SEAMK = 0.45;                             // deck LIGHT at which the absolute term has faded out
 /* #178: contact shadow. A rim ADDS to the body, and the rig raster is multiplied by scene light at
    composite, so an additive rim is weakest in the dark rooms that need separation most - AMB 0.19
@@ -301,6 +305,7 @@ function renderWorld() {
   AMB = MAP && MAP.amb !== undefined ? MAP.amb : 0.13;
   FLOORB = MAP ? MAP.floorBias || 0 : 0;
   CEILB = MAP ? MAP.ceilBias || 0 : 0;
+  CF_FIX = MAP ? MAP.ceilFix || null : null;          // #413 ceiling fitting plates
   WALLB = MAP ? MAP.wallBias || 0 : 0;
   SEAMA = MAP ? MAP.stepEdge || 0 : 0;        // #385: an authored absolute crease, 0 on every level that authors none
   /* #369: the vault's ceiling. An authored `ceilLead` is the level's own word and wins; otherwise a
@@ -1321,6 +1326,13 @@ function castGround(flash, fcR, fcG, fcB) {
       }
       if (em === 253) { px[i] = 0xFF000000 | clampi(cb * inv + fB) << 16 | clampi(cg * inv + fG) << 8 | clampi(cr * inv + fR); continue; }
       let r = cr * lr + fR, g = cg * lg + fG, b = cb * lb + fB;
+      /* #413: a FITTING on the ceiling of this cell, ceiling rows only. One byte per cell decides it,
+         so the cost on the 99 % of cells with no fitting overhead is that read. The plate is shaded by
+         THIS column's light and fog - the same terms the sheet behind it used a line above - and the
+         source it houses is what put that light here, so the object and its pool always agree. */
+      if (!isF && inMap && CF_FIX !== null && CF_FIX[cIdx] !== 0 && ceilFixAt(wx, wy)) {
+        r += (CF_R * lr + fR - r) * CF_A; g += (CF_G * lg + fG - g) * CF_A; b += (CF_B * lb + fB - b) * CF_A;
+      }
       const dl = isF && inMap && dMasks ? dMasks[cIdx] : 0;
       if (dl !== 0) {                                          // blood/scorch in world space, floor only
         const gl = dGrid[cIdx];
@@ -1815,6 +1827,11 @@ function groundPixel(x0, x1, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb
   }
   if (em === 253) { px[i] = 0xFF000000 | clampi(cb * gMInv + gMFB) << 16 | clampi(cg * gMInv + gMFG) << 8 | clampi(cr * gMInv + gMFR); continue; }
   let r = cr * lr + gMFR, g = cg * lg + gMFG, b = cb * lb + gMFB;
+  /* #413 ceiling fitting, DEFERRED COPY - same one byte, same helper, same two lines. A plate that
+     drew in the row loop and not here would alias at every band boundary the column re-solves. */
+  if (!isF && inMap && CF_FIX !== null && CF_FIX[cIdx] !== 0 && ceilFixAt(cx, cy)) {
+    r += (CF_R * lr + gMFR - r) * CF_A; g += (CF_G * lg + gMFG - g) * CF_A; b += (CF_B * lb + gMFB - b) * CF_A;
+  }
   const dl = isF && inMap && DECAL_MASK ? DECAL_MASK[cIdx] : 0;
   if (dl !== 0) {
     const gl = DECAL_GRID[cIdx];
@@ -1850,6 +1867,35 @@ function decalAlpha(dc, wx, wy, dfade) {
   if (r2 >= dc.r * dc.r) return 0;
   const t = 1 - r2 / (dc.r * dc.r);
   return dc.a * t * dfade;
+}
+
+/* #413: the FITTING itself, drawn on the ceiling plane. One byte per cell (MAP.ceilFix, authored by
+   placeCeilFixtures) says whether this cell has a source hung over it; the plate is one painted
+   texture (js/10_assets.js CFIX.STRIP) addressed in WORLD metres off the cell CENTRE, so a fitting is
+   the same size in every room and does not ride the ceiling material's tiling at all. Like the wall
+   fixtures (#400) it is ALBEDO and nothing more: this function returns the plate's colour and coverage
+   and the CALLER multiplies by that column's own light and fog, which is the only reason a fitting in a
+   room with no lamp in it is not a bright square. It is also why a fitting reads bright where it works:
+   the source it is the housing for is the brightest light splat on that very column.
+   The two ground copies call this ONE function - AGENTS.md counts the duplicated pixel body as a trap,
+   and a plate that only appeared in the row-loop copy would be a seam between the deferred and the
+   rasterized picture. Sets CF_A to 0 when this pixel is off the plate. */
+const CF_PLATE = 1.0;                     // one CELL of ceiling is the fitting: frame at the cell edge,
+                                          // diffuser inside it. At 0.68 the plate was 25 px of picture at
+                                          // 8 m and read as a bright dot; a flush fitting has to own its
+                                          // cell to look like the cause of the pool under it.
+let CF_R = 0, CF_G = 0, CF_B = 0, CF_A = 0;
+function ceilFixAt(wx, wy) {
+  CF_A = 0;
+  const t = CFIX.STRIP, uv = t.w / CF_PLATE;
+  const u = (wx - Math.floor(wx) - 0.5) * uv + t.w * 0.5;
+  const v = (wy - Math.floor(wy) - 0.5) * uv + t.h * 0.5;
+  if (u < 0 || v < 0 || u >= t.w || v >= t.h) return 0;
+  const s = t.data[((v | 0) * t.w + (u | 0)) >>> 0];
+  const a = (s >>> 24) / 255;
+  if (a < 0.02) return 0;
+  CF_R = s & 255; CF_G = s >> 8 & 255; CF_B = s >> 16 & 255; CF_A = a;
+  return 1;
 }
 
 /* Paint the seam of one step lip in one column. zA is the floor on the side of the lip the ray is
