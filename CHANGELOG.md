@@ -1,5 +1,62 @@
 # Changelog
 
+## [v1.4.3] - 2026-10-10
+
+### Added
+- **A ceiling with a cause of light on it** (#437, #446, #448, issue #413). Every room now carries a
+  light fitting on its own ceiling - a surface-mounted strip with a housing tray, recessed rim, warm
+  diffuser and corner bolts - and the pool overhead comes from that fitting rather than from nowhere.
+  Room height finally reads: a vault puts its fitting 4 m over your head, a low passage keeps it near
+  the top of the frame. One fitting is also hung three to five metres ahead of the square you start a
+  level in, so the deck in front of the arrival point is lit and the frame opens somewhere.
+- **The wall you are facing has something on it** (#439, issue #400). Wall fixtures are mounted about
+  every six metres down a face you can see down, instead of one object at the far edge of the map. A
+  long wall now carries pipe runs, vent plates, shelving or a hazard band at eye height, and a room big
+  enough to see into carries a second thing that says what it is for.
+
+### Changed
+- **Equally lit rooms read alike** (#438, issue #416). Every material was painted with its own albedo
+  constants and nothing bounded one against another, so two rooms under the same lamp could be a glaring
+  near-white tile and a murky dark panel. The brightest faces come down 15-20% and the darkest few come
+  up about 10%, and the noisiest backgrounds - the meat and mossy-stone families - are quieter, so a
+  body's silhouette does the separating rather than the floor behind it.
+- **A lit floor stops arriving as one white sheet** (#440, #444, issue #377). The top of the frame's
+  range now ends below the line where a pixel stops carrying a level, so a lamp pool on a pale deck keeps
+  its gradient across the band that used to go flat white. The bright pass also can no longer push an
+  already-bright pixel across that line at all, whatever a level author does. Standing by a lamp in THE
+  STACK, the wall around the lamp keeps its surface; ARCHIVE SUBLEVEL's spawn frame goes from 1.22% of
+  pixels clipped to 0.12%. Mid-tones, shadows and the muzzle flash are unchanged to within a luma.
+- **THE STACK's walls stop being the same grey as their floor** (#442, issue #369). Wall faces now carry
+  slightly more of the room's own light than the deck does, so a pit lip, a step and a ledge edge read as
+  edges instead of continuing the surface you are standing on. A slab's exposed side still wears the deck,
+  so a step still reads as floor - and the three generated levels do not change by a single pixel.
+- **ABATOIR CORE's floor stops lighting itself** (#449, issue #416). Its vein network was painted as
+  emissive texels, which the renderer counts as light sources: 5.6% of the deck sat at a fixed brightness
+  in a dark room exactly as in a lit one, brighter than every wall face in the game. The veins are now
+  raises in the hide - a paler, drier surface with a small crest - so the highlight sits where the lamp
+  actually is and the deck dims when the room does.
+
+### Fixed
+- **THE STACK's dark down-step is visible** (#435, issue #385). The crease that gives every step its edge
+  was purely a fraction of the pixel's own brightness, so on the one level that authors no lamps at all it
+  bought half the depth it buys elsewhere and the step you can walk into read flat. It now carries a few
+  lumas of absolute depth as well, fading out as the deck's own light rises; that lip now measures 53%
+  contrast against the 45% the game asks for, and every lit step in the campaign draws as it did before.
+
+### Known limitations
+- The strip fitting sits flush with the ceiling slab, so in a tall room it leaves the frame roughly twice
+  its headroom in metres out. At the ARCHIVE start the entrance fitting reads as a brighter wash on the
+  sheet and a pool on the deck ahead of you rather than as an object, and ABATOIR CORE still delivers no
+  ceiling pool its own cameras can measure (#413).
+- Crates and barrels are still drawn square to the grid, so no face of a box ever falls in shadow and they
+  read flatter and more saturated than the walls behind them (#371, fix in review).
+- A hostile ten metres away still loses the unlit half of his silhouette to the wall behind him. The
+  distance rows that price that half landed in this release; the shading half is still open (#407).
+- A room whose every face is already a doorway or opens into another room can still receive no purpose
+  fixture, so the RING's arrival wall stays the barest of the four (#400, #422).
+- One material's grain is still busier than the band aims for, and the bound that keeps glowing paint from
+  going back underfoot is a probe you run rather than a gate CI enforces (#416, #451).
+
 ## [v1.4.2] - 2026-10-09
 
 ### Added
