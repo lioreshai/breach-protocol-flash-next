@@ -2375,6 +2375,33 @@ const BLOOM_KNEE = 140;        // luma (0-255) where the pass starts: below this
 const BLOOM_CURVE = 128;       // highlight = d*d / this, so it eases in and only a real core gets much
 const BLOOM_CAP = 18;          // and never more than this, so the pass cannot run away on a bright room
 const BLOOM_MIX = 0.55;        // composited alpha: added luma per pixel <= BLOOM_MIX * BLOOM_CAP = 9.9
+/* BLOOM_HEAD is the pass's other bound, and the one the cap alone could not give (#377's last row).
+   The curve above PLATEAUS: `add` reaches BLOOM_CAP at luma 188 and stays there, so a lamp-lit wall at
+   200 and a lamp core at 250 receive the identical +9.9. A pixel already at the top of the range cannot
+   show any more light, so energy put there is not light, it is FLATTENING - it is how THE STACK's lamp
+   seat arrived at 2.19 % of its frame above the clipping line against the gate's 2 %, with 1.85 % of
+   that already there with the pass switched off (main's #413 overhead fittings moved that floor).
+
+   THE CEILING IS THE CLIPPING LINE, NOT 255. A delivered pixel stops carrying a LEVEL at BLOOM_CLIP, not
+   at 255 - above the line the frame carries white, and white has no gradient left to put a highlight in.
+   BLOOM_CLIP is the same luma the exposure shoulder is deliberately cut under ("200, under the 224 the
+   gate measures", applyExposure above) and the line #377 counts, so the two post terms now agree on where
+   the showable range ends. Energy is bounded by the distance to THAT line.
+
+   THE SLOPE IS DERIVED, NOT TUNED. The ease-in reaches BLOOM_CAP at BLOOM_TOP = KNEE + sqrt(CAP*CURVE) =
+   188, so BLOOM_HEAD = CAP / (BLOOM_CLIP - BLOOM_TOP) = 0.5 puts the headroom line through the cap at
+   exactly that luma. The pass has no flat region: energy climbs the curve, falls in a straight line to
+   zero at the clip line, and stays zero above it. Nothing at or below 188 changes by one luma - which is
+   why every recorded peak and every raster reference still reads as it did.
+
+   AND IT BOUNDS THE DESTINATION, NOT JUST THE SOURCE. The block's value is a 3x3 MAX, so a pixel at
+   delivered luma v always sits in a block with L >= v, and the energy that pixel can receive is at most
+   MIX * HEAD * (CLIP - v) - zero at the line itself. The pass therefore cannot lift a pixel ACROSS the
+   clipping line any more, which is what the old bound let it do: at v = 220 the distance-to-white term
+   allowed +5.3 delivered luma (220 -> 225.3, a new clipped pixel); this one allows +1.1. */
+const BLOOM_CLIP = 224;   // the luma above which the frame carries white instead of a level
+const BLOOM_TOP = BLOOM_KNEE + Math.sqrt(BLOOM_CAP * BLOOM_CURVE);   // 188: where the curve reaches the cap
+const BLOOM_HEAD = BLOOM_CAP / (BLOOM_CLIP - BLOOM_TOP);
 let bloomImg = null;
 
 function drawBloom(q) {
@@ -2413,6 +2440,11 @@ function drawBloom(q) {
       const over = L - BLOOM_KNEE;                 // (not `d` - that is the buffer above)
       let add = over * over / BLOOM_CURVE;         // eases in: knee+30 gets 7, knee+60 is at the cap
       if (add > BLOOM_CAP) add = BLOOM_CAP;
+      /* and the headroom bound: energy at or above the clipping line is only flattening (#377).
+         One multiply and one min above the existing curve - no second buffer, no readback. */
+      const room = BLOOM_HEAD * (BLOOM_CLIP - L);
+      if (room <= 0) { d[o] = 0; d[o + 1] = 0; d[o + 2] = 0; continue; }
+      if (add > room) add = room;
       const k = add / L;                           // hue-preserving gain: the written pixel has luma `add`
       d[o] = mR * k; d[o + 1] = mG * k; d[o + 2] = mB * k;
     }
