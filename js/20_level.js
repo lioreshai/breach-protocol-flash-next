@@ -1082,6 +1082,25 @@ function authorVolume(cell, N, rooms, fz, vb, feat, cz) {
 }
 
 
+/* THE source-floor derivation, in one place (#413).
+   A light's BAND is the FLOOR of the surface its source belongs to, not the height it emits from:
+   the band term in `splatLight` compares this value against each column's own floor. Three kinds of
+   source exist and each states it differently:
+     - an ordinary lamp authored at `floor + LHOVER`  -> take the hover back off (`L.z - LHOVER`);
+     - a source with NO z (muzzle flash, explosion, the exit pad) -> it stands on its own floor;
+     - a FITTING HUNG UNDER A CEILING (#413) -> neither: it is not LHOVER above anything, so it
+       carries its floor explicitly in `band`.
+   Every reader of a light's band calls THIS function - the splat kernel, the generator's own band
+   pick, the lamp-glow rects in js/40_render.js and the probe copies in tools/view.js. It used to be
+   restated at seven call sites, and when `band` was added only the kernel learned about it: the
+   renderer and the gates kept reading a ceiling fitting as a lamp standing four quanta above the
+   room it hangs over, which lit nothing and made `alt` report 266 cells "lit from a band above".
+   A rule restated is a rule that drifts; state it once and call it. */
+function lightBand(L) {
+  if (L.band !== undefined) return L.band;
+  return L.z === undefined ? floorAt(L.x, L.y) : L.z - LHOVER;
+}
+
 /* Adds one light's contribution to the lightmap; a negative amount takes it back out.
    Static lights are splatted once at generation, transient ones re-splat their delta
    each frame as they fade, which keeps add/remove exactly reversible. */
@@ -1095,7 +1114,13 @@ function splatLight(L, amt) {
      The band a light belongs to is its source's FLOOR, not its emitter height: an authored lamp
      hangs LHOVER above the floor it stands on, so the floor is recovered by taking the hover back
      off, and a z-less source is already standing on its floor. */
-  const lf = L.z === undefined ? floorAt(L.x, L.y) : L.z - LHOVER;
+  /* #413: a fitting hung under a ceiling is NOT `LHOVER` above its floor, so subtracting the hover
+     would put its band several quanta above the room it lights and the kernel below would deliver
+     NOTHING at all (measured: a lamp at a 3 m ceiling fails `|lf - floorAt| <= ZQ` in every column of
+     the room it is in). Such a source carries its own floor explicitly in `band` and the band term
+     reads that; every entry without the field derives it exactly as before, so no existing lamp,
+     muzzle flash or explosion changes a value, and the un-splat still uses this same kernel. */
+  const lf = lightBand(L);
   for (let y = Math.max(0, (L.y - R) | 0); y < Math.min(N, L.y + R); y++)
     for (let x = Math.max(0, (L.x - R) | 0); x < Math.min(N, L.x + R); x++) {
       const d = Math.hypot(x + 0.5 - L.x, y + 0.5 - L.y);
@@ -1392,6 +1417,65 @@ function placeWallFixtures(cfgL) {
   }
   MAP.fixCount = placed;                            // read by view.js fixtures
 }
+/* ---------------- ceiling fittings (#413) ----------------
+   Half the delivered frame is ceiling and NOTHING was on it: every static light in the game hung
+   LHOVER (0.78 m) above its own floor, so nothing above head height ever emitted and the largest
+   surface a player sees was also the emptiest. This puts a source ON the ceiling over each room's
+   main circulation, and one above any floor lamp the room list does not already cover.
+   It rides the existing splat path rather than adding an array to forget to un-splat: the entry is
+   an ordinary static lamp LIGHTS entry, at the ceiling plane, carrying `band` = the floor it hangs
+   over so the kernel's band test still recognises its own room (see splatLight). The renderer needs
+   no new pass - drawLightGlow projects the light's OWN altitude, so the glow now lands on the sheet
+   instead of at knee height, and the per-column light every ceiling pixel already reads falls off
+   around the fitting instead of only around a lamp standing on the deck.
+   No RNG is drawn here, so adding this moves no roll, no prop and no enemy. */
+const CFIX_HANG = 0.12;                    // a fitting's lens sits under the slab, not inside it
+const CFIX_MIN_CLEAR = 1.7;                // a ceiling this low is above your hairline, not your eye
+const CFIX_SEP = 3.0;                      // metres between fittings, so a room is not a grid of them
+function placeCeilFixtures(cfgL) {
+  if (!ceilFixEnabled()) return;
+  const N = MAP.w, cell = MAP.cell;
+  const isOpen = (x, y) => x > 0 && y > 0 && x < N - 1 && y < N - 1 && cell[y * N + x] === 0;
+  const hung = [];
+  const hang = (x, y, sep) => {
+    const cz = ceilAt(x, y), fl = floorAt(x, y);
+    if (!(cz - fl >= CFIX_MIN_CLEAR)) return false;
+    for (let k = 0; k < hung.length; k++)
+      if (Math.hypot(hung[k][0] - x, hung[k][1] - y) < (sep || CFIX_SEP)) return false;
+    hung.push([x, y]);
+    LIGHTS.push({ x: x, y: y, z: cz - CFIX_HANG, band: fl, r: 5.4, str: 0.55, col: cfgL.lampCol, stat: 1, ceil: 1 });
+    return true;
+  };
+  /* 1. ONE OVER EVERY ROOM, at its centre. `rooms` is the generator's own list, and a room centre is
+     the room's circulation by construction - where a fixture and a wire would actually run. A pillar
+     can sit on the centre (the scatter pass allows it), so walk out in rings to the first open cell
+     INSIDE that room rather than hanging a fitting inside a slab. */
+  for (const r of (MAP.rooms || [])) {
+    if (isOpen(r.cx, r.cy) && hang(r.cx + 0.5, r.cy + 0.5)) continue;
+    const span = Math.max(r.w, r.h);
+    outer: for (let rad = 1; rad <= span; rad++) {
+      for (let dy = -rad; dy <= rad; dy++) for (let dx = -rad; dx <= rad; dx++) {
+        if (Math.abs(dx) !== rad && Math.abs(dy) !== rad) continue;
+        const x = r.cx + dx, y = r.cy + dy;
+        if (x < r.x || y < r.y || x >= r.x + r.w || y >= r.y + r.h) continue;
+        if (isOpen(x, y) && hang(x + 0.5, y + 0.5)) break outer;
+      }
+    }
+  }
+  /* 2. ABOVE THE CIRCULATION THE ROOM LIST DOES NOT COVER. Corridors, authored plans like THE STACK
+     (which has no `rooms` at all) and any room whose centre is too low for a fitting are reached
+     here: walk the static lamps the generator and the authored plan already placed - lamps are put on
+     walkable ground by construction - and hang a fitting over the ones no room fitting is near. The
+     separation is wider than pass 1's so this FILLS GAPS rather than stacking a second lamp on the
+     first: two sources in one column is the double-lighting that would move the exposure window. */
+  const nLights = LIGHTS.length;
+  for (let i = 0; i < nLights; i++) {
+    const L = LIGHTS[i];
+    if (!L.stat || L.ceil) continue;
+    hang(L.x, L.y, 7.0);
+  }
+  MAP.ceilFixCount = hung.length;                  // read by view.js surface / fixtures
+}
 function addDecal(o) {
   const N = MAP.w, cx = clamp(o.x | 0, 0, N - 1), cy = clamp(o.y | 0, 0, N - 1), ci = cy * N + cx;
   o.cell = ci; o.life = o.life || 40; o.a = o.a === undefined ? 1 : o.a;
@@ -1471,6 +1555,15 @@ function topUpEnabled() { return true; }
    runs the deal without it and the overlook rows are seen to fail. A row that has never been seen to
    fail has not been tested (AGENTS.md). */
 function overlookEnabled() { return true; }
+/* #413's ceiling fittings, in the same idiom as the two above: ONE call site, so
+   `LAMPS=off node tools/view.js flatparity` builds a level with NO generator-added fill light and
+   flatparity's PARITY sense stays a COUNTERFACTUAL rather than becoming a second picture. The row's
+   claim is "the flattened frame with the top-up never authored reproduces the pre-#204 byte", which
+   is a formula-collapse proof; a fitting in every room is authored fill light of exactly the kind
+   that proof subtracts, so the knob that removes the top-up has to remove these too or the row stops
+   being able to fail. It is NOT a threshold: the shipped path is unchanged, and the fittings are
+   still lit, hashed and gated on the LAMPS-unset (LOCK/DEALT) senses of the same probe. */
+function ceilFixEnabled() { return true; }
 
 /* ---- M6: the hand-authored level (#16) -------------------------------------------------
    Everything in this file above is a generator: it rolls rooms and hopes altitude falls out. This
@@ -1745,6 +1838,7 @@ function buildAuthored(li) {
   // skips it ships a pad with no glow and leaves alt's wrong-band census with no population at all.
   // It has to be pushed BEFORE the splat loop below to be baked into MAP.light like the lamps.
   LIGHTS.push({ x: ex + 0.5, y: ey + 0.5, r: 5.5, str: 0.75, col: [140, 225, 255], stat: 1 });
+  placeCeilFixtures(cfgL);                  // #413: before the splat, so a ceiling source is baked like every lamp
   for (const L of LIGHTS) splatLight(L, L.str);
   kneeLampField();                              // #408: the authored pool's PEAK, its radius untouched
   placeWallFixtures(cfgL);                      // #400: the authored finale gets walls too
@@ -1984,8 +2078,8 @@ function genLevel(li) {
       const SEAT_ANG = 0.6, LENS_HALF = 0.66, LENS_R = 8, SEAT_FLOOR = 4;   // :1489's heading, #304's cone
       let ps = ((li * 7919 + rooms.length * 104729 + ((exitX * 1000) | 0) * 13 + 12345) >>> 0) || 1;
       const prnd = () => { ps = (Math.imul(ps, 1664525) + 1013904223) >>> 0; return ps / 4294967296; };
-      // the source's own FLOOR - the same recovery splatLight makes, restated here only to pick a band
-      const srcFloor = L => (L.z === undefined ? floorAt(L.x, L.y) : L.z - LHOVER);
+      // the source's own FLOOR - the ONE derivation, see lightBand
+      const srcFloor = lightBand;
       const OPENAT = (cx, cy) => {
         let n = 0;
         for (let oy = -1; oy <= 1; oy++) for (let ox = -1; ox <= 1; ox++) if (!cell[(cy + oy) * N + (cx + ox)] && cy + oy > 0 && cx + ox > 0) n++;
@@ -2227,6 +2321,8 @@ function genLevel(li) {
     }
     // #353: an overlook nobody stands above is scenery. See authorOverlooked below.
     authorOverlooked(dist);
+    // #413: hung before the splat loop below, so a ceiling source bakes into MAP.light like a lamp.
+    placeCeilFixtures(cfgL);
     // lightmap splat, then a smoothing pass and the per-cell tint
     for (const L of LIGHTS) splatLight(L, L.str);
     blurLight(); buildTint();
