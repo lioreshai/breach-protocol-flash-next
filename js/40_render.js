@@ -327,6 +327,7 @@ function renderWorld() {
   FLOORB = MAP ? MAP.floorBias || 0 : 0;
   CEILB = MAP ? MAP.ceilBias || 0 : 0;
   CF_FIX = MAP ? MAP.ceilFix || null : null;          // #413 ceiling fitting plates
+  CF_PANES = MAP && MAP.ceilPanes ? MAP.ceilPanes : null;   // #413 the hanging ones (#413 part 3)
   WALLB = MAP ? MAP.wallBias || 0 : 0;
   SEAMA = MAP ? MAP.stepEdge || 0 : 0;        // #385: an authored absolute crease, 0 on every level that authors none
   /* #369: the vault's ceiling. An authored `ceilLead` is the level's own word and wins; otherwise a
@@ -346,6 +347,7 @@ function renderWorld() {
 
   castGround(flash, fcR, fcG, fcB);
   castWalls(flash, fcR, fcG, fcB);
+  drawCeilPanes(flash, fcR, fcG, fcB);
 
   /* ---- sprites: props, pickups, projectiles, the portal ----
      Props, pickups, the orb and the portal are geometry now (#76), on the same `mesh:true` dispatch the
@@ -1351,7 +1353,7 @@ function castGround(flash, fcR, fcG, fcB) {
          so the cost on the 99 % of cells with no fitting overhead is that read. The plate is shaded by
          THIS column's light and fog - the same terms the sheet behind it used a line above - and the
          source it houses is what put that light here, so the object and its pool always agree. */
-      if (!isF && inMap && CF_FIX !== null && CF_FIX[cIdx] !== 0 && ceilFixAt(wx, wy)) {
+      if (!isF && inMap && CF_FIX !== null && CF_FIX[cIdx] !== 0 && ceilFixAt(wx, wy, CF_FIX[cIdx] === 2)) {
         r += (CF_R * lr + fR - r) * CF_A; g += (CF_G * lg + fG - g) * CF_A; b += (CF_B * lb + fB - b) * CF_A;
       }
       const dl = isF && inMap && dMasks ? dMasks[cIdx] : 0;
@@ -1850,7 +1852,7 @@ function groundPixel(x0, x1, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb
   let r = cr * lr + gMFR, g = cg * lg + gMFG, b = cb * lb + gMFB;
   /* #413 ceiling fitting, DEFERRED COPY - same one byte, same helper, same two lines. A plate that
      drew in the row loop and not here would alias at every band boundary the column re-solves. */
-  if (!isF && inMap && CF_FIX !== null && CF_FIX[cIdx] !== 0 && ceilFixAt(cx, cy)) {
+  if (!isF && inMap && CF_FIX !== null && CF_FIX[cIdx] !== 0 && ceilFixAt(cx, cy, CF_FIX[cIdx] === 2)) {
     r += (CF_R * lr + gMFR - r) * CF_A; g += (CF_G * lg + gMFG - g) * CF_A; b += (CF_B * lb + gMFB - b) * CF_A;
   }
   const dl = isF && inMap && DECAL_MASK ? DECAL_MASK[cIdx] : 0;
@@ -1905,12 +1907,149 @@ const CF_PLATE = 1.0;                     // one CELL of ceiling is the fitting:
                                           // diffuser inside it. At 0.68 the plate was 25 px of picture at
                                           // 8 m and read as a bright dot; a flush fitting has to own its
                                           // cell to look like the cause of the pool under it.
-let CF_R = 0, CF_G = 0, CF_B = 0, CF_A = 0;
-function ceilFixAt(wx, wy) {
+const CF_STEM_W = 0.14;                   // metres: the stem's diameter, a conduit, not a cable
+const CF_CANOPY_R = 0.20;                 // metres: the MOUNT a hanging stem is bolted to, at the slab.
+                                          // Half a fitting's housing, dark, and the only thing the slab
+                                          // carries where the lens hangs below it (#456 review). Read
+                                          // with the stem's own colour so the two read as one object.
+const CF_CANOPY_A = 0.85;                 // coverage at the mount's centre, falling to 0 at its edge,
+                                          // so a canopy is a soft dark disc and never a hard square
+let CF_R = 0, CF_G = 0, CF_B = 0, CF_A = 0, CF_PANES = null;
+
+/* #413 part 3: the fittings that HANG, drawn on their own plane.
+   The flush plate above is painted by the ground pass on the cell's ceiling plane, which is the whole
+   problem in a tall room: a ceiling row is a solve against the slab, so no pixel of that plate appears
+   nearer than about twice the headroom from the eye (a 6 m vault draws its nearest ceiling pixel ~9 m
+   out), and ABATOIR CORE's `surface` POOL row has been printing n/a for that reason alone - the census
+   cannot get a ceiling pixel within 3 m of a fitting on a band whose slab is 4.4 m over the eye, in any
+   pose. A fitting in air that tall is therefore let down on a stem to CFIX_TRAY_H above the deck
+   (js/20_level.js `hang`), and this pass draws the panel at THAT height by the same one-multiply solve
+   the ground pass uses for a ceiling row (`d = dz * BH / absP`), at the plane of the panel rather than
+   the plane of the slab. Everything else is deliberately the shipped ground shading: the panel's albedo
+   from the same CFIX.STRIP addressed in metres off the cell centre, this fitting's own cell light and
+   tint, AMB + CEILB + the vault lift term evaluated at the PANEL's height, and fogAt on the panel's own
+   distance - so a pendant in a room with no lamp in it arrives dark exactly like a flush one, and the
+   CEILB term is why the census still files these pixels as ceiling rather than as an unknown surface.
+   Depth is written only where the texel is opaque, so the panel's soft edge cannot hide a body behind
+   it, and every pixel is tested against `zbuf` first, so a wall or a slab nearer than the panel wins.
+   The pass costs one loop over this level's 3-8 fittings and, per fitting, the few hundred pixels of its
+   bbox; when a level has no hanging fitting (`LAMPS=off` builds no list at all) it returns on a null test,
+   which is what keeps flatparity's PARITY sense byte-identical. */
+function drawCeilPanes(flash, fcR, fcG, fcB) {
+  if (CF_PANES === null || CF_PANES.length === 0) return;
+  const N = MAP.w, cellArr = MAP.cell, lm = MAP.light;
+  const tex = CFIX.STRIP, uvS = tex.w / CF_PLATE, uvT = tex.h / CF_PLATE;
+  const hInt = Math.round(horizon), stepBase = 2 / BW;
+  const invDet = 1 / (planeX * dirY - dirX * planeY);
+  for (let f = 0; f < CF_PANES.length; f++) {
+    const F = CF_PANES[f];
+    const dx = F.x - camX, dy = F.y - camY;
+    if (dx * dx + dy * dy > 900) continue;                 // 30 m: past FARB, and 2 px wide anyway
+    const dzp = F.z - eyeZ, dzs = F.top - eyeZ;
+    if (dzp < 0.15 || dzs <= dzp + 0.05) continue;         // at the eye, or nothing to hang it from
+    const tY = invDet * (-planeY * dx + planeX * dy);
+    if (tY < 0.45 || tY > 40) continue;
+    /* bbox only, from the panel's four corners; every pixel inside it is solved exactly below. */
+    let bx0 = BW, bx1 = -1, byF = 1e9, byN = -1e9;
+    for (let k = 0; k < 4; k++) {
+      const ex = F.gx + 0.5 + ((k & 1) ? 0.5 : -0.5) * CF_PLATE - camX;
+      const ey = F.gy + 0.5 + ((k >> 1) ? 0.5 : -0.5) * CF_PLATE - camY;
+      const eT = invDet * (-planeY * ex + planeX * ey);
+      if (eT < 0.25) continue;
+      const eX = BW * 0.5 * (1 + invDet * (dirY * ex - dirX * ey) / eT);
+      const eY = horizon - (BH / eT) * dzp;
+      if (eX < bx0) bx0 = eX;
+      if (eX > bx1) bx1 = eX;
+      if (eY < byF) byF = eY;
+      if (eY > byN) byN = eY;
+    }
+    /* the stem first, so the panel overdraws its foot: a vertical world line projects to a vertical
+       screen line, so per column it is one projection of the ray's own reach along the level. */
+    const tXc = invDet * (dirY * dx - dirX * dy);
+    const scx = BW * 0.5 * (1 + tXc / tY);
+    const swid = Math.max(1, Math.round(BW * 0.25 * CF_STEM_W / tY));
+    const sx0 = Math.max(0, Math.round(scx) - swid), sx1 = Math.min(BW - 1, Math.round(scx) + swid);
+    const ciS = F.gy * N + F.gx;
+    const ltS = cellTint(ciS);
+    let liS = lm ? lm[ciS] : 0;
+    if (liS > 1) liS = 1;
+    for (let x = sx0; x <= sx1; x++) {
+      const c = x * stepBase - 1;
+      const rx = dirX + planeX * c, ry = dirY + planeY * c;
+      const dh = (dx * rx + dy * ry) / (rx * rx + ry * ry);  // how far along this column's ray the stem stands
+      if (dh < 0.3 || dh > 40) continue;
+      const yT = Math.ceil(horizon - (BH / dh) * dzs), yB = Math.floor(horizon - (BH / dh) * dzp);
+      const fogS = fogAt(dh > FARB * 4 ? FARB * 4 : dh), invS = 1 - fogS;
+      const bS = (AMB + CEILB + Math.min(CEILLD, CEILG * Math.max(0, dzp - CEILHI)) + liS * 0.35) * invS;
+      for (let y = Math.max(0, yT); y <= Math.min(hInt - 1, yB); y++) {
+        const i = y * BW + x;
+        if (!(dh < zbuf[i])) continue;
+        const o = px[i];
+        const al = 0.72;                                    // a conduit in silhouette: it darkens the
+        const rr = (o & 255) * (1 - al) + 70 * bS, gg = (o >> 8 & 255) * (1 - al) + 66 * bS,
+              bb = (o >> 16 & 255) * (1 - al) + 60 * bS;     // ceiling behind it, not a black bar
+        px[i] = 0xFF000000 | clampi(bb) << 16 | clampi(gg) << 8 | clampi(rr);
+      }
+    }
+    const ci = F.gy * N + F.gx;
+    const lt = cellTint(ci);
+    let li = lm ? lm[ci] : 0;
+    if (li > 1) li = 1;
+    const lift = Math.min(CEILLD, CEILG * Math.max(0, dzp - CEILHI));
+    const y0 = Math.max(0, Math.ceil(byF)), y1 = Math.min(hInt - 1, Math.floor(byN));
+    const x0 = Math.max(0, Math.floor(bx0)), x1 = Math.min(BW - 1, Math.ceil(bx1));
+    if (y1 < y0 || x1 < x0) continue;
+    for (let y = y0; y <= y1; y++) {
+      const absP = hInt - y;
+      if (absP < 1) continue;
+      const dP = dzp * BH / absP;
+      const fog = fogAt(dP > FARB * 4 ? FARB * 4 : dP), inv = 1 - fog;
+      const fR = fcR * fog, fG = fcG * fog, fB = fcB * fog;
+      const base = (AMB + CEILB + lift + flash * Math.exp(-dP * 0.30) * 0.9) * inv;
+      const lr2 = base + li * lt[0] * inv, lg2 = base + li * lt[1] * inv, lb2 = base + li * lt[2] * inv;
+      for (let x = x0; x <= x1; x++) {
+        const i = y * BW + x;
+        if (!(dP < zbuf[i])) continue;                     // a wall, a slab or a body nearer wins
+        const wx = camX + (dirX + planeX * (x * stepBase - 1)) * dP;
+        const wy = camY + (dirY + planeY * (x * stepBase - 1)) * dP;
+        const u = (wx - F.gx - 0.5) * uvS + tex.w * 0.5;
+        const v = (wy - F.gy - 0.5) * uvT + tex.h * 0.5;
+        if (u < 0 || v < 0 || u >= tex.w || v >= tex.h) continue;
+        const s = tex.data[((v | 0) * tex.w + (u | 0)) >>> 0];
+        const a = (s >>> 24) / 255;
+        if (a < 0.02) continue;
+        const o = px[i];
+        let r = (o & 255) + ((s & 255) * lr2 + fR - (o & 255)) * a;
+        let g = (o >> 8 & 255) + ((s >> 8 & 255) * lg2 + fG - (o >> 8 & 255)) * a;
+        let b = (o >> 16 & 255) + ((s >> 16 & 255) * lb2 + fB - (o >> 16 & 255)) * a;
+        px[i] = 0xFF000000 | clampi(b) << 16 | clampi(g) << 8 | clampi(r);
+        if (a > 0.5) zbuf[i] = dP;                         // the opaque core carries depth; the soft
+      }                                                   // edge does not, so no invisible occluder
+    }
+  }
+}
+
+function ceilFixAt(wx, wy, hang) {
   CF_A = 0;
   const t = CFIX.STRIP, uv = t.w / CF_PLATE;
-  const u = (wx - Math.floor(wx) - 0.5) * uv + t.w * 0.5;
-  const v = (wy - Math.floor(wy) - 0.5) * uv + t.h * 0.5;
+  const ox = wx - Math.floor(wx) - 0.5, oy = wy - Math.floor(wy) - 0.5;
+  /* #456 review: a fitting that HANGS has its lens drawn lower down, by drawCeilPendants, on the panel
+     plane. Painting the diffuser on the slab as well made one fitting two bright rectangles joined by a
+     stem - visible in every tall room, which is the only case this branch arms. So on a hanging cell
+     (MAP.ceilFix byte 2) this pass draws the MOUNT the stem bolts to and no lens: a dark disc of radius
+     CF_CANOPY_R on the slab, in the stem's own colour, soft-edged so it is a fitting and not a square.
+     It keeps the albedo-and-nothing-more rule - the caller still multiplies by this column's light, so a
+     canopy in a dark room is dark - and it costs no texture read. In a LOW room (byte 1) nothing here
+     changes: the flush plate is byte for byte the picture main draws. */
+  if (hang) {
+    const r2 = (ox * ox + oy * oy) / (CF_CANOPY_R * CF_CANOPY_R);
+    if (r2 >= 1) return 0;
+    CF_R = 70; CF_G = 66; CF_B = 60;                 // the stem's own colour: one object, not two
+    CF_A = CF_CANOPY_A * (1 - r2);
+    return 1;
+  }
+  const u = ox * uv + t.w * 0.5;
+  const v = oy * uv + t.h * 0.5;
   if (u < 0 || v < 0 || u >= t.w || v >= t.h) return 0;
   const s = t.data[((v | 0) * t.w + (u | 0)) >>> 0];
   const a = (s >>> 24) / 255;
