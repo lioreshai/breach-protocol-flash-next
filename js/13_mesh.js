@@ -1247,7 +1247,14 @@ const MESH = (function () {
         if (FLR > lg) lg = FLR;
         if (FLR > lb) lb = FLR;
       }
-      const packed = PD[i0 * 6 + 3] << 16 | PD[i0 * 6 + 4] << 8 | PD[i0 * 6 + 5];
+      /* #407 half three: the PAINT arm. BODYPAINT = 0 replaces this texel with BPAINT_RGB and NOTHING
+         else - lr/lg/lb above, the haze and the fog colour below stay exactly as shipped - so a render
+         of the SAME coverage pixels with the background's own delivered colour as the albedo says in
+         luma how much of a distance row's residual is paint and how much is the light path. The VIEW
+         MODEL keeps its texel either way (#376 owns the gun); emissive pixels are already light-exempt
+         and take no albedo. tools/view.js contrast's distance rows are the only caller. */
+      let packed = PD[i0 * 6 + 3] << 16 | PD[i0 * 6 + 4] << 8 | PD[i0 * 6 + 5];
+      if (!BODYPAINT && !MDL) packed = BPAINT_RGB;
       let r = (packed >> 16 & 255) * lr + FOGC[0] * fog;
       let g = (packed >> 8 & 255) * lg + FOGC[1] * fog;
       let b = (packed & 255) * lb + FOGC[2] * fog;
