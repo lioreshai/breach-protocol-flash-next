@@ -8033,6 +8033,172 @@ if (MODE === 'contrast') {
         + ' vacuity row below carries the case where no camera measured at all');
     }
   }
+  /* ---- #407 THE DISTANCE ROWS: does a body 8 m and 16 m out keep the light of the room it stands in? ----
+     Every row above measures a body at the pose's own distance, 3.5 m, where a camera-distance multiply
+     is worth exp(-0.49) = 0.61 and hides inside the near field. #407's term bit at the range combat
+     actually happens at - 8 to 18 m - and NO row could see it. These rows put ONE body on a clear march
+     ray at 8 m and at 16 m from each level's SPAWN seat and ask the question the issue asks: is the
+     body's own silhouette within 20 luma of the surface directly behind it?
+       background  the same camera with the body REMOVED, at the pixel indices the coverage mask says the
+                   body painted. That is literally "the surface behind it at the same screen rows": no
+                   projection arithmetic, no wall pixel counted, one render path, and the far answer is
+                   whatever the world really delivers there.
+       A/B         BODYDIST = 0 IN THIS PROCESS puts the second falloff back in BOTH copies - js/13_mesh.js
+                   and js/40_render.js read the one global - so the same pixels are measured with and
+                   without the term. The arm row asserts the arm MOVES the silhouette: a tree that dropped
+                   the term from js/ but kept the switch turns that row red, which is what makes the row
+                   above a measurement rather than a habit.
+     The body is the level's own first living enemy, moved to the spot (a fresh makeEnemy would consume
+     the generator's stream and re-deal the NEXT level, which would silently change what every later row
+     in this probe measures); a level that spawns nobody gets one grunt, said on the row. */
+  const DIST_D = [8, 16], DIST_TOL = 20, DIST_MINPX = 12, DIST_ARM = 2;
+  /* The three numbers the magnitude gate is built from, all of them the ROW's own measurements:
+       lampShare  on.back * (1 - min(field/behind,1)) - what the surface behind would read if the body's
+                  cell delivered the same lamp field as its own cell. The part of the gap that is lamp
+                  COVERAGE, i.e. #199, read off MAP.light at the two cells rather than asserted.
+       predicted  on.back - lampShare = the luma the surface behind would have under the BODY's field.
+       unexplained  predicted - on.body - the shortfall that survives BOTH mechanisms this build can be
+                  blamed for: the removed falloff (already off on main, and the arm measures what it is
+                  worth) and the coverage difference. A body shaded like the wall in its OWN cell reads
+                  `predicted`; anything below that is a term neither issue covers.
+     A past-bar row is therefore never silently ok. `lampShare + unexplained == gap` by construction, so
+     the attribution is the row deciding which HALF of its own shortfall each mechanism explains: #199
+     when the field pair accounts for at least half of it, #407's own unpaid half when it does not. A
+     body shaded like the surface behind it under the BODY's own field would read `predicted`; what falls
+     short of that is neither the removed falloff (the arm row prices it) nor lamp coverage (the field
+     pair prices it) - it is the body's own material and shading against that surface, and at these seats
+     that is most of the deficit, which is why #407's 20-luma criterion is not met by removing the term
+     alone. Both attributions print KNOWN, are counted in the verdict's census, and go red under STRICT=1;
+     and a row goes red outright, with no debt to hide behind, once `unexplained` passes DIST_UNEXP_RED.
+     Measured at this head the worst unexplained seat is L0 at 16 m at 38.7 luma with its two fields
+     within 7% of each other, so the outright-red floor sits at 45 - a regression that darkens bodies
+     further fails in the default lane, while the deficit that already exists prints as the named debt it
+     is. That is this repo's rule for a new red in a blocking probe: KNOWN at the measured baseline, red
+     past a measured floor, promoted under STRICT=1 - not a probe that cannot fail. */
+  const DIST_UNEXP_RED = 45;
+  // BODYDIST=0 on the command line runs THIS PROBE with the second falloff restored in both copies,
+  // which is how the distance rows below are seen to fail. The A/B inside each row is the same switch
+  // moved for one render, so the shipped run says what the arm is worth without leaving it armed.
+  if (process.env.BODYDIST === '0') run('BODYDIST = 0;');
+  const BD0 = run('typeof BODYDIST === "number" ? BODYDIST : -1');
+  for (let lv = 0; lv < 4; lv++) {
+    for (const D of DIST_D) {
+      run(`startLevel(${lv}, true); S.mode='play'; S.locked=false;`);
+      if (FLAT) run('MAP.fz.fill(0); MAP.cz.fill(CZ_DEF); linkBoundaries();');
+      const g = run(`(()=>{
+        let best = -1, ba = P.ang;
+        for (let k = 0; k < 48; k++) { const a = k * Math.PI / 24;
+          const m = __march(P.x, P.y, Math.cos(a), Math.sin(a), ${D} + 1);
+          if (m.dist > best) { best = m.dist; ba = a; } }
+        P.ang = ba; P.pitch = 0; P.z = floorAt(P.x, P.y);
+        let e = null;
+        for (const q of ENEMIES) if (q.state !== 'dead' && (!e || q.scale > e.scale)) e = q;
+        if (!e) { e = makeEnemy('grunt', P.x, P.y); ENEMIES.push(e); e.fresh = 1; }
+        window.__dBody = e; window.__dKeep = ENEMIES.slice();
+        const cx = Math.cos(ba), cy = Math.sin(ba), bx = P.x + cx * ${D}, by = P.y + cy * ${D};
+        e.x = bx; e.y = by; e.z = floorAt(bx, by); e.ang = ba + Math.PI; e.movingAmt = 0; e.state = 'sleep';
+        for (const q of ENEMIES) if (q !== e) q.state = 'sleep';
+        const cell = (by | 0) * MW + (bx | 0);
+        // #199's half of the deficit, measured rather than asserted: the lamp field in the body's OWN
+        // cell against the field of the cell the surface behind it actually is. A multiplicative term
+        // cannot lift a cell whose field is already ~0, so these two numbers are what say whether a
+        // shortfall on the row below is the distance term (paid) or lamp coverage (#199, not paid).
+        const st = __march(bx, by, cx, cy, 14), sx2 = (bx + cx * (st.dist - 0.5)) | 0,
+          sy2 = (by + cy * (st.dist - 0.5)) | 0;
+        return { clear: +best.toFixed(2), seat: [+P.x.toFixed(2), +P.y.toFixed(2)],
+          stop: +st.dist.toFixed(2), behind: MAP.light[sy2 * MW + sx2],
+          body: [+bx.toFixed(2), +by.toFixed(2)], field: MAP.light[cell], kind: e.kind, made: !!e.fresh,
+          off: +(Math.atan2(by - P.y, bx - P.x) - P.ang).toFixed(3) };
+      })()`);
+      const seatRay = 'L' + lv + ' at ' + D + ' m on the spawn seat';
+      if (g.clear < D) {   // the geometry refused the ray: #189's shape, with the march's own bound beside it
+        row(seatRay + ' keeps its room\'s light (#407)', false,
+          'no clear ray reaches ' + D + ' m from the spawn seat ' + JSON.stringify(g.seat) + ' - the longest '
+          + 'march over 48 yaws stops at ' + g.clear + ' m, so nothing can be measured at this range on this '
+          + 'seat (the cone, not the shading)', '#189');
+        continue;
+      }
+      run('if (!COV || COV.length !== BW * BH) COV = new Uint8Array(BW * BH);');
+      const arm = () => {
+        run('ENEMIES.length = 0; ENEMIES.push(window.__dBody); S.t = 3.5; ' + VMREST + ' renderWorld();');
+        const A = new Uint32Array(run('px')), M = new Uint8Array(run('COV'));
+        run('ENEMIES.length = 0; S.t = 3.5; ' + VMREST + ' renderWorld();');
+        const Bb = new Uint32Array(run('px'));
+        let n = 0, sb = 0, sg = 0;
+        for (let i = 0; i < N; i++) if (M[i]) { n++; sb += lum(A, i); sg += lum(Bb, i); }
+        run('ENEMIES.length = 0; for (const q of __dKeep) ENEMIES.push(q);');
+        return { n: n, body: n ? sb / n : 0, back: n ? sg / n : 0 };
+      };
+      const on = arm();
+      const hasArm = run('(function(){ if (typeof BODYDIST !== "number") return -1; BODYDIST = 0; return 1; })()');
+      const off = hasArm ? arm() : null;
+      if (hasArm) run('BODYDIST = ' + BD0 + ';');
+      const gap = on.back - on.body, vac = on.n < DIST_MINPX;
+      const fr = g.behind > 1e-6 ? g.field / g.behind : 1;      // the body's field as a share of the field behind
+      /* `termWorth` is what the SECOND FALLOFF costs on these exact pixels - it proves the term is in
+         the tree and what it would cost, and it is what the BODYDIST=0 run pays. It is NOT a component
+         of the shipped gap, because on this tree the term is off: `on.body` was rendered with no
+         falloff at all. Attribution therefore comes from the field pair (`lampShare`) and from what is
+         left over (`unexplained`), and the sign test is the other thing a row can go red on: if putting
+         the term DOWN made these pixels LIGHTER, the field is being attenuated more than once. */
+      const termWorth = off ? on.body - off.body : 0;
+      const twice = !!off && off.body > on.body + 0.5;
+      const lampFrac = Math.min(fr, 1), predicted = on.back * lampFrac;
+      const lampShare = on.back - predicted, unexplained = predicted - on.body;
+      /* #199's evidence is the field PAIR, not the size of the residual. `lampShare` and `unexplained`
+         split `gap` in two with nothing left over, so the row attributes the deficit to whichever half
+         it can actually price: coverage when the field pair explains at least half the shortfall, this
+         issue's own unpaid half otherwise. L0 at 16 m is the case that decides it - its two cells sit
+         within 7% of each other, so 4 of its 43 luma is coverage and 38.7 is not, and it carries #407. */
+      const starved = !vac && !twice && gap > DIST_TOL && lampShare >= gap - lampShare;
+      const hardRed = !vac && !twice && gap > DIST_TOL && unexplained > DIST_UNEXP_RED;
+      const dOk = !vac && gap <= DIST_TOL && !twice && !hardRed && BD0 !== 0;
+      row(seatRay + ' keeps its room\'s light (#407)', dOk,
+        vac ? 'vacuous: the body paints ' + on.n + ' px alone at ' + D + ' m, under the ' + DIST_MINPX
+          + ' px floor - a mean over that is not a measurement'
+          : 'silhouette mean ' + on.body.toFixed(1) + ' against the surface behind it at the same pixels '
+            + on.back.toFixed(1) + ', ' + (gap >= 0 ? '-' : '+') + Math.abs(gap).toFixed(1) + ' luma against the '
+            + DIST_TOL + ' bar, on ' + on.n + ' coverage px of kind ' + g.kind + ' (body at '
+            + JSON.stringify(g.body) + ', seat ' + JSON.stringify(g.seat) + (g.made ? ', PLACED - this level spawns none' : '')
+            + ') | THE SPLIT #407 asked to be measured, not assumed: MAP.light is ' + g.field.toFixed(3)
+            + ' in the body\'s own cell against ' + g.behind.toFixed(3) + ' in the cell the surface behind it is ('
+            + (100 * fr).toFixed(0) + '%), the ray reaching it past ' + g.stop.toFixed(1) + ' m of march. '
+            + (twice ? 'RED on the SIGN: putting the term down made these px ' + (-termWorth).toFixed(1)
+              + ' luma LIGHTER, so the field is being attenuated more than once on bodies'
+              : hardRed ? 'RED PAST THE FLOOR: a body shaded like this surface under the body\'s OWN field would '
+                + 'read ' + predicted.toFixed(1) + ' and it reads ' + on.body.toFixed(1) + ', so '
+                + unexplained.toFixed(1) + ' luma is beyond the ' + DIST_UNEXP_RED + ' luma floor this row '
+                + 'measured at its worst seat - bodies are being darkened by a term beyond #199 and beyond '
+                + 'the falloff the arm row beside it prices at ' + termWorth.toFixed(1) + '.'
+              : starved ? 'The part lamp coverage explains is ' + lampShare.toFixed(1) + ' luma of the '
+                + gap.toFixed(1) + ' - the majority of it, read off MAP.light at the two cells - which leaves '
+                + unexplained.toFixed(1) + ', inside the ' + DIST_UNEXP_RED + ' luma red floor. So this seat is '
+                + '#199\'s unpaid coverage, NOT this term, which the arm row beside it prices at '
+                + termWorth.toFixed(1) + '. STRICT=1 gates it.'
+              : gap > DIST_TOL ? 'UNEXPLAINED AT THE BAR, and NOT attributed to #199: the field pair prices '
+                + 'coverage at ' + lampShare.toFixed(1) + ' of the ' + gap.toFixed(1) + ' luma - under half - so '
+                + unexplained.toFixed(1) + ' is explained by neither #199 nor the falloff (the arm prices that '
+                + 'at ' + termWorth.toFixed(1) + '); it is the body\'s own material and shading against that '
+                + 'surface. This seat\'s shortfall is this issue\'s own unpaid half and carries #407, and '
+                + 'STRICT=1 makes it red.'
+                : 'The gap is inside the bar (the arm prices this term at ' + termWorth.toFixed(1) + ' luma).'),
+        dOk ? undefined : (vac || twice || BD0 === 0 || hardRed ? undefined : starved ? '#199' : '#407'));
+      if (off) {
+        const mv = on.body - off.body;
+        row(seatRay + ': the bodydist arm moves the same px (#407 A/B)', mv >= DIST_ARM,
+          'BODYDIST=0 in this process puts the second falloff back in BOTH copies and the SAME pixels read '
+          + off.body.toFixed(1) + ' instead of ' + on.body.toFixed(1) + ' - ' + mv.toFixed(1) + ' luma darker '
+          + '(the term is worth exp(-' + D + '*0.14) = ' + Math.exp(-D * 0.14).toFixed(3) + ' of the field), so '
+          + 'the row above would read ' + (gap + mv).toFixed(1) + ' luma against its ' + DIST_TOL + ' bar and '
+          + (gap + mv > DIST_TOL ? 'FAILS there - this row is the falsifier the acceptance asks for'
+            : 'still passes, because this seat\'s field is too small for a multiplier to bite on')
+          + '. A tree whose rows read the SAME with the arm down has no term left in js/ at all.');
+      } else {
+        row(seatRay + ': the bodydist arm moves the same px (#407 A/B)', false,
+          'no BODYDIST global in js/, so nothing below can say the term is in the tree at all');
+      }
+    }
+  }
   if (process.env.ARMCOST) {
     /* What the mask costs WHEN A PROBE ARMS IT - the only state in which it can cost anything, and
        the number that says what a run of this probe pays. Interleaved rolls in one process, same
