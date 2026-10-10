@@ -1432,7 +1432,9 @@ function placeWallFixtures(cfgL) {
 const CFIX_HANG = 0.12;                    // a fitting's lens sits under the slab, not inside it
 const CFIX_MIN_CLEAR = 1.7;                // a ceiling this low is above your hairline, not your eye
 const CFIX_SEP = 3.0;                      // metres between fittings, so a room is not a grid of them
-function placeCeilFixtures(cfgL) {
+const CFIX_ENTRY_MIN = 3.0;                // metres AHEAD of the seat the entry fitting goes
+const CFIX_ENTRY_MAX = 5.5;                // ...and its reach. Neither end is taste, see pass 0.
+function placeCeilFixtures(cfgL, seatX, seatY) {
   if (!ceilFixEnabled()) return;
   const N = MAP.w, cell = MAP.cell;
   const isOpen = (x, y) => x > 0 && y > 0 && x < N - 1 && y < N - 1 && cell[y * N + x] === 0;
@@ -1455,6 +1457,30 @@ function placeCeilFixtures(cfgL) {
     LIGHTS.push({ x: x, y: y, z: cz - CFIX_HANG, band: fl, r: 5.4, str: 0.55, col: cfgL.lampCol, stat: 1, ceil: 1 });
     return true;
   };
+  /* 0. OVER THE ENTRANCE, and AHEAD of it. `rooms` and the lamp list both miss the square a player
+     first stands in on some deals - and on ABATOIR CORE the spawn sweep delivered no fitting at all in
+     any pose (`surface`'s POOL row reads n/a there), so the level whose ceiling is 47 % of its frame
+     is the one whose fittings you never see. The entry is circulation by definition, so guarantee it.
+     AHEAD rather than ON: the ceiling sheet is only drawn past the row its own height projects, so a
+     fitting directly overhead enters the frame from about 2x the ceiling-headroom metres out - a
+     plate at the seat's own cell is a fitting you stand under and never look at. The ring is therefore
+     3.0-5.5 m from the seat, on the seat's OWN band (a fitting two storeys up is not the entry room's),
+     and it carries a source of its own like every other fitting, so `surface`'s POOL census - which
+     reads the `ceil` entries on LIGHTS - can see it and its counterfactual can un-author it. */
+  if (isFinite(seatX) && isFinite(seatY)) {
+    const sband = floorAt(seatX, seatY);
+    let pick = null;
+    for (let r = CFIX_ENTRY_MIN; r <= CFIX_ENTRY_MAX + 1e-9 && !pick; r += 0.5) {
+      for (let a = 0; a < 8; a++) {
+        const ang = a * Math.PI / 4;
+        const x = seatX + Math.cos(ang) * r, y = seatY + Math.sin(ang) * r;
+        if (!isOpen(x | 0, y | 0)) continue;
+        if (Math.abs(floorAt(x, y) - sband) > 0.01) continue;
+        pick = [x + 0.5, y + 0.5];
+      }
+    }
+    if (pick) hang(pick[0], pick[1], CFIX_SEP);
+  }
   /* 1. ONE OVER EVERY ROOM, at its centre. `rooms` is the generator's own list, and a room centre is
      the room's circulation by construction - where a fixture and a wire would actually run. A pillar
      can sit on the centre (the scatter pass allows it), so walk out in rings to the first open cell
@@ -1848,7 +1874,9 @@ function buildAuthored(li) {
   // skips it ships a pad with no glow and leaves alt's wrong-band census with no population at all.
   // It has to be pushed BEFORE the splat loop below to be baked into MAP.light like the lamps.
   LIGHTS.push({ x: ex + 0.5, y: ey + 0.5, r: 5.5, str: 0.75, col: [140, 225, 255], stat: 1 });
-  placeCeilFixtures(cfgL);                  // #413: before the splat, so a ceiling source is baked like every lamp
+  // #413: before the splat, so a ceiling source is baked like every lamp. The plan's own spawn square
+  // goes in as well, so the entry room is guaranteed a fitting above it (see pass 0).
+  placeCeilFixtures(cfgL, sx + 0.5, sy + 0.5);
   for (const L of LIGHTS) splatLight(L, L.str);
   kneeLampField();                              // #408: the authored pool's PEAK, its radius untouched
   placeWallFixtures(cfgL);                      // #400: the authored finale gets walls too
@@ -2333,7 +2361,9 @@ function genLevel(li) {
     // #353: an overlook nobody stands above is scenery. See authorOverlooked below.
     authorOverlooked(dist);
     // #413: hung before the splat loop below, so a ceiling source bakes into MAP.light like a lamp.
-    placeCeilFixtures(cfgL);
+    // `seat` is the #154 seat, chosen before any pass that draws, so the entry fitting is deterministic
+    // and draws no RNG of its own.
+    placeCeilFixtures(cfgL, seat[0], seat[1]);
     // lightmap splat, then a smoothing pass and the per-cell tint
     for (const L of LIGHTS) splatLight(L, L.str);
     blurLight(); buildTint();
