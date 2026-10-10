@@ -18,7 +18,7 @@ let FARB = 22, AMB = 0.13, GQ = null;
    "walls brightest, floor mid, ceiling lowest" without touching a texture or a lightmap. Both are 0 on
    every level that does not author them, which is every flat level, so their arithmetic costs nothing
    and byte-matches there. See LEVELS floorBias/ceilBias in js/20_level.js. */
-let FLOORB = 0, CEILB = 0, CEILLD = 0.9;
+let FLOORB = 0, CEILB = 0, WALLB = 0, CEILLD = 0.9;
 // samples across one row's fan used to find the light of a far-band row (#197): a row at FARB spans
 // ~1.4*FARB world metres, so ONE cell would book a 30 m wide band to one lamp. Lookups per ROW.
 const FARFAN = 8;
@@ -322,6 +322,7 @@ function renderWorld() {
   AMB = MAP && MAP.amb !== undefined ? MAP.amb : 0.13;
   FLOORB = MAP ? MAP.floorBias || 0 : 0;
   CEILB = MAP ? MAP.ceilBias || 0 : 0;
+  WALLB = MAP ? MAP.wallBias || 0 : 0;
   SEAMA = MAP ? MAP.stepEdge || 0 : 0;        // #385: an authored absolute crease, 0 on every level that authors none
   /* #369: the vault's ceiling. An authored `ceilLead` is the level's own word and wins; otherwise a
      level that authored a floor/ceiling order is capped by that order (see CEILGM), and a level that
@@ -2050,7 +2051,7 @@ function castWalls(flash, fcR, fcG, fcB) {
     const lt = cellTint(inIdx);
     const fall = Math.exp(-perp * 0.16);
     const fk = flashK0 * Math.exp(-perp * 0.30);
-    let li = (Math.max(lit, litFront * 0.85) * fall + AMB) * (side === 1 ? 0.78 : 1);
+    let li = (Math.max(lit, litFront * 0.85) * fall + AMB + (riser ? 0 : WALLB)) * (side === 1 ? 0.78 : 1);
     if (li > 1) li = 1;
     const lr = AMB + (li * lt[0] + fk * flR) * 1.05, lg = AMB + (li * lt[1] + fk * flG) * 1.05, lb = AMB + (li * lt[2] + fk * flB) * 1.05;
 
