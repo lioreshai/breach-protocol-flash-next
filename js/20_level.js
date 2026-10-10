@@ -1430,6 +1430,14 @@ function placeWallFixtures(cfgL) {
    around the fitting instead of only around a lamp standing on the deck.
    No RNG is drawn here, so adding this moves no roll, no prop and no enemy. */
 const CFIX_HANG = 0.12;                    // a fitting's lens sits under the slab, not inside it
+const CFIX_TRAY_H = 2.35;                  // metres above its own deck a hanging lens comes down to:
+                                           // eye height 1.62 + 0.7 of clearance. Higher and a fitting in
+                                           // a 6 m vault is above the top row of the frame (the ceiling
+                                           // pass draws no pixel steeper than ~26 deg, so nothing closer
+                                           // than ~2x the headroom appears at all); lower and it is an
+                                           // obstacle you walk into.
+const CFIX_DROP_MIN = 0.6;                 // below this the pendant and a flush plate are the same
+                                           // picture, so the cheap flush plate draws instead
 const CFIX_MIN_CLEAR = 1.7;                // a ceiling this low is above your hairline, not your eye
 const CFIX_SEP = 3.0;                      // metres between fittings, so a room is not a grid of them
 const CFIX_ENTRY_MIN = 3.0;                // metres AHEAD of the seat the entry fitting goes
@@ -1445,6 +1453,10 @@ function placeCeilFixtures(cfgL, seatX, seatY) {
      ceiling pass costs it nothing - which is also what keeps flatparity's PARITY counterfactual
      byte-identical. */
   MAP.ceilFix = new Uint8Array(N * N);
+  /* The hanging ones, as a list rather than a grid: a level carries 3-8 of them, and the pendant pass
+     wants to iterate fittings, not cells. Positions only - no light value lives here, so there is
+     nothing to un-splat and nothing to forget (AGENTS.md: light stays one value per column). */
+  MAP.ceilPanes = [];
   const hung = [];
   const hang = (x, y, sep) => {
     const cz = ceilAt(x, y), fl = floorAt(x, y);
@@ -1453,8 +1465,22 @@ function placeCeilFixtures(cfgL, seatX, seatY) {
       if (Math.hypot(hung[k][0] - x, hung[k][1] - y) < (sep || CFIX_SEP)) return false;
     hung.push([x, y]);
     const gx = x | 0, gy = y | 0;                       // BOTH axes tested before the index: one cell
-    if (gx >= 0 && gy >= 0 && gx < N && gy < N) MAP.ceilFix[gy * N + gx] = 1;   // index is one number
-    LIGHTS.push({ x: x, y: y, z: cz - CFIX_HANG, band: fl, r: 5.4, str: 0.55, col: cfgL.lampCol, stat: 1, ceil: 1 });
+    if (gx < 0 || gy < 0 || gx >= N || gy >= N) return false;
+    const ci = gy * N + gx;
+    /* FLUSH in a low room, HUNG in a tall one. A plate painted on the slab is one the frame can only
+       draw from about 2x the headroom away, because the ceiling pass solves each row against the slab
+       and no ray steeper than the frame's top row reaches it sooner; in a 2.6 m corridor that is 1.5 m
+       and the fitting is on screen the moment you walk in, and in a 6 m vault it is 9 m, which is why
+       ABATOIR CORE's POOL row reads n/a while the other three levels answer it. A tall room therefore
+       gets the lens let down on its own stem to CFIX_TRAY_H above the deck (js/40_render.js
+       drawCeilPendants draws that rod and panel from MAP.ceilPanes, and the slab plate is suppressed so
+       one fitting is not two bright rectangles), and a low room keeps the flush plate, byte for byte
+       what it was. */
+    const pz = fl + Math.min(cz - fl - CFIX_HANG, CFIX_TRAY_H);
+    const hungDown = cz - pz >= CFIX_DROP_MIN;
+    MAP.ceilFix[ci] = 1;                                  // the canopy on the slab, every fitting: one
+    if (hungDown) MAP.ceilPanes.push({ x: x, y: y, z: pz, gx: gx, gy: gy, top: cz, cell: ci });
+    LIGHTS.push({ x: x, y: y, z: pz, band: fl, r: 5.4, str: 0.55, col: cfgL.lampCol, stat: 1, ceil: 1 });
     return true;
   };
   /* 0. OVER THE ENTRANCE, and AHEAD of it. `rooms` and the lamp list both miss the square a player
