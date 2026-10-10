@@ -12179,14 +12179,42 @@ if (MODE === 'surface') {
            second time and getting different bytes with an unchanged grid. */
         run(`(function(){ globalThis.__o = [MAP.floorBias, MAP.ceilBias, MAP.ceilLead];
           MAP.floorBias = 0; MAP.ceilBias = 0; MAP.ceilLead = ${run('CEILGM')}; return 1; })()`);
+        /* #413: AND the hung ceiling fill has to come out of the SAME arm, by re-baking the lightmap
+           without the `ceil` sources rather than by a literal. The counterfactual this row is supposed
+           to render is THE PRE-#369 BUILD, and the pre-#369 build had no fitting over each room either;
+           leaving the fill in means the added source lifts the deck past the ceiling and ORDER on the
+           finale passes a build with no authored order at all - a green row that cannot fail, which is
+           the one thing AGENTS.md refuses (measured at 70c746d: order zeroed, ceiling 61.2 vs floor 65.0
+           WITH the fill, and ceiling 59.3 against floor 45.0 - a failing row - without it).
+           `ceilFixEnabled()` is the author-time idiom (#204/#353), but it cannot be flipped after the
+           fact: the fitting is baked into MAP.light by the splat loop in genLevel/buildAuthored. So this
+           re-runs the level's OWN bake minus the hung sources, and only that: the lamp list without the
+           `ceil` entries, splatted through the shipped `splatLight`, then the post-pass the level's own
+           generator runs - `kneeLampField` for the authored plan, `blurLight` for a generated one. No
+           second kernel, so no way for the control to disagree with the shipped frame about what a lamp
+           costs. The arrays are snapshotted by reference and put back whole, so every pose AFTER this
+           one and the POSE row's re-render of cam0 are measured on the shipped field byte for byte. */
+        const nFix = run(`LIGHTS.reduce((n, L) => n + (L.ceil ? 1 : 0), 0)`);
+        const baked = run(`(function(){
+          globalThis.__lm = [MAP.light.slice(), MAP.lR.slice(), MAP.lG.slice(), MAP.lB.slice(), MAP.lw.slice(), MAP.lt.slice()];
+          MAP.light.fill(0); MAP.lR.fill(0); MAP.lG.fill(0); MAP.lB.fill(0); MAP.lw.fill(0); MAP.lt.fill(0);
+          for (const L of LIGHTS) if (!L.ceil) splatLight(L, L.str);
+          if (${run(`!!LEVELS[${li}].authored`)}) kneeLampField(); else blurLight();
+          buildTint(); MAP.tintDirty = false;
+          return 1; })()`);
         const a0 = frame(), c0f = frameBias('ceilBias', -1), f0f = frameBias('floorBias', -1);
         run('MAP.floorBias = globalThis.__o[0]; MAP.ceilBias = globalThis.__o[1]; MAP.ceilLead = globalThis.__o[2]; delete globalThis.__o;');
+        run(`(function(){ MAP.light.set(globalThis.__lm[0]); MAP.lR.set(globalThis.__lm[1]); MAP.lG.set(globalThis.__lm[2]);
+          MAP.lB.set(globalThis.__lm[3]); MAP.lw.set(globalThis.__lm[4]); MAP.lt.set(globalThis.__lm[5]);
+          MAP.tintDirty = false; delete globalThis.__lm; return 1; })()`);
         const c0 = classify(a0, c0f, f0f);
         const survived = c0.seam >= TARGET && c0.ceil < c0.floor;
         if (survived) ctrlMiss++;
         row(`L${li} cam${cam} CONTROL the census can see the bug`,
-          !survived, `order zeroed: seam ${c0.seam.toFixed(1)}, ceiling ${c0.ceil.toFixed(1)} vs floor ${c0.floor.toFixed(1)}` +
-          (survived ? ' - both rows still pass a build with no authored order, so they prove nothing' : ' (a row fails there, as it must)'));
+          !survived, `order zeroed AND ${nFix} hung fill source(s) un-authored (lightmap re-baked from the lamp list): `
+          + `seam ${c0.seam.toFixed(1)}, ceiling ${c0.ceil.toFixed(1)} vs floor ${c0.floor.toFixed(1)}` +
+          (survived ? ' - both rows still pass a build with no authored order and no fill, so they prove nothing'
+            : ' (a row fails there, as it must)'));
       }
     }
     /* THE ROW THAT MAKES THE MULTI-POSE CRITERION MEAN SOMETHING. Every pose above must have been
