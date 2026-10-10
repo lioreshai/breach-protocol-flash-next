@@ -8183,6 +8183,36 @@ if (MODE === 'contrast') {
                 + 'STRICT=1 makes it red.'
                 : 'The gap is inside the bar (the arm prices this term at ' + termWorth.toFixed(1) + ' luma).'),
         dOk ? undefined : (vac || twice || BD0 === 0 || hardRed ? undefined : starved ? '#199' : '#407'));
+      /* #407 HALF TWO: price the ramp's SECOND job. `li` is a directionless baked field and a ground
+         pixel takes it FLAT (js/40_render.js:1043, no N*L); the mesh path multiplies that flat field by
+         the shape ramp `R0 + R1*d`, whose mean over its own domain is R0 + R1/2 = 0.725 for the enemy
+         pair (js/13_mesh.js:1097). So the ramp is also a SCALE on light that has no direction, and a
+         body in its own lit cell still lands under the wall behind it at the range #432's rows measure
+         - which is why those rows print a residual they cannot attribute to #199 or to the falloff.
+         BODYSHADE = 0 IN THIS PROCESS centres the SAME ramp on the field instead of on zero (mean 1 over
+         the domain, R1 untouched, so form keeps its spread), and one more render of the SAME coverage px
+         says in luma what that off-centre costs. This row prices the term; it does not ship it - the
+         centred form is a picture change on every body in the game and moves the frames flatparity and
+         bands record, so it is review's call with this number beside it, not a default flipped here. */
+      const SH0 = run('typeof BODYSHADE === "number" ? BODYSHADE : -1');
+      if (SH0 === 1) {
+        run('BODYSHADE = 0;'); const ce = arm(); run('BODYSHADE = 1;');
+        const cm = ce.body - on.body;
+        row(seatRay + ': the shade arm prices the shape ramp (#407 half two)', cm >= DIST_ARM,
+          'BODYSHADE=0 in this process centres the SAME R1 ramp on the field instead of on zero and the '
+          + 'SAME ' + on.n + ' px read ' + ce.body.toFixed(1) + ' instead of ' + on.body.toFixed(1) + ' - '
+          + cm.toFixed(1) + ' luma of the ' + gap.toFixed(1) + ' shortfall is the ramp acting as a scale '
+          + 'on a directionless field (mean R0 + R1/2 instead of 1). With that term paid the row above '
+          + 'would read ' + (gap - cm).toFixed(1) + ' luma against its ' + DIST_TOL + ' bar, so what is '
+          + 'left at this seat is ' + (gap - cm > DIST_TOL ? 'STILL past the bar - material/albedo or #199, '
+            + 'not this ramp' : 'inside the bar - this ramp WAS this seat\'s unpaid half') + '. A tree whose '
+          + 'rows read the SAME with the arm down has no ramp scale left in js/ to price.');
+      } else {
+        row(seatRay + ': the shade arm prices the shape ramp (#407 half two)', SH0 === 0,
+          SH0 === 0 ? 'the centred form is SHIPPED on this tree, so there is no arm to price - the row '
+            + 'above is the row that gates it'
+            : 'no BODYSHADE global in js/, so nothing can say the ramp scale is in the tree at all');
+      }
       if (off) {
         const mv = on.body - off.body;
         row(seatRay + ': the bodydist arm moves the same px (#407 A/B)', mv >= DIST_ARM,
