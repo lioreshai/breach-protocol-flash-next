@@ -475,12 +475,28 @@ FLOORS.FLESH = matTex(T2, T2, p => {
   let v = 0.66 + n * 0.6;
   p.r = 92 * v + 12; p.g = 28 * v + 6; p.b = 38 * v + 8;
   p.h = 0.58 + (n - 0.5) * 0.16;
+  /* #416 take two: the vein CORES used to be emissive - `p.e = 1` at 208,74,66. An emissive texel is a
+     light SOURCE, not a surface: js/40_render.js reads its alpha byte 253 as a FLAG and gives it no AMB,
+     no scene light and no lamp ramp. So 5.6% of ABATOIR CORE's deck sat at luma 149 whatever the lamp
+     did - brighter than every wall face in the table, in a lit room and in a dark one - and a body
+     standing on the deck lost its silhouette to a network of paint the level cannot shade down. That is
+     the half of this issue `alb` cannot reach (#438 scaled the painted albedo and deliberately skipped
+     emissive texels) and the half `matband` prints as exempt area.
+     The cores are now RAISES in the hide: a paler, drier albedo plus a bump crest, so the highlight sits
+     where the lamp actually is and the level can shade the whole deck. This is the treatment #369 gave
+     CEILS.SINEW's veins for the same reason, one file and one tile later. Measured on the baked tiles at
+     this head: exempt area 5.6% -> NONE (the tile no longer appears in `matband`'s exempt census at all),
+     grain 23.4 -> 20.7, tile mean 92.3 -> 94.5, floor family spread 1.47x -> 1.44x. `grain` goes 9 -> 7
+     and `alb` 1.08 -> 1.17: the speckle cut is the grain half of the issue on the noisiest tile in the
+     table, and the albedo lift buys back the mean that dropping the flag cost, so the repaint does not
+     trade the loudest background for a wider band. Both stay inside the bands #438 set - the 24 grain
+     band and the 1.5x family cap - and neither threshold moved. */
   const vk = veinMask(p, 0.18, 5, 44);
   p.r += (200 - p.r) * vk * 0.35; p.g += (60 - p.g) * vk * 0.5; p.b += (70 - p.b) * vk * 0.5; p.h += vk * 0.1;
-  if (vk > 0.9) { p.e = 1; p.r = 208; p.g = 74; p.b = 66; }
+  if (vk > 0.9) { p.r += (126 - p.r) * 0.5; p.g += (78 - p.g) * 0.5; p.b += (74 - p.b) * 0.5; p.h += 0.05; }
   const pool = smoothstep(0.62, 0.86, fbm(p.u, p.v, 3, 3, 0.6, 92));
   p.r -= pool * 26; p.g -= pool * 12; p.b -= pool * 6; p.h -= pool * 0.05;
-}, { bump: 1.3, amb: 0.42, spec: 0.55, specPow: 20, ao: 0.7, grain: 9, alb: 1.08 });   // #416: darkest floor at 88.6; the emissive vein cores at 208,74,66 are NOT scaled - alb skips emissive texels
+}, { bump: 1.3, amb: 0.42, spec: 0.55, specPow: 20, ao: 0.7, grain: 7, alb: 1.17 });
 
 CEILS.CONCRETE = matTex(T2, T2, p => {
   const sx = (p.u * 2) % 1, sy = (p.v * 2) % 1;
