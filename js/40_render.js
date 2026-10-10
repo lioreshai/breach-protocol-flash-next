@@ -1353,7 +1353,7 @@ function castGround(flash, fcR, fcG, fcB) {
          so the cost on the 99 % of cells with no fitting overhead is that read. The plate is shaded by
          THIS column's light and fog - the same terms the sheet behind it used a line above - and the
          source it houses is what put that light here, so the object and its pool always agree. */
-      if (!isF && inMap && CF_FIX !== null && CF_FIX[cIdx] !== 0 && ceilFixAt(wx, wy)) {
+      if (!isF && inMap && CF_FIX !== null && CF_FIX[cIdx] !== 0 && ceilFixAt(wx, wy, CF_FIX[cIdx] === 2)) {
         r += (CF_R * lr + fR - r) * CF_A; g += (CF_G * lg + fG - g) * CF_A; b += (CF_B * lb + fB - b) * CF_A;
       }
       const dl = isF && inMap && dMasks ? dMasks[cIdx] : 0;
@@ -1852,7 +1852,7 @@ function groundPixel(x0, x1, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb
   let r = cr * lr + gMFR, g = cg * lg + gMFG, b = cb * lb + gMFB;
   /* #413 ceiling fitting, DEFERRED COPY - same one byte, same helper, same two lines. A plate that
      drew in the row loop and not here would alias at every band boundary the column re-solves. */
-  if (!isF && inMap && CF_FIX !== null && CF_FIX[cIdx] !== 0 && ceilFixAt(cx, cy)) {
+  if (!isF && inMap && CF_FIX !== null && CF_FIX[cIdx] !== 0 && ceilFixAt(cx, cy, CF_FIX[cIdx] === 2)) {
     r += (CF_R * lr + gMFR - r) * CF_A; g += (CF_G * lg + gMFG - g) * CF_A; b += (CF_B * lb + gMFB - b) * CF_A;
   }
   const dl = isF && inMap && DECAL_MASK ? DECAL_MASK[cIdx] : 0;
@@ -1908,6 +1908,12 @@ const CF_PLATE = 1.0;                     // one CELL of ceiling is the fitting:
                                           // 8 m and read as a bright dot; a flush fitting has to own its
                                           // cell to look like the cause of the pool under it.
 const CF_STEM_W = 0.14;                   // metres: the stem's diameter, a conduit, not a cable
+const CF_CANOPY_R = 0.20;                 // metres: the MOUNT a hanging stem is bolted to, at the slab.
+                                          // Half a fitting's housing, dark, and the only thing the slab
+                                          // carries where the lens hangs below it (#456 review). Read
+                                          // with the stem's own colour so the two read as one object.
+const CF_CANOPY_A = 0.85;                 // coverage at the mount's centre, falling to 0 at its edge,
+                                          // so a canopy is a soft dark disc and never a hard square
 let CF_R = 0, CF_G = 0, CF_B = 0, CF_A = 0, CF_PANES = null;
 
 /* #413 part 3: the fittings that HANG, drawn on their own plane.
@@ -2023,11 +2029,27 @@ function drawCeilPanes(flash, fcR, fcG, fcB) {
   }
 }
 
-function ceilFixAt(wx, wy) {
+function ceilFixAt(wx, wy, hang) {
   CF_A = 0;
   const t = CFIX.STRIP, uv = t.w / CF_PLATE;
-  const u = (wx - Math.floor(wx) - 0.5) * uv + t.w * 0.5;
-  const v = (wy - Math.floor(wy) - 0.5) * uv + t.h * 0.5;
+  const ox = wx - Math.floor(wx) - 0.5, oy = wy - Math.floor(wy) - 0.5;
+  /* #456 review: a fitting that HANGS has its lens drawn lower down, by drawCeilPendants, on the panel
+     plane. Painting the diffuser on the slab as well made one fitting two bright rectangles joined by a
+     stem - visible in every tall room, which is the only case this branch arms. So on a hanging cell
+     (MAP.ceilFix byte 2) this pass draws the MOUNT the stem bolts to and no lens: a dark disc of radius
+     CF_CANOPY_R on the slab, in the stem's own colour, soft-edged so it is a fitting and not a square.
+     It keeps the albedo-and-nothing-more rule - the caller still multiplies by this column's light, so a
+     canopy in a dark room is dark - and it costs no texture read. In a LOW room (byte 1) nothing here
+     changes: the flush plate is byte for byte the picture main draws. */
+  if (hang) {
+    const r2 = (ox * ox + oy * oy) / (CF_CANOPY_R * CF_CANOPY_R);
+    if (r2 >= 1) return 0;
+    CF_R = 70; CF_G = 66; CF_B = 60;                 // the stem's own colour: one object, not two
+    CF_A = CF_CANOPY_A * (1 - r2);
+    return 1;
+  }
+  const u = ox * uv + t.w * 0.5;
+  const v = oy * uv + t.h * 0.5;
   if (u < 0 || v < 0 || u >= t.w || v >= t.h) return 0;
   const s = t.data[((v | 0) * t.w + (u | 0)) >>> 0];
   const a = (s >>> 24) / 255;

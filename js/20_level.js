@@ -1473,12 +1473,17 @@ function placeCeilFixtures(cfgL, seatX, seatY) {
        and the fitting is on screen the moment you walk in, and in a 6 m vault it is 9 m, which is why
        ABATOIR CORE's POOL row reads n/a while the other three levels answer it. A tall room therefore
        gets the lens let down on its own stem to CFIX_TRAY_H above the deck (js/40_render.js
-       drawCeilPendants draws that rod and panel from MAP.ceilPanes, and the slab plate is suppressed so
-       one fitting is not two bright rectangles), and a low room keeps the flush plate, byte for byte
-       what it was. */
+       drawCeilPendants draws that rod and panel from MAP.ceilPanes), and a low room keeps the flush
+       plate, byte for byte what it was.
+       The ceiling byte says WHICH of the two the cell has, because the flush draw sites read it:
+       1 = the full plate (housing AND lit diffuser) on the slab, 2 = the CANOPY ONLY. A hanging
+       fitting's lens is drawn by the pendant pass on the panel plane, so painting the diffuser on the
+       slab as well would be one fitting as two bright rectangles joined by a stem - the #456 review
+       found exactly that on every tall-room frame. Byte 2 keeps the mount the stem bolts to and drops
+       the lens; byte 1 is the picture a low room has always drawn. */
     const pz = fl + Math.min(cz - fl - CFIX_HANG, CFIX_TRAY_H);
     const hungDown = cz - pz >= CFIX_DROP_MIN;
-    MAP.ceilFix[ci] = 1;                                  // the canopy on the slab, every fitting: one
+    MAP.ceilFix[ci] = hungDown ? 2 : 1;        // 1 = plate on the slab, 2 = canopy only (lens hangs)
     if (hungDown) MAP.ceilPanes.push({ x: x, y: y, z: pz, gx: gx, gy: gy, top: cz, cell: ci });
     LIGHTS.push({ x: x, y: y, z: pz, band: fl, r: 5.4, str: 0.55, col: cfgL.lampCol, stat: 1, ceil: 1 });
     return true;
