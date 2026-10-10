@@ -86,6 +86,12 @@ const LEVELS = [
     name: 'THE STACK', size: 20, authored: true, wall: WT.SLAB, wall2: WT.TECH,
     floor: 'STONE', ceil: 'ROCK', amb: 0.2, lampCol: [255, 196, 120], fogCol: [17, 13, 10],
     floorBias: 0.18, ceilBias: -0.04, ceilLead: 0.12,
+    // #385: the absolute half of the step crease, in luma (js/40_render.js SEAMA). This level authors
+    // `lamps: 0`, so its decks are the darkest in the game and a MULTIPLY-only crease is 6 luma deep on
+    // the pit lip against 13 on a lit one - the same edge, half the legibility. It is authored HERE and
+    // nowhere else: the three generated levels keep 0, so their recorded frames do not move at all, and
+    // this level's own lit walk lip (deck 77) is past the term's fade and stays byte-identical too.
+    stepEdge: 10,
     lamps: 0, crates: 0, barrels: 0, spawn: { grunt: 0, hound: 0, brute: 0 }, pick: {},
     fixtures: ['PIPE', 'STRIPE', 'VENT'], // #400: three rooms, three kinds - the finale should look BUILT
     purpose: ['RACK', 'TANK', 'BOARD']    // #400: three rooms, three PURPOSES - one thing per room that
@@ -1218,7 +1224,17 @@ function decalGridInit() {
    FIXTURE_SPAN is (centre, height) as FRACTIONS OF THE FACE, per kind: a door frame fills the mouth,
    a pipe runs and a hazard band sit at eye height, a vent sits high. Expressed as fractions because
    the same generator writes 1 m flat rooms and 3 m vaults. */
-const FIX_RUN_MIN = 6;                     // metres of straight wall worth a fixture (#400)
+/* 3 metres, not 6 (#400 take four). 6 m is a CORRIDOR sight line and a generated sector has about four
+   face-lines per level that clear it, so the rule was satisfied while every frame was still bare: the
+   face a player actually stands in front of is three to five metres of wall across a room, just under
+   the old bar. The wall that qualifies is now the one you are looking at, not only the one you look
+   down. Door pass unchanged - placing on every neck tiled both walls of every corridor (#403 review). */
+const FIX_RUN_MIN = 3;
+/* FIX_REPEAT is the SPACING down a qualifying face line, in metres (#400 take four). FIX_RUN_MIN says a
+   run is a sight line worth decorating; this says how often. One per run leaves a 24 m face with one
+   object at its start, which is the frame-edge pillar the issue reports. 6 m is roughly one fixture per
+   field of view at standing distance, and it is the number the old bar already implied. */
+const FIX_REPEAT = 6;
 const FIX_SPAN = { DOOR: [0.50, 0.94], PIPE: [0.66, 0.30], STRIPE: [0.56, 0.20], VENT: [0.72, 0.26],
   RACK: [0.46, 0.62], TANK: [0.46, 0.72], BOARD: [0.82, 0.14] };
 /* FIX_DEP is how far each kind STANDS OFF the face, in metres (#400 take two). A rectangle painted on
@@ -1315,32 +1331,63 @@ function placeWallFixtures(cfgL) {
        two or three rooms carried a purpose fixture at all. The walk now continues around the room's
        own faces until one takes; the starting face is the same deal-deterministic pick, so no roll,
        light or prop moves and the long-run pass still sees the same first-choice faces occupied. */
+    /* A ROOM YOU CAN SEE INTO IS NEVER A BLANK SHEET (#400 take four): `faces` lists every open cell's
+       wall-facing side, so its length is the room's usable perimeter. A room with more than six of them
+       is a room whose far face is in view from the doorway, and one fixture on one face leaves the other
+       five uninterrupted - which is exactly the frame the issue complains about. So such a room gets a
+       SECOND, from the same walk and the same kind cycle. The FIRST placement is untouched (same start
+       face, same walk order, same kind index), so a room that qualifies for one mounts byte-identically
+       to before and pass 3 still sees the first-choice face occupied. */
     const pk = purposes.length ? purposes : kinds;
     const start = (ri * 7 + 3) % faces.length;
-    for (let k = 0; k < faces.length; k++) {
+    const need = faces.length > 6 ? 2 : 1;
+    for (let k = 0, got = 0; k < faces.length && got < need; k++) {
       const f = faces[(start + k) % faces.length];
-      if (mount(pk[(ri + k) % pk.length], f[0], f[1], f[2])) break;
+      if (mount(pk[(ri + k) % pk.length], f[0], f[1], f[2])) got++;
     }
   }
   /* 3. ONE ALONG EVERY LONG RUN: a straight wall you can see down for more than six metres is the
-     sight line the issue names, and it is today one unbroken repeat across the whole frame. Walk each
-     face line, and drop one fixture wherever a run that long ends. */
+     sight line the issue names, and it is today one unbroken repeat across the whole frame.
+     WHAT THIS PASS ACTUALLY DID BEFORE, MEASURED (#400 take four): a face line is a maximal stretch of
+     air cells with solid on one side, and on a generated level those stretches do NOT stop at a room
+     corner - a corridor leaving the room keeps the same side solid, so the run CONTINUES. The run-length
+     histogram of L0's 4 x 24 face lines is {0: 2276, 1: 12, 24: 4}: every interior run is 0 or 1 cells
+     and the only long ones are the four lines that run the whole 24-cell map edge to edge. So "drop one
+     fixture wherever a run that long ends" placed FOUR objects per level, at the FIRST cell of a
+     map-length run - i.e. at the far edge of the map, which is exactly why the owner's seven seats read
+     "a fixture on a pillar at the edge of the frame" and nothing in the middle, and why lowering
+     FIX_RUN_MIN from 6 m to 3 m moved the qualifying-run count not at all on L0-L2 (4, 4, 4, unchanged:
+     there are no 3-5 m runs to gain). The bar was never the binding constraint; the SPACING was.
+     So: walk the run and mount every FIX_REPEAT metres of it, starting once the run qualifies. A run of
+     24 now carries four rather than one, and they are spread down the face the player is standing in
+     front of instead of parked at the map edge. Doors and room fixtures still win the face: `used` is
+     consulted per face and a mount that finds the face owned places nothing and does not consume the
+     slot, so a run passing a doorway still gets its next one further along. No RNG is read anywhere in
+     this pass, so the placement stays deal-deterministic and no roll, prop or light moves. */
   for (let d = 0; d < 4 && placed < 112; d++) {
     const face = DIRX[d] !== 0 ? 0 : 1;
     for (let a = 1; a < N - 1; a++) {
-      let run = 0, at = null;
+      let run = 0, at = null, since = 0;
       for (let b = 1; b < N - 1; b++) {
         const ax = face === 0 ? a : b, ay = face === 0 ? b : a;
         const wx = ax + DIRX[d], wy = ay + DIRY[d];
-        const ok = isOpen(ax, ay) && isWall(wx, wy) && !used[(wy * N + wx) * 4 + d];
+        const ok = isOpen(ax, ay) && isWall(wx, wy);
         if (!ok) {
-          if (run >= FIX_RUN_MIN && at) mount(kinds[(a + d) % kinds.length], at[0], at[1], d);
-          run = 0; at = null; continue;
+          if (run >= FIX_RUN_MIN && at && !used[(at[1] * N + at[0]) * 4 + d])
+            mount(kinds[(a + d) % kinds.length], at[0], at[1], d);
+          run = 0; at = null; since = 0; continue;
         }
         if (!run) at = [ax, ay];
-        run++;
+        run++; since++;
+        /* one every FIX_REPEAT metres once the run is long enough to be a sight line at all. The
+           spacing advances only when the mount PLACED something (#400 review): a face already owned by
+           a doorway or a room fixture does not cost the slot, so a run that passes a door still gets
+           its next fixture six metres on rather than six metres past the door. */
+        if (run >= FIX_RUN_MIN && since >= FIX_REPEAT && mount(kinds[(a + d) % kinds.length], ax, ay, d))
+          since = 0;
       }
-      if (run >= FIX_RUN_MIN && at) mount(kinds[(a + d) % kinds.length], at[0], at[1], d);
+      if (run >= FIX_RUN_MIN && at && !used[(at[1] * N + at[0]) * 4 + d])
+        mount(kinds[(a + d) % kinds.length], at[0], at[1], d);
     }
   }
   MAP.fixCount = placed;                            // read by view.js fixtures
@@ -1588,6 +1635,7 @@ function buildAuthored(li) {
     lB: new Float32Array(N * N).fill(0.6), lw: new Float32Array(N * N),
     lt: new Uint8Array(N * N * 3).fill(128), amb: cfgL.amb, tintDirty: false,
     floorBias: cfgL.floorBias || 0, ceilBias: cfgL.ceilBias || 0, ceilLead: cfgL.ceilLead,
+    stepEdge: cfgL.stepEdge || 0,                    // #385: the authored absolute crease, 0 unless the level authors one
     floorTex: FLOORS[cfgL.floor], ceilTex: CEILS[cfgL.ceil],
     fz, cz, vb: new Uint16Array(N * N), feat, ceilPlane: new Float64Array(N * N)
   };
@@ -1806,6 +1854,7 @@ function genLevel(li) {
       lR: new Float32Array(N * N), lG: new Float32Array(N * N), lB: new Float32Array(N * N), lw: new Float32Array(N * N),
       lt: new Uint8Array(N * N * 3), amb: cfgL.amb === undefined ? 0.13 : cfgL.amb, tintDirty: true,
       floorBias: cfgL.floorBias || 0, ceilBias: cfgL.ceilBias || 0, ceilLead: cfgL.ceilLead,
+      stepEdge: cfgL.stepEdge || 0,                  // #385: as above; the generator authors none
       floorTex: FLOORS[cfgL.floor] || FLOORS.CONCRETE, ceilTex: CEILS[cfgL.ceil] || CEILS.CONCRETE,
       floorTile: 1.15, ceilTile: 0.9,
       fz: fzTry, cz: czTry,
