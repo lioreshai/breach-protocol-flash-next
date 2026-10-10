@@ -274,6 +274,11 @@
        in BOTH copies - the mesh triangle shading and the billboard. One register, two read sites, so it
        cannot half-apply. */
     if (name === 'bodydist') { BODYDIST = value === undefined ? 1 : (value ? 1 : 0); return { bodydist: BODYDIST }; }
+    /* #377: the highlight shoulder on the room's exposure term. 1 (shipped) = the delivered range ENDS
+       at EXPOSE_TOP, so a lamp-lit deck keeps a gradient instead of clipping to white; 0 = the term is
+       the black-point lift alone, which is what the > luma 224 rows were measured against before. Both
+       halves of the term still run; only the `darken` fold is skipped. */
+    if (name === 'shoulder') { SHOULDER = value === undefined ? 1 : (value ? 1 : 0); return { shoulder: SHOULDER, top: EXPOSE_TOP }; }
     if (name === 'gfx') {
       const i = typeof value === 'string' ? QUAL.findIndex(q => q.name.toLowerCase() === String(value).toLowerCase()) : clamp(value | 0, 0, QUAL.length - 1);
       if (i < 0) throw new Error('DEV.set("gfx", …) wants 0..' + (QUAL.length - 1) + ' or ' + QUAL.map(q => q.name).join('|'));

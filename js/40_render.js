@@ -162,6 +162,27 @@ const VM = { vy: 0, ang: 0, lag: 0, now: 0, t: 0 };
    DEV.set('expose', 0) is the A/B: the term off, everything else identical. */
 const EXPOSE_A = 22;             // the black point: added luma at v = 0, and 0 at v = EXPOSE_T
 const EXPOSE_T = 200;            // the shoulder: at or above this luma the term is the identity
+/* EXPOSE_TOP is where the term ENDS the delivered range, and it is the same luma as BLOOM_CLIP - the
+   clipping line #377 counts, the value above which the frame carries white instead of a level. The two
+   are written separately because `const` at file scope cannot forward-reference BLOOM_CLIP (it is declared
+   2,200 lines further down, below the raster passes that do not need it); if one moves, move the other.
+
+   WHY THE ROOM NEEDS A TOP AT ALL. The two previous #377 increments bounded the two POST terms - the
+   bright pass got a threshold and a headroom slope, this term got a shoulder under the line - and
+   THE STACK still delivers 1.85 % of one lamp-seat frame above 224 with the bloom pass switched off
+   (2.07 % at ULTRA), because that light is in the ROOM: a lamp pool on a pale deck has nothing above
+   EXPOSE_T stopping it, and neither `lighter` nor the grade clamps. The frame is not over-bright,
+   it is over the showable range: every one of those pixels is white, and white is why the slab face
+   and the floor pool read as one flat sheet. A top on this term folds the 200-255 range into
+   200-EXPOSE_TOP, which puts the gradient back in the band the gate counts.
+
+   It is the exact mirror of the lift: the lift is `lighten` (a per-channel MAX) against a line that
+   runs ABOVE v below EXPOSE_T, and this is `darken` (a per-channel MIN) against a line that runs
+   BELOW v above EXPOSE_T. Both lines cross v at the same luma, so the delivered curve is one
+   continuous piece with one pivot: shadows lifted, highlights folded, nothing at all changed within
+   a luma of EXPOSE_T. `DEV.set('shoulder', 0)` is the A/B. */
+const EXPOSE_TOP = 224;
+let SHOULDER = 1;
 const QUAL = [
   { name: 'PERFORMANCE', res: 0.34, min: 170, max: 430, bloom: false, grade: false, grain: 0, far: 15, dmax: 8, glow: 0, scan: 0.5, vec: 0, rast: 0, rigH: 0, expose: EXPOSE_A },
   { name: 'BALANCED', res: 0.47, min: 220, max: 760, bloom: true, grade: true, grain: 0.05, far: 22, dmax: 13, glow: 6, scan: 0.18, vec: 1, rast: 2, rigH: 300, expose: EXPOSE_A },
@@ -2502,7 +2523,33 @@ function drawExposure(A) {
   liftCtx.fillRect(0, 0, BW, BH);
   ctx.globalCompositeOperation = 'lighten';
   ctx.drawImage(liftCv, 0, 0, BW, BH, 0, 0, DW, DH);
-  ctx.globalCompositeOperation = 'source-over';
+  /* The highlight shoulder, on the same buffer and by the same trick (see EXPOSE_TOP). `darken` is a
+     per-channel MIN, so what the player gets is v' = min(v, v*G/255 + C): the pixel itself below the
+     pivot and the folded line above it. G is the slope from (EXPOSE_T, EXPOSE_T) to (255, EXPOSE_TOP)
+     and C is whatever puts the line back through the pivot at that slope, so BOTH ends are exact to
+     within one luma and the fold is derived from the two lumas, not tuned: 200 -> 200, 255 -> 224.
+     A channel already at or under the pivot is untouched by construction, so a saturated lamp tint
+     loses only the channel that was clipping - which is a roll-off, not a desaturate.
+     Everything drawn after this - the bright pass reads bufCv and not this canvas, the lamp discs,
+     the particles, the HUD - is untouched, which is why the recorded lamp and muzzle peaks do not
+     move. A pixel at 224 receives min(224, 224) = 224 exactly, so this term cannot create a clipped
+     pixel either; it can only ever remove one. */
+  if (SHOULDER) {
+    const G = Math.round(255 * (EXPOSE_TOP - EXPOSE_T) / (255 - EXPOSE_T));
+    const C = Math.round(EXPOSE_T * (255 - G) / 255);
+    liftCtx.setTransform(1, 0, 0, 1, 0, 0);
+    liftCtx.globalCompositeOperation = 'source-over';
+    liftCtx.drawImage(bufCv, 0, 0, BW, BH);
+    liftCtx.globalCompositeOperation = 'multiply';
+    liftCtx.fillStyle = 'rgb(' + G + ',' + G + ',' + G + ')';
+    liftCtx.fillRect(0, 0, BW, BH);
+    liftCtx.globalCompositeOperation = 'lighter';
+    liftCtx.fillStyle = 'rgb(' + C + ',' + C + ',' + C + ')';
+    liftCtx.fillRect(0, 0, BW, BH);
+    ctx.globalCompositeOperation = 'darken';
+    ctx.drawImage(liftCv, 0, 0, BW, BH, 0, 0, DW, DH);
+    ctx.globalCompositeOperation = 'source-over';
+  }
 }
 
 /* ---- the glow's band gate (#221) ---------------------------------
