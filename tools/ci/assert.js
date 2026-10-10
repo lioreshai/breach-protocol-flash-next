@@ -674,6 +674,7 @@ const SPREAD_MAX = +(process.env.SPREAD_MAX || 1.10);
    clipped-band rows. TIER= names the tier by QUAL name (or index) and the run prints which one it
    measured; the same seats, the same dice, the same rows. Not a threshold: an extra config. */
 const TIER = process.env.TIER || '';
+const TIERNAME = TIER ? String(TIER) : 'auto';
 /* #377 item 3: the 2 % ceiling is a statement about THIS PASS, and since #413 put a fitting over every
    room a seat can sit near the line on content alone. PASS_MAX bounds the pass's OWN contribution to the
    clipped band in percentage points, so a red absolute row says which of the two it is measuring.
@@ -734,6 +735,52 @@ const BLOOM_PROBE = `(function (lv, stride, hi, hold) {
      the renderer never reads, and the row says so. */
   let phaseAfter = -1;
   function frame() { try { grainSeed = 6; DEV.tick(1); phaseAfter = grainSeed; } catch (e) { phaseAfter = -1; } }
+  /* #377's fold A/B. Everything measured through ab() toggles the BRIGHT PASS; the term that bounds the
+     ROOM's own highlights is the highlight shoulder on the exposure term (js/40_render.js EXPOSE_TOP),
+     and DEV.set('shoulder', 0|1) is its documented A/B. Until now the gate only ARGUED that term: the
+     absolute rows are measured with it ON, because that is what ships, so a fold that silently stopped
+     folding would leave every existing row green. fab() is the A/B that can see it. */
+  function fab() {
+    DEV.set('shoulder', 1); frame(); const on = measure();
+    DEV.set('shoulder', 0); frame(); const off = measure();
+    DEV.set('shoulder', 1);
+    return { on: on, off: off };
+  }
+  /* #377 item 4's other half: "and on the no-ctx.filter path". Chromium has ctx.filter, so the
+     canFilter === false branch had never been measured on ANY browser this harness can start. There is
+     no need to find such a browser: canFilter is the renderer's own record of
+     typeof bloomCtx.filter === "string" (js/40_render.js:226) and it is read once per frame, at the
+     one place a filter is still applied - the grade composite (js/40_render.js:2765). Writing it false
+     from here puts that frame on the same code path a browser without the property takes: the bright
+     pass is putImageData + drawImage and the exposure term is two flat fills, so neither changes.
+     The write is read back twice - once with false written, once after restoring - because a write to a
+     binding the renderer does not read would otherwise report a path that was never taken (the same
+     discipline as the grain pin above). */
+  let nofRead = -1, nofBack = -1;
+  function nfab() {
+    const was = canFilter;
+    canFilter = false; nofRead = canFilter ? 1 : 0;
+    frame(); const nf = measure();
+    const a = ctx.getImageData(0, 0, cv.width, cv.height).data;
+    canFilter = was; nofBack = canFilter ? 1 : 0;
+    frame(); const f = measure();
+    const b = ctx.getImageData(0, 0, cv.width, cv.height).data;
+    /* The share of sampled pixels that differ AT ALL, not the mean difference. contrast(1.06) is a
+       rotation about mid grey, so it moves most pixels by one luma and the MEAN barely shifts (0.08 at
+       the worst seat) - a mean threshold sits 0.06 above the noise a sabotaged run makes (a build that
+       ignores canFilter read 0.02, because the two frames still differ by whatever moves between two
+       ticks). Counting pixels that differ separates the two builds by two orders of magnitude instead
+       of 6/100 of a luma. */
+    let nd = 0, n2 = 0;
+    for (let y = 0; y < cv.height; y += stride) {
+      for (let x = 0; x < cv.width; x += stride) {
+        const i = ((y * cv.width) + x) << 2; n2++;
+        if (a[i] !== b[i] || a[i + 1] !== b[i + 1] || a[i + 2] !== b[i + 2]) nd++;
+      }
+    }
+    nf.diffPct = n2 ? +(100 * nd / n2).toFixed(2) : 0;
+    return { nf: nf, f: f };
+  }
   function ab() {
     DEV.set('bloom', 1); frame(); const on = measure();
     DEV.set('bloom', 0); frame(); const off = measure();
@@ -742,6 +789,8 @@ const BLOOM_PROBE = `(function (lv, stride, hi, hold) {
   }
   DEV.tick(1);
   const spawn = ab();
+  spawn.fold = fab();
+  const nof = nfab();
   // A lamp, dead ahead at 3 m: the glow has to survive on the disc itself, not on the room around it.
   let lamp = null, bd = Infinity;
   for (const L of LIGHTS) {
@@ -757,6 +806,7 @@ const BLOOM_PROBE = `(function (lv, stride, hi, hold) {
     lampPose = [+P.x.toFixed(3), +P.y.toFixed(3), +P.ang.toFixed(5)];
     DEV.tick(2);
     at = ab();
+    at.fold = fab();
     // the same seat with the muzzle flash up: S.muzzle is the flash sprite, S.flash its level, and
     // with update() frozen neither decays, so this is one deterministic flash frame.
     S.muzzle = 1; S.flash = 0.45; frame();
@@ -769,6 +819,7 @@ const BLOOM_PROBE = `(function (lv, stride, hi, hold) {
   S.muzzle = 0; S.flash = 0;
   if (!hold) DEV.freeze(false);
   return { name: LEVELS[lv].name, spawn: spawn, lamp: at, lampPose: lampPose, phaseAfter: phaseAfter,
+           nofilter: nof, nofRead: nofRead, nofBack: nofBack,
            lampSeen: lamp ? [+(lamp.x).toFixed(2), +(lamp.y).toFixed(2)] : null };
 })(%LV%, %STRIDE%, %HI%, %HOLD%)`;
 
@@ -821,8 +872,8 @@ async function mainBloom() {
     console.log('  lamp glow and the HUD are identical in both samples and the delta is this pass alone.');
     console.log('  ceiling on pixels above luma ' + HI + ' is ' + HI_MAX + ' % of the frame; exposure ceiling ' + MAX + '.');
     if (!env[8]) throw new Error('the tier under test has bloom OFF - this run would measure nothing');
-    const bad = [];
-    let rows = 0, maxAdd = 0, pinned = true, phaseSeen = 0, knownN = 0;
+    let bad = [];
+    let rows = 0, maxAdd = 0, pinned = true, phaseSeen = 0, knownN = 0, maxFold = 0, nofOk = true, nofReadSeen = -1, nofBackSeen = -1, maxNofDiff = 0;
     const row = (label, ok, detail, debt) => {
       rows++;
       const known = !ok && debt === true && !STRICT;
@@ -869,6 +920,32 @@ async function mainBloom() {
       row('L' + lv + ' spawn frame not above the ' + MIN + '-' + MAX + ' ceiling', s.on.mean <= MAX,
         'mean ' + s.on.mean.toFixed(1) + ' (off ' + s.off.mean.toFixed(1) + ', the pass adds '
         + (s.on.mean - s.off.mean).toFixed(1) + ')');
+      /* The fold's own A/B (see fab()). This row is about the ROOM, not the pass: `darken` is a
+         per-channel MIN, so folding can only ever REMOVE a pixel above the line, never put one there -
+         that direction is structural, and it is what the row asserts. How much it removes is printed,
+         and the global row below fails if it removes nothing anywhere. */
+      const fd = s.fold;
+      if (fd.off.hiPct - fd.on.hiPct > maxFold) maxFold = fd.off.hiPct - fd.on.hiPct;
+      row('L' + lv + ' the highlight fold adds no pixel above ' + HI + ' at spawn',
+        fd.on.hiPct <= fd.off.hiPct && fd.on.peak <= fd.off.peak,
+        'fold on ' + fd.on.hiPct.toFixed(2) + '% / peak ' + fd.on.peak.toFixed(0) + ' against off '
+        + fd.off.hiPct.toFixed(2) + '% / peak ' + fd.off.peak.toFixed(0) + ' - it removes '
+        + (fd.off.hiPct - fd.on.hiPct).toFixed(2) + ' pt of the clipped band here; a MIN cannot add one,'
+        + ' so a positive delta means the term is no longer the fold it documents itself as');
+      /* #377 item 4: the same two acceptance numbers on the path a browser with no ctx.filter takes.
+         The grade's filter is the only filter left in the pipeline, so this is the whole difference
+         between the two paths - the bright pass and the exposure term are filter-free by design. */
+      const nf = v.nofilter.nf;
+      let ndiff0 = 0;
+      if (v.nofRead !== 0 || v.nofBack !== 1) { nofOk = false; nofReadSeen = v.nofRead; nofBackSeen = v.nofBack; }
+      const ndiff = Math.max(ndiff0, nf.diffPct);
+      if (ndiff > maxNofDiff) maxNofDiff = ndiff;
+      row('L' + lv + ' no-ctx.filter frame is inside both bounds at spawn',
+        nf.hiPct <= HI_MAX && nf.mean <= MAX,
+        '> ' + HI + ' ' + nf.hiPct.toFixed(2) + '% and mean ' + nf.mean.toFixed(1)
+        + ' with the grade filter off, against ' + s.on.hiPct.toFixed(2) + '% / ' + s.on.mean.toFixed(1)
+        + ' with it on (the grade itself is ' + (nf.mean - v.nofilter.f.mean).toFixed(1)
+        + ' luma of that difference; this issue owns the two numbers before it, not the grade)');
       row('L' + lv + ' the pass only ADDS at a lamp, never darkens',
         lp ? lp.on.mean >= lp.off.mean && lp.on.peak >= lp.off.peak : false,
         lp ? 'frame ' + (lp.on.mean - lp.off.mean).toFixed(2) + ', peak ' + (lp.on.peak - lp.off.peak).toFixed(1)
@@ -894,6 +971,18 @@ async function mainBloom() {
         const ratio = lp.on.spread / lp.off.spread;
         row('L' + lv + ' pass does not rewrite the palette', ratio <= SPREAD_MAX,
           'channel spread ' + lp.on.spread.toFixed(1) + ' on against ' + lp.off.spread.toFixed(1) + ' off (x' + ratio.toFixed(2) + ')');
+        /* #377 item 1 and item 3's remaining half: THE STACK's near lamp pool is the seat the issue was
+           filed on, and at ULTRA it is the brightest frame the gate can put a camera in (glow 9 against
+           BALANCED's 6, and #413's fitting hangs over it). The absolute row above says where that seat
+           lands; this says what HOLDS it there, on the tier the acceptance asks about. */
+        const lfd = lp.fold;
+        if (lfd.off.hiPct - lfd.on.hiPct > maxFold) maxFold = lfd.off.hiPct - lfd.on.hiPct;
+        row('L' + lv + ' the fold holds ' + HI + ' at the lamp (' + TIERNAME + ')',
+          lfd.on.hiPct <= lfd.off.hiPct && lfd.on.hiPct <= HI_MAX,
+          'fold on ' + lfd.on.hiPct.toFixed(2) + '% against off ' + lfd.off.hiPct.toFixed(2)
+          + '% - with the highlights unfolded this seat delivers ' + lfd.off.hiPct.toFixed(2)
+          + '% of the frame white on the tier the acceptance names, against the ' + lfd.on.hiPct.toFixed(2)
+          + '% it ships; ' + (lfd.off.hiPct - lfd.on.hiPct).toFixed(2) + ' pt of that is this term');
         console.log('    lamp disc ' + line(lp) + '  flash ' + lp.flash.on.peak.toFixed(0) + '/' + lp.flash.off.peak.toFixed(0));
       }
     }
@@ -906,6 +995,30 @@ async function mainBloom() {
     row('the pass is not dead somewhere', maxAdd > 0.5,
       'largest energy it adds in any seat measured here: +' + maxAdd.toFixed(2)
       + ' mean (the shipped pass put +3.9 to +16.8 at these same seats; a pass switched off reads +0.00)');
+    /* A fold that had silently stopped folding would leave every absolute row above green, because those
+       rows are measured with the shipped (folded) build on BOTH sides of their own A/B. */
+    row('the highlight fold is not dead somewhere', maxFold > 0,
+      'largest clipped band it removes at any spawn seat measured here: ' + maxFold.toFixed(2)
+      + ' pt of the frame (a fold that had stopped folding reads 0.00 at every seat while every'
+      + ' absolute row above still prints ok)');
+    /* Vacuity, the AGENTS.md kind: a row that measures one branch twice also "holds". The read-back above
+       proves the write landed on the right binding; this proves the branch it landed on is the one that
+       changes a pixel - the grade's filter is the ONLY filter left, so if turning it off moves the frame
+       by nothing, either the filter is gone from the pipeline or the flag is read nowhere that matters. */
+    row('the no-ctx.filter frame differs from the filtered one', maxNofDiff > 1,
+      'largest share of sampled pixels that differ between the two paths at any spawn seat: '
+      + maxNofDiff.toFixed(2) + '% - a build that reads the flag but changes nothing, or one that ignores'
+      + ' it, makes both frames nearly the same frame measured twice (a sabotage that dropped the'
+      + ' canFilter test from the grade composite reads 0.33% here against the 9.5% this path really'
+      + ' makes, which is the margin the 1% floor sits in), and the bound row above would then be'
+      + ' evidence about nothing');
+    row('the no-ctx.filter path is the one the renderer took', nofOk,
+      nofOk ? 'canFilter read false with the write in place and true after restoring it, so the row'
+              + ' above measured the branch a browser without ctx.filter takes and not a write that'
+              + ' landed on nothing'
+            : 'canFilter read ' + nofReadSeen + ' after writing false and ' + nofBackSeen
+              + ' after restoring - the write is not reaching the binding renderOverlay reads, so the'
+              + ' no-ctx.filter rows above measured nothing');
     if (bad.length) {
       console.log('BLOOM GATE FAIL: ' + bad.length + ' of ' + rows + ' rows outside their bound');
       bad.forEach(b => console.log('  ' + b));
@@ -919,7 +1032,8 @@ async function mainBloom() {
       + PASS_MAX + ' pt bound' + (STRICT ? '' : ' (STRICT=1 gates them)') : '')
       + ' - no level delivers above ' + HI_MAX + '% of pixels over ' + HI
       + ', no spawn frame above the ' + MAX + ' ceiling, lamp and flash peaks within ' + (PEAK_TOL * 100).toFixed(0)
-      + '% of shipped, and the pass still adds energy where it should');
+      + '% of shipped, the fold removes clipped pixels somewhere and removes none anywhere, and the pass'
+      + ' still adds energy where it should, on the ctx.filter path and the one without it');
     return 0;
   } catch (e) {
     console.log('BLOOM GATE: NOT MEASURED - ' + (e && e.message ? e.message : e));

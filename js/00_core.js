@@ -61,6 +61,30 @@ var BODYDIST = 1;
    (js/40_render.js:2291) - which is worth stating out loud next to AGENTS.md's two-copies rule. */
 var BODYSHADE = 1;
 
+/* #407 half three: BODYPAINT arms WHAT albedo a body or prop wears, so the distance rows can split
+   their own residual into PAINT and SHADING instead of calling it "material".
+   After #415 took the second distance falloff out and BODYSHADE priced the shape ramp's second job, the
+   8 m / 16 m rows still sit 20-43 luma under the surface directly behind them at seats whose body cell
+   and background cell carry the SAME lamp field - so neither #199's coverage nor the falloff reaches
+   them, and the rows have been printing that remainder as one undivided number. It has two candidates:
+   the body's PAINT (its texel albedo against the albedo of the wall it stands in front of) and its
+   SHADING (every light term the mesh applies to that albedo). Only one render can separate them: give
+   the body the background's own delivered colour AS its albedo and render the same coverage pixels.
+   Whatever gap survives equal paint is arithmetic the light path owes, and whatever the equalisation
+   buys was paint. The two parts add back to the row's own gap exactly.
+   1 (shipped) = the mesh takes the texel from its own palette. That is main, byte for byte; this
+       register moves no pixel until a row asks.
+   0 = the mesh takes BPAINT_RGB instead of its texel for every non-emissive, non-view-model pixel,
+       keeping every light term - field, ramp, haze, tint, ambient, dim - exactly as shipped.
+   ONE read site, js/13_mesh.js's triangle loop, and it excludes the view model (`MDL`) for the same
+   reason BODYSHADE does: #376 owns the gun. There is no billboard copy - the distance rows measure an
+   ENEMY, and enemies are `mesh: true` (js/40_render.js:412), so drawBillboard's texture fetch is not on
+   the path these rows read. If a later row puts a PROP's billboard on the bar, that fetch is the second
+   copy AGENTS.md's two-copies rule would then be about. */
+var BODYPAINT = 1;
+// the packed 0xRRGGBB albedo BODYPAINT=0 wears; read ONLY while the arm is down, so its value is inert
+var BPAINT_RGB = 0xffffff;
+
 /* ---------------- config ---------------- */
 let FOGC = [9, 12, 20];   // per level: air has a colour
 const LVL = 32;                       // light/fog buckets
