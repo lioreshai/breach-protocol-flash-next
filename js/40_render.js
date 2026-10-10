@@ -2374,6 +2374,29 @@ const BLOOM_KNEE = 140;        // luma (0-255) where the pass starts: below this
 const BLOOM_CURVE = 128;       // highlight = d*d / this, so it eases in and only a real core gets much
 const BLOOM_CAP = 18;          // and never more than this, so the pass cannot run away on a bright room
 const BLOOM_MIX = 0.55;        // composited alpha: added luma per pixel <= BLOOM_MIX * BLOOM_CAP = 9.9
+/* BLOOM_HEAD is the pass's other bound, and the one the cap alone could not give (#377's last row).
+   The curve above PLATEAUS: `add` reaches BLOOM_CAP at luma 188 and stays there, so a lamp-lit wall at
+   200 and a lamp core at 250 receive the identical +9.9. The wall is the problem: a delivered pixel at
+   the top of the range cannot show any more light - it is already at 255 - so energy put there is not
+   light, it is FLATTENING, and it is how a bright room in THE STACK still arrived with 2.19 % of its
+   frame above luma 224 against the gate's 2 % (bloom off that same seat measures 1.29 %: the rest is
+   the lamp's own core, which the glow rows exist to protect).
+   So the added energy is also bounded by the pixel's own distance to white: at most BLOOM_HEAD luma per
+   unit of headroom. A pixel just above the knee gets the most (it has room to show), a saturated pixel
+   gets exactly zero (it can show nothing), and the energy falls off in between - the highlight rolloff
+   every filmic curve has, on the source side instead of the destination side. The cap and the knee stay
+   as they were, so a stud or a flash just above the knee keeps its energy; what the term takes away is
+   the plateau, which lands on pixels that were already white.
+
+   THE SLOPE IS DERIVED, NOT TUNED. The ease-in reaches BLOOM_CAP at luma KNEE + sqrt(CAP * CURVE) = 188.
+   Setting BLOOM_HEAD = CAP / (255 - 188) makes the headroom line cross the cap EXACTLY there, so the pass
+   has no flat region at all: energy climbs the curve to the cap and then falls in a straight line to zero
+   at white. A tuned slope would be a fourth knob to argue about; this one is the three consts above read
+   once more. What it costs, at the point where it binds: a source at luma 224 may now add 8.3 (x MIX = 4.5
+   delivered luma) where the plateau allowed 18 (x MIX = 9.9), and a source at 248 may add 1.9 (x MIX = 1.0)
+   where the plateau allowed 9.9. Nothing at or below 188 changes by one luma - which is why the four lamp
+   peaks and the four muzzle peaks read the same as they did before this term, at the run below. */
+const BLOOM_HEAD = BLOOM_CAP / (255 - BLOOM_KNEE - Math.sqrt(BLOOM_CAP * BLOOM_CURVE));
 let bloomImg = null;
 
 function drawBloom(q) {
@@ -2412,6 +2435,10 @@ function drawBloom(q) {
       const over = L - BLOOM_KNEE;                 // (not `d` - that is the buffer above)
       let add = over * over / BLOOM_CURVE;         // eases in: knee+30 gets 7, knee+60 is at the cap
       if (add > BLOOM_CAP) add = BLOOM_CAP;
+      /* and the headroom bound: energy a pixel has no room to show is only flattening (#377).
+         One multiply and one min above the existing curve - no second buffer, no readback. */
+      const room = BLOOM_HEAD * (255 - L);
+      if (add > room) add = room;
       const k = add / L;                           // hue-preserving gain: the written pixel has luma `add`
       d[o] = mR * k; d[o + 1] = mG * k; d[o + 2] = mB * k;
     }
