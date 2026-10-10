@@ -81,6 +81,29 @@ var BODYSHADE = 1;
    ENEMY, and enemies are `mesh: true` (js/40_render.js:412), so drawBillboard's texture fetch is not on
    the path these rows read. If a later row puts a PROP's billboard on the bar, that fetch is the second
    copy AGENTS.md's two-copies rule would then be about. */
+/* #407 half four: BODYHAZE arms the MULTIPLICATIVE haze on a body's own light - the term that survived
+   after #415 took the field falloff out, and the one the distance rows kept printing as "the light path
+   owes 37-44 luma" once #445 priced the ramp and #455 ruled out albedo.
+   Every WORLD surface composes its pixel as `texel * light + FOGC * fog`: the wash is ADDED, never
+   multiplied over the light (js/40_render.js:1349 ground, :2183 wall, :2397 billboard). The `* inv`
+   multiply survives there only on a texel that is LIGHT-EXEMPT - an emissive face or a `self:true`
+   sprite, which has no scene light to fade (:1348, :2153, :2396). The mesh's ordinary branch was the one
+   place in the renderer that multiplied a LIT surface by `inv = 1 - fogAt(dc)` before the albedo ever
+   saw it, so a body paid the wash twice - once as a scale on its light and once as the add - while the
+   wall two metres behind it paid it once. visAt is 0.647 at 8 m and 0.304 at 16 m, so the second charge
+   took 35% of a body's light at 8 m and 70% of it at 16 m, and that is the whole 43 luma the L0 16 m row
+   reports: the wall behind is the SAME lamp field, lit once.
+   0 (shipped) = a body's light is not scaled by the haze; the wash is added, exactly as the world adds
+       it. Distance is still paid here - by that same wash, by the baked field's own falloff, and by the
+       fill term - it is only no longer booked twice on one surface.
+   1 = the pre-fix form, `light * (1 - fogAt(dc))` plus the wash, kept as the A/B so the distance rows in
+       tools/view.js contrast can be seen to fail. ONE read site: the billboard copy never had this
+       multiply (js/40_render.js:2360 builds `rlr = lr * ramp` and :2397 adds the wash), which is why
+       this arm - like BODYSHADE - needs no second copy, unlike BODYDIST. The view model reads it too:
+       it is 0.5 m from the lens, where visAt is 0.99 and the term is worth under one luma, and #376
+       owns the gun's shading - which that register, not this one, is the A/B for. */
+var BODYHAZE = 0;
+
 var BODYPAINT = 1;
 // the packed 0xRRGGBB albedo BODYPAINT=0 wears; read ONLY while the arm is down, so its value is inert
 var BPAINT_RGB = 0xffffff;
