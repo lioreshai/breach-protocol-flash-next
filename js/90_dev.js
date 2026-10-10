@@ -284,6 +284,12 @@
        the field (mean 1 over its own domain) in the one mesh site that carries it. The gun keeps the
        shipped form either way - #376 owns that. See js/00_core.js. */
     if (name === 'bodyshade') { BODYSHADE = value === undefined ? 1 : (value ? 1 : 0); return { bodyshade: BODYSHADE }; }
+    /* #407 half three's A/B. 1 (shipped) = a body wears its own texel albedo; 0 = every non-emissive,
+       non-view-model mesh pixel wears BPAINT_RGB instead while every light term stays put, so the same
+       silhouette can be rendered wearing the colour of the surface behind it. tools/view.js contrast
+       uses it to split a distance row's residual into paint and shading; set it to a colour by hand
+       with `BPAINT_RGB = 0xrrggbb` after `DEV.set('bodypaint', 0)`. */
+    if (name === 'bodypaint') { BODYPAINT = value === undefined ? 1 : (value ? 1 : 0); return { bodypaint: BODYPAINT, rgb: BPAINT_RGB }; }
     if (name === 'gfx') {
       const i = typeof value === 'string' ? QUAL.findIndex(q => q.name.toLowerCase() === String(value).toLowerCase()) : clamp(value | 0, 0, QUAL.length - 1);
       if (i < 0) throw new Error('DEV.set("gfx", …) wants 0..' + (QUAL.length - 1) + ' or ' + QUAL.map(q => q.name).join('|'));
@@ -454,6 +460,8 @@
       '                                  bodydist (1 a body or prop keeps the lamp field whole at its own cell, the shipped',
       '                                  #407 behaviour / 0 the second camera-distance falloff is back on BOTH the mesh and',
       '                                  the billboard copy, which is how a body 10 m away goes dark)',
+      '                                  bodypaint (1 a body wears its own texel albedo, the shipped / 0 it wears BPAINT_RGB',
+      '                                  with every light term unchanged - the PAINT half of a #407 distance row)',
       '  DEV.tiers()                     the QUAL table as it now stands, including any overrides set() made',
       '  DEV.layoutSig()                  FNV-1a over MAP.fz then MAP.cell — the level\'s identity (#166).',
       '                                  Two boots of one ?dev=1&seed=<n> URL must agree; with no seed they must not.',

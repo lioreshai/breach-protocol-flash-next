@@ -8125,10 +8125,11 @@ if (MODE === 'contrast') {
         const A = new Uint32Array(run('px')), M = new Uint8Array(run('COV'));
         run('ENEMIES.length = 0; S.t = 3.5; ' + VMREST + ' renderWorld();');
         const Bb = new Uint32Array(run('px'));
-        let n = 0, sb = 0, sg = 0;
-        for (let i = 0; i < N; i++) if (M[i]) { n++; sb += lum(A, i); sg += lum(Bb, i); }
+        let n = 0, sb = 0, sg = 0, sr = 0, sgg = 0, sbb = 0;
+        for (let i = 0; i < N; i++) if (M[i]) { n++; sb += lum(A, i); sg += lum(Bb, i); sr += Bb[i] & 255; sgg += Bb[i] >> 8 & 255; sbb += Bb[i] >> 16 & 255; }
         run('ENEMIES.length = 0; for (const q of __dKeep) ENEMIES.push(q);');
-        return { n: n, body: n ? sb / n : 0, back: n ? sg / n : 0 };
+        return { n: n, body: n ? sb / n : 0, back: n ? sg / n : 0,
+          backRGB: n ? ((Math.round(sr / n) << 16 | Math.round(sgg / n) << 8 | Math.round(sbb / n)) >>> 0) : 0xffffff };
       };
       const on = arm();
       const hasArm = run('(function(){ if (typeof BODYDIST !== "number") return -1; BODYDIST = 0; return 1; })()');
@@ -8213,6 +8214,63 @@ if (MODE === 'contrast') {
           SH0 === 0 ? 'the centred form is SHIPPED on this tree, so there is no arm to price - the row '
             + 'above is the row that gates it'
             : 'no BODYSHADE global in js/, so nothing can say the ramp scale is in the tree at all');
+      }
+      /* #407 HALF THREE: what the two priced terms leave behind has been one undivided number, and it
+         has two candidates - the body's PAINT (the texel albedo it wears, against what the surface behind
+         it is painted) and its SHADING (every light term the mesh then applies to that albedo: field,
+         ramp, haze, tint, ambient). BODYPAINT = 0 IN THIS PROCESS swaps a colour in for the texel and
+         touches NOTHING else, so one more render of the SAME coverage px wearing the mean DELIVERED
+         colour of the surface behind them equalises the paint and leaves the light path as the only
+         difference between the two silhouettes: `paint` is what equal paint buys, `shade` is what the
+         light path still owes, and paint + shade == the row's own gap by construction, with nothing left
+         over to attribute. That is the subtraction #407's handoff asked for - if `paint` is the majority
+         the fix is enemy material, not another term in the lighting path; if it is not, the light path
+         still owes an explanation. The bound on the equal-paint half is stated rather than hidden: a
+         DELIVERED colour is albedo x that surface's own light, so handing it over dims the paint whenever
+         the background's light is under 1 - `paint` is therefore a LOWER bound and `shade` an UPPER one.
+         The gate is the other render instead: the SAME px worn at PURE WHITE, the brightest albedo any
+         surface can have, which bounds what PAINT could ever buy at this seat. If even white leaves the
+         silhouette past the bar no albedo reaches this defect and the LIGHT PATH owes it; if white lands
+         inside, the fix is the body's own material and no term of the lighting path belongs in this PR.
+         That render doubles as the wire check - white moves any body's pixels, so a tree that lost the
+         read site in js/13_mesh.js renders identically and goes red here rather than a silent ok. */
+      const BP0 = run('typeof BODYPAINT === "number" ? BODYPAINT : -1');
+      if (BP0 === 1) {
+        if (vac) {
+          row(seatRay + ': the paint arm splits the residual (#407 half three)', false,
+            'cannot measure: the body paints ' + on.n + ' px alone at ' + D + ' m, under the ' + DIST_MINPX
+            + ' px floor, so no arm has a silhouette to average over. Vacuity is the FAILURE on the row '
+            + 'above, and it is not a debt.');
+        } else {
+          run('BPAINT_RGB = 16777215; BODYPAINT = 0;');
+          const wc = arm();
+          run('BPAINT_RGB = ' + on.backRGB + ';');
+          const pt = arm();
+          run('BODYPAINT = 1; BPAINT_RGB = 16777215;');
+          const paint = pt.body - on.body, shade = on.back - pt.body;
+          const ceil = wc.body - on.body, under = on.back - wc.body;    // paint's ceiling; what no albedo reaches
+          const wired = wc.n === on.n && pt.n === on.n && wc.body > on.body + DIST_ARM;
+          row(seatRay + ': the paint arm splits the residual (#407 half three)', wired && under <= DIST_TOL,
+            'the SAME ' + on.n + ' px wearing the surface behind them (mean delivered #'
+            + on.backRGB.toString(16).padStart(6, '0') + ' in place of their own texel, every light term '
+            + 'untouched) read ' + pt.body.toFixed(1) + ' against ' + on.body.toFixed(1) + ': PAINT is '
+            + paint.toFixed(1) + ' luma of the ' + gap.toFixed(1) + ' and the LIGHT PATH is ' + shade
+            .toFixed(1) + ', which sum to the gap. Worn at the BRIGHTEST albedo any surface can have - '
+            + 'white - the same silhouette reads ' + wc.body.toFixed(1) + ', so paint buys at most ' + ceil
+            .toFixed(1) + ' of the ' + gap.toFixed(1) + ' and ' + under.toFixed(1) + ' is out of reach of ANY '
+            + 'albedo: ' + (under <= DIST_TOL
+              ? 'paint ALONE can close this seat, so the fix is the body\'s material and not a term of the '
+                + 'lighting path' : 'NO paint closes this seat - the LIGHT PATH owes ' + under.toFixed(1)
+                + ' against the ' + DIST_TOL + ' bar, and a brighter texture would be the wrong pay')
+            + '. Equal-paint is a LOWER bound on paint (a delivered colour carries its own light), which is '
+            + 'why the white render is the gate' + (wired ? '' : ' and THE ARM IS NOT WIRED: white and the '
+              + 'body texel rendered identically, so js/13_mesh.js has no read site left') + '.');
+        }
+      } else {
+        row(seatRay + ': the paint arm splits the residual (#407 half three)', BP0 === 0,
+          BP0 === 0 ? 'the equalised form is SHIPPED on this tree, so there is no arm to price - the row '
+            + 'above is the row that gates it'
+            : 'no BODYPAINT global in js/, so nothing can say the body\'s albedo is even reachable');
       }
       if (off) {
         const mv = on.body - off.body;
