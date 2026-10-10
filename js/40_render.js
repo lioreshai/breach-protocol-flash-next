@@ -1914,6 +1914,13 @@ const CF_CANOPY_R = 0.20;                 // metres: the MOUNT a hanging stem is
                                           // with the stem's own colour so the two read as one object.
 const CF_CANOPY_A = 0.85;                 // coverage at the mount's centre, falling to 0 at its edge,
                                           // so a canopy is a soft dark disc and never a hard square
+const CF_SPILL_R2 = 4.0;                  // (radius 0.40 m) the ring OUTSIDE the collar where the lens's
+                                          // own light reaches back up onto the slab. A fitting you can
+                                          // only see by its lens reads as a floating light; the spill is
+                                          // what ties it to the ceiling it is bolted through (#456 review).
+const CF_SPILL_A = 0.13;                  // peak coverage at the collar's rim, falling to 0 at CF_SPILL_R2.
+                                          // Small on purpose: `surface`'s ORDER row keeps the ceiling under
+                                          // the deck and on ABATOIR CORE that gap is 3 luma wide.
 let CF_R = 0, CF_G = 0, CF_B = 0, CF_A = 0, CF_PANES = null;
 
 /* #413 part 3: the fittings that HANG, drawn on their own plane.
@@ -1978,16 +1985,22 @@ function drawCeilPanes(flash, fcR, fcG, fcB) {
       const rx = dirX + planeX * c, ry = dirY + planeY * c;
       const dh = (dx * rx + dy * ry) / (rx * rx + ry * ry);  // how far along this column's ray the stem stands
       if (dh < 0.3 || dh > 40) continue;
+      const uS = (x - scx) / (swid + 0.5);                    // across the rod: 0 on its axis
+      if (uS < -1.2 || uS > 1.2) continue;
+      const cyl = 1 - 0.55 * Math.min(1, uS * uS);            // a ROUND section: its silhouette turns away
+      const al = 0.72 * (uS * uS > 0.64 ? 0.55 : 1);          // ...and a soft one, so a 2 px rod at range
       const yT = Math.ceil(horizon - (BH / dh) * dzs), yB = Math.floor(horizon - (BH / dh) * dzp);
+      const span = Math.max(1, yB - yT);                      // is not a black comb of alternate pixels
       const fogS = fogAt(dh > FARB * 4 ? FARB * 4 : dh), invS = 1 - fogS;
       const bS = (AMB + CEILB + Math.min(CEILLD, CEILG * Math.max(0, dzp - CEILHI)) + liS * 0.35) * invS;
       for (let y = Math.max(0, yT); y <= Math.min(hInt - 1, yB); y++) {
         const i = y * BW + x;
         if (!(dh < zbuf[i])) continue;
         const o = px[i];
-        const al = 0.72;                                    // a conduit in silhouette: it darkens the
-        const rr = (o & 255) * (1 - al) + 70 * bS, gg = (o >> 8 & 255) * (1 - al) + 66 * bS,
-              bb = (o >> 16 & 255) * (1 - al) + 60 * bS;     // ceiling behind it, not a black bar
+        const tt = (y - yT) / span;                           // 0 at the slab, 1 at the lens it hangs from
+        const sh = cyl * (0.42 + 1.05 * tt * tt);             // lit by its own lamp at the FOOT, and dark
+        const rr = (o & 255) * (1 - al) + 70 * bS * sh, gg = (o >> 8 & 255) * (1 - al) + 66 * bS * sh,
+              bb = (o >> 16 & 255) * (1 - al) + 60 * bS * sh; // where no light reaches
         px[i] = 0xFF000000 | clampi(bb) << 16 | clampi(gg) << 8 | clampi(rr);
       }
     }
@@ -2043,10 +2056,19 @@ function ceilFixAt(wx, wy, hang) {
      changes: the flush plate is byte for byte the picture main draws. */
   if (hang) {
     const r2 = (ox * ox + oy * oy) / (CF_CANOPY_R * CF_CANOPY_R);
-    if (r2 >= 1) return 0;
-    CF_R = 70; CF_G = 66; CF_B = 60;                 // the stem's own colour: one object, not two
-    CF_A = CF_CANOPY_A * (1 - r2);
-    return 1;
+    if (r2 >= CF_SPILL_R2) return 0;
+    if (r2 < 1) {
+      CF_R = 70; CF_G = 66; CF_B = 60;               // the stem's own colour: one object, not two
+      CF_A = CF_CANOPY_A * (1 - r2);
+      return 1;
+    }
+    /* The collar is a dark disc on a slab that is often just as dark, which is why the mount vanished
+       on every tall-room frame the #456 review looked at. Outside the collar the lens's own spill
+       reaches back up onto the slab: a warm ring, faded to nothing at CF_SPILL_R2, carried as an ALBEDO
+       so the caller's `lr` still multiplies it and an unlit room keeps it unlit (#400's rule). */
+    CF_R = 196; CF_G = 178; CF_B = 128;
+    CF_A = CF_SPILL_A * (1 - (r2 - 1) / (CF_SPILL_R2 - 1));
+    return CF_A > 0.004 ? 1 : 0;
   }
   const u = ox * uv + t.w * 0.5;
   const v = oy * uv + t.h * 0.5;
