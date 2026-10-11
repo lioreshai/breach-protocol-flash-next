@@ -56,9 +56,10 @@ bytes, so a caption cannot drift from its frame. The eight frames decode to **63
 row below means a row whose own mean luma is under 24 — the threshold the tool measures at, whatever
 number a sentence labels.
 
-Five of these eight frames were drawn at build `ce9d39d` and the sixth at `cd191ca`; both are named per
-file in `provenance.json`, and the deployed page has moved past them. The last two were drawn at
-`dac241d`, which is the build the deployed page serves, so those two are today's picture (#395, #431).
+Five of these eight frames were drawn at build `ce9d39d`, the sixth at `cd191ca` and the last two at
+`dac241d`; the build that drew each one is named per file in `provenance.json`, and the deployed page has
+moved past all three. Treat every frame below as what its own caption's build drew, not as a screenshot
+of today's deploy (#395, #431).
 
 ![the spawn seat on a lit datum floor](docs/screens/level0-spawn.png)
 
@@ -135,11 +136,13 @@ one on it. `tools/view.js surface` puts this level's ceiling at **47 % of the fr
 The same seat on the same deal, turned 0.556 rad right and pitched up 25 px, which is where this deal
 puts a fitting over the entrance: **0 of 763 rows average below luminance 24** (mean 72.01, thirds
 66.9 / 70.3 / 78.8). Six fittings are hung over this room's circulation; the one in frame is 3.06 m
-from the seat with its lens let down to **2.35 m** under a slab authored at **4.00 m**, so the rod, the
-canopy bolted to the slab, and the lit panel are three parts of one object and the room's height is what
-separates them. Room height stops being something you discover by walking into it. The left third of the
-frame is the doorway wall the seat stands in, 1 m away — the player sees it when they turn, so it stays
-in the shot.
+from the seat with its lens let down to **2.35 m** under a slab authored at **4.00 m**. What the frame
+carries is the rod and the lit panel on it, and the empty band above them is the room's height: the slab
+those fittings bolt through sits above this frame's top row, because the frame can only draw a ceiling
+that near from about twice its headroom in metres out (#413). So the height reads as a gap rather than as
+three parts of one object you can see end to end, and it stops being something you discover by walking
+into it. The left third of the frame is the doorway wall the seat stands in, 1 m away — the player sees it
+when they turn, so it stays in the shot.
 
 ## How it works
 * **Renderer** — software raycaster (Wolfenstein-style DDA) into an `ImageData`'s `Uint32Array` at
