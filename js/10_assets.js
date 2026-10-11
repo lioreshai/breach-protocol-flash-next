@@ -254,19 +254,42 @@ WTEX.TECH = matTex(T2, T2, p => {
   if (fbm(p.u, p.v, 3, 3, 0.5, 131) > 0.72) rust(p, 0.35, 108);
 }, { bump: 1.1, amb: 0.40, spec: 0.30, specPow: 34, ao: 0.55, grain: 7 });
 
+/* #466: this tile is ABATOIR CORE's `wall2` - the minority face, 22% of faces by pickWallTex - and it
+   was the one thing in that level that did not belong to it. ABATOIR is a wet red interior (WT.MUSCLE
+   walls, FLOORS.FLESH deck, a SINEW ceiling); TECH2 wore QUILTED PURPLE PANELLING (a 96/62/118 albedo,
+   a 255/120/190 emissive seam and a violet dust), so on the inside corner of a room the generator put a
+   salmon fibre face beside a violet one. The issue's census is an AREA census and it already read ABATOIR
+   as 73-76% one red family: the panel is small in the frame and large to the eye, which is exactly why it
+   is the defect. What #466's acceptance asks for is one family carrying a level and AT MOST ONE accent
+   allowed to disagree, and ABATOIR already spends that accent on its lamp field (`lampCol: [190, 255,
+   150]`, js/20_level.js:46) - so the panel was the second accent and it is the one that goes.
+   The fix is the PALETTE, not the STRUCTURE, and that order is deliberate:
+   - the albedo is an oxblood over the same quilt, at the PURPLE TILE'S OWN Rec.709 luma (142/54/55 is
+     72.8 against 96/62/118's 73.2, and every term below it is a multiplier of v, so the whole tile lands
+     where it sat). `matband` prints the same wall spread and `exposure` prints the same four medians; a
+     re-tone that moved a level's median would be a value change made at the hue term, which is the wrong
+     term (#416 owns the value band and #369 owns the mean-albedo order).
+   - the seam stops being a magenta filament and becomes a hot AMBER one, which is in the red family
+     under any lamp because an emissive texel is exempt from scene light (js/10_assets.js matTex: an
+     emissive texel is a light source, not a surface). Its luma is held to the magenta's to within seven
+     points so the exempt-area census `matband` prints does not move.
+   - the dust is a rust-brown wash instead of a violet one.
+   What is NOT changed: no `alb`, no `amb`, no `spec`, no bump, no grain, no emissive AREA. The quilt, the
+   seams and the darkness are this tile's own, and a technical panelling is what a drained cutting room
+   would actually be lined with - it is the colour that was wrong, not the panelling. */
 WTEX.TECH2 = matTex(T2, T2, p => {
   const gx = (p.u * 3) % 1, gy = (p.v * 3) % 1;
   const hx = Math.abs(gx - 0.5), hy = Math.abs(gy - 0.5);
   const cell = smoothstep(0.5, 0.44, Math.max(hx, hy) + Math.min(hx, hy) * 0.35);
   const n = fbm(p.u * 5, p.v * 0.8, 7, 3, 0.55, 21);
   let v = 0.78 + n * 0.4;
-  p.r = 96 * v; p.g = 62 * v; p.b = 118 * v;
+  p.r = 145 * v; p.g = 55 * v; p.b = 56 * v;                        // #466: oxblood, not violet - same luma
   p.h = 0.55 + cell * 0.16 + (n - 0.5) * 0.05;
   const seam = 1 - cell;
   p.h -= seam * 0.18;
   const vein = smoothstep(0.030, 0.0, Math.abs(gy - 0.5) - 0.0) * (1 - cell);
-  if (vein > 0.1) { p.r = 255; p.g = 90 + 60 * n; p.b = 190; p.h = 0.52; p.e = 1; }
-  dust(p, 0.20, [70, 52, 84]);
+  if (vein > 0.1) { p.r = 205; p.g = 118 + 60 * n; p.b = 55; p.h = 0.52; p.e = 1; }   // #466: amber filament
+  dust(p, 0.20, [84, 52, 46]);                                      // #466: rust dust
   grain(p, 16, 9, 20);
 }, { bump: 1.0, amb: 0.40, spec: 0.26, specPow: 30, ao: 0.6, grain: 7, alb: 1.14 });   // #416: the darkest wall tile in the table at 82.3 mean luma, raised into band
 
