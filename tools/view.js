@@ -12417,7 +12417,7 @@ if (MODE === 'surface') {
   const BW = run('BW'), BH = run('BH'), NL = run('LEVELS.length');
   /* The pose SET. 0-3 are the spawn cell turned to its longest sight line, quarter-turned; `N` is the
      same cell turned to the NEAREST wall it can see at arm's length-or-further (#369, see `aim`). */
-  const CAMS = (process.env.CAMS || '0,1,2,3,N').split(',');
+  const CAMS = (process.env.CAMS || '0,1,2,3,N,U').split(',');
   // the `N` pose's floor on how close that wall may be, so it cannot pick a wall the lens is inside
   const NEARD = process.env.NEARD !== undefined ? +process.env.NEARD : 3.5;
   const TARGET = process.env.TARGET !== undefined ? +process.env.TARGET : 15;
@@ -12721,6 +12721,124 @@ if (MODE === 'surface') {
       drop, clMask: cl
     };
   }
+  /* #421's UNDERSIDE half, as rows that can fail.
+     The material landed (PR #461: `buildCeilSlab` classifies a column whose overhead plane is a
+     neighbour's walkable deck, and both copies of the ground pixel body paint that plane as plate over
+     joists with a lit lip at the deck's side). What has never been measured is the two things the issue
+     states as done-when: that the band overhead is NOT the level's ceiling sheet and reads above black,
+     and that the slab's near edge is a step the eye can find. Both were asserted from luma taken off
+     `scene` frames at spawn seats, where the underside is usually not in the frame at all - which is the
+     defect, restated as a measurement problem: a census of a spawn view cannot see a surface that only
+     appears when you look up.
+     SO WHICH PIXELS ARE AN UNDERSIDE is answered the way this block answers every other per-pixel
+     question - by asking the renderer, not by colour. `SLABUND` is the A/B the shipped build already
+     carries (js/40_render.js, "the A/B that puts the old picture back in a running page"): render the
+     identical state with it off and the pixels whose BYTES move are exactly the pixels the soffit term
+     painted. No second classifier, so the census cannot disagree with the term it is grading, and a
+     build that ships the classification but paints nothing shows up as a mask of zero rather than a
+     number. The pixels that move with `ceilBias` and NOT with SLABUND are the level's own ceiling sheet -
+     the surface the criterion says an underside must not be.
+     THE POSE `U` is the seat the criterion is stated from: the nearest column in THIS deal that has a
+     deck over its head (`MAP.ceilSlab` bit 0), turned toward the side the deck stands on (bits 1-4) and
+     pitched so the underside fills the upper frame with its edge in view. It is a seat, not a heading -
+     the spawn cell is under a slab in some deals and not in others, so posing there would grade a
+     camera position rather than the surface. The deal hash is still printed on the row, and a deal with
+     no slab column at all is reported as unmeasurable instead of being scored empty.
+     Floors come from the issue, not from this run: >= 25 luma for an underside band in a lit room, never
+     below 15 in the darkest level, and >= 15 luma across the lip. "Lit room" needs a config the probe
+     can name, so it is the pose's own deck band: a frame whose deck reads >= UlitDeck is lit and the
+     25-luma floor applies; below that the 15-luma floor applies. That is a rule about the room, stated
+     where it can be audited, not a threshold fitted to the answer. */
+  const UEDGE = process.env.UEDGE !== undefined ? +process.env.UEDGE : 15;      // luma step across the lip
+  const UMIN = process.env.UMIN !== undefined ? +process.env.UMIN : 40;         // columns to say anything
+  const UBAND = process.env.UBAND !== undefined ? +process.env.UBAND : 1;       // % of frame = a band
+  const Udark = process.env.UDARK !== undefined ? +process.env.UDARK : 15;      // darkest-level floor
+  const Ulit = process.env.ULIT !== undefined ? +process.env.ULIT : 25;         // lit-room floor
+  const UlitDeck = process.env.ULITDECK !== undefined ? +process.env.ULITDECK : 40;
+  /* The look-up seat. Reads the mask the renderer reads, so the pose exists exactly where the term does.
+     Returns the seat it chose and the distance it marched to the slab's edge, so the row states its pose
+     instead of pointing a camera by luck (AGENTS.md: name the config that exercises the mechanism). */
+  const seatU = () => run(`(function(){
+    const N = MAP.w, n = MAP.cell.length, sx = globalThis.__spawn[0], sy = globalThis.__spawn[1];
+    let bi = -1, bd = 1e9;
+    for (let i = 0; i < n; i++) {
+      if (!(MAP.ceilSlab[i] & 1)) continue;
+      const x = i % N, y = (i / N) | 0, d = Math.hypot(x + 0.5 - sx, y + 0.5 - sy);
+      if (d < bd) { bd = d; bi = i; }
+    }
+    if (bi < 0) { globalThis.__poseD = -1; globalThis.__uSeat = null; return 0; }
+    const x = bi % N, y = (bi / N) | 0, m = MAP.ceilSlab[bi];
+    P.x = x + 0.5; P.y = y + 0.5; P.z = floorAt(P.x, P.y);
+    P.vx = P.vy = P.vz = 0; P.air = false; P.crouch = 0; P.recoil = 0; P.bob = 0;
+    let dx = 0, dy = 0;
+    if (m & 2) dx = 1; else if (m & 8) dx = -1; else if (m & 4) dy = 1; else if (m & 16) dy = -1;
+    if (!dx && !dy) dx = 1;                       // a deck over head with no named side: look along x
+    let de = 12;                                   // march for where the UNDERSIDE stops = the lip
+    for (let t = 0.25; t <= 12; t += 0.25) {
+      const gx = Math.floor(P.x + dx * t), gy = Math.floor(P.y + dy * t);
+      if (gx < 0 || gy < 0 || gx >= N || gy >= N) { de = t; break; }
+      if (!(MAP.ceilSlab[gy * N + gx] & 1)) { de = t; break; }
+    }
+    const zU = ceilAt(P.x, P.y), eye = eyeH();
+    P.ang = Math.atan2(dy, dx);
+    /* row = horizon - dz*BH/d, so the pitch that centres the slab's edge is dz*BH/de. Both halves of that
+       need a floor: a seat whose deck begins at the next boundary (de = 0.25) solves to a pitch of two
+       buffer heights, which is 65 degrees and puts the RISER face across the whole frame - measured on
+       THE STACK's camU, where ceiling 0% and floor 0% of the frame said the lens was on a wall and the
+       pose judged nothing. Floored de at 0.75 m and clamped the pitch into the band where a plane 1-3 m
+       overhead is actually inside the frame. */
+    P.pitch = Math.min(1.1 * BH, Math.max(0.25 * BH, (zU - eye) * BH / Math.max(0.75, de)));
+    globalThis.__poseD = de;
+    globalThis.__uSeat = { x, y, z: zU, d: de, side: (m & 2 ? '+x' : m & 8 ? '-x' : m & 4 ? '+y' : m & 16 ? '-y' : 'none') };
+    return 1;
+  })()`);
+  /* The underside mask, from the shipped A/B. Byte inequality, not a luma delta: the term is a texel
+     multiplier, so a pixel it paints cannot come back identical unless the texel was already black. */
+  function slabMask(a) {
+    const prev = run('typeof SLABUND === "number" ? SLABUND : -1');
+    if (prev !== 1) return null;                     // no A/B in js/: the census has no oracle here
+    run('SLABUND = 0');
+    const b = frame();
+    run('SLABUND = ' + prev);
+    const n = BW * BH, m = new Uint8Array(n);
+    for (let i = 0; i < n; i++) if (a[i] !== b[i]) m[i] = 1;
+    return m;
+  }
+  /* Underside band, ceiling-sheet band, and the step across the lip. The underside is the NEAR plane, so
+     it sits toward the TOP of the frame and what the slab ends at is BELOW it - the same direction the
+     SEAM row walks, read off the soffit mask instead of the ceiling mask. A column scores only when both
+     sides of its boundary are textured surfaces: the far wash is excluded with the same run-length test
+     the seam uses, because an underside dissolving into wash is a distance, not an edge. */
+  const undWash = a => {
+    const WRUN = process.env.WASHRUN !== undefined ? +process.env.WASHRUN : 8;
+    return (x, y) => {
+      const i = y * BW + x; if (x + WRUN >= BW) return false;
+      for (let k = 1; k < WRUN; k++) if (a[i + k] !== a[i]) return false;
+      return true;
+    };
+  };
+  function undStats(a, cl, so) {
+    const n = BW * BH, washAt = undWash(a);
+    let us = 0, un = 0, ss = 0, sn = 0;
+    for (let i = 0; i < n; i++) {
+      if (so[i]) { us += LUM(a, i); un++; }
+      else if (cl[i]) { ss += LUM(a, i); sn++; }
+    }
+    const steps = [];
+    for (let x = 0; x < BW; x++) {
+      let r = -1;
+      for (let y = 0; y < BH; y++) if (so[y * BW + x]) r = y;
+      if (r < 2 || r > BH - 4) continue;
+      let s1 = 0, n1 = 0, s2 = 0, n2 = 0;
+      for (let y = Math.max(0, r - 6); y <= r; y++) { const i = y * BW + x; if (so[i] && !washAt(x, y)) { s1 += LUM(a, i); n1++; } }
+      for (let y = r + 1; y <= r + 6 && y < BH; y++) { const i = y * BW + x; if (!so[i] && !washAt(x, y)) { s2 += LUM(a, i); n2++; } }
+      if (n1 >= 3 && n2 >= 4) steps.push(s2 / n2 - s1 / n1);
+    }
+    steps.sort((p, q) => p - q);
+    return { und: un ? us / un : NaN, sheet: sn ? ss / sn : NaN, un, sn,
+      pct: 100 * un / n, steps: steps.length, med: med(steps),
+      p10: steps.length ? steps[Math.floor(steps.length * 0.1)] : NaN };
+  }
   console.log('surface value order - ceiling must sit under the surface its edge meets by >= ' + TARGET +
     ' luma (Rec.709), and under the floor it covers');
   for (let li = 0; li < NL; li++) {
@@ -12767,8 +12885,11 @@ if (MODE === 'surface') {
     let poseCols = [], dropCols = [], poseOk = true, firstHash = 0, measPoses = [], bandPoses = [];
     const pAcc = fits.map(() => ({nS: 0, nN: 0, fS: 0, fN: 0}));
     const qAcc = fits.map(() => ({nS: 0, nN: 0, fS: 0, fN: 0}));
+    const uPoses = []; const uSlabCells = run('MAP.ceilSlab ? MAP.ceilSlab.reduce((s, v) => s + (v & 1 ? 1 : 0), 0) : 0');
+    let uSheetS = 0, uSheetN = 0, uDeckS = 0, uDeckN = 0;
     for (const cam of CAMS) {
-      aim(cam);
+      const isU = cam === 'U';
+      if (isU) seatU(); else aim(cam);
       // the hash is read AFTER aiming, so a pose that moved the geometry shows up here rather than
       // being smoothed over by a figure taken before it.
       const gh = gridHash();
@@ -12777,6 +12898,11 @@ if (MODE === 'surface') {
       const a = frame(), zb = new Float32Array(run('zbuf')), ccam = poolCam();
       const cf = frameBias('ceilBias', -1), ff = frameBias('floorBias', -1);
       const c = classify(a, cf, ff);
+      /* #421: which of this pose's ceiling pixels did the SOFFIT term paint, and does the underside's
+         edge survive as a step. The A/B renders the identical state with SLABUND off, so the same frame
+         `a` is graded and the control arm is the pre-#461 build, not a paraphrase of it. */
+      const sm = slabMask(a);
+      const u = sm ? undStats(a, c.clMask, sm) : null;
       if (cam === CAMS[0]) firstHash = fhash(a);
       poseCols.push(c.cols);
       dropCols.push(c.drop);
@@ -12793,6 +12919,35 @@ if (MODE === 'surface') {
         `${c.cols} seam columns, ceiling ${c.ceilPct.toFixed(0)}% of frame / floor ${c.floorPct.toFixed(0)}%, ` +
         `wall ${run('globalThis.__poseD').toFixed(1)} m ahead${cam === 'N' ? ' (NEAREST)' : ''}, ` +
         `columns dropped by pose: ${c.drop.range} seam out of frame, ${c.drop.wash} far wash, ${c.drop.win} thin window:`);
+      if (u) {
+        // A pose with no underside in frame judges nothing and says so; the SWEEP row carries the vacuity.
+        const bandOk = u.pct >= UBAND;
+        if (u.sn > 0) { uSheetS += u.sheet * u.sn; uSheetN += u.sn; }
+        // a seat under a deep deck has NO sheet in its own frame, so the sheet band comes from the sweep
+        const sheet = u.sn > 0 ? u.sheet : (uSheetN ? uSheetS / uSheetN : NaN);
+        const hereSheet = u.sn > 0;
+        const litRoom = isFinite(c.floor) ? c.floor >= UlitDeck : uDeckN > 0 && uDeckS / uDeckN >= UlitDeck;
+        if (isFinite(c.floor)) { uDeckS += c.floor; uDeckN++; }
+        const floor = litRoom ? Ulit : Udark;
+        row(`L${li} cam${cam} UNDERSIDE the band overhead is not the level's ceiling sheet`,
+          bandOk && isFinite(sheet) && Math.abs(u.und - sheet) >= UEDGE,
+          `underside ${u.und.toFixed(1)} vs sheet ${sheet.toFixed(1)} = ${Math.abs(u.und - sheet).toFixed(1)} luma of material ` +
+          `(sheet ${hereSheet ? 'from this pose' : 'from the sweep, ' + uSheetN + ' px: this seat looks straight UP and the level sheet is not in its frame'}) ` +
+          `over ${u.un} px (${u.pct.toFixed(1)}% of frame)${bandOk ? '' : ` - NOT MEASURED: the underside covers ${u.pct.toFixed(2)}% (< ${UBAND}%)`}`,
+          bandOk && isFinite(sheet) && Math.abs(u.und - sheet) < UEDGE ? '#421' : undefined, !bandOk || !isFinite(sheet));
+        row(`L${li} cam${cam} ABOVEBLACK the underside band reads above black in a ${litRoom ? 'LIT' : 'dim'} room`,
+          bandOk && u.und >= floor,
+          `band mean ${u.und.toFixed(1)} against a ${floor}-luma floor (${litRoom ? 'deck reads ' + c.floor.toFixed(1) + ', at or over ' + UlitDeck : 'deck ' + c.floor.toFixed(1) + ', under ' + UlitDeck})` +
+          (bandOk ? '' : ' - NOT MEASURED: no band to average'), undefined, !bandOk);
+        const uMeas = u.steps >= UMIN;
+        if (uMeas) uPoses.push(cam);
+        row(`L${li} cam${cam} LIP the slab's near edge steps >= ${UEDGE} luma`,
+          uMeas && Math.abs(u.med) >= UEDGE,
+          `median step ${u.med.toFixed(1)} (p10 ${u.p10.toFixed(1)}) over ${u.steps} columns` +
+          (uMeas ? '' : ` - NOT MEASURED: ${u.steps} columns carry an underside edge (< ${UMIN}); the lip is not in this pose`) +
+          (cam === 'U' ? `, seat ` + (run('globalThis.__uSeat ? globalThis.__uSeat.x + "," + globalThis.__uSeat.y : null') || 'NONE in this deal') + run('globalThis.__uSeat ? " (deck side " + globalThis.__uSeat.side + ", edge " + globalThis.__uSeat.d.toFixed(2) + " m, underside z " + globalThis.__uSeat.z.toFixed(2) + ", pitch " + (P.pitch / BH).toFixed(2) + " BH)" : ""') : ''),
+          uMeas && Math.abs(u.med) < UEDGE ? '#421' : undefined, !uMeas);
+      }
       row(`L${li} cam${cam} SEAM ceiling under what it meets >= ${TARGET}`,
         meas && c.seam >= TARGET,
         `median gap ${c.seam.toFixed(1)} (p10 ${c.seamP10.toFixed(1)}) over ${c.cols} columns, ` +
@@ -13005,6 +13160,21 @@ if (MODE === 'surface') {
       // must be readable: a level whose seam is never in frame fails even where its bands are scoreable,
       // because the seam is the criterion this issue's definition of done is stated in.
       undefined);
+    /* ONE ROW PER LEVEL for #421's second criterion, which is a statement about how OFTEN the edge is in
+       a frame ("measurable in more than 1 of 4 poses") and therefore cannot be answered by any single
+       pose. Vacuity is charged HERE rather than to a pose that printed n/a: a deal with slab columns
+       overhead that never once put its lip in a frame is the defect the issue was filed for, and five
+       n/a poses must not average into a pass. */
+    if (uSlabCells > 0) {
+      row(`L${li} UNDERSIDE-SWEEP a deck overhead is legible in more than one pose`,
+        uPoses.length > 1,
+        `${uPoses.length} of ${CAMS.length} pose(s) carried a scorable underside edge (cam ${uPoses.join(',') || 'none'}); `
+        + `${uSlabCells} column(s) of this deal have somebody's floor over their head, so the surface is in the world`,
+        uPoses.length <= 1 ? '#421' : undefined);
+    } else {
+      row(`L${li} UNDERSIDE-SWEEP this deal has no slab overhead`, true,
+        '0 columns classify as a floor seen from below, so the #421 rows above judge nothing here - not a pass');
+    }
   }
   /* THE POOL'S OWN CONTROL, one row for the run, in the shape this block already uses for the
      ORDER control. Every per-fitting contrast is measured twice - once shipped, once with the hung
