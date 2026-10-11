@@ -1255,6 +1255,19 @@ function decalGridInit() {
    the old bar. The wall that qualifies is now the one you are looking at, not only the one you look
    down. Door pass unchanged - placing on every neck tiled both walls of every corridor (#403 review). */
 const FIX_RUN_MIN = 3;
+/* FIX_VIS_MAX is how far a room may look for a wall it is standing in FRONT OF but not touching (#422).
+   An open-plan deal - RING TRANSPORT at SEED 3/5/7 is one hall with four zone rectangles and no interior
+   wall anywhere - gives a room's own rect ZERO face lines, so the per-room pass had nothing to mount and
+   the whole level carried no purpose fixture at all. The fallback walks the room's axis sight lines out
+   to this many metres and mounts on the first wall one of them hits, which is the wall a player standing
+   in that room is looking at. 14 m is the far end of the widest hall the generator deals (a 30 m interior
+   split by one band edge); past it the mount is a few pixels tall and says nothing about the room. */
+const FIX_VIS_MAX = 14;
+/* FIX_FIT_MIN is the shortest patch a PURPOSE fixture may be, in metres, when the room pass is choosing
+   among kinds (#422 cause 2). FIX_SPAN gives each kind a fraction of the face span, so a BOARD at 0.82
+   of a 0.5 m face is 4 cm of arrow board - mounted, invisible, and the room still reads bare. A room
+   whose only free face is low takes the kind that actually fits it instead. */
+const FIX_FIT_MIN = 0.12;
 /* FIX_REPEAT is the SPACING down a qualifying face line, in metres (#400 take four). FIX_RUN_MIN says a
    run is a sight line worth decorating; this says how often. One per run leaves a 24 m face with one
    object at its start, which is the frame-edge pillar the issue reports. 6 m is roughly one fixture per
@@ -1348,7 +1361,9 @@ function placeWallFixtures(cfgL) {
       if (!isOpen(x, y)) continue;
       for (let d = 0; d < 4; d++) if (isWall(x + DIRX[d], y + DIRY[d])) faces.push([x, y, d]);
     }
-    if (!faces.length) continue;
+    /* NOT `if (!faces.length) continue` (#422): that line is what made a whole level place nothing. A
+       room whose rect presents no face line still exists, still gets walked, and still has walls it is
+       looking at - the visibility walk below is what mounts on them. */
     /* THE FIRST FACE TRIED IS UNCHANGED and that is deliberate: the face this pass occupies is what
        pass 3 later treats as already used, so re-picking would move long-run coverage and turn this
        increment into a placement change instead of a material one. What was MISSING was that a room
@@ -1364,11 +1379,55 @@ function placeWallFixtures(cfgL) {
        face, same walk order, same kind index), so a room that qualifies for one mounts byte-identically
        to before and pass 3 still sees the first-choice face occupied. */
     const pk = purposes.length ? purposes : kinds;
-    const start = (ri * 7 + 3) % faces.length;
+    let got = 0;
     const need = faces.length > 6 ? 2 : 1;
-    for (let k = 0, got = 0; k < faces.length && got < need; k++) {
-      const f = faces[(start + k) % faces.length];
-      if (mount(pk[(ri + k) % pk.length], f[0], f[1], f[2])) got++;
+    if (faces.length) {
+      const start = (ri * 7 + 3) % faces.length;
+      for (let k = 0; k < faces.length && got < need; k++) {
+        const f = faces[(start + k) % faces.length];
+        if (mount(pk[(ri + k) % pk.length], f[0], f[1], f[2])) got++;
+      }
+    }
+    /* EVERY ROOM SAYS WHAT IT IS FOR, OR THE PASS LOOKS FURTHER (#422).
+       A room's OWN rect can present no face at all: on an open deal the generator's room list is a set
+       of ZONES inside one hall, so every cell on the room's perimeter is open into open and `faces`
+       comes back empty. Measured at main 2941980, level 1 (RING TRANSPORT, purpose TANK/BOARD) placed
+       ZERO purpose fixtures on generator seeds 3, 5 and 7 - not a thin deal, a level with the feature
+       absent - and the `fixtures` vacuity row could not see it because the four deals CI walks happen
+       to have interior walls. The same walk therefore continues along the room's own AXIS SIGHT LINES:
+       for radius 1..FIX_VIS_MAX, every room cell whose neighbour at that radius is solid and whose
+       between cells are open is a wall face the room is looking straight at, and a fixture mounted on
+       it is on the wall the player standing in that room sees. Radius 1 IS the own-face case, so the
+       walk costs nothing on a deal that already had faces and cannot re-place one.
+       Kind choice: the room's own kind cycle first, but a kind whose patch would come out shorter than
+       FIX_FIT_MIN on that face's span is swapped for the kind that fits the face, which is cause 2 of
+       the issue - a BOARD on a low face is 4 cm of paint. No RNG is read, so no roll, prop or light
+       moves, and a room that already took a fixture from its own faces is untouched byte for byte. */
+    if (got < need) {
+      const fits = (kind, ax, ay, d) => {
+        const sp = FIX_SPAN[kind] || FIX_SPAN.PIPE;
+        return (ceilAt(ax + 0.5, ay + 0.5) - faceZ0(ax, ay, d)) * sp[1] * 0.5 >= FIX_FIT_MIN;
+      };
+      for (let rad = 1; rad <= FIX_VIS_MAX && got < need; rad++) {
+        for (let y = r.y; y < r.y + r.h && got < need; y++) for (let x = r.x; x < r.x + r.w && got < need; x++) {
+          if (!isOpen(x, y)) continue;
+          for (let d = 0; d < 4; d++) {
+            let clear = true;
+            for (let s = 1; s <= rad; s++) {
+              const sx = x + DIRX[d] * s, sy = y + DIRY[d] * s;
+              if (!isOpen(sx, sy) && s < rad) { clear = false; break; }
+              if (s === rad && !isWall(sx, sy)) clear = false;
+            }
+            if (!clear) continue;
+            const ax = x + DIRX[d] * (rad - 1), ay = y + DIRY[d] * (rad - 1);
+            let kind = pk[(ri + got) % pk.length];
+            if (!fits(kind, ax, ay, d)) {
+              for (const alt of pk.concat(kinds)) if (fits(alt, ax, ay, d)) { kind = alt; break; }
+            }
+            if (mount(kind, ax, ay, d)) got++;
+          }
+        }
+      }
     }
   }
   /* 3. ONE ALONG EVERY LONG RUN: a straight wall you can see down for more than six metres is the
