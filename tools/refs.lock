@@ -16,7 +16,7 @@ ref	anim	NECK-BAND	num	6.1 2.7 3.4
 ref	anim	NECK-TUBE	num	41 43.2 40
 ref	bands	SEAM-FRAME	md5	8357dbd0062540c1a9ae41285a5c57fb ec0be821dc1cac8155b16d68fc564940 7ca53879986a8a25185340d80965c130 39b6458bfde4141189bf0a42b2b2b4a9
 ref	contrast	TORSO-DL	num	2.52 2.17 2.41
-ref	cull	CZBAND	crc32	0x3fa4d678 0xa4c00a68 0xe483a0d8 0x249a22ea
+ref	cull	CZBAND	crc32	0xd8306aa4 0xb566fcca 0x3f2d02b0 0x6ca6c214
 ref	cull	CZBAND-LIGHT	crc32	0x62e8ba8e 0x3f1e8dc4 0xd14365c8 0x74f47f44
 ref	exposure	MEDIAN	num	74 69 67 92
 ref	exposure	SPAWN	num	71 72 77 67 75 81 73 82
