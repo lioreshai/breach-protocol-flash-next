@@ -1,5 +1,81 @@
 # Changelog
 
+## [v1.4.4] - 2026-10-11
+
+### Added
+- **A floor above you now reads as a floor, and it ends somewhere** (#461, #472, issue #421). Walk under a
+  raised deck and look up. The plate over your head used to be the same flat dark sheet with one straight edge
+  that is over your head everywhere else in the level, so you could neither tell the level had a second storey
+  directly above you nor see where that slab stopped - the first thing you need before you try to shoot over
+  it. The underside is now its own surface: a paler plated soffit with a joist rib every half metre running up
+  toward the deck, a lit lip along the side the deck stands on, and a shadow gap where the underside stops
+  against the ceiling. Across the slab's edge in the frames this was filed from the step goes from 3.4 and
+  11.5 luma to 62.9 and 59.1, so the edge is the loudest thing about that boundary instead of a coincidence of
+  lighting. Nothing about geometry, movement or the light budget changed, and a flat level draws byte-identical
+  frames.
+- **A tall room shows what lights it** (#456, #462, issue #413). A ceiling fitting let down on its stem now
+  reads as one object: a single lit panel hanging a little above head height, on a rod that is brightest at its
+  foot and fades up into the dark of the slab it disappears into, with the lens's own uplight reaching back onto
+  that slab as a warm ring so the fitting's foot shows against a dark ceiling too. Before this the frame carried
+  a bright panel and a flat black tick above it, with nothing at all on the slab it bolts through. A room's
+  height now reads from what hangs in it. A low corridor's flush plate is untouched, and no light source moved,
+  so no room's exposure moved either.
+
+### Changed
+- **ABATOIR CORE stops wearing a colour from another level** (#474, issue #466). Standing at its arrival camera,
+  the room is a wet red interior - salmon fibre walls, a red cracked deck, a pale tendon ceiling - and then one
+  face in five was quilted violet panelling with a magenta seam. Turn a corner and a fibre face meets a purple
+  one. That face is now an oxblood panel with an amber seam, authored at the violet tile's own brightness so
+  nothing gets lighter or darker and the quilt, the drainage and the darkness stay. The sector reads as one grimy
+  interior with exactly one deliberate thing in it: the green lamp field overhead, which is the accent the level
+  was written with.
+- **The README describes the game** (#460, issues #395 and #401). Half of it had become a running account of
+  every recapture of six screenshots, with the md5 of the page that served each shutter - none of it a
+  description of the game, and every number in it rotted on the next merge. It is now 261 lines with a 60-line
+  "How it looks", the capture record lives beside it, **ABATOIR CORE** is shown for the first time (#469), and
+  THE STACK's frame is re-taken from the build that actually serves it, so the wall in the picture is the
+  blockwork in the game rather than the masonry family four releases ago (#471).
+
+### Fixed
+- **An enemy at combat range keeps his room's light** (#458, issue #407). Every surface here composes its pixel
+  the same way - texture times light, with the coloured air wash added on top - but one path multiplied its light
+  by the haze *and* added the wash, so a body paid for the air twice while the wall two metres behind it paid
+  once. That is why a hostile on the far side of a lit room arrived as a black cut-out with no front and no
+  species. A body 16 m away now keeps about three times the light he kept, and at 8 m about one and a half times;
+  five of the seven measurable distance seats are inside the visibility bar where one was. Distance is still
+  paid for - by the wash, by the lamp field's own falloff and by the body's fill term - it is simply no longer
+  booked twice on the one surface in the game that mattered. Close-range silhouettes and torso shading are
+  unchanged.
+- **Floors stop breaking into wedges in the near and mid field** (#467, issue #19). The deck's two-tap
+  anisotropic fetch had its spacing truncated toward zero in one copy of the ground pixel instead of rounded, so
+  over the band from half a texel to one texel of footprint it loaded the same texel three times, averaged
+  nothing, and kept the point fetch's radial wedge - a filter that was on and inert, in exactly the band the
+  distance blend hands off at. Two lines change, in both copies of the pixel body. Floor streak counts fall on
+  all four sectors (56 / 71 / 72 / 75 to 52 / 66 / 63 / 69) and the ceiling's worst region with them. Mip
+  *selection* is untouched: the deck directly under you is still full resolution and fine detail stays 3-5x its
+  blur control, which is the difference between averaging an area and blurring the floor.
+- **A lit prop face answers the lamp again** (#450, issue #371). A crate in a lit room had 75.6% of the pixels on
+  its lit flank pinned at maximum red while the wall behind it pinned none, and a pinned channel cannot carry a
+  gradient - so that face returned one number no matter where you stood or how bright the room was, the flat
+  orange card floating in front of the wall. A prop face turned into the key was being lit up to 1.28x what the
+  same light does to a wall. The over-bright part of that ramp now approaches full scale without reaching it:
+  nothing is pinned, the face has a range again, and the mean moves by about one luma. A prop in a dim room is
+  unchanged to the byte, and a lamp's aperture is still a light source.
+
+### Known limitations
+- An enemy at 16 m in ARCHIVE SUBLEVEL is still 22-23 luma *below* the surface behind him against a 20 bar, and
+  one seat in RING TRANSPORT now reads 19 luma *above* it: a body does not pay the wall's own face falloff, which
+  is the opposite complaint to the one just fixed. Neither is settled (#458).
+- A slab's far edge, where it is in the frame at all, is now unmistakable - but you only see it in 1 of 6 standing
+  poses on ABATOIR CORE and on THE STACK, because from most seats under a deck that edge is not on screen. That is
+  a pose-coverage gap, not a shading gap, and no further term on that plane can put it there (#421).
+- Near-field floor streaks fell by 3-9 points, not to zero (#19), and the wedge pattern in the far field is
+  unchanged.
+- In a low corridor the ceiling fitting is still a plate flush on the slab and only enters the frame from about
+  1.5 m out, so up close you are inside it (#413).
+- The rule "every room says what it is for" is still unmet in the open-hall level class; the work is written and
+  on hold pending a design decision (#422).
+
 ## [v1.4.3] - 2026-10-10
 
 ### Added
