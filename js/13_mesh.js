@@ -1145,7 +1145,7 @@ const MESH = (function () {
        PROP_R1 is that spread: the shipped ramp gave a face pair about 1.23x and delivered 1.18x because
        the ambient outside it is a floor both faces share; 1.1 on the whole light is the issue's "at
        least 35 luminance where the shipped build gives 18". */
-    const PROP_R1 = 1.1, PROP_DMEAN = 0.45;
+    const PROP_R1 = 1.1, PROP_DMEAN = 0.45, PROP_ASH = 0.35;
     FLR = MDL ? (o.floor || 0) : 0; RIMK = MDL ? (o.rim || 0) : 0;
     ALPHA = o.alpha === undefined ? 1 : o.alpha;
     FLASH = o.flash ? 1 : 0;
@@ -1302,10 +1302,22 @@ const MESH = (function () {
            geometry happens not to favour. Bodies and the view model keep the shipped line untouched -
            #407 prices the body's ramp against its own field and #376 owns the gun. */
         const aw = pr ? 1 + PROP_R1 * (d - PROP_DMEAN) : 1;
+        /* #371 (second pass): the AMBIENT half of that term carries a smaller share of the swing.
+           The lamp field is directional, so a full ramp on it is what puts one flank in shadow. The
+           ambient is not - it is the room's own floor level, and it is the SAME term the deck pixel
+           under the prop receives (js/40_render.js:967 `baseRow = amb + ...`), so pushing it down by
+           the face ramp moves a prop's whole mean off the surface it stands on. Measured on the 14
+           scorable `surface` PROP poses: at PROP_ASH 1 (how #476 shipped) 6 of 14 sit inside #369's
+           +-25 luma bar with a mean |prop - deck| of 33.1; at 0.35 it is 7 of 14 and 29.9, and EVERY
+           pose is at or under its shipped gap (L0 cam2 -63.3 -> -57.0, L0 cam1 -28.9 -> -24.8, L1 cam3
+           -55.4 -> -47.3, L2 cam1 -24.7 -> -17.6). No pose is traded away: that is why the share is
+           0.35 and not 0, which keeps the lit/shaded spread where the direction actually lives - the
+           lamp field - and stops the ambient from being shaded below the deck's own ambient. */
+        const awA = pr ? 1 + PROP_R1 * PROP_ASH * (d - PROP_DMEAN) : 1;
         const lw = pr ? aw : sh;
-        lr = (AMB * aw + li * lt[0] * lw + fk * (FC[0] / 255)) * hz;
-        lg = (AMB * aw + li * lt[1] * lw + fk * (FC[1] / 255)) * hz;
-        lb = (AMB * aw + li * lt[2] * lw + fk * (FC[2] / 255)) * hz;
+        lr = (AMB * awA + li * lt[0] * lw + fk * (FC[0] / 255)) * hz;
+        lg = (AMB * awA + li * lt[1] * lw + fk * (FC[1] / 255)) * hz;
+        lb = (AMB * awA + li * lt[2] * lw + fk * (FC[2] / 255)) * hz;
         if (DIM) { lr *= 1 - DIM; lg *= 1 - DIM; lb *= 1 - DIM; }   // the portal's shut-and-dimmed term
         /* #371: the fold is a bound on the PRODUCT (albedo x light), not on the light, so it rides where
            the product is finished and the light-exempt branch has already been taken round. PKN is a
