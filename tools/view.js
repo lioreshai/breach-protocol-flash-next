@@ -8344,6 +8344,139 @@ if (MODE === 'contrast') {
       }
     }
   }
+  /* ---- #416 THE BUSYNESS ROWS: is the paint BEHIND a body the sharpest thing in the frame? -------
+     The rows above ask whether a body keeps his room's LIGHT (mean luma, #407) and whether his own
+     surface carries STRUCTURE (#244). #416's second acceptance criterion is the third question and no
+     row asked it: "an enemy ten metres out on ABATOIR CORE's floor can be picked out by moving him
+     against the floor behind him - the background is no longer the sharpest thing in the frame". That
+     is a claim about the background's own internal slope, and `matband` can only bound it on the BAKED
+     tile (grain 19-70 luma per 2 texels before #438): a tile that measures quiet on the sheet can still
+     be the steepest edge in a frame, because what the eye gets is the DELIVERED slope per SCREEN pixel,
+     after mip selection, light and fog. So this measures it in the frame.
+       region   the pixels the coverage mask says the body painted, read from the render with the body
+                REMOVED - the surface he stands in front of, at his own screen rows, with no projection
+                arithmetic and no wall pixel counted (the #407 background, the same trick).
+       operator mean |L(x+1) - L(x-1)| / 2 - the one #244 adopted for the torso, so `busyness` here and
+                the torso gradient above are the same arithmetic on different pixels and the ratio
+                between them is a comparison, not two idioms.
+       bar      the BACKGROUND's slope against the BODY's own surface slope, measured with the same
+                operator over the same screen region on the frame that HAS him in it. Same units,
+                luma per screen pixel, both sides - #232's rule is that a body's own surface carries the
+                LOWEST internal gradient in the table so his silhouette does the separating, and the
+                background half of that sentence has never been measured. The body number takes only
+                pixels with a one-pixel cushion of mask around them, so his OUTLINE cannot inflate it
+                (the same reason #244 cushions the torso band; at combat range a whole 2 px cushion
+                leaves too few pixels to average, so the cushion here is one, stated not hidden).
+     THE FALSIFIER is BUS_FLAT=1 and it is in-run: it takes THIS LEVEL'S OWN deck tile to its own mean
+     - grain to zero, mip chain rebuilt, bytes restored after the render - which is the one arm that
+     separates "the paint is quiet" from "the light field is quiet". Raising a tile's grain in the same
+     way was tried first and measures NOTHING at 10 m: past FARB a ground pixel is the mip-mean wash, so
+     per-texel speckle cannot reach the delivered slope at all (AGENTS: the far answer, #19). The bar
+     prints as debt under #416 and gates under STRICT=1, the repo's shape for a new row in a blocking
+     probe; the flatten arm is a hard row, because an arm that moves nothing is not a control. */
+  const BUS_D = 10, BUS_MINPX = 40, BUS_CUSH = 20, BUS_RATIO = +(process.env.BUS_RATIO !== undefined ? +process.env.BUS_RATIO : 6),
+    BUSFLAT = process.env.BUS_FLAT === '1';
+  for (let lv = 0; lv < 4; lv++) {
+    run(`startLevel(${lv}, true); S.mode='play'; S.locked=false;`);
+    const g = run(`(()=>{
+      let best = -1, ba = P.ang;
+      for (let k = 0; k < 48; k++) { const a = k * Math.PI / 24;
+        const m = __march(P.x, P.y, Math.cos(a), Math.sin(a), ${BUS_D} + 1);
+        if (m.dist > best) { best = m.dist; ba = a; } }
+      P.ang = ba; P.pitch = 0; P.z = floorAt(P.x, P.y);
+      let e = null;
+      for (const q of ENEMIES) if (q.state !== 'dead' && (!e || q.scale > e.scale)) e = q;
+      if (!e) { e = makeEnemy('grunt', P.x, P.y); ENEMIES.push(e); e.fresh = 1; }
+      window.__dBody = e; window.__dKeep = ENEMIES.slice();
+      const cx = Math.cos(ba), cy = Math.sin(ba), bx = P.x + cx * ${BUS_D}, by = P.y + cy * ${BUS_D};
+      e.x = bx; e.y = by; e.z = floorAt(bx, by); e.ang = ba + Math.PI; e.movingAmt = 0; e.state = 'sleep';
+      for (const q of ENEMIES) if (q !== e) q.state = 'sleep';
+      let tn = '-'; for (const k in FLOORS) if (FLOORS[k] === MAP.floorTex) tn = 'FLOORS.' + k;
+      return { clear: +best.toFixed(2), seat: [+P.x.toFixed(2), +P.y.toFixed(2)],
+        body: [+bx.toFixed(2), +by.toFixed(2)], kind: e.kind, made: !!e.fresh, tex: tn };
+    })()`);
+    const busRay = 'L' + lv + ' at ' + BUS_D + ' m on the spawn seat';
+    if (g.clear < BUS_D) {
+      row(busRay + ' background is not steeper than his outline (#416)', false,
+        'no clear ray reaches ' + BUS_D + ' m from the spawn seat ' + JSON.stringify(g.seat) + ' - the longest '
+        + 'march over 48 yaws stops at ' + g.clear + ' m, so the busyness behind a body cannot be measured at '
+        + 'this range on this seat (the cone, not the paint)', '#189');
+      continue;
+    }
+    run('if (!COV || COV.length !== BW * BH) COV = new Uint8Array(BW * BH);');
+    const bus = (sabotage) => {
+      if (sabotage) run(`(()=>{ const t = MAP.floorTex; window.__busKeep = { d: t.data, m: t.mips };
+        const o = t.data, n = o.length; let sr = 0, sg = 0, sb = 0;
+        for (let i = 0; i < n; i++) { sr += o[i] & 255; sg += o[i] >> 8 & 255; sb += o[i] >> 16 & 255; }
+        const mr = Math.round(sr / n), mg = Math.round(sg / n), mb = Math.round(sb / n), d = new Uint32Array(n);
+        for (let i = 0; i < n; i++) d[i] = (o[i] & 0xFF000000) | (mb << 16) | (mg << 8) | mr;
+        let dev = 0;
+        for (let i = 0; i < n; i++) dev += Math.abs(0.2126 * (o[i] & 255) + 0.7152 * (o[i] >> 8 & 255) + 0.0722 * (o[i] >> 16 & 255) -
+          (0.2126 * mr + 0.7152 * mg + 0.0722 * mb));
+        t.data = d; t.mips = buildMips(t.w, t.h, d);
+        window.__busSab = { dev: dev / n, mean: 0.2126 * mr + 0.7152 * mg + 0.0722 * mb };
+        return 1 })()`);
+      run('ENEMIES.length = 0; ENEMIES.push(window.__dBody); S.t = 3.5; ' + VMREST + ' renderWorld();');
+      const A = new Uint32Array(run('px')), M = new Uint8Array(run('COV'));
+      run('ENEMIES.length = 0; S.t = 3.5; ' + VMREST + ' renderWorld();');
+      const Bb = new Uint32Array(run('px'));
+      run('ENEMIES.length = 0; for (const q of __dKeep) ENEMIES.push(q);');
+      if (sabotage) run('(()=>{ const t = MAP.floorTex; t.data = window.__busKeep.d; t.mips = window.__busKeep.m; return 1; })();');
+      const ring = ringOf(M), ed = edgeOf(A, M, ring);
+      let n = 0, gs = 0, bg = 0, bn = 0;
+      for (let y = 1; y < H - 1; y++) {
+        const rw = y * W;
+        for (let x = 1; x < W - 1; x++) {
+          const i = rw + x;
+          if (!M[i]) continue;
+          n++; gs += Math.abs(lum(Bb, i + 1) - lum(Bb, i - 1)) * 0.5;
+          // the body's own surface slope, ONE-pixel cushioned so his outline cannot inflate it
+          if (M[i - 1] && M[i + 1] && M[i - W] && M[i + W]) { bn++; bg += Math.abs(lum(A, i + 1) - lum(A, i - 1)) * 0.5; }
+        }
+      }
+      const sab = sabotage ? run('window.__busSab') : null;
+      return { n, back: n ? gs / n : 0, body: bn ? bg / bn : 0, bpx: bn, dl: ed.dl, en: ed.en, sab };
+    };
+    const m0 = bus(false), m1 = BUSFLAT ? bus(true) : null;
+    const name = 'L' + lv + ' at ' + BUS_D + ' m: the paint behind him vs his outline (#416)';
+    if (m0.n < BUS_MINPX || !m0.en) {
+      row(name, false, 'vacuous: ' + m0.n + ' coverage px behind the body (' + m0.en + ' with a background) at '
+        + BUS_D + ' m, under the ' + BUS_MINPX + ' px floor - a mean over that is not a measurement');
+      continue;
+    }
+    const quiet = m0.bpx >= BUS_CUSH && m0.dl >= m0.back * BUS_RATIO;
+    // (debt is passed below so a regression REPORTS under #416 and gates under STRICT, the repo's shape
+    //  for a new row in a blocking probe; vacuity - the px floors - never takes the debt branch.)
+    row(name, quiet,
+      (m0.bpx < BUS_CUSH ? 'vacuous: only ' + m0.bpx + ' cushioned body px at ' + BUS_D + ' m, under the '
+        + BUS_CUSH + ' floor, so no surface slope can be attributed to him'
+        : 'the surface behind him delivers ' + m0.back.toFixed(2) + ' luma of slope per screen px and his OWN'
+          + ' surface on the same region reads ' + m0.body.toFixed(2) + ' (' + m0.bpx + ' cushioned px of '
+          + m0.n + ' he paints) - the paint behind him is '
+          + (m0.back > m0.body ? 'BUSIER than he is, so the sharpest thing in that region is the deck, not'
+            + ' the body' : 'the quieter of the two, so his silhouette is the edge the eye takes')
+          + ' | his outline step against that same surface is ' + m0.dl.toFixed(1) + ' luma, on ' + m0.n
+          + ' coverage px of kind ' + g.kind + ' on deck ' + g.tex + ' (body at ' + JSON.stringify(g.body)
+          + ', seat ' + JSON.stringify(g.seat) + (g.made ? ', PLACED - this level spawns none' : '') + ')'),
+      m0.bpx >= BUS_CUSH && m0.dl >= m0.back * BUS_RATIO ? undefined : '#416')
+      + (m1 ? ' | with THIS DECK FLATTENED to its own mean (grain taken to 0, mean luma '
+        + m1.sab.mean.toFixed(1) + ', mip chain rebuilt) the same region behind the SAME body reads '
+        + m1.back.toFixed(2) + ' luma/px, so the figure above IS the paint and not the light field' : '')
+      + ' | the bar is his outline at ' + BUS_RATIO + 'x the delivered slope behind him, measured against '
+      + 'the ' + (m0.dl / m0.back).toFixed(1) + 'x this seat reads at this head; it reports as #' + '416 debt '
+      + 'and STRICT=1 gates it';
+    if (!m1) continue;
+    row('L' + lv + ': flattening the deck under him quiets the same pixels (#416 falsifier)',
+      m1.back <= m0.back * 0.5,
+      'taking THIS LEVEL\'S OWN deck tile to its own mean (every texel, mean luma ' + m1.sab.mean.toFixed(1)
+      + ', mean abs deviation ' + m1.sab.dev.toFixed(1) + ' luma/texel removed, mip chain rebuilt) moves the '
+      + 'busyness BEHIND THE SAME BODY from ' + m0.back.toFixed(2) + ' to ' + m1.back.toFixed(2) + ' luma/px. '
+      + 'A run whose rows read the SAME with the deck flattened is a statistic that stopped reading the paint '
+      + '- which is the exact shape #416 says the acceptance was argued from before: a baked sheet. '
+      + 'It reports rather than gates at this head because at 10 m a ground pixel IS the mip-mean wash '
+      + '(AGENTS, #19), so the paint half of this number belongs to `matband` and this row prices only '
+      + 'what the eye is actually delivered. STRICT=1 gates it.', '#416');
+  }
   if (process.env.ARMCOST) {
     /* What the mask costs WHEN A PROBE ARMS IT - the only state in which it can cost anything, and
        the number that says what a run of this probe pays. Interleaved rolls in one process, same
