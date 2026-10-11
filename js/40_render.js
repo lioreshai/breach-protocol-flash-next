@@ -521,7 +521,7 @@ let MIPAX = 1, MIPAR = 4;
    All of them are read once per row (the last one once per deferred pixel), never per pixel of a row, and
    none of them adds a THIRD copy of the ground pixel body: a switch shows up as a zero slope, a zero
    offset or one fewer load, not as a new loop. */
-let GJIT = 1, GLRP = 1, GNDAX = 1, AXMIN = 1.5, GLC = null, GNDFT = 1, GNDRO = 1, GNDFB = 1, GNDOF = 1;
+let GJIT = 1, GLRP = 1, GNDAX = 1, AXMIN = 1, GLC = null, GNDFT = 1, GNDRO = 1, GNDFB = 1, GNDOF = 1;
 /* #19 take six - THE GRADED BLEND, and the strength of it. The five takes above change WHERE a pixel
    reads and HOW the texel is fetched; none of them changes WHAT AREA GETS AVERAGED, which is the only
    term issue #19's band table says is still unaccounted for. A pixel's strip on the plane runs about one
@@ -1139,7 +1139,17 @@ function castGround(flash, fcR, fcG, fcB) {
         const rowT = Math.sqrt(rowT2);
         if (rowT > AXMIN) { axOn = 1; ox = wxs * ms * 0.5; oy = wys * ms * 0.5; }
       }
-      ox |= 0; oy |= 0;
+      /* ROUND, DO NOT TRUNCATE. Both taps are whole texels, so this is the only place the pair's REACH
+         is decided - and truncating toward zero makes a footprint of half a texel to a whole one read as
+         an offset of ZERO, which is the pair reading the SAME texel three times: two loads that average
+         nothing, and the pixel keeps the point fetch's radial wedge. That is the 1-2 texel band, which on
+         the DECK is the near field - the largest area of the frame - and it was the one band the graded
+         blend hands off at (its weight is 1 - 1/F, zero at F = 1). The offset advances by oxs per column,
+         which for a near-axis sight line is a few thousandths of a texel, so a truncated START is the
+         offset for the whole row: this is why the pair ran on those rows and did nothing. The deferred
+         copy has always rounded at its fetch (the line below it in groundPixel); the two copies of the
+         body now carry the same expression, as AGENTS.md requires. */
+      ox = (ox + 0.5) | 0; oy = (oy + 0.5) | 0;
     }
     /* #19 take six, the ROW copy: F is a row constant here, because the row's mip, its texel scale and
        its column delta all are - so the blend is graded per ROW in this copy and per PIXEL in the other
