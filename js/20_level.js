@@ -200,7 +200,43 @@ const faceZ0 = (x, y, d) => Math.max(floorAt(x, y), floorAt(x + DIRX[d], y + DIR
 function buildCeilPlanes() {
   const cp = MAP.ceilPlane;
   for (let y = 0, i = 0; y < MH; y++) for (let x = 0; x < MW; x++, i++) cp[i] = ceilAt(x, y);
+  buildCeilSlab();                                     // WHICH plane that is is derived in the same breath
   return cp;
+}
+/* Which columns have somebody's FLOOR over their head (#421).
+   `ceilAt` answers a column's overhead altitude as max(own floor + own clearance, the tallest
+   neighbouring floor), and both answers land in `MAP.ceilPlane` at the same type - so a slab's
+   underside arrives at the renderer indistinguishable from the level's own ceiling sheet, which is
+   the whole of issue #421: walk under a deck, look up, and the frame says "ceiling".
+   This is a classification, not an altitude: it reads the SAME two authored arrays `ceilAt` reads
+   (fz, cz) plus the cell grid, writes nothing the movement code reads, and hangs off
+   `buildCeilPlanes` so it can never disagree with the plane it describes - the same one-source rule
+   that keeps `planes` able to catch a forgotten `linkBoundaries()`.
+   One byte per column: bit 0 says the overhead plane is a slab's underside; bits 1..4 say on WHICH
+   side(s) the deck that owns it stands, which is where its edge is - the renderer lights that side so
+   the near edge of the slab is in the frame before you try to shoot over it. A raised SOLID column
+   is deliberately not evidence: its floor is a mound's base, not a deck you can stand on, and
+   plating a corridor's ceiling because a rock stands beside it is a new bug, not this one.
+   Flat levels answer 0 everywhere - no neighbour's floor reaches own floor + clearance - so a flat
+   frame runs no part of the term and stays bit-identical (flatparity). */
+function buildCeilSlab() {
+  const cs = MAP.ceilSlab, cell = MAP.cell, fz = MAP.fz, cz = MAP.cz, N = MW;
+  if (!cs) return null;
+  for (let y = 0, i = 0; y < MH; y++) for (let x = 0; x < N; x++, i++) {
+    cs[i] = 0;
+    if (cell[i]) continue;                              // no air, so nothing can be over its head
+    const own = fz[i] * ZQ + Math.max(ZQ, cz[i] * ZQ);   // the ceiling this column would have on its own
+    let m = 0;
+    for (let d = 0; d < 4; d++) {
+      const nx = x + DIRX[d], ny = y + DIRY[d];
+      if (nx < 0 || ny < 0 || nx >= N || ny >= MH) continue;
+      const j = ny * N + nx;
+      if (cell[j]) continue;
+      if (fz[j] * ZQ >= own - 1e-9) m |= 1 << (d + 1);   // that deck's floor IS this column's ceiling
+    }
+    if (m) cs[i] = 1 | m;
+  }
+  return cs;
 }
 /* Which band of the column (x,y) an altitude belongs to. A column has one walkable band
    in this representation, so the answer is 0 inside it and -1 in the slabs and void
@@ -1797,7 +1833,8 @@ function buildAuthored(li) {
     wallBias: cfgL.wallBias || 0,                // #369: the wall half of the same order; 0 unless authored
     stepEdge: cfgL.stepEdge || 0,                    // #385: the authored absolute crease, 0 unless the level authors one
     floorTex: FLOORS[cfgL.floor], ceilTex: CEILS[cfgL.ceil],
-    fz, cz, vb: new Uint16Array(N * N), feat, ceilPlane: new Float64Array(N * N)
+    fz, cz, vb: new Uint16Array(N * N), feat, ceilPlane: new Float64Array(N * N),
+    ceilSlab: new Uint8Array(N * N)
   };
   // the same finalisation every path through this file ends with: the derived arrays are derived,
   // never authored, and anything that wrote MAP.fz/MAP.cz without this would ship last frame's ceilings
@@ -2023,7 +2060,7 @@ function genLevel(li) {
       floorTile: 1.15, ceilTile: 0.9,
       fz: fzTry, cz: czTry,
       vb: vbTry, feat: featTry,
-      ceilPlane: new Float64Array(N * N) };
+      ceilPlane: new Float64Array(N * N), ceilSlab: new Uint8Array(N * N) };
     MW = N; MH = N; linkBoundaries(); decalGridInit();
 
     bfsDist = dist;
@@ -2416,7 +2453,8 @@ function genLevel(li) {
     lR: new Float32Array(N * N).fill(0.6), lG: new Float32Array(N * N).fill(0.6), lB: new Float32Array(N * N).fill(0.6), lw: new Float32Array(N * N).fill(0.7),
     lt: new Uint8Array(N * N * 3).fill(128), amb: 0.14, tintDirty: false, floorTex: FLOORS.CONCRETE, ceilTex: CEILS.CONCRETE, floorTile: 1.15, ceilTile: 0.9,
     fz: new Int8Array(N * N), cz: new Uint8Array(N * N).fill(CZ_DEF),
-    vb: new Uint16Array(N * N), feat: new Uint8Array(N * N), ceilPlane: new Float64Array(N * N) };
+    vb: new Uint16Array(N * N), feat: new Uint8Array(N * N), ceilPlane: new Float64Array(N * N),
+    ceilSlab: new Uint8Array(N * N) };
   MW = N; MH = N; linkBoundaries(); decalGridInit(); explored = new Uint8Array(N * N); S.revealed = 0;
   LIGHTS = []; PROPS = []; PICKUPS = []; PROJ = []; PARTS = []; ENEMIES = [];
   exitX = N - 2.5; exitY = N - 2.5; P.x = 2.5; P.y = 2.5; P.z = floorAt(P.x, P.y);
