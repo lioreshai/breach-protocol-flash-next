@@ -123,8 +123,8 @@ that gets you up there. Hand-authoring removes the seed excuse — this plan is 
 a 20 × 20 grid — and it also shows what is still missing: `tools/view.js volume` reports this seat's
 headroom as `1.00..1.00`, so the level is genuinely two-storey in `MAP.fz` and still reads as a low room
 with a bright slit in it (#353). The light is brighter than this seat's last frame was: 50.14 → 66.75,
-and the room has gained visible ceiling fittings since, which is a lighting change and not this wall's
- doing.
+and the room has gained visible ceiling fittings since — that half of the move is lighting, not this
+wall.
 
 ## How it works
 * **Renderer** — software raycaster (Wolfenstein-style DDA) into an `ImageData`'s `Uint32Array` at
