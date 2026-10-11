@@ -212,11 +212,17 @@ function buildCeilPlanes() {
    (fz, cz) plus the cell grid, writes nothing the movement code reads, and hangs off
    `buildCeilPlanes` so it can never disagree with the plane it describes - the same one-source rule
    that keeps `planes` able to catch a forgotten `linkBoundaries()`.
-   One byte per column: bit 0 says the overhead plane is a slab's underside; bits 1..4 say on WHICH
-   side(s) the deck that owns it stands, which is where its edge is - the renderer lights that side so
-   the near edge of the slab is in the frame before you try to shoot over it. A raised SOLID column
+   One SHORT per column: bit 0 says the overhead plane is a slab's underside; bits 1..4 say on WHICH
+   side(s) the deck that owns it stands, which is where its NEAR edge is - the renderer lights that side
+   so the edge you would shoot over is in the frame; bits 5..8 say on which side(s) the UNDERSIDE ENDS,
+   which is the other boundary the slab has and the only one in frame when you are already standing
+   under it (issue #421's remaining defect: the plate and the sheet it stops against came back the same
+   luma, so the far edge of a mezzanine was one straight line with nothing on it). A raised SOLID column
    is deliberately not evidence: its floor is a mound's base, not a deck you can stand on, and
    plating a corridor's ceiling because a rock stands beside it is a new bug, not this one.
+   Nine bits need a 16-bit cell, so the array widened; nothing reads it as bytes (the probes read it
+   with `& 1` / `& 30` and count nonzero), and the derived-only rule is unchanged - it still writes
+   nothing the movement code reads.
    Flat levels answer 0 everywhere - no neighbour's floor reaches own floor + clearance - so a flat
    frame runs no part of the term and stays bit-identical (flatparity). */
 function buildCeilSlab() {
@@ -235,6 +241,20 @@ function buildCeilSlab() {
       if (fz[j] * ZQ >= own - 1e-9) m |= 1 << (d + 1);   // that deck's floor IS this column's ceiling
     }
     if (m) cs[i] = 1 | m;
+  }
+  /* Second pass: where the underside region STOPS. It is a region, not a cell property - a boundary is
+     an end when the column beyond it has no underside over its own head (a plain ceiling), is solid, or
+     is off the map. Derived off the first pass rather than off `fz`, so the two halves cannot disagree
+     about which columns are under a deck, and a poke that re-decides floors re-decides both together. */
+  for (let y = 0, i = 0; y < MH; y++) for (let x = 0; x < N; x++, i++) {
+    if (!(cs[i] & 1)) continue;
+    let e = 0;
+    for (let d = 0; d < 4; d++) {
+      const nx = x + DIRX[d], ny = y + DIRY[d];
+      if (nx < 0 || ny < 0 || nx >= N || ny >= MH) { e |= 1 << (d + 5); continue; }
+      if (!(cs[ny * N + nx] & 1)) e |= 1 << (d + 5);
+    }
+    cs[i] |= e;
   }
   return cs;
 }
@@ -1834,7 +1854,7 @@ function buildAuthored(li) {
     stepEdge: cfgL.stepEdge || 0,                    // #385: the authored absolute crease, 0 unless the level authors one
     floorTex: FLOORS[cfgL.floor], ceilTex: CEILS[cfgL.ceil],
     fz, cz, vb: new Uint16Array(N * N), feat, ceilPlane: new Float64Array(N * N),
-    ceilSlab: new Uint8Array(N * N)
+    ceilSlab: new Uint16Array(N * N)
   };
   // the same finalisation every path through this file ends with: the derived arrays are derived,
   // never authored, and anything that wrote MAP.fz/MAP.cz without this would ship last frame's ceilings
@@ -2060,7 +2080,7 @@ function genLevel(li) {
       floorTile: 1.15, ceilTile: 0.9,
       fz: fzTry, cz: czTry,
       vb: vbTry, feat: featTry,
-      ceilPlane: new Float64Array(N * N), ceilSlab: new Uint8Array(N * N) };
+      ceilPlane: new Float64Array(N * N), ceilSlab: new Uint16Array(N * N) };
     MW = N; MH = N; linkBoundaries(); decalGridInit();
 
     bfsDist = dist;
@@ -2454,7 +2474,7 @@ function genLevel(li) {
     lt: new Uint8Array(N * N * 3).fill(128), amb: 0.14, tintDirty: false, floorTex: FLOORS.CONCRETE, ceilTex: CEILS.CONCRETE, floorTile: 1.15, ceilTile: 0.9,
     fz: new Int8Array(N * N), cz: new Uint8Array(N * N).fill(CZ_DEF),
     vb: new Uint16Array(N * N), feat: new Uint8Array(N * N), ceilPlane: new Float64Array(N * N),
-    ceilSlab: new Uint8Array(N * N) };
+    ceilSlab: new Uint16Array(N * N) };
   MW = N; MH = N; linkBoundaries(); decalGridInit(); explored = new Uint8Array(N * N); S.revealed = 0;
   LIGHTS = []; PROPS = []; PICKUPS = []; PROJ = []; PARTS = []; ENEMIES = [];
   exitX = N - 2.5; exitY = N - 2.5; P.x = 2.5; P.y = 2.5; P.z = floorAt(P.x, P.y);

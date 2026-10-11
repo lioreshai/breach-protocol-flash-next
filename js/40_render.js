@@ -302,10 +302,22 @@ const CEILHI = 3.0, CEILG = 1.4, CEILGM = 0.9;
        separates (SLAB_LIPA, still a texel multiplier): #353's own note that a mezzanine needs a lit
        riser edge to read as a floor rather than a silhouette, paid on the soffit rather than on a lamp,
        so it costs no light and cannot out-light the deck it is under.
+     * the seam - and then the OTHER edge, the one that is in frame when you are already under the deck.
+       The underside is a REGION, and bits 5..8 of the mask say which sides it stops at (`buildCeilSlab`'
+       second pass). Where it stops against the level's own sheet the two surfaces arrived at the same
+       luma - measured at 3.4 and 11.5 luma apart at the two look-up seats this was graded from - so a
+       slab's far edge was one straight line with no depth on it, which is the defect this increment is
+       the second half of. A shadow gap pays for it: within SLAB_SEAM metres of an end boundary the plate
+       is DARKER by SLAB_SEAMK, ramped, a texel multiplier again and a DARKENING. That direction is the
+       whole point: it cannot out-light the deck above it (#369's ORDER cap, untouched), it spends none
+       of the vault lift #410 capped (the room below is still what decides how bright the plate gets),
+       and a shadow gap is what a slab's edge actually is where it meets a ceiling - the crease loses
+       the light because of its shape, not because anything was hung there.
    Dead where nothing is overhead: on a flat level `MAP.ceilSlab` is zero everywhere, so `und` is 0 for
    every pixel and neither copy of the ground pixel body runs a line of the term - flatparity's frames
    stay bit-identical. `SLABUND = 0` is the A/B that puts the old picture back in a running page. */
-const SLAB_ALB = 1.42, SLAB_RIB = 2, SLAB_RIBW = 0.30, SLAB_RIBK = 0.62, SLAB_LIP = 0.26, SLAB_LIPA = 0.9;
+const SLAB_ALB = 1.42, SLAB_RIB = 2, SLAB_RIBW = 0.30, SLAB_RIBK = 0.62, SLAB_LIP = 0.26, SLAB_LIPA = 0.9,
+  SLAB_SEAM = 0.09, SLAB_SEAMK = 0.78;
 let SLABUND = 1;
 const visAt = d => 1 / (1 + d * d * 0.010) + 0.06 * Math.exp(-d * 0.06);
 const fogAt = d => clamp(1 - visAt(d), 0, 1);
@@ -1405,6 +1417,14 @@ function castGround(flash, fcR, fcG, fcB) {
           if ((und & 16) && fyu < lw) lw = fyu;
           if (lw < SLAB_LIP) ku += SLAB_LIPA * (1 - lw / SLAB_LIP);
         }
+        if (und & 480) {                               // bits 5..8: the sides the UNDERSIDE stops at
+          let ew = 4;
+          if ((und & 32) && 1 - fxu < ew) ew = 1 - fxu;
+          if ((und & 128) && fxu < ew) ew = fxu;
+          if ((und & 64) && 1 - fyu < ew) ew = 1 - fyu;
+          if ((und & 256) && fyu < ew) ew = fyu;
+          if (ew < SLAB_SEAM) { const sv = 1 - ew / SLAB_SEAM; ku *= 1 - SLAB_SEAMK * sv * sv; }
+        }
         const ka = SLAB_ALB * ku;
         cr = cr * ka * 0.97; cg = cg * ka; cb = cb * ka * 1.06;
       }
@@ -1928,6 +1948,14 @@ function groundPixel(x0, x1, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb
       if ((ux & 4) && 1 - fyu < lw) lw = 1 - fyu;
       if ((ux & 16) && fyu < lw) lw = fyu;
       if (lw < SLAB_LIP) ku += SLAB_LIPA * (1 - lw / SLAB_LIP);
+    }
+    if (ux & 480) {                                    // #421, second copy: same bits, same seam
+      let ew = 4;
+      if ((ux & 32) && 1 - fxu < ew) ew = 1 - fxu;
+      if ((ux & 128) && fxu < ew) ew = fxu;
+      if ((ux & 64) && 1 - fyu < ew) ew = 1 - fyu;
+      if ((ux & 256) && fyu < ew) ew = fyu;
+      if (ew < SLAB_SEAM) { const sv = 1 - ew / SLAB_SEAM; ku *= 1 - SLAB_SEAMK * sv * sv; }
     }
     const ka = SLAB_ALB * ku;
     cr = cr * ka * 0.97; cg = cg * ka; cb = cb * ka * 1.06;
