@@ -286,6 +286,27 @@ function buildGrain() {
    needs no new number: -0.12 is already the cap, 0 - (-0.12). Height is said by the riser seam and the
    minimap band cue (#164), not by light. */
 const CEILHI = 3.0, CEILG = 1.4, CEILGM = 0.9;
+/* #421: what a slab's UNDERSIDE is made of.
+   A column whose overhead plane is a NEIGHBOUR's walkable floor has a FLOOR above it, and until this
+   increment the ceiling pass painted that plane in the level's own ceiling material at the level's own
+   grain under the light of the room below - so a mezzanine and a plain ceiling were one picture, and
+   the edge you would need in order to know what you can shoot over was one straight line with no depth
+   on it (`buildCeilSlab`, js/20_level.js, says which columns those are; it is derived, never authored).
+   The answer is a MATERIAL and a SHAPE, not more light, which is what #369/#410 already spent:
+     * albedo - a soffit is painted plate over joists, so it sits above the ceiling sheet's albedo by
+       SLAB_ALB and carries a joist rib every half metre along the span that runs AT the deck the mask
+       names. Both are multipliers on the TEXEL, ahead of the light term, so distance, fog and the room
+       below stay in charge of how bright it gets: a soffit in a dark room stays dark and #410's cap on
+       the vault lift is untouched.
+     * the lip - within SLAB_LIP metres of the side the deck stands on, the plate catches the storey it
+       separates (SLAB_LIPA, still a texel multiplier): #353's own note that a mezzanine needs a lit
+       riser edge to read as a floor rather than a silhouette, paid on the soffit rather than on a lamp,
+       so it costs no light and cannot out-light the deck it is under.
+   Dead where nothing is overhead: on a flat level `MAP.ceilSlab` is zero everywhere, so `und` is 0 for
+   every pixel and neither copy of the ground pixel body runs a line of the term - flatparity's frames
+   stay bit-identical. `SLABUND = 0` is the A/B that puts the old picture back in a running page. */
+const SLAB_ALB = 1.42, SLAB_RIB = 2, SLAB_RIBW = 0.30, SLAB_RIBK = 0.62, SLAB_LIP = 0.26, SLAB_LIPA = 0.9;
+let SLABUND = 1;
 const visAt = d => 1 / (1 + d * d * 0.010) + 0.06 * Math.exp(-d * 0.06);
 const fogAt = d => clamp(1 - visAt(d), 0, 1);
 const clampi = v => v < 0 ? 0 : v > 255 ? 255 : v | 0;
@@ -897,6 +918,7 @@ function castGround(flash, fcR, fcG, fcB) {
   const hInt = Math.round(horizon);
   const stepBase = 2 / BW;
   const cellArr = MAP.cell, N = MAP.w, lm = MAP.light, fzs = MAP.fz, cp = MAP.ceilPlane;
+  const csk = SLABUND ? MAP.ceilSlab : null;          // #421: which columns have a floor over their head
   const floorTex = MAP.floorTex || FLOORS.CONCRETE, ceilTex = MAP.ceilTex || CEILS.CONCRETE;
   const tileF = MAP.floorTile || 1.15, tileC = MAP.ceilTile || 0.9;
   const dMasks = DECAL_MASK, dGrid = DECAL_GRID;
@@ -1043,12 +1065,14 @@ function castGround(flash, fcR, fcG, fcB) {
        only a handful of px wide -> the fold is the spoke, and there is no repetition left to tell.
        GJIT 2 answers 1 without looking (the shipped behaviour, the A/B control); 0 answers 0. */
     const mirOn = GJIT === 2 ? 1 : (GJIT === 1 && BH / dRow >= GJITPX ? 1 : 0);
+    const cskOn = !isF && csk ? 1 : 0;                // #421, a row constant: floor rows have no soffit
     let pxi = wx | 0, pyi = wy | 0, cIdx = pyi * N + pxi, mir = 0,
       ldr = 0, ldg = 0, ldb = 0, lhr = 0, lhg = 0, lhb = 0;
     let inMap = pxi >= 0 && pyi >= 0 && pxi < N && pyi < N;
     let lt = inMap ? cellTint(cIdx) : TINT_WHITE, li = inMap && lm ? lm[cIdx] : 0;
     if (li > 1) li = 1;
     let lr = baseRow + li * lt[0], lg = baseRow + li * lt[1], lb = baseRow + li * lt[2];
+    let und = cskOn && inMap ? csk[cIdx] : 0;         // #421: seeded like mir and the light, see below
     /* The row's FIRST pixel is seeded here because the crossing branch below cannot see it. These are
        the same expressions that branch runs and they must move with it, exactly as the pixel body in
        castGround and the one in groundPixel() must move together. */
@@ -1170,6 +1194,7 @@ function castGround(flash, fcR, fcG, fcB) {
         pxi = gx; pyi = gy; cIdx = gy * N + gx;
         inMap = gx >= 0 && gy >= 0 && gx < N && gy < N;
         if (inMap) {
+          und = cskOn ? csk[cIdx] : 0;                // #421: the slab classification rides the crossing
           lt = cellTint(cIdx); li = lm ? lm[cIdx] : 0.4;
           // #21: the row's own pixels are clamped at row init; a crossing re-lookup must clamp too,
           // or the same lamp renders twice at two different ceilings inside one row.
@@ -1198,7 +1223,7 @@ function castGround(flash, fcR, fcG, fcB) {
              folds it, and a fold in perspective is a spoke (#19). GJIT 2 keeps the mirror for the A/B. */
           mir = mirOn ? (hash2(gx, gy) * 4) | 0 : 0;    // per-cell mirror, dropped in the far field
         } else {
-          gndOffMap++; lt = TINT_WHITE; li = 0; lr = lg = lb = base; ldr = ldg = ldb = lhr = lhg = lhb = 0; mir = 0;
+          gndOffMap++; und = 0; lt = TINT_WHITE; li = 0; lr = lg = lb = base; ldr = ldg = ldb = lhr = lhg = lhb = 0; mir = 0;
           /* #375 census, ROW COPY. Read at the crossing, once, not per pixel: this branch zeroes the
              light AND its three deltas, so every pixel until the next crossing keeps exactly this value
              - which makes the site representative of the run of off-map pixels it starts, and that run
@@ -1348,6 +1373,31 @@ function castGround(flash, fcR, fcG, fcB) {
         cb += ((c3 >> 16 & 255) - cb) * fW;
       }
       if (em === 253) { px[i] = 0xFF000000 | clampi(cb * inv + fB) << 16 | clampi(cg * inv + fG) << 8 | clampi(cr * inv + fR); continue; }
+      /* #421, ROW COPY: the plane this pixel lies on is a FLOOR seen from below - a neighbour column's
+         walkable deck, whose altitude `ceilAt` handed to this column's ceiling plane. Put the soffit's
+         own material on the TEXEL, ahead of the light term, so the room below still decides how bright
+         it gets and #410's cap on the vault lift stays the only brightness term on this plane. An
+         emissive texel has already returned above: a light source is not a surface to re-materialise.
+         `und` bit 0 says soffit, bits 1..4 say which side(s) the deck stands on - the rib runs along
+         that axis and the lit lip hugs that boundary, so the grain and the edge both point at the storey
+         overhead. The distances are cell-local fractions: the classification is a property of the CELL,
+         and both axes are bounds-tested by the crossing that read the byte (#375's rule - an index is
+         one number, so `und` is 0 whenever the walk is off the map). */
+      if (und) {
+        const fxu = wx - gx, fyu = wy - gy;
+        const ru = (und & 10 ? fxu : fyu) * SLAB_RIB, rf = ru - Math.floor(ru);
+        let ku = rf < SLAB_RIBW ? SLAB_RIBK : 1;
+        if (und & 30) {
+          let lw = 4;
+          if ((und & 2) && 1 - fxu < lw) lw = 1 - fxu;
+          if ((und & 8) && fxu < lw) lw = fxu;
+          if ((und & 4) && 1 - fyu < lw) lw = 1 - fyu;
+          if ((und & 16) && fyu < lw) lw = fyu;
+          if (lw < SLAB_LIP) ku += SLAB_LIPA * (1 - lw / SLAB_LIP);
+        }
+        const ka = SLAB_ALB * ku;
+        cr = cr * ka * 0.97; cg = cg * ka; cb = cb * ka * 1.06;
+      }
       let r = cr * lr + fR, g = cg * lg + fG, b = cb * lb + fB;
       /* #413: a FITTING on the ceiling of this cell, ceiling rows only. One byte per cell decides it,
          so the cost on the 99 % of cells with no fitting overhead is that read. The plate is shaded by
@@ -1521,6 +1571,7 @@ function slabT(rx, ry, absP) {
 
 function groundPixel(x0, x1, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb, dP, plA) {
   const N = MAP.w, cellArr = MAP.cell, lm = MAP.light, fzs = MAP.fz, stepBase = 2 / BW;
+  const csk = !isF && SLABUND ? MAP.ceilSlab : null;   // #421, second copy: same byte, same rule
   const shm = SHADOW ? SH_HEAD : null;                      // #178, second copy of the ground pixel body
   const lgc = LGCAP, cnt = LGCNT;                     // #21, second copy of the light ceiling too
   /* RUN LOOP (#prototype): one call per run of columns that share (row, plane); x1 is exclusive. */
@@ -1849,6 +1900,28 @@ function groundPixel(x0, x1, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb
     cb += ((c3 >> 16 & 255) - cb) * fW;   // colour only: see the flag rule at the switch declaration
   }
   if (em === 253) { px[i] = 0xFF000000 | clampi(cb * gMInv + gMFB) << 16 | clampi(cg * gMInv + gMFG) << 8 | clampi(cr * gMInv + gMFR); continue; }
+  /* #421, DEFERRED COPY - the same texel term as the row loop's, on this pixel's OWN cell (the one its
+     ray actually reached, which is the whole reason this pixel is here). AGENTS.md counts the
+     duplication as the price of the row loop's registers: change one copy and you have changed the
+     other, or the deferred far field of a stepped level disagrees with the raster above it.
+     A pixel that fell back to the predictor (`!own`) wears no soffit: the byte would be some cell it
+     never reached, which is the same fault #375 closed for the light field. */
+  if (csk !== null && inMap && csk[cIdx]) {
+    const ux = csk[cIdx];
+    const fxu = cx - sx, fyu = cy - sy;
+    const ru = (ux & 10 ? fxu : fyu) * SLAB_RIB, rf = ru - Math.floor(ru);
+    let ku = rf < SLAB_RIBW ? SLAB_RIBK : 1;
+    if (ux & 30) {
+      let lw = 4;
+      if ((ux & 2) && 1 - fxu < lw) lw = 1 - fxu;
+      if ((ux & 8) && fxu < lw) lw = fxu;
+      if ((ux & 4) && 1 - fyu < lw) lw = 1 - fyu;
+      if ((ux & 16) && fyu < lw) lw = fyu;
+      if (lw < SLAB_LIP) ku += SLAB_LIPA * (1 - lw / SLAB_LIP);
+    }
+    const ka = SLAB_ALB * ku;
+    cr = cr * ka * 0.97; cg = cg * ka; cb = cb * ka * 1.06;
+  }
   let r = cr * lr + gMFR, g = cg * lg + gMFG, b = cb * lb + gMFB;
   /* #413 ceiling fitting, DEFERRED COPY - same one byte, same helper, same two lines. A plate that
      drew in the row loop and not here would alias at every band boundary the column re-solves. */
