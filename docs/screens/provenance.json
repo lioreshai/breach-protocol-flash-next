@@ -91,6 +91,36 @@
       "at": "2026-10-11",
       "sampleRate": 44100,
       "note": "Re-taken from the deployed Pages build of main, which is the only route that can answer #431: the frame the README printed was drawn at cd191ca, where this level's walls carried WT.STONE, and 56d87b6 (#369/#428) repaints those faces WT.SLAB. The build is proved off the wire, not from memory: index.html and all eleven js/ blobs the page served were md5-compared against origin/main at 12bdefa and all twelve matched, so these pixels came off the page that serves 12bdefa - nothing here is filled in from a local tree (#395, #420).  Route is the URL itself, unchanged: headless Chromium opened this row's url at a 1440x763 device-metrics override at scale 1 and, once the page reported ready, ran DEV.boot(); startLevel(3, true); banner('', 0); DEV.freeze(true); DEV.tick(30); P.hp = 100; DEV.cam(1.5, 2.5, floorAt(1.5, 2.5), 0.60, 0); DEV.tick(1), leaving the level's own 4 hostiles standing (grunt, grunt, hound, brute, all asleep - no DEV.clear); S.mode read 'play' before and after the shutter with no resume() needed; props 9, SND.ac.sampleRate 44100, DEV.state().gnd jit 1 jitMinPx 48 light 1 ax 1 filt 1 ramp 1 far 1 fade 1 mipax 1 mipar 4. Re-encoded as colour type 2 by tools/png_rgb.js (--check reports type 2 1440x763, no alpha).  WHAT MOVED, against the bytes this row replaces (ddad0be2, drawn at cd191ca): mean 50.14 -> 66.75, thirds 41.16/58.48/50.83 -> 45.58/76.05/78.71, dark rows at the tool's threshold 24 stay 0 of 763 (at 34: 0 -> 46, longest run 38 from row 260), and 697,059 of 1,098,720 px shift by more than 2 luma (63.44 %, mean |delta| over those px 26.6, worst 173, 92,874 px over 50, spread by third 133,474/237,642/325,943) - the whole frame, not one bright patch. That is far more than a material swap at equal albedo and this row does not pretend to separate its causes. Three are in the tree between the two builds: the wall repaint #428; #413's ceiling fittings, which put a visible light source in this room's air (this run counts 11 lights where the replaced row counted 7); and the deck/light work #19 and #408. By band the lit floor moves 64.34 -> 97.17 and the wall patch x 660-1295 x y 340-422 moves 81.93 -> 100.38, so the deck gained more than the wall did - the page capture cannot split them and this row does not try.  The fourth cause is the deal, and it is the one this row can name exactly: DEV.layoutSig() read 972763321 on the capturing run and 164933889 on a second run of the same route at the same build, so on this build the layout the shutter drew is a property of the run, not of the url - the term #420 exists to remove, recorded here rather than re-run until a favourite number came back. Two shutters of one pose differ in 17,567 of 1,098,720 px (1.60 %, worst 6 luma): that is route noise, an order of magnitude below the move.  Geometry is not among the things that moved, and the caption still asserts it, so it was read back off the same page at this seat: own floor 0.00, own ceiling 1.00, MAP.cz 4, MAP.light 0.102, and the seventh cell along the heading (7.28, 6.45) is air at floor 0.00 with its ceiling solving at 4.00. The frame mean this row carries (66.75) is the number README.md's decode list and this caption quote. #431 is the re-take, #395 the caption that cannot go false, #420 the stream pin that would make a re-take a fact of the url."
+    },
+    {
+      "file": "level2-abatoir",
+      "sha256": "f2827f3efa797a6d5961686c70e34d9f34743c8ca6470f877802968ff2f651b2",
+      "canvas": "1440x763",
+      "origin": "https",
+      "install": "url-open",
+      "url": "https://lioreshai.github.io/breach-protocol-flash-next/?dev=1&seed=60",
+      "seed": 60,
+      "level": 2,
+      "layout": 3946763407,
+      "build": "dac241d",
+      "at": "2026-10-11",
+      "sampleRate": 44100,
+      "note": "ABATOIR CORE's arrival seat, first frame for this level. Route is the URL itself and the plan above, with one addition this level needs: DEV.boot(); startLevel(2, true); banner('', 0); DEV.freeze(true); DEV.tick(30); P.hp = 100; DEV.cam(18.5, 23.5, floorAt(18.5, 23.5), 0.60, 0); DEV.tick(1); the level's own 18 hostiles left standing; S.mode read 'play' immediately before the shutter. The page served js/40_render.js 2460c908, js/20_level.js 5923d2f7 and js/90_dev.js e8c0a3eb, each md5-identical to the tree at dac241d, and the live renderer's CF_SPILL_R2 read 4, so the hung-fitting terms are in the pixels. DEV.state() read seed 60, layout 3946763407 and SND.ac.sampleRate 44100, so unlike the six older rows this is a cross-machine binding, and both of this level's rows read the same layout at the same rate. Re-encoded through tools/png_rgb.js to colour type 2."
+    },
+    {
+      "file": "level2-abatoir-ceiling",
+      "sha256": "3fff45a2289d46d948a74ca094a9b7ff945b0fdc361ced81c76c32bcaeebfb8d",
+      "canvas": "1440x763",
+      "origin": "https",
+      "install": "url-open",
+      "url": "https://lioreshai.github.io/breach-protocol-flash-next/?dev=1&seed=60",
+      "seed": 60,
+      "level": 2,
+      "layout": 3946763407,
+      "build": "dac241d",
+      "at": "2026-10-11",
+      "sampleRate": 44100,
+      "note": "The same seat, same deal, same page load rules, turned to the fitting this deal puts over the entry circulation: DEV.cam(18.5, 23.5, floorAt(...), -0.556, 25). MAP.ceilPanes for this layout holds six entries and the one 3.06 m from the seat at bearing -0.556 rad is the one in this frame, hung with its lens at 2.35 m under a 4.00 m slab; MAP.ceilFix marks its cell 2 (canopy on the slab, lens on the stem), which is the tall-room form. The slab's left third is the doorway wall the seat stands in, 1 m away - it is in the picture the player sees when they turn, and it is why this frame is not a clean room shot. Same seed/level/sampleRate as level2-abatoir and the same layout 3946763407, so the two rows are one world at two headings. S.mode read 'play'; colour type 2 via tools/png_rgb.js."
     }
   ]
 }

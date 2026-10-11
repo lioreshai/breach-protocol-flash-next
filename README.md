@@ -50,16 +50,16 @@ drew each frame, at what seed and by what route, is one row per file in
 a byte claim written here is false by the next merge (#395). What *changed* between two recaptures is
 in the PR that moved it, not here.
 
-`node tools/recap.js check` decodes the six PNGs and fails if any number below disagrees with the
-bytes, so a caption cannot drift from its frame. The six frames decode to **63.44 / 20.87 / 63.06 / 47.81 / 68.50 / 66.75** mean luma
+`node tools/recap.js check` decodes the eight PNGs and fails if any number below disagrees with the
+bytes, so a caption cannot drift from its frame. The eight frames decode to **63.44 / 20.87 / 63.06 / 47.81 / 68.50 / 66.75 / 64.56 / 72.01** mean luma
 (`0.2126 R + 0.7152 G + 0.0722 B`, the rule `DEV.lum` uses), in the order they appear below. A dark
 row below means a row whose own mean luma is under 24 — the threshold the tool measures at, whatever
 number a sentence labels.
 
-Five of these six frames were drawn at build `ce9d39d` and the sixth at the build that was deployed
-when its pixels were taken; each is named per file in `provenance.json`, and the deployed page moves
-past them all. Treat each frame as what its caption's build drew, not as a screenshot of today's
-deploy (#395, #431).
+Five of these eight frames were drawn at build `ce9d39d`, the sixth at the build that was deployed when
+its pixels were taken and the last two at `dac241d`; the build that drew each one is named per file in
+`provenance.json`, and the deployed page moves past them all. Treat every frame as what its own
+caption's build drew, not as a screenshot of today's deploy (#395, #431).
 
 ![the spawn seat on a lit datum floor](docs/screens/level0-spawn.png)
 
@@ -125,6 +125,28 @@ headroom as `1.00..1.00`, so the level is genuinely two-storey in `MAP.fz` and s
 with a bright slit in it (#353). The light is brighter than this seat's last frame was: 50.14 → 66.75,
 and the room has gained visible ceiling fittings since — that half of the move is lighting, not this
 wall.
+
+![ABATOIR CORE from its arrival seat: the slab over the room fills the top of the frame](docs/screens/level2-abatoir.png)
+
+**ABATOIR CORE**, the room with the most ceiling in the game, from its own arrival seat (18.5, 23.5)
+on the datum, heading 0.60, 18 hostiles left: **0 of 763 rows average below luminance 24** (mean 64.56,
+thirds 48.2 / 73.6 / 71.9). The top third of this frame reads **48.2** and the bottom **71.9**, and that
+split is the whole story of the ceiling: the slab is the largest surface the player sees and the darkest
+one on it. `tools/view.js surface` puts this level's ceiling at **47 % of the frame** against a floor at
+38 %, and the deck it looks down on is lit 1.9x brighter than the slab it looks up at.
+
+![the same seat turned to the fitting hung over the entrance, 3 m ahead](docs/screens/level2-abatoir-ceiling.png)
+
+The same seat on the same deal, turned 0.556 rad right and pitched up 25 px, which is where this deal
+puts a fitting over the entrance: **0 of 763 rows average below luminance 24** (mean 72.01, thirds
+66.9 / 70.3 / 78.8). Six fittings are hung over this room's circulation; the one in frame is 3.06 m
+from the seat with its lens let down to **2.35 m** under a slab authored at **4.00 m**. What the frame
+carries is the rod and the lit panel on it, and the empty band above them is the room's height: the slab
+those fittings bolt through sits above this frame's top row, because the frame can only draw a ceiling
+that near from about twice its headroom in metres out (#413). So the height reads as a gap rather than as
+three parts of one object you can see end to end, and it stops being something you discover by walking
+into it. The left third of the frame is the doorway wall the seat stands in, 1 m away — the player sees it
+when they turn, so it stays in the shot.
 
 ## How it works
 * **Renderer** — software raycaster (Wolfenstein-style DDA) into an `ImageData`'s `Uint32Array` at
