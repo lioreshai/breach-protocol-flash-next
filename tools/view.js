@@ -12869,9 +12869,56 @@ if (MODE === 'surface') {
   }
   console.log('surface value order - ceiling must sit under the surface its edge meets by >= ' + TARGET +
     ' luma (Rec.709), and under the floor it covers');
+  const seatHit = [];          // #421: did this sector's ARRIVAL frame carry a deck overhead in reach?
   for (let li = 0; li < NL; li++) {
     const dealt = (deal(li), gridHash()), dh = dealt.toString(16).padStart(8, '0');
     const name = run('LEVELS[' + li + '].name');
+    /* #421 THE SEAT, NOT THE SURFACE - measured before any pose turns the camera.
+       Every other row in this block aims the camera (`aim`, `seatU`) because a census of an arrival frame
+       cannot grade a surface that only appears when you look up. That is exactly the excuse this row
+       removes: the issue's own attribution says the overhead at three of the four seats is a slab seen
+       THROUGH distance (the air colour moves that region +131 luma, the underside classification +1.9), so
+       the question is whether the deal put a raised band inside the reach the frame can show - 12 m, where
+       `visAt` still delivers 44 % of a surface - and whether the heading the game arrives on points at it.
+       So the pose is the SHIPPED one: `startLevel`'s own seat and `P.ang`, no aim, pitch 0. The count is
+       the shipped `SLABUND` A/B again - pixels only the soffit term paints - so the row cannot disagree
+       with the term it grades, and a build that classifies but paints nothing prints 0 rather than a pass.
+       The heading's own context is printed beside it, read from the grid the deal dealt (the same two
+       authored arrays `ceilAt` reads), so the row measures the SHIPPED build: how many columns in reach of
+       the seat have a FLOOR over their head. That is the number that separates "the sector put no volume
+       near its seat" (#353's adjacency gap) from "the volume is there and the arrival frame does not show
+       it" - which is what the seat rows decide between. The bar is the issue's: >= 8,000 px on at least 3 of
+       the 4 sectors. */
+    const SEAT_PX = +(process.env.SEATPX || 8000), SEAT_D = +(process.env.SEATD || 12);
+    if (li === 0) console.log('surface spawn seat - the frame the game ARRIVES on carries a deck overhead within ' +
+      SEAT_D + ' m (>= ' + SEAT_PX + ' soffit px above the horizon on >= 3 of ' + NL + ' sectors)');
+    run('P.pitch = 0;');
+    const sAng = run('P.ang'), sSeat = run('[P.x, P.y]');
+    const sCells = run(`(function(){
+      const cs = MAP.ceilSlab, D = ${SEAT_D}, ax = P.x | 0, ay = P.y | 0;
+      let n = 0;
+      if (!cs) return 0;
+      for (let y = Math.max(0, ay - D); y <= Math.min(MH - 1, ay + D); y++)
+        for (let x = Math.max(0, ax - D); x <= Math.min(MAP.w - 1, ax + D); x++) {
+          const i = y * MAP.w + x;
+          if (!MAP.cell[i] && cs[i] & 1) n++;
+        }
+      return n;
+    })()`);
+    const sa = frame(), szb = new Float32Array(run('zbuf')), shm = slabMask(sa);
+    const shz = Math.min(BH, Math.max(0, Math.round(run('horizon'))));
+    let sNear = 0, sFar = 0;
+    if (shm) for (let y = 0; y < shz; y++) for (let x = 0; x < BW; x++) {
+      const i = y * BW + x;
+      if (!shm[i]) continue;
+      if (szb[i] <= SEAT_D) sNear++; else sFar++;
+    }
+    seatHit.push(sNear >= SEAT_PX);
+    row(`L${li} SEAT the arrival frame carries a deck overhead within ${SEAT_D} m`, sNear >= SEAT_PX,
+      `${name} at ${sSeat[0].toFixed(1)},${sSeat[1].toFixed(1)} heading ${sAng.toFixed(2)} rad, ` +
+      `${sCells} column(s) within ${SEAT_D} m of the seat have a floor over their head, ` +
+      `${sNear} soffit px in reach + ${sFar} beyond it above the horizon; deal ${dh}`,
+      sNear < SEAT_PX ? '#421' : undefined);
     /* The fitting census for this deal: the hung sources themselves (a `ceil` LIGHTS entry, authored
        before the splat by `placeCeilFixtures`, js/20_level.js:1435) and the grid their bands are read
        against. Read ONCE per deal, like the deal hash: a pose turns the camera and must not change
@@ -13204,6 +13251,14 @@ if (MODE === 'surface') {
         '0 columns classify as a floor seen from below, so the #421 rows above judge nothing here - not a pass');
     }
   }
+  /* #421's own aggregate: the issue's criterion is "3 of the 4 sectors", so the sector rows above are the
+     evidence and this is the verdict. Vacuity rule applies - a run where no sector has a raised band in
+     reach anywhere is not a pass earned by an empty set, it is the #353 adjacency gap said out loud. */
+  const seatN = seatHit.filter(Boolean).length;
+  const seatMiss = seatHit.map((h, i) => h ? -1 : i).filter(i => i >= 0);
+  row('SEAT-ORDER at least 3 of the 4 sectors arrive looking at a storey above them', seatN >= 3,
+    seatN + ' of ' + seatHit.length + ' sectors clear the ' + (+(process.env.SEATPX || 8000)) +
+    '-px bar at their own spawn seat and heading; L' + seatMiss.join(', L') + ' do not');
   /* THE POOL'S OWN CONTROL, one row for the run, in the shape this block already uses for the
      ORDER control. Every per-fitting contrast is measured twice - once shipped, once with the hung
      fill un-authored out of the lightmap - and the row asks the only question that makes the POOL row
