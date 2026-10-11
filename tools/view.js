@@ -10237,11 +10237,29 @@ if (MODE === 'fixtures') {
          face line - a purpose fixture sitting in a room is what the player reads as "this is where
          they kept things". A room whose every face is already owned by a door frame gets none, and
          that is printed rather than hidden: the vacuity floor (no purpose fixture anywhere on the
-         deal) is a FAILURE; partial coverage is a census the PR body has to account for. */
-      const rp={};for(const k of (LEVELS[S.level].purpose||[]))rp[WFIX[k]]=1;
-      let rN=0,rOk=0;
-      for(let ri=0;ri<MAP.rooms.length;ri++){const rr=MAP.rooms[ri];rN++;
-        let ok=false;for(const f of DECOR){if(!rp[f.tex])continue;
+         deal) is a FAILURE; partial coverage is a census the PR body has to account for.
+         #465 MADE THIS ASK A REAL QUESTION. It read 'const rp={}; rp[WFIX[k]]=1; ... if(!rp[f.tex])',
+         which puts a TEXTURE OBJECT in a property key. Every WFIX entry stringifies to the same
+         "[object Object]", so that map holds ONE key and the predicate is TRUE FOR EVERY FIXTURE on the
+         deal: the census counted a room as purpose-covered whenever it had any decor at all, and a
+         vacuity floor built on the same idiom (PR #463's census, which counts fixtures by that test)
+         reports a nonzero count on every deal and so can never name a sector that placed none - which is
+         the row #422 was filed to gate, and the reason a sabotage run with the placement fallback
+         disabled still exited 0. A Set holds the textures by IDENTITY, which is the question being
+         asked: is this fixture one of the kinds this level's rooms are supposed to be named by?
+         The pair printed below is the control, both read off the same walk: 'purpose' is the identity
+         test and 'any decor' is what the collapsed key test answered. MEASURED HERE, on this head's four
+         CI deals the two are EQUAL (2/5, 1/6, 3/7, 2/2) - a room whose rect owns any decor on these four
+         deals owns a purpose fixture - so this pair is the row that would SHOW a collapse, not one that
+         has yet; where it does differ is the walk that reads a room's sight lines instead of its rect
+         (PR #463's census: the same deal reads 4/5 under the key test and 1/5 under identity). The
+         discrimination that IS measured on this head is in the tally beside it: the same probe against
+         the #422 branch's js reads L1 TANK 1 -> 6, and the key-form predicate cannot report that gap. */
+      const PS = new Set(); for (const k of (LEVELS[S.level].purpose || [])) PS.add(WFIX[k]);
+      let rN = 0, rOk = 0, rAny = 0;
+      for (let ri = 0; ri < MAP.rooms.length; ri++) { const rr = MAP.rooms[ri]; rN++;
+        let ok = false, any = false;
+        for (const f of DECOR) {
           /* A fixture is registered in the SOLID cell and sits ON THE FACE PLANE, so on the axis
              perpendicular to its face its coordinate is the WALL cell's centre - half a cell OUTSIDE
              the room's own rect. The along axis is the room cell's centre and lies inside. Testing
@@ -10251,8 +10269,11 @@ if (MODE === 'fixtures') {
           const al=xp?f.y:f.x, px=xp?f.x:f.y;             // along the face, and across it
           const loA=xp?rr.y:rr.x, hiA=xp?rr.y+rr.h:rr.x+rr.w;
           const loP=xp?rr.x:rr.y, hiP=xp?rr.x+rr.w:rr.y+rr.h;
-          if(al>loA-0.01&&al<hiA+0.01&&px>loP-1.01&&px<hiP+1.01){ok=true;break;}}
-        if(ok)rOk++;}
+          if(!(al>loA-0.01&&al<hiA+0.01&&px>loP-1.01&&px<hiP+1.01))continue;
+          any = true;                                  // any decor at all: the collapsed key test's answer
+          if (PS.has(f.tex)) { ok = true; break; }     // identity: the question actually being asked
+        }
+        if (ok) rOk++; if (any) rAny++;}
       const t={};for(const k of ['DOOR','PIPE','STRIPE','VENT','RACK','TANK','BOARD'])t[k]=0;
       for(const f of DECOR)for(const k of ['DOOR','PIPE','STRIPE','VENT','RACK','TANK','BOARD'])if(f.tex===WFIX[k])t[k]++;
       /* THE #403 FINDING, AS A ROW: a DOOR may not sit on a cell whose passage keeps going. For a
@@ -10270,15 +10291,15 @@ if (MODE === 'fixtures') {
         if(we){ if(c(ax,ay,1)&&c(ax+1,ay,1)&&c(ax-1,ay,1))cont++; }
         else  { if(c(ax,ay,0)&&c(ax,ay+1,0)&&c(ax,ay-1,0))cont++; }
       }
-      const t2=t;return [runs,bare,t2,MAP.fixCount,cont,rN,rOk]})()`);
-    const [runs, bare, tally, nFix, cont, rN, rOk] = r;
+      const t2=t;return [runs,bare,t2,MAP.fixCount,cont,rN,rOk,rAny]})()`);
+    const [runs, bare, tally, nFix, cont, rN, rOk, rAny] = r;
     const tot = kinds.reduce((s, k) => s + tally[k], 0);
     const nPurpose = PURPOSE.reduce((s, k) => s + tally[k], 0);
     const dom = tally.DOOR > tot * 0.6;
     console.log('  L' + L + '  fixCount ' + String(nFix).padStart(3) + '  '
       + kinds.map(k => k + ' ' + String(tally[k]).padStart(2)).join('  ')
       + '  | long runs ' + String(runs).padStart(3) + ', bare ' + String(bare).padStart(3)
-      + '  | rooms with a purpose fixture ' + rOk + '/' + rN
+      + '  | rooms with a purpose fixture ' + rOk + '/' + rN + ' (any decor ' + rAny + '/' + rN + ')'
       + '  | DOOR on a continuing passage ' + cont
       + '  ' + (runs && bare / runs > 0.25 ? '<< 1 in 4 long walls is still one flat repeat' : ''));
     if (!tot) { console.log('     << NOTHING PLACED: the whole feature is inert on this deal'); bad++; }
@@ -10288,6 +10309,13 @@ if (MODE === 'fixtures') {
   }
   console.log(bad ? 'FIXTURES ' + bad + ' FAILURES - a long wall is still bare, a kind has become a wash,'
     : 'FIXTURES ok - every long wall run carries something, no kind is a wash, no fixture is a slab');
+  /* #465: the block printed a verdict and returned, so its exit status was whatever the last statement
+     left it - which meant a FAILURES line could not fail anything that ran it. ci.yml's own roster comment
+     asserts that every verdict-printing block but play/decal/diag/stats/rig ends in an exit code; this one
+     did not. FIXED, at the measured baseline: on this head the block is green, so the exit is 0 here and
+     the row is now capable of a non-zero answer for whoever runs it. `fixtures` is NOT in ci.yml's probe
+     list, so this changes no CI verdict - it is capability, not a new gate. */
+  process.exit(bad ? 1 : 0);
 }
 if (MODE === 'decal') {
   // ground decals used to sample texel (0,0) and vanish; this counts what actually reaches the floor
