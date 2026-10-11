@@ -126,7 +126,7 @@ other trace; `S.err` survives while `S.audioBroken` is set, because clearing it 
 
 ## Verifying the live page
 
-`?dev=1` is the sanctioned way; the `DEV` API and its three gotchas are in
+`?dev=1` is the sanctioned way; the `DEV` API and its gotchas are in
 [`../README.md`](../README.md) ("Driving the game from a console"). Two rules on top of it:
 
 - **A claim checked through `DEV` counts as verified; a claim checked by guessing at internals does
@@ -134,3 +134,26 @@ other trace; `S.err` survives while `S.audioBroken` is set, because clearing it 
 - **Read the source the page is actually running** before believing a behaviour probe — a Pages
   deploy leaves the previous build cached for its `max-age`. Assert on a marker that is **code,
   not prose**, grepped out of the merged file. See [`ENGINEERING.md`](ENGINEERING.md).
+
+## Taking a screenshot that can be taken again
+
+The route is the deployed page at `?dev=1&seed=60`: `DEV.boot()`, `DEV.freeze(true)`, `DEV.tick(30)`,
+then `DEV.cam(...)`, one `DEV.tick(1)`, shutter. Run it against the **deployed page** and never against a
+checkout over loopback — a capture is a property of the build that served it (#388), which is why
+`docs/screens/provenance.json` records `origin` + `install` + `url` per shot instead of a build word in
+prose. The README's rule is that any merged PR which changes the picture re-takes the frames it moved.
+
+- **Finish with the game's own `resume()` and one more `DEV.tick(1)`**, and read `S.mode` before the
+  shutter. A page that never got pointer lock pauses on the first blur and the pause overlay dims
+  everything under it, so a route that finishes before the first blur captures a dimmed frame.
+- **Chromium screenshots arrive RGBA**; commit them through `node tools/png_rgb.js` first. The decoder
+  in `tools/recap.js` reads a colour-type-6 file with its channels rotated (#394) and compares the
+  README through the same rotation, so a caption and an RGBA frame can agree while both are wrong.
+- **A frame is re-takeable only while its deal is pinned.** `startLevel` generates from wherever the
+  seeded stream has reached, so a stored frame of a *generated* level is a fact about one run rather
+  than about the URL until the route pins the stream (#420), and `SND.init` draws
+  `floor(sampleRate * 1.5)` seeded values before the generator, so one seed deals one level per audio
+  device (#404). `DEV.layoutSig()` reproduces at a build and does not travel between builds.
+- After committing bytes, `node tools/recap.js --record` re-addresses the rows it can derive and
+  `node tools/recap.js check` gates them. A null `seed` / `layout` / `sampleRate` is a FAILURE, never a
+  pass with a note, and the README's caption numbers are gated against the same bytes.
