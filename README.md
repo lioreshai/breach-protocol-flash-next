@@ -59,7 +59,10 @@ number a sentence labels.
 Five of these eight frames were drawn at build `ce9d39d`, the sixth at the build that was deployed when
 its pixels were taken and the last two at `dac241d`; the build that drew each one is named per file in
 `provenance.json`, and the deployed page moves past them all. Treat every frame as what its own
-caption's build drew, not as a screenshot of today's deploy (#395, #431).
+caption's build drew, not as a screenshot of today's deploy (#395, #431). Only the hand-authored level's frame
+can be re-taken from the deployed page today: a generated level's route generates wherever the seeded stream has
+reached rather than from the seed, so those frames age until the capture route pins that stream (#420).
+`node tools/recap.js check` prints how many rows are in that state.
 
 ![the spawn seat on a lit datum floor](docs/screens/level0-spawn.png)
 

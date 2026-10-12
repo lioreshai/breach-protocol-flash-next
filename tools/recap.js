@@ -295,6 +295,15 @@ const URL_SEED = /[?&#]seed=(-?\d+)/;      // js/90_dev.js:23 - the seed the run
  * `sampleRate`: the integer SND.ac.sampleRate read at capture time, or null when the capture did not
  * read it. null is a NAMED, COUNTED qualification (PROVENANCE-DEVICE), never silence: it says the
  * binding below is per-machine and STRICT=1 gates it. `--record` cannot invent it.
+ *
+ * The device term is the smaller half of the problem, and the printed row says so (#420). Even with
+ * the rate named, the shipped route cannot re-deal the layout it recorded: startLevel generates from
+ * wherever the seeded stream has REACHED, and nothing in js/ re-seeds it before the generator - the
+ * pin exists only in tools/view.js (seedRng, view.js:311), which is a harness global and is not in
+ * the page (measured: the deployed page throws `seedRng is not defined`). So a row's `layout` is a
+ * fact of WHEN its route ran, not of its URL, seed, rate or build, and a stale frame of a GENERATED
+ * level cannot be re-taken until a pin ships - only the hand-authored levels re-draw identically.
+ * This tool cannot detect that per row from a checkout, so it states it beside the count.
  */
 const HW_FIELD = 'sampleRate';
 const HW_WHY = 'one seed deals one level per audio device: SND.init draws floor(sampleRate*1.5) seeded values before genLevel (#404)';
@@ -383,7 +392,10 @@ function provCheck(rows, prov, fails, notes) {
     if (!(HW_FIELD in p)) bad.push('no ' + HW_FIELD + ' key - ' + HW_WHY + ', so a row that names no sample rate binds a deal on its own machine only (add ' + HW_FIELD + ': <hz> or null)');
     else if (p[HW_FIELD] === null || p[HW_FIELD] === undefined) {
       console.log('PROVENANCE-DEVICE  ' + r.name.padEnd(20) + deal(p) + ' - the deal this route binds is device-scoped: '
-        + HW_WHY + ', and this capture recorded no SND.ac.sampleRate, so it reproduces on a machine that draws the same count'
+        + HW_WHY + ', and this capture recorded no SND.ac.sampleRate, so it binds the machine that drew it; '
+        + 'and no shipped page can re-deal that layout at all, because startLevel generates from stream '
+        + 'position rather than from the seed (#420) - re-take needs that pin, and only a hand-authored '
+        + 'level redraws identically without it'
         + (STRICT ? '' : ' (STRICT=1 gates this row)'));
       device++; nrows++;
       if (STRICT) fails.push(r.name + ': a binding row with no ' + HW_FIELD);
@@ -580,7 +592,7 @@ function checkMode(rows, rev) {
   for (const n of notes) console.log('note                   ' + n);
   console.log('RECAP ' + fails.length + ' FAILURE(S) of ' + nrows + ' rows, ' + pv.bind + ' shot(s) with a binding route' +
     (pv.report ? ', ' + pv.report + ' with an unproven route' : '') +
-    (pv.device ? ', ' + pv.device + ' with a device-scoped deal (#404)' : '') +
+    (pv.device ? ', ' + pv.device + ' with a device-scoped deal (#404; none of these layouts is re-dealable off the shipped route until #420 lands)' : '') +
     (notes.length ? ', ' + notes.length + ' note(s)' : ''));
   return fails.length ? 1 : 0;
 }
