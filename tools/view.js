@@ -11274,6 +11274,89 @@ if (MODE === 'props') {
           ' (' + (bs[1].lit >= 0 ? 'right' : 'left') + ') from ' + (seats[1].th * 180 / Math.PI).toFixed(0) + 'deg; '
           + num + at + ' - the two shots the issue asked for, taken by turning the KEY 180deg at each seat so the '
           + 'prop\u2019s PAINT cannot answer it: only pixels the key light reaches move between the pair');
+        /* ---- (T+) THE NEAR-TIE AZIMUTH CENSUS (#371's first outstanding read) -----------------
+           (T) answers "does the bright side move when you walk round this box" from ONE pair of seats,
+           and a single pair cannot tell a mechanism from a lucky bearing: this issue's own tie rule
+           prints a TIE when |lit| lands inside LIT_MIN of the body's centre, and one pair samples two
+           bearings out of the circle. #371's closing note asks the wider question - how OFTEN a sector's
+           turn rows land in that band - so this sweeps the bearings a box can actually be seen from. A
+           box's face normals repeat every 90 deg, so FOUR bearings (pose.th + 0/45/90/135) cover every
+           distinct relationship between the four faces and the world-space KEY; each is paired with the
+           seat on the far side of the same box, which is the walk round (T) prices. A PAIR is a TIE when
+           BOTH of its seats answer within LIT_MIN, i.e. from that bearing a walk round the crate shows no
+           flank moving at all.
+           It is measured, not derived: every seat is rendered twice, once under the shipped KEY and once
+           with its horizontal half reversed, and `lit` is the same pixel statistic (T) uses - so a build
+           that shipped no yaw, or a ramp flat enough that both faces answer equally, shows up here as
+           pairs in the tie band rather than as arithmetic about normals.
+           The gate is the worst case only: FOUR of FOUR pairs tied would mean the swap is never
+           observable in this sector from any bearing, which is the flat-card case and a FAILURE. A
+           minority of bearings in the band is geometry, not a defect - a box seen face-on shows one face
+           from anywhere - so those are counted and printed, which is the census the issue asked for. */
+        if (kind === 'crate' || kind === 'barrel') {
+          const AZC = [0, 45, 90, 135];
+          const cRows = [];
+          for (const offd of AZC) {
+            const th = pose.th + offd * Math.PI / 180;
+            const both = [];
+            for (const flip of [0, Math.PI]) {
+              const t2 = th + flip;
+              let got = null;
+              for (const dd of [pose.d, 2.9, 2.6, 2.3, 2.0]) {
+                const sx = fX + Math.cos(t2) * dd, sy = fY + Math.sin(t2) * dd;
+                const okc = run('(()=>{const x=' + sx.toFixed(4) + ',y=' + sy.toFixed(4) + ';return !isSolid(x,y) && '
+                  + 'floorAt(x,y)===floorAt(' + fX.toFixed(4) + ',' + fY.toFixed(4) + ')})()');
+                if (!okc) continue;
+                run('P.x=' + sx.toFixed(4) + ';P.y=' + sy.toFixed(4) + ';P.ang=Math.atan2(' + fY.toFixed(4) +
+                  '-P.y,' + fX.toFixed(4) + '-P.x);P.pitch=0;P.z=floorAt(P.x,P.y)');
+                const sc = pair(fcode, foff, fon), mc = mask(sc);
+                run('KEY[0]=' + (-KX).toFixed(6) + ';KEY[1]=' + (-KY).toFixed(6));
+                render(fcode);
+                const skc = { A: new Uint32Array(run('px')) };
+                run('KEY[0]=' + KX.toFixed(6) + ';KEY[1]=' + KY.toFixed(6));
+                const bc = bandOf(sc, mc, skc);
+                got = { b: bc, cov: mc.n };
+                break;
+              }
+              both.push(got);
+            }
+            cRows.push({ off: offd, a: both[0], b: both[1] });
+          }
+          /* A pair is classified by what the KEY can reach, not by whether `lit` came out off centre:
+             - NO BODY: the silhouette itself is under 60 px from that seat (a wall took the box out of
+               the frame), so the pair measured nothing and is counted separately;
+             - TIE: both seats put the lit flank inside LIT_MIN of the body centre. That INCLUDES the
+               seats where the key reversal moves nothing at all (np < 60): "no flank is brighter under
+               this key than under the reversed one" IS the tie, in its strongest form, and the (T) row
+               above already calls the same condition vacuity when it happens at both of ITS seats.
+               Lumping those into "measurable but not a tie" would let a flat card count as a decided
+               bearing, which is the false green this census exists to avoid. */
+          const body = r => r.a && r.b && r.a.cov >= 60 && r.b.cov >= 60;
+          const seen = cRows.filter(body);
+          const ties = seen.filter(r => (r.a.b.np < 60 || r.b.b.np < 60 || r.a.b.resp < RESP_MIN || r.b.b.resp < RESP_MIN)
+            ? true : (Math.abs(r.a.b.lit) < LIT_MIN && Math.abs(r.b.b.lit) < LIT_MIN));
+          const swaps = seen.filter(r => Math.sign(r.a.b.lit) !== Math.sign(r.b.b.lit) &&
+            Math.abs(r.a.b.lit) >= LIT_MIN && Math.abs(r.b.b.lit) >= LIT_MIN);
+          const detTxt = r => {
+            if (!r.a || !r.b) return r.off + ' no seat';
+            if (!body(r)) return r.off + ' no body';
+            if (r.a.b.np < 60 || r.b.b.np < 60) return r.off + ' still';
+            return r.off + ' lit' + (r.a.b.lit >= 0 ? '+' : '') + r.a.b.lit.toFixed(2) + '/' +
+              (r.b.b.lit >= 0 ? '+' : '') + r.b.b.lit.toFixed(2);
+          };
+          const det = cRows.map(detTxt).join(' ');
+          if (!seen.length) fail('(T+) ' + kind + ': NO azimuth pair of this box puts it in frame (' + det + ') - the tie census '
+            + 'could not place a seat that sees the box on any of the four bearings, so it measured nothing');
+          else if (ties.length === seen.length) fail('(T+) ' + kind + ': ALL ' + seen.length + ' in-frame azimuth pair(s) tie at BOTH '
+            + 'seats (' + det + ') - from no bearing in this sector does walking round the box move the bright flank, '
+            + 'which is the flat card this issue opened with; the (T) row passed on one lucky bearing');
+          else console.log('    turn census: ' + ties.length + ' of ' + seen.length + ' in-frame azimuth pair(s) tie at BOTH seats, '
+            + swaps.length + ' show the SWAP (' + det + '; bearings are ' + AZC.join('/') + ' deg off the (Y) pose, each '
+            + 'paired with the seat 180deg round the same box; `still` = the key reversal moves no face pixel at '
+            + 'all, which is a tie by definition, `no body` = the box is not in frame from that seat) - '
+            + (ties.length ? 'the ties are bearings where the two visible faces answer the key equally or the box '
+            + 'is seen nearly face-on: counted, not charged' : 'every in-frame bearing decides which flank the key lights'));
+        }
         /* (Y) left the lens on its own pose and (P) measures from there, so the circle has to hand the
            camera back where it found it or this row would move the contact patch beneath its own feet. */
         run('P.x=' + (fX + Math.cos(pose.th) * pose.d).toFixed(4) + ';P.y=' + (fY + Math.sin(pose.th) * pose.d).toFixed(4) +
@@ -13285,6 +13368,83 @@ if (MODE === 'surface') {
       row(`L${li} UNDERSIDE-SWEEP this deal has no slab overhead`, true,
         '0 columns classify as a floor seen from below, so the #421 rows above judge nothing here - not a pass');
     }
+    /* THE SECTOR SWEEP - #371's second outstanding read: the prop-vs-deck gap OUTSIDE the arrival
+       seats. Every `cam` row above is taken in the level's own spawn cell, because that is the frame
+       the game delivers - and it is therefore also the frame the #479 value cut was tuned against. A
+       crate standing in a corridor between two arrival poses has never been read by anything: the four
+       gaps the ruling quotes (+23.0 / +10.2 / +23.5 / -7.9) are four cameras in one room, and "no prop
+       outshines the room it stands in" is a claim about every room.
+       This walks ONE deal and takes up to PSEATS seats spread over its walkable cells (stride over the
+       open-cell list, so the seats are spread across the sector rather than clustered by luck), each
+       turned down its own longest sight line, and measures at each the same two quantities the per-pose
+       PROP row uses:
+         prop pixels  the frame rendered with PROPS parked against the same frame with them restored,
+                      differenced per pixel - a per-pixel fact, not a colour guess;
+         deck pixels  the floorBias A/B, which moves ground pixels and nothing else, so the deck mean is
+                      this frame's own floor, lit or dark, and the contact patch (ground AND moved by
+                      parking the props) is counted out of both means rather than darkening the deck.
+       The rule is ONE-SIDED, exactly as ruled on #371: a prop LOUDER than the deck it stands on by more
+       than PROPT is the "bright card in a dim room" tell this issue opened with; a prop DIMMER than its
+       room is the shading working - a crate outside the lamp pool is supposed to be dark - so the
+       under-side count is printed and charged to nothing.
+       Nothing here re-deals: the grid hash is read before the sweep and on every seat, and a seat that
+       somehow re-dealt the world reddens the row instead of averaging two worlds into one median. */
+    const PROPT_S = process.env.PROPT !== undefined ? +process.env.PROPT : 25;
+    const PSEATS = process.env.PSEATS !== undefined ? +process.env.PSEATS : 8;
+    const openCells = run('(()=>{const o=[];for(let y=2;y<MH-2;y++)for(let x=2;x<MW-2;x++)' +
+      'if(!isSolid(x+0.5,y+0.5))o.push([x,y]);return o})()');
+    const pStride = Math.max(1, Math.floor(openCells.length / PSEATS));
+    const pHash0 = gridHash();
+    const pGaps = [];
+    let pSkipped = 0, pSeatHashBad = 0, pPropPx = 0, pPatchPx = 0, pSeenPxMax = 0;
+    for (let ci = 0; ci < openCells.length && pGaps.length < PSEATS; ci += pStride) {
+      const cx = openCells[ci][0], cy = openCells[ci][1];
+      // a seat in a closet measures nothing: take the heading with the most world in it
+      const sight = run(`(function(){P.x=${cx}+0.5;P.y=${cy}+0.5;P.z=floorAt(P.x,P.y);`
+        + `P.vx=0;P.vy=0;P.vz=0;P.air=false;P.crouch=0;P.recoil=0;P.bob=0;P.pitch=BH*0.02;`
+        + `let bd=-1,best=P.ang;for(let k=0;k<24;k++){const a=k*Math.PI/12;`
+        + `const d=castRayDist(P.x,P.y,Math.cos(a),Math.sin(a),9).dist;if(d>bd){bd=d;best=a}}`
+        + `P.ang=best;return bd})()`);
+      if (gridHash() !== pHash0) pSeatHashBad++;
+      const a2 = frame();
+      run('window.__prpS = PROPS.slice(); PROPS.length = 0;');
+      const ap = frame();
+      run('PROPS.length = 0; for (const q of window.__prpS) PROPS.push(q); delete window.__prpS;');
+      const ff = frameBias('floorBias', -1);
+      let pS = 0, pN = 0, dS = 0, dN = 0;
+      for (let i = 0; i < BW * BH; i++) {
+        const L = LUM(a2, i), dp = Math.abs(L - LUM(ap, i));
+        if (Math.abs(L - LUM(ff, i)) > 4) {                    // ground: deck, unless it is the patch
+          if (dp > 4) pPatchPx++; else { dS += L; dN++; }
+          continue;
+        }
+        if (dp > 4) { pS += L; pN++; }
+      }
+      // 0.2% of the frame is the same sliver test the per-pose PROP row uses, and 1% of deck keeps a
+      // seat looking at a void from scoring a deck mean off a handful of joists.
+      if (pN < 0.002 * BW * BH || dN < 0.01 * BW * BH) { pSkipped++; continue; }
+      pPropPx += pN; pSeenPxMax = Math.max(pSeenPxMax, pN);
+      pGaps.push({ c: cx + ',' + cy, gap: pS / pN - dS / dN, prop: pS / pN, deck: dS / dN, n: pN, sight });
+    }
+    aim(CAMS[0]);
+    const gSorted = pGaps.map(g => g.gap).sort((x, y) => x - y);
+    const over = pGaps.filter(g => g.gap > PROPT_S).sort((x, y) => y.gap - x.gap);
+    const under = pGaps.filter(g => g.gap <= -PROPT_S);
+    const gMed = gSorted.length ? gSorted[gSorted.length >> 1] : NaN;
+    row(`L${li} PROP-SECTOR no prop outshines its deck anywhere in the sector (<= +${PROPT_S})`,
+      pGaps.length > 0 && over.length === 0 && pSeatHashBad === 0,
+      pGaps.length
+        ? `${pGaps.length} of ${CAMS.length === 0 ? PSEATS : PSEATS} seat(s) read of ${openCells.length} open cell(s) `
+          + `sampled at stride ${pStride} (${pSkipped} skipped: no prop of 0.2% of frame, or under 1% deck); `
+          + `gap median ${gMed >= 0 ? '+' : ''}${gMed.toFixed(1)}, worst ${over.length ? '+' + over[0].gap.toFixed(1) + ` at seat ${over[0].c}` : 'none over'}, `
+          + `${over.length} seat(s) over +${PROPT_S}` + (over.length ? ' [' + over.slice(0, 4).map(g => `+${g.gap.toFixed(1)} @${g.c} (prop ${g.prop.toFixed(0)} / deck ${g.deck.toFixed(0)})`).join(', ') + ']' : '') +
+          `, ${under.length} at or under -${PROPT_S} (a prop DARKER than its room is the shading working, charged to nothing); `
+          + `${pPropPx} prop px read in all, ${pPatchPx} contact-patch px excluded from both means`
+        : `NO seat read: ${pSkipped} sampled seat(s) all landed under the sliver floors, so no prop in this `
+          + 'deal was ever measured outside the spawn room - nothing was measured',
+      pGaps.length && over.length ? '#371' : (pGaps.length && pSeatHashBad ? undefined : undefined));
+    if (pSeatHashBad) console.log(`    PROP-SECTOR ${li}: ${pSeatHashBad} seat(s) changed the grid hash - the sweep is `
+      + 'supposed to move the camera inside ONE deal, so this level\'s sector row measures two worlds');
   }
   /* #421's own aggregate: the issue's criterion is "3 of the 4 sectors", so the sector rows above are the
      evidence and this is the verdict. Vacuity rule applies - a run where no sector has a raised band in
