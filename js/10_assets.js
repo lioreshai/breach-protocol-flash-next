@@ -140,10 +140,21 @@ function mossMask(p, amt, seed) {
   const n = fbm(p.u, p.v, 3, 4, 0.5, seed) * fbm(p.u, p.v, 9, 3, 0.5, seed + 3) * 3.1;
   return smoothstep(0.95 - amt * 0.6, 1.35, n) * 0.85;
 }
-function moss(p, amt, seed) {                       // patchy growth, not a green wall
+const MOSS_TINT = [44, 86, 40];                     // luma 73.750 (Rec.709) - the vegetation green
+/* #466: the TINT is now a parameter, the MASK is not. `mossMask` and the `p.h += k * 0.03` relief are
+   identical for every caller, so a caller that passes a tint changes the COLOUR of its growth and
+   nothing else: the mottle covers the same texels, at the same height, with the same grain. The one
+   caller that uses it is FLOORS.STONE, whose growth target used to be this green at 0.4 - the strongest
+   dose in the table, on the deck of two warm-lit sectors. See the comment on FLOORS.STONE.
+   The tint a caller passes MUST be authored at THIS green's own Rec.709 luma, 73.750, because the pull
+   is a lerp toward a constant: a texel's luma after the pull is (1-k)*L + k*L(T), so a tint at the same
+   luma leaves every texel's luminance exactly where it was and moves only its chroma. That is what
+   makes this a hue change the value probes cannot see, which is what #466 asks for. */
+function moss(p, amt, seed, tint) {                  // patchy growth, not a green wall
   const k = mossMask(p, amt, seed);
   if (k <= 0) return;
-  p.r += (44 - p.r) * k; p.g += (86 - p.g) * k; p.b += (40 - p.b) * k;
+  const T = tint || MOSS_TINT;
+  p.r += (T[0] - p.r) * k; p.g += (T[1] - p.g) * k; p.b += (T[2] - p.b) * k;
   p.h += k * 0.03;
 }
 /* brick/panel course field: returns {inside, edge, id} */
@@ -490,7 +501,32 @@ FLOORS.STONE = matTex(T2, T2, p => {
   let v = 0.6 + j * 0.45 + (n - 0.5) * 0.4;
   p.r = 88 * v + 18; p.g = 90 * v + 18; p.b = 86 * v + 18;
   p.h = 0.64 - edge * 0.2 + (n - 0.5) * 0.12;
-  moss(p, 0.4, 15);
+  /* #466: THE DECK'S GROWTH COMES INTO THE FAMILY. This tile is the deck of ARCHIVE SUBLEVEL and
+     THE STACK (js/20_level.js:12, :87), both lit by lampCol [255, 196, 120] - an amber sector. Its
+     growth was `moss(p, 0.4, 15)`, the strongest dose in the table (BRICK 0.20, WTEX.STONE 0.34),
+     pulling 44/86/40 - hue 115, a vegetation green - over the largest surface in the frame. Measured
+     at the two seats this tile is worn by (bands: rows 2-16 % / 46-54 % / 80-95 %, cols 20-80 %, main
+     at d842054): ARCHIVE ceiling h22, wall h23, DECK h50; THE STACK ceiling h254 at saturation 0.07,
+     wall h33, DECK h63. The wall and the ceiling of each of these two sectors sit in one warm family
+     and the floor - the surface the player looks at most - sits 27 and 30 degrees of hue away from it.
+     This is the same defect #487 fixed one band higher in the frame: there the CEILING wore the DECK's
+     moss generator; here the deck wears it at four times the dose, and it is the last surface in the
+     campaign whose hue is set by a shared generator instead of by the level.
+     What the fix is NOT: not less growth (the mottle is the deck's only large-scale variation and its
+     relief is what makes a flagstone read as a flagstone) and not a re-light. What it IS: the same
+     mottle, at the same height and the same coverage, pulled toward a dry lichen brown - rust-coloured
+     mineral and dead growth, which is what a dry vault and a stone archive actually hold - at the GREEN
+     TARGET'S OWN Rec.709 luma (84 / 73 / 51 is 73.750 against 44/86/40's 73.750, at hue 40 against the
+     green's 115 - the same amount of colour, rotated into the sector's own warm family). A lerp toward a
+     constant of the same luma leaves every texel's luminance exactly where it was, so `matband` prints
+     this tile's main's 103.9 mean and its 1.44x floor spread, `exposure` prints main's medians, and
+     `contrast`'s edge rows cannot move: the only axis that moved is chroma. `alb`, `amb`, `spec`, bump,
+     grain, `dust`, lamp and every per-level bias are untouched.
+     The two other callers of `moss()` keep the default green and therefore their bytes: WTEX.BRICK
+     (ARCHIVE's primary wall, where the growth reads as damp at the foot of a wall and is in family
+     against brick) and WTEX.STONE (a wall tile no level selects). L1 and L2 - RING TRANSPORT and
+     ABATOIR CORE, which wear METAL and FLESH decks - are the level-scoped control on flatparity/cull. */
+  moss(p, 0.4, 15, [84, 73, 51]);
   dust(p, 0.2, [92, 90, 84]);
 }, { bump: 1.1, amb: 0.5, spec: 0.08, specPow: 20, ao: 0.8, grain: 12, alb: 1.05 });
 FLOORS.FLESH = matTex(T2, T2, p => {
