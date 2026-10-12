@@ -1,5 +1,62 @@
 # Changelog
 
+## [v1.4.5] - 2026-10-12
+
+### Added
+- **A crate now has a sunny side and a shady one** (#476, issue #371). Walk round a crate, a barrel or a
+  dropped lamp and the bright face moves to whichever flank the room is actually lighting. Before this the
+  two faces you could see of the same box sat only 18 luma apart: a prop's light was the room's ambient
+  floor plus a lamp ramp, so the ambient half could never fall into shadow no matter which way the box was
+  turned. Props now pay the same orientation tax a wall face has always paid - the whole light, ambient
+  included, is scaled by which way the face points - centred so a prop's average brightness is unchanged.
+  Face separation on a crate goes 94.8 -> 126.2 luma apart and on a barrel 73.9 -> 98.7. A prop is still
+  lit by its room rather than glowing on its own: the lit/unlit control still reads x0.44.
+
+### Changed
+- **Props stopped outshining the rooms they stand in** (#371). Crate wood and two barrel materials were
+  authored so bright that, after the sprite lift every prop gets, the lit face of a box sat *above* the
+  deck it stands on - at ABATOIR CORE's arrival camera prop pixels read 153.7 against a deck of 89.2, and
+  at THE STACK's the loudest thing in frame was a barrel, not the floor. The four loudest poses now sit
+  +23.0 / +10.2 / +23.5 / -7.9 relative to their own deck, and no prop face pixel sits at a channel
+  ceiling in any of them, so props take the room's light instead of clipping it away.
+- **The rock ceiling above you stops being the rock under you** (#466). ARCHIVE SUBLEVEL and THE STACK
+  painted their ceiling with the same moss that paints their decks, so those levels' ceilings read as
+  damp concrete 9 degrees of hue away from the floor and the STACK's ceiling sat at saturation 0.02.
+  Growth needs standing water at the foot of a wall; what reaches a ceiling is water that ran and dried,
+  so the ceiling now carries a pale, cool mineral film stretched along the strata it already draws, with
+  no growth at all. Ceiling-to-deck hue separation is 9 -> 28 degrees on ARCHIVE and 85 -> 169 on the
+  STACK. The film is brightness-neutral, so no room's exposure moved and the other two levels are
+  byte-identical.
+- **The README says which of its screenshots can actually be re-taken** (#431). Five frames of generated
+  levels have been stale since one particular build, because the level you arrive in is dealt from wherever
+  the random stream happens to have reached - so the stair flight or lamp a caption names belongs to a
+  different world. The capture record now states both real terms (one boot per page load, and the build),
+  names the build each stale frame was dealt from, and no longer promises a row is reproducible when it is
+  not. No gameplay or rendering code is involved.
+
+### Fixed
+- **THE STACK's floor stops burning past the picture** (#369). The finale deck's extra floor light
+  overcorrected: at the level's own arrival camera it delivered 121 luma with 0.09% of the frame past the
+  showable top, so the largest surface in the shot lost its tread, its staining and its tile joints. It
+  reads 118.3 now with 0.03% blown, and the rule that a vault may not outshine the floor it covers still
+  holds. THE STACK is the only level that authors that term, so the other three levels are byte-identical.
+- **THE STACK's screenshot matches the game** (#369, #431). The frame the README printed for the finale was
+  one build behind once its deck was repainted; it is re-taken from the deployed build and its caption's
+  numbers now describe those bytes.
+
+### Known limitations
+- Some props still read brighter than the deck they stand in. Grading a whole sector instead of four
+  arrival cameras (#371) finds props over their deck by up to +28.0 (ARCHIVE SUBLEVEL), +55.7 (RING
+  TRANSPORT), +32.3 (ABATOIR CORE) and +46.6 (THE STACK) at seats the earlier probe never aimed at. That
+  sweep is a census and is not charged against any budget, so the paint there is still wrong.
+- You still arrive without seeing the storey above you. Grading the frame the game actually hands the
+  player - not a purpose-built look-up camera - measures 0 / 0 / 0 / 25 soffit pixels within reach across
+  the four sectors against a bar of 8,000, with 19 and 28 soffit columns in reach of the ARCHIVE and RING
+  seats. The undersides render; the arrival camera is not placed where they show, and that placement is
+  the open part of #421.
+- Five README frames of generated levels remain stale by build and cannot be re-taken to match their
+  captions until #420 settles how a shipped capture pins its level.
+
 ## [v1.4.4] - 2026-10-11
 
 ### Added
