@@ -27,6 +27,15 @@
   no growth at all. Ceiling-to-deck hue separation is 9 -> 28 degrees on ARCHIVE and 85 -> 169 on the
   STACK. The film is brightness-neutral, so no room's exposure moved and the other two levels are
   byte-identical.
+- **ABATOIR CORE's ceiling is now part of ABATOIR CORE** (#466). Overhead in the abattoir was a mauve
+  hide (hue 314) which, under the level's green lamp field, rendered as a silt-yellow slab - 41 degrees of
+  hue away from the wall it meets, in the one level whose whole theme is a single red interior. It is a
+  tanned membrane in that family now (hue 7.5), and the arrival seat reads ceiling hue 31 against wall 9:
+  overhead still reads as overhead because it is *darker*, not because it is a different colour. Both paint
+  terms were authored at the exact brightness of what they replace, so this is a colour change and not an
+  exposure one - every seeded exposure median is unchanged - and the other three levels' ceilings come back
+  byte-identical. With this tile repainted, all four sectors put their surfaces in one colour family at
+  their own seat.
 - **The README says which of its screenshots can actually be re-taken** (#431). Five frames of generated
   levels have been stale since one particular build, because the level you arrive in is dealt from wherever
   the random stream happens to have reached - so the stair flight or lamp a caption names belongs to a
