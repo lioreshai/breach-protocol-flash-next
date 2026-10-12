@@ -51,14 +51,16 @@ a byte claim written here is false by the next merge (#395). What *changed* betw
 in the PR that moved it, not here.
 
 `node tools/recap.js check` decodes the eight PNGs and fails if any number below disagrees with the
-bytes, so a caption cannot drift from its frame. The eight frames decode to **63.98 / 20.87 / 63.93 / 47.81 / 68.50 / 64.98 / 64.56 / 72.01** mean luma
+bytes, so a caption cannot drift from its frame. The eight frames decode to **51.68 / 20.87 / 51.60 / 47.81 / 68.50 / 66.43 / 64.56 / 72.01** mean luma
 (`0.2126 R + 0.7152 G + 0.0722 B`, the rule `DEV.lum` uses), in the order they appear below. A dark
 row below means a row whose own mean luma is under 24 — the threshold the tool measures at, whatever
 number a sentence labels.
 
-Three of these eight frames are still drawn at build `ce9d39d`, two at the build that was deployed when
-their pixels were taken, one at `a61b540` and two at `dac241d`; the build that drew each one is named per
-file in `provenance.json`, and the deployed page moves past them all. Treat every frame as what its own
+Three of these eight frames — the spawn seat, the posed grunt and THE STACK's arrival seat — were re-taken
+today off the deployed page at build `c3e3104`, with all twelve served blobs md5-compared against that tree
+before the shutter. Three are still drawn at build `ce9d39d` and both ABATOIR CORE frames at `dac241d`, where
+they stay because the two rows of one level have to name one deal and only one of them was re-taken; the
+build that drew each frame is named per file in `provenance.json`, and the deployed page moves past them all. Treat every frame as what its own
 caption's build drew, not as a screenshot of today's deploy (#395, #431). Opening a frame's recorded URL does
 re-deal that frame's level — the page installs the seeded dice itself at `?dev=1&seed=` (`js/90_dev.js:26`) —
 so a re-take is one page load with one boot, never a second `DEV.boot()` inside the same load
@@ -74,12 +76,15 @@ labelled stale-by-build.
 
 ![the spawn seat on a lit datum floor](docs/screens/level0-spawn.png)
 
-The spawn seat (18.5, 5.5) on a lit datum floor: **0 of 763 rows average below luminance 24** — no dark
-band left to count, thirds 51.5 / 64.2 / 76.3. This is the exposure the tonal gates are tuned against.
-The light is the cell's own ambient (`MAP.light` 0.831 at (18,5)); no lamp is in frame, and the drum
-centre-frame is a red barrel 5 m out. The seat's own column carries four units of authored air above
-it, so this is the first place the ground pass's per-row ceiling term is allowed to do anything — it is
-exactly 0 while a plane solves within 3.0 of the eye, which is every pixel of a one-unit level.
+The spawn seat (5.5, 17.5) on a lit datum floor — the seat this build's own deal puts you in, read off the
+page rather than typed — **0 of 763 rows average below luminance 24**, no dark band left to count, mean
+51.68, thirds 43.6 / 59.6 / 51.8. This is the exposure the tonal gates are tuned against. The light is the
+cell's own ambient (`MAP.light` 0.726 at (5,17)); no lamp is in frame. The seat's own column carries four
+units of authored air above it (`MAP.cz` 16, the ceiling solving at 4.00 over `floor 0.00`), so this is the
+first place the ground pass's per-row ceiling term is allowed to do anything — it is exactly 0 while a plane
+solves within 3.0 of the eye. The deck under the crosshair is the near field #467 changed: at this range the
+footprint is 1-2 texels and the fetch is the anisotropic tap pair, which is why the four streak counts
+`view.js mip` prints for the sectors fell when that pair landed.
 
 ![four risers up to the raised band, and the black air above them](docs/screens/level0-facing-wall.png)
 
@@ -96,9 +101,10 @@ room by room, and a stairwell is not a room: no level has an overlook you can lo
 
 One grunt 6 m out on the camera's own band — the spawn seat, then `DEV.clear()` and
 `DEV.spawn('grunt', 1, 6)` (`kind, n, dist`), which is why the HUD reads **1 LEFT**. He lands at
-(23.45, 8.89) on `MAP.fz` 0 like the camera, in a cell reading `MAP.light` 0.422, with `e.anim` pinned
-to **0**: rest pose, not a stride (`view.js anim` gates motion). **0 of 763 rows average below luminance 24**
-here, thirds 51.4 / 64.1 / 76.3. Bodies are meshes from `js/13_mesh.js`; whether one
+(10.45, 20.89) on `MAP.fz` 0 like the camera, in a cell reading `MAP.light` 0.013 — nearly dark air, so what
+reads him out is the lamp light on his own faces — with `e.anim` pinned to **0**: rest pose, not a stride
+(`view.js anim` gates motion). **0 of 763 rows average below luminance 24** here, mean 51.60, thirds
+43.5 / 59.4 / 51.8. Bodies are meshes from `js/13_mesh.js`; whether one
 reads against the paint behind it at combat range is what `node tools/view.js contrast` prices (#416).
 
 ![the pit lip from 2.5 m out, lit by a lamp standing in the pit](docs/screens/level0-props.png)
@@ -121,16 +127,16 @@ refuses from above.
 ![the authored two-storey level from its own spawn seat](docs/screens/level3-stack.png)
 
 **THE STACK**, the hand-authored level, from its spawn seat: (1.5, 2.5) on the datum, heading 0.60, 4
-hostiles left, and **0 of 763 rows average below luminance 24** (mean 64.98, thirds 45.6 / 74.2 / 75.2;
-at the tool's other bar, 47 rows under 34, longest run 42 from row 260). The seat's own cell carries a
+hostiles left, and **0 of 763 rows average below luminance 24** (mean 66.43, thirds 46.6 / 76.1 / 76.7;
+at the tool's other bar, 42 rows under 34, longest run 42 from row 260). The seat's own cell carries a
 ceiling at **1.00** — you are under the slab — and seven cells along the heading the plan opens into an
 atrium whose ceiling solves at **4.00** over `floor 0.00`. What crosses the middle of the frame is the
 wall of the room the seat opens into, with the atrium's lit floor visible above its top edge: a surface
 you cannot shoot at, over a wall you can. That edge is carried by the surfaces themselves rather than by
 the light on them — rectified ashlar blockwork with incised joints and tie holes over flagstone and moss
 — so a lip reads as a lip at any distance, in bright light or dim, and not only where a lamp happens to
-graze it (#428). The vault is still the darkest large surface in the frame: its band runs 45.6 against
-the deck's 75.2, and this is the first frame of this seat where that gap is the *surfaces* talking — the
+graze it (#428). The vault is still the darkest large surface in the frame: its band runs 46.6 against
+the deck's 76.7, and this is the first frame of this seat where that gap is the *surfaces* talking — the
 blockwork and the flagstone are different materials, and the deck no longer out-lights the roof over it
 because the finale's floor stops burning past the picture it is lit for (#369). The stepped glyphs on
 the minimap are the staircase that gets you up there. Hand-authoring removes the seed excuse — this plan
@@ -150,7 +156,6 @@ thirds 48.2 / 73.6 / 71.9). The top third of this frame reads **48.2** and the b
 split is the whole story of the ceiling: the slab is the largest surface the player sees and the darkest
 one on it. `tools/view.js surface` puts this level's ceiling at **47 % of the frame** against a floor at
 38 %, and the deck it looks down on is lit 1.9x brighter than the slab it looks up at.
-
 ![the same seat turned to the fitting hung over the entrance, 3 m ahead](docs/screens/level2-abatoir-ceiling.png)
 
 The same seat on the same deal, turned 0.556 rad right and pitched up 25 px, which is where this deal
