@@ -51,7 +51,7 @@ a byte claim written here is false by the next merge (#395). What *changed* betw
 in the PR that moved it, not here.
 
 `node tools/recap.js check` decodes the eight PNGs and fails if any number below disagrees with the
-bytes, so a caption cannot drift from its frame. The eight frames decode to **63.44 / 20.87 / 63.06 / 47.81 / 68.50 / 66.75 / 64.56 / 72.01** mean luma
+bytes, so a caption cannot drift from its frame. The eight frames decode to **63.44 / 20.87 / 63.06 / 47.81 / 68.50 / 64.98 / 64.56 / 72.01** mean luma
 (`0.2126 R + 0.7152 G + 0.0722 B`, the rule `DEV.lum` uses), in the order they appear below. A dark
 row below means a row whose own mean luma is under 24 — the threshold the tool measures at, whatever
 number a sentence labels.
@@ -110,21 +110,26 @@ refuses from above.
 ![the authored two-storey level from its own spawn seat](docs/screens/level3-stack.png)
 
 **THE STACK**, the hand-authored level, from its spawn seat: (1.5, 2.5) on the datum, heading 0.60, 4
-hostiles left, and **0 of 763 rows average below luminance 24** (mean 66.75, thirds 45.6 / 76.1 / 78.7).
-The seat's own cell carries a ceiling at **1.00** — you are under the slab — and seven cells along the
-heading the plan opens into an atrium whose ceiling solves at **4.00** over `floor 0.00`. What crosses
-the middle of the frame is the wall of the room the seat opens into, with the atrium's lit floor visible
-above its top edge: a surface you cannot shoot at, over a wall you can. That edge is now carried by the
-surfaces themselves — rectified ashlar blockwork with incised joints and tie holes over flagstone and
-moss — so where the deck stops and the wall begins reads at any distance, in bright light or dim, and
-not only where the lamp happens to graze it (#428). The vault is still the darkest large surface in the
-frame: its band runs 45.6 against the deck's 78.7. The stepped glyphs on the minimap are the staircase
-that gets you up there. Hand-authoring removes the seed excuse — this plan is written cell by cell over
-a 20 × 20 grid — and it also shows what is still missing: `tools/view.js volume` reports this seat's
-headroom as `1.00..1.00`, so the level is genuinely two-storey in `MAP.fz` and still reads as a low room
-with a bright slit in it (#353). The light is brighter than this seat's last frame was: 50.14 → 66.75,
-and the room has gained visible ceiling fittings since — that half of the move is lighting, not this
-wall.
+hostiles left, and **0 of 763 rows average below luminance 24** (mean 64.98, thirds 45.6 / 74.2 / 75.2;
+at the tool's other bar, 47 rows under 34, longest run 42 from row 260). The seat's own cell carries a
+ceiling at **1.00** — you are under the slab — and seven cells along the heading the plan opens into an
+atrium whose ceiling solves at **4.00** over `floor 0.00`. What crosses the middle of the frame is the
+wall of the room the seat opens into, with the atrium's lit floor visible above its top edge: a surface
+you cannot shoot at, over a wall you can. That edge is carried by the surfaces themselves rather than by
+the light on them — rectified ashlar blockwork with incised joints and tie holes over flagstone and moss
+— so a lip reads as a lip at any distance, in bright light or dim, and not only where a lamp happens to
+graze it (#428). The vault is still the darkest large surface in the frame: its band runs 45.6 against
+the deck's 75.2, and this is the first frame of this seat where that gap is the *surfaces* talking — the
+blockwork and the flagstone are different materials, and the deck no longer out-lights the roof over it
+because the finale's floor stops burning past the picture it is lit for (#369). The stepped glyphs on
+the minimap are the staircase that gets you up there. Hand-authoring removes the seed excuse — this plan
+is written cell by cell over a 20 × 20 grid — and it also shows what is still missing:
+`tools/view.js volume` reports this seat's headroom as `1.00..1.00`, so the level is genuinely two-storey
+in `MAP.fz` and still reads as a low room with a bright slit in it (#353). Against the frame this one
+replaces the whole move is the floor: mean 66.75 → 64.98, bottom third 78.7 → 75.2, middle 76.1 → 74.2,
+and the top third unchanged at 45.6; the wall did not move, because the wall moved in the previous
+re-take, the one that also took this seat from 50.14 to 66.75 when the room gained visible ceiling
+fittings.
 
 ![ABATOIR CORE from its arrival seat: the slab over the room fills the top of the frame](docs/screens/level2-abatoir.png)
 
