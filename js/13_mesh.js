@@ -394,7 +394,7 @@ const MESH = (function () {
     /* Each kind also carries its authored footprint radius in FOOT below - the draw loop needs it to
        tell "in front of the prop" from "inside the prop" (#212). */
     barrel(b) {
-      const RED = [142, 54, 36], RIM = [74, 30, 22], YEL = [214, 172, 32], MET = [196, 204, 214];
+      const RED = [120, 46, 30], RIM = [74, 30, 22], YEL = [160, 128, 24], MET = [150, 156, 164];
       b.tube(0, 0.03, 0, 0, 0.50, 0, 0.225, 0.245, RED);       // the staves, bulging at the bilge
       b.tube(0, 0.50, 0, 0, 0.93, 0, 0.245, 0.215, RED);
       b.tube(0, 0.27, 0, 0, 0.33, 0, 0.255, 0.255, RIM);       // the two hoops
@@ -411,7 +411,7 @@ const MESH = (function () {
          holds the MEAN by construction (see the `R0 / R1` line in draw); this takes back what the top face gained,
          so a crate stops measuring 2.4x the wall behind it while still reading as the nearest solid thing
          in the frame. FRAME is untouched: it is already darker than the floor it stands on. */
-      const WOOD = [125, 88, 50], FRAME = [70, 48, 24];
+      const WOOD = [78, 55, 31], FRAME = [70, 48, 24];
       b.box(0, 0.44, 0, 0.36, 0.40, 0.36, WOOD);               // the body, 0.04 to 0.84
       b.box(0, 0.85, 0, 0.375, 0.025, 0.375, FRAME);           // lid
       b.box(0, 0.05, 0, 0.375, 0.025, 0.375, FRAME);           // skid base
@@ -1145,7 +1145,7 @@ const MESH = (function () {
        PROP_R1 is that spread: the shipped ramp gave a face pair about 1.23x and delivered 1.18x because
        the ambient outside it is a floor both faces share; 1.1 on the whole light is the issue's "at
        least 35 luminance where the shipped build gives 18". */
-    const PROP_R1 = 1.1, PROP_DMEAN = 0.45;
+    const PROP_R1 = 1.3, PROP_DMEAN = 0.45;
     FLR = MDL ? (o.floor || 0) : 0; RIMK = MDL ? (o.rim || 0) : 0;
     ALPHA = o.alpha === undefined ? 1 : o.alpha;
     FLASH = o.flash ? 1 : 0;
