@@ -51,26 +51,32 @@ a byte claim written here is false by the next merge (#395). What *changed* betw
 in the PR that moved it, not here.
 
 `node tools/recap.js check` decodes the eight PNGs and fails if any number below disagrees with the
-bytes, so a caption cannot drift from its frame. The eight frames decode to **63.44 / 20.87 / 63.06 / 47.81 / 68.50 / 64.98 / 64.56 / 72.01** mean luma
+bytes, so a caption cannot drift from its frame. The eight frames decode to **63.98 / 20.87 / 63.93 / 47.81 / 68.50 / 64.98 / 64.56 / 72.01** mean luma
 (`0.2126 R + 0.7152 G + 0.0722 B`, the rule `DEV.lum` uses), in the order they appear below. A dark
 row below means a row whose own mean luma is under 24 — the threshold the tool measures at, whatever
 number a sentence labels.
 
-Five of these eight frames were drawn at build `ce9d39d`, the sixth at the build that was deployed when
-its pixels were taken and the last two at `dac241d`; the build that drew each one is named per file in
-`provenance.json`, and the deployed page moves past them all. Treat every frame as what its own
+Three of these eight frames are still drawn at build `ce9d39d`, two at the build that was deployed when
+their pixels were taken, one at `a61b540` and two at `dac241d`; the build that drew each one is named per
+file in `provenance.json`, and the deployed page moves past them all. Treat every frame as what its own
 caption's build drew, not as a screenshot of today's deploy (#395, #431). Opening a frame's recorded URL does
 re-deal that frame's level — the page installs the seeded dice itself at `?dev=1&seed=` (`js/90_dev.js:26`) —
 so a re-take is one page load with one boot, never a second `DEV.boot()` inside the same load
 (`js/90_dev.js:21-22`). What ages a frame is the build named in its row: the generator draws a different count
-between builds, so today's deploy deals those URLs a different level and the coordinates a caption names are
-cells inside the older deal. `node tools/recap.js check` prints and counts the rows labelled that way.
+between builds, so today's deploy deals those URLs a different deal. What that does to a frame is not one
+thing. Where a caption's claim is *geometry*, the re-take is a digit refresh: the two frames re-taken for
+#431 sit on a deal with the same spawn seat, the same 3 × 3 pit at `MAP.fz` -4 and the same five-cell flight,
+so only the means and the lamp positions moved. Where a caption's claim is about *darkness* it is a rewrite:
+the three frames still at `ce9d39d` count rows that today's build does not leave dark at all (488 rows under
+24 at that build's stairwell, 0 at this one, at the same coordinates), and a frame of that stairwell is a
+different picture with a different point to make. `node tools/recap.js check` prints and counts the rows
+labelled stale-by-build.
 
 ![the spawn seat on a lit datum floor](docs/screens/level0-spawn.png)
 
 The spawn seat (18.5, 5.5) on a lit datum floor: **0 of 763 rows average below luminance 24** — no dark
-band left to count, thirds 44.9 / 54.0 / 91.5. This is the exposure the tonal gates are tuned against.
-The light is the cell's own ambient (`MAP.light` 0.81 at (18,5)); no lamp is in frame, and the drum
+band left to count, thirds 51.5 / 64.2 / 76.3. This is the exposure the tonal gates are tuned against.
+The light is the cell's own ambient (`MAP.light` 0.831 at (18,5)); no lamp is in frame, and the drum
 centre-frame is a red barrel 5 m out. The seat's own column carries four units of authored air above
 it, so this is the first place the ground pass's per-row ceiling term is allowed to do anything — it is
 exactly 0 while a plane solves within 3.0 of the eye, which is every pixel of a one-unit level.
@@ -90,9 +96,9 @@ room by room, and a stairwell is not a room: no level has an overlook you can lo
 
 One grunt 6 m out on the camera's own band — the spawn seat, then `DEV.clear()` and
 `DEV.spawn('grunt', 1, 6)` (`kind, n, dist`), which is why the HUD reads **1 LEFT**. He lands at
-(24.23, 7.27) on `MAP.fz` 0 like the camera, in a cell reading `MAP.light` 0.13, with `e.anim` pinned
+(23.45, 8.89) on `MAP.fz` 0 like the camera, in a cell reading `MAP.light` 0.422, with `e.anim` pinned
 to **0**: rest pose, not a stride (`view.js anim` gates motion). **0 of 763 rows average below luminance 24**
-here, thirds 43.9 / 53.7 / 91.6. Bodies are meshes from `js/13_mesh.js`; whether one
+here, thirds 51.4 / 64.1 / 76.3. Bodies are meshes from `js/13_mesh.js`; whether one
 reads against the paint behind it at combat range is what `node tools/view.js contrast` prices (#416).
 
 ![the pit lip from 2.5 m out, lit by a lamp standing in the pit](docs/screens/level0-props.png)
