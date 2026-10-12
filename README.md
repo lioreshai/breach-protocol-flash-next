@@ -79,7 +79,9 @@ labelled stale-by-build.
 The spawn seat (5.5, 17.5) on a lit datum floor — the seat this build's own deal puts you in, read off the
 page rather than typed — **0 of 763 rows average below luminance 24**, no dark band left to count, mean
 51.68, thirds 43.6 / 59.6 / 51.8. This is the exposure the tonal gates are tuned against. The light is the
-cell's own ambient (`MAP.light` 0.726 at (5,17)); no lamp is in frame. The seat's own column carries four
+cell's own ambient (`MAP.light` 0.726 at (5,17)) — and, in the top-left corner, one ceiling fitting this
+deal hangs over the room, which is the only lamp in the frame and lights the upper band rather than the
+deck under the crosshair. The seat's own column carries four
 units of authored air above it (`MAP.cz` 16, the ceiling solving at 4.00 over `floor 0.00`), so this is the
 first place the ground pass's per-row ceiling term is allowed to do anything — it is exactly 0 while a plane
 solves within 3.0 of the eye. The deck under the crosshair is the near field #467 changed: at this range the
