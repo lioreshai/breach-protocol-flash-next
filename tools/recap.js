@@ -296,15 +296,26 @@ const URL_SEED = /[?&#]seed=(-?\d+)/;      // js/90_dev.js:23 - the seed the run
  * read it. null is a NAMED, COUNTED qualification (PROVENANCE-DEVICE), never silence: it says the
  * binding below is per-machine and STRICT=1 gates it. `--record` cannot invent it.
  *
- * The device term is the smaller half of the problem, and the printed row says so (#420). Even with
- * the rate named, the shipped route cannot re-deal the layout it recorded: startLevel generates from
- * wherever the seeded stream has REACHED, and nothing in js/ re-seeds it before the generator - the
- * pin exists only in tools/view.js (seedRng, view.js:311), which is a harness global and is not in
- * the page (measured: the deployed page throws `seedRng is not defined`). So a row's `layout` is a
- * fact of WHEN its route ran, not of its URL, seed, rate or build, and a stale frame of a GENERATED
- * level cannot be re-taken until a pin ships - only the hand-authored levels re-draw identically.
- * This tool cannot detect that per row from a checkout, so it states it beside the count.
+ * A row's `layout` has three terms beyond (seed, level), and the printed row names them so a reader
+ * cannot over-read the binding. The page DOES pin the dice: ?dev=1&seed=<int> installs mulberry over
+ * Math.random before anything generates (js/90_dev.js:26), and says so in its own report - DEV.seed
+ * (js/90_dev.js:500) and the `[DEV] seed <n> (mulberry)` boot marker (js/90_dev.js:506). So opening a
+ * row's url re-deals that row's layout, and #335 measured exactly that (`url-open` above). The three
+ * terms are:
+ *   1. the audio device, this row's own term - see HW_WHY;
+ *   2. ONE BOOT PER PAGE LOAD. The pin is installed once, when the script loads, so a second
+ *      DEV.boot() inside the same page load draws from the advanced stream and deals something else
+ *      (js/90_dev.js:21-22). Measured on the deployed build for #431: two page loads of one url each
+ *      read the same level-0 layout, and a second in-page DEV.boot() read a different layout, twice.
+ *      That is a ROUTE rule - reload the url, do not boot twice - not missing shipped code, and the
+ *      `seedRng` ReferenceError some sessions read as proof of a missing pin is only the name of a
+ *      harness global (tools/view.js:311) that the page has no reason to define.
+ *   3. the BUILD. The generator's draw count moves between builds, so a layout belongs to the build
+ *      its row names, not to the url alone. A capture session that measures a newer build re-dealing
+ *      writes `staleByBuild` on its rows; `check` PRINTS and COUNTS that label and never gates it -
+ *      from a checkout this tool cannot know what any deploy deals.
  */
+const STALE_FIELD = 'staleByBuild';   // prose: which build this layout was measured stale against
 const HW_FIELD = 'sampleRate';
 const HW_WHY = 'one seed deals one level per audio device: SND.init draws floor(sampleRate*1.5) seeded values before genLevel (#404)';
 const ABOUT = 'Capture-time provenance for docs/screens/*.png (#335). One row per shot, written by the session that '
@@ -359,11 +370,11 @@ function deal(p) {
 function provCheck(rows, prov, fails, notes) {
   notes = notes || [];
   const STRICT = !!process.env.STRICT;
-  let nrows = 0, bind = 0, report = 0, device = 0;
+  let nrows = 0, bind = 0, report = 0, device = 0, stale = 0;
   if (prov.err) {
     console.log('PROVENANCE-ARTIFACT      ' + prov.err);
     fails.push('no usable provenance artifact - every shot in the set is undeclared');
-    return { nrows: nrows + 1, bind: 0, report: 0 };
+    return { nrows: nrows + 1, bind: 0, report: 0, device: 0, stale: 0 };
   }
   const keys = {};
   for (const r of rows) {
@@ -392,10 +403,8 @@ function provCheck(rows, prov, fails, notes) {
     if (!(HW_FIELD in p)) bad.push('no ' + HW_FIELD + ' key - ' + HW_WHY + ', so a row that names no sample rate binds a deal on its own machine only (add ' + HW_FIELD + ': <hz> or null)');
     else if (p[HW_FIELD] === null || p[HW_FIELD] === undefined) {
       console.log('PROVENANCE-DEVICE  ' + r.name.padEnd(20) + deal(p) + ' - the deal this route binds is device-scoped: '
-        + HW_WHY + ', and this capture recorded no SND.ac.sampleRate, so it binds the machine that drew it; '
-        + 'and no shipped page can re-deal that layout at all, because startLevel generates from stream '
-        + 'position rather than from the seed (#420) - re-take needs that pin, and only a hand-authored '
-        + 'level redraws identically without it'
+        + HW_WHY + ', and this capture recorded no SND.ac.sampleRate, so it reproduces on a machine that '
+        + 'draws the same count, opening this url once per page load (js/90_dev.js:21-22)'
         + (STRICT ? '' : ' (STRICT=1 gates this row)'));
       device++; nrows++;
       if (STRICT) fails.push(r.name + ': a binding row with no ' + HW_FIELD);
@@ -419,6 +428,12 @@ function provCheck(rows, prov, fails, notes) {
       console.log('ok      ' + r.name.padEnd(20) + deal(p) + '  bytes ' + r.sha.slice(0, 8) + '  ' + canvas +
         (p.build ? '  build ' + p.build : '') + '  deal ' + hw);
       bind++;
+    }
+    // Staleness is a measurement a capture session recorded, never this tool's guess: printed, counted,
+    // never failed, because what a deploy deals is not readable from a checkout.
+    if (p[STALE_FIELD]) {
+      console.log('STALE-BUILD        ' + r.name.padEnd(20) + 'this frame is build ' + p.build + "'s deal and " + p[STALE_FIELD]);
+      stale++;
     }
     if (p.seed !== null && p.seed !== undefined && p.level !== null && p.level !== undefined) {
       // Two rows of one (seed, level) are one world ONLY at one audio term: at different sample
@@ -464,8 +479,8 @@ function provCheck(rows, prov, fails, notes) {
     + HW_FIELD + ') against every other shot of that deal; printed and not gated' + (STRICT ? ' (STRICT=1 gates the audio term)' : '')
     + ': an unrecorded audio term, build, at, note, which are prose about the session');
   console.log('RECAP-PROVENANCE ' + bind + ' shot(s) binding, ' + report + ' unproven-route, ' + device
-    + ' device-scoped deal(s), ' + (prov.shots.length) + ' row(s) in ' + PROV_REL);
-  return { nrows: nrows, bind: bind, report: report, device: device };
+    + ' device-scoped deal(s), ' + stale + ' stale-by-build(s), ' + (prov.shots.length) + ' row(s) in ' + PROV_REL);
+  return { nrows: nrows, bind: bind, report: report, device: device, stale: stale };
 }
 
 function recordMode(rows) {
@@ -481,7 +496,8 @@ function recordMode(rows) {
       // Re-addressing the sha and keeping seed/layout would turn a byte-mismatch FAILURE into a silent
       // pass as soon as anyone ran the recorder, so the claim goes with the bytes it described.
       s.sha256 = r.sha; s.canvas = r.s.w + 'x' + r.s.h; stale++;
-      for (const k of ['origin', 'install', 'url', 'seed', 'level', 'layout', 'build', HW_FIELD]) s[k] = null;
+      // staleByBuild goes with them: it is a claim about the layout the old bytes carried.
+      for (const k of ['origin', 'install', 'url', 'seed', 'level', 'layout', 'build', HW_FIELD, STALE_FIELD]) s[k] = null;
       s.note = 'RE-ADDRESSED by tools/recap.js --record: the PNG bytes moved, so the deal this row carried belonged to the previous frame. Fill origin/install/url/seed/level/layout from DEV.state() at capture time - if the same route and the same URL produced these pixels, that is the same six values re-stated by hand. `check` FAILs the row until then.';
       console.log('STALE   ' + r.name.padEnd(20) + 'bytes moved; sha256+canvas re-addressed and the deal fields CLEARED:');
       console.log(' '.repeat(21) + 'the old seed/layout pair was a claim about the previous pixels, not these');
@@ -592,7 +608,8 @@ function checkMode(rows, rev) {
   for (const n of notes) console.log('note                   ' + n);
   console.log('RECAP ' + fails.length + ' FAILURE(S) of ' + nrows + ' rows, ' + pv.bind + ' shot(s) with a binding route' +
     (pv.report ? ', ' + pv.report + ' with an unproven route' : '') +
-    (pv.device ? ', ' + pv.device + ' with a device-scoped deal (#404; none of these layouts is re-dealable off the shipped route until #420 lands)' : '') +
+    (pv.device ? ', ' + pv.device + ' with a device-scoped deal (#404)' : '') +
+    (pv.stale ? ', ' + pv.stale + ' labelled stale-by-build (a re-take off a newer deploy re-deals; the caption coordinates are inside one build)' : '') +
     (notes.length ? ', ' + notes.length + ' note(s)' : ''));
   return fails.length ? 1 : 0;
 }

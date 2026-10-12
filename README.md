@@ -59,10 +59,12 @@ number a sentence labels.
 Five of these eight frames were drawn at build `ce9d39d`, the sixth at the build that was deployed when
 its pixels were taken and the last two at `dac241d`; the build that drew each one is named per file in
 `provenance.json`, and the deployed page moves past them all. Treat every frame as what its own
-caption's build drew, not as a screenshot of today's deploy (#395, #431). Only the hand-authored level's frame
-can be re-taken from the deployed page today: a generated level's route generates wherever the seeded stream has
-reached rather than from the seed, so those frames age until the capture route pins that stream (#420).
-`node tools/recap.js check` prints how many rows are in that state.
+caption's build drew, not as a screenshot of today's deploy (#395, #431). Opening a frame's recorded URL does
+re-deal that frame's level — the page installs the seeded dice itself at `?dev=1&seed=` (`js/90_dev.js:26`) —
+so a re-take is one page load with one boot, never a second `DEV.boot()` inside the same load
+(`js/90_dev.js:21-22`). What ages a frame is the build named in its row: the generator draws a different count
+between builds, so today's deploy deals those URLs a different level and the coordinates a caption names are
+cells inside the older deal. `node tools/recap.js check` prints and counts the rows labelled that way.
 
 ![the spawn seat on a lit datum floor](docs/screens/level0-spawn.png)
 
