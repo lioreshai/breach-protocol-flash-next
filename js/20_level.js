@@ -85,7 +85,19 @@ const LEVELS = [
     // `wall2` stays TECH: already another family, and the room-scale face the finale's fit-out is made of.
     name: 'THE STACK', size: 20, authored: true, wall: WT.SLAB, wall2: WT.TECH,
     floor: 'STONE', ceil: 'ROCK', amb: 0.2, lampCol: [255, 196, 120], fogCol: [17, 13, 10],
-    floorBias: 0.18, ceilBias: -0.04, ceilLead: 0.12, wallBias: 0.10,
+    /* #369 the DECK half: 0.18 -> 0.12. The rule this level authors is that a vault may not lead the
+       floor it covers, and the term that fixed it overcorrected: at the finale's own scene seat the deck
+       delivered 121 luma with its own pool past the showable top, so the largest surface in the shot lost
+       its tread, its stains and its joints and became a hole in the picture. 0.12 is the lowest term that
+       still keeps the authored rule true without a second change - the vault's lead must satisfy
+       ceilLead <= floorBias - ceilBias, i.e. 0.12 <= 0.12 + 0.04 - so the roof stays lifted off black and
+       cannot come back up into the frame's emphasis. `wallBias` 0.10 is left exactly as #442 authored it:
+       moving it to 0.14 would restore the arithmetic order (face base above deck base) and buy cam3 two
+       more lumas of separation, but it puts the level's median back to 93 - one glyph ABOVE the number
+       this change exists to bring down - so the separation stays where it is measured rather than being
+       bought with exposure. Measured at that seat below and in `surface`; the moved records are named in
+       the PR. */
+    floorBias: 0.12, ceilBias: -0.04, ceilLead: 0.12, wallBias: 0.10,
     // #385: the absolute half of the step crease, in luma (js/40_render.js SEAMA). This level authors
     // `lamps: 0`, so its decks are the darkest in the game and a MULTIPLY-only crease is 6 luma deep on
     // the pit lip against 13 on a lit one - the same edge, half the legibility. It is authored HERE and
