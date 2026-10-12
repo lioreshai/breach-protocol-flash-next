@@ -145,10 +145,13 @@ the minimap are the staircase that gets you up there. Hand-authoring removes the
 is written cell by cell over a 20 × 20 grid — and it also shows what is still missing:
 `tools/view.js volume` reports this seat's headroom as `1.00..1.00`, so the level is genuinely two-storey
 in `MAP.fz` and still reads as a low room with a bright slit in it (#353). Against the frame this one
-replaces the whole move is the floor: mean 66.75 → 64.98, bottom third 78.7 → 75.2, middle 76.1 → 74.2,
-and the top third unchanged at 45.6; the wall did not move, because the wall moved in the previous
-re-take, the one that also took this seat from 50.14 to 66.75 when the room gained visible ceiling
-fittings.
+replaces the move is in the near field: mean 64.98 → 66.43, thirds 45.6 / 74.2 / 75.2 → 46.6 / 76.1 /
+76.7. The deck under the crosshair is the band with a named cause — #467 merged the anisotropic ground
+tap pair, and the ground within a few metres is the 1-2 texel footprint that pair was gated on — while
+the middle and top bands came back under two luma brighter, which this pass measured and did not
+attribute. The 66.75 → 64.98 comparison belongs to the previous re-take (#369, stopping the finale's
+deck burning past the picture it is lit for) and the 50.14 → 66.75 move before that to the one that gave
+the room visible ceiling fittings; neither is a description of these bytes.
 
 ![ABATOIR CORE from its arrival seat: the slab over the room fills the top of the frame](docs/screens/level2-abatoir.png)
 
@@ -158,6 +161,7 @@ thirds 48.2 / 73.6 / 71.9). The top third of this frame reads **48.2** and the b
 split is the whole story of the ceiling: the slab is the largest surface the player sees and the darkest
 one on it. `tools/view.js surface` puts this level's ceiling at **47 % of the frame** against a floor at
 38 %, and the deck it looks down on is lit 1.9x brighter than the slab it looks up at.
+
 ![the same seat turned to the fitting hung over the entrance, 3 m ahead](docs/screens/level2-abatoir-ceiling.png)
 
 The same seat on the same deal, turned 0.556 rad right and pitched up 25 px, which is where this deal
