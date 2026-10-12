@@ -888,10 +888,26 @@ const MESH = (function () {
        billboard handed the raster. Applying the same transform is what makes a mesh prop the same COLOUR
        as the sheet it replaced: without it a crate's brightest pixels measured 62 against the sprite's
        101 at the same camera. Bodies never went through a lift, so they are untouched. */
-    for (let i = 3; i < b.p.length; i += 6) {
-      b.p[i] = Math.min(255, b.p[i] * 1.35 + 6);
-      b.p[i + 1] = Math.min(255, b.p[i + 1] * 1.35 + 6);
-      b.p[i + 2] = Math.min(255, b.p[i + 2] * 1.35 + 6);
+    /* #371: the prop VALUE band, and the second half of what the prop paint owes. PROPGEO's numbers were
+       the last paint in the game sitting outside the albedo band #438 gave the seventeen wall, floor and
+       ceiling tiles (the `alb` knob, js/10_assets.js:46): a crate measured about +27 luma over its own
+       deck away from the arrival cameras, which is the "bright card in a dim room" tell this issue opened
+       with, and it was authored, not lit - the prop is louder than the room because its albedo is.
+       One scalar, one shape, same exemptions as the tiles: it multiplies the PAINTED albedo and nothing
+       else. Not the 1.35 lift above (that is the billboard's re-light, and it is what makes a mesh prop
+       the same colour as the sheet it replaced), not a light value, and not an emissive part - a vertex
+       flagged `em` is a LIGHT SOURCE (the lamp's aperture, read by the `props` LAMPCORE census), and
+       #371's own ruling says a lamp reading brighter than its deck is the issue's rule WORKING, so the
+       lamp's whole prop stays out of the band: PROPBAND names crate and barrel, the two painted boxes, and
+       a lamp's post and base are painted surfaces a light cell happens to be standing in. Pickups are out
+       too - they are readability, not set dressing, and no row here charges them for being loud. */
+    const PROP_ALB = 0.88, PROPBAND = { crate: PROP_ALB, barrel: PROP_ALB };
+    const band = PROPBAND[kind];
+    for (let i = 3, v = 0; i < b.p.length; i += 6, v++) {
+      const k = band && !b.e[v] ? band : 1;         // emissive vertices keep their authored bytes
+      b.p[i] = Math.min(255, b.p[i] * k * 1.35 + 6);
+      b.p[i + 1] = Math.min(255, b.p[i + 1] * k * 1.35 + 6);
+      b.p[i + 2] = Math.min(255, b.p[i + 2] * k * 1.35 + 6);
     }
     return b;
   }
