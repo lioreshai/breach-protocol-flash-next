@@ -56,7 +56,7 @@
 ### Known limitations
 - Some props still read brighter than the deck they stand in. Grading a whole sector instead of four
   arrival cameras (#371) finds props over their deck by up to +28.0 (ARCHIVE SUBLEVEL), +55.7 (RING
-  TRANSPORT), +32.3 (ABATOIR CORE) and +46.6 (THE STACK) at seats the earlier probe never aimed at. That
+  TRANSPORT), +32.1 (ABATOIR CORE) and +52.5 (THE STACK) at seats the earlier probe never aimed at. That
   sweep is a census and is not charged against any budget, so the paint there is still wrong.
 - You still arrive without seeing the storey above you. Grading the frame the game actually hands the
   player - not a purpose-built look-up camera - measures 0 / 0 / 0 / 25 soffit pixels within reach across
