@@ -597,13 +597,34 @@ CEILS.SINEW = matTex(64, 64, p => {
      removal plus a desaturated albedo, with the level's own ceilBias on top (js/20_level.js:22), takes
      that ceiling band from 67.1 to 48.7 at the same seat, against a wall band that does not move: the
      5.0-point gap the issue measured becomes 23.4, and 17.3 at a second camera. The remaining
-     ordering (floorBias / ceilBias / ceilLead) is authored per level and applied in js/40_render.js. */
+     ordering (floorBias / ceilBias / ceilLead) is authored per level and applied in js/40_render.js.
+     #466 HUE FAMILY: that albedo was a MAUVE - 92/74/90, hue 314 deg - and ABATOIR CORE's world is
+     red. At the level's spawn seat (`view.js scene 2 0`) main's frame reads wall h8, floor h10 and
+     ceiling h49: a silt-yellow overhead surface 41 deg off the wall it meets, saturated enough to see
+     and dull enough to read as a mistake rather than as an accent, in the one level whose theme is a
+     single wet interior. The other three levels' seats each put every surface in one family (RING
+     h205/209/213; ARCHIVE h22/23 with its deck the one outlier; STACK's ceiling is NEUTRAL at s0.07,
+     which goes with anything), so this tile is the whole of the defect left on this issue at a seat.
+     The hide is now a MEMBRANE in the level's own family - 118/69.1/62, hue 7.5 deg, a tanned skin
+     rather than a mauve one - and the seat now reads ceiling h31 against wall h9: a 22 deg gap, held
+     open by value (ceiling L58.5 against floor L76.2) exactly as #369 left it, so "overhead reads as
+     overhead" is still a luma statement and only the hue moved. The rendered gap is smaller than the
+     authored one because the level's green lamp pulls every surface toward yellow; pushing the albedo
+     redder than this buys two degrees and a ceiling the colour of a brick.
+     Both literals are authored at the Rec.709 luma of the term they replace (base 79.00 per unit v
+     against 78.98, recess 39.4 against 39.4), the weighting the renderer itself uses
+     (js/40_render.js:2777), which is what makes this a colour change and not a value change:
+     `matband` prints CEILS.SINEW at main's own 68.8 and `exposure` prints main's medians, and the
+     level-scoped control is that CEILS.ROCK / CEILS.PANEL - the other three levels' ceilings - are
+     untouched and their frames come back byte-identical in the same run. No `alb`, `amb`, `spec`,
+     bump, grain, bias, lamp or height is touched; `p.h` feeds the height field, not a colour, so the
+     vein recess moves in rgb only. */
   const n = fbm(p.u, p.v, 4, 4, 0.55, 5);
   let v = 0.46 + n * 0.5;
-  p.r = 92 * v; p.g = 74 * v; p.b = 90 * v;
+  p.r = 118 * v; p.g = 69.1 * v; p.b = 62 * v;
   p.h = 0.5 + (n - 0.5) * 0.2;
   const vk = veinMask(p, 0.18, 3, 23);
-  p.r += (42 - p.r) * vk * 0.55; p.g += (38 - p.g) * vk * 0.55; p.b += (46 - p.b) * vk * 0.55;
+  p.r += (58 - p.r) * vk * 0.55; p.g += (34.4 - p.g) * vk * 0.55; p.b += (34 - p.b) * vk * 0.55;
   p.h -= vk * 0.1;
 }, { bump: 1.3, amb: 0.42, spec: 0.16, specPow: 18, ao: 0.8, grain: 9 });
 
