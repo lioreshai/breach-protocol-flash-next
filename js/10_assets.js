@@ -551,14 +551,39 @@ CEILS.PANEL = matTex(T2, T2, p => {
 CEILS.ROCK = matTex(T2, T2, p => {
   const strata = Math.sin(p.v * 12 + turb(p.u * 2, p.v * 2, 3, 3, 51) * 2.2) * 0.5 + 0.5;
   const n = turb(p.u * 7, p.v * 7, 4, 4, 57);
-  let v = 0.36 + n * 0.42 + strata * 0.14;
+  let v = 0.389 + n * 0.42 + strata * 0.14;
   p.r = 70 * v; p.g = 68 * v; p.b = 70 * v;                       // desaturated: the warm browns belong to the floor
   p.h = 0.44 + n * 0.3 + strata * 0.1;
   const knob = smoothstep(0.72, 0.95, fbm(p.u * 9, p.v * 9, 4, 3, 0.55, 19));
   p.h += knob * 0.2; p.r += knob * 10; p.g += knob * 10; p.b += knob * 12;
   const wet = smoothstep(0.72, 0.94, fbm(p.u * 5, p.v * 5, 3, 3, 0.6, 33));
   p.r += wet * 10; p.g += wet * 11; p.b += wet * 14;
-  moss(p, 0.1, 71);                                               // seam moss, not floor moss
+  /* #466: GROWTH COMES OFF THE CEILING. `moss()` sat here at amt 0.1 - the same generator, at the same
+     scale, pulling toward the same RGB 44/86/40 that paints this level-s DECK - so the surface above
+     you carried the surface below you and the ceiling-to-deck seam existed only where a lamp happened
+     to fall. Measured on main at this level's arrival seat (bands: rows 2-16 % / 46-54 % / 80-95 %,
+     cols 20-80 %): ARCHIVE SUBLEVEL ceiling rgb(34,30,21) h41 s0.40 against deck rgb(61,58,43) h50 -
+     NINE degrees apart, inside the noise of one hue; THE STACK ceiling rgb(60,61,60) at saturation
+     0.02, which reads as unpainted concrete rather than as a surface somebody's lamp is touching.
+     Growth needs standing water at the foot of a wall. What reaches a ceiling is water that ran and
+     dried, and what it leaves is mineral: a dry, pale, DIRECTIONAL film stretched along the strata the
+     tile already draws, not a patch of the deck.
+     The film is authored LUMA-NEUTRAL BY CONSTRUCTION rather than by tuning: every texel is pulled
+     toward its OWN Rec.709 luma scaled by `dry * 1.03` (the 1.03 is the small lift the moss's
+     brighter target used to contribute, and it is the only number here chosen against `matband` - the
+     tile prints main's 53.7 either side of it), so a ceiling pixel changes its colour and not its
+     brightness, in the weighting the renderer itself uses (js/40_render.js:2777). That is why the two
+     levels that wear this tile keep their `exposure` medians and their `matband` ceiling rows, and why
+     what moves on the flatparity frames is pixels, not exposure. CEILS.PANEL and CEILS.SINEW - RING
+     TRANSPORT and ABATOIR CORE - are untouched, which is the level-scoped control on those frames.
+     No `alb`, `amb`, `spec`, bump, grain, lamp, bias or height is touched. */
+  const run = fbm(p.u * 1.1, p.v * 4.2, 3, 4, 0.5, 71) * fbm(p.u * 4, p.v * 13, 9, 3, 0.5, 74) * 3.1;
+  const dry = smoothstep(0.89, 1.35, run) * 0.85;
+  if (dry > 0) {
+    const own = (0.2126 * p.r + 0.7152 * p.g + 0.0722 * p.b) * 1.03;
+    p.r += (own - p.r) * dry; p.g += (own - p.g) * dry; p.b += (own - p.b) * dry + dry * 42;
+    p.h += dry * 0.03;
+  }
 }, { bump: 1.6, amb: 0.4, spec: 0.07, ao: 0.9, grain: 10 });
 CEILS.SINEW = matTex(64, 64, p => {
   /* #369: this used to be FLOORS.FLESH at a different scale - 104/40/50 albedo with EMISSIVE veins at
