@@ -2961,7 +2961,10 @@ if (MODE === 'vert') {
   /* S.shake is in the sample because a support test that fires ON the floor self-cancels inside one
      frame (it lands before the sample) and is invisible to a post-update read - but the landing adds
      its impulse every frame, and an impulse that repeats while walking on flat ground is a bug. */
-  const SAMPLE = `update(1/60);s.push([+P.x.toFixed(4),+P.z.toFixed(6),+floorAt(P.x,P.y).toFixed(4),P.air?1:0,+P.hp.toFixed(3),+S.shake.toFixed(4)])`;
+  /* P.y is the 7th field, not the 2nd: every consumer below indexes this tuple positionally
+     (r[1] = P.z, r[3] = P.air, r[4] = hp, r[5] = shake) and #421 is the reason the y half is now
+     read at all - see `adv` below. */
+  const SAMPLE = `update(1/60);s.push([+P.x.toFixed(4),+P.z.toFixed(6),+floorAt(P.x,P.y).toFixed(4),P.air?1:0,+P.hp.toFixed(3),+S.shake.toFixed(4),+P.y.toFixed(4)])`;
   const RUN = (fr, key) => `(()=>{` + (key ? `keys['${key}']=1;` : '') + `const s=[];for(let i=0;i<${fr};i++){${SAMPLE};}return s})()`;
   const PLACE = (x, y, z) => `P.x=${x};P.y=${y};P.ang=0;P.vx=P.vy=P.vz=0;P.air=false;` +
     `P.z=${z === undefined ? 'floorAt(P.x,P.y)' : z};for(const k of ['KeyW','KeyA','KeyS','KeyE','KeyQ','Space','ShiftLeft'])delete keys[k];`;
@@ -2969,9 +2972,21 @@ if (MODE === 'vert') {
      since a P.z that only tracks the floor by luck hashes just as well as one that does not. */
   for (let li = 0; li < run('LEVELS.length'); li++) {
     run(PRE(li));
-    const x0 = run('P.x'), s = run(RUN(150, 'KeyW'));
+    const x0 = run('P.x'), y0 = run('P.y'), s = run(RUN(150, 'KeyW'));
     const sep = s.filter(r => r[1] !== r[2]).length, air = s.filter(r => r[3]).length;
-    const adv = s[s.length - 1][0] - x0, z0 = s[0][1], shk = Math.max.apply(null, s.map(r => r[5]));
+    const z0 = s[0][1], shk = Math.max.apply(null, s.map(r => r[5]));
+    /* VACUITY is how far the player GOT, not how far it got along x. `adv` was the x projection
+       from the day the row was written, when every sector seated the player at the authored 0.6 rad
+       heading (cos 0.83, so x carried the walk) and the projection was a proxy for the distance.
+       #421 derives the arrival heading from the plan, so that proxy expired: ARCHIVE SUBLEVEL now
+       walks at ~2.32 rad, whose x component is NEGATIVE, and a player who covered the floor read as
+       "travelled -1.32 units" and failed its own non-vacuity clause with P.z on the floor in 150/150
+       frames. A planar distance is never smaller than its own x projection, so judging hypot(dx,dy)
+       against the SAME floor of 2 can only ever turn a red row green and never a green row red - it
+       is a strictly tighter-or-equal reading of "the player barely moved", not a widened gate. The
+       two components stay in the detail line so the bearing that broke the proxy is on the record. */
+    const dx = s[s.length - 1][0] - x0, dy = s[s.length - 1][6] - y0;
+    const adv = Math.hypot(dx, dy);
     /* Attribute the shake before judging it. The sample carries hp precisely so an impulse can be
      * told apart from damage, and this row was judging them together: on the level SEED=1 deals, an
      * enemy reaches the walking player once, hp goes 100 -> 91, shake peaks at 4.07, and the row
@@ -2984,7 +2999,8 @@ if (MODE === 'vert') {
     VROW('L' + li + ' flat walk keeps P.z on the floor', !sep && !air && adv > 2 && shkNH < 0.05,
       `P.z off the floor ${sep}/150 frames, airborne ${air}, impulse on un-hit frames ${shkNH.toFixed(2)}` +
       ` (any-source peak ${shk.toFixed(2)}, ${nHit} hit${nHit === 1 ? '' : 's'} taking hp ${hp0.toFixed(0)} -> ${hpEnd.toFixed(0)}), ` +
-      `travelled ${adv.toFixed(2)} units in 2.5 s` + (adv <= 2 ? ' VACUOUS - the player barely moved' : ''));
+      `travelled ${adv.toFixed(2)} units (dx ${dx.toFixed(2)}, dy ${dy.toFixed(2)}) in 2.5 s` +
+      (adv <= 2 ? ' VACUOUS - the player barely moved' : ''));
     const ze = run(RUN(40, 'KeyE')).pop()[1], zq = run(RUN(40, 'KeyQ')).pop()[1];
     VROW('L' + li + ' climb keys inert with no ladder', ze === z0 && zq === z0, `KeyE -> ${ze}, KeyQ -> ${zq}, floor ${s[0][2]}`);
   }
