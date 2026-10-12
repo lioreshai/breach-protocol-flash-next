@@ -394,7 +394,7 @@ const MESH = (function () {
     /* Each kind also carries its authored footprint radius in FOOT below - the draw loop needs it to
        tell "in front of the prop" from "inside the prop" (#212). */
     barrel(b) {
-      const RED = [142, 54, 36], RIM = [74, 30, 22], YEL = [214, 172, 32], MET = [196, 204, 214];
+      const RED = [120, 46, 30], RIM = [74, 30, 22], YEL = [160, 128, 24], MET = [150, 156, 164];
       b.tube(0, 0.03, 0, 0, 0.50, 0, 0.225, 0.245, RED);       // the staves, bulging at the bilge
       b.tube(0, 0.50, 0, 0, 0.93, 0, 0.245, 0.215, RED);
       b.tube(0, 0.27, 0, 0, 0.33, 0, 0.255, 0.255, RIM);       // the two hoops
@@ -411,7 +411,7 @@ const MESH = (function () {
          holds the MEAN by construction (see the `R0 / R1` line in draw); this takes back what the top face gained,
          so a crate stops measuring 2.4x the wall behind it while still reading as the nearest solid thing
          in the frame. FRAME is untouched: it is already darker than the floor it stands on. */
-      const WOOD = [125, 88, 50], FRAME = [70, 48, 24];
+      const WOOD = [78, 55, 31], FRAME = [70, 48, 24];
       b.box(0, 0.44, 0, 0.36, 0.40, 0.36, WOOD);               // the body, 0.04 to 0.84
       b.box(0, 0.85, 0, 0.375, 0.025, 0.375, FRAME);           // lid
       b.box(0, 0.05, 0, 0.375, 0.025, 0.375, FRAME);           // skid base
@@ -1138,6 +1138,14 @@ const MESH = (function () {
     const pr = pg && PROPKIND[o.kind] === 1;         // a prop, not merely something built by PROPGEO
     R0 = MDL ? 0.55 : (pr ? 0.60 : pg ? 0.75 : 0.30);
     R1 = MDL ? 0.55 : (pr ? 0.68 : pg ? 0.42 : 0.85);
+    /* #371: the prop form term's own two constants. PROP_DMEAN is the mean of d = max(0, N*KEY) over a
+       box's THREE face families (two vertical families at |KEY_xy| = 0.732 and the top at KEY_z = 0.68),
+       the same 0.567 #373 used to hold its ramp's mean; centring on it makes the form term average
+       exactly 1 over a box, so the prop's average light is the shipped light and only the SPREAD moved.
+       PROP_R1 is that spread: the shipped ramp gave a face pair about 1.23x and delivered 1.18x because
+       the ambient outside it is a floor both faces share; 1.1 on the whole light is the issue's "at
+       least 35 luminance where the shipped build gives 18". */
+    const PROP_R1 = 1.3, PROP_DMEAN = 0.45;
     FLR = MDL ? (o.floor || 0) : 0; RIMK = MDL ? (o.rim || 0) : 0;
     ALPHA = o.alpha === undefined ? 1 : o.alpha;
     FLASH = o.flash ? 1 : 0;
@@ -1268,9 +1276,36 @@ const MESH = (function () {
            path has no N*L at all (js/40_render.js:2291) - so unlike BODYDIST one read site is enough. */
         const sh = MDL || BODYSHADE ? R0 + R1 * d : 1 + R1 * (d - 0.5);
         const fk = FL ? FL * 1.1 * Math.exp(-dc * 0.30) : 0;
-        lr = (AMB + li * lt[0] * sh + fk * (FC[0] / 255)) * hz;
-        lg = (AMB + li * lt[1] * sh + fk * (FC[1] / 255)) * hz;
-        lb = (AMB + li * lt[2] * sh + fk * (FC[2] / 255)) * hz;
+        /* #371: on a PROP the form term scales the WHOLE light, ambient included, and it is centred on
+           one so the mean is held by construction instead of by re-pairing R0 against R1.
+           Why outside the ramp: the shipped line adds `AMB` and then multiplies only the lamp field by
+           `R0 + R1*d`, so a prop's delivered face ratio is (AMB + li*sh1)/(AMB + li*sh2), not sh1/sh2 -
+           the ambient is a floor BOTH faces share and it cannot be pushed into shadow by any ramp. That
+           is the residual the last two passes measured on the level-0 crate (1.23x claimed by the ramp,
+           1.18x delivered, 16.5 luma) and why widening R1 with the mean re-paired moved two lumas.
+           The WORLD already solves this differently, and in the direction this takes: a wall face's
+           light is `(max(lit,litFront*.85)*fall + AMB + WALLB) * (side === 1 ? 0.78 : 1)`
+           (js/40_render.js:2372) - the orientation multiplies the ambient too, which is exactly why two
+           wall orientations read apart in a pitch-dark cell and two prop faces cannot. A prop now pays
+           the same tax, centred: `aw = 1 + PROP_R1*(d - PROP_DMEAN)`. PROP_DMEAN is the mean of d over
+           the faces a box actually PUTS ON SCREEN - the two vertical families weighted by their pixels
+           and the top by its much smaller share - which is 0.45, measured, not #373's 0.567, which was
+           the mean over the three face FAMILIES unweighted. Centring there makes the term average 1
+           over what the eye receives, so no albedo is taken back and the hazard drum keeps its value:
+           `exposure`'s four seeded medians (74 / 69 / 67 / 92) are UNCHANGED in the same run, which is
+           the mean-hold control, and the first cut at 0.567 showed why it matters - it sat 0.7-1.2 luma
+           under those medians and under three of the four spawn seats, a dimming, not a re-light.
+           PROP_R1 is the spread: 1.1 takes the crate's two visible faces from rel 0.70 to rel 1.27 and
+           the barrel's from 0.80 to 1.23 in the `props` probe's own face rows.
+           The muzzle flash stays OUTSIDE the form term on purpose: it is a light AT the eye, so every
+           face of a solid receives it equally and an orientation term on it would darken the flank that
+           geometry happens not to favour. Bodies and the view model keep the shipped line untouched -
+           #407 prices the body's ramp against its own field and #376 owns the gun. */
+        const aw = pr ? 1 + PROP_R1 * (d - PROP_DMEAN) : 1;
+        const lw = pr ? aw : sh;
+        lr = (AMB * aw + li * lt[0] * lw + fk * (FC[0] / 255)) * hz;
+        lg = (AMB * aw + li * lt[1] * lw + fk * (FC[1] / 255)) * hz;
+        lb = (AMB * aw + li * lt[2] * lw + fk * (FC[2] / 255)) * hz;
         if (DIM) { lr *= 1 - DIM; lg *= 1 - DIM; lb *= 1 - DIM; }   // the portal's shut-and-dimmed term
         /* #371: the fold is a bound on the PRODUCT (albedo x light), not on the light, so it rides where
            the product is finished and the light-exempt branch has already been taken round. PKN is a
