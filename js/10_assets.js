@@ -680,7 +680,7 @@ CEILS.CONCRETE = matTex(T2, T2, p => {
   const soot = smoothstep(0.55, 0.95, fbm(p.u * 1.6, p.v * 1.6, 4, 3, 0.6, 13));
   p.r -= soot * 20; p.g -= soot * 19; p.b -= soot * 15;
   cracks(p, 0.05, 0.08, 3, 27, [24, 24, 28]);
-}, { bump: 1.1, amb: 0.42, spec: 0.03, ao: 0.8, grain: 8 });
+}, { bump: 1.1, amb: 0.42, spec: 0.03, ao: 0.8, grain: 12, alb: 1.35 });   // #495: albedo into the family band + joint/speckle detail (see the CEILS note above CEILS.CONCRETE)
 CEILS.PANEL = matTex(T2, T2, p => {
   const gx = (p.u * 4) % 1, gy = (p.v * 4) % 1;
   const d = Math.max(Math.abs(gx - 0.5) - 0.46, Math.abs(gy - 0.5) - 0.46);
@@ -693,8 +693,12 @@ CEILS.PANEL = matTex(T2, T2, p => {
   const vent = Math.abs(gy - 0.5) < 0.32 && Math.abs(gx - 0.5) < 0.22 && ((p.v * 4) | 0) % 3 === 0;
   if (vent) { const s = Math.sin(gy * 60) * 0.5 + 0.5; p.h -= s * 0.2; p.r -= s * 20; p.g -= s * 20; p.b -= s * 18; }
   dust(p, 0.12, [62, 66, 74]);
-}, { bump: 1.1, amb: 0.44, spec: 0.14, specPow: 26, ao: 0.75, grain: 6, mipCyc: 4 });
-CEILS.ROCK = matTex(T2, T2, p => {
+}, { bump: 1.1, amb: 0.44, spec: 0.14, specPow: 26, ao: 0.75, grain: 11, mipCyc: 4, alb: 1.7 });   // #495: albedo into the family band + joint/speckle detail
+/* #495: the ROCK paint is a NAMED function now, because THE STACK wears a second instance of it. Same
+   rock, two scales of the same story: ARCHIVE SUBLEVEL's low ceiling and the finale's vault are one
+   material family, and only the finale's roof is pale enough to carry its own amber fog. See CEILS.VAULT
+   below and js/20_level.js's THE STACK declaration. */
+const rockPaint = p => {
   const strata = Math.sin(p.v * 12 + turb(p.u * 2, p.v * 2, 3, 3, 51) * 2.2) * 0.5 + 0.5;
   const n = turb(p.u * 7, p.v * 7, 4, 4, 57);
   let v = 0.389 + n * 0.42 + strata * 0.14;
@@ -730,7 +734,19 @@ CEILS.ROCK = matTex(T2, T2, p => {
     p.r += (own - p.r) * dry; p.g += (own - p.g) * dry; p.b += (own - p.b) * dry + dry * 42;
     p.h += dry * 0.03;
   }
-}, { bump: 1.6, amb: 0.4, spec: 0.07, ao: 0.9, grain: 10 });
+};
+CEILS.ROCK = matTex(T2, T2, rockPaint, { bump: 1.6, amb: 0.4, spec: 0.07, ao: 0.9, grain: 14, alb: 1.3 });   // #495: albedo into the family band + grain; the mineral film above stays luma-neutral, alb scales it with everything else
+/* #495 THE ROOF WAS THE DARKEST THING IN THE FRAME. THE STACK's ceiling is the same rock as ARCHIVE's,
+   over a deck the level itself lifts (`floorBias: 0.12`) and a room the level lights with `lamps: 0` - so
+   the one tile that has to cover the largest overhead area in the campaign was delivering 0.33-0.41x the
+   luma of the floor under it (`surface` ORDER at the finale's own seat). ARCHIVE's roof wears the same
+   tile over a much darker deck and was already reading at 0.57x, so raising ROCK for both would have put
+   ARCHIVE's ceiling within a hair of its own floor (#369's ORDER row is a ceiling-below-deck rule, and
+   0.9x is that rule failing slowly). So the finale gets its OWN ceiling instance: the same rock paint at
+   a storey-scale albedo, still below every wall and deck tile in the table (`matband`'s ceiling-below-
+   every-face row, which bounds what overhead can be worth), and still under the level's own derived
+   surface order, which is what keeps the roof from ever out-valuing the walkway it covers. */
+CEILS.VAULT = matTex(T2, T2, rockPaint, { bump: 1.5, amb: 0.42, spec: 0.06, ao: 0.95, grain: 15, alb: 1.7 });
 CEILS.SINEW = matTex(64, 64, p => {
   /* #369: this used to be FLOORS.FLESH at a different scale - 104/40/50 albedo with EMISSIVE veins at
      180,96,60 - so ABATOIR CORE, the largest level in the campaign, put its floor, its walls and its
@@ -772,7 +788,7 @@ CEILS.SINEW = matTex(64, 64, p => {
   const vk = veinMask(p, 0.18, 3, 23);
   p.r += (58 - p.r) * vk * 0.55; p.g += (34.4 - p.g) * vk * 0.55; p.b += (34 - p.b) * vk * 0.55;
   p.h -= vk * 0.1;
-}, { bump: 1.3, amb: 0.42, spec: 0.16, specPow: 18, ao: 0.8, grain: 9 });
+}, { bump: 1.3, amb: 0.42, spec: 0.16, specPow: 18, ao: 0.8, grain: 13, alb: 1.34 });   // #495: albedo + grain; hue untouched, so #466's family statement (ceiling h31 against wall h9) stands
 
 /* ============================ decals ============================ */
 const DECAL = {};
