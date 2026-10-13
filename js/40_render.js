@@ -574,7 +574,14 @@ let GJIT = 1, GLRP = 1, GNDAX = 1, AXMIN = 1, GLC = null, GNDFT = 1, GNDRO = 1, 
    is the A/B and the wedge comes back. GNDFA is a MULTIPLIER so an A/B can also sweep the strength.
    The coarser tap contributes COLOUR only: it does not set the 253 flag, because a coarse texel's alpha
    describes an AREA, not this pixel's footprint, and deeper mips go uniformly 253 (#124) - letting it
-   decide would take whole bands light-exempt, which is a relight, not a filter. */
+   decide would take whole bands light-exempt, which is a relight, not a filter.
+   TAKE EIGHT: that coarser share is now fetched as a PAIR, at half the axial pair's offset - the same
+   symmetric box, in the level it belongs to. It had to be: w = 1 - 1/F means the LONGER the footprint
+   the more of the pixel this term decides, and it was one texel of that level magnified along the same
+   ray the axial pair two blocks further down exists to unfetch. At F = 8 four fifths of the pixel was a
+   stretched point, so the pair's own contribution fell as 1/F just where the fan is worst - the near-
+   to-mid DECK, which is textured (the far field is washed flat and never showed it). Cost is one more
+   load on the pixels that already blend; `DEV.set('gndfade', 0)` still removes the term entirely. */
 let GNDFA = 1;
 const GJITPX = 48;      // GJIT 1 keeps the mirror only where a cell is this many px wide or wider
 
@@ -1368,8 +1375,9 @@ function castGround(flash, fcR, fcG, fcB) {
         cb += ((c1 >> 16 & 255) - cb) * wf;
         if ((c1 >>> 24) === 253) em = 253;      // 253 is a FLAG, not a coverage value (#20)
       }
+      let oxi = 0, oyi = 0;                      // hoisted: the graded blend below taps at HALF this
       if (axOn) {                                // the anisotropic HALF of anisotropic filtering: one
-        const oxi = (ox + 0.5) | 0, oyi = (oy + 0.5) | 0;    // tap on each side of the point, so the
+        oxi = (ox + 0.5) | 0; oyi = (oy + 0.5) | 0;          // tap on each side of the point, so the
         const c1 = td[((ty - oyi) & maskH) * mw + ((tx - oxi) & mask)];   // pair is the box over the
         const c2 = td[((ty + oyi) & maskH) * mw + ((tx + oxi) & mask)];   // strip this pixel covers
         cr = cr * 0.5 + (c1 & 255) * 0.25 + (c2 & 255) * 0.25;
@@ -1389,10 +1397,23 @@ function castGround(flash, fcR, fcG, fcB) {
         t2 &= fmx; t3 &= fmy;
         if (mir & 1) t2 = (fmx - t2 - 1) & fmx;
         if (mir & 2) t3 = (fmy - t3 - 1) & fmy;
-        const c3 = ftd[t3 * fmw + t2];
-        cr += ((c3 & 255) - cr) * fW;
-        cg += ((c3 >> 8 & 255) - cg) * fW;
-        cb += ((c3 >> 16 & 255) - cb) * fW;
+        /* THE COARSE SHARE IS AN AREA, NOT A TEXEL (#19 take eight). This blend hands (1 - 1/F) of the
+           pixel to one level coarser, so the longer the footprint the MORE of the pixel that level
+           decides - and until now that share was ONE texel of it, stretched along the same ray by the
+           same arithmetic the axial pair two blocks above exists to defeat. Weight and defect grew
+           together: at F = 8 eighty percent of the pixel was a magnified point, which is why the deck
+           kept its fan after the pair shipped (the pair owns 1/F of the pixel and the far field is
+           washed flat before it can show). So the coarse share takes the SAME symmetric pair, at HALF
+           the fine offset - a coarse texel is two fine texels, so half the offset is the same world
+           distance in the level it belongs to. A symmetric pair does not care about sign, and the
+           offset is taken as a MAGNITUDE on purpose: the shipped rounding of ox is round-half-UP, and
+           halving the rounded value directly would make the filter depend on which way the ray points. */
+        const fox = (oxi < 0 ? 1 - oxi : oxi + 1) >> 1, foy = (oyi < 0 ? 1 - oyi : oyi + 1) >> 1;
+        const cA = ftd[((t3 - foy) & fmy) * fmw + ((t2 - fox) & fmx)];
+        const cB = ftd[((t3 + foy) & fmy) * fmw + ((t2 + fox) & fmx)];
+        cr += (((cA & 255) + (cB & 255)) * 0.5 - cr) * fW;
+        cg += ((((cA >> 8 & 255) + (cB >> 8 & 255)) * 0.5) - cg) * fW;
+        cb += ((((cA >> 16 & 255) + (cB >> 16 & 255)) * 0.5) - cb) * fW;
       }
       if (em === 253) { px[i] = 0xFF000000 | clampi(cb * inv + fB) << 16 | clampi(cg * inv + fG) << 8 | clampi(cr * inv + fR); continue; }
       /* #421, ROW COPY: the plane this pixel lies on is a FLOOR seen from below - a neighbour column's
@@ -1924,10 +1945,16 @@ function groundPixel(x0, x1, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb
     t2 &= fmx; t3 &= fmy;
     if (mir & 1) t2 = (fmx - t2 - 1) & fmx;
     if (mir & 2) t3 = (fmy - t3 - 1) & fmy;
-    const c3 = ftd[t3 * fmw + t2];
-    cr += ((c3 & 255) - cr) * fW;
-    cg += ((c3 >> 8 & 255) - cg) * fW;
-    cb += ((c3 >> 16 & 255) - cb) * fW;   // colour only: see the flag rule at the switch declaration
+    /* Second copy of the coarse pair, from THIS pixel's own rounded offset (already rounded above, so
+       the magnitude is the same rule the row copy derives from oxi). AGENTS.md: change one copy and you
+       have changed the other. Where axOn is off the offset is 0 and this degrades to the single coarse
+       fetch it was, which is what `DEV.set('gndax', 0)` still A/Bs. */
+    const fox = (ox < 0 ? 1 - ox : ox + 1) >> 1, foy = (oy < 0 ? 1 - oy : oy + 1) >> 1;
+    const cA = ftd[((t3 - foy) & fmy) * fmw + ((t2 - fox) & fmx)];
+    const cB = ftd[((t3 + foy) & fmy) * fmw + ((t2 + fox) & fmx)];
+    cr += (((cA & 255) + (cB & 255)) * 0.5 - cr) * fW;
+    cg += ((((cA >> 8 & 255) + (cB >> 8 & 255)) * 0.5) - cg) * fW;
+    cb += ((((cA >> 16 & 255) + (cB >> 16 & 255)) * 0.5) - cb) * fW;   // colour only: see the flag rule at the switch declaration
   }
   if (em === 253) { px[i] = 0xFF000000 | clampi(cb * gMInv + gMFB) << 16 | clampi(cg * gMInv + gMFG) << 8 | clampi(cr * gMInv + gMFR); continue; }
   /* #421, DEFERRED COPY - the same texel term as the row loop's, on this pixel's OWN cell (the one its
