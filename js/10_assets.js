@@ -45,24 +45,41 @@ function matTex(w, h, paint, opt) {
      asserted by `node tools/view.js matband`; scaling albedo keeps every tile's own hue and structure and
      moves only what it is worth under a lamp. */
   const alb = opt.alb === undefined ? 1 : opt.alb;
-  /* One bake pass, and it can be asked to run TWICE for one material: once normally and once with the
-     material's periodic terms pinned at their own means (p.avg). The second variant is not a second
-     texture - it is the AC-free reference the mip blend below mixes toward, so "fade the term" never
-     means "relight the tile": the mean is preserved by construction. #19 take thirteen. */
+  /* #19 TAKE FOURTEEN - the bake is now TWO steps, a PAINT step and a SHADE step, so the shade step can
+     be run over the same painted field twice: once with the per-texel speckle at its shipped amplitude
+     and once with it pinned at its own mean (zero). The second is not a second texture - it is the
+     speckle-free reference the mip blend below mixes toward, and the same construction the periodic-term
+     fade (#19 take thirteen) already uses. It is split here rather than run as a second full bake
+     because the speckle is worn by EVERY material (`gr` defaults to 9): a second `paint()` per material
+     would double boot for all twenty tiles to remove one additive term, while the paint result is
+     identical either way and only the shade step differs. #19 take thirteen's `avg` variant still paints
+     twice, because a painter reading `p.avg` genuinely paints differently. */
   const N = w * h;
-  const bake = (avg) => {
-  const Hm = new Float32Array(N), AL = new Uint8Array(N * 3), EM = new Uint8Array(N);
-  const p = { u: 0, v: 0, h: 0.62, r: 128, g: 128, b: 128, e: 0, avg: avg ? 1 : 0 };
+  const paintPass = (avg) => {
+    const PR = new Float32Array(N), PG = new Float32Array(N), PB = new Float32Array(N);
+    const PH = new Float32Array(N), PE = new Uint8Array(N);
+    const p = { u: 0, v: 0, h: 0.62, r: 128, g: 128, b: 128, e: 0, avg: avg ? 1 : 0 };
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const i = y * w + x;
+        p.u = (x + 0.5) / w; p.v = (y + 0.5) / h; p.h = 0.62; p.r = p.g = p.b = 128; p.e = 0;
+        paint(p);
+        if (alb !== 1 && p.e <= 0.5) { p.r *= alb; p.g *= alb; p.b *= alb; }
+        PR[i] = p.r; PG[i] = p.g; PB[i] = p.b; PH[i] = p.h; PE[i] = p.e > 0.5 ? 1 : 0;
+      }
+    }
+    return { PR, PG, PB, PH, PE };
+  };
+  const shadePass = (PT, spk) => {
+  const EM = PT.PE;
+  const Hm = new Float32Array(N), AL = new Uint8Array(N * 3);
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
       const i = y * w + x;
-      p.u = (x + 0.5) / w; p.v = (y + 0.5) / h; p.h = 0.62; p.r = p.g = p.b = 128; p.e = 0;
-      paint(p);
-      if (alb !== 1 && p.e <= 0.5) { p.r *= alb; p.g *= alb; p.b *= alb; }
       // per-texel speckle: real surfaces are noisy at the sampling scale, and fbm cannot say so
-      const hsh = hash2(x, y + (gr > 0 ? 0 : 0)) - 0.5;
-      p.r += hsh * gr * 2; p.g += hsh * gr * 1.9; p.b += hsh * gr * 1.7;
-      Hm[i] = p.h + hsh * gr * 0.0035; AL[i * 3] = p.r; AL[i * 3 + 1] = p.g; AL[i * 3 + 2] = p.b; EM[i] = p.e > 0.5 ? 1 : 0;
+      const hsh = spk ? (SPECKP > 1 ? hash2((x / SPECKP) | 0, (y / SPECKP) | 0) : hash2(x, y)) - 0.5 : 0;
+      AL[i * 3] = PT.PR[i] + hsh * gr * 2; AL[i * 3 + 1] = PT.PG[i] + hsh * gr * 1.9; AL[i * 3 + 2] = PT.PB[i] + hsh * gr * 1.7;
+      Hm[i] = PT.PH[i] + hsh * gr * 0.0035;
     }
   }
   const B1 = blurTile(Hm, w, h, 1), B2 = blurTile(B1, w, h, 2);
@@ -87,7 +104,6 @@ function matTex(w, h, paint, opt) {
         sp = spec * Math.pow(dh, specPow);
       }
       const cav = clamp(1 - (B2[i] - Hm[i]) * aoK * 4, 0.42, 1.10);
-      const e = EM[i] ? clamp(p.e || 1, 0, 1) : 0;
       dbg.albedoR += AL[i * 3]; dbg.sh += sh; dbg.cav += cav; dbg.spec += sp;
       dbg.hMin = Math.min(dbg.hMin, Hm[i]); dbg.hMax = Math.max(dbg.hMax, Hm[i]);
       let r = AL[i * 3] * sh * cav + 255 * sp, g = AL[i * 3 + 1] * sh * cav + 255 * sp * 0.96, b = AL[i * 3 + 2] * sh * cav + 255 * sp * 0.9;
@@ -98,7 +114,8 @@ function matTex(w, h, paint, opt) {
   }
   return { out, dbg };
   };
-  const bk = bake(false);
+  const P0 = paintPass(false);
+  const bk = shadePass(P0, 1);
   const out = bk.out, dbg = bk.dbg;
   const t = { w, h, data: out };
   for (const k in dbg) dbg[k] = typeof dbg[k] === 'number' ? dbg[k] / N : dbg[k];
@@ -125,8 +142,43 @@ function matTex(w, h, paint, opt) {
      diamond, which is the clause "the deck reads as diamond plate under your feet". And the fade mixes
      toward the SAME material baked with that term pinned at its own mean, so a level that loses the
      pattern keeps the pattern's light - a term leaving is a term averaging out, never a relight. */
+  /* #19 TAKE FOURTEEN - THE PER-TEXEL SPECKLE OPTS INTO THE SAME FADE. The scope call on the issue
+     (2016-10-13, comment 6145810294) measured the one term that reaches ALL FOUR levels at once: the
+     `hash2(x, y)` speckle matTex adds to every material's albedo and to the height field it derives
+     normals from. Worth 8 / 3 / 7 / 15 points of floor streak on the four levels - the only single
+     change known that is not level-scoped, which is why it is in every screenshot and why twelve
+     renderer takes and three material-scoped fades did not close it.
+
+     Why a one-texel term fans forever: a 2x2 box average does not REMOVE it, it re-expresses it at the
+     NEXT level's one texel, so the AC never dies - it just gets coarser, at exactly the rate the chain
+     magnifies it back into world space. A minified pixel's bilinear quartet then lands on an arbitrary
+     PHASE of it, and a phase that varies across the fan while staying put down the column is, in
+     perspective, a family of curves through the vanishing point.
+
+     So its period is stated as ONE TEXEL OF THE LEVEL BEING BUILT, not as a cycles-per-tile constant:
+     at every level the ratio is 1 texel per cycle, which is at or under the chain's own 2x2 box, so
+     every level above 0 is replaced by the speckle-free bake and level 0 is never touched - the grain
+     under the player's feet, where the tile is magnified, stays whole. `MATSPK = 0` is the A/B and
+     restores the shipped chains to the byte. */
+  let P1 = null;
+  const avgChain = () => (P1 = P1 || paintPass(true));
+  if (MATBAND && gr > 0 && MATSPK) {
+    const mSpk = buildMips(w, h, shadePass(P0, 0).out);
+    for (let k = 1; k < t.mips.length; k++) {
+      const A = t.mips[k].data, B = mSpk[k] && mSpk[k].data;
+      if (!A || !B || B.length !== A.length) continue;
+      const g = matCarry(t.mips[k].w, t.mips[k].w);      // period = 1 texel of THIS level, see above
+      if (g >= 1) continue;
+      const w1 = 1 - g;
+      for (let i = 0; i < A.length; i++) {
+        const a = A[i], b = B[i];
+        A[i] = pk((a & 255) * g + (b & 255) * w1, ((a >> 8) & 255) * g + ((b >> 8) & 255) * w1,
+          ((a >> 16) & 255) * g + ((b >> 16) & 255) * w1, a >>> 24);
+      }
+    }
+  }
   if (opt.mipCyc && MATBAND) {
-    const avgOut = bake(true).out;
+    const avgOut = shadePass(avgChain(), MATSPK && gr > 0 ? 0 : 1).out;
     const mAvg = buildMips(w, h, avgOut);
     for (let k = 1; k < t.mips.length; k++) {
       const g = matCarry(opt.mipCyc, t.mips[k].w);
@@ -152,6 +204,9 @@ function matTex(w, h, paint, opt) {
    a property of the pattern and the level, not of the camera. Set MATBAND = 0 for the A/B control, and
    `view.js mip`'s rows are then the shipped build's to the digit. */
 let MATBAND = 1;
+let MATSPK = 1;                                // #19 take fourteen: the per-texel speckle's own share of
+                                               // the fade. 0 = the shipped chains, byte for byte.
+const SPECKP = 1;                                 // the speckle's period in level-0 texels
 const MATB_LO = 2, MATB_HI = 16;               // texels per cycle AT THAT LEVEL: cancelled by the chain's
                                                // own 2x2 box at 2, whole again by 16 (see the note above)
 function matCarry(cyc, w) {
