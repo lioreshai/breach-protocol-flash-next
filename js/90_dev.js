@@ -270,6 +270,10 @@
       GNDFA = value === undefined ? 1 : +value;
       return { gndfade: GNDFA };
     }
+    /* #19 take fifteen's A/B. 1 = the shipped single coarse level (#498); 3 = the walk, which reads the
+       un-carried share from the whole chain instead of parking it one level up. Restored with 1, and the
+       whole coarse share is still `DEV.set('gndfade', 0)`. */
+    if (name === 'gndwalk') { GWALK = value === undefined ? 3 : value | 0; return { gndwalk: GWALK }; }
     /* #407's A/B. 1 (shipped) = a body or prop takes MAP.light WHOLE at its own cell, exactly as a wall
        column and a ground pixel do; 0 = the pre-#407 second falloff (lm * exp(-distance * 0.14)) is back
        in BOTH copies - the mesh triangle shading and the billboard. One register, two read sites, so it
