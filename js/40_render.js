@@ -623,6 +623,34 @@ let GJIT = 1, GLRP = 1, GNDAX = 1, AXMIN = 1, GLC = null, GNDFT = 1, GNDRO = 1, 
 let GNDFA = 1;
 const GJITPX = 48;      // GJIT 1 keeps the mirror only where a cell is this many px wide or wider
 
+/* #19, TAKE FIFTEEN - THE WALK. The graded blend above hands (1 - 1/F) of a minified pixel to ONE level
+   coarser, and take eight made that share a pair instead of a texel. It is still TWO texels of a strip
+   that is F texels long: at F = 32 a 2-texel box decides 97 % of the pixel, so 30 of the 32 texels the
+   pixel covers are never read, and which two you get depends on the pixel's phase in the strip. Phase
+   varying ACROSS a row while staying put DOWN a column is, in perspective, a family of lines through the
+   vanishing point - the fan, on the surface seen most edge-on. The picture said this is where the ceiling
+   fan lives: a ceiling rendered with its texel taken away and its light and geometry left alone has no
+   sunburst at all (issue #19, take fifteen), and mip SELECTION is separately falsified there (an
+   anisotropy-ratio sweep moves that streak by one point and the picture not at all).
+   So the un-carried share is now walked up the CHAIN instead of parked one level up. Level k+j gets the
+   share of the strip its own texel can carry,
+
+     c_j = min(1, 2^j / F)                w_j = c_j - c_{j-1},  c_0 = min(1, 1/F)
+
+   and the DEEPEST level read takes whatever the chain could not reach, so the weights sum to 1. A tap at
+   level k+j is a box 2^j texels long, placed at the same world half-span as the fine pair (the offset
+   halves per level, which is the same distance in the level it belongs to - take eight's rule, one
+   level further). For F <= 2 only ONE level is ever read and the weights are main's exactly, so the near
+   field is byte-identical; the walk only runs where the footprint is longer than the level can carry.
+   GWALK is the depth knob and the A/B: 1 = the single coarse pair as #498 shipped it (main), 3 = the
+   walk. `DEV.set('gndwalk', 1)` is one call, and `DEV.set('gndfade', 0)` still removes the coarse share
+   entirely, which this term rides - it is the same blend, read from more of the chain. */
+let GWALK = 1;
+const GWN = 4;                                   // hard cap on levels walked (mips are 5 deep)
+const gwd = new Array(GWN), gww = new Float64Array(GWN), gws = new Float64Array(GWN),
+      gwmw = new Int32Array(GWN), gwox = new Int32Array(GWN), gwoy = new Int32Array(GWN),
+      gwmk = new Int32Array(GWN * 2);            // masks, [x,y] per level
+
 /* #19, TAKE THREE - THE FETCH. The two terms above are not what combs a plane, and neither is the mip
    choice. On the row loop's own pixels - the NEAR and MID field - what combs it is that the pass takes
    ONE texel per pixel. A row walks its plane by (wxs,wys) per column, which on a plane of this world is a
@@ -1240,13 +1268,25 @@ function castGround(flash, fcR, fcG, fcB) {
     /* #19 take six, the ROW copy: F is a row constant here, because the row's mip, its texel scale and
        its column delta all are - so the blend is graded per ROW in this copy and per PIXEL in the other
        one, which is the same grading at the resolution each copy resolves its mip at. */
-    let ftd = null, fW = 0, fmw = 0, fmx = 0, fmy = 0, fms = 0;
+    /* The walk, once per ROW: F, the chain levels above this row's mip, their weights, scales and mask
+       are all row constants here (the deferred copy reads the same rule from the pixel's own footprint).
+       Weights are built so they sum to 1 by construction: c starts at the share level kRow carries and
+       each level takes the strip it can cover, the last one taking the remainder. */
+    let gnw = 0, gW0 = 1;
     if (GNDFA && kRow + 1 < tex.mips.length) {
       const fLong = colA * colA * 4 >= rowT2 ? colA * 2 : Math.sqrt(rowT2);
       if (fLong > 1) {
-        const mu = tex.mips[kRow + 1];
-        ftd = mu.data; fmw = mu.w; fmx = mu.w - 1; fmy = mu.h - 1; fms = sc * mu.w;
-        fW = GNDFA * (1 - 1 / fLong);
+        let c = 1 / fLong, j = 1, sum = 0;
+        for (; j <= GWALK && kRow + j < tex.mips.length; j++) {
+          const last = j === GWALK || kRow + j + 1 >= tex.mips.length;
+          const cn = last || (1 << j) >= fLong ? 1 : (1 << j) / fLong;
+          const mu = tex.mips[kRow + j];
+          gwd[j - 1] = mu.data; gwmw[j - 1] = mu.w; gwmk[(j - 1) * 2] = mu.w - 1; gwmk[(j - 1) * 2 + 1] = mu.h - 1;
+          gws[j - 1] = sc * mu.w; gwox[j - 1] = j - 1; gww[j - 1] = GNDFA * (cn > c ? cn - c : 0);
+          sum += gww[j - 1]; c = cn; gnw = j;
+          if (c >= 1) break;
+        }
+        gW0 = 1 - sum;                        // the selected level keeps the share its texel carries
       }
     }
     let nm = 0;
@@ -1448,31 +1488,35 @@ function castGround(flash, fcR, fcG, fcB) {
            emits, exactly as the wall pass decides it for a bilinear quartet (js/40_render.js:1568). */
         if ((c1 >>> 24) === 253 || (c2 >>> 24) === 253) em = 253;
       }
-      if (fW > 0) {                          // #19 take six: the share of this pixel's footprint its
-        const vx = wx * fms, vy = wy * fms;  // own level cannot carry, from one level coarser
-        let t2 = vx | 0, t3 = vy | 0;
-        if (vx < 0) t2--;
-        if (vy < 0) t3--;                    // floor, not truncate - the same guard as the point fetch
-        t2 &= fmx; t3 &= fmy;
-        if (mir & 1) t2 = (fmx - t2 - 1) & fmx;
-        if (mir & 2) t3 = (fmy - t3 - 1) & fmy;
-        /* THE COARSE SHARE IS AN AREA, NOT A TEXEL (#19 take eight). This blend hands (1 - 1/F) of the
-           pixel to one level coarser, so the longer the footprint the MORE of the pixel that level
-           decides - and until now that share was ONE texel of it, stretched along the same ray by the
-           same arithmetic the axial pair two blocks above exists to defeat. Weight and defect grew
-           together: at F = 8 eighty percent of the pixel was a magnified point, which is why the deck
-           kept its fan after the pair shipped (the pair owns 1/F of the pixel and the far field is
-           washed flat before it can show). So the coarse share takes the SAME symmetric pair, at HALF
-           the fine offset - a coarse texel is two fine texels, so half the offset is the same world
-           distance in the level it belongs to. A symmetric pair does not care about sign, and the
-           offset is taken as a MAGNITUDE on purpose: the shipped rounding of ox is round-half-UP, and
-           halving the rounded value directly would make the filter depend on which way the ray points. */
-        const fox = (oxi < 0 ? 1 - oxi : oxi + 1) >> 1, foy = (oyi < 0 ? 1 - oyi : oyi + 1) >> 1;
-        const cA = ftd[((t3 - foy) & fmy) * fmw + ((t2 - fox) & fmx)];
-        const cB = ftd[((t3 + foy) & fmy) * fmw + ((t2 + fox) & fmx)];
-        cr += (((cA & 255) + (cB & 255)) * 0.5 - cr) * fW;
-        cg += ((((cA >> 8 & 255) + (cB >> 8 & 255)) * 0.5) - cg) * fW;
-        cb += ((((cA >> 16 & 255) + (cB >> 16 & 255)) * 0.5) - cb) * fW;
+      if (gnw) {                              // the walk's weighted sum; the shares add to ONE, so no
+        let ar = 0, ag = 0, ab = 0;           // pixel gets brighter or darker from WHERE its area is read
+        for (let q = 0; q < gnw; q++) {
+          const fd = gwd[q], fmx = gwmk[q * 2], fmy = gwmk[q * 2 + 1], fmw = gwmw[q];
+          const vx = wx * gws[q], vy = wy * gws[q];
+          const sq = gww[q];
+          if (sq <= 0) continue;
+          let t2 = vx | 0, t3 = vy | 0;
+          if (vx < 0) t2--;
+          if (vy < 0) t3--;                  // floor, not truncate - the same guard as the point fetch
+          t2 &= fmx; t3 &= fmy;
+          if (mir & 1) t2 = (fmx - t2 - 1) & fmx;
+          if (mir & 2) t3 = (fmy - t3 - 1) & fmy;
+          /* THE COARSE SHARE IS AN AREA, NOT A TEXEL (#19 take eight, generalized by take fifteen). The
+             pair spans the strip at the scale of the level it is read from: a coarse texel is two fine
+             texels, so HALF the fine offset is the same world distance one level up, a quarter of it two
+             levels up - the shift is the level's index. A symmetric pair does not care about sign, and the
+             offset is a MAGNITUDE on purpose: the shipped rounding of ox is round-half-UP, and halving the
+             rounded value directly would make the filter depend on which way the ray points. */
+          const sh = gwox[q], fox = (oxi < 0 ? 1 - oxi : oxi + 1) >> (sh + 1), foy = (oyi < 0 ? 1 - oyi : oyi + 1) >> (sh + 1);
+          const cA = fd[((t3 - foy) & fmy) * fmw + ((t2 - fox) & fmx)];
+          const cB = fd[((t3 + foy) & fmy) * fmw + ((t2 + fox) & fmx)];
+          ar += ((cA & 255) + (cB & 255)) * 0.5 * sq;
+          ag += (((cA >> 8 & 255) + (cB >> 8 & 255)) * 0.5) * sq;
+          ab += (((cA >> 16 & 255) + (cB >> 16 & 255)) * 0.5) * sq;
+          /* Colour only, as the single coarse tap was: a coarse texel's alpha describes an AREA, not this
+             pixel's footprint, and deeper mips go uniformly 253 (#124). */
+        }
+        cr = cr * gW0 + ar; cg = cg * gW0 + ag; cb = cb * gW0 + ab;
       }
       if (em === 253) { px[i] = 0xFF000000 | clampi(cb * inv + fB) << 16 | clampi(cg * inv + fG) << 8 | clampi(cr * inv + fR); continue; }
       /* #421, ROW COPY: the plane this pixel lies on is a FLOOR seen from below - a neighbour column's
@@ -1944,16 +1988,26 @@ function groundPixel(x0, x1, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb
   } else k = mipSel(planeX * stepBase * dS, planeY * stepBase * dS, rx * (dS / absP), ry * (dS / absP), sc, tex);
   const m = tex.mips[k];
   const mw = m.w, mh = m.h, ms = sc * m.w, td = m.data, mask = mw - 1, maskH = mh - 1;
-  /* #19 take six, the DEFERRED copy: this pixel's own mip, so its own F. Same rule, same arithmetic,
-     second copy - AGENTS.md counts the duplication as the price of the row loop's registers. */
-  let ftd = null, fW = 0, fmw = 0, fmx = 0, fmy = 0, fms = 0;
+  /* #19 take fifteen, the DEFERRED copy: this pixel's own mip, so its own F and its own walk. Same
+     rule, same arithmetic, second copy - AGENTS.md counts the duplication as the price of the row loop's
+     registers. Weights sum to 1: level k carries min(1,1/F), level k+j carries the strip its texel can
+     cover, and the deepest level read takes the remainder the chain could not reach. */
+  let gnw = 0, gW0 = 1;
   if (GNDFA && k + 1 < gMN) {
     const colT = gMCf * ms * 0.5, colA = colT < 0 ? -colT : colT, rowT2 = (gMCxs * gMCxs + gMCys * gMCys) * ms * ms;
     const fLong = colA * colA * 4 >= rowT2 ? colA * 2 : Math.sqrt(rowT2);
     if (fLong > 1) {
-      const mu = tex.mips[k + 1];
-      ftd = mu.data; fmw = mu.w; fmx = mu.w - 1; fmy = mu.h - 1; fms = sc * mu.w;
-      fW = GNDFA * (1 - 1 / fLong);
+      let c = 1 / fLong, j = 1, sum = 0;
+      for (; j <= GWALK && k + j < gMN; j++) {
+        const last = j === GWALK || k + j + 1 >= gMN;
+        const cn = last || (1 << j) >= fLong ? 1 : (1 << j) / fLong;
+        const mu = tex.mips[k + j];
+        gwd[j - 1] = mu.data; gwmw[j - 1] = mu.w; gwmk[(j - 1) * 2] = mu.w - 1; gwmk[(j - 1) * 2 + 1] = mu.h - 1;
+        gws[j - 1] = sc * mu.w; gwox[j - 1] = j - 1; gww[j - 1] = GNDFA * (cn > c ? cn - c : 0);
+        sum += gww[j - 1]; c = cn; gnw = j;
+        if (c >= 1) break;
+      }
+      gW0 = 1 - sum;
     }
   }
   /* The same two-sample fetch as the row loop, from this pixel's OWN footprint: its row delta is
@@ -2007,25 +2061,31 @@ function groundPixel(x0, x1, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb
     cb = cb * 0.5 + (c1 >> 16 & 255) * 0.25 + (c2 >> 16 & 255) * 0.25;
     if ((c1 >>> 24) === 253 || (c2 >>> 24) === 253) em = 253;    // the FLAG rule, same as the row copy
   }
-  if (fW > 0) {                          // the same graded blend, from this pixel's OWN mip and F
-    const vx = cx * fms, vy = cy * fms;
+  let gar = 0, gag = 0, gab = 0;
+  for (let q = 0; q < gnw; q++) {            // the same walk as the row copy, from THIS pixel's OWN mip
+    const fd = gwd[q], fmx = gwmk[q * 2], fmy = gwmk[q * 2 + 1], fmw = gwmw[q];
+    const vx = cx * gws[q], vy = cy * gws[q];         // and footprint, second copy (AGENTS.md)
+    const sq = gww[q];
+    if (sq <= 0) continue;
     let t2 = vx | 0, t3 = vy | 0;
     if (vx < 0) t2--;
     if (vy < 0) t3--;
     t2 &= fmx; t3 &= fmy;
     if (mir & 1) t2 = (fmx - t2 - 1) & fmx;
     if (mir & 2) t3 = (fmy - t3 - 1) & fmy;
-    /* Second copy of the coarse pair, from THIS pixel's own rounded offset (already rounded above, so
-       the magnitude is the same rule the row copy derives from oxi). AGENTS.md: change one copy and you
-       have changed the other. Where axOn is off the offset is 0 and this degrades to the single coarse
-       fetch it was, which is what `DEV.set('gndax', 0)` still A/Bs. */
-    const fox = (ox < 0 ? 1 - ox : ox + 1) >> 1, foy = (oy < 0 ? 1 - oy : oy + 1) >> 1;
-    const cA = ftd[((t3 - foy) & fmy) * fmw + ((t2 - fox) & fmx)];
-    const cB = ftd[((t3 + foy) & fmy) * fmw + ((t2 + fox) & fmx)];
-    cr += (((cA & 255) + (cB & 255)) * 0.5 - cr) * fW;
-    cg += ((((cA >> 8 & 255) + (cB >> 8 & 255)) * 0.5) - cg) * fW;
-    cb += ((((cA >> 16 & 255) + (cB >> 16 & 255)) * 0.5) - cb) * fW;   // colour only: see the flag rule at the switch declaration
+    /* Second copy of the coarse pair, from THIS pixel's own rounded offset, shifted by the level's index
+       so each level's pair spans the strip at the scale that level belongs to. Where axOn is off the
+       offset is 0 and this degrades to the single coarse fetch it was, which is what `DEV.set('gndax',0)`
+       still A/Bs. Colour only: a coarse texel's alpha describes an AREA, not this pixel's footprint. */
+    const sh = gwox[q], fox = (ox < 0 ? 1 - ox : ox + 1) >> (sh + 1), foy = (oy < 0 ? 1 - oy : oy + 1) >> (sh + 1);
+    const cA = fd[((t3 - foy) & fmy) * fmw + ((t2 - fox) & fmx)];
+    const cB = fd[((t3 + foy) & fmy) * fmw + ((t2 + fox) & fmx)];
+    const wq = sq;
+    gar += ((cA & 255) + (cB & 255)) * 0.5 * wq;
+    gag += (((cA >> 8 & 255) + (cB >> 8 & 255)) * 0.5) * wq;
+    gab += (((cA >> 16 & 255) + (cB >> 16 & 255)) * 0.5) * wq;
   }
+  if (gnw) { cr = cr * gW0 + gar; cg = cg * gW0 + gag; cb = cb * gW0 + gab; }
   if (em === 253) { px[i] = 0xFF000000 | clampi(cb * gMInv + gMFB) << 16 | clampi(cg * gMInv + gMFG) << 8 | clampi(cr * gMInv + gMFR); continue; }
   /* #421, DEFERRED COPY - the same texel term as the row loop's, on this pixel's OWN cell (the one its
      ray actually reached, which is the whole reason this pixel is here). AGENTS.md counts the
