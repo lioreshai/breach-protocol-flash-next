@@ -611,7 +611,38 @@ FLOORS.STONE = matTex(T2, T2, p => {
 FLOORS.FLESH = matTex(T2, T2, p => {
   const n = fbm(p.u, p.v, 5, 4, 0.55, 3);
   let v = 0.66 + n * 0.6;
-  p.r = 92 * v + 12; p.g = 28 * v + 6; p.b = 38 * v + 8;
+  /* #466, the DECK half: the deck's authored HUE was the WALL's. WTEX.MUSCLE (js/10_assets.js:362) is
+     authored at 148/62/78 - hue 348.8 - and this tile was authored at 92v+12 / 28v+6 / 38v+8, which is
+     104/34/46 at v = 1, hue 349.7. NINE TENTHS OF A DEGREE apart: #369 chose "the base channels are the
+     same thirds" on MEAN-ALBEDO grounds and separated the two surfaces by structure alone, so the deck is
+     the wall's own colour at 61 % of its brightness. At ABATOIR's arrival seat (`view.js scene 2 0`) that
+     is what the eye gets: the wall band and the deck band both sample to h11 and the one edge the player
+     has to read in a level of pits and lips - which side of the lip they are on - exists only where a lamp
+     happens to fall on it. That is the same defect #466 names for the ceiling (#487) and for `wall2`
+     (#474), in the third surface of the level, and it is a HUE defect: `matband` reads this tile's VALUE
+     correctly (94.5, the floor family's darkest) and `exposure` reads the level's median correctly.
+     What moves is the authored hue and nothing else, solved against BOTH luma sums so neither probe can
+     see it: the Rec.709 sum over the per-unit-v multipliers (0.2126R + 0.7152G + 0.0722B = 42.33, which is
+     what `matband` prints as this tile's mean) AND the LAMP-WEIGHTED sum (0.1584R + 0.7152G + 0.0424B =
+     36.22 - the same channels after lampCol [190, 255, 150], which is what `exposure`'s medians and
+     `flatparity`'s means actually integrate). Two equations, three unknowns, one free axis: that axis is
+     the hue, and it is the only one taken. The additive +12/+6/+8 stay, so the deck's darkest texels keep
+     their own value too. MEASURED at this edit: the deck band at `scene 2 0` rows 80-95 % reads h10 s0.44
+     L76.1 on main and h358 s0.32 L76.2 here - the luminance of the surface is main's to a tenth, its hue
+     moves 12 deg; the wall band of the same frame is h8 both sides of the edit, so the deck-to-wall gap
+     goes from 2 deg to 10 deg and the floor stops being the wall's colour. `matband` reads this tile 94.6
+     against main's 94.5 and the floor spread 1.44x UNCHANGED; that tenth is the vein-core lerp below, whose
+     TARGET is an absolute colour, so its delta grows a hair when the base's channels move - it is not a
+     value authored here and no threshold moved with it.
+     The direction is set by the lamp, not by taste. A g-heavy lamp rotates every surface toward yellow, so
+     the only rotation that SURVIVES it is the one away from the wall's orange-red toward a cooler, drain-
+     dark red. Going the other way along the same iso-value curve (R 100-110, B 5-23, authored h1-11) lands
+     the deck's LIT hue on MUSCLE's to within half a degree: the lamp would undo the edit and the falsifier
+     - the two bands no longer agreeing - would fail.
+     `FLOORS.FLESH` is worn by exactly one level (`js/20_level.js:46`), so ARCHIVE / RING / THE STACK come
+     back byte-identical on flatparity and cull - the level-scoped control. Untouched: the vein and crest
+     lerps below, `bump`, `amb`, `spec`, `ao`, `grain`, `alb`, no lamp, no bias, no height. */
+  p.r = 83 * v + 12; p.g = 29 * v + 6; p.b = 55 * v + 8;                          // #466: hue off MUSCLE's, both luma sums held
   p.h = 0.58 + (n - 0.5) * 0.16;
   /* #416 take two: the vein CORES used to be emissive - `p.e = 1` at 208,74,66. An emissive texel is a
      light SOURCE, not a surface: js/40_render.js reads its alpha byte 253 as a FLAG and gives it no AMB,
