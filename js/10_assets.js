@@ -121,7 +121,7 @@ function matTex(w, h, paint, opt) {
 
      So the term is attenuated per level by how many texels of THAT LEVEL one cycle of the term spans
      (`MATB_LO..MATB_HI`), which is a property of the material and the level and of nothing the renderer
-     decides. Level 0 is never touched: what is magnified under the player's feet keeps every刻 of its
+     decides. Level 0 is never touched: what is magnified under the player's feet keeps every facet of its
      diamond, which is the clause "the deck reads as diamond plate under your feet". And the fade mixes
      toward the SAME material baked with that term pinned at its own mean, so a level that loses the
      pattern keeps the pattern's light - a term leaving is a term averaging out, never a relight. */
