@@ -136,6 +136,17 @@ const SMAX = +(process.env.SPAWN_MAX || 75);
 
    WORST_FLOOR=<n> overrides every level at once, which is how this row is shown to be wired to the
    rolls rather than to the number printed next to it. */
+/* #503 checked THIS FLOOR at both layers and MOVED NONE OF IT, because the measurement said so.
+   A lamp's colour no longer adds luma above unity (js/20_level.js `TINT_GAIN`), and on the RASTER
+   layer that costs ABATOIR CORE four points of tail - re-based to 45 in tools/view.js by the
+   procedure above. This composited layer does not lose it: `ROLLS=24 node tools/ci/assert.js
+   exposure` deals L2 53 73 64 61 66 71 71 79 66 69 83 55 73 66 54 84 53 73 71 68 66 70 79 78 with
+   a low end of 53 at BOTH arms of the A/B - `TINT_GAIN = 1` and `TINT_GAIN = 0` at the same commit,
+   same dice - and the composited statistic rounds the two arms onto the same integers. min(53, 53)
+   rounded DOWN to a 5-point step is 50, which is the floor already written here, so lowering it
+   would have been a widening with no measurement behind it. At the 5 rolls this row reads, L2's
+   worst roll is 53.3 against 50 and the verdict is `EXPOSURE ok`. Quote the roll count: 5 rolls
+   read 53.3, 24 read 53. */
 const WORST_REC = [20, 25, 50, 57];
 const WFLOOR = process.env.WORST_FLOOR ? WORST_REC.map(() => +process.env.WORST_FLOOR) : WORST_REC;
 const VW = +(process.env.VIEWPORT_W || 1280);
