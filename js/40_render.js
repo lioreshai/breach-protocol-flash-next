@@ -554,7 +554,25 @@ let MIPAX = 1, MIPAR = 4;
    All of them are read once per row (the last one once per deferred pixel), never per pixel of a row, and
    none of them adds a THIRD copy of the ground pixel body: a switch shows up as a zero slope, a zero
    offset or one fewer load, not as a new loop. */
-let GJIT = 1, GLRP = 1, GNDAX = 1, AXMIN = 1, GLC = null, GNDFT = 1, GNDRO = 1, GNDFB = 1, GNDOF = 1;
+let GJIT = 1, GLRP = 1, GNDAX = 1, AXMIN = 1, GLC = null, GNDFT = 1, GNDRO = 1, GNDFB = 1, GNDOF = 1, GNDNB = 1;
+/* #19 take nine - THE MAGNIFIED PIXEL. Take three's lerp reads ONE axis: the one the row walks along,
+   which is the footprint's SHORT side. That is the right single axis wherever the pair and the graded
+   blend run - there the long side is averaged by the pair, so lerping it again would only blur - but in
+   the band where the pixel's footprint is ONE TEXEL OR LESS along its long side, neither the pair nor
+   the blend runs at all (the pair gates at AXMIN and the blend's weight is 1 - 1/F, both zero at F = 1),
+   so a pixel under and just ahead of the player reads ONE texel with a hard edge, and only along one
+   axis. Texel boundaries are world-space grid lines, and the family parallel to the view direction
+   projects to lines through the vanishing point: the un-lerped axis is the family that draws the fan,
+   and on a deck that family is the near field, which is the largest area of the frame and the one band
+   every earlier take left alone.
+   So a MAGNIFIED pixel - footprint <= 1 texel along its long axis, which is exactly where axOn is 0 and
+   fW is 0 - takes the complete bilinear quartet, the fetch every wall, prop and body in the game has
+   always used (texBil). Nothing is added to a pixel the pair already averages, so this is not a second
+   blur: at a sub-texel footprint bilinear is the correct filter and the hard edge it removes is the
+   defect. Cost is two texel loads on the magnified pixels only, and the gate is a ROW constant here
+   (`axOn` is decided once per row), so the pixel body pays one branch it can fold away. 0 = the 2-tap
+   lerp as it shipped, so `DEV.set('gndbil', 0)` is the A/B; the band is defined by the pair's own gate,
+   which is why `DEV.set('gndax', 0)` turns this off with it. */
 /* #19 take six - THE GRADED BLEND, and the strength of it. The five takes above change WHERE a pixel
    reads and HOW the texel is fetched; none of them changes WHAT AREA GETS AVERAGED, which is the only
    term issue #19's band table says is still unaccounted for. A pixel's strip on the plane runs about one
@@ -1194,6 +1212,11 @@ function castGround(flash, fcR, fcG, fcB) {
          body now carry the same expression, as AGENTS.md requires. */
       ox = (ox + 0.5) | 0; oy = (oy + 0.5) | 0;
     }
+    /* #19 take nine, the ROW copy: the magnified band is a ROW constant here, because the footprint that
+       decides it (axOn) is one. It is gated on GNDAX on purpose - the band is the pair's own gate, so
+       `DEV.set('gndax', 0)` answers with the pre-pair picture and this term cannot silently half-apply
+       when the pair's footprint arithmetic is not running. */
+    const nbOn = (GNDNB && GNDAX && !axOn) ? 1 : 0;
     /* #19 take six, the ROW copy: F is a row constant here, because the row's mip, its texel scale and
        its column delta all are - so the blend is graded per ROW in this copy and per PIXEL in the other
        one, which is the same grading at the resolution each copy resolves its mip at. */
@@ -1374,6 +1397,22 @@ function castGround(flash, fcR, fcG, fcB) {
         cg += ((c1 >> 8 & 255) - cg) * wf;
         cb += ((c1 >> 16 & 255) - cb) * wf;
         if ((c1 >>> 24) === 253) em = 253;      // 253 is a FLAG, not a coverage value (#20)
+        /* THE SECOND AXIS (#19 take nine): the axis take three left hard, on the pixels the pair and the
+           blend both decline - footprint <= 1 texel, i.e. MAGNIFIED. Completing the lerp into the bilinear
+           quartet removes the hard edge of the family of texel boundaries that runs along the view
+           direction, which is the family that projects to a spoke; the first tap above is the family that
+           projects to a horizontal band. Two more loads, and none of them on a pixel the pair averages.
+           The diagonal tap's term is multiplied by BOTH fractions, so at ufx or ufy = 0 this is bit for
+           bit the texel that shipped - the same property the mirror clause above depends on. */
+        if (nbOn) {
+          const c2 = ftV ? td[ty * mw + ((tx + 1) & mask)] : td[((ty + 1) & maskH) * mw + tx];
+          const c3 = td[((ty + 1) & maskH) * mw + ((tx + 1) & mask)];
+          const wg = ftV ? ufx : ufy;
+          cr += (((c2 & 255) - (c & 255)) + (((c3 & 255) - (c2 & 255)) - ((c1 & 255) - (c & 255))) * wf) * wg;
+          cg += (((c2 >> 8 & 255) - (c >> 8 & 255)) + (((c3 >> 8 & 255) - (c2 >> 8 & 255)) - ((c1 >> 8 & 255) - (c >> 8 & 255))) * wf) * wg;
+          cb += (((c2 >> 16 & 255) - (c >> 16 & 255)) + (((c3 >> 16 & 255) - (c2 >> 16 & 255)) - ((c1 >> 16 & 255) - (c >> 16 & 255))) * wf) * wg;
+          if ((c2 >>> 24) === 253 || (c3 >>> 24) === 253) em = 253;   // the FLAG rule, same as above
+        }
       }
       let oxi = 0, oyi = 0;                      // hoisted: the graded blend below taps at HALF this
       if (axOn) {                                // the anisotropic HALF of anisotropic filtering: one
@@ -1928,6 +1967,17 @@ function groundPixel(x0, x1, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb
     cg += ((c1 >> 8 & 255) - cg) * wf;
     cb += ((c1 >> 16 & 255) - cb) * wf;
     if ((c1 >>> 24) === 253) em = 253;         // the FLAG rule, same as the row copy
+    /* The second axis again (#19 take nine), gated on THIS pixel's own footprint being magnified - the
+       same rule as the row copy, second copy, as AGENTS.md charges. */
+    if (GNDNB && GNDAX && !axOn) {
+      const c2 = c0 ? td[ty * mw + ((tx + 1) & mask)] : td[((ty + 1) & maskH) * mw + tx];
+      const c3 = td[((ty + 1) & maskH) * mw + ((tx + 1) & mask)];
+      const wg = c0 ? ufx : ufy;
+      cr += (((c2 & 255) - (c & 255)) + (((c3 & 255) - (c2 & 255)) - ((c1 & 255) - (c & 255))) * wf) * wg;
+      cg += (((c2 >> 8 & 255) - (c >> 8 & 255)) + (((c3 >> 8 & 255) - (c2 >> 8 & 255)) - ((c1 >> 8 & 255) - (c >> 8 & 255))) * wf) * wg;
+      cb += (((c2 >> 16 & 255) - (c >> 16 & 255)) + (((c3 >> 16 & 255) - (c2 >> 16 & 255)) - ((c1 >> 16 & 255) - (c >> 16 & 255))) * wf) * wg;
+      if ((c2 >>> 24) === 253 || (c3 >>> 24) === 253) em = 253;
+    }
   }
   if (axOn) {                                  // the same symmetric pair as the row copy, from this
     const c1 = td[((ty - oy) & maskH) * mw + ((tx - ox) & mask)];    // pixel's OWN footprint, which is
