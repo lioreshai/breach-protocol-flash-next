@@ -647,6 +647,58 @@ const GJITPX = 48;      // GJIT 1 keeps the mirror only where a cell is this man
    entirely, which this term rides - it is the same blend, read from more of the chain. */
 let GWALK = 1;
 const GWN = 4;                                   // hard cap on levels walked (mips are 5 deep)
+
+/* #19, TAKE SIXTEEN - THE CEILING WASH, and the measurement that decided its shape.
+   Take fifteen falsified COVERAGE (reading the whole footprint from the chain moved the ceiling streak by
+   one point), and the scope call then funded the other look: fade a ceiling's texel toward its own
+   chain's mean "graded by the pixel's own distance, near ceiling keeping its material". The first version
+   of this term was exactly that, with the ramp starting at the census's own 4 m band edge, and it moved
+   the ceiling streak 25/30/27/8 -> 24/29/25/6: inside the +-3 point cross-process wobble this issue
+   records, so not a result. `mip`'s band row says why, and it is the reason the term is now graded the
+   way it is:
+
+     L1 ceiling, streak per distance band, shipped / mush frame with NO texture at all
+       <4 m   63 / 11        4-12 m  47 / 44        12 m+  58 / 59
+
+   A ceiling's mid and far bands are ALREADY at their no-texture floor: there is nothing left to average
+   away out there - what reads at 4-12 m and 12 m+ is the LIGHT and the geometry, and a distance ramp
+   spends its whole authority on the two bands that carry five points. Fifty-two of that level's
+   sixty-three points of near-band ceiling gradient are texture. So the grade is the pixel's own FOOTPRINT,
+   which is what actually says whether a texel can be placed, and the wash is applied to the share the
+   selected level cannot carry:
+
+     F  = the pixel's footprint along its long axis, in texels of the level it selected (take eight's F)
+     w  = 1 - min(1, 1/F)                         (CEILING rows only)
+
+   F <= 1 - a pixel whose footprint is one texel or less - keeps its texel exactly, so the ceiling under
+   the player is main byte for byte and the near ceiling keeps its grain. Past that, the share of the
+   strip the level's box cannot cover goes to the material's mean instead of to a coarser TEXEL: the walk
+   (#504) spends that share on level k+1's pair, which still has a hard edge at a world-space boundary,
+   and in perspective a row of hard edges at a varying phase is a family of lines through the vanishing
+   point. A mean has no edge at any scale or phase. On ceiling rows this term therefore REPLACES the walk
+   rather than stacking on it, which also makes those rows one to three texel loads cheaper.
+   The target is texAvg's meanNE - the mean of the NON-EMISSIVE texels - because an emissive texel has
+   already returned on its light-source path above, and meanNE is the average albedo a LIT pixel converges
+   to in the far wash too. Floors keep the walk and are not washed: 64-82% of the FLOOR's own gradient sits
+   under 4 m, where its texel is 25 px wide and the deck is the thing the player aims over.
+
+   MEASURED, AND IT DOES NOT SHIP ON. `BANDS=1 node tools/view.js mip`, one process per tree:
+     main cf308cb   ceil 25 / 30 / 27 / 8   floor 41 / 42 / 52 / 57   detail 22 / 22 / 30 / 21
+     this term      ceil 23 / 28 / 24 / 7   floor 41 / 42 / 52 / 57   detail 21 / 21 / 29 / 21
+   Two to four points of a gap whose acceptance is 18 / 20 / 18, against the +-3 point cross-process wobble
+   this issue already records. The floor rows are byte-identical (the term cannot reach them) and the
+   ceiling's own band rows say where the mechanism runs out of road. L0 ceiling, per band - this term,
+   shipped, and the mush frame that carries NO texture at all:
+     <4 m   67  vs  69 shipped  vs  19 mush     4-12 m  37 vs 40 vs 34     12 m+  12 vs 15 vs 15
+   The mid and far bands are ALREADY at their no-texture floor: out there a ceiling row is light and
+   geometry, not texel, so a wash aimed at them spends its authority on five points. The gradient is inside
+   4 m, where the fetch is MAGNIFIED, and a second arm that washed the magnified pixels too (w = 1 - F
+   below F = 1) moved L0's near band 69 -> 67 and its ceiling 25 -> 23: a magnified pixel is not averaging a
+   strip, it is standing inside one texel, and what varies across the row is WHICH texel it stands in - no
+   area term reaches that. So CGW ships at 0 - main's ceiling, pixel for pixel, no reference re-keyed - and
+   the term stays in the tree as the one-constant A/B of what the wash does and does not own, beside the
+   `gndwalk` arm #504 left for the same reason. `DEV.set('gndwash', 1)` is the arm. */
+let CGW = 0;
 const gwd = new Array(GWN), gww = new Float64Array(GWN), gws = new Float64Array(GWN),
       gwmw = new Int32Array(GWN), gwox = new Int32Array(GWN), gwoy = new Int32Array(GWN),
       gwmk = new Int32Array(GWN * 2);            // masks, [x,y] per level
@@ -1272,8 +1324,20 @@ function castGround(flash, fcR, fcG, fcB) {
        are all row constants here (the deferred copy reads the same rule from the pixel's own footprint).
        Weights are built so they sum to 1 by construction: c starts at the share level kRow carries and
        each level takes the strip it can cover, the last one taking the remainder. */
-    let gnw = 0, gW0 = 1;
-    if (GNDFA && kRow + 1 < tex.mips.length) {
+    let gnw = 0, gW0 = 1, cgW = 0, cgR = 0, cgG = 0, cgB = 0;
+    /* #19 take sixteen, the ROW copy. F, the share and the mean are all row constants here, so the ceiling
+       pixel body pays ONE test and three fused mults and loads NO texel for its un-carried share - the
+       wash is cheaper on a ceiling row than the walk it replaces. Past FARB the row is filled by the far
+       branch above, which already paints this same mean, so the two cannot disagree at the boundary. */
+    if (CGW && !isF) {
+      const fC = colA * colA * 4 >= rowT2 ? colA * 2 : Math.sqrt(rowT2);
+      if (fC > 1) {
+        const mmC = tex.mips[tex.mips.length - 1];
+        texAvg(mmC);
+        gW0 = 1 / fC; cgW = 1 - gW0;
+        cgR = mmC.meanNE[0]; cgG = mmC.meanNE[1]; cgB = mmC.meanNE[2];
+      }
+    } else if (GNDFA && kRow + 1 < tex.mips.length) {
       const fLong = colA * colA * 4 >= rowT2 ? colA * 2 : Math.sqrt(rowT2);
       if (fLong > 1) {
         let c = 1 / fLong, j = 1, sum = 0;
@@ -1519,6 +1583,10 @@ function castGround(flash, fcR, fcG, fcB) {
         cr = cr * gW0 + ar; cg = cg * gW0 + ag; cb = cb * gW0 + ab;
       }
       if (em === 253) { px[i] = 0xFF000000 | clampi(cb * inv + fB) << 16 | clampi(cg * inv + fG) << 8 | clampi(cr * inv + fR); continue; }
+      /* #19 take sixteen, ROW COPY: the wash is an albedo mix, so it happens BEFORE the light multiply and
+         after the emissive early return - a light source is not a surface to average, and a ceiling lamp
+         20 m out is still a lamp. An emissive texel has already left by the line above. */
+      if (cgW) { cr = cr * gW0 + cgR * cgW; cg = cg * gW0 + cgG * cgW; cb = cb * gW0 + cgB * cgW; }
       /* #421, ROW COPY: the plane this pixel lies on is a FLOOR seen from below - a neighbour column's
          walkable deck, whose altitude `ceilAt` handed to this column's ceiling plane. Put the soffit's
          own material on the TEXEL, ahead of the light term, so the room below still decides how bright
@@ -1992,8 +2060,22 @@ function groundPixel(x0, x1, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb
      rule, same arithmetic, second copy - AGENTS.md counts the duplication as the price of the row loop's
      registers. Weights sum to 1: level k carries min(1,1/F), level k+j carries the strip its texel can
      cover, and the deepest level read takes the remainder the chain could not reach. */
-  let gnw = 0, gW0 = 1;
-  if (GNDFA && k + 1 < gMN) {
+  let gnw = 0, gW0 = 1, cgW = 0, cgR = 0, cgG = 0, cgB = 0;
+  /* #19 take sixteen, the DEFERRED copy of the ceiling wash: this pixel's OWN mip and OWN footprint, same
+     rule and the same convex form as the row copy (AGENTS.md counts the duplication as the price of the
+     row loop's registers). Past FARB gMFar answered this pixel above, and it answered it with this same
+     mean, so the two copies cannot disagree at the boundary. */
+  if (CGW && !isF) {
+    const colT2 = gMCf * ms * 0.5, colA2 = colT2 < 0 ? -colT2 : colT2;
+    const rowT22 = (gMCxs * gMCxs + gMCys * gMCys) * ms * ms;
+    const fC = colA2 * colA2 * 4 >= rowT22 ? colA2 * 2 : Math.sqrt(rowT22);
+    if (fC > 1) {
+      const mmC = tex.mips[gMN - 1];
+      texAvg(mmC);
+      gW0 = 1 / fC; cgW = 1 - gW0;
+      cgR = mmC.meanNE[0]; cgG = mmC.meanNE[1]; cgB = mmC.meanNE[2];
+    }
+  } else if (GNDFA && k + 1 < gMN) {
     const colT = gMCf * ms * 0.5, colA = colT < 0 ? -colT : colT, rowT2 = (gMCxs * gMCxs + gMCys * gMCys) * ms * ms;
     const fLong = colA * colA * 4 >= rowT2 ? colA * 2 : Math.sqrt(rowT2);
     if (fLong > 1) {
@@ -2087,6 +2169,9 @@ function groundPixel(x0, x1, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb
   }
   if (gnw) { cr = cr * gW0 + gar; cg = cg * gW0 + gag; cb = cb * gW0 + gab; }
   if (em === 253) { px[i] = 0xFF000000 | clampi(cb * gMInv + gMFB) << 16 | clampi(cg * gMInv + gMFG) << 8 | clampi(cr * gMInv + gMFR); continue; }
+  /* #19 take sixteen, DEFERRED COPY of the ceiling wash - same albedo mix, same place in the body (after
+     the emissive return, before the light), second copy (AGENTS.md). */
+  if (cgW) { cr = cr * gW0 + cgR * cgW; cg = cg * gW0 + cgG * cgW; cb = cb * gW0 + cgB * cgW; }
   /* #421, DEFERRED COPY - the same texel term as the row loop's, on this pixel's OWN cell (the one its
      ray actually reached, which is the whole reason this pixel is here). AGENTS.md counts the
      duplication as the price of the row loop's registers: change one copy and you have changed the
