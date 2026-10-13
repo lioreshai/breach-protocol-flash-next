@@ -574,7 +574,14 @@ const MESH = (function () {
      The knuckle ridge is one box, not four fingers: separate finger tubes poked out of the palm
      silhouette on both sides and read as floating tabs (measured in the first cut of this conversion).
      `s` sizes the WHOLE hand - offsets as well as extents. */
+  /* Probe-only arm (#499): `MESH.setHands(false)` emits the GUN only, with no hand geometry at all. The
+     shape is the `setWRaw` one - inert in play, armed by the probe that needs it - and the row that needs
+     it is `view.js`'s sway-travel row, which must average the painted lateral travel over the weapon's own
+     parts. The fists are now the largest mass inside that row's near-pivot window, so a row that averages
+     over every painted pixel measures MASK COMPOSITION rather than the projection; the arm lets the same
+     frame be measured twice, with and without the hands, instead of widening the row's band. */
   function vHand(b, x, y, z, s, back) {
+    if (!VHANDS) return b;
     const w = back ? -1 : 1;
     b.box(x, y, z, 0.018 * s, 0.030 * s, 0.028 * s, VW.skin);              // the palm, over the part
     b.box(x + w * 0.003 * s, y + 0.002 * s, z - 0.030 * s, 0.016 * s, 0.026 * s, 0.005 * s, VW.skin);
@@ -726,6 +733,7 @@ const MESH = (function () {
      would be wrong" - is driven through the SHIPPED reload timeline instead of being simulated beside it. The
      shape is the COV/GLOWREC one: inert in play, armed by the probe that needs it. */
   let WRAW = false;
+  let VHANDS = true;                                // probe-only (#499): false emits the gun without its hands
   const wq = (n, x) => x > 0 ? Math.round(x * n) / n : 0;   // 0 stays exactly 0, not 1/WQK
   /* The state a key's geometry is BUILT at, so one key maps to exactly one geometry. Building from the
      frame that happened to land in the bucket first makes presence a matter of luck: parts are authored as
@@ -1409,6 +1417,7 @@ const MESH = (function () {
     reset: () => { tris = 0; pxFilled = 0; trisCulled = 0; },
     setCache: v => { CACHE = !!v; POSE.clear(); poseBytes = 0; poseMade = 0; return CACHE; },
     setWRaw: v => { WRAW = !!v; return WRAW; },          // probe-only (#186): make the key serve nothing
+    setHands: v => { VHANDS = !!v; WEPO.clear(); wBytes = 0; return VHANDS; },   // probe-only (#499): emit the gun without its hands. THE CACHE GOES WITH THE SWITCH: geometry is keyed by pose alone, so a toggle that left WEPO filled would serve the OTHER arm's vertices and the A/B would measure nothing.
     trisFor: k => model(k || 'grunt').tris,
     // #78's readout: which kinds carry something, and how many sides the limbs get at the tier the page
     // is on. Both exist so a probe row can gate the detail instead of a screenshot describing it.
