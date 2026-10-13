@@ -45,8 +45,14 @@ function matTex(w, h, paint, opt) {
      asserted by `node tools/view.js matband`; scaling albedo keeps every tile's own hue and structure and
      moves only what it is worth under a lamp. */
   const alb = opt.alb === undefined ? 1 : opt.alb;
-  const N = w * h, Hm = new Float32Array(N), AL = new Uint8Array(N * 3), EM = new Uint8Array(N);
-  const p = { u: 0, v: 0, h: 0.62, r: 128, g: 128, b: 128, e: 0 };
+  /* One bake pass, and it can be asked to run TWICE for one material: once normally and once with the
+     material's periodic terms pinned at their own means (p.avg). The second variant is not a second
+     texture - it is the AC-free reference the mip blend below mixes toward, so "fade the term" never
+     means "relight the tile": the mean is preserved by construction. #19 take thirteen. */
+  const N = w * h;
+  const bake = (avg) => {
+  const Hm = new Float32Array(N), AL = new Uint8Array(N * 3), EM = new Uint8Array(N);
+  const p = { u: 0, v: 0, h: 0.62, r: 128, g: 128, b: 128, e: 0, avg: avg ? 1 : 0 };
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
       const i = y * w + x;
@@ -90,13 +96,81 @@ function matTex(w, h, paint, opt) {
       out[i] = pk(r * tint[0], g * tint[1], b * tint[2], EM[i] ? 253 : 255);
     }
   }
+  return { out, dbg };
+  };
+  const bk = bake(false);
+  const out = bk.out, dbg = bk.dbg;
   const t = { w, h, data: out };
   for (const k in dbg) dbg[k] = typeof dbg[k] === 'number' ? dbg[k] / N : dbg[k];
   t.dbg = dbg;
   t.mips = buildMips(w, h, out);
+  /* #19 TAKE THIRTEEN - A PERIODIC TERM KNOWS WHICH MIP IT IS PAINTED INTO.
+     `mip`'s instrument has been naming the artifact as a property of the FETCH, and nine takes tuned
+     the FETCH. The scope call on the issue (2026-10-13) measured the OTHER half: two periodic patterns
+     PAINTED into materials - RING TRANSPORT's diagonal diamond deck (`FLOORS.METAL`) and that level's
+     4x4 panel ceiling (`CEILS.PANEL`) - own six and eight points of that level's streak, and switching
+     one term's value out lands the floor at 35 where the shipped build reads 55, on ONE level, with the
+     other three byte-identical. A renderer term cannot do that; a term in the paint can.
+
+     Why a painted period fans: a pattern with a real period in tile space beats against whatever level
+     the fetch selects, and in perspective a beat pattern IS a family of curves through the vanishing
+     point - the fan. The mip chain cannot fix that by selecting differently, because a minified ground
+     pixel already covers many periods and the chain only ever averages TWO texels per step along the
+     short axis; what the level still carries of the term's AC becomes the pixel's value once per pixel
+     along a ray, and neighbouring columns land on different phases of it.
+
+     So the term is attenuated per level by how many texels of THAT LEVEL one cycle of the term spans
+     (`MATB_LO..MATB_HI`), which is a property of the material and the level and of nothing the renderer
+     decides. Level 0 is never touched: what is magnified under the player's feet keeps every刻 of its
+     diamond, which is the clause "the deck reads as diamond plate under your feet". And the fade mixes
+     toward the SAME material baked with that term pinned at its own mean, so a level that loses the
+     pattern keeps the pattern's light - a term leaving is a term averaging out, never a relight. */
+  if (opt.mipCyc && MATBAND) {
+    const avgOut = bake(true).out;
+    const mAvg = buildMips(w, h, avgOut);
+    for (let k = 1; k < t.mips.length; k++) {
+      const g = matCarry(opt.mipCyc, t.mips[k].w);
+      if (g >= 1) continue;
+      const A = t.mips[k].data, B = mAvg[k].data;
+      if (!A || !B) continue;
+      const m = Math.min(A.length, B.length), w1 = 1 - g;
+      for (let i = 0; i < m; i++) {
+        const a = A[i], b = B[i];
+        A[i] = pk((a & 255) * g + (b & 255) * w1, ((a >> 8) & 255) * g + ((b >> 8) & 255) * w1,
+          ((a >> 16) & 255) * g + ((b >> 16) & 255) * w1, a >>> 24);
+      }
+    }
+  }
   t.tiles = true;
   return t;
 }
+
+/* #19: how much of a periodic term a mip level can still carry. `cyc` is cycles of the term across one
+   tile, `w` the level's width in texels, so w/cyc is texels-per-cycle AT THAT LEVEL. The term survives
+   whole above MATB_HI, has faded out by MATB_LO. Both ends are in texels per cycle rather than in any
+   renderer distance on purpose: the whole point of the measurement that funded this is that the beat is
+   a property of the pattern and the level, not of the camera. Set MATBAND = 0 for the A/B control, and
+   `view.js mip`'s rows are then the shipped build's to the digit. */
+let MATBAND = 1;
+const MATB_LO = 2, MATB_HI = 16;               // texels per cycle AT THAT LEVEL: cancelled by the chain's
+                                               // own 2x2 box at 2, whole again by 16 (see the note above)
+function matCarry(cyc, w) {
+  if (cyc <= 0) return 1;
+  return smoothstep(MATB_LO, MATB_HI, w / cyc);
+}
+/* A term's own mean over one period cell, measured from the same expression the painter uses, so the
+   mean-only bake differs from the shipped one by the PATTERN and by nothing else. Computed on a 64x64
+   grid of the period cell; the two terms are exactly tile-periodic so that grid is their whole support. */
+function termMean(fn, n) {
+  let s = 0;
+  for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) s += fn((x + 0.5) / n, (y + 0.5) / n);
+  return s / (n * n);
+}
+const MATDIA_CYC = 6 * Math.SQRT2;                                   // FLOORS.METAL's diagonal ridges
+const MATDIA_MEAN = termMean((u, v) => 1 - smoothstep(0.30, 0.95,
+  Math.abs(Math.abs(((u * 6) % 1) - 0.5) * 2 - Math.abs(((v * 6) % 1) - 0.5) * 2)), 64);
+const MATPAN_MEAN = termMean((u, v) => smoothstep(-0.02, 0.03,
+  Math.max(Math.abs(((u * 4) % 1) - 0.5) - 0.46, Math.abs(((v * 4) % 1) - 0.5) - 0.46)), 64);
 
 /* ---------- shared material authoring helpers ---------- */
 /* grime/dust gradient that does not repeat vertically inside a tile */
@@ -470,9 +544,14 @@ FLOORS.METAL = matTex(T2, T2, p => {
   let v = 0.82 + n * 0.4;
   p.r = 78 * v; p.g = 84 * v; p.b = 94 * v;
   p.h = 0.6 + (n - 0.5) * 0.05;
-  // anti-slip raised diamond rows
+  /* anti-slip raised diamond rows. #19 take thirteen: this is one of the two terms the issue's scope
+     call measured as the owner of RING TRANSPORT's fan (6 cycles per tile ALONG EACH AXIS, and the
+     ridges run diagonally, so the highest frequency in it is 6*sqrt2 cycles per tile - which is exactly
+     why a minified copy of it fans). `p.avg` is the mean-only bake the mip blend mixes toward, and
+     MATDIA_MEAN is this term's own mean over one period cell, so the mean bake differs from the normal
+     one by NOTHING but the removal of the pattern. */
   const tx = Math.abs(((p.u * 6) % 1) - 0.5) * 2, ty = Math.abs(((p.v * 6) % 1) - 0.5) * 2;
-  const dia = 1 - smoothstep(0.30, 0.95, Math.abs(tx - ty));
+  const dia = p.avg ? MATDIA_MEAN : 1 - smoothstep(0.30, 0.95, Math.abs(tx - ty));
   p.h += dia * 0.22; p.r += dia * 30; p.g += dia * 32; p.b += dia * 34;
   const seam = smoothstep(0.025, -0.02, Math.abs(((p.v * 1) % 1) - 0.5) - 0.485);
   p.h -= seam * 0.24;
@@ -482,7 +561,7 @@ FLOORS.METAL = matTex(T2, T2, p => {
   }
   rust(p, 0.42, 73);
   dust(p, 0.14, [110, 112, 116]);
-}, { bump: 1.2, amb: 0.46, spec: 0.30, specPow: 46, ao: 0.55, grain: 8, alb: 0.95 });   // #416: spec 0.44 -> 0.30 - this deck's own 1%-clipping highlight measured 249 luma, i.e. 1% of the floor read as a mirror
+}, { bump: 1.2, amb: 0.46, spec: 0.30, specPow: 46, ao: 0.55, grain: 8, alb: 0.95, mipCyc: MATDIA_CYC });   // #416: spec 0.44 -> 0.30 - this deck's own 1%-clipping highlight measured 249 luma, i.e. 1% of the floor read as a mirror
 FLOORS.STONE = matTex(T2, T2, p => {
   // irregular flagstones from a jittered grid
   const s = 3, gx = p.u * s, gy = p.v * s;
@@ -574,7 +653,7 @@ CEILS.CONCRETE = matTex(T2, T2, p => {
 CEILS.PANEL = matTex(T2, T2, p => {
   const gx = (p.u * 4) % 1, gy = (p.v * 4) % 1;
   const d = Math.max(Math.abs(gx - 0.5) - 0.46, Math.abs(gy - 0.5) - 0.46);
-  const seam = smoothstep(-0.02, 0.03, d);
+  const seam = p.avg ? MATPAN_MEAN : smoothstep(-0.02, 0.03, d);   // #19: see FLOORS.METAL's diamond
   const n = fbm(p.u * 14, p.v * 3, 6, 3, 0.55, 71);
   let v = 0.44 + n * 0.3;
   p.r = 58 * v; p.g = 66 * v; p.b = 80 * v;
@@ -583,7 +662,7 @@ CEILS.PANEL = matTex(T2, T2, p => {
   const vent = Math.abs(gy - 0.5) < 0.32 && Math.abs(gx - 0.5) < 0.22 && ((p.v * 4) | 0) % 3 === 0;
   if (vent) { const s = Math.sin(gy * 60) * 0.5 + 0.5; p.h -= s * 0.2; p.r -= s * 20; p.g -= s * 20; p.b -= s * 18; }
   dust(p, 0.12, [62, 66, 74]);
-}, { bump: 1.1, amb: 0.44, spec: 0.14, specPow: 26, ao: 0.75, grain: 6 });
+}, { bump: 1.1, amb: 0.44, spec: 0.14, specPow: 26, ao: 0.75, grain: 6, mipCyc: 4 });
 CEILS.ROCK = matTex(T2, T2, p => {
   const strata = Math.sin(p.v * 12 + turb(p.u * 2, p.v * 2, 3, 3, 51) * 2.2) * 0.5 + 0.5;
   const n = turb(p.u * 7, p.v * 7, 4, 4, 57);
