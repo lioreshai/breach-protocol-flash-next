@@ -274,6 +274,10 @@
        un-carried share from the whole chain instead of parking it one level up. Restored with 1, and the
        whole coarse share is still `DEV.set('gndfade', 0)`. */
     if (name === 'gndwalk') { GWALK = value === undefined ? 3 : value | 0; return { gndwalk: GWALK }; }
+    /* #19 take sixteen's A/B. 1 (shipped) = a CEILING pixel's un-carried footprint share goes to its own
+       chain's mean instead of to one coarser texel: w = 1 - min(1, 1/F) on the pixel's own F, so a pixel
+       whose footprint is one texel or less keeps main's fetch exactly. 0 = main's ceiling, walk included. */
+    if (name === 'gndwash') { CGW = value === undefined ? 1 : (value ? 1 : 0); return { gndwash: CGW, farM: GQ.far }; }
     /* #407's A/B. 1 (shipped) = a body or prop takes MAP.light WHOLE at its own cell, exactly as a wall
        column and a ground pixel do; 0 = the pre-#407 second falloff (lm * exp(-distance * 0.14)) is back
        in BOTH copies - the mesh triangle shading and the billboard. One register, two read sites, so it
