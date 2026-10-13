@@ -5632,6 +5632,31 @@ if (MODE === 'mip') {
         if (p < 0) { cSum += v; cN++; } else if (p > 0) { fSum += v; fN++; }
       }
     }
+    /* #19 TAKE ELEVEN - THE DISTANCE SPLIT, the instrument the residual has been waiting for.
+     Everything above prints ONE streak figure per surface, and nine takes have had to attribute that
+     one number by turning whole terms on and off. Two candidates are still standing on it - the
+     ground's per-cell light ramp and the slab underside's rib/lip terms (#421) - and they predict
+     DIFFERENT band shapes: a lightmap step is a property of the CELL, so it reads wherever a cell is
+     only a handful of pixels wide (mid and far), while a soffit rib is drawn only where something is
+     overhead and only on ceiling rows. One figure per surface cannot tell those apart, so every
+     previous attribution on #19 has been a whole-frame delta and the band it lives in has been argued,
+     not measured.
+
+     So bucket the same pairs by the pixel's OWN solved distance. The distance is read out of `zbuf`,
+     which is a distance per pixel since #163 and which nothing but castGround has written in this
+     probe - the row loop fills its own solve across the row and groundPixel overwrites the columns it
+     re-solves, so this is the number the FETCH itself used, not a re-derivation of it (the same reason
+     the mip histogram above reads zbuf instead of solving the plane again). A pixel with no solve
+     carries Infinity and lands in the far band, which is where it belongs: past FARB it is the wash.
+
+     Bands are the three the term shapes predict, not a sweep: under 4 m a 1 m cell is 25 px or wider
+     and both candidates are resolved; 4-12 m is where a cell reaches down to a handful of px; past
+     12 m a cell is a few px and the far band's wash begins at FARB. The shares are the answer to
+     "where is it", the per-band streaks are the answer to "how much", and the counts must add up to
+     the pixels the streak row above counted - that clause is this instrument's own teeth: a census
+     that silently drops a band, or reads a distance nothing wrote, cannot add up. */
+    const Z = st.zb, NB = 3;
+    const bd = { c: [0, 0, 0], f: [0, 0, 0], nc: [0, 0, 0], nf: [0, 0, 0] };
     const acc = { dyC: 0, dyF: 0, dx: 0, n: 0 };
     for (let y = 0; y + 1 < BH; y++) {
       const p = y - hz, q = y + 1 - hz;
@@ -5642,15 +5667,28 @@ if (MODE === 'mip') {
         if (fl) acc.dyF += g; else acc.dyC += g;
         if (x + 1 < BW) acc.dx += Math.abs(L[r + x + 1] - L[r + x]);
         acc.n++;
+        const dz = Z[r + x], b = dz < 4 ? 0 : (dz < 12 ? 1 : 2);   // Infinity lands in the far band
+        if (fl) { bd.f[b] += g; bd.nf[b]++; } else { bd.c[b] += g; bd.nc[b]++; }
       }
     }
     const nc = Math.max(1, acc.n), mL = (cSum + fSum) / Math.max(1, cN + fN);
     let hi = 0;
     for (let i = 0; i < st.rows.h.length; i++) if (st.rows.h[i]) hi = i;
+    const bandOut = (g, n, tot) => {
+      const sh = [], st = [];
+      let sn = 0, sg = 0;
+      for (let b = 0; b < NB; b++) { sn += n[b]; sg += g[b]; }
+      for (let b = 0; b < NB; b++) {
+        sh.push(sn ? 100 * g[b] / (sg || 1) : 0);
+        st.push(n[b] ? 1000 * g[b] / n[b] / mL : 0);
+      }
+      return { sh, st, nb: n.slice(), n: sn, g: sg, tot };
+    };
     return { streakC: 1000 * acc.dyC / nc / mL, streakF: 1000 * acc.dyF / nc / mL, detail: 1000 * acc.dx / nc / mL,
-      mean: mL, hist: st.rows.h.slice(0, hi + 1), end: st.rows.e[1], rows: st.rows.e[0] + st.rows.e[1] };
+      mean: mL, hist: st.rows.h.slice(0, hi + 1), end: st.rows.e[1], rows: st.rows.e[0] + st.rows.e[1],
+      bandC: bandOut(bd.c, bd.nc, acc.dyC), bandF: bandOut(bd.f, bd.nf, acc.dyF), pairs: acc.n, px: cN + fN };
   };
-  let bad = 0;
+  let bad = 0, bandBad = 0;
   const DEF = run('({ax:MIPAX,ar:MIPAR})');
   if (process.env.AR) DEF.ar = +process.env.AR;          // sweep the ratio clamp to re-justify MIPAR
   for (let li = 0; li < run('LEVELS.length'); li++) {
@@ -5681,9 +5719,14 @@ if (MODE === 'mip') {
       per[2].push(sel(DEF.ax, DEF.ar, true));
       run(`MIPAX=${DEF.ax};MIPAR=${DEF.ar};`);
     }
+    const avgB = (a, key, sub) => a[0][key][sub].map((_, b) => a.reduce((s, v) => s + v[key][sub][b], 0) / a.length);
     const avg = a => ({ sc: a.reduce((s, v) => s + v.streakC, 0) / a.length, sf: a.reduce((s, v) => s + v.streakF, 0) / a.length,
       detail: a.reduce((s, v) => s + v.detail, 0) / a.length, mean: a.reduce((s, v) => s + v.mean, 0) / a.length,
       end: a.reduce((s, v) => s + v.end, 0) / a.length, rows: a.reduce((s, v) => s + v.rows, 0) / a.length,
+      bC: avgB(a, 'bandC', 'sh'), bCs: avgB(a, 'bandC', 'st'), bF: avgB(a, 'bandF', 'sh'), bFs: avgB(a, 'bandF', 'st'),
+      nbC: avgB(a, 'bandC', 'nb'), nbF: avgB(a, 'bandF', 'nb'),
+      nC: a.reduce((s, v) => s + v.bandC.n, 0) / a.length, nF: a.reduce((s, v) => s + v.bandF.n, 0) / a.length,
+      pairs: a.reduce((s, v) => s + v.pairs, 0) / a.length,
       hist: a[0].hist });
     const [fix, ctl, mush] = per.map(avg);
     const dC = 100 * (fix.sc / ctl.sc - 1), dF = 100 * (fix.sf / ctl.sf - 1);
@@ -5691,11 +5734,33 @@ if (MODE === 'mip') {
     const ok = fix.sc + fix.sf < ctl.sc + ctl.sf &&
       fix.sc + fix.sf > MUSHMARGIN * (mush.sc + mush.sf) && fix.detail > mush.detail * MUSHMARGIN;
     if (!ok) bad++;
+    /* THE BAND ROW - #19 TAKE ELEVEN, see the census inside `sel`. Share of the frame's own column
+     gradient per distance band, read off the SHIPPED arm, with that band's own streak in brackets; the
+     mush arm's shares come last because a band the MUSH frame reports in the same proportion is
+     reporting texture, not a fan. The census clause is this row's only teeth, and it is a VACUITY
+     clause rather than a threshold: the three bands together must account for exactly the pixel pairs
+     the streak row above counted, so a census that drops a band or reads a distance nothing wrote goes
+     red instead of printing a tidy table. Nothing here moves a threshold, a hash or a floor. */
+    const BN = ['<4m', '4-12m', '12m+'];
+    const bl = (t, sh, st) => `${t} ` + sh.map((v, i) => `${BN[i]} ${v.toFixed(0)}%${st ? '(' + st[i].toFixed(0) + ')' : ''}`).join(' ');
+    const nCover = fix.nC + fix.nF;
+    /* THE CENSUS'S TEETH. Two clauses, and neither is a threshold on the picture:
+       - the bands together must account for EXACTLY the pixel pairs the streak row above counted, so a
+         census that drops a row or double-counts one cannot report at all;
+       - each surface must land in at least TWO bands. A census that put every pixel in one bucket is
+         reading a distance nothing wrote (a NaN, or an all-Infinity zbuf) rather than the frame's own
+         solves, and it is the shape vacuity takes here: the table still prints, and it is empty of
+         information. This is the row's ability to fail, and it is the reason the mush arm's shares are
+         printed too - a band the mush frame reports in the same proportion is reporting texture. */
+    const twoBands = (n) => n.filter((v) => v > 0).length >= 2;
+    const covOk = nCover > 0 && Math.abs(nCover - fix.pairs) < 1 && twoBands(fix.nbC) && twoBands(fix.nbF);
     console.log(`level ${li}  streak ceil ${fix.sc.toFixed(0)} (ctl ${ctl.sc.toFixed(0)} ${dC >= 0 ? '+' : ''}${dC.toFixed(0)}%, mush ${mush.sc.toFixed(0)})` +
       `  floor ${fix.sf.toFixed(0)} (ctl ${ctl.sf.toFixed(0)} ${dF >= 0 ? '+' : ''}${dF.toFixed(0)}%, mush ${mush.sf.toFixed(0)})` +
       `  detail ${fix.detail.toFixed(0)} (ctl ${ctl.detail.toFixed(0)}, mush ${mush.detail.toFixed(0)})` +
       `  mean ${fix.mean.toFixed(0)}  mips ${fix.hist.join(',')} chainEnd ${fix.end}/${fix.rows} ${ok ? 'ok' : 'FAIL'}`);
     if (process.env.BANDS) console.log(`         smoothness vs mush ${smooth.toFixed(2)}x (must stay above ${MUSHMARGIN}), detail floor is the mush frame's ${mush.detail.toFixed(0)}`);
+    console.log(`         ${bl('floor', fix.bF, fix.bFs)}   ${bl('ceil', fix.bC, fix.bCs)}   census ${nCover.toFixed(0)}/${fix.pairs.toFixed(0)} pairs ${covOk ? 'ok' : 'FAIL'}   ${bl('mushF', mush.bF, mush.bFs)} | ${bl('mushC', mush.bC, mush.bCs)}`);
+    if (!covOk) bandBad++;
   }
   run(`MIPAX=${DEF.ax};MIPAR=${DEF.ar};`);
 
@@ -5835,8 +5900,15 @@ if (MODE === 'mip') {
   console.log(`wall fetch        ${fetchOk ? 'ok' : 'FAIL'}   ${fetchLine}`);
 
 
-  console.log(bad ? `${bad} level(s) NOT BETTER THAN THE 1-D CONTROL` : 'MIP ok: two-axis selection beats the 1-D control on every level and is not mush');
-  process.exit(bad || !markOk || !fetchOk ? 1 : 0);
+  /* The verdict sentence and the exit code read the SAME two counters. The census's teeth are vacuity,
+     and vacuity is a FAILURE here, never a report - so bandBad has to reach process.exit, not just the
+     string. It did not (#496 review): forcing every pixel into one band printed `census ... FAIL` on all
+     four levels, the verdict named 4 failing levels, and the process still exited 0, which is a silent
+     green in the ci.yml mip step. Each clause is also gated on its OWN counter now, so a build that is
+     only vacuous no longer opens the sentence by asserting the 1-D control comparison is fine. */
+  console.log((bad ? `${bad} level(s) NOT BETTER THAN THE 1-D CONTROL` : 'MIP ok: two-axis selection beats the 1-D control on every level and is not mush')
+    + (bandBad ? `  + FAIL: ${bandBad} level(s) whose DISTANCE CENSUS did not account for its own frame` : ''));
+  process.exit(bad || bandBad || !markOk || !fetchOk ? 1 : 0);
 }
 
 if (MODE === 'exposure') {
