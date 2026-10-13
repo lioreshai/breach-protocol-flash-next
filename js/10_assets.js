@@ -56,8 +56,8 @@ function matTex(w, h, paint, opt) {
      twice, because a painter reading `p.avg` genuinely paints differently. */
   const N = w * h;
   const paintPass = (avg) => {
-    const PR = new Float32Array(N), PG = new Float32Array(N), PB = new Float32Array(N);
-    const PH = new Float32Array(N), PE = new Uint8Array(N);
+    const PR = new Float64Array(N), PG = new Float64Array(N), PB = new Float64Array(N);
+    const PH = new Float64Array(N), PE = new Uint8Array(N);
     const p = { u: 0, v: 0, h: 0.62, r: 128, g: 128, b: 128, e: 0, avg: avg ? 1 : 0 };
     for (let y = 0; y < h; y++) {
       for (let x = 0; x < w; x++) {
@@ -77,7 +77,7 @@ function matTex(w, h, paint, opt) {
     for (let x = 0; x < w; x++) {
       const i = y * w + x;
       // per-texel speckle: real surfaces are noisy at the sampling scale, and fbm cannot say so
-      const hsh = spk ? (SPECKP > 1 ? hash2((x / SPECKP) | 0, (y / SPECKP) | 0) : hash2(x, y)) - 0.5 : 0;
+      const hsh = spk ? hash2(x, y) - 0.5 : 0;
       AL[i * 3] = PT.PR[i] + hsh * gr * 2; AL[i * 3 + 1] = PT.PG[i] + hsh * gr * 1.9; AL[i * 3 + 2] = PT.PB[i] + hsh * gr * 1.7;
       Hm[i] = PT.PH[i] + hsh * gr * 0.0035;
     }
@@ -206,7 +206,6 @@ function matTex(w, h, paint, opt) {
 let MATBAND = 1;
 let MATSPK = 1;                                // #19 take fourteen: the per-texel speckle's own share of
                                                // the fade. 0 = the shipped chains, byte for byte.
-const SPECKP = 1;                                 // the speckle's period in level-0 texels
 const MATB_LO = 2, MATB_HI = 16;               // texels per cycle AT THAT LEVEL: cancelled by the chain's
                                                // own 2x2 box at 2, whole again by 16 (see the note above)
 function matCarry(cyc, w) {
