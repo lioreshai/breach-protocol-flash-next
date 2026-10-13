@@ -5900,9 +5900,15 @@ if (MODE === 'mip') {
   console.log(`wall fetch        ${fetchOk ? 'ok' : 'FAIL'}   ${fetchLine}`);
 
 
-  console.log((bad || bandBad ? `${bad} level(s) NOT BETTER THAN THE 1-D CONTROL` : 'MIP ok: two-axis selection beats the 1-D control on every level and is not mush')
-    + (bandBad ? `  + ${bandBad} level(s) whose DISTANCE CENSUS did not account for its own frame` : ''));
-  process.exit(bad || !markOk || !fetchOk ? 1 : 0);
+  /* The verdict sentence and the exit code read the SAME two counters. The census's teeth are vacuity,
+     and vacuity is a FAILURE here, never a report - so bandBad has to reach process.exit, not just the
+     string. It did not (#496 review): forcing every pixel into one band printed `census ... FAIL` on all
+     four levels, the verdict named 4 failing levels, and the process still exited 0, which is a silent
+     green in the ci.yml mip step. Each clause is also gated on its OWN counter now, so a build that is
+     only vacuous no longer opens the sentence by asserting the 1-D control comparison is fine. */
+  console.log((bad ? `${bad} level(s) NOT BETTER THAN THE 1-D CONTROL` : 'MIP ok: two-axis selection beats the 1-D control on every level and is not mush')
+    + (bandBad ? `  + FAIL: ${bandBad} level(s) whose DISTANCE CENSUS did not account for its own frame` : ''));
+  process.exit(bad || bandBad || !markOk || !fetchOk ? 1 : 0);
 }
 
 if (MODE === 'exposure') {
