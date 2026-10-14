@@ -580,8 +580,27 @@ const MESH = (function () {
      parts. The fists are now the largest mass inside that row's near-pivot window, so a row that averages
      over every painted pixel measures MASK COMPOSITION rather than the projection; the arm lets the same
      frame be measured twice, with and without the hands, instead of widening the row's band. */
-  function vHand(b, x, y, z, s, back) {
+  /* #499 THE HANDS' SCALE WHEN THE GUN IS ON THE SIGHT LINE. Hip to ADS is one rigid transform, but the
+     fists' PAINTED pixels do not grow as the gun's do: at hip the lower hand is still clipped by the
+     bottom edge of the picture and at ADS the whole rig sits inside the frame, so the hands' share of the
+     rig's own pixels went from 23.0% at hip to 31.7% at ADS on the pistol (11.9 -> 21.3 shotgun, 10.2 ->
+     17.0 rifle) - in the pose a player aims with, the largest mass on screen was a flat-shaded hand rather
+     than the thing being aimed at. `VMADS` is the authored fix, and it is a SIZE, not a seat: the hands
+     close on the eye by the perspective alone, so they are authored to come in proportionally with the
+     gun's own ADS scale rather than sitting rigid while the gun grows past them. `s` scales the hand's
+     OFFSETS as well as its extents (see above), so the hand shrinks TOWARD the part it is wrapped round -
+     it stays on the grip it holds, it does not detach and shrink in place.
+     THE RAMP IS EXACTLY 1.0 AT ads = 0, which is what makes this an ADS-only change: every hip frame this
+     repo owns - every recorded reference in flatparity, exposure and bands - builds the same bytes it
+     built before, and those three probes re-run green with no reference touched. Because the geometry now
+     READS `ads`, `ads` is in the pose key too (WQK/wState/wKey): #186's rule is that a key must contain
+     every term the geometry reads, and a rig that shrank the hands without keying the shrink would serve a
+     hip geometry to an ADS frame depending on which of the two was built first. */
+  const VMADS = 0.62;                               // hand size at FULL ADS, relative to its hip size
+  const vHandScale = st => 1 - (1 - VMADS) * clamp(st && st.ads ? st.ads : 0, 0, 1);
+  function vHand(b, x, y, z, s, back, st) {
     if (!VHANDS) return b;
+    s *= vHandScale(st);
     const w = back ? -1 : 1;
     b.box(x, y, z, 0.018 * s, 0.030 * s, 0.028 * s, VW.skin);              // the palm, over the part
     b.box(x + w * 0.003 * s, y + 0.002 * s, z - 0.030 * s, 0.016 * s, 0.026 * s, 0.005 * s, VW.skin);
@@ -639,8 +658,8 @@ const MESH = (function () {
       b.box(0, 0.026, 0.178, 0.0035, 0.0085, 0.0045, VW.black);         // the front post
       b.box(0, -0.006, -0.004, 0.008, 0.011, 0.010, VW.steel);          // the hammer
       if (s.slideBack) b.box(0, 0.014, 0.088 - s.slideBack * 0.026, 0.019, 0.008, 0.050, VW.dark);
-      vHand(b, 0.016, -0.026, 0.024, 1.0, false);
-      vHand(b, -0.026, -0.040, 0.048, 0.96, true);
+      vHand(b, 0.016, -0.026, 0.024, 1.0, false, s);
+      vHand(b, -0.026, -0.040, 0.048, 0.96, true, s);
       if (s.mz > 0.004) vFlash(b, s.mz, MU);
       return b;
     },
@@ -665,8 +684,8 @@ const MESH = (function () {
         b.tube(0.040, -0.092, 0.052, 0.056, -0.084, 0.058, 0.0105, 0.010, VW.shell);
         b.tube(0.056, -0.084, 0.058, 0.062, -0.081, 0.060, 0.0105, 0.010, VW.brass);
       }
-      vHand(b, 0.014, -0.034, 0.000, 1.02, false);
-      vHand(b, -0.010, -0.040, 0.266 + pu, 1.0, true);
+      vHand(b, 0.014, -0.034, 0.000, 1.02, false, s);
+      vHand(b, -0.010, -0.040, 0.266 + pu, 1.0, true, s);
       if (s.mz > 0.004) vFlash(b, s.mz, MU);
       return b;
     },
@@ -697,8 +716,8 @@ const MESH = (function () {
       b.tube(0, -0.028, -0.006, 0, -0.112, 0.014, 0.021, 0.0185, VW.poly);    // the grip
       b.tube(0, -0.030, -0.014, 0, -0.062, -0.190, 0.0225, 0.0265, VW.poly);  // the stock
       b.box(0, -0.076, -0.196, 0.021, 0.016, 0.010, VW.black);          // the butt pad
-      vHand(b, 0.014, -0.030, 0.012, 1.0, false);
-      vHand(b, -0.014, -0.038, 0.234, 0.98, true);
+      vHand(b, 0.014, -0.030, 0.012, 1.0, false, s);
+      vHand(b, -0.014, -0.038, 0.234, 0.98, true, s);
       if (s.slideBack) b.box(-0.030 - s.slideBack * 0.020, 0.012, 0.020, 0.005, 0.006, 0.010, VW.brass);
       if (s.mz > 0.004) vFlash(b, s.mz, MU);
       return b;
@@ -725,7 +744,11 @@ const MESH = (function () {
      exact and quantized geometry across each envelope and reports the largest vertex displacement it finds.
      `wq(0) === 0` exactly, so an at-rest rig - every hashed frame this repo owns - builds the same numbers it
      did before this cache existed, and parity is a fact of the key rather than a hope. */
-  const WQK = { mz: 16, magOut: 32, slideBack: 16, pump: 16, shellIn: 16 };   // steps in each term's own travel
+  /* `ads` is a term of the pose the geometry reads (#499: it sets the hands' size), so it is in the key
+     with the rest. Its quantum is the hand's own: at 1/8 of the ADS ramp the hand moves by half a quantum
+     of a size term, under a millimetre of a 0.06 m hand, and the `quantum price` row measures it rather
+     than taking that on faith. */
+  const WQK = { mz: 16, magOut: 32, slideBack: 16, pump: 16, shellIn: 16, ads: 8 };   // steps in each term's own travel
   const WPCAP = 64;                                   // entries; eviction is the rig cache's, evict before build
   const WEPO = new Map(); let wBytes = 0; const wStat = [0, 0];   // [misses, hits]
   /* Probe-only teeth arm (#186): when set, every fetch builds and counts a MISS, which is what a key over the
@@ -745,11 +768,11 @@ const MESH = (function () {
   function wState(s) {
     s = s || {};
     return { mz: wq(WQK.mz, s.mz || 0), magOut: wq(WQK.magOut, s.magOut || 0), slideBack: wq(WQK.slideBack, s.slideBack || 0),
-      pump: wq(WQK.pump, s.pump || 0), shellIn: wq(WQK.shellIn, s.shellIn || 0) };
+      pump: wq(WQK.pump, s.pump || 0), shellIn: wq(WQK.shellIn, s.shellIn || 0), ads: wq(WQK.ads, s.ads || 0) };
   }
   function wKey(k, s) {
     return k + '|' + wq(WQK.mz, s.mz) + '|' + wq(WQK.magOut, s.magOut) + '|' + wq(WQK.slideBack, s.slideBack) +
-      '|' + wq(WQK.pump, s.pump) + '|' + wq(WQK.shellIn, s.shellIn);
+      '|' + wq(WQK.pump, s.pump) + '|' + wq(WQK.shellIn, s.shellIn) + '|' + wq(WQK.ads, s.ads || 0);
   }
   function wBuild(kind, st) {
     const b = VMGEO[kind](new Builder(), st || {});

@@ -9986,6 +9986,45 @@ if (MODE === 'viewmodel') {
     problems.length ? '<< ' + problems.join(', ') : '');
   bad += problems.length ? 1 : 0;
 
+  /* THE FISTS DO NOT OUTGROW THE GUN WHEN YOU AIM (#499 rework). From hip to ADS the pistol's gun grew
+     5.3x and its hands 8.3x, so the hands went from 23.0% of the rig's own painted pixels at hip to 31.7%
+     at ADS (shotgun 11.9 -> 21.3, rifle 10.2 -> 17.0): in the pose a player aims with, the largest mass on
+     screen was a flat-shaded hand rather than the thing being aimed at. The rig is ONE rigid transform, so
+     that is not a perspective fact - it is the hands' authored size against the gun's, and it is fixed by
+     VMADS in js/13_mesh.js. This row is the criterion, not the fix: for each weapon it measures the rig's
+     painted pixels at hip and at ADS, twice each - as drawn, and with the hand geometry suppressed by the
+     rig's own `setHands` arm - and the difference is the mass the fists claim. It fails if the fists claim
+     a LARGER share of the rig's own pixels at ADS than they claim at hip.
+     THE NON-VACUITY CLAUSE IS THE OTHER HALF, and it is the half that keeps this row from being a licence
+     to delete the hands: the option of authoring the fists OUT of the ADS pose was rejected on measurement
+     (at ADS the rig already paints 52.7 / 51.1 / 75.3% of the reticle box on main with no hands at all, so
+     removing them uncovers at most 30 px of 5,432 and takes the hands away from the pose players aim
+     with). A row that only compared shares would pass a build with no hands in ADS at all - both shares
+     zero - so the fists must also still paint at least as much hand at ADS as they paint at hip. The same
+     hands, nearer the eye: they do not vanish, they come in. */
+  let shareBad = 0;
+  for (let wi = 0; wi < run('WEAPONS.length'); wi++) {
+    const mass = pose => {
+      run('MESH.setHands(false);');
+      const gun = pair('P.weapon=' + wi + '; ' + pose).o.n;
+      run('MESH.setHands(true);');
+      const all = pair('P.weapon=' + wi + '; ' + pose).o.n;
+      return { gun, all, fist: all - gun, share: (all - gun) / Math.max(1, all) };
+    };
+    const H = mass(''), A = mass('P.ads=1'), pr = [];
+    if (!(A.fist >= H.fist && A.fist >= MINPX)) pr.push('the fists paint ' + A.fist + ' px at ADS against ' +
+      H.fist + ' px at hip - the hands are not in the ADS pose, which is a deletion and not a scale');
+    if (!(A.share <= H.share)) pr.push('the fists claim ' + (100 * A.share).toFixed(1) + '% of the rig\'s painted '
+      + 'pixels at ADS against ' + (100 * H.share).toFixed(1) + '% at hip - the hands outgrow the gun when you aim');
+    console.log(('w' + wi + ' ' + kinds[wi] + ' hands').padEnd(24),
+      'fists ' + H.fist + ' px of ' + H.all + ' at hip (' + (100 * H.share).toFixed(1) + '%), ' +
+      A.fist + ' px of ' + A.all + ' at ADS (' + (100 * A.share).toFixed(1) + '%); gun-only '
+      + H.gun + ' / ' + A.gun + ' px, growth ' + (A.gun / Math.max(1, H.gun)).toFixed(1) + 'x gun vs '
+      + (A.fist / Math.max(1, H.fist)).toFixed(1) + 'x hands', pr.length ? '<< ' + pr.join(', ') : '');
+    shareBad += pr.length ? 1 : 0;
+  }
+  bad += shareBad;
+
   /* ---- THE KEY (#186): does the cache save the work, and what did the quantum cost ----------------
      #186 skipped a cache because a key over continuous travel would invalidate wrongly. That failure mode
      leaves the picture perfect and the milliseconds unspent, so no pixel row can see it - only counters can.
