@@ -2919,22 +2919,63 @@ if (MODE === 'vert') {
       const warns = []; const ow = console.warn; console.warn = function (m) { warns.push(String(m)); };
       startLevel(${li}, true);
       console.warn = ow;
-      const N = MAP.w, start = MAP.rooms[0].cy * N + MAP.rooms[0].cx;
+      /* #421: BOTH THE FIELD AND ITS ORIGIN HAVE TO BELONG TO THE LEVEL UNDER TEST.
+         (a) the field. bfsDist is a module global assigned once, inside genLevel's attempt loop
+             (js/20_level.js:2165); buildAuthored never sets it. Under #303's loop over every level in
+             one context the authored plan was therefore scored against the PREVIOUS level's distance
+             field read at the wrong stride - index i of a 36-wide array as a 20-wide grid. It agreed
+             with the shipped rule on levels 0-2 by construction (the generator sets it from the same
+             bfsReach on the committed grid) and was arithmetic noise on level 3, where the row still
+             printed ok. That is why moving ABATOIR CORE's raised region (#421) flipped level 3 to red
+             with not one authored byte changed: level 2's field moved, level 3's geometry did not.
+         (b) the origin. The generator seeds that BFS, and the exit argmax that comes out of it, at
+             rooms[0]'s centre (js/20_level.js:2144) and spawns the player there too (:2194). An
+             authored plan declares rects by hand and seats the player on its own 'P' glyph (:2051), so
+             on THE STACK rooms[0].cx/cy is the middle of the entry hall - 7 cells off the square the
+             exit was measured from, and not where the player starts. Each path is now scored from the
+             origin ITS OWN exit rule used: the room centre where the generator rolled it, the seat the
+             player actually stands on where the plan authored it.
+         Same bfsReach the occupancy gate runs, with this level's own cell/fz/vb/feat, so nothing here
+         is a copy of the generator that can drift. */
+      const N = MAP.w, start = LEVELS[${li}].authored ? ((P.y | 0) * N + (P.x | 0))
+        : MAP.rooms[0].cy * N + MAP.rooms[0].cx;
+      const self = bfsReach(MAP.cell, MAP.fz, N, start, MAP.vb, MAP.feat);
       const flatFz = new Int8Array(N * N);
       const flat = bfsReach(MAP.cell, flatFz, N, start);
       let rf = 0, mx = -1, mxIdx = -1, fb = -1, fbIdx = -1;
       // since #152 the exit is chosen among the BAND-0 cells of bfsReach's own field, so "the exit is
       // at the far end" has to be measured by that rule - the flat-farthest cell may be a raised room
       const exitIdx0 = ((exitY | 0) * N + (exitX | 0));
-      const exitBand0 = MAP.fz[exitIdx0], exitD0 = bfsDist[exitIdx0];   // before the split poke below
+      const exitBand0 = MAP.fz[exitIdx0], exitD0 = self[exitIdx0];      // before the split poke below
       let ties = 0;
       for (let i = 0; i < N * N; i++) {
         if (flat[i] >= 0) { rf++; if (flat[i] > mx) { mx = flat[i]; mxIdx = i; } }
-        if (bfsDist[i] >= 0 && MAP.fz[i] === 0 && bfsDist[i] > fb) { fb = bfsDist[i]; fbIdx = i; }
+        if (self[i] >= 0 && MAP.fz[i] === 0 && self[i] > fb) { fb = self[i]; fbIdx = i; }
       }
       // js/20_level.js:595 scans with a strict > over ascending i, so a tie is the generator's own
       // answer too: the claim is the DISTANCE and the band, not which argmax cell it landed on
-      for (let i = 0; i < N * N; i++) if (bfsDist[i] === fb && MAP.fz[i] === 0) ties++;
+      for (let i = 0; i < N * N; i++) if (self[i] === fb && MAP.fz[i] === 0) ties++;
+      /* The exit has to be at the FAR END of the level, and there are two honest ways to say that.
+         A dealt level is chosen by argmax over this field (js/20_level.js:2148), so there the claim is
+         exact: exit distance == the farthest reachable band-0 cell. A hand-authored plan places its
+         portal on the plan's own 'E' glyph and no argmax ever ran on it, so scoring that portal by
+         argmax asks an authored file to obey a generator rule - on THE STACK the walkable detour to
+         the entry hall's bottom-LEFT corner costs 30 steps against the 23 to the authored portal in
+         its bottom-RIGHT corner, and both corners ARE the far end. There the claim is geometric: as
+         the crow flies the portal is at least as far from the seat as any reachable datum cell.
+         Both senses stay falsifiable - slide a portal back toward the seat and whichever one applies
+         goes red, which is the whole point of the row. Computed AFTER the argmax loop above. */
+      let crowFar = -1, crowExit = -1;
+      const sxS = start % N, syS = (start / N) | 0;
+      for (let i = 0; i < N * N; i++) {
+        if (self[i] < 0 || MAP.fz[i] !== 0) continue;
+        const cd = Math.hypot((i % N) - sxS, ((i / N) | 0) - syS);
+        if (cd > crowFar) crowFar = cd;
+        if (i === exitIdx0) crowExit = cd;
+      }
+      const byArgmax = !LEVELS[${li}].authored;
+      const exitFar = exitBand0 === 0 && exitD0 >= 0 && fb >= 0 &&
+        (byArgmax ? exitD0 === fb : crowExit >= crowFar - 1e-9);
       const stepFz = new Int8Array(N * N); for (let i = 0; i < N * N; i++) stepFz[i] = (i % 3) ? 1 : 0;
       const dStep = bfsReach(MAP.cell, stepFz, N, start);
       let rs = 0; for (let i = 0; i < N * N; i++) if (dStep[i] >= 0) rs++;
@@ -2956,15 +2997,16 @@ if (MODE === 'vert') {
       for (let i = 0; i < N * N; i++) { if (dSplit[i] >= 0) rb++; if (flat[i] >= 0 && dSplit[i] < 0) blocked++; }
       const exitIdx = exitIdx0;
       MAP.fz = splitFz; linkBoundaries();
-      return { N: N, exitAtFar: exitBand0 === 0 && fb >= 0 && exitD0 === fb, exitDist: exitD0, farBand0: fb, rfAtExit: mx, reachFlat: rf, reachStep: rs, reachSplit: rb, blocked: blocked, ties: ties, exitQ: exitBand0, argmaxSame: fbIdx === exitIdx0 ? 1 : 0,
+      return { N: N, exitAtFar: exitFar, exitDist: exitD0, farBand0: fb, byArgmax: byArgmax, crow: +crowExit.toFixed(1), crowFar: +crowFar.toFixed(1), rfAtExit: mx, reachFlat: rf, reachStep: rs, reachSplit: rb, blocked: blocked, ties: ties, exitQ: exitBand0, argmaxSame: fbIdx === exitIdx0 ? 1 : 0,
         warns: warns.length, exitSealed: dSplit[exitIdx] < 0, stamp: MAP.linkStamp };
     })()`, ctxVm);
     const ok = r.exitAtFar && r.reachStep === r.reachFlat && r.reachSplit < r.reachFlat && r.blocked > 0 && r.warns === 0 && r.exitSealed;
     if (!ok) bad++;
     console.log(`level ${li}  N ${r.N}  exit is the far band-0 cell ${r.exitAtFar ? 'ok' : 'FAIL'} (d=${r.exitDist} of ${r.farBand0}, ` +
       `${r.ties} cell(s) at that distance on the datum, exit column ${r.exitQ === 0 ? 'on the datum' : r.exitQ + ' quanta off it'}` +
-      `${r.argmaxSame ? ', same cell as the argmax' : ', a tied cell rather than the first argmax'})` +
-      `  one-step walkable ${r.reachStep === r.reachFlat ? 'ok' : 'FAIL ' + r.reachStep + '/' + r.reachFlat}` +
+      (r.byArgmax ? (r.argmaxSame ? ', same cell as the argmax' : ', a tied cell rather than the first argmax')
+        : ', authored portal placed by the plan, crow-flies ' + r.crow + ' of ' + r.crowFar + ' at the farthest') + ')'
+      + `  one-step walkable ${r.reachStep === r.reachFlat ? 'ok' : 'FAIL ' + r.reachStep + '/' + r.reachFlat}` +
       `  split reaches ${r.reachSplit}/${r.reachFlat} blocked ${r.blocked} ${r.blocked > 0 && r.reachSplit < r.reachFlat ? 'REFUSES ok' : 'FAIL'}` +
       `  exit sealed ${r.exitSealed ? 'ok' : 'FAIL'}  FALLBACK warns ${r.warns} ${r.warns === 0 ? 'ok' : 'FALSE POSITIVE'}  ${ok ? 'ok' : 'FAIL'}`);
   }
