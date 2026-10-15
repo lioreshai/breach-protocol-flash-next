@@ -3575,7 +3575,10 @@ function drawViewModel() {
   VMPOS[0] = ax; VMPOS[1] = ay; VMPOS[2] = az;
 
   MESH.draw({
-    mdl: MESH.weapon(w.kind, { mz, magOut, slideBack, pump, shellIn }),
+    /* `ads` goes INTO the pose state, it does not only move the seat: the geometry now reads it, because
+       the hands are authored to come in with the gun instead of sitting rigid while the gun closes on the
+       eye (#499 - see VMADS in js/13_mesh.js). It is a term of the pose, so it is a term of the key. */
+    mdl: MESH.weapon(w.kind, { mz, magOut, slideBack, pump, shellIn, ads }),
     x: ax, y: ay, z: az, rot: VMROT,
     near: true,                       // the depth decision, stated in the header
     body: 0,                          // NOT a body: COV must stay 0 under the gun (#183) - contrast
