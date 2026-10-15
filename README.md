@@ -51,14 +51,15 @@ a byte claim written here is false by the next merge (#395). What *changed* betw
 in the PR that moved it, not here.
 
 `node tools/recap.js check` decodes the eight PNGs and fails if any number below disagrees with the
-bytes, so a caption cannot drift from its frame. The eight frames decode to **63.94 / 44.07 / 63.91 / 55.89 / 60.94 / 65.09 / 72.45 / 72.08** mean luma
+bytes, so a caption cannot drift from its frame. The eight frames decode to **63.94 / 44.07 / 63.91 / 55.89 / 60.94 / 52.33 / 72.45 / 72.08** mean luma
 (`0.2126 R + 0.7152 G + 0.0722 B`, the rule `DEV.lum` uses), in the order they appear below. A dark
 row below means a row whose own mean luma is under 24 — the threshold the tool measures at, whatever
 number a sentence labels.
 
-All eight were re-taken in one pass off the deployed page at build `22ec109`, with all twelve served blobs
-md5-compared against that tree before the shutter, so every frame below is the picture the page beside it
-draws. What they gained is two shipped prop changes the older frames predated: a prop's whole light, ambient
+Seven were re-taken in one pass off the deployed page at build `22ec109` and one — **THE STACK** — at `015c79b`,
+after wall and light work landed that frame had not caught up with; each pass proved its build off the wire by
+md5-comparing all twelve served blobs against that tree before the shutter, so every frame below is the picture
+the page beside it draws at the build its row names. What they gained is two shipped prop changes the older frames predated: a prop's whole light, ambient
 included, now carries the face-orientation term, so every crate, barrel and body has a lit side and a shaded
 one (#371, #476), and painted crate and barrel faces sit 12 % darker so a prop stops being the loudest surface
 in a dim room (#491). The floor within a couple of metres also lost the hard texel edges those frames showed
@@ -133,26 +134,31 @@ mean of 68.50 in a darker deal, and the rewrite is the one level0-facing-wall do
 ![the authored two-storey level from its own spawn seat](docs/screens/level3-stack.png)
 
 **THE STACK**, the hand-authored level, from its spawn seat: (1.5, 2.5) on the datum, heading 0.60, 4
-hostiles left, and **0 of 763 rows average below luminance 24** (mean 65.09, thirds 45.6 / 74.5 / 75.2; at the
-tool's other bar, 48 rows under 34, longest run 44 from row 260). The seat's own cell carries a
+hostiles left, and **0 of 763 rows average below luminance 24** (mean 52.33, thirds 39.2 / 59.1 / 58.7; at the
+tool's other bar, 134 rows under 34, longest run 50 from row 56). The seat's own cell carries a
 ceiling at **1.00** — you are under the slab — and seven cells along the heading the plan opens into an
-atrium whose ceiling solves at **4.00** over `floor 0.00`. What crosses the middle of the frame is the
-wall of the room the seat opens into, with the atrium's lit floor visible above its top edge: a surface
+atrium whose ceiling solves at **4.00** over `floor 0.00`; `DEV.ray` along the heading stops 8.55 m out on a
+face carrying `mat 10` = `WT.SLAB` drawn over the span `[0.00, 1.00]`. So what crosses the middle of the frame
+is the wall of the room the seat opens into, with the atrium's lit floor visible above its top edge: a surface
 you cannot shoot at, over a wall you can. That edge is carried by the surfaces themselves rather than by
 the light on them — rectified ashlar blockwork with incised joints and tie holes over flagstone and moss
 — so a lip reads as a lip at any distance, in bright light or dim, and not only where a lamp happens to
-graze it (#428). The vault is still the darkest large surface in the frame: its band runs 45.6 against
-the deck's 75.2, and this is the first frame of this seat where that gap is the *surfaces* talking — the
-blockwork and the flagstone are different materials, and the deck no longer out-lights the roof over it
-because the finale's floor stops burning past the picture it is lit for (#369). The stepped glyphs on
-the minimap are the staircase that gets you up there. Hand-authoring removes the seed excuse — this plan
-is written cell by cell over a 20 × 20 grid — and it also shows what is still missing:
+graze it (#428). You can read that in the frame: the blocks and their joints are legible out to the far end of
+the wall, and the deck under them is a different stone rather than the same one lit differently. The stepped
+glyphs on the minimap are the staircase that gets you up there. Hand-authoring removes the seed excuse — this
+plan is written cell by cell over a 20 × 20 grid — and it also shows what is still missing:
 `tools/view.js volume` reports this seat's headroom as `1.00..1.00`, so the level is genuinely two-storey
-in `MAP.fz` and still reads as a low room with a bright slit in it (#353). Against the frame this one
-replaces the move is in the props and the near field: mean 66.43 → 65.09. The crate at the right of frame is no
-longer a near-white card brighter than its own room — #479 brought it to the room's value and #476 gave its
-side faces a shaded side — and the deck under the crosshair is the near field #494 re-filtered, which no longer
-shows the hard texel edges those bytes carried.
+in `MAP.fz` and still reads as a low room with a bright slit in it (#353). The vault is still the darkest large
+surface — its band runs 39.2 against the deck's 58.7 — but the gap came down from 29.6 points to 19.5 against
+the frame this one replaces, because the whole room reads a step dimmer: mean 65.09 → 52.33, deck third
+75.2 → 58.7, vault third 45.6 → 39.2, and the dark block moved up into the vault (48 rows under 34, a 44-row
+run from row 260, became 134 rows with a 50-row run from row 56). Each tree's own headless harness renders this
+level's dealt frame at mean 118.1 on the build the replaced row named and 89.8 on this one, so most of the move
+is shading rather than geometry. Wall and light work landed in between — a ceiling that averages its own
+footprint into its material's mean (#19), the line where a room stops and its roof starts (#369), a cap on how
+much luma a lamp's colour may add (#509), on top of the ashlar family these faces already wore (#428) — and
+which of them carries the 12.8 points is not settled here; what is settled is that these bytes show the room
+that ships.
 
 ![ABATOIR CORE from its arrival seat: the slab over the room fills the top of the frame](docs/screens/level2-abatoir.png)
 
