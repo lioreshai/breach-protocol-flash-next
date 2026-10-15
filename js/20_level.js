@@ -43,6 +43,15 @@ const LEVELS = [
     // worst-roll floor at ceilBias terms (see the #369 note on this level in the issue) and lightening it
     // runs into the composited upper anchor above, so the deck keeps its light and the walls change.
     name: 'ABATOIR CORE', size: 36, rooms: 11, maxRoom: 11, wall: WT.MUSCLE, wall2: WT.TECH2,
+    // #421 DECISION 1 (maintainer, 2026-10-15): this sector ARRIVES at the authored bearing on EVERY deal.
+    // `seatFacing` reads the dealt grid, and on ABATOIR CORE the deck it can reach is far enough away that
+    // which face wins the scan is deal-dependent - the same level measured 0.600 on the pinned deal and
+    // -0.882 on another. A bearing that changes between deals is not a look the level authored, so this
+    // sector opts out by DECLARING its arrival heading here. It is the only level that does: ARCHIVE and
+    // RING derive (their arrival was empty before this change), and THE STACK is deliberately NOT pinned,
+    // because the remaining work on #421 is to move its authored plateau into the seat's reach - pinning
+    // it now would quietly make that work do nothing. See seatFacing.
+    seatAng: 0.6,
     floor: 'FLESH', ceil: 'SINEW', amb: 0.3, lampCol: [190, 255, 150], fogCol: [21, 8, 11], ceilBias: -0.12,
     lamps: 16, crates: 9, barrels: 12, spawn: { grunt: 8, hound: 7, brute: 3 }, pick: { health: 5, ammo: 6, armor: 2 },
     fixtures: ['VENT', 'STRIPE'],         // #400: the abattoir breathes; everything here is a duct
@@ -2016,8 +2025,9 @@ function buildAuthored(li) {
   placeWallFixtures(cfgL);                      // #400: the authored finale gets walls too
   exitX = ex + 0.5; exitY = ey + 0.5;
   const sp = nearestOpen(sx + 0.5, sy + 0.5);          // never spawn inside geometry: the collision
-  // #421: the heading is derived from the plan the loader just built, not the literal 0.6 (see seatFacing).
-  P.x = sp[0]; P.y = sp[1]; P.ang = seatFacing(sp[0], sp[1]); P.vx = P.vy = 0; P.z = floorAt(sp[0], sp[1]);  // probes read P
+  // #421: the heading is derived from the plan the loader just built, not the literal 0.6, UNLESS the level
+  // declares `seatAng` - see seatFacing. cfgL.seatAng is undefined for every level but ABATOIR CORE.
+  P.x = sp[0]; P.y = sp[1]; P.ang = seatFacing(sp[0], sp[1], cfgL.seatAng); P.vx = P.vy = 0; P.z = floorAt(sp[0], sp[1]);  // probes read P
   buildTint();
   return true;
 }
@@ -2033,9 +2043,15 @@ function buildAuthored(li) {
    arrives exactly as it did - which is what keeps the flat senses' fallback path unchanged.
    The candidate is an air-to-air riser, not a wall: the far cell must be a full unit up AND the near cell
    must be on the seat's own plane, so a mound or a pit lip two bands away cannot win the seat, and the
-   aim point is the middle of the face the wall pass actually draws ([min floor, max floor] of the pair). */
+   aim point is the middle of the face the wall pass actually draws ([min floor, max floor] of the pair).
+   #421 DECISION 1: a level that AUTHORS its arrival bearing wins outright - `authored` is `LEVELS[li].seatAng`
+   and the grid is never read for that sector. Without this the derived look is deal-dependent (ABATOIR CORE
+   read 0.600 on the pinned deal and -0.882 on another), which is not a bearing anyone authored. This is a
+   per-level opt-out rather than "any authored plan wins", so the hand-authored finale can still be turned by
+   the plateau move that is this issue's remaining half. */
 const SEAT_LOOK = 12;                                   // metres: the reach `surface`'s SEAT row grades
-function seatFacing(px, py) {
+function seatFacing(px, py, authored) {
+  if (typeof authored === 'number') return authored;    // the level says what you arrive looking at
   const N = MAP.w, cs = MAP.ceilSlab, sf = floorAt(px, py), az = sf + cfg.eye;
   for (let wantSoffit = 1; wantSoffit >= 0; wantSoffit--) {
     let bx = 0, by = 0, best = Infinity;
@@ -2556,7 +2572,8 @@ function genLevel(li) {
     // cell - so walk out to the nearest open cell instead of spawning into a wall.
     const sp = seat;                    // #154: the same nearestOpen the prop passes subtracted
     // #421: derived arrival heading; see seatFacing. No draw, so the deal downstream is the deal it dealt.
-    P.x = sp[0]; P.y = sp[1]; P.ang = seatFacing(sp[0], sp[1]); P.vx = P.vy = 0; P.z = floorAt(sp[0], sp[1]);
+    // THE STACK authors no `seatAng`, so the finale derives like the generated sectors.
+    P.x = sp[0]; P.y = sp[1]; P.ang = seatFacing(sp[0], sp[1], cfgL.seatAng); P.vx = P.vy = 0; P.z = floorAt(sp[0], sp[1]);
     return true;
   }
   // extremely unlikely fallback: reuse a smaller successful layout
