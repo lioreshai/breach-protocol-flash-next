@@ -795,6 +795,50 @@ if (MODE === 'alt') {
          the CEILING and not the geometry, because [max floor, min ceiling] at CZ_DEF against a 1-unit
          step is [1.00, 1.00] - nothing. */
       let ovl = 0, ovlAt = null, ovlEnemy = 0;
+      /* #353's SECOND half: is the deck ABOVE an overlook lit? A light delivers to a column only if that
+         column's floor is within one quantum of the source's own floor (the band term in splatLight, put
+         there by #203/#206 so a datum lamp stops brightening a pit floor), so a raised band carries light
+         only if a source STANDS on it - and the lamp budget and the coverage top-up both rank by floor
+         AREA, so a two-cell lip never wins one. Measured with the SHIPPED kernel onto a scratch lightmap,
+         which is the pre-blur DIRECT term: blurLight carries light across a lip, so counting delivered
+         light would let a datum lamp stand in for a mezzanine lamp, which is the exact defect this row is
+         about (#204 states the same rule for the top-up's own coverage test). OWN_MIN = 0.25 is that
+         pass's own "a floor that is actually LIT" threshold, not a new one. The second arm takes back the
+         sources this issue's pass placed (LIGHTS entries marked ovl) and re-solves: a deck that reads lit
+         in BOTH arms is lit by the deal, not by the overlook, and credits nothing. */
+      let ovlDeck = 0, ovlDeckTot = 0, ovlCredit = 0, ovlDeckAt = null, ovlPlaced = 0;
+      for (const L of LIGHTS) if (L.ovl) ovlPlaced++;
+      {
+        const scr = new Float32Array(N * N);
+        const directOn = (j, filt) => {
+          const k = [MAP.light, MAP.lR, MAP.lG, MAP.lB, MAP.lw, MAP.tintDirty];
+          MAP.light = scr; MAP.lR = new Float32Array(N * N); MAP.lG = new Float32Array(N * N);
+          MAP.lB = new Float32Array(N * N); MAP.lw = new Float32Array(N * N);
+          scr.fill(0);
+          for (const L of LIGHTS) if (L.stat && filt(L)) splatLight(L, L.str);
+          const v = scr[j];
+          MAP.light = k[0]; MAP.lR = k[1]; MAP.lG = k[2]; MAP.lB = k[3]; MAP.lw = k[4]; MAP.tintDirty = k[5];
+          return v;
+        };
+        const onBand = (j, fl) => L => Math.abs(lightBand(L) - fl) <= ZQ + 1e-9;
+        for (let y = 1; y < N - 1; y++) for (let x = 1; x < N - 1; x++) {
+          const i = y * N + x;
+          if (cell[i] || MAP.cz[i] <= CZ_DEF) continue;
+          for (let d = 0; d < 4; d++) {
+            const nx = x + DIRX[d], ny = y + DIRY[d];
+            if (nx < 1 || ny < 1 || nx >= N - 1 || ny >= N - 1) continue;
+            const j = ny * N + nx;
+            if (cell[j] || (fz[j] - fz[i]) * ZQ < 0.5) continue;
+            ovlDeckTot++;
+            const all = directOn(j, onBand(j, fz[j] * ZQ));
+            const ctl = directOn(j, L => L.ovl !== 1 && Math.abs(lightBand(L) - fz[j] * ZQ) <= ZQ + 1e-9);
+            if (all >= 0.25) ovlDeck++;
+            if (all >= 0.25 && ctl < 0.25) ovlCredit++;
+            if (!ovlDeckAt) ovlDeckAt = { x: nx, y: ny, all: +all.toFixed(3), ctl: +ctl.toFixed(3) };
+            break;
+          }
+        }
+      }
       for (let y = 1; y < N - 1; y++) for (let x = 1; x < N - 1; x++) {
         const i = y * N + x;
         if (cell[i] || MAP.cz[i] <= CZ_DEF) continue;
@@ -905,7 +949,8 @@ if (MODE === 'alt') {
         bfaces, badSpan, badAt, minSpan, maxSpan, bands, bandsN: MAP.bands, nBands, unreach, sealed,
         linkIn, blockedStep, stairs, stairCells, ladCells, bandLink, noLink, steps: MAP.steps,
         headMax, headCols, runMax, runFloor, runTot, runs, reachUp, reachDown, reachOff, farReach,
-        ovl, ovlAt, ovlEnemy, ovlShot, auth: !!(LEVELS[${li}] && LEVELS[${li}].authored),
+        ovl, ovlAt, ovlEnemy, ovlShot, ovlDeck, ovlDeckTot, ovlCredit, ovlDeckAt,
+        ovlPlaced, auth: !!(LEVELS[${li}] && LEVELS[${li}].authored),
         // #353: how many OVERLOOK glyphs the authored plan declares. The plan still declares them when
         // the pass is switched off (OVERLOOK=off), which is what turns this level's row into a FAILURE
         // under the control instead of a KNOWN: the intent is in the plan, the ceiling is not in the grid.
@@ -1012,6 +1057,33 @@ if (MODE === 'alt') {
         (atFz(at)) + ')' : ''}, ${r.ovlEnemy} enemy(s) stand on a band >= 0.50 m above tall air, ` +
         `${r.unreach} unreachable. ${shotTxt}` +
         (r.auth ? `  AUTHORED plan: ${r.ovlAuth} overlook glyph(s); genLevel's pairing pass never runs on level ${li}, so this pair is authored in the plan and switched by the same overlookEnabled()` : ''));
+    }
+    /* #353's second half, and the half the last three PRs did NOT close: a mezzanine the player cannot
+       SEE is scenery. A light reaches a column only if that column's floor is within one quantum of the
+       source's own floor (the band term in splatLight, #203/#206), so a raised band is lit only by a
+       source standing ON it, and both the lamp budget and the coverage top-up rank by floor AREA - a
+       two-cell lip loses every contest. Measured here on the shipped deal: 4/5, 3/5, 7/8 and 1/1 of each
+       level's overlook decks read >= 0.25 direct light (OWN_MIN, the top-up's own "a floor that is
+       actually LIT"), which is the deck being lit by whatever the deal happened to put on that band, not
+       by any rule. THE DEBT IS THE REST: the second row counts decks that read DARK and is a KNOWN row at
+       that baseline, red under STRICT and green the day a pass places the source the area ranking cannot.
+       WHY not just place one: measured this head, an ordinary lamp at the deck's floor + LHOVER lights
+       the deck (5/5, 5/5, 8/8) and simultaneously turns two existing rows red on level 0 - the wrong-band
+       census goes 0 -> 2 cells and `the glow is admitted by the SURFACE's band` goes 13354 -> 16876 px -
+       because z = floor + LHOVER makes the source claim a band one hover above the deck it stands on.
+       The fix is the #413 shape (a source carrying its own floor in `band`), not a new lamp. That variant
+       is in this branch's history and is the next increment; the census here is what it has to make green.
+       Both arms are solved with the SHIPPED kernel on a scratch lightmap, pre-blur, so light carried over
+       a lip cannot masquerade as a source standing on the band. */
+    {
+      const D = r.ovlDeckAt;
+      const dark = r.ovlDeckTot - r.ovlDeck;
+      row(`L${li} an overlook deck is lit by a source on its own band`, r.ovlDeckTot >= 1 && r.ovlDeck >= 1,
+        `${r.ovlDeck}/${r.ovlDeckTot} overlook deck(s) read >= 0.25 direct light from a source standing on their own band` +
+        (D ? ` - the deck at ${D.x},${D.y} reads ${D.all.toFixed(2)}` : '') +
+        `; 0 source(s) placed by an overlook rule (${r.ovlPlaced}), so every lit deck is the deal's doing, not a rule's`);
+      krow(`L${li} every overlook deck reads lit`, dark === 0,
+        `${dark} of ${r.ovlDeckTot} overlook deck(s) read DARK - no source stands on the band they are fought from`);
     }
     row(`L${li} a column you can stand up in (>=2 units)`, r.headCols >= 1,
       `${r.headCols} open column(s) measure >= 2 units from floorAt to ceilAt, tallest ${r.headMax.toFixed(2)}; ` +
