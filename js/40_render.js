@@ -56,6 +56,38 @@ let G_TRI = false, G_GRIT = 0;                                  // derived from 
    it is a MULTIPLY on composited pixels, not an additive term the AMB floor sinks. World-scaled, so
    it stays SEAMW metres wide at any depth, and narrow, so it is an edge and not a shade. */
 let SEAM = 1, SEAMD = 0.62, SEAMU = 0.13, SEAMW = 0.16, SEAMC = 0.22;
+/* #369 THE CEILING JUNCTION, and it is a BAND, not a bulk value.
+
+   `surface`'s SEAM row measures, per column, the eight ceiling rows just above the row where the
+   wall's top edge stops being material - the junction - against the eight rows of face just under
+   it. Two sectors fail that measurement on both of the poses that can answer it: ARCHIVE SUBLEVEL
+   reads -7.4 (the ROOF is the brighter of the two) and RING TRANSPORT -2.5, i.e. the wall runs up
+   and becomes the roof with no edge between them, so the frame cannot say where the room ends.
+
+   The two fixes that would move that number without touching this row are both rejected on
+   measurement. A global ceiling multiplier is the knob #495 is moving right now, so the two would
+   trade the same luma through one term and the ceiling's BULK value is what made THE STACK's vault
+   the loudest region in its frame (#369 as filed). And a level's base light cannot buy it either:
+   `exposure` has ARCHIVE and RING pinned at one of its two anchors on every level that has been
+   tried there. What is left is locality. The row is a JUNCTION problem, so the term is a band at
+   the junction: the ceiling's own side of the wall->ceiling edge is darkened, world-scaled through
+   the same `hpx` the face's own shading uses so the band keeps its metres at any depth, fading up
+   the ceiling plane to nothing. Away from a wall, and on the face itself, no pixel moves, so the
+   roof is still the surface #495 lights and this spends none of that.
+
+   `ds > 0` skips a junction that is off the top of the frame (the band would run into unwritten
+   rows); `!riser` skips a slab side, whose top edge is somebody's FLOOR and is already treated by
+   the lip creases above; `perp < FARB` skips a junction the far wash has already dissolved, where
+   a band would be the hard edge #19 is about rather than an edge in a surface.
+
+   The fourth clause is `MAP.steps`, the same flag #100 puts on the riser branch and #170 on the
+   ground step queue, and it is what keeps a FLAT frame byte-identical. A one-unit level has a
+   wall->ceiling junction in it too - the face runs up to a ceiling at 1.0 - so without the flag this
+   band paints the flat world as well and every flat-parity digest in `flatparity` goes stale for a
+   term that is supposed to be about altitude. `surface`'s SEAM row is a VERTICALITY measurement: it
+   asks where the room stops and the roof starts, and in a world with one height there is no such
+   line to find. Flag at 0 the pass pays one test per drawn column and paints what it painted before. */
+let CSEAM = 1, CSEAMD = 0.34, CSEAMW = 0.6;
 /* #385: the crease's ABSOLUTE half, and it is AUTHORED content, not a global.
 
    A multiply is scale-invariant: `kk` takes 84% off a lip row whether the deck it sits on reads 37
@@ -2710,6 +2742,24 @@ function castWalls(flash, fcR, fcG, fcB) {
       px[idx] = 0xFF000000 | clampi(cb * lb * gk * shM + fB) << 16 | clampi(cg * lg * gk * shM + fG) << 8 | clampi(cr * lr * gk * shM + fR);
     }
     pixFilled += (de - ds + 1);
+
+    /* #369: the ceiling's side of this junction. Rows ABOVE `ds` are the ceiling plane the face
+       ends at, so the band runs up from the edge and touches no face pixel; see CSEAM at :61 for
+       why the fix is local and not a value, and which columns are deliberately skipped. */
+    if (CSEAM && doStep && !riser && ds > 0 && z1 > eyeZ && perp > CSEAMW + 0.15 && perp < FARB) {
+      /* The band's WIDTH in rows is the ceiling plane's own projection, not a screen constant: a point
+         CSEAMW metres back along the ceiling from the junction lands on row
+         horizon - (z1-eyeZ)*BH/(perp-CSEAMW), so the band is the rows between that and the edge and
+         keeps its METRES at any depth the way #164's lip keeps hers. It thins to a pixel or two on a
+         distant junction where the ceiling plane is compressed against the horizon - which is where a
+         wide band would be a wash and the SEAM row's own window has nothing to compare anyway. */
+      let cbw = Math.round((z1 - eyeZ) * BH * CSEAMW / (perp * (perp - CSEAMW))) + 1;
+      if (cbw < 2) cbw = 2; else if (cbw > 20) cbw = 20; else if (cbw > ds) cbw = ds;
+      for (let k = 0; k < cbw; k++) {
+        const i = (ds - 1 - k) * BW + x, v = px[i], ck = 1 - CSEAMD * (1 - k / cbw);
+        px[i] = (0xFF000000 | clampi((v >> 16 & 255) * ck) << 16 | clampi((v >> 8 & 255) * ck) << 8 | clampi((v & 255) * ck)) >>> 0;
+      }
+    }
 
     /* bullet holes / scorch on this face */
     if (perp < dmax && dMask && dMask[my * N + mx]) {
