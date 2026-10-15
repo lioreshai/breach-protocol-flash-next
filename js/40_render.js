@@ -56,6 +56,15 @@ let G_TRI = false, G_GRIT = 0;                                  // derived from 
    it is a MULTIPLY on composited pixels, not an additive term the AMB floor sinks. World-scaled, so
    it stays SEAMW metres wide at any depth, and narrow, so it is an edge and not a shade. */
 let SEAM = 1, SEAMD = 0.62, SEAMU = 0.13, SEAMW = 0.16, SEAMC = 0.22;
+/* #466: a level's ONE deliberate accent, painted on the exposed edge of a floor slab. Two numbers, and
+   both are geometry of the PAINT, not a look: RISER_ACC_H is how far down the slab's side the paint runs
+   (world metres below the lip) and RISER_ACC_F is the fraction of that band which is the feather rather
+   than solid colour - the top of the band is the lip itself, which is a hard edge, and its bottom is a
+   paint line, which at 16 m is a sub-pixel edge and would sparkle if it were hard too.
+   The colour lives on the LEVEL (js/20_level.js `accent`), not here: RING TRANSPORT is the only level
+   that authors one, so `accC` below is null everywhere else and the term costs a falsy check. Tune the
+   height by looking at `view.js scene 1 0`; the dose it must land in is on issue #466. */
+let RISER_ACC_H = 0.12, RISER_ACC_F = 0.45;
 /* #369 THE CEILING JUNCTION, and it is a BAND, not a bulk value.
 
    `surface`'s SEAM row measures, per column, the eight ceiling rows just above the row where the
@@ -2537,6 +2546,9 @@ function castWalls(flash, fcR, fcG, fcB) {
   const dmax = GQ ? GQ.dmax : 13, dMask = DECAL_MASK, dGrid = DECAL_GRID;
   const mMask = DECOR_MASK, mGrid = DECOR_GRID;        // #400 authored wall decor; one byte test per column
   const shm = SHADOW ? SH_HEAD : null;                      // #178 contact shadow
+  /* #466: the level's accent, resolved ONCE per frame beside the other level-authored surface terms. */
+  const accC = MAP.accent || null;
+  const accH = accC ? RISER_ACC_H : 0;
   for (let x = 0; x < BW; x++) {
     const cam = x * stepBase - 1;
     const rdx = dirX + planeX * cam, rdy = dirY + planeY * cam;
@@ -2546,6 +2558,10 @@ function castWalls(flash, fcR, fcG, fcB) {
     if (rdx < 0) { stepX = -1; sdx = (camX - mx) * ddx; } else { stepX = 1; sdx = (mx + 1 - camX) * ddx; }
     if (rdy < 0) { stepY = -1; sdy = (camY - my) * ddy; } else { stepY = 1; sdy = (my + 1 - camY) * ddy; }
     let tv = 0, guard = 0, riser = 0, rz0 = 0, rz1 = 1, rze = 0, rzf = 1;
+    /* #466: the accent band for THIS column, as a screen row and its reciprocal. Both stay at the
+       "no band" values on every ordinary wall face and on every level that authors no accent, so an
+       ordinary wall pixel pays one `y <= accY` compare against -1 and nothing else. */
+    let accY = -1, accInv = 0;
     while (guard++ < 180) {
       let tX;
       if (sdx < sdy) { tX = sdx; sdx += ddx; mx += stepX; side = 0; } else { tX = sdy; sdy += ddy; my += stepY; side = 1; }
@@ -2673,6 +2689,14 @@ function castWalls(flash, fcR, fcG, fcB) {
     const ds = Math.max(0, Math.ceil(y0)), de = Math.min(BH - 1, Math.floor(y1));
     if (!(dz > 0) || ds > de) continue;                    // no face here to draw
     const tstep = mh * dz / (y1 - y0);                     // tiles per world unit, not per face
+    /* #466: where the painted lip ends on this column. rz1 is the TOP of the slab side (the higher of
+       the two floors), so the band is the strip [rz1 - accH, rz1] and its lower edge is the screen row
+       y0 + accH * hpx. `accInv` is the reciprocal of the feather's height in rows, so the top of the
+       band saturates and only the bottom `RISER_ACC_F` of it ramps - a paint line, not a gradient. */
+    if (riser && accC) {
+      const ay = y0 + accH * hpx;
+      if (ay > ds) { accY = ay; accInv = 1 / (accH * hpx * RISER_ACC_F); }
+    }
     let ty = (ds - y0) * tstep, idx = ds * BW + x;
     if (ty >= mh) ty %= mh;                                // v wraps every world unit
     /* #178 contact shadow on a face. A face has ONE world x,y for its whole span, so the planar part of
@@ -2720,6 +2744,15 @@ function castWalls(flash, fcR, fcG, fcB) {
         cr += (((e0 & 255) * g0 + (e1 & 255) * g1 + (e2 & 255) * g2 + (e3 & 255) * g3) - cr) * wMix;
         cg += (((e0 >> 8 & 255) * g0 + (e1 >> 8 & 255) * g1 + (e2 >> 8 & 255) * g2 + (e3 >> 8 & 255) * g3) - cg) * wMix;
         cb += (((e0 >> 16 & 255) * g0 + (e1 >> 16 & 255) * g1 + (e2 >> 16 & 255) * g2 + (e3 >> 16 & 255) * g3) - cb) * wMix;
+      }
+      /* #466: the painted lip. An ALBEDO term on the slab's own side - it goes through this face's
+         lr/lg/lb, its contact shadow and its fog like the concrete under it, and it writes no light and
+         no zbuf. Placed after the mip crossfade so the paint is on the albedo the pixel ends up with
+         and before the grit term so the relief still reads across the band. */
+      if (y <= accY) {
+        let aw = (accY - y) * accInv;
+        if (aw > 1) aw = 1;
+        cr += (accC[0] - cr) * aw; cg += (accC[1] - cg) * aw; cb += (accC[2] - cb) * aw;
       }
       let gk = 1;
       if (grit > 0) {                                          // relief from the screen-space field

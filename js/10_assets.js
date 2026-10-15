@@ -263,7 +263,23 @@ WTEX.BRICK = matTex(T2, T2, p => {
   p.h += (c.edge - 1) * 0.10 * (1 - c.edge);
   grain(p, 26, 21, 24);
   dust(p, 0.18, [96, 88, 78]);
-  cracks(p, 0.07, 0.10, 5, 44, [40, 26, 22]);
+  /* #416 take three, the LIVE half. Same primitive as the STONE block below, and this is the call site
+     a player actually stands in front of: `wall: WT.BRICK` is ARCHIVE SUBLEVEL's primary face
+     (js/20_level.js:11), so this hairline is the background a body is read against in the first level.
+     A crack this narrow is not a line, it is an alias: `wdt` 0.10 of a crackMask band a few texels wide
+     paints 1-2 texels at [40,26,22] - luma 30.5 - on a course face at ~140, so the sharpest edge in the
+     paint ARCHIVE wears is ~110 luma across ONE texel. Past a metre or two that is not a crack, it is
+     per-pixel noise, which is exactly what a body ten metres away loses its silhouette to (#232).
+     So: 0.07 -> 0.05 cover, 0.10 -> 0.20 width (now WIDER than the texel that samples it, so the eye
+     resolves a groove instead of a sparkle) and [40,26,22] -> [76,58,48] (luma 30.5 -> 62.4, still the
+     darkest thing on the face by ~60 luma, but no longer near-black). The height term stays -0.12 per
+     texel of mask, so the groove, its normals and its cavity are the same relief: the paint inside it
+     changed, the surface did not. Measured with `node tools/view.js matband`: BRICK grain 23.5 -> 22.0
+     mean luma step per 2 texels, mean 120.7 -> 121.8 (wall spread holds at main's 1.45x, METAL still
+     brightest), p99 170.9 -> 170.4. The rest of BRICK's step is its own speckle and the `grain(p, 26…)`
+     mottle, which are NOT a sub-texel edge and are left alone. Falsifier: the three literals back and
+     23.5 returns. */
+  cracks(p, 0.05, 0.20, 5, 44, [76, 58, 48]);
   moss(p, 0.20, 63);
 }, { bump: 1.15, amb: 0.42, spec: 0.05, ao: 0.75, grain: 11 });
 
@@ -283,7 +299,30 @@ WTEX.STONE = matTex(T2, T2, p => {
   const pit = smoothstep(0.60, 0.96, fbm(p.u, p.v, 18, 3, 0.6, 71));
   p.h -= pit * 0.09; p.r -= pit * 13; p.g -= pit * 13; p.b -= pit * 12;
   moss(p, 0.34, 12);
-  cracks(p, 0.09, 0.12, 4, 88, [46, 48, 52]);
+  /* #416 take three: the CRACKS were this tile's grain, not its speckle and not its relief.
+     `node tools/view.js matband` said STONE 26.2 mean luma step per 2 texels against the band of 24, and
+     the debt row's own excuse was that the relief carries the step. It does not: an A/B on this one line
+     (grain 0 -> 24.4, the grain fbm's near-Nyquist octaves dropped -> 26.1, the pitting off -> 26.0, the
+     speckle off -> 24.4, THE CRACKS OFF -> 18.5) puts 7.7 of the 9.7 luma the tile carries above the
+     quietest tile in this one call. The reason is arithmetic the crack primitive does not advertise:
+     `wdt` 0.12 of a crackMask field whose band is a few texels wide paints a 1-2 texel hairline at luma
+     48.7 ([46,48,52]) on a course face at ~140 - a ~90 luma step across ONE texel, which is the sharpest
+     edge in the paint table and aliases into speckle at range instead of reading as a crack. So the fix
+     makes the groove WIDER than the pixel that samples it and less absolute in its dark, and takes a
+     little of it away: coverage 0.09 -> 0.06, width 0.12 -> 0.20, colour [46,48,52] -> [82,84,88] (luma
+     48.7 -> 84.4, still the darkest thing on the face by 55 luma, but no longer near-black). The height
+     term `cracks` applies (-0.12 per texel of mask) is UNCHANGED, so the relief, the normals and the
+     cavity occlusion are the same surface - this is the paint inside the groove, which is what the issue
+     asks for and what the debt row said could not be done without flattening. Measured after:
+     grain 23.6 (band 24), mean 131.8 against 129.9, p99 219.3 unchanged, and matband closes with 0 grain
+     debt rows - which is worth saying carefully, because the wall spread goes 1.45x -> 1.46x with STONE
+     now the brightest wall: this tile is worn by NO shipped level (no declaration in js/20_level.js
+     selects WT.STONE - #369 moved L0's minority face to CONCRETE and L3's primary to SLAB), so closing
+     this debt row moves no pixel in any frame, and `alb` is deliberately NOT touched so WTEX.SLAB's
+     "authored at WTEX.STONE's own mean albedo" pairing (below) stays true. The visible half of this take
+     is the BRICK call site above, which ARCHIVE SUBLEVEL does wear. Falsifier: put the three literals
+     back and 26.2 returns. */
+  cracks(p, 0.06, 0.20, 4, 88, [82, 84, 88]);
 }, { bump: 1.25, amb: 0.42, spec: 0.045, ao: 0.8, grain: 6, alb: 0.89 });   // #416: grain fbm 30 -> 13, speckle 13 -> 6 and 0.89 albedo - the mossy rock tile measured 33.9 luma of mean step per 2 px, the second-busiest background in the table
 
 WTEX.CONCRETE = matTex(T2, T2, p => {
