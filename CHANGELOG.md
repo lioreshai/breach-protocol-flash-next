@@ -1,5 +1,145 @@
 # Changelog
 
+## [v1.4.6] - 2026-10-13
+
+### Fixed
+
+- **Floors stopped throwing bright wedges out of the vanishing point** (#19, PRs #493, #494, #498).
+  Every screenshot of this game showed a fan of pale lines running away from the camera across the
+  deck. Three separate causes were found and fixed, each in the band where it actually lived. Deep
+  in the frame, a minified floor pixel was handing most of its own area to a *single* texel of a
+  coarser material — one stretched, hard-edged sample — and it now averages the area it really
+  covers; that alone takes the floor streak from 52 / 66 / 64 / 69 down to 43 / 56 / 55 / 60 across
+  the four sectors. Close up, within a metre or two, a floor pixel covered less than one texel and
+  was reading one texel with a hard edge; it now takes the same four-tap fetch every wall and body
+  in the game has always used, so the lines under your feet are gone without the picture going
+  soft. And on RING TRANSPORT the deck's diamond plate and the panel ceiling's grid repeat faster
+  than the far texture levels can honestly carry, so those levels now fade toward the material's
+  own average instead of keeping a broken copy of the pattern — that sector's floor streak goes 55
+  to 42, and its deck stops strobing along the sight line. Ridges are exactly as sharp as they were
+  directly below you: level-zero texture is never mixed. The remaining streak is measured, bounded
+  and still open on #19 — see *Known limitations*.
+
+### Changed
+
+- **Crates and barrels stopped being the loudest thing in a dim room** (#371, PR #491). Painted
+  prop faces are 12% darker, so a wooden box reads as a solid standing in its room rather than as a
+  saturated orange card in front of a dark wall. Sweeping every seat in each sector — not just the
+  four arrival cameras the earlier pass looked at — the count of seats where a prop outshines the
+  deck it stands on falls from 3 to 0 (ARCHIVE SUBLEVEL), 1 to 0 (RING TRANSPORT), 3 to 0 (ABATOIR
+  CORE) and 1 to 1 (THE STACK). Lamps are untouched: a lamp is still the warm thing that says *that
+  room is lit, you can walk there*.
+- **The stone decks of ARCHIVE SUBLEVEL and THE STACK lost their green** (#466, PR #492). Those two
+  sectors are grimy stone under an amber lamp, and their floor was the one surface wearing a damp
+  vegetation green nothing else in the room has. The flagstone mottle is now a dry lichen brown at
+  the same brightness: at ARCHIVE's arrival seat the deck-to-wall hue gap closes from 27 degrees to
+  12 and the room reads as one interior. No exposure moved and the other two sectors are unchanged.
+- **ABATOIR CORE's floor is no longer the same colour as its walls** (#466, PR #497). The deck's
+  authored hue sat nine tenths of a degree from the wall's, so the only thing telling you which side
+  of a lip you were on was whether a lamp happened to be shining on it. The floor now reads cooler
+  and drain-dark against the wet muscle of the walls — floor band h10 to h358 with the wall held at
+  h8, at identical luminance — so the room reads as built rather than wrapped.
+- **Every screenshot in the README is now a picture of the game that actually ships** (#468, #478,
+  PRs #489, #501). All eight frames were re-taken in one pass from the deployed build, with every
+  served file byte-compared against that build before the shutter, and each now carries a provenance
+  row (bytes, build, level deal, pose, frame statistics) in `docs/screens/provenance.json` instead of
+  a caption that may or may not describe it. Two capture bugs were fixed on the way: a page left
+  painting while a harness polled silently re-dealt the generated levels, and the pulsing exit-portal
+  overlay made the frame's brightness a function of wall-clock time. Captions were rewritten where
+  this build no longer produces the thing they counted, and still say plainly what reads flat.
+- **The texture-streak check can now say which distance band a streak lives in, and can fail a
+  build** (#19, PR #496). Earlier passes reported one number per surface, which is direction- and
+  distance-blind, so six rounds of this fix argued about *where* the defect sat. The streak is now
+  bucketed by each pixel's own solved distance, and the census now blocks the build when it stops
+  accounting for its own frame instead of printing a tidy table over the failure.
+
+### Known limitations
+
+- **The fan is quieter, not gone.** The residual on floors and ceilings sits inside about four
+  metres of the player, where the fetch magnifies a single texel and what varies across a row is
+  *which* texel it stands in. Two further mechanisms were built and measured against that band —
+  reading the whole footprint up the texture chain (#504) and fading a distant ceiling toward its
+  material's own average (#506) — and neither carried the case, so both shipped switched off and
+  change no pixels at the default. #19 stays open with the residual bounded by measurement rather
+  than by argument.
+- **One prop seat is still over the bar** (#371, PR #491). At THE STACK seat 2,2 props read +45.7
+  luma over their own deck. That is a lamp's light cell, not the crate's colour, and a second paint
+  cut was deliberately not applied — it would have dimmed every prop in the game to fix one cell.
+- **A pale hard-edged wedge can still appear at a level's outer edge** (#375). How far away the
+  renderer should *believe* ground past the level's boundary is is a separate open problem, and part
+  of what looked like floor streaking belongs to it rather than to #19.
+- **The README's generated-sector frames are still deal-bound** (#431). The level you arrive in is
+  dealt from the random stream, so a caption naming a particular stair or lamp describes one boot of
+  one build; the provenance table now states that rather than promising reproducibility it cannot
+  offer. Captures record a null sample rate because the capture host exposes no audio device, so the
+  deal they bind is device-scoped until #404 lands.
+
+## [v1.4.5] - 2026-10-12
+
+### Added
+- **A crate now has a sunny side and a shady one** (#476, issue #371). Walk round a crate, a barrel or a
+  dropped lamp and the bright face moves to whichever flank the room is actually lighting. Before this the
+  two faces you could see of the same box sat only 18 luma apart: a prop's light was the room's ambient
+  floor plus a lamp ramp, so the ambient half could never fall into shadow no matter which way the box was
+  turned. Props now pay the same orientation tax a wall face has always paid - the whole light, ambient
+  included, is scaled by which way the face points - centred so a prop's average brightness is unchanged.
+  Face separation on a crate goes 94.8 -> 126.2 luma apart and on a barrel 73.9 -> 98.7. A prop is still
+  lit by its room rather than glowing on its own: the lit/unlit control still reads x0.44.
+
+### Changed
+- **Props stopped outshining the rooms they stand in** (#371). Crate wood and two barrel materials were
+  authored so bright that, after the sprite lift every prop gets, the lit face of a box sat *above* the
+  deck it stands on - at ABATOIR CORE's arrival camera prop pixels read 153.7 against a deck of 89.2, and
+  at THE STACK's the loudest thing in frame was a barrel, not the floor. The four loudest poses now sit
+  +23.0 / +10.2 / +23.5 / -7.9 relative to their own deck, and no prop face pixel sits at a channel
+  ceiling in any of them, so props take the room's light instead of clipping it away.
+- **The rock ceiling above you stops being the rock under you** (#466). ARCHIVE SUBLEVEL and THE STACK
+  painted their ceiling with the same moss that paints their decks, so those levels' ceilings read as
+  damp concrete 9 degrees of hue away from the floor and the STACK's ceiling sat at saturation 0.02.
+  Growth needs standing water at the foot of a wall; what reaches a ceiling is water that ran and dried,
+  so the ceiling now carries a pale, cool mineral film stretched along the strata it already draws, with
+  no growth at all. Ceiling-to-deck hue separation is 9 -> 28 degrees on ARCHIVE and 85 -> 169 on the
+  STACK. The film is brightness-neutral, so no room's exposure moved and the other two levels are
+  byte-identical.
+- **ABATOIR CORE's ceiling is now part of ABATOIR CORE** (#466). Overhead in the abattoir was a mauve
+  hide (hue 314) which, under the level's green lamp field, rendered as a silt-yellow slab - 41 degrees of
+  hue away from the wall it meets, in the one level whose whole theme is a single red interior. It is a
+  tanned membrane in that family now (hue 7.5), and the arrival seat reads ceiling hue 31 against wall 9:
+  overhead still reads as overhead because it is *darker*, not because it is a different colour. Both paint
+  terms were authored at the exact brightness of what they replace, so this is a colour change and not an
+  exposure one - every seeded exposure median is unchanged - and the other three levels' ceilings come back
+  byte-identical. With this tile repainted, all four sectors put their surfaces in one colour family at
+  their own seat.
+- **The README says which of its screenshots can actually be re-taken** (#431). Five frames of generated
+  levels have been stale since one particular build, because the level you arrive in is dealt from wherever
+  the random stream happens to have reached - so the stair flight or lamp a caption names belongs to a
+  different world. The capture record now states both real terms (one boot per page load, and the build),
+  names the build each stale frame was dealt from, and no longer promises a row is reproducible when it is
+  not. No gameplay or rendering code is involved.
+
+### Fixed
+- **THE STACK's floor stops burning past the picture** (#369). The finale deck's extra floor light
+  overcorrected: at the level's own arrival camera it delivered 121 luma with 0.09% of the frame past the
+  showable top, so the largest surface in the shot lost its tread, its staining and its tile joints. It
+  reads 118.3 now with 0.03% blown, and the rule that a vault may not outshine the floor it covers still
+  holds. THE STACK is the only level that authors that term, so the other three levels are byte-identical.
+- **THE STACK's screenshot matches the game** (#369, #431). The frame the README printed for the finale was
+  one build behind once its deck was repainted; it is re-taken from the deployed build and its caption's
+  numbers now describe those bytes.
+
+### Known limitations
+- Some props still read brighter than the deck they stand in. Grading a whole sector instead of four
+  arrival cameras (#371) finds props over their deck by up to +28.0 (ARCHIVE SUBLEVEL), +55.7 (RING
+  TRANSPORT), +32.1 (ABATOIR CORE) and +52.5 (THE STACK) at seats the earlier probe never aimed at. That
+  sweep is a census and is not charged against any budget, so the paint there is still wrong.
+- You still arrive without seeing the storey above you. Grading the frame the game actually hands the
+  player - not a purpose-built look-up camera - measures 0 / 0 / 0 / 25 soffit pixels within reach across
+  the four sectors against a bar of 8,000, with 19 and 28 soffit columns in reach of the ARCHIVE and RING
+  seats. The undersides render; the arrival camera is not placed where they show, and that placement is
+  the open part of #421.
+- Five README frames of generated levels remain stale by build and cannot be re-taken to match their
+  captions until #420 settles how a shipped capture pins its level.
+
 ## [v1.4.4] - 2026-10-11
 
 ### Added

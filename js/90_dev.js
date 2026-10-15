@@ -261,14 +261,23 @@
     if (name === 'gndjit') { GJIT = value === undefined ? 1 : value | 0; return { gndjit: GJIT, minPx: GJITPX }; }
     if (name === 'gndlight') { GLRP = value === undefined ? 1 : (value ? 1 : 0); return { gndlight: GLRP }; }
     if (name === 'gndax') { GNDAX = value === undefined ? 1 : (value ? 1 : 0); return { gndax: GNDAX, AXMIN: AXMIN }; }
-    if (name === 'gndfilt') { GNDFT = value === undefined ? 1 : (value ? 1 : 0); return { gndfilt: GNDFT }; }
+    if (name === 'gndfilt') { GNDFT = value === undefined ? 1 : (value ? 1 : 0); return { gndfilt: GNDFT, gndbil: GNDNB }; }
     if (name === 'gndramp') { GNDRO = value === undefined ? 1 : (value ? 1 : 0); return { gndramp: GNDRO }; }
     if (name === 'gndfar') { GNDFB = value === undefined ? 1 : (value ? 1 : 0); return { gndfar: GNDFB, far: GQ.far }; }
     if (name === 'gndoff') { GNDOF = value === undefined ? 1 : (value ? 1 : 0); return { gndoff: GNDOF }; }
+    if (name === 'gndbil') { GNDNB = value === undefined ? 1 : (value ? 1 : 0); return { gndbil: GNDNB }; }
     if (name === 'gndfade') {
       GNDFA = value === undefined ? 1 : +value;
       return { gndfade: GNDFA };
     }
+    /* #19 take fifteen's A/B. 1 = the shipped single coarse level (#498); 3 = the walk, which reads the
+       un-carried share from the whole chain instead of parking it one level up. Restored with 1, and the
+       whole coarse share is still `DEV.set('gndfade', 0)`. */
+    if (name === 'gndwalk') { GWALK = value === undefined ? 3 : value | 0; return { gndwalk: GWALK }; }
+    /* #19 take sixteen's A/B. 1 (shipped) = a CEILING pixel's un-carried footprint share goes to its own
+       chain's mean instead of to one coarser texel: w = 1 - min(1, 1/F) on the pixel's own F, so a pixel
+       whose footprint is one texel or less keeps main's fetch exactly. 0 = main's ceiling, walk included. */
+    if (name === 'gndwash') { CGW = value === undefined ? 1 : (value ? 1 : 0); return { gndwash: CGW, farM: GQ.far }; }
     /* #407's A/B. 1 (shipped) = a body or prop takes MAP.light WHOLE at its own cell, exactly as a wall
        column and a ground pixel do; 0 = the pre-#407 second falloff (lm * exp(-distance * 0.14)) is back
        in BOTH copies - the mesh triangle shading and the billboard. One register, two read sites, so it
@@ -460,6 +469,8 @@
       '                                  1 mirror wide cells only / 0 never), gndlight (0 per cell / 1 per pixel),',
       '                                  gndax (0 point fetch / 1 filtered along the footprint), and',
       '                                  gndfilt (0 one texel per pixel / 1 lerp across the short side), and',
+      '                                  gndbil (0 a magnified ground pixel still point-fetches along the second axis /',
+      '                                  1 it takes the bilinear quartet, the fetch a wall face uses) (#19), and',
       '                                  gndramp (0 extrapolate the deferred light ramp off-map / 1 stop at the cell), and',
       '                                  gndfar (0 the deferred copy textures its far field / 1 it washes it like the row does), and',
       '                                  bodydist (1 a body or prop keeps the lamp field whole at its own cell, the shipped',
