@@ -376,6 +376,26 @@ function buildGrain() {
    needs no new number: -0.12 is already the cap, 0 - (-0.12). Height is said by the riser seam and the
    minimap band cue (#164), not by light. */
 const CEILHI = 3.0, CEILG = 1.4, CEILGM = 0.9;
+/* #495: the FLOOR of that term. The ramp said "a roof more than CEILHI above the eye is out of reach of
+   the lamps, so lift it", and stopped exactly there - so an ordinary one-storey ceiling, whose plane sits
+   0.35 m over a standing eye, was paid 0.0 and got AMB + ceilBias and nothing else: 41-50% of every frame
+   arriving at a third to a half of the luma of the deck under it (`surface`'s ORDER rows at the four
+   arrival seats, 0.32-0.59x). The reason the ramp gives is not a property of HEIGHT, it is a property of
+   OVERHEAD: a light source at floor level is far from a surface above your head at any storey height.
+   So the term now has a floor instead of a zero, and it stays inside the SAME min(CEILLD, ...) it had:
+     lift = min(CEILLD, CEILFL + CEILG * max(0, dz - CEILHI))
+   which is why #369's value order and #380's derived cap cannot break - the cap bounds the WHOLE term,
+   floor included, so on a level that states an order `AMB + CEILB + lift <= AMB + FLOORB` still holds
+   byte for byte, and on a level that states none the ceiling gains CEILFL of base at most. Where the ramp
+   already runs past CEILFL (every vault, on every level) the term is unchanged, which is what keeps
+   `flatparity`' tall-room frames and every flat FLOOR pixel exactly as they were: the floor half pays 0
+   at all four sites, gated on the plane being ABOVE the eye, never on a room test.
+   This is still one value per column with a band term (#369's rule): no lightmap, no per-pixel ceiling
+   array, no new source. Height is still said by the riser seam and the minimap band cue (#164), not by
+   light - a ceiling's base moved, no plane, no authored bit and no lamp did. Both copies of the pixel body
+   carry it (the row loop's dzA, gndBuild's pl) and so does the off-map copy, whose lift must agree with
+   the row's or the level's edge draws a dark trapezoid (#375's second charge). */
+const CEILFL = 0.10;
 /* #421: what a slab's UNDERSIDE is made of.
    A column whose overhead plane is a NEIGHBOUR's walkable floor has a FLOOR above it, and until this
    increment the ceiling pass painted that plane in the level's own ceiling material at the level's own
@@ -1167,7 +1187,7 @@ function castGround(flash, fcR, fcG, fcB) {
     const invRow = 1 - fogRow, fRRow = fcR * fogRow, fGRow = fcG * fogRow, fBRow = fcB * fogRow;
     const flashRow = fl * Math.exp(-dRow * 0.30);
     const baseRow = amb + flashRow * 0.9 + (isF ? FLOORB : CEILB) +
-      (isF || dzA <= CEILHI ? 0 : Math.min(CEILLD, CEILG * (dzA - CEILHI)));
+      (isF ? 0 : Math.min(CEILLD, CEILFL + CEILG * Math.max(0, dzA - CEILHI)));
     let tex, sc;
     if (isF) { tex = floorTex; sc = 1 / tileF; } else { tex = ceilTex; sc = 1 / tileC; }
     if (dRow > FARB || !(tex && tex.mips)) {                     // far band: light-tinted fog, no texture
@@ -1791,7 +1811,7 @@ function gndBuild(row, isF, absP, pl, tex, sc, fcR, fcG, fcB, fl, amb, dOv) {
   gMSer = gSer; gMRow = row; gMPl = pl; gMDS = dc; gMDist = dOv === undefined ? -1 : dOv;
   gMDfa = 0.4 + 0.6 * Math.exp(-dc * 0.02);
   gMFog = fog; gMInv = 1 - fog; gMFR = fcR * fog; gMFG = fcG * fog; gMFB = fcB * fog;
-  gMLift = !isF && pl - eyeZ > CEILHI ? Math.min(CEILLD, CEILG * (pl - eyeZ - CEILHI)) : 0;
+  gMLift = !isF ? Math.min(CEILLD, CEILFL + CEILG * Math.max(0, pl - eyeZ - CEILHI)) : 0;
   gMBase = amb + fl * Math.exp(-dc * 0.30) * 0.9 + (isF ? FLOORB : CEILB) + gMLift;
   /* the sampled point is LINEAR in the column: camX + (dirX + planeX*(x*stepBase-1))*dS, so a pixel
      of this run needs two multiplies, not a ray build. Same algebra the row uses for its own wx/wys. */
@@ -2073,7 +2093,7 @@ function groundPixel(x0, x1, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb
        one, an edge in the other direction rather than no edge. The plane this pixel's ray never reached
        pays nothing; the space the camera is standing in pays its own, at any distance, which is also what
        makes the two copies agree on the same pixel. */
-    const liftRow = plA - eyeZ > CEILHI ? Math.min(CEILLD, CEILG * (plA - eyeZ - CEILHI)) : 0;
+    const liftRow = plA > eyeZ ? Math.min(CEILLD, CEILFL + CEILG * Math.max(0, plA - eyeZ - CEILHI)) : 0;
     lr = lg = lb = gMBase - gMLift + liftRow;
     if (lta) {
       const gx = Math.floor(cx), gy = Math.floor(cy), ux = cx - gx, uy = cy - gy;
@@ -2422,7 +2442,7 @@ function drawCeilPanes(flash, fcR, fcG, fcB) {
       const yT = Math.ceil(horizon - (BH / dh) * dzs), yB = Math.floor(horizon - (BH / dh) * dzp);
       const span = Math.max(1, yB - yT);                      // is not a black comb of alternate pixels
       const fogS = fogAt(dh > FARB * 4 ? FARB * 4 : dh), invS = 1 - fogS;
-      const bS = (AMB + CEILB + Math.min(CEILLD, CEILG * Math.max(0, dzp - CEILHI)) + liS * 0.35) * invS;
+      const bS = (AMB + CEILB + Math.min(CEILLD, CEILFL + CEILG * Math.max(0, dzp - CEILHI)) + liS * 0.35) * invS;
       for (let y = Math.max(0, yT); y <= Math.min(hInt - 1, yB); y++) {
         const i = y * BW + x;
         if (!(dh < zbuf[i])) continue;
@@ -2438,7 +2458,7 @@ function drawCeilPanes(flash, fcR, fcG, fcB) {
     const lt = cellTint(ci);
     let li = lm ? lm[ci] : 0;
     if (li > 1) li = 1;
-    const lift = Math.min(CEILLD, CEILG * Math.max(0, dzp - CEILHI));
+    const lift = Math.min(CEILLD, CEILFL + CEILG * Math.max(0, dzp - CEILHI));
     const y0 = Math.max(0, Math.ceil(byF)), y1 = Math.min(hInt - 1, Math.floor(byN));
     const x0 = Math.max(0, Math.floor(bx0)), x1 = Math.min(BW - 1, Math.ceil(bx1));
     if (y1 < y0 || x1 < x0) continue;
