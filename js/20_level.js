@@ -85,7 +85,19 @@ const LEVELS = [
     // `wall2` stays TECH: already another family, and the room-scale face the finale's fit-out is made of.
     name: 'THE STACK', size: 20, authored: true, wall: WT.SLAB, wall2: WT.TECH,
     floor: 'STONE', ceil: 'ROCK', amb: 0.2, lampCol: [255, 196, 120], fogCol: [17, 13, 10],
-    floorBias: 0.18, ceilBias: -0.04, ceilLead: 0.12, wallBias: 0.10,
+    /* #369 the DECK half: 0.18 -> 0.12. The rule this level authors is that a vault may not lead the
+       floor it covers, and the term that fixed it overcorrected: at the finale's own scene seat the deck
+       delivered 121 luma with its own pool past the showable top, so the largest surface in the shot lost
+       its tread, its stains and its joints and became a hole in the picture. 0.12 is the lowest term that
+       still keeps the authored rule true without a second change - the vault's lead must satisfy
+       ceilLead <= floorBias - ceilBias, i.e. 0.12 <= 0.12 + 0.04 - so the roof stays lifted off black and
+       cannot come back up into the frame's emphasis. `wallBias` 0.10 is left exactly as #442 authored it:
+       moving it to 0.14 would restore the arithmetic order (face base above deck base) and buy cam3 two
+       more lumas of separation, but it puts the level's median back to 93 - one glyph ABOVE the number
+       this change exists to bring down - so the separation stays where it is measured rather than being
+       bought with exposure. Measured at that seat below and in `surface`; the moved records are named in
+       the PR. */
+    floorBias: 0.12, ceilBias: -0.04, ceilLead: 0.12, wallBias: 0.10,
     // #385: the absolute half of the step crease, in luma (js/40_render.js SEAMA). This level authors
     // `lamps: 0`, so its decks are the darkest in the game and a MULTIPLY-only crease is 6 luma deep on
     // the pit lip against 13 on a lit one - the same edge, half the legibility. It is authored HERE and
@@ -1277,14 +1289,48 @@ function blurLight() {
   }
   MAP.light = o;
 }
+/* #503: A LAMP'S COLOUR MAY NOT ADD LUMA - the ambient headroom rule.
+   The three lines this function used to write normalise a cell's tint so its STRONGEST channel lands on
+   128/0.82 = 156 and then clamp each channel into [24, 235]. Nothing in that pair of steps holds the
+   LUMA of the result, and the renderer multiplies light by the tint per channel (`base + li * lt[k]`,
+   js/40_render.js:1086 and the two copies of the ground pixel body), so a saturated warm or green lamp
+   colour arrives with a Rec.601 gain ABOVE white light of the same intensity and every surface it paints
+   comes out brighter than the lamp's own intensity authorises. Measured on the four sector decks at
+   their spawn seats, the mean tint luma gain of a walkable cell is 0.98 / 1.01 / 1.06 on ARCHIVE, RING
+   and ABATOIR and 1.56 on THE STACK - whose lampCol [255,196,120] paints the largest surface in the
+   frame at 149 luma, 14.5 % of it past luma 190, where the shipped tone curve is the identity
+   (EXPOSE_T, js/40_render.js:168) and so neither a lamp nor a muzzle flash can move it. The band that
+   light is for was spent on paint.
+   THE RULE: a tint is a COLOUR, so it may not carry a luma gain greater than 1.0 - the same light, seen
+   through no colour at all. Take the luma of the three channels (the same Rec.601 weights the probes
+   read their luminance with) and, where it exceeds unity, scale the three channels by the ratio. The
+   HUE is untouched - the scale multiplies all three channels - so a warm lamp stays warm; what goes is
+   the gain. It is one rule over the whole campaign, derived from the luma weights, with no per-level
+   number in it: a level whose lamps already average at or under unity gain has nothing scaled and its
+   bytes do not move at all, which is why ARCHIVE SUBLEVEL (0.98) is byte-identical and the two sectors
+   at 1.01 and 1.06 lose only the percent they were over.
+   It is applied HERE, at author time, and not in `cellTint` on the pixel path: the array is written once
+   per level, so the shipped frame pays one compare per cell instead of a dot product per crossing, and
+   the same tint then reaches the wall pass, the billboards and the far wash without a second copy of the
+   rule that could disagree with the first (the same argument #19 makes about the material mean,
+   js/40_render.js:1015). `TINT_GAIN` is the cap and the A/B: `TINT_GAIN = 0` disables the rule and puts
+   main's picture back. Not a second lightmap (AGENTS invariant) - it changes the existing per-cell tint,
+   and the light stays one value per column with its band term. */
+let TINT_GAIN = 1;                // the most luma a lamp's colour may add; 0 = the rule off (the A/B)
 function buildTint() {
   const N = MAP.w * MAP.w, lt = MAP.lt, lr = MAP.lR, lg = MAP.lG, lb = MAP.lB, lw = MAP.lw;
   for (let i = 0; i < N; i++) {
     const w = lw[i];
     if (w < 0.004) { lt[i * 3] = 128; lt[i * 3 + 1] = 128; lt[i * 3 + 2] = 128; continue; }
-    lt[i * 3] = clamp(128 * (lr[i] / w) / 0.82, 24, 235) | 0;
-    lt[i * 3 + 1] = clamp(128 * (lg[i] / w) / 0.82, 24, 235) | 0;
-    lt[i * 3 + 2] = clamp(128 * (lb[i] / w) / 0.82, 24, 235) | 0;
+    let cr = clamp(128 * (lr[i] / w) / 0.82, 24, 235),
+      cg = clamp(128 * (lg[i] / w) / 0.82, 24, 235),
+      cb = clamp(128 * (lb[i] / w) / 0.82, 24, 235);
+    if (TINT_GAIN > 0) {
+      const ln = 0.299 * cr + 0.587 * cg + 0.114 * cb;
+      const lim = 128 * TINT_GAIN;
+      if (ln > lim) { const k = lim / ln; cr *= k; cg *= k; cb *= k; }
+    }
+    lt[i * 3] = cr | 0; lt[i * 3 + 1] = cg | 0; lt[i * 3 + 2] = cb | 0;
   }
   MAP.tintDirty = false;
 }
