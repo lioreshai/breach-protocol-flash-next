@@ -18,8 +18,24 @@ const LEVELS = [
     // #369: `wall2` used to be WT.METAL, the deck material again. A transport ring is plated AND gratted,
     // so the minority face is now WT.GRATE - same grey-blue, and its dark gaps say "wall" against a deck
     // you walk on rather than continuing the floor up the face.
+    // #466 THE ACCENT HALF. This level now reads as ONE family: TECH's blue-grey plating carries it, the
+    // GRATE minority face is the same grey-blue at a different scale, METAL is the deck under it and the
+    // cold lamp ties all three together — and that is the problem the family rule leaves behind: a level
+    // that agrees with itself perfectly has nothing in it that was put there on purpose. Measured at this
+    // seat, RING's chromatic pixels are 98.7% / 99.0% inside the single 210-degree family, and the only
+    // thing in the frame that disagrees is the edge stripe of WFIX.STRIPE under 1% wide. So this level
+    // authors the one thing the other three get from their lamps: a surface that disagrees.
+    // `accent` is the colour PAINTED ON THE EXPOSED EDGE of a floor slab — see js/40_render.js RISER_ACC
+    // for the term and js/466's issue thread for why the deck edge and not a wall tile or a mounted
+    // object. It is authored HERE and on no other level, so the term is dead code elsewhere and the other
+    // three levels render byte-identical. The rgb is not free: it is solved so its LAMP-WEIGHTED luma
+    // (Rec.709 against this level's own lamp weights 0.261 / 0.347 / 0.392) equals WTEX.CONCRETE's own
+    // mean albedo 129.4, which is what the riser face wears today. That is the whole reason the frame
+    // mean holds: the band trades hue for hue at the same delivered light. Its own Rec.709 luma is
+    // deliberately NOT 129.4 — under a cold lamp a colour cannot hold both (issue #466, the dose table).
     name: 'RING TRANSPORT', size: 32, rooms: 9, maxRoom: 10, wall: WT.TECH, wall2: WT.GRATE,
     floor: 'METAL', ceil: 'PANEL', amb: 0.185, lampCol: [170, 226, 255], fogCol: [10, 14, 21],
+    accent: [198, 123, 53],           // #466: a painted deck lip; amber, 178 deg off this sector's 210
     lamps: 8, crates: 8, barrels: 9, spawn: { grunt: 6, hound: 5, brute: 1 }, pick: { health: 4, ammo: 5, armor: 2 },
     fixtures: ['STRIPE', 'PIPE'],         // #400: a transport ring is striped and stencilled
     purpose: ['TANK', 'BOARD']            // #400: a transfer ring is tanks and directions
@@ -2033,6 +2049,7 @@ function buildAuthored(li) {
     floorBias: cfgL.floorBias || 0, ceilBias: cfgL.ceilBias || 0, ceilLead: cfgL.ceilLead,
     wallBias: cfgL.wallBias || 0,                // #369: the wall half of the same order; 0 unless authored
     stepEdge: cfgL.stepEdge || 0,                    // #385: the authored absolute crease, 0 unless the level authors one
+    accent: cfgL.accent || null,            // #466: a level's one deliberate accent, painted on a slab edge
     floorTex: FLOORS[cfgL.floor], ceilTex: CEILS[cfgL.ceil],
     fz, cz, vb: new Uint16Array(N * N), feat, ceilPlane: new Float64Array(N * N),
     ceilSlab: new Uint16Array(N * N)
@@ -2313,6 +2330,7 @@ function genLevel(li) {
       floorBias: cfgL.floorBias || 0, ceilBias: cfgL.ceilBias || 0, ceilLead: cfgL.ceilLead,
       wallBias: cfgL.wallBias || 0,                  // #369: as above; the generator authors none
       stepEdge: cfgL.stepEdge || 0,                  // #385: as above; the generator authors none
+      accent: cfgL.accent || null,              // #466: as above; RING TRANSPORT is the only level that does
       floorTex: FLOORS[cfgL.floor] || FLOORS.CONCRETE, ceilTex: CEILS[cfgL.ceil] || CEILS.CONCRETE,
       floorTile: 1.15, ceilTile: 0.9,
       fz: fzTry, cz: czTry,
