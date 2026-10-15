@@ -211,10 +211,32 @@ const MESH = (function () {
        `1 - |N.V|` - the same angle-correct stand-in RIMK uses above - floored by TS_BMIN so the
        face square to the eye, which is most of the chest, still reads.
      Legs and silhouette are untouched on purpose: a specular that rode the gait read as noise and
-     shrinking the outline breaks the walk (both rejected, #232). Fades out below TS_MINP px. */
-  const TS_CYC = 10, TS_MINP = 3.5, TS_SLOPE = 9, TS_MAX = 26, TS_BMIN = 0.45;
+     shrinking the outline breaks the walk (both rejected, #232).
+     #416 THE FADE WAS A CLIFF, AND THE CLIFF FELL INSIDE COMBAT RANGE. `TPR <= TS_MINP ? 0` spends the
+     term at ONE projected period, and the two bodies that matter at 10 m land on opposite sides of it.
+     Measured at a30bb45 by instrumenting the line below and running `node tools/view.js contrast`: a
+     BRUTE at 10 m projects a 5.14 px seam period and keeps slope 9 (amplitude 11.56), while a GRUNT at
+     the same 10 m projects 3.45 px - nineteen hundredths of a pixel under the gate - and lost ALL of
+     it. His own surface then delivered 1.40 luma of slope per screen px against a deck behind him
+     delivering 4.05, which is #457's ARCHIVE SUBLEVEL busyness row: the paint behind him was the
+     sharpest thing in the frame. Nothing in the world got busier to cause that - the same row read the
+     surface behind an ARCHIVE body at 2.47 luma/px on 2026-10-10 and 4.05 here, and what moved it is
+     #19 giving the DECK its area detail back at range. The body was still fading out on an authored
+     round number, so the two curves crossed at the range the game is played at.
+       Aliasing is what the fade is for, and aliasing starts at the SAMPLE limit, near two pixels per
+     cycle, not at 3.5. So a body that projects under the gate steps to ONE COARSER LEVEL of the same
+     pattern (TCYC: half the seam density, so the period doubles back above the gate) instead of losing
+     the term. The amplitude law is unchanged, so what stays constant across the step is the one thing
+     the eye reads - luma per screen pixel - and a body walking through the boundary changes which
+     seams it wears, not how bright it is. ONE step only: a second would put 2.5 seams across the 17 px
+     silhouette of a body at 20 m, which is a stripe and not structure. The step is discrete because
+     that is this engine's own convention: mip selection picks a level, it does not blend two (AGENTS,
+     #19). Near the eye TPR is over 30 px, so level 0 runs with #232's arithmetic untouched and the
+     recorded torso gradient still reads 2.52 / 2.17 / 2.52; everything that moves is a body far enough
+     to have had no surface at all. */
+  const TS_CYC = 10, TS_MINP = 3.5, TS_LMAX = 2, TS_SLOPE = 9, TS_MAX = 26, TS_BMIN = 0.45;
   const TSC = [0.80, 1.00, 1.15];                   // slightly cool seams on warm armour
-  let TAMP = 0, TK = 0, ST = null, TQ0 = 0, TQ1 = 0, TQ2 = 0;
+  let TAMP = 0, TK = 0, ST = null, TQ0 = 0, TQ1 = 0, TQ2 = 0, TCYC = 10;
   /* o.near swaps the DEPTH array rather than adding a branch to the pixel loop. The swap makes the
      same `if (occ < z) continue` compare the draw against ITSELF instead of against the frame: the
      world's distances are never consulted, so nothing in the room can cull the view model, and the
@@ -1190,10 +1212,13 @@ const MESH = (function () {
        corpse that falls sideways aims along dieAng turned a quarter turn. */
     const PP = MDL ? MDL.v : poseOf(m, o);
     /* The seam PERIOD in pixels is what sets the amplitude: TS_CYC seams per body unit, projected.
-       Below TS_MINP px the term is off rather than aliased - that is the fade a mip chain is for a
-       wall texture, and here it is two lines instead of a chain. */
-    const TPR = BH * sc / (Math.max(NEAR, Math.abs(tYc)) * TS_CYC);
-    TAMP = !ST || TPR <= TS_MINP ? 0 : Math.min(TS_MAX, TS_SLOPE * TPR * 0.25);
+       Under the gate the draw steps to one coarser level of the same pattern instead of switching the
+       term off (#416 - the block at TS_CYC carries the measurement). The law is the same on both
+       levels: what is held constant is the SLOPE, never the amplitude. */
+    let TPR = BH * sc / (Math.max(NEAR, Math.abs(tYc)) * TS_CYC);
+    if (!ST) TPR = 0;                                     // no torso coords on this mesh: no term
+    else if (TPR < TS_MINP) { TPR *= 2; TCYC = TS_CYC / TS_LMAX; } else TCYC = TS_CYC;
+    TAMP = TPR <= TS_MINP ? 0 : Math.min(TS_MAX, TS_SLOPE * TPR * 0.25);
     if (ROT) {
       // yaw+pitch+roll as one matrix, so a rig can point its bore along the firing ray.
       // The yaw-only branch below is untouched: this is the extra path a view model takes,
@@ -1357,7 +1382,7 @@ const MESH = (function () {
         if (sa !== 0 || sb !== 0 || sz !== 0) {
           const q = 1 - Math.min(1, vd / Math.max(1e-6, Math.hypot(evx, evy, evz)));
           TK = TAMP * (TS_BMIN + (1 - TS_BMIN) * q);
-          TQ0 = sa * TS_CYC; TQ1 = sb * TS_CYC; TQ2 = sz * TS_CYC;
+          TQ0 = sa * TCYC; TQ1 = sb * TCYC; TQ2 = sz * TCYC;
         } else TK = 0;
       } else TK = 0;
       if (PKN) { r = pkneeling(r); g = pkneeling(g); b = pkneeling(b); }
