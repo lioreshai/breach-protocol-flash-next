@@ -905,7 +905,26 @@ function authorVolume(cell, N, rooms, fz, vb, feat, cz) {
      lane the VERT lane aims its gun down, and its seam is no longer than a half-plane's: two
      half-lines against one full one. Ranked within each group by the cells it owns, so the plateau is
      the bigger piece of the floorplan and the altitude difference is legible from the rooms that touch
-     it. Room 0's cells never join the region: the spawn has to stay on the datum. */
+     it. Room 0's cells never join the region: the spawn has to stay on the datum.
+
+     #421 HALF TWO - THE SEAM HAS TO REACH THE ROOM YOU WAKE IN. Cells-owned alone drops the plateau
+     wherever the quadrant boundary happens to fall, which on most deals is the far side of the map, and
+     then no heading can look at a storey 30 m away: `surface`'s SEAT census counts the columns inside
+     the ARRIVAL frame's own reach (12 m, where `visAt` still delivers 44 % of a surface) that have a
+     floor over their head, and it reads 19 and 28 on ARCHIVE/RING but 0 on ABATOIR CORE - a level with
+     volume and a player who can never see it, which is #353's adjacency gap rather than a shading gap
+     (three underside/lighting terms have already moved zero pixels of that frame).
+     So this is a FALLBACK, not a re-rank, and that difference is a measurement and not a preference:
+     cycle 8 ordered the eight candidates by nearness outright and the in-reach count went BACKWARDS
+     (ARCHIVE 19 -> 1, RING 28 -> 0), because a near-but-thin band covers less of the seat's reach than
+     the big quadrant the shipped order picks. The shipped order therefore runs first and is KEPT
+     whenever its band leaves at least one column in reach of the seat under a deck - those deals stay
+     byte for byte what they were. Only a deal that would put nothing at all over the entry room re-tries
+     the same eight candidates, same >= 8-cell filter, same legality (`linkBand`'s reachability pass is
+     untouched), ranked by how much of that reach they cover. A fallback that finds no legal band puts
+     the shipped one back: this term can change WHICH plateau rises, never WHETHER the level has one,
+     and it authors no new geometry rule and no new paint. */
+  const SEAT_REACH = 12;                  // metres = cells: the reach `surface`'s SEAT row scores within
   const N2 = N >> 1;
   const rects = [];
   for (const q of [[0, 0], [1, 0], [0, 1], [1, 1]]) rects.push({
@@ -913,6 +932,40 @@ function authorVolume(cell, N, rooms, fz, vb, feat, cz) {
     y0: q[1] ? N2 : 1, y1: q[1] ? N - 2 : N2 - 1 });
   for (const h of [[1, 0], [0, 0], [0, 1], [1, 1]]) rects.push({
     tag: 'h' + (h[0] + h[1] * 2), quad: 0, x0: h[0] ? N2 : 1, x1: N - 2, y0: h[1] ? N2 : 1, y1: N - 2 });
+  /* The region a candidate WOULD raise, as a mask and with no other write: the reach census below has
+     to ask that question of all eight candidates before any of them is committed, and the only honest
+     way to ask it is to build exactly the mask the committed pass builds. */
+  const maskOf = r => {
+    const sel = new Uint8Array(N * N);
+    for (let y = r.y0; y <= r.y1; y++) for (let x = r.x0; x <= r.x1; x++) {
+      const i = y * N + x;
+      if (cell[i] || fz[i] !== 0 || flat[i] || inSpawn(x, y)) continue;
+      sel[i] = 1;
+    }
+    return sel;
+  };
+  /* Columns this band would stand a DECK over, inside the reach the arrival frame can show. It is the
+     predicate `buildCeilSlab` sets bit 0 with - a column whose own ceiling a raised 4-neighbour's floor
+     reaches - read off the mask because the band is not authored yet, and over the spawn room's own
+     cells too: they are the floor the player is standing on, the band may not cover them but it CAN
+     overhang them, which is the whole point. Derived off heights and clearance only, so it cannot
+     disturb `vb`/`steps`, and it reads nothing the movement code writes. */
+  const overSeat = sel => {
+    let n = 0;
+    for (let y = Math.max(1, spawnR.cy - SEAT_REACH); y <= Math.min(N - 2, spawnR.cy + SEAT_REACH); y++)
+      for (let x = Math.max(1, spawnR.cx - SEAT_REACH); x <= Math.min(N - 2, spawnR.cx + SEAT_REACH); x++) {
+        const i = y * N + x;
+        if (sel[i] || cell[i]) continue;                       // no air, or THIS band is under its feet
+        const own = fz[i] * ZQ + Math.max(ZQ, cz[i] * ZQ);
+        for (let d = 0; d < 4; d++) {
+          const nx = x + DIRX[d], ny = y + DIRY[d];
+          if (nx < 1 || ny < 1 || nx >= N - 1 || ny >= N - 1) continue;
+          const j = ny * N + nx;
+          if ((sel[j] ? BAND_UP : fz[j]) * ZQ >= own - 1e-9) { n++; break; }
+        }
+      }
+    return n;
+  };
   const ranked = rects.map(r => {
     let n = 0;
     for (let y = r.y0; y <= r.y1; y++) for (let x = r.x0; x <= r.x1; x++) {
@@ -921,21 +974,35 @@ function authorVolume(cell, N, rooms, fz, vb, feat, cz) {
     }
     return { r, n };
   }).sort((a, b) => b.r.quad - a.r.quad || b.n - a.n || a.r.tag.localeCompare(b.r.tag));
-  for (const cand of ranked) {
-    if (cand.n < 8) continue;                       // fewer than 8 cells is not a band, it is a corner
-    const cp = cut(), sel = new Uint8Array(N * N);
-    for (let y = cand.r.y0; y <= cand.r.y1; y++) for (let x = cand.r.x0; x <= cand.r.x1; x++) {
-      const i = y * N + x;
-      if (cell[i] || fz[i] !== 0 || flat[i] || inSpawn(x, y)) continue;
-      sel[i] = 1; mark(i); fz[i] = BAND_UP;
+  const cpBand = cut();                               // all of feature 2, for the fallback's undo
+  let bandTag = null;
+  const pickBand = list => {
+    for (const cand of list) {
+      if (cand.n < 8) continue;                       // fewer than 8 cells is not a band, it is a corner
+      const cp = cut(), sel = maskOf(cand.r);
+      for (let i = 0; i < sel.length; i++) if (sel[i]) { mark(i); fz[i] = BAND_UP; }
+      // No wall write here on purpose: a wall between the band and the datum must stay at the datum,
+      // or the face it shows the flat side starts above that side's ceiling plane and draws nothing.
+      // Bases are carried down once, at the end, where both directions of the fault are one rule.
+      if (linkBand(sel, BAND_UP, d0, true)) { bandTag = cand.r.tag; return sel; }
+      rewind(cp);
     }
-    // No wall write here on purpose: a wall between the band and the datum must stay at the datum,
-    // or the face it shows the flat side starts above that side's ceiling plane and draws nothing.
-    // Bases are carried down once, at the end, where both directions of the fault are one rule.
-    const ok = linkBand(sel, BAND_UP, d0, true);
-    if (ok) { authored.push('raisedSide:' + cand.r.tag); break; }
-    rewind(cp);
+    return null;
+  };
+  let selBand = pickBand(ranked);
+  if (selBand && overSeat(selBand) === 0) {
+    const byReach = ranked.map(c => ({ c, v: overSeat(maskOf(c.r)) })).filter(o => o.v > 0)
+      .sort((a, b) => b.v - a.v || b.c.r.quad - a.c.r.quad || b.c.n - a.c.n ||
+        a.c.r.tag.localeCompare(b.c.r.tag));
+    if (byReach.length) {
+      rewind(cpBand);
+      selBand = pickBand(byReach.map(o => o.c));
+      if (selBand) bandTag += '+seat';                 // the census term is on the record in the tag
+      else { rewind(cpBand); pickBand(ranked); }        // a preference, never a veto: keep the shipped band
+    }
   }
+  if (bandTag) authored.push('raisedSide:' + bandTag);
+  else rewind(cpBand);
 
   /* ---- feature 3: a sunken block in the room furthest from spawn ---------
      The RASTER BUDGET caps this shape, and that is a measured fact rather than a taste: a cell below
@@ -1366,6 +1433,19 @@ function decalGridInit() {
    the old bar. The wall that qualifies is now the one you are looking at, not only the one you look
    down. Door pass unchanged - placing on every neck tiled both walls of every corridor (#403 review). */
 const FIX_RUN_MIN = 3;
+/* FIX_VIS_MAX is how far a room may look for a wall it is standing in FRONT OF but not touching (#422).
+   An open-plan deal - RING TRANSPORT at SEED 3/5/7 is one hall with four zone rectangles and no interior
+   wall anywhere - gives a room's own rect ZERO face lines, so the per-room pass had nothing to mount and
+   the whole level carried no purpose fixture at all. The fallback walks the room's axis sight lines out
+   to this many metres and mounts on the first wall one of them hits, which is the wall a player standing
+   in that room is looking at. 14 m is the far end of the widest hall the generator deals (a 30 m interior
+   split by one band edge); past it the mount is a few pixels tall and says nothing about the room. */
+const FIX_VIS_MAX = 14;
+/* FIX_FIT_MIN is the shortest patch a PURPOSE fixture may be, in metres, when the room pass is choosing
+   among kinds (#422 cause 2). FIX_SPAN gives each kind a fraction of the face span, so a BOARD at 0.82
+   of a 0.5 m face is 4 cm of arrow board - mounted, invisible, and the room still reads bare. A room
+   whose only free face is low takes the kind that actually fits it instead. */
+const FIX_FIT_MIN = 0.12;
 /* FIX_REPEAT is the SPACING down a qualifying face line, in metres (#400 take four). FIX_RUN_MIN says a
    run is a sight line worth decorating; this says how often. One per run leaves a 24 m face with one
    object at its start, which is the frame-edge pillar the issue reports. 6 m is roughly one fixture per
@@ -1459,7 +1539,9 @@ function placeWallFixtures(cfgL) {
       if (!isOpen(x, y)) continue;
       for (let d = 0; d < 4; d++) if (isWall(x + DIRX[d], y + DIRY[d])) faces.push([x, y, d]);
     }
-    if (!faces.length) continue;
+    /* NOT `if (!faces.length) continue` (#422): that line is what made a whole level place nothing. A
+       room whose rect presents no face line still exists, still gets walked, and still has walls it is
+       looking at - the visibility walk below is what mounts on them. */
     /* THE FIRST FACE TRIED IS UNCHANGED and that is deliberate: the face this pass occupies is what
        pass 3 later treats as already used, so re-picking would move long-run coverage and turn this
        increment into a placement change instead of a material one. What was MISSING was that a room
@@ -1475,11 +1557,55 @@ function placeWallFixtures(cfgL) {
        face, same walk order, same kind index), so a room that qualifies for one mounts byte-identically
        to before and pass 3 still sees the first-choice face occupied. */
     const pk = purposes.length ? purposes : kinds;
-    const start = (ri * 7 + 3) % faces.length;
+    let got = 0;
     const need = faces.length > 6 ? 2 : 1;
-    for (let k = 0, got = 0; k < faces.length && got < need; k++) {
-      const f = faces[(start + k) % faces.length];
-      if (mount(pk[(ri + k) % pk.length], f[0], f[1], f[2])) got++;
+    if (faces.length) {
+      const start = (ri * 7 + 3) % faces.length;
+      for (let k = 0; k < faces.length && got < need; k++) {
+        const f = faces[(start + k) % faces.length];
+        if (mount(pk[(ri + k) % pk.length], f[0], f[1], f[2])) got++;
+      }
+    }
+    /* EVERY ROOM SAYS WHAT IT IS FOR, OR THE PASS LOOKS FURTHER (#422).
+       A room's OWN rect can present no face at all: on an open deal the generator's room list is a set
+       of ZONES inside one hall, so every cell on the room's perimeter is open into open and `faces`
+       comes back empty. Measured at main 2941980, level 1 (RING TRANSPORT, purpose TANK/BOARD) placed
+       ZERO purpose fixtures on generator seeds 3, 5 and 7 - not a thin deal, a level with the feature
+       absent - and the `fixtures` vacuity row could not see it because the four deals CI walks happen
+       to have interior walls. The same walk therefore continues along the room's own AXIS SIGHT LINES:
+       for radius 1..FIX_VIS_MAX, every room cell whose neighbour at that radius is solid and whose
+       between cells are open is a wall face the room is looking straight at, and a fixture mounted on
+       it is on the wall the player standing in that room sees. Radius 1 IS the own-face case, so the
+       walk costs nothing on a deal that already had faces and cannot re-place one.
+       Kind choice: the room's own kind cycle first, but a kind whose patch would come out shorter than
+       FIX_FIT_MIN on that face's span is swapped for the kind that fits the face, which is cause 2 of
+       the issue - a BOARD on a low face is 4 cm of paint. No RNG is read, so no roll, prop or light
+       moves, and a room that already took a fixture from its own faces is untouched byte for byte. */
+    if (got < need) {
+      const fits = (kind, ax, ay, d) => {
+        const sp = FIX_SPAN[kind] || FIX_SPAN.PIPE;
+        return (ceilAt(ax + 0.5, ay + 0.5) - faceZ0(ax, ay, d)) * sp[1] * 0.5 >= FIX_FIT_MIN;
+      };
+      for (let rad = 1; rad <= FIX_VIS_MAX && got < need; rad++) {
+        for (let y = r.y; y < r.y + r.h && got < need; y++) for (let x = r.x; x < r.x + r.w && got < need; x++) {
+          if (!isOpen(x, y)) continue;
+          for (let d = 0; d < 4; d++) {
+            let clear = true;
+            for (let s = 1; s <= rad; s++) {
+              const sx = x + DIRX[d] * s, sy = y + DIRY[d] * s;
+              if (!isOpen(sx, sy) && s < rad) { clear = false; break; }
+              if (s === rad && !isWall(sx, sy)) clear = false;
+            }
+            if (!clear) continue;
+            const ax = x + DIRX[d] * (rad - 1), ay = y + DIRY[d] * (rad - 1);
+            let kind = pk[(ri + got) % pk.length];
+            if (!fits(kind, ax, ay, d)) {
+              for (const alt of pk.concat(kinds)) if (fits(alt, ax, ay, d)) { kind = alt; break; }
+            }
+            if (mount(kind, ax, ay, d)) got++;
+          }
+        }
+      }
     }
   }
   /* 3. ONE ALONG EVERY LONG RUN: a straight wall you can see down for more than six metres is the
