@@ -45,8 +45,14 @@ function matTex(w, h, paint, opt) {
      asserted by `node tools/view.js matband`; scaling albedo keeps every tile's own hue and structure and
      moves only what it is worth under a lamp. */
   const alb = opt.alb === undefined ? 1 : opt.alb;
-  const N = w * h, Hm = new Float32Array(N), AL = new Uint8Array(N * 3), EM = new Uint8Array(N);
-  const p = { u: 0, v: 0, h: 0.62, r: 128, g: 128, b: 128, e: 0 };
+  /* One bake pass, and it can be asked to run TWICE for one material: once normally and once with the
+     material's periodic terms pinned at their own means (p.avg). The second variant is not a second
+     texture - it is the AC-free reference the mip blend below mixes toward, so "fade the term" never
+     means "relight the tile": the mean is preserved by construction. #19 take thirteen. */
+  const N = w * h;
+  const bake = (avg) => {
+  const Hm = new Float32Array(N), AL = new Uint8Array(N * 3), EM = new Uint8Array(N);
+  const p = { u: 0, v: 0, h: 0.62, r: 128, g: 128, b: 128, e: 0, avg: avg ? 1 : 0 };
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
       const i = y * w + x;
@@ -90,13 +96,81 @@ function matTex(w, h, paint, opt) {
       out[i] = pk(r * tint[0], g * tint[1], b * tint[2], EM[i] ? 253 : 255);
     }
   }
+  return { out, dbg };
+  };
+  const bk = bake(false);
+  const out = bk.out, dbg = bk.dbg;
   const t = { w, h, data: out };
   for (const k in dbg) dbg[k] = typeof dbg[k] === 'number' ? dbg[k] / N : dbg[k];
   t.dbg = dbg;
   t.mips = buildMips(w, h, out);
+  /* #19 TAKE THIRTEEN - A PERIODIC TERM KNOWS WHICH MIP IT IS PAINTED INTO.
+     `mip`'s instrument has been naming the artifact as a property of the FETCH, and nine takes tuned
+     the FETCH. The scope call on the issue (2026-10-13) measured the OTHER half: two periodic patterns
+     PAINTED into materials - RING TRANSPORT's diagonal diamond deck (`FLOORS.METAL`) and that level's
+     4x4 panel ceiling (`CEILS.PANEL`) - own six and eight points of that level's streak, and switching
+     one term's value out lands the floor at 35 where the shipped build reads 55, on ONE level, with the
+     other three byte-identical. A renderer term cannot do that; a term in the paint can.
+
+     Why a painted period fans: a pattern with a real period in tile space beats against whatever level
+     the fetch selects, and in perspective a beat pattern IS a family of curves through the vanishing
+     point - the fan. The mip chain cannot fix that by selecting differently, because a minified ground
+     pixel already covers many periods and the chain only ever averages TWO texels per step along the
+     short axis; what the level still carries of the term's AC becomes the pixel's value once per pixel
+     along a ray, and neighbouring columns land on different phases of it.
+
+     So the term is attenuated per level by how many texels of THAT LEVEL one cycle of the term spans
+     (`MATB_LO..MATB_HI`), which is a property of the material and the level and of nothing the renderer
+     decides. Level 0 is never touched: what is magnified under the player's feet keeps every facet of its
+     diamond, which is the clause "the deck reads as diamond plate under your feet". And the fade mixes
+     toward the SAME material baked with that term pinned at its own mean, so a level that loses the
+     pattern keeps the pattern's light - a term leaving is a term averaging out, never a relight. */
+  if (opt.mipCyc && MATBAND) {
+    const avgOut = bake(true).out;
+    const mAvg = buildMips(w, h, avgOut);
+    for (let k = 1; k < t.mips.length; k++) {
+      const g = matCarry(opt.mipCyc, t.mips[k].w);
+      if (g >= 1) continue;
+      const A = t.mips[k].data, B = mAvg[k].data;
+      if (!A || !B) continue;
+      const m = Math.min(A.length, B.length), w1 = 1 - g;
+      for (let i = 0; i < m; i++) {
+        const a = A[i], b = B[i];
+        A[i] = pk((a & 255) * g + (b & 255) * w1, ((a >> 8) & 255) * g + ((b >> 8) & 255) * w1,
+          ((a >> 16) & 255) * g + ((b >> 16) & 255) * w1, a >>> 24);
+      }
+    }
+  }
   t.tiles = true;
   return t;
 }
+
+/* #19: how much of a periodic term a mip level can still carry. `cyc` is cycles of the term across one
+   tile, `w` the level's width in texels, so w/cyc is texels-per-cycle AT THAT LEVEL. The term survives
+   whole above MATB_HI, has faded out by MATB_LO. Both ends are in texels per cycle rather than in any
+   renderer distance on purpose: the whole point of the measurement that funded this is that the beat is
+   a property of the pattern and the level, not of the camera. Set MATBAND = 0 for the A/B control, and
+   `view.js mip`'s rows are then the shipped build's to the digit. */
+let MATBAND = 1;
+const MATB_LO = 2, MATB_HI = 16;               // texels per cycle AT THAT LEVEL: cancelled by the chain's
+                                               // own 2x2 box at 2, whole again by 16 (see the note above)
+function matCarry(cyc, w) {
+  if (cyc <= 0) return 1;
+  return smoothstep(MATB_LO, MATB_HI, w / cyc);
+}
+/* A term's own mean over one period cell, measured from the same expression the painter uses, so the
+   mean-only bake differs from the shipped one by the PATTERN and by nothing else. Computed on a 64x64
+   grid of the period cell; the two terms are exactly tile-periodic so that grid is their whole support. */
+function termMean(fn, n) {
+  let s = 0;
+  for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) s += fn((x + 0.5) / n, (y + 0.5) / n);
+  return s / (n * n);
+}
+const MATDIA_CYC = 6 * Math.SQRT2;                                   // FLOORS.METAL's diagonal ridges
+const MATDIA_MEAN = termMean((u, v) => 1 - smoothstep(0.30, 0.95,
+  Math.abs(Math.abs(((u * 6) % 1) - 0.5) * 2 - Math.abs(((v * 6) % 1) - 0.5) * 2)), 64);
+const MATPAN_MEAN = termMean((u, v) => smoothstep(-0.02, 0.03,
+  Math.max(Math.abs(((u * 4) % 1) - 0.5) - 0.46, Math.abs(((v * 4) % 1) - 0.5) - 0.46)), 64);
 
 /* ---------- shared material authoring helpers ---------- */
 /* grime/dust gradient that does not repeat vertically inside a tile */
@@ -140,10 +214,21 @@ function mossMask(p, amt, seed) {
   const n = fbm(p.u, p.v, 3, 4, 0.5, seed) * fbm(p.u, p.v, 9, 3, 0.5, seed + 3) * 3.1;
   return smoothstep(0.95 - amt * 0.6, 1.35, n) * 0.85;
 }
-function moss(p, amt, seed) {                       // patchy growth, not a green wall
+const MOSS_TINT = [44, 86, 40];                     // luma 73.750 (Rec.709) - the vegetation green
+/* #466: the TINT is now a parameter, the MASK is not. `mossMask` and the `p.h += k * 0.03` relief are
+   identical for every caller, so a caller that passes a tint changes the COLOUR of its growth and
+   nothing else: the mottle covers the same texels, at the same height, with the same grain. The one
+   caller that uses it is FLOORS.STONE, whose growth target used to be this green at 0.4 - the strongest
+   dose in the table, on the deck of two warm-lit sectors. See the comment on FLOORS.STONE.
+   The tint a caller passes MUST be authored at THIS green's own Rec.709 luma, 73.750, because the pull
+   is a lerp toward a constant: a texel's luma after the pull is (1-k)*L + k*L(T), so a tint at the same
+   luma leaves every texel's luminance exactly where it was and moves only its chroma. That is what
+   makes this a hue change the value probes cannot see, which is what #466 asks for. */
+function moss(p, amt, seed, tint) {                  // patchy growth, not a green wall
   const k = mossMask(p, amt, seed);
   if (k <= 0) return;
-  p.r += (44 - p.r) * k; p.g += (86 - p.g) * k; p.b += (40 - p.b) * k;
+  const T = tint || MOSS_TINT;
+  p.r += (T[0] - p.r) * k; p.g += (T[1] - p.g) * k; p.b += (T[2] - p.b) * k;
   p.h += k * 0.03;
 }
 /* brick/panel course field: returns {inside, edge, id} */
@@ -254,19 +339,42 @@ WTEX.TECH = matTex(T2, T2, p => {
   if (fbm(p.u, p.v, 3, 3, 0.5, 131) > 0.72) rust(p, 0.35, 108);
 }, { bump: 1.1, amb: 0.40, spec: 0.30, specPow: 34, ao: 0.55, grain: 7 });
 
+/* #466: this tile is ABATOIR CORE's `wall2` - the minority face, 22% of faces by pickWallTex - and it
+   was the one thing in that level that did not belong to it. ABATOIR is a wet red interior (WT.MUSCLE
+   walls, FLOORS.FLESH deck, a SINEW ceiling); TECH2 wore QUILTED PURPLE PANELLING (a 96/62/118 albedo,
+   a 255/120/190 emissive seam and a violet dust), so on the inside corner of a room the generator put a
+   salmon fibre face beside a violet one. The issue's census is an AREA census and it already read ABATOIR
+   as 73-76% one red family: the panel is small in the frame and large to the eye, which is exactly why it
+   is the defect. What #466's acceptance asks for is one family carrying a level and AT MOST ONE accent
+   allowed to disagree, and ABATOIR already spends that accent on its lamp field (`lampCol: [190, 255,
+   150]`, js/20_level.js:46) - so the panel was the second accent and it is the one that goes.
+   The fix is the PALETTE, not the STRUCTURE, and that order is deliberate:
+   - the albedo is an oxblood over the same quilt, at the PURPLE TILE'S OWN Rec.709 luma (142/54/55 is
+     72.8 against 96/62/118's 73.2, and every term below it is a multiplier of v, so the whole tile lands
+     where it sat). `matband` prints the same wall spread and `exposure` prints the same four medians; a
+     re-tone that moved a level's median would be a value change made at the hue term, which is the wrong
+     term (#416 owns the value band and #369 owns the mean-albedo order).
+   - the seam stops being a magenta filament and becomes a hot AMBER one, which is in the red family
+     under any lamp because an emissive texel is exempt from scene light (js/10_assets.js matTex: an
+     emissive texel is a light source, not a surface). Its luma is held to the magenta's to within seven
+     points so the exempt-area census `matband` prints does not move.
+   - the dust is a rust-brown wash instead of a violet one.
+   What is NOT changed: no `alb`, no `amb`, no `spec`, no bump, no grain, no emissive AREA. The quilt, the
+   seams and the darkness are this tile's own, and a technical panelling is what a drained cutting room
+   would actually be lined with - it is the colour that was wrong, not the panelling. */
 WTEX.TECH2 = matTex(T2, T2, p => {
   const gx = (p.u * 3) % 1, gy = (p.v * 3) % 1;
   const hx = Math.abs(gx - 0.5), hy = Math.abs(gy - 0.5);
   const cell = smoothstep(0.5, 0.44, Math.max(hx, hy) + Math.min(hx, hy) * 0.35);
   const n = fbm(p.u * 5, p.v * 0.8, 7, 3, 0.55, 21);
   let v = 0.78 + n * 0.4;
-  p.r = 96 * v; p.g = 62 * v; p.b = 118 * v;
+  p.r = 145 * v; p.g = 55 * v; p.b = 56 * v;                        // #466: oxblood, not violet - same luma
   p.h = 0.55 + cell * 0.16 + (n - 0.5) * 0.05;
   const seam = 1 - cell;
   p.h -= seam * 0.18;
   const vein = smoothstep(0.030, 0.0, Math.abs(gy - 0.5) - 0.0) * (1 - cell);
-  if (vein > 0.1) { p.r = 255; p.g = 90 + 60 * n; p.b = 190; p.h = 0.52; p.e = 1; }
-  dust(p, 0.20, [70, 52, 84]);
+  if (vein > 0.1) { p.r = 205; p.g = 118 + 60 * n; p.b = 55; p.h = 0.52; p.e = 1; }   // #466: amber filament
+  dust(p, 0.20, [84, 52, 46]);                                      // #466: rust dust
   grain(p, 16, 9, 20);
 }, { bump: 1.0, amb: 0.40, spec: 0.26, specPow: 30, ao: 0.6, grain: 7, alb: 1.14 });   // #416: the darkest wall tile in the table at 82.3 mean luma, raised into band
 
@@ -436,9 +544,14 @@ FLOORS.METAL = matTex(T2, T2, p => {
   let v = 0.82 + n * 0.4;
   p.r = 78 * v; p.g = 84 * v; p.b = 94 * v;
   p.h = 0.6 + (n - 0.5) * 0.05;
-  // anti-slip raised diamond rows
+  /* anti-slip raised diamond rows. #19 take thirteen: this is one of the two terms the issue's scope
+     call measured as the owner of RING TRANSPORT's fan (6 cycles per tile ALONG EACH AXIS, and the
+     ridges run diagonally, so the highest frequency in it is 6*sqrt2 cycles per tile - which is exactly
+     why a minified copy of it fans). `p.avg` is the mean-only bake the mip blend mixes toward, and
+     MATDIA_MEAN is this term's own mean over one period cell, so the mean bake differs from the normal
+     one by NOTHING but the removal of the pattern. */
   const tx = Math.abs(((p.u * 6) % 1) - 0.5) * 2, ty = Math.abs(((p.v * 6) % 1) - 0.5) * 2;
-  const dia = 1 - smoothstep(0.30, 0.95, Math.abs(tx - ty));
+  const dia = p.avg ? MATDIA_MEAN : 1 - smoothstep(0.30, 0.95, Math.abs(tx - ty));
   p.h += dia * 0.22; p.r += dia * 30; p.g += dia * 32; p.b += dia * 34;
   const seam = smoothstep(0.025, -0.02, Math.abs(((p.v * 1) % 1) - 0.5) - 0.485);
   p.h -= seam * 0.24;
@@ -448,7 +561,7 @@ FLOORS.METAL = matTex(T2, T2, p => {
   }
   rust(p, 0.42, 73);
   dust(p, 0.14, [110, 112, 116]);
-}, { bump: 1.2, amb: 0.46, spec: 0.30, specPow: 46, ao: 0.55, grain: 8, alb: 0.95 });   // #416: spec 0.44 -> 0.30 - this deck's own 1%-clipping highlight measured 249 luma, i.e. 1% of the floor read as a mirror
+}, { bump: 1.2, amb: 0.46, spec: 0.30, specPow: 46, ao: 0.55, grain: 8, alb: 0.95, mipCyc: MATDIA_CYC });   // #416: spec 0.44 -> 0.30 - this deck's own 1%-clipping highlight measured 249 luma, i.e. 1% of the floor read as a mirror
 FLOORS.STONE = matTex(T2, T2, p => {
   // irregular flagstones from a jittered grid
   const s = 3, gx = p.u * s, gy = p.v * s;
@@ -467,13 +580,69 @@ FLOORS.STONE = matTex(T2, T2, p => {
   let v = 0.6 + j * 0.45 + (n - 0.5) * 0.4;
   p.r = 88 * v + 18; p.g = 90 * v + 18; p.b = 86 * v + 18;
   p.h = 0.64 - edge * 0.2 + (n - 0.5) * 0.12;
-  moss(p, 0.4, 15);
+  /* #466: THE DECK'S GROWTH COMES INTO THE FAMILY. This tile is the deck of ARCHIVE SUBLEVEL and
+     THE STACK (js/20_level.js:12, :87), both lit by lampCol [255, 196, 120] - an amber sector. Its
+     growth was `moss(p, 0.4, 15)`, the strongest dose in the table (BRICK 0.20, WTEX.STONE 0.34),
+     pulling 44/86/40 - hue 115, a vegetation green - over the largest surface in the frame. Measured
+     at the two seats this tile is worn by (bands: rows 2-16 % / 46-54 % / 80-95 %, cols 20-80 %, main
+     at d842054): ARCHIVE ceiling h22, wall h23, DECK h50; THE STACK ceiling h254 at saturation 0.07,
+     wall h33, DECK h63. The wall and the ceiling of each of these two sectors sit in one warm family
+     and the floor - the surface the player looks at most - sits 27 and 30 degrees of hue away from it.
+     This is the same defect #487 fixed one band higher in the frame: there the CEILING wore the DECK's
+     moss generator; here the deck wears it at four times the dose, and it is the last surface in the
+     campaign whose hue is set by a shared generator instead of by the level.
+     What the fix is NOT: not less growth (the mottle is the deck's only large-scale variation and its
+     relief is what makes a flagstone read as a flagstone) and not a re-light. What it IS: the same
+     mottle, at the same height and the same coverage, pulled toward a dry lichen brown - rust-coloured
+     mineral and dead growth, which is what a dry vault and a stone archive actually hold - at the GREEN
+     TARGET'S OWN Rec.709 luma (84 / 73 / 51 is 73.750 against 44/86/40's 73.750, at hue 40 against the
+     green's 115 - the same amount of colour, rotated into the sector's own warm family). A lerp toward a
+     constant of the same luma leaves every texel's luminance exactly where it was, so `matband` prints
+     this tile's main's 103.9 mean and its 1.44x floor spread, `exposure` prints main's medians, and
+     `contrast`'s edge rows cannot move: the only axis that moved is chroma. `alb`, `amb`, `spec`, bump,
+     grain, `dust`, lamp and every per-level bias are untouched.
+     The two other callers of `moss()` keep the default green and therefore their bytes: WTEX.BRICK
+     (ARCHIVE's primary wall, where the growth reads as damp at the foot of a wall and is in family
+     against brick) and WTEX.STONE (a wall tile no level selects). L1 and L2 - RING TRANSPORT and
+     ABATOIR CORE, which wear METAL and FLESH decks - are the level-scoped control on flatparity/cull. */
+  moss(p, 0.4, 15, [84, 73, 51]);
   dust(p, 0.2, [92, 90, 84]);
 }, { bump: 1.1, amb: 0.5, spec: 0.08, specPow: 20, ao: 0.8, grain: 12, alb: 1.05 });
 FLOORS.FLESH = matTex(T2, T2, p => {
   const n = fbm(p.u, p.v, 5, 4, 0.55, 3);
   let v = 0.66 + n * 0.6;
-  p.r = 92 * v + 12; p.g = 28 * v + 6; p.b = 38 * v + 8;
+  /* #466, the DECK half: the deck's authored HUE was the WALL's. WTEX.MUSCLE (js/10_assets.js:362) is
+     authored at 148/62/78 - hue 348.8 - and this tile was authored at 92v+12 / 28v+6 / 38v+8, which is
+     104/34/46 at v = 1, hue 349.7. NINE TENTHS OF A DEGREE apart: #369 chose "the base channels are the
+     same thirds" on MEAN-ALBEDO grounds and separated the two surfaces by structure alone, so the deck is
+     the wall's own colour at 61 % of its brightness. At ABATOIR's arrival seat (`view.js scene 2 0`) that
+     is what the eye gets: the wall band and the deck band both sample to h11 and the one edge the player
+     has to read in a level of pits and lips - which side of the lip they are on - exists only where a lamp
+     happens to fall on it. That is the same defect #466 names for the ceiling (#487) and for `wall2`
+     (#474), in the third surface of the level, and it is a HUE defect: `matband` reads this tile's VALUE
+     correctly (94.5, the floor family's darkest) and `exposure` reads the level's median correctly.
+     What moves is the authored hue and nothing else, solved against BOTH luma sums so neither probe can
+     see it: the Rec.709 sum over the per-unit-v multipliers (0.2126R + 0.7152G + 0.0722B = 42.33, which is
+     what `matband` prints as this tile's mean) AND the LAMP-WEIGHTED sum (0.1584R + 0.7152G + 0.0424B =
+     36.22 - the same channels after lampCol [190, 255, 150], which is what `exposure`'s medians and
+     `flatparity`'s means actually integrate). Two equations, three unknowns, one free axis: that axis is
+     the hue, and it is the only one taken. The additive +12/+6/+8 stay, so the deck's darkest texels keep
+     their own value too. MEASURED at this edit: the deck band at `scene 2 0` rows 80-95 % reads h10 s0.44
+     L76.1 on main and h358 s0.32 L76.2 here - the luminance of the surface is main's to a tenth, its hue
+     moves 12 deg; the wall band of the same frame is h8 both sides of the edit, so the deck-to-wall gap
+     goes from 2 deg to 10 deg and the floor stops being the wall's colour. `matband` reads this tile 94.6
+     against main's 94.5 and the floor spread 1.44x UNCHANGED; that tenth is the vein-core lerp below, whose
+     TARGET is an absolute colour, so its delta grows a hair when the base's channels move - it is not a
+     value authored here and no threshold moved with it.
+     The direction is set by the lamp, not by taste. A g-heavy lamp rotates every surface toward yellow, so
+     the only rotation that SURVIVES it is the one away from the wall's orange-red toward a cooler, drain-
+     dark red. Going the other way along the same iso-value curve (R 100-110, B 5-23, authored h1-11) lands
+     the deck's LIT hue on MUSCLE's to within half a degree: the lamp would undo the edit and the falsifier
+     - the two bands no longer agreeing - would fail.
+     `FLOORS.FLESH` is worn by exactly one level (`js/20_level.js:46`), so ARCHIVE / RING / THE STACK come
+     back byte-identical on flatparity and cull - the level-scoped control. Untouched: the vein and crest
+     lerps below, `bump`, `amb`, `spec`, `ao`, `grain`, `alb`, no lamp, no bias, no height. */
+  p.r = 83 * v + 12; p.g = 29 * v + 6; p.b = 55 * v + 8;                          // #466: hue off MUSCLE's, both luma sums held
   p.h = 0.58 + (n - 0.5) * 0.16;
   /* #416 take two: the vein CORES used to be emissive - `p.e = 1` at 208,74,66. An emissive texel is a
      light SOURCE, not a surface: js/40_render.js reads its alpha byte 253 as a FLAG and gives it no AMB,
@@ -515,7 +684,7 @@ CEILS.CONCRETE = matTex(T2, T2, p => {
 CEILS.PANEL = matTex(T2, T2, p => {
   const gx = (p.u * 4) % 1, gy = (p.v * 4) % 1;
   const d = Math.max(Math.abs(gx - 0.5) - 0.46, Math.abs(gy - 0.5) - 0.46);
-  const seam = smoothstep(-0.02, 0.03, d);
+  const seam = p.avg ? MATPAN_MEAN : smoothstep(-0.02, 0.03, d);   // #19: see FLOORS.METAL's diamond
   const n = fbm(p.u * 14, p.v * 3, 6, 3, 0.55, 71);
   let v = 0.44 + n * 0.3;
   p.r = 58 * v; p.g = 66 * v; p.b = 80 * v;
@@ -524,18 +693,43 @@ CEILS.PANEL = matTex(T2, T2, p => {
   const vent = Math.abs(gy - 0.5) < 0.32 && Math.abs(gx - 0.5) < 0.22 && ((p.v * 4) | 0) % 3 === 0;
   if (vent) { const s = Math.sin(gy * 60) * 0.5 + 0.5; p.h -= s * 0.2; p.r -= s * 20; p.g -= s * 20; p.b -= s * 18; }
   dust(p, 0.12, [62, 66, 74]);
-}, { bump: 1.1, amb: 0.44, spec: 0.14, specPow: 26, ao: 0.75, grain: 6 });
+}, { bump: 1.1, amb: 0.44, spec: 0.14, specPow: 26, ao: 0.75, grain: 6, mipCyc: 4 });
 CEILS.ROCK = matTex(T2, T2, p => {
   const strata = Math.sin(p.v * 12 + turb(p.u * 2, p.v * 2, 3, 3, 51) * 2.2) * 0.5 + 0.5;
   const n = turb(p.u * 7, p.v * 7, 4, 4, 57);
-  let v = 0.36 + n * 0.42 + strata * 0.14;
+  let v = 0.389 + n * 0.42 + strata * 0.14;
   p.r = 70 * v; p.g = 68 * v; p.b = 70 * v;                       // desaturated: the warm browns belong to the floor
   p.h = 0.44 + n * 0.3 + strata * 0.1;
   const knob = smoothstep(0.72, 0.95, fbm(p.u * 9, p.v * 9, 4, 3, 0.55, 19));
   p.h += knob * 0.2; p.r += knob * 10; p.g += knob * 10; p.b += knob * 12;
   const wet = smoothstep(0.72, 0.94, fbm(p.u * 5, p.v * 5, 3, 3, 0.6, 33));
   p.r += wet * 10; p.g += wet * 11; p.b += wet * 14;
-  moss(p, 0.1, 71);                                               // seam moss, not floor moss
+  /* #466: GROWTH COMES OFF THE CEILING. `moss()` sat here at amt 0.1 - the same generator, at the same
+     scale, pulling toward the same RGB 44/86/40 that paints this level-s DECK - so the surface above
+     you carried the surface below you and the ceiling-to-deck seam existed only where a lamp happened
+     to fall. Measured on main at this level's arrival seat (bands: rows 2-16 % / 46-54 % / 80-95 %,
+     cols 20-80 %): ARCHIVE SUBLEVEL ceiling rgb(34,30,21) h41 s0.40 against deck rgb(61,58,43) h50 -
+     NINE degrees apart, inside the noise of one hue; THE STACK ceiling rgb(60,61,60) at saturation
+     0.02, which reads as unpainted concrete rather than as a surface somebody's lamp is touching.
+     Growth needs standing water at the foot of a wall. What reaches a ceiling is water that ran and
+     dried, and what it leaves is mineral: a dry, pale, DIRECTIONAL film stretched along the strata the
+     tile already draws, not a patch of the deck.
+     The film is authored LUMA-NEUTRAL BY CONSTRUCTION rather than by tuning: every texel is pulled
+     toward its OWN Rec.709 luma scaled by `dry * 1.03` (the 1.03 is the small lift the moss's
+     brighter target used to contribute, and it is the only number here chosen against `matband` - the
+     tile prints main's 53.7 either side of it), so a ceiling pixel changes its colour and not its
+     brightness, in the weighting the renderer itself uses (js/40_render.js:2777). That is why the two
+     levels that wear this tile keep their `exposure` medians and their `matband` ceiling rows, and why
+     what moves on the flatparity frames is pixels, not exposure. CEILS.PANEL and CEILS.SINEW - RING
+     TRANSPORT and ABATOIR CORE - are untouched, which is the level-scoped control on those frames.
+     No `alb`, `amb`, `spec`, bump, grain, lamp, bias or height is touched. */
+  const run = fbm(p.u * 1.1, p.v * 4.2, 3, 4, 0.5, 71) * fbm(p.u * 4, p.v * 13, 9, 3, 0.5, 74) * 3.1;
+  const dry = smoothstep(0.89, 1.35, run) * 0.85;
+  if (dry > 0) {
+    const own = (0.2126 * p.r + 0.7152 * p.g + 0.0722 * p.b) * 1.03;
+    p.r += (own - p.r) * dry; p.g += (own - p.g) * dry; p.b += (own - p.b) * dry + dry * 42;
+    p.h += dry * 0.03;
+  }
 }, { bump: 1.6, amb: 0.4, spec: 0.07, ao: 0.9, grain: 10 });
 CEILS.SINEW = matTex(64, 64, p => {
   /* #369: this used to be FLOORS.FLESH at a different scale - 104/40/50 albedo with EMISSIVE veins at
@@ -549,13 +743,34 @@ CEILS.SINEW = matTex(64, 64, p => {
      removal plus a desaturated albedo, with the level's own ceilBias on top (js/20_level.js:22), takes
      that ceiling band from 67.1 to 48.7 at the same seat, against a wall band that does not move: the
      5.0-point gap the issue measured becomes 23.4, and 17.3 at a second camera. The remaining
-     ordering (floorBias / ceilBias / ceilLead) is authored per level and applied in js/40_render.js. */
+     ordering (floorBias / ceilBias / ceilLead) is authored per level and applied in js/40_render.js.
+     #466 HUE FAMILY: that albedo was a MAUVE - 92/74/90, hue 314 deg - and ABATOIR CORE's world is
+     red. At the level's spawn seat (`view.js scene 2 0`) main's frame reads wall h8, floor h10 and
+     ceiling h49: a silt-yellow overhead surface 41 deg off the wall it meets, saturated enough to see
+     and dull enough to read as a mistake rather than as an accent, in the one level whose theme is a
+     single wet interior. The other three levels' seats each put every surface in one family (RING
+     h205/209/213; ARCHIVE h22/23 with its deck the one outlier; STACK's ceiling is NEUTRAL at s0.07,
+     which goes with anything), so this tile is the whole of the defect left on this issue at a seat.
+     The hide is now a MEMBRANE in the level's own family - 118/69.1/62, hue 7.5 deg, a tanned skin
+     rather than a mauve one - and the seat now reads ceiling h31 against wall h9: a 22 deg gap, held
+     open by value (ceiling L58.5 against floor L76.2) exactly as #369 left it, so "overhead reads as
+     overhead" is still a luma statement and only the hue moved. The rendered gap is smaller than the
+     authored one because the level's green lamp pulls every surface toward yellow; pushing the albedo
+     redder than this buys two degrees and a ceiling the colour of a brick.
+     Both literals are authored at the Rec.709 luma of the term they replace (base 79.00 per unit v
+     against 78.98, recess 39.4 against 39.4), the weighting the renderer itself uses
+     (js/40_render.js:2777), which is what makes this a colour change and not a value change:
+     `matband` prints CEILS.SINEW at main's own 68.8 and `exposure` prints main's medians, and the
+     level-scoped control is that CEILS.ROCK / CEILS.PANEL - the other three levels' ceilings - are
+     untouched and their frames come back byte-identical in the same run. No `alb`, `amb`, `spec`,
+     bump, grain, bias, lamp or height is touched; `p.h` feeds the height field, not a colour, so the
+     vein recess moves in rgb only. */
   const n = fbm(p.u, p.v, 4, 4, 0.55, 5);
   let v = 0.46 + n * 0.5;
-  p.r = 92 * v; p.g = 74 * v; p.b = 90 * v;
+  p.r = 118 * v; p.g = 69.1 * v; p.b = 62 * v;
   p.h = 0.5 + (n - 0.5) * 0.2;
   const vk = veinMask(p, 0.18, 3, 23);
-  p.r += (42 - p.r) * vk * 0.55; p.g += (38 - p.g) * vk * 0.55; p.b += (46 - p.b) * vk * 0.55;
+  p.r += (58 - p.r) * vk * 0.55; p.g += (34.4 - p.g) * vk * 0.55; p.b += (34 - p.b) * vk * 0.55;
   p.h -= vk * 0.1;
 }, { bump: 1.3, amb: 0.42, spec: 0.16, specPow: 18, ao: 0.8, grain: 9 });
 
