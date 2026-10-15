@@ -10428,7 +10428,7 @@ if (MODE === 'fixtures') {
           const d=Math.abs(c0-wp);
           if(d<1||d>FIX_VIS_MAX+1)continue;
           let clear=true;
-          for(let c=Math.min(c0,wp);c<Math.max(c0,wp);c++){
+          for(let c=Math.min(c0,wp)+1;c<Math.max(c0,wp);c++){   // strictly BETWEEN: the wall cell is solid by definition
             const gx=xp?c:ay, gy=xp?ay:c;
             if(!op(gx,gy)){clear=false;break;}}
           if(clear)return true;}
@@ -10447,9 +10447,10 @@ if (MODE === 'fixtures') {
           const al=xp?f.y:f.x, px=xp?f.x:f.y;             // along the face, and across it
           const loA=xp?rr.y:rr.x, hiA=xp?rr.y+rr.h:rr.x+rr.w;
           const loP=xp?rr.x:rr.y, hiP=xp?rr.x+rr.w:rr.y+rr.h;
-          if(!(al>loA-0.01&&al<hiA+0.01&&px>loP-1.01&&px<hiP+1.01))continue;
-          any = true;                                  // any decor at all: the collapsed key test's answer
-          if (PS.has(f.tex)) { ok = true; break; }     // identity: the question actually being asked
+          const inRect = al>loA-0.01&&al<hiA+0.01&&px>loP-1.01&&px<hiP+1.01;
+          if (inRect) any = true;                      // any decor at all: the collapsed key test's answer
+          // identity: the question actually being asked, in the room's own rect OR on a wall it looks at
+          if (PS.has(f.tex) && (inRect || vis(f, rr))) { ok = true; break; }
         }
         if (ok) rOk++; if (any) rAny++;}
       const t={};for(const k of ['DOOR','PIPE','STRIPE','VENT','RACK','TANK','BOARD'])t[k]=0;
