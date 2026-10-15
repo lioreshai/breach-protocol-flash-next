@@ -132,6 +132,29 @@ const SEAMK = 0.45;                             // deck LIGHT at which the absol
    sqrt(1-t) R = 0.888 R: R = 0.32 m for a grunt, visible to 0.28 m, inside its 0.42 m footprint), and
    the face term is confined to a band as tall as the patch
    is wide, zero above it, instead of keeping 75% of the term to the crown.
+   #18 again, the BODY half. The prop half shipped at SHADOW_PR +0.18 (#511) and moved a crate's band
+   outside its own face; the body's own patch was left as #178 authored it, and a body still floats.
+   Widening R was tried and is NOT shippable at this increment: with the ink otherwise unchanged, R -0.10
+   -> +0.05 reads a leak census of 453/1103/469 px against the caps 302/851/304 (1.3-1.7x the sanctioned
+   area, and the rows go red), because a grounding RING is ground px outside the silhouette by construction
+   and that cap is sized by the silhouette - re-deriving it from the caster's own annulus is its own
+   increment and is named as the remaining work on #18. What IS shippable is moving the same world
+   footprint OUT FROM UNDER THE TORSO and into the annulus the eye can reach: t^3 spends most of its ink
+   at the disc's centre, which a body standing on it occludes, and only a remainder survives out at the
+   visible edge. t^2 is flatter, so at the same VISIBLE reach (D*t^F falls under the probe's 4-luma
+   counting threshold at t = (4/(255 D))^(1/F), so the edge sits at R*sqrt(1-t): 0.816 R = 0.261 m for a
+   grunt before, 0.909 R = 0.254 m now - the footprint did NOT grow) the surviving ink is 25-28 % deeper
+   on every sector, which is the number that reads as a base. MEASURED depth of the band the census
+   counts (mean luminance removed from the ground px outside the silhouette, `contrast`'s own patch rows,
+   4 levels x 3 cameras, SEED 12345):
+     LVL 0  10.4 / 8.5 / 11.6  ->  13.0 / 10.6 / 14.8      LVL 1   8.8 / 8.0 / 10.7 -> 10.7 / 9.7 / 13.2
+     LVL 2  13.5 / -   / 15.8  ->  17.2 / -   / 19.9      LVL 3  16.3 / 14.6 / 15.6 -> 20.8 / 18.6 / 20.2
+   and the COST side moved by ~5 % of the sanctioned area, never past it (L0 leak 183/400/184 -> 194/446/
+   191 px against caps 302/851/304; no threshold in tools/view.js was touched by this change). R is pulled
+   4 cm IN for exactly that reason: flattening F grows the painted area, and pulling R in is what keeps
+   the census where it was. A flatter falloff is also what a contact zone looks like - a hard t^3 core
+   inside a soft outer skirt reads as a decal with a dark rim, not as weight. F = 2 lands on the term's
+   own t*t fast path in both ground copies and the wall loop, so this spends no raster budget.
    SHADOW_R is metres added to a body's collision radius to get the patch radius (negative = the patch
    stops inside the footprint);
    SHADOW_ZT is how far a floor pixel's plane may be from the body's feet plane and still take the
@@ -140,7 +163,7 @@ const SEAMK = 0.45;                             // deck LIGHT at which the absol
    SHADOW_F is the falloff exponent in t = 1-(d/R)^2, 1 being a flat-topped disc and 3 a tight core;
    SHADOW_ZF is how much of the term is left at the TOP of that contact band on a face (above it,
    nothing). */
-let SHADOW = 1, SHADOW_D = 0.42, SHADOW_R = -0.10, SHADOW_ZT = 0.02, SHADOW_F = 3,
+let SHADOW = 1, SHADOW_D = 0.52, SHADOW_R = -0.14, SHADOW_ZT = 0.02, SHADOW_F = 2,
     SHADOW_ZF = 0.25, SHADOW_FAR = 18;
 /* #371 item 3: the same term, on a PROP. A crate's lower edge used to be as bright as its upper edge,
    because nothing said where the crate meets the floor. This is not a new mechanism - it registers the
