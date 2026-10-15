@@ -83,6 +83,12 @@ const SEED = (+(process.env.ROLLSEED || 1000)) >>> 0;
 */
 const SMIN = +(process.env.SPAWN_MIN || 35);
 const SMAX = +(process.env.SPAWN_MAX || 75);
+/* #505: how much room the gate wants between a sector's spawn median and SMAX before it calls the
+   verdict its own rather than the runner's. Measured at this head: 6.0 / 6.0 / 1.0 / 8.0 lumas, and
+   PR #502's head sat at 74/74/75/74 - i.e. every sector inside the noise a single unpinned term
+   (grain phase, now pinned in ROLL_FN) can move. 5 lumas is the print's threshold for "this sector is
+   a coin toss"; it is not a threshold on the picture and it exits 0 either way. */
+const ROOM_MIN = Math.max(0, +(process.env.ROOM_MIN || 5));
 /* #149 THE WORST ROLL, composited, at ROLLS = 5.
 
    The median is asserted above for a reason - one roll outside 60-100 proves nothing (#87) - and that
@@ -247,6 +253,18 @@ const ROLL_FN = `(function (lv, roll, yaws, stride, seed) {
   const c = cs[((cs.length * 0.31 + roll) | 0) % cs.length];
   for (const e of ENEMIES) e.state = 'sleep';
   DEV.freeze(true);
+  /* #505: the GRAIN PHASE is pinned on every frame this probe measures. drawGrain advances grainSeed
+     once per frame and translates the pattern by it (js/40_render.js:3235), so a sampled frame's mean
+     carries whichever phase the counter happened to be on - the one per-frame term DEV.freeze does not
+     pin, worth up to 1 luma, which is exactly what made the bloom gate's additive-only row "read green
+     on one run and red on the next" (#377, which pinned it there). This row never got the lesson: the
+     spawn median sits 1-8 lumas under a band top of 75, so 1 luma of grain phase is the difference
+     between an ok and a FAIL, and how many frames the page rendered before an eval lands is a property
+     of the runner, not of the code. Each measured frame is now written to phase 0 - grainSeed = 6, so
+     drawGrain's +1 lands on 0 - and read back, because a write that created a window property instead
+     of reaching the renderer would otherwise report a pin that pinned nothing (#377's discipline). */
+  const phase = [];
+  function frame(n) { try { if (n > 1) DEV.tick(n - 1); grainSeed = 6; DEV.tick(1); phase.push(grainSeed); } catch (e) { phase.push(-1); } }
   /* #155: the FIRST FRAME, before any camera move and with update() frozen, on this same generated
      level. The pose is written rather than trusted: P.ang is the heading (there is no P.yaw) and P.z
      is the FEET - js/40_render.js:103 adds cfg.eye to it, so adding cfg.eye here would raise the eye a
@@ -256,7 +274,7 @@ const ROLL_FN = `(function (lv, roll, yaws, stride, seed) {
     P.x = sx; P.y = sy; P.ang = sa; P.pitch = 0; P.vx = P.vy = P.vz = 0; P.air = false; P.crouch = 0;
     P.z = floorAt(sx, sy);
     if (!(P.z === floorAt(P.x, P.y))) throw new Error('spawn pose is not seated: P.z ' + P.z + ' vs floorAt ' + floorAt(P.x, P.y));
-    DEV.tick(1);
+    frame(1);
     const s = DEV.lum({ stride: stride });
     if (!isFinite(s.mean)) throw new Error('DEV.lum returned a non-finite mean on the spawn frame');
     return { mean: s.mean, mid: s.mid, x: +sx.toFixed(2), y: +sy.toFixed(2), ang: +sa.toFixed(3) };
@@ -264,7 +282,7 @@ const ROLL_FN = `(function (lv, roll, yaws, stride, seed) {
   let sum = 0, mid = 0, rast = 0;
   for (let w = 0; w < yaws; w++) {
     DEV.cam(c[0] + 0.5, c[1] + 0.5, undefined, w * 2 * Math.PI / yaws + 0.13, BH * 0.02);
-    DEV.tick(2);                       // one frame to refill caches after the regen, one to measure
+    frame(2);                        // one frame to refill caches after the regen, one to measure
     const s = DEV.lum({ stride: stride });
     if (!isFinite(s.mean)) throw new Error('DEV.lum returned a non-finite mean at yaw ' + w);
     sum += s.mean; mid += s.mid;
@@ -273,8 +291,61 @@ const ROLL_FN = `(function (lv, roll, yaws, stride, seed) {
     rast += rs / m;
   }
   DEV.freeze(false);
-  return { mean: sum / yaws, mid: mid / yaws, raster: rast / yaws, cells: cs.length, buf: cv.width + 'x' + cv.height, spawn: pose };
+  return { mean: sum / yaws, mid: mid / yaws, raster: rast / yaws, cells: cs.length, buf: cv.width + 'x' + cv.height, spawn: pose, phase: phase };
 })(%LV%, %ROLL%, %YAWS%, %STRIDE%, %SEED%)`;
+
+/* #505: the SPAWN band's two anchors, RENDERED. The band above is derived from two FAILURE states -
+   every lamp unlit, and a lamp 1 m from the lens - but the probe that produced 32.2 and 79.4 was
+   throwaway, so the numbers became transcriptions: nobody could re-render them, and when the arrival
+   frame's medians climbed to 74 the gate had nothing left to compare against and started flipping
+   between CI runners on one luma of machine difference. This function is that probe, checked in: it
+   renders both failure states on the machine that is running the gate, so the window is a measurement
+   taken now rather than one copied out of an October transcript. Both states are measured at the
+   spawn pose with the same seeded dice as the rolls above, with the GRAIN PHASE pinned (grainSeed = 6
+   before each tick, so drawGrain's +1 lands every frame on phase 0 - the one per-frame term DEV.freeze
+   does not pin, #377), which is what makes an anchor comparable between machines at all.
+   lamps-off keeps MAP.amb: "no lamp light in it" is the failure, not "no light at all".
+   lamp-in-the-lens walks up to ANCHOR_LAMPS lamps per level, stands 1 m from each facing it, and
+   reports the DIMMEST view: the anchor is the least blinding way to fail this way, so that the band
+   top cannot be bought by measuring one bright lamp. */
+const ANCHOR_LAMPS = Math.max(1, +(process.env.ANCHOR_LAMPS || 6));
+const ANCHOR_FN = `(function (lv, stride, seed, nLamps) {
+  (function (a) { a = a >>> 0; Math.random = function () { a = (a + 0x6D2B79F5) >>> 0; let t = a; t = Math.imul(t ^ t >>> 15, t | 1); t ^= t + Math.imul(t ^ t >>> 7, t | 61); return ((t ^ t >>> 14) >>> 0) / 4294967296; }; })(seed);
+  startLevel(lv, true);
+  S.banner = ''; S.bannerT = 0;
+  for (const e of ENEMIES) e.state = 'sleep';
+  DEV.freeze(true);
+  const sx = P.x, sy = P.y, sa = P.ang;
+  P.pitch = 0; P.vx = P.vy = P.vz = 0; P.air = false; P.crouch = 0; P.z = floorAt(sx, sy);
+  const out = { lv: lv, amb: MAP.amb, lamps: LIGHTS.length, phase: -1 };
+  grainSeed = 6; DEV.tick(1); out.phase = grainSeed;
+  out.spawn = DEV.lum({ stride: stride }).mean;
+  // FAILURE STATE 1: every lamp unlit, the authored ambient left in place.
+  const lit = MAP.light.slice(), amb0 = MAP.amb;
+  MAP.light.fill(0);
+  grainSeed = 6; DEV.tick(1);
+  out.lampsOff = DEV.lum({ stride: stride }).mean;
+  MAP.light.set(lit); MAP.amb = amb0;
+  // FAILURE STATE 2: a lamp 1 m in the lens, each lamp in turn, dimmest view kept.
+  const seats = [];
+  for (let i = 0; i < Math.min(nLamps, LIGHTS.length); i++) {
+    const L = LIGHTS[i];
+    let dx = sx - L.x, dy = sy - L.y; const d = Math.hypot(dx, dy) || 1;
+    let cx = L.x + dx / d, cy = L.y + dy / d;                 // 1 m from the lamp, on the spawn side
+    if (isSolid(cx, cy)) { const o = nearestOpen(cx, cy); cx = o[0]; cy = o[1]; }
+    const was = { x: P.x, y: P.y, z: P.z, a: P.ang };
+    P.x = cx; P.y = cy; P.z = floorAt(cx, cy); P.ang = Math.atan2(L.y - cy, L.x - cx); P.pitch = 0;
+    grainSeed = 6; DEV.tick(1);
+    seats.push(DEV.lum({ stride: stride }).mean);
+    P.x = was.x; P.y = was.y; P.z = was.z; P.ang = was.a;
+  }
+  out.seats = seats;
+  out.lampLens = seats.length ? Math.min.apply(null, seats) : NaN;
+  // The pose is handed back, not left scrambled: the rolls below sample this same level.
+  P.x = sx; P.y = sy; P.z = floorAt(sx, sy); P.ang = sa;
+  DEV.freeze(false);
+  return out;
+})(%LV%, %STRIDE%, %SEED%, %NL%)`;
 
 /* ---------------- audio (#157) ---------------- */
 
@@ -538,7 +609,8 @@ async function main() {
     console.log('  (same seeded dice as tools/view.js exposure; its "raster BEFORE bloom/grade/grain" column '
       + 'below is the layer that prints there - the two are not comparable, which is what #85 was about)');
 
-    const bad = [], badSpawn = [], badWorst = [], debtWorst = [];
+    const bad = [], badSpawn = [], badWorst = [], debtWorst = [], spMedAll = [];
+    let pinBad = null;
     let allMed = 0;
     for (let lv = 0; lv < nLevels; lv++) {
       const rolls = [], mids = [], rasts = [], spM = [], spMid = [], spAng = [];
@@ -548,6 +620,11 @@ async function main() {
         const v = await evaluate(cdp, expr);
         rolls.push(v.mean); mids.push(v.mid); rasts.push(v.raster);
         spM.push(v.spawn.mean); spMid.push(v.spawn.mid); spAng.push(v.spawn.ang);
+        // The pin is proven by read-back, not by the write: a frame that really went through drawGrain
+        // reads 0 after grainSeed was written 6, so a nonzero here is a build that stopped compositing
+        // grain (a tier change, or the pattern being dropped) and the medians below are then not the
+        // number this band was derived against.
+        if (v.phase.some(p => p !== 0)) pinBad = v.phase.filter(p => p !== 0)[0];
         if (!(v.spawn.x >= 0 && v.spawn.y >= 0)) throw new Error('spawn pose is off-map at roll ' + r + ': ' + v.spawn.x + ',' + v.spawn.y);
         process.stdout.write('.');
       }
@@ -568,6 +645,7 @@ async function main() {
         + ' is below the ' + MIN + '-' + MAX + ' window (floor ' + WFLOOR[lv] + ', ' + outN + ' of '
         + ROLLS + ' rolls outside) - known #149: the darkest layout this level deals');
       const spMed = median(spM), spSorted = spM.slice().sort((a, b) => a - b);
+      spMedAll.push(spMed);
       const oksp = spMed >= SMIN && spMed <= SMAX;
       if (!oksp) badSpawn.push('level ' + lv + ' spawn median ' + spMed.toFixed(1) + ' outside ' + SMIN + '-' + SMAX
         + ' (rolls ' + spM.map(v => v.toFixed(0)).join(' ') + ')');
@@ -584,6 +662,43 @@ async function main() {
         + '  rolls ' + spM.map(v => pad(v.toFixed(0), 3)).join(' ')
         + pad('  spread ' + (spSorted[spSorted.length - 1] - spSorted[0]).toFixed(0), 9)
         + '  yaw ' + spAng[0] + (oksp ? '  ok' : '  OUTSIDE'));
+    }
+    if (pinBad !== null) throw new Error('the grain phase did not pin: grainSeed read ' + pinBad
+      + ' after a frame written to 6, so drawGrain is not compositing the frame this gate measures');
+    /* #505: the band's two FAILURE anchors, rendered on this machine rather than read out of the
+       comment above. Printed first, before any verdict, because this is the measurement that decides
+       whether the band still means what it says. */
+    const anc = [];
+    for (let lv = 0; lv < nLevels; lv++) {
+      anc.push(await evaluate(cdp, ANCHOR_FN.replace('%LV%', lv).replace('%STRIDE%', STRIDE)
+        .replace('%SEED%', (SEED + lv * 97) >>> 0).replace('%NL%', ANCHOR_LAMPS)));
+      process.stdout.write('#');
+    }
+    process.stdout.write('\n');
+    if (anc.some(a => !isFinite(a.lampsOff) || !isFinite(a.lampLens) || a.phase !== 0)) {
+      throw new Error('anchor states did not render (lampsOff/lampLens not finite, or the grain pin '
+        + 'read ' + anc.map(a => a.phase).join('/') + ' instead of 0 - the pin did not reach drawGrain)');
+    }
+    const offMax = Math.max.apply(null, anc.map(a => a.lampsOff));
+    const lensMin = Math.min.apply(null, anc.map(a => a.lampLens));
+    const head = spMedAll.map(m => SMAX - m);
+    console.log('  anchors RENDERED HERE (grain phase pinned): every lamp unlit ' + anc.map(a => a.lampsOff.toFixed(1)).join(' ')
+      + '  brightest ' + offMax.toFixed(1) + ' vs the recorded 32.2;  a lamp in the lens, dimmest of '
+      + ANCHOR_LAMPS + ' seats/level ' + lensMin.toFixed(1) + ' vs the recorded 79.4');
+    console.log('  the lamp seat is NOT the state the top was derived from: it renders DIMMER than an ordinary');
+    console.log('  arrival frame (' + lensMin.toFixed(1) + ' vs medians ' + spMedAll.map(m => m.toFixed(0)).join('/')
+      + '), so "a lamp 1 m from the lens" at eye height and zero pitch is not a blinding view, and the top of the');
+    console.log('  band stays a transcription until someone names the state that produced 79.4. Do not re-key');
+    console.log('  75 off the ' + lensMin.toFixed(1) + ' above. The FLOOR anchor is the one that reproduced, and it');
+    console.log('  moved ' + (offMax - 32.2).toFixed(1) + ' lumas up since the band was derived - which is where the');
+    console.log('  arrival frame\'s ' + (spMedAll[2] - 54).toFixed(0) + '-luma climb came from, not from the spawn view.');
+    console.log('  operating room under the top (' + SMAX + '): ' + head.map((h, i) => 'L' + i + ' ' + h.toFixed(1)).join('  ')
+      + ' lumas');
+    if (head.some(h => h < ROOM_MIN)) {
+      console.log('  KNOWN #505: ' + head.filter(h => h < ROOM_MIN).length + ' sector(s) arrive with less than '
+        + ROOM_MIN + ' lumas between their spawn median and the band top, so one luma of machine difference');
+      console.log('  decides the verdict there. This row is a debt print, not a gate: the fix is the picture or');
+      console.log('  the meaning of the top anchor, and neither is a dev call (#505).');
     }
     allMed /= nLevels;
     console.log('  ALL     median ' + allMed.toFixed(1) + '  (mean of the per-level medians)');
