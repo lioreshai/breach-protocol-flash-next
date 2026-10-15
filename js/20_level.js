@@ -896,7 +896,26 @@ function authorVolume(cell, N, rooms, fz, vb, feat, cz) {
      lane the VERT lane aims its gun down, and its seam is no longer than a half-plane's: two
      half-lines against one full one. Ranked within each group by the cells it owns, so the plateau is
      the bigger piece of the floorplan and the altitude difference is legible from the rooms that touch
-     it. Room 0's cells never join the region: the spawn has to stay on the datum. */
+     it. Room 0's cells never join the region: the spawn has to stay on the datum.
+
+     #421 HALF TWO - THE SEAM HAS TO REACH THE ROOM YOU WAKE IN. Cells-owned alone drops the plateau
+     wherever the quadrant boundary happens to fall, which on most deals is the far side of the map, and
+     then no heading can look at a storey 30 m away: `surface`'s SEAT census counts the columns inside
+     the ARRIVAL frame's own reach (12 m, where `visAt` still delivers 44 % of a surface) that have a
+     floor over their head, and it reads 19 and 28 on ARCHIVE/RING but 0 on ABATOIR CORE - a level with
+     volume and a player who can never see it, which is #353's adjacency gap rather than a shading gap
+     (three underside/lighting terms have already moved zero pixels of that frame).
+     So this is a FALLBACK, not a re-rank, and that difference is a measurement and not a preference:
+     cycle 8 ordered the eight candidates by nearness outright and the in-reach count went BACKWARDS
+     (ARCHIVE 19 -> 1, RING 28 -> 0), because a near-but-thin band covers less of the seat's reach than
+     the big quadrant the shipped order picks. The shipped order therefore runs first and is KEPT
+     whenever its band leaves at least one column in reach of the seat under a deck - those deals stay
+     byte for byte what they were. Only a deal that would put nothing at all over the entry room re-tries
+     the same eight candidates, same >= 8-cell filter, same legality (`linkBand`'s reachability pass is
+     untouched), ranked by how much of that reach they cover. A fallback that finds no legal band puts
+     the shipped one back: this term can change WHICH plateau rises, never WHETHER the level has one,
+     and it authors no new geometry rule and no new paint. */
+  const SEAT_REACH = 12;                  // metres = cells: the reach `surface`'s SEAT row scores within
   const N2 = N >> 1;
   const rects = [];
   for (const q of [[0, 0], [1, 0], [0, 1], [1, 1]]) rects.push({
@@ -904,6 +923,40 @@ function authorVolume(cell, N, rooms, fz, vb, feat, cz) {
     y0: q[1] ? N2 : 1, y1: q[1] ? N - 2 : N2 - 1 });
   for (const h of [[1, 0], [0, 0], [0, 1], [1, 1]]) rects.push({
     tag: 'h' + (h[0] + h[1] * 2), quad: 0, x0: h[0] ? N2 : 1, x1: N - 2, y0: h[1] ? N2 : 1, y1: N - 2 });
+  /* The region a candidate WOULD raise, as a mask and with no other write: the reach census below has
+     to ask that question of all eight candidates before any of them is committed, and the only honest
+     way to ask it is to build exactly the mask the committed pass builds. */
+  const maskOf = r => {
+    const sel = new Uint8Array(N * N);
+    for (let y = r.y0; y <= r.y1; y++) for (let x = r.x0; x <= r.x1; x++) {
+      const i = y * N + x;
+      if (cell[i] || fz[i] !== 0 || flat[i] || inSpawn(x, y)) continue;
+      sel[i] = 1;
+    }
+    return sel;
+  };
+  /* Columns this band would stand a DECK over, inside the reach the arrival frame can show. It is the
+     predicate `buildCeilSlab` sets bit 0 with - a column whose own ceiling a raised 4-neighbour's floor
+     reaches - read off the mask because the band is not authored yet, and over the spawn room's own
+     cells too: they are the floor the player is standing on, the band may not cover them but it CAN
+     overhang them, which is the whole point. Derived off heights and clearance only, so it cannot
+     disturb `vb`/`steps`, and it reads nothing the movement code writes. */
+  const overSeat = sel => {
+    let n = 0;
+    for (let y = Math.max(1, spawnR.cy - SEAT_REACH); y <= Math.min(N - 2, spawnR.cy + SEAT_REACH); y++)
+      for (let x = Math.max(1, spawnR.cx - SEAT_REACH); x <= Math.min(N - 2, spawnR.cx + SEAT_REACH); x++) {
+        const i = y * N + x;
+        if (sel[i] || cell[i]) continue;                       // no air, or THIS band is under its feet
+        const own = fz[i] * ZQ + Math.max(ZQ, cz[i] * ZQ);
+        for (let d = 0; d < 4; d++) {
+          const nx = x + DIRX[d], ny = y + DIRY[d];
+          if (nx < 1 || ny < 1 || nx >= N - 1 || ny >= N - 1) continue;
+          const j = ny * N + nx;
+          if ((sel[j] ? BAND_UP : fz[j]) * ZQ >= own - 1e-9) { n++; break; }
+        }
+      }
+    return n;
+  };
   const ranked = rects.map(r => {
     let n = 0;
     for (let y = r.y0; y <= r.y1; y++) for (let x = r.x0; x <= r.x1; x++) {
@@ -912,21 +965,35 @@ function authorVolume(cell, N, rooms, fz, vb, feat, cz) {
     }
     return { r, n };
   }).sort((a, b) => b.r.quad - a.r.quad || b.n - a.n || a.r.tag.localeCompare(b.r.tag));
-  for (const cand of ranked) {
-    if (cand.n < 8) continue;                       // fewer than 8 cells is not a band, it is a corner
-    const cp = cut(), sel = new Uint8Array(N * N);
-    for (let y = cand.r.y0; y <= cand.r.y1; y++) for (let x = cand.r.x0; x <= cand.r.x1; x++) {
-      const i = y * N + x;
-      if (cell[i] || fz[i] !== 0 || flat[i] || inSpawn(x, y)) continue;
-      sel[i] = 1; mark(i); fz[i] = BAND_UP;
+  const cpBand = cut();                               // all of feature 2, for the fallback's undo
+  let bandTag = null;
+  const pickBand = list => {
+    for (const cand of list) {
+      if (cand.n < 8) continue;                       // fewer than 8 cells is not a band, it is a corner
+      const cp = cut(), sel = maskOf(cand.r);
+      for (let i = 0; i < sel.length; i++) if (sel[i]) { mark(i); fz[i] = BAND_UP; }
+      // No wall write here on purpose: a wall between the band and the datum must stay at the datum,
+      // or the face it shows the flat side starts above that side's ceiling plane and draws nothing.
+      // Bases are carried down once, at the end, where both directions of the fault are one rule.
+      if (linkBand(sel, BAND_UP, d0, true)) { bandTag = cand.r.tag; return sel; }
+      rewind(cp);
     }
-    // No wall write here on purpose: a wall between the band and the datum must stay at the datum,
-    // or the face it shows the flat side starts above that side's ceiling plane and draws nothing.
-    // Bases are carried down once, at the end, where both directions of the fault are one rule.
-    const ok = linkBand(sel, BAND_UP, d0, true);
-    if (ok) { authored.push('raisedSide:' + cand.r.tag); break; }
-    rewind(cp);
+    return null;
+  };
+  let selBand = pickBand(ranked);
+  if (selBand && overSeat(selBand) === 0) {
+    const byReach = ranked.map(c => ({ c, v: overSeat(maskOf(c.r)) })).filter(o => o.v > 0)
+      .sort((a, b) => b.v - a.v || b.c.r.quad - a.c.r.quad || b.c.n - a.c.n ||
+        a.c.r.tag.localeCompare(b.c.r.tag));
+    if (byReach.length) {
+      rewind(cpBand);
+      selBand = pickBand(byReach.map(o => o.c));
+      if (selBand) bandTag += '+seat';                 // the census term is on the record in the tag
+      else { rewind(cpBand); pickBand(ranked); }        // a preference, never a veto: keep the shipped band
+    }
   }
+  if (bandTag) authored.push('raisedSide:' + bandTag);
+  else rewind(cpBand);
 
   /* ---- feature 3: a sunken block in the room furthest from spawn ---------
      The RASTER BUDGET caps this shape, and that is a measured fact rather than a taste: a cell below
