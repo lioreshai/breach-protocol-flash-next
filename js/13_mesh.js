@@ -518,8 +518,19 @@ const MESH = (function () {
      The flash is emissive geometry: the art drew it with 'lighter' into the display buffer, and a mesh
      has no additive blend, so it is a solid bright solid instead and the glow comes from the frame's
      own bloom plus the screen-space muzzle light in renderOverlay, both of which already exist. */
+  /* #499 SPLIT THE FAMILY. The rig shipped four cold metals - `steel`/`blue`/`dark`/`black`, all
+     within 20 luminance and all with b > r - so the slide's side, top and front were three neighbours
+     of one hue and a 8,040-px silhouette read as one slab. Two things had to enter the palette:
+     - `poly`: a WARM lower material. Every gun now has a cool upper (the slide/receiver, `steel`)
+       over a warm lower (`poly`), which is the actual construction of the real objects and is the
+       only term here that survives at 8,000 px: the edge between them is geometry, not shading.
+     - `seam`: the parting line between those two volumes, authored as a thin part rather than as a
+       shading trick, because VMFLOOR/VMRIM can only move the LEVEL of a face, never draw an edge.
+     The metals themselves are untouched: js/40_render.js's light is one value per column and
+     `lit()` still multiplies the authored albedo by the scene light unchanged. */
   const VW = {
     steel: [44, 49, 58], dark: [26, 31, 39], black: [15, 18, 24], blue: [36, 42, 51],
+    poly: [66, 52, 40], polyD: [46, 36, 28], seam: [9, 11, 16],
     wood: [58, 44, 30], wood2: [51, 38, 26],
     skin: [140, 106, 79], skinD: [93, 69, 47], glove: [59, 66, 78], gloveD: [34, 40, 52],
     sleeve: [29, 34, 43], sleeveD: [19, 23, 30],
@@ -536,7 +547,7 @@ const MESH = (function () {
      did, and an elbow only 0.15 m below the eye bulges across the picture instead of leaving it. */
   function vArm(b, x, y, z, s, back) {
     const w = back ? -1 : 1;
-    b.tube(x + w * 0.004 * s, y - 0.022 * s, z - 0.002 * s, x + w * 0.058 * s, y - 0.320 * s, z - 0.095 * s,
+    b.tube(x + w * 0.004 * s, y - 0.026 * s, z - 0.004 * s, x + w * 0.058 * s, y - 0.320 * s, z - 0.095 * s,
       0.0155 * s, 0.0260 * s, VW.sleeve);              // to an elbow below the frame
     return b;
   }
@@ -548,14 +559,58 @@ const MESH = (function () {
      poked out of the palm silhouette on both sides and looked like floating tabs (measured in the
      first frames of this conversion). `s` sizes the WHOLE hand - offsets as well as extents, because
      a hand whose palm shrank but whose fingers stayed put is a hand with its fingers on the table. */
-  function vHand(b, x, y, z, s, back) {
+  /* #499 WHERE THE FIST IS, AND WHAT IT IS PAINTED WITH. Two measurements are load-bearing here.
+     (a) VERTICALITY. The rasteriser maps a point to `horizon + BH * drop / depth`, so the frame's
+         lower edge at the gun's own 0.25 m of reach is 0.125 m BELOW THE EYE - not 0.171 m, which is
+         where the fist sat: the grip top is VMSIT.d = 0.115 m down and the fist was authored a further
+         0.056 m below that. The fist was not clipped, not culled and not occluded - it was AUTHORIED
+         OFF THE BOTTOM EDGE OF THE PICTURE, which is why RING TRANSPORT's lower-right quadrant measured
+         0 warm pixels of 130,080 while the rig painted 8,040. The hands now sit at 0.030-0.044 m below
+         the grip top, which puts the mass of the fist at rows 0.85-1.00 of the frame and the wrist
+         still heading out through the bottom edge, which is what an arm at hip does.
+     (b) WARMTH. The palm was `glove` - a cold grey - and only the fingers were skin, so a fist that
+         DID reach a frame would have added grey, not warmth. The palm, the back of the hand and the
+         curled fingers are now `skin`/`skinD` (140/106/79, spread 61) and only the cuff stays cold.
+     The knuckle ridge is one box, not four fingers: separate finger tubes poked out of the palm
+     silhouette on both sides and read as floating tabs (measured in the first cut of this conversion).
+     `s` sizes the WHOLE hand - offsets as well as extents. */
+  /* Probe-only arm (#499): `MESH.setHands(false)` emits the GUN only, with no hand geometry at all. The
+     shape is the `setWRaw` one - inert in play, armed by the probe that needs it - and the row that needs
+     it is `view.js`'s sway-travel row, which must average the painted lateral travel over the weapon's own
+     parts. The fists are now the largest mass inside that row's near-pivot window, so a row that averages
+     over every painted pixel measures MASK COMPOSITION rather than the projection; the arm lets the same
+     frame be measured twice, with and without the hands, instead of widening the row's band. */
+  /* #499 THE HANDS' SCALE WHEN THE GUN IS ON THE SIGHT LINE. Hip to ADS is one rigid transform, but the
+     fists' PAINTED pixels do not grow as the gun's do: at hip the lower hand is still clipped by the
+     bottom edge of the picture and at ADS the whole rig sits inside the frame, so the hands' share of the
+     rig's own pixels went from 23.0% at hip to 31.7% at ADS on the pistol (11.9 -> 21.3 shotgun, 10.2 ->
+     17.0 rifle) - in the pose a player aims with, the largest mass on screen was a flat-shaded hand rather
+     than the thing being aimed at. `VMADS` is the authored fix, and it is a SIZE, not a seat: the hands
+     close on the eye by the perspective alone, so they are authored to come in proportionally with the
+     gun's own ADS scale rather than sitting rigid while the gun grows past them. `s` scales the hand's
+     OFFSETS as well as its extents (see above), so the hand shrinks TOWARD the part it is wrapped round -
+     it stays on the grip it holds, it does not detach and shrink in place.
+     THE RAMP IS EXACTLY 1.0 AT ads = 0, which is what makes this an ADS-only change: every hip frame this
+     repo owns - every recorded reference in flatparity, exposure and bands - builds the same bytes it
+     built before, and those three probes re-run green with no reference touched. Because the geometry now
+     READS `ads`, `ads` is in the pose key too (WQK/wState/wKey): #186's rule is that a key must contain
+     every term the geometry reads, and a rig that shrank the hands without keying the shrink would serve a
+     hip geometry to an ADS frame depending on which of the two was built first. */
+  const VMADS = 0.62;                               // hand size at FULL ADS, relative to its hip size
+  const vHandScale = st => 1 - (1 - VMADS) * clamp(st && st.ads ? st.ads : 0, 0, 1);
+  function vHand(b, x, y, z, s, back, st) {
+    if (!VHANDS) return b;
+    s *= vHandScale(st);
     const w = back ? -1 : 1;
-    b.box(x, y, z, 0.020 * s, 0.024 * s, 0.022 * s, VW.glove);
-    b.box(x + w * 0.021 * s, y - 0.004 * s, z, 0.010 * s, 0.020 * s, 0.020 * s, VW.skin);
-    b.box(x + w * 0.030 * s, y - 0.013 * s, z, 0.0035 * s, 0.0035 * s, 0.019 * s, VW.skinD);
-    b.box(x + w * 0.030 * s, y + 0.007 * s, z, 0.0035 * s, 0.0035 * s, 0.019 * s, VW.skinD);
-    b.tube(x + w * 0.017 * s, y + 0.012 * s, z + 0.012 * s, x - w * 0.002 * s, y + 0.024 * s, z + 0.018 * s,
+    b.box(x, y, z, 0.018 * s, 0.030 * s, 0.028 * s, VW.skin);              // the palm, over the part
+    b.box(x + w * 0.003 * s, y + 0.002 * s, z - 0.030 * s, 0.016 * s, 0.026 * s, 0.005 * s, VW.skin);
+    b.box(x + w * 0.003 * s, y + 0.028 * s, z - 0.024 * s, 0.016 * s, 0.005 * s, 0.017 * s, VW.skinD);
+    b.box(x - w * 0.019 * s, y - 0.002 * s, z, 0.007 * s, 0.026 * s, 0.025 * s, VW.skin);
+    b.box(x - w * 0.026 * s, y - 0.013 * s, z, 0.0035 * s, 0.0035 * s, 0.023 * s, VW.skinD);
+    b.box(x - w * 0.026 * s, y + 0.009 * s, z, 0.0035 * s, 0.0035 * s, 0.023 * s, VW.skinD);
+    b.tube(x + w * 0.011 * s, y + 0.020 * s, z + 0.010 * s, x - w * 0.006 * s, y + 0.030 * s, z + 0.020 * s,
       0.0070 * s, 0.0055 * s, VW.skin);              // the thumb, along the top of the grip
+    b.box(x - w * 0.010 * s, y - 0.044 * s, z + 0.004 * s, 0.017 * s, 0.014 * s, 0.021 * s, VW.gloveD);
     return b;
   }
 
@@ -586,14 +641,15 @@ const MESH = (function () {
        here the slide is 0.175 m of rectangular tube and the grip rakes back on its own axis. */
     pistol(b, s) {
       const MU = VMUZZLE.pistol;
-      vArm(b, 0.010, -0.056, 0.006, 1.0, false);
-      vArm(b, -0.024, -0.070, 0.052, 0.92, true);
+      vArm(b, 0.016, -0.026, 0.024, 1.0, false);
+      vArm(b, -0.026, -0.040, 0.048, 0.96, true);
       b.box(0, 0.007, 0.088, 0.0185, 0.0135, 0.086, VW.steel);          // the slide
       b.box(0, 0.0235, 0.088, 0.008, 0.0035, 0.070, VW.black);          // the serrated rib on top
       b.tube(0, 0.004, MU - 0.024, 0, 0.004, MU, 0.0115, 0.0105, VW.dark); // the barrel crown
       b.box(0, 0.004, MU, 0.0125, 0.0125, 0.004, VW.black);             // the muzzle face
-      b.box(0, -0.017, 0.062, 0.0165, 0.0105, 0.060, VW.blue);          // the frame under the slide
-      b.tube(0, -0.022, 0.038, 0, -0.118, -0.012, 0.0205, 0.018, VW.blue);  // the grip, raked back
+      b.box(0, -0.0075, 0.086, 0.0175, 0.0022, 0.082, VW.seam);         // the slide/frame parting line
+      b.box(0, -0.017, 0.062, 0.0165, 0.0105, 0.060, VW.poly);          // the frame under the slide
+      b.tube(0, -0.022, 0.038, 0, -0.118, -0.012, 0.0205, 0.018, VW.poly);  // the grip, raked back
       b.box(0, -0.132, -0.015, 0.018, 0.006, 0.016, VW.black);          // the magazine base plate
       b.tube(0, -0.030, 0.010, 0, -0.058, -0.014, 0.0055, 0.005, VW.dark);  // trigger guard, front leg
       b.tube(0, -0.058, -0.014, 0, -0.030, -0.028, 0.005, 0.005, VW.dark);  // and its rear leg
@@ -602,8 +658,8 @@ const MESH = (function () {
       b.box(0, 0.026, 0.178, 0.0035, 0.0085, 0.0045, VW.black);         // the front post
       b.box(0, -0.006, -0.004, 0.008, 0.011, 0.010, VW.steel);          // the hammer
       if (s.slideBack) b.box(0, 0.014, 0.088 - s.slideBack * 0.026, 0.019, 0.008, 0.050, VW.dark);
-      vHand(b, 0.010, -0.056, 0.006, 1.0, false);
-      vHand(b, -0.024, -0.070, 0.052, 0.92, true);
+      vHand(b, 0.016, -0.026, 0.024, 1.0, false, s);
+      vHand(b, -0.026, -0.040, 0.048, 0.96, true, s);
       if (s.mz > 0.004) vFlash(b, s.mz, MU);
       return b;
     },
@@ -611,12 +667,13 @@ const MESH = (function () {
        the pump travels on the lower one, which is what `pump` does to the geometry below. */
     shotgun(b, s) {
       const MU = VMUZZLE.shotgun, pu = (s.pump || 0) * 0.034;
-      vArm(b, 0.004, -0.064, -0.002, 1.02, false);
-      vArm(b, -0.006, -0.070, 0.270 + pu, 1.0, true);   // the pump hand's arm travels with the pump
+      vArm(b, 0.014, -0.034, 0.000, 1.02, false);
+      vArm(b, -0.010, -0.040, 0.266 + pu, 1.0, true);   // the pump hand's arm travels with the pump
       b.box(0, 0.004, 0.086, 0.0215, 0.0185, 0.082, VW.steel);          // the receiver
       b.box(0, 0.0235, 0.086, 0.011, 0.0045, 0.070, VW.black);          // the top rib
+      b.box(0, -0.0155, 0.086, 0.0205, 0.0022, 0.078, VW.seam);         // receiver / fore-end parting line
       b.tube(0, 0.004, 0.164, 0, 0.004, MU, 0.0135, 0.012, VW.dark);     // the barrel
-      b.tube(0, -0.024, 0.150, 0, -0.024, MU - 0.032, 0.0135, 0.0125, VW.blue); // the magazine tube
+      b.tube(0, -0.024, 0.150, 0, -0.024, MU - 0.032, 0.0135, 0.0125, VW.poly); // the magazine tube
       b.box(0, 0.004, MU, 0.0155, 0.0155, 0.005, VW.black);             // the muzzle ring
       b.tube(0, -0.024, 0.238 + pu, 0, -0.024, 0.300 + pu, 0.0225, 0.0215, VW.wood);  // the pump, travels
       b.tube(0, -0.030, -0.004, 0, -0.086, -0.190, 0.0245, 0.0285, VW.wood2); // the stock
@@ -627,8 +684,8 @@ const MESH = (function () {
         b.tube(0.040, -0.092, 0.052, 0.056, -0.084, 0.058, 0.0105, 0.010, VW.shell);
         b.tube(0.056, -0.084, 0.058, 0.062, -0.081, 0.060, 0.0105, 0.010, VW.brass);
       }
-      vHand(b, 0.004, -0.064, -0.002, 1.02, false);
-      vHand(b, -0.006, -0.070, 0.270 + pu, 1.0, true);
+      vHand(b, 0.014, -0.034, 0.000, 1.02, false, s);
+      vHand(b, -0.010, -0.040, 0.266 + pu, 1.0, true, s);
       if (s.mz > 0.004) vFlash(b, s.mz, MU);
       return b;
     },
@@ -636,11 +693,12 @@ const MESH = (function () {
        design units against the shotgun's -404 and the pistol's -338). */
     rifle(b, s) {
       const MU = VMUZZLE.rifle;
-      vArm(b, 0.008, -0.062, 0.004, 1.0, false);
-      vArm(b, -0.008, -0.066, 0.236, 0.98, true);
+      vArm(b, 0.014, -0.030, 0.012, 1.0, false);
+      vArm(b, -0.014, -0.038, 0.234, 0.98, true);
       b.box(0, 0.005, 0.092, 0.0235, 0.0195, 0.086, VW.steel);          // the upper receiver
       b.box(0, 0.0265, 0.092, 0.0155, 0.0055, 0.078, VW.black);         // the dust cover
-      b.box(0, -0.004, 0.238, 0.0245, 0.020, 0.056, VW.blue);           // the handguard
+      b.box(0, 0.005, 0.150, 0.0225, 0.0022, 0.030, VW.seam);           // the upper / handguard parting line
+      b.box(0, -0.004, 0.238, 0.0245, 0.020, 0.056, VW.poly);            // the handguard
       b.tube(0, 0.004, 0.292, 0, 0.004, MU - 0.034, 0.0125, 0.0115, VW.dark); // the barrel
       b.tube(0, 0.004, MU - 0.034, 0, 0.004, MU, 0.016, 0.0145, VW.black);    // the flash hider
       b.box(0, 0.0215, MU - 0.054, 0.0075, 0.0125, 0.0085, VW.dark);    // the gas block
@@ -655,11 +713,11 @@ const MESH = (function () {
         b.box(0, -0.142, 0.118, 0.0175, 0.006, 0.029, VW.black);        // its floorplate
       }
       b.box(0, 0.020, -0.004 - (s.slideBack || 0) * 0.022, 0.0125, 0.0075, 0.017, VW.dark); // charging handle
-      b.tube(0, -0.028, -0.006, 0, -0.112, 0.014, 0.021, 0.0185, VW.blue);   // the grip
-      b.tube(0, -0.030, -0.014, 0, -0.062, -0.190, 0.0225, 0.0265, VW.blue); // the stock
+      b.tube(0, -0.028, -0.006, 0, -0.112, 0.014, 0.021, 0.0185, VW.poly);    // the grip
+      b.tube(0, -0.030, -0.014, 0, -0.062, -0.190, 0.0225, 0.0265, VW.poly);  // the stock
       b.box(0, -0.076, -0.196, 0.021, 0.016, 0.010, VW.black);          // the butt pad
-      vHand(b, 0.008, -0.062, 0.004, 1.0, false);
-      vHand(b, -0.008, -0.066, 0.236, 0.98, true);
+      vHand(b, 0.014, -0.030, 0.012, 1.0, false, s);
+      vHand(b, -0.014, -0.038, 0.234, 0.98, true, s);
       if (s.slideBack) b.box(-0.030 - s.slideBack * 0.020, 0.012, 0.020, 0.005, 0.006, 0.010, VW.brass);
       if (s.mz > 0.004) vFlash(b, s.mz, MU);
       return b;
@@ -686,7 +744,11 @@ const MESH = (function () {
      exact and quantized geometry across each envelope and reports the largest vertex displacement it finds.
      `wq(0) === 0` exactly, so an at-rest rig - every hashed frame this repo owns - builds the same numbers it
      did before this cache existed, and parity is a fact of the key rather than a hope. */
-  const WQK = { mz: 16, magOut: 32, slideBack: 16, pump: 16, shellIn: 16 };   // steps in each term's own travel
+  /* `ads` is a term of the pose the geometry reads (#499: it sets the hands' size), so it is in the key
+     with the rest. Its quantum is the hand's own: at 1/8 of the ADS ramp the hand moves by half a quantum
+     of a size term, under a millimetre of a 0.06 m hand, and the `quantum price` row measures it rather
+     than taking that on faith. */
+  const WQK = { mz: 16, magOut: 32, slideBack: 16, pump: 16, shellIn: 16, ads: 8 };   // steps in each term's own travel
   const WPCAP = 64;                                   // entries; eviction is the rig cache's, evict before build
   const WEPO = new Map(); let wBytes = 0; const wStat = [0, 0];   // [misses, hits]
   /* Probe-only teeth arm (#186): when set, every fetch builds and counts a MISS, which is what a key over the
@@ -694,6 +756,7 @@ const MESH = (function () {
      would be wrong" - is driven through the SHIPPED reload timeline instead of being simulated beside it. The
      shape is the COV/GLOWREC one: inert in play, armed by the probe that needs it. */
   let WRAW = false;
+  let VHANDS = true;                                // probe-only (#499): false emits the gun without its hands
   const wq = (n, x) => x > 0 ? Math.round(x * n) / n : 0;   // 0 stays exactly 0, not 1/WQK
   /* The state a key's geometry is BUILT at, so one key maps to exactly one geometry. Building from the
      frame that happened to land in the bucket first makes presence a matter of luck: parts are authored as
@@ -705,11 +768,11 @@ const MESH = (function () {
   function wState(s) {
     s = s || {};
     return { mz: wq(WQK.mz, s.mz || 0), magOut: wq(WQK.magOut, s.magOut || 0), slideBack: wq(WQK.slideBack, s.slideBack || 0),
-      pump: wq(WQK.pump, s.pump || 0), shellIn: wq(WQK.shellIn, s.shellIn || 0) };
+      pump: wq(WQK.pump, s.pump || 0), shellIn: wq(WQK.shellIn, s.shellIn || 0), ads: wq(WQK.ads, s.ads || 0) };
   }
   function wKey(k, s) {
     return k + '|' + wq(WQK.mz, s.mz) + '|' + wq(WQK.magOut, s.magOut) + '|' + wq(WQK.slideBack, s.slideBack) +
-      '|' + wq(WQK.pump, s.pump) + '|' + wq(WQK.shellIn, s.shellIn);
+      '|' + wq(WQK.pump, s.pump) + '|' + wq(WQK.shellIn, s.shellIn) + '|' + wq(WQK.ads, s.ads || 0);
   }
   function wBuild(kind, st) {
     const b = VMGEO[kind](new Builder(), st || {});
@@ -1377,6 +1440,7 @@ const MESH = (function () {
     reset: () => { tris = 0; pxFilled = 0; trisCulled = 0; },
     setCache: v => { CACHE = !!v; POSE.clear(); poseBytes = 0; poseMade = 0; return CACHE; },
     setWRaw: v => { WRAW = !!v; return WRAW; },          // probe-only (#186): make the key serve nothing
+    setHands: v => { VHANDS = !!v; WEPO.clear(); wBytes = 0; return VHANDS; },   // probe-only (#499): emit the gun without its hands. THE CACHE GOES WITH THE SWITCH: geometry is keyed by pose alone, so a toggle that left WEPO filled would serve the OTHER arm's vertices and the A/B would measure nothing.
     trisFor: k => model(k || 'grunt').tris,
     // #78's readout: which kinds carry something, and how many sides the limbs get at the tier the page
     // is on. Both exist so a probe row can gate the detail instead of a screenshot describing it.
