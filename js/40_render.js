@@ -118,11 +118,24 @@ let SHADOW = 1, SHADOW_D = 0.42, SHADOW_R = -0.10, SHADOW_ZT = 0.02, SHADOW_F = 
    radius because a body's collision radius is a circle the silhouette always covers; a prop's footprint
    (`MESH.foot`) is the radius to the CORNER of a box, so a patch pulled inside it would sit under the
    crate's inscribed circle and be hidden by the crate itself at eye height. SHADOW_PR is measured in
-   the other direction: the crate's authored box is 0.375*0.72 = 0.19 m to its FACE against 0.27 m to
-   its corner, so +0.04 puts the visible edge of the patch a few centimetres outside the face, which is
-   where a contact zone actually is, while staying well inside the footprint the prop already occludes.
+   the other direction, and #18 moved it a long way in that direction: the crate's authored box is
+   0.375*0.72 = 0.19 m to its FACE against 0.27 m to its corner, so the shipped +0.04 put the patch's
+   VISIBLE edge (D*t^F falls under 1/255 at t = 0.2106, so the edge sits at 0.888 R) at 0.888*0.31 =
+   0.275 m - flush with the corner, a few centimetres of skirt past a face that is already 8 cm inside
+   it. At the engagement ranges that is 1-2 screen px of darkening and the crate reads as a decal on
+   the deck: its lower edge is as bright as its top edge. +0.18 puts the visible edge at 0.888*0.45 =
+   0.40 m, i.e. 0.21 m of contact band OUTSIDE the face, which is what a contact zone is. The ink
+   doubles (D*pi*R^2/(F+1): 0.032 -> 0.067) and it is the same ink spread over an annulus the eye can
+   actually see instead of a disc under the crate. MEASURED cost, `props` probe at its two gated seats:
+   ground pixels darkened outside the silhouette 137/174 -> 456/559 px, i.e. 1.6-2.6% -> 6.4% of the
+   prop's own silhouette px, against the row's own HALOMAX 0.30 - 4.7x of headroom left before the row
+   calls it a halo rather than a contact zone. `contrast`'s leak census does not move AT ALL (183/400/
+   184 px at cam 0/1/2, byte-identical to main) because that oracle's control render removes BODIES and
+   leaves the props in both arms, so a prop's patch cancels in its own diff: the prop half of #18 costs
+   the coverage oracle nothing, and the cap is untouched by this increment. The BODY half is what the
+   cap binds, and it is the work still open on #18.
    SHADOW_PROP 0 is the A/B the `props` probe's patch row runs against - one assignment, no rebuild. */
-let SHADOW_PROP = 1, SHADOW_PR = 0.04;
+let SHADOW_PROP = 1, SHADOW_PR = 0.18;
 /* The wall bilinear fetch is inlined at its one call site below rather than factored into a
    function that writes its result into a scratch array: a module-global typed-array out-param
    blocks V8 inlining and register allocation, and the same code inlined measured 21 -> 12 ms
