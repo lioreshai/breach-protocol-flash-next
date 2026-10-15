@@ -236,6 +236,38 @@ const MESH = (function () {
      to have had no surface at all. */
   const TS_CYC = 10, TS_MINP = 3.5, TS_LMAX = 2, TS_SLOPE = 9, TS_MAX = 26, TS_BMIN = 0.45;
   const TSC = [0.80, 1.00, 1.15];                   // slightly cool seams on warm armour
+  /* #533 PROPS WERE BEING FED ZEROS. The law above is the mesh's only surface term and it is set
+     entirely by one number: the vertex register `this.s`, which `Builder.box` and `Builder.tube`
+     fill with the authored x+z ONLY while `rg` is set, and `rg` was set for a body's torso and
+     nowhere else. Every prop vertex therefore pushed 0, every prop triangle hit the `TK = 0`
+     branch below, and a crate was three flat values across five thousand pixels (`props` at
+     dfc7586: CRATE 3 face levels over 4771 px, BARREL 5 over 5221) while the deck under it carried a
+     generated 64x64 texture with a mip chain.
+       PS_SLOPE is the one number a prop needs that a body does not. TS_SLOPE 9 is armour's: it is
+     9 luminance per screen pixel of a torso whose mean sits near 100, and a crate in a dim cell
+     means 48 (`props`' own (E) control), so the same slope is a 45 luma peak-to-peak seam on a
+     surface that is itself 48 - a zebra, not grain, and it would have walked straight through the
+     #371 brightness contract. Props get the SAME law with a slope scaled to their own mean: the
+     amplitude is still `SLOPE * projectedPeriod / 4`, so what stays constant as the player walks
+     past is luma-per-pixel and never amplitude (the #232 rejection of a fixed-amplitude term), and
+     past TS_MINP the same one-step coarsening applies. PS_MAX is the near-field ceiling, well under
+     TS_MAX 26 because the surface it lands on is darker.
+       The register itself needs no new term: a prop's authored geometry is in units of its OWN
+     height and `scale` is that height in metres, so the projected period of a 1/TS_CYC slice is
+     `BH*sc/(dist*TS_CYC)` exactly as for a body, and both the wave and its fade are already
+     written against that quantity. */
+  const PS_SLOPE = 3.4, PS_MAX = 12, PS_CYC = 25 / 3;
+  /* PS_CYC is 1/0.12 seams per authored unit, and the number is chosen, not tuned: a crate face is
+     0.72 authored units wide (PROPGEO.crate half extents 0.36), and 0.72 * 25/3 = 6 SEAMS EXACTLY.
+     That is what makes the wave's mean exactly 0 on every face instead of nearly 0. The wave is
+     sampled as u = frac(coord * TCYC) along a line, so a face whose u-span is a whole number of
+     periods integrates to zero; a face whose span is 7.2 periods (TS_CYC 10 on a 0.72-wide face)
+     leaves a fifth of a period unpaired and the crate's mean goes UP - measured with PS_CYC = 10,
+     the `props` (E) control's lit mean went 48 -> 50 on a crate that means 48, which #371 forbids.
+     The coarser level under TS_MINP divides the count by TS_LMAX = 2 and 6/2 = 3 is still whole, so
+     the same argument holds at range. PS_SLOPE/PS_MAX are armour's 9/26 scaled to a surface that
+     means 48 rather than 100; the LAW - amplitude from the pixel's own projected period - is the
+     body's and is not re-derived here. */
   let TAMP = 0, TK = 0, ST = null, TQ0 = 0, TQ1 = 0, TQ2 = 0, TCYC = 10;
   /* o.near swaps the DEPTH array rather than adding a branch to the pixel loop. The swap makes the
      same `if (occ < z) continue` compare the draw against ITSELF instead of against the frame: the
@@ -322,6 +354,12 @@ const MESH = (function () {
     const p0x = pa[0], p0y = pa[1], p0z = pa[2];            // pt shares one scratch array
     const pb = this.pt(bx, by, bz);
     let dx = pb[0] - p0x, dy = pb[1] - p0y, dz = pb[2] - p0z;
+    /* #232 authored, before the transform. For a TUBE the axis endpoints are not enough: a barrel's
+       staves run along y at x=z=0, so `ax+az` is 0 for the whole part and the ring would carry one
+       value around the circumference - a drum with no staves. #533 adds the ring vertex's own offset
+       to it, which is what makes a tube's structure vary AROUND it. It is added inside `this.rg`, so
+       with the register clear - every body tube, since rg is only ever set for a torso BOX - both
+       terms are 0 and the vertex stream is byte-identical to what it was. */
     const sva = this.rg ? ax + az : 0, svb = this.rg ? bx + bz : 0;   // #232 authored, before the transform
     ax = p0x; ay = p0y; az = p0z; bx = pb[0]; by = pb[1]; bz = pb[2];
     const L = Math.hypot(dx, dy, dz) || 1e-6;
@@ -335,11 +373,13 @@ const MESH = (function () {
     const n = this.ns || NS, RN = ring(n);           // #78: per-part subdivision, ring cached per count
     for (let i = 0; i < n; i++) {
       const cx = u[0] * RN[i * 2] + v[0] * RN[i * 2 + 1], cy = u[1] * RN[i * 2] + v[1] * RN[i * 2 + 1], cz = u[2] * RN[i * 2] + v[2] * RN[i * 2 + 1];
-      this.p.push(ax + cx * ra, ay + cy * ra, az + cz * ra, c[0], c[1], c[2]); this.e.push(this.em); this.s.push(sva);
+      this.p.push(ax + cx * ra, ay + cy * ra, az + cz * ra, c[0], c[1], c[2]); this.e.push(this.em);
+      this.s.push(this.rg ? sva + (cx + cz) * ra : 0);
     }
     for (let i = 0; i < n; i++) {
       const cx = u[0] * RN[i * 2] + v[0] * RN[i * 2 + 1], cy = u[1] * RN[i * 2] + v[1] * RN[i * 2 + 1], cz = u[2] * RN[i * 2] + v[2] * RN[i * 2 + 1];
-      this.p.push(bx + cx * rb, by + cy * rb, bz + cz * rb, c[0], c[1], c[2]); this.e.push(this.em); this.s.push(svb);
+      this.p.push(bx + cx * rb, by + cy * rb, bz + cz * rb, c[0], c[1], c[2]); this.e.push(this.em);
+      this.s.push(this.rg ? svb + (cx + cz) * rb : 0);
     }
     for (let i = 0; i < n; i++) {
       const j = (i + 1) % n;
@@ -417,8 +457,10 @@ const MESH = (function () {
        tell "in front of the prop" from "inside the prop" (#212). */
     barrel(b) {
       const RED = [120, 46, 30], RIM = [74, 30, 22], YEL = [160, 128, 24], MET = [150, 156, 164];
+      b.rg = 1;                                        // #533: the staves are the surface; the hoops stay flat
       b.tube(0, 0.03, 0, 0, 0.50, 0, 0.225, 0.245, RED);       // the staves, bulging at the bilge
       b.tube(0, 0.50, 0, 0, 0.93, 0, 0.245, 0.215, RED);
+      b.rg = 0;
       b.tube(0, 0.27, 0, 0, 0.33, 0, 0.255, 0.255, RIM);       // the two hoops
       b.tube(0, 0.66, 0, 0, 0.72, 0, 0.25, 0.25, RIM);
       b.tube(0, 0.42, 0, 0, 0.55, 0, 0.25, 0.25, YEL);         // the hazard band
@@ -434,7 +476,9 @@ const MESH = (function () {
          so a crate stops measuring 2.4x the wall behind it while still reading as the nearest solid thing
          in the frame. FRAME is untouched: it is already darker than the floor it stands on. */
       const WOOD = [78, 55, 31], FRAME = [70, 48, 24];
+      b.rg = 1;                                        // #533: the planks are the surface; the frame stays flat
       b.box(0, 0.44, 0, 0.36, 0.40, 0.36, WOOD);               // the body, 0.04 to 0.84
+      b.rg = 0;
       b.box(0, 0.85, 0, 0.375, 0.025, 0.375, FRAME);           // lid
       b.box(0, 0.05, 0, 0.375, 0.025, 0.375, FRAME);           // skid base
       b.box(0, 0.44, 0, 0.375, 0.055, 0.375, FRAME);           // one band, all four faces at once
@@ -1278,10 +1322,16 @@ const MESH = (function () {
        Under the gate the draw steps to one coarser level of the same pattern instead of switching the
        term off (#416 - the block at TS_CYC carries the measurement). The law is the same on both
        levels: what is held constant is the SLOPE, never the amplitude. */
-    let TPR = BH * sc / (Math.max(NEAR, Math.abs(tYc)) * TS_CYC);
+    let TPR = BH * sc / (Math.max(NEAR, Math.abs(tYc)) * (pr ? PS_CYC : TS_CYC));
     if (!ST) TPR = 0;                                     // no torso coords on this mesh: no term
-    else if (TPR < TS_MINP) { TPR *= 2; TCYC = TS_CYC / TS_LMAX; } else TCYC = TS_CYC;
-    TAMP = TPR <= TS_MINP ? 0 : Math.min(TS_MAX, TS_SLOPE * TPR * 0.25);
+    else if (TPR < TS_MINP) { TPR *= 2; TCYC = (pr ? PS_CYC : TS_CYC) / TS_LMAX; } else TCYC = pr ? PS_CYC : TS_CYC;
+    /* #533: a prop keeps the LAW and brings its own SLOPE. TS_SLOPE 9 belongs to armour that means
+       near 100; a crate in a dim cell means 48 and the same slope is a 45-luma peak-to-peak seam on
+       it. The projected period is the same quantity for both - a prop's authored geometry is in
+       units of its own height and `scale` is that height in metres - so only the slope and the
+       near-field ceiling differ, and what the eye holds constant across a walk past, luma per screen
+       pixel, is unchanged in kind. */
+    TAMP = TPR <= TS_MINP ? 0 : Math.min(pr ? PS_MAX : TS_MAX, (pr ? PS_SLOPE : TS_SLOPE) * TPR * 0.25);
     if (ROT) {
       // yaw+pitch+roll as one matrix, so a rig can point its bore along the firing ray.
       // The yaw-only branch below is untouched: this is the extra path a view model takes,
