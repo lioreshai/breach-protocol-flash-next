@@ -78,7 +78,15 @@ let SEAM = 1, SEAMD = 0.62, SEAMU = 0.13, SEAMW = 0.16, SEAMC = 0.22;
    `ds > 0` skips a junction that is off the top of the frame (the band would run into unwritten
    rows); `!riser` skips a slab side, whose top edge is somebody's FLOOR and is already treated by
    the lip creases above; `perp < FARB` skips a junction the far wash has already dissolved, where
-   a band would be the hard edge #19 is about rather than an edge in a surface. */
+   a band would be the hard edge #19 is about rather than an edge in a surface.
+
+   The fourth clause is `MAP.steps`, the same flag #100 puts on the riser branch and #170 on the
+   ground step queue, and it is what keeps a FLAT frame byte-identical. A one-unit level has a
+   wall->ceiling junction in it too - the face runs up to a ceiling at 1.0 - so without the flag this
+   band paints the flat world as well and every flat-parity digest in `flatparity` goes stale for a
+   term that is supposed to be about altitude. `surface`'s SEAM row is a VERTICALITY measurement: it
+   asks where the room stops and the roof starts, and in a world with one height there is no such
+   line to find. Flag at 0 the pass pays one test per drawn column and paints what it painted before. */
 let CSEAM = 1, CSEAMD = 0.34, CSEAMW = 0.6;
 /* #385: the crease's ABSOLUTE half, and it is AUTHORED content, not a global.
 
@@ -2718,7 +2726,7 @@ function castWalls(flash, fcR, fcG, fcB) {
     /* #369: the ceiling's side of this junction. Rows ABOVE `ds` are the ceiling plane the face
        ends at, so the band runs up from the edge and touches no face pixel; see CSEAM at :61 for
        why the fix is local and not a value, and which columns are deliberately skipped. */
-    if (CSEAM && !riser && ds > 0 && z1 > eyeZ && perp > CSEAMW + 0.15 && perp < FARB) {
+    if (CSEAM && doStep && !riser && ds > 0 && z1 > eyeZ && perp > CSEAMW + 0.15 && perp < FARB) {
       /* The band's WIDTH in rows is the ceiling plane's own projection, not a screen constant: a point
          CSEAMW metres back along the ceiling from the junction lands on row
          horizon - (z1-eyeZ)*BH/(perp-CSEAMW), so the band is the rows between that and the edge and
