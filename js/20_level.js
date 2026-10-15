@@ -59,6 +59,15 @@ const LEVELS = [
     // worst-roll floor at ceilBias terms (see the #369 note on this level in the issue) and lightening it
     // runs into the composited upper anchor above, so the deck keeps its light and the walls change.
     name: 'ABATOIR CORE', size: 36, rooms: 11, maxRoom: 11, wall: WT.MUSCLE, wall2: WT.TECH2,
+    // #421 DECISION 1 (maintainer, 2026-10-15): this sector ARRIVES at the authored bearing on EVERY deal.
+    // `seatFacing` reads the dealt grid, and on ABATOIR CORE the deck it can reach is far enough away that
+    // which face wins the scan is deal-dependent - the same level measured 0.600 on the pinned deal and
+    // -0.882 on another. A bearing that changes between deals is not a look the level authored, so this
+    // sector opts out by DECLARING its arrival heading here. It is the only level that does: ARCHIVE and
+    // RING derive (their arrival was empty before this change), and THE STACK is deliberately NOT pinned,
+    // because the remaining work on #421 is to move its authored plateau into the seat's reach - pinning
+    // it now would quietly make that work do nothing. See seatFacing.
+    seatAng: 0.6,
     floor: 'FLESH', ceil: 'SINEW', amb: 0.3, lampCol: [190, 255, 150], fogCol: [21, 8, 11], ceilBias: -0.12,
     lamps: 16, crates: 9, barrels: 12, spawn: { grunt: 8, hound: 7, brute: 3 }, pick: { health: 5, ammo: 6, armor: 2 },
     fixtures: ['VENT', 'STRIPE'],         // #400: the abattoir breathes; everything here is a duct
@@ -2159,10 +2168,66 @@ function buildAuthored(li) {
   placeWallFixtures(cfgL);                      // #400: the authored finale gets walls too
   exitX = ex + 0.5; exitY = ey + 0.5;
   const sp = nearestOpen(sx + 0.5, sy + 0.5);          // never spawn inside geometry: the collision
-  P.x = sp[0]; P.y = sp[1]; P.ang = 0.6; P.vx = P.vy = 0; P.z = floorAt(sp[0], sp[1]);  // probes read P
+  // #421: the heading is derived from the plan the loader just built, not the literal 0.6, UNLESS the level
+  // declares `seatAng` - see seatFacing. cfgL.seatAng is undefined for every level but ABATOIR CORE.
+  P.x = sp[0]; P.y = sp[1]; P.ang = seatFacing(sp[0], sp[1], cfgL.seatAng); P.vx = P.vy = 0; P.z = floorAt(sp[0], sp[1]);  // probes read P
   buildTint();
   return true;
 }
+/* #421: WHERE the player arrives facing. The literal was `P.ang = 0.6` on every sector and every deal,
+   and `surface`'s own SEAT row measures what a fixed heading throws away: on two sectors the raised band
+   the generator authored stands inside the 12 m the frame can show (19 and 28 columns with a floor over
+   their head) and the arrival frame carries zero pixels of it, because 0.6 rad points elsewhere. So aim
+   the seat at the face of the nearest deck it can actually see, preferring a face whose own cell already
+   reads as a soffit - that is the picture this issue was filed from: a floor over your head, and the lip
+   that says so. Deterministic (scan order, then distance, then the soffit preference) and it draws
+   NOTHING from Math.random, so no deal re-rolls (#90/#96: a generator whose draw count moves makes every
+   downstream measurement incomparable). With no deck in reach the shipped 0.6 stands and the level
+   arrives exactly as it did - which is what keeps the flat senses' fallback path unchanged.
+   The candidate is an air-to-air riser, not a wall: the far cell must be a full unit up AND the near cell
+   must be on the seat's own plane, so a mound or a pit lip two bands away cannot win the seat, and the
+   aim point is the middle of the face the wall pass actually draws ([min floor, max floor] of the pair).
+   #421 DECISION 1: a level that AUTHORS its arrival bearing wins outright - `authored` is `LEVELS[li].seatAng`
+   and the grid is never read for that sector. Without this the derived look is deal-dependent (ABATOIR CORE
+   read 0.600 on the pinned deal and -0.882 on another), which is not a bearing anyone authored. This is a
+   per-level opt-out rather than "any authored plan wins", so the hand-authored finale can still be turned by
+   the plateau move that is this issue's remaining half. */
+const SEAT_LOOK = 12;                                   // metres: the reach `surface`'s SEAT row grades
+function seatFacing(px, py, authored) {
+  if (typeof authored === 'number') return authored;    // the level says what you arrive looking at
+  const N = MAP.w, cs = MAP.ceilSlab, sf = floorAt(px, py), az = sf + cfg.eye;
+  for (let wantSoffit = 1; wantSoffit >= 0; wantSoffit--) {
+    let bx = 0, by = 0, best = Infinity;
+    for (let y = 1; y < MH - 1; y++) for (let x = 1; x < N - 1; x++) {
+      const i = y * N + x;
+      if (MAP.cell[i]) continue;
+      const f = MAP.fz[i] * ZQ;
+      if (f < sf + 1 - 1e-9) continue;                  // a deck, not a step: one unit up at least
+      for (let d = 0; d < 4; d++) {
+        const nx = x + DIRX[d], ny = y + DIRY[d];
+        if (nx < 1 || ny < 1 || nx >= N - 1 || ny >= MH - 1) continue;
+        const j = ny * N + nx;
+        if (MAP.cell[j] || MAP.fz[j] * ZQ > sf + ZQ) continue;   // the face must look down on the seat's band
+        if (wantSoffit && !(cs && cs[j] & 1)) continue;          // does that face have a soffit over ITS head?
+        const fx = (x + nx + 1) * 0.5, fy = (y + ny + 1) * 0.5;
+        const dd = Math.hypot(fx - px, fy - py);
+        if (dd > SEAT_LOOK || dd < 1 || dd >= best) continue;
+        // The TEST POINT sits 0.2 m this side of the boundary, at the face's own mid-height. Aimed AT
+        // the boundary the solver reports a RISER exit at that t and `losZ` calls the face invisible -
+        // measured: the first version of this function returned the fallback on all four sectors, and
+        // aimed at the raised cell's CENTRE it fails the same way one step earlier, because the target
+        // point is then below that cell's own floor. One fifth of a metre back is the cheapest point
+        // that is unambiguously in the air the eye can occupy and still on the face's bearing.
+        const ux = (fx - px) / dd, uy = (fy - py) / dd;
+        if (!losZ(px, py, az, fx - ux * 0.2, fy - uy * 0.2, (sf + f) * 0.5)) continue;
+        best = dd; bx = fx; by = fy;
+      }
+    }
+    if (best < Infinity) return Math.atan2(by - py, bx - px);
+  }
+  return 0.6;                                            // nothing in reach: the shipped heading
+}
+
 /* #353: an overlook is only a fight if somebody stands above it. The pairing pass finds the geometry;
    this puts a body on it. Placement above is a `takeNear` draw and cannot be asked for a specific cell
    without drawing from Math.random a second time (#90/#96: a generator whose draw count moves makes
@@ -2650,7 +2715,9 @@ function genLevel(li) {
     // geometry is unrecoverable - the collision probes would sample the player's own
     // cell - so walk out to the nearest open cell instead of spawning into a wall.
     const sp = seat;                    // #154: the same nearestOpen the prop passes subtracted
-    P.x = sp[0]; P.y = sp[1]; P.ang = 0.6; P.vx = P.vy = 0; P.z = floorAt(sp[0], sp[1]);
+    // #421: derived arrival heading; see seatFacing. No draw, so the deal downstream is the deal it dealt.
+    // THE STACK authors no `seatAng`, so the finale derives like the generated sectors.
+    P.x = sp[0]; P.y = sp[1]; P.ang = seatFacing(sp[0], sp[1], cfgL.seatAng); P.vx = P.vy = 0; P.z = floorAt(sp[0], sp[1]);
     return true;
   }
   // extremely unlikely fallback: reuse a smaller successful layout
