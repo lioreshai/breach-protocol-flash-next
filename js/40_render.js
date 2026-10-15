@@ -141,6 +141,29 @@ const SEAMK = 0.45;                             // deck LIGHT at which the absol
    sqrt(1-t) R = 0.888 R: R = 0.32 m for a grunt, visible to 0.28 m, inside its 0.42 m footprint), and
    the face term is confined to a band as tall as the patch
    is wide, zero above it, instead of keeping 75% of the term to the crown.
+   #18 again, the BODY half. The prop half shipped at SHADOW_PR +0.18 (#511) and moved a crate's band
+   outside its own face; the body's own patch was left as #178 authored it, and a body still floats.
+   Widening R was tried and is NOT shippable at this increment: with the ink otherwise unchanged, R -0.10
+   -> +0.05 reads a leak census of 453/1103/469 px against the caps 302/851/304 (1.3-1.7x the sanctioned
+   area, and the rows go red), because a grounding RING is ground px outside the silhouette by construction
+   and that cap is sized by the silhouette - re-deriving it from the caster's own annulus is its own
+   increment and is named as the remaining work on #18. What IS shippable is moving the same world
+   footprint OUT FROM UNDER THE TORSO and into the annulus the eye can reach: t^3 spends most of its ink
+   at the disc's centre, which a body standing on it occludes, and only a remainder survives out at the
+   visible edge. t^2 is flatter, so at the same VISIBLE reach (D*t^F falls under the probe's 4-luma
+   counting threshold at t = (4/(255 D))^(1/F), so the edge sits at R*sqrt(1-t): 0.816 R = 0.261 m for a
+   grunt before, 0.909 R = 0.254 m now - the footprint did NOT grow) the surviving ink is 25-28 % deeper
+   on every sector, which is the number that reads as a base. MEASURED depth of the band the census
+   counts (mean luminance removed from the ground px outside the silhouette, `contrast`'s own patch rows,
+   4 levels x 3 cameras, SEED 12345):
+     LVL 0  10.4 / 8.5 / 11.6  ->  13.0 / 10.6 / 14.8      LVL 1   8.8 / 8.0 / 10.7 -> 10.7 / 9.7 / 13.2
+     LVL 2  13.5 / -   / 15.8  ->  17.2 / -   / 19.9      LVL 3  16.3 / 14.6 / 15.6 -> 20.8 / 18.6 / 20.2
+   and the COST side moved by ~5 % of the sanctioned area, never past it (L0 leak 183/400/184 -> 194/446/
+   191 px against caps 302/851/304; no threshold in tools/view.js was touched by this change). R is pulled
+   4 cm IN for exactly that reason: flattening F grows the painted area, and pulling R in is what keeps
+   the census where it was. A flatter falloff is also what a contact zone looks like - a hard t^3 core
+   inside a soft outer skirt reads as a decal with a dark rim, not as weight. F = 2 lands on the term's
+   own t*t fast path in both ground copies and the wall loop, so this spends no raster budget.
    SHADOW_R is metres added to a body's collision radius to get the patch radius (negative = the patch
    stops inside the footprint);
    SHADOW_ZT is how far a floor pixel's plane may be from the body's feet plane and still take the
@@ -149,7 +172,7 @@ const SEAMK = 0.45;                             // deck LIGHT at which the absol
    SHADOW_F is the falloff exponent in t = 1-(d/R)^2, 1 being a flat-topped disc and 3 a tight core;
    SHADOW_ZF is how much of the term is left at the TOP of that contact band on a face (above it,
    nothing). */
-let SHADOW = 1, SHADOW_D = 0.42, SHADOW_R = -0.10, SHADOW_ZT = 0.02, SHADOW_F = 3,
+let SHADOW = 1, SHADOW_D = 0.52, SHADOW_R = -0.14, SHADOW_ZT = 0.02, SHADOW_F = 2,
     SHADOW_ZF = 0.25, SHADOW_FAR = 18;
 /* #371 item 3: the same term, on a PROP. A crate's lower edge used to be as bright as its upper edge,
    because nothing said where the crate meets the floor. This is not a new mechanism - it registers the
@@ -175,8 +198,21 @@ let SHADOW = 1, SHADOW_D = 0.42, SHADOW_R = -0.10, SHADOW_ZT = 0.02, SHADOW_F = 
    leaves the props in both arms, so a prop's patch cancels in its own diff: the prop half of #18 costs
    the coverage oracle nothing, and the cap is untouched by this increment. The BODY half is what the
    cap binds, and it is the work still open on #18.
-   SHADOW_PROP 0 is the A/B the `props` probe's patch row runs against - one assignment, no rebuild. */
-let SHADOW_PROP = 1, SHADOW_PR = 0.18;
+   SHADOW_PROP 0 is the A/B the `props` probe's patch row runs against - one assignment, no rebuild.
+   THE FALLOFF IS PER CASTER, NOT GLOBAL. #18's body retune started as one edit to the shared
+   `t^SHADOW_F * SHADOW_D` expression and that expression grounds PROPS too - both casters are entries
+   of the same grid and `shadowFloor` answers one term for both - so flattening it repainted a crate's,
+   a barrel's and a lamp's contact band as a side effect. That is a gate failure, not a free bonus:
+   `node tools/view.js props` measures a prop's own silhouette from a frame-difference mask, and once
+   the deck further below the barrel darkens too the mask contains deck and the row is no longer
+   measuring only the prop. So a disc carries its OWN exponent and dwell (SH_FX / SH_FW, written where
+   the disc is registered), the body pair is SHADOW_F / SHADOW_D and the prop pair is SHADOW_PF /
+   SHADOW_PD, and the prop pair is at main's values (3 / 0.42) so a crate grounds exactly the shadow
+   that shipped. The expression is evaluated in the SAME SHAPE as before - `f === 2 ? t*t : pow(t,f)`
+   times the entry's dwell - so a prop's pixels are not merely close to main's, they run the identical
+   arithmetic. A body on the t*t fast path is cheaper than main was; a prop still pays Math.pow, which
+   is what main paid for every entry. */
+let SHADOW_PROP = 1, SHADOW_PR = 0.18, SHADOW_PF = 3, SHADOW_PD = 0.42;
 /* The wall bilinear fetch is inlined at its one call site below rather than factored into a
    function that writes its result into a scratch array: a module-global typed-array out-param
    blocks V8 inlining and register allocation, and the same code inlined measured 21 -> 12 ms
@@ -1019,6 +1055,10 @@ const SH_CAP = 96;
 let SH_HEAD = null, SH_NEXT = new Int32Array(SH_CAP), SH_N = 0;
 const SH_X = new Float64Array(SH_CAP), SH_Y = new Float64Array(SH_CAP), SH_Z = new Float64Array(SH_CAP);
 const SH_I = new Float64Array(SH_CAP), SH_H = new Float64Array(SH_CAP);
+/* the falloff a DISC applies, carried by the disc: exponent (2 = a body's flattened contact band, 3 =
+   main's tight core) and dwell. Two casts share one grid, so the term cannot be one global pair - see
+   the SHADOW_PF note above. Read in the same place the disc's own 1/r^2 is read. */
+const SH_FX = new Uint8Array(SH_CAP), SH_FW = new Float64Array(SH_CAP);
 function buildShadowGrid() {
   const N = MAP.w, nn = N * N;
   if (!SH_HEAD || SH_HEAD.length !== nn) SH_HEAD = new Int32Array(nn);
@@ -1034,6 +1074,7 @@ function buildShadowGrid() {
     if (ex * ex + ey * ey > far2) continue;
     const n = SH_N, r = SHADOW_R + e.r, fz = floorAt(e.x, e.y);
     SH_X[n] = e.x; SH_Y[n] = e.y; SH_Z[n] = fz; SH_I[n] = 1 / (r * r); SH_H[n] = r;
+    SH_FX[n] = SHADOW_F; SH_FW[n] = SHADOW_D;
     const x0 = (e.x - r) | 0, x1 = (e.x + r) | 0, y0 = (e.y - r) | 0, y1 = (e.y + r) | 0;
     for (let cy = y0; cy <= y1; cy++) {
       if (cy < 0 || cy >= N) continue;
@@ -1055,6 +1096,7 @@ function buildShadowGrid() {
       const n = SH_N, r = MESH.foot(p.kind) * (p.scale || 1) + SHADOW_PR;
       if (r <= 0) continue;                             // a kind with no authored footprint grounds nothing
       SH_X[n] = p.x; SH_Y[n] = p.y; SH_Z[n] = floorAt(p.x, p.y); SH_I[n] = 1 / (r * r); SH_H[n] = r;
+      SH_FX[n] = SHADOW_PF; SH_FW[n] = SHADOW_PD;
       const x0 = (p.x - r) | 0, x1 = (p.x + r) | 0, y0 = (p.y - r) | 0, y1 = (p.y + r) | 0;
       for (let cy = y0; cy <= y1; cy++) {
         if (cy < 0 || cy >= N) continue;
@@ -1078,7 +1120,8 @@ function shadowFloor(wx, wy, plane, k) {
     const dx = wx - SH_X[k], dy = wy - SH_Y[k];
     const t = 1 - (dx * dx + dy * dy) * SH_I[k];
     if (t <= 0) continue;
-    return (SHADOW_F === 2 ? t * t : Math.pow(t, SHADOW_F)) * SHADOW_D;
+    const fx = SH_FX[k];
+    return (fx === 2 ? t * t : Math.pow(t, fx)) * SH_FW[k];
   }
   return 0;
 }
@@ -2712,7 +2755,8 @@ function castWalls(flash, fcR, fcG, fcB) {
           const dx = fhx - SH_X[k], dy = fhy - SH_Y[k];
           const t = 1 - (dx * dx + dy * dy) * SH_I[k];
           if (t <= 0) continue;
-          const tt = (SHADOW_F === 2 ? t * t : Math.pow(t, SHADOW_F)) * SHADOW_D;
+          const fx = SH_FX[k];
+          const tt = (fx === 2 ? t * t : Math.pow(t, fx)) * SH_FW[k];
           if (tt > shK) { shK = tt; shA = SH_Z[k]; shB = SH_Z[k] + SH_H[k]; }
         }
       }
