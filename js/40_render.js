@@ -127,11 +127,24 @@ let SHADOW = 1, SHADOW_D = 0.42, SHADOW_R = -0.10, SHADOW_ZT = 0.02, SHADOW_F = 
    radius because a body's collision radius is a circle the silhouette always covers; a prop's footprint
    (`MESH.foot`) is the radius to the CORNER of a box, so a patch pulled inside it would sit under the
    crate's inscribed circle and be hidden by the crate itself at eye height. SHADOW_PR is measured in
-   the other direction: the crate's authored box is 0.375*0.72 = 0.19 m to its FACE against 0.27 m to
-   its corner, so +0.04 puts the visible edge of the patch a few centimetres outside the face, which is
-   where a contact zone actually is, while staying well inside the footprint the prop already occludes.
+   the other direction, and #18 moved it a long way in that direction: the crate's authored box is
+   0.375*0.72 = 0.19 m to its FACE against 0.27 m to its corner, so the shipped +0.04 put the patch's
+   VISIBLE edge (D*t^F falls under 1/255 at t = 0.2106, so the edge sits at 0.888 R) at 0.888*0.31 =
+   0.275 m - flush with the corner, a few centimetres of skirt past a face that is already 8 cm inside
+   it. At the engagement ranges that is 1-2 screen px of darkening and the crate reads as a decal on
+   the deck: its lower edge is as bright as its top edge. +0.18 puts the visible edge at 0.888*0.45 =
+   0.40 m, i.e. 0.21 m of contact band OUTSIDE the face, which is what a contact zone is. The ink
+   doubles (D*pi*R^2/(F+1): 0.032 -> 0.067) and it is the same ink spread over an annulus the eye can
+   actually see instead of a disc under the crate. MEASURED cost, `props` probe at its two gated seats:
+   ground pixels darkened outside the silhouette 137/174 -> 456/559 px, i.e. 1.6-2.6% -> 6.4% of the
+   prop's own silhouette px, against the row's own HALOMAX 0.30 - 4.7x of headroom left before the row
+   calls it a halo rather than a contact zone. `contrast`'s leak census does not move AT ALL (183/400/
+   184 px at cam 0/1/2, byte-identical to main) because that oracle's control render removes BODIES and
+   leaves the props in both arms, so a prop's patch cancels in its own diff: the prop half of #18 costs
+   the coverage oracle nothing, and the cap is untouched by this increment. The BODY half is what the
+   cap binds, and it is the work still open on #18.
    SHADOW_PROP 0 is the A/B the `props` probe's patch row runs against - one assignment, no rebuild. */
-let SHADOW_PROP = 1, SHADOW_PR = 0.04;
+let SHADOW_PROP = 1, SHADOW_PR = 0.18;
 /* The wall bilinear fetch is inlined at its one call site below rather than factored into a
    function that writes its result into a scratch array: a module-global typed-array out-param
    blocks V8 inlining and register allocation, and the same code inlined measured 21 -> 12 ms
@@ -611,6 +624,86 @@ let GJIT = 1, GLRP = 1, GNDAX = 1, AXMIN = 1, GLC = null, GNDFT = 1, GNDRO = 1, 
    load on the pixels that already blend; `DEV.set('gndfade', 0)` still removes the term entirely. */
 let GNDFA = 1;
 const GJITPX = 48;      // GJIT 1 keeps the mirror only where a cell is this many px wide or wider
+
+/* #19, TAKE FIFTEEN - THE WALK. The graded blend above hands (1 - 1/F) of a minified pixel to ONE level
+   coarser, and take eight made that share a pair instead of a texel. It is still TWO texels of a strip
+   that is F texels long: at F = 32 a 2-texel box decides 97 % of the pixel, so 30 of the 32 texels the
+   pixel covers are never read, and which two you get depends on the pixel's phase in the strip. Phase
+   varying ACROSS a row while staying put DOWN a column is, in perspective, a family of lines through the
+   vanishing point - the fan, on the surface seen most edge-on. The picture said this is where the ceiling
+   fan lives: a ceiling rendered with its texel taken away and its light and geometry left alone has no
+   sunburst at all (issue #19, take fifteen), and mip SELECTION is separately falsified there (an
+   anisotropy-ratio sweep moves that streak by one point and the picture not at all).
+   So the un-carried share is now walked up the CHAIN instead of parked one level up. Level k+j gets the
+   share of the strip its own texel can carry,
+
+     c_j = min(1, 2^j / F)                w_j = c_j - c_{j-1},  c_0 = min(1, 1/F)
+
+   and the DEEPEST level read takes whatever the chain could not reach, so the weights sum to 1. A tap at
+   level k+j is a box 2^j texels long, placed at the same world half-span as the fine pair (the offset
+   halves per level, which is the same distance in the level it belongs to - take eight's rule, one
+   level further). For F <= 2 only ONE level is ever read and the weights are main's exactly, so the near
+   field is byte-identical; the walk only runs where the footprint is longer than the level can carry.
+   GWALK is the depth knob and the A/B: 1 = the single coarse pair as #498 shipped it (main), 3 = the
+   walk. `DEV.set('gndwalk', 1)` is one call, and `DEV.set('gndfade', 0)` still removes the coarse share
+   entirely, which this term rides - it is the same blend, read from more of the chain. */
+let GWALK = 1;
+const GWN = 4;                                   // hard cap on levels walked (mips are 5 deep)
+
+/* #19, TAKE SIXTEEN - THE CEILING WASH, and the measurement that decided its shape.
+   Take fifteen falsified COVERAGE (reading the whole footprint from the chain moved the ceiling streak by
+   one point), and the scope call then funded the other look: fade a ceiling's texel toward its own
+   chain's mean "graded by the pixel's own distance, near ceiling keeping its material". The first version
+   of this term was exactly that, with the ramp starting at the census's own 4 m band edge, and it moved
+   the ceiling streak 25/30/27/8 -> 24/29/25/6: inside the +-3 point cross-process wobble this issue
+   records, so not a result. `mip`'s band row says why, and it is the reason the term is now graded the
+   way it is:
+
+     L1 ceiling, streak per distance band, shipped / mush frame with NO texture at all
+       <4 m   63 / 11        4-12 m  47 / 44        12 m+  58 / 59
+
+   A ceiling's mid and far bands are ALREADY at their no-texture floor: there is nothing left to average
+   away out there - what reads at 4-12 m and 12 m+ is the LIGHT and the geometry, and a distance ramp
+   spends its whole authority on the two bands that carry five points. Fifty-two of that level's
+   sixty-three points of near-band ceiling gradient are texture. So the grade is the pixel's own FOOTPRINT,
+   which is what actually says whether a texel can be placed, and the wash is applied to the share the
+   selected level cannot carry:
+
+     F  = the pixel's footprint along its long axis, in texels of the level it selected (take eight's F)
+     w  = 1 - min(1, 1/F)                         (CEILING rows only)
+
+   F <= 1 - a pixel whose footprint is one texel or less - keeps its texel exactly, so the ceiling under
+   the player is main byte for byte and the near ceiling keeps its grain. Past that, the share of the
+   strip the level's box cannot cover goes to the material's mean instead of to a coarser TEXEL: the walk
+   (#504) spends that share on level k+1's pair, which still has a hard edge at a world-space boundary,
+   and in perspective a row of hard edges at a varying phase is a family of lines through the vanishing
+   point. A mean has no edge at any scale or phase. On ceiling rows this term therefore REPLACES the walk
+   rather than stacking on it, which also makes those rows one to three texel loads cheaper.
+   The target is texAvg's meanNE - the mean of the NON-EMISSIVE texels - because an emissive texel has
+   already returned on its light-source path above, and meanNE is the average albedo a LIT pixel converges
+   to in the far wash too. Floors keep the walk and are not washed: 64-82% of the FLOOR's own gradient sits
+   under 4 m, where its texel is 25 px wide and the deck is the thing the player aims over.
+
+   MEASURED, AND IT DOES NOT SHIP ON. `BANDS=1 node tools/view.js mip`, one process per tree:
+     main cf308cb   ceil 25 / 30 / 27 / 8   floor 41 / 42 / 52 / 57   detail 22 / 22 / 30 / 21
+     this term      ceil 23 / 28 / 24 / 7   floor 41 / 42 / 52 / 57   detail 21 / 21 / 29 / 21
+   Two to four points of a gap whose acceptance is 18 / 20 / 18, against the +-3 point cross-process wobble
+   this issue already records. The floor rows are byte-identical (the term cannot reach them) and the
+   ceiling's own band rows say where the mechanism runs out of road. L0 ceiling, per band - this term,
+   shipped, and the mush frame that carries NO texture at all:
+     <4 m   67  vs  69 shipped  vs  19 mush     4-12 m  37 vs 40 vs 34     12 m+  12 vs 15 vs 15
+   The mid and far bands are ALREADY at their no-texture floor: out there a ceiling row is light and
+   geometry, not texel, so a wash aimed at them spends its authority on five points. The gradient is inside
+   4 m, where the fetch is MAGNIFIED, and a second arm that washed the magnified pixels too (w = 1 - F
+   below F = 1) moved L0's near band 69 -> 67 and its ceiling 25 -> 23: a magnified pixel is not averaging a
+   strip, it is standing inside one texel, and what varies across the row is WHICH texel it stands in - no
+   area term reaches that. So CGW ships at 0 - main's ceiling, pixel for pixel, no reference re-keyed - and
+   the term stays in the tree as the one-constant A/B of what the wash does and does not own, beside the
+   `gndwalk` arm #504 left for the same reason. `DEV.set('gndwash', 1)` is the arm. */
+let CGW = 0;
+const gwd = new Array(GWN), gww = new Float64Array(GWN), gws = new Float64Array(GWN),
+      gwmw = new Int32Array(GWN), gwox = new Int32Array(GWN), gwoy = new Int32Array(GWN),
+      gwmk = new Int32Array(GWN * 2);            // masks, [x,y] per level
 
 /* #19, TAKE THREE - THE FETCH. The two terms above are not what combs a plane, and neither is the mip
    choice. On the row loop's own pixels - the NEAR and MID field - what combs it is that the pass takes
@@ -1229,13 +1322,37 @@ function castGround(flash, fcR, fcG, fcB) {
     /* #19 take six, the ROW copy: F is a row constant here, because the row's mip, its texel scale and
        its column delta all are - so the blend is graded per ROW in this copy and per PIXEL in the other
        one, which is the same grading at the resolution each copy resolves its mip at. */
-    let ftd = null, fW = 0, fmw = 0, fmx = 0, fmy = 0, fms = 0;
-    if (GNDFA && kRow + 1 < tex.mips.length) {
+    /* The walk, once per ROW: F, the chain levels above this row's mip, their weights, scales and mask
+       are all row constants here (the deferred copy reads the same rule from the pixel's own footprint).
+       Weights are built so they sum to 1 by construction: c starts at the share level kRow carries and
+       each level takes the strip it can cover, the last one taking the remainder. */
+    let gnw = 0, gW0 = 1, cgW = 0, cgR = 0, cgG = 0, cgB = 0;
+    /* #19 take sixteen, the ROW copy. F, the share and the mean are all row constants here, so the ceiling
+       pixel body pays ONE test and three fused mults and loads NO texel for its un-carried share - the
+       wash is cheaper on a ceiling row than the walk it replaces. Past FARB the row is filled by the far
+       branch above, which already paints this same mean, so the two cannot disagree at the boundary. */
+    if (CGW && !isF) {
+      const fC = colA * colA * 4 >= rowT2 ? colA * 2 : Math.sqrt(rowT2);
+      if (fC > 1) {
+        const mmC = tex.mips[tex.mips.length - 1];
+        texAvg(mmC);
+        gW0 = 1 / fC; cgW = 1 - gW0;
+        cgR = mmC.meanNE[0]; cgG = mmC.meanNE[1]; cgB = mmC.meanNE[2];
+      }
+    } else if (GNDFA && kRow + 1 < tex.mips.length) {
       const fLong = colA * colA * 4 >= rowT2 ? colA * 2 : Math.sqrt(rowT2);
       if (fLong > 1) {
-        const mu = tex.mips[kRow + 1];
-        ftd = mu.data; fmw = mu.w; fmx = mu.w - 1; fmy = mu.h - 1; fms = sc * mu.w;
-        fW = GNDFA * (1 - 1 / fLong);
+        let c = 1 / fLong, j = 1, sum = 0;
+        for (; j <= GWALK && kRow + j < tex.mips.length; j++) {
+          const last = j === GWALK || kRow + j + 1 >= tex.mips.length;
+          const cn = last || (1 << j) >= fLong ? 1 : (1 << j) / fLong;
+          const mu = tex.mips[kRow + j];
+          gwd[j - 1] = mu.data; gwmw[j - 1] = mu.w; gwmk[(j - 1) * 2] = mu.w - 1; gwmk[(j - 1) * 2 + 1] = mu.h - 1;
+          gws[j - 1] = sc * mu.w; gwox[j - 1] = j - 1; gww[j - 1] = GNDFA * (cn > c ? cn - c : 0);
+          sum += gww[j - 1]; c = cn; gnw = j;
+          if (c >= 1) break;
+        }
+        gW0 = 1 - sum;                        // the selected level keeps the share its texel carries
       }
     }
     let nm = 0;
@@ -1437,33 +1554,41 @@ function castGround(flash, fcR, fcG, fcB) {
            emits, exactly as the wall pass decides it for a bilinear quartet (js/40_render.js:1568). */
         if ((c1 >>> 24) === 253 || (c2 >>> 24) === 253) em = 253;
       }
-      if (fW > 0) {                          // #19 take six: the share of this pixel's footprint its
-        const vx = wx * fms, vy = wy * fms;  // own level cannot carry, from one level coarser
-        let t2 = vx | 0, t3 = vy | 0;
-        if (vx < 0) t2--;
-        if (vy < 0) t3--;                    // floor, not truncate - the same guard as the point fetch
-        t2 &= fmx; t3 &= fmy;
-        if (mir & 1) t2 = (fmx - t2 - 1) & fmx;
-        if (mir & 2) t3 = (fmy - t3 - 1) & fmy;
-        /* THE COARSE SHARE IS AN AREA, NOT A TEXEL (#19 take eight). This blend hands (1 - 1/F) of the
-           pixel to one level coarser, so the longer the footprint the MORE of the pixel that level
-           decides - and until now that share was ONE texel of it, stretched along the same ray by the
-           same arithmetic the axial pair two blocks above exists to defeat. Weight and defect grew
-           together: at F = 8 eighty percent of the pixel was a magnified point, which is why the deck
-           kept its fan after the pair shipped (the pair owns 1/F of the pixel and the far field is
-           washed flat before it can show). So the coarse share takes the SAME symmetric pair, at HALF
-           the fine offset - a coarse texel is two fine texels, so half the offset is the same world
-           distance in the level it belongs to. A symmetric pair does not care about sign, and the
-           offset is taken as a MAGNITUDE on purpose: the shipped rounding of ox is round-half-UP, and
-           halving the rounded value directly would make the filter depend on which way the ray points. */
-        const fox = (oxi < 0 ? 1 - oxi : oxi + 1) >> 1, foy = (oyi < 0 ? 1 - oyi : oyi + 1) >> 1;
-        const cA = ftd[((t3 - foy) & fmy) * fmw + ((t2 - fox) & fmx)];
-        const cB = ftd[((t3 + foy) & fmy) * fmw + ((t2 + fox) & fmx)];
-        cr += (((cA & 255) + (cB & 255)) * 0.5 - cr) * fW;
-        cg += ((((cA >> 8 & 255) + (cB >> 8 & 255)) * 0.5) - cg) * fW;
-        cb += ((((cA >> 16 & 255) + (cB >> 16 & 255)) * 0.5) - cb) * fW;
+      if (gnw) {                              // the walk's weighted sum; the shares add to ONE, so no
+        let ar = 0, ag = 0, ab = 0;           // pixel gets brighter or darker from WHERE its area is read
+        for (let q = 0; q < gnw; q++) {
+          const fd = gwd[q], fmx = gwmk[q * 2], fmy = gwmk[q * 2 + 1], fmw = gwmw[q];
+          const vx = wx * gws[q], vy = wy * gws[q];
+          const sq = gww[q];
+          if (sq <= 0) continue;
+          let t2 = vx | 0, t3 = vy | 0;
+          if (vx < 0) t2--;
+          if (vy < 0) t3--;                  // floor, not truncate - the same guard as the point fetch
+          t2 &= fmx; t3 &= fmy;
+          if (mir & 1) t2 = (fmx - t2 - 1) & fmx;
+          if (mir & 2) t3 = (fmy - t3 - 1) & fmy;
+          /* THE COARSE SHARE IS AN AREA, NOT A TEXEL (#19 take eight, generalized by take fifteen). The
+             pair spans the strip at the scale of the level it is read from: a coarse texel is two fine
+             texels, so HALF the fine offset is the same world distance one level up, a quarter of it two
+             levels up - the shift is the level's index. A symmetric pair does not care about sign, and the
+             offset is a MAGNITUDE on purpose: the shipped rounding of ox is round-half-UP, and halving the
+             rounded value directly would make the filter depend on which way the ray points. */
+          const sh = gwox[q], fox = (oxi < 0 ? 1 - oxi : oxi + 1) >> (sh + 1), foy = (oyi < 0 ? 1 - oyi : oyi + 1) >> (sh + 1);
+          const cA = fd[((t3 - foy) & fmy) * fmw + ((t2 - fox) & fmx)];
+          const cB = fd[((t3 + foy) & fmy) * fmw + ((t2 + fox) & fmx)];
+          ar += ((cA & 255) + (cB & 255)) * 0.5 * sq;
+          ag += (((cA >> 8 & 255) + (cB >> 8 & 255)) * 0.5) * sq;
+          ab += (((cA >> 16 & 255) + (cB >> 16 & 255)) * 0.5) * sq;
+          /* Colour only, as the single coarse tap was: a coarse texel's alpha describes an AREA, not this
+             pixel's footprint, and deeper mips go uniformly 253 (#124). */
+        }
+        cr = cr * gW0 + ar; cg = cg * gW0 + ag; cb = cb * gW0 + ab;
       }
       if (em === 253) { px[i] = 0xFF000000 | clampi(cb * inv + fB) << 16 | clampi(cg * inv + fG) << 8 | clampi(cr * inv + fR); continue; }
+      /* #19 take sixteen, ROW COPY: the wash is an albedo mix, so it happens BEFORE the light multiply and
+         after the emissive early return - a light source is not a surface to average, and a ceiling lamp
+         20 m out is still a lamp. An emissive texel has already left by the line above. */
+      if (cgW) { cr = cr * gW0 + cgR * cgW; cg = cg * gW0 + cgG * cgW; cb = cb * gW0 + cgB * cgW; }
       /* #421, ROW COPY: the plane this pixel lies on is a FLOOR seen from below - a neighbour column's
          walkable deck, whose altitude `ceilAt` handed to this column's ceiling plane. Put the soffit's
          own material on the TEXEL, ahead of the light term, so the room below still decides how bright
@@ -1933,16 +2058,40 @@ function groundPixel(x0, x1, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb
   } else k = mipSel(planeX * stepBase * dS, planeY * stepBase * dS, rx * (dS / absP), ry * (dS / absP), sc, tex);
   const m = tex.mips[k];
   const mw = m.w, mh = m.h, ms = sc * m.w, td = m.data, mask = mw - 1, maskH = mh - 1;
-  /* #19 take six, the DEFERRED copy: this pixel's own mip, so its own F. Same rule, same arithmetic,
-     second copy - AGENTS.md counts the duplication as the price of the row loop's registers. */
-  let ftd = null, fW = 0, fmw = 0, fmx = 0, fmy = 0, fms = 0;
-  if (GNDFA && k + 1 < gMN) {
+  /* #19 take fifteen, the DEFERRED copy: this pixel's own mip, so its own F and its own walk. Same
+     rule, same arithmetic, second copy - AGENTS.md counts the duplication as the price of the row loop's
+     registers. Weights sum to 1: level k carries min(1,1/F), level k+j carries the strip its texel can
+     cover, and the deepest level read takes the remainder the chain could not reach. */
+  let gnw = 0, gW0 = 1, cgW = 0, cgR = 0, cgG = 0, cgB = 0;
+  /* #19 take sixteen, the DEFERRED copy of the ceiling wash: this pixel's OWN mip and OWN footprint, same
+     rule and the same convex form as the row copy (AGENTS.md counts the duplication as the price of the
+     row loop's registers). Past FARB gMFar answered this pixel above, and it answered it with this same
+     mean, so the two copies cannot disagree at the boundary. */
+  if (CGW && !isF) {
+    const colT2 = gMCf * ms * 0.5, colA2 = colT2 < 0 ? -colT2 : colT2;
+    const rowT22 = (gMCxs * gMCxs + gMCys * gMCys) * ms * ms;
+    const fC = colA2 * colA2 * 4 >= rowT22 ? colA2 * 2 : Math.sqrt(rowT22);
+    if (fC > 1) {
+      const mmC = tex.mips[gMN - 1];
+      texAvg(mmC);
+      gW0 = 1 / fC; cgW = 1 - gW0;
+      cgR = mmC.meanNE[0]; cgG = mmC.meanNE[1]; cgB = mmC.meanNE[2];
+    }
+  } else if (GNDFA && k + 1 < gMN) {
     const colT = gMCf * ms * 0.5, colA = colT < 0 ? -colT : colT, rowT2 = (gMCxs * gMCxs + gMCys * gMCys) * ms * ms;
     const fLong = colA * colA * 4 >= rowT2 ? colA * 2 : Math.sqrt(rowT2);
     if (fLong > 1) {
-      const mu = tex.mips[k + 1];
-      ftd = mu.data; fmw = mu.w; fmx = mu.w - 1; fmy = mu.h - 1; fms = sc * mu.w;
-      fW = GNDFA * (1 - 1 / fLong);
+      let c = 1 / fLong, j = 1, sum = 0;
+      for (; j <= GWALK && k + j < gMN; j++) {
+        const last = j === GWALK || k + j + 1 >= gMN;
+        const cn = last || (1 << j) >= fLong ? 1 : (1 << j) / fLong;
+        const mu = tex.mips[k + j];
+        gwd[j - 1] = mu.data; gwmw[j - 1] = mu.w; gwmk[(j - 1) * 2] = mu.w - 1; gwmk[(j - 1) * 2 + 1] = mu.h - 1;
+        gws[j - 1] = sc * mu.w; gwox[j - 1] = j - 1; gww[j - 1] = GNDFA * (cn > c ? cn - c : 0);
+        sum += gww[j - 1]; c = cn; gnw = j;
+        if (c >= 1) break;
+      }
+      gW0 = 1 - sum;
     }
   }
   /* The same two-sample fetch as the row loop, from this pixel's OWN footprint: its row delta is
@@ -1996,26 +2145,35 @@ function groundPixel(x0, x1, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb
     cb = cb * 0.5 + (c1 >> 16 & 255) * 0.25 + (c2 >> 16 & 255) * 0.25;
     if ((c1 >>> 24) === 253 || (c2 >>> 24) === 253) em = 253;    // the FLAG rule, same as the row copy
   }
-  if (fW > 0) {                          // the same graded blend, from this pixel's OWN mip and F
-    const vx = cx * fms, vy = cy * fms;
+  let gar = 0, gag = 0, gab = 0;
+  for (let q = 0; q < gnw; q++) {            // the same walk as the row copy, from THIS pixel's OWN mip
+    const fd = gwd[q], fmx = gwmk[q * 2], fmy = gwmk[q * 2 + 1], fmw = gwmw[q];
+    const vx = cx * gws[q], vy = cy * gws[q];         // and footprint, second copy (AGENTS.md)
+    const sq = gww[q];
+    if (sq <= 0) continue;
     let t2 = vx | 0, t3 = vy | 0;
     if (vx < 0) t2--;
     if (vy < 0) t3--;
     t2 &= fmx; t3 &= fmy;
     if (mir & 1) t2 = (fmx - t2 - 1) & fmx;
     if (mir & 2) t3 = (fmy - t3 - 1) & fmy;
-    /* Second copy of the coarse pair, from THIS pixel's own rounded offset (already rounded above, so
-       the magnitude is the same rule the row copy derives from oxi). AGENTS.md: change one copy and you
-       have changed the other. Where axOn is off the offset is 0 and this degrades to the single coarse
-       fetch it was, which is what `DEV.set('gndax', 0)` still A/Bs. */
-    const fox = (ox < 0 ? 1 - ox : ox + 1) >> 1, foy = (oy < 0 ? 1 - oy : oy + 1) >> 1;
-    const cA = ftd[((t3 - foy) & fmy) * fmw + ((t2 - fox) & fmx)];
-    const cB = ftd[((t3 + foy) & fmy) * fmw + ((t2 + fox) & fmx)];
-    cr += (((cA & 255) + (cB & 255)) * 0.5 - cr) * fW;
-    cg += ((((cA >> 8 & 255) + (cB >> 8 & 255)) * 0.5) - cg) * fW;
-    cb += ((((cA >> 16 & 255) + (cB >> 16 & 255)) * 0.5) - cb) * fW;   // colour only: see the flag rule at the switch declaration
+    /* Second copy of the coarse pair, from THIS pixel's own rounded offset, shifted by the level's index
+       so each level's pair spans the strip at the scale that level belongs to. Where axOn is off the
+       offset is 0 and this degrades to the single coarse fetch it was, which is what `DEV.set('gndax',0)`
+       still A/Bs. Colour only: a coarse texel's alpha describes an AREA, not this pixel's footprint. */
+    const sh = gwox[q], fox = (ox < 0 ? 1 - ox : ox + 1) >> (sh + 1), foy = (oy < 0 ? 1 - oy : oy + 1) >> (sh + 1);
+    const cA = fd[((t3 - foy) & fmy) * fmw + ((t2 - fox) & fmx)];
+    const cB = fd[((t3 + foy) & fmy) * fmw + ((t2 + fox) & fmx)];
+    const wq = sq;
+    gar += ((cA & 255) + (cB & 255)) * 0.5 * wq;
+    gag += (((cA >> 8 & 255) + (cB >> 8 & 255)) * 0.5) * wq;
+    gab += (((cA >> 16 & 255) + (cB >> 16 & 255)) * 0.5) * wq;
   }
+  if (gnw) { cr = cr * gW0 + gar; cg = cg * gW0 + gag; cb = cb * gW0 + gab; }
   if (em === 253) { px[i] = 0xFF000000 | clampi(cb * gMInv + gMFB) << 16 | clampi(cg * gMInv + gMFG) << 8 | clampi(cr * gMInv + gMFR); continue; }
+  /* #19 take sixteen, DEFERRED COPY of the ceiling wash - same albedo mix, same place in the body (after
+     the emissive return, before the light), second copy (AGENTS.md). */
+  if (cgW) { cr = cr * gW0 + cgR * cgW; cg = cg * gW0 + cgG * cgW; cb = cb * gW0 + cgB * cgW; }
   /* #421, DEFERRED COPY - the same texel term as the row loop's, on this pixel's OWN cell (the one its
      ray actually reached, which is the whole reason this pixel is here). AGENTS.md counts the
      duplication as the price of the row loop's registers: change one copy and you have changed the
