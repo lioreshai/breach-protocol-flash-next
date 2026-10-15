@@ -189,8 +189,21 @@ let SHADOW = 1, SHADOW_D = 0.52, SHADOW_R = -0.14, SHADOW_ZT = 0.02, SHADOW_F = 
    leaves the props in both arms, so a prop's patch cancels in its own diff: the prop half of #18 costs
    the coverage oracle nothing, and the cap is untouched by this increment. The BODY half is what the
    cap binds, and it is the work still open on #18.
-   SHADOW_PROP 0 is the A/B the `props` probe's patch row runs against - one assignment, no rebuild. */
-let SHADOW_PROP = 1, SHADOW_PR = 0.18;
+   SHADOW_PROP 0 is the A/B the `props` probe's patch row runs against - one assignment, no rebuild.
+   THE FALLOFF IS PER CASTER, NOT GLOBAL. #18's body retune started as one edit to the shared
+   `t^SHADOW_F * SHADOW_D` expression and that expression grounds PROPS too - both casters are entries
+   of the same grid and `shadowFloor` answers one term for both - so flattening it repainted a crate's,
+   a barrel's and a lamp's contact band as a side effect. That is a gate failure, not a free bonus:
+   `node tools/view.js props` measures a prop's own silhouette from a frame-difference mask, and once
+   the deck further below the barrel darkens too the mask contains deck and the row is no longer
+   measuring only the prop. So a disc carries its OWN exponent and dwell (SH_FX / SH_FW, written where
+   the disc is registered), the body pair is SHADOW_F / SHADOW_D and the prop pair is SHADOW_PF /
+   SHADOW_PD, and the prop pair is at main's values (3 / 0.42) so a crate grounds exactly the shadow
+   that shipped. The expression is evaluated in the SAME SHAPE as before - `f === 2 ? t*t : pow(t,f)`
+   times the entry's dwell - so a prop's pixels are not merely close to main's, they run the identical
+   arithmetic. A body on the t*t fast path is cheaper than main was; a prop still pays Math.pow, which
+   is what main paid for every entry. */
+let SHADOW_PROP = 1, SHADOW_PR = 0.18, SHADOW_PF = 3, SHADOW_PD = 0.42;
 /* The wall bilinear fetch is inlined at its one call site below rather than factored into a
    function that writes its result into a scratch array: a module-global typed-array out-param
    blocks V8 inlining and register allocation, and the same code inlined measured 21 -> 12 ms
@@ -1013,6 +1026,10 @@ const SH_CAP = 96;
 let SH_HEAD = null, SH_NEXT = new Int32Array(SH_CAP), SH_N = 0;
 const SH_X = new Float64Array(SH_CAP), SH_Y = new Float64Array(SH_CAP), SH_Z = new Float64Array(SH_CAP);
 const SH_I = new Float64Array(SH_CAP), SH_H = new Float64Array(SH_CAP);
+/* the falloff a DISC applies, carried by the disc: exponent (2 = a body's flattened contact band, 3 =
+   main's tight core) and dwell. Two casts share one grid, so the term cannot be one global pair - see
+   the SHADOW_PF note above. Read in the same place the disc's own 1/r^2 is read. */
+const SH_FX = new Uint8Array(SH_CAP), SH_FW = new Float64Array(SH_CAP);
 function buildShadowGrid() {
   const N = MAP.w, nn = N * N;
   if (!SH_HEAD || SH_HEAD.length !== nn) SH_HEAD = new Int32Array(nn);
@@ -1028,6 +1045,7 @@ function buildShadowGrid() {
     if (ex * ex + ey * ey > far2) continue;
     const n = SH_N, r = SHADOW_R + e.r, fz = floorAt(e.x, e.y);
     SH_X[n] = e.x; SH_Y[n] = e.y; SH_Z[n] = fz; SH_I[n] = 1 / (r * r); SH_H[n] = r;
+    SH_FX[n] = SHADOW_F; SH_FW[n] = SHADOW_D;
     const x0 = (e.x - r) | 0, x1 = (e.x + r) | 0, y0 = (e.y - r) | 0, y1 = (e.y + r) | 0;
     for (let cy = y0; cy <= y1; cy++) {
       if (cy < 0 || cy >= N) continue;
@@ -1049,6 +1067,7 @@ function buildShadowGrid() {
       const n = SH_N, r = MESH.foot(p.kind) * (p.scale || 1) + SHADOW_PR;
       if (r <= 0) continue;                             // a kind with no authored footprint grounds nothing
       SH_X[n] = p.x; SH_Y[n] = p.y; SH_Z[n] = floorAt(p.x, p.y); SH_I[n] = 1 / (r * r); SH_H[n] = r;
+      SH_FX[n] = SHADOW_PF; SH_FW[n] = SHADOW_PD;
       const x0 = (p.x - r) | 0, x1 = (p.x + r) | 0, y0 = (p.y - r) | 0, y1 = (p.y + r) | 0;
       for (let cy = y0; cy <= y1; cy++) {
         if (cy < 0 || cy >= N) continue;
@@ -1072,7 +1091,8 @@ function shadowFloor(wx, wy, plane, k) {
     const dx = wx - SH_X[k], dy = wy - SH_Y[k];
     const t = 1 - (dx * dx + dy * dy) * SH_I[k];
     if (t <= 0) continue;
-    return (SHADOW_F === 2 ? t * t : Math.pow(t, SHADOW_F)) * SHADOW_D;
+    const fx = SH_FX[k];
+    return (fx === 2 ? t * t : Math.pow(t, fx)) * SH_FW[k];
   }
   return 0;
 }
@@ -2691,7 +2711,8 @@ function castWalls(flash, fcR, fcG, fcB) {
           const dx = fhx - SH_X[k], dy = fhy - SH_Y[k];
           const t = 1 - (dx * dx + dy * dy) * SH_I[k];
           if (t <= 0) continue;
-          const tt = (SHADOW_F === 2 ? t * t : Math.pow(t, SHADOW_F)) * SHADOW_D;
+          const fx = SH_FX[k];
+          const tt = (fx === 2 ? t * t : Math.pow(t, fx)) * SH_FW[k];
           if (tt > shK) { shK = tt; shA = SH_Z[k]; shB = SH_Z[k] + SH_H[k]; }
         }
       }
