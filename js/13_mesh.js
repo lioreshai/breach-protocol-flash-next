@@ -261,6 +261,18 @@ const MESH = (function () {
      `BH*sc/(dist*TS_CYC)` exactly as for a body, and both the wave and its fade are already
      written against that quantity. */
   const PS_SLOPE = 3.4, PS_MAX = 12, PS_CYC = 25 / 3;
+  /* PS_HCYC is the height weight of a prop's structure coord (#533 take two), and it is NOT 1.
+     The WOOD body of a crate spans 0.80 authored units in y and 0.72 in x and z (PROPGEO.crate half
+     extents 0.36 / 0.40 / 0.36), and the zero-mean construction above only works if a face spans a
+     WHOLE number of wave periods on EVERY axis it varies on: at weight 1 the y span is
+     0.80 * 25/3 = 6.667 periods, so a third of a period is left unpaired at the top and bottom edge
+     and the crate's mean moves - the exact failure #371 forbids, bought back through the second axis.
+     0.9 makes both counts whole at BOTH levels of the coarsening: y spans 6.0 periods at TCYC and
+     3.0 at TCYC/2 (x and z stay at 6 and 3), so the wave is still paired pixel-for-pixel on the
+     vertical axis exactly as it already was on the horizontal one. It also says the grain runs at
+     about 48 deg rather than 45, which is not a defect: a plank's grain is not diagonal by
+     construction, and the number is the arithmetic above, not a look. */
+  const PS_HCYC = 0.9;
   /* PS_CYC is 1/0.12 seams per authored unit, and the number is chosen, not tuned: a crate face is
      0.72 authored units wide (PROPGEO.crate half extents 0.36), and 0.72 * 25/3 = 6 SEAMS EXACTLY.
      That is what makes the wave's mean exactly 0 on every face instead of nearly 0. The wave is
@@ -321,6 +333,16 @@ const MESH = (function () {
     this.e = [];                                    // 1 where the part makes its own light
     this.s = [];                                    // #232 authored structure coord per vertex, 0 = none
     this.rg = 0;                                    // region register: 1 while a torso part emits
+    /* #533 take two HEIGHT WEIGHT of the structure coordinate, and it is a SECOND register on purpose.
+       The coord was `x + z`, so on a face whose normal is x or z the coord is CONSTANT across the whole
+       face: a crate's side carried a wave in one screen direction and nothing in the other, which reads
+       as corrugation, not grain (measured across one level-0 frame: crate dL/dx 0.41 against the deck's
+       0.71, dL/dy 0.15 against the deck's 1.69). A body cannot simply take the y term - its torso coord
+       is the same `x + z` and every body pixel in the gate is recorded against it - so the weight is
+       per-EMIT, lives beside `rg`, and is 0 for every body and the view model, which leaves their
+       vertex streams byte-identical. Props set it to PS_HCYC, and the `props` (G) row is the one that
+       can see either axis missing. */
+    this.rgY = 0;
     this.ca = 1; this.sa = 0;                       // rotation about x, positive tips the up axis forward
     this.cx = 0; this.cy = 0; this.cz = 0;
     this.em = 0;                                    // set around an emit to mark the part emissive
@@ -364,7 +386,7 @@ const MESH = (function () {
        to it, which is what makes a tube's structure vary AROUND it. It is added inside `this.rg`, so
        with the register clear - every body tube, since rg is only ever set for a torso BOX - both
        terms are 0 and the vertex stream is byte-identical to what it was. */
-    const sva = this.rg ? ax + az : 0, svb = this.rg ? bx + bz : 0;   // #232 authored, before the transform
+    const sva = this.rg ? ax + ay * this.rgY + az : 0, svb = this.rg ? bx + by * this.rgY + bz : 0;   // #232 authored, before the transform
     ax = p0x; ay = p0y; az = p0z; bx = pb[0]; by = pb[1]; bz = pb[2];
     const L = Math.hypot(dx, dy, dz) || 1e-6;
     dx /= L; dy /= L; dz /= L;
@@ -378,12 +400,12 @@ const MESH = (function () {
     for (let i = 0; i < n; i++) {
       const cx = u[0] * RN[i * 2] + v[0] * RN[i * 2 + 1], cy = u[1] * RN[i * 2] + v[1] * RN[i * 2 + 1], cz = u[2] * RN[i * 2] + v[2] * RN[i * 2 + 1];
       this.p.push(ax + cx * ra, ay + cy * ra, az + cz * ra, c[0], c[1], c[2]); this.e.push(this.em);
-      this.s.push(this.rg ? sva + (cx + cz) * ra : 0);
+      this.s.push(this.rg ? sva + (cx + cy * this.rgY + cz) * ra : 0);
     }
     for (let i = 0; i < n; i++) {
       const cx = u[0] * RN[i * 2] + v[0] * RN[i * 2 + 1], cy = u[1] * RN[i * 2] + v[1] * RN[i * 2 + 1], cz = u[2] * RN[i * 2] + v[2] * RN[i * 2 + 1];
       this.p.push(bx + cx * rb, by + cy * rb, bz + cz * rb, c[0], c[1], c[2]); this.e.push(this.em);
-      this.s.push(this.rg ? svb + (cx + cz) * rb : 0);
+      this.s.push(this.rg ? svb + (cx + cy * this.rgY + cz) * rb : 0);
     }
     for (let i = 0; i < n; i++) {
       const j = (i + 1) % n;
@@ -404,7 +426,7 @@ const MESH = (function () {
     ];
     for (const q of faces) {
       const b0 = this.p.length / 6;
-      for (const qv of q) { const p = this.pt(qv[0], qv[1], qv[2]); this.p.push(p[0], p[1], p[2], c[0], c[1], c[2]); this.e.push(this.em); this.s.push(this.rg ? qv[0] + qv[2] : 0); }
+      for (const qv of q) { const p = this.pt(qv[0], qv[1], qv[2]); this.p.push(p[0], p[1], p[2], c[0], c[1], c[2]); this.e.push(this.em); this.s.push(this.rg ? qv[0] + qv[1] * this.rgY + qv[2] : 0); }
       this.t.push(b0, b0 + 1, b0 + 2, b0, b0 + 2, b0 + 3);
     }
     return this;
@@ -461,10 +483,10 @@ const MESH = (function () {
        tell "in front of the prop" from "inside the prop" (#212). */
     barrel(b) {
       const RED = [120, 46, 30], RIM = [74, 30, 22], YEL = [160, 128, 24], MET = [150, 156, 164];
-      b.rg = 1;                                        // #533: the staves are the surface; the hoops stay flat
+      b.rg = 1; b.rgY = PS_HCYC;                      // #533: the staves are the surface; the hoops stay flat
       b.tube(0, 0.03, 0, 0, 0.50, 0, 0.225, 0.245, RED);       // the staves, bulging at the bilge
       b.tube(0, 0.50, 0, 0, 0.93, 0, 0.245, 0.215, RED);
-      b.rg = 0;
+      b.rg = 0; b.rgY = 0;
       b.tube(0, 0.27, 0, 0, 0.33, 0, 0.255, 0.255, RIM);       // the two hoops
       b.tube(0, 0.66, 0, 0, 0.72, 0, 0.25, 0.25, RIM);
       b.tube(0, 0.42, 0, 0, 0.55, 0, 0.25, 0.25, YEL);         // the hazard band
@@ -480,9 +502,9 @@ const MESH = (function () {
          so a crate stops measuring 2.4x the wall behind it while still reading as the nearest solid thing
          in the frame. FRAME is untouched: it is already darker than the floor it stands on. */
       const WOOD = [78, 55, 31], FRAME = [70, 48, 24];
-      b.rg = 1;                                        // #533: the planks are the surface; the frame stays flat
+      b.rg = 1; b.rgY = PS_HCYC;                      // #533: the planks are the surface; the frame stays flat
       b.box(0, 0.44, 0, 0.36, 0.40, 0.36, WOOD);               // the body, 0.04 to 0.84
-      b.rg = 0;
+      b.rg = 0; b.rgY = 0;
       b.box(0, 0.85, 0, 0.375, 0.025, 0.375, FRAME);           // lid
       b.box(0, 0.05, 0, 0.375, 0.025, 0.375, FRAME);           // skid base
       b.box(0, 0.44, 0, 0.375, 0.055, 0.375, FRAME);           // one band, all four faces at once
