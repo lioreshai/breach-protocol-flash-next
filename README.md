@@ -59,13 +59,13 @@ number a sentence labels.
 All eight were re-taken in one pass off the deployed page at build `bd2441a`; the pass proved its build off the
 wire by md5-comparing all twelve served blobs against that tree before the shutter, so every frame below is the
 picture that page drew at the build its row names. That is not the same claim as "the picture the page draws
-now", and the difference is one render commit
-old: `bd2441a` was the deployed tree when the shutter opened, and since then the roof-to-wall bound has been
-widened to reach the whole corner (#369). All eight frames were drawn before that commit landed; where its
-effect has been measured it is ARCHIVE SUBLEVEL's roof-to-wall seam and one luma point of that level's exposure
-anchor, and ARCHIVE SUBLEVEL is five of these eight frames. So these frames are one render commit behind the
-page beside them; each frame's row names the build that drew it, so the gap is readable there rather than only
-here, and the re-shoot that closes it rides with #536. What moved between this pass and the previous one is
+now": `bd2441a` was the deployed tree when the shutter opened, and every render commit since has moved the
+picture by some amount the rows do not measure. Two have landed while this pass sat: the roof-to-wall bound
+widened to reach the whole corner (#369), whose measured effect is ARCHIVE SUBLEVEL's seam and one luma point
+of that level's exposure anchor, and a slab's underside is now found from what is overhead rather than by
+touch (#518). So these frames trail the page beside them by however many render commits have landed; each
+frame's row names the build that drew it, so the gap is readable there rather than only here, and the re-shoot
+that closes it rides with #536. What moved between this pass and the previous one is
 light and surface, not layout — the three dealt level signatures these frames sit on are unchanged. The roof
 is a lit surface rather than a black sheet, because the ceiling's light term gained a floor (#495), which is
 why every
