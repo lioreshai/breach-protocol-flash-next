@@ -2690,7 +2690,21 @@ function castWalls(flash, fcR, fcG, fcB) {
         const pi = qy * N + qx;
         if (dq && !(vbs[pi] & ((VB_RAMP | VB_LADDER) << (d << 2)))) {
           const fhi = dq > 0 ? fzs[my * N + mx] : fzs[pi], flo = dq > 0 ? fzs[pi] : fzs[my * N + mx];
-          riser = 1; rz0 = flo * ZQ; rz1 = fhi * ZQ; MAP.riserStops++; tv = WT.CONCRETE;
+          /* A STOP is only a stop if the face has PIXELS here. The span is tested far below
+             (`if (!(dz > 0) || ds > de) continue`), and that `continue` abandons the COLUMN: the
+             column then keeps whatever castGround left in it, so a boundary whose projected face
+             lands wholly off-frame swallowed every boundary behind it. Stand at the top of a
+             staircase and every tread is nearer than the bottom edge of the frame at first - the
+             march stopped at the first one, drew nothing, and the frame showed the floor of the
+             cell BEYOND the stair solving through the stair's own volume, which is the "stairs do
+             not render, weird warped view" report (#515). Marching on to the nearest boundary whose
+             face actually covers rows [0, BH-1] is the same rule the span test applies, applied
+             where it can still change the answer. A face that covers no pixel cannot occlude one,
+             so nothing is lost: the zbuf this stop used to write had no pixel to write it into. */
+          const rp = (side === 0 ? sdx - ddx : sdy - ddy), rh = BH / (rp > 1e-4 ? rp : 1e-4);
+          const ry1 = fhi * ZQ, ry0 = flo * ZQ;
+          if (horizon + (eyeZ - ry1) * rh > BH - 1) continue;
+          riser = 1; rz0 = ry0; rz1 = ry1; MAP.riserStops++; tv = WT.CONCRETE;
           /* rze/rzf are the same two floors sorted by WHICH SIDE THE RAY CAME FROM rather than by
              height - the crease belongs at the lip the player is standing at, and on a step down
              that is the higher of the two (#195). rz0/rz1 keep sorting by height: the face's span
