@@ -58,9 +58,17 @@ number a sentence labels.
 
 All eight were re-taken in one pass off the deployed page at build `bd2441a`; the pass proved its build off the
 wire by md5-comparing all twelve served blobs against that tree before the shutter, so every frame below is the
-picture the page beside it draws at the build its row names. What moved since the previous pass is light and
-surface, not layout — the three dealt level signatures these frames sit on are unchanged. The roof is a lit
-surface rather than a black sheet, because the ceiling's light term gained a floor (#495), which is why every
+picture that page drew at the build its row names. That is not the same claim as "the picture the page draws
+now", and the difference is one render commit
+old: `bd2441a` was the deployed tree when the shutter opened, and since then the roof-to-wall bound has been
+widened to reach the whole corner (#369). All eight frames were drawn before that commit landed; where its
+effect has been measured it is ARCHIVE SUBLEVEL's roof-to-wall seam and one luma point of that level's exposure
+anchor, and ARCHIVE SUBLEVEL is five of these eight frames. So these frames are one render commit behind the
+page beside them; each frame's row names the build that drew it, so the gap is readable there rather than only
+here, and the re-shoot that closes it rides with #536. What moved between this pass and the previous one is
+light and surface, not layout — the three dealt level signatures these frames sit on are unchanged. The roof
+is a lit surface rather than a black sheet, because the ceiling's light term gained a floor (#495), which is
+why every
 frame here reads brighter and why two of them no longer have a dark band to count; an enemy's base now reads
 against the deck it stands on (#18); a stair draws its own step faces (#515), the face that caps your deck
 wears the room's stone (#518), and a crate has a surface instead of three flat colours (#533). The line where a
