@@ -236,6 +236,10 @@ const MESH = (function () {
      to have had no surface at all. */
   const TS_CYC = 10, TS_MINP = 3.5, TS_LMAX = 2, TS_SLOPE = 9, TS_MAX = 26, TS_BMIN = 0.45;
   const TSC = [0.80, 1.00, 1.15];                   // slightly cool seams on warm armour
+  /* 1/TSC, for the clip bound in `tri`: the excursion a channel can carry is its distance to the byte
+     limit DIVIDED by its own multiplier, so the two tables cannot drift apart. TSC[2] is unused by the
+     seam blend (green and blue share TSC[1]), so its reciprocal is carried for symmetry only. */
+  const TSCR = [1 / TSC[0], 1 / TSC[1], 1 / TSC[1]];
   /* #533 PROPS WERE BEING FED ZEROS. The law above is the mesh's only surface term and it is set
      entirely by one number: the vertex register `this.s`, which `Builder.box` and `Builder.tube`
      fill with the authored x+z ONLY while `rg` is set, and `rg` was set for a body's torso and
@@ -1150,6 +1154,25 @@ const MESH = (function () {
     }
     const COL = (255 << 24 | CB << 16 | CG << 8 | CR) >>> 0;
     const A = ALPHA, IA = 1 - A, SOLID = A >= 1;      // hoisted: the blend is a corpse's, not the rule
+    /* #533 THE WAVE MAY NOT CLIP, OR IT IS NOT ZERO-MEAN ANY MORE. The seam is symmetric about the
+       face's own colour, so its mean is that colour ONLY while every pixel of it stays inside the
+       byte: `clampi(C + kk*m)` throws away the part of the NEGATIVE half that falls below 0 and keeps
+       the whole positive half, which is a brightness term, not a surface term. That is the mechanism
+       behind the `props` CRATE control moving 48 -> 50 when props were given structure (#533 review),
+       and it is a property of the DEPTH of the wave against the darkness of the face, not of the
+       slope: a crate in a dim cell whose blue lands at 8 cannot carry a +-11 wave in blue. So the
+       excursion is capped by the triangle's own distance to the byte floor and ceiling, per channel -
+       the wave gets SHALLOWER where the surface is too dark to carry it and keeps its full depth
+       everywhere it already fit. PS_SLOPE, the amplitude law and the range fade are untouched: this
+       is not the amplitude being turned down, it is the term being kept zero-mean where it would
+       otherwise have rectified. Cost is six multiplies and two mins per TRIANGLE, none per pixel. */
+    let tkc = TK;
+    if (tkc) {
+      const flo = Math.min(CR * TSCR[0], CG * TSCR[1], CB * TSCR[1]);
+      const cei = Math.min((255 - CR) * TSCR[0], (255 - CG) * TSCR[1], (255 - CB) * TSCR[1]);
+      if (flo < tkc) tkc = flo;
+      if (cei < tkc) tkc = cei;
+    }
     /* Coverage mask: hoisted so the global is read once per TRIANGLE, not per pixel, and when COV
        is null (play) CW is null and the only cost in the loop is a predictable branch. The stamp is
        LAST-WRITER-WINS because the list is sorted far to near: a crate drawn over a body stamps 0
@@ -1181,7 +1204,7 @@ const MESH = (function () {
           // the zero-mean seam: (1-w1-w2)*TQ0 + w1*TQ1 + w2*TQ2 is the body coord under the pixel
           let u = (1 - w1 - w2) * TQ0 + w1 * TQ1 + w2 * TQ2;
           u -= Math.floor(u);
-          const kk = (u < 0.5 ? u * 4 - 1 : 3 - u * 4) * TK;
+          const kk = (u < 0.5 ? u * 4 - 1 : 3 - u * 4) * tkc;
           px[off] = (0xFF000000 | clampi(CB + kk * TSC[1]) << 16 | clampi(CG + kk * TSC[1]) << 8 |
             clampi(CR + kk * TSC[0])) >>> 0;
         }
