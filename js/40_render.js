@@ -96,7 +96,22 @@ let RISER_ACC_H = 0.12, RISER_ACC_F = 0.45;
    term that is supposed to be about altitude. `surface`'s SEAM row is a VERTICALITY measurement: it
    asks where the room stops and the roof starts, and in a world with one height there is no such
    line to find. Flag at 0 the pass pays one test per drawn column and paints what it painted before. */
-let CSEAM = 1, CSEAMD = 0.34, CSEAMW = 0.6;
+/* #369 take thirteen: CSEAMA is the LUMA the corner leaves between the roof and the face it lands on,
+   and it is the term's OTHER HALF. CSEAMD is a multiply, and #385 already recorded what that costs:
+   "a multiply is scale-invariant", so it takes 34% off a roof that reads 30 luma and 34% off one that
+   reads 90 and the STEP it leaves differs by 20 luma between two rooms that are drawn the same way.
+   That is why `surface`'s SEAM row is known-failing on the ARCHIVE/RING/STACK poses and green on every
+   ABATOIR pose with the identical term: on the failing columns the roof does not merely fail to be dark
+   enough, it reads BRIGHTER than the face below it (gap -15 to -25 at the tenth percentile), and a fixed
+   percentage cannot cross a signed inversion without a smudge. So the corner now also carries an absolute
+   bound: the roof within the band may not out-light the face it lands on by more than CSEAMA luma, and
+   where it does the band takes it down to that face's luma minus CSEAMA and stops there. It is not a
+   dimmer - it cannot darken a roof that already sits at least CSEAMA below the wall it meets, it cannot
+   paint black (floor of 0.3), and it eases out over the same ramp as the crease, so past the corner the
+   roof keeps its own light and the vault lift that keeps it off black (#495). Where the roof already
+   reads at or below the face, `bnd` is 1 and the column pays byte-identical arithmetic: every camU pose,
+   and most of ABATOIR CORE, are in that case and do not move. */
+let CSEAM = 1, CSEAMD = 0.34, CSEAMW = 0.6, CSEAMA = 18;
 /* #385: the crease's ABSOLUTE half, and it is AUTHORED content, not a global.
 
    A multiply is scale-invariant: `kk` takes 84% off a lip row whether the deck it sits on reads 37
@@ -2922,8 +2937,21 @@ function castWalls(flash, fcR, fcG, fcB) {
          wide band would be a wash and the SEAM row's own window has nothing to compare anyway. */
       let cbw = Math.round((zc - eyeZ) * BH * CSEAMW / (perp * (perp - CSEAMW))) + 1;
       if (cbw < 2) cbw = 2; else if (cbw > 20) cbw = 20; else if (cbw > ds) cbw = ds;
+      /* The bound, once per COLUMN: the face's own painted pixel at the same distance into the face as
+         the band is into the ceiling (`ds + cbw`, so a lip that is painted rather than lit is not what the
+         roof gets compared against), against the roof's own painted pixel at the edge. Rec.601, the
+         weighting the probes read. Two reads and two dot products per drawn column, no new array. */
+      let bnd = 1;
+      if (CSEAMA > 0) {
+        const fv = px[(ds + cbw <= de ? ds + cbw : de) * BW + x], cv = px[(ds - 1) * BW + x];
+        const fl = (fv >> 16 & 255) * 0.25 + (fv >> 8 & 255) * 0.64 + (fv & 255) * 0.11;
+        const cl = (cv >> 16 & 255) * 0.25 + (cv >> 8 & 255) * 0.64 + (cv & 255) * 0.11;
+        const tgt = fl - CSEAMA;
+        if (cl > tgt) bnd = Math.max(0.3, tgt > 0 ? tgt / cl : 0.3);
+      }
       for (let k = 0; k < cbw; k++) {
-        const i = (ds - 1 - k) * BW + x, v = px[i], ck = 1 - CSEAMD * (1 - k / cbw);
+        const i = (ds - 1 - k) * BW + x, v = px[i], rk = 1 - k / cbw;
+        const ck = (1 - CSEAMD * rk) * (1 - (1 - bnd) * rk);
         px[i] = (0xFF000000 | clampi((v >> 16 & 255) * ck) << 16 | clampi((v >> 8 & 255) * ck) << 8 | clampi((v & 255) * ck)) >>> 0;
       }
       }
