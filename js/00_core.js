@@ -33,7 +33,11 @@ let COV = null;
    CEILING half of it. The ground pass stamps a whole row at once because the class is a ROW
    constant there (`isF`, the same test that picks `ceilTex` and adds `CEILB`); the wall face span and
    the sprite/mesh blitters stamp 0 where they win a pixel, which is the same last-writer-wins rule
-   COV already uses. tools/view.js surface is the only caller: it is how that census asks "which
+   COV already uses. THE RULE FOR AN OBJECT: anything that is drawn IN FRONT of a surface - a wall
+   face, a riser, a prop, a body, the view model, a hung fitting's rod (`drawCeilPanes`) - stamps 0,
+   so a fitting counts as an object in the room and NOT as the ceiling it hangs from; only the two
+   halves of the ground pass, which ARE the surfaces, stamp 1 and 2. tools/view.js surface is the
+   only caller: it is how that census asks "which
    pixels are ceiling" WITHOUT a light A/B, so a change to any ceiling light term cannot move the
    population the census grades (#546). */
 let SURF = null;

@@ -13584,7 +13584,21 @@ if (MODE === 'surface') {
      is rested on every render: this census A/Bs THREE renders of one state and calls the pixels that
      differ surfaces, so a rifle that swung with the wall clock between two of them would be counted as
      a ceiling (see VMREST). */
-  const frame = () => { run(VMREST + SHIFT + ' renderWorld()'); return new Uint32Array(run('px')); };
+  /* EVERY render goes through here, so a knob that moves an authored field must be applied AND undone
+     inside it. An earlier version left CEILSHIFT applied, and the bias then walked one unit per render
+     of a census that renders a state four times - the graded frame ended up N renders x N units off the
+     authored one, and inside the `ceilBias` A/B the knob's own `+N` cancelled the A/B's `-1`, so graded
+     frame and counterfactual rendered at the SAME bias and their difference was identically zero. Read
+     the effective bias off `__biasSeen` (pushed by every render, shifted or not) to see the bookkeeping:
+     with the A/B it is `s, s-1, s, s` for shift s, one unit apart, and no drift down the run. */
+  const CEILSHIFT = process.env.CEILSHIFT !== undefined ? +process.env.CEILSHIFT : 0;
+  const BIASREC = ` globalThis.__biasSeen = globalThis.__biasSeen || []; globalThis.__biasSeen.push(MAP.ceilBias || 0);`;
+  // the distinct `ceilBias` values the renders since the last read actually used - the knob's own bookkeeping
+  const biasSeen = () => run(`(function(){ const s = globalThis.__biasSeen || [];
+    globalThis.__biasSeen = []; return Array.from(new Set(s)); })()`);
+  const SHIFT_ON = CEILSHIFT ? ` globalThis.__cs0 = MAP.ceilBias; MAP.ceilBias = (MAP.ceilBias || 0) + (${CEILSHIFT});` : '';
+  const SHIFT_OFF = CEILSHIFT ? `; MAP.ceilBias = globalThis.__cs0; delete globalThis.__cs0;` : '';
+  const frame = () => { run(VMREST + SHIFT_ON + BIASREC + ' renderWorld()' + SHIFT_OFF); return new Uint32Array(run('px')); };
   /* #546 THE MASK SOURCE. `surf` (the default) reads the class the RENDERER stamped at draw time; `ab`
      is the old instrument, in which a pixel is ceiling because a one-unit `ceilBias` A/B moved its luma.
      The second source is kept so this census can still be seen to fail for the reason #546 was filed:
@@ -13592,14 +13606,23 @@ if (MODE === 'surface') {
      SURF is opt-in in js/00_core.js - null in play, so arming it here changes no pixel and no cost in a
      shipped frame - and it is allocated per deal because `resize` re-creates the frame buffers. */
   const MASKSRC = process.env.MASKSRC || 'surf';
+  /* THE FAR WASH AS A DEPTH FACT (`WASHSRC=depth`, the default), not a byte fact. The byte-run test in
+     `classify` asks the PIXELS whether they repeat, and what makes them repeat is the FILL the renderer
+     does past FARB - so a light term that pushes a ceiling texel into saturation or pulls it out of it
+     changes where a run of eight EQUAL bytes starts, and the population of columns this census scores
+     moves with the LIGHT rather than with the GEOMETRY. The renderer says the fact once, in its own
+     depth: past `FARB` a ground pixel is the mip-mean wash in both copies of the ground body (AGENTS.md,
+     #19), and `zbuf` holds the distance the pixel's own ray solved. A pixel is wash iff its ray went
+     past FARB or solved nothing (`!isFinite` - the horizon rows fill Infinity), which cannot move with
+     how a surface is lit. One tree, one knob: `WASHSRC=bytes` puts the byte-run test back, so the
+     confound stays measurable and `WASHRUN=3` still runs under it. */
+  const WASHSRC = process.env.WASHSRC || 'depth';
   /* CEILSHIFT is the #546 acceptance knob: it moves EVERY render of the census's `ceilBias` by a whole
      unit (the same nudge the old classifier itself used to run on) without touching geometry. With the
      surface id the population - seam columns, ceiling % and floor % of frame - must come back identical
      at -1 / 0 / +1, because which surface a pixel is cannot depend on how it is lit; with
      `MASKSRC=ab` it moves, which is the confound #546 was filed for. 0 by default, so a normal run of
      this census renders the authored frame exactly as before. */
-  const CEILSHIFT = process.env.CEILSHIFT !== undefined ? +process.env.CEILSHIFT : 0;
-  const SHIFT = CEILSHIFT ? ` MAP.ceilBias = (MAP.ceilBias || 0) + (${CEILSHIFT});` : '';
   const surfMask = () => MASKSRC === 'surf' && run('typeof SURF !== "undefined" && !!SURF')
     ? new Uint8Array(run('SURF')) : null;
   const armSurf = () => run('if (typeof SURF === "undefined") 0; else { if (!SURF || SURF.length !== BW * BH) SURF = new Uint8Array(BW * BH); }');
@@ -13731,7 +13754,7 @@ if (MODE === 'surface') {
     return {n: g.length, med: g.length ? g[g.length >> 1] : NaN, all: g};
   };
   const poolBandSet = fits => new Set(fits.map(F => Math.round(F.band * 100) / 100));
-  function classify(a, cf, ff, sf) {
+  function classify(a, cf, ff, sf, zb) {
     const n = BW * BH, cl = new Uint8Array(n), fo = new Uint8Array(n);
     if (sf) {
       /* The surface fact. 2 = the CEILING half of the ground pass painted this pixel, 1 = the FLOOR half,
@@ -13764,7 +13787,20 @@ if (MODE === 'surface') {
        by under 1.4 luma (L0 11.9 -> 11.4, L1 18.6 -> 19.9, L3 38.0 -> 37.6), so NO verdict moves: this is
        the census recovering columns, not a threshold being widened to let a level through. */
     const WRUN = process.env.WASHRUN !== undefined ? +process.env.WASHRUN : 8;
-    const washAt = (x, y) => {
+    /* THE FAR WASH AS A DEPTH FACT (`WASHSRC=depth`, the default), not a byte fact. The byte-run test
+       above asks the PIXELS whether they repeat, and what makes them repeat is the FILL the renderer
+       does past FARB - so any light term that pushes a ceiling texel into saturation or pulls it out of
+       it changes where a run of eight EQUAL bytes starts, and the population of columns this census
+       scores moves with the LIGHT rather than with the GEOMETRY. The renderer already says the fact
+       once, in its own depth: past `FARB` a ground pixel is the mip-mean wash in both copies of the
+       ground body (AGENTS.md, #19), and `zbuf` holds the distance the pixel's own ray solved. A pixel
+       is wash iff its ray went past FARB or solved nothing (`!isFinite` - the horizon rows fill
+       Infinity), which cannot move with how a surface is lit. One tree, one knob: `WASHSRC=bytes` puts
+       the byte-run test back, so the confound stays measurable and `WASHRUN=3` still runs under it. */
+    const WASHD = WASHSRC === 'depth' && !!zb;
+    const washAt = WASHD
+      ? (x, y) => { const d = zb[y * BW + x]; return !isFinite(d) || d > FARBv; }
+      : (x, y) => {
       const i = y * BW + x; if (x + WRUN >= BW) return false;
       for (let k = 1; k < WRUN; k++) if (a[i + k] !== a[i]) return false;
       return true;
@@ -14054,12 +14090,14 @@ if (MODE === 'surface') {
       if (gh !== dealt) poseOk = false;
       const authored = run('(MAP.floorBias || 0)') + '/' + run('(MAP.ceilBias || 0)') + '/' + run('MAP.ceilLead === undefined ? "default" : MAP.ceilLead');
       const a = frame(), zb = new Float32Array(run('zbuf')), ccam = poolCam();
-      /* The mask is read off the RENDERER (surfMask) and then, for the control, off the light A/B - the
-         two renders `cf`/`ff` are the census's OLD surface classifier, and their stamps are captured too
-         so the MASK row can say which columns a whole unit of `ceilBias` would have moved. */
+      /* The mask is read off the RENDERER (surfMask). The two renders `cf`/`ff` are the census's OLD
+         surface classifier and are kept only for the light A/B that `classify` runs when MASKSRC=ab;
+         their stamps are NOT read - the stamped mask comes off the frame being graded, `a`, so a control
+         render's stamps cannot leak into the population (an earlier version captured them into sfC/sfF,
+         which no row read). */
       const sfA = surfMask();
-      const cf = frameBias('ceilBias', -1), sfC = surfMask(), ff = frameBias('floorBias', -1), sfF = surfMask();
-      const c = classify(a, cf, ff, sfA);
+      const cf = frameBias('ceilBias', -1), ff = frameBias('floorBias', -1);
+      const c = classify(a, cf, ff, sfA, zb);
       /* #421: which of this pose's ceiling pixels did the SOFFIT term paint, and does the underside's
          edge survive as a step. The A/B renders the identical state with SLABUND off, so the same frame
          `a` is graded and the control arm is the pre-#461 build, not a paraphrase of it. */
@@ -14080,6 +14118,7 @@ if (MODE === 'surface') {
       console.log(`L${li} cam${cam} (${name}), deal ${gh.toString(16).padStart(8, '0')}, authored floorBias/ceilBias/ceilLead ${authored}, ` +
         `${c.cols} seam columns, ceiling ${c.ceilPct.toFixed(0)}% of frame / floor ${c.floorPct.toFixed(0)}%, ` +
         `wall ${run('globalThis.__poseD').toFixed(1)} m ahead${cam === 'N' ? ' (NEAREST)' : ''}, ` +
+        `renders at ceilBias [${biasSeen().join(' ')}] (shift ${CEILSHIFT}, mask ${MASKSRC}, wash ${WASHSRC}), ` +
         `columns dropped by pose: ${c.drop.range} seam out of frame, ${c.drop.wash} far wash, ${c.drop.win} thin window:`);
       if (u) {
         // A pose with no underside in frame judges nothing and says so; the SWEEP row carries the vacuity.
@@ -14287,12 +14326,12 @@ if (MODE === 'surface') {
           if (${run(`!!LEVELS[${li}].authored`)}) kneeLampField(); else blurLight();
           buildTint(); MAP.tintDirty = false;
           return 1; })()`);
-        const a0 = frame(), s0f = surfMask(), c0f = frameBias('ceilBias', -1), f0f = frameBias('floorBias', -1);
+        const a0 = frame(), zb0 = new Float32Array(run('zbuf')), s0f = surfMask(), c0f = frameBias('ceilBias', -1), f0f = frameBias('floorBias', -1);
         run('MAP.floorBias = globalThis.__o[0]; MAP.ceilBias = globalThis.__o[1]; MAP.ceilLead = globalThis.__o[2]; MAP.wallBias = globalThis.__o[3]; delete globalThis.__o;');
         run(`(function(){ MAP.light.set(globalThis.__lm[0]); MAP.lR.set(globalThis.__lm[1]); MAP.lG.set(globalThis.__lm[2]);
           MAP.lB.set(globalThis.__lm[3]); MAP.lw.set(globalThis.__lm[4]); MAP.lt.set(globalThis.__lm[5]);
           MAP.tintDirty = false; delete globalThis.__lm; return 1; })()`);
-        const c0 = classify(a0, c0f, f0f, s0f);
+        const c0 = classify(a0, c0f, f0f, s0f, zb0);
         const survived = c0.seam >= TARGET && c0.ceil < c0.floor;
         if (survived) ctrlMiss++;
         row(`L${li} cam${cam} CONTROL the census can see the bug`,

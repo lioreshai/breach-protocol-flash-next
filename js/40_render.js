@@ -2512,6 +2512,9 @@ function drawCeilPanes(flash, fcR, fcG, fcB) {
         const rr = (o & 255) * (1 - al) + 70 * bS * sh, gg = (o >> 8 & 255) * (1 - al) + 66 * bS * sh,
               bb = (o >> 16 & 255) * (1 - al) + 60 * bS * sh; // where no light reaches
         px[i] = 0xFF000000 | clampi(bb) << 16 | clampi(gg) << 8 | clampi(rr);
+        if (SURF) SURF[i] = 0;          // #546: a fitting is an object hung IN FRONT of the slab, so the
+                                        // rod owns the pixel and the pixel is not a ceiling surface - the
+                                        // same rule the billboard and the mesh blitter already follow
       }
     }
     const ci = F.gy * N + F.gx;
