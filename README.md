@@ -58,9 +58,15 @@ number a sentence labels.
 
 All eight were re-taken in one pass off the deployed page at build `4abba57`; the pass proved its build off the
 wire by md5-comparing all twelve served blobs against that tree before the shutter, so every frame below is the
-picture the page draws now, at the build its row names. That claim ages by merge, and the last pass aged badly:
-it bound `bd2441a` and two render commits landed while it sat in review, so those eight frames described a game
-that no longer shipped. They are the picture that ships now. The two commits are thin ones — the roof-to-wall
+picture the page draws, at the build its row names. Whether that is still today's picture is no longer a sentence
+that ages: `node tools/recap.js check` hashes the four blobs that draw a frame — `index.html`, `js/10_assets.js`,
+`js/20_level.js`, `js/40_render.js` — against the digests recorded for the bound build in
+[`docs/screens/provenance.json`](docs/screens/provenance.json), and prints `SHIP-BIND` when this tree's bytes are
+those bytes or `FRAME-STALE` naming the blob that moved. A pass aged badly once, binding `bd2441a` while two
+render commits landed in review, and the tool exists so it cannot age quietly again; the bind is an upper bound on
+"the picture changed", since a comment inside a renderer moves a digest and moves no pixel, so the row names the
+blob and leaves the re-take call to a human. Today it prints `SHIP-BIND` for `4abba57`: these frames are the
+picture that ships. The two commits are thin ones — the roof-to-wall
 bound widened to reach the whole corner (#369) and a slab's underside is now found from what is overhead rather
 than by touch (#518) — and this pass measured how thin. Four of the eight frames decode to the digit they printed
 before, byte-for-byte different and statistically identical; four moved, and none of them by a whole luma: the

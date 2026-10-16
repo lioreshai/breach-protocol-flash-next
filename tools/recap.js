@@ -316,6 +316,102 @@ const URL_SEED = /[?&#]seed=(-?\d+)/;      // js/90_dev.js:23 - the seed the run
  *      from a checkout this tool cannot know what any deploy deals.
  */
 const STALE_FIELD = 'staleByBuild';   // prose: which build this layout was measured stale against
+
+/*
+ * The build's second term (#536). A row's `build` names a commit, and from a checkout this tool
+ * cannot say whether that commit still ships: CI's checkout is depth 1 (actions/checkout@v4 with no
+ * fetch-depth, so there is no history to diff) and the deploy is another machine. That gap is how
+ * #468, #478, #431 and #536 were each filed: the front page's frames bound a build, render commits
+ * landed, and the pictures quietly described a game that no longer shipped.
+ *
+ * What IS local and decisive is the bytes that draw a frame. `builds` records, per build a row names,
+ * the sha256 of the shipped blobs a capture pass proves off the wire one blob at a time - index.html
+ * plus the three files that put any pixel on screen: js/10_assets.js makes the textures, js/20_level.js
+ * the lit materials, js/40_render.js is the rasterizer. `check` recomputes them from this tree. All
+ * equal: these frames show what this checkout ships. Unequal: a blob that draws a frame moved, so the
+ * frames show the picture the OLD blob drew - named per file, not as a sentence.
+ *
+ * This is an UPPER bound on "the picture changed": a comment inside js/40_render.js moves a digest and
+ * moves no pixel. That is why the row prints and counts by default and gates only under STRICT=1 - the
+ * promotion path this repo already uses for a new gate, so the debt shows in the verdict line before it
+ * shows in anyone's way. It widens no threshold and does not replace `staleByBuild`, which is a capture
+ * session's measurement of what a DEPLOY deals; this is a checkout's measurement of what its own bytes
+ * draw.
+ */
+const SHIP_FILES = ['index.html', 'js/10_assets.js', 'js/20_level.js', 'js/40_render.js'];
+const BUILDS_KEY = 'builds';
+const PROVENANCE_HINT = 'provenance.json records no shipped-bytes digest for it, so nothing here can say whether those '
+  + 'frames still show what ships (add builds[<build>].files = the sha256 of ' + SHIP_FILES.join(' + ') + ' at that build)';
+
+function shipDigests(rev) {
+  const out = {};
+  for (const f of SHIP_FILES) {
+    try {
+      const buf = rev ? cp.execFileSync('git', ['show', rev + ':' + f], { cwd: ROOT, maxBuffer: 1 << 26 })
+        : fs.readFileSync(path.join(ROOT, f));
+      out[f] = crypto.createHash('sha256').update(buf).digest('hex');
+    } catch (e) { out[f] = null; }
+  }
+  return out;
+}
+
+/*
+ * One row per distinct build named by the shot rows. A row that names no build, a build the artifact
+ * records no digests for, and a build whose shipped blobs differ from this tree are three different
+ * sentences and print as three different labels; none of them is silence. Under STRICT=1 all three fail
+ * - that is the gate promoted - and by default they are counted in the verdict line.
+ */
+function buildCheck(prov, fails, notes) {
+  const STRICT = !!process.env.STRICT;
+  const rev = prov.rev || null;
+  let nrows = 0, bound = 0, drift = 0;
+  if (prov.err) return { nrows: 0, bound: 0, drift: 0 };
+  const builds = prov[BUILDS_KEY] || {};
+  const named = [];
+  for (const s of prov.shots) if (named.indexOf(s.build) < 0) named.push(s.build);
+  const here = shipDigests(rev);
+  const src = rev ? 'rev ' + rev : 'this checkout';
+  for (const b of named) {
+    nrows++;
+    if (b === null || b === undefined) {
+      console.log('SHIP-UNBOUND      (no build)  a shot row names no build, so nothing states which shipped bytes drew '
+        + 'those pixels - the sha256 says which PNG this is, not which game' + (STRICT ? '' : ' (STRICT=1 gates this row)'));
+      drift++;
+      if (STRICT) fails.push('a provenance row names no build');
+      continue;
+    }
+    const rec = builds[b];
+    if (!rec || !rec.files) {
+      console.log('SHIP-UNBOUND      ' + String(b).padEnd(12) + PROVENANCE_HINT + (STRICT ? '' : ' (STRICT=1 gates this row)'));
+      drift++;
+      if (STRICT) fails.push('build ' + b + ' has no shipped-bytes digest in ' + PROV_REL);
+      continue;
+    }
+    const unreadable = SHIP_FILES.filter(function (f) { return !here[f]; });
+    if (unreadable.length) {
+      nrows++;
+      console.log('SHIP-UNREADABLE   ' + String(b).padEnd(12) + 'cannot read ' + unreadable.join(' ') + ' at ' + src +
+        ' - the compare did not run, which is a named gap and not a pass');
+      notes.push('the shipped-bytes compare could not read ' + unreadable.join(' ') + ' at ' + src);
+      continue;
+    }
+    const moved = SHIP_FILES.filter(function (f) { return rec.files[f] !== here[f]; });
+    if (!moved.length) {
+      bound++;
+      console.log('ok      SHIP-BIND     ' + String(b).padEnd(12) + 'the four blobs that draw a frame are byte-identical in '
+        + src + ' - these frames show what ships here (' + SHIP_FILES.join(', ') + ')');
+      continue;
+    }
+    drift++;
+    console.log('FRAME-STALE       ' + String(b).padEnd(12) + moved.length + ' of ' + SHIP_FILES.length +
+      ' shipped blob(s) that draw a frame differ between build ' + b + ' and ' + src + ': ' + moved.join(', ') +
+      ' - every frame bound to ' + b + ' shows the picture the old blob drew, so a re-take off a deploy of ' + src +
+      ' is owed' + (STRICT ? '' : ' (printed; STRICT=1 gates it)'));
+    if (STRICT) fails.push('frames bound to build ' + b + ' while ' + moved.join(' ') + ' moved since');
+  }
+  return { nrows: nrows, bound: bound, drift: drift };
+}
+
 const HW_FIELD = 'sampleRate';
 const HW_WHY = 'one seed deals one level per audio device: SND.init draws floor(sampleRate*1.5) seeded values before genLevel (#404)';
 const ABOUT = 'Capture-time provenance for docs/screens/*.png (#335). One row per shot, written by the session that '
@@ -336,13 +432,17 @@ function loadProv(rev) {
   try { doc = JSON.parse(txt); }
   catch (e) { return { err: PROV_REL + ' is not valid JSON: ' + e.message.split('\n')[0] }; }
   if (!doc || !Array.isArray(doc.shots)) return { err: PROV_REL + ' has no `shots` array' };
+  if (doc[BUILDS_KEY] !== undefined && (typeof doc[BUILDS_KEY] !== 'object' || doc[BUILDS_KEY] === null || Array.isArray(doc[BUILDS_KEY])))
+    return { err: PROV_REL + ': `' + BUILDS_KEY + '` is not an object keyed by build' };
   const byFile = {};
   for (const s of doc.shots) {
     if (!s || typeof s.file !== 'string') return { err: PROV_REL + ': a shot row has no file name' };
     if (byFile[s.file]) return { err: PROV_REL + ': ' + s.file + ' has ' + (byFile[s.file].n + 1) + ' rows - one shot, one declaration' };
     byFile[s.file] = { row: s, n: 1 };
   }
-  return { byFile: byFile, shots: doc.shots };
+  const out = { byFile: byFile, shots: doc.shots, rev: rev || null };
+  if (doc[BUILDS_KEY]) out[BUILDS_KEY] = doc[BUILDS_KEY];
+  return out;
 }
 
 // The instrument's verdict on a row: can this route bind a seed at all?
@@ -511,6 +611,19 @@ function recordMode(rows) {
     console.log('NEW     ' + r.name.padEnd(20) + 'row added with the byte-addressed fields only; DEV.state() side is null');
   }
   doc.shots.sort(function (a, b) { return a.file < b.file ? -1 : 1; });
+  // A build a row names deserves its shipped-bytes entry, or `check` can only call it unbound. The
+  // digests here are THIS checkout's blobs: a capture session binds the build it proved off the wire,
+  // so the entry is only honest when that proof put the deploy and this tree on the same bytes.
+  const builds = doc[BUILDS_KEY] || (doc[BUILDS_KEY] = {});
+  for (const s of doc.shots) {
+    if (typeof s.build === 'string' && s.build && !builds[s.build]) {
+      builds[s.build] = { files: shipDigests(null), note: 'sha256 of the blobs that draw a frame, read from the checkout '
+        + 'that ran --record; the session that captured must prove that tree and the deploy are the same bytes (blob by blob) '
+        + 'or name the build it actually proved (#536)' };
+      console.log('NEW     BUILDS          ' + s.build.padEnd(12) + 'shipped-byte digests taken from this checkout for the build its rows name');
+      added++;
+    }
+  }
   if (added || stale) {
     fs.writeFileSync(provPath(), JSON.stringify(doc, null, 2) + '\n');
     console.log('wrote ' + PROV_REL + ': ' + added + ' new row(s), ' + stale + ' re-addressed');
@@ -530,6 +643,10 @@ function checkMode(rows, rev) {
   // be re-taken is not made true by the number matching.
   const pv = provCheck(rows, loadProv(rev), fails, notes);
   nrows += pv.nrows;
+  // Field 0b - the build's shipped bytes (#536). Provenance says which deal a frame came from; this
+  // says whether the bytes that DRAW a frame still match the ones in this tree.
+  const bv = buildCheck(loadProv(rev), fails, notes);
+  nrows += bv.nrows;
 
   // Vacuity first: a run that decoded nothing, or decoded something that is not a page screenshot,
   // is a FAILURE - it must never print as an empty table that passes (#235, AGENTS.md).
@@ -603,13 +720,17 @@ function checkMode(rows, rev) {
     if (q.thr !== DARK) labels[q.thr] = (labels[q.thr] || 0) + 1;
   }
   console.log('note                   gated: the ' + rows.length + ' means, the row statistics and every shot\'s provenance; printed and not gated:' +
-    ' the >=240 / >=200 shares and the band means, which the captions quote beside canvas numbers');
+    ' the >=240 / >=200 shares and the band means, which the captions quote beside canvas numbers; and the shipped-bytes bind, which '
+    + 'names which frames owe a re-take without claiming any pixel moved');
   for (const k in labels) notes.push(labels[k] + ' caption(s) label the threshold ' + k + ', the tool measures at ' + DARK);
   for (const n of notes) console.log('note                   ' + n);
   console.log('RECAP ' + fails.length + ' FAILURE(S) of ' + nrows + ' rows, ' + pv.bind + ' shot(s) with a binding route' +
     (pv.report ? ', ' + pv.report + ' with an unproven route' : '') +
     (pv.device ? ', ' + pv.device + ' with a device-scoped deal (#404)' : '') +
     (pv.stale ? ', ' + pv.stale + ' labelled stale-by-build (a re-take off a newer deploy re-deals; the caption coordinates are inside one build)' : '') +
+    ', ' + bv.bound + ' build(s) bound to this tree\'s shipped blobs' +
+    (bv.drift ? ', ' + bv.drift + ' build(s) whose shipped blobs moved (frames describe a picture that no longer ships' +
+      (process.env.STRICT ? '' : '; STRICT=1 gates it') + ')' : '') +
     (notes.length ? ', ' + notes.length + ' note(s)' : ''));
   return fails.length ? 1 : 0;
 }
@@ -638,6 +759,7 @@ function main() {
     console.log('');
     console.log('# provenance (#335) - the instrument each frame came from, read from ' + PROV_REL + ', not derived here');
     provCheck(rows, loadProv(rev), []);
+    buildCheck(loadProv(rev), [], []);
   }
   if (mode === 'check') console.log('');
   process.exit(mode === 'check' ? checkMode(rows, rev) : 0);
