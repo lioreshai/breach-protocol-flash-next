@@ -6777,6 +6777,33 @@ if (MODE === 'heights') {
     `function(x0,x1,pl,row){for(let x=x0;x<x1;x++)ZD.set[row+x]=1;ZD.n+=x1-x0;if((ZD.n&31)===0&&ZD.a.length<12288)ZD.a.push(x0,row,pl);` +
     `return O.apply(this,arguments)}}})()`;
   const ZOFF = '(()=>{if(globalThis.__gpO){groundPixel=globalThis.__gpO;globalThis.__gpO=null}})()';
+  /* #518 BOTH ARMS ON ONE RAY, run inside the context so a census is 4,000 solver calls and not 4,000
+     round trips. It reads the queue the renderer itself filled (ZD.a: x, row, plane, recorded every
+     thirty-second deferred RUN of columns - a sample of the pixels that were deferred, which is the
+     population the question is about) and answers each pixel's plane twice on its own ray: once with
+     `planeAlong`, the shipped march, once with `floorFixedPoint`, the fixed point it replaced. A floor
+     pixel whose WALKED plane solves FARTHER than the fixed point's is a surface the march invented -
+     the one thing js/40_render.js's own comment says the walk cannot do - so that count is the
+     assertion (zero, no threshold). The plane gap and the metre gap are the census: how often the two
+     answers differ at all, and how far the phantom the walk removes used to sit. The predictor plane
+     `plA` is rebuilt with castGround's own four lines because floorFixedPoint measures its two-cell
+     proximity against the ROW's distance, which is what js/40_render.js:1780 passes as `dP`. */
+  const WALKCENSUS = `(()=>{const N=MAP.w,hz=Math.round(horizon);
+    const ex=camX|0,ey=camY|0,air=ex>=0&&ey>=0&&ex<N&&ey<N&&!MAP.cell[ey*N+ex];
+    let plA=air?MAP.fz[ey*N+ex]*ZQ:eyeZ; if(!(plA<eyeZ)) plA=Math.min(0,eyeZ-ZQ);
+    let n=0,diff=0,far=0,dmax=0,why='';
+    for(let s=0;s<ZD.a.length;s+=3){const x=ZD.a[s],row=ZD.a[s+1],pl=ZD.a[s+2];
+      const p=row/BW-hz; if(!(p>0))continue; const absP=p;
+      const cf=x*(2/BW)-1,rx=dirX+planeX*cf,ry=dirY+planeY*cf;
+      const dRow=(eyeZ-plA)*BH/absP,ax=(camX+rx*dRow)|0,ay=(camY+ry*dRow)|0;
+      const pw=planeAlong(rx,ry,pl,true,absP),pf=floorFixedPoint(rx,ry,pl,absP,ax,ay);
+      if(!isFinite(pw)||!isFinite(pf))continue;
+      n++; if(Math.abs(pw-pf)>ZQ+1e-6)diff++;
+      const dW=(eyeZ-pw)*BH/absP,dF=(eyeZ-pf)*BH/absP;
+      if(dW>0&&dF>0){ if(dW>dF+0.05){far++; if(!why)why='the walk answers '+dW.toFixed(1)+' m where the fixed point solves '+dF.toFixed(1);}
+        else if(dF-dW>dmax){dmax=dF-dW;why='the fixed point places this pixel at '+dF.toFixed(1)+' m, the walk at '+dW.toFixed(1);}}}
+    return {n,diff,far,dmax,why};})()`;
+  let walkEver = 0, walkEverPx = 0;
   /* Per config: what to poke, and which half of the frame has to move. 'still' is the assertion that
      a floor row and a ceiling row are solved against DIFFERENT planes; 'move' is the one that says
      the solver reads the grid at all. A floor poke CAN legitimately move a ceiling - ceilAt takes
@@ -7066,6 +7093,45 @@ if (MODE === 'heights') {
           }
         }
       }
+      /* #518 THE FLOOR WALK'S CLAIM, MEASURED IN THE ARMS RATHER THAN IN A COMMENT.
+         The deferred floor half answers "which floor is this pixel's ray looking at" two ways: the
+         shipped march (`planeAlong`, walks the ray and takes the first surface IN THE WAY) and the
+         fixed point it replaced (solve the queued plane, read that cell's floor, repeat - which admits
+         any LOWER plane further along the ray, so it paints a surface the ray never arrives at). The
+         renderer states the claim about the pair in prose - "it can remove a phantom and cannot invent
+         one" - and until now no row asserted it, which is why three symptoms (#515/#516/#517) could
+         live in it. So this renders the SAME frame twice, once per arm, and asks two questions:
+           HOW MUCH - how many floor pixels the decision owns. That is the census the issue asked for
+           before anyone spent a week on the solver: a small share means the remaining work is a branch
+           on the disagreeing columns, a large share means it is structural.
+           WHICH WAY - on sampled deferred pixels, both solvers are called on the pixel's own ray. A
+           pixel whose WALKED plane solves FARTHER than the fixed point's is a phantom the march itself
+           invented, which is the one thing the shipped path is claimed to be unable to do; it is a
+           count of zero, not a threshold. The plane difference (more than one quantum) is the census
+           of how often the two arms disagree at all, and the metre figure beside it is the size of the
+           phantom the walk removes - the "answers at 9.4 m, not 18 m" figure, measured here instead of
+           quoted.
+         The fixed-point arm is rendered and then THROWN AWAY: the shipped arm is re-rendered after it
+         so every later clause of this config, and the determinism replay below, still compares the
+         bytes the shipped path produced. `reS`/LGCNT were already read above, so the extra ground
+         passes move no counter any row downstream reads. */
+      let wfPx = 0, wfTot = 0, wfN = 0, wfDiff = 0, wfFar = 0, wfDmax = 0, wfWhy = '';
+      if (wantDepth && run('typeof floorWalkEnabled') === 'boolean' && st.n) {
+        run('floorWalkEnabled=false;px.fill(pack(FOGC[0],FOGC[1],FOGC[2]));castGround(S.flash,FOGC[0],FOGC[1],FOGC[2]);');
+        const fixedArm = new Uint32Array(run('px'));
+        run('floorWalkEnabled=true;px.fill(pack(FOGC[0],FOGC[1],FOGC[2]));castGround(S.flash,FOGC[0],FOGC[1],FOGC[2]);');
+        wfTot = (BH - 1 - hInt) * BW;
+        for (let y = hInt + 1; y < BH; y++) {
+          const row = y * BW;
+          for (let x = 0; x < BW; x++) if (fixedArm[row + x] !== cur[row + x]) wfPx++;
+        }
+        /* Both arms on one ray, at a stride over the pixels the renderer itself queued. `ax`/`ay` are
+           the anchor the fixed point measures its two-cell proximity against, and castGround passes
+           the ROW's distance for it (js/40_render.js:1780), which is `dRow` below. */
+        const wc = run(WALKCENSUS);
+        wfN = wc.n; wfDiff = wc.diff; wfFar = wc.far; wfDmax = wc.dmax; wfWhy = wc.why;
+        walkEver += wc.n; walkEverPx += wfPx;
+      }
       let fail = '';
       /* The absolute band only catches the frame that went grey or blew out. The regression this
          repo paid for was 9 points of level-0 exposure, which sits comfortably inside that band, so
@@ -7096,6 +7162,11 @@ if (MODE === 'heights') {
       // a config that claims to poke them has to actually queue some, or the depth check above is vacuous
       if (wantDepth && !st.n) fail += ' NO-DEFERRED-COVERAGE';
       if (dStale) fail += ' DEFERRED-STALE-DEPTH';
+      /* The walk's A/B has teeth in both directions: a config that claims deferred floor pixels and
+         where the two arms paint an identical floor half means the census is measuring nothing (the
+         march is not running, or nothing in this camera's reach has a height boundary), and a pixel
+         whose walked plane solves FARTHER is the phantom the shipped path claims it cannot create. */
+      if (wfFar) fail += ' WALK-INVENTED-PHANTOM';
       if (dBad) fail += ' DEPTH-DISAGREES';
       if (hzBad) fail += ' HORIZON-DEPTH';
       if (rowBad) fail += ' ROW-DEPTH';
@@ -7120,6 +7191,12 @@ if (MODE === 'heights') {
         `  rows ${rowTot} ok${rowBad ? ' ' + rowBad + ' BAD' : ''} (far band ${farRows}${farBad ? ' bad ' + farBad : ''})` +
         `  horizon ${hzBad ? 'BROKEN' : 'sentinel ok'}  ceiling ${ceilTot} ${ceilBad ? ceilBad + ' NOT THE ROW SOLVE' : 'rows carry their own distance'}` +
         `${dWhy ? '  ' + dWhy : ''}`);
+      if (wfTot) {
+        console.log(`  ${pad('walk', 9)} #518 A/B floor-half px that differ ${wfPx}/${wfTot}` +
+          ` (${(100 * wfPx / wfTot).toFixed(2)}%)  queued rays whose arms answer planes > 1 quantum apart ${wfDiff}/${wfN}` +
+          `  walk farther ${wfFar}${wfDmax ? `, largest phantom the walk removes ${wfDmax.toFixed(1)} m` : ''}` +
+          `${wfWhy ? '  e.g. ' + wfWhy : ''}  ${wfFar ? 'FAIL WALK-INVENTED-PHANTOM' : 'ok'}`);
+      }
       // determinism now runs on EVERY config and on the ground-only repaint: it used to sit under `if (!poke)`, i.e. on `flat` alone - the one config whose RX/RP queue is provably empty, so the deferred pixel body had no coverage while this printed ok
       seedRng(4242 + li * 31);
       run(`S.mode='play';S.locked=false;startLevel(${li},true);MAP.fz.fill(0);MAP.cz.fill(CZ_DEF);linkBoundaries();`);
@@ -7237,6 +7314,42 @@ if (MODE === 'heights') {
       + `${lgn[13] ? '' : ' - deferred ceiling site unrun on this level'}`
       + ` | FLOOR ${(lgn[9] + lgn[11]).toLocaleString()} px, worst deferred ${(lgn[10] / 1000).toFixed(4)}, row ${(lgn[12] / 1000).toFixed(4)} (floor ${(OFFMAPFLOOR / 1000).toFixed(4)}, both halves #385)`
       + `${offFail.length ? '  FAIL' + offFail.join('') : '  ok'}`);
+    /* #518 THE SAME CENSUS ON GEOMETRY THE GENERATOR ACTUALLY DEALS. Every config above FLATTENS the
+       grid and pokes it - that is how its half-of-the-frame assertions get planes they know - so on
+       their own they cannot answer the question the issue asks, which is about the levels a player
+       walks: does the deferred floor pixel paint the plane its own ray arrives at, and how much of the
+       picture turns on that choice. So one more frame per level, dealt and unpoked, at CAMSET's seat,
+       rendered twice - once per arm - plus both solvers on every queued ray. The numbers decide what
+       the remaining #518 work is: a small share of floor pixels means the march only matters where a
+       column crosses a boundary and the rest can stay a branch; a large share means it is the lower
+       half of the frame and the row loop's "no march here" has to go the same way. */
+    if (run('typeof floorWalkEnabled') === 'boolean') {
+      seedRng(4242 + li * 31);
+      run(`S.mode='play';S.locked=false;startLevel(${li},true);`);
+      const dcam = run(CAMSET);
+      run('renderWorld();' + ZRESET + ';' + ZON + ';' +
+        'px.fill(pack(FOGC[0],FOGC[1],FOGC[2]));castGround(S.flash,FOGC[0],FOGC[1],FOGC[2]);' + ZOFF + ';');
+      const dWalk = new Uint32Array(run('px'));
+      const dn = run('ZD.n');
+      run('floorWalkEnabled=false;px.fill(pack(FOGC[0],FOGC[1],FOGC[2]));castGround(S.flash,FOGC[0],FOGC[1],FOGC[2]);floorWalkEnabled=true;');
+      const dFix = new Uint32Array(run('px'));
+      const dBW = run('BW'), dBH = run('BH'), dHz = run('Math.round(horizon)');
+      const dTot = (dBH - 1 - dHz) * dBW;
+      let dPx = 0;
+      for (let y = dHz + 1; y < dBH; y++) {
+        const r0 = y * dBW;
+        for (let x = 0; x < dBW; x++) if (dWalk[r0 + x] !== dFix[r0 + x]) dPx++;
+      }
+      const wc = run(WALKCENSUS);
+      walkEver += wc.n; walkEverPx += dPx;
+      const dFail = wc.far ? ' WALK-INVENTED-PHANTOM' : (dn && !wc.n && !dTot ? ' WALK-CENSUS-EMPTY' : '');
+      if (dFail) bad++;
+      console.log(`  ${pad('walk', 9)} #518 DEALTED grid, no flatten: floor-half px that differ ${dPx}/${dTot}` +
+        ` (${(dTot ? (100 * dPx / dTot).toFixed(2) : '0.00')}% of the lower half), ${(dn || 0).toLocaleString()} deferred px queued,` +
+        ` arms disagree > 1 quantum on ${wc.diff}/${wc.n} queued rays, walk farther ${wc.far}` +
+        `${wc.dmax ? `, phantom up to ${wc.dmax.toFixed(1)} m` : ''}  seat ${dcam.x.toFixed(1)},${dcam.y.toFixed(1)} sight ${dcam.d.toFixed(1)}m` +
+        `${dFail ? '  FAIL' + dFail : '  ok'}`);
+    }
   }
   /* The site #375 actually fixed has to have run SOMETHING, somewhere: a per-level 0 is a level with no
      long sight line, but four of those means the row has stopped measuring the copy it is about. */
@@ -7244,6 +7357,18 @@ if (MODE === 'heights') {
     console.log('  ' + pad('offmap', 9) + ' FAIL OFFMAP-DEFERRED-UNRUN: no level painted a deferred ceiling pixel clear of the map, so no frame exercised the fixed path');
     bad++;
   }
+  /* #518 the census's OWN vacuity half, and it is deliberately global rather than per config: two arms
+     that never disagree anywhere means the A/B is not reaching the code it is about - the switch name
+     gone, the deferred floor queue empty, or a level set with no height boundary inside sight - and a
+     census that measures nothing must not read as "the walk does not matter here". Disagreement is a
+     property of the geometry in view, so one config or level with none is a result, not a gap: measured
+     at this head the poked `stripes` band disagrees on about half its floor pixels and the dealt grids
+     on a slice of theirs, while `pit`, `stepUp` and `eyeUp` disagree on none. */
+  console.log('  ' + pad('walk', 9) + ' #518 census coverage: ' + walkEver.toLocaleString() +
+    ' queued floor rays answered by BOTH arms and ' + walkEverPx.toLocaleString() +
+    ' floor pixels the two arms disagree on across this run' +
+    (walkEver && walkEverPx ? '  ok' : '  FAIL WALK-AB-DEAD (nothing for the census to compare)'));
+  if (!walkEver || !walkEverPx) bad++;
   /* #385 CLAUSE 1 - THE PICTURE, env-gated so nothing here runs unless it is asked for. OFFLOOK=path
      seats the eye on a RAISED BAND within OFFNEIGH cells of the level's own OUTLINE, with the air beyond
      that outline unobstructed, and looks OUT of the level at a grazing pitch - the one seat this issue
