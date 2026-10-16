@@ -13522,7 +13522,25 @@ if (MODE === 'surface') {
      is rested on every render: this census A/Bs THREE renders of one state and calls the pixels that
      differ surfaces, so a rifle that swung with the wall clock between two of them would be counted as
      a ceiling (see VMREST). */
-  const frame = () => { run(VMREST + ' renderWorld()'); return new Uint32Array(run('px')); };
+  const frame = () => { run(VMREST + SHIFT + ' renderWorld()'); return new Uint32Array(run('px')); };
+  /* #546 THE MASK SOURCE. `surf` (the default) reads the class the RENDERER stamped at draw time; `ab`
+     is the old instrument, in which a pixel is ceiling because a one-unit `ceilBias` A/B moved its luma.
+     The second source is kept so this census can still be seen to fail for the reason #546 was filed:
+     `MASKSRC=ab` reproduces the population that a ceiling light term moves, `MASKSRC=surf` cannot.
+     SURF is opt-in in js/00_core.js - null in play, so arming it here changes no pixel and no cost in a
+     shipped frame - and it is allocated per deal because `resize` re-creates the frame buffers. */
+  const MASKSRC = process.env.MASKSRC || 'surf';
+  /* CEILSHIFT is the #546 acceptance knob: it moves EVERY render of the census's `ceilBias` by a whole
+     unit (the same nudge the old classifier itself used to run on) without touching geometry. With the
+     surface id the population - seam columns, ceiling % and floor % of frame - must come back identical
+     at -1 / 0 / +1, because which surface a pixel is cannot depend on how it is lit; with
+     `MASKSRC=ab` it moves, which is the confound #546 was filed for. 0 by default, so a normal run of
+     this census renders the authored frame exactly as before. */
+  const CEILSHIFT = process.env.CEILSHIFT !== undefined ? +process.env.CEILSHIFT : 0;
+  const SHIFT = CEILSHIFT ? ` MAP.ceilBias = (MAP.ceilBias || 0) + (${CEILSHIFT});` : '';
+  const surfMask = () => MASKSRC === 'surf' && run('typeof SURF !== "undefined" && !!SURF')
+    ? new Uint8Array(run('SURF')) : null;
+  const armSurf = () => run('if (typeof SURF === "undefined") 0; else { if (!SURF || SURF.length !== BW * BH) SURF = new Uint8Array(BW * BH); }');
   const fhash = buf => { let h = 2166136261 >>> 0; for (let i = 0; i < buf.length; i += 7) h = Math.imul(h ^ buf[i], 16777619) >>> 0; return h >>> 0; };
   const frameBias = (field, d) => {
     run(`(function(){ globalThis.__b0 = MAP.${field}; MAP.${field} = (MAP.${field} || 0) + ${d}; return 1; })()`);
@@ -13651,8 +13669,15 @@ if (MODE === 'surface') {
     return {n: g.length, med: g.length ? g[g.length >> 1] : NaN, all: g};
   };
   const poolBandSet = fits => new Set(fits.map(F => Math.round(F.band * 100) / 100));
-  function classify(a, cf, ff) {
+  function classify(a, cf, ff, sf) {
     const n = BW * BH, cl = new Uint8Array(n), fo = new Uint8Array(n);
+    if (sf) {
+      /* The surface fact. 2 = the CEILING half of the ground pass painted this pixel, 1 = the FLOOR half,
+         0 = something else owns it (a wall face, a riser, a prop, a body, the view model, the horizon row)
+         or nothing did. No luma threshold is anywhere in this path, which is the whole point: no term that
+         changes only how a surface is LIT can move which surface a pixel is. */
+      for (let i = 0; i < n; i++) { const s = sf[i]; if (s === 2) cl[i] = 1; else if (s === 1) fo[i] = 1; }
+    } else
     for (let i = 0; i < n; i++) {
       if (Math.abs(LUM(a, i) - LUM(cf, i)) > 4) cl[i] = 1;
       if (Math.abs(LUM(a, i) - LUM(ff, i)) > 4) fo[i] = 1;
@@ -13867,6 +13892,7 @@ if (MODE === 'surface') {
   const seatHit = [];          // #421: did this sector's ARRIVAL frame carry a deck overhead in reach?
   for (let li = 0; li < NL; li++) {
     const dealt = (deal(li), gridHash()), dh = dealt.toString(16).padStart(8, '0');
+    armSurf();                      // #546: the frame buffers are re-created per level, so arm per deal
     const name = run('LEVELS[' + li + '].name');
     /* #421 THE SEAT, NOT THE SURFACE - measured before any pose turns the camera.
        Every other row in this block aims the camera (`aim`, `seatU`) because a census of an arrival frame
@@ -13966,8 +13992,12 @@ if (MODE === 'surface') {
       if (gh !== dealt) poseOk = false;
       const authored = run('(MAP.floorBias || 0)') + '/' + run('(MAP.ceilBias || 0)') + '/' + run('MAP.ceilLead === undefined ? "default" : MAP.ceilLead');
       const a = frame(), zb = new Float32Array(run('zbuf')), ccam = poolCam();
-      const cf = frameBias('ceilBias', -1), ff = frameBias('floorBias', -1);
-      const c = classify(a, cf, ff);
+      /* The mask is read off the RENDERER (surfMask) and then, for the control, off the light A/B - the
+         two renders `cf`/`ff` are the census's OLD surface classifier, and their stamps are captured too
+         so the MASK row can say which columns a whole unit of `ceilBias` would have moved. */
+      const sfA = surfMask();
+      const cf = frameBias('ceilBias', -1), sfC = surfMask(), ff = frameBias('floorBias', -1), sfF = surfMask();
+      const c = classify(a, cf, ff, sfA);
       /* #421: which of this pose's ceiling pixels did the SOFFIT term paint, and does the underside's
          edge survive as a step. The A/B renders the identical state with SLABUND off, so the same frame
          `a` is graded and the control arm is the pre-#461 build, not a paraphrase of it. */
@@ -14195,12 +14225,12 @@ if (MODE === 'surface') {
           if (${run(`!!LEVELS[${li}].authored`)}) kneeLampField(); else blurLight();
           buildTint(); MAP.tintDirty = false;
           return 1; })()`);
-        const a0 = frame(), c0f = frameBias('ceilBias', -1), f0f = frameBias('floorBias', -1);
+        const a0 = frame(), s0f = surfMask(), c0f = frameBias('ceilBias', -1), f0f = frameBias('floorBias', -1);
         run('MAP.floorBias = globalThis.__o[0]; MAP.ceilBias = globalThis.__o[1]; MAP.ceilLead = globalThis.__o[2]; MAP.wallBias = globalThis.__o[3]; delete globalThis.__o;');
         run(`(function(){ MAP.light.set(globalThis.__lm[0]); MAP.lR.set(globalThis.__lm[1]); MAP.lG.set(globalThis.__lm[2]);
           MAP.lB.set(globalThis.__lm[3]); MAP.lw.set(globalThis.__lm[4]); MAP.lt.set(globalThis.__lm[5]);
           MAP.tintDirty = false; delete globalThis.__lm; return 1; })()`);
-        const c0 = classify(a0, c0f, f0f);
+        const c0 = classify(a0, c0f, f0f, s0f);
         const survived = c0.seam >= TARGET && c0.ceil < c0.floor;
         if (survived) ctrlMiss++;
         row(`L${li} cam${cam} CONTROL the census can see the bug`,

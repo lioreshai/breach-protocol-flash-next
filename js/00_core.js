@@ -26,6 +26,18 @@ let BW = 0, BH = 0, imgBuf = null, px = null, zbuf = null;
    draw, 0 = anything else). tools/view.js contrast is the only caller. */
 let COV = null;
 
+/* SURF = an OPT-IN per-pixel SURFACE id, stamped at draw time: null in play, so no draw site reads
+   it and the shipped frame pays nothing. A probe sets it to a Uint8Array(BW * BH) and the renderer
+   writes the class of the surface each pixel shows: 0 = not a ground surface (a wall face, a riser,
+   a prop, a body, the view model, the horizon row), 1 = the FLOOR half of the ground pass, 2 = the
+   CEILING half of it. The ground pass stamps a whole row at once because the class is a ROW
+   constant there (`isF`, the same test that picks `ceilTex` and adds `CEILB`); the wall face span and
+   the sprite/mesh blitters stamp 0 where they win a pixel, which is the same last-writer-wins rule
+   COV already uses. tools/view.js surface is the only caller: it is how that census asks "which
+   pixels are ceiling" WITHOUT a light A/B, so a change to any ceiling light term cannot move the
+   population the census grades (#546). */
+let SURF = null;
+
 /* #407: BODYDIST arms the SECOND camera-distance attenuation of the lamp field on bodies and props.
    Default 1 = OFF, the field is taken whole at the body's own cell, which is what a wall column and a
    ground pixel already do (`li = lm[cIdx]`, no distance term). 0 = the pre-#407 term comes back,
