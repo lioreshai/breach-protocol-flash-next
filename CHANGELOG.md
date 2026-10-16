@@ -1,5 +1,108 @@
 # Changelog
 
+## [v1.4.7] - 2026-10-15
+
+### Changed
+
+- **The ceiling stopped being a black sheet** (#495, PR #502). The roof is the largest surface in a
+  standing frame — 41–50 % of what you see — and it was drawn at a third to a half of the brightness of
+  the deck it covered, with no material in it. It now reads as a surface: panel grid, rock and its own
+  shading are visible, and it sits at 0.56–0.74 of the floor under it instead of 0.41–0.57. THE STACK got
+  its own rock paint so its vault lifts against a pale deck without washing out. Nothing got brighter
+  overall: the lift is paid per sector out of that sector's own headroom.
+- **The line where a room stops and its roof starts is drawn** (#369, PR #526). In ABATOIR CORE the wall
+  used to run up and become its own roof — one red, three surfaces, no edge. A crease now runs along that
+  junction, 0.6 m of ceiling deep, keeping its metres at any distance so it thins to a line far off
+  instead of smearing. A high room reads as high. This spends no brightness to say it.
+- **THE STACK's finale stopped looking like an overexposed photograph** (#503, PR #509). The floor you
+  spawn on delivered 148 luma with 13.3 % of it past the clip point, so a lamp's pool could only blow out
+  further and a body in the open read as a dark speck on white. A lamp's colour may no longer add
+  brightness it isn't entitled to: that deck now delivers 98 luma with nothing clipping, in the same band
+  as the other three sectors, so a lamp has room to rise above the floor it lands on.
+- **A crack in a wall reads as a groove instead of a black hairline** (#416, PR #527). ARCHIVE
+  SUBLEVEL's brick carried its cracks as a one-texel line about 110 luminance below the brick face, which
+  is a crack up close and per-pixel noise past a metre — and, being the sharpest thing in the frame, it
+  made a body at 10 m look flat by comparison. The groove is now wider than the texel that samples it and
+  its dark is a shadowed brown. Surface relief is untouched; it is still the darkest thing on the face.
+- **Enemies, crates and barrels now sit on the deck instead of floating over it** (#18, PRs #511, #531).
+  A crate's base carries a visible dark contact band (6.4 % of its silhouette area against 1.6–2.6 %
+  before), and an enemy's base band is 25–28 % deeper on every sector, so at combat range a hostile reads
+  as an object standing in the room rather than a dark cutout pasted on the far wall. It is a multiply on
+  the lit ground, so the cue survives the lamps going out.
+- **An enemy at the far end of a march keeps his surface** (#416, PR #513). A grunt at 10 m arrived with
+  one luminance per face — less local structure than the deck behind him — because the seam term was
+  switched off just inside combat range to avoid shimmer. He now draws one coarser level of the same
+  pattern instead of dropping it: his own surface reads 2.93 luma per screen pixel where it read 1.40, at
+  the same brightness, so a body walking through that range boundary changes which seams he wears, not how
+  bright he is.
+- **The raised storey a level builds now reaches the room you wake in** (#421, PR #514). The generator
+  used to place its plateau wherever a quadrant boundary happened to fall, usually the far side of the
+  map. On ABATOIR CORE the number of columns within 12 m of your spawn that have a floor over their head
+  goes from 0 to 14: the riser, the lip you can shoot over and the floor above it are now inside the
+  distance the frame can actually resolve, and the way up starts near where you begin. Deals that already
+  put something over the entry room are unchanged, byte for byte.
+- **RING TRANSPORT has one deliberate mark on it** (#466, PR #500). That sector was so consistent a
+  cold blue-grey that nothing in it looked placed on purpose. Every deck lip and stair nosing now carries
+  a painted amber edge — a continuous warm line tracing where the platform actually is, at 1.5–2.1 % of
+  the frame's coloured pixels.
+
+### Added
+
+- **Every room says what it is for, even in one open hall** (#422, PR #463). Rooms now get a wall fixture
+  that names them — shelving, a tank with a sight glass, an arrow board by a doorway. RING TRANSPORT is
+  dealt as one hall with no interior walls at several generator seeds, so the per-room pass found no wall
+  to mount on and placed none anywhere; it now mounts on the first wall that room looks straight at, and
+  places five on each of those seeds where it used to place zero. A fixture too small for the face it
+  landed on is swapped for one that fits.
+- **There is a hand on the gun** (#499, PR #508). The weapon is no longer one grey slab: a cool steel
+  upper over a warm polymer lower with a parting seam between them, and a fist that reaches the frame at
+  hip — the lower right of a spawn frame used to hold no skin-toned pixels at all.
+
+### Fixed
+
+- **A verdict that depended on which machine ran it** (#505, PR #512). The first-frame brightness check
+  compares your arrival frame against a band, and one sector sat 1.5 lumas under its top — close enough
+  that the same build passed on one runner and failed on another. The film-grain phase is now pinned on
+  every measured frame (worth up to a luma of runner, not of code) and the gate renders its own failure
+  anchors instead of trusting a transcript, so the budget it is operating on is printed with the verdict.
+- **The finale's exit was scored against somebody else's map** (#421, PR #514). THE STACK's reachability
+  check was reading the previous level's distance field at the wrong stride and had been printing `ok` by
+  arithmetic luck; it now scores each level from its own field, seeded at the square the player actually
+  stands on rather than the generator's own centre cell.
+
+### Documentation
+
+- All eight README frames are recaptured from the build that ships (#468, #431, PRs #532, #530), each
+  served file byte-compared against the deployed build before the shutter, with a provenance row per frame
+  in `docs/screens/provenance.json`. ABATOIR CORE's pair is a different room now — the level work above
+  re-dealt that seed — and THE STACK's frame is a step dimmer than the one it replaces.
+
+### Known limitations
+
+- **Two sectors' roofs are still short of where we want them.** RING TRANSPORT reads at 0.583 of its deck
+  and ABATOIR CORE at 0.530; lifting them further costs about 5 lumas of frame median at 41–50 % coverage,
+  which is the entire distance from their arrival frames to the top of the brightness window. Getting them
+  up means either something else in those frames giving way or re-deriving the window from its anchors —
+  both bigger than a paint commit. #495 stays open.
+- **The arrival frame has very little room under its ceiling.** The four sectors' first frames now sit with
+  1.4 to 15.8 lumas to spare under the top anchor. That number is now printed instead of discovered in a
+  failed run, but it has not been bought back: #505 stays open, and re-deriving what the top anchor means
+  is a review decision, not a paint decision.
+- **An enemy's grounding band is deeper, not wider.** Widening his radius is measured and does not fit the
+  sanctioned shadow-area cap (1.3–1.7× at the next step up). The cap has to be re-derived from each
+  caster's own footprint before a wide ring can ship, so #18 stays open with the prop half landed.
+- **One long-range readability row is still debt.** ARCHIVE's 10 m body misses its bar by well under one
+  luma of outline step, and no material pays it: flattening that seat's deck grain moves the background
+  busyness by 0.01 and its light field moves the other way. #416 stays open.
+- **A staircase near a lamp is the loudest thing in its room** (#466, PR #500). The painted lip band covers
+  every riser on the level, stair nosings included. Excluding stairs is a one-clause follow-up if wanted.
+- **THE STACK's plateau is where it always was.** That level is a hand-authored plan, so moving its raised
+  band is an edit to the plan's altitude rows, not to the generator. And you still do not arrive *facing*
+  the storey above you — that is the arrival-heading half of #421, still open.
+- **Not every overlook deck is lit.** 4/5, 3/5, 7/8 and 1/1 overlook decks on the four sectors read lit
+  from a source on their own band, and none of them is lit by a rule — every lit deck is the deal's
+  accident. The count is now measured and printed (#353, PR #520); lighting those decks is not done.
+
 ## [v1.4.6] - 2026-10-13
 
 ### Fixed
