@@ -2886,19 +2886,46 @@ function castWalls(flash, fcR, fcG, fcB) {
 
     /* #369: the ceiling's side of this junction. Rows ABOVE `ds` are the ceiling plane the face
        ends at, so the band runs up from the edge and touches no face pixel; see CSEAM at :61 for
-       why the fix is local and not a value, and which columns are deliberately skipped. */
-    if (CSEAM && doStep && !riser && ds > 0 && z1 > eyeZ && perp > CSEAMW + 0.15 && perp < FARB) {
+       why the fix is local and not a value, and which columns are deliberately skipped.
+
+       #369 take twelve: A SLAB SIDE GETS ONE TOO, and it is a different corner. The `!riser` clause
+       skipped every column whose stop is a riser face - and the side of a raised band IS a riser face,
+       so the one junction that carries the second storey was the one the band refused to draw (the
+       `surface` SEAM row has been known-failing on the ARCHIVE/RING/STACK poses for exactly that
+       reason: the roof runs into a slab side with no edge between them and the frame cannot say where
+       the room ends). Widening and deepening the old band were both measured out on that issue and left
+       those two poses byte-identical, because the geometry the width was solved from is not the geometry
+       of this corner: `z1` on a riser is rz1, the raised band's FLOOR, and the plane the eye is actually
+       looking up into above the lip is that band's own CEILING, `cp` of the cell the ray stopped in.
+       So the band is solved from the two planes that meet at the corner - the ceiling above the raised
+       floor for its width, the raised floor's own edge for where it stops - instead of from an edge a
+       slab side does not have. It stays ADDITIVE: `!riser` is load-bearing for the step faces of #515,
+       which is why the old clause is kept for the face-side creases below and only this band's gate
+       changes. The same four clauses carry over, with `zc > eyeZ` standing in for `z1 > eyeZ` so a drop
+       face seen from above - whose rows above `ds` are somebody's FLOOR, not a ceiling - still paints
+       nothing, which is the case the `!riser` clause was really protecting. */
+    if (CSEAM && doStep && ds > 0 && z1 > eyeZ && perp > CSEAMW + 0.15 && perp < FARB) {
+      /* The plane the band runs along: for an ordinary wall face that is z1, unchanged, so a flat or a
+         wall column pays the identical arithmetic and keeps its identical bytes. For a slab side it is
+         the ceiling of the air above the lip, read through the same derived array the face span uses.
+         TWO clauses then keep the band on ceilings: `z1 > eyeZ` is rz1 above the eye, so a step DOWN
+         seen from the deck above - whose lip is the eye's own floor and whose rows above `ds` are a
+         FLOOR plane - still paints nothing, and `zc > eyeZ` refuses a cell whose ceiling plane is at or
+         below the eye, where there is no overhead surface to give an edge to. */
+      const zc = riser ? (mx >= 0 && my >= 0 && mx < N && my < N ? cp[my * N + mx] : 1) : z1;
+      if (zc > eyeZ) {
       /* The band's WIDTH in rows is the ceiling plane's own projection, not a screen constant: a point
          CSEAMW metres back along the ceiling from the junction lands on row
-         horizon - (z1-eyeZ)*BH/(perp-CSEAMW), so the band is the rows between that and the edge and
+         horizon - (zc-eyeZ)*BH/(perp-CSEAMW), so the band is the rows between that and the edge and
          keeps its METRES at any depth the way #164's lip keeps hers. It thins to a pixel or two on a
          distant junction where the ceiling plane is compressed against the horizon - which is where a
          wide band would be a wash and the SEAM row's own window has nothing to compare anyway. */
-      let cbw = Math.round((z1 - eyeZ) * BH * CSEAMW / (perp * (perp - CSEAMW))) + 1;
+      let cbw = Math.round((zc - eyeZ) * BH * CSEAMW / (perp * (perp - CSEAMW))) + 1;
       if (cbw < 2) cbw = 2; else if (cbw > 20) cbw = 20; else if (cbw > ds) cbw = ds;
       for (let k = 0; k < cbw; k++) {
         const i = (ds - 1 - k) * BW + x, v = px[i], ck = 1 - CSEAMD * (1 - k / cbw);
         px[i] = (0xFF000000 | clampi((v >> 16 & 255) * ck) << 16 | clampi((v >> 8 & 255) * ck) << 8 | clampi((v & 255) * ck)) >>> 0;
+      }
       }
     }
 
