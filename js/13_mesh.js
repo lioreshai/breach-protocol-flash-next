@@ -1336,6 +1336,27 @@ const MESH = (function () {
        the ambient outside it is a floor both faces share; 1.1 on the whole light is the issue's "at
        least 35 luminance where the shipped build gives 18". */
     const PROP_R1 = 1.3, PROP_DMEAN = 0.45;
+    /* #371: what a PROP pays for the visibility FILL. `li` below adds 0.30 * visAt(dc) on top of the
+       baked lamp field, and that add is a READABILITY term, not a light: it exists so a hostile does not
+       arrive as a black cut-out in a dark cell at engagement range (#407 kept it for exactly that, and
+       took the double distance falloff out around it). No WORLD surface carries it - a wall column and a
+       ground pixel read `li = lm[cIdx]` flat (js/40_render.js:921, :1037, :1485) - so a prop, which shares
+       the mesh's lighting branch with bodies, was receiving a fill the room it stands in never got.
+       That is the whole drift this increment measured. Against #491's head (25aec13) the prop means at the
+       seven offending seats moved by -4..+10 luma while the DECKS under them fell 14-40 luma (#369's tile
+       repaint, #518's floor walk): the room came down, the crate stayed put, and the gap went from 1 seat
+       over the +25 bar to 7. In a dim cell the fill is not a rounding error - visAt is 0.647 at 8 m, so
+       0.19 of light that the floor under the same crate does not receive.
+       PROP_FILL is that share, taken back for props only. Bodies keep 0.30: the term is why an enemy is
+       legible in a corner, and this issue's own criterion is that the ENEMY is the brightest moving thing
+       in its part of the frame, so paying for the prop's band out of the enemy's readability would trade
+       the defect for a worse one. Distance is still carried for props by the fog wash (`+ FOGC*fog`
+       below), the field's own splat falloff and the haze, exactly as for every other surface - nothing
+       here dims a prop that is standing in its room's light, because `Math.min(1, ...)` already saturates
+       that case. Set it to 0.30 and the sweep goes back to 7 seats over the bar: that is the falsifier.
+       ONE read site - every placed prop is `mesh: true` (js/40_render.js:537), so the billboard copy at
+       :3135 carries no prop, and pickups/orbs/PORTAL are not PROPKIND and keep the shipped 0.30. */
+    const PROP_FILL = 0;
     FLR = MDL ? (o.floor || 0) : 0; RIMK = MDL ? (o.rim || 0) : 0;
     ALPHA = o.alpha === undefined ? 1 : o.alpha;
     FLASH = o.flash ? 1 : 0;
@@ -1454,7 +1475,8 @@ const MESH = (function () {
            fades with visibility in step with the haze rather than attenuating the field twice.
            BODYDIST 0 puts the second falloff back in this copy AND in the billboard copy - the A/B the
            distance rows in tools/view.js contrast are meant to be seen failing. */
-        const li = Math.min(1, (lm ? lm[cc] : 0.5) * (BODYDIST ? 1 : Math.exp(-dc * 0.14)) + 0.30 * visAt(dc));
+        const li = Math.min(1, (lm ? lm[cc] : 0.5) * (BODYDIST ? 1 : Math.exp(-dc * 0.14)) +
+          (pr ? PROP_FILL : 0.30) * visAt(dc));
         /* #407 half four: the haze is ADDED to a world pixel, never multiplied over its light - the row
            loop (:1349), a wall face (:2183) and a billboard (:2397) all end at `texel*light + FOGC*fog`,
            and `* inv` is left on light-EXEMPT texels only. This branch was the one place a LIT surface
