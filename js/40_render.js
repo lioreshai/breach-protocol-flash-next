@@ -941,6 +941,12 @@ function mipSel(ax0, ax1, ay0, ay1, sc, tex) {
    cannot answer, it does not change an answer (see buildPlaneInv) — and `view.js flatparity`'s records
    hold with the switch either way, which is what makes the paired timing a measurement of time. */
 let marchSkipEnabled = true;
+/* #518 KILL SWITCH — the same idiom, for the FLOOR half of the deferred ground pass: ON walks the ray
+   with `planeAlong`, OFF runs the fixed point that ADOPTS a lower plane further along. A probe flips it
+   batch by batch in one context, so the disagreement census and the paired timing are one measurement
+   on one layout rather than two builds. */
+let floorWalkEnabled = true;
+let gndFloorWalk = 0;      // deferred floor pixels whose PLANE the walk answered (census: view.js cull)
 const PV_W = 128;                                    // plane/ZQ indices [-64 .. 63] = altitudes -16 .. 15.75 m
 const PV_FLAG = new Uint8Array(PV_W), PV_VAL = new Float64Array(PV_W);
 let PV_N = 0, gPVSer = -1, gPVFz = null, gPVCp = null, gPVWide = 0;
@@ -1888,12 +1894,46 @@ function slabT(rx, ry, absP) {
   return -1;
 }
 
+/* The OFF arm of the #518 switch, kept verbatim as the A/B: the shipped fixed point. Solve the plane the
+   pixel was queued with, look at the cell the solve lands in, take that cell's floor, repeat up to three
+   times; agreement within one quantum is convergence. It has no notion of what is IN THE WAY, which is
+   the defect #518 is about, and it is named here so `cull` can ask the same question both ways in one
+   process. Also read by that row as the disagreement census. */
+function floorFixedPoint(rx, ry, pl, absP, ax, ay) {
+  const N = MAP.w, cellArr = MAP.cell, fzs = MAP.fz;
+  let cur = pl, aq = ax, aqq = ay, settled = false;
+  for (let g = 0; g < 3; g++) {
+    const d0 = (eyeZ - cur) * BH / absP, dc = d0 > FARB * 4 ? FARB * 4 : d0;
+    const qx = (camX + rx * dc) | 0, qy = (camY + ry * dc) | 0;
+    const mx = (qx + aq) >> 1, my = (qy + aqq) >> 1;
+    // a plane may only come from a column within two cells on BOTH axes with no solid column between
+    let plN = cur;
+    if (qx >= 0 && qy >= 0 && qx < N && qy < N && Math.abs(qx - aq) <= 2 && Math.abs(qy - aqq) <= 2 &&
+      mx >= 0 && my >= 0 && mx < N && my < N && !cellArr[my * N + mx]) {
+      const ii = qy * N + qx;
+      if (!cellArr[ii]) { const t = fzs[ii] * ZQ; if (t < eyeZ) plN = t; }
+    }
+    aq = qx; aqq = qy;
+    // planes are quantized to ZQ, so agreement within one quantum is convergence: a pixel on the
+    // seam between two cells whose planes differ by a quantum has no fixed point and alternates
+    // forever (measured: 33,656 of a frame's re-solves on eyeUp, all a 1 <-> 1.25 two-cycle)
+    if (Math.abs(plN - cur) <= ZQ) { settled = true; break; }
+    cur = plN;
+  }
+  // an exhausted loop used to leave dS from the PREVIOUS plane; the plane finally used places the
+  // pixel, so it is counted here and solved like every other one
+  if (!settled) reSolveBad++;
+  return cur;
+}
+
 function groundPixel(x0, x1, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb, dP, plA) {
   const N = MAP.w, cellArr = MAP.cell, lm = MAP.light, fzs = MAP.fz, stepBase = 2 / BW;
   const csk = !isF && SLABUND ? MAP.ceilSlab : null;   // #421, second copy: same byte, same rule
   const shm = SHADOW ? SH_HEAD : null;                      // #178, second copy of the ground pixel body
   const lgc = LGCAP, cnt = LGCNT;                     // #21, second copy of the light ceiling too
   /* RUN LOOP (#prototype): one call per run of columns that share (row, plane); x1 is exclusive. */
+  // #518: which solver places a deferred FLOOR pixel. See the floor half below for what the two arms
+  // answer and why ON is the shipped one; `cull`'s WALK row A/Bs them in one process.
   for (let x = x0; x < x1; x++) {
   const cam = x * stepBase - 1, rx = dirX + planeX * cam, ry = dirY + planeY * cam;
   // the cell this pixel's ray reaches at the ROW's distance: the shipped out-of-map fallback cell and
@@ -1901,37 +1941,35 @@ function groundPixel(x0, x1, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb
   const ax = (camX + rx * dP) | 0, ay = (camY + ry * dP) | 0;
   let dOv = -1;                                    // >= 0 when a crossing, not a plane, places the pixel
   if (isF) {
-    /* The FLOOR half keeps the shipped solver's SHAPE - the plane the pixel was queued with may be
-       replaced by the floor of the cell the pixel lands in, once per try, quantum apart = settled -
-       but runs the arithmetic only, with no shading in the loop, and the plane it lands on is what the
-       (row, plane) constants are built from. That is the same answer the three-try loop left in dS:
-       d is always the final plane's solve, whether the loop broke, settled or ran out. It adopts a
-       LOWER plane it finds further along the ray, which down a staircase paints the bottom floor's
-       plane at 18 m where walking the ray says the first step's plane answered at 9.4 m - a phantom,
-       and the reason the `bands` walk-lip row reads 45.4 instead of 27.1; walking the floor half needs
-       its own change and its own look gate, not a quiet edit to that threshold. */
-    let cur = pl, aq = ax, aqq = ay, settled = false;
-    for (let g = 0; g < 3; g++) {
-      const d0 = (eyeZ - cur) * BH / absP, dc = d0 > FARB * 4 ? FARB * 4 : d0;
-      const qx = (camX + rx * dc) | 0, qy = (camY + ry * dc) | 0;
-      const mx = (qx + aq) >> 1, my = (qy + aqq) >> 1;
-      // a plane may only come from a column within two cells on BOTH axes with no solid column between
-      let plN = cur;
-      if (qx >= 0 && qy >= 0 && qx < N && qy < N && Math.abs(qx - aq) <= 2 && Math.abs(qy - aqq) <= 2 &&
-        mx >= 0 && my >= 0 && mx < N && my < N && !cellArr[my * N + mx]) {
-        const ii = qy * N + qx;
-        if (!cellArr[ii]) { const t = fzs[ii] * ZQ; if (t < eyeZ) plN = t; }
-      }
-      aq = qx; aqq = qy;
-      // planes are quantized to ZQ, so agreement within one quantum is convergence: a pixel on the
-      // seam between two cells whose planes differ by a quantum has no fixed point and alternates
-      // forever (measured: 33,656 of a frame's re-solves on eyeUp, all a 1 <-> 1.25 two-cycle)
-      if (Math.abs(plN - cur) <= ZQ) { settled = true; break; }
-      cur = plN;
-    }
-    // an exhausted loop used to leave dS from the PREVIOUS plane; the plane finally used places the
-    // pixel, so it is counted here and solved like every other one
-    if (!settled) reSolveBad++;
+    /* WHICH PLANE PLACES A DEFERRED FLOOR PIXEL (#518). There are two answers to "what floor is this
+       pixel's ray looking at" and they are not the same question.
+       The SHIPPED one was a fixed point: solve the queued plane, look at the cell the solve lands in,
+       take that cell's floor, repeat. It converges on flat ground and it converges to the same number
+       the row would give, but a fixed point has no idea which surface is IN THE WAY: the test that
+       admits a candidate is "that cell's floor is below the eye", not "my ray arrives at it", so a
+       LOWER plane further along the ray is adopted and painted here. Down a staircase that paints the
+       bottom floor's plane at the distance of a solve past the stairs where the first tread's own plane
+       already answered the same ray much nearer - the phantom #515/#516/#517 all three point at, and
+       the reason the `bands` step-down lip contrast was measuring a borrowed surface.
+       The honest one is the march the CEILING half has used since #170: `planeAlong` walks the ray cell
+       by cell and takes the first surface that is genuinely in the way - a floor whose own cell reaches
+       the arrival point, or the boundary floor a descending ray slips under. It answers STRICTLY
+       nearer than the caller's solve or it hands the caller's plane back, so it can remove a phantom
+       and cannot invent one, and `buildPlaneInv`'s skip returns it without walking at all wherever the
+       level holds no altitude that could answer this ray (bit for bit the shipped answer on a flat
+       level, which is why `flatparity`'s four frames do not move).
+       `floorWalkEnabled` is `marchSkipEnabled`'s idiom (#170): a name a probe can reassign from
+       outside, so ONE process can time and diff both arms on one layout. OFF is the fixed point above,
+       kept verbatim as the A/B arm; ON is the shipped path. The cost is one march per deferred floor
+       pixel, which is the documented one-indirection cliff, so it is measured and printed by `cull`
+       rather than assumed - and the ceiling half still does NOT march per pixel here, because the row
+       marched its cell once at the crossing (#15's per-cell decision) and a deferred ceiling pixel
+       inherits that answer. */
+    let cur = pl;
+    if (floorWalkEnabled) {
+      cur = planeAlong(rx, ry, pl, true, absP);
+      gndFloorWalk++;
+    } else cur = floorFixedPoint(rx, ry, pl, absP, ax, ay);
     pl = cur;
     /* #192, the deck faces: `t < eyeZ` above refuses a floor that is at or above the eye, so a pixel
        queued from under a deck leaves this loop with the deck's own plane in `pl` and no solve for it.
