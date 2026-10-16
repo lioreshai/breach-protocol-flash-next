@@ -6803,7 +6803,26 @@ if (MODE === 'heights') {
       if(dW>0&&dF>0){ if(dW>dF+0.05){far++; if(!why)why='the walk answers '+dW.toFixed(1)+' m where the fixed point solves '+dF.toFixed(1);}
         else if(dF-dW>dmax){dmax=dF-dW;why='the fixed point places this pixel at '+dF.toFixed(1)+' m, the walk at '+dW.toFixed(1);}}}
     return {n,diff,far,dmax,why};})()`;
-  let walkEver = 0, walkEverPx = 0;
+  let walkEver = 0, walkEverPx = 0, rowOccEver = 0, rowOccFar = 0;
+  /* Both halves ask the same question of the pixels the ROW painted itself (deferred ones are marked in
+     `ZD.set` and are graded by the census above): does the depth in `zbuf` agree with the plane the
+     march finds on this column's own ray? A row-painted floor pixel that stores a FARTHER depth than the
+     walked solve is #518 stated as a number - the eye's own floor plane carried past its edge - and the
+     count of them is zero, not a threshold. Row stride 3 and column stride 17 keep it at a few hundred
+     march calls per frame; the march's own plane-inventory skip returns without walking wherever the
+     level holds no altitude that could answer, so the census is cheap by construction. */
+  const ROWOCC = `(()=>{const N=MAP.w,hz=Math.round(horizon);
+    const ex=camX|0,ey=camY|0,air=ex>=0&&ey>=0&&ex<N&&ey<N&&!MAP.cell[ey*N+ex];
+    let plA=air?MAP.fz[ey*N+ex]*ZQ:eyeZ; if(!(plA<eyeZ)) plA=Math.min(0,eyeZ-ZQ);
+    let n=0,bad=0,dmin=0,why='';
+    for(let y=hz+1;y<BH;y+=3){const absP=y-hz,dRow=(eyeZ-plA)*BH/absP;
+      for(let x=0;x<BW;x+=17){const i=y*BW+x; if(ZD.set[i])continue;
+        const cf=x*(2/BW)-1,rx=dirX+planeX*cf,ry=dirY+planeY*cf;
+        const plW=planeAlong(rx,ry,plA,true,absP),dW=(eyeZ-plW)*BH/absP,got=zbuf[i];
+        if(!(got>0)||!(dW>0)||!isFinite(dW))continue;
+        n++;
+        if(got>dW+1e-4){bad++; if(!dmin||dW<dmin){dmin=dW;why='the row stores '+got.toFixed(1)+' m at column '+x+', the walk stops this ray at '+dW.toFixed(1)+' m';}}}}
+    return {n,bad,dmax:dmin,why};})()`;
   /* Per config: what to poke, and which half of the frame has to move. 'still' is the assertion that
      a floor row and a ceiling row are solved against DIFFERENT planes; 'move' is the one that says
      the solver reads the grid at all. A floor poke CAN legitimately move a ceiling - ceilAt takes
@@ -7131,6 +7150,25 @@ if (MODE === 'heights') {
         const wc = run(WALKCENSUS);
         wfN = wc.n; wfDiff = wc.diff; wfFar = wc.far; wfDmax = wc.dmax; wfWhy = wc.why;
         walkEver += wc.n; walkEverPx += wfPx;
+        /* #518 THE ROW PATH'S OWN FLOOR HALF, ON THE SAME LAYOUT. The dealt census below asks the same
+           question of generated geometry; it is here, on the poked grids, that a height boundary is
+           inside sight of every row. DEPTH, not colour: these are the pixels the row paints without
+           queueing them, so a frame md5 cannot see the question and a zbuf comparison cannot be faked
+           by a repaint. */
+        /* #518 THE ROW HALF, ASKED OF THE PIXEL RATHER THAN OF A SWITCH: a floor pixel the row painted
+           without queueing it carries the ROW's solve in `zbuf`. That is honest only if the row's own
+           plane is the surface this column's ray arrives at, so ask `planeAlong` - the same march the
+           deferred half has used since #170 - on the pixel's OWN ray and compare the two distances.
+           A pixel whose stored depth is FARTHER than the walked solve is the phantom in depth form: the
+           floor reads as the plane the eye stands on, extended past the edge, and a body or a prop
+           behind that edge draws through a slab (the shape #516 and #517 both describe). Deferred pixels
+           are skipped: `ZD.set` marks them and the walk census above already grades them. */
+        if (st.n) {
+          const rc = run(ROWOCC);
+          rowOccEver += rc.n; rowOccFar += rc.bad;
+          if (rc.bad) console.log(`  ${pad('rowocc', 9)} #518 ${rc.bad}/${rc.n} sampled row-painted floor px store a depth farther `
+            + `than the surface their ray arrives at, nearest ${rc.dmax ? rc.dmax.toFixed(1) + ' m (' + rc.why + ')' : ''}`);
+        }
       }
       let fail = '';
       /* The absolute band only catches the frame that went grey or blew out. The regression this
@@ -7342,8 +7380,23 @@ if (MODE === 'heights') {
       }
       const wc = run(WALKCENSUS);
       walkEver += wc.n; walkEverPx += dPx;
-      const dFail = wc.far ? ' WALK-INVENTED-PHANTOM' : (dn && !wc.n && !dTot ? ' WALK-CENSUS-EMPTY' : '');
+      /* #518 THE SAME QUESTION ON GEOMETRY THE GENERATOR ACTUALLY DEALS. The configs above FLATTEN the
+         grid and poke it, so on their own they cannot answer what a player walks: does the DEPTH the row
+         stores for a floor pixel it painted itself agree with the plane the march finds on that pixel's
+         own ray? A row-painted floor pixel that stores a FARTHER depth is the phantom stated in depth
+         rather than colour - the eye's own floor plane carried past its edge, so the edge stops being a
+         place and anything standing beyond it draws through a slab (#516, #517) - and the count of them
+         is required to be zero, with no threshold to widen. `ROW-OCC-VACUUM` is the vacuity half: a run
+         that sampled no row-painted floor pixel measured nothing and must not read as honesty. */
+      const rc = run(ROWOCC);
+      rowOccEver += rc.n; rowOccFar += rc.bad;
+      const dFail = wc.far ? ' WALK-INVENTED-PHANTOM' : (dn && !wc.n && !dTot ? ' WALK-CENSUS-EMPTY' : '')
+        + (rc.bad ? ' ROW-FLOOR-PHANTOM-DEPTH' : '') + (!rc.n ? ' ROW-OCC-VACUUM' : '');
       if (dFail) bad++;
+      console.log(`  ${pad('rowocc', 9)} #518 DEALTED, the ROW path's own floor depth: ${rc.n.toLocaleString()} row-painted floor px `
+        + `sampled, ${rc.bad} store a depth FARTHER than the surface their ray arrives at`
+        + `${rc.dmax ? `, worst phantom ${rc.dmax.toFixed(1)} m (${rc.why})` : ' - the row already stores the walked distance'}`
+        + `${dFail ? '  FAIL' + dFail : '  ok'}`);
       console.log(`  ${pad('walk', 9)} #518 DEALTED grid, no flatten: floor-half px that differ ${dPx}/${dTot}` +
         ` (${(dTot ? (100 * dPx / dTot).toFixed(2) : '0.00')}% of the lower half), ${(dn || 0).toLocaleString()} deferred px queued,` +
         ` arms disagree > 1 quantum on ${wc.diff}/${wc.n} queued rays, walk farther ${wc.far}` +
@@ -7369,6 +7422,15 @@ if (MODE === 'heights') {
     ' floor pixels the two arms disagree on across this run' +
     (walkEver && walkEverPx ? '  ok' : '  FAIL WALK-AB-DEAD (nothing for the census to compare)'));
   if (!walkEver || !walkEverPx) bad++;
+  /* The row-half A/B's own vacuity half, same rule as the census above and same reason: a switch that
+     moves nothing anywhere in the run is not a measurement, it is a name - either the block is gone,
+     or the plane-inventory skip prunes every call, or no dealt level in this run has a height boundary
+     the row's own walk lands past. That must not read as "the row half needs no rule". */
+  console.log('  ' + pad('rowocc', 9) + ' #518 row-path floor depth: ' + rowOccEver.toLocaleString() +
+    ' row-painted floor pixels sampled across this run, ' + rowOccFar +
+    ' of them carry a depth farther than the surface their ray arrives at' +
+    (rowOccEver && !rowOccFar ? '  ok' : rowOccFar ? '  FAIL ROW-FLOOR-PHANTOM-DEPTH' : '  FAIL ROW-OCC-VACUUM (no row-painted floor pixel was sampled)'));
+  if (!rowOccEver || rowOccFar) bad++;
   /* #385 CLAUSE 1 - THE PICTURE, env-gated so nothing here runs unless it is asked for. OFFLOOK=path
      seats the eye on a RAISED BAND within OFFNEIGH cells of the level's own OUTLINE, with the air beyond
      that outline unobstructed, and looks OUT of the level at a grazing pitch - the one seat this issue
