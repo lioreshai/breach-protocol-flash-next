@@ -2630,6 +2630,15 @@ function castWalls(flash, fcR, fcG, fcB) {
   /* #466: the level's accent, resolved ONCE per frame beside the other level-authored surface terms. */
   const accC = MAP.accent || null;
   const accH = accC ? RISER_ACC_H : 0;
+  /* #518: what a slab's DROP FACE wears. It was WT.CONCRETE for the reason #192 records - a riser must
+     not wear the floor's texture, because a lip in the floor's own texture is a brighter patch of the
+     same texture. That ruled out the floor and then stopped, so the face that caps a deck belonged to a
+     third material whatever the room around it wears, which is the one surface #369's family rule
+     (js/20_level.js) skips: THE STACK's walls are WT.SLAB and its drop faces were CONCRETE. A riser is
+     a wall, so it now wears the level's PRIMARY wall family (MAP.wallFam), the family pickWallTex draws
+     78% of the level's faces from. WT.CONCRETE stays the fallback for a MAP that authors no family -
+     the empty-map stub at js/20_level.js:2667 - and a level whose wall IS CONCRETE is unchanged. */
+  const riserTex = MAP.wallFam || WT.CONCRETE;
   for (let x = 0; x < BW; x++) {
     const cam = x * stepBase - 1;
     const rdx = dirX + planeX * cam, rdy = dirY + planeY * cam;
@@ -2690,7 +2699,7 @@ function castWalls(flash, fcR, fcG, fcB) {
         const pi = qy * N + qx;
         if (dq && !(vbs[pi] & ((VB_RAMP | VB_LADDER) << (d << 2)))) {
           const fhi = dq > 0 ? fzs[my * N + mx] : fzs[pi], flo = dq > 0 ? fzs[pi] : fzs[my * N + mx];
-          riser = 1; rz0 = flo * ZQ; rz1 = fhi * ZQ; MAP.riserStops++; tv = WT.CONCRETE;
+          riser = 1; rz0 = flo * ZQ; rz1 = fhi * ZQ; MAP.riserStops++; tv = riserTex;   // #518: the level's family, not CONCRETE
           /* rze/rzf are the same two floors sorted by WHICH SIDE THE RAY CAME FROM rather than by
              height - the crease belongs at the lip the player is standing at, and on a step down
              that is the higher of the two (#195). rz0/rz1 keep sorting by height: the face's span

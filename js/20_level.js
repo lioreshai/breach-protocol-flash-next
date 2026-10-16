@@ -2044,6 +2044,7 @@ function buildAuthored(li) {
     wallBias: cfgL.wallBias || 0,                // #369: the wall half of the same order; 0 unless authored
     stepEdge: cfgL.stepEdge || 0,                    // #385: the authored absolute crease, 0 unless the level authors one
     accent: cfgL.accent || null,            // #466: a level's one deliberate accent, painted on a slab edge
+    wallFam: cfgL.wall || 0,                // #518: the level's PRIMARY wall family, worn by a slab's drop face
     floorTex: FLOORS[cfgL.floor], ceilTex: CEILS[cfgL.ceil],
     fz, cz, vb: new Uint16Array(N * N), feat, ceilPlane: new Float64Array(N * N),
     ceilSlab: new Uint16Array(N * N)
@@ -2269,6 +2270,7 @@ function genLevel(li) {
       wallBias: cfgL.wallBias || 0,                  // #369: as above; the generator authors none
       stepEdge: cfgL.stepEdge || 0,                  // #385: as above; the generator authors none
       accent: cfgL.accent || null,              // #466: as above; RING TRANSPORT is the only level that does
+      wallFam: cfgL.wall || 0,                  // #518: as above; the generator's rooms all wear cfgL.wall
       floorTex: FLOORS[cfgL.floor] || FLOORS.CONCRETE, ceilTex: CEILS[cfgL.ceil] || CEILS.CONCRETE,
       floorTile: 1.15, ceilTile: 0.9,
       fz: fzTry, cz: czTry,
