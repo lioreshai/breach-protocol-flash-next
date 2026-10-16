@@ -4498,6 +4498,91 @@ if (MODE === 'cull') {
       ` faces generated content legitimately has); the body behind the step kept` +
       ` ${(100 * walk.px / Math.max(1, walkFlat.px)).toFixed(0)}% of its silhouette on that base (${walkFlat.px} -> ${walk.px} px)` +
       ` and canEnter still steps over the crossing`);
+    /* ---- #515 PIXELS: does a staircase put anything ON THE SCREEN? ----------------------------
+       The row above counts `MAP.riserStops` - RAYS that stopped at a tread. It was green for the
+       whole time a staircase drew no pixel at all: `castWalls` stopped the march at the FIRST
+       air->air boundary, the span test that asks whether that face has any pixel to draw runs much
+       later and its `continue` abandons the COLUMN, so the column kept castGround's answer and the
+       floor of the cell BEYOND the stair solved through the stair's own volume - the report's
+       "weird warped view". A stop is not a face. `alt`'s `step faces` row is worse: it counts faces
+       in MAP, so it asserts the GRID and cannot disagree with a frame that paints none of them.
+       This row counts the pixels instead, and counts them with an oracle that only a VERTICAL face
+       can satisfy: the ground pass writes one distance per ROW (zbuf[row+x] = dS, so a floor's
+       depth changes every row), while the wall pass writes one distance down a face's whole span
+       (zbuf[idx] = perp). So a run of >= 3 consecutive rows in one column carrying the SAME finite
+       depth, under the horizon, is a vertical surface that was rasterised - and nothing else in
+       this lane is one. The control is the identical grid with the step branch switched off
+       (MAP.steps = 0: doStep and gndSteps both fall away) at the identical camera; the room's own
+       solid walls produce the same constant-depth runs in BOTH arms, so what the DELTA measures is
+       the step geometry and nothing else. The delta is the gate; the absolute counts are printed so
+       a reader can see how big the control is. Vacuity is a failure: zero faces in the stair arm, a
+       control that is not clearly smaller, or a grid whose treads are not one quantum apart all
+       fail, and a poke that moves no pixel fails it from the other side. */
+    const stairPix = run(`(function(){
+      window.__stE = ENEMIES.slice(); window.__stP = PROPS.slice();
+      ENEMIES.length = 0; PROPS.length = 0; PROJ.length = 0; exitX = -40; exitY = -40;
+      window.__stFz = MAP.fz.slice(); window.__stCz = MAP.cz.slice();
+      const cy = ${Math.floor(setup.lane.y)} | 0, cx = ${Math.floor(setup.lane.x)} | 0, base = MAP.fz[cy * MW + cx];
+      /* THREE treads, ONE quantum each - what the generator authors (STAIR_CELLS = 4: "3 steps + 1").
+         A single step would be satisfied by the multi-quantum path this defect lives outside of. */
+      for (let k = 1; k <= 3; k++) MAP.fz[cy * MW + cx + k] = base + k;
+      linkBoundaries();
+      const genFlag = MAP.steps; MAP.steps = 1;               // a 1-quantum grid derives 0 (#100)
+      P.x = ${setup.lane.x}; P.y = ${setup.lane.y}; P.ang = 0; P.pitch = 0; P.crouch = 0;
+      P.z = floorAt(P.x, P.y);
+      return { base, treads: [MAP.fz[cy*MW+cx+1], MAP.fz[cy*MW+cx+2], MAP.fz[cy*MW+cx+3]],
+        blocked: [1,2,3].map(k => (MAP.vb[cy*MW+cx+k] >> 0) & 15), flag: genFlag, hz: Math.round(horizon) };
+    })()`);
+    /* A vertical face is a constant depth down a column; a floor is not. Rows at or above the
+       horizon are excluded because a tread's riser, seen from the band it comes up out of, is under
+       the eye, and counting above it would let a solid wall's face answer for the stair. */
+    const SFARB = run('FARB');
+    // VACUITY floor, not a tolerance: 2% of the frame is two tread boundary lines seen nearly
+    // edge-on at arm's length. Measured on this tree at this head the delta is 34981 / 35186 /
+    // 35191 / 25379 px on L0 / L1 / L2 / L3, so the gate sits 6-9x below what the geometry produces
+    // and still fails flat on a build that paints no face (the same harness with #515's stop test
+    // removed prints a delta of 0 px - the row was run against that build before it was written).
+    const FACE_FLOOR = Math.round(0.02 * W * H);
+    const faceRun = (zb, hz) => {
+      let n = 0;
+      for (let x = 0; x < W; x++) {
+        let k = 0, last = NaN;
+        for (let y = hz + 1; y < H; y++) {
+          const z = zb[y * W + x];
+          const v = z > 0 && z < SFARB ? z : NaN;
+          k = (v === v && v === last) ? k + 1 : 1;
+          last = v;
+          if (k >= 3) n++;
+        }
+      }
+      return n;
+    };
+    const stairShot = tag => {
+      run('MAP.steps = ' + tag + '; MESH.reset(); S.t = 3.5; renderWorld()');
+      return { p: new Uint32Array(run('px')), z: new Float32Array(run('zbuf')),
+        faces: run('MAP.riserStops') };
+    };
+    const stairOn = stairShot(1);
+    const stairOff = stairShot(0);
+    let stairDiff = 0;
+    for (let i = 0, M = stairOn.p.length; i < M; i++) if (stairOn.p[i] !== stairOff.p[i]) stairDiff++;
+    const faceOn = faceRun(stairOn.z, stairPix.hz), faceOff = faceRun(stairOff.z, stairPix.hz);
+    run('(function(){ for (let i = 0; i < MAP.fz.length; i++) MAP.fz[i] = __stFz[i];'
+      + ' for (let i = 0; i < MAP.cz.length; i++) MAP.cz[i] = __stCz[i]; linkBoundaries();'
+      + ' ENEMIES.length = 0; for (const q of __stE) ENEMIES.push(q);'
+      + ' PROPS.length = 0; for (const q of __stP) PROPS.push(q); return 1; })()');
+    const stairOneQ = stairPix.treads.every((v, k) => v - stairPix.base === k + 1);
+    row(`L${li} a staircase paints step faces, not the room behind them`,
+      stairOneQ && faceOn > faceOff && faceOn - faceOff >= FACE_FLOOR && stairDiff > 0 &&
+      stairOn.faces > 0,
+      `${faceOn} px under the horizon carry one constant depth down their column (a rasterised VERTICAL`
+      + ` face - the ground pass writes a new distance every row) with the flight in, ${faceOff} with the`
+      + ` step branch off at the same camera: a delta of ${faceOn - faceOff} px is the stair's own geometry,`
+      + ` and ${stairDiff} px of the frame move with it. ${stairOn.faces} rays stopped at a riser.`
+      + ` Treads ${stairPix.treads.map(v => (v * ZQS).toFixed(2)).join(' / ')} m from the camera's floor`
+      + ` ${stairPix.base * ZQS} m - one quantum apart, walkable (vb 0x${stairPix.blocked.map(b => b.toString(16)).join('/')},`
+      + ` MAP.steps derives ${stairPix.flag} for this grid and is forced to 1 for the render: the same flag`
+      + ` trap #100 documents, and the reason a faceless staircase can be green in the grid census)`);
     row(`L${li} body behind a step of ${(STEP * ZQS).toFixed(2)} m`,
       hid.px < 0.25 * flat.px && stops > 0,
       `silhouette ${hid.px} px vs ${flat.px} flat; background changed ${bgn} px (${(100 * bgn / (W * H)).toFixed(2)}%, rows ${bgTop}..${bgBot}); ` +
