@@ -5453,6 +5453,13 @@ if (MODE === 'planes') {
     const r = vm.runInContext(`(function(){
       startLevel(${li}, true);
       const N = MAP.w; let fmin = 9e9, fmax = -9e9, cmin = 9e9, cmax = -9e9, open = 0, cnot1 = 0, stale = 0;
+      /* #518 C: how many columns have a floor over their head that their OWN clearance does not
+         explain? ceilPlane > own floor + own clearance is the one shape of second storey the
+         underside classification is allowed to see at a distance - a slab whose underside stands
+         ABOVE the plane this column draws, so something is genuinely over the player's head. The
+         count is the number the issue asked for before anyone spent a week on the classifier; it is
+         the census printed per level, and overMissed is the half that can fail. */
+      let over = 0, overMissed = 0;
       const cv = {};
       for (let y = 1; y < N - 1; y++) for (let x = 1; x < N - 1; x++) {
         if (MAP.cell[y * N + x]) continue;
@@ -5463,12 +5470,21 @@ if (MODE === 'planes') {
         if (c < cmin) cmin = c; if (c > cmax) cmax = c;
         if (c !== 1) cnot1++;
         cv[c.toFixed(4)] = (cv[c.toFixed(4)] || 0) + 1;
+        const own = MAP.fz[y * N + x] * ZQ + Math.max(ZQ, MAP.cz[y * N + x] * ZQ);
+        if (c > own + 1e-9) { over++; if (!(MAP.ceilSlab[y * N + x] & 1)) overMissed++; }
       }
-      return { open, fmin, fmax, cmin, cmax, cnot1, stale, cv };
+      return { open, fmin, fmax, cmin, cmax, cnot1, stale, cv, over, overMissed };
     })()`, ctxVm);
     console.log(`level ${li}  open ${r.open}  floors ${r.fmin}..${r.fmax}  ceilings ${r.cmin}..${r.cmax}  ceil!=1 ${r.cnot1}` +
       `  ceilPlane stale ${r.stale} ${r.stale ? 'STALE-DERIVED' : 'DERIVED ok'}  ${JSON.stringify(r.cv)}`);
-    staleAll += r.stale;
+    /* A slab underside the classification never flags is a plate that draws as the level's plain sheet -
+       #421's defect, wearing the #518 geometry. ZERO overhang columns is the honest state of a grid
+       that raises every band by one clearance, and it prints as itself; it is NOT a pass for the
+       classifier, which is why `flatparity`'s `soffit` row keeps counting the columns the adjacent
+       rule does flag. */
+    console.log(`  ${pad('overhang', 9)} ${r.over} column(s) with a floor above their own floor+clearance, ` +
+      `${r.overMissed} of them unclassified  ${r.overMissed ? 'FAIL SLAB-OVERHANG-UNCLASSIFIED' : 'ok'}`);
+    staleAll += r.stale + r.overMissed;
   }
   /* Both passes read ceilPlane now, so a grid write that skips linkBoundaries() is no longer a seam
      nobody compares - linkStamp moves only inside linkBoundaries(), so a write that leaves it where
