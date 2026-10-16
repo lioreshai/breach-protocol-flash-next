@@ -255,21 +255,48 @@ function buildCeilPlanes() {
    with `& 1` / `& 30` and count nonzero), and the derived-only rule is unchanged - it still writes
    nothing the movement code reads.
    Flat levels answer 0 everywhere - no neighbour's floor reaches own floor + clearance - so a flat
-   frame runs no part of the term and stays bit-identical (flatparity). */
+   frame runs no part of the term and stays bit-identical (flatparity).
+
+   #518 item C asked whether the eight neighbours are the whole of the question. They are not, and
+   the trace below is the part of the answer that is geometry rather than a shading claim: a column is
+   also under a slab when a floor that stands STRICTLY ABOVE the plane this column draws sits up to
+   SLAB_REACH cells away with nothing solid in between - a storey that overhangs the room without
+   touching it. A floor found further out that merely EQUALS the plane is refused: at one cell that is
+   today's deck a band up, whose underside is the column's own ceiling altitude, but two cells out it
+   is a deck BESIDE this column at head height, and plating a corridor's sheet because a band stands
+   four cells away is the same fault the solid-mound rule above already refuses. The distinction is
+   `f > here`, not a distance knob.
+   MEASURED, and it is the number this issue asked for: on all four dealt levels ZERO columns have a
+   drawn ceiling plane strictly above own floor + clearance (`planes`' `overhang` row prints it per
+   level), because the generator raises a band by exactly one clearance (`BAND_UP`), so the trace
+   finds nothing to add and every dealt frame stays byte-identical (flagged columns and the full bit
+   sum of `ceilSlab` are the same eight numbers before and after: 34/8934, 40/11626, 35/10471,
+   10/2648). So the missing second storey is NOT a classifier that stops at one cell - it is a grid
+   that never stands a floor over a lower room. Widening the rule instead to accept coplanar floors
+   at reach is the change that would repaint the shipped picture, and it is a lie about what is
+   overhead: measured to flag 38 / 64 / 55 / 3 extra columns and to move RING TRANSPORT's frames while
+   ARCHIVE SUBLEVEL's and ABATOIR's do not move at all. */
+const SLAB_REACH = 4;
 function buildCeilSlab() {
-  const cs = MAP.ceilSlab, cell = MAP.cell, fz = MAP.fz, cz = MAP.cz, N = MW;
+  const cs = MAP.ceilSlab, cell = MAP.cell, fz = MAP.fz, cz = MAP.cz, cp = MAP.ceilPlane, N = MW;
   if (!cs) return null;
   for (let y = 0, i = 0; y < MH; y++) for (let x = 0; x < N; x++, i++) {
     cs[i] = 0;
     if (cell[i]) continue;                              // no air, so nothing can be over its head
     const own = fz[i] * ZQ + Math.max(ZQ, cz[i] * ZQ);   // the ceiling this column would have on its own
+    const here = cp && cp[i] > own ? cp[i] : own;        // the plane the renderer actually draws here
     let m = 0;
     for (let d = 0; d < 4; d++) {
-      const nx = x + DIRX[d], ny = y + DIRY[d];
-      if (nx < 0 || ny < 0 || nx >= N || ny >= MH) continue;
-      const j = ny * N + nx;
-      if (cell[j]) continue;
-      if (fz[j] * ZQ >= own - 1e-9) m |= 1 << (d + 1);   // that deck's floor IS this column's ceiling
+      for (let k = 1; k <= SLAB_REACH; k++) {            // #518 C: a storey may stand clear of this column
+        const nx = x + DIRX[d] * k, ny = y + DIRY[d] * k;
+        if (nx < 0 || ny < 0 || nx >= N || ny >= MH) break;
+        const j = ny * N + nx;
+        if (cell[j]) break;                              // a mound between here and there blocks the trace
+        const f = fz[j] * ZQ;
+        if (f < own - 1e-9) continue;                    // still under the plane: keep walking
+        if (k === 1 || f > here + 1e-9) m |= 1 << (d + 1);   // adjacent, or genuinely OVER the drawn plane
+        break;                                           // the first floor in this direction answers it
+      }
     }
     if (m) cs[i] = 1 | m;
   }
