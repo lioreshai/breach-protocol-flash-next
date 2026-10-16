@@ -67,20 +67,26 @@ touch (#518). So these frames trail the page beside them by however many render 
 frame's row names the build that drew it, so the gap is readable there rather than only here, and the re-shoot
 that closes it rides with #536. What moved between this pass and the previous one is
 light and surface, not layout — the three dealt level signatures these frames sit on are unchanged. The roof
-is a lit surface rather than a black sheet, because the ceiling's light term gained a floor (#495), which is
-why every
-frame here reads brighter and why two of them no longer have a dark band to count; an enemy's base now reads
-against the deck it stands on (#18); a stair draws its own step faces (#515), the face that caps your deck
-wears the room's stone (#518), and a crate has a surface instead of three flat colours (#533). The line where a
-room stops and its roof starts is drawn rather than implied (#369), as it was in the last pass.
+is a lit surface rather than a black sheet, because the ceiling's light term gained a floor (#495), and that
+floor is not a uniform lift: read the replaced-frame mean each row of `provenance.json` records against the
+mean printed above, and six frames read brighter while two read darker. The largest rise is THE STACK at +4.17
+and the largest fall is ABATOIR CORE's arrival seat at −1.26; the pit floor is the other fall at −0.57, and the
+remaining five move by +0.03 to +2.96. Each caption names its own reason, because the two falls have different
+ones: the pit's own ceiling band, which the lamp in the camera's cell already saturates, fell from 90.7 to
+86.5, while ABATOIR's slab lost luma to the roof-to-wall junction (#369) and the riser material (#518). That
+light is also most of what removed the dark blocks the last pass counted at the 34 bar. An enemy's base now
+reads against the deck it stands on (#18); a stair draws its own step faces (#515), the face that caps your deck
+wears the room's stone (#518), and a crate has a surface instead of three flat colours (#533). The line where
+a room stops and its roof starts is drawn rather than implied (#369), as it was in the last pass.
 The deck within a couple of metres is fetched by the anisotropic tap pair (#467), so its near field reads as
 continuous grain instead of texel steps. Each row of `provenance.json` still names the deal its frame came from, because what a URL deals
 ages by build: the generator draws a different count between builds, so a re-take reloads the frame's own url
 - one page load, one boot, never a second `DEV.boot()` inside the same load (`js/90_dev.js:21-22`) - and the
 capture plan that makes these eight reproducible is written there, not here. Where a caption's claim was
-about *darkness* rather than geometry, this pass rewrote the sentence instead of refreshing the digit: three
-of the replaced frames counted rows this build does not leave dark at all, and a frame of an unlit stairwell
-is a different picture with a different point to make (#431).
+about *darkness* rather than geometry, this pass rewrote the sentence instead of refreshing the digit: the
+pit floor's 122 rows and THE STACK's 114 under the 34 bar became none at all, the stairwell's 173 became 15
+with its 79-row run gone, and a frame of an unlit stairwell is a different picture with a different point to
+make (#431).
 
 ![the spawn seat on a lit datum floor, a crate ahead with one face in shade](docs/screens/level0-spawn.png)
 
@@ -143,8 +149,10 @@ Standing in the hole at (19.5, 14.5), heading **atan2(2, 1) = 1.11 rad** so the 
 crosshair: feet on **floor −1.00**, own ceiling **0.00**, `MAP.light` **0.3043** — barely a third of the spawn
 seat's, and yet a frame mean of **61.82**, from a lamp standing in the camera's own cell. **0 of 763 rows
 average below luminance 24, and none under 34 either** (the frame this replaces counted 122): this is a lamp
-working from inside the band it refuses from above, under a low ceiling the lamp itself already saturates —
-which is why this is the one frame in the set that got marginally darker when the roof was lit. The floor under the crosshair is two units below the
+working from inside the band it refuses from above, under a low ceiling the lamp itself already saturates,
+which is why lighting the roof moved this frame down by 0.57 instead of up. It is the smaller of the set's two
+falls — the larger, ABATOIR CORE's arrival seat at −1.26, falls for a different reason, recorded in its own
+row — so this sentence is a reason and not a count. The floor under the crosshair is two units below the
 spawn seat's band and comes off the same near-field fetch as that deck, which is why the pool falls off across
 the hole instead of stepping texel to texel (#467).
 
