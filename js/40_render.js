@@ -111,7 +111,7 @@ let RISER_ACC_H = 0.12, RISER_ACC_F = 0.45;
    roof keeps its own light and the vault lift that keeps it off black (#495). Where the roof already
    reads at or below the face, `bnd` is 1 and the column pays byte-identical arithmetic: every camU pose,
    and most of ABATOIR CORE, are in that case and do not move. */
-let CSEAM = 1, CSEAMD = 0.34, CSEAMW = 0.6, CSEAMA = 18;
+let CSEAM = 1, CSEAMD = 0.34, CSEAMW = 0.6, CSEAMA = 18, CSEAMC = 8;
 /* #385: the crease's ABSOLUTE half, and it is AUTHORED content, not a global.
 
    A multiply is scale-invariant: `kk` takes 84% off a lip row whether the deck it sits on reads 37
@@ -2937,21 +2937,46 @@ function castWalls(flash, fcR, fcG, fcB) {
          wide band would be a wash and the SEAM row's own window has nothing to compare anyway. */
       let cbw = Math.round((zc - eyeZ) * BH * CSEAMW / (perp * (perp - CSEAMW))) + 1;
       if (cbw < 2) cbw = 2; else if (cbw > 20) cbw = 20; else if (cbw > ds) cbw = ds;
-      /* The bound, once per COLUMN: the face's own painted pixel at the same distance into the face as
-         the band is into the ceiling (`ds + cbw`, so a lip that is painted rather than lit is not what the
-         roof gets compared against), against the roof's own painted pixel at the edge. Rec.601, the
-         weighting the probes read. Two reads and two dot products per drawn column, no new array. */
-      let bnd = 1;
+      /* The bound, once per COLUMN - and since #369 take fourteen, over the SPAN the corner is judged on,
+         not one pixel. Take thirteen read ONE face pixel (`ds + cbw`) against the roof's EDGE row and folded
+         the answer into the crease's own ramp, which made the bound true of exactly one row: `ck` eases to 1
+         at the far end of the band, and `cbw` - the band's width in rows - is the projection of CSEAMW metres
+         along the ceiling, so at 9 m it thins to 5 or 6 rows while the junction's corner is read over the
+         EIGHT rows nearest it (`surface`'s SEAM window, and eight rows is what the eye reads as a corner).
+         Rows 7 and 8 of that span paid nothing, which is why the same arithmetic lifted the ABATOIR medians
+         to 30-50 and left THE STACK's spawn pose at +9.4 pose-deep into take thirteen: the bound was
+         bounding a row and the rule is about a band.
+         So the bound is now solved against the mean of the FACE rows the corner meets (the eight down from
+         `ds`, the same span as the ceiling side) and CAPS each roof row in that span at `faceMean - CSEAMA`.
+         Two things keep it an edge rather than a stripe. (1) It is a cap, never a multiply: a row that already
+         sits at or below the line is written by the crease alone, byte for byte as take thirteen left it -
+         every camU pose and most of ABATOIR CORE are in that case and do not move a pixel. (2) The crease's
+         ramp is untouched and stays inside `cbw`; the CAP reaches two rows past the band and stops, so past
+         those the roof keeps its own light and the vault lift of #495 keeps the rest of the ceiling.
+         It cannot brighten, cannot go under the same 0.3 floor, and touches no flat column (`doStep`).
+         Rec.601, the weighting the probes read; one 8-tap face mean per drawn column, no new array. */
+      let tgt = -1;
       if (CSEAMA > 0) {
-        const fv = px[(ds + cbw <= de ? ds + cbw : de) * BW + x], cv = px[(ds - 1) * BW + x];
-        const fl = (fv >> 16 & 255) * 0.25 + (fv >> 8 & 255) * 0.64 + (fv & 255) * 0.11;
-        const cl = (cv >> 16 & 255) * 0.25 + (cv >> 8 & 255) * 0.64 + (cv & 255) * 0.11;
-        const tgt = fl - CSEAMA;
-        if (cl > tgt) bnd = Math.max(0.3, tgt > 0 ? tgt / cl : 0.3);
+        let fs = 0, fn = 0;
+        for (let y = ds, ye = ds + CSEAMC - 1 <= de ? ds + CSEAMC - 1 : de; y <= ye; y++) {
+          const v = px[y * BW + x];
+          fs += (v >> 16 & 255) * 0.25 + (v >> 8 & 255) * 0.64 + (v & 255) * 0.11; fn++;
+        }
+        if (fn) tgt = fs / fn - CSEAMA;
       }
-      for (let k = 0; k < cbw; k++) {
-        const i = (ds - 1 - k) * BW + x, v = px[i], rk = 1 - k / cbw;
-        const ck = (1 - CSEAMD * rk) * (1 - (1 - bnd) * rk);
+      const cn2 = cbw > CSEAMC ? cbw : (cbw < CSEAMC ? cbw + 2 : cbw);   // the cap's reach, in rows
+      for (let k = 0; k < cn2; k++) {
+        const yy = ds - 1 - k; if (yy < 0) break;
+        const i = yy * BW + x, v = px[i], rk = 1 - k / cbw;
+        let ck = 1 - CSEAMD * (rk > 0 ? rk : 0);
+        if (tgt >= 0) {
+          const lw = ((v >> 16 & 255) * 0.25 + (v >> 8 & 255) * 0.64 + (v & 255) * 0.11) * ck;
+          if (lw > tgt) {
+            let m = tgt > 0 ? tgt / lw : 0.3; if (m < 0.3) m = 0.3;
+            const ew = k < cbw ? 1 : (cbw + 2 - k) * 0.5;               // ease the cap out past the band
+            ck = ck * (1 - (1 - m) * ew);
+          }
+        }
         px[i] = (0xFF000000 | clampi((v >> 16 & 255) * ck) << 16 | clampi((v >> 8 & 255) * ck) << 8 | clampi((v & 255) * ck)) >>> 0;
       }
       }
