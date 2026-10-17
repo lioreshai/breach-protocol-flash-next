@@ -1,5 +1,84 @@
 # Changelog
 
+## [v1.4.8] - 2026-10-17
+
+### Changed
+
+- **A staircase now looks like a staircase** (#515, PRs #539, #540). Walking up to a flight, the deck
+  read as a warped flat plane and the floor of the room *beyond* appeared to solve up through the steps
+  themselves, so a staircase set in a wall line read as a ramp that is not there. The treads and side
+  risers are now solid geometry with an edge you can see, and they wear the level's own wall material
+  rather than a concrete no level is built from. Reported from live play: "stairs do not render and look
+  like some weird warped view."
+- **The floor you see is the floor your ray arrives at** (#518, PR #534). The ground pass answered a
+  floor pixel by solving an infinite plane and painting whichever cell the solve landed in, so it
+  adopted any *lower* floor further along the ray. Down a staircase you were shown the bottom floor's
+  surface at the distance of a solve past the stairs; looking into a pit from the deck, the far lip's
+  side was painted with the far deck's texture, at the far deck's distance, under the far deck's light;
+  and the band you stand on lost its own far edge, because past that edge its surface was the deck plane
+  run out to the horizon. The floor now walks the ray and stops at the first surface genuinely in the
+  way — the question the ceiling half has asked since #170.
+- **The face that caps a raised deck wears the room's own stone** (#518, PR #538). Every drop face in
+  the game wore the same grey concrete — a material in no level's palette — so THE STACK read as ashlar
+  walls meeting concrete edges. A drop face in an ashlar room is ashlar now, a drop face in a metal room
+  is metal, and the joint between a deck and the face rising out of it is two materials that belong to
+  the same room. Levels with no height changes are byte-for-byte unchanged.
+- **Where the roof meets the side of a raised band, there is now a corner** (#369, PR #541). That
+  junction was the one place in a vertical level where the roof ran straight into a slab side with no
+  edge between them, so the frame could not say where the room ended and the storey above it began. The
+  roof's junction band was skipped on exactly those columns, and its width was solved from the raised
+  band's *floor* rather than the ceiling above it, which collapsed it to a pixel or two. The face-minus-
+  roof gap at the lip reads +3.9 → +10.9 on RING TRANSPORT's main pose and -24.2 → -14.6 on ARCHIVE
+  SUBLEVEL's. Every other pose, including all four look-up poses, is byte-identical.
+- **The line where a room stops and its roof starts now holds across the whole corner** (#369, PRs
+  #542, #543). In ARCHIVE SUBLEVEL and RING TRANSPORT a roof could read brighter than the wall it lands
+  on, which erases the one junction the eye sorts the frame by: the bound that is supposed to keep the
+  roof under the wall applied to a single screen row, while that corner is read over the eight rows
+  nearest it. Median face-minus-roof gap is now ARCHIVE 22.6 / 19.5 / 14.9 / 21.2 / 24.7 (was
+  14.4 / 0.3 / 3.2 / 13.0 / 17.4) and RING 15.0 and 11.2 (were -0.1 and 4.7). A roof already sitting
+  below the line is written by the crease alone, byte for byte.
+- **A crate and a barrel have a surface now, not three flat colours** (#533, PR #535). Props were fed no
+  surface structure at all, and where they did get some it ran in one screen direction only, so a crate
+  read as corrugated — ridges running straight down the box — rather than grained. Up close a crate's
+  faces now break into 6 levels where they broke into 3, and that structure varies in both screen
+  directions at the same brightness.
+- **A crate stops outshining the room it stands in** (#371, PR #554). Furniture was lit through the
+  branch that draws enemies, which adds a directionless fill whose only job is to stop a hostile
+  arriving as a black cut-out at engagement range; no wall, floor or ceiling in the game carries it. A
+  crate in a dim corridor therefore arrived as a lit card — brighter than the wall behind it and brighter
+  than the deck under it, with no side of it in shadow. Enemies keep the fill. Furniture is now lit by
+  the room it is standing in, and nothing was dimmed to get there.
+
+### Documentation
+
+- **The front page's eight frames now say when they have gone stale** (#536, PRs #545, #550, #553). The
+  claim "this is the game as it ships" went false four times without anyone noticing, because a frame
+  records a build and render work keeps landing. The frames have been re-taken off the build that ships,
+  and a blocking check now compares the files that draw a frame against the files those frames were
+  taken from, naming the one that moved. Nothing on the screen changes.
+
+### Fixed
+
+- **A storey that stands over a room without touching it is recognised as a floor above you** (#518,
+  PR #547). The test for "is the ceiling over my head somebody else's floor" looked at the eight
+  touching cells and stopped; it now looks up to four cells out, and refuses a floor that merely equals
+  the plane already drawn there. No level dealt today stands a deck over a lower room, so the four
+  sectors are unchanged as they ship — that is the measurement, not an omission, and a new `planes` row
+  prints the count per deal so the claim stays a tool rather than a sentence. A synthetic overhang is
+  classified correctly where the old rule left it plain ceiling.
+
+### Known limitations
+
+- A slab's side still presents one band where a tread face, a soffit and a void are three different
+  spans, so a pit still reads wrong when seen from the deck above it (#518).
+- THE STACK's own spawn pose still reads its roof-to-wall gap at 10.3 against the 15 bar. Three
+  formulations of that bound all leave it near 10, so what inverts there is the deck's delivered light,
+  not the corner term (#369).
+- The generator raises a band by exactly one clearance, so nothing yet stands a floor *over* a lower
+  room: the way up is visible from where you start, but you do not still see a second storey from
+  beneath it (#518).
+- Whether a staircase reads right on the live page is an open look verdict, not a passing row (#515).
+
 ## [v1.4.7] - 2026-10-15
 
 ### Changed
