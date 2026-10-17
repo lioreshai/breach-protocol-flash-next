@@ -1063,8 +1063,22 @@ const MESH = (function () {
        painting the aperture the shade's grey moves the charged figure not at all, and returning from
        `drawLightGlow` moves it not at all. So the lamp joins the band and its `em` vertices do not: the
        aperture keeps the bytes the LAMPCORE census reads, and the fixture reads as dark metal standing in
-       the light it casts instead of the brightest solid in its part of the frame. */
-    const PROP_ALB = 0.88, PROPBAND = { crate: PROP_ALB, barrel: PROP_ALB, lamp: PROP_ALB };
+       the light it casts instead of the brightest solid in its part of the frame.
+       #371's SECOND ruling on the lamp, which is why the table is no longer one scalar: banding the
+       fixture at the crate's 0.88 took six of the eight props over the bar across the four sectors out
+       and left one lamp standing in its own pool - ARCHIVE SUBLEVEL 11.5,22.5, read 7.07 m out of seat
+       4,21, at +26.5 against the deck inside its own footprint (prop 89 / deck 62). Measured at that
+       seat before the change: post median 83.3, the lit top edge of its base plate 128.2, the deck at
+       its own foot 54-58. The fixture is metal IN a light pool, so the band that makes a crate right in
+       the middle of a room leaves it over the bar by itself; the value it needs is its own, and it is
+       0.80 - the one-literal A/B at that seat puts the post at 76.8 and the plate's top edge at 117.2,
+       keeps the aperture's bytes identical (the guard below is unchanged, and it is what makes that
+       structural rather than a claim), and takes ARCHIVE from 2 props over to 1. The order it leaves is
+       post < plate < aperture (77 < 117 < 172), so a lamp still reads as a lamp and not as a dark stick.
+       Crate and barrel stay at PROP_ALB: this is not a cheaper lamp paint, it is the one prop kind whose
+       own pool is the brightest floor in its room. */
+    const PROP_ALB = 0.88, PROP_ALB_LAMP = 0.80;
+    const PROPBAND = { crate: PROP_ALB, barrel: PROP_ALB, lamp: PROP_ALB_LAMP };
     const band = PROPBAND[kind];
     for (let i = 3, v = 0; i < b.p.length; i += 6, v++) {
       const k = band && !b.e[v] ? band : 1;         // emissive vertices keep their authored bytes
