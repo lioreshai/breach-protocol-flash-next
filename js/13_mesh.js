@@ -261,6 +261,17 @@ const MESH = (function () {
      `BH*sc/(dist*TS_CYC)` exactly as for a body, and both the wave and its fade are already
      written against that quantity. */
   const PS_SLOPE = 3.4, PS_MAX = 12, PS_CYC = 25 / 3;
+  /* #562 THE VIEW MODEL WAS BEING FED ZEROS TOO, and its own number is a PERIOD, not a slope. The law is
+     unchanged - amplitude = SLOPE * projectedPeriod / 4, one coarsening past TS_MINP - but the rig's
+     geometry is authored in METRES at scale 1, so TS_CYC's 10 seams per unit would put a period of 0.1 m
+     across a hand that is 0.09 m across: a full triangle wave on a fist, which is the zebra #533 refused
+     for a crate, bought back at 0.3 m from the eye. VS_CYC 4 puts the period at 0.25 m - a LITTLE OVER
+     twice the mass it is shading - so what the eye gets across a fist is one monotone ramp: a lit side and
+     a shaded side, which is the whole of the issue's second acceptance clause. VS_MAX is the near-field
+     ceiling, under PS_MAX because the rig has no texture to carry a seam and 12 luma across a 60 px hand
+     is an edge, not a surface. Nothing here is a threshold: bodies and props read the same three numbers
+     they read before, and the branch is on the geometry's own authoring unit, not on a band. */
+  const VS_SLOPE = 3.4, VS_MAX = 9, VS_CYC = 4;
   /* PS_HCYC is the height weight of a prop's structure coord (#533 take two), and it is NOT 1.
      The WOOD body of a crate spans 0.80 authored units in y and 0.72 in x and z (PROPGEO.crate half
      extents 0.36 / 0.40 / 0.36), and the zero-mean construction above only works if a face spans a
@@ -624,7 +635,16 @@ const MESH = (function () {
     steel: [44, 49, 58], dark: [26, 31, 39], black: [15, 18, 24], blue: [36, 42, 51],
     poly: [66, 52, 40], polyD: [46, 36, 28], seam: [9, 11, 16],
     wood: [58, 44, 30], wood2: [51, 38, 26],
-    skin: [140, 106, 79], skinD: [93, 69, 47], glove: [59, 66, 78], gloveD: [34, 40, 52],
+    /* #562 THE FISTS STOP WEARING THE CRATE'S PAINT. The hands were `skin [140,106,79]` and a crate's
+       body enters the shading at 175/125/73 (the #371 WOOD note above PROPGEO): one hue family, the hands
+       a little lighter and grayer, so in a lit room the two tan rectangles in the frame were the crate and
+       the hand mass and the shootable one was the one you cannot take cover behind. The albedo is now a
+       WORN, DARK, NEUTRAL leather: the delivered spread r-b goes from 61 to 22 and the mean comes down by
+       about a fifth, which is the separation the issue asks for ("darker and cooler") while keeping the
+       faint warmth that says it is a body rather than a fourth metal on the rig. #499's warmth clause is
+       now carried by the form ramp below, not by the albedo: a fist that has a lit side and a shaded side
+       needs a bright pixel to be warm in, and it no longer needs to be the colour of scenery to be seen. */
+    skin: [104, 88, 82], skinD: [70, 60, 58], glove: [59, 66, 78], gloveD: [34, 40, 52],
     sleeve: [29, 34, 43], sleeveD: [19, 23, 30],
     brass: [216, 176, 74], shell: [184, 65, 44], hot: [255, 244, 210], ember: [255, 190, 96],
   };
@@ -694,15 +714,27 @@ const MESH = (function () {
     if (!VHANDS) return b;
     s *= vHandScale(st);
     const w = back ? -1 : 1;
-    b.box(x, y, z, 0.018 * s, 0.030 * s, 0.028 * s, VW.skin);              // the palm, over the part
-    b.box(x + w * 0.003 * s, y + 0.002 * s, z - 0.030 * s, 0.016 * s, 0.026 * s, 0.005 * s, VW.skin);
-    b.box(x + w * 0.003 * s, y + 0.028 * s, z - 0.024 * s, 0.016 * s, 0.005 * s, 0.017 * s, VW.skinD);
-    b.box(x - w * 0.019 * s, y - 0.002 * s, z, 0.007 * s, 0.026 * s, 0.025 * s, VW.skin);
-    b.box(x - w * 0.026 * s, y - 0.013 * s, z, 0.0035 * s, 0.0035 * s, 0.023 * s, VW.skinD);
-    b.box(x - w * 0.026 * s, y + 0.009 * s, z, 0.0035 * s, 0.0035 * s, 0.023 * s, VW.skinD);
+    /* #562: the hand IS the region, in the same sense a torso is (#232) and a crate's staves are (#533).
+       The coord is the authored x+z in METRES and VS_CYC decides how fast it ramps; see that note. It is set
+       for the HAND ONLY - the gun's parts stay at 0 so the slide keeps the flat metal #376 owns, and a stale
+       register would stripe the receiver that follows the fist in emit order (the same trap #232 names for
+       a torso followed by a leg). The wrist tube is inside the register on purpose: a sleeve that ramps with
+       the fist is what makes the two read as one limb. */
+    b.rg = 1;
+    // The fist is a TAPERED TUBE along the hand's own long axis, not a slab: six flat boxes stacked on
+    // each other have one silhouette and it is a rectangle, which is the reading the issue is about. A
+    // cone reads as a wrapped mass, its silhouette is a trapezoid with rounded sides, and its far end is
+    // narrower than its near end, which is what a hand curled round a grip looks like from behind.
+    b.tube(x - w * 0.002 * s, y - 0.026 * s, z, x + w * 0.001 * s, y + 0.022 * s, z - 0.004 * s,
+      0.0145 * s, 0.0185 * s, VW.skin);              // the fist itself, knuckle end widest
+    b.box(x + w * 0.004 * s, y + 0.028 * s, z - 0.024 * s, 0.015 * s, 0.005 * s, 0.017 * s, VW.skinD);
+    b.box(x - w * 0.019 * s, y - 0.004 * s, z, 0.0065 * s, 0.024 * s, 0.024 * s, VW.skin);
+    b.box(x - w * 0.025 * s, y - 0.013 * s, z, 0.0035 * s, 0.0035 * s, 0.022 * s, VW.skinD);
+    b.box(x - w * 0.025 * s, y + 0.009 * s, z, 0.0035 * s, 0.0035 * s, 0.022 * s, VW.skinD);
     b.tube(x + w * 0.011 * s, y + 0.020 * s, z + 0.010 * s, x - w * 0.006 * s, y + 0.030 * s, z + 0.020 * s,
       0.0070 * s, 0.0055 * s, VW.skin);              // the thumb, along the top of the grip
-    b.box(x - w * 0.010 * s, y - 0.044 * s, z + 0.004 * s, 0.017 * s, 0.014 * s, 0.021 * s, VW.gloveD);
+    b.box(x - w * 0.010 * s, y - 0.044 * s, z + 0.004 * s, 0.016 * s, 0.014 * s, 0.020 * s, VW.gloveD);
+    b.rg = 0;
     return b;
   }
 
@@ -870,8 +902,12 @@ const MESH = (function () {
     const b = VMGEO[kind](new Builder(), st || {});
     const p = new Float32Array(b.p), v = new Float32Array(b.p.length / 2);
     for (let i = 0; i < b.p.length / 6; i++) { v[i * 3] = b.p[i * 6]; v[i * 3 + 1] = b.p[i * 6 + 1]; v[i * 3 + 2] = b.p[i * 6 + 2]; }
-    const geo = { kind, p, v, t: new Uint16Array(b.t), em: Uint8Array.from(b.e), nV: b.p.length / 6, tris: b.t.length / 3 };
-    geo.byteLength = p.byteLength + v.byteLength + geo.t.byteLength + geo.em.byteLength;
+    /* #562: `st` is the structure coord stream `tri()` reads, and the view model's builder did not carry it,
+       so `ST = m.st || null` was null for every rig and the hands were flat-shaded by construction rather
+       than by choice. It is a per-vertex Float32Array exactly like `model()`'s (js/13_mesh.js mdl.st), and
+       it is counted in byteLength because the rig cache's eviction is byteLength-sized. */
+    const geo = { kind, p, v, t: new Uint16Array(b.t), em: Uint8Array.from(b.e), st: Float32Array.from(b.s), nV: b.p.length / 6, tris: b.t.length / 3 };
+    geo.byteLength = p.byteLength + v.byteLength + geo.t.byteLength + geo.em.byteLength + geo.st.byteLength;
     return geo;
   }
   function weaponGeo(kind, st) {
@@ -1325,6 +1361,7 @@ const MESH = (function () {
        in `PROPGEO.crate` above (the crate's WOOD), because R1 also lifts the top face, and that is where
        the last few percent comes from - not a threshold moved to absorb the difference. */
     const pg = !MDL && PROPGEO[o.kind] !== undefined;
+    const vs = !!MDL;                               // #562: a VIEW MODEL, whose geometry is authored in metres
     const pr = pg && PROPKIND[o.kind] === 1;         // a prop, not merely something built by PROPGEO
     R0 = MDL ? 0.55 : (pr ? 0.60 : pg ? 0.75 : 0.30);
     R1 = MDL ? 0.55 : (pr ? 0.68 : pg ? 0.42 : 0.85);
@@ -1388,16 +1425,16 @@ const MESH = (function () {
        Under the gate the draw steps to one coarser level of the same pattern instead of switching the
        term off (#416 - the block at TS_CYC carries the measurement). The law is the same on both
        levels: what is held constant is the SLOPE, never the amplitude. */
-    let TPR = BH * sc / (Math.max(NEAR, Math.abs(tYc)) * (pr ? PS_CYC : TS_CYC));
+    let TPR = BH * sc / (Math.max(NEAR, Math.abs(tYc)) * (pr ? PS_CYC : vs ? VS_CYC : TS_CYC));
     if (!ST) TPR = 0;                                     // no torso coords on this mesh: no term
-    else if (TPR < TS_MINP) { TPR *= 2; TCYC = (pr ? PS_CYC : TS_CYC) / TS_LMAX; } else TCYC = pr ? PS_CYC : TS_CYC;
+    else if (TPR < TS_MINP) { TPR *= 2; TCYC = (pr ? PS_CYC : vs ? VS_CYC : TS_CYC) / TS_LMAX; } else TCYC = pr ? PS_CYC : vs ? VS_CYC : TS_CYC;
     /* #533: a prop keeps the LAW and brings its own SLOPE. TS_SLOPE 9 belongs to armour that means
        near 100; a crate in a dim cell means 48 and the same slope is a 45-luma peak-to-peak seam on
        it. The projected period is the same quantity for both - a prop's authored geometry is in
        units of its own height and `scale` is that height in metres - so only the slope and the
        near-field ceiling differ, and what the eye holds constant across a walk past, luma per screen
        pixel, is unchanged in kind. */
-    TAMP = TPR <= TS_MINP ? 0 : Math.min(pr ? PS_MAX : TS_MAX, (pr ? PS_SLOPE : TS_SLOPE) * TPR * 0.25);
+    TAMP = TPR <= TS_MINP ? 0 : Math.min(pr ? PS_MAX : vs ? VS_MAX : TS_MAX, (pr ? PS_SLOPE : vs ? VS_SLOPE : TS_SLOPE) * TPR * 0.25);
     if (ROT) {
       // yaw+pitch+roll as one matrix, so a rig can point its bore along the firing ray.
       // The yaw-only branch below is untouched: this is the extra path a view model takes,
