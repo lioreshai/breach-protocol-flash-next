@@ -1051,12 +1051,20 @@ const MESH = (function () {
        One scalar, one shape, same exemptions as the tiles: it multiplies the PAINTED albedo and nothing
        else. Not the 1.35 lift above (that is the billboard's re-light, and it is what makes a mesh prop
        the same colour as the sheet it replaced), not a light value, and not an emissive part - a vertex
-       flagged `em` is a LIGHT SOURCE (the lamp's aperture, read by the `props` LAMPCORE census), and
-       #371's own ruling says a lamp reading brighter than its deck is the issue's rule WORKING, so the
-       lamp's whole prop stays out of the band: PROPBAND names crate and barrel, the two painted boxes, and
-       a lamp's post and base are painted surfaces a light cell happens to be standing in. Pickups are out
-       too - they are readability, not set dressing, and no row here charges them for being loud. */
-    const PROP_ALB = 0.88, PROPBAND = { crate: PROP_ALB, barrel: PROP_ALB };
+       flagged `em` is a LIGHT SOURCE (the lamp's aperture, read by the `props` LAMPCORE census), and the
+       guard below is PER VERTEX for exactly that reason. Pickups are out too - they are readability, not
+       set dressing, and no row here charges them for being loud.
+       #371's ruling on the LAMP, which is what this table now says: a lamp's bulb may outshine the room;
+       its painted post, foot and shade may not. The earlier reading of that ruling kept the whole lamp out
+       of PROPBAND, which conflated the aperture with the metal - and it is the metal that was being
+       charged: at ABATOIR's 2,2 seat the fixture's own prop mean measured 134 luma against a deck of 98
+       (+36.2) on albedo authored at 44-62, six of the eight props over the +25 bar across the four sectors
+       were lamps 2-12 m out, and two A/B renders say the number is neither the bulb nor the additive glow:
+       painting the aperture the shade's grey moves the charged figure not at all, and returning from
+       `drawLightGlow` moves it not at all. So the lamp joins the band and its `em` vertices do not: the
+       aperture keeps the bytes the LAMPCORE census reads, and the fixture reads as dark metal standing in
+       the light it casts instead of the brightest solid in its part of the frame. */
+    const PROP_ALB = 0.88, PROPBAND = { crate: PROP_ALB, barrel: PROP_ALB, lamp: PROP_ALB };
     const band = PROPBAND[kind];
     for (let i = 3, v = 0; i < b.p.length; i += 6, v++) {
       const k = band && !b.e[v] ? band : 1;         // emissive vertices keep their authored bytes
@@ -1222,6 +1230,7 @@ const MESH = (function () {
         // painted in emit order, and a torso emitted before an arm loses to it
         if (SELF && z < occ) zbuf[off] = z;
         if (CW) CW[off] = CTAG;
+        if (SURF) SURF[off] = 0;          // #546: a face, a prop, a body or the view model owns this pixel
         if (TK && SOLID) {
           // the zero-mean seam: (1-w1-w2)*TQ0 + w1*TQ1 + w2*TQ2 is the body coord under the pixel
           let u = (1 - w1 - w2) * TQ0 + w1 * TQ1 + w2 * TQ2;
@@ -1305,30 +1314,42 @@ const MESH = (function () {
        #33 for the same floor under AMB). */
     EMIS = !!o.emis; DIM = o.dim || 0; EM = m.em;
     ST = m.st || null;                              // #232 per-vertex torso coord; props and the gun have none
-    /* The ramp a face's light rides. A body's sprites carried a curvature term, so 0.30+0.85*d is that
-       path's own history and stays; a PROP's sprite had NO normal at all - drawBillboard's lr is
-       AMB + 1.1*li*lt, flat - so borrowing the body's ramp darkened every prop face turned away from KEY
-       by up to 3.7x, which is how a hazard-red drum came out the colour of dried mud. Measured at one
-       camera, brightest tenth of the silhouette: barrel 99 -> 79, crate 101 -> 51. 0.75+0.42*d kept the
-       average where the painted sheet was, and what it paid with was the thing the ramp is FOR.
-       #371 took it back. d is `max(0, N·KEY)` with N flipped toward the eye (above), so a face that
-       looks at the camera but away from the key answers with d = 0 exactly: the flattened R0 = 0.75 was
-       therefore not a floor under the shaded side, it was the SHADED SIDE, and every prop that showed
-       two faces showed them at the same value. That is the 18-luminance crate in the issue: KEY's x and
-       y magnitudes are near equal, so square-to-the-grid faces could not be told apart by the key light
-       at all, and no yaw in the world would have fixed it while R0 sat at 0.75.
-       R1 goes from 0.42 to 0.68 - two thirds of the body's 0.85 - and R0 drops to keep the SAME ramp
-       height at the axis-aligned case the old comment measured: 0.60 + 0.68*0.567 = 0.985 against the
-       old 0.75 + 0.42*0.567 = 0.988, where 0.567 is the mean of |N·KEY| over a box's three face
-       families. So the mean is held by the ramp's own arithmetic and the spread is what changed: the
-       lit side / shaded side ratio goes 1.08x -> 1.78x, which is a solid. The albedo half of the pay is
-       in `PROPGEO.crate` above (the crate's WOOD), because R1 also lifts the top face, and that is where
-       the last few percent comes from - not a threshold moved to absorb the difference. */
+    /* The ramp a face's light rides. THREE cases read it, all of them at the one `sh` below, and a PROP
+       is not one of them:
+         a BODY            0.30 + 0.85*d - its sprites carried a curvature term, so that is the path's
+                           own history and it stays (#407 prices it against the body's own field);
+         the VIEW MODEL    0.55 + 0.55*d, and MDL is only ever the gun (40_render.js:3852) - #376;
+         PROPGEO-not-prop  0.75 + 0.42*d, i.e. the two sprites #76 converted to mesh because the Builder
+                           was already there - the ORB and the PORTAL. Only the SHUT portal ever shows
+                           the ramp: open it is `emis` and no ramp applies to it at all, shut it is
+                           `dim` 0.55 and lit by the room, which is the case the PROPKIND note above
+                           found moving at L1 and L3 and holding byte for byte at L0 and L2.
+       A PROP READS NOTHING HERE. `lw` at the bottom of this block answers `pr` with the form term `aw`,
+       so both prop arms of the two lines below were evaluated and then dropped on the floor: #561 set
+       the prop constant from 0.60 to 1.40 - a 2.3x swing on what this comment used to call the shaded
+       side of a prop face - and `node tools/view.js props` came back byte-identical apart from the tree
+       banner, same face census, same control, same turn. Since a prop is `pg` as well, a prop now lands
+       on PROPGEO's 0.75/0.42 arm and that value is dead arithmetic discarded by `lw`; the day a change
+       routes a prop through `sh` instead of `aw` is the day those two numbers start painting crates, and
+       `props`' (Y) face row is where it would show.
+       What #371 actually changed on a prop is PROP_R1/PROP_DMEAN below, and the arithmetic that comment
+       used to carry here belongs with them: a prop's sprite had NO normal at all (drawBillboard's lr is
+       AMB + 1.1*li*lt, flat), so borrowing the body's ramp darkened every face turned away from KEY by
+       up to 3.7x - a hazard-red drum came out the colour of dried mud, barrel 99 -> 79 and crate 101 ->
+       51 at the brightest tenth of the silhouette - and the flattened 0.75 + 0.42*d that replaced it
+       kept the average where the painted sheet was and paid with the thing a ramp is FOR. #371's
+       diagnosis still stands and is the reason `aw` exists: d is `max(0, N·KEY)` with N flipped toward
+       the eye (above), so a face that looks at the camera but away from the key answers d = 0 exactly,
+       R0 = 0.75 was not a floor under the shaded side but the SHADED SIDE, and with KEY's x and y
+       magnitudes near equal two square-to-the-grid faces could not be told apart by any light in the
+       game at any yaw. That is the 18-luminance crate. */
     const pg = !MDL && PROPGEO[o.kind] !== undefined;
     const pr = pg && PROPKIND[o.kind] === 1;         // a prop, not merely something built by PROPGEO
-    R0 = MDL ? 0.55 : (pr ? 0.60 : pg ? 0.75 : 0.30);
-    R1 = MDL ? 0.55 : (pr ? 0.68 : pg ? 0.42 : 0.85);
-    /* #371: the prop form term's own two constants. PROP_DMEAN is the mean of d = max(0, N*KEY) over a
+    R0 = MDL ? 0.55 : (pg ? 0.75 : 0.30);
+    R1 = MDL ? 0.55 : (pg ? 0.42 : 0.85);
+    /* #371: the prop form term's own two constants, and the ONLY knobs a prop's face value answers to -
+       the ramp pair above is not one of them (see the note there for what a prop does not read).
+       PROP_DMEAN is the mean of d = max(0, N*KEY) over a
        box's THREE face families (two vertical families at |KEY_xy| = 0.732 and the top at KEY_z = 0.68),
        the same 0.567 #373 used to hold its ramp's mean; centring on it makes the form term average
        exactly 1 over a box, so the prop's average light is the shipped light and only the SPREAD moved.
