@@ -1200,8 +1200,15 @@ function castGround(flash, fcR, fcG, fcB) {
     const p = y - hInt;
     // the one row with no distance to report: dz * BH / 0 is Infinity for every plane, because a
     // horizontal ray never reaches one, so this pixel genuinely has no surface in front of it
-    if (p === 0) { px.fill(0xFF000000 | fcB << 16 | fcG << 8 | fcR, y * BW, y * BW + BW); zbuf.fill(Infinity, y * BW, y * BW + BW); continue; }
+    if (p === 0) { px.fill(0xFF000000 | fcB << 16 | fcG << 8 | fcR, y * BW, y * BW + BW); zbuf.fill(Infinity, y * BW, y * BW + BW); if (SURF) SURF.fill(0, y * BW, y * BW + BW); continue; }
     const isF = p > 0, absP = p > 0 ? p : -p;
+    /* #546: the SURFACE id of this whole row. The class is a row constant here - `isF` is the same
+       test that picks `tex` between floorTex and ceilTex two lines below and the same test that adds
+       `FLOORB` or `CEILB` to `baseRow` - so one fill per row stamps every pixel of it, including the
+       far-band rows and the columns the deferred copy re-solves later in this same row. Stamped
+       BEFORE the pixel body so a later pass that wins a pixel overwrites it (last writer wins, the
+       same rule COV carries); null in play, so the shipped frame pays one branch per row. */
+    if (SURF) SURF.fill(isF ? 1 : 2, y * BW, y * BW + BW);
     /* planeA is the band the eye is in: floorAt below the horizon, ceilAt above it, and in
        the flat world exactly 0 and exactly 1 - which is what makes dRow the old d. It doubles
        as the predictor for every pixel of the row. A floor above the eye and a ceiling below
@@ -2515,6 +2522,9 @@ function drawCeilPanes(flash, fcR, fcG, fcB) {
         const rr = (o & 255) * (1 - al) + 70 * bS * sh, gg = (o >> 8 & 255) * (1 - al) + 66 * bS * sh,
               bb = (o >> 16 & 255) * (1 - al) + 60 * bS * sh; // where no light reaches
         px[i] = 0xFF000000 | clampi(bb) << 16 | clampi(gg) << 8 | clampi(rr);
+        if (SURF) SURF[i] = 0;          // #546: a fitting is an object hung IN FRONT of the slab, so the
+                                        // rod owns the pixel and the pixel is not a ceiling surface - the
+                                        // same rule the billboard and the mesh blitter already follow
       }
     }
     const ci = F.gy * N + F.gx;
@@ -2853,6 +2863,7 @@ function castWalls(flash, fcR, fcG, fcB) {
     const shS = shK > 0 ? 1 / Math.max(0.2, shB - shA) : 0, shZs = perp / BH;
     for (let y = ds; y <= de; y++, idx += BW) {
       zbuf[idx] = perp;
+      if (SURF) SURF[idx] = 0;            // #546: this pixel is a FACE now, not the ground surface
       const vy = ty; ty += tstep; if (ty >= mh) ty -= mh;
       const yv = vy | 0, fy = vy - yv, rfy = 1 - fy;
       const rw0 = yv * mw, rw1 = ((yv + 1) & maskY) * mw;
@@ -3208,6 +3219,7 @@ function drawBillboard(o) {
       // coverage: a billboard is never a character (bodies are meshes since #72), so it stamps 0
       // and erases the body it painted over. One branch, and COV is null in play.
       if (COV) COV[i] = 0;
+      if (SURF) SURF[i] = 0;              // #546: a billboard is a prop, not the surface under it
       if (A > 0.99) { px[i] = (0xFF000000 | clampi(b) << 16 | clampi(g) << 8 | clampi(r)) >>> 0; continue; }
       const IA = 1 - A;
       px[i] = (0xFF000000 | clampi(r * A + (dst & 255) * IA) | (clampi(g * A + (dst >> 8 & 255) * IA) << 8) |
