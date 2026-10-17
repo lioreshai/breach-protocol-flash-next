@@ -709,6 +709,17 @@ const CZ_TALL = 12;                                         // three units of he
 const CZ_SPAWN_TALL = 16;                                   // 4 units: the rung the #15 M4 shape ladder
 //   measured to fit the 16 ms raster gate at the arrival seat (+0.9 ms paired, N=8); CZ_TALL's 3 units
 //   over the same cells cost +2.7 and do not, and 2 units cost +5.1 - see feature 1's note.
+/* #548 THE ROOM'S OWN CEILING. Feature 1 handed CZ_TALL to the two or three largest rooms, which is why
+   everywhere but those rooms the frame is a plain with a lid on it: a wall's screen height is its
+   clearance over its distance, so a CZ_DEF = 4 wall at the distances these plans put one is a band above
+   the eyeline and the other nine tenths of the frame is the two surfaces the player looks ALONG. CZ_ROOM
+   gives that air to every room-shaped plan instead of the biggest few, at the rung the shape ladder
+   already measured as the CHEAPEST tall ceiling (+0.9 at the arrival seat against CZ_TALL's +2.7, with the
+   march counter falling as the ceiling rises - 460 -> 270 -> 46 quanta of 2/3/4 units): a taller ceiling
+   costs less to solve than a short one, so the frame buys its walls with the term that is not expensive.
+   Corridors, mouths, crawlways and ladder columns keep CZ_DEF - the complaint is about the rooms, and the
+   tall/flat boundary is the term that costs milliseconds, so it stays where feature 1 already pays it. */
+const CZ_ROOM = CZ_SPAWN_TALL;
 const LINK_STEPS = 40;                                      // link-or-give-back rounds per band, per pass
 const STAIR_CELLS = 4;                                      // cells a 1-unit climb needs: 3 steps + 1
 /* How many rooms get tall air on a map that does not need more: at least TWO, so a deal is never one
@@ -910,16 +921,29 @@ function authorVolume(cell, N, rooms, fz, vb, feat, cz) {
     }
     return f;
   };
+  /* #548: the pass runs over EVERY room that has a plan worth calling a room, not over the largest two
+     or three, and it gives them CZ_ROOM rather than CZ_TALL. Two separate knobs live here and they are
+     deliberately not the same list:
+       OWN CELLS   every qualifying room, at CZ_ROOM. Tall AREA is the cheap axis - the ladder priced the
+                   whole 54-cell spawn room at +2.7 at 3 units and +0.9 at 4, and 12 cells at +3.1 - so
+                   covering five rooms instead of two buys plan, not milliseconds.
+       MOUTHS      the FIRST tallWant rooms only, still at CZ_TALL. A tall mouth is the expensive axis
+                   (+8.2 ms for two cells), and the boundary it moves is the term the ladder blames for
+                   everything above the +5.1 that a taller ceiling costs on its own. So the doorway run
+                   stays rationed to the rooms it was rationed to; a room behind an unlifted mouth reads
+                   through a soffit, which is a room seen through a doorway and not a plain with a lid.
+     The spawn room is excluded here and served by the spawnAtrium pass below at the same height, so the
+     room the player wakes in and the rooms he walks into are the same volume. */
   const tallRooms = [];
-  for (const r of rooms.filter(r => r !== spawnR && r.w >= 5 && r.h >= 5 && roomFloor(r) !== null)
-                       .sort((a, b) => b.w * b.h - a.w * a.h || a.cx - b.cx || a.cy - b.cy).slice(0, tallWant)) {
-    tallRooms.push([r, roomFloor(r)]);
+  for (const [k, r] of rooms.filter(r => r !== spawnR && r.w >= 5 && r.h >= 5 && roomFloor(r) !== null)
+                            .sort((a, b) => b.w * b.h - a.w * a.h || a.cx - b.cx || a.cy - b.cy).entries()) {
+    tallRooms.push([r, roomFloor(r), k < tallWant]);
   }
-  for (const [r, f] of tallRooms) {
+  for (const [r, f, mouth] of tallRooms) {
     const cp = cut();
-    const set = i => { mark(i); cz[i] = CZ_TALL; };
+    const set = i => { mark(i); cz[i] = CZ_ROOM; };
     for (let y = r.y; y < r.y + r.h; y++) for (let x = r.x; x < r.x + r.w; x++) if (!cell[y * N + x]) set(y * N + x);
-    for (let y = r.y - 1; y <= r.y + r.h; y++) for (let x = r.x - 1; x <= r.x + r.w; x++) {
+    if (mouth) for (let y = r.y - 1; y <= r.y + r.h; y++) for (let x = r.x - 1; x <= r.x + r.w; x++) {
       if (!open(x, y) || fz[y * N + x] !== f || roomAt(x, y) !== null) continue;   // corridor cells only
       const i = y * N + x;
       for (let d = 0; d < 4; d++) {
