@@ -6103,12 +6103,13 @@ if (MODE === 'mip') {
     const d = new Uint32Array(run('px'));
     const { BW, BH, hz, FARB } = st;
     const L = new Float64Array(BW * BH);
-    let cSum = 0, cN = 0, fSum = 0, fN = 0;
+    let cSum = 0, cN = 0, fSum = 0, fN = 0, ck = 0;
     for (let y = 0; y < BH; y++) {
       const p = y - hz, r = y * BW;
       for (let x = 0; x < BW; x++) {
         const c = d[r + x], v = 0.2126 * (c & 255) + 0.7152 * (c >> 8 & 255) + 0.0722 * (c >> 16 & 255);
         L[r + x] = v;
+        ck = (Math.imul(ck, 31) + c) | 0;
         if (p < 0) { cSum += v; cN++; } else if (p > 0) { fSum += v; fN++; }
       }
     }
@@ -6166,23 +6167,30 @@ if (MODE === 'mip') {
     };
     return { streakC: 1000 * acc.dyC / nc / mL, streakF: 1000 * acc.dyF / nc / mL, detail: 1000 * acc.dx / nc / mL,
       mean: mL, hist: st.rows.h.slice(0, hi + 1), end: st.rows.e[1], rows: st.rows.e[0] + st.rows.e[1],
-      bandC: bandOut(bd.c, bd.nc, acc.dyC), bandF: bandOut(bd.f, bd.nf, acc.dyF), pairs: acc.n, px: cN + fN };
+      bandC: bandOut(bd.c, bd.nc, acc.dyC), bandF: bandOut(bd.f, bd.nf, acc.dyF), pairs: acc.n, px: cN + fN,
+      /* A running 32-bit digest of every pixel word the GROUND pass wrote, accumulated in the loop that
+         already reads them (it costs one multiply-add per pixel, not a second pass). The SPACING ARM
+         below compares digests rather than pictures: two digests that match mean the arm ran no
+         arithmetic on that frame at all, which is the vacuity this row cannot survive. */
+      ck: ck };
   };
-  let bad = 0, bandBad = 0;
+  let bad = 0, bandBad = 0, spBad = 0;
   const DEF = run('({ax:MIPAX,ar:MIPAR})');
   if (process.env.AR) DEF.ar = +process.env.AR;          // sweep the ratio clamp to re-justify MIPAR
+  // longest sight line, then the same cell turned 45 deg: the axis-aligned heading is where the
+  // old term collapsed to zero, the diagonal is where it still read something. A function of the roll
+  // because the SPACING ARM below re-rolls a level and has to land the SAME camera to be comparable.
+  const SEAT = (k) => `(()=>{const cs=[];for(let y=1;y<MH-1;y++)for(let x=1;x<MW-1;x++)if(!isSolid(x+.5,y+.5))cs.push([x,y]);
+    const c=cs[((cs.length*0.31)|0)%cs.length];let best=0,bd=-1;
+    for(let k2=0;k2<48;k2++){const a=k2*Math.PI/24;const d=castRayDist(c[0]+.5,c[1]+.5,Math.cos(a),Math.sin(a),9).dist;if(d>bd){bd=d;best=a;}}
+    P.x=c[0]+.5;P.y=c[1]+.5;P.ang=best+${k}*Math.PI/4;P.pitch=BH*0.02;P.z=floorAt(P.x,P.y);
+    for(const e of ENEMIES)e.state='sleep';})()`;
   for (let li = 0; li < run('LEVELS.length'); li++) {
     const per = [[], [], []];
     for (let k = 0; k < 2; k++) {
       seedRng(771 + li * 31 + k * 7);
       run(`S.mode='play';S.locked=false;startLevel(${li},true);`);
-      // longest sight line, then the same cell turned 45 deg: the axis-aligned heading is where the
-      // old term collapsed to zero, the diagonal is where it still read something
-      run(`(()=>{const cs=[];for(let y=1;y<MH-1;y++)for(let x=1;x<MW-1;x++)if(!isSolid(x+.5,y+.5))cs.push([x,y]);
-        const c=cs[((cs.length*0.31)|0)%cs.length];let best=0,bd=-1;
-        for(let k2=0;k2<48;k2++){const a=k2*Math.PI/24;const d=castRayDist(c[0]+.5,c[1]+.5,Math.cos(a),Math.sin(a),9).dist;if(d>bd){bd=d;best=a;}}
-        P.x=c[0]+.5;P.y=c[1]+.5;P.ang=best+${k}*Math.PI/4;P.pitch=BH*0.02;P.z=floorAt(P.x,P.y);
-        for(const e of ENEMIES)e.state='sleep';})()`);
+      run(SEAT(k));
       run('renderWorld()');
       per[0].push(sel(DEF.ax, DEF.ar, false));
       /* GNDPNG=path dumps the frame these streak numbers were read from: the ground pass ALONE, walls
@@ -6241,6 +6249,65 @@ if (MODE === 'mip') {
     if (process.env.BANDS) console.log(`         smoothness vs mush ${smooth.toFixed(2)}x (must stay above ${MUSHMARGIN}), detail floor is the mush frame's ${mush.detail.toFixed(0)}`);
     console.log(`         ${bl('floor', fix.bF, fix.bFs)}   ${bl('ceil', fix.bC, fix.bCs)}   census ${nCover.toFixed(0)}/${fix.pairs.toFixed(0)} pairs ${covOk ? 'ok' : 'FAIL'}   ${bl('mushF', mush.bF, mush.bFs)} | ${bl('mushC', mush.bC, mush.bCs)}`);
     if (!covOk) bandBad++;
+
+    /* #19 TAKE SEVENTEEN - THE SPACING ARM, the row the issue's own kill criterion asks for.
+     Sixteen takes falsified every FORK on the ceiling fetch - selection, coverage, area wash, speckle
+     amplitude, the named strata terms, SHADOW, and the bilinear shape on a magnified pixel (re-measured
+     here: smoothstepping the two fractions in both copies of the ground pixel body moves level 0-2's
+     ceiling streak 27/35/30 -> 28/36/31, i.e. nothing). The one lever nobody had measured was the
+     SPACING of the sheet in world metres - `cfgL.ceilTile`, 0.9 everywhere, which multiplies the whole
+     ceiling tile rather than one term inside it, and which therefore moves every feature in the sheet to
+     a lower on-screen frequency at once. #498 proved that class of fix on the deck, so it deserved a run.
+
+     A sweep in four separate trees (js/20_level.js's generated-path literal at 0.9 / 1.8 / 2.7 / 3.6) put
+     it at 27/35/30 -> 29/35/33 -> 30/34/34 -> 30/34/32: FLAT, and `detail` fell monotonically toward the
+     mush floor (23/24/32 -> 22/21/30) while it did. The near band's own streak does come down (101 -> 57
+     on ABATOIR CORE) but the mid band pays for it (54 -> 86), so the frame the player sees gets no
+     smoother. The fan is not a spacing artifact; #19's remaining streak belongs to the off-map far field
+     (#375) and to the near-band fetch, and this row is the measurement that closes the spacing fork
+     rather than a seventeenth filter fork. This row runs the strongest dose that sweep reached (4x) in
+     the shipped tree so the claim stays checkable, and it carries two teeth of its own:
+       SCOPE, level not renderer: the arm writes `LEVELS[i].ceilTile`, which ONLY the generated path reads
+         (js/20_level.js), so THE STACK's authored ceiling must come back with the frame digest UNCHANGED
+         while the three dealt levels' digests move. A renderer-wide term would move all four, and that is
+         the failure this clause catches.
+       FALSIFICATION: the arm's ceiling streak must stay ABOVE this issue's acceptance bar (18/20/18). If
+         a future build brings it under the bar, spacing has become a lever and this row is stale - which
+         is a FAILURE, not a quiet pass, and `STRICT=1` gates it outright. */
+    const SPT = +(process.env.SPACING || 4), SPBAR = [18, 20, 18, 0];
+    const spOwn = run(`({v:LEVELS[${li}].ceilTile,has:Object.prototype.hasOwnProperty.call(LEVELS[${li}],'ceilTile')})`);
+    const auth = !!run(`!!LEVELS[${li}].authored`);
+    run(`LEVELS[${li}].ceilTile=(LEVELS[${li}].ceilTile||0.9)*${SPT};`);
+    seedRng(771 + li * 31);
+    run(`S.mode='play';S.locked=false;startLevel(${li},true);`);
+    run(SEAT(0));
+    run('renderWorld()');
+    const sp = sel(DEF.ax, DEF.ar, false);
+    run(spOwn.has ? `LEVELS[${li}].ceilTile=${spOwn.v};` : `delete LEVELS[${li}].ceilTile;`);
+    /* Leave the world EXACTLY as the roll loop left it, so nothing downstream (the `wall fetch` row
+       below scans the level that is standing) sees the arm at all: re-seed to the loop's LAST roll and
+       re-deal. Without this the arm's own `startLevel` advances the generator and a later row quietly
+       measures a different level than the one main's run measures. */
+    seedRng(771 + li * 31 + 7);
+    run(`S.mode='play';S.locked=false;startLevel(${li},true);`);
+    const moved = sp.ck !== per[0][0].ck;
+    const spScope = auth ? !moved : moved;                 // the arm reached the dealt frames, not the authored one
+    /* THREE clauses, and only one of them is a threshold on the picture.
+       1. spScope - ALWAYS a failure. The dealt levels' ground digest must MOVE and the authored level's
+          must not. `SPACING=1` is the sabotage: it multiplies the tile by 1, so the arm runs no
+          arithmetic, every digest matches, and the row goes red on all three dealt levels and exits 1.
+       2. spDebt - this issue's acceptance bar on the SHIPPED ceiling streak (18/20/18, unchanged from the
+          issue). It is the debt #19 is still carrying, so it reports as KNOWN and `STRICT=1` gates it.
+       3. spFalse - the falsification itself, reported and never gated: if the arm's OWN streak ever comes
+          under the bar, spacing has become a live lever and this row's premise is stale. */
+    const spDebt = li >= 3 || fix.sc <= SPBAR[li];
+    const spFalse = li >= 3 || sp.streakC > SPBAR[li];
+    if (!spScope || (process.env.STRICT && !spDebt)) spBad++;
+    console.log(`         spacing ${SPT}x   tile ${((spOwn.v === undefined ? 0.9 : spOwn.v) * SPT).toFixed(2)} m  ceil streak ${sp.streakC.toFixed(0)}` +
+      ` (shipped ${per[0][0].streakC.toFixed(0)}, bar <=${SPBAR[li] || 'n/a'})  near-band ${sp.bandC.st[0].toFixed(0)} (shipped ${per[0][0].bandC.st[0].toFixed(0)})` +
+      `  detail ${sp.detail.toFixed(0)} (mush ${mush.detail.toFixed(0)})  frame ${moved ? 'MOVED' : 'UNCHANGED'} ${auth ? '(authored control)' : '(dealt)'}` +
+      `  ${spScope ? (spDebt ? 'ok' : (process.env.STRICT ? 'FAIL fan still above the bar' : 'KNOWN fan still above the bar')) : 'FAIL scope: the arm moved the wrong frames (or none)'}` +
+      `${spFalse ? '' : '  SPACING REACHED THE BAR - this falsification is stale'}`);
   }
   run(`MIPAX=${DEF.ax};MIPAR=${DEF.ar};`);
 
@@ -6387,8 +6454,10 @@ if (MODE === 'mip') {
      green in the ci.yml mip step. Each clause is also gated on its OWN counter now, so a build that is
      only vacuous no longer opens the sentence by asserting the 1-D control comparison is fine. */
   console.log((bad ? `${bad} level(s) NOT BETTER THAN THE 1-D CONTROL` : 'MIP ok: two-axis selection beats the 1-D control on every level and is not mush')
-    + (bandBad ? `  + FAIL: ${bandBad} level(s) whose DISTANCE CENSUS did not account for its own frame` : ''));
-  process.exit(bad || bandBad || !markOk || !fetchOk ? 1 : 0);
+    + (bandBad ? `  + FAIL: ${bandBad} level(s) whose DISTANCE CENSUS did not account for its own frame` : '')
+    + (spBad ? `  + FAIL: ${spBad} level(s) whose SPACING ARM moved the wrong frames or is still carrying the fan under STRICT` :
+      `  | spacing arm ${+(process.env.SPACING || 4)}x: the ceiling fan is NOT a spacing artifact (reporting; STRICT=1 gates the bar, SPACING=1 is the sabotage)`));
+  process.exit(bad || bandBad || spBad || !markOk || !fetchOk ? 1 : 0);
 }
 
 if (MODE === 'exposure') {

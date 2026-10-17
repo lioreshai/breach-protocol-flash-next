@@ -2340,7 +2340,15 @@ function genLevel(li) {
       accent: cfgL.accent || null,              // #466: as above; RING TRANSPORT is the only level that does
       wallFam: cfgL.wall || 0,                  // #518: as above; the generator's rooms all wear cfgL.wall
       floorTex: FLOORS[cfgL.floor] || FLOORS.CONCRETE, ceilTex: CEILS[cfgL.ceil] || CEILS.CONCRETE,
-      floorTile: 1.15, ceilTile: 0.9,
+      /* #19 THE SPACING DECLARATION. `ceilTile` is world metres per ceiling tile - the spacing of the
+         sheet, not the amplitude of anything inside it - and the generator path is the ONLY path that
+         reads it, so an authored ceiling cannot be reached by it. Nothing ships a value: the sweep on
+         #19 take seventeen coarsened 0.9 -> 1.8 / 2.7 / 3.6 and level 0-2's ceiling streak went
+         27/35/30 -> 30/34/32 while `detail` fell 23/24/32 -> 22/21/30 toward the mush floor, so the fan
+         is NOT a spacing artifact and the shipped picture keeps 0.9 untouched. `view.js mip` runs the
+         declaration at 4x every frame and reports the number as a KNOWN row, with THE STACK's authored
+         ceiling as the byte-identical control; that row retires the day the fan is actually gone. */
+      floorTile: 1.15, ceilTile: cfgL.ceilTile || 0.9,
       fz: fzTry, cz: czTry,
       vb: vbTry, feat: featTry,
       ceilPlane: new Float64Array(N * N), ceilSlab: new Uint16Array(N * N) };
