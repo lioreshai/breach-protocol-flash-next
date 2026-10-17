@@ -179,6 +179,16 @@ const SEAMK = 0.45;                             // deck LIGHT at which the absol
    the census where it was. A flatter falloff is also what a contact zone looks like - a hard t^3 core
    inside a soft outer skirt reads as a decal with a dark rim, not as weight. F = 2 lands on the term's
    own t*t fast path in both ground copies and the wall loop, so this spends no raster budget.
+   #18 THIRD TAKE - the ink moves OUT. The two previous takes both kept the disc inside the caster
+   (R -0.10 then -0.14) because the coverage oracle counts a world pixel a body did not paint as LEAK,
+   and a grounding RING is ground px outside the silhouette by construction. The census, not the shape,
+   was the bind: `contrast` now attributes a leak pixel to the caster whose OWN contact term paints it
+   (the pixel's darkness disappears when SHADOW goes to 0 with the bodies still in frame), so the ink
+   can live where the eye reaches it. SHADOW_R is therefore +0.16 m OUTSIDE the collision radius - the
+   same direction the prop half shipped at +0.18 (#511) - and SHADOW_D is cut 0.52 -> 0.34 so the extra
+   area costs less extra black than the disc did: D*pi*R^2/(F+1) per grunt goes 0.043 -> 0.106 while
+   the VISIBLE band (D*t^F above the 4-luma counting threshold) moves from 0.254 m, inside a 0.42 m
+   footprint the body occludes, to 0.514 m, i.e. 0.09 m of contact zone outside the feet.
    SHADOW_R is metres added to a body's collision radius to get the patch radius (negative = the patch
    stops inside the footprint);
    SHADOW_ZT is how far a floor pixel's plane may be from the body's feet plane and still take the
@@ -187,7 +197,7 @@ const SEAMK = 0.45;                             // deck LIGHT at which the absol
    SHADOW_F is the falloff exponent in t = 1-(d/R)^2, 1 being a flat-topped disc and 3 a tight core;
    SHADOW_ZF is how much of the term is left at the TOP of that contact band on a face (above it,
    nothing). */
-let SHADOW = 1, SHADOW_D = 0.52, SHADOW_R = -0.14, SHADOW_ZT = 0.02, SHADOW_F = 2,
+let SHADOW = 1, SHADOW_D = 0.34, SHADOW_R = 0.16, SHADOW_ZT = 0.02, SHADOW_F = 2,
     SHADOW_ZF = 0.25, SHADOW_FAR = 18;
 /* #371 item 3: the same term, on a PROP. A crate's lower edge used to be as bright as its upper edge,
    because nothing said where the crate meets the floor. This is not a new mechanism - it registers the
