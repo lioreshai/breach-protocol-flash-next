@@ -1051,12 +1051,20 @@ const MESH = (function () {
        One scalar, one shape, same exemptions as the tiles: it multiplies the PAINTED albedo and nothing
        else. Not the 1.35 lift above (that is the billboard's re-light, and it is what makes a mesh prop
        the same colour as the sheet it replaced), not a light value, and not an emissive part - a vertex
-       flagged `em` is a LIGHT SOURCE (the lamp's aperture, read by the `props` LAMPCORE census), and
-       #371's own ruling says a lamp reading brighter than its deck is the issue's rule WORKING, so the
-       lamp's whole prop stays out of the band: PROPBAND names crate and barrel, the two painted boxes, and
-       a lamp's post and base are painted surfaces a light cell happens to be standing in. Pickups are out
-       too - they are readability, not set dressing, and no row here charges them for being loud. */
-    const PROP_ALB = 0.88, PROPBAND = { crate: PROP_ALB, barrel: PROP_ALB };
+       flagged `em` is a LIGHT SOURCE (the lamp's aperture, read by the `props` LAMPCORE census), and the
+       guard below is PER VERTEX for exactly that reason. Pickups are out too - they are readability, not
+       set dressing, and no row here charges them for being loud.
+       #371's ruling on the LAMP, which is what this table now says: a lamp's bulb may outshine the room;
+       its painted post, foot and shade may not. The earlier reading of that ruling kept the whole lamp out
+       of PROPBAND, which conflated the aperture with the metal - and it is the metal that was being
+       charged: at ABATOIR's 2,2 seat the fixture's own prop mean measured 134 luma against a deck of 98
+       (+36.2) on albedo authored at 44-62, six of the eight props over the +25 bar across the four sectors
+       were lamps 2-12 m out, and two A/B renders say the number is neither the bulb nor the additive glow:
+       painting the aperture the shade's grey moves the charged figure not at all, and returning from
+       `drawLightGlow` moves it not at all. So the lamp joins the band and its `em` vertices do not: the
+       aperture keeps the bytes the LAMPCORE census reads, and the fixture reads as dark metal standing in
+       the light it casts instead of the brightest solid in its part of the frame. */
+    const PROP_ALB = 0.88, PROPBAND = { crate: PROP_ALB, barrel: PROP_ALB, lamp: PROP_ALB };
     const band = PROPBAND[kind];
     for (let i = 3, v = 0; i < b.p.length; i += 6, v++) {
       const k = band && !b.e[v] ? band : 1;         // emissive vertices keep their authored bytes
