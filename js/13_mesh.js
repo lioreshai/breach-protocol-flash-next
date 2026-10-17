@@ -1371,6 +1371,34 @@ const MESH = (function () {
        the ambient outside it is a floor both faces share; 1.1 on the whole light is the issue's "at
        least 35 luminance where the shipped build gives 18". */
     const PROP_R1 = 1.3, PROP_DMEAN = 0.45;
+    /* #371 THIS INCREMENT: the SAME centring per prop KIND, because `d` averages differently for the one
+       kind whose side is curved. Measured, not derived: every PIXEL a prop delivers in a four-sector
+       sector sweep at 031a70f (only pixels that pass the depth test, so an occluded far wall of a tube
+       counts for nothing), accumulated as sum(d)/count per kind -
+         crate  961,417 px  mean d 0.2863      barrel  497,427 px  mean d 0.3502      lamp 496,561 px  0.4399
+       A tube always shows some face to the key - its visible normals sweep a half-circle, so the max(0,..)
+       clamp never bites across a whole silhouette the way it does on a box's two flat families - and at
+       the shipped centring the drum therefore collects MORE light per pixel than the crate beside it:
+       mean aw = 1 + PROP_R1*(mean d - centring) is 0.870 on a barrel against 0.787 on a crate, +10.6 %.
+       Both props are in the same light. That is why every prop still over the +25 bar is a barrel.
+       PROP_DMEAN_K shifts a kind by the measured DIFFERENCE from the box's own mean, which is the only
+       form of this that is a measurement and not a tune: 0.45 + (0.3502 - 0.2863) = 0.5139 puts every
+       kind's form term back on the mean the box's centring already holds, so the drum keeps its colour
+       and its albedo, no light value moves, and the crate and lamp rows come out byte-identical because
+       their centring does not appear in this table. It is NOT the tube's own mean: centring on 0.3502
+       would make the barrel's form term average exactly 1, which is +15 % LIGHT on every drum in the game
+       (measured: the same sweep with that value puts 4 props over the bar instead of 2), and the shipped
+       0.45 is not any kind's mean either - it is above all three, which is what keeps a prop's delivered
+       mean where the painted billboard sheet landed (`exposure`'s four seeded medians). The difference is
+       what is owed; the absolute is what the mean-hold control pins. A barrel keeps its lit side and its
+       shaded side by construction: this moves the term's average, not PROP_R1's slope. */
+    const PROP_DMEAN_K = { barrel: 0.5139 };
+    /* The centring a prop is actually shaded with: one lookup per DRAW, not per triangle. A kind with no
+       row above keeps PROP_DMEAN, so a crate and a lamp run byte-identical arithmetic - that is the scope
+       control the issue asks for, and it is structural: the only way a box reaches this table is by a row
+       appearing in it. Declared HERE, after the constants, because `const` has a temporal dead zone and
+       this runs per draw: the first prop frame of the boot reads it before its own declaration otherwise. */
+    const pdm = pr && PROP_DMEAN_K[o.kind] !== undefined ? PROP_DMEAN_K[o.kind] : PROP_DMEAN;
     /* #371: what a PROP pays for the visibility FILL. `li` below adds 0.30 * visAt(dc) on top of the
        baked lamp field, and that add is a READABILITY term, not a light: it exists so a hostile does not
        arrive as a black cut-out in a dark cell at engagement range (#407 kept it for exactly that, and
@@ -1557,7 +1585,7 @@ const MESH = (function () {
            face of a solid receives it equally and an orientation term on it would darken the flank that
            geometry happens not to favour. Bodies and the view model keep the shipped line untouched -
            #407 prices the body's ramp against its own field and #376 owns the gun. */
-        const aw = pr ? 1 + PROP_R1 * (d - PROP_DMEAN) : 1;
+        const aw = pr ? 1 + PROP_R1 * (d - pdm) : 1;
         const lw = pr ? aw : sh;
         lr = (AMB * aw + li * lt[0] * lw + fk * (FC[0] / 255)) * hz;
         lg = (AMB * aw + li * lt[1] * lw + fk * (FC[1] / 255)) * hz;
