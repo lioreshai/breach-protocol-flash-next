@@ -286,6 +286,9 @@ const ENV_CLASS = {
   SEED: ['C', 'the dealt seed'],
   JSDIR: ['C', 'WHICH CODE the verdict is of - a knob, so it is scrubbed like any other'],
   REFS_LOCK: ['C', 'WHICH REFERENCE TABLE the verdicts are against - same'],
+  PSEAT: ['C', 'surface PROP-SECTOR: score ONE named seat instead of the stride walk, so a seat on an issue can be re-measured in a fresh process'],
+  BPROK: ['C', 'surface PROP-SECTOR: which DECK the prop is charged against (metres beside a prop, 0 = whole-frame deck)'],
+  ARM: ['C', 'surface PROP-SECTOR: the seat-skip radius for a lamp at arm\'s length (0 = never skip)'],
   OUT: ['D', 'where a PNG dump goes; changes no row, so it is carried rather than scrubbed'],
 };
 
