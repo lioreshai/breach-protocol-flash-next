@@ -373,6 +373,8 @@ function linkedClimb(vbArr, featArr, i, j, d) {
 function linkBoundaries() {                               // read before one cannot look fresh
   const cell = MAP.cell, fz = MAP.fz;
   let steps = 0;            // does ANY column boundary in this level have a step at it? (#100)
+  let tallStep = 0;         // ... or ONLY boundaries taller than one quantum? The two are different
+  //   questions and #517 is the cost of asking one of them twice - see the pair of lines below.
   const seenF = new Uint8Array(256); let bands = 0;   // distinct floor quanta over open columns (#152)
   const cntF = new Int32Array(256);                   // their histogram: the band cue's datum (#164)
   for (let y = 0; y < MH; y++) for (let x = 0; x < MW; x++) {
@@ -398,6 +400,15 @@ function linkBoundaries() {                               // read before one can
          geometry it claims to measure; that forcing was the defect, stated as a probe. A flat level has
          no `dq != 0` anywhere and still derives 0, so a flat frame stays bit-identical (#170). */
       if (dq) steps = 1;                                  // a face exists to draw, up or down (#517)
+      /* The SECOND census is the crossing, not the face: a slab whose side is more than one quantum tall
+         is the only overhead geometry whose OWN underside is a surface above the eye's head. The ground
+         pass's ceiling occluder pulls (#170) write a distance into zbuf for rows they do not solve, and
+         they are entitled to do that only where such a slab exists: on a one-quantum tread the slab's
+         underside IS the ceiling plane the row already solves, so pulling a second distance there
+         overwrites the row's own answer with somebody else's (#163, and `view.js heights` calls it
+         CEILING-DEPTH). So `steps` reads the DRAW threshold - any dq - and `tallStep` reads the BLOCK
+         threshold, |dq| > 1, exactly what the VB_BLOCK clause below refuses to let you walk through. */
+      if (dq > 1 || dq < -1) tallStep = 1;                // a multi-quantum riser exists, up or down
       if (dq > 1 && !(MAP.vb[i] & (VB_RAMP | VB_LADDER) << (d << 2))) bits |= VB_BLOCK << (d << 2);
     }
     // blocking is derived from the grid, so a relink must be able to REMOVE it: OR-ing leaves a
@@ -409,6 +420,7 @@ function linkBoundaries() {                               // read before one can
   // is what keeps a flat frame bit-identical (#100). A grid with a step in it must come through this
   // function to be visible at all, so `view.js planes` asserts the flag tracks the grid.
   MAP.steps = steps;
+  MAP.tallStep = tallStep;      // the crossing census: what #170's ceiling occluder pulls are gated by
   MAP.bands = bands;
   /* The band cue's datum: the floor most of the level's open columns sit on. Using the mode rather
      than the minimum means a flat level maps EVERY cell to index 0, which is the colour the minimap
