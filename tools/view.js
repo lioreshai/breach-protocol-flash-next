@@ -14410,8 +14410,19 @@ if (MODE === 'surface') {
     const pHash0 = gridHash();
     const pGaps = [];
     let pSkipped = 0, pSeatHashBad = 0, pPropPx = 0, pPatchPx = 0, pSeenPxMax = 0, pCorePx = 0;
-    let pArmSkip = 0, pBandLo = 0;
+    let pArmSkip = 0, pBandLo = 0, pRenderExtra = 0, pAmbPxTot = 0, pPaint0 = 0;
     const pDis = [];
+    /* per-PROP records: charged ones in pProps, ones the frame delivered but could not score in
+       pPropsNo. The gate is on pProps - the criterion on #371 is a prop against the deck it stands ON,
+       and attribution is what makes that comparator mean the prop the player is looking at. */
+    const pProps = [], pPropsNo = [];
+    const ATTR = process.env.ATTR !== undefined ? +process.env.ATTR : 1;
+    const PPROPS = process.env.PPROPS !== undefined ? +process.env.PPROPS : 4;
+    /* A per-prop mean is not built off a handful of pixels. This is an ABSOLUTE floor, not a share of
+       the frame, because the frame's own prop sliver floor (0.2 % of it) is a statement about the seat
+       and a single solid 12 m away cannot reach it: 120 px is about an 11x11 face, and below that the
+       number is an edge, not a surface. PPROP_PX prints the count it measured either way. */
+    const PPROP_PX = process.env.PPROP_PX !== undefined ? +process.env.PPROP_PX : 120;
     /* one named seat, or the stride walk - and the stride walk is UNCHANGED when PSEAT is unset */
     const pSeatList = PSEAT
       ? [[+PSEAT.split(',')[0], +PSEAT.split(',')[1]]]
@@ -14514,16 +14525,113 @@ if (MODE === 'surface') {
       const pLight = run(`MAP.light[cellIdx(${cx} + 0.5, ${cy} + 0.5)].toFixed(2)`);
       const pNearL = run(`(()=>{let b=1e9,v=0;for(const p of PROPS){const d=Math.hypot(p.x-${cx}-0.5,p.y-${cy}-0.5);` +
         `if(d<b&&d<12){b=d;v=MAP.light[cellIdx(p.x,p.y)]}}return v.toFixed(2)})()`);
-      /* WHICH NUMBER THE VERDICT IS ON, and why it is not the local one. Gating on the beside gap was
-         tried first and it is not sound: the band is built from every prop's footprint in range, so at a
-         seat whose prop pixels belong to a barrel 12.7 m away the local deck is mostly the deck beside a
-         DIFFERENT prop - the lamp 7 m out, standing in a cell baked to 1.06 - and the seat's gap falls to
-         +11 without ever having compared the barrel with the floor under it. A comparator that can be
-         answered by a prop the player is not looking at is the same blindness this issue is about, in a
-         new place. So the row keeps the shipped whole-frame gap as its GATE - unchanged, nothing widened -
-         and prints the local gap beside it, plus the light of the seat's cell and of the nearest prop's
-         cell, which is what makes a light-cell seat legible instead of merely loud. The local number is
-         evidence, not a threshold; `BPROK=0` prints it as n/a and changes no verdict. */
+      /* WHICH PROP PAINTED EACH PROP PIXEL - the attribution the local comparator was withheld from
+         until now. The band above is built from EVERY prop's footprint in range, so at a seat whose
+         prop pixels belong to one barrel 12.7 m out the local deck is mostly the deck beside a
+         DIFFERENT prop - the lamp 7 m out in a hot cell - and the seat's gap falls to +11 without the
+         barrel ever having been compared with the floor under it. Attribution is therefore asked of the
+         RENDERER, not guessed from colour: one render per candidate prop with THAT prop alone removed,
+         differenced against the shipped frame. A pixel that moved belongs to the prop that was not
+         there to paint it - the same per-pixel test the row already uses for props-against-no-props,
+         one object narrower, and it inherits the renderer's own culling (js/40_render.js:529) for free.
+         Candidates are the props in FRONT and inside the frustum plus their own angular radius, biggest
+         projected first, capped at PPROPS renders per seat so a level thick with barrels cannot turn a
+         seat into fifty frames. Pixels that more than one candidate moved (overlapping silhouettes) are
+         ambiguous and are counted out of every per-prop mean rather than charged to two props.
+         The DECK side is attributed the same way, one cell at a time: each candidate's own footprint
+         band, nearest candidate wins a cell, so a prop's deck is the ground beside THAT prop. `ATTR=0`
+         spends none of these renders and leaves the whole-frame gate exactly as #557 shipped it - the
+         falsifier this row's own text names. */
+      const pCand = ATTR && !disqual ? run(`(()=>{const o=[];for(let i=0;i<PROPS.length;i++){const p=PROPS[i];` +
+        `if(p.dead&&p.kind==='barrel')continue;const dx=p.x-P.x,dy=p.y-P.y;const d=Math.hypot(dx,dy);` +
+        `const tx=dx*dirX+dy*dirY;if(tx<0.25||d>FARB)continue;const ty=dx*planeX+dy*planeY;` +
+        `const r=(MESH.foot(p.kind)||0.4)*(p.scale||1);if(Math.abs(ty)>Math.hypot(planeX,planeY)*(tx+2*r))continue;` +
+        // occlusion asked of the WORLD, not of a render: if the geography along the ray to the centre
+        // stops short of the prop, it paints nothing and a frame spent on it is a frame wasted. Props
+        // hiding props are not in this test - the mask catches those as candidates that moved 0 px.
+        `if(castRayDist(P.x,P.y,dx/d,dy/d,d).dist < d - Math.max(0.25, r)) continue;` +
+        `o.push({i,kind:p.kind,x:+p.x.toFixed(2),y:+p.y.toFixed(2),d:+d.toFixed(2),sz:r/tx})}` +
+        `o.sort((a,b)=>(b.sz||0)-(a.sz||0));return o.slice(0,${PPROPS})})()`) : [];
+    const pMasks = [];
+    const pMaskN = [];
+      let pAmbPx = 0;
+      for (const c of pCand) {
+        run(`window.__pv = PROPS.splice(${c.i}, 1);`);
+        const ak = frame();
+        run(`PROPS.splice(${c.i}, 0, window.__pv[0]); delete window.__pv;`);
+        const m = new Uint8Array(BW * BH);
+        let mn = 0;
+        for (let i = 0; i < BW * BH; i++) if (Math.abs(LUM(a2, i) - LUM(ak, i)) > 4) { m[i] = 1; mn++; }
+        pMasks.push(m); pMaskN.push(mn);
+        pRenderExtra++;
+      }
+      /* the prop side of each per-prop gap: its own painted pixels, minus its own contact patch (ground
+         that its removal moves) and minus any pixel that answers to no light, both exactly as the
+         seat-level loop above classifies them, so a per-prop mean and the seat mean are the same kind
+         of number. Ambiguous pixels - moved by two candidates - are left out of every prop. */
+      const pSum = pCand.map(() => 0), pCnt = pCand.map(() => 0);
+      let dSum = pCand.map(() => 0), dCnt = pCand.map(() => 0);
+      if (pMasks.length) {
+        for (let i = 0; i < BW * BH; i++) {
+          let hit = -1, amb = false;
+          for (let k = 0; k < pMasks.length; k++) if (pMasks[k][i]) { if (hit >= 0) amb = true; else hit = k; }
+          if (hit < 0) continue;
+          if (amb) { pAmbPx++; continue; }
+          const L = LUM(a2, i);
+          if (Math.abs(L - LUM(ff, i)) > 4) continue;          // ground: that prop's own contact patch
+          if (Math.abs(L - LUM(ap, i)) <= 4) continue;         // and not a prop pixel at all
+          const Lo = LUM(ad, i);
+          if (Lo >= 0.9 * L && Lo >= 40) continue;                // an aperture, not a lit face
+          pSum[hit] += L; pCnt[hit]++;
+        }
+        /* and its deck: one unprojection pass, each ground cell labelled with the candidate whose
+           footprint band it is inside (nearest centre wins), past FARB the ground is the mip-mean wash
+           and is not a deck (#19). */
+        if (BPROK > 0) {
+          const gid = run(`(()=>{const N=MAP.w,gr=new Int16Array(N*N).fill(-1),bd=new Float64Array(N*N).fill(1e9);` +
+            `const IDX=${JSON.stringify(pCand.map(c => c.i))},r=${BPROK};` +
+            `for(let k=0;k<IDX.length;k++){const p=PROPS[IDX[k]];if(!p)continue;` +
+            `const x0=Math.max(0,Math.floor(p.x-r)),x1=Math.min(N-1,Math.floor(p.x+r));` +
+            `const y0=Math.max(0,Math.floor(p.y-r)),y1=Math.min(N-1,Math.floor(p.y+r));` +
+            `for(let y=y0;y<=y1;y++)for(let x=x0;x<=x1;x++){const dx=x+0.5-p.x,dy=y+0.5-p.y,dd=dx*dx+dy*dy;` +
+            `if(dd<=r*r&&dd<bd[y*N+x]){bd[y*N+x]=dd;gr[y*N+x]=k}}}return Array.from(gr)})()`);
+          const C = run('({BW,BH,horizon,eyeZ,camX,camY,dirX,dirY,planeX,planeY,N:MAP.w})');
+          const zb = new Float32Array(run('zbuf'));
+          for (let y = 0; y < C.BH; y++) {
+            for (let x = 0; x < C.BW; x++) {
+              const i = y * C.BW + x;
+              const L = LUM(a2, i);
+              if (Math.abs(L - LUM(ff, i)) <= 4 || Math.abs(L - LUM(ap, i)) > 4) continue;  // deck, not patch
+              const dz = zb[i];
+              if (!isFinite(dz) || dz <= 0 || dz > run('FARB')) continue;
+              const c2 = x * 2 / C.BW - 1;
+              const gx = (C.camX + dz * (C.dirX + C.planeX * c2)) | 0, gy = (C.camY + dz * (C.dirY + C.planeY * c2)) | 0;
+              if (gx < 0 || gy < 0 || gx >= C.N || gy >= C.N) continue;
+              const k = gid[gy * C.N + gx];
+              if (k < 0) continue;
+              dSum[k] += L; dCnt[k]++;
+            }
+          }
+        }
+        for (let k = 0; k < pCand.length; k++) {
+          const c = pCand[k];
+          const enough = pCnt[k] >= PPROP_PX && dCnt[k] >= 60;
+          if (!pMaskN[k]) { pPaint0++; continue; }        // it painted nothing here: nothing to charge
+          const rec = { seat: cx + ',' + cy, kind: c.kind, x: c.x, y: c.y, d: c.d,
+            prop: pCnt[k] ? pSum[k] / pCnt[k] : NaN, deck: dCnt[k] ? dSum[k] / dCnt[k] : NaN,
+            np: pCnt[k], nd: dCnt[k], nm: pMaskN[k], why: enough ? '' : (pCnt[k] < PPROP_PX ? `a sliver of its own frame (${pCnt[k]} of ${pMaskN[k]} px it moved are painted faces)` : 'no deck within ' + BPROK + ' m of its own footprint') };
+          rec.gap = enough ? rec.prop - rec.deck : NaN;
+          (enough ? pProps : pPropsNo).push(rec);
+        }
+        pAmbPxTot += pAmbPx;
+      }
+      /* WHICH NUMBER THE VERDICT IS ON. #557 withheld the local comparator because a band built from
+         every footprint in range can be answered by a prop the player is not looking at. That objection
+         is spent: the pixels are now attributed to the prop that painted them and each prop is charged
+         against the ground inside its OWN footprint band, so the comparison is one solid against the
+         floor a player sees beside it - the criterion as #371 states it. The whole-frame gap is still
+         printed, per seat, with its over-count: the two figures disagree wherever a prop is read across
+         a dark room, and that disagreement is the light question this issue still carries. */
       (disqual ? pDis : pGaps).push({ why: disqual, c: cx + ',' + cy, gap: pS / pN - dS / dN, prop: pS / pN,
         deck: dS / dN, near: bOK ? bS / bN : NaN, nearN: bN, n: pN, sight, light: pLight, plight: pNearL });
     }
@@ -14534,24 +14642,51 @@ if (MODE === 'surface') {
     const over = pGaps.filter(g => g.gap > PROPT_S).sort((x, y) => y.gap - x.gap);
     const under = pGaps.filter(g => g.gap <= -PROPT_S);
     const gMed = gSorted.length ? gSorted[gSorted.length >> 1] : NaN;
-    row(`L${li} PROP-SECTOR no prop outshines its deck anywhere in the sector (<= +${PROPT_S})`,
-      pGaps.length > 0 && over.length === 0 && pSeatHashBad === 0,
-      pGaps.length
-        ? `${pGaps.length} of ${CAMS.length === 0 ? PSEATS : PSEATS} seat(s) read of ${openCells.length} open cell(s) `
-          + `sampled at stride ${pStride} (${pSkipped} skipped: no prop of 0.2% of frame, or under 1% deck; `
-          + `${pArmSkip} skipped as a lamp at arm's length or a prop the eye is inside, per js/40_render.js:529`
-          + (pBandLo ? `; ${pBandLo} scored against the whole-frame deck because no ${BPROK} m of deck beside a prop was delivered` : '') + `); `
-          + `gap vs the deck of the whole frame median ${gMed >= 0 ? '+' : ''}${gMed.toFixed(1)}, `
-          + `worst ${over.length ? '+' + over[0].gap.toFixed(1) + ` at seat ${over[0].c}` : 'none over'}, `
-          + `${over.length} seat(s) over +${PROPT_S}` + (over.length ? ' [' + over.slice(0, 4).map(g => `+${g.gap.toFixed(1)} @${g.c} (prop ${g.prop.toFixed(0)} / frame deck ${g.deck.toFixed(0)}; the deck within ${BPROK} m of a prop reads ${isFinite(g.near) ? g.near.toFixed(0) : 'nothing here'}, seat cell light ${g.light}, nearest prop's cell ${g.plight})`).join(', ') + ']' : '') +
-          `; the same seats against the deck BESIDE the prop read ${pGaps.map(g => g.prop - g.near).filter(x => isFinite(x)).sort((a, b) => a - b)[0] === undefined ? 'n/a' : (pGaps.map(g => g.prop - g.near).filter(x => isFinite(x)).sort((a, b) => b - a)[0].toFixed(1) + ' worst / ' + pGaps.map(g => g.prop - g.near).filter(x => isFinite(x)).sort((a, b) => a - b)[(pGaps.map(g => isFinite(g.near) ? g.prop - g.near : NaN).filter(x => isFinite(x)).length) >> 1].toFixed(1) + ' median')} - REPORTED, not gated, because a local band is built from every prop's footprint in range and can answer for a prop the frame is not showing. `
-          + `${under.length} at or under -${PROPT_S} (a prop DARKER than its room is the shading working, charged to nothing); `
-          + `${pPropPx} PAINTED prop px read in all, ${pPatchPx} contact-patch px excluded from both means, `
-          + `${pCorePx} light-source px excluded from the prop mean (they answer to no light)` + disStr
-        : `NO seat read: ${pSkipped} sampled seat(s) all landed under the sliver floors${pArmSkip ? ` and ${pArmSkip} more were a lamp at arm's length` : ''}, so no prop in this `
+    /* THE VERDICT: the largest per-prop gap over every attributed prop at every charged seat. ATTR=0
+       spends no attribution render and falls back to the shipped whole-frame gate - the falsifier, and
+       the reason both counts are printed either way. */
+    const pGapsS = pProps.map(p => p.gap).sort((a, b) => a - b);
+    const pMed = pGapsS.length ? pGapsS[pGapsS.length >> 1] : NaN;
+    const pOver = pProps.filter(p => p.gap > PROPT_S).sort((x, y) => y.gap - x.gap);
+    const pUnder = pProps.filter(p => p.gap <= -PROPT_S).length;
+    const medOf = a => a.length ? a[a.length >> 1] : NaN;
+    const seatNear = pGaps.map(g => g.prop - g.near).filter(x => isFinite(x));
+    const gateOk = ATTR
+      ? pProps.length > 0 && pOver.length === 0 && pSeatHashBad === 0
+      : pGaps.length > 0 && over.length === 0 && pSeatHashBad === 0;
+    row(`L${li} PROP-SECTOR no prop outshines the deck beside its OWN footprint (<= +${PROPT_S})`,
+      gateOk,
+      (pGaps.length ? (ATTR ? `${pProps.length} prop(s) ATTRIBUTED and charged across ${pGaps.length} seat(s), ` 
+        + `${pRenderExtra} per-prop render(s) spent to find them, ${pPaint0} candidate(s) the frame occluded ` 
+        + `and ${pPropsNo.length} too thin to charge (${pPropsNo.length ? pPropsNo[0].why : 'n/a'}), ${pAmbPxTot} px moved by two candidates at once and charged to neither: `
+        + `per-prop gap vs the deck inside its own ${BPROK} m band median ${pMed >= 0 ? '+' : ''}${isFinite(pMed) ? pMed.toFixed(1) : 'n/a'}, ` 
+        + `worst ${pOver.length ? '+' + pOver[0].gap.toFixed(1) + ` on the ${pOver[0].kind} at ${pOver[0].x},${pOver[0].y} ` 
+          + `(${pOver[0].d} m out of seat ${pOver[0].seat}: prop ${pOver[0].prop.toFixed(0)} / its own deck ${pOver[0].deck.toFixed(0)}, ` 
+          + `${pOver[0].np} px / ${pOver[0].nd} deck px)` : 'none over'}, ${pOver.length} prop(s) over +${PROPT_S}` 
+        + (pOver.length ? ' [' + pOver.slice(0, 3).map(p => `+${p.gap.toFixed(1)} ${p.kind}@${p.x},${p.y} ${p.d}m` 
+          + ` (${p.prop.toFixed(0)}/${p.deck.toFixed(0)})`).join(', ') + ']'
+          + ` - ${pOver.filter(p => p.kind === 'lamp').length} lamp(s), ${pOver.filter(p => p.kind !== 'lamp').length} solid(s): `
+          + `a lamp's painted post stands IN the pool it casts, so its own deck is the brightest floor in the room; `
+          + `the aperture itself is already out of the prop mean (the lights-off test above)` : '') 
+        + `; ${pUnder} at or under -${PROPT_S}`
+        : `ATTR=0: no per-prop render spent, so this row is charged on the whole-frame deck exactly as `
+          + `#557 shipped it - ${pGaps.length} seat(s), ${over.length} over +${PROPT_S}`) : '') 
+        + ` | REPORTED, not gated: the same seats against the deck of the WHOLE FRAME read median `
+        + `${gMed >= 0 ? '+' : ''}${isFinite(gMed) ? gMed.toFixed(1) : 'n/a'}, worst `
+        + `${over.length ? '+' + over[0].gap.toFixed(1) + ' at seat ' + over[0].c : 'none over'}, ` 
+        + `${over.length} seat(s) over +${PROPT_S}` 
+        + (over.length ? ' [' + over.slice(0, 4).map(g => `+${g.gap.toFixed(1)} @${g.c} (prop ${g.prop.toFixed(0)} / frame deck ${g.deck.toFixed(0)}; seat cell light ${g.light}, nearest prop's cell ${g.plight})`).join(', ') + ']' : '')
+        + `; attributed props against a whole-frame deck read ${medOf(seatNear) >= 0 ? '+' : ''}${isFinite(medOf(seatNear)) ? medOf(seatNear).toFixed(1) : 'n/a'} median`
+        + `; ${under.length} seat(s) at or under -${PROPT_S}; ${pSkipped} seat(s) skipped for the sliver floors, `
+        + `${pArmSkip} as a lamp at arm's length or a prop the eye is inside (js/40_render.js:529), ` 
+        + `${pPatchPx} contact-patch px and ${pCorePx} light-source px excluded from every mean` + disStr
+        || `NO seat read: ${pSkipped} sampled seat(s) all landed under the sliver floors${pArmSkip ? ` and ${pArmSkip} more were a lamp at arm's length` : ''}, so no prop in this `
           + 'deal was ever measured outside the spawn room - nothing was measured'
-          + (pDis.length ? ` - though ${pDis.length} seat(s) WERE read and disqualified as a lamp at arm's length:` + pDis.map(g => ` ${g.c}`).join(',') : ''),
-      pGaps.length && over.length ? '#371' : (pGaps.length && pSeatHashBad ? undefined : undefined));
+          + (pDis.length ? ` - though ${pDis.length} seat(s) WERE read and disqualified as a lamp at arm's length:` + pDis.map(g => ` ${g.c}`).join(',') : '')
+        || (ATTR && !pProps.length ? `NO prop attributed anywhere in this sector: ${pGaps.length} seat(s) delivered prop pixels and `
+          + `not one of them could be said to belong to a named prop (${pPropsNo.length} not charged: `
+          + `${pPropsNo.length ? pPropsNo[0].why : 'no candidate in frame'}) - nothing was measured, which is a FAILURE` : ''),
+      pOver.length || over.length ? '#371' : (pSeatHashBad ? undefined : undefined));
     if (pSeatHashBad) console.log(`    PROP-SECTOR ${li}: ${pSeatHashBad} seat(s) changed the grid hash - the sweep is `
       + 'supposed to move the camera inside ONE deal, so this level\'s sector row measures two worlds');
   }
