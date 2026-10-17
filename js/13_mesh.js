@@ -1244,6 +1244,7 @@ const MESH = (function () {
         // painted in emit order, and a torso emitted before an arm loses to it
         if (SELF && z < occ) zbuf[off] = z;
         if (CW) CW[off] = CTAG;
+        if (SURF) SURF[off] = 0;          // #546: a face, a prop, a body or the view model owns this pixel
         if (TK && SOLID) {
           // the zero-mean seam: (1-w1-w2)*TQ0 + w1*TQ1 + w2*TQ2 is the body coord under the pixel
           let u = (1 - w1 - w2) * TQ0 + w1 * TQ1 + w2 * TQ2;

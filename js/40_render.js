@@ -1181,8 +1181,11 @@ function castGround(flash, fcR, fcG, fcB) {
   const lgc = LGCAP, cnt = LGCNT;                     // #21, consts of the pass for the same reason
   const amb = AMB, fl = flash;
   if (GLRP) buildLightRamp();       // #19: nine floats a cell, once a frame - this is the only write
-  const gndSteps = MAP.steps ? 1 : 0;                 // #170: 0 on every flat level, which is what keeps
-  //                                      a flat frame free of any call to planeAlong and thus md5-clean
+  const gndSteps = MAP.tallStep ? 1 : 0;              // #170, and #517: the CROSSING census, not the draw
+  //                                      flag - 0 on a flat level AND on a level of pure one-quantum
+  //                                      treads, either of which keeps a flat frame free of planeAlong
+  //                                      and thus md5-clean. The pulls below write a distance they did
+  //                                      not solve, and only a slab taller than a step entitles them to.
   /* Scratch for the columns of one row that had to be re-solved off the row's plane. Sized to a
      row because a row is all a frame can ever queue; in a flat level nothing is ever written. */
   if (RX.length < BW) { RX = new Int32Array(BW); RP = new Float64Array(BW); }
@@ -1190,8 +1193,15 @@ function castGround(flash, fcR, fcG, fcB) {
     const p = y - hInt;
     // the one row with no distance to report: dz * BH / 0 is Infinity for every plane, because a
     // horizontal ray never reaches one, so this pixel genuinely has no surface in front of it
-    if (p === 0) { px.fill(0xFF000000 | fcB << 16 | fcG << 8 | fcR, y * BW, y * BW + BW); zbuf.fill(Infinity, y * BW, y * BW + BW); continue; }
+    if (p === 0) { px.fill(0xFF000000 | fcB << 16 | fcG << 8 | fcR, y * BW, y * BW + BW); zbuf.fill(Infinity, y * BW, y * BW + BW); if (SURF) SURF.fill(0, y * BW, y * BW + BW); continue; }
     const isF = p > 0, absP = p > 0 ? p : -p;
+    /* #546: the SURFACE id of this whole row. The class is a row constant here - `isF` is the same
+       test that picks `tex` between floorTex and ceilTex two lines below and the same test that adds
+       `FLOORB` or `CEILB` to `baseRow` - so one fill per row stamps every pixel of it, including the
+       far-band rows and the columns the deferred copy re-solves later in this same row. Stamped
+       BEFORE the pixel body so a later pass that wins a pixel overwrites it (last writer wins, the
+       same rule COV carries); null in play, so the shipped frame pays one branch per row. */
+    if (SURF) SURF.fill(isF ? 1 : 2, y * BW, y * BW + BW);
     /* planeA is the band the eye is in: floorAt below the horizon, ceilAt above it, and in
        the flat world exactly 0 and exactly 1 - which is what makes dRow the old d. It doubles
        as the predictor for every pixel of the row. A floor above the eye and a ceiling below
@@ -1368,9 +1378,11 @@ function castGround(flash, fcR, fcG, fcB) {
          for the DEPTH of the run the row is about to paint, and write the nearer solve into zbuf - the
          colour of the run stays the row's, because #170 is an occlusion defect and repainting these rows
          is the ceiling look change the CZBAND/`bands` gates have not been re-based for. gndSteps is
-         MAP.steps, which is 1 only where a boundary differs by more than one quantum: a flat level (and
-         a level of pure single-quantum steps, where the slab's underside IS the eye's own ceiling plane)
-         runs no line of this and stays bit for bit what it was. */
+         MAP.tallStep, which is 1 only where a boundary differs by more than one quantum: a flat level
+         (and a level of pure single-quantum steps, where the slab's underside IS the eye's own ceiling
+         plane) runs no line of this and stays bit for bit what it was (#517 - reading MAP.steps here was
+         the wrong census, because that flag now answers "is there a FACE to draw", which one-quantum
+         treads answer yes to). */
       if (!isF && gndSteps && planeC === planeA) {
         const plO = planeAlong(dirX - planeX, dirY - planeY, planeA, isF, absP);
         const dzO = plO - eyeZ;
@@ -1999,7 +2011,7 @@ function groundPixel(x0, x1, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb
       if (st >= 0) { dOv = st; }
       else { pl = plA; dOv = -1; }
     }
-  } else if (pl === plA && MAP.steps) {
+  } else if (pl === plA && MAP.tallStep) {
     /* The CEILING half needs no march here: the ROW marched this pixel's cell once, at the column that
        crossed into it, and queued the plane that answer produced (#15's per-cell decision). Keeping a
        march in this copy is what made the deferred path cost one 40-step DDA per pixel of a run - the
@@ -2009,6 +2021,9 @@ function groundPixel(x0, x1, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb
        EXCEPT, precisely, when the queued plane IS the row's predictor: then no march produced it, this
        copy inherited the row's guess, and the row's guess is what #170 measured wrong (its own occluder
        block answers that question for the pixels the row paints; it cannot reach the ones queued here).
+       It reads MAP.tallStep, the SAME census as the row's `gndSteps` (#517): the rule has to live in both
+       copies of this body, and a one-quantum tread entitles neither copy to write a distance it did not
+       solve - the slab's underside there is the plane the row already answers.
        The queue condition is `planeC !== planeA`, so no shipped frame ever arrives in this branch - one
        compare per deferred pixel, no march, no picture - and `cull`'s deferred-copy control, which forces
        every re-solvable column through here, is what makes the agreement between the two copies of this
@@ -2505,6 +2520,9 @@ function drawCeilPanes(flash, fcR, fcG, fcB) {
         const rr = (o & 255) * (1 - al) + 70 * bS * sh, gg = (o >> 8 & 255) * (1 - al) + 66 * bS * sh,
               bb = (o >> 16 & 255) * (1 - al) + 60 * bS * sh; // where no light reaches
         px[i] = 0xFF000000 | clampi(bb) << 16 | clampi(gg) << 8 | clampi(rr);
+        if (SURF) SURF[i] = 0;          // #546: a fitting is an object hung IN FRONT of the slab, so the
+                                        // rod owns the pixel and the pixel is not a ceiling surface - the
+                                        // same rule the billboard and the mesh blitter already follow
       }
     }
     const ci = F.gy * N + F.gx;
@@ -2843,6 +2861,7 @@ function castWalls(flash, fcR, fcG, fcB) {
     const shS = shK > 0 ? 1 / Math.max(0.2, shB - shA) : 0, shZs = perp / BH;
     for (let y = ds; y <= de; y++, idx += BW) {
       zbuf[idx] = perp;
+      if (SURF) SURF[idx] = 0;            // #546: this pixel is a FACE now, not the ground surface
       const vy = ty; ty += tstep; if (ty >= mh) ty -= mh;
       const yv = vy | 0, fy = vy - yv, rfy = 1 - fy;
       const rw0 = yv * mw, rw1 = ((yv + 1) & maskY) * mw;
@@ -3198,6 +3217,7 @@ function drawBillboard(o) {
       // coverage: a billboard is never a character (bodies are meshes since #72), so it stamps 0
       // and erases the body it painted over. One branch, and COV is null in play.
       if (COV) COV[i] = 0;
+      if (SURF) SURF[i] = 0;              // #546: a billboard is a prop, not the surface under it
       if (A > 0.99) { px[i] = (0xFF000000 | clampi(b) << 16 | clampi(g) << 8 | clampi(r)) >>> 0; continue; }
       const IA = 1 - A;
       px[i] = (0xFF000000 | clampi(r * A + (dst & 255) * IA) | (clampi(g * A + (dst >> 8 & 255) * IA) << 8) |

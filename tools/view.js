@@ -7445,6 +7445,176 @@ if (MODE === 'heights') {
     ' of them carry a depth farther than the surface their ray arrives at' +
     (rowOccEver && !rowOccFar ? '  ok' : rowOccFar ? '  FAIL ROW-FLOOR-PHANTOM-DEPTH' : '  FAIL ROW-OCC-VACUUM (no row-painted floor pixel was sampled)'));
   if (!rowOccEver || rowOccFar) bad++;
+  /* POSE=1 runs this block; unset, NOTHING in it executes and every row above it is byte-identical to a
+     run without it - the same idiom as the OFFLOOK block below. It is gated rather than blocking for one
+     reason: all three poses are RED at this head (see the issue), and a probe that lands green by calling
+     a measured phantom "ok" is the disabled test AGENTS.md warns about. The gate is the follow-up; this
+     block is the harness the fix will be measured with. */
+  if (process.env.POSE) {
+    /* ---- #518 THE THREE POSES THE ACCEPTANCE ASKS FOR -----------------------
+     The census above measures two solvers against each other on the geometry the generator deals. The
+     issue's acceptance is not a census: it is three pictures, each with a rendered-pixel claim - a
+     staircase's first tread answering at the WALKED distance, a pit's far lip occupying the rows the
+     geometry says with a pit-filled control that is actually able to fail, and a band's own edge being
+     a DEPTH step rather than a texture suggestion. None of the three poses existed anywhere in the
+     file, which is the plainest explanation for four closed fixes (#164/#192/#195/#100) leaving three
+     live symptoms: every gate looked at dealt geometry from a seat whose sight line never crossed the
+     surface the report was about.
+
+     All three are CONSTRUCTIONS on a forced-open 15x7 stage, said out loud, for the reason `heights`
+     already gives for its pokes: no shipped deal puts a staircase, a pit and a band edge in one frame at
+     a seat whose distances the probe can name, and a claim about WHICH ROW a surface must land in needs
+     authored cells to derive the row from. Props and enemies are cleared (a crate in the corridor makes
+     "what depth answers this pixel" a question about the crate). Every floor write is followed by
+     linkBoundaries() (AGENTS.md); CARRY is deliberately NOT used here, because it sinks an open cell to
+     its lowest OPEN neighbour and would therefore erase the stair, the pit and the disc it is handed.
+
+     Each pose carries a control chosen so the row can go RED instead of only printing a number:
+       A - both solvers are called on the pixel's own ray. The march's answer is the claim; the fixed
+           point's is what the shipped build painted while it adopted a lower plane found further along.
+           A staircase whose two arms never disagree proves nothing -> POSE-VACUUM, a FAILURE.
+       B - the far lip's rows come from the authored cells, and the frame is then re-rendered with the pit
+           FILLED at the same camera. A phantom (the far deck's plane stretched over the lip) leaves the
+           depths of those rows where they are, so a control that moves nothing is PIT-CONTROL-DEAD.
+       C - the depth must STEP at the row the band's own drop face ends at. The control takes the disc
+           away under a camera whose altitude is PINNED, so the only difference is the edge; a step that
+           survives the flattening is a seam -> EDGE-CONTROL-DEAD. */
+  {
+    const PW = run('BW'), PH = run('BH'), PBH = run('BH'), PZQ = run('ZQ'), PMW = run('MW');
+    const PRE = `S.mode='play';S.locked=false;startLevel(0,true);MAP.fz.fill(0);MAP.cz.fill(CZ_DEF);` +
+      `MAP.feat.fill(0);linkBoundaries();ENEMIES.length=0;PROPS.length=0;`;
+    const SX = 2, SY = (run('MH') / 2) | 0, SL = 15, SW = 3;
+    const fits = SX + SL + 1 < PMW && SY + SW < run('MH') - 1 && SY - SW > 0;
+    const STAGE = `(()=>{for(let w=-${SW};w<=${SW};w++)for(let k=0;k<${SL};k++){const i=(${SY}+w)*MW+${SX}+k;` +
+      `MAP.cell[i]=0;MAP.fz[i]=0;MAP.cz[i]=CZ_DEF;MAP.feat[i]=FEAT_NONE;}})()`;
+    const SEAT = `P.x=${SX}+.5;P.y=${SY}+.5;P.ang=0;P.pitch=0;P.vx=P.vy=P.vz=0;P.air=false;P.crouch=0;` +
+      `P.bob=0;P.recoil=0;P.z=floorAt(P.x,P.y);for(const e of ENEMIES)e.state='sleep';`;
+    /* Stored depth against the surface the pixel's own ray arrives at, and against the arm the shipped
+       build used before the walk. In the page, so a pose is ONE round trip and not forty thousand. */
+    const PCENSUS = `(()=>{const N=MAP.w,hz=Math.round(horizon);
+      const ex=camX|0,ey=camY|0,air=ex>=0&&ey>=0&&ex<N&&ey<N&&!MAP.cell[ey*N+ex];
+      let plA=air?MAP.fz[ey*N+ex]*ZQ:eyeZ; if(!(plA<eyeZ)) plA=Math.min(0,eyeZ-ZQ);
+      let n=0,phantom=0,pmax=0,why='',fix=0,wsum=0,fsum=0,fmax=0,wall=0;
+      for(let y=hz+2;y<BH;y+=2){const absP=y-hz,dRow=(eyeZ-plA)*BH/absP;
+        for(let x=0;x<BW;x+=11){const cf=x*(2/BW)-1,rx=dirX+planeX*cf,ry=dirY+planeY*cf;
+          const pw=planeAlong(rx,ry,plA,true,absP),pf=floorFixedPoint(rx,ry,plA,absP,(camX+rx*dRow)|0,(camY+ry*dRow)|0);
+          if(!isFinite(pw)||!isFinite(pf))continue;
+          const dW=(eyeZ-pw)*BH/absP,dF=(eyeZ-pf)*BH/absP,got=zbuf[y*BW+x];
+          if(!(dW>0)||!isFinite(got)||!(got>0))continue;
+          n++;
+          if(got>dW+0.02){phantom++;if(got-dW>pmax){pmax=got-dW;why='row '+(y-hz)+' col '+x+' stores '+got.toFixed(2)+' m where its own ray arrives at '+dW.toFixed(2)+' m';}}
+          if(dF>dW+${PZQ}){fix++;wsum+=dW;fsum+=dF;if(dF-dW>fmax)fmax=dF-dW;}}}
+      return {n,phantom,pmax,why,fix,wd:fix?wsum/fix:0,fd:fix?fsum/fix:0,fmax};})()`;
+    const zbufCopy = () => new Float32Array(run('zbuf'));
+    let poseBad = 0;
+    if (!fits) {
+      console.log('  ' + pad('pose', 9) + ' FAIL POSE-STAGE-DOES-NOT-FIT: this level is too small for the ' +
+        SL + 'x' + (2 * SW + 1) + ' construction stage, so none of the three acceptance poses ran');
+      bad++;
+    } else {
+      /* --- POSE A: the staircase. Treads ONE QUANTUM apart down eight cells, then a landing - exactly
+         what js/20_level.js authors (STAIR_CELLS = 4 cells per 1-unit climb), so no boundary of it ever
+         satisfies dq > 1, nothing about it is blocked, and its TREAD TOPS are pure plane solve. That is
+         #515's "the stairs look warped" with the warped part isolated. */
+      run(PRE + STAGE + ';' + `(()=>{for(let w=-2;w<=2;w++){for(let k=1;k<=8;k++)MAP.fz[(${SY}+w)*MW+${SX}+k]=-k;` +
+        `for(let k=9;k<${SL};k++)MAP.fz[(${SY}+w)*MW+${SX}+k]=-8;}})();linkBoundaries();` + SEAT);
+      run('renderWorld()');
+      const a = run(PCENSUS);
+      const aok = !a.phantom && a.fix;
+      if (!aok) poseBad++;
+      console.log('  ' + pad('poseA', 9) + ' #515 a staircase tread answers at the WALKED distance: ' + a.n +
+        ' floor px sampled, ' + a.phantom + ' store a depth FARTHER than their own ray arrives at' +
+        (a.phantom ? '  FAIL STAIR-FLOOR-PHANTOM: ' + a.why : '  ok') +
+        `; the two solvers disagree on ${a.fix} of them, walked ${a.wd.toFixed(1)} m against the adopted plane's ` +
+        `${a.fd.toFixed(1)} m (worst ${a.fmax.toFixed(1)} m)` +
+        (a.fix ? '' : '  FAIL POSE-VACUUM: neither arm disagrees on this stair, so the pose proves nothing'));
+
+      /* --- POSE B: a pit seen FROM THE DECK. A 5-cell hole 4 cells out with the deck level again beyond
+         it, so the far lip is a 2 m riser at a named distance. From the deck the report (#516) is that
+         the pit reads as a table: a ray crossing the far lip still has pl < eyeZ, the slab branch never
+         runs, and the far deck's plane is adopted as a top surface. The claim is therefore in DEPTH, at
+         rows derived from the authored cells. */
+      const DL = SL - 6.5;                       // far lip face: cell boundary at x = SX+9, eye at SX+0.5
+      run(PRE + STAGE + ';' + `(()=>{for(let w=-2;w<=2;w++)for(let k=4;k<=8;k++)MAP.fz[(${SY}+w)*MW+${SX}+k]-=8;})()` +
+        ';linkBoundaries();' + SEAT);
+      run('renderWorld()');
+      const zPit = zbufCopy(), hzB = run('Math.round(horizon)'), eyeB = run('eyeZ');
+      const y0 = Math.round(hzB + eyeB * PBH / DL) + 1, y1 = Math.round(hzB + (eyeB + 2) * PBH / DL) - 1;
+      const b = run(PCENSUS);
+      const err = [];
+      for (let y = Math.max(hzB + 1, y0); y <= Math.min(PH - 1, y1); y++)
+        for (let x = (PW * 0.3) | 0; x < PW * 0.7; x += 3) {
+          const g = zPit[y * PW + x];
+          if (isFinite(g) && g > 0) err.push(g - DL);
+        }
+      err.sort((u, v) => u - v);
+      const med = err.length ? err[err.length >> 1] : NaN, wide = err.filter(v => Math.abs(v) > 0.5).length;
+      /* The control: the pit FILLED, same seat, same authored stage, eye altitude unchanged (the eye's
+         own cell was never in the hole, so floorAt cannot move it). */
+      run(`(()=>{for(let w=-${SW};w<=${SW};w++)for(let k=0;k<${SL};k++)MAP.fz[(${SY}+w)*MW+${SX}+k]=0;})()` +
+        ';linkBoundaries();' + SEAT);
+      run('renderWorld()');
+      const zFill = zbufCopy();
+      let ch = 0;
+      for (let y = Math.max(hzB + 1, y0); y <= Math.min(PH - 1, y1); y++)
+        for (let x = (PW * 0.3) | 0; x < PW * 0.7; x += 3) {
+          const p = zPit[y * PW + x], f = zFill[y * PW + x];
+          if (isFinite(p) && isFinite(f) && Math.abs(p - f) > 1) { ch++; break; }
+        }
+      const bok = !b.phantom && err.length > 200 && wide === 0 && ch > 0;
+      if (!bok) poseBad++;
+      console.log('  ' + pad('poseB', 9) + ' #516 from the deck the pit\'s FAR LIP holds the rows the geometry says: rows ' +
+        y0 + '..' + y1 + ' are the ' + DL.toFixed(1) + ' m riser, ' + err.length + ' px sampled, median depth error ' +
+        (isFinite(med) ? med.toFixed(2) : 'n/a') + ' m and ' + wide + ' px more than 0.5 m out' +
+        (wide === 0 && err.length > 200 ? '  ok' : '  FAIL LIP-ROWS-PHANTOM') +
+        `; ${b.phantom} phantom px over the whole lower half` + (b.phantom ? '  FAIL PIT-FLOOR-PHANTOM' : '') +
+        `; the PIT-FILLED control moves ${ch} of ${Math.max(0, y1 - y0 + 1)} lip rows by > 1 m` +
+        (ch > 0 ? '' : '  FAIL PIT-CONTROL-DEAD: filling the pit changes nothing, so the lip was never geometry'));
+
+      /* --- POSE C: the edge of the band you are standing on. A 3x3 disc ONE METRE up under the eye, so
+         the band's own surface sits below the eye and its edge is 1.5 m out - #517 stated at its
+         simplest. The claim is a STEP in zbuf at the row the drop face ends at, predicted from the
+         authored disc, against a control that flattens the disc under a pinned camera. */
+      run(PRE + STAGE + ';' + `(()=>{for(let dx=-1;dx<=1;dx++)for(let dy=-1;dy<=1;dy++)MAP.fz[(${SY}+dy)*MW+${SX}+dx]+=4;})()` +
+        ';linkBoundaries();' + SEAT);
+      run('renderWorld()');                                  // eyeZ is written BY the render: read it after
+      const zEye = run('eyeZ'), zBandFloor = run('floorAt(P.x,P.y)');
+      const zDisc = zbufCopy(), hzC = run('Math.round(horizon)'), xc = (PW / 2) | 0;
+      const yEdge = Math.round(hzC + (zEye - zBandFloor) * PBH / 1.5);
+      const worstJump = (z) => {
+        let j = 0, jr = -1;
+        for (let y = hzC + 2; y < PH - 2; y++) {
+          const u = z[y * PW + xc], v = z[(y + 1) * PW + xc];
+          if (!isFinite(u) || !isFinite(v) || !(u > 0) || !(v > 0)) continue;
+          if (Math.abs(v - u) > j) { j = Math.abs(v - u); jr = y; }
+        }
+        return { j, jr };
+      };
+      const jc = worstJump(zDisc), c = run(PCENSUS);
+      const eyePin = run('P.z');
+      run(`(()=>{for(let w=-${SW};w<=${SW};w++)for(let k=0;k<${SL};k++)MAP.fz[(${SY}+w)*MW+${SX}+k]=0;})()` +
+        ';linkBoundaries();');
+      run(`P.x=${SX}+.5;P.y=${SY}+.5;P.ang=0;P.pitch=0;P.z=${eyePin.toFixed(6)};renderWorld()`);
+      const jf = worstJump(zbufCopy());
+      const cok = !c.phantom && jc.j >= 0.5 && Math.abs(jc.jr - yEdge) <= 4 && jf.j < 0.5;
+      if (!cok) poseBad++;
+      console.log('  ' + pad('poseC', 9) + ' #517 the band\'s own edge is a DEPTH step: worst one-row depth jump ' +
+        jc.j.toFixed(2) + ' m at row ' + (jc.jr - hzC) + ' against the drop face\'s own row ' + (yEdge - hzC) +
+        ' (edge 1.5 m out, eye ' + (zEye - zBandFloor).toFixed(2) + ' m above the deck it stands on)' +
+        (jc.j >= 0.5 && Math.abs(jc.jr - yEdge) <= 4 ? '  ok' : '  FAIL EDGE-NO-DEPTH-STEP: the edge is a texture suggestion, not a place') +
+        `; the flattened control under the SAME pinned camera reads ${jf.j.toFixed(2)} m` +
+        (jf.j < 0.5 ? '' : '  FAIL EDGE-CONTROL-DEAD: a step survives the flattening, so this is a seam') +
+        `; ${c.phantom} phantom px over the whole lower half` + (c.phantom ? '  FAIL BAND-FLOOR-PHANTOM' : ''));
+      console.log('  ' + pad('pose', 9) + ' #518 acceptance poses, construction stage at ' + (SX + 0.5) + ',' + (SY + 0.5) +
+        ' (' + SL + 'x' + (2 * SW + 1) + ', walls taken out of it, props and enemies cleared, every floor write relinked): ' +
+        (poseBad ? poseBad + ' of 3 poses FAILED' : 'all 3 poses ok'));
+      bad += poseBad;
+      run(PRE);
+    }
+    console.log(bad ? `POSES ${bad} FAILURE(S): the floor half still paints a surface its own ray never arrives at`
+      : 'POSES ok - the floor half answers the surface its own ray arrives at, in all three poses');
+  }
+  }
   /* #385 CLAUSE 1 - THE PICTURE, env-gated so nothing here runs unless it is asked for. OFFLOOK=path
      seats the eye on a RAISED BAND within OFFNEIGH cells of the level's own OUTLINE, with the air beyond
      that outline unobstructed, and looks OUT of the level at a grazing pitch - the one seat this issue
@@ -13674,7 +13844,48 @@ if (MODE === 'surface') {
      is rested on every render: this census A/Bs THREE renders of one state and calls the pixels that
      differ surfaces, so a rifle that swung with the wall clock between two of them would be counted as
      a ceiling (see VMREST). */
-  const frame = () => { run(VMREST + ' renderWorld()'); return new Uint32Array(run('px')); };
+  /* EVERY render goes through here, so a knob that moves an authored field must be applied AND undone
+     inside it. An earlier version left CEILSHIFT applied, and the bias then walked one unit per render
+     of a census that renders a state four times - the graded frame ended up N renders x N units off the
+     authored one, and inside the `ceilBias` A/B the knob's own `+N` cancelled the A/B's `-1`, so graded
+     frame and counterfactual rendered at the SAME bias and their difference was identically zero. Read
+     the effective bias off `__biasSeen` (pushed by every render, shifted or not) to see the bookkeeping:
+     with the A/B it is `s, s-1, s, s` for shift s, one unit apart, and no drift down the run. */
+  const CEILSHIFT = process.env.CEILSHIFT !== undefined ? +process.env.CEILSHIFT : 0;
+  const BIASREC = ` globalThis.__biasSeen = globalThis.__biasSeen || []; globalThis.__biasSeen.push(MAP.ceilBias || 0);`;
+  // the distinct `ceilBias` values the renders since the last read actually used - the knob's own bookkeeping
+  const biasSeen = () => run(`(function(){ const s = globalThis.__biasSeen || [];
+    globalThis.__biasSeen = []; return Array.from(new Set(s)); })()`);
+  const SHIFT_ON = CEILSHIFT ? ` globalThis.__cs0 = MAP.ceilBias; MAP.ceilBias = (MAP.ceilBias || 0) + (${CEILSHIFT});` : '';
+  const SHIFT_OFF = CEILSHIFT ? `; MAP.ceilBias = globalThis.__cs0; delete globalThis.__cs0;` : '';
+  const frame = () => { run(VMREST + SHIFT_ON + BIASREC + ' renderWorld()' + SHIFT_OFF); return new Uint32Array(run('px')); };
+  /* #546 THE MASK SOURCE. `surf` (the default) reads the class the RENDERER stamped at draw time; `ab`
+     is the old instrument, in which a pixel is ceiling because a one-unit `ceilBias` A/B moved its luma.
+     The second source is kept so this census can still be seen to fail for the reason #546 was filed:
+     `MASKSRC=ab` reproduces the population that a ceiling light term moves, `MASKSRC=surf` cannot.
+     SURF is opt-in in js/00_core.js - null in play, so arming it here changes no pixel and no cost in a
+     shipped frame - and it is allocated per deal because `resize` re-creates the frame buffers. */
+  const MASKSRC = process.env.MASKSRC || 'surf';
+  /* THE FAR WASH AS A DEPTH FACT (`WASHSRC=depth`, the default), not a byte fact. The byte-run test in
+     `classify` asks the PIXELS whether they repeat, and what makes them repeat is the FILL the renderer
+     does past FARB - so a light term that pushes a ceiling texel into saturation or pulls it out of it
+     changes where a run of eight EQUAL bytes starts, and the population of columns this census scores
+     moves with the LIGHT rather than with the GEOMETRY. The renderer says the fact once, in its own
+     depth: past `FARB` a ground pixel is the mip-mean wash in both copies of the ground body (AGENTS.md,
+     #19), and `zbuf` holds the distance the pixel's own ray solved. A pixel is wash iff its ray went
+     past FARB or solved nothing (`!isFinite` - the horizon rows fill Infinity), which cannot move with
+     how a surface is lit. One tree, one knob: `WASHSRC=bytes` puts the byte-run test back, so the
+     confound stays measurable and `WASHRUN=3` still runs under it. */
+  const WASHSRC = process.env.WASHSRC || 'depth';
+  /* CEILSHIFT is the #546 acceptance knob: it moves EVERY render of the census's `ceilBias` by a whole
+     unit (the same nudge the old classifier itself used to run on) without touching geometry. With the
+     surface id the population - seam columns, ceiling % and floor % of frame - must come back identical
+     at -1 / 0 / +1, because which surface a pixel is cannot depend on how it is lit; with
+     `MASKSRC=ab` it moves, which is the confound #546 was filed for. 0 by default, so a normal run of
+     this census renders the authored frame exactly as before. */
+  const surfMask = () => MASKSRC === 'surf' && run('typeof SURF !== "undefined" && !!SURF')
+    ? new Uint8Array(run('SURF')) : null;
+  const armSurf = () => run('if (typeof SURF === "undefined") 0; else { if (!SURF || SURF.length !== BW * BH) SURF = new Uint8Array(BW * BH); }');
   const fhash = buf => { let h = 2166136261 >>> 0; for (let i = 0; i < buf.length; i += 7) h = Math.imul(h ^ buf[i], 16777619) >>> 0; return h >>> 0; };
   const frameBias = (field, d) => {
     run(`(function(){ globalThis.__b0 = MAP.${field}; MAP.${field} = (MAP.${field} || 0) + ${d}; return 1; })()`);
@@ -13803,8 +14014,15 @@ if (MODE === 'surface') {
     return {n: g.length, med: g.length ? g[g.length >> 1] : NaN, all: g};
   };
   const poolBandSet = fits => new Set(fits.map(F => Math.round(F.band * 100) / 100));
-  function classify(a, cf, ff) {
+  function classify(a, cf, ff, sf, zb) {
     const n = BW * BH, cl = new Uint8Array(n), fo = new Uint8Array(n);
+    if (sf) {
+      /* The surface fact. 2 = the CEILING half of the ground pass painted this pixel, 1 = the FLOOR half,
+         0 = something else owns it (a wall face, a riser, a prop, a body, the view model, the horizon row)
+         or nothing did. No luma threshold is anywhere in this path, which is the whole point: no term that
+         changes only how a surface is LIT can move which surface a pixel is. */
+      for (let i = 0; i < n; i++) { const s = sf[i]; if (s === 2) cl[i] = 1; else if (s === 1) fo[i] = 1; }
+    } else
     for (let i = 0; i < n; i++) {
       if (Math.abs(LUM(a, i) - LUM(cf, i)) > 4) cl[i] = 1;
       if (Math.abs(LUM(a, i) - LUM(ff, i)) > 4) fo[i] = 1;
@@ -13829,7 +14047,20 @@ if (MODE === 'surface') {
        by under 1.4 luma (L0 11.9 -> 11.4, L1 18.6 -> 19.9, L3 38.0 -> 37.6), so NO verdict moves: this is
        the census recovering columns, not a threshold being widened to let a level through. */
     const WRUN = process.env.WASHRUN !== undefined ? +process.env.WASHRUN : 8;
-    const washAt = (x, y) => {
+    /* THE FAR WASH AS A DEPTH FACT (`WASHSRC=depth`, the default), not a byte fact. The byte-run test
+       above asks the PIXELS whether they repeat, and what makes them repeat is the FILL the renderer
+       does past FARB - so any light term that pushes a ceiling texel into saturation or pulls it out of
+       it changes where a run of eight EQUAL bytes starts, and the population of columns this census
+       scores moves with the LIGHT rather than with the GEOMETRY. The renderer already says the fact
+       once, in its own depth: past `FARB` a ground pixel is the mip-mean wash in both copies of the
+       ground body (AGENTS.md, #19), and `zbuf` holds the distance the pixel's own ray solved. A pixel
+       is wash iff its ray went past FARB or solved nothing (`!isFinite` - the horizon rows fill
+       Infinity), which cannot move with how a surface is lit. One tree, one knob: `WASHSRC=bytes` puts
+       the byte-run test back, so the confound stays measurable and `WASHRUN=3` still runs under it. */
+    const WASHD = WASHSRC === 'depth' && !!zb;
+    const washAt = WASHD
+      ? (x, y) => { const d = zb[y * BW + x]; return !isFinite(d) || d > FARBv; }
+      : (x, y) => {
       const i = y * BW + x; if (x + WRUN >= BW) return false;
       for (let k = 1; k < WRUN; k++) if (a[i + k] !== a[i]) return false;
       return true;
@@ -14019,6 +14250,7 @@ if (MODE === 'surface') {
   const seatHit = [];          // #421: did this sector's ARRIVAL frame carry a deck overhead in reach?
   for (let li = 0; li < NL; li++) {
     const dealt = (deal(li), gridHash()), dh = dealt.toString(16).padStart(8, '0');
+    armSurf();                      // #546: the frame buffers are re-created per level, so arm per deal
     const name = run('LEVELS[' + li + '].name');
     /* #421 THE SEAT, NOT THE SURFACE - measured before any pose turns the camera.
        Every other row in this block aims the camera (`aim`, `seatU`) because a census of an arrival frame
@@ -14118,8 +14350,14 @@ if (MODE === 'surface') {
       if (gh !== dealt) poseOk = false;
       const authored = run('(MAP.floorBias || 0)') + '/' + run('(MAP.ceilBias || 0)') + '/' + run('MAP.ceilLead === undefined ? "default" : MAP.ceilLead');
       const a = frame(), zb = new Float32Array(run('zbuf')), ccam = poolCam();
+      /* The mask is read off the RENDERER (surfMask). The two renders `cf`/`ff` are the census's OLD
+         surface classifier and are kept only for the light A/B that `classify` runs when MASKSRC=ab;
+         their stamps are NOT read - the stamped mask comes off the frame being graded, `a`, so a control
+         render's stamps cannot leak into the population (an earlier version captured them into sfC/sfF,
+         which no row read). */
+      const sfA = surfMask();
       const cf = frameBias('ceilBias', -1), ff = frameBias('floorBias', -1);
-      const c = classify(a, cf, ff);
+      const c = classify(a, cf, ff, sfA, zb);
       /* #421: which of this pose's ceiling pixels did the SOFFIT term paint, and does the underside's
          edge survive as a step. The A/B renders the identical state with SLABUND off, so the same frame
          `a` is graded and the control arm is the pre-#461 build, not a paraphrase of it. */
@@ -14140,6 +14378,7 @@ if (MODE === 'surface') {
       console.log(`L${li} cam${cam} (${name}), deal ${gh.toString(16).padStart(8, '0')}, authored floorBias/ceilBias/ceilLead ${authored}, ` +
         `${c.cols} seam columns, ceiling ${c.ceilPct.toFixed(0)}% of frame / floor ${c.floorPct.toFixed(0)}%, ` +
         `wall ${run('globalThis.__poseD').toFixed(1)} m ahead${cam === 'N' ? ' (NEAREST)' : ''}, ` +
+        `renders at ceilBias [${biasSeen().join(' ')}] (shift ${CEILSHIFT}, mask ${MASKSRC}, wash ${WASHSRC}), ` +
         `columns dropped by pose: ${c.drop.range} seam out of frame, ${c.drop.wash} far wash, ${c.drop.win} thin window:`);
       if (u) {
         // A pose with no underside in frame judges nothing and says so; the SWEEP row carries the vacuity.
@@ -14347,12 +14586,12 @@ if (MODE === 'surface') {
           if (${run(`!!LEVELS[${li}].authored`)}) kneeLampField(); else blurLight();
           buildTint(); MAP.tintDirty = false;
           return 1; })()`);
-        const a0 = frame(), c0f = frameBias('ceilBias', -1), f0f = frameBias('floorBias', -1);
+        const a0 = frame(), zb0 = new Float32Array(run('zbuf')), s0f = surfMask(), c0f = frameBias('ceilBias', -1), f0f = frameBias('floorBias', -1);
         run('MAP.floorBias = globalThis.__o[0]; MAP.ceilBias = globalThis.__o[1]; MAP.ceilLead = globalThis.__o[2]; MAP.wallBias = globalThis.__o[3]; delete globalThis.__o;');
         run(`(function(){ MAP.light.set(globalThis.__lm[0]); MAP.lR.set(globalThis.__lm[1]); MAP.lG.set(globalThis.__lm[2]);
           MAP.lB.set(globalThis.__lm[3]); MAP.lw.set(globalThis.__lm[4]); MAP.lt.set(globalThis.__lm[5]);
           MAP.tintDirty = false; delete globalThis.__lm; return 1; })()`);
-        const c0 = classify(a0, c0f, f0f);
+        const c0 = classify(a0, c0f, f0f, s0f, zb0);
         const survived = c0.seam >= TARGET && c0.ceil < c0.floor;
         if (survived) ctrlMiss++;
         row(`L${li} cam${cam} CONTROL the census can see the bug`,
