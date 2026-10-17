@@ -50,8 +50,17 @@ const LEVELS = [
     // rooms paid the flat CEILGM 0.9 and its ceiling junction read -11.4 / -5.4 / 7.2 luma against the face
     // it meets on three of six poses while its band order held (ceiling 56.5 against floor 81.9 at cam1).
     // Cap the lead, do not touch the ramp, darken only.
+    // #369 take seventeen: the cap alone left ONE pose under the bar. RING cam1 looks down a long room and
+    // its ceiling junction read 10.6 luma against the face under it (ceiling band 37.6, that face 48.2) —
+    // the one seat on this sector where the roof closes on the wall. Cause: the LEAD was capped and the BIAS
+    // was not. This level's ceiling base is `amb + ceilBias + lift` = 0.185 - 0.08 + 0.30 = 0.405 at a vault
+    // against a deck base of 0.185, so the deck stays on top only because a lamp pool hits it; where a long
+    // sight line puts no pool under the roof the two meet at the junction with nothing between them. So the
+    // bias comes down with the lead, -0.08 -> -0.20: the vault's base is 0.285, still lifted off black by
+    // `CEILFL` plus the ramp, 0.30 below the deck it spans, and every ceiling row on the sector is ~5 luma
+    // quieter. Darken only — no lamp, no floor term, no ramp constant and no threshold moves.
     name: 'RING TRANSPORT', size: 32, rooms: 9, maxRoom: 10, wall: WT.TECH, wall2: WT.GRATE,
-    floor: 'METAL', ceil: 'PANEL', amb: 0.185, lampCol: [170, 226, 255], fogCol: [10, 14, 21], ceilLead: 0.30, ceilBias: -0.08,
+    floor: 'METAL', ceil: 'PANEL', amb: 0.185, lampCol: [170, 226, 255], fogCol: [10, 14, 21], ceilLead: 0.30, ceilBias: -0.20,
     accent: [198, 123, 53],           // #466: a painted deck lip; amber, 178 deg off this sector's 210
     lamps: 8, crates: 8, barrels: 9, spawn: { grunt: 6, hound: 5, brute: 1 }, pick: { health: 4, ammo: 5, armor: 2 },
     fixtures: ['STRIPE', 'PIPE'],         // #400: a transport ring is striped and stencilled
@@ -133,7 +142,15 @@ const LEVELS = [
        this change exists to bring down - so the separation stays where it is measured rather than being
        bought with exposure. Measured at that seat below and in `surface`; the moved records are named in
        the PR. */
-    floorBias: 0.12, ceilBias: -0.04, ceilLead: 0.16, wallBias: 0.10,
+    floorBias: 0.12, ceilBias: -0.16, ceilLead: 0.16, wallBias: 0.10,   // #369 take seventeen: ceilBias -0.04
+    // -> -0.16, the same dose as RING and for the same measured reason — cam0, the level's OWN spawn seat,
+    // read a 7.1-luma ceiling junction (ceiling band 52.1 against the 59.2 face under it) while its band
+    // ORDER held at ceiling 52.1 under deck 71.7. The order constrains the vault against the DECK it spans
+    // and that is still true with this number — `ceilLead <= floorBias - ceilBias` is 0.16 <= 0.12 + 0.16 =
+    // 0.28, and the rule is why the dose is taken on the bias rather than by cutting `ceilLead` again: the
+    // variant that moved the lead (0.16 -> 0.10) left cam0 at 7.1, because the roof at that seat is mostly
+    // ceiling inside CEILHI, which the lead cannot reach and the bias can. Darken only: the deck's 0.12,
+    // the walls' 0.10, every lamp and every ramp constant are exactly as authored.
     // #385: the absolute half of the step crease, in luma (js/40_render.js SEAMA). This level authors
     // `lamps: 0`, so its decks are the darkest in the game and a MULTIPLY-only crease is 6 luma deep on
     // the pit lip against 13 on a lit one - the same edge, half the legibility. It is authored HERE and
