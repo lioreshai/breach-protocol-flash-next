@@ -4576,7 +4576,11 @@ if (MODE === 'cull') {
       return { p: new Uint32Array(run('px')), z: new Float32Array(run('zbuf')),
         faces: run('MAP.riserStops') };
     };
-    const stairOn = stairShot(1);
+    /* The ON arm renders the flag the grid DERIVES, not a forced 1. Since #558 derived `MAP.steps`
+       from the DRAW threshold a 1-quantum flight answers 1 here, so this is pixel-identical to the
+       forcing it replaces - and it is what makes the row able to see a regressed flag: forcing 1 made
+       the row green on a build whose linkBoundaries had gone back to the crossing rule. */
+    const stairOn = stairShot(stairPix.flag);
     const stairOff = stairShot(0);
     let stairDiff = 0;
     for (let i = 0, M = stairOn.p.length; i < M; i++) if (stairOn.p[i] !== stairOff.p[i]) stairDiff++;
@@ -4587,16 +4591,122 @@ if (MODE === 'cull') {
       + ' PROPS.length = 0; for (const q of __stP) PROPS.push(q); return 1; })()');
     const stairOneQ = stairPix.treads.every((v, k) => v - stairPix.base === k + 1);
     row(`L${li} a staircase paints step faces, not the room behind them`,
-      stairOneQ && faceOn > faceOff && faceOn - faceOff >= FACE_FLOOR && stairDiff > 0 &&
-      stairOn.faces > 0,
+      stairOneQ && stairPix.flag === 1 && faceOn > faceOff && faceOn - faceOff >= FACE_FLOOR &&
+      stairDiff > 0 && stairOn.faces > 0,
       `${faceOn} px under the horizon carry one constant depth down their column (a rasterised VERTICAL`
       + ` face - the ground pass writes a new distance every row) with the flight in, ${faceOff} with the`
       + ` step branch off at the same camera: a delta of ${faceOn - faceOff} px is the stair's own geometry,`
       + ` and ${stairDiff} px of the frame move with it. ${stairOn.faces} rays stopped at a riser.`
       + ` Treads ${stairPix.treads.map(v => (v * ZQS).toFixed(2)).join(' / ')} m from the camera's floor`
       + ` ${stairPix.base * ZQS} m - one quantum apart, walkable (vb 0x${stairPix.blocked.map(b => b.toString(16)).join('/')},`
-      + ` MAP.steps derives ${stairPix.flag} for this grid and is forced to 1 for the render: the same flag`
-      + ` trap #100 documents, and the reason a faceless staircase can be green in the grid census)`);
+      + ` MAP.steps derives ${stairPix.flag} for this grid and THAT is what the ON arm renders: the same`
+      + ` flag trap #100 documents, and the reason a faceless staircase can be green in the grid census)`);
+
+    /* ---- #517 PIXELS: is the edge of the band you stand ON a place? --------------------------
+       The row above seats the camera at the FOOT of a flight. This one seats it on a raised band and
+       looks off the band's edge, which is the half of the live report nobody had a row for ("when I go
+       up the stairs the edges of the platform do not look correct") and the half no grid census can
+       see: `alt` prints `46 step faces` for L0 from MAP alone, and every one of those faces can be off
+       frame while the row stays green.
+       The oracle is the boundary's OWN perpendicular distance, solved from the authored grid rather
+       than read off the frame: a ray (dir + plane*cam) reaches the plane x = bx at the PARAMETER
+       t = (bx - camX) / rx - the same parameter the row, the deferred body and the wall pass all
+       count - so the columns the geometry says the lip occupies are computable BEFORE rendering, and
+       so are the rows: a face spanning [zLo .. zHi] at that distance covers
+       [horizon + (eyeZ - zHi)*BH/t .. horizon + (eyeZ - zLo)*BH/t]. A column is an EDGE when the rows
+       the geometry predicts carry that column's own t: the ground pass writes a NEW distance every
+       row, so a run of predicted rows holding one constant depth equal to t is a vertical face
+       rasterised at the honest distance, and nothing else in this pose is one.
+       Both arms share the grid and the camera; only MAP.steps moves. That is the control that keeps a
+       solid wall, a prop or the far-band wash from answering for the lip, and it is also the falsifier:
+       a build that paints the drop from the ground pass instead of recording it in zbuf keeps every
+       predicted column at the plane solve, so its coverage reads 0 and the row goes red on the number
+       the geometry predicted, not on a picture. */
+    const bandGeom = run(`(function(){
+      window.__bdE = ENEMIES.slice(); window.__bdP = PROPS.slice();
+      ENEMIES.length = 0; PROPS.length = 0; PROJ.length = 0; exitX = -40; exitY = -40;
+      window.__bdFz = MAP.fz.slice(); window.__bdCz = MAP.cz.slice(); window.__bdCell = MAP.cell.slice();
+      const cy = ${Math.floor(setup.lane.y)} | 0, cx = ${Math.floor(setup.lane.x)} | 0,
+            base = MAP.fz[cy * MW + cx];
+      /* A BAND, not a plinth: five cells wide and three tall in the fan, ONE quantum up, so every
+         boundary of it is walkable (dq = 1 never earns VB_BLOCK - #100) and the edge this row judges
+         is a lip the player can fall off, which is the case the issue is about. */
+      for (let d = -1; d <= 1; d++) for (let k = 0; k <= 9; k++) {
+        const i = (cy + d) * MW + cx + k;
+        MAP.cell[i] = 0; MAP.cz[i] = CZ_DEF; MAP.feat[i] = FEAT_NONE;
+        MAP.fz[i] = (k >= 2 && k <= 7) ? base + 1 : base;
+      }
+      linkBoundaries();
+      P.x = ${setup.lane.x} + 2.5; P.y = ${setup.lane.y}; P.ang = 0; P.pitch = 0; P.crouch = 0;
+      P.z = floorAt(P.x, P.y); P.vx = P.vy = P.vz = 0; P.air = false;
+      const lip = cx + 8;                                   // the x-plane the drop falls from
+      return { base, hz: Math.round(horizon), eyeZ, bx: lip, yLo: cy - 1, yHi: cy + 2,
+        zHi: (base + 1) * ZQ, zLo: base * ZQ, flag: MAP.steps, tall: MAP.tallStep,
+        seatFloor: floorAt(P.x, P.y),
+        canDown: canEnter(lip + 0.5, cy + 0.5, lip - 0.5, cy + 0.5) ? 1 : 0,
+        seatVb: (MAP.vb[cy * MW + lip + 3] >> 2) & 15 };
+    })()`);
+    const bandShot = tag => {
+      run('MAP.steps = ' + tag + '; MESH.reset(); S.t = 3.5; renderWorld()');
+      return { z: new Float32Array(run('zbuf')), p: new Uint32Array(run('px')), faces: run('MAP.riserStops') };
+    };
+    /* Predicted columns, from the grid and the camera - never from the frame. */
+    const bandRay = run('({dx:dirX, px:planeX, dy:dirY, py:planeY, far:FARB})');
+    const bandEye = { hz: bandGeom.hz, eyeZ: bandGeom.eyeZ };
+    const bandCols = [];
+    for (let x = 0; x < W; x += 2) {
+      const cam = x * (2 / W) - 1;
+      const rx = bandRay.dx + bandRay.px * cam, ry = bandRay.dy + bandRay.py * cam;
+      const t = (bandGeom.bx - (setup.lane.x + 2.5)) / rx;
+      if (!(t > 0.05 && t < bandRay.far)) continue;
+      const hy = setup.lane.y + t * ry;
+      if (hy < bandGeom.yLo + 0.02 || hy > bandGeom.yHi - 0.02) continue;
+      bandCols.push({ x, t });
+    }
+    const bandEdge = s => {
+      let ok = 0;
+      for (const c of bandCols) {
+        const yA = c.yA, yB = c.yB;
+        if (yB - yA < 2) continue;                          // sub-pixel face: no pixel to be an edge on
+        let hit = 0, n = 0;
+        for (let y = Math.max(0, yA); y <= Math.min(H - 1, yB); y++) {
+          const v = s.z[y * W + c.x];
+          if (!(v > 0)) continue;
+          n++; if (Math.abs(v - c.t) < 0.02) hit++;
+        }
+        if (n && hit === n) ok++;
+      }
+      return ok;
+    };
+    const bandOn = bandShot(bandGeom.flag);            // renders first: dir/plane/eyeZ/horizon are FRAME values
+    bandRay.dx = run('dirX'); bandRay.px = run('planeX');
+    bandRay.dy = run('dirY'); bandRay.py = run('planeY');
+    bandEye.hz = run('Math.round(horizon)'); bandEye.eyeZ = run('eyeZ');
+    for (const c of bandCols) {                        // re-solve each column's predicted rows on the frame that ran
+      c.yA = Math.ceil(bandEye.hz + (bandEye.eyeZ - bandGeom.zHi) * H / c.t);
+      c.yB = Math.floor(bandEye.hz + (bandEye.eyeZ - bandGeom.zLo) * H / c.t);
+    }
+    const bandOff = bandShot(0);
+    let bandDiff = 0;
+    for (let i = 0, M = bandOn.p.length; i < M; i++) if (bandOn.p[i] !== bandOff.p[i]) bandDiff++;
+    const edgeOn = bandEdge(bandOn), edgeOff = bandEdge(bandOff);
+    run('(function(){ for (let i = 0; i < MAP.fz.length; i++) MAP.fz[i] = __bdFz[i];' 
+      + ' for (let i = 0; i < MAP.cz.length; i++) MAP.cz[i] = __bdCz[i];'
+      + ' for (let i = 0; i < MAP.cell.length; i++) MAP.cell[i] = __bdCell[i]; linkBoundaries();'
+      + ' ENEMIES.length = 0; for (const q of __bdE) ENEMIES.push(q);'
+      + ' PROPS.length = 0; for (const q of __bdP) PROPS.push(q); return 1; })()');
+    row(`L${li} the edge of the band you stand on is a place`,
+      bandCols.length >= 8 && edgeOn >= Math.ceil(0.9 * bandCols.length) && edgeOff <= bandCols.length * 0.1 &&
+      bandDiff > 0 && bandOn.faces > 0 && bandGeom.canDown === 1,
+      `${edgeOn} of ${bandCols.length} columns the geometry says the lip occupies carry THIS COLUMN'S OWN` 
+      + ` perpendicular distance (t = (bx - camX)/rx, the parameter the row and the wall pass both count)` 
+      + ` down every row the face spans - a vertical face at the honest distance, not a shade: ${edgeOff}`
+      + ` with the step branch switched off at the identical camera, and ${bandDiff} px of the frame move` 
+      + ` between the two arms; ${bandOn.faces} rays stopped at a riser. Lip at x = ${bandGeom.bx}` 
+      + ` (${((bandGeom.bx - (setup.lane.x + 2.5))).toFixed(1)} m out), face ${(bandGeom.zHi - bandGeom.zLo).toFixed(2)} m` 
+      + ` tall from a seat floor ${bandGeom.seatFloor.toFixed(2)}; the crossing stays WALKABLE (canEnter down` 
+      + ` ${bandGeom.canDown}, vb 0x${bandGeom.seatVb.toString(16)}, MAP.steps derives ${bandGeom.flag} and`
+      + ` MAP.tallStep ${bandGeom.tall}), which is #100's rule and the reason this is a face flag and not a blocker)`);
     row(`L${li} body behind a step of ${(STEP * ZQS).toFixed(2)} m`,
       hid.px < 0.25 * flat.px && stops > 0,
       `silhouette ${hid.px} px vs ${flat.px} flat; background changed ${bgn} px (${(100 * bgn / (W * H)).toFixed(2)}%, rows ${bgTop}..${bgBot}); ` +
