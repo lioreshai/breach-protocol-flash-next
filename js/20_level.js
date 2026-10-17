@@ -8,8 +8,21 @@ const LEVELS = [
     // face, 22% of faces by pickWallTex, and every one of them an edge that goes nowhere. CONCRETE is the
     // same grey masonry family to the eye - form-panelled, dusty, cracked - over flagstones, so the wall
     // keeps the archive's colour and stops repeating the floor it stands on.
+    // #369 THE VAULT CAP. ARCHIVE authored no surface order at all, which left it on the renderer's flat
+    // default lead (js/40_render.js CEILGM 0.9): a ceiling plane more than CEILHI 3 m above the eye gained
+    // up to +0.90 of BASE light, so the far end of its tall rooms - the rows that meet a wall face at the
+    // ceiling junction - arrived brighter than the face they meet. `surface`'s SEAM row read that junction
+    // at 9.8 / -1.7 / -3.8 luma on this level's three arrival poses while its whole-band order was already
+    // fine (ceiling 72.2 against floor 99.6 at cam0), which is the signature of a term that only pays in
+    // the far half: near rows take CEILFL 0.10 and read dark, far rows take the whole 0.9 and read as the
+    // brightest thing overhead. Height is already said by the riser seam and the minimap band cue (#164),
+    // so the lift was buying nothing the geometry does not say better. 0.30 is a CAP, not a re-light: the
+    // ramp is untouched (CEILG/CEILHI/CEILFL unchanged, js/40_render.js:403) and only its ceiling moved,
+    // so a vault still lifts off black by up to 0.30 of base and every ceiling within CEILHI of the eye is
+    // byte-identical. It is DARKENING ONLY, which is the direction #369's product decision requires - the
+    // arrival frames sit under an absolute exposure top with no room to go up (#505).
     name: 'ARCHIVE SUBLEVEL', size: 26, rooms: 7, maxRoom: 9, wall: WT.BRICK, wall2: WT.CONCRETE,
-    floor: 'STONE', ceil: 'ROCK', amb: 0.19, lampCol: [255, 196, 120], fogCol: [17, 13, 10],
+    floor: 'STONE', ceil: 'ROCK', amb: 0.19, lampCol: [255, 196, 120], fogCol: [17, 13, 10], ceilLead: 0.30, ceilBias: -0.08,
     lamps: 6, crates: 7, barrels: 7, spawn: { grunt: 5, hound: 3, brute: 0 }, pick: { health: 3, ammo: 4, armor: 1 },
     fixtures: ['PIPE', 'VENT'],           // #400: the archive is a place with old pipework in it
     purpose: ['RACK', 'BOARD']            // #400: and it is where they KEPT things - shelving and signage
@@ -33,8 +46,12 @@ const LEVELS = [
     // mean albedo 129.4, which is what the riser face wears today. That is the whole reason the frame
     // mean holds: the band trades hue for hue at the same delivered light. Its own Rec.709 luma is
     // deliberately NOT 129.4 — under a cold lamp a colour cannot hold both (issue #466, the dose table).
+    // #369 THE VAULT CAP, same rule as ARCHIVE and the same reason: RING authored no order, so its tall
+    // rooms paid the flat CEILGM 0.9 and its ceiling junction read -11.4 / -5.4 / 7.2 luma against the face
+    // it meets on three of six poses while its band order held (ceiling 56.5 against floor 81.9 at cam1).
+    // Cap the lead, do not touch the ramp, darken only.
     name: 'RING TRANSPORT', size: 32, rooms: 9, maxRoom: 10, wall: WT.TECH, wall2: WT.GRATE,
-    floor: 'METAL', ceil: 'PANEL', amb: 0.185, lampCol: [170, 226, 255], fogCol: [10, 14, 21],
+    floor: 'METAL', ceil: 'PANEL', amb: 0.185, lampCol: [170, 226, 255], fogCol: [10, 14, 21], ceilLead: 0.30, ceilBias: -0.08,
     accent: [198, 123, 53],           // #466: a painted deck lip; amber, 178 deg off this sector's 210
     lamps: 8, crates: 8, barrels: 9, spawn: { grunt: 6, hound: 5, brute: 1 }, pick: { health: 4, ammo: 5, armor: 2 },
     fixtures: ['STRIPE', 'PIPE'],         // #400: a transport ring is striped and stencilled
