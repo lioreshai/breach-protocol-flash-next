@@ -7445,6 +7445,176 @@ if (MODE === 'heights') {
     ' of them carry a depth farther than the surface their ray arrives at' +
     (rowOccEver && !rowOccFar ? '  ok' : rowOccFar ? '  FAIL ROW-FLOOR-PHANTOM-DEPTH' : '  FAIL ROW-OCC-VACUUM (no row-painted floor pixel was sampled)'));
   if (!rowOccEver || rowOccFar) bad++;
+  /* POSE=1 runs this block; unset, NOTHING in it executes and every row above it is byte-identical to a
+     run without it - the same idiom as the OFFLOOK block below. It is gated rather than blocking for one
+     reason: all three poses are RED at this head (see the issue), and a probe that lands green by calling
+     a measured phantom "ok" is the disabled test AGENTS.md warns about. The gate is the follow-up; this
+     block is the harness the fix will be measured with. */
+  if (process.env.POSE) {
+    /* ---- #518 THE THREE POSES THE ACCEPTANCE ASKS FOR -----------------------
+     The census above measures two solvers against each other on the geometry the generator deals. The
+     issue's acceptance is not a census: it is three pictures, each with a rendered-pixel claim - a
+     staircase's first tread answering at the WALKED distance, a pit's far lip occupying the rows the
+     geometry says with a pit-filled control that is actually able to fail, and a band's own edge being
+     a DEPTH step rather than a texture suggestion. None of the three poses existed anywhere in the
+     file, which is the plainest explanation for four closed fixes (#164/#192/#195/#100) leaving three
+     live symptoms: every gate looked at dealt geometry from a seat whose sight line never crossed the
+     surface the report was about.
+
+     All three are CONSTRUCTIONS on a forced-open 15x7 stage, said out loud, for the reason `heights`
+     already gives for its pokes: no shipped deal puts a staircase, a pit and a band edge in one frame at
+     a seat whose distances the probe can name, and a claim about WHICH ROW a surface must land in needs
+     authored cells to derive the row from. Props and enemies are cleared (a crate in the corridor makes
+     "what depth answers this pixel" a question about the crate). Every floor write is followed by
+     linkBoundaries() (AGENTS.md); CARRY is deliberately NOT used here, because it sinks an open cell to
+     its lowest OPEN neighbour and would therefore erase the stair, the pit and the disc it is handed.
+
+     Each pose carries a control chosen so the row can go RED instead of only printing a number:
+       A - both solvers are called on the pixel's own ray. The march's answer is the claim; the fixed
+           point's is what the shipped build painted while it adopted a lower plane found further along.
+           A staircase whose two arms never disagree proves nothing -> POSE-VACUUM, a FAILURE.
+       B - the far lip's rows come from the authored cells, and the frame is then re-rendered with the pit
+           FILLED at the same camera. A phantom (the far deck's plane stretched over the lip) leaves the
+           depths of those rows where they are, so a control that moves nothing is PIT-CONTROL-DEAD.
+       C - the depth must STEP at the row the band's own drop face ends at. The control takes the disc
+           away under a camera whose altitude is PINNED, so the only difference is the edge; a step that
+           survives the flattening is a seam -> EDGE-CONTROL-DEAD. */
+  {
+    const PW = run('BW'), PH = run('BH'), PBH = run('BH'), PZQ = run('ZQ'), PMW = run('MW');
+    const PRE = `S.mode='play';S.locked=false;startLevel(0,true);MAP.fz.fill(0);MAP.cz.fill(CZ_DEF);` +
+      `MAP.feat.fill(0);linkBoundaries();ENEMIES.length=0;PROPS.length=0;`;
+    const SX = 2, SY = (run('MH') / 2) | 0, SL = 15, SW = 3;
+    const fits = SX + SL + 1 < PMW && SY + SW < run('MH') - 1 && SY - SW > 0;
+    const STAGE = `(()=>{for(let w=-${SW};w<=${SW};w++)for(let k=0;k<${SL};k++){const i=(${SY}+w)*MW+${SX}+k;` +
+      `MAP.cell[i]=0;MAP.fz[i]=0;MAP.cz[i]=CZ_DEF;MAP.feat[i]=FEAT_NONE;}})()`;
+    const SEAT = `P.x=${SX}+.5;P.y=${SY}+.5;P.ang=0;P.pitch=0;P.vx=P.vy=P.vz=0;P.air=false;P.crouch=0;` +
+      `P.bob=0;P.recoil=0;P.z=floorAt(P.x,P.y);for(const e of ENEMIES)e.state='sleep';`;
+    /* Stored depth against the surface the pixel's own ray arrives at, and against the arm the shipped
+       build used before the walk. In the page, so a pose is ONE round trip and not forty thousand. */
+    const PCENSUS = `(()=>{const N=MAP.w,hz=Math.round(horizon);
+      const ex=camX|0,ey=camY|0,air=ex>=0&&ey>=0&&ex<N&&ey<N&&!MAP.cell[ey*N+ex];
+      let plA=air?MAP.fz[ey*N+ex]*ZQ:eyeZ; if(!(plA<eyeZ)) plA=Math.min(0,eyeZ-ZQ);
+      let n=0,phantom=0,pmax=0,why='',fix=0,wsum=0,fsum=0,fmax=0,wall=0;
+      for(let y=hz+2;y<BH;y+=2){const absP=y-hz,dRow=(eyeZ-plA)*BH/absP;
+        for(let x=0;x<BW;x+=11){const cf=x*(2/BW)-1,rx=dirX+planeX*cf,ry=dirY+planeY*cf;
+          const pw=planeAlong(rx,ry,plA,true,absP),pf=floorFixedPoint(rx,ry,plA,absP,(camX+rx*dRow)|0,(camY+ry*dRow)|0);
+          if(!isFinite(pw)||!isFinite(pf))continue;
+          const dW=(eyeZ-pw)*BH/absP,dF=(eyeZ-pf)*BH/absP,got=zbuf[y*BW+x];
+          if(!(dW>0)||!isFinite(got)||!(got>0))continue;
+          n++;
+          if(got>dW+0.02){phantom++;if(got-dW>pmax){pmax=got-dW;why='row '+(y-hz)+' col '+x+' stores '+got.toFixed(2)+' m where its own ray arrives at '+dW.toFixed(2)+' m';}}
+          if(dF>dW+${PZQ}){fix++;wsum+=dW;fsum+=dF;if(dF-dW>fmax)fmax=dF-dW;}}}
+      return {n,phantom,pmax,why,fix,wd:fix?wsum/fix:0,fd:fix?fsum/fix:0,fmax};})()`;
+    const zbufCopy = () => new Float32Array(run('zbuf'));
+    let poseBad = 0;
+    if (!fits) {
+      console.log('  ' + pad('pose', 9) + ' FAIL POSE-STAGE-DOES-NOT-FIT: this level is too small for the ' +
+        SL + 'x' + (2 * SW + 1) + ' construction stage, so none of the three acceptance poses ran');
+      bad++;
+    } else {
+      /* --- POSE A: the staircase. Treads ONE QUANTUM apart down eight cells, then a landing - exactly
+         what js/20_level.js authors (STAIR_CELLS = 4 cells per 1-unit climb), so no boundary of it ever
+         satisfies dq > 1, nothing about it is blocked, and its TREAD TOPS are pure plane solve. That is
+         #515's "the stairs look warped" with the warped part isolated. */
+      run(PRE + STAGE + ';' + `(()=>{for(let w=-2;w<=2;w++){for(let k=1;k<=8;k++)MAP.fz[(${SY}+w)*MW+${SX}+k]=-k;` +
+        `for(let k=9;k<${SL};k++)MAP.fz[(${SY}+w)*MW+${SX}+k]=-8;}})();linkBoundaries();` + SEAT);
+      run('renderWorld()');
+      const a = run(PCENSUS);
+      const aok = !a.phantom && a.fix;
+      if (!aok) poseBad++;
+      console.log('  ' + pad('poseA', 9) + ' #515 a staircase tread answers at the WALKED distance: ' + a.n +
+        ' floor px sampled, ' + a.phantom + ' store a depth FARTHER than their own ray arrives at' +
+        (a.phantom ? '  FAIL STAIR-FLOOR-PHANTOM: ' + a.why : '  ok') +
+        `; the two solvers disagree on ${a.fix} of them, walked ${a.wd.toFixed(1)} m against the adopted plane's ` +
+        `${a.fd.toFixed(1)} m (worst ${a.fmax.toFixed(1)} m)` +
+        (a.fix ? '' : '  FAIL POSE-VACUUM: neither arm disagrees on this stair, so the pose proves nothing'));
+
+      /* --- POSE B: a pit seen FROM THE DECK. A 5-cell hole 4 cells out with the deck level again beyond
+         it, so the far lip is a 2 m riser at a named distance. From the deck the report (#516) is that
+         the pit reads as a table: a ray crossing the far lip still has pl < eyeZ, the slab branch never
+         runs, and the far deck's plane is adopted as a top surface. The claim is therefore in DEPTH, at
+         rows derived from the authored cells. */
+      const DL = SL - 6.5;                       // far lip face: cell boundary at x = SX+9, eye at SX+0.5
+      run(PRE + STAGE + ';' + `(()=>{for(let w=-2;w<=2;w++)for(let k=4;k<=8;k++)MAP.fz[(${SY}+w)*MW+${SX}+k]-=8;})()` +
+        ';linkBoundaries();' + SEAT);
+      run('renderWorld()');
+      const zPit = zbufCopy(), hzB = run('Math.round(horizon)'), eyeB = run('eyeZ');
+      const y0 = Math.round(hzB + eyeB * PBH / DL) + 1, y1 = Math.round(hzB + (eyeB + 2) * PBH / DL) - 1;
+      const b = run(PCENSUS);
+      const err = [];
+      for (let y = Math.max(hzB + 1, y0); y <= Math.min(PH - 1, y1); y++)
+        for (let x = (PW * 0.3) | 0; x < PW * 0.7; x += 3) {
+          const g = zPit[y * PW + x];
+          if (isFinite(g) && g > 0) err.push(g - DL);
+        }
+      err.sort((u, v) => u - v);
+      const med = err.length ? err[err.length >> 1] : NaN, wide = err.filter(v => Math.abs(v) > 0.5).length;
+      /* The control: the pit FILLED, same seat, same authored stage, eye altitude unchanged (the eye's
+         own cell was never in the hole, so floorAt cannot move it). */
+      run(`(()=>{for(let w=-${SW};w<=${SW};w++)for(let k=0;k<${SL};k++)MAP.fz[(${SY}+w)*MW+${SX}+k]=0;})()` +
+        ';linkBoundaries();' + SEAT);
+      run('renderWorld()');
+      const zFill = zbufCopy();
+      let ch = 0;
+      for (let y = Math.max(hzB + 1, y0); y <= Math.min(PH - 1, y1); y++)
+        for (let x = (PW * 0.3) | 0; x < PW * 0.7; x += 3) {
+          const p = zPit[y * PW + x], f = zFill[y * PW + x];
+          if (isFinite(p) && isFinite(f) && Math.abs(p - f) > 1) { ch++; break; }
+        }
+      const bok = !b.phantom && err.length > 200 && wide === 0 && ch > 0;
+      if (!bok) poseBad++;
+      console.log('  ' + pad('poseB', 9) + ' #516 from the deck the pit\'s FAR LIP holds the rows the geometry says: rows ' +
+        y0 + '..' + y1 + ' are the ' + DL.toFixed(1) + ' m riser, ' + err.length + ' px sampled, median depth error ' +
+        (isFinite(med) ? med.toFixed(2) : 'n/a') + ' m and ' + wide + ' px more than 0.5 m out' +
+        (wide === 0 && err.length > 200 ? '  ok' : '  FAIL LIP-ROWS-PHANTOM') +
+        `; ${b.phantom} phantom px over the whole lower half` + (b.phantom ? '  FAIL PIT-FLOOR-PHANTOM' : '') +
+        `; the PIT-FILLED control moves ${ch} of ${Math.max(0, y1 - y0 + 1)} lip rows by > 1 m` +
+        (ch > 0 ? '' : '  FAIL PIT-CONTROL-DEAD: filling the pit changes nothing, so the lip was never geometry'));
+
+      /* --- POSE C: the edge of the band you are standing on. A 3x3 disc ONE METRE up under the eye, so
+         the band's own surface sits below the eye and its edge is 1.5 m out - #517 stated at its
+         simplest. The claim is a STEP in zbuf at the row the drop face ends at, predicted from the
+         authored disc, against a control that flattens the disc under a pinned camera. */
+      run(PRE + STAGE + ';' + `(()=>{for(let dx=-1;dx<=1;dx++)for(let dy=-1;dy<=1;dy++)MAP.fz[(${SY}+dy)*MW+${SX}+dx]+=4;})()` +
+        ';linkBoundaries();' + SEAT);
+      run('renderWorld()');                                  // eyeZ is written BY the render: read it after
+      const zEye = run('eyeZ'), zBandFloor = run('floorAt(P.x,P.y)');
+      const zDisc = zbufCopy(), hzC = run('Math.round(horizon)'), xc = (PW / 2) | 0;
+      const yEdge = Math.round(hzC + (zEye - zBandFloor) * PBH / 1.5);
+      const worstJump = (z) => {
+        let j = 0, jr = -1;
+        for (let y = hzC + 2; y < PH - 2; y++) {
+          const u = z[y * PW + xc], v = z[(y + 1) * PW + xc];
+          if (!isFinite(u) || !isFinite(v) || !(u > 0) || !(v > 0)) continue;
+          if (Math.abs(v - u) > j) { j = Math.abs(v - u); jr = y; }
+        }
+        return { j, jr };
+      };
+      const jc = worstJump(zDisc), c = run(PCENSUS);
+      const eyePin = run('P.z');
+      run(`(()=>{for(let w=-${SW};w<=${SW};w++)for(let k=0;k<${SL};k++)MAP.fz[(${SY}+w)*MW+${SX}+k]=0;})()` +
+        ';linkBoundaries();');
+      run(`P.x=${SX}+.5;P.y=${SY}+.5;P.ang=0;P.pitch=0;P.z=${eyePin.toFixed(6)};renderWorld()`);
+      const jf = worstJump(zbufCopy());
+      const cok = !c.phantom && jc.j >= 0.5 && Math.abs(jc.jr - yEdge) <= 4 && jf.j < 0.5;
+      if (!cok) poseBad++;
+      console.log('  ' + pad('poseC', 9) + ' #517 the band\'s own edge is a DEPTH step: worst one-row depth jump ' +
+        jc.j.toFixed(2) + ' m at row ' + (jc.jr - hzC) + ' against the drop face\'s own row ' + (yEdge - hzC) +
+        ' (edge 1.5 m out, eye ' + (zEye - zBandFloor).toFixed(2) + ' m above the deck it stands on)' +
+        (jc.j >= 0.5 && Math.abs(jc.jr - yEdge) <= 4 ? '  ok' : '  FAIL EDGE-NO-DEPTH-STEP: the edge is a texture suggestion, not a place') +
+        `; the flattened control under the SAME pinned camera reads ${jf.j.toFixed(2)} m` +
+        (jf.j < 0.5 ? '' : '  FAIL EDGE-CONTROL-DEAD: a step survives the flattening, so this is a seam') +
+        `; ${c.phantom} phantom px over the whole lower half` + (c.phantom ? '  FAIL BAND-FLOOR-PHANTOM' : ''));
+      console.log('  ' + pad('pose', 9) + ' #518 acceptance poses, construction stage at ' + (SX + 0.5) + ',' + (SY + 0.5) +
+        ' (' + SL + 'x' + (2 * SW + 1) + ', walls taken out of it, props and enemies cleared, every floor write relinked): ' +
+        (poseBad ? poseBad + ' of 3 poses FAILED' : 'all 3 poses ok'));
+      bad += poseBad;
+      run(PRE);
+    }
+    console.log(bad ? `POSES ${bad} FAILURE(S): the floor half still paints a surface its own ray never arrives at`
+      : 'POSES ok - the floor half answers the surface its own ray arrives at, in all three poses');
+  }
+  }
   /* #385 CLAUSE 1 - THE PICTURE, env-gated so nothing here runs unless it is asked for. OFFLOOK=path
      seats the eye on a RAISED BAND within OFFNEIGH cells of the level's own OUTLINE, with the air beyond
      that outline unobstructed, and looks OUT of the level at a grazing pitch - the one seat this issue
