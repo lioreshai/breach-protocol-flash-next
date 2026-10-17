@@ -11864,14 +11864,18 @@ if (MODE === 'props') {
        not a number fitted to this branch: main reads ~4-20 here depending on yaw, and the yaw this
         branch authors is bounded AWAY from the axis-aligned case by PROP_YAW_LO (js/20_level.js), so
        the row cannot be satisfied by luck of the draw.
-       WHICH of the two changes this row prices is measured, not assumed - three sabotage trees against
-       this probe, JSDIR=, at this head:
-         yaw -> 0, ramp kept     (Y) PASSES (41.3-49.8 apart, rel 0.64-0.70)   (T) FAILS, crate and barrel
-         ramp -> 0.75+0.42 d     (Y) FAILS on the crate (16.3 apart, rel 0.22)  (T) passes
-         both at once            (Y) FAILS (14.9 apart, rel 0.19)               (T) FAILS
-       So (Y) prices the RAMP and (T) prices the YAW: a row that reads a visible outcome can be satisfied
+       WHICH of the two changes this row prices is measured, not assumed - sabotage trees against
+       this probe, JSDIR=, at this head (the third arm is #561's, which is the one that came back
+       with NOTHING moved):
+         yaw -> 0, form term kept   (Y) PASSES (41.3-49.8 apart, rel 0.64-0.70)   (T) FAILS, crate and barrel
+         form term -> flat (PROP_R1 0)  (Y) FAILS - the band holds ONE level, so it is a board (the (N) row below also fails)
+         R0's prop arm 0.60 -> 1.40   BYTE-IDENTICAL to this run apart from the tree banner, exit 0: the ramp
+                                      is not what a prop's face rides (js/13_mesh.js's own note says so now,
+                                      and the (N) row below is what keeps that true)
+         both yaw and form term       (Y) FAILS (14.9 apart, rel 0.19)             (T) FAILS
+       So (Y) prices the FORM TERM and (T) prices the YAW: a row that reads a visible outcome can be satisfied
        by either half of the change, and the pair together is what makes the mechanism covered. Saying
-       "it fails on yaw 0" would be wrong - the ramp alone carries (Y) - and a reader who runs only (Y)
+       "it fails on yaw 0" would be wrong - the form term alone carries (Y) - and a reader who runs only (Y)
        would conclude the field does nothing. It does not do nothing: it is the only thing (T) can see.
        (A prop entry with `yaw: 0` written on it also satisfies yOk - only a MISSING field trips the NO
        YAW branch, so the row proves the renderer rotates by an angle, not that the generator chose one.)
@@ -12529,6 +12533,78 @@ if (MODE === 'props') {
     } else console.log('  control ratio ' + ctrlMax.toFixed(3) + ' = the recorded ' + cRef.toFixed(3) +
       ' (' + (100 * (1 - ctrlMax)).toFixed(0) + '% off the lit body at the seat, lightmap ' +
       seatLtNow.toFixed(3) + ')');
+  }
+  /* ---- (N) KNOBS: which constants a prop's face value actually answers to (#561) -----------------
+     The issue is a reader trap, not a pixel defect: the comment over the R0/R1 pair explained #371's
+     prop-value decision as an R0/R1 re-pairing ("R0 drops to keep the SAME ramp height"), so the next
+     person tuning how much a crate is worth turns a knob that is wired to nothing, sees no pixel move,
+     and reaches for a threshold to explain the silence. Measured at b95181e: js/ copied to a variant
+     tree with the prop arm of R0 taken from 0.60 to 1.40 - a 2.3x swing - printed `props` BYTE-IDENTICAL
+     apart from the JSDIR banner, same face table, same control, same turn census. The two prop arms are
+     now gone from those lines, and this row is what keeps them gone and says, from the code that paints
+     the pixel rather than from prose, which two numbers a prop face DOES answer to.
+     Three claims, all of them read out of the tree this run RENDERED (jsFile(), so JSDIR= points the
+     census at the same bytes the frame came from and the sha it prints is the marker that proves it):
+       (1) the lines binding R0/R1 carry no prop arm - a prop arm there is dead arithmetic by
+           construction, because `lw` answers `pr` with the form term and never with `sh`;
+       (2) the prop's orientation term is composed where the light is composed: `aw` reads the prop flag
+           and BOTH live constants, and `lw` routes a prop to it. Route a prop back through `sh` and
+           this row is the one that says so, in the same run as the pixels;
+       (3) the two live constants match the recorded pair below - so PROP_R1 or PROP_DMEAN moving is a
+           VERDICT, not a quiet edit, which is the half of the issue's "done when" that makes the knob
+           live under assertion. The NUMERIC gate on them is (Y) above: PROP_R1 -> 0 leaves the face
+           band holding ONE level, which (Y) calls a board.
+     A missing pattern is a FAILURE, not a skip: a row that cannot find the read site measured nothing. */
+  {
+    const KNB_REF = refRecord('props', 'PROP-KNOB', 'num', [1.3, 0.45]);   // PROP_R1, PROP_DMEAN - js/13_mesh.js, the prop's face value; #561 established these two and only these two move a prop pixel (0.60 -> 1.40 on the old R0 prop arm left `props` byte-identical apart from the tree banner; PROP_R1 -> 0 leaves (Y)'s band holding ONE level, which is a board)
+    let ksrc = null;
+    try { ksrc = fs.readFileSync(jsFile('13_mesh.js'), 'utf8'); }
+    catch (e) { ksrc = null; }
+    if (ksrc === null) {
+      fail('(N) knob census: js/13_mesh.js is unreadable through JSDIR, so nothing was read - the row '
+        + 'cannot tell a live knob from a dead one');
+    } else {
+      const ksha = require('crypto').createHash('sha256').update(ksrc).digest('hex').slice(0, 8);
+      /* CODE, not prose: a comment explaining what R0 used to be must not count as a binding site. */
+      const ramp = ksrc.split('\n').filter(l => /^[ \t]*R[01] = [^;\n]*;[ \t]*$/.test(l));
+      const awLine = /^\s*const aw = .*$/m.exec(ksrc);
+      const lwLine = /^\s*const lw = .*$/m.exec(ksrc);
+      const kn = /PROP_R1 = ([-\d.]+)\s*,\s*PROP_DMEAN = ([-\d.]+)/.exec(ksrc);
+      if (ramp.length < 2) fail('(N) knob census: the census found ' + ramp.length +
+        ' line(s) binding R0/R1 in js/13_mesh.js - the ramp pair this issue is about is no longer bound '
+        + 'where this row looks, so neither claim below can be made about it');
+      if (!awLine || !lwLine || !kn) fail('(N) knob census: cannot find the prop\'s read site in '
+        + 'js/13_mesh.js (' + (awLine ? 'aw ok' : 'no `const aw`') + ', ' + (lwLine ? 'lw ok' : 'no `const lw`') +
+        ', ' + (kn ? 'constants ok' : 'no PROP_R1/PROP_DMEAN pair') + ') - a prop\'s face value is authored '
+        + 'somewhere this row cannot see, so its gate is gone');
+      else if (ramp.some(l => /\bpr\s*\?/.test(l)))
+        fail('(N) knob census: the R0/R1 ramp binds a PROP arm again (' + ramp.filter(l => /\bpr\s*\?/.test(l))
+          .map(l => l.trim()).join(' ; ') + ') - a prop\'s light goes to `aw`, never to `sh`, so that constant '
+          + 'is dead arithmetic: measured at b95181e, 0.60 -> 1.40 there moved NO prop pixel and left `props` '
+          + 'byte-identical apart from the tree banner. Either drop the arm (js/13_mesh.js routes props via '
+          + '`lw = pr ? aw : sh`) or make the prop read the ramp it is being tuned in, and say which.');
+      else if (!/\bpr\s*\?/.test(awLine[0]) || !/PROP_R1/.test(awLine[0]) || !/PROP_DMEAN/.test(awLine[0]))
+        fail('(N) knob census: `aw` no longer carries the prop\'s form term (' + awLine[0].trim() +
+          ') - the two constants this row records are no longer the read site, so the recorded pair below is '
+          + 'a number attached to nothing');
+      else if (!/pr\s*\?\s*aw/.test(lwLine[0]))
+        fail('(N) knob census: a prop\'s light is no longer routed to `aw` (' + lwLine[0].trim() + ') - a prop '
+          + 'is back on the R0/R1 ramp, whose prop arms were removed in #561 because no prop pixel read them');
+      else {
+        const r1 = +kn[1], dm = +kn[2];
+        if (r1 !== +KNB_REF[0] || dm !== +KNB_REF[1])
+          fail('(N) knob census: the prop\'s live constants moved - PROP_R1 ' + r1 + ', PROP_DMEAN ' + dm +
+            ' against the recorded ' + KNB_REF[0] + ' / ' + KNB_REF[1] + '. This is the knob the prop face '
+            + 'value answers to, so a move is a re-light of every crate and drum: re-record deliberately '
+            + '(refs.lock, these literals, and the (Y) face rows that price the spread), do not widen this '
+            + 'comparison.');
+        else console.log('  knobs: a prop\'s face value answers to PROP_R1 ' + r1 + ' / PROP_DMEAN ' + dm +
+          ' (the recorded pair) through `aw`; the R0/R1 ramp binds no prop arm - its live cases are the body '
+          + '(0.30/0.85), the view model (0.55/0.55) and the PROPGEO sprites that are not props, orb and the '
+          + 'shut portal (0.75/0.42); read out of js/13_mesh.js sha ' + ksha + ' via '
+          + (process.env.JSDIR ? 'JSDIR' : 'the checkout') + ', ' + ramp.length + ' ramp binding line(s)');
+      }
+    }
   }
   console.log(bad ? 'PROPS PROBE: ' + bad + ' FAILURE(S)' : 'PROPS PROBE: every prop volumetric, light-exempt where emissive, grounded, and solid to the player');
   process.exit(bad ? 1 : 0);
