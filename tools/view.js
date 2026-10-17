@@ -14552,14 +14552,52 @@ if (MODE === 'surface') {
        somehow re-dealt the world reddens the row instead of averaging two worlds into one median. */
     const PROPT_S = process.env.PROPT !== undefined ? +process.env.PROPT : 25;
     const PSEATS = process.env.PSEATS !== undefined ? +process.env.PSEATS : 8;
+    /* WHICH DECK A PROP IS CHARGED AGAINST (#371, second half). The row compared a prop's pixels with
+       the floor of the WHOLE FRAME, and that compares two different rooms: at THE STACK's opening seat
+       the camera stands in a cell baked to 0.10 and the prop pixels belong to a barrel 12.7 m away in a
+       cell baked to 0.86, so the frame's deck is mostly the dark floor at the eye and the number says
+       nothing about the deck the player sees next to the crate. The criterion on the issue is "a prop
+       outshines the deck it stands ON", so the row now takes the ground pixels in a screen-space band
+       around the prop silhouette (the same dilation trick the contact-patch rows use), and it charges
+       that. The whole-frame deck is still printed next to it: the two figures can disagree, and a seat
+       where they do is the seat worth reading. BPROK is the band's radius in device pixels; BPROK=0
+       puts the shipped whole-frame comparator back, which is the falsifier the rows below name. */
+    const BPROK = process.env.BPROK !== undefined ? +process.env.BPROK : 1.5;
+    /* WHICH SEATS DISQUALIFY THEMSELVES. The renderer already refuses to draw a prop the EYE is inside
+       (js/40_render.js:529, `Math.abs(p.x-camX) < foot && Math.abs(p.y-camY) < foot`), and a seat one
+       metre from a LAMP prop measures a lamp post magnified across the foreground rather than a prop in
+       a room - that is how two of this issue's four seats came to be unreproducible from a fresh
+       process (ABATOIR 2,2 measures 58.8 in one process and 36.9 in another, because what it scores is
+       a lamp at (2.5,1.5) seen from (2.5,2.5)). Such a seat is skipped, counted and named in the row;
+       skipping is never silent. ARM=0 turns the rule off, which is the other falsifier. */
+    const ARM = process.env.ARM !== undefined ? +process.env.ARM : 1.0;
+    // PSEAT="x,y" scores ONE named seat in a fresh process, so a seat on the issue can be re-measured
+    // without the stride happening to land on it.
+    const PSEAT = process.env.PSEAT || '';
     const openCells = run('(()=>{const o=[];for(let y=2;y<MH-2;y++)for(let x=2;x<MW-2;x++)' +
       'if(!isSolid(x+0.5,y+0.5))o.push([x,y]);return o})()');
     const pStride = Math.max(1, Math.floor(openCells.length / PSEATS));
     const pHash0 = gridHash();
     const pGaps = [];
     let pSkipped = 0, pSeatHashBad = 0, pPropPx = 0, pPatchPx = 0, pSeenPxMax = 0, pCorePx = 0;
-    for (let ci = 0; ci < openCells.length && pGaps.length < PSEATS; ci += pStride) {
-      const cx = openCells[ci][0], cy = openCells[ci][1];
+    let pArmSkip = 0, pBandLo = 0;
+    const pDis = [];
+    /* one named seat, or the stride walk - and the stride walk is UNCHANGED when PSEAT is unset */
+    const pSeatList = PSEAT
+      ? [[+PSEAT.split(',')[0], +PSEAT.split(',')[1]]]
+      : openCells.filter((c, i) => i % pStride === 0);
+    for (const [cx, cy] of pSeatList) {
+      if (pGaps.length >= PSEATS) break;
+      /* a seat whose frame is a lamp post at arm's length, or a prop's mesh filling the near plane, is
+         not a prop in a room: skip it, count it, and say so in the row. Uses the RENDERER's own test so
+         the seat rule and the draw rule cannot drift. */
+      let disqual = '';
+      if (ARM > 0) {
+        const bad = run(`(()=>{for (const p of PROPS) { const pf = MESH.foot(p.kind) * (p.scale || 1);` +
+          `if (pf > 0 && Math.abs(p.x - (${cx} + 0.5)) < pf && Math.abs(p.y - (${cy} + 0.5)) < pf) return 'inside a prop';` +
+          `if (p.kind === 'lamp' && Math.hypot(p.x - (${cx} + 0.5), p.y - (${cy} + 0.5)) < ${ARM}) return 'a lamp ' + Math.hypot(p.x - (${cx} + 0.5), p.y - (${cy} + 0.5)).toFixed(1) + ' m out'; } return ''})()`);
+        if (bad) { pArmSkip++; disqual = bad; }
+      }
       // a seat in a closet measures nothing: take the heading with the most world in it
       const sight = run(`(function(){P.x=${cx}+0.5;P.y=${cy}+0.5;P.z=floorAt(P.x,P.y);`
         + `P.vx=0;P.vy=0;P.vz=0;P.air=false;P.crouch=0;P.recoil=0;P.bob=0;P.pitch=BH*0.02;`
@@ -14600,13 +14638,68 @@ if (MODE === 'surface') {
         if (Lo >= 0.9 * L && Lo >= 40) { pCorePx++; continue; }   // a light source, not a lit face
         pS += L; pN++;
       }
+      /* the deck BESIDE the prop, in the WORLD, not on the screen. A screen-space band is the wrong
+         comparator and was measured to be: at THE STACK's seat the prop is 12.7 m away, so the pixels
+         touching its silhouette are the far floor and the wash behind it, and an 8 px band read the gap
+         as +52 where the deck a player can see next to the crate reads +51 for a DIFFERENT reason (the
+         far wash, not the crate's own room). So the band is built by unprojecting each ground pixel into
+         the cell it actually is (`zbuf` plus the camera basis, the same solve `surf` uses at :1591) and
+         keeping the pixels within BPROK metres of a prop centre. Past FARB the ground is the mip-mean
+         wash rather than a surface (#19), so a seat whose deck is all wash delivers no comparator and
+         says so instead of scoring the wash as a deck. */
+      let bS = 0, bN = 0;
+      if (BPROK > 0 && pN) {
+        const g = run(`(()=>{const N=MAP.w,gr=new Uint8Array(N*N);for(const p of PROPS){const r=${BPROK};` +
+          `const x0=Math.max(0,Math.floor(p.x-r)),x1=Math.min(N-1,Math.floor(p.x+r));` +
+          `const y0=Math.max(0,Math.floor(p.y-r)),y1=Math.min(N-1,Math.floor(p.y+r));` +
+          `for(let y=y0;y<=y1;y++)for(let x=x0;x<=x1;x++){const dx=x+0.5-p.x,dy=y+0.5-p.y;` +
+          `if(dx*dx+dy*dy<=r*r)gr[y*N+x]=1}}return gr})()`);
+        const C = run('({BW,BH,horizon,eyeZ,camX,camY,dirX,dirY,planeX,planeY,N:MAP.w})');
+        const zb = new Float32Array(run('zbuf')), FARBv2 = run('FARB');
+        for (let y = 0; y < C.BH; y++) {
+          for (let x = 0; x < C.BW; x++) {
+            const i = y * C.BW + x;
+            const L = LUM(a2, i);
+            if (Math.abs(L - LUM(ff, i)) <= 4 || Math.abs(L - LUM(ap, i)) > 4) continue;   // deck, not patch
+            const dz = zb[i];
+            if (!isFinite(dz) || dz <= 0 || dz > FARBv2) continue;
+            const c = x * 2 / C.BW - 1;
+            const gx = (C.camX + dz * (C.dirX + C.planeX * c)) | 0, gy = (C.camY + dz * (C.dirY + C.planeY * c)) | 0;
+            if (gx < 0 || gy < 0 || gx >= C.N || gy >= C.N) continue;
+            if (!g[gy * C.N + gx]) continue;
+            bS += L; bN++;
+          }
+        }
+      }
+      const bOK = bN >= 60;                                    // a band of 60 px is not a deck
+      if (BPROK > 0 && pN && !bOK) pBandLo++;
       // 0.2% of the frame is the same sliver test the per-pose PROP row uses, and 1% of deck keeps a
       // seat looking at a void from scoring a deck mean off a handful of joists.
-      if (pN < 0.002 * BW * BH || dN < 0.01 * BW * BH) { pSkipped++; continue; }
+      if (pN < 0.002 * BW * BH || dN < 0.01 * BW * BH) { if (!disqual) pSkipped++; continue; }
       pPropPx += pN; pSeenPxMax = Math.max(pSeenPxMax, pN);
-      pGaps.push({ c: cx + ',' + cy, gap: pS / pN - dS / dN, prop: pS / pN, deck: dS / dN, n: pN, sight });
+      /* The two lights that can explain a seat, printed beside its gap: the cell the CAMERA stands in
+         and the cell the nearest prop stands in. A seat where the prop's cell is far above the seat's is
+         the case the issue rules must be said out loud rather than bought with a paint pass - a prop in
+         a lamp pool, read from the dark side of the room. */
+      const pLight = run(`MAP.light[cellIdx(${cx} + 0.5, ${cy} + 0.5)].toFixed(2)`);
+      const pNearL = run(`(()=>{let b=1e9,v=0;for(const p of PROPS){const d=Math.hypot(p.x-${cx}-0.5,p.y-${cy}-0.5);` +
+        `if(d<b&&d<12){b=d;v=MAP.light[cellIdx(p.x,p.y)]}}return v.toFixed(2)})()`);
+      /* WHICH NUMBER THE VERDICT IS ON, and why it is not the local one. Gating on the beside gap was
+         tried first and it is not sound: the band is built from every prop's footprint in range, so at a
+         seat whose prop pixels belong to a barrel 12.7 m away the local deck is mostly the deck beside a
+         DIFFERENT prop - the lamp 7 m out, standing in a cell baked to 1.06 - and the seat's gap falls to
+         +11 without ever having compared the barrel with the floor under it. A comparator that can be
+         answered by a prop the player is not looking at is the same blindness this issue is about, in a
+         new place. So the row keeps the shipped whole-frame gap as its GATE - unchanged, nothing widened -
+         and prints the local gap beside it, plus the light of the seat's cell and of the nearest prop's
+         cell, which is what makes a light-cell seat legible instead of merely loud. The local number is
+         evidence, not a threshold; `BPROK=0` prints it as n/a and changes no verdict. */
+      (disqual ? pDis : pGaps).push({ why: disqual, c: cx + ',' + cy, gap: pS / pN - dS / dN, prop: pS / pN,
+        deck: dS / dN, near: bOK ? bS / bN : NaN, nearN: bN, n: pN, sight, light: pLight, plight: pNearL });
     }
     aim(CAMS[0]);
+    const disStr = pDis.length ? ' | NOT CHARGED, because the frame is not a prop in a room: '
+      + pDis.map(g => `${g.why} at seat ${g.c} (prop ${g.prop.toFixed(0)}, frame deck ${g.deck.toFixed(0)}, its own cell light ${g.light})`).join('; ') : '';
     const gSorted = pGaps.map(g => g.gap).sort((x, y) => x - y);
     const over = pGaps.filter(g => g.gap > PROPT_S).sort((x, y) => y.gap - x.gap);
     const under = pGaps.filter(g => g.gap <= -PROPT_S);
@@ -14615,14 +14708,19 @@ if (MODE === 'surface') {
       pGaps.length > 0 && over.length === 0 && pSeatHashBad === 0,
       pGaps.length
         ? `${pGaps.length} of ${CAMS.length === 0 ? PSEATS : PSEATS} seat(s) read of ${openCells.length} open cell(s) `
-          + `sampled at stride ${pStride} (${pSkipped} skipped: no prop of 0.2% of frame, or under 1% deck); `
-          + `gap median ${gMed >= 0 ? '+' : ''}${gMed.toFixed(1)}, worst ${over.length ? '+' + over[0].gap.toFixed(1) + ` at seat ${over[0].c}` : 'none over'}, `
-          + `${over.length} seat(s) over +${PROPT_S}` + (over.length ? ' [' + over.slice(0, 4).map(g => `+${g.gap.toFixed(1)} @${g.c} (prop ${g.prop.toFixed(0)} / deck ${g.deck.toFixed(0)})`).join(', ') + ']' : '') +
-          `, ${under.length} at or under -${PROPT_S} (a prop DARKER than its room is the shading working, charged to nothing); `
+          + `sampled at stride ${pStride} (${pSkipped} skipped: no prop of 0.2% of frame, or under 1% deck; `
+          + `${pArmSkip} skipped as a lamp at arm's length or a prop the eye is inside, per js/40_render.js:529`
+          + (pBandLo ? `; ${pBandLo} scored against the whole-frame deck because no ${BPROK} m of deck beside a prop was delivered` : '') + `); `
+          + `gap vs the deck of the whole frame median ${gMed >= 0 ? '+' : ''}${gMed.toFixed(1)}, `
+          + `worst ${over.length ? '+' + over[0].gap.toFixed(1) + ` at seat ${over[0].c}` : 'none over'}, `
+          + `${over.length} seat(s) over +${PROPT_S}` + (over.length ? ' [' + over.slice(0, 4).map(g => `+${g.gap.toFixed(1)} @${g.c} (prop ${g.prop.toFixed(0)} / frame deck ${g.deck.toFixed(0)}; the deck within ${BPROK} m of a prop reads ${isFinite(g.near) ? g.near.toFixed(0) : 'nothing here'}, seat cell light ${g.light}, nearest prop's cell ${g.plight})`).join(', ') + ']' : '') +
+          `; the same seats against the deck BESIDE the prop read ${pGaps.map(g => g.prop - g.near).filter(x => isFinite(x)).sort((a, b) => a - b)[0] === undefined ? 'n/a' : (pGaps.map(g => g.prop - g.near).filter(x => isFinite(x)).sort((a, b) => b - a)[0].toFixed(1) + ' worst / ' + pGaps.map(g => g.prop - g.near).filter(x => isFinite(x)).sort((a, b) => a - b)[(pGaps.map(g => isFinite(g.near) ? g.prop - g.near : NaN).filter(x => isFinite(x)).length) >> 1].toFixed(1) + ' median')} - REPORTED, not gated, because a local band is built from every prop's footprint in range and can answer for a prop the frame is not showing. `
+          + `${under.length} at or under -${PROPT_S} (a prop DARKER than its room is the shading working, charged to nothing); `
           + `${pPropPx} PAINTED prop px read in all, ${pPatchPx} contact-patch px excluded from both means, `
-          + `${pCorePx} light-source px excluded from the prop mean (they answer to no light)`
-        : `NO seat read: ${pSkipped} sampled seat(s) all landed under the sliver floors, so no prop in this `
-          + 'deal was ever measured outside the spawn room - nothing was measured',
+          + `${pCorePx} light-source px excluded from the prop mean (they answer to no light)` + disStr
+        : `NO seat read: ${pSkipped} sampled seat(s) all landed under the sliver floors${pArmSkip ? ` and ${pArmSkip} more were a lamp at arm's length` : ''}, so no prop in this `
+          + 'deal was ever measured outside the spawn room - nothing was measured'
+          + (pDis.length ? ` - though ${pDis.length} seat(s) WERE read and disqualified as a lamp at arm's length:` + pDis.map(g => ` ${g.c}`).join(',') : ''),
       pGaps.length && over.length ? '#371' : (pGaps.length && pSeatHashBad ? undefined : undefined));
     if (pSeatHashBad) console.log(`    PROP-SECTOR ${li}: ${pSeatHashBad} seat(s) changed the grid hash - the sweep is `
       + 'supposed to move the camera inside ONE deal, so this level\'s sector row measures two worlds');
