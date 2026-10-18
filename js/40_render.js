@@ -2836,7 +2836,7 @@ function castWalls(flash, fcR, fcG, fcB) {
        before the index, and out of map keeps ceilAt's own answer for the void, which is 1. */
     const z0 = riser ? rz0 : faceZ0(ox, oy, fd), z1 = riser ? rz1 : (ox >= 0 && oy >= 0 && ox < N && oy < N ? cp[oy * N + ox] : 1), dz = z1 - z0;
     let y0 = horizon + (eyeZ - z1) * hpx, y1 = horizon + (eyeZ - z0) * hpx;
-    const ds = Math.max(0, Math.ceil(y0));
+    let ds = Math.max(0, Math.ceil(y0));
     /* #517: A SLAB SIDE YIELDS TO THE TOP SURFACE OF ITS OWN SLAB. A wall face is always nearer than
        the ground behind it, which is why this loop carried no nearer-ground test at all - and for a
        wall that premise holds. A riser seen from ABOVE is the one case where it does not: the face's
@@ -2857,6 +2857,28 @@ function castWalls(flash, fcR, fcG, fcB) {
     if (riser && rzn < eyeZ) {
       const yN = horizon + (eyeZ - rzn) * hpx;             // the near slab's top surface at this perp
       if (yN < de) de = Math.floor(yN);
+      /* THE LIP'S OWN ROW IS NEVER OCCLUDED - IT IS THE LIP. On a step DOWN the slab side's TOP is the
+         near floor (`rzn === rz1`), so `yN` lands on the face's FIRST row `y0` and `floor(yN)` sits a row
+         ABOVE it: without this clamp `ds > de` and the `continue` below abandons the whole face, which
+         takes the drop face out of the frame wherever it is seen from above. That is the same sentence as
+         #517's, reached from the other side: the deck under the player's feet is honest, and the place
+         where it stops is invisible again - the platform's extent is not on screen, the crease and the
+         seam band have no face to sit on, and `view.js bands` prints 0 of 300 lip columns with 0 %
+         contrast (measured at 1268b5c; main 299 of 300 and 78 %).
+         The row the near deck genuinely occludes are those BELOW the lip's row: a ray arriving at one of
+         them hits the plane `rzn` at a distance nearer than `perp`, so it never reaches the slab side at
+         all. The lip's own row is the boundary between the two - the one row the wall pass still answers
+         for, and the row the player reads as the edge. Clamping to `ds` keeps exactly that row and no
+         more, so the phantom drop stays down while the lip stays an object. On a step UP and on flat
+         levels `yN >= de` already, so this clamp runs no arithmetic and those frames stay bit-identical.
+         The row kept is `floor(yN)`, not `ds`. On a step down `ds === ceil(yN)` is the DECK'S OWN first
+         solve row, and the ground pass must own it: `view.js cull`'s band row pins every row from there
+         down to the deck's per-row solve, which is the continuity claim #517 is about (measured: clamping
+         to `ds` instead puts perp back in that row and prints `CULL 8 FAILURES` on the two rows the ruling
+         re-keyed). `floor(yN)` is the one row that STRADDLES the boundary - the pixel the lip actually
+         lands in - and it sits one row above every row the deck answers for, so the deck stays
+         continuous right up to the lip and the lip stays an object the wall pass answers for. */
+      if (de < ds) { ds = Math.min(ds, Math.floor(yN)); de = ds; }
     }
     if (!(dz > 0) || ds > de) continue;                    // no face here to draw
     const tstep = mh * dz / (y1 - y0);                     // tiles per world unit, not per face
