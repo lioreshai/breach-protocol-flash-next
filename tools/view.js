@@ -13655,14 +13655,36 @@ if (MODE === 'bands') {
           if (!paintedRows(yF)) { off++; continue; }
           zok++;
         } else {
-          /* A walk lip carries a FACE now (#192), so this is the branch above's expectation: the
-             boundary's own perpendicular distance, same tolerance. Read at a row INSIDE the riser's
-             span rather than at yLip, because yLip is the span's EDGE - the one row where the ground
-             pass and the wall pass both answer, and a one-quantum riser is only ~24 rows tall at
-             DIST, so the edge row is a rounding decision rather than a measurement. */
-          const s0 = Math.ceil(hor + (eye - zHi) * hp), s1 = Math.floor(hor + (eye - zLo) * hp);
-          const yS = Math.round((s0 + s1) / 2);
-          if (yS < 0 || yS >= H || Math.abs(zb[yS * W + x] - perp) > 0.02) { off++; continue; }
+          /* #517 RE-KEY of THIS clause, at the ruling recorded on PR #583: A LIP PIXEL HOLDS THE
+             NEARER SURFACE. What this branch used to require - the boundary's own perp in the depth
+             buffer at the MIDDLE row of the projected span - is the premise the renderer fix
+             supersedes. On a DOWN lip (60 of 60 sampled walk lips on these poses, by this row's own
+             count on origin/main) every row under the lip is a row where the deck the ray stands on
+             solves NEARER than perp, so a mid-span row asks the slab side to own a pixel the nearer
+             deck answers for - the same wrong pixel #517 was filed against, asserted from the oracle
+             side. It sat at yS = the span's centre, about 12 rows under the lip for a 0.25 m slab
+             side at 3.5 m, where the deck solves 3.24 m against a 3.50 m boundary: a column could only
+             be accepted there by a renderer that still paints the drop face over the band you stand on.
+         
+             The row the wall pass DOES still answer for is the lip's own boundary row, and the probe
+             already computes it: yF = floor(yLip) = floor(hor + (eye - c[4]) * hp), the near slab's top
+             surface solved at this column's own perp - bit-for-bit the expression js/40_render.js builds
+             its clip from, and the row the crease and the seam band sit on. Read THERE, at the same
+             exact depth and the same 0.02 m tolerance, with the same vacuity refusal: a column with
+             nothing painted at its lip row is refused (off) and never enters an average.
+         
+             WHY THIS ROW CAN STILL FAIL, in both directions, measured with JSDIR in one tree:
+             - on a build that paints the slab's drop face over the deck you stand on (origin/main), the
+               wall span starts at ceil(y0), one row BELOW yF, so the lip row itself carries the ground
+               pass's answer - the FAR floor, about 1.8 m farther at this geometry - and every DOWN-lip
+               column is refused. That is the counterfactual, unchanged in kind from the mid-span read;
+             - on a build that hands the lip row to the ground pass as well (the abandoned-face head
+               1268b5c), the lip row carries the NEAR deck's solve, one row's worth = ~0.10 m nearer
+               than perp at this geometry, outside the 0.02 tolerance, and the columns are refused again.
+             So the clause pins one row to one distance and has two distinct ways to go red. On a step UP
+             the clip runs no arithmetic and the face's last painted row IS floor(yLip), so those columns
+             stay green in both builds - which is why the counterfactual arrives through DOWN lips. */
+          if (yF < 0 || yF >= H || Math.abs(zb[yF * W + x] - perp) > 0.02) { off++; continue; }
           zok++;
         }
         if (Math.abs(yF - yA) <= 2 && paintedRows(yF) > 0) covOk++; else covBad++;
