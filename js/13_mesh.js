@@ -273,6 +273,31 @@ const MESH = (function () {
      about 48 deg rather than 45, which is not a defect: a plank's grain is not diagonal by
      construction, and the number is the arithmetic above, not a look. */
   const PS_HCYC = 0.9;
+  /* #587 THE VIEW MODEL WAS THE LAST OBJECT WITH NO SURFACE. `b.rg` was switched on at three sites in
+     this file - drum staves (#533), crate planks (#533), body torso (#232) - and never once in a weapon
+     builder, so every weapon vertex left `wBuild` with structure coord 0, every weapon triangle took the
+     `TK = 0` branch of `tri`, and the gun painted one value per face: the rifle's 308 triangles at hip
+     spread 14,430 pixels, about 47 px each, and each of those was FLAT. The gun is in the bottom-right of
+     every frame, so it was the most persistent flat surface in the game.
+       WS_CYC is the weapon's seam density and it is stated in METRES because that is the unit the rig is
+     authored in (a box here is `0.0235, 0.0195` of a metre, not a fraction of the object's own height as
+     a body or a crate is): 100 seams per metre = one seam every 10 mm of gun, which is the width of a
+     machined milling pass. The projected-period law is unchanged - `BH*sc/(dist*CYC)` - and it reads
+     correctly for the rig because the rig's `scale` is 1 and its geometry is in metres, so the quantity
+     the law produces is the pixel period of a 10 mm seam at the gun's own distance (~0.245 m at the hip,
+     ~0.190 m shouldered).
+       The zero-mean construction is a PER-PART snap rather than a chosen constant, and it has to be, for
+     the reason #533 take two hit with PS_HCYC: a wave whose span across a face is 3.18 periods leaves
+     0.18 of a period UNPAIRED and the part gains light for being detailed. Bodies and props get away with
+     one global cycle count because their parts are all a fraction of one authored height; the rig has
+     sixty boxes whose half extents are unrelated numbers, so no single constant can make every face whole.
+     `wSnap` therefore scales each axis of each emitted part to the nearest EVEN period count (even, so
+     the #416 coarse level still lands on whole periods), and gives an axis whose span is under 1.5 periods
+     NO wave at all rather than an oversampled one - the same rule `af` already applies to a tube's axis.
+     A part that snaps to zero on all three axes has all-zero coords and takes the existing flat branch,
+     which is why the hands, the sleeve and the muzzle flash stay exactly as they are. */
+  const WS_CYC = 100, WS_SLOPE = 4.0, WS_MAX = 12;
+  const wSnap = h => { const per = 2 * h * WS_CYC; return per < 1.5 ? 0 : 2 * Math.round(per / 2) / per; };
   /* PS_CYC is 1/0.12 seams per authored unit, and the number is chosen, not tuned: a crate face is
      0.72 authored units wide (PROPGEO.crate half extents 0.36), and 0.72 * 25/3 = 6 SEAMS EXACTLY.
      That is what makes the wave's mean exactly 0 on every face instead of nearly 0. The wave is
@@ -343,6 +368,11 @@ const MESH = (function () {
        vertex streams byte-identical. Props set it to PS_HCYC, and the `props` (G) row is the one that
        can see either axis missing. */
     this.rgY = 0;
+    /* #587 WEAPON STRUCTURE. A THIRD register, again so nothing already shipped moves: while `wg` is set
+       the coord is authored in metres with a per-axis factor from `wSnap`, so a part's wave spans a whole
+       even number of periods on every axis and the part's mean cannot move. Bodies and props leave it 0
+       and their vertex streams are byte-identical. */
+    this.wg = 0;
     this.ca = 1; this.sa = 0;                       // rotation about x, positive tips the up axis forward
     this.cx = 0; this.cy = 0; this.cz = 0;
     this.em = 0;                                    // set around an emit to mark the part emissive
@@ -410,7 +440,22 @@ const MESH = (function () {
        With `rg` clear - every body tube, since rg is only ever set for a torso BOX, and the view model
        - both terms stay 0 and the vertex stream is byte-identical to what it was. */
     let sva = 0, svb = 0, RING = 0, half = 0;
-    if (this.rg) {
+    if (this.wg) {
+      /* #587 the rig's tubes: the AXIAL term only, and that is a limitation stated rather than a gap
+         overlooked. A tube's ring term puts one wave across every face of the prism, and the gun's tubes
+         are 10-25 mm across, which projects to 15-30 screen px at the rig's own seat - six faces into
+         that is a 2-5 px period, under TS_MINP, i.e. the #19 radial-spoke failure written on the object
+         that sits in front of the camera for the whole game. The projected period is a DRAW-time quantity
+         (it turns on BH and on the player's distance) and this geometry is cached across resolution
+         changes, so a build-time ring count cannot be made to obey the gate. The axial term is safe: a
+         10 mm step along a tube projects to ~9-12 px at the rig's depths, and it reads as machined rings
+         on a barrel and as checkering on a grip. Rings on the rig's cylinders are the stated remaining
+         work on #587. Centred on the part's own midpoint for the same reason a box is centred. */
+      const mx = (ax + bx) * 0.5, my = (ay + by) * 0.5, mz2 = (az + bz) * 0.5;
+      const fx = wSnap((bx - ax) * 0.5), fy = wSnap((by - ay) * 0.5), fz = wSnap((bz - az) * 0.5);
+      sva = (ax - mx) * fx + (ay - my) * fy + (az - mz2) * fz;
+      svb = (bx - mx) * fx + (by - my) * fy + (bz - mz2) * fz;
+    } else if (this.rg) {
       const nr = this.ns || NS; half = nr / 2;
       RING = Math.max(nr, Math.round(ra * Math.PI * PS_CYC / nr) * nr) / PS_CYC;    // periods round the ring, in authored units
       const per = Math.abs(bx - ax + (by - ay) * this.rgY + bz - az) * PS_CYC;      // periods the axis term spans
@@ -454,9 +499,12 @@ const MESH = (function () {
       [[cx - hx, cy - hy, cz - hz], [cx + hx, cy - hy, cz - hz], [cx + hx, cy + hy, cz - hz], [cx - hx, cy + hy, cz - hz]],
       [[cx - hx, cy - hy, cz + hz], [cx - hx, cy + hy, cz + hz], [cx + hx, cy + hy, cz + hz], [cx + hx, cy - hy, cz + hz]],
     ];
+    /* the three factors are a property of the PART, not of the face: hoisted out of the six-face loop so
+       a 35-box rebuild calls wSnap 3 times per box instead of 18 (#587) */
+    const fx = this.wg ? wSnap(hx) : 1, fy = this.wg ? wSnap(hy) : this.rgY, fz = this.wg ? wSnap(hz) : 1;
     for (const q of faces) {
       const b0 = this.p.length / 6;
-      for (const qv of q) { const p = this.pt(qv[0], qv[1], qv[2]); this.p.push(p[0], p[1], p[2], c[0], c[1], c[2]); this.e.push(this.em); this.s.push(this.rg ? qv[0] + qv[1] * this.rgY + qv[2] : 0); }
+      for (const qv of q) { const p = this.pt(qv[0], qv[1], qv[2]); this.p.push(p[0], p[1], p[2], c[0], c[1], c[2]); this.e.push(this.em); this.s.push(this.wg ? (qv[0] - cx) * fx + (qv[1] - cy) * fy + (qv[2] - cz) * fz : this.rg ? qv[0] + qv[1] * this.rgY + qv[2] : 0); }
       this.t.push(b0, b0 + 1, b0 + 2, b0, b0 + 2, b0 + 3);
     }
     return this;
@@ -467,7 +515,12 @@ const MESH = (function () {
      the reason it exists; no body uses it. */
   Builder.prototype.bip = function (cx, cy, cz, rx, ry, rz, c) {
     const eq = this.p.length / 6;
-    const put = (x, y, z) => { const p = this.pt(x, y, z); this.p.push(p[0], p[1], p[2], c[0], c[1], c[2]); this.e.push(this.em); };
+    /* #587: this push is load-bearing even with `wg` clear. `b.s` is indexed by VERTEX, so a primitive
+       that emits vertices without emitting coords silently shifts every coord that comes after it. The
+       muzzle flash is two bips at the END of each weapon builder, so the shift was invisible there - but
+       the pistol's slide-back box and the shotgun's shell follow their own bips in some states, and a
+       shifted coord is a wave with the wrong phase, which is not a thing any row would see as flat. */
+    const put = (x, y, z) => { const p = this.pt(x, y, z); this.p.push(p[0], p[1], p[2], c[0], c[1], c[2]); this.e.push(this.em); this.s.push(this.wg ? (x - cx) * wSnap(rx) + (y - cy) * wSnap(ry) + (z - cz) * wSnap(rz) : 0); };
     put(cx + rx, cy, cz); put(cx, cy, cz + rz); put(cx - rx, cy, cz); put(cx, cy, cz - rz);
     const top = this.p.length / 6; put(cx, cy + ry, cz);
     const bot = this.p.length / 6; put(cx, cy - ry, cz);
@@ -765,6 +818,7 @@ const MESH = (function () {
       const MU = VMUZZLE.pistol;
       vArm(b, 0.016, -0.026, 0.024, 1.0, false);
       vArm(b, -0.026, -0.040, 0.048, 0.96, true);
+      b.wg = 1;                                        // #587 the metal gets the surface; the sleeve above and the fists below do not
       b.box(0, 0.007, 0.088, 0.0185, 0.0135, 0.086, VW.steel);          // the slide
       b.box(0, 0.0235, 0.088, 0.008, 0.0035, 0.070, VW.black);          // the serrated rib on top
       b.tube(0, 0.004, MU - 0.024, 0, 0.004, MU, 0.0115, 0.0105, VW.dark); // the barrel crown
@@ -780,6 +834,7 @@ const MESH = (function () {
       b.box(0, 0.026, 0.178, 0.0035, 0.0085, 0.0045, VW.black);         // the front post
       b.box(0, -0.006, -0.004, 0.008, 0.011, 0.010, VW.steel);          // the hammer
       if (s.slideBack) b.box(0, 0.014, 0.088 - s.slideBack * 0.026, 0.019, 0.008, 0.050, VW.dark);
+      b.wg = 0;
       vHand(b, 0.016, -0.026, 0.024, 1.0, false, s);
       vHand(b, -0.026, -0.040, 0.048, 0.96, true, s);
       if (s.mz > 0.004) vFlash(b, s.mz, MU);
@@ -791,6 +846,7 @@ const MESH = (function () {
       const MU = VMUZZLE.shotgun, pu = (s.pump || 0) * 0.034;
       vArm(b, 0.014, -0.034, 0.000, 1.02, false);
       vArm(b, -0.010, -0.040, 0.266 + pu, 1.0, true);   // the pump hand's arm travels with the pump
+      b.wg = 1;                                        // #587 the metal gets the surface; the sleeve above and the fists below do not
       b.box(0, 0.004, 0.086, 0.0215, 0.0185, 0.082, VW.steel);          // the receiver
       b.box(0, 0.0235, 0.086, 0.011, 0.0045, 0.070, VW.black);          // the top rib
       b.box(0, -0.0155, 0.086, 0.0205, 0.0022, 0.078, VW.seam);         // receiver / fore-end parting line
@@ -806,6 +862,7 @@ const MESH = (function () {
         b.tube(0.040, -0.092, 0.052, 0.056, -0.084, 0.058, 0.0105, 0.010, VW.shell);
         b.tube(0.056, -0.084, 0.058, 0.062, -0.081, 0.060, 0.0105, 0.010, VW.brass);
       }
+      b.wg = 0;
       vHand(b, 0.014, -0.034, 0.000, 1.02, false, s);
       vHand(b, -0.010, -0.040, 0.266 + pu, 1.0, true, s);
       if (s.mz > 0.004) vFlash(b, s.mz, MU);
@@ -817,6 +874,7 @@ const MESH = (function () {
       const MU = VMUZZLE.rifle;
       vArm(b, 0.014, -0.030, 0.012, 1.0, false);
       vArm(b, -0.014, -0.038, 0.234, 0.98, true);
+      b.wg = 1;                                        // #587 the metal gets the surface; the sleeve above and the fists below do not
       b.box(0, 0.005, 0.092, 0.0235, 0.0195, 0.086, VW.steel);          // the upper receiver
       b.box(0, 0.0265, 0.092, 0.0155, 0.0055, 0.078, VW.black);         // the dust cover
       b.box(0, 0.005, 0.150, 0.0225, 0.0022, 0.030, VW.seam);           // the upper / handguard parting line
@@ -838,6 +896,7 @@ const MESH = (function () {
       b.tube(0, -0.028, -0.006, 0, -0.112, 0.014, 0.021, 0.0185, VW.poly);    // the grip
       b.tube(0, -0.030, -0.014, 0, -0.062, -0.190, 0.0225, 0.0265, VW.poly);  // the stock
       b.box(0, -0.076, -0.196, 0.021, 0.016, 0.010, VW.black);          // the butt pad
+      b.wg = 0;
       vHand(b, 0.014, -0.030, 0.012, 1.0, false, s);
       vHand(b, -0.014, -0.038, 0.234, 0.98, true, s);
       if (s.slideBack) b.box(-0.030 - s.slideBack * 0.020, 0.012, 0.020, 0.005, 0.006, 0.010, VW.brass);
@@ -900,8 +959,11 @@ const MESH = (function () {
     const b = VMGEO[kind](new Builder(), st || {});
     const p = new Float32Array(b.p), v = new Float32Array(b.p.length / 2);
     for (let i = 0; i < b.p.length / 6; i++) { v[i * 3] = b.p[i * 6]; v[i * 3 + 1] = b.p[i * 6 + 1]; v[i * 3 + 2] = b.p[i * 6 + 2]; }
-    const geo = { kind, p, v, t: new Uint16Array(b.t), em: Uint8Array.from(b.e), nV: b.p.length / 6, tris: b.t.length / 3 };
-    geo.byteLength = p.byteLength + v.byteLength + geo.t.byteLength + geo.em.byteLength;
+    /* #587: the coord array goes in beside `em` with the SAME shape the bodies and props already hand
+       `tri`. A plain JS array here would give the site `ST[i0]` a third map (null, Float32Array, Array)
+       where it currently handles two, and this geometry is rebuilt on every reload miss. */
+    const geo = { kind, p, v, t: new Uint16Array(b.t), em: Uint8Array.from(b.e), st: Float32Array.from(b.s), nV: b.p.length / 6, tris: b.t.length / 3 };
+    geo.byteLength = p.byteLength + v.byteLength + geo.t.byteLength + geo.em.byteLength + geo.st.byteLength;
     return geo;
   }
   function weaponGeo(kind, st) {
@@ -1481,16 +1543,22 @@ const MESH = (function () {
        Under the gate the draw steps to one coarser level of the same pattern instead of switching the
        term off (#416 - the block at TS_CYC carries the measurement). The law is the same on both
        levels: what is held constant is the SLOPE, never the amplitude. */
-    let TPR = BH * sc / (Math.max(NEAR, Math.abs(tYc)) * (pr ? PS_CYC : TS_CYC));
+    /* #587 the rig is the third object class on this law, and it needs its OWN cycle count because its
+       geometry is authored in metres rather than in fractions of its own height: for the gun `sc` is 1 and
+       `tYc` is the rig's own anchor distance (~0.245 m at the hip, 0.190 m shouldered), so the same
+       expression returns the projected pixel period of a WS_CYC seam without any change of form. */
+    const vm = !!MDL;                                    // the view model, and MDL is only ever the gun
+    const TCY = vm ? WS_CYC : (pr ? PS_CYC : TS_CYC);
+    let TPR = BH * sc / (Math.max(NEAR, Math.abs(tYc)) * TCY);
     if (!ST) TPR = 0;                                     // no torso coords on this mesh: no term
-    else if (TPR < TS_MINP) { TPR *= 2; TCYC = (pr ? PS_CYC : TS_CYC) / TS_LMAX; } else TCYC = pr ? PS_CYC : TS_CYC;
+    else if (TPR < TS_MINP) { TPR *= 2; TCYC = TCY / TS_LMAX; } else TCYC = TCY;
     /* #533: a prop keeps the LAW and brings its own SLOPE. TS_SLOPE 9 belongs to armour that means
        near 100; a crate in a dim cell means 48 and the same slope is a 45-luma peak-to-peak seam on
        it. The projected period is the same quantity for both - a prop's authored geometry is in
        units of its own height and `scale` is that height in metres - so only the slope and the
        near-field ceiling differ, and what the eye holds constant across a walk past, luma per screen
        pixel, is unchanged in kind. */
-    TAMP = TPR <= TS_MINP ? 0 : Math.min(pr ? PS_MAX : TS_MAX, (pr ? PS_SLOPE : TS_SLOPE) * TPR * 0.25);
+    TAMP = TPR <= TS_MINP ? 0 : Math.min(vm ? WS_MAX : pr ? PS_MAX : TS_MAX, (vm ? WS_SLOPE : pr ? PS_SLOPE : TS_SLOPE) * TPR * 0.25);
     if (ROT) {
       // yaw+pitch+roll as one matrix, so a rig can point its bore along the firing ray.
       // The yaw-only branch below is untouched: this is the extra path a view model takes,
