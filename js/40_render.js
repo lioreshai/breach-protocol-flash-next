@@ -2896,7 +2896,16 @@ function castWalls(flash, fcR, fcG, fcB) {
          re-keyed). `floor(yN)` is the one row that STRADDLES the boundary - the pixel the lip actually
          lands in - and it sits one row above every row the deck answers for, so the deck stays
          continuous right up to the lip and the lip stays an object the wall pass answers for. */
-      if (de < ds) { ds = Math.min(ds, Math.floor(yN)); de = ds; }
+      /* The kept row is CLAMPED INTO THE SCREEN. `yN` is a plane solve, not a row: when the lip itself
+         is above the top of the frame - the case `horizon` reaches by poking `P.z` down a metre, and in
+         play a crouch under a slab - `floor(yN)` is NEGATIVE, and taking `ds` there hands the row loop a
+         negative first row. The loop indexes `zbuf`/`px` at that row and its `y <= accY` test is true for
+         every column of a level that authors no accent (`accY` stays -1), so the first such column throws
+         inside `castWalls` (`view.js horizon` crashed at `accC[0]`, exit 1, at this branch's head; main
+         cannot reach it because `ds` was `max(0, ceil(y0))` and nothing else ever moved it). A negative
+         kept row means the lip is off the top of the frame, so EVERY visible row is under it and owned by
+         the near deck: there is no face to draw and no row to keep, which is what `continue` says. */
+      if (de < ds) { const yK = Math.floor(yN); if (yK < 0) continue; ds = Math.min(ds, yK); de = ds; }
     }
     if (!(dz > 0) || ds > de) continue;                    // no face here to draw
     const tstep = mh * dz / (y1 - y0);                     // tiles per world unit, not per face
