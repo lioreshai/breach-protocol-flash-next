@@ -7689,11 +7689,26 @@ if (MODE === 'heights') {
          red as POSE-PATH-VACUUM, because an attribution that cannot see the pass that wrote the pixel is
          not evidence of a site. */
       let prow=0,pdef=0,pslab=0,pfar=0;
+      const rsb0=reSolveBad;                        // the census marches with a far cap; do not spend heights' own row
       for(let y=hz+2;y<BH;y+=2){const absP=y-hz,dRow=(eyeZ-plA)*BH/absP;
         for(let x=0;x<BW;x+=11){const cf=x*(2/BW)-1,rx=dirX+planeX*cf,ry=dirY+planeY*cf;
-          const pw=planeAlong(rx,ry,plA,true,absP),pf=floorFixedPoint(rx,ry,plA,absP,(camX+rx*dRow)|0,(camY+ry*dRow)|0);
+          /* THE REFERENCE MAY NOT BE CAPPED AT THE EYE'S OWN PLANE (the reason poseA has never been
+             winnable). planeAlong's cap is the solve of the plane it is handed, and its contract is
+             "answer strictly NEARER than that or hand the caller's plane back" - right for an occluder,
+             wrong for a reference. On a DESCENDING staircase every surface the ray arrives at is FARTHER
+             than the solve of the eye's own band plane (js/40_render.js:1029), so handing plA in made
+             the march hand plA back: the reference became the row's own distance and every tread
+             beyond that read as a phantom no matter what any renderer painted - the counter moved under
+             one variant and not at all under another, which is what the two failed solver edits this
+             cycle and the last one measured. Handing in a plane BELOW every authored floor (MAP.fz
+             spans -64..63 quanta, so -1e9 is below all of them) makes the cap the far reach instead, and
+             the march then answers the surface the ray ARRIVES AT, nearer or farther - which is the one
+             question the acceptance poses ask. A march that answers nothing - the void, a solid column
+             the wall pass owns, a level with no altitude below the eye - hands the sentinel back, and
+             there the row's own distance IS the honest answer, so the pixel is judged against that. */
+          const pw=planeAlong(rx,ry,-1e9,true,absP),pf=floorFixedPoint(rx,ry,plA,absP,(camX+rx*dRow)|0,(camY+ry*dRow)|0);
           if(!isFinite(pw)||!isFinite(pf))continue;
-          const dW=(eyeZ-pw)*BH/absP,dF=(eyeZ-pf)*BH/absP,got=zbuf[y*BW+x];
+          const dW=pw>-1e8?(eyeZ-pw)*BH/absP:Math.min(dRow,FARB*4),dF=(eyeZ-pf)*BH/absP,got=zbuf[y*BW+x];
           if(!(dW>0)||!isFinite(got)||!(got>0))continue;
           n++;
           if(got>dW+0.02){phantom++;
@@ -7706,6 +7721,7 @@ if (MODE === 'heights') {
             if(dRow>FARB)pfar++;else if(plC>=eyeZ)pslab++;else if(plC!==plA)pdef++;else prow++;
             if(got-dW>pmax){pmax=got-dW;why='row '+(y-hz)+' col '+x+' stores '+got.toFixed(2)+' m where its own ray arrives at '+dW.toFixed(2)+' m, written by '+wp;}}
           if(dF>dW+${PZQ}){fix++;wsum+=dW;fsum+=dF;if(dF-dW>fmax)fmax=dF-dW;}}}
+      reSolveBad=rsb0;
       return {n,phantom,pmax,why,fix,wd:fix?wsum/fix:0,fd:fix?fsum/fix:0,fmax,prow,pdef,pslab,pfar};})()`;
     const zbufCopy = () => new Float32Array(run('zbuf'));
     let poseBad = 0;
