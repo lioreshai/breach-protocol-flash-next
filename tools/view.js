@@ -7675,6 +7675,20 @@ if (MODE === 'heights') {
       const ex=camX|0,ey=camY|0,air=ex>=0&&ey>=0&&ex<N&&ey<N&&!MAP.cell[ey*N+ex];
       let plA=air?MAP.fz[ey*N+ex]*ZQ:eyeZ; if(!(plA<eyeZ)) plA=Math.min(0,eyeZ-ZQ);
       let n=0,phantom=0,pmax=0,why='',fix=0,wsum=0,fsum=0,fmax=0,wall=0;
+      /* #518 WHICH PASS WROTE THE PHANTOM. Three passes can put a depth in this pixel and the fix is a
+         different edit in each of them: the row's own fill (it stores the distance the eye's band plane
+         solves), the deferred copy (which re-solves the plane the row queued, and the plane it queues is
+         the FLOOR OF THE CELL THE WALK REACHED AT THAT SAME DISTANCE - not a surface the ray arrives at),
+         the #192 slab branch, and the far-band whole-row wash. The renderer's own row-vs-deferred test is
+         "does the cell at dRow carry the eye's band plane", so the same arithmetic attributes the pixel,
+         and a red pose names a SITE to edit rather than only a symptom. Two renderer variants have now been
+         built and measured against poses that could not say which one to move: extending the row's
+         occluder pulls to floor rows left all three poses byte-identical (so it is not the row fill), and
+         marching the queued plane at a floor crossing moved poseA by 5% and moved heights/HALF-MOVE on 3
+         configs. Counted here, not transcribed: if the phantom and the attribution disagree the row goes
+         red as POSE-PATH-VACUUM, because an attribution that cannot see the pass that wrote the pixel is
+         not evidence of a site. */
+      let prow=0,pdef=0,pslab=0,pfar=0;
       for(let y=hz+2;y<BH;y+=2){const absP=y-hz,dRow=(eyeZ-plA)*BH/absP;
         for(let x=0;x<BW;x+=11){const cf=x*(2/BW)-1,rx=dirX+planeX*cf,ry=dirY+planeY*cf;
           const pw=planeAlong(rx,ry,plA,true,absP),pf=floorFixedPoint(rx,ry,plA,absP,(camX+rx*dRow)|0,(camY+ry*dRow)|0);
@@ -7682,9 +7696,17 @@ if (MODE === 'heights') {
           const dW=(eyeZ-pw)*BH/absP,dF=(eyeZ-pf)*BH/absP,got=zbuf[y*BW+x];
           if(!(dW>0)||!isFinite(got)||!(got>0))continue;
           n++;
-          if(got>dW+0.02){phantom++;if(got-dW>pmax){pmax=got-dW;why='row '+(y-hz)+' col '+x+' stores '+got.toFixed(2)+' m where its own ray arrives at '+dW.toFixed(2)+' m';}}
+          if(got>dW+0.02){phantom++;
+            const gx=(camX+rx*dRow)|0,gy=(camY+ry*dRow)|0,
+              ok=gx>=0&&gy>=0&&gx<N&&gy<N&&!MAP.cell[gy*N+gx],
+              plC=ok?MAP.fz[gy*N+gx]*ZQ:plA;
+            let wp='the row fill';
+            if(dRow>FARB)wp='the far-band wash'; else if(plC>=eyeZ)wp='the #192 slab branch';
+            else if(plC!==plA)wp='the deferred copy';
+            if(dRow>FARB)pfar++;else if(plC>=eyeZ)pslab++;else if(plC!==plA)pdef++;else prow++;
+            if(got-dW>pmax){pmax=got-dW;why='row '+(y-hz)+' col '+x+' stores '+got.toFixed(2)+' m where its own ray arrives at '+dW.toFixed(2)+' m, written by '+wp;}}
           if(dF>dW+${PZQ}){fix++;wsum+=dW;fsum+=dF;if(dF-dW>fmax)fmax=dF-dW;}}}
-      return {n,phantom,pmax,why,fix,wd:fix?wsum/fix:0,fd:fix?fsum/fix:0,fmax};})()`;
+      return {n,phantom,pmax,why,fix,wd:fix?wsum/fix:0,fd:fix?fsum/fix:0,fmax,prow,pdef,pslab,pfar};})()`;
     const zbufCopy = () => new Float32Array(run('zbuf'));
     let poseBad = 0;
     if (!fits) {
@@ -7785,6 +7807,19 @@ if (MODE === 'heights') {
         `; the flattened control under the SAME pinned camera reads ${jf.j.toFixed(2)} m` +
         (jf.j < 0.5 ? '' : '  FAIL EDGE-CONTROL-DEAD: a step survives the flattening, so this is a seam') +
         `; ${c.phantom} phantom px over the whole lower half` + (c.phantom ? '  FAIL BAND-FLOOR-PHANTOM' : ''));
+      /* The attribution row. It adds no claim about the picture: it says whether the census can NAME the
+         pass that wrote each phantom pixel, which is the thing the next change has to pick. */
+      const pTot = a.prow + a.pdef + a.pslab + a.pfar + b.prow + b.pdef + b.pslab + b.pfar
+        + c.prow + c.pdef + c.pslab + c.pfar;
+      const pPh = a.phantom + b.phantom + c.phantom;
+      const attOk = pPh === 0 || pTot === pPh;
+      if (!attOk) poseBad++;
+      console.log('  ' + pad('posePath', 9) + ' #518 which pass wrote the phantom px: stairs row ' + a.prow +
+        '/deferred ' + a.pdef + '/slab ' + a.pslab + '/far ' + a.pfar + '  pit ' + b.prow + '/' + b.pdef + '/' +
+        b.pslab + '/' + b.pfar + '  band ' + c.prow + '/' + c.pdef + '/' + c.pslab + '/' + c.pfar +
+        ' (row fill / deferred copy / slab branch / far wash) on ' + pPh + ' px' +
+        (attOk ? '  ok' : '  FAIL POSE-PATH-VACUUM: ' + pPh + ' phantom px and ' + pTot +
+          ' attributed - the attribution cannot see the pass that wrote them, so it names no site'));
       console.log('  ' + pad('pose', 9) + ' #518 acceptance poses, construction stage at ' + (SX + 0.5) + ',' + (SY + 0.5) +
         ' (' + SL + 'x' + (2 * SW + 1) + ', walls taken out of it, props and enemies cleared, every floor write relinked): ' +
         (poseBad ? poseBad + ' of 3 poses FAILED' : 'all 3 poses ok'));
