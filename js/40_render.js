@@ -2690,7 +2690,7 @@ function castWalls(flash, fcR, fcG, fcB) {
     let stepX, stepY, sdx, sdy, side = 0;
     if (rdx < 0) { stepX = -1; sdx = (camX - mx) * ddx; } else { stepX = 1; sdx = (mx + 1 - camX) * ddx; }
     if (rdy < 0) { stepY = -1; sdy = (camY - my) * ddy; } else { stepY = 1; sdy = (my + 1 - camY) * ddy; }
-    let tv = 0, guard = 0, riser = 0, rz0 = 0, rz1 = 1, rze = 0, rzf = 1;
+    let tv = 0, guard = 0, riser = 0, rz0 = 0, rz1 = 1, rze = 0, rzf = 1, rzn = -1;
     /* #466: the accent band for THIS column, as a screen row and its reciprocal. Both stay at the
        "no band" values on every ordinary wall face and on every level that authors no accent, so an
        ordinary wall pixel pays one `y <= accY` compare against -1 and nothing else. */
@@ -2759,7 +2759,7 @@ function castWalls(flash, fcR, fcG, fcB) {
           const rp = (side === 0 ? sdx - ddx : sdy - ddy), rh = BH / (rp > 1e-4 ? rp : 1e-4);
           const ry1 = fhi * ZQ, ry0 = flo * ZQ;
           if (horizon + (eyeZ - ry1) * rh > BH - 1) continue;
-          riser = 1; rz0 = ry0; rz1 = ry1; MAP.riserStops++; tv = riserTex;   // #518: the level's family, not CONCRETE
+          riser = 1; rz0 = ry0; rz1 = ry1; rzn = fzs[pi] * ZQ; MAP.riserStops++; tv = riserTex;   // #518: the level's family, not CONCRETE
           /* rze/rzf are the same two floors sorted by WHICH SIDE THE RAY CAME FROM rather than by
              height - the crease belongs at the lip the player is standing at, and on a step down
              that is the higher of the two (#195). rz0/rz1 keep sorting by height: the face's span
@@ -2836,7 +2836,28 @@ function castWalls(flash, fcR, fcG, fcB) {
        before the index, and out of map keeps ceilAt's own answer for the void, which is 1. */
     const z0 = riser ? rz0 : faceZ0(ox, oy, fd), z1 = riser ? rz1 : (ox >= 0 && oy >= 0 && ox < N && oy < N ? cp[oy * N + ox] : 1), dz = z1 - z0;
     let y0 = horizon + (eyeZ - z1) * hpx, y1 = horizon + (eyeZ - z0) * hpx;
-    const ds = Math.max(0, Math.ceil(y0)), de = Math.min(BH - 1, Math.floor(y1));
+    const ds = Math.max(0, Math.ceil(y0));
+    /* #517: A SLAB SIDE YIELDS TO THE TOP SURFACE OF ITS OWN SLAB. A wall face is always nearer than
+       the ground behind it, which is why this loop carried no nearer-ground test at all - and for a
+       wall that premise holds. A riser seen from ABOVE is the one case where it does not: the face's
+       span runs from the higher floor DOWN to the lower one, so every row below the lip's own row is
+       also a row where the floor the eye stands on (the slab's top surface, at `rzn`, the near cell's
+       floor) solves NEARER than `perp`. Painting the face there drew the far deck's edge a metre and a
+       half out, flat, on top of the band you are standing on, which is why the platform's extent - the
+       thing you need in order to know what you can shoot over and where you fall - was not on screen
+       (issue #517, the from-above half of #421).
+       The clip is the row where the near slab's own top surface solves at THIS perpendicular distance,
+       which is monotone in y, so one scalar truncation is exactly the per-face-row depth test and costs
+       one compare per column. It is a no-op for a step UP (`rzn === rz0`, so the row is y1 itself,
+       which `de` already takes) and for every flat level (`MAP.steps` is 0, so no riser column exists),
+       and it cannot fire when the near floor is at or above the eye - that plane never solves below the
+       horizon, and clipping there would eat the soffit #421 is about. Nothing is blocked: a `dq === 1`
+       crossing stays walkable (#100); only the pixels change. */
+    let de = Math.min(BH - 1, Math.floor(y1));
+    if (riser && rzn < eyeZ) {
+      const yN = horizon + (eyeZ - rzn) * hpx;             // the near slab's top surface at this perp
+      if (yN < de) de = Math.floor(yN);
+    }
     if (!(dz > 0) || ds > de) continue;                    // no face here to draw
     const tstep = mh * dz / (y1 - y0);                     // tiles per world unit, not per face
     /* #466: where the painted lip ends on this column. rz1 is the TOP of the slab side (the higher of
