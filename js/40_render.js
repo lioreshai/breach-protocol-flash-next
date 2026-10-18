@@ -972,6 +972,18 @@ let marchSkipEnabled = true;
    on one layout rather than two builds. */
 let floorWalkEnabled = true;
 let gndFloorWalk = 0;      // deferred floor pixels whose PLANE the walk answered (census: view.js cull)
+/* #518 THE DISTANCE A MARCH'S RISER ANSWER MEANS. `planeAlong` returns a PLANE and every caller turns it
+   into a distance by SOLVING it - d = (plane - eyeZ) * BH / |p| - which is right for the per-cell case
+   (the ray reaches that plane while it is still inside the cell that owns it) and wrong for the riser
+   case. A ray that slips under a floor can be BELOW that floor already when it crosses the boundary: the
+   plane's own solve is then BEHIND the crossing, in a cell the ray passed through earlier and whose floor
+   was lower, so painting the crossing's face at the plane's solve paints a surface at a distance the ray
+   was in open air. `slabT` already answers such a pixel with the CROSSING (`return tOut`) and that is why
+   the #192 deck faces are honest while the march is not; this is the same fact carried out of the march.
+   -1 = the plane's own solve places the answer (bit for bit what shipped). >= 0 = the crossing distance
+   along (dir + plane*cam) places it, and a caller that stores a depth must store THIS number. Read
+   immediately after the call, like any other out-parameter. */
+let gWalkT = -1;
 const PV_W = 128;                                    // plane/ZQ indices [-64 .. 63] = altitudes -16 .. 15.75 m
 const PV_FLAG = new Uint8Array(PV_W), PV_VAL = new Float64Array(PV_W);
 let PV_N = 0, gPVSer = -1, gPVFz = null, gPVCp = null, gPVWide = 0;
@@ -1019,6 +1031,7 @@ function splitPlaneInv() {
    A flat level answers on the eye's own cell at the row's own distance, which is the shipped
    arithmetic bit for bit, and the row only calls this when a plane differs or the grid has a step. */
 function planeAlong(rx, ry, pl, isF, absP) {
+  gWalkT = -1;                                   // #518: unless a riser answers, the plane's solve places it
   const N = MAP.w, cellArr = MAP.cell, fzs = MAP.fz, cp = MAP.ceilPlane;
   const ax = rx > 0 ? rx : -rx, ay = ry > 0 ? ry : -ry;
   const sgn = isF ? -1 : 1;                          // floors below the eye, ceilings above it
@@ -1068,7 +1081,20 @@ function planeAlong(rx, ry, pl, isF, absP) {
     const lo = fHere > fThere ? fHere : fThere;      // the bottom of the opening at that boundary
     if (eyeZ + tOut * rise < lo) {                   // the ray slips UNDER a floor, so it hits that floor
       const dlo = (lo - eyeZ) * sgn;                 // a floor at or beyond the candidate's own solve is
-      if (dlo > 1e-9 && dlo * invAbsP < cap) { pl = lo; break; }   // the riser case, and the wall pass's
+      if (dlo > 1e-9 && dlo * invAbsP < cap) {       // the riser case, and the wall pass's
+        pl = lo;
+        /* #518: the riser is a PLACE, not a plane solve. dSolve <= tOut always holds here (the ray is
+           below `lo` at tOut, so it crossed that altitude at or before the crossing), and dSolve >= tIn
+           means it crossed it INSIDE this crossing - the solve and the face are the same distance and the
+           shipped arithmetic is exact. dSolve < tIn means the ray was under that slab before it got here:
+           the face it stops at is THIS boundary, at tOut, and solving `lo` would put the pixel a cell or
+           ten back in open air - which is the phantom #515/#516/#517 all three describe (the far deck's
+           plane painted across a pit at the deck's own distance, the bottom landing's plane painted over
+           the first treads of a stair). */
+        const dSolve = dlo * invAbsP;
+        if (dSolve < tIn) gWalkT = tOut;
+        break;
+      }
     }
     tIn = tOut; cx = nx; cy = ny;
     if (stepX) tx += 1 / ax; else ty += 1 / ay;
@@ -2002,12 +2028,18 @@ function groundPixel(x0, x1, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb
        rather than assumed - and the ceiling half still does NOT march per pixel here, because the row
        marched its cell once at the crossing (#15's per-cell decision) and a deferred ceiling pixel
        inherits that answer. */
-    let cur = pl;
+    let cur = pl, wT = -1;
     if (floorWalkEnabled) {
       cur = planeAlong(rx, ry, pl, true, absP);
+      wT = gWalkT;                                  // #518: a riser answer is a CROSSING, not a solve
       gndFloorWalk++;
     } else cur = floorFixedPoint(rx, ry, pl, absP, ax, ay);
     pl = cur;
+    /* #518: when the march stopped the ray at a slab SIDE the plane it named cannot place the pixel - its
+       own solve sits behind the crossing, in open air - so the pixel is built from the crossing distance,
+       exactly the way the #192 case below already builds a pixel from `slabT`. The texture and the light
+       still come from the plane the march named, which is the surface the face belongs to. */
+    if (wT >= 0) dOv = wT > FARB * 4 ? FARB * 4 : wT;
     /* #192, the deck faces: `t < eyeZ` above refuses a floor that is at or above the eye, so a pixel
        queued from under a deck leaves this loop with the deck's own plane in `pl` and no solve for it.
        What stops a descending ray there is the slab's SIDE at the boundary it slipped under, so ask the
