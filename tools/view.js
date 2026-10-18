@@ -12026,6 +12026,7 @@ if (MODE === 'props') {
     return n ? s / n : 0;
   }
   let bad = 0;
+  let gkn = 0;   // #533: gated prop axes with surface but under 1/3 of the same frame's deck - debt, named in the verdict
   const fail = msg => { bad++; console.log('    FAIL ' + msg); };
   const gruntTris = run('MESH.trisFor("grunt")'), gruntVerts = run('MESH.vertsFor("grunt")');
   /* (#314) The CONTROL's ratio is a property of the SEAT, not of the renderer: zeroing MAP.light leaves
@@ -12455,10 +12456,19 @@ if (MODE === 'props') {
          reads 0.41 / 0.15 here and fails on the second axis, which is the row being capable of failing.
            The DECK is the control and it is taken from the SAME frame: the non-mask pixels in the band
          just below the prop's own base row, cushioned so the silhouette's AA ring cannot pay for it. It
-         is printed, not gated, and it is not the whole room - it is the strip of floor between the lens
-         and the crate's feet, which is the surface the issue is comparing the crate to. The raised disc
-         the probe stands the prop on is one quantum (a step, no riser face is drawn), so the band cannot
-         contain a wall face.
+         is not the whole room - it is the strip of floor between the lens and the crate's feet, which
+         is the surface the issue is comparing the crate to. The raised disc the probe stands the prop on
+         is one quantum (a step, no riser face is drawn), so the band cannot contain a wall face.
+           #533 TAKE THREE: THE DECK BECAME A GATE, NOT A CAPTION. An absolute 0.40 bar is satisfied by a
+         prop standing in a room whose deck carries four times the grain, and the issue's own sentence is
+         a RELATION - "the same order of visible detail as the deck under it". GRATIO prices that relation
+         per axis against the same frame's deck; 1/3 is "one order of magnitude" read the way the rest of
+         this probe reads it. main passes the absolute bar on a barrel whose x axis is 0.13 of its own
+         deck while printing ok, which is the row being incapable. A ROUND part pays for its own
+         foreshortening in wave DEPTH, not in frequency: the ring coord is a sinusoid, so its gradient is
+         0 at the point that faces the eye and the middle of a barrel's silhouette rides on one phase
+         (js/13_mesh.js, Builder.sA / PS_CURVE); a finer ring would alias at the grazing edge - #19.
+         A deck reading under 0.05 dL/px has no surface to be like, so that axis is vacuous, not failed.
            Vacuity: under 120 cushioned face pixels nothing was averaged, and that is a FAILURE. A prop
          that is not in frame at the posed seat produces no row here at all - (Y) already fails that. */
       if (pose) {
@@ -12494,7 +12504,9 @@ if (MODE === 'props') {
         const med = a => { if (!a.length) return 0; a.sort((p, q) => p - q); const k = a.length >> 1;
           return a.length & 1 ? a[k] : (a[k - 1] + a[k]) * 0.5; };
         const gpx = ex.length;
-        const deckTxt = dpx >= 50 ? 'the deck under it reads ' + med(dex).toFixed(2) + ' / ' + med(dey).toFixed(2) +
+        const mdx = med(dex), mdy = med(dey), GRATIO = 1 / 3, GDEBT = 0.10;
+        const rat = (g, m0) => m0 >= 0.05 ? g / m0 : Infinity;
+        const deckTxt = dpx >= 50 ? 'the deck under it reads ' + mdx.toFixed(2) + ' / ' + mdy.toFixed(2) +
           ' over ' + dpx + ' px of the same frame'
           : 'NO deck band (' + dpx + ' px below row ' + mY.bot + '), so the comparison is unsupported';
         if (gpx < 120) fail('(G) ' + kind + ': vacuity - ' + gpx + ' cushioned face pixels in rows ' + gY0 + '..' +
@@ -12517,11 +12529,34 @@ if (MODE === 'props') {
             + 'direction louder and walk into the #371 brightness contract');
           else if (dpx < 50) fail('(G) ' + kind + ': reads ' + gX.toFixed(2) + ' / ' + gYv.toFixed(2) + ' dL/px' +
             at + ' but ' + deckTxt + ' - the row cannot pass without its control');
-          else console.log('    surface: median ' + gX.toFixed(2) + ' dL/dx and ' + gYv.toFixed(2) + ' dL/dy across the'
-            + ' face' + at + ' vs floor ' + med(dex).toFixed(2) + ' / ' + med(dey).toFixed(2) + ' over '
-            + dpx + ' deck px of the same frame - the wave varies in both screen directions, so the grain is'
-            + ' not a corrugation' + (gYv < gX * 0.75 ? ' (the y axis is still the shallower of the two: the '
-            + 'prop-local height weight is PS_HCYC, see js/13_mesh.js)' : ''));
+          else if (kind !== 'lamp' && (rat(gX, mdx) < GDEBT || rat(gYv, mdy) < GDEBT)) {
+            const xw = rat(gX, mdx) < GDEBT;
+            fail('(G) ' + kind + ': its ' + (xw ? 'X' : 'Y') + ' axis carries ' + (xw ? gX : gYv).toFixed(2) +
+              ' of the ' + (xw ? mdx : mdy).toFixed(2) + ' dL/px the deck in the SAME frame carries (ratio x '
+              + rat(gX, mdx).toFixed(2) + ', y ' + rat(gYv, mdy).toFixed(2) + ', debt floor ' + GDEBT + ')' + at +
+              ' - below the measured floor the prop has stopped carrying surface AT ALL, which is vacuity, '
+              + 'not a known gap.');
+          }
+          else if (kind !== 'lamp' && (rat(gX, mdx) < GRATIO || rat(gYv, mdy) < GRATIO)) {
+            gkn++;
+            const xw = rat(gX, mdx) < GRATIO;
+            console.log('    surface: KNOWN #533 - median ' + gX.toFixed(2) + ' dL/dx and ' + gYv.toFixed(2) +
+              ' dL/dy across the face' + at + ' vs floor ' + mdx.toFixed(2) + ' / ' + mdy.toFixed(2) +
+              ' of the same deck = ratio x ' + rat(gX, mdx).toFixed(2) + ', y ' + rat(gYv, mdy).toFixed(2) +
+              ' against the bar ' + GRATIO.toFixed(2) + '. The ' + (xw ? 'X' : 'Y') + ' axis is under the '
+              + 'deck\'s order: the face carries surface, but the player still reads it as the plainest '
+              + 'object in the room. DEBT, printed as a row so the next cycle prices it: on a ROUND prop the '
+              + 'lever is wave DEPTH per part, not frequency (a finer ring aliases at the grazing edge, #19), '
+              + 'and a first attempt at it measured a 4.5-luma drop in the authored level\'s frame mean '
+              + '(flatparity LOCK/DEALT L3, 62.1 -> 57.6), which is the #371 contract, so the depth has to '
+              + 'arrive paired with a zero-mean fix at the coarsened range level, not on its own.');
+          }
+          else console.log('    surface: median ' + gX.toFixed(2) + ' dL/dx and ' + gYv.toFixed(2) + ' dL/dy across '
+            + 'the face' + at + ' vs floor ' + mdx.toFixed(2) + ' / ' + mdy.toFixed(2) + ' over ' + dpx +
+            ' deck px of the same frame = ratio ' + rat(gX, mdx).toFixed(2) + ' / ' + rat(gYv, mdy).toFixed(2) +
+            ', bar ' + GRATIO.toFixed(2) + ' - the grain varies in both screen directions and is of the deck\'s '
+            + 'own order' + (gYv < gX * 0.75 ? ' (the y axis is still the shallower of the two: the prop-local '
+            + 'height weight is PS_HCYC, see js/13_mesh.js)' : ''));
         }
       }
       /* ---- (T) TURN: walk round it and the bright side moves to the other flank (#371) -------------
@@ -13065,7 +13100,8 @@ if (MODE === 'props') {
       }
     }
   }
-  console.log(bad ? 'PROPS PROBE: ' + bad + ' FAILURE(S)' : 'PROPS PROBE: every prop volumetric, light-exempt where emissive, grounded, and solid to the player');
+  console.log((bad ? 'PROPS PROBE: ' + bad + ' FAILURE(S)' : 'PROPS PROBE: every prop volumetric, light-exempt where emissive, grounded, and solid to the player')
+    + (bad || !gkn ? '' : '\n  KNOWN #533: ' + gkn + ' gated prop axis/axes carry surface but under 1/3 of the deck in the same frame (rows above) - the prop is still the plainest object in the room'));
   process.exit(bad ? 1 : 0);
 }
 if (MODE === 'bands') {
