@@ -2993,7 +2993,16 @@ function castWalls(flash, fcR, fcG, fcB) {
         }
         if (fn) tgt = fs / fn - CSEAMA;
       }
-      const cn2 = cbw > CSEAMC ? cbw : (cbw < CSEAMC ? cbw + 2 : cbw);   // the cap's reach, in rows
+      /* The cap's reach, in rows: the SPAN the corner is judged on, never less. `cbw` is the projection
+         of CSEAMW metres along the ceiling, and on a compressed far junction it thins to two or three rows
+         while `surface`'s SEAM window still reads the eight rows nearest the seam - so rows past `cbw` were
+         paid nothing and the bound was true of a band narrower than the rule. Take fourteen eased the cap
+         out with `(cbw + 2 - k) * 0.5`, which goes NEGATIVE past `cbw + 2`: the term then multiplied the
+         roof UP (measured on this file's own A/B - widening `cn2` alone took RING cam1's gap from 10.6 to
+         7.8 and THE STACK cam0's from 7.1 to 0.4, the opposite direction of a cap). The ease is clamped at
+         both ends now, so a row past the band is eased out and never lifted. Where `cbw` already reaches
+         the corner span the arithmetic is byte-identical to take fourteen. */
+      const cn2 = (cbw > CSEAMC ? cbw : CSEAMC) + 2;
       for (let k = 0; k < cn2; k++) {
         const yy = ds - 1 - k; if (yy < 0) break;
         const i = yy * BW + x, v = px[i], rk = 1 - k / cbw;
@@ -3002,7 +3011,9 @@ function castWalls(flash, fcR, fcG, fcB) {
           const lw = ((v >> 16 & 255) * 0.25 + (v >> 8 & 255) * 0.64 + (v & 255) * 0.11) * ck;
           if (lw > tgt) {
             let m = tgt > 0 ? tgt / lw : 0.3; if (m < 0.3) m = 0.3;
-            const ew = k < cbw ? 1 : (cbw + 2 - k) * 0.5;               // ease the cap out past the band
+            const cr = cbw > CSEAMC ? cbw : CSEAMC;                     // the span the cap holds
+            let ew = k < cr ? 1 : (cr + 2 - k) * 0.5;                   // ease the cap out past it
+            if (ew > 1) ew = 1; else if (ew < 0) ew = 0;
             ck = ck * (1 - (1 - m) * ew);
           }
         }
