@@ -2626,7 +2626,7 @@ function ceilFixAt(wx, wy, hang) {
    half the riser's projected height, so a 1 m face gets a seam at its foot, not a gradient.
    amp < 0 shades a crease, amp > 0 lifts a lip; a multiply either way, so the AMB floor that sinks an
    additive rim in a dark room cannot sink this. */
-function seamCrease(x, t, zA, zB, amp, dir, deckLit) {
+function seamCrease(x, t, zA, zB, amp, dir, deckLit, yCap) {
   if (!(t > 0.001)) return;
   const hp = BH / t, yA = horizon + (eyeZ - zA) * hp, yB = horizon + (eyeZ - zB) * hp;
   const bw = Math.min(Math.abs(yB - yA) * 0.5, hp * SEAMW);
@@ -2634,6 +2634,24 @@ function seamCrease(x, t, zA, zB, amp, dir, deckLit) {
   // the anchor row is the face's own edge row on this side: floor() coming up from below, ceil()
   // coming down from above - the same pair castWalls uses for de and ds
   const y0 = dir > 0 ? Math.ceil(yA) : Math.floor(yA);
+  /* #517: `yCap` is the LAST screen row this column's face is drawn, and a band may not paint below
+     it. It exists for ONE call - the lower floor's crease on a step DOWN, whose anchor is that floor's
+     own solve row at `perp`, i.e. the BOTTOM of the face. #517 gave every row under the lip's own row
+     to the deck the player stands on, so on a down lip that anchor and the whole band above it are
+     rows the ground pass answers: measured at THE STACK's face-lip frame, anchor row 313 against a
+     drawn span of [217, 217], the 16 band rows landing 96 rows below the last pixel the wall pass
+     paints. A multiply on flat deck short of the edge is a shade lying on the floor you walk on - the
+     same wrong pixel #517 exists to stop, restated in shading - which is what `bands`' L3 face-lip
+     far-share row counts (190 of 240 columns here against 16 of 240 on main). Clipping at the face's
+     own `de` removes the band there and nowhere else: the anchor is at or below `de` only when the
+     face clip fired, and on a step UP this call does not run at all (`rze === rz0`). The ramp is
+     clipped from `k` = 0, NOT re-anchored, so a band that does still reach the drawn span keeps the
+     falloff its own plane owns. */
+  let kAt = 0, kEnd = bw;
+  if (yCap !== undefined) {
+    if (dir < 0) { const k1 = Math.ceil(y0 - yCap); if (k1 > 0) { if (k1 > bw) return; kAt = k1; } }
+    else { const k1 = Math.floor(yCap - y0); if (k1 < 0) return; if (k1 < kEnd) kEnd = k1; }
+  }
   /* #385: how much ABSOLUTE edge this lip gets, from the deck the eye is standing on. Rows under the
      lip's own row are that floor either way the step goes, so read one just clear of the band; a row
      that lands off-screen contributes nothing. */
@@ -2642,7 +2660,7 @@ function seamCrease(x, t, zA, zB, amp, dir, deckLit) {
     ab = SEAMA * (1 - deckLit / SEAMK);
     if (ab > SEAMA) ab = SEAMA;
   }
-  for (let k = 0; k <= bw; k++) {
+  for (let k = kAt; k <= kEnd; k++) {
     const y = y0 + dir * k;
     if (y < 0) { if (dir < 0) break; continue; }
     if (y >= BH) { if (dir > 0) break; continue; }
@@ -3166,7 +3184,7 @@ function castWalls(flash, fcR, fcG, fcB) {
          lower floor's crease stays exactly where it was, because for a step UP it is the same row. */
       const seamLit = li - AMB;                  // the deck's own LIGHT, fog and ambient out (#385)
       seamCrease(x, perp, rze, rzf, -SEAMD, rzf > rze ? -1 : 1, seamLit);
-      if (rze !== rz0) seamCrease(x, perp, rz0, rz1, -SEAMD, -1, seamLit);
+      if (rze !== rz0) seamCrease(x, perp, rz0, rz1, -SEAMD, -1, seamLit, de);
       seamCrease(x, perp, rz1, rz0, SEAMU, -1, seamLit);
     }
   }

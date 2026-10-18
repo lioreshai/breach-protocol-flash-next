@@ -2353,7 +2353,26 @@ function genLevel(li) {
       lt: new Uint8Array(N * N * 3), amb: cfgL.amb === undefined ? 0.13 : cfgL.amb, tintDirty: true,
       floorBias: cfgL.floorBias || 0, ceilBias: cfgL.ceilBias || 0, ceilLead: cfgL.ceilLead,
       wallBias: cfgL.wallBias || 0,                  // #369: as above; the generator authors none
-      stepEdge: cfgL.stepEdge || 0,                  // #385: as above; the generator authors none
+      /* #385: as above. THE GENERATOR AUTHORS ONE NOW, and it is 20 luma, and #517 is why.
+         `stepEdge` -> SEAMA is the crease's ABSOLUTE half: it subtracts lumas from the same rows the
+         `seamCrease` multiply already darkens, faded out by the DECK's light above SEAMK so a lip on a
+         lit deck runs no arithmetic at all. Until #517 a step-down lip also wore the crease of the far
+         floor at the foot of its drop face; that face is back-facing from the deck you stand on, the
+         seam's rows there were multiplying the deck short of the edge, and the clip in `castWalls`/`seamCrease`
+         stops it (measured at THE STACK's face-lip frame: anchor row 313, drawn span [217, 217], 96 of
+         16 band rows below the last pixel the wall pass paints). With that band gone the eye-side crease
+         is ALL a down lip has, and on a deck at 30 luma a 0.62 multiply is not an edge: `view.js bands`
+         read the L1 walk lip at 27% and the L2 walk lip at 20% against a 45% floor - the lip was still
+         in the right place (60 of 60 columns, within 0.5 m of the grid's lip) and simply too faint. This
+         number is the measured payback. The same probe, one tree, `JSDIR=` swapping only `js`: 18 -> L2
+         walk lip 44% FAIL, 19 -> 45% (the floor itself, no margin), 20 -> L1 walk 120% / L2 walk 47% and
+         `BANDS ok`. So 20 is the smallest value that clears with a row's worth of margin; 24 and 32 were
+         also measured and harden lips that already read (L2 face lip 196% and 229%) without being asked
+         to. The lit-deck control is unchanged: L3's authored walk lip (deck 41, THE STACK authors 10) is
+         the same byte it has always been, and no `bands` threshold, tolerance, bound or vacuity floor
+         moved to get here. Raising `SEAMD` globally was the measured, declined alternative (#385) - it
+         hardens every lip in the game to pay for the dark ones. */
+      stepEdge: cfgL.stepEdge || 20,
       accent: cfgL.accent || null,              // #466: as above; RING TRANSPORT is the only level that does
       wallFam: cfgL.wall || 0,                  // #518: as above; the generator's rooms all wear cfgL.wall
       floorTex: FLOORS[cfgL.floor] || FLOORS.CONCRETE, ceilTex: CEILS[cfgL.ceil] || CEILS.CONCRETE,
