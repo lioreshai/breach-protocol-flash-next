@@ -4663,20 +4663,45 @@ if (MODE === 'cull') {
       if (hy < bandGeom.yLo + 0.02 || hy > bandGeom.yHi - 0.02) continue;
       bandCols.push({ x, t });
     }
+    /* #517 RE-KEY of this row, at review's ruling on PR #583: THE NEARER SURFACE OWNS A LIP PIXEL.
+       The claim this row used to make - that every row the drop face spans carries the column's own
+       perpendicular distance - is the same premise the fix supersedes. From a seat ON the band, the
+       face's screen span STARTS at the row where the band's own top surface solves at the lip's
+       distance (yLip below), because that row is both the face's top edge and the deck's own solve;
+       every row under it is a row where the deck you stand on solves NEARER, and painting the far
+       deck's edge there is exactly the phantom #517 was filed against. So the honest frame is:
+         - rows under the lip: the band's own plane solve at THAT ROW, (eyeZ - zHi)*H/(y - hz), which
+           a wall face is not - the ground pass writes a new distance every row, so an exact per-row
+           match is the continuity claim, and a build that paints the face instead misses every one;
+         - the lip row itself: a DEPTH STEP - the row above it reads farther than the row below by the
+           drop's own height, because above the lip the ray clears the band and lands on the floor
+           below it. That is the thing the player needs (what you can shoot over, where you fall), and
+           it is a discontinuity in zbuf rather than a texture suggestion.
+       The falsifier is still the step branch switched off at the identical camera: with MAP.steps = 0
+       no face is recorded, the deck's plane is carried past the boundary by the floor pass, and both
+       counts have to collapse - the deck rows stop matching their own solve and the step flattens. */
     const bandEdge = s => {
-      let ok = 0;
+      let own = 0, step = 0, face = 0, n = 0;
       for (const c of bandCols) {
         const yA = c.yA, yB = c.yB;
         if (yB - yA < 2) continue;                          // sub-pixel face: no pixel to be an edge on
-        let hit = 0, n = 0;
-        for (let y = Math.max(0, yA); y <= Math.min(H - 1, yB); y++) {
+        n++;
+        let hit = 0, nn = 0, hf = 0, nf = 0;
+        for (let y = Math.max(1, yA); y <= Math.min(H - 1, yB); y++) {
           const v = s.z[y * W + c.x];
           if (!(v > 0)) continue;
-          n++; if (Math.abs(v - c.t) < 0.02) hit++;
+          const tn = (bandEye.eyeZ - bandGeom.zHi) * H / (y - bandEye.hz);
+          if (!(tn > 0)) continue;
+          nn++; if (Math.abs(v - tn) < 0.02) hit++;
+          if (Math.abs(v - c.t) < 0.02) hf++;
         }
-        if (n && hit === n) ok++;
+        if (nn && hit === nn) own++;
+        if (nf === 0 && hf === nn && nn > 0) face++;        // a CONSTANT depth down the span: main's picture
+        const yUp = Math.max(1, yA - 2), yDn = Math.min(H - 1, yA);
+        const a = s.z[yUp * W + c.x], b = s.z[yDn * W + c.x];
+        if (a > 0 && b > 0 && a - b > (bandGeom.zHi - bandGeom.zLo) * 0.5) step++;
       }
-      return ok;
+      return { own, step, face, n };
     };
     const bandOn = bandShot(bandGeom.flag);            // renders first: dir/plane/eyeZ/horizon are FRAME values
     bandRay.dx = run('dirX'); bandRay.px = run('planeX');
@@ -4689,20 +4714,30 @@ if (MODE === 'cull') {
     const bandOff = bandShot(0);
     let bandDiff = 0;
     for (let i = 0, M = bandOn.p.length; i < M; i++) if (bandOn.p[i] !== bandOff.p[i]) bandDiff++;
-    const edgeOn = bandEdge(bandOn), edgeOff = bandEdge(bandOff);
+    const bandEdgeOn = bandEdge(bandOn), bandEdgeOff = bandEdge(bandOff);
+    const edgeOn = bandEdgeOn.own, edgeOff = bandEdgeOff.own;
     run('(function(){ for (let i = 0; i < MAP.fz.length; i++) MAP.fz[i] = __bdFz[i];' 
       + ' for (let i = 0; i < MAP.cz.length; i++) MAP.cz[i] = __bdCz[i];'
       + ' for (let i = 0; i < MAP.cell.length; i++) MAP.cell[i] = __bdCell[i]; linkBoundaries();'
       + ' ENEMIES.length = 0; for (const q of __bdE) ENEMIES.push(q);'
       + ' PROPS.length = 0; for (const q of __bdP) PROPS.push(q); return 1; })()');
     row(`L${li} the edge of the band you stand on is a place`,
-      bandCols.length >= 8 && edgeOn >= Math.ceil(0.9 * bandCols.length) && edgeOff <= bandCols.length * 0.1 &&
-      bandDiff > 0 && bandOn.faces > 0 && bandGeom.canDown === 1,
-      `${edgeOn} of ${bandCols.length} columns the geometry says the lip occupies carry THIS COLUMN'S OWN` 
-      + ` perpendicular distance (t = (bx - camX)/rx, the parameter the row and the wall pass both count)` 
-      + ` down every row the face spans - a vertical face at the honest distance, not a shade: ${edgeOff}`
-      + ` with the step branch switched off at the identical camera, and ${bandDiff} px of the frame move` 
-      + ` between the two arms; ${bandOn.faces} rays stopped at a riser. Lip at x = ${bandGeom.bx}` 
+      bandCols.length >= 8 && edgeOn >= Math.ceil(0.9 * bandEdgeOn.n) &&
+      bandEdgeOn.step >= Math.ceil(0.9 * bandEdgeOn.n) && bandEdgeOn.face <= 1 && bandDiff > 0 &&
+      bandOn.faces > 0 && bandGeom.canDown === 1,
+      `${edgeOn} of ${bandEdgeOn.n} columns the geometry says the lip occupies carry THEIR OWN ROW'S` 
+      + ` perpendicular distance to the deck under the eye - (eyeZ - zHi)*H/(y - hz), the solve the`
+      + ` ground pass writes row by row - so the band stays continuous right up to where it stops, and`
+      + ` ${bandEdgeOn.step} of ${bandEdgeOn.n} read a DEPTH STEP across the lip row (the row above the`
+      + ` lip farther than the row below by at least half the ${(bandGeom.zHi - bandGeom.zLo).toFixed(2)} m`
+      + ` drop), which is the edge: a place, not a shade. THE COUNTERFACTUAL IS THE OTHER DEPTH FIELD, NOT`
+      + ` A FLATTENED GRID: ${bandEdgeOn.face} of ${bandEdgeOn.n} columns carry a CONSTANT depth down the`
+      + ` span equal to the lip's own perpendicular distance - which is what a build that paints the drop`
+      + ` face over the deck you stand on measures (origin/main: 0 own, 124 constant). Switching the step`
+      + ` branch off at the identical camera now keeps ${edgeOff} of ${bandEdgeOff.n} of these rows on` 
+      + ` their own solve and ${bandEdgeOff.step} on the step, because the floor pass answers them itself;`
+      + ` that arm is printed as evidence, not as the discriminator, and ${bandDiff} px of the frame still`
+      + ` move between the two arms; ${bandOn.faces} rays stopped at a riser. Lip at x = ${bandGeom.bx}`
       + ` (${((bandGeom.bx - (setup.lane.x + 2.5))).toFixed(1)} m out), face ${(bandGeom.zHi - bandGeom.zLo).toFixed(2)} m` 
       + ` tall from a seat floor ${bandGeom.seatFloor.toFixed(2)}; the crossing stays WALKABLE (canEnter down` 
       + ` ${bandGeom.canDown}, vb 0x${bandGeom.seatVb.toString(16)}, MAP.steps derives ${bandGeom.flag} and`
@@ -5365,7 +5400,7 @@ if (MODE === 'cull') {
           else if (dq && !((vb[i] >> (dd << 2)) & (VB_RAMP | VB_LADDER))) {
             emit = 1; z0 = Math.min(fz[i], fz[j]) * ZQ; z1 = Math.max(fz[i], fz[j]) * ZQ;
           }
-          const rec = { t: tOut, solid, emit, z0, z1, farZ: fz[j] * ZQ,
+          const rec = { t: tOut, solid, emit, z0, z1, farZ: fz[j] * ZQ, nearZ: fz[i] * ZQ,
             tgt: cx === T.x && cy === T.y && nx === T.nx && ny === T.ny };
           if (emit && !face) face = rec;
           cross.push(rec);
@@ -5379,9 +5414,34 @@ if (MODE === 'cull') {
           if (face) {                                   // the wall pass paints over whatever was there
             const y0 = Math.ceil(horizon + (eyeZ - face.z1) * BH / face.t);
             const y1 = Math.floor(horizon + (eyeZ - face.z0) * BH / face.t);
-            if (y > y0 && y < y1) { got = face.t; kind = face.tgt ? 'face' : 'otherFace'; }
+            /* #517 RE-KEY (the ruling review recorded on PR #583): THE NEARER SURFACE OWNS A LIP
+               PIXEL. A slab's drop face YIELDS to the top surface of its own slab, so seen from ABOVE
+               the rows below the lip's own row are rows where the floor the eye stands on solves
+               nearer than face.t, and js/40_render.js now hands those rows to that surface. This
+               reference used to claim the face owns every row of its span, which is the premise the
+               fix supersedes: it is the same wrong pixel #517 was filed against, asserted from the
+               oracle side. The clip row is the near slab's top surface solved at this same
+               perpendicular distance - monotone in y, so one scalar is the exact per-row depth test,
+               and it is y1 itself for a step UP (nearZ === z0), which is why step-up faces and every
+               flat level are untouched here just as they are in the renderer. A SOLID wall face keeps
+               the whole span: a wall is nearer than any ground behind it, which is why this loop
+               carried no nearer-ground test at all. The rows the face yields then fall through to the
+               plane inventory below and are judged against the surface their own ray arrives at, so a
+               build that paints the face over the deck you stand on goes red HERE, at a face pixel,
+               with the disagreement the other way round. */
+            const yN = face.solid ? y1 : Math.floor(horizon + (eyeZ - face.nearZ) * BH / face.t);
+            if (y > y0 && y < (yN < y1 ? yN : y1)) { got = face.t; kind = face.tgt ? 'face' : 'otherFace'; }
             else if (face.solid) { R.skip.overWall = (R.skip.overWall || 0) + 1; continue; }
             else if (eyeZ - p * face.t / BH >= face.z1) { /* the ray clears the step: march on */ }
+            else if (yN < y1 && y >= y0) {
+              /* #517: the face YIELDS this row. Its honest depth is the NEAR slab's own top surface
+                 solved at this row - the same expression the renderer's clip is built from, so the
+                 oracle and the pixel answer the same question. It is an exact per-pixel depth, not a
+                 relaxation: a build that paints the face here reads face.t (3.50 on the pit lip, where
+                 the honest answer is 2.52 m) and a build that stretches the far deck's plane reads
+                 farther still, and both land in bad[]. */
+              got = (eyeZ - face.nearZ) * BH / p; kind = 'plane';
+            }
             else { const k = face.tgt ? 'lipEdge' : 'otherLip'; R.skip[k] = (R.skip[k] || 0) + 1; continue; }
           }
           if (!got) for (let k = 0; k < cells.length; k++) {           // a PLANE, in marching order
