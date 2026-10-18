@@ -260,7 +260,7 @@ const MESH = (function () {
      height and `scale` is that height in metres, so the projected period of a 1/TS_CYC slice is
      `BH*sc/(dist*TS_CYC)` exactly as for a body, and both the wave and its fade are already
      written against that quantity. */
-  const PS_SLOPE = 3.4, PS_MAX = 12, PS_CYC = 25 / 3;
+  const PS_SLOPE = 4.1, PS_MAX = 14, PS_CYC = 25 / 3;
   /* PS_HCYC is the height weight of a prop's structure coord (#533 take two), and it is NOT 1.
      The WOOD body of a crate spans 0.80 authored units in y and 0.72 in x and z (PROPGEO.crate half
      extents 0.36 / 0.40 / 0.36), and the zero-mean construction above only works if a face spans a
@@ -386,7 +386,37 @@ const MESH = (function () {
        to it, which is what makes a tube's structure vary AROUND it. It is added inside `this.rg`, so
        with the register clear - every body tube, since rg is only ever set for a torso BOX - both
        terms are 0 and the vertex stream is byte-identical to what it was. */
-    const sva = this.rg ? ax + ay * this.rgY + az : 0, svb = this.rg ? bx + by * this.rgY + bz : 0;   // #232 authored, before the transform
+    /* #232 authored, before the transform. For a TUBE the axis endpoints are not enough: a barrel's
+       staves run along y at x=z=0, so `ax+az` is 0 for the whole part and the ring would carry one
+       value around the circumference - a drum with no staves. #533 take one added the ring vertex's
+       own linear offset to it, which varied the wave AROUND a tube but left two of a hexagon's six
+       faces with a CONSTANT coord: a face lying in the x+z = const plane carries no horizontal wave
+       at all, which is the whole of why `props` read the barrel's x axis at 0.50 dL/px against the
+       crate's 1.50 on the same amplitude law, and why raising its depth bought a 4.5-luma drop in the
+       authored frame mean instead of grain (flatparity LOCK L3, #371).
+       #533 TAKE THREE puts the ring's PHASE on the coordinate instead of its linear position, and
+       snaps both counts so a face spans a WHOLE number of periods at either level of the #416
+       coarsening - the zero-mean half the depth needed and did not have:
+       - going round: a ring's circumference is not a whole number of 1/PS_CYC slices, so the count is
+         snapped to a multiple of the ring's own face count times TS_LMAX. The coord RINGS UP over the
+         first half and back down over the second rather than running monotonically: an angle would
+         jump by a whole ring across the closing face and paint a reversed, oversampled wave on one
+         face of every barrel (aliasing, #19). The ramp is continuous, its slope reverses only at the
+         far shoulder, where the grazing term already takes the amplitude down;
+       - going up: the axis term is scaled by `af` to the nearest EVEN period count, so the same face
+         is paired at TCYC and at TCYC/TS_LMAX instead of leaving a fifth of a period unpaired at the
+         top and bottom edge. A part too short to carry two periods gets no axial wave at all rather
+         than an oversampled one.
+       With `rg` clear - every body tube, since rg is only ever set for a torso BOX, and the view model
+       - both terms stay 0 and the vertex stream is byte-identical to what it was. */
+    let sva = 0, svb = 0, RING = 0, half = 0;
+    if (this.rg) {
+      const nr = this.ns || NS; half = nr / 2;
+      RING = Math.max(nr, Math.round(ra * Math.PI * PS_CYC / nr) * nr) / PS_CYC;    // periods round the ring, in authored units
+      const per = Math.abs(bx - ax + (by - ay) * this.rgY + bz - az) * PS_CYC;      // periods the axis term spans
+      const af = per < 1.5 ? 0 : Math.max(2, 2 * Math.round(per / 2)) / per;
+      sva = ax + az + ay * this.rgY * af; svb = bx + bz + by * this.rgY * af;
+    }
     ax = p0x; ay = p0y; az = p0z; bx = pb[0]; by = pb[1]; bz = pb[2];
     const L = Math.hypot(dx, dy, dz) || 1e-6;
     dx /= L; dy /= L; dz /= L;
@@ -400,12 +430,12 @@ const MESH = (function () {
     for (let i = 0; i < n; i++) {
       const cx = u[0] * RN[i * 2] + v[0] * RN[i * 2 + 1], cy = u[1] * RN[i * 2] + v[1] * RN[i * 2 + 1], cz = u[2] * RN[i * 2] + v[2] * RN[i * 2 + 1];
       this.p.push(ax + cx * ra, ay + cy * ra, az + cz * ra, c[0], c[1], c[2]); this.e.push(this.em);
-      this.s.push(this.rg ? sva + (cx + cy * this.rgY + cz) * ra : 0);
+      this.s.push(this.rg ? sva + RING * (i <= half ? i / half : 2 - i / half) : 0);
     }
     for (let i = 0; i < n; i++) {
       const cx = u[0] * RN[i * 2] + v[0] * RN[i * 2 + 1], cy = u[1] * RN[i * 2] + v[1] * RN[i * 2 + 1], cz = u[2] * RN[i * 2] + v[2] * RN[i * 2 + 1];
       this.p.push(bx + cx * rb, by + cy * rb, bz + cz * rb, c[0], c[1], c[2]); this.e.push(this.em);
-      this.s.push(this.rg ? svb + (cx + cy * this.rgY + cz) * rb : 0);
+      this.s.push(this.rg ? svb + RING * (i <= half ? i / half : 2 - i / half) : 0);
     }
     for (let i = 0; i < n; i++) {
       const j = (i + 1) % n;
