@@ -1,5 +1,63 @@
 # Changelog
 
+## [v1.4.9] - 2026-10-18
+
+### Changed
+
+- **A lamp now reads as metal standing in the light it throws** (#371, PRs #566, #570). A lamp's painted
+  post, foot and shade were brightened as if they were part of the bulb, so in a dim room the fixture was
+  the brightest solid in its part of the frame and the pool of light on the floor under it was *dimmer*
+  than the metal standing in it — which is backwards, and it made a row of lamps read as a row of glowing
+  sticks. The bulb itself is untouched, byte for byte; the fixture's metal is now dark enough that the
+  order reads post < base < bulb. On the four sectors, lamps over the brightness bar went from six to
+  one, and the one left is named below.
+- **A barrel no longer earns extra light for being round** (#371, PR #574). Prop shading was centred on
+  the flat faces of a box, but a drum's curved side always shows *some* face to the key light, so every
+  barrel in the game collected about 10% more light per pixel than the crate standing next to it in the
+  same light. Drums keep their lit side and their shaded side — only the average moved — and barrels and
+  crates now sit in the same band as the rest of the room's props.
+- **Three more sectors put their ceiling under the walls it covers** (#369, PRs #571, #576). Looking up
+  in ARCHIVE SUBLEVEL, RING TRANSPORT and THE STACK gave you a roof that read *brighter* than the walls
+  rising into it, which erases the one junction the eye sorts a room by: you could not tell where the
+  room ended and the storey above began. Each of those levels now carries a deliberate value order for
+  its surfaces, so the wall-to-roof corner holds and a lit vault reads as a lit vault instead of a wash.
+
+### Fixed
+
+- **A single step now looks like a step** (#517, PR #558). A one-quantum rise — a low mezzanine, a
+  poked flight of treads, a kerb — drew no riser face at all, because the renderer asked a walkability
+  question ("can I step up this?") where it should have asked a drawing question ("is there a face
+  here?"). So a step you could walk up had no visible edge, no side face, and the deck beyond its lip
+  appeared to solve *through* the step's own volume. Every step you can walk up now draws its face and
+  its edge. Levels with no height changes are byte-for-byte unchanged.
+- **Enemies sit on the deck instead of floating above it** (#18, PR #569). The shading that separates a
+  body from the floor was painted as a disc centred under the silhouette — where the body itself covers
+  it — so at any useful distance a grunt looked pasted onto the floor. That shading now lands just
+  outside the feet, lighter where it spreads over more floor, and reads as a contact band you can see
+  even when an enemy is edge-on. A grunt now looks like he is standing on something.
+
+### Known limitations
+
+- **Looking at the floor still shows a fan of radial streaks toward the vanishing point**, most obviously
+  on floors and ceilings at distance (#19). This build adds the measurement that rules texture tiling out
+  as the cause — coarsening the ceiling tile four-fold moved the streak score 27 → 30 and made the
+  picture mushier, so the shipped tiling stays — which means the cause is still unidentified, not
+  narrowed.
+- **Looking down at a raised band, three views still answer the wrong distance** (#518, PR #559). Up a
+  staircase, 3001 of 4620 sampled floor pixels store a depth farther than their own ray arrives at
+  (walked 3.2 m against the adopted plane's 10.4 m); at the lip of a pit, the far riser's rows answer at
+  3.5 m where the authored geometry says 8.5 m; and at a band's drop face the stored depth does not step
+  where the face ends. These three are one defect seen from three seats, and the poses that measure them
+  are now in the harness so the fix has something to be graded against.
+- **One lamp still sits just over the brightness bar** (#371, PRs #557, #560, #565). The fixture in
+  ARCHIVE SUBLEVEL is metal standing inside the brightest pool in its room, so the one value that makes a
+  crate read right in an open hall leaves that lamp over the line — brightening the room's props as a
+  group cannot fix it without dimming every crate. What changed this build is *how it is charged*: every
+  prop is now measured against the deck beside itself rather than a room average, so the remaining
+  offender is a named seat with a number instead of an argument.
+- **Contact shading is one ring shape for every body** (#18). A grunt, a drone and a heavy all cast the
+  same soft band; only its radius differs.
+
 ## [v1.4.8] - 2026-10-17
 
 ### Changed
