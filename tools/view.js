@@ -9900,7 +9900,41 @@ if (MODE === 'halo') {
          the measurement. It is the DARKRING=1 idiom applied to the outside of the silhouette, and a
          run that prints ok with it set has no ring measurement at all.
        SHADOW=0 runs arm C as A (the term already off), which must not move the A-B shells - it says
-         the row's excess is not an accident of the grounding term's own ink. */
+         the row's excess is not an accident of the grounding term's own ink.
+
+     THE COMPOSITED ARM (the half #41 said was missing).
+     Every arm above - and every A/B anyone ran on this issue before it - reads `px`, which is the
+     raster BEFORE post FX, because `renderWorld()` uploads the framebuffer and returns. Bloom, grade
+     and lamp glow run later, in `renderOverlay()`, so a toggle of any of those terms cannot move a
+     pixel of an arm that stops at renderWorld: several runs on this issue reported "byte for byte
+     unchanged" for exactly that structural reason, not because the passes are innocent. That is
+     #41's own words - "closing this needs a renderOverlay() arm on the same mask".
+
+     Headless cannot read a composited backbuffer (the canvas stub no-ops every canvas op and throws
+     on getImageData), but it does not have to: the bright pass is JS that runs BEFORE it composites.
+     `drawBloom` reads `px`, computes one RGB triple per bloom block into `bloomImg.data`, and only
+     then putImageDatas and blits it. `bloomImg.data` is therefore the pass's own contribution field,
+     in JS memory, at bw x bh, and the block's luma is exactly the capped `add` the pass will deliver
+     (the gain is hue-preserving: `k = add / L`). Reading it and bilinearly upsampling it by
+     `BLOOM_MIX` reproduces what the pass adds at any pixel of the frame the player sees - the shipped
+     pass's own arithmetic, not a model of it. The grade (`ctx.filter`) and the lamp glow (canvas
+     radial gradients) have no such field and CANNOT be measured this way; the verdict line says so
+     rather than letting "the composited arm is ok" be read as "post FX is exonerated".
+
+     So the composited arm is the same A/B on the objects, measured through the bloom pass's field:
+     the difference between arm A's field and arm B's field at a ring pixel is the luma this pass
+     adds to that pixel BECAUSE an object is in frame - the cross-contamination the original screenshot
+     shows, since the block's source is a per-channel MAX dilation of its 3x3, so a bright body and a
+     bright wall swap energy across the outline. `BLOOMFAKE=1` plants a band at luma 186 into outward
+     1..3 of arm A's framebuffer and lets the pass itself pick it up, which is the falsifier for this
+     arm (and it must also redden the raster row): a composited arm that prints ok with it set is
+     reading a field that is not the pass's. The band's LEVEL is the whole story and three attempts are
+     recorded here because each failure was the pass's own arithmetic: a band outside the mask's bounding
+     box moved the worst shell by +0.14, +60 into the shells by +0.79, +170 by +0.68. The pass adds
+     EXACTLY zero below BLOOM_KNEE (140) and its #377 headroom bound takes the add back toward zero as a
+     pixel approaches BLOOM_CLIP (224), so its working range is 140..224 and a falsifier has to be painted
+     INSIDE the mechanism it claims to test. 186 is that range's middle, where the delivered add is at its
+     cap. */
   run('S.mode="play"; S.locked=false; startLevel(' + LVL + ', true);');
   run(`(()=>{const cs=[];for(let y=1;y<MH-1;y++)for(let x=1;x<MW-1;x++)if(!isSolid(x+.5,y+.5))cs.push([x,y]);
     const c=cs[((cs.length*0.31+${CAM})|0)%cs.length];let best=${CAM}*0.7,bd=-1;
@@ -9923,6 +9957,7 @@ if (MODE === 'halo') {
   draw(0, 'for(const q of window.__kP)PROPS.push(q);for(const q of window.__kE)ENEMIES.push(q);');
   const C = grab();
   draw(1, 'for(const q of window.__kP)PROPS.push(q);for(const q of window.__kE)ENEMIES.push(q);SHADOW=1;SHADOW_PROP=1;');
+  run('window.__bloom = null; window.__bl0 = (typeof bloomImg !== "undefined" && bloomImg) ? 1 : 0;');
   /* The mask, and the outward shells over it. */
   const mask = new Uint8Array(N); let nMask = 0;
   for (let i = 0; i < N; i++) if (Math.abs(L1(A, i) - L1(B, i)) > 2) { mask[i] = 1; nMask++; }
@@ -9959,6 +9994,79 @@ if (MODE === 'halo') {
   }
   let far = 0, farSum = 0;
   for (let i = 0; i < N; i += 7) if (d[i] < 0) { far++; farSum += L1(A, i); }
+
+  /* ---- the COMPOSITED arm (#41): the bloom pass's OWN contribution field ----
+     renderOverlay() runs drawBloom(q), which reads `px` and writes one RGB triple per bloom block into
+     bloomImg.data BEFORE it composites. Reading that field after renderOverlay is therefore reading what
+     the pass will add, at bw x bh, with the block's luma equal to the capped `add` it delivers. Two arms,
+     the same objects-in / objects-out A/B as above, so a ring pixel's delta is the luma this pass adds
+     BECAUSE an object is in frame. `BLOOMFAKE=1` is the arm's falsifier: it lifts outward shells 1..3 of
+     the framebuffer arm A draws to at least luma 186, BETWEEN renderWorld and renderOverlay (the band
+     cannot go before the draw - renderWorld rebuilds `px` from scratch, the trap this issue already
+     recorded for the live page), and the shipped max-pool then picks it up. See the note above on why the
+     band has to sit between the pass's knee and its clip. `SHADOW=0` has no meaning in this arm and says
+     so. */
+  const BFAKE = process.env.BLOOMFAKE === '1';
+  const BMIX = run('BLOOM_MIX'), BON = run('QUAL[clamp(S.gfx | 0, 0, QUAL.length - 1)].bloom ? 1 : 0');
+  /* The falsifier's paint goes BETWEEN renderWorld and renderOverlay, never before the draw: renderWorld
+     rebuilds `px` from scratch, so a band painted before it is not a band painted on the frame - which is
+     the exact harness trap this issue already recorded once for the live page. */
+  const FW = run('Math.max(24, (BW / 3) | 0)'), FH = run('Math.max(16, (BH / 3) | 0)');
+  let mx0 = W, mx1 = -1, my0 = H, my1 = -1;
+  for (let i = 0; i < N; i++) if (mask[i]) { const x = i % W, y = (i / W) | 0; if (x < mx0) mx0 = x; if (x > mx1) mx1 = x; if (y < my0) my0 = y; if (y > my1) my1 = y; }
+  /* One frame drawn, then the shipped overlay pass run over it, then the pass's own block field read
+     back. The draw must come first: drawBloom's source is `px`, so the field is only this frame's if
+     `px` is this frame's. Objects-out is drawn by emptying PROPS/ENEMIES exactly as arm B does.
+     `fake` is the falsifier, and it paints the outward shells of the ACTUAL framebuffer the pass reads
+     (a live view of `px` - a write through it lands in the same memory drawBloom samples), between
+     renderWorld and renderOverlay. It cannot go before the draw: renderWorld rebuilds `px` from scratch,
+     so a band painted before it was never painted on the frame - the harness trap this issue already
+     recorded once for the live page. */
+  const compArm = (extra, fake) => {
+    run('S.t=3.5;' + (extra || '') + 'renderWorld();');
+    if (fake) {
+      const live = run('px');
+      for (let i = 0; i < N; i++) {
+        if (d[i] < 1 || d[i] > 3) continue;
+        const c = live[i];
+        live[i] = (0xFF000000 | Math.max(186, c >> 16 & 255) << 16 |
+          Math.max(186, c >> 8 & 255) << 8 | Math.max(186, c & 255)) >>> 0;
+      }
+    }
+    run('renderOverlay();');
+    const dd = run('typeof bloomImg !== "undefined" && bloomImg ? bloomImg.data : null');
+    return dd ? new Uint8Array(dd) : null;
+  };
+  let fA = null, fB = null;
+  if (BON) {
+    fA = compArm('', BFAKE);
+    fB = compArm('window.__bP=PROPS.slice();window.__bE=ENEMIES.slice();PROPS.length=0;ENEMIES.length=0;');
+    run('PROPS.length=0;ENEMIES.length=0;for(const e of window.__bP)PROPS.push(e);for(const e of window.__bE)ENEMIES.push(e);');
+  }
+  /* A pixel reads the block whose 3x3 source window contains it - the same xs/ys the pass uses, so the
+     mapping is the pass's geometry rather than a resample invented here. */
+  const FL = (f, k) => 0.2126 * f[k * 4] + 0.7152 * f[k * 4 + 1] + 0.0722 * f[k * 4 + 2];
+  const blk = (i) => (((i / W) | 0) * FH / H | 0) * FW + ((i % W) * FW / W | 0);
+  const bShell = [];
+  let lit = 0, bWorst = -1e9, bRingAdd = 0, bFarAdd = 0, bFar = 0, bAddOn = 0, bOnN = 0;
+  if (fA) {
+    for (let k = 0; k < FW * FH; k++) if (FL(fA, k) > 0.5) lit++;
+    for (let s = 1; s <= SHMAX; s++) {
+      let n = 0, sum = 0, add = 0;
+      for (let i = 0; i < N; i++) {
+        if (d[i] !== s || mask[i]) continue;
+        const k = blk(i);
+        n++; sum += BMIX * (FL(fA, k) - FL(fB, k)); add += BMIX * FL(fA, k);
+      }
+      bShell.push({ s, n, ab: n ? sum / n : 0, add: n ? add / n : 0 });
+      bRingAdd += add;
+      if (n) bWorst = Math.max(bWorst, sum / n);
+    }
+    for (let i = 0; i < N; i += 11) {
+      const k = blk(i);
+      if (mask[i]) { bAddOn += BMIX * FL(fA, k); bOnN++; } else if (d[i] < 0) { bFarAdd += BMIX * FL(fA, k); bFar++; }
+    }
+  }
   let bad = 0;
   const row = (label, ok, detail) => { if (!ok) bad++; console.log('  ' + (ok ? 'ok  ' : 'FAIL') + '  ' + label + ' - ' + detail); };
   const prof = shells.map(k => k.s + ':' + (k.n ? (k.ab >= 0 ? '+' : '') + k.ab.toFixed(1) : '-') + '(' + k.n + ')').join(' ');
@@ -9976,7 +10084,30 @@ if (MODE === 'halo') {
     '%, bar ' + (100 * TAILMAX).toFixed(0) + '%) - a wide excess made of one-pixel noise is a different defect and is named here');
   console.log('  attributed to the #178 contact shadow: ' + shells.map(k => k.s + ':' + (k.n ? (k.ac >= 0 ? '+' : '') + k.ac.toFixed(2) : '-')).join(' ') +
     (SHOFF ? '  [SHADOW=0 arm: C === A, so these are 0 by construction]' : ''));
-  console.log(bad ? 'HALO ' + bad + ' FAILURE(S)' : 'HALO ok - objects paint no band outside their own outline');
+
+  /* ---- the composited arm's rows (#41) ----
+     These are the rows the issue said did not exist: the post passes, measured on the mask. The bar is
+     HALOMAX, the SAME number the raster row above uses, not a second number tuned for this arm. */
+  if (fA) {
+    console.log('  composited (bloom pass field, ' + FW + 'x' + FH + ' blocks of a ' + W + 'x' + H + ' raster, mix '
+      + BMIX + ', ' + lit + ' of ' + FW * FH + ' blocks lit): shells '
+      + bShell.map(k => k.s + ':' + (k.n ? (k.ab >= 0 ? '+' : '') + k.ab.toFixed(2) : '-') + '/' + k.n + 'px').join(' ')
+      + '   added on the object ' + (bOnN ? (bAddOn / bOnN).toFixed(2) : '-') + ' luma, far field '
+      + (bFar ? (bFarAdd / bFar).toFixed(2) : '-') + ' luma');
+    row('the bright pass is running (composited vacuity)', lit > 0,
+      lit + ' of ' + FW * FH + ' bloom blocks carry energy - a pass that blooms NOTHING cannot ring anything, and that is a FAILURE, not a zero' +
+      (lit ? '' : ' (vacuity: the arm below is inert)'));
+    row('the bright pass adds no band outside an object outline (#41)', lit > 0 && bWorst <= HALOMAX,
+      'worst outward shell takes ' + (bWorst >= 0 ? '+' : '') + bWorst.toFixed(2) + ' luma FROM THE PASS against the same '
+      + HALOMAX + ' bar the raster row uses' +
+      (BFAKE ? '  [BLOOMFAKE=1: outward shells 1..3 were lifted to luma 186, mid-way between the pass\'s knee and its clip, so this row MUST be red]' : '') +
+      (lit ? '' : '  (INERT ARM - cannot exonerate bloom)'));
+    console.log('  NOT measured by this arm (no field to read, canvas-composited only): the grade filter, the lamp glow, the grain.');
+  } else {
+    console.log('  composited: ' + (BON ? 'bloom is ON in the tier but bloomImg was never filled - the pass did not run' :
+      'bloom is OFF in this tier, so the composited arm has nothing to measure (GFX=1 to force BALANCED)'));
+  }
+  console.log(bad ? 'HALO ' + bad + ' FAILURE(S)' : 'HALO ok - objects paint no band outside their own outline, raster or bloom-fed');
   process.exit(bad ? 1 : 0);
 }
 if (MODE === 'anim') {
