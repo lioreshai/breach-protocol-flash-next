@@ -1,5 +1,70 @@
 # Changelog
 
+## [v1.4.10] - 2026-10-19
+
+### Changed
+
+- **Your rifle finally has a surface** (#587, PR #588). Holding the gun at the hip, the receiver, dust
+  cover, magazine and grip now read as machined metal with a legible light direction, the way a crate
+  already does. Until now the viewmodel was the one object in the game painted flat — a grey solid in the
+  bottom-right of every frame, in front of a world whose walls wear one of twenty detailed materials. Each
+  face carries a shallow gradient with a few discrete steps of grain, and the detail is built to average
+  out to nothing: the gun's overall brightness does not move, and the fists, sleeve and muzzle flash are
+  pixel-for-pixel unchanged.
+- **A barrel is no longer three flat bands of colour** (#533, PRs #579, #581). Grain now runs *around* the
+  drum, at about the order of detail of the deck it stands on, and it stays put as you walk past. The
+  cause was geometric: a barrel's structure coordinate was the ring vertex's linear position, which is
+  constant on the two diagonal side faces of the drum, so half of every barrel in the world was being fed
+  no detail at all while the crate next to it carried three times as much per pixel. Faces are now paired
+  pixel-for-pixel at both levels of the distance coarsening, so barrels gain no light for being detailed —
+  a barrel's mean is 26.3 here against 26.4 before.
+- **The roof gets its brightness back on two sectors** (#495, PR #586). Roughly half of a standing frame is
+  ceiling, and RING TRANSPORT and THE STACK had their whole sector dimmed by about five lumas to hold up one
+  corridor's wall-to-roof corner. That corner is now held where it actually lives — at the junction, whose
+  local cap was paying rows past its band nothing and, worse, multiplying them *up* — so the sector-wide
+  dim was rolled back to its authored values. THE STACK's arrival roof reads 0.72 of the deck under it
+  (was 0.59), RING TRANSPORT 0.46 (was 0.39), ARCHIVE SUBLEVEL 0.48 (was 0.45); ABATOIR CORE is unchanged.
+  You read the panel grid and the rock instead of a dark wash, and no ceiling out-shines the surface it
+  lands on: all six graded poses on all four levels stay at least 15 lumas under.
+
+### Fixed
+
+- **A raised floor's edge is now drawn at its edge** (#517, PR #583). Standing on a raised deck and looking
+  down its lip, the crease belonging to the *far* floor — the one at the foot of the slab, a floor you are
+  not standing on — was multiplied onto the deck a step short of the edge, so the place you are about to
+  walk over was marked by a band of shade lying on flat floor. At THE STACK's face-lip frame that band sat
+  96 rows below the last pixel of the slab's face, and 190 of 240 columns carried their strongest edge there
+  instead of at the lip. One edge now marks the lip, and a down-lip crease on a dark deck gets its strength
+  back through the same authored edge term a lit deck already uses. Movement is untouched — a one-quantum
+  crossing stays walkable.
+- **Looking up at a step no longer crashes the renderer** (#517, PR #583). When a lip sat above the top of
+  the frame, the row the lip clip kept came back negative, the wall row loop started off the top of the
+  screen, and on a level that authors no accent colour the first test to hit that path threw a
+  null-colour TypeError inside `castWalls`. Found by running the full probe roster rather than part of it;
+  such a lip now keeps every visible row on the deck you stand on.
+
+### Known limitations
+
+- **The floor beside a height change still stores depth your ray never reaches** (#518, PRs #580, #582).
+  Nothing on screen changed for this one, and that is the honest state: two renderer fixes have now been
+  built against the acceptance poses and neither moved them. What shipped is the instrument the fix needs —
+  the poses had been handing their own reference march *your own footing*, so anything farther away always
+  fell back to the row's own distance and counted as wrong no matter what was drawn. With that corrected,
+  the phantom counts drop to 1817 / 3240 / 1952 pixels (from 3001 / 3240 / 4380) at the staircase, the pit
+  and the band's edge, and every phantom pixel now names which pass wrote it — the row's own fill, the
+  deferred copy, or both. Three different fixes, and this build is the first that can say which is which.
+- **The roof is still under-bright at three of the four arrival seats** (#495, PR #586): 0.72 of the deck at
+  THE STACK, 0.48, 0.46 and 0.54 elsewhere. The junction is no longer the reason; exposure headroom is. The
+  ceiling is 41-49 % of the frame, so lifting it to 0.7x costs about +5 lumas of frame median, and the
+  exposure gate leaves ARCHIVE and RING 9.7 and 9.5 lumas under its top anchor and ABATOIR 4.3. That is
+  #505's call, not a number to move here. ABATOIR CORE authors no ceiling lift at all, so its 0.54 is the
+  derived cap's ceiling, not a dose.
+- **A floor above you still reads as a ceiling** (#421, #422, and #517's from-above half is the part this
+  build fixed), **and the fan of radial streaks on distant floors and ceilings is still there** (#19). Both
+  are unchanged in this build.
+- **Prop brightness is still out of the room band at seven seats across the four sectors** (#371), and the
+  README's eight frames are still bound to an older build than this one (#578).
+
 ## [v1.4.9] - 2026-10-18
 
 ### Changed
