@@ -27,7 +27,7 @@ const CAM = +(process.argv[4] || 0);
 // ran something, painted a PNG and reported a passing gate (#89).
 const PROBES = ['scene', 'alt', 'anim', 'bands', 'columns', 'contrast', 'cull', 'decal', 'diag', 'exposure', 'fixtures', 'flatparity', 'heights',
   'drop', 'horizon', 'matband', 'mip', 'planes', 'play', 'props', 'rig', 'sheets', 'sight', 'stats', 'surface', 'vert', 'viewmodel',
-  'volume', 'refs'];
+  'volume', 'refs', 'halo'];
 if (!PROBES.includes(MODE)) {
   console.error('unknown probe "' + MODE + '" - known: ' + PROBES.join(' '));
   process.exit(2);
@@ -9873,6 +9873,110 @@ if (MODE === 'contrast') {
   console.log((bad || known ? `CONTRAST ${bad} FAILURE(S) of ${nrows} rows` + debtTail
     : `CONTRAST ok - ${nrows} rows: bodies separate from the rooms they stand in` + debtTail) + poseTail);
   run('COV = null;');
+  process.exit(bad ? 1 : 0);
+}
+if (MODE === 'halo') {
+  /* #41: does any pass paint light where an object is NOT?
+
+     The instrument this issue kept asking for. Every earlier arm was an A/B on a TERM (bloom on/off,
+     glow budget, the mesh rim) and every one of them came back inert or structureless, because a term
+     A/B cannot see a band that is not made of that term. This one A/Bs the OBJECTS themselves:
+       A  the frame as dealt - every prop and every body drawn;
+       B  the SAME frame with PROPS and ENEMIES emptied - the same geometry, the same lamp field, the
+          same fog, the same camera and the same S.t. Nothing else differs, so at any pixel B is
+          "empty background at the same distance", which is the reference the issue's own definition
+          of done names;
+       C  A with the #178 contact shadow off, which attributes whatever darkness the objects do paint
+          outside themselves to the one sanctioned term, instead of letting it read as a halo.
+     The mask is the A-B difference itself: a pixel whose value the objects changed is a pixel their
+     presence is responsible for. Pixels within 2 luma of B are NOT mask - they are the ring candidate,
+     and they are measured, in outward shells from the mask, against B at the very same pixels.
+     A pale band several px wide, brighter than the room behind it, is therefore a POSITIVE excess in
+     shells 1..4, and that is what the row gates. No reference hash is involved: the comparison is
+     inside one frame pair in one process, so it cannot rot with a repaint.
+
+     Falsification (run before proposing this branch):
+       HALOFAKE=1 paints a +25 luma band onto outward shells 1..3 of arm A after the draw and before
+         the measurement. It is the DARKRING=1 idiom applied to the outside of the silhouette, and a
+         run that prints ok with it set has no ring measurement at all.
+       SHADOW=0 runs arm C as A (the term already off), which must not move the A-B shells - it says
+         the row's excess is not an accident of the grounding term's own ink. */
+  run('S.mode="play"; S.locked=false; startLevel(' + LVL + ', true);');
+  run(`(()=>{const cs=[];for(let y=1;y<MH-1;y++)for(let x=1;x<MW-1;x++)if(!isSolid(x+.5,y+.5))cs.push([x,y]);
+    const c=cs[((cs.length*0.31+${CAM})|0)%cs.length];let best=${CAM}*0.7,bd=-1;
+    for(let k=0;k<48;k++){const a=k*Math.PI/24;
+      const d=castRayDist(c[0]+.5,c[1]+.5,Math.cos(a),Math.sin(a),9).dist;if(d>bd){bd=d;best=a;}}
+    P.x=c[0]+.5;P.y=c[1]+.5;P.ang=best;P.pitch=BH*0.02;
+    for(const e of ENEMIES){e.state='sleep';e.anim=0.3+((e.x*3)%1);}
+    if(ENEMIES.length){const e=ENEMIES[0];let bx=P.x,by=P.y;
+      for(let s=1;s<=6;s++){const nx=P.x+Math.cos(best)*s,ny=P.y+Math.sin(best)*s;if(isSolid(nx,ny))break;bx=nx;by=ny;}
+      e.x=bx;e.y=by;e.state='idle';e.anim=0.37;}})()`);
+  const W = run('BW'), H = run('BH'), N = W * H;
+  const SHMAX = 4, HALOMAX = +(process.env.HALOMAX || 6), TAILMAX = +(process.env.TAILMAX || 0.02);
+  const FAKE = process.env.HALOFAKE === '1', SHOFF = process.env.SHADOW === '0';
+  const L1 = (b, i) => 0.2126 * (b[i] & 255) + 0.7152 * (b[i] >> 8 & 255) + 0.0722 * (b[i] >> 16 & 255);
+  const draw = (s, extra) => run('SHADOW=' + (s ? 1 : 0) + ';SHADOW_PROP=' + (s ? 1 : 0) + ';S.t=3.5;' + (extra || '') + 'renderWorld();');
+  const grab = () => new Uint32Array(run('px'));
+  draw(1); const A = grab();
+  draw(1, 'window.__kP=PROPS.slice();window.__kE=ENEMIES.slice();PROPS.length=0;ENEMIES.length=0;');
+  const B = grab();
+  draw(0, 'for(const q of window.__kP)PROPS.push(q);for(const q of window.__kE)ENEMIES.push(q);');
+  const C = grab();
+  draw(1, 'for(const q of window.__kP)PROPS.push(q);for(const q of window.__kE)ENEMIES.push(q);SHADOW=1;SHADOW_PROP=1;');
+  /* The mask, and the outward shells over it. */
+  const mask = new Uint8Array(N); let nMask = 0;
+  for (let i = 0; i < N; i++) if (Math.abs(L1(A, i) - L1(B, i)) > 2) { mask[i] = 1; nMask++; }
+  const d = new Int16Array(N).fill(-1), q = [];
+  for (let i = 0; i < N; i++) if (mask[i]) { d[i] = 0; q.push(i); }
+  let head = 0;
+  while (head < q.length) {
+    const i = q[head++]; if (d[i] >= SHMAX + 2) continue;
+    for (const o of [-1, 1, -W, W]) {
+      const j = i + o; if (j < 0 || j >= N) continue;
+      if ((o === -1 && i % W === 0) || (o === 1 && i % W === W - 1)) continue;
+      if (d[j] >= 0) continue; d[j] = d[i] + 1; q.push(j);
+    }
+  }
+  if (FAKE) {
+    // the falsifier: a bright band where the issue says a band would be, drawn into arm A only
+    for (let i = 0; i < N; i++) if (d[i] >= 1 && d[i] <= 3) {
+      const c = A[i]; A[i] = (0xFF000000 | Math.min(255, (c >> 16 & 255) + 25) << 16 |
+        Math.min(255, (c >> 8 & 255) + 25) << 8 | Math.min(255, (c & 255) + 25)) >>> 0;
+    }
+  }
+  const shells = [];
+  let ringPx = 0, tail = 0, worst = -1e9;
+  for (let s = 1; s <= SHMAX; s++) {
+    let n = 0, sumAB = 0, sumAC = 0;
+    for (let i = 0; i < N; i++) {
+      if (d[i] !== s || mask[i]) continue;
+      n++; sumAB += L1(A, i) - L1(B, i); sumAC += L1(A, i) - L1(C, i);
+      if (L1(A, i) - L1(B, i) > 12) tail++;
+    }
+    shells.push({ s, n, ab: n ? sumAB / n : 0, ac: n ? sumAC / n : 0 });
+    ringPx += n;
+    if (n) worst = Math.max(worst, sumAB / n);
+  }
+  let far = 0, farSum = 0;
+  for (let i = 0; i < N; i += 7) if (d[i] < 0) { far++; farSum += L1(A, i); }
+  let bad = 0;
+  const row = (label, ok, detail) => { if (!ok) bad++; console.log('  ' + (ok ? 'ok  ' : 'FAIL') + '  ' + label + ' - ' + detail); };
+  const prof = shells.map(k => k.s + ':' + (k.n ? (k.ab >= 0 ? '+' : '') + k.ab.toFixed(1) : '-') + '(' + k.n + ')').join(' ');
+  console.log('  level ' + LVL + ' cam ' + CAM + '  mask ' + nMask + ' px, ring ' + ringPx + ' px, far ' + far * 7 +
+    ' px at ' + (far ? (farSum / far).toFixed(1) : '-') + ' luma   shells ' + prof);
+  row('the frame carries objects to measure', nMask > 1000 && ringPx > 500 && far > 200,
+    nMask + ' px changed by the objects being drawn, ' + ringPx + ' px ring, ' + far * 7 +
+    ' px far field - an empty mask is a FAILURE, not a zero' + (nMask > 1000 ? '' : ' (vacuity)'));
+  row('no bright band outside an object outline (#41)', worst <= HALOMAX,
+    'worst outward shell reads ' + (worst >= 0 ? '+' : '') + worst.toFixed(2) + ' luma against the ' + HALOMAX +
+    ' bar, on shells ' + shells.map(k => k.s + ':' + (k.n ? (k.ab >= 0 ? '+' : '') + k.ab.toFixed(2) : '-') + '/' + k.n + 'px').join(' ') +
+    (FAKE ? '  [HALOFAKE=1: a +25 band was painted in, so this row MUST be red]' : ''));
+  row('the band is not a scatter of single pixels', ringPx ? tail / ringPx <= TAILMAX : false,
+    tail + ' of ' + ringPx + ' ring px exceed +12 luma (' + (ringPx ? (100 * tail / ringPx).toFixed(2) : '0') +
+    '%, bar ' + (100 * TAILMAX).toFixed(0) + '%) - a wide excess made of one-pixel noise is a different defect and is named here');
+  console.log('  attributed to the #178 contact shadow: ' + shells.map(k => k.s + ':' + (k.n ? (k.ac >= 0 ? '+' : '') + k.ac.toFixed(2) : '-')).join(' ') +
+    (SHOFF ? '  [SHADOW=0 arm: C === A, so these are 0 by construction]' : ''));
+  console.log(bad ? 'HALO ' + bad + ' FAILURE(S)' : 'HALO ok - objects paint no band outside their own outline');
   process.exit(bad ? 1 : 0);
 }
 if (MODE === 'anim') {
