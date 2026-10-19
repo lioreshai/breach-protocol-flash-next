@@ -59,9 +59,9 @@
   exposure gate leaves ARCHIVE and RING 9.7 and 9.5 lumas under its top anchor and ABATOIR 4.3. That is
   #505's call, not a number to move here. ABATOIR CORE authors no ceiling lift at all, so its 0.54 is the
   derived cap's ceiling, not a dose.
-- **A floor above you still reads as a ceiling** (#421, #422, and #517's from-above half is the part this
-  build fixed), **and the fan of radial streaks on distant floors and ceilings is still there** (#19). Both
-  are unchanged in this build.
+- **A floor above you still reads as a ceiling, not a floor** (#421). This build fixes the from-above half
+  of #517 — the lip you stand on — but a slab seen from underneath is still open work. **The fan of radial
+  streaks on distant floors and ceilings is still there too** (#19); neither is changed in this build.
 - **Prop brightness is still out of the room band at seven seats across the four sectors** (#371), and the
   README's eight frames are still bound to an older build than this one (#578).
 
