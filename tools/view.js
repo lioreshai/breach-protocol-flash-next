@@ -16082,6 +16082,32 @@ if (MODE === 'stats') {
   console.log(`MATBAND ceil spread ${cmax.toFixed(1)} / ${Math.min(...ceil.map(r => r.mean)).toFixed(1)} = ` +
     `${cspread.toFixed(2)}x (census - one ceiling material per level) ; ceil below every face ` +
     `${cmax.toFixed(1)} < ${fmin.toFixed(1)} ${forder ? 'ok' : 'FAIL'}`);
+  /* #495 TAKE FOUR - THE ONE BAND RULE THE TABLE DOES NOT HAVE, written as a row.
+     #416 bounded the spread WITHIN the wall family and WITHIN the floor family (MAXFAM above) and said
+     nothing about the ceiling family's value relative to them: the ceiling gets a census (the spread
+     line above) and an order row (the `<` above), so a table in which the whole roof family sits half a
+     stop under every surface a player stands on prints nothing but ok. That is the shape of #495's
+     remaining half - the ceiling tiles' `alb` was each sized against ITS OWN level's exposure headroom,
+     one sector at a time, and no row can see the family as a family.
+       The statistic is the same one the two gated rows use - a ratio of means, no luma threshold, no
+     pixel - taken BETWEEN families: the mean of the five ceiling tiles' means against the mean of every
+     face's. The bar is #416's own MAXFAM, not a number fitted to this tree: the rule "two surfaces under
+     one lamp must not sit 1.5x apart in reflectance" is exactly the rule that was never applied across
+     the ceiling line, so applying it costs nothing new in judgement.
+       It ships as a DEBT row at the measured baseline, not as a new gate: matband has no row in ci.yml,
+     and AGENTS.md is explicit that a probe's new failure is a gate change wearing a probe's clothes, so
+     this goes red only under STRICT=1. The verdict line counts it either way. */
+  const famMean = a => a.reduce((s, r) => s + r.mean, 0) / a.length;
+  const gap = famMean(ceil) / famMean(faces), GAPFLOOR = 1 / MAXFAM;
+  const gapOk = gap >= GAPFLOOR;
+  if (!gapOk && process.env.STRICT) fails++;
+  console.log(`MATBAND ceil-vs-face family gap ${famMean(ceil).toFixed(1)} / ${famMean(faces).toFixed(1)} = ` +
+    `${gap.toFixed(2)}x >= ${GAPFLOOR.toFixed(3)} (= 1 / #416 MAXFAM ${MAXFAM}) ` +
+    `${gapOk ? 'ok' : (process.env.STRICT ? 'FAIL' : 'KNOWN #495')}` +
+    (gapOk ? '' : ` - the ceiling family sits ${gap.toFixed(2)}x below the surfaces it covers IN THE TABLE, ` +
+      'which is what a delivered ceiling/deck band of 0.45-0.54 is made of; the two order rows above stay ' +
+      'green either way, so this row prices the family, never the order') +
+    ' (bar is #416 MAXFAM; STRICT=1 promotes it)');
   let grainDebt = 0;
   /* The "before" figure is a RECORDED measurement per tile, kept in a table - not a value keyed on the
      name a tile happens to have. #438's review caught the previous form (`r.n === 'STONE' ? 33.9 : 35.6`)
