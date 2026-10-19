@@ -186,6 +186,32 @@ function grain(p, amt, seed, base) {
   const g = fbm(p.u, p.v, base || 16, 3, 0.6, seed) - 0.5;
   p.r += g * amt; p.g += g * amt * 0.96; p.b += g * amt * 0.92;
 }
+/* #495 THE ROOF'S JOINTS, AT A SCALE THE MIP CHAIN CAN CARRY.
+   The roof is 41-50 % of a standing frame and `surface`'s ORDER rows report it at 0.32-0.59x the luma
+   of the deck under it. Earlier waves of this issue fixed the junction (#495 first wave), the doses
+   (ecf423d / ad39fda) and the tile's value (`alb`) and its hue family (#466); what the roof still has
+   no trace of is a SURFACE. `matband` says the family is the quietest in the table - ceiling grain
+   13.2-19.7 against wall grain up to 23.8 - and the reason it never reaches the screen is SCALE: a
+   ceiling is delivered at a footprint of tens of centimetres per pixel, so the per-texel speckle and
+   the 1/4-tile seams of these tiles are averaged away by the mip the pixel actually fetches, and what
+   survives into the coarse mips is a mean. A flat sheet with a fan of aliased speckle at the top.
+   So the ceiling gets its structure one octave COARSER than any term it had: a two-by-two slab block
+   grid per tile - 0.45 m slabs at `ceilTile` 0.9 - which is two, four and eight pixels wide at the
+   near, mid and far footprints the roof is drawn at, so a joint is still a JOINT and not a wash.
+   MEAN-EXACT, NOT MEAN-PRESERVING-BY-TUNING: of the four blocks one is offset 0, two are +amt and one
+   is -2*amt, so the four sum to exactly zero and the tile's mean is its mean with the term absent, at
+   every mip whose cell spans a whole number of blocks and exactly at the mip the far wash averages.
+   That is why no `matband` mean row, no `exposure` median and no ceiling bias moves for this: the roof
+   gains a joint and gives back no luma, which is the half of #495 the value knobs cannot reach.
+   The blue channel carries a touch more of the offset than the red because these tiles state that
+   overhead is cooler than anything under it (#369), and the joint therefore reads cool.
+   `alb` scales this term with the rest of the paint, as it scales all albedo (#416); the offset is
+   authored on the pre-`alb` albedo, so a pale tile gets paler slabs and a dark tile darker ones. */
+function ceilBlocks(p, amt) {
+  const k = ((p.u * 2) | 0) + ((p.v * 2) | 0);      // 0, 1, 1, 2 across the tile's four blocks
+  const t = k === 1 ? amt : k === 2 ? -2 * amt : 0; // 0 + amt + amt - 2*amt = 0 exactly
+  p.r += t; p.g += t * 0.98; p.b += t * 1.06;
+}
 // Cracks are the near-flat centreline of the ridged field, and that field spends most of
 // its area near its median - so take a narrow band around 0.5 and state coverage directly.
 function crackMask(p, cover, base, seed) {
@@ -719,6 +745,7 @@ CEILS.CONCRETE = matTex(T2, T2, p => {
   const soot = smoothstep(0.55, 0.95, fbm(p.u * 1.6, p.v * 1.6, 4, 3, 0.6, 13));
   p.r -= soot * 20; p.g -= soot * 19; p.b -= soot * 15;
   cracks(p, 0.05, 0.08, 3, 27, [24, 24, 28]);
+  ceilBlocks(p, 6);                                 // #495: slab joints at a mip-carryable scale (see ceilBlocks)
 }, { bump: 1.1, amb: 0.42, spec: 0.03, ao: 0.8, grain: 12, alb: 1.15 });   // #495: albedo into the family band at each level's OWN exposure headroom + joint/speckle detail (see the CEILS note above CEILS.CONCRETE)
 CEILS.PANEL = matTex(T2, T2, p => {
   const gx = (p.u * 4) % 1, gy = (p.v * 4) % 1;
@@ -732,6 +759,7 @@ CEILS.PANEL = matTex(T2, T2, p => {
   const vent = Math.abs(gy - 0.5) < 0.32 && Math.abs(gx - 0.5) < 0.22 && ((p.v * 4) | 0) % 3 === 0;
   if (vent) { const s = Math.sin(gy * 60) * 0.5 + 0.5; p.h -= s * 0.2; p.r -= s * 20; p.g -= s * 20; p.b -= s * 18; }
   dust(p, 0.12, [62, 66, 74]);
+  ceilBlocks(p, 6);                                 // #495: the 4x4 panels are grouped into slab bays
 }, { bump: 1.1, amb: 0.44, spec: 0.14, specPow: 26, ao: 0.75, grain: 11, mipCyc: 4, alb: 1.30 });   // #495: albedo + joint/speckle detail, bounded by RING TRANSPORT's own arrival-frame headroom
 /* #495: the ROCK paint is a NAMED function now, because THE STACK wears a second instance of it. Same
    rock, two scales of the same story: ARCHIVE SUBLEVEL's low ceiling and the finale's vault are one
@@ -766,6 +794,8 @@ const rockPaint = p => {
      what moves on the flatparity frames is pixels, not exposure. CEILS.PANEL and CEILS.SINEW - RING
      TRANSPORT and ABATOIR CORE - are untouched, which is the level-scoped control on those frames.
      No `alb`, `amb`, `spec`, bump, grain, lamp, bias or height is touched. */
+  // #495: the bedding planes are broken into bays, so the strata read as SLABS and not as one wash
+  ceilBlocks(p, 7);
   const run = fbm(p.u * 1.1, p.v * 4.2, 3, 4, 0.5, 71) * fbm(p.u * 4, p.v * 13, 9, 3, 0.5, 74) * 3.1;
   const dry = smoothstep(0.89, 1.35, run) * 0.85;
   if (dry > 0) {
@@ -827,6 +857,7 @@ CEILS.SINEW = matTex(64, 64, p => {
   const vk = veinMask(p, 0.18, 3, 23);
   p.r += (58 - p.r) * vk * 0.55; p.g += (34.4 - p.g) * vk * 0.55; p.b += (34 - p.b) * vk * 0.55;
   p.h -= vk * 0.1;
+  ceilBlocks(p, 5);                                 // #495: the hide is stretched in bays; zero-mean, so #495 TAKE THREE's 0.94 albedo and ABATOIR's margin are untouched
 }, { bump: 1.3, amb: 0.42, spec: 0.16, specPow: 18, ao: 0.8, grain: 13, alb: 0.94 });   // #495 TAKE THREE: grain + an albedo BELOW one, sized by measurement to what ABATOIR CORE's own arrival frame can pay. This tile covers 47 % of that sector's arrival frame, and on the tree that synced main the composited first frame sat at 75.0 against an absolute window whose top is 75 (tools/ci/assert.js exposure) - zero margin, which is why CI's push and pull_request runs gave opposite verdicts on one tree (#505). 0.94 returns 0.9 luma of frame (spawn 75.0 -> 74.1, seeded median 69 -> 68.77) and buys that margin out of the roof's own value, not out of a band: no threshold, window or floor moved here. Hue untouched, so #466's family statement (ceiling h31 against wall h9) stands, and the grain raised in #495 is what keeps the roof a SURFACE at the lower value - the roof keeps its structure and gives back only its lead.
 
 /* ============================ decals ============================ */
