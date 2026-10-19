@@ -11404,7 +11404,27 @@ if (MODE === 'viewmodel') {
   bad += problems.length ? 1 : 0;
   /* One record, and it is the dimensionless one on purpose: an absolute millisecond would re-baseline on
      every runner this job lands on, which is how a budget row becomes a weather report. */
-  const VCOST_REF = refRecord('viewmodel', 'VM-SHARE', 'num', [0.10]);
+  /* #587 RE-RECORDED 0.10 -> 0.14 BY MEASUREMENT. The tolerance is UNTOUCHED at 0.06; what moved is the
+     measured cost of a rig that now carries a surface term, and this is the case the row's own print names
+     as a deliberate re-record. WHY IT HAD TO MOVE: four rolls of this probe on one unchanged tree read
+     15.4 / 14.3 / 14.2 / 13.4 %, median 14.25 - so the record sat 4.3 pp below the thing it now measures
+     and the red line at 0.16 sat INSIDE the roll-to-roll spread, which is exactly how one runner of a tree
+     prints ok and another runner of the SAME tree prints FAIL (a fifth roll, of a variant differing only in
+     where six per-pixel reads are loaded, came in at 16.8 % and was the FAIL). The number is the median of
+     the rolls, not the highest one.
+     THE OTHER OPTION, MEASURED AND REJECTED: `WS_SLOPE` / `WS_MAX` set the wave's DEPTH, and the WORK the
+     pixel loop does does not depend on that magnitude - the path is chosen by whether the term is ON, not
+     by how deep it is, so shallow grain costs exactly what deep grain costs. The variant that turns it off outright (`WS_SLOPE = 0`, the
+     flat store back) reads 5.9 %, i.e. the seam is ~8.5 pp of the frame and it is a FLOOR, not a dial; the
+     only depth that buys time is zero, and that is the flat gun this issue exists to end. A hoist of the
+     loop's invariant reads into per-triangle locals measured 13.7 / 16.8 % - indistinguishable from the
+     rolls above at this roll count - and is therefore NOT shipped. The real lever left is the coord solve
+     itself: `u` is affine in screen x and y, so a row could STEP it instead of solving it per pixel, but
+     that is a rasterizer change, it re-keys every frame reference in this file, and it is a separate
+     increment. No threshold, bound, tolerance or vacuity clause moved. The row does not claim 14 % is
+     affordable - it claims that is what the rig now costs, and the pixel rows above are what it looks like
+     for. */
+  const VCOST_REF = refRecord('viewmodel', 'VM-SHARE', 'num', [0.14]);
   const vcTol = +(process.env.VCOST_TOL || 0.06);
   const vcMoved = Math.abs(vmShare - VCOST_REF[0]) > vcTol;
   console.log('  record'.padEnd(22), (vcMoved ? 'FAIL' : 'ok  ') + ' the rig costs ' + (100 * vmShare).toFixed(1) +
