@@ -710,6 +710,12 @@ function pickWallTex(cfgL) { return Math.random() < 0.78 ? cfgL.wall : cfgL.wall
    cannot change a box's silhouette, but it does turn the asymmetric props (a barrel's bung, a crate's
    lid seam) differently. */
 const PROP_YAW_LO = 18 * Math.PI / 180;
+/* #386: THE ONE CRATE SCALE. Both placement paths read this, so "a crate" cannot mean two sizes again -
+   the authored finale used to carry the scale its plan was drawn at (1) while the generator used 0.72,
+   which made the same prop taller on screen and a wider obstruction in the collision ghost. The value is
+   the generator's, because that is the crate the player spends three sectors learning. Lamps and barrels
+   are named where they are placed; they already agreed. */
+const CRATE_SCALE = 0.72;
 function propYaw(x, y) {
   let h = (Math.imul(x | 0, 0x9E3779B1) ^ Math.imul(y | 0, 0x85EBCA6B)) >>> 0;
   h ^= h >>> 16; h = Math.imul(h, 0x7FEB352D) >>> 0; h ^= h >>> 15;
@@ -2174,7 +2180,13 @@ function buildAuthored(li) {
       LIGHTS.push({ x: px, y: py, z: fl + LHOVER, r: 7.2, str: lstr, col: cfgL.lampCol, stat: 1 });
       PROPS.push({ tex: PROP.lamp, x: px, y: py, scale: 0.95, z: fl, kind: 'lamp', yaw: propYaw(px, py) });
     } else if (s[2] === 'B') PROPS.push({ tex: PROP.barrel, x: px, y: py, scale: 0.86, z: fl, kind: 'barrel', hp: BARREL_HP, dead: false, yaw: propYaw(px, py) });
-    else if (s[2] === 'C') PROPS.push({ tex: PROP.crate, x: px, y: py, scale: 1, z: fl, kind: 'crate', yaw: propYaw(px, py) });
+    /* #386: one crate in the game. The plan glyph carried the scale THE STACK was DRAWN at, so the
+       authored crate shipped at 1 while every generated crate ships at 0.72 - the same prop, a third
+       taller on screen, and a wider obstruction in the collision ghost (FOOT.crate*scale + 0.28 =
+       0.655 m against 0.55 m), so the finale's crate was cover the player never learned. Nothing about
+       the authored room makes a bigger crate mean anything; the two placement paths now carry one
+       literal. Lamps (0.95) and barrels (0.86) already agreed between the paths and are untouched. */
+    else if (s[2] === 'C') PROPS.push({ tex: PROP.crate, x: px, y: py, scale: CRATE_SCALE, z: fl, kind: 'crate', yaw: propYaw(px, py) });
     else if (s[2] === 'A' || s[2] === 'H') PICKUPS.push({ type: s[2] === 'A' ? 'ammo' : 'health', x: px, y: py, bob: 0, dead: false });
     else if (s[2] === 'g' || s[2] === 'h' || s[2] === 'b') {
       const ak = s[2] === 'g' ? 'grunt' : s[2] === 'h' ? 'hound' : 'brute';
@@ -2747,7 +2759,7 @@ function genLevel(li) {
         PROPS.push({ tex: PROP.lamp, x: bx + 0.5, y: by + 0.5, scale: 0.95, z: floorAt(bx + 0.5, by + 0.5), kind: 'lamp', yaw: propYaw(bx + 0.5, by + 0.5) });
       }
     }
-    for (let i = 0; i < cfgL.crates; i++) { const c = clearSpot(takeNear(2)); PROPS.push({ tex: PROP.crate, x: c[0] + 0.5, y: c[1] + 0.5, scale: 0.72, z: floorAt(c[0] + 0.5, c[1] + 0.5), kind: 'crate', yaw: propYaw(c[0] + 0.5, c[1] + 0.5) }); }
+    for (let i = 0; i < cfgL.crates; i++) { const c = clearSpot(takeNear(2)); PROPS.push({ tex: PROP.crate, x: c[0] + 0.5, y: c[1] + 0.5, scale: CRATE_SCALE, z: floorAt(c[0] + 0.5, c[1] + 0.5), kind: 'crate', yaw: propYaw(c[0] + 0.5, c[1] + 0.5) }); }
     for (let i = 0; i < cfgL.barrels; i++) {
       const c = clearSpot(takeNear(2));
       PROPS.push({ tex: PROP.barrel, x: c[0] + 0.5, y: c[1] + 0.5, scale: 0.86, z: floorAt(c[0] + 0.5, c[1] + 0.5), kind: 'barrel', hp: BARREL_HP, dead: false, yaw: propYaw(c[0] + 0.5, c[1] + 0.5) });
