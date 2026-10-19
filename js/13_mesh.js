@@ -450,7 +450,20 @@ const MESH = (function () {
          changes, so a build-time ring count cannot be made to obey the gate. The axial term is safe: a
          10 mm step along a tube projects to ~9-12 px at the rig's depths, and it reads as machined rings
          on a barrel and as checkering on a grip. Rings on the rig's cylinders are the stated remaining
-         work on #587. Centred on the part's own midpoint for the same reason a box is centred. */
+         work on #587. Centred on the part's own midpoint for the same reason a box is centred.
+           TAKE TWO IS A BUG FIX, NOT A TUNE. #588 computed this term and the two ring pushes below emitted
+         `this.rg ? … : 0` - they tested only `rg`, which the rig never sets - so on the view model the
+         whole block was a DEAD STORE and the sentence above was false of the shipped build: the rig's
+         barrels, magazine tubes, stocks, grips and trigger guards left the builder with coord 0 and took
+         the flat `TK = 0` branch exactly as they did before #588. Both pushes now test `wg` too.
+           WHAT IT PUTS ON SCREEN, measured in ONE tree by deleting the rig's tube geometry outright
+         (`if (this.wg) return this;` before the ring loop) and reading `viewmodel`'s own paint count: at
+         the HIP a pistol's tubes contribute 0 of its 10,357 px (258 tris vs 234 - submitted, and every one
+         of their pixels repainted by a part emitted later, because the rig deliberately writes no depth),
+         and SHOULDered they contribute 6,127 of 51,308. So this term reaches the screen when the gun is
+         shouldered and not at the hip, which is also why every recorded frame - all of them hip frames -
+         holds its byte, and why the surface the hip shows is still the box parts #588 wired in. The hip
+         tubes being overpainted wholesale is #587's stated remaining work alongside the ring term. */
       const mx = (ax + bx) * 0.5, my = (ay + by) * 0.5, mz2 = (az + bz) * 0.5;
       const fx = wSnap((bx - ax) * 0.5), fy = wSnap((by - ay) * 0.5), fz = wSnap((bz - az) * 0.5);
       sva = (ax - mx) * fx + (ay - my) * fy + (az - mz2) * fz;
@@ -475,12 +488,12 @@ const MESH = (function () {
     for (let i = 0; i < n; i++) {
       const cx = u[0] * RN[i * 2] + v[0] * RN[i * 2 + 1], cy = u[1] * RN[i * 2] + v[1] * RN[i * 2 + 1], cz = u[2] * RN[i * 2] + v[2] * RN[i * 2 + 1];
       this.p.push(ax + cx * ra, ay + cy * ra, az + cz * ra, c[0], c[1], c[2]); this.e.push(this.em);
-      this.s.push(this.rg ? sva + RING * (i <= half ? i / half : 2 - i / half) : 0);
+      this.s.push(this.rg ? sva + RING * (i <= half ? i / half : 2 - i / half) : this.wg ? sva : 0);
     }
     for (let i = 0; i < n; i++) {
       const cx = u[0] * RN[i * 2] + v[0] * RN[i * 2 + 1], cy = u[1] * RN[i * 2] + v[1] * RN[i * 2 + 1], cz = u[2] * RN[i * 2] + v[2] * RN[i * 2 + 1];
       this.p.push(bx + cx * rb, by + cy * rb, bz + cz * rb, c[0], c[1], c[2]); this.e.push(this.em);
-      this.s.push(this.rg ? svb + RING * (i <= half ? i / half : 2 - i / half) : 0);
+      this.s.push(this.rg ? svb + RING * (i <= half ? i / half : 2 - i / half) : this.wg ? svb : 0);
     }
     for (let i = 0; i < n; i++) {
       const j = (i + 1) % n;
