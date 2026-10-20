@@ -82,6 +82,13 @@ const MESH = (function () {
      from a later-loaded file for its OWN constant is a tie no reader can see from this file. */
   const TINT_NEUTRAL = [1, 1, 1];
 
+  /* #611 the body's counter-pigment against the cast it stands in (see BODYHUE in js/00_core.js).
+     BH_K is how much of the room's hue is taken back out of the body's paint: 1 cancels the cast to
+     first order, 0 is the fixed-albedo form the separation rows are seen failing. BH_LO/BH_HI bound
+     the multiplier so a strongly tinted cell cannot take a channel of a dark palette to nothing; the
+     clamp is what makes the row's mean move by a tenth rather than by a third in the worst deal. */
+  const BH_K = 1.0, BH_LO = 0.62, BH_HI = 1.45;
+
   /* #78: one subdivision knob for every part was the spike's last leftover - a thigh and a visor got
      the same 6-sided prism, so the silhouette faceted exactly where it is widest while the small parts
      were already over-tessellated. `ns` is a per-CALL register on the Builder, the same shape as `em`
@@ -1719,6 +1726,28 @@ const MESH = (function () {
        call site would have traded one defect for the dim-the-gun-when-you-aim-at-a-wall one. */
     const cc = o.cell === undefined ? cellIdx(o.x, o.y) : o.cell;
     const lt = o.near ? TINT_NEUTRAL : cellTint(cc), lm = MAP.light;
+    /* #611 WHERE the body's paint sits in hue, decided once per DRAW from the cast falling on it.
+       A body's delivered colour is its palette x the room's lamp tint, so a fixed albedo separates in
+       the rooms whose hue is far from the kind's and disappears in the ones whose hue is close - the
+       sector roll, not the art, decides whether the player can see the enemy. The palette stays put;
+       what changes is the multiplier the cast puts on it. `lt` is that tint normalised about 1, so the
+       zero-mean push `K*(mean - lt)` cancels the cast to first order at K = 1 and buys no luma at any
+       K: the three multipliers sum to 3 by construction. It is ALBEDO - it goes with the texel, so the
+       BODYPAINT arm of tools/view.js contrast turns it off along with the palette and still measures
+       paint against shading unchanged; a body wearing the background's colour is not wearing a pigment
+       he does not own. Bodies only: the gun is #376's and a prop's paint is #371's, and neither is the
+       thing a player has to find in under a second. */
+    let bhr = 1, bhg = 1, bhb = 1;
+    if (BODYHUE && BODY && !MDL && !pr) {
+      const bm = (lt[0] + lt[1] + lt[2]) * 0.3333333;
+      if (bm > 0.125) {
+        const bk = BH_K / bm;
+        bhr = 1 + bk * (bm - lt[0]); bhg = 1 + bk * (bm - lt[1]); bhb = 1 + bk * (bm - lt[2]);
+        if (bhr < BH_LO) bhr = BH_LO; else if (bhr > BH_HI) bhr = BH_HI;
+        if (bhg < BH_LO) bhg = BH_LO; else if (bhg > BH_HI) bhg = BH_HI;
+        if (bhb < BH_LO) bhb = BH_LO; else if (bhb > BH_HI) bhb = BH_HI;
+      }
+    }
     const FL = S.flash, FC = S.flashCol;                // the muzzle's own light, the billboard's term
     for (let k = 0, K = T.length; k < K; k += 3) {
       const i0 = T[k], i1 = T[k + 1], i2 = T[k + 2];
@@ -1833,6 +1862,12 @@ const MESH = (function () {
          and take no albedo. tools/view.js contrast's distance rows are the only caller. */
       let packed = PD[i0 * 6 + 3] << 16 | PD[i0 * 6 + 4] << 8 | PD[i0 * 6 + 5];
       if (!BODYPAINT && !MDL) packed = BPAINT_RGB;
+      else if (bhr !== 1 || bhg !== 1 || bhb !== 1) {
+        /* #611: the counter-pigment, on the albedo and before the light ever touches it. Clamped to
+           the texel's own 0..255 so a saturated room cannot push a channel out of the buffer. */
+        const par = (packed >> 16 & 255) * bhr, pag = (packed >> 8 & 255) * bhg, pab = (packed & 255) * bhb;
+        packed = (par > 255 ? 255 : par | 0) << 16 | (pag > 255 ? 255 : pag | 0) << 8 | (pab > 255 ? 255 : pab | 0);
+      }
       let r = (packed >> 16 & 255) * lr + FOGC[0] * fog;
       let g = (packed >> 8 & 255) * lg + FOGC[1] * fog;
       let b = (packed & 255) * lb + FOGC[2] * fog;

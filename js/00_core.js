@@ -124,6 +124,28 @@ var BODYPAINT = 1;
 // the packed 0xRRGGBB albedo BODYPAINT=0 wears; read ONLY while the arm is down, so its value is inert
 var BPAINT_RGB = 0xffffff;
 
+/* #611: BODYHUE arms WHERE the body's paint sits in hue once the room's own cast is taken out of it.
+   The palette in js/13_mesh.js (SKIN/DARK/CLOTH) is ONE fixed triple per kind and the room's lamp tint
+   multiplies over it in the pixel body, so an enemy's delivered hue is his kind's hue PLUS the dealt
+   room's hue. In a room whose hue is far from the kind's he separates for free; in a room whose hue is
+   close he is the wall's colour family and arrives a beat late. Separation is being dealt by the sector
+   roll instead of authored, and 8-16 m is where combat is fought.
+   The fix is on the MATERIAL, which is what the paint arm of contrast already says it is: the body's
+   paint is mixed with the complementary of the cast falling on it, so what survives the room is his own
+   pigment rather than the room's. `lt` is the cell's own normalised tint (mean ~1); pushing each
+   channel by `K*(mean - channel)` cancels the first-order cast at K=1 while the push is zero-mean by
+   construction, so no luma is bought or returned - this is a hue move and not a brighter texture.
+   1 (shipped) = the body's own palette reaches the eye; the room's cast is cancelled in his paint.
+   0 = the pre-fix form, the room's tint multiplying a fixed albedo, kept as the A/B the separation
+       rows are meant to be seen failing.
+   ONE read site, js/13_mesh.js's triangle loop, gated with BODYPAINT so the paint arm keeps meaning
+   "the body's own material": with the arm down the body wears the BACKGROUND's delivered colour and
+   this term is off, because the counter-pigment is part of what he is made of, not of how he is lit.
+   It never runs on the view model (#376 owns the gun) or on a prop (#371 owns prop paint), and there is
+   no billboard copy - enemies are `mesh: true` (js/40_render.js:592), which is the same one-copy
+   argument BODYSHADE and BODYHAZE make. */
+var BODYHUE = 1;
+
 /* ---------------- config ---------------- */
 let FOGC = [9, 12, 20];   // per level: air has a colour
 const LVL = 32;                       // light/fog buckets
