@@ -8,8 +8,34 @@ const LEVELS = [
     // face, 22% of faces by pickWallTex, and every one of them an edge that goes nowhere. CONCRETE is the
     // same grey masonry family to the eye - form-panelled, dusty, cracked - over flagstones, so the wall
     // keeps the archive's colour and stops repeating the floor it stands on.
+    // #369 THE VAULT CAP. ARCHIVE authored no surface order at all, which left it on the renderer's flat
+    // default lead (js/40_render.js CEILGM 0.9): a ceiling plane more than CEILHI 3 m above the eye gained
+    // up to +0.90 of BASE light, so the far end of its tall rooms - the rows that meet a wall face at the
+    // ceiling junction - arrived brighter than the face they meet. `surface`'s SEAM row read that junction
+    // at 9.8 / -1.7 / -3.8 luma on this level's three arrival poses while its whole-band order was already
+    // fine (ceiling 72.2 against floor 99.6 at cam0), which is the signature of a term that only pays in
+    // the far half: near rows take CEILFL 0.10 and read dark, far rows take the whole 0.9 and read as the
+    // brightest thing overhead. Height is already said by the riser seam and the minimap band cue (#164),
+    // so the lift was buying nothing the geometry does not say better. 0.30 is a CAP, not a re-light: the
+    // ramp is untouched (CEILG/CEILHI/CEILFL unchanged, js/40_render.js:403) and only its ceiling moved,
+    // so a vault still lifts off black by up to 0.30 of base and every ceiling within CEILHI of the eye is
+    // byte-identical. It is DARKENING ONLY, which is the direction #369's product decision requires - the
+    // arrival frames sit under an absolute exposure top with no room to go up (#505).
     name: 'ARCHIVE SUBLEVEL', size: 26, rooms: 7, maxRoom: 9, wall: WT.BRICK, wall2: WT.CONCRETE,
-    floor: 'STONE', ceil: 'ROCK', amb: 0.19, lampCol: [255, 196, 120], fogCol: [17, 13, 10],
+    // #495 SECOND WAVE: ceilBias -0.08 -> -0.04. The lead cap above stays exactly as #369 set it; what
+    // changed is that the roof no longer pays for a junction it wins by other means. With the seam cap's
+    // reach fixed (js/40_render.js, the `cn2` span) every ARCHIVE seam reads 23-29 luma against a bar of 15
+    // at six poses, and the arrival seat's ceiling band goes 45.1 -> 47.5 against a deck of 99.6.
+    // #495 THIRD WAVE: ceilBias -0.04 -> 0.00. That -0.04 is the residue of the same overcorrection the
+    // SECOND WAVE reversed on RING and THE STACK — a tax left over from buying a junction the seam cap now
+    // buys locally (`cn2`). ARCHIVE's own arrival seat measured 0.68x its deck in `surface`'s ORDER row,
+    // under this issue's 0.7 bar, while its seams carry 19-28 luma of margin over the bar of 15 and its
+    // spawn median sits ~7 lumas under assert.js's top — so here the margin is in the seams and in the
+    // exposure band, which is the case the bar was written for. The cap above is untouched: `ceilLead`
+    // stays 0.30, still an authored value that wins outright, so a vault still cannot out-light the deck
+    // it spans and the ramp's near half is byte-identical. The roof is brighter by 2.4 luma of BASE on
+    // every ceiling row of this sector alone; no lamp, no plane, no material, no floor term moved.
+    floor: 'STONE', ceil: 'ROCK', amb: 0.19, lampCol: [255, 196, 120], fogCol: [17, 13, 10], ceilLead: 0.30, ceilBias: 0,
     lamps: 6, crates: 7, barrels: 7, spawn: { grunt: 5, hound: 3, brute: 0 }, pick: { health: 3, ammo: 4, armor: 1 },
     fixtures: ['PIPE', 'VENT'],           // #400: the archive is a place with old pipework in it
     purpose: ['RACK', 'BOARD']            // #400: and it is where they KEPT things - shelving and signage
@@ -33,8 +59,25 @@ const LEVELS = [
     // mean albedo 129.4, which is what the riser face wears today. That is the whole reason the frame
     // mean holds: the band trades hue for hue at the same delivered light. Its own Rec.709 luma is
     // deliberately NOT 129.4 — under a cold lamp a colour cannot hold both (issue #466, the dose table).
+    // #369 THE VAULT CAP, same rule as ARCHIVE and the same reason: RING authored no order, so its tall
+    // rooms paid the flat CEILGM 0.9 and its ceiling junction read -11.4 / -5.4 / 7.2 luma against the face
+    // it meets on three of six poses while its band order held (ceiling 56.5 against floor 81.9 at cam1).
+    // Cap the lead, do not touch the ramp, darken only.
+    // #369 take seventeen: the cap alone left ONE pose under the bar. RING cam1 looks down a long room and
+    // its ceiling junction read 10.6 luma against the face under it (ceiling band 37.6, that face 48.2) —
+    // the one seat on this sector where the roof closes on the wall. Cause: the LEAD was capped and the BIAS
+    // was not. This level's ceiling base is `amb + ceilBias + lift` = 0.185 - 0.08 + 0.30 = 0.405 at a vault
+    // against a deck base of 0.185, so the deck stays on top only because a lamp pool hits it; where a long
+    // sight line puts no pool under the roof the two meet at the junction with nothing between them. So the
+    // bias came down with the lead, -0.08 -> -0.20, and every ceiling row on the sector went ~5 luma
+    // quieter with it.
+    // #495 SECOND WAVE: that dose is REVERSED, -0.20 -> -0.08, because it was a level-wide tax on one
+    // pose. The corner it was bought for is now held locally: the seam cap reaches the eight rows the
+    // junction is actually judged over (js/40_render.js `cn2`), so cam1 reads a 16.7-luma seam with the
+    // roof 6 luma brighter and the other five poses stay 18-112. One number per sector stopped being the
+    // price of one corridor. No lamp, no floor term, no ramp constant and no threshold moves.
     name: 'RING TRANSPORT', size: 32, rooms: 9, maxRoom: 10, wall: WT.TECH, wall2: WT.GRATE,
-    floor: 'METAL', ceil: 'PANEL', amb: 0.185, lampCol: [170, 226, 255], fogCol: [10, 14, 21],
+    floor: 'METAL', ceil: 'PANEL', amb: 0.185, lampCol: [170, 226, 255], fogCol: [10, 14, 21], ceilLead: 0.30, ceilBias: -0.08,
     accent: [198, 123, 53],           // #466: a painted deck lip; amber, 178 deg off this sector's 210
     lamps: 8, crates: 8, barrels: 9, spawn: { grunt: 6, hound: 5, brute: 1 }, pick: { health: 4, ammo: 5, armor: 2 },
     fixtures: ['STRIPE', 'PIPE'],         // #400: a transport ring is striped and stencilled
@@ -116,7 +159,21 @@ const LEVELS = [
        this change exists to bring down - so the separation stays where it is measured rather than being
        bought with exposure. Measured at that seat below and in `surface`; the moved records are named in
        the PR. */
-    floorBias: 0.12, ceilBias: -0.04, ceilLead: 0.16, wallBias: 0.10,
+    // #495 SECOND WAVE: ceilBias -0.16 -> -0.04, the same reversal as RING and for the same measured
+    // reason — that dose was paid at every seam to buy cam0, and cam0 is now bought by the seam cap's own
+    // reach instead (js/40_render.js `cn2`): cam0 reads a 19.1-luma junction, all six poses are ok, and the
+    // arrival band sits at 51.9 against a deck of 71.7, which is 0.72 - this issue's own bar, met.
+    // The authored order still holds as written: `ceilLead <= floorBias - ceilBias` is 0.16 <= 0.12 + 0.04,
+    // exactly the rule's boundary, so the vault is lifted off black without leading the floor it spans.
+    floorBias: 0.12, ceilBias: -0.04, ceilLead: 0.16, wallBias: 0.10,   // #369 take seventeen: ceilBias -0.04
+    // -> -0.16, the same dose as RING and for the same measured reason — cam0, the level's OWN spawn seat,
+    // read a 7.1-luma ceiling junction (ceiling band 52.1 against the 59.2 face under it) while its band
+    // ORDER held at ceiling 52.1 under deck 71.7. The order constrains the vault against the DECK it spans
+    // and that is still true with this number — `ceilLead <= floorBias - ceilBias` is 0.16 <= 0.12 + 0.16 =
+    // 0.28, and the rule is why the dose is taken on the bias rather than by cutting `ceilLead` again: the
+    // variant that moved the lead (0.16 -> 0.10) left cam0 at 7.1, because the roof at that seat is mostly
+    // ceiling inside CEILHI, which the lead cannot reach and the bias can. Darken only: the deck's 0.12,
+    // the walls' 0.10, every lamp and every ramp constant are exactly as authored.
     // #385: the absolute half of the step crease, in luma (js/40_render.js SEAMA). This level authors
     // `lamps: 0`, so its decks are the darkest in the game and a MULTIPLY-only crease is 6 luma deep on
     // the pit lip against 13 on a lit one - the same edge, half the legibility. It is authored HERE and
@@ -373,6 +430,8 @@ function linkedClimb(vbArr, featArr, i, j, d) {
 function linkBoundaries() {                               // read before one cannot look fresh
   const cell = MAP.cell, fz = MAP.fz;
   let steps = 0;            // does ANY column boundary in this level have a step at it? (#100)
+  let tallStep = 0;         // ... or ONLY boundaries taller than one quantum? The two are different
+  //   questions and #517 is the cost of asking one of them twice - see the pair of lines below.
   const seenF = new Uint8Array(256); let bands = 0;   // distinct floor quanta over open columns (#152)
   const cntF = new Int32Array(256);                   // their histogram: the band cue's datum (#164)
   for (let y = 0; y < MH; y++) for (let x = 0; x < MW; x++) {
@@ -385,7 +444,28 @@ function linkBoundaries() {                               // read before one can
       const n = ny * MW + nx;
       if (cell[i] || cell[n]) { bits |= VB_BLOCK << (d << 2); continue; }
       const dq = fz[n] - fz[i];
-      if (dq > 1 || dq < -1) steps = 1;                   // a riser exists to draw, up or down (#100)
+      /* #517 DRAW and BLOCK are two thresholds and one byte carries both. The blocker below keeps
+         `dq > 1` - a one-quantum step stays walkable and auto-stepped (#100) - but `steps` gates the
+         renderer's step branch, and that branch's own stop test is ANY height difference (#192,
+         js/40_render.js: the `if (dq && !(VB_RAMP|VB_LADDER))` clause) because the generator authors
+         every tread exactly one quantum from the last. Deriving the DRAW flag from the BLOCK threshold
+         took the branch away from any grid whose only step is one quantum - a single-quantum mezzanine,
+         a poked flight of treads - and with it both halves of a band edge: no riser face from the deck
+         below it and no edge from the band you stand on, plus no floor-plane march in the ground pass
+         (`gndSteps` is the same flag), so the deck beyond the lip solved through the band's own volume.
+         `view.js cull`'s stair row has been forcing `MAP.steps = 1` after its poke to render the very
+         geometry it claims to measure; that forcing was the defect, stated as a probe. A flat level has
+         no `dq != 0` anywhere and still derives 0, so a flat frame stays bit-identical (#170). */
+      if (dq) steps = 1;                                  // a face exists to draw, up or down (#517)
+      /* The SECOND census is the crossing, not the face: a slab whose side is more than one quantum tall
+         is the only overhead geometry whose OWN underside is a surface above the eye's head. The ground
+         pass's ceiling occluder pulls (#170) write a distance into zbuf for rows they do not solve, and
+         they are entitled to do that only where such a slab exists: on a one-quantum tread the slab's
+         underside IS the ceiling plane the row already solves, so pulling a second distance there
+         overwrites the row's own answer with somebody else's (#163, and `view.js heights` calls it
+         CEILING-DEPTH). So `steps` reads the DRAW threshold - any dq - and `tallStep` reads the BLOCK
+         threshold, |dq| > 1, exactly what the VB_BLOCK clause below refuses to let you walk through. */
+      if (dq > 1 || dq < -1) tallStep = 1;                // a multi-quantum riser exists, up or down
       if (dq > 1 && !(MAP.vb[i] & (VB_RAMP | VB_LADDER) << (d << 2))) bits |= VB_BLOCK << (d << 2);
     }
     // blocking is derived from the grid, so a relink must be able to REMOVE it: OR-ing leaves a
@@ -397,6 +477,7 @@ function linkBoundaries() {                               // read before one can
   // is what keeps a flat frame bit-identical (#100). A grid with a step in it must come through this
   // function to be visible at all, so `view.js planes` asserts the flag tracks the grid.
   MAP.steps = steps;
+  MAP.tallStep = tallStep;      // the crossing census: what #170's ceiling occluder pulls are gated by
   MAP.bands = bands;
   /* The band cue's datum: the floor most of the level's open columns sit on. Using the mode rather
      than the minimum means a flat level maps EVERY cell to index 0, which is the colour the minimap
@@ -638,6 +719,12 @@ function pickWallTex(cfgL) { return Math.random() < 0.78 ? cfgL.wall : cfgL.wall
    cannot change a box's silhouette, but it does turn the asymmetric props (a barrel's bung, a crate's
    lid seam) differently. */
 const PROP_YAW_LO = 18 * Math.PI / 180;
+/* #386: THE ONE CRATE SCALE. Both placement paths read this, so "a crate" cannot mean two sizes again -
+   the authored finale used to carry the scale its plan was drawn at (1) while the generator used 0.72,
+   which made the same prop taller on screen and a wider obstruction in the collision ghost. The value is
+   the generator's, because that is the crate the player spends three sectors learning. Lamps and barrels
+   are named where they are placed; they already agreed. */
+const CRATE_SCALE = 0.72;
 function propYaw(x, y) {
   let h = (Math.imul(x | 0, 0x9E3779B1) ^ Math.imul(y | 0, 0x85EBCA6B)) >>> 0;
   h ^= h >>> 16; h = Math.imul(h, 0x7FEB352D) >>> 0; h ^= h >>> 15;
@@ -2126,7 +2213,13 @@ function buildAuthored(li) {
       LIGHTS.push({ x: px, y: py, z: fl + LHOVER, r: 7.2, str: lstr, col: cfgL.lampCol, stat: 1 });
       PROPS.push({ tex: PROP.lamp, x: px, y: py, scale: 0.95, z: fl, kind: 'lamp', yaw: propYaw(px, py) });
     } else if (s[2] === 'B') PROPS.push({ tex: PROP.barrel, x: px, y: py, scale: 0.86, z: fl, kind: 'barrel', hp: BARREL_HP, dead: false, yaw: propYaw(px, py) });
-    else if (s[2] === 'C') PROPS.push({ tex: PROP.crate, x: px, y: py, scale: 1, z: fl, kind: 'crate', yaw: propYaw(px, py) });
+    /* #386: one crate in the game. The plan glyph carried the scale THE STACK was DRAWN at, so the
+       authored crate shipped at 1 while every generated crate ships at 0.72 - the same prop, a third
+       taller on screen, and a wider obstruction in the collision ghost (FOOT.crate*scale + 0.28 =
+       0.655 m against 0.55 m), so the finale's crate was cover the player never learned. Nothing about
+       the authored room makes a bigger crate mean anything; the two placement paths now carry one
+       literal. Lamps (0.95) and barrels (0.86) already agreed between the paths and are untouched. */
+    else if (s[2] === 'C') PROPS.push({ tex: PROP.crate, x: px, y: py, scale: CRATE_SCALE, z: fl, kind: 'crate', yaw: propYaw(px, py) });
     else if (s[2] === 'A' || s[2] === 'H') PICKUPS.push({ type: s[2] === 'A' ? 'ammo' : 'health', x: px, y: py, bob: 0, dead: false });
     else if (s[2] === 'g' || s[2] === 'h' || s[2] === 'b') {
       const ak = s[2] === 'g' ? 'grunt' : s[2] === 'h' ? 'hound' : 'brute';
@@ -2319,11 +2412,38 @@ function genLevel(li) {
       lt: new Uint8Array(N * N * 3), amb: cfgL.amb === undefined ? 0.13 : cfgL.amb, tintDirty: true,
       floorBias: cfgL.floorBias || 0, ceilBias: cfgL.ceilBias || 0, ceilLead: cfgL.ceilLead,
       wallBias: cfgL.wallBias || 0,                  // #369: as above; the generator authors none
-      stepEdge: cfgL.stepEdge || 0,                  // #385: as above; the generator authors none
+      /* #385: as above. THE GENERATOR AUTHORS ONE NOW, and it is 20 luma, and #517 is why.
+         `stepEdge` -> SEAMA is the crease's ABSOLUTE half: it subtracts lumas from the same rows the
+         `seamCrease` multiply already darkens, faded out by the DECK's light above SEAMK so a lip on a
+         lit deck runs no arithmetic at all. Until #517 a step-down lip also wore the crease of the far
+         floor at the foot of its drop face; that face is back-facing from the deck you stand on, the
+         seam's rows there were multiplying the deck short of the edge, and the clip in `castWalls`/`seamCrease`
+         stops it (measured at THE STACK's face-lip frame: anchor row 313, drawn span [217, 217], 96 of
+         16 band rows below the last pixel the wall pass paints). With that band gone the eye-side crease
+         is ALL a down lip has, and on a deck at 30 luma a 0.62 multiply is not an edge: `view.js bands`
+         read the L1 walk lip at 27% and the L2 walk lip at 20% against a 45% floor - the lip was still
+         in the right place (60 of 60 columns, within 0.5 m of the grid's lip) and simply too faint. This
+         number is the measured payback. The same probe, one tree, `JSDIR=` swapping only `js`: 18 -> L2
+         walk lip 44% FAIL, 19 -> 45% (the floor itself, no margin), 20 -> L1 walk 120% / L2 walk 47% and
+         `BANDS ok`. So 20 is the smallest value that clears with a row's worth of margin; 24 and 32 were
+         also measured and harden lips that already read (L2 face lip 196% and 229%) without being asked
+         to. The lit-deck control is unchanged: L3's authored walk lip (deck 41, THE STACK authors 10) is
+         the same byte it has always been, and no `bands` threshold, tolerance, bound or vacuity floor
+         moved to get here. Raising `SEAMD` globally was the measured, declined alternative (#385) - it
+         hardens every lip in the game to pay for the dark ones. */
+      stepEdge: cfgL.stepEdge || 20,
       accent: cfgL.accent || null,              // #466: as above; RING TRANSPORT is the only level that does
       wallFam: cfgL.wall || 0,                  // #518: as above; the generator's rooms all wear cfgL.wall
       floorTex: FLOORS[cfgL.floor] || FLOORS.CONCRETE, ceilTex: CEILS[cfgL.ceil] || CEILS.CONCRETE,
-      floorTile: 1.15, ceilTile: 0.9,
+      /* #19 THE SPACING DECLARATION. `ceilTile` is world metres per ceiling tile - the spacing of the
+         sheet, not the amplitude of anything inside it - and the generator path is the ONLY path that
+         reads it, so an authored ceiling cannot be reached by it. Nothing ships a value: the sweep on
+         #19 take seventeen coarsened 0.9 -> 1.8 / 2.7 / 3.6 and level 0-2's ceiling streak went
+         27/35/30 -> 30/34/32 while `detail` fell 23/24/32 -> 22/21/30 toward the mush floor, so the fan
+         is NOT a spacing artifact and the shipped picture keeps 0.9 untouched. `view.js mip` runs the
+         declaration at 4x every frame and reports the number as a KNOWN row, with THE STACK's authored
+         ceiling as the byte-identical control; that row retires the day the fan is actually gone. */
+      floorTile: 1.15, ceilTile: cfgL.ceilTile || 0.9,
       fz: fzTry, cz: czTry,
       vb: vbTry, feat: featTry,
       ceilPlane: new Float64Array(N * N), ceilSlab: new Uint16Array(N * N) };
@@ -2672,7 +2792,7 @@ function genLevel(li) {
         PROPS.push({ tex: PROP.lamp, x: bx + 0.5, y: by + 0.5, scale: 0.95, z: floorAt(bx + 0.5, by + 0.5), kind: 'lamp', yaw: propYaw(bx + 0.5, by + 0.5) });
       }
     }
-    for (let i = 0; i < cfgL.crates; i++) { const c = clearSpot(takeNear(2)); PROPS.push({ tex: PROP.crate, x: c[0] + 0.5, y: c[1] + 0.5, scale: 0.72, z: floorAt(c[0] + 0.5, c[1] + 0.5), kind: 'crate', yaw: propYaw(c[0] + 0.5, c[1] + 0.5) }); }
+    for (let i = 0; i < cfgL.crates; i++) { const c = clearSpot(takeNear(2)); PROPS.push({ tex: PROP.crate, x: c[0] + 0.5, y: c[1] + 0.5, scale: CRATE_SCALE, z: floorAt(c[0] + 0.5, c[1] + 0.5), kind: 'crate', yaw: propYaw(c[0] + 0.5, c[1] + 0.5) }); }
     for (let i = 0; i < cfgL.barrels; i++) {
       const c = clearSpot(takeNear(2));
       PROPS.push({ tex: PROP.barrel, x: c[0] + 0.5, y: c[1] + 0.5, scale: 0.86, z: floorAt(c[0] + 0.5, c[1] + 0.5), kind: 'barrel', hp: BARREL_HP, dead: false, yaw: propYaw(c[0] + 0.5, c[1] + 0.5) });
