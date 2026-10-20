@@ -2658,7 +2658,7 @@ function ceilFixAt(wx, wy, hang) {
    half the riser's projected height, so a 1 m face gets a seam at its foot, not a gradient.
    amp < 0 shades a crease, amp > 0 lifts a lip; a multiply either way, so the AMB floor that sinks an
    additive rim in a dark room cannot sink this. */
-function seamCrease(x, t, zA, zB, amp, dir, deckLit) {
+function seamCrease(x, t, zA, zB, amp, dir, deckLit, yCap) {
   if (!(t > 0.001)) return;
   const hp = BH / t, yA = horizon + (eyeZ - zA) * hp, yB = horizon + (eyeZ - zB) * hp;
   const bw = Math.min(Math.abs(yB - yA) * 0.5, hp * SEAMW);
@@ -2666,6 +2666,24 @@ function seamCrease(x, t, zA, zB, amp, dir, deckLit) {
   // the anchor row is the face's own edge row on this side: floor() coming up from below, ceil()
   // coming down from above - the same pair castWalls uses for de and ds
   const y0 = dir > 0 ? Math.ceil(yA) : Math.floor(yA);
+  /* #517: `yCap` is the LAST screen row this column's face is drawn, and a band may not paint below
+     it. It exists for ONE call - the lower floor's crease on a step DOWN, whose anchor is that floor's
+     own solve row at `perp`, i.e. the BOTTOM of the face. #517 gave every row under the lip's own row
+     to the deck the player stands on, so on a down lip that anchor and the whole band above it are
+     rows the ground pass answers: measured at THE STACK's face-lip frame, anchor row 313 against a
+     drawn span of [217, 217], the 16 band rows landing 96 rows below the last pixel the wall pass
+     paints. A multiply on flat deck short of the edge is a shade lying on the floor you walk on - the
+     same wrong pixel #517 exists to stop, restated in shading - which is what `bands`' L3 face-lip
+     far-share row counts (190 of 240 columns here against 16 of 240 on main). Clipping at the face's
+     own `de` removes the band there and nowhere else: the anchor is at or below `de` only when the
+     face clip fired, and on a step UP this call does not run at all (`rze === rz0`). The ramp is
+     clipped from `k` = 0, NOT re-anchored, so a band that does still reach the drawn span keeps the
+     falloff its own plane owns. */
+  let kAt = 0, kEnd = bw;
+  if (yCap !== undefined) {
+    if (dir < 0) { const k1 = Math.ceil(y0 - yCap); if (k1 > 0) { if (k1 > bw) return; kAt = k1; } }
+    else { const k1 = Math.floor(yCap - y0); if (k1 < 0) return; if (k1 < kEnd) kEnd = k1; }
+  }
   /* #385: how much ABSOLUTE edge this lip gets, from the deck the eye is standing on. Rows under the
      lip's own row are that floor either way the step goes, so read one just clear of the band; a row
      that lands off-screen contributes nothing. */
@@ -2674,7 +2692,7 @@ function seamCrease(x, t, zA, zB, amp, dir, deckLit) {
     ab = SEAMA * (1 - deckLit / SEAMK);
     if (ab > SEAMA) ab = SEAMA;
   }
-  for (let k = 0; k <= bw; k++) {
+  for (let k = kAt; k <= kEnd; k++) {
     const y = y0 + dir * k;
     if (y < 0) { if (dir < 0) break; continue; }
     if (y >= BH) { if (dir > 0) break; continue; }
@@ -2722,7 +2740,7 @@ function castWalls(flash, fcR, fcG, fcB) {
     let stepX, stepY, sdx, sdy, side = 0;
     if (rdx < 0) { stepX = -1; sdx = (camX - mx) * ddx; } else { stepX = 1; sdx = (mx + 1 - camX) * ddx; }
     if (rdy < 0) { stepY = -1; sdy = (camY - my) * ddy; } else { stepY = 1; sdy = (my + 1 - camY) * ddy; }
-    let tv = 0, guard = 0, riser = 0, rz0 = 0, rz1 = 1, rze = 0, rzf = 1;
+    let tv = 0, guard = 0, riser = 0, rz0 = 0, rz1 = 1, rze = 0, rzf = 1, rzn = -1;
     /* #466: the accent band for THIS column, as a screen row and its reciprocal. Both stay at the
        "no band" values on every ordinary wall face and on every level that authors no accent, so an
        ordinary wall pixel pays one `y <= accY` compare against -1 and nothing else. */
@@ -2791,7 +2809,7 @@ function castWalls(flash, fcR, fcG, fcB) {
           const rp = (side === 0 ? sdx - ddx : sdy - ddy), rh = BH / (rp > 1e-4 ? rp : 1e-4);
           const ry1 = fhi * ZQ, ry0 = flo * ZQ;
           if (horizon + (eyeZ - ry1) * rh > BH - 1) continue;
-          riser = 1; rz0 = ry0; rz1 = ry1; MAP.riserStops++; tv = riserTex;   // #518: the level's family, not CONCRETE
+          riser = 1; rz0 = ry0; rz1 = ry1; rzn = fzs[pi] * ZQ; MAP.riserStops++; tv = riserTex;   // #518: the level's family, not CONCRETE
           /* rze/rzf are the same two floors sorted by WHICH SIDE THE RAY CAME FROM rather than by
              height - the crease belongs at the lip the player is standing at, and on a step down
              that is the higher of the two (#195). rz0/rz1 keep sorting by height: the face's span
@@ -2868,7 +2886,59 @@ function castWalls(flash, fcR, fcG, fcB) {
        before the index, and out of map keeps ceilAt's own answer for the void, which is 1. */
     const z0 = riser ? rz0 : faceZ0(ox, oy, fd), z1 = riser ? rz1 : (ox >= 0 && oy >= 0 && ox < N && oy < N ? cp[oy * N + ox] : 1), dz = z1 - z0;
     let y0 = horizon + (eyeZ - z1) * hpx, y1 = horizon + (eyeZ - z0) * hpx;
-    const ds = Math.max(0, Math.ceil(y0)), de = Math.min(BH - 1, Math.floor(y1));
+    let ds = Math.max(0, Math.ceil(y0));
+    /* #517: A SLAB SIDE YIELDS TO THE TOP SURFACE OF ITS OWN SLAB. A wall face is always nearer than
+       the ground behind it, which is why this loop carried no nearer-ground test at all - and for a
+       wall that premise holds. A riser seen from ABOVE is the one case where it does not: the face's
+       span runs from the higher floor DOWN to the lower one, so every row below the lip's own row is
+       also a row where the floor the eye stands on (the slab's top surface, at `rzn`, the near cell's
+       floor) solves NEARER than `perp`. Painting the face there drew the far deck's edge a metre and a
+       half out, flat, on top of the band you are standing on, which is why the platform's extent - the
+       thing you need in order to know what you can shoot over and where you fall - was not on screen
+       (issue #517, the from-above half of #421).
+       The clip is the row where the near slab's own top surface solves at THIS perpendicular distance,
+       which is monotone in y, so one scalar truncation is exactly the per-face-row depth test and costs
+       one compare per column. It is a no-op for a step UP (`rzn === rz0`, so the row is y1 itself,
+       which `de` already takes) and for every flat level (`MAP.steps` is 0, so no riser column exists),
+       and it cannot fire when the near floor is at or above the eye - that plane never solves below the
+       horizon, and clipping there would eat the soffit #421 is about. Nothing is blocked: a `dq === 1`
+       crossing stays walkable (#100); only the pixels change. */
+    let de = Math.min(BH - 1, Math.floor(y1));
+    if (riser && rzn < eyeZ) {
+      const yN = horizon + (eyeZ - rzn) * hpx;             // the near slab's top surface at this perp
+      if (yN < de) de = Math.floor(yN);
+      /* THE LIP'S OWN ROW IS NEVER OCCLUDED - IT IS THE LIP. On a step DOWN the slab side's TOP is the
+         near floor (`rzn === rz1`), so `yN` lands on the face's FIRST row `y0` and `floor(yN)` sits a row
+         ABOVE it: without this clamp `ds > de` and the `continue` below abandons the whole face, which
+         takes the drop face out of the frame wherever it is seen from above. That is the same sentence as
+         #517's, reached from the other side: the deck under the player's feet is honest, and the place
+         where it stops is invisible again - the platform's extent is not on screen, the crease and the
+         seam band have no face to sit on, and `view.js bands` prints 0 of 300 lip columns with 0 %
+         contrast (measured at 1268b5c; main 299 of 300 and 78 %).
+         The row the near deck genuinely occludes are those BELOW the lip's row: a ray arriving at one of
+         them hits the plane `rzn` at a distance nearer than `perp`, so it never reaches the slab side at
+         all. The lip's own row is the boundary between the two - the one row the wall pass still answers
+         for, and the row the player reads as the edge. Clamping to `ds` keeps exactly that row and no
+         more, so the phantom drop stays down while the lip stays an object. On a step UP and on flat
+         levels `yN >= de` already, so this clamp runs no arithmetic and those frames stay bit-identical.
+         The row kept is `floor(yN)`, not `ds`. On a step down `ds === ceil(yN)` is the DECK'S OWN first
+         solve row, and the ground pass must own it: `view.js cull`'s band row pins every row from there
+         down to the deck's per-row solve, which is the continuity claim #517 is about (measured: clamping
+         to `ds` instead puts perp back in that row and prints `CULL 8 FAILURES` on the two rows the ruling
+         re-keyed). `floor(yN)` is the one row that STRADDLES the boundary - the pixel the lip actually
+         lands in - and it sits one row above every row the deck answers for, so the deck stays
+         continuous right up to the lip and the lip stays an object the wall pass answers for. */
+      /* The kept row is CLAMPED INTO THE SCREEN. `yN` is a plane solve, not a row: when the lip itself
+         is above the top of the frame - the case `horizon` reaches by poking `P.z` down a metre, and in
+         play a crouch under a slab - `floor(yN)` is NEGATIVE, and taking `ds` there hands the row loop a
+         negative first row. The loop indexes `zbuf`/`px` at that row and its `y <= accY` test is true for
+         every column of a level that authors no accent (`accY` stays -1), so the first such column throws
+         inside `castWalls` (`view.js horizon` crashed at `accC[0]`, exit 1, at this branch's head; main
+         cannot reach it because `ds` was `max(0, ceil(y0))` and nothing else ever moved it). A negative
+         kept row means the lip is off the top of the frame, so EVERY visible row is under it and owned by
+         the near deck: there is no face to draw and no row to keep, which is what `continue` says. */
+      if (de < ds) { const yK = Math.floor(yN); if (yK < 0) continue; ds = Math.min(ds, yK); de = ds; }
+    }
     if (!(dz > 0) || ds > de) continue;                    // no face here to draw
     const tstep = mh * dz / (y1 - y0);                     // tiles per world unit, not per face
     /* #466: where the painted lip ends on this column. rz1 is the TOP of the slab side (the higher of
@@ -3025,7 +3095,16 @@ function castWalls(flash, fcR, fcG, fcB) {
         }
         if (fn) tgt = fs / fn - CSEAMA;
       }
-      const cn2 = cbw > CSEAMC ? cbw : (cbw < CSEAMC ? cbw + 2 : cbw);   // the cap's reach, in rows
+      /* The cap's reach, in rows: the SPAN the corner is judged on, never less. `cbw` is the projection
+         of CSEAMW metres along the ceiling, and on a compressed far junction it thins to two or three rows
+         while `surface`'s SEAM window still reads the eight rows nearest the seam - so rows past `cbw` were
+         paid nothing and the bound was true of a band narrower than the rule. Take fourteen eased the cap
+         out with `(cbw + 2 - k) * 0.5`, which goes NEGATIVE past `cbw + 2`: the term then multiplied the
+         roof UP (measured on this file's own A/B - widening `cn2` alone took RING cam1's gap from 10.6 to
+         7.8 and THE STACK cam0's from 7.1 to 0.4, the opposite direction of a cap). The ease is clamped at
+         both ends now, so a row past the band is eased out and never lifted. Where `cbw` already reaches
+         the corner span the arithmetic is byte-identical to take fourteen. */
+      const cn2 = (cbw > CSEAMC ? cbw : CSEAMC) + 2;
       for (let k = 0; k < cn2; k++) {
         const yy = ds - 1 - k; if (yy < 0) break;
         const i = yy * BW + x, v = px[i], rk = 1 - k / cbw;
@@ -3034,7 +3113,9 @@ function castWalls(flash, fcR, fcG, fcB) {
           const lw = ((v >> 16 & 255) * 0.25 + (v >> 8 & 255) * 0.64 + (v & 255) * 0.11) * ck;
           if (lw > tgt) {
             let m = tgt > 0 ? tgt / lw : 0.3; if (m < 0.3) m = 0.3;
-            const ew = k < cbw ? 1 : (cbw + 2 - k) * 0.5;               // ease the cap out past the band
+            const cr = cbw > CSEAMC ? cbw : CSEAMC;                     // the span the cap holds
+            let ew = k < cr ? 1 : (cr + 2 - k) * 0.5;                   // ease the cap out past it
+            if (ew > 1) ew = 1; else if (ew < 0) ew = 0;
             ck = ck * (1 - (1 - m) * ew);
           }
         }
@@ -3155,7 +3236,7 @@ function castWalls(flash, fcR, fcG, fcB) {
          lower floor's crease stays exactly where it was, because for a step UP it is the same row. */
       const seamLit = li - AMB;                  // the deck's own LIGHT, fog and ambient out (#385)
       seamCrease(x, perp, rze, rzf, -SEAMD, rzf > rze ? -1 : 1, seamLit);
-      if (rze !== rz0) seamCrease(x, perp, rz0, rz1, -SEAMD, -1, seamLit);
+      if (rze !== rz0) seamCrease(x, perp, rz0, rz1, -SEAMD, -1, seamLit, de);
       seamCrease(x, perp, rz1, rz0, SEAMU, -1, seamLit);
     }
   }
