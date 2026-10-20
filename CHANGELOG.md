@@ -1,5 +1,52 @@
 # Changelog
 
+## [v1.4.11] - 2026-10-20
+
+### Changed
+
+- **Looking up reads a ceiling now** (#495, PRs #589, #599, #600, #601). The roof covers 40-50 % of a standing
+  frame and was the flattest, darkest thing in it: a flat sheet with a fan of aliased speckle near the horizon.
+  Its detail was simply too fine to survive — a ceiling is drawn at tens of centimetres per pixel, so the
+  distance filtering averaged the texel speckle away and delivered a mean. Every ceiling material is now broken
+  into slab bays about 0.45 m across, which are two, four and eight pixels wide at the near, mid and far
+  distances a roof is actually seen at, so a joint stays a joint: panel seams read as bays, rock strata read as
+  slabs, the hide in ABATOIR CORE reads as stretched sheets. The bays are laid out to average exactly zero, so
+  no ceiling gains brightness for being detailed. Each sector's roof was then re-valued against its own deck and
+  the decks give part of it back, so the frame is traded rather than brightened: ARCHIVE SUBLEVEL's roof moves
+  from 0.49 to 0.68 of the floor you walk on, RING TRANSPORT 0.45 to 0.70, ABATOIR CORE 0.59 to 0.65, and
+  THE STACK's vault keeps its own paler instance of the same rock. Ceiling brightness still cannot out-shine the
+  deck it spans, lamps and geometry are untouched, and no sector's overall exposure moved out of its window.
+- **The gun's rounded parts stop being one flat value when you aim down the sights** (#587, PRs #594, #595).
+  Two separate faults. The surface added to the weapon last release was computed and then thrown away by the
+  mesh builder, so the barrels, magazine tubes, stocks, grips and trigger guards still left the builder with no
+  shading at all and painted flat. And the wrap-around shading that makes a pipe look round had been switched
+  off for the whole weapon on the reasonable-but-wrong grounds that its pipes are too thin to carry it. They are
+  too thin for *stripes*; they are not too thin for one wave around the part, which is what a faceted barrel
+  reads as at this art scale. The pistol's grip, the shotgun's pump, grip and stock and the rifle's grip and
+  stock now read as turned wood and polymer instead of slab. Thin parts — barrel crowns, magazine tubes, trigger
+  guards — deliberately keep their lengthwise machined rings and no circumferential band, so they don't shimmer.
+  The weapon's silhouette, size and brightness are unchanged and hip-fire frames are pixel-for-pixel identical;
+  the roundness arrives when you bring it up.
+
+### Fixed
+
+- **There is one crate in the game** (#386, PR #596). The hand-built finale placed its cover at the scale its
+  plan was drawn at, while every generated sector places crates 28 % smaller. Same prop, a third taller on
+  screen and a wider obstruction to walk into — so the last sector's cover was not the cover you spent three
+  sectors learning to shoot around and squeeze past. Both placement paths now read one scale, the one you
+  actually learn. Lamps and barrels already agreed and are untouched.
+
+### Known limitations
+
+- The weapon's thin tubes still read flat in their second dimension; only their lengthwise machining is
+  present. Giving them a circumferential band needs the shading amplitude split per term, which is not done yet.
+  Parts emitted later also still repaint the hip pose's tubes wholesale. (#587)
+- ABATOIR CORE's arrival frame reaches 0.65 roof-to-deck, just under the 0.7 the roof work set out for. Its paint
+  is now at full parity with its own deck; the remaining deficit is the additive half of the delivered pixel —
+  exposure lift and bloom compress a ratio — and that frame sits close to an exposure gate, so buying the last
+  0.05 there is a different problem than painting. (#495, #505)
+- Crates are now consistent in size but still one design; the finale reads as the same prop repeated.
+
 ## [v1.4.10] - 2026-10-19
 
 ### Changed
