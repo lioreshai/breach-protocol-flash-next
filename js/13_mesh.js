@@ -801,10 +801,32 @@ const MESH = (function () {
      FRONT of the near plane (js/13_mesh.js NEAR = 0.12) and far below the eye: an elbow behind the
      near plane is clipped away and the arm vanishes out of the frame, which is what the first cut
      did, and an elbow only 0.15 m below the eye bulges across the picture instead of leaving it. */
-  function vArm(b, x, y, z, s, back) {
+  /* #562 TAKE TWO: the LIMB, and it now carries the wrist as well as the forearm.
+     Two authored facts changed here, and both are the issue's remaining clause ("no rectangular
+     silhouette spanning the corner").
+     (a) The fist used to end in a 32 x 28 x 40 mm BOX (the cuff, `gloveD`). It was the last flat cap in
+         the silhouette: a face straight at the lens at one depth, ~200 px of it in the corner of every
+         frame, which is the reading the issue is about. The cuff box is gone; what comes out of the bottom
+         edge of the picture is a wrist tube that meets a forearm tube, so the outline runs fist -> wrist
+         -> forearm with no rectangle in it.
+     (b) The arm takes the SAME ADS ramp the hands take (`vHandScale`). #499 authored that ramp for the
+         fists and left the sleeve rigid, which was invisible while the sleeve was a thin tube behind the
+         gun and is not invisible once the wrist is drawn on it: a hand that shrinks toward the grip while
+         its own wrist stays put is a hand with a gap where the wrist should be.
+     It is emitted BEFORE the gun parts (the art's own draw order: "a forearm, drawn BEHIND the gun so the
+     hand can wrap the grip over it") and it is NOT inside the hand's structure region, which keeps
+     `setHands(false)`'s A/B measuring the fists rather than a different arithmetic (#562's note at
+     `wBuild`): the cuff and sleeve are cloth, painted cold, and the fists keep the ramp.
+     The elbow stays IN FRONT of the near plane (NEAR = 0.12) and far below the eye: an elbow behind the
+     near plane is clipped away and the arm vanishes out of the frame, which is what the first cut did, and
+     an elbow only 0.15 m below the eye bulges across the picture instead of leaving it. */
+  function vArm(b, x, y, z, s, back, st) {
     const w = back ? -1 : 1;
-    b.tube(x + w * 0.004 * s, y - 0.026 * s, z - 0.004 * s, x + w * 0.058 * s, y - 0.320 * s, z - 0.095 * s,
-      0.0155 * s, 0.0260 * s, VW.sleeve);              // to an elbow below the frame
+    s *= vHandScale(st);
+    b.tube(x - w * 0.006 * s, y - 0.038 * s, z + 0.004 * s, x + w * 0.010 * s, y - 0.072 * s, z - 0.020 * s,
+      0.0128 * s, 0.0150 * s, VW.gloveD);              // the wrist, out of the fist and down
+    b.tube(x + w * 0.010 * s, y - 0.072 * s, z - 0.020 * s, x + w * 0.062 * s, y - 0.330 * s, z - 0.095 * s,
+      0.0150 * s, 0.0265 * s, VW.sleeve);              // to an elbow below the frame
     return b;
   }
 
@@ -874,12 +896,21 @@ const MESH = (function () {
     b.tube(x - w * 0.002 * s, y - 0.026 * s, z, x + w * 0.001 * s, y + 0.022 * s, z - 0.004 * s,
       0.0145 * s, 0.0185 * s, VW.skin);              // the fist itself, knuckle end widest
     b.box(x + w * 0.004 * s, y + 0.028 * s, z - 0.024 * s, 0.015 * s, 0.005 * s, 0.017 * s, VW.skinD);
-    b.box(x - w * 0.019 * s, y - 0.004 * s, z, 0.0065 * s, 0.024 * s, 0.024 * s, VW.skin);
+    /* #562 TAKE TWO: the BACK OF THE HAND is a tube, not a plate. The plate was 13 mm thick and 48 mm
+       square - a flat, right-angled face straight at the lens, ~200 px of it in the corner of every
+       frame, and a flat face at one depth is exactly the reading the issue is about: at the same light it
+       is indistinguishable from the side of a crate. A tapered tube across the same span keeps the hand's
+       mass, keeps the two crease boxes reading as knuckle gaps, and puts a rounded terminator on the
+       outline where the plate had two 90-degree corners. Its own area is SMALLER than the plate's (25 x 56
+       mm of silhouette against 48 x 48) because #562's acceptance says frame cost must not rise: the rig is
+       already inside the raster budget, so a silhouette change has to be bought with pixels, not added to
+       them. */
+    b.tube(x - w * 0.017 * s, y - 0.018 * s, z - 0.001 * s, x - w * 0.017 * s, y + 0.015 * s, z - 0.004 * s,
+      0.0105 * s, 0.0125 * s, VW.skin);              // the back of the hand, wrist end narrowest
     b.box(x - w * 0.025 * s, y - 0.013 * s, z, 0.0035 * s, 0.0035 * s, 0.022 * s, VW.skinD);
     b.box(x - w * 0.025 * s, y + 0.009 * s, z, 0.0035 * s, 0.0035 * s, 0.022 * s, VW.skinD);
     b.tube(x + w * 0.011 * s, y + 0.020 * s, z + 0.010 * s, x - w * 0.006 * s, y + 0.030 * s, z + 0.020 * s,
       0.0070 * s, 0.0055 * s, VW.skin);              // the thumb, along the top of the grip
-    b.box(x - w * 0.010 * s, y - 0.044 * s, z + 0.004 * s, 0.016 * s, 0.014 * s, 0.020 * s, VW.gloveD);
     b.hs.push(b.p.length / 6);
     b.rg = 0;
     return b;
@@ -912,8 +943,8 @@ const MESH = (function () {
        here the slide is 0.175 m of rectangular tube and the grip rakes back on its own axis. */
     pistol(b, s) {
       const MU = VMUZZLE.pistol;
-      vArm(b, 0.016, -0.026, 0.024, 1.0, false);
-      vArm(b, -0.026, -0.040, 0.048, 0.96, true);
+      vArm(b, 0.016, -0.026, 0.024, 1.0, false, s);
+      vArm(b, -0.026, -0.040, 0.048, 0.96, true, s);
       b.wg = 1;                                        // #587 the metal gets the surface; the sleeve above and the fists below do not
       b.box(0, 0.007, 0.088, 0.0185, 0.0135, 0.086, VW.steel);          // the slide
       b.box(0, 0.0235, 0.088, 0.008, 0.0035, 0.070, VW.black);          // the serrated rib on top
@@ -940,8 +971,8 @@ const MESH = (function () {
        the pump travels on the lower one, which is what `pump` does to the geometry below. */
     shotgun(b, s) {
       const MU = VMUZZLE.shotgun, pu = (s.pump || 0) * 0.034;
-      vArm(b, 0.014, -0.034, 0.000, 1.02, false);
-      vArm(b, -0.010, -0.040, 0.266 + pu, 1.0, true);   // the pump hand's arm travels with the pump
+      vArm(b, 0.014, -0.034, 0.000, 1.02, false, s);
+      vArm(b, -0.010, -0.040, 0.266 + pu, 1.0, true, s);   // the pump hand's arm travels with the pump
       b.wg = 1;                                        // #587 the metal gets the surface; the sleeve above and the fists below do not
       b.box(0, 0.004, 0.086, 0.0215, 0.0185, 0.082, VW.steel);          // the receiver
       b.box(0, 0.0235, 0.086, 0.011, 0.0045, 0.070, VW.black);          // the top rib
@@ -968,8 +999,8 @@ const MESH = (function () {
        design units against the shotgun's -404 and the pistol's -338). */
     rifle(b, s) {
       const MU = VMUZZLE.rifle;
-      vArm(b, 0.014, -0.030, 0.012, 1.0, false);
-      vArm(b, -0.014, -0.038, 0.234, 0.98, true);
+      vArm(b, 0.014, -0.030, 0.012, 1.0, false, s);
+      vArm(b, -0.014, -0.038, 0.234, 0.98, true, s);
       b.wg = 1;                                        // #587 the metal gets the surface; the sleeve above and the fists below do not
       b.box(0, 0.005, 0.092, 0.0235, 0.0195, 0.086, VW.steel);          // the upper receiver
       b.box(0, 0.0265, 0.092, 0.0155, 0.0055, 0.078, VW.black);         // the dust cover
