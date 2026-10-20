@@ -1472,6 +1472,55 @@ function kneeLampField() {
     if (v > LK_KNEE) lm[i] = LK_KNEE + LK_SLOPE * (v - LK_KNEE);
   }
 }
+/* #199: a LAMP'S DISC GETS A FLOOR UNDER ITS CURVE, and it is a floor, not more light.
+   The curve `(1-d/r)^1.6` is steep: at 0.8 r it is down to 0.04 and at 0.9 r to 0.007, so a room
+   whose lamps are spaced further apart than ~0.8 r leaves its deck between them at or under the
+   0.05 the `alt` census calls dark, with a lamp standing in the room and on screen. Measured on
+   e176ae3 over the 12 seeded deals per level: of the open cells under 0.05 delivered light, 96 /
+   73 / 67 / 60 % (L0-L3) sit INSIDE a lamp's own XY disc - the population is the curve's tail, not
+   a coverage hole (that half closed under #204/#206, which is what #199's correction comment says).
+   The naive answer - raise the curve or add a per-lamp pedestal - is an ambient raise in disguise,
+   because the discs OVERLAP: a cell of a dealt sector sits inside ~5 discs, so any term ADDED at the
+   kernel is paid five times over and the frame mean moves +25 to +40 % (swept: dark share only falls
+   1-2 points for it, and the 35-75 spawn band is what takes the hit first). This is the same lift
+   bought once per cell instead of once per disc: a cell already lit by anything keeps its value
+   EXACTLY, and only a cell the curve left under the floor is raised TO the floor. `max`, never `+=`.
+   THE SHAPE. `LF_FLOOR` is the deck level a room's floor never falls below where a lamp reaches it;
+   0.18 is measured, not guessed - the ground pixel is `texelMean * (amb + light * tint)` with the
+   tint at its neutral 128 for a cell with no other light (buildTint), so 0.18 is ~+20 luma of deck,
+   enough to read the size of a room and a fifth of the LGCAP the pool core already saturates
+   against. `LF_RIM` fades the floor out over the last 0.3 of the radius so the disc does not end on
+   a step: past 0.7 r it ramps to 0 with the curve, which keeps pools POOLS - a lamp still reads as a
+   lamp because its peak and its gradient are untouched, only the trough under it is lifted.
+   THE INVARIANTS IT OBEYS. Light stays ONE VALUE PER COLUMN: this writes MAP.light and adds no array
+   for someone to forget to un-splat. It runs at GENERATION only, after the static splats and after
+   `blurLight` (which REPLACES the array - a floor applied before it would be blurred away and, worse,
+   re-pointed at a dead object), so a transient that re-splats its delta still lands on this field and
+   still leaves it exactly (`tools/smoke.js`'s blast-splat / full-fade-out rows are unchanged, and
+   `alt`'s reversibility row still reads ~1e-7). It is band-aware with the kernel's own predicate, so
+   a floor never reaches under a riser: a pit gets light from a lamp on the PIT band, never a spill of
+   the deck's. Solid columns are skipped - walls are not floors, and washing them is not asked for.
+   On a level with no static light the loop body never runs, so the genLevel fallback box is untouched,
+   and an authored plan takes the same pass for the same reason (#408's knee sits beside it). */
+const LF_FLOOR = 0.22, LF_RIM = 0.3;
+function floorLampField() {
+  const lm = MAP.light, N = MAP.w;
+  if (!lm) return;
+  for (const L of LIGHTS) {
+    if (!L.stat) continue;
+    const R = Math.ceil(L.r), lf = lightBand(L);
+    for (let y = Math.max(0, (L.y - R) | 0); y < Math.min(N, L.y + R); y++)
+      for (let x = Math.max(0, (L.x - R) | 0); x < Math.min(N, L.x + R); x++) {
+        const i = y * N + x;
+        if (MAP.cell[i]) continue;                                  // walls are not floors
+        const dn = Math.hypot(x + 0.5 - L.x, y + 0.5 - L.y) / L.r;
+        if (dn >= 1) continue;
+        if (Math.abs(lf - floorAt(x + 0.5, y + 0.5)) > ZQ + 1e-9) continue;   // the kernel's own band test
+        const f = LF_FLOOR * Math.min(1, (1 - dn) / LF_RIM);
+        if (lm[i] < f) lm[i] = f;
+      }
+  }
+}
 function blurLight() {
   const N = MAP.w, s = MAP.light, fz = MAP.fz, o = new Float32Array(s.length);
   for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
@@ -2280,6 +2329,7 @@ function buildAuthored(li) {
   placeCeilFixtures(cfgL, sx + 0.5, sy + 0.5);
   for (const L of LIGHTS) splatLight(L, L.str);
   kneeLampField();                              // #408: the authored pool's PEAK, its radius untouched
+  floorLampField();                             // #199: and its TROUGH, in the authored plan too
   placeWallFixtures(cfgL);                      // #400: the authored finale gets walls too
   exitX = ex + 0.5; exitY = ey + 0.5;
   const sp = nearestOpen(sx + 0.5, sy + 0.5);          // never spawn inside geometry: the collision
@@ -2796,7 +2846,7 @@ function genLevel(li) {
     placeCeilFixtures(cfgL, seat[0], seat[1]);
     // lightmap splat, then a smoothing pass and the per-cell tint
     for (const L of LIGHTS) splatLight(L, L.str);
-    blurLight(); buildTint();
+    blurLight(); floorLampField(); buildTint();   // #199: the floor AFTER the blur, which replaces the array
     placeWallFixtures(cfgL);                    // #400: decor goes on the walls, after the walls exist
     // The scatter pass can drop a pillar on the room centre, and starting inside
     // geometry is unrecoverable - the collision probes would sample the player's own
