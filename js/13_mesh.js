@@ -439,7 +439,7 @@ const MESH = (function () {
          than an oversampled one.
        With `rg` clear - every body tube, since rg is only ever set for a torso BOX, and the view model
        - both terms stay 0 and the vertex stream is byte-identical to what it was. */
-    let sva = 0, svb = 0, RING = 0, half = 0;
+    let sva = 0, svb = 0, RING = 0, half = (this.ns || NS) / 2;   // the ring ramp's face count, same value `rg` sets below
     if (this.wg) {
       /* #587 the rig's tubes: the AXIAL term only, and that is a limitation stated rather than a gap
          overlooked. A tube's ring term puts one wave across every face of the prism, and the gun's tubes
@@ -468,6 +468,34 @@ const MESH = (function () {
       const fx = wSnap((bx - ax) * 0.5), fy = wSnap((by - ay) * 0.5), fz = wSnap((bz - az) * 0.5);
       sva = (ax - mx) * fx + (ay - my) * fy + (az - mz2) * fz;
       svb = (bx - mx) * fx + (by - my) * fy + (bz - mz2) * fz;
+      /* TAKE FOUR PUTS THE RING BACK ON THE RIG'S FAT PIPES, and gates it the way `af` already gates the
+         axis term instead of the way `rg` does. The paragraph above was right that a build-time ring count
+         cannot obey a draw-time gate, and it drew the wrong conclusion: the gate is not on the tube's
+         DIAMETER, which is what it measured (10-25 mm across, "2-5 px"), but on the wave's OWN period, and
+         the count is free to choose that. A face of an ns-sided prism spans an arc of 2*pi*ra/ns; the ring
+         count is snapped so each face carries a whole, EVEN number of 1/WS_CYC periods of coordinate, so
+         the projected period is that arc's projection and not the diameter divided by six, and the evenness
+         keeps it whole at BOTH levels of the #416 coarsening exactly as `af` does for the axis. One wave
+         across a face is also what a hexagonal barrel reads as at this art scale - a few discrete steps of
+         facet, not stripes.
+           The same `af` rule then decides which tubes get one: a face that cannot carry two 10 mm slices of
+         arc gets NO ring at all rather than an oversampled one, because the amplitude law is the DRAW's -
+         TAMP comes from the axial seam's projected period and is shared by both terms, so a ring denser
+         than 10 mm would spend that amplitude at twice the luma per pixel, which is the zebra #533 measured
+         on the crate and what the note above was really afraid of. Measured off the shipped geometry at
+         NS = 6, that floor is radius 14.3 mm: the pistol's barrel crown (11.5), the shotgun's barrel and
+         magazine tube (13.5) and the trigger guards (5) stay AXIAL-only - machined rings along a thin
+         barrel - and the pistol's grip (20.5), the shotgun's pump (22.5), grip (20.5) and stock (24.5-28.5)
+         and the rifle's grip (21) and stock (22.5-26.5) take one wave around them, which are the wood and
+         polymer parts a flat value currently paints as one slab. A thin tube gaining its ring term later
+         would need the amplitude split per term; that is the remaining risk, stated here rather than hidden.
+         Zero-mean by construction the way #533 requires: the ramp rises over the first half of the ring and
+         falls over the second, and every FACE spans whole periods, so no face - not just no part - is left
+         with an unpaired fraction to gain light from. Geometry is untouched: vertex positions, counts and
+         colours are byte-identical, so this reaches a frame only through `tri`'s existing seam term. */
+      const nr = this.ns || NS, arp = (ra * Math.PI * 2 * WS_CYC) / nr;   // 10 mm slices across ONE face
+      const kp = arp < 1.5 ? 0 : 2 * Math.round(arp / 2);                 // whole, EVEN periods per face
+      RING = kp * half / WS_CYC;                                          // coord ramp over the half ring, metres
     } else if (this.rg) {
       const nr = this.ns || NS; half = nr / 2;
       RING = Math.max(nr, Math.round(ra * Math.PI * PS_CYC / nr) * nr) / PS_CYC;    // periods round the ring, in authored units
@@ -488,12 +516,12 @@ const MESH = (function () {
     for (let i = 0; i < n; i++) {
       const cx = u[0] * RN[i * 2] + v[0] * RN[i * 2 + 1], cy = u[1] * RN[i * 2] + v[1] * RN[i * 2 + 1], cz = u[2] * RN[i * 2] + v[2] * RN[i * 2 + 1];
       this.p.push(ax + cx * ra, ay + cy * ra, az + cz * ra, c[0], c[1], c[2]); this.e.push(this.em);
-      this.s.push(this.rg ? sva + RING * (i <= half ? i / half : 2 - i / half) : this.wg ? sva : 0);
+      this.s.push(this.rg || this.wg ? sva + RING * (i <= half ? i / half : 2 - i / half) : 0);
     }
     for (let i = 0; i < n; i++) {
       const cx = u[0] * RN[i * 2] + v[0] * RN[i * 2 + 1], cy = u[1] * RN[i * 2] + v[1] * RN[i * 2 + 1], cz = u[2] * RN[i * 2] + v[2] * RN[i * 2 + 1];
       this.p.push(bx + cx * rb, by + cy * rb, bz + cz * rb, c[0], c[1], c[2]); this.e.push(this.em);
-      this.s.push(this.rg ? svb + RING * (i <= half ? i / half : 2 - i / half) : this.wg ? svb : 0);
+      this.s.push(this.rg || this.wg ? svb + RING * (i <= half ? i / half : 2 - i / half) : 0);
     }
     for (let i = 0; i < n; i++) {
       const j = (i + 1) % n;
