@@ -16242,6 +16242,10 @@ if (MODE === 'stats') {
 } else {
   run('S.mode="play"; S.locked=false;');
   run(`startLevel(${LVL}, true); S.mode='play';`);
+  if (process.env.RIG) {
+    const rg = String(process.env.RIG).split(':');
+    run(`P.weapon=${Number(rg[0]) | 0}; P.ads=${rg[1] ? (Number(rg[1]) | 0) : 0};`);   // after startLevel: that call re-seats the loadout
+  }
   // point the camera at something with depth: nearest open cell looking down a corridor
   run(`(()=>{
     const cs=[];for(let y=1;y<MH-1;y++)for(let x=1;x<MW-1;x++)if(!isSolid(x+.5,y+.5))cs.push([x,y]);
