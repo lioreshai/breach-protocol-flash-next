@@ -844,10 +844,12 @@ let CGW = 0;
    `gndwash` (the far share) and `gndwalk` (the walk) for the same reason: one-constant A/Bs of what the
    fetch does and does not own.
 
-   WHAT WOULD STILL BE AN INSTRUMENT, not built at this head: `mip` has no arm row that renders this term
-   and asserts the ground-pass digest MOVED, so the falsification above lives in this comment and in the
-   issue, not in a verdict. Whoever re-opens #19 should add that row before adding an eighteenth fork. */
-let CGWN = 1;
+   THE INSTRUMENT IS BUILT NOW: `mip` has an arm row that renders this term and asserts the ground-pass
+   digest MOVED, every moved pixel sits above the horizon, and the deck comes back byte-identical - so
+   "the term reaches the ceiling" is a verdict that can fail, not a sentence in this comment, and the
+   falsification above is what the row measures rather than what it asserts. Delete either copy of the
+   term and that row goes red. */
+let CGWN = 0;
 const gwd = new Array(GWN), gww = new Float64Array(GWN), gws = new Float64Array(GWN),
       gwmw = new Int32Array(GWN), gwox = new Int32Array(GWN), gwoy = new Int32Array(GWN),
       gwmk = new Int32Array(GWN * 2);            // masks, [x,y] per level
