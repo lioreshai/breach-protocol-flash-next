@@ -9958,6 +9958,195 @@ if (MODE === 'contrast') {
       + '(AGENTS, #19), so the paint half of this number belongs to `matband` and this row prices only '
       + 'what the eye is actually delivered. STRICT=1 gates it.', '#416');
   }
+  /* ---- #611 THE SEPARATION PAIR: does he read as a thing on BOTH axes the eye uses? ----------
+     #407 asks whether a body keeps his room's LIGHT and #416 asks whether the paint BEHIND him is
+     quiet; neither asks what colour he is. The issue's own table answered it from two sides: at 16 m
+     a body's delivered colour can be 0.3 luma from the surface directly behind him, so on THAT axis
+     there is no silhouette at all, and at 8 m the row's own conclusion was "the fix is the body's
+     material and not a term of the lighting path". The material half shipped in #615 (BODYHUE in
+     js/00_core.js - the room's own cast cancelled in the body's pigment at the texel read site); what
+     this block adds is the row that can FAIL if it stops working, because the acceptance was measured
+     with the existing paint arm and never became a row.
+       region   the SAME coverage mask every row in this probe uses, on ONE body posed at 10 m on the
+                spawn seat's clearest march ray - the range the issue names, and #416's seat, so the
+                two issues' rows describe one body rather than two.
+       AXIS 1   VALUE. |luma(his mean delivered colour) - luma(the surface behind him at the very
+                same pixels)|, both means over the mask. A luma step in the units the eye takes it.
+       AXIS 2   COLOUR. The two mean colours put in the LMS-lite opponent plane
+                u = (R - G)/L, v = ((R+G)/2 - B)/L with L the pixel's own Rec.709 luma, and the step
+                is 100x the distance between them. Dividing by luma is the whole design: it is what
+                makes this axis UNBOUGHT by brightness, so a fix that lifts the background (the wrong
+                half the assignment names) or lifts him cannot move it. Two colours of the same hue at
+                different value read 0 here, and two colours of the same value at different hue read
+                their separation - which is the pair the issue asks for: one number per axis.
+       FALSIFIER BODYHUE = 0 IN THIS PROCESS is the pre-fix form - the room's tint multiplying one
+                fixed albedo - on the SAME body at the SAME pixels with the light path untouched. The
+                colour step must come DOWN: a run that reads the SAME with the arm down is a row that
+                stopped reading pigment, which is the #240 rule this probe already follows for every
+                other arm in it.
+       SWEEP    #611's second acceptance bullet is that separation holds in EVERY dealt room, not in
+                the favourable ones, so the same measure runs over 12 rolls per level at the repo's
+                own dice (1000 + level*97 + roll*13 - roll 0 is the flatparity DEALT seat's dice, so
+                the sweep's first row is the deal the frame hashes already lock). The worst pair per
+                level is what gates; a roll whose CONE is shallower than 10 m cannot measure and is
+                counted and named, and a level whose 12 rolls ALL fail to pose is a FAILURE, not a
+                silent ok. No raster reference is involved: the comparison is inside one frame pair in
+                one process, so a repaint cannot rot it and it cannot go stale with a re-key.
+     The three bars are this block's own measurements at this head, read off a run of this probe and
+     not transcribed: VALUE at the shipped deals, COLOUR at the shipped deals, and the arm's drop.
+     A bar nothing can cross is a row that cannot fail, so each sits inside the measured spread of the
+     thing it is meant to catch. */
+  const SEP_D = 10, SEP_MINPX = 60, SEP_ROLLS = +(process.env.SEP_ROLLS || 12);
+  /* The three bars, each anchored on a number this block MEASURED at this head rather than invented:
+       SEP_V   4 luma - the SAME constant this probe already uses to call an edge "separated" (DLR = 4
+               at the top of this block), so the value axis of #611 is judged with the value threshold
+               the repo already ships instead of a second dialect of it. Measured at the four dealt
+               seats: 3.4 / 13.5 / 5.6 / 16.4, so ARCHIVE's dealt seat is BELOW it and says so.
+       SEP_C   20 - the equal-paint floor. With the body wearing the background's own delivered colour
+               the same pixels still read 19.9 / 25.9 / 33.4 / 40.7 of colour step, because the LIGHT
+               path alone shifts a delivered colour; a bar under that floor would be passed by a body
+               with no pigment at all, and a bar above the shipped readings (30.5 / 53.2 / 75.4 /
+               128.7) would be a row that cannot fail. 20 sits just under the weakest equal-paint
+               reading: it asks for MORE colour than the light path delivers by itself.
+       SEP_FA  8 - the pigment's own share. Measured pigment share at the four seats: 10.7 / 27.3 /
+               42.0 / 87.9 of the colour step; 8 is under the weakest, so an arm that stops moving
+               pixels goes red instead of going quiet. */
+  const SEP_V = +(process.env.SEP_V !== undefined ? +process.env.SEP_V : 4);
+  const SEP_C = +(process.env.SEP_C !== undefined ? +process.env.SEP_C : 20);
+  const SEP_FA = +(process.env.SEP_FA !== undefined ? +process.env.SEP_FA : 8);
+  const sepMeasure = () => {
+    run('if (!COV || COV.length !== BW * BH) COV = new Uint8Array(BW * BH);');
+    run('ENEMIES.length = 0; ENEMIES.push(window.__dBody); S.t = 3.5; ' + VMREST + ' renderWorld();');
+    const A = new Uint32Array(run('px')), M = new Uint8Array(run('COV'));
+    run('ENEMIES.length = 0; S.t = 3.5; ' + VMREST + ' renderWorld();');
+    const Bb = new Uint32Array(run('px'));
+    run('ENEMIES.length = 0; for (const q of __dKeep) ENEMIES.push(q);');
+    let n = 0, ar = 0, ag = 0, ab = 0, br = 0, bg2 = 0, bb = 0;
+    for (let i = 0; i < N; i++) if (M[i]) {
+      n++; ar += A[i] & 255; ag += A[i] >> 8 & 255; ab += A[i] >> 16 & 255;
+      br += Bb[i] & 255; bg2 += Bb[i] >> 8 & 255; bb += Bb[i] >> 16 & 255;
+    }
+    if (!n) return { n: 0 };
+    const c1 = [ar / n, ag / n, ab / n], c0 = [br / n, bg2 / n, bb / n];
+    const L = c => Math.max(0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2], 1);
+    const o = c => [(c[0] - c[1]) / L(c), ((c[0] + c[1]) * 0.5 - c[2]) / L(c)];
+    const p1 = o(c1), p0 = o(c0);
+    return { n, bgRGB: (Math.round(c0[0]) << 16 | Math.round(c0[1]) << 8 | Math.round(c0[2])) >>> 0,
+      dv: Math.abs(L(c1) - L(c0)), dc: 100 * Math.hypot(p1[0] - p0[0], p1[1] - p0[1]),
+      l1: L(c1), l0: L(c0) };
+  };
+  const sepSeat = (lv, roll) => {
+    // the deal is NAMED, not a stream position: dice 1000 + level*97 is flatparity's DEALT deal, and
+    // roll r adds 13r, so roll 0 of the sweep IS the deal the shipped frame hashes already lock.
+    seedRng(1000 + lv * 97 + (roll >= 0 ? roll * 13 : 0));
+    run(`startLevel(${lv}, true); S.mode='play'; S.locked=false;`);
+    const rays = run(`(()=>{ const r = []; for (let k = 0; k < 48; k++) { const a = k * Math.PI / 24;
+      r.push({ a, d: __march(P.x, P.y, Math.cos(a), Math.sin(a), ${SEP_D} + 1).dist }); }
+      r.sort((x, y) => y.d - x.d); return r; })()`);
+    if (!rays.length || rays[0].d < SEP_D) {
+      return { why: 'cone', clear: rays.length ? +rays[0].d.toFixed(2) : 0,
+        seat: run('[+P.x.toFixed(2), +P.y.toFixed(2)]') };
+    }
+    /* IN THE CLEAR has to mean SEEN as well: #189's march stops at geometry, not at what the raster
+       hides, so a ray can be clear at 10 m and the body on it still paint 5 px behind a lip. The rays
+       are ranked by their own march distance and the first that puts a measurable silhouette on screen
+       is taken, with the attempt count printed - a mean over 5 px is not a measurement, and silently
+       reporting it as one is the vacuity this probe calls a FAILURE. */
+    let last = null;
+    for (let t = 0; t < 6 && t < rays.length; t++) {
+      if (rays[t].d < SEP_D) break;
+      const g = run(`(()=>{ P.ang = ${rays[t].a}; P.pitch = 0; P.z = floorAt(P.x, P.y);
+        let e = null;
+        for (const q of ENEMIES) if (q.state !== 'dead' && (!e || q.scale > e.scale)) e = q;
+        if (!e) { e = makeEnemy('grunt', P.x, P.y); ENEMIES.push(e); e.fresh = 1; }
+        window.__dBody = e; window.__dKeep = ENEMIES.slice();
+        const cx = Math.cos(P.ang), cy = Math.sin(P.ang), bx = P.x + cx * ${SEP_D}, by = P.y + cy * ${SEP_D};
+        e.x = bx; e.y = by; e.z = floorAt(bx, by); e.ang = P.ang + Math.PI; e.movingAmt = 0; e.state = 'sleep';
+        for (const q of ENEMIES) if (q !== e) q.state = 'sleep';
+        return { clear: +${rays[t].d.toFixed(2)}, seat: [+P.x.toFixed(2), +P.y.toFixed(2)],
+          body: [+bx.toFixed(2), +by.toFixed(2)], kind: e.kind, made: !!e.fresh, try: ${t} }; })()`);
+      const s = sepMeasure();
+      last = Object.assign(g, s);
+      if (s.n >= SEP_MINPX) return last;
+    }
+    if (last && last.n >= SEP_MINPX) return last;
+    return { why: 'hidden', n: last ? last.n : 0, seat: last ? last.seat : null, kind: last ? last.kind : '?' };
+  };
+  for (let lv = 0; lv < 4; lv++) {
+    const m = sepSeat(lv, -1);           // the level's DEALT deal, the same dice flatparity hashes
+    const sepRay = 'L' + lv + ' at ' + SEP_D + ' m on the spawn seat';
+    if (m.why) {
+      row(sepRay + ' separates on value AND colour (#611)', false,
+        m.why === 'cone'
+          ? 'no clear ray reaches ' + SEP_D + ' m from the spawn seat ' + JSON.stringify(m.seat)
+            + ' - the march stops at ' + m.clear + ' m, so neither axis can be measured here (#189)'
+          : 'the march finds a clear ' + SEP_D + ' m ray and he is STILL hidden behind a lip: the first '
+            + 'six ranked rays together paint ' + m.n + ' px, under the ' + SEP_MINPX
+            + ' px floor, so no mean colour exists on this deal. The sweep row beside it is the one that '
+            + 'must find him in the round', '#189');
+      continue;
+    }
+    const BH0 = run('typeof BODYPAINT === "number" ? BODYPAINT : -1');
+    let arm = null;
+    if (BH0 === 1) {
+      // the equal-paint arm, #407's own idiom: the SAME px wearing the mean delivered colour of the
+      // surface behind them, every light term untouched. What is left is the light path's share.
+      run('BPAINT_RGB = ' + m.bgRGB + '; BODYPAINT = 0;'); arm = sepSeat(lv, -1);
+      run('BODYPAINT = 1; BPAINT_RGB = 16777215;');
+    }
+    const okV = m.dv >= SEP_V, okC = m.dc >= SEP_C, okN = m.n >= SEP_MINPX;
+    row(sepRay + ' separates on value AND colour (#611)', okV && okC && okN,
+      'VALUE: his silhouette means ' + m.l1.toFixed(1) + ' luma against the surface behind it at the same '
+      + 'pixels ' + m.l0.toFixed(1) + ', a step of ' + m.dv.toFixed(1) + ' against the ' + SEP_V
+      + ' bar. COLOUR: the same two means put ' + m.dc.toFixed(1) + ' apart in the luma-normalised '
+      + 'opponent plane against the ' + SEP_C + ' bar - a step of that plane is a HUE/CHROMA step and '
+      + 'cannot be bought by making him or the wall brighter, which is the half #407\'s luma criterion '
+      + 'cannot see. On ' + m.n + ' coverage px of kind ' + m.kind + ' (body at ' + JSON.stringify(m.body)
+      + ', seat ' + JSON.stringify(m.seat) + (m.made ? ', PLACED - this level spawns none' : '') + '): '
+      + (okN ? (okV && okC ? 'BOTH axes clear, so he arrives as a thing and not as a bump in the wall'
+        : (okV ? 'the VALUE step is there and the COLOUR step is not - he is the right brightness in '
+          + 'the wall\'s colour family, which is the #611 defect in its original form' : 'the COLOUR step '
+        + 'is there and the VALUE step is not - a silhouette with no brightness step is an edge the '
+        + 'raycaster already gives away, so this is the light path\'s, not the paint\'s'))
+        : 'vacuous: ' + m.n + ' px, under the ' + SEP_MINPX + ' floor, so a mean over it is not a measurement')      + (arm && arm.n >= SEP_MINPX ? ' | wearing the surface BEHIND him (BODYPAINT=0 at his own pixels, '
+        + 'every light term untouched) the same px read ' + arm.dc.toFixed(1) + ' of colour step and '
+        + arm.dv.toFixed(1) + ' of value, so ' + (m.dc - arm.dc).toFixed(1) + ' of the ' + m.dc.toFixed(1)
+        + ' is his pigment and ' + arm.dc.toFixed(1) + ' is what the light path alone would still give' : '')
+      + (BH0 !== 1 ? ' | NO BODYPAINT read site in js/, so the pigment this row is the gate for cannot '
+        + 'be turned off to be measured' : ''),
+      okN ? (okV && okC ? undefined : '#611') : undefined);   // vacuity stays a FAILURE, never a debt
+    if (arm) row(sepRay + ': the colour step is his pigment, not the light (#611 falsifier)',
+      arm.n >= SEP_MINPX && m.dc - arm.dc >= SEP_FA,
+      arm.n < SEP_MINPX ? 'vacuous with the arm down: ' + arm.n + ' px, under the ' + SEP_MINPX
+        + ' px floor - the arm cannot be priced, which is a FAILURE of the arm, not of the paint'
+        : 'the SAME body at the SAME pixels wearing the mean delivered colour of the surface behind him '
+        + '(BODYPAINT=0, BPAINT_RGB #' + m.bgRGB.toString(16).padStart(6, '0') + ', every light term '
+        + 'untouched) reads ' + arm.dc.toFixed(1) + ' of colour step against the ' + m.dc.toFixed(1)
+        + ' shipped: ' + (m.dc - arm.dc).toFixed(1) + ' of it is pigment and ' + arm.dc.toFixed(1)
+        + ' is what the light path gives with NO pigment at all, against the ' + SEP_FA
+        + ' bar. A run that reads the SAME colour step with the arm down is measuring the light field, '
+        + 'not the body - which is the shape #240 makes every arm in this probe prove.');
+    let worst = null, posed = 0, cone = 0;
+    for (let r = 0; r < SEP_ROLLS; r++) {
+      const s = sepSeat(lv, r);
+      if (s.why) { if (s.why === 'cone') cone++; continue; }
+      posed++;
+      if (!worst || s.dc < worst.dc || s.dv < worst.dv) worst = { r, dc: s.dc, dv: s.dv, n: s.n, kind: s.kind };
+    }
+    row('L' + lv + ': the worst of ' + SEP_ROLLS + ' deals separates on both axes (#611)',
+      !!worst && worst.dc >= SEP_C && worst.dv >= SEP_V,
+      worst ? 'over rolls 0..' + (SEP_ROLLS - 1) + ' at dice 1000+' + lv + '*97+13r (' + posed + ' posed, '
+        + cone + ' could not pose), the WORST deal is roll ' + worst.r + ' at ' + worst.dv.toFixed(1)
+        + ' value and ' + worst.dc.toFixed(1) + ' colour on ' + worst.n + ' px of kind ' + worst.kind
+        + ', against bars ' + SEP_V + ' / ' + SEP_C + (worst.dc < SEP_C || worst.dv < SEP_V
+          ? ' - the WORST DEAL falls BELOW, so in that room the separation is still dealt by the sector '
+          + 'roll rather than authored, which is the defect #611 was filed for'
+          : ' - so the separation is authored and not dealt by the sector roll')
+        : 'no roll of this level posed a body inside ' + SEP_D + ' m of a clear ray, so the sweep '
+        + 'measured nothing - which is a FAILURE, not an ok',
+      worst && (worst.dc < SEP_C || worst.dv < SEP_V) ? '#611' : undefined);
+  }
+  run('startLevel(3, true);');   // leave the world the rows above left it in, as #416's loop does
   if (process.env.ARMCOST) {
     /* What the mask costs WHEN A PROBE ARMS IT - the only state in which it can cost anything, and
        the number that says what a run of this probe pays. Interleaved rolls in one process, same
