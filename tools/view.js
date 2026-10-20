@@ -14673,8 +14673,18 @@ if (MODE === 'bands') {
       fDark += fr.dark; fMean += fr.mean;
       for (const h of farProbe()) {
         if (h.skip) { fVac++; continue; }
-        // a fill row is ONE value across the row: if it is not, there is no band here and the pair proves nothing
-        if (!h.fill.flat || h.tex.flat || !h.bandFlat) { fVac++; continue; }
+        /* WHICH half-frames carry a band (#616). This clause used to ask whether the band rows were ONE
+           VALUE across the row - fair, while the far answer was a fill, and flatness was the band's only
+           visible property. Past the radius a ground pixel now reads a texel of the mip its own footprint
+           selects, so a FLAT far row is the defect rather than the control, and the old test skipped every
+           half-frame in the census (108 of 108, fSamples 0) while still printing an ok-shaped number.
+           The band is now identified by DEPTH, which is what it always was: the far row's own zbuf solve
+           sits at or past FARB and the row one step below it does not. `tex.spread > 0` is the old
+           "the near row is textured" clause unchanged in sense; `fill.spread > 0` is this issue's own
+           definition of done written into the probe that already watches these pixels - a far row that
+           carries no material anywhere on the frame fails here instead of being skipped as "no band". */
+        if (h.dF < FARB - 1 || h.dT >= FARB) { fVac++; continue; }
+        if (h.tex.spread <= 0 || h.fill.spread <= 0) { fVac++; continue; }
         const st = h.fill.mean - h.tex.mean;
         fSamples++; fStep += Math.abs(st);
         fParts.push(`${h.side > 0 ? 'f' : 'c'}${h.pb}:${st >= 0 ? '+' : ''}${st.toFixed(1)}@${h.dF.toFixed(0)}m`);
