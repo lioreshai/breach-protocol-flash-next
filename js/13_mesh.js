@@ -260,17 +260,24 @@ const MESH = (function () {
      height and `scale` is that height in metres, so the projected period of a 1/TS_CYC slice is
      `BH*sc/(dist*TS_CYC)` exactly as for a body, and both the wave and its fade are already
      written against that quantity. */
-  const PS_SLOPE = 3.4, PS_MAX = 12, PS_CYC = 25 / 3;
-  /* #562 THE VIEW MODEL WAS BEING FED ZEROS TOO, and its own number is a PERIOD, not a slope. The law is
+  const PS_SLOPE = 4.1, PS_MAX = 14, PS_CYC = 25 / 3;
+  /* #562 THE HANDS WERE BEING FED ZEROS TOO, and their own number is a PERIOD, not a slope. The law is
      unchanged - amplitude = SLOPE * projectedPeriod / 4, one coarsening past TS_MINP - but the rig's
      geometry is authored in METRES at scale 1, so TS_CYC's 10 seams per unit would put a period of 0.1 m
      across a hand that is 0.09 m across: a full triangle wave on a fist, which is the zebra #533 refused
      for a crate, bought back at 0.3 m from the eye. VS_CYC 4 puts the period at 0.25 m - a LITTLE OVER
      twice the mass it is shading - so what the eye gets across a fist is one monotone ramp: a lit side and
      a shaded side, which is the whole of the issue's second acceptance clause. VS_MAX is the near-field
-     ceiling, under PS_MAX because the rig has no texture to carry a seam and 12 luma across a 60 px hand
-     is an edge, not a surface. Nothing here is a threshold: bodies and props read the same three numbers
-     they read before, and the branch is on the geometry's own authoring unit, not on a band. */
+     ceiling, under WS_MAX 12 because the fist has no machined seam to carry and 12 luma across a 60 px
+     hand is an edge, not a surface. Nothing here is a threshold: bodies and props read the same three
+     numbers they read before, and the branch is on the geometry's own authoring unit, not on a band.
+       WHY THE FISTS KEEP THEIR OWN THREE AND DO NOT JOIN WS_* (#587/#594): the gun's metal and the hands
+     are TWO OBJECT CLASSES INSIDE ONE DRAW - one `MDL`, one `TCYC` - and the two want counts 25x apart. A
+     10 mm seam projects to ~20 px, so across a fist that is 60 px wide it runs three periods over the mass
+     this note wants to ramp ONCE; TAKE FOUR's ring gate exists to keep exactly that off the rig's pipes,
+     and it is paid for there by the pipe's own arc, which a hand does not have. So the law is keyed on the
+     region a part was authored under (`wg` for the metal, `rg` for the hand) and not on `!!MDL`; see the
+     draw site and `HD`. */
   const VS_SLOPE = 3.4, VS_MAX = 9, VS_CYC = 4;
   /* PS_HCYC is the height weight of a prop's structure coord (#533 take two), and it is NOT 1.
      The WOOD body of a crate spans 0.80 authored units in y and 0.72 in x and z (PROPGEO.crate half
@@ -284,6 +291,31 @@ const MESH = (function () {
      about 48 deg rather than 45, which is not a defect: a plank's grain is not diagonal by
      construction, and the number is the arithmetic above, not a look. */
   const PS_HCYC = 0.9;
+  /* #587 THE VIEW MODEL WAS THE LAST OBJECT WITH NO SURFACE. `b.rg` was switched on at three sites in
+     this file - drum staves (#533), crate planks (#533), body torso (#232) - and never once in a weapon
+     builder, so every weapon vertex left `wBuild` with structure coord 0, every weapon triangle took the
+     `TK = 0` branch of `tri`, and the gun painted one value per face: the rifle's 308 triangles at hip
+     spread 14,430 pixels, about 47 px each, and each of those was FLAT. The gun is in the bottom-right of
+     every frame, so it was the most persistent flat surface in the game.
+       WS_CYC is the weapon's seam density and it is stated in METRES because that is the unit the rig is
+     authored in (a box here is `0.0235, 0.0195` of a metre, not a fraction of the object's own height as
+     a body or a crate is): 100 seams per metre = one seam every 10 mm of gun, which is the width of a
+     machined milling pass. The projected-period law is unchanged - `BH*sc/(dist*CYC)` - and it reads
+     correctly for the rig because the rig's `scale` is 1 and its geometry is in metres, so the quantity
+     the law produces is the pixel period of a 10 mm seam at the gun's own distance (~0.245 m at the hip,
+     ~0.190 m shouldered).
+       The zero-mean construction is a PER-PART snap rather than a chosen constant, and it has to be, for
+     the reason #533 take two hit with PS_HCYC: a wave whose span across a face is 3.18 periods leaves
+     0.18 of a period UNPAIRED and the part gains light for being detailed. Bodies and props get away with
+     one global cycle count because their parts are all a fraction of one authored height; the rig has
+     sixty boxes whose half extents are unrelated numbers, so no single constant can make every face whole.
+     `wSnap` therefore scales each axis of each emitted part to the nearest EVEN period count (even, so
+     the #416 coarse level still lands on whole periods), and gives an axis whose span is under 1.5 periods
+     NO wave at all rather than an oversampled one - the same rule `af` already applies to a tube's axis.
+     A part that snaps to zero on all three axes has all-zero coords and takes the existing flat branch,
+     which is why the hands, the sleeve and the muzzle flash stay exactly as they are. */
+  const WS_CYC = 100, WS_SLOPE = 4.0, WS_MAX = 12;
+  const wSnap = h => { const per = 2 * h * WS_CYC; return per < 1.5 ? 0 : 2 * Math.round(per / 2) / per; };
   /* PS_CYC is 1/0.12 seams per authored unit, and the number is chosen, not tuned: a crate face is
      0.72 authored units wide (PROPGEO.crate half extents 0.36), and 0.72 * 25/3 = 6 SEAMS EXACTLY.
      That is what makes the wave's mean exactly 0 on every face instead of nearly 0. The wave is
@@ -296,6 +328,12 @@ const MESH = (function () {
      means 48 rather than 100; the LAW - amplitude from the pixel's own projected period - is the
      body's and is not re-derived here. */
   let TAMP = 0, TK = 0, ST = null, TQ0 = 0, TQ1 = 0, TQ2 = 0, TCYC = 10;
+  /* #562: HD is the rig's per-vertex HAND marker (wBuild) - the second structure law inside one view-model
+     draw. It defaults to an EMPTY array rather than null because the triangle loop reads it on every mesh
+     in the game: an empty read is `undefined`, which is falsy, so a body or a prop takes its own constants
+     without the loop carrying a null test that only one caller ever needs. */
+  const NOHD = new Uint8Array(0);
+  let HD = NOHD, TAMPH = 0, TCYH = 10;
   /* o.near swaps the DEPTH array rather than adding a branch to the pixel loop. The swap makes the
      same `if (occ < z) continue` compare the draw against ITSELF instead of against the frame: the
      world's distances are never consulted, so nothing in the room can cull the view model, and the
@@ -354,6 +392,18 @@ const MESH = (function () {
        vertex streams byte-identical. Props set it to PS_HCYC, and the `props` (G) row is the one that
        can see either axis missing. */
     this.rgY = 0;
+    /* #587 WEAPON STRUCTURE. A THIRD register, again so nothing already shipped moves: while `wg` is set
+       the coord is authored in metres with a per-axis factor from `wSnap`, so a part's wave spans a whole
+       even number of periods on every axis and the part's mean cannot move. Bodies and props leave it 0
+       and their vertex streams are byte-identical. */
+    this.wg = 0;
+    /* #562 the VERTEX SPANS that the HAND region covers, as [start, end) pairs, and it is a list of ranges
+       rather than another per-vertex register so that nothing a body or a prop builds changes: `vHand`
+       brackets each region it emits and `wBuild` is the only reader, which turns it into one byte per vertex
+       for the rig's geometry and no array at all anywhere else. It is the rig's SECOND structure law (the
+       fists, VS_*), and the draw site needs it because one `MDL` draws the gun's metal and the fists in one
+       pass. */
+    this.hs = [];
     this.ca = 1; this.sa = 0;                       // rotation about x, positive tips the up axis forward
     this.cx = 0; this.cy = 0; this.cz = 0;
     this.em = 0;                                    // set around an emit to mark the part emissive
@@ -397,7 +447,93 @@ const MESH = (function () {
        to it, which is what makes a tube's structure vary AROUND it. It is added inside `this.rg`, so
        with the register clear - every body tube, since rg is only ever set for a torso BOX - both
        terms are 0 and the vertex stream is byte-identical to what it was. */
-    const sva = this.rg ? ax + ay * this.rgY + az : 0, svb = this.rg ? bx + by * this.rgY + bz : 0;   // #232 authored, before the transform
+    /* #232 authored, before the transform. For a TUBE the axis endpoints are not enough: a barrel's
+       staves run along y at x=z=0, so `ax+az` is 0 for the whole part and the ring would carry one
+       value around the circumference - a drum with no staves. #533 take one added the ring vertex's
+       own linear offset to it, which varied the wave AROUND a tube but left two of a hexagon's six
+       faces with a CONSTANT coord: a face lying in the x+z = const plane carries no horizontal wave
+       at all, which is the whole of why `props` read the barrel's x axis at 0.50 dL/px against the
+       crate's 1.50 on the same amplitude law, and why raising its depth bought a 4.5-luma drop in the
+       authored frame mean instead of grain (flatparity LOCK L3, #371).
+       #533 TAKE THREE puts the ring's PHASE on the coordinate instead of its linear position, and
+       snaps both counts so a face spans a WHOLE number of periods at either level of the #416
+       coarsening - the zero-mean half the depth needed and did not have:
+       - going round: a ring's circumference is not a whole number of 1/PS_CYC slices, so the count is
+         snapped to a multiple of the ring's own face count times TS_LMAX. The coord RINGS UP over the
+         first half and back down over the second rather than running monotonically: an angle would
+         jump by a whole ring across the closing face and paint a reversed, oversampled wave on one
+         face of every barrel (aliasing, #19). The ramp is continuous, its slope reverses only at the
+         far shoulder, where the grazing term already takes the amplitude down;
+       - going up: the axis term is scaled by `af` to the nearest EVEN period count, so the same face
+         is paired at TCYC and at TCYC/TS_LMAX instead of leaving a fifth of a period unpaired at the
+         top and bottom edge. A part too short to carry two periods gets no axial wave at all rather
+         than an oversampled one.
+       With `rg` clear - every body tube, since rg is only ever set for a torso BOX, and the view model
+       - both terms stay 0 and the vertex stream is byte-identical to what it was. */
+    let sva = 0, svb = 0, RING = 0, half = (this.ns || NS) / 2;   // the ring ramp's face count, same value `rg` sets below
+    if (this.wg) {
+      /* #587 the rig's tubes: the AXIAL term only, and that is a limitation stated rather than a gap
+         overlooked. A tube's ring term puts one wave across every face of the prism, and the gun's tubes
+         are 10-25 mm across, which projects to 15-30 screen px at the rig's own seat - six faces into
+         that is a 2-5 px period, under TS_MINP, i.e. the #19 radial-spoke failure written on the object
+         that sits in front of the camera for the whole game. The projected period is a DRAW-time quantity
+         (it turns on BH and on the player's distance) and this geometry is cached across resolution
+         changes, so a build-time ring count cannot be made to obey the gate. The axial term is safe: a
+         10 mm step along a tube projects to ~9-12 px at the rig's depths, and it reads as machined rings
+         on a barrel and as checkering on a grip. Rings on the rig's cylinders are the stated remaining
+         work on #587. Centred on the part's own midpoint for the same reason a box is centred.
+           TAKE TWO IS A BUG FIX, NOT A TUNE. #588 computed this term and the two ring pushes below emitted
+         `this.rg ? … : 0` - they tested only `rg`, which the rig never sets - so on the view model the
+         whole block was a DEAD STORE and the sentence above was false of the shipped build: the rig's
+         barrels, magazine tubes, stocks, grips and trigger guards left the builder with coord 0 and took
+         the flat `TK = 0` branch exactly as they did before #588. Both pushes now test `wg` too.
+           WHAT IT PUTS ON SCREEN, measured in ONE tree by deleting the rig's tube geometry outright
+         (`if (this.wg) return this;` before the ring loop) and reading `viewmodel`'s own paint count: at
+         the HIP a pistol's tubes contribute 0 of its 10,357 px (258 tris vs 234 - submitted, and every one
+         of their pixels repainted by a part emitted later, because the rig deliberately writes no depth),
+         and SHOULDered they contribute 6,127 of 51,308. So this term reaches the screen when the gun is
+         shouldered and not at the hip, which is also why every recorded frame - all of them hip frames -
+         holds its byte, and why the surface the hip shows is still the box parts #588 wired in. The hip
+         tubes being overpainted wholesale is #587's stated remaining work alongside the ring term. */
+      const mx = (ax + bx) * 0.5, my = (ay + by) * 0.5, mz2 = (az + bz) * 0.5;
+      const fx = wSnap((bx - ax) * 0.5), fy = wSnap((by - ay) * 0.5), fz = wSnap((bz - az) * 0.5);
+      sva = (ax - mx) * fx + (ay - my) * fy + (az - mz2) * fz;
+      svb = (bx - mx) * fx + (by - my) * fy + (bz - mz2) * fz;
+      /* TAKE FOUR PUTS THE RING BACK ON THE RIG'S FAT PIPES, and gates it the way `af` already gates the
+         axis term instead of the way `rg` does. The paragraph above was right that a build-time ring count
+         cannot obey a draw-time gate, and it drew the wrong conclusion: the gate is not on the tube's
+         DIAMETER, which is what it measured (10-25 mm across, "2-5 px"), but on the wave's OWN period, and
+         the count is free to choose that. A face of an ns-sided prism spans an arc of 2*pi*ra/ns; the ring
+         count is snapped so each face carries a whole, EVEN number of 1/WS_CYC periods of coordinate, so
+         the projected period is that arc's projection and not the diameter divided by six, and the evenness
+         keeps it whole at BOTH levels of the #416 coarsening exactly as `af` does for the axis. One wave
+         across a face is also what a hexagonal barrel reads as at this art scale - a few discrete steps of
+         facet, not stripes.
+           The same `af` rule then decides which tubes get one: a face that cannot carry two 10 mm slices of
+         arc gets NO ring at all rather than an oversampled one, because the amplitude law is the DRAW's -
+         TAMP comes from the axial seam's projected period and is shared by both terms, so a ring denser
+         than 10 mm would spend that amplitude at twice the luma per pixel, which is the zebra #533 measured
+         on the crate and what the note above was really afraid of. Measured off the shipped geometry at
+         NS = 6, that floor is radius 14.3 mm: the pistol's barrel crown (11.5), the shotgun's barrel and
+         magazine tube (13.5) and the trigger guards (5) stay AXIAL-only - machined rings along a thin
+         barrel - and the pistol's grip (20.5), the shotgun's pump (22.5), grip (20.5) and stock (24.5-28.5)
+         and the rifle's grip (21) and stock (22.5-26.5) take one wave around them, which are the wood and
+         polymer parts a flat value currently paints as one slab. A thin tube gaining its ring term later
+         would need the amplitude split per term; that is the remaining risk, stated here rather than hidden.
+         Zero-mean by construction the way #533 requires: the ramp rises over the first half of the ring and
+         falls over the second, and every FACE spans whole periods, so no face - not just no part - is left
+         with an unpaired fraction to gain light from. Geometry is untouched: vertex positions, counts and
+         colours are byte-identical, so this reaches a frame only through `tri`'s existing seam term. */
+      const nr = this.ns || NS, arp = (ra * Math.PI * 2 * WS_CYC) / nr;   // 10 mm slices across ONE face
+      const kp = arp < 1.5 ? 0 : 2 * Math.round(arp / 2);                 // whole, EVEN periods per face
+      RING = kp * half / WS_CYC;                                          // coord ramp over the half ring, metres
+    } else if (this.rg) {
+      const nr = this.ns || NS; half = nr / 2;
+      RING = Math.max(nr, Math.round(ra * Math.PI * PS_CYC / nr) * nr) / PS_CYC;    // periods round the ring, in authored units
+      const per = Math.abs(bx - ax + (by - ay) * this.rgY + bz - az) * PS_CYC;      // periods the axis term spans
+      const af = per < 1.5 ? 0 : Math.max(2, 2 * Math.round(per / 2)) / per;
+      sva = ax + az + ay * this.rgY * af; svb = bx + bz + by * this.rgY * af;
+    }
     ax = p0x; ay = p0y; az = p0z; bx = pb[0]; by = pb[1]; bz = pb[2];
     const L = Math.hypot(dx, dy, dz) || 1e-6;
     dx /= L; dy /= L; dz /= L;
@@ -411,12 +547,12 @@ const MESH = (function () {
     for (let i = 0; i < n; i++) {
       const cx = u[0] * RN[i * 2] + v[0] * RN[i * 2 + 1], cy = u[1] * RN[i * 2] + v[1] * RN[i * 2 + 1], cz = u[2] * RN[i * 2] + v[2] * RN[i * 2 + 1];
       this.p.push(ax + cx * ra, ay + cy * ra, az + cz * ra, c[0], c[1], c[2]); this.e.push(this.em);
-      this.s.push(this.rg ? sva + (cx + cy * this.rgY + cz) * ra : 0);
+      this.s.push(this.rg || this.wg ? sva + RING * (i <= half ? i / half : 2 - i / half) : 0);
     }
     for (let i = 0; i < n; i++) {
       const cx = u[0] * RN[i * 2] + v[0] * RN[i * 2 + 1], cy = u[1] * RN[i * 2] + v[1] * RN[i * 2 + 1], cz = u[2] * RN[i * 2] + v[2] * RN[i * 2 + 1];
       this.p.push(bx + cx * rb, by + cy * rb, bz + cz * rb, c[0], c[1], c[2]); this.e.push(this.em);
-      this.s.push(this.rg ? svb + (cx + cy * this.rgY + cz) * rb : 0);
+      this.s.push(this.rg || this.wg ? svb + RING * (i <= half ? i / half : 2 - i / half) : 0);
     }
     for (let i = 0; i < n; i++) {
       const j = (i + 1) % n;
@@ -435,9 +571,12 @@ const MESH = (function () {
       [[cx - hx, cy - hy, cz - hz], [cx + hx, cy - hy, cz - hz], [cx + hx, cy + hy, cz - hz], [cx - hx, cy + hy, cz - hz]],
       [[cx - hx, cy - hy, cz + hz], [cx - hx, cy + hy, cz + hz], [cx + hx, cy + hy, cz + hz], [cx + hx, cy - hy, cz + hz]],
     ];
+    /* the three factors are a property of the PART, not of the face: hoisted out of the six-face loop so
+       a 35-box rebuild calls wSnap 3 times per box instead of 18 (#587) */
+    const fx = this.wg ? wSnap(hx) : 1, fy = this.wg ? wSnap(hy) : this.rgY, fz = this.wg ? wSnap(hz) : 1;
     for (const q of faces) {
       const b0 = this.p.length / 6;
-      for (const qv of q) { const p = this.pt(qv[0], qv[1], qv[2]); this.p.push(p[0], p[1], p[2], c[0], c[1], c[2]); this.e.push(this.em); this.s.push(this.rg ? qv[0] + qv[1] * this.rgY + qv[2] : 0); }
+      for (const qv of q) { const p = this.pt(qv[0], qv[1], qv[2]); this.p.push(p[0], p[1], p[2], c[0], c[1], c[2]); this.e.push(this.em); this.s.push(this.wg ? (qv[0] - cx) * fx + (qv[1] - cy) * fy + (qv[2] - cz) * fz : this.rg ? qv[0] + qv[1] * this.rgY + qv[2] : 0); }
       this.t.push(b0, b0 + 1, b0 + 2, b0, b0 + 2, b0 + 3);
     }
     return this;
@@ -448,7 +587,12 @@ const MESH = (function () {
      the reason it exists; no body uses it. */
   Builder.prototype.bip = function (cx, cy, cz, rx, ry, rz, c) {
     const eq = this.p.length / 6;
-    const put = (x, y, z) => { const p = this.pt(x, y, z); this.p.push(p[0], p[1], p[2], c[0], c[1], c[2]); this.e.push(this.em); };
+    /* #587: this push is load-bearing even with `wg` clear. `b.s` is indexed by VERTEX, so a primitive
+       that emits vertices without emitting coords silently shifts every coord that comes after it. The
+       muzzle flash is two bips at the END of each weapon builder, so the shift was invisible there - but
+       the pistol's slide-back box and the shotgun's shell follow their own bips in some states, and a
+       shifted coord is a wave with the wrong phase, which is not a thing any row would see as flat. */
+    const put = (x, y, z) => { const p = this.pt(x, y, z); this.p.push(p[0], p[1], p[2], c[0], c[1], c[2]); this.e.push(this.em); this.s.push(this.wg ? (x - cx) * wSnap(rx) + (y - cy) * wSnap(ry) + (z - cz) * wSnap(rz) : 0); };
     put(cx + rx, cy, cz); put(cx, cy, cz + rz); put(cx - rx, cy, cz); put(cx, cy, cz - rz);
     const top = this.p.length / 6; put(cx, cy + ry, cz);
     const bot = this.p.length / 6; put(cx, cy - ry, cz);
@@ -716,11 +860,13 @@ const MESH = (function () {
     const w = back ? -1 : 1;
     /* #562: the hand IS the region, in the same sense a torso is (#232) and a crate's staves are (#533).
        The coord is the authored x+z in METRES and VS_CYC decides how fast it ramps; see that note. It is set
-       for the HAND ONLY - the gun's parts stay at 0 so the slide keeps the flat metal #376 owns, and a stale
-       register would stripe the receiver that follows the fist in emit order (the same trap #232 names for
-       a torso followed by a leg). The wrist tube is inside the register on purpose: a sleeve that ramps with
-       the fist is what makes the two read as one limb. */
-    b.rg = 1;
+       for the HAND ONLY, and #587 made that load-bearing twice over: the gun's metal is emitted under `wg`
+       with its own law, so a region register left set past the fist would put the hand's metre-wide ramp on
+       every part that follows it in emit order (the same trap #232 names for a torso followed by a leg) AND
+       answer the slide with the wrong cycle count. The wrist tube is inside the register on purpose: a sleeve
+       that ramps with the fist is what makes the two read as one limb. `hs` brackets the region for the draw
+       site, which cannot tell a fist from a slide out of `MDL` alone. */
+    b.rg = 1; b.hs.push(b.p.length / 6);
     // The fist is a TAPERED TUBE along the hand's own long axis, not a slab: six flat boxes stacked on
     // each other have one silhouette and it is a rectangle, which is the reading the issue is about. A
     // cone reads as a wrapped mass, its silhouette is a trapezoid with rounded sides, and its far end is
@@ -734,6 +880,7 @@ const MESH = (function () {
     b.tube(x + w * 0.011 * s, y + 0.020 * s, z + 0.010 * s, x - w * 0.006 * s, y + 0.030 * s, z + 0.020 * s,
       0.0070 * s, 0.0055 * s, VW.skin);              // the thumb, along the top of the grip
     b.box(x - w * 0.010 * s, y - 0.044 * s, z + 0.004 * s, 0.016 * s, 0.014 * s, 0.020 * s, VW.gloveD);
+    b.hs.push(b.p.length / 6);
     b.rg = 0;
     return b;
   }
@@ -767,6 +914,7 @@ const MESH = (function () {
       const MU = VMUZZLE.pistol;
       vArm(b, 0.016, -0.026, 0.024, 1.0, false);
       vArm(b, -0.026, -0.040, 0.048, 0.96, true);
+      b.wg = 1;                                        // #587 the metal gets the surface; the sleeve above and the fists below do not
       b.box(0, 0.007, 0.088, 0.0185, 0.0135, 0.086, VW.steel);          // the slide
       b.box(0, 0.0235, 0.088, 0.008, 0.0035, 0.070, VW.black);          // the serrated rib on top
       b.tube(0, 0.004, MU - 0.024, 0, 0.004, MU, 0.0115, 0.0105, VW.dark); // the barrel crown
@@ -782,6 +930,7 @@ const MESH = (function () {
       b.box(0, 0.026, 0.178, 0.0035, 0.0085, 0.0045, VW.black);         // the front post
       b.box(0, -0.006, -0.004, 0.008, 0.011, 0.010, VW.steel);          // the hammer
       if (s.slideBack) b.box(0, 0.014, 0.088 - s.slideBack * 0.026, 0.019, 0.008, 0.050, VW.dark);
+      b.wg = 0;
       vHand(b, 0.016, -0.026, 0.024, 1.0, false, s);
       vHand(b, -0.026, -0.040, 0.048, 0.96, true, s);
       if (s.mz > 0.004) vFlash(b, s.mz, MU);
@@ -793,6 +942,7 @@ const MESH = (function () {
       const MU = VMUZZLE.shotgun, pu = (s.pump || 0) * 0.034;
       vArm(b, 0.014, -0.034, 0.000, 1.02, false);
       vArm(b, -0.010, -0.040, 0.266 + pu, 1.0, true);   // the pump hand's arm travels with the pump
+      b.wg = 1;                                        // #587 the metal gets the surface; the sleeve above and the fists below do not
       b.box(0, 0.004, 0.086, 0.0215, 0.0185, 0.082, VW.steel);          // the receiver
       b.box(0, 0.0235, 0.086, 0.011, 0.0045, 0.070, VW.black);          // the top rib
       b.box(0, -0.0155, 0.086, 0.0205, 0.0022, 0.078, VW.seam);         // receiver / fore-end parting line
@@ -808,6 +958,7 @@ const MESH = (function () {
         b.tube(0.040, -0.092, 0.052, 0.056, -0.084, 0.058, 0.0105, 0.010, VW.shell);
         b.tube(0.056, -0.084, 0.058, 0.062, -0.081, 0.060, 0.0105, 0.010, VW.brass);
       }
+      b.wg = 0;
       vHand(b, 0.014, -0.034, 0.000, 1.02, false, s);
       vHand(b, -0.010, -0.040, 0.266 + pu, 1.0, true, s);
       if (s.mz > 0.004) vFlash(b, s.mz, MU);
@@ -819,6 +970,7 @@ const MESH = (function () {
       const MU = VMUZZLE.rifle;
       vArm(b, 0.014, -0.030, 0.012, 1.0, false);
       vArm(b, -0.014, -0.038, 0.234, 0.98, true);
+      b.wg = 1;                                        // #587 the metal gets the surface; the sleeve above and the fists below do not
       b.box(0, 0.005, 0.092, 0.0235, 0.0195, 0.086, VW.steel);          // the upper receiver
       b.box(0, 0.0265, 0.092, 0.0155, 0.0055, 0.078, VW.black);         // the dust cover
       b.box(0, 0.005, 0.150, 0.0225, 0.0022, 0.030, VW.seam);           // the upper / handguard parting line
@@ -840,6 +992,7 @@ const MESH = (function () {
       b.tube(0, -0.028, -0.006, 0, -0.112, 0.014, 0.021, 0.0185, VW.poly);    // the grip
       b.tube(0, -0.030, -0.014, 0, -0.062, -0.190, 0.0225, 0.0265, VW.poly);  // the stock
       b.box(0, -0.076, -0.196, 0.021, 0.016, 0.010, VW.black);          // the butt pad
+      b.wg = 0;
       vHand(b, 0.014, -0.030, 0.012, 1.0, false, s);
       vHand(b, -0.014, -0.038, 0.234, 0.98, true, s);
       if (s.slideBack) b.box(-0.030 - s.slideBack * 0.020, 0.012, 0.020, 0.005, 0.006, 0.010, VW.brass);
@@ -902,12 +1055,23 @@ const MESH = (function () {
     const b = VMGEO[kind](new Builder(), st || {});
     const p = new Float32Array(b.p), v = new Float32Array(b.p.length / 2);
     for (let i = 0; i < b.p.length / 6; i++) { v[i * 3] = b.p[i * 6]; v[i * 3 + 1] = b.p[i * 6 + 1]; v[i * 3 + 2] = b.p[i * 6 + 2]; }
-    /* #562: `st` is the structure coord stream `tri()` reads, and the view model's builder did not carry it,
-       so `ST = m.st || null` was null for every rig and the hands were flat-shaded by construction rather
-       than by choice. It is a per-vertex Float32Array exactly like `model()`'s (js/13_mesh.js mdl.st), and
-       it is counted in byteLength because the rig cache's eviction is byteLength-sized. */
-    const geo = { kind, p, v, t: new Uint16Array(b.t), em: Uint8Array.from(b.e), st: Float32Array.from(b.s), nV: b.p.length / 6, tris: b.t.length / 3 };
-    geo.byteLength = p.byteLength + v.byteLength + geo.t.byteLength + geo.em.byteLength + geo.st.byteLength;
+    /* #587: the coord array goes in beside `em` with the SAME shape the bodies and props already hand
+       `tri`. A plain JS array here would give the site `ST[i0]` a third map (null, Float32Array, Array)
+       where it currently handles two, and this geometry is rebuilt on every reload miss.
+       #562 took that array onto the rig for the HANDS, which is what made `ST = m.st || null` non-null for
+       every rig (it was null before, so the hands were flat-shaded by construction rather than by choice),
+       and it is why `geo.st` is a per-vertex Float32Array exactly like `model()`'s (js/13_mesh.js mdl.st).
+         A rig now carries TWO structure laws in one geometry - the gun's metal under WS_* (#587) and the
+       fists under VS_* (#562) - so it also carries which one each vertex was authored under: `vHand` notes
+       the vertex span of every hand region in `b.hs` (the same span in which it sets the region register
+       `rg`) and it becomes one byte per vertex HERE rather than in the builder, so a body or a prop builds
+       exactly what it built before. `tri` never reads it; the draw site does, once per triangle, to choose
+       which class's constants that triangle's law uses - see the note at VS_CYC. Both arrays are counted in
+       byteLength because the rig cache's eviction is byteLength-sized. */
+    const hd = b.hs.length ? new Uint8Array(b.p.length / 6) : null;
+    if (hd) for (let i = 0; i < b.hs.length; i += 2) hd.fill(1, b.hs[i], b.hs[i + 1]);
+    const geo = { kind, p, v, t: new Uint16Array(b.t), em: Uint8Array.from(b.e), st: Float32Array.from(b.s), hd, nV: b.p.length / 6, tris: b.t.length / 3 };
+    geo.byteLength = p.byteLength + v.byteLength + geo.t.byteLength + geo.em.byteLength + geo.st.byteLength + (hd ? hd.byteLength : 0);
     return geo;
   }
   function weaponGeo(kind, st) {
@@ -1087,12 +1251,34 @@ const MESH = (function () {
        One scalar, one shape, same exemptions as the tiles: it multiplies the PAINTED albedo and nothing
        else. Not the 1.35 lift above (that is the billboard's re-light, and it is what makes a mesh prop
        the same colour as the sheet it replaced), not a light value, and not an emissive part - a vertex
-       flagged `em` is a LIGHT SOURCE (the lamp's aperture, read by the `props` LAMPCORE census), and
-       #371's own ruling says a lamp reading brighter than its deck is the issue's rule WORKING, so the
-       lamp's whole prop stays out of the band: PROPBAND names crate and barrel, the two painted boxes, and
-       a lamp's post and base are painted surfaces a light cell happens to be standing in. Pickups are out
-       too - they are readability, not set dressing, and no row here charges them for being loud. */
-    const PROP_ALB = 0.88, PROPBAND = { crate: PROP_ALB, barrel: PROP_ALB };
+       flagged `em` is a LIGHT SOURCE (the lamp's aperture, read by the `props` LAMPCORE census), and the
+       guard below is PER VERTEX for exactly that reason. Pickups are out too - they are readability, not
+       set dressing, and no row here charges them for being loud.
+       #371's ruling on the LAMP, which is what this table now says: a lamp's bulb may outshine the room;
+       its painted post, foot and shade may not. The earlier reading of that ruling kept the whole lamp out
+       of PROPBAND, which conflated the aperture with the metal - and it is the metal that was being
+       charged: at ABATOIR's 2,2 seat the fixture's own prop mean measured 134 luma against a deck of 98
+       (+36.2) on albedo authored at 44-62, six of the eight props over the +25 bar across the four sectors
+       were lamps 2-12 m out, and two A/B renders say the number is neither the bulb nor the additive glow:
+       painting the aperture the shade's grey moves the charged figure not at all, and returning from
+       `drawLightGlow` moves it not at all. So the lamp joins the band and its `em` vertices do not: the
+       aperture keeps the bytes the LAMPCORE census reads, and the fixture reads as dark metal standing in
+       the light it casts instead of the brightest solid in its part of the frame.
+       #371's SECOND ruling on the lamp, which is why the table is no longer one scalar: banding the
+       fixture at the crate's 0.88 took six of the eight props over the bar across the four sectors out
+       and left one lamp standing in its own pool - ARCHIVE SUBLEVEL 11.5,22.5, read 7.07 m out of seat
+       4,21, at +26.5 against the deck inside its own footprint (prop 89 / deck 62). Measured at that
+       seat before the change: post median 83.3, the lit top edge of its base plate 128.2, the deck at
+       its own foot 54-58. The fixture is metal IN a light pool, so the band that makes a crate right in
+       the middle of a room leaves it over the bar by itself; the value it needs is its own, and it is
+       0.80 - the one-literal A/B at that seat puts the post at 76.8 and the plate's top edge at 117.2,
+       keeps the aperture's bytes identical (the guard below is unchanged, and it is what makes that
+       structural rather than a claim), and takes ARCHIVE from 2 props over to 1. The order it leaves is
+       post < plate < aperture (77 < 117 < 172), so a lamp still reads as a lamp and not as a dark stick.
+       Crate and barrel stay at PROP_ALB: this is not a cheaper lamp paint, it is the one prop kind whose
+       own pool is the brightest floor in its room. */
+    const PROP_ALB = 0.88, PROP_ALB_LAMP = 0.80;
+    const PROPBAND = { crate: PROP_ALB, barrel: PROP_ALB, lamp: PROP_ALB_LAMP };
     const band = PROPBAND[kind];
     for (let i = 3, v = 0; i < b.p.length; i += 6, v++) {
       const k = band && !b.e[v] ? band : 1;         // emissive vertices keep their authored bytes
@@ -1258,6 +1444,7 @@ const MESH = (function () {
         // painted in emit order, and a torso emitted before an arm loses to it
         if (SELF && z < occ) zbuf[off] = z;
         if (CW) CW[off] = CTAG;
+        if (SURF) SURF[off] = 0;          // #546: a face, a prop, a body or the view model owns this pixel
         if (TK && SOLID) {
           // the zero-mean seam: (1-w1-w2)*TQ0 + w1*TQ1 + w2*TQ2 is the body coord under the pixel
           let u = (1 - w1 - w2) * TQ0 + w1 * TQ1 + w2 * TQ2;
@@ -1341,31 +1528,43 @@ const MESH = (function () {
        #33 for the same floor under AMB). */
     EMIS = !!o.emis; DIM = o.dim || 0; EM = m.em;
     ST = m.st || null;                              // #232 per-vertex torso coord; props and the gun have none
-    /* The ramp a face's light rides. A body's sprites carried a curvature term, so 0.30+0.85*d is that
-       path's own history and stays; a PROP's sprite had NO normal at all - drawBillboard's lr is
-       AMB + 1.1*li*lt, flat - so borrowing the body's ramp darkened every prop face turned away from KEY
-       by up to 3.7x, which is how a hazard-red drum came out the colour of dried mud. Measured at one
-       camera, brightest tenth of the silhouette: barrel 99 -> 79, crate 101 -> 51. 0.75+0.42*d kept the
-       average where the painted sheet was, and what it paid with was the thing the ramp is FOR.
-       #371 took it back. d is `max(0, N·KEY)` with N flipped toward the eye (above), so a face that
-       looks at the camera but away from the key answers with d = 0 exactly: the flattened R0 = 0.75 was
-       therefore not a floor under the shaded side, it was the SHADED SIDE, and every prop that showed
-       two faces showed them at the same value. That is the 18-luminance crate in the issue: KEY's x and
-       y magnitudes are near equal, so square-to-the-grid faces could not be told apart by the key light
-       at all, and no yaw in the world would have fixed it while R0 sat at 0.75.
-       R1 goes from 0.42 to 0.68 - two thirds of the body's 0.85 - and R0 drops to keep the SAME ramp
-       height at the axis-aligned case the old comment measured: 0.60 + 0.68*0.567 = 0.985 against the
-       old 0.75 + 0.42*0.567 = 0.988, where 0.567 is the mean of |N·KEY| over a box's three face
-       families. So the mean is held by the ramp's own arithmetic and the spread is what changed: the
-       lit side / shaded side ratio goes 1.08x -> 1.78x, which is a solid. The albedo half of the pay is
-       in `PROPGEO.crate` above (the crate's WOOD), because R1 also lifts the top face, and that is where
-       the last few percent comes from - not a threshold moved to absorb the difference. */
+    HD = m.hd || NOHD;                              // #562 which of a rig's TWO structure laws authored this vertex
+    /* The ramp a face's light rides. THREE cases read it, all of them at the one `sh` below, and a PROP
+       is not one of them:
+         a BODY            0.30 + 0.85*d - its sprites carried a curvature term, so that is the path's
+                           own history and it stays (#407 prices it against the body's own field);
+         the VIEW MODEL    0.55 + 0.55*d, and MDL is only ever the gun (40_render.js:3852) - #376;
+         PROPGEO-not-prop  0.75 + 0.42*d, i.e. the two sprites #76 converted to mesh because the Builder
+                           was already there - the ORB and the PORTAL. Only the SHUT portal ever shows
+                           the ramp: open it is `emis` and no ramp applies to it at all, shut it is
+                           `dim` 0.55 and lit by the room, which is the case the PROPKIND note above
+                           found moving at L1 and L3 and holding byte for byte at L0 and L2.
+       A PROP READS NOTHING HERE. `lw` at the bottom of this block answers `pr` with the form term `aw`,
+       so both prop arms of the two lines below were evaluated and then dropped on the floor: #561 set
+       the prop constant from 0.60 to 1.40 - a 2.3x swing on what this comment used to call the shaded
+       side of a prop face - and `node tools/view.js props` came back byte-identical apart from the tree
+       banner, same face census, same control, same turn. Since a prop is `pg` as well, a prop now lands
+       on PROPGEO's 0.75/0.42 arm and that value is dead arithmetic discarded by `lw`; the day a change
+       routes a prop through `sh` instead of `aw` is the day those two numbers start painting crates, and
+       `props`' (Y) face row is where it would show.
+       What #371 actually changed on a prop is PROP_R1/PROP_DMEAN below, and the arithmetic that comment
+       used to carry here belongs with them: a prop's sprite had NO normal at all (drawBillboard's lr is
+       AMB + 1.1*li*lt, flat), so borrowing the body's ramp darkened every face turned away from KEY by
+       up to 3.7x - a hazard-red drum came out the colour of dried mud, barrel 99 -> 79 and crate 101 ->
+       51 at the brightest tenth of the silhouette - and the flattened 0.75 + 0.42*d that replaced it
+       kept the average where the painted sheet was and paid with the thing a ramp is FOR. #371's
+       diagnosis still stands and is the reason `aw` exists: d is `max(0, N·KEY)` with N flipped toward
+       the eye (above), so a face that looks at the camera but away from the key answers d = 0 exactly,
+       R0 = 0.75 was not a floor under the shaded side but the SHADED SIDE, and with KEY's x and y
+       magnitudes near equal two square-to-the-grid faces could not be told apart by any light in the
+       game at any yaw. That is the 18-luminance crate. */
     const pg = !MDL && PROPGEO[o.kind] !== undefined;
-    const vs = !!MDL;                               // #562: a VIEW MODEL, whose geometry is authored in metres
     const pr = pg && PROPKIND[o.kind] === 1;         // a prop, not merely something built by PROPGEO
-    R0 = MDL ? 0.55 : (pr ? 0.60 : pg ? 0.75 : 0.30);
-    R1 = MDL ? 0.55 : (pr ? 0.68 : pg ? 0.42 : 0.85);
-    /* #371: the prop form term's own two constants. PROP_DMEAN is the mean of d = max(0, N*KEY) over a
+    R0 = MDL ? 0.55 : (pg ? 0.75 : 0.30);
+    R1 = MDL ? 0.55 : (pg ? 0.42 : 0.85);
+    /* #371: the prop form term's own two constants, and the ONLY knobs a prop's face value answers to -
+       the ramp pair above is not one of them (see the note there for what a prop does not read).
+       PROP_DMEAN is the mean of d = max(0, N*KEY) over a
        box's THREE face families (two vertical families at |KEY_xy| = 0.732 and the top at KEY_z = 0.68),
        the same 0.567 #373 used to hold its ramp's mean; centring on it makes the form term average
        exactly 1 over a box, so the prop's average light is the shipped light and only the SPREAD moved.
@@ -1373,6 +1572,34 @@ const MESH = (function () {
        the ambient outside it is a floor both faces share; 1.1 on the whole light is the issue's "at
        least 35 luminance where the shipped build gives 18". */
     const PROP_R1 = 1.3, PROP_DMEAN = 0.45;
+    /* #371 THIS INCREMENT: the SAME centring per prop KIND, because `d` averages differently for the one
+       kind whose side is curved. Measured, not derived: every PIXEL a prop delivers in a four-sector
+       sector sweep at 031a70f (only pixels that pass the depth test, so an occluded far wall of a tube
+       counts for nothing), accumulated as sum(d)/count per kind -
+         crate  961,417 px  mean d 0.2863      barrel  497,427 px  mean d 0.3502      lamp 496,561 px  0.4399
+       A tube always shows some face to the key - its visible normals sweep a half-circle, so the max(0,..)
+       clamp never bites across a whole silhouette the way it does on a box's two flat families - and at
+       the shipped centring the drum therefore collects MORE light per pixel than the crate beside it:
+       mean aw = 1 + PROP_R1*(mean d - centring) is 0.870 on a barrel against 0.787 on a crate, +10.6 %.
+       Both props are in the same light. That is why every prop still over the +25 bar is a barrel.
+       PROP_DMEAN_K shifts a kind by the measured DIFFERENCE from the box's own mean, which is the only
+       form of this that is a measurement and not a tune: 0.45 + (0.3502 - 0.2863) = 0.5139 puts every
+       kind's form term back on the mean the box's centring already holds, so the drum keeps its colour
+       and its albedo, no light value moves, and the crate and lamp rows come out byte-identical because
+       their centring does not appear in this table. It is NOT the tube's own mean: centring on 0.3502
+       would make the barrel's form term average exactly 1, which is +15 % LIGHT on every drum in the game
+       (measured: the same sweep with that value puts 4 props over the bar instead of 2), and the shipped
+       0.45 is not any kind's mean either - it is above all three, which is what keeps a prop's delivered
+       mean where the painted billboard sheet landed (`exposure`'s four seeded medians). The difference is
+       what is owed; the absolute is what the mean-hold control pins. A barrel keeps its lit side and its
+       shaded side by construction: this moves the term's average, not PROP_R1's slope. */
+    const PROP_DMEAN_K = { barrel: 0.5139 };
+    /* The centring a prop is actually shaded with: one lookup per DRAW, not per triangle. A kind with no
+       row above keeps PROP_DMEAN, so a crate and a lamp run byte-identical arithmetic - that is the scope
+       control the issue asks for, and it is structural: the only way a box reaches this table is by a row
+       appearing in it. Declared HERE, after the constants, because `const` has a temporal dead zone and
+       this runs per draw: the first prop frame of the boot reads it before its own declaration otherwise. */
+    const pdm = pr && PROP_DMEAN_K[o.kind] !== undefined ? PROP_DMEAN_K[o.kind] : PROP_DMEAN;
     /* #371: what a PROP pays for the visibility FILL. `li` below adds 0.30 * visAt(dc) on top of the
        baked lamp field, and that add is a READABILITY term, not a light: it exists so a hostile does not
        arrive as a black cut-out in a dark cell at engagement range (#407 kept it for exactly that, and
@@ -1425,16 +1652,40 @@ const MESH = (function () {
        Under the gate the draw steps to one coarser level of the same pattern instead of switching the
        term off (#416 - the block at TS_CYC carries the measurement). The law is the same on both
        levels: what is held constant is the SLOPE, never the amplitude. */
-    let TPR = BH * sc / (Math.max(NEAR, Math.abs(tYc)) * (pr ? PS_CYC : vs ? VS_CYC : TS_CYC));
+    /* #587 the rig is the third object class on this law, and it needs its OWN cycle count because its
+       geometry is authored in metres rather than in fractions of its own height: for the gun `sc` is 1 and
+       `tYc` is the rig's own anchor distance (~0.245 m at the hip, 0.190 m shouldered), so the same
+       expression returns the projected pixel period of a WS_CYC seam without any change of form.
+         #562 AND A RIG IS TWO CLASSES, NOT ONE. One `MDL`, one draw, the gun's metal AND the fists, and
+       `!!MDL` cannot tell them apart: this branch's `vs` and main's `vm` were the SAME predicate, so a
+       textual merge hands one geometry whichever law the leftmost ternary carries - the slide would have
+       read the fist's 4 seams per metre and the fist a machined 100. The key that does separate them is
+       already per vertex - the region register the part was emitted under, which `wBuild` carries as
+       `m.hd` - so each class reads ONE law, the two blocks here being the same expression with each class's
+       own three constants, and `tri` gains no path. */
+    const vm = !!MDL;                                    // the view model, and MDL is only ever the rig
+    const TCY = vm ? WS_CYC : (pr ? PS_CYC : TS_CYC);
+    let TPR = BH * sc / (Math.max(NEAR, Math.abs(tYc)) * TCY);
     if (!ST) TPR = 0;                                     // no torso coords on this mesh: no term
-    else if (TPR < TS_MINP) { TPR *= 2; TCYC = (pr ? PS_CYC : vs ? VS_CYC : TS_CYC) / TS_LMAX; } else TCYC = pr ? PS_CYC : vs ? VS_CYC : TS_CYC;
+    else if (TPR < TS_MINP) { TPR *= 2; TCYC = TCY / TS_LMAX; } else TCYC = TCY;
     /* #533: a prop keeps the LAW and brings its own SLOPE. TS_SLOPE 9 belongs to armour that means
        near 100; a crate in a dim cell means 48 and the same slope is a 45-luma peak-to-peak seam on
        it. The projected period is the same quantity for both - a prop's authored geometry is in
        units of its own height and `scale` is that height in metres - so only the slope and the
        near-field ceiling differ, and what the eye holds constant across a walk past, luma per screen
        pixel, is unchanged in kind. */
-    TAMP = TPR <= TS_MINP ? 0 : Math.min(pr ? PS_MAX : vs ? VS_MAX : TS_MAX, (pr ? PS_SLOPE : vs ? VS_SLOPE : TS_SLOPE) * TPR * 0.25);
+    TAMP = TPR <= TS_MINP ? 0 : Math.min(vm ? WS_MAX : pr ? PS_MAX : TS_MAX, (vm ? WS_SLOPE : pr ? PS_SLOPE : TS_SLOPE) * TPR * 0.25);
+    /* #562 THE FISTS, the second class in this same draw, and the two lines above with VS_* in place of
+       WS_*: their own projected period, the same one coarsening past TS_MINP, their own near-field ceiling.
+       Nothing here is a second law - it is the law, read at the other class's constants, and it is computed
+       per DRAW and not per triangle. A rig built by the probe's `setHands(false)` arm has no hand region and
+       so leaves TAMPH 0, which is what makes that A/B measure the fists rather than a different arithmetic;
+       bodies and props never have a hand region either, and cost one register test in the triangle loop. */
+    if (HD !== NOHD) {
+      let HPR = BH * sc / (Math.max(NEAR, Math.abs(tYc)) * VS_CYC);
+      if (HPR < TS_MINP) { HPR *= 2; TCYH = VS_CYC / TS_LMAX; } else TCYH = VS_CYC;
+      TAMPH = HPR <= TS_MINP ? 0 : Math.min(VS_MAX, VS_SLOPE * HPR * 0.25);
+    } else TAMPH = 0;
     if (ROT) {
       // yaw+pitch+roll as one matrix, so a rig can point its bore along the firing ray.
       // The yaw-only branch below is untouched: this is the extra path a view model takes,
@@ -1559,7 +1810,7 @@ const MESH = (function () {
            face of a solid receives it equally and an orientation term on it would darken the flank that
            geometry happens not to favour. Bodies and the view model keep the shipped line untouched -
            #407 prices the body's ramp against its own field and #376 owns the gun. */
-        const aw = pr ? 1 + PROP_R1 * (d - PROP_DMEAN) : 1;
+        const aw = pr ? 1 + PROP_R1 * (d - pdm) : 1;
         const lw = pr ? aw : sh;
         lr = (AMB * aw + li * lt[0] * lw + fk * (FC[0] / 255)) * hz;
         lg = (AMB * aw + li * lt[1] * lw + fk * (FC[1] / 255)) * hz;
@@ -1594,12 +1845,20 @@ const MESH = (function () {
       /* Per triangle: the torso's own coord set, gated by the grazing band. TK is a module register
          like CR, so it MUST be zeroed on every triangle that is not torso geometry - a stale TK would
          paint the seam onto the leg that follows the chest in emit order. */
-      if (TAMP) {
+      /* Per triangle: the torso's own coord set, gated by the grazing band. TK is a module register
+         like CR, so it MUST be zeroed on every triangle that is not torso geometry - a stale TK would
+         paint the seam onto the leg that follows the chest in emit order. A rig's triangles are TWO
+         classes (#562 + #587), so which class's constants apply is read per vertex off `HD` - the region
+         the part was authored under - and nothing else about this block changes: same term, same gate,
+         same registers. */
+      if (TAMP || TAMPH) {
         const sa = ST[i0], sb = ST[i1], sz = ST[i2];
-        if (sa !== 0 || sb !== 0 || sz !== 0) {
+        const hh = HD[i0], amp = hh ? TAMPH : TAMP;
+        if (amp && (sa !== 0 || sb !== 0 || sz !== 0)) {
           const q = 1 - Math.min(1, vd / Math.max(1e-6, Math.hypot(evx, evy, evz)));
-          TK = TAMP * (TS_BMIN + (1 - TS_BMIN) * q);
-          TQ0 = sa * TCYC; TQ1 = sb * TCYC; TQ2 = sz * TCYC;
+          TK = amp * (TS_BMIN + (1 - TS_BMIN) * q);
+          const tcy = hh ? TCYH : TCYC;
+          TQ0 = sa * tcy; TQ1 = sb * tcy; TQ2 = sz * tcy;
         } else TK = 0;
       } else TK = 0;
       if (PKN) { r = pkneeling(r); g = pkneeling(g); b = pkneeling(b); }
