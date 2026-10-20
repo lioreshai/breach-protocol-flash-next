@@ -6341,7 +6341,7 @@ if (MODE === 'mip') {
          arithmetic on that frame at all, which is the vacuity this row cannot survive. */
       ck: ck };
   };
-  let bad = 0, bandBad = 0, spBad = 0;
+  let bad = 0, bandBad = 0, spBad = 0, magBad = 0, magPx = 0;
   const DEF = run('({ax:MIPAX,ar:MIPAR})');
   if (process.env.AR) DEF.ar = +process.env.AR;          // sweep the ratio clamp to re-justify MIPAR
   // longest sight line, then the same cell turned 45 deg: the axis-aligned heading is where the
@@ -6475,7 +6475,75 @@ if (MODE === 'mip') {
       `  detail ${sp.detail.toFixed(0)} (mush ${mush.detail.toFixed(0)})  frame ${moved ? 'MOVED' : 'UNCHANGED'} ${auth ? '(authored control)' : '(dealt)'}` +
       `  ${spScope ? (spDebt ? 'ok' : (process.env.STRICT ? 'FAIL fan still above the bar' : 'KNOWN fan still above the bar')) : 'FAIL scope: the arm moved the wrong frames (or none)'}` +
       `${spFalse ? '' : '  SPACING REACHED THE BAR - this falsification is stale'}`);
+
+    /* #19 TAKE EIGHTEEN - THE MAGNIFIED-SHARE ARM ROW. Seventeen takes of this term were argued from a
+     comment and from the issue, because nothing in the roster RENDERED it: the term ships off
+     (js/40_render.js CGWN = 0), so no reference on this row is re-recorded and the shipped frame is
+     main's to the byte, and the one claim the comment makes that a reader can still test is that the ARM
+     reaches. Three clauses, and not one of them is a threshold on the picture:
+       REACH  the ground-pass digest must MOVE with DEV.set('gndmag',1). Delete the term from either copy
+              of the ground pixel body, or gate it out, and the two digests match and this row goes red.
+              That is the vacuity every earlier reading of this term was unfalsifiable against.
+       SCOPE  every differing pixel is a CEILING pixel. The term's gate carries `!isF`, so a floor pixel
+              that moves is a gate that stopped saying which surface it owns - and the deck is the half
+              this increment promised a player it would not touch.
+       CLEAN  turning the arm back off restores the shipped digest byte for byte, so the A/B is one
+              register and not a state leak (cgW / gW0 are per-pixel; this is what proves it).
+     The streak, near-band and detail columns are the measurement js/40_render.js quotes, PRINTED here
+     rather than transcribed into it; `detail` against the mush frame's is what keeps the arm averaging
+     rather than blurring, and it is printed, not gated, because the arm does not ship. REACH and SCOPE
+     are vacuity and scope clauses and gate unconditionally; vacuity is never a debt. */
+    seedRng(771 + li * 31);
+    run(`S.mode='play';S.locked=false;startLevel(${li},true);`);
+    run(SEAT(0));
+    run('renderWorld()');
+    const cgWas = run('CGWN');
+    run('CGWN=0;');
+    const mgOff = sel(DEF.ax, DEF.ar, false);
+    run(GROUND + ';globalThis.__mg=px.slice();0');
+    run('CGWN=1;');
+    const mgArm = sel(DEF.ax, DEF.ar, false);
+    const mgD = run(`(()=>{const o=globalThis.__mg,hz=Math.round(horizon);let n=0,above=0,below=0,mx=0;
+      const lu=v=>0.2126*(v&255)+0.7152*(v>>8&255)+0.0722*(v>>16&255);
+      for(let y=0;y<BH;y++){const r=y*BW,up=y<hz;for(let x=0;x<BW;x++){const a=o[r+x],b=px[r+x];
+        if(a===b)continue;n++;const d=Math.abs(lu(a)-lu(b));if(d>mx)mx=d;if(up)above++;else below++;}}
+      globalThis.__mg=null;return {n,above,below,mx}})()`);
+    run(`CGWN=${cgWas};`);
+    const mgBack = sel(DEF.ax, DEF.ar, false);
+    /* Leave the world as the roll loop left it, exactly as the spacing arm above does: re-seed to the
+       loop's LAST roll and re-deal, so a later row never quietly measures the arm's level. */
+    seedRng(771 + li * 31 + 7);
+    run(`S.mode='play';S.locked=false;startLevel(${li},true);`);
+    /* The arm CAN only reach a frame that contains a magnified ceiling pixel at all, so REACH is gated
+       per level on this frame's own count of ceiling pixels under 4 m (the census the streak row already
+       prints, read back out of the same solve) - and a campaign in which NO level reaches is a campaign
+       where the term is gone, which magVac catches outright. A level with near ceiling pixels and an
+       UNCHANGED frame is the term gated out, and goes red here. */
+    const mgNear = mgOff.bandC.nb[0];
+    const mgCan = mgNear > 0;
+    const mgReach = !mgCan || (mgD.n > 0 && mgArm.ck !== mgOff.ck);
+    const mgScope = mgD.below === 0 && (!mgCan || mgD.above > 0);
+    const mgClean = mgBack.ck === mgOff.ck;
+    if (!mgReach || !mgScope || !mgClean) magBad++;
+    magPx += mgD.n;
+    console.log(`         magnified share  ceil streak ${mgArm.streakC.toFixed(0)} (shipped ${mgOff.streakC.toFixed(0)}, mush ${mush.sc.toFixed(0)})` +
+      `  near-band ${mgArm.bandC.st[0].toFixed(0)} (shipped ${mgOff.bandC.st[0].toFixed(0)}, bar <=${SPBAR[li] || 'n/a'})` +
+      `  detail ${mgArm.detail.toFixed(0)} (mush ${mush.detail.toFixed(0)})  mean ${mgArm.mean.toFixed(1)} (shipped ${mgOff.mean.toFixed(1)})\n` +
+      `         ${mgD.n} px of the ground pass differ, max ${mgD.mx.toFixed(1)} luma, ${mgD.above} above the horizon and ${mgD.below} below` +
+      `  frame ${mgArm.ck === mgOff.ck ? 'UNCHANGED' : 'MOVED'}  off-on-off ${mgClean ? 'restores the shipped byte' : 'FAIL arm leaks state'}\n` +
+      `         near-band ceiling px in the shipped frame ${mgNear} - ${mgCan ? 'the arm has magnified pixels to reach here' : 'this seat has none, so REACH is not asserted on it (campaign-wide vacuity is gated below)'}` +
+      (mgReach ? (li < 3 && mgArm.streakC > SPBAR[li] ? 'ok arm reaches; fan still above the bar (KNOWN - the arm does not ship)' : 'ok arm reaches')
+        : 'FAIL vacuous: the magnified share reached no pixel - the term is gone from a copy of the ground pixel body') +
+      `${mgScope ? '' : `  FAIL SCOPE: ${mgD.below} FLOOR pixel(s) moved, the gate no longer says which surface it owns`}` +
+      `${mgClean ? '' : '  FAIL the arm is not a clean A/B'}`);
   }
+  /* CAMPAIGN-WIDE VACUITY. The per-level clause above can legitimately find a seat with no magnified
+     ceiling pixel in frame; what no seat in the campaign can do is move NO pixel anywhere. 0 across all
+     four levels means the term is gone from both copies of the ground pixel body or gated out of ever
+     firing - the exact vacuity this row exists to catch, so it is a FAILURE and never a debt. */
+  const magVac = magPx > 0;
+  console.log(`magnified share   ${magVac ? 'ok' : 'FAIL'}   ${magPx} ceiling pixel(s) across the four levels pay a share of their material's ` +
+    `mean under this arm (CGWN, js/40_render.js); the shipped build runs NONE of them - the term ships at 0 and this row gates the arm`);
   run(`MIPAX=${DEF.ax};MIPAR=${DEF.ar};`);
 
   /* #20: the emissive marker has to survive the chain. 253 is a FLAG (this texel emits light), not a
@@ -6622,9 +6690,11 @@ if (MODE === 'mip') {
      only vacuous no longer opens the sentence by asserting the 1-D control comparison is fine. */
   console.log((bad ? `${bad} level(s) NOT BETTER THAN THE 1-D CONTROL` : 'MIP ok: two-axis selection beats the 1-D control on every level and is not mush')
     + (bandBad ? `  + FAIL: ${bandBad} level(s) whose DISTANCE CENSUS did not account for its own frame` : '')
+    + (magBad ? `  + FAIL: ${magBad} level(s) where the MAGNIFIED-SHARE ARM moved no pixel it should have, moved the deck, or did not restore its byte` : '')
+    + (magVac ? '' : `  + FAIL: the MAGNIFIED-SHARE ARM moved no pixel on ANY level - the term is not in the build`)
     + (spBad ? `  + FAIL: ${spBad} level(s) whose SPACING ARM moved the wrong frames or is still carrying the fan under STRICT` :
       `  | spacing arm ${+(process.env.SPACING || 4)}x: the ceiling fan is NOT a spacing artifact (reporting; STRICT=1 gates the bar, SPACING=1 is the sabotage)`));
-  process.exit(bad || bandBad || spBad || !markOk || !fetchOk ? 1 : 0);
+  process.exit(bad || bandBad || spBad || magBad || !magVac || !markOk || !fetchOk ? 1 : 0);
 }
 
 if (MODE === 'exposure') {
