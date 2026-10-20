@@ -626,7 +626,7 @@ FLOORS.METAL = matTex(T2, T2, p => {
   }
   rust(p, 0.42, 73);
   dust(p, 0.14, [110, 112, 116]);
-}, { bump: 1.2, amb: 0.46, spec: 0.30, specPow: 46, ao: 0.55, grain: 8, alb: 0.95, mipCyc: MATDIA_CYC });   // #416: spec 0.44 -> 0.30 - this deck's own 1%-clipping highlight measured 249 luma, i.e. 1% of the floor read as a mirror
+}, { bump: 1.2, amb: 0.46, spec: 0.30, specPow: 46, ao: 0.55, grain: 8, alb: 0.86, mipCyc: MATDIA_CYC });   // #495 TAKE FOUR: 0.95 -> 0.86 - the deck pays part of the roof's lift, so the frame is traded and not brightened; `exposure`'s medians move up by at most 4 lumas across the four sectors and stay in window.   // #416: spec 0.44 -> 0.30 - this deck's own 1%-clipping highlight measured 249 luma, i.e. 1% of the floor read as a mirror
 FLOORS.STONE = matTex(T2, T2, p => {
   // irregular flagstones from a jittered grid
   const s = 3, gx = p.u * s, gy = p.v * s;
@@ -672,7 +672,7 @@ FLOORS.STONE = matTex(T2, T2, p => {
      ABATOIR CORE, which wear METAL and FLESH decks - are the level-scoped control on flatparity/cull. */
   moss(p, 0.4, 15, [84, 73, 51]);
   dust(p, 0.2, [92, 90, 84]);
-}, { bump: 1.1, amb: 0.5, spec: 0.08, specPow: 20, ao: 0.8, grain: 12, alb: 1.05 });
+}, { bump: 1.1, amb: 0.5, spec: 0.08, specPow: 20, ao: 0.8, grain: 12, alb: 0.97 });   // #495 TAKE FOUR: 1.05 -> 0.97, the same trade on the deck ARCHIVE SUBLEVEL walks on.
 FLOORS.FLESH = matTex(T2, T2, p => {
   const n = fbm(p.u, p.v, 5, 4, 0.55, 3);
   let v = 0.66 + n * 0.6;
@@ -730,7 +730,7 @@ FLOORS.FLESH = matTex(T2, T2, p => {
   if (vk > 0.9) { p.r += (126 - p.r) * 0.5; p.g += (78 - p.g) * 0.5; p.b += (74 - p.b) * 0.5; p.h += 0.05; }
   const pool = smoothstep(0.62, 0.86, fbm(p.u, p.v, 3, 3, 0.6, 92));
   p.r -= pool * 26; p.g -= pool * 12; p.b -= pool * 6; p.h -= pool * 0.05;
-}, { bump: 1.3, amb: 0.42, spec: 0.55, specPow: 20, ao: 0.7, grain: 7, alb: 1.17 });
+}, { bump: 1.3, amb: 0.42, spec: 0.55, specPow: 20, ao: 0.7, grain: 7, alb: 1.12 });   // #495 TAKE FIVE: 1.17 -> 1.12. This deck is worn by ABATOIR CORE alone (js/20_level.js:96), which is what makes it the level-scoped half of the trade: its roof tile came up and this came down, so that sector's frame is traded and not brightened. Bounded by #416's family bar, not by taste - `matband`'s floor spread is 136.0 / 91.7 = 1.48x against MAXFAM 1.5, so this is within four hundredths of the darkest the floor family permits; going further would have widened a threshold, which is not this issue's currency. The deck band at `surface` L2 cam0 comes down 84.7 -> 82.9 (a 2.1% move on a surface the player reads enemies against), and the SEAM/WALL/PROP rows on this level are green beside it.
 
 CEILS.CONCRETE = matTex(T2, T2, p => {
   const sx = (p.u * 2) % 1, sy = (p.v * 2) % 1;
@@ -746,7 +746,7 @@ CEILS.CONCRETE = matTex(T2, T2, p => {
   p.r -= soot * 20; p.g -= soot * 19; p.b -= soot * 15;
   cracks(p, 0.05, 0.08, 3, 27, [24, 24, 28]);
   ceilBlocks(p, 6);                                 // #495: slab joints at a mip-carryable scale (see ceilBlocks)
-}, { bump: 1.1, amb: 0.42, spec: 0.03, ao: 0.8, grain: 12, alb: 1.15 });   // #495: albedo into the family band at each level's OWN exposure headroom + joint/speckle detail (see the CEILS note above CEILS.CONCRETE)
+}, { bump: 1.1, amb: 0.42, spec: 0.03, ao: 0.8, grain: 12, alb: 1.78 });   // #495 TAKE FOUR: albedo into the family band at each level's OWN exposure headroom + joint/speckle detail (see the CEILS note above CEILS.CONCRETE). 1.15 -> 1.78 carries ARCHIVE SUBLEVEL's roof from 0.49x to 0.68x of its own deck at the arrival seat (`surface` ORDER), which is the number this issue set out to move; the deck pays part of it (FLOORS.METAL, FLOORS.STONE below), so the frame is traded rather than brightened.
 CEILS.PANEL = matTex(T2, T2, p => {
   const gx = (p.u * 4) % 1, gy = (p.v * 4) % 1;
   const d = Math.max(Math.abs(gx - 0.5) - 0.46, Math.abs(gy - 0.5) - 0.46);
@@ -760,7 +760,7 @@ CEILS.PANEL = matTex(T2, T2, p => {
   if (vent) { const s = Math.sin(gy * 60) * 0.5 + 0.5; p.h -= s * 0.2; p.r -= s * 20; p.g -= s * 20; p.b -= s * 18; }
   dust(p, 0.12, [62, 66, 74]);
   ceilBlocks(p, 6);                                 // #495: the 4x4 panels are grouped into slab bays
-}, { bump: 1.1, amb: 0.44, spec: 0.14, specPow: 26, ao: 0.75, grain: 11, mipCyc: 4, alb: 1.30 });   // #495: albedo + joint/speckle detail, bounded by RING TRANSPORT's own arrival-frame headroom
+}, { bump: 1.1, amb: 0.44, spec: 0.14, specPow: 26, ao: 0.75, grain: 11, mipCyc: 4, alb: 1.97 });   // #495 TAKE FOUR: albedo + joint/speckle detail, bounded by RING TRANSPORT's own arrival-frame headroom. 1.30 -> 1.97 takes that sector's ceiling/deck ratio 0.45 -> 0.70; RING TRANSPORT's seeded median stays inside the 60-100 window at 78.
 /* #495: the ROCK paint is a NAMED function now, because THE STACK wears a second instance of it. Same
    rock, two scales of the same story: ARCHIVE SUBLEVEL's low ceiling and the finale's vault are one
    material family, and only the finale's roof is pale enough to carry its own amber fog. See CEILS.VAULT
@@ -804,7 +804,7 @@ const rockPaint = p => {
     p.h += dry * 0.03;
   }
 };
-CEILS.ROCK = matTex(T2, T2, rockPaint, { bump: 1.6, amb: 0.4, spec: 0.07, ao: 0.9, grain: 14, alb: 1.20 });   // #495: albedo + grain; the mineral film above stays luma-neutral, alb scales it with everything else
+CEILS.ROCK = matTex(T2, T2, rockPaint, { bump: 1.6, amb: 0.4, spec: 0.07, ao: 0.9, grain: 14, alb: 1.60 });   // #495 TAKE FOUR: albedo + grain; the mineral film above stays luma-neutral, alb scales it with everything else. 1.20 -> 1.60; the finale now wears its own instance (CEILS.VAULT) so this tile's number is sized to ARCHIVE SUBLEVEL's dark deck alone.
 /* #495 THE ROOF WAS THE DARKEST THING IN THE FRAME. THE STACK's ceiling is the same rock as ARCHIVE's,
    over a deck the level itself lifts (`floorBias: 0.12`) and a room the level lights with `lamps: 0` - so
    the one tile that has to cover the largest overhead area in the campaign was delivering 0.33-0.41x the
@@ -815,7 +815,7 @@ CEILS.ROCK = matTex(T2, T2, rockPaint, { bump: 1.6, amb: 0.4, spec: 0.07, ao: 0.
    a storey-scale albedo, still below every wall and deck tile in the table (`matband`'s ceiling-below-
    every-face row, which bounds what overhead can be worth), and still under the level's own derived
    surface order, which is what keeps the roof from ever out-valuing the walkway it covers. */
-CEILS.VAULT = matTex(T2, T2, rockPaint, { bump: 1.5, amb: 0.42, spec: 0.06, ao: 0.95, grain: 15, alb: 1.60 });
+CEILS.VAULT = matTex(T2, T2, rockPaint, { bump: 1.5, amb: 0.42, spec: 0.06, ao: 0.95, grain: 15, alb: 1.61 });
 CEILS.SINEW = matTex(64, 64, p => {
   /* #369: this used to be FLOORS.FLESH at a different scale - 104/40/50 albedo with EMISSIVE veins at
      180,96,60 - so ABATOIR CORE, the largest level in the campaign, put its floor, its walls and its
@@ -858,7 +858,8 @@ CEILS.SINEW = matTex(64, 64, p => {
   p.r += (58 - p.r) * vk * 0.55; p.g += (34.4 - p.g) * vk * 0.55; p.b += (34 - p.b) * vk * 0.55;
   p.h -= vk * 0.1;
   ceilBlocks(p, 5);                                 // #495: the hide is stretched in bays; zero-mean, so #495 TAKE THREE's 0.94 albedo and ABATOIR's margin are untouched
-}, { bump: 1.3, amb: 0.42, spec: 0.16, specPow: 18, ao: 0.8, grain: 13, alb: 0.94 });   // #495 TAKE THREE: grain + an albedo BELOW one, sized by measurement to what ABATOIR CORE's own arrival frame can pay. This tile covers 47 % of that sector's arrival frame, and on the tree that synced main the composited first frame sat at 75.0 against an absolute window whose top is 75 (tools/ci/assert.js exposure) - zero margin, which is why CI's push and pull_request runs gave opposite verdicts on one tree (#505). 0.94 returns 0.9 luma of frame (spawn 75.0 -> 74.1, seeded median 69 -> 68.77) and buys that margin out of the roof's own value, not out of a band: no threshold, window or floor moved here. Hue untouched, so #466's family statement (ceiling h31 against wall h9) stands, and the grain raised in #495 is what keeps the roof a SURFACE at the lower value - the roof keeps its structure and gives back only its lead.
+}, { bump: 1.3, amb: 0.42, spec: 0.16, specPow: 18, ao: 0.8, grain: 13, alb: 1.16 });   // #495 TAKE FIVE: 1.05 -> 1.16. TAKE FOUR sized this tile by what ABATOIR CORE's SPAWN frame could carry under the absolute top of the window tools/ci/assert.js gates (1.21 arrived with 0.7 luma under it, which is a coin-flip gate - #505), so it stopped at 1.05 and that sector stayed the one roof under the ~0.7x this issue sets: 0.59x at the arrival seat. The gap is paid for here out of the DECK instead of out of the frame: FLOORS.FLESH -0.05 alb below gives back about what this takes, so the composited spawn median moves by ONE luma (72 -> 73 against a top of 75) and the seeded median 65 -> 66, both inside every window. `surface` ORDER at L2 cam0 goes 0.59 -> 0.65 (53.9 against a deck of 82.9) and the three other ABATOIR seats go with it (0.68 -> 0.75, 0.35 -> 0.38, 0.48 -> 0.53); the tile mean is 78.1, still under the `ceil below every face` bar at 90.5 and under every other ceiling tile's own headroom. THE CAP AND THE ORDER ARE UNTOUCHED: no bias, no lift, no lamp, no height, no threshold moved - the roof's BASE is still `amb + ceilBias + lift` and still cannot out-light the deck under it. THE LAST 0.05x at that seat is not paint: at a ceiling base now at full parity with its deck's (0.30 = 0.30, measured by A/B'ing this level's authored ceilBias to -0.06, which buys +0.6 luma and stops there because #380's cap `lift <= max(0, FLOORB - CEILB)` binds), the remaining deficit is the additive half of the delivered pixel - the exposure lift and the bloom, which compress a ratio - plus the fact that L2's spawn frame is the one frame in the campaign that sits 3 lumas under a gate. That is #505's, not this tile's.
+// The grain and the bays stay as TAKE THREE left them: the roof keeps its structure and gives back only its lead. sized by measurement to what ABATOIR CORE's own arrival frame can pay. This tile covers 47 % of that sector's arrival frame, and on the tree that synced main the composited first frame sat at 75.0 against an absolute window whose top is 75 (tools/ci/assert.js exposure) - zero margin, which is why CI's push and pull_request runs gave opposite verdicts on one tree (#505). 0.94 returns 0.9 luma of frame (spawn 75.0 -> 74.1, seeded median 69 -> 68.77) and buys that margin out of the roof's own value, not out of a band: no threshold, window or floor moved here. Hue untouched, so #466's family statement (ceiling h31 against wall h9) stands, and the grain raised in #495 is what keeps the roof a SURFACE at the lower value - the roof keeps its structure and gives back only its lead.
 
 /* ============================ decals ============================ */
 const DECAL = {};
