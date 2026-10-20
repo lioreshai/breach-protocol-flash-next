@@ -772,6 +772,17 @@ const CZ_TALL = 12;                                         // three units of he
 const CZ_SPAWN_TALL = 16;                                   // 4 units: the rung the #15 M4 shape ladder
 //   measured to fit the 16 ms raster gate at the arrival seat (+0.9 ms paired, N=8); CZ_TALL's 3 units
 //   over the same cells cost +2.7 and do not, and 2 units cost +5.1 - see feature 1's note.
+/* #548 THE ROOM'S OWN CEILING. Feature 1 handed CZ_TALL to the two or three largest rooms, which is why
+   everywhere but those rooms the frame is a plain with a lid on it: a wall's screen height is its
+   clearance over its distance, so a CZ_DEF = 4 wall at the distances these plans put one is a band above
+   the eyeline and the other nine tenths of the frame is the two surfaces the player looks ALONG. CZ_ROOM
+   gives that air to every room-shaped plan instead of the biggest few, at the rung the shape ladder
+   already measured as the CHEAPEST tall ceiling (+0.9 at the arrival seat against CZ_TALL's +2.7, with the
+   march counter falling as the ceiling rises - 460 -> 270 -> 46 quanta of 2/3/4 units): a taller ceiling
+   costs less to solve than a short one, so the frame buys its walls with the term that is not expensive.
+   Corridors, mouths, crawlways and ladder columns keep CZ_DEF - the complaint is about the rooms, and the
+   tall/flat boundary is the term that costs milliseconds, so it stays where feature 1 already pays it. */
+const CZ_ROOM = CZ_SPAWN_TALL;
 const LINK_STEPS = 40;                                      // link-or-give-back rounds per band, per pass
 const STAIR_CELLS = 4;                                      // cells a 1-unit climb needs: 3 steps + 1
 /* How many rooms get tall air on a map that does not need more: at least TWO, so a deal is never one
@@ -973,16 +984,29 @@ function authorVolume(cell, N, rooms, fz, vb, feat, cz) {
     }
     return f;
   };
+  /* #548: the pass runs over EVERY room that has a plan worth calling a room, not over the largest two
+     or three, and it gives them CZ_ROOM rather than CZ_TALL. Two separate knobs live here and they are
+     deliberately not the same list:
+       OWN CELLS   every qualifying room, at CZ_ROOM. Tall AREA is the cheap axis - the ladder priced the
+                   whole 54-cell spawn room at +2.7 at 3 units and +0.9 at 4, and 12 cells at +3.1 - so
+                   covering five rooms instead of two buys plan, not milliseconds.
+       MOUTHS      the FIRST tallWant rooms only, still at CZ_TALL. A tall mouth is the expensive axis
+                   (+8.2 ms for two cells), and the boundary it moves is the term the ladder blames for
+                   everything above the +5.1 that a taller ceiling costs on its own. So the doorway run
+                   stays rationed to the rooms it was rationed to; a room behind an unlifted mouth reads
+                   through a soffit, which is a room seen through a doorway and not a plain with a lid.
+     The spawn room is excluded here and served by the spawnAtrium pass below at the same height, so the
+     room the player wakes in and the rooms he walks into are the same volume. */
   const tallRooms = [];
-  for (const r of rooms.filter(r => r !== spawnR && r.w >= 5 && r.h >= 5 && roomFloor(r) !== null)
-                       .sort((a, b) => b.w * b.h - a.w * a.h || a.cx - b.cx || a.cy - b.cy).slice(0, tallWant)) {
-    tallRooms.push([r, roomFloor(r)]);
+  for (const [k, r] of rooms.filter(r => r !== spawnR && r.w >= 5 && r.h >= 5 && roomFloor(r) !== null)
+                            .sort((a, b) => b.w * b.h - a.w * a.h || a.cx - b.cx || a.cy - b.cy).entries()) {
+    tallRooms.push([r, roomFloor(r), k < tallWant]);
   }
-  for (const [r, f] of tallRooms) {
+  for (const [r, f, mouth] of tallRooms) {
     const cp = cut();
-    const set = i => { mark(i); cz[i] = CZ_TALL; };
+    const set = i => { mark(i); cz[i] = CZ_ROOM; };
     for (let y = r.y; y < r.y + r.h; y++) for (let x = r.x; x < r.x + r.w; x++) if (!cell[y * N + x]) set(y * N + x);
-    for (let y = r.y - 1; y <= r.y + r.h; y++) for (let x = r.x - 1; x <= r.x + r.w; x++) {
+    if (mouth) for (let y = r.y - 1; y <= r.y + r.h; y++) for (let x = r.x - 1; x <= r.x + r.w; x++) {
       if (!open(x, y) || fz[y * N + x] !== f || roomAt(x, y) !== null) continue;   // corridor cells only
       const i = y * N + x;
       for (let d = 0; d < 4; d++) {
@@ -1470,6 +1494,55 @@ function kneeLampField() {
   for (let i = 0; i < lm.length; i++) {
     const v = lm[i];
     if (v > LK_KNEE) lm[i] = LK_KNEE + LK_SLOPE * (v - LK_KNEE);
+  }
+}
+/* #199: a LAMP'S DISC GETS A FLOOR UNDER ITS CURVE, and it is a floor, not more light.
+   The curve `(1-d/r)^1.6` is steep: at 0.8 r it is down to 0.04 and at 0.9 r to 0.007, so a room
+   whose lamps are spaced further apart than ~0.8 r leaves its deck between them at or under the
+   0.05 the `alt` census calls dark, with a lamp standing in the room and on screen. Measured on
+   e176ae3 over the 12 seeded deals per level: of the open cells under 0.05 delivered light, 96 /
+   73 / 67 / 60 % (L0-L3) sit INSIDE a lamp's own XY disc - the population is the curve's tail, not
+   a coverage hole (that half closed under #204/#206, which is what #199's correction comment says).
+   The naive answer - raise the curve or add a per-lamp pedestal - is an ambient raise in disguise,
+   because the discs OVERLAP: a cell of a dealt sector sits inside ~5 discs, so any term ADDED at the
+   kernel is paid five times over and the frame mean moves +25 to +40 % (swept: dark share only falls
+   1-2 points for it, and the 35-75 spawn band is what takes the hit first). This is the same lift
+   bought once per cell instead of once per disc: a cell already lit by anything keeps its value
+   EXACTLY, and only a cell the curve left under the floor is raised TO the floor. `max`, never `+=`.
+   THE SHAPE. `LF_FLOOR` is the deck level a room's floor never falls below where a lamp reaches it;
+   0.18 is measured, not guessed - the ground pixel is `texelMean * (amb + light * tint)` with the
+   tint at its neutral 128 for a cell with no other light (buildTint), so 0.18 is ~+20 luma of deck,
+   enough to read the size of a room and a fifth of the LGCAP the pool core already saturates
+   against. `LF_RIM` fades the floor out over the last 0.3 of the radius so the disc does not end on
+   a step: past 0.7 r it ramps to 0 with the curve, which keeps pools POOLS - a lamp still reads as a
+   lamp because its peak and its gradient are untouched, only the trough under it is lifted.
+   THE INVARIANTS IT OBEYS. Light stays ONE VALUE PER COLUMN: this writes MAP.light and adds no array
+   for someone to forget to un-splat. It runs at GENERATION only, after the static splats and after
+   `blurLight` (which REPLACES the array - a floor applied before it would be blurred away and, worse,
+   re-pointed at a dead object), so a transient that re-splats its delta still lands on this field and
+   still leaves it exactly (`tools/smoke.js`'s blast-splat / full-fade-out rows are unchanged, and
+   `alt`'s reversibility row still reads ~1e-7). It is band-aware with the kernel's own predicate, so
+   a floor never reaches under a riser: a pit gets light from a lamp on the PIT band, never a spill of
+   the deck's. Solid columns are skipped - walls are not floors, and washing them is not asked for.
+   On a level with no static light the loop body never runs, so the genLevel fallback box is untouched,
+   and an authored plan takes the same pass for the same reason (#408's knee sits beside it). */
+const LF_FLOOR = 0.22, LF_RIM = 0.3;
+function floorLampField() {
+  const lm = MAP.light, N = MAP.w;
+  if (!lm) return;
+  for (const L of LIGHTS) {
+    if (!L.stat) continue;
+    const R = Math.ceil(L.r), lf = lightBand(L);
+    for (let y = Math.max(0, (L.y - R) | 0); y < Math.min(N, L.y + R); y++)
+      for (let x = Math.max(0, (L.x - R) | 0); x < Math.min(N, L.x + R); x++) {
+        const i = y * N + x;
+        if (MAP.cell[i]) continue;                                  // walls are not floors
+        const dn = Math.hypot(x + 0.5 - L.x, y + 0.5 - L.y) / L.r;
+        if (dn >= 1) continue;
+        if (Math.abs(lf - floorAt(x + 0.5, y + 0.5)) > ZQ + 1e-9) continue;   // the kernel's own band test
+        const f = LF_FLOOR * Math.min(1, (1 - dn) / LF_RIM);
+        if (lm[i] < f) lm[i] = f;
+      }
   }
 }
 function blurLight() {
@@ -2280,6 +2353,7 @@ function buildAuthored(li) {
   placeCeilFixtures(cfgL, sx + 0.5, sy + 0.5);
   for (const L of LIGHTS) splatLight(L, L.str);
   kneeLampField();                              // #408: the authored pool's PEAK, its radius untouched
+  floorLampField();                             // #199: and its TROUGH, in the authored plan too
   placeWallFixtures(cfgL);                      // #400: the authored finale gets walls too
   exitX = ex + 0.5; exitY = ey + 0.5;
   const sp = nearestOpen(sx + 0.5, sy + 0.5);          // never spawn inside geometry: the collision
@@ -2796,7 +2870,7 @@ function genLevel(li) {
     placeCeilFixtures(cfgL, seat[0], seat[1]);
     // lightmap splat, then a smoothing pass and the per-cell tint
     for (const L of LIGHTS) splatLight(L, L.str);
-    blurLight(); buildTint();
+    blurLight(); floorLampField(); buildTint();   // #199: the floor AFTER the blur, which replaces the array
     placeWallFixtures(cfgL);                    // #400: decor goes on the walls, after the walls exist
     // The scatter pass can drop a pillar on the room centre, and starting inside
     // geometry is unrecoverable - the collision probes would sample the player's own
