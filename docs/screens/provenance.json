@@ -1,10 +1,21 @@
 {
   "about": "Capture-time provenance for docs/screens/*.png (#335). One row per shot, written by the session that took the pixels: sha256/canvas are properties of the bytes, origin/install/url/seed/level/layout/sampleRate/build are properties of the instrument and cannot be recovered from the PNG afterwards. `node tools/recap.js check` verifies each row against the file it addresses and against every other row of the same (seed, level, sampleRate); the vocabulary, the route verdicts and the audio-draw rule live in tools/recap.js, not here.",
-  "plan": "Shared by all eight shots: window 1440x763 (device-metrics override at scale 1) on the deployed Pages build of main at 22ec109, at https://lioreshai.github.io/breach-protocol-flash-next/?dev=1&seed=60. One page load is one deal, so a re-take reloads the url and never calls a second DEV.boot() inside a load (js/90_dev.js:21-22); the dice is pinned by the page itself from `?dev=1&seed=` (js/90_dev.js:26). **Two terms this plan now records that the older rows could not.** (1) `DEV.freeze(true)` is issued the moment the page answers, BEFORE any boot or startLevel: the live update loop draws from the same seeded stream, so a page left painting while the harness polls re-deals levels 2 and 3 from wherever its clock happened to land. Measured for #478: three loads of the same url without the freeze signed level 2 as 350870494 / 1978041996 / 1812275020; with it, every load reads 1812275020. (2) `S.t = 4` is pinned before the shutter. A frozen clock stops update() but not S.t, and the exit portal is drawn with `globalAlpha = 0.5 + 0.35 * Math.sin(S.t * 5)` (js/40_render.js:3152), so where that overlay is in frame the frame mean is a function of wall-clock: ABATOIR CORE read 60.38 unpinned and 72.46 pinned, three pinned passes agreeing to 0.01. Then, per level: boot through the page's own load-time boot (level 0) or DEV.boot() + startLevel(N, true) (levels 2, 3), DEV.freeze(true); S.t = 4; DEV.tick(30); P.hp = 100; banner('', 0); then DEV.cam(...) and one DEV.tick(1) per shot. The level's own hostiles are left standing (never DEV.clear()), the one exception being level0-enemies, which clears and poses on purpose and is therefore shot LAST in its page load. Captures are Chromium screenshots re-encoded to colour type 2 by tools/png_rgb.js. Reproducible by statistics, never by md5. **The audio term.** SND.init draws floor(sampleRate*1.5) seeded values before genLevel (#404), so the rate the page reads is part of the instrument. Seven rows were taken on a capture profile that exposed no audio device - SND.ac read null at every shutter - so they carry `sampleRate: null` and bind the deal they name on a machine that draws the same zero count; `STRICT=1 node tools/recap.js check` prints each as device-scoped. `level3-stack` (re-taken later, for #431) read 44100 and binds a machine with a 44100 Hz device instead, which is a narrower row, not a looser one. A capture that reads a rate narrows its row to one machine and one device.",
+  "builds": {
+    "4abba57": {
+      "at": "2026-10-16",
+      "files": {
+        "index.html": "c886aca0138047584edd4ee7023c504da19d3d559a6e6bb33833a9290169d557",
+        "js/10_assets.js": "e79c562de83bdf57df13dbd3fa361dbd6a471a5033984e2a6f0304575ca2174f",
+        "js/20_level.js": "c98b3e6a3f6b1b98239b28de732a31ce832f6ad9aebeb5451638b7e01c7551f6",
+        "js/40_render.js": "de4a012b166caec72f917a5c4fbf90e71e932898cf7b444cc08ccea62ac60392"
+      },
+      "note": "The four blobs that draw a frame, sha256, read from the checkout that ran the capture. index.html plus the three js/ files that put a pixel on screen: js/10_assets.js makes the textures, js/20_level.js the lit materials, js/40_render.js is the rasterizer. `node tools/recap.js check` recomputes them from the tree it runs in and prints whether these frames still show what that tree ships (#536). The session that took these pixels proved this build off the wire, blob by blob, against the deployed page."
+    }
+  },
   "shots": [
     {
       "file": "level0-enemies",
-      "sha256": "d54d91b87b51c6bb4b7214589bfecfafa1d6f9ed0d3fa98ca03b29bd98e4ca1a",
+      "sha256": "4b29b89ae369c2f79af2218d6cd5df045a3906d6ccdf41a83f053ce61b610916",
       "canvas": "1440x763",
       "origin": "https",
       "install": "url-open",
@@ -12,14 +23,15 @@
       "seed": 60,
       "level": 0,
       "layout": 3105224175,
-      "build": "22ec109",
-      "at": "2026-10-13",
-      "sampleRate": null,
-      "note": "RE-TAKEN from the deployed page for #478, same page load and deal as level0-spawn, shot LAST because DEV.clear() drops the level's own hostiles. The build is proved off the wire before the shutter: index.html and all eleven js/ blobs the deployed page served were md5-compared against main at 22ec109 and all twelve matched, so these pixels came off the page that serves that tree (#395, #420). Pose: back to the spawn seat (18.5, 5.5) heading 0.60, then DEV.clear(); DEV.spawn('grunt', 1, 6); DEV.tick(1). DEV.spawn reports the body it realised at (23.45, 8.89), cell (23, 8), range exactly 6.00 m on the camera's heading, why 'exact' (no clamp, no lateral rescue); its cell reads MAP.fz 0 like the camera and MAP.light 0.4223, e.anim pinned to 0 by DEV.spawn itself, HUD 1 LEFT. Frame mean 63.91, thirds 51.3 / 63.9 / 76.5, 0 rows under 24 and 0 under 34. Against the replaced bytes (c3e3104, mean 51.60) the body lands in a lit cell rather than near-dark air and his two visible faces are no longer equally bright: #371's face-orientation term now carries his whole light including ambient."
+      "build": "4abba57",
+      "at": "2026-10-16",
+      "sampleRate": 44100,
+      "note": "RE-TAKEN from the deployed page for #536, in the same page load as level0-spawn and shot LAST in it, because DEV.clear() drops the level's own hostiles. Build proved off the wire as the other level-0 rows: twelve served blobs md5-match main at 4abba57. Route: freeze at load, S.t = 4 and a re-freeze, banner('', 0), DEV.tick(30), P.hp = 100, DEV.cam(18.5, 5.5, floorAt(18.5, 5.5), 0.60, 0), DEV.clear(), DEV.spawn('grunt', 1, 6), grainSeed = 6, DEV.tick(1). DEV.spawn reports the body it realised at (23.45, 8.89), cell (23, 8), range exactly 6.00 m, why 'exact' - no clamp, no lateral rescue; e.anim 0, MAP.fz 0 like the camera, MAP.light 0.4223, HUD 1 LEFT. Frame mean 68.09, thirds 61.0 / 66.3 / 77.0, 0 of 763 rows under 24 and 0 under 34, against 68.23 on the bytes this replaces. The wall behind him and the roof over it are the shipped surfaces - #369's corner is the only new term - so a body keeps the light #495 and #18 gave it.",
+      "staleByBuild": null
     },
     {
       "file": "level0-facing-wall",
-      "sha256": "50943229f318207b2e6fded251c709ef6fa88534fcfb4d1ca627464ad8a88092",
+      "sha256": "b2796b66548c9a43de55f5c841bfa96b78df782c7f22436bd2a1f29d3544b921",
       "canvas": "1440x763",
       "origin": "https",
       "install": "url-open",
@@ -27,14 +39,15 @@
       "seed": 60,
       "level": 0,
       "layout": 3105224175,
-      "build": "22ec109",
-      "at": "2026-10-13",
-      "sampleRate": null,
-      "note": "RE-TAKEN from the deployed page for #478; same page load as level0-spawn and therefore the same deal. The build is proved off the wire before the shutter: index.html and all eleven js/ blobs the deployed page served were md5-compared against main at 22ec109 and all twelve matched, so these pixels came off the page that serves that tree (#395, #420). Pose DEV.cam(1.5, 8.5, floorAt(1.5, 8.5), PI/2, 0). Geometry read back at this seat: the flight at (1, 9)..(1, 13) carries MAP.fz 0, 1, 2, 3, 4 with MAP.feat 0, 1, 1, 1, 0 - three STAIR cells - so the four risers the caption names are still this deal's. WHAT MOVED is the light, and it is the reason this row no longer carries a staleByBuild label: the seat's own cell reads MAP.light 0.2489 where the replaced frame was captioned at 0.02, so the frame is no longer a picture of an unlit stairwell - mean 44.07 against 20.87, and 0 of 763 rows under luminance 24 against 488 (202 rows sit under the tool's other bar of 34, longest run 80 from row 123). The caption was rewritten to what these bytes show rather than keeping a darkness claim this build does not produce (#431 named this exact case)."
+      "build": "4abba57",
+      "at": "2026-10-16",
+      "sampleRate": 44100,
+      "note": "RE-TAKEN from the deployed page for #536; same page load and deal as level0-spawn (layout 3105224175). Build proved off the wire as above: all twelve served blobs md5-match main at 4abba57. Pose DEV.cam(1.5, 8.5, floorAt(1.5, 8.5), Math.PI/2, 0), read back (1.5, 8.5) floor 0.00 ang 1.5708 pitch 0. The flight at (1, 9)..(1, 13) still reads MAP.fz 0, 1, 2, 3, 4 with MAP.feat 0, 1, 1, 1, 0 - three STAIR cells - so the four risers the caption names are this deal's. Frame mean 46.77, thirds 39.1 / 54.3 / 46.9, 0 of 763 rows under 24 and 15 under 34 with a longest run of 1 from row 18, against 46.71 / 15 rows / run 1 from 18 on the bytes this replaces. THE DEAL HELD; the stairwell's darkness did not come back. Six of this frame's pixels-per-row are the #369 corner, which is the only thing in it that differs from the replaced arm, and it moves the mean by 0.06.",
+      "staleByBuild": null
     },
     {
       "file": "level0-pitfloor",
-      "sha256": "f9abe0b047e95a929466007cd85e92487f27d62108f22db4629d112774e8cad8",
+      "sha256": "83f79782ec2f62c0dc6d72cdfc0acbbd9dde52e6a90348091ba29a6cd8c10362",
       "canvas": "1440x763",
       "origin": "https",
       "install": "url-open",
@@ -42,14 +55,15 @@
       "seed": 60,
       "level": 0,
       "layout": 3105224175,
-      "build": "22ec109",
-      "at": "2026-10-13",
-      "sampleRate": null,
-      "note": "RE-TAKEN from the deployed page for #478; same page load and deal as level0-spawn. The build is proved off the wire before the shutter: index.html and all eleven js/ blobs the deployed page served were md5-compared against main at 22ec109 and all twelve matched, so these pixels came off the page that serves that tree (#395, #420). Pose DEV.cam(19.5, 14.5, floorAt(19.5, 14.5), Math.atan2(2, 1), 0) - feet on floor -1.00, own ceiling 0.00, own cell MAP.light 0.3043, and the pit lamp reads d 0.00 because this deal stands it in the seat's own cell at z -0.22. Frame mean 60.94, thirds 41.9 / 89.0 / 52.0, 0 of 763 rows under 24 and 134 under 34 (longest run 38 from row 122), against 68.50 and 201/175 in the bytes this replaces. Same caption rewrite as level0-facing-wall: ce9d39d's frame was a dark-band count this build does not produce."
+      "build": "4abba57",
+      "at": "2026-10-16",
+      "sampleRate": 44100,
+      "note": "RE-TAKEN from the deployed page for #536; same page load and deal as level0-spawn. Build proved off the wire as above. Pose DEV.cam(19.5, 14.5, floorAt(19.5, 14.5), Math.atan2(2, 1), 0), read back (19.5, 14.5) floor -1.00 ang 1.1071 pitch 0. Frame mean 62.14, thirds 47.4 / 86.6 / 52.5, 0 of 763 rows under 24 and 0 under 34, against 61.82 / 46.6 / 86.5 / 52.5 on the bytes this replaces. This is the frame that moved most in the set, +0.32, and it moved UP: #518 finds a slab's underside from what is overhead rather than by touch, so the low ceiling over the hole is solved as the underside of the deck the camera stands on and stops reading as an unlit sheet. The replaced row's explanation - that lighting the roof took 0.57 OUT of this frame - described #495 against an older arm and is not what these bytes show against the bytes they replace.",
+      "staleByBuild": null
     },
     {
       "file": "level0-props",
-      "sha256": "9a51841588d3e8dd74f5033fda73b2245f31b982b3bf0e65dc1a883e91f7b8fd",
+      "sha256": "f8f8ba43850ae23cf464337095438a0b0f0c97d33ea3b5d6801776981cbe61d1",
       "canvas": "1440x763",
       "origin": "https",
       "install": "url-open",
@@ -57,14 +71,15 @@
       "seed": 60,
       "level": 0,
       "layout": 3105224175,
-      "build": "22ec109",
-      "at": "2026-10-13",
-      "sampleRate": null,
-      "note": "RE-TAKEN from the deployed page for #478; same page load and deal as level0-spawn. The build is proved off the wire before the shutter: index.html and all eleven js/ blobs the deployed page served were md5-compared against main at 22ec109 and all twelve matched, so these pixels came off the page that serves that tree (#395, #420). Pose DEV.cam(20.5, 11.5, floorAt(20.5, 11.5), PI/2, 0). Geometry read back: the 3x3 block (19..21, 14..16) sits at MAP.fz -4 with MAP.cz 4, so the lip plane is exactly 2.50 m ahead of this seat and the pit stays a pit under a lip. The lamp standing in it is at (19.5, 14.5) on band -0.22 - 3.16 m from this camera, not the 5 m the replaced caption claimed from ce9d39d's deal - which is why this row drops its staleByBuild label and its caption gained the coordinate. Frame mean 55.89, thirds 40.2 / 63.2 / 64.4, 0 of 763 rows under 24, 3 under 34 (run 2 from row 536) against 47.81 and 307 in the bytes this replaces. Crate and barrel faces in the frame carry #491's 12 % paint cut and #476's shaded side."
+      "build": "4abba57",
+      "at": "2026-10-16",
+      "sampleRate": 44100,
+      "note": "RE-TAKEN from the deployed page for #536; same page load and deal as level0-spawn. Build proved off the wire as above. Pose DEV.cam(20.5, 11.5, floorAt(20.5, 11.5), Math.PI/2, 0); the pit block (19..21, 14..16) re-reads MAP.fz -4 on all nine cells, so a pit under a lip inside tall air stays a pit. Frame mean 57.67, thirds 48.6 / 64.0 / 60.4, rows 0 under 24, 1 under 34 (run 1 from 536) - every one of those digits is the replaced row's to the hundredth. The bytes are not identical: #369 re-values the roof-to-wall corner and #518 re-solves a slab's underside, and in THIS frame that reaches only a thin band, so the mean holds while the picture is a newer picture.",
+      "staleByBuild": null
     },
     {
       "file": "level0-spawn",
-      "sha256": "9debdd726365bf366b27bfd54da925d160633fe509483d6af64379b20c92bb7e",
+      "sha256": "45c716c4981f24a0621093c3582ec6919e593f1042cba04c6e1821b241cd28e9",
       "canvas": "1440x763",
       "origin": "https",
       "install": "url-open",
@@ -72,14 +87,47 @@
       "seed": 60,
       "level": 0,
       "layout": 3105224175,
-      "build": "22ec109",
-      "at": "2026-10-13",
-      "sampleRate": null,
-      "note": "RE-TAKEN from the deployed page for #478. The build is proved off the wire before the shutter: index.html and all eleven js/ blobs the deployed page served were md5-compared against main at 22ec109 and all twelve matched, so these pixels came off the page that serves that tree (#395, #420). One page load, one boot; pose is the deal's own spawn seat read off the page, (18.5, 5.5) heading 0.60, feet on floor 0.00, own ceiling 4.00 (MAP.cz 16), own cell MAP.light 0.8305. Props 23, lights 13, the level's own 8 hostiles left asleep. Frame mean 63.94, thirds 51.4 / 64.0 / 76.5, 0 of 763 rows under 24 and 0 under 34. WHAT MOVED against the bytes this replaces (drawn at c3e3104, mean 51.68): this is a different deal of the same url - c3e3104 dealt 2265108899 and this build deals 3105224175 - so the spawn seat sits at (18.5, 5.5) instead of (5.5, 17.5) and the lamps and props landed elsewhere; a barrel stands 2.83 m to the left, a crate 5.00 m out on the heading, and a fitting hangs in the seat's own cell at z 2.35. The picture reason is the two prop cuts the old frame predates: a prop now carries the face-orientation term across its whole light including ambient (#371, #476), and crate and barrel faces sit 12 % darker so a prop stops being the loudest surface in a dim room (#491). Their two visible faces are no longer a tie."
+      "build": "4abba57",
+      "at": "2026-10-16",
+      "sampleRate": 44100,
+      "note": "RE-TAKEN from the deployed page for #536, in the first page load of the pass. Build proved off the wire before the shutter: index.html and all eleven js/ blobs the page served were md5-compared against main at 4abba57 and all twelve matched, so these pixels came off the page that serves that tree (#395, #420). Route: DEV.freeze(true) the moment the page answers, S.t = 4 then DEV.freeze(true) again so the pin lands in T0 (js/90_dev.js:42 restores S.t = T0 every frozen frame, so the assignment alone is undone by the next tick), banner('', 0), DEV.tick(30), P.hp = 100, then the dealt spawn seat read off the page - (18.5, 5.5) heading 0.60 - grainSeed = 6 and one DEV.tick(1). Layout 3105224175, the same deal the replaced row named, so every coordinate in the caption is still this room: 8 hostiles, 23 props, 13 lights. Frame mean 68.13, thirds 61.1 / 66.3 / 77.0, 0 of 763 rows under 24 and 0 under 34, against 68.26 on the bytes this replaces. THE DEAL HELD and the picture is a hair DARKER, not brighter: #369 gave the roof-to-wall corner a value taken from the face it meets, so the thin band at the top of this frame lost a little light while the room's own light is #495's in both arms. What moved between these bytes and the last pass is #369 and #518, not layout.",
+      "staleByBuild": null
+    },
+    {
+      "file": "level2-abatoir",
+      "sha256": "f78dcd07f14e5d29515f705ef14c29cbdc9bd851f1e4ef888dc5c7d2315e582b",
+      "canvas": "1440x763",
+      "origin": "https",
+      "install": "url-open",
+      "url": "https://lioreshai.github.io/breach-protocol-flash-next/?dev=1&seed=60",
+      "seed": 60,
+      "level": 2,
+      "layout": 469427782,
+      "build": "4abba57",
+      "at": "2026-10-16",
+      "sampleRate": 44100,
+      "note": "RE-TAKEN from the deployed page for #536, in its own page load (one url, one boot - a second DEV.boot() inside a load keeps drawing from the advanced stream). Build proved off the wire: all twelve served blobs md5-match main at 4abba57. Route: DEV.freeze(true) at load, DEV.boot(), startLevel(2, true), banner('', 0), S.t = 4 then a re-freeze, DEV.tick(30), P.hp = 100, then the dealt spawn seat (17.5, 28.5) heading 0.60, grainSeed = 6 and DEV.tick(1). THE DEAL HELD (layout 469427782), so the seat, 40 props, 24 lights and 18 hostiles are this room still. Frame mean 68.46, thirds 51.6 / 67.7 / 86.2, 0 of 763 rows under 24 and 0 under 34 - every digit is the replaced row's to the hundredth. The slab over the room is the largest surface in frame and is where #518's overhead-solve applies, so the bytes moved; the slab's own band reads 51.6 in both arms, which is why the mean is too.",
+      "staleByBuild": null
+    },
+    {
+      "file": "level2-abatoir-ceiling",
+      "sha256": "624fa99d38a2ad9647fdb27052ef0302d5298e1424c7a718231c2fe3b5c26477",
+      "canvas": "1440x763",
+      "origin": "https",
+      "install": "url-open",
+      "url": "https://lioreshai.github.io/breach-protocol-flash-next/?dev=1&seed=60",
+      "seed": 60,
+      "level": 2,
+      "layout": 469427782,
+      "build": "4abba57",
+      "at": "2026-10-16",
+      "sampleRate": 44100,
+      "note": "RE-TAKEN from the deployed page for #536; the same seat, deal and page load as level2-abatoir, turned to the nearest hung fitting this deal puts within reach of the frame. Build proved off the wire as the seat row - all twelve served blobs md5-match main at 4abba57. MAP.ceilPanes holds FOUR entries on this layout; the nearest with d > 1.5 re-read this load at (20.12, 26.88), 3.08 m from the seat at bearing -0.5538 rad, lens at z 2.35 under a slab top of 4.00 - unchanged from the replaced row. Pose DEV.cam(seat, -0.5538, 194.2), where 194.2 px = atan2(2.35 - eyeZ 0.50, 3.08) * BH 359, re-solved off the live page rather than typed from the row. Frame mean 70.29, thirds 68.5 / 79.2 / 63.2, 0 of 763 rows under 24 and 0 under 34, the same four digits the replaced row carried: a camera looking at a lit lens is the one place in this set where #369 and #518 have almost nothing to say.",
+      "staleByBuild": null
     },
     {
       "file": "level3-stack",
-      "sha256": "f6dce28ec663fd1b6463a8def999e1e545224eb651b0544d8967a0e21fb26129",
+      "sha256": "88fa8b5b643c4aa53b35fabe38da0ed2cf2cf520cc9baf4591492cd36363598c",
       "canvas": "1440x763",
       "origin": "https",
       "install": "url-open",
@@ -87,40 +135,11 @@
       "seed": 60,
       "level": 3,
       "layout": 972763321,
-      "build": "015c79b",
-      "at": "2026-10-15",
+      "build": "4abba57",
+      "at": "2026-10-16",
       "sampleRate": 44100,
-      "note": "RE-TAKEN from the deployed page for #431: the ashlar wall repaint and the lamp-colour cap both merged after the build this row used to name. The build is proved off the wire before the shutter: index.html and all eleven js/ blobs the deployed page served were md5-compared against main at 015c79b and all twelve matched, so these pixels came off the page that serves that tree (#395, #420). Route: reload, freeze at load, DEV.boot(); startLevel(3, true); banner('', 0); DEV.freeze(true); S.t = 4; DEV.tick(30); P.hp = 100; DEV.cam(1.5, 2.5, floorAt(1.5, 2.5), 0.60, 0); DEV.tick(1). The level's own 4 hostiles left asleep, props 9, lights 11. Seat read back at this pose: own floor 0.00, own ceiling 1.00 (MAP.cz 4), MAP.light 0.1019, and seven cells along the heading the plan is air at floor 0.00 with its ceiling solving at 4.00 (cells (6,6) (7,6) (7,7) read MAP.cz 16) - the atrium the caption names, still this grid's. DEV.ray along the heading stops on a face at 8.55 m carrying mat 10 = WT.SLAB with the drawn span [0.00, 1.00], which is the wall the frame's edge is read off. Frame mean 52.33, thirds 39.2 / 59.1 / 58.7, 0 of 763 rows under 24, 134 under 34 with the longest run 50 from row 56, 0.05 % at or over 240 and 0.14 % at or over 200. Against the bytes this replaces (drawn at 22ec109, mean 65.09, thirds 45.6 / 74.5 / 75.2, 48 rows under 34) the whole frame came down 12.8 luma and the deck's third came down 16.5. BUILD EFFECT ALONE, one harness one pinned seed: `node tools/view.js scene 3 0` reads mean 118.1 with 0.02 % blown at 22ec109 against 89.8 with 0.00 % blown here, so most of that move is the build darkening the room, not a different deal. THE AUDIO TERM, and the one way this row differs from the other seven: SND.ac.sampleRate read 44100 at this shutter where all seven other rows recorded null, so this row binds a machine with a 44100 Hz device (#404) and drops the device-scoped label the other seven carry - the census `check` prints goes from 8 device-scoped deals to 7. The level's own fold re-signs across builds as every deal does: this page signs level 3 as 972763321, the same fold the frame at c3e3104 carried, where the row this replaces recorded 164933889 at 22ec109 - which is why the geometry a caption quotes has to be re-read at the shutter rather than copied forward, and was."
-    },
-    {
-      "file": "level2-abatoir",
-      "sha256": "fe1b67c7e0763ea575e989adc681dd5f171fc9ed76adc2adecec9b3ffa587c15",
-      "canvas": "1440x763",
-      "origin": "https",
-      "install": "url-open",
-      "url": "https://lioreshai.github.io/breach-protocol-flash-next/?dev=1&seed=60",
-      "seed": 60,
-      "level": 2,
-      "layout": 1812275020,
-      "build": "22ec109",
-      "at": "2026-10-13",
-      "sampleRate": null,
-      "note": "RE-TAKEN from the deployed page for #478. The build is proved off the wire before the shutter: index.html and all eleven js/ blobs the deployed page served were md5-compared against main at 22ec109 and all twelve matched, so these pixels came off the page that serves that tree (#395, #420). Route: reload, freeze at load, DEV.boot(); startLevel(2, true); banner('', 0); DEV.freeze(true); S.t = 4; DEV.tick(30); P.hp = 100; DEV.cam(18.5, 23.5, floorAt(18.5, 23.5), 0.60, 0); DEV.tick(1); the level's own 18 hostiles left standing, props 40, lights 25. Seat reads MAP.light 0.886, MAP.cz 12 (ceiling 3.00 over floor 0.00). Frame mean 72.45, thirds 67.9 / 66.3 / 83.2, 0 of 763 rows under 24 and 0 under 34. Two notes on the deal. (1) This level's layout moved with the freeze term now in the plan - the same url read 350870494 / 1978041996 / 1812275020 across three unfrozen loads and 1812275020 with the freeze, so the older row's 3946763407 is not comparable to this one. (2) The S.t pin is not decoration here: with S.t left at whatever the load happened to reach this frame read 60.38 mean against 72.46, all of it the exit-portal overlay's alpha, which is why the third now runs 67.9 / 66.3 / 83.2 rather than the replaced frame's 48.2 / 73.6 / 71.9."
-    },
-    {
-      "file": "level2-abatoir-ceiling",
-      "sha256": "478868bb0f6f1019b14c2047d09cd19fc1986d989c8c8d5edd709e17f5d28cb7",
-      "canvas": "1440x763",
-      "origin": "https",
-      "install": "url-open",
-      "url": "https://lioreshai.github.io/breach-protocol-flash-next/?dev=1&seed=60",
-      "seed": 60,
-      "level": 2,
-      "layout": 1812275020,
-      "build": "22ec109",
-      "at": "2026-10-13",
-      "sampleRate": null,
-      "note": "The same seat, same deal and same page load as level2-abatoir, turned to the fitting this deal puts over the entrance: DEV.cam(18.5, 23.5, floorAt(...), -0.556, 25). The build is proved off the wire before the shutter: index.html and all eleven js/ blobs the deployed page served were md5-compared against main at 22ec109 and all twelve matched, so these pixels came off the page that serves that tree (#395, #420). MAP.ceilPanes for this layout holds FIVE entries - not the six the replaced caption counted - and the nearest to the seat is at (20.5, 19.5) with its lens at z 2.35, 4.47 m away; MAP.ceilFix at the seat's own cell reads 0. The slab over this seat solves at 3.00, not the 4.00 the replaced caption named, which is a different deal's room rather than a moved term. Frame mean 72.08, thirds 61.1 / 69.3 / 85.8, 0 rows under 24 and 0 under 34. The caption now states what is readable off this deal and drops the distances it can no longer prove."
+      "note": "RE-TAKEN from the deployed page for #536, in its own page load: DEV.freeze(true) at load, DEV.boot(), startLevel(3, true), banner('', 0), S.t = 4 then a re-freeze, DEV.tick(30), P.hp = 100, DEV.cam(1.5, 2.5, floorAt(1.5, 2.5), 0.60, 0), grainSeed = 6, DEV.tick(1). Build proved off the wire: all twelve served blobs md5-match main at 4abba57. Layout 972763321 - the hand-authored plan is unchanged - 4 hostiles, 9 props, 11 lights. Frame mean 57.58, thirds 51.2 / 62.8 / 58.7, 0 of 763 rows under 24 and 0 under 34, which is every digit the replaced row printed, including its 0-rows-under-34: the darkness the #536 pass removed is still removed. What these bytes add over the ones they replace is #369's corner where the slab face the seat opens into meets the vault, and #518's overhead-solve on the slab the seat stands under; both are thin, which is why the means and band means land on the old digits while the file's hash does not.",
+      "staleByBuild": null
     }
   ]
 }
