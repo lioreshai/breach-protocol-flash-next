@@ -14575,6 +14575,25 @@ if (MODE === 'surface') {
   // how far a level's OWN arm may sit from the bug's arm before the census is allowed to call the two the
   // same frame (#369 take sixteen: the roll-up used to call any surviving counterfactual a vacuous row)
   const CTRL_EPS = process.env.CTRL_EPS !== undefined ? +process.env.CTRL_EPS : 2;
+  /* #495 THE ROOF'S OWN VALUE FLOOR, AS A ROW AND NOT A SENTENCE. The ORDER row below says only that the
+     roof does not OUT-VALUE the deck it covers; nothing said how far UNDER it it may fall, and an
+     assertion with no lower bound cannot see a roof that is too dark. That gap IS the defect: a bias
+     authored to kill #369's inversion, then capped by PR #380, left 41-50 % of a standing frame at
+     0.32-0.59x its own deck with every ORDER row green. So the bar this issue set - about 0.7x the luma
+     of the deck a roof covers, at each sector's OWN arrival heading - is asserted here.
+     It is a floor with a floor under it: 0.70 to pass, `ROOFFLOOR` = 0.60 as the regression line, and a
+     level between the two is a NAMED DEBT rather than a failure. 0.60 is measured, not negotiated - it
+     sits above the worst pre-fix reading the issue records (0.59x) and below every reading the shipped
+     build prints today, so a roof that drifts back into the pre-fix band goes red on ANY level, and a
+     sector carrying a debt today cannot use that debt as an invitation to go back to the bug.
+     WHICH POSES ARE JUDGED, stated because the bar is not a property of a lens: only the level's own
+     arrival heading (`cam0` - the spawn cell turned to its longest sight line, the frame the player is
+     actually dropped into). A quarter-turned camera can spend half its frame on roof past FARB, where a
+     lamp 40 m back and the far wash set the number and the material sets nothing; that pose is the
+     sweep's business, not the bar's. The ORDER rows still judge every pose, unchanged. */
+  const ROOFMIN = +(process.env.ROOFMIN || 0.70);
+  const ROOFFLOOR = +(process.env.ROOFFLOOR || 0.60);
+  const roofR = [];
   let bad = 0, known = 0, rowsN = 0, ctrlRan = 0, ctrlMiss = 0;
   const poolGain = [];
   const wPoses = []; let wMax = 0;
@@ -15225,6 +15244,20 @@ if (MODE === 'surface') {
         `${c.floor.toFixed(1)} (${c.floorPct.toFixed(0)}%)` +
         (bands ? '' : ' - NOT MEASURED: one surface covers under 1% of this pose'),
         bands && c.ceil >= c.floor && c.ceil < c.floor + 6 ? '#369' : undefined, !bands);
+      /* The ORDER row above has no lower bound, which is how a roof sits at a third of its deck while it
+         reads ok. This one reads the SAME two band means as a ratio, so a level cannot buy it by
+         re-lighting the deck: that moves both terms together, and the cap in js/40_render.js already
+         keeps the roof from leading. Arrival heading only - see ROOFMIN above. */
+      if (cam === CAMS[0]) {
+        const rr = c.floor > 0 ? c.ceil / c.floor : NaN;
+        if (bands) roofR.push({ li, rr });
+        row(`L${li} ROOF the arrival roof is a surface over its deck >= ${ROOFMIN}x`,
+          bands && rr >= ROOFMIN,
+          `ceiling ${c.ceil.toFixed(1)} over a deck of ${c.floor.toFixed(1)} = ${rr.toFixed(2)}x, ` +
+          `roof over ${c.ceilPct.toFixed(0)}% of the frame at this sector's own arrival heading; ` +
+          `pass ${ROOFMIN}x, regression floor ${ROOFFLOOR}x (below it the roof is a sheet again)`,
+          bands && rr >= ROOFFLOOR && rr < ROOFMIN ? '#495' : undefined, !bands);
+      }
       /* The wall-vs-deck half of the rule, per pose. `sep` is the FRACTION of columns across the whole
          width that separate by >= TARGET; requiring 0.6 of them is what stops one bright third of the
          frame carrying a level whose other two thirds are one material seen from two angles. Vacuous
@@ -15827,6 +15860,16 @@ if (MODE === 'surface') {
      centre (+55.0 un-authored against +57.2 shipped, i.e. +2.2 from the fitting): the criterion holds
      there, the ATTRIBUTION is small, and a per-level threshold would fail a level for the room being
      well lit rather than for anything #413 did. */
+  /* #495's aggregate. The bar is stated per sector, so the per-level rows above are the evidence; this
+     is the one number a reader wants - HOW MANY sectors arrive with a roof that reads as a surface - and
+     it carries the regression floor as its own clause, so a second sector sliding back into the pre-fix
+     band fails here even if its per-level row is read as a debt. */
+  const roofAt = roofR.filter(r => r.rr >= ROOFMIN).length;
+  row(`ROOF at least 3 of the 4 sectors arrive with a roof at or over ${ROOFMIN}x their deck`,
+    roofR.length === NL && roofAt >= 3 && roofR.every(r => r.rr >= ROOFFLOOR),
+    roofAt + ' of ' + roofR.length + ' sector(s) at or over the bar, readings'
+    + roofR.map(r => ' L' + r.li + ' ' + r.rr.toFixed(2)).join(',')
+    + ` against a ${ROOFFLOOR}x floor` + (roofR.length === NL ? '' : ' - NOT MEASURED on every sector'));
   const pgs = poolGain.filter(Boolean);
   const bestGain = pgs.length ? Math.max(...pgs.map(g => g.a - g.b)) : NaN;
   row('POOL-CONTROL the fittings cause part of the pool somewhere', pgs.length > 0 && bestGain >= POOL_GAIN,
