@@ -76,9 +76,10 @@ out brighter. THE STACK lost 1.31, and that one has a specific author: PR #576 l
 two levels so their roof-to-wall junctions clear the 15-luma bar, and at the seat this frame is taken from the
 junction gap went 7.1 → 16.0 luma while the ceiling band came down 52.1 → 42.1. ABATOIR CORE moved most (−12.60)
 for another reason — **its deal re-rolled**, so that caption's coordinates now describe this build's room, and the
-other two signatures moved with it (L3 1792722441, where the replaced row named 972763321). ARCHIVE SUBLEVEL's
-signature held (3105224175), so the coordinates in its five captions still name the same rooms. One dark row came
-back with these bytes: the pit-lip frame has 1 of 763 rows under the 24 bar. Each row of `provenance.json` carries its own replaced-
+one other signature moved with it, THE STACK's (L3 1792722441, where the replaced row named 972763321). ARCHIVE
+SUBLEVEL's signature held (3105224175), so the coordinates in its five captions still name the same rooms. Two dark
+counts came back with these bytes: the pit-lip frame has 1 of 763 rows under the 24 bar where the frame it replaces
+had none, and the stairwell's count at the tool's other bar rose from 15 rows to 18. Each row of `provenance.json` carries its own replaced-
 frame mean so the direction is readable per frame rather than only in aggregate.
 
 The shipped picture those numbers describe is the one the last pass introduced: a roof that is a lit surface
@@ -93,8 +94,10 @@ ages by build: the generator draws a different count between builds, so a re-tak
 capture plan that makes these eight reproducible is written there, not here. Where a caption counts *darkness*
 rather than geometry, the count below is the pass before this one's story told once and kept: the pit floor's 122
 rows and THE STACK's 114 under the 34 bar became none at all when the roof was given a light floor (#495), and the
-stairwell's 173 became 15 with its 79-row run gone (#431). Those frames are what this pass replaced, and the counts
-hold — this pass moved no pixel of that darkness back.
+stairwell's 173 became 15 with its 79-row run gone (#431). This pass did not leave all of those where the last one
+left them: the pit-lip frame is the one frame with a row under the 24 bar (1 of 763, where its predecessor had
+none), and the stairwell came back from 15 to 18 rows under 34 with a 7-row run from row 630 where the last pass had
+a single row at 18. The pit floor's and THE STACK's counts stayed at none.
 
 ![the spawn seat on a lit datum floor, a crate ahead with one face in shade](docs/screens/level0-spawn.png)
 
@@ -123,7 +126,8 @@ cells flagged `MAP.feat` STAIR, seen from the tread below at (1.5, 8.5). **0 of 
 7 rows from row 630).
 This deal's seat reads `MAP.light` 0.2489, so the air over the treads is dim, not empty, and the risers read
 because their own faces are lit at different values (#371, #431). The dark block this caption used to count is
-gone — 173 rows under 34 became 15 — and two shipped changes account for it: the ceiling gained a light floor
+gone — 173 rows under 34 became 15 in the last pass, and this pass leaves 18, with a 7-row run from row 630 replacing
+the single row at 18 that pass had — and two shipped changes account for the fall: the ceiling gained a light floor
 (#495) and a stair now draws its own step faces instead of a warped flat deck (#515). Volume is authored room
 by room, and a stairwell is not a room: no level has an overlook you can look *up* into yet
 (#353, [`docs/VERTICALITY.md`](docs/VERTICALITY.md)).
@@ -143,7 +147,7 @@ wall behind him in this frame is the repainted one.
 ![the pit lip from 2.5 m out, lit by a lamp standing in the pit](docs/screens/level0-props.png)
 
 The pit lip from 2.5 m out — camera **(20.5, 11.5)**, yaw **π/2**, feet on the datum, the lip plane
-exactly 2.50 m ahead. **1 of 763 rows average below luminance 24**, the longest unbroken run is 1 rows from row 537
+exactly 2.50 m ahead. **1 of 763 rows average below luminance 24**, the longest unbroken run is 1 row from row 537
 (mean 60.36, band means 58.2 / 67.8 / 55.1; at the tool's other bar of 34, 15 rows, run 14 from row 536). The hole is the 3×3 block (19..21, 14..16) at `MAP.fz` **-4** with its own
 ceiling at one unit, so a pit inside air the tall-air feature made tall stays a pit under a lip instead of
 becoming a shaft; the lamp standing in it is at (19.5, 14.5) on band **-1.00**, 3.16 m from this camera, which
@@ -189,7 +193,7 @@ in `MAP.fz` and still reads as a low room with a bright slit in it (#353). What 
 darkness the last caption described: the vault is no longer the darkest large surface, its band runs **51.4**
 against the deck's 56.0, and there is no dark block left to count, because #495 gave the ceiling a light floor
 and this seat's slab top is a lit surface now. The plan is unchanged — THE STACK is written cell by cell — but the signature over it
-moved, layout 1792722441 where the replaced row named 972763321, and the seat is still (1.5, 2.5) heading 0.60, so so what moved between these bytes and the last pass is light and surface, not geometry:
+moved, layout 1792722441 where the replaced row named 972763321, and the seat is still (1.5, 2.5) heading 0.60, so what moved between these bytes and the last pass is light and surface, not geometry:
 the lit roof (#495), the roof-to-wall junction (#369), the riser material (#518) and the prop surface (#533),
 on top of the ashlar family these faces already wore (#428). Which of them carries the point of luma is not
 settled here; what is settled is that these bytes show the room that ships.
