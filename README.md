@@ -65,9 +65,17 @@ that ages: `node tools/recap.js check` hashes the four blobs that draw a frame �
 those bytes or `FRAME-STALE` naming the blob that moved. A pass aged badly once, binding `bd2441a` while two
 render commits landed in review, and the tool exists so it cannot age quietly again; the bind is an upper bound on
 "the picture changed", since a comment inside a renderer moves a digest and moves no pixel, so the row names the
-blob and leaves the re-take call to a human. Today it prints `SHIP-BIND` for `39d1a70`: these frames are the
-picture that ships. This is the re-take the last few merge cycles owed, so the picture moved further than a thin
-one. The ceiling's light term gained a floor and then a value of its own (#495, #369), a one-quantum step now
+blob and leaves the re-take call to a human. On the tree that carries this branch it prints `FRAME-STALE` for
+`39d1a70`, naming `js/20_level.js`: the file that lights these rooms has moved on main since the build these rows
+bind, so these frames are that build's picture and a re-take off a deploy of this one is owed (#578). Whether a
+re-take carries a caption's coordinates or re-reads them is measured, not assumed, and it is not uniform: the same
+url at one page load and one boot deals ARCHIVE SUBLEVEL as layout 3105224175 in the seat (18.5, 5.5) its five
+captions already name — those five are the same rooms re-lit by the moved blob — while ABATOIR CORE re-rolls to
+layout 706593863 in the seat (22.5, 13.5) where its two rows name 2728567296 in (20.5, 10.5), and THE STACK reads
+layout 120030481 in the seat (1.5, 2.5) its row also names, so its authored map moved under the same seat. So five
+frames carry their coordinates into the next pass and three must be read off the page again. That capture pass is
+#578's next job, not this page's; what follows describes the pass that did land, which was the re-take the last few
+merge cycles owed, so the picture moved further than a thin one. The ceiling's light term gained a floor and then a value of its own (#495, #369), a one-quantum step now
  declares geometry instead of shading a phantom lip (#517), an enemy's base is ink on the deck beside its feet
 (#18), and the authored finale's cover is one crate rather than three unrelated boxes (#386). ARCHIVE SUBLEVEL's
 spawn seat and its posed grunt came out 5.85 lumas darker — the roof reads as a lit surface at a lower value where
