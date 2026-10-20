@@ -278,6 +278,10 @@
        chain's mean instead of to one coarser texel: w = 1 - min(1, 1/F) on the pixel's own F, so a pixel
        whose footprint is one texel or less keeps main's fetch exactly. 0 = main's ceiling, walk included. */
     if (name === 'gndwash') { CGW = value === undefined ? 1 : (value ? 1 : 0); return { gndwash: CGW, farM: GQ.far }; }
+    /* #19 take eighteen's A/B. 1 (shipped) = a MAGNIFIED ceiling pixel (footprint under one texel) pays
+       share 1 - F of its material's chain mean instead of one hard-edged texel, which is the hairline
+       radial comb over the upper half of the frame. 0 = main's near ceiling, comb and all. */
+    if (name === 'gndmag') { CGWN = value === undefined ? 1 : (value ? 1 : 0); return { gndmag: CGWN }; }
     /* #407's A/B. 1 (shipped) = a body or prop takes MAP.light WHOLE at its own cell, exactly as a wall
        column and a ground pixel do; 0 = the pre-#407 second falloff (lm * exp(-distance * 0.14)) is back
        in BOTH copies - the mesh triangle shading and the billboard. One register, two read sites, so it
