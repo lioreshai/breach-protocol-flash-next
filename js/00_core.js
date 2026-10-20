@@ -133,8 +133,12 @@ var BPAINT_RGB = 0xffffff;
    The fix is on the MATERIAL, which is what the paint arm of contrast already says it is: the body's
    paint is mixed with the complementary of the cast falling on it, so what survives the room is his own
    pigment rather than the room's. `lt` is the cell's own normalised tint (mean ~1); pushing each
-   channel by `K*(mean - channel)` cancels the first-order cast at K=1 while the push is zero-mean by
-   construction, so no luma is bought or returned - this is a hue move and not a brighter texture.
+   channel by `K*(mean - channel)` cancels the first-order cast at K=1, and the push is zero-mean in the
+   three MULTIPLIERS, so no frame mean is bought or returned and no room was relit. It is NOT a luma budget
+   on the body's own pixels: Rec.601 weights green at 0.587, so taking a green cast out of a red-violet room
+   lifts the luma of the pixels it touches (measured on the ABATOIR dealt seats, 40.4 -> 46.0 at cam0 and
+   43.8 -> 51.1 at cam2, both in the useful direction - he was darker than the wall behind him). Read it as
+   a hue move at a frame mean and a value step on his own silhouette.
    1 (shipped) = the body's own palette reaches the eye; the room's cast is cancelled in his paint.
    0 = the pre-fix form, the room's tint multiplying a fixed albedo, kept as the A/B the separation
        rows are meant to be seen failing.

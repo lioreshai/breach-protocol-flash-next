@@ -783,6 +783,28 @@ const CZ_SPAWN_TALL = 16;                                   // 4 units: the rung
    Corridors, mouths, crawlways and ladder columns keep CZ_DEF - the complaint is about the rooms, and the
    tall/flat boundary is the term that costs milliseconds, so it stays where feature 1 already pays it. */
 const CZ_ROOM = CZ_SPAWN_TALL;
+/* #548 TAKE TWO - A LEVEL HAS MORE THAN ONE ROOM HEIGHT. CZ_ROOM gave EVERY room four units, which is
+   the fix the issue asked for and also the thing it warned about: a dealt sector then authors exactly
+   ONE room ceiling, repeated over a plan forty cells wide, so the roof is one continuous plane with no
+   seam and no end anywhere in frame, and a six-cell room and a fifty-cell atrium wear the same lid.
+   Height that is constant is not legible as height, and there is no second plane for the roof to end
+   against - which is why the frame still reads as floor and roof with a band of wall between.
+   So the room's air is a function of the ROOM: four units stays the room default, and a room whose
+   plan is big enough to be the level's main space stands at CZ_ROOM_TALL. The ladder's height axis
+   runs BACKWARDS (2 units +5.1, 3 +2.7, 4 +0.9, 6 -0.7 ms at the arrival seat, march counter falling
+   in the same order), so a taller FLAT ceiling is the cheap end of this - what costs milliseconds is a
+   tall/flat BOUNDARY, and the only new boundaries here are tall-room to taller-room, between two
+   columns whose floors are equal. The `|| k === 0` clause is the guarantee the acceptance asks for -
+   the largest qualifying room always takes the rung, so a deal can never author one single room
+   height - and on the plans this generator deals (5..maxRoom-1 a side) it is also nearly always the
+   same room the area test picks. Corridors, mouths, crawlways and ladder columns are untouched: the
+   mouth setter stays pinned at CZ_ROOM so a big room's doorway does not become the expensive tall
+   mouth (+8.2 ms for two cells, feature 1's table), and no floor, band or slab is written here.
+   The ceiling LIGHT term keys on the plane, not on a room test (js/40_render.js CEILHI/CEILG, capped
+   by the #369 vault rule), so the taller rung arrives as more lit roof per column, not as a darker
+   one, and `surface`'s ROOF row is what says whether that is true. */
+const CZ_ROOM_TALL = 24;                                    // six units: the rung above the room default
+const ROOM_TALL_AREA = 56;                                  // open plan cells that make a room the level's main space
 const LINK_STEPS = 40;                                      // link-or-give-back rounds per band, per pass
 const STAIR_CELLS = 4;                                      // cells a 1-unit climb needs: 3 steps + 1
 /* How many rooms get tall air on a map that does not need more: at least TWO, so a deal is never one
@@ -1000,11 +1022,13 @@ function authorVolume(cell, N, rooms, fz, vb, feat, cz) {
   const tallRooms = [];
   for (const [k, r] of rooms.filter(r => r !== spawnR && r.w >= 5 && r.h >= 5 && roomFloor(r) !== null)
                             .sort((a, b) => b.w * b.h - a.w * a.h || a.cx - b.cx || a.cy - b.cy).entries()) {
-    tallRooms.push([r, roomFloor(r), k < tallWant]);
+    tallRooms.push([r, roomFloor(r), k < tallWant,
+                    (r.w * r.h >= ROOM_TALL_AREA || k === 0) ? CZ_ROOM_TALL : CZ_ROOM]);
   }
-  for (const [r, f, mouth] of tallRooms) {
+  for (const [r, f, mouth, hgt] of tallRooms) {
     const cp = cut();
-    const set = i => { mark(i); cz[i] = CZ_ROOM; };
+    const set = i => { mark(i); cz[i] = hgt; };
+    const setMouth = i => { mark(i); cz[i] = CZ_ROOM; };   // mouths keep what they had (#548 take two)
     for (let y = r.y; y < r.y + r.h; y++) for (let x = r.x; x < r.x + r.w; x++) if (!cell[y * N + x]) set(y * N + x);
     if (mouth) for (let y = r.y - 1; y <= r.y + r.h; y++) for (let x = r.x - 1; x <= r.x + r.w; x++) {
       if (!open(x, y) || fz[y * N + x] !== f || roomAt(x, y) !== null) continue;   // corridor cells only
@@ -1013,7 +1037,7 @@ function authorVolume(cell, N, rooms, fz, vb, feat, cz) {
         const nx = x + DIRX[d], ny = y + DIRY[d];
         if (nx < 0 || ny < 0 || nx >= N || ny >= N) continue;
         const j = ny * N + nx;
-        if (!cell[j] && fz[j] === f && roomAt(nx, ny) === r) { if (cz[i] !== CZ_TALL) set(i); break; }
+        if (!cell[j] && fz[j] === f && roomAt(nx, ny) === r) { if (cz[i] !== CZ_TALL) setMouth(i); break; }
       }
     }
     if (keeps(d0)) authored.push('tallRoom'); else rewind(cp);
