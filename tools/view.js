@@ -11951,12 +11951,21 @@ if (MODE === 'viewmodel') {
   /* THE DEALT FRAME, MEASURED AND PRINTED, NOT RECORDED: the price of the seat as it actually sits. One
      batch on and one off at the heading THIS build's seatFacing handed the player, taken after the recorded
      arms so drift cannot land on one side, and restored to the pinned heading before anything else reads
-     the page. On a build that authors no heading this reads the SAME scene as the arms above (SEAT_ANG is
-     the literal), and it says so in its own text rather than printing a ratio of one frame with itself. */
-  run(REST);
-  const sOn = +run('window.__vmCost("on", ' + VCOST_BATCH + ', ' + SEAT_ANG + ')');
-  run(REST);
-  const sOff = +run('window.__vmCost("off", ' + VCOST_BATCH + ', ' + SEAT_ANG + ')');
+     the page. On a build that authors no heading of its own SEAT_ANG IS the pinned literal, so those two
+     batches would re-time a scene already timed above, and their ratio would be the quotient of two
+     wall-clock medians taken in separate batches: 0.94x to 1.14x across four rolls of ONE unchanged main
+     tree, i.e. pure batch-to-batch drift printed beside a sentence claiming the ratio cannot be but 1. A
+     reader has to be told which of the two to believe, so the ratio is COMPUTED ONLY WHEN THERE IS A ROOM TO
+     PRICE (SEAT_ANG differs from VMHEAD) and the identity case quotes no number at all. The dealt ms are
+     printed whenever they are measured; in the identity case the line names the batch it already ran. */
+  const seatDiffers = Math.abs(SEAT_ANG - VMHEAD) > 1e-9;
+  let sOn = vmed(tOn), sOff = vmed(tOff);
+  if (seatDiffers) {
+    run(REST);
+    sOn = +run('window.__vmCost("on", ' + VCOST_BATCH + ', ' + SEAT_ANG + ')');
+    run(REST);
+    sOff = +run('window.__vmCost("off", ' + VCOST_BATCH + ', ' + SEAT_ANG + ')');
+  }
   run(REST);
   run('window.drawViewModel = window.__VMSAVE; MESH.weapon = window.__VMWEAPON;');
   const vmD = vmed(tOn) - vmed(tOff), vmShare = vmD / Math.max(1e-6, vmed(tOn));
@@ -11970,12 +11979,15 @@ if (MODE === 'viewmodel') {
      fails because an optimization landed is the row everyone learns to ignore. */
   if (!(vmD > 0)) problems.push('the rig costs ' + vmD.toFixed(2) + ' ms of a frame while the rows above say it '
     + 'paints pixels - the cost arm is measuring nothing');
-  console.log('deal seat'.padEnd(24), 'the dealt heading ' + SEAT_ANG.toFixed(3) + ' rad costs ' + sOn.toFixed(2) +
-    ' ms/frame with the rig, ' + sOff.toFixed(2) + ' without it (' + (sOn / Math.max(1e-6, vmed(tOn))).toFixed(2) +
-    'x the pinned frame the row above times; ' + (Math.abs(SEAT_ANG - VMHEAD) < 1e-9
-      ? 'this build authors no heading of its own, so this IS the pinned scene and the ratio is 1.00 by '
-        + 'construction, not by agreement' : 'the arms above are timed at the pinned heading, so a seat '
-        + 'turned toward a storey prices the ROOM here and cannot move VM-SHARE there') + ')');
+  console.log('deal seat'.padEnd(24), 'the dealt heading ' + SEAT_ANG.toFixed(3) + ' rad' + (seatDiffers
+    ? ' costs ' + sOn.toFixed(2) + ' ms/frame with the rig, ' + sOff.toFixed(2) + ' without it ('
+      + (sOn / Math.max(1e-6, vmed(tOn))).toFixed(2) + 'x the pinned frame the row above times; the arms '
+      + 'there are timed at the pinned heading ' + VMHEAD + ', so a seat turned toward a storey prices the '
+      + 'ROOM here and cannot move VM-SHARE there)'
+    : ' IS the pinned heading ' + VMHEAD.toFixed(3) + ' this row already times, so the dealt seat and the '
+      + 'timed scene are ONE scene and no ratio between them is printed - a build that authors no heading of '
+      + 'its own has no room to price, and a quotient of two batches of the same scene is drift, not '
+      + 'agreement (the first build to turn the seat will print it)'));
   console.log('rig cost'.padEnd(24), 'on ' + vspread(tOn) + '  memo ' + vspread(tMemo) + '  off ' + vspread(tOff) +
     ' ms/frame over ' + VCOST_REPS + ' batches of ' + VCOST_BATCH + ' frames at the pinned heading ' + VMHEAD +
     ', rig share ' + (100 * vmShare).toFixed(1) +
