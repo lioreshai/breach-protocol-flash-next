@@ -6595,6 +6595,7 @@ if (MODE === 'mip') {
      on ceiling rows too, and this row reads zbuf to find the pixels THE WALL PASS painted, so borrowing the ground
      pass's leftovers would have widened the sample band onto ceiling geometry without saying so. */
   const fetchRes = run(`(()=>{
+    let plated=0;                                  // face(s) the scan rejected for wearing a fixture
     const cand=[];
     for(let y=2;y<MH-2&&cand.length<12;y++)for(let x=2;x<MW-6;x++){
       if(isSolid(x+.5,y+.5))continue;
@@ -6603,8 +6604,17 @@ if (MODE === 'mip') {
       // generation raises rooms, and a riser inside the run resolves the sample band onto the riser
       // instead of the face this row is asserting on
       for(let k=1;d>1&&k<d;k++)if(MAP.fz[(y|0)*MW+x+k]!==MAP.fz[(y|0)*MW+x])d=-1;
+      // #400: NOT A FACE THAT A FIXTURE WEARS. The decor block of castWalls solves the ray against the
+      // fixture's BOX and paints its own material over the face at the box's depth, so on such a face the
+      // E/O pair below swaps a WALLS[] the pixels never sampled: gap 0.0, and the row is blind, not wrong.
+      // A wall fixture is authored per CELL (DECOR_GRID, entry.side 1 = an x-normal face) and sits ON the
+      // sheet rather than being the sheet, so this row reads the exemption through a face that carries no
+      // fixture at all. This is a SCOPE clause, not a measurement clause: it looks at DECOR_GRID, never at
+      // a rendered pixel, so it cannot steer the sample onto a face that happens to pass.
+      if(d>0){const dl=DECOR_GRID[(y|0)*MAP.w+x+d];
+        for(let k=0;dl&&k<dl.length;k++)if(dl[k].side===1&&dl[k].hw>0){d=-1;plated++;break;}}
       if(d>0)cand.push([x+.5,y+.5,d]);}
-    if(!cand.length)return{skip:'no air cell with a material wall within 4 m to +x'};
+    if(!cand.length)return{skip:'no air cell with a bare material wall within 4 m to +x ('+plated+' face(s) carry a fixture)'};
     const TW=WALLS[0].w,TH=WALLS[0].h;
     const texOf=al=>{const d=new Uint32Array(TW*TH);
       for(let y=0;y<TH;y++)for(let x=0;x<TW;x++)d[y*TW+x]=pk(170,160,150,al===2?((x&1)?255:253):al);
@@ -6645,7 +6655,7 @@ if (MODE === 'mip') {
     const amb=AMB,lit=MAP.light?Math.max(MAP.light[wi],MAP.light[(hit.c[1]|0)*MAP.w+(hit.c[0]|0)]):1;
     for(let i=0;i<WALLS.length;i++)WALLS[i]=bak[i];G_GRIT=gk;G_TRI=gt;
     return {LE,LO,LA,n:hit.idxs.length,perp:+perp.toFixed(3),spanPx:+spanPx.toFixed(1),mip,
-      levels:TE.mips.length,lo:+hit.lo.toFixed(3),hi:+hit.hi.toFixed(3),tried,spot:[+hit.c[0].toFixed(1),+hit.c[1].toFixed(1)],
+      levels:TE.mips.length,lo:+hit.lo.toFixed(3),hi:+hit.hi.toFixed(3),tried,plated,spot:[+hit.c[0].toFixed(1),+hit.c[1].toFixed(1)],
       face:hit.c[2],IDX:hit.IDX,horizon:hit.hzz,amb:+amb.toFixed(3),lit:+lit.toFixed(3)}})()`);
   let fetchOk = false, fetchLine = '';
   if (!fetchRes || fetchRes.skip) fetchLine = `FAIL   SKIPPED: ${fetchRes ? fetchRes.skip : 'scan failed'} (${fetchRes ? fetchRes.tried : 0} candidates tried) - the fetch is not being exercised`;
@@ -6677,7 +6687,7 @@ if (MODE === 'mip') {
       `bilinear quartet has at least one flagged corner (t1 or t3, whatever fx/fy are), so the four tests must ` +
       `catch all ${LA.length} and blending the four alphas must lose all of them to the scene-lit form (254 is not ` +
       `253) | mip must be 0: a deeper chain is uniformly 253 since #124 and would match emissive for the wrong ` +
-      `reason | ${fetchRes.tried} candidate(s) scanned`;
+      `reason | ${fetchRes.tried} candidate(s) scanned, ${fetchRes.plated} face(s) rejected for wearing a fixture`;
   }
   console.log(`wall fetch        ${fetchOk ? 'ok' : 'FAIL'}   ${fetchLine}`);
 
