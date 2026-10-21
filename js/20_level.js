@@ -1682,6 +1682,15 @@ const FIX_SPAN = { DOOR: [0.50, 0.94], PIPE: [0.66, 0.30], STRIPE: [0.56, 0.20],
    hazard band is a thin plate. The wall pass reads this to draw the box (#40_render.js, the fixture
    block); 0 would fall back to the old coplanar blit, which is why the flat path stays in the renderer. */
 const FIX_DEP = { DOOR: 0.12, PIPE: 0.10, STRIPE: 0.03, VENT: 0.08, RACK: 0.20, TANK: 0.24, BOARD: 0.06 };
+/* FIX_EDGE is the subset of kinds that are OBJECTS rather than PAINT: a door reveal, a duct collar, a
+   shelf, a drum. Each stands at least 8 cm off the face, so it has a flank and a silhouette the eye can
+   find at 8 m; STRIPE and PIPE are a band and a run and do NOT qualify, which is the difference the
+   owner's #400 definition of done draws ("not a paint band, not a pipe run"). FIX_SEAT_MIN / _N bound
+   the arrival-wall pass below: a face closer than 2 m is the wall you are touching, not the wall you
+   are looking at, and two per level is enough to fill a 71-degree frame without repeating a drum down a
+   whole ward. */
+const FIX_EDGE = ['TANK', 'RACK', 'VENT', 'DOOR'];
+const FIX_SEAT_MIN = 2, FIX_SEAT_N = 2;
 function addWFix(tex, gx, gy, side, along, zc, hh, hw, dep) {
   const N = MAP.w;
   if (gx < 0 || gy < 0 || gx >= N || gy >= N) return;
@@ -1692,7 +1701,7 @@ function addWFix(tex, gx, gy, side, along, zc, hh, hw, dep) {
   if (!DECOR_GRID[ci]) DECOR_GRID[ci] = [];
   DECOR_GRID[ci].push(f); DECOR_MASK[ci] = 1;
 }
-function placeWallFixtures(cfgL) {
+function placeWallFixtures(cfgL, seat) {
   const kinds = (cfgL.fixtures || ['PIPE', 'STRIPE', 'VENT']).filter(k => WFIX[k]);
   if (!kinds.length) return;
   /* #400 take three: the level's VOCABULARY (`fixtures`) says what a place is MADE of; its PURPOSE
@@ -1700,10 +1709,18 @@ function placeWallFixtures(cfgL) {
      is a place with shelving in it and sector 1 is a place with tanks in it, and the long-run pass
      keeps drawing the vocabulary kinds down the corridors. */
   const purposes = (cfgL.purpose || []).filter(k => WFIX[k]);
+  /* The level's OBJECT vocabulary: every kind the level authors that stands off the wall far enough to
+     throw a flank (#400 take five). A long run and a room that carry only STRIPE and PIPE are covered by
+     the walk and still read bare from any seat - sector 1's census is literally 12 stripes, 11 pipes and
+     zero doors, vents or racks - so the long-run pass cycles THIS list, paint and object together, and the
+     seat pass below has a kind to hang that is a thing rather than a band. If a level authors no object
+     kind at all the list is empty and every pass behaves exactly as before. */
+  const objects = kinds.concat(purposes).filter(k => FIX_EDGE.indexOf(k) >= 0);
   const N = MAP.w, cell = MAP.cell;
   const isOpen = (x, y) => x > 0 && y > 0 && x < N - 1 && y < N - 1 && cell[y * N + x] === 0;
   const isWall = (x, y) => x >= 0 && y >= 0 && x < N && y < N && cell[y * N + x] !== 0;
   const used = new Uint8Array(N * N * 4);           // one flag per (wall cell, direction), so a face
+  const kindOf = new Array(N * N * 4).fill('');     // ... and which kind is on it, for the seat pass
   let placed = 0;                                   // never gets two fixtures
   const mount = (kind, ax, ay, d) => {
     const wx = ax + DIRX[d], wy = ay + DIRY[d];
@@ -1712,12 +1729,38 @@ function placeWallFixtures(cfgL) {
     if (used[k]) return false;
     const z0 = faceZ0(ax, ay, d), z1 = ceilAt(ax + 0.5, ay + 0.5), span = z1 - z0;
     if (!(span > 0.35)) return false;               // no face here to hang anything on
-    used[k] = 1;
+    used[k] = 1; kindOf[k] = kind;
     const sp = FIX_SPAN[kind] || FIX_SPAN.PIPE;
     addWFix(WFIX[kind], wx, wy, DIRX[d] !== 0 ? 0 : 1, DIRX[d] !== 0 ? ay + 0.5 : ax + 0.5,
       z0 + span * sp[0], span * sp[1] * 0.5, 0.5, FIX_DEP[kind] || 0);
     placed++;
     return true;
+  };
+  /* CLAIM: the one thing the room pass and the seat pass were not allowed to do (#400 take five) - take a
+     face that already carries PAINT. A room whose every face is owned by a hazard band or a pipe run got
+     nothing, which is the half of "one fixture per room" that still reads as a blank sheet. This may only
+     ever overwrite a paint kind (STRIPE/PIPE): a face carrying a door, vent, rack, tank or sign keeps what
+     it has, because replacing an object with another object is churn, not coverage. The DECOR entry is
+     edited in place, so the fixture count, the lightmap and every other pass see exactly the same list -
+     one kind becomes another kind on the same face at the same height. */
+  const claim = (kind, ax, ay, d) => {
+    const wx = ax + DIRX[d], wy = ay + DIRY[d];
+    if (placed > 120 || !isWall(wx, wy)) return false;
+    const k = (wy * N + wx) * 4 + d;
+    if (kindOf[k] !== 'STRIPE' && kindOf[k] !== 'PIPE') return false;
+    const z0 = faceZ0(ax, ay, d), z1 = ceilAt(ax + 0.5, ay + 0.5), span = z1 - z0;
+    if (!(span > 0.35)) return false;
+    const sp = FIX_SPAN[kind] || FIX_SPAN.PIPE;
+    for (const f of DECOR_GRID[wy * N + wx] || []) {
+      const along = DIRX[d] !== 0 ? ay + 0.5 : ax + 0.5;
+      const fx = DIRX[d] !== 0 ? wx + 0.5 : along, fy = DIRX[d] !== 0 ? along : wy + 0.5;
+      if (Math.abs(f.x - fx) > 0.01 || Math.abs(f.y - fy) > 0.01 || f.side !== (DIRX[d] !== 0 ? 0 : 1)) continue;
+      f.tex = WFIX[kind]; f.dep = FIX_DEP[kind] || 0;
+      f.z = z0 + span * sp[0]; f.hh = Math.max(0.05, span * sp[1] * 0.5);
+      kindOf[k] = kind;
+      return true;
+    }
+    return false;
   };
   /* 1. DOOR FRAMES at the mouths the player walks through. A neck - an open cell open on exactly one
      pair of opposite sides - is the jambs' location, but it is ALSO the definition of a straight
@@ -1777,7 +1820,12 @@ function placeWallFixtures(cfgL) {
        SECOND, from the same walk and the same kind cycle. The FIRST placement is untouched (same start
        face, same walk order, same kind index), so a room that qualifies for one mounts byte-identically
        to before and pass 3 still sees the first-choice face occupied. */
-    const pk = purposes.length ? purposes : kinds;
+    const pk0 = purposes.length ? purposes : kinds;
+    /* AN OBJECT BEFORE A BAND (#400 take five): the room's own kind cycle now tries its OBJECT kinds
+       first, so the fixture every room is guaranteed to carry is a rack, a tank or a vent plate rather
+       than a hazard band or a sign. Order is a stable partition, so a level whose purpose list is already
+       all objects (sector 2's TANK/RACK) is untouched byte for byte. */
+    const pk = pk0.filter(k => FIX_EDGE.indexOf(k) >= 0).concat(pk0.filter(k => FIX_EDGE.indexOf(k) < 0));
     let got = 0;
     const need = faces.length > 6 ? 2 : 1;
     if (faces.length) {
@@ -1828,6 +1876,39 @@ function placeWallFixtures(cfgL) {
         }
       }
     }
+    /* EVERY ROOM CARRIES AN OBJECT (#400 take five, the half the walk cannot reach). If the own-face walk
+       and the sight-line walk both placed nothing - every face of this room is owned, or the room rect
+       presents no face and no axis sight line within FIX_VIS_MAX took a mount - the room still gets ONE
+       fixture by CLAIMING a paint face: a hazard band or a pipe run on a face this room looks at becomes
+       an object on that face, at the same height and the same one entry in DECOR. Replacing paint with a
+       thing is this issue's remaining criterion ("not a paint band, not a pipe run"); replacing another
+       OBJECT is not, and claim() refuses it. Deterministic, reads no RNG. */
+    if (got < need && objects.length) {
+      const own = [];
+      for (let y = r.y; y < r.y + r.h && own.length < 96; y++) for (let x = r.x; x < r.x + r.w; x++) {
+        if (!isOpen(x, y)) continue;
+        for (let d = 0; d < 4; d++) if (isWall(x + DIRX[d], y + DIRY[d])) own.push([x, y, d]);
+      }
+      const st = (ri * 7 + 3) % own.length;      // the room pass's own deal-deterministic pick
+      for (let k = 0; k < own.length && got < need; k++) {
+        const f = own[(st + k) % own.length];
+        if (claim(objects[ri % objects.length], f[0], f[1], f[2])) got++;
+      }
+      for (let rad = 1; rad <= FIX_VIS_MAX && got < need; rad++) {
+        for (let y = r.y; y < r.y + r.h && got < need; y++) for (let x = r.x; x < r.x + r.w && got < need; x++) {
+          if (!isOpen(x, y)) continue;
+          for (let d = 0; d < 4; d++) {
+            let clear = true;
+            for (let s = 1; s <= rad; s++) {
+              const sx = x + DIRX[d] * s, sy = y + DIRY[d] * s;
+              if (!isOpen(sx, sy) && s < rad) { clear = false; break; }
+              if (s === rad && !isWall(sx, sy)) clear = false;
+            }
+            if (clear && claim(objects[ri % objects.length], x + DIRX[d] * (rad - 1), y + DIRY[d] * (rad - 1), d)) { got++; break; }
+          }
+        }
+      }
+    }
   }
   /* 3. ONE ALONG EVERY LONG RUN: a straight wall you can see down for more than six metres is the
      sight line the issue names, and it is today one unbroken repeat across the whole frame.
@@ -1871,6 +1952,36 @@ function placeWallFixtures(cfgL) {
       }
       if (run >= FIX_RUN_MIN && at && !used[(at[1] * N + at[0]) * 4 + d])
         mount(kinds[(a + d) % kinds.length], at[0], at[1], d);
+    }
+  }
+  /* 4. THE WALL YOU ARRIVE FACING (#400 take five). Every pass above answers the WALL a player walks
+     past; none of them answers the wall a player WAKES IN FRONT OF. Sector 1's own seat frame is one long
+     grey face and the census is green because the coverage it counts is the walk, not the picture. This
+     pass stands at the deal's own spawn square and walks each of the four axis sight lines out to
+     FIX_VIS_MAX: the first wall one of them meets is the face the seat is looking at, and it must carry
+     an OBJECT. If it already carries one (a doorway, a vent plate, a rack, a tank) the direction is
+     satisfied and nothing is placed - so on a deal whose arrival walls are already furnished this pass is
+     a no-op and the level's bytes do not move. If the face carries only paint the pass claims it; if the
+     face is free it mounts one. FIX_SEAT_MIN skips the wall the seat is touching (half a metre from the
+     eye, it fills the frame and reads as a wall, not as an object). Two directions per level is enough to
+     fill a 71-degree frame without lining a ward with drums. No RNG is read, so no roll, prop or light
+     moves - the pass reads only the grid and the seat square, both of which exist before it runs. */
+  if (seat && objects.length) {
+    const sx = seat[0] | 0, sy = seat[1] | 0;
+    let seatGot = 0;
+    for (let d = 0; d < 4 && seatGot < FIX_SEAT_N; d++) {
+      for (let rad = 1; rad <= FIX_VIS_MAX; rad++) {
+        const ax = sx + DIRX[d] * rad, ay = sy + DIRY[d] * rad;
+        if (!isOpen(ax, ay)) break;                      // blocked: nothing past this is seen from here
+        if (!isWall(ax + DIRX[d], ay + DIRY[d])) continue;
+        if (rad >= FIX_SEAT_MIN) {
+          const k = ((ay + DIRY[d]) * N + (ax + DIRX[d])) * 4 + d;
+          const want = objects[(d + sy) % objects.length];
+          if (FIX_EDGE.indexOf(kindOf[k]) >= 0) seatGot++;
+          else if (mount(want, ax, ay, d) || claim(want, ax, ay, d)) seatGot++;
+        }
+        break;
+      }
     }
   }
   MAP.fixCount = placed;                            // read by view.js fixtures
@@ -2378,9 +2489,12 @@ function buildAuthored(li) {
   for (const L of LIGHTS) splatLight(L, L.str);
   kneeLampField();                              // #408: the authored pool's PEAK, its radius untouched
   floorLampField();                             // #199: and its TROUGH, in the authored plan too
-  placeWallFixtures(cfgL);                      // #400: the authored finale gets walls too
-  exitX = ex + 0.5; exitY = ey + 0.5;
   const sp = nearestOpen(sx + 0.5, sy + 0.5);          // never spawn inside geometry: the collision
+  /* #400 take five: the seat is computed HERE and handed to the fixture pass, because pass 4 decorates
+     the wall this spawn square is looking at. nearestOpen is a BFS and draws no RNG, and it sat two lines
+     below with nothing between reading the map, so hoisting it moves no roll, prop or light. */
+  placeWallFixtures(cfgL, sp);                  // #400: the authored finale gets walls too
+  exitX = ex + 0.5; exitY = ey + 0.5;
   P.x = sp[0]; P.y = sp[1]; P.ang = 0.6; P.vx = P.vy = 0; P.z = floorAt(sp[0], sp[1]);  // probes read P
   buildTint();
   return true;
@@ -2895,7 +3009,7 @@ function genLevel(li) {
     // lightmap splat, then a smoothing pass and the per-cell tint
     for (const L of LIGHTS) splatLight(L, L.str);
     blurLight(); floorLampField(); buildTint();   // #199: the floor AFTER the blur, which replaces the array
-    placeWallFixtures(cfgL);                    // #400: decor goes on the walls, after the walls exist
+    placeWallFixtures(cfgL, seat);              // #400: decor goes on the walls, after the walls exist
     // The scatter pass can drop a pillar on the room centre, and starting inside
     // geometry is unrecoverable - the collision probes would sample the player's own
     // cell - so walk out to the nearest open cell instead of spawning into a wall.
