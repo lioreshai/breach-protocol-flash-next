@@ -9886,23 +9886,27 @@ if (MODE === 'contrast') {
     }
     run('if (!COV || COV.length !== BW * BH) COV = new Uint8Array(BW * BH);');
     const bus = (sabotage) => {
-      if (sabotage) run(`(()=>{ const t = MAP.floorTex; window.__busKeep = { d: t.data, m: t.mips };
-        const o = t.data, n = o.length; let sr = 0, sg = 0, sb = 0;
-        for (let i = 0; i < n; i++) { sr += o[i] & 255; sg += o[i] >> 8 & 255; sb += o[i] >> 16 & 255; }
-        const mr = Math.round(sr / n), mg = Math.round(sg / n), mb = Math.round(sb / n), d = new Uint32Array(n);
-        for (let i = 0; i < n; i++) d[i] = (o[i] & 0xFF000000) | (mb << 16) | (mg << 8) | mr;
-        let dev = 0;
-        for (let i = 0; i < n; i++) dev += Math.abs(0.2126 * (o[i] & 255) + 0.7152 * (o[i] >> 8 & 255) + 0.0722 * (o[i] >> 16 & 255) -
-          (0.2126 * mr + 0.7152 * mg + 0.0722 * mb));
-        t.data = d; t.mips = buildMips(t.w, t.h, d);
-        window.__busSab = { dev: dev / n, mean: 0.2126 * mr + 0.7152 * mg + 0.0722 * mb };
+      if (sabotage) run(`(()=>{ const L = ${sabotage === 'wall' ? 'WALLS.slice()' : '[MAP.floorTex]'};
+        window.__busKeep = L.map(t => ({ t, d: t.data, m: t.mips }));
+        let dev = 0, mean = 0, nn = 0;
+        for (const t of L) {
+          const o = t.data, n = o.length; let sr = 0, sg = 0, sb = 0;
+          for (let i = 0; i < n; i++) { sr += o[i] & 255; sg += o[i] >> 8 & 255; sb += o[i] >> 16 & 255; }
+          const mr = Math.round(sr / n), mg = Math.round(sg / n), mb = Math.round(sb / n), d = new Uint32Array(n);
+          for (let i = 0; i < n; i++) d[i] = (o[i] & 0xFF000000) | (mb << 16) | (mg << 8) | mr;
+          for (let i = 0; i < n; i++) dev += Math.abs(0.2126 * (o[i] & 255) + 0.7152 * (o[i] >> 8 & 255) + 0.0722 * (o[i] >> 16 & 255) -
+            (0.2126 * mr + 0.7152 * mg + 0.0722 * mb));
+          mean += 0.2126 * mr + 0.7152 * mg + 0.0722 * mb; nn += n;
+          t.data = d; t.mips = buildMips(t.w, t.h, d);
+        }
+        window.__busSab = { dev: dev / nn, mean: mean / L.length, nt: L.length };
         return 1 })()`);
       run('ENEMIES.length = 0; ENEMIES.push(window.__dBody); S.t = 3.5; ' + VMREST + ' renderWorld();');
       const A = new Uint32Array(run('px')), M = new Uint8Array(run('COV'));
       run('ENEMIES.length = 0; S.t = 3.5; ' + VMREST + ' renderWorld();');
       const Bb = new Uint32Array(run('px'));
       run('ENEMIES.length = 0; for (const q of __dKeep) ENEMIES.push(q);');
-      if (sabotage) run('(()=>{ const t = MAP.floorTex; t.data = window.__busKeep.d; t.mips = window.__busKeep.m; return 1; })();');
+      if (sabotage) run('(()=>{ for (const k of window.__busKeep) { k.t.data = k.d; k.t.mips = k.m; } return 1; })();');
       const ring = ringOf(M), ed = edgeOf(A, M, ring);
       let n = 0, gs = 0, bg = 0, bn = 0;
       for (let y = 1; y < H - 1; y++) {
@@ -9918,7 +9922,7 @@ if (MODE === 'contrast') {
       const sab = sabotage ? run('window.__busSab') : null;
       return { n, back: n ? gs / n : 0, body: bn ? bg / bn : 0, bpx: bn, dl: ed.dl, en: ed.en, sab };
     };
-    const m0 = bus(false), m1 = BUSFLAT ? bus(true) : null;
+    const m0 = bus(false), m1 = BUSFLAT ? bus(true) : null, m2 = bus('wall');
     const name = 'L' + lv + ' at ' + BUS_D + ' m: the paint behind him vs his outline (#416)';
     if (m0.n < BUS_MINPX || !m0.en) {
       row(name, false, 'vacuous: ' + m0.n + ' coverage px behind the body (' + m0.en + ' with a background) at '
@@ -9938,7 +9942,11 @@ if (MODE === 'contrast') {
             + ' the body' : 'the quieter of the two, so his silhouette is the edge the eye takes')
           + ' | his outline step against that same surface is ' + m0.dl.toFixed(1) + ' luma, on ' + m0.n
           + ' coverage px of kind ' + g.kind + ' on deck ' + g.tex + ' (body at ' + JSON.stringify(g.body)
-          + ', seat ' + JSON.stringify(g.seat) + (g.made ? ', PLACED - this level spawns none' : '') + ')'),
+          + ', seat ' + JSON.stringify(g.seat) + (g.made ? ', PLACED - this level spawns none' : '') + ')'
+          + ' | with the WHOLE WALL FAMILY flattened the same region reads ' + m2.back.toFixed(2)
+          + ', so ' + (100 * (m0.back - m2.back) / m0.back).toFixed(0) + '% of the slope behind him is wall '
+          + 'paint and ' + m2.back.toFixed(2) + ' is what the light path and the geometry deliver with no '
+          + 'wall grain to quiet'),
       m0.bpx >= BUS_CUSH && m0.dl >= m0.back * BUS_RATIO ? undefined : '#416')
       + (m1 ? ' | with THIS DECK FLATTENED to its own mean (grain taken to 0, mean luma '
         + m1.sab.mean.toFixed(1) + ', mip chain rebuilt) the same region behind the SAME body reads '
@@ -9946,6 +9954,27 @@ if (MODE === 'contrast') {
       + ' | the bar is his outline at ' + BUS_RATIO + 'x the delivered slope behind him, measured against '
       + 'the ' + (m0.dl / m0.back).toFixed(1) + 'x this seat reads at this head; it reports as #' + '416 debt '
       + 'and STRICT=1 gates it';
+    /* THE ARM THE DECK FALSIFIER CANNOT RUN. At 10 m the pixels behind a body are overwhelmingly a WALL,
+       and the deck arm above is provably inert on two of the four seats (it reads 3.63 -> 3.63 on ARCHIVE
+       and 1.52 -> 1.52 on THE STACK at 46c8619): a falsifier that flattens a surface the region does not
+       contain cannot tell "the paint is quiet" from "the light field is quiet", which is the one thing this
+       row exists to tell. So the wall family gets its own arm, always on, and it is a WIRING assertion and
+       not a band: the arm must MOVE the number, because an arm that moves nothing is not a control (#240).
+       The row then prints the split it measured - how much of the slope behind him is paint at all - which
+       is the number #416's acceptance has been argued without: on ARCHIVE's 10 m seat at this head the wall
+       paint is roughly a tenth of the figure and the rest is the light path's and the geometry's, so the
+       grain route the issue names cannot close this seat on its own, and the row says so in the frame. */
+    row('L' + lv + ': flattening the WALL family behind him moves the same pixels (#416 falsifier)',
+      m2.back < m0.back - 0.02,
+      'taking EVERY wall tile to its own mean (' + m2.sab.nt + ' tiles, mip chains rebuilt, bytes restored '
+      + 'after the render; mean luma ' + m2.sab.mean.toFixed(1) + ', mean abs deviation '
+      + m2.sab.dev.toFixed(1) + ' luma/texel removed) moves the busyness BEHIND THE SAME BODY from '
+      + m0.back.toFixed(2) + ' to ' + m2.back.toFixed(2) + ' luma/px: '
+      + (100 * (m0.back - m2.back) / m0.back).toFixed(0) + '% of what the eye is delivered behind him at '
+      + 'this seat is wall grain, and the other ' + m2.back.toFixed(2) + ' luma/px is the light path and the '
+      + 'geometry - a lamp falloff, a junction, an edge - which no albedo constant can quiet. A run that '
+      + 'reads the SAME number with the wall family flattened has an arm that moves nothing, which is a '
+      + 'statistic that stopped reading the paint.', '#416');
     if (!m1) continue;
     row('L' + lv + ': flattening the deck under him quiets the same pixels (#416 falsifier)',
       m1.back <= m0.back * 0.5,
