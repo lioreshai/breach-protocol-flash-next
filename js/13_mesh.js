@@ -89,6 +89,14 @@ const MESH = (function () {
      clamp is what makes the row's mean move by a tenth rather than by a third in the worst deal. */
   const BH_K = 1.0, BH_LO = 0.62, BH_HI = 1.45;
 
+  /* #611 the figure-ground target and the clamp, in luma. FG_PUSH puts him 1.5 floors under the surface
+     behind him: inside #407's 20-luma ceiling by 14, and over #611's floor by 2. FG_FLOOR is the SAME 4
+     the probe already calls a separated edge (DLR/SEP_V at the top of tools/view.js contrast), so the
+     paint authors the step the row measures with one constant rather than a second dialect of it, and
+     FG_MAX is the most any one draw's value is allowed to move. LUMW is Rec.709 - the weighting the row's
+     own luma() uses - so the prediction and the measurement agree about what a luma is. */
+  const FG_FLOOR = 4, FG_PUSH = 6, FG_MAX = 8, LUMW = [0.2126, 0.7152, 0.0722];
+
   /* #78: one subdivision knob for every part was the spike's last leftover - a thigh and a visor got
      the same 6-sided prism, so the silhouette faceted exactly where it is widest while the small parts
      were already over-tessellated. `ns` is a per-CALL register on the Builder, the same shape as `em`
@@ -1783,6 +1791,97 @@ const MESH = (function () {
       }
     }
     const FL = S.flash, FC = S.flashCol;                // the muzzle's own light, the billboard's term
+    /* #611 THE VALUE HALF, armed by BODYFG (see js/00_core.js). #615 shipped the HUE half above and the
+       colour axis cleared everywhere; the value axis did not, because his delivered value tracks the lamp
+       field at HIS OWN cell (r=0.71) while the wall ten metres behind him does not (r=0.34). The step is
+       a difference between two surfaces lit by two different cells' fields, so no constant on a palette
+       can hold it: a 0.72x scale sent one deal to 0.0 and three green #407 rows to -26/-40/-26, and a
+       luma-neutral hue push moved the far edge UP and the near edge DOWN. Four uniform laws, all failing
+       in the same shape, is the evidence that the term has to be CONDITIONAL: keyed on the surface he is
+       actually framed by, and moving only the draws whose value would land inside the floor of it.
+         (1) WHAT HE IS FRAMED BY is read, not modelled: the world is drawn before bodies and the list is
+             sorted far to near, so the pixels he is about to cover hold the surface behind him. Four reads
+             on his own centre line, kept only where the depth buffer says that pixel is BEHIND him, so a
+             lip in front of him cannot be mistaken for his background. That is "a few samples, never per
+             pixel" - it costs four reads and one luma per DRAW.
+         (2) WHERE HE WOULD LAND is predicted with the arithmetic the pixel body below runs, at the mean of
+             its own domain: his kind's own mean texel (read off the packed vertex colours once per model,
+             not a guess from SKIN/DARK/CLOTH), the counter-pigment just decided, the field at HIS cell,
+             the cell's tint, the form ramp at its mean (R0 + R1/2, BODYSHADE's own statement of it), the
+             fill, and the wash added at the end. Predicting is only legitimate because the term's trigger
+             is a FLOOR on a difference, not a target value: a few lumas of model error moves WHICH draws
+             fire, not the direction any of them move in.
+         (3) THE PUSH is a uniform grey scale on his albedo, so it cannot touch the hue/chroma axis the
+             colour row reads (the opponent coordinates are scale-invariant) and cannot buy the bar by
+             making the room brighter. He is put TWICE the floor under the surface behind him - the look is
+             "a shade darker than the room" - and the magnitude of one draw's push is clamped to the same
+             2x floor, which is what keeps a body that happened to sit brighter from being thrown across
+             the frame. Draws already separated never fire at all: that is why the 21-29 luma #407 rows
+             cannot move. Off when the BODYPAINT arm is down, off on the view model and on props, and there
+             is no billboard copy - the same one-read-site argument BODYHUE makes. */
+    if (BODYFG && BODYPAINT && BODY && !MDL && !pr && tYc > 0.75) {
+      // (1) WHAT HE IS FRAMED BY: four delivered pixels inside his own projected silhouette, kept only
+      //     where the depth buffer says that pixel is BEHIND him, so a lip in front cannot pass for his
+      //     background. The world pass runs before this list and the list is sorted far to near, so the
+      //     pixels he is about to cover still hold the surface he is seen against.
+      const fq = 1 / tYc;
+      const fsx = (BW * 0.5) * (1 + (cam.invDet * (dirY * ex - dirX * ey)) * fq);
+      const fsy = horizon + (BH * (eyeZ - (o.z + sc * 0.55))) * fq;
+      const fw = (BH * sc) * fq * 0.9;                 // OUTSIDE his own silhouette, not across it
+      let fr = 0, fg2 = 0, fb = 0, fn = 0;
+      for (let s = 0; s < 4; s++) {
+        const fx = (fsx + (s === 0 ? -fw : s === 1 ? fw : 0)) | 0;
+        const fy = (fsy + (s === 2 ? -fw : s === 3 ? fw * 0.5 : 0)) | 0;
+        if (fx < 0 || fy < 0 || fx >= BW || fy >= BH) continue;
+        const foff = fy * BW + fx;
+        if (zbuf[foff] <= tYc) continue;              // nearer than he is: not the surface behind him
+        const fp = px[foff];
+        fr += fp & 255; fg2 += fp >> 8 & 255; fb += fp >> 16 & 255; fn++;
+      }
+      if (fn >= 2) {
+        // (2) WHERE HE WOULD LAND: the pixel body's own arithmetic at the mean of its own domain.
+        if (m.fal === undefined) {
+          let ar = 0, ag = 0, ab = 0; const an = m.nV || 1;
+          for (let i = 0; i < an; i++) { ar += PD[i * 6 + 3]; ag += PD[i * 6 + 4]; ab += PD[i * 6 + 5]; }
+          m.fal = [ar / an, ag / an, ab / an];        // the kind's own mean texel, once per model
+        }
+        const fpal = m.fal, fd = Math.max(0.2, Math.hypot(ex, ey));
+        /* The predictor deliberately reads the SHIPPED form of every light term - the field whole at his
+           cell, the wash added and never multiplied, the ramp centred on its own domain - and NOT the
+           BODYDIST / BODYHAZE / BODYSHADE arm the probe may have raised. This is a material estimate of
+           where his paint sits, not a second evaluation of the light path: if it followed the arms, the
+           push would change under the A/B and the arm would no longer be measuring the term it names (at
+           L1 8 m the shade arm inverted against it and went RED for exactly that reason). */
+        const ffi = Math.min(1, (lm ? lm[cc] : 0.5) + 0.30 * visAt(fd)), frm = R0 + R1 * 0.5;
+        let fh = 0;
+        for (let c = 0; c < 3; c++) {
+          const fl = (AMB + ffi * lt[c] * frm) * (TINT ? TINT[c] : 1);
+          fh += LUMW[c] * fpal[c] * (c === 0 ? bhr : c === 1 ? bhg : bhb) * fl;
+        }
+        const fws = (0.2126 * FOGC[0] + 0.7152 * FOGC[1] + 0.0722 * FOGC[2]) * fogAt(fd);
+        const fbg = 0.2126 * (fr / fn) + 0.7152 * (fg2 / fn) + 0.0722 * (fb / fn);
+        fh += fws;
+        // (3) THE PUSH: a body belongs under the surface it is framed by by at least FG_PUSH. The trigger
+        //     is a SHORTFALL, not a window - "he is not yet that far under it" - so a draw already
+        //     separated (the -13 to -16 arrival seats) and a draw already past #407's 20-luma ceiling both
+        //     fail the test and do not move at all, which is what makes the two gates satisfiable together
+        //     instead of in tension. The clamp is what keeps a body that happened to sit BRIGHTER than his
+        //     background from being thrown across the frame: he is moved down, never up, and never by more
+        //     than FG_MAX. A grey scale on the albedo, so the hue/chroma axis the colour row reads is
+        //     untouched by construction and the bar cannot be bought with hue or with a brighter room. Off
+        //     when the BODYPAINT arm is down, off on the view model and on props, no billboard copy - the
+        //     same one-read-site argument BODYHUE makes.
+        const fd2 = fh - fbg;
+        if (fd2 > -FG_PUSH) {
+          const fden = fh - fws;
+          if (fden > 2) {
+            const fmove = clamp(fbg - FG_PUSH - fh, -FG_MAX, 0);
+            const bgv = clamp((fh + fmove - fws) / fden, 0.45, 1.8);
+            bhr *= bgv; bhg *= bgv; bhb *= bgv;
+          }
+        }
+      }
+    }
     for (let k = 0, K = T.length; k < K; k += 3) {
       const i0 = T[k], i1 = T[k + 1], i2 = T[k + 2];
       // face normal in world space (flat shading), then Lambert against KEY
