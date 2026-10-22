@@ -1900,6 +1900,25 @@ const CFIX_MIN_CLEAR = 1.7;                // a ceiling this low is above your h
 const CFIX_SEP = 3.0;                      // metres between fittings, so a room is not a grid of them
 const CFIX_ENTRY_MIN = 3.0;                // metres AHEAD of the seat the entry fitting goes
 const CFIX_ENTRY_MAX = 5.5;                // ...and its reach. Neither end is taste, see pass 0.
+/* The heading the delivered frame is drawn along, ONE definition for the three places that need it:
+   the two seat assignments below (`P.ang`) and the entry-fitting ring in pass 0. It was a bare 0.6 in
+   the seat lines and the ring scanned the WORLD axes instead, so a pick on the 45 deg ray sat 1.15 rad
+   off an axis it was never measured against - twice the half-FOV, i.e. behind the arriving player's
+   shoulder. #2205's coverage pass already names this value SEAT_ANG for the same reason. */
+const SEAT_FACING = 0.6;
+const CFIX_LENS = Math.atan(cfg.plane);    // half-FOV of the DELIVERED frame (0.62 rad at plane 0.72).
+                                           // A fitting outside it exists and lights its room but is not
+                                           // in the picture, which is the difference #413 asks for.
+/* The entry ring's rays, in the order they are tried: ON the view axis first, then out to each edge.
+   Eight compass bearings about the WORLD axes was the old list, and with the seat delivered facing
+   0.6 rad those eight sit at -0.60, +0.19 and +0.97 rad from the view axis - so a pick on the +0.97 one
+   is outside the frame twice over and the arrival room shows a bare sheet (measured on main: the entry
+   pick sits 1.15 rad off the axis on three of the four levels). Offsets about `SEAT_FACING` at 0.31 rad
+   make the first three rays the ones an arriving player is looking down; the list runs past the lens
+   because a corridor that turns is still the entry room's circulation, and everything past it is
+   rejected by `inFrame` below rather than being quietly preferred. Fixed list, no dice: no roll, prop
+   or enemy moves. */
+const CFIX_ENTRY_ARC = [0, 0.31, -0.31, 0.62, -0.62, 0.93, -0.93, 1.24, -1.24, 1.57, -1.57];
 function placeCeilFixtures(cfgL, seatX, seatY) {
   if (!ceilFixEnabled()) return;
   const N = MAP.w, cell = MAP.cell;
@@ -1958,17 +1977,39 @@ function placeCeilFixtures(cfgL, seatX, seatY) {
      reads the `ceil` entries on LIGHTS - can see it and its counterfactual can un-author it. */
   if (isFinite(seatX) && isFinite(seatY)) {
     const sband = floorAt(seatX, seatY);
-    let pick = null;
-    for (let r = CFIX_ENTRY_MIN; r <= CFIX_ENTRY_MAX + 1e-9 && !pick; r += 0.5) {
-      for (let a = 0; a < 8; a++) {
-        const ang = a * Math.PI / 4;
-        const x = seatX + Math.cos(ang) * r, y = seatY + Math.sin(ang) * r;
-        if (!isOpen(x | 0, y | 0)) continue;
-        if (Math.abs(floorAt(x, y) - sband) > 0.01) continue;
-        pick = [x + 0.5, y + 0.5];
+    /* Two sweeps of the SAME ring, in the same order, and the only difference is the gate.
+       Sweep 0 keeps a candidate only while its bearing stays inside the delivered frame - `CFIX_LENS`
+       about `SEAT_FACING`, the heading the seat is actually delivered facing, plus line of sight, since
+       a cell around a corner is lit but not seen. Sweep 1 is the ring that has always been scanned, with
+       no gate, so a deal whose entry room bends away from the axis still gets its guaranteed fitting:
+       the guarantee (#413 pass 0 exists because ABATOIR CORE delivered NO fitting in any pose) is kept,
+       and "in the arriving frame" is a preference the guarantee is paid for with rather than a
+       precondition that can starve a level. Deterministic either way - a fixed direction list, no dice. */
+    const inFrame = (x, y) => {
+      let e = Math.atan2(y - seatY, x - seatX) - SEAT_FACING;
+      while (e > Math.PI) e -= Math.PI * 2;
+      while (e < -Math.PI) e += Math.PI * 2;
+      return Math.abs(e) <= CFIX_LENS && los(seatX, seatY, x, y);
+    };
+    let done = false;
+    for (let sweep = 0; sweep < 2 && !done; sweep++) {
+      for (let r = CFIX_ENTRY_MIN; r <= CFIX_ENTRY_MAX + 1e-9 && !done; r += 0.5) {
+        for (let a = 0; a < (sweep ? 8 : CFIX_ENTRY_ARC.length) && !done; a++) {
+          const off = sweep ? a * Math.PI / 4 : CFIX_ENTRY_ARC[a];
+          const ang = (sweep ? 0 : SEAT_FACING) + off;
+          const x = seatX + Math.cos(ang) * r, y = seatY + Math.sin(ang) * r;
+          if (!isOpen(x | 0, y | 0)) continue;
+          if (Math.abs(floorAt(x, y) - sband) > 0.01) continue;
+          if (sweep === 0 && !inFrame(x, y)) continue;    // off-axis or around a corner = lit, not seen
+          /* Ask the candidate, do not just point at it. `hang` is the one place that knows whether a cell
+             can carry a fitting at all (CFIX_MIN_CLEAR) and what it will look like there; taking the cell
+             first and calling hang once, the old way, let an in-lens candidate whose slab sits a metre over
+             its own deck EN THE search - level 0's dealt seat did exactly that at this head and arrived
+             with no entry fitting where it had one before. The sweep keeps going to the next ray instead. */
+          done = hang(x + 0.5, y + 0.5, CFIX_SEP);
+        }
       }
     }
-    if (pick) hang(pick[0], pick[1], CFIX_SEP);
   }
   /* 1. ONE OVER EVERY ROOM, at its centre. `rooms` is the generator's own list, and a room centre is
      the room's circulation by construction - where a fixture and a wire would actually run. A pillar
@@ -2381,7 +2422,7 @@ function buildAuthored(li) {
   placeWallFixtures(cfgL);                      // #400: the authored finale gets walls too
   exitX = ex + 0.5; exitY = ey + 0.5;
   const sp = nearestOpen(sx + 0.5, sy + 0.5);          // never spawn inside geometry: the collision
-  P.x = sp[0]; P.y = sp[1]; P.ang = 0.6; P.vx = P.vy = 0; P.z = floorAt(sp[0], sp[1]);  // probes read P
+  P.x = sp[0]; P.y = sp[1]; P.ang = SEAT_FACING; P.vx = P.vy = 0; P.z = floorAt(sp[0], sp[1]);  // probes read P
   buildTint();
   return true;
 }
@@ -2642,7 +2683,7 @@ function genLevel(li) {
          so moving them would re-roll props and enemies under every probe seed (#96) and move the
          LAMPS=off record flatparity's PARITY sense hashes. Nothing here draws from that stream. */
       const LAMPGAP = 2;
-      const SEAT_ANG = 0.6, LENS_HALF = 0.66, LENS_R = 8, SEAT_FLOOR = 4;   // :1489's heading, #304's cone
+      const SEAT_ANG = SEAT_FACING, LENS_HALF = 0.66, LENS_R = 8, SEAT_FLOOR = 4;   // one heading, #304's cone
       let ps = ((li * 7919 + rooms.length * 104729 + ((exitX * 1000) | 0) * 13 + 12345) >>> 0) || 1;
       const prnd = () => { ps = (Math.imul(ps, 1664525) + 1013904223) >>> 0; return ps / 4294967296; };
       // the source's own FLOOR - the ONE derivation, see lightBand
@@ -2900,7 +2941,7 @@ function genLevel(li) {
     // geometry is unrecoverable - the collision probes would sample the player's own
     // cell - so walk out to the nearest open cell instead of spawning into a wall.
     const sp = seat;                    // #154: the same nearestOpen the prop passes subtracted
-    P.x = sp[0]; P.y = sp[1]; P.ang = 0.6; P.vx = P.vy = 0; P.z = floorAt(sp[0], sp[1]);
+    P.x = sp[0]; P.y = sp[1]; P.ang = SEAT_FACING; P.vx = P.vy = 0; P.z = floorAt(sp[0], sp[1]);
     return true;
   }
   // extremely unlikely fallback: reuse a smaller successful layout
