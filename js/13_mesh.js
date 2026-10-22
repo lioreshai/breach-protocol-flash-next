@@ -496,8 +496,8 @@ const MESH = (function () {
          the flat `TK = 0` branch exactly as they did before #588. Both pushes now test `wg` too.
            WHAT IT PUTS ON SCREEN, measured in ONE tree by deleting the rig's tube geometry outright
          (`if (this.wg) return this;` before the ring loop) and reading `viewmodel`'s own paint count: at
-         the HIP a pistol's tubes contribute 0 of its 10,357 px (258 tris vs 234 - submitted, and every one
-         of their pixels LOST TO A DEPTH TEST against geometry emitted before them), and SHOULDered they
+         the HIP a pistol's tubes contribute 0 of its 9,987 hip px - the figure `viewmodel` prints here, and
+         every one of those submitted pixels LOST A DEPTH TEST against geometry emitted before it, and SHOULDered they
          contribute 6,127 of 51,308. So this term reaches the screen when the gun is shouldered and not at
          the hip, which is also why every recorded frame - all of them hip frames - holds its byte, and why
          the surface the hip shows is still the box parts #588 wired in.
