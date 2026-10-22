@@ -497,11 +497,31 @@ const MESH = (function () {
            WHAT IT PUTS ON SCREEN, measured in ONE tree by deleting the rig's tube geometry outright
          (`if (this.wg) return this;` before the ring loop) and reading `viewmodel`'s own paint count: at
          the HIP a pistol's tubes contribute 0 of its 10,357 px (258 tris vs 234 - submitted, and every one
-         of their pixels repainted by a part emitted later, because the rig deliberately writes no depth),
-         and SHOULDered they contribute 6,127 of 51,308. So this term reaches the screen when the gun is
-         shouldered and not at the hip, which is also why every recorded frame - all of them hip frames -
-         holds its byte, and why the surface the hip shows is still the box parts #588 wired in. The hip
-         tubes being overpainted wholesale is #587's stated remaining work alongside the ring term. */
+         of their pixels LOST TO A DEPTH TEST against geometry emitted before them), and SHOULDered they
+         contribute 6,127 of 51,308. So this term reaches the screen when the gun is shouldered and not at
+         the hip, which is also why every recorded frame - all of them hip frames - holds its byte, and why
+         the surface the hip shows is still the box parts #588 wired in.
+           THE EARLIER SENTENCE GOT THE MECHANISM BACKWARDS, and it cost a pass, so it is corrected here
+         rather than left to mislead the next reader. It said the hip pixels were "repainted by a part
+         emitted later, because the rig deliberately writes no depth". The rig DOES write depth: `near`
+         swaps `zbuf` for its own scratch array above (see the `o.near` block in `draw`), and the view
+         model's call site passes no `self` key, so SELF is true and a rig part is tested against the rig
+         parts emitted BEFORE it. Order decides which triangle is tested first, not which one wins; the
+         depth decides the pixel. The control is on #587 at this same head: walking the rig's triangle list
+         in reverse on a pistol hip frame is BYTE-IDENTICAL (0 px of 1202x676) - an emit-order change
+         cannot be the lever. Measured here by the delete-the-tubes A/B (`JSDIR=` against a tree carrying
+         `if (this.wg) return this;`) at 19af99e: deleting the pistol's tubes changes NO pixel at all -
+         `viewmodel` reads the same 9,987 hip px and a whole `scene 0 0` frame comes back byte for byte -
+         so the tubes lose to geometry in front of them. What is nearer at the hip is the slide/frame boxes and
+         the two fists: the bore is 0.245 m out with the muzzle pointing AWAY, so anything slung under or
+         ahead of the receiver is behind the box that carries it. Per weapon at hip, round-part px of the
+         rig's own painted pixels measured the same way on this machine at 19af99e - pistol 0 of 9,987,
+         shotgun 429 of 11,259, rifle 190 of 13,786 - so two of the three guns already have some tube on
+         screen and the pistol has none. Making those parts read while carried is a geometry change to the
+         carried poses in `weaponGeo` (silhouette and proportion), which #587's product decision now
+         authorizes with the references it moves re-recorded; it is not a shading term and not an ordering
+         fix. The hip tubes being depth-occluded wholesale is #587's stated remaining work alongside the
+         ring term. */
       const mx = (ax + bx) * 0.5, my = (ay + by) * 0.5, mz2 = (az + bz) * 0.5;
       const fx = wSnap((bx - ax) * 0.5), fy = wSnap((by - ay) * 0.5), fz = wSnap((bz - az) * 0.5);
       sva = (ax - mx) * fx + (ay - my) * fy + (az - mz2) * fz;
