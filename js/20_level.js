@@ -2467,6 +2467,40 @@ function genLevel(li) {
             if (Math.random() < 0.42) cell[y * N + x] = pickWallTex(cfgL);
       }
     }
+    /* #631 ONE THING WITH AN EDGE INSIDE EVERY ROOM. Rooms are dealt 5..maxRoom-1 a side off maps of
+       26/32/36, so a room is routinely forty-odd open cells, and the only interior structure the pass
+       above adds is scattered pillars in rooms whose BOTH sides reach 8 - so most rooms are one open
+       plan you can see straight through, and the arrival frame is a roof band, a floor band and a strip
+       of wall with nothing in it. This puts one structure with a visible edge inside the room's OWN
+       bounds: a cross-wall from side to side with a two-cell mouth in it.
+       It runs along a COLUMN for a reason: the V14/V15 shot lane scans for the first straight 8-cell
+       run of open cells along a ROW (see the `flat` reservation in authorVolume), and a cross-wall on a
+       column leaves every horizontal run byte-identical.
+       The mouth is the point, not the wall. It is a doorway set in a wall that KEEPS GOING on both
+       sides of it, which is the one thing no opening in this game did before: every door so far is set
+       into a wall that stops there, so a door reads as a panel at the end of a room rather than the way
+       onward. A mouth is a neck that is walled across and open along, so the #403 mouth pass frames it
+       with jambs exactly as it frames a room-to-room door, and the `fixtures` census can see it.
+       The wall is one straight line with one gap, so the room stays connected THROUGH the mouth and the
+       reachability gate below has no new reason to re-roll a world. Nothing here reads Math.random: one
+       draw would re-roll every prop, lamp and enemy downstream of the same SEED (#96), and a room that
+       did not need a cross-wall would still pay for it. */
+    for (let ri = 0; ri < rooms.length; ri++) {
+      const r = rooms[ri];
+      if (r.w < 5 || r.h < 5) continue;
+      let wx = r.x + Math.max(1, Math.round(r.w * 0.68));
+      if (wx > r.x + r.w - 2) wx = r.x + r.w - 2;
+      if (wx <= r.x) continue;                      // no interior column to stand the wall on
+      if (wx === r.cx) wx--;                        // never through the centre cell links and seats use
+      const inset = r.h >= 7 ? 2 : 1;               // wall PAST the mouth on both sides, its whole point
+      let my = r.y + inset + (ri * 2 + 1) % Math.max(1, r.h - 2 * inset - 1);
+      if (my + 1 > r.y + r.h - inset - 1) my = r.y + r.h - inset - 2;
+      for (let y = r.y; y < r.y + r.h; y++) {
+        if (y === my || y === my + 1) continue;     // the mouth
+        const i = y * N + wx;
+        if (cell[i] === 0) cell[i] = cfgL.wall;
+      }
+    }
 
     /* occupancy from room 0. fzTry is the grid the BFS actually walks, and it is the same array
        MAP.fz becomes below, so a band written before this point cannot be invisible to the gate. */
