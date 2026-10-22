@@ -94,8 +94,20 @@ const MESH = (function () {
      the probe already calls a separated edge (DLR/SEP_V at the top of tools/view.js contrast), so the
      paint authors the step the row measures with one constant rather than a second dialect of it, and
      FG_MAX is the most any one draw's value is allowed to move. LUMW is Rec.709 - the weighting the row's
-     own luma() uses - so the prediction and the measurement agree about what a luma is. */
-  const FG_FLOOR = 4, FG_PUSH = 6, FG_MAX = 8, LUMW = [0.2126, 0.7152, 0.0722];
+     own luma() uses - so the prediction and the measurement agree about what a luma is.
+       FG_MAX was 8, twice FG_FLOOR, and one deal of the contrast sweep's 48 stopped short on it: RING
+     TRANSPORT's roll-5 brute (770 px) reads 2.7 luma of step against the 4 bar because his own shortfall
+     needs more than 8 and the clamp stops him there - the RAILED part of the push, not a mis-aim, which
+     is why raising the TARGET instead leaves that deal exactly where it is. Measured on the sweep itself
+     (JSDIR arms of this one line, `view.js contrast`, so every other constant is byte-identical):
+     8.00 / 8.02 / 8.05 / 8.10 leave roll 5 at 2.7 and the row KNOWN; 8.25 clears it and all four sectors
+     (worst deals 10.9 / 8.0 / 4.6 / 6.8, 0 FAILURES of 87 rows, the [#611 debt] row gone) because past
+     his shortfall the clamp stops binding and the draw lands on its own FG_PUSH target. So 8.25 is the
+     SMALLEST value ever measured to clear, and it is the smallest one worth shipping: past the shortfall
+     a wider rail darkens draws that were already aiming correctly (the 16 m #407 seats walk from -27.4 to
+     -29.4 luma between 8 and 12 for no separation gain), so the rail stays as close to the deal that
+     needs it as the measurement allows. The albedo floor two lines below bounds every draw regardless. */
+  const FG_FLOOR = 4, FG_PUSH = 6, FG_MAX = 8.25, LUMW = [0.2126, 0.7152, 0.0722];
 
   /* #78: one subdivision knob for every part was the spike's last leftover - a thigh and a visor got
      the same 6-sided prism, so the silhouette faceted exactly where it is widest while the small parts
