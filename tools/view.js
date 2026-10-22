@@ -11743,6 +11743,18 @@ if (MODE === 'viewmodel') {
       H.fist + ' px at hip - the hands are not in the ADS pose, which is a deletion and not a scale');
     if (!(A.share <= H.share)) pr.push('the fists claim ' + (100 * A.share).toFixed(1) + '% of the rig\'s painted '
       + 'pixels at ADS against ' + (100 * H.share).toFixed(1) + '% at hip - the hands outgrow the gun when you aim');
+    /* WHICH ROUND PARTS REACH THE SCREEN (#587). The issue's complaint is that a carried gun's barrel,
+       magazine and grip contribute no pixels; until now the only evidence for that was prose in
+       js/13_mesh.js and a JSDIR A/B nobody could re-run. The rig now carries a `setRounds` arm, so the
+       number is a row: render each gun at hip twice, once as shipped and once with every round part
+       deleted at the builder, and the difference is the gun's own pixels that a prism reaches. The bar the
+       product decision set is 8% of that gun's OWN hip paint; the shipped build measures 0 / 429 / 190 px,
+       so the row prints the debt instead of asserting the bar, and asserts a FLOOR instead: a gun may not
+       lose more than half the round-part pixels its shipped pose reaches. That floor is what makes the row
+       capable of failing today - delete a stock or a pump and it goes red - while the bar stays open debt
+       until the geometry moves. NON-VACUITY: a delta of 0 is only believable if the arm deleted geometry,
+       so the deleted triangle count is read with it and a run that removes no triangles at all is a FAILURE
+       rather than a zero. */
     console.log(('w' + wi + ' ' + kinds[wi] + ' hands').padEnd(24),
       'fists ' + H.fist + ' px of ' + H.all + ' at hip (' + (100 * H.share).toFixed(1) + '%), ' +
       A.fist + ' px of ' + A.all + ' at ADS (' + (100 * A.share).toFixed(1) + '%); gun-only '
@@ -11751,6 +11763,38 @@ if (MODE === 'viewmodel') {
     shareBad += pr.length ? 1 : 0;
   }
   bad += shareBad;
+
+  /* WHICH ROUND PARTS REACH THE SCREEN (#587). A carried gun's barrel, magazine and grip contribute no
+     pixels - until now the only evidence was prose in js/13_mesh.js plus a JSDIR A/B nobody could re-run.
+     The rig now carries a `setRounds` arm (the same probe-arm shape as `setHands`), so the number is a row:
+     render each gun at hip twice, once as shipped and once with every ROUND part - every tube the metal
+     register emits - deleted at the builder, and the difference is the pixels a prism actually reaches.
+     The bar the product decision set for #587 is 8% of that gun's OWN hip paint; the shipped pose measures
+     0 / 429 / 190 px, so the row PRINTS the debt to that bar rather than asserting it, and asserts a FLOOR:
+     a gun may not lose more than half the round-part pixels its shipped pose reaches. The floor is what
+     makes the row capable of failing today - delete a stock or a pump and it goes red - while the bar stays
+     open debt until the carried geometry moves. NON-VACUITY: a 0 px delta is only believable if the arm
+     deleted geometry, so the submitted triangle count is read with it; an arm that removes no triangles is
+     a FAILURE, not a zero. */
+  const RND = { pistol: 0, shotgun: 429, rifle: 190 };      // shipped baseline, measured by this row
+  for (let wi = 0; wi < run('WEAPONS.length'); wi++) {
+    const kind = kinds[wi];
+    const withR = pair('P.weapon=' + wi);
+    run('MESH.setRounds(false);');
+    const noR = pair('P.weapon=' + wi);
+    run('MESH.setRounds(true);');
+    const all = withR.o.n, d = all - noR.o.n, trisWith = withR.a - withR.b, trisNo = noR.a - noR.b;
+    const bar = Math.round(0.08 * all), floor = Math.floor(0.5 * (RND[kind] || 0)), rp = [];
+    if (!(trisWith > trisNo)) rp.push('the round-part arm removed 0 triangles (' + trisWith + ' -> ' + trisNo +
+      ') - the arm is inert, so a ' + d + ' px delta would prove nothing');
+    if (d < floor) rp.push('the round parts reach only ' + d + ' px, under the ' + floor + ' px floor (half of the ' +
+      (RND[kind] || 0) + ' px the shipped pose measures) - a round part stopped reaching the screen');
+    console.log(('w' + wi + ' ' + kind + ' rounds').padEnd(24),
+      'round parts ' + String(d).padStart(5) + ' px of ' + all + ' hip paint (' + (100 * d / Math.max(1, all)).toFixed(1) +
+      '%), tris ' + trisWith + ' -> ' + trisNo + '; 8% bar ' + bar + ' px, debt ' + Math.max(0, bar - d) + ' px' +
+      (d < bar ? '  KNOWN' : '  MET'), rp.length ? '<< ' + rp.join(', ') : '');
+    bad += rp.length ? 1 : 0;
+  }
 
   /* ---- THE KEY (#186): does the cache save the work, and what did the quantum cost ----------------
      #186 skipped a cache because a key over continuous travel would invalidate wrongly. That failure mode
