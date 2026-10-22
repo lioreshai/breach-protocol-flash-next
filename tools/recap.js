@@ -251,7 +251,9 @@ function captionStats(text, emb) {
     let owner = null;
     for (const im of emb) if (im.at < m.index && (!owner || im.at > owner.at)) owner = im;
     if (!owner) continue;
-    const rn = /longest unbroken run is (\d+) rows,? (?:starting at|from) row (\d+)/.exec(text.slice(m.index, m.index + 320));
+    // `rows?` because a run of one is written "1 row" in English: a caption that says so is still a
+    // claim about a run and its first row, and dropping it here silently un-gates two rows (#604).
+    const rn = /longest unbroken run is (\d+) rows?,? (?:starting at|from) row (\d+)/.exec(text.slice(m.index, m.index + 320));
     rows.push({ name: owner.name, at: m.index, count: +m[1], total: m[2] ? +m[2] : null, thr: +m[3],
       run: rn ? +rn[1] : null, start: rn ? +rn[2] : null });
   }
@@ -574,6 +576,30 @@ function provCheck(rows, prov, fails, notes) {
     fails.push((s.file || '?') + ': provenance row with no PNG behind it');
     nrows++;
   }
+  // A page load boots one level (js/90_dev.js:21-22 - one url, one boot), so a row's load label is a claim about
+  // a DEAL, not about a session: two rows naming one load name one (seed, level, layout). #604's review found a
+  // level-2 row whose note claimed the level-0 page load while its own level field said 2 - true in the fields,
+  // false in the prose, and prose was the only place the contradiction lived. Reading the label out of the note
+  // makes it a field this tool already compares. Rows naming no label are COUNTED, never failed: a label is a
+  // capture convention, a contradiction is a defect.
+  const loads = {};
+  let labelled = 0, unlabelled = 0;
+  for (const s of prov.shots) {
+    const lm = /\bload ([A-Za-z])\b/.exec(String(s.note || ''));
+    if (!lm) { unlabelled++; continue; }
+    labelled++;
+    const key = lm[1].toUpperCase();
+    const d = (s.seed >>> 0) + '/' + s.level + '/' + s.layout;
+    if (loads[key] && loads[key].deal !== d) {
+      console.log('PROVENANCE-LOAD    ' + String(s.file).padEnd(20) + 'load ' + key + ' is claimed as ' + deal(loads[key].row) +
+        ' in ' + loads[key].row.file + ' and as ' + deal(s) + ' here - one page load boots one level, so one of these two '
+        + 'shots was not taken in the load its own note names');
+      fails.push('load ' + key + ' is claimed as two different deals (' + loads[key].row.file + ' vs ' + s.file + ')');
+      nrows++;
+    } else if (!loads[key]) loads[key] = { deal: d, row: s };
+  }
+  notes.push('provenance: ' + labelled + ' row(s) name a page-load label and are cross-checked against every other row '
+    + 'naming it, ' + unlabelled + ' name none');
   console.log('note                   provenance gated: one row per PNG, its sha256 against the bytes, its canvas against the '
     + 'decode, its url against its seed, its ' + HW_FIELD + ' against the vocabulary, and (seed, level, '
     + HW_FIELD + ') against every other shot of that deal; printed and not gated' + (STRICT ? ' (STRICT=1 gates the audio term)' : '')

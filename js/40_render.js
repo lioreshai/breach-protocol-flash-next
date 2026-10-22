@@ -814,6 +814,42 @@ const GWN = 4;                                   // hard cap on levels walked (m
    the term stays in the tree as the one-constant A/B of what the wash does and does not own, beside the
    `gndwalk` arm #504 left for the same reason. `DEV.set('gndwash', 1)` is the arm. */
 let CGW = 0;
+/* #19 TAKE EIGHTEEN - THE MAGNIFIED SHARE, the half take sixteen's gate never reached, AND IT DOES NOT
+   SHIP ON. Take sixteen gated its wash `fC > 1`, and a CEILING texel in the near band is tens of pixels
+   wide: its footprint is a fraction of a texel, which is exactly the range that guard skips. So every
+   earlier reading of "washing the magnified pixels does not work" was measured inside an `if` that never
+   ran on those rows - this repo's own trap, a check that cannot fail has not been tested.
+
+   The term below is that arm run where it DOES reach: on a ceiling pixel whose long-axis footprint F is
+   under one texel, share w = 1 - F of its material's own chain mean replaces the one magnified texel, so
+   a pixel at F = 1 is byte-identical to main and a heavily magnified one converges to the mean. It is a
+   ROW/PX constant exactly like the wash above, it is disjoint from the walk (whose gate is `fLong > 1` on
+   the same expression), and it is gated off on a chain whose selected level IS the chain end - that gate
+   exists for the probe: the MUSH control swaps every mip for the last one, and a wash that fired there
+   would rewrite the negative control into the frame under test, which is a vacuous pass, not a pass.
+
+   MEASURED, AND IT IS NOT THE NEAR BAND. `node tools/view.js mip`, one process per tree, this term at 1
+   against main's js with `JSDIR=`:
+     ceiling streak   41 / 54 / 29 / 22  ->  40 / 53 / 25 / 22      (bar is 18 / 20 / 18)
+     ceil <4 m        110 / 95 / 108 / 0 ->  107 / 92 / 80 / 0      (the no-texture control is 50/20/29/0)
+     along-row detail  26 / 26 / 30 / 23 ->  25 / 26 / 28 / 23      (mush 11 / 8 / 6 / 8 - still 2-4x it)
+   So one level comes down four points and the other three by one or nothing, inside the +-3 point
+   cross-process wobble this issue already records, and the near band - the band the fan lives in - moves
+   3 / 3 / 28 points against the 60 to 80 it would have to move to reach its own no-texture floor. A
+   magnified ceiling pixel is not standing inside a texel whose identity is the gradient: at F under 1 the
+   fetch is ALREADY the pair plus the second-axis lerp (#19 takes three and nine), and what is left along
+   the row is the LIGHT gradient and the slab geometry, which no share of a mean can smooth. That closes
+   the magnified fetch as a lever, the same way take sixteen closed the far one, and it is why CGWN ships
+   at 0 - main's ceiling, pixel for pixel, no reference re-keyed. `DEV.set('gndmag', 1)` is the arm, beside
+   `gndwash` (the far share) and `gndwalk` (the walk) for the same reason: one-constant A/Bs of what the
+   fetch does and does not own.
+
+   THE INSTRUMENT IS BUILT NOW: `mip` has an arm row that renders this term and asserts the ground-pass
+   digest MOVED, every moved pixel sits above the horizon, and the deck comes back byte-identical - so
+   "the term reaches the ceiling" is a verdict that can fail, not a sentence in this comment, and the
+   falsification above is what the row measures rather than what it asserts. Delete either copy of the
+   term and that row goes red. */
+let CGWN = 0;
 const gwd = new Array(GWN), gww = new Float64Array(GWN), gws = new Float64Array(GWN),
       gwmw = new Int32Array(GWN), gwox = new Int32Array(GWN), gwoy = new Int32Array(GWN),
       gwmk = new Int32Array(GWN * 2);            // masks, [x,y] per level
@@ -972,6 +1008,18 @@ let marchSkipEnabled = true;
    on one layout rather than two builds. */
 let floorWalkEnabled = true;
 let gndFloorWalk = 0;      // deferred floor pixels whose PLANE the walk answered (census: view.js cull)
+/* #518 THE DISTANCE A MARCH'S RISER ANSWER MEANS. `planeAlong` returns a PLANE and every caller turns it
+   into a distance by SOLVING it - d = (plane - eyeZ) * BH / |p| - which is right for the per-cell case
+   (the ray reaches that plane while it is still inside the cell that owns it) and wrong for the riser
+   case. A ray that slips under a floor can be BELOW that floor already when it crosses the boundary: the
+   plane's own solve is then BEHIND the crossing, in a cell the ray passed through earlier and whose floor
+   was lower, so painting the crossing's face at the plane's solve paints a surface at a distance the ray
+   was in open air. `slabT` already answers such a pixel with the CROSSING (`return tOut`) and that is why
+   the #192 deck faces are honest while the march is not; this is the same fact carried out of the march.
+   -1 = the plane's own solve places the answer (bit for bit what shipped). >= 0 = the crossing distance
+   along (dir + plane*cam) places it, and a caller that stores a depth must store THIS number. Read
+   immediately after the call, like any other out-parameter. */
+let gWalkT = -1;
 const PV_W = 128;                                    // plane/ZQ indices [-64 .. 63] = altitudes -16 .. 15.75 m
 const PV_FLAG = new Uint8Array(PV_W), PV_VAL = new Float64Array(PV_W);
 let PV_N = 0, gPVSer = -1, gPVFz = null, gPVCp = null, gPVWide = 0;
@@ -1019,6 +1067,7 @@ function splitPlaneInv() {
    A flat level answers on the eye's own cell at the row's own distance, which is the shipped
    arithmetic bit for bit, and the row only calls this when a plane differs or the grid has a step. */
 function planeAlong(rx, ry, pl, isF, absP) {
+  gWalkT = -1;                                   // #518: unless a riser answers, the plane's solve places it
   const N = MAP.w, cellArr = MAP.cell, fzs = MAP.fz, cp = MAP.ceilPlane;
   const ax = rx > 0 ? rx : -rx, ay = ry > 0 ? ry : -ry;
   const sgn = isF ? -1 : 1;                          // floors below the eye, ceilings above it
@@ -1068,7 +1117,20 @@ function planeAlong(rx, ry, pl, isF, absP) {
     const lo = fHere > fThere ? fHere : fThere;      // the bottom of the opening at that boundary
     if (eyeZ + tOut * rise < lo) {                   // the ray slips UNDER a floor, so it hits that floor
       const dlo = (lo - eyeZ) * sgn;                 // a floor at or beyond the candidate's own solve is
-      if (dlo > 1e-9 && dlo * invAbsP < cap) { pl = lo; break; }   // the riser case, and the wall pass's
+      if (dlo > 1e-9 && dlo * invAbsP < cap) {       // the riser case, and the wall pass's
+        pl = lo;
+        /* #518: the riser is a PLACE, not a plane solve. dSolve <= tOut always holds here (the ray is
+           below `lo` at tOut, so it crossed that altitude at or before the crossing), and dSolve >= tIn
+           means it crossed it INSIDE this crossing - the solve and the face are the same distance and the
+           shipped arithmetic is exact. dSolve < tIn means the ray was under that slab before it got here:
+           the face it stops at is THIS boundary, at tOut, and solving `lo` would put the pixel a cell or
+           ten back in open air - which is the phantom #515/#516/#517 all three describe (the far deck's
+           plane painted across a pit at the deck's own distance, the bottom landing's plane painted over
+           the first treads of a stair). */
+        const dSolve = dlo * invAbsP;
+        if (dSolve < tIn) gWalkT = tOut;
+        break;
+      }
     }
     tIn = tOut; cx = nx; cy = ny;
     if (stepX) tx += 1 / ax; else ty += 1 / ay;
@@ -1491,6 +1553,21 @@ function castGround(flash, fcR, fcG, fcB) {
           if (c >= 1) break;
         }
         gW0 = 1 - sum;                        // the selected level keeps the share its texel carries
+      }
+    }
+    /* #19 take eighteen, the ROW copy: the MAGNIFIED share, ceiling rows only, and a ROW constant here for
+       the same reason the wash above is one - the row's mip, its texel scale and its column delta all are.
+       It runs AFTER that chain and its gate is DISJOINT from both of them: the walk's gate and the far
+       wash's gate are both `fLong > 1` on this identical expression, so wherever `fC < 1` the walk ran no
+       arithmetic on this row and `gW0` is still the 1 it was declared with - one share of one fetch, never
+       two. A magnified ceiling pixel therefore costs NO extra texel load. Second copy: groundPixel. */
+    if (CGWN && !isF && !cgW && !gnw) {
+      const fC = colA * colA * 4 >= rowT2 ? colA * 2 : Math.sqrt(rowT2);
+      const mmN = tex.mips[tex.mips.length - 1];
+      if (fC < 1 && mRow !== mmN) {
+        texAvg(mmN);
+        gW0 = fC; cgW = 1 - fC;
+        cgR = mmN.meanNE[0]; cgG = mmN.meanNE[1]; cgB = mmN.meanNE[2];
       }
     }
     let nm = 0;
@@ -2002,12 +2079,18 @@ function groundPixel(x0, x1, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb
        rather than assumed - and the ceiling half still does NOT march per pixel here, because the row
        marched its cell once at the crossing (#15's per-cell decision) and a deferred ceiling pixel
        inherits that answer. */
-    let cur = pl;
+    let cur = pl, wT = -1;
     if (floorWalkEnabled) {
       cur = planeAlong(rx, ry, pl, true, absP);
+      wT = gWalkT;                                  // #518: a riser answer is a CROSSING, not a solve
       gndFloorWalk++;
     } else cur = floorFixedPoint(rx, ry, pl, absP, ax, ay);
     pl = cur;
+    /* #518: when the march stopped the ray at a slab SIDE the plane it named cannot place the pixel - its
+       own solve sits behind the crossing, in open air - so the pixel is built from the crossing distance,
+       exactly the way the #192 case below already builds a pixel from `slabT`. The texture and the light
+       still come from the plane the march named, which is the surface the face belongs to. */
+    if (wT >= 0) dOv = wT > FARB * 4 ? FARB * 4 : wT;
     /* #192, the deck faces: `t < eyeZ` above refuses a floor that is at or above the eye, so a pixel
        queued from under a deck leaves this loop with the deck's own plane in `pl` and no solve for it.
        What stops a descending ray there is the slab's SIDE at the boundary it slipped under, so ask the
@@ -2265,6 +2348,23 @@ function groundPixel(x0, x1, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb
         if (c >= 1) break;
       }
       gW0 = 1 - sum;
+    }
+  }
+  /* #19 take eighteen, the DEFERRED copy of the MAGNIFIED share - same rule, same grading, THIS pixel's own
+     mip and OWN footprint, second copy (AGENTS.md counts the duplication as the price of the row loop's
+     registers: change one copy and you have changed the other). It runs after that chain and its gate is
+     DISJOINT from both arms, whose gates are `fLong > 1` on this same expression, so this is one share of
+     one fetch and it costs no extra texel load. Past FARB `gMFar` answered this pixel above with this same
+     mean, so the two copies cannot disagree at the boundary. */
+  if (CGWN && !isF && !cgW && !gnw) {
+    const colTn = gMCf * ms * 0.5, colAn = colTn < 0 ? -colTn : colTn;
+    const rowT2n = (gMCxs * gMCxs + gMCys * gMCys) * ms * ms;
+    const fCn = colAn * colAn * 4 >= rowT2n ? colAn * 2 : Math.sqrt(rowT2n);
+    const mmN = tex.mips[gMN - 1];
+    if (fCn < 1 && m !== mmN) {
+      texAvg(mmN);
+      gW0 = fCn; cgW = 1 - fCn;
+      cgR = mmN.meanNE[0]; cgG = mmN.meanNE[1]; cgB = mmN.meanNE[2];
     }
   }
   /* The same two-sample fetch as the row loop, from this pixel's OWN footprint: its row delta is

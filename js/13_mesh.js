@@ -82,6 +82,13 @@ const MESH = (function () {
      from a later-loaded file for its OWN constant is a tie no reader can see from this file. */
   const TINT_NEUTRAL = [1, 1, 1];
 
+  /* #611 the body's counter-pigment against the cast it stands in (see BODYHUE in js/00_core.js).
+     BH_K is how much of the room's hue is taken back out of the body's paint: 1 cancels the cast to
+     first order, 0 is the fixed-albedo form the separation rows are seen failing. BH_LO/BH_HI bound
+     the multiplier so a strongly tinted cell cannot take a channel of a dark palette to nothing; the
+     clamp is what makes the row's mean move by a tenth rather than by a third in the worst deal. */
+  const BH_K = 1.0, BH_LO = 0.62, BH_HI = 1.45;
+
   /* #78: one subdivision knob for every part was the spike's last leftover - a thigh and a visor got
      the same 6-sided prism, so the silhouette faceted exactly where it is widest while the small parts
      were already over-tessellated. `ns` is a per-CALL register on the Builder, the same shape as `em`
@@ -261,6 +268,24 @@ const MESH = (function () {
      `BH*sc/(dist*TS_CYC)` exactly as for a body, and both the wave and its fade are already
      written against that quantity. */
   const PS_SLOPE = 4.1, PS_MAX = 14, PS_CYC = 25 / 3;
+  /* #562 THE HANDS WERE BEING FED ZEROS TOO, and their own number is a PERIOD, not a slope. The law is
+     unchanged - amplitude = SLOPE * projectedPeriod / 4, one coarsening past TS_MINP - but the rig's
+     geometry is authored in METRES at scale 1, so TS_CYC's 10 seams per unit would put a period of 0.1 m
+     across a hand that is 0.09 m across: a full triangle wave on a fist, which is the zebra #533 refused
+     for a crate, bought back at 0.3 m from the eye. VS_CYC 4 puts the period at 0.25 m - a LITTLE OVER
+     twice the mass it is shading - so what the eye gets across a fist is one monotone ramp: a lit side and
+     a shaded side, which is the whole of the issue's second acceptance clause. VS_MAX is the near-field
+     ceiling, under WS_MAX 12 because the fist has no machined seam to carry and 12 luma across a 60 px
+     hand is an edge, not a surface. Nothing here is a threshold: bodies and props read the same three
+     numbers they read before, and the branch is on the geometry's own authoring unit, not on a band.
+       WHY THE FISTS KEEP THEIR OWN THREE AND DO NOT JOIN WS_* (#587/#594): the gun's metal and the hands
+     are TWO OBJECT CLASSES INSIDE ONE DRAW - one `MDL`, one `TCYC` - and the two want counts 25x apart. A
+     10 mm seam projects to ~20 px, so across a fist that is 60 px wide it runs three periods over the mass
+     this note wants to ramp ONCE; TAKE FOUR's ring gate exists to keep exactly that off the rig's pipes,
+     and it is paid for there by the pipe's own arc, which a hand does not have. So the law is keyed on the
+     region a part was authored under (`wg` for the metal, `rg` for the hand) and not on `!!MDL`; see the
+     draw site and `HD`. */
+  const VS_SLOPE = 3.4, VS_MAX = 9, VS_CYC = 4;
   /* PS_HCYC is the height weight of a prop's structure coord (#533 take two), and it is NOT 1.
      The WOOD body of a crate spans 0.80 authored units in y and 0.72 in x and z (PROPGEO.crate half
      extents 0.36 / 0.40 / 0.36), and the zero-mean construction above only works if a face spans a
@@ -310,6 +335,12 @@ const MESH = (function () {
      means 48 rather than 100; the LAW - amplitude from the pixel's own projected period - is the
      body's and is not re-derived here. */
   let TAMP = 0, TK = 0, ST = null, TQ0 = 0, TQ1 = 0, TQ2 = 0, TCYC = 10;
+  /* #562: HD is the rig's per-vertex HAND marker (wBuild) - the second structure law inside one view-model
+     draw. It defaults to an EMPTY array rather than null because the triangle loop reads it on every mesh
+     in the game: an empty read is `undefined`, which is falsy, so a body or a prop takes its own constants
+     without the loop carrying a null test that only one caller ever needs. */
+  const NOHD = new Uint8Array(0);
+  let HD = NOHD, TAMPH = 0, TCYH = 10;
   /* o.near swaps the DEPTH array rather than adding a branch to the pixel loop. The swap makes the
      same `if (occ < z) continue` compare the draw against ITSELF instead of against the frame: the
      world's distances are never consulted, so nothing in the room can cull the view model, and the
@@ -373,6 +404,13 @@ const MESH = (function () {
        even number of periods on every axis and the part's mean cannot move. Bodies and props leave it 0
        and their vertex streams are byte-identical. */
     this.wg = 0;
+    /* #562 the VERTEX SPANS that the HAND region covers, as [start, end) pairs, and it is a list of ranges
+       rather than another per-vertex register so that nothing a body or a prop builds changes: `vHand`
+       brackets each region it emits and `wBuild` is the only reader, which turns it into one byte per vertex
+       for the rig's geometry and no array at all anywhere else. It is the rig's SECOND structure law (the
+       fists, VS_*), and the draw site needs it because one `MDL` draws the gun's metal and the fists in one
+       pass. */
+    this.hs = [];
     this.ca = 1; this.sa = 0;                       // rotation about x, positive tips the up axis forward
     this.cx = 0; this.cy = 0; this.cz = 0;
     this.em = 0;                                    // set around an emit to mark the part emissive
@@ -748,7 +786,16 @@ const MESH = (function () {
     steel: [44, 49, 58], dark: [26, 31, 39], black: [15, 18, 24], blue: [36, 42, 51],
     poly: [66, 52, 40], polyD: [46, 36, 28], seam: [9, 11, 16],
     wood: [58, 44, 30], wood2: [51, 38, 26],
-    skin: [140, 106, 79], skinD: [93, 69, 47], glove: [59, 66, 78], gloveD: [34, 40, 52],
+    /* #562 THE FISTS STOP WEARING THE CRATE'S PAINT. The hands were `skin [140,106,79]` and a crate's
+       body enters the shading at 175/125/73 (the #371 WOOD note above PROPGEO): one hue family, the hands
+       a little lighter and grayer, so in a lit room the two tan rectangles in the frame were the crate and
+       the hand mass and the shootable one was the one you cannot take cover behind. The albedo is now a
+       WORN, DARK, NEUTRAL leather: the delivered spread r-b goes from 61 to 22 and the mean comes down by
+       about a fifth, which is the separation the issue asks for ("darker and cooler") while keeping the
+       faint warmth that says it is a body rather than a fourth metal on the rig. #499's warmth clause is
+       now carried by the form ramp below, not by the albedo: a fist that has a lit side and a shaded side
+       needs a bright pixel to be warm in, and it no longer needs to be the colour of scenery to be seen. */
+    skin: [104, 88, 82], skinD: [70, 60, 58], glove: [59, 66, 78], gloveD: [34, 40, 52],
     sleeve: [29, 34, 43], sleeveD: [19, 23, 30],
     brass: [216, 176, 74], shell: [184, 65, 44], hot: [255, 244, 210], ember: [255, 190, 96],
   };
@@ -761,10 +808,32 @@ const MESH = (function () {
      FRONT of the near plane (js/13_mesh.js NEAR = 0.12) and far below the eye: an elbow behind the
      near plane is clipped away and the arm vanishes out of the frame, which is what the first cut
      did, and an elbow only 0.15 m below the eye bulges across the picture instead of leaving it. */
-  function vArm(b, x, y, z, s, back) {
+  /* #562 TAKE TWO: the LIMB, and it now carries the wrist as well as the forearm.
+     Two authored facts changed here, and both are the issue's remaining clause ("no rectangular
+     silhouette spanning the corner").
+     (a) The fist used to end in a 32 x 28 x 40 mm BOX (the cuff, `gloveD`). It was the last flat cap in
+         the silhouette: a face straight at the lens at one depth, ~200 px of it in the corner of every
+         frame, which is the reading the issue is about. The cuff box is gone; what comes out of the bottom
+         edge of the picture is a wrist tube that meets a forearm tube, so the outline runs fist -> wrist
+         -> forearm with no rectangle in it.
+     (b) The arm takes the SAME ADS ramp the hands take (`vHandScale`). #499 authored that ramp for the
+         fists and left the sleeve rigid, which was invisible while the sleeve was a thin tube behind the
+         gun and is not invisible once the wrist is drawn on it: a hand that shrinks toward the grip while
+         its own wrist stays put is a hand with a gap where the wrist should be.
+     It is emitted BEFORE the gun parts (the art's own draw order: "a forearm, drawn BEHIND the gun so the
+     hand can wrap the grip over it") and it is NOT inside the hand's structure region, which keeps
+     `setHands(false)`'s A/B measuring the fists rather than a different arithmetic (#562's note at
+     `wBuild`): the cuff and sleeve are cloth, painted cold, and the fists keep the ramp.
+     The elbow stays IN FRONT of the near plane (NEAR = 0.12) and far below the eye: an elbow behind the
+     near plane is clipped away and the arm vanishes out of the frame, which is what the first cut did, and
+     an elbow only 0.15 m below the eye bulges across the picture instead of leaving it. */
+  function vArm(b, x, y, z, s, back, st) {
     const w = back ? -1 : 1;
-    b.tube(x + w * 0.004 * s, y - 0.026 * s, z - 0.004 * s, x + w * 0.058 * s, y - 0.320 * s, z - 0.095 * s,
-      0.0155 * s, 0.0260 * s, VW.sleeve);              // to an elbow below the frame
+    s *= vHandScale(st);
+    b.tube(x - w * 0.006 * s, y - 0.038 * s, z + 0.004 * s, x + w * 0.010 * s, y - 0.072 * s, z - 0.020 * s,
+      0.0128 * s, 0.0150 * s, VW.gloveD);              // the wrist, out of the fist and down
+    b.tube(x + w * 0.010 * s, y - 0.072 * s, z - 0.020 * s, x + w * 0.062 * s, y - 0.330 * s, z - 0.095 * s,
+      0.0150 * s, 0.0265 * s, VW.sleeve);              // to an elbow below the frame
     return b;
   }
 
@@ -818,15 +887,39 @@ const MESH = (function () {
     if (!VHANDS) return b;
     s *= vHandScale(st);
     const w = back ? -1 : 1;
-    b.box(x, y, z, 0.018 * s, 0.030 * s, 0.028 * s, VW.skin);              // the palm, over the part
-    b.box(x + w * 0.003 * s, y + 0.002 * s, z - 0.030 * s, 0.016 * s, 0.026 * s, 0.005 * s, VW.skin);
-    b.box(x + w * 0.003 * s, y + 0.028 * s, z - 0.024 * s, 0.016 * s, 0.005 * s, 0.017 * s, VW.skinD);
-    b.box(x - w * 0.019 * s, y - 0.002 * s, z, 0.007 * s, 0.026 * s, 0.025 * s, VW.skin);
-    b.box(x - w * 0.026 * s, y - 0.013 * s, z, 0.0035 * s, 0.0035 * s, 0.023 * s, VW.skinD);
-    b.box(x - w * 0.026 * s, y + 0.009 * s, z, 0.0035 * s, 0.0035 * s, 0.023 * s, VW.skinD);
+    /* #562: the hand IS the region, in the same sense a torso is (#232) and a crate's staves are (#533).
+       The coord is the authored x+z in METRES and VS_CYC decides how fast it ramps; see that note. It is set
+       for the HAND ONLY, and #587 made that load-bearing twice over: the gun's metal is emitted under `wg`
+       with its own law, so a region register left set past the fist would put the hand's metre-wide ramp on
+       every part that follows it in emit order (the same trap #232 names for a torso followed by a leg) AND
+       answer the slide with the wrong cycle count. The wrist tube is inside the register on purpose: a sleeve
+       that ramps with the fist is what makes the two read as one limb. `hs` brackets the region for the draw
+       site, which cannot tell a fist from a slide out of `MDL` alone. */
+    b.rg = 1; b.hs.push(b.p.length / 6);
+    // The fist is a TAPERED TUBE along the hand's own long axis, not a slab: six flat boxes stacked on
+    // each other have one silhouette and it is a rectangle, which is the reading the issue is about. A
+    // cone reads as a wrapped mass, its silhouette is a trapezoid with rounded sides, and its far end is
+    // narrower than its near end, which is what a hand curled round a grip looks like from behind.
+    b.tube(x - w * 0.002 * s, y - 0.026 * s, z, x + w * 0.001 * s, y + 0.022 * s, z - 0.004 * s,
+      0.0145 * s, 0.0185 * s, VW.skin);              // the fist itself, knuckle end widest
+    b.box(x + w * 0.004 * s, y + 0.028 * s, z - 0.024 * s, 0.015 * s, 0.005 * s, 0.017 * s, VW.skinD);
+    /* #562 TAKE TWO: the BACK OF THE HAND is a tube, not a plate. The plate was 13 mm thick and 48 mm
+       square - a flat, right-angled face straight at the lens, ~200 px of it in the corner of every
+       frame, and a flat face at one depth is exactly the reading the issue is about: at the same light it
+       is indistinguishable from the side of a crate. A tapered tube across the same span keeps the hand's
+       mass, keeps the two crease boxes reading as knuckle gaps, and puts a rounded terminator on the
+       outline where the plate had two 90-degree corners. Its own area is SMALLER than the plate's (25 x 56
+       mm of silhouette against 48 x 48) because #562's acceptance says frame cost must not rise: the rig is
+       already inside the raster budget, so a silhouette change has to be bought with pixels, not added to
+       them. */
+    b.tube(x - w * 0.017 * s, y - 0.018 * s, z - 0.001 * s, x - w * 0.017 * s, y + 0.015 * s, z - 0.004 * s,
+      0.0105 * s, 0.0125 * s, VW.skin);              // the back of the hand, wrist end narrowest
+    b.box(x - w * 0.025 * s, y - 0.013 * s, z, 0.0035 * s, 0.0035 * s, 0.022 * s, VW.skinD);
+    b.box(x - w * 0.025 * s, y + 0.009 * s, z, 0.0035 * s, 0.0035 * s, 0.022 * s, VW.skinD);
     b.tube(x + w * 0.011 * s, y + 0.020 * s, z + 0.010 * s, x - w * 0.006 * s, y + 0.030 * s, z + 0.020 * s,
       0.0070 * s, 0.0055 * s, VW.skin);              // the thumb, along the top of the grip
-    b.box(x - w * 0.010 * s, y - 0.044 * s, z + 0.004 * s, 0.017 * s, 0.014 * s, 0.021 * s, VW.gloveD);
+    b.hs.push(b.p.length / 6);
+    b.rg = 0;
     return b;
   }
 
@@ -857,8 +950,8 @@ const MESH = (function () {
        here the slide is 0.175 m of rectangular tube and the grip rakes back on its own axis. */
     pistol(b, s) {
       const MU = VMUZZLE.pistol;
-      vArm(b, 0.016, -0.026, 0.024, 1.0, false);
-      vArm(b, -0.026, -0.040, 0.048, 0.96, true);
+      vArm(b, 0.016, -0.026, 0.024, 1.0, false, s);
+      vArm(b, -0.026, -0.040, 0.048, 0.96, true, s);
       b.wg = 1;                                        // #587 the metal gets the surface; the sleeve above and the fists below do not
       b.box(0, 0.007, 0.088, 0.0185, 0.0135, 0.086, VW.steel);          // the slide
       b.box(0, 0.0235, 0.088, 0.008, 0.0035, 0.070, VW.black);          // the serrated rib on top
@@ -885,8 +978,8 @@ const MESH = (function () {
        the pump travels on the lower one, which is what `pump` does to the geometry below. */
     shotgun(b, s) {
       const MU = VMUZZLE.shotgun, pu = (s.pump || 0) * 0.034;
-      vArm(b, 0.014, -0.034, 0.000, 1.02, false);
-      vArm(b, -0.010, -0.040, 0.266 + pu, 1.0, true);   // the pump hand's arm travels with the pump
+      vArm(b, 0.014, -0.034, 0.000, 1.02, false, s);
+      vArm(b, -0.010, -0.040, 0.266 + pu, 1.0, true, s);   // the pump hand's arm travels with the pump
       b.wg = 1;                                        // #587 the metal gets the surface; the sleeve above and the fists below do not
       b.box(0, 0.004, 0.086, 0.0215, 0.0185, 0.082, VW.steel);          // the receiver
       b.box(0, 0.0235, 0.086, 0.011, 0.0045, 0.070, VW.black);          // the top rib
@@ -913,8 +1006,8 @@ const MESH = (function () {
        design units against the shotgun's -404 and the pistol's -338). */
     rifle(b, s) {
       const MU = VMUZZLE.rifle;
-      vArm(b, 0.014, -0.030, 0.012, 1.0, false);
-      vArm(b, -0.014, -0.038, 0.234, 0.98, true);
+      vArm(b, 0.014, -0.030, 0.012, 1.0, false, s);
+      vArm(b, -0.014, -0.038, 0.234, 0.98, true, s);
       b.wg = 1;                                        // #587 the metal gets the surface; the sleeve above and the fists below do not
       b.box(0, 0.005, 0.092, 0.0235, 0.0195, 0.086, VW.steel);          // the upper receiver
       b.box(0, 0.0265, 0.092, 0.0155, 0.0055, 0.078, VW.black);         // the dust cover
@@ -1002,9 +1095,21 @@ const MESH = (function () {
     for (let i = 0; i < b.p.length / 6; i++) { v[i * 3] = b.p[i * 6]; v[i * 3 + 1] = b.p[i * 6 + 1]; v[i * 3 + 2] = b.p[i * 6 + 2]; }
     /* #587: the coord array goes in beside `em` with the SAME shape the bodies and props already hand
        `tri`. A plain JS array here would give the site `ST[i0]` a third map (null, Float32Array, Array)
-       where it currently handles two, and this geometry is rebuilt on every reload miss. */
-    const geo = { kind, p, v, t: new Uint16Array(b.t), em: Uint8Array.from(b.e), st: Float32Array.from(b.s), nV: b.p.length / 6, tris: b.t.length / 3 };
-    geo.byteLength = p.byteLength + v.byteLength + geo.t.byteLength + geo.em.byteLength + geo.st.byteLength;
+       where it currently handles two, and this geometry is rebuilt on every reload miss.
+       #562 took that array onto the rig for the HANDS, which is what made `ST = m.st || null` non-null for
+       every rig (it was null before, so the hands were flat-shaded by construction rather than by choice),
+       and it is why `geo.st` is a per-vertex Float32Array exactly like `model()`'s (js/13_mesh.js mdl.st).
+         A rig now carries TWO structure laws in one geometry - the gun's metal under WS_* (#587) and the
+       fists under VS_* (#562) - so it also carries which one each vertex was authored under: `vHand` notes
+       the vertex span of every hand region in `b.hs` (the same span in which it sets the region register
+       `rg`) and it becomes one byte per vertex HERE rather than in the builder, so a body or a prop builds
+       exactly what it built before. `tri` never reads it; the draw site does, once per triangle, to choose
+       which class's constants that triangle's law uses - see the note at VS_CYC. Both arrays are counted in
+       byteLength because the rig cache's eviction is byteLength-sized. */
+    const hd = b.hs.length ? new Uint8Array(b.p.length / 6) : null;
+    if (hd) for (let i = 0; i < b.hs.length; i += 2) hd.fill(1, b.hs[i], b.hs[i + 1]);
+    const geo = { kind, p, v, t: new Uint16Array(b.t), em: Uint8Array.from(b.e), st: Float32Array.from(b.s), hd, nV: b.p.length / 6, tris: b.t.length / 3 };
+    geo.byteLength = p.byteLength + v.byteLength + geo.t.byteLength + geo.em.byteLength + geo.st.byteLength + (hd ? hd.byteLength : 0);
     return geo;
   }
   function weaponGeo(kind, st) {
@@ -1461,6 +1566,7 @@ const MESH = (function () {
        #33 for the same floor under AMB). */
     EMIS = !!o.emis; DIM = o.dim || 0; EM = m.em;
     ST = m.st || null;                              // #232 per-vertex torso coord; props and the gun have none
+    HD = m.hd || NOHD;                              // #562 which of a rig's TWO structure laws authored this vertex
     /* The ramp a face's light rides. THREE cases read it, all of them at the one `sh` below, and a PROP
        is not one of them:
          a BODY            0.30 + 0.85*d - its sprites carried a curvature term, so that is the path's
@@ -1587,8 +1693,15 @@ const MESH = (function () {
     /* #587 the rig is the third object class on this law, and it needs its OWN cycle count because its
        geometry is authored in metres rather than in fractions of its own height: for the gun `sc` is 1 and
        `tYc` is the rig's own anchor distance (~0.245 m at the hip, 0.190 m shouldered), so the same
-       expression returns the projected pixel period of a WS_CYC seam without any change of form. */
-    const vm = !!MDL;                                    // the view model, and MDL is only ever the gun
+       expression returns the projected pixel period of a WS_CYC seam without any change of form.
+         #562 AND A RIG IS TWO CLASSES, NOT ONE. One `MDL`, one draw, the gun's metal AND the fists, and
+       `!!MDL` cannot tell them apart: this branch's `vs` and main's `vm` were the SAME predicate, so a
+       textual merge hands one geometry whichever law the leftmost ternary carries - the slide would have
+       read the fist's 4 seams per metre and the fist a machined 100. The key that does separate them is
+       already per vertex - the region register the part was emitted under, which `wBuild` carries as
+       `m.hd` - so each class reads ONE law, the two blocks here being the same expression with each class's
+       own three constants, and `tri` gains no path. */
+    const vm = !!MDL;                                    // the view model, and MDL is only ever the rig
     const TCY = vm ? WS_CYC : (pr ? PS_CYC : TS_CYC);
     let TPR = BH * sc / (Math.max(NEAR, Math.abs(tYc)) * TCY);
     if (!ST) TPR = 0;                                     // no torso coords on this mesh: no term
@@ -1600,6 +1713,17 @@ const MESH = (function () {
        near-field ceiling differ, and what the eye holds constant across a walk past, luma per screen
        pixel, is unchanged in kind. */
     TAMP = TPR <= TS_MINP ? 0 : Math.min(vm ? WS_MAX : pr ? PS_MAX : TS_MAX, (vm ? WS_SLOPE : pr ? PS_SLOPE : TS_SLOPE) * TPR * 0.25);
+    /* #562 THE FISTS, the second class in this same draw, and the two lines above with VS_* in place of
+       WS_*: their own projected period, the same one coarsening past TS_MINP, their own near-field ceiling.
+       Nothing here is a second law - it is the law, read at the other class's constants, and it is computed
+       per DRAW and not per triangle. A rig built by the probe's `setHands(false)` arm has no hand region and
+       so leaves TAMPH 0, which is what makes that A/B measure the fists rather than a different arithmetic;
+       bodies and props never have a hand region either, and cost one register test in the triangle loop. */
+    if (HD !== NOHD) {
+      let HPR = BH * sc / (Math.max(NEAR, Math.abs(tYc)) * VS_CYC);
+      if (HPR < TS_MINP) { HPR *= 2; TCYH = VS_CYC / TS_LMAX; } else TCYH = VS_CYC;
+      TAMPH = HPR <= TS_MINP ? 0 : Math.min(VS_MAX, VS_SLOPE * HPR * 0.25);
+    } else TAMPH = 0;
     if (ROT) {
       // yaw+pitch+roll as one matrix, so a rig can point its bore along the firing ray.
       // The yaw-only branch below is untouched: this is the extra path a view model takes,
@@ -1633,6 +1757,31 @@ const MESH = (function () {
        call site would have traded one defect for the dim-the-gun-when-you-aim-at-a-wall one. */
     const cc = o.cell === undefined ? cellIdx(o.x, o.y) : o.cell;
     const lt = o.near ? TINT_NEUTRAL : cellTint(cc), lm = MAP.light;
+    /* #611 WHERE the body's paint sits in hue, decided once per DRAW from the cast falling on it.
+       A body's delivered colour is its palette x the room's lamp tint, so a fixed albedo separates in
+       the rooms whose hue is far from the kind's and disappears in the ones whose hue is close - the
+       sector roll, not the art, decides whether the player can see the enemy. The palette stays put;
+       what changes is the multiplier the cast puts on it. `lt` is that tint normalised about 1, so the
+       zero-mean push `K*(mean - lt)` cancels the cast to first order at K = 1, and the three multipliers
+       sum to 3 by construction at any K - which is a statement about the FRAME mean, not about his own
+       pixels: Rec.601 weighs green at 0.587, so removing a green cast lifts the luma of the body pixels
+       it touched (ABATOIR dealt cam0 40.4 -> 46.0, cam2 43.8 -> 51.1). A frame mean is unchanged; he is
+       a shade brighter AND a different colour, and the value step was already there from the light path. It is ALBEDO - it goes with the texel, so the
+       BODYPAINT arm of tools/view.js contrast turns it off along with the palette and still measures
+       paint against shading unchanged; a body wearing the background's colour is not wearing a pigment
+       he does not own. Bodies only: the gun is #376's and a prop's paint is #371's, and neither is the
+       thing a player has to find in under a second. */
+    let bhr = 1, bhg = 1, bhb = 1;
+    if (BODYHUE && BODY && !MDL && !pr) {
+      const bm = (lt[0] + lt[1] + lt[2]) * 0.3333333;
+      if (bm > 0.125) {
+        const bk = BH_K / bm;
+        bhr = 1 + bk * (bm - lt[0]); bhg = 1 + bk * (bm - lt[1]); bhb = 1 + bk * (bm - lt[2]);
+        if (bhr < BH_LO) bhr = BH_LO; else if (bhr > BH_HI) bhr = BH_HI;
+        if (bhg < BH_LO) bhg = BH_LO; else if (bhg > BH_HI) bhg = BH_HI;
+        if (bhb < BH_LO) bhb = BH_LO; else if (bhb > BH_HI) bhb = BH_HI;
+      }
+    }
     const FL = S.flash, FC = S.flashCol;                // the muzzle's own light, the billboard's term
     for (let k = 0, K = T.length; k < K; k += 3) {
       const i0 = T[k], i1 = T[k + 1], i2 = T[k + 2];
@@ -1747,6 +1896,12 @@ const MESH = (function () {
          and take no albedo. tools/view.js contrast's distance rows are the only caller. */
       let packed = PD[i0 * 6 + 3] << 16 | PD[i0 * 6 + 4] << 8 | PD[i0 * 6 + 5];
       if (!BODYPAINT && !MDL) packed = BPAINT_RGB;
+      else if (bhr !== 1 || bhg !== 1 || bhb !== 1) {
+        /* #611: the counter-pigment, on the albedo and before the light ever touches it. Clamped to
+           the texel's own 0..255 so a saturated room cannot push a channel out of the buffer. */
+        const par = (packed >> 16 & 255) * bhr, pag = (packed >> 8 & 255) * bhg, pab = (packed & 255) * bhb;
+        packed = (par > 255 ? 255 : par | 0) << 16 | (pag > 255 ? 255 : pag | 0) << 8 | (pab > 255 ? 255 : pab | 0);
+      }
       let r = (packed >> 16 & 255) * lr + FOGC[0] * fog;
       let g = (packed >> 8 & 255) * lg + FOGC[1] * fog;
       let b = (packed & 255) * lb + FOGC[2] * fog;
@@ -1759,12 +1914,20 @@ const MESH = (function () {
       /* Per triangle: the torso's own coord set, gated by the grazing band. TK is a module register
          like CR, so it MUST be zeroed on every triangle that is not torso geometry - a stale TK would
          paint the seam onto the leg that follows the chest in emit order. */
-      if (TAMP) {
+      /* Per triangle: the torso's own coord set, gated by the grazing band. TK is a module register
+         like CR, so it MUST be zeroed on every triangle that is not torso geometry - a stale TK would
+         paint the seam onto the leg that follows the chest in emit order. A rig's triangles are TWO
+         classes (#562 + #587), so which class's constants apply is read per vertex off `HD` - the region
+         the part was authored under - and nothing else about this block changes: same term, same gate,
+         same registers. */
+      if (TAMP || TAMPH) {
         const sa = ST[i0], sb = ST[i1], sz = ST[i2];
-        if (sa !== 0 || sb !== 0 || sz !== 0) {
+        const hh = HD[i0], amp = hh ? TAMPH : TAMP;
+        if (amp && (sa !== 0 || sb !== 0 || sz !== 0)) {
           const q = 1 - Math.min(1, vd / Math.max(1e-6, Math.hypot(evx, evy, evz)));
-          TK = TAMP * (TS_BMIN + (1 - TS_BMIN) * q);
-          TQ0 = sa * TCYC; TQ1 = sb * TCYC; TQ2 = sz * TCYC;
+          TK = amp * (TS_BMIN + (1 - TS_BMIN) * q);
+          const tcy = hh ? TCYH : TCYC;
+          TQ0 = sa * tcy; TQ1 = sb * tcy; TQ2 = sz * tcy;
         } else TK = 0;
       } else TK = 0;
       if (PKN) { r = pkneeling(r); g = pkneeling(g); b = pkneeling(b); }
