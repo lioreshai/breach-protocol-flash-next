@@ -9896,23 +9896,27 @@ if (MODE === 'contrast') {
     }
     run('if (!COV || COV.length !== BW * BH) COV = new Uint8Array(BW * BH);');
     const bus = (sabotage) => {
-      if (sabotage) run(`(()=>{ const t = MAP.floorTex; window.__busKeep = { d: t.data, m: t.mips };
-        const o = t.data, n = o.length; let sr = 0, sg = 0, sb = 0;
-        for (let i = 0; i < n; i++) { sr += o[i] & 255; sg += o[i] >> 8 & 255; sb += o[i] >> 16 & 255; }
-        const mr = Math.round(sr / n), mg = Math.round(sg / n), mb = Math.round(sb / n), d = new Uint32Array(n);
-        for (let i = 0; i < n; i++) d[i] = (o[i] & 0xFF000000) | (mb << 16) | (mg << 8) | mr;
-        let dev = 0;
-        for (let i = 0; i < n; i++) dev += Math.abs(0.2126 * (o[i] & 255) + 0.7152 * (o[i] >> 8 & 255) + 0.0722 * (o[i] >> 16 & 255) -
-          (0.2126 * mr + 0.7152 * mg + 0.0722 * mb));
-        t.data = d; t.mips = buildMips(t.w, t.h, d);
-        window.__busSab = { dev: dev / n, mean: 0.2126 * mr + 0.7152 * mg + 0.0722 * mb };
+      if (sabotage) run(`(()=>{ const L = ${sabotage === 'wall' ? 'WALLS.slice()' : '[MAP.floorTex]'};
+        window.__busKeep = L.map(t => ({ t, d: t.data, m: t.mips }));
+        let dev = 0, mean = 0, nn = 0;
+        for (const t of L) {
+          const o = t.data, n = o.length; let sr = 0, sg = 0, sb = 0;
+          for (let i = 0; i < n; i++) { sr += o[i] & 255; sg += o[i] >> 8 & 255; sb += o[i] >> 16 & 255; }
+          const mr = Math.round(sr / n), mg = Math.round(sg / n), mb = Math.round(sb / n), d = new Uint32Array(n);
+          for (let i = 0; i < n; i++) d[i] = (o[i] & 0xFF000000) | (mb << 16) | (mg << 8) | mr;
+          for (let i = 0; i < n; i++) dev += Math.abs(0.2126 * (o[i] & 255) + 0.7152 * (o[i] >> 8 & 255) + 0.0722 * (o[i] >> 16 & 255) -
+            (0.2126 * mr + 0.7152 * mg + 0.0722 * mb));
+          mean += 0.2126 * mr + 0.7152 * mg + 0.0722 * mb; nn += n;
+          t.data = d; t.mips = buildMips(t.w, t.h, d);
+        }
+        window.__busSab = { dev: dev / nn, mean: mean / L.length, nt: L.length };
         return 1 })()`);
       run('ENEMIES.length = 0; ENEMIES.push(window.__dBody); S.t = 3.5; ' + VMREST + ' renderWorld();');
       const A = new Uint32Array(run('px')), M = new Uint8Array(run('COV'));
       run('ENEMIES.length = 0; S.t = 3.5; ' + VMREST + ' renderWorld();');
       const Bb = new Uint32Array(run('px'));
       run('ENEMIES.length = 0; for (const q of __dKeep) ENEMIES.push(q);');
-      if (sabotage) run('(()=>{ const t = MAP.floorTex; t.data = window.__busKeep.d; t.mips = window.__busKeep.m; return 1; })();');
+      if (sabotage) run('(()=>{ for (const k of window.__busKeep) { k.t.data = k.d; k.t.mips = k.m; } return 1; })();');
       const ring = ringOf(M), ed = edgeOf(A, M, ring);
       let n = 0, gs = 0, bg = 0, bn = 0;
       for (let y = 1; y < H - 1; y++) {
@@ -9928,7 +9932,7 @@ if (MODE === 'contrast') {
       const sab = sabotage ? run('window.__busSab') : null;
       return { n, back: n ? gs / n : 0, body: bn ? bg / bn : 0, bpx: bn, dl: ed.dl, en: ed.en, sab };
     };
-    const m0 = bus(false), m1 = BUSFLAT ? bus(true) : null;
+    const m0 = bus(false), m1 = BUSFLAT ? bus(true) : null, m2 = bus('wall');
     const name = 'L' + lv + ' at ' + BUS_D + ' m: the paint behind him vs his outline (#416)';
     if (m0.n < BUS_MINPX || !m0.en) {
       row(name, false, 'vacuous: ' + m0.n + ' coverage px behind the body (' + m0.en + ' with a background) at '
@@ -9948,7 +9952,11 @@ if (MODE === 'contrast') {
             + ' the body' : 'the quieter of the two, so his silhouette is the edge the eye takes')
           + ' | his outline step against that same surface is ' + m0.dl.toFixed(1) + ' luma, on ' + m0.n
           + ' coverage px of kind ' + g.kind + ' on deck ' + g.tex + ' (body at ' + JSON.stringify(g.body)
-          + ', seat ' + JSON.stringify(g.seat) + (g.made ? ', PLACED - this level spawns none' : '') + ')'),
+          + ', seat ' + JSON.stringify(g.seat) + (g.made ? ', PLACED - this level spawns none' : '') + ')'
+          + ' | with the WHOLE WALL FAMILY flattened the same region reads ' + m2.back.toFixed(2)
+          + ', so ' + (100 * (m0.back - m2.back) / m0.back).toFixed(0) + '% of the slope behind him is wall '
+          + 'paint and ' + m2.back.toFixed(2) + ' is what the light path and the geometry deliver with no '
+          + 'wall grain to quiet'),
       m0.bpx >= BUS_CUSH && m0.dl >= m0.back * BUS_RATIO ? undefined : '#416')
       + (m1 ? ' | with THIS DECK FLATTENED to its own mean (grain taken to 0, mean luma '
         + m1.sab.mean.toFixed(1) + ', mip chain rebuilt) the same region behind the SAME body reads '
@@ -9956,6 +9964,27 @@ if (MODE === 'contrast') {
       + ' | the bar is his outline at ' + BUS_RATIO + 'x the delivered slope behind him, measured against '
       + 'the ' + (m0.dl / m0.back).toFixed(1) + 'x this seat reads at this head; it reports as #' + '416 debt '
       + 'and STRICT=1 gates it';
+    /* THE ARM THE DECK FALSIFIER CANNOT RUN. At 10 m the pixels behind a body are overwhelmingly a WALL,
+       and the deck arm above is provably inert on two of the four seats (it reads 3.63 -> 3.63 on ARCHIVE
+       and 1.52 -> 1.52 on THE STACK at 46c8619): a falsifier that flattens a surface the region does not
+       contain cannot tell "the paint is quiet" from "the light field is quiet", which is the one thing this
+       row exists to tell. So the wall family gets its own arm, always on, and it is a WIRING assertion and
+       not a band: the arm must MOVE the number, because an arm that moves nothing is not a control (#240).
+       The row then prints the split it measured - how much of the slope behind him is paint at all - which
+       is the number #416's acceptance has been argued without: on ARCHIVE's 10 m seat at this head the wall
+       paint is roughly a tenth of the figure and the rest is the light path's and the geometry's, so the
+       grain route the issue names cannot close this seat on its own, and the row says so in the frame. */
+    row('L' + lv + ': flattening the WALL family behind him moves the same pixels (#416 falsifier)',
+      m2.back < m0.back - 0.02,
+      'taking EVERY wall tile to its own mean (' + m2.sab.nt + ' tiles, mip chains rebuilt, bytes restored '
+      + 'after the render; mean luma ' + m2.sab.mean.toFixed(1) + ', mean abs deviation '
+      + m2.sab.dev.toFixed(1) + ' luma/texel removed) moves the busyness BEHIND THE SAME BODY from '
+      + m0.back.toFixed(2) + ' to ' + m2.back.toFixed(2) + ' luma/px: '
+      + (100 * (m0.back - m2.back) / m0.back).toFixed(0) + '% of what the eye is delivered behind him at '
+      + 'this seat is wall grain, and the other ' + m2.back.toFixed(2) + ' luma/px is the light path and the '
+      + 'geometry - a lamp falloff, a junction, an edge - which no albedo constant can quiet. A run that '
+      + 'reads the SAME number with the wall family flattened has an arm that moves nothing, which is a '
+      + 'statistic that stopped reading the paint.', '#416');
     if (!m1) continue;
     row('L' + lv + ': flattening the deck under him quiets the same pixels (#416 falsifier)',
       m1.back <= m0.back * 0.5,
@@ -11753,6 +11782,18 @@ if (MODE === 'viewmodel') {
       H.fist + ' px at hip - the hands are not in the ADS pose, which is a deletion and not a scale');
     if (!(A.share <= H.share)) pr.push('the fists claim ' + (100 * A.share).toFixed(1) + '% of the rig\'s painted '
       + 'pixels at ADS against ' + (100 * H.share).toFixed(1) + '% at hip - the hands outgrow the gun when you aim');
+    /* WHICH ROUND PARTS REACH THE SCREEN (#587). The issue's complaint is that a carried gun's barrel,
+       magazine and grip contribute no pixels; until now the only evidence for that was prose in
+       js/13_mesh.js and a JSDIR A/B nobody could re-run. The rig now carries a `setRounds` arm, so the
+       number is a row: render each gun at hip twice, once as shipped and once with every round part
+       deleted at the builder, and the difference is the gun's own pixels that a prism reaches. The bar the
+       product decision set is 8% of that gun's OWN hip paint; the shipped build measures 0 / 429 / 190 px,
+       so the row prints the debt instead of asserting the bar, and asserts a FLOOR instead: a gun may not
+       lose more than half the round-part pixels its shipped pose reaches. That floor is what makes the row
+       capable of failing today - delete a stock or a pump and it goes red - while the bar stays open debt
+       until the geometry moves. NON-VACUITY: a delta of 0 is only believable if the arm deleted geometry,
+       so the deleted triangle count is read with it and a run that removes no triangles at all is a FAILURE
+       rather than a zero. */
     console.log(('w' + wi + ' ' + kinds[wi] + ' hands').padEnd(24),
       'fists ' + H.fist + ' px of ' + H.all + ' at hip (' + (100 * H.share).toFixed(1) + '%), ' +
       A.fist + ' px of ' + A.all + ' at ADS (' + (100 * A.share).toFixed(1) + '%); gun-only '
@@ -11761,6 +11802,38 @@ if (MODE === 'viewmodel') {
     shareBad += pr.length ? 1 : 0;
   }
   bad += shareBad;
+
+  /* WHICH ROUND PARTS REACH THE SCREEN (#587). A carried gun's barrel, magazine and grip contribute no
+     pixels - until now the only evidence was prose in js/13_mesh.js plus a JSDIR A/B nobody could re-run.
+     The rig now carries a `setRounds` arm (the same probe-arm shape as `setHands`), so the number is a row:
+     render each gun at hip twice, once as shipped and once with every ROUND part - every tube the metal
+     register emits - deleted at the builder, and the difference is the pixels a prism actually reaches.
+     The bar the product decision set for #587 is 8% of that gun's OWN hip paint; the shipped pose measures
+     0 / 429 / 190 px, so the row PRINTS the debt to that bar rather than asserting it, and asserts a FLOOR:
+     a gun may not lose more than half the round-part pixels its shipped pose reaches. The floor is what
+     makes the row capable of failing today - delete a stock or a pump and it goes red - while the bar stays
+     open debt until the carried geometry moves. NON-VACUITY: a 0 px delta is only believable if the arm
+     deleted geometry, so the submitted triangle count is read with it; an arm that removes no triangles is
+     a FAILURE, not a zero. */
+  const RND = { pistol: 0, shotgun: 429, rifle: 190 };      // shipped baseline, measured by this row
+  for (let wi = 0; wi < run('WEAPONS.length'); wi++) {
+    const kind = kinds[wi];
+    const withR = pair('P.weapon=' + wi);
+    run('MESH.setRounds(false);');
+    const noR = pair('P.weapon=' + wi);
+    run('MESH.setRounds(true);');
+    const all = withR.o.n, d = all - noR.o.n, trisWith = withR.a - withR.b, trisNo = noR.a - noR.b;
+    const bar = Math.round(0.08 * all), floor = Math.floor(0.5 * (RND[kind] || 0)), rp = [];
+    if (!(trisWith > trisNo)) rp.push('the round-part arm removed 0 triangles (' + trisWith + ' -> ' + trisNo +
+      ') - the arm is inert, so a ' + d + ' px delta would prove nothing');
+    if (d < floor) rp.push('the round parts reach only ' + d + ' px, under the ' + floor + ' px floor (half of the ' +
+      (RND[kind] || 0) + ' px the shipped pose measures) - a round part stopped reaching the screen');
+    console.log(('w' + wi + ' ' + kind + ' rounds').padEnd(24),
+      'round parts ' + String(d).padStart(5) + ' px of ' + all + ' hip paint (' + (100 * d / Math.max(1, all)).toFixed(1) +
+      '%), tris ' + trisWith + ' -> ' + trisNo + '; 8% bar ' + bar + ' px, debt ' + Math.max(0, bar - d) + ' px' +
+      (d < bar ? '  KNOWN' : '  MET'), rp.length ? '<< ' + rp.join(', ') : '');
+    bad += rp.length ? 1 : 0;
+  }
 
   /* ---- THE KEY (#186): does the cache save the work, and what did the quantum cost ----------------
      #186 skipped a cache because a key over continuous travel would invalidate wrongly. That failure mode
@@ -11922,22 +11995,61 @@ if (MODE === 'viewmodel') {
      the same reason. The value returned is still ms/frame, and the share is taken between medians of
      batches, so neither the resolution nor the pose drift inside a batch enters the number. */
   const VCOST_BATCH = +(process.env.VMCOST_BATCH || 20), VCOST_REPS = +(process.env.VMCOST_REPS || 7);
+  /* #529 - THE DENOMINATOR IS A SCENE, SO THE PROBE PINS THE SCENE.
+     The share below is rig ms over FRAME ms, and until now the frame was whatever the dealt seat happens to
+     show. That made a REPORTING row report the room: with only the arrival heading differing between two
+     js/ trees (PR #482 turns the seat to face the storey the level built over it), the same rig read 6.4%
+     on one arm and 1.7% on the other while the rig's own ms did not move - the frame under it went 24.95 to
+     51.85 ms/frame, and the paying pass is the deferred ground copy `groundPixel()` (issue #529, arms and
+     CPU profile in that issue's thread; on this head the same arm pair is 29.35 ms/frame with the rig
+     against 24.10 without it). A row that can go red because a level changed where it points you cannot
+     answer the question #186 built it for, which is "did the RIG stop paying".
+     THE FIX IS THE BASIS, NOT THE NUMBER: all three timed arms now render at ONE pinned heading, the
+     literal every level authored before a dealt heading existed. On main that is bit-identical to what this
+     row already measured, because main seats every level at the same literal (js/20_level.js: `P.ang = 0.6`
+     on both the generated and the authored path), so NO record moves and no tolerance moves - which is the
+     half of this change that keeps it from being the thing #529 rule 3 forbids: re-recording a wall-clock
+     share to make a reporting row quiet. What the pin removes is the scene's right to vote; the rig's own
+     cost still moves the row, and the deal's own frame is still MEASURED and printed on the next line, at
+     the dealt heading, as a census of the price rather than as a gate on the rig. */
+  const VMHEAD = 0.6;
   run('window.__VMWEAPON = MESH.weapon; window.__VMWEAPON_MEMO = (function () { var M = {}; return function (k, st) '
     + '{ var h = M[k]; if (h !== undefined) return h; var g = window.__VMWEAPON(k, st); M[k] = g; return g; }; })();'
-    + 'window.__vmCost = function (mode, n) { window.drawViewModel = (mode === "off") ? function () {} : window.__VMSAVE;'
+    + 'window.__vmCost = function (mode, n, ang) { window.drawViewModel = (mode === "off") ? function () {} : window.__VMSAVE;'
     + ' MESH.weapon = (mode === "memo") ? window.__VMWEAPON_MEMO : window.__VMWEAPON;'
+    + ' if (ang !== undefined && ang !== null) P.ang = ang;'
     + ' var t = performance.now(); for (var i = 0; i < n; i++) renderWorld(); return (performance.now() - t) / n; };');
   const vmed = a => { const s = a.slice().sort((x, y) => x - y); return s.length & 1 ? s[s.length >> 1]
     : (s[s.length / 2 - 1] + s[s.length / 2]) * 0.5; };
   const vspread = a => vmed(a).toFixed(2) + ' (' + Math.min(...a).toFixed(2) + '..' + Math.max(...a).toFixed(2) + ')';
   const tOn = [], tMemo = [], tOff = [];
   run('P.ads=0; P.kick=0; P.reloadT=0; P.swapT=0; P.sprint=0; P.air=false; P.vz=0; P.bobPhase=0; S.muzzle=0; keys.KeyW=0; P.vx=0; P.vy=0; P.weapon=0;');
+  const SEAT_ANG = +run('P.ang');           // what the deal authored for this seat, before the pin
   for (let i = 0; i < VCOST_REPS; i++) {
     for (const [arm, sink] of [['on', tOn], ['memo', tMemo], ['off', tOff]]) {
       run(REST);                    // settle once per batch; the pose is constant across a batch
-      sink.push(+run('window.__vmCost("' + arm + '", ' + VCOST_BATCH + ')'));
+      sink.push(+run('window.__vmCost("' + arm + '", ' + VCOST_BATCH + ', ' + VMHEAD + ')'));
     }
   }
+  /* THE DEALT FRAME, MEASURED AND PRINTED, NOT RECORDED: the price of the seat as it actually sits. One
+     batch on and one off at the heading THIS build's seatFacing handed the player, taken after the recorded
+     arms so drift cannot land on one side, and restored to the pinned heading before anything else reads
+     the page. On a build that authors no heading of its own SEAT_ANG IS the pinned literal, so those two
+     batches would re-time a scene already timed above, and their ratio would be the quotient of two
+     wall-clock medians taken in separate batches: 0.94x to 1.14x across four rolls of ONE unchanged main
+     tree, i.e. pure batch-to-batch drift printed beside a sentence claiming the ratio cannot be but 1. A
+     reader has to be told which of the two to believe, so the ratio is COMPUTED ONLY WHEN THERE IS A ROOM TO
+     PRICE (SEAT_ANG differs from VMHEAD) and the identity case quotes no number at all. The dealt ms are
+     printed whenever they are measured; in the identity case the line names the batch it already ran. */
+  const seatDiffers = Math.abs(SEAT_ANG - VMHEAD) > 1e-9;
+  let sOn = vmed(tOn), sOff = vmed(tOff);
+  if (seatDiffers) {
+    run(REST);
+    sOn = +run('window.__vmCost("on", ' + VCOST_BATCH + ', ' + SEAT_ANG + ')');
+    run(REST);
+    sOff = +run('window.__vmCost("off", ' + VCOST_BATCH + ', ' + SEAT_ANG + ')');
+  }
+  run(REST);
   run('window.drawViewModel = window.__VMSAVE; MESH.weapon = window.__VMWEAPON;');
   const vmD = vmed(tOn) - vmed(tOff), vmShare = vmD / Math.max(1e-6, vmed(tOn));
   const vmRebuild = vmed(tOn) - vmed(tMemo);
@@ -11950,8 +12062,18 @@ if (MODE === 'viewmodel') {
      fails because an optimization landed is the row everyone learns to ignore. */
   if (!(vmD > 0)) problems.push('the rig costs ' + vmD.toFixed(2) + ' ms of a frame while the rows above say it '
     + 'paints pixels - the cost arm is measuring nothing');
+  console.log('deal seat'.padEnd(24), 'the dealt heading ' + SEAT_ANG.toFixed(3) + ' rad' + (seatDiffers
+    ? ' costs ' + sOn.toFixed(2) + ' ms/frame with the rig, ' + sOff.toFixed(2) + ' without it ('
+      + (sOn / Math.max(1e-6, vmed(tOn))).toFixed(2) + 'x the pinned frame the row above times; the arms '
+      + 'there are timed at the pinned heading ' + VMHEAD + ', so a seat turned toward a storey prices the '
+      + 'ROOM here and cannot move VM-SHARE there)'
+    : ' IS the pinned heading ' + VMHEAD.toFixed(3) + ' this row already times, so the dealt seat and the '
+      + 'timed scene are ONE scene and no ratio between them is printed - a build that authors no heading of '
+      + 'its own has no room to price, and a quotient of two batches of the same scene is drift, not '
+      + 'agreement (the first build to turn the seat will print it)'));
   console.log('rig cost'.padEnd(24), 'on ' + vspread(tOn) + '  memo ' + vspread(tMemo) + '  off ' + vspread(tOff) +
-    ' ms/frame over ' + VCOST_REPS + ' batches of ' + VCOST_BATCH + ' frames - rig share ' + (100 * vmShare).toFixed(1) +
+    ' ms/frame over ' + VCOST_REPS + ' batches of ' + VCOST_BATCH + ' frames at the pinned heading ' + VMHEAD +
+    ', rig share ' + (100 * vmShare).toFixed(1) +
     '%, of which the per-frame geometry rebuild is ' + vmRebuild.toFixed(2) + ' ms'
     + (Math.abs(vmRebuild) < 0.1 ? ' (this arm has converged on the shipped path: the build is not being'
       + ' repeated per frame any more, so it measures nothing)' : '') + '. ms are THIS machine\'s numbers (#216:'
