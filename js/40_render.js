@@ -456,7 +456,7 @@ const CEILFL = 0.10;
    Dead where nothing is overhead: on a flat level `MAP.ceilSlab` is zero everywhere, so `und` is 0 for
    every pixel and neither copy of the ground pixel body runs a line of the term - flatparity's frames
    stay bit-identical. `SLABUND = 0` is the A/B that puts the old picture back in a running page. */
-const SLAB_ALB = 1.42, SLAB_RIB = 2, SLAB_RIBW = 0.30, SLAB_RIBK = 0.62, SLAB_LIP = 0.26, SLAB_LIPA = 0.9,
+const SLAB_ALB = 1.42, SLAB_RIB = 2, SLAB_RIBW = 0.34, SLAB_RIBK = 0.48, SLAB_LIP = 0.40, SLAB_LIPA = 1.35,
   SLAB_SEAM = 0.09, SLAB_SEAMK = 0.78;
 let SLABUND = 1;
 const visAt = d => 1 / (1 + d * d * 0.010) + 0.06 * Math.exp(-d * 0.06);
