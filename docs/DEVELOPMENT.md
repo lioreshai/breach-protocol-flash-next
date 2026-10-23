@@ -48,7 +48,7 @@ permanently-red row teaches everyone to ignore the rows that mean something.
 | `diag` | red-channel histograms per material plus measured coverage of every noise threshold helper |
 | `scene <level> [cam]` | one frame as a PNG plus its luminance stats. `WARM=1` turns the camera over 180 frames |
 | `rig` | pose sheet + coverage/bob metrics. **Dumps the RAW raster** — no light multiply, no fog |
-| `viewmodel` | every weapon through hip/ADS/recoil/reload/swap/sprint/airborne, with balanced save/restore |
+| `viewmodel` | every weapon through hip/ADS/recoil/reload/swap/sprint/airborne, with balanced save/restore. Its `rig cost` share is timed at ONE pinned heading, so a level turning the arrival seat cannot move it; the `deal seat` row beside it prices that turned seat, and quotes a ratio only when the dealt heading differs (#529) |
 | `anim` | does a body change SHAPE while it walks — drives the gait through the game's own `updateEnemies` and fails on a static stance. `KIND=`, `COST=1` |
 
 **Light and tone**
