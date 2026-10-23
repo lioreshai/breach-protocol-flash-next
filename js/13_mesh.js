@@ -472,6 +472,14 @@ const MESH = (function () {
 
   /* tapered tube from a to b (body space, y up, +z forward), radii ra->rb, colour c */
   Builder.prototype.tube = function (ax, ay, az, bx, by, bz, ra, rb, c) {
+    /* Probe-only arm (#587): `MESH.setRounds(false)` emits the rig's metal with NO round parts at all -
+       no barrel, magazine tube, stock, pump, grip or trigger guard - which is the one A/B that measures
+       how many of a carried gun's pixels a round part actually reaches the screen with. Gated on `wg`, so
+       it deletes the rig's prisms and nothing else: bodies, drums and crates take the same function with
+       the register clear. Inert in play (`WROUND` is true and nothing in the draw path sets it), and it is
+       a GEOMETRY skip, not a draw skip, so the triangles disappear from the submitted mesh and a row can
+       tell "the part is occluded" from "the part was never built". */
+    if (this.wg && !WROUND) return this;
     const pa = this.pt(ax, ay, az);
     const p0x = pa[0], p0y = pa[1], p0z = pa[2];            // pt shares one scratch array
     const pb = this.pt(bx, by, bz);
@@ -524,12 +532,41 @@ const MESH = (function () {
          the flat `TK = 0` branch exactly as they did before #588. Both pushes now test `wg` too.
            WHAT IT PUTS ON SCREEN, measured in ONE tree by deleting the rig's tube geometry outright
          (`if (this.wg) return this;` before the ring loop) and reading `viewmodel`'s own paint count: at
-         the HIP a pistol's tubes contribute 0 of its 10,357 px (258 tris vs 234 - submitted, and every one
-         of their pixels repainted by a part emitted later, because the rig deliberately writes no depth),
-         and SHOULDered they contribute 6,127 of 51,308. So this term reaches the screen when the gun is
-         shouldered and not at the hip, which is also why every recorded frame - all of them hip frames -
-         holds its byte, and why the surface the hip shows is still the box parts #588 wired in. The hip
-         tubes being overpainted wholesale is #587's stated remaining work alongside the ring term. */
+         the HIP a pistol's tubes contribute 0 of its 9,987 hip px - the figure `viewmodel` prints here, and
+         every one of those submitted pixels LOST A DEPTH TEST against geometry emitted before it, and SHOULDered they
+         contribute 6,127 of 51,308. So this term reaches the screen when the gun is shouldered and not at
+         the hip, which is also why every recorded frame - all of them hip frames - holds its byte, and why
+         the surface the hip shows is still the box parts #588 wired in.
+           THE EARLIER SENTENCE GOT THE MECHANISM BACKWARDS, and it cost a pass, so it is corrected here
+         rather than left to mislead the next reader. It said the hip pixels were "repainted by a part
+         emitted later, because the rig deliberately writes no depth". The rig DOES write depth: `near`
+         swaps `zbuf` for its own scratch array above (see the `o.near` block in `draw`), and the view
+         model's call site passes no `self` key, so SELF is true and a rig part is tested against the rig
+         parts emitted BEFORE it. Order decides which triangle is tested first, not which one wins; the
+         depth decides the pixel. The control is on #587 at this same head: walking the rig's triangle list
+         in reverse on a pistol hip frame is BYTE-IDENTICAL (0 px of 1202x676) - an emit-order change
+         cannot be the lever. Measured here by the delete-the-tubes A/B (`JSDIR=` against a tree carrying
+         `if (this.wg) return this;`) at 19af99e: deleting the pistol's tubes changes NO pixel at all -
+         `viewmodel` reads the same 9,987 hip px and a whole `scene 0 0` frame comes back byte for byte -
+         so the tubes lose to geometry in front of them. What is nearer at the hip is the slide/frame boxes and
+         the two fists: the bore is 0.245 m out with the muzzle pointing AWAY, so anything slung under or
+         ahead of the receiver is behind the box that carries it. THE NUMBER IS A ROW NOW, not a JSDIR A/B:
+         `node tools/view.js viewmodel` prints each gun's round-part px against its own hip paint through the
+         rig's `setRounds` arm (the same delete-the-prisms A/B, run in the shipped geometry), the 8% bar the
+         product decision set, and the debt to it; that row's floor is what fails if a part that reads stops
+         reading. Making the carried parts clear the bar is a POSITION change to the carried poses in
+         `weaponGeo`, which #587's product decision authorizes with the references it moves re-recorded; it
+         is not a shading term and not an ordering fix. Three position levers were measured against the bar
+         and are recorded so they are not re-tried: dropping the barrels and magazine tubes below the box
+         that carries them (the muzzle converges toward the vanishing point, so a part only clears the box by
+         more than perspective shrinks it, and below the box is where the fists and the forearms are), raking
+         the grips rearward (the rig already reaches the bottom edge of the frame, so rearward-and-down goes
+         off the picture rather than outside the silhouette), and moving the forearm outboard (the sleeve
+         paints ~3% of a shotgun's hip frame and none of a pistol's, so it is not what hides the pistol's
+         grip). None of the three reached a pistol pixel. The lever that does move the row is a part placed
+         NEARER the eye than the part that carries it - a round part set behind the receiver rather than under
+         it moves the hip bbox and about 945 px - and a control confirms the row sees it. The hip tubes being
+         depth-occluded wholesale is #587's stated remaining work alongside the ring term. */
       const mx = (ax + bx) * 0.5, my = (ay + by) * 0.5, mz2 = (az + bz) * 0.5;
       const fx = wSnap((bx - ax) * 0.5), fy = wSnap((by - ay) * 0.5), fz = wSnap((bz - az) * 0.5);
       sva = (ax - mx) * fx + (ay - my) * fy + (az - mz2) * fz;
@@ -1100,6 +1137,7 @@ const MESH = (function () {
      shape is the COV/GLOWREC one: inert in play, armed by the probe that needs it. */
   let WRAW = false;
   let VHANDS = true;                                // probe-only (#499): false emits the gun without its hands
+  let WROUND = true;                                // probe-only (#587): false emits the gun with no round parts
   const wq = (n, x) => x > 0 ? Math.round(x * n) / n : 0;   // 0 stays exactly 0, not 1/WQK
   /* The state a key's geometry is BUILT at, so one key maps to exactly one geometry. Building from the
      frame that happened to land in the bucket first makes presence a matter of luck: parts are authored as
@@ -1977,7 +2015,11 @@ const MESH = (function () {
     reset: () => { tris = 0; pxFilled = 0; trisCulled = 0; },
     setCache: v => { CACHE = !!v; POSE.clear(); poseBytes = 0; poseMade = 0; return CACHE; },
     setWRaw: v => { WRAW = !!v; return WRAW; },          // probe-only (#186): make the key serve nothing
-    setHands: v => { VHANDS = !!v; WEPO.clear(); wBytes = 0; return VHANDS; },   // probe-only (#499): emit the gun without its hands. THE CACHE GOES WITH THE SWITCH: geometry is keyed by pose alone, so a toggle that left WEPO filled would serve the OTHER arm's vertices and the A/B would measure nothing.
+    setHands: v => { VHANDS = !!v; WEPO.clear(); wBytes = 0; return VHANDS; },
+    /* probe-only (#587): emit the gun without its ROUND parts (every tube under `wg`). Same shape as
+       `setHands`, same cache rule: the key is the pose, so the toggle takes the cache with it or the
+       A/B serves the other arm's vertices and measures nothing. */
+    setRounds: v => { WROUND = !!v; WEPO.clear(); wBytes = 0; return WROUND; },   // probe-only (#499): emit the gun without its hands. THE CACHE GOES WITH THE SWITCH: geometry is keyed by pose alone, so a toggle that left WEPO filled would serve the OTHER arm's vertices and the A/B would measure nothing.
     trisFor: k => model(k || 'grunt').tris,
     // #78's readout: which kinds carry something, and how many sides the limbs get at the tier the page
     // is on. Both exist so a probe row can gate the detail instead of a screenshot describing it.
