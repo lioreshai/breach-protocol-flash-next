@@ -10017,7 +10017,27 @@ if (MODE === 'contrast') {
     }
     run('if (!COV || COV.length !== BW * BH) COV = new Uint8Array(BW * BH);');
     const bus = (sabotage) => {
-      if (sabotage) run(`(()=>{ const L = ${sabotage === 'wall' ? 'WALLS.slice()' : '[MAP.floorTex]'};
+      /* THE LIGHT-FIELD ARM, and it dispatches INSTEAD OF the texture arm below, never in addition to it.
+         The deck arm says whether the slope behind him is the DECK's paint; the wall-family arm says
+         whether it is the WALL's; neither can say whether it is the LAMP FIELD - `MAP.light` is a baked
+         per-cell field and a gradient across it is a slope the eye is delivered with no texel in it at
+         all. A textual keep-both resolution would be silently wrong here: this arm's value is truthy, so
+         an `if (sabotage)` texture arm would flatten the deck in the same render that is supposed to vary
+         only the light field, and the light row's figure would then be credited to the light path while
+         the deck's grain went with it - a two-arm render reporting as a control, the shape #240 forbids.
+         So the light value takes its own branch and the texture arm is an `else`.
+         What it does: overwrite the whole field with its own mean for ONE render, so the region behind
+         him keeps its geometry, its albedo and its haze and loses only the lamp's spatial step. If the
+         region's slope FALLS the residual is the light's step; if it does not fall - or rises, which is
+         what it does at every seat measured so far, because a flat field removes the smoothing a real
+         lamp's falloff applies across a busy face - the residual is the surface and the geometry behind
+         him, and the only side of the bar left is his own edge. Byte-identical render otherwise; the
+         field is restored from a slice before the next render, so nothing below inherits it. */
+      if (sabotage === 'light') {
+        run(`(()=>{ window.__busKeepL = MAP.light.slice(); let s = 0;
+          for (let i = 0; i < MAP.light.length; i++) s += MAP.light[i];
+          MAP.light.fill(s / MAP.light.length); window.__busSab = null; return 1 })()`);
+      } else if (sabotage) run(`(()=>{ const L = ${sabotage === 'wall' ? 'WALLS.slice()' : '[MAP.floorTex]'};
         window.__busKeep = L.map(t => ({ t, d: t.data, m: t.mips }));
         let dev = 0, mean = 0, nn = 0;
         for (const t of L) {
@@ -10037,7 +10057,8 @@ if (MODE === 'contrast') {
       run('ENEMIES.length = 0; S.t = 3.5; ' + VMREST + ' renderWorld();');
       const Bb = new Uint32Array(run('px'));
       run('ENEMIES.length = 0; for (const q of __dKeep) ENEMIES.push(q);');
-      if (sabotage) run('(()=>{ for (const k of window.__busKeep) { k.t.data = k.d; k.t.mips = k.m; } return 1; })();');
+      if (sabotage === 'light') run('MAP.light.set(window.__busKeepL);');
+      else if (sabotage) run('(()=>{ for (const k of window.__busKeep) { k.t.data = k.d; k.t.mips = k.m; } return 1; })();');
       const ring = ringOf(M), ed = edgeOf(A, M, ring);
       let n = 0, gs = 0, bg = 0, bn = 0;
       for (let y = 1; y < H - 1; y++) {
@@ -10050,10 +10071,10 @@ if (MODE === 'contrast') {
           if (M[i - 1] && M[i + 1] && M[i - W] && M[i + W]) { bn++; bg += Math.abs(lum(A, i + 1) - lum(A, i - 1)) * 0.5; }
         }
       }
-      const sab = sabotage ? run('window.__busSab') : null;
+      const sab = sabotage && sabotage !== 'light' ? run('window.__busSab') : null;
       return { n, back: n ? gs / n : 0, body: bn ? bg / bn : 0, bpx: bn, dl: ed.dl, en: ed.en, sab };
     };
-    const m0 = bus(false), m1 = BUSFLAT ? bus(true) : null, m2 = bus('wall');
+    const m0 = bus(false), m1 = BUSFLAT ? bus(true) : null, m2 = bus('wall'), m3 = bus('light');
     const name = 'L' + lv + ' at ' + BUS_D + ' m: the paint behind him vs his outline (#416)';
     if (m0.n < BUS_MINPX || !m0.en) {
       row(name, false, 'vacuous: ' + m0.n + ' coverage px behind the body (' + m0.en + ' with a background) at '
@@ -10079,6 +10100,15 @@ if (MODE === 'contrast') {
           + 'paint and ' + m2.back.toFixed(2) + ' is what the light path and the geometry deliver with no '
           + 'wall grain to quiet'),
       m0.bpx >= BUS_CUSH && m0.dl >= m0.back * BUS_RATIO ? undefined : '#416')
+      + ' | with the seat\'s LIGHT FIELD held at one value the same region behind him reads '
+      + m3.back.toFixed(2) + ' luma/px and his outline step reads ' + m3.dl.toFixed(1)
+      + ', so the lamp\'s own step is ' + (m3.back - m0.back).toFixed(2) + ' luma/px of the '
+      + m0.back.toFixed(2) + ' the eye is given'
+      + (m3.back <= m0.back - 0.02
+        ? ' - the light path IS part of the residual here and a quieter field would buy edge for free'
+        : ' - holding the field FLAT makes the surface behind him no quieter, so the residual is not a '
+          + 'light step: it is the surface and the geometry behind him, and the side of the bar still '
+          + 'open is the body\'s own edge')
       + (m1 ? ' | with THIS DECK FLATTENED to its own mean (grain taken to 0, mean luma '
         + m1.sab.mean.toFixed(1) + ', mip chain rebuilt) the same region behind the SAME body reads '
         + m1.back.toFixed(2) + ' luma/px, so the figure above IS the paint and not the light field' : '')
@@ -10106,6 +10136,21 @@ if (MODE === 'contrast') {
       + 'geometry - a lamp falloff, a junction, an edge - which no albedo constant can quiet. A run that '
       + 'reads the SAME number with the wall family flattened has an arm that moves nothing, which is a '
       + 'statistic that stopped reading the paint.', '#416');
+    /* The WALL arm prices the paint; it cannot price what is LEFT, and at ARCHIVE that residual is the
+       whole argument. This is the arm that reaches it: `MAP.light` is a baked per-cell field, so a
+       gradient across it is a slope the eye is delivered with no texel in it. It runs INSTEAD OF the
+       texture arm above - never in addition - so the only thing this render varies is the lamp field.
+       Like the wall row it is a WIRING assertion and not a budget: an arm that reads the same number
+       with the field flattened is a render that never read MAP.light, which is exactly the failure #240
+       makes every arm in this probe prove it cannot have. */
+    row('L' + lv + ': holding the light field behind him at one value moves the same pixels (#416 falsifier)',
+      Math.abs(m3.back - m0.back) > 0.02,
+      'overwriting MAP.light with its own mean for ONE render (geometry, albedo, haze and fog '
+      + 'untouched; the field is restored from a slice before the next render, and NO texture is touched '
+      + 'by this arm) moves the busyness BEHIND THE SAME BODY from ' + m0.back.toFixed(2) + ' to '
+      + m3.back.toFixed(2) + ' luma/px and his outline step from ' + m0.dl.toFixed(1) + ' to '
+      + m3.dl.toFixed(1) + '. A run that reads the SAME number with the field flattened has an arm that '
+      + 'never read the light path, which is a control that stopped being a control.', '#416');
     if (!m1) continue;
     row('L' + lv + ': flattening the deck under him quiets the same pixels (#416 falsifier)',
       m1.back <= m0.back * 0.5,
