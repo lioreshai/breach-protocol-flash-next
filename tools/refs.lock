@@ -5,8 +5,8 @@
 # A declaration with no row here fails REFS-DECLARED-MISSING; a row with no declaration fails
 # REFS-IN-TABLE-UNDECLARED; an edited literal fails REFS-VALUES-MOVED. None of the three is a
 # warning, and the row runs inside flatparity, which ci.yml runs blocking.
-ref	alt	DARK-COVERED	num	92.9 64.5 57.2 39.3
-ref	alt	DARK-SHARE	num	1.6 7.2 4.3 10.9
+ref	alt	DARK-COVERED	num	92.9 64.5 57.2 61.5
+ref	alt	DARK-SHARE	num	1.6 7.2 4.3 5.1
 ref	alt	GRID-CENSUS	num	9 170 2 46 9 251 2 52 9 310 2 56 9 134 4 15
 ref	alt	OOB-ERA	num	19 10 16 0
 ref	alt	OOB-NONCLIMB	num	0 0 0 0
@@ -20,9 +20,9 @@ ref	cull	CZBAND	crc32	0x65d4c370 0x0dba6ff8 0x79def1ac 0xae040570
 ref	cull	CZBAND-LIGHT	crc32	0x39c77f70 0xf87f0f7c 0x842c3a10 0x3c2380c0
 ref	exposure	MEDIAN	num	77 76 64 77
 ref	exposure	SPAWN	num	72 65 73 60 73 76 59 63
-ref	flatparity	DEALT	md5	62e976f65295c0a8720cb240ee2713e2 940c3e0995dae1d57529b3ff2e8cdfb1 ff1bea6628f6fcae51f896d81c4f7fe4 099653067db3115decec9bb3e45bef91
-ref	flatparity	LOCK	md5	eb2b965c6091a35d67c612255b4dd2fe d5544ec8660e65868b453969932a984e 2b1037a69a70c44e703c235a07c56393 74aa63e4d5cb1be3a13946b78fdf5e6f
-ref	flatparity	PARITY	md5	d515740df07bd43702fe5d0506849ff3 ae1ef68271d09b4c2e63838d6b88bf27 4d57549f006ab08f69494aa36a05586b 3861c2f9441de9993f4208be75289b4d
+ref	flatparity	DEALT	md5	62e976f65295c0a8720cb240ee2713e2 940c3e0995dae1d57529b3ff2e8cdfb1 ff1bea6628f6fcae51f896d81c4f7fe4 467d5dfd59860804e13ff1e14ef7db2f
+ref	flatparity	LOCK	md5	eb2b965c6091a35d67c612255b4dd2fe d5544ec8660e65868b453969932a984e 2b1037a69a70c44e703c235a07c56393 b8f1caabdcc5abc30501966cf34c00ce
+ref	flatparity	PARITY	md5	d515740df07bd43702fe5d0506849ff3 ae1ef68271d09b4c2e63838d6b88bf27 4d57549f006ab08f69494aa36a05586b f9e2a65d0d1875301efb35d83e4a446d
 ref	heights	HALF-MOVE	num	98.29 31.21 80.61 95.40 42.82 61.95 98.86 33.85 29.01 95.60 42.72 64.34 98.31 32.57 80.68 95.54 42.87 63.30 97.74 23.55 21.51 95.48 38.35 54.51
 ref	props	CTRL-RAT	num	0.406 0.471 0.306 0.431
 ref	props	LAMPCORE	num	263 239.4 263 239.4 263 239.2 245 239.4
