@@ -8163,6 +8163,43 @@ if (MODE === 'heights') {
       const zPit = zbufCopy(), hzB = run('Math.round(horizon)'), eyeB = run('eyeZ');
       const y0 = Math.round(hzB + eyeB * PBH / DL) + 1, y1 = Math.round(hzB + (eyeB + 2) * PBH / DL) - 1;
       const b = run(PCENSUS);
+      /* WHICH PIXEL THE FAR LIP ACTUALLY OWNS (the reason four attempts on this issue measured inert).
+         The band y0..y1 is the projected span of the authored face, and a span is not a claim: a ray that
+         is steep enough to hit the DECK floor before it reaches the lip is correctly answered by that
+         floor at 1.8-3.2 m, and demanding the lip's 8.5 m there asks for a phantom. So each lip pixel is
+         now asked about its OWN ray - the same far-referenced march poseA uses - and judged against the
+         surface that ray arrives at, at the crossing when the march names one (#518's gWalkT) and at the
+         plane's solve when it does not. The row keeps the authored face as its target for the pixels
+         whose ray really does arrive there (cov), so the 8.5 m invariant #516 was filed with is still
+         asserted, just only where it is geometrically true; and a pixel whose own arrival is nearer is
+         allowed to be nearer instead of being called a phantom it is not. Tolerance is the grid's own
+         quantum ZQ, the same one poseA's two-solvers row uses - nothing here is widened to pass: the
+         shipped build fails this row by 0.45 m on the lip's own rows, which is the whole complaint.
+         The march runs with a far cap and can spend heights' re-solve budget, so that counter is restored
+         exactly as PCENSUS does. */
+      const lip = run(`(()=>{const N=MAP.w,z=new Float32Array(zbuf),hz=Math.round(horizon),DL=${DL.toFixed(6)};
+      const ex=camX|0,ey=camY|0,air=ex>=0&&ey>=0&&ex<N&&ey<N&&!MAP.cell[ey*N+ex];
+      let plA=air?MAP.fz[ey*N+ex]*ZQ:eyeZ; if(!(plA<eyeZ)) plA=Math.min(0,eyeZ-ZQ);
+      let n=0,near=0,far=0,cov=0,lipBad=0,mx=0,where='',pRow=0,pDef=0,pSlab=0,pFar=0,rs=reSolveBad;
+      for(let y=${Math.max(hzB + 1, y0)};y<=${Math.min(PH - 1, y1)};y++){const absP=y-hz,dRow=(eyeZ-plA)*BH/absP;
+        for(let x=${(PW * 0.3) | 0};x<${(PW * 0.7) | 0};x+=3){const cf=x*(2/BW)-1,rx=dirX+planeX*cf,ry=dirY+planeY*cf;
+          const pw=planeAlong(rx,ry,-1e9,true,absP),pwT=gWalkT,got=z[y*BW+x];
+          const dW=pw>-1e8?(pwT>=0?Math.min(pwT,FARB*4):(eyeZ-pw)*BH/absP):Math.min(dRow,FARB*4);
+          if(!(got>0)||!(dW>0)||!isFinite(dW))continue;n++;
+          const e=got-dW;
+          if(Math.abs(e)>ZQ){if(e<0)near++;else far++;if(Math.abs(e)>mx){mx=Math.abs(e);
+            where='row '+(y-hz)+' col '+x+' stores '+got.toFixed(2)+' m where its own ray arrives at '+dW.toFixed(2)+' m';}
+          /* WHICH PASS WROTE IT - the nearer half of the same attribution PCENSUS does for the farther
+             half, so a red row names a pass and not only a distance. Same three tests, same arithmetic:
+             the cell the row's own distance lands in carries the eye's plane (the row fill), a different
+             one (the deferred copy), a plane at or above the eye (#192 slab branch), or the ray is past
+             FARB (the whole-row wash). */
+            const dR=(eyeZ-plA)*BH/absP,gx=(camX+rx*dR)|0,gy=(camY+ry*dR)|0;
+            const ok=gx>=0&&gy>=0&&gx<N&&gy<N&&!MAP.cell[gy*N+gx];
+            const plC=ok?MAP.fz[gy*N+gx]*ZQ:plA;
+            if(dR>FARB)pFar++;else if(plC>=eyeZ)pSlab++;else if(plC!==plA)pDef++;else pRow++;}
+          if(Math.abs(dW-DL)<=ZQ){cov++;if(Math.abs(got-DL)>ZQ)lipBad++;}}}
+      reSolveBad=rs;return {n,near,far,cov,lipBad,mx,where,pRow,pDef,pSlab,pFar};})()`);
       const err = [];
       for (let y = Math.max(hzB + 1, y0); y <= Math.min(PH - 1, y1); y++)
         for (let x = (PW * 0.3) | 0; x < PW * 0.7; x += 3) {
@@ -8183,12 +8220,20 @@ if (MODE === 'heights') {
           const p = zPit[y * PW + x], f = zFill[y * PW + x];
           if (isFinite(p) && isFinite(f) && Math.abs(p - f) > 1) { ch++; break; }
         }
-      const bok = !b.phantom && err.length > 200 && wide === 0 && ch > 0;
+      const bok = !b.phantom && lip.n > 200 && lip.cov > 0 && lip.lipBad === 0 && lip.near === 0 && lip.far === 0 && ch > 0;
       if (!bok) poseBad++;
       console.log('  ' + pad('poseB', 9) + ' #516 from the deck the pit\'s FAR LIP holds the rows the geometry says: rows ' +
         y0 + '..' + y1 + ' are the ' + DL.toFixed(1) + ' m riser, ' + err.length + ' px sampled, median depth error ' +
-        (isFinite(med) ? med.toFixed(2) : 'n/a') + ' m and ' + wide + ' px more than 0.5 m out' +
-        (wide === 0 && err.length > 200 ? '  ok' : '  FAIL LIP-ROWS-PHANTOM') +
+        (isFinite(med) ? med.toFixed(2) : 'n/a') + ' m across the projected band (KNOWN debt: ' + wide +
+        ' px of that band are a surface their own ray reaches FIRST, attributed by pass below rather than '
+        + 'called a phantom - the band is a projection, not an occlusion test); ' +
+        lip.n + ' lip px judged against their own ray, ' + lip.cov + ' of them arrive AT the authored ' +
+        DL.toFixed(1) + ' m face and ' + lip.lipBad + ' of those store something else, ' + lip.near +
+        ' nearer / ' + lip.far + ' farther than their own arrival by more than one quantum, written by '
+        + lip.pRow + '/' + lip.pDef + '/' + lip.pSlab + '/' + lip.pFar + ' (row fill / deferred copy / slab branch / far wash)' +
+        (lip.n > 200 && lip.cov > 0 && lip.lipBad === 0 && lip.near === 0 && lip.far === 0 ? '  ok'
+          : '  FAIL LIP-ROWS-PHANTOM' + (lip.cov === 0 ? ' + LIP-COVERAGE-DEAD: no lip ray arrives at the authored face, so this row proves nothing' : '') +
+            (lip.where ? ': worst ' + lip.where : '')) +
         `; ${b.phantom} phantom px over the whole lower half` + (b.phantom ? '  FAIL PIT-FLOOR-PHANTOM' : '') +
         `; the PIT-FILLED control moves ${ch} of ${Math.max(0, y1 - y0 + 1)} lip rows by > 1 m` +
         (ch > 0 ? '' : '  FAIL PIT-CONTROL-DEAD: filling the pit changes nothing, so the lip was never geometry'));
