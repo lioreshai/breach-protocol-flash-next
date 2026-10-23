@@ -10283,7 +10283,15 @@ if (MODE === 'contrast') {
       const s = sepSeat(lv, r);
       if (s.why) { if (s.why === 'cone') cone++; continue; }
       posed++;
-      if (!worst || s.dc < worst.dc || s.dv < worst.dv) worst = { r, dc: s.dc, dv: s.dv, n: s.n, kind: s.kind };
+      /* WORST means WORST: the deal closest to FAILING, which is the smaller of the two margins each put
+         on its OWN bar (a luma step and an opponent-plane step do not share a unit, so the only honest
+         comparison is margin-over-bar). The first cut kept the last roll that moved EITHER axis down,
+         which is a scan that can skip the deal that actually fails: at main 19af99e L0 roll 6 sits at
+         0.43 luma of value step - under a tenth of the bar - and never reached the row, because roll 11
+         later moved the COLOUR axis and overwrote it. A sweep row that cannot name the deal closest to
+         failing is the #611 acceptance printed in a dialect that cannot fail. */
+      const sepMargin = q => Math.min(q.dv / SEP_V, q.dc / SEP_C);
+      if (!worst || sepMargin(s) < sepMargin(worst)) worst = { r, dc: s.dc, dv: s.dv, n: s.n, kind: s.kind };
     }
     row('L' + lv + ': the worst of ' + SEP_ROLLS + ' deals separates on both axes (#611)',
       !!worst && worst.dc >= SEP_C && worst.dv >= SEP_V,
