@@ -49,7 +49,12 @@ const LG_ROW = 0, LG_DEF = 1, LG_FAR = 2, LG_N = 3;
    #375's fix is made of: a pixel the level has no lamp for takes ambient, so that maximum is 0.
    It is not 0 on the behaviour before the fix, which handed every off-map pixel the light of the cell
    the row's walk last reached, at any distance. Scaled to an int because LGCNT is an Int32Array. */
-const LG_OFFMAP = 9, LG_OFFMAX = 10, LG_ROWOFF = 11, LG_ROWOFFMAX = 12, LG_OFFCEIL = 13, LG_OFFCMAX = 14, LG_NTOT = 15;
+const LG_OFFMAP = 9, LG_OFFMAX = 10, LG_ROWOFF = 11, LG_ROWOFFMAX = 12, LG_OFFCEIL = 13, LG_OFFCMAX = 14,
+  /* #19 take seventeen: how many of the far band's FAN SAMPLES landed off the level and were therefore
+     painted the air colour rather than a material's mean. It is a SAMPLE count, not a pixel count, and it
+     is the non-vacuity half of the void row in `heights`: a build that never sends a ray off the level
+     cannot claim to have answered one. */
+  LG_FARVOID = 15, LG_NTOT = 16;
 let G_TRI = false, G_GRIT = 0;                                  // derived from QUAL.rast
 /* #164: altitude reached the geometry and no pixels. A seam at the CREASE of every step the render
    ray crosses - the foot darkened, the far lip lifted - is the one cue that survives a dark room, so
@@ -690,6 +695,29 @@ let MIPAX = 1, MIPAR = 4;
    none of them adds a THIRD copy of the ground pixel body: a switch shows up as a zero slope, a zero
    offset or one fewer load, not as a new loop. */
 let GJIT = 1, GLRP = 1, GNDAX = 1, AXMIN = 1, GLC = null, GNDFT = 1, GNDRO = 1, GNDFB = 1, GNDOF = 1, GNDNB = 1;
+/* #19 take seventeen - THE FAR ANSWER'S OTHER HALF. Take five settled what a far pixel ANSWERS with
+   (the material's mip mean, because a row out there spans more world than the chain holds). It left one
+   question unanswered: what a far ray answers with when it has NO MATERIAL to average, because it left
+   the level. Both copies gave it the material mean at light 0, which is `mean * baseRow` - a slab of
+   ambient-lit stone past the map's own edge, brighter than the air it is supposed to be, cut top and
+   bottom by the straight lattice line where the row solve crosses the boundary. A census of the four
+   arrival seats (issue #19, 2026-10-20) found the whole flat mid-field sheet at THREE of them is that
+   case: every fan sample of every far row solves OUTSIDE the level. A surface that is not there cannot
+   be lit by its own ambient, so such a sample now takes the answer the frame already gives a ray with
+   nothing in front of it - the air colour, `FOGC` at full fog, the same value the `p === 0` horizon row
+   fills (js/40_render.js:1268) and the same value a wall column leaves when it hits nothing. The mix is
+   by COVERAGE of the row's own fan: a row whose samples all land in the level is bit-identical to the
+   build before this switch, and one whose samples all leave it is exactly the horizon colour.
+   FARVOID 0 is the A/B - `DEV.set('farvoid', 0)` puts the slab back in the running page. */
+let FARVOID = 1;
+/* The ramp it arrives on. A far row's colour is a ROW-CONSTANT fill, and the ray that leaves the level
+   does so at a distance the textured side of the boundary has already painted with the material at light
+   0 - so switching at FARB puts a step of |mean * base - FOGC| right where the row crosses the radius,
+   which `bands` measures as the FARB-boundary step and which measured 17.6-23.9 mean / 67.9 worst against
+   its own bound of 8 <= 8 on the first cut. VOIDK is the same shape #616's surface pass uses: the void
+   share ramps from 0 at FARB to 1 at FARB*1.6, so the crossing is continuous BY CONSTRUCTION and the
+   air answer only owns pixels far enough out that no texel was ever going to be read there anyway. */
+const VOIDK = 1 / (22 * 0.6);
 /* #19 take nine - THE MAGNIFIED PIXEL. Take three's lerp reads ONE axis: the one the row walks along,
    which is the footprint's SHORT side. That is the right single axis wherever the pair and the graded
    blend run - there the long side is averaged by the pair, so lerping it again would only blur - but in
@@ -1322,7 +1350,7 @@ function castGround(flash, fcR, fcG, fcB) {
       const mm = tex && tex.mips ? tex.mips[tex.mips.length - 1] : tex;
       texAvg(mm);
       const dcN = mm.meanNE, dcE = mm.meanEM, wEm = mm.emFrac, wLit = (1 - mm.emFrac) * (1 / FARFAN);
-      let ar = wEm * dcE[0] * invRow, ag = wEm * dcE[1] * invRow, ab = wEm * dcE[2] * invRow;
+      let ar = wEm * dcE[0] * invRow, ag = wEm * dcE[1] * invRow, ab = wEm * dcE[2] * invRow, offN = 0;
       for (let s = 0; s < FARFAN; s++) {
         const cm = fcam + fstep * s;
         const sx = (camX + (dirX + planeX * cm) * dRaw) | 0, sy = (camY + (dirY + planeY * cm) * dRaw) | 0;
@@ -1332,9 +1360,26 @@ function castGround(flash, fcR, fcG, fcB) {
         if (cnt) { cnt[LG_FAR]++; if (li > LG_CEIL) cnt[LG_FAR + LG_N]++; }   // site run / lookup above 1.0
         if (li > lgc) li = lgc;                                      // #21, these cells are not the camera's
         if (cnt && li > LG_CEIL) cnt[LG_FAR + 2 * LG_N]++;              // delivered above 1.0 = the defect
-        ar += wLit * dcN[0] * (baseRow + li * (inMap ? lta[ci * 3] * inv128 : 1));
-        ag += wLit * dcN[1] * (baseRow + li * (inMap ? lta[ci * 3 + 1] * inv128 : 1));
-        ab += wLit * dcN[2] * (baseRow + li * (inMap ? lta[ci * 3 + 2] * inv128 : 1));
+        if (inMap || !FARVOID) {                                      // #19 take seventeen: off-map samples
+          ar += wLit * dcN[0] * (baseRow + li * (inMap ? lta[ci * 3] * inv128 : 1));   // buy no material
+          ag += wLit * dcN[1] * (baseRow + li * (inMap ? lta[ci * 3 + 1] * inv128 : 1));
+          ab += wLit * dcN[2] * (baseRow + li * (inMap ? lta[ci * 3 + 2] * inv128 : 1));
+        }
+        if (!inMap) offN++;
+      }
+      /* #19 take seventeen, the coverage correction. Each sample that left the level replaces its share
+         of the material - LIT mean AND emissive mean, since a void carries neither - with the air colour
+         at this row's own fog. Weighted by offN/FARFAN, so a row with nothing off-map pays zero here and
+         a row entirely off-map lands on `fc * invRow`, which plus the row's own `fc * fogRow` add below
+         is `fc` exactly: the horizon colour, one number, no slab, no seam at the boundary. */
+      if (FARVOID && offN) {
+        let vr = (dRaw - FARB) * VOIDK;                        // VOIDK: 0 at the radius, 1 at 1.6x it
+        if (vr > 1) vr = 1; else if (vr < 0) vr = 0;
+        const oS = offN * (1 / FARFAN), iv = 1 - vr;
+        ar += offN * wLit * dcN[0] * baseRow * iv + oS * vr * (fcR * invRow - wEm * dcE[0] * invRow);
+        ag += offN * wLit * dcN[1] * baseRow * iv + oS * vr * (fcG * invRow - wEm * dcE[1] * invRow);
+        ab += offN * wLit * dcN[2] * baseRow * iv + oS * vr * (fcB * invRow - wEm * dcE[2] * invRow);
+        if (cnt) cnt[LG_FARVOID] += offN;
       }
       /* DEPTH of the far band, ceiling rows of a stepped grid: the fill's COLOUR says "everything past
          FARB", and on a flat level that is true of every column of the row. It is not true under a
@@ -1915,7 +1960,7 @@ function castGround(flash, fcR, fcG, fcB) {
 let gSer = 0, gMSer = -1, gMRow = -1, gMPl = 0, gMDS = 0, gMDfa = 0, gMFog = 0, gMInv = 0, gMFR = 0,
   gMFG = 0, gMFB = 0, gMBase = 0, gMCx0 = 0, gMCy0 = 0, gMCxs = 0, gMCys = 0,
   gMCf = 0, gMAx = 0, gMWs = 0, gMAn = 1, gMAr = 4, gMN = 0, gMDist = -1, gMMirOn = 0,
-  gMFar = 0, gMWnR = 0, gMWnG = 0, gMWnB = 0, gMWErr = 0, gMWEg = 0, gMWEm = 0, gMLift = 0,
+  gMFar = 0, gMVoid = 0, gMWnR = 0, gMWnG = 0, gMWnB = 0, gMWErr = 0, gMWEg = 0, gMWEm = 0, gMLift = 0,
   gLSer = -1, gLSX = 0, gLSY = 0, gML0 = 0, gML1 = 0, gML2 = 0, gMMir = 0,
   gMA0 = 0, gMA1 = 0, gMA2 = 0, gMB0 = 0, gMB1 = 0, gMB2 = 0, gMD0 = 0, gMD1 = 0, gMD2 = 0;
 
@@ -1969,7 +2014,9 @@ function gndBuild(row, isF, absP, pl, tex, sc, fcR, fcG, fcB, fl, amb, dOv) {
     gMFar = 1;
     gMWnR = mm.meanNE[0] * wLit; gMWnG = mm.meanNE[1] * wLit; gMWnB = mm.meanNE[2] * wLit;
     gMWErr = mm.meanEM[0] * wEm; gMWEg = mm.meanEM[1] * wEm; gMWEm = mm.meanEM[2] * wEm;
-  } else gMFar = 0;
+    let vR = (dc - FARB) * VOIDK;                              // the SAME ramp as the row copy, this
+    gMVoid = FARVOID ? (vR > 1 ? 1 : vR < 0 ? 0 : vR) : 0;     // pixel's OWN solve, not the row's
+  } else { gMFar = 0; gMVoid = 0; }
 }
 
 /* Where a DESCENDING ray goes under a slab, as the crossing's own distance along (dir + plane*cam) - or
@@ -2297,8 +2344,23 @@ function groundPixel(x0, x1, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb
      that pixel's own light times the mean, plus the wash's emissive share, which takes no light and
      keeps only the fog term, exactly as an emissive texel does one screen nearer in either copy. */
   if (gMFar) {
-    px[row + x] = 0xFF000000 | clampi(gMWnB * lb + gMWEm + gMFB) << 16 |
-      clampi(gMWnG * lg + gMWEg + gMFG) << 8 | clampi(gMWnR * lr + gMWErr + gMFR);
+    /* #19 take seventeen, the SECOND copy (AGENTS.md counts the duplication as the price of the row
+       loop's registers): a far pixel whose ray left the level pays the air colour, the same answer the
+       row loop's fan gives its off-map samples and the same colour the `p === 0` horizon row fills. It
+       is the identical test the #375 block above already makes - `own`, the landing cell guarded on BOTH
+       axes because a cell index is one number - so the two copies cannot disagree about which pixels are
+       void, and `cull`'s deferred-copy control stays the row that proves it. FARVOID 0 puts the material
+       mean back for both copies with one DEV.set. */
+    const vV = gMVoid;
+    if (FARVOID && vV > 0 && !own) {
+      const iv = 1 - vV;
+      px[row + x] = 0xFF000000 | clampi((gMWnB * lb + gMWEm) * iv + gMFB + vV * fcB) << 16 |
+        clampi((gMWnG * lg + gMWEg) * iv + gMFG + vV * fcG) << 8 |
+        clampi((gMWnR * lr + gMWErr) * iv + gMFR + vV * fcR);
+      if (cnt) cnt[LG_FARVOID]++;
+    } else
+      px[row + x] = 0xFF000000 | clampi(gMWnB * lb + gMWEm + gMFB) << 16 |
+        clampi(gMWnG * lg + gMWEg + gMFG) << 8 | clampi(gMWnR * lr + gMWErr + gMFR);
     continue;
   }
   /* The mip SELECTION is here rather than with the other per-pixel setup because the band above must
