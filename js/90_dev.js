@@ -264,6 +264,7 @@
     if (name === 'gndfilt') { GNDFT = value === undefined ? 1 : (value ? 1 : 0); return { gndfilt: GNDFT, gndbil: GNDNB }; }
     if (name === 'gndramp') { GNDRO = value === undefined ? 1 : (value ? 1 : 0); return { gndramp: GNDRO }; }
     if (name === 'gndfar') { GNDFB = value === undefined ? 1 : (value ? 1 : 0); return { gndfar: GNDFB, far: GQ.far }; }
+    if (name === 'farvoid') { FARVOID = value === undefined ? 1 : (value ? 1 : 0); return { farvoid: FARVOID }; }
     if (name === 'gndoff') { GNDOF = value === undefined ? 1 : (value ? 1 : 0); return { gndoff: GNDOF }; }
     if (name === 'gndbil') { GNDNB = value === undefined ? 1 : (value ? 1 : 0); return { gndbil: GNDNB }; }
     if (name === 'gndfade') {
