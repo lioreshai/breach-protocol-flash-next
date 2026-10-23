@@ -11962,22 +11962,61 @@ if (MODE === 'viewmodel') {
      the same reason. The value returned is still ms/frame, and the share is taken between medians of
      batches, so neither the resolution nor the pose drift inside a batch enters the number. */
   const VCOST_BATCH = +(process.env.VMCOST_BATCH || 20), VCOST_REPS = +(process.env.VMCOST_REPS || 7);
+  /* #529 - THE DENOMINATOR IS A SCENE, SO THE PROBE PINS THE SCENE.
+     The share below is rig ms over FRAME ms, and until now the frame was whatever the dealt seat happens to
+     show. That made a REPORTING row report the room: with only the arrival heading differing between two
+     js/ trees (PR #482 turns the seat to face the storey the level built over it), the same rig read 6.4%
+     on one arm and 1.7% on the other while the rig's own ms did not move - the frame under it went 24.95 to
+     51.85 ms/frame, and the paying pass is the deferred ground copy `groundPixel()` (issue #529, arms and
+     CPU profile in that issue's thread; on this head the same arm pair is 29.35 ms/frame with the rig
+     against 24.10 without it). A row that can go red because a level changed where it points you cannot
+     answer the question #186 built it for, which is "did the RIG stop paying".
+     THE FIX IS THE BASIS, NOT THE NUMBER: all three timed arms now render at ONE pinned heading, the
+     literal every level authored before a dealt heading existed. On main that is bit-identical to what this
+     row already measured, because main seats every level at the same literal (js/20_level.js: `P.ang = 0.6`
+     on both the generated and the authored path), so NO record moves and no tolerance moves - which is the
+     half of this change that keeps it from being the thing #529 rule 3 forbids: re-recording a wall-clock
+     share to make a reporting row quiet. What the pin removes is the scene's right to vote; the rig's own
+     cost still moves the row, and the deal's own frame is still MEASURED and printed on the next line, at
+     the dealt heading, as a census of the price rather than as a gate on the rig. */
+  const VMHEAD = 0.6;
   run('window.__VMWEAPON = MESH.weapon; window.__VMWEAPON_MEMO = (function () { var M = {}; return function (k, st) '
     + '{ var h = M[k]; if (h !== undefined) return h; var g = window.__VMWEAPON(k, st); M[k] = g; return g; }; })();'
-    + 'window.__vmCost = function (mode, n) { window.drawViewModel = (mode === "off") ? function () {} : window.__VMSAVE;'
+    + 'window.__vmCost = function (mode, n, ang) { window.drawViewModel = (mode === "off") ? function () {} : window.__VMSAVE;'
     + ' MESH.weapon = (mode === "memo") ? window.__VMWEAPON_MEMO : window.__VMWEAPON;'
+    + ' if (ang !== undefined && ang !== null) P.ang = ang;'
     + ' var t = performance.now(); for (var i = 0; i < n; i++) renderWorld(); return (performance.now() - t) / n; };');
   const vmed = a => { const s = a.slice().sort((x, y) => x - y); return s.length & 1 ? s[s.length >> 1]
     : (s[s.length / 2 - 1] + s[s.length / 2]) * 0.5; };
   const vspread = a => vmed(a).toFixed(2) + ' (' + Math.min(...a).toFixed(2) + '..' + Math.max(...a).toFixed(2) + ')';
   const tOn = [], tMemo = [], tOff = [];
   run('P.ads=0; P.kick=0; P.reloadT=0; P.swapT=0; P.sprint=0; P.air=false; P.vz=0; P.bobPhase=0; S.muzzle=0; keys.KeyW=0; P.vx=0; P.vy=0; P.weapon=0;');
+  const SEAT_ANG = +run('P.ang');           // what the deal authored for this seat, before the pin
   for (let i = 0; i < VCOST_REPS; i++) {
     for (const [arm, sink] of [['on', tOn], ['memo', tMemo], ['off', tOff]]) {
       run(REST);                    // settle once per batch; the pose is constant across a batch
-      sink.push(+run('window.__vmCost("' + arm + '", ' + VCOST_BATCH + ')'));
+      sink.push(+run('window.__vmCost("' + arm + '", ' + VCOST_BATCH + ', ' + VMHEAD + ')'));
     }
   }
+  /* THE DEALT FRAME, MEASURED AND PRINTED, NOT RECORDED: the price of the seat as it actually sits. One
+     batch on and one off at the heading THIS build's seatFacing handed the player, taken after the recorded
+     arms so drift cannot land on one side, and restored to the pinned heading before anything else reads
+     the page. On a build that authors no heading of its own SEAT_ANG IS the pinned literal, so those two
+     batches would re-time a scene already timed above, and their ratio would be the quotient of two
+     wall-clock medians taken in separate batches: 0.94x to 1.14x across four rolls of ONE unchanged main
+     tree, i.e. pure batch-to-batch drift printed beside a sentence claiming the ratio cannot be but 1. A
+     reader has to be told which of the two to believe, so the ratio is COMPUTED ONLY WHEN THERE IS A ROOM TO
+     PRICE (SEAT_ANG differs from VMHEAD) and the identity case quotes no number at all. The dealt ms are
+     printed whenever they are measured; in the identity case the line names the batch it already ran. */
+  const seatDiffers = Math.abs(SEAT_ANG - VMHEAD) > 1e-9;
+  let sOn = vmed(tOn), sOff = vmed(tOff);
+  if (seatDiffers) {
+    run(REST);
+    sOn = +run('window.__vmCost("on", ' + VCOST_BATCH + ', ' + SEAT_ANG + ')');
+    run(REST);
+    sOff = +run('window.__vmCost("off", ' + VCOST_BATCH + ', ' + SEAT_ANG + ')');
+  }
+  run(REST);
   run('window.drawViewModel = window.__VMSAVE; MESH.weapon = window.__VMWEAPON;');
   const vmD = vmed(tOn) - vmed(tOff), vmShare = vmD / Math.max(1e-6, vmed(tOn));
   const vmRebuild = vmed(tOn) - vmed(tMemo);
@@ -11990,8 +12029,18 @@ if (MODE === 'viewmodel') {
      fails because an optimization landed is the row everyone learns to ignore. */
   if (!(vmD > 0)) problems.push('the rig costs ' + vmD.toFixed(2) + ' ms of a frame while the rows above say it '
     + 'paints pixels - the cost arm is measuring nothing');
+  console.log('deal seat'.padEnd(24), 'the dealt heading ' + SEAT_ANG.toFixed(3) + ' rad' + (seatDiffers
+    ? ' costs ' + sOn.toFixed(2) + ' ms/frame with the rig, ' + sOff.toFixed(2) + ' without it ('
+      + (sOn / Math.max(1e-6, vmed(tOn))).toFixed(2) + 'x the pinned frame the row above times; the arms '
+      + 'there are timed at the pinned heading ' + VMHEAD + ', so a seat turned toward a storey prices the '
+      + 'ROOM here and cannot move VM-SHARE there)'
+    : ' IS the pinned heading ' + VMHEAD.toFixed(3) + ' this row already times, so the dealt seat and the '
+      + 'timed scene are ONE scene and no ratio between them is printed - a build that authors no heading of '
+      + 'its own has no room to price, and a quotient of two batches of the same scene is drift, not '
+      + 'agreement (the first build to turn the seat will print it)'));
   console.log('rig cost'.padEnd(24), 'on ' + vspread(tOn) + '  memo ' + vspread(tMemo) + '  off ' + vspread(tOff) +
-    ' ms/frame over ' + VCOST_REPS + ' batches of ' + VCOST_BATCH + ' frames - rig share ' + (100 * vmShare).toFixed(1) +
+    ' ms/frame over ' + VCOST_REPS + ' batches of ' + VCOST_BATCH + ' frames at the pinned heading ' + VMHEAD +
+    ', rig share ' + (100 * vmShare).toFixed(1) +
     '%, of which the per-frame geometry rebuild is ' + vmRebuild.toFixed(2) + ' ms'
     + (Math.abs(vmRebuild) < 0.1 ? ' (this arm has converged on the shipped path: the build is not being'
       + ' repeated per frame any more, so it measures nothing)' : '') + '. ms are THIS machine\'s numbers (#216:'
