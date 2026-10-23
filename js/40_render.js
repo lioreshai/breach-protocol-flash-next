@@ -204,6 +204,25 @@ const SEAMK = 0.45;                             // deck LIGHT at which the absol
    nothing). */
 let SHADOW = 1, SHADOW_D = 0.34, SHADOW_R = 0.16, SHADOW_ZT = 0.02, SHADOW_F = 2,
     SHADOW_ZF = 0.25, SHADOW_FAR = 18;
+/* #18 FOURTH TAKE - the cue must survive RANGE. The annulus above is authored in METRES, so its screen
+   footprint shrinks with the square of range: the 0.09 m of contact zone #569 shipped is ~7 px of deck at
+   2.5 m and under 1 px at 12 m, which is why the same term that reads as weight at arm's length reads as
+   nothing at the range a fight starts (the issue's own frames: a body 56.6 luma against a wall 55.3, deck
+   at the feet flat with the deck everywhere else). SHADOW_RD is the range up to which the authored radius
+   is used UNCHANGED - inside it the term is byte-identical to #569, so every pose the harness already
+   measures (contrast places bodies at 1.2-3.5 m) measures the same pixels it measured before; SHADOW_RG is
+   metres of radius ADDED per metre of range past that, applied linearly and continuously so a body walking
+   outward cannot pop. It is a stylisation and it is stated as one: a real contact shadow keeps its world
+   size and simply stops being resolvable. What this term has to do is separate a hostile from his
+   background, and the geometry says a fixed-metre annulus stops being visible long before the body does.
+   The growth is bounded by the coverage census, not by taste: the band-to-silhouette ratio of a
+   world-fixed annulus goes as 1/d, so a radius that grows linearly makes that ratio grow as ~d, and
+   `contrast`'s BANDCEIL (0.60 x the body's own mask px) permits roughly 1.1 m of patch radius at 12 m and
+   1.25 m at 16 m. SHADOW_RG 0.045 puts 0.94 m at 12 m and 1.12 m at 16 m, i.e. ~70 % of the sanctioned
+   annulus, and the new far-band rows in that probe are the row that fails if it is spread past that.
+   PROPS do not take this: #511/#533 shipped the prop half at SHADOW_PR and `props` gates its patch on its
+   own silhouette ratio, so a crate's contact band is exactly the one that shipped. */
+let SHADOW_RD = 4, SHADOW_RG = 0.045;
 /* #371 item 3: the same term, on a PROP. A crate's lower edge used to be as bright as its upper edge,
    because nothing said where the crate meets the floor. This is not a new mechanism - it registers the
    prop in the SAME grid #178 built, so both ground copies and the wall loop darkening happens once per
@@ -1191,9 +1210,11 @@ function buildShadowGrid() {
     const e = ENEMIES[q];
     // a corpse that has finished fading draws no body, so it grounds no shadow either
     if (e.state === 'dead' && e.dieT > 3.8) continue;
-    const ex = e.x - camX, ey = e.y - camY;
-    if (ex * ex + ey * ey > far2) continue;
-    const n = SH_N, r = SHADOW_R + e.r, fz = floorAt(e.x, e.y);
+    const ex = e.x - camX, ey = e.y - camY, d2 = ex * ex + ey * ey;
+    if (d2 > far2) continue;
+    // #18 fourth take: metres of annulus past the dead range, so the screen footprint stops collapsing
+    const grow = d2 > SHADOW_RD * SHADOW_RD ? SHADOW_RG * (Math.sqrt(d2) - SHADOW_RD) : 0;
+    const n = SH_N, r = SHADOW_R + e.r + grow, fz = floorAt(e.x, e.y);
     SH_X[n] = e.x; SH_Y[n] = e.y; SH_Z[n] = fz; SH_I[n] = 1 / (r * r); SH_H[n] = r;
     SH_FX[n] = SHADOW_F; SH_FW[n] = SHADOW_D;
     const x0 = (e.x - r) | 0, x1 = (e.x + r) | 0, y0 = (e.y - r) | 0, y1 = (e.y + r) | 0;
