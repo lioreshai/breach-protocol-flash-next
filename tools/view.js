@@ -9886,38 +9886,48 @@ if (MODE === 'contrast') {
     }
     run('if (!COV || COV.length !== BW * BH) COV = new Uint8Array(BW * BH);');
     const bus = (sabotage) => {
-      /* THE LIGHT-FIELD ARM. The deck arm says whether the slope behind him is the DECK's paint; the
-         wall-family arm says whether it is the WALL's; neither can say whether it is the LAMP FIELD -
-         `MAP.light` is a baked per-cell field and a gradient across it is a slope the eye is delivered
-         with no texel in it at all. This arm overwrites the whole field with its own mean for ONE
-         render, so the region behind him keeps its geometry, its albedo and its haze and loses only
-         the lamp's spatial step. If the region's slope FALLS the residual is the light's step; if it
-         does not fall - or rises, which is what it does at every seat measured so far, because a flat
-         field removes the smoothing a real lamp's falloff applies across a busy face - the residual
-         is the surface and the geometry behind him, and the only side of the bar left is his own
-         edge. Byte-identical render otherwise; the field is restored from a slice before the next
-         render, so nothing below inherits it. */
-      if (sabotage === 'light') run(`(()=>{ window.__busKeepL = MAP.light.slice(); let s = 0;
-        for (let i = 0; i < MAP.light.length; i++) s += MAP.light[i];
-        MAP.light.fill(s / MAP.light.length); return 1 })()`);
-      if (sabotage === true) run(`(()=>{ const t = MAP.floorTex; window.__busKeep = { d: t.data, m: t.mips };
-        const o = t.data, n = o.length; let sr = 0, sg = 0, sb = 0;
-        for (let i = 0; i < n; i++) { sr += o[i] & 255; sg += o[i] >> 8 & 255; sb += o[i] >> 16 & 255; }
-        const mr = Math.round(sr / n), mg = Math.round(sg / n), mb = Math.round(sb / n), d = new Uint32Array(n);
-        for (let i = 0; i < n; i++) d[i] = (o[i] & 0xFF000000) | (mb << 16) | (mg << 8) | mr;
-        let dev = 0;
-        for (let i = 0; i < n; i++) dev += Math.abs(0.2126 * (o[i] & 255) + 0.7152 * (o[i] >> 8 & 255) + 0.0722 * (o[i] >> 16 & 255) -
-          (0.2126 * mr + 0.7152 * mg + 0.0722 * mb));
-        t.data = d; t.mips = buildMips(t.w, t.h, d);
-        window.__busSab = { dev: dev / n, mean: 0.2126 * mr + 0.7152 * mg + 0.0722 * mb };
+      /* THE LIGHT-FIELD ARM, and it dispatches INSTEAD OF the texture arm below, never in addition to it.
+         The deck arm says whether the slope behind him is the DECK's paint; the wall-family arm says
+         whether it is the WALL's; neither can say whether it is the LAMP FIELD - `MAP.light` is a baked
+         per-cell field and a gradient across it is a slope the eye is delivered with no texel in it at
+         all. A textual keep-both resolution would be silently wrong here: this arm's value is truthy, so
+         an `if (sabotage)` texture arm would flatten the deck in the same render that is supposed to vary
+         only the light field, and the light row's figure would then be credited to the light path while
+         the deck's grain went with it - a two-arm render reporting as a control, the shape #240 forbids.
+         So the light value takes its own branch and the texture arm is an `else`.
+         What it does: overwrite the whole field with its own mean for ONE render, so the region behind
+         him keeps its geometry, its albedo and its haze and loses only the lamp's spatial step. If the
+         region's slope FALLS the residual is the light's step; if it does not fall - or rises, which is
+         what it does at every seat measured so far, because a flat field removes the smoothing a real
+         lamp's falloff applies across a busy face - the residual is the surface and the geometry behind
+         him, and the only side of the bar left is his own edge. Byte-identical render otherwise; the
+         field is restored from a slice before the next render, so nothing below inherits it. */
+      if (sabotage === 'light') {
+        run(`(()=>{ window.__busKeepL = MAP.light.slice(); let s = 0;
+          for (let i = 0; i < MAP.light.length; i++) s += MAP.light[i];
+          MAP.light.fill(s / MAP.light.length); window.__busSab = null; return 1 })()`);
+      } else if (sabotage) run(`(()=>{ const L = ${sabotage === 'wall' ? 'WALLS.slice()' : '[MAP.floorTex]'};
+        window.__busKeep = L.map(t => ({ t, d: t.data, m: t.mips }));
+        let dev = 0, mean = 0, nn = 0;
+        for (const t of L) {
+          const o = t.data, n = o.length; let sr = 0, sg = 0, sb = 0;
+          for (let i = 0; i < n; i++) { sr += o[i] & 255; sg += o[i] >> 8 & 255; sb += o[i] >> 16 & 255; }
+          const mr = Math.round(sr / n), mg = Math.round(sg / n), mb = Math.round(sb / n), d = new Uint32Array(n);
+          for (let i = 0; i < n; i++) d[i] = (o[i] & 0xFF000000) | (mb << 16) | (mg << 8) | mr;
+          for (let i = 0; i < n; i++) dev += Math.abs(0.2126 * (o[i] & 255) + 0.7152 * (o[i] >> 8 & 255) + 0.0722 * (o[i] >> 16 & 255) -
+            (0.2126 * mr + 0.7152 * mg + 0.0722 * mb));
+          mean += 0.2126 * mr + 0.7152 * mg + 0.0722 * mb; nn += n;
+          t.data = d; t.mips = buildMips(t.w, t.h, d);
+        }
+        window.__busSab = { dev: dev / nn, mean: mean / L.length, nt: L.length };
         return 1 })()`);
       run('ENEMIES.length = 0; ENEMIES.push(window.__dBody); S.t = 3.5; ' + VMREST + ' renderWorld();');
       const A = new Uint32Array(run('px')), M = new Uint8Array(run('COV'));
       run('ENEMIES.length = 0; S.t = 3.5; ' + VMREST + ' renderWorld();');
       const Bb = new Uint32Array(run('px'));
       run('ENEMIES.length = 0; for (const q of __dKeep) ENEMIES.push(q);');
-      if (sabotage === true) run('(()=>{ const t = MAP.floorTex; t.data = window.__busKeep.d; t.mips = window.__busKeep.m; return 1; })();');
       if (sabotage === 'light') run('MAP.light.set(window.__busKeepL);');
+      else if (sabotage) run('(()=>{ for (const k of window.__busKeep) { k.t.data = k.d; k.t.mips = k.m; } return 1; })();');
       const ring = ringOf(M), ed = edgeOf(A, M, ring);
       let n = 0, gs = 0, bg = 0, bn = 0;
       for (let y = 1; y < H - 1; y++) {
@@ -9930,10 +9940,10 @@ if (MODE === 'contrast') {
           if (M[i - 1] && M[i + 1] && M[i - W] && M[i + W]) { bn++; bg += Math.abs(lum(A, i + 1) - lum(A, i - 1)) * 0.5; }
         }
       }
-      const sab = sabotage ? run('window.__busSab') : null;
+      const sab = sabotage && sabotage !== 'light' ? run('window.__busSab') : null;
       return { n, back: n ? gs / n : 0, body: bn ? bg / bn : 0, bpx: bn, dl: ed.dl, en: ed.en, sab };
     };
-    const m0 = bus(false), m1 = BUSFLAT ? bus(true) : null, m3 = bus('light');
+    const m0 = bus(false), m1 = BUSFLAT ? bus(true) : null, m2 = bus('wall'), m3 = bus('light');
     const name = 'L' + lv + ' at ' + BUS_D + ' m: the paint behind him vs his outline (#416)';
     if (m0.n < BUS_MINPX || !m0.en) {
       row(name, false, 'vacuous: ' + m0.n + ' coverage px behind the body (' + m0.en + ' with a background) at '
@@ -9953,7 +9963,11 @@ if (MODE === 'contrast') {
             + ' the body' : 'the quieter of the two, so his silhouette is the edge the eye takes')
           + ' | his outline step against that same surface is ' + m0.dl.toFixed(1) + ' luma, on ' + m0.n
           + ' coverage px of kind ' + g.kind + ' on deck ' + g.tex + ' (body at ' + JSON.stringify(g.body)
-          + ', seat ' + JSON.stringify(g.seat) + (g.made ? ', PLACED - this level spawns none' : '') + ')'),
+          + ', seat ' + JSON.stringify(g.seat) + (g.made ? ', PLACED - this level spawns none' : '') + ')'
+          + ' | with the WHOLE WALL FAMILY flattened the same region reads ' + m2.back.toFixed(2)
+          + ', so ' + (100 * (m0.back - m2.back) / m0.back).toFixed(0) + '% of the slope behind him is wall '
+          + 'paint and ' + m2.back.toFixed(2) + ' is what the light path and the geometry deliver with no '
+          + 'wall grain to quiet'),
       m0.bpx >= BUS_CUSH && m0.dl >= m0.back * BUS_RATIO ? undefined : '#416')
       + ' | with the seat\'s LIGHT FIELD held at one value the same region behind him reads '
       + m3.back.toFixed(2) + ' luma/px and his outline step reads ' + m3.dl.toFixed(1)
@@ -9970,17 +9984,42 @@ if (MODE === 'contrast') {
       + ' | the bar is his outline at ' + BUS_RATIO + 'x the delivered slope behind him, measured against '
       + 'the ' + (m0.dl / m0.back).toFixed(1) + 'x this seat reads at this head; it reports as #' + '416 debt '
       + 'and STRICT=1 gates it';
-    /* The arm is a CONTROL, so it must move the number: an arm that reads the same with the field
-       flattened is a render that never read MAP.light, which is exactly the failure #240 makes every
-       arm in this probe prove it cannot have. The bar is a wiring floor, not a budget. */
+    /* THE ARM THE DECK FALSIFIER CANNOT RUN. At 10 m the pixels behind a body are overwhelmingly a WALL,
+       and the deck arm above is provably inert on two of the four seats (it reads 3.63 -> 3.63 on ARCHIVE
+       and 1.52 -> 1.52 on THE STACK at 46c8619): a falsifier that flattens a surface the region does not
+       contain cannot tell "the paint is quiet" from "the light field is quiet", which is the one thing this
+       row exists to tell. So the wall family gets its own arm, always on, and it is a WIRING assertion and
+       not a band: the arm must MOVE the number, because an arm that moves nothing is not a control (#240).
+       The row then prints the split it measured - how much of the slope behind him is paint at all - which
+       is the number #416's acceptance has been argued without: on ARCHIVE's 10 m seat at this head the wall
+       paint is roughly a tenth of the figure and the rest is the light path's and the geometry's, so the
+       grain route the issue names cannot close this seat on its own, and the row says so in the frame. */
+    row('L' + lv + ': flattening the WALL family behind him moves the same pixels (#416 falsifier)',
+      m2.back < m0.back - 0.02,
+      'taking EVERY wall tile to its own mean (' + m2.sab.nt + ' tiles, mip chains rebuilt, bytes restored '
+      + 'after the render; mean luma ' + m2.sab.mean.toFixed(1) + ', mean abs deviation '
+      + m2.sab.dev.toFixed(1) + ' luma/texel removed) moves the busyness BEHIND THE SAME BODY from '
+      + m0.back.toFixed(2) + ' to ' + m2.back.toFixed(2) + ' luma/px: '
+      + (100 * (m0.back - m2.back) / m0.back).toFixed(0) + '% of what the eye is delivered behind him at '
+      + 'this seat is wall grain, and the other ' + m2.back.toFixed(2) + ' luma/px is the light path and the '
+      + 'geometry - a lamp falloff, a junction, an edge - which no albedo constant can quiet. A run that '
+      + 'reads the SAME number with the wall family flattened has an arm that moves nothing, which is a '
+      + 'statistic that stopped reading the paint.', '#416');
+    /* The WALL arm prices the paint; it cannot price what is LEFT, and at ARCHIVE that residual is the
+       whole argument. This is the arm that reaches it: `MAP.light` is a baked per-cell field, so a
+       gradient across it is a slope the eye is delivered with no texel in it. It runs INSTEAD OF the
+       texture arm above - never in addition - so the only thing this render varies is the lamp field.
+       Like the wall row it is a WIRING assertion and not a budget: an arm that reads the same number
+       with the field flattened is a render that never read MAP.light, which is exactly the failure #240
+       makes every arm in this probe prove it cannot have. */
     row('L' + lv + ': holding the light field behind him at one value moves the same pixels (#416 falsifier)',
       Math.abs(m3.back - m0.back) > 0.02,
       'overwriting MAP.light with its own mean for ONE render (geometry, albedo, haze and fog '
-      + 'untouched; the field is restored from a slice before the next render) moves the busyness '
-      + 'BEHIND THE SAME BODY from ' + m0.back.toFixed(2) + ' to ' + m3.back.toFixed(2) + ' luma/px and '
-      + 'his outline step from ' + m0.dl.toFixed(1) + ' to ' + m3.dl.toFixed(1)
-      + '. A run that reads the SAME number with the field flattened has an arm that never read the '
-      + 'light path, which is a control that stopped being a control.', '#416');
+      + 'untouched; the field is restored from a slice before the next render, and NO texture is touched '
+      + 'by this arm) moves the busyness BEHIND THE SAME BODY from ' + m0.back.toFixed(2) + ' to '
+      + m3.back.toFixed(2) + ' luma/px and his outline step from ' + m0.dl.toFixed(1) + ' to '
+      + m3.dl.toFixed(1) + '. A run that reads the SAME number with the field flattened has an arm that '
+      + 'never read the light path, which is a control that stopped being a control.', '#416');
     if (!m1) continue;
     row('L' + lv + ': flattening the deck under him quiets the same pixels (#416 falsifier)',
       m1.back <= m0.back * 0.5,
@@ -11947,22 +11986,61 @@ if (MODE === 'viewmodel') {
      the same reason. The value returned is still ms/frame, and the share is taken between medians of
      batches, so neither the resolution nor the pose drift inside a batch enters the number. */
   const VCOST_BATCH = +(process.env.VMCOST_BATCH || 20), VCOST_REPS = +(process.env.VMCOST_REPS || 7);
+  /* #529 - THE DENOMINATOR IS A SCENE, SO THE PROBE PINS THE SCENE.
+     The share below is rig ms over FRAME ms, and until now the frame was whatever the dealt seat happens to
+     show. That made a REPORTING row report the room: with only the arrival heading differing between two
+     js/ trees (PR #482 turns the seat to face the storey the level built over it), the same rig read 6.4%
+     on one arm and 1.7% on the other while the rig's own ms did not move - the frame under it went 24.95 to
+     51.85 ms/frame, and the paying pass is the deferred ground copy `groundPixel()` (issue #529, arms and
+     CPU profile in that issue's thread; on this head the same arm pair is 29.35 ms/frame with the rig
+     against 24.10 without it). A row that can go red because a level changed where it points you cannot
+     answer the question #186 built it for, which is "did the RIG stop paying".
+     THE FIX IS THE BASIS, NOT THE NUMBER: all three timed arms now render at ONE pinned heading, the
+     literal every level authored before a dealt heading existed. On main that is bit-identical to what this
+     row already measured, because main seats every level at the same literal (js/20_level.js: `P.ang = 0.6`
+     on both the generated and the authored path), so NO record moves and no tolerance moves - which is the
+     half of this change that keeps it from being the thing #529 rule 3 forbids: re-recording a wall-clock
+     share to make a reporting row quiet. What the pin removes is the scene's right to vote; the rig's own
+     cost still moves the row, and the deal's own frame is still MEASURED and printed on the next line, at
+     the dealt heading, as a census of the price rather than as a gate on the rig. */
+  const VMHEAD = 0.6;
   run('window.__VMWEAPON = MESH.weapon; window.__VMWEAPON_MEMO = (function () { var M = {}; return function (k, st) '
     + '{ var h = M[k]; if (h !== undefined) return h; var g = window.__VMWEAPON(k, st); M[k] = g; return g; }; })();'
-    + 'window.__vmCost = function (mode, n) { window.drawViewModel = (mode === "off") ? function () {} : window.__VMSAVE;'
+    + 'window.__vmCost = function (mode, n, ang) { window.drawViewModel = (mode === "off") ? function () {} : window.__VMSAVE;'
     + ' MESH.weapon = (mode === "memo") ? window.__VMWEAPON_MEMO : window.__VMWEAPON;'
+    + ' if (ang !== undefined && ang !== null) P.ang = ang;'
     + ' var t = performance.now(); for (var i = 0; i < n; i++) renderWorld(); return (performance.now() - t) / n; };');
   const vmed = a => { const s = a.slice().sort((x, y) => x - y); return s.length & 1 ? s[s.length >> 1]
     : (s[s.length / 2 - 1] + s[s.length / 2]) * 0.5; };
   const vspread = a => vmed(a).toFixed(2) + ' (' + Math.min(...a).toFixed(2) + '..' + Math.max(...a).toFixed(2) + ')';
   const tOn = [], tMemo = [], tOff = [];
   run('P.ads=0; P.kick=0; P.reloadT=0; P.swapT=0; P.sprint=0; P.air=false; P.vz=0; P.bobPhase=0; S.muzzle=0; keys.KeyW=0; P.vx=0; P.vy=0; P.weapon=0;');
+  const SEAT_ANG = +run('P.ang');           // what the deal authored for this seat, before the pin
   for (let i = 0; i < VCOST_REPS; i++) {
     for (const [arm, sink] of [['on', tOn], ['memo', tMemo], ['off', tOff]]) {
       run(REST);                    // settle once per batch; the pose is constant across a batch
-      sink.push(+run('window.__vmCost("' + arm + '", ' + VCOST_BATCH + ')'));
+      sink.push(+run('window.__vmCost("' + arm + '", ' + VCOST_BATCH + ', ' + VMHEAD + ')'));
     }
   }
+  /* THE DEALT FRAME, MEASURED AND PRINTED, NOT RECORDED: the price of the seat as it actually sits. One
+     batch on and one off at the heading THIS build's seatFacing handed the player, taken after the recorded
+     arms so drift cannot land on one side, and restored to the pinned heading before anything else reads
+     the page. On a build that authors no heading of its own SEAT_ANG IS the pinned literal, so those two
+     batches would re-time a scene already timed above, and their ratio would be the quotient of two
+     wall-clock medians taken in separate batches: 0.94x to 1.14x across four rolls of ONE unchanged main
+     tree, i.e. pure batch-to-batch drift printed beside a sentence claiming the ratio cannot be but 1. A
+     reader has to be told which of the two to believe, so the ratio is COMPUTED ONLY WHEN THERE IS A ROOM TO
+     PRICE (SEAT_ANG differs from VMHEAD) and the identity case quotes no number at all. The dealt ms are
+     printed whenever they are measured; in the identity case the line names the batch it already ran. */
+  const seatDiffers = Math.abs(SEAT_ANG - VMHEAD) > 1e-9;
+  let sOn = vmed(tOn), sOff = vmed(tOff);
+  if (seatDiffers) {
+    run(REST);
+    sOn = +run('window.__vmCost("on", ' + VCOST_BATCH + ', ' + SEAT_ANG + ')');
+    run(REST);
+    sOff = +run('window.__vmCost("off", ' + VCOST_BATCH + ', ' + SEAT_ANG + ')');
+  }
+  run(REST);
   run('window.drawViewModel = window.__VMSAVE; MESH.weapon = window.__VMWEAPON;');
   const vmD = vmed(tOn) - vmed(tOff), vmShare = vmD / Math.max(1e-6, vmed(tOn));
   const vmRebuild = vmed(tOn) - vmed(tMemo);
@@ -11975,8 +12053,18 @@ if (MODE === 'viewmodel') {
      fails because an optimization landed is the row everyone learns to ignore. */
   if (!(vmD > 0)) problems.push('the rig costs ' + vmD.toFixed(2) + ' ms of a frame while the rows above say it '
     + 'paints pixels - the cost arm is measuring nothing');
+  console.log('deal seat'.padEnd(24), 'the dealt heading ' + SEAT_ANG.toFixed(3) + ' rad' + (seatDiffers
+    ? ' costs ' + sOn.toFixed(2) + ' ms/frame with the rig, ' + sOff.toFixed(2) + ' without it ('
+      + (sOn / Math.max(1e-6, vmed(tOn))).toFixed(2) + 'x the pinned frame the row above times; the arms '
+      + 'there are timed at the pinned heading ' + VMHEAD + ', so a seat turned toward a storey prices the '
+      + 'ROOM here and cannot move VM-SHARE there)'
+    : ' IS the pinned heading ' + VMHEAD.toFixed(3) + ' this row already times, so the dealt seat and the '
+      + 'timed scene are ONE scene and no ratio between them is printed - a build that authors no heading of '
+      + 'its own has no room to price, and a quotient of two batches of the same scene is drift, not '
+      + 'agreement (the first build to turn the seat will print it)'));
   console.log('rig cost'.padEnd(24), 'on ' + vspread(tOn) + '  memo ' + vspread(tMemo) + '  off ' + vspread(tOff) +
-    ' ms/frame over ' + VCOST_REPS + ' batches of ' + VCOST_BATCH + ' frames - rig share ' + (100 * vmShare).toFixed(1) +
+    ' ms/frame over ' + VCOST_REPS + ' batches of ' + VCOST_BATCH + ' frames at the pinned heading ' + VMHEAD +
+    ', rig share ' + (100 * vmShare).toFixed(1) +
     '%, of which the per-frame geometry rebuild is ' + vmRebuild.toFixed(2) + ' ms'
     + (Math.abs(vmRebuild) < 0.1 ? ' (this arm has converged on the shipped path: the build is not being'
       + ' repeated per frame any more, so it measures nothing)' : '') + '. ms are THIS machine\'s numbers (#216:'
