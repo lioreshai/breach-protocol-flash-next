@@ -1,5 +1,78 @@
 # Changelog
 
+## [v1.4.12] - 2026-10-21
+
+### Changed
+
+- **A generated sector has more than one ceiling height** (#548, PRs #564, #612). Every room-shaped space a
+  level deals now authors ceiling of its own: the big room reads tall, the small room reads low, and the
+  corridor between them is the thing you duck through. Before, every room on a dealt level carried the same
+  four units of air, so the roof was one continuous plane with no seam and no end anywhere in the frame, and a
+  six-cell room wore the same lid as the atrium — which is why "the frame is floor, roof and a sliver of wall"
+  survived the change that was supposed to answer it. Every dealt sector now puts at least two room ceilings in
+  the world, so the eye gets a second plane to measure the first one against, and the wall you can walk up to
+  runs well above your eyeline instead of sitting in a band over your head. Corridors, doorways, crawlways and
+  ladder columns keep exactly the air they had, and no floor, step, slab or stair moved: the level deals the
+  same geometry cell for cell.
+- **Stairs, pits and platform edges show the surface your ray actually reaches** (#518, PR #584). A floor pixel
+  whose ray slipped under a slab used to be painted at the distance of the plane *beyond* the crossing, so the
+  far deck stretched across a hole, the bottom landing was painted over the first treads, and the surface past
+  a raised band's edge smeared out to the horizon. That one wrong distance was the shared cause of three
+  separate complaints — stairs looking warped (#515), a pit reading as a table from the deck above it (#516),
+  and a platform's own edge not being a place you could read (#517). All three are gone with the one fix; the
+  ordinary case, a floor you can see straight down onto, is unchanged pixel for pixel.
+- **The corner of every frame is a hand, not a crate** (#562, PRs #567, #613). The mass under the gun finished
+  in a flat right-angled cap with the back of the hand a plate aimed straight at the lens — two flat faces at
+  one depth is what a crate is made of — and it was painted the same tan as a crate. It is now a tapered fist
+  with a knuckle end and a wrist end, a lit side and a shaded side, wearing worn dark leather that reads
+  clearly cooler and darker than a crate at the same light; the cuff block is gone and what leaves the bottom
+  edge of the picture is fist, wrist, forearm, with no rectangle in the outline. The forearm takes the same
+  size ramp the fists do when you bring the gun up, so the wrist doesn't stay put while the hand shrinks to
+  the grip. The gun's size, position and sway are unchanged.
+- **An enemy keeps his own colours in a tinted room** (#611, PR #615). His paint used to have the dealt room's
+  lamp hue multiplied over it, so in a room whose hue sat close to his kind's — a blue-grey grunt on a
+  blue-grey wall, a maroon brute on pink — he was the wall's colour family with a bump in it and resolved a
+  beat late. The room's cast on a body is now cancelled in his pigment, so at 8-16 m what reaches the eye is
+  his own material while the wall behind him keeps the room's hue. He separates from his background in every
+  dealt room rather than only in the favourable ones. In the strongest tint this also lifts him a little in
+  brightness, which is the useful direction: he was darker than the wall behind him.
+
+### Fixed
+
+- **A room is lit as one space, not as a chain of pools** (#199, PR #585). Lamps read as isolated tables of
+  light with a near-black plain between them, because the falloff curve's tail puts the deck at 0.04 of a
+  source at four fifths of its radius — and nearly all of the dark floor in a dealt sector sits *inside* a
+  lamp's own disc, so it was the curve, not a coverage gap. The floor a curve leaves under the floor level now
+  sits at that level instead: a lit cell keeps its exact value, so nothing gains light for being near two
+  lamps. Dark open floor roughly halves — 2.8 → 1.6, 9.6 → 7.2, 5.7 → 4.3, 16.8 → 10.9 % of open floor on the
+  four sectors — while the overall lightmap mean barely moves, so a lamp still reads as a lamp and the room's
+  size is readable from its ground.
+- **The front page shows the build that ships** (#578, #533, PRs #604, #609, #614). All eight frames on the
+  project page were re-taken from the deployed build rather than from a diagnostic render, and the two
+  crate-distance frames the barrel work asked for are in place, so the pictures describe this game.
+
+### Known limitations
+
+- A camera that faces a raised band with no lamp standing on it still shows black floor there. The deck lift
+  is deliberately band-aware and will not spill the floor's light up a riser, so this half of #199 is lamp
+  *placement* on raised bands, not another falloff term.
+- THE STACK, the hand-built finale, authors one room clearance: its ceilings come from plan glyphs and the
+  new per-room rule never runs there, so the last sector still reads flatter in height than the three dealt
+  sectors before it. (#548)
+- Nothing you can stand on is an underside over the room you wake in — a raised step is one unit up while a
+  room's ceiling sits four units over its own floor, so no step placement can be a ceiling above you. A real
+  second storey (#353) is owed before that reads. (#548)
+- More air per room puts more roof in the frame, so the roof's own brightness work (#495) matters more after
+  this, not less. Measured here, no sector's roof share rose and one ratio moved 0.80 → 0.77, still above its
+  bar — but the pressure is now in the same direction twice.
+- The magnified ceiling term for the near-band hairline comb ships switched off (#19, PR #610). It is sound
+  and free, and an earlier claim that it fixed the comb was wrong: measured against the shipped build, one
+  sector moved for real and three moved by nothing to one point, because the near band is owned by the light
+  gradient and the slab geometry, not by the texel. The term stays in the build behind a development switch
+  with a probe row that can fail if it stops reaching, so the next take starts from a measurement.
+- A hostile's separation is now shown by existing contrast rows rather than gated by its own per-sector pair
+  of bars, and the front-page hero frame has not been re-taken for it. (#611)
+
 ## [v1.4.11] - 2026-10-20
 
 ### Changed
