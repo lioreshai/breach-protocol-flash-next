@@ -102,6 +102,15 @@ const LEVELS = [
     // worst-roll floor at ceilBias terms (see the #369 note on this level in the issue) and lightening it
     // runs into the composited upper anchor above, so the deck keeps its light and the walls change.
     name: 'ABATOIR CORE', size: 36, rooms: 11, maxRoom: 11, wall: WT.MUSCLE, wall2: WT.TECH2,
+    // #421 DECISION 1 (maintainer, 2026-10-15): this sector ARRIVES at the authored bearing on EVERY deal.
+    // `seatFacing` reads the dealt grid, and on ABATOIR CORE the deck it can reach is far enough away that
+    // which face wins the scan is deal-dependent - the same level measured 0.600 on the pinned deal and
+    // -0.882 on another. A bearing that changes between deals is not a look the level authored, so this
+    // sector opts out by DECLARING its arrival heading here. It is the only level that does: ARCHIVE and
+    // RING derive (their arrival was empty before this change), and THE STACK is deliberately NOT pinned,
+    // because the remaining work on #421 is to move its authored plateau into the seat's reach - pinning
+    // it now would quietly make that work do nothing. See seatFacing.
+    seatAng: 0.6,
     floor: 'FLESH', ceil: 'SINEW', amb: 0.3, lampCol: [190, 255, 150], fogCol: [21, 8, 11], ceilBias: -0.12,
     lamps: 16, crates: 9, barrels: 12, spawn: { grunt: 8, hound: 7, brute: 3 }, pick: { health: 5, ammo: 6, armor: 2 },
     fixtures: ['VENT', 'STRIPE'],         // #400: the abattoir breathes; everything here is a duct
@@ -1691,6 +1700,14 @@ const FIX_DEP = { DOOR: 0.12, PIPE: 0.10, STRIPE: 0.03, VENT: 0.08, RACK: 0.20, 
    whole ward. */
 const FIX_EDGE = ['TANK', 'RACK', 'VENT', 'DOOR'];
 const FIX_SEAT_MIN = 2, FIX_SEAT_N = 2;
+/* FIX_SEAT_ARC bounds the arrival pass below: the seat's bearing may sit this far off an axis sight line
+   and that axis's face still counts as being IN FRONT of the player. Half a turn, not the frame's own
+   half-angle: the frame is 71.7 deg wide (plane 0.72, js/00_core.js) so a face straight to the side is
+   gone as soon as you turn your head, but the wall you walk along is met by the sight line to your side
+   and IS part of what you wake in front of. It is also what makes the re-anchoring in pass 4 a no-op on
+   the sectors that keep the shipped 0.6 heading - at that bearing the two directions inside a half turn
+   are exactly the two take five walked, so only the seats #421 TURNED change which faces are furnished. */
+const FIX_SEAT_ARC = Math.PI / 2;
 function addWFix(tex, gx, gy, side, along, zc, hh, hw, dep) {
   const N = MAP.w;
   if (gx < 0 || gy < 0 || gx >= N || gy >= N) return;
@@ -1701,7 +1718,7 @@ function addWFix(tex, gx, gy, side, along, zc, hh, hw, dep) {
   if (!DECOR_GRID[ci]) DECOR_GRID[ci] = [];
   DECOR_GRID[ci].push(f); DECOR_MASK[ci] = 1;
 }
-function placeWallFixtures(cfgL, seat) {
+function placeWallFixtures(cfgL, seat, ang) {
   const kinds = (cfgL.fixtures || ['PIPE', 'STRIPE', 'VENT']).filter(k => WFIX[k]);
   if (!kinds.length) return;
   /* #400 take three: the level's VOCABULARY (`fixtures`) says what a place is MADE of; its PURPOSE
@@ -1954,22 +1971,45 @@ function placeWallFixtures(cfgL, seat) {
         mount(kinds[(a + d) % kinds.length], at[0], at[1], d);
     }
   }
-  /* 4. THE WALL YOU ARRIVE FACING (#400 take five). Every pass above answers the WALL a player walks
-     past; none of them answers the wall a player WAKES IN FRONT OF. Sector 1's own seat frame is one long
-     grey face and the census is green because the coverage it counts is the walk, not the picture. This
-     pass stands at the deal's own spawn square and walks each of the four axis sight lines out to
-     FIX_VIS_MAX: the first wall one of them meets is the face the seat is looking at, and it must carry
-     an OBJECT. If it already carries one (a doorway, a vent plate, a rack, a tank) the direction is
-     satisfied and nothing is placed - so on a deal whose arrival walls are already furnished this pass is
-     a no-op and the level's bytes do not move. If the face carries only paint the pass claims it; if the
+  /* 4. THE WALL YOU ARRIVE FACING (#400 take five; TAKE SIX re-anchors it on the heading the seat
+     actually gets). Every pass above answers the WALL a player walks past; none of them answers the wall a
+     player WAKES IN FRONT OF. Sector 1's own seat frame is one long grey face and the census is green
+     because the coverage it counts is the walk, not the picture. This pass stands at the deal's own spawn
+     square, walks the axis sight lines out to FIX_VIS_MAX and requires the first wall each one meets to
+     carry an OBJECT. If it already carries one (a doorway, a vent plate, a rack, a tank) the direction is
+     satisfied and nothing is placed - so on a deal whose arrival walls are already furnished this pass is a
+     no-op and the level's bytes do not move. If the face carries only paint the pass CLAIMS it; if the
      face is free it mounts one. FIX_SEAT_MIN skips the wall the seat is touching (half a metre from the
      eye, it fills the frame and reads as a wall, not as an object). Two directions per level is enough to
      fill a 71-degree frame without lining a ward with drums. No RNG is read, so no roll, prop or light
-     moves - the pass reads only the grid and the seat square, both of which exist before it runs. */
+     moves - the pass reads the grid, the seat square and the seat's own heading, all of which exist before
+     it runs.
+     TAKE SIX, AND WHY THE ORDER IS NOW DERIVED AND NOT FIXED. #421 turned the arrival seat: `P.ang` is
+     `seatFacing(...)`, the atan2 from the seat to the face of the nearest deck in reach, and that is not
+     generally an axis direction. Walking the four axes in the fixed order 0,1,2,3 then furnished the two
+     walls the OLD literal 0.6 faced, which on the two turned sectors are not the walls inside the frame
+     the player wakes in - the guarantee this pass exists to give had come unanchored from the heading the
+     generator actually uses. So the four directions are now sorted by how far the seat's OWN bearing sits
+     off them, and the walk takes the face the bearing falls in FIRST, then the next one inside the frame.
+     The best direction is always within 45 degrees of the bearing, so the primary face is never skipped;
+     a direction further off the frame than FIX_SEAT_ARC is outside the picture and is left to the long-run
+     pass, which is what keeps a wall behind the player from being furnished for a camera that cannot see
+     it. With no heading handed in (a caller that predates #421) the errors are 0.6 rad and so the order is
+     the order take five walked - the old behaviour is this function's fallback, not a second code path. */
   if (seat && objects.length) {
     const sx = seat[0] | 0, sy = seat[1] | 0;
+    const dirAng = [0, Math.PI / 2, Math.PI, -Math.PI / 2];   // the bearing of DIRX/DIRY direction d
+    const a0 = typeof ang === 'number' ? ang : 0.6;
+    const order = [0, 1, 2, 3].map(d => {
+      let e = a0 - dirAng[d];
+      while (e > Math.PI) e -= 2 * Math.PI;
+      while (e < -Math.PI) e += 2 * Math.PI;
+      return { d: d, e: Math.abs(e) };
+    }).sort((p, q) => p.e - q.e || p.d - q.d);
     let seatGot = 0;
-    for (let d = 0; d < 4 && seatGot < FIX_SEAT_N; d++) {
+    for (let oi = 0; oi < order.length && seatGot < FIX_SEAT_N; oi++) {
+      if (order[oi].e > FIX_SEAT_ARC) break;        // sorted: everything past this is out of frame
+      const d = order[oi].d;
       for (let rad = 1; rad <= FIX_VIS_MAX; rad++) {
         const ax = sx + DIRX[d] * rad, ay = sy + DIRY[d] * rad;
         if (!isOpen(ax, ay)) break;                      // blocked: nothing past this is seen from here
@@ -2490,15 +2530,72 @@ function buildAuthored(li) {
   kneeLampField();                              // #408: the authored pool's PEAK, its radius untouched
   floorLampField();                             // #199: and its TROUGH, in the authored plan too
   const sp = nearestOpen(sx + 0.5, sy + 0.5);          // never spawn inside geometry: the collision
-  /* #400 take five: the seat is computed HERE and handed to the fixture pass, because pass 4 decorates
-     the wall this spawn square is looking at. nearestOpen is a BFS and draws no RNG, and it sat two lines
-     below with nothing between reading the map, so hoisting it moves no roll, prop or light. */
-  placeWallFixtures(cfgL, sp);                  // #400: the authored finale gets walls too
+  /* #400 take five: the seat AND its heading are computed HERE and handed to the fixture pass, because
+     pass 4 decorates the wall this seat is looking at, and #421 turned that heading. nearestOpen is a BFS
+     and seatFacing reads the grid without drawing RNG; both sat below with nothing between reading the
+     map (placeWallFixtures writes DECOR entries only, and seatFacing's losZ test is geometry), so hoisting
+     them moves no roll, prop or light and the byte `P.ang` gets is the byte #421 writes. */
+  const sang = seatFacing(sp[0], sp[1], cfgL.seatAng);   // #421: derived UNLESS the level declares seatAng
+  placeWallFixtures(cfgL, sp, sang);              // #400: the authored finale gets walls too
   exitX = ex + 0.5; exitY = ey + 0.5;
-  P.x = sp[0]; P.y = sp[1]; P.ang = 0.6; P.vx = P.vy = 0; P.z = floorAt(sp[0], sp[1]);  // probes read P
+  P.x = sp[0]; P.y = sp[1]; P.ang = sang; P.vx = P.vy = 0; P.z = floorAt(sp[0], sp[1]);  // probes read P
   buildTint();
   return true;
 }
+/* #421: WHERE the player arrives facing. The literal was `P.ang = 0.6` on every sector and every deal,
+   and `surface`'s own SEAT row measures what a fixed heading throws away: on two sectors the raised band
+   the generator authored stands inside the 12 m the frame can show (19 and 28 columns with a floor over
+   their head) and the arrival frame carries zero pixels of it, because 0.6 rad points elsewhere. So aim
+   the seat at the face of the nearest deck it can actually see, preferring a face whose own cell already
+   reads as a soffit - that is the picture this issue was filed from: a floor over your head, and the lip
+   that says so. Deterministic (scan order, then distance, then the soffit preference) and it draws
+   NOTHING from Math.random, so no deal re-rolls (#90/#96: a generator whose draw count moves makes every
+   downstream measurement incomparable). With no deck in reach the shipped 0.6 stands and the level
+   arrives exactly as it did - which is what keeps the flat senses' fallback path unchanged.
+   The candidate is an air-to-air riser, not a wall: the far cell must be a full unit up AND the near cell
+   must be on the seat's own plane, so a mound or a pit lip two bands away cannot win the seat, and the
+   aim point is the middle of the face the wall pass actually draws ([min floor, max floor] of the pair).
+   #421 DECISION 1: a level that AUTHORS its arrival bearing wins outright - `authored` is `LEVELS[li].seatAng`
+   and the grid is never read for that sector. Without this the derived look is deal-dependent (ABATOIR CORE
+   read 0.600 on the pinned deal and -0.882 on another), which is not a bearing anyone authored. This is a
+   per-level opt-out rather than "any authored plan wins", so the hand-authored finale can still be turned by
+   the plateau move that is this issue's remaining half. */
+const SEAT_LOOK = 12;                                   // metres: the reach `surface`'s SEAT row grades
+function seatFacing(px, py, authored) {
+  if (typeof authored === 'number') return authored;    // the level says what you arrive looking at
+  const N = MAP.w, cs = MAP.ceilSlab, sf = floorAt(px, py), az = sf + cfg.eye;
+  for (let wantSoffit = 1; wantSoffit >= 0; wantSoffit--) {
+    let bx = 0, by = 0, best = Infinity;
+    for (let y = 1; y < MH - 1; y++) for (let x = 1; x < N - 1; x++) {
+      const i = y * N + x;
+      if (MAP.cell[i]) continue;
+      const f = MAP.fz[i] * ZQ;
+      if (f < sf + 1 - 1e-9) continue;                  // a deck, not a step: one unit up at least
+      for (let d = 0; d < 4; d++) {
+        const nx = x + DIRX[d], ny = y + DIRY[d];
+        if (nx < 1 || ny < 1 || nx >= N - 1 || ny >= MH - 1) continue;
+        const j = ny * N + nx;
+        if (MAP.cell[j] || MAP.fz[j] * ZQ > sf + ZQ) continue;   // the face must look down on the seat's band
+        if (wantSoffit && !(cs && cs[j] & 1)) continue;          // does that face have a soffit over ITS head?
+        const fx = (x + nx + 1) * 0.5, fy = (y + ny + 1) * 0.5;
+        const dd = Math.hypot(fx - px, fy - py);
+        if (dd > SEAT_LOOK || dd < 1 || dd >= best) continue;
+        // The TEST POINT sits 0.2 m this side of the boundary, at the face's own mid-height. Aimed AT
+        // the boundary the solver reports a RISER exit at that t and `losZ` calls the face invisible -
+        // measured: the first version of this function returned the fallback on all four sectors, and
+        // aimed at the raised cell's CENTRE it fails the same way one step earlier, because the target
+        // point is then below that cell's own floor. One fifth of a metre back is the cheapest point
+        // that is unambiguously in the air the eye can occupy and still on the face's bearing.
+        const ux = (fx - px) / dd, uy = (fy - py) / dd;
+        if (!losZ(px, py, az, fx - ux * 0.2, fy - uy * 0.2, (sf + f) * 0.5)) continue;
+        best = dd; bx = fx; by = fy;
+      }
+    }
+    if (best < Infinity) return Math.atan2(by - py, bx - px);
+  }
+  return 0.6;                                            // nothing in reach: the shipped heading
+}
+
 /* #353: an overlook is only a fight if somebody stands above it. The pairing pass finds the geometry;
    this puts a body on it. Placement above is a `takeNear` draw and cannot be asked for a specific cell
    without drawing from Math.random a second time (#90/#96: a generator whose draw count moves makes
@@ -3009,12 +3106,21 @@ function genLevel(li) {
     // lightmap splat, then a smoothing pass and the per-cell tint
     for (const L of LIGHTS) splatLight(L, L.str);
     blurLight(); floorLampField(); buildTint();   // #199: the floor AFTER the blur, which replaces the array
-    placeWallFixtures(cfgL, seat);              // #400: decor goes on the walls, after the walls exist
+    /* #400 take five + #421: the arrival heading is derived HERE, one line earlier than it used to be, and
+       handed to the fixture pass, because pass 4 must decorate the wall INSIDE THE FRAME the player wakes
+       in and #421 made that frame a derived bearing rather than the literal 0.6. seatFacing draws no RNG
+       and reads only the grid and the risers (losZ), and placeWallFixtures writes DECOR entries that losZ
+       does not read, so hoisting it here cannot re-roll the deal or move a light, and P.ang below is the
+       same byte #421 wrote. */
+    const seatAng = seatFacing(seat[0], seat[1], cfgL.seatAng);   // see seatFacing; THE STACK derives too
+    placeWallFixtures(cfgL, seat, seatAng);      // #400: decor goes on the walls, after the walls exist
     // The scatter pass can drop a pillar on the room centre, and starting inside
     // geometry is unrecoverable - the collision probes would sample the player's own
     // cell - so walk out to the nearest open cell instead of spawning into a wall.
     const sp = seat;                    // #154: the same nearestOpen the prop passes subtracted
-    P.x = sp[0]; P.y = sp[1]; P.ang = 0.6; P.vx = P.vy = 0; P.z = floorAt(sp[0], sp[1]);
+    // #421: derived arrival heading; see seatFacing. No draw, so the deal downstream is the deal it dealt.
+    // THE STACK authors no `seatAng`, so the finale derives like the generated sectors.
+    P.x = sp[0]; P.y = sp[1]; P.ang = seatAng; P.vx = P.vy = 0; P.z = floorAt(sp[0], sp[1]);
     return true;
   }
   // extremely unlikely fallback: reuse a smaller successful layout
