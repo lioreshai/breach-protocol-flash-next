@@ -220,8 +220,10 @@ let SHADOW = 1, SHADOW_D = 0.34, SHADOW_R = 0.16, SHADOW_ZT = 0.02, SHADOW_F = 2
    `contrast`'s BANDCEIL (0.60 x the body's own mask px) permits roughly 1.1 m of patch radius at 12 m and
    1.25 m at 16 m. SHADOW_RG 0.045 puts 0.94 m at 12 m and 1.12 m at 16 m, i.e. ~70 % of the sanctioned
    annulus, and the new far-band rows in that probe are the row that fails if it is spread past that.
-   PROPS do not take this: #511/#533 shipped the prop half at SHADOW_PR and `props` gates its patch on its
-   own silhouette ratio, so a crate's contact band is exactly the one that shipped. */
+   PROPS TAKE THE SAME GROWTH (#18 sixth take, applied in the prop loop below against the prop's own
+   distance): the acceptance says the cue has to hold for a crate as well, and a crate authored in metres
+   collapsed to a pixel or two at exactly the ranges a fight starts. `props` still gates a prop's patch on
+   its OWN silhouette ratio, and the near-field patch a prop casts inside SHADOW_RD is unchanged by this. */
 let SHADOW_RD = 4, SHADOW_RG = 0.045;
 /* #371 item 3: the same term, on a PROP. A crate's lower edge used to be as bright as its upper edge,
    because nothing said where the crate meets the floor. This is not a new mechanism - it registers the
@@ -1233,9 +1235,19 @@ function buildShadowGrid() {
     for (let q = 0; q < PROPS.length && SH_N < SH_CAP; q++) {
       const p = PROPS[q];
       if (p.dead && p.kind === 'barrel') continue;      // drawn as rubble, grounds no patch either
-      const px = p.x - camX, py = p.y - camY;
-      if (px * px + py * py > far2) continue;
-      const n = SH_N, r = MESH.foot(p.kind) * (p.scale || 1) + SHADOW_PR;
+      const px = p.x - camX, py = p.y - camY, pd2 = px * px + py * py;
+      if (pd2 > far2) continue;
+      /* #18 SIXTH TAKE - the range growth is handed to the CRATE too. SHADOW_RG lived in the body loop
+         only, so a crate past SHADOW_RD grounded the deck with a patch authored in metres and its screen
+         footprint had collapsed to a pixel or two while a body at the same range stood on a pool a metre
+         wide. The acceptance says "the same holds for a crate", so the same linear annulus is added here,
+         against the prop's own distance to the eye and with no new constant: a prop has no collision radius
+         to grow, `MESH.foot` * scale + SHADOW_PR is its authored radius. It was safe to ship only once the
+         far-band census attributed by CASTER - grown discs of both casters overlap on the same deck and
+         `shadowFloor` answers a shared pixel with the darkest disc, so before #648 a crate-at-range row
+         could not be written without the body's own row collapsing (measured 14 px -> 1 px). */
+      const pgrow = pd2 > SHADOW_RD * SHADOW_RD ? SHADOW_RG * (Math.sqrt(pd2) - SHADOW_RD) : 0;
+      const n = SH_N, r = MESH.foot(p.kind) * (p.scale || 1) + SHADOW_PR + pgrow;
       if (r <= 0) continue;                             // a kind with no authored footprint grounds nothing
       SH_X[n] = p.x; SH_Y[n] = p.y; SH_Z[n] = floorAt(p.x, p.y); SH_I[n] = 1 / (r * r); SH_H[n] = r;
       SH_FX[n] = SHADOW_PF; SH_FW[n] = SHADOW_PD;
