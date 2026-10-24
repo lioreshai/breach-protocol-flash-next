@@ -89,6 +89,26 @@ const MESH = (function () {
      clamp is what makes the row's mean move by a tenth rather than by a third in the worst deal. */
   const BH_K = 1.0, BH_LO = 0.62, BH_HI = 1.45;
 
+  /* #611 the figure-ground target and the clamp, in luma. FG_PUSH puts him 1.5 floors under the surface
+     behind him: inside #407's 20-luma ceiling by 14, and over #611's floor by 2. FG_FLOOR is the SAME 4
+     the probe already calls a separated edge (DLR/SEP_V at the top of tools/view.js contrast), so the
+     paint authors the step the row measures with one constant rather than a second dialect of it, and
+     FG_MAX is the most any one draw's value is allowed to move. LUMW is Rec.709 - the weighting the row's
+     own luma() uses - so the prediction and the measurement agree about what a luma is.
+       FG_MAX was 8, twice FG_FLOOR, and one deal of the contrast sweep's 48 stopped short on it: RING
+     TRANSPORT's roll-5 brute (770 px) reads 2.7 luma of step against the 4 bar because his own shortfall
+     needs more than 8 and the clamp stops him there - the RAILED part of the push, not a mis-aim, which
+     is why raising the TARGET instead leaves that deal exactly where it is. Measured on the sweep itself
+     (JSDIR arms of this one line, `view.js contrast`, so every other constant is byte-identical):
+     8.00 / 8.02 / 8.05 / 8.10 leave roll 5 at 2.7 and the row KNOWN; 8.25 clears it and all four sectors
+     (worst deals 10.9 / 8.0 / 4.6 / 6.8, 0 FAILURES of 87 rows, the [#611 debt] row gone) because past
+     his shortfall the clamp stops binding and the draw lands on its own FG_PUSH target. So 8.25 is the
+     SMALLEST value ever measured to clear, and it is the smallest one worth shipping: past the shortfall
+     a wider rail darkens draws that were already aiming correctly (the 16 m #407 seats walk from -27.4 to
+     -29.4 luma between 8 and 12 for no separation gain), so the rail stays as close to the deal that
+     needs it as the measurement allows. The albedo floor two lines below bounds every draw regardless. */
+  const FG_FLOOR = 4, FG_PUSH = 6, FG_MAX = 8.25, LUMW = [0.2126, 0.7152, 0.0722];
+
   /* #78: one subdivision knob for every part was the spike's last leftover - a thigh and a visor got
      the same 6-sided prism, so the silhouette faceted exactly where it is widest while the small parts
      were already over-tessellated. `ns` is a per-CALL register on the Builder, the same shape as `em`
@@ -144,6 +164,34 @@ const MESH = (function () {
      both numbers side by side so the difference stays visible). */
   const NECK_R_SHLAT = 0.42;
   const neckR = s => Math.max(s.headR * NECK_R0, s.shLat * NECK_R_SHLAT);
+
+  /* The ceiling on how much NECK a player has to look at, in body-space metres above the shoulders' top
+     face (#80). The two knobs above decide how wide the tube is and how far the shoulders reach up into
+     its gap; neither decides how TALL the exposed column is, because that was authored as a headR
+     fraction - `head - 0.35*headR` is the skull box's underside, so the column is whatever the head's
+     own size leaves between its bottom and the shoulder plane. On a grunt that is 59 mm of a 1007 mm
+     body: 5.9% of his height, 49 px of silhouette against a 114 px torso, and the band is a tube SIDE -
+     the one face the shading cannot make read in a dim room (#33 floored an additive rim at AMB 0.19).
+     That is why #80's own item 1 asks for the column measured at the shoulder line and under ~6%: the
+     faces that DO read at any ambient are box tops, so the way to shorten a neck is to move the head
+     down onto the shoulders rather than to paint the gap brighter.
+
+     So the skull's underside is min(what the head authors, shoulder plane + NECK_MAX). It is a cap and
+     not an offset, which is what keeps the other two kinds byte-identical: a hound's underside already
+     sits 23 mm under the cap and a brute's 17 mm under it, so `min` returns their authored number and
+     their geometry does not move at all; only the grunt - the kind the measurement is about - has slack
+     to give, and gives 14 mm. Proportioned in metres and not in headR fractions on purpose: a headR
+     fraction sinks a kind whose neck was already short (0.15*headR would have taken the hound's whole
+     24 mm column to 10 mm, which is not a shorter neck but no neck). */
+  const NECK_MAX = 0.045;
+  const neckTop = s => Math.min(s.head - s.headR * 0.35, s.sh + s.headR * SHOULDER_LIFT + NECK_MAX);
+  /* The skull box's own half-height, and the visor's height above the skull's CENTRE. Both named
+     because the cap above moves the centre: `head + 0.6*headR` and `head + 0.7*headR` are written
+     against the HEAD's authored height, so when the skull sinks onto its neck the visor box would stay
+     at the old height and float out through the crown. Expressing the visor off the skull's centre is
+     byte-identical wherever the cap does not bite (centre + 0.10*headR == head + 0.7*headR exactly) and
+     keeps the visor in the same place ON the head where it does. */
+  const HEAD_HH = 0.95, VISOR_DY = 0.10;
 
   /* The head box's half-width in fractions of headR - named for two reasons: it is the head's own
      silhouette width, and it is the LATERAL WINDOW tools/view.js #80 measures the neck band inside.
@@ -1208,9 +1256,11 @@ const MESH = (function () {
        reason: a column 22% of the torso's width reads as a gap between two parts, and one 36-41% of it
        reads as the part's own base. Emitted between the two boxes it stitches, and the emit ORDER is
        the pose table's vertex order, so it stays here rather than moving with the head. */
-    b.tube(0, shTop - JOIN, 0, 0, s.head + q.bob - s.headR * 0.35 + JOIN, 0, neckR(s), neckR(s) * (NECK_R1 / NECK_R0), dk);
-    b.box(0, s.head + q.bob + s.headR * 0.6, 0, s.headR * HEAD_HW, s.headR * 0.95, s.headR * 0.80, dk);
-    b.box(0, s.head + q.bob + s.headR * 0.7, s.headR * 0.72, s.headR * 0.62, s.headR * 0.30, s.headR * 0.22, [255, 208, 138]);
+    const nkY = neckTop(s) + q.bob;                    // the skull's underside, capped - see NECK_MAX
+    const hdY = nkY + s.headR * HEAD_HH;               // skull centre
+    b.tube(0, shTop - JOIN, 0, 0, nkY + JOIN, 0, neckR(s), neckR(s) * (NECK_R1 / NECK_R0), dk);
+    b.box(0, hdY, 0, s.headR * HEAD_HW, s.headR * HEAD_HH, s.headR * 0.80, dk);
+    b.box(0, hdY + s.headR * VISOR_DY, s.headR * 0.72, s.headR * 0.62, s.headR * 0.30, s.headR * 0.22, [255, 208, 138]);
     for (let i = 0; i < 2; i++) {
       const A = q.arm[i], ax = (i ? 1 : -1) * s.shLat;
       b.ns = seg;                                      // #78: the limbs are where 6 sides show
@@ -1821,6 +1871,97 @@ const MESH = (function () {
       }
     }
     const FL = S.flash, FC = S.flashCol;                // the muzzle's own light, the billboard's term
+    /* #611 THE VALUE HALF, armed by BODYFG (see js/00_core.js). #615 shipped the HUE half above and the
+       colour axis cleared everywhere; the value axis did not, because his delivered value tracks the lamp
+       field at HIS OWN cell (r=0.71) while the wall ten metres behind him does not (r=0.34). The step is
+       a difference between two surfaces lit by two different cells' fields, so no constant on a palette
+       can hold it: a 0.72x scale sent one deal to 0.0 and three green #407 rows to -26/-40/-26, and a
+       luma-neutral hue push moved the far edge UP and the near edge DOWN. Four uniform laws, all failing
+       in the same shape, is the evidence that the term has to be CONDITIONAL: keyed on the surface he is
+       actually framed by, and moving only the draws whose value would land inside the floor of it.
+         (1) WHAT HE IS FRAMED BY is read, not modelled: the world is drawn before bodies and the list is
+             sorted far to near, so the pixels he is about to cover hold the surface behind him. Four reads
+             on his own centre line, kept only where the depth buffer says that pixel is BEHIND him, so a
+             lip in front of him cannot be mistaken for his background. That is "a few samples, never per
+             pixel" - it costs four reads and one luma per DRAW.
+         (2) WHERE HE WOULD LAND is predicted with the arithmetic the pixel body below runs, at the mean of
+             its own domain: his kind's own mean texel (read off the packed vertex colours once per model,
+             not a guess from SKIN/DARK/CLOTH), the counter-pigment just decided, the field at HIS cell,
+             the cell's tint, the form ramp at its mean (R0 + R1/2, BODYSHADE's own statement of it), the
+             fill, and the wash added at the end. Predicting is only legitimate because the term's trigger
+             is a FLOOR on a difference, not a target value: a few lumas of model error moves WHICH draws
+             fire, not the direction any of them move in.
+         (3) THE PUSH is a uniform grey scale on his albedo, so it cannot touch the hue/chroma axis the
+             colour row reads (the opponent coordinates are scale-invariant) and cannot buy the bar by
+             making the room brighter. He is put TWICE the floor under the surface behind him - the look is
+             "a shade darker than the room" - and the magnitude of one draw's push is clamped to the same
+             2x floor, which is what keeps a body that happened to sit brighter from being thrown across
+             the frame. Draws already separated never fire at all: that is why the 21-29 luma #407 rows
+             cannot move. Off when the BODYPAINT arm is down, off on the view model and on props, and there
+             is no billboard copy - the same one-read-site argument BODYHUE makes. */
+    if (BODYFG && BODYPAINT && BODY && !MDL && !pr && tYc > 0.75) {
+      // (1) WHAT HE IS FRAMED BY: four delivered pixels inside his own projected silhouette, kept only
+      //     where the depth buffer says that pixel is BEHIND him, so a lip in front cannot pass for his
+      //     background. The world pass runs before this list and the list is sorted far to near, so the
+      //     pixels he is about to cover still hold the surface he is seen against.
+      const fq = 1 / tYc;
+      const fsx = (BW * 0.5) * (1 + (cam.invDet * (dirY * ex - dirX * ey)) * fq);
+      const fsy = horizon + (BH * (eyeZ - (o.z + sc * 0.55))) * fq;
+      const fw = (BH * sc) * fq * 0.9;                 // OUTSIDE his own silhouette, not across it
+      let fr = 0, fg2 = 0, fb = 0, fn = 0;
+      for (let s = 0; s < 4; s++) {
+        const fx = (fsx + (s === 0 ? -fw : s === 1 ? fw : 0)) | 0;
+        const fy = (fsy + (s === 2 ? -fw : s === 3 ? fw * 0.5 : 0)) | 0;
+        if (fx < 0 || fy < 0 || fx >= BW || fy >= BH) continue;
+        const foff = fy * BW + fx;
+        if (zbuf[foff] <= tYc) continue;              // nearer than he is: not the surface behind him
+        const fp = px[foff];
+        fr += fp & 255; fg2 += fp >> 8 & 255; fb += fp >> 16 & 255; fn++;
+      }
+      if (fn >= 2) {
+        // (2) WHERE HE WOULD LAND: the pixel body's own arithmetic at the mean of its own domain.
+        if (m.fal === undefined) {
+          let ar = 0, ag = 0, ab = 0; const an = m.nV || 1;
+          for (let i = 0; i < an; i++) { ar += PD[i * 6 + 3]; ag += PD[i * 6 + 4]; ab += PD[i * 6 + 5]; }
+          m.fal = [ar / an, ag / an, ab / an];        // the kind's own mean texel, once per model
+        }
+        const fpal = m.fal, fd = Math.max(0.2, Math.hypot(ex, ey));
+        /* The predictor deliberately reads the SHIPPED form of every light term - the field whole at his
+           cell, the wash added and never multiplied, the ramp centred on its own domain - and NOT the
+           BODYDIST / BODYHAZE / BODYSHADE arm the probe may have raised. This is a material estimate of
+           where his paint sits, not a second evaluation of the light path: if it followed the arms, the
+           push would change under the A/B and the arm would no longer be measuring the term it names (at
+           L1 8 m the shade arm inverted against it and went RED for exactly that reason). */
+        const ffi = Math.min(1, (lm ? lm[cc] : 0.5) + 0.30 * visAt(fd)), frm = R0 + R1 * 0.5;
+        let fh = 0;
+        for (let c = 0; c < 3; c++) {
+          const fl = (AMB + ffi * lt[c] * frm) * (TINT ? TINT[c] : 1);
+          fh += LUMW[c] * fpal[c] * (c === 0 ? bhr : c === 1 ? bhg : bhb) * fl;
+        }
+        const fws = (0.2126 * FOGC[0] + 0.7152 * FOGC[1] + 0.0722 * FOGC[2]) * fogAt(fd);
+        const fbg = 0.2126 * (fr / fn) + 0.7152 * (fg2 / fn) + 0.0722 * (fb / fn);
+        fh += fws;
+        // (3) THE PUSH: a body belongs under the surface it is framed by by at least FG_PUSH. The trigger
+        //     is a SHORTFALL, not a window - "he is not yet that far under it" - so a draw already
+        //     separated (the -13 to -16 arrival seats) and a draw already past #407's 20-luma ceiling both
+        //     fail the test and do not move at all, which is what makes the two gates satisfiable together
+        //     instead of in tension. The clamp is what keeps a body that happened to sit BRIGHTER than his
+        //     background from being thrown across the frame: he is moved down, never up, and never by more
+        //     than FG_MAX. A grey scale on the albedo, so the hue/chroma axis the colour row reads is
+        //     untouched by construction and the bar cannot be bought with hue or with a brighter room. Off
+        //     when the BODYPAINT arm is down, off on the view model and on props, no billboard copy - the
+        //     same one-read-site argument BODYHUE makes.
+        const fd2 = fh - fbg;
+        if (fd2 > -FG_PUSH) {
+          const fden = fh - fws;
+          if (fden > 2) {
+            const fmove = clamp(fbg - FG_PUSH - fh, -FG_MAX, 0);
+            const bgv = clamp((fh + fmove - fws) / fden, 0.45, 1.8);
+            bhr *= bgv; bhg *= bgv; bhb *= bgv;
+          }
+        }
+      }
+    }
     for (let k = 0, K = T.length; k < K; k += 3) {
       const i0 = T[k], i1 = T[k + 1], i2 = T[k + 2];
       // face normal in world space (flat shading), then Lambert against KEY
@@ -2016,7 +2157,7 @@ const MESH = (function () {
        between, published so tools/view.js #80 measures the band the geometry paints instead of
        re-deriving its own. The third number is the window's half-width: the head box's own half-width,
        which contains the tube, the head's underside and the shoulders' top face but not the arms. */
-    neckBand: k => { const s = SPEC[k] || SPEC.grunt; return [s.sh + s.headR * SHOULDER_LIFT, s.head - s.headR * 0.35, s.headR * HEAD_HW, neckR(s)]; },   // [bandLo, bandHi, plan window, AUTHORED tube half-width] - the 4th lets a probe measure the tube the mesh wrote rather than the envelope that paints over it (#80)
+    neckBand: k => { const s = SPEC[k] || SPEC.grunt; return [s.sh + s.headR * SHOULDER_LIFT, neckTop(s), s.headR * HEAD_HW, neckR(s)]; },   // [bandLo, bandHi, plan window, AUTHORED tube half-width] - the 4th lets a probe measure the tube the mesh wrote rather than the envelope that paints over it (#80)
     spanFor: k => {
       const m = model(k);
       if (!m.span) {
