@@ -150,6 +150,34 @@ var BPAINT_RGB = 0xffffff;
    argument BODYSHADE and BODYHAZE make. */
 var BODYHUE = 1;
 
+/* #611: BODYFG arms the VALUE half of the same counter-pigment, for the half #615 left alone. The hue
+   push above takes the room's HUE out of his paint and the colour axis now clears everywhere (30.5-128.7
+   at the four arrival seats against a bar of 20, tools/view.js contrast). The value axis did not: the
+   step between his silhouette and the surface directly behind it ranges from 0.4 to 16 luma over twelve
+   deals of the same level, and the low deals are where he arrives a beat late.
+   Why no constant can close it, measured four ways: his delivered value tracks the lamp field at HIS OWN
+   cell (r=0.71) and the wall ten metres behind him does not (r=0.34), so the step is a difference between
+   two surfaces lit by two different cells' fields and a fixed albedo is on only one side of that
+   subtraction. Every uniform law therefore slides the whole distribution and moves BOTH failure ends at
+   once: a 0.72x palette put one deal at 0.0 and three green #407 rows at -26/-40/-26, and a luma-neutral
+   version of the hue push moved the far edge up and the near edge down.
+   So the term is CONDITIONAL and keyed on the framed surface: per DRAW it reads a few delivered pixels
+   inside his own projected box that the depth buffer says are BEHIND him (that is the surface the eye
+   compares him to), predicts his own delivered mean with the arithmetic the pixel body actually runs
+   (texel mean x (AMB + field x tint x ramp) + the wash), and if that prediction puts him inside the
+   4-luma floor of that surface, pushes his paint away from it - on the side he already sits - to 6 luma
+   under, or to the bare 4 over if he already sits brighter, so no body ends more than the floor brighter
+   than his background. Where he already separates the term is inert, which is what keeps the 21-29 luma
+   #407 rows exactly where they are: it fires only inside the floor.
+   The push is a uniform grey scale on the albedo, so it moves his VALUE and cannot touch the hue/chroma
+   axis - the opponent coordinates the separation row reads are scale-invariant. It is ALBEDO, not light:
+   it rides the same three multipliers as the counter-pigment and so is off with the BODYPAINT arm down,
+   it adds no second multiplier to the lamp field (#407 forbade one), and there is no billboard, prop or
+   view-model copy - the same one-read-site argument BODYHUE, BODYSHADE and BODYHAZE make.
+   1 (shipped) = the conditional push runs. 0 = the form before this increment: his value is whatever the
+       multiply leaves, which is what the near-zero deals in the sweep are the A/B for. */
+var BODYFG = 1;
+
 /* ---------------- config ---------------- */
 let FOGC = [9, 12, 20];   // per level: air has a colour
 const LVL = 32;                       // light/fog buckets
