@@ -145,6 +145,34 @@ const MESH = (function () {
   const NECK_R_SHLAT = 0.42;
   const neckR = s => Math.max(s.headR * NECK_R0, s.shLat * NECK_R_SHLAT);
 
+  /* The ceiling on how much NECK a player has to look at, in body-space metres above the shoulders' top
+     face (#80). The two knobs above decide how wide the tube is and how far the shoulders reach up into
+     its gap; neither decides how TALL the exposed column is, because that was authored as a headR
+     fraction - `head - 0.35*headR` is the skull box's underside, so the column is whatever the head's
+     own size leaves between its bottom and the shoulder plane. On a grunt that is 59 mm of a 1007 mm
+     body: 5.9% of his height, 49 px of silhouette against a 114 px torso, and the band is a tube SIDE -
+     the one face the shading cannot make read in a dim room (#33 floored an additive rim at AMB 0.19).
+     That is why #80's own item 1 asks for the column measured at the shoulder line and under ~6%: the
+     faces that DO read at any ambient are box tops, so the way to shorten a neck is to move the head
+     down onto the shoulders rather than to paint the gap brighter.
+
+     So the skull's underside is min(what the head authors, shoulder plane + NECK_MAX). It is a cap and
+     not an offset, which is what keeps the other two kinds byte-identical: a hound's underside already
+     sits 23 mm under the cap and a brute's 17 mm under it, so `min` returns their authored number and
+     their geometry does not move at all; only the grunt - the kind the measurement is about - has slack
+     to give, and gives 14 mm. Proportioned in metres and not in headR fractions on purpose: a headR
+     fraction sinks a kind whose neck was already short (0.15*headR would have taken the hound's whole
+     24 mm column to 10 mm, which is not a shorter neck but no neck). */
+  const NECK_MAX = 0.045;
+  const neckTop = s => Math.min(s.head - s.headR * 0.35, s.sh + s.headR * SHOULDER_LIFT + NECK_MAX);
+  /* The skull box's own half-height, and the visor's height above the skull's CENTRE. Both named
+     because the cap above moves the centre: `head + 0.6*headR` and `head + 0.7*headR` are written
+     against the HEAD's authored height, so when the skull sinks onto its neck the visor box would stay
+     at the old height and float out through the crown. Expressing the visor off the skull's centre is
+     byte-identical wherever the cap does not bite (centre + 0.10*headR == head + 0.7*headR exactly) and
+     keeps the visor in the same place ON the head where it does. */
+  const HEAD_HH = 0.95, VISOR_DY = 0.10;
+
   /* The head box's half-width in fractions of headR - named for two reasons: it is the head's own
      silhouette width, and it is the LATERAL WINDOW tools/view.js #80 measures the neck band inside.
      The pixels between the head's underside and the shoulders' top face are the tube, the head box's
@@ -1208,9 +1236,11 @@ const MESH = (function () {
        reason: a column 22% of the torso's width reads as a gap between two parts, and one 36-41% of it
        reads as the part's own base. Emitted between the two boxes it stitches, and the emit ORDER is
        the pose table's vertex order, so it stays here rather than moving with the head. */
-    b.tube(0, shTop - JOIN, 0, 0, s.head + q.bob - s.headR * 0.35 + JOIN, 0, neckR(s), neckR(s) * (NECK_R1 / NECK_R0), dk);
-    b.box(0, s.head + q.bob + s.headR * 0.6, 0, s.headR * HEAD_HW, s.headR * 0.95, s.headR * 0.80, dk);
-    b.box(0, s.head + q.bob + s.headR * 0.7, s.headR * 0.72, s.headR * 0.62, s.headR * 0.30, s.headR * 0.22, [255, 208, 138]);
+    const nkY = neckTop(s) + q.bob;                    // the skull's underside, capped - see NECK_MAX
+    const hdY = nkY + s.headR * HEAD_HH;               // skull centre
+    b.tube(0, shTop - JOIN, 0, 0, nkY + JOIN, 0, neckR(s), neckR(s) * (NECK_R1 / NECK_R0), dk);
+    b.box(0, hdY, 0, s.headR * HEAD_HW, s.headR * HEAD_HH, s.headR * 0.80, dk);
+    b.box(0, hdY + s.headR * VISOR_DY, s.headR * 0.72, s.headR * 0.62, s.headR * 0.30, s.headR * 0.22, [255, 208, 138]);
     for (let i = 0; i < 2; i++) {
       const A = q.arm[i], ax = (i ? 1 : -1) * s.shLat;
       b.ns = seg;                                      // #78: the limbs are where 6 sides show
@@ -2016,7 +2046,7 @@ const MESH = (function () {
        between, published so tools/view.js #80 measures the band the geometry paints instead of
        re-deriving its own. The third number is the window's half-width: the head box's own half-width,
        which contains the tube, the head's underside and the shoulders' top face but not the arms. */
-    neckBand: k => { const s = SPEC[k] || SPEC.grunt; return [s.sh + s.headR * SHOULDER_LIFT, s.head - s.headR * 0.35, s.headR * HEAD_HW, neckR(s)]; },   // [bandLo, bandHi, plan window, AUTHORED tube half-width] - the 4th lets a probe measure the tube the mesh wrote rather than the envelope that paints over it (#80)
+    neckBand: k => { const s = SPEC[k] || SPEC.grunt; return [s.sh + s.headR * SHOULDER_LIFT, neckTop(s), s.headR * HEAD_HW, neckR(s)]; },   // [bandLo, bandHi, plan window, AUTHORED tube half-width] - the 4th lets a probe measure the tube the mesh wrote rather than the envelope that paints over it (#80)
     spanFor: k => {
       const m = model(k);
       if (!m.span) {
