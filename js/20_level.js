@@ -3200,6 +3200,7 @@ function genLevel(li) {
     // Nothing is parked in the cell this pass is about to make solid: a pier may not stand on a prop,
     // a lamp, a pickup or an enemy, because by now every one of those has been placed.
     let placed = 0;
+    const PIER_SEAT = 5;                              // cells of air the line keeps from the ARRIVAL seat
     const occupied = new Uint8Array(N * N);
     for (const o of PROPS) occupied[((o.y | 0) * N) + (o.x | 0)] = 1;
     for (const o of LIGHTS) if (o.stat !== 1) occupied[((o.y | 0) * N) + (o.x | 0)] = 1;
@@ -3226,6 +3227,23 @@ function genLevel(li) {
       if (pos === (alongX ? r.cx : r.cy)) pos--;          // keep the line off the row the seats sit on
       if (pos <= (alongX ? r.x : r.y)) pos += 2;
       if (pos >= (alongX ? r.x + r.w : r.y + r.h)) continue;
+      /* THE LINE MAY NOT STAND IN THE ARRIVAL CAMERA'S NEAR FIELD. `P` is the seat, set above, and the
+         dealt spawn room is one of these rooms: a column two cells off the camera is not an edge you
+         walk past, it is a brick face filling the frame. That is what `node tools/view.js exposure`
+         caught at this head - the spawn-seat means +18/+12/+20 lumas over the record on L0/L1/L2, one
+         seeded deal at mean 144, with the 4x6-yaw seeded medians of the same levels moving 0-2 - a
+         first frame that got bright while the level did not, which is only ever a face put close to
+         the eye. So the room the player ARRIVES in gets its line at least PIER_SEAT of air beyond the
+         seat instead of in front of it; the far half of the view still gets the edge, and it is the
+         same line one step further down the room. A room with no legal position that far out gets no
+         line rather than a wall in the player's face. Every other room is untouched by this clause. */
+      if (P.x >= r.x && P.x < r.x + r.w && P.y >= r.y && P.y < r.y + r.h) {
+        const off = alongX ? (P.x - pos) : (P.y - pos);
+        if (Math.abs(off) < PIER_SEAT) {
+          pos = (alongX ? P.x : P.y) + (off < 0 ? -PIER_SEAT : PIER_SEAT);
+          if (pos <= (alongX ? r.x : r.y) || pos >= (alongX ? r.x + r.w : r.y + r.h)) continue;
+        }
+      }
       for (let k = 1 + (ri & 1); k < span - 1; k += 2) {   // a pier, a gap, a pier, a gap...
         const x = alongX ? pos : r.x + k, y = alongX ? r.y + k : pos;
         if (x < 1 || y < 1 || x >= N - 1 || y >= N - 1) continue;
