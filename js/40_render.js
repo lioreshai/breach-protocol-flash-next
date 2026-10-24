@@ -2618,7 +2618,36 @@ const CF_PLATE = 1.0;                     // one CELL of ceiling is the fitting:
                                           // diffuser inside it. At 0.68 the plate was 25 px of picture at
                                           // 8 m and read as a bright dot; a flush fitting has to own its
                                           // cell to look like the cause of the pool under it.
-const CF_STEM_W = 0.14;                   // metres: the stem's diameter, a conduit, not a cable
+const CF_STEM_W = 0.11;                   // metres: the stem's diameter, a conduit, not a cable. #629
+                                          // takes it down from 0.14: at 12 m a 0.14 m rod projects ~7 px
+                                          // wide for the whole height of the room, and a rod that keeps
+                                          // all of its area at every range out-argues the lamp under it.
+const CF_STEM_MAX = 1.6;                  // #629 metres: the LONGEST rod this pass draws. The drop used
+                                          // to be whatever the room's clearance minus CFIX_TRAY_H came to,
+                                          // so #548's taller air turned every fitting into a 3.5 m column
+                                          // and the column became the tallest line in the frame. The light
+                                          // source stays where js/20_level.js put it (this is the picture,
+                                          // not the lighting); the DRAWN body comes up under the slab.
+const CF_SHADE_R = 0.46;                  // #629 metres: the reflector's radius AT ITS MOUTH, mouth down
+                                          // at the lens plane. The plate this pass draws is a HORIZONTAL
+                                          // quad: its projected height is `d = dz * BH / absP` geometry
+                                          // and collapses to ~2 px at eye height, so past 8 m the only
+                                          // part of a pendant left with any projected area was its stem.
+                                          // A bowl's silhouette is VERTICAL - it keeps its area at every
+                                          // heading and every range, which is the whole of this fix.
+const CF_SHADE_H = 0.34;                  // metres: mouth (lens plane) up to the throat the stem enters
+const CF_SHADE_RT = 0.10;                 // metres: radius at the throat, so the silhouette is a
+                                          // trapezoid and the stem has something to pass through
+const CF_SHADE_A = 0.92;                  // coverage inside the bowl's own silhouette, soft at the rim
+const CF_SHADE_GLOW = 0.50;               // the lens's own light carried back onto the bowl: strongest at
+                                          // the mouth and on the axis, where the inside face looks at the
+                                          // eye. Albedo alone makes the fitting as dark a body as the
+                                          // roof behind it - #456 settled the stem at 3-4 m, where the
+                                          // plate is still legible; this is the same object at 8 m+.
+const CF_LENS_W = 0.72;                   // metres across the DIFFUSER the pane pass maps CFIX.STRIP
+                                          // onto: inside the mouth, so the lens is the brightest thing in
+                                          // the fitting's own footprint and not a plate wider than its own
+                                          // shade. Flush fittings keep CF_PLATE (js/20_level.js byte 1).
 const CF_CANOPY_R = 0.20;                 // metres: the MOUNT a hanging stem is bolted to, at the slab.
                                           // Half a fitting's housing, dark, and the only thing the slab
                                           // carries where the lens hangs below it (#456 review). Read
@@ -2656,7 +2685,7 @@ let CF_R = 0, CF_G = 0, CF_B = 0, CF_A = 0, CF_PANES = null;
 function drawCeilPanes(flash, fcR, fcG, fcB) {
   if (CF_PANES === null || CF_PANES.length === 0) return;
   const N = MAP.w, cellArr = MAP.cell, lm = MAP.light;
-  const tex = CFIX.STRIP, uvS = tex.w / CF_PLATE, uvT = tex.h / CF_PLATE;
+  const tex = CFIX.STRIP, uvS = tex.w / CF_LENS_W, uvT = tex.h / CF_LENS_W;
   const hInt = Math.round(horizon), stepBase = 2 / BW;
   const invDet = 1 / (planeX * dirY - dirX * planeY);
   for (let f = 0; f < CF_PANES.length; f++) {
@@ -2667,15 +2696,24 @@ function drawCeilPanes(flash, fcR, fcG, fcB) {
     if (dzp < 0.15 || dzs <= dzp + 0.05) continue;         // at the eye, or nothing to hang it from
     const tY = invDet * (-planeY * dx + planeX * dy);
     if (tY < 0.45 || tY > 40) continue;
+    /* #629 THE DROP IS CAPPED, and the body is drawn where the light is. Two rules, one object:
+       - the DRAWN lens plane never sits more than CF_STEM_MAX below the slab, so a rod is never the
+         longest line in its own fitting however tall the room is above it; and
+       - a rod column is drawn only where the lens at the end of it survives the depth test, because a
+         lamp hidden behind a nearer slab or wall while its rod pokes over the edge is the exact artifact
+         this pass was filed for: three sectors' arrival frames showed a dark column out of the roof with
+         nothing luminous on the end of it, and LAMPS=off took the whole pass away and with it the column.
+       The light itself is untouched - js/20_level.js's LIGHTS entry keeps its own z, so no pool moves. */
+    const dzB = Math.max(dzp, dzs - CF_STEM_MAX - CF_SHADE_H);   // the DRAWN lens plane's elevation
     /* bbox only, from the panel's four corners; every pixel inside it is solved exactly below. */
     let bx0 = BW, bx1 = -1, byF = 1e9, byN = -1e9;
     for (let k = 0; k < 4; k++) {
-      const ex = F.gx + 0.5 + ((k & 1) ? 0.5 : -0.5) * CF_PLATE - camX;
-      const ey = F.gy + 0.5 + ((k >> 1) ? 0.5 : -0.5) * CF_PLATE - camY;
+      const ex = F.gx + 0.5 + ((k & 1) ? 0.5 : -0.5) * CF_LENS_W - camX;
+      const ey = F.gy + 0.5 + ((k >> 1) ? 0.5 : -0.5) * CF_LENS_W - camY;
       const eT = invDet * (-planeY * ex + planeX * ey);
       if (eT < 0.25) continue;
       const eX = BW * 0.5 * (1 + invDet * (dirY * ex - dirX * ey) / eT);
-      const eY = horizon - (BH / eT) * dzp;
+      const eY = horizon - (BH / eT) * dzB;
       if (eX < bx0) bx0 = eX;
       if (eX > bx1) bx1 = eX;
       if (eY < byF) byF = eY;
@@ -2686,6 +2724,7 @@ function drawCeilPanes(flash, fcR, fcG, fcB) {
     const tXc = invDet * (dirY * dx - dirX * dy);
     const scx = BW * 0.5 * (1 + tXc / tY);
     const swid = Math.max(1, Math.round(BW * 0.25 * CF_STEM_W / tY));
+    const dzT = Math.min(dzs, dzB + CF_SHADE_H);      // the throat: the rod stops where the bowl starts
     const sx0 = Math.max(0, Math.round(scx) - swid), sx1 = Math.min(BW - 1, Math.round(scx) + swid);
     const ciS = F.gy * N + F.gx;
     const ltS = cellTint(ciS);
@@ -2696,19 +2735,25 @@ function drawCeilPanes(flash, fcR, fcG, fcB) {
       const rx = dirX + planeX * c, ry = dirY + planeY * c;
       const dh = (dx * rx + dy * ry) / (rx * rx + ry * ry);  // how far along this column's ray the stem stands
       if (dh < 0.3 || dh > 40) continue;
+      /* #629 no orphan rod: if this column cannot see the lens the rod hangs from, it draws no rod. */
+      const yV = Math.round(horizon - (BH / dh) * dzB);
+      if (yV < 0 || yV >= hInt || !(dh < zbuf[yV * BW + x])) continue;
       const uS = (x - scx) / (swid + 0.5);                    // across the rod: 0 on its axis
       if (uS < -1.2 || uS > 1.2) continue;
       const cyl = 1 - 0.55 * Math.min(1, uS * uS);            // a ROUND section: its silhouette turns away
-      const al = 0.72 * (uS * uS > 0.64 ? 0.55 : 1);          // ...and a soft one, so a 2 px rod at range
-      const yT = Math.ceil(horizon - (BH / dh) * dzs), yB = Math.floor(horizon - (BH / dh) * dzp);
+      const alX = 0.72 * (uS * uS > 0.64 ? 0.55 : 1);         // ...and a soft one, so a 2 px rod at range
+      const yT = Math.ceil(horizon - (BH / dh) * dzs), yB = Math.floor(horizon - (BH / dh) * dzT);
       const span = Math.max(1, yB - yT);                      // is not a black comb of alternate pixels
       const fogS = fogAt(dh > FARB * 4 ? FARB * 4 : dh), invS = 1 - fogS;
-      const bS = (AMB + CEILB + Math.min(CEILLD, CEILFL + CEILG * Math.max(0, dzp - CEILHI)) + liS * 0.35) * invS;
+      const bS = (AMB + CEILB + Math.min(CEILLD, CEILFL + CEILG * Math.max(0, dzB - CEILHI)) + liS * 0.35) * invS;
       for (let y = Math.max(0, yT); y <= Math.min(hInt - 1, yB); y++) {
         const i = y * BW + x;
         if (!(dh < zbuf[i])) continue;
         const o = px[i];
-        const tt = (y - yT) / span;                           // 0 at the slab, 1 at the lens it hangs from
+        const tt = (y - yT) / span;                           // 0 at the slab, 1 at the bowl it hangs from
+        const al = alX * (0.34 + 0.66 * tt * tt);             // #629 AND IT FADES UP INTO THE ROOF: the end
+                                                              // bolted to the slab is a thread, not the dark
+                                                              // bar that used to be the tallest line in frame
         const sh = cyl * (0.42 + 1.05 * tt * tt);             // lit by its own lamp at the FOOT, and dark
         const rr = (o & 255) * (1 - al) + 70 * bS * sh, gg = (o >> 8 & 255) * (1 - al) + 66 * bS * sh,
               bb = (o >> 16 & 255) * (1 - al) + 60 * bS * sh; // where no light reaches
@@ -2718,18 +2763,61 @@ function drawCeilPanes(flash, fcR, fcG, fcB) {
                                         // same rule the billboard and the mesh blitter already follow
       }
     }
+    /* #629 THE LUMINAIRE ITSELF, drawn between the rod and the diffuser so the lens lands last.
+       A shallow reflector: mouth down at the lens plane, throat up where the stem passes through. Per
+       column it is the rod's own one-solve (`dh` is this column's reach to the fitting's axis); per row
+       the radius is read off the cone, so the silhouette is a TRAPEZOID and not a horizontal quad whose
+       projected height collapses with range. That is the whole of the fix: a vertical body keeps its area
+       at 15 m and at any heading, and the plate on the panel plane was keeping two pixels of it. Its own
+       lens lights it - a glow term strongest at the mouth and on the axis, where the inside of the bowl
+       looks back at the eye - over this fitting's cell light and tint, and it is still ALBEDO and glow
+       only: no second light, so a fitting in a room whose lamps are off arrives dark like everything else.
+       Depth is written only above the mouth, so the diffuser drawn next keeps its own rows and cannot
+       lose a depth TIE to the body it sits in (the rod above writes the same `dh` for its own columns). */
+    const liftB = Math.min(CEILLD, CEILFL + CEILG * Math.max(0, dzB - CEILHI));
+    const hx0 = Math.max(0, Math.floor(scx - BW * 0.5 * CF_SHADE_R / tY) - 1);
+    const hx1 = Math.min(BW - 1, Math.ceil(scx + BW * 0.5 * CF_SHADE_R / tY) + 1);
+    for (let x = hx0; x <= hx1; x++) {
+      const c = x * stepBase - 1;
+      const rx = dirX + planeX * c, ry = dirY + planeY * c;
+      const dh = (dx * rx + dy * ry) / (rx * rx + ry * ry);
+      if (dh < 0.3 || dh > 40) continue;
+      const yT = Math.ceil(horizon - (BH / dh) * dzT), yB = Math.floor(horizon - (BH / dh) * dzB);
+      const span = Math.max(1, yB - yT);
+      const fogS = fogAt(dh > FARB * 4 ? FARB * 4 : dh), invS = 1 - fogS;
+      const bS = (AMB + CEILB + liftB + liS * 0.55) * invS;
+      for (let y = Math.max(0, yT); y <= Math.min(hInt - 1, yB); y++) {
+        const t = (y - yT) / span;                           // 0 at the throat, 1 at the mouth
+        const rw = CF_SHADE_RT + (CF_SHADE_R - CF_SHADE_RT) * t;
+        const u = (x - scx) / (BW * 0.5 * rw / dh + 0.5);    // across the cone at THIS height
+        if (u < -1 || u > 1) continue;
+        const i = y * BW + x;
+        if (!(dh < zbuf[i])) continue;
+        const a = CF_SHADE_A * (1 - 0.5 * u * u);
+        const o = px[i];
+        const bowl = 1 - 0.30 * u * u;                       // the inside face turns away at the rim
+        const gl = CF_SHADE_GLOW * (0.35 + 0.65 * t * t) * (1 - 0.45 * u * u);
+        const kk = a * bowl * bS;
+        const rr = (o & 255) * (1 - a) + 200 * kk + 255 * gl * a,
+              gg = (o >> 8 & 255) * (1 - a) + 190 * kk + 240 * gl * a,
+              bb = (o >> 16 & 255) * (1 - a) + 172 * kk + 214 * gl * a;
+        px[i] = 0xFF000000 | clampi(bb) << 16 | clampi(gg) << 8 | clampi(rr);
+        if (SURF) SURF[i] = 0;                              // an object in front of the slab, as the rod
+        if (t < 0.8) zbuf[i] = dh;                            // body yes, mouth no (see the note above)
+      }
+    }
     const ci = F.gy * N + F.gx;
     const lt = cellTint(ci);
     let li = lm ? lm[ci] : 0;
     if (li > 1) li = 1;
-    const lift = Math.min(CEILLD, CEILFL + CEILG * Math.max(0, dzp - CEILHI));
+    const lift = Math.min(CEILLD, CEILFL + CEILG * Math.max(0, dzB - CEILHI));
     const y0 = Math.max(0, Math.ceil(byF)), y1 = Math.min(hInt - 1, Math.floor(byN));
     const x0 = Math.max(0, Math.floor(bx0)), x1 = Math.min(BW - 1, Math.ceil(bx1));
     if (y1 < y0 || x1 < x0) continue;
     for (let y = y0; y <= y1; y++) {
       const absP = hInt - y;
       if (absP < 1) continue;
-      const dP = dzp * BH / absP;
+      const dP = dzB * BH / absP;
       const fog = fogAt(dP > FARB * 4 ? FARB * 4 : dP), inv = 1 - fog;
       const fR = fcR * fog, fG = fcG * fog, fB = fcB * fog;
       const base = (AMB + CEILB + lift + flash * Math.exp(-dP * 0.30) * 0.9) * inv;
