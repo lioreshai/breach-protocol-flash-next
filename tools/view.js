@@ -8315,6 +8315,43 @@ if (MODE === 'heights') {
       const zPit = zbufCopy(), hzB = run('Math.round(horizon)'), eyeB = run('eyeZ');
       const y0 = Math.round(hzB + eyeB * PBH / DL) + 1, y1 = Math.round(hzB + (eyeB + 2) * PBH / DL) - 1;
       const b = run(PCENSUS);
+      /* WHICH PIXEL THE FAR LIP ACTUALLY OWNS (the reason four attempts on this issue measured inert).
+         The band y0..y1 is the projected span of the authored face, and a span is not a claim: a ray that
+         is steep enough to hit the DECK floor before it reaches the lip is correctly answered by that
+         floor at 1.8-3.2 m, and demanding the lip's 8.5 m there asks for a phantom. So each lip pixel is
+         now asked about its OWN ray - the same far-referenced march poseA uses - and judged against the
+         surface that ray arrives at, at the crossing when the march names one (#518's gWalkT) and at the
+         plane's solve when it does not. The row keeps the authored face as its target for the pixels
+         whose ray really does arrive there (cov), so the 8.5 m invariant #516 was filed with is still
+         asserted, just only where it is geometrically true; and a pixel whose own arrival is nearer is
+         allowed to be nearer instead of being called a phantom it is not. Tolerance is the grid's own
+         quantum ZQ, the same one poseA's two-solvers row uses - nothing here is widened to pass: the
+         shipped build fails this row by 0.45 m on the lip's own rows, which is the whole complaint.
+         The march runs with a far cap and can spend heights' re-solve budget, so that counter is restored
+         exactly as PCENSUS does. */
+      const lip = run(`(()=>{const N=MAP.w,z=new Float32Array(zbuf),hz=Math.round(horizon),DL=${DL.toFixed(6)};
+      const ex=camX|0,ey=camY|0,air=ex>=0&&ey>=0&&ex<N&&ey<N&&!MAP.cell[ey*N+ex];
+      let plA=air?MAP.fz[ey*N+ex]*ZQ:eyeZ; if(!(plA<eyeZ)) plA=Math.min(0,eyeZ-ZQ);
+      let n=0,near=0,far=0,cov=0,lipBad=0,mx=0,where='',pRow=0,pDef=0,pSlab=0,pFar=0,rs=reSolveBad;
+      for(let y=${Math.max(hzB + 1, y0)};y<=${Math.min(PH - 1, y1)};y++){const absP=y-hz,dRow=(eyeZ-plA)*BH/absP;
+        for(let x=${(PW * 0.3) | 0};x<${(PW * 0.7) | 0};x+=3){const cf=x*(2/BW)-1,rx=dirX+planeX*cf,ry=dirY+planeY*cf;
+          const pw=planeAlong(rx,ry,-1e9,true,absP),pwT=gWalkT,got=z[y*BW+x];
+          const dW=pw>-1e8?(pwT>=0?Math.min(pwT,FARB*4):(eyeZ-pw)*BH/absP):Math.min(dRow,FARB*4);
+          if(!(got>0)||!(dW>0)||!isFinite(dW))continue;n++;
+          const e=got-dW;
+          if(Math.abs(e)>ZQ){if(e<0)near++;else far++;if(Math.abs(e)>mx){mx=Math.abs(e);
+            where='row '+(y-hz)+' col '+x+' stores '+got.toFixed(2)+' m where its own ray arrives at '+dW.toFixed(2)+' m';}
+          /* WHICH PASS WROTE IT - the nearer half of the same attribution PCENSUS does for the farther
+             half, so a red row names a pass and not only a distance. Same three tests, same arithmetic:
+             the cell the row's own distance lands in carries the eye's plane (the row fill), a different
+             one (the deferred copy), a plane at or above the eye (#192 slab branch), or the ray is past
+             FARB (the whole-row wash). */
+            const dR=(eyeZ-plA)*BH/absP,gx=(camX+rx*dR)|0,gy=(camY+ry*dR)|0;
+            const ok=gx>=0&&gy>=0&&gx<N&&gy<N&&!MAP.cell[gy*N+gx];
+            const plC=ok?MAP.fz[gy*N+gx]*ZQ:plA;
+            if(dR>FARB)pFar++;else if(plC>=eyeZ)pSlab++;else if(plC!==plA)pDef++;else pRow++;}
+          if(Math.abs(dW-DL)<=ZQ){cov++;if(Math.abs(got-DL)>ZQ)lipBad++;}}}
+      reSolveBad=rs;return {n,near,far,cov,lipBad,mx,where,pRow,pDef,pSlab,pFar};})()`);
       const err = [];
       for (let y = Math.max(hzB + 1, y0); y <= Math.min(PH - 1, y1); y++)
         for (let x = (PW * 0.3) | 0; x < PW * 0.7; x += 3) {
@@ -8335,12 +8372,20 @@ if (MODE === 'heights') {
           const p = zPit[y * PW + x], f = zFill[y * PW + x];
           if (isFinite(p) && isFinite(f) && Math.abs(p - f) > 1) { ch++; break; }
         }
-      const bok = !b.phantom && err.length > 200 && wide === 0 && ch > 0;
+      const bok = !b.phantom && lip.n > 200 && lip.cov > 0 && lip.lipBad === 0 && lip.near === 0 && lip.far === 0 && ch > 0;
       if (!bok) poseBad++;
       console.log('  ' + pad('poseB', 9) + ' #516 from the deck the pit\'s FAR LIP holds the rows the geometry says: rows ' +
         y0 + '..' + y1 + ' are the ' + DL.toFixed(1) + ' m riser, ' + err.length + ' px sampled, median depth error ' +
-        (isFinite(med) ? med.toFixed(2) : 'n/a') + ' m and ' + wide + ' px more than 0.5 m out' +
-        (wide === 0 && err.length > 200 ? '  ok' : '  FAIL LIP-ROWS-PHANTOM') +
+        (isFinite(med) ? med.toFixed(2) : 'n/a') + ' m across the projected band (KNOWN debt: ' + wide +
+        ' px of that band are a surface their own ray reaches FIRST, attributed by pass below rather than '
+        + 'called a phantom - the band is a projection, not an occlusion test); ' +
+        lip.n + ' lip px judged against their own ray, ' + lip.cov + ' of them arrive AT the authored ' +
+        DL.toFixed(1) + ' m face and ' + lip.lipBad + ' of those store something else, ' + lip.near +
+        ' nearer / ' + lip.far + ' farther than their own arrival by more than one quantum, written by '
+        + lip.pRow + '/' + lip.pDef + '/' + lip.pSlab + '/' + lip.pFar + ' (row fill / deferred copy / slab branch / far wash)' +
+        (lip.n > 200 && lip.cov > 0 && lip.lipBad === 0 && lip.near === 0 && lip.far === 0 ? '  ok'
+          : '  FAIL LIP-ROWS-PHANTOM' + (lip.cov === 0 ? ' + LIP-COVERAGE-DEAD: no lip ray arrives at the authored face, so this row proves nothing' : '') +
+            (lip.where ? ': worst ' + lip.where : '')) +
         `; ${b.phantom} phantom px over the whole lower half` + (b.phantom ? '  FAIL PIT-FLOOR-PHANTOM' : '') +
         `; the PIT-FILLED control moves ${ch} of ${Math.max(0, y1 - y0 + 1)} lip rows by > 1 m` +
         (ch > 0 ? '' : '  FAIL PIT-CONTROL-DEAD: filling the pit changes nothing, so the lip was never geometry'));
@@ -9961,6 +10006,18 @@ if (MODE === 'contrast') {
         const A2 = new Uint32Array(run('px')), M2 = new Uint8Array(run('COV'));
         run('window.__shK = SHADOW; SHADOW = 0; S.t = 3.5; ' + VMREST + ' renderWorld(); SHADOW = window.__shK;');
         const S2 = new Uint32Array(run('px'));
+        /* #18 FIFTH TAKE - the census is per CASTER, taken with the other caster unregistered.
+           shadowFloor answers a pixel with the DARKEST disc covering it, and props register after
+           bodies, so on the shipped frame a shared pixel belongs to whoever occludes harder: a census
+           run there bills a shared pixel to the crate and starves this row to 1 px when a crate happens
+           to stand on the same deck (measured: L2 at 16 m, 14 px -> 1 px, the row red on a term nobody
+           touched). With the prop loop unregistered the only caster left in the grid is this body, so
+           the diff against the no-term frame is HIS ink by construction - the same A/B as before, one
+           loop narrower, and it cannot be paid or starved by a prop. The prop's own ink is measured in
+           the same pass from the NO-BODY frame, which is that arm's mirror image. */
+        run('window.__spK = SHADOW_PROP; SHADOW_PROP = 0; S.t = 3.5; ' + VMREST + ' renderWorld(); SHADOW_PROP = window.__spK;');
+        const B2 = new Uint32Array(run('px'));
+        const ZB = new Float32Array(run('zbuf'));
         run('ENEMIES.length = 0; for (const q of __dKeep) ENEMIES.push(q);');
         const bw = +run('BW'), plane = Math.hypot(run('planeX'), run('planeY')),
           rad = +run('window.__dBody.r'), shR = +run('SHADOW_R'),
@@ -9975,26 +10032,34 @@ if (MODE === 'contrast') {
         const discR = rad + shR + (D > shRD ? shRG * (D - shRD) : 0);
         const discW = 2 * discR * (bw / 2) / plane / D;
         let px = 0, sum = 0, leak = 0, mask = 0, bx0 = 1e9, bx1 = -1e9, mx0 = 1e9, mx1 = -1e9;
+        /* The CRATE half of the same census. `on.f` is the frame with the BODIES out and the props'
+           discs still registered, so against the no-term frame it is the props' own ink with no body in
+           it - the mirror image of B2 above. zbuf is the camera-space distance of the surface the pixel
+           shows, so a depth cut at SHADOW_RD asks the acceptance's actual question: is there contact ink
+           PAST the range at which an authored-metre patch stops being resolvable? Without that cut a
+           crate 2 m from the seat would pay for a crate 16 m out, which is the hole the growth falls
+           through. */
+        const RDIST = shRD;
+        let ppx = 0, psum = 0, pNear = 0, pFar = 0, pFarSum = 0;
         for (let i = 0; i < N; i++) {
           if (M2[i]) { mask++; const x = i % bw; if (x < mx0) mx0 = x; if (x > mx1) mx1 = x; continue; }
-          /* The same attribution #569 ships, on this frame: a pixel is the caster's OWN ink when it is
-             darker than the NO-BODY frame AND that darkness disappears with the term deleted. The second
-             clause is what keeps a PROP's contact band out of the census - SHADOW = 0 empties the grid for
-             both casters, so a crate's patch darkens deck in A and not in S, and without the no-body frame
-             beside it every crate in the room would be billed to this body. */
-          const lb = lum(on.f, i);
-          if (lum(A2, i) < lb - DLR && lum(S2, i) >= lb - DLR) {
-            px++; sum += lb - lum(A2, i);
+          const lb = lum(on.f, i), ls = lum(S2, i);
+          if (lum(B2, i) < ls - DLR) {
+            px++; sum += ls - lum(B2, i);
             const x = i % bw; if (x < bx0) bx0 = x; if (x > bx1) bx1 = x;
             continue;
           }
+          if (lum(on.f, i) < ls - DLR) {
+            ppx++; psum += ls - lum(on.f, i);
+            if (ZB[i] > RDIST) { pFar++; pFarSum += ls - lum(on.f, i); } else pNear++;
+          }
           if (on.f[i] !== A2[i] && (Math.abs(lum(A2, i) - lb) > DLR || (A2[i] >>> 24) - (on.f[i] >>> 24) !== 0)) leak++;
         }
-        return { px: px, sum: sum, leak: leak, mask: mask, discW: discW,
-          bandW: px ? bx1 - bx0 + 1 : 0, maskW: mask ? mx1 - mx0 + 1 : 0 };
+        return { px: px, sum: sum, leak: leak, mask: mask, discW: discW, rd: RDIST, ppx: ppx, psum: psum,
+          pNear: pNear, pFar: pFar, pFarSum: pFarSum, bandW: px ? bx1 - bx0 + 1 : 0, maskW: mask ? mx1 - mx0 + 1 : 0 };
       };
+      const bd = on.n >= DIST_MINPX ? bandAt() : null;
       {
-        const bd = on.n >= DIST_MINPX ? bandAt() : null;
         const floorPx = bd ? Math.max(PATCHMIN, Math.round(bd.mask * FARFLOOR)) : 0;
         const deep = bd && bd.px ? bd.sum / bd.px : 0;
         /* The anti-spread tooth, sized by the CASTER and not by his silhouette. At 8-16 m the coverage
@@ -10027,6 +10092,40 @@ if (MODE === 'contrast') {
                 : ' - the deck around his feet reads darker than the deck anywhere else in the frame')
             : 'no measurement: the body this seat poses covers ' + on.n + ' px, under the ' + DIST_MINPX +
               ' px the mask needs', undefined);
+      }
+      /* ---- #18 THE CRATE AT RANGE: does a PROP's contact patch reach the deck past its dead range? ----
+         The acceptance says "the same holds for a crate", and until this cycle the growth lived in the
+         BODY loop only, so a crate past SHADOW_RD grounded the deck with a patch authored in metres and
+         its screen footprint had collapsed to a pixel or two. The census is the mirror of the body's: the
+         NO-BODY frame (props registered, no body in frame) against the no-term frame, so every counted
+         pixel has exactly one possible caster and SHADOW = 0 reads 0 px by construction. It is cut by
+         DEPTH, not by range arithmetic: only pixels whose own surface sits past SHADOW_RD count, because
+         a crate in the near field already worked before this change and would otherwise pay for one that
+         does not.
+         PROPFLOOR sits BETWEEN two trees measured in one session, which is the shape this repo uses for a
+         floor (see TG_FLOOR): the un-grown tree (js/ without the prop grow term) and this one. Read it
+         off the row. PROPDEEP is the same depth bar the body's row uses. */
+      {
+        const PROPFLOOR = +(process.env.PROPFLOOR || 8), PROPDEEP = +(process.env.PROPDEEP || 4);
+        const pOk = !!bd && bd.pFar >= PROPFLOOR && (bd.pFar ? bd.pFarSum / bd.pFar : 0) >= PROPDEEP;
+        if (!bd) {
+          row(seatRay + ': a crate grounds the deck at this range too (#18)', false,
+            'no measurement: the body this seat poses covers ' + on.n + ' px, under the ' + DIST_MINPX + ' px the mask needs');
+        } else {
+        const pdeep = bd.pFar ? bd.pFarSum / bd.pFar : 0;
+        row(seatRay + ': a crate grounds the deck at this range too (#18)', pOk,
+          bd.pFar + ' deck px at depth past ' + bd.rd.toFixed(1) + ' m (this row\'s own range less 2 m) darken with '
+            + 'the props\' discs registered and no body in frame (mean ' + pdeep.toFixed(1) + ' luminance removed); '
+            + bd.pNear + ' px nearer are the near-field patch that already worked - floor ' + PROPFLOOR + ' px, depth '
+            + 'floor ' + PROPDEEP + '. SHADOW = 0 reads 0 px by construction, so the census is the prop\'s own ink; '
+            + 'SHADOW_RG lives in the BODY loop only (js/40_render.js), which is what this row is outstanding for'
+            + (bd.pFar < PROPFLOOR
+              ? ' - A CRATE AT THIS RANGE GROUNDS NEARLY NOTHING: its patch is authored in metres and its screen '
+                + 'footprint has collapsed, which is the crate half of #18 the body-side growth has not been handed to'
+              : pdeep < PROPDEEP ? ' - the crate\'s patch is there at range but faint: ' + pdeep.toFixed(1)
+                + ' luma off a deck that varies by more than that, so it grounds nothing'
+                : ' - a crate out at engagement range stands on darker deck, not on the deck'), '#18');
+        }
       }
       const hasArm = run('(function(){ if (typeof BODYDIST !== "number") return -1; BODYDIST = 0; return 1; })()');
       const off = hasArm ? arm() : null;
