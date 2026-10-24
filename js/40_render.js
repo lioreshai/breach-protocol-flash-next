@@ -1137,7 +1137,22 @@ function planeAlong(rx, ry, pl, isF, absP) {
   const sx = rx > 0 ? 1 : -1, sy = ry > 0 ? 1 : -1;
   let tx = ax > 0 ? (rx > 0 ? cx + 1 - camX : camX - cx) / ax : 1e30;
   let ty = ay > 0 ? (ry > 0 ? cy + 1 - camY : camY - cy) / ay : 1e30;
-  for (; g < 40; g++) {
+  /* THE CROSSING BUDGET MAY NOT BE SHORTER THAN THE REACH THIS MARCH DECLARES. The walk ends when the
+     next boundary passes `cap` (:1124), and a boundary advances the parameter by `1/ax` or `1/ay`, so a
+     ray meets `ax + ay` crossings per unit of it: up to `cap * (ax + ay)` crossings to reach its own
+     `cap`. A fixed 40 was therefore a SECOND, shorter reach hiding inside the first - any pixel whose
+     caller's plane solves further out than 40 bought about 0.58 of a crossing per metre was counted as a
+     march that ran out of tries while the march had in fact nothing left to find. Measured on the dealt
+     `pit` poke at the level-1 seat (`view.js heights`): a ray 8 px below the horizon, caller's plane
+     1.5 m under the eye, `cap` 63.38, and 40 crossings buys it 33 m of walk - so it reported
+     not-converged and returned exactly the plane a full walk returns. The budget now follows `cap` and
+     this ray's own `ax + ay`, and stays 40 whenever 40 already covers the reach, which is every pixel the
+     shipped arithmetic ever walked to a plane: the change is inert on a pixel that used to converge, and
+     only ever buys more walk on a pixel that used to run out. `reSolveBad` and the `heights` row are
+     UNTOUCHED apart from reading the budget it walks, so a build that walks less than its own reach still
+     goes red on this row. */
+  const gMax = Math.max(40, Math.ceil(cap * (ax + ay)) + 2);
+  for (; g < gMax; g++) {
     const tOut = tx < ty ? tx : ty;
     if (!(tOut < cap)) {                             // nothing between the eye and the point in question
       const ie = cy * N + cx;
@@ -1182,7 +1197,7 @@ function planeAlong(rx, ry, pl, isF, absP) {
     tIn = tOut; cx = nx; cy = ny;
     if (stepX) tx += 1 / ax; else ty += 1 / ay;
   }
-  if (g >= 40) reSolveBad++;                         // a march that ran out of crossings: heights' row
+  if (g >= gMax) reSolveBad++;                       // a march that ran out of crossings: heights' row
   return pl;
 }
 
