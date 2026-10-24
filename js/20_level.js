@@ -2033,6 +2033,84 @@ function placeWallFixtures(cfgL, seat, ang) {
       }
     }
   }
+  /* 3c. A SLAB'S DROP FACE IS A WALL, SO IT GETS A PURPOSE OBJECT (#400, the owner's decision).
+     THE MEASUREMENT THIS PASS EXISTS FOR: RING TRANSPORT's own spawn-seat sight line marches 11.5 m and
+     the floor steps from 0.00 to 1.00 m at 7 m out. Every cell on that line is AIR, so `isWall(wx, wy)` -
+     the predicate mount(), claim() and every walk above use to decide a face exists - is FALSE on the
+     whole sight line, and the largest face in the frame carried nothing but its painted lip while
+     `view.js fixtures` printed `bare 0`, because the census asks the same solid-neighbour question.
+     The face is the exposed SIDE OF A FLOOR SLAB: an air->air boundary the wall stop paints with the
+     level's own wall family over [min floor, max floor] (js/40_render.js, the `riser` branch), and
+     `canEnter` refuses it because the crossing is more than one quantum with no climb bit on either
+     side (js/20_level.js, linkBoundaries' VB_BLOCK clause). That is the ONLY test this pass uses.
+     THREE THINGS MAKE IT LAND RATHER THAN LOOK CORRECT.
+     (1) KEY IT TO THE FAR CELL. The wall pass looks decor up at the cell the ray STOPPED IN, and at an
+         air->air stop that is the cell the ray crossed INTO (js/40_render.js reads DECOR_MASK[my*N+mx]
+         after advancing mx,my), not the cell it came from. Registering the near cell draws nothing.
+     (2) SPAN FROM THE TWO FLOORS, not faceZ0/ceilAt: those describe a solid column's face and this is a
+         slab side, so the span is [min(fz), max(fz)] * ZQ - 1.00 m for a one-band deck.
+     (3) WALK UPHILL ONLY. VB_BLOCK is set on the LOW side of a crossing (linkBoundaries tests
+         fz[neighbour] - fz[cell] > 1), which is the side that cannot walk it and the side that SEES THE
+         FACE SQUARE ON at the end of a sight line - the most favourable angle a 20 cm stand-off has. A
+         downhill walk of the same slab edge would register the other cell and draw the same object from
+         the wrong side of the deck, so the downhill direction is excluded by the predicate itself and
+         both faces of the boundary are marked used for whoever comes after.
+     Kind: the level's PURPOSE object kinds - RACK or TANK, never a paint band, a pipe run, a vent plate
+     or a sign board, because the face being furnished is the one that says what the room is FOR. The
+     span fractions and stand-off are the shipped FIX_SPAN / FIX_DEP values, unchanged; on a 1.00 m face
+     a TANK tops out at 0.82 m, which keeps #466's painted deck lip (RISER_ACC_H = 0.12 m below the lip)
+     clear of the object - the fixtures probe asserts that arithmetic instead of trusting it.
+     One object per qualifying run at the run's middle, same FIX_RUN_MIN bar as the corridor pass, and
+     no RNG read anywhere, so no roll, prop, lamp, light or enemy moves. DECOR gains entries; no existing
+     entry is edited, so every fixture the other passes placed stays exactly where it was. */
+  const dropObjs = purposes.filter(k => k === 'RACK' || k === 'TANK');
+  if (dropObjs.length) {
+    /* the crossing linkBoundaries blocks, read uphill: the far cell is the deck that is over one quantum
+       up and nothing on the boundary lets the player climb it. Solid on either side is not this pass -
+       that face is already walkable by passes 1-4 and widening isWall() there is the #400 bound. */
+    const dropFace = (ax, ay, d) => {
+      const wx = ax + DIRX[d], wy = ay + DIRY[d];
+      if (!isOpen(ax, ay) || !isOpen(wx, wy)) return 0;
+      const i = ay * N + ax, j = wy * N + wx;
+      return MAP.fz[j] - MAP.fz[i] > 1 && !linkedClimb(MAP.vb, MAP.feat, i, j, d);
+    };
+    const mountDrop = (kind, ax, ay, d) => {
+      const wx = ax + DIRX[d], wy = ay + DIRY[d];
+      if (placed > 120 || !dropFace(ax, ay, d)) return false;
+      const kf = (wy * N + wx) * 4 + d, kn = (ay * N + ax) * 4 + (d ^ 2);   // both faces of one slab edge
+      if (used[kf] || used[kn]) return false;
+      const i = ay * N + ax, j = wy * N + wx;
+      const z0 = MAP.fz[i] * ZQ, span = (MAP.fz[j] - MAP.fz[i]) * ZQ;      // the slab's own side
+      if (!(span > 0.35)) return false;
+      const sp = FIX_SPAN[kind] || FIX_SPAN.TANK;
+      used[kf] = 1; used[kn] = 1; kindOf[kf] = kindOf[kn] = kind;
+      addWFix(WFIX[kind], wx, wy, DIRX[d] !== 0 ? 0 : 1, DIRX[d] !== 0 ? ay + 0.5 : ax + 0.5,
+        z0 + span * sp[0], span * sp[1] * 0.5, 0.5, FIX_DEP[kind] || 0);
+      placed++;
+      return true;
+    };
+    for (let d = 0; d < 4 && placed < 112; d++) {
+      const face = DIRX[d] !== 0 ? 0 : 1;
+      for (let a = 1; a < N - 1; a++) {
+        let run = 0, at = 0;
+        const flush = () => {
+          if (run >= FIX_RUN_MIN) {
+            const b = at + (run >> 1);                       // the middle of the run, where the eye lands
+            const ax = face === 0 ? a : b, ay = face === 0 ? b : a;
+            mountDrop(dropObjs[(a + d) % dropObjs.length], ax, ay, d);
+          }
+          run = 0; at = 0;
+        };
+        for (let b = 1; b < N - 1; b++) {
+          const ax = face === 0 ? a : b, ay = face === 0 ? b : a;
+          if (!dropFace(ax, ay, d)) { flush(); continue; }
+          if (!run) at = b;
+          run++;
+        }
+        flush();
+      }
+    }
+  }
   /* 4. THE WALL YOU ARRIVE FACING (#400 take five; TAKE SIX re-anchors it on the heading the seat
      actually gets). Every pass above answers the WALL a player walks past; none of them answers the wall a
      player WAKES IN FRONT OF. Sector 1's own seat frame is one long grey face and the census is green
