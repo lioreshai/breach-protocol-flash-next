@@ -1771,7 +1771,17 @@ function placeWallFixtures(cfgL, seat, ang) {
     for (const f of DECOR_GRID[wy * N + wx] || []) {
       const along = DIRX[d] !== 0 ? ay + 0.5 : ax + 0.5;
       const fx = DIRX[d] !== 0 ? wx + 0.5 : along, fy = DIRX[d] !== 0 ? along : wy + 0.5;
-      if (Math.abs(f.x - fx) > 0.01 || Math.abs(f.y - fy) > 0.01 || f.side !== (DIRX[d] !== 0 ? 0 : 1)) continue;
+      /* THE SIDE COMPARISON IS THE BUG THIS TAKE FIXES (#400 take seven, MEASURED). addWFix stores
+         `side: side + 1` - 1 for an x-plane face, 2 for a y-plane face - and the DECOR census in
+         tools/view.js reads that 1-based convention (`f.side === 1 ? x : y`). This line compared the
+         stored value against the 0-based one, so `f.side !== 0` was TRUE FOR EVERY ENTRY, every candidate
+         was skipped and claim() returned false on every call: the room pass's fallback, the seat pass's
+         `mount(...) || claim(...)` and the long-run pass below all asked for a claim and all got nothing,
+         while the census still printed green because claim() never moved a texture and never dropped a
+         count. DBG run at this head: the long-run pass tried 6 claims on the authored level and landed 0,
+         and tried 0 elsewhere because those runs already own an object. `side: side + 1` is the truth, so
+         the comparison is 1 for an x-plane face and 2 for a y-plane one. */
+      if (Math.abs(f.x - fx) > 0.01 || Math.abs(f.y - fy) > 0.01 || f.side !== (DIRX[d] !== 0 ? 1 : 2)) continue;
       f.tex = WFIX[kind]; f.dep = FIX_DEP[kind] || 0;
       f.z = z0 + span * sp[0]; f.hh = Math.max(0.05, span * sp[1] * 0.5);
       kindOf[k] = kind;
@@ -1969,6 +1979,58 @@ function placeWallFixtures(cfgL, seat, ang) {
       }
       if (run >= FIX_RUN_MIN && at && !used[(at[1] * N + at[0]) * 4 + d])
         mount(kinds[(a + d) % kinds.length], at[0], at[1], d);
+    }
+  }
+  /* 3b. AN OBJECT DOWN THE RUN, NOT ONLY PAINT (#400 take seven).
+     Pass 3 covers every long run in the census, and pass 4 furnishes the two walls inside the arrival
+     frame. Neither of them says what the wall DOWN A CORRIDOR is made of: pass 3 fills a run with the
+     level's VOCABULARY kinds, and for L1 that vocabulary is STRIPE and PIPE - so sector 1's own
+     acceptance frame, taken down the longest sight line in the level, reads "one concrete band with a
+     hazard stripe on it" while the census is green, because coverage is not the same claim as an edge.
+     THE PREVIOUS ATTEMPT AT THIS CYCLED THE KINDS (`runKinds = kinds.concat(objects)`) and it is the
+     wrong shape: every six metres of a 24-cell run then drew an object instead of the paint the level
+     was authored to wear, which measured L2 STRIPE 12 -> 0 and L0 VENT 9 -> 4 - the sector stopped
+     reading as the place it is authored to be, in exchange for a taller silhouette. So this pass does
+     the minimum: it looks at each qualifying run ONCE, and if the run carries no object at all it turns
+     ONE of its paint faces - the one nearest the middle of the run, which is where the eye lands when
+     you look down it - into an object, in place, through claim(). One kind swap per bare run: the run
+     keeps its stripes and pipes, gains an edge, and the level's own vocabulary still dominates the
+     count. DOOR is excluded from the pick: a run is by construction a passage that KEEPS GOING, and a
+     doorway in the middle of one is the #403 finding this probe already gates on. No RNG is read, so no
+     roll, prop, light or enemy moves; DECOR is edited in place, so the fixture list, the lightmap and
+     every other pass see the same entries they did before with one texture swapped. */
+  const runObjs = objects.filter(k => k !== 'DOOR');
+  if (runObjs.length) {
+    for (let d = 0; d < 4; d++) {
+      const face = DIRX[d] !== 0 ? 0 : 1;
+      for (let a = 1; a < N - 1; a++) {
+        let run = 0, at = 0, hasObj = false, paint = [];
+        const flush = () => {
+          if (run >= FIX_RUN_MIN && !hasObj) {
+            const mid = at + (run >> 1);
+            let best = paint.length ? paint[0] : mid;
+            for (const p of paint) if (Math.abs(p - mid) < Math.abs(best - mid)) best = p;
+            const want = runObjs[(a + d) % runObjs.length];
+            const ax = face === 0 ? a : best, ay = face === 0 ? best : a;
+            /* CLAIM FIRST: a face already wearing this level's paint takes the object in place, so the
+               run keeps its fixture COUNT and only one texture moves. MOUNT is the fallback for a run
+               whose faces are all free, or own only a SIGN BOARD - claim cannot fire on either. */
+            if (!claim(want, ax, ay, d)) mount(want, ax, ay, d);
+          }
+          run = 0; at = 0; hasObj = false; paint = [];
+        };
+        for (let b = 1; b < N - 1; b++) {
+          const ax = face === 0 ? a : b, ay = face === 0 ? b : a;
+          const wx = ax + DIRX[d], wy = ay + DIRY[d];
+          if (!(isOpen(ax, ay) && isWall(wx, wy))) { flush(); continue; }
+          if (!run) at = b;
+          run++;
+          const kd = kindOf[(wy * N + wx) * 4 + d];
+          if (FIX_EDGE.indexOf(kd) >= 0) hasObj = true;
+          else if (kd === 'STRIPE' || kd === 'PIPE') paint.push(b);
+        }
+        flush();
+      }
     }
   }
   /* 4. THE WALL YOU ARRIVE FACING (#400 take five; TAKE SIX re-anchors it on the heading the seat

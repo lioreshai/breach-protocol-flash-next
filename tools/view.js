@@ -12730,8 +12730,13 @@ if (MODE === 'fixtures') {
     const r = run(`(()=>{const N=MAP.w, cell=MAP.cell, DX=[1,0,-1,0], DY=[0,1,0,-1];
       const op=(x,y)=>x>0&&y>0&&x<N-1&&y<N-1&&cell[y*N+x]===0;
       const wl=(x,y)=>x>=0&&y>=0&&x<N&&y<N&&cell[y*N+x]!==0;
-      const P=[];for(const f of DECOR)P.push([f.side, f.side===1?f.x:f.y, f.side===1?f.y:f.x]);
-      let runs=0, bare=0;
+      const P=[];for(const f of DECOR)P.push([f.side, f.side===1?f.x:f.y, f.side===1?f.y:f.x, f.tex]);
+      /* #400 take seven: an OBJECT is a kind that stands off the face far enough to throw a flank, read
+         by TEXTURE IDENTITY off the same FIX_EDGE list the generator mounts by - the collapsed-key form
+         #465 removed must not come back here. A run covered by a hazard band is COVERED and still BARE
+         of an edge, which is the distinction the seat frame keeps failing on while the census is green. */
+      const OBJ=new Set(); for(const k of FIX_EDGE)OBJ.add(WFIX[k]);
+      let runs=0, bare=0, objRuns=0;
       for(let d=0;d<4;d++){const ax=DX[d]!==0;let a=0,b=0;
         for(a=1;a<N-1;a++){let len=0,at=0;
           for(b=1;b<N-1;b++){
@@ -12739,13 +12744,16 @@ if (MODE === 'fixtures') {
             if(!ok){
               if(len>=FIX_RUN_MIN){runs++;
                 const plane=(ax?gx+DX[d]:gy+DY[d])+0.5, side=ax?1:2;
-                const has=P.some(e=>e[0]===side&&Math.abs(e[1]-plane)<0.01&&e[2]>=at+0.5&&e[2]<=b-0.5);
-                if(!has)bare++;}
+                const inRun=(e,pp)=>e[0]===side&&Math.abs(e[1]-pp)<0.01&&e[2]>=at+0.5&&e[2]<=b-0.5;
+                if(!P.some(e=>inRun(e,plane)))bare++;
+                if(P.some(e=>inRun(e,plane)&&OBJ.has(e[3])))objRuns++;}
               len=0;at=0;continue;}
             if(!len)at=b;len++;}
           if(len>=FIX_RUN_MIN){runs++;
             const gx=ax?a:b-1, gy=ax?b-1:a, plane=(ax?gx+DX[d]:gy+DY[d])+0.5, side=ax?1:2;
-            if(!P.some(e=>e[0]===side&&Math.abs(e[1]-plane)<0.01&&e[2]>=at+0.5&&e[2]<=b-0.5))bare++;}}}
+            const inRun=(e)=>e[0]===side&&Math.abs(e[1]-plane)<0.01&&e[2]>=at+0.5&&e[2]<=b-0.5;
+            if(!P.some(inRun))bare++;
+            if(P.some(e=>inRun(e)&&OBJ.has(e[3])))objRuns++;}}}
       /* #400 take three: does a ROOM name what it is FOR? A purpose fixture is one whose kind is in the
          level's own purpose list, and the claim is per ROOM, so this is walked by room bounds, not by
          face line - a purpose fixture sitting in a room is what the player reads as "this is where
@@ -12832,20 +12840,35 @@ if (MODE === 'fixtures') {
         if(we){ if(c(ax,ay,1)&&c(ax+1,ay,1)&&c(ax-1,ay,1))cont++; }
         else  { if(c(ax,ay,0)&&c(ax,ay+1,0)&&c(ax,ay-1,0))cont++; }
       }
-      const t2=t;return [runs,bare,t2,MAP.fixCount,cont,rN,rOk,rAny]})()`);
-    const [runs, bare, tally, nFix, cont, rN, rOk, rAny] = r;
+      const t2=t;return [runs,bare,t2,MAP.fixCount,cont,rN,rOk,rAny,objRuns]})()`);
+    const [runs, bare, tally, nFix, cont, rN, rOk, rAny, objRuns] = r;
     const tot = kinds.reduce((s, k) => s + tally[k], 0);
     const nPurpose = PURPOSE.reduce((s, k) => s + tally[k], 0);
     const dom = tally.DOOR > tot * 0.6;
     console.log('  L' + L + '  fixCount ' + String(nFix).padStart(3) + '  '
       + kinds.map(k => k + ' ' + String(tally[k]).padStart(2)).join('  ')
       + '  | long runs ' + String(runs).padStart(3) + ', bare ' + String(bare).padStart(3)
+      + ', with an object ' + String(objRuns).padStart(3) + '/' + String(runs).padStart(3)
       + '  | rooms with a purpose fixture ' + rOk + '/' + rN + ' (any decor ' + rAny + '/' + rN + ')'
       + '  | DOOR on a continuing passage ' + cont
       + '  ' + (runs && bare / runs > 0.25 ? '<< 1 in 4 long walls is still one flat repeat' : ''));
     if (!tot) { console.log('     << NOTHING PLACED: the whole feature is inert on this deal'); bad++; }
     if (!nPurpose) { console.log('     << NO PURPOSE FIXTURE: no room on this deal says what it is FOR (#400)'); bad++; }
     if (runs && bare / runs > 0.25) bad++;
+    /* #400 take seven: EVERY long run carries a THING, not only a band. This is the row the claim() bug
+       was invisible to. With addWFix's 1-based `side` compared against a 0-based one, claim() skipped
+       every candidate and returned false on every call, so the authored level's six paint-only long runs
+       stayed paint-only while `bare` read 0 and the verdict printed ok - coverage was true, an edge was
+       not. Read as identity off WFIX over FIX_EDGE, the same test the room census uses since #465. The
+       bar is the generator's own promise (pass 3b of placeWallFixtures claims or mounts one object on any
+       qualifying run that owns none), so it fails on the build it was written for and holds on this one;
+       a level that authors no object kind at all is excluded, because then there is nothing to place. */
+    const authorsObject = run(`(LEVELS[S.level].fixtures || []).concat(LEVELS[S.level].purpose || [])`
+      ).some(k => run('FIX_EDGE').indexOf(k) >= 0);
+    if (authorsObject && runs && objRuns < runs) {
+      console.log('     << ' + (runs - objRuns) + ' LONG RUN(S) CARRY ONLY PAINT: no edge down the sight line, '
+        + 'which is the claim() path being inert, not a coverage gap (#400)'); bad++;
+    }
     if (cont) { console.log('     << A DOOR IS PAINTED DOWN A CORRIDOR: the neck test is not separating a doorway from a passage (#403)'); bad++; }
   }
   console.log(bad ? 'FIXTURES ' + bad + ' FAILURES - a long wall is still bare, a kind has become a wash,'
