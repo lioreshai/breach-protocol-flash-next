@@ -2532,77 +2532,125 @@ function genLevel(li) {
             if (Math.random() < 0.42) cell[y * N + x] = pickWallTex(cfgL);
       }
     }
-    /* #631 ONE THING WITH AN EDGE INSIDE EVERY ROOM. Rooms are dealt 5..maxRoom-1 a side off maps of
-       26/32/36, so a room is routinely forty-odd open cells under one lid, and the pass above only
-       touches rooms whose BOTH sides reach 8 - which on these deals means most rooms are one plan you
-       can see straight through, and the arrival frame is a roof band, a floor band and a strip of wall
-       with nothing in it. This gives every room one interior edge: a PIER RUN, a line of single columns
-       across the room's LONGER view with a one-cell gap between every pier.
-
-       Two deliberate choices, both from #548's measurement that it is tall flat BOUNDARIES, not
-       geometry, that costs milliseconds:
-
-       - It is PIERS, not a wall. `7063fb6` ran a full-height cross-wall from side to side with a mouth
-         in it and the picture improved while three of four arrival seats got 2.7-7.8 ms slower: a face
-         that spans the room is exactly the boundary that pass charges for. A pier is one column of
-         wall with air on both sides of it, so the room is broken into bays without a room-wide face,
-         and you see PAST the line rather than into it.
-       - It crosses the LONGER axis, because that is the view the frame is made of - the one that
-         currently runs twenty-odd metres from wall to wall.
-
-       The gaps are what you walk through, so the room stays one room: there is no mouth to place, no
-       neck to seal, and the occupancy gate below has no new reason to re-roll a world. The line never
-       sits on the room's centre column/row (the cells `link` carves corridors through and the seat
-       finder stands in), so a pier cannot block a doorway.
-       No RNG draw here, on purpose: one `Math.random` call re-rolls every prop, lamp and enemy
-       downstream of the same SEED (#96), and a room that did not need structure would still pay for it.
-       The phase comes from the room's own index so neighbouring rooms do not read as copies. */
-    /* THE SHOT RUN, RESERVED BEFORE THE STRUCTURE GOES IN. tools/smoke.js V13 scans the whole map for the
-       LONGEST straight east run that reaches a wall, and V14/V15 aim their relative pokes down the FIRST
-       straight 8-cell run on the datum - the lane authorVolume reserves as `flat`, whose own scan is
-       `for y=2.. x=2..N-9`, eight open cells. Reserving the same lane HERE, twelve cells deep, is what
-       keeps all three rows exactly as written: a structure pass that crosses rows without looking has
-       already been measured to shorten the longest run to 3.6 m, which makes V13 VACUOUS - the level shot
-       stops on nothing, so the row proves nothing (the failure `7063fb6` reported). Because piers only
-       ever REMOVE openness, the first candidate on the post-pier grid is this same cell: authorVolume's
-       `flat` cannot land anywhere else, so the reservation is one lane, not two that can disagree. */
-    const shotRun = new Uint8Array(N * N);
-    for (let y = 2, got = false; y < N - 2 && !got; y++)
-      for (let x = 2; x < N - 9 && !got; x++) {
-        let n = 0;
-        for (let k = 0; k < 8; k++) if (cell[y * N + x + k] === 0) n++;
-        if (n !== 8) continue;
-        for (let k = 0; k < 12 && x + k < N - 1; k++) shotRun[y * N + x + k] = 1;
-        got = true;
-      }
-    for (let ri = 0; ri < rooms.length; ri++) {
-      const r = rooms[ri];
-      if (r.w * r.h < 24) continue;                       // a 5x5 room is already one bay; give it nothing
-      const alongX = r.w >= r.h;                          // stand the line across the LONGER view
-      const span = alongX ? r.h : r.w;
-      let pos = (alongX ? r.x : r.y) + Math.max(1, Math.round((alongX ? r.w : r.h) * 0.6));
-      if (pos === (alongX ? r.cx : r.cy)) pos--;          // never on the cells links and seats use
-      if (pos <= (alongX ? r.x : r.y)) pos += 2;
-      if (pos >= (alongX ? r.x + r.w : r.y + r.h)) continue;
-      for (let k = 1 + (ri & 1); k < span - 1; k += 2) {   // a pier, a gap, a pier, a gap...
-        const x = alongX ? pos : r.x + k, y = alongX ? r.y + k : pos;
-        if (x < 1 || y < 1 || x >= N - 1 || y >= N - 1) continue;
-        if (shotRun[y * N + x]) continue;                 // the shot lane is not structure's to spend
-        // A pier may not sit IN a corridor. `link` carves between room centres, so the room's own centre
-        // row (and centre column) are doorway cells; a width-1 link crossed by a pier is severed, which is
-        // how this pass first showed up - `level 3 always winnable` went to 60 unreachable exits because a
-        // pier stood where a one-cell link came through the room. The LINE is already kept off the centre;
-        // this keeps the individual PIERS off it too.
-        if (alongX ? (y === r.cy) : (x === r.cx)) continue;
-        if (cell[y * N + x] === 0) cell[y * N + x] = cfgL.wall;
-      }
-    }
 
     /* occupancy from room 0. fzTry is the grid the BFS actually walks, and it is the same array
        MAP.fz becomes below, so a band written before this point cannot be invisible to the gate. */
     const fzTry = new Int8Array(N * N), czTry = new Uint8Array(N * N).fill(CZ_DEF);
     const vbTry = new Uint16Array(N * N), featTry = new Uint8Array(N * N);
     authorVolume(cell, N, rooms, fzTry, vbTry, featTry, czTry);
+
+    /* #631 ONE THING WITH AN EDGE INSIDE EVERY ROOM. Rooms are dealt 5..maxRoom-1 cells a side off maps
+       of 26/32/36, so a room is routinely forty-odd open cells under one lid: the arrival frame is a roof
+       band, a floor band and a strip of wall somewhere in the middle, and between the crate line and the
+       far surface there is nothing. The decor passes already cover the walls ("long runs 4-12, bare 0")
+       and the frame still reads empty, because decor is paint on a surface and this is a question about
+       the PLAN. So every room gets one interior edge: a PIER RUN, a line of single columns across the
+       room's LONGER view with a one-cell gap between piers, so the plan is broken by something with a
+       visible edge and you still see PAST the line instead of into it.
+
+       Why PIERS and not a wall: #548 measured that it is tall flat BOUNDARIES, not geometry, that costs
+       milliseconds, and `7063fb6` proved it on exactly this problem - a full-height cross-wall with a
+       mouth in it improved the picture and cost the arrival seats 2.7-7.8 ms each. A pier is one column
+       of wall with air on both sides of it, which breaks the room into bays without making a face that
+       spans it. Cross the LONGER axis, because that is the twenty-metre view the frame is made of.
+
+       Why HERE, after `authorVolume`, and not up with the pillar pass: the volume pass links a band to
+       the datum through runs of four open datum cells (`linkAt`), and a structure pass that spends those
+       cells before it runs does not just move a stair, it stops the stair being authored at all. That
+       was the first version of this change measured: `V19 setup found a generated 4-step staircase` went
+       vacuous on L1 and L2 and the two band rows downstream of it with it, while flat smoke stayed
+       green. Author the volume, then put the furniture in what the volume left. The cells this pass may
+       not spend are then explicit rather than lucky:
+
+       - off the datum (`fzTry[i] !== 0`) - a column standing in a band is a hole in that band;
+       - anything the volume flagged (`featTry[i]`): stair treads, ladder shafts, pits, rails;
+       - anything ADJACENT to such a cell, which is the stair approach and the ladder mouth;
+       - the reserved shot run, below;
+       - and anywhere a pier would strand a cell, which is tested with the same `bfsReach` the occupancy
+         gate below uses - the pier goes back if a single reachable cell stops being reachable, so
+         "always winnable" is a property of this pass and not a thing it hopes for.
+
+       No RNG draw here, on purpose: one `Math.random` call re-rolls every prop, lamp and enemy downstream
+       of the same SEED (#96). The phase comes from the room's own index, and the reachability test
+       rewinds rather than re-rolls, so a world that needed no correction is the world main dealt with one
+       line of columns added to it. */
+
+    /* THE SHOT RUN, RESERVED BEFORE THE STRUCTURE GOES IN. tools/smoke.js V13 shoots down the LONGEST
+       straight east run that stops on a face with one floor the whole way, and V14/V15 aim their relative
+       pokes down the FIRST straight 8-cell run whose start answers floor 0 - the lane `authorVolume`
+       reserves as `flat`, whose own scan is `for y=2.. x=2..N-9`. Because a pier only ever REMOVES
+       openness, protecting the first candidate of each of those two scans protects the rows themselves:
+       the final grid cannot pick a lane earlier than the one it picked before the piers went in. A
+       structure pass that crossed the rows without looking was measured to shorten the longest run to
+       3.6 m, which makes V13 VACUOUS - the level shot stops on nothing, so the row proves nothing (the
+       failure `7063fb6` reported). Twelve cells deep covers the eight the rows scan plus the four-cell
+       step they write into it. */
+    const shotRun = new Uint8Array(N * N);
+    for (let y = 2, got = false; y < N - 2 && !got; y++)
+      for (let x = 2; x < N - 9 && !got; x++) {
+        let n = 0;
+        for (let k = 0; k < 8; k++) if (cell[y * N + x + k] === 0) n++;
+        if (n !== 8 || fzTry[y * N + x] !== 0) continue;
+        for (let k = 0; k < 12 && x + k < N - 1; k++) shotRun[y * N + x + k] = 1;
+        got = true;
+      }
+    let v13best = 0, v13y = -1, v13x = 0;                       // V13's own pick: longest east run to a face
+    for (let y = 1; y < N - 1; y++) for (let x = 1; x < N - 8; x++) {
+      if (cell[y * N + x] || cell[y * N + x + 1]) continue;
+      let k = 1;
+      for (; k <= 12 && x + k < N - 1 && cell[y * N + x + k] === 0; k++) ;
+      const run = k;                                             // open cells from x, then a face at x+run
+      if (run <= 2 || x + run >= N - 1 || run > 12) continue;     // r.dist <= 2, or it flies off the map
+      let mixed = 0;
+      for (let t = 2; t <= Math.min(11, run); t++) if (fzTry[y * N + x + t] !== fzTry[y * N + x]) mixed = 1;
+      if (!mixed && run > v13best) { v13best = run; v13y = y; v13x = x; }
+    }
+    if (v13y >= 0) for (let k = 0; k <= v13best && v13x + k < N - 1; k++) shotRun[v13y * N + v13x + k] = 1;
+
+    const pierStart = rooms[0].cy * N + rooms[0].cx;
+    const pierRef = bfsReach(cell, fzTry, N, pierStart, vbTry, featTry);
+    const strands = (i) => {                                     // one reachable cell lost is one too many
+      cell[i] = cfgL.wall;
+      const d = bfsReach(cell, fzTry, N, pierStart, vbTry, featTry);
+      // Two cells are not evidence of a cut. The pier's OWN cell is the one cell this write always takes
+      // out of the reachable set - it is solid now - and so is every pier this pass placed earlier, which
+      // reads as "lost" against a reference taken before any of them went in. Test open cells only: a
+      // cell that is still floor and was reachable and is not now is the only thing that means the pier
+      // severed something. Both exclusions were measured, not assumed: with neither, the pass placed ONE
+      // pier per level and the worlds were byte-identical to main apart from a column.
+      for (let k = 0; k < N * N; k++) if (cell[k] === 0 && pierRef[k] >= 0 && d[k] < 0) {
+        cell[i] = 0; return true;
+      }
+      return false;
+    };
+    for (let ri = 0; ri < rooms.length; ri++) {
+      const r = rooms[ri];
+      if (r.w * r.h < 24) continue;                        // a 5x5 room is already one bay; give it nothing
+      const alongX = r.w >= r.h;                           // stand the line across the LONGER view
+      const span = alongX ? r.h : r.w;
+      let pos = (alongX ? r.x : r.y) + Math.max(1, Math.round((alongX ? r.w : r.h) * 0.6));
+      if (pos === (alongX ? r.cx : r.cy)) pos--;          // keep the line off the row the seats sit on
+      if (pos <= (alongX ? r.x : r.y)) pos += 2;
+      if (pos >= (alongX ? r.x + r.w : r.y + r.h)) continue;
+      for (let k = 1 + (ri & 1); k < span - 1; k += 2) {   // a pier, a gap, a pier, a gap...
+        const x = alongX ? pos : r.x + k, y = alongX ? r.y + k : pos;
+        if (x < 1 || y < 1 || x >= N - 1 || y >= N - 1) continue;
+        const i = y * N + x;
+        if (cell[i]) continue;
+        if (fzTry[i] !== 0) continue;
+        if (shotRun[i]) continue;
+        // A tread, a ladder shaft, a pit lip or a rail is not structure's to spend - and neither is the
+        // cell in front of it, which is the approach the climb is authored from (V19 walks four steps
+        // from a datum cell, so blocking that cell loses the row even though the stair still exists).
+        let near = featTry[i] !== FEAT_NONE;
+        for (let d = 0; d < 4 && !near; d++) {
+          const j = (y + DIRY[d]) * N + x + DIRX[d];
+          if (j >= 0 && j < N * N && featTry[j] !== FEAT_NONE) near = true;
+        }
+        if (near) continue;
+        if (strands(i)) continue;
+      }
+    }
     const dist = bfsReach(cell, fzTry, N, rooms[0].cy * N + rooms[0].cx, vbTry, featTry);
     let reachable = 0, far = -1, farIdx = -1, total = 0;
     // the exit stays on the datum band: a portal at the top of a staircase you cannot see from the
