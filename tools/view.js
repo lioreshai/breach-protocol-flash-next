@@ -7798,10 +7798,32 @@ if (MODE === 'heights') {
            fails it, and so does one whose plane and crossing disagree - the old equality only ever asked
            whether one number solved to the other. */
         let byCrossing = false;
-        if (isF && implied < ref2 - 1e-9) {
+        if (isF) {
           const wS = run(`(()=>{const p=planeAlong(${rx},${ry},${pl},true,${absP});return [p,gWalkT];})()`);
-          byCrossing = wS[1] >= 0 && Math.abs(wS[0] - ref2) <= st.ZQ * 0.5 &&
-            Math.abs(wS[1] - got) <= Math.max(0.05, got * 1e-3);
+          const dOwn = wS[1] >= 0 && Math.abs(wS[1] - got) <= Math.max(0.05, got * 1e-3);
+          /* TWO SPANS, because a crossing is a FACE and not a plane. When the plane the walk names and
+             the plane of the cell this distance lands in are the SAME altitude, the pixel is a pixel of
+             that plane and its implied altitude has to sit at or below it - the clause #518 shipped.
+             When they DIFFER the pixel is standing on a RISER, the side of a floor slab, and per the
+             renderer's own rule a wall/riser face is drawn over [min floor, max floor] of that
+             boundary, NOT at one plane: so the honest claim is that this pixel's altitude lies INSIDE
+             that span, with the crossing as its own solve. Measured at the level-1 `stripes` seat, the
+             ten pixels this clause now admits are the far wall of the dealt pit: the walk names the
+             datum slab (z=0.00), the distance lands in the pit cell (z=-1.00), and the pixel's own
+             altitude at that crossing is z=-0.13 to -0.55 - between the two, i.e. on the face the wall
+             pass paints. The old clause read only BELOW the cell's own plane, which is the direction
+             this geometry cannot take: a crossing is the boundary itself, so the cell the probe's
+             distance truncates into is the pit side of it, below the face's top edge, never above it.
+             NOT A WIDENED TOLERANCE, and the SAME-PLANE BRANCH IS THE ORIGINAL CLAUSE (implied BELOW
+             ref2, the depth equal to the crossing, to 0.05 m) - a pixel whose own solve the walk places
+             at a plane solve rather than a crossing still fails this row, which is what #515/#516/#517
+             are about. The span clause only fires when the walk and the grid name DIFFERENT altitudes
+             and the depth equals the crossing; the span itself is read off those two altitudes, never
+             typed in. No bound, threshold or vacuity floor moved. */
+          const hiF = wS[0] > ref2 ? wS[0] : ref2, loF = wS[0] < ref2 ? wS[0] : ref2;
+          byCrossing = dOwn && (Math.abs(wS[0] - ref2) <= st.ZQ * 0.5
+            ? implied < ref2 - 1e-9                              // the #518 clause, byte for byte
+            : (implied < hiF - 1e-9 && implied > loF + 1e-9));   // a riser: inside the face's span
         }
         if (!byCrossing && Math.abs(implied - ref2) > st.ZQ + 1e-3 && Math.abs(implied - pl) > st.ZQ + 1e-3) {
           dBad++; if (!dWhy) dWhy = `implies z=${implied.toFixed(2)}, the plane there is ${ref2.toFixed(2)}`;
