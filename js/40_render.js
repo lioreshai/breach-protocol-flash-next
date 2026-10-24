@@ -905,11 +905,12 @@ let CGW = 0;
    `node tools/view.js mip`, one process per arm, ceiling streak / near-band streak / along-row detail
    against that level's own bar and the mush frame's detail:
      term OFF  40 / 64 / 23 / 21      near 83 / 112 / 119 / 0     detail 23 / 28 / 27 / 24
-     term ON   39 / 62 / 18 / 21      near 81 / 106 /  78 / 0     detail 22 / 28 / 26 / 24
+     term ON   39 / 62 / 18 / 21      near 81 / 106 /  78 / 0     detail 23 / 28 / 27 / 24
      bar       18 / 20 / 18 / n-a     mush    11 /  9 /  6 /  9
    Level 2 comes down five points and MEETS its bar (18 <= 18) with its near band 119 -> 78; levels 0 and 1
-   give one and two. The kill criterion is `detail` falling toward mush and it did not fire: detail gives
-   up one point on two levels and nothing on the other two, against a mush floor four to five times lower.
+   give one and two. The kill criterion is `detail` falling toward mush and it did not fire: the shipped
+   frame's along-row detail is 27 / 28 / 29 / 24 where main reads 27 / 29 / 30 / 24, against a mush floor
+   four to five times lower - one point given up on two levels and nothing on the other two.
    Frame mean moves by <= 0.1 luma (45.5 / 44.9 -> 45.0 / 67.6 -> 67.7), so this is a filter, not a relight.
    `DEV.set('gndmag', 0)` is the A/B and the probe renders that arm as its own control. */
 let CGWN = 1;
