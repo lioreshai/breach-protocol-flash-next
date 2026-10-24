@@ -1256,6 +1256,15 @@ function buildShadowGrid() {
    quantum: a body one slab up answers nothing at any distance, which is the rule `heights` and `cull`
    gate. Returns the fraction to remove from the lit pixel, before the caller multiplies. */
 function shadowFloor(wx, wy, plane, k) {
+  /* EVERY disc covering the pixel, added and clamped, not the first one registered (#18 fifth take).
+     The FLOOR used to return on the first hit while the FACE loop below keeps the max over the same
+     chain, and because the grid head-inserts props AFTER bodies the first hit is always the prop: a
+     crate standing beside an enemy deleted his grounding on the deck they share. That was invisible
+     while both discs were only a few px wide; a body's disc now grows past its dead range (#638) and
+     a crate's grows with it, so overlap stopped being rare. Two casters over one patch of deck really
+     does occlude at least as much light as either alone, so the floor now takes the DARKEST disc, which
+     is what the face loop already answered and what the two copies of this rule agree on. */
+  let best = 0;
   for (; k >= 0; k = SH_NEXT[k]) {
     const dz = plane - SH_Z[k];
     if (dz > SHADOW_ZT || dz < -SHADOW_ZT) continue;
@@ -1263,9 +1272,10 @@ function shadowFloor(wx, wy, plane, k) {
     const t = 1 - (dx * dx + dy * dy) * SH_I[k];
     if (t <= 0) continue;
     const fx = SH_FX[k];
-    return (fx === 2 ? t * t : Math.pow(t, fx)) * SH_FW[k];
+    const tt = (fx === 2 ? t * t : Math.pow(t, fx)) * SH_FW[k];
+    if (tt > best) best = tt;
   }
-  return 0;
+  return best;
 }
 
 /* The average of one mip, split the way the PIXEL shades it: emissive texels carry their own value and
