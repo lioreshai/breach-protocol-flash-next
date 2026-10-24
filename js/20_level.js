@@ -2337,6 +2337,11 @@ function ceilFixEnabled() { return true; }
    storey up plus the datum: two bands joined by a four-tread stair, no pit, because a pit needs a
    flagged climb to be reachable by bfsReach and this increment is about volume you can SEE. */
 const CZ_AUTH_TALL = 16;                              // four units, the constant #300 gives the spawn room
+/* #421: the authored plan's SECOND room height - the clearance a storey carries over its own raised floor.
+   Twelve quanta = three units, so a deck at +1.00 m tops out at 4.00 m, the plane the datum hall's four
+   units reach from 0.00 m. Same roof line, two room heights: the level's ceiling stops being one plane
+   with no seam, and `buildCeilPlanes` still derives every plane from these two numbers alone. */
+const CZ_AUTH_STOREY = 12;
 const AUTHORED = {
   size: 20,
   rects: [{ x: 1, y: 1, w: 8, h: 18, cx: 5, cy: 9 }, { x: 13, y: 1, w: 6, h: 18, cx: 16, cy: 9 }],
@@ -2365,12 +2370,12 @@ const AUTHORED = {
   alt: [
     "4444" + "4444" + "4444" + "4444" + "4444",   //  0
     "4444" + "4444" + "4444" + "4888" + "8884",   //  1
-    "4444" + "4444" + "4444" + "4888" + "8884",   //  2
-    "4444" + "4444" + "4444" + "4888" + "8884",   //  3
-    "4444" + "4444" + "4444" + "4888" + "8884",   //  4
-    "4444" + "4444" + "4444" + "4888" + "8884",   //  5
-    "4444" + "4444" + "4444" + "4888" + "8884",   //  6
-    "4444" + "4444" + "4444" + "4888" + "8884",   //  7
+    "4444" + "8888" + "4444" + "4888" + "8884",   //  2
+    "4444" + "8888" + "4444" + "4888" + "8884",   //  3
+    "4444" + "8888" + "4444" + "4888" + "8884",   //  4
+    "4444" + "8888" + "4444" + "4888" + "8884",   //  5
+    "4444" + "8888" + "4444" + "4888" + "8884",   //  6
+    "4444" + "5678" + "4444" + "4888" + "8884",   //  7
     "4444" + "4444" + "4444" + "4888" + "8884",   //  8
     "4444" + "4444" + "4456" + "7888" + "8884",   //  9
     "4444" + "4444" + "4444" + "4888" + "8884",   // 10
@@ -2387,12 +2392,12 @@ const AUTHORED = {
   feat: [
     "...." + "...." + "...." + "...." + "....",   //  0
     "...." + "...." + "...." + ".TTT" + "TTT.",   //  1
-    "..TT" + "TTTT" + "...." + ".TTT" + "TTT.",   //  2
-    "..TT" + "TTTT" + "...." + ".TTT" + "TTT.",   //  3
-    "..TT" + "TTTT" + "...." + ".TTT" + "TTT.",   //  4
-    "..TT" + "TTTT" + "...." + ".TTT" + "TTT.",   //  5
-    "..TT" + "TTTT" + "...." + ".TTT" + "TTT.",   //  6
-    "..TT" + "TTTT" + "...." + ".TTT" + "TTT.",   //  7
+    "..T." + "UUUU" + "...." + ".TTT" + "TTT.",   //  2
+    "..T." + "UUUU" + "...." + ".TTT" + "TTT.",   //  3
+    "..T." + "UUUU" + "...." + ".TTT" + "TTT.",   //  4
+    "..T." + "UUUU" + "...." + ".TTT" + "TTT.",   //  5
+    "..T." + "UUUU" + "...." + ".TTT" + "TTT.",   //  6
+    "..T." + "SSSU" + "...." + ".TTT" + "TTT.",   //  7
     ".TTT" + "...." + "...." + ".TTT" + "TTT.",   //  8
     ".TTT" + "...." + "..SS" + "STTT" + "TTT.",   //  9
     ".TTT" + "...." + "...." + ".TTT" + "TTT.",   // 10
@@ -2442,6 +2447,14 @@ function buildAuthored(li) {
     if (g === '#') { cell[i] = pickWallTex(cfgL); fz[i] = q - 4; continue; }
     cell[i] = 0; openCells++; fz[i] = q - 4;
     if (f === 'T') cz[i] = CZ_AUTH_TALL;
+    /* #421: 'U' = the OWN CLEARANCE of an authored upper storey. A deck stands on its own floor, so the
+       air it carries is authored one rung below the hall it stands in (12 quanta against CZ_AUTH_TALL's
+       16) and reaches the same roof plane: floor +1.00 m plus three units = 4.00 m, the hall's own ceiling.
+       The storey is therefore a ROOM with its own height rather than a lifted band, which is what
+       `surface`'s ROOM-HEIGHTS census counts (distinct OWN clearances over room cells), and the authored
+       plan now authors two rungs by hand where the generator deals them. It is a distinct glyph from 'T'
+       precisely because the number is different, not the kind of thing. */
+    else if (f === 'U') cz[i] = CZ_AUTH_STOREY;
     else if (f === 'P') feat[i] = FEAT_PIT;
     else if (f === 'S') feat[i] = FEAT_STAIR;
     /* #353: an OVERLOOK, authored. cz is the whole write, exactly as in the generator's pairing pass
