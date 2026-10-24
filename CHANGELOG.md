@@ -1,5 +1,62 @@
 # Changelog
 
+## [v1.4.13] - 2026-10-23
+
+### Changed
+
+- **You arrive facing the storey the level built over you** (#421, PR #482). Every sector used to drop you at
+  one fixed bearing whatever the generator had laid out. On ARCHIVE SUBLEVEL and RING TRANSPORT a raised deck
+  already stands within twelve metres of the arrival cell — 19 and 26 columns of the first frame have a floor
+  over their head — so the level opened on an empty stretch of deck with its best geometry off to one side.
+  The arrival heading is now read from the map the loader just built: you walk in looking at the nearest deck
+  overhead, at its lit underside, the lip where that underside ends, and whatever stands on top of it. RING
+  TRANSPORT's opening frame stops being dim for that reason (its shipped frame mean goes 44.2 -> 94.3), not
+  because it was relit — the same room, turned towards itself. ABATOIR CORE declares the bearing it always had
+  and arrives identically on every deal; THE STACK still falls through to the shipped heading, because bringing
+  its authored plateau into the seat's reach is the open half of this work.
+- **The space past a room's far wall is air, not that room's own paint** (#19, PR #636). Looking beyond the
+  last wall gave you a flat grey sheet, cut top and bottom by a dead-straight line and the same colour whether
+  what lay out there was deck thirty metres away or nothing at all: the engine had no surface out there but
+  answered anyway, with the room's material averaged to its own mean and lit only by ambient. Those rays now
+  take the level's air at full fog — the value the horizon line is already filled with — mixed in by how much
+  of the row left the map and ramped from the far radius, so the band reads as distance and nothing switches on
+  as you walk past 22 m. Three of the four arrival views sit 1.5-3.3 luminance darker in that band and hold
+  their overall exposure; `DEV.set('farvoid', 0)` puts the old sheet back for a side-by-side.
+- **An enemy keeps his footing as he walks away** (#18, PR #638). The dark contact patch under a hostile is
+  authored in metres, so the further he got the fewer screen pixels of it survived, and at 16 m it painted
+  nothing at all on all four sectors — he became a cut-out pasted on the wall behind him, which took away the
+  one separation cue that was supposed to work without any lamp. His patch now grows with range past a 4 m dead
+  range, continuously, so a hostile walking away keeps a base instead of lifting off the floor. Inside 4 m
+  every pose renders the same pixels as before, and a crate's or barrel's contact band is untouched.
+
+### Fixed
+
+- **THE STACK's upper floor is lit** (#199, PR #637). One fixture now stands at the north end of the storey the
+  finale builds over you — the one band of that level no lamp's disc ever reached, its nearest fitting having
+  stood 8.9 m away against a 7.2 m disc. Cells of the sector under no light at all drop from 336 to 156 of 3072
+  (10.9 % to 5.1 % over the same twelve deals), and looking south from that storey reads lit to the far wall
+  instead of going near-black by mid range (frame mean 61.9 -> 94.5 at that seat). What stays dark stays dark
+  because it sits near the edge of a lamp's own falloff, not because nothing was ever placed to reach it.
+
+### Known limitations
+
+- **The far field is half fixed** (#19). The change above covers rays that leave the level. A far ray that
+  stays *inside* the map still ignores the fog law, so a room forty metres out reads as bright as one at
+  twenty-two (#616) — the band's brightness for those rays is the next thing to correct.
+- **The gun in your hands is still mostly silhouette** (#587). A carried pistol's barrel, magazine and grip
+  contribute no pixels at the hip and the shotgun and rifle a few hundred each; what should be rounded parts is
+  one flat slab, and two of the three guns' parts turn out to sit behind the rig's own near plane rather than
+  behind other geometry. Lowering the tubes and raking the grips were measured and do not help. The per-weapon
+  shortfall is printed by `tools/view.js viewmodel` instead of being argued from prose, and closing it is open.
+- **A hostile ten metres out can still lose to the wall behind him** (#416, #611). The separation check gained
+  two arms that price what the room is doing: on ARCHIVE SUBLEVEL wall grain accounts for only 11 % of the
+  busyness delivered behind his outline, and flattening the lamp field makes that region *busier* rather than
+  quieter, so no surface or lighting change buys him the edge — it has to come from his own edge. The
+  deal-by-deal sweep now reports the deal closest to failing rather than the last one measured, which surfaced
+  an ABATOIR CORE deal at a tenth of the brightness bar. That deal is now measurable; it is not fixed yet.
+- **The glow overlay still carries no altitude term** (#221), so a conspicuously dark frame can survive a
+  correct lightmap, and no placement pass is planned for it — the fix belongs to the shade side.
+
 ## [v1.4.12] - 2026-10-21
 
 ### Changed
