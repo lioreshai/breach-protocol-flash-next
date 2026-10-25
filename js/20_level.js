@@ -3356,7 +3356,24 @@ function genLevel(li) {
           if (near) continue;
           if (occupied[i]) continue;
           if (!ringOpen(x, y)) continue;                            // the stranding proof, not a hope
-          cell[i] = cfgL.wall;
+          /* THE PIER WEARS THE ROOM'S MINORITY FACE, NOT ITS PRIMARY ONE. #369's family rule is that a
+             surface standing in the SAME cladding as the wall behind it does not read as a surface, which is
+             why `pickWallTex` deals a room's faces 78% `cfgL.wall` / 22% `cfgL.wall2`. A pier written
+             `cell[i] = cfgL.wall` was the worst exception available to that rule: the one object this pass
+             adds to a room, wearing the family 78% of the faces around it already wear - maximum mass, no
+             edge. So a column wears `wall2` now, and read off the level table that family is never the
+             level's deck (STONE/CONCRETE, METAL/GRATE, FLESH/TECH2), so a pier never reads as a slab of
+             floor stood up. #416 measured 3.8x of albedo across families, so this is also the only lever on
+             this pass that takes lumas out of a column without taking the column out of the room.
+             A CONSTANT, not a pick: `pickWallTex` draws Math.random and this pass draws none, and drawing
+             one here would re-deal every downstream dice and re-key every frame in the table.
+             WHAT IT BUYS, measured by `tools/ci/assert.js exposure` on the COMPOSITED first frame at each
+             sector's spawn seat, this clause against the clean head in the same harness: 73 / 74 / 77.1 /
+             59 lumas against 73 / 75.1 / 78.6 / 59 - about one luma and a half on the two sectors a line
+             reaches. The raster-layer view.js measures is better (RING's spawn frame -4 on both its mean
+             and its centre half), but that is not the number the gate reads. On its own this does NOT bring
+             #505's 35-75 spawn band back inside; that is stated on the PR, not fixed by moving the band. */
+          cell[i] = cfgL.wall2;
           placed++; got++;
         }
         return got;
