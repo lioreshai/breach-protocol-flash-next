@@ -2359,11 +2359,11 @@ const AUTHORED = {
     "####" + "####" + "####" + "####" + "####",   //  0
     "#..." + "...." + ".###" + "#..." + "...#",   //  1
     "#P.." + "...." + ".###" + "#..." + "L..#",   //  2   // #199: a fixture on the upper storey's north end - the one band of THE STACK no disc reached
-    "#..." + "...L" + ".###" + "#.B." + "...#",   //  3   // #421 the hall lamp the mezzanine stands in, at the stair foot: the room under a slab needs a source of its own or its underside reads as black - and it must not sit in the arrival frame, whose exposure gate is a composite (see exposure L3)
+    "#..." + "...." + ".###" + "#.B." + "...#",   //  3   // #421 the hall lamp that was here at (7,3) moved to (5,7); see the row-7 note. The room under a slab needs a source of its own or its underside reads as black - but this cell put the source in the one line of sight the `mip` wall-fetch row samples AND in the row the arrival lens looks down
     "#..." + "...." + ".###" + "#..." + "...#",   //  4
     "#..." + "L..." + ".###" + "#..." + "...#",   //  5   // #421 the fixture ON the storey: a band no lamp stands on is dark ground to the coverage census
     "#.A." + "...." + ".###" + "#..." + "...#",   //  6
-    "#..." + "...." + ".###" + "#..." + "g..#",   //  7
+    "#..." + ".L.." + ".###" + "#..." + "g..#",   //  7   // #421 the west hall's own fixture, SOUTH of the deck. Two things had to be true at once and only this side of the slab satisfies both: it must light the aisle the slab's underside stands over (so the slab stops being a dark sheet - the whole point of the increment), and it must not stand in a line of sight some other row is already measuring. At (7,3) it was 1.5 m in front of the east wall the `mip` wall-fetch row samples, and its disc raised that face's scene light from 0.06 to 0.59 - all-opaque mean 101 -> 143, emissive-vs-opaque gap 50 -> 8 against a floor of 20 - and it sat in the arrival row, which is how the same move took THE STACK's first frame to 77.9, outside the 35-75 band. Here it is 5.7 m off that face and 6.4 m from the seat, on the same datum band, still under the slab it is there to light.
     "#..." + "...." + ".###" + "#..." + "...#",   //  8
     "#.L." + "...." + "...." + ".L.." + "...#",   //  9   // #318: this lamp x12 -> x13, out of the doorway (see PROP COLLISION note in tools/view.js)
     "#..." + "...." + ".###" + "#..." + "...#",   // 10
