@@ -2342,6 +2342,16 @@ const CZ_AUTH_TALL = 16;                              // four units, the constan
    units reach from 0.00 m. Same roof line, two room heights: the level's ceiling stops being one plane
    with no seam, and `buildCeilPlanes` still derives every plane from these two numbers alone. */
 const CZ_AUTH_STOREY = 12;
+/* #421 WHY THIS DECK IS FOUR CELLS AND NOT A WING. `linkBoundaries` takes the minimap's band datum to be
+   the MODAL open-cell band (js/20_level.js `cntF` -> MAP.fzBase), and THE STACK's east wing already stands
+   108 cells at +1.00 m against 122 on the datum. A mezzanine lifted out of the west hall therefore moves
+   TWO cells of that census per cell authored - one off the datum, one onto +1.00 - so a deck of D cells
+   with a three-tread stair leaves the datum modal only while 2D + 3 < 14. At five cells the margin is one
+   cell; at six the modal band flips to +1.00 m and every MMBAND index (js/40_render.js, 4 + fz - fzBase,
+   clamped to +-4) shifts a band: the west hall floor paints in the pit's ink and the four pit bands
+   collapse onto it, which is `bands`' minimap row going red for a real reason - the cue stops telling you
+   which band you are on. Four cells is the largest deck that keeps the cue honest, and the underside it
+   puts over the arrival aisle is what the SEAT / UNDERSIDE rows measure. */
 const AUTHORED = {
   size: 20,
   rects: [{ x: 1, y: 1, w: 8, h: 18, cx: 5, cy: 9 }, { x: 13, y: 1, w: 6, h: 18, cx: 16, cy: 9 }],
@@ -2370,12 +2380,12 @@ const AUTHORED = {
   alt: [
     "4444" + "4444" + "4444" + "4444" + "4444",   //  0
     "4444" + "4444" + "4444" + "4888" + "8884",   //  1
-    "4444" + "8888" + "4444" + "4888" + "8884",   //  2
-    "4444" + "8888" + "4444" + "4888" + "8884",   //  3
-    "4444" + "8888" + "4444" + "4888" + "8884",   //  4
-    "4444" + "8888" + "4444" + "4888" + "8884",   //  5
-    "4444" + "8888" + "4444" + "4888" + "8884",   //  6
-    "4444" + "5678" + "4444" + "4888" + "8884",   //  7
+    "4444" + "4444" + "4444" + "4888" + "8884",   //  2
+    "4444" + "4444" + "4444" + "4888" + "8884",   //  3
+    "4444" + "7654" + "4444" + "4888" + "8884",   //  4   // #421 treads up westbound, 0.25 m each, into the deck at (4,5)
+    "4444" + "8844" + "4444" + "4888" + "8884",   //  5   // #421 the mezzanine: 4 cells at +1.00 m, off the arrival axis
+    "4444" + "8844" + "4444" + "4888" + "8884",   //  6
+    "4444" + "4444" + "4444" + "4888" + "8884",   //  7
     "4444" + "4444" + "4444" + "4888" + "8884",   //  8
     "4444" + "4444" + "4456" + "7888" + "8884",   //  9
     "4444" + "4444" + "4444" + "4888" + "8884",   // 10
@@ -2392,12 +2402,12 @@ const AUTHORED = {
   feat: [
     "...." + "...." + "...." + "...." + "....",   //  0
     "...." + "...." + "...." + ".TTT" + "TTT.",   //  1
-    "..T." + "UUUU" + "...." + ".TTT" + "TTT.",   //  2
-    "..T." + "UUUU" + "...." + ".TTT" + "TTT.",   //  3
-    "..T." + "UUUU" + "...." + ".TTT" + "TTT.",   //  4
-    "..T." + "UUUU" + "...." + ".TTT" + "TTT.",   //  5
-    "..T." + "UUUU" + "...." + ".TTT" + "TTT.",   //  6
-    "..T." + "SSSU" + "...." + ".TTT" + "TTT.",   //  7
+    "..T." + "...." + "...." + ".TTT" + "TTT.",   //  2
+    "..T." + "...." + "...." + ".TTT" + "TTT.",   //  3
+    "..T." + "SSS." + "...." + ".TTT" + "TTT.",   //  4   // #421 FEAT_STAIR on the treads, so the climb is on the minimap
+    "..T." + "UU.." + "...." + ".TTT" + "TTT.",   //  5   // #421 'U' = the storey's own air; the slab under it is derived
+    "..T." + "UU.." + "...." + ".TTT" + "TTT.",   //  6
+    "..T." + "...." + "...." + ".TTT" + "TTT.",   //  7
     ".TTT" + "...." + "...." + ".TTT" + "TTT.",   //  8
     ".TTT" + "...." + "..SS" + "STTT" + "TTT.",   //  9
     ".TTT" + "...." + "...." + ".TTT" + "TTT.",   // 10
