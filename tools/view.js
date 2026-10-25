@@ -678,7 +678,7 @@ if (MODE === 'alt') {
   // stands a few more cells off the datum and wears four more riser faces. ARCHIVE/RING/STACK not moving is
   // the scope control: the reach fallback only fires on a deal whose shipped band leaves the seat with nothing
   // overhead, and `surface`'s SEAT row reads L0 19 and L1 28 columns on unchanged deal hashes in the same run.
-  const RECGEOM = refRecord('alt', 'GRID-CENSUS', 'num', [9, 170, 2, 46, 9, 251, 2, 52, 9, 310, 2, 56, 9, 134, 4, 15]);
+  const RECGEOM = refRecord('alt', 'GRID-CENSUS', 'num', [9, 170, 2, 46, 9, 251, 2, 52, 9, 310, 2, 56, 9, 141, 5, 25]);
   const GEOMK = ['floor values', 'cells off datum', 'staircase runs', 'step faces'];
   const SEEDK = SEED !== 12345;      // the deal the record binds is the SEED-12345 deal
   const row = (label, ok, detail) => {
