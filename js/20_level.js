@@ -3259,10 +3259,46 @@ function genLevel(li) {
     }
     if (v13y >= 0) for (let k = 0; k <= v13best && v13x + k < N - 1; k++) shotRun[v13y * N + v13x + k] = 1;
 
+    /* THE VERTICAL LANE'S FIRING LANES, RESERVED THE SAME WAY. The row `an enemy on a band fires from
+       its chest, not the datum` (tools/smoke.js V16) picks its ground with `vlane(7)`: the FIRST cell in
+       ROOM ORDER - `for (const r of MAP.rooms) for ry then rx` - whose east run is 9 cells clear, with no
+       live enemy within 14 east of it, and it then stands the shooter five cells down that run and raises
+       the three cells under him. The scan asks nothing about the floor, so it is NOT the lane the block
+       above reserves: a pier anywhere east of an earlier candidate shortens that candidate's run, the
+       scan moves on to a later one, and the row is then measuring a different lane - measured at the
+       first arrival-bearing attempt, where the orb popped in the frame it was spawned because the lane it
+       had moved to runs over a band the poke does not raise. A pier can only ever REMOVE openness, so
+       protecting every cell the scan tests up to and including its own pick keeps the pick identical to
+       the one main's grid hands the same rows. In practice the first cell scanned in the first room
+       already has a clear nine, so this reserves one ten-cell stripe and never a region. */
+    {
+      const VLEND = 9;                                    // smoke's longest `vlane(len)`; the rest are shorter
+      const tested = (x, y) => {
+        for (let k = 0; k <= VLEND && x + k < N - 1; k++) shotRun[y * N + x + k] = 1;
+      };
+      outer:
+      for (const r of rooms)
+        for (let ry = r.y + 1; ry < r.y + r.h - 1; ry++)
+          for (let rx = r.x + 1; rx < r.x + r.w - 1; rx++) {
+            if (cell[ry * N + rx]) continue;
+            tested(rx, ry);
+            let clear = true;
+            for (let k = 1; k <= VLEND && rx + k < N - 1; k++) if (cell[ry * N + rx + k]) { clear = false; break; }
+            if (rx + VLEND >= N - 1) clear = false;
+            if (!clear) continue;
+            let solo = true;
+            for (const o of ENEMIES) { if (o.state === 'dead') continue;
+              const ox = o.x - (rx + 0.5), oy = o.y - (ry + 0.5);
+              if (ox > 0 && ox < 14 && Math.abs(oy) < 0.8) { solo = false; break; } }
+            if (solo) break outer;                        // this is the cell the rows pick: everything tested stays
+          }
+    }
+
     // Nothing is parked in the cell this pass is about to make solid: a pier may not stand on a prop,
     // a lamp, a pickup or an enemy, because by now every one of those has been placed.
     let placed = 0;
-    const PIER_SEAT = 5;                              // cells of air the line keeps from the ARRIVAL seat
+    const PIER_VIEW = 4;                              // cells down the arrival view the line stands at
+    const PIER_NEAR = 3;                              // never closer to the eye than this: a face, not an edge
     const occupied = new Uint8Array(N * N);
     for (const o of PROPS) occupied[((o.y | 0) * N) + (o.x | 0)] = 1;
     for (const o of LIGHTS) if (o.stat !== 1) occupied[((o.y | 0) * N) + (o.x | 0)] = 1;
@@ -3283,30 +3319,48 @@ function genLevel(li) {
     for (let ri = 0; ri < rooms.length; ri++) {
       const r = rooms[ri];
       if (r.w * r.h < 24) continue;                        // a 5x5 room is already one bay; give it nothing
-      const alongX = r.w >= r.h;                           // stand the line across the LONGER view
-      const span = alongX ? r.h : r.w;
+      let alongX = r.w >= r.h;                           // stand the line across the LONGER view
+      let span = alongX ? r.h : r.w;
       let pos = (alongX ? r.x : r.y) + Math.max(1, Math.round((alongX ? r.w : r.h) * 0.6));
       if (pos === (alongX ? r.cx : r.cy)) pos--;          // keep the line off the row the seats sit on
       if (pos <= (alongX ? r.x : r.y)) pos += 2;
       if (pos >= (alongX ? r.x + r.w : r.y + r.h)) continue;
-      /* THE LINE MAY NOT STAND IN THE ARRIVAL CAMERA'S NEAR FIELD. `P` is the seat, set above, and the
-         dealt spawn room is one of these rooms: a column two cells off the camera is not an edge you
-         walk past, it is a brick face filling the frame. That is what `node tools/view.js exposure`
-         caught at this head - the spawn-seat means +18/+12/+20 lumas over the record on L0/L1/L2, one
-         seeded deal at mean 144, with the 4x6-yaw seeded medians of the same levels moving 0-2 - a
-         first frame that got bright while the level did not, which is only ever a face put close to
-         the eye. So the room the player ARRIVES in gets its line at least PIER_SEAT of air beyond the
-         seat instead of in front of it; the far half of the view still gets the edge, and it is the
-         same line one step further down the room. A room with no legal position that far out gets no
-         line rather than a wall in the player's face. Every other room is untouched by this clause. */
+      let phase = 1 + (ri & 1);                            // a pier, a gap, a pier, a gap...
+      /* THE ARRIVAL ROOM IS PLACED FROM THE EYE, NOT FROM THE ROOM. The 0.6 rule above puts the line
+         where the room's geometry says, which in the room you WAKE in is usually out of the frame: the
+         four derived seats (js/20_level.js seatFacing) read 2.304 / 0.838 / 0.600 rad on the three dealt
+         sectors, all of them with the seat near the room's CENTRE, so a line at 0.6 of the longer axis
+         stood to one side of a diagonal view and the first thing the player sees was still an empty box -
+         #644's eyeball pass found the bay break in one arrival frame of four. Here the axis comes from
+         the same `seatAng` the rasterizer walks and the line stands PIER_VIEW cells DOWN THE VIEW, so it
+         crosses the frame instead of running along it. Two floors on it, both measured:
+
+         - PIER_NEAR of air, because a column two cells off the camera is a brick face filling the frame,
+           not an edge you walk past: that is what `node tools/view.js exposure` caught at the first
+           attempt (spawn-seat means +18/+12/+20 over the record). Clamped rooms give 3-4 cells.
+         - the GAP, not the pier, on the seat's own perpendicular line, by choosing the phase from the
+           seat rather than from the room index: the centre of the view always looks THROUGH the line at
+           the room beyond it, which is the half of the issue that says "an opening you see yourself
+           walking through". It also keeps the bright face out of the middle of the frame.
+
+         A view that points along an axis the room is too shallow for falls back to the far wall of the
+         other axis before it gives up, and a room that can still hold nothing at PIER_NEAR gets no line -
+         a wall in the player's face is the failure this clause exists to prevent. */
       if (P.x >= r.x && P.x < r.x + r.w && P.y >= r.y && P.y < r.y + r.h) {
-        const off = alongX ? (P.x - pos) : (P.y - pos);
-        if (Math.abs(off) < PIER_SEAT) {
-          pos = (alongX ? P.x : P.y) + (off < 0 ? -PIER_SEAT : PIER_SEAT);
-          if (pos <= (alongX ? r.x : r.y) || pos >= (alongX ? r.x + r.w : r.y + r.h)) continue;
-        }
+        const vx = Math.cos(seatAng), vy = Math.sin(seatAng);
+        alongX = Math.abs(vx) >= Math.abs(vy);             // the axis the FRAME looks down
+        span = alongX ? r.h : r.w;
+        const lo = (alongX ? r.x : r.y) + 1, hi = (alongX ? r.x + r.w : r.y + r.h) - 1;
+        const sc = (alongX ? P.x : P.y) | 0;               // the seat's cell on that axis
+        const sgn = (alongX ? vx : vy) >= 0 ? 1 : -1;
+        const ks = (alongX ? (P.y | 0) : (P.x | 0)) - (alongX ? r.y : r.x);   // seat along the line
+        phase = 1 + (ks & 1);
+        pos = sc + sgn * PIER_VIEW;
+        if (pos < lo) pos = lo; else if (pos > hi) pos = hi;
+        if (Math.abs(pos - sc) < PIER_NEAR) pos = sc + sgn * PIER_NEAR;
+        if (pos < lo || pos > hi) { pos = sc - sgn * PIER_NEAR; if (pos < lo || pos > hi) continue; }
       }
-      for (let k = 1 + (ri & 1); k < span - 1; k += 2) {   // a pier, a gap, a pier, a gap...
+      for (let k = phase; k < span - 1; k += 2) {
         const x = alongX ? pos : r.x + k, y = alongX ? r.y + k : pos;
         if (x < 1 || y < 1 || x >= N - 1 || y >= N - 1) continue;
         const i = y * N + x;
@@ -3331,6 +3385,7 @@ function genLevel(li) {
     // The grid changed, so the derived bits change with it (AGENTS.md): VB_BLOCK is read from the
     // neighbour grid, and a pier is a new neighbour of four cells.
     if (placed) linkBoundaries();
+
 
     return true;
   }
