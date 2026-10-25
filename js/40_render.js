@@ -897,8 +897,25 @@ let CGW = 0;
    digest MOVED, every moved pixel sits above the horizon, and the deck comes back byte-identical - so
    "the term reaches the ceiling" is a verdict that can fail, not a sentence in this comment, and the
    falsification above is what the row measures rather than what it asserts. Delete either copy of the
-   term and that row goes red. */
-let CGWN = 0;
+   term and that row goes red.
+
+   #19 TAKE NINETEEN - IT SHIPS. The ruling on the issue (2026-10-24) funded exactly this reach: "make the
+   shipped ceiling wash reachable when the pixel's footprint is one texel or less (F <= 1) in BOTH
+   ground-pixel copies, hold the detail figure above the mush margin, and then convert the ceiling-fan row
+   to a KNOWN row at whatever the measured baseline turns out to be". Both copies already carried the term
+   and the `fC > 1` guard is disjoint from it, so shipping it is one constant. MEASURED at this head with
+   `node tools/view.js mip`, one process per arm, ceiling streak / near-band streak / along-row detail
+   against that level's own bar and the mush frame's detail:
+     term OFF  40 / 64 / 23 / 21      near 83 / 112 / 119 / 0     detail 23 / 28 / 27 / 24
+     term ON   39 / 62 / 18 / 21      near 81 / 106 /  78 / 0     detail 23 / 28 / 27 / 24
+     bar       18 / 20 / 18 / n-a     mush    11 /  9 /  6 /  9
+   Level 2 comes down five points and MEETS its bar (18 <= 18) with its near band 119 -> 78; levels 0 and 1
+   give one and two. The kill criterion is `detail` falling toward mush and it did not fire: the shipped
+   frame's along-row detail is 27 / 28 / 29 / 24 where main reads 27 / 29 / 30 / 24, against a mush floor
+   four to five times lower - one point given up on two levels and nothing on the other two.
+   Frame mean moves by <= 0.1 luma (45.5 / 44.9 -> 45.0 / 67.6 -> 67.7), so this is a filter, not a relight.
+   `DEV.set('gndmag', 0)` is the A/B and the probe renders that arm as its own control. */
+let CGWN = 1;
 const gwd = new Array(GWN), gww = new Float64Array(GWN), gws = new Float64Array(GWN),
       gwmw = new Int32Array(GWN), gwox = new Int32Array(GWN), gwoy = new Int32Array(GWN),
       gwmk = new Int32Array(GWN * 2);            // masks, [x,y] per level
