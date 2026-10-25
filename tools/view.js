@@ -10103,7 +10103,40 @@ if (MODE === 'contrast') {
            crate 2 m from the seat would pay for a crate 16 m out, which is the hole the growth falls
            through. */
         const RDIST = shRD;
-        let ppx = 0, psum = 0, pNear = 0, pFar = 0, pFarSum = 0;
+        /* #18 SEVENTH TAKE - the ANTI-SPREAD TOOTH for the CRATE, the prop equivalent of BLOBSIDE above.
+           The row below counted ink px and depth, which proves ink EXISTS at range and says nothing about
+           whether it is AIMED: a patch 0.5 m wider than the crate under it is the same census as a halo.
+           The tooth is geometry, not another threshold. buildShadowGrid registers one disc per prop with a
+           radius IT computed (MESH.foot * scale + SHADOW_PR + the SHADOW_RG annulus), and a disc lying on
+           the deck projects to a column span the camera's own numbers give exactly: sample the circle's
+           rim, map each rim point through the same t = B/A the raycaster's columns are laid out by
+           (A = dot(rel,dir)/dot(dir,dir), B = dot(rel,plane)/dot(plane,plane), column = BW/2*(1+t)), and
+           take the min/max column. That span is the WHOLE of the ink the renderer is allowed to paint for
+           that prop - the disc is where shadowFloor can answer for a prop and nowhere else is - so:
+             pStray   far ink px inside NO prop disc's span. Ink the prop geometry does not explain: a
+                      splat that outran its disc, a smudge on a face, a body's patch billed to the crate.
+                      This is the prop's `leak`, and it is an exact containment test, not a bar.
+             pfoot/pInkSpan + the caster's own numbers: the ink's span on the disc that owns most of it,
+                      against the WIDTH THE CRATE ITSELF projects (its authored footprint at the same
+                      depth). The sanctioned range growth makes that ratio ~2 at engagement range by
+                      design, so the bar is wide; the widening it can still catch is named under the row. */
+        const pdisc = JSON.parse(run('(function(){const o=[],fp=planeLen,B2_=BW/2;' +
+          'for(const p of PROPS){ if(p.dead&&p.kind==="barrel")continue;' +
+          'const rx=p.x-camX,ry=p.y-camY,d2=rx*rx+ry*ry;' +
+          'if(d2>SHADOW_FAR*SHADOW_FAR||d2<=1e-6)continue;' +
+          'const foot=MESH.foot(p.kind)*(p.scale||1); if(foot<=0)continue;' +
+          'const g=d2>SHADOW_RD*SHADOW_RD?SHADOW_RG*(Math.sqrt(d2)-SHADOW_RD):0;' +
+          'const r=foot+SHADOW_PR+g;' +
+          'const A=(rx*dirX+ry*dirY)/(dirX*dirX+dirY*dirY); if(A<=0.2)continue;' +
+          'const B=(rx*planeX+ry*planeY)/(planeX*planeX+planeY*planeY);' +
+          'let c0=1e9,c1=-1e9;' +
+          'for(let s=0;s<32;s++){const th=s*Math.PI/16;' +
+          '  const t=(B+(r*Math.sin(th))/fp)/(A+r*Math.cos(th));' +
+          '  const c=B2_*(1+t); if(c<c0)c0=c; if(c>c1)c1=c;}' +
+          'o.push({x0:c0,x1:c1,d:A,r:r,foot:foot,kind:String(p.kind)});}' +
+          'return JSON.stringify(o);})()'));
+        const pbox = pdisc.map(d => ({ d: d, n: 0, x0: 1e9, x1: -1e9 }));
+        let pStray = 0, ppx = 0, psum = 0, pNear = 0, pFar = 0, pFarSum = 0;
         for (let i = 0; i < N; i++) {
           if (M2[i]) { mask++; const x = i % bw; if (x < mx0) mx0 = x; if (x > mx1) mx1 = x; continue; }
           const lb = lum(on.f, i), ls = lum(S2, i);
@@ -10114,12 +10147,36 @@ if (MODE === 'contrast') {
           }
           if (lum(on.f, i) < ls - DLR) {
             ppx++; psum += ls - lum(on.f, i);
-            if (ZB[i] > RDIST) { pFar++; pFarSum += ls - lum(on.f, i); } else pNear++;
+            if (ZB[i] > RDIST) {
+              pFar++; pFarSum += ls - lum(on.f, i);
+              /* attribute this ink to a caster: the disc whose projected span holds the column, and of
+                 those the one at the depth this pixel's own surface says it is at */
+              const x = i % bw;
+              let pick = -1, bestDz = 1e9;
+              for (let k = 0; k < pbox.length; k++) {
+                const b = pbox[k];
+                if (x < Math.floor(b.d.x0) - 1 || x > Math.ceil(b.d.x1) + 1) continue;
+                const dz = Math.abs(b.d.d - ZB[i]);
+                if (dz < bestDz) { bestDz = dz; pick = k; }
+              }
+              if (pick < 0) pStray++;
+              else { const b = pbox[pick]; b.n++; if (x < b.x0) b.x0 = x; if (x > b.x1) b.x1 = x; }
+            } else pNear++;
           }
           if (on.f[i] !== A2[i] && (Math.abs(lum(A2, i) - lb) > DLR || (A2[i] >>> 24) - (on.f[i] >>> 24) !== 0)) leak++;
         }
+        /* the caster that owns the far ink, and the two spans the row reports */
+        let own = null;
+        for (const b of pbox) if (b.n > 2 && (!own || b.n > own.n)) own = b;
+        const focal = (bw / 2) / plane;
+        const inkW = own ? own.x1 - own.x0 + 1 : 0;
+        const footW = own ? 2 * own.d.foot * focal / own.d.d : 0;
+        const discWp = own ? (own.d.x1 - own.d.x0) : 0;
         return { px: px, sum: sum, leak: leak, mask: mask, discW: discW, rd: RDIST, ppx: ppx, psum: psum,
-          pNear: pNear, pFar: pFar, pFarSum: pFarSum, bandW: px ? bx1 - bx0 + 1 : 0, maskW: mask ? mx1 - mx0 + 1 : 0 };
+          pNear: pNear, pFar: pFar, pFarSum: pFarSum, bandW: px ? bx1 - bx0 + 1 : 0, maskW: mask ? mx1 - mx0 + 1 : 0,
+          pStray: pStray, pInk: own ? own.n : 0, inkW: inkW, footW: footW, discWp: discWp,
+          pOwnD: own ? own.d.d : 0, pOwnR: own ? own.d.r : 0, pOwnFoot: own ? own.d.foot : 0,
+          pOwnKind: own ? own.d.kind : '-', pDiscs: pbox.length };
       };
       const bd = on.n >= DIST_MINPX ? bandAt() : null;
       {
@@ -10170,7 +10227,14 @@ if (MODE === 'contrast') {
          off the row. PROPDEEP is the same depth bar the body's row uses. */
       {
         const PROPFLOOR = +(process.env.PROPFLOOR || 8), PROPDEEP = +(process.env.PROPDEEP || 4);
-        const pOk = !!bd && bd.pFar >= PROPFLOOR && (bd.pFar ? bd.pFarSum / bd.pFar : 0) >= PROPDEEP;
+        /* PROPSIDE, measured at this head across the seven crate rows this probe can reach: 1.56-2.53.
+           The bar is 3.0, ~18 % above the widest seat; the geometry says why the shipped number is that
+           high - the disc is footprint + SHADOW_PR + the SHADOW_RG annulus, so at 11-14 m a 0.27 m crate
+           registers a 0.88 m disc before any ink is projected. Nothing was widened to get here. */
+        const PROPSIDE = +(process.env.PROPSIDE || 3);
+        const pspread = bd && bd.footW ? bd.inkW / bd.footW : 0;
+        const pOk = !!bd && bd.pFar >= PROPFLOOR && (bd.pFar ? bd.pFarSum / bd.pFar : 0) >= PROPDEEP &&
+          bd.pStray === 0 && pspread <= PROPSIDE;
         if (!bd) {
           row(seatRay + ': a crate grounds the deck at this range too (#18)', false,
             'no measurement: the body this seat poses covers ' + on.n + ' px, under the ' + DIST_MINPX + ' px the mask needs');
@@ -10189,6 +10253,38 @@ if (MODE === 'contrast') {
               : pdeep < PROPDEEP ? ' - the crate\'s patch is there at range but faint: ' + pdeep.toFixed(1)
                 + ' luma off a deck that varies by more than that, so it grounds nothing'
                 : ' - a crate out at engagement range stands on darker deck, not on the deck'), '#18');
+        /* #18 SEVENTH TAKE - THE AIMING ROW, and it carries no debt tag on purpose: the census above can
+           count ink at range and still be describing a halo, and a row whose failure prints KNOWN cannot
+           say otherwise. Two clauses, both measured at this head and neither a widened threshold:
+             containment  every far ink px inside the projected span of a registered prop disc. A disc is
+                          the only place shadowFloor can answer for a prop, so ink outside every span is
+                          spread by something other than the geometry it is attributed to - a splat that
+                          outran its disc, a smudge on a wall face, a body patch billed to the crate.
+             width        the ink span against the width the CRATE ITSELF projects (its authored footprint
+                          at its own depth), under PROPSIDE. The denominator is deliberately the crate and
+                          not its disc: the disc grows with SHADOW_RG, so a ratio against it stays ~1 for
+                          any growth and can never see the pool outgrowing the thing under it.
+           Sabotaged in one tree with the real probe (JSDIR=, bytes hashed on the variant line): SHADOW_RG
+           0.045 -> 0.20 m/m reads x6-7 and FAILs the width clause; SH_I built from r*1.7 while SH_H stays
+           r puts ink outside its own registered span and FAILs containment. Both print as FAILURE, not
+           KNOWN, which is the whole point of the row. */
+        const pAim = bd.pFar >= PROPFLOOR && bd.pStray === 0 && pspread <= PROPSIDE;
+        row(seatRay + ': that ink is aimed, not spread (#18)', pAim,
+          bd.pDiscs + ' prop disc(s) project into this frame; the far ink sits on the ' + bd.pOwnKind +
+          ' at ' + bd.pOwnD.toFixed(1) + ' m (disc r ' + bd.pOwnR.toFixed(2) + ' m registered from a '
+          + bd.pOwnFoot.toFixed(2) + ' m footprint), spanning ' + bd.inkW + ' px of the ' +
+          Math.round(bd.discWp) + ' px that disc projects to, against the ' + Math.round(bd.footW) +
+          ' px the crate itself projects to at that depth (x' + pspread.toFixed(2) + ' against the ' +
+          PROPSIDE + ' bar); ' + bd.pStray + ' px of it lie outside every disc span'
+          + (bd.pFar < PROPFLOOR
+            ? ' - nothing to aim: the census above has ' + bd.pFar + ' far px, under its ' + PROPFLOOR +
+              ' px floor, so the ink is gone and this row would pass on an empty set'
+            : bd.pStray ? ' - ' + bd.pStray + ' px of that ink lies in NO prop disc\'s projected span: the ink '
+              + 'is wider than the geometry that casts it, which is a halo and not a contact patch'
+              : pspread > PROPSIDE ? ' - the pool is WIDER THAN THE CRATE: x' + pspread.toFixed(2) +
+                ' of its own projected width, so a player reads a smudge under the crate, not the crate'
+                : ' - contained by the disc it is attributed to, and no wider than the crate by more than '
+                  + 'the sanctioned annulus'), undefined);
         }
       }
       const hasArm = run('(function(){ if (typeof BODYDIST !== "number") return -1; BODYDIST = 0; return 1; })()');
