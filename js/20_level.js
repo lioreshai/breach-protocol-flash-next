@@ -3335,7 +3335,7 @@ function genLevel(li) {
       const r = rooms[ri];
       if (r.w * r.h < 24) continue;                        // a 5x5 room is already one bay; give it nothing
       const loX = r.x + 1, hiX = r.x + r.w - 2, loY = r.y + 1, hiY = r.y + r.h - 2;
-      const tryLine = (alongX, pos, phase) => {
+      const tryLine = (alongX, pos, phase, low) => {
         const span = alongX ? r.h : r.w;
         let got = 0;
         for (let k = phase; k < span - 1; k += 2) {
@@ -3373,7 +3373,22 @@ function genLevel(li) {
              reaches. The raster-layer view.js measures is better (RING's spawn frame -4 on both its mean
              and its centre half), but that is not the number the gate reads. On its own this does NOT bring
              #505's 35-75 spawn band back inside; that is stated on the PR, not fixed by moving the band. */
-          cell[i] = cfgL.wall2;
+          /* IN THE ROOM YOU WAKE IN THE BREAK IS LOW, NOT FULL-HEIGHT (#644's product decision).
+             A full-height rank in the arrival frame put a bright face into the first frame the player
+             ever sees and pushed that frame over #505's 35-75 spawn band at every count, distance and
+             ordering tried - eleven seeded `exposure` trees say the arrival frame cannot take a new
+             full-height surface. So the arrival room's break is the SAME LINE RULE wearing a different
+             object: the floor under the line goes up ONE QUANTUM and the cell stays AIR.
+             One quantum, not one unit: the crossing rule is a one-quantum step (`bfsReach`,
+             js/20_level.js:423, and `linkBoundaries` below), and `BAND_UP` is FOUR quanta, so a
+             unit-high band would be a wall you walk into unless a stair serves it. At one quantum the
+             cell is auto-stepped (#100), `linkBoundaries` still sets `steps` because ANY nonzero dq is
+             a face to draw (#517), so the row draws a riser and a floor-toned top and you walk over it.
+             The eye sees PAST and OVER it: the room reads as two bays in the first frame without a face
+             standing in it, which is both of #631's claims and #505's band at once.
+             Authored height, so this still runs after `authorVolume`, still reserves datum/stair/
+             feature/shot-run cells, and still needs the `linkBoundaries()` after it (AGENTS.md). */
+          if (low) fzTry[i] = 1; else cell[i] = cfgL.wall2;
           placed++; got++;
         }
         return got;
@@ -3439,7 +3454,7 @@ function genLevel(li) {
       };
       sweep(r.w >= r.h);                                   // across the LONGER view first
       if (r.w !== r.h) sweep(r.w < r.h);
-      for (const c of cands) if (tryLine(c[0], c[1], c[2])) break;
+      for (const c of cands) if (tryLine(c[0], c[1], c[2], inRoom)) break;
     }
     // The grid changed, so the derived bits change with it (AGENTS.md): VB_BLOCK is read from the
     // neighbour grid, and a pier is a new neighbour of four cells.
