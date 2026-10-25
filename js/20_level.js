@@ -3316,24 +3316,62 @@ function genLevel(li) {
       }
       return true;
     };
+    /* ONE LINE PER ROOM, TRIED AT EVERY POSITION THE ROOM CAN HOLD. #644's review counted what the
+       single-position version actually delivered at the shipped seed - piers in 4 rooms of 16 - and the
+       census says why it is not the reservations: a dealt room is 5-10 cells a side, so ONE line across
+       it offers two to four candidate cells, and in every skipped room all of them are off-datum (the
+       room's own band edge crossing the line), with `shotRun` refusing two more lines and the feature
+       ring and `occupied` a handful elsewhere. One unlucky row and a whole room got nothing. So the
+       room's positions are now candidates, best first, and the first line that stands at least one
+       column wins; a candidate that places nothing has mutated nothing, so there is nothing to unwind:
+
+       - in the room you wake in, the eye-derived positions, FORWARD only (the clause below);
+       - then the room's own 0.6 line - main's placement - so a room this pass has no reason to move is
+         dealt exactly as main deals it;
+       - then the positions beside it, nearest first, on the same (longer) axis;
+       - then, only when the longer axis is spent all the way across, the shorter one. A run of columns
+         standing ALONG a view still breaks one bay into two, which is the claim being made. */
     for (let ri = 0; ri < rooms.length; ri++) {
       const r = rooms[ri];
       if (r.w * r.h < 24) continue;                        // a 5x5 room is already one bay; give it nothing
-      let alongX = r.w >= r.h;                           // stand the line across the LONGER view
-      let span = alongX ? r.h : r.w;
-      let pos = (alongX ? r.x : r.y) + Math.max(1, Math.round((alongX ? r.w : r.h) * 0.6));
-      if (pos === (alongX ? r.cx : r.cy)) pos--;          // keep the line off the row the seats sit on
-      if (pos <= (alongX ? r.x : r.y)) pos += 2;
-      if (pos >= (alongX ? r.x + r.w : r.y + r.h)) continue;
-      let phase = 1 + (ri & 1);                            // a pier, a gap, a pier, a gap...
-      /* THE ARRIVAL ROOM IS PLACED FROM THE EYE, NOT FROM THE ROOM. The 0.6 rule above puts the line
-         where the room's geometry says, which in the room you WAKE in is usually out of the frame: the
-         four derived seats (js/20_level.js seatFacing) read 2.304 / 0.838 / 0.600 rad on the three dealt
-         sectors, all of them with the seat near the room's CENTRE, so a line at 0.6 of the longer axis
-         stood to one side of a diagonal view and the first thing the player sees was still an empty box -
-         #644's eyeball pass found the bay break in one arrival frame of four. Here the axis comes from
-         the same `seatAng` the rasterizer walks and the line stands PIER_VIEW cells DOWN THE VIEW, so it
-         crosses the frame instead of running along it. Two floors on it, both measured:
+      const loX = r.x + 1, hiX = r.x + r.w - 2, loY = r.y + 1, hiY = r.y + r.h - 2;
+      const tryLine = (alongX, pos, phase) => {
+        const span = alongX ? r.h : r.w;
+        let got = 0;
+        for (let k = phase; k < span - 1; k += 2) {
+          const x = alongX ? pos : r.x + k, y = alongX ? r.y + k : pos;
+          if (x < 1 || y < 1 || x >= N - 1 || y >= N - 1) continue;
+          const i = y * N + x;
+          if (cell[i]) continue;
+          if (fzTry[i] !== 0) continue;
+          if (shotRun[i]) continue;
+          // A tread, a ladder shaft, a pit lip or a rail is not structure's to spend - and neither is the
+          // cell in front of it, which is the approach the climb is authored from (V19 walks four steps
+          // from a datum cell, so blocking that cell loses the row even though the stair still exists).
+          let near = featTry[i] !== FEAT_NONE;
+          for (let d = 0; d < 4 && !near; d++) {
+            const j = (y + DIRY[d]) * N + x + DIRX[d];
+            if (j >= 0 && j < N * N && featTry[j] !== FEAT_NONE) near = true;
+          }
+          if (near) continue;
+          if (occupied[i]) continue;
+          if (!ringOpen(x, y)) continue;                            // the stranding proof, not a hope
+          cell[i] = cfgL.wall;
+          placed++; got++;
+        }
+        return got;
+      };
+      const cands = [];
+      const inRoom = P.x >= r.x && P.x < r.x + r.w && P.y >= r.y && P.y < r.y + r.h;
+      const seen = (crossX, pos) => { for (const c of cands) if (c[0] === crossX && c[1] === pos) return true; return false; };
+      /* THE ARRIVAL ROOM IS PLACED FROM THE EYE, NOT FROM THE ROOM. The 0.6 rule puts the line where the
+         room's geometry says, which in the room you WAKE in is usually out of the frame: the four derived
+         seats (js/20_level.js seatFacing) read 2.304 / 0.838 / 0.600 rad on the three dealt sectors, all
+         of them with the seat near the room's CENTRE, so a line at 0.6 of the longer axis stood to one
+         side of a diagonal view and the first thing the player sees was still an empty box - #644's
+         eyeball pass found the bay break in one arrival frame of four. Here the axis comes from the same
+         `seatAng` the rasterizer walks and the line stands PIER_VIEW cells DOWN THE VIEW, so it crosses
+         the frame instead of running along it. Three floors on it, all measured:
 
          - PIER_NEAR of air, because a column two cells off the camera is a brick face filling the frame,
            not an edge you walk past: that is what `node tools/view.js exposure` caught at the first
@@ -3342,45 +3380,49 @@ function genLevel(li) {
            seat rather than from the room index: the centre of the view always looks THROUGH the line at
            the room beyond it, which is the half of the issue that says "an opening you see yourself
            walking through". It also keeps the bright face out of the middle of the frame.
-
-         A view that points along an axis the room is too shallow for falls back to the far wall of the
-         other axis before it gives up, and a room that can still hold nothing at PIER_NEAR gets no line -
-         a wall in the player's face is the failure this clause exists to prevent. */
-      if (P.x >= r.x && P.x < r.x + r.w && P.y >= r.y && P.y < r.y + r.h) {
+         - FORWARD, down the way the frame looks. The first version fell back to `sc - sgn * PIER_NEAR`
+           when the room was too shallow ahead, and #644's review read what that ships: L0's spawn room
+           got its one column 3.2 m away at -161.6 deg, behind the eye, so the arrival frame still opened
+           on the empty box this pass exists to close. A room too shallow forward is handed to the sweep
+           below, which puts the line where the room has room; nothing is ever stood at the player's back
+           and called a win. */
+      if (inRoom) {
         const vx = Math.cos(seatAng), vy = Math.sin(seatAng);
-        alongX = Math.abs(vx) >= Math.abs(vy);             // the axis the FRAME looks down
-        span = alongX ? r.h : r.w;
-        const lo = (alongX ? r.x : r.y) + 1, hi = (alongX ? r.x + r.w : r.y + r.h) - 1;
-        const sc = (alongX ? P.x : P.y) | 0;               // the seat's cell on that axis
-        const sgn = (alongX ? vx : vy) >= 0 ? 1 : -1;
-        const ks = (alongX ? (P.y | 0) : (P.x | 0)) - (alongX ? r.y : r.x);   // seat along the line
-        phase = 1 + (ks & 1);
-        pos = sc + sgn * PIER_VIEW;
-        if (pos < lo) pos = lo; else if (pos > hi) pos = hi;
-        if (Math.abs(pos - sc) < PIER_NEAR) pos = sc + sgn * PIER_NEAR;
-        if (pos < lo || pos > hi) { pos = sc - sgn * PIER_NEAR; if (pos < lo || pos > hi) continue; }
-      }
-      for (let k = phase; k < span - 1; k += 2) {
-        const x = alongX ? pos : r.x + k, y = alongX ? r.y + k : pos;
-        if (x < 1 || y < 1 || x >= N - 1 || y >= N - 1) continue;
-        const i = y * N + x;
-        if (cell[i]) continue;
-        if (fzTry[i] !== 0) continue;
-        if (shotRun[i]) continue;
-        // A tread, a ladder shaft, a pit lip or a rail is not structure's to spend - and neither is the
-        // cell in front of it, which is the approach the climb is authored from (V19 walks four steps
-        // from a datum cell, so blocking that cell loses the row even though the stair still exists).
-        let near = featTry[i] !== FEAT_NONE;
-        for (let d = 0; d < 4 && !near; d++) {
-          const j = (y + DIRY[d]) * N + x + DIRX[d];
-          if (j >= 0 && j < N * N && featTry[j] !== FEAT_NONE) near = true;
+        const crossX = Math.abs(vx) >= Math.abs(vy);       // the axis the FRAME looks down; the line crosses it
+        const lo = crossX ? loX : loY, hi = crossX ? hiX : hiY;
+        const sc = (crossX ? P.x : P.y) | 0;               // the seat's cell on that axis
+        const sgn = (crossX ? vx : vy) >= 0 ? 1 : -1;
+        const ks = (crossX ? (P.y | 0) : (P.x | 0)) - (crossX ? r.y : r.x);   // seat along the line
+        for (let d = PIER_VIEW; d <= PIER_VIEW + 2; d++) {  // 4, then 5, then 6 cells down the view
+          const pos2 = sc + sgn * d;
+          if (pos2 < lo || pos2 > hi || Math.abs(pos2 - sc) < PIER_NEAR || seen(crossX, pos2)) continue;
+          cands.push([crossX, pos2, 1 + (ks & 1)]);
         }
-        if (near) continue;
-        if (occupied[i]) continue;
-        if (!ringOpen(x, y)) continue;                            // the stranding proof, not a hope
-        cell[i] = cfgL.wall;
-        placed++;
       }
+      const sweep = (crossX) => {
+        const lo = crossX ? loX : loY, hi = crossX ? hiX : hiY, len = crossX ? r.w : r.h;
+        let base = (crossX ? r.x : r.y) + Math.max(1, Math.round(len * 0.6));   // main's own rule
+        if (base === (crossX ? r.cx : r.cy)) base--;        // keep the line off the row the seats sit on
+        if (base < lo) base = lo; else if (base > hi) base = hi;
+        /* In the room you wake in, a position the view points TOWARDS beats one it points away from,
+           whatever the 0.6 rule prefers: the claim being made is that the break is in the arrival frame,
+           not merely in the room. `fwd` is the sign the view has on the axis the line crosses. And the
+           PIER_NEAR floor applies to EVERY position in this room, not only to the eye-derived ones
+           above: a column one cell off the camera is a brick face filling the frame, which is what
+           `exposure` caught when the sweep first ran - L0's flat frame mean +50 lumas, its spawn camera
+           two cells from a new face. */
+        const fwd = inRoom ? ((crossX ? Math.cos(seatAng) : Math.sin(seatAng)) >= 0 ? 1 : -1) : 0;
+        const ec = inRoom ? (crossX ? (P.x | 0) : (P.y | 0)) : 0;
+        const order = [];
+        for (let pos = lo; pos <= hi; pos++)
+          if (!(inRoom && Math.abs(pos - ec) < PIER_NEAR)) order.push(pos);
+        order.sort((a, b) => ((fwd && (a - ec) * fwd < 0) - (fwd && (b - ec) * fwd < 0)) ||
+          Math.abs(a - base) - Math.abs(b - base) || a - b);
+        for (const pos of order) if (!seen(crossX, pos)) cands.push([crossX, pos, 1 + (ri & 1)]);
+      };
+      sweep(r.w >= r.h);                                   // across the LONGER view first
+      if (r.w !== r.h) sweep(r.w < r.h);
+      for (const c of cands) if (tryLine(c[0], c[1], c[2])) break;
     }
     // The grid changed, so the derived bits change with it (AGENTS.md): VB_BLOCK is read from the
     // neighbour grid, and a pier is a new neighbour of four cells.
