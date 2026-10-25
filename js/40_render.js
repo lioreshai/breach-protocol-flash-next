@@ -220,8 +220,10 @@ let SHADOW = 1, SHADOW_D = 0.34, SHADOW_R = 0.16, SHADOW_ZT = 0.02, SHADOW_F = 2
    `contrast`'s BANDCEIL (0.60 x the body's own mask px) permits roughly 1.1 m of patch radius at 12 m and
    1.25 m at 16 m. SHADOW_RG 0.045 puts 0.94 m at 12 m and 1.12 m at 16 m, i.e. ~70 % of the sanctioned
    annulus, and the new far-band rows in that probe are the row that fails if it is spread past that.
-   PROPS do not take this: #511/#533 shipped the prop half at SHADOW_PR and `props` gates its patch on its
-   own silhouette ratio, so a crate's contact band is exactly the one that shipped. */
+   PROPS TAKE THE SAME GROWTH (#18 sixth take, applied in the prop loop below against the prop's own
+   distance): the acceptance says the cue has to hold for a crate as well, and a crate authored in metres
+   collapsed to a pixel or two at exactly the ranges a fight starts. `props` still gates a prop's patch on
+   its OWN silhouette ratio, and the near-field patch a prop casts inside SHADOW_RD is unchanged by this. */
 let SHADOW_RD = 4, SHADOW_RG = 0.045;
 /* #371 item 3: the same term, on a PROP. A crate's lower edge used to be as bright as its upper edge,
    because nothing said where the crate meets the floor. This is not a new mechanism - it registers the
@@ -895,8 +897,25 @@ let CGW = 0;
    digest MOVED, every moved pixel sits above the horizon, and the deck comes back byte-identical - so
    "the term reaches the ceiling" is a verdict that can fail, not a sentence in this comment, and the
    falsification above is what the row measures rather than what it asserts. Delete either copy of the
-   term and that row goes red. */
-let CGWN = 0;
+   term and that row goes red.
+
+   #19 TAKE NINETEEN - IT SHIPS. The ruling on the issue (2026-10-24) funded exactly this reach: "make the
+   shipped ceiling wash reachable when the pixel's footprint is one texel or less (F <= 1) in BOTH
+   ground-pixel copies, hold the detail figure above the mush margin, and then convert the ceiling-fan row
+   to a KNOWN row at whatever the measured baseline turns out to be". Both copies already carried the term
+   and the `fC > 1` guard is disjoint from it, so shipping it is one constant. MEASURED at this head with
+   `node tools/view.js mip`, one process per arm, ceiling streak / near-band streak / along-row detail
+   against that level's own bar and the mush frame's detail:
+     term OFF  40 / 64 / 23 / 21      near 83 / 112 / 119 / 0     detail 23 / 28 / 27 / 24
+     term ON   39 / 62 / 18 / 21      near 81 / 106 /  78 / 0     detail 23 / 28 / 27 / 24
+     bar       18 / 20 / 18 / n-a     mush    11 /  9 /  6 /  9
+   Level 2 comes down five points and MEETS its bar (18 <= 18) with its near band 119 -> 78; levels 0 and 1
+   give one and two. The kill criterion is `detail` falling toward mush and it did not fire: the shipped
+   frame's along-row detail is 27 / 28 / 29 / 24 where main reads 27 / 29 / 30 / 24, against a mush floor
+   four to five times lower - one point given up on two levels and nothing on the other two.
+   Frame mean moves by <= 0.1 luma (45.5 / 44.9 -> 45.0 / 67.6 -> 67.7), so this is a filter, not a relight.
+   `DEV.set('gndmag', 0)` is the A/B and the probe renders that arm as its own control. */
+let CGWN = 1;
 const gwd = new Array(GWN), gww = new Float64Array(GWN), gws = new Float64Array(GWN),
       gwmw = new Int32Array(GWN), gwox = new Int32Array(GWN), gwoy = new Int32Array(GWN),
       gwmk = new Int32Array(GWN * 2);            // masks, [x,y] per level
@@ -1233,9 +1252,19 @@ function buildShadowGrid() {
     for (let q = 0; q < PROPS.length && SH_N < SH_CAP; q++) {
       const p = PROPS[q];
       if (p.dead && p.kind === 'barrel') continue;      // drawn as rubble, grounds no patch either
-      const px = p.x - camX, py = p.y - camY;
-      if (px * px + py * py > far2) continue;
-      const n = SH_N, r = MESH.foot(p.kind) * (p.scale || 1) + SHADOW_PR;
+      const px = p.x - camX, py = p.y - camY, pd2 = px * px + py * py;
+      if (pd2 > far2) continue;
+      /* #18 SIXTH TAKE - the range growth is handed to the CRATE too. SHADOW_RG lived in the body loop
+         only, so a crate past SHADOW_RD grounded the deck with a patch authored in metres and its screen
+         footprint had collapsed to a pixel or two while a body at the same range stood on a pool a metre
+         wide. The acceptance says "the same holds for a crate", so the same linear annulus is added here,
+         against the prop's own distance to the eye and with no new constant: a prop has no collision radius
+         to grow, `MESH.foot` * scale + SHADOW_PR is its authored radius. It was safe to ship only once the
+         far-band census attributed by CASTER - grown discs of both casters overlap on the same deck and
+         `shadowFloor` answers a shared pixel with the darkest disc, so before #648 a crate-at-range row
+         could not be written without the body's own row collapsing (measured 14 px -> 1 px). */
+      const pgrow = pd2 > SHADOW_RD * SHADOW_RD ? SHADOW_RG * (Math.sqrt(pd2) - SHADOW_RD) : 0;
+      const n = SH_N, r = MESH.foot(p.kind) * (p.scale || 1) + SHADOW_PR + pgrow;
       if (r <= 0) continue;                             // a kind with no authored footprint grounds nothing
       SH_X[n] = p.x; SH_Y[n] = p.y; SH_Z[n] = floorAt(p.x, p.y); SH_I[n] = 1 / (r * r); SH_H[n] = r;
       SH_FX[n] = SHADOW_PF; SH_FW[n] = SHADOW_PD;

@@ -1,5 +1,93 @@
 # Changelog
 
+## [v1.4.14] - 2026-10-25
+
+### Added
+
+- **Something is mounted on the wall you wake up facing** (#400, PR #624). RING TRANSPORT used to open on
+  one long grey face with nothing on it while the other three sectors put a thing on your arrival wall. The
+  generator now reads the four sight lines out from the spawn square and requires the first wall one of them
+  meets to carry an *object* — a rack, a tank, a vent plate or a doorway, each standing far enough off the
+  face to show a flank and hold a silhouette at 8 m. A wall that already carries one is left alone; a wall
+  carrying only paint has that paint turned into the object. Rooms also try their object kinds before their
+  paint kinds, so the fixture every room is guaranteed to have is a thing rather than a stripe.
+- **Racks and duct collars stand off the long walls** (#400, PR #647). THE STACK's six long straight runs
+  that owned nothing but a hazard stripe now have an object at the point down the wall your eye lands on
+  when you look along it; the six that already owned one keep it, so all twelve of that level's qualifying
+  runs carry an object. The other three sectors look exactly as they did — the new rule found their runs
+  already furnished and says so rather than painting over them.
+- **A hanging ceiling lamp shows its lamp** (#629, PR #630). In a tall room a pendant was a dark three-metre
+  rod with a two-pixel lens on the end, so the roof of the frame carried a black column and none of the four
+  arrival frames showed the light itself. The fitting now has a shallow cone reflector with its own glow at
+  the mouth, the drawn stem is capped at 1.6 m so a rod is never the longest line in its own fitting, and a
+  rod is no longer drawn at all when a wall or slab hides the lamp at the end of it. No light source moved,
+  so no light pool changed.
+
+### Changed
+
+- **A hostile reads against the wall that frames him** (#611, PR #626). In a room that lit an enemy to the
+  same brightness as the surface behind him, he arrived a beat late — you were finding him rather than
+  seeing him. The game now checks four pixels just inside his silhouette that the depth buffer says are
+  *behind* him, and if his own paint would land him less than four luminance under that surface it darkens
+  his albedo until he does not. The push is a grey scale, so his colour is untouched, and it adds no light —
+  the room is not made brighter to make him visible. At each sector's 10 m seat the value step is now
+  10.9 / 12.7 / 6.0 / 15.2 lumas against a 4-luma bar; with the term disarmed in the same build the first of
+  those falls to 3.2, which is the defect.
+- **A grunt's head sits on his shoulders** (#80, PR #628). The band of neck between shoulder line and head
+  was 6.1 % of his height and it was the side of a tube — the one face whose brightness depends on the
+  room's light — which is why a head that was geometrically closed still read as floating in a dim cell. The
+  exposed column is capped, so the top of the shoulders carries the head's weight visually; the band is now
+  4.8 % of body height. The visor rides the skull, so a lower head cannot leave it behind. Hounds and brutes
+  draw identical pixels — only the grunt's geometry was long.
+- **Close up, the ceiling stops combing into streaks** (#19, PR #645). A ceiling tile near you is tens of
+  screen pixels wide, so a pixel there covers *less* than one texel of the material and the fetch answered
+  with that single texel — whose value depends on where the pixel sits, which drew as a family of lines
+  through the vanishing point. Such a pixel now takes part of its material's average in proportion to how
+  little of the material it can see; one that covers a whole texel is unchanged. THE STACK's roof near-field
+  streak drops 119 -> 78, and along-row grain on the shipped frames moves at most one point from the previous
+  build (27 / 28 / 29 / 24), so the roof still reads as a surface rather than porridge. The floor is
+  untouched — the term is gated to ceiling rows.
+
+### Fixed
+
+- **A floor above you stops wearing the ceiling's paint** (#421, PR #641). Look up under a mezzanine and you
+  saw the level's own ceiling material — same grain, one straight edge, no depth — so the storey directly
+  above you looked like the roof over your head everywhere else and you could not tell where the slab's edge
+  was, which is the edge you shoot over. It now reads as a floor seen from below: painted plate over joists,
+  a joist shadow every half metre along the span, and a lit near edge where the deck above stops. Under RING
+  TRANSPORT's raised deck that near edge steps 18 lumas instead of 7.5. Nothing was lit harder: the change is
+  four shape constants on a surface the renderer already drew, so the room below still decides how bright the
+  plate gets and the underside still cannot out-light the deck you stand on.
+- **An enemy standing next to a crate keeps his own contact shadow** (#18, PR #646). Where his shadow patch
+  and a crate's overlapped, the floor took whichever disc was registered last — and props are registered
+  after bodies, so it was always the crate's. A crate's disc is small and tight, so on the deck the two share
+  his grounding simply stopped and he floated on the one patch of floor where he was closest to something. The
+  floor now answers a pixel with the darkest disc covering it, which is what the wall-face pass has always
+  done, so the two agree and the overlap belongs to whoever occludes more.
+- **The generator's paint-to-object conversion ran on no deal, ever** (#400, PR #647). The rule that claims a
+  face wearing only a hazard band or pipe run and bolts a thing to it in place compared a stored face
+  orientation against the wrong numbering and returned false every time it was called — three separate passes
+  asked for it and all three got nothing, on every deal. It is fixed, and the probe that covers it has been
+  run against the broken arithmetic to confirm the new row can actually go red.
+
+### Known limitations
+
+- A crate more than about 4 m away still casts no contact shadow of its own; it grounds nothing at the ranges
+  enemies are actually engaged at. That gap is now measured per caster so a red row names it instead of
+  averaging it away (PR #648), and the fix is in review (PR #650) — giving props the same range growth the
+  bodies got made an enemy's own far band collapse in the test that measures him, so the two need separating
+  before it lands.
+- Sector 1's long sight line is still one concrete band with tanks standing in front of it (#400). Its runs do
+  carry objects, so this is not the same defect; what that frame needs is a fixture whose shape survives being
+  seen nearly edge-on, which is a renderer question, not a placement one.
+- Ceiling streaking is fixed where it was worst but not everywhere: sectors 0 and 1 stay above the streak bar
+  at the shipped baseline, and the measurements on #19 put that residue on the light ramp and the slab geometry
+  rather than on the texture fetch.
+- Past about 22 m the game still stops drawing a surface, so the horizon stays a flat band and distance tells
+  you nothing there (#616, still open).
+- Several of this release's items keep their own issue open because only part of the acceptance landed: #400,
+  #421 and #80 are visible improvements, not closed work.
+
 ## [v1.4.13] - 2026-10-23
 
 ### Changed
