@@ -2359,7 +2359,7 @@ const AUTHORED = {
     "####" + "####" + "####" + "####" + "####",   //  0
     "#..." + "...." + ".###" + "#..." + "...#",   //  1
     "#P.." + "...." + ".###" + "#..." + "L..#",   //  2   // #199: a fixture on the upper storey's north end - the one band of THE STACK no disc reached
-    "#..L" + "...." + ".###" + "#.B." + "...#",   //  3   // #421 the hall lamp the mezzanine stands in: the room under a slab needs a source of its own or its underside reads as black
+    "#..." + "...L" + ".###" + "#.B." + "...#",   //  3   // #421 the hall lamp the mezzanine stands in, at the stair foot: the room under a slab needs a source of its own or its underside reads as black - and it must not sit in the arrival frame, whose exposure gate is a composite (see exposure L3)
     "#..." + "...." + ".###" + "#..." + "...#",   //  4
     "#..." + "L..." + ".###" + "#..." + "...#",   //  5   // #421 the fixture ON the storey: a band no lamp stands on is dark ground to the coverage census
     "#.A." + "...." + ".###" + "#..." + "...#",   //  6
