@@ -2359,9 +2359,9 @@ const AUTHORED = {
     "####" + "####" + "####" + "####" + "####",   //  0
     "#..." + "...." + ".###" + "#..." + "...#",   //  1
     "#P.." + "...." + ".###" + "#..." + "L..#",   //  2   // #199: a fixture on the upper storey's north end - the one band of THE STACK no disc reached
-    "#..." + "...." + ".###" + "#.B." + "...#",   //  3
+    "#..L" + "...." + ".###" + "#.B." + "...#",   //  3   // #421 the hall lamp the mezzanine stands in: the room under a slab needs a source of its own or its underside reads as black
     "#..." + "...." + ".###" + "#..." + "...#",   //  4
-    "#..." + "...." + ".###" + "#..." + "...#",   //  5
+    "#..." + "L..." + ".###" + "#..." + "...#",   //  5   // #421 the fixture ON the storey: a band no lamp stands on is dark ground to the coverage census
     "#.A." + "...." + ".###" + "#..." + "...#",   //  6
     "#..." + "...." + ".###" + "#..." + "g..#",   //  7
     "#..." + "...." + ".###" + "#..." + "...#",   //  8
