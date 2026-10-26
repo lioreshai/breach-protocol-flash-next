@@ -4180,6 +4180,27 @@ const VMSIT = {
   af: 0.190, ar: 0.016, ad: 0.034,   // shouldered: on the centre line, and the SIGHT line at eye height
   t: 0.30,                           // the reach the device-px terms above are converted at
 };
+/* #632 THE HIP POSE IS PER WEAPON, AND IT IS A CARRY, NOT A MOUNT.
+   VMSIT alone gave pistol, shotgun and rifle ONE hip seat: three different objects placed at one
+   point with one heading, which is why the standing frame reads as hardware bolted to the camera and
+   why three rounds of view-model work all landed in ADS - the ADS endpoints were the only pose the
+   rig had per weapon. Every term below is a HIP term: it is multiplied by (1 - ads), so at full ADS
+   the rig lands on VMSIT.af/ar/ad exactly as before and the sight picture this repo has records for
+   does not move by one pixel.
+   `f/r/d` is where the grip top sits: a long gun is carried further out and lower because its stock
+   would otherwise stand through the chest, a pistol stays high and inboard near the armpit.
+   `cant` is roll (the muzzle tips inboard, the way a gun hangs off a shoulder) and `yaw` is the
+   heading offset the same shoulder produces. Both ramp out as the gun comes onto the sight line,
+   because a shouldered gun is ON the ray: the bore term in VMROT's third column is untouched by the
+   ADS branch, and at ads=1 both offsets are exactly zero.
+   The hands do not get their own numbers: `MESH.weapon` authors them onto the grip, so moving the
+   seat and canting the gun is what moves the hands onto the part they hold (the `hip contact` row in
+   tools/view.js is what checks that claim rather than this paragraph). */
+const VMHIP = {
+  pistol:  { f: 0.247, r: 0.098, d: 0.100, cant: 0.030, yaw: 0.000 },
+  shotgun: { f: 0.250, r: 0.118, d: 0.106, cant: -0.028, yaw: 0.000 },
+  rifle:   { f: 0.252, r: 0.126, d: 0.112, cant: -0.032, yaw: 0.000 },
+};
 let VMFLOOR = 0.5, VMRIM = 0.08;     // the two readability terms - see row (d)
 const VMROT = new Float32Array(9);
 /* The rig's world anchor, published for the probes the way VM's sway state already is: row (c) puts
@@ -4245,8 +4266,10 @@ function drawViewModel() {
   // the rotation: yaw from P.ang trailed by the look lag, pitch from the shot's own slope, roll from
   // the swing and the walk
   const p = Math.atan(pitchTan());
-  const rigAng = P.ang + VM.lag;
-  const roll = -(VM.lag * 0.07 + (P.moving() ? Math.sin(P.bobPhase) * 0.012 * (0.4 + 0.6 * sp) : 0) + k * 0.0011 + rlRoll);
+  const HP = VMHIP[w.kind] || VMHIP.pistol, carry = 1 - ads;   // #632: hip terms only, see VMHIP
+  const rigAng = P.ang + VM.lag + HP.yaw * carry;
+  const roll = -(VM.lag * 0.07 + (P.moving() ? Math.sin(P.bobPhase) * 0.012 * (0.4 + 0.6 * sp) : 0) + k * 0.0011 + rlRoll) +
+    HP.cant * carry;
   const ca = Math.cos(rigAng), sa = Math.sin(rigAng), cp = Math.cos(p), sp2 = Math.sin(p), cr = Math.cos(roll), sr = Math.sin(roll);
   // columns: the player's right, the gun's up, the bore = the unit firing ray (see the header)
   const rx = -sa, ry = ca, rz = 0, ux = -ca * sp2, uy = -sa * sp2, uz = cp, bx = ca * cp, by = sa * cp, bz = sp2;
@@ -4257,10 +4280,10 @@ function drawViewModel() {
   VMROT[6] = X2; VMROT[7] = Y2; VMROT[8] = bz;
 
   // the local anchor, in the gun's own frame: metres right / up / forward of the eye
-  const Lx = VMSIT.r + (VMSIT.ar - VMSIT.r) * ads + bobX * MPPX * (1 - ads * 0.6);
-  const Ly = -(VMSIT.d + (VMSIT.ad - VMSIT.d) * ads) - (bobY + VM.vy + k * 1.5 * (DH / 900) + swap * 300 * (DH / 900) +
+  const Lx = HP.r + (VMSIT.ar - HP.r) * ads + bobX * MPPX * (1 - ads * 0.6);
+  const Ly = -(HP.d + (VMSIT.ad - HP.d) * ads) - (bobY + VM.vy + k * 1.5 * (DH / 900) + swap * 300 * (DH / 900) +
     P.crouch * 13 * (DH / 900) - ads * DH * 0.05 + rlDrop) * MPPY;
-  const Lz = VMSIT.f + (VMSIT.af - VMSIT.f) * ads - k * 0.0016;      // recoil travels the gun straight back
+  const Lz = HP.f + (VMSIT.af - HP.f) * ads - k * 0.0016;      // recoil travels the gun straight back
   const ax = P.x + X0 * Lx + Y0 * Ly + bx * Lz;
   const ay = P.y + X1 * Lx + Y1 * Ly + by * Lz;
   const az = eyeZ + X2 * Lx + Y2 * Ly + bz * Lz;
