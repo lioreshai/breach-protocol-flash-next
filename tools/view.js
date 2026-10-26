@@ -16482,6 +16482,13 @@ if (MODE === 'surface') {
     const pAcc = fits.map(() => ({nS: 0, nN: 0, fS: 0, fN: 0}));
     const qAcc = fits.map(() => ({nS: 0, nN: 0, fS: 0, fN: 0}));
     const uPoses = []; const uSlabCells = run('MAP.ceilSlab ? MAP.ceilSlab.reduce((s, v) => s + (v & 1 ? 1 : 0), 0) : 0');
+    /* #421 criterion 1 ASKED FOR A PER-LEVEL VERDICT: "the underside band sits at >= 25 luma in a lit room
+       and never below 15 in the darkest level". The `cam` rows above answer that pose by pose and print
+       n/a wherever the underside is a sliver, which is why a level whose underside falls under its floor
+       has never gone red: only one pose per deal leaves a band to average, and a single n/a sweep is not
+       a pass. `uBand` collects every pose that DID leave a band, with the floor that pose's own room
+       selects, and the row after the loop judges the level. */
+    const uBand = [];
     let uSheetS = 0, uSheetN = 0, uDeckS = 0, uDeckN = 0;
     for (const cam of CAMS) {
       const isU = cam === 'U';
@@ -16542,6 +16549,7 @@ if (MODE === 'surface') {
           bandOk && u.und >= floor,
           `band mean ${u.und.toFixed(1)} against a ${floor}-luma floor (${litRoom ? 'deck reads ' + c.floor.toFixed(1) + ', at or over ' + UlitDeck : 'deck ' + c.floor.toFixed(1) + ', under ' + UlitDeck})` +
           (bandOk ? '' : ' - NOT MEASURED: no band to average'), undefined, !bandOk);
+        if (bandOk) uBand.push({ cam, und: u.und, floor, pct: u.pct, litRoom });
         const uMeas = u.steps >= UMIN;
         if (uMeas) uPoses.push(cam);
         row(`L${li} cam${cam} LIP the slab's near edge steps >= ${UEDGE} luma`,
@@ -16826,6 +16834,33 @@ if (MODE === 'surface') {
     } else {
       row(`L${li} UNDERSIDE-SWEEP this deal has no slab overhead`, true,
         '0 columns classify as a floor seen from below, so the #421 rows above judge nothing here - not a pass');
+    }
+    /* #421's FIRST criterion, judged at the level. The issue states it as a floor on a number ("the underside
+       band sits at >= 25 luma in a lit room and never below 15 in the darkest level") and the per-pose
+       ABOVEBLACK rows apply exactly that rule, but they apply it ONLY where a pose left a band to average -
+       measured here, one pose per deal does. A sector whose underside never wide enough to measure printed
+       six n/a rows and stayed green whatever its pixels did, which is the gap the issue's own "still open"
+       note names: "the underside reading above black is demonstrated on the pose that measures it but is
+       not asserted per level, so a level whose underside falls under the floor would not go red".
+       The floors are the issue's, read through the SAME constants the pose rows use (Ulit / Udark, chosen
+       per pose by that pose's own deck against UlitDeck) - nothing here is a new threshold, and the row
+       cannot widen one. Vacuity is a FAILURE, not a debt (AGENTS.md): slab columns exist, so the surface
+       is in the world, and a sweep that never once put it over UBAND% of a frame has not measured the
+       criterion rather than passing it. */
+    if (uSlabCells > 0) {
+      const worst = uBand.length ? uBand.reduce((w, b) => (b.und < w.und ? b : w), uBand[0]) : null;
+      const miss = uBand.filter(b => b.und < b.floor);
+      row(`L${li} UNDERSIDE-LEVEL the underside clears its luma floor somewhere in the sweep`,
+        uBand.length > 0 && miss.length === 0,
+        uBand.length
+          ? `${uBand.length} of ${CAMS.length} pose(s) left an underside band; the dimmest is cam${worst.cam} at `
+            + `${worst.und.toFixed(1)} luma over ${(100 * worst.pct).toFixed(1) ? worst.pct.toFixed(1) : worst.pct}% of the frame `
+            + `against its own ${worst.floor}-luma floor (${worst.litRoom ? 'LIT' : 'dim'} room) - `
+            + `floors ${Ulit} lit / ${Udark} darkest, selected by that pose's deck at ${UlitDeck}`
+            + (miss.length ? `; ${miss.length} pose(s) under: ` + miss.map(b => `cam${b.cam} ${b.und.toFixed(1)} < ${b.floor}`).join(', ') : '')
+            + (uBand.length < CAMS.length ? `; ${CAMS.length - uBand.length} pose(s) left no band to average (the underside is a sliver or out of frame there) - the level verdict stands on the ones that did` : '')
+          : `no pose left an underside band over ${UBAND}% of a frame, yet ${uSlabCells} column(s) of this deal have a floor over their head - the surface is in the world and NOTHING about how bright it reads was measured`,
+        uBand.length && miss.length ? '#421' : undefined);
     }
     /* THE SECTOR SWEEP - #371's second outstanding read: the prop-vs-deck gap OUTSIDE the arrival
        seats. Every `cam` row above is taken in the level's own spawn cell, because that is the frame
