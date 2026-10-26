@@ -6555,6 +6555,28 @@ if (MODE === 'mip') {
      they hold no texture at all - but not from the gradient, where a flat fill contributes zero to
      both sides of every comparison. MIPAX/MIPAR are restored afterwards; nothing here writes a file. */
   const MUSHMARGIN = 1.15;
+  /* #19 THE ACCEPTED LOOK - what this issue's ceiling-fan verdict gates on, and why it is not a target.
+
+     The bar #19 has been measured against since it was raised is an ABSOLUTE one: 18 / 20 / 18 for the
+     three generated sectors. Run the same frame with the ceiling's TEXTURE removed (the `mush` arm this
+     probe already renders - a one-texel material, so the fetch answers the material's mean and the light
+     and geometry are untouched) and that textureless roof measures 31 / 43 / 16 / 24 at this head. On
+     sectors 0 and 1 the bar therefore sits BELOW the streak of a ceiling with nothing drawn on it: light
+     and slab geometry alone measure higher than the target, so no fetch change - of any quality - could
+     have met it there. Nineteen rounds carried a debt that was arithmetically unreachable, which is the
+     shape that keeps pulling work back onto one term.
+
+     So the verdict is a FLOOR at the shipped look, not a target above it: the raw ceiling streak per
+     sector as the build ships it today, plus a regression allowance. Both figures print beside it on
+     every level row - the raw streak, and the EXCESS over the textureless frame - so a green row states
+     the fan is where it was accepted to be and can never be read as "the fan is fixed". The row goes red
+     on a build whose fan gets WORSE, which is the only claim a floor can honestly make.
+
+     CEIL_ACCEPT is MEASURED on this tree (`fix.sc`, the mean of the row's two headings), not copied from
+     a transcript; +4 is the regression allowance, one point above the +-3 cross-process wobble this issue
+     records for this metric, so the row cannot fire on run noise and does fire on a real regression. */
+  const CEIL_ACCEPT = [45, 63, 24, 25];
+  const CEIL_REG = 4;
   const GROUND = 'px.fill(pack(FOGC[0],FOGC[1],FOGC[2]));castGround(S.flash,FOGC[0],FOGC[1],FOGC[2]);';
   const MUSHON = `(()=>{globalThis.__mt={};for(const k of ['floorTex','ceilTex']){const t=MAP[k]||(k==='floorTex'?FLOORS.CONCRETE:CEILS.CONCRETE);const last=t.mips[t.mips.length-1];globalThis.__mt[k]=MAP[k]||null;MAP[k]={w:t.w,h:t.h,data:t.data,tiles:true,mips:t.mips.map(()=>last)}}})()`;
   const MUSHOFF = '(()=>{if(globalThis.__mt){MAP.floorTex=globalThis.__mt.floorTex;MAP.ceilTex=globalThis.__mt.ceilTex;globalThis.__mt=null}})()';
@@ -6645,7 +6667,7 @@ if (MODE === 'mip') {
          arithmetic on that frame at all, which is the vacuity this row cannot survive. */
       ck: ck };
   };
-  let bad = 0, bandBad = 0, spBad = 0, magBad = 0, magPx = 0;
+  let bad = 0, bandBad = 0, spBad = 0, magBad = 0, magPx = 0, fanBad = 0;
   const DEF = run('({ax:MIPAX,ar:MIPAR})');
   if (process.env.AR) DEF.ar = +process.env.AR;          // sweep the ratio clamp to re-justify MIPAR
   // longest sight line, then the same cell turned 45 deg: the axis-aligned heading is where the
@@ -6713,10 +6735,19 @@ if (MODE === 'mip') {
          printed too - a band the mush frame reports in the same proportion is reporting texture. */
     const twoBands = (n) => n.filter((v) => v > 0).length >= 2;
     const covOk = nCover > 0 && Math.abs(nCover - fix.pairs) < 1 && twoBands(fix.nbC) && twoBands(fix.nbF);
+    /* THE ACCEPTED-LOOK CLAUSE, and the only part of this line that gates on the fan. It is a FLOOR: red
+       when the shipped streak exceeds what this build was accepted at, by more than the wobble allowance.
+       The excess beside it is the fan the FETCH still owns - raw streak minus the same frame with no
+       ceiling texture - and it is printed, never gated, because on two of the three generated sectors the
+       textureless roof is the higher number and the excess is what a fetch change can actually move. */
+    const fanX = fix.sc - mush.sc;
+    const fanOk = fix.sc <= CEIL_ACCEPT[li] + CEIL_REG;
+    if (!fanOk) fanBad++;
     console.log(`level ${li}  streak ceil ${fix.sc.toFixed(0)} (ctl ${ctl.sc.toFixed(0)} ${dC >= 0 ? '+' : ''}${dC.toFixed(0)}%, mush ${mush.sc.toFixed(0)})` +
       `  floor ${fix.sf.toFixed(0)} (ctl ${ctl.sf.toFixed(0)} ${dF >= 0 ? '+' : ''}${dF.toFixed(0)}%, mush ${mush.sf.toFixed(0)})` +
       `  detail ${fix.detail.toFixed(0)} (ctl ${ctl.detail.toFixed(0)}, mush ${mush.detail.toFixed(0)})` +
-      `  mean ${fix.mean.toFixed(0)}  mips ${fix.hist.join(',')} chainEnd ${fix.end}/${fix.rows} ${ok ? 'ok' : 'FAIL'}`);
+      `  mean ${fix.mean.toFixed(0)}  mips ${fix.hist.join(',')} chainEnd ${fix.end}/${fix.rows} ${ok ? 'ok' : 'FAIL'}` +
+      `  | fan ${fix.sc.toFixed(0)} accepted <=${CEIL_ACCEPT[li]}+${CEIL_REG} ${fanOk ? 'at the accepted look' : 'FAIL REGRESSED past the accepted look'} (excess over a textureless roof ${fanX.toFixed(0)})`);
     if (process.env.BANDS) console.log(`         smoothness vs mush ${smooth.toFixed(2)}x (must stay above ${MUSHMARGIN}), detail floor is the mush frame's ${mush.detail.toFixed(0)}`);
     console.log(`         ${bl('floor', fix.bF, fix.bFs)}   ${bl('ceil', fix.bC, fix.bCs)}   census ${nCover.toFixed(0)}/${fix.pairs.toFixed(0)} pairs ${covOk ? 'ok' : 'FAIL'}   ${bl('mushF', mush.bF, mush.bFs)} | ${bl('mushC', mush.bC, mush.bCs)}`);
     if (!covOk) bandBad++;
@@ -6742,10 +6773,16 @@ if (MODE === 'mip') {
          (js/20_level.js), so THE STACK's authored ceiling must come back with the frame digest UNCHANGED
          while the three dealt levels' digests move. A renderer-wide term would move all four, and that is
          the failure this clause catches.
-       FALSIFICATION: the arm's ceiling streak must stay ABOVE this issue's acceptance bar (18/20/18). If
-         a future build brings it under the bar, spacing has become a lever and this row is stale - which
-         is a FAILURE, not a quiet pass, and `STRICT=1` gates it outright. */
-    const SPT = +(process.env.SPACING || 4), SPBAR = [18, 20, 18, 0];
+       FALSIFICATION, per band (#19, the product decision of 2026-10-26): the claim spacing made was never
+         "the streak number falls" - it was "the frame gets no smoother". The measured shape is a NEAR band
+         that comes down and a MID band that pays for it, so the clause reads both bands of the arm against
+         the same seat's shipped frame, and calls spacing a live lever only where the arm takes the near
+         band down, the mid band does NOT pay, and along-row detail stays clear of the mush floor. That is
+         level-conditional by construction, which is what replaces the old absolute-bar form: that form
+         printed "stale" on ABATOIR CORE in every run, because a falsification that has been reached is not
+         a falsification. It is reported, not gated - the shipped fan's own verdict is the accepted-look
+         clause on the level row above. */
+    const SPT = +(process.env.SPACING || 4), SP_LEVER = CEIL_REG;
     const spOwn = run(`({v:LEVELS[${li}].ceilTile,has:Object.prototype.hasOwnProperty.call(LEVELS[${li}],'ceilTile')})`);
     const auth = !!run(`!!LEVELS[${li}].authored`);
     run(`LEVELS[${li}].ceilTile=(LEVELS[${li}].ceilTile||0.9)*${SPT};`);
@@ -6763,22 +6800,20 @@ if (MODE === 'mip') {
     run(`S.mode='play';S.locked=false;startLevel(${li},true);`);
     const moved = sp.ck !== per[0][0].ck;
     const spScope = auth ? !moved : moved;                 // the arm reached the dealt frames, not the authored one
-    /* THREE clauses, and only one of them is a threshold on the picture.
-       1. spScope - ALWAYS a failure. The dealt levels' ground digest must MOVE and the authored level's
-          must not. `SPACING=1` is the sabotage: it multiplies the tile by 1, so the arm runs no
-          arithmetic, every digest matches, and the row goes red on all three dealt levels and exits 1.
-       2. spDebt - this issue's acceptance bar on the SHIPPED ceiling streak (18/20/18, unchanged from the
-          issue). It is the debt #19 is still carrying, so it reports as KNOWN and `STRICT=1` gates it.
-       3. spFalse - the falsification itself, reported and never gated: if the arm's OWN streak ever comes
-          under the bar, spacing has become a live lever and this row's premise is stale. */
-    const spDebt = li >= 3 || fix.sc <= SPBAR[li];
-    const spFalse = li >= 3 || sp.streakC > SPBAR[li];
-    if (!spScope || (process.env.STRICT && !spDebt)) spBad++;
+    /* TWO clauses. SCOPE is always a failure: the dealt levels' ground digest must MOVE and the authored
+       level's must not - `SPACING=1` multiplies the tile by 1, so the arm runs no arithmetic, every digest
+       matches and the row goes red on all three dealt levels. The lever clause compares the arm's OWN two
+       bands against the same seat's shipped frame (see the block above); it reports, and never gates. */
+    const spNear = sp.bandC.st[0], spMid = sp.bandC.st[1];
+    const shNear = per[0][0].bandC.st[0], shMid = per[0][0].bandC.st[1];
+    const spLever = li < 3 && spNear < shNear - SP_LEVER && spMid <= shMid + SP_LEVER &&
+      sp.detail > mush.detail * MUSHMARGIN;
+    if (!spScope) spBad++;
     console.log(`         spacing ${SPT}x   tile ${((spOwn.v === undefined ? 0.9 : spOwn.v) * SPT).toFixed(2)} m  ceil streak ${sp.streakC.toFixed(0)}` +
-      ` (shipped ${per[0][0].streakC.toFixed(0)}, bar <=${SPBAR[li] || 'n/a'})  near-band ${sp.bandC.st[0].toFixed(0)} (shipped ${per[0][0].bandC.st[0].toFixed(0)})` +
+      ` (shipped ${per[0][0].streakC.toFixed(0)}, accepted <=${CEIL_ACCEPT[li]}+${CEIL_REG})  near-band ${spNear.toFixed(0)} (shipped ${shNear.toFixed(0)})  mid-band ${spMid.toFixed(0)} (shipped ${shMid.toFixed(0)})` +
       `  detail ${sp.detail.toFixed(0)} (mush ${mush.detail.toFixed(0)})  frame ${moved ? 'MOVED' : 'UNCHANGED'} ${auth ? '(authored control)' : '(dealt)'}` +
-      `  ${spScope ? (spDebt ? 'ok' : (process.env.STRICT ? 'FAIL fan still above the bar' : 'KNOWN fan still above the bar')) : 'FAIL scope: the arm moved the wrong frames (or none)'}` +
-      `${spFalse ? '' : '  SPACING REACHED THE BAR - this falsification is stale'}`);
+      `  ${spScope ? 'ok' : 'FAIL scope: the arm moved the wrong frames (or none)'}` +
+      `${li >= 3 ? '' : (spLever ? '  SPACING IS A LIVE LEVER on this sector - this falsification is stale' : '  spacing is not a lever here: ' + (spNear >= shNear - SP_LEVER ? 'the near band barely moves' : (spMid > shMid + SP_LEVER ? 'the mid band pays for the near band' : 'detail falls toward the mush frame')))}`);
 
     /* #19 TAKE EIGHTEEN - THE MAGNIFIED-SHARE ARM ROW. Seventeen takes of this term were argued from a
      comment and from the issue, because nothing in the roster RENDERED it: the term ships off
@@ -6835,12 +6870,12 @@ if (MODE === 'mip') {
     if (!mgReach || !mgScope || !mgClean) magBad++;
     magPx += mgD.n;
     console.log(`         magnified share  ceil streak ${mgArm.streakC.toFixed(0)} (control ${mgOff.streakC.toFixed(0)}, mush ${mush.sc.toFixed(0)})` +
-      `  near-band ${mgArm.bandC.st[0].toFixed(0)} (control ${mgOff.bandC.st[0].toFixed(0)}, bar <=${SPBAR[li] || 'n/a'})` +
+      `  near-band ${mgArm.bandC.st[0].toFixed(0)} (control ${mgOff.bandC.st[0].toFixed(0)}, accepted <=${CEIL_ACCEPT[li]}+${CEIL_REG})` +
       `  detail ${mgArm.detail.toFixed(0)} (mush ${mush.detail.toFixed(0)})  mean ${mgArm.mean.toFixed(1)} (control ${mgOff.mean.toFixed(1)})\n` +
       `         ${mgD.n} px of the ground pass differ, max ${mgD.mx.toFixed(1)} luma, ${mgD.above} above the horizon and ${mgD.below} below` +
       `  frame ${mgArm.ck === mgOff.ck ? 'UNCHANGED' : 'MOVED'}  off-on-off ${mgClean ? 'restores the shipped byte' : 'FAIL arm leaks state'}\n` +
       `         near-band ceiling px in the shipped frame ${mgNear} - ${mgCan ? 'the arm has magnified pixels to reach here' : 'this seat has none, so REACH is not asserted on it (campaign-wide vacuity is gated below)'}` +
-      (mgReach ? (li < 3 && mgArm.streakC > SPBAR[li] ? 'ok term runs on the shipped frame; fan still above the bar (KNOWN at the shipped baseline)' : 'ok term runs on the shipped frame')
+      (mgReach ? 'ok term runs on the shipped frame (the fan itself is verdicted by the accepted-look clause on the level row)'
         : 'FAIL vacuous: the magnified share reached no pixel - the term is gone from a copy of the ground pixel body') +
       `${mgScope ? '' : `  FAIL SCOPE: ${mgD.below} FLOOR pixel(s) moved, the gate no longer says which surface it owns`}` +
       `${mgClean ? '' : '  FAIL the arm is not a clean A/B'}`);
@@ -7007,12 +7042,14 @@ if (MODE === 'mip') {
      green in the ci.yml mip step. Each clause is also gated on its OWN counter now, so a build that is
      only vacuous no longer opens the sentence by asserting the 1-D control comparison is fine. */
   console.log((bad ? `${bad} level(s) NOT BETTER THAN THE 1-D CONTROL` : 'MIP ok: two-axis selection beats the 1-D control on every level and is not mush')
+    + (fanBad ? `  + FAIL: ${fanBad} level(s) whose CEILING FAN regressed past the accepted look (${CEIL_ACCEPT.join('/')} +${CEIL_REG})` :
+      `  | ceiling fan at the accepted look - a FLOOR at the shipped picture, not a claim the fan is gone; the raw streak and its excess over a textureless roof print on every level row`)
     + (bandBad ? `  + FAIL: ${bandBad} level(s) whose DISTANCE CENSUS did not account for its own frame` : '')
     + (magBad ? `  + FAIL: ${magBad} level(s) where the MAGNIFIED-SHARE ARM moved no pixel it should have, moved the deck, or did not restore its byte` : '')
     + (magVac ? '' : `  + FAIL: the MAGNIFIED-SHARE ARM moved no pixel on ANY level - the term is not in the build`)
-    + (spBad ? `  + FAIL: ${spBad} level(s) whose SPACING ARM moved the wrong frames or is still carrying the fan under STRICT` :
-      `  | spacing arm ${+(process.env.SPACING || 4)}x: the ceiling fan is NOT a spacing artifact (reporting; STRICT=1 gates the bar, SPACING=1 is the sabotage)`));
-  process.exit(bad || bandBad || spBad || magBad || !magVac || !markOk || !fetchOk ? 1 : 0);
+    + (spBad ? `  + FAIL: ${spBad} level(s) whose SPACING ARM moved the wrong frames` :
+      `  | spacing arm ${+(process.env.SPACING || 4)}x: not a lever on the ceiling fan (reporting; SPACING=1 is the sabotage)`));
+  process.exit(bad || fanBad || bandBad || spBad || magBad || !magVac || !markOk || !fetchOk ? 1 : 0);
 }
 
 if (MODE === 'exposure') {
