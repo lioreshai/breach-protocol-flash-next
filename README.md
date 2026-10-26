@@ -51,12 +51,12 @@ a byte claim written here is false by the next merge (#395). What *changed* betw
 in the PR that moved it, not here.
 
 `node tools/recap.js check` decodes the eight PNGs and fails if any number below disagrees with the
-bytes, so a caption cannot drift from its frame. The eight frames decode to **59.82 / 68.76 / 59.77 / 46.99 / 55.62 / 64.95 / 75.74 / 71.88** mean luma
+bytes, so a caption cannot drift from its frame. The eight frames decode to **59.83 / 68.76 / 59.78 / 47.66 / 70.95 / 64.95 / 74.26 / 71.88** mean luma
 (`0.2126 R + 0.7152 G + 0.0722 B`, the rule `DEV.lum` uses), in the order they appear below. A dark
 row below means a row whose own mean luma is under 24 — the threshold the tool measures at, whatever
 number a sentence labels.
 
-All eight were re-taken in one pass off the deployed page at build `28a6fa4`; the pass proved its build off the
+All eight were re-taken in one pass off the deployed page at build `5d08c12`; the pass proved its build off the
 wire by sha256-comparing all the four blobs that draw a frame against the tree that carries these frames before the shutter, so
 every frame below is the picture the page draws, at the build its row names. Whether that is still today's picture is no longer a sentence
 that ages: `node tools/recap.js check` hashes the four blobs that draw a frame — `index.html`, `js/10_assets.js`,
@@ -66,16 +66,16 @@ those bytes or `FRAME-STALE` naming the blob that moved. A pass aged badly once,
 render commits landed in review, and the tool exists so it cannot age quietly again; the bind is an upper bound on
 "the picture changed", since a comment inside a renderer moves a digest and moves no pixel, so the row names the
 blob and leaves the re-take call to a human. On the tree that carries these frames that row reads `SHIP-BIND` for
-`28a6fa4`: the four blobs that draw a frame are byte-identical here and in the build these eight rows bind, so on this tree the front page is today's picture; the next renderer or level commit turns that row to
+`5d08c12`: the four blobs that draw a frame are byte-identical here and in the build these eight rows bind, so on this tree the front page is today's picture; the next renderer or level commit turns that row to
 `FRAME-STALE` and a re-take is owed again, which is the row's purpose rather than a defect in it. Two of this pass's three deals re-rolled and one did not, and the reason is the same class of change that made
 the re-take necessary: the room-height passes author height in the generator's own dice, so one seed deals a
 different sector at a later build. This pass re-ran the same url at one page load and one boot per level
-and read every pose back out of the page that drew it: ARCHIVE SUBLEVEL dealt the layout its five rows already
-named, 2240895773, so those five frames are the same room at the same coordinates with a year of renderer under
-them; ABATOIR CORE re-rolled to 1553972932 with its arrival seat read back at (24.5, 7.5) where its two rows named
-3133926234 at (17.5, 28.5), and THE STACK's hand-written plan carries signature 1154765829 where its row named
-3888467537 — #421 authors height in the authored cells too, so the signature over the finale moved while its seat
-did not. The seats are read back, not
+and read every pose back out of the page that drew it. ARCHIVE SUBLEVEL re-rolled to 1898908958 where its five
+rows named 2240895773 — the pier run (#631, landed as #644) places a column inside every dealt room, so the
+generator's dice moved again — and all five of those poses are the recorded `DEV.cam` coordinates, so what is held
+constant is the *camera*, not the sector. ABATOIR CORE re-rolled once more to 1425048100, its arrival seat still
+reading back at (24.5, 7.5), where the frames these replace named 3133926234 at (17.5, 28.5). THE STACK's
+hand-written plan keeps signature 1154765829 — the one deal here that did not move. The seats are read back, not
 carried. What is *not* restated here is the interior the old captions quoted — a cell's `MAP.light`, where a lamp or
 a barrel was standing, which 3×3 block held the pit — because those describe rooms this seed no longer deals, and a
 generated level's deal is pinned only per build (#420).
@@ -85,10 +85,10 @@ What moved the picture since the frames these replace: a lamp's deck stops falli
 that gets drawn (#518), a magnified ceiling pixel pays for the area its texel cannot cover (#19), and the fists stop
 wearing the crate's paint (#562) — and, above all, the second room-height pass (#548), which is the author of every
 number in the last two paragraphs because it both re-lit the air and re-dealt the sectors. Per frame against the bytes
-they replace: ARCHIVE SUBLEVEL's spawn seat +1.15 and its posed grunt +1.16, its stairwell +1.33, its pit floor
-+1.10 and its pit lip +0.96. Those five are not five relightings; they are one re-deal seen from five unchanged
+they replace: ARCHIVE SUBLEVEL's spawn seat +1.16 and its posed grunt +1.17, its stairwell +1.33, its pit floor
++16.43 and its pit lip +1.63. Those five are not five relightings; they are one re-deal seen from five unchanged
 coordinates, and the sign flips with the room the camera happens to land in. THE STACK is +7.65 — a hand-written plan and an unchanged seat, but not the same view: the authored upper
-storey (#421) put a deck and a fixture over the hall this seat looks into, and that is this frame's difference. ABATOIR CORE is +4.40 with its up-tilted twin −4.71, and the first of those is not a
+storey (#421) put a deck and a fixture over the hall this seat looks into, and that is this frame's difference. ABATOIR CORE is +2.92 with its up-tilted twin −4.71, and the first of those is not a
 relight: **its deal re-rolled** as the other two did, so the frame is a different room and its coordinates name this
 build's room (#420). Every row of `provenance.json` carries its own replaced-frame mean so the direction is readable
 per frame rather than only in aggregate.
@@ -107,16 +107,15 @@ rather than geometry, the count below is the pass before this one's story told o
 rows and THE STACK's 114 under the 34 bar became none at all when the roof was given a light floor (#495), and the
 stairwell's 173 became 15 with its 79-row run gone (#431). This pass moved them again, and it moved them by re-dealing
 rather than by re-lighting: **none of the eight frames has a row under the 24 bar at all** — the seven that used to
-count dark rows there now count none. At the tool's other bar six of them do: the pit lip **144 rows** under 34 in a
-141-row run from row 255, the spawn seat 20 in a 20-row run from row 301, the posed grunt 19 in a 19-row run from the
-same row 301, ABATOIR CORE's arrival seat 48 in a 48-row run from row 291, the up-tilted ABATOIR shot 15 in an
-8-row run from row 740 and the pit floor 8 in an 8-row run from row 98. The stairwell and THE STACK count nothing
-at either bar.
+count dark rows there now count none. At the tool's other bar five of them do: the pit lip **144 rows** under 34 in a
+141-row run from row 255, ABATOIR CORE's arrival seat 53 in a 53-row run from row 291, the spawn seat 20 in a 20-row
+run from row 301, the posed grunt 19 in a 19-row run from the same row 301 and the up-tilted ABATOIR shot 15 in an
+8-row run from row 740. The stairwell, THE STACK and the pit floor count nothing at either bar.
 
 ![the spawn seat on a lit datum floor, a crate ahead with one face in shade](docs/screens/level0-spawn.png)
 
 The spawn seat (18.5, 5.5) on a lit datum floor — the seat this build's own deal puts you in, read off the
-page rather than typed — **0 of 763 rows average below luminance 24**, no dark band left to count, mean 59.82,
+page rather than typed — **0 of 763 rows average below luminance 24**, no dark band left to count, mean 59.83,
 thirds 52.1 / 55.0 / 72.4. This is the exposure the tonal gates are tuned against, and it is 7.12 lighter than the
 frame it replaces for a reason that is not a relighting: the coordinate is this frame's own and the sector dealt at
 this seed is not (#548 re-cut the generator's dice), so the camera stands in a different room, and a darker one. What
@@ -158,43 +157,42 @@ camera and the light falls off
 across him: the side turned toward the lamp reads brighter than the side turned away, because the face term now
 covers a body's whole light, ambient included (#371). He is posed with `e.anim` pinned to **0**: rest pose, not
 a stride (`view.js anim` gates motion). **0 of 763 rows average below luminance 24** here — 19 of them under 34, in a
-19-row run from row 301 — mean 59.77, thirds
+19-row run from row 301 — mean 59.78, thirds
 52.1 / 54.9 / 72.4, 1.16 lighter than the frame he replaces because he is standing in a re-dealt room rather than in
 the one the replaced row described (#420); his base sits in a contact band that is flatter and deeper than the one he
 replaced (#18). Bodies are meshes from `js/13_mesh.js`; whether one
 reads against the paint behind it at combat range is what `node tools/view.js contrast` prices (#416), and the
 wall behind him in this frame is the repainted one.
 
-![the pit lip from 2.5 m out, lit by a lamp standing in the pit](docs/screens/level0-props.png)
+![the pit lip from 2.5 m out, with the far half of the room fallen away under the tool's softer bar](docs/screens/level0-props.png)
 
-The pit lip from 2.5 m out — camera **(20.5, 11.5)**, yaw **π/2**, feet on `floorAt` **1.00**. **0 of 763 rows average below luminance 24**, and no dark band left at that
-bar (mean 46.99, band means 51.1 / 36.6 / 53.3; at the tool's other bar of 34 it is the page's largest dark block,
+The recorded lip pose, 2.5 m out — camera **(20.5, 11.5)**, yaw **π/2**, feet on `floorAt` **1.00** — and ARCHIVE
+SUBLEVEL re-rolled under it, so this is the edge this seed deals rather than the pit the replaced caption stood over. **0 of 763 rows average below luminance 24**, and no dark band left at that
+bar (mean 47.66, band means 51.1 / 37.3 / 54.6; at the tool's other bar of 34 it is the page's largest dark block,
 144 rows with a 141-row run from row 255 — the far half of the room, which the replaced frame's room lifted clear of
-the bar). The frame is 0.96 lighter than the one it replaces and keeps the dark band it already had: it is the page's
-largest, and it is what the replaced frame's room did not have — the far half of this room falls away under the 34 bar
-while the lamp's own pool stays lit. The other claim the old caption carried is now settled: this frame's HUD reads **8 LEFT**, because this pass
-shot the lip off its own fresh page load instead of one that had been cleared, so the eight hostiles this deal
-seats are on the load that drew the frame.
-the lip this seed deals stands in a different room than the lip the replaced frame was shot from, so a band of the
-far side now falls under the bar where the last pass's room had lifted every row above it (#199 lifted that deck; the
-deal, not the light, moved this one). The crate on the far side of the
-lip is the frame's point: its two visible faces are no longer the same value, and its paint no longer
-out-shines the room behind it (#476, #491). The pool of light is the pit lamp's own band, and the lip is lit by
-the lane.
+the bar). The frame is 1.63 lighter than the one it replaces and keeps the dark band it shares with it: it is the page's
+largest, and a lamp's pool with a lighter patch of floor hold the middle of the frame while everything past them
+falls under the bar. The lip's own edge is the lit line crossing the bottom. This frame's HUD reads **8 LEFT**,
+because this pass shot the pose off its own fresh page load instead of one that had been cleared, so the eight
+hostiles this deal seats are in the frame rather than held back from it. The crate at the right of the frame is the
+point the last two passes were making: its two visible faces are no longer the same value, and its paint no longer
+out-shines the room behind it (#476, #491). The band of dark past them is the deal's doing, not the light's — #199
+lifted that deck clear of the bar and this seed put it back down by moving the room (#420).
 
-![standing in the hole, two cells from the lamp that lights it, on the band the glow refuses](docs/screens/level0-pitfloor.png)
+![standing on the deck where this deal's hole is not, a pier close on the left and a crate filling the right](docs/screens/level0-pitfloor.png)
 
-Standing in the hole at (19.5, 14.5), heading **atan2(2, 1) = 1.11 rad** so the lamp sits on the
-crosshair: feet on `floorAt` **0.00**, read back off the load that drew the frame, and a frame mean of **55.62**
-against that seat's dim ambient - a lamp working from inside the band it refuses from above. **0 of 763 rows
-average below luminance 24**, with 8 under 34 in an 8-row run from row 98 — the count the pass before this one removed
-from a frame of the same kind of room, come back at the softer bar. This frame came **up** 1.10: the pit this seed
-deals is not the one the replaced row stood in, so the camera
-stands on a different band with a lamp in a different cell. Its top
-band reads 47.5 against the middle third's 55.7. The replaced
+The replaced frame's pose - (19.5, 14.5), heading **atan2(2, 1) = 1.11 rad**, feet on `floorAt` **0.00**, every
+one of them read back off the load that drew this frame - and this seed's ARCHIVE SUBLEVEL re-rolled, so the camera
+stands on the deck of a room with a pier close on its left and a crate's flank filling the right, not in a hole with
+a lamp on the crosshair. Frame mean **70.95**; **0 of 763 rows average below luminance 24**, and no rows under 34 at
+all, where the last pass's room carried 8 in an 8-row run from row 98. This frame came **up** 16.43, the largest move
+of the eight, and the cause is the re-roll rather than a relight: the same coordinates over a different sector. What
+crosses the middle of the frame is the underside of a floor above this one - the dark band with lit deck under it -
+which is what the room-height passes (#548, #421) put into the generator's own rooms. Its top band reads 63.0
+against the middle third's 73.8. The replaced
 row explained this frame as having gone *down* 0.57 when the roof was lit; that was #495 measured against an
 older arm, and these bytes do not show it. The floor under the crosshair comes off the same near-field fetch as the
-spawn seat's deck, which is why the pool falls off across the hole instead of stepping texel to texel (#467).
+spawn seat's deck, which is why it falls off across the room instead of stepping texel to texel (#467).
 
 ![the authored two-storey level from its own spawn seat](docs/screens/level3-stack.png)
 
@@ -229,16 +227,16 @@ because #548 authors height in the authored cells too and this pass did not re-s
 ![ABATOIR CORE from its arrival seat: the slab over the room fills the top of the frame](docs/screens/level2-abatoir.png)
 
 **ABATOIR CORE**, the room with the most ceiling in the game, from its own arrival seat (24.5, 7.5)
-on the datum, heading 0.60, 18 hostiles left: **0 of 763 rows average below luminance 24** (mean 75.74, thirds
-63.7 / 71.8 / 91.8). The top third reads **63.7** and the bottom **91.8**: the slab over the room is still the
+on the datum, heading 0.60, 18 hostiles left: **0 of 763 rows average below luminance 24** (mean 74.26, thirds
+63.7 / 67.5 / 91.6). The top third reads **63.7** and the bottom **91.6**: the slab over the room is still the
 largest surface in frame and the darkest thing on it, and the crates on the deck sit nearer their room's own
 value than any frame here showed before (#479, #491). This frame and the next are one page load at two
 headings, because the two rows of one level have to name one deal — and read the seat before the numbers: this
 level's deal moved with the room-height work that landed since the last pass (#548), so the room dealt at this
-seed is a different room again, layout 1553972932 with this deal's seat read back at (24.5, 7.5) where the replaced row named 3133926234 at
-(17.5, 28.5) — and 469427782, 1029396294, 2728567296 and 1812275020 before that. The coordinates the old
+seed is a different room again, layout 1425048100 with this deal's seat read back at (24.5, 7.5) where the replaced
+row named 3133926234 at (17.5, 28.5) — and 1553972932, 469427782, 1029396294, 2728567296 and 1812275020 before it. The coordinates the old
 caption gave describe a floor plan that is no longer dealt, not a room that shifted, and that re-roll is #420's
-standing problem rather than a defect in this frame; it is also the whole of this frame's +4.40. `tools/view.js surface`
+standing problem rather than a defect in this frame; it is also most of this frame's +2.92. `tools/view.js surface`
 prices the ceiling share and the slab-to-deck ratio; the frame itself only shows the split.
 
 ![the same seat tilted up at the ceiling and what hangs from it](docs/screens/level2-abatoir-ceiling.png)
