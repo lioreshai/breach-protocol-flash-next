@@ -4209,8 +4209,12 @@ const VMSIT = {
    because a shouldered gun is ON the ray: the bore term in VMROT's third column is untouched by the
    ADS branch, and at ads=1 both offsets are exactly zero.
    The hands do not get their own numbers: `MESH.weapon` authors them onto the grip, so moving the
-   seat and canting the gun is what moves the hands onto the part they hold (the `hip contact` row in
-   tools/view.js is what checks that claim rather than this paragraph). */
+   seat and canting the gun is what moves the hands onto the part they hold. THAT CLAIM IS NOT YET
+   PRICED. `tools/view.js` has no hip-contact row: nothing measures hand surface against weapon
+   surface at the hip, so these seats put the hands WHERE THEY WERE AUTHORED FOR, at a new offset, and
+   the `viewmodel` probe only asserts the hands are inside the frame and cover their recorded share of
+   it. A seat whose grip moved out from under the hands would still be green here. #632 keeps that
+   clause open; until a row exists this paragraph is a statement of intent, not a check. */
 const VMHIP = {
   pistol:  { f: 0.247, r: 0.098, d: 0.100, cant: 0.030, yaw: 0.000 },
   shotgun: { f: 0.250, r: 0.118, d: 0.106, cant: -0.028, yaw: 0.000 },
