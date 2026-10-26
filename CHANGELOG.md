@@ -1,5 +1,53 @@
 # Changelog
 
+## [v1.4.15] - 2026-10-26
+
+### Added
+
+- **THE STACK has a floor above you, and it reads as a floor** (#421, PR #656). The west hall now carries a
+  four-cell mezzanine a metre over the deck, reached by a three-tread stair that shows on the minimap, and
+  you can stand on it. Two lamps make it legible: one standing on the deck above, so the raised floor is lit
+  by something that is actually on it, and one in the hall below, so the aisle under the slab is lit too.
+  Before this, a raised floor left both the deck and the space beneath it unlit, so a floor overhead was a
+  flat black sheet you could not tell apart from the level's own ceiling. The stair and the slab are on the
+  sector's minimap bands, so the map still tells you which storey you are on.
+
+### Changed
+
+- **A crate 8-16 m away stands on the deck instead of floating over it** (#18, PRs #650, #654). The contact
+  shadow that grounds a hostile's feet grew with distance on purpose, because a patch drawn in metres
+  collapses to a pixel or two by the time he is 12 m out — but the growth only applied to bodies, so at the
+  ranges a fight actually starts a crate's bottom edge was as bright as its top edge and it looked like a
+  decal pasted on the floor. Props now get the same rule. It removes light rather than adding any, so it
+  still works in the dark rooms where a brightened rim used to floor to nothing. The near field inside 4 m
+  is unchanged, byte for byte. The check behind it now judges the ink by *where it lands* — every far dark
+  pixel has to fall inside the footprint of a shadow that could have cast it, and the pool's width is
+  measured against the crate rather than against its own disc — so a cue that has smeared into a smudge
+  fails instead of passing with the same pixel count.
+- **The front page describes the frames it shows** (#597, PR #651). All eight screenshots were re-taken from
+  the deployed build and each caption now carries that build's own numbers instead of figures from an older
+  one. The pit-lip frame was the worst offender: the darkest frame on the page, with 149 of 763 rows under
+  luminance 34 and a 142-row dark run from row 255, captioned as two dark rows and a 2-row run.
+
+### Fixed
+
+- No crash- or stall-class fixes landed in this window.
+
+### Known limitations
+
+- The mezzanine deck is deliberately four cells, not a wing. The minimap takes the sector's modal floor band
+  as its datum, and a deck of six or more cells would flip that band, at which point the map's colour stops
+  telling you which storey you are on — so the deck that fixes one cue would break another. Dealt (randomly
+  generated) sectors still never raise a floor over another, so this reads in THE STACK's authored layout
+  only; #421 stays open for the rest.
+- The crate's contact pool is honestly loose at long range: the sanctioned growth alone puts a 0.27 m crate's
+  patch at 0.88 m by 13 m, so the width bar catches gross widening rather than a few centimetres, and the
+  final read on crates at 8, 12 and 16 m in lit and unlit rooms still needs an eye on a running frame.
+- One front-page frame — the pit lip — came off a cleared load, and its HUD reads 0 LEFT where the same
+  sector's arrival seat reads 8. Its caption now says so instead of hiding it. A clean re-take needs an
+  instrument that re-deals the same layout, and has to take all five level-0 frames in one go, so it is not
+  done here; #597 stays open.
+
 ## [v1.4.14] - 2026-10-25
 
 ### Added

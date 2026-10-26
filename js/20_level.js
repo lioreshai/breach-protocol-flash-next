@@ -2337,6 +2337,21 @@ function ceilFixEnabled() { return true; }
    storey up plus the datum: two bands joined by a four-tread stair, no pit, because a pit needs a
    flagged climb to be reachable by bfsReach and this increment is about volume you can SEE. */
 const CZ_AUTH_TALL = 16;                              // four units, the constant #300 gives the spawn room
+/* #421: the authored plan's SECOND room height - the clearance a storey carries over its own raised floor.
+   Twelve quanta = three units, so a deck at +1.00 m tops out at 4.00 m, the plane the datum hall's four
+   units reach from 0.00 m. Same roof line, two room heights: the level's ceiling stops being one plane
+   with no seam, and `buildCeilPlanes` still derives every plane from these two numbers alone. */
+const CZ_AUTH_STOREY = 12;
+/* #421 WHY THIS DECK IS FOUR CELLS AND NOT A WING. `linkBoundaries` takes the minimap's band datum to be
+   the MODAL open-cell band (js/20_level.js `cntF` -> MAP.fzBase), and THE STACK's east wing already stands
+   108 cells at +1.00 m against 122 on the datum. A mezzanine lifted out of the west hall therefore moves
+   TWO cells of that census per cell authored - one off the datum, one onto +1.00 - so a deck of D cells
+   with a three-tread stair leaves the datum modal only while 2D + 3 < 14. At five cells the margin is one
+   cell; at six the modal band flips to +1.00 m and every MMBAND index (js/40_render.js, 4 + fz - fzBase,
+   clamped to +-4) shifts a band: the west hall floor paints in the pit's ink and the four pit bands
+   collapse onto it, which is `bands`' minimap row going red for a real reason - the cue stops telling you
+   which band you are on. Four cells is the largest deck that keeps the cue honest, and the underside it
+   puts over the arrival aisle is what the SEAT / UNDERSIDE rows measure. */
 const AUTHORED = {
   size: 20,
   rects: [{ x: 1, y: 1, w: 8, h: 18, cx: 5, cy: 9 }, { x: 13, y: 1, w: 6, h: 18, cx: 16, cy: 9 }],
@@ -2344,11 +2359,11 @@ const AUTHORED = {
     "####" + "####" + "####" + "####" + "####",   //  0
     "#..." + "...." + ".###" + "#..." + "...#",   //  1
     "#P.." + "...." + ".###" + "#..." + "L..#",   //  2   // #199: a fixture on the upper storey's north end - the one band of THE STACK no disc reached
-    "#..." + "...." + ".###" + "#.B." + "...#",   //  3
+    "#..." + "...." + ".###" + "#.B." + "...#",   //  3   // #421 the hall lamp that was here at (7,3) moved to (5,7); see the row-7 note. The room under a slab needs a source of its own or its underside reads as black - but this cell put the source in the one line of sight the `mip` wall-fetch row samples AND in the row the arrival lens looks down
     "#..." + "...." + ".###" + "#..." + "...#",   //  4
-    "#..." + "...." + ".###" + "#..." + "...#",   //  5
+    "#..." + "L..." + ".###" + "#..." + "...#",   //  5   // #421 the fixture ON the storey: a band no lamp stands on is dark ground to the coverage census
     "#.A." + "...." + ".###" + "#..." + "...#",   //  6
-    "#..." + "...." + ".###" + "#..." + "g..#",   //  7
+    "#..." + ".L.." + ".###" + "#..." + "g..#",   //  7   // #421 the west hall's own fixture, SOUTH of the deck. Two things had to be true at once and only this side of the slab satisfies both: it must light the aisle the slab's underside stands over (so the slab stops being a dark sheet - the whole point of the increment), and it must not stand in a line of sight some other row is already measuring. At (7,3) it was 1.5 m in front of the east wall the `mip` wall-fetch row samples, and its disc raised that face's scene light from 0.06 to 0.59 - all-opaque mean 101 -> 143, emissive-vs-opaque gap 50 -> 8 against a floor of 20 - and it sat in the arrival row, which is how the same move took THE STACK's first frame to 77.9, outside the 35-75 band. Here it is 5.7 m off that face and 6.4 m from the seat, on the same datum band, still under the slab it is there to light.
     "#..." + "...." + ".###" + "#..." + "...#",   //  8
     "#.L." + "...." + "...." + ".L.." + "...#",   //  9   // #318: this lamp x12 -> x13, out of the doorway (see PROP COLLISION note in tools/view.js)
     "#..." + "...." + ".###" + "#..." + "...#",   // 10
@@ -2367,9 +2382,9 @@ const AUTHORED = {
     "4444" + "4444" + "4444" + "4888" + "8884",   //  1
     "4444" + "4444" + "4444" + "4888" + "8884",   //  2
     "4444" + "4444" + "4444" + "4888" + "8884",   //  3
-    "4444" + "4444" + "4444" + "4888" + "8884",   //  4
-    "4444" + "4444" + "4444" + "4888" + "8884",   //  5
-    "4444" + "4444" + "4444" + "4888" + "8884",   //  6
+    "4444" + "7654" + "4444" + "4888" + "8884",   //  4   // #421 treads up westbound, 0.25 m each, into the deck at (4,5)
+    "4444" + "8844" + "4444" + "4888" + "8884",   //  5   // #421 the mezzanine: 4 cells at +1.00 m, off the arrival axis
+    "4444" + "8844" + "4444" + "4888" + "8884",   //  6
     "4444" + "4444" + "4444" + "4888" + "8884",   //  7
     "4444" + "4444" + "4444" + "4888" + "8884",   //  8
     "4444" + "4444" + "4456" + "7888" + "8884",   //  9
@@ -2387,12 +2402,12 @@ const AUTHORED = {
   feat: [
     "...." + "...." + "...." + "...." + "....",   //  0
     "...." + "...." + "...." + ".TTT" + "TTT.",   //  1
-    "..TT" + "TTTT" + "...." + ".TTT" + "TTT.",   //  2
-    "..TT" + "TTTT" + "...." + ".TTT" + "TTT.",   //  3
-    "..TT" + "TTTT" + "...." + ".TTT" + "TTT.",   //  4
-    "..TT" + "TTTT" + "...." + ".TTT" + "TTT.",   //  5
-    "..TT" + "TTTT" + "...." + ".TTT" + "TTT.",   //  6
-    "..TT" + "TTTT" + "...." + ".TTT" + "TTT.",   //  7
+    "..T." + "...." + "...." + ".TTT" + "TTT.",   //  2
+    "..T." + "...." + "...." + ".TTT" + "TTT.",   //  3
+    "..T." + "SSS." + "...." + ".TTT" + "TTT.",   //  4   // #421 FEAT_STAIR on the treads, so the climb is on the minimap
+    "..T." + "UU.." + "...." + ".TTT" + "TTT.",   //  5   // #421 'U' = the storey's own air; the slab under it is derived
+    "..T." + "UU.." + "...." + ".TTT" + "TTT.",   //  6
+    "..T." + "...." + "...." + ".TTT" + "TTT.",   //  7
     ".TTT" + "...." + "...." + ".TTT" + "TTT.",   //  8
     ".TTT" + "...." + "..SS" + "STTT" + "TTT.",   //  9
     ".TTT" + "...." + "...." + ".TTT" + "TTT.",   // 10
@@ -2442,6 +2457,14 @@ function buildAuthored(li) {
     if (g === '#') { cell[i] = pickWallTex(cfgL); fz[i] = q - 4; continue; }
     cell[i] = 0; openCells++; fz[i] = q - 4;
     if (f === 'T') cz[i] = CZ_AUTH_TALL;
+    /* #421: 'U' = the OWN CLEARANCE of an authored upper storey. A deck stands on its own floor, so the
+       air it carries is authored one rung below the hall it stands in (12 quanta against CZ_AUTH_TALL's
+       16) and reaches the same roof plane: floor +1.00 m plus three units = 4.00 m, the hall's own ceiling.
+       The storey is therefore a ROOM with its own height rather than a lifted band, which is what
+       `surface`'s ROOM-HEIGHTS census counts (distinct OWN clearances over room cells), and the authored
+       plan now authors two rungs by hand where the generator deals them. It is a distinct glyph from 'T'
+       precisely because the number is different, not the kind of thing. */
+    else if (f === 'U') cz[i] = CZ_AUTH_STOREY;
     else if (f === 'P') feat[i] = FEAT_PIT;
     else if (f === 'S') feat[i] = FEAT_STAIR;
     /* #353: an OVERLOOK, authored. cz is the whole write, exactly as in the generator's pairing pass
