@@ -1618,6 +1618,11 @@ if (MODE === 'alt') {
           const cf = fz[i] * ZQ;
           for (let j = 0; j < lamps.length; j++) {
             const L = lamps[j];
+            /* A source the renderer draws no disc for (L.noglow, js/40_render.js - #353's deck light)
+               cannot be judged as a disc, so it must not pick the vantage either: it moved L0's camera and
+               took the worst-disc fraction from 0.009 to 0.201 with no disc of its own in frame. The
+               census loops below keep EVERY source, so a source that lights across a band still counts. */
+            if (L.noglow) continue;
             const lf = lightBand(L);
             const dq = Math.round((lf - cf) / ZQ);
             if (dq * (${sign}) <= 0 || Math.abs(dq) < 2) continue;
