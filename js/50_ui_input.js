@@ -197,9 +197,10 @@ function drawErrorBanner() {
    reveal disc (radius sqrt(52) cells, js/30_entities.js) and the nearest staircase is
    10.4/13.9/25.3 cells from the spawn seat - an explored-gated cue paints nothing on the spawn
    frame. Geometry mirrors drawMinimap (js/40_render.js) deliberately: the HUD file owns the cue
-   pass, the renderer owns the layer, and bands' cue rows read both. FEAT_RAIL has no entry -
-   nothing authors it; if generation ever does, bands' coverage row fails on uncued cells rather
-   than pass silently. Ink is a LEVEL-wide reference (band vs MAP.fzBase), never a player-relative
+   pass, the renderer owns the layer, and bands' cue rows read both. The table has one entry per
+   kind FEAT_* can hold, and #633 deleted FEAT_RAIL rather than leave a fifth feature with no cue,
+   no author and no behaviour: an authored cue the HUD has never drawn is the same bug class as a
+   boundary bit nobody reads. Ink is a LEVEL-wide reference (band vs MAP.fzBase), never a player-relative
    altitude: where the player stands is the arrow, not any cell's colour (#16 gap kept visible). */
 const MMFEAT = [null, 'rgba(255,233,176,.95)', 'rgba(207,234,255,.95)', 'rgba(255,154,122,.9)'];
 function drawFeatCues(U) {
