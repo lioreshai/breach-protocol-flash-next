@@ -16545,6 +16545,41 @@ if (MODE === 'surface') {
       if (!shm[i]) continue;
       if (szb[i] <= SEAT_D) sNear++; else sFar++;
     }
+    /* #421 WHAT IS THE MOST ANY BEARING CAN SHOW AT THIS SEAT? The SEAT row above fails on every sector and
+       the obvious remedy is the bearing - `seatFacing` already aims the arrival at a deck, so a better
+       azimuth looks like a cheap fix. Measured rather than assumed: spun the SAME seat through 12 azimuths
+       at pitch 0 and counted the same shipped-A/B soffit pixels. At `28a6fa4` that ceiling is 4307 px on
+       ARCHIVE, 8463 on RING, 4760 on THE STACK and ZERO on ABATOIR CORE, whose 14 in-reach slab columns
+       contribute no pixel in ANY direction - so on three of the four sectors no heading can reach the
+       8000-px bar, and the remaining work is WHERE the plateau rises, not where the lens points. The row
+       exists so that bound is a tool output instead of a number transcribed into prose, which is the form
+       that rots; it is a census of a LIMIT, so it asserts only the thing that cannot be a deal working as
+       intended - slab columns in reach of the arrival room and not one pixel of underside in any azimuth
+       (vacuity, per AGENTS.md, is a FAILURE and not a debt). The camera is restored after the sweep, and
+       this writes nothing, so every row after it renders the shipped heading it rendered before. */
+    let bPx = 0, bAng = 0, bAny = 0;
+    for (let k = 0; k < 12; k++) {
+      run('P.ang=' + (k * Math.PI / 6) + ';P.pitch=0;');
+      const fa = frame(), ma = slabMask(fa), za = new Float32Array(run('zbuf'));
+      let nn = 0;
+      if (ma) for (let y = 0; y < shz; y++) for (let x = 0; x < BW; x++) {
+        const i = y * BW + x; if (ma[i] && za[i] <= SEAT_D) nn++;
+      }
+      if (nn > bPx) { bPx = nn; bAng = k * Math.PI / 6; }
+      if (nn > 0) bAny++;
+    }
+    run('P.ang=' + sAng + ';P.pitch=0;');
+    /* Vacuity, not debt: slab columns in reach of the arrival room and NOT ONE underside pixel in any of
+       12 azimuths is "nothing drawn where something should be" (AGENTS.md), so it is a FAILURE and is not
+       tagged to a known issue. A sector whose best azimuth is simply below the bar is the deal's answer,
+       reported in the detail, and stays green here - `SEAT` above is the row that judges that bar. */
+    const ceilOk = !(sCells > 0 && bPx === 0);
+    row(`L${li} SEAT-CEILING the most any of 12 azimuths at this seat can show`, ceilOk,
+      `best ${bPx} soffit px at ${bAng.toFixed(2)} rad on ${bAny} of 12 azimuths, against the shipped ` +
+      `${sNear} at ${sAng.toFixed(2)} and a ${SEAT_PX}-px bar` +
+      (bPx >= SEAT_PX ? ' - a better HEADING exists here' : ' - no heading reaches the bar; the deal, not the lens') +
+      (sCells > 0 && bPx === 0 ? ` - ${sCells} slab column(s) in reach contribute NOTHING in any direction` : ''),
+      undefined);
     seatHit.push(sNear >= SEAT_PX);
     row(`L${li} SEAT the arrival frame carries a deck overhead within ${SEAT_D} m`, sNear >= SEAT_PX,
       `${name} at ${sSeat[0].toFixed(1)},${sSeat[1].toFixed(1)} heading ${sAng.toFixed(2)} rad, ` +
