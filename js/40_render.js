@@ -1101,6 +1101,16 @@ let gndFloorWalk = 0;      // deferred floor pixels whose PLANE the walk answere
    along (dir + plane*cam) places it, and a caller that stores a depth must store THIS number. Read
    immediately after the call, like any other out-parameter. */
 let gWalkT = -1;
+/* #518 DID THE MARCH NAME A SURFACE AT ALL. `planeAlong` answers with a PLANE, and "the plane it hands
+   back is the plane it was handed" has two completely different meanings: the walk reached the cell that
+   carries that plane (an answer), or the walk ended at the void, at a solid column or at its own reach
+   without ever arriving at a surface (no answer). Callers cannot tell them apart from the plane alone,
+   and the difference is the whole of #516/#517: a deferred floor pixel left on a plane the ray never
+   arrived at is painted at that plane's solve - the deck's altitude stretched to the horizon - while
+   the honest statement is that the ray has NO surface and the pixel belongs to the far band. So the
+   walk sets this to 1 at each of its two answering breaks and 0 everywhere else. Read immediately
+   after the call, like `gWalkT`; nothing else between them may march. */
+let gWalkHit = 0;
 const PV_W = 128;                                    // plane/ZQ indices [-64 .. 63] = altitudes -16 .. 15.75 m
 const PV_FLAG = new Uint8Array(PV_W), PV_VAL = new Float64Array(PV_W);
 let PV_N = 0, gPVSer = -1, gPVFz = null, gPVCp = null, gPVWide = 0;
@@ -1149,6 +1159,7 @@ function splitPlaneInv() {
    arithmetic bit for bit, and the row only calls this when a plane differs or the grid has a step. */
 function planeAlong(rx, ry, pl, isF, absP) {
   gWalkT = -1;                                   // #518: unless a riser answers, the plane's solve places it
+  gWalkHit = 0;                                  // #518: until a break names one, this ray reached nothing
   const N = MAP.w, cellArr = MAP.cell, fzs = MAP.fz, cp = MAP.ceilPlane;
   const ax = rx > 0 ? rx : -rx, ay = ry > 0 ? ry : -ry;
   const sgn = isF ? -1 : 1;                          // floors below the eye, ceilings above it
@@ -1164,7 +1175,7 @@ function planeAlong(rx, ry, pl, isF, absP) {
     if (!gPVWide) {
       const plQ = (isF ? gPVCbelow : gPVAbove);      // nearest altitude this level has on this side
       const dpQ = (plQ - eyeZ) * sgn;
-      if (!(dpQ > 1e-9 && dpQ * invAbsP < cap)) return pl;
+      if (!(dpQ > 1e-9 && dpQ * invAbsP < cap)) { gWalkHit = 1; return pl; }
     }
   }
   let cx = camX | 0, cy = camY | 0, tIn = 0, g = 0;
@@ -1189,6 +1200,7 @@ function planeAlong(rx, ry, pl, isF, absP) {
   for (; g < gMax; g++) {
     const tOut = tx < ty ? tx : ty;
     if (!(tOut < cap)) {                             // nothing between the eye and the point in question
+      gWalkHit = 1;                                  // #518 the ray REACHED the plane it was handed: an answer
       const ie = cy * N + cx;
       if (cx >= 0 && cy >= 0 && cx < N && cy < N && !cellArr[ie]) {
         const pe = isF ? fzs[ie] * ZQ : cp[ie];      // the march is standing in a cell whose own surface
@@ -1202,7 +1214,7 @@ function planeAlong(rx, ry, pl, isF, absP) {
     if (cx < 0 || cy < 0 || cx >= N || cy >= N || cellArr[i]) break;
     const pz = isF ? fzs[i] * ZQ : cp[i];            // this cell's own surface
     const tz = (pz - eyeZ) * sgn > 1e-9 ? (pz - eyeZ) * sgn * invAbsP : -1;
-    if (tz >= tIn && tz <= tOut) { pl = pz; break; } // hit while still inside the cell that owns it
+    if (tz >= tIn && tz <= tOut) { pl = pz; gWalkHit = 1; break; } // hit inside the cell that owns it
     /* The cell across the boundary the ray reaches first - ONLY that axis moves. Stepping both
        components (the obvious `cx+sx, cy+sy`) walks a diagonal that the ray never travels, so a
        straight-ahead ray reads the floor of the row above the corridor and the closing test below
@@ -1224,6 +1236,7 @@ function planeAlong(rx, ry, pl, isF, absP) {
            plane painted across a pit at the deck's own distance, the bottom landing's plane painted over
            the first treads of a stair). */
         const dSolve = dlo * invAbsP;
+        gWalkHit = 1;                            // the slab's SIDE is a surface: this ray arrived somewhere
         if (dSolve < tIn) gWalkT = tOut;
         break;
       }
@@ -2240,6 +2253,20 @@ function groundPixel(x0, x1, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb
       const st = slabT(rx, ry, absP);
       if (st >= 0) { dOv = st; }
       else { pl = plA; dOv = -1; }
+    } else if (floorWalkEnabled && !gWalkHit && wT < 0) {
+      /* #518 THE BAND DATUM FOR A RAY THAT REACHED NOTHING. The march named no surface on this pixel's
+         own ray - it ended at the void, at a solid the wall pass owns, or at its own reach - so there is
+         no plane here to solve, and solving the one the row's WALK happened to stand in is exactly the
+         phantom #516 and #517 report: from the upper band that plane is the deck's altitude extended to
+         the horizon, painted at the deck's distance under the deck cell's light (measured this cycle at
+         pose C: 63.38 m stored where the ray's own datum answers at 21.13 m). The honest answer is the
+         far band, whose datum is the band the EYE is standing in, solved at this pixel's own row - the
+         same fallback the row's far fill and the ceiling half already ship (js/40_render.js:1486, and
+         the `slabT`-says-nothing clause just above). The march may only pull that datum NEARER; a plane
+         solve farther than it is not an answer, it is an arithmetic about nothing. On a flat level
+         `pl === plA` at every pixel of every row, the two solves are the same number, and this clause
+         moves no byte - and a flat level queues no deferred pixel at all. */
+      pl = plA; dOv = -1;
     }
   } else if (pl === plA && MAP.tallStep) {
     /* The CEILING half needs no march here: the ROW marched this pixel's cell once, at the column that

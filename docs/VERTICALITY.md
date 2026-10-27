@@ -28,11 +28,11 @@ keeping them intact is what keeps `node tools/smoke.js` meaningful while the wor
 
 - **Blocking ⇒ walkable ⇒ drawn is one byte.** A boundary with `dz > ZQ` that is not a ramp gets
   `VB_BLOCK` on both sides, so one test makes it opaque in the DDA, impassable in `tryMove`, and a
-  textured riser in the wall pass. `VB_THRU` means "see it, not climb it". This was **false for 59
-  commits**: an air-to-air step satisfied "blocking" without entering the geometry branch, so the
-  byte stopped the DDA and `tryMove` while drawing nothing — a step you could neither walk up nor
-  see. No probe saw it because no probe had placed the player next to a step; `cull` has those rows
-  now, and they fail in both directions.
+  textured riser in the wall pass - there is no edge that blocks your feet while painting nothing.
+  This was **false for 59 commits**: an air-to-air step satisfied "blocking" without entering the
+  geometry branch, so the byte stopped the DDA and `tryMove` while drawing nothing — a step you
+  could neither walk up nor see. No probe saw it because no probe had placed the player next to a
+  step; `cull` has those rows now, and they fail in both directions.
 - **A cell's ceiling is the underside of the floor above:**
   `ceilAt = floor + max(1 unit, neighbour floors above)`. Without it you see sky indoors.
 - **A wall face spans `[max(floorA, floorB), ceilAt(air side)]`** — never `ceilAt` of the *wall*
