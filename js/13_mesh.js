@@ -401,6 +401,12 @@ const MESH = (function () {
      the clear exact (induction: every pixel ever written was inside the rectangle cleared last
      frame) and costs a strip of the frame rather than a fill of it. */
   let ZFAR = null, ZSAVE = null, VMASK = false;
+  /* #611 the DELIVERED-PIXEL pair: the colour and the depth of the pixels inside ONE body's projected
+     box, saved before its triangles run so the pass after the loop can name which of them the body took
+     over. Two flat strips, allocated once and reused; the box is clipped to BGMAX pixels, so a body drawn
+     close enough to exceed the strip is measured not at all rather than measured partially. */
+  let BGSAVE = null, BGDEPTH = null, BGMAX = 65536;
+
   let srx0 = 0, srx1 = -1, sry0 = 0, sry1 = -1;      // the rectangle the last view-model draw wrote
   let R0 = 0.30, R1 = 0.85;                            // the Lambert ramp, per kind - see draw()
   let CR = 0, CG = 0, CB = 0;                       // shaded colour of the current triangle
@@ -1899,68 +1905,57 @@ const MESH = (function () {
              the frame. Draws already separated never fire at all: that is why the 21-29 luma #407 rows
              cannot move. Off when the BODYPAINT arm is down, off on the view model and on props, and there
              is no billboard copy - the same one-read-site argument BODYHUE makes. */
-    if (BODYFG && BODYPAINT && BODY && !MDL && !pr && tYc > 0.75) {
-      // (1) WHAT HE IS FRAMED BY: four delivered pixels inside his own projected silhouette, kept only
-      //     where the depth buffer says that pixel is BEHIND him, so a lip in front cannot pass for his
-      //     background. The world pass runs before this list and the list is sorted far to near, so the
-      //     pixels he is about to cover still hold the surface he is seen against.
+    /* #611 THE VALUE HALF, MEASURED AND NOT PREDICTED (armed by BODYFG, see js/00_core.js). The LAW is
+       unchanged - a body belongs at least FG_PUSH luma away from the surface it is framed by, on the side
+       he already sits, and a draw that already separates is inert - and the RAIL is unchanged (no one draw
+       moves by more than FG_MAX). What changed is where the two numbers come from. Until now the surface
+       behind him was FOUR samples taken OUTSIDE his silhouette and his own landing was PREDICTED by
+       re-running the pixel body's arithmetic at the mean of its domain (mean texel, counter-pigment, cell
+       field and tint, ramp at R0 + R1/2, fill, wash). Every term of that model is right and the mean of
+       the pixels is still not the model: the sweep's worst deals landed at 1.1-2.6 luma of step against a
+       bar of 4 while the prediction believed it had paid 6. That is a prediction error, not a law error,
+       and no constant on a palette closes it.
+         So the pixels are READ. Before the triangle loop the colour and depth of his projected box are
+       copied (one strip, clipped to BGMAX pixels - a body close enough to overflow the strip is measured
+       not at all rather than partially); after it, a pixel whose DEPTH the draw lowered is a pixel he owns,
+       its saved colour is the surface behind him and its present colour is what he delivered, at the same
+       pixel in the same frame under the same lamps. The step is the difference of the two means and it is
+       exact - it is the very quantity tools/view.js contrast gates - so the push lands ON the bar instead
+       of near it. Pixels whose depth did not move are skipped, which is what keeps a lip IN FRONT of him
+       from being mistaken for his background: the depth test decides, not a guess.
+         The correction is a grey scale on his own pixels with the haze wash taken OUT and put back,
+       `new = (pixel - FOGC*fog) * k + FOGC*fog`, so it is arithmetically a scale on `texel * light`: it
+       adds no second multiplier over the lamp field (#407), it charges the wash exactly once (#458), and
+       the hue/chroma axis the colour row reads is scale-invariant so the bar cannot be bought with hue.
+       It fires only on a body that is not a view model, not a prop, not light-exempt, not mid-fade (a
+       blended pixel is a mix of two surfaces, so neither colour belongs to him), not hit-flashed (whose
+       colour is a term of the shot), and only when the BODYPAINT arm is up so the paint arm still
+       measures paint against light. There is no billboard copy - the one-read-site argument BODYHUE makes. */
+    let fgX0 = 0, fgY0 = 0, fgW = 0, fgH = 0, fgFog = 0;
+    /* The three light ARMS (BODYDIST / BODYSHADE / BODYHAZE) are the probe's A/B on the light path, and
+       this term is computed from DELIVERED pixels. If it ran while an arm was raised it would measure the
+       arm's own delta and push it back out - the failure the predictive form avoided by reading only the
+       shipped light terms, and the reason L1's shade arm row went red the first time this was tried. So the
+       term is armed only in the shipped light configuration; in play all three are at their shipped values
+       and the term always runs, and under an arm the arm is left to speak for itself. */
+    if (BODYFG && BODYPAINT && BODY && !MDL && !pr && !FLASH && ALPHA >= 1 && tYc > 0.75 &&
+        BODYSHADE && BODYDIST && !BODYHAZE) {
       const fq = 1 / tYc;
       const fsx = (BW * 0.5) * (1 + (cam.invDet * (dirY * ex - dirX * ey)) * fq);
-      const fsy = horizon + (BH * (eyeZ - (o.z + sc * 0.55))) * fq;
-      const fw = (BH * sc) * fq * 0.9;                 // OUTSIDE his own silhouette, not across it
-      let fr = 0, fg2 = 0, fb = 0, fn = 0;
-      for (let s = 0; s < 4; s++) {
-        const fx = (fsx + (s === 0 ? -fw : s === 1 ? fw : 0)) | 0;
-        const fy = (fsy + (s === 2 ? -fw : s === 3 ? fw * 0.5 : 0)) | 0;
-        if (fx < 0 || fy < 0 || fx >= BW || fy >= BH) continue;
-        const foff = fy * BW + fx;
-        if (zbuf[foff] <= tYc) continue;              // nearer than he is: not the surface behind him
-        const fp = px[foff];
-        fr += fp & 255; fg2 += fp >> 8 & 255; fb += fp >> 16 & 255; fn++;
-      }
-      if (fn >= 2) {
-        // (2) WHERE HE WOULD LAND: the pixel body's own arithmetic at the mean of its own domain.
-        if (m.fal === undefined) {
-          let ar = 0, ag = 0, ab = 0; const an = m.nV || 1;
-          for (let i = 0; i < an; i++) { ar += PD[i * 6 + 3]; ag += PD[i * 6 + 4]; ab += PD[i * 6 + 5]; }
-          m.fal = [ar / an, ag / an, ab / an];        // the kind's own mean texel, once per model
+      const fsy = horizon + (BH * (eyeZ - (o.z + sc * 0.5))) * fq;
+      const fex = (BH / tYc) * sc * 0.92;               // half the box, a shade over his own extent
+      const fx0 = Math.max(0, Math.round(fsx - fex)), fx1 = Math.min(BW - 1, Math.round(fsx + fex));
+      const fy0 = Math.max(0, Math.round(fsy - fex)), fy1 = Math.min(BH - 1, Math.round(fsy + fex));
+      fgW = fx1 - fx0 + 1; fgH = fy1 - fy0 + 1;
+      if (fgW > 0 && fgH > 0 && fgW * fgH <= BGMAX) {
+        if (!BGSAVE) { BGSAVE = new Uint32Array(BGMAX); BGDEPTH = new Float32Array(BGMAX); }
+        fgX0 = fx0; fgY0 = fy0;
+        for (let y = 0; y < fgH; y++) {
+          const src = (fy0 + y) * BW + fx0, dst = y * fgW;
+          for (let x = 0; x < fgW; x++) { BGSAVE[dst + x] = px[src + x]; BGDEPTH[dst + x] = zbuf[src + x]; }
         }
-        const fpal = m.fal, fd = Math.max(0.2, Math.hypot(ex, ey));
-        /* The predictor deliberately reads the SHIPPED form of every light term - the field whole at his
-           cell, the wash added and never multiplied, the ramp centred on its own domain - and NOT the
-           BODYDIST / BODYHAZE / BODYSHADE arm the probe may have raised. This is a material estimate of
-           where his paint sits, not a second evaluation of the light path: if it followed the arms, the
-           push would change under the A/B and the arm would no longer be measuring the term it names (at
-           L1 8 m the shade arm inverted against it and went RED for exactly that reason). */
-        const ffi = Math.min(1, (lm ? lm[cc] : 0.5) + 0.30 * visAt(fd)), frm = R0 + R1 * 0.5;
-        let fh = 0;
-        for (let c = 0; c < 3; c++) {
-          const fl = (AMB + ffi * lt[c] * frm) * (TINT ? TINT[c] : 1);
-          fh += LUMW[c] * fpal[c] * (c === 0 ? bhr : c === 1 ? bhg : bhb) * fl;
-        }
-        const fws = (0.2126 * FOGC[0] + 0.7152 * FOGC[1] + 0.0722 * FOGC[2]) * fogAt(fd);
-        const fbg = 0.2126 * (fr / fn) + 0.7152 * (fg2 / fn) + 0.0722 * (fb / fn);
-        fh += fws;
-        // (3) THE PUSH: a body belongs under the surface it is framed by by at least FG_PUSH. The trigger
-        //     is a SHORTFALL, not a window - "he is not yet that far under it" - so a draw already
-        //     separated (the -13 to -16 arrival seats) and a draw already past #407's 20-luma ceiling both
-        //     fail the test and do not move at all, which is what makes the two gates satisfiable together
-        //     instead of in tension. The clamp is what keeps a body that happened to sit BRIGHTER than his
-        //     background from being thrown across the frame: he is moved down, never up, and never by more
-        //     than FG_MAX. A grey scale on the albedo, so the hue/chroma axis the colour row reads is
-        //     untouched by construction and the bar cannot be bought with hue or with a brighter room. Off
-        //     when the BODYPAINT arm is down, off on the view model and on props, no billboard copy - the
-        //     same one-read-site argument BODYHUE makes.
-        const fd2 = fh - fbg;
-        if (fd2 > -FG_PUSH) {
-          const fden = fh - fws;
-          if (fden > 2) {
-            const fmove = clamp(fbg - FG_PUSH - fh, -FG_MAX, 0);
-            const bgv = clamp((fh + fmove - fws) / fden, 0.45, 1.8);
-            bhr *= bgv; bhg *= bgv; bhb *= bgv;
-          }
-        }
-      }
+        fgFog = fogAt(Math.max(0.2, Math.hypot(ex, ey)));
+      } else fgW = 0;
     }
     for (let k = 0, K = T.length; k < K; k += 3) {
       const i0 = T[k], i1 = T[k + 1], i2 = T[k + 2];
@@ -2115,6 +2110,57 @@ const MESH = (function () {
       // one colour, so the same 0.72 pull toward white after fog lands in the three registers
       if (FLASH) { CR = (CR + (250 - CR) * 0.72) | 0; CG = (CG + (242 - CG) * 0.72) | 0; CB = (CB + (236 - CB) * 0.72) | 0; }
       tri();
+    }
+    /* #611 THE MEASURED STEP, and the push it owes. `own` is the pixels this draw took over - the ones
+       whose DEPTH came down - which is his silhouette as the frame actually received it, not an estimate
+       of one. Over those pixels `dl` is what he delivered and `bl` is the colour of the surface that was
+       behind him at the same coordinates before he was drawn: the pair the issue's table is written in,
+       read in the frame rather than modelled. The push then pays the shortfall in the same currency the
+       row charges it in - a grey scale on (pixel - wash), so `texel * light` is what is scaled, the wash
+       is added back once (#458), and no light term is touched (#407). He is put FG_PUSH luma away from
+       the surface behind him ON THE SIDE HE ALREADY SITS, which is the direction of the least move and
+       the reason the #407 distance rows cannot be pulled past their ceiling by this: a draw that already
+       separates by FG_PUSH or more pays nothing at all, and the rail FG_MAX still caps any one draw. The
+       24-pixel floor is the vacuity gate - a mean over a handful of pixels a lip is leaving him is not a
+       measurement, so the term stays inert instead of inventing a step. */
+    if (fgW) {
+      let own = 0, dl = 0, bl = 0;
+      for (let y = 0; y < fgH; y++) {
+        const row = (fgY0 + y) * BW + fgX0, base = y * fgW;
+        for (let x = 0; x < fgW; x++) {
+          const off = row + x, zWas = BGDEPTH[base + x];
+          if (!(zbuf[off] < zWas)) continue;            // he did not take this pixel over
+          const p = px[off], q = BGSAVE[base + x];
+          dl += LUMW[0] * (p & 255) + LUMW[1] * (p >> 8 & 255) + LUMW[2] * (p >> 16 & 255);
+          bl += LUMW[0] * (q & 255) + LUMW[1] * (q >> 8 & 255) + LUMW[2] * (q >> 16 & 255);
+          own++;
+        }
+      }
+      if (own >= 24) {
+        dl /= own; bl /= own;
+        const gap = dl - bl;
+        if (gap > -FG_PUSH && gap < FG_PUSH) {
+          const wash = (LUMW[0] * FOGC[0] + LUMW[1] * FOGC[1] + LUMW[2] * FOGC[2]) * fgFog;
+          const want = clamp(gap <= 0 ? bl - FG_PUSH : bl + FG_PUSH, dl - FG_MAX, dl + FG_MAX);
+          const den = dl - wash;
+          if (den > 2) {
+            const k = clamp((want - wash) / den, 0.45, 1.8);
+            const wr = FOGC[0] * fgFog, wg = FOGC[1] * fgFog, wb = FOGC[2] * fgFog;
+            for (let y = 0; y < fgH; y++) {
+              const row = (fgY0 + y) * BW + fgX0, base = y * fgW;
+              for (let x = 0; x < fgW; x++) {
+                const off = row + x;
+                if (!(zbuf[off] < BGDEPTH[base + x])) continue;
+                const p = px[off];
+                px[off] = (0xFF000000 |
+                  clampi((p >> 16 & 255) + ((p >> 16 & 255) - wb) * (k - 1)) << 16 |
+                  clampi((p >> 8 & 255) + ((p >> 8 & 255) - wg) * (k - 1)) << 8 |
+                  clampi((p & 255) + ((p & 255) - wr) * (k - 1))) >>> 0;
+              }
+            }
+          }
+        }
+      }
     }
     if (ZSAVE) { zbuf = ZSAVE; ZSAVE = null; VMASK = false; }
   }
