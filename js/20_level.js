@@ -252,9 +252,17 @@ const LHOVER = 0.78;                     // a lamp light's authored hover above 
    where a proportional source would be a dark cell with a lamp prop on it. The knobs live here and not
    behind an env var on purpose: a row gated on a knob a human must remember is the failure mode. */
 const TOPUP_BASE = 1.05, TOPUP_TARGET = 32, TOPUP_MINF = 0.5;
-const VB_BLOCK = 1, VB_RAMP = 2, VB_LADDER = 4, VB_THRU = 8;
+/* #633: two vocabulary words are DELETED here because nothing could spell them. `VB_THRU` was
+   declared and read by nothing while docs/VERTICALITY.md described it as "see it, not climb it" -
+   a see answer no code implemented. `FEAT_RAIL` was declared and authored by nothing, excused by a
+   minimap comment. Both named a behaviour that band edges do not have: every air->air edge today is
+   answered by its HEIGHT ALONE (linkBoundaries' `dq > 1` blocker, the renderer's copied riser clause,
+   and a probe that re-infers the answer at run time), so there is no kind to store yet and no word
+   that can be asserted. A kind the engine can answer is what #633 has to build; until then an
+   unspellable word is how the disagreement survives. */
+const VB_BLOCK = 1, VB_RAMP = 2, VB_LADDER = 4;
 const VB_KEEP = 0x6666;                    // VB_RAMP|VB_LADDER in each of the four side nibbles: the authored bits
-const FEAT_NONE = 0, FEAT_STAIR = 1, FEAT_LADDER = 2, FEAT_PIT = 3, FEAT_RAIL = 4;
+const FEAT_NONE = 0, FEAT_STAIR = 1, FEAT_LADDER = 2, FEAT_PIT = 3;
 /* Leaving a cell in direction d steps by (DIRX[d], DIRY[d]); d ^ 2 is the way back in. */
 const DIRX = [1, 0, -1, 0], DIRY = [0, 1, 0, -1];
 /* Side order used by the breadth-first walks; +x, -x, +y, -y, as the old index
