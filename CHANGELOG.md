@@ -1,5 +1,68 @@
 # Changelog
 
+## [v1.4.16] - 2026-10-27
+
+### Added
+
+- **Every room you walk into has something to walk past** (#631, PR #644). A dealt sector used to open on
+  one long empty box: a lid, a floor, a strip of wall, and nothing between the crate line and the far
+  surface. Each room now carries a **pier run** — a line of single columns across the room's longer view,
+  one cell of gap between piers — so the room breaks into bays and you see *past* the line instead of into
+  it. Piers wear the room's minority wall face rather than its primary one, so they read as columns
+  standing in a bay and not as a slab of the deck. In the room you wake in the line is placed from your own
+  facing: four to six cells down the view, with a gap on your centre line, so the first frame looks
+  *through* the columns at the room beyond. A pier can only ever remove openness, so nothing you could
+  reach before is unreachable now. Authored THE STACK is untouched.
+- **The wall you walk toward carries a thing** (#400, PR #649). The face exposed where a deck steps up used
+  to be one uninterrupted sheet of concrete. Where an axis sight line from your spawn met a wall carrying
+  only paint, that face now mounts an object for its sector — a drum or tank in RING TRANSPORT, shelving in
+  ARCHIVE SUBLEVEL and THE STACK — in up to two directions per sector. Each stands well off the face, so it
+  keeps a flank and an edge when you look along the wall at an angle instead of reading as paint. On a deal
+  whose arrival walls are already furnished the pass places nothing and the level's bytes do not move.
+
+### Changed
+
+- **Hostiles resolve a beat earlier at the ranges this game is actually fought at** (#611, PR #657). A
+  body's delivered colour was *predicted*: background samples taken around his silhouette, and his own
+  value re-computed from a shading model. Every term of that model was right and the mean of his pixels
+  still was not, so in unfavourable rooms he landed within a point or two of the wall directly behind him —
+  no silhouette at all at 8-16 m. His value step is now measured at the pixels he really takes over: colour
+  and depth inside his projected box are saved before he draws, and only a pixel whose depth his draw
+  lowered counts as his. The push is paid against the surface that was provably behind him, the same pixel
+  in the same frame under the same lamps.
+- **The front page's frames describe the build they came from** (#597, PR #666). All eight screenshots were
+  re-taken from the deployed build and each caption now carries that build's own numbers.
+
+### Fixed
+
+- **Looking off the edge of a deck no longer stretches that floor to the horizon** (#518, #515, #516, #517,
+  PR #670). Deferred floor columns — the ones a row hands to a second solver because a height boundary
+  crossed under them — could adopt a *lower* plane further along the ray and then paint with it, even when
+  the ray never arrived at any surface. A deck's altitude was then solved out to the horizon: warped stairs,
+  a pit that read as a table when viewed from the deck above, and the edge of the band you were standing on
+  turning into a texture suggestion instead of a place. A march that reaches nothing now says so, and those
+  pixels answer the floor you are actually standing on or the far band. The march's crossing budget also
+  stopped hiding a second, shorter reach inside the one it declares, so a ray that used to run out of tries
+  now finishes its own walk.
+
+### Known limitations
+
+- **Standing under a mezzanine still reads flat** (#421, PRs #660, #663). Every pose the census measures
+  today clears its underside luma floor — `node tools/view.js` prints the per-level rows — but a frame that
+  shows the storey above you from directly beneath it is still the sheet this work was filed from. A new
+  census row now says whether the limit is your heading or the deal itself; on the first generated sector it
+  is the deal, not the lens.
+- **A rim can still disagree with itself** (#633, PR #673). An edge that stops your feet while painting
+  nothing, or a painted kerb that turns out to be a wall, is still possible: the per-boundary *kind* is not
+  stored yet. This window removed two edge words that were documented but implemented nowhere, so the three
+  places that ask "what is this edge" can no longer give different answers. The issue stays open.
+- **The ceiling's radial streak is unchanged** (#19, PR #667). The texture-carried fan sits inside 4 m,
+  where the pixel is magnified; the far-field walk measures zero on the fetch that ships, so that knob stays
+  a one-constant A/B instead of becoming a seventeenth filter. The acceptance target it was gated against
+  sat below the streak of a ceiling with its texture removed — a bar no fetch change could have met — and is
+  now verdicted against the shipped look.
+- No crash- or stall-class fixes landed in this window.
+
 ## [v1.4.15] - 2026-10-26
 
 ### Added
