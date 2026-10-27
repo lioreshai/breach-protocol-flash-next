@@ -808,7 +808,22 @@ const GJITPX = 48;      // GJIT 1 keeps the mirror only where a cell is this man
    field is byte-identical; the walk only runs where the footprint is longer than the level can carry.
    GWALK is the depth knob and the A/B: 1 = the single coarse pair as #498 shipped it (main), 3 = the
    walk. `DEV.set('gndwalk', 1)` is one call, and `DEV.set('gndfade', 0)` still removes the coarse share
-   entirely, which this term rides - it is the same blend, read from more of the chain. */
+   entirely, which this term rides - it is the same blend, read from more of the chain.
+
+   THE WALK MEASURES ZERO ON THE FETCH THAT SHIPS, and the band rows say why - read this before funding a
+   twentieth take. With CGWN = 1 (the magnified share, shipped by #645), switching this knob to 3 moves
+   NOTHING: the ceiling streak is identical on all four sectors, the near-band streak is identical, the
+   frame mean is identical and along-row detail moves by at most one point of the +-3 this metric carries
+   across processes. It is not an arm that failed to run - in the same process the isotropic 1-D control
+   (MIPAX = 0) drops the ceiling streak by 7-10 points, so pixels move and this walk executes.
+   The reason is the walk's own gate: it runs on a MINIFIED footprint (this file's `fLong > 1`), so it can
+   only reach a ceiling pixel beyond a few metres, and `mip`'s band row measures that a ceiling's texture
+   carries no gradient out there any more - the pixel is already answering its material's mean. All of the
+   texture-carried fan sits inside 4 m, where the pixel is MAGNIFIED: that band is CGWN's, not the walk's.
+   The two terms are therefore in disjoint bands, which is the whole reason this knob stays at 1 as a
+   one-constant A/B rather than becoming a seventeenth filter. The figures are printed, not transcribed:
+   `node tools/view.js mip` (its band row and its magnified-share row), and `DEV.set('gndwalk', 3)` is the
+   A/B in the running page. */
 let GWALK = 1;
 const GWN = 4;                                   // hard cap on levels walked (mips are 5 deep)
 
