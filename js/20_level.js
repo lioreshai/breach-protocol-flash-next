@@ -3466,6 +3466,55 @@ function genLevel(li) {
       }
       return true;
     };
+    /* THE GAP IN THE LINE IS A DOORWAY, SO IT GETS A FRAME (#631). A row of single columns breaks a plan
+       but says nothing about where you go: the eye reads columns, not a way through them. Every gap in a
+       pier line is one open cell with a solid column on each side of it, which is a doorway with jambs and
+       the line running past it on both sides - the one thing no opening in this game did before (#631:
+       "every door is set into a wall that stops there, so a door never reads as the way onward"). So mount
+       a door frame on the two jamb faces that look at the gap along the line. This is PAINT ONLY: no cell
+       is written, no height is authored, no face is added that the raycaster was not already drawing, so
+       it cannot move the arrival frame's exposure the way a rank of columns did (#644), and it costs two
+       quads in a level that already carries 30-50 fixtures.
+       The gap chosen is the one the arrival view looks THROUGH in the room you wake in - the same ray as
+       the candidate rule below - and the room's own centre everywhere else. A face another fixture already
+       owns is left alone: this pass adds a doorway, it does not evict a vent. */
+    const frameGap = (r, alongX, pos, inRoom, ang) => {
+      const span = alongX ? r.h : r.w, base = alongX ? r.y : r.x;
+      let want = (alongX ? r.cy : r.cx) - base;
+      if (inRoom) {
+        const vx = Math.cos(ang), vy = Math.sin(ang), onX = Math.abs(vx) >= Math.abs(vy);
+        for (let d = PIER_NEAR; d <= PIER_VIEW + 3; d++) {
+          const cross = Math.floor(onX ? P.x + vx * d : P.y + vy * d);
+          if (cross !== pos) continue;
+          want = Math.floor(onX ? P.y + vy * d : P.x + vx * d) - base;
+          break;
+        }
+      }
+      let best = -1, bestd = 1e9;
+      for (let k = 1; k < span - 2; k++) {
+        const j1 = alongX ? (r.y + k - 1) * N + pos : pos * N + r.x + k - 1;
+        const jg = alongX ? (r.y + k) * N + pos : pos * N + r.x + k;
+        const j2 = alongX ? (r.y + k + 1) * N + pos : pos * N + r.x + k + 1;
+        if (cell[jg] || !cell[j1] || !cell[j2] || fzTry[jg] !== 0) continue;   // a gap between two piers
+        const dd = Math.abs(k - want);
+        if (dd < bestd) { bestd = dd; best = k; }
+      }
+      if (best < 0) return 0;
+      const gx = alongX ? pos : r.x + best, gy = alongX ? r.y + best : pos;
+      let got = 0;
+      for (const d of (alongX ? [1, 3] : [0, 2])) {
+        const wx = gx + DIRX[d], wy = gy + DIRY[d];
+        if (wx < 1 || wy < 1 || wx >= N - 1 || wy >= N - 1) continue;
+        if ((DECOR_GRID[wy * N + wx] || []).length) continue;        // a face another fixture owns
+        const z0 = floorAt(gx + 0.5, gy + 0.5), z1 = ceilAt(gx + 0.5, gy + 0.5), sp = FIX_SPAN.DOOR;
+        const hh = (z1 - z0) * sp[1] * 0.5;
+        if (!(hh > 0.06)) continue;
+        addWFix(WFIX.DOOR, wx, wy, DIRX[d] !== 0 ? 0 : 1, DIRX[d] !== 0 ? gy + 0.5 : gx + 0.5,
+          z0 + (z1 - z0) * sp[0], hh, 0.5, FIX_DEP.DOOR);
+        got++;
+      }
+      return got;
+    };
     /* ONE LINE PER ROOM, TRIED AT EVERY POSITION THE ROOM CAN HOLD. #644's review counted what the
        single-position version actually delivered at the shipped seed - piers in 4 rooms of 16 - and the
        census says why it is not the reservations: a dealt room is 5-10 cells a side, so ONE line across
@@ -3574,11 +3623,38 @@ function genLevel(li) {
         const lo = crossX ? loX : loY, hi = crossX ? hiX : hiY;
         const sc = (crossX ? P.x : P.y) | 0;               // the seat's cell on that axis
         const sgn = (crossX ? vx : vy) >= 0 ? 1 : -1;
-        const ks = (crossX ? (P.y | 0) : (P.x | 0)) - (crossX ? r.y : r.x);   // seat along the line
-        for (let d = PIER_VIEW; d <= PIER_VIEW + 2; d++) {  // 4, then 5, then 6 cells down the view
-          const pos2 = sc + sgn * d;
+        /* WHERE THE LINE STANDS IS THE RAY'S, NOT THE AXIS'S. `sc + sgn * d` measures d cells along the
+           axis the line crosses, which is only the same thing as d cells DOWN THE VIEW when the view runs
+           along that axis. The four derived seats read 2.304 / 0.838 / 0.600 rad, so they all look at
+           roughly 45 deg, where `d` along x is d / 0.707 of travel: L0's arrival room took d=4 as column
+           13, and the ray at column 13 is 6.3 m along the view, at a row the room does not have - so the
+           candidate died on the room's own bounds, the sweep took over, and the shipped arrival frame is
+           still the empty box. Taking the position from the ray point itself costs one multiply and makes
+           the candidate the cell the frame is actually looking at.
+           The PHASE follows the same point. `1 + (ks & 1)` put the gap at the seat's own row, which is the
+           row the eye starts in, not the row the view arrives at; the gap has to sit where the ray crosses
+           the line, because the gap is the place you can walk and the claim being made is that the frame
+           shows one. Piers stand at r.y + phase + 2k, so a crossing cell is a gap when phase and its index
+           differ in parity. */
+        for (let d = PIER_VIEW; d <= PIER_VIEW + 2; d++) {  // 4, then 5, then 6 cells DOWN THE VIEW
+          const rx = P.x + vx * d, ry = P.y + vy * d;
+          const pos2 = Math.floor(crossX ? rx : ry);        // the line stands at the depth the view is at
+          const along = Math.floor(crossX ? ry : rx);       // and this is the cell the view looks through
+          const kc = along - (crossX ? r.y : r.x);
           if (pos2 < lo || pos2 > hi || Math.abs(pos2 - sc) < PIER_NEAR || seen(crossX, pos2)) continue;
-          cands.push([crossX, pos2, 1 + (ks & 1)]);
+          cands.push([crossX, pos2, (kc + 1) & 1]);
+        }
+        /* A ROOM TOO SHALLOW TO BE CROSSED IS BROKEN ALONG THE VIEW INSTEAD. A 9x8 room with the seat in
+           its middle ends 4-5 cells along a 45 deg view, so no line crossing that view fits inside it at
+           all - that is geometry, not a missed candidate, and the sweep would then stand a rank in the
+           room's north half where the frame never goes. A run of columns standing ALONG the view, two or
+           three cells off it, still breaks one bay into two and still gives the eye an edge to walk past. */
+        const perp = (crossX ? (P.y | 0) : (P.x | 0));
+        const plo = crossX ? loY : loX, phi = crossX ? hiY : hiX;
+        for (let off = PIER_NEAR; off <= PIER_NEAR + 2; off++) for (let s = 0; s < 2; s++) {
+          const pos2 = perp + (s ? off : -off);
+          if (pos2 < plo || pos2 > phi || seen(!crossX, pos2)) continue;
+          cands.push([!crossX, pos2, 1 + (ri & 1)]);
         }
       }
       const sweep = (crossX) => {
@@ -3604,7 +3680,7 @@ function genLevel(li) {
       };
       sweep(r.w >= r.h);                                   // across the LONGER view first
       if (r.w !== r.h) sweep(r.w < r.h);
-      for (const c of cands) if (tryLine(c[0], c[1], c[2], inRoom)) break;
+      for (const c of cands) if (tryLine(c[0], c[1], c[2], inRoom)) { frameGap(r, c[0], c[1], inRoom, seatAng); break; }
     }
     // The grid changed, so the derived bits change with it (AGENTS.md): VB_BLOCK is read from the
     // neighbour grid, and a pier is a new neighbour of four cells.
