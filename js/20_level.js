@@ -2122,9 +2122,30 @@ function placeWallFixtures(cfgL, seat, ang) {
         let run = 0, at = 0;
         const flush = () => {
           if (run >= FIX_RUN_MIN) {
-            const b = at + (run >> 1);                       // the middle of the run, where the eye lands
-            const ax = face === 0 ? a : b, ay = face === 0 ? b : a;
-            mountDrop(dropObjs[(a + d) % dropObjs.length], ax, ay, d);
+            const kind = dropObjs[(a + d) % dropObjs.length];
+            const mid = at + (run >> 1);                     // the middle of the run, where the eye lands
+            const ax = face === 0 ? a : mid, ay = face === 0 ? mid : a;
+            /* ONE OBJECT PER RUN WAS THE WHOLE PASS, AND IT IS HALF THE CLAIM (#400, take ten). The
+               middle mount is the face at the END of a sight line - the one pass 4 also serves - but a
+               slab side is the longest uninterrupted face a generated level has: RING TRANSPORT's spawn
+               sight line marches 11.5 m of deck edge and the pass put ONE drum at its middle, leaving
+               eleven metres of unbroken sheet to either side of it. The corridor pass above solved the
+               same problem with FIX_REPEAT spacing (#400 take four) and this face needs it more, because
+               the corridor runs it decorates are two cells wide and this one is the map edge. So: the
+               middle mount FIRST, unchanged - a level whose slab side is shorter than FIX_REPEAT mounts
+               byte-identically to the shipped build and keeps every record it has - and then one more
+               every FIX_REPEAT metres from that middle, in both directions, each one only if mountDrop
+               takes it (a face a doorway or a room fixture already owns does not consume the slot, the
+               same rule the spacing in pass 3 follows). Forward before backward so the order of `used`
+               claims is deterministic; no RNG is read, so no roll, prop, lamp or enemy moves. */
+            if (mountDrop(kind, ax, ay, d)) {
+              for (let s = mid + FIX_REPEAT; s < at + run; s += FIX_REPEAT) {
+                mountDrop(kind, face === 0 ? a : s, face === 0 ? s : a, d);
+              }
+              for (let s = mid - FIX_REPEAT; s >= at; s -= FIX_REPEAT) {
+                mountDrop(kind, face === 0 ? a : s, face === 0 ? s : a, d);
+              }
+            }
           }
           run = 0; at = 0;
         };
