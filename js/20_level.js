@@ -2167,6 +2167,55 @@ function placeWallFixtures(cfgL, seat, ang) {
     const sx = seat[0] | 0, sy = seat[1] | 0;
     const dirAng = [0, Math.PI / 2, Math.PI, -Math.PI / 2];   // the bearing of DIRX/DIRY direction d
     const a0 = typeof ang === 'number' ? ang : 0.6;
+    /* TAKE NINE: MARCH THE BEARING INSTEAD OF APPROXIMATING IT WITH FOUR AXES. The order below is the
+     best an AXIAL walk can do with a turned camera, and it is still an approximation of the picture.
+     `seatFacing` turns the arrival seat to the face of the nearest deck in reach, which is generally not
+     an axis direction, so the nearest axis can sit 42 degrees off what the player is shown: on the deal
+     the probe deals, L0's furnished lip is inside FIX_SEAT_ARC and OUTSIDE the 71-degree frame (its
+     arrival frame came back byte-identical to main's at PR #672), and L3's four axis lines meet no
+     furnishable face at all even though its own bearing crosses a 1.00 m lip at 4 m. So walk the bearing
+     itself. This is the SAME walk with the SAME stops and no third one: a solid cell (mount, or claim a
+     face that carries only paint) and a blocked uphill crossing (`dropFace`, mounted on the slab side at
+     the far cell). The one difference is that the direction mounted on is the axis of the boundary the
+     ray actually crossed, which is what the renderer looks decor up for at that stop. FIX_SEAT_MIN still
+     declines a face the seat is standing against and FIX_VIS_MAX still bounds the sight line, with the
+     same meanings as in the axis walk below, and it runs only when a heading is handed in, so the
+     documented no-heading fallback stays exactly the walk it was. No RNG is read. */
+    const marchSeat = (a1, want) => {
+      const ex = sx + 0.5, ey = sy + 0.5, dx = Math.cos(a1), dy = Math.sin(a1);
+      let cx = sx, cy = sy;
+      const ux = Math.abs(dx) < 1e-9 ? Infinity : Math.abs(1 / dx);
+      const uy = Math.abs(dy) < 1e-9 ? Infinity : Math.abs(1 / dy);
+      let tx = dx > 0 ? (cx + 1 - ex) / dx : dx < 0 ? (cx - ex) / dx : Infinity;
+      let ty = dy > 0 ? (cy + 1 - ey) / dy : dy < 0 ? (cy - ey) / dy : Infinity;
+      for (let step = 0; step < 4 * FIX_VIS_MAX; step++) {
+        let d, ax, ay, nx, ny;
+        if (tx < ty) { d = dx > 0 ? 0 : 2; ax = cx; ay = cy; nx = cx + DIRX[d]; ny = cy; tx += ux; cx = nx; }
+        else { d = dy > 0 ? 1 : 3; ax = cx; ay = cy; nx = cx; ny = cy + DIRY[d]; ty += uy; cy = ny; }
+        const rad = Math.max(Math.abs(nx - sx), Math.abs(ny - sy));
+        if (rad > FIX_VIS_MAX) break;                    // further than the frame can resolve a face
+        if (isWall(nx, ny)) {
+          if (rad < FIX_SEAT_MIN) return false;          // the face the seat is standing against
+          if (FIX_EDGE.indexOf(kindOf[(ny * N + nx) * 4 + d]) >= 0) return true;
+          return mount(want, ax, ay, d) || claim(want, ax, ay, d);
+        }
+        if (!isOpen(nx, ny)) return false;               // off the map: nothing seen
+        if (dropFace(ax, ay, d)) {
+          if (rad < FIX_SEAT_MIN) return false;
+          const kf = (ny * N + nx) * 4 + d, kn = (ay * N + ax) * 4 + (d ^ 2);
+          if (FIX_EDGE.indexOf(kindOf[kf] || kindOf[kn]) >= 0) return true;
+          return dropObjs.length > 0
+            && mountDrop(dropObjs[(d + sy) % dropObjs.length], ax, ay, d);
+        }
+      }
+      return false;
+    };
+    /* The march does NOT draw on the axis walk's budget: the budget is "two directions of the picture are
+       answered", and spending it on the bearing face would drop the side face the walk already furnished
+       (measured: L0's fixCount fell 39 -> 38 and L1's 37 -> 36, i.e. a denser frame bought by a sparser
+       room). Where the two meet the SAME face the dedupe below collapses them into one mount, so the only
+       level that gains a fixture is the one whose bearing meets a face no axis line reached. */
+    if (typeof ang === 'number') marchSeat(a0, objects[sy % objects.length]);
     const order = [0, 1, 2, 3].map(d => {
       let e = a0 - dirAng[d];
       while (e > Math.PI) e -= 2 * Math.PI;
