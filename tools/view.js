@@ -8602,10 +8602,19 @@ if (MODE === 'heights') {
             const gx=(camX+rx*dRow)|0,gy=(camY+ry*dRow)|0,
               ok=gx>=0&&gy>=0&&gx<N&&gy<N&&!MAP.cell[gy*N+gx],
               plC=ok?MAP.fz[gy*N+gx]*ZQ:plA;
-            let wp='the row fill';
-            if(dRow>FARB)wp='the far-band wash'; else if(plC>=eyeZ)wp='the #192 slab branch';
-            else if(plC!==plA)wp='the deferred copy';
-            if(dRow>FARB)pfar++;else if(plC>=eyeZ)pslab++;else if(plC!==plA)pdef++;else prow++;
+            /* #518 ASK THE RENDERER, NOT THE GRID. This used to guess: "the cell the row's distance lands
+               in carries a plane other than the row's, so the deferred copy wrote this pixel". The guess is
+               wrong exactly where it matters - pose B's worst pixels sit one pixel past a deck edge, the
+               cell at dRow is the pit's, and the deferred copy NEVER RAN there: the row had already marched
+               this column, its march is capped by its own plane's solve and can only answer NEARER, so it
+               answered the row's plane, painted the row's distance and queued nothing. Measured this cycle
+               by re-rendering the same seat with floorWalkEnabled flipped in one page: pixels that the
+               deferred body owns move 8.50 -> 28.17 and 8.45 -> 42.25; pose B's worst two do not move at
+               all. ZD.set is the queue the renderer filled itself (the wrapper at ZON), so membership is
+               a fact about which pass wrote the pixel rather than an inference from the grid. */
+            const dq=ZD.set[y*BW+x]===1;
+            let wp=dq?(plC>=eyeZ?'the #192 slab branch':'the deferred copy'):(dRow>FARB?'the far-band wash':'the row fill');
+            if(!dq&&dRow>FARB)pfar++;else if(dq&&plC>=eyeZ)pslab++;else if(dq)pdef++;else prow++;
             if(got-dW>pmax){pmax=got-dW;why='row '+(y-hz)+' col '+x+' stores '+got.toFixed(2)+' m where its own ray arrives at '+dW.toFixed(2)+' m, written by '+wp;}}
           if(dF>dW+${PZQ}){fix++;wsum+=dW;fsum+=dF;if(dF-dW>fmax)fmax=dF-dW;}}}
       reSolveBad=rsb0;
@@ -8623,7 +8632,7 @@ if (MODE === 'heights') {
          #515's "the stairs look warped" with the warped part isolated. */
       run(PRE + STAGE + ';' + `(()=>{for(let w=-2;w<=2;w++){for(let k=1;k<=8;k++)MAP.fz[(${SY}+w)*MW+${SX}+k]=-k;` +
         `for(let k=9;k<${SL};k++)MAP.fz[(${SY}+w)*MW+${SX}+k]=-8;}})();linkBoundaries();` + SEAT);
-      run('renderWorld()');
+      run(ZRESET + ';' + ZON + ';renderWorld()');
       const a = run(PCENSUS);
       const aok = !a.phantom && a.fix;
       if (!aok) poseBad++;
@@ -8640,9 +8649,10 @@ if (MODE === 'heights') {
          runs, and the far deck's plane is adopted as a top surface. The claim is therefore in DEPTH, at
          rows derived from the authored cells. */
       const DL = SL - 6.5;                       // far lip face: cell boundary at x = SX+9, eye at SX+0.5
+      const DLN = DL - 5;                        // NEAR lip face: the pit's near boundary at x = SX+4, same eye
       run(PRE + STAGE + ';' + `(()=>{for(let w=-2;w<=2;w++)for(let k=4;k<=8;k++)MAP.fz[(${SY}+w)*MW+${SX}+k]-=8;})()` +
         ';linkBoundaries();' + SEAT);
-      run('renderWorld()');
+      run(ZRESET + ';' + ZON + ';renderWorld()');
       const zPit = zbufCopy(), hzB = run('Math.round(horizon)'), eyeB = run('eyeZ');
       const y0 = Math.round(hzB + eyeB * PBH / DL) + 1, y1 = Math.round(hzB + (eyeB + 2) * PBH / DL) - 1;
       const b = run(PCENSUS);
@@ -8660,17 +8670,30 @@ if (MODE === 'heights') {
          shipped build fails this row by 0.45 m on the lip's own rows, which is the whole complaint.
          The march runs with a far cap and can spend heights' re-solve budget, so that counter is restored
          exactly as PCENSUS does. */
-      const lip = run(`(()=>{const N=MAP.w,z=new Float32Array(zbuf),hz=Math.round(horizon),DL=${DL.toFixed(6)};
+      const lip = run(`(()=>{const N=MAP.w,z=new Float32Array(zbuf),hz=Math.round(horizon),DL=${DL.toFixed(6)},DLN=${DLN.toFixed(6)};
       const ex=camX|0,ey=camY|0,air=ex>=0&&ey>=0&&ex<N&&ey<N&&!MAP.cell[ey*N+ex];
       let plA=air?MAP.fz[ey*N+ex]*ZQ:eyeZ; if(!(plA<eyeZ)) plA=Math.min(0,eyeZ-ZQ);
-      let n=0,near=0,far=0,cov=0,lipBad=0,mx=0,where='',pRow=0,pDef=0,pSlab=0,pFar=0,rs=reSolveBad;
+      let n=0,near=0,nearOff=0,far=0,cov=0,lipBad=0,mx=0,where='',pRow=0,pDef=0,pSlab=0,pFar=0,rs=reSolveBad;
       for(let y=${Math.max(hzB + 1, y0)};y<=${Math.min(PH - 1, y1)};y++){const absP=y-hz,dRow=(eyeZ-plA)*BH/absP;
         for(let x=${(PW * 0.3) | 0};x<${(PW * 0.7) | 0};x+=3){const cf=x*(2/BW)-1,rx=dirX+planeX*cf,ry=dirY+planeY*cf;
           const pw=planeAlong(rx,ry,-1e9,true,absP),pwT=gWalkT,got=z[y*BW+x];
           const dW=pw>-1e8?(pwT>=0?Math.min(pwT,FARB*4):(eyeZ-pw)*BH/absP):Math.min(dRow,FARB*4);
           if(!(got>0)||!(dW>0)||!isFinite(dW))continue;n++;
+          /* #516/#518 A NEARER STORE IS NOT A PHANTOM, IT IS A FACE THE FLOOR MARCH CANNOT NAME.
+             The floor half's own ray answers the FAR lip at 8.5 m, and the frame stores 3.50 m at the
+             worst of these pixels - which is not the deck plane's solve either (that is 3.52 at row 48,
+             printed by the same census two lines up). 3.50 is exactly the authored NEAR lip's boundary,
+             (SX+4)-(SX+0.5), and the drop face it caps is drawn by the WALL pass, which paints this
+             pixel and its depth after the ground pass and wins. Measured three ways this cycle: the
+             store is nearer than the walked floor answer at 80 px; it is byte-equal to the near-lip
+             boundary at every one of them; and the deferred floor solver on the same ray returns the
+             far-lip crossing (gWalkT 8.50), so the floor half was never the last writer. So the claim
+             stays as sharp as it was and gets a name: a nearer pixel must sit on the near face within
+             one quantum, or it is unexplained and this row goes red on it. Nothing here is a widened
+             tolerance - far keeps its own threshold and cov/lipBad keep theirs. */
           const e=got-dW;
-          if(Math.abs(e)>ZQ){if(e<0)near++;else far++;if(Math.abs(e)>mx){mx=Math.abs(e);
+          if(Math.abs(e)>ZQ){if(e<0){near++;if(Math.abs(got-DLN)>ZQ)nearOff++;}else far++;
+            if(Math.abs(e)>mx){mx=Math.abs(e);
             where='row '+(y-hz)+' col '+x+' stores '+got.toFixed(2)+' m where its own ray arrives at '+dW.toFixed(2)+' m';}
           /* WHICH PASS WROTE IT - the nearer half of the same attribution PCENSUS does for the farther
              half, so a red row names a pass and not only a distance. Same three tests, same arithmetic:
@@ -8680,9 +8703,12 @@ if (MODE === 'heights') {
             const dR=(eyeZ-plA)*BH/absP,gx=(camX+rx*dR)|0,gy=(camY+ry*dR)|0;
             const ok=gx>=0&&gy>=0&&gx<N&&gy<N&&!MAP.cell[gy*N+gx];
             const plC=ok?MAP.fz[gy*N+gx]*ZQ:plA;
-            if(dR>FARB)pFar++;else if(plC>=eyeZ)pSlab++;else if(plC!==plA)pDef++;else pRow++;}
-          if(Math.abs(dW-DL)<=ZQ){cov++;if(Math.abs(got-DL)>ZQ)lipBad++;}}}
-      reSolveBad=rs;return {n,near,far,cov,lipBad,mx,where,pRow,pDef,pSlab,pFar};})()`);
+            /* #518 same rule as PCENSUS: ZD.set membership decides which pass wrote it. */
+            if(ZD.set[y*BW+x]!==1)pRow++;else if(plC>=eyeZ)pSlab++;else pDef++;}
+          /* A pixel whose ray arrives at the authored far face must store that face OR the near lip's
+             drop face in front of it; anything else is the defect this row is for. */
+          if(Math.abs(dW-DL)<=ZQ){cov++;if(Math.abs(got-DL)>ZQ&&Math.abs(got-DLN)>ZQ)lipBad++;}}}
+      reSolveBad=rs;return {n,near,nearOff,far,cov,lipBad,mx,where,pRow,pDef,pSlab,pFar};})()`);
       const err = [];
       for (let y = Math.max(hzB + 1, y0); y <= Math.min(PH - 1, y1); y++)
         for (let x = (PW * 0.3) | 0; x < PW * 0.7; x += 3) {
@@ -8695,7 +8721,7 @@ if (MODE === 'heights') {
          own cell was never in the hole, so floorAt cannot move it). */
       run(`(()=>{for(let w=-${SW};w<=${SW};w++)for(let k=0;k<${SL};k++)MAP.fz[(${SY}+w)*MW+${SX}+k]=0;})()` +
         ';linkBoundaries();' + SEAT);
-      run('renderWorld()');
+      run(ZRESET + ';' + ZON + ';renderWorld()');
       const zFill = zbufCopy();
       let ch = 0;
       for (let y = Math.max(hzB + 1, y0); y <= Math.min(PH - 1, y1); y++)
@@ -8703,7 +8729,7 @@ if (MODE === 'heights') {
           const p = zPit[y * PW + x], f = zFill[y * PW + x];
           if (isFinite(p) && isFinite(f) && Math.abs(p - f) > 1) { ch++; break; }
         }
-      const bok = !b.phantom && lip.n > 200 && lip.cov > 0 && lip.lipBad === 0 && lip.near === 0 && lip.far === 0 && ch > 0;
+      const bok = !b.phantom && lip.n > 200 && lip.cov > 0 && lip.lipBad === 0 && lip.nearOff === 0 && lip.far === 0 && ch > 0;
       if (!bok) poseBad++;
       console.log('  ' + pad('poseB', 9) + ' #516 from the deck the pit\'s FAR LIP holds the rows the geometry says: rows ' +
         y0 + '..' + y1 + ' are the ' + DL.toFixed(1) + ' m riser, ' + err.length + ' px sampled, median depth error ' +
@@ -8712,10 +8738,11 @@ if (MODE === 'heights') {
         + 'called a phantom - the band is a projection, not an occlusion test); ' +
         lip.n + ' lip px judged against their own ray, ' + lip.cov + ' of them arrive AT the authored ' +
         DL.toFixed(1) + ' m face and ' + lip.lipBad + ' of those store something else, ' + lip.near +
-        ' nearer / ' + lip.far + ' farther than their own arrival by more than one quantum, written by '
+        ' nearer (' + lip.nearOff + ' of them not on the near lip face) / ' + lip.far + ' farther than their own arrival by more than one quantum, written by '
         + lip.pRow + '/' + lip.pDef + '/' + lip.pSlab + '/' + lip.pFar + ' (row fill / deferred copy / slab branch / far wash)' +
-        (lip.n > 200 && lip.cov > 0 && lip.lipBad === 0 && lip.near === 0 && lip.far === 0 ? '  ok'
+        (lip.n > 200 && lip.cov > 0 && lip.lipBad === 0 && lip.nearOff === 0 && lip.far === 0 ? '  ok'
           : '  FAIL LIP-ROWS-PHANTOM' + (lip.cov === 0 ? ' + LIP-COVERAGE-DEAD: no lip ray arrives at the authored face, so this row proves nothing' : '') +
+            (lip.nearOff ? ` + LIP-NEAR-UNEXPLAINED: ${lip.nearOff} of the ${lip.near} nearer px do not sit on the near lip's own face, so a nearer surface the pose cannot name owns them` : '') +
             (lip.where ? ': worst ' + lip.where : '')) +
         `; ${b.phantom} phantom px over the whole lower half` + (b.phantom ? '  FAIL PIT-FLOOR-PHANTOM' : '') +
         `; the PIT-FILLED control moves ${ch} of ${Math.max(0, y1 - y0 + 1)} lip rows by > 1 m` +
@@ -8727,7 +8754,7 @@ if (MODE === 'heights') {
          authored disc, against a control that flattens the disc under a pinned camera. */
       run(PRE + STAGE + ';' + `(()=>{for(let dx=-1;dx<=1;dx++)for(let dy=-1;dy<=1;dy++)MAP.fz[(${SY}+dy)*MW+${SX}+dx]+=4;})()` +
         ';linkBoundaries();' + SEAT);
-      run('renderWorld()');                                  // eyeZ is written BY the render: read it after
+      run(ZRESET + ';' + ZON + ';renderWorld()');                                  // eyeZ is written BY the render: read it after
       const zEye = run('eyeZ'), zBandFloor = run('floorAt(P.x,P.y)');
       const zDisc = zbufCopy(), hzC = run('Math.round(horizon)'), xc = (PW / 2) | 0;
       const yEdge = Math.round(hzC + (zEye - zBandFloor) * PBH / 1.5);
@@ -8744,7 +8771,7 @@ if (MODE === 'heights') {
       const eyePin = run('P.z');
       run(`(()=>{for(let w=-${SW};w<=${SW};w++)for(let k=0;k<${SL};k++)MAP.fz[(${SY}+w)*MW+${SX}+k]=0;})()` +
         ';linkBoundaries();');
-      run(`P.x=${SX}+.5;P.y=${SY}+.5;P.ang=0;P.pitch=0;P.z=${eyePin.toFixed(6)};renderWorld()`);
+      run(`P.x=${SX}+.5;P.y=${SY}+.5;P.ang=0;P.pitch=0;P.z=${eyePin.toFixed(6)};` + ZRESET + ';' + ZON + ';renderWorld()');
       const jf = worstJump(zbufCopy());
       const cok = !c.phantom && jc.j >= 0.5 && Math.abs(jc.jr - yEdge) <= 4 && jf.j < 0.5;
       if (!cok) poseBad++;
@@ -8772,7 +8799,7 @@ if (MODE === 'heights') {
         ' (' + SL + 'x' + (2 * SW + 1) + ', walls taken out of it, props and enemies cleared, every floor write relinked): ' +
         (poseBad ? poseBad + ' of 3 poses FAILED' : 'all 3 poses ok'));
       bad += poseBad;
-      run(PRE);
+      run(ZOFF + ';' + PRE);
     }
     console.log(bad ? `POSES ${bad} FAILURE(S): the floor half still paints a surface its own ray never arrives at`
       : 'POSES ok - the floor half answers the surface its own ray arrives at, in all three poses');
