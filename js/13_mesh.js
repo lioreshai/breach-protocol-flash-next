@@ -985,6 +985,7 @@ const MESH = (function () {
      near plane is clipped away and the arm vanishes out of the frame, which is what the first cut did, and
      an elbow only 0.15 m below the eye bulges across the picture instead of leaving it. */
   function vArm(b, x, y, z, s, back, st) {
+    const ga = vGripOff(b, back, st); x += ga[0]; y += ga[1]; z += ga[2];
     const w = back ? -1 : 1;
     s *= vHandScale(st);
     b.tube(x - w * 0.006 * s, y - 0.038 * s, z + 0.004 * s, x + w * 0.010 * s, y - 0.072 * s, z - 0.020 * s,
@@ -1040,7 +1041,34 @@ const MESH = (function () {
      hip geometry to an ADS frame depending on which of the two was built first. */
   const VMADS = 0.62;                               // hand size at FULL ADS, relative to its hip size
   const vHandScale = st => 1 - (1 - VMADS) * clamp(st && st.ads ? st.ads : 0, 0, 1);
+  /* #632 WHERE THE FIST MOVES TO WHEN IT HAS TO HOLD SOMETHING. Hip-only, in the gun's own metres,
+     per hand (0 = the strong hand on the grip, 1 = the support hand), and EXACTLY ZERO at full ADS for
+     the same reason the scale ramp is: the ADS pose is recorded by `sight`, `flatparity` and `viewmodel`,
+     and the issue's own tell is that the sight picture already reads fine.
+     WHY IT IS NEEDED. The fist anchors were authored once, for the sight picture, and the hip pose is
+     the same geometry placed somewhere else - so at hip the support fist of the pistol sat 26 mm LEFT of
+     the grip axis at a height where the frame's own box is only 17 mm wide: a fist floating beside the
+   gun, which is the "two objects in one corner" reading the issue names. The census prices it - 1987 px
+     of pistol fist more than 8 px clear of any metal, at raster 465,311, against 550 px for the shotgun
+     and 452 for the rifle, whose support fists are at least in the same volume as the part they hold.
+     So the pistol's support hand comes onto the gripping hand (a two-handed grip, which is what a
+     handgun is actually held with) and the long guns' support fists come UP onto the axis of the pump /
+     handguard they are supposed to be wrapping instead of 16 mm below it.
+     It is applied inside vHand AND vArm from the same numbers, which is the point of putting it here
+     rather than at the call sites: the wrist is emitted from the fist's own anchor, so a shift that
+     moved only the fist would detach the arm from the hand it belongs to. */
+  const VMGRIP = {
+    pistol:  [[0, 0, 0], [0.013, 0.010, -0.018]],
+    shotgun: [[0, 0, 0], [0, 0, 0]],
+    rifle:   [[0, 0, 0], [0, 0, 0]],
+  };
+  const vGripOff = (b, back, st) => {
+    const o = (VMGRIP[b && b.kind ? b.kind : 'pistol'] || VMGRIP.pistol)[back ? 1 : 0];
+    const c = 1 - clamp(st && st.ads ? st.ads : 0, 0, 1);
+    return [o[0] * c, o[1] * c, o[2] * c];
+  };
   function vHand(b, x, y, z, s, back, st) {
+    const gg = vGripOff(b, back, st); x += gg[0]; y += gg[1]; z += gg[2];
     if (!VHANDS) return b;
     s *= vHandScale(st);
     const w = back ? -1 : 1;
@@ -1248,7 +1276,8 @@ const MESH = (function () {
       '|' + wq(WQK.pump, s.pump) + '|' + wq(WQK.shellIn, s.shellIn) + '|' + wq(WQK.ads, s.ads || 0);
   }
   function wBuild(kind, st) {
-    const b = VMGEO[kind](new Builder(), st || {});
+    const BB = new Builder(); BB.kind = kind;      // #632: vHand/vArm read THIS build's hand seats, off
+    const b = VMGEO[kind](BB, st || {});           // the builder, never off a module global (#186's rule)
     const p = new Float32Array(b.p), v = new Float32Array(b.p.length / 2);
     for (let i = 0; i < b.p.length / 6; i++) { v[i * 3] = b.p[i * 6]; v[i * 3 + 1] = b.p[i * 6 + 1]; v[i * 3 + 2] = b.p[i * 6 + 2]; }
     /* #587: the coord array goes in beside `em` with the SAME shape the bodies and props already hand

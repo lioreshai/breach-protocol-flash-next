@@ -4275,10 +4275,28 @@ const VMSIT = {
    the `viewmodel` probe only asserts the hands are inside the frame and cover their recorded share of
    it. A seat whose grip moved out from under the hands would still be green here. #632 keeps that
    clause open; until a row exists this paragraph is a statement of intent, not a check. */
+/* #632 TAKE TWO - THE CARRY, NOT THE CORNER. The three seats above were the first per-weapon hip pose
+   this repo had, and the census says what they bought: three distinct SILHOUETTES (`hip distinct` now
+   differs by 6351/4151/4134 px against a 2416 px sway band) and still no CONTACT - the pistol put
+   1987 px of fist more than 8 px clear of any metal, at raster 465,311, which is 34 px below the
+   picture's own lower edge. That is the arithmetic of "parked": the seat hung the gun 0.100-0.112 m
+   below the eye at 0.25 m of reach, and a fist authored a further 0.040-0.050 m below the grip top
+   lands at horizon + BH*(0.15/0.27) = one hundred and eighty seven rows down, out of the frame. The
+   player saw the gun, and two wrists entering the bottom edge of the picture. Nothing else in the
+   frame can fix that, because the gripping surface was never inside the picture.
+   So the carry is what moves: `d` comes UP by two to three centimetres, which is the whole of the
+   defect (the fists come back on screen, ON the grip), `f` comes in by a centimetre so the rig reads
+   as against the body rather than stowed at arm's length, and the per-weapon ranking is kept - the
+   long guns still ride further out and lower than the pistol, because their stocks would otherwise
+   stand through the chest. `yaw` is now non-zero for the first time: a shouldered gun points its
+   muzzle INBOARD (toward the body's centre line, so a positive rig yaw for a right-sided carry),
+   and it ramps to exactly zero at full ADS with every other term here, because a gun that is ON the
+   sight line is on the ray. The three yaws are ranked by barrel length, which is the only thing
+   outside the silhouette that can tell a shotgun from a rifle while neither is aimed. */
 const VMHIP = {
-  pistol:  { f: 0.247, r: 0.098, d: 0.100, cant: 0.030, yaw: 0.000 },
-  shotgun: { f: 0.250, r: 0.118, d: 0.106, cant: -0.028, yaw: 0.000 },
-  rifle:   { f: 0.252, r: 0.126, d: 0.112, cant: -0.032, yaw: 0.000 },
+  pistol:  { f: 0.247, r: 0.098, d: 0.100, cant: 0.030, yaw: 0.030 },
+  shotgun: { f: 0.250, r: 0.118, d: 0.106, cant: -0.028, yaw: 0.034 },
+  rifle:   { f: 0.252, r: 0.126, d: 0.112, cant: -0.032, yaw: 0.040 },
 };
 let VMFLOOR = 0.5, VMRIM = 0.08;     // the two readability terms - see row (d)
 const VMROT = new Float32Array(9);
