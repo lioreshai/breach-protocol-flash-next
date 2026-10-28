@@ -131,6 +131,11 @@ other trace; `S.err` survives while `S.audioBroken` is set, because clearing it 
 
 - **A claim checked through `DEV` counts as verified; a claim checked by guessing at internals does
   not.** The first hunt that needed it wasted turns assigning to `P.yaw`, which does not exist.
+- **One page load is one deal**, so a two-arm A/B of the same frame is two loads of the same URL: `node
+tools/livecap.js both --url <deployed page> --levels 0,1,2,3` takes both arms with the clock frozen and
+  grain off and prints the `FG` row — the value and chroma step at the pixels the frame delivered for one
+  body ~10 m out. It is the instrument for a figure-ground claim about the deployed build; `view.js
+  contrast` is the same question off a page. `--help` prints the route, and it needs no `--virtual-time-budget`.
 - **Read the source the page is actually running** before believing a behaviour probe — a Pages
   deploy leaves the previous build cached for its `max-age`. Assert on a marker that is **code,
   not prose**, grepped out of the merged file. See [`ENGINEERING.md`](ENGINEERING.md).
