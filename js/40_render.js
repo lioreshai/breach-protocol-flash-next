@@ -623,6 +623,10 @@ function renderWorld() {
   list.sort((a, b) => b.d2 - a.d2);
   if (COV) COV.fill(0);            // opt-in only: null in play, so this is one branch off the hot path
   for (const b of list) { if (b.mesh) MESH.draw(b); else drawBillboard(b); }
+  /* #611: every object has now answered its own pixels, so the pixels a body kept are known. The
+     figure-ground step is bought HERE, over the silhouette the frame actually delivered - a crate nearer
+     than the body draws after him and would otherwise have cancelled part of a correction nobody sees. */
+  MESH.endFrame();
 
   /* The weapon last, and into the same buffer. It is the nearest thing in the frame, and drawing it
      here rather than composited over the finished picture is what makes it part of the picture: bloom,

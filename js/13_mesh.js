@@ -406,6 +406,72 @@ const MESH = (function () {
      over. Two flat strips, allocated once and reused; the box is clipped to BGMAX pixels, so a body drawn
      close enough to exceed the strip is measured not at all rather than measured partially. */
   let BGSAVE = null, BGDEPTH = null, BGMAX = 65536;
+  /* #611 WHEN the step is paid. The object list is sorted far to near, so a crate NEARER than a body is
+     drawn AFTER him and paints over part of his silhouette. Measured at the end of his own draw the step
+     is therefore paid over pixels the frame then throws away: at the L0 deal `tools/view.js contrast`
+     calls roll 6 the draw measured 197 px and the frame delivered 128, and the pixels it kept stand in
+     front of a surface 2.5 luma DARKER than the mean he was fitted to - so he landed 2.5 short of
+     FG_PUSH, the one deal of the 48 that still falls under the value bar. The record below carries his
+     owned pixels - index, the colour that was behind each one, the depth he wrote - to the end of the
+     object pass, where a pixel the frame KEPT is exactly a pixel whose depth is still the one he wrote.
+     The step is measured and paid over those, so it is the delivered picture that is fitted, not a
+     prediction of it. Records are recycled; a body owns a couple of hundred px at 10 m. */
+  const FGMAXPX = 65536;                    // the same cap the strip carried: never measured partially
+  const FGREC = [], FGPEND = [];
+  const fgGrow = rec => {
+    const c = Math.min(FGMAXPX, rec.idx.length * 2), n = rec.n;
+    const a = new Uint32Array(c), b = new Uint32Array(c), d = new Float32Array(c);
+    a.set(rec.idx); b.set(rec.col); d.set(rec.d);
+    rec.idx = a; rec.col = b; rec.d = d;
+  };
+  const fgTake = () => {
+    for (let i = 0; i < FGREC.length; i++) if (!FGREC[i].busy) return FGREC[i];
+    if (FGREC.length >= 24) { fgFlush(); for (let i = 0; i < FGREC.length; i++) if (!FGREC[i].busy) return FGREC[i]; }
+    const r = { idx: new Uint32Array(1024), col: new Uint32Array(1024), d: new Float32Array(1024), n: 0, fog: 0, busy: 0 };
+    FGREC.push(r); return r;
+  };
+  /* The payment itself, and the ONLY place the figure-ground law lives: one mean over the pixels the
+     frame kept, the shortfall bought with a grey scale on (pixel - wash) so `texel * light` is what
+     scales, the wash added back once (#458), no light term touched (#407) and the hue/chroma axis
+     scale-invariant so the colour bar cannot be bought with brightness. He is put FG_PUSH luma away on
+     the side he already sits - the direction of the least move, which is why the #407 distance rows
+     cannot be dragged past their ceiling - and the rail FG_MAX still caps any one draw's mean move. */
+  function fgPay (rec) {
+    const K = rec.n, fog = rec.fog;
+    if (K < 24) return;
+    const wr = FOGC[0] * fog, wg = FOGC[1] * fog, wb = FOGC[2] * fog;
+    const wa = (LUMW[0] * FOGC[0] + LUMW[1] * FOGC[1] + LUMW[2] * FOGC[2]) * fog;
+    let own = 0, dl = 0, bl = 0;
+    for (let i = 0; i < K; i++) {
+      const o = rec.idx[i];
+      if (zbuf[o] < rec.d[i]) continue;                  // the frame kept something nearer: not his pixel
+      const p = px[o], q = rec.col[i];
+      dl += LUMW[0] * (p & 255) + LUMW[1] * (p >> 8 & 255) + LUMW[2] * (p >> 16 & 255);
+      bl += LUMW[0] * (q & 255) + LUMW[1] * (q >> 8 & 255) + LUMW[2] * (q >> 16 & 255);
+      own++;
+    }
+    if (own < 24) return;                                // the vacuity floor, on the set actually fitted
+    dl /= own; bl /= own;
+    const gap = dl - bl, den = dl - wa;
+    if (gap <= -FG_PUSH || gap >= FG_PUSH || den <= 2) return;
+    const want = clamp(gap <= 0 ? bl - FG_PUSH : bl + FG_PUSH, dl - FG_MAX, dl + FG_MAX);
+    const k = clamp((want - wa) / den, 0.45, 1.8);
+    if (k === 1) return;                                 // he already separates: inert, one read pass
+    for (let i = 0; i < K; i++) {
+      const o = rec.idx[i];
+      if (zbuf[o] < rec.d[i]) continue;
+      const p = px[o];
+      px[o] = (0xFF000000 |
+        clampi((p >> 16 & 255) + ((p >> 16 & 255) - wb) * (k - 1)) << 16 |
+        clampi((p >> 8 & 255) + ((p >> 8 & 255) - wg) * (k - 1)) << 8 |
+        clampi((p & 255) + ((p & 255) - wr) * (k - 1))) >>> 0;
+    }
+  }
+  const fgFlush = () => {
+    for (let i = 0; i < FGPEND.length; i++) fgPay(FGPEND[i]);
+    for (let i = 0; i < FGPEND.length; i++) FGPEND[i].busy = 0;
+    FGPEND.length = 0;
+  };
 
   let srx0 = 0, srx1 = -1, sry0 = 0, sry1 = -1;      // the rectangle the last view-model draw wrote
   let R0 = 0.30, R1 = 0.85;                            // the Lambert ramp, per kind - see draw()
@@ -2123,50 +2189,32 @@ const MESH = (function () {
        separates by FG_PUSH or more pays nothing at all, and the rail FG_MAX still caps any one draw. The
        24-pixel floor is the vacuity gate - a mean over a handful of pixels a lip is leaving him is not a
        measurement, so the term stays inert instead of inventing a step. */
+    /* The draw itself pays nothing. It records which pixels it took over - index, the colour that was
+       behind each, the depth it wrote - and the step is bought at the END of the object pass by fgPay,
+       over the pixels the frame actually kept. See the #611 note on FGREC/FGPEND above: measuring at the
+       end of his own draw fits a mean over pixels a nearer crate then paints over, which is the whole of
+       the L0 roll-6 shortfall. */
     if (fgW) {
-      let own = 0, dl = 0, bl = 0;
+      const rec = fgTake();
+      rec.busy = 1; rec.n = 0; rec.fog = fgFog;
       for (let y = 0; y < fgH; y++) {
         const row = (fgY0 + y) * BW + fgX0, base = y * fgW;
         for (let x = 0; x < fgW; x++) {
           const off = row + x, zWas = BGDEPTH[base + x];
           if (!(zbuf[off] < zWas)) continue;            // he did not take this pixel over
-          const p = px[off], q = BGSAVE[base + x];
-          dl += LUMW[0] * (p & 255) + LUMW[1] * (p >> 8 & 255) + LUMW[2] * (p >> 16 & 255);
-          bl += LUMW[0] * (q & 255) + LUMW[1] * (q >> 8 & 255) + LUMW[2] * (q >> 16 & 255);
-          own++;
+          if (rec.n >= FGMAXPX) break;
+          if (rec.n === rec.idx.length) fgGrow(rec);
+          rec.idx[rec.n] = off; rec.col[rec.n] = BGSAVE[base + x]; rec.d[rec.n] = zbuf[off]; rec.n++;
         }
       }
-      if (own >= 24) {
-        dl /= own; bl /= own;
-        const gap = dl - bl;
-        if (gap > -FG_PUSH && gap < FG_PUSH) {
-          const wash = (LUMW[0] * FOGC[0] + LUMW[1] * FOGC[1] + LUMW[2] * FOGC[2]) * fgFog;
-          const want = clamp(gap <= 0 ? bl - FG_PUSH : bl + FG_PUSH, dl - FG_MAX, dl + FG_MAX);
-          const den = dl - wash;
-          if (den > 2) {
-            const k = clamp((want - wash) / den, 0.45, 1.8);
-            const wr = FOGC[0] * fgFog, wg = FOGC[1] * fgFog, wb = FOGC[2] * fgFog;
-            for (let y = 0; y < fgH; y++) {
-              const row = (fgY0 + y) * BW + fgX0, base = y * fgW;
-              for (let x = 0; x < fgW; x++) {
-                const off = row + x;
-                if (!(zbuf[off] < BGDEPTH[base + x])) continue;
-                const p = px[off];
-                px[off] = (0xFF000000 |
-                  clampi((p >> 16 & 255) + ((p >> 16 & 255) - wb) * (k - 1)) << 16 |
-                  clampi((p >> 8 & 255) + ((p >> 8 & 255) - wg) * (k - 1)) << 8 |
-                  clampi((p & 255) + ((p & 255) - wr) * (k - 1))) >>> 0;
-              }
-            }
-          }
-        }
-      }
+      if (rec.n) FGPEND.push(rec); else rec.busy = 0;
     }
     if (ZSAVE) { zbuf = ZSAVE; ZSAVE = null; VMASK = false; }
   }
 
   return {
     draw,
+    endFrame: fgFlush,           // #611: pay the figure-ground step once the object pass is composed
     stats: () => ({ tris, pxFilled, trisCulled, poseEntries: POSE.size, poseMB: +(poseBytes / 1048576).toFixed(2), poseMade, capMB: PCAP / 1048576,
       wGeo: WEPO.size, wMiss: wStat[0], wHit: wStat[1], wMB: +(wBytes / 1048576).toFixed(3), wQ: WQK, wCap: WPCAP }),
     reset: () => { tris = 0; pxFilled = 0; trisCulled = 0; },
