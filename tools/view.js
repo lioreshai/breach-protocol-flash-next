@@ -16976,6 +16976,66 @@ if (MODE === 'surface') {
       `${sCells} column(s) within ${SEAT_D} m of the seat have a floor over their head, ` +
       `${sNear} soffit px in reach + ${sFar} beyond it above the horizon; deal ${dh}`,
       sNear < SEAT_PX ? '#421' : undefined);
+    /* #421 FILTER OR KEY - which half of the seat rule is the limit. `SEAT-CEILING` above prints the best
+       azimuth a seat CAN show; `SEAT` prints what the shipped heading does show. When those disagree the
+       remedy is either the ranking key (a better face is admitted and loses) or the admission filter (the
+       better face is never probed), and the two have different fixes. The prior attempt on this thread
+       changed the key to a face's angular width and measured 3273 px at RING TRANSPORT against the 8463
+       the sweep finds - less than half - which is the signature of a candidate the filter never admitted,
+       but it was never established, because nothing printed the candidate set.
+       It is printed here WITHOUT duplicating the rule: `seatFacing` is called from the page with `losZ`
+       wrapped, and every probe it makes at the seat's own origin is recorded (bearing, range, result). A
+       face the filters drop is never `losZ`-probed, so the record IS the admitted set - no second copy of
+       the filter to drift out of step with `js/20_level.js`, and the row keeps measuring the shipped rule.
+       Three states, and only the first is a FAILURE: no face probed at all while the sweep shows soffit in
+       some direction (nothing seen where something should be seen - vacuity); a heading that clears the
+       bar with no probed face inside half of the sweep step of it (the bar is reachable by turning and the
+       rule cannot be turned there - debt, and it names WHICH half of the work is left); and everything
+       else, green. A sector that AUTHORS its bearing (`seatAng`) is reported as opted out, because
+       `seatFacing` returns the literal and probes nothing. */
+    const kAuth = typeof run('LEVELS[' + li + '].seatAng') === 'number';
+    const kRec = run(`(function(){
+      const px = ${sSeat[0]}, py = ${sSeat[1]}, out = [], old = losZ;
+      losZ = function (ax, ay, az, bx, by, bz) {
+        const r = old(ax, ay, az, bx, by, bz);
+        if (Math.abs(ax - px) < 1e-9 && Math.abs(ay - py) < 1e-9) {
+          out.push({ a: Math.atan2(by - ay, bx - ax), d: Math.hypot(bx - ax, by - ay), v: r ? 1 : 0 });
+        }
+        return r;
+      };
+      let an = null;
+      try { an = seatFacing(px, py); } finally { losZ = old; }
+      return { an: an, c: out };
+    })()`);
+    const kSeen = [], kAdm = [];
+    for (const c of kRec.c) {
+      const a = +c.a.toFixed(3);
+      if (kSeen.indexOf(a) < 0) kSeen.push(a);
+      if (c.v && kAdm.indexOf(a) < 0) kAdm.push(a);
+    }
+    /* Half of the 12-azimuth sweep step: an admitted face this close to the best azimuth means the frame
+       at that azimuth already contains a face the rule could have chosen. */
+    const kHalf = Math.PI / 12;
+    let kNear = false;
+    for (const a of kAdm) {
+      let db = a - bAng;
+      while (db > Math.PI) db -= 2 * Math.PI;
+      while (db < -Math.PI) db += 2 * Math.PI;
+      if (Math.abs(db) <= kHalf) kNear = true;
+    }
+    const kVac = sCells > 0 && bPx > 0 && kAdm.length === 0;
+    const kDebt = !kAuth && !kVac && bPx >= SEAT_PX && !kNear;
+    row(`L${li} SEAT-FACE the heading the seat rule can reach contains the heading the frame shows most of`,
+      !kVac,
+      kAuth ? `${name} AUTHORS seatAng ${run('LEVELS[' + li + '].seatAng')}, so the rule is not run on this sector`
+        : `${kSeen.length} riser face(s) probed from the seat, ${kAdm.length} admitted by the filters; the sweep's `
+        + `best azimuth ${bAng.toFixed(2)} rad carries ${bPx} px against the shipped ${sNear} at ${sAng.toFixed(2)}; `
+        + `admitted bearings ${(kAdm.slice(0, 6).map(a => a.toFixed(2)).join(' ') || 'NONE')}`
+        + (kAdm.length > 6 ? ` (+${kAdm.length - 6} more)` : '')
+        + (bPx < SEAT_PX ? ' - no heading reaches the bar: the deal, not the lens'
+          : kNear ? ' - a face inside ' + kHalf.toFixed(2) + ' rad of the best azimuth IS admitted: the KEY is the limit'
+            : ' - the bar is reachable but NO admitted face is within ' + kHalf.toFixed(2) + ' rad of it: the FILTER is the limit'),
+      kVac ? undefined : kDebt ? '#421' : undefined);
     /* #548 TAKE TWO - HOW MANY ROOM HEIGHTS DOES THIS DEAL AUTHOR? The issue's own fix (every room gets
        CZ_ROOM) removed the plain-with-a-lid and left a quieter fault: one room ceiling CLEARANCE,
        repeated over a plan forty cells wide, so the roof is a single plane with no seam and no end in
