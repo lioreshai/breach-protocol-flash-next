@@ -3680,6 +3680,85 @@ if (MODE === 'vert') {
       `  split reaches ${r.reachSplit}/${r.reachFlat} blocked ${r.blocked} ${r.blocked > 0 && r.reachSplit < r.reachFlat ? 'REFUSES ok' : 'FAIL'}` +
       `  exit sealed ${r.exitSealed ? 'ok' : 'FAIL'}  FALLBACK warns ${r.warns} ${r.warns === 0 ? 'ok' : 'FALSE POSITIVE'}  ${ok ? 'ok' : 'FAIL'}`);
   }
+  /* ---- #633: THE EDGE KIND CENSUS. One stored kind per directed boundary, and the census is what
+     makes it a fact rather than a field. The question this answers is the one three paths used to
+     answer separately - the blocker in linkBoundaries, the clause copied into the renderer's wall
+     march, and this probe's own run-time guess (`kind = |dq| > 1 ? (linked ? 'ramp' : 'face') :
+     'walk'`, still there in `bands` at the line this replaces for the vertical lane). A boundary with
+     NO kind or with TWO kinds is a FAILURE, not a debt: today's whole bug class is "answered by
+     nobody", and a census that totals to MW*MH*4 cannot be satisfied by an edge nobody reached. The
+     WALK rows compare the stored kind against canEnter - the player's own answer - so a kind that is
+     stored but ignored by the feet goes red, which is the failure mode this issue exists for. The LAW
+     row is the downward half of the reachability rule docs/VERTICALITY.md already states for the
+     upward half: a crossing you can walk, that falls more than one quantum, must land in the SAME
+     step-or-climb basin it left, i.e. the way back is authored. edgeBasins is bfsReach's own crossing
+     rule read as components, and canEnter is read through the engine, so the two sides of this row
+     come from different code and it can disagree. The BLIND row is the other half of the same law:
+     an edge that stops your feet and draws nothing is an invisible wall, which is what a blocked
+     junction used to be. Camera-free, seed-free, no RNG read; the SABOTAGE that proves the agreement
+     rows can fail is in docs/DEVELOPMENT.md and is run with JSDIR=. */
+  console.log('edge kinds (one stored kind per boundary)');
+  const KN = ['ROOM', 'STEP', 'DROP', 'RAIL', 'CLIFF', 'COVERED', 'WALL'];
+  /* RUN LAST, and that is not cosmetic: startLevel rolls the dice, so a census that ran here would
+     shift every deal the rows below deal for itself. That is a real defect wearing a benign costume -
+     it showed up as `L0 flat walk keeps P.z on the floor` going VACUOUS (travelled 1.40 of 3.77 units)
+     with no engine change at all, because the lane this row picks was dealt one roll later than it was
+     before the census existed. A row that moves another row's dice is a row that cannot be A/B'd. */
+  const EDGE_CENSUS = () => {
+  for (let li = 0; li < NL; li++) {
+    const e = vm.runInContext(`(function(){
+      startLevel(${li}, true);
+      const ek = MAP.ek, par = edgeBasins(MAP.cell);
+      const pop = Object.create(null), pairs = Object.create(null), bad = Object.create(null);
+      let none = 0, two = 0, tot = 0, disagree = 0, goButStops = 0, stopButGoes = 0, freeFall = 0, blind = 0, dropCliff = 0;
+      for (const k of ['ROOM','STEP','DROP','RAIL','CLIFF','COVERED','WALL']) pop[k] = 0;
+      for (const p of ['ROOM/ROOM','STEP/STEP','CLIFF/DROP','CLIFF/CLIFF','RAIL/RAIL','COVERED/COVERED','WALL/WALL']) pairs[p] = 0;
+      for (let i = 0; i < MW * MH; i++) {
+        const x = i % MW, y = (i / MW) | 0;
+        for (let d = 0; d < 4; d++) {
+          tot++;
+          const k = ek[(i << 2) + d];
+          if (!k) { none++; continue; }
+          if (k & (k - 1)) { two++; continue; }
+          pop[ekName(k)]++;
+          const nx = x + DIRX[d], ny = y + DIRY[d];
+          if (nx < 0 || ny < 0 || nx >= MW || ny >= MH) continue;
+          const j = ny * MW + nx;
+          const k2 = ek[(j << 2) + (d ^ 2)];
+          if (!ekPairOk(k, k2)) disagree++;                // an answer invented for ONE side of a crossing
+          else pairs[ekPairName(k, k2)]++;
+          if (MAP.cell[i] || MAP.cell[j]) continue;             // a WALL: canEnter answers by openness
+          const can = canEnter(x + 0.5, y + 0.5, nx + 0.5, ny + 0.5) ? 1 : 0;
+          const walkable = (k & EK_WALK) ? 1 : 0;
+          if (can && !walkable) goButStops++;
+          if (!can && walkable) stopButGoes++;
+          if (can && MAP.fz[j] - MAP.fz[i] < -1 && par[i] !== par[j]) freeFall++;
+          if (!walkable && !(k & EK_FACEQ) && k !== EK_WALL && k !== EK_COVERED) blind++;
+          if (k === EK_CLIFF && MAP.fz[j] - MAP.fz[i] < 0) dropCliff++;
+        }
+      }
+      return { N: MW, tot: tot, pop: pop, pairs: pairs, none: none, two: two, disagree: disagree, goButStops: goButStops,
+        stopButGoes: stopButGoes, freeFall: freeFall, blind: blind, dropCliff: dropCliff,
+        sum: Object.values(pop).reduce((a, b) => a + b, 0), authored: LEVELS[${li}].authored ? 1 : 0,
+        stamp: MAP.linkStamp };
+    })()`, ctxVm);
+    const acc = e.sum + e.none + e.two === e.tot && e.tot === e.N * e.N * 4;
+    const ok = acc && !e.none && !e.two && !e.disagree && !e.goButStops && !e.stopButGoes &&
+      !e.freeFall && !e.blind;
+    bad += ok ? 0 : 1;
+    console.log(`  level ${li}${e.authored ? ' (authored plan)' : ''}  ` +
+      KN.map(k => k + ' ' + e.pop[k]).join('  ') +
+      `  = ${e.sum}/${e.tot} directed boundaries ${acc ? 'accounted' : 'FAIL: census does not total'}` +
+      `${e.none ? '  NO KIND ' + e.none + ' FAIL' : ''}${e.two ? '  TWO KINDS ' + e.two + ' FAIL' : ''}\n` +
+      `    pairs ` + Object.keys(e.pairs).filter(p => e.pairs[p]).map(p => p + ' ' + e.pairs[p]).join('  ') +
+      `  illegal pair(s) ${e.disagree ? 'FAIL ' + e.disagree : 'none'}` +
+      `  feet match the kind ${e.goButStops || e.stopButGoes ? 'FAIL ' + e.goButStops + '/' + e.stopButGoes : 'ok'}` +
+      `  no fall without a way back ${e.freeFall ? 'FAIL ' + e.freeFall : 'ok'}` +
+      `  nothing blocks while drawing nothing ${e.blind ? 'FAIL ' + e.blind : 'ok'}` +
+      `${e.dropCliff ? '  (' + e.dropCliff + ' rim(s) reclassified CLIFF because the band below has no route back)' : ''}` +
+      `  ${ok ? 'ok' : 'FAIL'}`);
+  }
+  };
   /* ---- M3 step 2: the player has to OBEY the grid. No shipped level has a height or a ladder
      yet (that is step 4), so no other gate can watch this code, and "it did not crash" is not a
      verdict. Every case pokes MAP.fz / MAP.vb / MAP.feat, relinks, then asks what the player
@@ -4021,6 +4100,7 @@ if (MODE === 'vert') {
     spawnRow('L' + li + ' spawn on a +4-quantum plateau (level change)', li, false, 4, 0, 1);
   }
   run(`if(globalThis.__genReal){genLevel=globalThis.__genReal;globalThis.__genReal=null;globalThis.__spawnBand=0;}`);
+  EDGE_CENSUS();
   if (bad) { console.log('vert: FAILED'); process.exit(1); }
   console.log('vert: all levels ok');
   // Without this the pass path fell through into the scene dump: CI's gate step printed a
