@@ -12828,6 +12828,90 @@ if (MODE === 'viewmodel') {
     bad += rp.length ? 1 : 0;
   }
 
+  /* #632 CLAUSES 3 AND 4 - THE HIP IS NOW PRICED AS A SILHOUETTE AND AS A GRIP.
+     Two things this issue says must be measurable, and neither was: that the three weapons do not share
+     ONE hip silhouette, and that "the hands come in with the gun they are authored onto" (the VMHIP note
+     in js/40_render.js) is a claim nothing checks - "a seat whose grip moved out from under the hands
+     would still be green here".
+     METHOD, both rows: three renders of the SAME rested pose - hands+gun (A), gun alone via the rig's own
+     `setHands` arm (B), and no rig at all (C). They differ by geometry and by nothing else, because the
+     sway state is RESTED first (#180) and the second and third frames run the pass frozen. So
+     hand surface = A!=B (a fist reached the frame), weapon surface = B!=C, rig silhouette = A!=C. Nothing
+     crosses the bridge except the counts; the masks and the dilations are computed in the page.
+     (a) GRIP. `on` counts hand surface that lands on weapon surface, after dilating the weapon mask by R
+     device px so a fist whose fingers wrap the far side of the grip still counts as touching it. The
+     floor is NOT the shipped number: the shipped build measures 23.9 / 35.8 / 36.2 %, so 12 % is a floor
+     a half-detached fist trips and today's geometry clears. The rest is printed as debt, not asserted -
+     the hands reaching the gun is #632's own remaining step, and a row that asserted the shipped value
+     would be a licence to keep it exactly where it is.
+     (b) DISTINCT HIP. A pair of weapons' hip silhouettes must differ by MORE pixels than one full swing
+     of the rig's own sway moves, same weapon. Without the second number the first is just "different";
+     with it the row says the pose carries information the wobble cannot fake. The wobble band is measured
+     here, in the same tree, from the art's own sprint bob amplitude (js/40_render.js `bobX`), not quoted.
+     NON-VACUITY both rows: zero hand surface, or a wobble band of zero pixels, is a FAILURE - not a pass
+     with a nice ratio. */
+  const GRIP_R = +(process.env.GRIP_R || 8);         // weapon-mask dilation, raster px
+  const GRIP_FLOOR = +(process.env.GRIP_FLOOR || 0.12);
+  run('window.__HM = {};');
+  /* One hip pose, three frozen frames, and the masks stay in the page. `key` keeps this pose's rig
+     silhouette for the pairwise row below; without it the row would have to ship 200k pixels per frame
+     over the bridge and the probe would cost seconds it does not have. */
+  function hipRig(setup, key) {
+    run('P.ads = 0; P.kick = 0; P.reloadT = 0; P.swapT = 0; P.air = false; P.vz = 0; P.bobPhase = 0; S.muzzle = 0; keys.KeyW = 0; P.vx = 0; P.vy = 0; ' + setup);
+    run('window.drawViewModel = window.__VMSAVE; MESH.setHands(true); ' + REST);
+    run('MESH.reset(); renderWorld(); window.__HA = px.slice();');                                          // A: hands + gun
+    run('MESH.setHands(false); MESH.reset(); renderWorld(); window.__HB = px.slice(); MESH.setHands(true);'); // B: gun alone
+    run('window.drawViewModel = function () {}; MESH.reset(); renderWorld(); window.__HC = px.slice(); window.drawViewModel = window.__VMSAVE;'); // C: no rig
+    return run('(()=>{const A=window.__HA,B=window.__HB,C=window.__HC,n=BW*BH,R=' + GRIP_R + ';'
+      + 'const sil=new Uint8Array(n),hand=new Uint8Array(n),gun=new Uint8Array(n),tmp=new Uint8Array(n),dil=new Uint8Array(n);'
+      + 'let sN=0,hN=0,gN=0,on=0,fl=0,fx=0,fy=0;'
+      + 'for(let i=0;i<n;i++){const a=A[i]!==C[i],h=A[i]!==B[i],g=B[i]!==C[i];sil[i]=a?1:0;hand[i]=h?1:0;gun[i]=g?1:0;'
+      + 'if(a)sN++;if(h)hN++;if(g)gN++;if(h&&g)on++;}'
+      + 'for(let y=0;y<BH;y++){const r0=y*BW;let c=0;for(let x=-R;x<=R;x++)if(x>=0&&x<BW&&gun[r0+x])c++;'
+      + 'for(let x=0;x<BW;x++){tmp[r0+x]=c>0?1:0;const a2=x+1+R<BW?gun[r0+x+1+R]:0,r2=x-R>=0?gun[r0+x-R]:0;c+=a2-r2;}}'
+      + 'for(let x=0;x<BW;x++){let c=0;for(let y=-R;y<=R;y++)if(y>=0&&y<BH&&tmp[y*BW+x])c++;'
+      + 'for(let y=0;y<BH;y++){dil[y*BW+x]=c>0?1:0;const a2=y+1+R<BH?tmp[(y+1+R)*BW+x]:0,r2=y-R>=0?tmp[(y-R)*BW+x]:0;c+=a2-r2;}}'
+      + 'for(let i=0;i<n;i++)if(hand[i]&&!dil[i]){fl++;fx+=i%BW;fy+=(i/BW)|0;}'
+      + (key === undefined ? '' : 'window.__HM[' + JSON.stringify(key) + ']=sil;')
+      + 'return {sil:sN,hand:hN,gun:gN,on,free:fl,fx:fl?Math.round(fx/fl):0,fy:fl?Math.round(fy/fl):0}})()');
+  }
+  const maskDiff = (a, b) => run('(()=>{const A=window.__HM[' + JSON.stringify(a) + '],B=window.__HM[' + JSON.stringify(b) + '];'
+    + 'let n=0;for(let i=0;i<A.length;i++)if(A[i]!==B[i])n++;return n})()');
+  const HIP = [], WOB = [];
+  for (let wi = 0; wi < run('WEAPONS.length'); wi++) {
+    HIP.push(hipRig('P.weapon=' + wi, wi));
+    // one full swing of the authored walk bob, the same weapon, everything else identical: the band
+    hipRig('P.weapon=' + wi + '; P.sprint=1; keys.KeyW=1; P.vx=4; P.bobPhase=-Math.PI/2', 'w-' + wi + '-a');
+    hipRig('P.weapon=' + wi + '; P.sprint=1; keys.KeyW=1; P.vx=4; P.bobPhase=Math.PI/2', 'w-' + wi + '-b');
+    WOB.push(maskDiff('w-' + wi + '-a', 'w-' + wi + '-b'));
+  }
+  let gripBad = 0;
+  for (let wi = 0; wi < HIP.length; wi++) {
+    const H = HIP[wi], share = H.on / Math.max(1, H.hand), gp = [];
+    if (!(H.hand > MINPX)) gp.push('only ' + H.hand + ' hand-surface px at hip - the fists are not in the hip frame, so a grip share would prove nothing');
+    else if (!(H.on > 0)) gp.push('the hand surface touches NO weapon pixel at hip - the fists hold nothing');
+    else if (!(share >= GRIP_FLOOR)) gp.push('the hands share only ' + (100 * share).toFixed(1) + '% of their surface with the weapon at hip, under the '
+      + (100 * GRIP_FLOOR).toFixed(0) + '% floor - ' + H.free + ' px of fist sit ' + GRIP_R + ' px clear of any metal');
+    console.log(('w' + wi + ' ' + kinds[wi] + ' grip').padEnd(24),
+      'hand ' + String(H.hand).padStart(5) + ' px, on-weapon ' + String(H.on).padStart(5) + ' (' + (100 * share).toFixed(1) +
+      '%), clear ' + String(H.free).padStart(5) + ' px' + (H.free ? ' at ' + H.fx + ',' + H.fy : '') +
+      ' (weapon ' + H.gun + ' px, R ' + GRIP_R + ' px; floor ' + (100 * GRIP_FLOOR).toFixed(0) + '%, debt to a full grip '
+      + (100 * (1 - share)).toFixed(0) + '%)' + (share < 1 ? '  KNOWN' : ''), gp.length ? '<< ' + gp.join(', ') : '');
+    gripBad += gp.length ? 1 : 0;
+  }
+  bad += gripBad;
+  let distBad = 0;
+  for (let a = 0; a < HIP.length; a++) for (let b = a + 1; b < HIP.length; b++) {
+    const d = maskDiff(a, b), band = Math.max(WOB[a], WOB[b]), dp = [];
+    if (!(band > 0)) dp.push('the sway band measured 0 px - the rig did not move between the two bob phases, so the comparison is vacuous');
+    else if (!(d > band)) dp.push(kinds[a] + ' and ' + kinds[b] + ' hip silhouettes differ by ' + d + ' px, no more than the '
+      + band + ' px one sway swing moves - the hip cannot tell you what you are carrying');
+    console.log(('hip distinct ' + a + '/' + b).padEnd(24), kinds[a] + '/' + kinds[b] + ' differ ' + String(d).padStart(6) +
+      ' px of ' + (BW * BH) + '  sway band ' + String(band).padStart(6) + ' px', dp.length ? '<< ' + dp.join(', ') : '');
+    distBad += dp.length ? 1 : 0;
+  }
+  bad += distBad;
+
   /* ---- THE KEY (#186): does the cache save the work, and what did the quantum cost ----------------
      #186 skipped a cache because a key over continuous travel would invalidate wrongly. That failure mode
      leaves the picture perfect and the milliseconds unspent, so no pixel row can see it - only counters can.
