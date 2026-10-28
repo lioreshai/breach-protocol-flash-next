@@ -1,5 +1,76 @@
 # Changelog
 
+## [v1.4.17] - 2026-10-28
+
+### Added
+
+- **Surfaces that never carried anything now carry something** (#400, PRs #679, #681). The exposed side of
+  a raised deck is the longest unbroken sheet of wall in a generated level — 12 to 16 m — and it used to
+  carry exactly one object, dropped at its middle, with up to eleven metres of blank concrete either side. It
+  now carries one every six metres, so a long slab side reads as a service run instead of one drum in a
+  field of concrete. A free-standing one-cell pillar or the stub end of a wall sat below every fixture
+  pass's minimum wall length and could be circled on all four sides as a clean sheet from floor to ceiling;
+  those faces now take an object from the sector's own vocabulary — shelving in the archive, a drum on the
+  transport deck, a duct collar in the abattoir — so a free-standing wall tells you what the room is for
+  from whichever side you come at it. Nothing was brightened: fixtures borrow the wall's own light, and no
+  material, lamp or threshold moved.
+
+### Changed
+
+- **The gun at your hip is carried, not bolted to the camera** (#632, PR #661). Pistol, shotgun and rifle
+  used to share one hip anchor, so the standing frame could not tell you which weapon you were holding. Each
+  now has its own seat: the pistol rides high and inboard near the armpit, the shotgun sits wider and lower
+  with the muzzle canted in, and the rifle is carried furthest out and lowest of the three. Bringing a gun
+  onto the sight line is untouched — the pose ramps to the shouldered anchors, so the aimed picture is
+  pixel-for-pixel what it was.
+- **The room you arrive in is arranged around where you are looking** (#631, PR #671). The break that splits
+  a big room into two bays was placed a fixed number of cells along a grid axis, which is only "so far down
+  the view" when you face that axis — and you wake facing roughly 45 degrees on every generated sector, so
+  the break often landed in the half of the room the first frame never looks at. It is now placed four, five
+  or six cells down the actual line of sight, and the gap you walk through sits on the cell that line
+  crosses. Those gaps are now framed too: the two columns either side of an opening in a pier line carry a
+  door frame, so a row of columns says *where you go* and not only *where the room stops*. Paint only — no
+  cell was opened, closed or re-levelled.
+- **The object you wake facing stands on the wall you actually see** (#400, PRs #672, #677). The generator
+  furnished the two grid directions nearest the spawn heading, which on the deals the probes deal could put
+  the furnished face 42 degrees outside a 71-degree frame, and could walk straight over the lip of a raised
+  deck to bolt a rack to the solid wall *behind* it while the face filling your view stayed bare. It now
+  marches the heading itself and stops at the first face the eye stops at — a solid wall, or the side of a
+  deck that steps up out of reach.
+- **Hostiles separate from their background in the last room where they did not** (#611, PR #682). The
+  value step shipped in v1.4.16 measured a body against the pixels his own draw produced, but a crate nearer
+  than the body is drawn after him and painted over part of that silhouette, so the correction was being
+  fitted to pixels the frame never kept. It is paid at the end of the frame now, over the pixels he really
+  covers. At the worst dealt seat on level 0 a grunt 10 m down a clear line went from 2.5 luma of separation
+  from the surface directly behind him to 5.2 — the same class as the other three levels' worst cases — and
+  the standing contrast debt row for this is gone.
+
+### Fixed
+
+- **Looking off the edge of a deck no longer stretches a floor to the horizon** (#518, PR #680). A deferred
+  floor column whose ray ran out of the level without ever reaching a surface still reported "the ray
+  arrived", so the pixel kept the last authored floor height it had been handed — measured at 23 m where the
+  same ray's own band answers at 7.7 m — and read as a flat grey smear of deck lit by a lamp in a room you
+  never entered. Such a pixel now answers with the height of the band you are standing on, the way that
+  row's own far fill already did. A ray that stops inside the level paints exactly what it painted before.
+- **A pit's near lip stopped counting as a rendering defect** (#518, PR #678 — no pixels changed). Looking
+  down a pit, the pixels along its near edge are the deck's own drop face, a real surface nearer than the
+  far lip behind it. The acceptance pose judged them against a floor-only reference that cannot see that
+  face, so correctly drawn pixels were being logged as phantom geometry and pointing the fix at the wrong
+  solver. They are now explained by that face or the row fails on them.
+
+### Known limitations
+
+- A few short faces still carry nothing — 8 / 8 / 26 / 0 on the four sectors — every one of them a face the
+  placement bookkeeping already counts as owned by a neighbouring face of the same one-cell wall (#400).
+- From a standing arrival seat a framed pier gap still does not read unambiguously as a doorway, and a room
+  too shallow to be crossed — ARCHIVE SUBLEVEL's 9x8 arrival room — still has no room for a break four to
+  six cells out (#631).
+- Whether the carried gun *looks* held is a human call. Nothing measures hand surface against weapon surface
+  at the hip yet, so the hands move to where they were authored rather than to a measured grip (#632).
+- The flat dark band above a deck's drop face is unchanged here; that is the deck-underside work (#421,
+  #517) and will still show in any frame of that area.
+
 ## [v1.4.16] - 2026-10-27
 
 ### Added
