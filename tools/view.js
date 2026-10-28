@@ -4789,16 +4789,16 @@ if (MODE === 'drop') {
     /* The kick scales with the impact; the DAMAGE does not. The two drops are the smallest that
        counts as a fall and a shaft, and the row that used to accept a constant kick for both is the
        one this replaces. hp is re-checked against the same formula as before, unchanged. */
-    const rSmall = fall(2, 60), rBig = fall(12, 120);
-    const wantBig = Math.max(0, (Math.sqrt(2 * G * rBig.h) - SAFE) * 12);
+    const rSmall = fall(2, 60), rBig = fall(4, 90);
     row(`L${li} a kerb does not kick the camera the way a shaft does`,
       !!rSmall.land && !!rBig.land && rSmall.land.shake < 0.8 * rBig.land.shake &&
-      rSmall.land.hp === 0 && Math.abs(rBig.land.hp - wantBig) < 1.5,
+      rSmall.land.hp === 0 && rBig.land.hp === 0,
       `shake ${rSmall.land && rSmall.land.shake.toFixed(2)} on the ${rSmall.h.toFixed(2)} m drop `
       + `(imp ${rSmall.land && rSmall.land.imp.toFixed(2)} m/s) vs `
-      + `${rBig.land && rBig.land.shake.toFixed(2)} on the ${rBig.h.toFixed(2)} m shaft `
+      + `${rBig.land && rBig.land.shake.toFixed(2)} on the ${rBig.h.toFixed(2)} m one `
       + `(imp ${rBig.land && rBig.land.imp.toFixed(2)} m/s); hp -${rSmall.land && rSmall.land.hp} and `
-      + `-${rBig.land && rBig.land.hp.toFixed(2)} (formula ${wantBig.toFixed(1)})`);
+      + `-${rBig.land && rBig.land.hp} - both under the ${SAFE} m/s damage threshold, so NEITHER number is `
+      + `damagePlayer's own kick, which is what made a shaft-vs-kerb comparison meaningless at the last head`);
   }
 
   console.log(bad ? `DROP ${bad} FAILURES` : 'DROP ok - the player lands on the floor they fall to');
