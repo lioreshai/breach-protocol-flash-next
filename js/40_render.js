@@ -3972,7 +3972,7 @@ function drawLightGlow(q) {
                                                             // a light that merely displaces another lamp in
                                                             // the queue would still move which glows the
                                                             // player sees.
-const d = Math.hypot(L.x - camX, L.y - camY);
+    const d = Math.hypot(L.x - camX, L.y - camY);
     if (d > 20 || d < 0.35) continue;
     const s = project(L.x, L.y, L.z !== undefined ? L.z : 0.55);   // the light's own altitude; 0.55 is the old hardcoded mid-room float
     if (!s || s.x < -mrg || s.x > DW + mrg || s.y < -mrg || s.y > DH + mrg) continue;
