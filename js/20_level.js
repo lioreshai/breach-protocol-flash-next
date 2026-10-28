@@ -2419,6 +2419,12 @@ function topUpEnabled() { return true; }
    runs the deal without it and the overlook rows are seen to fail. A row that has never been seen to
    fail has not been tested (AGENTS.md). */
 function overlookEnabled() { return true; }
+/* #353's deck-light pass, in the same idiom as the two above and for the reason review asked for: the
+   deck row's falsifier named the AUTHORS (OVERLOOK=off removes the pair, so the row goes red for want of
+   a pair, not for want of a lamp). ONE call site so `DECKLIGHT=off node tools/view.js alt` builds the SAME
+   rooms, bands, pairs, props and bodies and drops only the lamp standing on the deck - the picture
+   A/B that says the row is load-bearing on LIGHT. Unset, it is `return true` and moves no byte. */
+function deckLightEnabled() { return true; }
 /* #413's ceiling fittings, in the same idiom as the two above: ONE call site, so
    `LAMPS=off node tools/view.js flatparity` builds a level with NO generator-added fill light and
    flatparity's PARITY sense stays a COUNTERFACTUAL rather than becoming a second picture. The row's
@@ -2853,7 +2859,7 @@ function lightOverlookDecks(cfgL) {
      shipped-vs-knob-off light delta to "the top-up lamps and nothing else" went red, because a rule
      outside the knob appends a lamp to BOTH lists at different indices. Gated, PARITY is main's again on
      all four levels and only the shipped senses (LOCK/DEALT) move. */
-  if (!overlookEnabled() || !topUpEnabled() || !overlookPairs.length) return 0;
+  if (!overlookEnabled() || !deckLightEnabled() || !topUpEnabled() || !overlookPairs.length) return 0;
   const N = MAP.w, cell = MAP.cell, fz = MAP.fz;
   const OWN_MIN = 0.25;                        // :3009's "a floor that is actually LIT", not a new bar
   const SC = [new Float32Array(N * N), new Float32Array(N * N), new Float32Array(N * N),
