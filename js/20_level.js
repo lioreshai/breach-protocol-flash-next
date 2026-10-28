@@ -1733,6 +1733,63 @@ function addWFix(tex, gx, gy, side, along, zc, hh, hw, dep) {
   if (!DECOR_GRID[ci]) DECOR_GRID[ci] = [];
   DECOR_GRID[ci].push(f); DECOR_MASK[ci] = 1;
 }
+/* THE FREE-STANDING CELL NO FIXTURE PASS COULD SEE (#400, take eleven).
+   Every fixture pass walks the grid that exists WHEN IT RUNS, and `placeWallFixtures` runs before the
+   structure pass below stands its piers. So the one-cell column in the middle of a room - the geometry
+   the issue names by name, and the thing the player walks between - is the only wall in the game that
+   no pass ever looked at: measured at main 76ddb19 `node tools/view.js fixtures` still reads 8 / 8 / 26
+   short face lines carrying nothing on the three dealt sectors, and EVERY one of them is a pier: a solid
+   cell with air on all four sides, under the FIX_RUN_MIN bar, with an empty DECOR list. This pass runs
+   where those columns are authored, after their own `linkBoundaries()`.
+   ONE MOUNT PER AXIS, not per face: `addWFix` keys an x-plane entry at `gx + 0.5` and a y-plane entry at
+   `gy + 0.5`, so a one-cell-thick column has exactly two faces in the DECOR list no matter which side the
+   eye reaches them from, and the wall pass draws that entry on whichever face the ray stops at. A mount
+   therefore dresses both sides of the column, which is why two mounts (one per axis) furnish all four of
+   its faces and the census reads all four as covered.
+   Kind: the level's OBJECT vocabulary - `FIX_EDGE` kinds minus DOOR, because a door frame on a free-
+   standing column is the #403 finding the probe already gates on, and a paint band on a one-cell face is
+   a smudge. Cycled off the cell's own coordinates, so no RNG is read and no roll, prop, lamp, light or
+   enemy moves; a face another fixture already owns is skipped, so this dresses columns that carry nothing
+   and re-plates none that do. */
+function furnishFreeFaces(cfgL) {
+  const objs = (cfgL.fixtures || []).concat(cfgL.purpose || [])
+    .filter(k => WFIX[k] && FIX_EDGE.indexOf(k) >= 0 && k !== 'DOOR');
+  if (!objs.length) return 0;
+  const N = MAP.w, cell = MAP.cell;
+  const openAt = (x, y) => x > 0 && y > 0 && x < N - 1 && y < N - 1 && cell[y * N + x] === 0;
+  let got = 0;
+  for (let y = 1; y < N - 1 && got < 64; y++) for (let x = 1; x < N - 1 && got < 64; x++) {
+    const i = y * N + x;
+    if (!cell[i]) continue;
+    const has = (DECOR_GRID[i] || []);
+    let air = 0;
+    for (let d = 0; d < 4; d++) if (openAt(x + DIRX[d], y + DIRY[d])) air++;
+    if (air < FIX_FREE_AIR) continue;                // a wall corner belongs to the run pass
+    for (let a = 0; a < 2; a++) {
+      /* PER AXIS, NOT PER CELL. `addWFix` keys an x-plane entry at `gx + 0.5` and a y-plane entry at
+         `gy + 0.5`, so one thin column holds TWO independent faces in the DECOR list. A cell that already
+         wears a fixture on one of them still has the other one bare - which is exactly what the L0 seat
+         frame shows, and what a per-cell test would skip. Read the PLANE, which is what the wall pass
+         draws and what the census reads back off. */
+      if (has.some(f => f.side === (a === 0 ? 1 : 2))) continue;
+      let landed = false;
+      for (let s = 0; s < 2 && !landed; s++) {
+        const d = a + s * 2;                         // the axis's two directions
+        const ax = x - DIRX[d], ay = y - DIRY[d];     // the air cell that sees this face
+        if (!openAt(ax, ay)) continue;
+        const z0 = faceZ0(ax, ay, d), z1 = ceilAt(ax + 0.5, ay + 0.5), span = z1 - z0;
+        if (!(span > 0.35)) continue;                // no face here to hang anything on
+        const kind = objs[(x + y) % objs.length];
+        const sp = FIX_SPAN[kind] || FIX_SPAN.RACK;
+        addWFix(WFIX[kind], x, y, DIRX[d] !== 0 ? 0 : 1, DIRX[d] !== 0 ? ay + 0.5 : ax + 0.5,
+          z0 + span * sp[0], Math.max(0.05, span * sp[1] * 0.5), 0.5, FIX_DEP[kind] || 0);
+        landed = true; got++;
+      }
+    }
+  }
+  return got;
+}
+
 function placeWallFixtures(cfgL, seat, ang) {
   const kinds = (cfgL.fixtures || ['PIPE', 'STRIPE', 'VENT']).filter(k => WFIX[k]);
   if (!kinds.length) return;
@@ -3859,6 +3916,9 @@ function genLevel(li) {
     // The grid changed, so the derived bits change with it (AGENTS.md): VB_BLOCK is read from the
     // neighbour grid, and a pier is a new neighbour of four cells.
     if (placed) linkBoundaries();
+    /* #400: and the new cells are walls, so they get furnished here - nowhere else can reach them, see
+       furnishFreeFaces. It writes DECOR only, so it cannot move a boundary, a light or a roll. */
+    if (placed) furnishFreeFaces(cfgL);
 
 
     return true;
