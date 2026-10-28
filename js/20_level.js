@@ -1671,6 +1671,13 @@ function decalGridInit() {
    the old bar. The wall that qualifies is now the one you are looking at, not only the one you look
    down. Door pass unchanged - placing on every neck tiled both walls of every corridor (#403 review). */
 const FIX_RUN_MIN = 3;
+/* FIX_FREE_AIR is how many of a solid cell's four sides must be OPEN for it to be a pillar or a stub
+   rather than a room wall (#400, increment two). A cell with three open sides cannot be part of a
+   partition: it is a column you walk around, or the one-cell end of a wall that runs out into the room.
+   Those are the faces no pass claimed - pass 3 stops at a 3-cell run and the room pass takes one or two
+   faces per room - and the issue's count is 24 bare ones on ABATOIR CORE. Two open sides is NOT enough:
+   that is a corner cell of an ordinary wall, and its faces are already inside a long run. */
+const FIX_FREE_AIR = 3;
 /* FIX_VIS_MAX is how far a room may look for a wall it is standing in FRONT OF but not touching (#422).
    An open-plan deal - RING TRANSPORT at SEED 3/5/7 is one hall with four zone rectangles and no interior
    wall anywhere - gives a room's own rect ZERO face lines, so the per-room pass had nothing to mount and
@@ -2152,6 +2159,58 @@ function placeWallFixtures(cfgL, seat, ang) {
         for (let b = 1; b < N - 1; b++) {
           const ax = face === 0 ? a : b, ay = face === 0 ? b : a;
           if (!dropFace(ax, ay, d)) { flush(); continue; }
+          if (!run) at = b;
+          run++;
+        }
+        flush();
+      }
+    }
+  }
+  /* 3d. A PILLAR OR A STUB IS FURNISHED TOO (#400, increment two). Every pass above stops at a face line
+     of FIX_RUN_MIN cells, so the side of a one-cell column and the end face of a stub wall - the two
+     geometries the issue names by name - carry nothing at all: measured at main 4fdc0d7 the four CI deals
+     hold 35 / 14 / 65 / 6 face lines under that bar and only 20 / 4 / 24 / 0 of them own anything, so on
+     RING TRANSPORT ten faces the player walks past were never looked at by a pass that could place one.
+     The bar this pass uses is GEOMETRY, not length: a solid cell with FIX_FREE_AIR open sides cannot be a
+     partition, it is a thing standing in the room, and every one of its faces is then a face the player
+     circles. A corner cell of a normal wall has two open sides and is left to pass 3, which already owns
+     the run it belongs to, so this adds faces and does not re-plate a wall that is already furnished.
+     One object per face line at its middle, kind cycling the level's OBJECT vocabulary (runObjs - paint
+     kinds excluded, because a band on a one-cell face is a smudge and the issue's own definition of done
+     says "not a paint band"), claim before mount so a face already wearing this level's paint gains an
+     edge instead of a second fixture. No RNG is read, so no roll, prop, lamp, light or enemy moves. */
+  const freeStanding = (x, y) => {
+    let air = 0;
+    for (let q = 0; q < 4; q++) if (isOpen(x + DIRX[q], y + DIRY[q])) air++;
+    return air >= FIX_FREE_AIR;
+  };
+  if (runObjs.length) {
+    for (let d = 0; d < 4 && placed < 112; d++) {
+      const face = DIRX[d] !== 0 ? 0 : 1;
+      for (let a = 1; a < N - 1; a++) {
+        let run = 0, at = 0;
+        const flush = () => {
+          if (run > 0 && run < FIX_RUN_MIN) {
+            const mid = at + (run >> 1);
+            const ax = face === 0 ? a : mid, ay = face === 0 ? mid : a;
+            const wx = ax + DIRX[d], wy = ay + DIRY[d];
+            const kind = runObjs[(a + d) % runObjs.length];
+            /* TWO FACES, ONE BAR. A short face line is either the side of a solid column that stands free
+               (FIX_FREE_AIR open sides, so it is not a partition) or the side of a floor slab the run pass
+               has no other way to reach - the slab side is furnished by `dropFace`, the test pass 3c owns,
+               and it needs no open-side test because a slab side is free-standing by construction. */
+            if (isWall(wx, wy)) {
+              if (freeStanding(wx, wy)) mount(kind, ax, ay, d);
+            } else if (dropFace(ax, ay, d)) {
+              mountDrop(dropObjs.length ? dropObjs[(a + d) % dropObjs.length] : kind, ax, ay, d);
+            }
+          }
+          run = 0; at = 0;
+        };
+        for (let b = 1; b < N - 1; b++) {
+          const ax = face === 0 ? a : b, ay = face === 0 ? b : a;
+          const wx = ax + DIRX[d], wy = ay + DIRY[d];
+          if (!(isOpen(ax, ay) && (isWall(wx, wy) || dropFace(ax, ay, d)))) { flush(); continue; }
           if (!run) at = b;
           run++;
         }
