@@ -501,6 +501,26 @@ const TINT_WHITE = [1, 1, 1];
    list of types kept by hand next to the one kept here. */
 const PKKIND = { health: 'pickupHealth', ammo: 'pickupAmmo', armor: 'pickupArmor', gren: 'pickupGren' };
 
+/* The eye's altitude, in ONE place. renderWorld assigns it to eyeZ, and a probe that has to follow
+   the horizon across a scripted walk can call it per frame instead of rendering a frame to get it -
+   the difference between a trace that costs sixty renders and one that costs none (#634).
+
+   The eye belongs in the band the player is standing in. The [0.12, 1.4] this used to clamp against
+   predates absolute altitude - it guarded a P.z that could only be a crouch offset in [0,1] - and as
+   a bound on an absolute eye it is a ceiling on WHERE THE PLAYER MAY STAND: above ~0.9 m the eye froze
+   at 1.4 while the floor under their feet was higher than that, and `okA = rawA < eyeZ` in the ground
+   pass then rejects that floor and paints datum z=0 instead (#103). Bounding by the band keeps the
+   guard doing its job - the eye can never leave the room it is in - at any altitude, and on a flat
+   level (floorAt 0, ceilAt 1) it is the same interval.
+
+   eyeGive() is the knee after a landing (#634): the body stops at the floor, the eye arrives over the
+   next fifth of a second, and the floor guard is what stops a bent knee from putting the eye through
+   the floor it landed on. */
+function eyeAltitude() {
+  const pfl = floorAt(P.x, P.y);
+  return clamp(cfg.eye + P.z - P.crouch * 0.19 - eyeGive(), pfl + 0.12, ceilAt(P.x, P.y) - 0.06);
+}
+
 function renderWorld() {
   const bobP = P.bob * 1.4 + P.kick * 0.4;
   const flash = S.flash;
@@ -508,15 +528,7 @@ function renderWorld() {
   dirX = Math.cos(P.ang); dirY = Math.sin(P.ang);
   planeX = -dirY * planeLen; planeY = dirX * planeLen;
   camX = P.x; camY = P.y;
-  // The eye belongs in the band the player is standing in. The [0.12, 1.4] this used to clamp
-  // against predates absolute altitude - it guarded a P.z that could only be a crouch offset in
-  // [0,1] - and as a bound on an absolute eye it is a ceiling on WHERE THE PLAYER MAY STAND:
-  // above ~0.9 m the eye froze at 1.4 while the floor under their feet was higher than that, and
-  // `okA = rawA < eyeZ` in the ground pass then rejects that floor and paints datum z=0 instead
-  // (#103). Bounding by the band keeps the guard doing its job - the eye can never leave the room
-  // it is in - at any altitude, and on a flat level (floorAt 0, ceilAt 1) it is the same interval.
-  const pfl = floorAt(P.x, P.y);
-  eyeZ = clamp(cfg.eye + P.z - P.crouch * 0.19, pfl + 0.12, ceilAt(P.x, P.y) - 0.06);
+  eyeZ = eyeAltitude();
   AMB = MAP && MAP.amb !== undefined ? MAP.amb : 0.13;
   FLOORB = MAP ? MAP.floorBias || 0 : 0;
   CEILB = MAP ? MAP.ceilBias || 0 : 0;

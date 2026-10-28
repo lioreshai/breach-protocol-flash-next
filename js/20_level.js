@@ -231,6 +231,25 @@ const cellIdx = (x, y) => (y | 0) * MW + (x | 0);
    already implies. Each formula below is written to collapse to the flat world's
    exactly - that is this milestone's backwards-compatibility test. */
 const ZQ = 0.25;
+/* The ONE crossing threshold: a floor change of up to STEP_Q quanta is a STEP - walkable, and taken
+   by the feet without a fall. It used to exist twice, once in quanta in `linkBoundaries`' VB_BLOCK
+   clause and once in metres in the player's airborne test, and the two were free to disagree: a
+   crossing one file called walkable the other called a free fall, which is what a player felt as a
+   ledge where the level meant a ramp (#634). Every reader of "how big a step is a step" now goes
+   through these two numbers - the generator's block rule, `canEnter`, the auto-step and the fall.
+   STEP_Z is the same quantity for code that carries an altitude instead of a grid index. */
+const STEP_Q = 1;
+const STEP_Z = STEP_Q * ZQ;
+/* The TOLERANCE of that comparison, not a fourth threshold - 4% of a quantum, and the kAir/kWall row
+   in `view.js drop` is what keeps it a tolerance rather than a threshold in disguise. The eased
+   step-down leaves the feet a little ABOVE the floor they are settling onto, so a crossing of exactly
+   one step trips a strict comparison on that residue alone: measured on a 1-quantum stair at this
+   head, the first tread was walked and the second and third were FALLEN (13 airborne frames out of
+   54), which is the report's "sometimes it reads as a step, sometimes as a fall", in the feet. The
+   residue is 1.3 mm at a walking pace and grows as the crossing comes sooner after the last one, so
+   the slack is a centimetre - still 25 times inside a quantum, so a two-quantum drop is a fall by a
+   wide margin and kAir stays where the block rule puts it. */
+const STEP_EPS = ZQ * 0.04;
 const CZ_DEF = 4;                                        // 4 quanta = one unit of ceiling
 const LHOVER = 0.78;                     // a lamp light's authored hover above its own floor (:845)
 /* #199 asked whether the band gate below should RAMP instead of cutting off - a graded reach, full
@@ -275,6 +294,10 @@ const floorAt = (x, y) => {
   if (ix < 0 || iy < 0 || ix >= MW || iy >= MH) return 0;
   return MAP.fz[iy * MW + ix] * ZQ;
 };
+/* The same floor in GRID QUANTA, for the rules that are written against the grid rather than
+   against an altitude - `canEnter`'s rise test and the generator's block clause (#634). One index
+   expression, so the two cannot disagree about which column they are asking about. */
+const fzAt = (x, y) => MAP.fz[(y | 0) * MW + (x | 0)] | 0;
 /* The underside of whatever stands above: the tallest neighbouring floor, but never
    lower than one unit over this column's own. Flat, this is exactly 1. */
 function ceilAt(x, y) {
@@ -482,8 +505,8 @@ function linkBoundaries() {                               // read before one can
          overwrites the row's own answer with somebody else's (#163, and `view.js heights` calls it
          CEILING-DEPTH). So `steps` reads the DRAW threshold - any dq - and `tallStep` reads the BLOCK
          threshold, |dq| > 1, exactly what the VB_BLOCK clause below refuses to let you walk through. */
-      if (dq > 1 || dq < -1) tallStep = 1;                // a multi-quantum riser exists, up or down
-      if (dq > 1 && !(MAP.vb[i] & (VB_RAMP | VB_LADDER) << (d << 2))) bits |= VB_BLOCK << (d << 2);
+      if (dq > STEP_Q || dq < -STEP_Q) tallStep = 1;       // a multi-quantum riser exists, up or down
+      if (dq > STEP_Q && !(MAP.vb[i] & (VB_RAMP | VB_LADDER) << (d << 2))) bits |= VB_BLOCK << (d << 2);
     }
     // blocking is derived from the grid, so a relink must be able to REMOVE it: OR-ing leaves a
     // wall behind when a boundary is lowered or flattened. The authored bits survive via VB_KEEP.
@@ -524,7 +547,16 @@ function canEnter(fx, fy, tx, ty) {
   if (isSolid(tx, ty)) return false;
   if (isSolid(fx, fy)) return true;
   const d = sideFrom(fx, fy, tx, ty);
-  return d < 0 || !(vbAt(fx, fy, d) & VB_BLOCK);
+  if (d < 0) return true;
+  const vb = vbAt(fx, fy, d);
+  /* The rise rule, read through the ONE threshold rather than inferred from the flag, so that this
+     function and the fall branch in js/30_entities.js cannot drift into answering "is this a step?"
+     differently (#634). A rise past STEP_Q is passable only where something ramps or ladders it -
+     which is exactly the crossing linkBoundaries declined to block - and a drop of any depth stays
+     open, because a drop is never a wall: the feet take it, and the fall's feel is that branch's
+     business, not a second blocking rule here. */
+  if (fzAt(tx, ty) - fzAt(fx, fy) > STEP_Q && !(vb & (VB_RAMP | VB_LADDER) << (d << 2))) return false;
+  return !(vb & VB_BLOCK);
 }
 
 /* Nearest cell with a walkable floor, by breadth-first search from a starting point:

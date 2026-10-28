@@ -4561,12 +4561,14 @@ if (MODE === 'drop') {
     `S.shake=0;for(const k of ['KeyW','KeyA','KeyS','KeyE','KeyQ','Space','ShiftLeft'])delete keys[k];`;
   const trace = (fr) => run(`(()=>{const s=[];keys['KeyW']=1;for(let i=0;i<${fr};i++){update(1/60);` +
     `s.push([P.x,P.y,P.z,P.air?1:0,P.vz,P.hp,S.shake,floorAt(P.x,P.y)]);}return s})()`);
-  const snap = () => run('(function(){ window.__fz0 = MAP.fz.slice(); return 1; })()');
+  const snap = () => run('(function(){ window.__fz0 = MAP.fz.slice(); window.__ft0 = MAP.feat.slice(); return 1; })()');
   const poke = (cells, dq) => run(`(function(){
     if (!window.__fz0 || window.__fz0.length !== MAP.fz.length) window.__fz0 = MAP.fz.slice();
     for (const i of [${cells.map(c => (c[1] | 0) * run('MW') + (c[0] | 0)).join(',')}]) MAP.fz[i] += ${dq};
     linkBoundaries(); return 1; })()`);
-  const restore = () => run('(function(){ for (let i = 0; i < MAP.fz.length; i++) MAP.fz[i] = __fz0[i]; linkBoundaries(); return 1; })()');
+  // feat travels with fz: the #634 descent sweep flags a column FEAT_LADDER, and a sweep that left a
+  // ladder standing in the lane would hand the next row a route the level never authored.
+  const restore = () => run('(function(){ for (let i = 0; i < MAP.fz.length; i++) { MAP.fz[i] = __fz0[i]; MAP.feat[i] = __ft0[i]; } linkBoundaries(); return 1; })()');
   const angTo = (dx, dy) => Math.atan2(dy, dx);
   const PRE = li => `S.mode='play';S.locked=false;S.diff=1;startLevel(${li},true);` +
     // ENEMIES.length=0 belongs in PRE: a live enemy reaches the walking player for 8 hp a hit and
@@ -4684,6 +4686,119 @@ if (MODE === 'drop') {
       + `(an eased lift would drift ~26), z ${zUp.toFixed(3)} -> ${zUpEnd.toFixed(3)} (wants ${(zUp + ZQ).toFixed(3)}), `
       + `moved ${suMove.toFixed(2)} m, air ${suAir < 0 ? 'never' : 'frame ' + (suAir + 1)}, biggest shake jump `
       + `${suShake.toFixed(3)} (a landing impulse), vb of the far cell 0x${(suVb >>> 0).toString(16)} (VB_BLOCK not set)`);
+
+    /* ---- #634: what a descent FEELS like, one route per row. -----------------------------------
+       Every row above this compares END STATES, and every one of them stayed green while the
+       transition itself snapped - which is exactly the report. These trace the eye, js/40_render.js's
+       own eyeAltitude() called per frame so a trace costs no renders, across a scripted walk down each
+       route the level offers, and print two numbers beside the verdict: the largest per-frame change
+       in the eye, and the DISCONTINUITY at touchdown - the jump in the eye's own velocity on the frame
+       the feet arrive. A fall that eases out has a small discontinuity against its own biggest step; a
+       fall that stops dead has one equal to it, because its velocity simply goes to zero.
+       Attribution, per the repo's rule: the branch a walk takes is PRINTED (`N airborne frames`), so
+       these rows also answer "is a ramp down walked or fallen" instead of assuming it. A trace whose
+       floor never dropped by the authored amount is vacuity and FAILS - it is not a debt. */
+    const etrace = (fr) => run(`(()=>{const s=[];keys['KeyW']=1;for(let i=0;i<${fr};i++){update(1/60);` +
+      `s.push([P.x,P.y,P.z,P.air?1:0,P.vz,P.hp,S.shake,floorAt(P.x,P.y),eyeAltitude()]);}return s})()`);
+    const ahead = (k) => [[LX + lane.dx * k, LY + lane.dy * k]];
+    const DIRd = lane.dx === 1 ? 0 : lane.dy === 1 ? 1 : lane.dx === -1 ? 2 : 3;
+    // q = how many quanta the FIRST crossing of that route drops; fall = what the design says the
+    // feet do there: a step/stair/ladder is walked, a lip, a shaft and an unramped drop are taken.
+    const kinds = [
+      { name: 'one quantum step', dig: [[1, -1], [2, -1]], q: 1, fall: false },
+      { name: 'stair (1q treads)', dig: [[1, -1], [2, -2], [3, -3]], q: 1, fall: false },
+      { name: 'ramp-flagged drop', dig: [[1, -3]], q: 3, fall: true, ramp: true },
+      { name: 'ladder down (KeyQ)', dig: [[1, -4]], q: 4, fall: false, key: 'KeyQ', ladder: true },
+      { name: 'pit, walked in', dig: [[1, -8], [2, -8], [3, -8]], q: 8, fall: true },
+      { name: 'plain ledge', dig: [[0, 4]], q: 4, fall: true },
+    ];
+    const branch = [];
+    for (const kd of kinds) {
+      const need = kd.dig.reduce((m, d) => Math.max(m, d[0]), 0);
+      if (need >= lane.n) { row(`L${li} down a ${kd.name}`, false, `the open lane runs ${lane.n} cells; this route needs cell ${need}`); continue; }
+      // The ramp row AUTHORS a climb bit, and linkBoundaries preserves authored bits by design
+      // (VB_KEEP), so a sweep that only restored the floor would leave that bit standing on the
+      // boundary and every later row in the lane would find a 6-quantum rise walkable - measured,
+      // while the one-threshold row below printed "a -1-quantum rise is a wall" for it.
+      const ownI = LY * run('MW') + LX, farI = (LY + lane.dy) * run('MW') + LX + lane.dx;
+      const vb0 = run(`(function(){ return MAP.vb[${ownI}]; })()`);
+      put(X, Y);
+      for (const [k, dq] of kd.dig) poke(ahead(k), dq);
+      if (kd.ramp) run(`(function(){ MAP.vb[${ownI}] |= VB_RAMP << ${(DIRd << 2)}; linkBoundaries(); return 1 })()`);
+      if (kd.ladder) run(`(function(){ MAP.feat[${farI}] = FEAT_LADDER; return 1 })()`);
+      put(X, Y);
+      if (kd.key) run(`(function(){ keys['${kd.key}'] = 1; return 1 })()`);
+      const s = etrace(kd.q >= 6 ? 90 : 70);
+      if (kd.key) run(`(function(){ delete keys['${kd.key}']; return 1 })()`);
+      run(`(function(){ MAP.vb[${ownI}] = ${vb0}; return 1 })()`);
+      restore();
+      const air = s.filter(r => r[3]).length;
+      const e0 = s[0][8], gz0 = s[0][7];
+      const gzMin = Math.min.apply(null, s.map(r => r[7]));
+      const eMin = Math.min.apply(null, s.map(r => r[8]));
+      const lf = s.findIndex((r, i) => i > 1 && s[i - 1][3] && !r[3]);
+      // Judge the eye over the DESCENT, not the whole walk: the lane carries on past the route, and
+      // the step back up out of it is a legal auto-step (a 0.25 m snap the feet take by #152) whose
+      // 0.25 m jump would otherwise be reported as this route's biggest step.
+      let settle = 1;
+      for (let i = 1; i < s.length; i++) if (Math.abs(s[i][8] - s[i - 1][8]) > 0.002) settle = i;
+      const win = lf < 0 ? settle : Math.min(s.length - 1, lf + 12);
+      let maxStep = 0;
+      for (let i = 1; i <= win; i++) maxStep = Math.max(maxStep, Math.abs(s[i][8] - s[i - 1][8]));
+      // The jump in the eye's own velocity ACROSS touchdown: the step it took on the last airborne
+      // frame against the step it takes on the first frame after the feet have stopped. The frame of
+      // landing itself is not usable - the last integration before touchdown is truncated by the
+      // floor, so that frame's step says nothing about the velocity either side of it. A snapped
+      // landing takes the eye's step straight to zero and scores a full step of discontinuity.
+      const disc = lf < 1 ? 0 : Math.abs((s[Math.min(lf + 1, s.length - 1)][8] - s[lf][8]) - (s[lf - 1][8] - s[Math.max(0, lf - 2)][8]));
+      const vacuous = gzMin > gz0 - kd.q * ZQ + 0.01 || (e0 - eMin) < kd.q * ZQ * 0.8;
+      branch.push(`${kd.name}=${air ? 'FALL' : 'walked'}`);
+      row(`L${li} down a ${kd.name} is taken, not snapped`,
+        !vacuous && (kd.fall ? air > 0 : air === 0) && (lf < 0 || disc <= 0.4 * maxStep),
+        `${air} airborne frames, floor ${gz0.toFixed(2)} -> ${gzMin.toFixed(2)} (wants <= ${(-kd.q * ZQ).toFixed(2)}), `
+        + `eye ${e0.toFixed(3)} down to ${eMin.toFixed(3)}, biggest per-frame eye step ${maxStep.toFixed(4)} m over `
+        + `the ${win} descent frames, touchdown `
+        + (lf < 0 ? 'none - walked it on the ground' : `frame ${lf + 1}, discontinuity ${disc.toFixed(4)} m = `
+          + `${(100 * disc / Math.max(1e-9, maxStep)).toFixed(0)}% of that step`));
+    }
+    console.log(`  L${li} branch attribution: ${branch.join('  ')}`);
+
+    /* The threshold is ONE constant (js/20_level.js STEP_Q) read by the generator's block rule, by
+       canEnter and by the airborne branch. Rather than grep for the symbol, measure both rules on the
+       real grid: the smallest DROP that puts the feet in the fall branch, and the smallest RISE that
+       canEnter refuses. A step is a step in both directions, so they are the same number - and they
+       stay the same number whatever STEP_Q is set to, which is the point. Hard-code a metre figure in
+       one of the two files, or let the airborne rule drift from the block rule, and this row is the
+       one that says so. */
+    let kAir = -1, kWall = -1;
+    for (let k = 1; k <= 6 && kAir < 0; k++) {
+      put(X, Y); poke(cellAt(1), -k); put(X, Y);
+      if (trace(30).some(r => r[3])) kAir = k;
+      restore();
+    }
+    for (let k = 1; k <= 6 && kWall < 0; k++) {
+      put(X, Y); poke(cellAt(1), k); put(X, Y);
+      if (!run(`(function(){ return canEnter(P.x, P.y, ${(LX + lane.dx) + 0.5}, ${(LY + lane.dy) + 0.5}) ? 1 : 0 })()`)) kWall = k;
+      restore();
+    }
+    row(`L${li} the fall threshold and the block rule are one threshold`,
+      kAir > 0 && kAir === kWall && kAir === run('STEP_Q') + 1,
+      `a ${kAir}-quantum drop is a fall, a ${kWall}-quantum rise is a wall, STEP_Q = ${run('STEP_Q')} `
+      + `(wants both at ${run('STEP_Q') + 1}; STEP_Z = ${run('STEP_Z').toFixed(2)} m = STEP_Q*ZQ)`);
+
+    /* The kick scales with the impact; the DAMAGE does not. The two drops are the smallest that
+       counts as a fall and a shaft, and the row that used to accept a constant kick for both is the
+       one this replaces. hp is re-checked against the same formula as before, unchanged. */
+    const rSmall = fall(2, 60), rBig = fall(12, 120);
+    const wantBig = Math.max(0, (Math.sqrt(2 * G * rBig.h) - SAFE) * 12);
+    row(`L${li} a kerb does not kick the camera the way a shaft does`,
+      !!rSmall.land && !!rBig.land && rSmall.land.shake < 0.8 * rBig.land.shake &&
+      rSmall.land.hp === 0 && Math.abs(rBig.land.hp - wantBig) < 1.5,
+      `shake ${rSmall.land && rSmall.land.shake.toFixed(2)} on the ${rSmall.h.toFixed(2)} m drop `
+      + `(imp ${rSmall.land && rSmall.land.imp.toFixed(2)} m/s) vs `
+      + `${rBig.land && rBig.land.shake.toFixed(2)} on the ${rBig.h.toFixed(2)} m shaft `
+      + `(imp ${rBig.land && rBig.land.imp.toFixed(2)} m/s); hp -${rSmall.land && rSmall.land.hp} and `
+      + `-${rBig.land && rBig.land.hp.toFixed(2)} (formula ${wantBig.toFixed(1)})`);
   }
 
   console.log(bad ? `DROP ${bad} FAILURES` : 'DROP ok - the player lands on the floor they fall to');

@@ -386,9 +386,30 @@ function tryMove(o, dx, dy, rad) {
   if (canEnter(o.x, o.y, o.x + dx + Math.sign(dx) * rad, o.y) && canEnter(o.x, o.y, o.x + dx + Math.sign(dx) * rad, o.y - rad * 0.7) && canEnter(o.x, o.y, o.x + dx + Math.sign(dx) * rad, o.y + rad * 0.7) && !propBlocks(o.x + dx, o.y, rad)) o.x += dx;
   if (canEnter(o.x, o.y, o.x, o.y + dy + Math.sign(dy) * rad) && canEnter(o.x, o.y, o.x - rad * 0.7, o.y + dy + Math.sign(dy) * rad) && canEnter(o.x, o.y, o.x + rad * 0.7, o.y + dy + Math.sign(dy) * rad) && !propBlocks(o.x, o.y + dy, rad)) o.y += dy;
 }
+/* Landing feel (#634), both halves driven by the impact speed `imp` the touchdown already computes.
+   LAND_SHAKE_*: the camera kick, floored so a small landing is not perfectly still and capped at the
+   constant this replaced, so no landing kicks harder than it used to. LAND_GIVE_*: the eye's knee -
+   an angular frequency (about a fifth of a second to settle), how long the give is carried, and the
+   impact speed above which the knee is taken as fully bent, which caps the dip at ~0.17 m. */
+const LAND_SHAKE_K = 0.26, LAND_SHAKE_MIN = 0.25, LAND_SHAKE_MAX = 1.2;
+const LAND_GIVE_W = 26, LAND_GIVE_T = 0.45, LAND_GIVE_CAP = 8;
+/* How far BELOW the body the eye sits right now, in metres. The body stops dead at the floor - that
+   is what a floor is - so on the touchdown frame the eye's downward speed jumped from the fall's to
+   zero, and that jump is the snap: the horizon stopped and then shook on top of a frame that had
+   already stopped. The knee takes it instead: an offset that starts at zero with the fall's own
+   downward speed and returns on a critically damped spring, v0*t*exp(-w*t). Closed form rather than
+   integrated, because it must come back to EXACTLY zero - a standing player, and every recorded
+   frame of a static pose, renders the picture the body alone puts there. */
+function eyeGive() {
+  if (P.landT < 0) return 0;
+  return -P.landV * P.landT * Math.exp(-LAND_GIVE_W * P.landT);
+}
 function updatePlayer(dt) {
   const dead = P.deadT > 0;
   const f = dead ? 0 : 1;
+  // the eye's give outlives the touchdown it came from, and decays to exactly zero: a player
+  // standing still renders the frame the body alone puts there (#634)
+  if (P.landT >= 0) P.landT = P.landT > LAND_GIVE_T ? -1 : P.landT + dt;
   if (P.deadT > 0) {
     P.deadT += dt;
     // The death screen is driven by the simulation clock, not a wall-clock timer:
@@ -427,22 +448,35 @@ function updatePlayer(dt) {
     if (climb) { P.air = false; P.vz = 0; P.z = clamp(P.z + climb * 1.6 * dt, gz, Math.max(gz, ceilAt(P.x, P.y) - cfg.eye)); }
     else {
       if ((keys['Space']) && !P.air && P.crouch < 0.4) { P.air = true; P.vz = 3.0; SND.step(); }
-      // a floor more than a quantum below the feet is not support: the fall runs the jump's integration
-      if (!P.air && gz < P.z - ZQ) { P.air = true; P.vz = 0; }
+      // A floor more than ONE STEP below the feet is not support: the fall runs the jump's
+      // integration. STEP_Z is the generator's own crossing threshold (js/20_level.js), so a
+      // descent the level calls walkable is never answered here with a free fall - which is what
+      // made a drop read as a ledge where the level meant a step (#634).
+      // STEP_EPS is the ease's residue, not a widening: a crossing of exactly one step stays on the
+      // ground even in the frames where the feet have not quite finished settling onto the last one.
+      if (!P.air && gz < P.z - STEP_Z - STEP_EPS) { P.air = true; P.vz = 0; }
       if (P.air) {
         P.vz -= 9.2 * dt; P.z += P.vz * dt;
         if (P.z <= gz) {
           const imp = -P.vz;                                 // 5.25 m/s is the impact of a 1.5-unit drop at g=9.2; a jump lands at 3.0
-          P.z = gz; P.vz = 0; P.air = false; S.shake += 1.2;
+          P.z = gz; P.vz = 0; P.air = false;
+          /* The kick is the IMPACT, not a constant: a kerb and a shaft used to punch the camera the
+             same 1.2, with this very number computed on the line above and then thrown away (#634).
+             The floor under the curve keeps a small landing from being perfectly still; the cap is
+             where the old constant sat, so nothing kicks harder than it did. DAMAGE is untouched -
+             it still reads the raw imp on the next line, and no balance number moved. */
+          S.shake += Math.min(LAND_SHAKE_MAX, Math.max(LAND_SHAKE_MIN, imp * LAND_SHAKE_K));
+          P.landT = 0; P.landV = -Math.min(LAND_GIVE_CAP, imp);   // the eye's knee, see eyeGive()
           if (imp > 5.25) damagePlayer((imp - 5.25) * 12);
         }
       }
       // auto-step and step-down: eased so a quantum of floor does not hitch the horizon, snapped when it converges
       else if (gz !== P.z) {
         const dz = gz - P.z;
-        // a grounded rise of at most one quantum (ZQ = 0.25 m) is a step the feet simply take; anything
-        // taller is a wall by linkBoundaries' own rule, so this never lifts the player through a riser
-        if (dz > 0 && dz <= ZQ) P.z = gz;
+        // a grounded rise of at most ONE STEP is a step the feet simply take; anything taller is a
+        // wall by linkBoundaries' own rule - the same threshold, read here instead of restated - so
+        // this never lifts the player through a riser
+        if (dz > 0 && dz <= STEP_Z) P.z = gz;
         else P.z += Math.abs(dz) < 1e-4 ? dz : dz * Math.min(1, 16 * dt);
       }
     }
