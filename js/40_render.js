@@ -1200,9 +1200,23 @@ function planeAlong(rx, ry, pl, isF, absP) {
   for (; g < gMax; g++) {
     const tOut = tx < ty ? tx : ty;
     if (!(tOut < cap)) {                             // nothing between the eye and the point in question
-      gWalkHit = 1;                                  // #518 the ray REACHED the plane it was handed: an answer
       const ie = cy * N + cx;
-      if (cx >= 0 && cy >= 0 && cx < N && cy < N && !cellArr[ie]) {
+      const inAir = cx >= 0 && cy >= 0 && cx < N && cy < N && !cellArr[ie];
+      /* #518 REACHING THE CAP IS AN ANSWER ONLY IF THE CELL YOU STOP IN HAS A SURFACE. The loop-entry
+         break two lines below already says a void and a solid column have no plane of their own; the cap
+         break said "the ray reached the plane it was handed" whether or not the cell it stopped in carries
+         one, and the two together are inconsistent for the same cell. It matters because the deferred
+         floor body reads gWalkHit as "this ray arrived somewhere": a march that walks off the level at
+         its own cap left that flag set, so the pixel kept the LAST AUTHORED plane's solve - a floor
+         altitude stretched over ground the level does not have - instead of falling to the band datum the
+         row's own far fill and the `slabT`-says-nothing clause already use. Measured at pose C (the band
+         edge, 26x26 level, stage 15x7): row 22, cols 132..418 store 23.05 m, the queued deck plane 0.00's
+         own solve, where the same ray's band datum answers at 7.68 m and the march names nothing. A march
+         that stops IN an air cell at the cap still claims its plane, exactly as before, so a flat or
+         wholly on-map level moves no pixel - and on a flat level the plane-inventory skip above returns
+         long before this line. */
+      gWalkHit = inAir ? 1 : 0;            // #518 an answer needs a surface where the walk ended, not only reach
+      if (inAir) {
         const pe = isF ? fzs[ie] * ZQ : cp[ie];      // the march is standing in a cell whose own surface
         if ((pe - eyeZ) * sgn > 1e-9 && Math.abs(pe - pl) > ZQ * 0.5) gndWalkEdge++;   // is not the answer: a slab edge
       }
