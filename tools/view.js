@@ -17351,6 +17351,33 @@ if (MODE === 'surface') {
           : sHead.near === 0 ? ` - the deck is beyond ${SEAT_NEAR} m: a one-quantum underside cannot reach the bar from there`
             : ''),
       hVac ? undefined : hDebt ? '#421' : undefined);
+    /* #421 COULD THIS DEAL EVER PUT A DECK NEAR ITS SEAT? `SEAT-RANGE` can say "nearest 12.0 m" without
+       saying whether ANY choice of plateau would have done better, and the two answers send the next cycle
+       to different files: a re-rank of the candidates, or geometry the generator does not have. Feature 2's
+       eight regions are four quadrants and four half-planes, so every seam it can author is a line through
+       the MAP CENTRE - a seat in a corner or deep inside a quadrant has no candidate that reaches it, at
+       any ranking. `bandCand` (js/20_level.js) is that table, scored once per deal before any band is
+       committed, so the row compares the deal's answer against the whole set the deal could have taken.
+       Vacuity is the one case that is never debt: a deal with no placement record measured nothing. A rect
+       that predicts a near deck the deal did not deliver is the ranking lever, still live, and is debt
+       tagged to the issue; a set in which NO rect reaches the near range is placement work, printed as such.
+       Reads a record only - no render, no write - so every row after it renders what it rendered before. */
+    const candT = run('bandCand ? bandCand.map(c => [c.tag, c.n, c.reach, c.near]) : null');
+    const candOK = Array.isArray(candT) && candT.length === 8 && candT.some(c => c[1] > 0);
+    const bestNear = candOK ? candT.reduce((m, c) => Math.max(m, c[3]), 0) : 0;
+    const bestReach = candOK ? candT.reduce((m, c) => Math.max(m, c[2]), 0) : 0;
+    const placeMiss = sHead.near === 0 && bestNear > 0;
+    row(`L${li} SEAT-PLACE a band this feature can author reaches the near range`, candOK && !placeMiss,
+      `delivered ${sHead.near} flagged column(s) within ${SEAT_NEAR} m of the seat; the ${candT ? candT.length : 0} `
+      + `region(s) the deal scored before committing predict best ${bestNear} near / ${bestReach} in reach`
+      + (candOK ? ' [' + candT.map(c => c[0] + ' ' + c[3] + '/' + c[2]).join(' ') + ']' : '')
+      + (!candOK ? ' - NO placement record on this deal, so nothing was measured'
+        : placeMiss ? ' - the census feature 2 scored predicts a deck within '
+          + SEAT_NEAR + ' m and the BUILT grid delivers none: the pre-commit mask and the derived grid '
+          + 'disagree, so the fallback has been firing on a geometry the deal never had'
+        : sHead.near === 0 ? ` - no region this feature can author reaches ${SEAT_NEAR} m: its seams are centre lines, so this is PLACEMENT, not ranking`
+        : ' - the shipped band already stands a deck in range'),
+      !candOK ? undefined : (sHead.near === 0 ? '#421' : undefined));
     /* #421 THE FALLBACK IS NO LONGER A LITERAL. `seatFacing` had a hard-coded 0.6 rad at the bottom: a deal
        whose seat sees a deck but cannot admit one of its faces arrived looking at a bearing chosen for no
        reason at all, on a grid that was saying something else. It now answers with the widest underside the
