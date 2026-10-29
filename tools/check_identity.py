@@ -118,7 +118,7 @@ def identity_facts(name, facts):
     return errors
 
 
-def check_pin(name, target, text, api=None, cwd=None, notes=None):
+def check_pin(name, target, text, api=None, cwd=None, notes=None, local=True):
     """What has to hold of the commit the tag points at. Its own release.json must name this
     version, and the tag must descend from the commit that manifest pins. One copy of the
     arithmetic for the local-object path and the API path, so the two cannot drift."""
@@ -137,15 +137,15 @@ def check_pin(name, target, text, api=None, cwd=None, notes=None):
     if not isinstance(prepared, str) or not SHA.fullmatch(prepared):
         return errors + [name + ': ' + target[:12] + ':release.json prepared_from is %r, not a full SHA'
                          % prepared]
-    if api is not None and cwd is None:
-        return errors + ancestry(name, pinned.get('prepared_from', ''), target, api, None, notes)
+    if not local:
+        return errors + ancestry(name, pinned.get('prepared_from', ''), target, api, cwd, notes, local=False)
     code, _ = git(['cat-file', '-e', prepared + '^{commit}'], cwd)
     if code:
         if notes is not None:
             notes.append(name + ': prepared_from ' + prepared[:12] + ' is not in this fetch, so the '
                          'ancestry check did not run here')
         return errors
-    return errors + ancestry(name, prepared, target, api, cwd, notes)
+    return errors + ancestry(name, prepared, target, api, cwd, notes, local=local)
 
 
 def not_descends(name, target, prepared):
@@ -154,14 +154,14 @@ def not_descends(name, target, prepared):
             'manifest was prepared into.')
 
 
-def ancestry(name, prepared, target, api, cwd, notes):
+def ancestry(name, prepared, target, api, cwd, notes, local=True):
     """An error when the tag does not sit on the history the manifest pins, a note when the tree
     cannot tell. A shallow fetch can hold both ends and nothing between them - a depth-1 checkout
     plus a tag fetch leaves the release commit and the tag's target as two separate shallow tips -
     and then `merge-base --is-ancestor` answers no about a tag that is entirely correct. Proving
     it locally is sound, so local success wins; a local 'no' is only conclusive when the history
     is complete, and otherwise the forge is asked. (#635: this is the false red a runner shows.)"""
-    if cwd is not None:
+    if local:
         if not run(['git', 'merge-base', '--is-ancestor', prepared, target], cwd=cwd).returncode:
             return []
         if git(['rev-parse', '--is-shallow-repository'], cwd)[1] != 'true':
@@ -175,7 +175,7 @@ def ancestry(name, prepared, target, api, cwd, notes):
             return []
         return [] if comparison.get('status') in ('ahead', 'identical') \
             else [not_descends(name, target, prepared)]
-    if notes is not None and cwd is not None:
+    if local:
         notes.append(name + ': the path from prepared_from ' + prepared[:12] + ' to the tagged '
                      'commit is not in this shallow fetch, so the ancestry check could not be '
                      'decided here')
@@ -221,7 +221,8 @@ def check_tag(name, notes, cwd=None, api=None):
             found = re.search(r'^object ([0-9a-f]{40})$', body, re.M)
             target = found.group(1) if found else ''
         if api is not None and target:
-            errors += check_pin(name, target, manifest_at_api(target, api), api=api, notes=notes)
+            errors += check_pin(name, target, manifest_at_api(target, api), api=api, notes=notes,
+                                local=False)
             notes.append(name + ': tag object verified locally; its target commit is not in this '
                          'fetch, so the tree and ancestry checks ran through the API')
             return errors
@@ -276,7 +277,7 @@ def check_release(ref='HEAD', branch='', cwd=None, api=None):
             errors = identity_facts(version, facts)
             return errors + check_pin(version, facts.get('target', ''),
                                      manifest_at_api(facts.get('target', ''), api),
-                                     api=api, notes=notes), notes
+                                     api=api, notes=notes, local=False), notes
         if state == 'absent':
             notes.append('%s: the API holds no refs/tags/%s, so the tag is outstanding rather than '
                          'unfetched' % (version, version))
@@ -318,7 +319,7 @@ def release_finding(version, manifest, notes, cwd=None, api=None, local=True):
     notes.append('%s: previous artifact read through the API; %s is not in this checkout' % (previous, previous))
     return [finding] + identity_facts(previous, facts) + check_pin(
         previous, facts.get('target', ''), manifest_at_api(facts.get('target', ''), api),
-        api=api, notes=notes)
+        api=api, notes=notes, local=False)
 
 
 def main(argv):
