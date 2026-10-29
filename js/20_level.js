@@ -3664,26 +3664,47 @@ function genLevel(li) {
        The gap chosen is the one the arrival view looks THROUGH in the room you wake in - the same ray as
        the candidate rule below - and the room's own centre everywhere else. A face another fixture already
        owns is left alone: this pass adds a doorway, it does not evict a vent. */
-    /* WHERE THE OPENING IS. ONE RULE, TWO CUSTOMERS: `tryLine` stands the two JAMBS of this gap as real
-       columns (see the LOW clause below) and `frameGap` paints the frame on their faces. It used to live
+    /* WHERE THE OPENING IS. ONE RULE, THREE CUSTOMERS: the PHASE that decides which cells of a line are
+       piers and which are gaps, `tryLine` (which stands the cells the phase picks), and `frameGap` (which
+       paints a door frame on one gap). All three now ask `gapIndex`; only the CLAMPED answer goes to
+       frameGap, so a doorway the line stands is the doorway the frame lands on. The rule used to live
        inside frameGap only, which is why the arrival room's gap could be framed but never stood: a low
        break is air over a one-quantum tread, so it has no jamb face to paint on and no column to walk
-       past. Returning an INDEX ALONG THE LINE (not a cell) keeps both customers in step, and clamping to
-       the range frameGap scans (1..span-3) means the doorway the line stands is the doorway the frame
-       lands on. For the room you wake in it is the gap the wake ray looks through; elsewhere the room's
-       own centre, which is what the framer already picked. */
+       past. Returning an INDEX ALONG THE LINE (not a cell) keeps the customers in step. For the room you
+       wake in it is the cell the wake view reaches; elsewhere the room's own centre, which is what the
+       framer already picked. */
+    /* THE INDEX ALONG THE LINE THE ARRIVAL VIEW REACHES, or -1 when the view never gets there.
+       THE QUESTION IS ABOUT THE LINE, NOT ABOUT THE VIEW. A line either CROSSES the view (it is constant
+       on the axis the frame looks down: `alongX === onX`) or runs ALONG it (`alongX !== onX`), and the two
+       need different questions asked of the same ray:
+
+       - CROSSING: the opening is the cell the ray walks THROUGH, so the index is where the ray reaches the
+         line's own coordinate. This is the scan the rule has always made, unchanged.
+       - ALONG: a row that runs beside the view is never reached by the view's own ray, so scanning for a
+         crossing asks the wrong question - and the old code asked exactly that, comparing a coordinate on
+         the OTHER axis against `pos`, so it matched nothing (the caller then fell back to the room's own
+         centre, i.e. a gap chosen by where the room happens to sit) or matched by accident. A row standing
+         alongside the view breaks the bay as well as one crossing it; what it could not do was say WHERE
+         ITS OPENING IS. It is now the cell PIER_VIEW down the view - the depth the crossing pass already
+         answers at - so both orientations name their opening from the seat, and the phase that stands it
+         stops coming from the room's ordinal number (#631: "no doorway you can see yourself walking
+         through"). */
+    const gapIndex = (r, alongX, pos, ang) => {
+      const vx = Math.cos(ang), vy = Math.sin(ang), onX = Math.abs(vx) >= Math.abs(vy);
+      const base = alongX ? r.y : r.x;
+      const pa = alongX ? P.x : P.y, va = alongX ? vx : vy;    // the axis the line is CONSTANT on
+      const pb = alongX ? P.y : P.x, vb = alongX ? vy : vx;    // the axis the line RUNS ALONG
+      if (alongX === onX) {                                    // crossing: where the ray reaches it
+        for (let d = PIER_NEAR; d <= PIER_VIEW + 3; d++)
+          if (Math.floor(pa + va * d) === pos) return Math.floor(pb + vb * d) - base;
+        return -1;
+      }
+      return Math.floor(pb + vb * PIER_VIEW) - base;           // alongside: the cell ahead of the eye
+    };
     const gapAt = (r, alongX, pos, inRoom, ang) => {
       const span = alongX ? r.h : r.w, base = alongX ? r.y : r.x;
       let want = (alongX ? r.cy : r.cx) - base;
-      if (inRoom) {
-        const vx = Math.cos(ang), vy = Math.sin(ang), onX = Math.abs(vx) >= Math.abs(vy);
-        for (let d = PIER_NEAR; d <= PIER_VIEW + 3; d++) {
-          const cross = Math.floor(onX ? P.x + vx * d : P.y + vy * d);
-          if (cross !== pos) continue;
-          want = Math.floor(onX ? P.y + vy * d : P.x + vx * d) - base;
-          break;
-        }
-      }
+      if (inRoom) { const w = gapIndex(r, alongX, pos, ang); if (w >= 0) want = w; }
       const top = span - 3 > 1 ? span - 3 : 1;
       return want < 1 ? 1 : (want > top ? top : want);
     };
@@ -3736,6 +3757,15 @@ function genLevel(li) {
       const loX = r.x + 1, hiX = r.x + r.w - 2, loY = r.y + 1, hiY = r.y + r.h - 2;
       const tryLine = (alongX, pos, phase, low) => {
         const span = alongX ? r.h : r.w;
+        /* The ONE cell of this line that is the doorway. `gapAt` is the same rule `frameGap` asks, so the
+           gap the line stands and the gap the frame lands on cannot come apart. */
+        const want = low ? gapAt(r, alongX, pos, true, seatAng) : -1;
+        /* The GAP the doorway sits in, at the parity this line's phase actually produces. Piers stand at
+           base + phase + 2k, so a cell is a gap when its index differs from the phase in parity; `want`
+           is the cell the VIEW looks at, and when the phase puts a pier there the doorway moves to the
+           next cell along. `frameGap` makes the same adjustment when it picks the gap to frame, which is
+           why the jambs and the frame cannot land on different openings. */
+        const gap = (((want - phase) & 1) === 0) ? want + 1 : want;
         let got = 0;
         for (let k = phase; k < span - 1; k += 2) {
           const x = alongX ? pos : r.x + k, y = alongX ? r.y + k : pos;
@@ -3802,7 +3832,22 @@ function genLevel(li) {
              landed by editing a reference table behind the gate. Everything below this clause still runs:
              the line is now asked for at the depth the shallow room actually has, so the break lands INSIDE
              the frame instead of beside it, which is the half of #631 that does not need a new byte. */
-          if (low) fzTry[i] = 1; else cell[i] = cfgL.wall2;
+          /* THE TWO CELLS FLANKING THE OPENING ARE COLUMNS; THE REST OF THE ROW STAYS A TREAD (#631).
+             The LOW clause above keeps the arrival break one quantum high so the first frame gains no new
+             full-height face, and that is exactly why the arrival room never got a DOOR: `frameGap` paints
+             on a jamb FACE, air over a tread has no face, and at the four deals the census printed
+             `framed 0` in every arrival room - a lip in the deck where the issue asks for an opening you
+             see yourself walking through. So the row stays low EXCEPT at the two jambs of the one gap the
+             view looks at, which stand as real `wall2` columns: two faces, one per jamb, at the depth the
+             eye is already looking at, instead of a rank of them across the room (#644's exposure clause
+             is about a FULL-HEIGHT RANK filling the frame, and it still holds - measured by `exposure`,
+             not assumed). The gap cell itself is never visited by the loop, because its parity differs
+             from the phase, so the doorway stays walkable and `linkBoundaries` still carries the treads.
+             This converts authored HEIGHT into CELLS, which is what `flatparity`'s two flat senses hash
+             (they flatten `MAP.fz`, so a tread is invisible there and a column is not): the L0 PARITY and
+             L0 LOCK references are re-recorded with this commit, with the reason in the commit message. */
+          if (low) { if (k === gap - 1 || k === gap + 1) cell[i] = cfgL.wall2; else fzTry[i] = 1; }
+          else cell[i] = cfgL.wall2;
           placed++; got++;
         }
         return got;
