@@ -36,7 +36,7 @@ releases in a release-due issue. API errors fail instead of reporting no debt.
 ## The handoff after the release PR merges
 
 Nothing in this repo cuts the tag or publishes the release, so steps 4 and 5 can sit
-unfinished with no failure anywhere. `release-guard.yml`'s `release publish (main)` job runs
+unfinished with no failure anywhere. `release-publish.yml`'s `release publish (main)` job runs
 `tools/release_policy.py publish` on every push to main and hourly: it reads release.json on
 main, asks whether a published stable GitHub release carries that version and whether the tag
 exists, and goes red once the state is older than the 3600 s grace. The grace is measured, not guessed - the two most recent handoffs took 1042 s and 1674 s. The release-due issue names the

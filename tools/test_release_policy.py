@@ -1,6 +1,7 @@
 import importlib.util
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+import re
 import unittest
 from unittest.mock import patch
 from base64 import b64encode
@@ -157,6 +158,131 @@ class ReleasePolicyTests(unittest.TestCase):
         self.assertTrue(policy.release_branch(policy.RESET_BRANCH))
         self.assertFalse(policy.release_branch('release/anything'))
         self.assertFalse(policy.release_branch('fix/doors'))
+
+
+WORKFLOWS = Path(__file__).resolve().parents[1] / '.github' / 'workflows'
+EVENT_TEST = re.compile(r"^github\.event_name\s*(==|!=)\s*'([a-z_]+)'")
+
+
+def read_workflow(text):
+    """Two facts a skipped-row audit needs: which events trigger this file, and which of its jobs
+    carry an `if:` or declare themselves informational. Deliberately textual - the standard library
+    has no YAML and this repo installs nothing - and it reads only indent-2 keys under `on:` and
+    `jobs:` plus indent-4 `if:` / `continue-on-error:` / `name:` inside a job, which is the shape
+    every workflow here uses. CI's `ruby tools/wfyaml.rb --dir .github/workflows` does the real
+    parse and runs blocking, so a file this reader cannot walk is red before this row is."""
+    top, job, doc = None, None, {'on': [], 'jobs': []}
+    for raw in text.splitlines():
+        key = re.match(r'^(\s*)([A-Za-z0-9_-]+):(.*)$', raw)
+        if not key or raw.lstrip().startswith('#'):
+            continue
+        indent, name, rest = len(key.group(1)), key.group(2), key.group(3).strip()
+        if indent == 0:
+            top, job = name, None
+        elif indent == 2 and top == 'on':
+            doc['on'] += [name] if not rest else [p.strip() for p in rest.split(',')]
+        elif indent == 2 and top == 'jobs':
+            job = {'key': name, 'if': '', 'continue-on-error': False, 'name': name, 'run': []}
+            doc['jobs'].append(job)
+        elif indent == 4 and job is not None:
+            if name == 'if':
+                job['if'] = rest
+            elif name == 'continue-on-error':
+                job['continue-on-error'] = rest == 'true'
+            elif name == 'name':
+                job['name'] = rest
+        elif indent >= 6 and job is not None and name == 'run':
+            job['run'].append(rest)
+    return doc
+
+
+def runs_on(condition, event):
+    """True / False / None for a job's `if:` under one event name. None means 'cannot tell', and
+    only `github.event_name ==|!= 'x'` terms joined by && and || are readable - anything else, a
+    parenthesized or foreign expression, is None, so an unreadable condition is never read as
+    'this job is skipped here'."""
+    if not condition.strip():
+        return True
+    if condition.strip().startswith('${{'):
+        return None
+    unknown = False
+    for clause in condition.split('||'):
+        clause_ok, clause_unknown = True, False
+        for term in clause.split('&&'):
+            match = EVENT_TEST.match(term.strip())
+            if match is None:
+                clause_unknown = True
+                clause_ok = False
+                continue
+            equal = match.group(1) == '=='
+            clause_ok = (match.group(2) == event) == equal
+            if not clause_ok:
+                break
+        if clause_ok:
+            return True
+        unknown = unknown or clause_unknown
+    return None if unknown else False
+
+
+class PublishGuardTriggerTests(unittest.TestCase):
+    """A named job that its own workflow's trigger skips still reports a check row, and an
+    unclassified SKIPPED row is not a passing blocking check. So a guard that must not speak on a
+    pull_request cannot be a job in a workflow that triggers on pull_request - it has to be a file
+    that does not. PR #696 learned this by putting the publish guard in release-guard.yml: the row
+    went from 'nine PRs blocked by someone else's unfinished release' to 'every PR blocked by a
+    skipped row', which is the same alarm on the wrong people (#635)."""
+
+    def workflows(self):
+        return {p.name: read_workflow(p.read_text())
+                for p in sorted(WORKFLOWS.glob('*.y*ml')) if p.is_file()}
+
+    def test_the_condition_reader_agrees_with_the_runner(self):
+        # Guards the two rows below: a reader that said 'skipped' about everything would make the
+        # audit green while every job in the repo vanished from every run.
+        for condition, event, want in (
+                ("github.event_name == 'push'", 'pull_request', False),
+                ("github.event_name == 'push'", 'push', True),
+                ("github.event_name != 'push'", 'pull_request', True),
+                ("github.event_name == 'push' && github.ref == 'refs/heads/main'", 'pull_request', False),
+                ("github.event_name == 'push' || github.event_name == 'schedule'", 'schedule', True),
+                ("github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'", 'pull_request', False),
+                ("github.ref == 'refs/heads/main'", 'pull_request', None),
+                ('', 'pull_request', True)):
+            with self.subTest(condition=condition, event=event):
+                self.assertEqual(runs_on(condition, event), want)
+
+    def test_the_publish_guard_is_a_workflow_no_pull_request_runs(self):
+        docs = self.workflows()
+        runners = {name: doc for name, doc in docs.items()
+                   if any('release_policy.py publish' in line
+                          for job in doc['jobs'] for line in job['run'])}
+        self.assertTrue(runners, 'no workflow runs `release_policy.py publish` at all, so a merged '
+                                 'release can go unpublished with no failure anywhere (#635)')
+        for name, doc in sorted(runners.items()):
+            with self.subTest(workflow=name):
+                self.assertNotIn('pull_request', doc['on'],
+                                 f'{name} runs the publish guard and also triggers on pull_request, '
+                                 'so every pull_request run carries its skipped check row')
+                self.assertIn('push', doc['on'], f'{name} must run on a push to main, where the '
+                                                 'release merge commit is the thing that is late')
+                self.assertIn('schedule', doc['on'], f'{name} must run hourly, or a release merged '
+                                                     'and then forgotten is never re-checked')
+
+    def test_no_gating_job_is_skipped_on_an_event_its_workflow_triggers_on(self):
+        bad = []
+        for name, doc in sorted(self.workflows().items()):
+            if 'pull_request' not in doc['on']:
+                continue
+            for job in doc['jobs']:
+                if job['continue-on-error'] or runs_on(job['if'], 'pull_request') is not False:
+                    continue
+                bad.append(f"{name}: job {job['key']} (name {job['name']!r}) is gated off "
+                           f'pull_request by `if: {job["if"]}` while the file still triggers on it')
+        self.assertFalse(bad, 'A pull_request run reports a check row for a skipped job and an '
+                              'unresolved skipped row is not a passing blocking check, so this '
+                              'silently blocks PRs whose own diff is fine (#635). Give the job its '
+                              'own workflow file with no pull_request trigger, or mark it '
+                              'informational with continue-on-error.\n' + '\n'.join(bad))
 
 
 if __name__ == '__main__':

@@ -2,9 +2,6 @@ name: Release guard
 
 on:
   pull_request:
-  push:
-    branches:
-      - main
   schedule:
     - cron: '17 * * * *'
   workflow_dispatch:
@@ -18,7 +15,6 @@ jobs:
     # Scheduled debt must not overwrite the reviewed PR's required release check
     # on the same commit while publication is still completing.
     name: ${{ github.event_name == 'pull_request' && 'release' || 'release cadence (scheduled)' }}
-    if: github.event_name != 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -38,23 +34,3 @@ jobs:
 
       - name: Enforce cadence
         run: python3 tools/release_policy.py verdict --input "$RUNNER_TEMP/release-status.json"
-
-  publish:
-    # #635. A release PR can merge and its tag plus GitHub Release never happen: docs/RELEASE.md
-    # step 4 belongs to a person, and no workflow in this repo tags or publishes. That state used
-    # to surface only as the `release` row failing on every open feature PR - nine PRs read BLOCKED
-    # for 18 minutes on nothing but that gap. This job is the row that goes red where the work is
-    # owed, on main, once the measured grace passes. Publication itself stays with the product
-    # lead: a workflow-created tag would carry the Actions identity, which AGENTS.md says does not
-    # meet the identity rule.
-    name: release publish (main)
-    if: github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: A merged release PR must be tagged and published
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: python3 tools/release_policy.py publish --repo "$GITHUB_REPOSITORY"
