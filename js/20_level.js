@@ -231,6 +231,30 @@ const cellIdx = (x, y) => (y | 0) * MW + (x | 0);
    already implies. Each formula below is written to collapse to the flat world's
    exactly - that is this milestone's backwards-compatibility test. */
 const ZQ = 0.25;
+/* The ONE crossing threshold: a floor change of up to STEP_Q quanta is a STEP - walkable, and taken
+   by the feet without a fall. It used to exist twice, once in quanta in `linkBoundaries`' blocker and
+   once in metres in the player's airborne test, and the two were free to disagree: a crossing one
+   file called walkable the other called a free fall, which is what a player felt as a ledge where the
+   level meant a ramp (#634). #633 then moved the QUANTUM half of that answer into the stored kind -
+   these four readers are now the whole list:
+     - `linkBoundaries`, which decides STEP / DROP / CLIFF and therefore what blocks and what draws;
+     - the auto-step and the step-down in js/30_entities.js, which lift and settle the feet;
+     - the airborne threshold in the same file, which asks "has the floor left the feet";
+     - `view.js drop`, which measures the smallest drop that falls against the smallest rise that
+       blocks and requires one number.
+   STEP_Z is the same quantity for code that carries an altitude instead of a grid index. */
+const STEP_Q = 1;
+const STEP_Z = STEP_Q * ZQ;
+/* The TOLERANCE of that comparison, not a fourth threshold - 4% of a quantum, and the kAir/kWall row
+   in `view.js drop` is what keeps it a tolerance rather than a threshold in disguise. The eased
+   step-down leaves the feet a little ABOVE the floor they are settling onto, so a crossing of exactly
+   one step trips a strict comparison on that residue alone: measured on a 1-quantum stair at this
+   head, the first tread was walked and the second and third were FALLEN (13 airborne frames out of
+   54), which is the report's "sometimes it reads as a step, sometimes as a fall", in the feet. The
+   residue is 1.3 mm at a walking pace and grows as the crossing comes sooner after the last one, so
+   the slack is a centimetre - still 25 times inside a quantum, so a two-quantum drop is a fall by a
+   wide margin and kAir stays where the block rule puts it. */
+const STEP_EPS = ZQ * 0.04;
 const CZ_DEF = 4;                                        // 4 quanta = one unit of ceiling
 const LHOVER = 0.78;                     // a lamp light's authored hover above its own floor (:845)
 /* #199 asked whether the band gate below should RAMP instead of cutting off - a graded reach, full
@@ -310,6 +334,31 @@ const floorAt = (x, y) => {
   if (ix < 0 || iy < 0 || ix >= MW || iy >= MH) return 0;
   return MAP.fz[iy * MW + ix] * ZQ;
 };
+/* Is the descent the feet just took authored as a STEP? #634's airborne test asks this of the level
+   instead of re-solving a height difference, because #633 stores one kind per directed boundary: a
+   stair tread, a ladder and an authored ramp are EK_STEP at BOTH their ends, while the low end of an
+   unauthored lip is EK_CLIFF. So the byte answers the question that used to be answered twice - once
+   in quanta by the generator's blocker and once in metres by the fall - and a stair stopped being a
+   climb to the level and a free fall to the player.
+   The scan is over the neighbours whose floor is at the altitude the feet are LEAVING, which is the
+   deck they just stood on. A cell can be joined to a stair at one edge and to an unauthored lip at
+   another; the crossing the feet took is not carried into this branch (movement happens after the z
+   solve), so the row prints which branch it saw and `view.js vert`'s feet-vs-kind census is what keeps
+   the stored kind and the feet telling the same story. */
+function steppedDownInto(x, y, z) {
+  if (!MAP.ek) return false;                        // no kind store yet: answer as a fall, the old rule
+  const xi = x | 0, yi = y | 0, i = yi * MW + xi;
+  if (MAP.cell[i]) return false;
+  for (let d = 0; d < 4; d++) {
+    const nx = xi + DIRX[d], ny = yi + DIRY[d];
+    if (nx < 0 || ny < 0 || nx >= MW || ny >= MH) continue;
+    const n = ny * MW + nx;
+    if (MAP.cell[n]) continue;
+    if (MAP.fz[n] * ZQ < z - 1e-6) continue;        // not the deck the feet just left
+    if (MAP.ek[(i << 2) + d] === EK_STEP) return true;
+  }
+  return false;
+}
 /* The underside of whatever stands above: the tallest neighbouring floor, but never
    lower than one unit over this column's own. Flat, this is exactly 1. */
 function ceilAt(x, y) {
@@ -556,7 +605,7 @@ function linkBoundaries() {                               // read before one can
          overwrites the row's own answer with somebody else's (#163, and `view.js heights` calls it
          CEILING-DEPTH). So `steps` reads the DRAW threshold - any dq - and `tallStep` reads the BLOCK
          threshold, |dq| > 1, exactly what the VB_BLOCK clause below refuses to let you walk through. */
-      if (dq > 1 || dq < -1) tallStep = 1;                // a multi-quantum riser exists, up or down
+      if (dq > STEP_Q || dq < -STEP_Q) tallStep = 1;     // a multi-quantum riser exists, up or down
       /* THE KIND, decided once, here. A crossing something authored a climb over is a STEP in both
          directions (that is what a stair or a ladder IS); otherwise the height difference alone says
          ROOM, STEP, CLIFF-up, or - and this is the half that used to be undecided - DROP or CLIFF-down
@@ -566,9 +615,14 @@ function linkBoundaries() {                               // read before one can
         !!(MAP.vb[n] & (VB_RAMP | VB_LADDER) << ((d ^ 2) << 2)) ||
         MAP.feat[i] === FEAT_LADDER || MAP.feat[n] === FEAT_LADDER;
       let kind;
+      /* The ONE number these four lines read is STEP_Q (js/20_level.js, #634): what counts as a step
+         rather than a climb is the same quantity the generator's blocker, the auto-step and the
+         player's fall already read, so the byte stored here cannot disagree with the feet about which
+         crossings are a step. Reading the literal 1 here instead is how a stair came to be a STEP to
+         the level and a DROP to the player (#634). */
       if (dq === 0) kind = EK_ROOM;
-      else if (dq > 1) kind = climb ? EK_STEP : EK_CLIFF;        // a rise: a climb over it, or a cliff
-      else if (dq < -1) kind = climb ? EK_STEP : EK_DROP;        // a drop you take; the way back is a CENSUS
+      else if (dq > STEP_Q) kind = climb ? EK_STEP : EK_CLIFF;   // a rise: a climb over it, or a cliff
+      else if (dq < -STEP_Q) kind = climb ? EK_STEP : EK_DROP;   // a drop you take; the way back is a CENSUS
       else kind = EK_STEP;                                       // a one-quantum tread, either way
       ek[ei] = kind;
       /* The two consumer answers, from the stored kind and nowhere else. WALK reproduces today's rule
@@ -627,7 +681,13 @@ function canEnter(fx, fy, tx, ty) {
   if (isSolid(tx, ty)) return false;
   if (isSolid(fx, fy)) return true;
   const d = sideFrom(fx, fy, tx, ty);
-  return d < 0 || !(vbAt(fx, fy, d) & VB_BLOCK);
+  /* ONE predicate, and the stored kind is it (#633). An earlier draft of #634 added a rise test here
+     read through STEP_Q; it answered nothing VB_BLOCK did not already answer - a rise past one step
+     with no climb is EK_CLIFF, and EK_CLIFF is exactly the kind that sets VB_BLOCK - and `view.js
+     vert`'s feet-vs-kind census is the row that proves the two answers are the same one. A second
+     predicate for a stored answer is how the two halves get to disagree. */
+  if (d < 0) return true;
+  return !(vbAt(fx, fy, d) & VB_BLOCK);
 }
 
 /* Nearest cell with a walkable floor, by breadth-first search from a starting point:
