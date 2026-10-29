@@ -4305,11 +4305,21 @@ const VMSIT = {
    stopped at 0.97 - which is the defect this row exists to remove, arrived at by accident. The three
    values are ranked by barrel length (pistol least, rifle most), which is the one cue outside the
    silhouette that tells a shotgun from a rifle while neither is aimed, and every term here ramps to
-   exactly zero at full ADS, because a gun that is ON the sight line is on the ray. */
+   exactly zero at full ADS, because a gun that is ON the sight line is on the ray.
+   MAGNITUDE IS BOUNDED BY A LEGIBILITY GATE, NOT BY TASTE. `tools/view.js bands` gates #164's step-lip
+   crease at ZERO columns whose band is missing, and a carried barrel that crosses the centre line paints
+   OVER that crease in the columns where a step lip projects through the middle of the frame. Measured on
+   this tree: at -0.015 / -0.018 / -0.021 and above, six of bands' sixty-four rows go red with "3 columns
+   with no band at all" on L0's face lip and L3's face and walk lips (296 of 299 and 176 of 179 columns,
+   where main and yaw 0 read 299 of 299 and 179 of 179); at -0.010 / -0.012 / -0.014 all sixty-four are
+   green. So the carry is legible but shallow - the muzzle points inboard without hiding the edge you step
+   on. `viewmodel`'s `sway travel` band gets strictly safer as the yaw shrinks (main reads 0.890 at yaw 0,
+   this reads 0.886 at the shipped numbers), and the silhouette ranking bands by barrel length is unchanged
+   because the three terms stay ordered. No threshold in either probe was moved to get here. */
 const VMHIP = {
-  pistol:  { f: 0.247, r: 0.098, d: 0.100, cant: 0.030, yaw: -0.020 },
-  shotgun: { f: 0.250, r: 0.118, d: 0.106, cant: -0.028, yaw: -0.024 },
-  rifle:   { f: 0.252, r: 0.126, d: 0.112, cant: -0.032, yaw: -0.028 },
+  pistol:  { f: 0.247, r: 0.098, d: 0.100, cant: 0.030, yaw: -0.010 },
+  shotgun: { f: 0.250, r: 0.118, d: 0.106, cant: -0.028, yaw: -0.012 },
+  rifle:   { f: 0.252, r: 0.126, d: 0.112, cant: -0.032, yaw: -0.014 },
 };
 let VMFLOOR = 0.5, VMRIM = 0.08;     // the two readability terms - see row (d)
 const VMROT = new Float32Array(9);
