@@ -17351,6 +17351,32 @@ if (MODE === 'surface') {
           : sHead.near === 0 ? ` - the deck is beyond ${SEAT_NEAR} m: a one-quantum underside cannot reach the bar from there`
             : ''),
       hVac ? undefined : hDebt ? '#421' : undefined);
+    /* #421 THE FALLBACK IS NO LONGER A LITERAL. `seatFacing` had a hard-coded 0.6 rad at the bottom: a deal
+       whose seat sees a deck but cannot admit one of its faces arrived looking at a bearing chosen for no
+       reason at all, on a grid that was saying something else. It now answers with the widest underside the
+       seat can frame (js/20_level.js). That path does NOT run on the dealt maps - the face rule wins on all
+       three sectors that derive a bearing, by 1.02x to 1.27x against the 1.5x the term asks for - so the
+       mechanism is exercised the only honest way available here: call the SHIPPED rule from the page with
+       `losZ` blinded, which is exactly the condition "a deck in reach, no face admitted", and put `losZ`
+       back. No second copy of the rule, no geometry write, the camera untouched, so every row after this
+       one renders what it rendered before. Vacuity is the failure - a seat with flagged columns in reach
+       still arriving at the literal. A sector that AUTHORS its bearing is opted out; a sector with nothing
+       in reach is not judged rather than passed. */
+    const fbAuth = typeof run('LEVELS[' + li + '].seatAng') === 'number';
+    let fbAng = NaN;
+    if (!fbAuth) fbAng = +run(`(function(){ const px = ${sSeat[0]}, py = ${sSeat[1]}, old = losZ;
+      losZ = function () { return false; };
+      let an = null; try { an = seatFacing(px, py); } finally { losZ = old; }
+      return an; })()`);
+    const fbSkip = fbAuth || sCells === 0;
+    row(`L${li} SEAT-FALLBACK a seat that sees a deck but admits no face still frames it`,
+      fbSkip || (isFinite(fbAng) && Math.abs(fbAng - 0.6) > 1e-6),
+      fbAuth ? `${name} AUTHORS seatAng, so no fallback is reachable on this sector`
+        : sCells === 0 ? `${name}: no flagged column within ${SEAT_D} m of the seat, nothing to frame`
+          : `blinded sight-line gives heading ${fbAng.toFixed(2)} rad with ${sCells} flagged column(s) in ` +
+            'reach' + (isFinite(fbAng) && Math.abs(fbAng - 0.6) > 1e-6 ? ' - the sweep answered, not the literal'
+              : ' - STILL THE 0.60 LITERAL: the sweep did not answer'),
+      undefined);
     /* #421 FILTER OR KEY - which half of the seat rule is the limit. `SEAT-CEILING` above prints the best
        azimuth a seat CAN show; `SEAT` prints what the shipped heading does show. When those disagree the
        remedy is either the ranking key (a better face is admitted and loses) or the admission filter (the

@@ -3122,9 +3122,51 @@ function buildAuthored(li) {
    per-level opt-out rather than "any authored plan wins", so the hand-authored finale can still be turned by
    the plateau move that is this issue's remaining half. */
 const SEAT_LOOK = 12;                                   // metres: the reach `surface`'s SEAT row grades
+/* #421 HALF THREE - LOOK ALONG THE UNDERSIDE, NOT ONLY AT AN EDGE.
+   The rule below is a NEAREST-FACE rule: it can only reach a bearing that has an air-to-air riser inside
+   SEAT_LOOK. That is right when the deck's lip is the thing worth arriving at, and wrong when it is not,
+   which `surface`'s SEAT rows measure on `main` at this head: on RING TRANSPORT the best of 12 azimuths
+   from the shipped seat paints 8463 underside pixels at 4.71 rad and the shipped heading paints 2787, 13
+   riser faces exist inside the same reach, and NONE of them is within 0.52 rad of that azimuth. The view
+   that shows most of the storey overhead is one with no lip in it at all - a deck running AWAY from the
+   eye, its underside seen along its length - and a nearest-edge rule cannot name it.
+   So ask the generator's own question instead: which bearing FRAMES the most underside? Score a bearing
+   by what the ground pass will paint along it. An underside at distance d answers the screen row
+   f*(z-eye)/d above the horizon, so a RUN of flagged columns from d_near to d_far occupies a band
+   f*(z-eye)*(1/d_near - 1/d_far) tall: looking down the length of a deck (3 m out to 12 m) is seven times
+   the height of looking across one at 9 m (8.5 to 9.5). That difference - not the count of columns inside
+   the frame - is the 8463-vs-2787 the sweep measures. Two proxies were tried and rejected before this one,
+   both on the L1 seat: a projected-area sum over the flagged columns in the frame (1/d^2 each) scored every
+   bearing within 1 % of the shipped heading, so the heading never moved; and a candidate list of the flagged
+   columns that pass `losZ` aimed at the underside plane, which is blind to exactly the view this rule is for
+   - a deck seen along its length lies under the deck's own footprint, whose cell floor IS the underside
+   plane, so `losZ` reports the sight line blocked by a floor it is correctly travelling under, eleven
+   flagged columns became three, and the sweep's 4.71-rad azimuth never entered as a candidate. What is
+   marched instead is depth: seven rays across the frame's own horizontal half-angle (`cfg.plane` is 0.72,
+   so 0.62 rad either side), stepped 1 m to SEAT_LOOK, stopping at solid or where the flag or the overhead
+   height stops.
+   That is compared with the band at the face bearing the pass below found, and the wide view wins ONLY if
+   it beats that by SEAT_WIDE. The margin is the whole design: a heading with a legible edge in it is never
+   traded for a bigger flat sheet, because an underside with no edge in the frame is the defect this issue
+   was filed from, not its fix. Where the face pass finds nothing the sweep answers on its own; where the
+   sweep finds nothing - any FLAT level, where `ceilSlab` is zero everywhere - the face pass answers exactly
+   as it did and the frames stay byte-identical (flatparity). No geometry write, no RNG draw, nothing that
+   touches `vb`/`steps`: this picks a heading, not a level.
+   MEASURED AT THIS HEAD, and the reader should not expect a screenshot to change: on the four dealt
+   sectors the face rule already wins - its bearing scores within 1.02x to 1.27x of the best of 16 swept
+   bearings, under the 1.5x the margin asks for - so ARCHIVE 2.32, RING -0.63 and THE STACK 0.88 are the
+   headings they were and every shipped frame is byte-identical (surface's SEAT rows print the same three
+   numbers before and after this term; ABATOIR CORE authors its bearing and is never consulted). What the
+   sweep replaces is the LITERAL at the bottom of this function: a deal whose seat sees a deck but cannot
+   admit one of its faces used to arrive at a hard-coded 0.6 rad chosen for no reason at all, and now
+   arrives framing the widest underside it can see. `surface`'s L SEAT-FALLBACK row exercises exactly that
+   path by blinding `losZ` at the seat, because on the dealt map it never runs. */
+const SEAT_WIDE = 1.5;                                  // band ratio needed to leave the edge bearing
+const SEAT_SWEEP = 16;                                   // bearings scored, half a frame apart
 function seatFacing(px, py, authored) {
   if (typeof authored === 'number') return authored;    // the level says what you arrive looking at
   const N = MAP.w, cs = MAP.ceilSlab, sf = floorAt(px, py), az = sf + cfg.eye;
+  let faceAng = null;
   for (let wantSoffit = 1; wantSoffit >= 0; wantSoffit--) {
     let bx = 0, by = 0, best = Infinity;
     for (let y = 1; y < MH - 1; y++) for (let x = 1; x < N - 1; x++) {
@@ -3152,9 +3194,45 @@ function seatFacing(px, py, authored) {
         best = dd; bx = fx; by = fy;
       }
     }
-    if (best < Infinity) return Math.atan2(by - py, bx - px);
+    if (best < Infinity) {
+      faceAng = Math.atan2(by - py, bx - px);
+      wantSoffit = -2;                                   // found: do not try the looser pass
+      break;
+    }
   }
-  return 0.6;                                            // nothing in reach: the shipped heading
+  let under = false;
+  if (cs) for (let i = 0, L = cs.length; i < L; i++) if (cs[i] & 1) { under = true; break; }
+  if (under) {
+    const half = Math.atan(cfg.plane);
+    /* An underside at distance d answers the screen row f*(z-eye)/d above the horizon, so a run of flagged
+       columns from d0 to d1 occupies f*(z-eye)*(1/d0 - 1/d1) of screen height. `d` starts at 1 m because
+       closer than that a plane 0.5 m over the eye is off the top of the frame, not on it. */
+    const depth = ang => {
+      let v = 0;
+      for (let k = -3; k <= 3; k++) {
+        const a = ang + k * half / 3, cx = Math.cos(a), cy = Math.sin(a);
+        let d0 = 0, d1 = 0;
+        for (let d = 1; d <= SEAT_LOOK + 1; d += 0.25) {
+          const sx = px + cx * d, sy = py + cy * d;
+          if (sx < 0 || sy < 0 || sx >= N || sy >= N || isSolid(sx, sy)) break;
+          const i = (sy | 0) * N + (sx | 0);
+          const z = MAP.ceilPlane ? MAP.ceilPlane[i] : ceilAt(sx | 0, sy | 0);
+          if (z > az + 0.05 && (cs[i] & 1)) { if (!d0) d0 = d; d1 = d; }
+          else if (d0) break;                            // the underside stopped: the band ends here
+        }
+        if (d0) v += 1 / d0 - 1 / Math.max(d1, d0 + 0.5);
+      }
+      return v;
+    };
+    const faceV = faceAng === null ? 0 : depth(faceAng);
+    let best = faceAng === null ? null : { v: faceV, a: faceAng };
+    for (let k = 0; k < SEAT_SWEEP; k++) {               // a sweep, not a candidate list - see above
+      const a = -Math.PI + k * 2 * Math.PI / SEAT_SWEEP, v = depth(a);
+      if (!best || v > best.v) best = { v, a };
+    }
+    if (best && (faceAng === null || best.v > faceV * SEAT_WIDE)) return best.a;
+  }
+  return faceAng === null ? 0.6 : faceAng;                 // nothing in reach: the shipped heading
 }
 
 /* #353: an overlook is only a fight if somebody stands above it. The pairing pass finds the geometry;
