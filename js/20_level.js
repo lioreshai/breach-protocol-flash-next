@@ -1310,11 +1310,17 @@ function authorVolume(cell, N, rooms, fz, vb, feat, cz) {
      reaches - read off the mask because the band is not authored yet, and over the spawn room's own
      cells too: they are the floor the player is standing on, the band may not cover them but it CAN
      overhang them, which is the whole point. Derived off heights and clearance only, so it cannot
-     disturb `vb`/`steps`, and it reads nothing the movement code writes. */
-  const overSeat = sel => {
+     disturb `vb`/`steps`, and it reads nothing the movement code writes.
+     THE SECOND ARGUMENT IS THE MEASURE, NOT A LABEL. Review of `27a43ba` found the first version of this
+     function taking one parameter while the placement record called `overSeat(m, SEAT_NEAR)`: both loop
+     bounds read `SEAT_REACH`, so `near` was the reach count copied and every candidate printed `X/X`. A
+     range argument that the bounds ignore is the same bug as a format string with no argument. The default
+     is `SEAT_REACH`, which is what the two ranking call sites want and what they got before. */
+  const overSeat = (sel, range) => {
+    const RR = range === undefined ? SEAT_REACH : range;
     let n = 0;
-    for (let y = Math.max(1, spawnR.cy - SEAT_REACH); y <= Math.min(N - 2, spawnR.cy + SEAT_REACH); y++)
-      for (let x = Math.max(1, spawnR.cx - SEAT_REACH); x <= Math.min(N - 2, spawnR.cx + SEAT_REACH); x++) {
+    for (let y = Math.max(1, spawnR.cy - RR); y <= Math.min(N - 2, spawnR.cy + RR); y++)
+      for (let x = Math.max(1, spawnR.cx - RR); x <= Math.min(N - 2, spawnR.cx + RR); x++) {
         const i = y * N + x;
         if (sel[i] || cell[i]) continue;                       // no air, or THIS band is under its feet
         const own = fz[i] * ZQ + Math.max(ZQ, cz[i] * ZQ);
@@ -3315,6 +3321,12 @@ function authorOverlooked(dist) {
 }
 
 function genLevel(li) {
+  /* #421 THE PLACEMENT RECORD IS PER LEVEL, not per volume pass. `bandCand` is only assigned inside
+     `authorVolume`, and an authored plan returns from `buildAuthored` before that pass runs, so leaving the
+     previous level's table in place let `surface`'s SEAT-PLACE row print ABATOIR CORE's candidate table as
+     THE STACK's own - a 400-cell grid reporting a region of 826 owned cells. An authored sector now has no
+     record, which the row reads as its own vacuity FAILURE rather than as a prediction it did not make. */
+  bandCand = null;
   const cfgL = LEVELS[li];
   /* An authored plan is data, so it is validated rather than hoped for: if the layers disagree the
      loader says so loudly and the generator's own path still ships a playable level, and `alt`'s
