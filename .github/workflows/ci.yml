@@ -36,15 +36,22 @@ jobs:
 
       - name: Release artifact identity (the tag release.json names)
         run: |
-          set -euo pipefail
+          set -uo pipefail
           # The identity gate used to see commits only. A release is also an annotated tag - and a
           # lightweight or mis-pointed one is a release the identity rule cannot see at all, which
-          # is how a release can be half-done and still green (#635). The checker reads real Git
-          # objects, so the refs it needs have to be in the checkout: fetch them, and let a failed
-          # fetch fail here rather than reading as "no tag". --branch names a release PR's own
-          # unmade tag, which docs/RELEASE.md cuts after the merge.
-          git fetch --quiet --tags --force origin
-          python3 tools/check_identity.py --release --branch "${GITHUB_HEAD_REF:-}" "${GITHUB_SHA:-HEAD}"
+          # is how a release can be half-done and still green (#635). The checker reads the tag as
+          # an object, in the checkout when the checkout holds it and through the API when it does
+          # not, so a shallow or tagless checkout changes which checks ran, never the verdict. The
+          # fetch below is a best effort and is reported, not assumed: an earlier revision of this
+          # step ran under set -e, so a fetch the runner's partial clone rejected failed the step
+          # without printing anything at all. --branch names a release PR's own unmade tag, which
+          # docs/RELEASE.md cuts after the merge.
+          git fetch --quiet --tags --force origin && fetch_status=0 || fetch_status=$?
+          tags=$(git tag --list | wc -l)
+          shallow=no && [ -f .git/shallow ] && shallow=yes
+          echo "tag fetch status=$fetch_status, tags in checkout=$tags, shallow=$shallow"
+          python3 tools/check_identity.py --release --repo "${GITHUB_REPOSITORY:-}" \
+            --branch "${GITHUB_HEAD_REF:-}" "${GITHUB_SHA:-HEAD}"
 
       - name: README keeps deployed screenshots
         run: |
