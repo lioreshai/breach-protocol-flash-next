@@ -247,6 +247,82 @@ class ApiArtifactTests(unittest.TestCase):
             self.assertTrue(notes or not any('not in this fetch' in n for n in notes))
 
 
+class ReviewedRefTests(unittest.TestCase):
+    """Which commit the gate looks at is itself a gate. On a pull_request event GITHUB_SHA is
+    GitHub's own merge ref commit - committed by GitHub <noreply@github.com>, never authored here -
+    and handing it to the checker reds the row on a commit the identity rule makes no claim about.
+    That was PR #696: green on the push trigger, red on the pull_request trigger, same bytes. The
+    fix is a ref, so the rows below are about the ref: one that fails if the workflow goes back to
+    GITHUB_SHA, and two that fail if choosing a ref ever turns into skipping the commit check."""
+
+    CI_YML = Path(__file__).resolve().parents[1] / '.github' / 'workflows' / 'ci.yml'
+
+    def identity_step(self):
+        text = self.CI_YML.read_text()
+        start = text.index('- name: Release artifact identity')
+        rest = text[start + len('- name: Release artifact identity'):]
+        end = rest.index('\n      - name:')
+        return rest[:end]
+
+    def test_the_gate_reviews_the_commit_this_repo_authored(self):
+        step = self.identity_step()
+        # identity.yml's expression: the PR head on a pull_request, github.sha on a push.
+        self.assertIn('github.event.pull_request.head.sha || github.sha', step)
+        # And not the trigger's own SHA, which on a pull_request is the synthetic merge commit.
+        self.assertNotIn('"${GITHUB_SHA', step)
+
+    def test_githubs_merge_commit_fails_and_the_head_it_merges_passes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            git(tmp, 'init', '-q', '-b', 'main')
+            (Path(tmp) / 'a.txt').write_text('one\n')
+            git(tmp, 'add', 'a.txt')
+            git(tmp, 'commit', '-q', '-m', 'work')
+            git(tmp, 'checkout', '-q', '-b', 'feature')
+            (Path(tmp) / 'b.txt').write_text('two\n')
+            git(tmp, 'add', 'b.txt')
+            git(tmp, 'commit', '-q', '-m', 'feature work')
+            head = git(tmp, 'rev-parse', 'HEAD')
+            git(tmp, 'checkout', '-q', 'main')
+            (Path(tmp) / 'c.txt').write_text('three\n')
+            git(tmp, 'add', 'c.txt')
+            git(tmp, 'commit', '-q', '-m', 'other work')
+            # The merge GitHub makes for a pull_request: authored here, committed by GitHub.
+            env = dict(os.environ, GIT_AUTHOR_NAME=NAME, GIT_AUTHOR_EMAIL=EMAIL,
+                       GIT_COMMITTER_NAME='GitHub', GIT_COMMITTER_EMAIL='noreply@github.com')
+            subprocess.run(['git', 'merge', '--no-ff', '-q', '-m', 'Merge pull request #1', 'feature'],
+                           cwd=tmp, env=env, capture_output=True, check=True)
+            merge = git(tmp, 'rev-parse', 'HEAD')
+            self.assertEqual(identity.check_refs([head], tmp), [],
+                             'the commit this repo authored must verify')
+            errors = identity.check_refs([merge], tmp)
+            self.assertEqual(len(errors), 1, errors)
+            self.assertIn('incorrect author or committer', errors[0])
+
+    def test_a_foreign_tip_still_reds_the_row(self):
+        # The fix must not become "skip the commit checks on PRs": the tip a PR is named after is
+        # still checked, and a tip stamped by another identity still fails in this same tree.
+        with tempfile.TemporaryDirectory() as tmp:
+            git(tmp, 'init', '-q', '-b', 'main')
+            (Path(tmp) / 'a.txt').write_text('one\n')
+            git(tmp, 'add', 'a.txt')
+            git(tmp, 'commit', '-q', '-m', 'authorized work')
+            good = git(tmp, 'rev-parse', 'HEAD')
+            (Path(tmp) / 'b.txt').write_text('two\n')
+            git(tmp, 'add', 'b.txt')
+            env = dict(os.environ, GIT_AUTHOR_NAME='Someone Else',
+                       GIT_AUTHOR_EMAIL='someone@example.com',
+                       GIT_COMMITTER_NAME='Someone Else', GIT_COMMITTER_EMAIL='someone@example.com')
+            # --no-verify because this commit exists to be wrong: the repo's own pre-commit identity
+            # hook would otherwise refuse to create the object this row is measuring.
+            subprocess.run(['git', 'commit', '-q', '--no-verify', '-m', 'foreign work'], cwd=tmp, env=env,
+                           capture_output=True, check=True)
+            foreign = git(tmp, 'rev-parse', 'HEAD')
+            self.assertEqual(identity.check_refs([good], tmp), [])
+            errors = identity.check_refs([foreign], tmp)
+            self.assertEqual(len(errors), 1, errors)
+            self.assertIn('incorrect author or committer', errors[0])
+
+
 def _git(cwd, *args):
     result = subprocess.run(['git', *args], cwd=cwd, capture_output=True, text=True)
     return result.returncode, result.stdout
