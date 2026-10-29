@@ -26,6 +26,31 @@ keeping them intact is what keeps `node tools/smoke.js` meaningful while the wor
 
 ## The rules that hold it together
 
+Every boundary stores **one kind** (`MAP.ek`, one byte per *directed* boundary, written only by
+`linkBoundaries()`), and the three questions are columns of that kind rather than three code paths.
+`node tools/view.js vert` prints the population of each kind per level and fails on a boundary with no
+kind, with two kinds, or whose two sides form a pair the table below does not recognise.
+
+| kind | WALK | SEE | DRAWN | where you meet it |
+|---|---|---|---|---|
+| `ROOM` | yes | yes | nothing; the deck continues | floor within a room |
+| `STEP` | yes, both ways | yes | a riser face with a lit lip | stairs, ladders, ramps, ≤1-quantum steps (#515, #517) |
+| `DROP` | **yes — you take it** | yes | the deck's lip, and the drop below it | a rim over a band you can get back out of: every pit rim today |
+| `RAIL` | **no** | yes | guard geometry — the job `FEAT_RAIL` and `VB_THRU` were both named for and neither did | nothing authors one yet; the census row prints `RAIL 0` until something does |
+| `CLIFF` | **no** | yes | the deck's own lip and whatever is beyond it, **no guard** | a rise over one quantum with no climb over it |
+| `COVERED` | no (walk on the deck above) | **no** | a floor above, and that slab's underside below (#421) | no generator code authors a roofed pit yet |
+| `WALL` | no | no | the solid face the DDA paints | any boundary onto a solid column, or off the map |
+
+- **WALK is directional, so the kind is stored per directed boundary and one crossing is a *pair*.** The
+  one asymmetric legal pair is `DROP` on the high side and `CLIFF` on the low side, and that pair *is*
+  the one-way descent the generator authors on purpose: "dropping into a pit is free, so the only way
+  out is the climb". Storing one symmetric kind would have to call a pit kerb walkable both ways (you
+  would climb a two-metre wall) or blocked both ways (falling stops being a mechanic).
+- **A drop is only legal where the band below has a way back.** `edgeBasins()` is `bfsReach`'s own
+  crossing rule read as connected components: two cells in the same basin trade places on foot without
+  falling. On every dealt level and on the authored plan the population of walkable drops landing in a
+  *different* basin is zero, and `vert` demands zero. Turning that into a blocker is the remaining half
+  of #633 — see the note in `linkBoundaries` for why the probes' own pokes have to move first.
 - **Blocking ⇒ walkable ⇒ drawn is one byte.** A boundary with `dz > ZQ` that is not a ramp gets
   `VB_BLOCK` on both sides, so one test makes it opaque in the DDA, impassable in `tryMove`, and a
   textured riser in the wall pass - there is no edge that blocks your feet while painting nothing.
