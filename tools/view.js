@@ -17091,6 +17091,44 @@ if (MODE === 'surface') {
         }
       return n;
     })()`);
+    /* #421 AT WHAT RANGE DOES THAT REACH READ? `sCells` counts a column as "under a deck" on
+       `buildCeilSlab`'s own predicate - a neighbour's floor reaches the plane this column draws - and the
+       SEAT row above counts the pixels that predicate actually paints. The two disagree, and the gap is
+       RANGE, not material and not bearing: a deck raised by `BAND_UP` puts its underside one quantum over
+       the datum, which is a little over the eye, so the row it projects is proportional to (underside -
+       eye) / distance and a flagged column across the room puts a handful of pixels above the horizon
+       while the same column two cells from the nose puts thousands. `SEAT` therefore reads as "the deal
+       put no volume near its seat" on deals whose plateau is on the far side of the entry room - volume
+       present, distance wrong - and the row below separates that from a genuinely empty reach.
+       It is a census of a LIMIT, like `SEAT-CEILING` and `SEAT-AZIMUTH` beside it, so it asserts one thing
+       only: a flagged column INSIDE the near range that paints no underside pixel at the shipped heading
+       is vacuity (nothing drawn where something should be) and is a FAILURE, not a debt. A sector whose
+       deck is merely far away is the deal's answer, is printed with its nearest column's range, and is
+       tagged as #421 debt only when no flagged column clears the eye at all - the "band one quantum too
+       low" case, which belongs to the height grid and not to a lens. Reads geometry only: no render, no
+       RNG, no write, so every row after it renders what it rendered before. */
+    const SEAT_NEAR = +(process.env.SEATNEAR || 6);
+    const sHead = run(`(function(){
+      const cs = MAP.ceilSlab, cp = MAP.ceilPlane, N = MAP.w, D = ${SEAT_D}, ez = cfg.eye;
+      const ax = P.x | 0, ay = P.y | 0;
+      let n = 0, head = 0, near = 0, lo = Infinity, hi = -Infinity, nd = -1;
+      if (!cs) return { n: 0, head: 0, near: 0, lo: 0, hi: 0, nd: -1, eye: ez };
+      for (let y = Math.max(0, ay - D); y <= Math.min(MH - 1, ay + D); y++)
+        for (let x = Math.max(0, ax - D); x <= Math.min(N - 1, ax + D); x++) {
+          const i = y * N + x;
+          if (MAP.cell[i] || !(cs[i] & 1)) continue;
+          const f = MAP.fz[i] * ZQ, plane = cp ? cp[i] : f + Math.max(ZQ, cz1(i));
+          const d = Math.hypot(x + 0.5 - P.x, y + 0.5 - P.y);
+          n++;
+          if (nd < 0 || d < nd) nd = d;
+          if (d <= ${SEAT_NEAR}) near++;
+          if (plane >= f + ez - 1e-9) head++;
+          if (plane < lo) lo = plane; if (plane > hi) hi = plane;
+        }
+      function cz1(i) { return MAP.cz[i] * ZQ; }
+      return { n: n, head: head, near: near, lo: isFinite(lo) ? lo : 0, hi: isFinite(hi) ? hi : 0,
+        nd: nd, eye: ez };
+    })()`);
     const sa = frame(), szb = new Float32Array(run('zbuf')), shm = slabMask(sa);
     const shz = Math.min(BH, Math.max(0, Math.round(run('horizon'))));
     let sNear = 0, sFar = 0;
@@ -17140,6 +17178,18 @@ if (MODE === 'surface') {
       `${sCells} column(s) within ${SEAT_D} m of the seat have a floor over their head, ` +
       `${sNear} soffit px in reach + ${sFar} beyond it above the horizon; deal ${dh}`,
       sNear < SEAT_PX ? '#421' : undefined);
+    const hVac = sHead.near > 0 && sNear === 0;
+    const hDebt = !hVac && sCells > 0 && sHead.head === 0;
+    row(`L${li} SEAT-RANGE the deck the census counts in reach is one the seat can resolve`, !hVac,
+      `${sCells} flagged column(s) in reach, ${sHead.near} within ${SEAT_NEAR} m, nearest `
+      + `${sHead.nd < 0 ? 'none' : sHead.nd.toFixed(1) + ' m'}; underside plane `
+      + `${sHead.lo.toFixed(2)}..${sHead.hi.toFixed(2)} m against an eye at ${sHead.eye.toFixed(2)} m, `
+      + `${sNear} underside px painted at the shipped heading`
+      + (hVac ? ` - a deck within ${SEAT_NEAR} m contributes NO underside pixel`
+        : hDebt ? ' - every flagged underside sits at or under the eye: the band is a quantum too low, no azimuth can show it'
+          : sHead.near === 0 ? ` - the deck is beyond ${SEAT_NEAR} m: a one-quantum underside cannot reach the bar from there`
+            : ''),
+      hVac ? undefined : hDebt ? '#421' : undefined);
     /* #421 FILTER OR KEY - which half of the seat rule is the limit. `SEAT-CEILING` above prints the best
        azimuth a seat CAN show; `SEAT` prints what the shipped heading does show. When those disagree the
        remedy is either the ranking key (a better face is admitted and loses) or the admission filter (the
