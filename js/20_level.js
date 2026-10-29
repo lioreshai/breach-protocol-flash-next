@@ -231,6 +231,30 @@ const cellIdx = (x, y) => (y | 0) * MW + (x | 0);
    already implies. Each formula below is written to collapse to the flat world's
    exactly - that is this milestone's backwards-compatibility test. */
 const ZQ = 0.25;
+/* The ONE crossing threshold: a floor change of up to STEP_Q quanta is a STEP - walkable, and taken
+   by the feet without a fall. It used to exist twice, once in quanta in `linkBoundaries`' blocker and
+   once in metres in the player's airborne test, and the two were free to disagree: a crossing one
+   file called walkable the other called a free fall, which is what a player felt as a ledge where the
+   level meant a ramp (#634). #633 then moved the QUANTUM half of that answer into the stored kind -
+   these four readers are now the whole list:
+     - `linkBoundaries`, which decides STEP / DROP / CLIFF and therefore what blocks and what draws;
+     - the auto-step and the step-down in js/30_entities.js, which lift and settle the feet;
+     - the airborne threshold in the same file, which asks "has the floor left the feet";
+     - `view.js drop`, which measures the smallest drop that falls against the smallest rise that
+       blocks and requires one number.
+   STEP_Z is the same quantity for code that carries an altitude instead of a grid index. */
+const STEP_Q = 1;
+const STEP_Z = STEP_Q * ZQ;
+/* The TOLERANCE of that comparison, not a fourth threshold - 4% of a quantum, and the kAir/kWall row
+   in `view.js drop` is what keeps it a tolerance rather than a threshold in disguise. The eased
+   step-down leaves the feet a little ABOVE the floor they are settling onto, so a crossing of exactly
+   one step trips a strict comparison on that residue alone: measured on a 1-quantum stair at this
+   head, the first tread was walked and the second and third were FALLEN (13 airborne frames out of
+   54), which is the report's "sometimes it reads as a step, sometimes as a fall", in the feet. The
+   residue is 1.3 mm at a walking pace and grows as the crossing comes sooner after the last one, so
+   the slack is a centimetre - still 25 times inside a quantum, so a two-quantum drop is a fall by a
+   wide margin and kAir stays where the block rule puts it. */
+const STEP_EPS = ZQ * 0.04;
 const CZ_DEF = 4;                                        // 4 quanta = one unit of ceiling
 const LHOVER = 0.78;                     // a lamp light's authored hover above its own floor (:845)
 /* #199 asked whether the band gate below should RAMP instead of cutting off - a graded reach, full
@@ -252,16 +276,51 @@ const LHOVER = 0.78;                     // a lamp light's authored hover above 
    where a proportional source would be a dark cell with a lamp prop on it. The knobs live here and not
    behind an env var on purpose: a row gated on a knob a human must remember is the failure mode. */
 const TOPUP_BASE = 1.05, TOPUP_TARGET = 32, TOPUP_MINF = 0.5;
-/* #633: two vocabulary words are DELETED here because nothing could spell them. `VB_THRU` was
-   declared and read by nothing while docs/VERTICALITY.md described it as "see it, not climb it" -
-   a see answer no code implemented. `FEAT_RAIL` was declared and authored by nothing, excused by a
-   minimap comment. Both named a behaviour that band edges do not have: every air->air edge today is
-   answered by its HEIGHT ALONE (linkBoundaries' `dq > 1` blocker, the renderer's copied riser clause,
-   and a probe that re-infers the answer at run time), so there is no kind to store yet and no word
-   that can be asserted. A kind the engine can answer is what #633 has to build; until then an
-   unspellable word is how the disagreement survives. */
-const VB_BLOCK = 1, VB_RAMP = 2, VB_LADDER = 4;
-const VB_KEEP = 0x6666;                    // VB_RAMP|VB_LADDER in each of the four side nibbles: the authored bits
+/* #633: what one boundary IS, stored. `VB_THRU` used to occupy nibble bit 8 and was read by nothing;
+   `FEAT_RAIL` was coined and authored by nothing. Both were deleted (PR #673) because an unspellable
+   word is how an undecided concept survives, and the disagreement that issue is about came from
+   answering "what kind of edge is this" three times - the blocker in linkBoundaries, a clause copied
+   into the renderer's wall march, and a probe that infers the answer at run time and then judges
+   identical pixels by different numbers. One kind is now STORED per directed boundary in `MAP.ek`,
+   written only by linkBoundaries, and the two hot consumers read the ANSWER the kind implies instead
+   of re-solving the height: VB_BLOCK is the kind's WALK column and VB_FACE is its DRAWN column. Both
+   are derived bits (absent from VB_KEEP), so a relink that moves a floor re-derives them while the
+   authored RAMP/LADDER nibbles still survive it unchanged. */
+const VB_BLOCK = 1, VB_RAMP = 2, VB_LADDER = 4, VB_FACE = 8;
+const VB_KEEP = 0x6666;      // VB_RAMP|VB_LADDER in each of the four side nibbles: the AUTHORED bits,
+//   the only ones a relink must survive. VB_BLOCK and VB_FACE are derived from the stored kind, so a
+//   relink that moves a floor clears and re-derives them - which is the repo invariant this file keeps.
+/* Six kinds for an air->air edge, plus WALL for a boundary that touches a solid column. STORED ONE-HOT
+   so the two failure modes are arithmetic: 0 = nobody answered, `k & (k-1)` = two answers. RAIl and
+   COVERED have no author yet (see docs/VERTICALITY.md); they exist because the table needs them, and
+   the census prints their population, which is the row that stays at zero until someone authors one. */
+const EK_ROOM = 1, EK_STEP = 2, EK_DROP = 4, EK_RAIL = 8, EK_CLIFF = 16, EK_COVERED = 32, EK_WALL = 64;
+/* The two columns consumers ask for. SEE is not a bit: an edge that blocks and draws nothing is the
+   only way to be invisible-and-solid, and VB_FACE/VB_BLOCK together already say it - so the SEE column
+   lives in the DRAWN column's rule ("if you can walk it, something draws that you can"). */
+const EK_WALK = EK_ROOM | EK_STEP | EK_DROP;              // WALK: your feet go this way
+const EK_FACEQ = EK_STEP | EK_DROP | EK_CLIFF;            // DRAWN: a riser face exists at this crossing
+const EK_NAMES = { 1: 'ROOM', 2: 'STEP', 4: 'DROP', 8: 'RAIL', 16: 'CLIFF', 32: 'COVERED', 64: 'WALL' };
+const ekName = k => EK_NAMES[k] || (k ? 'AMBIGUOUS' : 'NONE');   // the census prints the word, never a bit
+/* The legal MIRROR PAIRS. A crossing is ONE edge with two directed answers, so the pair of kinds has
+   to be a combination this table recognises - and the one asymmetric pair in it, DROP on the high
+   side and CLIFF on the low side, IS the one-way descent the generator authors on purpose
+   (js/20_level.js' pit rule: "dropping into a pit is free, so the only way out is the climb"). WALK
+   is therefore directional and the kind is stored per DIRECTED boundary: a rim that lets you step off
+   it is the same rim that refuses to lift you back up, and saying "one kind per boundary" in the
+   symmetric sense would have to call a pit kerb either walkable both ways (you would climb a two-metre
+   wall) or blocked both ways (falling would stop being a mechanic). What is symmetric, and what the
+   census asserts, is that the pair is legal: an answer invented for one side only shows up here. */
+const EK_PAIRS = { 'ROOM/ROOM': 1, 'STEP/STEP': 1, 'CLIFF/DROP': 1, 'CLIFF/CLIFF': 1,
+  'RAIL/RAIL': 1, 'COVERED/COVERED': 1, 'WALL/WALL': 1 };
+function ekPairOk(a, b) {
+  const x = ekName(a), y = ekName(b);
+  return !!EK_PAIRS[x < y ? x + '/' + y : y + '/' + x];
+}
+const ekPairName = (a, b) => { const x = ekName(a), y = ekName(b); return x < y ? x + '/' + y : y + '/' + x; };
+/* One-hot kind of the crossing that leaves cell (x,y) in direction d. 0 means linkBoundaries never
+   ran on this grid, which is a bug the census row fails on, not an answer. */
+const ekAt = (x, y, d) => MAP.ek[(((y | 0) * MW + (x | 0)) << 2) + (d & 3)];
 const FEAT_NONE = 0, FEAT_STAIR = 1, FEAT_LADDER = 2, FEAT_PIT = 3;
 /* Leaving a cell in direction d steps by (DIRX[d], DIRY[d]); d ^ 2 is the way back in. */
 const DIRX = [1, 0, -1, 0], DIRY = [0, 1, 0, -1];
@@ -275,6 +334,31 @@ const floorAt = (x, y) => {
   if (ix < 0 || iy < 0 || ix >= MW || iy >= MH) return 0;
   return MAP.fz[iy * MW + ix] * ZQ;
 };
+/* Is the descent the feet just took authored as a STEP? #634's airborne test asks this of the level
+   instead of re-solving a height difference, because #633 stores one kind per directed boundary: a
+   stair tread, a ladder and an authored ramp are EK_STEP at BOTH their ends, while the low end of an
+   unauthored lip is EK_CLIFF. So the byte answers the question that used to be answered twice - once
+   in quanta by the generator's blocker and once in metres by the fall - and a stair stopped being a
+   climb to the level and a free fall to the player.
+   The scan is over the neighbours whose floor is at the altitude the feet are LEAVING, which is the
+   deck they just stood on. A cell can be joined to a stair at one edge and to an unauthored lip at
+   another; the crossing the feet took is not carried into this branch (movement happens after the z
+   solve), so the row prints which branch it saw and `view.js vert`'s feet-vs-kind census is what keeps
+   the stored kind and the feet telling the same story. */
+function steppedDownInto(x, y, z) {
+  if (!MAP.ek) return false;                        // no kind store yet: answer as a fall, the old rule
+  const xi = x | 0, yi = y | 0, i = yi * MW + xi;
+  if (MAP.cell[i]) return false;
+  for (let d = 0; d < 4; d++) {
+    const nx = xi + DIRX[d], ny = yi + DIRY[d];
+    if (nx < 0 || ny < 0 || nx >= MW || ny >= MH) continue;
+    const n = ny * MW + nx;
+    if (MAP.cell[n]) continue;
+    if (MAP.fz[n] * ZQ < z - 1e-6) continue;        // not the deck the feet just left
+    if (MAP.ek[(i << 2) + d] === EK_STEP) return true;
+  }
+  return false;
+}
 /* The underside of whatever stands above: the tallest neighbouring floor, but never
    lower than one unit over this column's own. Flat, this is exactly 1. */
 function ceilAt(x, y) {
@@ -444,8 +528,42 @@ function linkedClimb(vbArr, featArr, i, j, d) {
     !!(vbArr[j] & (VB_RAMP | VB_LADDER) << ((d ^ 2) << 2));
 }
 
+/* The "can you get back" test #633 asks for, in the ONE form that is cheap enough to run inside a
+   relink: the connected components of the graph whose edges are the crossings bfsReach already admits -
+   a floor difference within one quantum, or something authored that lets you climb (linkedClimb). Two
+   cells in the same component can trade places on foot without falling, so a drop whose landing cell
+   shares your component is a DROP (you take it, and the way back is authored) while a drop into a
+   different component lands somewhere with no route back and is a CLIFF. This is bfsReach's own
+   crossing rule, so it is not a second opinion about reachability - it is the same rule read as
+   components instead of distances, and it is CONSERVATIVE: a rim over a basin you could only reach by
+   falling further is called a CLIFF even if a longer fall-chain happened to lead back. The law is
+   worth that asymmetry: the player can never walk off a rim into somewhere they cannot leave. */
+function edgeBasins(cellArr) {
+  const n = MW * MH, par = new Int32Array(n).fill(-1);
+  for (let i = 0; i < n; i++) if (!cellArr[i]) par[i] = i;
+  const find = i => { let r = i; while (par[r] !== r) r = par[r]; while (par[i] !== r) { const p = par[i]; par[i] = r; i = p; } return r; };
+  for (let y = 0; y < MH; y++) for (let x = 0; x < MW; x++) {
+    const i = y * MW + x;
+    if (par[i] < 0) continue;
+    for (let d = 0; d < 4; d++) {
+      const nx = x + DIRX[d], ny = y + DIRY[d];
+      if (nx < 0 || ny < 0 || nx >= MW || ny >= MH) continue;
+      const j = ny * MW + nx;
+      if (par[j] < 0 || find(i) === find(j)) continue;
+      if (Math.abs(MAP.fz[j] - MAP.fz[i]) <= 1 || linkedClimb(MAP.vb, MAP.feat, i, j, d)) par[find(j)] = find(i);
+    }
+  }
+  for (let i = 0; i < n; i++) if (par[i] >= 0) par[i] = find(i);      // compacted: equal ids == same basin
+  return par;
+}
+
 function linkBoundaries() {                               // read before one cannot look fresh
   const cell = MAP.cell, fz = MAP.fz;
+  /* The kind store: one byte per DIRECTED boundary, so the two sides of one crossing are two stored
+     answers a probe can demand agree. Sized here because MAP is rebuilt by three paths (authored plan,
+     generator, empty-map stub) and every one of them calls this function next. */
+  if (!MAP.ek || MAP.ek.length !== MW * MH * 4) MAP.ek = new Uint8Array(MW * MH * 4);
+  const ek = MAP.ek;
   let steps = 0;            // does ANY column boundary in this level have a step at it? (#100)
   let tallStep = 0;         // ... or ONLY boundaries taller than one quantum? The two are different
   //   questions and #517 is the cost of asking one of them twice - see the pair of lines below.
@@ -457,9 +575,14 @@ function linkBoundaries() {                               // read before one can
     let bits = 0;
     for (let d = 0; d < 4; d++) {
       const nx = x + DIRX[d], ny = y + DIRY[d];
-      if (nx < 0 || ny < 0 || nx >= MW || ny >= MH) continue;
+      const ei = (i << 2) + d;
+      if (nx < 0 || ny < 0 || nx >= MW || ny >= MH) { ek[ei] = EK_WALL; continue; }
       const n = ny * MW + nx;
-      if (cell[i] || cell[n]) { bits |= VB_BLOCK << (d << 2); continue; }
+      /* A boundary onto a solid column (or off the map) is a WALL: it blocks, it draws the solid
+         face the DDA already paints, and it needs no height rule. Out-of-map crossings still get a
+         kind so the census total is exactly MW*MH*4 - a boundary the census never reached is the
+         same "answered by nobody" bug wearing a bounds check. */
+      if (cell[i] || cell[n]) { bits |= VB_BLOCK << (d << 2); ek[ei] = EK_WALL; continue; }
       const dq = fz[n] - fz[i];
       /* #517 DRAW and BLOCK are two thresholds and one byte carries both. The blocker below keeps
          `dq > 1` - a one-quantum step stays walkable and auto-stepped (#100) - but `steps` gates the
@@ -482,8 +605,42 @@ function linkBoundaries() {                               // read before one can
          overwrites the row's own answer with somebody else's (#163, and `view.js heights` calls it
          CEILING-DEPTH). So `steps` reads the DRAW threshold - any dq - and `tallStep` reads the BLOCK
          threshold, |dq| > 1, exactly what the VB_BLOCK clause below refuses to let you walk through. */
-      if (dq > 1 || dq < -1) tallStep = 1;                // a multi-quantum riser exists, up or down
-      if (dq > 1 && !(MAP.vb[i] & (VB_RAMP | VB_LADDER) << (d << 2))) bits |= VB_BLOCK << (d << 2);
+      if (dq > STEP_Q || dq < -STEP_Q) tallStep = 1;     // a multi-quantum riser exists, up or down
+      /* THE KIND, decided once, here. A crossing something authored a climb over is a STEP in both
+         directions (that is what a stair or a ladder IS); otherwise the height difference alone says
+         ROOM, STEP, CLIFF-up, or - and this is the half that used to be undecided - DROP or CLIFF-down
+         by whether the band below has a way back. RAIl/COVERED are not derived from height at all:
+         they need an author, and nothing authors one yet, which the census prints as a zero row. */
+      const climb = !!(MAP.vb[i] & (VB_RAMP | VB_LADDER) << (d << 2)) ||
+        !!(MAP.vb[n] & (VB_RAMP | VB_LADDER) << ((d ^ 2) << 2)) ||
+        MAP.feat[i] === FEAT_LADDER || MAP.feat[n] === FEAT_LADDER;
+      let kind;
+      /* The ONE number these four lines read is STEP_Q (js/20_level.js, #634): what counts as a step
+         rather than a climb is the same quantity the generator's blocker, the auto-step and the
+         player's fall already read, so the byte stored here cannot disagree with the feet about which
+         crossings are a step. Reading the literal 1 here instead is how a stair came to be a STEP to
+         the level and a DROP to the player (#634). */
+      if (dq === 0) kind = EK_ROOM;
+      else if (dq > STEP_Q) kind = climb ? EK_STEP : EK_CLIFF;   // a rise: a climb over it, or a cliff
+      else if (dq < -STEP_Q) kind = climb ? EK_STEP : EK_DROP;   // a drop you take; the way back is a CENSUS
+      else kind = EK_STEP;                                       // a one-quantum tread, either way
+      ek[ei] = kind;
+      /* The two consumer answers, from the stored kind and nowhere else. WALK reproduces today's rule
+         exactly - only CLIFF blocks, so a rise over one quantum is a wall and a drop of any height is
+         free - which is what makes this change inert on the picture. DRAWN is "a riser face exists":
+         every non-flat kind except a climb, which is precisely the `dq && !(RAMP|LADDER)` clause the
+         renderer used to re-solve for itself.
+         WHY THE DOWNWARD LAW IS A CENSUS AND NOT A BLOCKER YET: edgeBasins says which drops land in a
+         band with no route back, and on every dealt level and on the authored plan that population is
+         zero, so the `vert` census row can demand zero and be seen to fail. Making a no-return DROP a
+         CLIFF here is the same line's next edit, and it is not free: `vert`'s ledge poke and the `drop`
+         probe's pit poke both RAISE a cell and then expect the player to fall into the pocket they
+         made, which is an authored no-return drop - the row goes red on the probe's own geometry before
+         it can say anything about a deal. Those pokes have to be re-authored to leave a way out, and
+         that is the remainder of #633 rather than a line to flip. */
+      const k = ek[ei];
+      if (!(k & EK_WALK)) bits |= VB_BLOCK << (d << 2);
+      if ((k & EK_FACEQ) && !climb) bits |= VB_FACE << (d << 2);
     }
     // blocking is derived from the grid, so a relink must be able to REMOVE it: OR-ing leaves a
     // wall behind when a boundary is lowered or flattened. The authored bits survive via VB_KEEP.
@@ -524,7 +681,13 @@ function canEnter(fx, fy, tx, ty) {
   if (isSolid(tx, ty)) return false;
   if (isSolid(fx, fy)) return true;
   const d = sideFrom(fx, fy, tx, ty);
-  return d < 0 || !(vbAt(fx, fy, d) & VB_BLOCK);
+  /* ONE predicate, and the stored kind is it (#633). An earlier draft of #634 added a rise test here
+     read through STEP_Q; it answered nothing VB_BLOCK did not already answer - a rise past one step
+     with no climb is EK_CLIFF, and EK_CLIFF is exactly the kind that sets VB_BLOCK - and `view.js
+     vert`'s feet-vs-kind census is the row that proves the two answers are the same one. A second
+     predicate for a stored answer is how the two halves get to disagree. */
+  if (d < 0) return true;
+  return !(vbAt(fx, fy, d) & VB_BLOCK);
 }
 
 /* Nearest cell with a walkable floor, by breadth-first search from a starting point:
