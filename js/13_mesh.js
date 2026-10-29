@@ -1062,8 +1062,17 @@ const MESH = (function () {
     shotgun: [[0, 0, 0], [0, 0, 0]],
     rifle:   [[0, 0, 0], [0, 0, 0]],
   };
+  /* NO fallback by kind. This used to read `VMGRIP[b.kind] || VMGRIP.pistol`, and the `|| pistol` half
+     was a load-bearing bug: `kind` is stamped by `wBuild` only, so shotgun and rifle geometry built by
+     `weaponRaw` (the probe hook) or by the boot drift detector below carried the PISTOL's support-hand
+     offset. Same weapon, different geometry depending on which call site built it - the route-dependence
+     this repo already rules on for `MESH.weapon` vs `weaponRaw` (#186), and it is what turned two
+     `viewmodel` rows red (`quantum price` 18.71 mm against a 4 mm bound, `key identity` 278 of 417).
+     An unstamped builder now throws instead of quietly borrowing another weapon's hands. */
   const vGripOff = (b, back, st) => {
-    const o = (VMGRIP[b && b.kind ? b.kind : 'pistol'] || VMGRIP.pistol)[back ? 1 : 0];
+    const g = b && VMGRIP[b.kind];
+    if (!g) throw new Error('MESH: view-model builder carries no weapon kind for the hand seat (stamp it at the VMGEO call site)');
+    const o = g[back ? 1 : 0];
     const c = 1 - clamp(st && st.ads ? st.ads : 0, 0, 1);
     return [o[0] * c, o[1] * c, o[2] * c];
   };
@@ -1275,9 +1284,17 @@ const MESH = (function () {
     return k + '|' + wq(WQK.mz, s.mz) + '|' + wq(WQK.magOut, s.magOut) + '|' + wq(WQK.slideBack, s.slideBack) +
       '|' + wq(WQK.pump, s.pump) + '|' + wq(WQK.shellIn, s.shellIn) + '|' + wq(WQK.ads, s.ads || 0);
   }
+  /* #632: ONE builder factory for the view models. vHand/vArm read the hand seat off the builder they
+     were handed, so EVERY route into VMGEO has to stamp `kind` on it - draw path, probe hook, boot drift
+     check - or the same weapon would build different geometry depending on who asked. vGripOff throws on
+     an unstamped builder rather than falling back; this is the single place that satisfies it. */
+  function wBuilder(kind) {
+    if (!VMGEO[kind]) throw new Error('MESH: no view model authored for weapon "' + kind + '"');
+    const b = new Builder(); b.kind = kind;
+    return b;
+  }
   function wBuild(kind, st) {
-    const BB = new Builder(); BB.kind = kind;      // #632: vHand/vArm read THIS build's hand seats, off
-    const b = VMGEO[kind](BB, st || {});           // the builder, never off a module global (#186's rule)
+    const b = VMGEO[kind](wBuilder(kind), st || {});   // the builder, never off a module global (#186's rule)
     const p = new Float32Array(b.p), v = new Float32Array(b.p.length / 2);
     for (let i = 0; i < b.p.length / 6; i++) { v[i * 3] = b.p[i * 6]; v[i * 3 + 1] = b.p[i * 6 + 1]; v[i * 3 + 2] = b.p[i * 6 + 2]; }
     /* #587: the coord array goes in beside `em` with the SAME shape the bodies and props already hand
@@ -1317,7 +1334,7 @@ const MESH = (function () {
      length would move the DRAWN muzzle off the ray while every hitscan number stayed right. */
   for (const k in VMUZZLE) {
     let mx = -1e9;
-    const bb = VMGEO[k](new Builder(), { mz: 0 });
+    const bb = VMGEO[k](wBuilder(k), { mz: 0 });
     for (let i = 0; i < bb.p.length; i += 6) if (bb.p[i + 2] > mx) mx = bb.p[i + 2];
     if (Math.abs(mx - VMUZZLE[k]) > 0.008)      // 0.008 = the thickness of a muzzle plate
       console.warn('MESH view model ' + k + ' geometry ends at z ' + mx.toFixed(3) + ' but VMUZZLE says ' + VMUZZLE[k]);
@@ -2268,7 +2285,7 @@ const MESH = (function () {
     wQuant: st => wState(st),
     /* probe-only (#186): the builder with NO quantum applied, so a probe can measure the displacement the
        quantum is paid with instead of taking the arithmetic on faith. Nothing in the draw path calls this. */
-    weaponRaw: (k, st) => { const b = VMGEO[k](new Builder(), st || {}); return { p: b.p, nV: b.p.length / 6 }; },
+    weaponRaw: (k, st) => { const b = VMGEO[k](wBuilder(k), st || {}); return { p: b.p, nV: b.p.length / 6 }; },
     muzzleFor: k => VMUZZLE[k],
     maxVerts: MAXV,
     /* the rest model's own extent in body space: its height span and its radius in plan. This is what

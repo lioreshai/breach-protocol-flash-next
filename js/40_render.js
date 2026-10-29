@@ -4284,19 +4284,25 @@ const VMSIT = {
    lands at horizon + BH*(0.15/0.27) = one hundred and eighty seven rows down, out of the frame. The
    player saw the gun, and two wrists entering the bottom edge of the picture. Nothing else in the
    frame can fix that, because the gripping surface was never inside the picture.
-   So the carry is what moves: `d` comes UP by two to three centimetres, which is the whole of the
-   defect (the fists come back on screen, ON the grip), `f` comes in by a centimetre so the rig reads
-   as against the body rather than stowed at arm's length, and the per-weapon ranking is kept - the
-   long guns still ride further out and lower than the pistol, because their stocks would otherwise
-   stand through the chest. `yaw` is now non-zero for the first time: a shouldered gun points its
-   muzzle INBOARD (toward the body's centre line, so a positive rig yaw for a right-sided carry),
-   and it ramps to exactly zero at full ADS with every other term here, because a gun that is ON the
-   sight line is on the ray. The three yaws are ranked by barrel length, which is the only thing
-   outside the silhouette that can tell a shotgun from a rifle while neither is aimed. */
+   So the carry moves in the two ways a carry is legible, and in nothing else. The SEAT is unchanged
+   from the three values above: a first cut of this increment also lifted `d` by two to three
+   centimetres, which did bring the fists back into the frame but made the rig paint 30 % larger at the
+   hip than at the sight line and put a fist fully in frame at hip painting MORE of itself than the same
+   fist at ADS - a scale change wearing a pose change, and `viewmodel`'s `hands` row is exactly that
+   check. The lift is out. What stays is `yaw` and the hand seat in js/13_mesh.js.
+   `yaw` is non-zero here for the first time: a shouldered gun points its muzzle INBOARD, across the
+   body, rather than straight down the view. SIGN: the rig's heading is `P.ang + VM.lag + yaw` (see the
+   rotation block below) and the seat sits at POSITIVE `r`, which is the player's right, so the yaw that
+   turns the muzzle toward the centre line is NEGATIVE. The first cut of this had the sign backwards and
+   the whole rifle slid further into the corner - its hip box reached x 1.00 of the frame where main's
+   stopped at 0.97 - which is the defect this row exists to remove, arrived at by accident. The three
+   values are ranked by barrel length (pistol least, rifle most), which is the one cue outside the
+   silhouette that tells a shotgun from a rifle while neither is aimed, and every term here ramps to
+   exactly zero at full ADS, because a gun that is ON the sight line is on the ray. */
 const VMHIP = {
-  pistol:  { f: 0.247, r: 0.098, d: 0.100, cant: 0.030, yaw: 0.030 },
-  shotgun: { f: 0.250, r: 0.118, d: 0.106, cant: -0.028, yaw: 0.034 },
-  rifle:   { f: 0.252, r: 0.126, d: 0.112, cant: -0.032, yaw: 0.040 },
+  pistol:  { f: 0.247, r: 0.098, d: 0.100, cant: 0.030, yaw: -0.020 },
+  shotgun: { f: 0.250, r: 0.118, d: 0.106, cant: -0.028, yaw: -0.024 },
+  rifle:   { f: 0.252, r: 0.126, d: 0.112, cant: -0.032, yaw: -0.028 },
 };
 let VMFLOOR = 0.5, VMRIM = 0.08;     // the two readability terms - see row (d)
 const VMROT = new Float32Array(9);
