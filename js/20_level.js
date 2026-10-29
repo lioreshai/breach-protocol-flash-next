@@ -3152,15 +3152,18 @@ const SEAT_LOOK = 12;                                   // metres: the reach `su
    sweep finds nothing - any FLAT level, where `ceilSlab` is zero everywhere - the face pass answers exactly
    as it did and the frames stay byte-identical (flatparity). No geometry write, no RNG draw, nothing that
    touches `vb`/`steps`: this picks a heading, not a level.
-   MEASURED AT THIS HEAD, and the reader should not expect a screenshot to change: on the four dealt
-   sectors the face rule already wins - its bearing scores within 1.02x to 1.27x of the best of 16 swept
-   bearings, under the 1.5x the margin asks for - so ARCHIVE 2.32, RING -0.63 and THE STACK 0.88 are the
-   headings they were and every shipped frame is byte-identical (surface's SEAT rows print the same three
-   numbers before and after this term; ABATOIR CORE authors its bearing and is never consulted). What the
-   sweep replaces is the LITERAL at the bottom of this function: a deal whose seat sees a deck but cannot
-   admit one of its faces used to arrive at a hard-coded 0.6 rad chosen for no reason at all, and now
-   arrives framing the widest underside it can see. `surface`'s L SEAT-FALLBACK row exercises exactly that
-   path by blinding `losZ` at the seat, because on the dealt map it never runs. */
+   MEASURED DEAL BY DEAL, because the honest answer is deal-dependent. On the four sectors at `surface`'s
+   own deal the face rule wins wherever a bearing is derived - 1.02x to 1.27x of the best of 16 swept
+   bearings against the 1.5x the margin asks for - so those four arrival frames are byte-identical and
+   `surface`'s SEAT rows print ARCHIVE 2.32, RING -0.63, THE STACK 0.88 before and after this term (ABATOIR
+   CORE authors its bearing and is never consulted). On the sixteen seeded deals `exposure` deals, ONE
+   heading moves: RING TRANSPORT's roll-2 seat ships 0.39 rad where the pass had admitted a face at -0.96,
+   and the swept bearing paints 1803 px of slab underside within 12 m against the face's 962 - the wide view
+   beating an edge by more than the margin, which is exactly the trade the margin exists for. That deal's
+   frame is not the one recorded: `exposure`'s L1 spawn median still reads the recorded 79.70/64.09 at this
+   tree, so a heading moved inside the noise of a four-roll median. What the two clauses below confine is
+   the OTHER way this term can fire - a seat whose sweep answered on a column outside the reach it scores,
+   turning an arrival for a band that paints 0 underside pixels while changing the frame by 20 luma. */
 const SEAT_WIDE = 1.5;                                  // band ratio needed to leave the edge bearing
 const SEAT_SWEEP = 16;                                   // bearings scored, half a frame apart
 function seatFacing(px, py, authored) {
@@ -3212,10 +3215,16 @@ function seatFacing(px, py, authored) {
       for (let k = -3; k <= 3; k++) {
         const a = ang + k * half / 3, cx = Math.cos(a), cy = Math.sin(a);
         let d0 = 0, d1 = 0;
-        for (let d = 1; d <= SEAT_LOOK + 1; d += 0.25) {
+        for (let d = 1; d <= SEAT_LOOK; d += 0.25) {
           const sx = px + cx * d, sy = py + cy * d;
           if (sx < 0 || sy < 0 || sx >= N || sy >= N || isSolid(sx, sy)) break;
           const i = (sy | 0) * N + (sx | 0);
+          // REACH IS THE COLUMN'S, NOT THE RAY'S: a cell the ray enters at 11.7 m has its CENTRE at
+          // 12.4 m, and `surface`'s census (`sCells`) counts a slab column by the distance of its centre.
+          // Scoring the entry point instead let a column the renderer paints past its 12 m reach move an
+          // arrival on a band worth 0 underside pixels, which is how this head red `exposure`'s L1 spawn
+          // row on a deal whose seat had nothing in reach at all.
+          if (Math.hypot((sx | 0) + 0.5 - px, (sy | 0) + 0.5 - py) > SEAT_LOOK) break;
           const z = MAP.ceilPlane ? MAP.ceilPlane[i] : ceilAt(sx | 0, sy | 0);
           if (z > az + 0.05 && (cs[i] & 1)) { if (!d0) d0 = d; d1 = d; }
           else if (d0) break;                            // the underside stopped: the band ends here
@@ -3230,9 +3239,19 @@ function seatFacing(px, py, authored) {
       const a = -Math.PI + k * 2 * Math.PI / SEAT_SWEEP, v = depth(a);
       if (!best || v > best.v) best = { v, a };
     }
-    if (best && (faceAng === null || best.v > faceV * SEAT_WIDE)) return best.a;
+    /* The two clauses that decide when the sweep may answer at all.
+       `best.v > 0`: the sweep moved a heading only if it framed an underside at all.
+       The centre test inside `depth`: the REACH BELONGS TO THE COLUMN, NOT TO THE RAY. A cell the march
+       enters at 11.7 m has its CENTRE at 12.4 m, and `surface`'s census counts a slab column by the
+       distance of its centre, so scoring the entry point let a column the renderer paints past its own
+       reach move an arrival. Measured on `exposure`'s RING TRANSPORT roll-3 deal: 26 flagged columns, not
+       one of them within 12 m of the seat, and the unconfined sweep still scored the hairline
+       1/12.25 - 1/12.75, beat a face-less pass by beating zero, and repainted the arrival frame by 20 luma
+       to show 0 px of underside. A rule may not move a frame on a deck it has already called too far away
+       to score. */
+    if (best && best.v > 0 && (faceAng === null || best.v > faceV * SEAT_WIDE)) return best.a;
   }
-  return faceAng === null ? 0.6 : faceAng;                 // nothing in reach: the shipped heading
+  return faceAng === null ? 0.6 : faceAng;               // nothing in reach: the shipped heading
 }
 
 /* #353: an overlook is only a fight if somebody stands above it. The pairing pass finds the geometry;
