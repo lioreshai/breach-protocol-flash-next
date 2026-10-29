@@ -3141,9 +3141,16 @@ function castWalls(flash, fcR, fcG, fcB) {
            as its neighbour's, which is the same fault `AGENTS.md` records twice for the light path.
            Out of the map there is no neighbouring column, so dq is 0 - no face, no crease. */
         const qx = mx - (side === 0 ? stepX : 0), qy = my - (side === 1 ? stepY : 0);
-        const dq = qx >= 0 && qy >= 0 && qx < N && qy < N ? fzs[my * N + mx] - fzs[qy * N + qx] : 0;
+        const inb = qx >= 0 && qy >= 0 && qx < N && qy < N;
+        const dq = inb ? fzs[my * N + mx] - fzs[qy * N + qx] : 0;
         const pi = qy * N + qx;
-        if (dq && !(vbs[pi] & ((VB_RAMP | VB_LADDER) << (d << 2)))) {
+        /* #633: THIS IS THE DRAWN COLUMN, NOT A SECOND HEIGHT RULE. The clause used to be copied from
+           the VB_BLOCK rule that decides what canEnter refuses, and a copy re-decides: it could only
+           ever be as right as the blocker, and the two have different thresholds (#517). The stored
+           VB_FACE bit - written by linkBoundaries from the boundary's stored kind, and cleared on every
+           relink because it is derived - is the same answer in the one byte this loop already loads.
+           Out of the map there is no neighbouring column and no nibble to read, so no face. */
+        if (inb && (vbs[pi] & (VB_FACE << (d << 2)))) {
           const fhi = dq > 0 ? fzs[my * N + mx] : fzs[pi], flo = dq > 0 ? fzs[pi] : fzs[my * N + mx];
           /* A STOP is only a stop if the face has PIXELS here. The span is tested far below
              (`if (!(dz > 0) || ds > de) continue`), and that `continue` abandons the COLUMN: the

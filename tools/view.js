@@ -3680,6 +3680,85 @@ if (MODE === 'vert') {
       `  split reaches ${r.reachSplit}/${r.reachFlat} blocked ${r.blocked} ${r.blocked > 0 && r.reachSplit < r.reachFlat ? 'REFUSES ok' : 'FAIL'}` +
       `  exit sealed ${r.exitSealed ? 'ok' : 'FAIL'}  FALLBACK warns ${r.warns} ${r.warns === 0 ? 'ok' : 'FALSE POSITIVE'}  ${ok ? 'ok' : 'FAIL'}`);
   }
+  /* ---- #633: THE EDGE KIND CENSUS. One stored kind per directed boundary, and the census is what
+     makes it a fact rather than a field. The question this answers is the one three paths used to
+     answer separately - the blocker in linkBoundaries, the clause copied into the renderer's wall
+     march, and this probe's own run-time guess (`kind = |dq| > 1 ? (linked ? 'ramp' : 'face') :
+     'walk'`, still there in `bands` at the line this replaces for the vertical lane). A boundary with
+     NO kind or with TWO kinds is a FAILURE, not a debt: today's whole bug class is "answered by
+     nobody", and a census that totals to MW*MH*4 cannot be satisfied by an edge nobody reached. The
+     WALK rows compare the stored kind against canEnter - the player's own answer - so a kind that is
+     stored but ignored by the feet goes red, which is the failure mode this issue exists for. The LAW
+     row is the downward half of the reachability rule docs/VERTICALITY.md already states for the
+     upward half: a crossing you can walk, that falls more than one quantum, must land in the SAME
+     step-or-climb basin it left, i.e. the way back is authored. edgeBasins is bfsReach's own crossing
+     rule read as components, and canEnter is read through the engine, so the two sides of this row
+     come from different code and it can disagree. The BLIND row is the other half of the same law:
+     an edge that stops your feet and draws nothing is an invisible wall, which is what a blocked
+     junction used to be. Camera-free, seed-free, no RNG read; the SABOTAGE that proves the agreement
+     rows can fail is in docs/DEVELOPMENT.md and is run with JSDIR=. */
+  console.log('edge kinds (one stored kind per boundary)');
+  const KN = ['ROOM', 'STEP', 'DROP', 'RAIL', 'CLIFF', 'COVERED', 'WALL'];
+  /* RUN LAST, and that is not cosmetic: startLevel rolls the dice, so a census that ran here would
+     shift every deal the rows below deal for itself. That is a real defect wearing a benign costume -
+     it showed up as `L0 flat walk keeps P.z on the floor` going VACUOUS (travelled 1.40 of 3.77 units)
+     with no engine change at all, because the lane this row picks was dealt one roll later than it was
+     before the census existed. A row that moves another row's dice is a row that cannot be A/B'd. */
+  const EDGE_CENSUS = () => {
+  for (let li = 0; li < NL; li++) {
+    const e = vm.runInContext(`(function(){
+      startLevel(${li}, true);
+      const ek = MAP.ek, par = edgeBasins(MAP.cell);
+      const pop = Object.create(null), pairs = Object.create(null), bad = Object.create(null);
+      let none = 0, two = 0, tot = 0, disagree = 0, goButStops = 0, stopButGoes = 0, freeFall = 0, blind = 0, dropCliff = 0;
+      for (const k of ['ROOM','STEP','DROP','RAIL','CLIFF','COVERED','WALL']) pop[k] = 0;
+      for (const p of ['ROOM/ROOM','STEP/STEP','CLIFF/DROP','CLIFF/CLIFF','RAIL/RAIL','COVERED/COVERED','WALL/WALL']) pairs[p] = 0;
+      for (let i = 0; i < MW * MH; i++) {
+        const x = i % MW, y = (i / MW) | 0;
+        for (let d = 0; d < 4; d++) {
+          tot++;
+          const k = ek[(i << 2) + d];
+          if (!k) { none++; continue; }
+          if (k & (k - 1)) { two++; continue; }
+          pop[ekName(k)]++;
+          const nx = x + DIRX[d], ny = y + DIRY[d];
+          if (nx < 0 || ny < 0 || nx >= MW || ny >= MH) continue;
+          const j = ny * MW + nx;
+          const k2 = ek[(j << 2) + (d ^ 2)];
+          if (!ekPairOk(k, k2)) disagree++;                // an answer invented for ONE side of a crossing
+          else pairs[ekPairName(k, k2)]++;
+          if (MAP.cell[i] || MAP.cell[j]) continue;             // a WALL: canEnter answers by openness
+          const can = canEnter(x + 0.5, y + 0.5, nx + 0.5, ny + 0.5) ? 1 : 0;
+          const walkable = (k & EK_WALK) ? 1 : 0;
+          if (can && !walkable) goButStops++;
+          if (!can && walkable) stopButGoes++;
+          if (can && MAP.fz[j] - MAP.fz[i] < -1 && par[i] !== par[j]) freeFall++;
+          if (!walkable && !(k & EK_FACEQ) && k !== EK_WALL && k !== EK_COVERED) blind++;
+          if (k === EK_CLIFF && MAP.fz[j] - MAP.fz[i] < 0) dropCliff++;
+        }
+      }
+      return { N: MW, tot: tot, pop: pop, pairs: pairs, none: none, two: two, disagree: disagree, goButStops: goButStops,
+        stopButGoes: stopButGoes, freeFall: freeFall, blind: blind, dropCliff: dropCliff,
+        sum: Object.values(pop).reduce((a, b) => a + b, 0), authored: LEVELS[${li}].authored ? 1 : 0,
+        stamp: MAP.linkStamp };
+    })()`, ctxVm);
+    const acc = e.sum + e.none + e.two === e.tot && e.tot === e.N * e.N * 4;
+    const ok = acc && !e.none && !e.two && !e.disagree && !e.goButStops && !e.stopButGoes &&
+      !e.freeFall && !e.blind;
+    bad += ok ? 0 : 1;
+    console.log(`  level ${li}${e.authored ? ' (authored plan)' : ''}  ` +
+      KN.map(k => k + ' ' + e.pop[k]).join('  ') +
+      `  = ${e.sum}/${e.tot} directed boundaries ${acc ? 'accounted' : 'FAIL: census does not total'}` +
+      `${e.none ? '  NO KIND ' + e.none + ' FAIL' : ''}${e.two ? '  TWO KINDS ' + e.two + ' FAIL' : ''}\n` +
+      `    pairs ` + Object.keys(e.pairs).filter(p => e.pairs[p]).map(p => p + ' ' + e.pairs[p]).join('  ') +
+      `  illegal pair(s) ${e.disagree ? 'FAIL ' + e.disagree : 'none'}` +
+      `  feet match the kind ${e.goButStops || e.stopButGoes ? 'FAIL ' + e.goButStops + '/' + e.stopButGoes : 'ok'}` +
+      `  no fall without a way back ${e.freeFall ? 'FAIL ' + e.freeFall : 'ok'}` +
+      `  nothing blocks while drawing nothing ${e.blind ? 'FAIL ' + e.blind : 'ok'}` +
+      `${e.dropCliff ? '  (' + e.dropCliff + ' rim(s) reclassified CLIFF because the band below has no route back)' : ''}` +
+      `  ${ok ? 'ok' : 'FAIL'}`);
+  }
+  };
   /* ---- M3 step 2: the player has to OBEY the grid. No shipped level has a height or a ladder
      yet (that is step 4), so no other gate can watch this code, and "it did not crash" is not a
      verdict. Every case pokes MAP.fz / MAP.vb / MAP.feat, relinks, then asks what the player
@@ -4021,6 +4100,7 @@ if (MODE === 'vert') {
     spawnRow('L' + li + ' spawn on a +4-quantum plateau (level change)', li, false, 4, 0, 1);
   }
   run(`if(globalThis.__genReal){genLevel=globalThis.__genReal;globalThis.__genReal=null;globalThis.__spawnBand=0;}`);
+  EDGE_CENSUS();
   if (bad) { console.log('vert: FAILED'); process.exit(1); }
   console.log('vert: all levels ok');
   // Without this the pass path fell through into the scene dump: CI's gate step printed a
@@ -17097,6 +17177,56 @@ if (MODE === 'surface') {
       if (kSeen.indexOf(a) < 0) kSeen.push(a);
       if (c.v && kAdm.indexOf(a) < 0) kAdm.push(a);
     }
+    /* #421 IS THERE EVEN A FACE IN THE AZIMUTH THE FRAME SHOWS MOST OF? `SEAT-FACE` above can say the
+       FILTER is the limit, and the obvious next action is to widen the filters - measured here and it is
+       the wrong action on the one sector where it mattered: at RING TRANSPORT's seat NO air-to-air riser
+       face exists anywhere within half a sweep step of the 4.71 rad azimuth that carries 8463 soffit px,
+       within the whole 12 m the rule is allowed to reach. The rule cannot be aimed at a face that is not
+       there. That azimuth is a soffit SEEN ALONG ITS LENGTH - a deck running away from the eye, its long
+       underside filling the upper frame - which is exactly the picture the issue was filed from, and no
+       bearing rule produces it. So the census has to name three limits, not two, or the next reader is
+       sent to widen a filter that has nothing to admit.
+       The enumeration below is GEOMETRY ONLY, deliberately not the shipped rule: a deck at least one unit
+       up, a near cell that looks down on the seat's band, inside `SEAT_LOOK`, nothing else - no soffit
+       preference, no ranking, and the `losZ` verdict counted SEPARATELY so "a face exists but the sight
+       line test refuses it" is distinguishable from "there is no face in this azimuth". It renders
+       nothing, writes nothing and draws no RNG. */
+    const kGeo = run(`(function(){
+      const px = ${sSeat[0]}, py = ${sSeat[1]}, N = MAP.w, cs = MAP.ceilSlab;
+      const sf = floorAt(px, py), az = sf + cfg.eye;
+      const BA = ${bAng.toFixed(6)}, HALF = ${(Math.PI / 12).toFixed(6)};
+      let n = 0, nLos = 0, nSlab = 0, nAny = 0, minD = -1;
+      for (let y = 1; y < MH - 1; y++) for (let x = 1; x < N - 1; x++) {
+        const i = y * N + x;
+        if (MAP.cell[i]) continue;
+        const f = MAP.fz[i] * ZQ;
+        if (f < sf + 1 - 1e-9) continue;
+        for (let d = 0; d < 4; d++) {
+          const nx = x + DIRX[d], ny = y + DIRY[d];
+          if (nx < 1 || ny < 1 || nx >= N - 1 || ny >= MH - 1) continue;
+          const j = ny * N + nx;
+          if (MAP.cell[j] || MAP.fz[j] * ZQ > sf + ZQ) continue;
+          const fx = (x + nx + 1) * 0.5, fy = (y + ny + 1) * 0.5;
+          const dd = Math.hypot(fx - px, fy - py);
+          if (dd > SEAT_LOOK || dd < 1) continue;
+          let db = Math.atan2(fy - py, fx - px) - BA;
+          while (db > Math.PI) db -= 2 * Math.PI;
+          while (db < -Math.PI) db += 2 * Math.PI;
+          /* Reach-wide counters, BEFORE the azimuth wedge: the "no face exists in this azimuth" claim is
+             only evidence if the same pass says how many faces exist in REACH of the seat and how far off
+             the best azimuth the nearest one is. Without them a bug in the wedge test and an empty sector
+             print the same 0. */
+          nAny++;
+          if (minD < 0 || Math.abs(db) < minD) minD = Math.abs(db);
+          if (Math.abs(db) > HALF) continue;
+          n++;
+          if (cs && cs[j] & 1) nSlab++;
+          const ux = (fx - px) / dd, uy = (fy - py) / dd;
+          if (losZ(px, py, az, fx - ux * 0.2, fy - uy * 0.2, (sf + f) * 0.5)) nLos++;
+        }
+      }
+      return { n: n, nLos: nLos, nSlab: nSlab, nAny: nAny, minD: minD };
+    })()`);
     /* Half of the 12-azimuth sweep step: an admitted face this close to the best azimuth means the frame
        at that azimuth already contains a face the rule could have chosen. */
     const kHalf = Math.PI / 12;
@@ -17107,8 +17237,28 @@ if (MODE === 'surface') {
       while (db < -Math.PI) db += 2 * Math.PI;
       if (Math.abs(db) <= kHalf) kNear = true;
     }
-    const kVac = sCells > 0 && bPx > 0 && kAdm.length === 0;
+    /* Vacuity here is the geometry claim being false: the sweep shows a deck overhead in some azimuth and
+       NOT ONE riser face exists anywhere in reach of the seat, so the census is counting a surface no
+       sight line can arrive at. That is a FAILURE. A best azimuth that merely has no face IN IT is not
+       vacuity - a soffit seen along its length is a real picture - and it is reported as the third limit. */
+    const kGeoVac = sCells > 0 && bPx >= SEAT_PX && kGeo.n === 0 && kAdm.length === 0;
+    const kVac = (sCells > 0 && bPx > 0 && kAdm.length === 0) || kGeoVac;
     const kDebt = !kAuth && !kVac && bPx >= SEAT_PX && !kNear;
+    row(`L${li} SEAT-AZIMUTH the azimuth the frame shows most of is one a face could be aimed at`,
+      !kGeoVac,
+      kAuth ? `${name} AUTHORS its bearing, so no azimuth is chosen by a rule on this sector`
+        : bPx < SEAT_PX
+          ? `not judged: no azimuth at this seat reaches the ${SEAT_PX}-px bar (best ${bPx} at ${bAng.toFixed(2)})`
+          : `${kGeo.n} riser face(s) within ${Math.round(kHalf * 2 * 100) / 100} rad of ${bAng.toFixed(2)} rad and inside `
+          + `${run('SEAT_LOOK')} m of the seat - ${kGeo.nLos} of them visible to the rule's own sight-line test, `
+          + `${kGeo.nSlab} with a soffit over the cell the face looks down on; `
+          + `${kGeo.nAny} face(s) exist anywhere in that reach, nearest ${(kGeo.minD < 0 ? 'none' : kGeo.minD.toFixed(2) + ' rad off this azimuth')}; ` + (kNear
+            ? 'and one of them IS admitted, so the rule can aim here and does not: the KEY'
+            : kGeo.n === 0
+              ? 'NONE: the best azimuth is a deck seen ALONG its underside, not a face - no bearing rule can take it'
+              : kGeo.nLos === 0 ? 'a face exists but the sight-line test refuses every one: the SIGHT LINE'
+                : 'a face exists and is visible but the rule never probes it: the FILTER'),
+      kGeoVac ? undefined : kDebt ? '#421' : undefined);
     row(`L${li} SEAT-FACE the heading the seat rule can reach contains the heading the frame shows most of`,
       !kVac,
       kAuth ? `${name} AUTHORS seatAng ${run('LEVELS[' + li + '].seatAng')}, so the rule is not run on this sector`
