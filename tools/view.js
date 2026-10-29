@@ -17351,6 +17351,44 @@ if (MODE === 'surface') {
           : sHead.near === 0 ? ` - the deck is beyond ${SEAT_NEAR} m: a one-quantum underside cannot reach the bar from there`
             : ''),
       hVac ? undefined : hDebt ? '#421' : undefined);
+    /* #421 THE FALLBACK IS NO LONGER A LITERAL. `seatFacing` had a hard-coded 0.6 rad at the bottom: a deal
+       whose seat sees a deck but cannot admit one of its faces arrived looking at a bearing chosen for no
+       reason at all, on a grid that was saying something else. It now answers with the widest underside the
+       seat can frame (js/20_level.js), and only when that underside is inside the reach the rule scores -
+       a column whose CENTRE is beyond SEAT_LOOK cannot move a heading, because the same term already calls
+       it too far away to paint.
+       WHERE IT WAS MEASURED, because the answer is deal-dependent and "it never runs" was wrong: on THIS
+       probe's deal (the four sectors below) the face rule wins on all three sectors that derive a bearing,
+       1.02x to 1.27x against the 1.5x the term asks for, so those four arrival frames are byte-identical.
+       On the seeded deals `exposure` deals (seedRng(1000 + lv*97 + r*13)) the rule fires on one of sixteen:
+       RING TRANSPORT's roll-2 seat ships 0.39 rad where it used to ship the admitted face at -0.96, and
+       that bearing paints 1803 px of slab underside within 12 m against the face's 962 - the wide view
+       beating an edge by more than the margin, which is the trade the margin is for. `exposure`'s L1 spawn
+       median is the recorded 79.70/64.09 again at that tree, so a shipped heading moved without a recorded
+       frame moving; `exposure` is the row that would say otherwise, and it is green here.
+       Because neither deal path reaches the fallback on its own dice, the mechanism is exercised the only
+       honest way available here: call the SHIPPED rule from the page with `losZ` blinded, which is exactly
+       the condition "a deck in reach, no face admitted", and put `losZ` back. No second copy of the rule,
+       no geometry write, the camera untouched, so every row after this one renders what it rendered before.
+       Vacuity is the failure - a seat with flagged columns in reach still arriving at the literal; the row
+       reads STILL THE 0.60 LITERAL and the probe goes to 7 failures with js/20_level.js alone at the base.
+       A sector that AUTHORS its bearing is opted out; a sector with nothing in reach is not judged rather
+       than passed. */
+    const fbAuth = typeof run('LEVELS[' + li + '].seatAng') === 'number';
+    let fbAng = NaN;
+    if (!fbAuth) fbAng = +run(`(function(){ const px = ${sSeat[0]}, py = ${sSeat[1]}, old = losZ;
+      losZ = function () { return false; };
+      let an = null; try { an = seatFacing(px, py); } finally { losZ = old; }
+      return an; })()`);
+    const fbSkip = fbAuth || sCells === 0;
+    row(`L${li} SEAT-FALLBACK a seat that sees a deck but admits no face still frames it`,
+      fbSkip || (isFinite(fbAng) && Math.abs(fbAng - 0.6) > 1e-6),
+      fbAuth ? `${name} AUTHORS seatAng, so no fallback is reachable on this sector`
+        : sCells === 0 ? `${name}: no flagged column within ${SEAT_D} m of the seat, nothing to frame`
+          : `blinded sight-line gives heading ${fbAng.toFixed(2)} rad with ${sCells} flagged column(s) in ` +
+            'reach' + (isFinite(fbAng) && Math.abs(fbAng - 0.6) > 1e-6 ? ' - the sweep answered, not the literal'
+              : ' - STILL THE 0.60 LITERAL: the sweep did not answer'),
+      undefined);
     /* #421 FILTER OR KEY - which half of the seat rule is the limit. `SEAT-CEILING` above prints the best
        azimuth a seat CAN show; `SEAT` prints what the shipped heading does show. When those disagree the
        remedy is either the ranking key (a better face is admitted and loses) or the admission filter (the
