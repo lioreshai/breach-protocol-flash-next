@@ -3140,10 +3140,14 @@ const SHIP = refRecord('flatparity', 'LOCK', 'md5', ['d614d2bd7bee11fe938cd57850
      TO THE TENTH (52.4 against 52.4), the signature of pixels moving under an unchanged field - the term is a
      multiply on a STEP face's own light, keyed on the boundary's stored kind, so no lamp, no lightmap, no height
      and no other face in the frame is touched. THE LEVEL-SCOPED CONTROL IS THE OTHER THREE BYTES: L0, L1 and L2
-     come back MAIN'S to the digest in this same run, and the PARITY and LOCK triples are main's on all four, so
-     every FLAT frame in this probe is byte-identical - which is what `MAP.steps === 0` on a flat grid predicts,
-     because the step branch the term lives in is gated on that flag and runs nowhere. No threshold, dice, seat,
-     tolerance or vacuity floor moved; the dealt GEOMETRY census is main's to the cell. */
+     come back MAIN'S to the digest in this same run, and the PARITY and LOCK triples are main's on all four. THE
+     TWO SENSES HOLD FOR TWO DIFFERENT REASONS AND IT IS WORTH SAYING WHICH IS WHICH: PARITY and LOCK are this
+     probe's FLATTENED senses, where `MAP.steps === 0` and the step branch the term lives in runs nowhere; DEALT
+     is the DEALT world, where the generator authors one-quantum treads of its own (`alt` counts 46 / 52 / 56 step
+     faces on L0-L2) and the term is live - those three bytes hold because no step face enters the DEALT frame at
+     its own scored seat, NOT because a dealt level is out of the term's scope. Where one does enter a dealt frame,
+     at a sector's spawn seat, `exposure`'s SPAWN row carries the move and the evidence for it. No threshold, dice,
+     seat, tolerance or vacuity floor moved; the dealt GEOMETRY census is main's to the cell. */
   const DEALT = refRecord('flatparity', 'DEALT', 'md5', ['799164b88ec440eb1167c83a118676da', '2d8a9a50ac1947528acc00d3d44addc8', 'd964d6eb9199ecebdc35693d2e9b4637', 'cfd7b35f4bca3e1d74f2a6e0e53d189a'])
     /* #632 REWORK TAKE THREE (the halved hip yaw, see PARITY above), MEASURED on this tree: all four dealt frames
        re-key, DEALT-ORDER hashes each new value alone in its own process AND in level order and both senses agree on
@@ -7624,7 +7628,25 @@ if (MODE === 'exposure') {
      branch's on all four levels, so no lamp was placed, moved or relit. 73 and 79 stay inside the untouched
      35-75 band tools/ci/assert.js re-reads and inside the 60-100 window. No window, region, roll list, floor or
      census moved. */
-  const EXPO_SPAWN = refRecord('exposure', 'SPAWN', 'num', [74, 57, 80, 64, 73, 72, 73, 83])
+  const EXPO_SPAWN = refRecord('exposure', 'SPAWN', 'num', [73, 55, 80, 64, 73, 71, 73, 83])
+    /* #515 THE STEP FACE GETS AN ORIENTATION TERM (js/40_render.js `STEP_LT`), AND ITS SCOPE IS THE GEOMETRY,
+       NOT THE LEVEL: THREE of the eight digits move - L0 74/57 -> 73/55 (72.88 / 55.01 exact, spread 17) and
+       L2's centre-half mid 72 -> 71 (72.60 / 71.06, spread 33, its MEAN holding on the recorded 73) - and L1's
+       pair and L3's pair hold to the digit in the same run. WHY A GENERATED LEVEL IS IN SCOPE: the term is keyed
+       on the boundary's STORED kind (#633 `EK_STEP`), and a one-quantum tread dealt by the generator is that kind
+       for the same reason an authored flight is - `alt` counts 46 / 52 / 56 step faces on L0-L2 with `MAP.steps 1`.
+       Narrowing it to authored levels would shade identical geometry two ways in one engine, so this re-record is
+       the change stated honestly rather than a scope that was never true. ATTRIBUTION IN ONE TREE: the A/B ran in
+       the same harness with `JSDIR=` at a copy of js/ whose ONLY edit is `let STEP_LT = 1` (the term multiplied by
+       one) and these OLD literals left in place, and it printed 73.86 / 56.55, 79.70 / 64.09, 72.60 / 71.52 and
+       73.34 / 82.64 - main's record, `EXPOSURE ok`, exit 0 - while this tree with the term on prints the four
+       values above and exits 1. THE CONTROLS THAT SAY SHAPE AND NOT RELIGHT ARE IN THAT SAME PAIR OF RUNS: all
+       four seeded MEDIANS are identical to the tenth across the two arms (68.95/75.93/62.59/92.54 against
+       69.01/75.93/62.60/92.54), with every roll list, worst-roll floor and the 60-100 window untouched, so no
+       deal, lamp or height moved; what moved is which of two surfaces 25 cm apart carries the field. The two
+       moved mids (55, 71) sit inside the 35-75 band `tools/ci/assert.js exposure` re-reads off the COMPOSITED
+       frame, whose own verdict is green at this head, and both are inside their rows' own 17- and 33-luma spreads.
+       No window, band, region, roll list, floor, dice or vacuity clause moved anywhere in this diff. */
     /* #632 REWORK TAKE THREE (the hip yaw halved to -0.010 / -0.012 / -0.014, js/40_render.js VMHIP), MEASURED on
        this tree: TWO digits of the sixteen come back to the values main prints - L0's centre-half mid 56 -> 57
        (56.55 exact, its mean holding at 73.86) and L2's 71 -> 72 (71.52 exact, mean 72.60). Both are half-luma
