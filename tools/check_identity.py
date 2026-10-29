@@ -157,15 +157,24 @@ def check_release(ref='HEAD', branch='', cwd=None):
 
 
 def main(argv):
-    refs = [arg for arg in argv if not arg.startswith('--')]
+    # `--branch ""` is the ordinary case on a push event, and git treats an empty argument as a
+    # bad revision: parse the flags out instead of filtering on "does not start with --".
+    refs, branch, skip = [], '', False
+    for i, arg in enumerate(argv):
+        if skip:
+            skip = False
+            continue
+        if arg == '--branch':
+            skip = True
+            branch = argv[i + 1] if i + 1 < len(argv) else ''
+            continue
+        if arg.startswith('--') or not arg:
+            continue
+        refs.append(arg)
     errors = check_refs(refs or ['HEAD'])
     notes = []
     artifact = '--release' in argv
     if artifact:
-        branch = ''
-        for i, arg in enumerate(argv):
-            if arg == '--branch' and i + 1 < len(argv):
-                branch = argv[i + 1]
         artifact_errors, notes = check_release(refs[0] if refs else 'HEAD', branch)
         errors += artifact_errors
     if errors:
