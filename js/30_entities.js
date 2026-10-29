@@ -448,13 +448,20 @@ function updatePlayer(dt) {
     if (climb) { P.air = false; P.vz = 0; P.z = clamp(P.z + climb * 1.6 * dt, gz, Math.max(gz, ceilAt(P.x, P.y) - cfg.eye)); }
     else {
       if ((keys['Space']) && !P.air && P.crouch < 0.4) { P.air = true; P.vz = 3.0; SND.step(); }
-      // A floor more than ONE STEP below the feet is not support: the fall runs the jump's
-      // integration. STEP_Z is the generator's own crossing threshold (js/20_level.js), so a
-      // descent the level calls walkable is never answered here with a free fall - which is what
-      // made a drop read as a ledge where the level meant a step (#634).
-      // STEP_EPS is the ease's residue, not a widening: a crossing of exactly one step stays on the
-      // ground even in the frames where the feet have not quite finished settling onto the last one.
-      if (!P.air && gz < P.z - STEP_Z - STEP_EPS) { P.air = true; P.vz = 0; }
+      // Two questions, in this order, and neither answers the other.
+      // (1) IS THERE NO FLOOR? A floor more than ONE STEP below the feet is not support. STEP_Z is
+      //     the generator's own crossing threshold (js/20_level.js), and STEP_EPS is the eased
+      //     step-down's residue - 1.3 mm at a walking pace - not a widening. Without the residue a
+      //     1-quantum stair tripped free fall on its second tread: 13 airborne frames of 54 on a
+      //     straight walk down three treads, which is the report's "sometimes a step, sometimes a
+      //     fall" and needed no jump to produce.
+      // (2) DID THE LEVEL CALL THAT DESCENT A STEP? #633 stores one kind per directed boundary, so
+      //     the answer is asked of the level rather than re-solved from a height difference: a stair,
+      //     a ladder and an authored ramp are EK_STEP from BOTH their ends, and an unauthored lip is
+      //     EK_CLIFF from the low end. `view.js vert`'s feet-vs-kind census is the row that keeps the
+      //     two answers the same answer (#633), so reading the kind here adds no second law.
+      // A fall is then the jump's own integration, unchanged.
+      if (!P.air && gz < P.z - STEP_Z - STEP_EPS && !steppedDownInto(P.x, P.y, P.z)) { P.air = true; P.vz = 0; }
       if (P.air) {
         P.vz -= 9.2 * dt; P.z += P.vz * dt;
         if (P.z <= gz) {

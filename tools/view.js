@@ -4804,11 +4804,14 @@ if (MODE === 'drop') {
     const ahead = (k) => [[LX + lane.dx * k, LY + lane.dy * k]];
     const DIRd = lane.dx === 1 ? 0 : lane.dy === 1 ? 1 : lane.dx === -1 ? 2 : 3;
     // q = how many quanta the FIRST crossing of that route drops; fall = what the design says the
-    // feet do there: a step/stair/ladder is walked, a lip, a shaft and an unramped drop are taken.
+    // feet do there. A step, a stair and a ladder are walked, and so is an AUTHORED climb - a ramp or
+    // a ladder flagged across more than one quantum - because #633 stores that crossing as a STEP at
+    // both its ends and js/30_entities.js now asks the stored kind instead of re-solving the height
+    // (#634, review decision on the combined head). A lip, a shaft and an unramped drop are taken.
     const kinds = [
       { name: 'one quantum step', dig: [[1, -1], [2, -1]], q: 1, fall: false },
       { name: 'stair (1q treads)', dig: [[1, -1], [2, -2], [3, -3]], q: 1, fall: false },
-      { name: 'ramp-flagged drop', dig: [[1, -3]], q: 3, fall: true, ramp: true },
+      { name: 'ramp-flagged drop', dig: [[1, -3]], q: 3, fall: false, ramp: true },
       { name: 'ladder down (KeyQ)', dig: [[1, -4]], q: 4, fall: false, key: 'KeyQ', ladder: true },
       { name: 'pit, walked in', dig: [[1, -8], [2, -8], [3, -8]], q: 8, fall: true },
       { name: 'plain ledge', dig: [[0, 4]], q: 4, fall: true },
@@ -4864,13 +4867,14 @@ if (MODE === 'drop') {
     }
     console.log(`  L${li} branch attribution: ${branch.join('  ')}`);
 
-    /* The threshold is ONE constant (js/20_level.js STEP_Q) read by the generator's block rule, by
-       canEnter and by the airborne branch. Rather than grep for the symbol, measure both rules on the
-       real grid: the smallest DROP that puts the feet in the fall branch, and the smallest RISE that
-       canEnter refuses. A step is a step in both directions, so they are the same number - and they
-       stay the same number whatever STEP_Q is set to, which is the point. Hard-code a metre figure in
-       one of the two files, or let the airborne rule drift from the block rule, and this row is the
-       one that says so. */
+    /* The threshold is ONE constant (js/20_level.js STEP_Q) read by the generator's kind table and by
+       the airborne branch. Rather than grep for the symbol, measure both rules on the real grid: the
+       smallest DROP that puts the feet in the fall branch, and the smallest RISE that canEnter
+       refuses. A step is a step in both directions, so they are the same number - and they stay the
+       same number whatever STEP_Q is set to, which is the point. Hard-code a metre figure in one of
+       the two files, or let the airborne rule drift from the kind table, and this row says so. The
+       rise half goes through VB_BLOCK, which linkBoundaries derives from the stored kind, so the row
+       measures #633's single predicate rather than a second one in canEnter. */
     let kAir = -1, kWall = -1;
     for (let k = 1; k <= 6 && kAir < 0; k++) {
       put(X, Y); poke(cellAt(1), -k); put(X, Y);
