@@ -3,6 +3,7 @@
 import argparse
 from datetime import datetime, timedelta, timezone
 import json
+import os
 from pathlib import Path
 import re
 import subprocess
@@ -13,6 +14,60 @@ RESET_TEXT = '# Changelog\n\nRelease notes are recorded here when a version is p
 VERSION = r'v\d+\.\d+(?:\.\d+)?'
 SHA = r'[0-9a-f]{40}'
 ARTIFACTS = {'CHANGELOG.md', 'release.json', 'release-policy.json'}
+# How long a merged release PR may sit untagged/unpublished before the alarm goes up.
+# Measured, not guessed: #619 merged 2026-10-22T22:40:50Z and published 22:58:12Z (1042 s);
+# #684 merged 2026-10-28T15:01:38Z and published 15:29:32Z (1674 s). The grace sits above both
+# so a product lead working at normal speed never sees a false row, and a forgotten step does.
+PUBLISH_GRACE = 3600
+PUBLISHED, TAGGED, MERGED = 'published', 'tagged-not-published', 'merged-not-tagged'
+
+
+def grace_seconds():
+    # A knob for the sabotage run and for a box testing a shorter window; the committed
+    # default is the measured one and no workflow overrides it.
+    raw = os.environ.get('RELEASE_PUBLISH_GRACE', '')
+    if not raw:
+        return PUBLISH_GRACE
+    try:
+        value = int(raw)
+    except ValueError:
+        raise ValueError('RELEASE_PUBLISH_GRACE must be an integer number of seconds')
+    if value < 0:
+        raise ValueError('RELEASE_PUBLISH_GRACE must not be negative')
+    return value
+
+
+def publish_state(manifest, tag_sha, published, merged_at, now, grace=None):
+    """Which step of docs/RELEASE.md step 4 is outstanding for the release release.json names.
+
+    `manifest` is release.json on main, `tag_sha` the commit refs/tags/<version> peels to (or
+    None), `published` the GitHub release carrying that tag (or None), `merged_at` when the
+    release commit landed on main. A manifest with neither tag nor release is MERGED - a named
+    outstanding step, never 'nothing to check'."""
+    grace = PUBLISH_GRACE if grace is None else grace
+    if not isinstance(manifest, dict):
+        raise ValueError('release.json is missing from main: the release guard has nothing to guard')
+    version = manifest.get('version')
+    if not isinstance(version, str) or not re.fullmatch(VERSION, version):
+        raise ValueError('release.json version is %r, not a release version' % (version,))
+    if published is not None:
+        if published.get('draft') is not False or published.get('prerelease') is not False:
+            raise ValueError('the release tagged %s is a draft or prerelease, which does not '
+                             'complete the handoff' % version)
+        if published.get('tag_name') != version:
+            raise ValueError('the latest release is tagged %r but release.json names %r'
+                             % (published.get('tag_name'), version))
+    if published is not None and tag_sha is None:
+        raise ValueError('a release exists for %s but its tag does not' % version)
+    step = PUBLISHED if published is not None else TAGGED if tag_sha else MERGED
+    age = None if merged_at is None else int((now - merged_at).total_seconds())
+    outstanding = step != PUBLISHED
+    overdue = outstanding and age is not None and age > grace
+    return dict(step=step, version=version, outstanding=outstanding, age_seconds=age,
+                grace_seconds=grace, overdue=overdue,
+                reason='the GitHub release is published' if step == PUBLISHED else
+                'the annotated tag ' + version + ' exists but no GitHub release is published' if
+                step == TAGGED else 'no tag and no release exist for ' + version)
 
 
 def call(args, data=None):
@@ -52,7 +107,7 @@ def release_branch(branch):
     return branch == RESET_BRANCH or re.fullmatch('release/' + VERSION, branch) is not None
 
 
-def evaluate(policy, release, main_sha, tag_sha, now):
+def evaluate(policy, release, main_sha, tag_sha, now, publication=None):
     seconds = cadence_seconds(policy)
     if not re.fullmatch(SHA, main_sha):
         raise ValueError('main SHA is missing or invalid')
@@ -69,9 +124,20 @@ def evaluate(policy, release, main_sha, tag_sha, now):
     due_at = published + timedelta(seconds=seconds)
     changed = main_sha != tag_sha
     due = changed and now >= due_at
-    return dict(due=due, reason='release due' if due else 'not due' if changed else 'no new changes',
+    reason = 'release due' if due else 'not due' if changed else 'no new changes'
+    # A release PR that has merged and is waiting on its tag/release is not a debt the next
+    # feature PR pays. Before this, the merge -> publish window failed `release` on every open
+    # PR (#621-#630 read BLOCKED for 18 minutes on nothing but that gap); the guard below is
+    # the row that goes red, on main. Past the grace the debt is real again.
+    if publication and publication['outstanding']:
+        if not publication['overdue']:
+            due, reason = False, 'publication in flight: ' + publication['step']
+        elif due:
+            reason = 'release PR merged, publication outstanding: ' + publication['step']
+    return dict(due=due, reason=reason,
                 cadence_seconds=seconds, main_sha=main_sha, last_tag=release['tag_name'],
-                last_published_at=release['published_at'], due_at=due_at.isoformat())
+                last_published_at=release['published_at'], due_at=due_at.isoformat(),
+                publication=publication)
 
 
 def check_changelog(branch, changed, before, after, manifest):
@@ -120,6 +186,38 @@ def git_file(ref, file, optional=False):
         raise
 
 
+def publication_on_main(repo, now=None, ref=''):
+    """The publish state of the release release.json names, read from main.
+
+    `ref` is a local git ref instead of main, used by the sabotage run so a doctored
+    release.json can be checked in the one tree that made it."""
+    now = now or datetime.now(timezone.utc)
+    if ref:
+        raw = git_file(ref, 'release.json', optional=True)
+        manifest = json.loads(raw) if raw else None
+        main_sha = call(['git', 'rev-parse', ref])
+        merged_at = stamp(call(['git', 'log', '-1', '--format=%cI', ref, '--', 'release.json']))
+    else:
+        main_sha = api(repo, 'git/ref/heads/main')['object']['sha']
+        from base64 import b64decode
+        contents = api(repo, 'contents/release.json?ref=' + main_sha)
+        manifest = json.loads(b64decode(contents['content']))
+        commits = api(repo, 'commits?sha=main&path=release.json&per_page=1')
+        if not isinstance(commits, list) or not commits:
+            raise ValueError('no commit on main touches release.json; the release guard cannot '
+                             'date the outstanding step')
+        merged_at = stamp(commits[0]['commit']['committer']['date'])
+    version = manifest.get('version') if isinstance(manifest, dict) else None
+    if not isinstance(version, str) or not re.fullmatch(VERSION, version or ''):
+        raise ValueError('release.json version is %r, not a release version' % (version,))
+    tag_sha = api(repo, 'commits/' + version, optional=True)
+    tag_sha = tag_sha['sha'] if tag_sha else None
+    release = api(repo, 'releases/tags/' + version, optional=True)
+    if release is not None and release.get('tag_name') != version:
+        raise ValueError('the release queried for %s reports tag_name %r' % (version, release.get('tag_name')))
+    return publish_state(manifest, tag_sha, release, merged_at, now, grace_seconds()), main_sha
+
+
 def status(repo, branch=''):
     # Read policy from main, so a feature PR cannot waive debt by editing it.
     main_sha = api(repo, 'git/ref/heads/main')['object']['sha']
@@ -128,7 +226,8 @@ def status(repo, branch=''):
     policy = json.loads(b64decode(policy_file['content'])) if policy_file else json.loads(Path('release-policy.json').read_text())
     release = api(repo, 'releases/latest', optional=True)
     tag_sha = api(repo, 'commits/' + release['tag_name'])['sha'] if release else None
-    value = evaluate(policy, release, main_sha, tag_sha, datetime.now(timezone.utc))
+    publication = publication_on_main(repo)[0]
+    value = evaluate(policy, release, main_sha, tag_sha, datetime.now(timezone.utc), publication)
     value['waived'] = bool(re.fullmatch('release/' + VERSION, branch)) or (branch == RESET_BRANCH and policy_file is None)
     return value
 
@@ -153,7 +252,8 @@ def notify(repo, value):
             f"Last published version: {value['last_tag'] or 'none'}.\n"
             f"Published at: {value['last_published_at'] or 'never'}.\n"
             f"Due at: {value['due_at'] or 'now'}.\n\n"
-            'The product lead prepares the release PR and publishes its merged commit after green checks. '
+            + publication_line(value.get('publication')) + '\n\n'
+            + 'The product lead prepares the release PR and publishes its merged commit after green checks. '
             'Record concrete blockers here. See docs/RELEASE.md.')
     if matching:
         if matching[0].get('body') != body:
@@ -161,6 +261,21 @@ def notify(repo, value):
                   '--method', 'PATCH', '--input', '-'], json.dumps({'body': body}))
     else:
         api(repo, 'issues', {'title': title, 'body': body, 'labels': ['release-due']})
+
+
+def publication_line(publication):
+    """One line naming which step of docs/RELEASE.md step 4 is outstanding, so nobody diffs
+    timestamps to find out why a check is red."""
+    if not publication:
+        return 'Outstanding release step: unknown, the status carried no publication state.'
+    age = publication['age_seconds']
+    shown = 'unknown age' if age is None else f"{age} s since the release commit landed"
+    if not publication['outstanding']:
+        return f"Outstanding release step: none - {publication['version']} is published ({shown})."
+    return (f"Outstanding release step: {publication['step']} for {publication['version']} "
+            f"({shown}, alarm at {publication['grace_seconds']} s). "
+            + ('PAST THE GRACE: finish the handoff - tag the merge commit and publish the release.'
+               if publication['overdue'] else 'Within the grace; the tag and release are still owed.'))
 
 
 def main():
@@ -179,6 +294,9 @@ def main():
         command.add_argument('--input', required=True)
         if name == 'notify':
             command.add_argument('--repo', required=True)
+    guard = commands.add_parser('publish')
+    guard.add_argument('--repo', required=True)
+    guard.add_argument('--ref', default='', help='local git ref instead of main, for a one-tree check')
     args = parser.parse_args()
     if args.command == 'check-changelog':
         changed = call(['git', 'diff', '--name-only', args.base, args.head]).splitlines()
@@ -194,14 +312,27 @@ def main():
         value = status(args.repo, args.branch)
         Path(args.output).write_text(json.dumps(value) + '\n')
         print(json.dumps(value))
+    elif args.command == 'publish':
+        value, main_sha = publication_on_main(args.repo, ref=args.ref)
+        print(f"release publish guard: {value['step']} for {value['version']} "
+              f"(main {main_sha[:12]}, {value['age_seconds']} s since that commit, "
+              f"grace {value['grace_seconds']} s) - {value['reason']}")
+        if value['overdue']:
+            raise ValueError('release.json on main names ' + value['version'] + ', which is '
+                             + value['step'] + ' after ' + str(value['age_seconds'])
+                             + ' s. docs/RELEASE.md step 4 is unfinished and every feature PR '
+                               'is waiting behind it.')
     else:
         value = json.loads(Path(args.input).read_text())
         if args.command == 'notify':
             notify(args.repo, value)
         elif value['due'] and not value['waived']:
-            raise ValueError('release cadence is overdue; the product lead must finish the release handoff')
+            raise ValueError('release cadence is overdue (' + value.get('reason', 'reason unknown')
+                             + '); the product lead must finish the release handoff')
         else:
-            print('Release cadence passed' + (' (release PR pays the debt)' if value['waived'] else ''))
+            print('Release cadence passed' + (' (release PR pays the debt)' if value['waived'] else '')
+                  + (' - ' + value['reason'] if value.get('reason') not in (None, 'release due',
+                                                                            'not due') else ''))
 
 
 if __name__ == '__main__':
