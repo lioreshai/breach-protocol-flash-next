@@ -17097,6 +17097,56 @@ if (MODE === 'surface') {
       if (kSeen.indexOf(a) < 0) kSeen.push(a);
       if (c.v && kAdm.indexOf(a) < 0) kAdm.push(a);
     }
+    /* #421 IS THERE EVEN A FACE IN THE AZIMUTH THE FRAME SHOWS MOST OF? `SEAT-FACE` above can say the
+       FILTER is the limit, and the obvious next action is to widen the filters - measured here and it is
+       the wrong action on the one sector where it mattered: at RING TRANSPORT's seat NO air-to-air riser
+       face exists anywhere within half a sweep step of the 4.71 rad azimuth that carries 8463 soffit px,
+       within the whole 12 m the rule is allowed to reach. The rule cannot be aimed at a face that is not
+       there. That azimuth is a soffit SEEN ALONG ITS LENGTH - a deck running away from the eye, its long
+       underside filling the upper frame - which is exactly the picture the issue was filed from, and no
+       bearing rule produces it. So the census has to name three limits, not two, or the next reader is
+       sent to widen a filter that has nothing to admit.
+       The enumeration below is GEOMETRY ONLY, deliberately not the shipped rule: a deck at least one unit
+       up, a near cell that looks down on the seat's band, inside `SEAT_LOOK`, nothing else - no soffit
+       preference, no ranking, and the `losZ` verdict counted SEPARATELY so "a face exists but the sight
+       line test refuses it" is distinguishable from "there is no face in this azimuth". It renders
+       nothing, writes nothing and draws no RNG. */
+    const kGeo = run(`(function(){
+      const px = ${sSeat[0]}, py = ${sSeat[1]}, N = MAP.w, cs = MAP.ceilSlab;
+      const sf = floorAt(px, py), az = sf + cfg.eye;
+      const BA = ${bAng.toFixed(6)}, HALF = ${(Math.PI / 12).toFixed(6)};
+      let n = 0, nLos = 0, nSlab = 0, nAny = 0, minD = -1;
+      for (let y = 1; y < MH - 1; y++) for (let x = 1; x < N - 1; x++) {
+        const i = y * N + x;
+        if (MAP.cell[i]) continue;
+        const f = MAP.fz[i] * ZQ;
+        if (f < sf + 1 - 1e-9) continue;
+        for (let d = 0; d < 4; d++) {
+          const nx = x + DIRX[d], ny = y + DIRY[d];
+          if (nx < 1 || ny < 1 || nx >= N - 1 || ny >= MH - 1) continue;
+          const j = ny * N + nx;
+          if (MAP.cell[j] || MAP.fz[j] * ZQ > sf + ZQ) continue;
+          const fx = (x + nx + 1) * 0.5, fy = (y + ny + 1) * 0.5;
+          const dd = Math.hypot(fx - px, fy - py);
+          if (dd > SEAT_LOOK || dd < 1) continue;
+          let db = Math.atan2(fy - py, fx - px) - BA;
+          while (db > Math.PI) db -= 2 * Math.PI;
+          while (db < -Math.PI) db += 2 * Math.PI;
+          /* Reach-wide counters, BEFORE the azimuth wedge: the "no face exists in this azimuth" claim is
+             only evidence if the same pass says how many faces exist in REACH of the seat and how far off
+             the best azimuth the nearest one is. Without them a bug in the wedge test and an empty sector
+             print the same 0. */
+          nAny++;
+          if (minD < 0 || Math.abs(db) < minD) minD = Math.abs(db);
+          if (Math.abs(db) > HALF) continue;
+          n++;
+          if (cs && cs[j] & 1) nSlab++;
+          const ux = (fx - px) / dd, uy = (fy - py) / dd;
+          if (losZ(px, py, az, fx - ux * 0.2, fy - uy * 0.2, (sf + f) * 0.5)) nLos++;
+        }
+      }
+      return { n: n, nLos: nLos, nSlab: nSlab, nAny: nAny, minD: minD };
+    })()`);
     /* Half of the 12-azimuth sweep step: an admitted face this close to the best azimuth means the frame
        at that azimuth already contains a face the rule could have chosen. */
     const kHalf = Math.PI / 12;
@@ -17107,8 +17157,28 @@ if (MODE === 'surface') {
       while (db < -Math.PI) db += 2 * Math.PI;
       if (Math.abs(db) <= kHalf) kNear = true;
     }
-    const kVac = sCells > 0 && bPx > 0 && kAdm.length === 0;
+    /* Vacuity here is the geometry claim being false: the sweep shows a deck overhead in some azimuth and
+       NOT ONE riser face exists anywhere in reach of the seat, so the census is counting a surface no
+       sight line can arrive at. That is a FAILURE. A best azimuth that merely has no face IN IT is not
+       vacuity - a soffit seen along its length is a real picture - and it is reported as the third limit. */
+    const kGeoVac = sCells > 0 && bPx >= SEAT_PX && kGeo.n === 0 && kAdm.length === 0;
+    const kVac = (sCells > 0 && bPx > 0 && kAdm.length === 0) || kGeoVac;
     const kDebt = !kAuth && !kVac && bPx >= SEAT_PX && !kNear;
+    row(`L${li} SEAT-AZIMUTH the azimuth the frame shows most of is one a face could be aimed at`,
+      !kGeoVac,
+      kAuth ? `${name} AUTHORS its bearing, so no azimuth is chosen by a rule on this sector`
+        : bPx < SEAT_PX
+          ? `not judged: no azimuth at this seat reaches the ${SEAT_PX}-px bar (best ${bPx} at ${bAng.toFixed(2)})`
+          : `${kGeo.n} riser face(s) within ${Math.round(kHalf * 2 * 100) / 100} rad of ${bAng.toFixed(2)} rad and inside `
+          + `${run('SEAT_LOOK')} m of the seat - ${kGeo.nLos} of them visible to the rule's own sight-line test, `
+          + `${kGeo.nSlab} with a soffit over the cell the face looks down on; `
+          + `${kGeo.nAny} face(s) exist anywhere in that reach, nearest ${(kGeo.minD < 0 ? 'none' : kGeo.minD.toFixed(2) + ' rad off this azimuth')}; ` + (kNear
+            ? 'and one of them IS admitted, so the rule can aim here and does not: the KEY'
+            : kGeo.n === 0
+              ? 'NONE: the best azimuth is a deck seen ALONG its underside, not a face - no bearing rule can take it'
+              : kGeo.nLos === 0 ? 'a face exists but the sight-line test refuses every one: the SIGHT LINE'
+                : 'a face exists and is visible but the rule never probes it: the FILTER'),
+      kGeoVac ? undefined : kDebt ? '#421' : undefined);
     row(`L${li} SEAT-FACE the heading the seat rule can reach contains the heading the frame shows most of`,
       !kVac,
       kAuth ? `${name} AUTHORS seatAng ${run('LEVELS[' + li + '].seatAng')}, so the rule is not run on this sector`
