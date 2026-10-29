@@ -3136,7 +3136,15 @@ const SHIP = refRecord('flatparity', 'LOCK', 'md5', ['d614d2bd7bee11fe938cd57850
      4,096 px floor. PARITY and LOCK are THIS BRANCH'S on all four levels (main's #672 moves a fixture mount, no
      lamp and no height), so the collapse control and the placement lock both stay green. No threshold, bound,
      dice, seat or vacuity clause moved; DEALTM's digits are this run's printings. */
-  const DEALT = refRecord('flatparity', 'DEALT', 'md5', ['799164b88ec440eb1167c83a118676da', '2d8a9a50ac1947528acc00d3d44addc8', 'd964d6eb9199ecebdc35693d2e9b4637', 'e0c6f6ea1888745ded771e4bffaa7ded'])
+  /* #515 THE STEP FACE GETS AN ORIENTATION TERM (js/40_render.js `STEP_LT`): L3 ONLY re-keys and its MEAN HOLDS
+     TO THE TENTH (52.4 against 52.4), the signature of pixels moving under an unchanged field - the term is a
+     multiply on a STEP face's own light, keyed on the boundary's stored kind, so no lamp, no lightmap, no height
+     and no other face in the frame is touched. THE LEVEL-SCOPED CONTROL IS THE OTHER THREE BYTES: L0, L1 and L2
+     come back MAIN'S to the digest in this same run, and the PARITY and LOCK triples are main's on all four, so
+     every FLAT frame in this probe is byte-identical - which is what `MAP.steps === 0` on a flat grid predicts,
+     because the step branch the term lives in is gated on that flag and runs nowhere. No threshold, dice, seat,
+     tolerance or vacuity floor moved; the dealt GEOMETRY census is main's to the cell. */
+  const DEALT = refRecord('flatparity', 'DEALT', 'md5', ['799164b88ec440eb1167c83a118676da', '2d8a9a50ac1947528acc00d3d44addc8', 'd964d6eb9199ecebdc35693d2e9b4637', 'cfd7b35f4bca3e1d74f2a6e0e53d189a'])
     /* #632 REWORK TAKE THREE (the halved hip yaw, see PARITY above), MEASURED on this tree: all four dealt frames
        re-key, DEALT-ORDER hashes each new value alone in its own process AND in level order and both senses agree on
        all four, and the dealt GEOMETRY census - the part of this row that describes the WORLD - comes back 168 / 247
@@ -16031,7 +16039,16 @@ if (MODE === 'bands') {
      their OWN thresholds in the same run and `BANDS` reports one failure, this one, with no lip contrast or
      band-width clause among them. No threshold, lip bound or vacuity floor moved; what moved is the doorway
      and the gun those lip rows are drawn across, not the lip. */
-  const RECSEAM = refRecord('bands', 'SEAM-FRAME', 'md5', ['16004d1a8d9b0ddcbf1461228537ce25', '1262a9de90df5cf8409751e59f67f24f', '2eb2f810936d57e3c9780357b3ab9f13', '44a8209c4f38d77ef375798d69024be8'])
+  /* #515 THE STEP FACE GETS AN ORIENTATION TERM (js/40_render.js `STEP_LT`), MEASURED on this tree: ALL FOUR
+     lip frames re-key and they re-key for the reason this row exists - a step face and the tread above it were
+     delivered the same luma, so a staircase read as one band with a hard top edge, and the term is what puts a
+     brightness edge between them. The term is dead on a flat grid (the step branch never runs) and on a drop,
+     cliff or wall face (the boundary's STORED kind has to read EK_STEP), so what moved in these four frames is
+     stair geometry only. THE LIP CLAUSES ARE THE CONTROL AND THEY DID NOT MOVE: every lip contrast, band-width,
+     locality and far-share clause in this probe is green at its OWN threshold in the same run - the one failure
+     this run printed was this digest, which is the re-record, not a lip. No threshold, lip bound, tolerance or
+     vacuity floor moved; the four bytes follow the picture. */
+  const RECSEAM = refRecord('bands', 'SEAM-FRAME', 'md5', ['8c0b52a0abaed8ba43677c0db7094151', 'c2050ffaad54fff275a93bea3c345af8', '67cbcd5700d3354128248621381c735f', '429fa10fe41ccdb782356daca915a5e1'])
   /* #632 REWORK TAKE THREE (js/40_render.js VMHIP: the hip yaw halved to -0.010 / -0.012 / -0.014), MEASURED on this
      tree: all four SEAM=1 lip frames re-key, and they re-key BECAUSE the rework's own fix worked - at the deeper
      -0.020 / -0.024 / -0.028 carry six of this probe's sixty-four rows were red, because a barrel turned far enough
