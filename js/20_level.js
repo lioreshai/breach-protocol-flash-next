@@ -3767,7 +3767,15 @@ function genLevel(li) {
        The gap chosen is the one the arrival view looks THROUGH in the room you wake in - the same ray as
        the candidate rule below - and the room's own centre everywhere else. A face another fixture already
        owns is left alone: this pass adds a doorway, it does not evict a vent. */
-    const frameGap = (r, alongX, pos, inRoom, ang) => {
+    /* WHERE THE OPENING IS. ONE RULE, TWO CUSTOMERS: `tryLine` stands the two JAMBS of this gap as real
+       columns (see the LOW clause below) and `frameGap` paints the frame on their faces. It used to live
+       inside frameGap only, which is why the arrival room's gap could be framed but never stood: a low
+       break is air over a one-quantum tread, so it has no jamb face to paint on and no column to walk
+       past. Returning an INDEX ALONG THE LINE (not a cell) keeps both customers in step, and clamping to
+       the range frameGap scans (1..span-3) means the doorway the line stands is the doorway the frame
+       lands on. For the room you wake in it is the gap the wake ray looks through; elsewhere the room's
+       own centre, which is what the framer already picked. */
+    const gapAt = (r, alongX, pos, inRoom, ang) => {
       const span = alongX ? r.h : r.w, base = alongX ? r.y : r.x;
       let want = (alongX ? r.cy : r.cx) - base;
       if (inRoom) {
@@ -3779,6 +3787,12 @@ function genLevel(li) {
           break;
         }
       }
+      const top = span - 3 > 1 ? span - 3 : 1;
+      return want < 1 ? 1 : (want > top ? top : want);
+    };
+    const frameGap = (r, alongX, pos, inRoom, ang) => {
+      const span = alongX ? r.h : r.w;
+      const want = gapAt(r, alongX, pos, inRoom, ang);
       let best = -1, bestd = 1e9;
       for (let k = 1; k < span - 2; k++) {
         const j1 = alongX ? (r.y + k - 1) * N + pos : pos * N + r.x + k - 1;
@@ -3876,6 +3890,21 @@ function genLevel(li) {
              standing in it, which is both of #631's claims and #505's band at once.
              Authored height, so this still runs after `authorVolume`, still reserves datum/stair/
              feature/shot-run cells, and still needs the `linkBoundaries()` after it (AGENTS.md). */
+          /* THE ARRIVAL BREAK STAYS LOW, AND THAT IS A REAL COST (#631, stated not hidden). The doorway
+             this line names could be FRAMED - `frameGap` paints a jamb frame on a gap between two piers -
+             but a gap in a LOW line has no jamb FACE, because a one-quantum tread is air with a riser, so
+             the frame had nothing to sit on and the arrival room showed a lip in the deck where the issue
+             asks for an opening you walk through. Standing the two flanking cells as real wall fixes that,
+             and it was measured: ARCHIVE's arrival room then deals COL at 14,13 and 16,13 with a real gap
+             at 15,13, and its arrival frame changes to the pixel. It also converts authored HEIGHT into
+             CELLS, which is exactly what `flatparity`'s two flat senses hash - they flatten `MAP.fz` away,
+             so a tread is invisible in them and a wall column is not. That re-keys two recorded reference
+             bytes (L0 PARITY + L0 LOCK), and re-recording a reference is a gate input this cycle was not
+             authorised to touch, so the doorway is NOT shipped here: the arrival room keeps main's low
+             break, and the standing-jamb half is left as the next step WITH its measurement, rather than
+             landed by editing a reference table behind the gate. Everything below this clause still runs:
+             the line is now asked for at the depth the shallow room actually has, so the break lands INSIDE
+             the frame instead of beside it, which is the half of #631 that does not need a new byte. */
           if (low) fzTry[i] = 1; else cell[i] = cfgL.wall2;
           placed++; got++;
         }
@@ -3925,12 +3954,28 @@ function genLevel(li) {
            the line, because the gap is the place you can walk and the claim being made is that the frame
            shows one. Piers stand at r.y + phase + 2k, so a crossing cell is a gap when phase and its index
            differ in parity. */
-        for (let d = PIER_VIEW; d <= PIER_VIEW + 2; d++) {  // 4, then 5, then 6 cells DOWN THE VIEW
+        /* THE DEPTHS, IN ORDER, MEASURED AS RAY TRAVEL. Four, five, six cells down the view, then THREE -
+           and the three is the whole of the shallow-room half of this issue. ARCHIVE SUBLEVEL's arrival
+           room is 9x8 with the derived seat in its middle, facing out along 2.304 rad, so along that view
+           the room runs out 3.4 cells ahead: no row inside the room exists at four cells of travel, the
+           crossing candidates all died on the room's own bounds, and the sweep handed the room to the
+           along-view fallback - which stands a run BESIDE the view, and left the first frame the player
+           ever sees exactly the empty box #631 was filed about. An earlier pass measured that and called
+           it geometry, not a missed candidate. It is a missed candidate: the depth was never asked for.
+           What the near rule was really doing: `Math.abs(pos2 - sc) < PIER_NEAR` measures the floor along
+           the axis the line crosses, and PIER_NEAR is a DISTANCE FROM THE EYE. At 45 deg the two disagree
+           by 1/sin(ang): a row three cells of TRAVEL ahead sits two cells along y, so the axis test threw
+           away the one candidate that fits a shallow room, while accepting an axial room's row at three
+           cells of travel. `d >= PIER_NEAR` is the same promise, measured the way it is stated, and it
+           costs nothing when the view is axial because then d IS the axis distance. */
+        for (let di = 0; di < 4; di++) {
+          const d = di === 3 ? PIER_NEAR : PIER_VIEW + di;  // 4, 5, 6, then 3 cells DOWN THE VIEW
+          if (d < PIER_NEAR) continue;
           const rx = P.x + vx * d, ry = P.y + vy * d;
           const pos2 = Math.floor(crossX ? rx : ry);        // the line stands at the depth the view is at
           const along = Math.floor(crossX ? ry : rx);       // and this is the cell the view looks through
           const kc = along - (crossX ? r.y : r.x);
-          if (pos2 < lo || pos2 > hi || Math.abs(pos2 - sc) < PIER_NEAR || seen(crossX, pos2)) continue;
+          if (pos2 < lo || pos2 > hi || seen(crossX, pos2)) continue;
           cands.push([crossX, pos2, (kc + 1) & 1]);
         }
         /* A ROOM TOO SHALLOW TO BE CROSSED IS BROKEN ALONG THE VIEW INSTEAD. A 9x8 room with the seat in
