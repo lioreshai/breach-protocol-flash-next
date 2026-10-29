@@ -34,6 +34,18 @@ jobs:
       - name: Release policy regression checks
         run: python3 -m unittest discover -s tools -p test_release_policy.py
 
+      - name: Release artifact identity (the tag release.json names)
+        run: |
+          set -euo pipefail
+          # The identity gate used to see commits only. A release is also an annotated tag - and a
+          # lightweight or mis-pointed one is a release the identity rule cannot see at all, which
+          # is how a release can be half-done and still green (#635). The checker reads real Git
+          # objects, so the refs it needs have to be in the checkout: fetch them, and let a failed
+          # fetch fail here rather than reading as "no tag". --branch names a release PR's own
+          # unmade tag, which docs/RELEASE.md cuts after the merge.
+          git fetch --quiet --tags --force origin
+          python3 tools/check_identity.py --release --branch "${GITHUB_HEAD_REF:-}" "${GITHUB_SHA:-HEAD}"
+
       - name: README keeps deployed screenshots
         run: |
           python3 - <<'PY_CHECK'
