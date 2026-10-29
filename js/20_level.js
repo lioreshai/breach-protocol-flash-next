@@ -3926,13 +3926,15 @@ function genLevel(li) {
        owns is left alone: this pass adds a doorway, it does not evict a vent. */
     /* WHERE THE OPENING IS. ONE RULE, THREE CUSTOMERS: the PHASE that decides which cells of a line are
        piers and which are gaps, `tryLine` (which stands the cells the phase picks), and `frameGap` (which
-       paints a door frame on one gap). All three now ask `gapIndex`; only the CLAMPED answer goes to
-       frameGap, so a doorway the line stands is the doorway the frame lands on. The rule used to live
-       inside frameGap only, which is why the arrival room's gap could be framed but never stood: a low
-       break is air over a one-quantum tread, so it has no jamb face to paint on and no column to walk
-       past. Returning an INDEX ALONG THE LINE (not a cell) keeps the customers in step. For the room you
-       wake in it is the cell the wake view reaches; elsewhere the room's own centre, which is what the
-       framer already picked. */
+       paints a door frame on one gap). The rule used to live inside frameGap only, which is why the arrival
+       room's gap could be framed but never stood: a low break is air over a one-quantum tread, so it has
+       no jamb face to paint on and no column to walk past. Returning an INDEX ALONG THE LINE (not a cell)
+       is what lets the three be served by ONE answer: `frameGap` takes `gapIndex`'s clamped value below,
+       and a CROSSING candidate's phase is the parity of the same ray point (see the PHASE clause on the
+       candidate loop), so the cell the frame is painted on is the cell the line calls its opening. An
+       ALONG-view candidate's phase still comes from the room's ordinal - inert while no jamb face exists,
+       and named where it is pushed for the step that stands them. For the room you wake in the opening is
+       the cell the wake view reaches; elsewhere the room's own centre, which is what the framer picked. */
     /* THE INDEX ALONG THE LINE THE ARRIVAL VIEW REACHES, or -1 when the view never gets there.
        THE QUESTION IS ABOUT THE LINE, NOT ABOUT THE VIEW. A line either CROSSES the view (it is constant
        on the axis the frame looks down: `alongX === onX`) or runs ALONG it (`alongX !== onX`), and the two
@@ -3946,9 +3948,9 @@ function genLevel(li) {
          centre, i.e. a gap chosen by where the room happens to sit) or matched by accident. A row standing
          alongside the view breaks the bay as well as one crossing it; what it could not do was say WHERE
          ITS OPENING IS. It is now the cell PIER_VIEW down the view - the depth the crossing pass already
-         answers at - so both orientations name their opening from the seat, and the phase that stands it
-         stops coming from the room's ordinal number (#631: "no doorway you can see yourself walking
-         through"). */
+         answers at - so both orientations name their opening from the seat instead of from where the room
+         happens to sit (#631: "no doorway you can see yourself walking through"). This NAMES a cell; it
+         stands nothing - the clause at the `fzTry`/`cell` write says what this head actually ships. */
     const gapIndex = (r, alongX, pos, ang) => {
       const vx = Math.cos(ang), vy = Math.sin(ang), onX = Math.abs(vx) >= Math.abs(vy);
       const base = alongX ? r.y : r.x;
@@ -4083,20 +4085,20 @@ function genLevel(li) {
              landed by editing a reference table behind the gate. Everything below this clause still runs:
              the line is now asked for at the depth the shallow room actually has, so the break lands INSIDE
              the frame instead of beside it, which is the half of #631 that does not need a new byte. */
-          /* THE TWO CELLS FLANKING THE OPENING ARE COLUMNS; THE REST OF THE ROW STAYS A TREAD (#631).
-             The LOW clause above keeps the arrival break one quantum high so the first frame gains no new
-             full-height face, and that is exactly why the arrival room never got a DOOR: `frameGap` paints
-             on a jamb FACE, air over a tread has no face, and at the four deals the census printed
-             `framed 0` in every arrival room - a lip in the deck where the issue asks for an opening you
-             see yourself walking through. So the row stays low EXCEPT at the two jambs of the one gap the
-             view looks at, which stand as real `wall2` columns: two faces, one per jamb, at the depth the
-             eye is already looking at, instead of a rank of them across the room (#644's exposure clause
-             is about a FULL-HEIGHT RANK filling the frame, and it still holds - measured by `exposure`,
-             not assumed). The gap cell itself is never visited by the loop, because its parity differs
-             from the phase, so the doorway stays walkable and `linkBoundaries` still carries the treads.
-             This converts authored HEIGHT into CELLS, which is what `flatparity`'s two flat senses hash
-             (they flatten `MAP.fz`, so a tread is invisible there and a column is not): the L0 PARITY and
-             L0 LOCK references are re-recorded with this commit, with the reason in the commit message. */
+          /* WHAT THIS WRITES IN THE ARRIVAL ROOM, AND WHAT IT DOES NOT (#631). In a `low` line the `else`
+             never runs, so an arrival room gains NO wall cell: the break stays the one-quantum tread the
+             clause above authors, which is main's shipped behaviour word for word. That is why all four
+             arrival renders off this head are byte-identical to main and why `fixtures` still reads
+             `DOOR on a continuing passage 0` in every sector - `frameGap` has no jamb FACE to paint on, so
+             the doorway the issue asks for is not delivered here. What DID change at this call site is
+             WHICH cell `i` is: the line asks for its gap at the depth the arrival view actually reaches
+             (`gapIndex`), so in a room too shallow to be crossed the break lands inside the first frame
+             instead of beside it. Standing the two cells that flank that gap is the NEXT step and was
+             measured before being left out - at every depth, cladding and orientation tried it costs the
+             ABATOIR CORE arrival frame five lumas and puts L2's spawn median at 76.0, outside #505's 35-75
+             band (figures on #631); it also converts authored HEIGHT into CELLS, which `flatparity`'s flat
+             senses cannot see in a tread and do see in a column, so it would re-key the L0 PARITY and L0
+             LOCK references. No reference is re-recorded by this head because no byte moves. */
           if (low) fzTry[i] = 1;
           else cell[i] = cfgL.wall2;
           placed++; got++;
@@ -4181,6 +4183,9 @@ function genLevel(li) {
         for (let off = PIER_NEAR; off <= PIER_NEAR + 2; off++) for (let s = 0; s < 2; s++) {
           const pos2 = perp + (s ? off : -off);
           if (pos2 < plo || pos2 > phi || seen(!crossX, pos2)) continue;
+          // PHASE STILL FROM THE ROOM'S ORDINAL, unlike the crossing push above. Inert while the arrival
+          // break is a tread (no jamb face to frame); once the jambs stand, a gap `gapIndex` prefers can
+          // share a pier's parity and `frameGap` settles one cell aside - owe this term a `gapIndex` read.
           cands.push([!crossX, pos2, 1 + (ri & 1)]);
         }
       }
