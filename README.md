@@ -384,7 +384,8 @@ file — an issue can be linked from the commit that closes it and a paragraph c
   drift apart, and gait phase advances with *distance travelled* so a planted foot never slides.
 * **A quality knob**: add the field to every row of `QUAL` and read it once in `setGfx`, or in the shader
   that owns it. Never branch on the preset index inside a pixel loop.
-* **Verify** with `node tools/roster.js` — it replays every invocation `ci.yml`'s blocking steps run —
+* **Verify** with `node tools/roster.js` — it replays every invocation `ci.yml`'s blocking steps run,
+  including the nine modes named by its probe loop, read off that loop —
   and with the live page, which is the source of truth for anything you can see.
 
 Working here? [`AGENTS.md`](AGENTS.md) is the working agreement,
