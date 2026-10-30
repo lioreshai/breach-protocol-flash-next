@@ -7616,7 +7616,25 @@ if (MODE === 'exposure') {
      branch's on all four levels, so no lamp was placed, moved or relit. 73 and 79 stay inside the untouched
      35-75 band tools/ci/assert.js re-reads and inside the 60-100 window. No window, region, roll list, floor or
      census moved. */
-  const EXPO_SPAWN = refRecord('exposure', 'SPAWN', 'num', [74, 57, 80, 64, 73, 72, 73, 83])
+  const EXPO_SPAWN = refRecord('exposure', 'SPAWN', 'num', [74, 57, 80, 64, 73, 73, 73, 83])
+    /* #669 (#719) THE ACCENT ARRIVES AT ABATOIR CORE'S OWN SPAWN SEAT, and ONE digit of the sixteen follows it:
+       L2's centre-half mid 72 -> 73 (exact 72.69 / 73.00, spread 33 -> 34) with its MEAN holding on the recorded
+       73, and the other SEVEN digits this tree's to the digit in the same run. ATTRIBUTION IN ONE TREE: the same
+       run with ABATOIR's authored `accent` taken back out (js/20_level.js, `accent: null`) prints main's pair -
+       72.60 / 71.52 - and `EXPOSURE ok` exit 0, so the level's own accent term is the whole move and nothing else
+       in this branch touches it. WHAT MOVED IS NOT #669's wall-foot KERB: the same run with the kerb branch
+       disabled and the accent left in prints 72.64 / 72.99, i.e. still 73. It is the pre-existing LIP band
+       (js/40_render.js RISER_ACC_H on a slab side), which is invisible at `scene 2 0` - the camera this branch's
+       A/B used, and the reason that A/B reported zero pixels authored - but NOT at the seat the player actually
+       wakes in, which is what THIS row samples (js: `startLevel(lv,true)` then the spawn pose, not a grid cell).
+       So the term that moves this digit is the LIP band, measured and not inferred - where it lands is what `mid`
+       already states (the centre half of that same frame), and a lit line entering the centre half raises the mid
+       while the mean holds, the direction this row's own history keeps recording for exactly that shape. The raw
+       mid lands on 73.0, half a luminance above this row's 72/73 tie. CONTROLS IN THE SAME RUN: all four seeded MEDIANS hold (69 / 76 / 63 / 93), every
+       60-100 window row and every #149 worst-roll floor is untouched and green, and L3 - the authored sector,
+       which authors no accent - holds at 73/83 with SPREAD STILL 0. No window, region, roll list, floor or
+       vacuity clause moved; this is the deliberate re-record the row's own text asks for when a shading change
+       lands, refs.lock included (`node tools/view.js refs --record`). */
     /* #632 REWORK TAKE THREE (the hip yaw halved to -0.010 / -0.012 / -0.014, js/40_render.js VMHIP), MEASURED on
        this tree: TWO digits of the sixteen come back to the values main prints - L0's centre-half mid 56 -> 57
        (56.55 exact, its mean holding at 73.86) and L2's 71 -> 72 (71.52 exact, mean 72.60). Both are half-luma
