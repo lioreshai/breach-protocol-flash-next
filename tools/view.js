@@ -2607,7 +2607,14 @@ if (MODE === 'flatparity') {
      against LOCK below at mean 60.0) with the top-up-lamp gap row green and the flat lightmap sum untouched
      by any of the four, which is the falsifier saying paint and not lamp placement. No threshold, floor,
      dice, camera or vacuity clause moved; OLDM's L2 digit follows its byte. */
-const OLD = refRecord('flatparity', 'PARITY', 'md5', ['de2ddac9000f4fe390d4eb4dab6ebe70', '76b2f3948360f45b848cec4a52a84b43', '8786c257354b3134f3d5e43e34bbc281', 'b02d5b6183552150da8357ddad30d7bf'])
+  /* #655 (js/13_mesh.js: torso seam density is one period across the torso box's own span instead of ten
+     seams per authored body height), MEASURED on this tree in one run: all four PARITY bytes re-key. This is
+     a PAINT move and not a placement move - the same run prints the LAMPS=off mean at 88.2 / 74.2 / 39.3 /
+     85.5, this array's own four digits to the tenth, while all four digests move; the gap row below prices
+     the top-up lamps with residual under 1e-6, so the lamp record is unchanged underneath. A rig repainted
+     at its own pixels is exactly what this row is for: the light does not move, the picture does. No
+     threshold, floor, dice, camera or vacuity clause moved. */
+const OLD = refRecord('flatparity', 'PARITY', 'md5', ['133f72d6383b207ad48717b6b7e095bb', '8083dfe08de970652af75d18895f0de3', '3e86ee8ab9885b1d8a250a687e31ce44', 'c4d2fb68b777cfd7acba64ae528f93a9'])
   /* #632 REWORK TAKE THREE (js/40_render.js VMHIP: the hip YAW is halved to -0.010 / -0.012 / -0.014 so the
      carried barrel stops painting over the step-lip crease that `bands` gates at zero missing columns), MEASURED
      on this tree: all four PARITY bytes re-key. They are a paint move and not a placement move - the same run
@@ -2808,7 +2815,13 @@ const OLD = refRecord('flatparity', 'PARITY', 'md5', ['de2ddac9000f4fe390d4eb4da
      mean moves 60.1 -> 60.0 behind a byte whose flat lightmap sum is UNTOUCHED (the gap row below prices
      the top-up lamps with residual under 1e-6, so the lamp record is main's), which is exactly what this row
      is a regression lock on: paint, not placement. No threshold, bound or census moved. */
-const SHIP = refRecord('flatparity', 'LOCK', 'md5', ['d614d2bd7bee11fe938cd5785096d238', 'b308368ca82eac428e593f3ab0140c52', '3f9f7626960ce0b05764411bb77fc453', 'd51e4f3932c284be3fd02393fa331256'])
+  /* #655 (the torso seam re-key, see PARITY above), MEASURED in the same run: all four LOCK bytes re-key for
+     the same reason - the bodies standing in these four frames are shaded differently at the same seats, at
+     the same lamp placement. The shipped-sense means say what that is worth: 94.5 / 94.0 / 59.8 / 96.0, this
+     array's own four digits to the tenth, so every pixel that moved is a pixel of a body and not a relight;
+     the flat lightmap-sum half of the row - the half that locks lamp PLACEMENT - is untouched, which is what
+     keeps this a regression lock rather than a re-key of the world. No threshold, bound or census moved. */
+const SHIP = refRecord('flatparity', 'LOCK', 'md5', ['b6554cf3d68c0907a96d325bbde5928a', '0088edbc1b4400f189f079cfcef02fb2', '29fc7c56f0275901e66a01e935c8c38e', 'e47ab51b67444e64431105b4aee41826'])
   /* #632 REWORK TAKE THREE (the halved hip yaw, see PARITY above), MEASURED on this tree: all four LOCK bytes
      re-key for the same reason - a rig that turns half as far is a different set of pixels in the same frame. The
      shipped-sense means say what that is worth: 94.5 / 94.0 / 59.8 / 96.0 against the 94.5 / 93.9 / 59.8 / 96.0 the
@@ -3136,7 +3149,15 @@ const SHIP = refRecord('flatparity', 'LOCK', 'md5', ['d614d2bd7bee11fe938cd57850
      4,096 px floor. PARITY and LOCK are THIS BRANCH'S on all four levels (main's #672 moves a fixture mount, no
      lamp and no height), so the collapse control and the placement lock both stay green. No threshold, bound,
      dice, seat or vacuity clause moved; DEALTM's digits are this run's printings. */
-  const DEALT = refRecord('flatparity', 'DEALT', 'md5', ['799164b88ec440eb1167c83a118676da', '2d8a9a50ac1947528acc00d3d44addc8', 'd964d6eb9199ecebdc35693d2e9b4637', 'e0c6f6ea1888745ded771e4bffaa7ded'])
+  /* #655 (the torso seam re-key, see PARITY above), MEASURED in the same run: only the L0 dealt byte moves -
+     the level-0 DEALT_SEATS camera is the one dealt sight line with a body in it, and L1/L2/L3 come back to
+     the SAME bytes in the same run, which is the scope control: a body repaint, at one camera, with the
+     generator untouched. DEALT-ORDER reproduces defaa9a3 ALONE in its own process AND IN LEVEL ORDER, so the
+     byte is still the level and not the roster. THE ROW'S ORACLES ARE UNTOUCHED: 168 / 247 / 315 / 141
+     off-datum open cells of 568 / 897 / 1141 / 256 at the row's own dice, and DEALT-VACUOUS 203088 /
+     203130 / 203137 / 202834 px of 203138 against its 4,096 px floor. No threshold, bound, dice, seat or
+     vacuity clause moved; DEALTM's digits are this run's printings. */
+  const DEALT = refRecord('flatparity', 'DEALT', 'md5', ['defaa9a38df281c6a6fd471e0fafa447', '2d8a9a50ac1947528acc00d3d44addc8', 'd964d6eb9199ecebdc35693d2e9b4637', 'e0c6f6ea1888745ded771e4bffaa7ded'])
     /* #632 REWORK TAKE THREE (the halved hip yaw, see PARITY above), MEASURED on this tree: all four dealt frames
        re-key, DEALT-ORDER hashes each new value alone in its own process AND in level order and both senses agree on
        all four, and the dealt GEOMETRY census - the part of this row that describes the WORLD - comes back 168 / 247
