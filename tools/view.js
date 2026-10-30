@@ -16749,13 +16749,24 @@ if (MODE === 'surface') {
      issue says why: the flat ratio `c.ceil / c.floor` averages a roof 10-20 m from the eye against the deck
      2 m under it, so distance falloff sets part of the number and whichever pixels a new column happens to
      hide sets the rest. That is why a WALL - which emits no light and moves no lamp - moved a "roof light"
-     verdict by 0.05x (#644 -> #665). The pairs `classify` builds compare a ceiling with the deck it meets at
-     AGREEING solved ranges, so falloff cancels inside a pair, and this row reads their MEDIAN, so the
-     verdict does not travel with the population. A level with too few pairs to say anything is NOT MEASURED
-     (the same MIN_COLS bar the seam rows use) and that is vacuity, charged as a failure, never a pass.
-     `ROOFSTAT=flat` puts the old estimator back - one knob, one tree - so the two can be compared in the
-     same run and the change stays auditable rather than asserted. */
+     verdict by 0.05x (#644 -> #665). What the row reads INSTEAD is the ceiling-population-weighted mean of
+     per-bin ratios, each bin's DECK taken at that bin's own solved range, so falloff cancels inside a bin
+     (the binned and per-column pairings that were tried first, and why they were rejected, are recorded at
+     the census that builds the bins). Fewer than 3 voting bins is NOT MEASURED, and that is vacuity charged
+     as a failure, never a pass. `ROOFSTAT=flat` puts the old estimator back - one knob, one tree - so the
+     two can be compared in the same run and the change stays auditable rather than asserted.
+     WHAT THIS RULE CANNOT DO, in the file because a probe that overstates its own robustness is worse than
+     one that says nothing: range matching cancels the DISTANCE confound and NOTHING else. The shipped and
+     `PIER=off` arms still disagree - by the same step the flat estimator did - because they are not two
+     measurements of one room, they are two rooms, and the census sees a different SET of ceiling surfaces in
+     each. No re-weighting of the pixels an eye can see cancels that, which is why the 0.02x arm-agreement
+     clause this row was once gated on is retired (#665; decision recorded on PR #717). What the row is blind
+     to is WHICH surfaces are visible, and on ABATOIR CORE the part of that which is left is the far half of
+     the frame - #616 - not a ceiling that lost light. */
   const ROOFSTAT = process.env.ROOFSTAT || 'range';
+  /* A PRINT threshold, not a bar: a green within a hundredth of the pass target has no room under it, and a
+     verdict with no room reads as a surprise regression the next time anyone touches a lamp. */
+  const ROOFMARGIN = 0.01;
   const roofRange = c => {
     const B = c.zst || [];
     let num = 0, den = 0, px = 0, pop = 0, brief = [];
@@ -17793,13 +17804,15 @@ if (MODE === 'surface') {
         (bands ? '' : ' - NOT MEASURED: one surface covers under 1% of this pose'),
         bands && c.ceil >= c.floor && c.ceil < c.floor + 6 ? '#369' : undefined, !bands);
       /* The ORDER row above has no lower bound, which is how a roof sits at a third of its deck while it
-         reads ok. This one reads the SAME two band means as a ratio, so a level cannot buy it by
-         re-lighting the deck: that moves both terms together, and the cap in js/40_render.js already
-         keeps the roof from leading. Arrival heading only - see ROOFMIN above. */
+         reads ok. This one is a RATIO of the two surfaces, so a level cannot buy it by re-lighting the deck:
+         that moves both terms together, and the cap in js/40_render.js already keeps the roof from leading.
+         Under `ROOFSTAT=range` - the default - the pairing is by solved range rather than flat across the
+         frame; see the ROOFSTAT note above for what that buys and what it does not. Arrival heading only. */
       if (cam === CAMS[0]) {
         const rrFlat = c.floor > 0 ? c.ceil / c.floor : NaN;
         const rq = roofRange(c);
         const rr = ROOFSTAT === 'flat' ? rrFlat : rq.rr;
+        const margin = rr - ROOFMIN;
         const meas = bands && (ROOFSTAT === 'flat' || rq.n >= 3);
         if (meas) roofR.push({ li, rr });
         const piers = run('LEVELS[' + li + '].authored') ? 0 : (function(){
@@ -17820,15 +17833,24 @@ if (MODE === 'surface') {
               + `(${rq.px} of the ceiling's in-range pixels voting, ${(100 * rq.px / Math.max(1, rq.pop)).toFixed(0)}%; `
               + `bin median ${isFinite(rq.med) ? rq.med.toFixed(2) : 'n/a'})`)
           + `, roof over ${c.ceilPct.toFixed(0)}% of the frame at this sector's own arrival heading; ` +
-          `pass ${ROOFMIN}x, regression floor ${ROOFFLOOR}x (below it the roof is a sheet again)` +
-          (bands && rr < ROOFMIN && piers
-            ? `; ${piers} pier column(s) stand in this deal - say WHICH it is (a census that changed set,`
-              + ` or a ceiling that lost light) with \`PIER=off node tools/view.js surface\` (#665: on the flat `
-              + `estimator the ceiling comes back to 53.7 over the same deck and its share of the frame goes `
-              + `40% -> 46%, which is a set, not a relight - which is exactly the move the paired ratio is `
-              + `built not to follow)`
+          /* THE MARGIN rides on the row, not in a footnote: a sector that lands AT the pass target is a green
+             with nothing under it, and that is a different fact from a green with room - the first flips with
+             the next lamp someone moves and the second does not. Say so before it reads as a regression. */
+          `pass ${ROOFMIN}x${isFinite(rr) ? ` (margin ${margin >= 0 ? '+' : ''}${margin.toFixed(2)})` : ''}, `
+          + `regression floor ${ROOFFLOOR}x (below it the roof is a sheet again)` +
+          (meas && margin >= 0 && margin < ROOFMARGIN ? ' - ON THE BAR: this green has no room under it, so '
+            + 'the next lighting touch flips the verdict and that is the margin, not a regression' : '') +
+          (bands && rr < ROOFMIN
+            ? (piers
+              ? `; ${piers} pier column(s) stand in this deal, and \`PIER=off node tools/view.js surface\` is `
+                + `the other arm. It moves THIS reading by the same step it moved the flat one: range matching `
+                + `cancels distance falloff, not WHICH ceiling surfaces the eye can see, and the two arms are `
+                + `two different rooms. The rest of this gap is the far half of the frame, which is #616's, `
+                + `not a ceiling that lost light.`
+              : `; no pier column stands in this deal, so this is not a census-set case - the ceiling is short `
+                + `of its own deck at the ranges the eye actually sees it at.`)
             : ''),
-          meas && rr >= ROOFFLOOR && rr < ROOFMIN ? '#495' : undefined, !meas);
+          meas && rr >= ROOFFLOOR && rr < ROOFMIN ? (piers ? '#616' : '#495') : undefined, !meas);
       }
       /* The wall-vs-deck half of the rule, per pose. `sep` is the FRACTION of columns across the whole
          width that separate by >= TARGET; requiring 0.6 of them is what stops one bright third of the
