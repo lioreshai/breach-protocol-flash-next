@@ -41,6 +41,8 @@
  *            its own bar. A threshold label that differs from the tool's is printed as a note.
  *   vacuity - no PNG decoded, a decode that is not a page screenshot, no decode list, no row
  *            sentence, an embed with no file behind it: FAILURE, exit 1. Never an empty pass.
+ *   claim   - what the capture-pass paragraph states about the bind, against what this checkout's
+ *            shipped bytes say (#653). See `captionBind`.
  */
 
 const fs = require('fs');
@@ -414,6 +416,102 @@ function buildCheck(prov, fails, notes) {
   return { nrows: nrows, bound: bound, drift: drift };
 }
 
+/*
+ * The capture-pass paragraph's own claims (#653).
+ *
+ * `buildCheck` measures the bind from this checkout's bytes and prints `SHIP-BIND` or `FRAME-STALE`.
+ * The paragraph in README.md that describes a pass states the same fact twice over, in prose: which
+ * build the eight frames were taken at, and that on the tree carrying them the bind row reads
+ * `SHIP-BIND`, so the front page is today's picture. A pass before #651 left that prose describing the
+ * pass before it - the rows had been rekeyed to a new build and the paragraph still named the old one
+ * and still said no re-take was owed - which is #653, and the same shape had happened one build
+ * earlier. It survived a merge because of where the check sits: the row that knows the answer is
+ * printed and gates only under STRICT=1, so a blocking step runs green while the sentence above it is
+ * false.
+ *
+ * So the sentence is read and compared rather than trusted.
+ *   1. Which build does the paragraph name as the one these frames were taken at? If the shot rows bind
+ *      a different build, that is a FAILURE with no threshold in it: two checked-in files state two
+ *      different facts about the same pixels, and exactly one of them can be true.
+ *   2. Does the paragraph assert that the bind HOLDS (it reads `SHIP-BIND`, the blobs are identical,
+ *      no re-take is owed) for a build whose shipped blobs this checkout says moved? That is #653's
+ *      shape. It counts by default and gates under STRICT=1, the promotion path `FRAME-STALE` itself
+ *      uses - because the assertion is true on the tree a capture pass lands on and ages on the next
+ *      commit that moves a shipped byte, and a comment-only change to a renderer moves a digest and
+ *      moves no pixel. The age is the debt; the row names it.
+ * A paragraph that states neither is printed as a note and is not a failure: the README's own rule at
+ * "a byte claim written here is false by the next merge (#395)" recommends saying less, so a claim
+ * removed is the recommended state, not a hole. It is printed, because a deleted claim and a checked
+ * claim are different pages and only one of them is green in this table.
+ */
+const CAP_BUILD = /deployed page at build\s+`([0-9a-f]{7,40})`/;
+const CAP_VERDICT = /reads\s+`(SHIP-BIND|FRAME-STALE)`\s+for\s*`?([0-9a-f]{7,40})?/;
+const CAP_FRESH = /no re-take is owed|today\'s picture|the front page is today/i;
+
+function captionBind(txt, prov, fails, notes) {
+  const STRICT = !!process.env.STRICT;
+  let nrows = 0, debt = 0;
+  if (prov.err) return { nrows: 0, debt: 0 };
+  const builds = prov[BUILDS_KEY] || {};
+  const bound = [];
+  for (const s of prov.shots) if (s.build !== null && s.build !== undefined && bound.indexOf(s.build) < 0) bound.push(s.build);
+  const flat = txt.replace(/\s+/g, ' ');
+  const src = prov.rev ? 'rev ' + prov.rev : 'this checkout';
+
+  const named = CAP_BUILD.exec(flat);
+  let claimBuild = named ? named[1] : null;
+  nrows++;
+  if (!named) {
+    notes.push('the capture-pass paragraph names no bound build, so there is nothing here for the bind row to contradict');
+  } else if (!bound.length) {
+    console.log('CAPTION-VACUOUS   ' + claimBuild.padEnd(12) + 'the paragraph names build ' + claimBuild + ' as the build these '
+      + 'frames were taken at and no shot row names a build at all, so the compare could not run - a named gap, not a pass');
+    fails.push('README names a bound build while no provenance shot row names one');
+  } else if (bound.indexOf(claimBuild) < 0) {
+    console.log('CAPTION-BUILD       ' + claimBuild.padEnd(12) + 'the paragraph names build ' + claimBuild + ' as the build the eight '
+      + 'frames were taken at; the shot rows bind ' + bound.join('/') + ' - the front page names a build that drew none of '
+      + 'the pixels under it, so one of the two files is stale prose (#653)');
+    fails.push('README names build ' + claimBuild + ' while the shot rows bind ' + bound.join('/'));
+  } else {
+    console.log('ok      CAPTION-BUILD ' + claimBuild.padEnd(12) + 'the build the capture-pass paragraph names is the build the eight '
+      + 'shot rows bind');
+  }
+
+  const v = CAP_VERDICT.exec(flat);
+  if (!claimBuild && v && v[2]) claimBuild = v[2];
+  const statesBind = !!v || (named && CAP_FRESH.test(flat));
+  nrows++;
+  if (!statesBind) {
+    notes.push('the capture-pass paragraph states no bind verdict, so no sentence here can be falsified by a moved blob (#395)');
+    return { nrows: nrows, debt: 0 };
+  }
+  if (!claimBuild || !builds[claimBuild] || !builds[claimBuild].files) {
+    console.log('CAPTION-UNBOUND     ' + String(claimBuild === null ? '(none)' : claimBuild).padEnd(12) + 'the paragraph states a bind '
+      + 'verdict and nothing here records the shipped bytes it refers to, so the compare did not run - see SHIP-UNBOUND above');
+    notes.push('a bind verdict in README.md could not be checked because the build it names has no digests in ' + PROV_REL);
+    return { nrows: nrows, debt: 0 };
+  }
+  const rec = builds[claimBuild];
+  const here = shipDigests(prov.rev || null);
+  const moved = SHIP_FILES.filter(function (f) { return rec.files[f] !== here[f]; });
+  const claimed = v ? v[1] : 'SHIP-BIND';
+  if (claimed === 'SHIP-BIND' && moved.length) {
+    debt++;
+    console.log('CAPTION-STALE       ' + claimBuild.padEnd(12) + 'the paragraph states the bind holds for build ' + claimBuild +
+      ' while ' + moved.length + ' of ' + SHIP_FILES.length + ' shipped blob(s) that draw a frame differ in ' + src + ': ' +
+      moved.join(', ') + ' - the front page says these frames are the picture it ships and the bind row says a re-take is owed; '
+      + 'the paragraph is one commit behind its own table' + (STRICT ? '' : ' (printed; STRICT=1 gates it)'));
+    if (STRICT) fails.push('README states the bind holds for ' + claimBuild + ' while ' + moved.join(' ') + ' moved since');
+  } else if (claimed === 'FRAME-STALE' && !moved.length) {
+    console.log('ok      CAPTION-VERDICT ' + claimBuild.padEnd(10) + 'the paragraph reads ' + claimed + ' for build ' + claimBuild +
+      ', which is what ' + src + '\'s bytes say too (' + SHIP_FILES.join(', ') + ' all agree)');
+  } else {
+    console.log('ok      CAPTION-VERDICT ' + claimBuild.padEnd(10) + 'the paragraph states the bind holds for build ' + claimBuild +
+      ' and ' + SHIP_FILES.join(', ') + ' are byte-identical in ' + src + ', so the front page is today\'s picture on this tree');
+  }
+  return { nrows: nrows, debt: debt };
+}
+
 const HW_FIELD = 'sampleRate';
 const HW_WHY = 'one seed deals one level per audio device: SND.init draws floor(sampleRate*1.5) seeded values before genLevel (#404)';
 const ABOUT = 'Capture-time provenance for docs/screens/*.png (#335). One row per shot, written by the session that '
@@ -673,6 +771,10 @@ function checkMode(rows, rev) {
   // says whether the bytes that DRAW a frame still match the ones in this tree.
   const bv = buildCheck(loadProv(rev), fails, notes);
   nrows += bv.nrows;
+  // Field 0c - what the paragraph SAYS about that bind (#653). buildCheck is the measurement; this is
+  // the prose that describes it, twice left behind by the pass it described.
+  const cb = captionBind(txt, loadProv(rev), fails, notes);
+  nrows += cb.nrows;
 
   // Vacuity first: a run that decoded nothing, or decoded something that is not a page screenshot,
   // is a FAILURE - it must never print as an empty table that passes (#235, AGENTS.md).
@@ -746,8 +848,9 @@ function checkMode(rows, rev) {
     if (q.thr !== DARK) labels[q.thr] = (labels[q.thr] || 0) + 1;
   }
   console.log('note                   gated: the ' + rows.length + ' means, the row statistics and every shot\'s provenance; printed and not gated:' +
-    ' the >=240 / >=200 shares and the band means, which the captions quote beside canvas numbers; and the shipped-bytes bind, which '
-    + 'names which frames owe a re-take without claiming any pixel moved');
+    ' the >=240 / >=200 shares and the band means, which the captions quote beside canvas numbers; the shipped-bytes bind, which '
+    + 'names which frames owe a re-take without claiming any pixel moved; and the capture-pass paragraph\'s own bind claim, '
+    + 'which is true on the tree a pass lands on and ages from the next shipped byte that moves');
   for (const k in labels) notes.push(labels[k] + ' caption(s) label the threshold ' + k + ', the tool measures at ' + DARK);
   for (const n of notes) console.log('note                   ' + n);
   console.log('RECAP ' + fails.length + ' FAILURE(S) of ' + nrows + ' rows, ' + pv.bind + ' shot(s) with a binding route' +
@@ -757,6 +860,8 @@ function checkMode(rows, rev) {
     ', ' + bv.bound + ' build(s) bound to this tree\'s shipped blobs' +
     (bv.drift ? ', ' + bv.drift + ' build(s) whose shipped blobs moved (frames describe a picture that no longer ships' +
       (process.env.STRICT ? '' : '; STRICT=1 gates it') + ')' : '') +
+    (cb.debt ? ', ' + cb.debt + ' capture-pass sentence(s) asserting a bind this checkout\'s bytes deny' +
+      (process.env.STRICT ? '' : '; STRICT=1 gates it') : '') +
     (notes.length ? ', ' + notes.length + ' note(s)' : ''));
   return fails.length ? 1 : 0;
 }
