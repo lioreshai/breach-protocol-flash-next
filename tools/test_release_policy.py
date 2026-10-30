@@ -1,5 +1,10 @@
 import importlib.util
 from datetime import datetime, timedelta, timezone
+import json
+import os
+import subprocess
+import sys
+import tempfile
 from pathlib import Path
 import re
 import unittest
@@ -93,6 +98,8 @@ class ReleasePolicyTests(unittest.TestCase):
                 return RELEASE
             if path.startswith('commits/'):
                 return dict(sha=TAG)
+            if path.startswith('pulls?'):
+                return []
             return RELEASE
         with patch.object(policy, 'api', side_effect=api):
             self.assertFalse(policy.status('test/game', policy.RESET_BRANCH)['waived'])
@@ -147,6 +154,130 @@ class ReleasePolicyTests(unittest.TestCase):
         self.assertIn('Outstanding release step: none',
                       policy.publication_line(policy.publish_state(manifest, TAG, PUBLISHED, NOW,
                                                                    NOW)))
+
+    def pr(self, number=702, branch='release/v1.4.18', state='open', draft=False, hours=0.5,
+           merged_at=None):
+        return dict(number=number, state=state, draft=draft, merged_at=merged_at,
+                    created_at=(NOW - timedelta(hours=hours)).isoformat(),
+                    head=dict(ref=branch, sha=HEAD))
+
+    def release_pr(self, **changes):
+        values = dict(pull_requests=[self.pr()], last_tag='v1.4.17', now=NOW)
+        values.update(changes)
+        return policy.release_pr_state(**values)
+
+    def suspended_status(self, **changes):
+        values = dict(release_pr=self.release_pr())
+        values.update(changes)
+        return self.status(**values)
+
+    def test_an_open_release_pr_suspends_the_row_and_keeps_the_debt(self):
+        value = self.suspended_status()
+        self.assertTrue(value['due'], 'the release-due issue must stay open while a release PR waits')
+        self.assertTrue(value['suspended'])
+        self.assertIn('release PR #702 (v1.4.18) is open, publication in flight', value['reason'])
+
+    def test_a_release_pr_that_is_not_newer_suspends_nothing(self):
+        # Vacuity: a stale release/vX.Y.Z branch must not silence the board forever.
+        self.assertIsNone(self.release_pr(last_tag='v1.4.18'))
+        self.assertIsNone(self.release_pr(last_tag='v1.4.18.1'))
+        value = self.status(release_pr=self.release_pr(last_tag='v1.4.18'))
+        self.assertFalse(value['suspended'])
+        self.assertTrue(value['due'])
+
+    def test_a_closed_or_draft_release_pr_suspends_nothing(self):
+        for pull in (self.pr(state='closed'), self.pr(draft=True),
+                     self.pr(merged_at=NOW.isoformat()), self.pr(branch='release/anything'),
+                     self.pr(branch='fix/doors')):
+            with self.subTest(pull=pull['state'] + '/' + pull['head']['ref']):
+                self.assertIsNone(self.release_pr(pull_requests=[pull]))
+        self.assertFalse(self.status(release_pr=None)['suspended'])
+
+    def test_the_suspension_lapses_past_the_measured_grace(self):
+        # The samples beside RELEASE_PR_GRACE are 1470-4587 s of handoff and #619 at 151340 s of
+        # forgetting, so the bound sits between them; the knob proves the row can still go red.
+        self.assertGreater(policy.RELEASE_PR_GRACE, 4587)
+        self.assertLess(policy.RELEASE_PR_GRACE, 151340)
+        stale = self.release_pr(pull_requests=[self.pr(hours=policy.RELEASE_PR_GRACE / 3600 + 1)])
+        self.assertFalse(stale['suspends'])
+        value = self.status(release_pr=stale)
+        self.assertTrue(value['due'])
+        self.assertFalse(value['suspended'])
+        with patch.dict(os.environ, {'RELEASE_PR_GRACE': '60'}):
+            self.assertFalse(policy.release_pr_state([self.pr()], 'v1.4.17', NOW)['suspends'])
+
+    def test_a_release_pr_never_suspends_a_debt_that_is_not_due(self):
+        # No new changes, and a merged publication still in flight, are not debts: the suspension
+        # must not rewrite those reasons or claim a suspension that is doing nothing.
+        for changes in (dict(main_sha=TAG),
+                        dict(publication=policy.publish_state(dict(version='v1.2.1'), None, None,
+                                                              NOW - timedelta(minutes=5), NOW))):
+            with self.subTest(**changes):
+                value = self.suspended_status(**changes)
+                self.assertFalse(value['due'])
+                self.assertFalse(value['suspended'])
+
+    def test_the_newest_open_release_pr_wins(self):
+        state = self.release_pr(pull_requests=[self.pr(number=1, branch='release/v1.4.18'),
+                                               self.pr(number=2, branch='release/v1.5')])
+        self.assertEqual((state['number'], state['version']), (2, 'v1.5'))
+
+    def test_an_unreadable_pr_query_fails_instead_of_reading_as_no_release(self):
+        for pulls in ({}, None, ['row']):
+            with self.subTest(pulls=type(pulls).__name__), self.assertRaises(ValueError):
+                self.release_pr(pull_requests=pulls)
+
+    def test_verdict_honours_the_suspension_and_fails_without_it(self):
+        # The real CLI, because `release` is a required row and the acceptance outcome is its exit
+        # code: suspended -> 0 naming the PR, ordinary debt -> 1, release branch -> 0 waived.
+        def run(value):
+            with tempfile.NamedTemporaryFile('w', suffix='.json', delete=False) as handle:
+                json.dump(value, handle)
+                path = handle.name
+            result = subprocess.run([sys.executable, str(Path(policy.__file__)), 'verdict',
+                                     '--input', path], text=True, capture_output=True)
+            os.unlink(path)
+            return result
+
+        base = dict(self.suspended_status(), waived=False)
+        held = run(base)
+        self.assertEqual(held.returncode, 0, held.stdout + held.stderr)
+        self.assertIn('Release cadence suspended - release PR #702 (v1.4.18) is open', held.stdout)
+        unpaid = run(dict(base, release_pr=None, suspended=False, reason='release due'))
+        self.assertEqual(unpaid.returncode, 1)
+        self.assertIn('release cadence is overdue', unpaid.stderr)
+        release_branch_run = run(dict(base, waived=True))
+        self.assertEqual(release_branch_run.returncode, 0, release_branch_run.stdout)
+        self.assertIn('Release cadence passed (release PR pays the debt)', release_branch_run.stdout)
+        lapsed = run(dict(self.status(release_pr=self.release_pr(
+            pull_requests=[self.pr(hours=policy.RELEASE_PR_GRACE / 3600 + 1)])), waived=False))
+        self.assertEqual(lapsed.returncode, 1, 'the suspension must lapse: an open-but-abandoned '
+                                               'release PR is not a release in flight')
+
+    def test_the_debt_issue_stays_open_and_names_the_release_pr(self):
+        value = dict(self.suspended_status(), waived=False)
+        calls = []
+
+        def call(args, data=None):
+            calls.append((args, data))
+            return ''
+
+        def api(repo, path, payload=None, optional=False):
+            if path.startswith('issues?state=open'):
+                return [dict(number=704, title='Release due: scheduled release cadence', body='old')]
+            if path.startswith('labels'):
+                return dict(name='release-due')
+            return []
+        with patch.object(policy, 'api', side_effect=api), patch.object(policy, 'call', side_effect=call):
+            policy.notify('test/game', value)
+        self.assertFalse([args for args, _ in calls if 'close' in args],
+                         'an in-flight release PR must not close the record of the debt')
+        patched = [data for args, data in calls if '--method' in ' '.join(args) and data]
+        self.assertTrue(patched, 'the debt issue body was never refreshed, so the release PR is '
+                                 'named nowhere')
+        body = json.loads(patched[0])['body']
+        self.assertIn('#702', body)
+        self.assertIn('release/v1.4.18', body)
 
     def test_release_branch_and_metadata_must_match(self):
         for manifest in (None, dict(MANIFEST, version='v9.0'), dict(MANIFEST, prepared_from='bad')):
