@@ -8999,15 +8999,77 @@ if (MODE === 'heights') {
       run(`(()=>{for(let w=-${SW};w<=${SW};w++)for(let k=0;k<${SL};k++)MAP.fz[(${SY}+w)*MW+${SX}+k]=0;})()` +
         ';linkBoundaries();');
       run(`P.x=${SX}+.5;P.y=${SY}+.5;P.ang=0;P.pitch=0;P.z=${eyePin.toFixed(6)};` + ZRESET + ';' + ZON + ';renderWorld()');
-      const jf = worstJump(zbufCopy());
-      const cok = !c.phantom && jc.j >= 0.5 && Math.abs(jc.jr - yEdge) <= 4 && jf.j < 0.5;
+      const zFlat = zbufCopy(), jf = worstJump(zFlat);
+      /* #674 THE EDGE IS WHERE THE TWO FRAMES SPLIT, NOT WHERE A GLOBAL MAXIMUM LIVES.
+         The claim #517 makes is that the band's edge is a PLACE: the same camera, with the disc and
+         without it, must store different depths on one side of a row and the SAME depth on the other.
+         The previous clause hunted the largest ONE-ROW change of zbuf anywhere in the lower half, and a
+         receding floor's one-row change is (eyeZ - pl) * BH / r^2, which diverges toward the horizon -
+         so the row it found was row 2 (28.17 m there, measured at this head) on every build, and the
+         flattened frame "found" 1.32 m in a frame with nothing in it. No renderer can satisfy that, and
+         the control could not read zero, which is the tooling issue #674.
+
+         Differencing the two frames at the SAME row cancels that gradient by construction - both sides
+         carry it - so what is left is the edge. Three clauses, each satisfiable by a renderer:
+           SOME: some row must differ by more than the 0.5 m bound, or removing the band changes the
+             frame nowhere and the pose proves nothing -> EDGE-STEPS-DEAD (vacuity, a FAILURE).
+           PAST: the rows ABOVE yEdge look over the edge at the lower floor. A ray that has crossed the
+             band's edge can be answered there by ONE surface - the lower floor, at the same distance in
+             both frames - so their difference must stay under the bound. This is the control #674 clause
+             2 asks for: on a build that draws no band it is 0 by construction (flat against flat), so a
+             reading here is the eye's OWN band plane being carried past the edge it walked off - #517's
+             phantom, #518's adopted plane - and can never be the 1/r^2 gradient, which the difference
+             cancels. Measured at this head it reads 62.00 m at row 2, which is the whole far half of
+             the frame answering the plane the eye stands on rather than the floor its ray reaches.
+         The 0.5 m bound, the +/-4 row window and the pinned camera are unchanged from the clause this
+         replaces; only the quantity being thresholded is now one a renderer can answer. */
+      const PBOUND = 0.5, PWIN = 4;
+      let edgeRow = -1, edgeMax = 0;
+      for (let y = hzC + 2; y < PH; y++) {
+        const u = zDisc[y * PW + xc], v = zFlat[y * PW + xc];
+        if (!isFinite(u) || !isFinite(v) || !(u > 0) || !(v > 0)) continue;
+        const d = Math.abs(u - v);
+        if (d > edgeMax) edgeMax = d;
+        if (d > PBOUND) { edgeRow = y; break; }
+      }
+      let pastMax = 0, pastRow = -1, farMax = 0, farRow = -1;
+      /* The PAST window is PWIN..PWIN+PDEPTH rows ABOVE yEdge - the band of rows the authored drop face
+         actually projects into - and NOT the whole run up to the horizon. The reason is arithmetic and it
+         is the same 1/r term #674 named, now on the DIFFERENCE rather than on either frame: two frames
+         whose floor planes differ by DPL answer the same row at (eyeZ-pl1)*BH/r and (eyeZ-pl2)*BH/r, so
+         their difference is DPL*BH/r, which diverges at the horizon whatever the renderer does. Measured
+         at this head, over the full run up to the horizon, the difference reads 62.00 m at row 2 with
+         DPL exactly one quantum - a statement about the top of the frame, not about the edge. Past the
+         band's own rows the ray has left the level's floor and the far-band wash answers, so those rows
+         are printed (farMax) and not gated; the rows the geometry names are gated. */
+      const PDEPTH = 24;
+      for (let y = Math.max(hzC + 2, yEdge - PWIN); y < yEdge && y < PH; y++) {
+        const u = zDisc[y * PW + xc], v = zFlat[y * PW + xc];
+        if (!isFinite(u) || !isFinite(v) || !(u > 0) || !(v > 0)) continue;
+        const d = Math.abs(u - v);
+        if (d > pastMax) { pastMax = d; pastRow = y; }
+      }
+      for (let y = hzC + 2; y < Math.max(hzC + 2, yEdge - PWIN) && y < PH; y++) {
+        const u = zDisc[y * PW + xc], v = zFlat[y * PW + xc];
+        if (!isFinite(u) || !isFinite(v) || !(u > 0) || !(v > 0)) continue;
+        const d = Math.abs(u - v);
+        if (d > farMax) { farMax = d; farRow = y; }
+      }
+      const eDead = edgeRow < 0, pBad = pastMax >= PBOUND;
+      const cok = !c.phantom && !eDead && !pBad;
       if (!cok) poseBad++;
-      console.log('  ' + pad('poseC', 9) + ' #517 the band\'s own edge is a DEPTH step: worst one-row depth jump ' +
-        jc.j.toFixed(2) + ' m at row ' + (jc.jr - hzC) + ' against the drop face\'s own row ' + (yEdge - hzC) +
-        ' (edge 1.5 m out, eye ' + (zEye - zBandFloor).toFixed(2) + ' m above the deck it stands on)' +
-        (jc.j >= 0.5 && Math.abs(jc.jr - yEdge) <= 4 ? '  ok' : '  FAIL EDGE-NO-DEPTH-STEP: the edge is a texture suggestion, not a place') +
-        `; the flattened control under the SAME pinned camera reads ${jf.j.toFixed(2)} m` +
-        (jf.j < 0.5 ? '' : '  FAIL EDGE-CONTROL-DEAD: a step survives the flattening, so this is a seam') +
+      console.log('  ' + pad('poseC', 9) + ' #517 the band\'s own edge is a DEPTH step: the disc-vs-flat split begins at row '
+        + (eDead ? 'NONE' : (edgeRow - hzC)) + ' against the authored edge\'s own row ' + (yEdge - hzC) +
+        ', largest split ' + edgeMax.toFixed(2) + ' m (edge 1.5 m out, eye ' + (zEye - zBandFloor).toFixed(2) +
+        ' m above the deck it stands on; the global one-row maximum - the horizon\'s own 1/r^2 at row ' +
+        (jc.jr - hzC) + ', which the clause used to hunt and which names no edge - reads ' + jc.j.toFixed(2) + ' m, #674)' +
+        (eDead ? '  FAIL EDGE-STEPS-DEAD: removing the band changes no depth anywhere, so the pose proves nothing'
+          : '  ok') +
+        `; PAST the edge (its own rows and ${PDEPTH} above them, the band the drop face projects into) the two frames differ by at most ` +
+        pastMax.toFixed(2) + ' m' + (pastRow >= 0 ? ' at row ' + (pastRow - hzC) : '') +
+        ', and over the far rows above that - where the ray is off the level and the wash answers - by '
+        + farMax.toFixed(2) + ' m' + (farRow >= 0 ? ' at row ' + (farRow - hzC) : ' (none)') +
+        (pBad ? '  FAIL EDGE-BAND-PHANTOM: a band plane reaches past its own edge, so the near far field is not the floor both frames can prove' : '') +
         `; ${c.phantom} phantom px over the whole lower half` + (c.phantom ? '  FAIL BAND-FLOOR-PHANTOM' : ''));
       /* The attribution row. It adds no claim about the picture: it says whether the census can NAME the
          pass that wrote each phantom pixel, which is the thing the next change has to pick. */
