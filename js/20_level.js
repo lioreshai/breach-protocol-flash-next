@@ -35,6 +35,7 @@ const LEVELS = [
     // stays 0.30, still an authored value that wins outright, so a vault still cannot out-light the deck
     // it spans and the ramp's near half is byte-identical. The roof is brighter by 2.4 luma of BASE on
     // every ceiling row of this sector alone; no lamp, no plane, no material, no floor term moved.
+    accent: [92, 176, 160],
     floor: 'STONE', ceil: 'ROCK', amb: 0.19, lampCol: [255, 196, 120], fogCol: [17, 13, 10], ceilLead: 0.30, ceilBias: 0,
     lamps: 6, crates: 7, barrels: 7, spawn: { grunt: 5, hound: 3, brute: 0 }, pick: { health: 3, ammo: 4, armor: 1 },
     fixtures: ['PIPE', 'VENT'],           // #400: the archive is a place with old pipework in it
@@ -111,6 +112,7 @@ const LEVELS = [
     // because the remaining work on #421 is to move its authored plateau into the seat's reach - pinning
     // it now would quietly make that work do nothing. See seatFacing.
     seatAng: 0.6,
+    accent: [86, 140, 81],
     floor: 'FLESH', ceil: 'SINEW', amb: 0.3, lampCol: [190, 255, 150], fogCol: [21, 8, 11], ceilBias: -0.12,
     lamps: 16, crates: 9, barrels: 12, spawn: { grunt: 8, hound: 7, brute: 3 }, pick: { health: 5, ammo: 6, armor: 2 },
     fixtures: ['VENT', 'STRIPE'],         // #400: the abattoir breathes; everything here is a duct

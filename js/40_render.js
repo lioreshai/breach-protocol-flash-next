@@ -66,10 +66,24 @@ let SEAM = 1, SEAMD = 0.62, SEAMU = 0.13, SEAMW = 0.16, SEAMC = 0.22;
    (world metres below the lip) and RISER_ACC_F is the fraction of that band which is the feather rather
    than solid colour - the top of the band is the lip itself, which is a hard edge, and its bottom is a
    paint line, which at 16 m is a sub-pixel edge and would sparkle if it were hard too.
-   The colour lives on the LEVEL (js/20_level.js `accent`), not here: RING TRANSPORT is the only level
-   that authors one, so `accC` below is null everywhere else and the term costs a falsy check. Tune the
-   height by looking at `view.js scene 1 0`; the dose it must land in is on issue #466. */
-let RISER_ACC_H = 0.12, RISER_ACC_F = 0.45;
+   The colour lives on the LEVEL (js/20_level.js `accent`), not here, so `accC` below is null on a level
+   that authors none and the term costs a falsy check. Tune the height by looking at `view.js scene 1 0`;
+   the dose it must land in is on issue #466.
+   #669 THE FOOT OF A WALL. A SLAB LIP IS NOT THE ONLY EDGE A DEALT FRAME CONTAINS. Measured on the pinned
+   deal, an authored `accent` painted ZERO pixels at the arrival seat of ARCHIVE SUBLEVEL and ABATOIR CORE
+   (A/B of `scene 0 0` / `scene 2 0`, accent vs accent-null, four cameras each, byte-identical): those
+   seats look at flat deck meeting a wall, so the riser branch never runs and the level's one deliberate
+   accent was invisible exactly where the player forms their first impression of the sector. RING
+   TRANSPORT - the sector that reads - moves 26,300 px at its own seat. The edge the ARCHIVE and ABATOIR
+   frames DO contain is the deck-to-wall junction, which is the same object as a slab lip in everything
+   but geometry: it is where the walkable surface stops. So an accent now also paints a KERB at the foot
+   of an ordinary wall face, over the same authored colour and the same albedo path. It is deliberately
+   NOT the same shape as a lip: shorter (RISER_ACC_B against RISER_ACC_H) and feathered at its TOP rather
+   than at its bottom, because a lip is read from above - the paint sits under the edge you can walk off -
+   and a kerb is read from the deck it is painted on. That keeps "slab edge" and "wall base" two different
+   looks, which is the legibility #669's acceptance asks for. A level that authors no accent (THE STACK,
+   and every MAP with no level) pays one extra falsy test per wall pixel and is byte-identical. */
+let RISER_ACC_H = 0.12, RISER_ACC_F = 0.45, RISER_ACC_B = 0.09;
 /* #369 THE CEILING JUNCTION, and it is a BAND, not a bulk value.
 
    `surface`'s SEAM row measures, per column, the eight ceiling rows just above the row where the
@@ -3107,9 +3121,11 @@ function castWalls(flash, fcR, fcG, fcB) {
     if (rdy < 0) { stepY = -1; sdy = (camY - my) * ddy; } else { stepY = 1; sdy = (my + 1 - camY) * ddy; }
     let tv = 0, guard = 0, riser = 0, rz0 = 0, rz1 = 1, rze = 0, rzf = 1, rzn = -1;
     /* #466: the accent band for THIS column, as a screen row and its reciprocal. Both stay at the
-       "no band" values on every ordinary wall face and on every level that authors no accent, so an
-       ordinary wall pixel pays one `y <= accY` compare against -1 and nothing else. */
-    let accY = -1, accInv = 0;
+       "no band" values on every wall face of a level that authors no accent, so such a pixel pays one
+       `y <= accY` compare against -1 and nothing else. #669's wall-foot kerb is the SECOND band of the
+       same column: `kerbOn` is 0 on a riser and on every level with no accent, so the kerb's rows cost
+       a falsy test there and nothing else. */
+    let accY = -1, accInv = 0, kerbY = 1e9, kerbInv = 0, kerbOn = 0;
     while (guard++ < 180) {
       let tX;
       if (sdx < sdy) { tX = sdx; sdx += ddx; mx += stepX; side = 0; } else { tX = sdy; sdy += ddy; my += stepY; side = 1; }
@@ -3320,6 +3336,13 @@ function castWalls(flash, fcR, fcG, fcB) {
     if (riser && accC) {
       const ay = y0 + accH * hpx;
       if (ay > ds) { accY = ay; accInv = 1 / (accH * hpx * RISER_ACC_F); }
+    } else if (accC) {
+      /* #669: the kerb. y1 is the row of the face's own FLOOR (z0), so the band is the strip
+         [y1 - accB*hpx, y1] and its TOP edge - the paint line - is the row `kerbY`; the weight ramps to
+         1 going DOWN, so the paint is solid against the deck and fades up the wall. Clamped to the face
+         by `de`, which is already the screen-clamped last row. */
+      const ky = y1 - RISER_ACC_B * hpx;
+      if (ky < de) { kerbOn = 1; kerbY = ky; kerbInv = 1 / (RISER_ACC_B * hpx * RISER_ACC_F); }
     }
     let ty = (ds - y0) * tstep, idx = ds * BW + x;
     if (ty >= mh) ty %= mh;                                // v wraps every world unit
@@ -3377,6 +3400,10 @@ function castWalls(flash, fcR, fcG, fcB) {
          and before the grit term so the relief still reads across the band. */
       if (y <= accY) {
         let aw = (accY - y) * accInv;
+        if (aw > 1) aw = 1;
+        cr += (accC[0] - cr) * aw; cg += (accC[1] - cg) * aw; cb += (accC[2] - cb) * aw;
+      } else if (kerbOn && y >= kerbY) {                 // #669: the wall-foot kerb, ramping DOWN
+        let aw = (y - kerbY) * kerbInv;
         if (aw > 1) aw = 1;
         cr += (accC[0] - cr) * aw; cg += (accC[1] - cg) * aw; cb += (accC[2] - cb) * aw;
       }
