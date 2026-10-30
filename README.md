@@ -65,9 +65,8 @@ that ages: `node tools/recap.js check` hashes the four blobs that draw a frame �
 those bytes or `FRAME-STALE` naming the blob that moved. A pass aged badly once, binding `bd2441a` while two
 render commits landed in review, and the tool exists so it cannot age quietly again; the bind is an upper bound on
 "the picture changed", since a comment inside a renderer moves a digest and moves no pixel, so the row names the
-blob and leaves the re-take call to a human. On the tree that carries these frames that row reads `SHIP-BIND` for
-`5d08c12`: the four blobs that draw a frame are byte-identical here and in the build these eight rows bind, so on this tree the front page is today's picture; the next renderer or level commit turns that row to
-`FRAME-STALE` and a re-take is owed again, which is the row's purpose rather than a defect in it. Two of this pass's three deals re-rolled and one did not, and the reason is the same class of change that made
+blob and leaves the re-take call to a human. On the tree that carries these frames that row reads `FRAME-STALE` for
+`5d08c12`: one or more of the four blobs that draw a frame have moved in this checkout — the row names them — so the eight frames are the picture that build drew and not the one shipping under this sentence, and a re-take is owed. That is the row doing its job, not a defect in it, and the same command now prints a `CAPTION-VERDICT` row that compares this sentence with the digests, so the page cannot be left a pass behind by the pass it describes (#653). Two of this pass's three deals re-rolled and one did not, and the reason is the same class of change that made
 the re-take necessary: the room-height passes author height in the generator's own dice, so one seed deals a
 different sector at a later build. This pass re-ran the same url at one page load and one boot per level
 and read every pose back out of the page that drew it. ARCHIVE SUBLEVEL re-rolled to 1898908958 where its five
