@@ -270,6 +270,234 @@ function decodeLists(text) {
   return out;
 }
 
+/* -------------------------------------------------------------------- deltas */
+
+/*
+ * The delta between a frame and the frame it replaces (#668).
+ *
+ * Three front-page captions quoted a delta - "7.12 lighter than the frame it replaces", "1.16 lighter
+ * than the frame he replaces", "+7.65 on the one it replaces - the largest move of the eight" - and
+ * not one of them was the difference between those bytes. Two captions each claimed to be the largest
+ * move. `check` gated every MEAN and every row census in the same paragraphs, so the pass that
+ * re-took the frames updated the aggregate paragraph from +7.12 to +1.16 and left the caption sentence
+ * thirty lines above it at 7.12. A caption is the only place these passes state what got better, and a
+ * figure in one is copied onward by the next reader, so a wrong delta is not a cosmetic slip.
+ *
+ * The reason nothing caught it is the reason #664 filed for flatparity's means: the delta was prose.
+ * So it is now a measurement with two inputs, both of which this tool can see:
+ *
+ *   1. the mean of the frame shipping in `docs/screens/`, decoded here from the PNG; and
+ *   2. the mean of the frame it replaces, recorded on that shot's row in provenance.json as
+ *      `replaces: {rev, sha256, mean}` AT THE PASS THAT SUPERSEDED IT - the same artifact that already
+ *      addresses the shipping frame's bytes.
+ *
+ * A delta is the difference of the two means AS THE TABLE PRINTS THEM (each to two decimals), because
+ * that is the arithmetic a reader holding this tool's own output can repeat; the difference of the
+ * unrounded means can sit 0.01 away and the DELTA row prints both when they disagree. The delta of the
+ * frame in front of you is exact, so quoting a delta from a PREVIOUS pass is the failure this gate
+ * exists to make loud.
+ *
+ * What gates:
+ *   - `DELTA-UNBOUND`  a shot row with no `replaces` block: printed and counted, promoted under STRICT.
+ *     Nothing can be asserted about a delta nobody recorded, and silence is not a pass.
+ *   - `DELTA-BAD`      a `replaces` block whose sha256 is not 64 hex or whose mean is not a luma: FAIL.
+ *   - `DELTA-BYTES`    when the superseded blob is reachable from this checkout, its bytes are decoded
+ *     and the row's `replaces.mean` is checked against them: FAIL on a disagreement. In a depth-1 CI
+ *     checkout the blob is absent and that is named, not guessed at.
+ *   - `DELTA`          the delta itself. Where README.md quotes one - the aggregate list, or a caption's
+ *     "<s><n> on the frame it replaces" - the quoted number must equal this row. A stale delta is now a
+ *     FAILURE the way a stale mean already is.
+ *   - `DELTA-LARGEST`  exactly one frame may be called the largest move, and it must be the one this
+ *     table says moved most in absolute value. Two captions claiming the same superlative is a FAIL.
+ */
+const REPL_KEY = 'replaces';
+const DELTA_TOL = 0.005;
+const LARGEST_RE = /largest (?:move|delta|change)(?: of the eight)?/g;
+// The shapes a caption's delta takes on this page: "**+1.16** on the frame it replaces", "**−4.71** on
+// the frame it replaces", "1.16 lighter than the frame he replaces", "1.63 lighter than the one it
+// replaces". A bare number followed by "replaces" is NOT enough: the pit floor's caption contains
+// "having gone *down* 0.57 when the roof was lit", which is a retracted claim about a DIFFERENT
+// comparison, and "`floorAt` **1.00**" sits near enough to "the frame it replaces" to be read as one.
+// So the connector ("on" / "lighter than" / "darker than") and the noun (frame/one/pose/seat) are both
+// required, and the sign comes from the sign or from lighter/darker - #668's three stale deltas were all
+// unsigned, and a parser that demanded a sign would report them as no delta at all.
+const DELTA_SAY = /([+\u2212-])?\s?(\d+\.\d\d)\s*\*\*?\s*(lighter|darker)?\s*(?:than|on)\s+the\s+(?:frame|one|pose|seat)\b[^.\n]{0,60}?replac(?:es)?/g;
+// The aggregate list, same convention as the decode list: one signed value per PNG, embed order.
+const DELTA_LIST = /\bdeltas? (?:of|to) \*\*([-+\u2212 0-9.\/]+)\*\*/g;
+
+function signed(s) {
+  const t = String(s).trim().replace(/\u2212/g, '-');
+  const m = /^([+-])?\s*(\d+(?:\.\d+)?)$/.exec(t);
+  if (!m) return null;
+  const v = parseFloat(m[2]);
+  return m[1] === '-' ? -v : v;
+}
+
+function deltaLists(text) {
+  const out = [];
+  let m; DELTA_LIST.lastIndex = 0;
+  while ((m = DELTA_LIST.exec(text))) {
+    const vals = m[1].split('/').map(signed);
+    if (vals.every(function (v) { return v !== null; })) out.push({ at: m.index, vals: vals });
+  }
+  return out;
+}
+
+// Every per-caption delta claim, attributed to the image block it sits under (the same rule captionStats uses).
+function captionDeltas(text, emb) {
+  const out = [];
+  let m; DELTA_SAY.lastIndex = 0;
+  while ((m = DELTA_SAY.exec(text))) {
+    let owner = null;
+    for (const im of emb) if (im.at < m.index && (!owner || im.at > owner.at)) owner = im;
+    const mag = parseFloat(m[2]);
+    const neg = m[1] === '-' || m[1] === '\u2212' || m[3] === 'darker';
+    out.push({ name: owner ? owner.name : null, at: m.index, val: neg ? -mag : mag });
+  }
+  const claims = [];
+  let c; LARGEST_RE.lastIndex = 0;
+  while ((c = LARGEST_RE.exec(text))) {
+    let owner = null;
+    for (const im of emb) if (im.at < c.index && (!owner || im.at > owner.at)) owner = im;
+    claims.push({ name: owner ? owner.name : null, at: c.index });
+  }
+  return { says: out, claims: claims };
+}
+
+// Best-effort: decode the SUPERSEDED frame from the object store, so a row's recorded replaced mean is
+// checked against bytes and not only against the number typed next to it. Absent in a depth-1 checkout.
+function replacedBytes(rev, name) {
+  try {
+    const buf = cp.execFileSync('git', ['show', rev + ':docs/screens/' + name + '.png'],
+      { cwd: ROOT, maxBuffer: 1 << 28, stdio: ['ignore', 'pipe', 'ignore'] });
+    const s = measure(pngDecode(buf, name), STRIDE, DARK);
+    return { sha: crypto.createHash('sha256').update(buf).digest('hex'), mean: s.mean };
+  } catch (e) { return null; }
+}
+
+function deltaCheck(rows, prov, fails, notes) {
+  let nrows = 0, unbound = 0, verified = 0;
+  const d = {};
+  if (prov.err) return { d: d, nrows: 0, unbound: 0, verified: 0 };
+  for (const r of rows) {
+    const e = prov.byFile[r.name];
+    nrows++;
+    const rep = e && e.row && e.row[REPL_KEY];
+    if (!rep || !rep.rev) {
+      unbound++;
+      d[r.name] = null;
+      console.log('DELTA-UNBOUND     ' + r.name.padEnd(20) + 'no `' + REPL_KEY + '` block on its shot row, so the delta between this '
+        + 'frame and the frame it replaces is not computable here - record `{' + REPL_KEY + ': {rev, sha256, mean}}` for the '
+        + 'superseded PNG in ' + PROV_REL + ' or write no delta in its caption'
+        + (process.env.STRICT ? '' : ' (STRICT=1 gates this row)'));
+      if (process.env.STRICT) fails.push(r.name + ': a caption-era delta with no replaced-frame mean recorded');
+      continue;
+    }
+    if (typeof rep.sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(rep.sha256)) {
+      d[r.name] = null; nrows++;
+      console.log('DELTA-BAD         ' + r.name.padEnd(20) + '`' + REPL_KEY + '.sha256` is ' + JSON.stringify(rep.sha256) +
+        ', not the 64 hex digits that address the superseded bytes');
+      fails.push(r.name + ': ' + REPL_KEY + '.sha256 is not a sha256');
+      continue;
+    }
+    if (typeof rep.mean !== 'number' || !(rep.mean > 0 && rep.mean < 255)) {
+      d[r.name] = null; nrows++;
+      console.log('DELTA-BAD         ' + r.name.padEnd(20) + '`' + REPL_KEY + '.mean` is ' + JSON.stringify(rep.mean) +
+        ', not a luma, so the delta this row feeds to the captions is not a measurement');
+      fails.push(r.name + ': ' + REPL_KEY + '.mean is not a luma');
+      continue;
+    }
+    const now = Math.round(r.s.mean * 100) / 100, was = Math.round(rep.mean * 100) / 100;
+    const dRound = Math.round((now - was) * 100) / 100, dExact = r.s.mean - rep.mean;
+    d[r.name] = { now: now, was: was, d: dRound, exact: dExact, claims: [] };
+    // Verify the replaced mean against the superseded bytes when this checkout still has them.
+    nrows++;
+    const got = replacedBytes(String(rep.rev), r.name);
+    if (!got) {
+      notes.push(r.name + ': the superseded frame at ' + rep.rev + ' is not in this checkout, so `'
+        + REPL_KEY + '.mean` was taken as recorded (a depth-1 checkout cannot read it)');
+    } else if (got.sha !== rep.sha256) {
+      console.log('DELTA-BYTES       ' + r.name.padEnd(20) + 'the PNG at ' + rep.rev + ':' + r.name + '.png is ' + got.sha.slice(0, 12) +
+        ' and the row addresses ' + rep.sha256.slice(0, 12) + ' - the block describes bytes that are not the frame this one replaces');
+      fails.push(r.name + ': ' + REPL_KEY + ' addresses bytes other than ' + rep.rev + ':' + r.name + '.png');
+    } else if (Math.abs(got.mean - rep.mean) > DELTA_TOL) {
+      console.log('DELTA-BYTES       ' + r.name.padEnd(20) + 'the frame it replaces decodes ' + got.mean.toFixed(4) +
+        ' and the row records ' + rep.mean.toFixed(4) + ' - the delta the captions quote is off by '
+        + Math.abs(got.mean - rep.mean).toFixed(4));
+      fails.push(r.name + ': replaced-frame mean recorded ' + rep.mean.toFixed(2) + ', those bytes decode ' + got.mean.toFixed(2));
+    } else {
+      verified++;
+    }
+    console.log((got && got.sha === rep.sha256 && Math.abs(got.mean - rep.mean) <= DELTA_TOL ? 'ok      ' : 'DELTA         ') +
+      r.name.padEnd(20) + 'delta  now ' + now.toFixed(2).padStart(7) + '  replaces ' + was.toFixed(2).padStart(7) +
+      '  ' + (dRound >= 0 ? '+' : '\u2212') + Math.abs(dRound).toFixed(2).padStart(6) +
+      (Math.abs(dExact - dRound) > DELTA_TOL ? '  (unrounded ' + (dExact >= 0 ? '+' : '\u2212') + Math.abs(dExact).toFixed(4) +
+        ', the table rounds each mean first)' : '') +
+      (got && got.sha === rep.sha256 ? '  bytes at ' + rep.rev : '  recorded at ' + rep.rev));
+  }
+
+  // The aggregate list: one value per PNG, in the order the images are embedded - the decode-list rule.
+  const txt = readReadme();
+  const emb = embeds(txt);
+  const order = emb.filter(function (e, i) { return emb.findIndex(function (x) { return x.name === e.name; }) === i; })
+    .map(function (e) { return e.name; });
+  const lists = deltaLists(txt).filter(function (l) { return l.vals.length === rows.length; });
+  nrows++;
+  if (!lists.length) {
+    console.log('DELTA-VACUOUS           README.md quotes no `deltas to **a / b / ...**` list with ' + rows.length +
+      ' values while ' + (rows.length - unbound) + ' shot row(s) carry a replaced-frame mean - a page that quotes no '
+      + 'delta is the quiet option, and this tool does not implement it: the deltas are computed here, so the page names them');
+    fails.push('README.md quotes no per-frame delta list while provenance records replaced-frame means');
+  } else {
+    for (const l of lists) {
+      for (let i = 0; i < l.vals.length; i++) {
+        const nm = order[i], ent = d[nm];
+        nrows++;
+        if (!ent) { console.log('DELTA-UNBOUND     ' + nm.padEnd(20) + 'the delta list at char ' + l.at + ' quotes ' + l.vals[i].toFixed(2) + ' for a frame with no replaced-frame mean'); fails.push(nm + ': a delta quoted with nothing to compute it from'); continue; }
+        const ok = Math.abs(l.vals[i] - ent.d) <= DELTA_TOL;
+        console.log((ok ? 'ok      ' : 'MISMATCH') + ' ' + nm.padEnd(20) + 'delta  README ' + l.vals[i].toFixed(2).padStart(7) +
+          '  table ' + ent.d.toFixed(2).padStart(7) + '  d ' + Math.abs(l.vals[i] - ent.d).toFixed(3) + (ok ? '' : ' > tol ' + DELTA_TOL) + '  (list @' + l.at + ')');
+        if (!ok) fails.push(nm + ' delta quoted ' + l.vals[i].toFixed(2) + ', its two means give ' + ent.d.toFixed(2));
+      }
+    }
+  }
+
+  // The per-caption sentences, and the superlative.
+  const cs = captionDeltas(txt, emb);
+  for (const s of cs.says) {
+    nrows++;
+    if (!s.name) { console.log('DELTA-ORPHAN          a delta sentence at char ' + s.at + ' sits under no image, so nothing says which frame it is about'); fails.push('a delta sentence with no frame above it'); continue; }
+    const ent = d[s.name];
+    if (!ent) { console.log('DELTA-UNBOUND     ' + s.name.padEnd(20) + 'quotes a delta of ' + s.val.toFixed(2) + ' on a frame whose row carries no replaced-frame mean, so nothing computes it'); fails.push(s.name + ': a caption delta with no replaced-frame mean'); continue; }
+    else {
+      const ok = Math.abs(s.val - ent.d) <= DELTA_TOL;
+      console.log((ok ? 'ok      ' : 'MISMATCH') + ' ' + s.name.padEnd(20) + 'delta  README ' + s.val.toFixed(2).padStart(7) +
+        '  table ' + ent.d.toFixed(2).padStart(7) + '  d ' + Math.abs(s.val - ent.d).toFixed(3) + '  (caption @' + s.at + ')');
+      if (!ok) fails.push(s.name + ': its caption quotes ' + s.val.toFixed(2) + ' and its own two means give ' + ent.d.toFixed(2) + ' - the sentence is a previous pass\'s delta');
+      ent.claims.push(s.val);
+    }
+  }
+  for (const s of cs.says) if (d[s.name]) d[s.name].quoted = s.val;
+  let largestName = null, largestAbs = -1;
+  for (const k in d) if (d[k] && Math.abs(d[k].d) > largestAbs) { largestAbs = Math.abs(d[k].d); largestName = k; }
+  for (const c of cs.claims) {
+    nrows++;
+    if (!c.name) { console.log('DELTA-LARGEST         a "largest move" claim at char ' + c.at + ' sits under no image and so names no frame'); fails.push('a largest-move claim with no frame above it'); continue; }
+    const ent = d[c.name];
+    if (!ent) { console.log('DELTA-LARGEST     ' + c.name.padEnd(20) + 'claims the largest move with no replaced-frame mean to rank it on'); fails.push(c.name + ': largest-move claim with no delta'); continue; }
+    if (c.name !== largestName) {
+      console.log('DELTA-LARGEST     ' + c.name.padEnd(20) + 'is called the largest move of the eight at char ' + c.at + ' and its own delta is ' +
+        ent.d.toFixed(2) + ', while ' + largestName + ' moved ' + (d[largestName].d >= 0 ? '+' : '\u2212') + Math.abs(d[largestName].d).toFixed(2));
+      fails.push(c.name + ': called the largest move, ' + largestName + ' moved further (' + ent.d.toFixed(2) + ' vs ' + d[largestName].d.toFixed(2) + ')');
+    } else {
+      ent.superl = true;
+      console.log('ok      DELTA-LARGEST ' + c.name.padEnd(20) + 'is the page\'s one largest-move claim and it is the frame whose delta is largest (' +
+        ent.d.toFixed(2) + ')');
+    }
+  }
+  return { d: d, nrows: nrows, unbound: unbound, verified: verified, largest: largestName, claims: cs.claims.length };
+}
+
 /* ---------------------------------------------------------------- provenance */
 
 // The whole vocabulary of instruments, and the only place the verdicts are written. Everything the
@@ -844,6 +1072,12 @@ function checkMode(rows, rev) {
     if (!same) fails.push('README.md quotes two different decode sets for the same files');
   }
 
+  // Field 1b - the deltas between each frame and the frame it replaces (#668). Computed here from the
+  // shipped PNG and the superseded frame its shot row names, so a caption's delta is a measurement and
+  // not a figure carried forward from the pass before last.
+  const dl = deltaCheck(rows, loadProv(rev), fails, notes);
+  nrows += dl.nrows;
+
   // Field 2 - per-caption row statistics, at the tool's threshold (see the header convention).
   const stats = captionStats(txt, emb);
   if (!stats.length) { console.log('RECAP-VACUOUS README.md quotes no row statistics at all'); return 1; }
@@ -863,7 +1097,7 @@ function checkMode(rows, rev) {
     }
     if (q.thr !== DARK) labels[q.thr] = (labels[q.thr] || 0) + 1;
   }
-  console.log('note                   gated: the ' + rows.length + ' means, the row statistics and every shot\'s provenance; printed and not gated:' +
+  console.log('note                   gated: the ' + rows.length + ' means, the ' + rows.length + ' deltas against the frames they replace, the row statistics and every shot\'s provenance; printed and not gated:' +
     ' the >=240 / >=200 shares and the band means, which the captions quote beside canvas numbers; the shipped-bytes bind, which '
     + 'names which frames owe a re-take without claiming any pixel moved; and the capture-pass paragraph\'s own bind claim, '
     + 'which is true on the tree a pass lands on and ages from the next shipped byte that moves');
@@ -878,6 +1112,8 @@ function checkMode(rows, rev) {
       (process.env.STRICT ? '' : '; STRICT=1 gates it') + ')' : '') +
     (cb.debt ? ', ' + cb.debt + ' capture-pass sentence(s) asserting a bind this checkout\'s bytes deny' +
       (process.env.STRICT ? '' : '; STRICT=1 gates it') : '') +
+    (dl.unbound ? ', ' + dl.unbound + ' frame(s) with no replaced-frame mean, so no delta is computable for them' +
+      (process.env.STRICT ? '' : '; STRICT=1 gates them') : '') +
     (notes.length ? ', ' + notes.length + ' note(s)' : ''));
   return fails.length ? 1 : 0;
 }
