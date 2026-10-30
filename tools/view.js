@@ -16037,7 +16037,18 @@ if (MODE === 'bands') {
      their OWN thresholds in the same run and `BANDS` reports one failure, this one, with no lip contrast or
      band-width clause among them. No threshold, lip bound or vacuity floor moved; what moved is the doorway
      and the gun those lip rows are drawn across, not the lip. */
-  const RECSEAM = refRecord('bands', 'SEAM-FRAME', 'md5', ['16004d1a8d9b0ddcbf1461228537ce25', '1262a9de90df5cf8409751e59f67f24f', '2eb2f810936d57e3c9780357b3ab9f13', '44a8209c4f38d77ef375798d69024be8'])
+  /* #515 TREAD NOSING, MEASURED on this tree: L0's SEAM=1 lip frame ONLY re-keys - 16004d1a -> d2b85418 -
+     and it re-keys because the ground pass now paints a nosing on an up-step, which is a shading change on
+     the very frame these lip rows are drawn across, not a change to the lip they measure. ATTRIBUTED, NOT
+     ASSUMED: the same probe on a variant tree that differs from this one by `STEPROW = 0` and nothing else
+     (`JSDIR=`, so the frame is printed and not compared) puts that frame back at 16004d1a and leaves L1, L2
+     and L3 at their recorded bytes, so one global moves one slot and the nosing reaches no other level's
+     seat view. THE ROW'S ORACLE IS STILL NOT THE HASH: SEAM=1 vs SEAM=0 moves 12796 / 6027 / 7231 / 8183 px
+     of the every-7th sample in this run - the L0 figure identical to the pre-nosing run, because the seam
+     term and the nosing do not overlap (the nosing keys to an EK_STEP UP-crossing and the seam crease keeps
+     the DOWN lips) - so a build that ships no seam term still goes red on the frame re-recorded here, and
+     the `diffPx > 0` vacuity floor, every lip bound and every tolerance are UNTOUCHED. */
+  const RECSEAM = refRecord('bands', 'SEAM-FRAME', 'md5', ['d2b854185de6986a1f5275ede5c09776', '1262a9de90df5cf8409751e59f67f24f', '2eb2f810936d57e3c9780357b3ab9f13', '44a8209c4f38d77ef375798d69024be8'])
   /* #632 REWORK TAKE THREE (js/40_render.js VMHIP: the hip yaw halved to -0.010 / -0.012 / -0.014), MEASURED on this
      tree: all four SEAM=1 lip frames re-key, and they re-key BECAUSE the rework's own fix worked - at the deeper
      -0.020 / -0.024 / -0.028 carry six of this probe's sixty-four rows were red, because a barrel turned far enough
