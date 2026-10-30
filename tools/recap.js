@@ -447,6 +447,10 @@ function buildCheck(prov, fails, notes) {
 const CAP_BUILD = /deployed page at build\s+`([0-9a-f]{7,40})`/;
 const CAP_VERDICT = /reads\s+`(SHIP-BIND|FRAME-STALE)`\s+for\s*`?([0-9a-f]{7,40})?/;
 const CAP_FRESH = /no re-take is owed|today\'s picture|the front page is today/i;
+// A freshness phrase only asserts the bind where the paragraph is talking about the bound build. The
+// window is around the build mention in the whitespace-flattened page, so a stray "today's picture" in
+// a sentence about the tool is not read as a claim about these pixels.
+const CAP_WINDOW = 400;
 
 function captionBind(txt, prov, fails, notes) {
   const STRICT = !!process.env.STRICT;
@@ -479,7 +483,8 @@ function captionBind(txt, prov, fails, notes) {
 
   const v = CAP_VERDICT.exec(flat);
   if (!claimBuild && v && v[2]) claimBuild = v[2];
-  const statesBind = !!v || (named && CAP_FRESH.test(flat));
+  const near = named ? flat.slice(Math.max(0, named.index - CAP_WINDOW), named.index + CAP_WINDOW) : '';
+  const statesBind = !!v || (named && CAP_FRESH.test(near));
   nrows++;
   if (!statesBind) {
     notes.push('the capture-pass paragraph states no bind verdict, so no sentence here can be falsified by a moved blob (#395)');
@@ -494,20 +499,31 @@ function captionBind(txt, prov, fails, notes) {
   const rec = builds[claimBuild];
   const here = shipDigests(prov.rev || null);
   const moved = SHIP_FILES.filter(function (f) { return rec.files[f] !== here[f]; });
+  // Which way does the paragraph lean, and which way do the bytes lean? Both directions of disagreement
+  // are the same defect: a page written by one pass and shipped by the commits after it. #653 was the
+  // first of them; a paragraph that still says "a re-take is owed" after the frames were re-taken is the
+  // second, and it is just as misleading to the reader in front of it.
   const claimed = v ? v[1] : 'SHIP-BIND';
-  if (claimed === 'SHIP-BIND' && moved.length) {
+  const holds = !moved.length;
+  const agrees = (claimed === 'SHIP-BIND') === holds;
+  if (agrees) {
+    console.log('ok      CAPTION-VERDICT ' + claimBuild.padEnd(10) + 'the paragraph reads ' + claimed + ' for build ' + claimBuild +
+      ', which is what ' + src + '\'s bytes say too (' + (holds ? SHIP_FILES.join(', ') + ' all agree, so no re-take is owed here'
+        : moved.length + ' of ' + SHIP_FILES.length + ' differ: ' + moved.join(', ') + ', so a re-take is owed here)'));
+  } else if (claimed === 'SHIP-BIND') {
     debt++;
     console.log('CAPTION-STALE       ' + claimBuild.padEnd(12) + 'the paragraph states the bind holds for build ' + claimBuild +
       ' while ' + moved.length + ' of ' + SHIP_FILES.length + ' shipped blob(s) that draw a frame differ in ' + src + ': ' +
       moved.join(', ') + ' - the front page says these frames are the picture it ships and the bind row says a re-take is owed; '
       + 'the paragraph is one commit behind its own table' + (STRICT ? '' : ' (printed; STRICT=1 gates it)'));
     if (STRICT) fails.push('README states the bind holds for ' + claimBuild + ' while ' + moved.join(' ') + ' moved since');
-  } else if (claimed === 'FRAME-STALE' && !moved.length) {
-    console.log('ok      CAPTION-VERDICT ' + claimBuild.padEnd(10) + 'the paragraph reads ' + claimed + ' for build ' + claimBuild +
-      ', which is what ' + src + '\'s bytes say too (' + SHIP_FILES.join(', ') + ' all agree)');
   } else {
-    console.log('ok      CAPTION-VERDICT ' + claimBuild.padEnd(10) + 'the paragraph states the bind holds for build ' + claimBuild +
-      ' and ' + SHIP_FILES.join(', ') + ' are byte-identical in ' + src + ', so the front page is today\'s picture on this tree');
+    debt++;
+    console.log('CAPTION-FRESH       ' + claimBuild.padEnd(12) + 'the paragraph reads ' + claimed + ' for build ' + claimBuild +
+      ' while all ' + SHIP_FILES.length + ' shipped blobs that draw a frame are byte-identical in ' + src + ' - the front page '
+      + 'says a re-take is owed when the bind row says it is not, which is the same drift in the other direction'
+      + (STRICT ? '' : ' (printed; STRICT=1 gates it)'));
+    if (STRICT) fails.push('README reads FRAME-STALE for ' + claimBuild + ' while every shipped blob still matches it');
   }
   return { nrows: nrows, debt: debt };
 }
