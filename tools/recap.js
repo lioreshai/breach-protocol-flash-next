@@ -309,6 +309,10 @@ function decodeLists(text) {
  *     FAILURE the way a stale mean already is.
  *   - `DELTA-LARGEST`  exactly one frame may be called the largest move, and it must be the one this
  *     table says moved most in absolute value. Two captions claiming the same superlative is a FAIL.
+ *   - `DELTA-GRAMMAR`  the shapes `DELTA_SAY` claims to read, fed back through `DELTA_SAY` itself. A
+ *     sentence the parser cannot see is counted as "this caption quotes no delta", which fails nothing -
+ *     so the parser's vocabulary is a row, not a comment (#668: the gate could only read a BOLD number,
+ *     and every stale delta on `main` was un-bolded, so restoring all three exits 0).
  */
 const REPL_KEY = 'replaces';
 const DELTA_TOL = 0.005;
@@ -321,7 +325,13 @@ const LARGEST_RE = /largest (?:move|delta|change)(?: of the eight)?/g;
 // So the connector ("on" / "lighter than" / "darker than") and the noun (frame/one/pose/seat) are both
 // required, and the sign comes from the sign or from lighter/darker - #668's three stale deltas were all
 // unsigned, and a parser that demanded a sign would report them as no delta at all.
-const DELTA_SAY = /([+\u2212-])?\s?(\d+\.\d\d)\s*\*\*?\s*(lighter|darker)?\s*(?:than|on)\s+the\s+(?:frame|one|pose|seat)\b[^.\n]{0,60}?replac(?:es)?/g;
+// Bold is OPTIONAL and the connector may cross ONE line break, neither of which is decoration: the
+// sentence this gate was written for - "7.12 lighter than the frame it replaces", `main`'s own wording -
+// carries no asterisks, and the pit floor's delta wraps between "it" and "replaces". Requiring the bold
+// made every un-bolded sentence invisible, and invisible is not the same as wrong: an unread caption
+// counts as quoting no delta and fails nothing (#668 rework). A blank line still stops the scan, so a
+// number can never reach a "replaces" belonging to the next caption.
+const DELTA_SAY = /([+\u2212-])?\s?(\d+\.\d\d)\s*(?:\*\*)?\s*(lighter|darker)?\s*(?:than|on)\s+the\s+(?:frame|one|pose|seat)\b(?:(?!\n[ \t]*\n)[^.]){0,60}?replac(?:es)?/g;
 // The aggregate list, same convention as the decode list: one signed value per PNG, embed order.
 const DELTA_LIST = /\bdeltas? (?:of|to) \*\*([-+\u2212 0-9.\/]+)\*\*/g;
 
@@ -343,6 +353,15 @@ function deltaLists(text) {
   return out;
 }
 
+// One DELTA_SAY match read the only way this tool reads one: magnitude from group 2, sign from the sign
+// token or from "darker". The grammar fixtures below go through here so no row can be greener than the
+// sentence it is meant to represent.
+function deltaSayVal(m) {
+  const mag = parseFloat(m[2]);
+  const neg = m[1] === '-' || m[1] === '\u2212' || m[3] === 'darker';
+  return neg ? -mag : mag;
+}
+
 // Every per-caption delta claim, attributed to the image block it sits under (the same rule captionStats uses).
 function captionDeltas(text, emb) {
   const out = [];
@@ -350,9 +369,7 @@ function captionDeltas(text, emb) {
   while ((m = DELTA_SAY.exec(text))) {
     let owner = null;
     for (const im of emb) if (im.at < m.index && (!owner || im.at > owner.at)) owner = im;
-    const mag = parseFloat(m[2]);
-    const neg = m[1] === '-' || m[1] === '\u2212' || m[3] === 'darker';
-    out.push({ name: owner ? owner.name : null, at: m.index, val: neg ? -mag : mag });
+    out.push({ name: owner ? owner.name : null, at: m.index, val: deltaSayVal(m) });
   }
   const claims = [];
   let c; LARGEST_RE.lastIndex = 0;
@@ -375,10 +392,62 @@ function replacedBytes(rev, name) {
   } catch (e) { return null; }
 }
 
+// `DELTA_SAY`'s stated vocabulary, in sentences. Every idiom the comment above names is written out here
+// and fed through the shipped parser, so a divergence between what the gate says it reads and what it
+// actually reads is a FAILING ROW instead of a row count that moved (76 -> 75, gated by nothing). The last
+// two entries are the negative half: a caption's `floorAt` and a retracted comparison sit near enough to
+// "replaces" to be misread, and a parser loosened to see un-bolded sentences must be shown not to see them.
+const DELTA_IDIOMS = [
+  { s: 'this frame is **+1.16** on the frame it replaces', want: 1.16,
+    why: 'bold, signed, the page\'s current shape' },
+  { s: 'the seat is **\u22124.71** on the frame it replaces', want: -4.71,
+    why: 'bold, U+2212 minus, sign carried by the token' },
+  { s: 'and it is 7.12 lighter than the frame it replaces', want: 7.12,
+    why: 'no bold, no sign, "lighter than" - the wording `main` shipped and this gate could not see' },
+  { s: 'and it is 1.16 lighter than the frame he replaces', want: 1.16,
+    why: 'no bold, a person as the noun' },
+  { s: 'the frame is 1.63 lighter than the one it replaces', want: 1.63,
+    why: 'no bold, "the one it replaces"' },
+  { s: 'and the room is 2.40 darker than the seat it replaces', want: -2.40,
+    why: 'no bold, no sign token: "darker" carries the sign' },
+  { s: 'this frame is **+16.43** on the frame it\nreplaces - the largest move of the eight', want: 16.43,
+    why: 'the sentence wrapped across a line break, as the pit floor\'s does' },
+  { s: 'having gone *down* 0.57 when the roof was lit, the replaced frame read darker', want: null,
+    why: 'a retracted claim about a DIFFERENT comparison is not this frame\'s delta' },
+  { s: 'the seat reads `floorAt` **1.00**, one unit up from the band the replaced frame\'s seat stood on', want: null,
+    why: 'a floor height near the word "replaced" is not a delta' },
+];
+
+function deltaGrammar(fails) {
+  let nrows = 0, seen = 0;
+  for (let i = 0; i < DELTA_IDIOMS.length; i++) {
+    const t = DELTA_IDIOMS[i];
+    nrows++;
+    DELTA_SAY.lastIndex = 0;
+    const m = DELTA_SAY.exec(t.s);
+    const got = m ? deltaSayVal(m) : null;
+    const good = t.want === null ? got === null
+      : (got !== null && Math.abs(got - t.want) <= DELTA_TOL);
+    if (good && t.want !== null) seen++;
+    console.log((good ? 'ok      DELTA-GRAMMAR ' : 'DELTA-GRAMMAR     ') +
+      String(i + 1).padStart(2) + (t.want === null ? ' no-match' : '  want ' + (t.want >= 0 ? '+' : '\u2212') + Math.abs(t.want).toFixed(2)) +
+      '  got ' + (got === null ? 'nothing' : (got >= 0 ? '+' : '\u2212') + Math.abs(got).toFixed(2)) +
+      '  ' + JSON.stringify(t.s.length > 62 ? t.s.slice(0, 59) + '...' : t.s) + '  ' + t.why);
+    if (!good) fails.push('DELTA_IDIOMS[' + (i + 1) + ']: "' + t.why + '" ' +
+      (t.want === null ? 'is read as a delta by DELTA_SAY' : 'is not read as a delta by DELTA_SAY') +
+      ' - the gate\'s stated vocabulary and its actual vocabulary have diverged');
+  }
+  console.log('ok      DELTA-GRAMMAR  reads ' + seen + ' of ' + DELTA_IDIOMS.filter(function (t) { return t.want !== null; }).length +
+    ' delta idioms its own comment names');
+  return { nrows: nrows + 1 };
+}
+
 function deltaCheck(rows, prov, fails, notes) {
   let nrows = 0, unbound = 0, verified = 0;
   const d = {};
-  if (prov.err) return { d: d, nrows: 0, unbound: 0, verified: 0 };
+  // The parser is checked before the page is, so a green run cannot rest on a sentence it never read.
+  nrows += deltaGrammar(fails).nrows;
+  if (prov.err) return { d: d, nrows: nrows, unbound: 0, verified: 0 };
   for (const r of rows) {
     const e = prov.byFile[r.name];
     nrows++;
