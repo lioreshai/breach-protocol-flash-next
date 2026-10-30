@@ -5520,13 +5520,19 @@ if (MODE === 'cull') {
        instead of silently measuring the ship config twice) and demand the same answer. GroundPixel's
        ceiling half takes its plane from this queue, so agreement here is what "both copies own the same
        plane and the same depth" means in a picture, not in a comment. */
-    const DEFNEEDLE = 'if (planeC !== planeA) { RX[nm] = x; RP[nm] = planeC; nm++; continue; }';
+    /* THE QUEUE LINE, as text. Both this needle and the one in the LEAK block below are the shipped
+       source of the split at js/40_render.js, copied exactly, and they are what makes the deferred-path
+       control able to disagree with the ship frame. Anything that edits that line edits these with it,
+       or the patch silently no-ops, the control becomes the ship frame, and the row reports an agreement
+       it never measured - which is what happened at PR #707, where `RE[nm] = edgeL` was appended to the
+       queue and both cull invocations printed NEEDLE-NOT-FOUND. The row is the tripwire; keep it armed. */
+    const DEFNEEDLE = 'if (planeC !== planeA) { RX[nm] = x; RP[nm] = planeC; RE[nm] = edgeL; nm++; continue; }';
     const patchSplit = on => run(`(function (ON) {
       if (!globalThis.__cgO2) globalThis.__cgO2 = castGround;
       if (!ON) { castGround = globalThis.__cgO2; return globalThis.__cgO2.toString().indexOf(${JSON.stringify(DEFNEEDLE)}) >= 0 ? 'restored' : 'NEEDLE-NOT-FOUND'; }
       const src = globalThis.__cgO2.toString();
       if (src.indexOf(${JSON.stringify(DEFNEEDLE)}) < 0) return 'NEEDLE-NOT-FOUND';
-      const rep = 'if (true) { RX[nm] = x; RP[nm] = planeC; nm++; continue; }';
+      const rep = 'if (true) { RX[nm] = x; RP[nm] = planeC; RE[nm] = edgeL; nm++; continue; }';
       castGround = eval('(' + src.split(${JSON.stringify(DEFNEEDLE)}).join(rep) + ')');
       return castGround.toString().indexOf(rep) >= 0 ? 'ok' : 'PATCH-FAILED';
     })(${on ? 'true' : 'false'})`);
@@ -5591,9 +5597,9 @@ if (MODE === 'cull') {
        Nothing here changes arithmetic, thresholds or any row above: the block runs after every
        verdict for the level, restores MAP.fz and un-patches castGround. */
     if (process.env.LEAK) {
-      const NEEDLE = 'if (planeC !== planeA) { RX[nm] = x; RP[nm] = planeC; nm++; continue; }';
+      const NEEDLE = 'if (planeC !== planeA) { RX[nm] = x; RP[nm] = planeC; RE[nm] = edgeL; nm++; continue; }';
       const REPL = c => c === 'nodefer' ? NEEDLE.replace('if (planeC', 'if (false && planeC')
-        : c === 'alldefer' ? 'if (true) { RX[nm] = x; RP[nm] = planeC; nm++; continue; }'
+        : c === 'alldefer' ? 'if (true) { RX[nm] = x; RP[nm] = planeC; RE[nm] = edgeL; nm++; continue; }'
           : NEEDLE;
       const CFGS = (process.env.CFG || 'ship,nodefer,alldefer').split(',');
       run('var GD={set:new Uint8Array(0),a:[],n:0,cap:400000};');
