@@ -373,6 +373,14 @@ function boot(knob, seed) {
      else - same rooms, same draws, same bands, no lamp and no seed moves - so alt's overlook row can
      be SEEN to fail rather than assumed to be load-bearing (js/20_level.js overlookEnabled). */
   if (process.env.OVERLOOK === 'off') run('overlookEnabled = function () { return false; };');
+  /* PIER=off is #665's CONTROL SWITCH: it turns off the #631 interior-column pass at DEAL time and
+     nothing else - same rooms, same draws, same lights, same seed, no height authored - so `surface`'s
+     ROOF row can be SEEN to move rather than argued about. Read it with the two arms side by side:
+     `node tools/view.js surface` and `PIER=off node tools/view.js surface`. The grid hash this census
+     prints mixes MAP.fz/MAP.cz and NOT MAP.cell (see `gridHash` above), so BOTH arms print the same
+     deal hash - a pier writes `cell`, never a height - which is what makes this the cleanest A/B in
+     the file: same deal, same lightmap, same census population rule, one pass on or off. */
+  if (process.env.PIER === 'off') run('pierEnabled = function () { return false; };');
 }
 boot();
 function newTex(t) { return { w: t.w, h: t.h, data: new Uint32Array(t.data), dbg: t.dbg }; }
@@ -16736,6 +16744,23 @@ if (MODE === 'surface') {
      sweep's business, not the bar's. The ORDER rows still judge every pose, unchanged. */
   const ROOFMIN = +(process.env.ROOFMIN || 0.70);
   const ROOFFLOOR = +(process.env.ROOFFLOOR || 0.60);
+  /* #665 THE ROW CROSSED ITS FLOOR WHEN THE ROOM GAINED COLUMNS, AND THIS SAID WHICH IT WAS. Merging
+     the #631/#644 pier pass put ABATOIR CORE's arrival roof from 53.7 over a deck of 83.7 (0.64x, a
+     KNOWN #495 debt) to 49.6 over 83.6 (0.59x, under the `ROOFFLOOR` regression line). The two
+     hypotheses were a census that changed SET and a ceiling that lost LIGHT. The A/B is one command on
+     either arm - `PIER=off node tools/view.js surface`, which runs `pierEnabled()` false at deal time
+     (js/20_level.js) - and MEASURED at this head it says SET, with both numbers coming back exactly:
+     the ceiling goes 49.6 -> 53.7, the ceiling's share of the frame goes 40% -> 46%, and the DECK holds
+     (83.5 -> 83.6, inside the run-to-run step). 6 points of frame moved OUT of the ceiling population
+     and the mean of what left is 81 luma - that is `53.7*0.46 - 49.6*0.40` over `0.06`, the bright far
+     ceiling a pier's own face now stands in front of. A ceiling that had lost light would have kept its
+     share of the frame and lost the luma; this one kept its luma per pixel and lost pixels, and no lamp
+     moved (`flatparity` prints main's delivered-light numbers on both arms). So the roof on this sector
+     is NOT a sheet: the row is measuring a smaller, dimmer-because-closer-to-the-columns ceiling.
+     The pixels stay alone - the fix would be to brighten a roof that is not darker, and the authored
+     `ceilBias` -0.12 is load-bearing against the 75-luma exposure anchor (see #665's decision comment).
+     What the row's wording still owes is the sentence this note is, which is why the detail below names
+     the pier arm by command instead of only saying "a sheet again". */
   const roofR = [];
   let bad = 0, known = 0, rowsN = 0, ctrlRan = 0, ctrlMiss = 0;
   const poolGain = [];
@@ -17702,11 +17727,26 @@ if (MODE === 'surface') {
       if (cam === CAMS[0]) {
         const rr = c.floor > 0 ? c.ceil / c.floor : NaN;
         if (bands) roofR.push({ li, rr });
+        const piers = run('LEVELS[' + li + '].authored') ? 0 : (function(){
+          // one cheap question, asked of the GRID: does this deal stand any pier at all? A generated
+          // level whose rooms hold none cannot be a census-set case, so the pointer stays off it.
+          return run(`(function(){const c=MAP.cell,N=MAP.w;let n=0;
+            for(let y=1;y<N-1;y++)for(let x=1;x<N-1;x++){const i=y*N+x;if(!c[i])continue;
+              let open=0;for(let d=0;d<4;d++)if(!c[i+[0,1,0,-1][d]*N+[1,0,-1,0][d]])open++;
+              if(open===4)n++;}
+            return n;})()`);
+        })();
         row(`L${li} ROOF the arrival roof is a surface over its deck >= ${ROOFMIN}x`,
           bands && rr >= ROOFMIN,
           `ceiling ${c.ceil.toFixed(1)} over a deck of ${c.floor.toFixed(1)} = ${rr.toFixed(2)}x, ` +
           `roof over ${c.ceilPct.toFixed(0)}% of the frame at this sector's own arrival heading; ` +
-          `pass ${ROOFMIN}x, regression floor ${ROOFFLOOR}x (below it the roof is a sheet again)`,
+          `pass ${ROOFMIN}x, regression floor ${ROOFFLOOR}x (below it the roof is a sheet again)` +
+          (bands && rr < ROOFMIN && piers
+            ? `; ${piers} pier column(s) stand in this deal - say WHICH it is (a census that changed set,`
+              + ` or a ceiling that lost light) with \`PIER=off node tools/view.js surface\` (#665: on the one`
+              + ` sector this row is red on, the ceiling comes back to 53.7 over the same deck and its share`
+              + ` of the frame goes 40% -> 46%, which is a set, not a relight)`
+            : ''),
           bands && rr >= ROOFFLOOR && rr < ROOFMIN ? '#495' : undefined, !bands);
       }
       /* The wall-vs-deck half of the rule, per pose. `sep` is the FRACTION of columns across the whole

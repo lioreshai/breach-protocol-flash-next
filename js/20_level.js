@@ -2768,6 +2768,10 @@ function topUpEnabled() { return true; }
    runs the deal without it and the overlook rows are seen to fail. A row that has never been seen to
    fail has not been tested (AGENTS.md). */
 function overlookEnabled() { return true; }
+/* #631's interior-column pass, in the same idiom as the two above: ONE call site, so
+   `PIER=off node tools/view.js surface|scene` deals the level with the rooms but not the columns and
+   `surface`'s ROOF row becomes a measurement rather than a reading of one arm (#665). */
+function pierEnabled() { return true; }
 /* #413's ceiling fittings, in the same idiom as the two above: ONE call site, so
    `LAMPS=off node tools/view.js flatparity` builds a level with NO generator-added fill light and
    flatparity's PARITY sense stays a COUNTERFACTUAL rather than becoming a second picture. The row's
@@ -3990,6 +3994,14 @@ function genLevel(li) {
        - then the positions beside it, nearest first, on the same (longer) axis;
        - then, only when the longer axis is spent all the way across, the shorter one. A run of columns
          standing ALONG a view still breaks one bay into two, which is the claim being made. */
+    /* `pierEnabled()` is the A/B knob in the same idiom as `overlookEnabled()` and the lamp top-up:
+       ONE call site, so `PIER=off node tools/view.js surface` deals the same rooms, the same lights and
+       the same seed with NO pier anywhere in the level, and the ROOF row can be SEEN to move rather
+       than argued about (#665: the row crossed its regression floor when this pass landed, and the only
+       way to tell a census that changed SET from a ceiling that lost LIGHT is to deal the level both
+       ways in one tree). It draws no RNG and guards nothing else, so with it true - the shipped case -
+       the deal is the deal it was. */
+    if (pierEnabled())
     for (let ri = 0; ri < rooms.length; ri++) {
       const r = rooms[ri];
       if (r.w * r.h < 24) continue;                        // a 5x5 room is already one bay; give it nothing
