@@ -1356,6 +1356,82 @@ function authorVolume(cell, N, rooms, fz, vb, feat, cz) {
   if (bandTag) authored.push('raisedSide:' + bandTag);
   else rewind(cpBand);
 
+  /* ---- feature 2b (#421): the deck has to GROW toward the room you wake IN --
+     Feature 2 can only CHOOSE among eight quadrants and half-planes, and on a 26- to 36-cell map every one
+     of them puts its seam on a half-map line, so the plateau is never near: `surface`'s SEAT-RANGE reads
+     `0 within 6 m, nearest 9.2 / 6.4 / 12.0 m` on the three generated sectors at 69f6f54, while THE STACK -
+     authored, so no generator pass runs - reads 4 columns at 3.6 m. Two shapes were tried here before this
+     one and both moved exactly zero census pixels, which is why the deck is GROWN rather than placed:
+       * the cells touching the arrival hall's own air. A deck reads as a DECK over a column only where its
+         floor reaches that column's own ceiling - `ceilAt` takes a neighbour's floor only where it is
+         HIGHER and `buildCeilSlab` flags on the same inequality - and the arrival hall is a tall atrium, so
+         one band against CZ_ROOM air stands inside the ceiling thickness: 22-31 cells authored on every
+         graded deal, no slab, no riser face, every SEAT row byte-identical to main.
+       * the cells touching low-clearance air near the seat, carried up by `linkBand`. Every one of them was
+         handed back: an unlinked pocket is stranded, `linkBand`'s give-back returns it to the datum and the
+         call reports success having linked nothing (`link=true`, 0 of 24 cells still raised, four deals).
+         It cannot be linked because the only four-cell run that reaches such a mouth crosses the arrival
+         room, and the arrival floor must not become stair treads - a stepped hall is what moved all four
+         seats 10 cells and cost ARCHIVE 2384 and RING 2787 underside pixels at the previous attempt.
+     So each round raises the still-flat cells 4-adjacent to the deck that is already raised - the plateau's
+     own edge, one cell nearer the seat - and keeps the round only if nothing that was reachable became
+     unreachable AND every grown cell is reachable in the new BFS. Contiguity IS the link: a grown cell
+     shares the plateau's floor, so the stair or ladder feature 2 already authored is still the way up, and
+     this pass authors no link, writes no `vb` bit and writes no wall. The hall's floor is snapshotted and
+     compared at the end - if it moved at all the whole pass rewinds, so a seat cannot move here by
+     construction rather than by census.
+     Growth is capped at LEDGE_MAX cells over LEDGE_GROW rounds, biased to cells nearest the seat and to
+     cells that put a deck over LOW-clearance air inside the seat's own 6 m - the columns SEAT-RANGE counts.
+     A deal that cannot grow keeps the level it had; no dice are drawn, so every deal that does not grow is
+     byte-identical to main, and one that does differs by `fz` on at most LEDGE_MAX cells. */
+  const LEDGE_MAX = 16, LEDGE_GROW = 3, LEDGE_REACH = 9, LEDGE_NEAR = 6;   // metres = cells
+  if (selBand) {
+    const cpL = cut(), deck = selBand.slice(), grew = [];
+    const hz = [];
+    for (let y = spawnR.y; y < spawnR.y + spawnR.h; y++) for (let x = spawnR.x; x < spawnR.x + spawnR.w; x++)
+      hz.push(fz[y * N + x]);
+    for (let round = 0; round < LEDGE_GROW && grew.length < LEDGE_MAX; round++) {
+      const cand = [];
+      for (let y = 1; y < N - 1; y++) for (let x = 1; x < N - 1; x++) {
+        const i = y * N + x;
+        if (cell[i] || fz[i] !== 0 || flat[i] || inSpawn(x, y) || deck[i]) continue;
+        if (feat[i] !== FEAT_NONE || cz[i] !== CZ_DEF || d0[i] < 0) continue;
+        const dd = Math.max(Math.abs(x - spawnR.cx), Math.abs(y - spawnR.cy));
+        if (dd > LEDGE_REACH) continue;
+        let adj = 0;
+        for (let d = 0; d < 4; d++) if (deck[(y + DIRY[d]) * N + x + DIRX[d]]) { adj = 1; break; }
+        if (!adj) continue;
+        let cover = 0;
+        for (let d = 0; d < 4; d++) {
+          const nx = x + DIRX[d], ny = y + DIRY[d];
+          if (!open(nx, ny)) continue;
+          const j = ny * N + nx;
+          if (fz[j] * ZQ + Math.max(ZQ, cz[j] * ZQ) > BAND_UP * ZQ + 1e-9) continue;    // tall air: no slab
+          if (Math.max(Math.abs(nx - spawnR.cx), Math.abs(ny - spawnR.cy)) <= LEDGE_NEAR) cover++;
+        }
+        cand.push([i, dd, -cover]);
+      }
+      if (!cand.length) break;
+      cand.sort((a, b) => a[2] - b[2] || a[1] - b[1] || a[0] - b[0]);
+      const cp = cut(), added = [];
+      for (const c of cand) {
+        if (grew.length + added.length >= LEDGE_MAX) break;
+        added.push(c[0]); deck[c[0]] = 1; mark(c[0]); fz[c[0]] = BAND_UP;
+      }
+      if (!added.length || !keeps(d0)) { for (const i of added) deck[i] = 0; rewind(cp); break; }
+      const dn = reach();
+      let ok = true;
+      for (const i of added) if (dn[i] < 0) { ok = false; break; }
+      if (!ok) { rewind(cp); for (const i of added) deck[i] = 0; break; }
+      for (const i of added) grew.push(i);
+    }
+    let hall = true;
+    for (let y = spawnR.y, k = 0; y < spawnR.y + spawnR.h && hall; y++)
+      for (let x = spawnR.x; x < spawnR.x + spawnR.w; x++, k++) if (fz[y * N + x] !== hz[k]) { hall = false; break; }
+    if (grew.length && hall) authored.push('hallDeck:' + grew.length);
+    else rewind(cpL);
+  }
+
   /* ---- feature 3: a sunken block in the room furthest from spawn ---------
      The RASTER BUDGET caps this shape, and that is a measured fact rather than a taste: a cell below
      the eye disagrees with the row's plane in BOTH halves (its floor is under the eye, and its ceiling
