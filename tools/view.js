@@ -8786,6 +8786,18 @@ if (MODE === 'heights') {
       const ex=camX|0,ey=camY|0,air=ex>=0&&ey>=0&&ex<N&&ey<N&&!MAP.cell[ey*N+ex];
       let plA=air?MAP.fz[ey*N+ex]*ZQ:eyeZ; if(!(plA<eyeZ)) plA=Math.min(0,eyeZ-ZQ);
       let n=0,phantom=0,pmax=0,why='',fix=0,wsum=0,fsum=0,fmax=0,wall=0;
+      /* #518 THE OTHER SIGN, REPORTED NOT GATED. The phantom counter above counts pixels stored FARTHER than the
+         surface their ray arrives at, which is the shape a staircase and a pit have. A band's own edge has
+         the opposite shape - the row paints its OWN plane's solve, which is NEARER than the lower floor the
+         ray reaches past the edge - and nothing counted it, which is why poseC read "0 phantom px / 0/0/0/0"
+         while its same-camera A/B disagreed by 2.23 m (PR #720). Counting this side is what lets a row name
+         the pass that carries a plane past an edge instead of only proving the frames differ. No counter
+         here gates: the pose verdicts come from the clauses below, unchanged. Pixels whose sentinel march
+         answered NOTHING (pw at the sentinel, so dW is the FARB*4 clamp rather than a surface) are NOT
+         counted: every real depth is "nearer" than a clamp, which is vacuity, not a defect - measured
+         without the exclusion, poseA read 3004 of 4620 with the worst at an 84.50 m arrival, and poseC
+         read 72 with an 18.11 m arrival. With it, only pixels the march actually placed are judged. */
+      let near=0,nmax=0,nwhy='',nrow=0,ndef=0,nslab=0,nfar=0;
       /* #518 WHICH PASS WROTE THE PHANTOM. Three passes can put a depth in this pixel and the fix is a
          different edit in each of them: the row's own fill (it stores the distance the eye's band plane
          solves), the deferred copy (which re-solves the plane the row queued, and the plane it queues is
@@ -8843,9 +8855,16 @@ if (MODE === 'heights') {
             let wp=dq?(plC>=eyeZ?'the #192 slab branch':'the deferred copy'):(dRow>FARB?'the far-band wash':'the row fill');
             if(!dq&&dRow>FARB)pfar++;else if(dq&&plC>=eyeZ)pslab++;else if(dq)pdef++;else prow++;
             if(got-dW>pmax){pmax=got-dW;why='row '+(y-hz)+' col '+x+' stores '+got.toFixed(2)+' m where its own ray arrives at '+dW.toFixed(2)+' m, written by '+wp;}}
+          if(pw>-1e8&&dW-got>0.02){near++;
+            const gx2=(camX+rx*dRow)|0,gy2=(camY+ry*dRow)|0,
+              ok2=gx2>=0&&gy2>=0&&gx2<N&&gy2<N&&!MAP.cell[gy2*N+gx2],
+              plC2=ok2?MAP.fz[gy2*N+gx2]*ZQ:plA,dq2=ZD.set[y*BW+x]===1;
+            if(!dq2&&dRow>FARB)nfar++;else if(dq2&&plC2>=eyeZ)nslab++;else if(dq2)ndef++;else nrow++;
+            if(dW-got>nmax){nmax=dW-got;nwhy='row '+(y-hz)+' col '+x+' stores '+got.toFixed(2)+' m where its own ray arrives at '+dW.toFixed(2)+' m, written by '+(dq2?(plC2>=eyeZ?'the #192 slab branch':'the deferred copy'):(dRow>FARB?'the far-band wash':'the row fill'));}}
           if(dF>dW+${PZQ}){fix++;wsum+=dW;fsum+=dF;if(dF-dW>fmax)fmax=dF-dW;}}}
       reSolveBad=rsb0;
-      return {n,phantom,pmax,why,fix,wd:fix?wsum/fix:0,fd:fix?fsum/fix:0,fmax,prow,pdef,pslab,pfar};})()`;
+      return {n,phantom,pmax,why,fix,wd:fix?wsum/fix:0,fd:fix?fsum/fix:0,fmax,prow,pdef,pslab,pfar,
+        near,nmax,nwhy,nrow,ndef,nslab,nfar};})()`;
     const zbufCopy = () => new Float32Array(run('zbuf'));
     let poseBad = 0;
     if (!fits) {
@@ -9022,6 +9041,15 @@ if (MODE === 'heights') {
         ' (row fill / deferred copy / slab branch / far wash) on ' + pPh + ' px' +
         (attOk ? '  ok' : '  FAIL POSE-PATH-VACUUM: ' + pPh + ' phantom px and ' + pTot +
           ' attributed - the attribution cannot see the pass that wrote them, so it names no site'));
+      /* Report-only census of the nearer-than-arrival sign, per pose. It gates nothing and changes no
+         verdict; it exists because the three poses above all report "0 phantom px" for the band edge while
+         its same-camera A/B is red, and a defect no counter can see is a defect no cycle can aim at. */
+      const nearLine = (nm, o) => '  ' + pad('pose' + nm + 'Near', 9) + ' #518 px stored NEARER than their own ray arrives at: '
+        + o.near + ' of ' + o.n + ' sampled' + (o.near ? ', worst ' + o.nmax.toFixed(2) + ' m (' + o.nwhy + ')' : '') +
+        '; by pass row ' + o.nrow + '/deferred ' + o.ndef + '/slab ' + o.nslab + '/far ' + o.nfar + ' (reports, gates nothing)';
+      console.log(nearLine('A', a));
+      console.log(nearLine('B', b));
+      console.log(nearLine('C', c));
       console.log('  ' + pad('pose', 9) + ' #518 acceptance poses, construction stage at ' + (SX + 0.5) + ',' + (SY + 0.5) +
         ' (' + SL + 'x' + (2 * SW + 1) + ', walls taken out of it, props and enemies cleared, every floor write relinked): ' +
         (poseBad ? poseBad + ' of 3 poses FAILED' : 'all 3 poses ok'));
