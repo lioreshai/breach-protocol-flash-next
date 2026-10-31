@@ -406,6 +406,72 @@ const MESH = (function () {
      over. Two flat strips, allocated once and reused; the box is clipped to BGMAX pixels, so a body drawn
      close enough to exceed the strip is measured not at all rather than measured partially. */
   let BGSAVE = null, BGDEPTH = null, BGMAX = 65536;
+  /* #611 WHEN the step is paid. The object list is sorted far to near, so a crate NEARER than a body is
+     drawn AFTER him and paints over part of his silhouette. Measured at the end of his own draw the step
+     is therefore paid over pixels the frame then throws away: at the L0 deal `tools/view.js contrast`
+     calls roll 6 the draw measured 197 px and the frame delivered 128, and the pixels it kept stand in
+     front of a surface 2.5 luma DARKER than the mean he was fitted to - so he landed 2.5 short of
+     FG_PUSH, the one deal of the 48 that still falls under the value bar. The record below carries his
+     owned pixels - index, the colour that was behind each one, the depth he wrote - to the end of the
+     object pass, where a pixel the frame KEPT is exactly a pixel whose depth is still the one he wrote.
+     The step is measured and paid over those, so it is the delivered picture that is fitted, not a
+     prediction of it. Records are recycled; a body owns a couple of hundred px at 10 m. */
+  const FGMAXPX = 65536;                    // the same cap the strip carried: never measured partially
+  const FGREC = [], FGPEND = [];
+  const fgGrow = rec => {
+    const c = Math.min(FGMAXPX, rec.idx.length * 2), n = rec.n;
+    const a = new Uint32Array(c), b = new Uint32Array(c), d = new Float32Array(c);
+    a.set(rec.idx); b.set(rec.col); d.set(rec.d);
+    rec.idx = a; rec.col = b; rec.d = d;
+  };
+  const fgTake = () => {
+    for (let i = 0; i < FGREC.length; i++) if (!FGREC[i].busy) return FGREC[i];
+    if (FGREC.length >= 24) { fgFlush(); for (let i = 0; i < FGREC.length; i++) if (!FGREC[i].busy) return FGREC[i]; }
+    const r = { idx: new Uint32Array(1024), col: new Uint32Array(1024), d: new Float32Array(1024), n: 0, fog: 0, busy: 0 };
+    FGREC.push(r); return r;
+  };
+  /* The payment itself, and the ONLY place the figure-ground law lives: one mean over the pixels the
+     frame kept, the shortfall bought with a grey scale on (pixel - wash) so `texel * light` is what
+     scales, the wash added back once (#458), no light term touched (#407) and the hue/chroma axis
+     scale-invariant so the colour bar cannot be bought with brightness. He is put FG_PUSH luma away on
+     the side he already sits - the direction of the least move, which is why the #407 distance rows
+     cannot be dragged past their ceiling - and the rail FG_MAX still caps any one draw's mean move. */
+  function fgPay (rec) {
+    const K = rec.n, fog = rec.fog;
+    if (K < 24) return;
+    const wr = FOGC[0] * fog, wg = FOGC[1] * fog, wb = FOGC[2] * fog;
+    const wa = (LUMW[0] * FOGC[0] + LUMW[1] * FOGC[1] + LUMW[2] * FOGC[2]) * fog;
+    let own = 0, dl = 0, bl = 0;
+    for (let i = 0; i < K; i++) {
+      const o = rec.idx[i];
+      if (zbuf[o] < rec.d[i]) continue;                  // the frame kept something nearer: not his pixel
+      const p = px[o], q = rec.col[i];
+      dl += LUMW[0] * (p & 255) + LUMW[1] * (p >> 8 & 255) + LUMW[2] * (p >> 16 & 255);
+      bl += LUMW[0] * (q & 255) + LUMW[1] * (q >> 8 & 255) + LUMW[2] * (q >> 16 & 255);
+      own++;
+    }
+    if (own < 24) return;                                // the vacuity floor, on the set actually fitted
+    dl /= own; bl /= own;
+    const gap = dl - bl, den = dl - wa;
+    if (gap <= -FG_PUSH || gap >= FG_PUSH || den <= 2) return;
+    const want = clamp(gap <= 0 ? bl - FG_PUSH : bl + FG_PUSH, dl - FG_MAX, dl + FG_MAX);
+    const k = clamp((want - wa) / den, 0.45, 1.8);
+    if (k === 1) return;                                 // he already separates: inert, one read pass
+    for (let i = 0; i < K; i++) {
+      const o = rec.idx[i];
+      if (zbuf[o] < rec.d[i]) continue;
+      const p = px[o];
+      px[o] = (0xFF000000 |
+        clampi((p >> 16 & 255) + ((p >> 16 & 255) - wb) * (k - 1)) << 16 |
+        clampi((p >> 8 & 255) + ((p >> 8 & 255) - wg) * (k - 1)) << 8 |
+        clampi((p & 255) + ((p & 255) - wr) * (k - 1))) >>> 0;
+    }
+  }
+  const fgFlush = () => {
+    for (let i = 0; i < FGPEND.length; i++) fgPay(FGPEND[i]);
+    for (let i = 0; i < FGPEND.length; i++) FGPEND[i].busy = 0;
+    FGPEND.length = 0;
+  };
 
   let srx0 = 0, srx1 = -1, sry0 = 0, sry1 = -1;      // the rectangle the last view-model draw wrote
   let R0 = 0.30, R1 = 0.85;                            // the Lambert ramp, per kind - see draw()
@@ -919,6 +985,7 @@ const MESH = (function () {
      near plane is clipped away and the arm vanishes out of the frame, which is what the first cut did, and
      an elbow only 0.15 m below the eye bulges across the picture instead of leaving it. */
   function vArm(b, x, y, z, s, back, st) {
+    const ga = vGripOff(b, back, st); x += ga[0]; y += ga[1]; z += ga[2];
     const w = back ? -1 : 1;
     s *= vHandScale(st);
     b.tube(x - w * 0.006 * s, y - 0.038 * s, z + 0.004 * s, x + w * 0.010 * s, y - 0.072 * s, z - 0.020 * s,
@@ -974,7 +1041,43 @@ const MESH = (function () {
      hip geometry to an ADS frame depending on which of the two was built first. */
   const VMADS = 0.62;                               // hand size at FULL ADS, relative to its hip size
   const vHandScale = st => 1 - (1 - VMADS) * clamp(st && st.ads ? st.ads : 0, 0, 1);
+  /* #632 WHERE THE FIST MOVES TO WHEN IT HAS TO HOLD SOMETHING. Hip-only, in the gun's own metres,
+     per hand (0 = the strong hand on the grip, 1 = the support hand), and EXACTLY ZERO at full ADS for
+     the same reason the scale ramp is: the ADS pose is recorded by `sight`, `flatparity` and `viewmodel`,
+     and the issue's own tell is that the sight picture already reads fine.
+     WHY IT IS NEEDED. The fist anchors were authored once, for the sight picture, and the hip pose is
+     the same geometry placed somewhere else - so at hip the support fist of the pistol sat 26 mm LEFT of
+     the grip axis at a height where the frame's own box is only 17 mm wide: a fist floating beside the
+   gun, which is the "two objects in one corner" reading the issue names. The census prices it - 1987 px
+     of pistol fist more than 8 px clear of any metal, at raster 465,311, against 550 px for the shotgun
+     and 452 for the rifle, whose support fists are at least in the same volume as the part they hold.
+     So the pistol's support hand comes onto the gripping hand (a two-handed grip, which is what a
+     handgun is actually held with) and the long guns' support fists come UP onto the axis of the pump /
+     handguard they are supposed to be wrapping instead of 16 mm below it.
+     It is applied inside vHand AND vArm from the same numbers, which is the point of putting it here
+     rather than at the call sites: the wrist is emitted from the fist's own anchor, so a shift that
+     moved only the fist would detach the arm from the hand it belongs to. */
+  const VMGRIP = {
+    pistol:  [[0, 0, 0], [0.013, 0.010, -0.018]],
+    shotgun: [[0, 0, 0], [0, 0, 0]],
+    rifle:   [[0, 0, 0], [0, 0, 0]],
+  };
+  /* NO fallback by kind. This used to read `VMGRIP[b.kind] || VMGRIP.pistol`, and the `|| pistol` half
+     was a load-bearing bug: `kind` is stamped by `wBuild` only, so shotgun and rifle geometry built by
+     `weaponRaw` (the probe hook) or by the boot drift detector below carried the PISTOL's support-hand
+     offset. Same weapon, different geometry depending on which call site built it - the route-dependence
+     this repo already rules on for `MESH.weapon` vs `weaponRaw` (#186), and it is what turned two
+     `viewmodel` rows red (`quantum price` 18.71 mm against a 4 mm bound, `key identity` 278 of 417).
+     An unstamped builder now throws instead of quietly borrowing another weapon's hands. */
+  const vGripOff = (b, back, st) => {
+    const g = b && VMGRIP[b.kind];
+    if (!g) throw new Error('MESH: view-model builder carries no weapon kind for the hand seat (stamp it at the VMGEO call site)');
+    const o = g[back ? 1 : 0];
+    const c = 1 - clamp(st && st.ads ? st.ads : 0, 0, 1);
+    return [o[0] * c, o[1] * c, o[2] * c];
+  };
   function vHand(b, x, y, z, s, back, st) {
+    const gg = vGripOff(b, back, st); x += gg[0]; y += gg[1]; z += gg[2];
     if (!VHANDS) return b;
     s *= vHandScale(st);
     const w = back ? -1 : 1;
@@ -1181,8 +1284,17 @@ const MESH = (function () {
     return k + '|' + wq(WQK.mz, s.mz) + '|' + wq(WQK.magOut, s.magOut) + '|' + wq(WQK.slideBack, s.slideBack) +
       '|' + wq(WQK.pump, s.pump) + '|' + wq(WQK.shellIn, s.shellIn) + '|' + wq(WQK.ads, s.ads || 0);
   }
+  /* #632: ONE builder factory for the view models. vHand/vArm read the hand seat off the builder they
+     were handed, so EVERY route into VMGEO has to stamp `kind` on it - draw path, probe hook, boot drift
+     check - or the same weapon would build different geometry depending on who asked. vGripOff throws on
+     an unstamped builder rather than falling back; this is the single place that satisfies it. */
+  function wBuilder(kind) {
+    if (!VMGEO[kind]) throw new Error('MESH: no view model authored for weapon "' + kind + '"');
+    const b = new Builder(); b.kind = kind;
+    return b;
+  }
   function wBuild(kind, st) {
-    const b = VMGEO[kind](new Builder(), st || {});
+    const b = VMGEO[kind](wBuilder(kind), st || {});   // the builder, never off a module global (#186's rule)
     const p = new Float32Array(b.p), v = new Float32Array(b.p.length / 2);
     for (let i = 0; i < b.p.length / 6; i++) { v[i * 3] = b.p[i * 6]; v[i * 3 + 1] = b.p[i * 6 + 1]; v[i * 3 + 2] = b.p[i * 6 + 2]; }
     /* #587: the coord array goes in beside `em` with the SAME shape the bodies and props already hand
@@ -1222,7 +1334,7 @@ const MESH = (function () {
      length would move the DRAWN muzzle off the ray while every hitscan number stayed right. */
   for (const k in VMUZZLE) {
     let mx = -1e9;
-    const bb = VMGEO[k](new Builder(), { mz: 0 });
+    const bb = VMGEO[k](wBuilder(k), { mz: 0 });
     for (let i = 0; i < bb.p.length; i += 6) if (bb.p[i + 2] > mx) mx = bb.p[i + 2];
     if (Math.abs(mx - VMUZZLE[k]) > 0.008)      // 0.008 = the thickness of a muzzle plate
       console.warn('MESH view model ' + k + ' geometry ends at z ' + mx.toFixed(3) + ' but VMUZZLE says ' + VMUZZLE[k]);
@@ -2123,50 +2235,32 @@ const MESH = (function () {
        separates by FG_PUSH or more pays nothing at all, and the rail FG_MAX still caps any one draw. The
        24-pixel floor is the vacuity gate - a mean over a handful of pixels a lip is leaving him is not a
        measurement, so the term stays inert instead of inventing a step. */
+    /* The draw itself pays nothing. It records which pixels it took over - index, the colour that was
+       behind each, the depth it wrote - and the step is bought at the END of the object pass by fgPay,
+       over the pixels the frame actually kept. See the #611 note on FGREC/FGPEND above: measuring at the
+       end of his own draw fits a mean over pixels a nearer crate then paints over, which is the whole of
+       the L0 roll-6 shortfall. */
     if (fgW) {
-      let own = 0, dl = 0, bl = 0;
+      const rec = fgTake();
+      rec.busy = 1; rec.n = 0; rec.fog = fgFog;
       for (let y = 0; y < fgH; y++) {
         const row = (fgY0 + y) * BW + fgX0, base = y * fgW;
         for (let x = 0; x < fgW; x++) {
           const off = row + x, zWas = BGDEPTH[base + x];
           if (!(zbuf[off] < zWas)) continue;            // he did not take this pixel over
-          const p = px[off], q = BGSAVE[base + x];
-          dl += LUMW[0] * (p & 255) + LUMW[1] * (p >> 8 & 255) + LUMW[2] * (p >> 16 & 255);
-          bl += LUMW[0] * (q & 255) + LUMW[1] * (q >> 8 & 255) + LUMW[2] * (q >> 16 & 255);
-          own++;
+          if (rec.n >= FGMAXPX) break;
+          if (rec.n === rec.idx.length) fgGrow(rec);
+          rec.idx[rec.n] = off; rec.col[rec.n] = BGSAVE[base + x]; rec.d[rec.n] = zbuf[off]; rec.n++;
         }
       }
-      if (own >= 24) {
-        dl /= own; bl /= own;
-        const gap = dl - bl;
-        if (gap > -FG_PUSH && gap < FG_PUSH) {
-          const wash = (LUMW[0] * FOGC[0] + LUMW[1] * FOGC[1] + LUMW[2] * FOGC[2]) * fgFog;
-          const want = clamp(gap <= 0 ? bl - FG_PUSH : bl + FG_PUSH, dl - FG_MAX, dl + FG_MAX);
-          const den = dl - wash;
-          if (den > 2) {
-            const k = clamp((want - wash) / den, 0.45, 1.8);
-            const wr = FOGC[0] * fgFog, wg = FOGC[1] * fgFog, wb = FOGC[2] * fgFog;
-            for (let y = 0; y < fgH; y++) {
-              const row = (fgY0 + y) * BW + fgX0, base = y * fgW;
-              for (let x = 0; x < fgW; x++) {
-                const off = row + x;
-                if (!(zbuf[off] < BGDEPTH[base + x])) continue;
-                const p = px[off];
-                px[off] = (0xFF000000 |
-                  clampi((p >> 16 & 255) + ((p >> 16 & 255) - wb) * (k - 1)) << 16 |
-                  clampi((p >> 8 & 255) + ((p >> 8 & 255) - wg) * (k - 1)) << 8 |
-                  clampi((p & 255) + ((p & 255) - wr) * (k - 1))) >>> 0;
-              }
-            }
-          }
-        }
-      }
+      if (rec.n) FGPEND.push(rec); else rec.busy = 0;
     }
     if (ZSAVE) { zbuf = ZSAVE; ZSAVE = null; VMASK = false; }
   }
 
   return {
     draw,
+    endFrame: fgFlush,           // #611: pay the figure-ground step once the object pass is composed
     stats: () => ({ tris, pxFilled, trisCulled, poseEntries: POSE.size, poseMB: +(poseBytes / 1048576).toFixed(2), poseMade, capMB: PCAP / 1048576,
       wGeo: WEPO.size, wMiss: wStat[0], wHit: wStat[1], wMB: +(wBytes / 1048576).toFixed(3), wQ: WQK, wCap: WPCAP }),
     reset: () => { tris = 0; pxFilled = 0; trisCulled = 0; },
@@ -2191,7 +2285,7 @@ const MESH = (function () {
     wQuant: st => wState(st),
     /* probe-only (#186): the builder with NO quantum applied, so a probe can measure the displacement the
        quantum is paid with instead of taking the arithmetic on faith. Nothing in the draw path calls this. */
-    weaponRaw: (k, st) => { const b = VMGEO[k](new Builder(), st || {}); return { p: b.p, nV: b.p.length / 6 }; },
+    weaponRaw: (k, st) => { const b = VMGEO[k](wBuilder(k), st || {}); return { p: b.p, nV: b.p.length / 6 }; },
     muzzleFor: k => VMUZZLE[k],
     maxVerts: MAXV,
     /* the rest model's own extent in body space: its height span and its radius in plan. This is what

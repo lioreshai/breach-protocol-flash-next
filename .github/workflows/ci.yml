@@ -34,6 +34,46 @@ jobs:
       - name: Release policy regression checks
         run: python3 -m unittest discover -s tools -p test_release_policy.py
 
+      - name: Release artifact identity (the tag release.json names)
+        env:
+          # The commit this repository actually authored. On a pull_request event GITHUB_SHA is
+          # GitHub's own merge ref commit (refs/pull/N/merge), committed by GitHub <noreply@github.com>,
+          # and handing that to the checker reds the row on a commit the identity rule makes no claim
+          # about - which is why this step failed only on the pull_request trigger (#635 review).
+          # identity.yml already reviews the PR head; this is the same expression.
+          CHECKED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -uo pipefail
+          # The identity gate used to see commits only. A release is also an annotated tag - and a
+          # lightweight or mis-pointed one is a release the identity rule cannot see at all, which
+          # is how a release can be half-done and still green (#635). The checker reads the tag as
+          # an object, in the checkout when the checkout holds it and through the API when it does
+          # not, so a shallow or tagless checkout changes which checks ran, never the verdict. The
+          # fetch below is a best effort and is reported, not assumed: an earlier revision of this
+          # step ran under set -e, so a fetch the runner's partial clone rejected failed the step
+          # without printing anything at all. --branch names a release PR's own unmade tag, which
+          # docs/RELEASE.md cuts after the merge. GITHUB_HEAD_REF is empty on a push event, so a
+          # push to release/vX.Y.Z has to name the ref actually pushed or the checker is told this
+          # is no release branch at all - which reds a correct release branch and holds the release
+          # itself, and every branch waiting on its cadence row (#635).
+          git fetch --quiet --tags --force origin && fetch_status=0 || fetch_status=$?
+          tags=$(git tag --list | wc -l)
+          shallow=no && [ -f .git/shallow ] && shallow=yes
+          echo "tag fetch status=$fetch_status, tags in checkout=$tags, shallow=$shallow"
+          # A pull_request checkout holds the merge ref at depth 1, so the commit under review can
+          # be absent from the object store. Fetch that one commit rather than let git log fail on
+          # an unknown revision; if it still cannot be had, say so and fail instead of reviewing a
+          # different commit or nothing at all.
+          head="${CHECKED_HEAD:-HEAD}"
+          if ! git cat-file -e "${head}^{commit}" 2>/dev/null; then
+            git fetch --quiet --no-tags --depth 1 origin "$head" && got=ok || got="status=$?"
+            echo "reviewed commit $head was not in the checkout: fetched=$got"
+            git cat-file -e "${head}^{commit}" 2>/dev/null || { echo "cannot review $head: not in the checkout and not fetchable"; exit 1; }
+          fi
+          echo "reviewing commit $head (GITHUB_SHA=$GITHUB_SHA, event=$GITHUB_EVENT_NAME)"
+          python3 tools/check_identity.py --release --repo "${GITHUB_REPOSITORY:-}" \
+            --branch "${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}" "$head"
+
       - name: README keeps deployed screenshots
         run: |
           python3 - <<'PY_CHECK'
