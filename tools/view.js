@@ -7616,7 +7616,22 @@ if (MODE === 'exposure') {
      branch's on all four levels, so no lamp was placed, moved or relit. 73 and 79 stay inside the untouched
      35-75 band tools/ci/assert.js re-reads and inside the 60-100 window. No window, region, roll list, floor or
      census moved. */
-  const EXPO_SPAWN = refRecord('exposure', 'SPAWN', 'num', [74, 57, 80, 64, 73, 72, 73, 83])
+  const EXPO_SPAWN = refRecord('exposure', 'SPAWN', 'num', [74, 56, 80, 64, 73, 71, 73, 83])
+    /* #695 SALIENCE RANK re-keys TWO of the sixteen digits and both are centre-half mids - L0 57 -> 56
+       (73.53 / 56.44 exact, spread 17, the MEAN holding on its recorded 74) and L2 72 -> 71 (72.57 / 71.24
+       exact, spread 33, mean holding on its recorded 73) - while L1's 80/64 and L3's 73/83 are this tree's to
+       the digit in the same run and all four seeded MEDIANs hold exactly at 69 / 76 / 63 / 93. A mean that
+       holds while its centre half drops under half a luminance is the signature of one object in the middle of
+       the arrival frame going slightly quieter, not of a room losing light, and the control beside it is
+       `flatparity`'s LOCK lightmap sums, which this run prints as the recorded values: no lamp was placed,
+       moved or re-baked. The two levels that move are the two whose spawn frame carries a hazard-striped crate
+       or a banded fixture in that centre half; L3 is authored, its spread is still 0, and its byte does not
+       move. ATTRIBUTION IN ONE HARNESS: `JSDIR=<main js> node tools/view.js exposure` at this commit prints
+       73.86 / 56.55 and 72.60 / 71.52 - main's pairs to the rounding - with `EXPOSURE ok` exit 0, and with
+       this branch's js the same command prints 73.53 / 56.44 and 72.57 / 71.24, so both moves are this
+       increment's two paint values (js/10_assets.js HAZARD_QUIET, js/13_mesh.js PROP_ALB_CRATE) and nothing
+       else. No window, band, region, roll list, worst-roll floor or spread statistic moved, and
+       `tools/ci/assert.js exposure` still reproduces these off the COMPOSITED frame inside its own 35-75 band. */
     /* #632 REWORK TAKE THREE (the hip yaw halved to -0.010 / -0.012 / -0.014, js/40_render.js VMHIP), MEASURED on
        this tree: TWO digits of the sixteen come back to the values main prints - L0's centre-half mid 56 -> 57
        (56.55 exact, its mean holding at 73.86) and L2's 71 -> 72 (71.52 exact, mean 72.60). Both are half-luma
@@ -16031,7 +16046,23 @@ if (MODE === 'bands') {
      their OWN thresholds in the same run and `BANDS` reports one failure, this one, with no lip contrast or
      band-width clause among them. No threshold, lip bound or vacuity floor moved; what moved is the doorway
      and the gun those lip rows are drawn across, not the lip. */
-  const RECSEAM = refRecord('bands', 'SEAM-FRAME', 'md5', ['16004d1a8d9b0ddcbf1461228537ce25', '1262a9de90df5cf8409751e59f67f24f', '2eb2f810936d57e3c9780357b3ab9f13', '44a8209c4f38d77ef375798d69024be8'])
+  const RECSEAM = refRecord('bands', 'SEAM-FRAME', 'md5', ['98f7b0d8b0cb51e2a21fe970f3f8f4b1', 'bb38282deb6a6ddce8f12ff9b2b4799c', 'c8ba97ec53d2b707291d513d2dfe339c', '44a8209c4f38d77ef375798d69024be8'])
+  /* #695 SALIENCE RANK re-keys THREE of these four bytes and holds L3's, MEASURED on this tree. This is a
+     PAINT re-key and the row's own oracle says so: the SEAM=1 vs SEAM=0 pixel count printed beside these
+     frames is 12796 / 6027 / 7231 / 8183 in this run, WHICH IS MAIN'S, to the pixel, on all four levels - no
+     lip moved, no seam geometry, no camera, no bound, and the vacuity floor `diffPx > 0` is untouched, so a
+     build that paints no seam still goes red here. What moved is the SURFACE those lip frames are drawn on:
+     the scenery hazard band (js/10_assets.js HAZARD_QUIET, 0.74x luma) and the crate's own value band
+     (js/13_mesh.js PROP_ALB_CRATE 0.78) are quieter, and they sit in the mid-field of three of the four
+     seats. ATTRIBUTION IN ONE HARNESS: `JSDIR=<main js> node tools/view.js bands` at THIS commit prints
+     16004d1a / 1262a9de / 2eb2f810 / 44a8209c - main's four, the bytes this record carried - and the same
+     command on this branch's js prints the three bytes recorded above plus L3's unchanged one. (Under JSDIR
+     the row prints the digest and does not gate on it, so the evidence is those printed digests side by side,
+     not that run's verdict; the row is green at this head for real, with this tree's own js.) The whole pixel
+     diff at these frames is therefore this increment's two values. L3's byte is
+     HELD as the scope control: THE STACK's lip frames carry none of the paint that changed in the columns the
+     lip rows sample, which is why its flatparity DEALT byte moved and this frame did not. No threshold, lip
+     bound, camera or vacuity floor moved; a deliberate re-record is `node tools/view.js refs --record`. */
   /* #632 REWORK TAKE THREE (js/40_render.js VMHIP: the hip yaw halved to -0.010 / -0.012 / -0.014), MEASURED on this
      tree: all four SEAM=1 lip frames re-key, and they re-key BECAUSE the rework's own fix worked - at the deeper
      -0.020 / -0.024 / -0.028 carry six of this probe's sixty-four rows were red, because a barrel turned far enough
