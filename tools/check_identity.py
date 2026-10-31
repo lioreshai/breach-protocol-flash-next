@@ -268,7 +268,10 @@ def check_release(ref='HEAD', branch='', cwd=None, api=None):
         return check_tag(version, notes, cwd, api=api), notes
 
     # The ref is not in this checkout. That is either the checkout's fault or the release's, and
-    # the two must not read the same: ask the forge, which needs no tag fetch at all.
+    # the two must not read the same: ask the forge, which needs no tag fetch at all. An answer of
+    # 'object' wins over everything below - a ref that does have its artifact gets it verified,
+    # whichever ref is asking.
+    forge_absent = False
     if api is not None:
         state, facts = tag_object(version, api)
         if state == 'object':
@@ -278,21 +281,29 @@ def check_release(ref='HEAD', branch='', cwd=None, api=None):
             return errors + check_pin(version, facts.get('target', ''),
                                      manifest_at_api(facts.get('target', ''), api),
                                      api=api, notes=notes, local=False), notes
-        if state == 'absent':
-            notes.append('%s: the API holds no refs/tags/%s, so the tag is outstanding rather than '
-                         'unfetched' % (version, version))
-            return release_finding(version, manifest, notes, api=api, local=False), notes
+        forge_absent = state == 'absent'
+
+    # Nothing has said "the tag exists", so the next words out of this function would be "it does
+    # not". Ask which ref is asking first: docs/RELEASE.md cuts the tag on the MERGED release
+    # commit, so the release PR is the one ref that cannot carry its own artifact yet (#635). On a
+    # push to release/vX.Y.Z the forge answers "no such tag" - correctly - and returning that answer
+    # from inside the API block reds the only ref this rule exempts, which is how v1.4.18's release
+    # branch sat BLOCKED with nothing wrong in it. Named, never silent; every other ref still gets
+    # the outstanding-step finding below, so this is a scope fix and not a loosened threshold.
+    if branch == 'release/' + version:
+        notes.append('release artifact %s: not checked, because the tag is cut on the merged '
+                     'release commit and this ref is that release PR' % version)
+        return [], notes
+
+    if forge_absent:
+        notes.append('%s: the API holds no refs/tags/%s, so the tag is outstanding rather than '
+                     'unfetched' % (version, version))
+        return release_finding(version, manifest, notes, api=api, local=False), notes
 
     _, any_tag = git(['tag', '--list'], cwd)
     if not any_tag:
         return ['refs/tags/' + version + ' cannot be checked and no tag exists in this checkout at '
                 'all: fetch the tags before running the release-artifact check'], notes
-    if branch == 'release/' + version:
-        # docs/RELEASE.md cuts the tag on the MERGED release commit, so a release PR cannot
-        # carry its own artifact yet. Named, not silently skipped.
-        notes.append('release artifact %s: not checked, because the tag is cut on the merged '
-                     'release commit and this ref is that release PR' % version)
-        return [], notes
 
     return release_finding(version, manifest, notes, cwd=cwd, api=api), notes
 
