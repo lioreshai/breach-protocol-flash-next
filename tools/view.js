@@ -5520,13 +5520,19 @@ if (MODE === 'cull') {
        instead of silently measuring the ship config twice) and demand the same answer. GroundPixel's
        ceiling half takes its plane from this queue, so agreement here is what "both copies own the same
        plane and the same depth" means in a picture, not in a comment. */
-    const DEFNEEDLE = 'if (planeC !== planeA) { RX[nm] = x; RP[nm] = planeC; nm++; continue; }';
+    /* THE QUEUE LINE, as text. Both this needle and the one in the LEAK block below are the shipped
+       source of the split at js/40_render.js, copied exactly, and they are what makes the deferred-path
+       control able to disagree with the ship frame. Anything that edits that line edits these with it,
+       or the patch silently no-ops, the control becomes the ship frame, and the row reports an agreement
+       it never measured - which is what happened at PR #707, where `RE[nm] = edgeL` was appended to the
+       queue and both cull invocations printed NEEDLE-NOT-FOUND. The row is the tripwire; keep it armed. */
+    const DEFNEEDLE = 'if (planeC !== planeA) { RX[nm] = x; RP[nm] = planeC; RE[nm] = edgeL; nm++; continue; }';
     const patchSplit = on => run(`(function (ON) {
       if (!globalThis.__cgO2) globalThis.__cgO2 = castGround;
       if (!ON) { castGround = globalThis.__cgO2; return globalThis.__cgO2.toString().indexOf(${JSON.stringify(DEFNEEDLE)}) >= 0 ? 'restored' : 'NEEDLE-NOT-FOUND'; }
       const src = globalThis.__cgO2.toString();
       if (src.indexOf(${JSON.stringify(DEFNEEDLE)}) < 0) return 'NEEDLE-NOT-FOUND';
-      const rep = 'if (true) { RX[nm] = x; RP[nm] = planeC; nm++; continue; }';
+      const rep = 'if (true) { RX[nm] = x; RP[nm] = planeC; RE[nm] = edgeL; nm++; continue; }';
       castGround = eval('(' + src.split(${JSON.stringify(DEFNEEDLE)}).join(rep) + ')');
       return castGround.toString().indexOf(rep) >= 0 ? 'ok' : 'PATCH-FAILED';
     })(${on ? 'true' : 'false'})`);
@@ -5591,9 +5597,9 @@ if (MODE === 'cull') {
        Nothing here changes arithmetic, thresholds or any row above: the block runs after every
        verdict for the level, restores MAP.fz and un-patches castGround. */
     if (process.env.LEAK) {
-      const NEEDLE = 'if (planeC !== planeA) { RX[nm] = x; RP[nm] = planeC; nm++; continue; }';
+      const NEEDLE = 'if (planeC !== planeA) { RX[nm] = x; RP[nm] = planeC; RE[nm] = edgeL; nm++; continue; }';
       const REPL = c => c === 'nodefer' ? NEEDLE.replace('if (planeC', 'if (false && planeC')
-        : c === 'alldefer' ? 'if (true) { RX[nm] = x; RP[nm] = planeC; nm++; continue; }'
+        : c === 'alldefer' ? 'if (true) { RX[nm] = x; RP[nm] = planeC; RE[nm] = edgeL; nm++; continue; }'
           : NEEDLE;
       const CFGS = (process.env.CFG || 'ship,nodefer,alldefer').split(',');
       run('var GD={set:new Uint8Array(0),a:[],n:0,cap:400000};');
@@ -16031,7 +16037,18 @@ if (MODE === 'bands') {
      their OWN thresholds in the same run and `BANDS` reports one failure, this one, with no lip contrast or
      band-width clause among them. No threshold, lip bound or vacuity floor moved; what moved is the doorway
      and the gun those lip rows are drawn across, not the lip. */
-  const RECSEAM = refRecord('bands', 'SEAM-FRAME', 'md5', ['16004d1a8d9b0ddcbf1461228537ce25', '1262a9de90df5cf8409751e59f67f24f', '2eb2f810936d57e3c9780357b3ab9f13', '44a8209c4f38d77ef375798d69024be8'])
+  /* #515 TREAD NOSING, MEASURED on this tree: L0's SEAM=1 lip frame ONLY re-keys - 16004d1a -> d2b85418 -
+     and it re-keys because the ground pass now paints a nosing on an up-step, which is a shading change on
+     the very frame these lip rows are drawn across, not a change to the lip they measure. ATTRIBUTED, NOT
+     ASSUMED: the same probe on a variant tree that differs from this one by `STEPROW = 0` and nothing else
+     (`JSDIR=`, so the frame is printed and not compared) puts that frame back at 16004d1a and leaves L1, L2
+     and L3 at their recorded bytes, so one global moves one slot and the nosing reaches no other level's
+     seat view. THE ROW'S ORACLE IS STILL NOT THE HASH: SEAM=1 vs SEAM=0 moves 12796 / 6027 / 7231 / 8183 px
+     of the every-7th sample in this run - the L0 figure identical to the pre-nosing run, because the seam
+     term and the nosing do not overlap (the nosing keys to an EK_STEP UP-crossing and the seam crease keeps
+     the DOWN lips) - so a build that ships no seam term still goes red on the frame re-recorded here, and
+     the `diffPx > 0` vacuity floor, every lip bound and every tolerance are UNTOUCHED. */
+  const RECSEAM = refRecord('bands', 'SEAM-FRAME', 'md5', ['d2b854185de6986a1f5275ede5c09776', '1262a9de90df5cf8409751e59f67f24f', '2eb2f810936d57e3c9780357b3ab9f13', '44a8209c4f38d77ef375798d69024be8'])
   /* #632 REWORK TAKE THREE (js/40_render.js VMHIP: the hip yaw halved to -0.010 / -0.012 / -0.014), MEASURED on this
      tree: all four SEAM=1 lip frames re-key, and they re-key BECAUSE the rework's own fix worked - at the deeper
      -0.020 / -0.024 / -0.028 carry six of this probe's sixty-four rows were red, because a barrel turned far enough
