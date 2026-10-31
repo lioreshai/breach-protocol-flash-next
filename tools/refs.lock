@@ -5,27 +5,27 @@
 # A declaration with no row here fails REFS-DECLARED-MISSING; a row with no declaration fails
 # REFS-IN-TABLE-UNDECLARED; an edited literal fails REFS-VALUES-MOVED. None of the three is a
 # warning, and the row runs inside flatparity, which ci.yml runs blocking.
-ref	alt	DARK-COVERED	num	92.9 64.5 57.2 100.0
-ref	alt	DARK-SHARE	num	1.6 7.2 4.3 2.7
-ref	alt	GRID-CENSUS	num	9 170 2 46 9 251 2 52 9 310 2 56 9 141 5 25
+ref	alt	DARK-COVERED	num	67.6 64.5 57.2 100.0
+ref	alt	DARK-SHARE	num	2.0 7.2 4.3 2.7
+ref	alt	GRID-CENSUS	num	9 185 2 56 9 267 2 60 9 310 2 56 9 141 5 25
 ref	alt	OOB-ERA	num	19 10 16 0
 ref	alt	OOB-NONCLIMB	num	0 0 0 0
 ref	alt	PIT-CELLS	num	190 194 211 204
 ref	alt	PIT-MEAN	num	0.289 0.347 0.335 0.316
 ref	anim	NECK-BAND	num	4.8 2.7 3.4
 ref	anim	NECK-TUBE	num	41 43.2 40
-ref	bands	SEAM-FRAME	md5	8c0b52a0abaed8ba43677c0db7094151 c2050ffaad54fff275a93bea3c345af8 67cbcd5700d3354128248621381c735f 429fa10fe41ccdb782356daca915a5e1
+ref	bands	SEAM-FRAME	md5	5ba67fd4d45950b5ff5589720ba8239e c2050ffaad54fff275a93bea3c345af8 67cbcd5700d3354128248621381c735f 429fa10fe41ccdb782356daca915a5e1
 ref	contrast	TORSO-DL	num	2.52 2.17 2.41
-ref	cull	CZBAND	crc32	0x54c181d0 0x6152ea40 0x213d9423 0xdcb36258
-ref	cull	CZBAND-LIGHT	crc32	0x39c77f70 0xf87f0f7c 0x842c3a10 0x43a22b10
+ref	cull	CZBAND	crc32	0x19aedac0 0x9c87892f 0x213d9423 0xdcb36258
+ref	cull	CZBAND-LIGHT	crc32	0xd8ed7ee0 0x9e0c21dc 0x842c3a10 0x43a22b10
 ref	exposure	MEDIAN	num	69 76 63 93
-ref	exposure	SPAWN	num	73 55 80 64 73 71 73 83
-ref	flatparity	DEALT	md5	799164b88ec440eb1167c83a118676da 2d8a9a50ac1947528acc00d3d44addc8 d964d6eb9199ecebdc35693d2e9b4637 cfd7b35f4bca3e1d74f2a6e0e53d189a
-ref	flatparity	LOCK	md5	d614d2bd7bee11fe938cd5785096d238 b308368ca82eac428e593f3ab0140c52 3f9f7626960ce0b05764411bb77fc453 d51e4f3932c284be3fd02393fa331256
-ref	flatparity	PARITY	md5	de2ddac9000f4fe390d4eb4dab6ebe70 76b2f3948360f45b848cec4a52a84b43 8786c257354b3134f3d5e43e34bbc281 b02d5b6183552150da8357ddad30d7bf
-ref	heights	HALF-MOVE	num	97.16 25.47 53.12 95.53 42.87 62.48 97.16 27.66 78.55 95.43 42.19 63.61 97.17 28.40 53.38 95.55 42.87 63.31 97.17 11.27 13.38 95.48 38.37 54.54
+ref	exposure	SPAWN	num	69 55 76 60 68 72 73 83
+ref	flatparity	DEALT	md5	b127beb556b43250a84ff7abe40d7013 cd997e70540d2168607b5335bd000ae4 d964d6eb9199ecebdc35693d2e9b4637 cfd7b35f4bca3e1d74f2a6e0e53d189a
+ref	flatparity	LOCK	md5	837b4ff1d77f120d5e3a3c4789c3368c 359b4aad58b58dc7ea86db5920534ef7 3b708ffcce9ecf5f9a17207527666178 eee9146ae03687268eb17637dc9f4d69
+ref	flatparity	PARITY	md5	b52b3fc27cb1bc179f020a3c67146413 6e48eac4e96cc19893b13dcb5506bdbe 25b213ba7e0e9564820367b5a27d9d17 8e7a29fbeaefce82c4197a21545f9871
+ref	heights	HALF-MOVE	num	97.17 25.45 53.12 95.53 42.81 62.44 97.15 27.37 78.42 95.43 42.16 63.48 97.17 28.39 53.39 95.55 42.88 63.32 97.17 11.27 13.38 95.48 38.37 54.54
 ref	props	CTRL-RAT	num	0.406 0.471 0.306 0.431
-ref	props	LAMPCORE	num	263 239.4 263 239.4 263 239.2 245 239.4
+ref	props	LAMPCORE	num	263 239.5 263 239.4 263 239.2 245 239.4
 ref	props	PROP-KNOB	num	1.3 0.45 0.5139
 ref	viewmodel	VM-REBUILD	num	0.50
 ref	viewmodel	VM-SHARE	num	0.187
