@@ -9603,7 +9603,6 @@ if (MODE === 'contrast') {
      control prints is quoted beside the row as the attribution. A number past the baseline is a term that
      grew, not a deck that moved, and reads FAIL. */
   const DEB_BAND = +(process.env.DEB_BAND || 2024);   // px: attributed band at LVL 0 cam 1 HERE (main 2201, mean 8.7)
-  const DEB_AIM = +(process.env.DEB_AIM || 3.25);     // x : ink span against the caster's projected width HERE (main x1.75)
   const DEB_MASK = +(process.env.DEB_MASK || 32);     // px: the L2 / 16 m mask HERE, 0 px of it painted (main 14 of 104)
   /* Per-frame edge statistics, factored out of the camera loop so the posed frame, the found frame and
      the flat control are measured by the SAME arithmetic as the crowd frame - a control computed by a
@@ -11101,9 +11100,12 @@ if (MODE === 'contrast') {
                   + 'the sanctioned annulus'),
           // #706: at LVL 0 / 16 m the far ink registers on a LAMP disc, whose radius is authored around a
           // FIXTURE (r 0.62 m from a 0.16 m footprint) and not a crate, so the crate-width yardstick is
-          // measuring a caster the row was not written for; containment is still asserted (pStray === 0).
-          // main's own figure on this row is x1.75, on a CRATE at 13.6 m - the deck moved what the ink lands on.
-          (bd && pspread > PROPSIDE && bd.pStray === 0 && bd.pOwnKind !== 'crate' && pspread <= DEB_AIM)
+          // measuring a caster the row was not written for; main's figure on this row is x1.75, on a CRATE
+          // at 13.6 m - the deck moved WHICH SURFACE the ink lands on, not how wide it is. So the debt is
+          // bounded geometrically, not by a bar: the ink must stay INSIDE the disc it is attributed to
+          // (contained: pStray === 0, and no wider than that disc projects). Ink that outruns its own disc,
+          // or a CRATE reading past the bar, is a spread term and still reads FAIL. STRICT=1 gates this too.
+          (bd && pspread > PROPSIDE && bd.pStray === 0 && bd.pOwnKind !== 'crate' && bd.inkW <= bd.discWp)
             ? '#18' : undefined);
         }
       }
