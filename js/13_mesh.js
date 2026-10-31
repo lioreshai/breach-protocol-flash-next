@@ -1063,15 +1063,24 @@ const MESH = (function () {
      of pistol fist more than 8 px clear of any metal, at raster 465,311, against 550 px for the shotgun
      and 452 for the rifle, whose support fists are at least in the same volume as the part they hold.
      So the pistol's support hand comes onto the gripping hand (a two-handed grip, which is what a
-     handgun is actually held with) and the long guns' support fists come UP onto the axis of the pump /
-     handguard they are supposed to be wrapping instead of 16 mm below it.
+     handgun is actually held with) and the long guns' hands come UP into the gun's own silhouette:
+     the SUPPORT fist onto the axis of the pump / handguard it is supposed to be wrapping instead of
+     16 mm below it, and the STRONG fist up out of the bottom edge of the picture and onto the grip it
+     is authored beside. The long-gun entries were ZERO until this pass - the hip pose moved and the
+     long guns' hands did not, which is why `viewmodel`'s grip row read 35.7 / 36.5 % of hand surface
+     on weapon metal for them against 50.0 % for the pistol, with the clear pixels centred at raster
+     541,329 and 528,324: the corner, below and behind where the metal is. They measure 43.0 / 43.5 %
+     now (on-weapon 1581 / 1188 px against 703 / 742), and the rifle's support fist is ON the handguard
+     rather than 14 mm under it. Both terms are under 2 cm and hip-only - exactly zero at full ADS, so
+     the sight picture is byte-identical - and the wrist still leaves the frame through the bottom edge,
+     because the arm belongs to a body standing behind the gun, not to the gun.
      It is applied inside vHand AND vArm from the same numbers, which is the point of putting it here
      rather than at the call sites: the wrist is emitted from the fist's own anchor, so a shift that
      moved only the fist would detach the arm from the hand it belongs to. */
   const VMGRIP = {
     pistol:  [[0, 0, 0], [0.013, 0.010, -0.018]],
-    shotgun: [[0, 0, 0], [0, 0, 0]],
-    rifle:   [[0, 0, 0], [0, 0, 0]],
+    shotgun: [[0, 0.012, 0], [0.006, 0.016, -0.010]],
+    rifle:   [[0, 0.014, 0], [0.008, 0.018, -0.012]],
   };
   /* NO fallback by kind. This used to read `VMGRIP[b.kind] || VMGRIP.pistol`, and the `|| pistol` half
      was a load-bearing bug: `kind` is stamped by `wBuild` only, so shotgun and rifle geometry built by
