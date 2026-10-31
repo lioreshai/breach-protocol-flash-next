@@ -2851,7 +2851,7 @@ const OLD = refRecord('flatparity', 'PARITY', 'md5', ['133f72d6383b207ad48717b6b
      1e-6 in the same run. The shipped-sense means print beside the bytes, so no body was dimmed and no lamp
      behind one was. No threshold, bound, seat, dice, roll list, census or vacuity clause moved; the digits are
      this tree's own printings, from `node tools/view.js refs --record`, not either parent's. */
-const SHIP = refRecord('flatparity', 'LOCK', 'md5', ['b6554cf3d68c0907a96d325bbde5928a', '0088edbc1b4400f189f079cfcef02fb2', '29fc7c56f0275901e66a01e935c8c38e', 'e47ab51b67444e64431105b4aee41826'])
+const SHIP = refRecord('flatparity', 'LOCK', 'md5', ['68347bd905673e739934dccd08bbf295', '929fe1110bdcfe3a5ad79255bbe8800b', '29fc7c56f0275901e66a01e935c8c38e', 'e47ab51b67444e64431105b4aee41826'])
   /* #632 REWORK TAKE THREE (the halved hip yaw, see PARITY above), MEASURED on this tree: all four LOCK bytes
      re-key for the same reason - a rig that turns half as far is a different set of pixels in the same frame. The
      shipped-sense means say what that is worth: 94.5 / 94.0 / 59.8 / 96.0 against the 94.5 / 93.9 / 59.8 / 96.0 the
@@ -3202,7 +3202,7 @@ const SHIP = refRecord('flatparity', 'LOCK', 'md5', ['b6554cf3d68c0907a96d325bbd
      only the paint on it moved. DEALT-ORDER reproduces the level-0 byte ALONE in its own process AND IN LEVEL
      ORDER, so the byte is still the level and not the roster. No threshold, bound, dice, seat, tolerance or
      vacuity clause moved; the digits came from `node tools/view.js refs --record` on THIS tree. */
-  const DEALT = refRecord('flatparity', 'DEALT', 'md5', ['defaa9a38df281c6a6fd471e0fafa447', '2d8a9a50ac1947528acc00d3d44addc8', 'd964d6eb9199ecebdc35693d2e9b4637', 'cfd7b35f4bca3e1d74f2a6e0e53d189a'])
+  const DEALT = refRecord('flatparity', 'DEALT', 'md5', ['75d8cde4436256e739add63acb2f515d', '7b25b374f40537c8e751a17bed2639ef', 'd964d6eb9199ecebdc35693d2e9b4637', 'cfd7b35f4bca3e1d74f2a6e0e53d189a'])
     /* #632 REWORK TAKE THREE (the halved hip yaw, see PARITY above), MEASURED on this tree: all four dealt frames
        re-key, DEALT-ORDER hashes each new value alone in its own process AND in level order and both senses agree on
        all four, and the dealt GEOMETRY census - the part of this row that describes the WORLD - comes back 168 / 247
