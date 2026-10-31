@@ -501,6 +501,26 @@ const TINT_WHITE = [1, 1, 1];
    list of types kept by hand next to the one kept here. */
 const PKKIND = { health: 'pickupHealth', ammo: 'pickupAmmo', armor: 'pickupArmor', gren: 'pickupGren' };
 
+/* The eye's altitude, in ONE place. renderWorld assigns it to eyeZ, and a probe that has to follow
+   the horizon across a scripted walk can call it per frame instead of rendering a frame to get it -
+   the difference between a trace that costs sixty renders and one that costs none (#634).
+
+   The eye belongs in the band the player is standing in. The [0.12, 1.4] this used to clamp against
+   predates absolute altitude - it guarded a P.z that could only be a crouch offset in [0,1] - and as
+   a bound on an absolute eye it is a ceiling on WHERE THE PLAYER MAY STAND: above ~0.9 m the eye froze
+   at 1.4 while the floor under their feet was higher than that, and `okA = rawA < eyeZ` in the ground
+   pass then rejects that floor and paints datum z=0 instead (#103). Bounding by the band keeps the
+   guard doing its job - the eye can never leave the room it is in - at any altitude, and on a flat
+   level (floorAt 0, ceilAt 1) it is the same interval.
+
+   eyeGive() is the knee after a landing (#634): the body stops at the floor, the eye arrives over the
+   next fifth of a second, and the floor guard is what stops a bent knee from putting the eye through
+   the floor it landed on. */
+function eyeAltitude() {
+  const pfl = floorAt(P.x, P.y);
+  return clamp(cfg.eye + P.z - P.crouch * 0.19 - eyeGive(), pfl + 0.12, ceilAt(P.x, P.y) - 0.06);
+}
+
 function renderWorld() {
   const bobP = P.bob * 1.4 + P.kick * 0.4;
   const flash = S.flash;
@@ -508,15 +528,7 @@ function renderWorld() {
   dirX = Math.cos(P.ang); dirY = Math.sin(P.ang);
   planeX = -dirY * planeLen; planeY = dirX * planeLen;
   camX = P.x; camY = P.y;
-  // The eye belongs in the band the player is standing in. The [0.12, 1.4] this used to clamp
-  // against predates absolute altitude - it guarded a P.z that could only be a crouch offset in
-  // [0,1] - and as a bound on an absolute eye it is a ceiling on WHERE THE PLAYER MAY STAND:
-  // above ~0.9 m the eye froze at 1.4 while the floor under their feet was higher than that, and
-  // `okA = rawA < eyeZ` in the ground pass then rejects that floor and paints datum z=0 instead
-  // (#103). Bounding by the band keeps the guard doing its job - the eye can never leave the room
-  // it is in - at any altitude, and on a flat level (floorAt 0, ceilAt 1) it is the same interval.
-  const pfl = floorAt(P.x, P.y);
-  eyeZ = clamp(cfg.eye + P.z - P.crouch * 0.19, pfl + 0.12, ceilAt(P.x, P.y) - 0.06);
+  eyeZ = eyeAltitude();
   AMB = MAP && MAP.amb !== undefined ? MAP.amb : 0.13;
   FLOORB = MAP ? MAP.floorBias || 0 : 0;
   CEILB = MAP ? MAP.ceilBias || 0 : 0;
@@ -3141,9 +3153,16 @@ function castWalls(flash, fcR, fcG, fcB) {
            as its neighbour's, which is the same fault `AGENTS.md` records twice for the light path.
            Out of the map there is no neighbouring column, so dq is 0 - no face, no crease. */
         const qx = mx - (side === 0 ? stepX : 0), qy = my - (side === 1 ? stepY : 0);
-        const dq = qx >= 0 && qy >= 0 && qx < N && qy < N ? fzs[my * N + mx] - fzs[qy * N + qx] : 0;
+        const inb = qx >= 0 && qy >= 0 && qx < N && qy < N;
+        const dq = inb ? fzs[my * N + mx] - fzs[qy * N + qx] : 0;
         const pi = qy * N + qx;
-        if (dq && !(vbs[pi] & ((VB_RAMP | VB_LADDER) << (d << 2)))) {
+        /* #633: THIS IS THE DRAWN COLUMN, NOT A SECOND HEIGHT RULE. The clause used to be copied from
+           the VB_BLOCK rule that decides what canEnter refuses, and a copy re-decides: it could only
+           ever be as right as the blocker, and the two have different thresholds (#517). The stored
+           VB_FACE bit - written by linkBoundaries from the boundary's stored kind, and cleared on every
+           relink because it is derived - is the same answer in the one byte this loop already loads.
+           Out of the map there is no neighbouring column and no nibble to read, so no face. */
+        if (inb && (vbs[pi] & (VB_FACE << (d << 2)))) {
           const fhi = dq > 0 ? fzs[my * N + mx] : fzs[pi], flo = dq > 0 ? fzs[pi] : fzs[my * N + mx];
           /* A STOP is only a stop if the face has PIXELS here. The span is tested far below
              (`if (!(dz > 0) || ds > de) continue`), and that `continue` abandons the COLUMN: the
@@ -4275,10 +4294,44 @@ const VMSIT = {
    the `viewmodel` probe only asserts the hands are inside the frame and cover their recorded share of
    it. A seat whose grip moved out from under the hands would still be green here. #632 keeps that
    clause open; until a row exists this paragraph is a statement of intent, not a check. */
+/* #632 TAKE TWO - THE CARRY, NOT THE CORNER. The three seats above were the first per-weapon hip pose
+   this repo had, and the census says what they bought: three distinct SILHOUETTES (`hip distinct` now
+   differs by 6351/4151/4134 px against a 2416 px sway band) and still no CONTACT - the pistol put
+   1987 px of fist more than 8 px clear of any metal, at raster 465,311, which is 34 px below the
+   picture's own lower edge. That is the arithmetic of "parked": the seat hung the gun 0.100-0.112 m
+   below the eye at 0.25 m of reach, and a fist authored a further 0.040-0.050 m below the grip top
+   lands at horizon + BH*(0.15/0.27) = one hundred and eighty seven rows down, out of the frame. The
+   player saw the gun, and two wrists entering the bottom edge of the picture. Nothing else in the
+   frame can fix that, because the gripping surface was never inside the picture.
+   So the carry moves in the two ways a carry is legible, and in nothing else. The SEAT is unchanged
+   from the three values above: a first cut of this increment also lifted `d` by two to three
+   centimetres, which did bring the fists back into the frame but made the rig paint 30 % larger at the
+   hip than at the sight line and put a fist fully in frame at hip painting MORE of itself than the same
+   fist at ADS - a scale change wearing a pose change, and `viewmodel`'s `hands` row is exactly that
+   check. The lift is out. What stays is `yaw` and the hand seat in js/13_mesh.js.
+   `yaw` is non-zero here for the first time: a shouldered gun points its muzzle INBOARD, across the
+   body, rather than straight down the view. SIGN: the rig's heading is `P.ang + VM.lag + yaw` (see the
+   rotation block below) and the seat sits at POSITIVE `r`, which is the player's right, so the yaw that
+   turns the muzzle toward the centre line is NEGATIVE. The first cut of this had the sign backwards and
+   the whole rifle slid further into the corner - its hip box reached x 1.00 of the frame where main's
+   stopped at 0.97 - which is the defect this row exists to remove, arrived at by accident. The three
+   values are ranked by barrel length (pistol least, rifle most), which is the one cue outside the
+   silhouette that tells a shotgun from a rifle while neither is aimed, and every term here ramps to
+   exactly zero at full ADS, because a gun that is ON the sight line is on the ray.
+   MAGNITUDE IS BOUNDED BY A LEGIBILITY GATE, NOT BY TASTE. `tools/view.js bands` gates #164's step-lip
+   crease at ZERO columns whose band is missing, and a carried barrel that crosses the centre line paints
+   OVER that crease in the columns where a step lip projects through the middle of the frame. Measured on
+   this tree: at -0.015 / -0.018 / -0.021 and above, six of bands' sixty-four rows go red with "3 columns
+   with no band at all" on L0's face lip and L3's face and walk lips (296 of 299 and 176 of 179 columns,
+   where main and yaw 0 read 299 of 299 and 179 of 179); at -0.010 / -0.012 / -0.014 all sixty-four are
+   green. So the carry is legible but shallow - the muzzle points inboard without hiding the edge you step
+   on. `viewmodel`'s `sway travel` band gets strictly safer as the yaw shrinks (main reads 0.890 at yaw 0,
+   this reads 0.886 at the shipped numbers), and the silhouette ranking bands by barrel length is unchanged
+   because the three terms stay ordered. No threshold in either probe was moved to get here. */
 const VMHIP = {
-  pistol:  { f: 0.247, r: 0.098, d: 0.100, cant: 0.030, yaw: 0.000 },
-  shotgun: { f: 0.250, r: 0.118, d: 0.106, cant: -0.028, yaw: 0.000 },
-  rifle:   { f: 0.252, r: 0.126, d: 0.112, cant: -0.032, yaw: 0.000 },
+  pistol:  { f: 0.247, r: 0.098, d: 0.100, cant: 0.030, yaw: -0.010 },
+  shotgun: { f: 0.250, r: 0.118, d: 0.106, cant: -0.028, yaw: -0.012 },
+  rifle:   { f: 0.252, r: 0.126, d: 0.112, cant: -0.032, yaw: -0.014 },
 };
 let VMFLOOR = 0.5, VMRIM = 0.08;     // the two readability terms - see row (d)
 const VMROT = new Float32Array(9);

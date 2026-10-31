@@ -33,5 +33,19 @@ releases in a release-due issue. API errors fail instead of reporting no debt.
 5. Verify the deployed game and record any concrete blocker. Do not silently
    postpone the due date or treat a failed publication as a release.
 
+## The handoff after the release PR merges
+
+Nothing in this repo cuts the tag or publishes the release, so steps 4 and 5 can sit
+unfinished with no failure anywhere. `release-publish.yml`'s `release publish (main)` job runs
+`tools/release_policy.py publish` on every push to main and hourly: it reads release.json on
+main, asks whether a published stable GitHub release carries that version and whether the tag
+exists, and goes red once the state is older than the 3600 s grace. The grace is measured, not guessed - the two most recent handoffs took 1042 s and 1674 s. The release-due issue names the
+same step (merged-not-tagged, tagged-not-published, or published), and `ci.yml` verifies the tag
+itself as a Git object: annotated, tagged by the authorized identity, pointing at a commit whose
+own release.json pins that version.
+
+While a merged release PR is simply mid-handoff, the `release` row on other people's PRs stops
+failing: the debt belongs to the release owner, and the red row now sits where the work is owed.
+
 The one-time release/changelog-policy-reset PR clears the old cumulative log.
 That exception expires once the old Unreleased section is gone.

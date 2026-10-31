@@ -1,0 +1,43 @@
+name: Release publish guard
+
+# #635. A release PR can merge and its tag plus GitHub Release never happen: docs/RELEASE.md
+# step 4 belongs to a person, and no workflow in this repo tags or publishes. That state used to
+# surface only as the `release` row failing on every open feature PR - nine PRs read BLOCKED for
+# 18 minutes on nothing but that gap (#619, 2026-10-22). This workflow is the row that goes red
+# where the work is owed - on main - once the measured grace passes. Publication itself stays with
+# the product lead: a workflow-created tag would carry the Actions identity, which AGENTS.md says
+# does not meet the identity rule.
+#
+# Why this is its own file and not a job in release-guard.yml: GitHub reports a check row for a
+# named job even when the job's own `if:` skips it, and an unclassified SKIPPED row is not a
+# passing blocking check on the integration path. release-guard.yml has to trigger on
+# pull_request - that is where the `release` row lives - so a guard that must never appear on a
+# pull_request run cannot live in it. Triggering on pull_request and skipping the job there is
+# what made this guard block the very people #635 was filed to unblock. So the trigger list below
+# names no pull_request at all, and a pull_request run carries no row from this file, skipped or
+# otherwise. `tools/test_release_policy.py` asserts that against every workflow in the repo.
+
+on:
+  push:
+    branches:
+      - main
+  schedule:
+    # A different minute than release-guard.yml's so the two release rows never land at once.
+    - cron: '47 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: release publish (main)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: A merged release PR must be tagged and published
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 tools/release_policy.py publish --repo "$GITHUB_REPOSITORY"

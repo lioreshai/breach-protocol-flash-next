@@ -509,6 +509,13 @@ function main() {
       }
       const ruby = /\bruby\s+(\S*tools\/[^\s]+\.rb)/.exec(line);
       if (ruby && !isComment(line)) scopedOther.push({ line: ln, job: j.key, cmd: ruby[1] });
+      // A blocking step can also run a python tool - the release guard and the release-artifact
+      // identity check are both python. Neither is replayed here, but neither may be invisible:
+      // a python step that silently stopped running would change the gate and leave this roster's
+      // own count untouched.
+      const py = /\bpython3\s+(?:-m\s+\S+|(\S*tools\/[^\s]+\.py))/.exec(line);
+      if (py && !isComment(line))
+        scopedOther.push({ line: ln, job: j.key, cmd: py[1] || line.trim().replace(/^python3\s+/, '') });
     }
   }
 

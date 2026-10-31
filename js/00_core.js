@@ -210,6 +210,9 @@ const S = {
 const P = {
   x: 2.5, y: 2.5, ang: 0, pitch: 0, vx: 0, vy: 0,
   hp: 100, armor: 0, z: 0, vz: 0, air: false,     // z is the feet's ABSOLUTE altitude - floorAt(x, y) is what holds it up
+  // The eye's knee after a landing (#634): seconds since touchdown (-1 = none) and the downward
+  // speed the fall handed it. Both are read by eyeGive() and settle back to no offset at all.
+  landT: -1, landV: 0,
   crouch: 0, sprint: 0, bob: 0, bobPhase: 0, recoil: 0,
   // Boot-time defaults only: resetRun() derives these from WEAPONS, which is the
   // source of truth. The old literals here had drifted from the weapon caps.

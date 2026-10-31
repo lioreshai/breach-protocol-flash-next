@@ -231,6 +231,30 @@ const cellIdx = (x, y) => (y | 0) * MW + (x | 0);
    already implies. Each formula below is written to collapse to the flat world's
    exactly - that is this milestone's backwards-compatibility test. */
 const ZQ = 0.25;
+/* The ONE crossing threshold: a floor change of up to STEP_Q quanta is a STEP - walkable, and taken
+   by the feet without a fall. It used to exist twice, once in quanta in `linkBoundaries`' blocker and
+   once in metres in the player's airborne test, and the two were free to disagree: a crossing one
+   file called walkable the other called a free fall, which is what a player felt as a ledge where the
+   level meant a ramp (#634). #633 then moved the QUANTUM half of that answer into the stored kind -
+   these four readers are now the whole list:
+     - `linkBoundaries`, which decides STEP / DROP / CLIFF and therefore what blocks and what draws;
+     - the auto-step and the step-down in js/30_entities.js, which lift and settle the feet;
+     - the airborne threshold in the same file, which asks "has the floor left the feet";
+     - `view.js drop`, which measures the smallest drop that falls against the smallest rise that
+       blocks and requires one number.
+   STEP_Z is the same quantity for code that carries an altitude instead of a grid index. */
+const STEP_Q = 1;
+const STEP_Z = STEP_Q * ZQ;
+/* The TOLERANCE of that comparison, not a fourth threshold - 4% of a quantum, and the kAir/kWall row
+   in `view.js drop` is what keeps it a tolerance rather than a threshold in disguise. The eased
+   step-down leaves the feet a little ABOVE the floor they are settling onto, so a crossing of exactly
+   one step trips a strict comparison on that residue alone: measured on a 1-quantum stair at this
+   head, the first tread was walked and the second and third were FALLEN (13 airborne frames out of
+   54), which is the report's "sometimes it reads as a step, sometimes as a fall", in the feet. The
+   residue is 1.3 mm at a walking pace and grows as the crossing comes sooner after the last one, so
+   the slack is a centimetre - still 25 times inside a quantum, so a two-quantum drop is a fall by a
+   wide margin and kAir stays where the block rule puts it. */
+const STEP_EPS = ZQ * 0.04;
 const CZ_DEF = 4;                                        // 4 quanta = one unit of ceiling
 const LHOVER = 0.78;                     // a lamp light's authored hover above its own floor (:845)
 /* #199 asked whether the band gate below should RAMP instead of cutting off - a graded reach, full
@@ -252,16 +276,51 @@ const LHOVER = 0.78;                     // a lamp light's authored hover above 
    where a proportional source would be a dark cell with a lamp prop on it. The knobs live here and not
    behind an env var on purpose: a row gated on a knob a human must remember is the failure mode. */
 const TOPUP_BASE = 1.05, TOPUP_TARGET = 32, TOPUP_MINF = 0.5;
-/* #633: two vocabulary words are DELETED here because nothing could spell them. `VB_THRU` was
-   declared and read by nothing while docs/VERTICALITY.md described it as "see it, not climb it" -
-   a see answer no code implemented. `FEAT_RAIL` was declared and authored by nothing, excused by a
-   minimap comment. Both named a behaviour that band edges do not have: every air->air edge today is
-   answered by its HEIGHT ALONE (linkBoundaries' `dq > 1` blocker, the renderer's copied riser clause,
-   and a probe that re-infers the answer at run time), so there is no kind to store yet and no word
-   that can be asserted. A kind the engine can answer is what #633 has to build; until then an
-   unspellable word is how the disagreement survives. */
-const VB_BLOCK = 1, VB_RAMP = 2, VB_LADDER = 4;
-const VB_KEEP = 0x6666;                    // VB_RAMP|VB_LADDER in each of the four side nibbles: the authored bits
+/* #633: what one boundary IS, stored. `VB_THRU` used to occupy nibble bit 8 and was read by nothing;
+   `FEAT_RAIL` was coined and authored by nothing. Both were deleted (PR #673) because an unspellable
+   word is how an undecided concept survives, and the disagreement that issue is about came from
+   answering "what kind of edge is this" three times - the blocker in linkBoundaries, a clause copied
+   into the renderer's wall march, and a probe that infers the answer at run time and then judges
+   identical pixels by different numbers. One kind is now STORED per directed boundary in `MAP.ek`,
+   written only by linkBoundaries, and the two hot consumers read the ANSWER the kind implies instead
+   of re-solving the height: VB_BLOCK is the kind's WALK column and VB_FACE is its DRAWN column. Both
+   are derived bits (absent from VB_KEEP), so a relink that moves a floor re-derives them while the
+   authored RAMP/LADDER nibbles still survive it unchanged. */
+const VB_BLOCK = 1, VB_RAMP = 2, VB_LADDER = 4, VB_FACE = 8;
+const VB_KEEP = 0x6666;      // VB_RAMP|VB_LADDER in each of the four side nibbles: the AUTHORED bits,
+//   the only ones a relink must survive. VB_BLOCK and VB_FACE are derived from the stored kind, so a
+//   relink that moves a floor clears and re-derives them - which is the repo invariant this file keeps.
+/* Six kinds for an air->air edge, plus WALL for a boundary that touches a solid column. STORED ONE-HOT
+   so the two failure modes are arithmetic: 0 = nobody answered, `k & (k-1)` = two answers. RAIl and
+   COVERED have no author yet (see docs/VERTICALITY.md); they exist because the table needs them, and
+   the census prints their population, which is the row that stays at zero until someone authors one. */
+const EK_ROOM = 1, EK_STEP = 2, EK_DROP = 4, EK_RAIL = 8, EK_CLIFF = 16, EK_COVERED = 32, EK_WALL = 64;
+/* The two columns consumers ask for. SEE is not a bit: an edge that blocks and draws nothing is the
+   only way to be invisible-and-solid, and VB_FACE/VB_BLOCK together already say it - so the SEE column
+   lives in the DRAWN column's rule ("if you can walk it, something draws that you can"). */
+const EK_WALK = EK_ROOM | EK_STEP | EK_DROP;              // WALK: your feet go this way
+const EK_FACEQ = EK_STEP | EK_DROP | EK_CLIFF;            // DRAWN: a riser face exists at this crossing
+const EK_NAMES = { 1: 'ROOM', 2: 'STEP', 4: 'DROP', 8: 'RAIL', 16: 'CLIFF', 32: 'COVERED', 64: 'WALL' };
+const ekName = k => EK_NAMES[k] || (k ? 'AMBIGUOUS' : 'NONE');   // the census prints the word, never a bit
+/* The legal MIRROR PAIRS. A crossing is ONE edge with two directed answers, so the pair of kinds has
+   to be a combination this table recognises - and the one asymmetric pair in it, DROP on the high
+   side and CLIFF on the low side, IS the one-way descent the generator authors on purpose
+   (js/20_level.js' pit rule: "dropping into a pit is free, so the only way out is the climb"). WALK
+   is therefore directional and the kind is stored per DIRECTED boundary: a rim that lets you step off
+   it is the same rim that refuses to lift you back up, and saying "one kind per boundary" in the
+   symmetric sense would have to call a pit kerb either walkable both ways (you would climb a two-metre
+   wall) or blocked both ways (falling would stop being a mechanic). What is symmetric, and what the
+   census asserts, is that the pair is legal: an answer invented for one side only shows up here. */
+const EK_PAIRS = { 'ROOM/ROOM': 1, 'STEP/STEP': 1, 'CLIFF/DROP': 1, 'CLIFF/CLIFF': 1,
+  'RAIL/RAIL': 1, 'COVERED/COVERED': 1, 'WALL/WALL': 1 };
+function ekPairOk(a, b) {
+  const x = ekName(a), y = ekName(b);
+  return !!EK_PAIRS[x < y ? x + '/' + y : y + '/' + x];
+}
+const ekPairName = (a, b) => { const x = ekName(a), y = ekName(b); return x < y ? x + '/' + y : y + '/' + x; };
+/* One-hot kind of the crossing that leaves cell (x,y) in direction d. 0 means linkBoundaries never
+   ran on this grid, which is a bug the census row fails on, not an answer. */
+const ekAt = (x, y, d) => MAP.ek[(((y | 0) * MW + (x | 0)) << 2) + (d & 3)];
 const FEAT_NONE = 0, FEAT_STAIR = 1, FEAT_LADDER = 2, FEAT_PIT = 3;
 /* Leaving a cell in direction d steps by (DIRX[d], DIRY[d]); d ^ 2 is the way back in. */
 const DIRX = [1, 0, -1, 0], DIRY = [0, 1, 0, -1];
@@ -275,6 +334,31 @@ const floorAt = (x, y) => {
   if (ix < 0 || iy < 0 || ix >= MW || iy >= MH) return 0;
   return MAP.fz[iy * MW + ix] * ZQ;
 };
+/* Is the descent the feet just took authored as a STEP? #634's airborne test asks this of the level
+   instead of re-solving a height difference, because #633 stores one kind per directed boundary: a
+   stair tread, a ladder and an authored ramp are EK_STEP at BOTH their ends, while the low end of an
+   unauthored lip is EK_CLIFF. So the byte answers the question that used to be answered twice - once
+   in quanta by the generator's blocker and once in metres by the fall - and a stair stopped being a
+   climb to the level and a free fall to the player.
+   The scan is over the neighbours whose floor is at the altitude the feet are LEAVING, which is the
+   deck they just stood on. A cell can be joined to a stair at one edge and to an unauthored lip at
+   another; the crossing the feet took is not carried into this branch (movement happens after the z
+   solve), so the row prints which branch it saw and `view.js vert`'s feet-vs-kind census is what keeps
+   the stored kind and the feet telling the same story. */
+function steppedDownInto(x, y, z) {
+  if (!MAP.ek) return false;                        // no kind store yet: answer as a fall, the old rule
+  const xi = x | 0, yi = y | 0, i = yi * MW + xi;
+  if (MAP.cell[i]) return false;
+  for (let d = 0; d < 4; d++) {
+    const nx = xi + DIRX[d], ny = yi + DIRY[d];
+    if (nx < 0 || ny < 0 || nx >= MW || ny >= MH) continue;
+    const n = ny * MW + nx;
+    if (MAP.cell[n]) continue;
+    if (MAP.fz[n] * ZQ < z - 1e-6) continue;        // not the deck the feet just left
+    if (MAP.ek[(i << 2) + d] === EK_STEP) return true;
+  }
+  return false;
+}
 /* The underside of whatever stands above: the tallest neighbouring floor, but never
    lower than one unit over this column's own. Flat, this is exactly 1. */
 function ceilAt(x, y) {
@@ -444,8 +528,42 @@ function linkedClimb(vbArr, featArr, i, j, d) {
     !!(vbArr[j] & (VB_RAMP | VB_LADDER) << ((d ^ 2) << 2));
 }
 
+/* The "can you get back" test #633 asks for, in the ONE form that is cheap enough to run inside a
+   relink: the connected components of the graph whose edges are the crossings bfsReach already admits -
+   a floor difference within one quantum, or something authored that lets you climb (linkedClimb). Two
+   cells in the same component can trade places on foot without falling, so a drop whose landing cell
+   shares your component is a DROP (you take it, and the way back is authored) while a drop into a
+   different component lands somewhere with no route back and is a CLIFF. This is bfsReach's own
+   crossing rule, so it is not a second opinion about reachability - it is the same rule read as
+   components instead of distances, and it is CONSERVATIVE: a rim over a basin you could only reach by
+   falling further is called a CLIFF even if a longer fall-chain happened to lead back. The law is
+   worth that asymmetry: the player can never walk off a rim into somewhere they cannot leave. */
+function edgeBasins(cellArr) {
+  const n = MW * MH, par = new Int32Array(n).fill(-1);
+  for (let i = 0; i < n; i++) if (!cellArr[i]) par[i] = i;
+  const find = i => { let r = i; while (par[r] !== r) r = par[r]; while (par[i] !== r) { const p = par[i]; par[i] = r; i = p; } return r; };
+  for (let y = 0; y < MH; y++) for (let x = 0; x < MW; x++) {
+    const i = y * MW + x;
+    if (par[i] < 0) continue;
+    for (let d = 0; d < 4; d++) {
+      const nx = x + DIRX[d], ny = y + DIRY[d];
+      if (nx < 0 || ny < 0 || nx >= MW || ny >= MH) continue;
+      const j = ny * MW + nx;
+      if (par[j] < 0 || find(i) === find(j)) continue;
+      if (Math.abs(MAP.fz[j] - MAP.fz[i]) <= 1 || linkedClimb(MAP.vb, MAP.feat, i, j, d)) par[find(j)] = find(i);
+    }
+  }
+  for (let i = 0; i < n; i++) if (par[i] >= 0) par[i] = find(i);      // compacted: equal ids == same basin
+  return par;
+}
+
 function linkBoundaries() {                               // read before one cannot look fresh
   const cell = MAP.cell, fz = MAP.fz;
+  /* The kind store: one byte per DIRECTED boundary, so the two sides of one crossing are two stored
+     answers a probe can demand agree. Sized here because MAP is rebuilt by three paths (authored plan,
+     generator, empty-map stub) and every one of them calls this function next. */
+  if (!MAP.ek || MAP.ek.length !== MW * MH * 4) MAP.ek = new Uint8Array(MW * MH * 4);
+  const ek = MAP.ek;
   let steps = 0;            // does ANY column boundary in this level have a step at it? (#100)
   let tallStep = 0;         // ... or ONLY boundaries taller than one quantum? The two are different
   //   questions and #517 is the cost of asking one of them twice - see the pair of lines below.
@@ -457,9 +575,14 @@ function linkBoundaries() {                               // read before one can
     let bits = 0;
     for (let d = 0; d < 4; d++) {
       const nx = x + DIRX[d], ny = y + DIRY[d];
-      if (nx < 0 || ny < 0 || nx >= MW || ny >= MH) continue;
+      const ei = (i << 2) + d;
+      if (nx < 0 || ny < 0 || nx >= MW || ny >= MH) { ek[ei] = EK_WALL; continue; }
       const n = ny * MW + nx;
-      if (cell[i] || cell[n]) { bits |= VB_BLOCK << (d << 2); continue; }
+      /* A boundary onto a solid column (or off the map) is a WALL: it blocks, it draws the solid
+         face the DDA already paints, and it needs no height rule. Out-of-map crossings still get a
+         kind so the census total is exactly MW*MH*4 - a boundary the census never reached is the
+         same "answered by nobody" bug wearing a bounds check. */
+      if (cell[i] || cell[n]) { bits |= VB_BLOCK << (d << 2); ek[ei] = EK_WALL; continue; }
       const dq = fz[n] - fz[i];
       /* #517 DRAW and BLOCK are two thresholds and one byte carries both. The blocker below keeps
          `dq > 1` - a one-quantum step stays walkable and auto-stepped (#100) - but `steps` gates the
@@ -482,8 +605,42 @@ function linkBoundaries() {                               // read before one can
          overwrites the row's own answer with somebody else's (#163, and `view.js heights` calls it
          CEILING-DEPTH). So `steps` reads the DRAW threshold - any dq - and `tallStep` reads the BLOCK
          threshold, |dq| > 1, exactly what the VB_BLOCK clause below refuses to let you walk through. */
-      if (dq > 1 || dq < -1) tallStep = 1;                // a multi-quantum riser exists, up or down
-      if (dq > 1 && !(MAP.vb[i] & (VB_RAMP | VB_LADDER) << (d << 2))) bits |= VB_BLOCK << (d << 2);
+      if (dq > STEP_Q || dq < -STEP_Q) tallStep = 1;     // a multi-quantum riser exists, up or down
+      /* THE KIND, decided once, here. A crossing something authored a climb over is a STEP in both
+         directions (that is what a stair or a ladder IS); otherwise the height difference alone says
+         ROOM, STEP, CLIFF-up, or - and this is the half that used to be undecided - DROP or CLIFF-down
+         by whether the band below has a way back. RAIl/COVERED are not derived from height at all:
+         they need an author, and nothing authors one yet, which the census prints as a zero row. */
+      const climb = !!(MAP.vb[i] & (VB_RAMP | VB_LADDER) << (d << 2)) ||
+        !!(MAP.vb[n] & (VB_RAMP | VB_LADDER) << ((d ^ 2) << 2)) ||
+        MAP.feat[i] === FEAT_LADDER || MAP.feat[n] === FEAT_LADDER;
+      let kind;
+      /* The ONE number these four lines read is STEP_Q (js/20_level.js, #634): what counts as a step
+         rather than a climb is the same quantity the generator's blocker, the auto-step and the
+         player's fall already read, so the byte stored here cannot disagree with the feet about which
+         crossings are a step. Reading the literal 1 here instead is how a stair came to be a STEP to
+         the level and a DROP to the player (#634). */
+      if (dq === 0) kind = EK_ROOM;
+      else if (dq > STEP_Q) kind = climb ? EK_STEP : EK_CLIFF;   // a rise: a climb over it, or a cliff
+      else if (dq < -STEP_Q) kind = climb ? EK_STEP : EK_DROP;   // a drop you take; the way back is a CENSUS
+      else kind = EK_STEP;                                       // a one-quantum tread, either way
+      ek[ei] = kind;
+      /* The two consumer answers, from the stored kind and nowhere else. WALK reproduces today's rule
+         exactly - only CLIFF blocks, so a rise over one quantum is a wall and a drop of any height is
+         free - which is what makes this change inert on the picture. DRAWN is "a riser face exists":
+         every non-flat kind except a climb, which is precisely the `dq && !(RAMP|LADDER)` clause the
+         renderer used to re-solve for itself.
+         WHY THE DOWNWARD LAW IS A CENSUS AND NOT A BLOCKER YET: edgeBasins says which drops land in a
+         band with no route back, and on every dealt level and on the authored plan that population is
+         zero, so the `vert` census row can demand zero and be seen to fail. Making a no-return DROP a
+         CLIFF here is the same line's next edit, and it is not free: `vert`'s ledge poke and the `drop`
+         probe's pit poke both RAISE a cell and then expect the player to fall into the pocket they
+         made, which is an authored no-return drop - the row goes red on the probe's own geometry before
+         it can say anything about a deal. Those pokes have to be re-authored to leave a way out, and
+         that is the remainder of #633 rather than a line to flip. */
+      const k = ek[ei];
+      if (!(k & EK_WALK)) bits |= VB_BLOCK << (d << 2);
+      if ((k & EK_FACEQ) && !climb) bits |= VB_FACE << (d << 2);
     }
     // blocking is derived from the grid, so a relink must be able to REMOVE it: OR-ing leaves a
     // wall behind when a boundary is lowered or flattened. The authored bits survive via VB_KEEP.
@@ -524,7 +681,13 @@ function canEnter(fx, fy, tx, ty) {
   if (isSolid(tx, ty)) return false;
   if (isSolid(fx, fy)) return true;
   const d = sideFrom(fx, fy, tx, ty);
-  return d < 0 || !(vbAt(fx, fy, d) & VB_BLOCK);
+  /* ONE predicate, and the stored kind is it (#633). An earlier draft of #634 added a rise test here
+     read through STEP_Q; it answered nothing VB_BLOCK did not already answer - a rise past one step
+     with no climb is EK_CLIFF, and EK_CLIFF is exactly the kind that sets VB_BLOCK - and `view.js
+     vert`'s feet-vs-kind census is the row that proves the two answers are the same one. A second
+     predicate for a stored answer is how the two halves get to disagree. */
+  if (d < 0) return true;
+  return !(vbAt(fx, fy, d) & VB_BLOCK);
 }
 
 /* Nearest cell with a walkable floor, by breadth-first search from a starting point:
@@ -1733,6 +1896,63 @@ function addWFix(tex, gx, gy, side, along, zc, hh, hw, dep) {
   if (!DECOR_GRID[ci]) DECOR_GRID[ci] = [];
   DECOR_GRID[ci].push(f); DECOR_MASK[ci] = 1;
 }
+/* THE FREE-STANDING CELL NO FIXTURE PASS COULD SEE (#400, take eleven).
+   Every fixture pass walks the grid that exists WHEN IT RUNS, and `placeWallFixtures` runs before the
+   structure pass below stands its piers. So the one-cell column in the middle of a room - the geometry
+   the issue names by name, and the thing the player walks between - is the only wall in the game that
+   no pass ever looked at: measured at main 76ddb19 `node tools/view.js fixtures` still reads 8 / 8 / 26
+   short face lines carrying nothing on the three dealt sectors, and EVERY one of them is a pier: a solid
+   cell with air on all four sides, under the FIX_RUN_MIN bar, with an empty DECOR list. This pass runs
+   where those columns are authored, after their own `linkBoundaries()`.
+   ONE MOUNT PER AXIS, not per face: `addWFix` keys an x-plane entry at `gx + 0.5` and a y-plane entry at
+   `gy + 0.5`, so a one-cell-thick column has exactly two faces in the DECOR list no matter which side the
+   eye reaches them from, and the wall pass draws that entry on whichever face the ray stops at. A mount
+   therefore dresses both sides of the column, which is why two mounts (one per axis) furnish all four of
+   its faces and the census reads all four as covered.
+   Kind: the level's OBJECT vocabulary - `FIX_EDGE` kinds minus DOOR, because a door frame on a free-
+   standing column is the #403 finding the probe already gates on, and a paint band on a one-cell face is
+   a smudge. Cycled off the cell's own coordinates, so no RNG is read and no roll, prop, lamp, light or
+   enemy moves; a face another fixture already owns is skipped, so this dresses columns that carry nothing
+   and re-plates none that do. */
+function furnishFreeFaces(cfgL) {
+  const objs = (cfgL.fixtures || []).concat(cfgL.purpose || [])
+    .filter(k => WFIX[k] && FIX_EDGE.indexOf(k) >= 0 && k !== 'DOOR');
+  if (!objs.length) return 0;
+  const N = MAP.w, cell = MAP.cell;
+  const openAt = (x, y) => x > 0 && y > 0 && x < N - 1 && y < N - 1 && cell[y * N + x] === 0;
+  let got = 0;
+  for (let y = 1; y < N - 1 && got < 64; y++) for (let x = 1; x < N - 1 && got < 64; x++) {
+    const i = y * N + x;
+    if (!cell[i]) continue;
+    const has = (DECOR_GRID[i] || []);
+    let air = 0;
+    for (let d = 0; d < 4; d++) if (openAt(x + DIRX[d], y + DIRY[d])) air++;
+    if (air < FIX_FREE_AIR) continue;                // a wall corner belongs to the run pass
+    for (let a = 0; a < 2; a++) {
+      /* PER AXIS, NOT PER CELL. `addWFix` keys an x-plane entry at `gx + 0.5` and a y-plane entry at
+         `gy + 0.5`, so one thin column holds TWO independent faces in the DECOR list. A cell that already
+         wears a fixture on one of them still has the other one bare - which is exactly what the L0 seat
+         frame shows, and what a per-cell test would skip. Read the PLANE, which is what the wall pass
+         draws and what the census reads back off. */
+      if (has.some(f => f.side === (a === 0 ? 1 : 2))) continue;
+      let landed = false;
+      for (let s = 0; s < 2 && !landed; s++) {
+        const d = a + s * 2;                         // the axis's two directions
+        const ax = x - DIRX[d], ay = y - DIRY[d];     // the air cell that sees this face
+        if (!openAt(ax, ay)) continue;
+        const z0 = faceZ0(ax, ay, d), z1 = ceilAt(ax + 0.5, ay + 0.5), span = z1 - z0;
+        if (!(span > 0.35)) continue;                // no face here to hang anything on
+        const kind = objs[(x + y) % objs.length];
+        const sp = FIX_SPAN[kind] || FIX_SPAN.RACK;
+        addWFix(WFIX[kind], x, y, DIRX[d] !== 0 ? 0 : 1, DIRX[d] !== 0 ? ay + 0.5 : ax + 0.5,
+          z0 + span * sp[0], Math.max(0.05, span * sp[1] * 0.5), 0.5, FIX_DEP[kind] || 0);
+        landed = true; got++;
+      }
+    }
+  }
+  return got;
+}
+
 function placeWallFixtures(cfgL, seat, ang) {
   const kinds = (cfgL.fixtures || ['PIPE', 'STRIPE', 'VENT']).filter(k => WFIX[k]);
   if (!kinds.length) return;
@@ -2902,9 +3122,54 @@ function buildAuthored(li) {
    per-level opt-out rather than "any authored plan wins", so the hand-authored finale can still be turned by
    the plateau move that is this issue's remaining half. */
 const SEAT_LOOK = 12;                                   // metres: the reach `surface`'s SEAT row grades
+/* #421 HALF THREE - LOOK ALONG THE UNDERSIDE, NOT ONLY AT AN EDGE.
+   The rule below is a NEAREST-FACE rule: it can only reach a bearing that has an air-to-air riser inside
+   SEAT_LOOK. That is right when the deck's lip is the thing worth arriving at, and wrong when it is not,
+   which `surface`'s SEAT rows measure on `main` at this head: on RING TRANSPORT the best of 12 azimuths
+   from the shipped seat paints 8463 underside pixels at 4.71 rad and the shipped heading paints 2787, 13
+   riser faces exist inside the same reach, and NONE of them is within 0.52 rad of that azimuth. The view
+   that shows most of the storey overhead is one with no lip in it at all - a deck running AWAY from the
+   eye, its underside seen along its length - and a nearest-edge rule cannot name it.
+   So ask the generator's own question instead: which bearing FRAMES the most underside? Score a bearing
+   by what the ground pass will paint along it. An underside at distance d answers the screen row
+   f*(z-eye)/d above the horizon, so a RUN of flagged columns from d_near to d_far occupies a band
+   f*(z-eye)*(1/d_near - 1/d_far) tall: looking down the length of a deck (3 m out to 12 m) is seven times
+   the height of looking across one at 9 m (8.5 to 9.5). That difference - not the count of columns inside
+   the frame - is the 8463-vs-2787 the sweep measures. Two proxies were tried and rejected before this one,
+   both on the L1 seat: a projected-area sum over the flagged columns in the frame (1/d^2 each) scored every
+   bearing within 1 % of the shipped heading, so the heading never moved; and a candidate list of the flagged
+   columns that pass `losZ` aimed at the underside plane, which is blind to exactly the view this rule is for
+   - a deck seen along its length lies under the deck's own footprint, whose cell floor IS the underside
+   plane, so `losZ` reports the sight line blocked by a floor it is correctly travelling under, eleven
+   flagged columns became three, and the sweep's 4.71-rad azimuth never entered as a candidate. What is
+   marched instead is depth: seven rays across the frame's own horizontal half-angle (`cfg.plane` is 0.72,
+   so 0.62 rad either side), stepped 1 m to SEAT_LOOK, stopping at solid or where the flag or the overhead
+   height stops.
+   That is compared with the band at the face bearing the pass below found, and the wide view wins ONLY if
+   it beats that by SEAT_WIDE. The margin is the whole design: a heading with a legible edge in it is never
+   traded for a bigger flat sheet, because an underside with no edge in the frame is the defect this issue
+   was filed from, not its fix. Where the face pass finds nothing the sweep answers on its own; where the
+   sweep finds nothing - any FLAT level, where `ceilSlab` is zero everywhere - the face pass answers exactly
+   as it did and the frames stay byte-identical (flatparity). No geometry write, no RNG draw, nothing that
+   touches `vb`/`steps`: this picks a heading, not a level.
+   MEASURED DEAL BY DEAL, because the honest answer is deal-dependent. On the four sectors at `surface`'s
+   own deal the face rule wins wherever a bearing is derived - 1.02x to 1.27x of the best of 16 swept
+   bearings against the 1.5x the margin asks for - so those four arrival frames are byte-identical and
+   `surface`'s SEAT rows print ARCHIVE 2.32, RING -0.63, THE STACK 0.88 before and after this term (ABATOIR
+   CORE authors its bearing and is never consulted). On the sixteen seeded deals `exposure` deals, ONE
+   heading moves: RING TRANSPORT's roll-2 seat ships 0.39 rad where the pass had admitted a face at -0.96,
+   and the swept bearing paints 1803 px of slab underside within 12 m against the face's 962 - the wide view
+   beating an edge by more than the margin, which is exactly the trade the margin exists for. That deal's
+   frame is not the one recorded: `exposure`'s L1 spawn median still reads the recorded 79.70/64.09 at this
+   tree, so a heading moved inside the noise of a four-roll median. What the two clauses below confine is
+   the OTHER way this term can fire - a seat whose sweep answered on a column outside the reach it scores,
+   turning an arrival for a band that paints 0 underside pixels while changing the frame by 20 luma. */
+const SEAT_WIDE = 1.5;                                  // band ratio needed to leave the edge bearing
+const SEAT_SWEEP = 16;                                   // bearings scored, half a frame apart
 function seatFacing(px, py, authored) {
   if (typeof authored === 'number') return authored;    // the level says what you arrive looking at
   const N = MAP.w, cs = MAP.ceilSlab, sf = floorAt(px, py), az = sf + cfg.eye;
+  let faceAng = null;
   for (let wantSoffit = 1; wantSoffit >= 0; wantSoffit--) {
     let bx = 0, by = 0, best = Infinity;
     for (let y = 1; y < MH - 1; y++) for (let x = 1; x < N - 1; x++) {
@@ -2932,9 +3197,61 @@ function seatFacing(px, py, authored) {
         best = dd; bx = fx; by = fy;
       }
     }
-    if (best < Infinity) return Math.atan2(by - py, bx - px);
+    if (best < Infinity) {
+      faceAng = Math.atan2(by - py, bx - px);
+      wantSoffit = -2;                                   // found: do not try the looser pass
+      break;
+    }
   }
-  return 0.6;                                            // nothing in reach: the shipped heading
+  let under = false;
+  if (cs) for (let i = 0, L = cs.length; i < L; i++) if (cs[i] & 1) { under = true; break; }
+  if (under) {
+    const half = Math.atan(cfg.plane);
+    /* An underside at distance d answers the screen row f*(z-eye)/d above the horizon, so a run of flagged
+       columns from d0 to d1 occupies f*(z-eye)*(1/d0 - 1/d1) of screen height. `d` starts at 1 m because
+       closer than that a plane 0.5 m over the eye is off the top of the frame, not on it. */
+    const depth = ang => {
+      let v = 0;
+      for (let k = -3; k <= 3; k++) {
+        const a = ang + k * half / 3, cx = Math.cos(a), cy = Math.sin(a);
+        let d0 = 0, d1 = 0;
+        for (let d = 1; d <= SEAT_LOOK; d += 0.25) {
+          const sx = px + cx * d, sy = py + cy * d;
+          if (sx < 0 || sy < 0 || sx >= N || sy >= N || isSolid(sx, sy)) break;
+          const i = (sy | 0) * N + (sx | 0);
+          // REACH IS THE COLUMN'S, NOT THE RAY'S: a cell the ray enters at 11.7 m has its CENTRE at
+          // 12.4 m, and `surface`'s census (`sCells`) counts a slab column by the distance of its centre.
+          // Scoring the entry point instead let a column the renderer paints past its 12 m reach move an
+          // arrival on a band worth 0 underside pixels, which is how this head red `exposure`'s L1 spawn
+          // row on a deal whose seat had nothing in reach at all.
+          if (Math.hypot((sx | 0) + 0.5 - px, (sy | 0) + 0.5 - py) > SEAT_LOOK) break;
+          const z = MAP.ceilPlane ? MAP.ceilPlane[i] : ceilAt(sx | 0, sy | 0);
+          if (z > az + 0.05 && (cs[i] & 1)) { if (!d0) d0 = d; d1 = d; }
+          else if (d0) break;                            // the underside stopped: the band ends here
+        }
+        if (d0) v += 1 / d0 - 1 / Math.max(d1, d0 + 0.5);
+      }
+      return v;
+    };
+    const faceV = faceAng === null ? 0 : depth(faceAng);
+    let best = faceAng === null ? null : { v: faceV, a: faceAng };
+    for (let k = 0; k < SEAT_SWEEP; k++) {               // a sweep, not a candidate list - see above
+      const a = -Math.PI + k * 2 * Math.PI / SEAT_SWEEP, v = depth(a);
+      if (!best || v > best.v) best = { v, a };
+    }
+    /* The two clauses that decide when the sweep may answer at all.
+       `best.v > 0`: the sweep moved a heading only if it framed an underside at all.
+       The centre test inside `depth`: the REACH BELONGS TO THE COLUMN, NOT TO THE RAY. A cell the march
+       enters at 11.7 m has its CENTRE at 12.4 m, and `surface`'s census counts a slab column by the
+       distance of its centre, so scoring the entry point let a column the renderer paints past its own
+       reach move an arrival. Measured on `exposure`'s RING TRANSPORT roll-3 deal: 26 flagged columns, not
+       one of them within 12 m of the seat, and the unconfined sweep still scored the hairline
+       1/12.25 - 1/12.75, beat a face-less pass by beating zero, and repainted the arrival frame by 20 luma
+       to show 0 px of underside. A rule may not move a frame on a deck it has already called too far away
+       to score. */
+    if (best && best.v > 0 && (faceAng === null || best.v > faceV * SEAT_WIDE)) return best.a;
+  }
+  return faceAng === null ? 0.6 : faceAng;               // nothing in reach: the shipped heading
 }
 
 /* #353: an overlook is only a fight if somebody stands above it. The pairing pass finds the geometry;
@@ -3607,7 +3924,15 @@ function genLevel(li) {
        The gap chosen is the one the arrival view looks THROUGH in the room you wake in - the same ray as
        the candidate rule below - and the room's own centre everywhere else. A face another fixture already
        owns is left alone: this pass adds a doorway, it does not evict a vent. */
-    const frameGap = (r, alongX, pos, inRoom, ang) => {
+    /* WHERE THE OPENING IS. ONE RULE, TWO CUSTOMERS: `tryLine` stands the two JAMBS of this gap as real
+       columns (see the LOW clause below) and `frameGap` paints the frame on their faces. It used to live
+       inside frameGap only, which is why the arrival room's gap could be framed but never stood: a low
+       break is air over a one-quantum tread, so it has no jamb face to paint on and no column to walk
+       past. Returning an INDEX ALONG THE LINE (not a cell) keeps both customers in step, and clamping to
+       the range frameGap scans (1..span-3) means the doorway the line stands is the doorway the frame
+       lands on. For the room you wake in it is the gap the wake ray looks through; elsewhere the room's
+       own centre, which is what the framer already picked. */
+    const gapAt = (r, alongX, pos, inRoom, ang) => {
       const span = alongX ? r.h : r.w, base = alongX ? r.y : r.x;
       let want = (alongX ? r.cy : r.cx) - base;
       if (inRoom) {
@@ -3619,6 +3944,12 @@ function genLevel(li) {
           break;
         }
       }
+      const top = span - 3 > 1 ? span - 3 : 1;
+      return want < 1 ? 1 : (want > top ? top : want);
+    };
+    const frameGap = (r, alongX, pos, inRoom, ang) => {
+      const span = alongX ? r.h : r.w;
+      const want = gapAt(r, alongX, pos, inRoom, ang);
       let best = -1, bestd = 1e9;
       for (let k = 1; k < span - 2; k++) {
         const j1 = alongX ? (r.y + k - 1) * N + pos : pos * N + r.x + k - 1;
@@ -3716,6 +4047,21 @@ function genLevel(li) {
              standing in it, which is both of #631's claims and #505's band at once.
              Authored height, so this still runs after `authorVolume`, still reserves datum/stair/
              feature/shot-run cells, and still needs the `linkBoundaries()` after it (AGENTS.md). */
+          /* THE ARRIVAL BREAK STAYS LOW, AND THAT IS A REAL COST (#631, stated not hidden). The doorway
+             this line names could be FRAMED - `frameGap` paints a jamb frame on a gap between two piers -
+             but a gap in a LOW line has no jamb FACE, because a one-quantum tread is air with a riser, so
+             the frame had nothing to sit on and the arrival room showed a lip in the deck where the issue
+             asks for an opening you walk through. Standing the two flanking cells as real wall fixes that,
+             and it was measured: ARCHIVE's arrival room then deals COL at 14,13 and 16,13 with a real gap
+             at 15,13, and its arrival frame changes to the pixel. It also converts authored HEIGHT into
+             CELLS, which is exactly what `flatparity`'s two flat senses hash - they flatten `MAP.fz` away,
+             so a tread is invisible in them and a wall column is not. That re-keys two recorded reference
+             bytes (L0 PARITY + L0 LOCK), and re-recording a reference is a gate input this cycle was not
+             authorised to touch, so the doorway is NOT shipped here: the arrival room keeps main's low
+             break, and the standing-jamb half is left as the next step WITH its measurement, rather than
+             landed by editing a reference table behind the gate. Everything below this clause still runs:
+             the line is now asked for at the depth the shallow room actually has, so the break lands INSIDE
+             the frame instead of beside it, which is the half of #631 that does not need a new byte. */
           if (low) fzTry[i] = 1; else cell[i] = cfgL.wall2;
           placed++; got++;
         }
@@ -3765,12 +4111,28 @@ function genLevel(li) {
            the line, because the gap is the place you can walk and the claim being made is that the frame
            shows one. Piers stand at r.y + phase + 2k, so a crossing cell is a gap when phase and its index
            differ in parity. */
-        for (let d = PIER_VIEW; d <= PIER_VIEW + 2; d++) {  // 4, then 5, then 6 cells DOWN THE VIEW
+        /* THE DEPTHS, IN ORDER, MEASURED AS RAY TRAVEL. Four, five, six cells down the view, then THREE -
+           and the three is the whole of the shallow-room half of this issue. ARCHIVE SUBLEVEL's arrival
+           room is 9x8 with the derived seat in its middle, facing out along 2.304 rad, so along that view
+           the room runs out 3.4 cells ahead: no row inside the room exists at four cells of travel, the
+           crossing candidates all died on the room's own bounds, and the sweep handed the room to the
+           along-view fallback - which stands a run BESIDE the view, and left the first frame the player
+           ever sees exactly the empty box #631 was filed about. An earlier pass measured that and called
+           it geometry, not a missed candidate. It is a missed candidate: the depth was never asked for.
+           What the near rule was really doing: `Math.abs(pos2 - sc) < PIER_NEAR` measures the floor along
+           the axis the line crosses, and PIER_NEAR is a DISTANCE FROM THE EYE. At 45 deg the two disagree
+           by 1/sin(ang): a row three cells of TRAVEL ahead sits two cells along y, so the axis test threw
+           away the one candidate that fits a shallow room, while accepting an axial room's row at three
+           cells of travel. `d >= PIER_NEAR` is the same promise, measured the way it is stated, and it
+           costs nothing when the view is axial because then d IS the axis distance. */
+        for (let di = 0; di < 4; di++) {
+          const d = di === 3 ? PIER_NEAR : PIER_VIEW + di;  // 4, 5, 6, then 3 cells DOWN THE VIEW
+          if (d < PIER_NEAR) continue;
           const rx = P.x + vx * d, ry = P.y + vy * d;
           const pos2 = Math.floor(crossX ? rx : ry);        // the line stands at the depth the view is at
           const along = Math.floor(crossX ? ry : rx);       // and this is the cell the view looks through
           const kc = along - (crossX ? r.y : r.x);
-          if (pos2 < lo || pos2 > hi || Math.abs(pos2 - sc) < PIER_NEAR || seen(crossX, pos2)) continue;
+          if (pos2 < lo || pos2 > hi || seen(crossX, pos2)) continue;
           cands.push([crossX, pos2, (kc + 1) & 1]);
         }
         /* A ROOM TOO SHALLOW TO BE CROSSED IS BROKEN ALONG THE VIEW INSTEAD. A 9x8 room with the seat in
@@ -3814,6 +4176,9 @@ function genLevel(li) {
     // The grid changed, so the derived bits change with it (AGENTS.md): VB_BLOCK is read from the
     // neighbour grid, and a pier is a new neighbour of four cells.
     if (placed) linkBoundaries();
+    /* #400: and the new cells are walls, so they get furnished here - nowhere else can reach them, see
+       furnishFreeFaces. It writes DECOR only, so it cannot move a boundary, a light or a roll. */
+    if (placed) furnishFreeFaces(cfgL);
 
 
     return true;
