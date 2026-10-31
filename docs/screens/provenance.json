@@ -76,6 +76,7 @@
   {
    "file": "level0-enemies",
    "sha256": "5c59c32375ed130bd955382017218842ef7d08ab0c1651008cedc3a146446228",
+   "replaces": { "rev": "5d08c12", "build": "28a6fa4", "sha256": "2e31af4d9e1ee35306ba2d0a1b6b401dc384b513ff4adbf823d269703a36a1a1", "mean": 58.6140 },
    "canvas": "1440x763",
    "origin": "https",
    "install": "url-open",
@@ -92,6 +93,7 @@
   {
    "file": "level0-facing-wall",
    "sha256": "7955ea1769c869035ac633fb66d10af92ad697f5386868e3e4055d514ff8c98f",
+   "replaces": { "rev": "5d08c12", "build": "28a6fa4", "sha256": "67638bcc08030a9305eae750077b29f04d7bc3d5195709d5912844e4478de505", "mean": 67.4275 },
    "canvas": "1440x763",
    "origin": "https",
    "install": "url-open",
@@ -108,6 +110,7 @@
   {
    "file": "level0-pitfloor",
    "sha256": "7d781d4ddac8a5f9797348b66ab983cb2b9fdbe75ee0fdafa5a9e4d7db2e3b2f",
+   "replaces": { "rev": "5d08c12", "build": "28a6fa4", "sha256": "8cc9dce3db704eb0611d3282bc8e22da1a20457d7e6a028f13f3fbf91a5f187f", "mean": 54.5231 },
    "canvas": "1440x763",
    "origin": "https",
    "install": "url-open",
@@ -124,6 +127,7 @@
   {
    "file": "level0-props",
    "sha256": "23aa42a47dde3dc2b9e6df18c18b6417ce375264ab6b20c552283935e3ae231d",
+   "replaces": { "rev": "5d08c12", "build": "28a6fa4", "sha256": "96032b2229f161eadec7d0bb0e427d01582ac081c0bfc680f01564824ba2b606", "mean": 46.0307 },
    "canvas": "1440x763",
    "origin": "https",
    "install": "url-open",
@@ -140,6 +144,7 @@
   {
    "file": "level0-spawn",
    "sha256": "98dc8c4708e9483179fcbe2caad93b1b627b6dcec37427b6fe2f7802f29fe318",
+   "replaces": { "rev": "5d08c12", "build": "28a6fa4", "sha256": "5eadd0cdd25f365c4e8d7f8ab1ed60d46dc0a91b55588dd2b4d961e312b8826c", "mean": 58.6669 },
    "canvas": "1440x763",
    "origin": "https",
    "install": "url-open",
@@ -156,6 +161,7 @@
   {
    "file": "level2-abatoir",
    "sha256": "dda15e247d3f2f28553f39230218711162f6928c2e6a2ce62a8ea436e54753ed",
+   "replaces": { "rev": "5d08c12", "build": "28a6fa4", "sha256": "674995b81eb56fc8e52d84378a8a14a27fd04931f6a3c8328dc6c19988bb353f", "mean": 71.3423 },
    "canvas": "1440x763",
    "origin": "https",
    "install": "url-open",
@@ -172,6 +178,7 @@
   {
    "file": "level2-abatoir-ceiling",
    "sha256": "e70331fa05799bd1c8c96b4b71c6df29f4c8ea1332b4e06c7afa473148e8a4e2",
+   "replaces": { "rev": "5d08c12", "build": "28a6fa4", "sha256": "47b1c87601d0809176f553751c4581d0140b4bfac790c9bde92543640c2e8de1", "mean": 76.5932 },
    "canvas": "1440x763",
    "origin": "https",
    "install": "url-open",
@@ -188,6 +195,7 @@
   {
    "file": "level3-stack",
    "sha256": "10196ca867546a530a16381b3a3df9c4a55e4909ab315a62c7725e2bc8b39f5e",
+   "replaces": { "rev": "5d08c12", "build": "28a6fa4", "sha256": "7de538cf16a1b5831b6acab9cfcd7a79d5c0259b8205a1c14d6ff0c72908d968", "mean": 57.2979 },
    "canvas": "1440x763",
    "origin": "https",
    "install": "url-open",
