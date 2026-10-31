@@ -211,6 +211,13 @@ let exitX = 0, exitY = 0, explored = null, bfsDist = null;   // read by an asser
    list must be rebuilt by the attempt that ships - it is reset at the top of authorVolume for exactly
    that reason. The placement pass below reads it to garrison the mezzanine. */
 let overlookPairs = [];
+/* #709: the cells the #421 hall-deck growth pass raised, in the order it raised them, as cell indices.
+   A module global for the same reason as the list above - genLevel RETRIES the layout and the list must
+   belong to the attempt that ships, so it is reset at the top of authorVolume. It exists because the
+   growth pass runs inside authorVolume, BEFORE any fixture is placed, so the one thing its score cannot
+   see (does a lamp stand on the band it just raised?) is only knowable after the lamp pass has run; the
+   give-back pass near the end of genLevel reads this list and nothing else. */
+let grownDeck = [];
 /* #154: metres of clear ground the prop passes keep off the spawn seat. A `let` rather than a literal
    so a probe can A/B it the way it reassigns topUpEnabled and groundPixel (`SPAWN_CLEAR = 0` is the
    shipped behaviour, no clearance), and so smoke's spawn-clearance row can name what it moved.
@@ -1130,6 +1137,7 @@ function authorVolume(cell, N, rooms, fz, vb, feat, cz) {
   const d0 = reach();
   const authored = [];
   overlookPairs = [];                       // #353: the retry loop above must not inherit the last attempt
+  grownDeck = [];                           // #709: same reason - the give-back pass reads the shipped attempt
 
   /* ---- feature 1: rooms you can stand up in ------------------------------
      FIRST, before any floor has been stepped - and that ordering is the #282 fix. TALL ROOM used to run
@@ -1428,7 +1436,7 @@ function authorVolume(cell, N, rooms, fz, vb, feat, cz) {
     let hall = true;
     for (let y = spawnR.y, k = 0; y < spawnR.y + spawnR.h && hall; y++)
       for (let x = spawnR.x; x < spawnR.x + spawnR.w; x++, k++) if (fz[y * N + x] !== hz[k]) { hall = false; break; }
-    if (grew.length && hall) authored.push('hallDeck:' + grew.length);
+    if (grew.length && hall) { authored.push('hallDeck:' + grew.length); grownDeck = grew.slice(); }
     else rewind(cpL);
   }
 
@@ -3838,6 +3846,79 @@ function genLevel(li) {
     // `seat` is the #154 seat, chosen before any pass that draws, so the entry fitting is deterministic
     // and draws no RNG of its own.
     placeCeilFixtures(cfgL, seat[0], seat[1]);
+    /* ---- #709 THE DECK STOPS WHERE THE LIGHT DOES -----------------------------------------------
+       The growth pass (feature 2b) raises floor it cannot score: it runs inside `authorVolume`, and the
+       lamp loop BELOW this line places the first fixture of the deal, so at the moment a cell is chosen
+       there is no lamp position, no lightmap and no band coverage to score it against. The cost of that
+       ordering is measured, not suspected: over the 12 gated dice `alt`'s L0 dark-ground share goes
+       1.6 -> 2.3 % and its attribution 92.9 -> 72.2 %, because 44 of the 158 dark cells are grown floor
+       with no source standing on their band - a slab beside the seat that reads as a black shelf, which
+       is the opposite of the criterion the deck exists to serve.
+       So the choice is finished here, once the information exists: give back - return to the datum -
+       every cell this level's growth pass raised whose OWN band no fixture reaches, in reverse growth
+       order so the deck shortens from its far edge inward. "Its own band" is the shipped kernel's own
+       predicate, not a restatement of it: `lightBand` for the source's floor and one quantum either way
+       (the band term in `splatLight`), and the source's own disc radius for reach, so the deck keeps
+       exactly the cells a lamp would have lit had it been raised and loses exactly the ones it would not.
+       THREE THINGS THIS MAY NOT DO, each tested rather than assumed:
+         * it may not strand a cell. The give-back is kept only if nothing that was reachable becomes
+           unreachable AND every still-raised grown cell is still reachable, both read off a fresh
+           `bfsReach` from the same seed genLevel gated the deal on. A deck with a hole punched in the
+           middle is a plateau the stair no longer reaches.
+         * it may not dig a pit. The given-back cell has to be reachable in the NEW search too: a cell
+           handed back at the bottom of the deck is a one-metre pocket you can drop into and not climb
+           out of, which is a navigation defect wearing a lighting fix.
+         * it may not move a light. Nothing here writes `LIGHTS`, a lamp's `r`, `str` or `col`, `amb` or
+           a tint - it reads their positions and writes `fz` only, and it runs BEFORE the splat loop so
+           the lightmap is baked once from the grid the player finally stands on. The `flatparity` LOCK
+           delivered-light clause is the census that says so.
+       Writing `MAP.fz` means calling `linkBoundaries()` (AGENTS.md), and a cell handed back is byte-for-
+       byte the cell main dealt: same floor, and therefore same derived boundary bits. A level that grew
+       nowhere runs no cells through this loop, and an authored plan has an empty list, so THE STACK and
+       every deal that could not grow are untouched. No random number is drawn. */
+    const DECK_LIT = 0.05;   // the darkness line the dark-cell counters use - see OWN_MIN's note above
+    if (grownDeck.length) {
+      const raised = new Uint8Array(N * N);
+      for (const i of grownDeck) raised[i] = 1;
+      const bs = rooms[0].cy * N + rooms[0].cx;                 // the same seed the deal was gated on
+      const reachNow = () => bfsReach(MAP.cell, MAP.fz, N, bs, MAP.vb, MAP.feat);
+      /* Direct light read through the SHIPPED kernel on a scratch map that is swapped out and back
+         exactly as found - the same device the coverage top-up pass above uses for its own `ownMaps`, for
+         the same reason: restating the disc here is how this rule would drift from the one the renderer
+         pays. FIVE arrays, not one aliased buffer: `splatLight` ADDS into all five, so a single shared
+         buffer would make the number read below the sum of light, colour channels and weight. Measured
+         that mistake rather than reasoning about it - one buffer and five agree on L0 and L1 over the
+         gated dice (136 dark of 6872, 92 of them covered, both ways) and differ by 2 cells on L2
+         (507 against 509), which is the size of the error here and no reason to keep arithmetic that is
+         wrong on its face. The pre-blur direct term is the right thing to author against, which is the
+         top-up pass's own argument and the reason a datum pool cannot buy a deck cell: blurLight carries
+         light across a lip, so counting delivered light would let the floor below stand in for a lamp on
+         the deck. */
+      const SC = [new Float32Array(N * N), new Float32Array(N * N), new Float32Array(N * N),
+        new Float32Array(N * N), new Float32Array(N * N)];
+      const litHere = i => {
+        const keep = [MAP.light, MAP.lR, MAP.lG, MAP.lB, MAP.lw];
+        for (const a of SC) a.fill(0);
+        MAP.light = SC[0]; MAP.lR = SC[1]; MAP.lG = SC[2]; MAP.lB = SC[3]; MAP.lw = SC[4];
+        for (const L of LIGHTS) splatLight(L, L.str);
+        MAP.light = keep[0]; MAP.lR = keep[1]; MAP.lG = keep[2]; MAP.lB = keep[3]; MAP.lw = keep[4];
+        return SC[0][i];
+      };
+      let dk = reachNow(), gave = 0;
+      for (let k = grownDeck.length - 1; k >= 0; k--) {
+        const i = grownDeck[k];
+        if (litHere(i) >= DECK_LIT) continue;                   // the deck stays where the light stops
+        const was = MAP.fz[i];
+        MAP.fz[i] = 0; linkBoundaries();
+        const d1 = reachNow();
+        let ok = d1[i] >= 0;                                    // not a pit, and nothing lost...
+        for (let j = 0; ok && j < N * N; j++) if (dk[j] >= 0 && d1[j] < 0) ok = false;
+        for (let j = 0; ok && j < grownDeck.length; j++) if (raised[grownDeck[j]] && d1[grownDeck[j]] < 0) ok = false;
+        if (ok) { raised[i] = 0; dk = d1; gave++; }
+        else { MAP.fz[i] = was; linkBoundaries(); }
+      }
+      if (gave) MAP.deckGive = gave;                             // census only: a probe reads it off MAP
+    }
     // lightmap splat, then a smoothing pass and the per-cell tint
     for (const L of LIGHTS) splatLight(L, L.str);
     blurLight(); floorLampField(); buildTint();   // #199: the floor AFTER the blur, which replaces the array
