@@ -2806,6 +2806,12 @@ function topUpEnabled() { return true; }
    runs the deal without it and the overlook rows are seen to fail. A row that has never been seen to
    fail has not been tested (AGENTS.md). */
 function overlookEnabled() { return true; }
+/* #353's deck-light pass, in the same idiom as the two above and for the reason review asked for: the
+   deck row's falsifier named the AUTHORS (OVERLOOK=off removes the pair, so the row goes red for want of
+   a pair, not for want of a lamp). ONE call site so `DECKLIGHT=off node tools/view.js alt` builds the SAME
+   rooms, bands, pairs, props and bodies and drops only the lamp standing on the deck - the picture
+   A/B that says the row is load-bearing on LIGHT. Unset, it is `return true` and moves no byte. */
+function deckLightEnabled() { return true; }
 /* #413's ceiling fittings, in the same idiom as the two above: ONE call site, so
    `LAMPS=off node tools/view.js flatparity` builds a level with NO generator-added fill light and
    flatparity's PARITY sense stays a COUNTERFACTUAL rather than becoming a second picture. The row's
@@ -3302,6 +3308,92 @@ function seatFacing(px, py, authored) {
    the placement it had.
    The cell it moves to is reachable by construction: the pairing pass required both cells of the pair
    to answer `d0[i] >= 0`, so this cannot strand a body the occupancy gate is counting. */
+/* #353's SECOND half: an overlook whose deck is dark is a mezzanine you can shoot into but not see.
+   A light reaches a column only if that column's floor is within one quantum of the SOURCE's own floor
+   (the band term in splatLight, #203/#206), so a raised band carries light only from a source that
+   STANDS on it - and both the lamp budget and the coverage top-up rank by floor AREA, so a two-cell lip
+   loses every contest. Measured on the CI deal, 1 / 4 / 8 of the three generated levels' overlook decks
+   read DARK (`alt`'s census, THE STACK's reads lit because its plan authors the lamp by hand).
+
+   This places the source the area ranking cannot, on the deck of every overlook the pairing pass
+   authored, and ONLY where that deck is still dark. Three things it has to get right:
+   - it STATES its floor in `band` (the #413 shape) instead of deriving it from `z - LHOVER`. floorAt is
+     bilinear, so on a cell that touches a riser the derived floor is not the deck's quantum; a plain
+     lamp at deck floor + LHOVER lights the deck AND turns the wrong-band census on level 0 from 0 to 2
+     cells, because the source claims a band one hover above the deck it stands on.
+   - it carries `noglow`. This is the measured half. drawLightGlow admits a disc by the SURFACE's band
+     (#206/#221) by sampling a disc's area, and a deck is one or two cells wide: a disc centred on a lip
+     put 0.074 of its alpha on a surface that is not its band against the 0.05 this file has gated since
+     #221, where main reads 0.009. That is #221's defect worn by a mezzanine lamp instead of a pit lamp.
+     The deck's floor is what has to be lit - the bloom is what costs - so this source splats into the
+     lightmap and is skipped by the glow pass. The fixture BODY that would make the source visible is
+     the next increment: a prop is a footprint, and this cycle ships no footprint it cannot validate.
+   - it draws NO RNG and runs after every pass that does, so the rooms, props and bodies are exactly the
+     ones the seed dealt; only the light is new. "Dark" is the SHIPPED kernel's answer on a scratch
+     lightmap (arrays swapped out and back, never cleared), pre-blur, at the top-up's OWN_MIN: counting
+     DELIVERED light would let a datum lamp carried over the lip by blurLight answer for a lamp standing
+     on the deck, which is the defect this pass exists to fix (#204 states the rule for the top-up).
+   Switched by `overlookEnabled()` along with the pairing pass: with the pairing off there is no pair,
+   no source, and `alt`'s deck row goes red for want of a pair rather than for want of a lamp. */
+const OVL_LAMP_R = 3.6;                        // a lip is 1-8 cells: a hall-sized disc is what costs
+function lightOverlookDecks(cfgL) {
+  /* topUpEnabled() is the knob LAMPS=off flips in tools/view.js, and this pass sits under it because the
+     control has to mean "no lamp this project chose to place". Measured ungated: flatparity's PARITY
+     record - the build before lamps, 2c5a94f - moved on L0 and L1, and the gap row that attributes the
+     shipped-vs-knob-off light delta to "the top-up lamps and nothing else" went red, because a rule
+     outside the knob appends a lamp to BOTH lists at different indices. Gated, PARITY is main's again on
+     all four levels and only the shipped senses (LOCK/DEALT) move. */
+  if (!overlookEnabled() || !deckLightEnabled() || !topUpEnabled() || !overlookPairs.length) return 0;
+  const N = MAP.w, cell = MAP.cell, fz = MAP.fz;
+  const OWN_MIN = 0.25;                        // :3009's "a floor that is actually LIT", not a new bar
+  const SC = [new Float32Array(N * N), new Float32Array(N * N), new Float32Array(N * N),
+    new Float32Array(N * N), new Float32Array(N * N)];
+  const keep = [MAP.light, MAP.lR, MAP.lG, MAP.lB, MAP.lw];
+  let placed = 0;
+  for (const p of overlookPairs) {
+    if (cell[p[1]]) continue;
+    const fl = fz[p[1]] * ZQ;
+    for (const a of SC) a.fill(0);
+    MAP.light = SC[0]; MAP.lR = SC[1]; MAP.lG = SC[2]; MAP.lB = SC[3]; MAP.lw = SC[4];
+    for (const L of LIGHTS) if (Math.abs(lightBand(L) - fl) <= ZQ + 1e-9) splatLight(L, L.str);
+    const own = MAP.light[p[1]];                        // what the deck's OWN band already delivers it
+    MAP.light = keep[0]; MAP.lR = keep[1]; MAP.lG = keep[2]; MAP.lB = keep[3]; MAP.lw = keep[4];
+    if (own >= OWN_MIN) continue;                       // the deal already garrisons this deck with light
+    // Strength by the deck band's own area - the #213 rule the authored lamps and the coverage top-up
+    // both use - and the cell of that band nearest the lip that nothing else stands in, so the source is
+    // at the edge the overlook is about rather than across the deck.
+    const order = [];
+    { const seen = new Uint8Array(N * N), st = [p[1]];
+      seen[p[1]] = 1;
+      while (st.length) {
+        const c = st.pop(); order.push(c); const cx = c % N, cy = (c / N) | 0;
+        for (let d = 0; d < 4; d++) {
+          const nx = cx + DIRX[d], ny = cy + DIRY[d];
+          if (nx < 0 || ny < 0 || nx >= N || ny >= N) continue;
+          const ni = ny * N + nx;
+          if (seen[ni] || cell[ni] || fz[ni] !== fz[p[1]]) continue;
+          seen[ni] = 1; st.push(ni);
+        } }
+    }
+    const jx = (p[1] % N) + 0.5, jy = ((p[1] / N) | 0) + 0.5;
+    let at = -1, best = Infinity;
+    for (const c of order) {
+      const cx = (c % N) + 0.5, cy = ((c / N) | 0) + 0.5, d = Math.hypot(cx - jx, cy - jy);
+      if (d >= best) continue;
+      if (!PROPS.every(q => Math.hypot(q.x - cx, q.y - cy) > 0.6)) continue;
+      if (!ENEMIES.every(q => Math.hypot(q.x - cx, q.y - cy) > 0.6)) continue;
+      at = c; best = d;
+    }
+    if (at < 0) continue;                               // every cell of the lip is taken: leave it be
+    const x = (at % N) + 0.5, y = ((at / N) | 0) + 0.5;
+    const tsc = Math.min(0.6, Math.max(TOPUP_MINF, order.length / TOPUP_TARGET));
+    LIGHTS.push({ x: x, y: y, z: fl + LHOVER, band: fl, r: OVL_LAMP_R, str: TOPUP_BASE * tsc,
+      col: cfgL.lampCol, stat: 1, ovl: 1, noglow: 1 });
+    placed++;
+  }
+  return placed;
+}
+
 function authorOverlooked(dist) {
   if (!overlookPairs.length || !ENEMIES.length) return;
   const N = MAP.w;
@@ -3802,6 +3894,11 @@ function genLevel(li) {
     }
     // #353: an overlook nobody stands above is scenery. See authorOverlooked below.
     authorOverlooked(dist);
+    // #353's second half: an overlook nobody can SEE is scenery too. Runs after the props and bodies so
+    // it takes a cell of the deck nothing occupies, and before the splat loop so it bakes like a lamp.
+    // The AUTHORED path needs no call: the pairing pass never runs on a plan, so `overlookPairs` is empty
+    // there, and THE STACK's one deck already reads lit from the lamp its plan authors by hand.
+    lightOverlookDecks(cfgL);
     // #413: hung before the splat loop below, so a ceiling source bakes into MAP.light like a lamp.
     // `seat` is the #154 seat, chosen before any pass that draws, so the entry fitting is deterministic
     // and draws no RNG of its own.
