@@ -11854,6 +11854,21 @@ if (MODE === 'anim') {
     }
     return { cov, n, top, bot };
   }
+  /* The BODY'S OWN delivered pixels, for the long-range corpse row: COV is stamped by the mesh's
+     own pixel writes and only when the draw is a body (js/13_mesh.js:1668), and only after the
+     depth test, so this is the silhouette the deck has not yet eaten - never the scuff, the dust or
+     a body-caused light term, every one of which a `body frame minus enemy-free frame` mask drops. */
+  function bodyMask(s) {
+    const cov = new Uint8Array(N); let n = 0, top = H, bot = -1, lef = W, rig = -1;
+    if (s.cov) for (let i = 0; i < N; i++) if (s.cov[i] === 1) {
+      cov[i] = 1; n++;
+      const y = (i / W) | 0, x = i - y * W;
+      if (y < top) top = y; if (y > bot) bot = y; if (x < lef) lef = x; if (x > rig) rig = x;
+    }
+    let sig = 2166136261;
+    for (let i = 0; i < N; i++) sig = Math.imul(sig ^ cov[i], 16777619);
+    return { cov, n, top: bot < 0 ? -1 : top, bot, w: n ? rig - lef + 1 : 0, sig: sig >>> 0 };
+  }
   function cmp(s0, m, s1) {
     let n = 0, sum = 0;
     for (let i = 0; i < N; i++) {
@@ -12077,6 +12092,87 @@ if (MODE === 'anim') {
       ? ps.poseEntries + ' cached vertex sets, ' + ps.poseMB + ' MB' + (ps.capMB ? ' of ' + ps.capMB.toFixed(2) + ' MB cap' : '') +
         ' (this is what amortizes the rebuild)'
       : 'none - so geometry is rebuilt per enemy per frame'));
+
+    /* ---- #688 clause 1 AT RANGE: does a body still read as GOING DOWN at the far end of the
+       longest clear sight line this seat can find? ------------------------------------
+       Every corpse row above places its body at 1.3-1.9 m, where a 0.34 m sink is dozens of
+       pixels. #688 asks for the look at ~14 m as well as at 6, and at range the same sink is a few
+       pixels of travel, so "it settles" has been true only at the distance nobody stands at. This
+       leg asks it of the picture the player gets when he clears a room and walks toward the last
+       body: the open cell with the LONGEST clear sight line (this ray search is not capped at 7 m
+       the way CAMCELL's is, because this row wants a horizon rather than a close body), one body,
+       at the farthest point along that bearing that is open, on the player's own floor band and
+       clear the whole way (window.__bandSpot backs off until all three hold, and returns the
+       metres it actually used, which is the number the row prints).
+
+       THE MASK IS COV, NOT A RENDER DIFFERENCE, and that is what makes the row answer the question.
+       maskOf above is `body frame minus enemy-free frame`, so anything a body CAUSES in the room -
+       the scuff it drops, a contact patch, light that stops answering because a torso is in front
+       of it - cancels out of the oracle, and a still body can look like a moving one. COV is
+       stamped by the mesh's own pixel writes and ONLY for a body draw (js/13_mesh.js:1668,
+       CTAG = BODY ? 1 : 0), AFTER `if (occ < z) continue`, so it is the body's DELIVERED
+       silhouette: fewer pixels as the deck eats a sinking torso, and nothing else. A body that does
+       not move cannot move this mask, and dust cannot either - which matters because this probe
+       sets dieT directly and never runs the live landing path (corpseLand, js/30_entities.js:620),
+       so there is no dust in these frames at all and nothing in the mask but geometry.
+
+       NO THRESHOLD. The verdict is byte-identity of that mask between adjacent samples: four times
+       across the settle window, 0.25 s apart, and every one must be a different picture. That is
+       #688's clause 1 ("never frozen for more than about a quarter of a second") read literally at
+       the distance that makes it hardest. It is red on main by construction: `die` is bucketed
+       (js/13_mesh.js PB.die = 6) and past bucket 5 no vertex set exists to move, and main carries
+       no settle term, so all four frames there are the same vertices at the same z. */
+    {
+      const CPMAX = 24;                    // the sight-line search: CAMCELL's own is capped at 7 m
+      const FARCAM = `(()=>{
+        const cs=[];for(let y=2;y<MH-2;y++)for(let x=2;x<MW-2;x++)if(!isSolid(x+.5,y+.5))cs.push([x,y]);
+        let bc=cs[0],bcv=-1;
+        for(const c of cs){let m=0;for(let k=0;k<12;k++){const d=castRayDist(c[0]+.5,c[1]+.5,Math.cos(k*TAU/12),Math.sin(k*TAU/12),${CPMAX}).dist;if(d>m)m=d;}if(m>bcv){bcv=m;bc=c;}}
+        let best=0,bm=-1;
+        for(let k=0;k<96;k++){const a=k*TAU/96,d=castRayDist(bc[0]+.5,bc[1]+.5,Math.cos(a),Math.sin(a),${CPMAX}).dist;if(d>bm){bm=d;best=a;}}
+        P.x=bc[0]+.5;P.y=bc[1]+.5;P.ang=best;P.pitch=0;P.z=floorAt(P.x,P.y);
+        return {cell:bc,ray:+bm.toFixed(2)};
+      })()`;
+      const TARGET = 14;                                  // #688's second look distance, in metres
+      const CPL = run('typeof CORPSE !== "undefined" ? CORPSE.life : 3.8');
+      const FDT = [0.6, 0.85, 1.1, 1.35].filter(t => t < CPL - 0.05);
+      /* The far end of the LONGEST sight line is not automatically a place a body can be JUDGED
+         from. The longest line is usually down a corridor or through a doorway, and a body at its
+         far end can be 2 px of torso past a jamb - measured at this head, level 1 delivers 2 px at
+         14 m and level 3 delivers none at all. So the leg walks that SAME bearing back and keeps the
+         FARTHEST point whose silhouette has a shape to judge: that is "use the most the level
+         offers", in the form the ask named, with the metres printed on the row. FARPX is a
+         JUDGEABILITY floor - the same kind of floor as MASKMIN above, and for the same reason: a
+         two-pixel body can be "different" four times and still be nothing to look at. It is the
+         only number in the row; the verdict itself is byte-identity, which no floor can tune. */
+      const FARPX = 60;
+      const fpl = run(FARCAM);
+      const ftry = [];
+      for (let t = Math.min(TARGET, fpl.ray - 0.5); t >= 4; t -= 2) ftry.push(+t.toFixed(2));
+      const far = (t) => run(`(()=>{const s=window.__bandSpot(${t});ENEMIES.length=0;` +
+        `const e=makeEnemy('${KIND}',s[0],s[1]);${PIN}e.state='dead';e.vx=e.vy=e.svx=e.svy=0;e.lean=0;e.stagger=0;` +
+        `e.dieAng=Math.atan2(P.y-e.y,P.x-e.x)+0.7;e.dieT=${FDT[0]};ENEMIES.push(e);return +s[2].toFixed(2)})()`);
+      let fdist = ftry[0], fn = 0;
+      for (const t of ftry) { fdist = far(t); fn = bodyMask(shot()).n; if (fn >= FARPX) break; }
+      const fs = [];
+      for (const t of FDT) {
+        run('ENEMIES[0].dieT=' + t + ';');
+        fs.push({ t, m: bodyMask(shot()) });
+      }
+      const frozen = [];
+      for (let i = 1; i < fs.length; i++) if (fs[i].m.sig === fs[i - 1].m.sig) frozen.push(fs[i - 1].t + '-' + fs[i].t);
+      const farOk = fn >= FARPX && fs.length > 1 && !frozen.length;
+      if (!farOk) bad++;
+      console.log('  corpse @ range ' + (fn < FARPX ? 'NO JUDGEABLE BODY AT RANGE - ' + fn + ' px delivered at ' +
+        fdist + ' m after trying ' + ftry.join('/') + ' m, so the row cannot pass'
+        : fs.length + ' samples ' + FDT[0] + '-' + FDT[FDT.length - 1] + ' s at ' + fdist + ' m: ' +
+          fs.map(z => z.m.n + 'px').join(' -> ') + '   top row ' + fs.map(z => z.m.top).join(' ') +
+          '   width ' + fs.map(z => z.m.w).join(' ') + '   ' +
+          (farOk ? 'MOVES - every 0.25 s is a different picture' : 'IDENTICAL - frozen ' + frozen.join(', ') + ' s at range')) +
+        '   COV mask, sight line ' + fpl.ray + ' m from cell ' + fpl.cell + ' (target ' + TARGET +
+        ' m, judgeability floor ' + FARPX + ' px)');
+      run('ENEMIES.length=0;');
+    }
   }
   /* ---- #74: are the parts ATTACHED? ------------------------------------------------------
      The same mask as the rows above, read DOWN a column instead of across it: between the run of
