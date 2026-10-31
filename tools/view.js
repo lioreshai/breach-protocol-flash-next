@@ -3170,16 +3170,19 @@ const SHIP = refRecord('flatparity', 'LOCK', 'md5', ['b6554cf3d68c0907a96d325bbd
      at a sector's spawn seat, `exposure`'s SPAWN row carries the move and the evidence for it. No threshold, dice,
      seat, tolerance or vacuity floor moved; the dealt GEOMETRY census is main's to the cell. */
   
-  /* #655 (the torso seam re-key, see PARITY above), MEASURED in the same run: only the L0 dealt byte moves -
-     the level-0 DEALT_SEATS camera is the one dealt sight line with a body in it, and L1/L2/L3 come back to
-     the SAME bytes in the same run, which is the scope control: a body repaint, at one camera, with the
-     generator untouched. DEALT-ORDER reproduces defaa9a3 ALONE in its own process AND IN LEVEL ORDER, so the
-     byte is still the level and not the roster. THE ROW'S ORACLES ARE UNTOUCHED: 168 / 247 / 315 / 141
-     off-datum open cells of 568 / 897 / 1141 / 256 at the row's own dice, and DEALT-VACUOUS 203088 /
-     203130 / 203137 / 202834 px of 203138 against its 4,096 px floor. No threshold, bound, dice, seat or
-     vacuity clause moved; DEALTM's digits are this run's printings. */
+  /* #655 (the torso seam re-key, see PARITY above), MEASURED on THIS MERGED TREE with main's #515 step term
+      merged in. The four bytes are a UNION of the two parents' moves, which is the cleanest scope control this
+      row could ask for: L0 carries #655's byte (the level-0 DEALT_SEATS camera is the one dealt sight line with
+      a body in it), L3 carries MAIN's byte from #515 (a step face at that seat, no body), and L1/L2 are the
+      shared ancestor's to the digest, so neither change reaches a frame at those two cameras. Every level's
+      printed MEAN holds to the tenth across both parents - 59.1 / 74.2 / 89.6 / 52.4 - so both moves are paint
+      under an unchanged field. DEALT-ORDER reproduces defaa9a3 ALONE in its own process AND IN LEVEL ORDER, so
+      the byte is still the level and not the roster. THE ROW'S ORACLES ARE UNTOUCHED: 168 / 247 / 315 / 141
+      off-datum open cells of 568 / 897 / 1141 / 256 at the row's own dice, and DEALT-VACUOUS 203088 / 203130 /
+      203137 / 202834 px of 203138 against its 4,096 px floor. No threshold, bound, dice, seat or vacuity clause
+      moved; the table came from `node tools/view.js refs --record` on THIS tree, not from either parent. */
   
-  const DEALT = refRecord('flatparity', 'DEALT', 'md5', ['799164b88ec440eb1167c83a118676da', '2d8a9a50ac1947528acc00d3d44addc8', 'd964d6eb9199ecebdc35693d2e9b4637', 'cfd7b35f4bca3e1d74f2a6e0e53d189a'])
+  const DEALT = refRecord('flatparity', 'DEALT', 'md5', ['defaa9a38df281c6a6fd471e0fafa447', '2d8a9a50ac1947528acc00d3d44addc8', 'd964d6eb9199ecebdc35693d2e9b4637', 'cfd7b35f4bca3e1d74f2a6e0e53d189a'])
     /* #632 REWORK TAKE THREE (the halved hip yaw, see PARITY above), MEASURED on this tree: all four dealt frames
        re-key, DEALT-ORDER hashes each new value alone in its own process AND in level order and both senses agree on
        all four, and the dealt GEOMETRY census - the part of this row that describes the WORLD - comes back 168 / 247
