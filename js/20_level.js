@@ -211,6 +211,10 @@ let exitX = 0, exitY = 0, explored = null, bfsDist = null;   // read by an asser
    list must be rebuilt by the attempt that ships - it is reset at the top of authorVolume for exactly
    that reason. The placement pass below reads it to garrison the mezzanine. */
 let overlookPairs = [];
+/* #421 THE PLACEMENT CENSUS, one record per deal: what each of feature 2's eight candidate regions would
+   have put over the arrival room, scored before any of them is committed. `surface`'s SEAT-PLACE row reads
+   it; nothing in the renderer does. Null until a level is generated. */
+let bandCand = null;
 /* #154: metres of clear ground the prop passes keep off the spawn seat. A `let` rather than a literal
    so a probe can A/B it the way it reassigns topUpEnabled and groundPixel (`SPAWN_CLEAR = 0` is the
    shipped behaviour, no clearance), and so smoke's spawn-clearance row can name what it moved.
@@ -1277,6 +1281,11 @@ function authorVolume(cell, N, rooms, fz, vb, feat, cz) {
      the shipped one back: this term can change WHICH plateau rises, never WHETHER the level has one,
      and it authors no new geometry rule and no new paint. */
   const SEAT_REACH = 12;                  // metres = cells: the reach `surface`'s SEAT row scores within
+  /* The range a one-quantum underside can still project into. A BAND_UP deck puts its soffit one unit over
+     the datum, so the band it throws above the horizon is (underside - eye) / distance: at 12 m that is a
+     couple of rows, at 4 m it is thousands. `surface`'s SEAT-RANGE row calls the same horizon SEATNEAR and
+     measures it from the frame; this is the authoring side asking the same question of the candidate set. */
+  const SEAT_NEAR = 6;
   const N2 = N >> 1;
   const rects = [];
   for (const q of [[0, 0], [1, 0], [0, 1], [1, 1]]) rects.push({
@@ -1301,11 +1310,17 @@ function authorVolume(cell, N, rooms, fz, vb, feat, cz) {
      reaches - read off the mask because the band is not authored yet, and over the spawn room's own
      cells too: they are the floor the player is standing on, the band may not cover them but it CAN
      overhang them, which is the whole point. Derived off heights and clearance only, so it cannot
-     disturb `vb`/`steps`, and it reads nothing the movement code writes. */
-  const overSeat = sel => {
+     disturb `vb`/`steps`, and it reads nothing the movement code writes.
+     THE SECOND ARGUMENT IS THE MEASURE, NOT A LABEL. Review of `27a43ba` found the first version of this
+     function taking one parameter while the placement record called `overSeat(m, SEAT_NEAR)`: both loop
+     bounds read `SEAT_REACH`, so `near` was the reach count copied and every candidate printed `X/X`. A
+     range argument that the bounds ignore is the same bug as a format string with no argument. The default
+     is `SEAT_REACH`, which is what the two ranking call sites want and what they got before. */
+  const overSeat = (sel, range) => {
+    const RR = range === undefined ? SEAT_REACH : range;
     let n = 0;
-    for (let y = Math.max(1, spawnR.cy - SEAT_REACH); y <= Math.min(N - 2, spawnR.cy + SEAT_REACH); y++)
-      for (let x = Math.max(1, spawnR.cx - SEAT_REACH); x <= Math.min(N - 2, spawnR.cx + SEAT_REACH); x++) {
+    for (let y = Math.max(1, spawnR.cy - RR); y <= Math.min(N - 2, spawnR.cy + RR); y++)
+      for (let x = Math.max(1, spawnR.cx - RR); x <= Math.min(N - 2, spawnR.cx + RR); x++) {
         const i = y * N + x;
         if (sel[i] || cell[i]) continue;                       // no air, or THIS band is under its feet
         const own = fz[i] * ZQ + Math.max(ZQ, cz[i] * ZQ);
@@ -1342,16 +1357,39 @@ function authorVolume(cell, N, rooms, fz, vb, feat, cz) {
     return null;
   };
   let selBand = pickBand(ranked);
+  /* #421 WHAT THE CANDIDATE SET COULD HAVE PUT NEAR THE SEAT, on the record (#421, cycle 17). The eight
+     candidates are four quadrants and four half-planes, so every seam this feature can author is a line
+     through the MAP CENTRE: a seat in a corner or deep in a quadrant can never have a deck near it, at any
+     ranking, and `SEAT-RANGE`'s "nearest 12.0 m" cannot tell that case apart from one where a different
+     rect would have put a flagged column inside the 6 m a one-quantum soffit needs to project. The table
+     below scores all eight on the grid feature 2 has not touched and hands it to `surface`'s SEAT-PLACE
+     row. It reads heights and clearance only, writes no geometry, and sets no `vb`/`steps` bit, so every
+     frame after it is the frame it was before; `bandCand` is a plain record, not an input to anything. */
+  bandCand = rects.map(r => {
+    const m = maskOf(r), c = { tag: r.tag, n: 0, reach: 0, near: 0 };
+    for (let y = r.y0; y <= r.y1; y++) for (let x = r.x0; x <= r.x1; x++)
+      if (!cell[y * N + x] && fz[y * N + x] === 0 && !flat[y * N + x] && !inSpawn(x, y)) c.n++;
+    c.reach = overSeat(m); c.near = overSeat(m, SEAT_NEAR);
+    return c;
+  });
   if (selBand && overSeat(selBand) === 0) {
+    /* Score the candidates on the grid feature 2 did NOT touch. `maskOf` skips any cell whose `fz` is
+       nonzero, so scoring while the shipped pick is still committed measures each candidate with the
+       shipped band's cells punched out of it - and `pickBand`, after the rewind below, then commits the
+       FULL rect. Measured on the variant that inherited that mismatch: ARCHIVE SUBLEVEL lost 1545 soffit
+       px (2384 -> 859) and ABATOIR CORE's deck left the arrival reach altogether (14 in-reach columns ->
+       0), which turned its vacuity FAIL into an ok reporting a WORSE deal. On the four dealt seats the
+     fallback never fires, so this rewind changes no pixel there; it makes the fallback honest where it
+     does. */
+    rewind(cpBand);
     const byReach = ranked.map(c => ({ c, v: overSeat(maskOf(c.r)) })).filter(o => o.v > 0)
       .sort((a, b) => b.v - a.v || b.c.r.quad - a.c.r.quad || b.c.n - a.c.n ||
         a.c.r.tag.localeCompare(b.c.r.tag));
     if (byReach.length) {
-      rewind(cpBand);
       selBand = pickBand(byReach.map(o => o.c));
       if (selBand) bandTag += '+seat';                 // the census term is on the record in the tag
-      else { rewind(cpBand); pickBand(ranked); }        // a preference, never a veto: keep the shipped band
-    }
+      else { rewind(cpBand); pickBand(ranked); }       // a preference, never a veto: keep the shipped band
+    } else { rewind(cpBand); pickBand(ranked); }
   }
   if (bandTag) authored.push('raisedSide:' + bandTag);
   else rewind(cpBand);
@@ -3375,6 +3413,12 @@ function authorOverlooked(dist) {
 }
 
 function genLevel(li) {
+  /* #421 THE PLACEMENT RECORD IS PER LEVEL, not per volume pass. `bandCand` is only assigned inside
+     `authorVolume`, and an authored plan returns from `buildAuthored` before that pass runs, so leaving the
+     previous level's table in place let `surface`'s SEAT-PLACE row print ABATOIR CORE's candidate table as
+     THE STACK's own - a 400-cell grid reporting a region of 826 owned cells. An authored sector now has no
+     record, which the row reads as its own vacuity FAILURE rather than as a prediction it did not make. */
+  bandCand = null;
   const cfgL = LEVELS[li];
   /* An authored plan is data, so it is validated rather than hoped for: if the layers disagree the
      loader says so loudly and the generator's own path still ships a playable level, and `alt`'s
