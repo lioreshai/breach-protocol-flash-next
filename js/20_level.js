@@ -211,6 +211,10 @@ let exitX = 0, exitY = 0, explored = null, bfsDist = null;   // read by an asser
    list must be rebuilt by the attempt that ships - it is reset at the top of authorVolume for exactly
    that reason. The placement pass below reads it to garrison the mezzanine. */
 let overlookPairs = [];
+/* #421 THE PLACEMENT CENSUS, one record per deal: what each of feature 2's eight candidate regions would
+   have put over the arrival room, scored before any of them is committed. `surface`'s SEAT-PLACE row reads
+   it; nothing in the renderer does. Null until a level is generated. */
+let bandCand = null;
 /* #154: metres of clear ground the prop passes keep off the spawn seat. A `let` rather than a literal
    so a probe can A/B it the way it reassigns topUpEnabled and groundPixel (`SPAWN_CLEAR = 0` is the
    shipped behaviour, no clearance), and so smoke's spawn-clearance row can name what it moved.
@@ -1277,6 +1281,11 @@ function authorVolume(cell, N, rooms, fz, vb, feat, cz) {
      the shipped one back: this term can change WHICH plateau rises, never WHETHER the level has one,
      and it authors no new geometry rule and no new paint. */
   const SEAT_REACH = 12;                  // metres = cells: the reach `surface`'s SEAT row scores within
+  /* The range a one-quantum underside can still project into. A BAND_UP deck puts its soffit one unit over
+     the datum, so the band it throws above the horizon is (underside - eye) / distance: at 12 m that is a
+     couple of rows, at 4 m it is thousands. `surface`'s SEAT-RANGE row calls the same horizon SEATNEAR and
+     measures it from the frame; this is the authoring side asking the same question of the candidate set. */
+  const SEAT_NEAR = 6;
   const N2 = N >> 1;
   const rects = [];
   for (const q of [[0, 0], [1, 0], [0, 1], [1, 1]]) rects.push({
@@ -1301,11 +1310,17 @@ function authorVolume(cell, N, rooms, fz, vb, feat, cz) {
      reaches - read off the mask because the band is not authored yet, and over the spawn room's own
      cells too: they are the floor the player is standing on, the band may not cover them but it CAN
      overhang them, which is the whole point. Derived off heights and clearance only, so it cannot
-     disturb `vb`/`steps`, and it reads nothing the movement code writes. */
-  const overSeat = sel => {
+     disturb `vb`/`steps`, and it reads nothing the movement code writes.
+     THE SECOND ARGUMENT IS THE MEASURE, NOT A LABEL. Review of `27a43ba` found the first version of this
+     function taking one parameter while the placement record called `overSeat(m, SEAT_NEAR)`: both loop
+     bounds read `SEAT_REACH`, so `near` was the reach count copied and every candidate printed `X/X`. A
+     range argument that the bounds ignore is the same bug as a format string with no argument. The default
+     is `SEAT_REACH`, which is what the two ranking call sites want and what they got before. */
+  const overSeat = (sel, range) => {
+    const RR = range === undefined ? SEAT_REACH : range;
     let n = 0;
-    for (let y = Math.max(1, spawnR.cy - SEAT_REACH); y <= Math.min(N - 2, spawnR.cy + SEAT_REACH); y++)
-      for (let x = Math.max(1, spawnR.cx - SEAT_REACH); x <= Math.min(N - 2, spawnR.cx + SEAT_REACH); x++) {
+    for (let y = Math.max(1, spawnR.cy - RR); y <= Math.min(N - 2, spawnR.cy + RR); y++)
+      for (let x = Math.max(1, spawnR.cx - RR); x <= Math.min(N - 2, spawnR.cx + RR); x++) {
         const i = y * N + x;
         if (sel[i] || cell[i]) continue;                       // no air, or THIS band is under its feet
         const own = fz[i] * ZQ + Math.max(ZQ, cz[i] * ZQ);
@@ -1342,16 +1357,39 @@ function authorVolume(cell, N, rooms, fz, vb, feat, cz) {
     return null;
   };
   let selBand = pickBand(ranked);
+  /* #421 WHAT THE CANDIDATE SET COULD HAVE PUT NEAR THE SEAT, on the record (#421, cycle 17). The eight
+     candidates are four quadrants and four half-planes, so every seam this feature can author is a line
+     through the MAP CENTRE: a seat in a corner or deep in a quadrant can never have a deck near it, at any
+     ranking, and `SEAT-RANGE`'s "nearest 12.0 m" cannot tell that case apart from one where a different
+     rect would have put a flagged column inside the 6 m a one-quantum soffit needs to project. The table
+     below scores all eight on the grid feature 2 has not touched and hands it to `surface`'s SEAT-PLACE
+     row. It reads heights and clearance only, writes no geometry, and sets no `vb`/`steps` bit, so every
+     frame after it is the frame it was before; `bandCand` is a plain record, not an input to anything. */
+  bandCand = rects.map(r => {
+    const m = maskOf(r), c = { tag: r.tag, n: 0, reach: 0, near: 0 };
+    for (let y = r.y0; y <= r.y1; y++) for (let x = r.x0; x <= r.x1; x++)
+      if (!cell[y * N + x] && fz[y * N + x] === 0 && !flat[y * N + x] && !inSpawn(x, y)) c.n++;
+    c.reach = overSeat(m); c.near = overSeat(m, SEAT_NEAR);
+    return c;
+  });
   if (selBand && overSeat(selBand) === 0) {
+    /* Score the candidates on the grid feature 2 did NOT touch. `maskOf` skips any cell whose `fz` is
+       nonzero, so scoring while the shipped pick is still committed measures each candidate with the
+       shipped band's cells punched out of it - and `pickBand`, after the rewind below, then commits the
+       FULL rect. Measured on the variant that inherited that mismatch: ARCHIVE SUBLEVEL lost 1545 soffit
+       px (2384 -> 859) and ABATOIR CORE's deck left the arrival reach altogether (14 in-reach columns ->
+       0), which turned its vacuity FAIL into an ok reporting a WORSE deal. On the four dealt seats the
+     fallback never fires, so this rewind changes no pixel there; it makes the fallback honest where it
+     does. */
+    rewind(cpBand);
     const byReach = ranked.map(c => ({ c, v: overSeat(maskOf(c.r)) })).filter(o => o.v > 0)
       .sort((a, b) => b.v - a.v || b.c.r.quad - a.c.r.quad || b.c.n - a.c.n ||
         a.c.r.tag.localeCompare(b.c.r.tag));
     if (byReach.length) {
-      rewind(cpBand);
       selBand = pickBand(byReach.map(o => o.c));
       if (selBand) bandTag += '+seat';                 // the census term is on the record in the tag
-      else { rewind(cpBand); pickBand(ranked); }        // a preference, never a veto: keep the shipped band
-    }
+      else { rewind(cpBand); pickBand(ranked); }       // a preference, never a veto: keep the shipped band
+    } else { rewind(cpBand); pickBand(ranked); }
   }
   if (bandTag) authored.push('raisedSide:' + bandTag);
   else rewind(cpBand);
@@ -2768,6 +2806,10 @@ function topUpEnabled() { return true; }
    runs the deal without it and the overlook rows are seen to fail. A row that has never been seen to
    fail has not been tested (AGENTS.md). */
 function overlookEnabled() { return true; }
+/* #631's interior-column pass, in the same idiom as the two above: ONE call site, so
+   `PIER=off node tools/view.js surface|scene` deals the level with the rooms but not the columns and
+   `surface`'s ROOF row becomes a measurement rather than a reading of one arm (#665). */
+function pierEnabled() { return true; }
 /* #413's ceiling fittings, in the same idiom as the two above: ONE call site, so
    `LAMPS=off node tools/view.js flatparity` builds a level with NO generator-added fill light and
    flatparity's PARITY sense stays a COUNTERFACTUAL rather than becoming a second picture. The row's
@@ -3283,6 +3325,12 @@ function authorOverlooked(dist) {
 }
 
 function genLevel(li) {
+  /* #421 THE PLACEMENT RECORD IS PER LEVEL, not per volume pass. `bandCand` is only assigned inside
+     `authorVolume`, and an authored plan returns from `buildAuthored` before that pass runs, so leaving the
+     previous level's table in place let `surface`'s SEAT-PLACE row print ABATOIR CORE's candidate table as
+     THE STACK's own - a 400-cell grid reporting a region of 826 owned cells. An authored sector now has no
+     record, which the row reads as its own vacuity FAILURE rather than as a prediction it did not make. */
+  bandCand = null;
   const cfgL = LEVELS[li];
   /* An authored plan is data, so it is validated rather than hoped for: if the layers disagree the
      loader says so loudly and the generator's own path still ships a playable level, and `alt`'s
@@ -3924,26 +3972,49 @@ function genLevel(li) {
        The gap chosen is the one the arrival view looks THROUGH in the room you wake in - the same ray as
        the candidate rule below - and the room's own centre everywhere else. A face another fixture already
        owns is left alone: this pass adds a doorway, it does not evict a vent. */
-    /* WHERE THE OPENING IS. ONE RULE, TWO CUSTOMERS: `tryLine` stands the two JAMBS of this gap as real
-       columns (see the LOW clause below) and `frameGap` paints the frame on their faces. It used to live
-       inside frameGap only, which is why the arrival room's gap could be framed but never stood: a low
-       break is air over a one-quantum tread, so it has no jamb face to paint on and no column to walk
-       past. Returning an INDEX ALONG THE LINE (not a cell) keeps both customers in step, and clamping to
-       the range frameGap scans (1..span-3) means the doorway the line stands is the doorway the frame
-       lands on. For the room you wake in it is the gap the wake ray looks through; elsewhere the room's
-       own centre, which is what the framer already picked. */
+    /* WHERE THE OPENING IS. ONE RULE, THREE CUSTOMERS: the PHASE that decides which cells of a line are
+       piers and which are gaps, `tryLine` (which stands the cells the phase picks), and `frameGap` (which
+       paints a door frame on one gap). The rule used to live inside frameGap only, which is why the arrival
+       room's gap could be framed but never stood: a low break is air over a one-quantum tread, so it has
+       no jamb face to paint on and no column to walk past. Returning an INDEX ALONG THE LINE (not a cell)
+       is what lets the three be served by ONE answer: `frameGap` takes `gapIndex`'s clamped value below,
+       and a CROSSING candidate's phase is the parity of the same ray point (see the PHASE clause on the
+       candidate loop), so the cell the frame is painted on is the cell the line calls its opening. An
+       ALONG-view candidate's phase still comes from the room's ordinal - inert while no jamb face exists,
+       and named where it is pushed for the step that stands them. For the room you wake in the opening is
+       the cell the wake view reaches; elsewhere the room's own centre, which is what the framer picked. */
+    /* THE INDEX ALONG THE LINE THE ARRIVAL VIEW REACHES, or -1 when the view never gets there.
+       THE QUESTION IS ABOUT THE LINE, NOT ABOUT THE VIEW. A line either CROSSES the view (it is constant
+       on the axis the frame looks down: `alongX === onX`) or runs ALONG it (`alongX !== onX`), and the two
+       need different questions asked of the same ray:
+
+       - CROSSING: the opening is the cell the ray walks THROUGH, so the index is where the ray reaches the
+         line's own coordinate. This is the scan the rule has always made, unchanged.
+       - ALONG: a row that runs beside the view is never reached by the view's own ray, so scanning for a
+         crossing asks the wrong question - and the old code asked exactly that, comparing a coordinate on
+         the OTHER axis against `pos`, so it matched nothing (the caller then fell back to the room's own
+         centre, i.e. a gap chosen by where the room happens to sit) or matched by accident. A row standing
+         alongside the view breaks the bay as well as one crossing it; what it could not do was say WHERE
+         ITS OPENING IS. It is now the cell PIER_VIEW down the view - the depth the crossing pass already
+         answers at - so both orientations name their opening from the seat instead of from where the room
+         happens to sit (#631: "no doorway you can see yourself walking through"). This NAMES a cell; it
+         stands nothing - the clause at the `fzTry`/`cell` write says what this head actually ships. */
+    const gapIndex = (r, alongX, pos, ang) => {
+      const vx = Math.cos(ang), vy = Math.sin(ang), onX = Math.abs(vx) >= Math.abs(vy);
+      const base = alongX ? r.y : r.x;
+      const pa = alongX ? P.x : P.y, va = alongX ? vx : vy;    // the axis the line is CONSTANT on
+      const pb = alongX ? P.y : P.x, vb = alongX ? vy : vx;    // the axis the line RUNS ALONG
+      if (alongX === onX) {                                    // crossing: where the ray reaches it
+        for (let d = PIER_NEAR; d <= PIER_VIEW + 3; d++)
+          if (Math.floor(pa + va * d) === pos) return Math.floor(pb + vb * d) - base;
+        return -1;
+      }
+      return Math.floor(pb + vb * PIER_VIEW) - base;           // alongside: the cell ahead of the eye
+    };
     const gapAt = (r, alongX, pos, inRoom, ang) => {
       const span = alongX ? r.h : r.w, base = alongX ? r.y : r.x;
       let want = (alongX ? r.cy : r.cx) - base;
-      if (inRoom) {
-        const vx = Math.cos(ang), vy = Math.sin(ang), onX = Math.abs(vx) >= Math.abs(vy);
-        for (let d = PIER_NEAR; d <= PIER_VIEW + 3; d++) {
-          const cross = Math.floor(onX ? P.x + vx * d : P.y + vy * d);
-          if (cross !== pos) continue;
-          want = Math.floor(onX ? P.y + vy * d : P.x + vx * d) - base;
-          break;
-        }
-      }
+      if (inRoom) { const w = gapIndex(r, alongX, pos, ang); if (w >= 0) want = w; }
       const top = span - 3 > 1 ? span - 3 : 1;
       return want < 1 ? 1 : (want > top ? top : want);
     };
@@ -3990,6 +4061,14 @@ function genLevel(li) {
        - then the positions beside it, nearest first, on the same (longer) axis;
        - then, only when the longer axis is spent all the way across, the shorter one. A run of columns
          standing ALONG a view still breaks one bay into two, which is the claim being made. */
+    /* `pierEnabled()` is the A/B knob in the same idiom as `overlookEnabled()` and the lamp top-up:
+       ONE call site, so `PIER=off node tools/view.js surface` deals the same rooms, the same lights and
+       the same seed with NO pier anywhere in the level, and the ROOF row can be SEEN to move rather
+       than argued about (#665: the row crossed its regression floor when this pass landed, and the only
+       way to tell a census that changed SET from a ceiling that lost LIGHT is to deal the level both
+       ways in one tree). It draws no RNG and guards nothing else, so with it true - the shipped case -
+       the deal is the deal it was. */
+    if (pierEnabled())
     for (let ri = 0; ri < rooms.length; ri++) {
       const r = rooms[ri];
       if (r.w * r.h < 24) continue;                        // a 5x5 room is already one bay; give it nothing
@@ -4062,7 +4141,22 @@ function genLevel(li) {
              landed by editing a reference table behind the gate. Everything below this clause still runs:
              the line is now asked for at the depth the shallow room actually has, so the break lands INSIDE
              the frame instead of beside it, which is the half of #631 that does not need a new byte. */
-          if (low) fzTry[i] = 1; else cell[i] = cfgL.wall2;
+          /* WHAT THIS WRITES IN THE ARRIVAL ROOM, AND WHAT IT DOES NOT (#631). In a `low` line the `else`
+             never runs, so an arrival room gains NO wall cell: the break stays the one-quantum tread the
+             clause above authors, which is main's shipped behaviour word for word. That is why all four
+             arrival renders off this head are byte-identical to main and why `fixtures` still reads
+             `DOOR on a continuing passage 0` in every sector - `frameGap` has no jamb FACE to paint on, so
+             the doorway the issue asks for is not delivered here. What DID change at this call site is
+             WHICH cell `i` is: the line asks for its gap at the depth the arrival view actually reaches
+             (`gapIndex`), so in a room too shallow to be crossed the break lands inside the first frame
+             instead of beside it. Standing the two cells that flank that gap is the NEXT step and was
+             measured before being left out - at every depth, cladding and orientation tried it costs the
+             ABATOIR CORE arrival frame five lumas and puts L2's spawn median at 76.0, outside #505's 35-75
+             band (figures on #631); it also converts authored HEIGHT into CELLS, which `flatparity`'s flat
+             senses cannot see in a tread and do see in a column, so it would re-key the L0 PARITY and L0
+             LOCK references. No reference is re-recorded by this head because no byte moves. */
+          if (low) fzTry[i] = 1;
+          else cell[i] = cfgL.wall2;
           placed++; got++;
         }
         return got;
@@ -4145,6 +4239,9 @@ function genLevel(li) {
         for (let off = PIER_NEAR; off <= PIER_NEAR + 2; off++) for (let s = 0; s < 2; s++) {
           const pos2 = perp + (s ? off : -off);
           if (pos2 < plo || pos2 > phi || seen(!crossX, pos2)) continue;
+          // PHASE STILL FROM THE ROOM'S ORDINAL, unlike the crossing push above. Inert while the arrival
+          // break is a tread (no jamb face to frame); once the jambs stand, a gap `gapIndex` prefers can
+          // share a pier's parity and `frameGap` settles one cell aside - owe this term a `gapIndex` read.
           cands.push([!crossX, pos2, 1 + (ri & 1)]);
         }
       }

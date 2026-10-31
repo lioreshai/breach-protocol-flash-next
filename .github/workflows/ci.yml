@@ -52,7 +52,10 @@ jobs:
           # fetch below is a best effort and is reported, not assumed: an earlier revision of this
           # step ran under set -e, so a fetch the runner's partial clone rejected failed the step
           # without printing anything at all. --branch names a release PR's own unmade tag, which
-          # docs/RELEASE.md cuts after the merge.
+          # docs/RELEASE.md cuts after the merge. GITHUB_HEAD_REF is empty on a push event, so a
+          # push to release/vX.Y.Z has to name the ref actually pushed or the checker is told this
+          # is no release branch at all - which reds a correct release branch and holds the release
+          # itself, and every branch waiting on its cadence row (#635).
           git fetch --quiet --tags --force origin && fetch_status=0 || fetch_status=$?
           tags=$(git tag --list | wc -l)
           shallow=no && [ -f .git/shallow ] && shallow=yes
@@ -69,7 +72,7 @@ jobs:
           fi
           echo "reviewing commit $head (GITHUB_SHA=$GITHUB_SHA, event=$GITHUB_EVENT_NAME)"
           python3 tools/check_identity.py --release --repo "${GITHUB_REPOSITORY:-}" \
-            --branch "${GITHUB_HEAD_REF:-}" "$head"
+            --branch "${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}" "$head"
 
       - name: README keeps deployed screenshots
         run: |
@@ -143,7 +146,10 @@ jobs:
           # before the probes it audits.
           # What a developer runs locally is the same parse: `node tools/roster.js` replays every
           # blocking invocation below in order and prints one verdict line plus an exit code per
-          # invocation, continuing past failures and exiting non-zero iff any failed.
+          # invocation, continuing past failures and exiting non-zero iff any failed. It also replays
+          # the modes named by the probes job's `for p in ...` loop (#662): that step ends `exit
+          # $status`, so a red probe makes it exit 1 whatever the job's continue-on-error says, and a
+          # roster that read only the job label left eight of nine modes unreplayed.
           node tools/roster.js --list
 
       - name: Probe gates (deterministic verdicts, must stay green)

@@ -70,6 +70,27 @@ let SEAM = 1, SEAMD = 0.62, SEAMU = 0.13, SEAMW = 0.16, SEAMC = 0.22;
    that authors one, so `accC` below is null everywhere else and the term costs a falsy check. Tune the
    height by looking at `view.js scene 1 0`; the dose it must land in is on issue #466. */
 let RISER_ACC_H = 0.12, RISER_ACC_F = 0.45;
+/* #515 THE STEP FACE IS NOT THE TREAD. A flight that draws every one of its faces can still read as one
+   low band with a hard top edge, because the light field is ONE VALUE PER COLUMN taken at a band and it
+   says nothing about which way the surface points: a 0.25 m riser and the tread above it are joined by
+   the same lamp and delivered the same luma, so the eye gets a kerb with a shadow behind it rather than a
+   climb (#515's judgement frame, docs/reviews/515-stair-seat-read.md).
+   The term is an ORIENTATION term, not a second light source — the architecture rule (one value per
+   column, no lightmap) stays. The field this game delivers comes down from lamps above the floor band, so
+   a horizontal up-facing tread catches it and a vertical face standing in it catches less of it. Every
+   other face already carries that asymmetry: the `(side === 1 ? 0.78 : 1)` axis term below is the same
+   argument applied to a wall's facing. A step face carried nothing, because on a stair the two surfaces
+   are 25 cm apart and IN the frame together — a wall's axis bias is a whole-room effect and never shows
+   up beside the surface it is being compared to.
+   It is paid on the STEP face only — the boundary's stored kind (#633) has to read EK_STEP — so a drop
+   face, a cliff face and every wall in the game are byte-identical, and so is every flat level (`
+   MAP.steps` is 0, so the step branch runs nowhere). A ladder or an authored ramp link is EK_STEP too but
+   carries no VB_FACE, so it has no face to shade and stays where it was.
+   STEP_LT is the multiply, and it is small on purpose: the separation is an EDGE between two surfaces 25 cm
+   apart, and a big dose turns the flight into a zebra, which is the same defect louder. `DEV.set('stepface',
+   0)` is the A/B — it is the same frame with the term off, and `view.js bands`' STEP FACE row is measured
+   against that control rather than against a taste threshold. */
+let STEP_LT = 0.62;
 /* #369 THE CEILING JUNCTION, and it is a BAND, not a bulk value.
 
    `surface`'s SEAM row measures, per column, the eight ceiling rows just above the row where the
@@ -3172,6 +3193,7 @@ function seamCrease(x, t, zA, zB, amp, dir, deckLit, yCap) {
 function castWalls(flash, fcR, fcG, fcB) {
   const cellArr = MAP.cell, N = MAP.w, lm = MAP.light, cp = MAP.ceilPlane;
   const fzs = MAP.fz, vbs = MAP.vb, doStep = MAP.steps ? 1 : 0;      // #100: 0 on every flat level
+  const eka = doStep ? MAP.ek : null;                    // #515: the step face's orientation term reads the STORED kind
   MAP.riserStops = 0;                                            // asserted by view.js cull
   const stepBase = 2 / BW;
   const flR = S.flashCol[0] / 255, flG = S.flashCol[1] / 255, flB = S.flashCol[2] / 255;
@@ -3199,7 +3221,7 @@ function castWalls(flash, fcR, fcG, fcB) {
     let stepX, stepY, sdx, sdy, side = 0;
     if (rdx < 0) { stepX = -1; sdx = (camX - mx) * ddx; } else { stepX = 1; sdx = (mx + 1 - camX) * ddx; }
     if (rdy < 0) { stepY = -1; sdy = (camY - my) * ddy; } else { stepY = 1; sdy = (my + 1 - camY) * ddy; }
-    let tv = 0, guard = 0, riser = 0, rz0 = 0, rz1 = 1, rze = 0, rzf = 1, rzn = -1;
+    let tv = 0, guard = 0, riser = 0, rz0 = 0, rz1 = 1, rze = 0, rzf = 1, rzn = -1, stepFace = 0;
     /* #466: the accent band for THIS column, as a screen row and its reciprocal. Both stay at the
        "no band" values on every ordinary wall face and on every level that authors no accent, so an
        ordinary wall pixel pays one `y <= accY` compare against -1 and nothing else. */
@@ -3276,6 +3298,11 @@ function castWalls(flash, fcR, fcG, fcB) {
           const ry1 = fhi * ZQ, ry0 = flo * ZQ;
           if (horizon + (eyeZ - ry1) * rh > BH - 1) continue;
           riser = 1; rz0 = ry0; rz1 = ry1; rzn = fzs[pi] * ZQ; MAP.riserStops++; tv = riserTex;   // #518: the level's family, not CONCRETE
+          /* #515: a STEP face gets the orientation term below. The kind is READ, not re-derived from the
+             height difference - the same rule #633 installed for draw-vs-block, and for the same reason:
+             a copy of the height test would be a second answer. `pi` is the cell the ray CAME FROM and `d`
+             the way it was travelling, which is exactly how linkBoundaries indexes `ek`. */
+          stepFace = eka && eka[(pi << 2) + d] === EK_STEP ? 1 : 0;
           /* rze/rzf are the same two floors sorted by WHICH SIDE THE RAY CAME FROM rather than by
              height - the crease belongs at the lip the player is standing at, and on a step down
              that is the higher of the two (#195). rz0/rz1 keep sorting by height: the face's span
@@ -3339,6 +3366,12 @@ function castWalls(flash, fcR, fcG, fcB) {
     const fall = Math.exp(-perp * 0.16);
     const fk = flashK0 * Math.exp(-perp * 0.30);
     let li = (Math.max(lit, litFront * 0.85) * fall + AMB + (riser ? 0 : WALLB)) * (side === 1 ? 0.78 : 1);
+    /* #515: the step face's orientation term, and it is on the WHOLE of the face's light, ambient included.
+       It is not on the lamp half alone because that would be dead where the defect is: THE STACK authors
+       `lamps: 0`, so at the judgement frame the deck's luma IS its ambient plus its bias and a multiply on
+       the lamp term moves nothing. The claim being made is about the field, not about a lamp - a surface
+       that stands in the field rather than facing it catches less of it, whatever the field is made of. */
+    if (stepFace) li *= STEP_LT;
     if (li > 1) li = 1;
     const lr = AMB + (li * lt[0] + fk * flR) * 1.05, lg = AMB + (li * lt[1] + fk * flG) * 1.05, lb = AMB + (li * lt[2] + fk * flB) * 1.05;
 

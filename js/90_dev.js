@@ -267,6 +267,7 @@
     if (name === 'farvoid') { FARVOID = value === undefined ? 1 : (value ? 1 : 0); return { farvoid: FARVOID }; }
     if (name === 'gndoff') { GNDOF = value === undefined ? 1 : (value ? 1 : 0); return { gndoff: GNDOF }; }
     if (name === 'gndbil') { GNDNB = value === undefined ? 1 : (value ? 1 : 0); return { gndbil: GNDNB }; }
+    if (name === 'stepface') { STEP_LT = value === undefined ? 0.62 : +value; return { stepface: STEP_LT }; }
     if (name === 'gndfade') {
       GNDFA = value === undefined ? 1 : +value;
       return { gndfade: GNDFA };
