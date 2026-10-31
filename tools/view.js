@@ -3204,14 +3204,28 @@ const SHIP = refRecord('flatparity', 'LOCK', 'md5', ['837b4ff1d77f120d5e3a3c4789
      4,096 px floor. PARITY and LOCK are THIS BRANCH'S on all four levels (main's #672 moves a fixture mount, no
      lamp and no height), so the collapse control and the placement lock both stay green. No threshold, bound,
      dice, seat or vacuity clause moved; DEALTM's digits are this run's printings. */
-  /* #421 REWORK: L0 and L1 re-key, L2 and L3 are MAIN'S to the byte - the level-scoped control, since this
-     sampler boots per level (#243) and so is the one sense in this probe that cannot see another level's
-     frame. L0 184 of 568 open cells off the datum (was 168), L1 264 of 897 (was 247), L2 315 of 1141 and L3
-     141 of 256 both UNCHANGED, and the dealt-vs-flat gap stays 203138 / 203131 / 203137 / 202834 px of
-     203138 against its 4,096 px vacuity floor, so the rows keep their teeth. DEALT-ORDER agrees alone and in
-     level order on all four in this run, which is the property #243 bought and the reason the two grown
-     levels' new bytes are a property of their deals. No threshold, dice, seat or vacuity clause moved. */
-  const DEALT = refRecord('flatparity', 'DEALT', 'md5', ['b127beb556b43250a84ff7abe40d7013', 'cd997e70540d2168607b5335bd000ae4', 'd964d6eb9199ecebdc35693d2e9b4637', 'e0c6f6ea1888745ded771e4bffaa7ded'])
+  /* #515 THE STEP FACE GETS AN ORIENTATION TERM (js/40_render.js `STEP_LT`): L3 ONLY re-keys and its MEAN HOLDS
+     TO THE TENTH (52.4 against 52.4), the signature of pixels moving under an unchanged field - the term is a
+     multiply on a STEP face's own light, keyed on the boundary's stored kind, so no lamp, no lightmap, no height
+     and no other face in the frame is touched. THE LEVEL-SCOPED CONTROL IS THE OTHER THREE BYTES: L0, L1 and L2
+     come back MAIN'S to the digest in this same run, and the PARITY and LOCK triples are main's on all four. THE
+     TWO SENSES HOLD FOR TWO DIFFERENT REASONS AND IT IS WORTH SAYING WHICH IS WHICH: PARITY and LOCK are this
+     probe's FLATTENED senses, where `MAP.steps === 0` and the step branch the term lives in runs nowhere; DEALT
+     is the DEALT world, where the generator authors one-quantum treads of its own (`alt` counts 46 / 52 / 56 step
+     faces on L0-L2) and the term is live - those three bytes hold because no step face enters the DEALT frame at
+     its own scored seat, NOT because a dealt level is out of the term's scope. Where one does enter a dealt frame,
+     at a sector's spawn seat, `exposure`'s SPAWN row carries the move and the evidence for it. No threshold, dice,
+     seat, tolerance or vacuity floor moved; the dealt GEOMETRY census is main's to the cell. */
+  /* MERGE OF THE TWO CAUSES, measured on THIS tree (main's #515 step term IN, the #421 deck growth IN):
+     L0 and L1 carry the GROWN DECK - b127beb5 / cd997e70, the dealt frames whose grid now stands nearer the
+     arrival room (184 of 568 and 263 of 897 open cells off the datum at the row's own dice) - while L2 holds
+     MAIN'S d964d6eb and L3 holds MAIN'S cfd7b35f, which is #515's L3 re-record surviving untouched: ABATOIR's
+     deal grows nowhere in reach of its seat and THE STACK runs no generator pass, so the level-scoped control
+     is two bytes of this row belonging to neither cause. DEALT-ORDER agrees ALONE and IN LEVEL ORDER on all
+     four in this run (the sampler re-boots per level, #243), which is why these are properties of the deals.
+     PARITY and LOCK are the FLATTENED senses and are MAIN'S on all four here, so neither the step term nor the
+     deck moves the lamp-placement lock. No threshold, dice, seat, tolerance or vacuity clause moved. */
+  const DEALT = refRecord('flatparity', 'DEALT', 'md5', ['b127beb556b43250a84ff7abe40d7013', 'cd997e70540d2168607b5335bd000ae4', 'd964d6eb9199ecebdc35693d2e9b4637', 'cfd7b35f4bca3e1d74f2a6e0e53d189a'])
     /* #632 REWORK TAKE THREE (the halved hip yaw, see PARITY above), MEASURED on this tree: all four dealt frames
        re-key, DEALT-ORDER hashes each new value alone in its own process AND in level order and both senses agree on
        all four, and the dealt GEOMETRY census - the part of this row that describes the WORLD - comes back 168 / 247
@@ -7701,26 +7715,37 @@ if (MODE === 'exposure') {
      branch's on all four levels, so no lamp was placed, moved or relit. 73 and 79 stay inside the untouched
      35-75 band tools/ci/assert.js re-reads and inside the 60-100 window. No window, region, roll list, floor or
      census moved. */
-  /* #421 REWORK: SIX of the eight digits move and they move DOWN - L0 74/57 -> 69/55 (69.46 / 55.09 exact),
-     L1 80/64 -> 76/60 (75.57 / 59.69), L2 73/72 -> 68/73 (68.35 / 72.98) - while L3's pair 73/83 holds with
-     its spread still 0, the authored seat being a placed view and the control that says no lamp was placed,
-     moved or re-weighted. THE COST IS THE PICTURE AND IT IS STATED: a slab underside that reaches the seat now
-     occupies the top of the arrival frame, and slab underside is the darkest surface in the game's family rule,
-     so the frame the player is actually delivered reads 4-5 lumas darker at all three generated seats. The
-     SEEDED MEDIAN row - the statistic the 60-100 window is written against - holds at 69 / 76 / 63 / 93 in the
-     same run, which is what makes this framing and not exposure: the room is not dimmer, the top of the frame
-     is now a floor. L2's mean moves on a deal digest byte-identical to main's, which is #708's cross-level
-     render carry reaching this probe too (it renders the four levels in one process); its centre-half mid
-     rises by one luma while its mean falls five, and a rule that re-keys L2's mean to a value the level does
-     not paint on its own is exactly what #708 exists to fix. No window, region, roll list, worst-roll floor,
-     spread statistic or vacuity clause moved, and `tools/ci/assert.js` still reads EXPOSURE ok against the
-     composited frame. */
-  // #709 GIVE-BACK: two of the sixteen digits move - L0's pair 69/55 -> 70/55 (69.81 / 55.09 exact) and L2's
-  // 68/73 -> 68/72 (68.35 / 71.55) - and the four seeded MEDIAN digits hold to the digit at 69 / 76 / 63 / 93,
-  // which is the control that says no lamp was placed, moved or re-weighted: what moved is the floor a lamp
-  // lands on, one cell of it, on the two levels whose deal the pass could shorten. L1's and L3's six digits
-  // hold byte for byte. No window, spread statistic or vacuity clause moved.
-  const EXPO_SPAWN = refRecord('exposure', 'SPAWN', 'num', [70, 55, 76, 60, 68, 72, 73, 83])
+  /* BOTH CAUSES AT ONE SEAT, measured on this merged tree: L0 69/55 (68.77 / 55.00, spread 11), L1 76/60
+     (75.57 / 59.69, spread 33), L2 68/72 (68.34 / 71.54, spread 33), L3 73/83 holding with spread 0. The deck
+     growth is the mean (a slab underside now occupies the top of the arrival frame, and underside is the
+     darkest surface in the material family, so all three GENERATED seats read 4-5 lumas under main's 73/80/73
+     - the cost criterion 1 asks for, stated rather than argued away); main's #515 step-orientation term is the
+     L2 centre-half mid, which sits back at 72 on this tree and at 71 on main. THE CONTROLS THAT SAY FRAMING
+     AND NOT RELIGHT: the four seeded MEDIAN digits hold to the digit at 69 / 76 / 63 / 93, every roll list,
+     worst-roll floor and the 35-75 / 60-100 windows are main's, flatparity's PARITY and LOCK are main's on all
+     four levels, and L3's pair is a placed authored view no pass can reach - so no lamp was placed, moved or
+     re-weighted; what moved is which surface the light lands on. L2's mean moves on a deal byte-identical to
+     main's, which is #708's cross-level render carry reaching this probe (it boots the four levels in one
+     process), not a statement about ABATOIR's world. No window, region, roll list, floor or census moved. */
+  const EXPO_SPAWN = refRecord('exposure', 'SPAWN', 'num', [69, 55, 76, 60, 68, 72, 73, 83])
+    /* #515 THE STEP FACE GETS AN ORIENTATION TERM (js/40_render.js `STEP_LT`), AND ITS SCOPE IS THE GEOMETRY,
+       NOT THE LEVEL: THREE of the eight digits move - L0 74/57 -> 73/55 (72.88 / 55.01 exact, spread 17) and
+       L2's centre-half mid 72 -> 71 (72.60 / 71.06, spread 33, its MEAN holding on the recorded 73) - and L1's
+       pair and L3's pair hold to the digit in the same run. WHY A GENERATED LEVEL IS IN SCOPE: the term is keyed
+       on the boundary's STORED kind (#633 `EK_STEP`), and a one-quantum tread dealt by the generator is that kind
+       for the same reason an authored flight is - `alt` counts 46 / 52 / 56 step faces on L0-L2 with `MAP.steps 1`.
+       Narrowing it to authored levels would shade identical geometry two ways in one engine, so this re-record is
+       the change stated honestly rather than a scope that was never true. ATTRIBUTION IN ONE TREE: the A/B ran in
+       the same harness with `JSDIR=` at a copy of js/ whose ONLY edit is `let STEP_LT = 1` (the term multiplied by
+       one) and these OLD literals left in place, and it printed 73.86 / 56.55, 79.70 / 64.09, 72.60 / 71.52 and
+       73.34 / 82.64 - main's record, `EXPOSURE ok`, exit 0 - while this tree with the term on prints the four
+       values above and exits 1. THE CONTROLS THAT SAY SHAPE AND NOT RELIGHT ARE IN THAT SAME PAIR OF RUNS: all
+       four seeded MEDIANS are identical to the tenth across the two arms (68.95/75.93/62.59/92.54 against
+       69.01/75.93/62.60/92.54), with every roll list, worst-roll floor and the 60-100 window untouched, so no
+       deal, lamp or height moved; what moved is which of two surfaces 25 cm apart carries the field. The two
+       moved mids (55, 71) sit inside the 35-75 band `tools/ci/assert.js exposure` re-reads off the COMPOSITED
+       frame, whose own verdict is green at this head, and both are inside their rows' own 17- and 33-luma spreads.
+       No window, band, region, roll list, floor, dice or vacuity clause moved anywhere in this diff. */
     /* #632 REWORK TAKE THREE (the hip yaw halved to -0.010 / -0.012 / -0.014, js/40_render.js VMHIP), MEASURED on
        this tree: TWO digits of the sixteen come back to the values main prints - L0's centre-half mid 56 -> 57
        (56.55 exact, its mean holding at 73.86) and L2's 71 -> 72 (71.52 exact, mean 72.60). Both are half-luma
@@ -16155,11 +16180,23 @@ if (MODE === 'bands') {
      their OWN thresholds in the same run and `BANDS` reports one failure, this one, with no lip contrast or
      band-width clause among them. No threshold, lip bound or vacuity floor moved; what moved is the doorway
      and the gun those lip rows are drawn across, not the lip. */
-  /* #421 REWORK: level 0's SEAM=1 frame re-keys 16004d1a -> 18f87ebc because the lip rows for that level were
-     measured at a deck edge that is now nearer the seat; levels 1-3 print MAIN'S bytes in this run, which is
-     the level-scoped control. The row still gates on the md5 of the frame, so a frame that is not reproducible
-     goes red here - only the recorded bytes moved. */
-  const RECSEAM = refRecord('bands', 'SEAM-FRAME', 'md5', ['18f87ebcc734dd33a13528275701c591', '1262a9de90df5cf8409751e59f67f24f', '2eb2f810936d57e3c9780357b3ab9f13', '44a8209c4f38d77ef375798d69024be8'])
+  /* #515 THE STEP FACE GETS AN ORIENTATION TERM (js/40_render.js `STEP_LT`), MEASURED on this tree: ALL FOUR
+     lip frames re-key and they re-key for the reason this row exists - a step face and the tread above it were
+     delivered the same luma, so a staircase read as one band with a hard top edge, and the term is what puts a
+     brightness edge between them. The term is dead on a flat grid (the step branch never runs) and on a drop,
+     cliff or wall face (the boundary's STORED kind has to read EK_STEP), so what moved in these four frames is
+     stair geometry only. THE LIP CLAUSES ARE THE CONTROL AND THEY DID NOT MOVE: every lip contrast, band-width,
+     locality and far-share clause in this probe is green at its OWN threshold in the same run - the one failure
+     this run printed was this digest, which is the re-record, not a lip. No threshold, lip bound, tolerance or
+     vacuity floor moved; the four bytes follow the picture. */
+  /* MERGED TREE, BOTH CAUSES NAMED: level 0's SEAM=1 frame re-keys to 5ba67fd4 - the lip rows for that level
+     are measured across a deck edge that now stands nearer the arrival room, while main's #515 step term also
+     repaints stair geometry inside that same frame. LEVELS 1-3 are MAIN'S three bytes in this run, which is
+     the level-scoped control: ABATOIR's deal grows nowhere in reach and the authored plan runs no generator
+     pass. The row still gates on the frame's md5 and on `diffPx > 0` (12803 px moved by the term at L0 here),
+     so a build that ships no seam term still goes red; only the recorded bytes moved, and no lip contrast,
+     band-width, locality, far-share or vacuity clause was touched. */
+  const RECSEAM = refRecord('bands', 'SEAM-FRAME', 'md5', ['5ba67fd4d45950b5ff5589720ba8239e', 'c2050ffaad54fff275a93bea3c345af8', '67cbcd5700d3354128248621381c735f', '429fa10fe41ccdb782356daca915a5e1'])
   /* #632 REWORK TAKE THREE (js/40_render.js VMHIP: the hip yaw halved to -0.010 / -0.012 / -0.014), MEASURED on this
      tree: all four SEAM=1 lip frames re-key, and they re-key BECAUSE the rework's own fix worked - at the deeper
      -0.020 / -0.024 / -0.028 carry six of this probe's sixty-four rows were red, because a barrel turned far enough
@@ -17479,6 +17516,33 @@ if (MODE === 'surface') {
           : sHead.near === 0 ? ` - the deck is beyond ${SEAT_NEAR} m: a one-quantum underside cannot reach the bar from there`
             : ''),
       hVac ? undefined : hDebt ? '#421' : undefined);
+    /* #421 COULD THIS DEAL EVER PUT A DECK NEAR ITS SEAT? `SEAT-RANGE` can say "nearest 12.0 m" without
+       saying whether ANY choice of plateau would have done better, and the two answers send the next cycle
+       to different files: a re-rank of the candidates, or geometry the generator does not have. Feature 2's
+       eight regions are four quadrants and four half-planes, so every seam it can author is a line through
+       the MAP CENTRE - a seat in a corner or deep inside a quadrant has no candidate that reaches it, at
+       any ranking. `bandCand` (js/20_level.js) is that table, scored once per deal before any band is
+       committed, so the row compares the deal's answer against the whole set the deal could have taken.
+       Vacuity is the one case that is never debt: a deal with no placement record measured nothing. A rect
+       that predicts a near deck the deal did not deliver is the ranking lever, still live, and is debt
+       tagged to the issue; a set in which NO rect reaches the near range is placement work, printed as such.
+       Reads a record only - no render, no write - so every row after it renders what it rendered before. */
+    const candT = run('bandCand ? bandCand.map(c => [c.tag, c.n, c.reach, c.near]) : null');
+    const candOK = Array.isArray(candT) && candT.length === 8 && candT.some(c => c[1] > 0);
+    const bestNear = candOK ? candT.reduce((m, c) => Math.max(m, c[3]), 0) : 0;
+    const bestReach = candOK ? candT.reduce((m, c) => Math.max(m, c[2]), 0) : 0;
+    const placeMiss = sHead.near === 0 && bestNear > 0;
+    row(`L${li} SEAT-PLACE a band this feature can author reaches the near range`, candOK && !placeMiss,
+      `delivered ${sHead.near} flagged column(s) within ${SEAT_NEAR} m of the seat; the ${candT ? candT.length : 0} `
+      + `region(s) the deal scored before committing predict best ${bestNear} near / ${bestReach} in reach`
+      + (candOK ? ' [' + candT.map(c => c[0] + ' ' + c[3] + '/' + c[2]).join(' ') + ']' : '')
+      + (!candOK ? ' - NO placement record on this deal, so nothing was measured'
+        : placeMiss ? ' - the census feature 2 scored predicts a deck within '
+          + SEAT_NEAR + ' m and the BUILT grid delivers none: the pre-commit mask and the derived grid '
+          + 'disagree, so the fallback has been firing on a geometry the deal never had'
+        : sHead.near === 0 ? ` - no region this feature can author reaches ${SEAT_NEAR} m: its seams are centre lines, so this is PLACEMENT, not ranking`
+        : ' - the shipped band already stands a deck in range'),
+      !candOK ? undefined : (sHead.near === 0 ? '#421' : undefined));
     /* #421 THE FALLBACK IS NO LONGER A LITERAL. `seatFacing` had a hard-coded 0.6 rad at the bottom: a deal
        whose seat sees a deck but cannot admit one of its faces arrived looking at a bearing chosen for no
        reason at all, on a grid that was saying something else. It now answers with the widest underside the
