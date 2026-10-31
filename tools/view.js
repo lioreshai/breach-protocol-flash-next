@@ -3167,7 +3167,15 @@ const SHIP = refRecord('flatparity', 'LOCK', 'md5', ['4f93c4dcc6fd9280d8265263fe
      its own scored seat, NOT because a dealt level is out of the term's scope. Where one does enter a dealt frame,
      at a sector's spawn seat, `exposure`'s SPAWN row carries the move and the evidence for it. No threshold, dice,
      seat, tolerance or vacuity floor moved; the dealt GEOMETRY census is main's to the cell. */
-  const DEALT = refRecord('flatparity', 'DEALT', 'md5', ['799164b88ec440eb1167c83a118676da', '2d8a9a50ac1947528acc00d3d44addc8', 'd964d6eb9199ecebdc35693d2e9b4637', 'cfd7b35f4bca3e1d74f2a6e0e53d189a'])
+  /* #353 x MAIN-SYNC onto main d9cc03c, MEASURED on THIS merged tree in ONE run: L0 and L1 re-key from MAIN's
+     bytes to this branch's (fc290a45 / 7b25b374), L2 is d964d6eb - the one byte both parents already share - and
+     L3 takes MAIN's cfd7b35f, which is #515's step-orientation byte, not this rule's. THE DECK LIGHT IS THE WHOLE
+     MOVE ON L0/L1: the SAME tree with DECKLIGHT = 0-equivalent (`DECKLIGHT=off node tools/view.js flatparity`)
+     hashes those two dealt frames to MAIN's 799164b8 / 2d8a9a50 and exits 0 on both DEALT rows. The dealt
+     GEOMETRY census is main's to the cell in the same run - 168 / 247 / 315 / 141 off-datum open cells of
+     568 / 897 / 1141 / 256 at dice 1000 / 1097 / 1194 / 1291 - so the deal is the deal and only the light standing
+     on the mezzanine band moved. No threshold, dice, seat, tolerance or vacuity clause moved. */
+  const DEALT = refRecord('flatparity', 'DEALT', 'md5', ['fc290a45515041f9c39258f743a3c6f5', '7b25b374f40537c8e751a17bed2639ef', 'd964d6eb9199ecebdc35693d2e9b4637', 'cfd7b35f4bca3e1d74f2a6e0e53d189a'])
     /* #632 REWORK TAKE THREE (the halved hip yaw, see PARITY above), MEASURED on this tree: all four dealt frames
        re-key, DEALT-ORDER hashes each new value alone in its own process AND in level order and both senses agree on
        all four, and the dealt GEOMETRY census - the part of this row that describes the WORLD - comes back 168 / 247
@@ -7647,7 +7655,12 @@ if (MODE === 'exposure') {
      branch's on all four levels, so no lamp was placed, moved or relit. 73 and 79 stay inside the untouched
      35-75 band tools/ci/assert.js re-reads and inside the 60-100 window. No window, region, roll list, floor or
      census moved. */
-  const EXPO_SPAWN = refRecord('exposure', 'SPAWN', 'num', [73, 55, 80, 64, 73, 71, 73, 83])
+  /* #353 x MAIN-SYNC onto main d9cc03c, MEASURED on THIS merged tree: ONE digit of main's eight moves - L0's
+     centre-half mid 55 -> 56 (73.21 / 55.96 exact, spread 17), because an overlook deck is inside the L0 spawn
+     frame and that deck now has a source standing on it. `DECKLIGHT=off node tools/view.js exposure` prints
+     main's 73/55 on that row. Every other digit, the mean/mid regions, the roll lists and the worst-roll floors
+     are main's, and the 35-75 assert band and the 60-100 window were not touched. */
+  const EXPO_SPAWN = refRecord('exposure', 'SPAWN', 'num', [73, 56, 80, 64, 73, 71, 73, 83])
     /* #515 THE STEP FACE GETS AN ORIENTATION TERM (js/40_render.js `STEP_LT`), AND ITS SCOPE IS THE GEOMETRY,
        NOT THE LEVEL: THREE of the eight digits move - L0 74/57 -> 73/55 (72.88 / 55.01 exact, spread 17) and
        L2's centre-half mid 72 -> 71 (72.60 / 71.06, spread 33, its MEAN holding on the recorded 73) - and L1's
@@ -16125,7 +16138,16 @@ if (MODE === 'bands') {
      locality and far-share clause in this probe is green at its OWN threshold in the same run - the one failure
      this run printed was this digest, which is the re-record, not a lip. No threshold, lip bound, tolerance or
      vacuity floor moved; the four bytes follow the picture. */
-  const RECSEAM = refRecord('bands', 'SEAM-FRAME', 'md5', ['8c0b52a0abaed8ba43677c0db7094151', 'c2050ffaad54fff275a93bea3c345af8', '67cbcd5700d3354128248621381c735f', '429fa10fe41ccdb782356daca915a5e1'])
+  /* #353 x MAIN-SYNC onto main d9cc03c, MEASURED on THIS merged tree in ONE run: L0 and L2 re-key to values
+     NEITHER parent carries (main's 8c0b52a0 / 67cbcd57 describe those two lip cameras with no source on the
+     mezzanine; this branch's da2524ae / 8092188b describe them before #515's step term and #631's doorway), and
+     L1 c2050ffa and L3 429fa10f come back MAIN'S to the byte. THE DECK LIGHT IS THE WHOLE MOVE: the SAME tree with
+     DECKLIGHT=off prints main's four bytes and `BANDS ok` at exit 0. THE ROW'S ORACLE IS STILL NOT THE HASH: it is
+     the SEAM=1 vs SEAM=0 pixel count printed in this same run - 12803 / 6055 / 8302 / 8071 px of the every-7th
+     sample - every one far above the untouched `diffPx > 0` vacuity floor, so a build that ships no seam term
+     still goes red on a frame re-recorded here, and every lip contrast, band-width and locality clause in this
+     probe is green at its OWN threshold. No threshold, lip bound, tolerance or vacuity floor moved. */
+  const RECSEAM = refRecord('bands', 'SEAM-FRAME', 'md5', ['3ec5d78f033b56f85ef50e9859a541a7', 'c2050ffaad54fff275a93bea3c345af8', 'f231463408e5f9f155ed4eb602cfb91c', '429fa10fe41ccdb782356daca915a5e1'])
   /* #632 REWORK TAKE THREE (js/40_render.js VMHIP: the hip yaw halved to -0.010 / -0.012 / -0.014), MEASURED on this
      tree: all four SEAM=1 lip frames re-key, and they re-key BECAUSE the rework's own fix worked - at the deeper
      -0.020 / -0.024 / -0.028 carry six of this probe's sixty-four rows were red, because a barrel turned far enough
