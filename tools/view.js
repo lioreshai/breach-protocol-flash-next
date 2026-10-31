@@ -2653,7 +2653,14 @@ if (MODE === 'flatparity') {
      L2 inherits changed, so L2's byte moved. This is the leak #243 fixed for DEALT by a per-level boot; the
      flat loop still has none, which is now an open issue rather than a surprise. No threshold, floor, dice,
      seat or vacuity clause moved; OLDM's digits follow. */
-const OLD = refRecord('flatparity', 'PARITY', 'md5', ['b52b3fc27cb1bc179f020a3c67146413', '520099a2b7dacc45c4d11b0f7b4985d1', '25b213ba7e0e9564820367b5a27d9d17', '8e7a29fbeaefce82c4197a21545f9871'])
+// #709 GIVE-BACK: L1 ONLY re-keys, 520099a2 -> 6e48eac4 (mean 53 -> 51.0), and L0/L2/L3 are BYTE-IDENTICAL
+// to this record in the same run. The level that moved is not the level whose world moved: L1's dealt census
+// holds at 9 / 267 / 2 / 60, its cull pair holds and its exposure digits hold, so ABATOIR's and RING's own
+// grids are the ones this branch's growth pass dealt at 38fb1b4 - the pass handed nothing back on the deal
+// this camera deals. What moved is L1's place in the four-level render sequence, the cross-level carry #708
+// is about; this head did not re-measure the isolated-hash control (a level rendered with no earlier level),
+// so that cause is named from the row's own A/B and is labelled, not proven here.
+const OLD = refRecord('flatparity', 'PARITY', 'md5', ['b52b3fc27cb1bc179f020a3c67146413', '6e48eac4e96cc19893b13dcb5506bdbe', '25b213ba7e0e9564820367b5a27d9d17', '8e7a29fbeaefce82c4197a21545f9871'])
   /* #632 REWORK TAKE THREE (js/40_render.js VMHIP: the hip YAW is halved to -0.010 / -0.012 / -0.014 so the
      carried barrel stops painting over the step-lip crease that `bands` gates at zero missing columns), MEASURED
      on this tree: all four PARITY bytes re-key. They are a paint move and not a placement move - the same run
@@ -2863,7 +2870,13 @@ const OLD = refRecord('flatparity', 'PARITY', 'md5', ['b52b3fc27cb1bc179f020a3c6
      a REGRESSION LOCK on lamp placement has to keep printing while the pixels under it move. DEALT, the same
      lamps at a grid-chosen camera in a process that boots per level, is main's byte on L2/L3 to the byte.
      No threshold, bound or census moved; SHIPM's digits follow. */
-const SHIP = refRecord('flatparity', 'LOCK', 'md5', ['837b4ff1d77f120d5e3a3c4789c3368c', 'dca71d1583ab85935f24a0af5cd4209f', '3b708ffcce9ecf5f9a17207527666178', 'eee9146ae03687268eb17637dc9f4d69'])
+// #709 GIVE-BACK: L1 ONLY again, dca71d15 -> 359b4aad (mean 70.6 -> 68.3), L0/L2/L3 byte-identical in the
+// same run, and the row's OWN delivered-light clause came back main's to the digit here - 0 of 4 levels move
+// their flat lightmap sum WITHOUT moving a pixel, 4 of 4 move a pixel too, gaps +133.2 / +193.5 / +178.7 /
+// +40.1 delivered light from +8/9/10/4 top-up lamps - so this stays a lock on lamp PLACEMENT: no source was
+// placed, moved, scaled or re-weighted, and what moved is which floor the same light lands on, one cell of
+// it, plus the same render-sequence carry the PARITY row names above.
+const SHIP = refRecord('flatparity', 'LOCK', 'md5', ['837b4ff1d77f120d5e3a3c4789c3368c', '359b4aad58b58dc7ea86db5920534ef7', '3b708ffcce9ecf5f9a17207527666178', 'eee9146ae03687268eb17637dc9f4d69'])
   /* #632 REWORK TAKE THREE (the halved hip yaw, see PARITY above), MEASURED on this tree: all four LOCK bytes
      re-key for the same reason - a rig that turns half as far is a different set of pixels in the same frame. The
      shipped-sense means say what that is worth: 94.5 / 94.0 / 59.8 / 96.0 against the 94.5 / 93.9 / 59.8 / 96.0 the
