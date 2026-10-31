@@ -159,6 +159,32 @@ let CSEAM = 1, CSEAMD = 0.34, CSEAMW = 0.6, CSEAMA = 18, CSEAMC = 8;
    same level, same renderer, authored value live) is the control that proves it: that lip is byte-for-byte
    what it was while the dark one three cells away is not. */
 let SEAMA = 0;
+/* #515: the TREAD NOSING, and it is a ground-pass term, not a face term.
+
+   A staircase was in the grid, walkable, counted by the census, and the frame drew no part of it: the wall
+   march stops a column at the FIRST boundary whose face covers screen rows, so one riser per column is a
+   construction, and every tread behind it is a ground-pixel plane solve with no edge in it. Dose on the
+   face term moved nothing at 6.5 m and 9.5 m because there was only ever one face to dose (#515).
+
+   So the edge is painted where the treads are painted. The ground pass already tests one cell crossing per
+   pixel, and the stored directed kind at that crossing already says `EK_STEP`; the event is the crossing,
+   not a re-derived height test, and a flattened flight has no `EK_STEP` up-crossing to key to, which is the
+   control. It fires only where the far floor is HIGHER than the near floor, so a pit's lip and a deck's
+   drop keep the crease they already have and no pixel ends up with two dark lines.
+
+   The band is ROW-space, not world-space, and that is the whole design: a step edge perpendicular to the
+   view projects to a horizontal line, so a band of fixed WORLD width is ~2 rows at 2 m and a third of a
+   row at 9.5 m, and the read would exist only at arm's length. Depth maps to rows by
+   `row - hz = (eyeZ - plane) * BH / depth`, so the rows just behind the nosing are the `STEPROW` rows
+   above the row it projects to - a band of CONSTANT SCREEN thickness, which is what makes the flight
+   countable at 9.5 m as well as at 2 m. `STEPROW` is a global so a probe can A/B it.
+
+   `STEPAMT` is lumas, not a fraction, for #385's reason: a multiply is scale-invariant and a stairwell is
+   exactly where these levels author no lamp. It reads the rail that exists for this (`MAP.stepEdge` ->
+   `SEAMA`) and falls back to `STEPDEF` on a level that authors nothing, which is every generated level and
+   THE STACK - on those the crease term itself is faded out, so this term would be dead on the acceptance
+   seats if it inherited a 0. */
+let STEPROW = 4, STEPAMT = 0, STEPDEF = 12;
 /* #413: which cells have a fitting hung over them, read once a frame alongside the other per-level
    surface terms. null whenever the level was built with the fittings suppressed (LAMPS=off), which is
    what keeps that counterfactual byte-identical - the ceiling pass pays one null test and stops. */
@@ -557,6 +583,7 @@ function renderWorld() {
   CF_PANES = MAP && MAP.ceilPanes ? MAP.ceilPanes : null;   // #413 the hanging ones (#413 part 3)
   WALLB = MAP ? MAP.wallBias || 0 : 0;
   SEAMA = MAP ? MAP.stepEdge || 0 : 0;        // #385: an authored absolute crease, 0 on every level that authors none
+  STEPAMT = SEAMA > 0 ? SEAMA : STEPDEF;      // #515: a stairwell is where the rail is NOT authored; see STEPDEF
   /* #369: the vault's ceiling. An authored `ceilLead` is the level's own word and wins; otherwise a
      level that authored a floor/ceiling order is capped by that order (see CEILGM), and a level that
      authored nothing keeps the flat CEILGM so its bytes do not move. */
@@ -703,6 +730,7 @@ function renderWorld() {
    solid column once filled an entire frame with grey.
    ------------------------------------------------------------------ */
 let RX = new Int32Array(0), RP = new Float64Array(0);   // columns of one row that needed re-solving
+let RE = new Float32Array(0);                           // #515: the tread-nosing lumas of each queued column
 
 
 /* Ground mip selection: MIPAR is the anisotropy ratio the footprint may be stretched by before the
@@ -1436,13 +1464,14 @@ function castGround(flash, fcR, fcG, fcB) {
   const amb = AMB, fl = flash;
   if (GLRP) buildLightRamp();       // #19: nine floats a cell, once a frame - this is the only write
   const gndSteps = MAP.tallStep ? 1 : 0;              // #170, and #517: the CROSSING census, not the draw
+  const ekArr = MAP.ek, stepDraw = MAP.steps ? 1 : 0;  // #515: the stored crossing kind; 0 on a flat level
   //                                      flag - 0 on a flat level AND on a level of pure one-quantum
   //                                      treads, either of which keeps a flat frame free of planeAlong
   //                                      and thus md5-clean. The pulls below write a distance they did
   //                                      not solve, and only a slab taller than a step entitles them to.
   /* Scratch for the columns of one row that had to be re-solved off the row's plane. Sized to a
      row because a row is all a frame can ever queue; in a flat level nothing is ever written. */
-  if (RX.length < BW) { RX = new Int32Array(BW); RP = new Float64Array(BW); }
+  if (RX.length < BW) { RX = new Int32Array(BW); RP = new Float64Array(BW); RE = new Float32Array(BW); }
   for (let y = 0; y < BH; y++) {
     const p = y - hInt;
     // the one row with no distance to report: dz * BH / 0 is Infinity for every plane, because a
@@ -1612,6 +1641,10 @@ function castGround(flash, fcR, fcG, fcB) {
     /* The row's FIRST pixel is seeded here because the crossing branch below cannot see it. These are
        the same expressions that branch runs and they must move with it, exactly as the pixel body in
        castGround and the one in groundPixel() must move together. */
+    /* #515: the seed cell of the row carries the run's nosing state, because on an axial view the row's
+       walk NEVER enters a taller cell - the sweep is lateral at a fixed depth, so a tread boundary is
+       crossed in DEPTH (row to row), not across columns. Seed it here and refresh it at every crossing. */
+    let edgeL = stepDraw && isF && inMap ? stepEdgeLum(pxi, pyi, wx, wy, dRow, absP, planeA) : 0;
     if (inMap) {
       if (GLRP) {
         const k12 = cIdx * 12, fx = (wx - pxi) * GLRP, fy = (wy - pyi) * GLRP;
@@ -1783,6 +1816,7 @@ function castGround(flash, fcR, fcG, fcB) {
       if (lb < base) lb = base;
       const gx = wx | 0, gy = wy | 0;
       if (gx !== pxi || gy !== pyi) {                          // crossed into another cell
+        const pxi0 = pxi, pyi0 = pyi;                          // #515: the cell the crossing LEFT, before it moves
         pxi = gx; pyi = gy; cIdx = gy * N + gx;
         inMap = gx >= 0 && gy >= 0 && gx < N && gy < N;
         if (inMap) {
@@ -1851,6 +1885,16 @@ function castGround(flash, fcR, fcG, fcB) {
            never above the eye, so no flat pixel is queued and the flat row stays bit-identical. */
         planeC = (isF ? (pl < eyeZ || (gx >= 0 && gy >= 0 && gx < N && gy < N && !cellArr[cIdx] && pl >= eyeZ))
           : pl > eyeZ) ? pl : planeA;                          // a ceiling below the eye reaches nothing
+        /* #515 THE TREAD NOSING, row copy. Set at the crossing and read by every pixel of the run it
+           starts, so it is ONE test per cell crossing and none per pixel. It is dead on a flat level
+           (`stepDraw` is `MAP.steps`, 0 wherever no boundary has a height difference), dead on a drop, a
+           cliff, a wall, a ladder and a ramp (the stored kind must be exactly EK_STEP and the far floor
+           must be HIGHER), and dead on a flight that has been flattened - which is the control row.
+           The boundary plane is the edge between the two cells' indices on the axis that changed, so its
+           distance along the view axis is that plane's offset divided by the column's ray component; the
+           row it projects to follows from the row<->depth mapping above, and the band is the `STEPROW`
+           rows immediately ABOVE it, i.e. the pixels just behind the nosing. */
+        edgeL = stepDraw && isF ? stepEdgeLum(gx, gy, wx, wy, dRow, absP, planeA) : 0;
         /* ONE MARCH PER (ROW, CELL), on the ray of the column that crossed into the cell, instead of one
            per queued pixel of the run (#170's mechanism, #15's arrival half). This is the row loop's own
            predictor applied to the deferred half: the answer is a property of the CELL SEQUENCE the ray
@@ -1913,7 +1957,7 @@ function castGround(flash, fcR, fcG, fcB) {
          measured 38.2 ms against main's 9.2 on a flat frame). The row defers with the plane its own
          walk reached, and groundPixel() marches that pixel - which is where all 438/401/398 leaking
          pixels are (measured: 0 px row-painted), so the row copy needs no rule of its own. */
-      if (planeC !== planeA) { RX[nm] = x; RP[nm] = planeC; nm++; continue; }
+      if (planeC !== planeA) { RX[nm] = x; RP[nm] = planeC; RE[nm] = edgeL; nm++; continue; }
       const ux = wx * ms, uy = wy * ms;
       let tx = ux | 0, ty = uy | 0, ufx = ux - tx, ufy = uy - ty;
       /* floor, not truncate: |0 rounds toward zero, so a coordinate in (-1,0) would index texel 0 with a
@@ -2065,6 +2109,7 @@ function castGround(flash, fcR, fcG, fcB) {
         const sk = shm[cIdx];
         if (sk >= 0) { const kk = 1 - shadowFloor(wx, wy, planeC, sk); r *= kk; g *= kk; b *= kk; }
       }
+      if (edgeL) { r -= edgeL; g -= edgeL; b -= edgeL; }        // #515: the nosing, in lumas, last word
       px[i] = 0xFF000000 | clampi(b) << 16 | clampi(g) << 8 | clampi(r);
     }
     /* second pass over the columns this row could not solve, in column order; each writes its own
@@ -2075,7 +2120,7 @@ function castGround(flash, fcR, fcG, fcB) {
       const x0 = RX[q], plq = RP[q];
       let e = q + 1;
       if (!isF) while (e < nm && RP[e] === plq && RX[e] === RX[e - 1] + 1) e++;
-      groundPixel(x0, RX[e - 1] + 1, plq, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb, dRow, planeA);
+      groundPixel(x0, RX[e - 1] + 1, plq, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb, dRow, planeA, RE[q]);
       q = e;
     }
   }
@@ -2241,7 +2286,51 @@ function floorFixedPoint(rx, ry, pl, absP, ax, ay) {
   return cur;
 }
 
-function groundPixel(x0, x1, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb, dP, plA) {
+/* #515: does this RUN of this floor row owe a tread nosing, and how many lumas?
+
+   Asked once per row (its seed cell) and once per cell crossing, never per pixel, and it returns a run
+   constant because the band it tests is a row test: at a fixed row every pixel of the row sits at the same
+   distance ALONG THE VIEW AXIS (`point . dir = dRow` for every column, which is exactly why the row is one
+   row), so a tread face is crossed in DEPTH - from row to row - and not across the columns.
+
+   Four tests, all cheap, all dead on a flat level (`stepDraw` is `MAP.steps`):
+   1. the cell the pixels land in is AIR and its floor is HIGHER than the plane this row paints - i.e. the
+      pixel being painted is inside that column's slab, which is the phantom the report describes;
+   2. the neighbour BEHIND that cell along the view axis is lower, so crossing into it is a step UP (a pit's
+      lip and a deck's drop keep the crease they already have, and no pixel gets two dark lines);
+   3. the stored directed kind at that face is exactly EK_STEP, so a cliff, a drop, a wall, a ladder and a
+      ramp cannot grow one, and a flight whose treads have been flattened has no EK_STEP face to key to;
+   4. the pixel is just BEHIND that face: `dp`, the view-axis distance past it, is under `STEPROW * dRow /
+      absP`, which is the world depth whose projected height is STEPROW rows at this row's own distance
+      (rows and depth trade as `row - hz = (eyeZ - plane) * BH / depth`). That is what makes the band a
+      constant SCREEN thickness instead of a constant world width, which would be ~2 rows at 2 m and a third
+      of a row at 9.5 m - the read would exist only at arm's length.
+
+   The face's own view-axis position is projected from the crossing point's lateral coordinate, so on a view
+   exactly along a grid axis it is exact and on a diagonal one it is out by at most (1-|dir|), under a row
+   of the band. */
+function stepEdgeLum(gx, gy, wx, wy, dRow, absP, planeA) {
+  const N = MAP.w, cell = MAP.cell, fzs = MAP.fz, ek = MAP.ek;
+  if (!ek || gx < 0 || gy < 0 || gx >= N || gy >= N) return 0;
+  const i = gy * N + gx;
+  if (cell[i]) return 0;
+  if (fzs[i] * ZQ <= planeA + 1e-6) return 0;              // not a slab: the row's plane reaches this cell
+  const axX = Math.abs(dirX) >= Math.abs(dirY);
+  const dv = axX ? dirX : dirY;
+  if (Math.abs(dv) < 1e-6) return 0;
+  const s = dv > 0 ? 1 : -1;
+  const nx = axX ? gx - s : gx, ny = axX ? gy : gy - s;
+  if (nx < 0 || ny < 0 || nx >= N || ny >= N) return 0;
+  const j = ny * N + nx;
+  if (cell[j] || fzs[j] >= fzs[i]) return 0;                // a step DOWN, or no step at all
+  if (ek[(j << 2) + (axX ? (s > 0 ? 0 : 2) : (s > 0 ? 1 : 3))] !== EK_STEP) return 0;
+  const kx = axX ? (s > 0 ? gx : gx + 1) : gx, ky = axX ? gy : (s > 0 ? gy : gy + 1);
+  const dp = dRow - ((kx - camX) * dirX + (ky - camY) * dirY);
+  if (dp < 0 || dp > STEPROW * dRow / absP) return 0;
+  return STEPAMT;
+}
+
+function groundPixel(x0, x1, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb, dP, plA, edgeL) {
   const N = MAP.w, cellArr = MAP.cell, lm = MAP.light, fzs = MAP.fz, stepBase = 2 / BW;
   const csk = !isF && SLABUND ? MAP.ceilSlab : null;   // #421, second copy: same byte, same rule
   const shm = SHADOW ? SH_HEAD : null;                      // #178, second copy of the ground pixel body
@@ -2739,6 +2828,11 @@ function groundPixel(x0, x1, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb
       r *= kk; g *= kk; b *= kk;
     }
   }
+  /* #515: the OTHER copy of the pixel body. Past an up-step the floor pixel is queued, not row-painted, so
+     on a staircase this is the copy that paints almost every pixel of the flight - the nosing arrives as an
+     argument decided once at the crossing, because the band is a ROW test and both copies share the row.
+     AGENTS.md: change one copy and you have changed the other. */
+  if (edgeL) { r -= edgeL; g -= edgeL; b -= edgeL; }
   px[i] = 0xFF000000 | clampi(b) << 16 | clampi(g) << 8 | clampi(r);
   }
 }
