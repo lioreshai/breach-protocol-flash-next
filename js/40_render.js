@@ -1152,18 +1152,24 @@ let gWalkHit = 0;
 const PV_W = 128;                                    // plane/ZQ indices [-64 .. 63] = altitudes -16 .. 15.75 m
 const PV_FLAG = new Uint8Array(PV_W), PV_VAL = new Float64Array(PV_W);
 let PV_N = 0, gPVSer = -1, gPVFz = null, gPVCp = null, gPVWide = 0;
-let gPVEye = NaN, gPVAbove = Infinity, gPVCbelow = -Infinity;
+let gPVEye = NaN, gPVAbove = Infinity, gPVCbelow = -Infinity, gPVFmin = -Infinity;
 function buildPlaneInv() {
   const fzs = MAP.fz, cp = MAP.ceilPlane, n = fzs && cp ? fzs.length : 0;
   PV_FLAG.fill(0); gPVWide = cp && fzs ? 0 : 1;
+  let fmin = Infinity;
   for (let i = 0; i < n; i++) {
     let v = fzs[i] * 4;                              // floors: fz * ZQ, and 4*ZQ is exactly 1
+    if (v < fmin) fmin = v;                          // #518: also the LOWEST floor, see the far-aware skip
     if (v >= -64 && v <= 63 && v === (v | 0)) PV_FLAG[v + 64] = 1; else gPVWide = 1;
     v = cp[i] * 4;                                   // ceilAt; a solid column's floor counts too
     if (v >= -64 && v <= 63 && v === (v | 0)) PV_FLAG[v + 64] = 1; else gPVWide = 1;
   }
   PV_N = 0;
   for (let k = -64; k <= 63; k++) if (PV_FLAG[k + 64]) PV_VAL[PV_N++] = k * ZQ;
+  /* #518 THE LOWEST FLOOR THE LEVEL HAS, in metres, or -Infinity if the inventory is not usable (a wide
+     grid, or no grid at all), which is the value that makes the far test always say "something may be
+     down there" - the safe direction, since gPVWide already turns the skip off in that case. */
+  gPVFmin = fmin === Infinity ? -Infinity : fmin * ZQ;
   gPVSer = gSer; gPVFz = fzs; gPVCp = cp; gPVEye = NaN;      // the split is rebuilt on the first march
 }
 /* The two altitudes the test needs, as of this eye altitude: ascending values, so two short scans, and
@@ -1195,7 +1201,7 @@ function splitPlaneInv() {
    in `view.js cull` exists to catch. Marches that end there are counted in gndWalkEdge, not guessed.
    A flat level answers on the eye's own cell at the row's own distance, which is the shipped
    arithmetic bit for bit, and the row only calls this when a plane differs or the grid has a step. */
-function planeAlong(rx, ry, pl, isF, absP) {
+function planeAlong(rx, ry, pl, isF, absP, farOK) {
   gWalkT = -1;                                   // #518: unless a riser answers, the plane's solve places it
   gWalkHit = 0;                                  // #518: until a break names one, this ray reached nothing
   const N = MAP.w, cellArr = MAP.cell, fzs = MAP.fz, cp = MAP.ceilPlane;
@@ -1214,7 +1220,19 @@ function planeAlong(rx, ry, pl, isF, absP) {
     if (!gPVWide) {
       const plQ = (isF ? gPVCbelow : gPVAbove);      // nearest altitude this level has on this side
       const dpQ = (plQ - eyeZ) * sgn;
-      if (!(dpQ > 1e-9 && dpQ * invAbsP < cap)) { gWalkHit = 1; return pl; }
+      /* #518 THE SKIP MAY NOT SPEAK ABOUT A PLANE IT NEVER LOOKED FOR. "No altitude solves inside the
+         cap" is a proof that the walk finds NOTHING NEARER; it is not a proof that the walk finds
+         nothing, because the FAR arm's whole case is a floor further along the ray whose solve lies
+         OUTSIDE this cap. A deferred floor pixel queued on a raised deck is handed the deck's plane,
+         which is also the highest floor altitude below the eye, so its solve IS the cap, the test below
+         is false for the level's own plane, and the skip returned `pl` before the loop - which is why
+         every rule written at the cap break was measured inert. The skip may only do that when the
+         level holds no floor altitude below the handed plane at all: then no ray can walk off the band
+         onto anything lower, the far arm has nothing to answer, and the shipped arithmetic stands bit
+         for bit (a flat level: `gPVFmin === pl`, so this is exactly one compare and no march). On the
+         CEILING half the far arm never runs (`isF`), so the test is the shipped one unchanged. */
+      const farMay = isF && farOK && floorFarWalk && gPVFmin < pl - ZQ * 0.5;
+      if (!(dpQ > 1e-9 && dpQ * invAbsP < cap) && !farMay) { gWalkHit = 1; return pl; }
     }
   }
   let cx = camX | 0, cy = camY | 0, tIn = 0, g = 0;
@@ -1269,7 +1287,7 @@ function planeAlong(rx, ry, pl, isF, absP) {
              type. The ceiling half is excluded by `isF` (a slab edge, stated above); a floor whose cell
              carries the plane the march was handed fails the half-quantum test and never gets here, so
              a flat level, and every column that crossed no height boundary, costs one compare. */
-          if (isF && floorFarWalk && !farGo && (pe - pl) < -ZQ * 0.5) {
+          if (isF && farOK && floorFarWalk && !farGo && (pe - pl) < -ZQ * 0.5) {
             farGo = 1;
             const tPe = (pe - eyeZ) * sgn * invAbsP;
             if (tPe > cap) {
@@ -2316,7 +2334,7 @@ function groundPixel(x0, x1, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb
        inherits that answer. */
     let cur = pl, wT = -1;
     if (floorWalkEnabled) {
-      cur = planeAlong(rx, ry, pl, true, absP);
+      cur = planeAlong(rx, ry, pl, true, absP, 1);
       wT = gWalkT;                                  // #518: a riser answer is a CROSSING, not a solve
       gndFloorWalk++;
     } else cur = floorFixedPoint(rx, ry, pl, absP, ax, ay);
