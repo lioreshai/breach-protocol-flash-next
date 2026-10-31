@@ -607,25 +607,38 @@ function renderWorld() {
   });
   /* Bodies are geometry now (js/13_mesh.js, #39): the mesh carries the enemy's real position,
      heading and world height instead of a billboard's distance, an 8-way yaw bucket and the
-     flat-world z: 0. enemyFrame still owns what the mesh cannot express - the corpse fade and
-     the hit flash - and both reach MESH.draw as {alpha,flash}. The four pose signals below are the
+     flat-world z: 0. enemyFrame still owns what the mesh cannot express - the hit flash - and it no
+     longer owns a fade: a body is solid for every frame of its life (#688), and the corpse timeline
+     is the CORPSE table in js/30_entities.js rather than three numbers in three files. The four pose signals below are the
      ones the billboard fed js/11_rig.js before #72, so a walking body cycles its gait and a dying
      one topples (#73). For a corpse the yaw carries dieAng because that is the direction it falls:
      the vertex set pitches the body toward its own front, so the yaw aims the topple and the die
      term is how far it has gone. atk is the same progress the shot is timed on in
      js/30_entities.js:417, so the arm is fully extended on the frame the round leaves the muzzle. */
   for (const e of ENEMIES) {
+    const dying = e.state === 'dead';
+    /* #688: the cull is the body's own clock now, not the end of a fade, and it is 1.55 s after the
+       kill instead of 3.8 - a corridor you just cleared stops being occluded by a statue before you
+       walk into it. By then the body is under its own deck (the z term below), so this removes
+       nothing the player could still see; it does not end a picture, it frees a draw call. */
+    if (dying && e.dieT > CORPSE.life) continue;
     const fr = enemyFrame(e);
     if (fr.alpha <= 0.02) continue;
-    const heading = e.state === 'dead' && e.dieAng !== undefined ? e.dieAng : e.ang;
-    const dying = e.state === 'dead';
+    const heading = dying && e.dieAng !== undefined ? e.dieAng : e.ang;
+    const settle = dying ? corpseSettle(e.dieT) : 0;
     list.push({
-      mesh: true, kind: e.kind, x: e.x, y: e.y, z: floorAt(e.x, e.y),
+      /* The settle rides on `z`: a per-DRAW translation, not a pose bucket. Past die bucket 5 the
+         vertex set cannot move (js/13_mesh.js PB.die = 6), so this is the one continuous term left -
+         the body keeps going DOWN after the topple finishes instead of holding a statue pose, and the
+         deck it lies on is what finally hides it, by depth rather than by blending. Exactly 0 for
+         dieT <= 0.55, which is where `anim` samples the corpse, so those rows do not move. */
+      mesh: true, kind: e.kind, x: e.x, y: e.y,
+      z: floorAt(e.x, e.y) - settle * CORPSE.sink * e.scale,
       yaw: TAU * 0.25 - heading,                      // body +z is its front: see js/13_mesh.js draw
       scale: e.scale, alpha: fr.alpha, flash: fr.flash ? 1 : 0, tint: e.tint,
       p: e.anim, mv: e.movingAmt || 0,
       atk: dying || e.atkT <= 0 ? 0 : 1 - clamp(e.atkT / e.type.wind, 0, 1),
-      die: dying ? clamp(e.dieT / 0.55, 0, 1) : 0,
+      die: dying ? clamp(e.dieT / CORPSE.topple, 0, 1) : 0,
       dv: e.dv | 0,                                   // which death this enemy got at spawn (#82)
       body: 1,                                        // coverage stamp for tools/view.js contrast
     });
@@ -1300,8 +1313,8 @@ function buildShadowGrid() {
   const far2 = SHADOW_FAR * SHADOW_FAR;
   for (let q = 0; q < ENEMIES.length && SH_N < SH_CAP; q++) {
     const e = ENEMIES[q];
-    // a corpse that has finished fading draws no body, so it grounds no shadow either
-    if (e.state === 'dead' && e.dieT > 3.8) continue;
+    // #688: the shadow goes on the body's own clock (CORPSE.life), not on the end of a fade
+    if (e.state === 'dead' && e.dieT > CORPSE.life) continue;
     const ex = e.x - camX, ey = e.y - camY, d2 = ex * ex + ey * ey;
     if (d2 > far2) continue;
     // #18 fourth take: metres of annulus past the dead range, so the screen footprint stops collapsing
