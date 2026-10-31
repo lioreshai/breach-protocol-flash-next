@@ -16092,7 +16092,16 @@ if (MODE === 'bands') {
      their OWN thresholds in the same run and `BANDS` reports one failure, this one, with no lip contrast or
      band-width clause among them. No threshold, lip bound or vacuity floor moved; what moved is the doorway
      and the gun those lip rows are drawn across, not the lip. */
-  const RECSEAM = refRecord('bands', 'SEAM-FRAME', 'md5', ['16004d1a8d9b0ddcbf1461228537ce25', '1262a9de90df5cf8409751e59f67f24f', '2eb2f810936d57e3c9780357b3ab9f13', '44a8209c4f38d77ef375798d69024be8'])
+  /* #669 REWORK, MEASURED on this tree: L0/L1/L2 re-key and L3 holds TO THE BYTE. The reason is paint,
+     not the seam: these are the SEAM=1 half of the A/B, so they carry every pixel an authored `accent`
+     lays down at the lip camera, and #669 put an accent on ARCHIVE (L0) and ABATOIR (L2) and gave the
+     wall-foot kerb to every level that authors one, RING (L1) included. THE ROW'S ORACLE IS STILL NOT
+     THE HASH: SEAM=1 vs SEAM=0 moves 13,321 / 6,027 / 7,231 / 8,183 px of the every-7th sample in this
+     run, every one far above the untouched `diffPx > 0` vacuity floor, so a build that ships no seam
+     term still goes red here; and L3 - THE STACK, the one level that authors no accent - is the scope
+     control, byte-identical while the three that paint all move. No threshold, lip bound or vacuity
+     floor moved; what moved is the frame those lip rows are drawn across. */
+  const RECSEAM = refRecord('bands', 'SEAM-FRAME', 'md5', ['cf962c5361c55cca23f3dbf0f0bcf046', 'dd4270a86b82726570461609c4df3ad4', '2a2c5ddff42b0eb90386c7ac82d4a27f', '44a8209c4f38d77ef375798d69024be8'])
   /* #632 REWORK TAKE THREE (js/40_render.js VMHIP: the hip yaw halved to -0.010 / -0.012 / -0.014), MEASURED on this
      tree: all four SEAM=1 lip frames re-key, and they re-key BECAUSE the rework's own fix worked - at the deeper
      -0.020 / -0.024 / -0.028 carry six of this probe's sixty-four rows were red, because a barrel turned far enough

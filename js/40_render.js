@@ -3334,8 +3334,28 @@ function castWalls(flash, fcR, fcG, fcB) {
        y0 + accH * hpx. `accInv` is the reciprocal of the feather's height in rows, so the top of the
        band saturates and only the bottom `RISER_ACC_F` of it ramps - a paint line, not a gradient. */
     if (riser && accC) {
+      /* #669 REWORK: THE CREASE OWNS THE ROWS IT PAINTS. The accent's lip band runs DOWN from `y0`,
+         the top of the slab side, for RISER_ACC_H metres - and on a step DOWN that top IS the lip the
+         eye stands at (`rze === rz1`), which is also the anchor row of the eye-side seam crease, whose
+         band runs down from the same row for min(half the projected riser, SEAMW metres). The two terms
+         were therefore painting the SAME rows: the accent lerped the albedo toward the level's accent
+         colour and the crease then multiplied the result, so the crease's own darkening was priced off
+         a base the accent had raised. Measured on ABATOIR's walk-lip frame, `view.js bands`' band row
+         fell 49 % -> 41 % (13.5 px-lum off a floor at 33 against 14.0 off 29) with the accent authored
+         and 49 % with the lip band disabled - the wall-foot kerb is not involved (identical numbers
+         with it disabled). A lip the player is standing at is read from the crease, not from the paint,
+         so the crease wins the rows it paints: the band is armed only where it starts BELOW this
+         column's crease band. On a step UP that is `y0` unchanged (`dir < 0`, the band runs up from the
+         FAR floor's row, and at these spans the two do not meet), so every up-lip frame - including
+         every `face` lip frame on all four levels - is bit-identical, and on a step DOWN #517 has
+         already given every row under the lip's own row to the deck, so there is no accent pixel to
+         lose: with RISER_ACC_H 0.12 against a crease band of at least 0.125 m (half of one quantum),
+         `ay > yb` is false for every authored span and the band simply does not arm. The accent's
+         legibility at a step down is then the crease's own, plus the wall-foot kerb on the faces that
+         do present rows, which is the mark #669 is about. */
       const ay = y0 + accH * hpx;
-      if (ay > ds) { accY = ay; accInv = 1 / (accH * hpx * RISER_ACC_F); }
+      const yb = rzf > rze ? y0 : y0 + Math.min((y1 - y0) * 0.5, hpx * SEAMW);
+      if (ay > ds && ay > yb) { accY = ay; accInv = 1 / (accH * hpx * RISER_ACC_F); }
     } else if (accC) {
       /* #669: the kerb. y1 is the row of the face's own FLOOR (z0), so the band is the strip
          [y1 - accB*hpx, y1] and its TOP edge - the paint line - is the row `kerbY`; the weight ramps to
