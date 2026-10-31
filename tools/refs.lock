@@ -14,7 +14,7 @@ ref	alt	PIT-CELLS	num	190 194 211 204
 ref	alt	PIT-MEAN	num	0.289 0.347 0.335 0.316
 ref	anim	NECK-BAND	num	4.8 2.7 3.4
 ref	anim	NECK-TUBE	num	41 43.2 40
-ref	bands	SEAM-FRAME	md5	3ec5d78f033b56f85ef50e9859a541a7 c2050ffaad54fff275a93bea3c345af8 f231463408e5f9f155ed4eb602cfb91c 429fa10fe41ccdb782356daca915a5e1
+ref	bands	SEAM-FRAME	md5	0c878db1b7be07678cdcaaa1c018df14 c2050ffaad54fff275a93bea3c345af8 f231463408e5f9f155ed4eb602cfb91c 429fa10fe41ccdb782356daca915a5e1
 ref	contrast	TORSO-DL	num	2.52 2.17 2.41
 ref	cull	CZBAND	crc32	0x54c181d0 0x6152ea40 0x61e6f154 0xdcb36258
 ref	cull	CZBAND-LIGHT	crc32	0xce2299e0 0xf87f0f7c 0x48f136e8 0x43a22b10
