@@ -27,6 +27,10 @@
  * eye gets - a value step (luma) and a chroma step (saturation and hue angle), which is the pair the
  * issue's Done-when asks for. It is a read of the picture, not a gate: nothing here exits non-zero on
  * a colour, and it deliberately re-samples the shipped build rather than a model of it.
+ *
+ * One thing DOES exit non-zero, and it is not a colour: a row whose kept-pixel mask is under
+ * MIN_KEEP_FRAC of the frame is VACUOUS - the steps in it are arithmetic on dither rather than on a
+ * body (see the KEEP note below). Vacuity is a failure, not a debt; a weak colour is a result.
  */
 
 const fs = require('fs');
@@ -39,6 +43,18 @@ const { spawn } = require('child_process');
 
 const CHROME = process.env.CHROME || '/usr/local/bin/sandmox-chromium';
 const LR = 0.2126, LG = 0.7152, LB = 0.0722;      // Rec.709, the same rule DEV.lum uses
+
+/* KEEP - the smallest kept-pixel mask that can be a body, and the only thing that makes this tool
+ * exit non-zero. Grounds, both measured off the deployed 1440x620 build (#683 review, 2026-10-31):
+ * a body ~10 m out keeps 4268 px (grunt, RING TRANSPORT), 6323 px (grunt, THE STACK) or 7376 px
+ * (brute, ABATOIR CORE) - 0.5% to 0.8% of the frame. A seat whose body an offset has parked BEHIND
+ * geometry keeps 22 px inside the centre box and 367 px frame wide: grade dither and bloom spread,
+ * 0.0025% of the frame, two orders of magnitude under the weakest real body. The floor goes in that
+ * gap at 0.15% of the delivered pixels - 1339 px at 1440x620, an order under the weakest legitimate
+ * row and sixty times over the noise. Keyed on frame area, not a raw count, so a --res or a window
+ * change moves the floor with the pixels it measures. A row under it is VACUOUS; a row over it is a
+ * result whatever it says about the paint. */
+const MIN_KEEP_FRAC = 0.0015;
 
 /* ---------------------------------------------------------------- tiny helpers */
 
@@ -152,17 +168,25 @@ function devRoute(o) {
   DEV.clear();
   ${o.body ? `DEV.spawn('${o.body.kind}',1,${+o.body.dist || 10});
   var e=ENEMIES[0],px=-Math.sin(P.ang),py=Math.cos(P.ang),bx=e.x,by=e.y;
-  var off=[0,0.9,-0.9,1.8,-1.8,2.7,-2.7],pick=null;
+  /* A seat is usable when the cell he stands in is air AND the LINE from the camera to him is air.
+     Testing only the candidate cell accepts an offset that walks him behind a wall or a shelving run:
+     the arm then draws no enemy, the two arms differ by grade dither alone, and fg reports that dither
+     as a figure-ground step (deployed build, an ARCHIVE seat at 22 kept px, #683 review). So the line
+     is marched by the shipped sight rule - js/20_level.js blocked(), a 0.14 m march on isSolid - and an
+     offset with geometry on it is rejected and recorded instead of becoming the seat. */
+  var off=[0,0.9,-0.9,1.8,-1.8,2.7,-2.7],pick=null,tried=[];
   for(var i=0;i<off.length;i++){
-    var cx=bx+px*off[i],cy=by+py*off[i],d0=Math.hypot(cx-P.x,cy-P.y),ok=!isSolid(cx,cy);
-    if(ok){for(var j=0;j<PROPS.length;j++){var p=PROPS[j];
+    var cx=bx+px*off[i],cy=by+py*off[i],d0=Math.hypot(cx-P.x,cy-P.y),why='ok';
+    if(isSolid(cx,cy))why='solid cell';
+    else if(blocked(P.x,P.y,cx,cy))why='geometry on the line';
+    else{for(var j=0;j<PROPS.length;j++){var p=PROPS[j];
       var t=((p.x-P.x)*(cx-P.x)+(p.y-P.y)*(cy-P.y))/(d0*d0);t=Math.max(0,Math.min(1,t));
-      if(Math.hypot(p.x-(P.x+(cx-P.x)*t),p.y-(P.y+(cy-P.y)*t))<0.85){ok=false;break;}}}
-    if(ok){pick={x:+cx.toFixed(2),y:+cy.toFixed(2),off:off[i],d:+d0.toFixed(2)};break;}
+      if(Math.hypot(p.x-(P.x+(cx-P.x)*t),p.y-(P.y+(cy-P.y)*t))<0.85){why='prop on the line';break;}}}
+    tried.push({off:off[i],why:why});
+    if(why==='ok'){pick={x:+cx.toFixed(2),y:+cy.toFixed(2),off:off[i],d:+d0.toFixed(2)};break;}
   }
-  if(!pick)pick={x:+bx.toFixed(2),y:+by.toFixed(2),off:0,d:${+o.body.dist || 10},fallback:true};
-  e.x=pick.x;e.y=pick.y;e.ang=Math.atan2(P.y-e.y,P.x-e.x);
-  out.body=pick;out.kind=e.kind;` : 'out.body=null;'}
+  if(!pick){ENEMIES.length=0;out.body=null;out.noSeat=tried;}  // no seat to measure: say so, do not place him anyway
+  else{e.x=pick.x;e.y=pick.y;e.ang=Math.atan2(P.y-e.y,P.x-e.x);out.body=pick;out.kind=e.kind;out.tried=tried;}` : 'out.body=null;'}
   DEV.tick(1);
   try{resume();}catch(err){out.resumeErr=String(err);}
   DEV.tick(1);
@@ -250,7 +274,9 @@ function fg(withBody, without) {
     if (x < bx0) bx0 = x; if (x > bx1) bx1 = x; if (y < by0) by0 = y; if (y > by1) by1 = y;
     for (let c = 0; c < 3; c++) { mB[c] += B.d[i + c]; mA[c] += A.d[i + c]; }
   }
-  if (!n) return { n: 0, note: 'no pixel differs - the body contributed nothing the frame delivered' };
+  const minKeep = Math.max(1, Math.round(A.w * A.h * MIN_KEEP_FRAC));
+  const res = { n, minKeep, vacuous: n < minKeep };
+  if (!n) return Object.assign(res, { note: 'no pixel differs - the body contributed nothing the frame delivered' });
   for (let c = 0; c < 3; c++) { mB[c] /= n; mA[c] /= n; }
   const luma = m => LR * m[0] + LG * m[1] + LB * m[2];
   const sat = m => { const s = m.slice().sort((a, b) => a - b); return s[2] ? (1 - s[0] / s[2]) * 100 : 0; };
@@ -259,13 +285,23 @@ function fg(withBody, without) {
     if (!d) return NaN;
     return 60 * (mx === r ? (g - b) / d + (g < b ? 6 : 0) : mx === g ? (b - r) / d + 2 : (r - g) / d + 4);
   };
-  return {
-    n, box: [bx0, by0, bx1 - bx0 + 1, by1 - by0 + 1],
+  return Object.assign(res, {
+    box: [bx0, by0, bx1 - bx0 + 1, by1 - by0 + 1],
     body: mB.map(v => +v.toFixed(1)), bg: mA.map(v => +v.toFixed(1)),
     lumaBody: +luma(mB).toFixed(2), lumaBg: +luma(mA).toFixed(2), valueStep: +(luma(mB) - luma(mA)).toFixed(2),
     satBody: +sat(mB).toFixed(1), satBg: +sat(mA).toFixed(1), chromaStep: +(sat(mB) - sat(mA)).toFixed(1),
     hueBody: +hue(mB).toFixed(1), hueBg: +hue(mA).toFixed(1), hueStep: +(hue(mB) - hue(mA)).toFixed(1)
-  };
+  });
+}
+
+/* The one verdict this tool prints: VACUOUS when the mask is too small to be a body at all. It is a
+ * failure, not a caveat - the value and chroma steps in such a row are arithmetic on dither. */
+function fgLine(tag, r) {
+  return 'FG ' + tag + ' ' + JSON.stringify(r) +
+    (r.vacuous ? '\n   VACUOUS: ' + r.n + ' kept px, under the ' + r.minKeep + ' px floor (' +
+      (MIN_KEEP_FRAC * 100).toFixed(2) + '% of the frame). That mask is not a body, so the steps in the '
+      + 'row above are noise. Look at the arms; a seat with geometry on the camera-to-body line reads '
+      + 'this way.' : '');
 }
 
 /* ---------------------------------------------------------------- commands */
@@ -298,7 +334,10 @@ async function cap(o) {
     console.log('CAP ' + r.name + (r.file ? ' ' + path.relative(process.cwd(), r.file) : ' ERROR ' + r.error) +
       (r.layout !== undefined ? '  layout ' + r.layout + ' mode ' + r.mode + ' canvas ' + r.canvas +
         ' lum ' + (r.lum ? r.lum.mean + '/' + r.lum.mid : '?') +
-        (r.body ? ' body ' + r.kind + ' @ ' + r.body.d + ' m off ' + r.body.off : '') : ''));
+        (r.body ? ' body ' + r.kind + ' @ ' + r.body.d + ' m off ' + r.body.off +
+          (o.why && r.tried ? ' [tried ' + r.tried.map(t => t.off + ':' + t.why).join(' ') + ']' : '') :
+          r.noSeat ? ' NO CLEAR SEAT - every offset has something on the camera-to-body line [' +
+            r.noSeat.map(t => t.off + ':' + t.why).join(' ') + '] - body NOT placed' : '') : ''));
   }
   if (page.pageErrors.length) console.log('NOTE page exceptions: ' + page.pageErrors.slice(0, 3).join(' | '));
   return rows;
@@ -320,13 +359,19 @@ async function main() {
         shots.push({ name: 'l' + l + '-arrival', level: l });
       }
     }
-    const rows = await cap({ url, out, shots, timeout: arg('timeout', 180) });
+    const rows = await cap({ url, out, shots, timeout: arg('timeout', 180), why: flag('why') });
     if (cmd === 'both') {
+      let vacuous = 0;
       for (const l of levels) {
         const a = path.join(out, 'l' + l + '-body.png'), b = path.join(out, 'l' + l + '-clear.png');
         if (!fs.existsSync(a) || !fs.existsSync(b)) continue;
         const r = fg(a, b);
-        console.log('FG L' + l + ' ' + JSON.stringify(r));
+        if (r.vacuous) vacuous++;
+        console.log(fgLine('L' + l, r));
+      }
+      if (vacuous) {
+        console.log('LIVECAP ' + vacuous + ' of ' + levels.length + ' FG row(s) VACUOUS - the floor note above each such row says why');
+        process.exitCode = 1;
       }
     }
     return;
@@ -335,19 +380,26 @@ async function main() {
   if (cmd === 'fg') {
     const files = process.argv.slice(3).filter(a => a[0] !== '-');
     if (files.length !== 2) { console.log('usage: node tools/livecap.js fg <with-body.png> <without.png>'); process.exit(2); }
-    console.log('FG ' + JSON.stringify(fg(files[0], files[1])));
+    const r = fg(files[0], files[1]);
+    console.log(fgLine('', r));
+    if (r.vacuous) process.exitCode = 1;
     return;
   }
 
   console.log([
     'usage:',
     '  node tools/livecap.js cap  --url <dev page> [--levels 0,1,2,3] [--dist 10] [--out DIR]',
-    '  node tools/livecap.js both --url <dev page> [--levels 0,1,2,3] [--dist 10] [--out DIR]',
+    '  node tools/livecap.js both --url <dev page> [--levels 0,1,2,3] [--dist 10] [--out DIR] [--why]',
     '  node tools/livecap.js fg   <with-body.png> <without.png>',
     '',
     'both = one page load per arm, same seed, clock frozen, grain off, one body ~dist m down the',
     'view line; then the fg row: the value (luma) and chroma (saturation / hue) step at the pixels',
     'the frame delivered for that body. cap alone leaves the frames on disk to look at.',
+    'A seat is used only when neither a wall nor a prop is on the camera-to-body line (the shipped',
+    'sight rule, js/20_level.js blocked); if no offset clears, the CAP row says NO CLEAR SEAT and no',
+    'body is placed. An fg row whose mask is under ' + (MIN_KEEP_FRAC * 100).toFixed(2) + '% of the frame prints VACUOUS',
+    'and exits non-zero - that mask is dither, not a body. A weak colour step over the floor is a',
+    'result and exits 0.',
     'CHROME=<path> overrides the chromium binary; the page must be reachable (a deployed Pages',
     'build or any http(s) url serving this repo with ?dev=1).'
   ].join('\n'));
