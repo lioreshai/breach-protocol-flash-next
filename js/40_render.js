@@ -1104,7 +1104,16 @@ let marchSkipEnabled = true;
    batch by batch in one context, so the disagreement census and the paired timing are one measurement
    on one layout rather than two builds. */
 let floorWalkEnabled = true;
+/* #518 KILL SWITCH, take two — the FAR HALF of the same decision. `floorWalkEnabled` walks the ray up to
+   the solve of the plane it was handed; this switch lets the walk keep going PAST that solve on the one
+   column shape where the walk has already proved the handed plane is not the surface in the way: the ray
+   walked across a boundary into a cell whose own floor is LOWER, so at the cap the ray is still standing
+   over open air and the surface it arrives at lies further out. OFF is the shipped behaviour (the queued
+   plane's solve, painted as far as the eye can see); ON answers the floor the ray arrives at. Same idiom
+   as `floorWalkEnabled` and `marchSkipEnabled` so a probe A/Bs both arms in one process. */
+let floorFarWalk = true;
 let gndFloorWalk = 0;      // deferred floor pixels whose PLANE the walk answered (census: view.js cull)
+let gndFloorFar = 0;       // deferred floor pixels whose PLANE the FAR arm answered (census: view.js cull)
 /* #518 THE DISTANCE A MARCH'S RISER ANSWER MEANS. `planeAlong` returns a PLANE and every caller turns it
    into a distance by SOLVING it - d = (plane - eyeZ) * BH / |p| - which is right for the per-cell case
    (the ray reaches that plane while it is still inside the cell that owns it) and wrong for the riser
@@ -1127,6 +1136,19 @@ let gWalkT = -1;
    walk sets this to 1 at each of its two answering breaks and 0 everywhere else. Read immediately
    after the call, like `gWalkT`; nothing else between them may march. */
 let gWalkHit = 0;
+/* #518 THE CAP IS A REACH LIMIT, NOT A SURFACE. Everything below keeps `planeAlong`'s documented contract
+   — answer the first surface honestly in the way, or hand the caller's plane back — and the contract's
+   reach limit stays the caller's own solve, because `buildPlaneInv`'s skip is written against it. The one
+   case the contract gets wrong is the FLOOR half of the deferred ground pass: a pixel queued from a raised
+   deck is handed the DECK's plane, its cap is therefore the deck's own solve, and a ray that walks off the
+   deck's edge into a lower cell reaches the lower floor beyond a limit nothing in the geometry put there.
+   The march then hands the deck's plane back and the deck's altitude is painted stretched past its own
+   edge (#516 from the deck, #517's own edge, #515's treads). So one bounded extension is allowed: at the
+   cap break, if the cell the walk stopped in is AIR and its own floor is more than half a quantum BELOW
+   the handed plane, the walk continues to THAT floor's own solve (clamped to the same FARB * 4 the cap
+   uses) and the loop's existing arrival tests decide the answer. Once per march, never on a column that
+   crossed no such boundary, and never on the CEILING half — there a ray above the neighbour's ceiling has
+   reached a slab edge the wall pass owns, which is what the CZBAND control exists to catch. */
 const PV_W = 128;                                    // plane/ZQ indices [-64 .. 63] = altitudes -16 .. 15.75 m
 const PV_FLAG = new Uint8Array(PV_W), PV_VAL = new Float64Array(PV_W);
 let PV_N = 0, gPVSer = -1, gPVFz = null, gPVCp = null, gPVWide = 0;
@@ -1182,7 +1204,8 @@ function planeAlong(rx, ry, pl, isF, absP) {
   const rise = sgn * absP / BH;                      // world altitude per unit of the ray's PARAMETER
   const invAbsP = BH / absP;
   const dzPl = (pl - eyeZ) * sgn;
-  const cap = dzPl > 1e-9 && dzPl * invAbsP < FARB * 4 ? dzPl * invAbsP : FARB * 4;
+  let cap = dzPl > 1e-9 && dzPl * invAbsP < FARB * 4 ? dzPl * invAbsP : FARB * 4;
+  let farGo = 0;                                     // #518: the reach may be extended once, ever
   /* the plane-inventory skip, see buildPlaneInv: the nearest altitude this level has on this side of the
      eye does not solve inside this ray's reach, so no altitude does and the walk has no answer to find */
   if (marchSkipEnabled && dzPl > 1e-9) {
@@ -1212,7 +1235,7 @@ function planeAlong(rx, ry, pl, isF, absP) {
      only ever buys more walk on a pixel that used to run out. `reSolveBad` and the `heights` row are
      UNTOUCHED apart from reading the budget it walks, so a build that walks less than its own reach still
      goes red on this row. */
-  const gMax = Math.max(40, Math.ceil(cap * (ax + ay)) + 2);
+  let gMax = Math.max(40, Math.ceil(cap * (ax + ay)) + 2);
   for (; g < gMax; g++) {
     const tOut = tx < ty ? tx : ty;
     if (!(tOut < cap)) {                             // nothing between the eye and the point in question
@@ -1232,11 +1255,43 @@ function planeAlong(rx, ry, pl, isF, absP) {
          wholly on-map level moves no pixel - and on a flat level the plane-inventory skip above returns
          long before this line. */
       gWalkHit = inAir ? 1 : 0;            // #518 an answer needs a surface where the walk ended, not only reach
+      let goOn = 0;                                   // #518: 1 only where the block below extends the reach
       if (inAir) {
         const pe = isF ? fzs[ie] * ZQ : cp[ie];      // the march is standing in a cell whose own surface
-        if ((pe - eyeZ) * sgn > 1e-9 && Math.abs(pe - pl) > ZQ * 0.5) gndWalkEdge++;   // is not the answer: a slab edge
+        if ((pe - eyeZ) * sgn > 1e-9 && Math.abs(pe - pl) > ZQ * 0.5) {
+          gndWalkEdge++;                             // is not the answer: a slab edge
+          /* #518 THE EDGE IS NOT THE END OF THE RAY. `pe` is the floor of the cell the march is standing
+             in and it is LOWER than the plane it was handed, so the ray has crossed off the band the
+             pixel was queued on and is still in the air over the drop: the surface it arrives at is
+             `pe`'s own plane, at (eyeZ - pe) * BH / |p|, which the cap has been refusing to look for.
+             Extend the reach to that solve and let the loop go on answering the way it already does —
+             the SAME per-cell arrival test and the SAME riser test, no new arithmetic, no new answer
+             type. The ceiling half is excluded by `isF` (a slab edge, stated above); a floor whose cell
+             carries the plane the march was handed fails the half-quantum test and never gets here, so
+             a flat level, and every column that crossed no height boundary, costs one compare. */
+          if (isF && floorFarWalk && !farGo && (pe - pl) < -ZQ * 0.5) {
+            farGo = 1;
+            const tPe = (pe - eyeZ) * sgn * invAbsP;
+            if (tPe > cap) {
+              /* PAST THE NEXT BOUNDARY, NOT JUST PAST THE FLOOR'S SOLVE. The cap test sits at the top of
+                 the loop, BEFORE the per-cell arrival test, so a new cap that still sits at or short of
+                 this cell's own exit would break again on the next iteration without ever letting the
+                 body answer the cell it is standing in — the extension would buy nothing but a compare.
+                 Pushing the reach one epsilon past `tOut` is what gives the existing arrival test its
+                 chance; where the floor's own solve is further out, `tPe` is the reach. */
+              let capFar = tPe < FARB * 4 ? tPe : FARB * 4;
+              if (!(capFar > tOut)) capFar = tOut + 1e-9;
+              const gFar = g + Math.ceil((capFar - tIn) * (ax + ay)) + 2;   // crossings to reach its own cap
+              cap = capFar;
+              if (gFar > gMax) gMax = gFar;           // never end short of the reach this march declares
+              goOn = 1;
+              gndFloorFar++;
+            }
+          }
+        }
       }
-      break;
+      if (!goOn) break;
+      continue;
     }
     const i = cy * N + cx;
     // The void and a solid column have no plane of their own, and the caller's plane stands: a wall
