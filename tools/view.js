@@ -9032,8 +9032,8 @@ if (MODE === 'heights') {
         if (d > edgeMax) edgeMax = d;
         if (d > PBOUND) { edgeRow = y; break; }
       }
-      let pastMax = 0, pastRow = -1, farMax = 0, farRow = -1;
-      /* The PAST window is PWIN..PWIN+PDEPTH rows ABOVE yEdge - the band of rows the authored drop face
+      let pastMax = 0, pastRow = -1, farMax = 0, farRow = -1, pastN = 0, farN = 0;
+      /* The PAST window is the PWIN+PDEPTH rows ABOVE yEdge - the band of rows the authored drop face
          actually projects into - and NOT the whole run up to the horizon. The reason is arithmetic and it
          is the same 1/r term #674 named, now on the DIFFERENCE rather than on either frame: two frames
          whose floor planes differ by DPL answer the same row at (eyeZ-pl1)*BH/r and (eyeZ-pl2)*BH/r, so
@@ -9041,18 +9041,28 @@ if (MODE === 'heights') {
          at this head, over the full run up to the horizon, the difference reads 62.00 m at row 2 with
          DPL exactly one quantum - a statement about the top of the frame, not about the edge. Past the
          band's own rows the ray has left the level's floor and the far-band wash answers, so those rows
-         are printed (farMax) and not gated; the rows the geometry names are gated. */
+         are printed (farMax) and not gated; the rows the geometry names are gated.
+
+         yFar is the boundary between the two windows and BOTH loops read it, so the rows this row gates are
+         exactly the rows its verdict line prints. It used to be `yEdge - PWIN` in both loops, which gated 4
+         rows while printing a claim about 28: a renderer that cleaned only the 4 rows nearest the edge would
+         have read EDGE ok with the band's plane still carried half a metre past it - the false green #674
+         was filed to remove. pastN/farN count the rows each window actually sampled, so the line states its
+         own coverage instead of reciting a constant. */
       const PDEPTH = 24;
-      for (let y = Math.max(hzC + 2, yEdge - PWIN); y < yEdge && y < PH; y++) {
+      const yFar = Math.max(hzC + 2, yEdge - PWIN - PDEPTH);
+      for (let y = yFar; y < yEdge && y < PH; y++) {
         const u = zDisc[y * PW + xc], v = zFlat[y * PW + xc];
         if (!isFinite(u) || !isFinite(v) || !(u > 0) || !(v > 0)) continue;
         const d = Math.abs(u - v);
+        pastN++;
         if (d > pastMax) { pastMax = d; pastRow = y; }
       }
-      for (let y = hzC + 2; y < Math.max(hzC + 2, yEdge - PWIN) && y < PH; y++) {
+      for (let y = hzC + 2; y < yFar && y < PH; y++) {
         const u = zDisc[y * PW + xc], v = zFlat[y * PW + xc];
         if (!isFinite(u) || !isFinite(v) || !(u > 0) || !(v > 0)) continue;
         const d = Math.abs(u - v);
+        farN++;
         if (d > farMax) { farMax = d; farRow = y; }
       }
       const eDead = edgeRow < 0, pBad = pastMax >= PBOUND;
@@ -9065,10 +9075,10 @@ if (MODE === 'heights') {
         (jc.jr - hzC) + ', which the clause used to hunt and which names no edge - reads ' + jc.j.toFixed(2) + ' m, #674)' +
         (eDead ? '  FAIL EDGE-STEPS-DEAD: removing the band changes no depth anywhere, so the pose proves nothing'
           : '  ok') +
-        `; PAST the edge (its own rows and ${PDEPTH} above them, the band the drop face projects into) the two frames differ by at most ` +
+        `; PAST the edge (the ${pastN} rows above its authored row, the band the drop face projects into) the two frames differ by at most ` +
         pastMax.toFixed(2) + ' m' + (pastRow >= 0 ? ' at row ' + (pastRow - hzC) : '') +
-        ', and over the far rows above that - where the ray is off the level and the wash answers - by '
-        + farMax.toFixed(2) + ' m' + (farRow >= 0 ? ' at row ' + (farRow - hzC) : ' (none)') +
+        `, and over the ${farN} far rows above that - where the ray is off the level and the wash answers - by ` +
+        farMax.toFixed(2) + ' m' + (farRow >= 0 ? ' at row ' + (farRow - hzC) : ' (none)') +
         (pBad ? '  FAIL EDGE-BAND-PHANTOM: a band plane reaches past its own edge, so the near far field is not the floor both frames can prove' : '') +
         `; ${c.phantom} phantom px over the whole lower half` + (c.phantom ? '  FAIL BAND-FLOOR-PHANTOM' : ''));
       /* The attribution row. It adds no claim about the picture: it says whether the census can NAME the
