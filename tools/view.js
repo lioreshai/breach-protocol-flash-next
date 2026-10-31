@@ -373,6 +373,14 @@ function boot(knob, seed) {
      else - same rooms, same draws, same bands, no lamp and no seed moves - so alt's overlook row can
      be SEEN to fail rather than assumed to be load-bearing (js/20_level.js overlookEnabled). */
   if (process.env.OVERLOOK === 'off') run('overlookEnabled = function () { return false; };');
+  /* PIER=off is #665's CONTROL SWITCH: it turns off the #631 interior-column pass at DEAL time and
+     nothing else - same rooms, same draws, same lights, same seed, no height authored - so `surface`'s
+     ROOF row can be SEEN to move rather than argued about. Read it with the two arms side by side:
+     `node tools/view.js surface` and `PIER=off node tools/view.js surface`. The grid hash this census
+     prints mixes MAP.fz/MAP.cz and NOT MAP.cell (see `gridHash` above), so BOTH arms print the same
+     deal hash - a pier writes `cell`, never a height - which is what makes this the cleanest A/B in
+     the file: same deal, same lightmap, same census population rule, one pass on or off. */
+  if (process.env.PIER === 'off') run('pierEnabled = function () { return false; };');
   /* DECKLIGHT=off is #353's SECOND CONTROL: it leaves the authored pair, the bands, the rooms, the props
      and the bodies alone and drops ONLY the lamp this pass stands on the deck, so `alt`'s deck row can
      fail for want of LIGHT rather than for want of a pair (js/20_level.js deckLightEnabled). OVERLOOK=off
@@ -9128,15 +9136,87 @@ if (MODE === 'heights') {
       run(`(()=>{for(let w=-${SW};w<=${SW};w++)for(let k=0;k<${SL};k++)MAP.fz[(${SY}+w)*MW+${SX}+k]=0;})()` +
         ';linkBoundaries();');
       run(`P.x=${SX}+.5;P.y=${SY}+.5;P.ang=0;P.pitch=0;P.z=${eyePin.toFixed(6)};` + ZRESET + ';' + ZON + ';renderWorld()');
-      const jf = worstJump(zbufCopy());
-      const cok = !c.phantom && jc.j >= 0.5 && Math.abs(jc.jr - yEdge) <= 4 && jf.j < 0.5;
+      const zFlat = zbufCopy(), jf = worstJump(zFlat);
+      /* #674 THE EDGE IS WHERE THE TWO FRAMES SPLIT, NOT WHERE A GLOBAL MAXIMUM LIVES.
+         The claim #517 makes is that the band's edge is a PLACE: the same camera, with the disc and
+         without it, must store different depths on one side of a row and the SAME depth on the other.
+         The previous clause hunted the largest ONE-ROW change of zbuf anywhere in the lower half, and a
+         receding floor's one-row change is (eyeZ - pl) * BH / r^2, which diverges toward the horizon -
+         so the row it found was row 2 (28.17 m there, measured at this head) on every build, and the
+         flattened frame "found" 1.32 m in a frame with nothing in it. No renderer can satisfy that, and
+         the control could not read zero, which is the tooling issue #674.
+
+         Differencing the two frames at the SAME row cancels that gradient by construction - both sides
+         carry it - so what is left is the edge. Three clauses, each satisfiable by a renderer:
+           SOME: some row must differ by more than the 0.5 m bound, or removing the band changes the
+             frame nowhere and the pose proves nothing -> EDGE-STEPS-DEAD (vacuity, a FAILURE).
+           PAST: the rows ABOVE yEdge look over the edge at the lower floor. A ray that has crossed the
+             band's edge can be answered there by ONE surface - the lower floor, at the same distance in
+             both frames - so their difference must stay under the bound. This is the control #674 clause
+             2 asks for: on a build that draws no band it is 0 by construction (flat against flat), so a
+             reading here is the eye's OWN band plane being carried past the edge it walked off - #517's
+             phantom, #518's adopted plane - and can never be the 1/r^2 gradient, which the difference
+             cancels. Measured at this head it reads 62.00 m at row 2, which is the whole far half of
+             the frame answering the plane the eye stands on rather than the floor its ray reaches.
+         The 0.5 m bound, the +/-4 row window and the pinned camera are unchanged from the clause this
+         replaces; only the quantity being thresholded is now one a renderer can answer. */
+      const PBOUND = 0.5, PWIN = 4;
+      let edgeRow = -1, edgeMax = 0;
+      for (let y = hzC + 2; y < PH; y++) {
+        const u = zDisc[y * PW + xc], v = zFlat[y * PW + xc];
+        if (!isFinite(u) || !isFinite(v) || !(u > 0) || !(v > 0)) continue;
+        const d = Math.abs(u - v);
+        if (d > edgeMax) edgeMax = d;
+        if (d > PBOUND) { edgeRow = y; break; }
+      }
+      let pastMax = 0, pastRow = -1, farMax = 0, farRow = -1, pastN = 0, farN = 0;
+      /* The PAST window is the PWIN+PDEPTH rows ABOVE yEdge - the band of rows the authored drop face
+         actually projects into - and NOT the whole run up to the horizon. The reason is arithmetic and it
+         is the same 1/r term #674 named, now on the DIFFERENCE rather than on either frame: two frames
+         whose floor planes differ by DPL answer the same row at (eyeZ-pl1)*BH/r and (eyeZ-pl2)*BH/r, so
+         their difference is DPL*BH/r, which diverges at the horizon whatever the renderer does. Measured
+         at this head, over the full run up to the horizon, the difference reads 62.00 m at row 2 with
+         DPL exactly one quantum - a statement about the top of the frame, not about the edge. Past the
+         band's own rows the ray has left the level's floor and the far-band wash answers, so those rows
+         are printed (farMax) and not gated; the rows the geometry names are gated.
+
+         yFar is the boundary between the two windows and BOTH loops read it, so the rows this row gates are
+         exactly the rows its verdict line prints. It used to be `yEdge - PWIN` in both loops, which gated 4
+         rows while printing a claim about 28: a renderer that cleaned only the 4 rows nearest the edge would
+         have read EDGE ok with the band's plane still carried half a metre past it - the false green #674
+         was filed to remove. pastN/farN count the rows each window actually sampled, so the line states its
+         own coverage instead of reciting a constant. */
+      const PDEPTH = 24;
+      const yFar = Math.max(hzC + 2, yEdge - PWIN - PDEPTH);
+      for (let y = yFar; y < yEdge && y < PH; y++) {
+        const u = zDisc[y * PW + xc], v = zFlat[y * PW + xc];
+        if (!isFinite(u) || !isFinite(v) || !(u > 0) || !(v > 0)) continue;
+        const d = Math.abs(u - v);
+        pastN++;
+        if (d > pastMax) { pastMax = d; pastRow = y; }
+      }
+      for (let y = hzC + 2; y < yFar && y < PH; y++) {
+        const u = zDisc[y * PW + xc], v = zFlat[y * PW + xc];
+        if (!isFinite(u) || !isFinite(v) || !(u > 0) || !(v > 0)) continue;
+        const d = Math.abs(u - v);
+        farN++;
+        if (d > farMax) { farMax = d; farRow = y; }
+      }
+      const eDead = edgeRow < 0, pBad = pastMax >= PBOUND;
+      const cok = !c.phantom && !eDead && !pBad;
       if (!cok) poseBad++;
-      console.log('  ' + pad('poseC', 9) + ' #517 the band\'s own edge is a DEPTH step: worst one-row depth jump ' +
-        jc.j.toFixed(2) + ' m at row ' + (jc.jr - hzC) + ' against the drop face\'s own row ' + (yEdge - hzC) +
-        ' (edge 1.5 m out, eye ' + (zEye - zBandFloor).toFixed(2) + ' m above the deck it stands on)' +
-        (jc.j >= 0.5 && Math.abs(jc.jr - yEdge) <= 4 ? '  ok' : '  FAIL EDGE-NO-DEPTH-STEP: the edge is a texture suggestion, not a place') +
-        `; the flattened control under the SAME pinned camera reads ${jf.j.toFixed(2)} m` +
-        (jf.j < 0.5 ? '' : '  FAIL EDGE-CONTROL-DEAD: a step survives the flattening, so this is a seam') +
+      console.log('  ' + pad('poseC', 9) + ' #517 the band\'s own edge is a DEPTH step: the disc-vs-flat split begins at row '
+        + (eDead ? 'NONE' : (edgeRow - hzC)) + ' against the authored edge\'s own row ' + (yEdge - hzC) +
+        ', largest split ' + edgeMax.toFixed(2) + ' m (edge 1.5 m out, eye ' + (zEye - zBandFloor).toFixed(2) +
+        ' m above the deck it stands on; the global one-row maximum - the horizon\'s own 1/r^2 at row ' +
+        (jc.jr - hzC) + ', which the clause used to hunt and which names no edge - reads ' + jc.j.toFixed(2) + ' m, #674)' +
+        (eDead ? '  FAIL EDGE-STEPS-DEAD: removing the band changes no depth anywhere, so the pose proves nothing'
+          : '  ok') +
+        `; PAST the edge (the ${pastN} rows above its authored row, the band the drop face projects into) the two frames differ by at most ` +
+        pastMax.toFixed(2) + ' m' + (pastRow >= 0 ? ' at row ' + (pastRow - hzC) : '') +
+        `, and over the ${farN} far rows above that - where the ray is off the level and the wash answers - by ` +
+        farMax.toFixed(2) + ' m' + (farRow >= 0 ? ' at row ' + (farRow - hzC) : ' (none)') +
+        (pBad ? '  FAIL EDGE-BAND-PHANTOM: a band plane reaches past its own edge, so the near far field is not the floor both frames can prove' : '') +
         `; ${c.phantom} phantom px over the whole lower half` + (c.phantom ? '  FAIL BAND-FLOOR-PHANTOM' : ''));
       /* The attribution row. It adds no claim about the picture: it says whether the census can NAME the
          pass that wrote each phantom pixel, which is the thing the next change has to pick. */
@@ -16883,6 +16963,59 @@ if (MODE === 'surface') {
      sweep's business, not the bar's. The ORDER rows still judge every pose, unchanged. */
   const ROOFMIN = +(process.env.ROOFMIN || 0.70);
   const ROOFFLOOR = +(process.env.ROOFFLOOR || 0.60);
+  /* #665 THE ROOF'S STATISTIC, PAIRED BY RANGE. The bar and the floor above are UNTOUCHED (0.70 / 0.60,
+     measured, not negotiated); what changed is the estimator fed into them, and the product ruling on this
+     issue says why: the flat ratio `c.ceil / c.floor` averages a roof 10-20 m from the eye against the deck
+     2 m under it, so distance falloff sets part of the number and whichever pixels a new column happens to
+     hide sets the rest. That is why a WALL - which emits no light and moves no lamp - moved a "roof light"
+     verdict by 0.05x (#644 -> #665). What the row reads INSTEAD is the ceiling-population-weighted mean of
+     per-bin ratios, each bin's DECK taken at that bin's own solved range, so falloff cancels inside a bin
+     (the binned and per-column pairings that were tried first, and why they were rejected, are recorded at
+     the census that builds the bins). Fewer than 3 voting bins is NOT MEASURED, and that is vacuity charged
+     as a failure, never a pass. `ROOFSTAT=flat` puts the old estimator back - one knob, one tree - so the
+     two can be compared in the same run and the change stays auditable rather than asserted.
+     WHAT THIS RULE CANNOT DO, in the file because a probe that overstates its own robustness is worse than
+     one that says nothing: range matching cancels the DISTANCE confound and NOTHING else. The shipped and
+     `PIER=off` arms still disagree - by the same step the flat estimator did - because they are not two
+     measurements of one room, they are two rooms, and the census sees a different SET of ceiling surfaces in
+     each. No re-weighting of the pixels an eye can see cancels that, which is why the 0.02x arm-agreement
+     clause this row was once gated on is retired (#665; decision recorded on PR #717). What the row is blind
+     to is WHICH surfaces are visible, and on ABATOIR CORE the part of that which is left is the far half of
+     the frame - #616 - not a ceiling that lost light. */
+  const ROOFSTAT = process.env.ROOFSTAT || 'range';
+  /* A PRINT threshold, not a bar: a green within a hundredth of the pass target has no room under it, and a
+     verdict with no room reads as a surprise regression the next time anyone touches a lamp. */
+  const ROOFMARGIN = 0.01;
+  const roofRange = c => {
+    const B = c.zst || [];
+    let num = 0, den = 0, px = 0, pop = 0, brief = [];
+    for (const b of B) {
+      pop += b.cn;
+      const w = b.cn;                       // the ROOF's own census weights the statistic
+      num += w * (b.ce / b.fe); den += w; px += b.cn;
+      if (brief.length < 8) brief.push(`${b.lo}m ${b.fe.toFixed(0)}/${b.ce.toFixed(0)}=${(b.ce / b.fe).toFixed(2)}`);
+    }
+    const srt = B.map(b => b.ce / b.fe).sort((x, y) => x - y);
+    return { rr: den ? num / den : NaN, n: B.length, px, pop,
+      med: srt.length ? srt[srt.length >> 1] : NaN, brief: brief.join(' ') };
+  };
+  /* #665 THE ROW CROSSED ITS FLOOR WHEN THE ROOM GAINED COLUMNS, AND THIS SAID WHICH IT WAS. Merging
+     the #631/#644 pier pass put ABATOIR CORE's arrival roof from 53.7 over a deck of 83.7 (0.64x, a
+     KNOWN #495 debt) to 49.6 over 83.6 (0.59x, under the `ROOFFLOOR` regression line). The two
+     hypotheses were a census that changed SET and a ceiling that lost LIGHT. The A/B is one command on
+     either arm - `PIER=off node tools/view.js surface`, which runs `pierEnabled()` false at deal time
+     (js/20_level.js) - and MEASURED at this head it says SET, with both numbers coming back exactly:
+     the ceiling goes 49.6 -> 53.7, the ceiling's share of the frame goes 40% -> 46%, and the DECK holds
+     (83.5 -> 83.6, inside the run-to-run step). 6 points of frame moved OUT of the ceiling population
+     and the mean of what left is 81 luma - that is `53.7*0.46 - 49.6*0.40` over `0.06`, the bright far
+     ceiling a pier's own face now stands in front of. A ceiling that had lost light would have kept its
+     share of the frame and lost the luma; this one kept its luma per pixel and lost pixels, and no lamp
+     moved (`flatparity` prints main's delivered-light numbers on both arms). So the roof on this sector
+     is NOT a sheet: the row is measuring a smaller, dimmer-because-closer-to-the-columns ceiling.
+     The pixels stay alone - the fix would be to brighten a roof that is not darker, and the authored
+     `ceilBias` -0.12 is load-bearing against the 75-luma exposure anchor (see #665's decision comment).
+     What the row's wording still owes is the sentence this note is, which is why the detail below names
+     the pier arm by command instead of only saying "a sheet again". */
   const roofR = [];
   let bad = 0, known = 0, rowsN = 0, ctrlRan = 0, ctrlMiss = 0;
   const poolGain = [];
@@ -17028,6 +17161,15 @@ if (MODE === 'surface') {
      Past FARB a ceiling pixel is the mip-mean wash, not a surface (AGENTS.md, #19), so the census
      stops at the renderer's own far distance instead of inventing a second one. */
   const ZQv = run('ZQ'), FARBv = run('FARB');
+  /* #665 HOW FAR APART IN RANGE a ceiling and a deck may be and still count as one PAIR, in metres. This
+     is the range-matching clause of the roof statistic (see `classify`): two surfaces seen at the same range
+     take the same falloff, so their ratio describes the surfaces; two surfaces 8 m apart in range are being
+     compared through the lamp curve, and that is the confound #665 measured. `ROOFDM` is a diagnostic knob
+     for asking how much of the census the clause keeps, never a way to move a bar - the pass target and the
+     regression floor below are UNTOUCHED at 0.70 / 0.60, measured, not negotiated. */
+  const ROOFDM = +(process.env.ROOFDM || 2.5);
+  const ROOFBIN = +(process.env.ROOFBIN || 1);          // bin width in metres; a diagnostic scope, not a bar
+  const ROOFPX = +(process.env.ROOFPX || 120);          // pixels EITHER surface needs in a bin to vote
   const NEARR = process.env.POOL_NEAR !== undefined ? +process.env.POOL_NEAR : 3.0;
   const FARR = process.env.POOL_FAR !== undefined ? +process.env.POOL_FAR : 8.0;
   // the far set is the FITTING'S neighbourhood, not the level: beyond this the pixels are another room
@@ -17142,9 +17284,46 @@ if (MODE === 'surface') {
       if (Math.abs(LUM(a, i) - LUM(ff, i)) > 4) fo[i] = 1;
     }
     let cs = 0, cn = 0, fs = 0, fn = 0;
+    /* #665 THE FLAT MEANS, kept because every OTHER row of this census reads them, and the reason the ROOF
+       row stopped reading them: `cs/cn` against `fs/fn` is one mean over every ceiling pixel against one
+       mean over every floor pixel, so the deck answering for a roof seen 10-20 m out is mostly the deck
+       2-4 m under the eye. Falloff sets part of that ratio and whichever pixels a new column happens to hide
+       sets the rest - which is why a WALL, emitting no light and moving no lamp, moved a "roof light"
+       verdict by 0.05x (#644 -> #665). The pairs below replace it for that one row.
+       MEASURED FIRST, AND REJECTED, so the choice is auditable rather than a taste: a distance-BINNED
+       version of the same idea (both populations split at 1.5/2.5/4/6/9/13.5/20/30 m, then a
+       paired-population-weighted mean of the per-band ratios) moved every sector UP - L0 0.72 -> 0.82,
+       L1 0.71 -> 0.76, L2 0.59 -> 0.74, L3 0.77 -> 0.76 - and still disagreed by 0.06x between the shipped
+       and `PIER=off` arms on L2, so it failed the clause it was written for. It also printed band ratios of
+       1.35 and 0.37, i.e. it was comparing a ceiling under a lamp with a deck at the far edge of the shell.
+       WHAT IS SHIPPED INSTEAD, and why it is honest rather than convenient: build the DECK as a curve of
+     luma against the range its own rays solved (the deck census is the half a column does NOT censor - the
+     issue's own A/B measures the deck holding to a tenth of a luma while the ceiling census loses 6 points
+     of frame), then ask each ceiling band what the deck reads AT THAT BAND'S RANGE. Weighting the per-band
+     ratios by the CEILING population is what makes the statistic about the roof: the roof's own census
+     decides how much each range counts, and the deck stops answering for a range it is barely seen at.
+     Bins are 1 m wide, so the falloff one bin can straddle is under the step the lamp curve takes over a
+     metre at these ranges. `ROOFBIN` widens them for the diagnostic question "which range is paying?".
+     A bin votes only when both surfaces actually fill it (ROOFPX pixels); a level with no voting bin is
+     NOT MEASURED, which the row reports as vacuity and never as a pass. */
+    const ZB = Math.min(64, Math.ceil(FARBv) + 1);
+    const ZW = ROOFBIN;
+    const NBIN = Math.max(1, Math.ceil(ZB / ZW));
+    const cS = new Float64Array(NBIN), cN = new Float64Array(NBIN);
+    const fS = new Float64Array(NBIN), fN = new Float64Array(NBIN);
+    const zbin = d => Math.min(NBIN - 1, (d / ZW) | 0);
     for (let i = 0; i < n; i++) {
-      if (cl[i]) { cs += LUM(a, i); cn++; } else if (fo[i]) { fs += LUM(a, i); fn++; }
+      if (cl[i]) {
+        const l = LUM(a, i); cs += l; cn++;
+        if (zb) { const d = zb[i]; if (isFinite(d) && d > 0 && d <= FARBv) { const k = zbin(d); cS[k] += l; cN[k]++; } }
+      } else if (fo[i]) {
+        const l = LUM(a, i); fs += l; fn++;
+        if (zb) { const d = zb[i]; if (isFinite(d) && d > 0 && d <= FARBv) { const k = zbin(d); fS[k] += l; fN[k]++; } }
+      }
     }
+    const zst = [];
+    for (let k = 0; k < NBIN; k++) if (cN[k] >= ROOFPX && fN[k] >= ROOFPX && fS[k] > 0 && cS[k] > 0)
+      zst.push({ lo: k * ZW, cn: cN[k], ce: cS[k] / cN[k], fe: fS[k] / fN[k] });
     const gaps = [];
     /* Past FARB a ground row is one flat fill (js/40_render.js does `px.fill` across the whole row), so a
        row whose pixels repeat byte for byte horizontally is the distance wash, not a surface. Comparing a
@@ -17232,6 +17411,7 @@ if (MODE === 'surface') {
     return {
       ceil: cn ? cs / cn : NaN, ceilPct: 100 * cn / n,
       floor: fn ? fs / fn : NaN, floorPct: 100 * fn / n,
+      zst,
       foMask: fo,
       other: (n - cn - fn) ? NaN : NaN,
       seam: med(gaps), seamP10: gaps.length ? gaps[Math.floor(gaps.length * 0.1)] : NaN,
@@ -17870,18 +18050,53 @@ if (MODE === 'surface') {
         (bands ? '' : ' - NOT MEASURED: one surface covers under 1% of this pose'),
         bands && c.ceil >= c.floor && c.ceil < c.floor + 6 ? '#369' : undefined, !bands);
       /* The ORDER row above has no lower bound, which is how a roof sits at a third of its deck while it
-         reads ok. This one reads the SAME two band means as a ratio, so a level cannot buy it by
-         re-lighting the deck: that moves both terms together, and the cap in js/40_render.js already
-         keeps the roof from leading. Arrival heading only - see ROOFMIN above. */
+         reads ok. This one is a RATIO of the two surfaces, so a level cannot buy it by re-lighting the deck:
+         that moves both terms together, and the cap in js/40_render.js already keeps the roof from leading.
+         Under `ROOFSTAT=range` - the default - the pairing is by solved range rather than flat across the
+         frame; see the ROOFSTAT note above for what that buys and what it does not. Arrival heading only. */
       if (cam === CAMS[0]) {
-        const rr = c.floor > 0 ? c.ceil / c.floor : NaN;
-        if (bands) roofR.push({ li, rr });
+        const rrFlat = c.floor > 0 ? c.ceil / c.floor : NaN;
+        const rq = roofRange(c);
+        const rr = ROOFSTAT === 'flat' ? rrFlat : rq.rr;
+        const margin = rr - ROOFMIN;
+        const meas = bands && (ROOFSTAT === 'flat' || rq.n >= 3);
+        if (meas) roofR.push({ li, rr });
+        const piers = run('LEVELS[' + li + '].authored') ? 0 : (function(){
+          // one cheap question, asked of the GRID: does this deal stand any pier at all? A generated
+          // level whose rooms hold none cannot be a census-set case, so the pointer stays off it.
+          return run(`(function(){const c=MAP.cell,N=MAP.w;let n=0;
+            for(let y=1;y<N-1;y++)for(let x=1;x<N-1;x++){const i=y*N+x;if(!c[i])continue;
+              let open=0;for(let d=0;d<4;d++)if(!c[i+[0,1,0,-1][d]*N+[1,0,-1,0][d]])open++;
+              if(open===4)n++;}
+            return n;})()`);
+        })();
         row(`L${li} ROOF the arrival roof is a surface over its deck >= ${ROOFMIN}x`,
-          bands && rr >= ROOFMIN,
-          `ceiling ${c.ceil.toFixed(1)} over a deck of ${c.floor.toFixed(1)} = ${rr.toFixed(2)}x, ` +
-          `roof over ${c.ceilPct.toFixed(0)}% of the frame at this sector's own arrival heading; ` +
-          `pass ${ROOFMIN}x, regression floor ${ROOFFLOOR}x (below it the roof is a sheet again)`,
-          bands && rr >= ROOFFLOOR && rr < ROOFMIN ? '#495' : undefined, !bands);
+          meas && rr >= ROOFMIN,
+          `${ROOFSTAT === 'flat' ? 'flat band means' : 'range-matched'}: ceiling ${c.ceil.toFixed(1)} over a deck of ${c.floor.toFixed(1)}`
+          + (ROOFSTAT === 'flat' ? ` = ${rr.toFixed(2)}x`
+            : ` (flat ${rrFlat.toFixed(2)}x) = ${isFinite(rr) ? rr.toFixed(2) : 'n/a'}x from ${rq.n} range `
+              + `bin(s), roof census weighted by range, deck read at each bin's own range `
+              + `(${rq.px} of the ceiling's in-range pixels voting, ${(100 * rq.px / Math.max(1, rq.pop)).toFixed(0)}%; `
+              + `bin median ${isFinite(rq.med) ? rq.med.toFixed(2) : 'n/a'})`)
+          + `, roof over ${c.ceilPct.toFixed(0)}% of the frame at this sector's own arrival heading; ` +
+          /* THE MARGIN rides on the row, not in a footnote: a sector that lands AT the pass target is a green
+             with nothing under it, and that is a different fact from a green with room - the first flips with
+             the next lamp someone moves and the second does not. Say so before it reads as a regression. */
+          `pass ${ROOFMIN}x${isFinite(rr) ? ` (margin ${margin >= 0 ? '+' : ''}${margin.toFixed(2)})` : ''}, `
+          + `regression floor ${ROOFFLOOR}x (below it the roof is a sheet again)` +
+          (meas && margin >= 0 && margin < ROOFMARGIN ? ' - ON THE BAR: this green has no room under it, so '
+            + 'the next lighting touch flips the verdict and that is the margin, not a regression' : '') +
+          (bands && rr < ROOFMIN
+            ? (piers
+              ? `; ${piers} pier column(s) stand in this deal, and \`PIER=off node tools/view.js surface\` is `
+                + `the other arm. It moves THIS reading by the same step it moved the flat one: range matching `
+                + `cancels distance falloff, not WHICH ceiling surfaces the eye can see, and the two arms are `
+                + `two different rooms. The rest of this gap is the far half of the frame, which is #616's, `
+                + `not a ceiling that lost light.`
+              : `; no pier column stands in this deal, so this is not a census-set case - the ceiling is short `
+                + `of its own deck at the ranges the eye actually sees it at.`)
+            : ''),
+          meas && rr >= ROOFFLOOR && rr < ROOFMIN ? (piers ? '#616' : '#495') : undefined, !meas);
       }
       /* The wall-vs-deck half of the rule, per pose. `sep` is the FRACTION of columns across the whole
          width that separate by >= TARGET; requiring 0.6 of them is what stops one bright third of the
