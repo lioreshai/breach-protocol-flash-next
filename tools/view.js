@@ -13353,6 +13353,73 @@ if (MODE === 'viewmodel') {
     run(REST);
     sOff = +run('window.__vmCost("off", ' + VCOST_BATCH + ', ' + SEAT_ANG + ')');
   }
+  /* ---- THE TURNED SEAT'S OWN PRICE, AS A ROW (#529) ----------------------------------------------
+     The `deal seat` line above prints what the frame under the arrival heading costs but asserts nothing,
+     so the only row in this probe that could notice the room getting more expensive was VM-SHARE - a row
+     about the RIG, which is why #529's first report read "the rig got 3.7x cheaper" while the frame under
+     it had doubled. This row moves the price onto its own verdict. It is a same-page A/B, not a second
+     js/ tree: the shipped `castGround` is swapped for a copy whose split never queues (the same one-line
+     source transform the LEAK=1 attribution and the deferred-copy control already use, and its state is
+     asserted by name for the same reason - a refactor that moves that line trips this row instead of
+     timing the ship config twice). With the split never queuing the ROW paints those columns at the row's
+     own plane, so the frame is WRONG on purpose; what the two frames' difference measures is the price of
+     routing a stepped level's off-plane columns through the second copy of the ground-pixel body, which is
+     the pass #529's profile named (28.1 % of a CPU profile of this probe, against 20.3 % for castGround).
+     WHY THE GATE IS A RATIO AND NOT MILLISECONDS: a wall-clock floor on a shared runner is the documented
+     flake (AGENTS.md; this file's own #186 note), and both sides of the quotient are timed in this same
+     page in the same seconds, so machine speed cancels. MEASURED HERE, three rolls of this probe at one
+     unchanged head: 1.80 / 1.78 / 1.83 x with the rig, and the deferred copy carrying 47-52 % of the dealt
+     frame; the issue's own two-tree harness read 2.08 x. The red floor therefore sits at 3.00 x - above
+     every number this increment has seen, so it fails on a room that got a second storey of cost, not on
+     drift - and the debt band opens at 2.20 x, which is the issue's own measurement plus headroom, printed
+     as KNOWN rather than as a failure because one machine's 2.08 is another's 1.80. */
+  const SEAT_DEBT = +(process.env.SEAT_DEBT || 2.20), SEAT_FLOOR = +(process.env.SEAT_FLOOR || 3.00);
+  problems = [];
+  let seatArm = 0, seatArmState = 'n/a', seatRatio = 0, seatCarry = 0;
+  if (seatDiffers) {
+    const SNEEDLE = 'if (planeC !== planeA) { RX[nm] = x; RP[nm] = planeC; nm++; continue; }';
+    const patchNoDefer = on => run(`(function (ON) {
+      if (!globalThis.__cgO529) globalThis.__cgO529 = castGround;
+      if (!ON) { castGround = globalThis.__cgO529; return globalThis.__cgO529.toString().indexOf(${JSON.stringify(SNEEDLE)}) >= 0 ? 'restored' : 'NEEDLE-NOT-FOUND'; }
+      const src = globalThis.__cgO529.toString();
+      if (src.indexOf(${JSON.stringify(SNEEDLE)}) < 0) return 'NEEDLE-NOT-FOUND';
+      const rep = ${JSON.stringify(SNEEDLE.replace('if (planeC', 'if (false && planeC'))};
+      castGround = eval('(' + src.split(${JSON.stringify(SNEEDLE)}).join(rep) + ')');
+      return castGround.toString().indexOf(rep) >= 0 ? 'ok' : 'PATCH-FAILED';
+    })(${on ? 'true' : 'false'})`);
+    const stArm = patchNoDefer(true);              // the never-queue arm
+    run(REST);
+    seatArm = +run('window.__vmCost("off", ' + VCOST_BATCH + ', ' + SEAT_ANG + ')');
+    const stRest = patchNoDefer(false);
+    seatArmState = stArm + '/' + stRest;
+    if (stArm !== 'ok' || stRest !== 'restored')
+      problems.push('the never-queue arm did not apply (' + seatArmState + ') - the price below is the ship '
+        + 'config timed against itself, so it measures nothing');
+    run(REST);
+    run('window.drawViewModel = window.__VMSAVE; MESH.weapon = window.__VMWEAPON;');
+    seatRatio = sOff / Math.max(1e-6, vmed(tOff));
+    seatCarry = (sOff - seatArm) / Math.max(1e-6, sOff);
+    if (seatRatio > SEAT_FLOOR) problems.push('the turned seat costs ' + seatRatio.toFixed(2) + 'x the same '
+      + 'build at the pinned heading, past the ' + SEAT_FLOOR.toFixed(2) + ' red floor - the room you arrive '
+      + 'in has got more expensive to look at, and ' + (100 * seatCarry).toFixed(0) + '% of its frame is now '
+      + 'the deferred ground copy');
+    else if (!(seatRatio > 1.02)) problems.push('the turned seat prices nothing (' + seatRatio.toFixed(2) + 'x the '
+      + 'pinned frame) - either the deal stopped authoring a heading or the storey it faced is gone; a price '
+      + 'row that cannot see its own subject is a FAILURE, not a clean bill');
+    else if (seatCarry <= 0.02) problems.push('the deferred copy carries ' + (100 * seatCarry).toFixed(1) +
+      '% of the dealt frame while the frame is ' + seatRatio.toFixed(2) + 'x the pinned one - the price is '
+      + 'somewhere other than the pass this row prices, so name the pass before trusting the ratio');
+  }
+  console.log('seat price'.padEnd(24), (seatDiffers
+    ? 'the dealt heading ' + SEAT_ANG.toFixed(3) + ' rad costs ' + sOff.toFixed(2) + ' ms/frame with the room '
+      + 'and no rig, ' + (sOff - seatArm).toFixed(2) + ' ms of it in the deferred ground copy (' +
+      (100 * seatCarry).toFixed(0) + '%, arm ' + seatArmState + '), ' + seatRatio.toFixed(2) + 'x the same '
+      + 'build at the pinned heading ' + VMHEAD + ' [' + SEAT_DEBT.toFixed(2) + ' debt / ' + SEAT_FLOOR.toFixed(2) +
+      ' red]' + (problems.length ? ' << ' + problems.join(', ') : (seatRatio > SEAT_DEBT ? ' KNOWN' : ''))
+    : 'no room to price: the dealt heading IS the pinned heading ' + VMHEAD.toFixed(3) + ', so there is no '
+      + 'turned seat to price and no verdict to make'));
+  bad += problems.length ? 1 : 0;
+
   run(REST);
   run('window.drawViewModel = window.__VMSAVE; MESH.weapon = window.__VMWEAPON;');
   const vmD = vmed(tOn) - vmed(tOff), vmShare = vmD / Math.max(1e-6, vmed(tOn));
