@@ -4126,6 +4126,16 @@ function drawLightGlow(q) {
   const cand = [];
   const mrg = DW * 0.25 + 1;                                  // rad is clamped to DW*0.25 on BOTH axes
   for (const L of LIGHTS) {
+    if (L.noglow) continue;                               // #353: a source standing ON a one-cell overlook
+                                                            // deck. Its disc would be mostly OFF-band alpha -
+                                                            // #221's defect at 0.074 of the disc against the
+                                                            // 0.05 floor this row gates - so it lights the
+                                                            // deck's floor and is not drawn as a disc. It is
+                                                            // excluded while COLLECTING candidates, not at
+                                                            // the draw site: the budget is by lamps drawn, and
+                                                            // a light that merely displaces another lamp in
+                                                            // the queue would still move which glows the
+                                                            // player sees.
     const d = Math.hypot(L.x - camX, L.y - camY);
     if (d > 20 || d < 0.35) continue;
     const s = project(L.x, L.y, L.z !== undefined ? L.z : 0.55);   // the light's own altitude; 0.55 is the old hardcoded mid-room float
