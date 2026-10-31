@@ -2624,7 +2624,7 @@ if (MODE === 'flatparity') {
      for the order half, and DEALT - which re-boots per level and therefore carries NO order dependence -
      holds at L1, which is the difference between the two senses made visible. No threshold, window, region,
      dice, seat, bound or vacuity clause moved; OLDM's digits are this run's printings. */
-const OLD = refRecord('flatparity', 'PARITY', 'md5', ['47b4d72dbde4bbf4015d690d19d32008', 'fc13978f785472239a4ae547242c6677', '824e6520bb0563d863406e0bb4d83ace', 'b02d5b6183552150da8357ddad30d7bf'])
+const OLD = refRecord('flatparity', 'PARITY', 'md5', ['8f7591aeda20abbe6914955bfa1de4cd', 'fc13978f785472239a4ae547242c6677', 'c2c55b2dcec967d471fc63f2d5b7bf8f', 'b02d5b6183552150da8357ddad30d7bf'])
   /* #632 REWORK TAKE THREE (js/40_render.js VMHIP: the hip YAW is halved to -0.010 / -0.012 / -0.014 so the
      carried barrel stops painting over the step-lip crease that `bands` gates at zero missing columns), MEASURED
      on this tree: all four PARITY bytes re-key. They are a paint move and not a placement move - the same run
@@ -2833,7 +2833,7 @@ const OLD = refRecord('flatparity', 'PARITY', 'md5', ['47b4d72dbde4bbf4015d690d1
      most a tenth of a 203,138-px frame behind three digests that move, which is the same statement in a
      different unit. L1 carries #708's order dependence exactly as PARITY[1] does - see the note above. No
      threshold, bound, census or vacuity clause moved. */
-const SHIP = refRecord('flatparity', 'LOCK', 'md5', ['4dee275018719a4d7ea31fbb16911cc0', '7d79150ffb12bcbd4cbb5f18177062b9', 'f7afe60d03c0ebc9278252dd0ab1d9f5', 'd51e4f3932c284be3fd02393fa331256'])
+const SHIP = refRecord('flatparity', 'LOCK', 'md5', ['adb45c202d5157b1de34295c6cc9f24f', '7d79150ffb12bcbd4cbb5f18177062b9', '262e8c8d4289947fbb38ee5ebde81b66', 'd51e4f3932c284be3fd02393fa331256'])
   /* #632 REWORK TAKE THREE (the halved hip yaw, see PARITY above), MEASURED on this tree: all four LOCK bytes
      re-key for the same reason - a rig that turns half as far is a different set of pixels in the same frame. The
      shipped-sense means say what that is worth: 94.5 / 94.0 / 59.8 / 96.0 against the 94.5 / 93.9 / 59.8 / 96.0 the
@@ -3179,7 +3179,7 @@ const SHIP = refRecord('flatparity', 'LOCK', 'md5', ['4dee275018719a4d7ea31fbb16
      flattened at the same seat), so neither re-key rests on a frame that sees no band. DEALT-ORDER reproduces
      both new bytes hashed ALONE in a cold process and hashed IN LEVEL ORDER, so these are properties of the
      level, not of the roster. No threshold, floor, dice, seat, bound or vacuity clause moved. */
-  const DEALT = refRecord('flatparity', 'DEALT', 'md5', ['51f718d95a6cefde7fd5920f572f6dda', '2d8a9a50ac1947528acc00d3d44addc8', 'bb681e4455062a9af9b6aaf6347ef553', 'e0c6f6ea1888745ded771e4bffaa7ded'])
+  const DEALT = refRecord('flatparity', 'DEALT', 'md5', ['73343b7a4c712e84c3fef24a902863ea', '2d8a9a50ac1947528acc00d3d44addc8', '926e33864dfa22e48d036f4a7900849a', 'e0c6f6ea1888745ded771e4bffaa7ded'])
     /* #632 REWORK TAKE THREE (the halved hip yaw, see PARITY above), MEASURED on this tree: all four dealt frames
        re-key, DEALT-ORDER hashes each new value alone in its own process AND in level order and both senses agree on
        all four, and the dealt GEOMETRY census - the part of this row that describes the WORLD - comes back 168 / 247
@@ -16101,7 +16101,7 @@ if (MODE === 'bands') {
      term still goes red here; and L3 - THE STACK, the one level that authors no accent - is the scope
      control, byte-identical while the three that paint all move. No threshold, lip bound or vacuity
      floor moved; what moved is the frame those lip rows are drawn across. */
-  const RECSEAM = refRecord('bands', 'SEAM-FRAME', 'md5', ['cf962c5361c55cca23f3dbf0f0bcf046', 'dd4270a86b82726570461609c4df3ad4', '2a2c5ddff42b0eb90386c7ac82d4a27f', '44a8209c4f38d77ef375798d69024be8'])
+  const RECSEAM = refRecord('bands', 'SEAM-FRAME', 'md5', ['d2469696268948901f6e50c763688662', 'dd4270a86b82726570461609c4df3ad4', 'e653ba52cd99e39051432dbc9b4147cd', '44a8209c4f38d77ef375798d69024be8'])
   /* #632 REWORK TAKE THREE (js/40_render.js VMHIP: the hip yaw halved to -0.010 / -0.012 / -0.014), MEASURED on this
      tree: all four SEAM=1 lip frames re-key, and they re-key BECAUSE the rework's own fix worked - at the deeper
      -0.020 / -0.024 / -0.028 carry six of this probe's sixty-four rows were red, because a barrel turned far enough
