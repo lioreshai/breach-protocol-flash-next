@@ -2981,6 +2981,14 @@ function pierEnabled() { return true; }
    rooms, bands, pairs, props and bodies and drops only the lamp standing on the deck - the picture
    A/B that says the row is load-bearing on LIGHT. Unset, it is `return true` and moves no byte. */
 function deckLightEnabled() { return true; }
+/* #353's THIRD control, the deck's lamp BODY, in the same idiom as the two above. The deck light carries
+   `noglow` (a bloom disc on a one-cell lip pays #221's off-band alpha), which left the deck lit by nothing
+   visible: up on the mezzanine you stand in a lit room with no lamp in it. ONE call site so
+   `DECKBODY=off node tools/view.js alt` deals the SAME rooms, bands, pairs and sources with no fixture
+   standing on the deck, which is what makes `alt`'s body row capable of failing for want of a BODY rather
+   than for want of a pair or of light. Unset it is `return true` and moves no byte of the shipped path
+   other than the pixels the fixture paints. */
+function deckBodyEnabled() { return true; }
 /* #413's ceiling fittings, in the same idiom as the two above: ONE call site, so
    `LAMPS=off node tools/view.js flatparity` builds a level with NO generator-added fill light and
    flatparity's PARITY sense stays a COUNTERFACTUAL rather than becoming a second picture. The row's
@@ -3519,7 +3527,7 @@ function lightOverlookDecks(cfgL) {
   const SC = [new Float32Array(N * N), new Float32Array(N * N), new Float32Array(N * N),
     new Float32Array(N * N), new Float32Array(N * N)];
   const keep = [MAP.light, MAP.lR, MAP.lG, MAP.lB, MAP.lw];
-  let placed = 0;
+  let placed = 0, bodyPlaced = 0;
   const ledger = (p, at, own, why) =>
     overlookLamps.push({ low: p[0], deck: p[1], at: at, own: +own.toFixed(3), why: why });
   for (const p of overlookPairs) {
@@ -3561,7 +3569,19 @@ function lightOverlookDecks(cfgL) {
     const tsc = Math.min(0.6, Math.max(TOPUP_MINF, order.length / TOPUP_TARGET));
     LIGHTS.push({ x: x, y: y, z: fl + LHOVER, band: fl, r: OVL_LAMP_R, str: TOPUP_BASE * tsc,
       col: cfgL.lampCol, stat: 1, ovl: 1, noglow: 1 });
-    ledger(p, at, own, 'lit');
+    /* #353: the source's BODY. This is not a second light and it draws no RNG: it is the shipped
+       `PROP.lamp` mesh - the same footprint the generator stands in every corridor (js/12_sprites.js
+       authors the sheet, js/13_mesh.js parts it) - put on the deck cell the pass just chose, at the same
+       cell centre as the source, so the light and the fixture cannot disagree about where the lamp is.
+       It is drawn by the prop/mesh pass and never by drawLightGlow, so #221's off-band ALPHA gate is
+       untouched by construction: a body occludes, it does not add. The cell is free of props and bodies
+       by the two `every` tests above, so this cannot stand a lamp inside a crate. */
+    if (deckBodyEnabled()) {
+      PROPS.push({ tex: PROP.lamp, x: x, y: y, z: floorAt(x, y), scale: 0.95, kind: 'lamp',
+        yaw: propYaw(x, y), ovl: 1 });
+      bodyPlaced++;
+    }
+    ledger(p, at, own, deckBodyEnabled() ? 'lit' : 'lit-no-body');
     placed++;
   }
   return placed;
