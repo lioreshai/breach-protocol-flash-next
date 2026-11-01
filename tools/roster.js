@@ -31,11 +31,20 @@
  * whose header was deleted prints "parsed 2 != raw 17" and exits 1. The walk deliberately does not grow
  * a rule for every legal YAML - an unrecognised shape must fail, not be guessed at.
  * A third rule covers what neither can classify: an invocation whose mode is a shell loop variable
- * (`node tools/view.js "$p"`) cannot be run as stated, and if such a line is inside a GATE step the
- * roster says so and fails rather than running nothing. In a non-gate step (`probes`, `seeds`) the
- * same line is printed as an off-roster note, because reporting is not coverage. Blocking steps that
- * run a tool this roster does not cover by design (`recap.js`, `ci/assert.js`, `wfyaml.rb`) are
- * printed the same way, as a named gap rather than a silent one.
+ * (`node tools/view.js "$p"`) cannot be run as stated. It is not a command, it is a HANDFUL of
+ * commands wearing one line's clothes, so the roster reads the `for <var> in <words>; do` header out
+ * of the same step body and replays one invocation per word (#662) - the words come from ci.yml, so
+ * there is no third copy of the mode list here and the list cannot rot. Whether those invocations
+ * COUNT depends on the step's own shell, not on the job label: a step that ends `exit $status` after
+ * setting `status=1` on a failure exits non-zero in CI whatever its job's `continue-on-error` says,
+ * so its modes are replayed and their failures are counted. A step that swallows them (`seeds`) is
+ * printed as an off-roster note listing what it runs, because reporting is not coverage. That is the
+ * whole of #662: `probes` is labelled "they report, they do not gate" while its step is
+ * `for p in alt exposure contrast rig stats sheets decal diag viewmodel` and `exit $status`, and a
+ * roster that read only the label left eight of those nine modes unreplayed - which cost PR #649 a
+ * red CI on a head whose local roster was clean. An unresolvable loop variable in a GATE step still
+ * FAILS the roster rather than running nothing. Blocking steps that run a tool this roster does not
+ * cover by design (`recap.js`, `ci/assert.js`, `wfyaml.rb`) are printed as a named gap, not a silent one.
  *
  * VERDICTS. Each entry runs in order, keeps going after a failure, and contributes one line: the
  * child's own exit code, and the child's own verdict *string* (the last line of its output that
@@ -83,8 +92,10 @@
  * in A that CI does not set is what ask #2 wants named inside each mode's own summary; that edit
  * belongs in tools/view.js's verdict blocks and is deliberately NOT part of this increment.
  *
- * USAGE.  node tools/roster.js            run the whole roster in ci.yml's order
+ * USAGE.  node tools/roster.js            run the whole roster in ci.yml's order, loop-expanded
  *         node tools/roster.js --quick 3  the first 3 only (census says PARTIAL)
+ *         node tools/roster.js --only exposure[,decal]  just those mode(s) - the census says PARTIAL,
+ *                                       and it is how one mode's redness is proven to be caught
  *         node tools/roster.js --list     parse + drift check + yaml lint, run nothing
  *         node tools/roster.js --env      the env-gated row census above, with live line numbers
  * --------------------------------------------------------------------------------------------- */
@@ -112,6 +123,10 @@ const LIST = argv.includes('--list');
 const ENVC = argv.includes('--env');
 const qIdx = argv.indexOf('--quick');
 const QUICK = qIdx >= 0 ? Math.max(1, +(argv[qIdx + 1] || 1) || 1) : 0;
+// A named subset, for proving that one mode's redness is actually caught without paying for the whole
+// roster. The census calls it PARTIAL: a subset run is never the gate (#338's whole lesson).
+const oIdx = argv.indexOf('--only');
+const ONLY = oIdx >= 0 ? String(argv[oIdx + 1] || '').split(/[,\s]+/).filter(Boolean) : [];
 
 /* ---------------------------------------------------------------- the structure-blind count (B) */
 
@@ -179,6 +194,15 @@ function walk(lines) {
           inEnv = false; continue;
         }
         if (/^ {10,}[A-Za-z_][A-Za-z0-9_]*:/.test(line)) { inEnv = false; continue; }
+        // A shell loop header, and whether this step's own shell turns a child's failure into its own
+        // exit code. Both are read from the body rather than assumed from the job's label (#662): the
+        // `probes` job is labelled "they report, they do not gate" and its step exits 1 on a red probe.
+        const lp = /^ {10,}for\s+([A-Za-z_]\w*)\s+in\s+(.+?)\s*;\s*do\b/.exec(line);
+        if (lp) { st.loop = { name: lp[1], words: lp[2].trim().split(/\s+/).filter(Boolean), line: ln, text: line.trim() }; continue; }
+        const xv = /^\s*exit\s+\$\{?([A-Za-z_]\w*)\}?/.exec(line.slice(10));
+        if (xv) st.exitVar = xv[1];
+        const a1 = /(?:^|[;&|]\s*)([A-Za-z_]\w*)=1\b/.exec(line.slice(10));
+        if (a1) (st.assigns || (st.assigns = new Set())).add(a1[1]);
         const parsed = parseCmd(line, ln);
         if (parsed.length) st.inv = (st.inv || []).concat(parsed);
       }
@@ -187,13 +211,47 @@ function walk(lines) {
   for (const j of jobs) {
     j.gate = !j.cont && !/\binformational\b/i.test(j.label);
     j.inv = [];
-    for (const st of j.steps) for (const inv of st.inv || []) {
-      inv.step = st.name;
-      inv.env = (st.envBlock || []).concat(inv.env);                             // ci-line prefix wins
-      if (inv.env.some((kv) => /\$/.test(kv[1]))) inv.unexpandable = true;
+    for (const st of j.steps) {
+      // A step GATES ON ITS OWN EXIT CODE iff it exits on a variable it sets to 1 on a failure. That is
+      // the shape #662 is about, and it is a property of the shell, not of `continue-on-error`.
+      st.exitGate = !!(st.exitVar && st.assigns && st.assigns.has(st.exitVar));
+      if (st.loop) st.loop.exitVar = st.exitVar || '';
+      for (const inv of st.inv || []) {
+        inv.step = st.name;
+        inv.env = (st.envBlock || []).concat(inv.env);                             // ci-line prefix wins
+        if (inv.env.some((kv) => /\$/.test(kv[1]))) inv.unexpandable = true;
+        inv.exitVar = st.exitVar || '';
+        inv.variants = expandLoop(inv, st.loop);
+        inv.exitVar = st.exitVar || '';
+        inv.counted = j.gate || (st.exitGate && inv.variants.every((v) => !v.unexpandable));
+      }
     }
   }
   return jobs;
+}
+
+/* A step body's `for <var> in a b c; do ... node tools/view.js "$var" ... done` is not one command but
+ * as many as the word list. The list is read out of ci.yml (#662) - this file carries no mode list, so
+ * a mode added to the loop is IN the roster without anyone editing it. Substitution covers the mode
+ * AND the `VAR=$s` prefix form (the `seeds` loop), and a list whose own words need expanding stays
+ * unresolvable, which is a FAILURE in a gate step and a printed note elsewhere. */
+function expandLoop(inv, loop) {
+  if (!loop) return [inv];
+  const useRe = new RegExp('\\$\\{?' + loop.name + '\\}?');
+  const sub = (s) => String(s).replace(new RegExp('\\$\\{?' + loop.name + '\\}?', 'g'), '\u0000');
+  if (!(useRe.test(inv.mode || '') || inv.env.some((kv) => useRe.test(kv[1])))) return [inv];
+  if (!loop.words.length || loop.words.some((w) => /[$'"`\\|&;<>()]/.test(w))) return [inv];
+  const bad0 = loop.words.some((w) => inv.mode !== null && sub(inv.mode).replace('\u0000', w).indexOf('$') >= 0);
+  return loop.words.map((w) => {
+    const mode = inv.mode === null ? null : sub(inv.mode).replace(/\u0000/g, w);
+    const env = inv.env.map((kv) => [kv[0], sub(kv[1]).replace(/\u0000/g, w)]);
+    const unexpandable = bad0 || /[$]/.test(mode || '') || env.some((kv) => /[$]/.test(kv[1]));
+    return { line: inv.line, tool: inv.tool, mode, env, unexpandable, text: inv.text, fromLoop: true,
+      exitVar: inv.exitVar || (loop.exitVar || ''), job: inv.job, step: inv.step, stepExitVar: loop.exitVar,
+      loopName: loop.name, loopLine: loop.line, loopWords: loop.words.slice(),
+      cmd: (env.map((kv) => kv[0] + '=' + kv[1]).join(' ') + ' node tools/' + inv.tool +
+            (mode ? ' ' + mode : '')).trim() };
+  });
 }
 
 // One line -> the command(s) it runs. Returns [] when the line runs nothing in scope.
@@ -484,15 +542,35 @@ function main() {
 
   const roster = [];
   const ENVNAMES = toolEnvNames();
-  for (const j of gateJobs) for (const st of j.steps) for (const inv of st.inv || []) {
-    if (inv.unexpandable)
-      problems.push(`ci.yml:${inv.line} in job "${j.key}" step "${st.name}" runs \`${inv.text.trim()}\` - ` +
-        `a gate invocation whose command cannot be formed from the line (a shell loop or an unset expansion). ` +
-        `The roster cannot replay it, and running nothing is exactly what #338 is about.`);
-    else roster.push(inv);
+  let gateLoopLines = 0;
+  for (const j of jobs) {
+    for (const st of j.steps) for (const inv of st.inv || []) {
+      if (!inv.counted) continue;                                  // a reporting step that swallows status
+      const vars = inv.variants;
+      if (vars.some((v) => v.unexpandable)) {
+        if (j.gate)
+          problems.push(`ci.yml:${inv.line} in job "${j.key}" step "${st.name}" runs \`${inv.text.trim()}\` - ` +
+            `a gate invocation whose command cannot be formed from the line (a shell loop whose word list is not ` +
+            `literal, or an unset expansion). The roster cannot replay it, and running nothing is exactly what #338 is about.`);
+        continue;
+      }
+      if (j.gate && vars.some((v) => v.fromLoop)) gateLoopLines++;
+      for (const v of vars) { v.job = j.key; v.step = st.name; v.gate = j.gate; roster.push(v); }
+    }
   }
-  if (LIST && roster.length !== gateInvN)
-    problems.push(`CI-ROSTER-COUNT: ${roster.length} replayable != ${gateInvN} parsed in the blocking steps`);
+  const gateRunN = roster.filter((v) => v.gate && !v.fromLoop).length;
+  const loopRun = roster.filter((v) => v.fromLoop);
+  if (LIST && gateRunN + gateLoopLines !== gateInvN)
+    problems.push(`CI-ROSTER-COUNT: ${gateRunN} replayable + ${gateLoopLines} loop line(s) != ${gateInvN} parsed in the blocking steps`);
+  // What this roster did NOT run, named in the verdict line as well as the listing (#662 ask 1): a
+  // reporting step whose shell swallows its children's exit codes is not coverage, and saying so beats
+  // saying nothing about eight unreplayed modes.
+  const notRun = [];
+  for (const j of jobs) {
+    if (j.gate) continue;
+    for (const st of j.steps) for (const inv of st.inv || [])
+      if (!inv.counted && inv.variants.every((v) => !v.unexpandable)) notRun.push({ line: inv.line, job: j.key, step: st.name, n: inv.variants.length, cmd: inv.cmd });
+  }
 
   // Blocking steps that run a harness this roster does not cover by design - a named gap, not a silent one.
   for (const j of gateJobs) {
@@ -535,15 +613,27 @@ function main() {
   if (LIST) {
     console.log(`roster of the blocking steps of ${path.relative(ROOT, CI_FILE)} ` +
       `(jobs: ${jobs.map((j) => j.key + (j.gate ? ' [gate]' : ' [reporting]')).join(', ')})`);
-    roster.forEach((inv, i) => console.log(`  ${String(i + 1).padStart(2)}  ci.yml:${String(inv.line).padStart(3)}  ${inv.cmd}`));
+    roster.forEach((inv, i) => console.log(`  ${String(i + 1).padStart(2)}  ci.yml:${String(inv.line).padStart(3)}  ${inv.cmd}` +
+      (inv.fromLoop ? '   [one of ' + inv.loopWords.length + ' mode(s) read off the loop at ci.yml:' + inv.loopLine +
+        (inv.gate ? ', a GATE step]' : '; job "' + inv.job + '" ends exit $' + inv.exitVar + ', so it counts]') : '')));
     for (const o of scopedOther)
       console.log(`  --  ci.yml:${String(o.line).padStart(3)}  BLOCKING, outside this roster's scope (tools/view.js, tools/smoke.js): ${o.cmd}`);
-    for (const o of offRoster)
-      console.log(`  --  ci.yml:${String(o.line).padStart(3)}  not a gate (job "${o.job}" reports, does not gate): ${o.text.slice(0, 90)}`);
+    for (const o of offRoster) {
+      if (o.counted && o.variants.some((v) => v.fromLoop))
+        console.log(`  --  ci.yml:${String(o.line).padStart(3)}  job "${o.job}" is labelled reporting, but its step sets ` +
+          `\`${o.exitVar}=1\` on a failure and ends \`exit $${o.exitVar}\`, so all ${o.variants.length} invocation(s) the loop at ` +
+          `ci.yml:${o.variants[0].loopLine} names are replayed above (#662)`);
+      else if (o.counted)
+        console.log(`  --  ci.yml:${String(o.line).padStart(3)}  not a gate, but replayed because job "${o.job}" step "${o.step}" exits on it: ${o.text.slice(0, 90)}`);
+      else
+        console.log(`  --  ci.yml:${String(o.line).padStart(3)}  not run: job "${o.job}" reports, does not gate (its step swallows the child's status): ${o.text.slice(0, 90)}`);
+    }
     for (const o of selfRun)
       console.log(`  --  ci.yml:${String(o.line).padStart(3)}  this roster's own drift check runs as a blocking step in job "${o.job}" (it is the gate on the count above, not an entry in it)`);
-    console.log(`COUNT ${roster.length} replayable invocation(s) = ${gateInvN} structural = ${rawInvN} raw ` +
+    console.log(`COUNT ${gateRunN + gateLoopLines} replayable invocation(s) = ${gateInvN} structural = ${rawInvN} raw ` +
       `in ${gateJobs.length} blocking job(s), ${offRoster.length} off-roster, ${scopedOther.length} out-of-scope blocking`);
+    console.log(`LOOP ${loopRun.length} invocation(s) replayed from shell loop(s) in ci.yml, their failures counted; ` +
+      `${notRun.length} loop line(s) NOT replayed (${notRun.map((o) => 'ci.yml:' + o.line + ' in job "' + o.job + '"').join(', ') || 'none'})`);
     console.log(`yaml: ${jobs.length} job(s), ${jobs.reduce((a, j) => a + j.steps.length, 0)} step(s) walked; ` +
       `lint checked tabs, colon-space in plain scalars, unbalanced quotes, duplicate names` +
       ` (CI asserts a real parse with its own wfyaml step)`);
@@ -552,7 +642,10 @@ function main() {
     return 0;
   }
 
-  const run = QUICK ? roster.slice(0, QUICK) : roster;
+  const run = QUICK ? roster.slice(0, QUICK) : ONLY.length ? roster.filter((v) => ONLY.some((t) =>
+    (v.mode && v.mode === t) || v.tool === t || v.tool === t + '.js' || v.cmd.indexOf(t) >= 0)) : roster;
+  if (ONLY.length && !run.length)
+    { console.log(`ROSTER 0 invocation(s) - --only ${ONLY.join(',')} matched nothing in the roster; --list prints it`); return 1; }
   let failed = 0, okN = 0, knownN = 0;
   const t0 = Date.now();
   for (let i = 0; i < run.length; i++) {
@@ -578,6 +671,7 @@ function main() {
     const tag = v.status === 'FAIL' ? 'FAIL' : v.status === 'KNOWN' ? 'KNOWN' : 'ok   ';
     let l = `[${String(i + 1).padStart(2)}/${run.length}] ${tag} exit ${res.status === null ? 'signal' : res.status}` +
       `  ${secs.padStart(6)}s  ci.yml:${inv.line}  ${inv.cmd}`;
+    if (inv.fromLoop) l += `  [the loop at ci.yml:${inv.loopLine}${inv.gate ? '' : ', counted because job "' + inv.job + '"\'s step exits on $' + inv.exitVar}]`;
     if (dropped.length) l += `  [ambient dropped: ${dropped.join(',')}]`;
     if (overridden.length) l += `  [ci line wins over shell: ${overridden.join(', ')}]`;
     console.log(l);
@@ -594,7 +688,13 @@ function main() {
   }
   const total = ((Date.now() - t0) / 1000).toFixed(1);
   let census = `ROSTER ${run.length} invocation(s), ${failed} failed, ${okN} ok, ${knownN} known-reporting`;
+  // The verdict line names what a per-mode run would not have run at all (#662): the modes that came
+  // out of a shell loop rather than a literal line, and any loop the roster still cannot replay.
+  const loopHere = run.filter((v) => v.fromLoop);
+  if (loopHere.length) census += `  [incl. ${loopHere.length} read off ci.yml's shell loop(s), failures counted]`;
+  if (notRun.length) census += `  [NOT RUN: ${notRun.map((o) => o.n + ' invocation(s) of the loop at ci.yml:' + o.line).join(', ')} - that step swallows its children's status]`;
   if (QUICK) census += `  [PARTIAL: first ${run.length} of ${roster.length} in ci.yml's order]`;
+  if (ONLY.length) census += `  [PARTIAL: --only ${ONLY.join(',')}: ${run.length} of ${roster.length} in ci.yml's order]`;
   if (PASSTHROUGH) census += '  [shell environment passed through: ROSTER_KEEP_ENV=1]';
   console.log(`${census}  in ${total}s`);
   if (problems.length) { console.log(`CI-ROSTER-DISAGREEMENT (${problems.length} problem(s)):`); problems.forEach((p) => console.log('  ' + p)); }
