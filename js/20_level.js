@@ -35,6 +35,18 @@ const LEVELS = [
     // stays 0.30, still an authored value that wins outright, so a vault still cannot out-light the deck
     // it spans and the ramp's near half is byte-identical. The roof is brighter by 2.4 luma of BASE on
     // every ceiling row of this sector alone; no lamp, no plane, no material, no floor term moved.
+    // #669 THE ACCENT, SOLVED AT RENDERED LIGHT. `accent` is an ALBEDO (js/40_render.js RISER_ACC): the
+    // painted pixel is `accent x this face's light + fog`, so the colour the player sees is not the colour
+    // authored here. This sector's lamp [255, 196, 120] eats blue first, and the previous teal
+    // [92, 176, 160] - 169 deg in the authored channels - arrives at the frame at 81 deg, only 52 deg off
+    // the sector's own RENDERED family hue of 29. Criterion 1 of #669 is a floor on the RENDERED offset, so
+    // the authored colour was solving the wrong space. Solved here instead on the delivered pixels: with
+    // this sector's measured per-channel delivery (`accent` 0 -> 31.6/19.9/12.9, 255 -> 119.7/95.1/72.6 at
+    // the arrival seat, i.e. gains 0.345/0.295/0.234), this teal lands at 37.0/77.4/57.5 - mark hue 149,
+    // 120 deg off the family, at a mark luma of 67.4 against the 68.5 the authored teal delivered and the
+    // same 5,504 px of the arrival frame. Same delivered light, more than twice the disagreement. ABATOIR's
+    // mark below arrives at 182, so the two sectors' paint is 33 deg and fourteen lumas apart, not one colour.
+    accent: [15, 195, 190],
     floor: 'STONE', ceil: 'ROCK', amb: 0.19, lampCol: [255, 196, 120], fogCol: [17, 13, 10], ceilLead: 0.30, ceilBias: 0,
     lamps: 6, crates: 7, barrels: 7, spawn: { grunt: 5, hound: 3, brute: 0 }, pick: { health: 3, ammo: 4, armor: 1 },
     fixtures: ['PIPE', 'VENT'],           // #400: the archive is a place with old pipework in it
@@ -111,6 +123,18 @@ const LEVELS = [
     // because the remaining work on #421 is to move its authored plateau into the seat's reach - pinning
     // it now would quietly make that work do nothing. See seatFacing.
     seatAng: 0.6,
+    // #669 THE ACCENT, SOLVED AT RENDERED LIGHT - see the ARCHIVE note above for the mechanism. Authored
+    // [86, 140, 81] arrives at 88 deg against this sector's rendered family hue of 11: a 77 deg offset,
+    // under #669's 90 deg floor, because the green-white lamp [190, 255, 150] drags an already-green mark
+    // back toward the room it is supposed to disagree with. Going ACROSS the lamp instead of along it - blue
+    // up, green down - delivers 67.7/85.6/86.5 at the seat: mark hue 182, 172 deg off the family, at a mark
+    // luma of 81.8, which is the luma the previous green delivered to the tenth and the same 11,060 px. So
+    // the mark spends only its hue and buys no brightness, which is why `exposure`'s ABATOIR spawn pair
+    // still reads its recorded 73 / 73 (72.68 / 73.00 exact). A brighter-green variant ([60, 215, 105])
+    // reached 121 deg off by putting +5 luma on 50 % more pixels and pushed that centre-half mid to 76 - the
+    // same offset bought with exposure, so it is not what ships. The lamp itself is untouched: the measured
+    // family-hue lamp repaints 80 % of the frame and lands the room on 343 (see #669).
+    accent: [74, 137, 164],
     floor: 'FLESH', ceil: 'SINEW', amb: 0.3, lampCol: [190, 255, 150], fogCol: [21, 8, 11], ceilBias: -0.12,
     lamps: 16, crates: 9, barrels: 12, spawn: { grunt: 8, hound: 7, brute: 3 }, pick: { health: 5, ammo: 6, armor: 2 },
     fixtures: ['VENT', 'STRIPE'],         // #400: the abattoir breathes; everything here is a duct
