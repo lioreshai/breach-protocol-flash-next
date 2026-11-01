@@ -167,23 +167,36 @@ function devRoute(o) {
   ${pose}
   DEV.clear();
   ${o.body ? `DEV.spawn('${o.body.kind}',1,${+o.body.dist || 10});
-  var e=ENEMIES[0],px=-Math.sin(P.ang),py=Math.cos(P.ang),bx=e.x,by=e.y;
   /* A seat is usable when the cell he stands in is air AND the LINE from the camera to him is air.
-     Testing only the candidate cell accepts an offset that walks him behind a wall or a shelving run:
-     the arm then draws no enemy, the two arms differ by grade dither alone, and fg reports that dither
-     as a figure-ground step (deployed build, an ARCHIVE seat at 22 kept px, #683 review). So the line
-     is marched by the shipped sight rule - js/20_level.js blocked(), a 0.14 m march on isSolid - and an
-     offset with geometry on it is rejected and recorded instead of becoming the seat. */
-  var off=[0,0.9,-0.9,1.8,-1.8,2.7,-2.7],pick=null,tried=[];
-  for(var i=0;i<off.length;i++){
-    var cx=bx+px*off[i],cy=by+py*off[i],d0=Math.hypot(cx-P.x,cy-P.y),why='ok';
+     Testing only the candidate cell accepts a seat behind a wall or a shelving run: the arm then draws
+     no enemy, the two arms differ by grade dither alone, and fg reports that dither as a figure-ground
+     step (deployed build, an ARCHIVE seat at 22 kept px, #683 review). So the line is marched by the
+     shipped sight rule - js/20_level.js blocked(), a 0.14 m march on isSolid - and a candidate with
+     geometry on it is rejected and recorded instead of becoming the seat.
+
+     WHY THE SEARCH TURNS THE BEARING INSTEAD OF SLIDING HIM SIDEWAYS. The first version tried
+     off = [0, +-0.9, +-1.8, +-2.7] metres along the perpendicular through the seat he was dealt. Two
+     failures, both measured on the deployed build at seed 60: at ARCHIVE SUBLEVEL all seven had a
+     prop on the line, so the row printed NO CLEAR SEAT and the sector had no quotable seat at all;
+     and a fixed metre slide is a bigger ANGLE the deeper the seat is (2.7 m at 22 m is 7 degrees), so
+     the arm that did place was measuring a body seen from a bearing the deal never shows. Turning the
+     bearing keeps the realised range equal to the --dist the row is written at, which is the whole
+     point of an "8-16 m" acceptance bar, and it samples the arc the camera can actually see instead of
+     one line across it. Least-turned first, so a seat that needs no turn is never turned. */
+  var e=ENEMIES[0],pick=null,tried=[],
+      KB=[0,0.06,-0.06,0.12,-0.12,0.18,-0.18,0.24,-0.24,0.30,-0.30,0.40,-0.40],
+      RF=[1,0.94,1.06],D=${+o.body.dist || 10};
+  for(var i=0;i<KB.length && !pick;i++)for(var q=0;q<RF.length;q++){
+    var a=P.ang+KB[i], cx=P.x+Math.cos(a)*D*RF[q], cy=P.y+Math.sin(a)*D*RF[q], why='ok';
+    var d0=Math.hypot(cx-P.x,cy-P.y);
     if(isSolid(cx,cy))why='solid cell';
     else if(blocked(P.x,P.y,cx,cy))why='geometry on the line';
     else{for(var j=0;j<PROPS.length;j++){var p=PROPS[j];
       var t=((p.x-P.x)*(cx-P.x)+(p.y-P.y)*(cy-P.y))/(d0*d0);t=Math.max(0,Math.min(1,t));
       if(Math.hypot(p.x-(P.x+(cx-P.x)*t),p.y-(P.y+(cy-P.y)*t))<0.85){why='prop on the line';break;}}}
-    tried.push({off:off[i],why:why});
-    if(why==='ok'){pick={x:+cx.toFixed(2),y:+cy.toFixed(2),off:off[i],d:+d0.toFixed(2)};break;}
+    tried.push({off:+(KB[i]*D*RF[q]).toFixed(2),why:why});
+    if(why==='ok'){pick={x:+cx.toFixed(2),y:+cy.toFixed(2),off:+(KB[i]*D*RF[q]).toFixed(2),
+      d:+d0.toFixed(2)};break;}
   }
   if(!pick){ENEMIES.length=0;out.body=null;out.noSeat=tried;}  // no seat to measure: say so, do not place him anyway
   else{e.x=pick.x;e.y=pick.y;e.ang=Math.atan2(P.y-e.y,P.x-e.x);out.body=pick;out.kind=e.kind;out.tried=tried;}` : 'out.body=null;'}
@@ -195,6 +208,21 @@ function devRoute(o) {
   out.live=st.enemies.length;out.p=st.p;out.lum=DEV.lum({stride:97});
   out.canvas=cv.width+'x'+cv.height;
   out.png=cv.toDataURL('image/png').split(',')[1];
+  /* THE CLEAR ARM COMES FROM THIS SAME LOAD (#611). The two arms used to be two page loads of one url
+     - same seed, clock frozen, grain off. They are NOT the same frame: two loads of ARCHIVE SUBLEVEL
+     with no body in either one differ by 3814 kept px (Rec.709 summed |dRGB| > 18), boxed at
+     x 911-1123, y 408-533. That box is the first-person rig, and its pose is the one thing two loads
+     of a running loop never agree on. THE STACK's fg row then read +3.12 luma over 3916 kept px - a
+     mask the size of the noise, in the region of the gun, on a sector whose body sits centre-frame.
+     So the paid-vs-delivered gap #611 still carries was, at those seats, a measurement of the harness.
+     One tick after the body is removed the camera, the deal, the bake and the rig are identical by
+     construction, so what is left in the mask is the body and the contact patch that reaches outside
+     his feet. The third frame (same load, nothing changed since the clear arm) is the identity arm:
+     it measures what one load refuses to agree on with ITSELF, and the fg row prints it, so a mask
+     that is noise says so in its own line instead of looking like a weak colour. */
+  ${o.pair ? `out.b=[out.png];for(var u=0;u<${ARMS}-1;u++){DEV.tick(1);out.b.push(cv.toDataURL('image/png').split(',')[1]);}
+  ENEMIES.length=0;out.c=[];for(var u2=0;u2<${ARMS};u2++){DEV.tick(1);out.c.push(cv.toDataURL('image/png').split(',')[1]);}
+  out.png=null;` : ''}
   return out;})()`;
 }
 
@@ -258,10 +286,31 @@ function writePNG(file, rgb, w, h) {
 
 /* ---------------------------------------------------------------- the fg read */
 
+/* Per-pixel mean of k frames of ONE arm. A frame of this page is not a fixed picture even with the
+ * clock frozen and grain off: two frames of the SAME load, nothing changed between them, differ by
+ * 7286 kept px on ARCHIVE (summed |dRGB| > 18) - the rig's pose, the lamp flicker, the dither. At a
+ * 10 m seat the whole body mask is 8-12k px, so a one-frame difference is a third signal and two
+ * thirds weather, and it dilutes the mean toward the background's own colour - which is the whole of
+ * the "the paint pays 9 and the frame delivers 3" row #611 still carries. Averaging is unbiased where
+ * an SNR gate would not be: a body pixel that matches the background still contributes a zero step
+ * here, because that is what the player is being asked to see. */
+function avgPNG(files) {
+  const f0 = decodePNG(files[0]);
+  const acc = Buffer.from(f0.d);
+  for (let i = 1; i < files.length; i++) {
+    const f = decodePNG(files[i]);
+    if (f.w !== f0.w || f.h !== f0.h) throw new Error('arm frames differ in size: ' + files[0] + ' vs ' + files[i]);
+    for (let k = 0; k < acc.length; k++) acc[k] += f.d[k];
+  }
+  for (let k = 0; k < acc.length; k++) acc[k] = Math.round(acc[k] / files.length);
+  return { w: f0.w, h: f0.h, d: acc };
+}
+
 /* The frame centre only: the four HUD corners carry a kill counter and a minimap dot that differ
    between the two arms for reasons that have nothing to do with paint. */
 function fg(withBody, without) {
-  const A = decodePNG(without), B = decodePNG(withBody);
+  const A = Array.isArray(without) ? avgPNG(without) : decodePNG(without);
+  const B = Array.isArray(withBody) ? avgPNG(withBody) : decodePNG(withBody);
   if (A.w !== B.w || A.h !== B.h) throw new Error('the two arms are different sizes: ' + A.w + 'x' + A.h + ' vs ' + B.w + 'x' + B.h);
   const x0 = (A.w * 0.22) | 0, x1 = (A.w * 0.78) | 0, y0 = (A.h * 0.10) | 0, y1 = (A.h * 0.86) | 0;
   let n = 0, bx0 = 1e9, bx1 = -1, by0 = 1e9, by1 = -1;
@@ -296,12 +345,17 @@ function fg(withBody, without) {
 
 /* The one verdict this tool prints: VACUOUS when the mask is too small to be a body at all. It is a
  * failure, not a caveat - the value and chroma steps in such a row are arithmetic on dither. */
-function fgLine(tag, r) {
+function fgLine(tag, r, idn, k) {
   return 'FG ' + tag + ' ' + JSON.stringify(r) +
+    (idn !== null && idn !== undefined ? '\n   IDENTITY ' + idn + ' kept px between two frames of ONE '
+      + 'arm, one tick apart (' + (k || 1) + '-frame means). That is the floor this row has to clear.' : '') +
     (r.vacuous ? '\n   VACUOUS: ' + r.n + ' kept px, under the ' + r.minKeep + ' px floor (' +
       (MIN_KEEP_FRAC * 100).toFixed(2) + '% of the frame). That mask is not a body, so the steps in the '
       + 'row above are noise. Look at the arms; a seat with geometry on the camera-to-body line reads '
-      + 'this way.' : '');
+      + 'this way.' : '') +
+    (r.noisy ? '\n   VACUOUS BY ITS OWN CONTROL: ' + r.n + ' kept px against an identity floor of ' +
+      idn + ' in the same load. The mask is no larger than what this frame refuses to agree on with '
+      + 'itself, so the steps above are not a body either. Vacuity is a FAILURE, not a debt.' : '');
 }
 
 /* ---------------------------------------------------------------- the live frame cost (#529) */
@@ -433,6 +487,18 @@ async function cost(o) {
 
 /* ---------------------------------------------------------------- commands */
 
+let armsNote = false;      // the same-load arms note is printed once per run, not once per sector
+const ARMS = +arg('arms', 4);   // frames averaged per arm; 1 reproduces the single-frame read
+
+function armFiles(dir, base) {
+  const out = [];
+  for (let i = 0; i < ARMS; i++) {
+    const f = path.join(dir, base + '-' + i + '.png');
+    if (fs.existsSync(f)) out.push(f);
+  }
+  return out;
+}
+
 async function cap(o) {
   const out = path.resolve(o.out);
   fs.mkdirSync(out, { recursive: true });
@@ -447,10 +513,22 @@ async function cap(o) {
       if (shot.name === o.shots[0].name && !(await page.evaluate('!!(window.DEV && DEV.on)')))
         throw new Error(o.url + ' is not a ?dev=1 page (js/90_dev.js stayed inert)');
       const v = await page.evaluate(devRoute(shot));
-      if (!v || !v.png) { rows.push(Object.assign({ name: shot.name }, v, { error: 'no png came back' })); continue; }
-      const file = path.join(out, shot.name + '.png');
-      fs.writeFileSync(file, Buffer.from(v.png, 'base64'));
+      if (!v || (!v.png && !v.b)) { rows.push(Object.assign({ name: shot.name }, v, { error: 'no png came back' })); continue; }
+      const file = v.b ? path.join(out, shot.name + '-0.png') : path.join(out, shot.name + '.png');
+      if (v.png) fs.writeFileSync(file, Buffer.from(v.png, 'base64'));   // the pair path puts it in b[0]
       delete v.png;
+      if (v.b) {                                      // the same-load arms (#611): K frames, not one
+        if (!armsNote) {
+          armsNote = true;
+          console.log('NOTE arms: ' + v.b.length + ' body frames and ' + v.c.length + ' clear frames, all '
+            + 'in ONE page load, averaged per pixel before the mask. One frame of this page differs from '
+            + 'the next by ~7.3k px at a frozen clock - the rig, dither and lamp flicker - which is the '
+            + 'same order as a body mask at 10 m, so single frames cannot carry the row.');
+        }
+        v.b.forEach((p, i) => fs.writeFileSync(path.join(out, shot.name + '-' + i + '.png'), Buffer.from(p, 'base64')));
+        v.c.forEach((p, i) => fs.writeFileSync(path.join(out, shot.clear + '-' + i + '.png'), Buffer.from(p, 'base64')));
+        delete v.b; delete v.c;
+      }
       rows.push(Object.assign({ name: shot.name, file }, v));
     }
   } finally {
@@ -461,9 +539,9 @@ async function cap(o) {
     console.log('CAP ' + r.name + (r.file ? ' ' + path.relative(process.cwd(), r.file) : ' ERROR ' + r.error) +
       (r.layout !== undefined ? '  layout ' + r.layout + ' mode ' + r.mode + ' canvas ' + r.canvas +
         ' lum ' + (r.lum ? r.lum.mean + '/' + r.lum.mid : '?') +
-        (r.body ? ' body ' + r.kind + ' @ ' + r.body.d + ' m off ' + r.body.off +
+        (r.body ? ' body ' + r.kind + ' @ ' + r.body.d + ' m off ' + r.body.off + ' m' +
           (o.why && r.tried ? ' [tried ' + r.tried.map(t => t.off + ':' + t.why).join(' ') + ']' : '') :
-          r.noSeat ? ' NO CLEAR SEAT - every offset has something on the camera-to-body line [' +
+          r.noSeat ? ' NO CLEAR SEAT - no bearing x range candidate has a clear camera-to-body line [' +
             r.noSeat.map(t => t.off + ':' + t.why).join(' ') + '] - body NOT placed' : '') : ''));
   }
   if (page.pageErrors.length) console.log('NOTE page exceptions: ' + page.pageErrors.slice(0, 3).join(' | '));
@@ -488,8 +566,15 @@ async function main() {
     const shots = [];
     for (const l of levels) {
       if (cmd === 'both' || flag('body')) {
-        shots.push({ name: 'l' + l + '-clear', level: l });
-        shots.push({ name: 'l' + l + '-body', level: l, body: { kind: arg('kind', l === 2 ? 'brute' : 'grunt'), dist: +arg('dist', 10) } });
+        if (cmd === 'both') {
+          /* ONE load per sector, three arms, in the order that makes the mask the body: the body
+             frame, then him removed, then the same frame again as the identity control. */
+          shots.push({ name: 'l' + l + '-body', clear: 'l' + l + '-clear', level: l, pair: true,
+            body: { kind: arg('kind', l === 2 ? 'brute' : 'grunt'), dist: +arg('dist', 10) } });
+        } else {
+          shots.push({ name: 'l' + l + '-clear', level: l });
+          shots.push({ name: 'l' + l + '-body', level: l, body: { kind: arg('kind', l === 2 ? 'brute' : 'grunt'), dist: +arg('dist', 10) } });
+        }
       } else {
         shots.push({ name: 'l' + l + '-arrival', level: l });
       }
@@ -498,11 +583,14 @@ async function main() {
     if (cmd === 'both') {
       let vacuous = 0;
       for (const l of levels) {
-        const a = path.join(out, 'l' + l + '-body.png'), b = path.join(out, 'l' + l + '-clear.png');
-        if (!fs.existsSync(a) || !fs.existsSync(b)) continue;
-        const r = fg(a, b);
-        if (r.vacuous) vacuous++;
-        console.log(fgLine('L' + l, r));
+        const A = armFiles(out, 'l' + l + '-body'), B = armFiles(out, 'l' + l + '-clear');
+        if (!A.length || !B.length) continue;          // the pair path writes l*-body-<i>.png, no single frame
+        const r = fg(A, B);
+        // the floor: two frames of ONE arm, nothing between them but a tick
+        const idn = B.length > 1 ? fg([B[0]], [B[1]]).n : null;   // one arm, two frames: the floor
+        if (idn !== null && r.n <= idn) r.noisy = true;       // a mask no bigger than the noise is noise
+        if (r.vacuous || r.noisy) vacuous++;
+        console.log(fgLine('L' + l, r, idn, A.length));
       }
       if (vacuous) {
         console.log('LIVECAP ' + vacuous + ' of ' + levels.length + ' FG row(s) VACUOUS - the floor note above each such row says why');
