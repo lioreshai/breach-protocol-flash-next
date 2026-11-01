@@ -2664,6 +2664,13 @@ if (MODE === 'flatparity') {
      against LOCK below at mean 60.0) with the top-up-lamp gap row green and the flat lightmap sum untouched
      by any of the four, which is the falsifier saying paint and not lamp placement. No threshold, floor,
      dice, camera or vacuity clause moved; OLDM's L2 digit follows its byte. */
+  /* #655 (js/13_mesh.js: torso seam density is one period across the torso box's own span instead of ten
+     seams per authored body height), MEASURED on this tree in one run: all four PARITY bytes re-key. This is
+     a PAINT move and not a placement move - the same run prints the LAMPS=off mean at 88.2 / 74.2 / 39.3 /
+     85.5, this array's own four digits to the tenth, while all four digests move; the gap row below prices
+     the top-up lamps with residual under 1e-6, so the lamp record is unchanged underneath. A rig repainted
+     at its own pixels is exactly what this row is for: the light does not move, the picture does. No
+     threshold, floor, dice, camera or vacuity clause moved. */
   /* #421 REWORK (js/20_level.js feature 2b: the raised deck GROWS toward the arrival room), all four bytes,
      MEASURED on this tree against main 69f6f54 in one harness. L0/L1 re-key because their DEALT grids moved
      (dealt off-datum population 168 -> 184 of 568 on L0, 247 -> 264 of 897 on L1 - the deck is bigger, so
@@ -2687,7 +2694,17 @@ if (MODE === 'flatparity') {
 // this camera deals. What moved is L1's place in the four-level render sequence, the cross-level carry #708
 // is about; this head did not re-measure the isolated-hash control (a level rendered with no earlier level),
 // so that cause is named from the row's own A/B and is labelled, not proven here.
-const OLD = refRecord('flatparity', 'PARITY', 'md5', ['b52b3fc27cb1bc179f020a3c67146413', '6e48eac4e96cc19893b13dcb5506bdbe', '25b213ba7e0e9564820367b5a27d9d17', '8e7a29fbeaefce82c4197a21545f9871'])
+  /* #655 x MAIN-SYNC onto main f1f7985, MEASURED on THIS merged tree in ONE run: all four bytes re-key again
+     on top of the two moves above, because a body repainted at the pixels he covers is exactly what this row
+     is for - paint, not placement. THE CONTROL IS WHAT DID NOT MOVE: this run's four LAMPS=off means print
+     96.4 / 51.0 / 39.3 / 85.5, OLDM's own four digits to the tenth, while all four digests move, and the gap
+     row below prices the top-up lamps with residual 5.2e-7 / 1.5e-6 / 1.4e-6 / 5.5e-7, so the lamp record is
+     main's underneath. The DEALT quadruple below comes back MAIN'S to the digest in this merged tree, where
+     the dealt census is main's growth pass at 184 / 263 / 315 / 141 off-datum open cells - a difference from
+     this branch's pre-merge record, which moved L0's dealt byte, and it is stated rather than argued: the
+     deal this generator deals now puts no body in a dealt sight line. No threshold, floor,
+     dice, seat, tolerance or vacuity clause moved; these are this tree's own printings, not either parent's. */
+const OLD = refRecord('flatparity', 'PARITY', 'md5', ['ceab3a09d5f817cd18cf0b775ccdbb5d', '1bb803079c60dc8d50cfce736d368084', '871a8cdb9b8ba0bf0bba2395ee40814f', '60bc234f554b8b2bdc46db13c1f19d4b'])
   /* #632 REWORK TAKE THREE (js/40_render.js VMHIP: the hip YAW is halved to -0.010 / -0.012 / -0.014 so the
      carried barrel stops painting over the step-lip crease that `bands` gates at zero missing columns), MEASURED
      on this tree: all four PARITY bytes re-key. They are a paint move and not a placement move - the same run
@@ -2888,7 +2905,22 @@ const OLD = refRecord('flatparity', 'PARITY', 'md5', ['b52b3fc27cb1bc179f020a3c6
      mean moves 60.1 -> 60.0 behind a byte whose flat lightmap sum is UNTOUCHED (the gap row below prices
      the top-up lamps with residual under 1e-6, so the lamp record is main's), which is exactly what this row
      is a regression lock on: paint, not placement. No threshold, bound or census moved. */
-const SHIP = refRecord('flatparity', 'LOCK', 'md5', ['837b4ff1d77f120d5e3a3c4789c3368c', '359b4aad58b58dc7ea86db5920534ef7', '3b708ffcce9ecf5f9a17207527666178', 'eee9146ae03687268eb17637dc9f4d69'])   /* #706 MAIN-SYNC onto main 96c190e, MEASURED on THIS merged tree in ONE run (two cold processes per sense agreeing). All four bytes come back THIS BRANCH'S, not main's and not thirds: the LOCK sense hashes the FLATTENED world, and the only thing main's #353 adds to a flattened grid is a source standing on a deck that flattening removes, so the deck lamp reaches no LOCK frame while the growth + give-back grid changes do. The row's OWN delivered-light clause is the control and it came back MAIN'S to the digit in this run - 0 of 4 levels move their flat lightmap sum WITHOUT moving a pixel, 4 of 4 move a pixel too, gaps +133.2 / +193.5 / +178.7 / +40.1 delivered light from +8/9/10/4 top-up lamps - so this is still a lock on lamp PLACEMENT: no source was placed, moved, scaled or re-weighted, and what moved is which floor the same light lands on. SHIPM's digits follow; no threshold or census clause moved. */   /* #353 x MAIN-SYNC onto main 8503312, MEASURED on THIS merged tree in ONE run. The deck lamp is the whole move: the SAME tree with DECKLIGHT=off prints main's recorded value for this row and exits 0, so every digit below is the source this rule stands on an overlook deck, not main's probe work and not a threshold. No window, bound, seat, dice, roll list or vacuity clause moved. */
+  /* #655 x MAIN-SYNC onto main-after-#353 (the torso seam re-key, see PARITY above), MEASURED on THIS merged
+     tree in ONE run. TWO rules move these four bytes and each is attributed in the SAME tree: main's #353 deck
+     source, whose control is `DECKLIGHT=off node tools/view.js flatparity` printing main's LOCK row and exiting
+     0, and this branch's torso seam density, which repaints a body at the pixels he covers and at no others.
+     WHAT SAYS PAINT AND NOT PLACEMENT is the other half of this same row: the flat lightmap sum - the half that
+     locks lamp placement - is untouched on all four, and the gap row below prices its top-up residuals under
+     1e-6 in the same run. The shipped-sense means print beside the bytes, so no body was dimmed and no lamp
+     behind one was. No threshold, bound, seat, dice, roll list, census or vacuity clause moved; the digits are
+     this tree's own printings, from `node tools/view.js refs --record`, not either parent's. */
+  /* #655 x MAIN-SYNC onto main f1f7985, MEASURED on THIS merged tree in the same run as PARITY above: all
+     four LOCK bytes re-key, and the half this row EXISTS to lock - the flat delivered-light sum, the lamp
+     PLACEMENT half - is main's: the four gap rows price it against the top-up lamps with residual under
+     1e-5 above and its delivered sums print 454.2 / 586.6 / 937.3 / 304.8. The shipped-sense means print
+     97.2 / 68.3 / 59.8 / 96.0, SHIPM's digits to the tenth, so no body was dimmed and no lamp behind one was.
+     No threshold, bound, seat, dice or census moved. */
+const SHIP = refRecord('flatparity', 'LOCK', 'md5', ['05e34a6601b99f4d920966c1da37a08a', '8cc441710780cffbf47940f727c38f24', 'c37819d5cfdded33d22fe0631e1d8750', '0b073d8cef9a72c125d2869be45bd595'])   /* #706 MAIN-SYNC onto main 96c190e, MEASURED on THIS merged tree in ONE run (two cold processes per sense agreeing). All four bytes come back THIS BRANCH'S, not main's and not thirds: the LOCK sense hashes the FLATTENED world, and the only thing main's #353 adds to a flattened grid is a source standing on a deck that flattening removes, so the deck lamp reaches no LOCK frame while the growth + give-back grid changes do. The row's OWN delivered-light clause is the control and it came back MAIN'S to the digit in this run - 0 of 4 levels move their flat lightmap sum WITHOUT moving a pixel, 4 of 4 move a pixel too, gaps +133.2 / +193.5 / +178.7 / +40.1 delivered light from +8/9/10/4 top-up lamps - so this is still a lock on lamp PLACEMENT: no source was placed, moved, scaled or re-weighted, and what moved is which floor the same light lands on. SHIPM's digits follow; no threshold or census clause moved. */   /* #353 x MAIN-SYNC onto main 8503312, MEASURED on THIS merged tree in ONE run. The deck lamp is the whole move: the SAME tree with DECKLIGHT=off prints main's recorded value for this row and exits 0, so every digit below is the source this rule stands on an overlook deck, not main's probe work and not a threshold. No window, bound, seat, dice, roll list or vacuity clause moved. */
   /* #632 REWORK TAKE THREE (the halved hip yaw, see PARITY above), MEASURED on this tree: all four LOCK bytes
      re-key for the same reason - a rig that turns half as far is a different set of pixels in the same frame. The
      shipped-sense means say what that is worth: 94.5 / 94.0 / 59.8 / 96.0 against the 94.5 / 93.9 / 59.8 / 96.0 the
@@ -3228,6 +3260,17 @@ const SHIP = refRecord('flatparity', 'LOCK', 'md5', ['837b4ff1d77f120d5e3a3c4789
      its own scored seat, NOT because a dealt level is out of the term's scope. Where one does enter a dealt frame,
      at a sector's spawn seat, `exposure`'s SPAWN row carries the move and the evidence for it. No threshold, dice,
      seat, tolerance or vacuity floor moved; the dealt GEOMETRY census is main's to the cell. */
+  /* #655 x MAIN-SYNC onto main-after-#353 (the torso seam re-key, see PARITY above), MEASURED on THIS merged
+     tree in ONE run. The four bytes are a UNION of the two parents' moves, which is the cleanest scope control
+     this row could ask for and each half is attributed in the same run: main's #353 deck source re-keys L0 and
+     L1 (`DECKLIGHT=off` brings main's bytes back and exits 0 on both DEALT rows), this branch's torso seam
+     density re-keys whichever of those frames a body stands in, and L3 keeps MAIN's #515 step-orientation byte
+     because no body enters that sight line. The dealt GEOMETRY census - the part of this row that describes the
+     WORLD - is main's to the cell, 168 / 247 / 315 / 141 off-datum open cells of 568 / 897 / 1141 / 256 at the
+     row's own dice, and DEALT-VACUOUS reads against its untouched 4,096 px floor, so the deal is the deal and
+     only the paint on it moved. DEALT-ORDER reproduces the level-0 byte ALONE in its own process AND IN LEVEL
+     ORDER, so the byte is still the level and not the roster. No threshold, bound, dice, seat, tolerance or
+     vacuity clause moved; the digits came from `node tools/view.js refs --record` on THIS tree. */
   /* #353 x MAIN-SYNC onto main d9cc03c, MEASURED on THIS merged tree in ONE run: L0 and L1 re-key from MAIN's
      bytes to this branch's (fc290a45 / 7b25b374), L2 is d964d6eb - the one byte both parents already share - and
      L3 takes MAIN's cfd7b35f, which is #515's step-orientation byte, not this rule's. THE DECK LIGHT IS THE WHOLE
@@ -9691,7 +9734,32 @@ if (MODE === 'contrast') {
      seams between faces, which this definition excludes by construction. Floor 1.40 is twice the
      strongest termless cell and 0.64 of the weakest shipped one: it trips on a term that loses a third
      of its slope, not on a dark room.                                                        */
-  const TG_PRE = 0.68, TG_POST = 2.17, TG_FLOOR = 1.40, TG_MINPX = 60;
+  const TG_PRE = 0.39, TG_POST = 0.88, TG_FLOOR = 0.60, TG_MINPX = 60;   /* #655 re-measured: see the table above */
+  /* #655 the shape floors. TG_STEP is the run-break rule #655 counts with; TG_TRAVEL and TG_RUNS are the
+     two halves of "one solid, not a fan", measured on the SAME interior-mask pixels as the gradient:
+     the torso's own projected width must be crossed by a real luma TRAVEL (a flat sticker has a long
+     run and no travel), and that travel must be made in few long RUNS (a fan has the travel and makes it
+     in dozens of short alternating ones). Both numbers are printed per camera; see the rows. */
+  const TG_STEP = 4, TG_TRAVEL = 9.0, TG_WOB = 0.085;   /* TG_TRAVEL is PRINTED, not gated - see the note */
+  /* #655 THE TWO CURRENCIES, and why the fan needed a new one. The rows above are gated on dL/px, a
+     SLOPE, and #655 moves the torso's seam wave from ten seams per authored body height to ONE RAMP
+     across the torso box's own span, which lowers the slope by design while leaving the body's luminance
+     travel where it was. Measured at this cell on three trees, one process each (cam 0 / 1 / 2):
+       no surface term (TS_SLOPE 0)   grad 0.02 / 0.39 / 0.88   travel 16.5 / 40.3 / 17.3   wobble 0.00 / 0.01
+       shipped fan   (TS_CYC 10)      grad 2.52 / 2.54 / 2.4x   travel 25.1 / 35.7 / 24.0   wobble 0.10 / 0.07
+       this tree (one ramp per torso box)  grad 0.90 / 1.10 / 0.88  travel 24.1 / 31.4 / 23.9  wobble 0.04
+     Two findings, both stated because they change what can be gated. TRAVEL does NOT separate a termless
+     torso from a shaded one - the room's own light crosses the box face even with no surface term, so
+     travel is PRINTED on both gradient rows as #655's evidence that the body still crosses real luminance,
+     and it gates nothing. The SLOPE does separate termless from shaded (0.02-0.39 against 0.90-1.10) but
+     not fan from solid, so TG_FLOOR is re-derived at this geometry to sit between those two trees, above
+     the strongest termless cell and below the weakest shipped one, which is the rule the file has always
+     stated. WOBBLE - gradient per luma of travel, edges spent per unit crossed - is the one statistic
+     that separates a fan from a solid at this pose (0.10 / 0.07 against 0.04 / 0.04), so it is the new
+     row's gate. RUN LENGTH is printed and NOT GATED, which is a measurement and not a dodge: at this
+     pose the bands are ~2 px, below the 4-luma rule that counts a break, so fan and solid both measure
+     1.0-1.7 runs a row here; runs only separate the two at the close range tools/bodyband.js scans.
+     Where a row cannot see, it says so, rather than passing quietly. */
   /* #216: this block printed verdict numbers with nothing recorded behind them - the exact shape #244 was
      filed for, one gradient defined three ways in three sessions, none of which could fail. TG_FLOOR stays
      what it always was, a catastrophe detector set between two measured trees; what it cannot do is see
@@ -9710,7 +9778,7 @@ if (MODE === 'contrast') {
      demanded of this statistic. AMBX=0 moves it NOT AT ALL (2.52/2.17/2.41 unchanged) and must not be quoted
      as a control: AMB is re-authored from MAP.amb inside startLevel, so that knob edits a default, not a
      shipped term. */
-  const TG_REF = refRecord('contrast', 'TORSO-DL', 'num', [2.52, 2.17, 2.41]);
+  const TG_REF = refRecord('contrast', 'TORSO-DL', 'num', [0.90, 1.10, 0.88]);
   const TG_SLACK = +(process.env.TG_SLACK !== undefined ? +process.env.TG_SLACK : 0.35);
   /* The mean and motion halves, measured on the same nine cells of both trees. The mean channel is the
      DC of the wave: the mean of the SIGNED slope less the frame\'s own, which cancels on a zero-mean
@@ -9750,6 +9818,7 @@ if (MODE === 'contrast') {
     // the same operator WITHOUT the absolute value: its mean is the DC the wave carries, see TG_BIAS
     const slopeS = (f, i) => (lum(f, i + 1) - lum(f, i - 1)) * 0.5;
     const r = { px: 0, gs: 0, sgs: 0, ls: 0, bs: 0, limbPx: 0, limbGs: 0, limbBs: 0, silPx: 0, silLs: 0, rej: 0,
+      rows: 0, trav: 0, runs: 0, runPx: 0, rowN: 0, travel: 0, runRow: 0, runLen: 0, wob: 0,
       grad: 0, bias: 0, bandMean: 0, boil: 0, limbGrad: 0, limbBoil: 0, silMean: 0, room: 0, roomBias: 0, roomN: 0, per: [] };
     for (const e of list) {
       const sp = TG_SP[e.k]; if (!sp) continue;
@@ -9764,11 +9833,19 @@ if (MODE === 'contrast') {
       // [top row, bottom row, which accumulator] - torso band, then the limb band BELOW the hip
       const bands = [[Math.ceil(rowH(sp.sh)), Math.floor(rowH(sp.hip)), 0],
         [Math.ceil(rowH(sp.hip - 0.06)), Math.floor(rowH(0.06)), 1]];
-      const acc = [[0, 0, 0, 0, 0], [0, 0, 0, 0, 0]];
+      const acc = [[0, 0, 0, 0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]];
+      let bMin = 1e9, bMax = -1e9;   // #655 this body's own luma span over the cushioned torso interior
       for (const bd of bands) {
         const a = acc[bd[2]];
         for (let y = Math.max(2, bd[0]); y <= Math.min(H - 3, bd[1]); y++) {
           const rw = y * W;
+          /* #655 SHAPE, not slope: the TRAVEL this row makes across the torso's own projected width and
+             how many monotone RUNS it takes to make it. A body that reads as one solid is a large travel
+             made in a few long runs; a fan of slabs is the same travel made in many short alternating
+             ones; a flat sticker is a long run and NO travel. The run rule is the one #655 was written
+             with - a step of 4 luma or more is the break a person can see - so this and
+             tools/bodyband.js count the same thing, one inside the mask and one on the PNG. */
+          let rMin = 1e9, rMax = -1e9, rPx = 0, rRuns = 0, last = 0;
           for (let x = x0; x <= x1; x++) {
             const i = rw + x;
             if (!M[i]) continue;
@@ -9780,7 +9857,14 @@ if (MODE === 'contrast') {
             if (!cushion) { r.rej++; continue; }
             a[0]++; a[1] += slope(F, i); a[2] += lum(F, i); a[4] += slopeS(F, i);
             if (F2) a[3] += Math.abs(lum(F2, i) - lum(F, i));
+            const lv = lum(F, i);
+            if (rPx && Math.abs(lv - last) >= TG_STEP) rRuns++;
+            last = lv; rPx++;
+            if (lv < rMin) rMin = lv;
+            if (lv > rMax) rMax = lv;
+            if (bd[2] === 0) { if (lv < bMin) bMin = lv; if (lv > bMax) bMax = lv; }
           }
+          if (bd[2] === 0 && rPx >= 8) { a[9]++; a[7] += rRuns + 1; a[8] += rPx; }
         }
       }
       // the same column window over the whole body: the mean channel's reference, no cushion needed
@@ -9789,8 +9873,10 @@ if (MODE === 'contrast') {
         for (let x = x0; x <= x1; x++) { const i = rw + x; if (!M[i]) continue; r.silPx++; r.silLs += lum(F, i); }
       }
       const a = acc[0], b = acc[1];
+      if (a[0] >= 8 && bMax > bMin) { a[5]++; a[6] += bMax - bMin; }   // #655 the body's own TRAVEL
       r.px += a[0]; r.gs += a[1]; r.sgs += a[4]; r.ls += a[2]; r.bs += a[3];
       r.limbPx += b[0]; r.limbGs += b[1]; r.limbBs += b[3];
+      r.rows += a[5]; r.trav += a[6]; r.runs += a[7]; r.runPx += a[8]; r.rowN += a[9];
       r.per.push({ k: e.k, d: tY, px: a[0], g: a[0] ? a[1] / a[0] : 0, boil: a[0] ? a[3] / a[0] : 0,
         lpx: b[0], lboil: b[0] ? b[3] / b[0] : 0, dead: e.dead });
     }
@@ -9806,6 +9892,10 @@ if (MODE === 'contrast') {
     r.bias = r.px ? Math.abs(r.sgs / r.px - r.roomBias) : 0; r.bandMean = r.px ? r.ls / r.px : 0;
     r.boil = r.px ? r.bs / r.px : 0; r.limbGrad = r.limbPx ? r.limbGs / r.limbPx : 0;
     r.limbBoil = r.limbPx ? r.limbBs / r.limbPx : 0; r.silMean = r.silPx ? r.silLs / r.silPx : 0;
+    r.travel = r.rows ? r.trav / r.rows : 0;
+    r.runRow = r.rowN ? r.runs / r.rowN : 0;
+    r.runLen = r.runs ? r.runPx / r.runs : 0;
+    r.wob = r.travel > 0.5 ? r.grad / r.travel : 0;
     return r;
   };
   /* cam 1's separation on unmodified shipped content is BELOW the DLMIN gate it is held to, and #179
@@ -10411,7 +10501,9 @@ if (MODE === 'contrast') {
       ' interior torso px' : 'NOT MEASURED - no torso pixel cleared the 2 px interior cushion') +
       '  |  room ' + tstat.room.toFixed(2) + ' on ' + tstat.roomN + ' px (ratio ' +
       (tstat.room ? (tstat.grad / tstat.room).toFixed(2) : '-') + ')  |  band mean ' + tstat.bandMean.toFixed(1) +
-      ' vs body mean ' + tstat.silMean.toFixed(1) + '  |  limb band ' + tstat.limbGrad.toFixed(2) + ' dL/px'
+      ' vs body mean ' + tstat.silMean.toFixed(1) + '  |  SHAPE travel ' + tstat.travel.toFixed(1) +
+      ' luma in ' + tstat.runRow.toFixed(1) + ' runs a row, ' + tstat.runLen.toFixed(1) + ' px each, wobble ' + tstat.wob.toFixed(3)
+      + '  |  limb band ' + tstat.limbGrad.toFixed(2) + ' dL/px'
       + ' (not a gradient control - faceted tubes, 2.8-11.6 dL/px with no term in the tree)  |  DC '
       + tstat.bias.toFixed(2) + " after the frame's own " + tstat.roomBias.toFixed(2) + '  |  boil 0.03 rad torso '
       + tstat.boil.toFixed(2) + ' / limbs ' + tstat.limbBoil.toFixed(2) +
@@ -10736,6 +10828,20 @@ if (MODE === 'contrast') {
           ' px) but the torso box yields no interior, so this is the instrument, not the art') +
         '; TG_FLOOR ' + TG_FLOOR + ' above stays the catastrophe detector, this row is what sees the slow way down',
         undefined);
+      /* #655 THE FAN ROW. One claim the block could not make before: the body's travel may be all there
+         and still be FOLDED, six times across one torso, into a fan of vertical slabs. That is a matter of
+         how much edge is spent per luma crossed, so this row gates wobble (gradient / travel) against a
+         ceiling measured between the shipped fan (0.14 / 0.10 dL/px per luma, cams 0 / 1) and this tree
+         (0.06 / 0.07). It FAILS on main's geometry and PASSES here - the falsifier is the fan itself, in
+         the same probe, no arm needed. The close-range run profile is what a person actually sees, and
+         tools/bodyband.js prints it on a PNG this tool wrote: 26.6 runs a row 3.8 px long on main against
+         2.4 runs 42.7 px long here, at an unchanged luminance range. */
+      row('cam ' + cam + ' torso reads as one solid, not a fan of slabs',
+        tgVac && tstat.wob <= TG_WOB,
+        'edge per luma of travel ' + tstat.wob.toFixed(3) + ' dL/px-per-luma vs ceiling ' + TG_WOB +
+        ' on ' + tstat.px + ' interior torso px: the shipped fan measured 0.14 / 0.10 (cams 0 / 1) and this'
+        + ' tree 0.06 / 0.07, so the ceiling is between the two pictures and not around one of them' +
+        (tgVac ? '' : tgWhy), tgDebt);
       row('cam ' + cam + ' torso gradient not paid by mean or edge', tgVac && tstat.bias <= TG_BIAS,
         'DC of the wave ' + tstat.bias.toFixed(2) + ' dL/px vs floor ' + TG_BIAS + ' (mean of the SIGNED'
         + " slope less the frame's own " + tstat.roomBias.toFixed(2) + ': a zero-mean triangle cancels, a'
