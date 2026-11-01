@@ -99,32 +99,26 @@ kind, with two kinds, or whose two sides form a pair the table below does not re
 
 ## Milestones
 
-~~**M0** representation + absolute `P.z`~~ · ~~**M1** boundary faces with real `z0/z1`~~ ·
-~~**M2** the ground plane solved per cell, floors **and ceilings in the same commit**~~
-(floors-only shows a phantom floor across a tall room's upper half) · ~~**M3** gravity, step-up,
-fall damage, climb; bands and links generated~~ · **M4 + M5 — what a player can see and climb**
-← *here* · **M6** a hand-authored two-storey level.
+The order and the exit gates are in [`ROADMAP.md`](ROADMAP.md); whether a milestone is done is the
+state of its issue (M2 #13, M3 #14, M4 #15, M5+M6 #16). This file used to keep its own struck-through
+copy of that, and it was wrong: it said "~~M3~~ … (issue #14 closed)" while #14 was open and the grid
+was still allocated all-zero, so `alt` reported `floors 0..0` on all three levels. That cost every
+later session its way into the feature. **"Done" is not something you edit into a list — it is a
+verdict a tool prints.** For M3 the verdict is >=2 bands, >=1 link per band, 0 unreachable cells and
+>=1 climbable staircase, printed by `alt`, which is in `ci.yml`'s blocking list.
 
-**M3 is complete and the levels still read flat.** That is not a contradiction, it is the finding:
-`alt` on 2026-10-02 (SEED 12345) reports **9 distinct floor values** per level, **170 / 251 / 307 cells off the datum** on L0 / L1 / L2, **2 staircase runs of >= 3 cells** (10 cells) rising one quantum each, **46 / 52 / 52 step faces** and 0 unreachable cells, with headroom columns >= 2 units at **86 on L0 and 45 on L1, tallest 3.00 m**. Volume therefore exists: `CZ_TALL = 12`, three units of air, is authored at `js/20_level.js:434` and written to the largest rooms and their mouth ring at `:649`, `:651-661`, and ladder shafts get `cz = |band| + 2` at `:512`. What is true is narrower than "nothing is hollow": **coverage** - `tallWant` is `rooms.length >= 8 ? 2 : 1` (`:637`, filter `:638-646`), so one or two rooms per level get it, and ~70 % of open columns keep a 1.00 ceiling - and **reach** - the mouth ring carries the tall air exactly one cell past the wall, so from a corridor the volume sits behind a 1-unit duct. The third limiter is not geometry at all: **light** - ceiling rows take the same per-column lightmap value as the floor rows below them with no height term (`js/40_render.js:581`, `lt = cellTint(cIdx); li = lm[cIdx]`), so a 3-unit ceiling is lit exactly like the floor it stands on, and a tall room reads as a short one. Being in the grid is not being perceivable. The next milestone is **authored volume
-and findability**, not another shading term.
+**The durable finding from M3: the levels were in the grid and still read flat.** Being in the height
+grid is not being perceivable, and three separate things explained it, only one of which is geometry:
 
-- **M4** — everything sits at a height: `hitscan` including the entered column's ceiling plane
-  (#258); the enemy's eye asking that same solver where its line leaves the band rather than
-  deriving a second rule (#261); culling, blast band, exit band and pickup hover (`sight`, `cull`,
-  V4, V16, V17); and whether the AI can cross a band at all (#263 — fifteen `sight` rows drive the
-  real `update()` loop for 240 frames across five configs differing by one byte of the boundary; a
-  staircase, a ramp and a ladder all arrive at floor 1.00, and the same band with no climb bit
-  stops the body at 3.81 m with the eye seeing 0/240). Face-relative decal z is gone, and `decal`'s
-  15 rows gate the mark window.
-- **M5** — per-band light, glow, minimap altitude cue.
-
-**Strike a milestone only with the verdict that proves it beside it.** This file once said
-"~~M3~~ … (issue #14 closed)" while #14 was open and its content had never shipped — the grid was
-allocated all-zero and no line wrote it, so `alt` reported `floors 0..0` on all three levels. The
-wrong line cost every subsequent session its way into the feature. "Done" is not something you edit
-into a list; it is a verdict a tool prints. For M3 that verdict is ≥2 bands, ≥1 link per band, 0
-unreachable cells, ≥1 climbable staircase — `tools/view.js:334`, in `ci.yml`'s blocking list.
+- **Coverage** — tall air is authored for one or two rooms per level, so most open columns keep a
+  1.00 ceiling. Read the share off `node tools/view.js volume`.
+- **Reach** — the mouth ring carries the tall air one cell past the wall, so from a corridor the
+  volume sits behind a 1-unit duct. This is why the milestone became *authored volume and
+  findability* rather than another shading term.
+- **Light** — a ceiling row takes the same per-column lightmap value as the floor row under it, with
+  no height term, so a three-unit ceiling is lit exactly like the floor it stands on and a tall room
+  reads as a short one. That half is [#413](https://github.com/lioreshai/breach-protocol-flash-next/issues/413),
+  not a geometry bug.
 
 ## Open risks
 
