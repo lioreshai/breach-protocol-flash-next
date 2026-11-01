@@ -211,6 +211,17 @@ let exitX = 0, exitY = 0, explored = null, bfsDist = null;   // read by an asser
    list must be rebuilt by the attempt that ships - it is reset at the top of authorVolume for exactly
    that reason. The placement pass below reads it to garrison the mezzanine. */
 let overlookPairs = [];
+/* #709: the cells the #421 hall-deck growth pass raised, in the order it raised them, as cell indices.
+   A module global for the same reason as the list above - genLevel RETRIES the layout and the list must
+   belong to the attempt that ships, so it is reset at the top of authorVolume. It exists because the
+   growth pass runs inside authorVolume, BEFORE any fixture is placed, so the one thing its score cannot
+   see (does a lamp stand on the band it just raised?) is only knowable after the lamp pass has run; the
+   give-back pass near the end of genLevel reads this list and nothing else. */
+let grownDeck = [];
+/* #421 THE PLACEMENT CENSUS, one record per deal: what each of feature 2's eight candidate regions would
+   have put over the arrival room, scored before any of them is committed. `surface`'s SEAT-PLACE row reads
+   it; nothing in the renderer does. Null until a level is generated. */
+let bandCand = null;
 /* #154: metres of clear ground the prop passes keep off the spawn seat. A `let` rather than a literal
    so a probe can A/B it the way it reassigns topUpEnabled and groundPixel (`SPAWN_CLEAR = 0` is the
    shipped behaviour, no clearance), and so smoke's spawn-clearance row can name what it moved.
@@ -1130,6 +1141,7 @@ function authorVolume(cell, N, rooms, fz, vb, feat, cz) {
   const d0 = reach();
   const authored = [];
   overlookPairs = [];                       // #353: the retry loop above must not inherit the last attempt
+  grownDeck = [];                           // #709: same reason - the give-back pass reads the shipped attempt
 
   /* ---- feature 1: rooms you can stand up in ------------------------------
      FIRST, before any floor has been stepped - and that ordering is the #282 fix. TALL ROOM used to run
@@ -1277,6 +1289,11 @@ function authorVolume(cell, N, rooms, fz, vb, feat, cz) {
      the shipped one back: this term can change WHICH plateau rises, never WHETHER the level has one,
      and it authors no new geometry rule and no new paint. */
   const SEAT_REACH = 12;                  // metres = cells: the reach `surface`'s SEAT row scores within
+  /* The range a one-quantum underside can still project into. A BAND_UP deck puts its soffit one unit over
+     the datum, so the band it throws above the horizon is (underside - eye) / distance: at 12 m that is a
+     couple of rows, at 4 m it is thousands. `surface`'s SEAT-RANGE row calls the same horizon SEATNEAR and
+     measures it from the frame; this is the authoring side asking the same question of the candidate set. */
+  const SEAT_NEAR = 6;
   const N2 = N >> 1;
   const rects = [];
   for (const q of [[0, 0], [1, 0], [0, 1], [1, 1]]) rects.push({
@@ -1301,11 +1318,17 @@ function authorVolume(cell, N, rooms, fz, vb, feat, cz) {
      reaches - read off the mask because the band is not authored yet, and over the spawn room's own
      cells too: they are the floor the player is standing on, the band may not cover them but it CAN
      overhang them, which is the whole point. Derived off heights and clearance only, so it cannot
-     disturb `vb`/`steps`, and it reads nothing the movement code writes. */
-  const overSeat = sel => {
+     disturb `vb`/`steps`, and it reads nothing the movement code writes.
+     THE SECOND ARGUMENT IS THE MEASURE, NOT A LABEL. Review of `27a43ba` found the first version of this
+     function taking one parameter while the placement record called `overSeat(m, SEAT_NEAR)`: both loop
+     bounds read `SEAT_REACH`, so `near` was the reach count copied and every candidate printed `X/X`. A
+     range argument that the bounds ignore is the same bug as a format string with no argument. The default
+     is `SEAT_REACH`, which is what the two ranking call sites want and what they got before. */
+  const overSeat = (sel, range) => {
+    const RR = range === undefined ? SEAT_REACH : range;
     let n = 0;
-    for (let y = Math.max(1, spawnR.cy - SEAT_REACH); y <= Math.min(N - 2, spawnR.cy + SEAT_REACH); y++)
-      for (let x = Math.max(1, spawnR.cx - SEAT_REACH); x <= Math.min(N - 2, spawnR.cx + SEAT_REACH); x++) {
+    for (let y = Math.max(1, spawnR.cy - RR); y <= Math.min(N - 2, spawnR.cy + RR); y++)
+      for (let x = Math.max(1, spawnR.cx - RR); x <= Math.min(N - 2, spawnR.cx + RR); x++) {
         const i = y * N + x;
         if (sel[i] || cell[i]) continue;                       // no air, or THIS band is under its feet
         const own = fz[i] * ZQ + Math.max(ZQ, cz[i] * ZQ);
@@ -1342,19 +1365,118 @@ function authorVolume(cell, N, rooms, fz, vb, feat, cz) {
     return null;
   };
   let selBand = pickBand(ranked);
+  /* #421 WHAT THE CANDIDATE SET COULD HAVE PUT NEAR THE SEAT, on the record (#421, cycle 17). The eight
+     candidates are four quadrants and four half-planes, so every seam this feature can author is a line
+     through the MAP CENTRE: a seat in a corner or deep in a quadrant can never have a deck near it, at any
+     ranking, and `SEAT-RANGE`'s "nearest 12.0 m" cannot tell that case apart from one where a different
+     rect would have put a flagged column inside the 6 m a one-quantum soffit needs to project. The table
+     below scores all eight on the grid feature 2 has not touched and hands it to `surface`'s SEAT-PLACE
+     row. It reads heights and clearance only, writes no geometry, and sets no `vb`/`steps` bit, so every
+     frame after it is the frame it was before; `bandCand` is a plain record, not an input to anything. */
+  bandCand = rects.map(r => {
+    const m = maskOf(r), c = { tag: r.tag, n: 0, reach: 0, near: 0 };
+    for (let y = r.y0; y <= r.y1; y++) for (let x = r.x0; x <= r.x1; x++)
+      if (!cell[y * N + x] && fz[y * N + x] === 0 && !flat[y * N + x] && !inSpawn(x, y)) c.n++;
+    c.reach = overSeat(m); c.near = overSeat(m, SEAT_NEAR);
+    return c;
+  });
   if (selBand && overSeat(selBand) === 0) {
+    /* Score the candidates on the grid feature 2 did NOT touch. `maskOf` skips any cell whose `fz` is
+       nonzero, so scoring while the shipped pick is still committed measures each candidate with the
+       shipped band's cells punched out of it - and `pickBand`, after the rewind below, then commits the
+       FULL rect. Measured on the variant that inherited that mismatch: ARCHIVE SUBLEVEL lost 1545 soffit
+       px (2384 -> 859) and ABATOIR CORE's deck left the arrival reach altogether (14 in-reach columns ->
+       0), which turned its vacuity FAIL into an ok reporting a WORSE deal. On the four dealt seats the
+     fallback never fires, so this rewind changes no pixel there; it makes the fallback honest where it
+     does. */
+    rewind(cpBand);
     const byReach = ranked.map(c => ({ c, v: overSeat(maskOf(c.r)) })).filter(o => o.v > 0)
       .sort((a, b) => b.v - a.v || b.c.r.quad - a.c.r.quad || b.c.n - a.c.n ||
         a.c.r.tag.localeCompare(b.c.r.tag));
     if (byReach.length) {
-      rewind(cpBand);
       selBand = pickBand(byReach.map(o => o.c));
       if (selBand) bandTag += '+seat';                 // the census term is on the record in the tag
-      else { rewind(cpBand); pickBand(ranked); }        // a preference, never a veto: keep the shipped band
-    }
+      else { rewind(cpBand); pickBand(ranked); }       // a preference, never a veto: keep the shipped band
+    } else { rewind(cpBand); pickBand(ranked); }
   }
   if (bandTag) authored.push('raisedSide:' + bandTag);
   else rewind(cpBand);
+
+  /* ---- feature 2b (#421): the deck has to GROW toward the room you wake IN --
+     Feature 2 can only CHOOSE among eight quadrants and half-planes, and on a 26- to 36-cell map every one
+     of them puts its seam on a half-map line, so the plateau is never near: `surface`'s SEAT-RANGE reads
+     `0 within 6 m, nearest 9.2 / 6.4 / 12.0 m` on the three generated sectors at 69f6f54, while THE STACK -
+     authored, so no generator pass runs - reads 4 columns at 3.6 m. Two shapes were tried here before this
+     one and both moved exactly zero census pixels, which is why the deck is GROWN rather than placed:
+       * the cells touching the arrival hall's own air. A deck reads as a DECK over a column only where its
+         floor reaches that column's own ceiling - `ceilAt` takes a neighbour's floor only where it is
+         HIGHER and `buildCeilSlab` flags on the same inequality - and the arrival hall is a tall atrium, so
+         one band against CZ_ROOM air stands inside the ceiling thickness: 22-31 cells authored on every
+         graded deal, no slab, no riser face, every SEAT row byte-identical to main.
+       * the cells touching low-clearance air near the seat, carried up by `linkBand`. Every one of them was
+         handed back: an unlinked pocket is stranded, `linkBand`'s give-back returns it to the datum and the
+         call reports success having linked nothing (`link=true`, 0 of 24 cells still raised, four deals).
+         It cannot be linked because the only four-cell run that reaches such a mouth crosses the arrival
+         room, and the arrival floor must not become stair treads - a stepped hall is what moved all four
+         seats 10 cells and cost ARCHIVE 2384 and RING 2787 underside pixels at the previous attempt.
+     So each round raises the still-flat cells 4-adjacent to the deck that is already raised - the plateau's
+     own edge, one cell nearer the seat - and keeps the round only if nothing that was reachable became
+     unreachable AND every grown cell is reachable in the new BFS. Contiguity IS the link: a grown cell
+     shares the plateau's floor, so the stair or ladder feature 2 already authored is still the way up, and
+     this pass authors no link, writes no `vb` bit and writes no wall. The hall's floor is snapshotted and
+     compared at the end - if it moved at all the whole pass rewinds, so a seat cannot move here by
+     construction rather than by census.
+     Growth is capped at LEDGE_MAX cells over LEDGE_GROW rounds, biased to cells nearest the seat and to
+     cells that put a deck over LOW-clearance air inside the seat's own 6 m - the columns SEAT-RANGE counts.
+     A deal that cannot grow keeps the level it had; no dice are drawn, so every deal that does not grow is
+     byte-identical to main, and one that does differs by `fz` on at most LEDGE_MAX cells. */
+  const LEDGE_MAX = 16, LEDGE_GROW = 3, LEDGE_REACH = 9, LEDGE_NEAR = 6;   // metres = cells
+  if (selBand) {
+    const cpL = cut(), deck = selBand.slice(), grew = [];
+    const hz = [];
+    for (let y = spawnR.y; y < spawnR.y + spawnR.h; y++) for (let x = spawnR.x; x < spawnR.x + spawnR.w; x++)
+      hz.push(fz[y * N + x]);
+    for (let round = 0; round < LEDGE_GROW && grew.length < LEDGE_MAX; round++) {
+      const cand = [];
+      for (let y = 1; y < N - 1; y++) for (let x = 1; x < N - 1; x++) {
+        const i = y * N + x;
+        if (cell[i] || fz[i] !== 0 || flat[i] || inSpawn(x, y) || deck[i]) continue;
+        if (feat[i] !== FEAT_NONE || cz[i] !== CZ_DEF || d0[i] < 0) continue;
+        const dd = Math.max(Math.abs(x - spawnR.cx), Math.abs(y - spawnR.cy));
+        if (dd > LEDGE_REACH) continue;
+        let adj = 0;
+        for (let d = 0; d < 4; d++) if (deck[(y + DIRY[d]) * N + x + DIRX[d]]) { adj = 1; break; }
+        if (!adj) continue;
+        let cover = 0;
+        for (let d = 0; d < 4; d++) {
+          const nx = x + DIRX[d], ny = y + DIRY[d];
+          if (!open(nx, ny)) continue;
+          const j = ny * N + nx;
+          if (fz[j] * ZQ + Math.max(ZQ, cz[j] * ZQ) > BAND_UP * ZQ + 1e-9) continue;    // tall air: no slab
+          if (Math.max(Math.abs(nx - spawnR.cx), Math.abs(ny - spawnR.cy)) <= LEDGE_NEAR) cover++;
+        }
+        cand.push([i, dd, -cover]);
+      }
+      if (!cand.length) break;
+      cand.sort((a, b) => a[2] - b[2] || a[1] - b[1] || a[0] - b[0]);
+      const cp = cut(), added = [];
+      for (const c of cand) {
+        if (grew.length + added.length >= LEDGE_MAX) break;
+        added.push(c[0]); deck[c[0]] = 1; mark(c[0]); fz[c[0]] = BAND_UP;
+      }
+      if (!added.length || !keeps(d0)) { for (const i of added) deck[i] = 0; rewind(cp); break; }
+      const dn = reach();
+      let ok = true;
+      for (const i of added) if (dn[i] < 0) { ok = false; break; }
+      if (!ok) { rewind(cp); for (const i of added) deck[i] = 0; break; }
+      for (const i of added) grew.push(i);
+    }
+    let hall = true;
+    for (let y = spawnR.y, k = 0; y < spawnR.y + spawnR.h && hall; y++)
+      for (let x = spawnR.x; x < spawnR.x + spawnR.w; x++, k++) if (fz[y * N + x] !== hz[k]) { hall = false; break; }
+    if (grew.length && hall) { authored.push('hallDeck:' + grew.length); grownDeck = grew.slice(); }
+    else rewind(cpL);
+  }
 
   /* ---- feature 3: a sunken block in the room furthest from spawn ---------
      The RASTER BUDGET caps this shape, and that is a measured fact rather than a taste: a cell below
@@ -2768,6 +2890,16 @@ function topUpEnabled() { return true; }
    runs the deal without it and the overlook rows are seen to fail. A row that has never been seen to
    fail has not been tested (AGENTS.md). */
 function overlookEnabled() { return true; }
+/* #631's interior-column pass, in the same idiom as the two above: ONE call site, so
+   `PIER=off node tools/view.js surface|scene` deals the level with the rooms but not the columns and
+   `surface`'s ROOF row becomes a measurement rather than a reading of one arm (#665). */
+function pierEnabled() { return true; }
+/* #353's deck-light pass, in the same idiom as the two above and for the reason review asked for: the
+   deck row's falsifier named the AUTHORS (OVERLOOK=off removes the pair, so the row goes red for want of
+   a pair, not for want of a lamp). ONE call site so `DECKLIGHT=off node tools/view.js alt` builds the SAME
+   rooms, bands, pairs, props and bodies and drops only the lamp standing on the deck - the picture
+   A/B that says the row is load-bearing on LIGHT. Unset, it is `return true` and moves no byte. */
+function deckLightEnabled() { return true; }
 /* #413's ceiling fittings, in the same idiom as the two above: ONE call site, so
    `LAMPS=off node tools/view.js flatparity` builds a level with NO generator-added fill light and
    flatparity's PARITY sense stays a COUNTERFACTUAL rather than becoming a second picture. The row's
@@ -3264,6 +3396,92 @@ function seatFacing(px, py, authored) {
    the placement it had.
    The cell it moves to is reachable by construction: the pairing pass required both cells of the pair
    to answer `d0[i] >= 0`, so this cannot strand a body the occupancy gate is counting. */
+/* #353's SECOND half: an overlook whose deck is dark is a mezzanine you can shoot into but not see.
+   A light reaches a column only if that column's floor is within one quantum of the SOURCE's own floor
+   (the band term in splatLight, #203/#206), so a raised band carries light only from a source that
+   STANDS on it - and both the lamp budget and the coverage top-up rank by floor AREA, so a two-cell lip
+   loses every contest. Measured on the CI deal, 1 / 4 / 8 of the three generated levels' overlook decks
+   read DARK (`alt`'s census, THE STACK's reads lit because its plan authors the lamp by hand).
+
+   This places the source the area ranking cannot, on the deck of every overlook the pairing pass
+   authored, and ONLY where that deck is still dark. Three things it has to get right:
+   - it STATES its floor in `band` (the #413 shape) instead of deriving it from `z - LHOVER`. floorAt is
+     bilinear, so on a cell that touches a riser the derived floor is not the deck's quantum; a plain
+     lamp at deck floor + LHOVER lights the deck AND turns the wrong-band census on level 0 from 0 to 2
+     cells, because the source claims a band one hover above the deck it stands on.
+   - it carries `noglow`. This is the measured half. drawLightGlow admits a disc by the SURFACE's band
+     (#206/#221) by sampling a disc's area, and a deck is one or two cells wide: a disc centred on a lip
+     put 0.074 of its alpha on a surface that is not its band against the 0.05 this file has gated since
+     #221, where main reads 0.009. That is #221's defect worn by a mezzanine lamp instead of a pit lamp.
+     The deck's floor is what has to be lit - the bloom is what costs - so this source splats into the
+     lightmap and is skipped by the glow pass. The fixture BODY that would make the source visible is
+     the next increment: a prop is a footprint, and this cycle ships no footprint it cannot validate.
+   - it draws NO RNG and runs after every pass that does, so the rooms, props and bodies are exactly the
+     ones the seed dealt; only the light is new. "Dark" is the SHIPPED kernel's answer on a scratch
+     lightmap (arrays swapped out and back, never cleared), pre-blur, at the top-up's OWN_MIN: counting
+     DELIVERED light would let a datum lamp carried over the lip by blurLight answer for a lamp standing
+     on the deck, which is the defect this pass exists to fix (#204 states the rule for the top-up).
+   Switched by `overlookEnabled()` along with the pairing pass: with the pairing off there is no pair,
+   no source, and `alt`'s deck row goes red for want of a pair rather than for want of a lamp. */
+const OVL_LAMP_R = 3.6;                        // a lip is 1-8 cells: a hall-sized disc is what costs
+function lightOverlookDecks(cfgL) {
+  /* topUpEnabled() is the knob LAMPS=off flips in tools/view.js, and this pass sits under it because the
+     control has to mean "no lamp this project chose to place". Measured ungated: flatparity's PARITY
+     record - the build before lamps, 2c5a94f - moved on L0 and L1, and the gap row that attributes the
+     shipped-vs-knob-off light delta to "the top-up lamps and nothing else" went red, because a rule
+     outside the knob appends a lamp to BOTH lists at different indices. Gated, PARITY is main's again on
+     all four levels and only the shipped senses (LOCK/DEALT) move. */
+  if (!overlookEnabled() || !deckLightEnabled() || !topUpEnabled() || !overlookPairs.length) return 0;
+  const N = MAP.w, cell = MAP.cell, fz = MAP.fz;
+  const OWN_MIN = 0.25;                        // :3009's "a floor that is actually LIT", not a new bar
+  const SC = [new Float32Array(N * N), new Float32Array(N * N), new Float32Array(N * N),
+    new Float32Array(N * N), new Float32Array(N * N)];
+  const keep = [MAP.light, MAP.lR, MAP.lG, MAP.lB, MAP.lw];
+  let placed = 0;
+  for (const p of overlookPairs) {
+    if (cell[p[1]]) continue;
+    const fl = fz[p[1]] * ZQ;
+    for (const a of SC) a.fill(0);
+    MAP.light = SC[0]; MAP.lR = SC[1]; MAP.lG = SC[2]; MAP.lB = SC[3]; MAP.lw = SC[4];
+    for (const L of LIGHTS) if (Math.abs(lightBand(L) - fl) <= ZQ + 1e-9) splatLight(L, L.str);
+    const own = MAP.light[p[1]];                        // what the deck's OWN band already delivers it
+    MAP.light = keep[0]; MAP.lR = keep[1]; MAP.lG = keep[2]; MAP.lB = keep[3]; MAP.lw = keep[4];
+    if (own >= OWN_MIN) continue;                       // the deal already garrisons this deck with light
+    // Strength by the deck band's own area - the #213 rule the authored lamps and the coverage top-up
+    // both use - and the cell of that band nearest the lip that nothing else stands in, so the source is
+    // at the edge the overlook is about rather than across the deck.
+    const order = [];
+    { const seen = new Uint8Array(N * N), st = [p[1]];
+      seen[p[1]] = 1;
+      while (st.length) {
+        const c = st.pop(); order.push(c); const cx = c % N, cy = (c / N) | 0;
+        for (let d = 0; d < 4; d++) {
+          const nx = cx + DIRX[d], ny = cy + DIRY[d];
+          if (nx < 0 || ny < 0 || nx >= N || ny >= N) continue;
+          const ni = ny * N + nx;
+          if (seen[ni] || cell[ni] || fz[ni] !== fz[p[1]]) continue;
+          seen[ni] = 1; st.push(ni);
+        } }
+    }
+    const jx = (p[1] % N) + 0.5, jy = ((p[1] / N) | 0) + 0.5;
+    let at = -1, best = Infinity;
+    for (const c of order) {
+      const cx = (c % N) + 0.5, cy = ((c / N) | 0) + 0.5, d = Math.hypot(cx - jx, cy - jy);
+      if (d >= best) continue;
+      if (!PROPS.every(q => Math.hypot(q.x - cx, q.y - cy) > 0.6)) continue;
+      if (!ENEMIES.every(q => Math.hypot(q.x - cx, q.y - cy) > 0.6)) continue;
+      at = c; best = d;
+    }
+    if (at < 0) continue;                               // every cell of the lip is taken: leave it be
+    const x = (at % N) + 0.5, y = ((at / N) | 0) + 0.5;
+    const tsc = Math.min(0.6, Math.max(TOPUP_MINF, order.length / TOPUP_TARGET));
+    LIGHTS.push({ x: x, y: y, z: fl + LHOVER, band: fl, r: OVL_LAMP_R, str: TOPUP_BASE * tsc,
+      col: cfgL.lampCol, stat: 1, ovl: 1, noglow: 1 });
+    placed++;
+  }
+  return placed;
+}
+
 function authorOverlooked(dist) {
   if (!overlookPairs.length || !ENEMIES.length) return;
   const N = MAP.w;
@@ -3283,6 +3501,12 @@ function authorOverlooked(dist) {
 }
 
 function genLevel(li) {
+  /* #421 THE PLACEMENT RECORD IS PER LEVEL, not per volume pass. `bandCand` is only assigned inside
+     `authorVolume`, and an authored plan returns from `buildAuthored` before that pass runs, so leaving the
+     previous level's table in place let `surface`'s SEAT-PLACE row print ABATOIR CORE's candidate table as
+     THE STACK's own - a 400-cell grid reporting a region of 826 owned cells. An authored sector now has no
+     record, which the row reads as its own vacuity FAILURE rather than as a prediction it did not make. */
+  bandCand = null;
   const cfgL = LEVELS[li];
   /* An authored plan is data, so it is validated rather than hoped for: if the layers disagree the
      loader says so loudly and the generator's own path still ships a playable level, and `alt`'s
@@ -3758,10 +3982,88 @@ function genLevel(li) {
     }
     // #353: an overlook nobody stands above is scenery. See authorOverlooked below.
     authorOverlooked(dist);
+    // #353's second half: an overlook nobody can SEE is scenery too. Runs after the props and bodies so
+    // it takes a cell of the deck nothing occupies, and before the splat loop so it bakes like a lamp.
+    // The AUTHORED path needs no call: the pairing pass never runs on a plan, so `overlookPairs` is empty
+    // there, and THE STACK's one deck already reads lit from the lamp its plan authors by hand.
+    lightOverlookDecks(cfgL);
     // #413: hung before the splat loop below, so a ceiling source bakes into MAP.light like a lamp.
     // `seat` is the #154 seat, chosen before any pass that draws, so the entry fitting is deterministic
     // and draws no RNG of its own.
     placeCeilFixtures(cfgL, seat[0], seat[1]);
+    /* ---- #709 THE DECK STOPS WHERE THE LIGHT DOES -----------------------------------------------
+       The growth pass (feature 2b) raises floor it cannot score: it runs inside `authorVolume`, and the
+       lamp loop BELOW this line places the first fixture of the deal, so at the moment a cell is chosen
+       there is no lamp position, no lightmap and no band coverage to score it against. The cost of that
+       ordering is measured, not suspected: over the 12 gated dice `alt`'s L0 dark-ground share goes
+       1.6 -> 2.3 % and its attribution 92.9 -> 72.2 %, because 44 of the 158 dark cells are grown floor
+       with no source standing on their band - a slab beside the seat that reads as a black shelf, which
+       is the opposite of the criterion the deck exists to serve.
+       So the choice is finished here, once the information exists: give back - return to the datum -
+       every cell this level's growth pass raised whose OWN band no fixture reaches, in reverse growth
+       order so the deck shortens from its far edge inward. "Its own band" is the shipped kernel's own
+       predicate, not a restatement of it: `lightBand` for the source's floor and one quantum either way
+       (the band term in `splatLight`), and the source's own disc radius for reach, so the deck keeps
+       exactly the cells a lamp would have lit had it been raised and loses exactly the ones it would not.
+       THREE THINGS THIS MAY NOT DO, each tested rather than assumed:
+         * it may not strand a cell. The give-back is kept only if nothing that was reachable becomes
+           unreachable AND every still-raised grown cell is still reachable, both read off a fresh
+           `bfsReach` from the same seed genLevel gated the deal on. A deck with a hole punched in the
+           middle is a plateau the stair no longer reaches.
+         * it may not dig a pit. The given-back cell has to be reachable in the NEW search too: a cell
+           handed back at the bottom of the deck is a one-metre pocket you can drop into and not climb
+           out of, which is a navigation defect wearing a lighting fix.
+         * it may not move a light. Nothing here writes `LIGHTS`, a lamp's `r`, `str` or `col`, `amb` or
+           a tint - it reads their positions and writes `fz` only, and it runs BEFORE the splat loop so
+           the lightmap is baked once from the grid the player finally stands on. The `flatparity` LOCK
+           delivered-light clause is the census that says so.
+       Writing `MAP.fz` means calling `linkBoundaries()` (AGENTS.md), and a cell handed back is byte-for-
+       byte the cell main dealt: same floor, and therefore same derived boundary bits. A level that grew
+       nowhere runs no cells through this loop, and an authored plan has an empty list, so THE STACK and
+       every deal that could not grow are untouched. No random number is drawn. */
+    const DECK_LIT = 0.05;   // the darkness line the dark-cell counters use - see OWN_MIN's note above
+    if (grownDeck.length) {
+      const raised = new Uint8Array(N * N);
+      for (const i of grownDeck) raised[i] = 1;
+      const bs = rooms[0].cy * N + rooms[0].cx;                 // the same seed the deal was gated on
+      const reachNow = () => bfsReach(MAP.cell, MAP.fz, N, bs, MAP.vb, MAP.feat);
+      /* Direct light read through the SHIPPED kernel on a scratch map that is swapped out and back
+         exactly as found - the same device the coverage top-up pass above uses for its own `ownMaps`, for
+         the same reason: restating the disc here is how this rule would drift from the one the renderer
+         pays. FIVE arrays, not one aliased buffer: `splatLight` ADDS into all five, so a single shared
+         buffer would make the number read below the sum of light, colour channels and weight. Measured
+         that mistake rather than reasoning about it - one buffer and five agree on L0 and L1 over the
+         gated dice (136 dark of 6872, 92 of them covered, both ways) and differ by 2 cells on L2
+         (507 against 509), which is the size of the error here and no reason to keep arithmetic that is
+         wrong on its face. The pre-blur direct term is the right thing to author against, which is the
+         top-up pass's own argument and the reason a datum pool cannot buy a deck cell: blurLight carries
+         light across a lip, so counting delivered light would let the floor below stand in for a lamp on
+         the deck. */
+      const SC = [new Float32Array(N * N), new Float32Array(N * N), new Float32Array(N * N),
+        new Float32Array(N * N), new Float32Array(N * N)];
+      const litHere = i => {
+        const keep = [MAP.light, MAP.lR, MAP.lG, MAP.lB, MAP.lw];
+        for (const a of SC) a.fill(0);
+        MAP.light = SC[0]; MAP.lR = SC[1]; MAP.lG = SC[2]; MAP.lB = SC[3]; MAP.lw = SC[4];
+        for (const L of LIGHTS) splatLight(L, L.str);
+        MAP.light = keep[0]; MAP.lR = keep[1]; MAP.lG = keep[2]; MAP.lB = keep[3]; MAP.lw = keep[4];
+        return SC[0][i];
+      };
+      let dk = reachNow(), gave = 0;
+      for (let k = grownDeck.length - 1; k >= 0; k--) {
+        const i = grownDeck[k];
+        if (litHere(i) >= DECK_LIT) continue;                   // the deck stays where the light stops
+        const was = MAP.fz[i];
+        MAP.fz[i] = 0; linkBoundaries();
+        const d1 = reachNow();
+        let ok = d1[i] >= 0;                                    // not a pit, and nothing lost...
+        for (let j = 0; ok && j < N * N; j++) if (dk[j] >= 0 && d1[j] < 0) ok = false;
+        for (let j = 0; ok && j < grownDeck.length; j++) if (raised[grownDeck[j]] && d1[grownDeck[j]] < 0) ok = false;
+        if (ok) { raised[i] = 0; dk = d1; gave++; }
+        else { MAP.fz[i] = was; linkBoundaries(); }
+      }
+      if (gave) MAP.deckGive = gave;                             // census only: a probe reads it off MAP
+    }
     // lightmap splat, then a smoothing pass and the per-cell tint
     for (const L of LIGHTS) splatLight(L, L.str);
     blurLight(); floorLampField(); buildTint();   // #199: the floor AFTER the blur, which replaces the array
@@ -3924,26 +4226,49 @@ function genLevel(li) {
        The gap chosen is the one the arrival view looks THROUGH in the room you wake in - the same ray as
        the candidate rule below - and the room's own centre everywhere else. A face another fixture already
        owns is left alone: this pass adds a doorway, it does not evict a vent. */
-    /* WHERE THE OPENING IS. ONE RULE, TWO CUSTOMERS: `tryLine` stands the two JAMBS of this gap as real
-       columns (see the LOW clause below) and `frameGap` paints the frame on their faces. It used to live
-       inside frameGap only, which is why the arrival room's gap could be framed but never stood: a low
-       break is air over a one-quantum tread, so it has no jamb face to paint on and no column to walk
-       past. Returning an INDEX ALONG THE LINE (not a cell) keeps both customers in step, and clamping to
-       the range frameGap scans (1..span-3) means the doorway the line stands is the doorway the frame
-       lands on. For the room you wake in it is the gap the wake ray looks through; elsewhere the room's
-       own centre, which is what the framer already picked. */
+    /* WHERE THE OPENING IS. ONE RULE, THREE CUSTOMERS: the PHASE that decides which cells of a line are
+       piers and which are gaps, `tryLine` (which stands the cells the phase picks), and `frameGap` (which
+       paints a door frame on one gap). The rule used to live inside frameGap only, which is why the arrival
+       room's gap could be framed but never stood: a low break is air over a one-quantum tread, so it has
+       no jamb face to paint on and no column to walk past. Returning an INDEX ALONG THE LINE (not a cell)
+       is what lets the three be served by ONE answer: `frameGap` takes `gapIndex`'s clamped value below,
+       and a CROSSING candidate's phase is the parity of the same ray point (see the PHASE clause on the
+       candidate loop), so the cell the frame is painted on is the cell the line calls its opening. An
+       ALONG-view candidate's phase still comes from the room's ordinal - inert while no jamb face exists,
+       and named where it is pushed for the step that stands them. For the room you wake in the opening is
+       the cell the wake view reaches; elsewhere the room's own centre, which is what the framer picked. */
+    /* THE INDEX ALONG THE LINE THE ARRIVAL VIEW REACHES, or -1 when the view never gets there.
+       THE QUESTION IS ABOUT THE LINE, NOT ABOUT THE VIEW. A line either CROSSES the view (it is constant
+       on the axis the frame looks down: `alongX === onX`) or runs ALONG it (`alongX !== onX`), and the two
+       need different questions asked of the same ray:
+
+       - CROSSING: the opening is the cell the ray walks THROUGH, so the index is where the ray reaches the
+         line's own coordinate. This is the scan the rule has always made, unchanged.
+       - ALONG: a row that runs beside the view is never reached by the view's own ray, so scanning for a
+         crossing asks the wrong question - and the old code asked exactly that, comparing a coordinate on
+         the OTHER axis against `pos`, so it matched nothing (the caller then fell back to the room's own
+         centre, i.e. a gap chosen by where the room happens to sit) or matched by accident. A row standing
+         alongside the view breaks the bay as well as one crossing it; what it could not do was say WHERE
+         ITS OPENING IS. It is now the cell PIER_VIEW down the view - the depth the crossing pass already
+         answers at - so both orientations name their opening from the seat instead of from where the room
+         happens to sit (#631: "no doorway you can see yourself walking through"). This NAMES a cell; it
+         stands nothing - the clause at the `fzTry`/`cell` write says what this head actually ships. */
+    const gapIndex = (r, alongX, pos, ang) => {
+      const vx = Math.cos(ang), vy = Math.sin(ang), onX = Math.abs(vx) >= Math.abs(vy);
+      const base = alongX ? r.y : r.x;
+      const pa = alongX ? P.x : P.y, va = alongX ? vx : vy;    // the axis the line is CONSTANT on
+      const pb = alongX ? P.y : P.x, vb = alongX ? vy : vx;    // the axis the line RUNS ALONG
+      if (alongX === onX) {                                    // crossing: where the ray reaches it
+        for (let d = PIER_NEAR; d <= PIER_VIEW + 3; d++)
+          if (Math.floor(pa + va * d) === pos) return Math.floor(pb + vb * d) - base;
+        return -1;
+      }
+      return Math.floor(pb + vb * PIER_VIEW) - base;           // alongside: the cell ahead of the eye
+    };
     const gapAt = (r, alongX, pos, inRoom, ang) => {
       const span = alongX ? r.h : r.w, base = alongX ? r.y : r.x;
       let want = (alongX ? r.cy : r.cx) - base;
-      if (inRoom) {
-        const vx = Math.cos(ang), vy = Math.sin(ang), onX = Math.abs(vx) >= Math.abs(vy);
-        for (let d = PIER_NEAR; d <= PIER_VIEW + 3; d++) {
-          const cross = Math.floor(onX ? P.x + vx * d : P.y + vy * d);
-          if (cross !== pos) continue;
-          want = Math.floor(onX ? P.y + vy * d : P.x + vx * d) - base;
-          break;
-        }
-      }
+      if (inRoom) { const w = gapIndex(r, alongX, pos, ang); if (w >= 0) want = w; }
       const top = span - 3 > 1 ? span - 3 : 1;
       return want < 1 ? 1 : (want > top ? top : want);
     };
@@ -3990,6 +4315,14 @@ function genLevel(li) {
        - then the positions beside it, nearest first, on the same (longer) axis;
        - then, only when the longer axis is spent all the way across, the shorter one. A run of columns
          standing ALONG a view still breaks one bay into two, which is the claim being made. */
+    /* `pierEnabled()` is the A/B knob in the same idiom as `overlookEnabled()` and the lamp top-up:
+       ONE call site, so `PIER=off node tools/view.js surface` deals the same rooms, the same lights and
+       the same seed with NO pier anywhere in the level, and the ROOF row can be SEEN to move rather
+       than argued about (#665: the row crossed its regression floor when this pass landed, and the only
+       way to tell a census that changed SET from a ceiling that lost LIGHT is to deal the level both
+       ways in one tree). It draws no RNG and guards nothing else, so with it true - the shipped case -
+       the deal is the deal it was. */
+    if (pierEnabled())
     for (let ri = 0; ri < rooms.length; ri++) {
       const r = rooms[ri];
       if (r.w * r.h < 24) continue;                        // a 5x5 room is already one bay; give it nothing
@@ -4062,7 +4395,22 @@ function genLevel(li) {
              landed by editing a reference table behind the gate. Everything below this clause still runs:
              the line is now asked for at the depth the shallow room actually has, so the break lands INSIDE
              the frame instead of beside it, which is the half of #631 that does not need a new byte. */
-          if (low) fzTry[i] = 1; else cell[i] = cfgL.wall2;
+          /* WHAT THIS WRITES IN THE ARRIVAL ROOM, AND WHAT IT DOES NOT (#631). In a `low` line the `else`
+             never runs, so an arrival room gains NO wall cell: the break stays the one-quantum tread the
+             clause above authors, which is main's shipped behaviour word for word. That is why all four
+             arrival renders off this head are byte-identical to main and why `fixtures` still reads
+             `DOOR on a continuing passage 0` in every sector - `frameGap` has no jamb FACE to paint on, so
+             the doorway the issue asks for is not delivered here. What DID change at this call site is
+             WHICH cell `i` is: the line asks for its gap at the depth the arrival view actually reaches
+             (`gapIndex`), so in a room too shallow to be crossed the break lands inside the first frame
+             instead of beside it. Standing the two cells that flank that gap is the NEXT step and was
+             measured before being left out - at every depth, cladding and orientation tried it costs the
+             ABATOIR CORE arrival frame five lumas and puts L2's spawn median at 76.0, outside #505's 35-75
+             band (figures on #631); it also converts authored HEIGHT into CELLS, which `flatparity`'s flat
+             senses cannot see in a tread and do see in a column, so it would re-key the L0 PARITY and L0
+             LOCK references. No reference is re-recorded by this head because no byte moves. */
+          if (low) fzTry[i] = 1;
+          else cell[i] = cfgL.wall2;
           placed++; got++;
         }
         return got;
@@ -4145,6 +4493,9 @@ function genLevel(li) {
         for (let off = PIER_NEAR; off <= PIER_NEAR + 2; off++) for (let s = 0; s < 2; s++) {
           const pos2 = perp + (s ? off : -off);
           if (pos2 < plo || pos2 > phi || seen(!crossX, pos2)) continue;
+          // PHASE STILL FROM THE ROOM'S ORDINAL, unlike the crossing push above. Inert while the arrival
+          // break is a tread (no jamb face to frame); once the jambs stand, a gap `gapIndex` prefers can
+          // share a pier's parity and `frameGap` settles one cell aside - owe this term a `gapIndex` read.
           cands.push([!crossX, pos2, 1 + (ri & 1)]);
         }
       }
