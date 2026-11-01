@@ -1022,6 +1022,185 @@ if (MODE === 'alt') {
     row(`L${li} a staircase can be climbed on foot`, r.stairs >= 1 && r.faces > 0 && r.steps === 1,
       `${r.stairs} run(s) of >=3 cells rising one quantum each (${r.stairCells} cells), ${r.faces} step faces, ` +
       `MAP.steps ${r.steps} (a step face with the flag at 0 draws nothing - #100 on generated content)`);
+    /* #515 THE PIXEL HALF OF THE ROW ABOVE, which that row is structurally unable to be.
+       `r.faces` is a count out of MAP.vb - derived flags, not pixels - and it read 46 on the build whose
+       frame drew NONE of them, which is the report this issue was filed from ("the stairs do not render,
+       a weird warped view"). AGENTS.md: a probe passing is not the same as a probe being capable of
+       failing. So render the same flight twice and take the faces out of ONE derived bit in between:
+
+         arm A   the flight as dealt.
+         arm B   the SAME floors, the SAME walkability (VB_BLOCK untouched) and the SAME ground-pass step
+                 terms (#707's nosing keys to MAP.ek, which is not touched), with the DERIVED VB_FACE bit
+                 cleared on both sides of every boundary of the flight. That is #515 reproduced in the one
+                 byte the draw test reads (`vbs[pi] & VB_FACE<<(d<<2)`, js/40_render.js:3341): a tread
+                 boundary that derives no face. Nothing is flattened, so this is not a "the stair is gone"
+                 control, and linkBoundaries() is NOT called between the arms, so the bit stays cleared.
+
+       Heights are identical in both arms, so a differing pixel is a pixel a step FACE put on the frame -
+       its own span plus what it occludes - which is the census's missing half. The mask is the bit, not a
+       render difference used as its own evidence (#216's rule).
+       THE SEAT IS DERIVED, not typed: the flight is a chain of >=3 cells rising one quantum each (the
+       same object the census counts), the camera stands on the landing at its TOP end, on that landing's
+       own floor, looking straight down the axis, and k cells past the landing is k+0.5 m from the first
+       riser. Two reads: k=2 (~2.5 m, a flight you are about to climb) gates, because a staircase that
+       puts no face on the frame IS the defect and a vacuous frame is a FAILURE, never a debt; the far
+       read reports, because at that distance the march stops every column at the FIRST riser whose face
+       has pixels and the treads behind it are floor-plane solves - the remaining half of #515, printed
+       here as a number instead of in prose so the next pass starts from it. Both arms re-deal and re-seat
+       before they render (the #385 lesson at :9400: renderWorld advances the sway clock, and a second
+       render of one seat moves ~1,000 px under the rifle that belong to no term at all). */
+    if (r.stairs >= 1) {
+      const fl = run(`(()=>{
+        let best = null;
+        for (let y = 1; y < MH-1; y++) for (let x = 1; x < MW-1; x++) {
+          const i = y*MW+x; if (MAP.cell[i]) continue;
+          for (let d = 0; d < 4; d++) {
+            const cells = [i];
+            for (let k = 1; k < 8; k++) {
+              const ax = x+DIRX[d]*k, ay = y+DIRY[d]*k;
+              if (ax < 1 || ay < 1 || ax >= MW-1 || ay >= MH-1) break;
+              const a = ay*MW+ax;
+              if (MAP.cell[a] || MAP.fz[a] !== MAP.fz[cells[k-1]]+1) break;
+              cells.push(a);
+            }
+            if (cells.length < 3) continue;
+            // the seat stands at the TOP end, on a floor that has STOPPED rising: the chain runs up by
+            // one quantum per cell along d, so the cell past its top is the landing (or the lip) the
+            // flight was built off. NOT "+1": a generator stair descends FROM the datum, so the datum
+            // cell is itself the top of the chain and demanding a step beyond it finds no flight at all.
+            const lx = x+DIRX[d]*cells.length, ly = y+DIRY[d]*cells.length;
+            if (lx < 1 || ly < 1 || lx >= MW-1 || ly >= MH-1) continue;
+            const lj = ly*MW+lx;
+            if (MAP.cell[lj] || MAP.fz[lj] !== MAP.fz[cells[cells.length-1]]) continue;
+            let k = 0;                                   // how far back the landing stays flat to stand on
+            while (k < 6) {
+              const bx = lx+DIRX[d]*(k+1), by = ly+DIRY[d]*(k+1);
+              if (bx < 1 || by < 1 || bx >= MW-1 || by >= MH-1) break;
+              const bj = by*MW+bx;
+              if (MAP.cell[bj] || MAP.fz[bj] !== MAP.fz[lj]) break;
+              k++;
+            }
+            if (!best || k > best.k) best = { cells, lj, d, lx, ly, k };
+            if (best.k >= 6) return best;
+          }
+        }
+        return best;
+      })()`);
+      if (!fl) {
+        row(`L${li} a staircase face reaches the frame at arm's length`, false,
+          `${r.stairs} staircase run(s) in the census and no flight of >=3 one-quantum cells with a flat `
+          + `landing to stand the camera on - the census counts a run this row cannot look at, so it is not `
+          + `evidence of a pixel`);
+      } else {
+        /* One arm: re-deal, stand on the landing k cells past it looking down the axis, and (arm B) clear
+           VB_FACE on both sides of every boundary of the flight. Returns the framebuffer Node-side, so the
+           diff is done in this file and not in a page string that cannot be read afterwards. */
+        const MWn = run('MW'), DX = run('DIRX'), DY = run('DIRY');
+        const chain = [fl.lj].concat(fl.cells.slice().reverse());     // landing -> top tread -> ... -> foot
+        const pairs = [];
+        const kill = chain.slice(0, -1).map((a, j) => {
+          const b = chain[j + 1];
+          const dxa = (b % MWn) - (a % MWn), dya = ((b / MWn) | 0) - ((a / MWn) | 0);
+          let dq = 0; while (dq < 4 && (DX[dq] !== dxa || DY[dq] !== dya)) dq++;
+          pairs.push([a, dq], [b, (dq + 2) % 4]);
+          return `MAP.vb[${a}] &= ~(VB_FACE << (${dq} << 2)); MAP.vb[${b}] &= ~(VB_FACE << (${(dq + 2) % 4} << 2));`;
+        }).join(' ');
+        /* ONE DEAL - the one the census above already ran. Re-dealing per arm is what a first pass here
+           did, and it broke the probe twice over: startLevel draws from the ambient RNG, so a second deal
+           inside the level loop shifts EVERY later row's deal (measured: `the deal is the recorded geometry
+           census` went red on L1 and L2 with 255/267 cells off the datum), the arms can land on different
+           LEVELS (the same arm rendered twice differed by 201,835 of 203,138 px - the whole frame, which is
+           the deal moving, not the term), and the view model's sway advances with S.t regardless (#385's
+           ~1,000 px under the rifle). So: render the level the census dealt, pin S.t and the view-model
+           spring before every shot, and let the only difference between two frames be this row's bit. */
+        const shot = () => { run('S.t = 42; VM.vy=0; VM.ang=0; VM.lag=0; VM.now=0; VM.t=0; renderWorld()'); return { buf: new Uint32Array(run('px')), stops: run('MAP.riserStops') }; };
+        const seatAt = (k) => run(`P.x=${fl.lx + 0.5 + DX[fl.d] * k}; P.y=${fl.ly + 0.5 + DY[fl.d] * k}; `
+          + `P.z=floorAt(P.x,P.y); P.ang=${Math.atan2(-DY[fl.d], -DX[fl.d])}; P.pitch=BH*0.03; P.bob=0; P.kick=0; `
+          + `for (const e of ENEMIES) e.state='sleep'; MAP.riserStops=0;`);
+        const lumOf = b => i => 0.2126 * (b[i] & 255) + 0.7152 * (b[i] >> 8 & 255) + 0.0722 * (b[i] >> 16 & 255);
+        const PXW = run('BW'), PXH = run('BH');
+        const pair = (k) => {
+          seatAt(k);
+          const A = shot();
+          run(kill);
+          // did the control reach the byte the draw test reads? count the face bits still set on the
+          // flight's own boundaries - a control that clears nothing would otherwise print a clean 0 px
+          // diff and read exactly like a staircase that draws no face (#515's own shape).
+          const stillSet = run(`(()=>{const p=${JSON.stringify(pairs)};let n=0;`
+            + `for(let q=0;q<p.length;q++) if(MAP.vb[p[q][0]] & (VB_FACE << (p[q][1] << 2))) n++; return n;})()`);
+          const B = shot();
+          run('linkBoundaries()');                          // restore the derived bits this row cleared
+          const la = lumOf(A.buf), lb = lumOf(B.buf);
+          let n = 0, edge = 0, mx = 0, dl = 0;
+          for (let y = 0; y < PXH; y++) for (let x = 1; x < PXW; x++) {
+            const i = y * PXW + x;
+            const d0 = Math.abs(la(i) - lb(i));
+            if (d0 <= 1) continue;
+            n++; if (d0 > mx) mx = d0;
+            dl += d0;
+            if (Math.abs(la(i - 1) - lb(i - 1)) <= 1) edge++;    // a hard boundary, not a gradient
+          }
+          return { n, edge, mx, mean: n ? dl / n : 0, sa: A.stops, sb: B.stops, cleared: pairs.length, stillSet, dist: k + 0.5 };
+        };
+        const near = pair(Math.min(2, fl.k));
+        const far = pair(Math.min(6, fl.k));
+        /* IS THE FLIGHT EVEN IN FRAME? A 0 px diff has two completely different causes and the row must
+           tell them apart: a staircase whose faces paint nothing, and a camera that is not looking at
+           the staircase. The centre column marches exactly along the axis this seat was built on, so the
+           question is answered by walking that axis and naming the first boundary it crosses. If that
+           boundary is one of the flight's, the pose is real and a 0 px diff means what #515 says it
+           means; if it is not, this row is vacuous and says so. */
+        near.inView = run(`(()=>{const ax=${-DX[fl.d]}, ay=${-DY[fl.d]};const p=${JSON.stringify(pairs)};
+          const hit=(i,d)=>{for(let q=0;q<p.length;q++) if(p[q][0]===i&&p[q][1]===d) return true; return false;};
+          let cx=P.x|0, cy=P.y|0;
+          for(let t=0.02;t<14;t+=0.02){const nx=(P.x+ax*t)|0, ny=(P.y+ay*t)|0;
+            if(nx===cx&&ny===cy) continue;
+            const d=ax>0?0:ax<0?2:ay>0?1:3;
+            if(hit(cy*MW+cx,d)) return +t.toFixed(2);
+            cx=nx; cy=ny;}
+          return -1;})()`);
+        /* THE HARNESS CONTROL (#66/#385): the same arm rendered twice must be IDENTICAL. If it is not,
+           every pixel count below belongs to the view model's sway or to a state the re-deal did not
+           restore, and the row says so instead of crediting the control with a difference of its own. */
+        const driftCtl = (() => { seatAt(Math.min(2, fl.k)); const a = shot(), b = shot(); let n = 0;
+          for (let i = 0; i < a.buf.length; i++) if (a.buf[i] !== b.buf[i]) n++; return n; })();
+        run('linkBoundaries()');                            // restore the derived bits this row cleared
+        const seatTxt = `flight ${fl.cells.length} cells at (${fl.cells[0] % MWn},${(fl.cells[0] / MWn) | 0}) `
+          + `running ${['east', 'south', 'west', 'north'][fl.d]}, camera on the landing looking down the axis`;
+        /* THE SHAPE OF THE VERDICT, and it is deliberate. The pixel claim is a KNOWN row at the baseline
+           this run measures, promoted to a gate by STRICT=1 - the same ladder alt's arrival row and
+           contrast's cam-1 row use, and the reason is the measurement below: on three of the four dealt
+           levels the diff is EXACTLY 0 px while the control proves the face bits were cleared and the
+           axis walk proves the flight is dead ahead. That is #515's report, in pixels: the tread faces are
+           derived, counted and reachable, and they put nothing on the frame. A row that gated on a number
+           this build does not produce would be a red CI for a defect CI already knows about; a row that
+           printed nothing would let the next change make it worse unnoticed. So: the row's own integrity
+           clauses (harness reproducible, control reaches the byte, flight in frame) are a GATE on every
+           run, and the picture is the debt that flips green - and stays green - when the faces land. */
+        krow(`L${li} a staircase face reaches the frame at arm's length`,
+          near.n > 0 && near.edge >= 1,
+          `${near.n} px of the ${PXW}x${PXH} frame differ between the flight and the SAME floors with the `
+          + `face bit cleared, at ${near.dist.toFixed(1)} m - ${near.edge} hard edge(s), max ${near.mx.toFixed(1)} `
+          + `luma, mean ${near.mean.toFixed(1)}; the control cleared ${near.cleared} face bits and ${near.stillSet} `
+          + `remained, the centre axis crosses the flight at ${near.inView.toFixed(2)} m, and one arm rendered `
+          + `twice differs by ${driftCtl} px. ${seatTxt}`);
+        /* The three clauses above are the GATE, and they are what makes the row above evidence rather
+           than a number: if the harness stops being reproducible, if the control stops reaching the byte,
+           or if the flight stops being in frame, this row goes RED on every run and the pixel row above
+           stops being interpretable. Vacuity is a FAILURE (AGENTS.md), so a seat that cannot see its own
+           flight is named here rather than allowed to print an honest-looking 0. */
+        row(`L${li} the staircase pixel row can fail`,
+          driftCtl === 0 && near.cleared >= 6 && near.stillSet === 0 && near.inView > 0,
+          `harness drift ${driftCtl} px (want 0), ${near.cleared} face bits cleared by the control with `
+          + `${near.stillSet} still set, flight first crossed on the centre axis at `
+          + `${near.inView.toFixed(2)} m (want > 0) - so a 0 px diff below means no face, not no view`);
+        krow(`L${li} a staircase reads across the room (${fl.k < 6 ? 'only ' + fl.k + ' m of flat landing' : '6 m'} seat)`,
+          far.n > 0 && far.edge >= 1,
+          `${far.n} px, ${far.edge} hard edge(s) at ${far.dist.toFixed(1)} m against ${near.n} px at `
+          + `${near.dist.toFixed(1)} m: past the first riser the wall march stops every column, so the treads `
+          + `behind it are floor-plane solves and the flight reads as one face. #515's remaining half.`);
+      }
+    }
     /* The record row. Thresholds above say a level is not flat; this says it is the SAME level as the
        one the reference was taken from, in either direction of error: a generator that stops raising
        bands, stops authoring stairs, or loses the step flag trips it, and so does one that quietly
