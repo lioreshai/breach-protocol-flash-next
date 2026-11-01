@@ -13784,7 +13784,11 @@ if (MODE === 'viewmodel') {
   problems = [];
   let seatArm = 0, seatArmState = 'n/a', seatRatio = 0, seatCarry = 0;
   if (seatDiffers) {
-    const SNEEDLE = 'if (planeC !== planeA) { RX[nm] = x; RP[nm] = planeC; nm++; continue; }';
+    /* THE SAME QUEUE LINE as tools/view.js's deferred-copy control (`DEFNEEDLE` in the cull block, and
+       the `LEAK` block's `NEEDLE`) - copied, not shared, because that constant is block-scoped. Both
+       copies carry the same warning: edit the shipped split at js/40_render.js and these with it, or
+       this arm silently becomes the ship config timed against itself. #707 paid for that lesson once. */
+    const SNEEDLE = 'if (planeC !== planeA) { RX[nm] = x; RP[nm] = planeC; RE[nm] = edgeL; nm++; continue; }';
     const patchNoDefer = on => run(`(function (ON) {
       if (!globalThis.__cgO529) globalThis.__cgO529 = castGround;
       if (!ON) { castGround = globalThis.__cgO529; return globalThis.__cgO529.toString().indexOf(${JSON.stringify(SNEEDLE)}) >= 0 ? 'restored' : 'NEEDLE-NOT-FOUND'; }
@@ -13817,12 +13821,29 @@ if (MODE === 'viewmodel') {
       '% of the dealt frame while the frame is ' + seatRatio.toFixed(2) + 'x the pinned one - the price is '
       + 'somewhere other than the pass this row prices, so name the pass before trusting the ratio');
   }
+  /* WHICH FRAME THIS PRICES (#529's rework). This ratio is a node-side A/B: `__vmCost` calls renderWorld()
+     'rounds on this process's own stub buffer at WxH, with the rig switched off and the clock pinned. The
+     running game was asked the same question - same seat, same two headings, same build's deal - by
+     `node tools/livecap.js cost`, which drives a real page over CDP and times the frame the page actually
+     gets (first-person rig included, everything else the loop puts in a frame). Read on the deployed build
+     on 2026-11-01, four sectors, five interleaved rounds per arm, the two sectors whose dealt heading IS
+     the pinned literal agreeing with themselves to 1.01-1.02x so the timer is provably steady: the
+     running game reads 0.98-1.04x dealt/pinned, and turning up at the storey 1.03-1.07x. In other words
+     the doubled frame this row prices lives in the harness's buffer, not in the frame a player gets - and
+     a headless millisecond that the running frame does not follow closes nothing, which is why the two
+     numbers print side by side instead of one of them being quietly re-recorded. The row still gates on
+     the harness ratio, because what it is for is noticing a regression in the deferred ground pass, and
+     that pass IS in this buffer. */
+  const LIVE_SWING_SEEN = process.env.LIVE_SWING_SEEN || '0.98-1.04x dealt/pinned, 1.03-1.07x turned up';
   console.log('seat price'.padEnd(24), (seatDiffers
     ? 'the dealt heading ' + SEAT_ANG.toFixed(3) + ' rad costs ' + sOff.toFixed(2) + ' ms/frame with the room '
       + 'and no rig, ' + (sOff - seatArm).toFixed(2) + ' ms of it in the deferred ground copy (' +
       (100 * seatCarry).toFixed(0) + '%, arm ' + seatArmState + '), ' + seatRatio.toFixed(2) + 'x the same '
       + 'build at the pinned heading ' + VMHEAD + ' [' + SEAT_DEBT.toFixed(2) + ' debt / ' + SEAT_FLOOR.toFixed(2) +
-      ' red]' + (problems.length ? ' << ' + problems.join(', ') : (seatRatio > SEAT_DEBT ? ' KNOWN' : ''))
+      ' red] - HARNESS BUFFER (renderWorld rounds at ' + W + 'x' + H + ', rig off); the frame a player gets, '
+      + 'timed in a running page at the same two headings, reads ' + LIVE_SWING_SEEN + ' - re-read with '
+      + '`node tools/livecap.js cost`'
+      + (problems.length ? ' << ' + problems.join(', ') : (seatRatio > SEAT_DEBT ? ' KNOWN' : ''))
     : 'no room to price: the dealt heading IS the pinned heading ' + VMHEAD.toFixed(3) + ', so there is no '
       + 'turned seat to price and no verdict to make'));
   bad += problems.length ? 1 : 0;
