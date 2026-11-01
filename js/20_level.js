@@ -2737,6 +2737,7 @@ function placeCeilFixtures(cfgL, seatX, seatY) {
      nothing to un-splat and nothing to forget (AGENTS.md: light stays one value per column). */
   MAP.ceilPanes = [];
   const hung = [];
+  let entry = null;                             // pass 0's fitting, the one the SWING may turn toward the door
   const hang = (x, y, sep) => {
     const cz = ceilAt(x, y), fl = floorAt(x, y);
     if (!(cz - fl >= CFIX_MIN_CLEAR)) return false;
@@ -2781,7 +2782,7 @@ function placeCeilFixtures(cfgL, seatX, seatY) {
     const sband = floorAt(seatX, seatY);
     let pick = null;
     for (let r = CFIX_ENTRY_MIN; r <= CFIX_ENTRY_MAX + 1e-9 && !pick; r += 0.5) {
-      for (let a = 0; a < 8; a++) {
+      for (let a = 0; a < 8 && !pick; a++) {
         const ang = a * Math.PI / 4;
         const x = seatX + Math.cos(ang) * r, y = seatY + Math.sin(ang) * r;
         if (!isOpen(x | 0, y | 0)) continue;
@@ -2789,7 +2790,27 @@ function placeCeilFixtures(cfgL, seatX, seatY) {
         pick = [x + 0.5, y + 0.5];
       }
     }
-    if (pick) hang(pick[0], pick[1], CFIX_SEP);
+    /* ...but a fitting the arriving player cannot SEE is the defect this issue was raised against, not
+       the fix for it. The ring above is swept about the WORLD axes while the seat is delivered facing
+       `seatFacing(seat, cfgL.seatAng)` - the same call `P.ang` is assigned from further down this file,
+       which draws no RNG and reads only the grid and the risers, so asking it here moves no roll, prop
+     * or light. About that heading the eight compass rays sit at -0.60, +0.19 and +0.97 rad and the lens
+     spans atan(cfg.plane) = 0.62 rad, so a pick on the far side of the ring hangs the entry room's
+     fitting behind the player's right shoulder: PR #480 measured 1.15 rad off-axis on three of the four
+     sectors, which is why those arrival frames show a bare sheet.
+     THE RULE, and it is the smallest one that meets the criterion: a fitting the frame ALREADY shows is
+     not touched - that sector keeps main's bytes and main's arrival exposure with it - and a fitting that
+     sits outside the delivered view is SWUNG INTO IT along its own ring, by the fewest degrees that land
+     inside the lens. Same ring because a splat is a radial disc: a source slid along its own ring leaves
+     the light AT THE SEAT where it was and only turns the pool, while a source moved inward or outward
+     moves the pool's centre, which measured 5-11 lumas on the deck the player wakes in (two variants,
+     one of which also cost `surface`'s ROOF row a sector). The SWING HAPPENS AT THE END of this function,
+     after every other pass has hung what it wants, and that ordering is not cosmetic: pass 1 skips a room
+     centre already inside CFIX_SEP of a fitting, so an entry fitting moved BEFORE pass 1 silently deletes
+     a different room's fitting - measured on THE STACK, where the deal went from 4 fittings to 3 and its
+     arrival deck went down 11 lumas with it. Asking the question last means every other fitting is
+     already placed, `hung` is complete, and this relocation can move exactly one source and no other. */
+    if (pick && hang(pick[0], pick[1], CFIX_SEP)) entry = [pick[0], pick[1]];
   }
   /* 1. ONE OVER EVERY ROOM, at its centre. `rooms` is the generator's own list, and a room centre is
      the room's circulation by construction - where a fixture and a wire would actually run. A pillar
@@ -2820,6 +2841,71 @@ function placeCeilFixtures(cfgL, seatX, seatY) {
     hang(L.x, L.y, 7.0);
   }
   MAP.ceilFixCount = hung.length;                  // read by view.js surface / fixtures
+  /* THE SWING, run last - see pass 0's note for why it cannot run first. One fitting per entry room is
+     hung before this point, exactly where main hung it; this block can only move that one, and only when
+     the delivered frame could not see it. Nothing here draws a die or writes a height. */
+  if (entry && isFinite(seatX) && isFinite(seatY)) {
+    const sband = floorAt(seatX, seatY);
+    const faceAng = seatFacing(seatX, seatY, cfgL.seatAng);
+    const half = Math.atan(cfg.plane);
+    const offAxis = (x, y) => {
+      let e = Math.atan2(y - seatY, x - seatX) - faceAng;
+      while (e > Math.PI) e -= Math.PI * 2;
+      while (e < -Math.PI) e += Math.PI * 2;
+      return Math.abs(e);
+    };
+    // Line of sight as well as bearing: a square around a corner is inside the lens and behind a wall,
+    // and the criterion is a fitting you can SEE above the room you wake in, not a byte in `ceilFix`.
+    const inFrame = (x, y) => offAxis(x, y) <= half && los(seatX, seatY, x, y);
+    if (!inFrame(entry[0], entry[1])) {
+      const r0 = Math.hypot(entry[0] - seatX, entry[1] - seatY);
+      // `hang`'s spacing refusal, asked WITHOUT its writes, and EXCLUDING the square being swung: the
+      // entry fitting is about to leave that square, so it must not veto its own replacement.
+      const clearOf = (x, y) => {
+        for (let k = 0; k < hung.length; k++) {
+          const h = hung[k];
+          if (Math.abs(h[0] - entry[0]) < 1e-6 && Math.abs(h[1] - entry[1]) < 1e-6) continue;
+          if (Math.hypot(h[0] - x, h[1] - y) < CFIX_SEP) return false;
+        }
+        return true;
+      };
+      let best = null, bestJ = 99;
+      for (let j = -4; j <= 4; j++) {
+        const ang = faceAng + j * (half / 4);
+        const x = seatX + Math.cos(ang) * r0, y = seatY + Math.sin(ang) * r0;
+        if (Math.abs(j) >= bestJ) continue;           // the nearest in-view bearing wins
+        if (!isOpen(x | 0, y | 0)) continue;
+        if (Math.abs(floorAt(x, y) - sband) > 0.01) continue;
+        if (!inFrame(x + 0.5, y + 0.5)) continue;
+        if (!(ceilAt(x + 0.5, y + 0.5) - floorAt(x + 0.5, y + 0.5) >= CFIX_MIN_CLEAR)) continue;
+        if (!clearOf(x + 0.5, y + 0.5)) continue;
+        best = [x + 0.5, y + 0.5]; bestJ = Math.abs(j);
+      }
+      if (best) {
+        /* MOVE, do not add, and do it by UNMAKING what `hang` wrote and calling `hang` once on the new
+           square: the byte on the old ceiling goes back to bare slab, the old pane comes out of the
+           pendant list, the LIGHTS entry it pushed comes out too, and its square comes out of `hung` so
+           `hang`'s own spacing refusal cannot veto the replacement over a fitting that is no longer there.
+           One code path writes a fitting - `hang` - so the object, its light and its mount cannot drift
+           apart, which is the invariant #462 was paid for. This all runs BEFORE the splat loop that bakes
+           LIGHTS into MAP.light (js/20_level.js:3231, :4090), so there is nothing to un-splat and no
+           second light array to forget (AGENTS.md). */
+        const oi = (entry[1] | 0) * N + (entry[0] | 0);
+        if (oi >= 0 && oi < MAP.ceilFix.length) MAP.ceilFix[oi] = 0;
+        for (let k = MAP.ceilPanes.length - 1; k >= 0; k--)
+          if (Math.abs(MAP.ceilPanes[k].x - entry[0]) < 1e-6 && Math.abs(MAP.ceilPanes[k].y - entry[1]) < 1e-6) MAP.ceilPanes.splice(k, 1);
+        for (let k = LIGHTS.length - 1; k >= 0; k--)
+          if (LIGHTS[k].ceil && Math.abs(LIGHTS[k].x - entry[0]) < 1e-6 && Math.abs(LIGHTS[k].y - entry[1]) < 1e-6) LIGHTS.splice(k, 1);
+        for (let k = hung.length - 1; k >= 0; k--)
+          if (Math.abs(hung[k][0] - entry[0]) < 1e-6 && Math.abs(hung[k][1] - entry[1]) < 1e-6) hung.splice(k, 1);
+        // NEVER FEWER, whatever else this decides: a deal that carried a fitting before this block ran
+        // carries one after it. If the new square refuses `hang` for any reason this did not predict, the
+        // old one is hung back - the picture stays main's, which is the worse-looking outcome only for
+        // this issue, and never a room that lost its ceiling light on the way.
+        if (!hang(best[0], best[1], CFIX_SEP)) hang(entry[0], entry[1], CFIX_SEP);
+      }
+    }
+  }
 }
 function addDecal(o) {
   const N = MAP.w, cx = clamp(o.x | 0, 0, N - 1), cy = clamp(o.y | 0, 0, N - 1), ci = cy * N + cx;
