@@ -229,6 +229,39 @@ class ApiArtifactTests(unittest.TestCase):
             self.assertIn('outstanding step', ' '.join(errors))
             self.assertIn('API', ' '.join(notes))
 
+    def test_main_still_fails_once_the_exemption_is_reached_first(self):
+        # The guarantee #635 exists for, stated by ref name: the exemption moved ahead of the
+        # absent-tag answer, so the ref that is NOT the release branch must still be red. This is
+        # the row that makes the move a scope fix rather than a loosened threshold.
+        with tempfile.TemporaryDirectory() as tmp:
+            forge, checkout = self.forge_and_checkout(tmp, forge_tag=False)
+            errors, _ = identity.check_release('HEAD', 'main', checkout, api=api_from_repo(forge))
+            self.assertIn('refs/tags/v1.1 does not exist', ' '.join(errors))
+            self.assertIn('outstanding step', ' '.join(errors))
+
+    def test_release_branch_push_is_exempt_before_the_forge_absent_answer(self):
+        # The failing trigger, measured as it happens on the runner: a push to release/v1.1, so the
+        # checkout holds no tag object and the forge answers "no such tag". That answer used to be
+        # returned from inside the API branch, before the exemption could be consulted, which reds
+        # the one ref docs/RELEASE.md exempts and holds the release itself (#635 addendum).
+        with tempfile.TemporaryDirectory() as tmp:
+            forge, checkout = self.forge_and_checkout(tmp, forge_tag=False)
+            self.assertEqual(git(checkout, 'tag', '--list'), '', 'the release PR has no tag yet')
+            errors, notes = identity.check_release('HEAD', 'release/v1.1', checkout,
+                                                   api=api_from_repo(forge))
+            self.assertEqual(errors, [], notes)
+            self.assertEqual(len(notes), 1, notes)
+            self.assertIn('merged release commit', notes[0])
+
+    def test_exemption_never_hides_a_tag_that_does_exist(self):
+        # Ordering must not become 'on a release branch, stop looking': the forge answer of
+        # 'object' still outranks the ref name, so a mis-stamped artifact is still caught there.
+        with tempfile.TemporaryDirectory() as tmp:
+            forge, checkout = self.forge_and_checkout(tmp, tag='actions')
+            errors, _ = identity.check_release('HEAD', 'release/v1.1', checkout,
+                                               api=api_from_repo(forge))
+            self.assertIn('tagger is', ' '.join(errors))
+
     def test_unreachable_api_with_no_local_tag_is_a_failure_not_a_pass(self):
         with tempfile.TemporaryDirectory() as tmp:
             forge, checkout = self.forge_and_checkout(tmp)
@@ -270,6 +303,14 @@ class ReviewedRefTests(unittest.TestCase):
         self.assertIn('github.event.pull_request.head.sha || github.sha', step)
         # And not the trigger's own SHA, which on a pull_request is the synthetic merge commit.
         self.assertNotIn('"${GITHUB_SHA', step)
+
+    def test_the_step_names_the_ref_the_trigger_pushed(self):
+        # The other half of the same trigger-dependent red: GITHUB_HEAD_REF is EMPTY on a push
+        # event, so `--branch "${GITHUB_HEAD_REF:-}"` handed the checker a branch that can never
+        # equal release/<version>, and the release-PR exemption was unreachable on exactly the
+        # trigger that needs it (#635: push run 40903229599 red, pull_request run green, one commit).
+        step = self.identity_step()
+        self.assertIn('--branch "${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}"', step)
 
     def test_githubs_merge_commit_fails_and_the_head_it_merges_passes(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -41,6 +41,8 @@
  *            its own bar. A threshold label that differs from the tool's is printed as a note.
  *   vacuity - no PNG decoded, a decode that is not a page screenshot, no decode list, no row
  *            sentence, an embed with no file behind it: FAILURE, exit 1. Never an empty pass.
+ *   claim   - what the capture-pass paragraph states about the bind, against what this checkout's
+ *            shipped bytes say (#653). See `captionBind`.
  */
 
 const fs = require('fs');
@@ -268,6 +270,303 @@ function decodeLists(text) {
   return out;
 }
 
+/* -------------------------------------------------------------------- deltas */
+
+/*
+ * The delta between a frame and the frame it replaces (#668).
+ *
+ * Three front-page captions quoted a delta - "7.12 lighter than the frame it replaces", "1.16 lighter
+ * than the frame he replaces", "+7.65 on the one it replaces - the largest move of the eight" - and
+ * not one of them was the difference between those bytes. Two captions each claimed to be the largest
+ * move. `check` gated every MEAN and every row census in the same paragraphs, so the pass that
+ * re-took the frames updated the aggregate paragraph from +7.12 to +1.16 and left the caption sentence
+ * thirty lines above it at 7.12. A caption is the only place these passes state what got better, and a
+ * figure in one is copied onward by the next reader, so a wrong delta is not a cosmetic slip.
+ *
+ * The reason nothing caught it is the reason #664 filed for flatparity's means: the delta was prose.
+ * So it is now a measurement with two inputs, both of which this tool can see:
+ *
+ *   1. the mean of the frame shipping in `docs/screens/`, decoded here from the PNG; and
+ *   2. the mean of the frame it replaces, recorded on that shot's row in provenance.json as
+ *      `replaces: {rev, sha256, mean}` AT THE PASS THAT SUPERSEDED IT - the same artifact that already
+ *      addresses the shipping frame's bytes.
+ *
+ * A delta is the difference of the two means AS THE TABLE PRINTS THEM (each to two decimals), because
+ * that is the arithmetic a reader holding this tool's own output can repeat; the difference of the
+ * unrounded means can sit 0.01 away and the DELTA row prints both when they disagree. The delta of the
+ * frame in front of you is exact, so quoting a delta from a PREVIOUS pass is the failure this gate
+ * exists to make loud.
+ *
+ * What gates:
+ *   - `DELTA-UNBOUND`  a shot row with no `replaces` block: printed and counted, promoted under STRICT.
+ *     Nothing can be asserted about a delta nobody recorded, and silence is not a pass.
+ *   - `DELTA-BAD`      a `replaces` block whose sha256 is not 64 hex or whose mean is not a luma: FAIL.
+ *   - `DELTA-BYTES`    when the superseded blob is reachable from this checkout, its bytes are decoded
+ *     and the row's `replaces.mean` is checked against them: FAIL on a disagreement. In a depth-1 CI
+ *     checkout the blob is absent and that is named, not guessed at.
+ *   - `DELTA`          the delta itself. Where README.md quotes one - the aggregate list, or a caption's
+ *     "<s><n> on the frame it replaces" - the quoted number must equal this row. A stale delta is now a
+ *     FAILURE the way a stale mean already is.
+ *   - `DELTA-LARGEST`  exactly one frame may be called the largest move, and it must be the one this
+ *     table says moved most in absolute value. Two captions claiming the same superlative is a FAIL.
+ *   - `DELTA-GRAMMAR`  the shapes `DELTA_SAY` claims to read, fed back through `DELTA_SAY` itself. A
+ *     sentence the parser cannot see is counted as "this caption quotes no delta", which fails nothing -
+ *     so the parser's vocabulary is a row, not a comment (#668: the gate could only read a BOLD number,
+ *     and every stale delta on `main` was un-bolded, so restoring all three exits 0).
+ */
+const REPL_KEY = 'replaces';
+const DELTA_TOL = 0.005;
+const LARGEST_RE = /largest (?:move|delta|change)(?: of the eight)?/g;
+// The shapes a caption's delta takes on this page: "**+1.16** on the frame it replaces", "**−4.71** on
+// the frame it replaces", "1.16 lighter than the frame he replaces", "1.63 lighter than the one it
+// replaces". A bare number followed by "replaces" is NOT enough: the pit floor's caption contains
+// "having gone *down* 0.57 when the roof was lit", which is a retracted claim about a DIFFERENT
+// comparison, and "`floorAt` **1.00**" sits near enough to "the frame it replaces" to be read as one.
+// So the connector ("on" / "lighter than" / "darker than") and the noun (frame/one/pose/seat) are both
+// required, and the sign comes from the sign or from lighter/darker - #668's three stale deltas were all
+// unsigned, and a parser that demanded a sign would report them as no delta at all.
+// Bold is OPTIONAL and the connector may cross ONE line break, neither of which is decoration: the
+// sentence this gate was written for - "7.12 lighter than the frame it replaces", `main`'s own wording -
+// carries no asterisks, and the pit floor's delta wraps between "it" and "replaces". Requiring the bold
+// made every un-bolded sentence invisible, and invisible is not the same as wrong: an unread caption
+// counts as quoting no delta and fails nothing (#668 rework). A blank line still stops the scan, so a
+// number can never reach a "replaces" belonging to the next caption.
+const DELTA_SAY = /([+\u2212-])?\s?(\d+\.\d\d)\s*(?:\*\*)?\s*(lighter|darker)?\s*(?:than|on)\s+the\s+(?:frame|one|pose|seat)\b(?:(?!\n[ \t]*\n)[^.]){0,60}?replac(?:es)?/g;
+// The aggregate list, same convention as the decode list: one signed value per PNG, embed order.
+const DELTA_LIST = /\bdeltas? (?:of|to) \*\*([-+\u2212 0-9.\/]+)\*\*/g;
+
+function signed(s) {
+  const t = String(s).trim().replace(/\u2212/g, '-');
+  const m = /^([+-])?\s*(\d+(?:\.\d+)?)$/.exec(t);
+  if (!m) return null;
+  const v = parseFloat(m[2]);
+  return m[1] === '-' ? -v : v;
+}
+
+function deltaLists(text) {
+  const out = [];
+  let m; DELTA_LIST.lastIndex = 0;
+  while ((m = DELTA_LIST.exec(text))) {
+    const vals = m[1].split('/').map(signed);
+    if (vals.every(function (v) { return v !== null; })) out.push({ at: m.index, vals: vals });
+  }
+  return out;
+}
+
+// One DELTA_SAY match read the only way this tool reads one: magnitude from group 2, sign from the sign
+// token or from "darker". The grammar fixtures below go through here so no row can be greener than the
+// sentence it is meant to represent.
+function deltaSayVal(m) {
+  const mag = parseFloat(m[2]);
+  const neg = m[1] === '-' || m[1] === '\u2212' || m[3] === 'darker';
+  return neg ? -mag : mag;
+}
+
+// Every per-caption delta claim, attributed to the image block it sits under (the same rule captionStats uses).
+function captionDeltas(text, emb) {
+  const out = [];
+  let m; DELTA_SAY.lastIndex = 0;
+  while ((m = DELTA_SAY.exec(text))) {
+    let owner = null;
+    for (const im of emb) if (im.at < m.index && (!owner || im.at > owner.at)) owner = im;
+    out.push({ name: owner ? owner.name : null, at: m.index, val: deltaSayVal(m) });
+  }
+  const claims = [];
+  let c; LARGEST_RE.lastIndex = 0;
+  while ((c = LARGEST_RE.exec(text))) {
+    let owner = null;
+    for (const im of emb) if (im.at < c.index && (!owner || im.at > owner.at)) owner = im;
+    claims.push({ name: owner ? owner.name : null, at: c.index });
+  }
+  return { says: out, claims: claims };
+}
+
+// Best-effort: decode the SUPERSEDED frame from the object store, so a row's recorded replaced mean is
+// checked against bytes and not only against the number typed next to it. Absent in a depth-1 checkout.
+function replacedBytes(rev, name) {
+  try {
+    const buf = cp.execFileSync('git', ['show', rev + ':docs/screens/' + name + '.png'],
+      { cwd: ROOT, maxBuffer: 1 << 28, stdio: ['ignore', 'pipe', 'ignore'] });
+    const s = measure(pngDecode(buf, name), STRIDE, DARK);
+    return { sha: crypto.createHash('sha256').update(buf).digest('hex'), mean: s.mean };
+  } catch (e) { return null; }
+}
+
+// `DELTA_SAY`'s stated vocabulary, in sentences. Every idiom the comment above names is written out here
+// and fed through the shipped parser, so a divergence between what the gate says it reads and what it
+// actually reads is a FAILING ROW instead of a row count that moved (76 -> 75, gated by nothing). The last
+// two entries are the negative half: a caption's `floorAt` and a retracted comparison sit near enough to
+// "replaces" to be misread, and a parser loosened to see un-bolded sentences must be shown not to see them.
+const DELTA_IDIOMS = [
+  { s: 'this frame is **+1.16** on the frame it replaces', want: 1.16,
+    why: 'bold, signed, the page\'s current shape' },
+  { s: 'the seat is **\u22124.71** on the frame it replaces', want: -4.71,
+    why: 'bold, U+2212 minus, sign carried by the token' },
+  { s: 'and it is 7.12 lighter than the frame it replaces', want: 7.12,
+    why: 'no bold, no sign, "lighter than" - the wording `main` shipped and this gate could not see' },
+  { s: 'and it is 1.16 lighter than the frame he replaces', want: 1.16,
+    why: 'no bold, a person as the noun' },
+  { s: 'the frame is 1.63 lighter than the one it replaces', want: 1.63,
+    why: 'no bold, "the one it replaces"' },
+  { s: 'and the room is 2.40 darker than the seat it replaces', want: -2.40,
+    why: 'no bold, no sign token: "darker" carries the sign' },
+  { s: 'this frame is **+16.43** on the frame it\nreplaces - the largest move of the eight', want: 16.43,
+    why: 'the sentence wrapped across a line break, as the pit floor\'s does' },
+  { s: 'having gone *down* 0.57 when the roof was lit, the replaced frame read darker', want: null,
+    why: 'a retracted claim about a DIFFERENT comparison is not this frame\'s delta' },
+  { s: 'the seat reads `floorAt` **1.00**, one unit up from the band the replaced frame\'s seat stood on', want: null,
+    why: 'a floor height near the word "replaced" is not a delta' },
+];
+
+function deltaGrammar(fails) {
+  let nrows = 0, seen = 0;
+  for (let i = 0; i < DELTA_IDIOMS.length; i++) {
+    const t = DELTA_IDIOMS[i];
+    nrows++;
+    DELTA_SAY.lastIndex = 0;
+    const m = DELTA_SAY.exec(t.s);
+    const got = m ? deltaSayVal(m) : null;
+    const good = t.want === null ? got === null
+      : (got !== null && Math.abs(got - t.want) <= DELTA_TOL);
+    if (good && t.want !== null) seen++;
+    console.log((good ? 'ok      DELTA-GRAMMAR ' : 'DELTA-GRAMMAR     ') +
+      String(i + 1).padStart(2) + (t.want === null ? ' no-match' : '  want ' + (t.want >= 0 ? '+' : '\u2212') + Math.abs(t.want).toFixed(2)) +
+      '  got ' + (got === null ? 'nothing' : (got >= 0 ? '+' : '\u2212') + Math.abs(got).toFixed(2)) +
+      '  ' + JSON.stringify(t.s.length > 62 ? t.s.slice(0, 59) + '...' : t.s) + '  ' + t.why);
+    if (!good) fails.push('DELTA_IDIOMS[' + (i + 1) + ']: "' + t.why + '" ' +
+      (t.want === null ? 'is read as a delta by DELTA_SAY' : 'is not read as a delta by DELTA_SAY') +
+      ' - the gate\'s stated vocabulary and its actual vocabulary have diverged');
+  }
+  console.log('ok      DELTA-GRAMMAR  reads ' + seen + ' of ' + DELTA_IDIOMS.filter(function (t) { return t.want !== null; }).length +
+    ' delta idioms its own comment names');
+  return { nrows: nrows + 1 };
+}
+
+function deltaCheck(rows, prov, fails, notes) {
+  let nrows = 0, unbound = 0, verified = 0;
+  const d = {};
+  // The parser is checked before the page is, so a green run cannot rest on a sentence it never read.
+  nrows += deltaGrammar(fails).nrows;
+  if (prov.err) return { d: d, nrows: nrows, unbound: 0, verified: 0 };
+  for (const r of rows) {
+    const e = prov.byFile[r.name];
+    nrows++;
+    const rep = e && e.row && e.row[REPL_KEY];
+    if (!rep || !rep.rev) {
+      unbound++;
+      d[r.name] = null;
+      console.log('DELTA-UNBOUND     ' + r.name.padEnd(20) + 'no `' + REPL_KEY + '` block on its shot row, so the delta between this '
+        + 'frame and the frame it replaces is not computable here - record `{' + REPL_KEY + ': {rev, sha256, mean}}` for the '
+        + 'superseded PNG in ' + PROV_REL + ' or write no delta in its caption'
+        + (process.env.STRICT ? '' : ' (STRICT=1 gates this row)'));
+      if (process.env.STRICT) fails.push(r.name + ': a caption-era delta with no replaced-frame mean recorded');
+      continue;
+    }
+    if (typeof rep.sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(rep.sha256)) {
+      d[r.name] = null; nrows++;
+      console.log('DELTA-BAD         ' + r.name.padEnd(20) + '`' + REPL_KEY + '.sha256` is ' + JSON.stringify(rep.sha256) +
+        ', not the 64 hex digits that address the superseded bytes');
+      fails.push(r.name + ': ' + REPL_KEY + '.sha256 is not a sha256');
+      continue;
+    }
+    if (typeof rep.mean !== 'number' || !(rep.mean > 0 && rep.mean < 255)) {
+      d[r.name] = null; nrows++;
+      console.log('DELTA-BAD         ' + r.name.padEnd(20) + '`' + REPL_KEY + '.mean` is ' + JSON.stringify(rep.mean) +
+        ', not a luma, so the delta this row feeds to the captions is not a measurement');
+      fails.push(r.name + ': ' + REPL_KEY + '.mean is not a luma');
+      continue;
+    }
+    const now = Math.round(r.s.mean * 100) / 100, was = Math.round(rep.mean * 100) / 100;
+    const dRound = Math.round((now - was) * 100) / 100, dExact = r.s.mean - rep.mean;
+    d[r.name] = { now: now, was: was, d: dRound, exact: dExact, claims: [] };
+    // Verify the replaced mean against the superseded bytes when this checkout still has them.
+    nrows++;
+    const got = replacedBytes(String(rep.rev), r.name);
+    if (!got) {
+      notes.push(r.name + ': the superseded frame at ' + rep.rev + ' is not in this checkout, so `'
+        + REPL_KEY + '.mean` was taken as recorded (a depth-1 checkout cannot read it)');
+    } else if (got.sha !== rep.sha256) {
+      console.log('DELTA-BYTES       ' + r.name.padEnd(20) + 'the PNG at ' + rep.rev + ':' + r.name + '.png is ' + got.sha.slice(0, 12) +
+        ' and the row addresses ' + rep.sha256.slice(0, 12) + ' - the block describes bytes that are not the frame this one replaces');
+      fails.push(r.name + ': ' + REPL_KEY + ' addresses bytes other than ' + rep.rev + ':' + r.name + '.png');
+    } else if (Math.abs(got.mean - rep.mean) > DELTA_TOL) {
+      console.log('DELTA-BYTES       ' + r.name.padEnd(20) + 'the frame it replaces decodes ' + got.mean.toFixed(4) +
+        ' and the row records ' + rep.mean.toFixed(4) + ' - the delta the captions quote is off by '
+        + Math.abs(got.mean - rep.mean).toFixed(4));
+      fails.push(r.name + ': replaced-frame mean recorded ' + rep.mean.toFixed(2) + ', those bytes decode ' + got.mean.toFixed(2));
+    } else {
+      verified++;
+    }
+    console.log((got && got.sha === rep.sha256 && Math.abs(got.mean - rep.mean) <= DELTA_TOL ? 'ok      ' : 'DELTA         ') +
+      r.name.padEnd(20) + 'delta  now ' + now.toFixed(2).padStart(7) + '  replaces ' + was.toFixed(2).padStart(7) +
+      '  ' + (dRound >= 0 ? '+' : '\u2212') + Math.abs(dRound).toFixed(2).padStart(6) +
+      (Math.abs(dExact - dRound) > DELTA_TOL ? '  (unrounded ' + (dExact >= 0 ? '+' : '\u2212') + Math.abs(dExact).toFixed(4) +
+        ', the table rounds each mean first)' : '') +
+      (got && got.sha === rep.sha256 ? '  bytes at ' + rep.rev : '  recorded at ' + rep.rev));
+  }
+
+  // The aggregate list: one value per PNG, in the order the images are embedded - the decode-list rule.
+  const txt = readReadme();
+  const emb = embeds(txt);
+  const order = emb.filter(function (e, i) { return emb.findIndex(function (x) { return x.name === e.name; }) === i; })
+    .map(function (e) { return e.name; });
+  const lists = deltaLists(txt).filter(function (l) { return l.vals.length === rows.length; });
+  nrows++;
+  if (!lists.length) {
+    console.log('DELTA-VACUOUS           README.md quotes no `deltas to **a / b / ...**` list with ' + rows.length +
+      ' values while ' + (rows.length - unbound) + ' shot row(s) carry a replaced-frame mean - a page that quotes no '
+      + 'delta is the quiet option, and this tool does not implement it: the deltas are computed here, so the page names them');
+    fails.push('README.md quotes no per-frame delta list while provenance records replaced-frame means');
+  } else {
+    for (const l of lists) {
+      for (let i = 0; i < l.vals.length; i++) {
+        const nm = order[i], ent = d[nm];
+        nrows++;
+        if (!ent) { console.log('DELTA-UNBOUND     ' + nm.padEnd(20) + 'the delta list at char ' + l.at + ' quotes ' + l.vals[i].toFixed(2) + ' for a frame with no replaced-frame mean'); fails.push(nm + ': a delta quoted with nothing to compute it from'); continue; }
+        const ok = Math.abs(l.vals[i] - ent.d) <= DELTA_TOL;
+        console.log((ok ? 'ok      ' : 'MISMATCH') + ' ' + nm.padEnd(20) + 'delta  README ' + l.vals[i].toFixed(2).padStart(7) +
+          '  table ' + ent.d.toFixed(2).padStart(7) + '  d ' + Math.abs(l.vals[i] - ent.d).toFixed(3) + (ok ? '' : ' > tol ' + DELTA_TOL) + '  (list @' + l.at + ')');
+        if (!ok) fails.push(nm + ' delta quoted ' + l.vals[i].toFixed(2) + ', its two means give ' + ent.d.toFixed(2));
+      }
+    }
+  }
+
+  // The per-caption sentences, and the superlative.
+  const cs = captionDeltas(txt, emb);
+  for (const s of cs.says) {
+    nrows++;
+    if (!s.name) { console.log('DELTA-ORPHAN          a delta sentence at char ' + s.at + ' sits under no image, so nothing says which frame it is about'); fails.push('a delta sentence with no frame above it'); continue; }
+    const ent = d[s.name];
+    if (!ent) { console.log('DELTA-UNBOUND     ' + s.name.padEnd(20) + 'quotes a delta of ' + s.val.toFixed(2) + ' on a frame whose row carries no replaced-frame mean, so nothing computes it'); fails.push(s.name + ': a caption delta with no replaced-frame mean'); continue; }
+    else {
+      const ok = Math.abs(s.val - ent.d) <= DELTA_TOL;
+      console.log((ok ? 'ok      ' : 'MISMATCH') + ' ' + s.name.padEnd(20) + 'delta  README ' + s.val.toFixed(2).padStart(7) +
+        '  table ' + ent.d.toFixed(2).padStart(7) + '  d ' + Math.abs(s.val - ent.d).toFixed(3) + '  (caption @' + s.at + ')');
+      if (!ok) fails.push(s.name + ': its caption quotes ' + s.val.toFixed(2) + ' and its own two means give ' + ent.d.toFixed(2) + ' - the sentence is a previous pass\'s delta');
+      ent.claims.push(s.val);
+    }
+  }
+  for (const s of cs.says) if (d[s.name]) d[s.name].quoted = s.val;
+  let largestName = null, largestAbs = -1;
+  for (const k in d) if (d[k] && Math.abs(d[k].d) > largestAbs) { largestAbs = Math.abs(d[k].d); largestName = k; }
+  for (const c of cs.claims) {
+    nrows++;
+    if (!c.name) { console.log('DELTA-LARGEST         a "largest move" claim at char ' + c.at + ' sits under no image and so names no frame'); fails.push('a largest-move claim with no frame above it'); continue; }
+    const ent = d[c.name];
+    if (!ent) { console.log('DELTA-LARGEST     ' + c.name.padEnd(20) + 'claims the largest move with no replaced-frame mean to rank it on'); fails.push(c.name + ': largest-move claim with no delta'); continue; }
+    if (c.name !== largestName) {
+      console.log('DELTA-LARGEST     ' + c.name.padEnd(20) + 'is called the largest move of the eight at char ' + c.at + ' and its own delta is ' +
+        ent.d.toFixed(2) + ', while ' + largestName + ' moved ' + (d[largestName].d >= 0 ? '+' : '\u2212') + Math.abs(d[largestName].d).toFixed(2));
+      fails.push(c.name + ': called the largest move, ' + largestName + ' moved further (' + ent.d.toFixed(2) + ' vs ' + d[largestName].d.toFixed(2) + ')');
+    } else {
+      ent.superl = true;
+      console.log('ok      DELTA-LARGEST ' + c.name.padEnd(20) + 'is the page\'s one largest-move claim and it is the frame whose delta is largest (' +
+        ent.d.toFixed(2) + ')');
+    }
+  }
+  return { d: d, nrows: nrows, unbound: unbound, verified: verified, largest: largestName, claims: cs.claims.length };
+}
+
 /* ---------------------------------------------------------------- provenance */
 
 // The whole vocabulary of instruments, and the only place the verdicts are written. Everything the
@@ -412,6 +711,118 @@ function buildCheck(prov, fails, notes) {
     if (STRICT) fails.push('frames bound to build ' + b + ' while ' + moved.join(' ') + ' moved since');
   }
   return { nrows: nrows, bound: bound, drift: drift };
+}
+
+/*
+ * The capture-pass paragraph's own claims (#653).
+ *
+ * `buildCheck` measures the bind from this checkout's bytes and prints `SHIP-BIND` or `FRAME-STALE`.
+ * The paragraph in README.md that describes a pass states the same fact twice over, in prose: which
+ * build the eight frames were taken at, and that on the tree carrying them the bind row reads
+ * `SHIP-BIND`, so the front page is today's picture. A pass before #651 left that prose describing the
+ * pass before it - the rows had been rekeyed to a new build and the paragraph still named the old one
+ * and still said no re-take was owed - which is #653, and the same shape had happened one build
+ * earlier. It survived a merge because of where the check sits: the row that knows the answer is
+ * printed and gates only under STRICT=1, so a blocking step runs green while the sentence above it is
+ * false.
+ *
+ * So the sentence is read and compared rather than trusted.
+ *   1. Which build does the paragraph name as the one these frames were taken at? If the shot rows bind
+ *      a different build, that is a FAILURE with no threshold in it: two checked-in files state two
+ *      different facts about the same pixels, and exactly one of them can be true.
+ *   2. Does the paragraph assert that the bind HOLDS (it reads `SHIP-BIND`, the blobs are identical,
+ *      no re-take is owed) for a build whose shipped blobs this checkout says moved? That is #653's
+ *      shape. It counts by default and gates under STRICT=1, the promotion path `FRAME-STALE` itself
+ *      uses - because the assertion is true on the tree a capture pass lands on and ages on the next
+ *      commit that moves a shipped byte, and a comment-only change to a renderer moves a digest and
+ *      moves no pixel. The age is the debt; the row names it.
+ * A paragraph that states neither is printed as a note and is not a failure: the README's own rule at
+ * "a byte claim written here is false by the next merge (#395)" recommends saying less, so a claim
+ * removed is the recommended state, not a hole. It is printed, because a deleted claim and a checked
+ * claim are different pages and only one of them is green in this table.
+ */
+const CAP_BUILD = /deployed page at build\s+`([0-9a-f]{7,40})`/;
+const CAP_VERDICT = /reads\s+`(SHIP-BIND|FRAME-STALE)`\s+for\s*`?([0-9a-f]{7,40})?/;
+const CAP_FRESH = /no re-take is owed|today\'s picture|the front page is today/i;
+// A freshness phrase only asserts the bind where the paragraph is talking about the bound build. The
+// window is around the build mention in the whitespace-flattened page, so a stray "today's picture" in
+// a sentence about the tool is not read as a claim about these pixels.
+const CAP_WINDOW = 400;
+
+function captionBind(txt, prov, fails, notes) {
+  const STRICT = !!process.env.STRICT;
+  let nrows = 0, debt = 0;
+  if (prov.err) return { nrows: 0, debt: 0 };
+  const builds = prov[BUILDS_KEY] || {};
+  const bound = [];
+  for (const s of prov.shots) if (s.build !== null && s.build !== undefined && bound.indexOf(s.build) < 0) bound.push(s.build);
+  const flat = txt.replace(/\s+/g, ' ');
+  const src = prov.rev ? 'rev ' + prov.rev : 'this checkout';
+
+  const named = CAP_BUILD.exec(flat);
+  let claimBuild = named ? named[1] : null;
+  nrows++;
+  if (!named) {
+    notes.push('the capture-pass paragraph names no bound build, so there is nothing here for the bind row to contradict');
+  } else if (!bound.length) {
+    console.log('CAPTION-VACUOUS   ' + claimBuild.padEnd(12) + 'the paragraph names build ' + claimBuild + ' as the build these '
+      + 'frames were taken at and no shot row names a build at all, so the compare could not run - a named gap, not a pass');
+    fails.push('README names a bound build while no provenance shot row names one');
+  } else if (bound.indexOf(claimBuild) < 0) {
+    console.log('CAPTION-BUILD       ' + claimBuild.padEnd(12) + 'the paragraph names build ' + claimBuild + ' as the build the eight '
+      + 'frames were taken at; the shot rows bind ' + bound.join('/') + ' - the front page names a build that drew none of '
+      + 'the pixels under it, so one of the two files is stale prose (#653)');
+    fails.push('README names build ' + claimBuild + ' while the shot rows bind ' + bound.join('/'));
+  } else {
+    console.log('ok      CAPTION-BUILD ' + claimBuild.padEnd(12) + 'the build the capture-pass paragraph names is the build the eight '
+      + 'shot rows bind');
+  }
+
+  const v = CAP_VERDICT.exec(flat);
+  if (!claimBuild && v && v[2]) claimBuild = v[2];
+  const near = named ? flat.slice(Math.max(0, named.index - CAP_WINDOW), named.index + CAP_WINDOW) : '';
+  const statesBind = !!v || (named && CAP_FRESH.test(near));
+  nrows++;
+  if (!statesBind) {
+    notes.push('the capture-pass paragraph states no bind verdict, so no sentence here can be falsified by a moved blob (#395)');
+    return { nrows: nrows, debt: 0 };
+  }
+  if (!claimBuild || !builds[claimBuild] || !builds[claimBuild].files) {
+    console.log('CAPTION-UNBOUND     ' + String(claimBuild === null ? '(none)' : claimBuild).padEnd(12) + 'the paragraph states a bind '
+      + 'verdict and nothing here records the shipped bytes it refers to, so the compare did not run - see SHIP-UNBOUND above');
+    notes.push('a bind verdict in README.md could not be checked because the build it names has no digests in ' + PROV_REL);
+    return { nrows: nrows, debt: 0 };
+  }
+  const rec = builds[claimBuild];
+  const here = shipDigests(prov.rev || null);
+  const moved = SHIP_FILES.filter(function (f) { return rec.files[f] !== here[f]; });
+  // Which way does the paragraph lean, and which way do the bytes lean? Both directions of disagreement
+  // are the same defect: a page written by one pass and shipped by the commits after it. #653 was the
+  // first of them; a paragraph that still says "a re-take is owed" after the frames were re-taken is the
+  // second, and it is just as misleading to the reader in front of it.
+  const claimed = v ? v[1] : 'SHIP-BIND';
+  const holds = !moved.length;
+  const agrees = (claimed === 'SHIP-BIND') === holds;
+  if (agrees) {
+    console.log('ok      CAPTION-VERDICT ' + claimBuild.padEnd(10) + 'the paragraph reads ' + claimed + ' for build ' + claimBuild +
+      ', which is what ' + src + '\'s bytes say too (' + (holds ? SHIP_FILES.join(', ') + ' all agree, so no re-take is owed here'
+        : moved.length + ' of ' + SHIP_FILES.length + ' differ: ' + moved.join(', ') + ', so a re-take is owed here)'));
+  } else if (claimed === 'SHIP-BIND') {
+    debt++;
+    console.log('CAPTION-STALE       ' + claimBuild.padEnd(12) + 'the paragraph states the bind holds for build ' + claimBuild +
+      ' while ' + moved.length + ' of ' + SHIP_FILES.length + ' shipped blob(s) that draw a frame differ in ' + src + ': ' +
+      moved.join(', ') + ' - the front page says these frames are the picture it ships and the bind row says a re-take is owed; '
+      + 'the paragraph is one commit behind its own table' + (STRICT ? '' : ' (printed; STRICT=1 gates it)'));
+    if (STRICT) fails.push('README states the bind holds for ' + claimBuild + ' while ' + moved.join(' ') + ' moved since');
+  } else {
+    debt++;
+    console.log('CAPTION-FRESH       ' + claimBuild.padEnd(12) + 'the paragraph reads ' + claimed + ' for build ' + claimBuild +
+      ' while all ' + SHIP_FILES.length + ' shipped blobs that draw a frame are byte-identical in ' + src + ' - the front page '
+      + 'says a re-take is owed when the bind row says it is not, which is the same drift in the other direction'
+      + (STRICT ? '' : ' (printed; STRICT=1 gates it)'));
+    if (STRICT) fails.push('README reads FRAME-STALE for ' + claimBuild + ' while every shipped blob still matches it');
+  }
+  return { nrows: nrows, debt: debt };
 }
 
 const HW_FIELD = 'sampleRate';
@@ -673,6 +1084,10 @@ function checkMode(rows, rev) {
   // says whether the bytes that DRAW a frame still match the ones in this tree.
   const bv = buildCheck(loadProv(rev), fails, notes);
   nrows += bv.nrows;
+  // Field 0c - what the paragraph SAYS about that bind (#653). buildCheck is the measurement; this is
+  // the prose that describes it, twice left behind by the pass it described.
+  const cb = captionBind(txt, loadProv(rev), fails, notes);
+  nrows += cb.nrows;
 
   // Vacuity first: a run that decoded nothing, or decoded something that is not a page screenshot,
   // is a FAILURE - it must never print as an empty table that passes (#235, AGENTS.md).
@@ -726,6 +1141,12 @@ function checkMode(rows, rev) {
     if (!same) fails.push('README.md quotes two different decode sets for the same files');
   }
 
+  // Field 1b - the deltas between each frame and the frame it replaces (#668). Computed here from the
+  // shipped PNG and the superseded frame its shot row names, so a caption's delta is a measurement and
+  // not a figure carried forward from the pass before last.
+  const dl = deltaCheck(rows, loadProv(rev), fails, notes);
+  nrows += dl.nrows;
+
   // Field 2 - per-caption row statistics, at the tool's threshold (see the header convention).
   const stats = captionStats(txt, emb);
   if (!stats.length) { console.log('RECAP-VACUOUS README.md quotes no row statistics at all'); return 1; }
@@ -745,9 +1166,10 @@ function checkMode(rows, rev) {
     }
     if (q.thr !== DARK) labels[q.thr] = (labels[q.thr] || 0) + 1;
   }
-  console.log('note                   gated: the ' + rows.length + ' means, the row statistics and every shot\'s provenance; printed and not gated:' +
-    ' the >=240 / >=200 shares and the band means, which the captions quote beside canvas numbers; and the shipped-bytes bind, which '
-    + 'names which frames owe a re-take without claiming any pixel moved');
+  console.log('note                   gated: the ' + rows.length + ' means, the ' + rows.length + ' deltas against the frames they replace, the row statistics and every shot\'s provenance; printed and not gated:' +
+    ' the >=240 / >=200 shares and the band means, which the captions quote beside canvas numbers; the shipped-bytes bind, which '
+    + 'names which frames owe a re-take without claiming any pixel moved; and the capture-pass paragraph\'s own bind claim, '
+    + 'which is true on the tree a pass lands on and ages from the next shipped byte that moves');
   for (const k in labels) notes.push(labels[k] + ' caption(s) label the threshold ' + k + ', the tool measures at ' + DARK);
   for (const n of notes) console.log('note                   ' + n);
   console.log('RECAP ' + fails.length + ' FAILURE(S) of ' + nrows + ' rows, ' + pv.bind + ' shot(s) with a binding route' +
@@ -757,6 +1179,10 @@ function checkMode(rows, rev) {
     ', ' + bv.bound + ' build(s) bound to this tree\'s shipped blobs' +
     (bv.drift ? ', ' + bv.drift + ' build(s) whose shipped blobs moved (frames describe a picture that no longer ships' +
       (process.env.STRICT ? '' : '; STRICT=1 gates it') + ')' : '') +
+    (cb.debt ? ', ' + cb.debt + ' capture-pass sentence(s) asserting a bind this checkout\'s bytes deny' +
+      (process.env.STRICT ? '' : '; STRICT=1 gates it') : '') +
+    (dl.unbound ? ', ' + dl.unbound + ' frame(s) with no replaced-frame mean, so no delta is computable for them' +
+      (process.env.STRICT ? '' : '; STRICT=1 gates them') : '') +
     (notes.length ? ', ' + notes.length + ' note(s)' : ''));
   return fails.length ? 1 : 0;
 }

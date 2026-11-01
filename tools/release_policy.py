@@ -19,22 +19,42 @@ ARTIFACTS = {'CHANGELOG.md', 'release.json', 'release-policy.json'}
 # #684 merged 2026-10-28T15:01:38Z and published 15:29:32Z (1674 s). The grace sits above both
 # so a product lead working at normal speed never sees a false row, and a forgotten step does.
 PUBLISH_GRACE = 3600
+# How long an OPEN release PR may suspend the cadence row on branches that cannot pay the debt.
+# Measured, not guessed. Seconds from opened to merged on the release PRs that worked: #684 4587,
+# #675 1713, #659 2964, #652 2031, #643 1808, #605 1470, #590 1898 - an hour and a bit at worst -
+# and #619 at 151340 s, which is not a handoff but the forgotten release #635 was filed about. A
+# release PR also waits on review and on CI, and #702 (release/v1.4.18) has sat open 17 h at the
+# time of writing for want of the fix carried in this same branch, so the bound sits well above
+# every ordinary handoff and still half under the forgotten sample: a release PR open longer than
+# this is indistinguishable from a release nobody finished, and the board goes red again.
+RELEASE_PR_GRACE = 79200
 PUBLISHED, TAGGED, MERGED = 'published', 'tagged-not-published', 'merged-not-tagged'
+
+
+def _seconds_from(raw, default, name):
+    # Both graces take the same knob shape: a named override for a one-tree sabotage run, and a
+    # committed measured default that no workflow sets.
+    if not raw:
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        raise ValueError(name + ' must be an integer number of seconds')
+    if value < 0:
+        raise ValueError(name + ' must not be negative')
+    return value
 
 
 def grace_seconds():
     # A knob for the sabotage run and for a box testing a shorter window; the committed
     # default is the measured one and no workflow overrides it.
-    raw = os.environ.get('RELEASE_PUBLISH_GRACE', '')
-    if not raw:
-        return PUBLISH_GRACE
-    try:
-        value = int(raw)
-    except ValueError:
-        raise ValueError('RELEASE_PUBLISH_GRACE must be an integer number of seconds')
-    if value < 0:
-        raise ValueError('RELEASE_PUBLISH_GRACE must not be negative')
-    return value
+    return _seconds_from(os.environ.get('RELEASE_PUBLISH_GRACE', ''), PUBLISH_GRACE,
+                         'RELEASE_PUBLISH_GRACE')
+
+
+def pr_grace_seconds():
+    return _seconds_from(os.environ.get('RELEASE_PR_GRACE', ''), RELEASE_PR_GRACE,
+                         'RELEASE_PR_GRACE')
 
 
 def publish_state(manifest, tag_sha, published, merged_at, now, grace=None):
@@ -107,13 +127,56 @@ def release_branch(branch):
     return branch == RESET_BRANCH or re.fullmatch('release/' + VERSION, branch) is not None
 
 
-def evaluate(policy, release, main_sha, tag_sha, now, publication=None):
+def version_key(version):
+    # v1.4 > v1.3, v1.4.1 > v1.4, and a two-part version is its own patch-zero form.
+    parts = [int(part) for part in version[1:].split('.')]
+    return tuple((parts + [0, 0])[:3])
+
+
+def release_pr_state(pull_requests, last_tag, now=None, grace=None):
+    """The release PR that is in flight, or None when no open release PR holds the debt.
+
+    `pull_requests` is the open-PR query and `last_tag` the version of the last published stable
+    release (None before the first). The state is what suspends the cadence `verdict` on a branch
+    that cannot pay, and it carries its own age so the suspension cannot outlive a handoff.
+    A release PR whose version is not newer than what is already published is a stale branch, not
+    a release in flight, and suspends nothing - so a forgotten `release/` branch can never silence
+    the board."""
+    now = now or datetime.now(timezone.utc)
+    grace = pr_grace_seconds() if grace is None else grace
+    if not isinstance(pull_requests, list):
+        raise ValueError('the open pull request query did not return a list; the release guard '
+                         'cannot tell an in-flight release from none')
+    found = []
+    for pull in pull_requests:
+        if not isinstance(pull, dict):
+            raise ValueError('the open pull request query returned a non-object row')
+        head = pull.get('head') if isinstance(pull.get('head'), dict) else {}
+        match = re.fullmatch('release/(' + VERSION + ')', head.get('ref') or '')
+        # `merged_at` guards the one case the query cannot: a PR reported merged but still open.
+        if not match or pull.get('state') != 'open' or pull.get('draft') or pull.get('merged_at'):
+            continue
+        found.append((version_key(match[1]), int(pull['number']), match[1], pull.get('created_at')))
+    if not found:
+        return None
+    _, number, version, created_at = max(found)
+    if last_tag is not None and version_key(version) <= version_key(last_tag):
+        return None
+    if not isinstance(created_at, str):
+        raise ValueError('release PR #%s carries no created_at; its age cannot be measured' % number)
+    age = int((now - stamp(created_at)).total_seconds())
+    return dict(number=number, version=version, branch='release/' + version, created_at=created_at,
+                age_seconds=age, grace_seconds=grace, suspends=age <= grace)
+
+
+def evaluate(policy, release, main_sha, tag_sha, now, publication=None, release_pr=None):
     seconds = cadence_seconds(policy)
     if not re.fullmatch(SHA, main_sha):
         raise ValueError('main SHA is missing or invalid')
     if release is None:
-        return dict(due=True, reason='first release', cadence_seconds=seconds,
-                    main_sha=main_sha, last_tag=None, last_published_at=None, due_at=None)
+        value = dict(due=True, reason='first release', cadence_seconds=seconds, main_sha=main_sha,
+                     last_tag=None, last_published_at=None, due_at=None, publication=publication)
+        return apply_release_pr(value, release_pr)
     if release.get('draft') is not False or release.get('prerelease') is not False:
         raise ValueError('latest release must be published and stable')
     if not re.fullmatch(VERSION, release.get('tag_name', '')) or not re.fullmatch(SHA, tag_sha or ''):
@@ -134,10 +197,28 @@ def evaluate(policy, release, main_sha, tag_sha, now, publication=None):
             due, reason = False, 'publication in flight: ' + publication['step']
         elif due:
             reason = 'release PR merged, publication outstanding: ' + publication['step']
-    return dict(due=due, reason=reason,
-                cadence_seconds=seconds, main_sha=main_sha, last_tag=release['tag_name'],
-                last_published_at=release['published_at'], due_at=due_at.isoformat(),
-                publication=publication)
+    return apply_release_pr(dict(due=due, reason=reason,
+                                 cadence_seconds=seconds, main_sha=main_sha,
+                                 last_tag=release['tag_name'],
+                                 last_published_at=release['published_at'],
+                                 due_at=due_at.isoformat(), publication=publication), release_pr)
+
+
+def apply_release_pr(value, release_pr):
+    """Let an in-flight release PR suspend the verdict without forgiving the debt.
+
+    The window #635 was filed about starts one step earlier than the merged-release state above:
+    from the moment the release PR exists. docs/RELEASE.md cuts the tag on the *merged* release
+    commit, so while that PR is open there is nothing on main for publication_on_main to see, and
+    every branch that cannot pay the debt pays it for someone else. `due` stays true - the
+    release-due issue keeps its record and `notify` keeps it open - and only `verdict` honours the
+    suspension. Past the grace `suspends` is false and the row fails again on its own terms."""
+    value['release_pr'] = release_pr
+    value['suspended'] = bool(release_pr and release_pr['suspends'] and value['due'])
+    if value['suspended']:
+        value['reason'] = ('release PR #%s (%s) is open, publication in flight'
+                           % (release_pr['number'], release_pr['version']))
+    return value
 
 
 def check_changelog(branch, changed, before, after, manifest):
@@ -227,7 +308,13 @@ def status(repo, branch=''):
     release = api(repo, 'releases/latest', optional=True)
     tag_sha = api(repo, 'commits/' + release['tag_name'])['sha'] if release else None
     publication = publication_on_main(repo)[0]
-    value = evaluate(policy, release, main_sha, tag_sha, datetime.now(timezone.utc), publication)
+    pulls = api(repo, 'pulls?state=open&base=main&per_page=100')
+    if isinstance(pulls, list) and len(pulls) == 100:
+        raise ValueError('the open pull request query filled its page; the release guard cannot '
+                         'name the newest release PR reliably')
+    release_pr = release_pr_state(pulls, release['tag_name'] if release else None)
+    value = evaluate(policy, release, main_sha, tag_sha, datetime.now(timezone.utc), publication,
+                     release_pr)
     value['waived'] = bool(re.fullmatch('release/' + VERSION, branch)) or (branch == RESET_BRANCH and policy_file is None)
     return value
 
@@ -252,7 +339,8 @@ def notify(repo, value):
             f"Last published version: {value['last_tag'] or 'none'}.\n"
             f"Published at: {value['last_published_at'] or 'never'}.\n"
             f"Due at: {value['due_at'] or 'now'}.\n\n"
-            + publication_line(value.get('publication')) + '\n\n'
+            + publication_line(value.get('publication')) + '\n'
+            + release_pr_line(value.get('release_pr')) + '\n\n'
             + 'The product lead prepares the release PR and publishes its merged commit after green checks. '
             'Record concrete blockers here. See docs/RELEASE.md.')
     if matching:
@@ -276,6 +364,19 @@ def publication_line(publication):
             f"({shown}, alarm at {publication['grace_seconds']} s). "
             + ('PAST THE GRACE: finish the handoff - tag the merge commit and publish the release.'
                if publication['overdue'] else 'Within the grace; the tag and release are still owed.'))
+
+
+def release_pr_line(release_pr):
+    """One line for the debt issue naming the open release PR the board is waiting on, so the
+    suspension is visible in the record and not only in a green check row."""
+    if not release_pr:
+        return 'Release PR in flight: none - no open release/<version> PR is ahead of the last published release.'
+    state = ('suspending the cadence row on other branches' if release_pr['suspends'] else
+             'PAST THE GRACE: the cadence row is red again, because this release PR is open and '
+             'nobody is finishing it')
+    return (f"Release PR in flight: #{release_pr['number']} ({release_pr['branch']}, opened "
+            f"{release_pr['created_at']}, {release_pr['age_seconds']} s ago, grace "
+            f"{release_pr['grace_seconds']} s), {state}.")
 
 
 def main():
@@ -326,9 +427,11 @@ def main():
         value = json.loads(Path(args.input).read_text())
         if args.command == 'notify':
             notify(args.repo, value)
-        elif value['due'] and not value['waived']:
+        elif value['due'] and not value['waived'] and not value.get('suspended'):
             raise ValueError('release cadence is overdue (' + value.get('reason', 'reason unknown')
                              + '); the product lead must finish the release handoff')
+        elif value.get('suspended') and not value['waived']:
+            print('Release cadence suspended - ' + value['reason'])
         else:
             print('Release cadence passed' + (' (release PR pays the debt)' if value['waived'] else '')
                   + (' - ' + value['reason'] if value.get('reason') not in (None, 'release due',

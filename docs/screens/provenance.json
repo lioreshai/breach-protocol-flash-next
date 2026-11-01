@@ -1,215 +1,213 @@
 {
-  "about": "Capture-time provenance for docs/screens/*.png (#335). One row per shot, written by the session that took the pixels: sha256/canvas are properties of the bytes, origin/install/url/seed/level/layout/sampleRate/build are properties of the instrument and cannot be recovered from the PNG afterwards. `node tools/recap.js check` verifies each row against the file it addresses and against every other row of the same (seed, level, sampleRate); the vocabulary, the route verdicts and the audio-draw rule live in tools/recap.js, not here.",
-  "builds": {
-    "4abba57": {
-      "at": "2026-10-16",
-      "files": {
-        "index.html": "c886aca0138047584edd4ee7023c504da19d3d559a6e6bb33833a9290169d557",
-        "js/10_assets.js": "e79c562de83bdf57df13dbd3fa361dbd6a471a5033984e2a6f0304575ca2174f",
-        "js/20_level.js": "c98b3e6a3f6b1b98239b28de732a31ce832f6ad9aebeb5451638b7e01c7551f6",
-        "js/40_render.js": "de4a012b166caec72f917a5c4fbf90e71e932898cf7b444cc08ccea62ac60392"
-      },
-      "note": "The four blobs that draw a frame, sha256, read from the checkout that ran the capture. index.html plus the three js/ files that put a pixel on screen: js/10_assets.js makes the textures, js/20_level.js the lit materials, js/40_render.js is the rasterizer. `node tools/recap.js check` recomputes them from the tree it runs in and prints whether these frames still show what that tree ships (#536). The session that took these pixels proved this build off the wire, blob by blob, against the deployed page."
-    },
-    "39d1a70": {
-      "at": "2026-10-20",
-      "files": {
-        "index.html": "c886aca0138047584edd4ee7023c504da19d3d559a6e6bb33833a9290169d557",
-        "js/10_assets.js": "13b58d4471ce85c3517c00cf32f2c019d27113d41f3e68d133a3f81342fa8784",
-        "js/20_level.js": "9e6d155f80db28c0872dcef0dd75c4ab63f71e7a4146f1693f44f15e6ab3908b",
-        "js/40_render.js": "20bdef2d1bf909e565b12aab41f7d69ec5ebc10c23c6d82036f14a9d04c039a4"
-      },
-      "note": "The four blobs that draw a frame, sha256, read from the checkout that ran the capture. `node tools/recap.js check` recomputes them from the tree it runs in and prints whether these frames still show what that tree ships (#536). The session that took these pixels proved this build off the wire: index.html and all eleven js/ blobs served by GitHub Pages sha256-match origin/main at 39d1a70, twelve for twelve, before the shutter."
-    },
-    "89e3e16": {
-      "at": "2026-10-20",
-      "files": {
-        "index.html": "c886aca0138047584edd4ee7023c504da19d3d559a6e6bb33833a9290169d557",
-        "js/10_assets.js": "13b58d4471ce85c3517c00cf32f2c019d27113d41f3e68d133a3f81342fa8784",
-        "js/20_level.js": "55d9f213b4f4658c786919395f57680ad5a8d70868e53330d2eaf265502b39e7",
-        "js/40_render.js": "2a897abb5a271aee7d2174ad6522a83a38c43444be1d6d0587bd6bdc435f5988"
-      },
-      "note": "The four blobs that draw a frame, sha256, read from the checkout that ran the capture. `node tools/recap.js check` recomputes them from the tree it runs in and prints whether these frames still show what that tree ships (#536). The session that took these pixels proved this build off the wire: index.html and all eleven js/ blobs served by GitHub Pages sha256-match origin/main at 89e3e16, twelve for twelve, before the shutter."
-    },
-    "2fc7e59": {
-      "at": "2026-10-20",
-      "files": {
-        "index.html": "c886aca0138047584edd4ee7023c504da19d3d559a6e6bb33833a9290169d557",
-        "js/10_assets.js": "13b58d4471ce85c3517c00cf32f2c019d27113d41f3e68d133a3f81342fa8784",
-        "js/20_level.js": "569623b09b591954cb9ca7e4f6feac0f8120e7c70a2cfdcf33e4daa67aebbd16",
-        "js/40_render.js": "2a897abb5a271aee7d2174ad6522a83a38c43444be1d6d0587bd6bdc435f5988"
-      },
-      "note": "The four blobs that draw a frame, sha256, read from the checkout that ran the capture. `node tools/recap.js check` recomputes them from the tree it runs in and prints whether these frames still show what that tree ships (#536). The session that took these pixels proved this build off the wire: index.html and all eleven js/ blobs served by GitHub Pages sha256-match this checkout, twelve for twelve, before the shutter - the deploy serves origin/main, and this branch changes no shipped byte."
-    },
-    "153ea1b": {
-      "at": "2026-10-24",
-      "files": {
-        "index.html": "c886aca0138047584edd4ee7023c504da19d3d559a6e6bb33833a9290169d557",
-        "js/10_assets.js": "13b58d4471ce85c3517c00cf32f2c019d27113d41f3e68d133a3f81342fa8784",
-        "js/20_level.js": "a338d1afb4f895a9301d3488cbd48c43d45d418ce1cfda96663031833cf4e382",
-        "js/40_render.js": "041dad3b886562fcdbe6d17f6f8ec7f9266b384f6e129017d905fbb2e9328d15"
-      },
-      "note": "main 153ea1b - #645 landed the magnified ceiling share (CGWN=1); CGW still 0"
-    },
-    "28a6fa4": {
-      "at": "2026-10-26",
-      "files": {
-        "index.html": "c886aca0138047584edd4ee7023c504da19d3d559a6e6bb33833a9290169d557",
-        "js/10_assets.js": "13b58d4471ce85c3517c00cf32f2c019d27113d41f3e68d133a3f81342fa8784",
-        "js/20_level.js": "b92f43dd784086033adc2cf438564e199425e0083fb43d9e77a89246b6c622ab",
-        "js/40_render.js": "d1fb190ca74f193fae7bbe5e994aa73b44a88af1174055cc344e27aed934396d"
-      },
-      "note": "The four blobs that draw a frame, sha256, read from the checkout that ran the capture. The session that took these pixels proved this build off the wire first: for each of the four, the sha256 of the bytes served by https://lioreshai.github.io/breach-protocol-flash-next/ equals git show <build>:<file>, 4 for 4 - so the browser drew the build this tree ships, which is what makes these frames a property of the build and not of a harness (#388, #597)."
-    },
-    "5d08c12": {
-      "at": "2026-10-26",
-      "files": {
-        "index.html": "c886aca0138047584edd4ee7023c504da19d3d559a6e6bb33833a9290169d557",
-        "js/10_assets.js": "13b58d4471ce85c3517c00cf32f2c019d27113d41f3e68d133a3f81342fa8784",
-        "js/20_level.js": "897c0957c0e25d9cfef9002871e6432b70fdb7e84ad833622612c094fa705a83",
-        "js/40_render.js": "3d836e03bb4da76c2f5ac05c71ce1fb828a20fdc10dc1322112a76792712aadb"
-      },
-      "note": "The four blobs that draw a frame, sha256, read from the checkout that ran the capture. The session that took these pixels proved this build off the wire first: for each of the four, the sha256 of the bytes served by https://lioreshai.github.io/breach-protocol-flash-next/ equals git show <build>:<file>, 4 for 4 - so the browser drew the build this tree ships, which is what makes these frames a property of the build and not of a harness (#388, #597)."
-    },
-    "69f6f54": {
-      "at": "2026-10-30",
-      "files": {
-        "index.html": "c886aca0138047584edd4ee7023c504da19d3d559a6e6bb33833a9290169d557",
-        "js/10_assets.js": "13b58d4471ce85c3517c00cf32f2c019d27113d41f3e68d133a3f81342fa8784",
-        "js/20_level.js": "fac779ba70e3d65bea35508ee163bbdfb5dddd7c488669cc6323162bc8c0aa4a",
-        "js/40_render.js": "b7b6374cc07f6830a05c45afaefac1a11af0cbf6ba558ce1e3ae576cb58caac4"
-      },
-      "note": "The four blobs that draw a frame, sha256. The session that took these pixels proved this build off the wire first: index.html and all eleven js/ blobs served by https://lioreshai.github.io/breach-protocol-flash-next/ sha256-match origin/main at 69f6f54, twelve for twelve, before the shutter - so the browser drew the build this tree ships, which is what makes these frames a property of the build and not of a harness (#388, #597)."
-    }
+ "about": "Capture-time provenance for docs/screens/*.png (#335). One row per shot, written by the session that took the pixels: sha256/canvas are properties of the bytes, origin/install/url/seed/level/layout/sampleRate/build are properties of the instrument and cannot be recovered from the PNG afterwards. `node tools/recap.js check` verifies each row against the file it addresses and against every other row of the same (seed, level, sampleRate); the vocabulary, the route verdicts and the audio-draw rule live in tools/recap.js, not here.",
+ "builds": {
+  "4abba57": {
+   "at": "2026-10-16",
+   "files": {
+    "index.html": "c886aca0138047584edd4ee7023c504da19d3d559a6e6bb33833a9290169d557",
+    "js/10_assets.js": "e79c562de83bdf57df13dbd3fa361dbd6a471a5033984e2a6f0304575ca2174f",
+    "js/20_level.js": "c98b3e6a3f6b1b98239b28de732a31ce832f6ad9aebeb5451638b7e01c7551f6",
+    "js/40_render.js": "de4a012b166caec72f917a5c4fbf90e71e932898cf7b444cc08ccea62ac60392"
+   },
+   "note": "The four blobs that draw a frame, sha256, read from the checkout that ran the capture. index.html plus the three js/ files that put a pixel on screen: js/10_assets.js makes the textures, js/20_level.js the lit materials, js/40_render.js is the rasterizer. `node tools/recap.js check` recomputes them from the tree it runs in and prints whether these frames still show what that tree ships (#536). The session that took these pixels proved this build off the wire, blob by blob, against the deployed page."
   },
-  "shots": [
-    {
-      "file": "level0-enemies",
-      "sha256": "7c96e0770f3fbf91bf42abbda38227f143618a8c67221b242dfb16131cbe3646",
-      "canvas": "1440x763",
-      "origin": "https",
-      "install": "url-open",
-      "url": "https://lioreshai.github.io/breach-protocol-flash-next/?dev=1&seed=60&boot=0",
-      "seed": "60",
-      "level": 0,
-      "layout": "3951692944",
-      "build": "69f6f54",
-      "at": "2026-10-30",
-      "sampleRate": 44100,
-      "note": "RE-TAKEN from the DEPLOYED page for #640 at build 69f6f54. Route: ?dev=1&seed=60&boot=0, ONE page load per shot, ONE DEV.boot() per load, DEV.freeze(true), DEV.tick(30), then the pose below, DEV.tick(1), the game's own resume(), DEV.tick(1), S.mode read as \"play\" before the shutter (no pause overlay in the frame). Shutter = canvas.toDataURL on the display canvas, re-encoded to colour type 2 by tools/png_rgb.js (#394). layout is state().layout == DEV.layoutSig() for this deal. Pose: the deal's derived arrival seat with NO DEV.cam (read back (18.5, 5.5), floorAt 0.00, heading 2.1731), then DEV.clear() and DEV.spawn(\"grunt\", 1, 6), so the HUD reads 1 LEFT. DEV.lum({stride:97}) mean/mid = 69.90 / 90.17. sampleRate 44100 is this page's AudioContext measured, which is what says which machine this seed deals (#404). Canvas 1440x763, S.mode play, 1 hostiles left.",
-      "staleByBuild": null
-    },
-    {
-      "file": "level0-facing-wall",
-      "sha256": "d2b9a17065ffe8732ff7a2eaedcf0bedd4c83e3ceaf6fa6a4c945a097324227a",
-      "canvas": "1440x763",
-      "origin": "https",
-      "install": "url-open",
-      "url": "https://lioreshai.github.io/breach-protocol-flash-next/?dev=1&seed=60&boot=0",
-      "seed": "60",
-      "level": 0,
-      "layout": "3951692944",
-      "build": "69f6f54",
-      "at": "2026-10-30",
-      "sampleRate": 44100,
-      "note": "RE-TAKEN from the DEPLOYED page for #640 at build 69f6f54. Route: ?dev=1&seed=60&boot=0, ONE page load per shot, ONE DEV.boot() per load, DEV.freeze(true), DEV.tick(30), then the pose below, DEV.tick(1), the game's own resume(), DEV.tick(1), S.mode read as \"play\" before the shutter (no pause overlay in the frame). Shutter = canvas.toDataURL on the display canvas, re-encoded to colour type 2 by tools/png_rgb.js (#394). layout is state().layout == DEV.layoutSig() for this deal. Pose: DEV.cam(1.5, 8.5, floorAt(1.5, 8.5), Math.PI/2, 0) - the replaced row's coordinates verbatim, read back on this deal. DEV.lum({stride:97}) mean/mid = 48.78 / 62.62. sampleRate 44100 is this page's AudioContext measured, which is what says which machine this seed deals (#404). Canvas 1440x763, S.mode play, 8 hostiles left.",
-      "staleByBuild": null
-    },
-    {
-      "file": "level0-pitfloor",
-      "sha256": "7383b9817972cb2061494fdf5205878fbf6526c504edd6cce102a855f5159552",
-      "canvas": "1440x763",
-      "origin": "https",
-      "install": "url-open",
-      "url": "https://lioreshai.github.io/breach-protocol-flash-next/?dev=1&seed=60&boot=0",
-      "seed": "60",
-      "level": 0,
-      "layout": "3951692944",
-      "build": "69f6f54",
-      "at": "2026-10-30",
-      "sampleRate": 44100,
-      "note": "RE-TAKEN from the DEPLOYED page for #640 at build 69f6f54. Route: ?dev=1&seed=60&boot=0, ONE page load per shot, ONE DEV.boot() per load, DEV.freeze(true), DEV.tick(30), then the pose below, DEV.tick(1), the game's own resume(), DEV.tick(1), S.mode read as \"play\" before the shutter (no pause overlay in the frame). Shutter = canvas.toDataURL on the display canvas, re-encoded to colour type 2 by tools/png_rgb.js (#394). layout is state().layout == DEV.layoutSig() for this deal. Pose: DEV.cam(19.5, 14.5, floorAt(19.5, 14.5), Math.atan2(2, 1), 0) - the replaced row's coordinates verbatim, read back on this deal (floorAt -1.00: this seat stands on a lower slab). DEV.lum({stride:97}) mean/mid = 60.43 / 86.30. sampleRate 44100 is this page's AudioContext measured, which is what says which machine this seed deals (#404). Canvas 1440x763, S.mode play, 8 hostiles left.",
-      "staleByBuild": null
-    },
-    {
-      "file": "level0-props",
-      "sha256": "98743022bff7322ec33a0445905fa9bccf1f736432f6955cfece1c71b0c68923",
-      "canvas": "1440x763",
-      "origin": "https",
-      "install": "url-open",
-      "url": "https://lioreshai.github.io/breach-protocol-flash-next/?dev=1&seed=60&boot=0",
-      "seed": "60",
-      "level": 0,
-      "layout": "3951692944",
-      "build": "69f6f54",
-      "at": "2026-10-30",
-      "sampleRate": 44100,
-      "note": "RE-TAKEN from the DEPLOYED page for #640 at build 69f6f54. Route: ?dev=1&seed=60&boot=0, ONE page load per shot, ONE DEV.boot() per load, DEV.freeze(true), DEV.tick(30), then the pose below, DEV.tick(1), the game's own resume(), DEV.tick(1), S.mode read as \"play\" before the shutter (no pause overlay in the frame). Shutter = canvas.toDataURL on the display canvas, re-encoded to colour type 2 by tools/png_rgb.js (#394). layout is state().layout == DEV.layoutSig() for this deal. Pose: DEV.cam(20.5, 11.5, floorAt(20.5, 11.5), Math.PI/2, 0) - the replaced row's coordinates verbatim, read back on this deal. DEV.lum({stride:97}) mean/mid = 61.46 / 75.94. sampleRate 44100 is this page's AudioContext measured, which is what says which machine this seed deals (#404). Canvas 1440x763, S.mode play, 8 hostiles left.",
-      "staleByBuild": null
-    },
-    {
-      "file": "level0-spawn",
-      "sha256": "d7acaa9a951fc629327ec96b4cabe21161ce7ff0e4c2efd11cdb11b448c45bbe",
-      "canvas": "1440x763",
-      "origin": "https",
-      "install": "url-open",
-      "url": "https://lioreshai.github.io/breach-protocol-flash-next/?dev=1&seed=60&boot=0",
-      "seed": "60",
-      "level": 0,
-      "layout": "3951692944",
-      "build": "69f6f54",
-      "at": "2026-10-30",
-      "sampleRate": 44100,
-      "note": "RE-TAKEN from the DEPLOYED page for #640 at build 69f6f54. Route: ?dev=1&seed=60&boot=0, ONE page load per shot, ONE DEV.boot() per load, DEV.freeze(true), DEV.tick(30), then the pose below, DEV.tick(1), the game's own resume(), DEV.tick(1), S.mode read as \"play\" before the shutter (no pause overlay in the frame). Shutter = canvas.toDataURL on the display canvas, re-encoded to colour type 2 by tools/png_rgb.js (#394). layout is state().layout == DEV.layoutSig() for this deal. Pose: startLevel(0) through DEV.boot() with NO DEV.cam - the deal's own arrival seat and bearing, read back at (18.5, 5.5) on floorAt 0.00, heading 2.1731. The heading is derived, not the literal 0.60 the replaced row posed: seatFacing turns the seat to the face of the nearest deck in reach (#421, #482), and that turn is the picture this re-take exists to show. DEV.lum({stride:97}) mean/mid = 69.87 / 90.15. sampleRate 44100 is this page's AudioContext measured, which is what says which machine this seed deals (#404). Canvas 1440x763, S.mode play, 8 hostiles left.",
-      "staleByBuild": null
-    },
-    {
-      "file": "level2-abatoir",
-      "sha256": "c83b4e5579d3a0b98ef18d0c6ebd814df22cce209470573b99252ac3bff50acf",
-      "canvas": "1440x763",
-      "origin": "https",
-      "install": "url-open",
-      "url": "https://lioreshai.github.io/breach-protocol-flash-next/?dev=1&seed=60&boot=0",
-      "seed": "60",
-      "level": 2,
-      "layout": "513487353",
-      "build": "69f6f54",
-      "at": "2026-10-30",
-      "sampleRate": 44100,
-      "note": "RE-TAKEN from the DEPLOYED page for #640 at build 69f6f54. Route: ?dev=1&seed=60&boot=0, ONE page load per shot, ONE DEV.boot() per load, DEV.freeze(true), DEV.tick(30), then the pose below, DEV.tick(1), the game's own resume(), DEV.tick(1), S.mode read as \"play\" before the shutter (no pause overlay in the frame). Shutter = canvas.toDataURL on the display canvas, re-encoded to colour type 2 by tools/png_rgb.js (#394). layout is state().layout == DEV.layoutSig() for this deal. Pose: startLevel(2, true) with NO DEV.cam: this sector DECLARES seatAng 0.6, so it arrives at the authored bearing on every deal (#421 DECISION 1), read back at (22.5, 13.5) on floorAt 0.00, heading 0.60. DEV.lum({stride:97}) mean/mid = 75.57 / 88.47. sampleRate 44100 is this page's AudioContext measured, which is what says which machine this seed deals (#404). Canvas 1440x763, S.mode play, 18 hostiles left.",
-      "staleByBuild": null
-    },
-    {
-      "file": "level2-abatoir-ceiling",
-      "sha256": "14aec83307be997e2ea772e55e528b7371c3650cb07f393a769a4a98814922f5",
-      "canvas": "1440x763",
-      "origin": "https",
-      "install": "url-open",
-      "url": "https://lioreshai.github.io/breach-protocol-flash-next/?dev=1&seed=60&boot=0",
-      "seed": "60",
-      "level": 2,
-      "layout": "513487353",
-      "build": "69f6f54",
-      "at": "2026-10-30",
-      "sampleRate": 44100,
-      "note": "RE-TAKEN from the DEPLOYED page for #640 at build 69f6f54. Route: ?dev=1&seed=60&boot=0, ONE page load per shot, ONE DEV.boot() per load, DEV.freeze(true), DEV.tick(30), then the pose below, DEV.tick(1), the game's own resume(), DEV.tick(1), S.mode read as \"play\" before the shutter (no pause overlay in the frame). Shutter = canvas.toDataURL on the display canvas, re-encoded to colour type 2 by tools/png_rgb.js (#394). layout is state().layout == DEV.layoutSig() for this deal. Pose: startLevel(2, true) then DEV.cam(P.x, P.y, undefined, -0.5539, 194.07) - the historical row verbatim, on this deal's own declared seat. DEV.lum({stride:97}) mean/mid = 77.39 / 109.15. sampleRate 44100 is this page's AudioContext measured, which is what says which machine this seed deals (#404). Canvas 1440x763, S.mode play, 18 hostiles left.",
-      "staleByBuild": null
-    },
-    {
-      "file": "level3-stack",
-      "sha256": "64fda2caa60d59a4b19d7b959e12eb1657f2140e98bd7570993a927124027713",
-      "canvas": "1440x763",
-      "origin": "https",
-      "install": "url-open",
-      "url": "https://lioreshai.github.io/breach-protocol-flash-next/?dev=1&seed=60&boot=0",
-      "seed": "60",
-      "level": 3,
-      "layout": "3610925125",
-      "build": "69f6f54",
-      "at": "2026-10-30",
-      "sampleRate": 44100,
-      "note": "RE-TAKEN from the DEPLOYED page for #640 at build 69f6f54. Route: ?dev=1&seed=60&boot=0, ONE page load per shot, ONE DEV.boot() per load, DEV.freeze(true), DEV.tick(30), then the pose below, DEV.tick(1), the game's own resume(), DEV.tick(1), S.mode read as \"play\" before the shutter (no pause overlay in the frame). Shutter = canvas.toDataURL on the display canvas, re-encoded to colour type 2 by tools/png_rgb.js (#394). layout is state().layout == DEV.layoutSig() for this deal. Pose: startLevel(3, true) with NO DEV.cam - THE STACK's authored seat, read back at (1.5, 2.5) on floorAt 0.00 with the derived heading 0.8761 (#421 leaves this plan unpinned). DEV.lum({stride:97}) mean/mid = 66.25 / 93.32. sampleRate 44100 is this page's AudioContext measured, which is what says which machine this seed deals (#404). Canvas 1440x763, S.mode play, 4 hostiles left.",
-      "staleByBuild": null
-    }
-  ]
+  "39d1a70": {
+   "at": "2026-10-20",
+   "files": {
+    "index.html": "c886aca0138047584edd4ee7023c504da19d3d559a6e6bb33833a9290169d557",
+    "js/10_assets.js": "13b58d4471ce85c3517c00cf32f2c019d27113d41f3e68d133a3f81342fa8784",
+    "js/20_level.js": "9e6d155f80db28c0872dcef0dd75c4ab63f71e7a4146f1693f44f15e6ab3908b",
+    "js/40_render.js": "20bdef2d1bf909e565b12aab41f7d69ec5ebc10c23c6d82036f14a9d04c039a4"
+   },
+   "note": "The four blobs that draw a frame, sha256, read from the checkout that ran the capture. `node tools/recap.js check` recomputes them from the tree it runs in and prints whether these frames still show what that tree ships (#536). The session that took these pixels proved this build off the wire: index.html and all eleven js/ blobs served by GitHub Pages sha256-match origin/main at 39d1a70, twelve for twelve, before the shutter."
+  },
+  "89e3e16": {
+   "at": "2026-10-20",
+   "files": {
+    "index.html": "c886aca0138047584edd4ee7023c504da19d3d559a6e6bb33833a9290169d557",
+    "js/10_assets.js": "13b58d4471ce85c3517c00cf32f2c019d27113d41f3e68d133a3f81342fa8784",
+    "js/20_level.js": "55d9f213b4f4658c786919395f57680ad5a8d70868e53330d2eaf265502b39e7",
+    "js/40_render.js": "2a897abb5a271aee7d2174ad6522a83a38c43444be1d6d0587bd6bdc435f5988"
+   },
+   "note": "The four blobs that draw a frame, sha256, read from the checkout that ran the capture. `node tools/recap.js check` recomputes them from the tree it runs in and prints whether these frames still show what that tree ships (#536). The session that took these pixels proved this build off the wire: index.html and all eleven js/ blobs served by GitHub Pages sha256-match origin/main at 89e3e16, twelve for twelve, before the shutter."
+  },
+  "2fc7e59": {
+   "at": "2026-10-20",
+   "files": {
+    "index.html": "c886aca0138047584edd4ee7023c504da19d3d559a6e6bb33833a9290169d557",
+    "js/10_assets.js": "13b58d4471ce85c3517c00cf32f2c019d27113d41f3e68d133a3f81342fa8784",
+    "js/20_level.js": "569623b09b591954cb9ca7e4f6feac0f8120e7c70a2cfdcf33e4daa67aebbd16",
+    "js/40_render.js": "2a897abb5a271aee7d2174ad6522a83a38c43444be1d6d0587bd6bdc435f5988"
+   },
+   "note": "The four blobs that draw a frame, sha256, read from the checkout that ran the capture. `node tools/recap.js check` recomputes them from the tree it runs in and prints whether these frames still show what that tree ships (#536). The session that took these pixels proved this build off the wire: index.html and all eleven js/ blobs served by GitHub Pages sha256-match this checkout, twelve for twelve, before the shutter - the deploy serves origin/main, and this branch changes no shipped byte."
+  },
+  "153ea1b": {
+   "at": "2026-10-24",
+   "files": {
+    "index.html": "c886aca0138047584edd4ee7023c504da19d3d559a6e6bb33833a9290169d557",
+    "js/10_assets.js": "13b58d4471ce85c3517c00cf32f2c019d27113d41f3e68d133a3f81342fa8784",
+    "js/20_level.js": "a338d1afb4f895a9301d3488cbd48c43d45d418ce1cfda96663031833cf4e382",
+    "js/40_render.js": "041dad3b886562fcdbe6d17f6f8ec7f9266b384f6e129017d905fbb2e9328d15"
+   },
+   "note": "main 153ea1b - #645 landed the magnified ceiling share (CGWN=1); CGW still 0"
+  },
+  "28a6fa4": {
+   "at": "2026-10-26",
+   "files": {
+    "index.html": "c886aca0138047584edd4ee7023c504da19d3d559a6e6bb33833a9290169d557",
+    "js/10_assets.js": "13b58d4471ce85c3517c00cf32f2c019d27113d41f3e68d133a3f81342fa8784",
+    "js/20_level.js": "b92f43dd784086033adc2cf438564e199425e0083fb43d9e77a89246b6c622ab",
+    "js/40_render.js": "d1fb190ca74f193fae7bbe5e994aa73b44a88af1174055cc344e27aed934396d"
+   },
+   "note": "The four blobs that draw a frame, sha256, read from the checkout that ran the capture. The session that took these pixels proved this build off the wire first: for each of the four, the sha256 of the bytes served by https://lioreshai.github.io/breach-protocol-flash-next/ equals git show <build>:<file>, 4 for 4 - so the browser drew the build this tree ships, which is what makes these frames a property of the build and not of a harness (#388, #597)."
+  },
+  "5d08c12": {
+   "at": "2026-10-26",
+   "files": {
+    "index.html": "c886aca0138047584edd4ee7023c504da19d3d559a6e6bb33833a9290169d557",
+    "js/10_assets.js": "13b58d4471ce85c3517c00cf32f2c019d27113d41f3e68d133a3f81342fa8784",
+    "js/20_level.js": "897c0957c0e25d9cfef9002871e6432b70fdb7e84ad833622612c094fa705a83",
+    "js/40_render.js": "3d836e03bb4da76c2f5ac05c71ce1fb828a20fdc10dc1322112a76792712aadb"
+   },
+   "note": "The four blobs that draw a frame, sha256, read from the checkout that ran the capture. The session that took these pixels proved this build off the wire first: for each of the four, the sha256 of the bytes served by https://lioreshai.github.io/breach-protocol-flash-next/ equals git show <build>:<file>, 4 for 4 - so the browser drew the build this tree ships, which is what makes these frames a property of the build and not of a harness (#388, #597)."
+  }
+ },
+ "shots": [
+  {
+   "file": "level0-enemies",
+   "sha256": "5c59c32375ed130bd955382017218842ef7d08ab0c1651008cedc3a146446228",
+   "replaces": { "rev": "5d08c12", "build": "28a6fa4", "sha256": "2e31af4d9e1ee35306ba2d0a1b6b401dc384b513ff4adbf823d269703a36a1a1", "mean": 58.6140 },
+   "canvas": "1440x763",
+   "origin": "https",
+   "install": "url-open",
+   "url": "https://lioreshai.github.io/breach-protocol-flash-next/?dev=1&seed=60&boot=0",
+   "seed": "60",
+   "level": 0,
+   "layout": "1898908958",
+   "build": "5d08c12",
+   "at": "2026-10-26",
+   "sampleRate": 48000,
+   "note": "RE-TAKEN from the DEPLOYED page for #597 at build 5d08c12. Route: ?dev=1&seed=60&boot=0, ONE DEV.boot(), DEV.freeze(true), DEV.tick(30). Pose: DEV.cam(18.5, 5.5, floorAt(18.5, 5.5), 0.60, 0) then DEV.clear() then DEV.spawn(\"grunt\", 1, 6). DEV.tick(1), the game's own resume(), DEV.tick(1), S.mode read as \"play\" before the shutter (no pause overlay in the frame). DEV.lum({stride:97}) mean/mid = 59.13 / 69.71. Shutter = canvas.toDataURL on the display canvas, re-encoded to colour type 2 by tools/png_rgb.js (#394). sampleRate 48000 is this page AudioContext measured. layout is state().layout == DEV.layoutSig() for this deal.",
+   "staleByBuild": null
+  },
+  {
+   "file": "level0-facing-wall",
+   "sha256": "7955ea1769c869035ac633fb66d10af92ad697f5386868e3e4055d514ff8c98f",
+   "replaces": { "rev": "5d08c12", "build": "28a6fa4", "sha256": "67638bcc08030a9305eae750077b29f04d7bc3d5195709d5912844e4478de505", "mean": 67.4275 },
+   "canvas": "1440x763",
+   "origin": "https",
+   "install": "url-open",
+   "url": "https://lioreshai.github.io/breach-protocol-flash-next/?dev=1&seed=60&boot=0",
+   "seed": "60",
+   "level": 0,
+   "layout": "1898908958",
+   "build": "5d08c12",
+   "at": "2026-10-26",
+   "sampleRate": 48000,
+   "note": "RE-TAKEN from the DEPLOYED page for #597 at build 5d08c12. Route: ?dev=1&seed=60&boot=0, ONE DEV.boot(), DEV.freeze(true), DEV.tick(30). Pose: DEV.cam(1.5, 8.5, floorAt(1.5, 8.5), Math.PI/2, 0). DEV.tick(1), the game's own resume(), DEV.tick(1), S.mode read as \"play\" before the shutter (no pause overlay in the frame). DEV.lum({stride:97}) mean/mid = 69.65 / 90.17. Shutter = canvas.toDataURL on the display canvas, re-encoded to colour type 2 by tools/png_rgb.js (#394). sampleRate 48000 is this page AudioContext measured. layout is state().layout == DEV.layoutSig() for this deal.",
+   "staleByBuild": null
+  },
+  {
+   "file": "level0-pitfloor",
+   "sha256": "7d781d4ddac8a5f9797348b66ab983cb2b9fdbe75ee0fdafa5a9e4d7db2e3b2f",
+   "replaces": { "rev": "5d08c12", "build": "28a6fa4", "sha256": "8cc9dce3db704eb0611d3282bc8e22da1a20457d7e6a028f13f3fbf91a5f187f", "mean": 54.5231 },
+   "canvas": "1440x763",
+   "origin": "https",
+   "install": "url-open",
+   "url": "https://lioreshai.github.io/breach-protocol-flash-next/?dev=1&seed=60&boot=0",
+   "seed": "60",
+   "level": 0,
+   "layout": "1898908958",
+   "build": "5d08c12",
+   "at": "2026-10-26",
+   "sampleRate": 48000,
+   "note": "RE-TAKEN from the DEPLOYED page for #597 at build 5d08c12. Route: ?dev=1&seed=60&boot=0, ONE DEV.boot(), DEV.freeze(true), DEV.tick(30). Pose: DEV.cam(19.5, 14.5, floorAt(19.5, 14.5), Math.atan2(2,1), 0). DEV.tick(1), the game's own resume(), DEV.tick(1), S.mode read as \"play\" before the shutter (no pause overlay in the frame). DEV.lum({stride:97}) mean/mid = 72.18 / 64.68. Shutter = canvas.toDataURL on the display canvas, re-encoded to colour type 2 by tools/png_rgb.js (#394). sampleRate 48000 is this page AudioContext measured. layout is state().layout == DEV.layoutSig() for this deal.",
+   "staleByBuild": null
+  },
+  {
+   "file": "level0-props",
+   "sha256": "23aa42a47dde3dc2b9e6df18c18b6417ce375264ab6b20c552283935e3ae231d",
+   "replaces": { "rev": "5d08c12", "build": "28a6fa4", "sha256": "96032b2229f161eadec7d0bb0e427d01582ac081c0bfc680f01564824ba2b606", "mean": 46.0307 },
+   "canvas": "1440x763",
+   "origin": "https",
+   "install": "url-open",
+   "url": "https://lioreshai.github.io/breach-protocol-flash-next/?dev=1&seed=60&boot=0",
+   "seed": "60",
+   "level": 0,
+   "layout": "1898908958",
+   "build": "5d08c12",
+   "at": "2026-10-26",
+   "sampleRate": 48000,
+   "note": "RE-TAKEN from the DEPLOYED page for #597 at build 5d08c12. Route: ?dev=1&seed=60&boot=0, ONE DEV.boot(), DEV.freeze(true), DEV.tick(30). Pose: DEV.cam(20.5, 11.5, floorAt(20.5, 11.5), Math.PI/2, 0). DEV.tick(1), the game's own resume(), DEV.tick(1), S.mode read as \"play\" before the shutter (no pause overlay in the frame). DEV.lum({stride:97}) mean/mid = 46.85 / 49.69. Shutter = canvas.toDataURL on the display canvas, re-encoded to colour type 2 by tools/png_rgb.js (#394). sampleRate 48000 is this page AudioContext measured. layout is state().layout == DEV.layoutSig() for this deal.",
+   "staleByBuild": null
+  },
+  {
+   "file": "level0-spawn",
+   "sha256": "98dc8c4708e9483179fcbe2caad93b1b627b6dcec37427b6fe2f7802f29fe318",
+   "replaces": { "rev": "5d08c12", "build": "28a6fa4", "sha256": "5eadd0cdd25f365c4e8d7f8ab1ed60d46dc0a91b55588dd2b4d961e312b8826c", "mean": 58.6669 },
+   "canvas": "1440x763",
+   "origin": "https",
+   "install": "url-open",
+   "url": "https://lioreshai.github.io/breach-protocol-flash-next/?dev=1&seed=60&boot=0",
+   "seed": "60",
+   "level": 0,
+   "layout": "1898908958",
+   "build": "5d08c12",
+   "at": "2026-10-26",
+   "sampleRate": 48000,
+   "note": "RE-TAKEN from the DEPLOYED page for #597 at build 5d08c12. Route: ?dev=1&seed=60&boot=0, ONE DEV.boot(), DEV.freeze(true), DEV.tick(30). Pose: DEV.cam(18.5, 5.5, floorAt(18.5, 5.5), 0.60, 0). DEV.tick(1), the game's own resume(), DEV.tick(1), S.mode read as \"play\" before the shutter (no pause overlay in the frame). DEV.lum({stride:97}) mean/mid = 59.04 / 69.85. Shutter = canvas.toDataURL on the display canvas, re-encoded to colour type 2 by tools/png_rgb.js (#394). sampleRate 48000 is this page AudioContext measured. layout is state().layout == DEV.layoutSig() for this deal.",
+   "staleByBuild": null
+  },
+  {
+   "file": "level2-abatoir",
+   "sha256": "dda15e247d3f2f28553f39230218711162f6928c2e6a2ce62a8ea436e54753ed",
+   "replaces": { "rev": "5d08c12", "build": "28a6fa4", "sha256": "674995b81eb56fc8e52d84378a8a14a27fd04931f6a3c8328dc6c19988bb353f", "mean": 71.3423 },
+   "canvas": "1440x763",
+   "origin": "https",
+   "install": "url-open",
+   "url": "https://lioreshai.github.io/breach-protocol-flash-next/?dev=1&seed=60&boot=0",
+   "seed": "60",
+   "level": 2,
+   "layout": "1425048100",
+   "build": "5d08c12",
+   "at": "2026-10-26",
+   "sampleRate": 48000,
+   "note": "RE-TAKEN from the DEPLOYED page for #597 at build 5d08c12. Route: ?dev=1&seed=60&boot=0, ONE DEV.boot(), DEV.freeze(true), DEV.tick(30). Pose: startLevel(2, true) with NO DEV.cam: the seat and heading are derived per deal (#421). DEV.tick(1), the game's own resume(), DEV.tick(1), S.mode read as \"play\" before the shutter (no pause overlay in the frame). DEV.lum({stride:97}) mean/mid = 71.03 / 75.56. Shutter = canvas.toDataURL on the display canvas, re-encoded to colour type 2 by tools/png_rgb.js (#394). sampleRate 48000 is this page AudioContext measured. layout is state().layout == DEV.layoutSig() for this deal.",
+   "staleByBuild": null
+  },
+  {
+   "file": "level2-abatoir-ceiling",
+   "sha256": "e70331fa05799bd1c8c96b4b71c6df29f4c8ea1332b4e06c7afa473148e8a4e2",
+   "replaces": { "rev": "5d08c12", "build": "28a6fa4", "sha256": "47b1c87601d0809176f553751c4581d0140b4bfac790c9bde92543640c2e8de1", "mean": 76.5932 },
+   "canvas": "1440x763",
+   "origin": "https",
+   "install": "url-open",
+   "url": "https://lioreshai.github.io/breach-protocol-flash-next/?dev=1&seed=60&boot=0",
+   "seed": "60",
+   "level": 2,
+   "layout": "1425048100",
+   "build": "5d08c12",
+   "at": "2026-10-26",
+   "sampleRate": 48000,
+   "note": "RE-TAKEN from the DEPLOYED page for #597 at build 5d08c12. Route: ?dev=1&seed=60&boot=0, ONE DEV.boot(), DEV.freeze(true), DEV.tick(30). Pose: startLevel(2, true) then DEV.cam(P.x, P.y, undefined, -0.5539, 194.07) - the historical row verbatim. DEV.tick(1), the game's own resume(), DEV.tick(1), S.mode read as \"play\" before the shutter (no pause overlay in the frame). DEV.lum({stride:97}) mean/mid = 72.49 / 113.11. Shutter = canvas.toDataURL on the display canvas, re-encoded to colour type 2 by tools/png_rgb.js (#394). sampleRate 48000 is this page AudioContext measured. layout is state().layout == DEV.layoutSig() for this deal.",
+   "staleByBuild": null
+  },
+  {
+   "file": "level3-stack",
+   "sha256": "10196ca867546a530a16381b3a3df9c4a55e4909ab315a62c7725e2bc8b39f5e",
+   "replaces": { "rev": "5d08c12", "build": "28a6fa4", "sha256": "7de538cf16a1b5831b6acab9cfcd7a79d5c0259b8205a1c14d6ff0c72908d968", "mean": 57.2979 },
+   "canvas": "1440x763",
+   "origin": "https",
+   "install": "url-open",
+   "url": "https://lioreshai.github.io/breach-protocol-flash-next/?dev=1&seed=60&boot=0",
+   "seed": "60",
+   "level": 3,
+   "layout": "1154765829",
+   "build": "5d08c12",
+   "at": "2026-10-26",
+   "sampleRate": 48000,
+   "note": "RE-TAKEN from the DEPLOYED page for #597 at build 5d08c12. Route: ?dev=1&seed=60&boot=0, ONE DEV.boot(), DEV.freeze(true), DEV.tick(30). Pose: startLevel(3, true) then DEV.cam(1.5, 2.5, floorAt(1.5, 2.5), 0.60, 0). DEV.tick(1), the game's own resume(), DEV.tick(1), S.mode read as \"play\" before the shutter (no pause overlay in the frame). DEV.lum({stride:97}) mean/mid = 63.31 / 80.61. Shutter = canvas.toDataURL on the display canvas, re-encoded to colour type 2 by tools/png_rgb.js (#394). sampleRate 48000 is this page AudioContext measured. layout is state().layout == DEV.layoutSig() for this deal.",
+   "staleByBuild": null
+  }
+ ]
 }
