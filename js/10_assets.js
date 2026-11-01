@@ -1013,12 +1013,29 @@ WFIX.PIPE = fixTex(64, 64, (s, w, h) => {
   fixAge(s, w, h);
 });
 
+/* #695 THE HAZARD PAINT HAS TWO RANKS. Amber-on-charcoal is the most attention-grabbing paint in the
+   game, and until now it had ONE value, worn identically by a barrel you can detonate and by a stripe
+   that means "service run". So a room announced its plumbing before it announced its threats: at the
+   STACK's arrival seat the hazard-striped crate is the brightest large region in the frame and the
+   hostile nine metres out sits under it. The rank below is the arbiter those two authored rules never
+   had - it is a RANK rule, not a dim: the loud rank stays exactly where it was, on the surfaces that
+   answer to the player.
+     HAZARD_LOUD  an INTERACTIVE surface. A barrel (js/13_mesh.js PROPGEO.barrel, js/12_sprites.js
+                  PROP.barrel) swallows your shots and detonates; the page itself says "Barrels are not
+                  your friends". That band is information, so it keeps its bytes untouched.
+     HAZARD_QUIET SCENERY wearing the same law: a service run on a wall, a drum on a shelf, a tread
+                  lip. Same hue, same chevron geometry, same black contrast - it still reads as a hazard
+                  band at 10 m - at 0.74x the luma, which is what puts it UNDER a body rather than over
+                  it. Nothing behind the band moves, so the plate it sits on is untouched. */
+const HAZARD_QUIET = [118, 104, 48];
+
 /* A HAZARD BAND: chevron stripe between two seams, with rust bleeding out of the seams. Reads as
-   "this is a service run" from across a room. */
+   "this is a service run" from across a room - at the QUIET rank (#695), because a wall fixture has to
+   lose to a hostile standing in front of it. */
 WFIX.STRIPE = fixTex(64, 48, (s, w, h) => {
   s.rect(0, 0, w, h, [108, 112, 120], 1);
   const by = h * 0.30, bh = h * 0.40;
-  s.rect(0, by, w, bh, [150, 134, 56], 1);
+  s.rect(0, by, w, bh, HAZARD_QUIET, 1);
   for (let k = -1; k < 10; k++) {
     const x0 = k * w / 9;
     s.polygon([[x0, by], [x0 + w / 18, by], [x0 + w / 9, by + bh], [x0 + w / 18, by + bh]], [34, 33, 36], 1);
@@ -1068,7 +1085,7 @@ WFIX.RACK = fixTex(64, 64, (s, w, h) => {
       const cx = w * (0.20 + i * 0.30), hh = h * (0.10 + ((k + i) % 3) * 0.026);
       if ((k * 3 + i) % 4 === 3) {                              // a drum, on one shelf in three
         s.rect(cx - w * 0.075, sy - hh, w * 0.15, hh, [92, 96, 104], 1);
-        s.rect(cx - w * 0.075, sy - hh * 0.62, w * 0.15, hh * 0.14, [150, 134, 56], 0.85);
+        s.rect(cx - w * 0.075, sy - hh * 0.62, w * 0.15, hh * 0.14, HAZARD_QUIET, 0.85);   // #695 quiet rank: scenery
       } else {                                                 // a crate, stencilled on one face
         s.rect(cx - w * 0.09, sy - hh, w * 0.18, hh, [110, 100, 84], 1);
         s.rect(cx - w * 0.09, sy - hh, w * 0.18, h * 0.012, [72, 66, 56], 0.9);
