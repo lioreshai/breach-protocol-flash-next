@@ -1079,10 +1079,21 @@ if (MODE === 'alt') {
        puts no face on the frame IS the defect and a vacuous frame is a FAILURE, never a debt; the far
        read reports, because at that distance the march stops every column at the FIRST riser whose face
        has pixels and the treads behind it are floor-plane solves - the remaining half of #515, printed
-       here as a number instead of in prose so the next pass starts from it. Both arms re-deal and re-seat
-       before they render (the #385 lesson at :9400: renderWorld advances the sway clock, and a second
-       render of one seat moves ~1,000 px under the rifle that belong to no term at all). */
+       here as a number instead of in prose so the next pass starts from it. Both arms re-seat before they
+       render, and none of them re-deals (the #385 lesson at :9400: renderWorld advances the sway clock, and
+       a second render of one seat moves ~1,000 px under the rifle that belong to no term at all).
+       THE BLOCK HANDS THE CAMERA BACK. `seatAt` writes P.x/P.y/P.z/P.ang/P.pitch and puts every enemy to
+       sleep, and the rows that run after this one take the ARRIVAL seat straight out of P.x/P.y (`that
+       volume is visible on arrival`, and the #15 look-up debt STRICT=1 gates on it). A block that re-seats
+       and never restores therefore measures arrival from the last stair landing while its label still
+       claims the spawn seat: review measured exactly that on this head (L0 54 -> 52, L1 36 -> 7, L2 30 -> 3
+       of the tall columns, and L3's RECORDED 0 reading `KNOWN` -> `ok 20 of 146`, which is the STRICT-gated
+       arrival debt reading green because the probe moved the camera and nothing else moved). So the pose
+       this block inherits is captured before its first shot and written back after its last, and the
+       restore is ASSERTED below: borrowing the camera is fine, keeping it is a gate defect. */
     if (r.stairs >= 1) {
+      const pose0 = run('[P.x,P.y,P.z,P.ang,P.pitch,P.bob,P.kick]');
+      const sleep0 = run('ENEMIES.map(e=>e.state)');
       const fl = run(`(()=>{
         let best = null;
         for (let y = 1; y < MH-1; y++) for (let x = 1; x < MW-1; x++) {
@@ -1198,35 +1209,54 @@ if (MODE === 'alt') {
         const driftCtl = (() => { seatAt(Math.min(2, fl.k)); const a = shot(), b = shot(); let n = 0;
           for (let i = 0; i < a.buf.length; i++) if (a.buf[i] !== b.buf[i]) n++; return n; })();
         run('linkBoundaries()');                            // restore the derived bits this row cleared
+        /* HAND THE CAMERA BACK AND COUNT WHETHER IT WENT (see the note at the top of the block). Every
+           later row that reads P.x/P.y as the arrival seat, and every later row that asks an enemy what it
+           was doing, is only comparable with main's run if this restore ran. poseBack/sleepBack are 0 when
+           the pose and the AI states are the ones this block inherited, and they are clauses of the
+           integrity row below - so a future shot added here without a restore goes RED instead of quietly
+           moving a neighbour's measurement. */
+        run(`(()=>{const p=${JSON.stringify(pose0)}, s=${JSON.stringify(sleep0)};
+          P.x=p[0]; P.y=p[1]; P.z=p[2]; P.ang=p[3]; P.pitch=p[4]; P.bob=p[5]; P.kick=p[6];
+          for (let i = 0; i < ENEMIES.length && i < s.length; i++) ENEMIES[i].state = s[i];})()`);
+        const poseBack = run('[P.x,P.y,P.z,P.ang,P.pitch,P.bob,P.kick]')
+          .reduce((a, v, j) => a + (v === pose0[j] ? 0 : 1), 0);
+        const sleepBack = run(`(()=>{const s=${JSON.stringify(sleep0)};let n=0;` 
+          + `for(let i=0;i<ENEMIES.length&&i<s.length;i++) if(ENEMIES[i].state!==s[i]) n++; return n;})()`);
         const seatTxt = `flight ${fl.cells.length} cells at (${fl.cells[0] % MWn},${(fl.cells[0] / MWn) | 0}) `
           + `running ${['east', 'south', 'west', 'north'][fl.d]}, camera on the landing looking down the axis`;
-        /* THE SHAPE OF THE VERDICT, and it is deliberate. The pixel claim is a KNOWN row at the baseline
-           this run measures, promoted to a gate by STRICT=1 - the same ladder alt's arrival row and
-           contrast's cam-1 row use, and the reason is the measurement below: on three of the four dealt
-           levels the diff is EXACTLY 0 px while the control proves the face bits were cleared and the
-           axis walk proves the flight is dead ahead. That is #515's report, in pixels: the tread faces are
-           derived, counted and reachable, and they put nothing on the frame. A row that gated on a number
-           this build does not produce would be a red CI for a defect CI already knows about; a row that
-           printed nothing would let the next change make it worse unnoticed. So: the row's own integrity
-           clauses (harness reproducible, control reaches the byte, flight in frame) are a GATE on every
-           run, and the picture is the debt that flips green - and stays green - when the faces land. */
-        krow(`L${li} a staircase face reaches the frame at arm's length`,
+        /* THE SHAPE OF THE VERDICT, and it changed when #700's face term and #707's nosing landed. This row
+           was written as a KNOWN debt because the first run measured 0 px on three of the four dealt levels
+           - #515's report, in pixels. That is no longer what the dealt levels do: every level now puts
+           thousands of pixels and hundreds of hard edges of step face at arm's length, and the numbers are
+           printed in this row's own detail, so the picture claim is a GATE and the far read below stays the
+           reported debt. AGENTS.md's ladder runs the other way here: a row that reports a number this build
+           produces on every level cannot fail, and the whole point of this row is that it can - the run
+           where the draw test stops taking step faces (EK_STEP excluded at js/40_render.js's `if (inb &&
+           (vbs[pi] & (VB_FACE << (d << 2))))`) puts 0 px and 0 edges in all four of these rows while the
+           census row beside them still prints its `ok ... step faces`. The integrity clauses below stay the
+           always-on gate, because a 0 px diff that is a missing VIEW and a 0 px diff that is a missing FACE
+           are different defects and only the second one is red here. */
+        row(`L${li} a staircase face reaches the frame at arm's length`,
           near.n > 0 && near.edge >= 1,
           `${near.n} px of the ${PXW}x${PXH} frame differ between the flight and the SAME floors with the `
           + `face bit cleared, at ${near.dist.toFixed(1)} m - ${near.edge} hard edge(s), max ${near.mx.toFixed(1)} `
           + `luma, mean ${near.mean.toFixed(1)}; the control cleared ${near.cleared} face bits and ${near.stillSet} `
           + `remained, the centre axis crosses the flight at ${near.inView.toFixed(2)} m, and one arm rendered `
           + `twice differs by ${driftCtl} px. ${seatTxt}`);
-        /* The three clauses above are the GATE, and they are what makes the row above evidence rather
-           than a number: if the harness stops being reproducible, if the control stops reaching the byte,
-           or if the flight stops being in frame, this row goes RED on every run and the pixel row above
-           stops being interpretable. Vacuity is a FAILURE (AGENTS.md), so a seat that cannot see its own
-           flight is named here rather than allowed to print an honest-looking 0. */
+        /* The three clauses above are the GATE beside this one, and they are what makes the row above
+           evidence rather than a number: if the harness stops being reproducible, if the control stops
+           reaching the byte, if the flight stops being in frame, or if this block stops handing the camera
+           back, that row goes RED on every run and the pixel row above stops being interpretable. Vacuity is
+           a FAILURE (AGENTS.md), so a seat that cannot see its own flight is named here rather than allowed
+           to print an honest-looking 0. */
         row(`L${li} the staircase pixel row can fail`,
-          driftCtl === 0 && near.cleared >= 6 && near.stillSet === 0 && near.inView > 0,
+          driftCtl === 0 && near.cleared >= 6 && near.stillSet === 0 && near.inView > 0
+          && poseBack === 0 && sleepBack === 0,
           `harness drift ${driftCtl} px (want 0), ${near.cleared} face bits cleared by the control with `
           + `${near.stillSet} still set, flight first crossed on the centre axis at `
-          + `${near.inView.toFixed(2)} m (want > 0) - so a 0 px diff below means no face, not no view`);
+          + `${near.inView.toFixed(2)} m (want > 0) - so a 0 px diff below means no face, not no view; and `
+          + `${poseBack} of 6 pose fields plus ${sleepBack} enemy state(s) did NOT come back from these `
+          + `shots (want 0 + 0), which is the row below this block measuring a seat this block left behind`);
         krow(`L${li} a staircase reads across the room (${fl.k < 6 ? 'only ' + fl.k + ' m of flat landing' : '6 m'} seat)`,
           far.n > 0 && far.edge >= 1,
           `${far.n} px, ${far.edge} hard edge(s) at ${far.dist.toFixed(1)} m against ${near.n} px at `
