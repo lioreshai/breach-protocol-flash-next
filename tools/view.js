@@ -839,6 +839,16 @@ if (MODE === 'alt') {
          sources this issue's pass placed (LIGHTS entries marked ovl) and re-solves: a deck that reads lit
          in BOTH arms is lit by the deal, not by the overlook, and credits nothing. */
       let ovlDeck = 0, ovlDeckTot = 0, ovlCredit = 0, ovlDeckAt = null, ovlPlaced = 0, ovlNoGlow = 0;
+      /* #353 PM item 4: this census walks EVERY tall column beside a band at least half a metre up, which
+         is a wider population than the pairing pass authors (it keeps OVERLOOK_MAX pairs, spaced
+         OVERLOOK_SPACING apart), so "4 of 17 DARK" on RING TRANSPORT - where the rule places no source at
+         all - looked like four failures of the light pass and was in fact geography. The two lists below
+         come from the pass itself, so the split is the rule's own claim and not a re-derivation: a deck
+         that IS an authored pair is the rule's business, one that is not is outside its budget. */
+      const ovlPairDeck = new Set(overlookPairs.map(p => p[1]));
+      const ovlWhy = {};
+      if (typeof overlookLamps !== 'undefined') for (const o of overlookLamps) ovlWhy[o.deck] = o.why;
+      let ovlPairTot = 0, ovlPairLit = 0; const ovlPairDark = [], ovlOtherDark = [];
       for (const L of LIGHTS) { if (L.ovl) ovlPlaced++; if (L.stat && L.noglow) ovlNoGlow++; }
       {
         const scr = new Float32Array(N * N);
@@ -866,6 +876,11 @@ if (MODE === 'alt') {
             const ctl = directOn(j, L => L.ovl !== 1 && Math.abs(lightBand(L) - fz[j] * ZQ) <= ZQ + 1e-9);
             if (all >= 0.25) ovlDeck++;
             if (all >= 0.25 && ctl < 0.25) ovlCredit++;
+            if (ovlPairDeck.has(j)) {
+              ovlPairTot++;
+              if (all >= 0.25) ovlPairLit++;
+              else ovlPairDark.push(nx + ',' + ny + (ovlWhy[j] ? ' the pass says ' + ovlWhy[j] : ' and the deck-light pass left no record here'));
+            } else if (all < 0.25) ovlOtherDark.push(nx + ',' + ny);
             if (!ovlDeckAt) ovlDeckAt = { x: nx, y: ny, all: +all.toFixed(3), ctl: +ctl.toFixed(3) };
             break;
           }
@@ -982,7 +997,8 @@ if (MODE === 'alt') {
         linkIn, blockedStep, stairs, stairCells, ladCells, bandLink, noLink, steps: MAP.steps,
         headMax, headCols, runMax, runFloor, runTot, runs, reachUp, reachDown, reachOff, farReach,
         ovl, ovlAt, ovlEnemy, ovlShot, ovlDeck, ovlDeckTot, ovlCredit, ovlDeckAt,
-        ovlPlaced, ovlNoGlow, auth: !!(LEVELS[${li}] && LEVELS[${li}].authored),
+        ovlPlaced, ovlNoGlow, ovlPairTot, ovlPairLit, ovlPairDark, ovlOtherDark,
+        ovlPairsAuth: overlookPairs.length, ovlWhyCount: Object.keys(ovlWhy).length, auth: !!(LEVELS[${li}] && LEVELS[${li}].authored),
         // #353: how many OVERLOOK glyphs the authored plan declares. The plan still declares them when
         // the pass is switched off (OVERLOOK=off), which is what turns this level's row into a FAILURE
         // under the control instead of a KNOWN: the intent is in the plan, the ceiling is not in the grid.
@@ -1114,7 +1130,25 @@ if (MODE === 'alt') {
         `${r.ovlDeck}/${r.ovlDeckTot} overlook deck(s) read >= 0.25 direct light from a source standing on their own band` +
         (D ? ` - the deck at ${D.x},${D.y} reads ${D.all.toFixed(2)}` : '') +
         `; ${r.ovlPlaced} source(s) placed by an overlook rule, ${r.ovlCredit} of the lit decks lit ONLY by that rule` +
-        (r.ovlPlaced === 0 ? " (0 placed, so every lit deck here is the deal's doing, not a rule's)" : ''));
+        (r.ovlPlaced === 0 ? " (0 placed, so every lit deck here is the deal's doing, not a rule's)" : '') +
+        // #353 PM item 4: split the dark ones by who owns them, so "4 DARK" is no longer one number.
+        (dark ? ` - of the ${dark} dark, ${r.ovlPairDark.length} are pairs this rule authored and ` +
+          `${r.ovlOtherDark.length} are tall air beside a raised band the pairing pass never authored (its budget is 3 pairs, 5 cells apart)` : ''));
+      /* #353 PM item 4, and the row the old census could not write. The population here is the PASS'S OWN
+         ledger, not this probe's wider census, so it says something the KNOWN row above cannot: every
+         overlook this rule chose to author has a source standing on its deck. A dark deck it authored is
+         named with the condition the pass itself stopped on. THE ROWS THAT CAN FAIL IT: OVERLOOK=off
+         leaves no pair on a generated sector (vacuity, so a FAILURE), and DECKLIGHT=off leaves the pairs
+         with no ledger and the decks they lit dark - on the CI deal L0 and L2 both go red there. With
+         either pass on, RING TRANSPORT's 0-placed case is green here and says why: the deal's own lamps
+         already stand on all three of its decks, which the census above reads as geography, not a defect. */
+      const ovlAuthPop = r.auth ? r.ovlDeckTot : r.ovlPairTot;
+      row(`L${li} every overlook this rule authored has a source on its deck`,
+        ovlAuthPop >= 1 && r.ovlPairDark.length === 0 && (!r.auth || dark === 0),
+        `${r.auth ? r.ovlDeckTot + ' deck(s) the AUTHORED plan places - genLevel\'s pairing pass never runs on a plan' : r.ovlPairTot + ' authored pair deck(s)'}: ` +
+        `${r.auth ? r.ovlDeck : r.ovlPairLit} read lit from a source on their own band` +
+        (r.ovlPairDark.length ? ' and ' + r.ovlPairDark.length + ' do NOT: ' + r.ovlPairDark.join('; ') : '') +
+        `; the pass left ${r.ovlWhyCount} ledger entr(y|ies) - a pair with no ledger entry means the deck-light pass ran no code for it.`);
       /* #353, PM item 2 on the issue: `noglow` is an escape hatch from the #221 glow gate, so it must not
          become a general way to skip it. The count of disc-less static sources and the count this rule
          placed are printed side by side and must be EQUAL: a hand-authored or future-pass light carrying
@@ -1124,7 +1158,9 @@ if (MODE === 'alt') {
       row(`L${li} the disc-less light exemption is capped to the decks this rule placed`, noG === r.ovlPlaced,
         `${noG} static source(s) carry no glow disc, ${r.ovlPlaced} of them placed by the overlook deck pass - equal, so the exemption is not a general way past the #221 glow gate (a lamp authored elsewhere with the flag set lands here as a FAILURE)`);
       krow(`L${li} every overlook deck reads lit`, dark === 0,
-        `${dark} of ${r.ovlDeckTot} overlook deck(s) read DARK - no source stands on the band they are fought from`);
+        `${dark} of ${r.ovlDeckTot} overlook deck(s) read DARK - no source stands on the band they are fought from` +
+        (r.ovlOtherDark.length ? `, and every one of them is tall air beside a raised band that the pairing pass did NOT author ` +
+          `(${r.ovlOtherDark.slice(0, 4).join('; ')}${r.ovlOtherDark.length > 4 ? ' ...' : ''}) - that is the 3-pair budget, not the light pass` : ''));
     }
     row(`L${li} a column you can stand up in (>=2 units)`, r.headCols >= 1,
       `${r.headCols} open column(s) measure >= 2 units from floorAt to ceilAt, tallest ${r.headMax.toFixed(2)}; ` +

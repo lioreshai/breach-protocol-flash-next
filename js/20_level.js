@@ -211,6 +211,16 @@ let exitX = 0, exitY = 0, explored = null, bfsDist = null;   // read by an asser
    list must be rebuilt by the attempt that ships - it is reset at the top of authorVolume for exactly
    that reason. The placement pass below reads it to garrison the mezzanine. */
 let overlookPairs = [];
+/* #353 THE PAIRING PASS'S OWN LEDGER, one entry per pair it was asked to light, in `overlookPairs` order:
+   {low, deck, at, own, why}. It exists because the deck census in `tools/view.js` counts a WIDER
+   population than this rule authors - every tall column beside a band at least half a metre up, while
+   the pairing pass keeps at most OVERLOOK_MAX pairs spaced OVERLOOK_SPACING apart - so "4 decks DARK"
+   could not tell a deck the rule never reached from one it reached and failed to light. `why` is the
+   condition the pass itself stopped on: 'lit' (a source stands here, placed by this pass), 'own-band'
+   (the deck's own band already delivers OWN_MIN, so the deal garrisons it), 'no-free-cell' (every cell
+   of the deck's band is taken by a body or a prop), 'solid' (the up cell is not air after all).
+   Draws no RNG and writes no height, so it cannot move a pixel: it is a receipt, not a feature. */
+let overlookLamps = [];
 /* #709: the cells the #421 hall-deck growth pass raised, in the order it raised them, as cell indices.
    A module global for the same reason as the list above - genLevel RETRIES the layout and the list must
    belong to the attempt that ships, so it is reset at the top of authorVolume. It exists because the
@@ -3431,6 +3441,7 @@ function lightOverlookDecks(cfgL) {
      shipped-vs-knob-off light delta to "the top-up lamps and nothing else" went red, because a rule
      outside the knob appends a lamp to BOTH lists at different indices. Gated, PARITY is main's again on
      all four levels and only the shipped senses (LOCK/DEALT) move. */
+  overlookLamps = [];                        // #353: the ledger belongs to this level, knob-off included
   if (!overlookEnabled() || !deckLightEnabled() || !topUpEnabled() || !overlookPairs.length) return 0;
   const N = MAP.w, cell = MAP.cell, fz = MAP.fz;
   const OWN_MIN = 0.25;                        // :3009's "a floor that is actually LIT", not a new bar
@@ -3438,15 +3449,17 @@ function lightOverlookDecks(cfgL) {
     new Float32Array(N * N), new Float32Array(N * N)];
   const keep = [MAP.light, MAP.lR, MAP.lG, MAP.lB, MAP.lw];
   let placed = 0;
+  const ledger = (p, at, own, why) =>
+    overlookLamps.push({ low: p[0], deck: p[1], at: at, own: +own.toFixed(3), why: why });
   for (const p of overlookPairs) {
-    if (cell[p[1]]) continue;
+    if (cell[p[1]]) { ledger(p, -1, 0, 'solid'); continue; }
     const fl = fz[p[1]] * ZQ;
     for (const a of SC) a.fill(0);
     MAP.light = SC[0]; MAP.lR = SC[1]; MAP.lG = SC[2]; MAP.lB = SC[3]; MAP.lw = SC[4];
     for (const L of LIGHTS) if (Math.abs(lightBand(L) - fl) <= ZQ + 1e-9) splatLight(L, L.str);
     const own = MAP.light[p[1]];                        // what the deck's OWN band already delivers it
     MAP.light = keep[0]; MAP.lR = keep[1]; MAP.lG = keep[2]; MAP.lB = keep[3]; MAP.lw = keep[4];
-    if (own >= OWN_MIN) continue;                       // the deal already garrisons this deck with light
+    if (own >= OWN_MIN) { ledger(p, -1, own, 'own-band'); continue; }   // the deal already garrisons this deck
     // Strength by the deck band's own area - the #213 rule the authored lamps and the coverage top-up
     // both use - and the cell of that band nearest the lip that nothing else stands in, so the source is
     // at the edge the overlook is about rather than across the deck.
@@ -3472,11 +3485,12 @@ function lightOverlookDecks(cfgL) {
       if (!ENEMIES.every(q => Math.hypot(q.x - cx, q.y - cy) > 0.6)) continue;
       at = c; best = d;
     }
-    if (at < 0) continue;                               // every cell of the lip is taken: leave it be
+    if (at < 0) { ledger(p, -1, own, 'no-free-cell'); continue; }        // every lip cell taken: leave it be
     const x = (at % N) + 0.5, y = ((at / N) | 0) + 0.5;
     const tsc = Math.min(0.6, Math.max(TOPUP_MINF, order.length / TOPUP_TARGET));
     LIGHTS.push({ x: x, y: y, z: fl + LHOVER, band: fl, r: OVL_LAMP_R, str: TOPUP_BASE * tsc,
       col: cfgL.lampCol, stat: 1, ovl: 1, noglow: 1 });
+    ledger(p, at, own, 'lit');
     placed++;
   }
   return placed;
@@ -3507,6 +3521,14 @@ function genLevel(li) {
      THE STACK's own - a 400-cell grid reporting a region of 826 owned cells. An authored sector now has no
      record, which the row reads as its own vacuity FAILURE rather than as a prediction it did not make. */
   bandCand = null;
+  /* #353, same trap as the record above and it is live: `overlookPairs` is reset inside `authorVolume`,
+     which an authored plan returns past before the pairing pass runs, so THE STACK inherited level 2's
+     three pairs. Nothing on the authored path reads them - `authorOverlooked` and `lightOverlookDecks`
+     sit below this return - but a probe asking "which pairs did THIS sector author?" got the previous
+     sector's answer, and the ledger below is asked exactly that. Both lists belong to the level that
+     ships, so both are cleared here and not only in the pass that fills them. */
+  overlookPairs = [];
+  overlookLamps = [];
   const cfgL = LEVELS[li];
   /* An authored plan is data, so it is validated rather than hoped for: if the layers disagree the
      loader says so loudly and the generator's own path still ships a playable level, and `alt`'s
