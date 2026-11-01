@@ -1,5 +1,165 @@
 # Changelog
 
+## [v1.4.19] - 2026-11-01
+
+### Added
+
+- **Two more sectors have a surface that was put there on purpose** (#669, PR #719). The one deliberate
+  accent in the game was authored on RING TRANSPORT alone, so at the ARCHIVE SUBLEVEL and ABATOIR CORE
+  arrival seats an A/B of the accent against no accent painted *zero* pixels — two of four sectors were one
+  uninterrupted colour from floor to ceiling. ARCHIVE now ends its walls at the deck in a teal line along
+  the junction its far wall and crate runs sit on; ABATOIR puts the same mark on its column bases against
+  the room's red. Neither room is brighter for it, and THE STACK, which authors no accent, is byte-identical.
+- **The storey above you stops being a void when you get up there** (#353, PR #676). A raised band only
+  receives light from a source that stands on it, and both the lamp budget and the coverage top-up rank by
+  floor area, so a two-cell overlook lip lost every contest: 1 / 4 / 8 of the three generated sectors'
+  overlook decks were dark and the floor you are shot down onto read black. The deck of every pair the
+  overlook rule authors now carries a source, and only where that deck's own band would still sit under the
+  existing "a floor that is actually lit" floor. It draws no random numbers, so the rooms, props and enemies
+  are exactly the ones your seed dealt; only the light is new. From the seat below it is still a lip and a
+  slab face — what changed is the floor you take the stairs onto.
+- **The light up on the overlook deck now has something casting it** (#353, PR #730). Stand on a mezzanine in
+  ARCHIVE SUBLEVEL or ABATOIR CORE: the floor under you was lit in this release by the overlook rule's own
+  source (#353, PR #676), but nothing in the room cast it - the overlook lamp was a number in the lightmap,
+  so the upper storey read as a bright void. A lamp fixture now stands on the deck at the exact spot the
+  light comes from, using the same floor-fixture mesh you see in every corridor downstairs. No lumen was
+  added, moved or re-banded, and the deck is still reached by the stairs; this is geometry where the light
+  already was.
+
+### Changed
+
+- **The storey above you is nearer, and it has an edge** (#421, PRs #706, #732). On RING TRANSPORT the
+  mezzanine's near edge comes from 6.4 m to 5.0 m, with four columns inside arm's reach, and the slab
+  underside in your spawn frame nearly doubles (2787 → 4874 pixels at the heading you wake facing);
+  ARCHIVE's nearest deck edge comes from 9.2 m to 7.1 m. The slab's own side — the strip you see when you
+  walk up to where the floor above stops — was the darkest thing in the frame, a full-width near-black band
+  at eye level with nothing on it. Its top 16 cm now read as a machined nosing, a bright cool line, so the
+  deck above has a visible near edge you can aim over and the dark band under it outlines it instead of
+  hiding it. Deck edges on RING TRANSPORT lift by about 30 luma on average and no pixel anywhere gets
+  darker.
+- **A room stops announcing its crate before its threat** (#695, PR #722). Hazard-striped paint had one
+  brightness, worn identically by a barrel you can detonate and by a stripe that only means "service run".
+  It now has two ranks: a barrel keeps its yellow byte for byte — that colour is information, not
+  decoration — while hazard bands on walls and shelves and the plain crate drop to 0.74× the luma at the
+  same hue and chevron geometry. At the ARCHIVE arrival seat the barrels are now the loudest surfaces in the
+  room and they are the ones that react when you shoot them; at THE STACK the crate sits below the deck's
+  own brightness for the first time. No enemy got brighter.
+- **A staircase reads as steps** (#515, PRs #700, #707). Each step's vertical face now takes a smaller share
+  of the room's light than the tread above it, so a flight of three quarter-metre steps stops presenting as
+  one low band with a hard top edge — legible as a kerb, not as a way up — and the tread you are about to
+  step on carries a thin dark nosing line where the floor crosses into the higher step. Close to the flight
+  the treads stop blending into a warped plane and read as separate surfaces you can count. Drop faces,
+  cliff faces, walls and every flat level are byte-identical, and where a step meets a lip the crease keeps
+  the pixel rather than the new line.
+- **The long guns are held at the hip, not parked in the corner** (#632, PR #705). Carrying the shotgun or
+  the rifle without aiming, the support fist now sits on the pump or handguard it was meant to be wrapping
+  — it floated 14–16 mm below it — and the gripping hand has come up out of the bottom edge of the picture
+  onto the grip it is authored beside. About 21,000 pixels of the hip frame change on each gun. The pistol
+  is byte-identical and the aimed picture is untouched: both terms ramp to zero the instant you aim down
+  sights.
+- **A dark mezzanine now reports why it is dark** (#353, PR #729). Nothing on screen: the light pass keeps a
+  receipt for every overlook deck it was handed, so a deck that stays dark is now either a named condition
+  (the lamp was placed, the deck's own band already carries the light, a prop took the cell) or geography
+  the three-lamp-per-sector budget never asked about. Previously both printed the same "4 of 17 decks DARK".
+  One real bug came out of it: an authored sector reported the *previous* sector's overlook pairs.
+
+### Fixed
+
+- **An enemy is one body, not a fan of cards stood on end** (#655, PR #715). The seam wave that paints armour
+  was counted ten seams per authored body height whatever mass it was shading, so a brute's chest carried 26
+  hard-edged brightness steps across 3.8 px of surface — six whole periods, six faces alternately turning
+  toward and away from the key light — over a silhouette that was already good. The wave now takes its
+  density from the box it shades, one period across the torso, so a brute is one lit flank and one shadowed
+  flank (2.4 steps a row over 43 px runs). The brightness range is unchanged at 21 → 74: the ramp got
+  longer, not dimmer, and no lamp behind him dimmed.
+
+### Known limitations
+
+- The lit slab edge is only where a storey edge is actually in frame. At the graded arrival seats of ARCHIVE
+  SUBLEVEL, ABATOIR CORE and THE STACK the picture is byte-identical — those frames contain no step-up slab
+  face to paint — so the near-black region in ARCHIVE's arrival frame turns out to be overhead geometry,
+  which is the ceiling half of the same issue, not a riser (#421, PR #732).
+- Stairs are legible close and still read as a ramp past about 6.5 m: the nosing is painted on the rows the
+  ground pass owns, and at distance the flight is only a few rows tall (#515, PR #707).
+- Putting a floor above the arrival room costs the first frame light. The three generated arrival frames read
+  4–5 lumas below their previous values (69 / 76 / 68) because a ceiling underside is the darkest surface the
+  material family has. No lamp was moved, placed, scaled or re-weighted; the delivered-light check is
+  unchanged to the digit (#421, PR #706).
+- The overlook lamp is a plain floor fixture, not a ceiling fitting with a glow: it deliberately carries no
+  bloom disc, because a disc centred on a one-cell lip spills off its own surface past the glow gate. Up
+  close it is the corridor lamp stood on a deck, and there is no vantage yet whose frame proves the deck's
+  pixels changed - the recorded cameras never contain a deck (#353, PR #730).
+- The grown deck on RING TRANSPORT still runs past the last lamp — its give-back found nothing to hand back,
+  so that sector's band stands inside a lamp's reach while ARCHIVE's does not (#421, PR #706).
+- Shotgun and rifle wrists still leave the bottom edge of the frame on their way to a body behind the gun;
+  closing the rest means authoring the forearm's own seat, which this pass does not attempt (#632, PR #705).
+- No arrival frame yet shows a doorway you can see yourself walking through. Naming the opening a room's wall
+  break belongs to has been fixed for walls that run alongside the view, but standing the two columns a door
+  frame needs costs ABATOIR CORE five lumas at the spawn seat and puts it outside the exposure band, at every
+  depth, cladding and orientation tried (#631, PR #701).
+
+## [v1.4.18] - 2026-10-29
+
+### Added
+
+- **A landing now bends your knees** (#634, PR #694). Arriving on the floor used to stop the camera dead on
+  one frame and pile screen-shake on top of the stop. The eye now dips with the fall's own downward speed and
+  springs back over about a fifth of a second, and the dip is sized by how far you fell: dropping off a kerb
+  nudges you, dropping down a shaft takes the wind out of you.
+
+### Changed
+
+- **The gun at your hip reads as carried, not glued to the camera** (#632, PRs #690, #693). While walking, the
+  muzzle now points back inboard across the body, turned further in the longer the barrel, so pistol, shotgun
+  and rifle are three silhouettes instead of one shape with three textures; the pistol's support hand comes
+  onto the gripping hand instead of floating in the air holding nothing. The aimed picture is untouched — both
+  terms ramp to zero the instant you aim down the sights. The carry also rides shallower than first reviewed:
+  at the deeper pose the barrel crossed the centre of the frame and painted over the lit lip of the step you
+  were about to take.
+- **Where you wake now turns toward the storey above you** (#421, PR #698). When a sector has a deck over the
+  entry room but no deck edge the arrival rule could admit, it gave up and faced a fixed 0.6 radians — a
+  number left over from before the levels had height at all. It now sweeps sixteen bearings and takes the one
+  that frames the widest slab underside, but only when that underside is inside the range the rule itself
+  scores, so a heading never swings the frame at a ceiling too far away to see.
+- **An edge stores one answer** (#633, PR #692). Every floor boundary now records what kind of edge it is —
+  room, step, drop, rail or cliff — and the walk test, the renderer and the diagnostic probes all read that one
+  record instead of each re-solving the question from the two heights. A rim now behaves the same way from
+  whichever side you come at it; previously one level could show four different answers at one edge. Guard
+  rails exist as a recognised kind but no level authors one yet, so there is no lip you can be refused at.
+- **The columns you walk between finally wear the room's fittings** (#400, PR #685). Free-standing piers are
+  raised by a later pass than the one that furnishes walls, so they were the last faces in a generated level
+  that were bare concrete from floor to ceiling — measured at 27 of 35 furnished faces in the archive, 6 of 14
+  on the transport ring, 39 of 65 in the abattoir. Walking past a pier now tells you which sector you are in:
+  shelving in the archive, a drum on the transport deck, a duct collar in the abattoir.
+
+### Fixed
+
+- **Going down a staircase is walked, not fallen** (#634, PR #694). The eased step down left the feet about a
+  millimetre above the floor they were settling onto, and the airborne test read that lag as free fall, so a
+  straight walk down three treads was 13 airborne frames out of 54 and read as "step, fall, fall". A descent
+  the level was built as a climb — a stair, a ramp, a ladder — is now walked down.
+- **The first frame of a sector is no longer an empty box** (#631, PR #689). The wake room's bay break was
+  dealt at a fixed number of cells along a grid axis, which is only "so far down the view" if you face that
+  axis; you wake at roughly 45 degrees, and in a shallow room the candidate rows all fell outside the room and
+  the fallback stood the break off to one side of the view. Depth is now measured as ray travel, so the break
+  lands where the first view actually reaches.
+- **A heading rule stopped swinging the camera at a deck it had already called too far away** (#421, PR #698).
+  The underside sweep scored where a sight line *entered* a cell rather than where the column it draws
+  actually is, so a slab just past the scoring range could win on a hairline, turn the arrival frame by 20
+  luma and then show zero pixels of the underside it claimed to frame. Reach is now measured to the column
+  that draws, and a sweep that frames nothing answers with the heading the level would have used anyway.
+
+### Known limitations
+
+- A dealt staircase reaches the screen but still does not read as steps: its risers and its treads shade
+  identically, so a flight reads as a ramp with texture on it. The vertical faces are being separated from
+  their own treads now (#515, measured in PR #699).
+- The furnishing work (#400) now covers every generated face measured by the fixture census, but the issue
+  stays open while authored surfaces are checked against the same rule, and the arrival-deck framing work
+  (#421) is still under measurement rather than closed.
+- The new landing spring is set from measurement (about 0.2 s, critically damped) and has not been tuned by
+  feel; how heavy a fall *should* feel is still open for a human call (#634).
+
 ## [v1.4.17] - 2026-10-28
 
 ### Added
