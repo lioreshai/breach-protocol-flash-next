@@ -1414,7 +1414,27 @@ function authorVolume(cell, N, rooms, fz, vb, feat, cz) {
     c.reach = overSeat(m); c.near = overSeat(m, SEAT_NEAR);
     return c;
   });
-  if (selBand && overSeat(selBand) === 0) {
+  /* WHICH GAP THIS PREFERENCE IS FOR (#421, cycle 18). It used to ask the question at 12 m:
+     `overSeat(selBand) === 0`, whose default range is `SEAT_REACH`. A deal with a band ANYWHERE inside
+     12 m therefore never consulted the preference at all, and ARCHIVE SUBLEVEL's dealt seat is exactly
+     that deal: `SEAT-PLACE` scores all eight candidates on the untouched grid and reads `best 12 near /
+     26 in reach`, while `SEAT-RANGE` reads the BUILT grid at `21 in reach, 0 within 6 m, nearest 7.1 m`,
+     633 underside pixels. The band is near enough to count and too far to SEE - a one-quantum soffit at
+     7 m projects a couple of rows above the horizon. So the trigger is now the range an UNDERSIDE is
+     legible at, `SEAT_NEAR`, with the 12 m question kept as the second, weaker one: a deal whose band is
+     not even in reach still gets the reach-ranked retry it got before. That ordering is what makes this a
+     trigger change and not a re-rank of everything. Where the shipped band already puts a column inside
+     6 m (RING TRANSPORT: 4 at 5.0 m) `near > 0` implies `reach > 0`, both tests are skipped, and the level
+     is byte-identical to what it was; THE STACK is authored, so no pass here runs on it at all. Where NO
+     candidate can author a near column (ABATOIR CORE: all eight regions read 0 near, their seams are map
+     centre lines) the near ranking has nothing to offer, the reach ranking runs exactly as it did, and
+     that level is byte-identical too. Only a deal like ARCHIVE's - near possible, never tried - moves.
+     Still a preference and never a veto: a near-ranked candidate that will not link hands the band back
+     and the shipped pick goes in. No dice are drawn, no threshold, window, reach or bound moves, and the
+     shape authored is still one of the same eight rects. */
+  const nearDelivered = selBand ? overSeat(selBand, SEAT_NEAR) : 0;
+  const reachDelivered = selBand ? overSeat(selBand) : 0;      // BOTH read the committed band, before the rewind
+  if (selBand && (nearDelivered === 0 || reachDelivered === 0)) {
     /* Score the candidates on the grid feature 2 did NOT touch. `maskOf` skips any cell whose `fz` is
        nonzero, so scoring while the shipped pick is still committed measures each candidate with the
        shipped band's cells punched out of it - and `pickBand`, after the rewind below, then commits the
@@ -1424,14 +1444,41 @@ function authorVolume(cell, N, rooms, fz, vb, feat, cz) {
      fallback never fires, so this rewind changes no pixel there; it makes the fallback honest where it
      does. */
     rewind(cpBand);
-    const byReach = ranked.map(c => ({ c, v: overSeat(maskOf(c.r)) })).filter(o => o.v > 0)
+    const rankBy = range => ranked.map(c => ({ c, v: overSeat(maskOf(c.r), range) })).filter(o => o.v > 0)
       .sort((a, b) => b.v - a.v || b.c.r.quad - a.c.r.quad || b.c.n - a.c.n ||
         a.c.r.tag.localeCompare(b.c.r.tag));
-    if (byReach.length) {
-      selBand = pickBand(byReach.map(o => o.c));
-      if (selBand) bandTag += '+seat';                 // the census term is on the record in the tag
-      else { rewind(cpBand); pickBand(ranked); }       // a preference, never a veto: keep the shipped band
-    } else { rewind(cpBand); pickBand(ranked); }
+    /* One list, and the near one wins wherever it has a candidate, because that is the term the eye can
+       read. A near-ranked list is built ONLY for a band that delivered no near column, so a deal that
+       already stands a deck inside 6 m never reaches this line at all. Where NO candidate can author a near
+       column the weaker question runs - but only for a band that also delivered nothing in reach, which is
+       the case main ran: asking it of a band that is in reach would swap that band for another one, and on
+       the graded deal that is ABATOIR CORE, whose deck left the arrival reach altogether (14 in-reach
+       columns -> 0) the one time this was tried. */
+    /* ONE question at a time, and the near one first, because that is the term the eye can read. A
+       near-ranked list is built ONLY for a band that delivered no near column, so a deal that already
+       stands a deck inside 6 m never reaches this line at all. The near pick is then VERIFIED on the grid
+       it just wrote: `rankBy` scores the FULL rect, whereas the candidate table `surface`'s SEAT-PLACE
+       prints is scored with the shipped band still committed, so a rect can predict near columns it cannot
+       deliver - ABATOIR CORE does exactly that, and the first version of this trigger swapped its deck out
+       for one that painted nothing over the arrival room (14 in-reach columns -> 0, its VERT staircase
+       gone, its frame record red). A near pick that delivers none is therefore handed back, the weaker
+       12 m question runs for a band that is not even in reach - the case main ran - and failing both the
+       shipped pick goes back in. A preference, never a veto, and now a preference that has to show the
+       column it was bought for. */
+    const tries = [];
+    if (nearDelivered === 0) tries.push({ list: rankBy(SEAT_NEAR), tag: '+near', near: true });
+    if (reachDelivered === 0) tries.push({ list: rankBy(), tag: '+seat', near: false });
+    let moved = false;
+    for (const t of tries) {
+      if (!t.list.length) continue;
+      const sel2 = pickBand(t.list.map(o => o.c));
+      if (sel2 && (!t.near || overSeat(sel2, SEAT_NEAR) > 0)) {
+        selBand = sel2;                 // feature 2b grows the DECK that is actually committed
+        bandTag += t.tag; moved = true; break;
+      }
+      rewind(cpBand);
+    }
+    if (!moved) { rewind(cpBand); pickBand(ranked); }   // keep the shipped band exactly as it was
   }
   if (bandTag) authored.push('raisedSide:' + bandTag);
   else rewind(cpBand);
