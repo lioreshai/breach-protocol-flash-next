@@ -519,6 +519,17 @@ const MESH = (function () {
        vertex streams byte-identical. Props set it to PS_HCYC, and the `props` (G) row is the one that
        can see either axis missing. */
     this.rgY = 0;
+    /* #655 THE TORSO'S OWN SEAM COUNT, stated where the torso is authored. `TCYC` was one global
+       number - TS_CYC seams per AUTHORED BODY HEIGHT - so a face's period was `1 body height / 10`
+       regardless of how wide the mass under it was: across a brute's torso box, whose own authored
+       x+z span is 0.61 of a body height, that is six whole periods, and six periods of a triangle
+       wave read as seven or eight hard-edged slabs stood on end. Fists (#562) and the rig's metal
+       (#587) had already been tied to the mass they shade; the body was the last object on a
+       per-unit count. This register says ONE whole period across the torso box's own x+z span, so
+       brute / grunt / hound take their density from their own SPEC row and a body that is wider
+       turns more slowly. Bodies only: props and the rig leave it 0 and read PS_CYC / WS_CYC, and
+       the ORB and PORTAL fall back to TS_CYC, so their vertex streams and their pixels are unchanged. */
+    this.tcy = 0;
     /* #587 WEAPON STRUCTURE. A THIRD register, again so nothing already shipped moves: while `wg` is set
        the coord is authored in metres with a per-axis factor from `wSnap`, so a part's wave spans a whole
        even number of periods on every axis and the part's mean cannot move. Bodies and props leave it 0
@@ -1052,15 +1063,24 @@ const MESH = (function () {
      of pistol fist more than 8 px clear of any metal, at raster 465,311, against 550 px for the shotgun
      and 452 for the rifle, whose support fists are at least in the same volume as the part they hold.
      So the pistol's support hand comes onto the gripping hand (a two-handed grip, which is what a
-     handgun is actually held with) and the long guns' support fists come UP onto the axis of the pump /
-     handguard they are supposed to be wrapping instead of 16 mm below it.
+     handgun is actually held with) and the long guns' hands come UP into the gun's own silhouette:
+     the SUPPORT fist onto the axis of the pump / handguard it is supposed to be wrapping instead of
+     16 mm below it, and the STRONG fist up out of the bottom edge of the picture and onto the grip it
+     is authored beside. The long-gun entries were ZERO until this pass - the hip pose moved and the
+     long guns' hands did not, which is why `viewmodel`'s grip row read 35.7 / 36.5 % of hand surface
+     on weapon metal for them against 50.0 % for the pistol, with the clear pixels centred at raster
+     541,329 and 528,324: the corner, below and behind where the metal is. They measure 43.0 / 43.5 %
+     now (on-weapon 1581 / 1188 px against 703 / 742), and the rifle's support fist is ON the handguard
+     rather than 14 mm under it. Both terms are under 2 cm and hip-only - exactly zero at full ADS, so
+     the sight picture is byte-identical - and the wrist still leaves the frame through the bottom edge,
+     because the arm belongs to a body standing behind the gun, not to the gun.
      It is applied inside vHand AND vArm from the same numbers, which is the point of putting it here
      rather than at the call sites: the wrist is emitted from the fist's own anchor, so a shift that
      moved only the fist would detach the arm from the hand it belongs to. */
   const VMGRIP = {
     pistol:  [[0, 0, 0], [0.013, 0.010, -0.018]],
-    shotgun: [[0, 0, 0], [0, 0, 0]],
-    rifle:   [[0, 0, 0], [0, 0, 0]],
+    shotgun: [[0, 0.012, 0], [0.006, 0.016, -0.010]],
+    rifle:   [[0, 0.014, 0], [0.008, 0.018, -0.012]],
   };
   /* NO fallback by kind. This used to read `VMGRIP[b.kind] || VMGRIP.pistol`, and the `|| pistol` half
      was a load-bearing bug: `kind` is stamped by `wBuild` only, so shotgun and rifle geometry built by
@@ -1362,8 +1382,16 @@ const MESH = (function () {
     }
     b.tip(q.pitch, hipY, 0);                         // the wind-up tips everything above the hip
     b.rg = 1;                                        // #232: the torso is the region that gets structure
+    /* #655: the torso's seam period IS the torso box, not a twelfth of the body. The box's coord is
+       `x + z` (rgY is 0 for a body), so across its own authored half-extents the coord spans
+       `2*(shLat*1.05 + torso*0.42)`, and setting the count to the reciprocal makes that exactly ONE
+       period: one ramp, so one flank faces the key and one does not. It is whole, which is what keeps
+       the wave's mean at zero over the body the way #533 requires of a crate; it is NOT even, and that
+       is affordable here because the one-step far coarsening is unreachable at this period - a body
+       would have to project under TS_MINP px, i.e. stand ~200 m out, where no pixel of it is torso. */
+    b.tcy = 1 / (2 * (s.shLat * 1.05 + s.torso * 0.42));
     b.box(0, (hipY + shTop) * 0.5, 0, s.shLat * 1.05, (shTop - hipY) * 0.5, s.torso * 0.42, sk);
-    b.rg = 0;
+    b.rg = 0;                                        // the coord register stays: only torso vertices carry one
     b.box(0, hipY + 0.02, 0, s.hipLat * 1.3, 0.045, s.torso * 0.34, dk);
     /* The neck. The torso box's top face now sits SHOULDER_LIFT*headR above the shoulder line and the
        head box starts above it, so the band this tube has to fill is shorter than the gap between the
@@ -1543,7 +1571,7 @@ const MESH = (function () {
        failure #76 asks to make loud. A missing row is a bug in the caller, so it throws. */
     if (!SPEC[kind] && !PROPGEO[kind]) throw new Error('MESH: no geometry authored for kind "' + kind + '"');
     const b = geoFor(kind, 0, 0, 0, 0, 0);
-    const mdl = { kind, seg: segLimbs(), p: new Float32Array(b.p), t: new Uint16Array(b.t), em: Uint8Array.from(b.e), st: Float32Array.from(b.s), nV: b.p.length / 6, tris: b.t.length / 3 };
+    const mdl = { kind, seg: segLimbs(), p: new Float32Array(b.p), t: new Uint16Array(b.t), em: Uint8Array.from(b.e), st: Float32Array.from(b.s), tcy: b.tcy || 0, nV: b.p.length / 6, tris: b.t.length / 3 };
     MODELS[mk] = mdl;
     return mdl;
   }
@@ -1908,7 +1936,11 @@ const MESH = (function () {
        `m.hd` - so each class reads ONE law, the two blocks here being the same expression with each class's
        own three constants, and `tri` gains no path. */
     const vm = !!MDL;                                    // the view model, and MDL is only ever the rig
-    const TCY = vm ? WS_CYC : (pr ? PS_CYC : TS_CYC);
+    /* #655: a body's count comes off its own geometry (`m.tcy`, authored where the torso box is);
+       everything else keeps the constant it had. Props stay on PS_CYC and the rig on WS_CYC, and a
+       PROPGEO thing that is not a prop - the ORB, the PORTAL - has no tcy and falls back to TS_CYC
+       with all-zero coords, which is the flat branch it shipped on. */
+    const TCY = vm ? WS_CYC : (pr ? PS_CYC : (m.tcy || TS_CYC));
     let TPR = BH * sc / (Math.max(NEAR, Math.abs(tYc)) * TCY);
     if (!ST) TPR = 0;                                     // no torso coords on this mesh: no term
     else if (TPR < TS_MINP) { TPR *= 2; TCYC = TCY / TS_LMAX; } else TCYC = TCY;
