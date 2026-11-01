@@ -821,6 +821,20 @@ let MIPAX = 1, MIPAR = 4;
    none of them adds a THIRD copy of the ground pixel body: a switch shows up as a zero slope, a zero
    offset or one fewer load, not as a new loop. */
 let GJIT = 1, GLRP = 1, GNDAX = 1, AXMIN = 1, GLC = null, GNDFT = 1, GNDRO = 1, GNDFB = 1, GNDOF = 1, GNDNB = 1;
+/* #616 - THE FAR BAND WEARS A SURFACE. Take five settled WHAT a far pixel answers with (the material's mip
+   mean) and take seventeen settled what it answers when there is NO material; neither gave the band a
+   SURFACE, so past the radius the picture is one flat colour with no grain, no seam and no material
+   identity, and walking toward it resolves nothing (measured on ABATOIR CORE: a neighbouring-pixel step of
+   1.15 luma inside the band against 3.76 on the roof above it and 2.0-2.7 on the deck under it). GNDTX
+   brings the fetch back at the price the wash charged for nothing: ONE texel per pixel, from the mip level
+   THIS PIXEL's footprint selects by the same `mipSel` the near path calls at the same distance, applied as
+   a RATIO over that mip's own mean and only into the LIT share of a pixel that has material under it, so
+   the average over any patch of the band is exactly the fill that shipped - this adds STRUCTURE at the
+   brightness #199 owns, it is not a relight. FARBLEND is the radius multiple the fetch ramps in across
+   (FARB -> FARB*FARBLEND, smoothstepped, the shape the haze and VOIDK already use), which is what keeps a
+   surface from appearing all at once where the row crosses the radius. GNDTX 0 is the A/B and puts the
+   flat slab back: `DEV.set('gndtex', 0)`. */
+let GNDTX = 1, FARBLEND = 1.6;
 /* #19 take seventeen - THE FAR ANSWER'S OTHER HALF. Take five settled what a far pixel ANSWERS with
    (the material's mip mean, because a row out there spans more world than the chain holds). It left one
    question unanswered: what a far ray answers with when it has NO MATERIAL to average, because it left
@@ -1487,6 +1501,10 @@ function texAvg(mm) {
   mm.meanNE = nLit ? [sr / nLit, sg / nLit, sb / nLit] : [sr / n, sg / n, sb / n];
   mm.meanEM = nEm ? [er / nEm, eg / nEm, eb / nEm] : mm.meanNE;
   mm.emFrac = nEm / n;
+  /* #616: the mean over EVERY texel, emissive rule included. This is the denominator the far fetch is
+     divided by, so a texel brighter than the mip brightens that pixel and a darker one darkens it, and the
+     AVERAGE over a band that spans many texels of this level is exactly the fill that shipped. */
+  mm.meanALL = [(sr + er) / n, (sg + eg) / n, (sb + eb) / n];
   return mm;
 }
 
@@ -1574,6 +1592,10 @@ function castGround(flash, fcR, fcG, fcB) {
       texAvg(mm);
       const dcN = mm.meanNE, dcE = mm.meanEM, wEm = mm.emFrac, wLit = (1 - mm.emFrac) * (1 / FARFAN);
       let ar = wEm * dcE[0] * invRow, ag = wEm * dcE[1] * invRow, ab = wEm * dcE[2] * invRow, offN = 0;
+      /* #616: the same light sum WITHOUT the material mean carried into it - the share of this row a
+         surface can be laid onto. Only IN-MAP samples count: a ray that left the level has no surface to
+         wear, and #19 take seventeen's void answer is not multiplied by anything. */
+      let surR = 0, surG = 0, surB = 0;
       for (let s = 0; s < FARFAN; s++) {
         const cm = fcam + fstep * s;
         const sx = (camX + (dirX + planeX * cm) * dRaw) | 0, sy = (camY + (dirY + planeY * cm) * dRaw) | 0;
@@ -1587,6 +1609,11 @@ function castGround(flash, fcR, fcG, fcB) {
           ar += wLit * dcN[0] * (baseRow + li * (inMap ? lta[ci * 3] * inv128 : 1));   // buy no material
           ag += wLit * dcN[1] * (baseRow + li * (inMap ? lta[ci * 3 + 1] * inv128 : 1));
           ab += wLit * dcN[2] * (baseRow + li * (inMap ? lta[ci * 3 + 2] * inv128 : 1));
+          if (inMap) {                                // #616: the surface rides the in-map share only
+            surR += wLit * (baseRow + li * lta[ci * 3] * inv128);
+            surG += wLit * (baseRow + li * lta[ci * 3 + 1] * inv128);
+            surB += wLit * (baseRow + li * lta[ci * 3 + 2] * inv128);
+          }
         }
         if (!inMap) offN++;
       }
@@ -1615,7 +1642,51 @@ function castGround(flash, fcR, fcG, fcB) {
          depth, and repainting these rows textured is the far-band look change the `bands`/`exposure`
          gates have not been re-based for. gndSteps is 0 on every flat level, so no flat frame runs it. */
       let dBand = dRaw;
-      px.fill(pack(clampi(ar + fRRow), clampi(ag + fGRow), clampi(ab + fBRow)), y * BW, y * BW + BW);
+      /* #616 - A SURFACE FOR THE FAR BAND, and it lands AFTER the void coverage correction above, which
+         owns the share of this row that has no material at all (the re-author note on PR #618). The fill
+         stays a fill for every pixel the fetch cannot prove: the mip level is chosen ONCE PER ROW by the
+         same `mipSel` the near path calls at this distance, and the fetch is one texel load, four integer
+         compares (the same BOTH-axes bounds test the fan above uses - an index is one number) and three
+         multiply-adds. `fB` is the flat answer with the in-map lit share removed; `fQ` is that share per
+         unit of texel, so a patch of the band that spans many texels of this level averages back to the
+         shipped fill, texel by texel. FARBLEND ramps the share in from FARB to FARB*FARBLEND so no surface
+         boundary moves when the player walks across the radius. */
+      let fpx = 0, fams = 0, famw = 1, mFh = 1, famd = null, fwx = 0, fwy = 0, fdx = 0, fdy = 0,
+        fBr = 0, fBg = 0, fBb = 0, fQr = 0, fQg = 0, fQb = 0;
+      if (GNDTX && tex && tex.mips && (surR | surG | surB) !== 0) {
+        const cfF = dRow / absP, wxr = planeX * stepBase * dRow, wyr = planeY * stepBase * dRow;
+        const mF = tex.mips[Math.min(mipSel(wxr, wyr, dirX * cfF, dirY * cfF, sc, tex), tex.mips.length - 1)];
+        texAvg(mF);
+        const blF = (dRow - FARB) / (FARB * (FARBLEND - 1));
+        const shF = blF <= 0 ? 0 : blF >= 1 ? 1 : blF * blF * (3 - 2 * blF);
+        const alF = mF.meanALL;
+        if (shF > 0 && alF[0] > 0 && alF[1] > 0 && alF[2] > 0) {
+          fpx = 1; fams = sc * mF.w; famw = mF.w; mFh = mF.h; famd = mF.data;
+          fwx = camX + (dirX - planeX) * dRow; fwy = camY + (dirY - planeY) * dRow;
+          fdx = wxr; fdy = wyr;
+          fBr = ar - surR * shF * dcN[0]; fBg = ag - surG * shF * dcN[1]; fBb = ab - surB * shF * dcN[2];
+          fQr = surR * shF * dcN[0] / alF[0]; fQg = surG * shF * dcN[1] / alF[1]; fQb = surB * shF * dcN[2] / alF[2];
+        }
+      }
+      if (fpx) {
+        const rowF = y * BW;
+        for (let x = 0; x < BW; x++, fwx += fdx, fwy += fdy) {
+          const sx = fwx | 0, sy = fwy | 0;
+          if (sx < 0 || sy < 0 || sx >= N || sy >= N) {   // no level, no surface: the void answer, flat
+            px[rowF + x] = 0xFF000000 | clampi(ar + fRRow) << 16 | clampi(ag + fGRow) << 8 | clampi(ab + fBRow);
+            continue;
+          }
+          const ux = fwx * fams, uy = fwy * fams;
+          let tx = ux | 0, ty = uy | 0;
+          if (ux < 0) tx--;                              // floor, not truncate - the guard both copies use
+          if (uy < 0) ty--;
+          const cF = famd[(ty & (mFh - 1)) * famw + (tx & (famw - 1))];
+          px[rowF + x] = 0xFF000000 | clampi(fBb + fQb * (cF >> 16 & 255) + fBRow) << 16 |
+            clampi(fBg + fQg * (cF >> 8 & 255) + fGRow) << 8 | clampi(fBr + fQr * (cF & 255) + fRRow);
+        }
+      } else {
+        px.fill(pack(clampi(ar + fRRow), clampi(ag + fGRow), clampi(ab + fBRow)), y * BW, y * BW + BW);
+      }
       zbuf.fill(dBand, y * BW, y * BW + BW);              // depth = the row's own solve, unclamped
       if (!isF && gndSteps) {
         /* A whole-row fill cannot carry a per-ray answer, and the slab that closes these rays covers only
@@ -2200,6 +2271,8 @@ let gSer = 0, gMSer = -1, gMRow = -1, gMPl = 0, gMDS = 0, gMDfa = 0, gMFog = 0, 
   gMFG = 0, gMFB = 0, gMBase = 0, gMCx0 = 0, gMCy0 = 0, gMCxs = 0, gMCys = 0,
   gMCf = 0, gMAx = 0, gMWs = 0, gMAn = 1, gMAr = 4, gMN = 0, gMDist = -1, gMMirOn = 0,
   gMFar = 0, gMVoid = 0, gMWnR = 0, gMWnG = 0, gMWnB = 0, gMWErr = 0, gMWEg = 0, gMWEm = 0, gMLift = 0,
+  gMTx = 0, gMTxS = 0, gMTxW = 1, gMTxH = 1, gMTxD = null,
+  gMTxA = 0, gMTxB = 0, gMTxC = 0, gMTxD0 = 0, gMTxD1 = 0, gMTxD2 = 0,
   gLSer = -1, gLSX = 0, gLSY = 0, gML0 = 0, gML1 = 0, gML2 = 0, gMMir = 0,
   gMA0 = 0, gMA1 = 0, gMA2 = 0, gMB0 = 0, gMB1 = 0, gMB2 = 0, gMD0 = 0, gMD1 = 0, gMD2 = 0;
 
@@ -2255,7 +2328,33 @@ function gndBuild(row, isF, absP, pl, tex, sc, fcR, fcG, fcB, fl, amb, dOv) {
     gMWErr = mm.meanEM[0] * wEm; gMWEg = mm.meanEM[1] * wEm; gMWEm = mm.meanEM[2] * wEm;
     let vR = (dc - FARB) * VOIDK;                              // the SAME ramp as the row copy, this
     gMVoid = FARVOID ? (vR > 1 ? 1 : vR < 0 ? 0 : vR) : 0;     // pixel's OWN solve, not the row's
-  } else { gMFar = 0; gMVoid = 0; }
+    /* #616 - THE SECOND COPY of the far fetch (AGENTS.md: change one copy and you have changed the
+       other). Same rule as castGround's far branch, same ONE lookup per pixel: the mip level THIS
+       pixel's footprint selects by the same `mipSel` the row calls at the same distance, read at this
+       pixel's own landing point and mixed in as a RATIO over that mip's own mean, so the band keeps the
+       brightness it had and gains only the material's structure. `gMTxA/B/C` is the mean-only answer the
+       fetch has NOT replaced and `gMTxD0/1/2` the texel's share, so a patch that spans many texels of
+       this level averages back to the fill that shipped. The share ramps in from FARB to FARB*FARBLEND,
+       so a pixel that crossed the radius on the way here crossed no surface boundary. It rides the
+       pixel's OWN coverage: a pixel with no material under it (`!own`, the #19 take-seventeen void) pays
+       the air answer below, unmodulated. `DEV.set('gndtex', 0)` and a material with no mip chain both
+       give exactly what shipped. */
+    gMTx = 0;
+    if (GNDTX && tex.mips) {
+      const sbF = 2 / BW, cfF = dc / absP;
+      const mF = tex.mips[Math.min(mipSel(planeX * sbF * dc, planeY * sbF * dc, dirX * cfF, dirY * cfF, sc, tex),
+        gMN - 1)];
+      texAvg(mF);
+      const blF = (dc - FARB) / (FARB * (FARBLEND - 1));
+      const shF = blF <= 0 ? 0 : blF >= 1 ? 1 : blF * blF * (3 - 2 * blF);
+      const alF = mF.meanALL;
+      if (shF > 0 && alF[0] > 0 && alF[1] > 0 && alF[2] > 0) {
+        gMTx = 1; gMTxS = sc * mF.w; gMTxW = mF.w; gMTxH = mF.h; gMTxD = mF.data;
+        gMTxA = gMWnR * (1 - shF); gMTxB = gMWnG * (1 - shF); gMTxC = gMWnB * (1 - shF);
+        gMTxD0 = gMWnR * shF / alF[0]; gMTxD1 = gMWnG * shF / alF[1]; gMTxD2 = gMWnB * shF / alF[2];
+      }
+    }
+  } else { gMFar = 0; gMVoid = 0; gMTx = 0; }
 }
 
 /* Where a DESCENDING ray goes under a slab, as the crossing's own distance along (dir + plane*cam) - or
@@ -2641,6 +2740,20 @@ function groundPixel(x0, x1, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb
      that pixel's own light times the mean, plus the wash's emissive share, which takes no light and
      keeps only the fog term, exactly as an emissive texel does one screen nearer in either copy. */
   if (gMFar) {
+    /* #616 - the DEFERRED copy of the far surface. Same one lookup, same ratio, THIS pixel's own mip and
+       its own landing point; the void arm below is untouched because a pixel with no material has no
+       surface to wear (AGENTS.md counts the duplication: change one copy and you have changed the other). */
+    if (gMTx && own) {
+      const ux = cx * gMTxS, uy = cy * gMTxS;
+      let tx = ux | 0, ty = uy | 0;
+      if (ux < 0) tx--;                              // floor, not truncate - the guard both copies use
+      if (uy < 0) ty--;
+      const cF = gMTxD[(ty & (gMTxH - 1)) * gMTxW + (tx & (gMTxW - 1))];
+      px[row + x] = 0xFF000000 | clampi((gMTxC + gMTxD2 * (cF >> 16 & 255)) * lb + gMWEm + gMFB) << 16 |
+        clampi((gMTxB + gMTxD1 * (cF >> 8 & 255)) * lg + gMWEg + gMFG) << 8 |
+        clampi((gMTxA + gMTxD0 * (cF & 255)) * lr + gMWErr + gMFR);
+      continue;
+    }
     /* #19 take seventeen, the SECOND copy (AGENTS.md counts the duplication as the price of the row
        loop's registers): a far pixel whose ray left the level pays the air colour, the same answer the
        row loop's fan gives its off-map samples and the same colour the `p === 0` horizon row fills. It
