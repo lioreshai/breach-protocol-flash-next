@@ -304,6 +304,133 @@ function fgLine(tag, r) {
       + 'this way.' : '');
 }
 
+/* ---------------------------------------------------------------- the live frame cost (#529) */
+
+/* One page load, one level, four arms of the SAME seat, all timed in the same page:
+     dealt   the heading this build's seatFacing handed the player when the level loaded
+     pinned  the literal 0.6 rad every seat used before arrival bearings were derived (#421),
+             which is the heading tools/view.js's `seat price` row times its ratio against
+     up      the dealt heading with the eye tilted at the storey the level built overhead
+     circle  the same seat through 8 yaw samples, so a swing that is really "any heading costs
+             about the same" cannot hide behind the two named ones
+ * The clock is frozen (DEV.freeze) so every arm renders the same world: what varies between the
+ * arms is what the eye contains, which is exactly the quantity #529 argues about. The frame is
+ * timed with the page's own performance.now() around DEV.tick, so it includes everything the
+ * running game puts in a frame - the first-person rig included - which is the difference between
+ * this read and the harness's: view.js times renderWorld() batches into a node-side stub buffer,
+ * this times the frame a player actually gets. Both numbers are wanted, and they are allowed to
+ * disagree; when they do, the ratio that reaches the player is this one.
+ *
+ * WHY THE ARMS RUN IN INTERLEAVED ROUNDS AND ARE TAKEN BY MEDIAN. The first version timed one arm
+ * after another in a fixed order. On the two sectors whose dealt heading IS the pinned literal
+ * (RING TRANSPORT and ABATOIR CORE, both 0.600 rad here) the SAME pose timed 41.84 ms in one arm and
+ * 54.43 ms in the other - a 1.30x swing made by nothing but the order the arms ran in, on a shared
+ * runner. A ratio taken off a drifting timer is not a measurement, so every arm is sampled once per
+ * round, the round rotates which arm goes first, and each arm's number is the median of its rounds.
+ * The sectors where the dealt heading equals the pinned one are then a free instrument: one pose
+ * timed twice, so their ratio has to land on 1.00, and one that does not says the timer is drifting.
+ * That is printed as IDENTITY SPREAD on the row and fails the read - a ratio that cannot tell an
+ * identical frame from itself cannot price a turned one. */
+function costRoute(o) {
+  const N = +o.frames || 4, R = +o.rounds || 5, M = +o.yawFrames || 3;
+  return `(function(){
+  var out={arms:{}};
+  DEV.boot(); DEV.freeze(true); DEV.tick(30);
+  startLevel(${o.level | 0}, true); DEV.tick(2);
+  DEV.set('grain',0);
+  DEV.clear();
+  DEV.tick(1);
+  try{resume();}catch(e){out.resumeErr=String(e);}
+  DEV.tick(1);
+  var st=DEV.state();
+  out.name=st.levelName; out.layout=st.layout; out.mode=st.mode; out.p=st.p;
+  var x=st.p.x, y=st.p.y, z=st.p.z, dealt=st.p.ang, acc={};
+  function sample(tag,ang,pitch,n){
+    DEV.cam(x,y,z,ang,pitch);
+    DEV.tick(2);                                  // settle: the first frame of a new view pays the caches
+    var t0=performance.now();
+    for(var i=0;i<n;i++) DEV.tick(1);
+    (acc[tag]=acc[tag]||[]).push((performance.now()-t0)/n);
+  }
+  var UP=BH*${YAWUP}, arms=[['dealt',dealt,0],['pinned',${PINHEAD},0],['up',dealt,UP]];
+  for(var r=0;r<${R};r++){
+    for(var k=0;k<3;k++){var a=arms[(k+r)%3]; sample(a[0],a[1],a[2],${N});}
+  }
+  for(var q=0;q<${R};q++) for(var k2=0;k2<8;k2++) sample('c'+k2,dealt+k2*Math.PI/4,0,${M});
+  for(var t in acc) out.arms[t]=acc[t];
+  out.buf=[BW,BH]; out.tier=DEV.stats().tier; out.gfx=st.gfx;
+  return out;})()`;
+}
+
+const median = a => { const s = a.slice().sort((x, y) => x - y); return s.length % 2 ? s[s.length >> 1]
+  : 0.5 * (s[s.length / 2 - 1] + s[s.length / 2]); };
+const med = a => +median(a).toFixed(2);
+const ID_TOL = 0.10;                              // how far one pose may time from itself, in x
+
+async function cost(o) {
+  const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'livecost-'));
+  const deadline = Date.now() + (+o.timeout || 240) * 1000;
+  const page = await openPage(o.url, profile, deadline);
+  const rows = [];
+  try {
+    for (const lvl of o.levels) {
+      if (Date.now() > deadline - 12000) { rows.push({ level: lvl, error: 'deadline' }); break; }
+      await page.goto(o.url);
+      if (!rows.length && !(await page.evaluate('!!(window.DEV && DEV.on)')))
+        throw new Error(o.url + ' is not a ?dev=1 page (js/90_dev.js stayed inert)');
+      const v = await page.evaluate(costRoute({ level: lvl, frames: o.frames, rounds: o.rounds,
+        yawFrames: o.yawFrames }));
+      rows.push(Object.assign({ level: lvl }, v));
+    }
+  } finally {
+    page.close();
+    fs.rmSync(profile, { recursive: true, force: true });
+  }
+
+  let swung = 0, ident = 0, drift = 0;
+  for (const r of rows) {
+    if (r.error) { console.log('COST L' + r.level + ' ERROR ' + r.error); continue; }
+    const a = r.arms, dealt = r.p.ang;
+    const dms = med(a.dealt), pms = med(a.pinned), ums = med(a.up);
+    const circle = []; for (let k = 0; k < 8; k++) circle.push(med(a['c' + k]));
+    const differs = Math.abs(Math.atan2(Math.sin(dealt - PINHEAD), Math.cos(dealt - PINHEAD))) > 1e-6;
+    const ratio = dms / Math.max(1e-6, pms);
+    const upR = ums / Math.max(1e-6, dms);
+    const lo = Math.min.apply(null, circle), hi = Math.max.apply(null, circle);
+    if (differs) { if (ratio >= LIVE_SWING) swung++; }
+    else { ident++; if (!(Math.abs(ratio - 1) <= ID_TOL)) drift++; }
+    console.log('COST L' + r.level + ' ' + r.name + ' seat ' + r.p.x.toFixed(2) + ',' + r.p.y.toFixed(2) +
+      ' dealt ' + dealt.toFixed(3) + ' rad (' + (differs ? 'a turned seat' : 'the pinned heading itself') +
+      ')  dealt ' + dms + '  pinned ' + pms + '  up ' + ums + ' ms/frame | dealt/pinned ' + ratio.toFixed(2) +
+      'x, turned up ' + upR.toFixed(2) + 'x, yaw circle ' + lo.toFixed(2) + '-' + hi.toFixed(2) + 'x  [' +
+      r.tier + '/' + r.gfx + ' ' + r.buf.join('x') + ', layout ' + r.layout + ', ' + a.dealt.length + ' round(s)' +
+      (differs ? '' : ', IDENTITY SPREAD ' + ratio.toFixed(2) + 'x' + (Math.abs(ratio - 1) <= ID_TOL ? '' : ' DRIFT')) + ']');
+  }
+  if (page.pageErrors.length) console.log('NOTE page exceptions: ' + page.pageErrors.slice(0, 3).join(' | '));
+  if (!ident) {
+    console.log('LIVECOST no sector sat at the pinned heading, so nothing here checked the timer against ' +
+      'itself - no ratio below means anything. FAILURE, not a clean bill.');
+    process.exitCode = 1;
+    return rows;
+  }
+  if (drift) {
+    console.log('LIVECOST ' + drift + ' of ' + ident + ' sector(s) timed ONE POSE ' + ID_TOL.toFixed(2) +
+      'x apart across its two arms - the timer is drifting, so the dealt/pinned ratios above are not ' +
+      'measurements. Raise --rounds or --frames. Vacuity is a FAILURE: a ratio that cannot tell an ' +
+      'identical frame from itself cannot price a turned one.');
+    process.exitCode = 1;
+    return rows;
+  }
+  console.log('LIVECOST ' + ident + ' sector(s) timed one pose to within ' + ID_TOL.toFixed(2) +
+    'x, so the timer is steady; dealt/pinned reads ' +
+    rows.filter(r => !r.error).map(r => (med(r.arms.dealt) / med(r.arms.pinned)).toFixed(2) + 'x').join(' ') +
+    ' in the RUNNING game, ' + swung + ' of them at or over the ' + LIVE_SWING.toFixed(2) +
+    'x that would put a player-visible swing behind the harness ratio (tools/view.js `seat price`). ' +
+    (swung ? 'The swing reaches the frame.' : 'The swing does not reach the frame: the harness prices a ' +
+      'buffer, the player gets this.'));
+  return rows;
+}
+
 /* ---------------------------------------------------------------- commands */
 
 async function cap(o) {
@@ -343,6 +470,14 @@ async function cap(o) {
   return rows;
 }
 
+/* The swing that would make the harness ratio a player fact rather than a harness fact. Set from the
+ * rework brief on #529, not from a wish: at or over 1.4x the frame a player gets at the dealt heading
+ * is measurably worse than the heading the seats used to use, and a change that flattens it is worth
+ * making. Under it, the ~2x the harness reports lives in the harness. */
+const LIVE_SWING = +(process.env.LIVE_SWING || 1.40);
+const PINHEAD = 0.6;                        // the pre-#421 literal, and view.js's VMHEAD
+const YAWUP = 0.25;                         // P.pitch as a fraction of BH: the eye on the slab overhead
+
 async function main() {
   const cmd = process.argv[2];
   const url = arg('url', 'https://lioreshai.github.io/breach-protocol-flash-next/?dev=1&seed=' + arg('seed', '60') + '&boot=0');
@@ -377,6 +512,13 @@ async function main() {
     return;
   }
 
+  if (cmd === 'cost') {
+    const levels = (arg('levels', '0,1,2,3') + '').split(',').map(Number);
+    await cost({ url, levels, frames: arg('frames', 24), yawFrames: arg('yawFrames', 8),
+      timeout: arg('timeout', 240) });
+    return;
+  }
+
   if (cmd === 'fg') {
     const files = process.argv.slice(3).filter(a => a[0] !== '-');
     if (files.length !== 2) { console.log('usage: node tools/livecap.js fg <with-body.png> <without.png>'); process.exit(2); }
@@ -391,6 +533,13 @@ async function main() {
     '  node tools/livecap.js cap  --url <dev page> [--levels 0,1,2,3] [--dist 10] [--out DIR]',
     '  node tools/livecap.js both --url <dev page> [--levels 0,1,2,3] [--dist 10] [--out DIR] [--why]',
     '  node tools/livecap.js fg   <with-body.png> <without.png>',
+    '  node tools/livecap.js cost [--url <dev page>] [--levels 0,1,2,3] [--frames 24] [--yawFrames 8]',
+    '',
+    'cost = the running game\'s own frame, timed at one seat four ways: the heading the deal authored,',
+    'the pinned literal 0.6 rad, the same heading turned up at the storey, and a yaw circle. The',
+    'running-game A/B that tools/view.js\'s `seat price` row has to agree with (#529): the harness',
+    'times renderWorld batches in node, this times the frame a player gets. A sector whose dealt',
+    'heading IS the pinned one prices nothing; if no sector does, the row says so and exits non-zero.',
     '',
     'both = one page load per arm, same seed, clock frozen, grain off, one body ~dist m down the',
     'view line; then the fg row: the value (luma) and chroma (saturation / hue) step at the pixels',
