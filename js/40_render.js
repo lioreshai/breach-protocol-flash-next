@@ -84,6 +84,32 @@ let SEAM = 1, SEAMD = 0.62, SEAMU = 0.13, SEAMW = 0.16, SEAMC = 0.22;
    looks, which is the legibility #669's acceptance asks for. A level that authors no accent (THE STACK,
    and every MAP with no level) pays one extra falsy test per wall pixel and is byte-identical. */
 let RISER_ACC_H = 0.12, RISER_ACC_F = 0.45, RISER_ACC_B = 0.09;
+/* #421 THE NOISING ON THE EDGE OF A FLOOR ABOVE YOU. The underside of a slab now wears plate, joists and a
+   shadow gap (`SLAB_ALB` below, `buildCeilSlab` in js/20_level.js), and a review of the delivered frames
+   still found a full-width near-black band under it: the slab's own SIDE, seen from the room beneath it.
+   Every multiplier in this pass is helpless there - a riser is denied `WALLB` (the line below that reads
+   `riser ? 0 : WALLB`), so in a room with nothing lit the face is ambient-only and the seam and accent
+   terms, which are MULTIPLIES, darken black into blacker. The edge that tells you where the deck above
+   stops - the thing you need in order to know what you can shoot over - was therefore the darkest line in
+   the frame. #353's own body asked for exactly this and never got an issue: "a lamp / lit riser edge on
+   the upper band, so the mezzanine reads as a floor rather than a silhouette".
+   It is a NOISING, not a lamp: the top LIP_H metres of the face are blended toward the colour a machined
+   edge catches, and the blend happens AFTER the light term, so it is light-exempt the way an emissive
+   texel is (compare the wall body's own emissive return) and stays fogged like everything else. That is
+   the whole design: it cannot be out-lit by a dark room, because it is not lit at all, and it cannot
+   out-light the deck over your head either, because it is a 16 cm strip on the vertical face under it and
+   adds no light to any cell - `surface`'s ORDER rows, which compare the CEILING band with the FLOOR band,
+   cannot see it. #410's cap on the vault lift is untouched and no light field is written.
+   WHICH faces, by reading, not by re-deriving: `riser` (the stop is the side of a floor slab, not a wall),
+   `rz1 > rzn` (the face's TOP is the far floor and it stands above the floor the ray came from, so it is a
+   step UP into a storey - a drop face seen from above has `rz1 === rzn` and keeps its crease, which #517
+   rules for), and `!stepFace` - the stored kind (#633) has to not read EK_STEP, so the treads of a flight,
+   which #515 gave their own orientation term, are not each crowned with a nosing. A ladder or a ramp link
+   makes a climb EK_STEP at both ends (js/20_level.js:384), so those are out too. Flat levels pay one
+   `y <= lipY` compare against -1 per wall pixel and draw nothing, exactly like the accent above; a level
+   with no raised band never sets `lipY`. `SLABLIP = 0` is the A/B that puts the old picture back. */
+let SLABLIP = 1;
+const LIP_H = 0.16, LIP_F = 0.5, LIP_K = 0.52, LIP_R = 168, LIP_G = 176, LIP_B = 190;
 /* #515 THE STEP FACE IS NOT THE TREAD. A flight that draws every one of its faces can still read as one
    low band with a hard top edge, because the light field is ONE VALUE PER COLUMN taken at a band and it
    says nothing about which way the surface points: a 0.25 m riser and the tread above it are joined by
@@ -3491,6 +3517,17 @@ function castWalls(flash, fcR, fcG, fcB) {
       const ky = y1 - RISER_ACC_B * hpx;
       if (ky < de) { kerbOn = 1; kerbY = ky; kerbInv = 1 / (RISER_ACC_B * hpx * RISER_ACC_F); }
     }
+    /* #421: where the edge nosing ends on this column, in the same shape as `accY` above - a row to
+       compare against, -1 for "no band", and the loop pays one compare per pixel either way. The band is
+       the strip [rz1 - LIP_H, rz1] i.e. rows [y0, y0 + LIP_H*hpx]; `rz1` is the TOP of the slab side and on
+       a step UP that is the FAR floor, the deck's own level, so the band sits under the lip you could walk
+       off and not on the crease #517 gave the near deck. Clamped to `de`, so a face whose visible sliver is
+       shorter than the band is all nosing, which is what a near edge seen from under the slab is. */
+    let lipY = -1, lipInv = 0;
+    if (SLABLIP && riser && !stepFace && rz1 > rzn + 1e-9) {
+      const ly = y0 + LIP_H * hpx;
+      if (ly > ds) { lipY = ly < de ? ly : de; lipInv = 1 / (LIP_H * hpx * LIP_F); }
+    }
     let ty = (ds - y0) * tstep, idx = ds * BW + x;
     if (ty >= mh) ty %= mh;                                // v wraps every world unit
     /* #178 contact shadow on a face. A face has ONE world x,y for its whole span, so the planar part of
@@ -3572,7 +3609,19 @@ function castWalls(flash, fcR, fcG, fcB) {
           shM = 1 - shK * (SHADOW_ZF + (1 - SHADOW_ZF) * w * w);
         }
       }
-      px[idx] = 0xFF000000 | clampi(cb * lb * gk * shM + fB) << 16 | clampi(cg * lg * gk * shM + fG) << 8 | clampi(cr * lr * gk * shM + fR);
+      let rr = cr * lr * gk * shM + fR, rg = cg * lg * gk * shM + fG, rb = cb * lb * gk * shM + fB;
+      /* #421: the lit nosing, AFTER the light and before the byte - see LIP_H at the top of this file. The
+         weight is multiplied by `inv` (1 - fog) the way this pass's emissive return multiplies by it, so a
+         distant edge fades with the rest of the frame instead of glowing through fog. `y <= lipY` is the
+         same one-compare-per-pixel shape as the accent's `y <= accY`, and `lipY` is -1 on every face that
+         is not the edge of a storey, including every face of a flat level. */
+      if (y <= lipY) {
+        let lw = (lipY - y) * lipInv;
+        if (lw > 1) lw = 1;
+        lw *= LIP_K * inv;
+        rr += (LIP_R - rr) * lw; rg += (LIP_G - rg) * lw; rb += (LIP_B - rb) * lw;
+      }
+      px[idx] = 0xFF000000 | clampi(rb) << 16 | clampi(rg) << 8 | clampi(rr);
     }
     pixFilled += (de - ds + 1);
 
