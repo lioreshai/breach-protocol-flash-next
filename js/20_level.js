@@ -211,6 +211,13 @@ let exitX = 0, exitY = 0, explored = null, bfsDist = null;   // read by an asser
    list must be rebuilt by the attempt that ships - it is reset at the top of authorVolume for exactly
    that reason. The placement pass below reads it to garrison the mezzanine. */
 let overlookPairs = [];
+/* #709: the cells the #421 hall-deck growth pass raised, in the order it raised them, as cell indices.
+   A module global for the same reason as the list above - genLevel RETRIES the layout and the list must
+   belong to the attempt that ships, so it is reset at the top of authorVolume. It exists because the
+   growth pass runs inside authorVolume, BEFORE any fixture is placed, so the one thing its score cannot
+   see (does a lamp stand on the band it just raised?) is only knowable after the lamp pass has run; the
+   give-back pass near the end of genLevel reads this list and nothing else. */
+let grownDeck = [];
 /* #421 THE PLACEMENT CENSUS, one record per deal: what each of feature 2's eight candidate regions would
    have put over the arrival room, scored before any of them is committed. `surface`'s SEAT-PLACE row reads
    it; nothing in the renderer does. Null until a level is generated. */
@@ -1134,6 +1141,7 @@ function authorVolume(cell, N, rooms, fz, vb, feat, cz) {
   const d0 = reach();
   const authored = [];
   overlookPairs = [];                       // #353: the retry loop above must not inherit the last attempt
+  grownDeck = [];                           // #709: same reason - the give-back pass reads the shipped attempt
 
   /* ---- feature 1: rooms you can stand up in ------------------------------
      FIRST, before any floor has been stepped - and that ordering is the #282 fix. TALL ROOM used to run
@@ -1393,6 +1401,82 @@ function authorVolume(cell, N, rooms, fz, vb, feat, cz) {
   }
   if (bandTag) authored.push('raisedSide:' + bandTag);
   else rewind(cpBand);
+
+  /* ---- feature 2b (#421): the deck has to GROW toward the room you wake IN --
+     Feature 2 can only CHOOSE among eight quadrants and half-planes, and on a 26- to 36-cell map every one
+     of them puts its seam on a half-map line, so the plateau is never near: `surface`'s SEAT-RANGE reads
+     `0 within 6 m, nearest 9.2 / 6.4 / 12.0 m` on the three generated sectors at 69f6f54, while THE STACK -
+     authored, so no generator pass runs - reads 4 columns at 3.6 m. Two shapes were tried here before this
+     one and both moved exactly zero census pixels, which is why the deck is GROWN rather than placed:
+       * the cells touching the arrival hall's own air. A deck reads as a DECK over a column only where its
+         floor reaches that column's own ceiling - `ceilAt` takes a neighbour's floor only where it is
+         HIGHER and `buildCeilSlab` flags on the same inequality - and the arrival hall is a tall atrium, so
+         one band against CZ_ROOM air stands inside the ceiling thickness: 22-31 cells authored on every
+         graded deal, no slab, no riser face, every SEAT row byte-identical to main.
+       * the cells touching low-clearance air near the seat, carried up by `linkBand`. Every one of them was
+         handed back: an unlinked pocket is stranded, `linkBand`'s give-back returns it to the datum and the
+         call reports success having linked nothing (`link=true`, 0 of 24 cells still raised, four deals).
+         It cannot be linked because the only four-cell run that reaches such a mouth crosses the arrival
+         room, and the arrival floor must not become stair treads - a stepped hall is what moved all four
+         seats 10 cells and cost ARCHIVE 2384 and RING 2787 underside pixels at the previous attempt.
+     So each round raises the still-flat cells 4-adjacent to the deck that is already raised - the plateau's
+     own edge, one cell nearer the seat - and keeps the round only if nothing that was reachable became
+     unreachable AND every grown cell is reachable in the new BFS. Contiguity IS the link: a grown cell
+     shares the plateau's floor, so the stair or ladder feature 2 already authored is still the way up, and
+     this pass authors no link, writes no `vb` bit and writes no wall. The hall's floor is snapshotted and
+     compared at the end - if it moved at all the whole pass rewinds, so a seat cannot move here by
+     construction rather than by census.
+     Growth is capped at LEDGE_MAX cells over LEDGE_GROW rounds, biased to cells nearest the seat and to
+     cells that put a deck over LOW-clearance air inside the seat's own 6 m - the columns SEAT-RANGE counts.
+     A deal that cannot grow keeps the level it had; no dice are drawn, so every deal that does not grow is
+     byte-identical to main, and one that does differs by `fz` on at most LEDGE_MAX cells. */
+  const LEDGE_MAX = 16, LEDGE_GROW = 3, LEDGE_REACH = 9, LEDGE_NEAR = 6;   // metres = cells
+  if (selBand) {
+    const cpL = cut(), deck = selBand.slice(), grew = [];
+    const hz = [];
+    for (let y = spawnR.y; y < spawnR.y + spawnR.h; y++) for (let x = spawnR.x; x < spawnR.x + spawnR.w; x++)
+      hz.push(fz[y * N + x]);
+    for (let round = 0; round < LEDGE_GROW && grew.length < LEDGE_MAX; round++) {
+      const cand = [];
+      for (let y = 1; y < N - 1; y++) for (let x = 1; x < N - 1; x++) {
+        const i = y * N + x;
+        if (cell[i] || fz[i] !== 0 || flat[i] || inSpawn(x, y) || deck[i]) continue;
+        if (feat[i] !== FEAT_NONE || cz[i] !== CZ_DEF || d0[i] < 0) continue;
+        const dd = Math.max(Math.abs(x - spawnR.cx), Math.abs(y - spawnR.cy));
+        if (dd > LEDGE_REACH) continue;
+        let adj = 0;
+        for (let d = 0; d < 4; d++) if (deck[(y + DIRY[d]) * N + x + DIRX[d]]) { adj = 1; break; }
+        if (!adj) continue;
+        let cover = 0;
+        for (let d = 0; d < 4; d++) {
+          const nx = x + DIRX[d], ny = y + DIRY[d];
+          if (!open(nx, ny)) continue;
+          const j = ny * N + nx;
+          if (fz[j] * ZQ + Math.max(ZQ, cz[j] * ZQ) > BAND_UP * ZQ + 1e-9) continue;    // tall air: no slab
+          if (Math.max(Math.abs(nx - spawnR.cx), Math.abs(ny - spawnR.cy)) <= LEDGE_NEAR) cover++;
+        }
+        cand.push([i, dd, -cover]);
+      }
+      if (!cand.length) break;
+      cand.sort((a, b) => a[2] - b[2] || a[1] - b[1] || a[0] - b[0]);
+      const cp = cut(), added = [];
+      for (const c of cand) {
+        if (grew.length + added.length >= LEDGE_MAX) break;
+        added.push(c[0]); deck[c[0]] = 1; mark(c[0]); fz[c[0]] = BAND_UP;
+      }
+      if (!added.length || !keeps(d0)) { for (const i of added) deck[i] = 0; rewind(cp); break; }
+      const dn = reach();
+      let ok = true;
+      for (const i of added) if (dn[i] < 0) { ok = false; break; }
+      if (!ok) { rewind(cp); for (const i of added) deck[i] = 0; break; }
+      for (const i of added) grew.push(i);
+    }
+    let hall = true;
+    for (let y = spawnR.y, k = 0; y < spawnR.y + spawnR.h && hall; y++)
+      for (let x = spawnR.x; x < spawnR.x + spawnR.w; x++, k++) if (fz[y * N + x] !== hz[k]) { hall = false; break; }
+    if (grew.length && hall) { authored.push('hallDeck:' + grew.length); grownDeck = grew.slice(); }
+    else rewind(cpL);
+  }
 
   /* ---- feature 3: a sunken block in the room furthest from spawn ---------
      The RASTER BUDGET caps this shape, and that is a measured fact rather than a taste: a cell below
@@ -3907,6 +3991,79 @@ function genLevel(li) {
     // `seat` is the #154 seat, chosen before any pass that draws, so the entry fitting is deterministic
     // and draws no RNG of its own.
     placeCeilFixtures(cfgL, seat[0], seat[1]);
+    /* ---- #709 THE DECK STOPS WHERE THE LIGHT DOES -----------------------------------------------
+       The growth pass (feature 2b) raises floor it cannot score: it runs inside `authorVolume`, and the
+       lamp loop BELOW this line places the first fixture of the deal, so at the moment a cell is chosen
+       there is no lamp position, no lightmap and no band coverage to score it against. The cost of that
+       ordering is measured, not suspected: over the 12 gated dice `alt`'s L0 dark-ground share goes
+       1.6 -> 2.3 % and its attribution 92.9 -> 72.2 %, because 44 of the 158 dark cells are grown floor
+       with no source standing on their band - a slab beside the seat that reads as a black shelf, which
+       is the opposite of the criterion the deck exists to serve.
+       So the choice is finished here, once the information exists: give back - return to the datum -
+       every cell this level's growth pass raised whose OWN band no fixture reaches, in reverse growth
+       order so the deck shortens from its far edge inward. "Its own band" is the shipped kernel's own
+       predicate, not a restatement of it: `lightBand` for the source's floor and one quantum either way
+       (the band term in `splatLight`), and the source's own disc radius for reach, so the deck keeps
+       exactly the cells a lamp would have lit had it been raised and loses exactly the ones it would not.
+       THREE THINGS THIS MAY NOT DO, each tested rather than assumed:
+         * it may not strand a cell. The give-back is kept only if nothing that was reachable becomes
+           unreachable AND every still-raised grown cell is still reachable, both read off a fresh
+           `bfsReach` from the same seed genLevel gated the deal on. A deck with a hole punched in the
+           middle is a plateau the stair no longer reaches.
+         * it may not dig a pit. The given-back cell has to be reachable in the NEW search too: a cell
+           handed back at the bottom of the deck is a one-metre pocket you can drop into and not climb
+           out of, which is a navigation defect wearing a lighting fix.
+         * it may not move a light. Nothing here writes `LIGHTS`, a lamp's `r`, `str` or `col`, `amb` or
+           a tint - it reads their positions and writes `fz` only, and it runs BEFORE the splat loop so
+           the lightmap is baked once from the grid the player finally stands on. The `flatparity` LOCK
+           delivered-light clause is the census that says so.
+       Writing `MAP.fz` means calling `linkBoundaries()` (AGENTS.md), and a cell handed back is byte-for-
+       byte the cell main dealt: same floor, and therefore same derived boundary bits. A level that grew
+       nowhere runs no cells through this loop, and an authored plan has an empty list, so THE STACK and
+       every deal that could not grow are untouched. No random number is drawn. */
+    const DECK_LIT = 0.05;   // the darkness line the dark-cell counters use - see OWN_MIN's note above
+    if (grownDeck.length) {
+      const raised = new Uint8Array(N * N);
+      for (const i of grownDeck) raised[i] = 1;
+      const bs = rooms[0].cy * N + rooms[0].cx;                 // the same seed the deal was gated on
+      const reachNow = () => bfsReach(MAP.cell, MAP.fz, N, bs, MAP.vb, MAP.feat);
+      /* Direct light read through the SHIPPED kernel on a scratch map that is swapped out and back
+         exactly as found - the same device the coverage top-up pass above uses for its own `ownMaps`, for
+         the same reason: restating the disc here is how this rule would drift from the one the renderer
+         pays. FIVE arrays, not one aliased buffer: `splatLight` ADDS into all five, so a single shared
+         buffer would make the number read below the sum of light, colour channels and weight. Measured
+         that mistake rather than reasoning about it - one buffer and five agree on L0 and L1 over the
+         gated dice (136 dark of 6872, 92 of them covered, both ways) and differ by 2 cells on L2
+         (507 against 509), which is the size of the error here and no reason to keep arithmetic that is
+         wrong on its face. The pre-blur direct term is the right thing to author against, which is the
+         top-up pass's own argument and the reason a datum pool cannot buy a deck cell: blurLight carries
+         light across a lip, so counting delivered light would let the floor below stand in for a lamp on
+         the deck. */
+      const SC = [new Float32Array(N * N), new Float32Array(N * N), new Float32Array(N * N),
+        new Float32Array(N * N), new Float32Array(N * N)];
+      const litHere = i => {
+        const keep = [MAP.light, MAP.lR, MAP.lG, MAP.lB, MAP.lw];
+        for (const a of SC) a.fill(0);
+        MAP.light = SC[0]; MAP.lR = SC[1]; MAP.lG = SC[2]; MAP.lB = SC[3]; MAP.lw = SC[4];
+        for (const L of LIGHTS) splatLight(L, L.str);
+        MAP.light = keep[0]; MAP.lR = keep[1]; MAP.lG = keep[2]; MAP.lB = keep[3]; MAP.lw = keep[4];
+        return SC[0][i];
+      };
+      let dk = reachNow(), gave = 0;
+      for (let k = grownDeck.length - 1; k >= 0; k--) {
+        const i = grownDeck[k];
+        if (litHere(i) >= DECK_LIT) continue;                   // the deck stays where the light stops
+        const was = MAP.fz[i];
+        MAP.fz[i] = 0; linkBoundaries();
+        const d1 = reachNow();
+        let ok = d1[i] >= 0;                                    // not a pit, and nothing lost...
+        for (let j = 0; ok && j < N * N; j++) if (dk[j] >= 0 && d1[j] < 0) ok = false;
+        for (let j = 0; ok && j < grownDeck.length; j++) if (raised[grownDeck[j]] && d1[grownDeck[j]] < 0) ok = false;
+        if (ok) { raised[i] = 0; dk = d1; gave++; }
+        else { MAP.fz[i] = was; linkBoundaries(); }
+      }
+      if (gave) MAP.deckGive = gave;                             // census only: a probe reads it off MAP
+    }
     // lightmap splat, then a smoothing pass and the per-cell tint
     for (const L of LIGHTS) splatLight(L, L.str);
     blurLight(); floorLampField(); buildTint();   // #199: the floor AFTER the blur, which replaces the array
