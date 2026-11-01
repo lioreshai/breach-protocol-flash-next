@@ -1549,8 +1549,17 @@ const MESH = (function () {
        post < plate < aperture (77 < 117 < 172), so a lamp still reads as a lamp and not as a dark stick.
        Crate and barrel stay at PROP_ALB: this is not a cheaper lamp paint, it is the one prop kind whose
        own pool is the brightest floor in its room. */
-    const PROP_ALB = 0.88, PROP_ALB_LAMP = 0.80;
-    const PROPBAND = { crate: PROP_ALB, barrel: PROP_ALB, lamp: PROP_ALB_LAMP };
+    /* #695 gives the crate its OWN rank. PROP_ALB was one scalar for both box props, and the two are not
+       the same kind of object to look at: a barrel is a thing you shoot and is painted to be found (the
+       hazard band it wears is loud by ruling, see HAZARD_QUIET in js/10_assets.js), while a crate is cover
+       that buys nothing - and it was the brightest large region at THE STACK's arrival seat, over the body
+       standing nine metres behind it. This is the SAME rank rule as that one, applied to the prop table:
+       the crate drops below the deck-and-wall band so a body is the first thing the eye lands on, the
+       barrel keeps #371's value untouched, and the lamp keeps its own for the reasons above. Nothing in the
+       figure-ground step moves: this takes a prop DOWN, and `contrast`'s body-separation rows are the check
+       that no body paid for it. */
+    const PROP_ALB = 0.88, PROP_ALB_LAMP = 0.80, PROP_ALB_CRATE = 0.78;
+    const PROPBAND = { crate: PROP_ALB_CRATE, barrel: PROP_ALB, lamp: PROP_ALB_LAMP };
     const band = PROPBAND[kind];
     for (let i = 3, v = 0; i < b.p.length; i += 6, v++) {
       const k = band && !b.e[v] ? band : 1;         // emissive vertices keep their authored bytes
