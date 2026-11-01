@@ -2694,7 +2694,17 @@ if (MODE === 'flatparity') {
 // this camera deals. What moved is L1's place in the four-level render sequence, the cross-level carry #708
 // is about; this head did not re-measure the isolated-hash control (a level rendered with no earlier level),
 // so that cause is named from the row's own A/B and is labelled, not proven here.
-const OLD = refRecord('flatparity', 'PARITY', 'md5', ['b52b3fc27cb1bc179f020a3c67146413', '6e48eac4e96cc19893b13dcb5506bdbe', '25b213ba7e0e9564820367b5a27d9d17', '8e7a29fbeaefce82c4197a21545f9871'])
+  /* #655 x MAIN-SYNC onto main f1f7985, MEASURED on THIS merged tree in ONE run: all four bytes re-key again
+     on top of the two moves above, because a body repainted at the pixels he covers is exactly what this row
+     is for - paint, not placement. THE CONTROL IS WHAT DID NOT MOVE: this run's four LAMPS=off means print
+     96.4 / 51.0 / 39.3 / 85.5, OLDM's own four digits to the tenth, while all four digests move, and the gap
+     row below prices the top-up lamps with residual 5.2e-7 / 1.5e-6 / 1.4e-6 / 5.5e-7, so the lamp record is
+     main's underneath. The DEALT quadruple below comes back MAIN'S to the digest in this merged tree, where
+     the dealt census is main's growth pass at 184 / 263 / 315 / 141 off-datum open cells - a difference from
+     this branch's pre-merge record, which moved L0's dealt byte, and it is stated rather than argued: the
+     deal this generator deals now puts no body in a dealt sight line. No threshold, floor,
+     dice, seat, tolerance or vacuity clause moved; these are this tree's own printings, not either parent's. */
+const OLD = refRecord('flatparity', 'PARITY', 'md5', ['ceab3a09d5f817cd18cf0b775ccdbb5d', '1bb803079c60dc8d50cfce736d368084', '871a8cdb9b8ba0bf0bba2395ee40814f', '60bc234f554b8b2bdc46db13c1f19d4b'])
   /* #632 REWORK TAKE THREE (js/40_render.js VMHIP: the hip YAW is halved to -0.010 / -0.012 / -0.014 so the
      carried barrel stops painting over the step-lip crease that `bands` gates at zero missing columns), MEASURED
      on this tree: all four PARITY bytes re-key. They are a paint move and not a placement move - the same run
@@ -2904,7 +2914,13 @@ const OLD = refRecord('flatparity', 'PARITY', 'md5', ['b52b3fc27cb1bc179f020a3c6
      1e-6 in the same run. The shipped-sense means print beside the bytes, so no body was dimmed and no lamp
      behind one was. No threshold, bound, seat, dice, roll list, census or vacuity clause moved; the digits are
      this tree's own printings, from `node tools/view.js refs --record`, not either parent's. */
-const SHIP = refRecord('flatparity', 'LOCK', 'md5', ['837b4ff1d77f120d5e3a3c4789c3368c', '359b4aad58b58dc7ea86db5920534ef7', '3b708ffcce9ecf5f9a17207527666178', 'eee9146ae03687268eb17637dc9f4d69'])   /* #706 MAIN-SYNC onto main 96c190e, MEASURED on THIS merged tree in ONE run (two cold processes per sense agreeing). All four bytes come back THIS BRANCH'S, not main's and not thirds: the LOCK sense hashes the FLATTENED world, and the only thing main's #353 adds to a flattened grid is a source standing on a deck that flattening removes, so the deck lamp reaches no LOCK frame while the growth + give-back grid changes do. The row's OWN delivered-light clause is the control and it came back MAIN'S to the digit in this run - 0 of 4 levels move their flat lightmap sum WITHOUT moving a pixel, 4 of 4 move a pixel too, gaps +133.2 / +193.5 / +178.7 / +40.1 delivered light from +8/9/10/4 top-up lamps - so this is still a lock on lamp PLACEMENT: no source was placed, moved, scaled or re-weighted, and what moved is which floor the same light lands on. SHIPM's digits follow; no threshold or census clause moved. */   /* #353 x MAIN-SYNC onto main 8503312, MEASURED on THIS merged tree in ONE run. The deck lamp is the whole move: the SAME tree with DECKLIGHT=off prints main's recorded value for this row and exits 0, so every digit below is the source this rule stands on an overlook deck, not main's probe work and not a threshold. No window, bound, seat, dice, roll list or vacuity clause moved. */
+  /* #655 x MAIN-SYNC onto main f1f7985, MEASURED on THIS merged tree in the same run as PARITY above: all
+     four LOCK bytes re-key, and the half this row EXISTS to lock - the flat delivered-light sum, the lamp
+     PLACEMENT half - is main's: the four gap rows price it against the top-up lamps with residual under
+     1e-5 above and its delivered sums print 454.2 / 586.6 / 937.3 / 304.8. The shipped-sense means print
+     97.2 / 68.3 / 59.8 / 96.0, SHIPM's digits to the tenth, so no body was dimmed and no lamp behind one was.
+     No threshold, bound, seat, dice or census moved. */
+const SHIP = refRecord('flatparity', 'LOCK', 'md5', ['05e34a6601b99f4d920966c1da37a08a', '8cc441710780cffbf47940f727c38f24', 'c37819d5cfdded33d22fe0631e1d8750', '0b073d8cef9a72c125d2869be45bd595'])   /* #706 MAIN-SYNC onto main 96c190e, MEASURED on THIS merged tree in ONE run (two cold processes per sense agreeing). All four bytes come back THIS BRANCH'S, not main's and not thirds: the LOCK sense hashes the FLATTENED world, and the only thing main's #353 adds to a flattened grid is a source standing on a deck that flattening removes, so the deck lamp reaches no LOCK frame while the growth + give-back grid changes do. The row's OWN delivered-light clause is the control and it came back MAIN'S to the digit in this run - 0 of 4 levels move their flat lightmap sum WITHOUT moving a pixel, 4 of 4 move a pixel too, gaps +133.2 / +193.5 / +178.7 / +40.1 delivered light from +8/9/10/4 top-up lamps - so this is still a lock on lamp PLACEMENT: no source was placed, moved, scaled or re-weighted, and what moved is which floor the same light lands on. SHIPM's digits follow; no threshold or census clause moved. */   /* #353 x MAIN-SYNC onto main 8503312, MEASURED on THIS merged tree in ONE run. The deck lamp is the whole move: the SAME tree with DECKLIGHT=off prints main's recorded value for this row and exits 0, so every digit below is the source this rule stands on an overlook deck, not main's probe work and not a threshold. No window, bound, seat, dice, roll list or vacuity clause moved. */
   /* #632 REWORK TAKE THREE (the halved hip yaw, see PARITY above), MEASURED on this tree: all four LOCK bytes
      re-key for the same reason - a rig that turns half as far is a different set of pixels in the same frame. The
      shipped-sense means say what that is worth: 94.5 / 94.0 / 59.8 / 96.0 against the 94.5 / 93.9 / 59.8 / 96.0 the
