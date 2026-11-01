@@ -10,6 +10,12 @@
   uninterrupted colour from floor to ceiling. ARCHIVE now ends its walls at the deck in a teal line along
   the junction its far wall and crate runs sit on; ABATOIR puts the same mark on its column bases against
   the room's red. Neither room is brighter for it, and THE STACK, which authors no accent, is byte-identical.
+- **The light up on the overlook deck now has something casting it** (#353, PR #730). Stand on a mezzanine in
+  ARCHIVE SUBLEVEL or ABATOIR CORE: the floor under you has been lit since the last release, but nothing in
+  the room cast it - the overlook lamp was a number in the lightmap, so the upper storey read as a bright
+  void. A lamp fixture now stands on the deck at the exact spot the light comes from, using the same
+  floor-fixture mesh you see in every corridor downstairs. No lumen was added, moved or re-banded, and the
+  deck is still reached by the stairs; this is geometry where the light already was.
 
 ### Changed
 
@@ -70,9 +76,10 @@
   4–5 lumas below their previous values (69 / 76 / 68) because a ceiling underside is the darkest surface the
   material family has. No lamp was moved, placed, scaled or re-weighted; the delivered-light check is
   unchanged to the digit (#421, PR #706).
-- A deck lamp up there is light with no visible lamp: standing on the overlook deck you see the light and no
-  fixture casting it, because a bloom disc centred on a one-cell lip fails the glow gate. It needs a
-  footprint (#353).
+- The overlook lamp is a plain floor fixture, not a ceiling fitting with a glow: it deliberately carries no
+  bloom disc, because a disc centred on a one-cell lip spills off its own surface past the glow gate. Up
+  close it is the corridor lamp stood on a deck, and there is no vantage yet whose frame proves the deck's
+  pixels changed - the recorded cameras never contain a deck (#353, PR #730).
 - The grown deck on RING TRANSPORT still runs past the last lamp — its give-back found nothing to hand back,
   so that sector's band stands inside a lamp's reach while ARCHIVE's does not (#421, PR #706).
 - Shotgun and rifle wrists still leave the bottom edge of the frame on their way to a body behind the gun;
