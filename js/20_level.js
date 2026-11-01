@@ -2782,7 +2782,7 @@ function placeCeilFixtures(cfgL, seatX, seatY) {
     const sband = floorAt(seatX, seatY);
     let pick = null;
     for (let r = CFIX_ENTRY_MIN; r <= CFIX_ENTRY_MAX + 1e-9 && !pick; r += 0.5) {
-      for (let a = 0; a < 8 && !pick; a++) {
+      for (let a = 0; a < 8; a++) {
         const ang = a * Math.PI / 4;
         const x = seatX + Math.cos(ang) * r, y = seatY + Math.sin(ang) * r;
         if (!isOpen(x | 0, y | 0)) continue;
@@ -2810,7 +2810,7 @@ function placeCeilFixtures(cfgL, seatX, seatY) {
      a different room's fitting - measured on THE STACK, where the deal went from 4 fittings to 3 and its
      arrival deck went down 11 lumas with it. Asking the question last means every other fitting is
      already placed, `hung` is complete, and this relocation can move exactly one source and no other. */
-    if (pick && hang(pick[0], pick[1], CFIX_SEP)) entry = [pick[0], pick[1]];
+    if (pick) { if (hang(pick[0], pick[1], CFIX_SEP)) entry = [pick[0], pick[1]]; }
   }
   /* 1. ONE OVER EVERY ROOM, at its centre. `rooms` is the generator's own list, and a room centre is
      the room's circulation by construction - where a fixture and a wire would actually run. A pillar
