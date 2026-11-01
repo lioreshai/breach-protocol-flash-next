@@ -2711,6 +2711,25 @@ const CFIX_MIN_CLEAR = 1.7;                // a ceiling this low is above your h
 const CFIX_SEP = 3.0;                      // metres between fittings, so a room is not a grid of them
 const CFIX_ENTRY_MIN = 3.0;                // metres AHEAD of the seat the entry fitting goes
 const CFIX_ENTRY_MAX = 5.5;                // ...and its reach. Neither end is taste, see pass 0.
+/* #413 THE ENTRY FITTING'S OWN THROW. A room fitting is a FULL source (`CFIX_REACH` below): the room is
+   read by its pool, so a fitting over a room's circulation throws far. The entry fitting is different
+   in one respect only - it is the one fitting the player is DELIVERED looking at, and the frame the game
+   arrives on sits under an absolute exposure top (#505). #480 measured what a full-throw source on the
+   arrival axis costs: THE STACK's dealt corridor lifted +16 luma with that seat's centre-half mid at 96,
+   inside 60-100 but at its top edge. So the entry carries a shorter authored reach, the same idiom the
+   room fittings use - `r`, the disc radius the shipped splat kernel falls off over - and nothing else
+   about it changes: same `str`, same colour, same `band`, same `ceil` tag the POOL census reads.
+   3.6 m is the acceptance figure, not a tuning: #413's criterion is that the fitting's light lands on the
+   deck within about 4 m of it, and a disc of r falls to zero AT r. The placement window above stays where
+   it is - this is the fitting's light, not where it hangs (the two are easy to confuse; see the pass-0
+   comment). No room fitting is affected: pass 1 and pass 2 call `hang` with no reach and get 5.4. */
+const CFIX_REACH = 5.4;                    // a room fitting throws the whole pool it is there to make
+const CFIX_ENTRY_REACH = 3.6;              // the delivered frame's fitting throws as far as its own deck
+/* The bearings pass 0 tries, in order, as offsets about the bearing the delivered frame is drawn along.
+   On the view axis FIRST, then out to each edge: the frame spans atan(plane) = 0.62 rad, so the first
+   three entries are the ones an arriving player can actually see and the rest exist so a corridor that
+   turns is still the entry room's circulation. Fixed list, no dice - nothing here re-rolls a deal. */
+const CFIX_ENTRY_ARC = [0, 0.31, -0.31, 0.62, -0.62, 0.93, -0.93];
 function placeCeilFixtures(cfgL, seatX, seatY) {
   if (!ceilFixEnabled()) return;
   const N = MAP.w, cell = MAP.cell;
@@ -2727,7 +2746,7 @@ function placeCeilFixtures(cfgL, seatX, seatY) {
      nothing to un-splat and nothing to forget (AGENTS.md: light stays one value per column). */
   MAP.ceilPanes = [];
   const hung = [];
-  const hang = (x, y, sep) => {
+  const hang = (x, y, sep, reach) => {
     const cz = ceilAt(x, y), fl = floorAt(x, y);
     if (!(cz - fl >= CFIX_MIN_CLEAR)) return false;
     for (let k = 0; k < hung.length; k++)
@@ -2754,7 +2773,7 @@ function placeCeilFixtures(cfgL, seatX, seatY) {
     const hungDown = cz - pz >= CFIX_DROP_MIN;
     MAP.ceilFix[ci] = hungDown ? 2 : 1;        // 1 = plate on the slab, 2 = canopy only (lens hangs)
     if (hungDown) MAP.ceilPanes.push({ x: x, y: y, z: pz, gx: gx, gy: gy, top: cz, cell: ci });
-    LIGHTS.push({ x: x, y: y, z: pz, band: fl, r: 5.4, str: 0.55, col: cfgL.lampCol, stat: 1, ceil: 1 });
+    LIGHTS.push({ x: x, y: y, z: pz, band: fl, r: reach || CFIX_REACH, str: 0.55, col: cfgL.lampCol, stat: 1, ceil: 1 });
     return true;
   };
   /* 0. OVER THE ENTRANCE, and AHEAD of it. `rooms` and the lamp list both miss the square a player
@@ -2769,17 +2788,43 @@ function placeCeilFixtures(cfgL, seatX, seatY) {
      reads the `ceil` entries on LIGHTS - can see it and its counterfactual can un-author it. */
   if (isFinite(seatX) && isFinite(seatY)) {
     const sband = floorAt(seatX, seatY);
+    /* The bearing the FIRST FRAME is drawn along. It was eight bearings about the WORLD axes - a*PI/4 -
+       while the seat is delivered facing `seatFacing(...)`, so about that heading the eight rays sat at
+       -0.60, +0.19 and +0.97 rad and a pick on the far side of the ring was a fitting behind the arriving
+       player's shoulder (#480 measured 1.15 rad off-axis on three of the four levels, which is why three
+       arrival frames carry no ceiling object). One definition, the same call `P.ang` is assigned from at
+     * :4076 / :3231: this function draws no RNG and reads only the grid and the risers, so asking it here
+       moves no roll, prop or light - and a deal whose deck moves AFTER this point is caught by sweep 1. */
+    const faceAng = seatFacing(seatX, seatY, cfgL.seatAng);
+    const half = Math.atan(cfg.plane);              // 0.62 rad of delivered horizontal lens
+    const inFrame = (x, y) => {
+      let e = Math.atan2(y - seatY, x - seatX) - faceAng;
+      while (e > Math.PI) e -= Math.PI * 2;
+      while (e < -Math.PI) e += Math.PI * 2;
+      /* Line of sight, not just bearing: a cell around a corner is inside the lens and behind a wall, and
+         the criterion is a fitting you can SEE above the room you wake in, not a byte in `ceilFix`. */
+      return Math.abs(e) <= half && los(seatX, seatY, x, y);
+    };
+    /* Two sweeps of the SAME candidates and the only difference is the gate, and that order is the whole
+       design: sweep 0 is the criterion (#413: "a fitting on the ceiling inside the frame"), sweep 1 is the
+       guarantee pass 0 exists for - ABATOIR CORE once delivered no fitting in any pose, so a deal whose
+       entry room turns away from the axis still gets its fitting, off-axis and unlit-by-itself, rather
+       than a bare sheet. `hang` is asked PER CANDIDATE: one cell too low for a fitting used to end the
+       search, because the pick was taken before anyone asked whether that cell could hold one. */
     let pick = null;
-    for (let r = CFIX_ENTRY_MIN; r <= CFIX_ENTRY_MAX + 1e-9 && !pick; r += 0.5) {
-      for (let a = 0; a < 8; a++) {
-        const ang = a * Math.PI / 4;
-        const x = seatX + Math.cos(ang) * r, y = seatY + Math.sin(ang) * r;
-        if (!isOpen(x | 0, y | 0)) continue;
-        if (Math.abs(floorAt(x, y) - sband) > 0.01) continue;
-        pick = [x + 0.5, y + 0.5];
+    for (let sweep = 0; sweep < 2 && !pick; sweep++) {
+      const gated = sweep === 0;
+      for (let r = CFIX_ENTRY_MIN; r <= CFIX_ENTRY_MAX + 1e-9 && !pick; r += 0.5) {
+        for (let k = 0; k < (gated ? CFIX_ENTRY_ARC.length : 8) && !pick; k++) {
+          const ang = gated ? faceAng + CFIX_ENTRY_ARC[k] : k * Math.PI / 4;
+          const x = seatX + Math.cos(ang) * r, y = seatY + Math.sin(ang) * r;
+          if (!isOpen(x | 0, y | 0)) continue;
+          if (Math.abs(floorAt(x, y) - sband) > 0.01) continue;
+          if (gated && !inFrame(x, y)) continue;
+          if (hang(x + 0.5, y + 0.5, CFIX_SEP, CFIX_ENTRY_REACH)) pick = [x + 0.5, y + 0.5];
+        }
       }
     }
-    if (pick) hang(pick[0], pick[1], CFIX_SEP);
   }
   /* 1. ONE OVER EVERY ROOM, at its centre. `rooms` is the generator's own list, and a room centre is
      the room's circulation by construction - where a fixture and a wire would actually run. A pillar
