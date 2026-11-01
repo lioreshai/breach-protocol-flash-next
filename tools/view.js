@@ -1055,6 +1055,215 @@ if (MODE === 'alt') {
     row(`L${li} a staircase can be climbed on foot`, r.stairs >= 1 && r.faces > 0 && r.steps === 1,
       `${r.stairs} run(s) of >=3 cells rising one quantum each (${r.stairCells} cells), ${r.faces} step faces, ` +
       `MAP.steps ${r.steps} (a step face with the flag at 0 draws nothing - #100 on generated content)`);
+    /* #515 THE PIXEL HALF OF THE ROW ABOVE, which that row is structurally unable to be.
+       `r.faces` is a count out of MAP.vb - derived flags, not pixels - and it read 46 on the build whose
+       frame drew NONE of them, which is the report this issue was filed from ("the stairs do not render,
+       a weird warped view"). AGENTS.md: a probe passing is not the same as a probe being capable of
+       failing. So render the same flight twice and take the faces out of ONE derived bit in between:
+
+         arm A   the flight as dealt.
+         arm B   the SAME floors, the SAME walkability (VB_BLOCK untouched) and the SAME ground-pass step
+                 terms (#707's nosing keys to MAP.ek, which is not touched), with the DERIVED VB_FACE bit
+                 cleared on both sides of every boundary of the flight. That is #515 reproduced in the one
+                 byte the draw test reads (`vbs[pi] & VB_FACE<<(d<<2)`, js/40_render.js:3341): a tread
+                 boundary that derives no face. Nothing is flattened, so this is not a "the stair is gone"
+                 control, and linkBoundaries() is NOT called between the arms, so the bit stays cleared.
+
+       Heights are identical in both arms, so a differing pixel is a pixel a step FACE put on the frame -
+       its own span plus what it occludes - which is the census's missing half. The mask is the bit, not a
+       render difference used as its own evidence (#216's rule).
+       THE SEAT IS DERIVED, not typed: the flight is a chain of >=3 cells rising one quantum each (the
+       same object the census counts), the camera stands on the landing at its TOP end, on that landing's
+       own floor, looking straight down the axis, and k cells past the landing is k+0.5 m from the first
+       riser. Two reads: k=2 (~2.5 m, a flight you are about to climb) gates, because a staircase that
+       puts no face on the frame IS the defect and a vacuous frame is a FAILURE, never a debt; the far
+       read reports, because at that distance the march stops every column at the FIRST riser whose face
+       has pixels and the treads behind it are floor-plane solves - the remaining half of #515, printed
+       here as a number instead of in prose so the next pass starts from it. Both arms re-seat before they
+       render, and none of them re-deals (the #385 lesson at :9400: renderWorld advances the sway clock, and
+       a second render of one seat moves ~1,000 px under the rifle that belong to no term at all).
+       THE BLOCK HANDS THE CAMERA BACK. `seatAt` writes P.x/P.y/P.z/P.ang/P.pitch and puts every enemy to
+       sleep, and the rows that run after this one take the ARRIVAL seat straight out of P.x/P.y (`that
+       volume is visible on arrival`, and the #15 look-up debt STRICT=1 gates on it). A block that re-seats
+       and never restores therefore measures arrival from the last stair landing while its label still
+       claims the spawn seat: review measured exactly that on this head (L0 54 -> 52, L1 36 -> 7, L2 30 -> 3
+       of the tall columns, and L3's RECORDED 0 reading `KNOWN` -> `ok 20 of 146`, which is the STRICT-gated
+       arrival debt reading green because the probe moved the camera and nothing else moved). So the pose
+       this block inherits is captured before its first shot and written back after its last, and the
+       restore is ASSERTED below: borrowing the camera is fine, keeping it is a gate defect. */
+    if (r.stairs >= 1) {
+      const pose0 = run('[P.x,P.y,P.z,P.ang,P.pitch,P.bob,P.kick]');
+      const sleep0 = run('ENEMIES.map(e=>e.state)');
+      const fl = run(`(()=>{
+        let best = null;
+        for (let y = 1; y < MH-1; y++) for (let x = 1; x < MW-1; x++) {
+          const i = y*MW+x; if (MAP.cell[i]) continue;
+          for (let d = 0; d < 4; d++) {
+            const cells = [i];
+            for (let k = 1; k < 8; k++) {
+              const ax = x+DIRX[d]*k, ay = y+DIRY[d]*k;
+              if (ax < 1 || ay < 1 || ax >= MW-1 || ay >= MH-1) break;
+              const a = ay*MW+ax;
+              if (MAP.cell[a] || MAP.fz[a] !== MAP.fz[cells[k-1]]+1) break;
+              cells.push(a);
+            }
+            if (cells.length < 3) continue;
+            // the seat stands at the TOP end, on a floor that has STOPPED rising: the chain runs up by
+            // one quantum per cell along d, so the cell past its top is the landing (or the lip) the
+            // flight was built off. NOT "+1": a generator stair descends FROM the datum, so the datum
+            // cell is itself the top of the chain and demanding a step beyond it finds no flight at all.
+            const lx = x+DIRX[d]*cells.length, ly = y+DIRY[d]*cells.length;
+            if (lx < 1 || ly < 1 || lx >= MW-1 || ly >= MH-1) continue;
+            const lj = ly*MW+lx;
+            if (MAP.cell[lj] || MAP.fz[lj] !== MAP.fz[cells[cells.length-1]]) continue;
+            let k = 0;                                   // how far back the landing stays flat to stand on
+            while (k < 6) {
+              const bx = lx+DIRX[d]*(k+1), by = ly+DIRY[d]*(k+1);
+              if (bx < 1 || by < 1 || bx >= MW-1 || by >= MH-1) break;
+              const bj = by*MW+bx;
+              if (MAP.cell[bj] || MAP.fz[bj] !== MAP.fz[lj]) break;
+              k++;
+            }
+            if (!best || k > best.k) best = { cells, lj, d, lx, ly, k };
+            if (best.k >= 6) return best;
+          }
+        }
+        return best;
+      })()`);
+      if (!fl) {
+        row(`L${li} a staircase face reaches the frame at arm's length`, false,
+          `${r.stairs} staircase run(s) in the census and no flight of >=3 one-quantum cells with a flat `
+          + `landing to stand the camera on - the census counts a run this row cannot look at, so it is not `
+          + `evidence of a pixel`);
+      } else {
+        /* One arm: re-deal, stand on the landing k cells past it looking down the axis, and (arm B) clear
+           VB_FACE on both sides of every boundary of the flight. Returns the framebuffer Node-side, so the
+           diff is done in this file and not in a page string that cannot be read afterwards. */
+        const MWn = run('MW'), DX = run('DIRX'), DY = run('DIRY');
+        const chain = [fl.lj].concat(fl.cells.slice().reverse());     // landing -> top tread -> ... -> foot
+        const pairs = [];
+        const kill = chain.slice(0, -1).map((a, j) => {
+          const b = chain[j + 1];
+          const dxa = (b % MWn) - (a % MWn), dya = ((b / MWn) | 0) - ((a / MWn) | 0);
+          let dq = 0; while (dq < 4 && (DX[dq] !== dxa || DY[dq] !== dya)) dq++;
+          pairs.push([a, dq], [b, (dq + 2) % 4]);
+          return `MAP.vb[${a}] &= ~(VB_FACE << (${dq} << 2)); MAP.vb[${b}] &= ~(VB_FACE << (${(dq + 2) % 4} << 2));`;
+        }).join(' ');
+        /* ONE DEAL - the one the census above already ran. Re-dealing per arm is what a first pass here
+           did, and it broke the probe twice over: startLevel draws from the ambient RNG, so a second deal
+           inside the level loop shifts EVERY later row's deal (measured: `the deal is the recorded geometry
+           census` went red on L1 and L2 with 255/267 cells off the datum), the arms can land on different
+           LEVELS (the same arm rendered twice differed by 201,835 of 203,138 px - the whole frame, which is
+           the deal moving, not the term), and the view model's sway advances with S.t regardless (#385's
+           ~1,000 px under the rifle). So: render the level the census dealt, pin S.t and the view-model
+           spring before every shot, and let the only difference between two frames be this row's bit. */
+        const shot = () => { run('S.t = 42; VM.vy=0; VM.ang=0; VM.lag=0; VM.now=0; VM.t=0; renderWorld()'); return { buf: new Uint32Array(run('px')), stops: run('MAP.riserStops') }; };
+        const seatAt = (k) => run(`P.x=${fl.lx + 0.5 + DX[fl.d] * k}; P.y=${fl.ly + 0.5 + DY[fl.d] * k}; `
+          + `P.z=floorAt(P.x,P.y); P.ang=${Math.atan2(-DY[fl.d], -DX[fl.d])}; P.pitch=BH*0.03; P.bob=0; P.kick=0; `
+          + `for (const e of ENEMIES) e.state='sleep'; MAP.riserStops=0;`);
+        const lumOf = b => i => 0.2126 * (b[i] & 255) + 0.7152 * (b[i] >> 8 & 255) + 0.0722 * (b[i] >> 16 & 255);
+        const PXW = run('BW'), PXH = run('BH');
+        const pair = (k) => {
+          seatAt(k);
+          const A = shot();
+          run(kill);
+          // did the control reach the byte the draw test reads? count the face bits still set on the
+          // flight's own boundaries - a control that clears nothing would otherwise print a clean 0 px
+          // diff and read exactly like a staircase that draws no face (#515's own shape).
+          const stillSet = run(`(()=>{const p=${JSON.stringify(pairs)};let n=0;`
+            + `for(let q=0;q<p.length;q++) if(MAP.vb[p[q][0]] & (VB_FACE << (p[q][1] << 2))) n++; return n;})()`);
+          const B = shot();
+          run('linkBoundaries()');                          // restore the derived bits this row cleared
+          const la = lumOf(A.buf), lb = lumOf(B.buf);
+          let n = 0, edge = 0, mx = 0, dl = 0;
+          for (let y = 0; y < PXH; y++) for (let x = 1; x < PXW; x++) {
+            const i = y * PXW + x;
+            const d0 = Math.abs(la(i) - lb(i));
+            if (d0 <= 1) continue;
+            n++; if (d0 > mx) mx = d0;
+            dl += d0;
+            if (Math.abs(la(i - 1) - lb(i - 1)) <= 1) edge++;    // a hard boundary, not a gradient
+          }
+          return { n, edge, mx, mean: n ? dl / n : 0, sa: A.stops, sb: B.stops, cleared: pairs.length, stillSet, dist: k + 0.5 };
+        };
+        const near = pair(Math.min(2, fl.k));
+        const far = pair(Math.min(6, fl.k));
+        /* IS THE FLIGHT EVEN IN FRAME? A 0 px diff has two completely different causes and the row must
+           tell them apart: a staircase whose faces paint nothing, and a camera that is not looking at
+           the staircase. The centre column marches exactly along the axis this seat was built on, so the
+           question is answered by walking that axis and naming the first boundary it crosses. If that
+           boundary is one of the flight's, the pose is real and a 0 px diff means what #515 says it
+           means; if it is not, this row is vacuous and says so. */
+        near.inView = run(`(()=>{const ax=${-DX[fl.d]}, ay=${-DY[fl.d]};const p=${JSON.stringify(pairs)};
+          const hit=(i,d)=>{for(let q=0;q<p.length;q++) if(p[q][0]===i&&p[q][1]===d) return true; return false;};
+          let cx=P.x|0, cy=P.y|0;
+          for(let t=0.02;t<14;t+=0.02){const nx=(P.x+ax*t)|0, ny=(P.y+ay*t)|0;
+            if(nx===cx&&ny===cy) continue;
+            const d=ax>0?0:ax<0?2:ay>0?1:3;
+            if(hit(cy*MW+cx,d)) return +t.toFixed(2);
+            cx=nx; cy=ny;}
+          return -1;})()`);
+        /* THE HARNESS CONTROL (#66/#385): the same arm rendered twice must be IDENTICAL. If it is not,
+           every pixel count below belongs to the view model's sway or to a state the re-deal did not
+           restore, and the row says so instead of crediting the control with a difference of its own. */
+        const driftCtl = (() => { seatAt(Math.min(2, fl.k)); const a = shot(), b = shot(); let n = 0;
+          for (let i = 0; i < a.buf.length; i++) if (a.buf[i] !== b.buf[i]) n++; return n; })();
+        run('linkBoundaries()');                            // restore the derived bits this row cleared
+        /* HAND THE CAMERA BACK AND COUNT WHETHER IT WENT (see the note at the top of the block). Every
+           later row that reads P.x/P.y as the arrival seat, and every later row that asks an enemy what it
+           was doing, is only comparable with main's run if this restore ran. poseBack/sleepBack are 0 when
+           the pose and the AI states are the ones this block inherited, and they are clauses of the
+           integrity row below - so a future shot added here without a restore goes RED instead of quietly
+           moving a neighbour's measurement. */
+        run(`(()=>{const p=${JSON.stringify(pose0)}, s=${JSON.stringify(sleep0)};
+          P.x=p[0]; P.y=p[1]; P.z=p[2]; P.ang=p[3]; P.pitch=p[4]; P.bob=p[5]; P.kick=p[6];
+          for (let i = 0; i < ENEMIES.length && i < s.length; i++) ENEMIES[i].state = s[i];})()`);
+        const poseBack = run('[P.x,P.y,P.z,P.ang,P.pitch,P.bob,P.kick]')
+          .reduce((a, v, j) => a + (v === pose0[j] ? 0 : 1), 0);
+        const sleepBack = run(`(()=>{const s=${JSON.stringify(sleep0)};let n=0;` 
+          + `for(let i=0;i<ENEMIES.length&&i<s.length;i++) if(ENEMIES[i].state!==s[i]) n++; return n;})()`);
+        const seatTxt = `flight ${fl.cells.length} cells at (${fl.cells[0] % MWn},${(fl.cells[0] / MWn) | 0}) `
+          + `running ${['east', 'south', 'west', 'north'][fl.d]}, camera on the landing looking down the axis`;
+        /* THE SHAPE OF THE VERDICT, and it changed when #700's face term and #707's nosing landed. This row
+           was written as a KNOWN debt because the first run measured 0 px on three of the four dealt levels
+           - #515's report, in pixels. That is no longer what the dealt levels do: every level now puts
+           thousands of pixels and hundreds of hard edges of step face at arm's length, and the numbers are
+           printed in this row's own detail, so the picture claim is a GATE and the far read below stays the
+           reported debt. AGENTS.md's ladder runs the other way here: a row that reports a number this build
+           produces on every level cannot fail, and the whole point of this row is that it can - the run
+           where the draw test stops taking step faces (EK_STEP excluded at js/40_render.js's `if (inb &&
+           (vbs[pi] & (VB_FACE << (d << 2))))`) puts 0 px and 0 edges in all four of these rows while the
+           census row beside them still prints its `ok ... step faces`. The integrity clauses below stay the
+           always-on gate, because a 0 px diff that is a missing VIEW and a 0 px diff that is a missing FACE
+           are different defects and only the second one is red here. */
+        row(`L${li} a staircase face reaches the frame at arm's length`,
+          near.n > 0 && near.edge >= 1,
+          `${near.n} px of the ${PXW}x${PXH} frame differ between the flight and the SAME floors with the `
+          + `face bit cleared, at ${near.dist.toFixed(1)} m - ${near.edge} hard edge(s), max ${near.mx.toFixed(1)} `
+          + `luma, mean ${near.mean.toFixed(1)}; the control cleared ${near.cleared} face bits and ${near.stillSet} `
+          + `remained, the centre axis crosses the flight at ${near.inView.toFixed(2)} m, and one arm rendered `
+          + `twice differs by ${driftCtl} px. ${seatTxt}`);
+        /* The three clauses above are the GATE beside this one, and they are what makes the row above
+           evidence rather than a number: if the harness stops being reproducible, if the control stops
+           reaching the byte, if the flight stops being in frame, or if this block stops handing the camera
+           back, that row goes RED on every run and the pixel row above stops being interpretable. Vacuity is
+           a FAILURE (AGENTS.md), so a seat that cannot see its own flight is named here rather than allowed
+           to print an honest-looking 0. */
+        row(`L${li} the staircase pixel row can fail`,
+          driftCtl === 0 && near.cleared >= 6 && near.stillSet === 0 && near.inView > 0
+          && poseBack === 0 && sleepBack === 0,
+          `harness drift ${driftCtl} px (want 0), ${near.cleared} face bits cleared by the control with `
+          + `${near.stillSet} still set, flight first crossed on the centre axis at `
+          + `${near.inView.toFixed(2)} m (want > 0) - so a 0 px diff below means no face, not no view; and `
+          + `${poseBack} of 6 pose fields plus ${sleepBack} enemy state(s) did NOT come back from these `
+          + `shots (want 0 + 0), which is the row below this block measuring a seat this block left behind`);
+        krow(`L${li} a staircase reads across the room (${fl.k < 6 ? 'only ' + fl.k + ' m of flat landing' : '6 m'} seat)`,
+          far.n > 0 && far.edge >= 1,
+          `${far.n} px, ${far.edge} hard edge(s) at ${far.dist.toFixed(1)} m against ${near.n} px at `
+          + `${near.dist.toFixed(1)} m: past the first riser the wall march stops every column, so the treads `
+          + `behind it are floor-plane solves and the flight reads as one face. #515's remaining half.`);
+      }
+    }
     /* The record row. Thresholds above say a level is not flat; this says it is the SAME level as the
        one the reference was taken from, in either direction of error: a generator that stops raising
        bands, stops authoring stairs, or loses the step flag trips it, and so does one that quietly
@@ -9113,6 +9322,18 @@ if (MODE === 'heights') {
       const ex=camX|0,ey=camY|0,air=ex>=0&&ey>=0&&ex<N&&ey<N&&!MAP.cell[ey*N+ex];
       let plA=air?MAP.fz[ey*N+ex]*ZQ:eyeZ; if(!(plA<eyeZ)) plA=Math.min(0,eyeZ-ZQ);
       let n=0,phantom=0,pmax=0,why='',fix=0,wsum=0,fsum=0,fmax=0,wall=0;
+      /* #518 THE OTHER SIGN, REPORTED NOT GATED. The phantom counter above counts pixels stored FARTHER than the
+         surface their ray arrives at, which is the shape a staircase and a pit have. A band's own edge has
+         the opposite shape - the row paints its OWN plane's solve, which is NEARER than the lower floor the
+         ray reaches past the edge - and nothing counted it, which is why poseC read "0 phantom px / 0/0/0/0"
+         while its same-camera A/B disagreed by 2.23 m (PR #720). Counting this side is what lets a row name
+         the pass that carries a plane past an edge instead of only proving the frames differ. No counter
+         here gates: the pose verdicts come from the clauses below, unchanged. Pixels whose sentinel march
+         answered NOTHING (pw at the sentinel, so dW is the FARB*4 clamp rather than a surface) are NOT
+         counted: every real depth is "nearer" than a clamp, which is vacuity, not a defect - measured
+         without the exclusion, poseA read 3004 of 4620 with the worst at an 84.50 m arrival, and poseC
+         read 72 with an 18.11 m arrival. With it, only pixels the march actually placed are judged. */
+      let near=0,nmax=0,nwhy='',nrow=0,ndef=0,nslab=0,nfar=0;
       /* #518 WHICH PASS WROTE THE PHANTOM. Three passes can put a depth in this pixel and the fix is a
          different edit in each of them: the row's own fill (it stores the distance the eye's band plane
          solves), the deferred copy (which re-solves the plane the row queued, and the plane it queues is
@@ -9170,9 +9391,16 @@ if (MODE === 'heights') {
             let wp=dq?(plC>=eyeZ?'the #192 slab branch':'the deferred copy'):(dRow>FARB?'the far-band wash':'the row fill');
             if(!dq&&dRow>FARB)pfar++;else if(dq&&plC>=eyeZ)pslab++;else if(dq)pdef++;else prow++;
             if(got-dW>pmax){pmax=got-dW;why='row '+(y-hz)+' col '+x+' stores '+got.toFixed(2)+' m where its own ray arrives at '+dW.toFixed(2)+' m, written by '+wp;}}
+          if(pw>-1e8&&dW-got>0.02){near++;
+            const gx2=(camX+rx*dRow)|0,gy2=(camY+ry*dRow)|0,
+              ok2=gx2>=0&&gy2>=0&&gx2<N&&gy2<N&&!MAP.cell[gy2*N+gx2],
+              plC2=ok2?MAP.fz[gy2*N+gx2]*ZQ:plA,dq2=ZD.set[y*BW+x]===1;
+            if(!dq2&&dRow>FARB)nfar++;else if(dq2&&plC2>=eyeZ)nslab++;else if(dq2)ndef++;else nrow++;
+            if(dW-got>nmax){nmax=dW-got;nwhy='row '+(y-hz)+' col '+x+' stores '+got.toFixed(2)+' m where its own ray arrives at '+dW.toFixed(2)+' m, written by '+(dq2?(plC2>=eyeZ?'the #192 slab branch':'the deferred copy'):(dRow>FARB?'the far-band wash':'the row fill'));}}
           if(dF>dW+${PZQ}){fix++;wsum+=dW;fsum+=dF;if(dF-dW>fmax)fmax=dF-dW;}}}
       reSolveBad=rsb0;
-      return {n,phantom,pmax,why,fix,wd:fix?wsum/fix:0,fd:fix?fsum/fix:0,fmax,prow,pdef,pslab,pfar};})()`;
+      return {n,phantom,pmax,why,fix,wd:fix?wsum/fix:0,fd:fix?fsum/fix:0,fmax,prow,pdef,pslab,pfar,
+        near,nmax,nwhy,nrow,ndef,nslab,nfar};})()`;
     const zbufCopy = () => new Float32Array(run('zbuf'));
     let poseBad = 0;
     if (!fits) {
@@ -9421,6 +9649,15 @@ if (MODE === 'heights') {
         ' (row fill / deferred copy / slab branch / far wash) on ' + pPh + ' px' +
         (attOk ? '  ok' : '  FAIL POSE-PATH-VACUUM: ' + pPh + ' phantom px and ' + pTot +
           ' attributed - the attribution cannot see the pass that wrote them, so it names no site'));
+      /* Report-only census of the nearer-than-arrival sign, per pose. It gates nothing and changes no
+         verdict; it exists because the three poses above all report "0 phantom px" for the band edge while
+         its same-camera A/B is red, and a defect no counter can see is a defect no cycle can aim at. */
+      const nearLine = (nm, o) => '  ' + pad('pose' + nm + 'Near', 9) + ' #518 px stored NEARER than their own ray arrives at: '
+        + o.near + ' of ' + o.n + ' sampled' + (o.near ? ', worst ' + o.nmax.toFixed(2) + ' m (' + o.nwhy + ')' : '') +
+        '; by pass row ' + o.nrow + '/deferred ' + o.ndef + '/slab ' + o.nslab + '/far ' + o.nfar + ' (reports, gates nothing)';
+      console.log(nearLine('A', a));
+      console.log(nearLine('B', b));
+      console.log(nearLine('C', c));
       console.log('  ' + pad('pose', 9) + ' #518 acceptance poses, construction stage at ' + (SX + 0.5) + ',' + (SY + 0.5) +
         ' (' + SL + 'x' + (2 * SW + 1) + ', walls taken out of it, props and enemies cleared, every floor write relinked): ' +
         (poseBad ? poseBad + ' of 3 poses FAILED' : 'all 3 poses ok'));
@@ -12349,6 +12586,21 @@ if (MODE === 'anim') {
     }
     return { cov, n, top, bot };
   }
+  /* The BODY'S OWN delivered pixels, for the long-range corpse row: COV is stamped by the mesh's
+     own pixel writes and only when the draw is a body (js/13_mesh.js:1668), and only after the
+     depth test, so this is the silhouette the deck has not yet eaten - never the scuff, the dust or
+     a body-caused light term, every one of which a `body frame minus enemy-free frame` mask drops. */
+  function bodyMask(s) {
+    const cov = new Uint8Array(N); let n = 0, top = H, bot = -1, lef = W, rig = -1;
+    if (s.cov) for (let i = 0; i < N; i++) if (s.cov[i] === 1) {
+      cov[i] = 1; n++;
+      const y = (i / W) | 0, x = i - y * W;
+      if (y < top) top = y; if (y > bot) bot = y; if (x < lef) lef = x; if (x > rig) rig = x;
+    }
+    let sig = 2166136261;
+    for (let i = 0; i < N; i++) sig = Math.imul(sig ^ cov[i], 16777619);
+    return { cov, n, top: bot < 0 ? -1 : top, bot, w: n ? rig - lef + 1 : 0, sig: sig >>> 0 };
+  }
   function cmp(s0, m, s1) {
     let n = 0, sum = 0;
     for (let i = 0; i < N; i++) {
@@ -12572,6 +12824,87 @@ if (MODE === 'anim') {
       ? ps.poseEntries + ' cached vertex sets, ' + ps.poseMB + ' MB' + (ps.capMB ? ' of ' + ps.capMB.toFixed(2) + ' MB cap' : '') +
         ' (this is what amortizes the rebuild)'
       : 'none - so geometry is rebuilt per enemy per frame'));
+
+    /* ---- #688 clause 1 AT RANGE: does a body still read as GOING DOWN at the far end of the
+       longest clear sight line this seat can find? ------------------------------------
+       Every corpse row above places its body at 1.3-1.9 m, where a 0.34 m sink is dozens of
+       pixels. #688 asks for the look at ~14 m as well as at 6, and at range the same sink is a few
+       pixels of travel, so "it settles" has been true only at the distance nobody stands at. This
+       leg asks it of the picture the player gets when he clears a room and walks toward the last
+       body: the open cell with the LONGEST clear sight line (this ray search is not capped at 7 m
+       the way CAMCELL's is, because this row wants a horizon rather than a close body), one body,
+       at the farthest point along that bearing that is open, on the player's own floor band and
+       clear the whole way (window.__bandSpot backs off until all three hold, and returns the
+       metres it actually used, which is the number the row prints).
+
+       THE MASK IS COV, NOT A RENDER DIFFERENCE, and that is what makes the row answer the question.
+       maskOf above is `body frame minus enemy-free frame`, so anything a body CAUSES in the room -
+       the scuff it drops, a contact patch, light that stops answering because a torso is in front
+       of it - cancels out of the oracle, and a still body can look like a moving one. COV is
+       stamped by the mesh's own pixel writes and ONLY for a body draw (js/13_mesh.js:1668,
+       CTAG = BODY ? 1 : 0), AFTER `if (occ < z) continue`, so it is the body's DELIVERED
+       silhouette: fewer pixels as the deck eats a sinking torso, and nothing else. A body that does
+       not move cannot move this mask, and dust cannot either - which matters because this probe
+       sets dieT directly and never runs the live landing path (corpseLand, js/30_entities.js:620),
+       so there is no dust in these frames at all and nothing in the mask but geometry.
+
+       NO THRESHOLD. The verdict is byte-identity of that mask between adjacent samples: four times
+       across the settle window, 0.25 s apart, and every one must be a different picture. That is
+       #688's clause 1 ("never frozen for more than about a quarter of a second") read literally at
+       the distance that makes it hardest. It is red on main by construction: `die` is bucketed
+       (js/13_mesh.js PB.die = 6) and past bucket 5 no vertex set exists to move, and main carries
+       no settle term, so all four frames there are the same vertices at the same z. */
+    {
+      const CPMAX = 24;                    // the sight-line search: CAMCELL's own is capped at 7 m
+      const FARCAM = `(()=>{
+        const cs=[];for(let y=2;y<MH-2;y++)for(let x=2;x<MW-2;x++)if(!isSolid(x+.5,y+.5))cs.push([x,y]);
+        let bc=cs[0],bcv=-1;
+        for(const c of cs){let m=0;for(let k=0;k<12;k++){const d=castRayDist(c[0]+.5,c[1]+.5,Math.cos(k*TAU/12),Math.sin(k*TAU/12),${CPMAX}).dist;if(d>m)m=d;}if(m>bcv){bcv=m;bc=c;}}
+        let best=0,bm=-1;
+        for(let k=0;k<96;k++){const a=k*TAU/96,d=castRayDist(bc[0]+.5,bc[1]+.5,Math.cos(a),Math.sin(a),${CPMAX}).dist;if(d>bm){bm=d;best=a;}}
+        P.x=bc[0]+.5;P.y=bc[1]+.5;P.ang=best;P.pitch=0;P.z=floorAt(P.x,P.y);
+        return {cell:bc,ray:+bm.toFixed(2)};
+      })()`;
+      const TARGET = 14;                                  // #688's second look distance, in metres
+      const CPL = run('typeof CORPSE !== "undefined" ? CORPSE.life : 3.8');
+      const FDT = [0.6, 0.85, 1.1, 1.35].filter(t => t < CPL - 0.05);
+      /* The far end of the LONGEST sight line is not automatically a place a body can be JUDGED
+         from. The longest line is usually down a corridor or through a doorway, and a body at its
+         far end can be 2 px of torso past a jamb - measured at this head, level 1 delivers 2 px at
+         14 m and level 3 delivers none at all. So the leg walks that SAME bearing back and keeps the
+         FARTHEST point whose silhouette has a shape to judge: that is "use the most the level
+         offers", in the form the ask named, with the metres printed on the row. FARPX is a
+         JUDGEABILITY floor - the same kind of floor as MASKMIN above, and for the same reason: a
+         two-pixel body can be "different" four times and still be nothing to look at. It is the
+         only number in the row; the verdict itself is byte-identity, which no floor can tune. */
+      const FARPX = 60;
+      const fpl = run(FARCAM);
+      const ftry = [];
+      for (let t = Math.min(TARGET, fpl.ray - 0.5); t >= 4; t -= 2) ftry.push(+t.toFixed(2));
+      const far = (t) => run(`(()=>{const s=window.__bandSpot(${t});ENEMIES.length=0;` +
+        `const e=makeEnemy('${KIND}',s[0],s[1]);${PIN}e.state='dead';e.vx=e.vy=e.svx=e.svy=0;e.lean=0;e.stagger=0;` +
+        `e.dieAng=Math.atan2(P.y-e.y,P.x-e.x)+0.7;e.dieT=${FDT[0]};ENEMIES.push(e);return +s[2].toFixed(2)})()`);
+      let fdist = ftry[0], fn = 0;
+      for (const t of ftry) { fdist = far(t); fn = bodyMask(shot()).n; if (fn >= FARPX) break; }
+      const fs = [];
+      for (const t of FDT) {
+        run('ENEMIES[0].dieT=' + t + ';');
+        fs.push({ t, m: bodyMask(shot()) });
+      }
+      const frozen = [];
+      for (let i = 1; i < fs.length; i++) if (fs[i].m.sig === fs[i - 1].m.sig) frozen.push(fs[i - 1].t + '-' + fs[i].t);
+      const farOk = fn >= FARPX && fs.length > 1 && !frozen.length;
+      if (!farOk) bad++;
+      console.log('  corpse @ range ' + (fn < FARPX ? 'NO JUDGEABLE BODY AT RANGE - ' + fn + ' px delivered at ' +
+        fdist + ' m after trying ' + ftry.join('/') + ' m, so the row cannot pass'
+        : fs.length + ' samples ' + FDT[0] + '-' + FDT[FDT.length - 1] + ' s at ' + fdist + ' m: ' +
+          fs.map(z => z.m.n + 'px').join(' -> ') + '   top row ' + fs.map(z => z.m.top).join(' ') +
+          '   width ' + fs.map(z => z.m.w).join(' ') + '   ' +
+          (farOk ? 'MOVES - every 0.25 s is a different picture' : 'IDENTICAL - frozen ' + frozen.join(', ') + ' s at range')) +
+        '   COV mask, sight line ' + fpl.ray + ' m from cell ' + fpl.cell + ' (target ' + TARGET +
+        ' m, judgeability floor ' + FARPX + ' px)');
+      run('ENEMIES.length=0;');
+    }
   }
   /* ---- #74: are the parts ATTACHED? ------------------------------------------------------
      The same mask as the rows above, read DOWN a column instead of across it: between the run of
