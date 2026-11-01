@@ -10,12 +10,21 @@
   uninterrupted colour from floor to ceiling. ARCHIVE now ends its walls at the deck in a teal line along
   the junction its far wall and crate runs sit on; ABATOIR puts the same mark on its column bases against
   the room's red. Neither room is brighter for it, and THE STACK, which authors no accent, is byte-identical.
+- **The storey above you stops being a void when you get up there** (#353, PR #676). A raised band only
+  receives light from a source that stands on it, and both the lamp budget and the coverage top-up rank by
+  floor area, so a two-cell overlook lip lost every contest: 1 / 4 / 8 of the three generated sectors'
+  overlook decks were dark and the floor you are shot down onto read black. The deck of every pair the
+  overlook rule authors now carries a source, and only where that deck's own band would still sit under the
+  existing "a floor that is actually lit" floor. It draws no random numbers, so the rooms, props and enemies
+  are exactly the ones your seed dealt; only the light is new. From the seat below it is still a lip and a
+  slab face — what changed is the floor you take the stairs onto.
 - **The light up on the overlook deck now has something casting it** (#353, PR #730). Stand on a mezzanine in
-  ARCHIVE SUBLEVEL or ABATOIR CORE: the floor under you has been lit since the last release, but nothing in
-  the room cast it - the overlook lamp was a number in the lightmap, so the upper storey read as a bright
-  void. A lamp fixture now stands on the deck at the exact spot the light comes from, using the same
-  floor-fixture mesh you see in every corridor downstairs. No lumen was added, moved or re-banded, and the
-  deck is still reached by the stairs; this is geometry where the light already was.
+  ARCHIVE SUBLEVEL or ABATOIR CORE: the floor under you was lit in this release by the overlook rule's own
+  source (#353, PR #676), but nothing in the room cast it - the overlook lamp was a number in the lightmap,
+  so the upper storey read as a bright void. A lamp fixture now stands on the deck at the exact spot the
+  light comes from, using the same floor-fixture mesh you see in every corridor downstairs. No lumen was
+  added, moved or re-banded, and the deck is still reached by the stairs; this is geometry where the light
+  already was.
 
 ### Changed
 
