@@ -89,25 +89,33 @@ const MESH = (function () {
      clamp is what makes the row's mean move by a tenth rather than by a third in the worst deal. */
   const BH_K = 1.0, BH_LO = 0.62, BH_HI = 1.45;
 
-  /* #611 the figure-ground target and the clamp, in luma. FG_PUSH puts him 1.5 floors under the surface
-     behind him: inside #407's 20-luma ceiling by 14, and over #611's floor by 2. FG_FLOOR is the SAME 4
-     the probe already calls a separated edge (DLR/SEP_V at the top of tools/view.js contrast), so the
-     paint authors the step the row measures with one constant rather than a second dialect of it, and
-     FG_MAX is the most any one draw's value is allowed to move. LUMW is Rec.709 - the weighting the row's
-     own luma() uses - so the prediction and the measurement agree about what a luma is.
-       FG_MAX was 8, twice FG_FLOOR, and one deal of the contrast sweep's 48 stopped short on it: RING
-     TRANSPORT's roll-5 brute (770 px) reads 2.7 luma of step against the 4 bar because his own shortfall
-     needs more than 8 and the clamp stops him there - the RAILED part of the push, not a mis-aim, which
-     is why raising the TARGET instead leaves that deal exactly where it is. Measured on the sweep itself
-     (JSDIR arms of this one line, `view.js contrast`, so every other constant is byte-identical):
-     8.00 / 8.02 / 8.05 / 8.10 leave roll 5 at 2.7 and the row KNOWN; 8.25 clears it and all four sectors
-     (worst deals 10.9 / 8.0 / 4.6 / 6.8, 0 FAILURES of 87 rows, the [#611 debt] row gone) because past
-     his shortfall the clamp stops binding and the draw lands on its own FG_PUSH target. So 8.25 is the
-     SMALLEST value ever measured to clear, and it is the smallest one worth shipping: past the shortfall
-     a wider rail darkens draws that were already aiming correctly (the 16 m #407 seats walk from -27.4 to
-     -29.4 luma between 8 and 12 for no separation gain), so the rail stays as close to the deal that
-     needs it as the measurement allows. The albedo floor two lines below bounds every draw regardless. */
-  const FG_FLOOR = 4, FG_PUSH = 6, FG_MAX = 8.25, LUMW = [0.2126, 0.7152, 0.0722];
+  /* #611 the figure-ground target and the clamp, in luma. FG_PUSH is how far he belongs from the surface
+     behind him, and it is authored to sit ABOVE the bar the issue is written against - 8 luma, the step a
+     player has to have before a hostile reads as a thing and not as a bump in the wall. The target shipped
+     at 6, which is UNDER that bar, so a draw that landed exactly on target still arrived a beat late; the
+     two sectors that fail the deployed 10 m read (ARCHIVE -0.3/-2.7 and THE STACK +1.0/+1.2) are draws
+     sitting inside the old target, where the law is by construction inert or only half-paid. FG_FLOOR is
+     the SAME 4 the probe already calls a separated edge (DLR/SEP_V at the top of tools/view.js contrast) -
+     the trigger floor, so a draw that already separates by FG_PUSH pays nothing at all. FG_MAX is the most
+     any one draw's mean value is allowed to move; since the push needs `FG_PUSH - |gap|` of move, any
+     rail >= FG_PUSH is inert for every draw, so it is set equal to the target and stays what it is: a
+     ceiling against a bad measurement, never the thing that decides where a draw lands. LUMW is Rec.709 -
+     the weighting the row's own luma() uses - so the prediction and the measurement agree about what a
+     luma is.
+       The old 6 / 8.25 pair was measured at target 6, where the rail WAS the binding term: RING
+     TRANSPORT's roll-5 brute read 2.7 luma because his shortfall needed more than the rail allowed, and
+     8.25 was the smallest rail that cleared him. At target 9 the shortfall is at most 9, so a 9 rail
+     binds on no draw of the sweep and the deal that needed the wider rail is paid by the TARGET instead -
+     which is what the note above already said was the right lever ("raising the TARGET instead leaves
+     that deal exactly where it is" is the same fact in the other direction). The warning that came with
+     8.25 - a wider rail darkens draws that were already aiming correctly - is what the floor and the
+     floor-of-FG_PUSH trigger still guard: only draws whose delivered step is under the target move, and
+     only on the side they already sit. Measured on the sweep itself (JSDIR arms of this one line, so
+     every other constant is byte-identical): worst deals 9.6 / 10.7 / 8.3 / 9.8 over the four levels at
+     9 / 9 and the same four numbers at 9 / 12 - the rail agreeing with itself is the arithmetic above
+     being true - against 6.5 / 5.3 / 5.3 / 8.1 shipped. The albedo floor two lines below bounds every
+     draw regardless. */
+  const FG_FLOOR = 4, FG_PUSH = 9, FG_MAX = 9, LUMW = [0.2126, 0.7152, 0.0722];
 
   /* #78: one subdivision knob for every part was the spike's last leftover - a thigh and a visor got
      the same 6-sided prism, so the silhouette faceted exactly where it is widest while the small parts
