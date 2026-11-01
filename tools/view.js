@@ -386,6 +386,12 @@ function boot(knob, seed) {
      fail for want of LIGHT rather than for want of a pair (js/20_level.js deckLightEnabled). OVERLOOK=off
      cannot make that distinction - it removes the pair, so the deck stops being an overlook at all. */
   if (process.env.DECKLIGHT === 'off') run('deckLightEnabled = function () { return false; };');
+  /* DECKBODY=off is #353's THIRD CONTROL: the deck keeps its source and its light, and the lamp FIXTURE
+     that stands beside it is not pushed. It is the arm that separates "the deck is lit" from "the deck's
+     light has a body": with it, a mezzanine reads lit from nowhere, which is what shipped between #676 and
+     this change (js/20_level.js deckBodyEnabled). It moves PIXELS and no light, so flatparity's DEALT
+     sense is the row that moves under it while LOCK and the lightmap hold. */
+  if (process.env.DECKBODY === 'off') run('deckBodyEnabled = function () { return false; };');
 }
 boot();
 function newTex(t) { return { w: t.w, h: t.h, data: new Uint32Array(t.data), dbg: t.dbg }; }
@@ -839,6 +845,23 @@ if (MODE === 'alt') {
          sources this issue's pass placed (LIGHTS entries marked ovl) and re-solves: a deck that reads lit
          in BOTH arms is lit by the deal, not by the overlook, and credits nothing. */
       let ovlDeck = 0, ovlDeckTot = 0, ovlCredit = 0, ovlDeckAt = null, ovlPlaced = 0, ovlNoGlow = 0;
+      /* #353's third half: LIGHT IS NOT A LAMP. A deck can pass every row above - tall, reachable, a body
+         on it, a source on its band - and still be lit by nothing visible, because the source this rule
+         places carries noglow and until this change stood there with no fixture beside it. The shipped
+         idiom pairs the two: every lamp the generator places pushes a LIGHT and a PROP.lamp at the SAME
+         x,y (js/20_level.js :3148-49, :3727-28, :4001-02), so "this source has a body" is a COINCIDENCE
+         TEST on positions, not a new kind of fact. A deck is SEEN LIT if at least one source that reaches
+         it - same band test, own radius, both straight out of the record - has a lamp body at its own
+         position; a deck lit only by sourceless light is the defect, and it is counted by name. (This block
+         is inside the probe's sandbox string, so no backticks here - a backtick closes the template.) */
+      let ovlSeen = 0, ovlBodyless = 0; const ovlBodylessAt = [];
+      const hasBodyAt = L => PROPS.some(p => p.kind === 'lamp' && Math.hypot(p.x - L.x, p.y - L.y) < 0.35);
+      /* Two SHIPPED idioms make a source visible, and the row has to accept both or it accuses #413's
+         ceiling fittings of being the defect: a floor lamp is a PROP.lamp mesh at the source's own x,y
+         (:3148-49 / :3727-28 / :4001-02), and a hung fitting is a disc that drawLightGlow paints
+         (L.noglow unset). What is NOT visible is a source the glow pass skips and no mesh stands at -
+         which until this change was exactly one thing: the deck light #676 admitted with noglow. */
+      const visibleSrc = L => !L.noglow || hasBodyAt(L);
       /* #353 PM item 4: this census walks EVERY tall column beside a band at least half a metre up, which
          is a wider population than the pairing pass authors (it keeps OVERLOOK_MAX pairs, spaced
          OVERLOOK_SPACING apart), so "4 of 17 DARK" on RING TRANSPORT - where the rule places no source at
@@ -876,6 +899,15 @@ if (MODE === 'alt') {
             const ctl = directOn(j, L => L.ovl !== 1 && Math.abs(lightBand(L) - fz[j] * ZQ) <= ZQ + 1e-9);
             if (all >= 0.25) ovlDeck++;
             if (all >= 0.25 && ctl < 0.25) ovlCredit++;
+            if (all >= 0.25) {
+              /* The SAME kernel answer with the UNSEEABLE sources taken out, which is what makes this a
+                 light claim and not a proximity claim: a lamp across the room on the deck's band is a
+                 fixture but is not what the deck reads bright from. Fourth arm of the pair above - one
+                 splat pass per lit deck, OWN_MIN and the band test unchanged. */
+              const seen = directOn(j, L => Math.abs(lightBand(L) - fz[j] * ZQ) <= ZQ + 1e-9 && visibleSrc(L));
+              if (seen >= 0.25) ovlSeen++;
+              else { ovlBodyless++; if (ovlBodylessAt.length < 3) ovlBodylessAt.push(nx + ',' + ny + ' reads ' + all.toFixed(2) + ' delivered, ' + seen.toFixed(2) + ' from a body'); }
+            }
             if (ovlPairDeck.has(j)) {
               ovlPairTot++;
               if (all >= 0.25) ovlPairLit++;
@@ -997,6 +1029,7 @@ if (MODE === 'alt') {
         linkIn, blockedStep, stairs, stairCells, ladCells, bandLink, noLink, steps: MAP.steps,
         headMax, headCols, runMax, runFloor, runTot, runs, reachUp, reachDown, reachOff, farReach,
         ovl, ovlAt, ovlEnemy, ovlShot, ovlDeck, ovlDeckTot, ovlCredit, ovlDeckAt,
+        ovlSeen, ovlBodyless, ovlBodylessAt,
         ovlPlaced, ovlNoGlow, ovlPairTot, ovlPairLit, ovlPairDark, ovlOtherDark,
         ovlPairsAuth: overlookPairs.length, ovlWhyCount: Object.keys(ovlWhy).length, auth: !!(LEVELS[${li}] && LEVELS[${li}].authored),
         // #353: how many OVERLOOK glyphs the authored plan declares. The plan still declares them when
@@ -1336,6 +1369,25 @@ if (MODE === 'alt') {
       const noG = r.ovlNoGlow;
       row(`L${li} the disc-less light exemption is capped to the decks this rule placed`, noG === r.ovlPlaced,
         `${noG} static source(s) carry no glow disc, ${r.ovlPlaced} of them placed by the overlook deck pass - equal, so the exemption is not a general way past the #221 glow gate (a lamp authored elsewhere with the flag set lands here as a FAILURE)`);
+      /* #353's last player-visible half. The deck light was admitted WITHOUT a bloom disc (#221's off-band
+         alpha would have gone 0.009 -> 0.074 for a disc on a one-cell lip), and the fix stopped one step
+         short of the picture: the deck got light and no FIXTURE, so standing up there you are in a bright
+         room with nothing in it that casts. That shape passes every row above, which is why this one asks
+         a different question - not "is the deck lit" but "is there a lamp where that light comes from" -
+         and answers it with the generator's own pairing: every lamp it places pushes a LIGHT and a
+         `PROP.lamp` at the same x,y (:3148-49 / :3727-28 / :4001-02), so a body is a lamp within 0.35 m of
+         the source's own position, and a source that reaches the deck is one on its band inside its own
+         radius. NOTHING new is lit, moved or scaled here; the fixture is the mesh the rest of the game uses.
+         THE ARMS THAT MAKE IT LOAD-BEARING: `DECKBODY=off` keeps every pair, source and lumen and pushes no
+         fixture - on the CI deal that is L0 and L2 going red here while L1 and L3 stay green and say the
+         deal's own lamp body stands on their decks - and `OVERLOOK=off` removes the pairs, so this row goes
+         red for want of a deck at all (vacuity, not a pass). Pixels, not light: `DECKBODY=off node
+         tools/view.js flatparity` moves DEALT and holds LOCK, which is the same statement read off bytes. */
+      row(`L${li} a lit overlook deck's light has a fixture standing on its deck`,
+        r.ovlDeck >= 1 && r.ovlBodyless === 0,
+        `${r.ovlSeen}/${r.ovlDeck} deck(s) that read lit are lit by a source you can SEE - a lamp mesh at the source's own x,y, or a disc the glow pass paints` +
+        (r.ovlBodyless ? ` - ${r.ovlBodyless} read lit from sourceless light: ${r.ovlBodylessAt.join('; ')}` :
+          ` - the deck's light has a body you can see, not just a value in the lightmap`));
       krow(`L${li} every overlook deck reads lit`, dark === 0,
         `${dark} of ${r.ovlDeckTot} overlook deck(s) read DARK - no source stands on the band they are fought from` +
         (r.ovlOtherDark.length ? `, and every one of them is tall air beside a raised band that the pairing pass did NOT author ` +
