@@ -63,6 +63,8 @@ node tools/roster.js                    # EVERY invocation ci.yml's blocking ste
 node tools/roster.js --list             # that roster + the drift check, running nothing
 node tools/roster.js --env              # which env vars gate whether a ROW EXISTS, with live line numbers
 node tools/roster.js --quick 3          # the first three (census says PARTIAL)
+node tools/roster.js --only exposure    # one mode by name (census says PARTIAL) - how you prove a
+                                        # red row is caught without paying for the whole roster
 node tools/smoke.js                     # save/restore balance, colour variety,
                                         # raster median < 16 ms/frame, asset mem < 40 MB
 VERT=1 node tools/smoke.js              # the vertical lane
@@ -75,6 +77,12 @@ node --check <each changed file>        # cross-file work: parse index.html's or
 scan of every non-comment line - and replays the blocking steps, each command with the `VAR=` prefix
 that sits in front of it in the workflow. The two counts must agree or it fails naming the line numbers,
 and `ci.yml` runs `--list` as a blocking step so the agreement cannot rot.
+
+**A shell loop is not one command.** The `probes` job's step is `for p in alt exposure contrast rig
+stats sheets decal diag viewmodel; do ... done` and ends `exit $status`, so it gates on all nine while
+its job is labelled "they report, they do not gate". The roster reads the word list off that header and
+replays all nine, counted, and its verdict line says how many came from a loop and names any loop it
+could not (#662 cost PR #649 a red CI on a head whose roster was clean).
 
 This replaces a hand-copied subset. The same list lived here *and* in `ci.yml`, maintained twice, and
 they drifted: `node tools/view.js cull` printed `CULL ok` (exit 0) on bytes where `ci.yml`'s second,
