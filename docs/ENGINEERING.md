@@ -155,6 +155,32 @@ detached worktree.
 **A probe whose row count is quoted in prose will disagree with the printed one.** The count is
 the probe's own tally and moves when a row is added; the disagreement is a defect in the prose.
 
+**A probe argument that chooses the level can silently choose a different world.** `props <li>`
+changed how many draws `genLevel` had taken from the harness's shared generator before its
+collision loop regenerated levels, and an authored level draws almost none — so `props 3` judged a
+*different level 0*: the same crate index in another room, printing identical text with the opposite
+verdict in a CI-facing job. The repair replays the generations a plain run performed before the loop;
+`seedRng()` is not the repair, because it installs a different generator than boot's and re-baselines
+every world in the block (#314).
+
+**A lights-off control measures a ratio, so it tracks how much light was there to remove.** The
+control zeroes `MAP.amb` and `MAP.light` and requires the non-emissive top decile to fall by a factor;
+the residual body is the mesh's light-independent floor plus fog, so the ratio follows the *seat
+cell's lightmap*. A dark-authored seat falls by a smaller ratio than a bright room and fails a
+threshold calibrated on bright ones. Keep the semantic gate — "fell by less than 10 %, therefore sees
+no scene light and every light-dependent row in the block is worthless" — and record the per-level
+ratio beside it (#314).
+
+**A synthesized hanging light has to be bounded by the room it is in.** An orb hung a fixed `0.35`
+under its ceiling sat four metres up in a 4 m room — out of frame, a `mask.bot −1` silhouette
+sentinel, and rows judging a prop nobody can see. `min(ceilAt − 0.35, floorAt + 0.9)` is the rule;
+`floorAt + 0.9` alone reproduces the clipped number on a one-unit room, because half the body stands
+inside the slab (#163, #314).
+
+**A bound that outruns its own literals compares against `undefined` and prints no red row at all.**
+When a record gains a level, the record and the bound move in one commit, and the verdict line says
+how many levels the records cover (#314).
+
 ## Measurement discipline
 
 **One run on a loaded machine means nothing.** Load average ~3 inflated unchanged code from
