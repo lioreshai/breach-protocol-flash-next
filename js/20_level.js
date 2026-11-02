@@ -3752,8 +3752,12 @@ function lightOverlookDecks(cfgL) {
       const cx = (c % N) + 0.5, cy = ((c / N) | 0) + 0.5, d = Math.hypot(cx - jx, cy - jy);
       if (d < best) { at = c; best = d; }
       if (d >= bestBody) continue;
+      /* #421: the clearance that survives is the one about STANDING FURNITURE - a fixture must not be
+         built inside a crate, which is permanent and visible from below. The ENEMIES test is dropped for
+         this one case because a two-unit deck is a landing the deal garrisons, and a moving body standing
+         in front of a lamp for a second is not the defect this pass exists to prevent; refusing the lamp
+         outright was, which is the row above this scan already fails on. */
       if (!PROPS.every(q => Math.hypot(q.x - cx, q.y - cy) > 0.6)) continue;
-      if (!ENEMIES.every(q => Math.hypot(q.x - cx, q.y - cy) > 0.6)) continue;
       atBody = c; bestBody = d;
     }
     if (at < 0) { ledger(p, -1, own, 'no-band-cell'); continue; }        // the deck is not open air at all
