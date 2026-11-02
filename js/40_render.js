@@ -3838,10 +3838,23 @@ function castWalls(flash, fcR, fcG, fcB) {
          world units, and a band that ran up the body's whole span was a wash over the wall that cost
          edge dL and bought no grounding) and it falls off quadratically, so the visible part hugs the
          floor line. */
+      /* #421: the band's OTHER end. The rule above is a clamp at the top of the caster's own span, and
+         this copy had no clamp at the bottom: `vv < 1` is true for every pixel BELOW the feet plane too
+         (vv goes negative and `w` saturates at 1), so a face took the caster's grounding infinitely far
+         DOWN its own span. Flat that is invisible - a wall face starts at the floor the caster stands on,
+         so there is no face pixel below that plane and the two rules agree. A raised deck is the case
+         where they do not: its riser is the side of a slab, and when the slab is lifted two units the
+         part of it under the deck's own floor goes from one unit of face to two, all of it reading as
+         full-strength ink. That is the pixel census `contrast` calls "spread, not aimed" - ink above the
+         horizon row went 565 -> 1666 px when BAND_UP went 4 -> 8 while the ink at the feet did not move -
+         and it is the same rule `shadowFloor` already enforces on a FLOOR with SHADOW_ZT (#18 fifth take),
+         applied to the face copy, which is AGENTS.md's clamp rule: absolute z, clamped into the span the
+         renderer actually draws. Tolerance is SHADOW_ZT itself, so the two copies cannot drift. */
       let shM = 1;
       if (shK > 0) {
-        const vv = (eyeZ - (y - horizon) * shZs - shA) * shS;
-        if (vv < 1) {
+        const vz = eyeZ - (y - horizon) * shZs - shA;   // metres above the plane this caster grounds on
+        const vv = vz * shS;
+        if (vv < 1 && vz > -SHADOW_ZT) {
           const w = 1 - (vv > 0 ? vv : 0);
           shM = 1 - shK * (SHADOW_ZF + (1 - SHADOW_ZF) * w * w);
         }
