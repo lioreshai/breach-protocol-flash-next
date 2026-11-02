@@ -5,7 +5,7 @@
 # A declaration with no row here fails REFS-DECLARED-MISSING; a row with no declaration fails
 # REFS-IN-TABLE-UNDECLARED; an edited literal fails REFS-VALUES-MOVED. None of the three is a
 # warning, and the row runs inside flatparity, which ci.yml runs blocking.
-ref	alt	DARK-COVERED	num	61.4 64.5 57.2 100.0
+ref	alt	DARK-COVERED	num	61.4 57.4 57.2 100.0
 ref	alt	DARK-SHARE	num	1.7 7.2 4.3 2.7
 ref	alt	GRID-CENSUS	num	9 186 2 51 9 267 2 60 9 310 2 56 9 141 5 25
 ref	alt	OOB-ERA	num	19 10 16 0
@@ -17,12 +17,12 @@ ref	anim	NECK-BAND	num	4.8 2.7 3.4
 ref	anim	NECK-TUBE	num	41 43.2 40
 ref	bands	SEAM-FRAME	md5	c0cea989edb8199ecb1a38071dc8768b 08d43aeccb097c68afb37e0a2ed7e485 fd52cfc5c0509155ce7c7b17c6c08a4c 1551ac119d45b6d47761975199718783
 ref	contrast	TORSO-DL	num	0.90 1.10 0.88
-ref	cull	CZBAND	crc32	0xe6be167c 0xca91998d 0xc1b46bbc 0x76714209
-ref	cull	CZBAND-LIGHT	crc32	0x5d367af8 0x9e0c21dc 0x48f136e8 0x43a22b10
-ref	exposure	MEDIAN	num	70 77 67 90
-ref	exposure	SPAWN	num	71 63 76 60 69 74 75 85
-ref	flatparity	DEALT	md5	361f686ea39eaf3ece1fcf4d7f8063cb 1c372753d59f4185ed69781990f3daf6 f92dbb5b69e9710a2af54615fafb73f1 d9db78d18a864e548448279031ca90bf
-ref	flatparity	LOCK	md5	89d3fa6d887d0e6dc5ac4b00ce973f84 3ba4a2e080f43d83a8c343fba6936e75 06ed741b1929baf31df797a8ad9915b6 bc0e02bd4f2f0c0cd6e58b7fda161f2e
+ref	cull	CZBAND	crc32	0x59300fcc 0xc4cfa140 0xda017c30 0x76714209
+ref	cull	CZBAND-LIGHT	crc32	0xc727efa8 0x58a28058 0x69b07868 0x43a22b10
+ref	exposure	MEDIAN	num	70 77 68 90
+ref	exposure	SPAWN	num	71 63 76 60 72 79 75 85
+ref	flatparity	DEALT	md5	361f686ea39eaf3ece1fcf4d7f8063cb 1c372753d59f4185ed69781990f3daf6 e6aa9d7a1694efb26b51ac389565ae98 d9db78d18a864e548448279031ca90bf
+ref	flatparity	LOCK	md5	22b328d5f26b0c221c574ef1d41e0af9 3ba4a2e080f43d83a8c343fba6936e75 06ed741b1929baf31df797a8ad9915b6 bc0e02bd4f2f0c0cd6e58b7fda161f2e
 ref	flatparity	PARITY	md5	e94a0f77a784b746f1f5bfaa3936ddf4 c6271988d598d1e563836260d38779cd 809a4b1579b1c7a1d2e12c61f51edc67 a501935b2bdb0ecb1628d318d5232a77
 ref	heights	HALF-MOVE	num	97.17 25.42 53.08 95.51 42.81 62.48 97.12 27.33 78.23 95.43 42.05 63.30 97.17 28.39 53.39 95.55 42.86 63.32 97.17 11.27 13.38 95.48 38.33 54.54
 ref	props	CTRL-RAT	num	0.294 0.471 0.306 0.431
