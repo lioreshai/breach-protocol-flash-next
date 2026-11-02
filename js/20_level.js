@@ -241,8 +241,10 @@ let overlookPairs = [];
    the pairing pass keeps at most OVERLOOK_MAX pairs spaced OVERLOOK_SPACING apart - so "4 decks DARK"
    could not tell a deck the rule never reached from one it reached and failed to light. `why` is the
    condition the pass itself stopped on: 'lit' (a source stands here, placed by this pass), 'own-band'
-   (the deck's own band already delivers OWN_MIN, so the deal garrisons it), 'no-free-cell' (every cell
-   of the deck's band is taken by a body or a prop), 'solid' (the up cell is not air after all).
+   (the deck's own band already delivers OWN_MIN, so the deal garrisons it), 'lit-no-body' (the source
+   stands on a lip cell that a prop or a garrison stands on too, so the light is there and the mesh is
+   not - #421: a dark upper floor is the defect, a missing fixture is not), 'no-band-cell' (the deck's
+   band has no open cell to hang anything on), 'solid' (the up cell is not air after all).
    Draws no RNG and writes no height, so it cannot move a pixel: it is a receipt, not a feature. */
 let overlookLamps = [];
 /* #709: the cells the #421 hall-deck growth pass raised, in the order it raised them, as cell indices.
@@ -3737,15 +3739,25 @@ function lightOverlookDecks(cfgL) {
         } }
     }
     const jx = (p[1] % N) + 0.5, jy = ((p[1] / N) | 0) + 0.5;
-    let at = -1, best = Infinity;
+    /* #421: a SOURCE needs no free cell; only the fixture BODY does. The scan below used to refuse the
+       whole pair when every cell of the deck's band stood within 0.6 m of a prop or a garrison, which on
+       a two-unit band is a real outcome - the pairing now picks the top of a staircase, so the deck it
+       must light is a small landing that the deal has already furnished - and the result was a DARK
+       upper floor, this issue's own defect wearing a different hat. A lamp is not a physical object: it
+       is a static source with its glow disc off (#221's gate untouched), so the light goes on the lip
+       cell either way and the mesh stands only where nothing else stands. Where a free cell does exist
+       nothing changes at all, so the picture this pass shipped with stays the picture. */
+    let at = -1, best = Infinity, atBody = -1, bestBody = Infinity;
     for (const c of order) {
       const cx = (c % N) + 0.5, cy = ((c / N) | 0) + 0.5, d = Math.hypot(cx - jx, cy - jy);
-      if (d >= best) continue;
+      if (d < best) { at = c; best = d; }
+      if (d >= bestBody) continue;
       if (!PROPS.every(q => Math.hypot(q.x - cx, q.y - cy) > 0.6)) continue;
       if (!ENEMIES.every(q => Math.hypot(q.x - cx, q.y - cy) > 0.6)) continue;
-      at = c; best = d;
+      atBody = c; bestBody = d;
     }
-    if (at < 0) { ledger(p, -1, own, 'no-free-cell'); continue; }        // every lip cell taken: leave it be
+    if (at < 0) { ledger(p, -1, own, 'no-band-cell'); continue; }        // the deck is not open air at all
+    if (atBody >= 0) at = atBody;                                        // light and fixture agree where they can
     const x = (at % N) + 0.5, y = ((at / N) | 0) + 0.5;
     const tsc = Math.min(0.6, Math.max(TOPUP_MINF, order.length / TOPUP_TARGET));
     LIGHTS.push({ x: x, y: y, z: fl + LHOVER, band: fl, r: OVL_LAMP_R, str: TOPUP_BASE * tsc,
@@ -3757,12 +3769,12 @@ function lightOverlookDecks(cfgL) {
        It is drawn by the prop/mesh pass and never by drawLightGlow, so #221's off-band ALPHA gate is
        untouched by construction: a body occludes, it does not add. The cell is free of props and bodies
        by the two `every` tests above, so this cannot stand a lamp inside a crate. */
-    if (deckBodyEnabled()) {
+    if (deckBodyEnabled() && atBody >= 0) {
       PROPS.push({ tex: PROP.lamp, x: x, y: y, z: floorAt(x, y), scale: 0.95, kind: 'lamp',
         yaw: propYaw(x, y), ovl: 1 });
       bodyPlaced++;
     }
-    ledger(p, at, own, deckBodyEnabled() ? 'lit' : 'lit-no-body');
+    ledger(p, at, own, deckBodyEnabled() && atBody >= 0 ? 'lit' : 'lit-no-body');
     placed++;
   }
   return placed;
