@@ -56,6 +56,14 @@ const LR = 0.2126, LG = 0.7152, LB = 0.0722;      // Rec.709, the same rule DEV.
  * result whatever it says about the paint. */
 const MIN_KEEP_FRAC = 0.0015;
 
+/* MIN_COV_FRAC - the same vacuity question asked of the RENDERER's mask instead of of a frame
+ * difference: did a body's draw take any pixels at all? Keyed on the raster area the mask lives in,
+ * so a --res or a tier change moves the floor with the pixels it counts. MEASURED on the deployed
+ * build at seed 60 with COV armed (676x291 raster, brute at the ABATOIR 10 m seat): 445 px stamped.
+ * A seat whose line is blocked stamps none, because the mask is last-writer-wins and geometry nearer
+ * than him erases him instead of leaving a rim. The floor sits an order under the weakest body. */
+const MIN_COV_FRAC = +(process.env.COVFRAC || 0.0006);
+
 /* ---------------------------------------------------------------- tiny helpers */
 
 function arg(name, dflt) {
@@ -183,9 +191,18 @@ function devRoute(o) {
      bearing keeps the realised range equal to the --dist the row is written at, which is the whole
      point of an "8-16 m" acceptance bar, and it samples the arc the camera can actually see instead of
      one line across it. Least-turned first, so a seat that needs no turn is never turned. */
-  var e=ENEMIES[0],pick=null,tried=[],
+  var e=ENEMIES[0],pick=null,tried=[],vis=0,
       KB=[0,0.06,-0.06,0.12,-0.12,0.18,-0.18,0.24,-0.24,0.30,-0.30,0.40,-0.40],
-      RF=[1,0.94,1.06],D=${+o.body.dist || 10};
+      RF=[1,0.94,1.06],D=${+o.body.dist || 10},
+      VIS=Math.max(8,Math.round(BW*BH*${MIN_COV_FRAC}));
+  /* AND THE CELL/LINE TEST IS NOT ENOUGH, SO THIS ASKS THE RENDERER. blocked() is an XY march: it
+     cannot see a lip, a slab edge or a mezzanine deck between the eye and a body standing on the band
+     under it, and THE STACK is exactly that level. The first version placed a grunt at a clean-looking
+     THE STACK seat and the coverage mask came back with 20 px of him - a hand and a shoulder over a
+     slab edge, at a seat the search had just certified as clear. So a candidate is only a seat when
+     his own draw actually takes VIS raster pixels, which is the same floor the fg row gates on below.
+     One extra rendered frame per candidate is the whole cost, and it buys a mask that cannot disagree
+     with the frame it is measuring. */
   for(var i=0;i<KB.length && !pick;i++)for(var q=0;q<RF.length;q++){
     var a=P.ang+KB[i], cx=P.x+Math.cos(a)*D*RF[q], cy=P.y+Math.sin(a)*D*RF[q], why='ok';
     var d0=Math.hypot(cx-P.x,cy-P.y);
@@ -194,9 +211,15 @@ function devRoute(o) {
     else{for(var j=0;j<PROPS.length;j++){var p=PROPS[j];
       var t=((p.x-P.x)*(cx-P.x)+(p.y-P.y)*(cy-P.y))/(d0*d0);t=Math.max(0,Math.min(1,t));
       if(Math.hypot(p.x-(P.x+(cx-P.x)*t),p.y-(P.y+(cy-P.y)*t))<0.85){why='prop on the line';break;}}}
+    if(why==='ok'){                                    // he passed the XY rule: does the frame agree?
+      e.x=cx;e.y=cy;e.ang=Math.atan2(P.y-cy,P.x-cx);
+      COV=new Uint8Array(BW*BH);DEV.tick(1);
+      vis=0;for(var z=0;z<BW*BH;z++)if(COV[z])vis++;COV=null;
+      if(vis<VIS)why='only '+vis+' px of him painted';
+    }
     tried.push({off:+(KB[i]*D*RF[q]).toFixed(2),why:why});
     if(why==='ok'){pick={x:+cx.toFixed(2),y:+cy.toFixed(2),off:+(KB[i]*D*RF[q]).toFixed(2),
-      d:+d0.toFixed(2)};break;}
+      d:+d0.toFixed(2),vis:vis};break;}
   }
   if(!pick){ENEMIES.length=0;out.body=null;out.noSeat=tried;}  // no seat to measure: say so, do not place him anyway
   else{e.x=pick.x;e.y=pick.y;e.ang=Math.atan2(P.y-e.y,P.x-e.x);out.body=pick;out.kind=e.kind;out.tried=tried;}` : 'out.body=null;'}
@@ -220,7 +243,24 @@ function devRoute(o) {
      his feet. The third frame (same load, nothing changed since the clear arm) is the identity arm:
      it measures what one load refuses to agree on with ITSELF, and the fg row prints it, so a mask
      that is noise says so in its own line instead of looking like a weak colour. */
-  ${o.pair ? `out.b=[out.png];for(var u=0;u<${ARMS}-1;u++){DEV.tick(1);out.b.push(cv.toDataURL('image/png').split(',')[1]);}
+  ${o.pair ? `out.b=[];out.m=null;
+  /* WHICH PIXELS ARE HIM, FROM THE RENDERER AND NOT FROM THE FRAME DIFFERENCE (#611). A difference
+     mask cannot carry a paint verdict: one page load disagrees with ITSELF by ~4k kept px (the rig,
+     dither, lamp flicker), and a difference mask at a 10 m seat is 9-13k px - so a third to two
+     thirds of the mask is weather, and the weather that survives the k-frame mean sits in the rig's
+     box, which is the part of the frame that is NOT the body. The renderer already knows the answer:
+     js/00_core.js COV is an opt-in coverage mask, stamped 1 by a body's own mesh draw and 0 by every
+     other writer - props, decals, billboards and the view model all stamp 0 (js/40_render.js stamps
+     body:0 for the gun, #183), and last-writer-wins so a crate nearer than him takes the pixel and
+     stops being silhouette. It is write-only: nothing in the shipped frame reads it, so arming it
+     moves no pixel and costs nothing the player pays. So the mask is that mask, read out of the same
+     frame as the arm it measures, and the frame difference becomes the cross-check it always should
+     have been. */
+  COV=new Uint8Array(BW*BH);
+  for(var u=0;u<${ARMS};u++){DEV.tick(1);out.b.push(cv.toDataURL('image/png').split(',')[1]);
+    if(!out.m){var nb=(BW*BH+7)>>3,by=new Uint8Array(nb);for(var q=0;q<BW*BH;q++)if(COV[q])by[q>>3]|=1<<(q&7);
+      var s='';for(var q2=0;q2<nb;q2++)s+=String.fromCharCode(by[q2]);
+      out.m=btoa(s);out.buf=[BW,BH];out.dims=[cv.width,cv.height];COV=null;}}
   ENEMIES.length=0;out.c=[];for(var u2=0;u2<${ARMS}*2;u2++){DEV.tick(1);out.c.push(cv.toDataURL('image/png').split(',')[1]);}
   out.png=null;` : ''}
   return out;})()`;
@@ -327,9 +367,56 @@ function avgPNG(files) {
   return { w: f0.w, h: f0.h, d };
 }
 
+/* The body's OWN pixels, from the coverage mask the renderer stamped (#611). COV lives at raster
+ * resolution (js/00_core.js BW x BH, 676x291 at the shipped tier) and the arm PNG is the composited
+ * display canvas (1440x620), so each stamped raster pixel is read at the centre of the display pixel
+ * it lands in - one sample per body pixel, no block doubling, and the sample is the delivered colour
+ * at that spot including whatever bloom bled into it. */
+function covSamples(mask, dims, D) {
+  const bits = Buffer.from(mask, 'base64'), bw = dims[0], bh = dims[1];
+  const ix = [];
+  for (let y = 0; y < bh; y++) for (let x = 0; x < bw; x++) {
+    const i = y * bw + x;
+    if (!(bits[i >> 3] & (1 << (i & 7)))) continue;
+    const dx = Math.min(D[0] - 1, Math.round((x + 0.5) * D[0] / bw));
+    const dy = Math.min(D[1] - 1, Math.round((y + 0.5) * D[1] / bh));
+    ix.push((dy * D[0] + dx) * 3);
+  }
+  return ix;
+}
+
+/* The colour read over a fixed set of pixel indices: what the two arms delivered there, as luma and
+ * as chroma. Used for the body mask AND for the identity control, so both sides of the comparison
+ * are the same estimator over the same pixels. */
+function colourAt(A, B, ix) {
+  const mB = [0, 0, 0], mA = [0, 0, 0];
+  let dsum = 0;
+  for (const i of ix) {
+    for (let c = 0; c < 3; c++) { mB[c] += B.d[i + c]; mA[c] += A.d[i + c]; }
+    dsum += Math.abs(A.d[i] - B.d[i]) + Math.abs(A.d[i + 1] - B.d[i + 1]) + Math.abs(A.d[i + 2] - B.d[i + 2]);
+  }
+  const n = ix.length || 1;
+  for (let c = 0; c < 3; c++) { mB[c] /= n; mA[c] /= n; }
+  const luma = m => LR * m[0] + LG * m[1] + LB * m[2];
+  const sat = m => { const s = m.slice().sort((a, b) => a - b); return s[2] ? (1 - s[0] / s[2]) * 100 : 0; };
+  const hue = m => {
+    const r = m[0] / 255, g = m[1] / 255, b = m[2] / 255, mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn;
+    if (!d) return NaN;
+    return 60 * (mx === r ? (g - b) / d + (g < b ? 6 : 0) : mx === g ? (b - r) / d + 2 : (r - g) / d + 4);
+  };
+  return {
+    n: ix.length, delta: +(dsum / n).toFixed(2),
+    hueGap: null,
+    body: mB.map(v => +v.toFixed(1)), bg: mA.map(v => +v.toFixed(1)),
+    lumaBody: +luma(mB).toFixed(2), lumaBg: +luma(mA).toFixed(2), valueStep: +(luma(mB) - luma(mA)).toFixed(2),
+    satBody: +sat(mB).toFixed(1), satBg: +sat(mA).toFixed(1), chromaStep: +(sat(mB) - sat(mA)).toFixed(1),
+    hueBody: +hue(mB).toFixed(1), hueBg: +hue(mA).toFixed(1), hueStep: +(hue(mB) - hue(mA)).toFixed(1)
+  };
+}
+
 /* The frame centre only: the four HUD corners carry a kill counter and a minimap dot that differ
    between the two arms for reasons that have nothing to do with paint. */
-function fg(withBody, without) {
+function fg(withBody, without, mask) {
   const A = Array.isArray(without) ? avgPNG(without) : decodePNG(without);
   const B = Array.isArray(withBody) ? avgPNG(withBody) : decodePNG(withBody);
   if (A.w !== B.w || A.h !== B.h) throw new Error('the two arms are different sizes: ' + A.w + 'x' + A.h + ' vs ' + B.w + 'x' + B.h);
@@ -345,8 +432,11 @@ function fg(withBody, without) {
     for (let c = 0; c < 3; c++) { mB[c] += B.d[i + c]; mA[c] += A.d[i + c]; }
   }
   const minKeep = Math.max(1, Math.round(A.w * A.h * MIN_KEEP_FRAC));
-  const res = { n, minKeep, vacuous: n < minKeep };
-  if (!n) return Object.assign(res, { note: 'no pixel differs - the body contributed nothing the frame delivered' });
+  /* With a cov mask in hand the difference mask is a cross-check, not the verdict: its size says how
+   * much of the frame this load disagrees about, which includes the rig. Vacuity is then asked of the
+   * pixels the renderer says are a body. Without a mask this is the old read, unchanged. */
+  const res = { n, minKeep, vacuous: mask ? false : n < minKeep };
+  if (!n && !mask) return Object.assign(res, { note: 'no pixel differs - the body contributed nothing the frame delivered' });
   for (let c = 0; c < 3; c++) { mB[c] /= n; mA[c] /= n; }
   const luma = m => LR * m[0] + LG * m[1] + LB * m[2];
   const sat = m => { const s = m.slice().sort((a, b) => a - b); return s[2] ? (1 - s[0] / s[2]) * 100 : 0; };
@@ -355,30 +445,53 @@ function fg(withBody, without) {
     if (!d) return NaN;
     return 60 * (mx === r ? (g - b) / d + (g < b ? 6 : 0) : mx === g ? (b - r) / d + 2 : (r - g) / d + 4);
   };
-  return Object.assign(res, {
+  res.diff = {
     box: [bx0, by0, bx1 - bx0 + 1, by1 - by0 + 1],
     body: mB.map(v => +v.toFixed(1)), bg: mA.map(v => +v.toFixed(1)),
     lumaBody: +luma(mB).toFixed(2), lumaBg: +luma(mA).toFixed(2), valueStep: +(luma(mB) - luma(mA)).toFixed(2),
     satBody: +sat(mB).toFixed(1), satBg: +sat(mA).toFixed(1), chromaStep: +(sat(mB) - sat(mA)).toFixed(1),
     hueBody: +hue(mB).toFixed(1), hueBg: +hue(mA).toFixed(1), hueStep: +(hue(mB) - hue(mA)).toFixed(1)
-  });
+  };
+  /* The primary read, when the frame came with the renderer's own mask: the pair of bars over the
+   * pixels a body's draw took, and the mean delivered delta at those pixels - which is also what the
+   * identity control is measured in, so the two are comparable. */
+  if (mask) {
+    const ix = covSamples(mask.b64, mask.dims, [A.w, A.h]);
+    res.cov = colourAt(A, B, ix);
+    /* Hue is an angle: the signed difference between two hue angles is meaningless past half a circle,
+     * and the raw subtraction put a -3 luma row at "hueStep 266.1". Print the short way round. */
+    if (isFinite(res.cov.hueBody) && isFinite(res.cov.hueBg)) {
+      let g = Math.abs(res.cov.hueBody - res.cov.hueBg) % 360;
+      res.cov.hueGap = +(g > 180 ? 360 - g : g).toFixed(1);
+    }
+    res.maskEmpty = res.cov.n === 0;         // nothing stamped: either no body, or COV was never armed
+  }
+  return res;
 }
 
-/* The one verdict this tool prints: VACUOUS when the mask is too small to be a body at all. It is a
- * failure, not a caveat - the value and chroma steps in such a row are arithmetic on dither. */
+/* The one verdict this tool prints. TWO masks are reported and they mean different things:
+ * `cov` is the body's OWN pixels as the geometry pass stamped them (#611's primary), and `diff` is
+ * every pixel the two arms disagree about - the body PLUS whatever else this load refuses to agree on
+ * with itself, the first-person rig first. A cov mask under MIN_COV_FRAC of the raster is VACUOUS, and
+ * so is one whose mean delivered delta does not beat the mean delta the SAME pixels show between two
+ * halves of one arm. Neither clause is a colour bar: a weak colour over the floor is a result. */
 function fgLine(tag, r, idn, k) {
-  return 'FG ' + tag + ' ' + JSON.stringify(r) +
-    (idn !== null && idn !== undefined ? '\n   IDENTITY ' + idn + ' kept px between the two halves of ONE '
-      + 'arm with nothing between them but ticks - both sides ' + (k || 1) + '-frame means, the same '
-      + 'estimator as the mask above, so this is the floor this row has to clear rather than a noisier '
-      + 'quantity wearing its name.' : '') +
-    (r.vacuous ? '\n   VACUOUS: ' + r.n + ' kept px, under the ' + r.minKeep + ' px floor (' +
-      (MIN_KEEP_FRAC * 100).toFixed(2) + '% of the frame). That mask is not a body, so the steps in the '
-      + 'row above are noise. Look at the arms; a seat with geometry on the camera-to-body line reads '
-      + 'this way.' : '') +
-    (r.noisy ? '\n   VACUOUS BY ITS OWN CONTROL: ' + r.n + ' kept px against an identity floor of ' +
-      idn + ' in the same load. The mask is no larger than what this frame refuses to agree on with '
-      + 'itself, so the steps above are not a body either. Vacuity is a FAILURE, not a debt.' : '');
+  const c = r.cov, i = idn && idn.cov;
+  return 'FG ' + tag + ' MASK ' + (c ? JSON.stringify(c) : '(no coverage mask came back)') +
+    '\n   cross-check, frame-difference mask: ' + (r.diff ? JSON.stringify(r.diff) : '{}') +
+    (i ? '\n   IDENTITY ' + i.n + ' of the SAME masked px, both sides ' + (k || 1) + '-frame means, nothing between the '
+      + 'halves of one clear arm but ticks; mean delivered delta there ' + i.delta + ' against ' + c.delta +
+      ' between the arms. ' + (c.delta > i.delta ? 'The body clears its own floor.'
+        : 'The mask does not clear its own floor, so the steps above are not a body.')
+      : idn ? '\n   IDENTITY ' + idn + ' kept px between two halves of one arm (the difference mask; no cov mask came back).' : '') +
+    (c && c.n < r.covMin ? '\n   VACUOUS: a body\'s draw took ' + c.n + ' px of the ' + r.buf + ' raster, under the '
+      + r.covMin + ' px floor (' + (MIN_COV_FRAC * 100).toFixed(3) + '%). Nothing was painted there, so the steps '
+      + 'above are arithmetic on nothing. A seat with geometry on the camera-to-body line reads this way, and so '
+      + 'does a page whose COV was never armed.' : '') +
+    (c && i && !(c.delta > i.delta) ? '\n   VACUOUS BY ITS OWN CONTROL: the same masked px move ' + c.delta +
+      ' between the arms and ' + i.delta + ' between two halves of one arm with nothing changed. This load does not '
+      + 'agree with itself any less than it disagrees about the body, so the row measures the harness and not the '
+      + 'paint. Vacuity is a FAILURE, not a debt.' : '');
 }
 
 /* ---------------------------------------------------------------- the live frame cost (#529) */
@@ -526,6 +639,19 @@ function armFiles(dir, base) {
   return out;
 }
 
+/* The cov mask that belongs with a set of arm frames. The `both` route writes it beside the frames it
+ * was stamped from, so a run's whole read - pixels, colours and the mask that says which of them are
+ * the body - stays on disk together and can be re-read without a browser. dims are the RASTER size
+ * the mask lives at, which is not the size of the PNG. */
+function maskFor(dir, base, file, dims) {
+  const f = file ? path.resolve(file) : path.join(dir, base + '-cov.b64');
+  if (!fs.existsSync(f)) return null;
+  let d = dims ? String(dims).split(/[x,]/).map(Number) : null;
+  if (!d || d.length !== 2) { const s = fs.readFileSync(f.replace(/\.b64$/, '.dims'), 'utf8'); d = s.trim().split(/[x,]/).map(Number); }
+  if (!d || d.length !== 2 || !d[0] || !d[1]) return { b64: fs.readFileSync(f, 'utf8').trim(), dims: null };
+  return { b64: fs.readFileSync(f, 'utf8').trim(), dims: d };
+}
+
 async function cap(o) {
   const out = path.resolve(o.out);
   fs.mkdirSync(out, { recursive: true });
@@ -533,12 +659,14 @@ async function cap(o) {
   const deadline = Date.now() + (+o.timeout || 120) * 1000;
   const page = await openPage(o.url, profile, deadline);
   const rows = [];
+  let r_mask = null;                                // the cov mask of the shot being fetched right now
   try {
     for (const shot of o.shots) {
       if (Date.now() > deadline - 8000) { rows.push({ name: shot.name, error: 'deadline' }); break; }
       await page.goto(o.url);
       if (shot.name === o.shots[0].name && !(await page.evaluate('!!(window.DEV && DEV.on)')))
         throw new Error(o.url + ' is not a ?dev=1 page (js/90_dev.js stayed inert)');
+      r_mask = null;
       const v = await page.evaluate(devRoute(shot));
       if (!v || (!v.png && !v.b)) { rows.push(Object.assign({ name: shot.name }, v, { error: 'no png came back' })); continue; }
       const file = v.b ? path.join(out, shot.name + '-0.png') : path.join(out, shot.name + '.png');
@@ -557,8 +685,14 @@ async function cap(o) {
         v.b.forEach((p, i) => fs.writeFileSync(path.join(out, shot.name + '-' + i + '.png'), Buffer.from(p, 'base64')));
         v.c.forEach((p, i) => fs.writeFileSync(path.join(out, shot.clear + '-' + i + '.png'), Buffer.from(p, 'base64')));
         delete v.b; delete v.c;
+        if (v.m) {                                  // the renderer's own body mask, kept with the frames it masks
+          fs.writeFileSync(path.join(out, shot.name + '-cov.b64'), v.m);
+          fs.writeFileSync(path.join(out, shot.name + '-cov.dims'), v.buf.join('x'));   // raster size the mask lives at
+          r_mask = { b64: v.m, dims: v.buf, display: v.dims };
+          delete v.m;
+        }
       }
-      rows.push(Object.assign({ name: shot.name, file }, v));
+      rows.push(Object.assign({ name: shot.name, file, mask: r_mask }, v));
     }
   } finally {
     page.close();
@@ -568,7 +702,8 @@ async function cap(o) {
     console.log('CAP ' + r.name + (r.file ? ' ' + path.relative(process.cwd(), r.file) : ' ERROR ' + r.error) +
       (r.layout !== undefined ? '  layout ' + r.layout + ' mode ' + r.mode + ' canvas ' + r.canvas +
         ' lum ' + (r.lum ? r.lum.mean + '/' + r.lum.mid : '?') +
-        (r.body ? ' body ' + r.kind + ' @ ' + r.body.d + ' m off ' + r.body.off + ' m' +
+        (r.body ? ' body ' + r.kind + ' @ ' + r.body.d + ' m off ' + r.body.off + ' m, ' + r.body.vis +
+          ' raster px of him painted' +
           (o.why && r.tried ? ' [tried ' + r.tried.map(t => t.off + ':' + t.why).join(' ') + ']' : '') :
           r.noSeat ? ' NO CLEAR SEAT - no bearing x range candidate has a clear camera-to-body line [' +
             r.noSeat.map(t => t.off + ':' + t.why).join(' ') + '] - body NOT placed' : '') : ''));
@@ -623,10 +758,20 @@ async function main() {
         const k = Math.min(all.length, Math.floor(allC.length / 2));
         if (!k) continue;
         const A = all.slice(0, k), B = allC.slice(0, k);
-        const r = fg(A, B);
-        // the floor: two means of ONE arm, nothing between them but a tick
-        const idn = allC.length >= 2 * k ? fg(allC.slice(k, 2 * k), allC.slice(0, k)).n : null;
-        if (idn !== null && r.n <= idn) r.noisy = true;       // a mask no bigger than the noise is noise
+        const m = maskFor(out, 'l' + l + '-body');
+        const r = fg(A, B, m);
+        r.buf = m ? m.dims[0] * m.dims[1] : 0;
+        r.covMin = Math.max(1, Math.round(r.buf * MIN_COV_FRAC));
+        /* The floor is measured on the SAME pixels as the mask (#740 review asked that both sides of the
+           comparison be the same kind of number, and a count-only floor still set a body mask against
+           weather elsewhere in the frame): the clear arm is shot twice as long as the body arm and split,
+           so this is a k-frame mean against a k-frame mean of one arm with nothing between the halves but
+           ticks - and it now reads the COV mask, so the rig box is out of BOTH sides of the floor. */
+        const idn = allC.length >= 2 * k ? fg(allC.slice(k, 2 * k), allC.slice(0, k), m) : null;
+        if (r.cov) r.cov.vacuous = r.cov.n < r.covMin;
+        if (r.cov && r.cov.vacuous) r.vacuous = true;
+        if (r.cov && idn && idn.cov) { if (!(r.cov.delta > idn.cov.delta)) r.noisy = true; }
+        else if (!r.cov && idn && r.n <= idn.n) r.noisy = true;   // the old difference-mask floor, no mask came back
         if (r.vacuous || r.noisy) vacuous++;
         console.log(fgLine('L' + l, r, idn, k));
       }
@@ -646,11 +791,15 @@ async function main() {
   }
 
   if (cmd === 'fg') {
-    const files = process.argv.slice(3).filter(a => a[0] !== '-');
-    if (files.length !== 2) { console.log('usage: node tools/livecap.js fg <with-body.png> <without.png>'); process.exit(2); }
-    const r = fg(files[0], files[1]);
+    const files = process.argv.slice(3).filter(a => a[0] !== '-' && /\.png$/.test(a));
+    if (files.length !== 2) { console.log('usage: node tools/livecap.js fg <with-body.png> <without.png> [--mask COV.b64 --dims 676x291]'); process.exit(2); }
+    if (!arg('mask', '')) console.log('NOTE no --mask given: this is the frame-difference read, which counts the first-person '
+      + 'rig as figure-ground. The `both` command passes the coverage mask the renderer stamped.');
+    const mm = maskFor(path.dirname(path.resolve(files[0])), path.basename(files[0]).replace(/-\d+\.png$/, ''), arg('mask', ''), arg('dims', ''));
+    const r = fg(files[0], files[1], mm);
+    if (r.cov) r.covMin = Math.max(1, Math.round(mm.dims[0] * mm.dims[1] * MIN_COV_FRAC));
     console.log(fgLine('', r));
-    if (r.vacuous) process.exitCode = 1;
+    if (r.vacuous || (r.cov && r.cov.n < r.covMin)) process.exitCode = 1;
     return;
   }
 
