@@ -84,7 +84,7 @@
   moving at every distance the harness can set up; whether it reads as settling rather than as clipping through
   the floor is a judgement only a person at the page can give (#688).
 - A raised deck is the darkest surface the material family has, so putting one above the arrival room costs the
-  first frame light: ARCHIVE's seated frame reads 70 / 63 against 69 / 59 before, still inside the exposure band
+  first frame light: ARCHIVE's seated frame reads 71 / 63 against 69 / 59 before, still inside the exposure band
   (#413, #421).
 - Riser faces still hard-code concrete instead of the level's own material, and a deck more than one cell
   overhead is still classified as plain ceiling, so the lit slab edge never fires on it (#518, PR #737).
