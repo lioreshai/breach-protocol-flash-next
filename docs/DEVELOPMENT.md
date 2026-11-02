@@ -131,11 +131,20 @@ other trace; `S.err` survives while `S.audioBroken` is set, because clearing it 
 
 - **A claim checked through `DEV` counts as verified; a claim checked by guessing at internals does
   not.** The first hunt that needed it wasted turns assigning to `P.yaw`, which does not exist.
-- **One page load is one deal**, so a two-arm A/B of the same frame is two loads of the same URL: `node
-tools/livecap.js both --url <deployed page> --levels 0,1,2,3` takes both arms with the clock frozen and
-  grain off and prints the `FG` row — the value and chroma step at the pixels the frame delivered for one
-  body ~10 m out. It is the instrument for a figure-ground claim about the deployed build; `view.js
+- **One page load is one deal** (`js/90_dev.js` installs its generator from the URL and a second
+  `DEV.boot()` keeps drawing from the advanced stream rather than re-cutting it), so a deal you cannot
+  name is a deal you cannot re-run. Both arms of one `FG` row are shot inside that one load: `node
+  tools/livecap.js both --url <deployed page> --levels 0,1,2,3` freezes the clock, turns grain off and
+  prints the value and chroma step at the pixels the renderer says are the body — `COV` in `js/00_core.js`,
+  stamped by a body's own draw and by nothing else, so the first-person rig is out of the mask and out of
+  its noise floor. It is the instrument for a figure-ground claim about the deployed build; `view.js
   contrast` is the same question off a page. `--help` prints the route, and it needs no `--virtual-time-budget`.
+- **A figure-ground claim about *rooms* needs deals, not one deal.** `node tools/livecap.js sweep --deals
+  12` costs one page load per deal (48 of them for four levels, minutes) and prints each deal plus the
+  worst one per level — the deal with the smallest margin over its own bar — scored with the two bars
+  `tools/view.js contrast` gates on, so a live row and a harness row disagree visibly instead of meaning
+  two different things. Print the worst deal rather than the mean: an average over deals hides the one
+  room where the enemy is the wall's own colour.
 - **An `FG` row is only a measurement if a body is in the frame, and the tool checks that rather than
   trusting the placement.** A seat is used only when the shipped sight rule (`js/20_level.js blocked`, a
   march on `isSolid`) finds nothing on the camera-to-body line — testing the candidate cell alone accepts
@@ -144,9 +153,10 @@ tools/livecap.js both --url <deployed page> --levels 0,1,2,3` takes both arms wi
   offset clears, the `CAP` row says `NO CLEAR SEAT` and no body is placed. A row whose mask is under
   0.15% of the frame prints `VACUOUS` and exits non-zero: vacuity is a failure, a weak colour is a
   result. `--why` prints every rejected offset with its reason. One more caveat to quote beside any
-  single row: two arms are two page loads, so the row carries load-to-load spread — repeats of the same
-  command on one build varied by ~1 luma (ARCHIVE) to ~7 luma (RING) in `valueStep`. Re-run before
-  quoting a number, and look at the arms.
+  single row: the `FG` row's primary read samples the renderer's mask, so its own noise floor is measured
+  on the same pixels (the identity control prints 0 there on the builds checked so far); its frame-difference
+  cross-check is a different pair of frames and does carry load-to-load spread. Re-run before quoting a
+  number, and look at the arms.
 - **Read the source the page is actually running** before believing a behaviour probe — a Pages
   deploy leaves the previous build cached for its `max-age`. Assert on a marker that is **code,
   not prose**, grepped out of the merged file. See [`ENGINEERING.md`](ENGINEERING.md).

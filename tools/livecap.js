@@ -404,8 +404,16 @@ function colourAt(A, B, ix) {
     if (!d) return NaN;
     return 60 * (mx === r ? (g - b) / d + (g < b ? 6 : 0) : mx === g ? (b - r) / d + 2 : (r - g) / d + 4);
   };
+  /* The COLOUR axis in the dialect tools/view.js's contrast sweep row already gates on (SEP_C there):
+     distance in the luma-normalised opponent plane, so it is a hue/chroma step that neither his nor the
+     wall's brightness can buy, and so a live row and a harness row can be read against one another
+     instead of against two dialects of the same idea. sat/hue below stay: they are what a person reads
+     off the row, this is what it is scored in. */
+  const opp = m => { const L = Math.max(luma(m), 1); return [(m[0] - m[1]) / L, ((m[0] + m[1]) * 0.5 - m[2]) / L]; };
+  const pB = opp(mB), pA = opp(mA);
   return {
     n: ix.length, delta: +(dsum / n).toFixed(2),
+    plane: +(100 * Math.hypot(pB[0] - pA[0], pB[1] - pA[1])).toFixed(1),
     hueGap: null,
     body: mB.map(v => +v.toFixed(1)), bg: mA.map(v => +v.toFixed(1)),
     lumaBody: +luma(mB).toFixed(2), lumaBg: +luma(mA).toFixed(2), valueStep: +(luma(mB) - luma(mA)).toFixed(2),
@@ -652,6 +660,26 @@ function maskFor(dir, base, file, dims) {
   return { b64: fs.readFileSync(f, 'utf8').trim(), dims: d };
 }
 
+/* One fg pair read: the body arm against the clear arm at the pixels the renderer says are his, plus
+ * the identity control built from the two halves of the clear arm. Used by `both` (one deal) and by
+ * `sweep` (many deals), so the two cannot drift into different measurements of the same thing. */
+function pairRead(dir, base) {
+  const all = armFiles(dir, base), allC = armFiles(dir, base.replace('-body', '-clear'));
+  if (!all.length || !allC.length) return null;
+  const k = Math.min(all.length, Math.floor(allC.length / 2));
+  if (!k) return null;
+  const m = maskFor(dir, base);
+  const r = fg(all.slice(0, k), allC.slice(0, k), m);
+  r.buf = m ? m.dims[0] * m.dims[1] : 0;
+  r.covMin = Math.max(1, Math.round(r.buf * MIN_COV_FRAC));
+  const idn = allC.length >= 2 * k ? fg(allC.slice(k, 2 * k), allC.slice(0, k), m) : null;
+  if (r.cov) r.cov.vacuous = r.cov.n < r.covMin;
+  if (r.cov && r.cov.vacuous) r.vacuous = true;
+  if (r.cov && idn && idn.cov) { if (!(r.cov.delta > idn.cov.delta)) r.noisy = true; }
+  else if (!r.cov && idn && r.n <= idn.n) r.noisy = true;
+  return { r, idn, k };
+}
+
 async function cap(o) {
   const out = path.resolve(o.out);
   fs.mkdirSync(out, { recursive: true });
@@ -663,7 +691,7 @@ async function cap(o) {
   try {
     for (const shot of o.shots) {
       if (Date.now() > deadline - 8000) { rows.push({ name: shot.name, error: 'deadline' }); break; }
-      await page.goto(o.url);
+      await page.goto(shot.url || o.url);
       if (shot.name === o.shots[0].name && !(await page.evaluate('!!(window.DEV && DEV.on)')))
         throw new Error(o.url + ' is not a ?dev=1 page (js/90_dev.js stayed inert)');
       r_mask = null;
@@ -720,6 +748,96 @@ const LIVE_SWING = +(process.env.LIVE_SWING || 1.40);
 const PINHEAD = 0.6;                        // the pre-#421 literal, and view.js's VMHEAD
 const YAWUP = 0.25;                         // P.pitch as a fraction of BH: the eye on the slab overhead
 
+/* ---------------------------------------------------------------- the deal sweep (#611 bullet 2)
+ *
+ * "The separation holds in every dealt room rather than in the favourable ones: a 12-deal sweep per
+ * level prints the worst sector/seed pair, and the worst pair passes." The harness already runs that
+ * sweep on its own dice (tools/view.js contrast, the `worst of 12 deals` row, bars SEP_V / SEP_C there),
+ * and this is the same question asked of the build that SHIPS: one page load per deal, the body placed
+ * at the 10 m seat the deal allows, and the pair of bars read off the delivered pixels. One page load is
+ * one deal - js/90_dev.js installs its generator from the URL and a second DEV.boot() keeps drawing
+ * from the advanced stream instead of re-cutting it - so the sweep costs deals x loads and takes
+ * minutes, not seconds. That is the price of the row being about the deployed picture rather than about
+ * a model of it.
+ *
+ * The bars are imported from that harness row rather than invented here (SEP_V luma of value step,
+ * SEP_C of colour step in the luma-normalised opponent plane), so a deal that passes here and fails
+ * there is a disagreement between the page and the harness worth reading, not two tools that quietly
+ * mean different things. WORST means the deal with the smaller margin over its OWN bar on either axis -
+ * the two axes do not share a unit, so margin-over-bar is the only honest comparison.
+ */
+const SEP_V = +(process.env.SEP_V !== undefined ? +process.env.SEP_V : 4);     // tools/view.js contrast
+const SEP_C = +(process.env.SEP_C !== undefined ? +process.env.SEP_C : 20);    // tools/view.js contrast
+
+function dealUrl(base, seed) {
+  return /[?&#]seed=-?\d+/.test(base) ? base.replace(/([?&#]seed=)-?\d+/, '$1' + seed)
+    : base + (base.indexOf('?') >= 0 ? '&' : '?') + 'dev=1&seed=' + seed;
+}
+
+async function sweep(o) {
+  const out = path.resolve(o.out);
+  fs.mkdirSync(out, { recursive: true });
+  const shots = [];
+  for (const l of o.levels) for (let d = 0; d < o.deals; d++) {
+    const seed = o.seed + d * o.step;
+    shots.push({ name: 'w' + l + 'd' + d + '-body', clear: 'w' + l + 'd' + d + '-clear', level: l,
+      pair: true, url: dealUrl(o.url, seed), seed: seed, deal: d, layout: null,
+      body: { kind: o.kind || (l === 2 ? 'brute' : 'grunt'), dist: o.dist } });
+  }
+  const rows = await cap({ url: o.url, out, shots, timeout: o.timeout });
+  const byLevel = {};
+  let vacuous = 0, failed = 0;
+  for (let i = 0; i < shots.length; i++) {
+    const s = shots[i];
+    /* cap() merges the page's own state over the row, and DEV.state() carries a `name` (the level's),
+       so a row cannot be found by shot name after the fact - zip by position instead, which is the
+       order cap pushes in, and name the deal by the number this command asked the page for. */
+    const r0 = rows[i] && rows[i].file && rows[i].file.indexOf(s.name) >= 0 ? rows[i] : {};
+    const line = 'SWEEP L' + s.level + ' deal ' + s.deal + ' seed ' + s.seed + ' layout ' + (r0.layout || '?');
+    if (r0.noSeat) {
+      console.log(line + ' NO CLEAR SEAT at ' + o.dist + ' m - cannot be measured, counted as unposed');
+      if (!flag('keep')) for (const f of armFiles(out, s.name).concat(armFiles(out, s.clear))) fs.unlinkSync(f);
+      (byLevel[s.level] = byLevel[s.level] || { unposed: 0 }).unposed++;
+      continue;
+    }
+    const p = pairRead(out, s.name);
+    if (!p || !p.r.cov) { console.log(line + ' NO READ (no frames or no coverage mask came back)'); vacuous++; continue; }
+    const c = p.r.cov, row = { seed: s.seed, layout: r0.layout, kind: r0.kind, d: r0.body ? r0.body.d : null,
+      n: c.n, dv: Math.abs(c.valueStep), dc: c.plane, sat: c.chromaStep, hue: c.hueGap,
+      bad: p.r.vacuous || p.r.noisy };
+    if (row.bad) { vacuous++; console.log(line + ' VACUOUS - ' + (p.r.vacuous ? 'a body painted ' + c.n + ' px, under the floor' : 'the mask does not clear its own identity floor') + '; not a measurement'); continue; }
+    (byLevel[s.level] = byLevel[s.level] || { rows: [], unposed: 0 }).rows.push(row);
+    const m = Math.min(row.dv / SEP_V, row.dc / SEP_C);
+    console.log(line + ' ' + (row.kind || '?') + ' @ ' + row.d + ' m on ' + row.n + ' px  value ' + c.valueStep +
+      ' colour ' + row.dc + (row.dc < SEP_C || row.dv < SEP_V ? '  ** under a bar' : '') +
+      '  margin ' + m.toFixed(2) + ' (sat ' + row.sat + ', hue ' + row.hue + ')');
+    if (!flag('keep')) for (const f of armFiles(out, s.name).concat(armFiles(out, s.clear))) fs.unlinkSync(f);
+  }
+  for (const l of Object.keys(byLevel)) {
+    const g = byLevel[l];
+    if (!g.rows || !g.rows.length) {
+      console.log('SWEEP L' + l + ': ' + g.unposed + ' deal(s), NONE posed and measured - the sweep posed no '
+        + 'body on this level, which is a FAILURE and not an ok.');
+      failed++; continue;
+    }
+    const worst = g.rows.reduce((a, b) => (Math.min(b.dv / SEP_V, b.dc / SEP_C) < Math.min(a.dv / SEP_V, a.dc / SEP_C) ? b : a));
+    const ok = worst.dv >= SEP_V && worst.dc >= SEP_C;
+    if (!ok) failed++;
+    console.log('SWEEP L' + l + ' WORST of ' + g.rows.length + ' dealt' + (g.unposed ? ' (' + g.unposed + ' could not pose)' : '') +
+      ': seed ' + worst.seed + ' layout ' + worst.layout + ' ' + worst.kind + ' @ ' + worst.d + ' m on ' + worst.n +
+      ' px - value ' + worst.dv.toFixed(1) + ' against ' + SEP_V + ', colour ' + worst.dc.toFixed(1) + ' against ' + SEP_C +
+      (ok ? '  BOTH AXES CLEAR in the worst deal, so the separation holds in this level\'s rooms and not only in the favourable one'
+        : '  THE WORST DEAL FAILS' + (worst.dv < SEP_V && worst.dc < SEP_C ? ' on both axes' : worst.dv < SEP_V
+          ? ' on value - the right brightness is missing, which is the light path\'s half (#407), not the pigment\'s'
+          : ' on colour - he is the right brightness in the wall\'s own colour family, the #611 defect in its original form')));
+  }
+  console.log('LIVESWEEP ' + Object.keys(byLevel).length + ' level(s) x ' + o.deals + ' deal(s) at ' + o.dist +
+    ' m on ' + o.url.replace(/\?.*/, '') + ' - bars ' + SEP_V + ' luma / ' + SEP_C + ' opponent plane, the same two '
+    + 'tools/view.js contrast gates (' + (flag('bars') ? 'overridden' : 'defaults there') + '); '
+    + vacuous + ' vacuous row(s), ' + failed + ' level(s) whose worst deal fails.');
+  if (vacuous || failed) process.exitCode = 1;
+}
+
 async function main() {
   const cmd = process.argv[2];
   const url = arg('url', 'https://lioreshai.github.io/breach-protocol-flash-next/?dev=1&seed=' + arg('seed', '60') + '&boot=0');
@@ -747,33 +865,11 @@ async function main() {
     if (cmd === 'both') {
       let vacuous = 0;
       for (const l of levels) {
-        const all = armFiles(out, 'l' + l + '-body'), allC = armFiles(out, 'l' + l + '-clear');
-        if (!all.length || !allC.length) continue;      // the pair path writes l*-body-<i>.png, no single frame
-        /* BOTH SIDES OF THE COMPARISON HAVE TO BE THE SAME KIND OF NUMBER (#740 review). The mask is a
-           k-frame mean against a k-frame mean; the floor used to be frame 0 against frame 1 of one arm,
-           which is a SINGLE-frame difference - noisier by sqrt(k) than the thing it gates - while the
-           row printed "(k-frame means)" as though the two were alike. The clear arm is now shot twice
-           as long and split in half, so the floor is a k-frame mean against a k-frame mean of the same
-           arm with nothing between the halves but ticks. Same span, same estimator, same noise. */
-        const k = Math.min(all.length, Math.floor(allC.length / 2));
-        if (!k) continue;
-        const A = all.slice(0, k), B = allC.slice(0, k);
-        const m = maskFor(out, 'l' + l + '-body');
-        const r = fg(A, B, m);
-        r.buf = m ? m.dims[0] * m.dims[1] : 0;
-        r.covMin = Math.max(1, Math.round(r.buf * MIN_COV_FRAC));
-        /* The floor is measured on the SAME pixels as the mask (#740 review asked that both sides of the
-           comparison be the same kind of number, and a count-only floor still set a body mask against
-           weather elsewhere in the frame): the clear arm is shot twice as long as the body arm and split,
-           so this is a k-frame mean against a k-frame mean of one arm with nothing between the halves but
-           ticks - and it now reads the COV mask, so the rig box is out of BOTH sides of the floor. */
-        const idn = allC.length >= 2 * k ? fg(allC.slice(k, 2 * k), allC.slice(0, k), m) : null;
-        if (r.cov) r.cov.vacuous = r.cov.n < r.covMin;
-        if (r.cov && r.cov.vacuous) r.vacuous = true;
-        if (r.cov && idn && idn.cov) { if (!(r.cov.delta > idn.cov.delta)) r.noisy = true; }
-        else if (!r.cov && idn && r.n <= idn.n) r.noisy = true;   // the old difference-mask floor, no mask came back
-        if (r.vacuous || r.noisy) vacuous++;
-        console.log(fgLine('L' + l, r, idn, k));
+        // the pair path writes l*-body-<i>.png, no single frame
+        const p = pairRead(out, 'l' + l + '-body');
+        if (!p) continue;
+        if (p.r.vacuous || p.r.noisy) vacuous++;
+        console.log(fgLine('L' + l, p.r, p.idn, p.k));
       }
       if (vacuous) {
         console.log('LIVECAP ' + vacuous + ' of ' + levels.length + ' FG row(s) VACUOUS - the floor note above each such row says why');
@@ -784,6 +880,7 @@ async function main() {
   }
 
   if (cmd === 'cost') {
+    /* kept separate from the usage text below so a reader who lands here sees what the flags mean */
     const levels = (arg('levels', '0,1,2,3') + '').split(',').map(Number);
     await cost({ url, levels, frames: arg('frames', 24), yawFrames: arg('yawFrames', 8),
       timeout: arg('timeout', 240) });
@@ -803,12 +900,27 @@ async function main() {
     return;
   }
 
+  if (cmd === 'sweep') {
+    const levels = (arg('levels', '0,1,2,3') + '').split(',').map(Number);
+    await sweep({ url, levels, deals: +arg('deals', 12), seed: +arg('seed', 60), step: +arg('seedstep', 1013),
+      dist: +arg('dist', 10), kind: arg('kind', ''), out, timeout: arg('timeout', 900) });
+    return;
+  }
+
   console.log([
     'usage:',
     '  node tools/livecap.js cap  --url <dev page> [--levels 0,1,2,3] [--dist 10] [--out DIR]',
     '  node tools/livecap.js both --url <dev page> [--levels 0,1,2,3] [--dist 10] [--out DIR] [--why]',
     '  node tools/livecap.js fg   <with-body.png> <without.png>',
     '  node tools/livecap.js cost [--url <dev page>] [--levels 0,1,2,3] [--frames 24] [--yawFrames 8]',
+    '  node tools/livecap.js sweep [--url <dev page>] [--levels 0,1,2,3] [--deals 12] [--seed 60] [--dist 10]',
+    '',
+    'sweep = #611 bullet 2 on the deployed build: 12 dealt rooms per level, one page load per deal (the',
+    'generator is cut from the URL, so a deal costs a load), a body at the 10 m seat that deal allows, and',
+    'the pair of bars read at his own pixels. Prints every deal and then the WORST one per level - the',
+    'deal with the smallest margin over its own bar - and exits non-zero when a level\'s worst deal is',
+    'under either bar or when a row is vacuous. The bars are the two tools/view.js contrast gates (SEP_V,',
+    'SEP_C), overridable with the same names.',
     '',
     'cost = the running game\'s own frame, timed at one seat four ways: the heading the deal authored,',
     'the pinned literal 0.6 rad, the same heading turned up at the storey, and a yaw circle. The',
