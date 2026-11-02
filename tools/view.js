@@ -15364,6 +15364,33 @@ if (MODE === 'props') {
     for (let i = 0; i < N; i++) if (m.cov[i]) { s += lum(b, i); n++; }
     return n ? s / n : 0;
   }
+  /* (#733 rework) The EMISSIVE POPULATION, as distinct from a prop's silhouette. js/13_mesh.js:2144 makes
+     an emissive vertex light-exempt - albedo and fog and nothing else - so the aperture is the only part
+     of a lamp frame that must NOT move when the lights go out, and it is the only part that row (E) is
+     entitled to average. It is isolated exactly the way (E2) counts it, in-mask and BLOWN (R>253 &&
+     G>253), and read out of the LIT frame ONLY: the dark frame stays the thing being judged, never the
+     thing that selects, so the row cannot agree with itself. */
+  function ePop(A, m) {
+    const v = [];
+    for (let i = 0; i < N; i++) {
+      if (!m.cov[i]) continue;
+      const c = A[i];
+      if ((c & 255) > 253 && ((c >> 8) & 255) > 253) v.push(i);
+    }
+    return v;
+  }
+  // hi()'s statistic - mean of the brightest frac - over an index list instead of a mask
+  function eHi(b, pop, frac) {
+    if (!pop.length) return 0;
+    const v = pop.map(i => lum(b, i));
+    v.sort((x, y) => y - x);
+    const k = Math.max(1, Math.round(v.length * frac));
+    let s = 0; for (let i = 0; i < k; i++) s += v[i];
+    return s / k;
+  }
+  // a decile is the mean of the brightest tenth: under ten pixels it is one pixel's luck, so that is
+  // the vacuity floor of the population, and it is a floor, not a bar - an intact lamp gives 263 px
+  const EPOP_MIN = 10;
   let bad = 0;
   let gkn = 0;   // #533: gated prop axes with surface but under 1/3 of the same frame's deck - debt, named in the verdict
   const fail = msg => { bad++; console.log('    FAIL ' + msg); };
@@ -15484,11 +15511,74 @@ if (MODE === 'props') {
     const seatLt = +run('MAP.light[(' + SY + '|0)*MW+(' + SX + '|0)]');
     if (!EMISSIVE[kind] && rat > ctrlMax) { ctrlMax = rat; seatLtNow = seatLt; }
     if (EMISSIVE[kind]) {
-      if (rat < 0.85) fail('(E) ' + kind + ': emissive pixels FALL with scene light - top-decile luminance ' +
-        full.toFixed(0) + ' lit, ' + dark.toFixed(0) + ' dark (x' + rat.toFixed(2) +
-        '): it is multiplied by li, so it goes dark in the rooms where it is the only light source');
-      else console.log('    emissive: top-decile ' + full.toFixed(0) + ' -> ' + dark.toFixed(0) +
-        ' (x' + rat.toFixed(2) + ') - light-exempt');
+      /* WHICH PIXELS this verdict may average (#733 rework, and it is the GATE that was mis-set, not the
+         picture). The sentence the row asserts is "the light-exempt pixels survive the lights going out".
+         Over a lamp's whole silhouette that sentence is not being asked: the mask is the post, the shade
+         and the pool the lamp's own light lays on the floor - all SCENE-LIT, all meant to fall, which is
+         what the control rows in this same block are FOR - while the exempt geometry contributes ZERO px
+         there, because fogAt(2.90 m) is 0.027 and R>253 dies past fog 0.008. That is the whole reason (E2)
+         two rows below re-seats the lamp at 1.00 m. Attribution in one tree at 74f1809, the exemption at
+         js/13_mesh.js:2144 deleted and nothing else edited: this lamp's LIT decile falls 174 -> 123, while
+         ORB and PORTAL - bodies whose entire silhouette IS the exempt branch - hold x1.00 across the same
+         two frames. A population whose brightest tenth halves when the exemption goes contains no exempt
+         pixel at all, so the old statistic measured the room, and a room that got brighter (#421's slab
+         over ARCHIVE's arrival cell, lightmap 0.268 -> 0.508) tripped a bar sitting 0.01 above whatever
+         correct code prints there, naming a defect - "it is multiplied by li" - this build does not have.
+         The lamp's verdict is therefore taken over the population (E2) already isolates: the SAME authored
+         lamp on the SAME sight line at CORE_D, where fogAt is 0 so an intact aperture is blown by
+         construction, and the set is the in-mask px that are BLOWN in the LIT frame only. Same statistic
+         (top decile, frac 0.1), same 0.85 bar, same toFixed(2); the ONLY thing that moved is the set.
+         A population under ten px is a VACUITY FAIL - an empty or one-pixel exempt set means the row has
+         stopped seeing the exemption it gates, and that is the failure mode the sabotage above produces.
+         ORB and PORTAL keep the whole-mask ratio exactly as they were: for a body drawn wholly through the
+         exempt branch the silhouette already IS the population, which is why they read x1.00 / x0.99 here
+         and x0.32 / x0.29 with the exemption deleted. Nothing else in this block moved: CTRL_CEIL, the
+         control's own population, the per-level CTRL-RAT record and every tolerance are untouched. */
+      const CORE_D = 1.0;                  // m along the sight line: fogAt(1.00) is 0, fogAt(2.90) is not
+      let eFull = full, eDark = dark, eRat = rat, eN = m.n, eVac = '',
+          eWhere = 'its whole ' + m.n + ' px silhouette, drawn wholly through the exempt branch';
+      if (kind === 'lamp') {
+        const cs = run(`(()=>{const x=P.x+Math.cos(P.ang)*${CORE_D},y=P.y+Math.sin(P.ang)*${CORE_D};` +
+          `return {x:+x.toFixed(4),y:+y.toFixed(4),open:!isSolid(x,y),fog:+fogAt(${CORE_D}).toFixed(4)}})()`);
+        eWhere = 'the ' + CORE_D.toFixed(2) + ' m core seat, fogAt ' + cs.fog.toFixed(4);
+        if (!cs.open) {
+          eN = 0;
+          eVac = CORE_D.toFixed(2) + ' m along the sight line from ' + cs.x + ',' + cs.y + ' is SOLID, so no '
+            + 'aperture was in frame at all';
+        } else {
+          const putC = 'exitX=-40;exitY=-40;PROPS.length=0;PROPS.push({tex:PROP.lamp,x:' + cs.x + ',y:' + cs.y +
+            ',z:floorAt(' + cs.x + ',' + cs.y + '),scale:0.95,kind:\'lamp\'})';
+          const cOff = 'exitX=-40;exitY=-40;PROPS.length=0';
+          const cLit = pair(putC, cOff, REST);
+          run('globalThis.__EL = MAP.light.slice(); globalThis.__EA = MAP.amb');
+          run('MAP.amb = 0; for(let i=0;i<MW*MH;i++)MAP.light[i] = 0');
+          const cDark = pair(putC, cOff, REST);
+          run('MAP.light.set(globalThis.__EL); MAP.amb = globalThis.__EA');
+          const pop = ePop(cLit.A, mask(cLit));
+          eFull = eHi(cLit.A, pop, 0.1); eDark = eHi(cDark.A, pop, 0.1);
+          eRat = eFull > 0 ? eDark / eFull : 1; eN = pop.length;
+        }
+      }
+      if (eN < EPOP_MIN) {
+        fail('(E) ' + kind + ': VACUITY - the emissive population is ' + eN + ' px at ' + eWhere +
+          (eVac ? ' (' + eVac + ')' : ' of ' + m.n + ' silhouette px') +
+          ', so there was no light-exempt pixel in frame to judge. An empty exempt set is not a pass: this row '
+          + 'gates the exemption at js/13_mesh.js:2144 and it cannot see it here. The silhouette-wide ratio '
+          + full.toFixed(0) + ' -> ' + dark.toFixed(0) + ' (x' + rat.toFixed(2) + ') reads nothing about '
+          + 'exemption at a seat where every bright pixel is a scene-lit surface.');
+      } else if (eRat < 0.85) {
+        fail('(E) ' + kind + ': emissive pixels FALL with scene light - top-decile luminance ' +
+          eFull.toFixed(0) + ' lit, ' + eDark.toFixed(0) + ' dark (x' + eRat.toFixed(2) + ') over ' + eN +
+          ' exempt px at ' + eWhere + ': it is multiplied by li, so it goes dark in the rooms where it is '
+          + 'the only light source');
+      } else {
+        console.log('    emissive: ' + eN + ' exempt px at ' + eWhere + ', top-decile ' + eFull.toFixed(0) +
+          ' -> ' + eDark.toFixed(0) + ' (x' + eRat.toFixed(2) + ') - light-exempt');
+        if (kind === 'lamp') console.log('      (silhouette-wide ' + full.toFixed(0) + ' -> ' + dark.toFixed(0) +
+          ' x' + rat.toFixed(2) + ' is the SAME statistic over the post, the shade and the cast pool, which are '
+          + 'scene-lit ON PURPOSE - it is the brightness of the room, not an exemption, and at this seat fog '
+          + 'leaves 0 of those px exempt, so it cannot answer this question.)');
+      }
     } else if (rat > CTRL_CEIL) fail('(E) ' + kind + ': the CONTROL did not fall (x' + rat.toFixed(2) +
       ') - this probe cannot see scene light, so every other (E) row here is worthless (seat lightmap '
       + seatLt.toFixed(3) + ')');
