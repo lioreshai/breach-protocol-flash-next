@@ -20,6 +20,34 @@ const ETYPE = {
    line of shading. A counter costs no draw, is reproducible under DEV.tick which never seeds RNG,
    and hands out the variants evenly through a firefight instead of rolling the same one twice. */
 let dvNext = 0;
+/* #688: the corpse timeline, in seconds from the kill, in ONE table. Before this the whole life of a
+   body was arithmetic in three files that had nothing to do with each other: the topple finished at
+   0.55 and HELD there (`die: clamp(dieT/0.55)` in js/40_render.js), an unrelated alpha ramp started a
+   1.4 s fade at 2.4 (`enemyFrame` below) and the cull sat at 3.8. So a kill ended on a body that stood
+   still for 1.85 s and then spent its last 1.4 s see-through - the wall behind the corpse readable
+   through the corpse, which is exactly the one case `MESH.endFrame`'s figure-ground step cannot fix
+   (it is gated on ALPHA >= 1, and a blend is the case it refuses). The table below is now the only
+   source: the pose, the deck events and the cull are all read off it, and the body is solid for every
+   frame of its life. */
+const CORPSE = {
+  topple: 0.55,   // the fall: `die` runs 0..1 across js/13_mesh.js's six buckets. Unchanged (#73, #82).
+  land: 0.45,     // the torso reaches the deck: dust, a scuff mark, a thud
+  life: 1.55,     // the body is gone (was 3.8); the deck mark it dropped at death is what remains
+  sink: 0.34,     // body heights BELOW its own deck at `life` - the deck's own depth finishes the job
+};
+/* How far along that settle a corpse is, 0..1. ZERO for the whole topple, which is the point: the
+   pose is bucketed (js/13_mesh.js PB.die = 6, and `anim` samples dieT <= 0.55), so past bucket 5 no
+   vertex set can move - the only motion left is the per-DRAW transform, which is continuous and free.
+   The curve eases IN rather than out: the body hangs for a beat after it lands and then keeps going
+   down, so between the topple and the cull there is no quarter-second in which nothing changes. At
+   `life` it is `sink` heights under the deck, i.e. already occluded by the floor it fell on (the mesh
+   pixel loop drops any pixel a nearer surface owns, js/13_mesh.js `if (occ < z) continue`), so the
+   cull removes a body nobody can see any more rather than one standing in the middle of the room. */
+function corpseSettle(dieT) {
+  if (dieT <= CORPSE.topple) return 0;
+  const w = Math.min(1, (dieT - CORPSE.topple) / (CORPSE.life - CORPSE.topple));
+  return w * w * (2.55 - 1.55 * w);            // g(0)=0, g(1)=1, monotone on 0..1
+}
 /* Per-enemy cosmetics (gait phase, tint, facing, fidget) come from a PRIVATE stream keyed to a
    spawn counter, not from Math.random. makeEnemy runs INSIDE genLevel, so its ten global draws made
    a level's enemy count part of its layout: constructing twelve enemies and throwing them away —
@@ -583,7 +611,15 @@ function updateEnemies(dt) {
     e.ph += dt;
     if (e.flashT > 0) e.flashT -= dt;
     if (e.stagger > 0) e.stagger -= dt;
-    if (e.state === 'dead') { e.dieT += dt; e.vx *= 0.8; e.vy *= 0.8; tryMove(e, e.vx * dt, e.vy * dt, e.r * 0.6); continue; }
+    if (e.state === 'dead') {
+      const wasT = e.dieT;
+      e.dieT += dt;
+      /* #688: the topple ENDING is an event on the deck, not the end of the picture. The torso
+         arriving kicks dust off the surface it lands on and leaves a scuff, which is the last thing
+         in the frame that is still moving while the body itself slides the rest of the way down. */
+      if (!e.landT && wasT < CORPSE.land && e.dieT >= CORPSE.land) corpseLand(e);
+      e.vx *= 0.8; e.vy *= 0.8; tryMove(e, e.vx * dt, e.vy * dt, e.r * 0.6); continue;
+    }
     const dx = P.x - e.x, dy = P.y - e.y, d = Math.hypot(dx, dy) || 1e-4;
     // #118: the ray is the enemy's EYE to the player's, not a line drawn on the floor plan - see losZ.
     // The muzzle altitude is the same convention the orb spawn uses (#117).
@@ -815,11 +851,34 @@ function footfall(e, spd) {
   }
 }
 function enemiesLeft() { let n = 0; for (const e of ENEMIES) if (e.state !== 'dead') n++; return n; }
+/* The sound and the dust of a body arriving on the deck (#688). Deliberately RANDOM-FREE: the scuff
+   is placed from the death heading rather than from a Math.random draw, so stepping a corpse to a
+   given dieT answers with the same frame twice and no draw enters the seed stream (the trap at the
+   top of this file: makeEnemy runs inside genLevel, and a draw there rewrites every level). */
+function corpseLand(e) {
+  e.landT = 1;
+  const a = e.dieAng === undefined ? e.ang : e.dieAng;
+  const hx = e.x + Math.cos(a) * e.scale * 0.38, hy = e.y + Math.sin(a) * e.scale * 0.38;
+  if (isSolid(hx, hy)) return;
+  addGroundSplat(hx, hy, e.scale * 0.20, 'dust');
+  for (let i = 0; i < 7; i++) {                       // the puff creeps outward along the deck
+    const th = a + Math.PI + (i - 3) * 0.5;
+    addPart(hx, hy, floorAt(hx, hy) + 0.05, Math.cos(th) * 0.42, Math.sin(th) * 0.42, 0.26,
+      0.5 + i * 0.05, '#9a8f7e', 0.05, false);
+  }
+  const d = Math.hypot(e.x - P.x, e.y - P.y);
+  if (d < 14 && !P.deadT)
+    SND.burst(0.09, e.kind === 'brute' ? 95 : 150, 60, 1.15,
+      0.07 * e.scale / (1 + d * 0.22), 'lowpass', panOf(e) * 0.5);
+}
+
 function enemyFrame(e) {
   const F = ENEMY[e.kind];
   if (e.state === 'dead') {
     const i = clamp((e.dieT / 0.5 * F.die.length) | 0, 0, F.die.length - 1);
-    return { tex: F.die[i], alpha: e.dieT > 2.4 ? Math.max(0, 1 - (e.dieT - 2.4) / 1.4) : 1, flash: false };
+    /* #688: no fade, at any time. The mesh path really does blend (`ALPHA = o.alpha`,
+       js/13_mesh.js), so that ramp was a real ghost, not a nominal one. */
+    return { tex: F.die[i], alpha: 1, flash: false };
   }
   if (e.atkT > 0) {
     const pr = 1 - clamp(e.atkT / e.type.wind, 0, 1);
