@@ -61,15 +61,15 @@ cannot be left behind by the pass it describes (#668).
 
 All eight were re-taken in one pass off the deployed page at build `548194b`; the pass proved its build off the
 wire by sha256-comparing index.html and all eleven `js/` blobs served by that page against the tree that carries these frames before the shutter, twelve for twelve, so
-every frame below is the picture the page draws, at the build its row names. Whether that is still today's picture is no longer a sentence
+every frame below is the picture that build's page drew. Whether that is still today's picture is no longer a sentence
 that ages: `node tools/recap.js check` hashes the four blobs that draw a frame — `index.html`, `js/10_assets.js`,
 `js/20_level.js`, `js/40_render.js` — against the digests recorded for the bound build in
 [`docs/screens/provenance.json`](docs/screens/provenance.json), and prints `SHIP-BIND` when this tree's bytes are
 those bytes or `FRAME-STALE` naming the blob that moved. A pass aged badly once, binding `bd2441a` while two
 render commits landed in review, and the tool exists so it cannot age quietly again; the bind is an upper bound on
 "the picture changed", since a comment inside a renderer moves a digest and moves no pixel, so the row names the
-blob and leaves the re-take call to a human. On the tree that carries these frames that row reads `SHIP-BIND` for
-`548194b`: the four blobs that draw a frame are byte-identical between this checkout and the build the rows bind, so these eight frames are the picture this tree ships and no re-take is owed here. When a later commit moves one of those blobs the same row will read `FRAME-STALE` and name it, and that is the row doing its job rather than a defect in it, and the same command now prints a `CAPTION-VERDICT` row that compares this sentence with the digests, so the page cannot be left a pass behind by the pass it describes (#653). All three of this pass's deals re-rolled, and the reason is the same class of change that made
+blob and leaves the re-take call to a human. On the tree that carries these frames that row now reads `FRAME-STALE` for
+`548194b`: one of the four blobs that draw a frame — `js/40_render.js` — has moved on this checkout since the build that drew these eight frames, the floor that answers the surface its own ray arrives at (#518) and the surface the far field wears (#688) having landed after that build. So the eight frames below are the picture `548194b` drew and not the one this checkout ships, and a re-take off a deploy of this checkout is owed; the frames were taken once, at the build they name, and the commits that moved the renderer arrived afterwards, which is the row doing its job rather than a defect in these pixels. The same command now prints a `CAPTION-VERDICT` row that compares this sentence with the digests, so the page cannot be left a pass behind by the pass it describes (#653). All three of this pass's deals re-rolled, and the reason is the same class of change that made
 the re-take necessary: the room-height passes author height in the generator's own dice, so one seed deals a
 different sector at a later build. This pass re-ran the same url at one page load and one boot per level
 and read every pose back out of the page that drew it. ARCHIVE SUBLEVEL re-rolled to 256590225 where its five
