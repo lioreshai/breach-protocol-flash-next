@@ -1050,7 +1050,7 @@ const PIT_W = 5, PIT_H = 4, PIT_MIN = 6;                    // sunken cells: see
 const PIT_RECT_MIN = 8, PIT_RECT_MAX = 12;
 const DIG_BUDGET = 12;                                // linkBand calls the #284 rect hunt may spend
 
-function authorVolume(cell, N, rooms, fz, vb, feat, cz) {
+function authorVolume(cell, N, rooms, fz, vb, feat, cz, atSeat) {
   const open = (x, y) => x > 0 && y > 0 && x < N - 1 && y < N - 1 && cell[y * N + x] === 0;
   const roomAt = (x, y) => {
     for (const r of rooms) if (x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h) return r;
@@ -1109,11 +1109,29 @@ function authorVolume(cell, N, rooms, fz, vb, feat, cz) {
      above the band, flagged on BOTH nibbles of the crossing - the pair linkBoundaries refuses to
      block and the pair linkedClimb reads, so a nibble on one side alone is a climb you can fall into
      but not out of. */
-  const linkAt = (sel, band, mi, md, ladder) => {
+  /* `noSpawn` is #421's arrival-room rule for the LINK, not just for the band. `maskOf` and the candidate
+     ranking already refuse the arrival room's cells, so the DECK never covers the seat's own floor - but
+     the stair run this function writes starts on the datum side of a mouth and can walk straight through
+     those same cells, and a tread there steps the floor the player wakes on. `vert`'s control row caught
+     it at level 0, cell 1,1: with the ladder flag cleared, the up key still raised the player a whole
+     metre, which is a deck floor, not a quantum - the room's floor had become a staircase. Refusing the
+     cell here costs that mouth its run, so the link moves to the NEXT mouth, then to a ladder, and where
+     the band then takes no link at all `pickBand` hands the whole candidate back. The flag is passed only
+     by the near-seat preference below, so every deal that never takes the near pick links exactly as it
+     did before. */
+  const linkAt = (sel, band, mi, md, ladder, noSpawn) => {
     const mx = mi % N, my = (mi / N) | 0, line = [];
+    /* The MOUTH is a datum cell, and it carries a nibble of its own when the link ends up a ladder (the
+       pair `linkBoundaries` refuses to block, kept across a relink by VB_KEEP). A mouth inside the arrival
+       room would therefore flag the room's own floor as a climb even with `feat` cleared - which is what
+       `vert`'s control row reads: with no ladder flag on the cell the up key still raised the player to
+       the underside of the deck. `onLadder` reads those nibbles, so the refusal has to name the mouth as
+       well as the run. */
+    if (noSpawn && inSpawn(mx, my)) return false;
     for (let k = 1; k <= STAIR_CELLS; k++) {
       const x = mx + DIRX[md] * k, y = my + DIRY[md] * k;
       if (!open(x, y) || sel[y * N + x] || fz[y * N + x] !== 0 || flat[y * N + x]) break;
+      if (noSpawn && inSpawn(x, y)) break;              // the arrival room's floor is not a stair tread
       line.push(y * N + x);
     }
     const up = band > 0 ? 1 : -1;
@@ -1133,7 +1151,7 @@ function authorVolume(cell, N, rooms, fz, vb, feat, cz) {
      is stair-then-ladder for the reason #152 states - alt's staircase row and smoke V19 must be a
      property of the layout, not of candidate order. A link that does not reduce the stranded count
      is rewound, which is what stops six stairs being authored where one does the job. */
-  const linkBand = (sel, band, d0, ladder) => {
+  const linkBand = (sel, band, d0, ladder, noSpawn) => {
     for (let pass = 0; pass < (ladder ? 2 : 1); pass++) {
       for (let step = 0; step < LINK_STEPS; step++) {
         const d = reach();
@@ -1149,7 +1167,7 @@ function authorVolume(cell, N, rooms, fz, vb, feat, cz) {
         let moved = false;
         for (const m of mouths) {
           const cp = cut();
-          if (!linkAt(sel, band, m[0], m[1], ladder && pass === 1) || !keeps(d0)) { rewind(cp); continue; }
+          if (!linkAt(sel, band, m[0], m[1], ladder && pass === 1, noSpawn) || !keeps(d0)) { rewind(cp); continue; }
           if (lost(d0, reach()) === lost(d0, d)) { rewind(cp); continue; }
           moved = true; break;
         }
@@ -1385,7 +1403,10 @@ function authorVolume(cell, N, rooms, fz, vb, feat, cz) {
   }).sort((a, b) => b.r.quad - a.r.quad || b.n - a.n || a.r.tag.localeCompare(b.r.tag));
   const cpBand = cut();                               // all of feature 2, for the fallback's undo
   let bandTag = null;
-  const pickBand = list => {
+  /* `noSpawn` goes to `linkAt` through `linkBand`: the near-seat preference is the only caller that asks
+     for it, so a band placed for the ARRIVAL sector buys its link without spending the arrival room's own
+     cells as stair treads (#421, `vert`'s control row). Every other call links exactly as it did. */
+  const pickBand = (list, noSpawn) => {
     for (const cand of list) {
       if (cand.n < 8) continue;                       // fewer than 8 cells is not a band, it is a corner
       const cp = cut(), sel = maskOf(cand.r);
@@ -1393,7 +1414,7 @@ function authorVolume(cell, N, rooms, fz, vb, feat, cz) {
       // No wall write here on purpose: a wall between the band and the datum must stay at the datum,
       // or the face it shows the flat side starts above that side's ceiling plane and draws nothing.
       // Bases are carried down once, at the end, where both directions of the fault are one rule.
-      if (linkBand(sel, BAND_UP, d0, true)) { bandTag = cand.r.tag; return sel; }
+      if (linkBand(sel, BAND_UP, d0, true, noSpawn)) { bandTag = cand.r.tag; return sel; }
       rewind(cp);
     }
     return null;
@@ -1414,7 +1435,27 @@ function authorVolume(cell, N, rooms, fz, vb, feat, cz) {
     c.reach = overSeat(m); c.near = overSeat(m, SEAT_NEAR);
     return c;
   });
-  if (selBand && overSeat(selBand) === 0) {
+  /* WHICH GAP THIS PREFERENCE IS FOR (#421, cycle 18). It used to ask the question at 12 m:
+     `overSeat(selBand) === 0`, whose default range is `SEAT_REACH`. A deal with a band ANYWHERE inside
+     12 m therefore never consulted the preference at all, and ARCHIVE SUBLEVEL's dealt seat is exactly
+     that deal: `SEAT-PLACE` scores all eight candidates on the untouched grid and reads `best 12 near /
+     26 in reach`, while `SEAT-RANGE` reads the BUILT grid at `21 in reach, 0 within 6 m, nearest 7.1 m`,
+     633 underside pixels. The band is near enough to count and too far to SEE - a one-quantum soffit at
+     7 m projects a couple of rows above the horizon. So the trigger is now the range an UNDERSIDE is
+     legible at, `SEAT_NEAR`, with the 12 m question kept as the second, weaker one: a deal whose band is
+     not even in reach still gets the reach-ranked retry it got before. That ordering is what makes this a
+     trigger change and not a re-rank of everything. Where the shipped band already puts a column inside
+     6 m (RING TRANSPORT: 4 at 5.0 m) `near > 0` implies `reach > 0`, both tests are skipped, and the level
+     is byte-identical to what it was; THE STACK is authored, so no pass here runs on it at all. Where NO
+     candidate can author a near column (ABATOIR CORE: all eight regions read 0 near, their seams are map
+     centre lines) the near ranking has nothing to offer, the reach ranking runs exactly as it did, and
+     that level is byte-identical too. Only a deal like ARCHIVE's - near possible, never tried - moves.
+     Still a preference and never a veto: a near-ranked candidate that will not link hands the band back
+     and the shipped pick goes in. No dice are drawn, no threshold, window, reach or bound moves, and the
+     shape authored is still one of the same eight rects. */
+  const nearDelivered = atSeat && selBand ? overSeat(selBand, SEAT_NEAR) : -1;
+  const reachDelivered = selBand ? overSeat(selBand) : 0;      // BOTH read the committed band, before the rewind
+  if (selBand && (nearDelivered === 0 || reachDelivered === 0)) {
     /* Score the candidates on the grid feature 2 did NOT touch. `maskOf` skips any cell whose `fz` is
        nonzero, so scoring while the shipped pick is still committed measures each candidate with the
        shipped band's cells punched out of it - and `pickBand`, after the rewind below, then commits the
@@ -1424,14 +1465,41 @@ function authorVolume(cell, N, rooms, fz, vb, feat, cz) {
      fallback never fires, so this rewind changes no pixel there; it makes the fallback honest where it
      does. */
     rewind(cpBand);
-    const byReach = ranked.map(c => ({ c, v: overSeat(maskOf(c.r)) })).filter(o => o.v > 0)
+    const rankBy = range => ranked.map(c => ({ c, v: overSeat(maskOf(c.r), range) })).filter(o => o.v > 0)
       .sort((a, b) => b.v - a.v || b.c.r.quad - a.c.r.quad || b.c.n - a.c.n ||
         a.c.r.tag.localeCompare(b.c.r.tag));
-    if (byReach.length) {
-      selBand = pickBand(byReach.map(o => o.c));
-      if (selBand) bandTag += '+seat';                 // the census term is on the record in the tag
-      else { rewind(cpBand); pickBand(ranked); }       // a preference, never a veto: keep the shipped band
-    } else { rewind(cpBand); pickBand(ranked); }
+    /* One list, and the near one wins wherever it has a candidate, because that is the term the eye can
+       read. A near-ranked list is built ONLY for a band that delivered no near column, so a deal that
+       already stands a deck inside 6 m never reaches this line at all. Where NO candidate can author a near
+       column the weaker question runs - but only for a band that also delivered nothing in reach, which is
+       the case main ran: asking it of a band that is in reach would swap that band for another one, and on
+       the graded deal that is ABATOIR CORE, whose deck left the arrival reach altogether (14 in-reach
+       columns -> 0) the one time this was tried. */
+    /* ONE question at a time, and the near one first, because that is the term the eye can read. A
+       near-ranked list is built ONLY for a band that delivered no near column, so a deal that already
+       stands a deck inside 6 m never reaches this line at all. The near pick is then VERIFIED on the grid
+       it just wrote: `rankBy` scores the FULL rect, whereas the candidate table `surface`'s SEAT-PLACE
+       prints is scored with the shipped band still committed, so a rect can predict near columns it cannot
+       deliver - ABATOIR CORE does exactly that, and the first version of this trigger swapped its deck out
+       for one that painted nothing over the arrival room (14 in-reach columns -> 0, its VERT staircase
+       gone, its frame record red). A near pick that delivers none is therefore handed back, the weaker
+       12 m question runs for a band that is not even in reach - the case main ran - and failing both the
+       shipped pick goes back in. A preference, never a veto, and now a preference that has to show the
+       column it was bought for. */
+    const tries = [];
+    if (nearDelivered === 0) tries.push({ list: rankBy(SEAT_NEAR), tag: '+near', near: true });
+    if (reachDelivered === 0) tries.push({ list: rankBy(), tag: '+seat', near: false });
+    let moved = false;
+    for (const t of tries) {
+      if (!t.list.length) continue;
+      const sel2 = pickBand(t.list.map(o => o.c), t.near);
+      if (sel2 && (!t.near || overSeat(sel2, SEAT_NEAR) > 0)) {
+        selBand = sel2;                 // feature 2b grows the DECK that is actually committed
+        bandTag += t.tag; moved = true; break;
+      }
+      rewind(cpBand);
+    }
+    if (!moved) { rewind(cpBand); pickBand(ranked); }   // keep the shipped band exactly as it was
   }
   if (bandTag) authored.push('raisedSide:' + bandTag);
   else rewind(cpBand);
@@ -3717,7 +3785,15 @@ function genLevel(li) {
        MAP.fz becomes below, so a band written before this point cannot be invisible to the gate. */
     const fzTry = new Int8Array(N * N), czTry = new Uint8Array(N * N).fill(CZ_DEF);
     const vbTry = new Uint16Array(N * N), featTry = new Uint8Array(N * N);
-    authorVolume(cell, N, rooms, fzTry, vbTry, featTry, czTry);
+    /* #421 SCOPE, and it is deliberately narrow: the near-seat preference is offered only to the sector
+       the player WAKES in, which is level 0. The pass below is otherwise per-level, so a wide flag would
+       re-pick the deck in every sector on the dice stream the probe gates lock - RING TRANSPORT and ABATOIR
+       CORE among them - and their frames are those records' to hold. Review of this PR made that a
+       decision rather than an accident: letting the rule run wherever it improves the frame is the better
+       world, but it has to arrive as its own change with those locked records re-recorded by name. Level 0
+       keeps the shipped ranking too - the preference stays a preference, and a deal whose band already puts
+       a column inside SEAT_NEAR never reaches it. */
+    authorVolume(cell, N, rooms, fzTry, vbTry, featTry, czTry, li === 0);
 
     const dist = bfsReach(cell, fzTry, N, rooms[0].cy * N + rooms[0].cx, vbTry, featTry);
     let reachable = 0, far = -1, farIdx = -1, total = 0;
