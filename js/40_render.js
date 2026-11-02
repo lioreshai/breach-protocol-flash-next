@@ -622,6 +622,16 @@ function renderWorld() {
   CF_FIX = MAP ? MAP.ceilFix || null : null;          // #413 ceiling fitting plates
   CF_PANES = MAP && MAP.ceilPanes ? MAP.ceilPanes : null;   // #413 the hanging ones (#413 part 3)
   WALLB = MAP ? MAP.wallBias || 0 : 0;
+  /* #199: the level's own mean delivered light, for the haze the void answer carries (see FARLIT above). Read
+     once a frame, straight off MAP.light - it is a few thousand adds beside the 800k pixels it describes, and
+     reading it every frame is what keeps it honest when a blast splats the lightmap and when a transient fades
+     out: the haze of a level that just went dark goes dark with it. No new array. */
+  HAZE_L = 0;
+  if (MAP && MAP.light) {
+    const hm = MAP.light; let hsum = 0;
+    for (let i = 0; i < hm.length; i++) hsum += hm[i];
+    HAZE_L = hsum / hm.length;
+  }
   SEAMA = MAP ? MAP.stepEdge || 0 : 0;        // #385: an authored absolute crease, 0 on every level that authors none
   STEPAMT = SEAMA > 0 ? SEAMA : STEPDEF;      // #515: a stairwell is where the rail is NOT authored; see STEPDEF
   /* #369: the vault's ceiling. An authored `ceilLead` is the level's own word and wins; otherwise a
@@ -863,6 +873,22 @@ let GNDTX = 1, FARBLEND = 1.6;
    build before this switch, and one whose samples all leave it is exactly the horizon colour.
    FARVOID 0 is the A/B - `DEV.set('farvoid', 0)` puts the slab back in the running page. */
 let FARVOID = 1;
+/* #199 - AIR THAT IS NOT A HOLE. `FARVOID`'s answer is the air colour AT FULL FOG, and this level's air is
+   `FOGC = [9,12,20]` (js/00_core.js:182), a luminance of 11. Where a fan's rays leave the level, the frame
+   therefore paints BLACK: measured at the ARCHIVE SUBLEVEL arrival seat a contiguous run of rows 278-325, full
+   frame width, 6.7 % of the pixels under luminance 24, and the same band at ABATOIR CORE (7.2 %). It is not
+   fog on a surface - the surfaces it surrounds are lit and the wall below it reads at 40-60 - it is the
+   ANSWER A RAY GIVES WHEN IT FINDS NOTHING, and a closed building has no such thing: a ray that leaves the
+   authored grid has flown across the level's own rooms, through air that holds the light of their fixtures.
+   Black air is what makes a hostile standing out there absent from the picture.
+   So the void answer keeps the shape `FARVOID` settled (material mean at the light it flew through, mixed to
+   the air colour by the row's own coverage and by VOIDK, so no crossing is a step) and gains the one term it
+   was missing: the LIGHT of the air it crossed. There is no lightmap out there by construction, so the term
+   uses the only light a level can honestly speak for past its own edge - its OWN mean delivered light, read
+   from the same `MAP.light` array every other surface reads. One float per frame, no array, no second
+   lightmap, nothing to un-splat: a blast that fades a level's light fades the haze with it.
+   FARLIT 0 is the A/B and is bit-identical to the build before this term (`JSDIR=` attribution runs it). */
+let FARLIT = 0.6, HAZE_L = 0;
 /* The ramp it arrives on. A far row's colour is a ROW-CONSTANT fill, and the ray that leaves the level
    does so at a distance the textured side of the boundary has already painted with the material at light
    0 - so switching at FARB puts a step of |mean * base - FOGC| right where the row crosses the radius,
@@ -1674,6 +1700,7 @@ function castGround(flash, fcR, fcG, fcB) {
          coarsest mip (level 2's floor: 52 of 64 texels) overstates the band by +28, which is the
          bright haze this row used to be instead of the room behind it. */
       const lta = MAP.lt, inv128 = 1 / 128, fstep = 2 / FARFAN, fcam = -1 + fstep * 0.5;
+
       const mm = tex && tex.mips ? tex.mips[tex.mips.length - 1] : tex;
       texAvg(mm);
       const dcN = mm.meanNE, dcE = mm.meanEM, wEm = mm.emFrac, wLit = (1 - mm.emFrac) * (1 / FARFAN);
@@ -1715,6 +1742,12 @@ function castGround(flash, fcR, fcG, fcB) {
         ar += offN * wLit * dcN[0] * baseRow * iv + oS * vr * (fcR * invRow - wEm * dcE[0] * invRow);
         ag += offN * wLit * dcN[1] * baseRow * iv + oS * vr * (fcG * invRow - wEm * dcE[1] * invRow);
         ab += offN * wLit * dcN[2] * baseRow * iv + oS * vr * (fcB * invRow - wEm * dcE[2] * invRow);
+        /* #199: the air's own light, on the SAME coverage x VOIDK share the air colour is mixed in on, so a
+           row that never leaves the level pays nothing and the crossing stays continuous by construction. */
+        if (FARLIT && HAZE_L > 0) {
+          const hk = wLit * dcN[0], hg2 = wLit * dcN[1], hb2 = wLit * dcN[2], hv = FARLIT * HAZE_L * oS * vr;
+          ar += hk * hv; ag += hg2 * hv; ab += hb2 * hv;
+        }
         if (cnt) cnt[LG_FARVOID] += offN;
       }
       /* DEPTH of the far band, ceiling rows of a stepped grid: the fill's COLOUR says "everything past
@@ -2850,9 +2883,14 @@ function groundPixel(x0, x1, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb
     const vV = gMVoid;
     if (FARVOID && vV > 0 && !own) {
       const iv = 1 - vV;
-      px[row + x] = 0xFF000000 | clampi((gMWnB * lb + gMWEm) * iv + gMFB + vV * fcB) << 16 |
-        clampi((gMWnG * lg + gMWEg) * iv + gMFG + vV * fcG) << 8 |
-        clampi((gMWnR * lr + gMWErr) * iv + gMFR + vV * fcR);
+      /* #199, the SECOND COPY of the air's own light (AGENTS.md: change one copy and you have changed the
+         other). The row copy weights the haze by coverage x VOIDK; here coverage is this pixel's own - it is
+         off the map or it is not - so the share is vV alone, which is the same ramp the air colour rides on
+         the line below. Same FARLIT, same HAZE_L, same material mean. */
+      const hv = FARLIT && HAZE_L > 0 ? FARLIT * HAZE_L * vV : 0;
+      px[row + x] = 0xFF000000 | clampi((gMWnB * lb + gMWEm) * iv + gMFB + vV * (fcB + gMWnB * hv)) << 16 |
+        clampi((gMWnG * lg + gMWEg) * iv + gMFG + vV * (fcG + gMWnG * hv)) << 8 |
+        clampi((gMWnR * lr + gMWErr) * iv + gMFR + vV * (fcR + gMWnR * hv));
       if (cnt) cnt[LG_FARVOID]++;
     } else
       px[row + x] = 0xFF000000 | clampi(gMWnB * lb + gMWEm + gMFB) << 16 |
