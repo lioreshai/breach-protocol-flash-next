@@ -2632,12 +2632,30 @@ function placeWallFixtures(cfgL, seat, ang) {
                takes it (a face a doorway or a room fixture already owns does not consume the slot, the
                same rule the spacing in pass 3 follows). Forward before backward so the order of `used`
                claims is deterministic; no RNG is read, so no roll, prop, lamp or enemy moves. */
+            /* INCREMENT FOUR PUTS THIS FACE ON THE OBJECT PITCH (#400). The spacing below ran at
+               FIX_REPEAT - the spacing of ALL vocabulary fixtures, 6 m - while the corridor pass above
+               was moved to FIX_OBJ_REPEAT, the shorter spacing of the level's OBJECTS, last increment.
+               The same sentence is being honoured on one geometry and not the other: measured at main
+               2e2907a the four CI deals hold 6 / 6 / 5 / 3 slab runs that are too short to hold two
+               objects at 6 m, and the census could only gate 0 / 0 / 2 / 0 of them, so a 7 m slab side
+               with one drum at 3.5 m and nothing else was green everywhere but the frame. A slab side is
+               also the LONGEST face a generated level has, so it is the face where a 2 m gap between the
+               pitch and the promise shows. So the step is FIX_OBJ_REPEAT here too - middle mount FIRST,
+               unchanged, then one every FIX_OBJ_REPEAT metres in both directions, the KIND cycling with
+               position exactly as the corridor spacing does so a deck edge reads as a run of the
+               sector's things rather than one drum repeated. The budget guard is FIX_RUN_BUDGET, the
+                 same stop the corridor spacing uses: the pillar and arrival passes run AFTER this one and
+               an unbounded slab pass would spend the cap they need. No RNG is read, so no roll, prop,
+               lamp, light or enemy moves; a slab side shorter than one object spacing still takes only
+               its middle mount and is placed byte-identically to the shipped build. */
             if (mountDrop(kind, ax, ay, d)) {
-              for (let s = mid + FIX_REPEAT; s < at + run; s += FIX_REPEAT) {
-                mountDrop(kind, face === 0 ? a : s, face === 0 ? s : a, d);
+              for (let s = mid + FIX_OBJ_REPEAT; s < at + run; s += FIX_OBJ_REPEAT) {
+                if (placed >= FIX_RUN_BUDGET) break;
+                mountDrop(dropObjs[(a + d + s) % dropObjs.length], face === 0 ? a : s, face === 0 ? s : a, d);
               }
-              for (let s = mid - FIX_REPEAT; s >= at; s -= FIX_REPEAT) {
-                mountDrop(kind, face === 0 ? a : s, face === 0 ? s : a, d);
+              for (let s = mid - FIX_OBJ_REPEAT; s >= at; s -= FIX_OBJ_REPEAT) {
+                if (placed >= FIX_RUN_BUDGET) break;
+                mountDrop(dropObjs[(a + d + s) % dropObjs.length], face === 0 ? a : s, face === 0 ? s : a, d);
               }
             }
           }

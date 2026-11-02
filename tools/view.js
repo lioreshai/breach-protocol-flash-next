@@ -14839,13 +14839,20 @@ if (MODE === 'fixtures') {
               const gx=ax?a:bb-1, gy=ax?bb-1:a, plane=(ax?gx+DX[d]:gy+DY[d])+0.5, side=ax?1:2;
               const inR=(e)=>e[0]===side&&Math.abs(e[1]-plane)<0.01&&e[2]>=at+0.5&&e[2]<=bb-0.5;
               let k=0;for(const e of P)if(inR(e)&&OBJ.has(e[3]))k++;
-              /* THE PROMISE IS THE SPACING, SO THE ASK IS floor(len / FIX_REPEAT). A 7 m slab side at the
-                 shipped 6 m spacing holds ONE object - the middle mount - and a second would land 9.5 m
-                 along a 7 m face, past its end. Demanding two there would be a widening of the rule to
-                 manufacture a green row, so the row asks the arithmetic: a run of L metres carries at
-                 least floor(L / FIX_REPEAT) objects, at least one. Runs that long are the gate; the ones
-                 too short to hold two are counted in slS and are satisfied by the middle mount. */
-              const want=Math.max(1,Math.floor(len/FIX_REPEAT));
+              /* THE PROMISE IS THE OBJECT SPACING, SO THE ASK IS floor((len - 1) / FIX_OBJ_REPEAT)
+                 (#400 increment four). It used to be floor(len / FIX_REPEAT), which is a 6 m pitch, and
+                 that arithmetic is why this row could print 0/0 GATING on three of the four deals while
+                 the owner's seat frame showed one drum on a slab side and a blank either side of it: at
+                 6 m a 7 m face "holds" one object and is excluded from the gate as one-per-run. The
+                 issue's acceptance sentence is per metre for the level's OBJECTS, and a slab side is an
+                 object-bearing face (dropObjs is RACK and TANK only), so the row now asks the same
+                 arithmetic the corridor row above asks, MINUS ONE for the pass's own shape - the first
+                 object on a run sits up to one spacing in from its start, so demanding one at the corner
+                 would be asking for a fixture on a face the run does not own. Runs that cannot hold two
+                 at that pitch are counted in slS and are satisfied by the middle mount; runs that can are
+                 the gate. No threshold was widened: at a shorter pitch the ask is strictly harder, and a
+                 deal that was green at 6 m cannot go green at 4 m by this formula. */
+              const want=Math.max(1,Math.floor((len-1)/FIX_OBJ_REPEAT));
               if(want<2)slS++;else{slL++;if(k>=want)slOk++;else if(!slAt)slAt=gx+','+gy+' '+len+'m d'+d+' carries '+k+' wants '+want;}
             }
             len=0;at=0;};
