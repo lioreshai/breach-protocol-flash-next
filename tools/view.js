@@ -4445,19 +4445,40 @@ if (MODE === 'vert') {
       '   (drop, start -> landing altitude -> hp lost / frames)');
     /* A ladder is the only thing that turns the up/down keys into altitude, so the same cell with
        the flag cleared is the control: identical grid, identical keys, no change in P.z. */
+    /* EACH POSE IS JUDGED AGAINST ITS OWN FIRST FRAME. `CFG` runs PRE, and PRE runs `startLevel`,
+       which runs `genLevel` - so every one of these four runs RE-ROLLS the level off the advancing
+       generator stream. They are four different deals that happen to share a cell address, and the
+       comparison this row drew (`this run's P.z` against a `Z0` rolled by a FIFTH deal) was only ever
+       true while the deal under the poke happened to put datum floor there. #421's near-seat deck is
+       exactly a change that stops that happening: at level 0 the control's own deal now carries the
+       deck's own floor at the poke cell - `fz` 4, `floorAt` 1.00 - and P.z is 1.000 on frame 0 of the
+       control run, so the row printed `P.z 0 -> 1` and blamed the up key for an altitude the player
+       was PLACED at before the first frame. Measured: the control's 40 frames read z 1.000 / floor
+       1.000 throughout, so nothing climbed; and the deal that supplied `Z0` is a different deal, which
+       is the part that was never true of any pair of these runs.
+       Judging each run against its own placement altitude says the thing the row names - same keys,
+       same pose, does the column move - and it is still capable of failing: a cell that rises under
+       KeyE with no ladder on it now fails against its own frame 0 instead of against somebody else's
+       level. No bar, tolerance or bound moves; `PLACE` still seats the feet on the floor it found. */
     const ladCase = (poke, key, fr) => {
       run(CFG('', poke) + PLACE(CX + 1.5, CY + 0.5));
-      return run(RUN(fr, key)).pop()[1];
+      const z0 = run('P.z'), gz = run('floorAt(P.x,P.y)'), lad = run('onLadder(P.x,P.y) ? 1 : 0');
+      const z1 = run(RUN(fr, key)).pop()[1];
+      return { z0, z1, gz, lad };
     };
-    const Z0 = run(PRE(laneLi) + PLACE(CX + 1.5, CY + 0.5) + 'P.z'), ceil = run('ceilAt(P.x,P.y)');
+    const ceil = run('ceilAt(P.x,P.y)');
     const up = ladCase(`MAP.feat[${CY} * MW + ${CX} + 1]=FEAT_LADDER;`, 'KeyE', 40);
     const plain = ladCase(`MAP.feat[${CY} * MW + ${CX} + 1]=FEAT_NONE;`, 'KeyE', 40);
     const vlad = ladCase(`MAP.vb[${CY} * MW + ${CX} + 1]|=(VB_LADDER<<0);`, 'KeyE', 40);
     const down = ladCase(`MAP.feat[${CY} * MW + ${CX} + 1]=FEAT_LADDER;`, 'KeyQ', 40);
-    VROW('climb up on a FEAT_LADDER cell', up > Z0, `P.z ${Z0} -> ${up} in 0.67 s (ceiling plane ${ceil})`);
-    VROW('the same cell without the flag does not climb', plain === Z0, `P.z ${Z0} -> ${plain}`);
-    VROW('a VB_LADDER crossing climbs too', vlad > Z0, `P.z ${Z0} -> ${vlad}`);
-    VROW('climbing down stops at the column floor', down === Z0, `P.z ${Z0} -> ${down}`);
+    const Z0 = up.z0;
+    VROW('climb up on a FEAT_LADDER cell', up.z1 > up.z0,
+      `P.z ${up.z0} -> ${up.z1} in 0.67 s from floor ${up.gz} (ceiling plane ${ceil})`);
+    VROW('the same cell without the flag does not climb',
+      plain.lad === 0 && plain.z1 === plain.z0,
+      `P.z ${plain.z0} -> ${plain.z1} from floor ${plain.gz}, onLadder ${plain.lad}`);
+    VROW('a VB_LADDER crossing climbs too', vlad.z1 > vlad.z0, `P.z ${vlad.z0} -> ${vlad.z1} from floor ${vlad.gz}`);
+    VROW('climbing down stops at the column floor', down.z1 === down.z0, `P.z ${down.z0} -> ${down.z1} from floor ${down.gz}`);
   }
   /* ---- M3 step 3: a level START has to seat the feet on the grid the level ended up with.
      genLevel derives P.z from the grid inside itself, so the fresh path self-heals; the paths that
