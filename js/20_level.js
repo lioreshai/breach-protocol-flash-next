@@ -2083,6 +2083,27 @@ const FIX_FIT_MIN = 0.12;
    object at its start, which is the frame-edge pillar the issue reports. 6 m is roughly one fixture per
    field of view at standing distance, and it is the number the old bar already implied. */
 const FIX_REPEAT = 6;
+/* FIX_OBJ_REPEAT is the SPACING OF OBJECTS down a face line, in metres (#400, increment three), and it
+   is deliberately SHORTER than FIX_REPEAT, which spaces the vocabulary fixtures of every kind. The
+   shipped promise was "one fixture per six metres", which pass 3b honoured by putting ONE object at a
+   run's middle: a 24 m wall then carried one drum and twenty-three metres of unbroken sheet, and the
+   census stayed green because `bare` asks whether a run carries ANYTHING, not how far you walk before
+   the next thing. The issue's own acceptance is per metre - "you pass an object on it about every 4 m" -
+   so the object rule is stated separately from the fixture rule. 4 m is about one field of view at
+   walking pace, so the eye always has one more thing to travel to, and it is long enough that a room's
+   fixtures do not become a picket line. Only FREE faces are used to honour it (#400 take seven's lesson:
+   converting this level's paint into objects made L2 STRIPE 12 -> 0, so the sector stopped reading as
+   the place it is authored to be); a face already wearing paint is left wearing paint and the object
+   lands on the next free face within reach. */
+const FIX_OBJ_REPEAT = 4;
+/* FIX_RUN_BUDGET stops the SPACING passes short of mount()'s own 120-fixture cap (#400, increment three).
+   Spacing is the only pass that walks every long face line in the level and can therefore spend the whole
+   budget by itself; the slab, pillar and arrival passes run AFTER it, and `mount`/`mountDrop` return false
+   once `placed` is past 120 - a pass that gets nothing because a spacing loop filled the level shows up in
+   the census as an arrival face carrying nothing, not as a smaller spacing. This is the number the spacing
+   passes stop at, not a look knob; the fixture counts it produces on the four CI deals are printed by
+   `node tools/view.js fixtures`. */
+const FIX_RUN_BUDGET = 96;
 const FIX_SPAN = { DOOR: [0.50, 0.94], PIPE: [0.66, 0.30], STRIPE: [0.56, 0.20], VENT: [0.72, 0.26],
   RACK: [0.46, 0.62], TANK: [0.46, 0.72], BOARD: [0.82, 0.14] };
 /* FIX_DEP is how far each kind STANDS OFF the face, in metres (#400 take two). A rectangle painted on
@@ -2501,13 +2522,27 @@ function placeWallFixtures(cfgL, seat, ang) {
      count. DOOR is excluded from the pick: a run is by construction a passage that KEEPS GOING, and a
      doorway in the middle of one is the #403 finding this probe already gates on. No RNG is read, so no
      roll, prop, light or enemy moves; DECOR is edited in place, so the fixture list, the lightmap and
-     every other pass see the same entries they did before with one texture swapped. */
+     every other pass see the same entries they did before with one texture swapped.
+     INCREMENT THREE MAKES THAT RULE PER METRE (#400). "One object per run" was satisfied by a 24 m wall
+     carrying one drum at 12 m and twenty-three metres of unbroken sheet either side of it, which is what
+     the owner's own read of the four seat frames found: three of four sectors are "a long run of one wall
+     material with exactly one small object on it", and the census stayed green because `bare` and
+     `with an object` both ask WHETHER a run carries something, never HOW FAR YOU WALK BEFORE THE NEXT
+     ONE. So the pass now walks the run and holds the OBJECT spacing at FIX_OBJ_REPEAT metres: one object
+     every FIX_OBJ_REPEAT cells of face, on a FREE face (`mount`, never `claim`) so the level's own paint
+     stays paint and take seven's L2 STRIPE 12 -> 0 regression cannot come back. A slot whose face is
+     already owned simply does not reset the counter, so the next free face within the run takes the slot -
+     the same rule pass 3 follows for vocabulary fixtures. The claim-the-middle path below stays as the
+     fallback for a run that ends having gained nothing, so no run that is furnished today stops being
+     furnished; a run shorter than the spacing takes it and is placed byte-identically to before. Kinds
+     cycle with POSITION down the face, so a long sight line reads as a run of the sector's things rather
+     than the same drum repeated every four metres. No RNG is read anywhere in this pass. */
   const runObjs = objects.filter(k => k !== 'DOOR');
   if (runObjs.length) {
     for (let d = 0; d < 4; d++) {
       const face = DIRX[d] !== 0 ? 0 : 1;
       for (let a = 1; a < N - 1; a++) {
-        let run = 0, at = 0, hasObj = false, paint = [];
+        let run = 0, at = 0, hasObj = false, paint = [], since = 0;
         const flush = () => {
           if (run >= FIX_RUN_MIN && !hasObj) {
             const mid = at + (run >> 1);
@@ -2520,7 +2555,7 @@ function placeWallFixtures(cfgL, seat, ang) {
                whose faces are all free, or own only a SIGN BOARD - claim cannot fire on either. */
             if (!claim(want, ax, ay, d)) mount(want, ax, ay, d);
           }
-          run = 0; at = 0; hasObj = false; paint = [];
+          run = 0; at = 0; hasObj = false; paint = []; since = 0;
         };
         for (let b = 1; b < N - 1; b++) {
           const ax = face === 0 ? a : b, ay = face === 0 ? b : a;
@@ -2529,8 +2564,16 @@ function placeWallFixtures(cfgL, seat, ang) {
           if (!run) at = b;
           run++;
           const kd = kindOf[(wy * N + wx) * 4 + d];
-          if (FIX_EDGE.indexOf(kd) >= 0) hasObj = true;
-          else if (kd === 'STRIPE' || kd === 'PIPE') paint.push(b);
+          if (FIX_EDGE.indexOf(kd) >= 0) { hasObj = true; since = 0; continue; }
+          if (kd === 'STRIPE' || kd === 'PIPE') paint.push(b);
+          /* An object every FIX_OBJ_REPEAT metres of face. `since` counts cells since the last object,
+             whether that object was placed here or already owned the face, and it advances past a slot
+             whose face is taken rather than resetting, so a doorway or a room fixture inside the run
+             costs the slot but not the spacing. The KIND cycles with position so the run reads as the
+             sector's things rather than one thing repeated. */
+          since++;
+          if (run >= FIX_OBJ_REPEAT && since >= FIX_OBJ_REPEAT && placed < FIX_RUN_BUDGET
+            && mount(runObjs[(a + d + b) % runObjs.length], ax, ay, d)) { hasObj = true; since = 0; }
         }
         flush();
       }
