@@ -1589,7 +1589,22 @@ const release = () => fire('mouseup', { button: 0 });
               if (nx < 1 || ny < 1 || nx >= MW - 1 || ny >= MH - 1 || isSolid(nx + 0.5, ny + 0.5) ||
                 MAP.fz[ny * MW + nx] !== k) { ok = false; break; }
             }
-            if (ok) return { x: x, y: y, d: d };
+            if (!ok) continue;
+            /* #421: the deck THIS run climbs to, read off the run itself. The row used to assert a
+               literal 1 m because every band used to be one clearance tall; a band that stands two
+               units is the same mechanism asked to carry a taller climb, and a literal would then be
+               a claim about band height rather than about stair movement. So walk on while each next
+               cell is exactly one quantum higher and take the height the line actually reaches - the
+               last tread or the deck it hands you onto, whichever comes first. The four collinear
+               +1-quanta steps above are still required, so a flat grid still finds nothing here. */
+            let q = 4;
+            for (let k = 5; k <= 32; k++) {
+              const nx = x + DIRX[d] * k, ny = y + DIRY[d] * k;
+              if (nx < 1 || ny < 1 || nx >= MW - 1 || ny >= MH - 1 || isSolid(nx + 0.5, ny + 0.5)) break;
+              if (MAP.fz[ny * MW + nx] !== q + 1) break;
+              q++;
+            }
+            return { x: x, y: y, d: d, top: +(q * ZQ).toFixed(6) };
           }
         }
         return null;
@@ -1607,10 +1622,12 @@ const release = () => fire('mouseup', { button: 0 });
         let offN = 0, offRun = 0;
         for (const r of s) { if (Math.abs(r[0] - r[1]) > 1e-4) { offRun++; offN = Math.max(offN, offRun); } else offRun = 0; }
         const hpN = s.filter((r, i) => i && r[3] < s[i - 1][3] - 1e-9).length;
-        vrow('L' + li + ' a generated staircase lifts the feet a full unit (#152)',
-          end[0] === end[1] && Math.abs(end[1] - 1) < 1e-6 && airN === 0 && offN <= 1 && hpN === 0,
+        vrow('L' + li + ' a generated staircase lifts the feet to the deck its own run climbs to (#152, #421)',
+          end[0] === end[1] && Math.abs(end[1] - stair.top) < 1e-6 && stair.top > 0 &&
+          airN === 0 && offN <= 1 && hpN === 0,
           `generated run at (${stair.x}, ${stair.y}) walking ${['+x', '+y', '-x', '-y'][stair.d]}: ` +
-          `z ${end[0]} on floor ${end[1]} after 150 frames on foot (want 1 from the datum band 0), ` +
+          `z ${end[0]} on floor ${end[1]} after 150 frames on foot (want ${stair.top}, the top of the ` +
+          `run this scan walked, from the datum band 0), ` +
           `${airN} airborne frames, longest run of frames with the feet off their own floor ${offN} (want <=1;` +
           ` an eased lift runs ~26 per step), ${hpN} hp steps`
           + (end[1] === 0 ? ' - VACUOUS: never left the datum band' : ''));
