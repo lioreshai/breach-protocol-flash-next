@@ -3620,6 +3620,67 @@ function seatFacing(px, py, authored) {
    Switched by `overlookEnabled()` along with the pairing pass: with the pairing off there is no pair,
    no source, and `alt`'s deck row goes red for want of a pair rather than for want of a lamp. */
 const OVL_LAMP_R = 3.6;                        // a lip is 1-8 cells: a hall-sized disc is what costs
+/* #199 THE OTHER HALF OF THE DECK POPULATION: the dark decks the pairing pass never authored.
+   `alt`'s census walks EVERY tall column beside a band at least half a metre up, which is a wider
+   population than `overlookPairs`: the pairing pass keeps at most OVERLOOK_MAX pairs spaced
+   OVERLOOK_SPACING apart, so on the gated deal 2 / 4 / 3 decks per generated level are overlooked
+   geography that no rule ever put a source on (the census names them, and they are the whole of its
+   DARK count - every pair the pass DID author already reads lit). This lights exactly that
+   difference, by the same three rules #353 paid for and no fourth one:
+     * the source STATES its floor in `band` (the #413 shape). Deriving it from `z - LHOVER` makes the
+       source claim a band one hover above the deck it stands on and turns `alt`'s wrong-band census
+       from 0 to 2 cells on level 0 - measured, not reasoned.
+     * it carries `noglow` and a `PROP.lamp` BODY. A bloom disc centred on a one-or-two-cell lip puts
+       0.074 of its alpha off-band against #221's 0.05 gate; the fixture is what makes the light visible
+       instead, and it occludes rather than adds.
+     * it draws NO RNG and writes NO `fz`. It is called AFTER #709's give-back on purpose: that pass
+       decides which grown deck cells to hand back by whether a source stands on their band, so a lamp
+       placed before it would change the grid, and with it the dealt geometry census every other row
+       asserts is main's to the cell. Lit after it, the world is the world and only the light is new.
+   "Dark" is the shipped kernel's answer on a scratch lightmap, pre-blur, at the top-up's OWN_MIN - the
+   same test the pair pass uses, for the same reason: `blurLight` carries light over a lip, and a datum
+   pool must not buy a deck a lamp never stood on. A deck the deal already garrisons is skipped by that
+   same test, so this never doubles a source. */
+function lightUnauthoredDecks(cfgL) {
+  if (!overlookEnabled() || !deckLightEnabled() || !topUpEnabled()) return 0;
+  const N = MAP.w, cell = MAP.cell, fz = MAP.fz, cz = MAP.cz;
+  const OWN_MIN = 0.25;                          // the pair pass's bar (:3009), not a new one
+  const SC = [new Float32Array(N * N), new Float32Array(N * N), new Float32Array(N * N),
+    new Float32Array(N * N), new Float32Array(N * N)];
+  const keep = [MAP.light, MAP.lR, MAP.lG, MAP.lB, MAP.lw];
+  let placed = 0;
+  for (let y = 1; y < N - 1; y++) for (let x = 1; x < N - 1; x++) {
+    const i = y * N + x;
+    if (cell[i] || cz[i] <= CZ_DEF) continue;                  // tall air: the census's own predicate
+    for (let d = 0; d < 4; d++) {
+      const nx = x + DIRX[d], ny = y + DIRY[d];
+      if (nx < 1 || ny < 1 || nx >= N - 1 || ny >= N - 1) continue;
+      const j = ny * N + nx;
+      if (cell[j] || (fz[j] - fz[i]) * ZQ < 0.5) continue;      // a band at least half a metre above it
+      const fl = fz[j] * ZQ;
+      for (const a of SC) a.fill(0);
+      MAP.light = SC[0]; MAP.lR = SC[1]; MAP.lG = SC[2]; MAP.lB = SC[3]; MAP.lw = SC[4];
+      for (const L of LIGHTS) if (Math.abs(lightBand(L) - fl) <= ZQ + 1e-9) splatLight(L, L.str);
+      const own = MAP.light[j];
+      MAP.light = keep[0]; MAP.lR = keep[1]; MAP.lG = keep[2]; MAP.lB = keep[3]; MAP.lw = keep[4];
+      if (own >= OWN_MIN) break;                                // already garrished - and it is a pair's deck
+      const lx = j % N, ly = (j / N) | 0;                       // the lip cell itself: the deck is 1-2 cells
+      const px = lx + 0.5, py = ly + 0.5;
+      if (!PROPS.every(q => Math.hypot(q.x - px, q.y - py) > 0.6) ||
+          !ENEMIES.every(q => Math.hypot(q.x - px, q.y - py) > 0.6)) { overlookLamps.push({ low: i, deck: j, at: -1, own: +own.toFixed(3), why: 'no-free-cell' }); break; }
+      LIGHTS.push({ x: px, y: py, z: fl + LHOVER, band: fl, r: OVL_LAMP_R, str: TOPUP_BASE * TOPUP_MINF,
+        col: cfgL.lampCol, stat: 1, ovl: 1, noglow: 1 });
+      if (deckBodyEnabled())
+        PROPS.push({ tex: PROP.lamp, x: px, y: py, z: floorAt(px, py), scale: 0.95, kind: 'lamp',
+          yaw: propYaw(px, py), ovl: 1 });
+      overlookLamps.push({ low: i, deck: j, at: j, own: +own.toFixed(3), why: 'unserved-deck' });
+      placed++;
+      break;
+    }
+  }
+  return placed;
+}
+
 function lightOverlookDecks(cfgL) {
   /* topUpEnabled() is the knob LAMPS=off flips in tools/view.js, and this pass sits under it because the
      control has to mean "no lamp this project chose to place". Measured ungated: flatparity's PARITY
@@ -4292,6 +4353,10 @@ function genLevel(li) {
       }
       if (gave) MAP.deckGive = gave;                             // census only: a probe reads it off MAP
     }
+    /* #199: the decks the 3-pair budget could not reach, AFTER #709 decided the grid and BEFORE the
+       splat bakes it - see lightUnauthoredDecks. Order is the whole design: running it before the
+       give-back would make a lamp change the deal's geometry. */
+    lightUnauthoredDecks(cfgL);
     // lightmap splat, then a smoothing pass and the per-cell tint
     for (const L of LIGHTS) splatLight(L, L.str);
     blurLight(); floorLampField(); buildTint();   // #199: the floor AFTER the blur, which replaces the array
