@@ -221,7 +221,7 @@ function devRoute(o) {
      it measures what one load refuses to agree on with ITSELF, and the fg row prints it, so a mask
      that is noise says so in its own line instead of looking like a weak colour. */
   ${o.pair ? `out.b=[out.png];for(var u=0;u<${ARMS}-1;u++){DEV.tick(1);out.b.push(cv.toDataURL('image/png').split(',')[1]);}
-  ENEMIES.length=0;out.c=[];for(var u2=0;u2<${ARMS};u2++){DEV.tick(1);out.c.push(cv.toDataURL('image/png').split(',')[1]);}
+  ENEMIES.length=0;out.c=[];for(var u2=0;u2<${ARMS}*2;u2++){DEV.tick(1);out.c.push(cv.toDataURL('image/png').split(',')[1]);}
   out.png=null;` : ''}
   return out;})()`;
 }
@@ -296,14 +296,35 @@ function writePNG(file, rgb, w, h) {
  * here, because that is what the player is being asked to see. */
 function avgPNG(files) {
   const f0 = decodePNG(files[0]);
-  const acc = Buffer.from(f0.d);
+  /* A Buffer IS a byte array, so `acc[k] += f.d[k]` on one stores the sum mod 256 and the "mean of k
+   * frames" comes out as (sum mod 256)/k - the true mean folded into 0..255/k. Measured on frames
+   * this tool itself captured (#740 review): four frames whose true mean luma is 87.5 averaged to
+   * 22.3, with 943309 of 2678400 channels off by more than 1, and two of the four sectors' value
+   * steps changed SIGN. The accumulator has to be wider than a byte; the Buffer is only the output. */
+  const acc = new Float64Array(f0.d.length);
+  acc.set(f0.d);
+  let want = 0;
+  for (let k = 0; k < acc.length; k++) want += f0.d[k];
+  want /= acc.length;
   for (let i = 1; i < files.length; i++) {
     const f = decodePNG(files[i]);
     if (f.w !== f0.w || f.h !== f0.h) throw new Error('arm frames differ in size: ' + files[0] + ' vs ' + files[i]);
-    for (let k = 0; k < acc.length; k++) acc[k] += f.d[k];
+    let s = 0;
+    for (let k = 0; k < acc.length; k++) { acc[k] += f.d[k]; s += f.d[k]; }
+    want = (want * i + s / acc.length) / (i + 1);   // running mean of the frames' own channel mean
   }
-  for (let k = 0; k < acc.length; k++) acc[k] = Math.round(acc[k] / files.length);
-  return { w: f0.w, h: f0.h, d: acc };
+  const d = Buffer.alloc(acc.length);
+  let got = 0;
+  for (let k = 0; k < acc.length; k++) { const v = Math.round(acc[k] / files.length); d[k] = v; got += v; }
+  got /= acc.length;
+  /* The canary, so this bug cannot come back inside a green row: the mean of the mean has to be the
+   * mean of the frames. Rounding accounts for well under 1/256 of a frame; a byte accumulator is off
+   * by tens. Throw rather than print - a folded image makes every step in the row arithmetic on
+   * something that was never on screen. */
+  if (Math.abs(got - want) > 0.75) throw new Error('avgPNG: the mean of the ' + files.length + '-frame mean is ' +
+    got.toFixed(2) + ' but those frames average ' + want.toFixed(2) + ' - the accumulator is losing value '
+    + '(a byte array sums mod 256). Fix the accumulator; do not re-record the row.');
+  return { w: f0.w, h: f0.h, d };
 }
 
 /* The frame centre only: the four HUD corners carry a kill counter and a minimap dot that differ
@@ -347,8 +368,10 @@ function fg(withBody, without) {
  * failure, not a caveat - the value and chroma steps in such a row are arithmetic on dither. */
 function fgLine(tag, r, idn, k) {
   return 'FG ' + tag + ' ' + JSON.stringify(r) +
-    (idn !== null && idn !== undefined ? '\n   IDENTITY ' + idn + ' kept px between two frames of ONE '
-      + 'arm, one tick apart (' + (k || 1) + '-frame means). That is the floor this row has to clear.' : '') +
+    (idn !== null && idn !== undefined ? '\n   IDENTITY ' + idn + ' kept px between the two halves of ONE '
+      + 'arm with nothing between them but ticks - both sides ' + (k || 1) + '-frame means, the same '
+      + 'estimator as the mask above, so this is the floor this row has to clear rather than a noisier '
+      + 'quantity wearing its name.' : '') +
     (r.vacuous ? '\n   VACUOUS: ' + r.n + ' kept px, under the ' + r.minKeep + ' px floor (' +
       (MIN_KEEP_FRAC * 100).toFixed(2) + '% of the frame). That mask is not a body, so the steps in the '
       + 'row above are noise. Look at the arms; a seat with geometry on the camera-to-body line reads '
@@ -490,11 +513,15 @@ async function cost(o) {
 let armsNote = false;      // the same-load arms note is printed once per run, not once per sector
 const ARMS = +arg('arms', 4);   // frames averaged per arm; 1 reproduces the single-frame read
 
+/* Every frame this run wrote for one arm, in tick order, stopping at the first gap. The clear arm of
+ * the `both` route holds TWICE the frames of the body arm (#740 review): the first half is the arm
+ * itself and the second half is the identity control, so a count fixed at ARMS would silently drop
+ * the control and leave the floor uncomputable. */
 function armFiles(dir, base) {
   const out = [];
-  for (let i = 0; i < ARMS; i++) {
+  for (let i = 0; i < Math.max(1, ARMS) * 2; i++) {
     const f = path.join(dir, base + '-' + i + '.png');
-    if (fs.existsSync(f)) out.push(f);
+    if (fs.existsSync(f)) out.push(f); else break;
   }
   return out;
 }
@@ -523,7 +550,9 @@ async function cap(o) {
           console.log('NOTE arms: ' + v.b.length + ' body frames and ' + v.c.length + ' clear frames, all '
             + 'in ONE page load, averaged per pixel before the mask. One frame of this page differs from '
             + 'the next by ~7.3k px at a frozen clock - the rig, dither and lamp flicker - which is the '
-            + 'same order as a body mask at 10 m, so single frames cannot carry the row.');
+            + 'same order as a body mask at 10 m, so single frames cannot carry the row. Twice as many '
+            + 'clear frames as body frames: the second half is the IDENTITY control, so the floor is '
+            + 'built from the same per-pixel mean as the mask it gates.');
         }
         v.b.forEach((p, i) => fs.writeFileSync(path.join(out, shot.name + '-' + i + '.png'), Buffer.from(p, 'base64')));
         v.c.forEach((p, i) => fs.writeFileSync(path.join(out, shot.clear + '-' + i + '.png'), Buffer.from(p, 'base64')));
@@ -583,14 +612,23 @@ async function main() {
     if (cmd === 'both') {
       let vacuous = 0;
       for (const l of levels) {
-        const A = armFiles(out, 'l' + l + '-body'), B = armFiles(out, 'l' + l + '-clear');
-        if (!A.length || !B.length) continue;          // the pair path writes l*-body-<i>.png, no single frame
+        const all = armFiles(out, 'l' + l + '-body'), allC = armFiles(out, 'l' + l + '-clear');
+        if (!all.length || !allC.length) continue;      // the pair path writes l*-body-<i>.png, no single frame
+        /* BOTH SIDES OF THE COMPARISON HAVE TO BE THE SAME KIND OF NUMBER (#740 review). The mask is a
+           k-frame mean against a k-frame mean; the floor used to be frame 0 against frame 1 of one arm,
+           which is a SINGLE-frame difference - noisier by sqrt(k) than the thing it gates - while the
+           row printed "(k-frame means)" as though the two were alike. The clear arm is now shot twice
+           as long and split in half, so the floor is a k-frame mean against a k-frame mean of the same
+           arm with nothing between the halves but ticks. Same span, same estimator, same noise. */
+        const k = Math.min(all.length, Math.floor(allC.length / 2));
+        if (!k) continue;
+        const A = all.slice(0, k), B = allC.slice(0, k);
         const r = fg(A, B);
-        // the floor: two frames of ONE arm, nothing between them but a tick
-        const idn = B.length > 1 ? fg([B[0]], [B[1]]).n : null;   // one arm, two frames: the floor
+        // the floor: two means of ONE arm, nothing between them but a tick
+        const idn = allC.length >= 2 * k ? fg(allC.slice(k, 2 * k), allC.slice(0, k)).n : null;
         if (idn !== null && r.n <= idn) r.noisy = true;       // a mask no bigger than the noise is noise
         if (r.vacuous || r.noisy) vacuous++;
-        console.log(fgLine('L' + l, r, idn, A.length));
+        console.log(fgLine('L' + l, r, idn, k));
       }
       if (vacuous) {
         console.log('LIVECAP ' + vacuous + ' of ' + levels.length + ' FG row(s) VACUOUS - the floor note above each such row says why');

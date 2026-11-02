@@ -104,6 +104,22 @@ denies — is 0 on main. Two details that matter: the ring is an **8**-neighbour
 rasterised silhouette steps diagonally; and the background reference is the median luminance of
 outside-mask neighbours **of the same composited frame**.
 
+**A `Buffer` is a byte array, so it is the wrong accumulator for an image mean.** `tools/livecap.js`
+`avgPNG` summed `--arms` frames into one, so every `acc[k] += f.d[k]` was stored mod 256 and the
+"mean of 4 frames" was `(sum mod 256)/4` — the true mean folded into 0..63. Measured on frames that
+tool captured itself (#740 review): four frames of mean luma 87.5 averaged to 22.3, 943309 of 2678400
+channels off by more than 1, and **two of four sectors' figure-ground value steps changed sign**. A
+folded image fails no assertion, because every downstream number is self-consistent with it: the mask
+still cleared its floor and the row looked sane. Accumulate in a `Float64Array`, divide into a Buffer
+at the end, and print the canary — the mean of the mean against the mean of the frames.
+
+**Two sides of an A/B must be the same kind of number.** The same tool gated its body mask (a 4-frame
+mean against a 4-frame mean) against an "identity floor" computed from two *single* frames, and printed
+`(4-frame means)` as though both were means. A single-frame difference is noisier by `sqrt(k)` than the
+mean it gates, so the comparison was neither conservative by design nor describable in its own line.
+Shot the control arm twice as long, split it in half, and the floor became the same estimator as the
+mask. An undocumented basis is a coin flip you get to keep believing in.
+
 **Instrumenting a hot loop changes what it costs.** `window.castGround = function () { …g()… }`
 for a phase A/B added **15 ms/frame to both sides** and hid the difference being measured: the
 wrapper deoptimizes the call site in `renderWorld`.
