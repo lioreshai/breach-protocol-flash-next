@@ -1779,7 +1779,8 @@ if (MODE === 'alt') {
     // compare against `undefined` - an arithmetic miss that prints no red row at all.
     const TOPUP_DARK_REF = [349, 1194, 1108, 744];
     for (let lv = 0; lv < run('LEVELS.length'); lv++) {
-      const A = { pit: 0, pitDark: 0, pitSum: 0, oob: 0, oobSum: 0, oobClimb: 0, nosrc: 0, dark: 0, open: 0, lamps: 0, pitRolls: 0, noPitAt: [] };
+      const A = { pit: 0, pitDark: 0, pitSum: 0, oob: 0, oobSum: 0, oobClimb: 0, nosrc: 0, dark: 0, open: 0, lamps: 0, pitRolls: 0, noPitAt: [],
+        near: 0, nearDark: 0, litRolls: 0, nearOwnSum: 0 };
       for (let r = 0; r < 12; r++) {
         seedRng(1000 + lv * 97 + r * 13);
         const c = vm.runInContext(`(function(){
@@ -1787,12 +1788,23 @@ if (MODE === 'alt') {
           const N = MAP.w, cell = MAP.cell, fz = MAP.fz, light = MAP.light;
           const S = []; for (const L of LIGHTS) S.push({ x: L.x, y: L.y, r: L.r, f: lightBand(L) });
           let pit = 0, pitDark = 0, pitSum = 0, oob = 0, oobSum = 0, oobClimb = 0, nosrc = 0, dark = 0, open = 0;
+          /* #199 SEAT CONDITION. The issue's own statistic is camera-conditioned - ground a player can
+             actually see, in reach of the lamp field, from a seat that is itself standing in light.
+             "In reach" is the SHIPPED FARB (js/40_render.js re-authors it from the quality tier before any
+             pixel is drawn, so reading the live binding is the only form that cannot drift from the raster)
+             and "is itself lit" is the same 0.05 line the cell counters use, read at the cell startLevel
+             left the player in. Both are measured on the ARRIVAL seat, the pose the player wakes in. */
+          const FAR = (typeof FARB === 'number' && FARB > 0) ? FARB : 22;
+          const camOwn = light[((P.y | 0) * N) + (P.x | 0)];
+          const litOwn = camOwn >= 0.05;
+          let near = 0, nearDark = 0, nearOwnSum = 0;
           for (let i = 0; i < N * N; i++) {
             if (cell[i]) continue;
             open++;
             const fl = fz[i] * ZQ, lt = light[i], dk = lt < 0.05;
             if (fz[i] <= -3) { pit++; pitSum += lt; if (dk) pitDark++; }
             const px = i % N + 0.5, py = ((i / N) | 0) + 0.5;
+            if (litOwn && Math.hypot(px - P.x, py - P.y) <= FAR) { near++; nearOwnSum += lt; if (dk) nearDark++; }
             let inR = 0, good = 0;
             for (const s of S) {
               if (Math.hypot(s.x - px, s.y - py) >= s.r) continue;
@@ -1810,10 +1822,12 @@ if (MODE === 'alt') {
             }
           }
           return { pit: pit, pitDark: pitDark, pitSum: pitSum, oob: oob, oobSum: oobSum, oobClimb: oobClimb, nosrc: nosrc, dark: dark, open: open,
+            near: near, nearDark: nearDark, nearOwnSum: nearOwnSum, litOwn: litOwn ? 1 : 0,
             lamps: LIGHTS.filter(function (L) { return L.stat; }).length };
         })()`, ctxVm);
         A.pit += c.pit; A.pitDark += c.pitDark; A.pitSum += c.pitSum; A.oob += c.oob; A.oobSum += c.oobSum; A.oobClimb += c.oobClimb;
         A.nosrc += c.nosrc; A.dark += c.dark; A.open += c.open; A.lamps += c.lamps;
+        A.near += c.near; A.nearDark += c.nearDark; A.nearOwnSum += c.nearOwnSum; A.litRolls += c.litOwn;
         if (c.pit) A.pitRolls++; else A.noPitAt.push(r);
       }
       const dref = Math.round(1.02 * TOPUP_DARK_REF[lv]);
@@ -1857,6 +1871,41 @@ if (MODE === 'alt') {
         + `The non-vacuity floor here is ${DSK_OPEN_MIN[lv]} open cells and it is PER LEVEL (#314: an authored plan is a `
         + `smaller map than a generated one, so an absolute count of open cells would exclude level 3 by its size `
         + `rather than by its coverage - the generated three keep main's 5000 unchanged).`);
+      /* #199 TAKE SEVEN - THE STATISTIC IN THE UNIT THE ISSUE NAMED, AND A FLOOR UNDER IT.
+         The rows above count dark cells over the whole grid and say so in prose: "this is the same columns
+         counted without a camera, which is the stronger form for a coverage claim". That is true as a claim
+         about the LIGHTMAP and it is why this file bounds the share - but it is not the question the issue
+         asked, and no row here could answer it: "per level, the share of ground-visible pixels within FARB
+         whose column light is < 0.05 WHILE THE CAMERA COLUMN IS LIT, bounded by a threshold measured across
+         >= 5 seeds rather than guessed". The condition matters - #199's own table shows a plain spawn
+         camera at L1 seed 4242 with the seat's own column at 0.06 and 20% of its visible ground in a dark
+         column, and a seat standing in light with a dark far deck is a different defect from a seat
+         standing in the dark (the second is the lamp budget, which `exposure`'s spawn seats already price).
+         So this counts, from the ARRIVAL seat of each of the same 12 seeded deals, the open cells inside
+         the shipped FARB and the share of them that solve to a column under 0.05 - the cell-side form of
+         exactly that statistic, on the same dice as every other row here, deterministic by seed and without
+         a camera to argue about. Roll set: 12 >= the issue's 5.
+         THE FALSIFIER THE ISSUE ASKED FOR, measured rather than asserted: its own suggested one - a kernel
+         that weights by |floorAt(column) - L.z| instead of the shipped band term - is not a live option, it
+         IS the shipped kernel (#203/#206/#413 put that term in `splatLight` and the same predicate in
+         `blurLight` long after 5f14a09, which is what the issue was measured on). The knob that does exist
+         is LAMPS=off, which removes the coverage top-up and the deck sources at author time: that arm is
+         printed on this row and is required to be WORSE, so the row cannot be satisfied by a lightmap that
+         darkened everywhere for an unrelated reason. Vacuity: a level with no cell in reach, or whose 12
+         deals never leave the seat in light, fails rather than reporting 0%. */
+      const SEAT_DARK_REF = refRecord('alt', 'SEAT-DARK', 'num', [1.6, 4.4, 2.7, 2.0]);   // MEASURED on this tree, 12 seeded deals per level (dice 1000 + lv*97 + r*13): 111 of 6820, 411 of 9343, 289 of 10895, 60 of 3024 open cells inside FARB of the arrival seat. Bounded ABOVE like DARK-SHARE - darkness that shrinks is not a regression.
+      const SDS_SLACK = +(process.env.SEATDARK_SLACK || 1.0);      // pp above the measured share
+      const sds = A.near ? 100 * A.nearDark / A.near : 0;
+      row(`L${lv} ground in reach of a lit seat is not left in a dark column`,
+        A.near > 0 && A.litRolls > 0 && sds <= SEAT_DARK_REF[lv] + SDS_SLACK,
+        `${A.nearDark} of ${A.near} open cells within FARB of the arrival seat (${sds.toFixed(1)}%, recorded `
+        + `${darkRec(SEAT_DARK_REF, lv)}, slack ${SDS_SLACK} pp) hold < 0.05 delivered light, counted on the `
+        + `${A.litRolls} of 12 deals whose OWN column is lit - the condition #199 stated, because a seat `
+        + `standing in the dark is the lamp budget's problem (exposure's SPAWN seats) and not a coverage one. `
+        + `Mean delivered light in reach ${(A.near ? A.nearOwnSum / A.near : 0).toFixed(3)}. Non-vacuity: `
+        + `${A.near} cells in reach over ${A.litRolls} lit-seat deals; a deal set that leaves the seat dark `
+        + `every roll or reaches no floor at all reports a FAILURE, not a 0%.`
+        + `${process.env.LAMPS === 'off' ? ' [LAMPS=off arm - the coverage top-up authored nothing]' : ''}`);
       row(`L${lv} delivered wrong-band light does not spread`, A.oob <= MAIN_OOB_GEO[lv],
         `${A.oob} NON-CLIMB open cell(s) hold delivered light with NO source standing on their own band within `
         + `reach against the recorded ${eraOf(MAIN_OOB_GEO, lv)} (the ALL-CELL figure was ${eraOf(MAIN_OOB, lv)} on the tree`
