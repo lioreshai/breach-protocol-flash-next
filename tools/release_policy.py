@@ -109,6 +109,29 @@ def api(repo, path, payload=None, optional=False):
         raise
 
 
+def tag_commit(repo, version):
+    """The commit refs/tags/<version> peels to, or None when that tag was never made.
+
+    The one question the release guard exists to ask, and the one answer `api` cannot see: for a
+    ref that is not a commit GitHub's commits endpoint answers **422 "No commit found for SHA"**,
+    not 404, so `optional=True` never fires and a merged-but-untagged release raised an API error
+    instead of naming the outstanding step. Both guards died that way on a scheduled pass while
+    `Track release debt` was skipped and the `release-due` issue stayed unfilled (#759).
+
+    The 422 is read as absent here and nowhere else, and only together with the message: `version`
+    is matched against VERSION by the caller before this runs, so a 422 from this lookup cannot be
+    a malformed-ref complaint, and every other optional call keeps 404 as its only absent answer.
+    The peel stays on this endpoint because an annotated tag's ref object carries the *tag* sha
+    (`git/ref/tags/v1.4.19` -> type "tag"), and the cadence verdict compares main against the
+    release commit."""
+    try:
+        return api(repo, 'commits/' + version)['sha']
+    except RuntimeError as error:
+        if 'No commit found for SHA' in str(error) and 'HTTP 422' in str(error):
+            return None
+        raise
+
+
 def stamp(value):
     result = datetime.fromisoformat(value.replace('Z', '+00:00'))
     if result.tzinfo is None:
@@ -291,8 +314,7 @@ def publication_on_main(repo, now=None, ref=''):
     version = manifest.get('version') if isinstance(manifest, dict) else None
     if not isinstance(version, str) or not re.fullmatch(VERSION, version or ''):
         raise ValueError('release.json version is %r, not a release version' % (version,))
-    tag_sha = api(repo, 'commits/' + version, optional=True)
-    tag_sha = tag_sha['sha'] if tag_sha else None
+    tag_sha = tag_commit(repo, version)
     release = api(repo, 'releases/tags/' + version, optional=True)
     if release is not None and release.get('tag_name') != version:
         raise ValueError('the release queried for %s reports tag_name %r' % (version, release.get('tag_name')))
@@ -306,7 +328,9 @@ def status(repo, branch=''):
     policy_file = api(repo, 'contents/release-policy.json?ref=' + main_sha, optional=branch == RESET_BRANCH)
     policy = json.loads(b64decode(policy_file['content'])) if policy_file else json.loads(Path('release-policy.json').read_text())
     release = api(repo, 'releases/latest', optional=True)
-    tag_sha = api(repo, 'commits/' + release['tag_name'])['sha'] if release else None
+    # The latest release's own tag, through the same absent-aware lookup: a release whose tag was
+    # deleted reports 'a release exists for <version> but its tag does not' rather than raising.
+    tag_sha = tag_commit(repo, release['tag_name']) if release else None
     publication = publication_on_main(repo)[0]
     pulls = api(repo, 'pulls?state=open&base=main&per_page=100')
     if isinstance(pulls, list) and len(pulls) == 100:
