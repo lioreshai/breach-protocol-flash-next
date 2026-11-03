@@ -14608,6 +14608,7 @@ if (MODE === 'fixtures') {
       + (k === 'PIPE' && c[0] < 0.2 ? '   << THE WASH WROTE OPACITY: a pipe run is a slab' : ''));
     if (k === 'PIPE' && c[0] < 0.2) bad++;
   }
+  let synSeen = null;
   for (let L = 0; L < run('LEVELS.length'); L++) {
     seedRng(1000 + L * 97);
     run(`S.mode="play"; S.locked=false; startLevel(${L}, true);`);
@@ -14753,20 +14754,60 @@ if (MODE === 'fixtures') {
         if (ok) rOk++; if (any) rAny++;}
       const t={};for(const k of ['DOOR','PIPE','STRIPE','VENT','RACK','TANK','BOARD'])t[k]=0;
       for(const f of DECOR)for(const k of ['DOOR','PIPE','STRIPE','VENT','RACK','TANK','BOARD'])if(f.tex===WFIX[k])t[k]++;
-      /* THE #403 FINDING, AS A ROW: a DOOR may not sit on a cell whose passage keeps going. For a
-         face on an x-plane the air cell is the one the face looks into, at (gx+1, gy); a y-plane
-         face looks into (gx, gy+1). From there the passage axis is the OTHER axis, and a cell that
-         is narrow along it with a narrow cell on both sides is a corridor, not a doorway. */
+      /* THE #403 FINDING, AS A ROW: a DOOR may not sit on a cell whose passage keeps going.
+         WHICH CELL A FACE LOOKS INTO (#755). addWFix (js/20_level.js) stores a face at the WALL
+         cell's centre on the axis perpendicular to it and at the AIR cell's centre along it, so for
+         BOTH planes the wall cell is simply (floor(f.x), floor(f.y)) and the air cell is one of the
+         two cells either side of it along the normal. The arithmetic this row carried before added 1
+         to the y-plane row and then stepped AGAIN, and stepped once for a face whose wall sits EAST
+         of its air cell, so of the four mount directions only wall-west was read at its own doorway
+         - measured on 174ec34 the row printed 0 on a build that hung a frame in both walls of every
+         straight corridor, because the mouth pass mounts y-plane on both sides of every neck
+         (js/20_level.js, pass 1) and no door frame in the game is in the one orientation it could see.
+         The entry does NOT record which side it was mounted from - DECOR keys on the wall cell - so a
+         wall with air on both sides is read on both: that over-counts a door in a wall between two
+         passages and never hides one, which is the safe direction for a row whose whole job is to
+         catch frames painted down a corridor. From the air cell the passage axis is the OTHER axis,
+         and a cell narrow along it with a narrow cell on both sides is a corridor, not a doorway. */
+      const doorCont=(fx,fy,fsd,isOpen)=>{
+        const wx=Math.floor(fx), wy=Math.floor(fy);
+        const nb=fsd===1?[[wx-1,wy],[wx+1,wy]]:[[wx,wy-1],[wx,wy+1]];   // the cells this face can look into
+        for(const n of nb){
+          const ax=n[0], ay=n[1];
+          if(!isOpen(ax,ay))continue;
+          const we=isOpen(ax-1,ay)&&isOpen(ax+1,ay), ns=isOpen(ax,ay-1)&&isOpen(ax,ay+1);
+          if(we===ns)continue;
+          const c=(x,y,cross)=>isOpen(x,y)&&!isOpen(x+DX[cross],y+DY[cross])&&!isOpen(x-DX[cross],y-DY[cross]);
+          if(we){ if(c(ax,ay,1)&&c(ax+1,ay,1)&&c(ax-1,ay,1))return true; }
+          else  { if(c(ax,ay,0)&&c(ax,ay+1,0)&&c(ax,ay-1,0))return true; }
+        }
+        return false;
+      };
       let cont=0;
-      for(const f of DECOR){ if(f.tex!==WFIX.DOOR)continue;
-        const gx=f.side===1?(f.x|0):(f.x|0), gy=f.side===1?(f.y|0):((f.y|0)+1);
-        const ax=f.side===1?gx+1:gx, ay=f.side===1?gy:gy+1;
-        if(!op(ax,ay))continue;
-        const we=op(ax-1,ay)&&op(ax+1,ay), ns=op(ax,ay-1)&&op(ax,ay+1);
-        if(we===ns)continue;
-        const c=(x,y,cross)=>op(x,y)&&!op(x+DX[cross],y+DY[cross])&&!op(x-DX[cross],y-DY[cross]);
-        if(we){ if(c(ax,ay,1)&&c(ax+1,ay,1)&&c(ax-1,ay,1))cont++; }
-        else  { if(c(ax,ay,0)&&c(ax,ay+1,0)&&c(ax,ay-1,0))cont++; }
+      for(const f of DECOR){ if(f.tex!==WFIX.DOOR)continue; if(doorCont(f.x,f.y,f.side,op))cont++; }
+      /* #755'S OWN TEST, the one this row has never had: no dealt sector GUARANTEES a door in a
+         straight corridor - the generator's job is not to put one there - so the geometry is built
+         instead of looked for. A SW x SW block, solid throughout, with two one-cell straight runs
+         carved in it and one room; six door faces, hung by the coordinate rule addWFix uses (wall
+         cell centre ACROSS the face, air cell centre ALONG it) at four mid-run cells - one per mount
+         direction - plus two controls: the corridor END cell and a ROOM's own wall, neither of which
+         is a continuing passage and both of which must read as not one. FOUR is the answer; a walk
+         that counted every face it saw would read 6 here. At the head this issue was filed on the
+         same six faces read ONE, which is the sabotage this row was never run against: only the face
+         whose wall lies west of its air cell was derived correctly. Deal-independent by construction,
+         so it returns the same number on every level and is printed once. */
+      const SW=16, sg=new Uint8Array(SW*SW).fill(1);
+      for(let x=1;x<SW-1;x++)sg[5*SW+x]=0;                    // an east-west run, walled north and south
+      for(let y=1;y<SW-1;y++)sg[y*SW+10]=0;                   // a north-south run, walled east and west
+      for(let y=11;y<=13;y++)for(let x=1;x<=5;x++)sg[y*SW+x]=0;  // a room, for the doorway control
+      const sop=(x,y)=>x>0&&y>0&&x<SW-1&&y<SW-1&&sg[y*SW+x]===0;
+      const mkFace=(ax,ay,d)=>{const wx=ax+DX[d], wy=ay+DY[d];
+        return DX[d]!==0?{x:wx+0.5,y:ay+0.5,side:1}:{x:ax+0.5,y:wy+0.5,side:2};};
+      let syn=0, synN=0;
+      for(const m of [[5,5,1],[5,5,3],[10,8,0],[10,8,2],[14,5,1],[5,12,0]]){
+        const f=mkFace(m[0],m[1],m[2]);
+        if(sop(m[0]+DX[m[2]],m[1]+DY[m[2]]))continue;          // the fixture must sit in a solid cell
+        synN++; if(doorCont(f.x,f.y,f.side,sop))syn++;
       }
       const t2=t;
       /* the arrival lines, walked from the seat the level woke the player on */
@@ -14900,8 +14941,9 @@ if (MODE === 'fixtures') {
         const ns=e.side===1?[[cx-1,cy],[cx+1,cy]]:[[cx,cy-1],[cx,cy+1]];
         for(const n of ns)if(op(n[0],n[1])&&fz-MAP.fz[n[1]*N+n[0]]>=2)ok=true;
         if(!ok)kerb++;}
-      return [runs,bare,t2,MAP.fixCount,cont,rN,rOk,rAny,objRuns,dpN,dpOk,kerb,dpAt,bfN,bfOk,bfAt,slL,slOk,slS,slAt,sfN,sfCov,sfObj,sfAt,pbN,pbOk,pbAt,spN,spOk,spS,spAt,spGap,spLen,spObj]})()`);
-    const [runs, bare, tally, nFix, cont, rN, rOk, rAny, objRuns, dpN, dpOk, kerb, dpAt, bfN, bfOk, bfAt, slL, slOk, slS, slAt, sfN, sfCov, sfObj, sfAt, pbN, pbOk, pbAt, spN, spOk, spS, spAt, spGap, spLen, spObj] = r;
+      return [runs,bare,t2,MAP.fixCount,cont,rN,rOk,rAny,objRuns,dpN,dpOk,kerb,dpAt,bfN,bfOk,bfAt,slL,slOk,slS,slAt,sfN,sfCov,sfObj,sfAt,pbN,pbOk,pbAt,spN,spOk,spS,spAt,spGap,spLen,spObj,syn,synN]})()`);
+    const [runs, bare, tally, nFix, cont, rN, rOk, rAny, objRuns, dpN, dpOk, kerb, dpAt, bfN, bfOk, bfAt, slL, slOk, slS, slAt, sfN, sfCov, sfObj, sfAt, pbN, pbOk, pbAt, spN, spOk, spS, spAt, spGap, spLen, spObj, syn, synN] = r;
+    synSeen = [syn, synN];
     const tot = kinds.reduce((s, k) => s + tally[k], 0);
     const nPurpose = PURPOSE.reduce((s, k) => s + tally[k], 0);
     const dom = tally.DOOR > tot * 0.6;
@@ -14937,7 +14979,7 @@ if (MODE === 'fixtures') {
       console.log('     << ' + (runs - objRuns) + ' LONG RUN(S) CARRY ONLY PAINT: no edge down the sight line, '
         + 'which is the claim() path being inert, not a coverage gap (#400)'); bad++;
     }
-    if (cont) { console.log('     << A DOOR IS PAINTED DOWN A CORRIDOR: the neck test is not separating a doorway from a passage (#403)'); bad++; }
+      if (cont) { console.log('     << A DOOR IS PAINTED DOWN A CORRIDOR: the neck test is not separating a doorway from a passage (#403)'); bad++; }
     /* #400 take eight. The gate is the arrival line's own promise, stated as the smallest claim the
        picture can falsify: a sector whose seat's sight line STOPS AT A LIP must have something on that
      lip. It is not "every lip in the sector" (the run pass owns those, and the row above already reads
@@ -14990,6 +15032,22 @@ if (MODE === 'fixtures') {
       console.log('     << ' + (spN - spOk) + ' LONG RUN(S) ARE ONE OBJECT AND A BLANK: they hold fewer '
         + 'objects than their own length divides into at the ' + run('FIX_OBJ_REPEAT') + ' m object spacing'
         + (spAt ? ' (' + spAt + ')' : '') + ' (#400)'); bad++;
+    }
+  }
+  /* #755: the census row above can only be trusted as far as the arithmetic that finds a face's air
+     cell, and that arithmetic has never been run against a door it KNOWS is in a corridor. This is
+     that run, on a grid built for the purpose - four mount directions, two controls - and it is the
+     row that would have gone red on the head the issue was filed on, where the same six faces read 1.
+     It gates because it is deal-independent: 4 of 6 is not a threshold chosen to pass, it is the
+     answer the geometry says, and both wrong answers - counting nothing and counting everything -
+     fail it. `fixtures` is not in ci.yml's probe list, so this adds capability, not a CI gate. */
+  if (synSeen) {
+    console.log('  door census self-test (#755): ' + synSeen[0] + '/' + synSeen[1] + ' synthetic faces read as'
+      + ' on a continuing passage (4 expected: one face per mount direction in a known straight run;'
+      + ' the other 2 are a corridor END and a room doorway, which must not count)');
+    if (synSeen[1] !== 6 || synSeen[0] !== 4) {
+      console.log('     << THE DOOR ROW CANNOT SEE THREE OF THE FOUR MOUNT DIRECTIONS: the air cell a face'
+        + ' looks into is derived wrong (#755), so its 0 proves nothing'); bad++;
     }
   }
   console.log(bad ? 'FIXTURES ' + bad + ' FAILURES - a long wall is still bare, a kind has become a wash,'
