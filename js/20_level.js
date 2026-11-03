@@ -262,6 +262,37 @@ let bandCand = null;
    It is a RADIUS measured from the seat, which is the same number the row asserts. */
 let SPAWN_CLEAR = 2;
 
+/* #695 take two WHERE A LOUD PROP MAY STAND. take two of #695 was a RANK, not a dim: #722 gave the
+   hazard paint two ranks so scenery stops out-shining a detonable barrel, and the look that came back
+   was that the paint was never the whole defect. THE STACK's arrival frame still CENTRES a crate with
+   the hostile behind it, and ARCHIVE still puts hazard barrels on the centre line, because the pass that
+   places props answers only to `takeNear` (a distance band from the last pick) and `clearSpot` (a disc
+   around the seat). Nothing anywhere asked what the player is supposed to look at FIRST, and the frame
+   is ~72 deg wide: a crate 6 m out and 20 deg off the arrival heading sits dead centre and owns the
+   frame, and the one figure-ground law in the renderer (`fgPay`, js/13_mesh.js) pays separation from
+   the room's AVERAGE, so a body behind that crate separates from the fog and not from the box.
+   The rule is therefore about PLACEMENT, and it is a rank rule in the sense the issue asked for: the
+   prop keeps every luma it has and gives up the CENTRE. A crate or barrel that is an OCCLUDER on the
+   arrival sight line - inside the centre band, nearer than the frame's mid distance, with clear ground
+   past it for a body to be hidden by - is walked SIDEWAYS off that line. Props that merely wear the
+   hazard paint and hide nothing are left alone, so this cannot empty a level of bright furniture; it
+   only stops that furniture standing in the doorway of the player's attention on the frame he is shown
+   when the level loads. Lamps are exempt: a lamp IS a light source, its cell is asserted by the lamp
+   census, and moving one is a relight.
+   The move draws NO RNG and rolls no dice, for the #96 reason `clearSpot` already states: an extra draw
+   re-rolls every world downstream of the same SEED, and three rows of `view.js props` went red once for
+   exactly that. The walk is a fixed lateral spiral, left first, deterministic in cell order, so a deal
+   that has nothing to move is byte-identical to the deal main built.
+   A `let` knob, the way SPAWN_CLEAR is one: `propSightEnabled = false` is the shipped behaviour, and
+   `view.js props` uses it as the control that says this row can fail. */
+let propSightEnabled = true;
+const SIGHT_BAND = 20 * Math.PI / 180;   // half-width of the centre of a 71.7 deg frame (00_core.js plane)
+const SIGHT_NEAR = 2.5;                  // metres: inside this SPAWN_CLEAR and the frame edge already own it
+const SIGHT_FAR = 14;                    // metres: past this a prop is a detail, not the thing you look at
+const SIGHT_OPEN = 3;                    // metres of clear ground PAST the prop that make it an occluder
+const SIGHT_REACH = 4;                   // cells the sideways walk may go: a prop cannot teleport
+let PROPSIGHT = { loud: 0, occl: 0, moved: 0, stuck: 0 };   // read by `view.js props`; nothing renders it
+
 const cellIdx = (x, y) => (y | 0) * MW + (x | 0);
 
 /* ================= the vertical grid =================
@@ -3469,6 +3500,7 @@ function buildAuthored(li) {
      them moves no roll, prop or light and the byte `P.ang` gets is the byte #421 writes. */
   const sang = seatFacing(sp[0], sp[1], cfgL.seatAng);   // #421: derived UNLESS the level declares seatAng
   placeWallFixtures(cfgL, sp, sang);              // #400: the authored finale gets walls too
+  rankLoudProps(sp[0], sp[1], sang);              // #695 take two: no occluding crate on the finale's centre line
   exitX = ex + 0.5; exitY = ey + 0.5;
   P.x = sp[0]; P.y = sp[1]; P.ang = sang; P.vx = P.vy = 0; P.z = floorAt(sp[0], sp[1]);  // probes read P
   buildTint();
@@ -3753,6 +3785,77 @@ function authorOverlooked(dist) {
   if (!pick) return;
   const up = seats[0];
   pick.x = up[0] + 0.5; pick.y = up[1] + 0.5; pick.lx = pick.x; pick.ly = pick.y;
+}
+
+/* #695 take two: the arrival sight line, applied. Called once per level from BOTH placement paths,
+   after the seat and its heading exist and after every prop has been placed, so it sees the finished
+   prop set. Reads the grid and PROPS; writes x, y, z, yaw of at most one prop per occluding pick, and
+   calls no Math.random - the deal downstream of a level with nothing to move is the deal main built. */
+function rankLoudProps(sx, sy, ang) {
+  PROPSIGHT = { loud: 0, occl: 0, moved: 0, stuck: 0 };
+  if (!propSightEnabled) return;
+  const N = MW;
+  const loud = p => p.kind === 'crate' || p.kind === 'barrel';
+  // one BFS from the seat: a prop may not be walked into a pocket the player cannot reach, and a prop he
+  // cannot reach cannot hide anything from him either, so one array answers both tests.
+  const reach = bfsReach(MAP.cell, MAP.fz, N, (sy | 0) * N + (sx | 0), MAP.vb, MAP.feat);
+  const occupied = (i, skip) => {
+    for (const p of PROPS) if (p !== skip && ((p.y | 0) * N + (p.x | 0)) === i) return true;
+    for (const p of PICKUPS) if ((p.y | 0) * N + (p.x | 0) === i) return true;
+    for (const p of ENEMIES) if ((p.y | 0) * N + (p.x | 0) === i) return true;
+    return false;
+  };
+  /* metres of clear ground PAST the prop along the seat's ray. A prop against a wall, a door jamb or a
+     floor that steps up is a detail on a surface; a prop with open deck behind it is the thing a body
+     would be hidden by, and only the second case is what this rule is about. */
+  const openPast = (px, py, ux, uy, from) => {
+    let clear = 0;
+    for (let s = from + 0.75; clear < SIGHT_OPEN + 0.01; s += 0.25) {
+      const qx = px + ux * s, qy = py + uy * s, gx = qx | 0, gy = qy | 0;
+      if (gx < 1 || gy < 1 || gx >= N - 1 || gy >= N - 1) return clear;
+      const i = gy * N + gx;
+      if (MAP.cell[i] || reach[i] < 0) return clear;
+      clear += 0.25;
+      if (clear > SIGHT_OPEN + 8) return clear;                 // plenty: stop walking the whole level
+    }
+    return clear;
+  };
+  for (const p of PROPS) {
+    if (!loud(p)) continue;
+    PROPSIGHT.loud++;
+    const dx = p.x - sx, dy = p.y - sy, d = Math.hypot(dx, dy);
+    if (d < SIGHT_NEAR || d > SIGHT_FAR) continue;
+    let da = Math.atan2(dy, dx) - ang;
+    while (da > Math.PI) da -= TAU; while (da < -Math.PI) da += TAU;
+    if (Math.abs(da) > SIGHT_BAND) continue;      // off the frame's centre: scenery, not the first thing you see
+    const ux = dx / d, uy = dy / d;
+    if (openPast(sx, sy, ux, uy, d) < SIGHT_OPEN) continue;   // nothing behind it to hide
+    PROPSIGHT.occl++;
+    /* Walk SIDEWAYS, left first, one then two then three then four cells: the shortest move that leaves
+       the band. Left-first rather than hash-chosen, because the perpendicular's sign is a function of the
+       bearing and a coin flip per prop would read as one more draw bolted onto the deal. */
+    let nx = -1, ny = -1;
+    for (let step = 1; step <= SIGHT_REACH && nx < 0; step++) {
+      for (let side = 0; side < 2 && nx < 0; side++) {
+        const sgn = side ? 1 : -1;
+        const qx = p.x - uy * sgn * step, qy = p.y + ux * sgn * step;
+        const gx = qx | 0, gy = qy | 0, i = gy * N + gx;
+        if (gx < 1 || gy < 1 || gx >= N - 1 || gy >= N - 1) continue;
+        if (MAP.cell[i] || reach[i] < 0 || occupied(i, p)) continue;
+        // the destination must be OUT of the band and out of the seat's own square
+        const ddx = gx + 0.5 - sx, ddy = gy + 0.5 - sy, dd = Math.hypot(ddx, ddy);
+        if (dd < SIGHT_NEAR) continue;
+        let b = Math.atan2(ddy, ddx) - ang;
+        while (b > Math.PI) b -= TAU; while (b < -Math.PI) b += TAU;
+        if (Math.abs(b) <= SIGHT_BAND && dd <= SIGHT_FAR) continue;
+        if (isSolid(gx + 0.5, gy + 0.5)) continue;
+        nx = gx; ny = gy;
+      }
+    }
+    if (nx < 0) { PROPSIGHT.stuck++; continue; }  // walled in: leave it, and let the census row say so
+    p.x = nx + 0.5; p.y = ny + 0.5; p.z = floorAt(p.x, p.y); p.yaw = propYaw(p.x, p.y);
+    PROPSIGHT.moved++;
+  }
 }
 
 function genLevel(li) {
@@ -4346,6 +4449,11 @@ function genLevel(li) {
        same byte #421 wrote. */
     const seatAng = seatFacing(seat[0], seat[1], cfgL.seatAng);   // see seatFacing; THE STACK derives too
     placeWallFixtures(cfgL, seat, seatAng);      // #400: decor goes on the walls, after the walls exist
+    /* #695 take two: the props are placed by distance from the last pick, so a crate can land dead centre
+       in the frame the player is shown on load and spend the room's loudest paint on furniture. Runs after
+       every PROPS.push in this function (lamps, crates, barrels all above) and after the seat and its
+       heading exist; draws no RNG, so the deal below it is the deal main dealt. */
+    rankLoudProps(seat[0], seat[1], seatAng);
     // The scatter pass can drop a pillar on the room centre, and starting inside
     // geometry is unrecoverable - the collision probes would sample the player's own
     // cell - so walk out to the nearest open cell instead of spawning into a wall.
