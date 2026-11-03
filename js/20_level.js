@@ -291,7 +291,7 @@ const SIGHT_NEAR = 2.5;                  // metres: inside this SPAWN_CLEAR and 
 const SIGHT_FAR = 14;                    // metres: past this a prop is a detail, not the thing you look at
 const SIGHT_OPEN = 3;                    // metres of clear ground PAST the prop that make it an occluder
 const SIGHT_REACH = 4;                   // cells the sideways walk may go: a prop cannot teleport
-let PROPSIGHT = { loud: 0, occl: 0, moved: 0, stuck: 0 };   // read by `view.js props`; nothing renders it
+let PROPSIGHT = { loud: 0, occl: 0, moved: 0, stuck: 0, seat: [0, 0, 0], log: [] };   // read by `view.js props`; nothing renders it
 
 const cellIdx = (x, y) => (y | 0) * MW + (x | 0);
 
@@ -3792,7 +3792,12 @@ function authorOverlooked(dist) {
    prop set. Reads the grid and PROPS; writes x, y, z, yaw of at most one prop per occluding pick, and
    calls no Math.random - the deal downstream of a level with nothing to move is the deal main built. */
 function rankLoudProps(sx, sy, ang) {
-  PROPSIGHT = { loud: 0, occl: 0, moved: 0, stuck: 0 };
+  /* The census `view.js props` reads. `loud` counts the props this rule could ever act on, so a build
+     that does not run the pass at all reads loud 0 while a build that runs it and finds nothing reads
+     loud > 0 / occl 0 - the two cases a byte digest cannot tell apart. `seat` is the arrival seat and
+     heading the census names in its A/B command, and `log` carries each move's from/to cell. No draw,
+     no pixel: this is a counter with a name attached. */
+  PROPSIGHT = { loud: 0, occl: 0, moved: 0, stuck: 0, seat: [sx, sy, ang], log: [] };
   if (!propSightEnabled) return;
   const N = MW;
   const loud = p => p.kind === 'crate' || p.kind === 'barrel';
@@ -3853,6 +3858,7 @@ function rankLoudProps(sx, sy, ang) {
       }
     }
     if (nx < 0) { PROPSIGHT.stuck++; continue; }  // walled in: leave it, and let the census row say so
+    PROPSIGHT.log.push([p.x, p.y, nx + 0.5, ny + 0.5, p.kind, PROPS.indexOf(p)]);
     p.x = nx + 0.5; p.y = ny + 0.5; p.z = floorAt(p.x, p.y); p.yaw = propYaw(p.x, p.y);
     PROPSIGHT.moved++;
   }
