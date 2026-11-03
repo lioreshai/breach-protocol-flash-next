@@ -91,7 +91,7 @@ for (let y = y0; y <= y1; y++) {
     if (s[i] < min) min = s[i];
     if (s[i] > max) max = s[i];
     if (Math.abs(s[i] - s[i - 1]) >= STEP) {
-      trans++; runs++; close(); if (rl > 0) { }
+      trans++; runs++; close();
       rl = 1; rmin = s[i]; rmax = s[i];
     } else { rl++; if (s[i] < rmin) rmin = s[i]; if (s[i] > rmax) rmax = s[i]; }
   }
