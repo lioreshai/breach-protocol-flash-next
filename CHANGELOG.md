@@ -1,5 +1,96 @@
 # Changelog
 
+## [v1.4.20] - 2026-11-02
+
+### Added
+
+- **Long walls wear the sector's fittings all the way down** (#400, PR #742). The generator furnished each
+  wall run with a single object at its middle, so ARCHIVE SUBLEVEL's far wall was twenty metres of brick with
+  two shelves in it and RING TRANSPORT was one concrete band with a drum. Fittings are now placed per metre of
+  face rather than per face, about every four metres — shelving, then a duct collar, then a drum, down the
+  whole length. Every object is a kind that sector already authored and takes the light of the wall it stands
+  on, so nothing new is lit; a doorway inside a run costs one fixture and not the spacing, and authored hazard
+  stripes and pipe runs survive as paint instead of being converted into objects. Fittings per sector moved
+  61 → 76, 52 → 76, 72 → 95 and 42 → 60, and every frame showing those walls came out slightly *darker*, which
+  is the direction geometry that shades a wall has to go.
+
+### Changed
+
+- **The far distance wears a surface instead of one flat colour** (#616, PR #739). Look across ABATOIR CORE:
+  near ground had grain, the roof had grain, the wall bases had grain, and then at a hard line across the frame
+  at eye height all of it stopped. Past that radius a far wall, a raised deck and empty space were the same
+  stripe, and walking toward it resolved nothing. Each far pixel now reads one texel of its own material at the
+  mip level its own distance selects, ramping in over the same span the haze already uses so no boundary moves
+  when you cross it. A hostile standing at 30 m arrives with a surface under him instead of as a cut-out on a
+  painted slab. Brightness is held, not raised: the far band's mean is unchanged.
+- **Where the level ends is haze now, not a black band** (#199, PR #746). Down a long view the world ended in a
+  full-width strip of pure black at eye height — the renderer's answer for a ray that leaves the level. A closed
+  building has no "out": such a ray has crossed the level's own rooms, through air holding the light of their
+  fixtures. It now answers with the level's own mean delivered light, read once a frame off the same lightmap
+  every other surface reads, so an explosion still fades it. ABATOIR CORE's arrival seat drops from 7.2 % of the
+  frame below luma 24 to 0.7 %; a hostile standing out there is in the picture before he is close.
+- **A floor near a height change answers the surface you actually reach** (#518, PR #737). The ground pass
+  solved an infinite plane and could adopt a *lower* plane further along the ray, painting the pixel with it.
+  That one clause is the shared cause of three separate reports: treads down a staircase looked sheared and
+  tilted, a pit seen from the deck read as a table top because its far lip was painted with the deck's texture
+  at the deck's distance, and the edge of the platform you were standing on stopped being a place you could see.
+  A floor pixel now answers the surface its own ray arrives at. A flat level's arithmetic is bit-for-bit
+  unchanged, and the row-drawn half of the frame keeps its existing contract, so no farther surface is invented
+  where none is hit.
+- **An enemy holds apart from the wall behind him** (#611, PR #738). The rule that pays a body's shortfall
+  against the surface he is framed by aimed at 6 luma of separation; the step a player needs before a hostile
+  reads as a thing rather than a bump in the wall is 8, so an enemy who hit his own target exactly still arrived
+  a beat late. The target is 9. Worst-deal separation per sector reads 9.6 / 10.7 / 8.3 / 9.8 against 6.5 / 5.3
+  / 5.3 / 8.1 before. No light, background or exposure window moved.
+- **The storey above you is put where the room you wake in can see it** (#421, PR #733). The generator could
+  author a raised deck and had a preference to pull it toward the entry room, but the preference only consulted
+  distance when nothing at all lay within 12 m — so any deal with a deck *somewhere* nearby skipped it entirely.
+  In ARCHIVE SUBLEVEL that meant a deck near enough to count and too far to see: zero columns inside the range
+  at which an underside still reads as a storey. The trigger is now the range an underside is actually legible
+  at, and a near pick has to show the column it was bought for or it is handed back. In ARCHIVE's spawn frame
+  the slab underside covers 1605 pixels instead of 633, the nearest column with somebody's floor over its head
+  comes from 7.1 m to 5.1 m, and the ceiling separates into two storeys instead of one flat sheet. The staircase
+  that reached that deck used to run its treads straight through the arrival room, so the floor you wake on
+  arrived stepped; it now refuses that room's cells.
+- **The ceiling light in the room you wake in is in front of you** (#413, PR #731). One fitting over the entrance
+  of the entry room has always been promised, but it was placed on the first open square of a ring swept about
+  the *world's* axes while you wake facing the room's nearest deck face. On three of the four sectors that
+  fitting hung off-frame and the top half of the first frame was an empty sheet. A fitting the frame already
+  shows is untouched — those sectors keep their picture and their exposure — and one sitting outside the
+  delivered view is swung into it along its own ring, by the fewest degrees that land inside the view, so its
+  pool turns rather than travels.
+
+### Fixed
+
+- **A kill ends on a body that goes down and stays solid** (#688, PR #721). A corpse toppled for half a second,
+  then stood completely still for nearly two seconds, then spent its last 1.4 s see-through — the wall behind it
+  readable through it — before popping out of existence at 3.8 s. The topple is unchanged; when the torso
+  reaches the deck it now kicks dust off that surface and leaves a scuff placed from the direction it fell, and
+  from there it keeps sinking into the deck it landed on instead of holding a statue pose. It is gone at 1.55 s.
+  There is no frame in which a room surface reads through a body. This is checked at range as well as up close,
+  from the longest clear sight line each level offers: four looks a quarter of a second apart at 4–10 m are four
+  different pictures, and against the previous build the same check reports a body frozen in all four.
+
+### Known limitations
+
+- Two sectors still let a body arrive late. Measured through the compositor at a 10 m seat, ARCHIVE SUBLEVEL and
+  THE STACK deliver a figure-ground step of −2.2 and +1.5 where RING and ABATOIR clear the bar. The paint is now
+  paying 9 and the probe's own silhouette pixels read 8.3–10.7, so the shortfall lives between the paid step and
+  the delivered one, not in the target — and in ARCHIVE at one seed every camera offset the driver can try puts a
+  prop on the line to the body, so that sector has no quotable seat at all yet (#611).
+- From the upper band, that band's own edge is still not a depth step, so one of the three acceptance poses this
+  floor fix is written against remains red; the two others now pass (#517, #518, PR #737).
+- The sinking corpse has not been watched in the deployed build at 6 m or 14 m. The headless numbers say it keeps
+  moving at every distance the harness can set up; whether it reads as settling rather than as clipping through
+  the floor is a judgement only a person at the page can give (#688).
+- A raised deck is the darkest surface the material family has, so putting one above the arrival room costs the
+  first frame light: ARCHIVE's seated frame reads 70 / 63 against 69 / 59 before, still inside the exposure band
+  (#413, #421).
+- Riser faces still hard-code concrete instead of the level's own material, and a deck more than one cell
+  overhead is still classified as plain ceiling, so the lit slab edge never fires on it (#518, PR #737).
+- The front page's screenshots bind an older build than this release, so they still show one fitting per wall
+  even though this release spaces them every four metres (#748).
+
 ## [v1.4.19] - 2026-11-01
 
 ### Added
