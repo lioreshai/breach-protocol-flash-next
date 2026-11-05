@@ -241,8 +241,10 @@ let overlookPairs = [];
    the pairing pass keeps at most OVERLOOK_MAX pairs spaced OVERLOOK_SPACING apart - so "4 decks DARK"
    could not tell a deck the rule never reached from one it reached and failed to light. `why` is the
    condition the pass itself stopped on: 'lit' (a source stands here, placed by this pass), 'own-band'
-   (the deck's own band already delivers OWN_MIN, so the deal garrisons it), 'no-free-cell' (every cell
-   of the deck's band is taken by a body or a prop), 'solid' (the up cell is not air after all).
+   (the deck's own band already delivers OWN_MIN, so the deal garrisons it), 'lit-no-body' (the source
+   stands on a lip cell that a prop or a garrison stands on too, so the light is there and the mesh is
+   not - #421: a dark upper floor is the defect, a missing fixture is not), 'no-band-cell' (the deck's
+   band has no open cell to hang anything on), 'solid' (the up cell is not air after all).
    Draws no RNG and writes no height, so it cannot move a pixel: it is a receipt, not a feature. */
 let overlookLamps = [];
 /* #709: the cells the #421 hall-deck growth pass raised, in the order it raised them, as cell indices.
@@ -991,8 +993,16 @@ function propYaw(x, y) {
      cell's wall face already starts at the raised floor.
    Writes the grid only: genLevel calls linkBoundaries(), which derives the blocking bits (masked by
    VB_KEEP, so the authored ladder nibbles survive a relink) and the ceiling planes from it. */
-const BAND_UP = 4;                                          // one unit above the datum, in quanta
-const BAND_DOWN = -BAND_UP;                                 // one unit below it
+/* #421 TWO UNITS, NOT ONE. A deck raised by a single unit puts its soffit one unit over the floor the
+   eye is on, which is ceiling height: standing under it the player's head is in the slab's own volume and
+   the underside reads as a low lid, not as somebody else's floor. Two units of headroom is the difference
+   between "duck under" and "walk under and shoot over", so the raised side lifts to 8 quanta. The sunken
+   side deliberately does NOT follow it: a pit's legibility is the lip seen from above, one unit is enough
+   for that, and a 8-quantum hole needs its wall bases carried two units down plus a second link, which is
+   a different feature with its own reachability risk. Keeping BAND_DOWN at one unit is also what keeps
+   `alt`'s "off the datum is reachable up AND down" row about a pit rather than about this deck. */
+const BAND_UP = 8;                                          // two units above the datum, in quanta
+const BAND_DOWN = -4;                                       // one unit below it
 const CZ_TALL = 12;                                         // three units of headroom; the gate is 2
 const CZ_SPAWN_TALL = 16;                                   // 4 units: the rung the #15 M4 shape ladder
 //   measured to fit the 16 ms raster gate at the arrival seat (+0.9 ms paired, N=8); CZ_TALL's 3 units
@@ -1040,6 +1050,7 @@ const TALL_WANT_MIN = 2;
    is the 0.50 m the acceptance row counts - how many pairs a level may grow, and how far apart they
    must sit (Chebyshev, in cells) so three pairs do not become one continuous canyon. */
 const OVERLOOK_STEP_Q = 2, OVERLOOK_MAX = 3, OVERLOOK_SPACING = 5;
+const OVERLOOK_STEP_MAX = 4;               // #421: one unit - the tallest riser the pair's shot geometry states
 const PIT_W = 5, PIT_H = 4, PIT_MIN = 6;                    // sunken cells: see feature 2's budget note
 /* #284's rect pass. LOWER bound: the coverage top-up below serves a band only from MIN_BAND = 8
    reachable cells, and a hole it refuses to put a lamp on is a DARK pit floor - which is alt's "a pit
@@ -1128,15 +1139,22 @@ function authorVolume(cell, N, rooms, fz, vb, feat, cz, atSeat) {
        the underside of the deck. `onLadder` reads those nibbles, so the refusal has to name the mouth as
        well as the run. */
     if (noSpawn && inSpawn(mx, my)) return false;
-    for (let k = 1; k <= STAIR_CELLS; k++) {
+    /* #421: the run is sized for the CLIMB, not for a one-unit climb. `STAIR_CELLS` is 4 because a unit
+       needs 3 treads + a landing; ask the same four cells to carry two units and the last tread sits
+       1.25 m over the walker's cell, the crossing rules refuse it, the pocket stays unreachable, and
+       `linkBand`'s give-back erases the whole raised band before the ladder pass is ever consulted
+       (measured at main 00cbd04: bands {0:389,1:160} -> {0:566,0.25:1}, step faces 51 -> 0). One cell
+       per quantum is what the auto-step in js/30_entities.js accepts, so the run is max(STAIR_CELLS,|band|). */
+    const run = Math.max(STAIR_CELLS, Math.abs(band));
+    for (let k = 1; k <= run; k++) {
       const x = mx + DIRX[md] * k, y = my + DIRY[md] * k;
       if (!open(x, y) || sel[y * N + x] || fz[y * N + x] !== 0 || flat[y * N + x]) break;
       if (noSpawn && inSpawn(x, y)) break;              // the arrival room's floor is not a stair tread
       line.push(y * N + x);
     }
     const up = band > 0 ? 1 : -1;
-    if (line.length >= STAIR_CELLS) {
-      for (let k = 0; k < STAIR_CELLS - 1; k++) { const i = mark(line[k]); fz[i] = band - up * (k + 1); feat[i] = FEAT_STAIR; }
+    if (line.length >= run) {
+      for (let k = 0; k < run - 1; k++) { const i = mark(line[k]); fz[i] = band - up * (k + 1); feat[i] = FEAT_STAIR; }
       return true;
     }
     if (!line.length || !ladder) return false;
@@ -1152,7 +1170,8 @@ function authorVolume(cell, N, rooms, fz, vb, feat, cz, atSeat) {
      property of the layout, not of candidate order. A link that does not reduce the stranded count
      is rewound, which is what stops six stairs being authored where one does the job. */
   const linkBand = (sel, band, d0, ladder, noSpawn) => {
-    for (let pass = 0; pass < (ladder ? 2 : 1); pass++) {
+    const passes = ladder ? 2 : 1;
+    for (let pass = 0; pass < passes; pass++) {
       for (let step = 0; step < LINK_STEPS; step++) {
         const d = reach();
         let want = -1;
@@ -1172,6 +1191,11 @@ function authorVolume(cell, N, rooms, fz, vb, feat, cz, atSeat) {
           moved = true; break;
         }
         if (!moved) {
+          /* #421: a pocket is handed back only once BOTH passes have failed on it. The stair pass used to
+             give up here, so on a two-unit band - where no four-cell run is long enough - every pocket was
+             erased before pass 1's ladder was ever offered, and the feature vanished whole. On a one-unit
+             band this is a no-op: whatever the stair links, pass 0 already linked. */
+          if (pass + 1 < passes) break;
           /* This pocket of the band takes no link - a mouth whose run is 3 cells, a component that
              touches the datum only through a diagonal. Hand the pocket back to the datum and keep
              the rest of the band: losing one corner's altitude is a smaller lie than losing the
@@ -1756,6 +1780,15 @@ function authorVolume(cell, N, rooms, fz, vb, feat, cz, atSeat) {
         if (!open(nx, ny)) continue;
         const j = ny * N + nx;
         if (d0[j] < 0 || fz[j] - fz[i] < OVERLOOK_STEP_Q) continue;   // an air neighbour a band ABOVE it
+        /* #421: and a step this pair can STATE. The pass's own geometry - tall air below, the neighbour
+           one unit up, the opening across the boundary [+1.00 .. +2.00] - is a ONE-unit riser, and the
+           hitscan arms above aim from one cell back. Now that the raised band stands two units over the
+           datum, a deck's own edge is a 2 m riser: the shot UP from the cell next to it meets the slab's
+           floor plane at t 0.50 and the row goes red for a reason that is geometry, not a lost feature -
+           in the game you take that shot from two metres back. So the pass pairs the step it documents
+           (two quanta up to one unit), which is the top of a staircase into a deck rather than the deck's
+           outer wall, and the pairs it finds are the ones where the both-ways shot is real. */
+        if (fz[j] - fz[i] > OVERLOOK_STEP_MAX) continue;
         cand.push({ i, j, x, y, dq: fz[j] - fz[i] });
         break;
       }
@@ -3706,15 +3739,29 @@ function lightOverlookDecks(cfgL) {
         } }
     }
     const jx = (p[1] % N) + 0.5, jy = ((p[1] / N) | 0) + 0.5;
-    let at = -1, best = Infinity;
+    /* #421: a SOURCE needs no free cell; only the fixture BODY does. The scan below used to refuse the
+       whole pair when every cell of the deck's band stood within 0.6 m of a prop or a garrison, which on
+       a two-unit band is a real outcome - the pairing now picks the top of a staircase, so the deck it
+       must light is a small landing that the deal has already furnished - and the result was a DARK
+       upper floor, this issue's own defect wearing a different hat. A lamp is not a physical object: it
+       is a static source with its glow disc off (#221's gate untouched), so the light goes on the lip
+       cell either way and the mesh stands only where nothing else stands. Where a free cell does exist
+       nothing changes at all, so the picture this pass shipped with stays the picture. */
+    let at = -1, best = Infinity, atBody = -1, bestBody = Infinity;
     for (const c of order) {
       const cx = (c % N) + 0.5, cy = ((c / N) | 0) + 0.5, d = Math.hypot(cx - jx, cy - jy);
-      if (d >= best) continue;
+      if (d < best) { at = c; best = d; }
+      if (d >= bestBody) continue;
+      /* #421: the clearance that survives is the one about STANDING FURNITURE - a fixture must not be
+         built inside a crate, which is permanent and visible from below. The ENEMIES test is dropped for
+         this one case because a two-unit deck is a landing the deal garrisons, and a moving body standing
+         in front of a lamp for a second is not the defect this pass exists to prevent; refusing the lamp
+         outright was, which is the row above this scan already fails on. */
       if (!PROPS.every(q => Math.hypot(q.x - cx, q.y - cy) > 0.6)) continue;
-      if (!ENEMIES.every(q => Math.hypot(q.x - cx, q.y - cy) > 0.6)) continue;
-      at = c; best = d;
+      atBody = c; bestBody = d;
     }
-    if (at < 0) { ledger(p, -1, own, 'no-free-cell'); continue; }        // every lip cell taken: leave it be
+    if (at < 0) { ledger(p, -1, own, 'no-band-cell'); continue; }        // the deck is not open air at all
+    if (atBody >= 0) at = atBody;                                        // light and fixture agree where they can
     const x = (at % N) + 0.5, y = ((at / N) | 0) + 0.5;
     const tsc = Math.min(0.6, Math.max(TOPUP_MINF, order.length / TOPUP_TARGET));
     LIGHTS.push({ x: x, y: y, z: fl + LHOVER, band: fl, r: OVL_LAMP_R, str: TOPUP_BASE * tsc,
@@ -3726,12 +3773,12 @@ function lightOverlookDecks(cfgL) {
        It is drawn by the prop/mesh pass and never by drawLightGlow, so #221's off-band ALPHA gate is
        untouched by construction: a body occludes, it does not add. The cell is free of props and bodies
        by the two `every` tests above, so this cannot stand a lamp inside a crate. */
-    if (deckBodyEnabled()) {
+    if (deckBodyEnabled() && atBody >= 0) {
       PROPS.push({ tex: PROP.lamp, x: x, y: y, z: floorAt(x, y), scale: 0.95, kind: 'lamp',
         yaw: propYaw(x, y), ovl: 1 });
       bodyPlaced++;
     }
-    ledger(p, at, own, deckBodyEnabled() ? 'lit' : 'lit-no-body');
+    ledger(p, at, own, deckBodyEnabled() && atBody >= 0 ? 'lit' : 'lit-no-body');
     placed++;
   }
   return placed;
