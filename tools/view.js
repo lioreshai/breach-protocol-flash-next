@@ -12063,6 +12063,21 @@ if (MODE === 'contrast') {
      A bar nothing can cross is a row that cannot fail, so each sits inside the measured spread of the
      thing it is meant to catch. */
   const SEP_D = 10, SEP_MINPX = 60, SEP_ROLLS = +(process.env.SEP_ROLLS || 12);
+  /* THE DEALS ARE NAMED, so a row here can replay the exact deals the DEPLOYED PAGE cut. The sweep's
+     own dice (1000 + level*97 + 13r) bakes the level into the seed, while js/90_dev.js cuts its
+     generator from the URL seed alone and takes the level from ?level= - so the two sweeps, run at
+     their defaults, cover two DIFFERENT sets of 12 deals and a green row here says nothing about a red
+     deal there. The same generator is installed in both (js/90_dev.js:18 says so and both are mulberry
+     on an int32 state), so a page seed is replayable here by naming it: SEP_SEEDBASE is the URL seed
+     the live sweep starts at and SEP_SEEDSTEP its stride, and the level still comes from startLevel.
+     Defaults are the shipped dice, so the gating row and ci.yml's run are unchanged. */
+  const SEP_SEEDBASE = process.env.SEP_SEEDBASE !== undefined ? +process.env.SEP_SEEDBASE : null;
+  const SEP_SEEDSTEP = +(process.env.SEP_SEEDSTEP || 1013);
+  const sepDice = (lv, roll) => SEP_SEEDBASE === null
+    ? 1000 + lv * 97 + (roll >= 0 ? roll * 13 : 0)
+    : SEP_SEEDBASE + (roll >= 0 ? roll * SEP_SEEDSTEP : 0);
+  const sepDiceName = lv => SEP_SEEDBASE === null ? 'dice 1000+' + lv + '*97+13r'
+    : 'PAGE dice ' + SEP_SEEDBASE + '+' + SEP_SEEDSTEP + 'r (the seed ?seed= names, replayed here)';
   /* The three bars, each anchored on a number this block MEASURED at this head rather than invented:
        SEP_V   4 luma - the SAME constant this probe already uses to call an edge "separated" (DLR = 4
                at the top of this block), so the value axis of #611 is judged with the value threshold
@@ -12104,7 +12119,7 @@ if (MODE === 'contrast') {
   const sepSeat = (lv, roll) => {
     // the deal is NAMED, not a stream position: dice 1000 + level*97 is flatparity's DEALT deal, and
     // roll r adds 13r, so roll 0 of the sweep IS the deal the shipped frame hashes already lock.
-    seedRng(1000 + lv * 97 + (roll >= 0 ? roll * 13 : 0));
+    seedRng(sepDice(lv, roll));
     run(`startLevel(${lv}, true); S.mode='play'; S.locked=false;`);
     const rays = run(`(()=>{ const r = []; for (let k = 0; k < 48; k++) { const a = k * Math.PI / 24;
       r.push({ a, d: __march(P.x, P.y, Math.cos(a), Math.sin(a), ${SEP_D} + 1).dist }); }
@@ -12209,7 +12224,7 @@ if (MODE === 'contrast') {
     }
     row('L' + lv + ': the worst of ' + SEP_ROLLS + ' deals separates on both axes (#611)',
       !!worst && worst.dc >= SEP_C && worst.dv >= SEP_V,
-      worst ? 'over rolls 0..' + (SEP_ROLLS - 1) + ' at dice 1000+' + lv + '*97+13r (' + posed + ' posed, '
+      worst ? 'over rolls 0..' + (SEP_ROLLS - 1) + ' at ' + sepDiceName(lv) + ' (' + posed + ' posed, '
         + cone + ' could not pose), the WORST deal is roll ' + worst.r + ' at ' + worst.dv.toFixed(1)
         + ' value and ' + worst.dc.toFixed(1) + ' colour on ' + worst.n + ' px of kind ' + worst.kind
         + ', against bars ' + SEP_V + ' / ' + SEP_C + (worst.dc < SEP_C || worst.dv < SEP_V
