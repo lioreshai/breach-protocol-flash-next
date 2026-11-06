@@ -9419,6 +9419,17 @@ const RECHALF = refRecord('heights', 'HALF-MOVE', 'num', [97.17, 25.44, 53.08, 9
        still print is the one this increment is about: a build where one copy lit the collar and the other
        paid bare ambient. */
     console.log(`  ${pad('offmap-collar', 13)} KNOWN OFFMAP-COLLAR-UNREACHED - no off-map ground pixel with a live bilinear tap was painted on any level here; the collar's in-map taps are the level's own boundary ring (solid, lightmap 0), so the field is 0 in BOTH copies and this row measured nothing about its agreement`);
+  } else if (!offColDef && !offColRow) {
+    /* NAMED GAP, and it is the case the four sectors actually sit in: collar sites RUN (thousands of them),
+       but every one of them reads a lightmap of 0, because the only in-map tap an off-map pixel has is a
+       cell of the level's own boundary RING, which is SOLID and carries no lightmap. The two maxima are
+       then equal by construction (0, 0), so an `ok` here would be a green row measuring nothing - the one
+       thing AGENTS.md says a row must never be. Measured at this head: `SET='GNDOFR=0'` is BYTE-IDENTICAL
+       to the shipped frame on all eight level/cam seats and at three seats put on purpose against the
+       level's own north-west edge, i.e. at no frame this probe builds does the ROW half of the rule move a
+       pixel. That is a statement about the geometry, not about the rule: it is why the collar is what the
+       rule has to be measured at, and it is the reason #375 stays open while both copies carry the rule. */
+    console.log(`  ${pad('offmap-collar', 13)} KNOWN OFFMAP-COLLAR-DARK - ${offCrossRun.toLocaleString()} off-map crossing(s) still had a tap on the level and NONE of them had light to give (deferred 0.0000, row 0.0000): the collar's in-map taps are the level's solid boundary ring, so on this geometry the two maxima are equal BY CONSTRUCTION and this row can show neither agreement nor disagreement. The config that makes the pair below able to fail is one LIT cell on that ring - run this probe with GNDOFR=0 there and it reads a deferred maximum against a row maximum of 0.`);
   } else {
     const cwFail = (offColDef > 2 && offColRow <= 2) ? ' FAIL OFFMAP-ROW-ONECOPY: the deferred copy lit the collar and the row copy lit nothing'
       : (offColRow > offColDef + 2 ? ' FAIL OFFMAP-ROW-TOO-BRIGHT: the row copy delivers more than the field the deferred copy samples' : '');
