@@ -12169,19 +12169,32 @@ if (MODE === 'contrast') {
                with no pigment at all, and a bar above the shipped readings (30.5 / 53.2 / 75.4 /
                128.7) would be a row that cannot fail. 20 sits just under the weakest equal-paint
                reading: it asks for MORE colour than the light path delivers by itself.
-       SEP_FA  8 - the pigment's own share. Measured pigment share at the four seats: 10.7 / 27.3 /
-               42.0 / 87.9 of the colour step; 8 is under the weakest, so an arm that stops moving
-               pixels goes red instead of going quiet. */
+       SEP_FA  8 - the pigment's OWN displacement in that plane, the shipped body mean against the mean
+               of the same body with his pigment removed at its one read site. 8 has not moved across
+               the #616 rulings and it is not a share any more: the share of two MAGNITUDES could only
+               see a change of LENGTH, so a pigment that moved the body sideways off the background sat
+               at the same distance from it and shared near zero (L2's dealt seat read 4.0 of 8 while its
+               own displacement there is four digits). Against the pigment-off render the displacement is
+               the pigment term by construction, so 8 now prices the thing it names. */
   const SEP_V = +(process.env.SEP_V !== undefined ? +process.env.SEP_V : 4);
   const SEP_C = +(process.env.SEP_C !== undefined ? +process.env.SEP_C : 20);
   const SEP_FA = +(process.env.SEP_FA !== undefined ? +process.env.SEP_FA : 8);
-  /* SEP_NOPIG=1 is the SABOTAGE the #616 ruling asks for, and the only way this block's pigment row can
-     be shown to be capable of failing: it removes the body's pigment at its ONE read site in the SHIPPED
-     render (js/13_mesh.js `if (!BODYPAINT && !MDL) packed = BPAINT_RGB;`), so the shipped colour step and
-     the grey arm's step are the same pixels and the share must read 0 and go RED at every seat. Default
-     off, so nothing ci.yml runs changes. */
+  /* SEP_NOPIG=1 is the SABOTAGE the #616 gate ruling asks for, and it is now the same assignment the
+     GATING arm makes: the body's pigment is removed at its ONE read site (js/13_mesh.js
+     `if (!BODYPAINT && !MDL) packed = BPAINT_RGB;`) with the shipped neutral albedo, here in the shipped
+     render as well as in the arm. The sabotage IS the reference, so under this switch the shipped body
+     mean and the arm's are the same pixels twice and BOTH printed numbers must read exactly 0 and go RED
+     at every seat - a pigment row that cannot be made red is not a gate. Default off, so nothing ci.yml
+     runs changes. */
   const NOPIG = process.env.SEP_NOPIG === '1';
   if (NOPIG) run('BODYPAINT = 0; BPAINT_RGB = 16777215;');
+  /* SEP_DET=1 measures the NOISE FLOOR of the statistic above: it renders the SHIPPED config a second
+     time, with nothing whatsoever changed between the two renders, and reports how far the body mean
+     moved in the plane. It exists because SEP_NOPIG=1 - in which the shipped render and the arm ARE the
+     same config - does not read 0.0 but a small nonzero, and "the sabotage is the reference, so it must
+     read 0" is a claim that has to be priced against the probe's own render-to-render drift instead of
+     asserted. One extra render, only under the switch; nothing ci.yml runs pays it. */
+  const DET = process.env.SEP_DET === '1';
   const sepMeasure = () => {
     run('if (!COV || COV.length !== BW * BH) COV = new Uint8Array(BW * BH);');
     run('ENEMIES.length = 0; ENEMIES.push(window.__dBody); S.t = 3.5; ' + VMREST + ' renderWorld();');
@@ -12202,12 +12215,10 @@ if (MODE === 'contrast') {
     return { n, bgRGB: (Math.round(c0[0]) << 16 | Math.round(c0[1]) << 8 | Math.round(c0[2])) >>> 0,
       dv: Math.abs(L(c1) - L(c0)), dc: 100 * Math.hypot(p1[0] - p0[0], p1[1] - p0[1]),
       l1: L(c1), l0: L(c0),
-      /* The NEUTRAL arm's own prediction: a body wearing a flat grey reads (0,0) in this plane at any
-         brightness, because the coordinates are divided by the pixel's own luma. So the share of the
-         colour step that a pigment-free body could ever claim is exactly the BACKGROUND'S distance
-         from neutral - 100x that distance is what the grey arm is PREDICTED to read, and the row prints
-         the prediction beside the reading instead of against a placeholder (#616 review ruling 3). */
-      bgNeu: 100 * Math.hypot(p0[0], p0[1]), u: p1 };
+      /* u is the BODY's own point in the plane. The pigment row differences it between the shipped
+         render and the pigment-off render, which puts the background in neither side of the statistic -
+         the reason #616's gate stopped being a ruler made of the room's colour. p0 is kept for dc only. */
+      u: p1 };
   };
   const sepSeat = (lv, roll) => {
     // the deal is NAMED, not a stream position: dice 1000 + level*97 is flatparity's DEALT deal, and
@@ -12261,7 +12272,7 @@ if (MODE === 'contrast') {
       continue;
     }
     const BH0 = run('typeof BODYPAINT === "number" ? BODYPAINT : -1');
-    let arm = null, armN = null;
+    let arm = null, armP = null;
     // the READ SITE has to exist, not be switched on: under SEP_NOPIG=1 it is already down in the
     // shipped render, and a sabotage run that silently DROPS the two arm rows instead of reading them
     // is the vacuity this probe calls a FAILURE (#240).
@@ -12273,19 +12284,23 @@ if (MODE === 'contrast') {
          where a pigment-free body reads 10.2, and it moved 12 units across a change that painted only
          pixels past the grid edge. A reference that drifts three times its own bar is not a gate. */
       run('BPAINT_RGB = ' + m.bgRGB + '; BODYPAINT = 0;'); arm = sepSeat(lv, -1);
-      /* THE GATING ARM: the same mechanism with ONE value changed - the body wears a flat GREY at the
-         luma of the surface behind him instead of that surface's colour, so the arm answers "what does
-         the light path give with no pigment at all" and NOT "how far is he from the room's paint". Its
-         reading is predicted by 100x the background's own distance from neutral in the plane, and it no
-         longer moves when the far field is repainted, which is the only reason #616's row went red. */
-      const gN = Math.max(0, Math.min(255, Math.round(m.l0)));
-      run('BPAINT_RGB = ' + ((gN << 16 | gN << 8 | gN) >>> 0) + '; BODYPAINT = 0;'); armN = sepSeat(lv, -1);
-      armN.grey = gN;
-      armN.greyHex = gN.toString(16).padStart(2, '0').repeat(3);
-      // SEP_NOPIG=1 is the SABOTAGE the ruling asks for: pigment removed at its ONE read site
-      // (js/13_mesh.js, `if (!BODYPAINT && !MDL) packed = BPAINT_RGB;`) in the SHIPPED render as well,
-      // so the shipped step and the grey arm are the same pixels and the pigment share must read 0.
+      /* THE GATING ARM (#616 gate ruling 1): THE PIGMENT-OFF RENDER, not a body dressed in a guessed
+         colour. His pigment is removed at its ONE read site - js/13_mesh.js
+         `if (!BODYPAINT && !MDL) packed = BPAINT_RGB;` with BPAINT_RGB at its shipped neutral 0xffffff -
+         and NOTHING else moves: same body, same pose, same pixels, every light, fog, haze and tint term
+         in the shipped order. That is the whole difference between the two renders, so the displacement
+         between their body means IS the pigment term, and no hand-mixed grey can be mistaken for it. A
+         grey at the background's luma - the previous pass's arm - is not a pigment-free body: under
+         those same multiplicative terms a grey is a DIFFERENT albedo, not no albedo, and the residue of
+         that guess reached 27 units of a quantity whose bar is 8, which is how a body wearing nothing at
+         all came to read 8.5 and clear. The arm here is the sabotage, so the sabotage is the reference:
+         SEP_NOPIG=1 makes the two renders the same render and both numbers must read 0. */
+      run('BPAINT_RGB = 16777215; BODYPAINT = 0;'); armP = sepSeat(lv, -1);
+      // restore (or, under the sabotage, LEAVE DOWN) the shipped state for every row below this one
       run(NOPIG ? 'BODYPAINT = 0; BPAINT_RGB = 16777215;' : 'BODYPAINT = 1; BPAINT_RGB = 16777215;');
+      // the render-to-render drift of ONE config, in the same process (SEP_DET=1 only)
+      if (DET) { const m2 = sepSeat(lv, -1); armP.det = m2.u && m.u
+        ? 100 * Math.hypot(m2.u[0] - m.u[0], m2.u[1] - m.u[1]) : 0; armP.detN = m2.n; }
     }
     const okV = m.dv >= SEP_V, okC = m.dc >= SEP_C, okN = m.n >= SEP_MINPX;
     row(sepRay + ' separates on value AND colour (#611)', okV && okC && okN,
@@ -12301,45 +12316,73 @@ if (MODE === 'contrast') {
           + 'the wall\'s colour family, which is the #611 defect in its original form' : 'the COLOUR step '
         + 'is there and the VALUE step is not - a silhouette with no brightness step is an edge the '
         + 'raycaster already gives away, so this is the light path\'s, not the paint\'s'))
-        : 'vacuous: ' + m.n + ' px, under the ' + SEP_MINPX + ' floor, so a mean over it is not a measurement')      + (armN && armN.n >= SEP_MINPX ? ' | wearing a flat GREY at the luma behind him (#' + armN.greyHex
-        + ', BODYPAINT=0 at his own pixels, every light term untouched) the same px read '
-        + armN.dc.toFixed(1) + ' of colour step and ' + armN.dv.toFixed(1) + ' of value, so '
-        + (m.dc - armN.dc).toFixed(1) + ' of the ' + m.dc.toFixed(1) + ' is his pigment and '
-        + armN.dc.toFixed(1) + ' is what the light path alone would still give' : '')
+        : 'vacuous: ' + m.n + ' px, under the ' + SEP_MINPX + ' floor, so a mean over it is not a measurement')      + (armP && armP.n >= SEP_MINPX ? ' | with his pigment removed at its one read site (BODYPAINT=0 at his own '
+        + 'pixels, neutral albedo, every light term untouched) the same px read '
+        + armP.dc.toFixed(1) + ' of colour step and ' + armP.dv.toFixed(1) + ' of value: the colour step '
+        + 'the light path alone still gives is ' + armP.dc.toFixed(1) + ' of the ' + m.dc.toFixed(1)
+        + ' shipped, and the pigment\'s own displacement - the arm against the shipped body mean, '
+        + 'background dropped out - is what the row below prices' : '')
       + (BH0 < 0 ? ' | NO BODYPAINT read site in js/, so the pigment this row is the gate for cannot '
         + 'be turned off to be measured' : ''),
       okN ? (okV && okC ? undefined : '#611') : undefined);   // vacuity stays a FAILURE, never a debt
-    if (armN) row(sepRay + ': the colour step is his pigment, not the light (#611 falsifier)',
-      armN.n >= SEP_MINPX && m.dc - armN.dc >= SEP_FA,
-      armN.n < SEP_MINPX ? 'vacuous with the arm down: ' + armN.n + ' px, under the ' + SEP_MINPX
-        + ' px floor - the arm cannot be priced, which is a FAILURE of the arm, not of the paint'
-        : 'the SAME body at the SAME pixels wearing a flat grey #' + armN.greyHex + ' at the luma of the '
-        + 'surface behind him (' + m.l0.toFixed(1) + ', BODYPAINT=0, every light term untouched) reads '
-        + armN.dc.toFixed(1) + ' of colour step where its own prediction (100x the background\'s distance '
-        + 'from neutral in that plane) is ' + m.bgNeu.toFixed(1) + ', against the ' + m.dc.toFixed(1) + ' shipped: ' + (m.dc - armN.dc).toFixed(1) + ' of it is '
-        + 'pigment and ' + armN.dc.toFixed(1) + ' is what the light path gives with NO pigment at all, '
-        + 'against the ' + SEP_FA + ' bar. A run that reads the SAME colour step with the arm down is '
-        + 'measuring the light field, not the body - which is the shape #240 makes every arm in this '
-        + 'probe prove. The pigment\'s OWN step in that plane - the two body means against EACH OTHER, the '
-        + 'background dropped out entirely - is '
-        + (100 * Math.hypot(armN.u[0] - m.u[0], armN.u[1] - m.u[1])).toFixed(1)
-        + ', which is the displacement a share of MAGNITUDES can only see as a change of length: two '
-        + 'vectors of nearly equal length whose endpoints differ sideways sit at the same distance from the '
-        + 'background and share near zero.' + (NOPIG ? ' [SEP_NOPIG=1 arm - pigment removed at its read site in the shipped '
-        + 'render too, so this share is expected to read 0 and FAIL: a pigment row that cannot be made '
-        + 'red is not a gate]' : ''),
-      undefined);
+    if (armP) {
+      /* WHAT GATES: the pigment's OWN displacement in the luma-normalised plane - the shipped body mean
+         against the pigment-off body mean, the BACKGROUND DROPPED OUT of the statistic entirely. That is
+         the property the #616 rulings needed and could not get from a reference made of the room's (or
+         any grey's) delivered colour: a reference built from pixels the render paints elsewhere moves
+         when anyone repaints them, and this one cannot, because the two renders differ at one assignment
+         inside the body's own silhouette. The SHARE of magnitudes stays printed beside it and gates
+         nothing - it is the intuitive statement of the same fact, and it still drifts with the room
+         (12.5 at THE STACK across a repaint that painted only pixels past the grid edge, against a bar
+         of 8), and it is blind to a sideways move, which is what L2's dealt seat was red for. */
+      const vac = !(armP.n >= SEP_MINPX && armP.u);
+      const pig = vac ? 0 : 100 * Math.hypot(armP.u[0] - m.u[0], armP.u[1] - m.u[1]);
+      const shr = vac ? 0 : m.dc - armP.dc;
+      row(sepRay + ': the colour step is his pigment, not the light (#611 falsifier)',
+        !vac && pig >= SEP_FA,
+        vac ? 'vacuous with the arm down: ' + armP.n + ' px, under the ' + SEP_MINPX
+          + ' px floor - the arm cannot be priced, which is a FAILURE of the arm, not of the paint'
+        : 'the SAME body at the SAME pixels with his pigment removed at its one read site (BODYPAINT=0, '
+        + 'BPAINT_RGB #ffffff - the shipped neutral albedo - every light, fog, haze and tint term '
+        + 'untouched) means ' + armP.u[0].toFixed(4) + ', ' + armP.u[1].toFixed(4) + ' in that plane '
+        + 'against the shipped ' + m.u[0].toFixed(4) + ', ' + m.u[1].toFixed(4) + ', a displacement of '
+        + pig.toFixed(1) + ' against the ' + SEP_FA + ' bar. The background is in NEITHER side of that '
+        + 'number, which is why a repaint of the room cannot move it; the only thing that can move it is '
+        + 'the texel albedo, and the two renders differ nowhere else. The arm\'s own prediction is that '
+        + 'same number by construction - the pigment term is the ONLY difference between the two renders, '
+        + 'so SEP_NOPIG=1, which makes that assignment in the shipped render too, must read 0 here up to '
+        + 'this probe\'s own render-to-render drift (it reads ' + pig.toFixed(1) + ' now; SEP_DET=1 prices '
+        + 'that drift by rendering ONE config twice with nothing changed between the renders) - which is '
+        + 'the #240 rule this probe already holds every arm to: an arm that cannot be made to stop moving '
+        + 'pixels is measuring the light field, not the body. PRINTED AS A CONTROL, gating nothing: the share of two magnitudes, shipped '
+        + 'colour step ' + m.dc.toFixed(1) + ' minus the arm\'s ' + armP.dc.toFixed(1) + ' = ' + shr.toFixed(1)
+        + ', which sees only a change of LENGTH - a pigment that moves the body sideways off the '
+        + 'background keeps its distance from it and shares near zero - and drifts with the room.'
+        + (NOPIG ? ' [SEP_NOPIG=1 - pigment removed at its read site in the SHIPPED render as well, so the '
+        + 'shipped render and this arm ARE the same config: both numbers are expected to read 0 up to the '
+        + 'render-to-render drift (displacement ' + pig.toFixed(1) + ', share ' + shr.toFixed(1) + ') and '
+        + 'this row is expected to FAIL. A pigment row that cannot be made red is not a gate.]' : '')
+        + (DET ? ' [SEP_DET=1 - the SHIPPED config rendered a SECOND time in this process with NOTHING '
+        + 'changed between the two renders moves the body mean by ' + armP.det.toFixed(1) + ' in this '
+        + 'plane (' + armP.detN + ' coverage px there against ' + armP.n + ' here' + (armP.detN !== m.n
+          ? ', so the SILHOUETTE itself moved - the drift is his pose, not the arithmetic' : ', so the '
+          + 'pixel set is identical and the drift is in the delivered colour of those pixels')
+        + '); that is this statistic\'s own noise floor, and it is the tolerance on every 0 above.]' : ''),
+        undefined);
+    }
     if (arm) row(sepRay + ': the room-colour arm, printed as a control (NOT GATING)',
       arm.n >= SEP_MINPX,
       arm.n < SEP_MINPX ? 'vacuous with the arm down: ' + arm.n + ' px, under the ' + SEP_MINPX + ' px '
         + 'floor, so the control could not be measured'
         : 'the body wearing the mean delivered colour of the surface behind him (#'
-        + m.bgRGB.toString(16).padStart(6, '0') + ') reads ' + arm.dc.toFixed(1) + ' of colour step, so the '
-        + 'grey arm reads ' + (armN ? (armN.dc - arm.dc).toFixed(1) : '0.0') + ' ' + (armN && armN.dc >= arm.dc
-          ? 'higher' : 'lower') + ' than it. That gap is the room\'s own hue - the quantity this arm used '
-        + 'to price his pigment against, and the one that moves when anyone repaints the room (#616 ruling '
-        + '3: it drifted 12 units at THE STACK from a change that painted only pixels past the grid edge, '
-        + 'against a bar of ' + SEP_FA + '). It gates nothing here; only its own vacuity can fail this row.');
+        + m.bgRGB.toString(16).padStart(6, '0') + ') reads ' + arm.dc.toFixed(1) + ' of colour step against '
+        + 'the shipped ' + m.dc.toFixed(1) + ', so the pigment-off arm sits '
+        + (armP ? (armP.dc - arm.dc).toFixed(1) : '0.0') + ' ' + (armP && armP.dc >= arm.dc
+          ? 'above' : 'below') + ' it there. The room-colour arm and the grey arm before it were both '
+        + 'references made of pixels OUTSIDE his silhouette, and that is the quantity that moves when '
+        + 'anyone repaints the room (#616: 12 units at THE STACK from a change that painted only pixels '
+        + 'past the grid edge, against a bar of ' + SEP_FA + '). It gates nothing here; only its own '
+        + 'vacuity can fail this row.');
     let worst = null, posed = 0, cone = 0;
     for (let r = 0; r < SEP_ROLLS; r++) {
       const s = sepSeat(lv, r);
