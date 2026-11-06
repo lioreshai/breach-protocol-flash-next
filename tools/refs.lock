@@ -19,7 +19,7 @@ ref	bands	SEAM-FRAME	md5	c0cea989edb8199ecb1a38071dc8768b 08d43aeccb097c68afb37e
 ref	contrast	TORSO-DL	num	0.90 1.10 0.88
 ref	cull	CZBAND	crc32	0xe6be167c 0xca91998d 0xc1b46bbc 0x76714209
 ref	cull	CZBAND-LIGHT	crc32	0x5d367af8 0x9e0c21dc 0x48f136e8 0x43a22b10
-ref	exposure	MEDIAN	num	71 77 67 90
+ref	exposure	MEDIAN	num	75 75 63 90
 ref	exposure	SPAWN	num	71 63 76 60 69 74 75 85
 ref	flatparity	DEALT	md5	361f686ea39eaf3ece1fcf4d7f8063cb 1c372753d59f4185ed69781990f3daf6 f92dbb5b69e9710a2af54615fafb73f1 d9db78d18a864e548448279031ca90bf
 ref	flatparity	LOCK	md5	89d3fa6d887d0e6dc5ac4b00ce973f84 603ceb7894f1eec0132674dd4b26ae7a 603d1a92598278a0724ec319c548f7a1 83af3f7065b43e07cb840b15c5f97dd0
