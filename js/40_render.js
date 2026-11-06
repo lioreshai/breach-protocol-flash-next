@@ -664,6 +664,16 @@ function renderWorld() {
      PKKIND's `gren` row (#361). The `glow` field the pickup entries
      carried is gone: drawBillboard never read it, glow comes from LIGHTS in drawLightGlow (#76). */
   const list = [];
+  /* #695 TAKE THREE: the quiet rank, delivered. A crate or barrel that stands on the dealt sight line with
+     open deck behind it is walked sideways off it by the generator (js/20_level.js `rankLoudProps`); when
+     its own deck offers it nowhere to go, that pass marks it `quiet` and it pays the rank the wall's service
+     runs already pay - the hazard paint's quieter of two ranks, 0.74x of delivered light, same hue and same
+     chevron, so it still reads as a hazard band at 10 m. `dim` is the mesh path's per-instance light
+     multiply (js/13_mesh.js DIM), and until now it moved exactly one object's pixels - the shut portal. No
+     prop ever read it, so a prop that is not marked carries main's bytes to the pixel; `p.quiet` is written
+     by that one pass and by nothing else, props are rebuilt every deal, and an entry from an older save
+     reads undefined, which is 0. */
+  const PROP_RANK_QUIET = 0.26;
   for (const p of PROPS) {
     if (p.dead && p.kind === 'barrel') continue;
     /* A prop the EYE is inside paints the whole frame with its own mesh magnified to the near plane:
@@ -680,7 +690,7 @@ function renderWorld() {
        that what a probe or the console reads back (PROPS[i].yaw) is what the frame drew, and so a
        save/restore of the entries carries the pose with them. `propYaw` consumes no draw from the
        world's stream (js/20_level.js), which is why adding it moved no other prop, lamp or enemy. */
-    list.push({ mesh: true, kind: p.kind, x: p.x, y: p.y, z: floorAt(p.x, p.y), scale: p.scale, alpha: p.dead ? 0.35 : 1, yaw: p.yaw || 0 });
+    list.push({ mesh: true, kind: p.kind, x: p.x, y: p.y, z: floorAt(p.x, p.y), scale: p.scale, alpha: p.dead ? 0.35 : 1, yaw: p.yaw || 0, dim: p.quiet ? PROP_RANK_QUIET : 0 });
   }
   for (const k of PICKUPS) {
     if (k.dead) continue;

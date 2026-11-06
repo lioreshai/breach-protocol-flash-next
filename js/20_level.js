@@ -292,12 +292,18 @@ let SPAWN_CLEAR = 2;
    A `let` knob, the way SPAWN_CLEAR is one: `propSightEnabled = false` is the shipped behaviour, and
    `view.js props` uses it as the control that says this row can fail. */
 let propSightEnabled = true;
+/* The second half of the same ruling, and its own knob for the same reason: with `propQuietEnabled = false`
+   a prop that has nowhere to walk keeps the loud hazard rank, which is the shipped behaviour this increment
+   is measured against. `view.js props` A/Bs the rank by flipping `p.quiet` on the SAME prop in the SAME deal
+   (no re-deal, so no question about whether a re-deal replays); this knob is the control that says the rank
+   is a rule and not a coincidence of where the prop happens to stand. */
+let propQuietEnabled = true;
 const SIGHT_BAND = 20 * Math.PI / 180;   // half-width of the centre of a 71.7 deg frame (00_core.js plane)
 const SIGHT_NEAR = 2.5;                  // metres: inside this SPAWN_CLEAR and the frame edge already own it
 const SIGHT_FAR = 14;                    // metres: past this a prop is a detail, not the thing you look at
 const SIGHT_OPEN = 3;                    // metres of clear ground PAST the prop that make it an occluder
 const SIGHT_REACH = 4;                   // cells the sideways walk may go: a prop cannot teleport
-let PROPSIGHT = { loud: 0, occl: 0, moved: 0, stuck: 0, band: 0, cross: 0, stuckAt: [], seat: [0, 0, 0], log: [] };   // read by `view.js props`; nothing renders it
+let PROPSIGHT = { loud: 0, occl: 0, moved: 0, stuck: 0, quiet: 0, band: 0, cross: 0, stuckAt: [], seat: [0, 0, 0], log: [] };   // read by `view.js props`; nothing renders it
 
 const cellIdx = (x, y) => (y | 0) * MW + (x | 0);
 
@@ -3821,7 +3827,7 @@ function rankLoudProps(sx, sy, ang) {
      loud > 0 / occl 0 - the two cases a byte digest cannot tell apart. `seat` is the arrival seat and
      heading the census names in its A/B command, and `log` carries each move's from/to cell. No draw,
      no pixel: this is a counter with a name attached. */
-  PROPSIGHT = { loud: 0, occl: 0, moved: 0, stuck: 0, band: 0, cross: 0, stuckAt: [], seat: [sx, sy, ang], log: [] };
+  PROPSIGHT = { loud: 0, occl: 0, moved: 0, stuck: 0, quiet: 0, band: 0, cross: 0, stuckAt: [], seat: [sx, sy, ang], log: [] };
   if (!propSightEnabled) return;
   const N = MW;
   const loud = p => p.kind === 'crate' || p.kind === 'barrel';
@@ -3895,8 +3901,22 @@ function rankLoudProps(sx, sy, ang) {
         nx = gx; ny = gy;
       }
     }
-    if (nx < 0) {                     // no legal cell on this prop's own deck: leave it, and NAME the deal
-      PROPSIGHT.stuck++; PROPSIGHT.stuckAt.push([p.x | 0, p.y | 0, p.kind, fzAuth]); continue;
+    if (nx < 0) {
+      /* #695 take three: the RANK pays when the CELL cannot. Everything above is a placement rule, and a
+         prop walled in on its own deck has nowhere to be placed, so on that deal the shipped frame used to
+         keep the defect this pass exists to remove: the loudest paint in the room standing dead centre on
+         the sight line the player is dealt, with 3 m of open deck behind it to hide a body. The other half
+         of the ruling is already in the game - js/10_assets.js gives the hazard paint two ranks, and the
+         quiet one is what a wall's service run pays. A prop that cannot step off the line is scenery that
+         has lost the argument, so it pays the same rank: same hue, same chevron, same black contrast, and
+         0.74x of the delivered light (js/40_render.js PROP_RANK_QUIET). Nothing else in the room is
+         touched, so this is a rank move on one object, not a dim: `quiet` counts how many props paid it and
+         `view.js props` prices it on the pixels by flipping the flag on the same prop in the same deal.
+         `p.quiet` is set here and nowhere else; props are rebuilt every deal, so it cannot leak between
+         levels, and a prop demoted once is demoted by the same test on a re-run (the pass stays a fixed
+         point). */
+      if (propQuietEnabled) { p.quiet = 1; PROPSIGHT.quiet++; }
+      PROPSIGHT.stuck++; PROPSIGHT.stuckAt.push([p.x | 0, p.y | 0, p.kind, fzAuth, PROPS.indexOf(p)]); continue;
     }
     if (fx >= 0 && MAP.fz[fy * N + fx] !== fzAuth) PROPSIGHT.cross++;   // the deck test is what moved THIS one
     PROPSIGHT.log.push([p.x, p.y, nx + 0.5, ny + 0.5, p.kind, PROPS.indexOf(p)]);
