@@ -15,6 +15,15 @@
    purpose - #655's first acceptance clause ("a person says it") cannot be measured from the page,
    so the measurable half is a profile a reviewer can reproduce in one command, not a threshold.
 
+   #727 WHY A RUN NOW HAS TO CARRY SOMETHING. The verdict used to key on run LENGTH alone, so it
+   printed `ONE SOLID (long monotone runs)` for two opposite pictures: a face carrying one ramp, and
+   a face painted ONE VALUE (a 281-column torso interior with zero >=4-luma steps reads as one
+   281-px "run", which is the flat case and not the solid one). Run length cannot tell them apart -
+   neither has steps to break it. What separates them is the luminance a run actually crosses, so a
+   run counts toward the verdict only when it travels at least 2x internally, the same ratio this
+   tool already prints on its `luma range` line and the same bar #727's acceptance is written at. No
+   new constant, and nothing gated: a flat field now says so instead of being called solid.
+
    Usage: node tools/bodyband.js [png] [y0] [y1] [x0] [x1]   (defaults: /tmp/fps_scene.png, the
    brute in `scene 2 0` at the frame's own size).
 */
@@ -67,18 +76,26 @@ const lum = (x, y) => {
 };
 const STEP = 4;                       // a step a person can see: #655 counts transitions of >= 4 luma
 let min = 1e9, max = -1e9, trans = 0, runs = 0, runLen = 0, runMax = 0, cols = 0;
+let trRuns = 0;                        // runs that cross >= 2x luminance: the #727 travel bound
 for (let y = y0; y <= y1; y++) {
   const s = [];
   for (let x = x0; x <= x1; x++) s.push(Math.round(lum(x, y)));
   cols = s.length;
   let rl = 1;                          // the first run starts at the first column
+  let rmin = s[0], rmax = s[0];        // the luminance INSIDE the run now open
+  const close = () => {
+    runLen += rl; if (rl > runMax) runMax = rl;
+    if (rmax >= 2 * Math.max(1, rmin)) trRuns++;
+  };
   for (let i = 1; i < s.length; i++) {
     if (s[i] < min) min = s[i];
     if (s[i] > max) max = s[i];
-    if (Math.abs(s[i] - s[i - 1]) >= STEP) { trans++; runs++; runLen += rl; if (rl > runMax) runMax = rl; rl = 1; }
-    else rl++;
+    if (Math.abs(s[i] - s[i - 1]) >= STEP) {
+      trans++; runs++; close();
+      rl = 1; rmin = s[i]; rmax = s[i];
+    } else { rl++; if (s[i] < rmin) rmin = s[i]; if (s[i] > rmax) rmax = s[i]; }
   }
-  runLen += rl; if (rl > runMax) runMax = rl;   // close the row's last run
+  close();                             // close the row's last run
 }
 const rows = y1 - y0 + 1;
 console.log('bodyband ' + pngPath + ' ' + im.w + 'x' + im.h + '  rows ' + y0 + '-' + y1 + '  cols ' + x0 + '-' + x1);
@@ -87,5 +104,11 @@ console.log('  luma range        ' + min + ' -> ' + max + '  (' + (max / Math.ma
 console.log('  steps >= ' + STEP + ' luma   ' + (trans / rows).toFixed(1) + ' per row (' + trans + ' over ' + rows + ' rows)');
 console.log('  monotone runs     ' + (runs / rows).toFixed(1) + ' per row, mean ' +
   (runLen / Math.max(1, runs)).toFixed(1) + ' px long, longest ' + runMax + ' px');
-console.log('  reads as ' + ((runLen / Math.max(1, runs)) >= 8 ? 'ONE SOLID (long monotone runs)'
-  : (runs / rows) >= 8 ? 'a FAN of slabs (many short runs, alternating)' : 'in between - not decided by this row'));
+console.log('  runs carrying >= 2x luminance   ' + (trRuns / rows).toFixed(1) + ' per row (' + trRuns +
+  ' over ' + rows + ' rows) - a run of one value carries none');
+// #727: length alone called a painted-flat face "solid", so the verdict now needs a run that TRAVELS
+console.log('  reads as ' + ((runLen / Math.max(1, runs)) >= 8 && (trRuns / rows) >= 1
+  ? 'ONE SOLID (long monotone runs that carry luminance)'
+  : (runLen / Math.max(1, runs)) >= 8
+    ? 'one FLAT FIELD (long runs, no luminance travelled inside them - a face painted one value)'
+    : (runs / rows) >= 8 ? 'a FAN of slabs (many short runs, alternating)' : 'in between - not decided by this row'));
