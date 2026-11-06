@@ -5412,6 +5412,54 @@ if (MODE === 'drop') {
         + `the ${win} descent frames, touchdown `
         + (lf < 0 ? 'none - walked it on the ground' : `frame ${lf + 1}, discontinuity ${disc.toFixed(4)} m = `
           + `${(100 * disc / Math.max(1e-9, maxStep)).toFixed(0)}% of that step`));
+
+      /* #634 take two - the SHAPE of a walked descent, not its endpoints. The rows above compare where
+         the eye ENDS UP and stayed green through the 2026-10-31 playtest report ("a little skip and then
+         a natural drop"), because the skip is a one-frame velocity spike inside a path whose endpoints
+         are correct: judge two positions and it is invisible.
+         The step-down ease `P.z += dz * min(1,16*dt)` is exact about WHERE the feet land and silent about
+         HOW they get there - its velocity is proportional to the gap, so on the frame a crossing happens
+         the feet are commanded 16*dz from a standstill. Measured at main 174ec34 by sweeping
+         eyeAltitude() per frame down each of these routes: a one-quantum tread moved the eye 0.0667 m in
+         ONE frame (4.0 m/s out of nothing) and a 3-quantum crossing moved it 0.20 m (12 m/s), against the
+         0.0026 m a body under gravity covers in its first frame. That one frame is the skip.
+         The ceiling is the game's own physics rather than a figure chosen here: over a gap d that the
+         crossing rules already agreed the feet take, the only speed a body can be moving at is the one
+         gravity gave it, sqrt(2*G*d), and the most any single frame can ADD to that is G*dt. Two frames'
+         worth of slack on the ADD term only - not on the sqrt - so the first frame of a crossing sits an
+         order of magnitude inside it while a build that commands velocity overshoots by 1.6x on a 1q
+         tread and 3.3x on a 3q ramp crossing (both measured above). Frames the feet are AIRBORNE through
+         are skipped: those are the fall rows' subject, and their velocity is gravity's by construction.
+         The ladder route is exempt and says so in its own verdict: its 1.6 m/s is an authored climb rate
+         (js/30_entities.js `climb * 1.6 * dt`), not a step the feet take, and near the bottom of a
+         ladder the authored rate is larger than the free-fall speed for the gap left, so judging it here
+         would be judging the ladder's own design. Its descent is the row above's job. */
+      if (!kd.fall) {
+        const G = 9.2, DT = 1 / 60;
+        let viol = 0, nDown = 0, worst = 0, worstAt = -1, worstCap = 0, worstGap = 0;
+        for (let i = 1; i < s.length; i++) {
+          if (s[i][3] || s[i - 1][3]) continue;
+          const down = s[i - 1][8] - s[i][8];
+          if (down <= 1e-9) continue;                 // flat or the auto-step UP - #152's snap, by design
+          nDown++;
+          if (kd.ladder) continue;
+          const gap = Math.max(0, s[i - 1][2] - s[i - 1][7]);
+          const cap = (Math.sqrt(2 * G * gap) + 2 * G * DT) * DT;
+          if (down > cap) {
+            viol++;
+            if (down / cap > worst) { worst = down / cap; worstAt = i; worstCap = cap; worstGap = gap; }
+          }
+        }
+        row(`L${li} down a ${kd.name} the feet never out-run gravity`,
+          !vacuous && (kd.ladder ? true : nDown > 0 && viol === 0),
+          kd.ladder
+            ? `exempt: the climb's authored 1.6 m/s is not a step-down; ${nDown} grounded down-frames, `
+              + `biggest eye step ${maxStep.toFixed(4)} m (the ladder row above owns this route)`
+            : `${viol} frame(s) over the ceiling of ${nDown} grounded down-frames` +
+              (worstAt < 0 ? '' : `, worst frame ${worstAt} moved the eye ${(worstCap * worst).toFixed(4)} m `
+                + `against a ceiling of ${worstCap.toFixed(4)} m for its ${worstGap.toFixed(3)} m gap `
+                + `= ${worst.toFixed(1)}x`));
+      }
     }
     console.log(`  L${li} branch attribution: ${branch.join('  ')}`);
 
@@ -14855,13 +14903,20 @@ if (MODE === 'fixtures') {
               const gx=ax?a:bb-1, gy=ax?bb-1:a, plane=(ax?gx+DX[d]:gy+DY[d])+0.5, side=ax?1:2;
               const inR=(e)=>e[0]===side&&Math.abs(e[1]-plane)<0.01&&e[2]>=at+0.5&&e[2]<=bb-0.5;
               let k=0;for(const e of P)if(inR(e)&&OBJ.has(e[3]))k++;
-              /* THE PROMISE IS THE SPACING, SO THE ASK IS floor(len / FIX_REPEAT). A 7 m slab side at the
-                 shipped 6 m spacing holds ONE object - the middle mount - and a second would land 9.5 m
-                 along a 7 m face, past its end. Demanding two there would be a widening of the rule to
-                 manufacture a green row, so the row asks the arithmetic: a run of L metres carries at
-                 least floor(L / FIX_REPEAT) objects, at least one. Runs that long are the gate; the ones
-                 too short to hold two are counted in slS and are satisfied by the middle mount. */
-              const want=Math.max(1,Math.floor(len/FIX_REPEAT));
+              /* THE PROMISE IS THE OBJECT SPACING, SO THE ASK IS floor((len - 1) / FIX_OBJ_REPEAT)
+                 (#400 increment four). It used to be floor(len / FIX_REPEAT), which is a 6 m pitch, and
+                 that arithmetic is why this row could print 0/0 GATING on three of the four deals while
+                 the owner's seat frame showed one drum on a slab side and a blank either side of it: at
+                 6 m a 7 m face "holds" one object and is excluded from the gate as one-per-run. The
+                 issue's acceptance sentence is per metre for the level's OBJECTS, and a slab side is an
+                 object-bearing face (dropObjs is RACK and TANK only), so the row now asks the same
+                 arithmetic the corridor row above asks, MINUS ONE for the pass's own shape - the first
+                 object on a run sits up to one spacing in from its start, so demanding one at the corner
+                 would be asking for a fixture on a face the run does not own. Runs that cannot hold two
+                 at that pitch are counted in slS and are satisfied by the middle mount; runs that can are
+                 the gate. No threshold was widened: at a shorter pitch the ask is strictly harder, and a
+                 deal that was green at 6 m cannot go green at 4 m by this formula. */
+              const want=Math.max(1,Math.floor((len-1)/FIX_OBJ_REPEAT));
               if(want<2)slS++;else{slL++;if(k>=want)slOk++;else if(!slAt)slAt=gx+','+gy+' '+len+'m d'+d+' carries '+k+' wants '+want;}
             }
             len=0;at=0;};

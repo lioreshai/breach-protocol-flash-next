@@ -421,6 +421,20 @@ function tryMove(o, dx, dy, rad) {
    impact speed above which the knee is taken as fully bent, which caps the dip at ~0.17 m. */
 const LAND_SHAKE_K = 0.26, LAND_SHAKE_MIN = 0.25, LAND_SHAKE_MAX = 1.2;
 const LAND_GIVE_W = 26, LAND_GIVE_T = 0.45, LAND_GIVE_CAP = 8;
+/* A walked step DOWN is FOLLOWED, not eased (#634's 2026-10-31 playtest rework: "a little skip and then
+   a natural drop"). The ease `P.z += dz * min(1, 16*dt)` is exact about WHERE the feet end up and silent
+   about HOW: its velocity is proportional to the gap, so on the frame a crossing happens the feet are
+   commanded 16*dz from a standstill. Measured at main 174ec34 by sweeping eyeAltitude() per frame, a
+   one-quantum tread moved the eye 0.0667 m in ONE frame (4.0 m/s out of rest - 26 times the 0.153 m/s a
+   body under gravity is allowed per frame) and a 3-quantum climb crossing moved it 0.20 m (12 m/s). That
+   one-frame velocity spike is the skip; the glide that follows is what reads as the drop.
+   STEP_FOLLOW_A bounds the feet's ACCELERATION instead: speed up at A, never faster than sqrt(2*A*d), the
+   speed that still STOPS on the floor at a gap d. Velocity is then continuous from rest to rest with no
+   overshoot, and no frame of a walked descent changes the eye's vertical speed by more than A*dt - the
+   same ceiling a falling body already has, because A is the same 9.2 the airborne branch integrates. It
+   shapes the path between two floors the crossing rules already agreed the feet take; it decides no
+   crossing and moves no balance number. */
+const STEP_FOLLOW_A = 9.2;
 /* How far BELOW the body the eye sits right now, in metres. The body stops dead at the floor - that
    is what a floor is - so on the touchdown frame the eye's downward speed jumped from the fall's to
    zero, and that jump is the snap: the horizon stopped and then shook on top of a frame that had
@@ -473,9 +487,9 @@ function updatePlayer(dt) {
     // jump / gravity: P.z is an altitude, so what holds the player up is the column's floor
     const gz = floorAt(P.x, P.y);
     const climb = onLadder(P.x, P.y) ? ((keys['KeyE'] ? 1 : 0) - (keys['KeyQ'] ? 1 : 0)) : 0;
-    if (climb) { P.air = false; P.vz = 0; P.z = clamp(P.z + climb * 1.6 * dt, gz, Math.max(gz, ceilAt(P.x, P.y) - cfg.eye)); }
+    if (climb) { P.air = false; P.vz = 0; P.dzV = 0; P.z = clamp(P.z + climb * 1.6 * dt, gz, Math.max(gz, ceilAt(P.x, P.y) - cfg.eye)); }
     else {
-      if ((keys['Space']) && !P.air && P.crouch < 0.4) { P.air = true; P.vz = 3.0; SND.step(); }
+      if ((keys['Space']) && !P.air && P.crouch < 0.4) { P.air = true; P.vz = 3.0; P.dzV = 0; SND.step(); }
       // Two questions, in this order, and neither answers the other.
       // (1) IS THERE NO FLOOR? A floor more than ONE STEP below the feet is not support. STEP_Z is
       //     the generator's own crossing threshold (js/20_level.js), and STEP_EPS is the eased
@@ -489,7 +503,12 @@ function updatePlayer(dt) {
       //     EK_CLIFF from the low end. `view.js vert`'s feet-vs-kind census is the row that keeps the
       //     two answers the same answer (#633), so reading the kind here adds no second law.
       // A fall is then the jump's own integration, unchanged.
-      if (!P.air && gz < P.z - STEP_Z - STEP_EPS && !steppedDownInto(P.x, P.y, P.z)) { P.air = true; P.vz = 0; }
+      // (3) AND A WALKED DESCENT THAT RUNS OUT INTO ONE OF THOSE keeps the speed it had: the fall is
+      //     handed P.dzV instead of 0. Zeroing it is the same mistake the landing kick used to make - a
+      //     computed number thrown away - and it read as the eye's velocity popping back UP to rest at
+      //     the lip before gravity restarted from zero. Walking off flat ground arrives here with P.dzV
+      //     already 0, so every impact and damage figure in `view.js drop` reads what it read before.
+      if (!P.air && gz < P.z - STEP_Z - STEP_EPS && !steppedDownInto(P.x, P.y, P.z)) { P.air = true; P.vz = P.dzV; P.dzV = 0; }
       if (P.air) {
         P.vz -= 9.2 * dt; P.z += P.vz * dt;
         if (P.z <= gz) {
@@ -511,7 +530,15 @@ function updatePlayer(dt) {
         // a grounded rise of at most ONE STEP is a step the feet simply take; anything taller is a
         // wall by linkBoundaries' own rule - the same threshold, read here instead of restated - so
         // this never lifts the player through a riser
-        if (dz > 0 && dz <= STEP_Z) P.z = gz;
+        if (dz > 0 && dz <= STEP_Z) { P.z = gz; P.dzV = 0; }   // the auto-step the feet simply take
+        else if (dz < 0) {
+          // bounded acceleration, then brake onto the floor: see STEP_FOLLOW_A. The last line is a guard
+          // against a frame's truncation, not a snap - the brake term makes it unreachable in the mean.
+          const brake = -Math.sqrt(2 * STEP_FOLLOW_A * -dz);
+          P.dzV = Math.max(P.dzV - STEP_FOLLOW_A * dt, brake);
+          P.z += P.dzV * dt;
+          if (P.z <= gz) { P.z = gz; P.dzV = 0; }
+        }
         else P.z += Math.abs(dz) < 1e-4 ? dz : dz * Math.min(1, 16 * dt);
       }
     }
