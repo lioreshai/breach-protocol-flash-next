@@ -16689,6 +16689,7 @@ if (MODE === 'props') {
     const psRow = (label, ok, detail) => { if (!ok) bad++; console.log('  ' + (ok ? 'ok  ' : 'FAIL') + '  ' + label + ' - ' + detail); return ok; };
     const rsSave = rs;
     let psLoud = 0, psOccl = 0, psMoved = 0, psStuck = 0, psDeals = 0, psAccount = 0;
+    let psBand = 0, psCross = 0, psDeck = 0;
     const psPrint = [], psPair = [], psPairZero = [];
     let psGrid = true;
     const PS_BAND = `(() => { let n = 0; for (const p of PROPS) {
@@ -16696,13 +16697,21 @@ if (MODE === 'props') {
       ` + `if (d < SIGHT_NEAR || d > SIGHT_FAR) continue; let a = Math.atan2(dy, dx) - P.ang;
       ` + `while (a > Math.PI) a -= TAU; while (a < -Math.PI) a += TAU; if (Math.abs(a) <= SIGHT_BAND) n++ } return n })()`;
     for (let li = 0; li < run('LEVELS.length'); li++) {
-      const L = [0, 0, 0, 0]; let paired = false;
+      const L = [0, 0, 0, 0, 0, 0]; let paired = false, stuckHere = [];
       for (let d = 0; d < PS_DEALS; d++) {
         const rsDeal = rs;                       // the stream position THIS deal is dealt from
         run(`genLevel(${li});`);
         const p = JSON.parse(run('JSON.stringify(PROPSIGHT)'));
-        L[0] += p.loud; L[1] += p.occl; L[2] += p.moved; L[3] += p.stuck;
+        L[0] += p.loud; L[1] += p.occl; L[2] += p.moved; L[3] += p.stuck; L[4] += p.band; L[5] += p.cross;
         if (p.moved + p.stuck !== p.occl) psAccount++;
+        for (const s of (p.stuckAt || [])) stuckHere.push(s[2] + '@' + s[0] + ',' + s[1] + ' deck ' + s[3] +
+          ' (deal ' + d + ')');
+        /* #695 item 1 IN SITU: not the counter, the shipped state. The log carries the cell the prop was
+           authored in and the cell it now stands in, and neither write touches the grid, so `MAP.fz` at
+           both cells is still what the generator authored. Any pair that differs is a crate the pass put
+           on another storey - the defect the same-deck test exists to prevent, read off the deal rather
+           than off a counter the pass writes about itself. */
+        psDeck += +run(`(() => { let v = 0; for (const m of PROPSIGHT.log) { const a = (m[1] | 0) * MW + (m[0] | 0), b = (m[3] | 0) * MW + (m[2] | 0); if (MAP.fz[a] !== MAP.fz[b]) v++ } return v })()`);
         psDeals++;
         /* The visible pair, in one process and one tree. Both arms start at the SAME stream position and
            the only difference between them is the rule's own knob, so a byte difference IS the walk-out:
@@ -16740,8 +16749,10 @@ if (MODE === 'props') {
           if (diff === 0) psPairZero.push('L' + li);
         }
       }
-      psLoud += L[0]; psOccl += L[1]; psMoved += L[2]; psStuck += L[3];
-      psPrint.push('L' + li + ' loud ' + L[0] + ' occl ' + L[1] + ' moved ' + L[2] + ' stuck ' + L[3]);
+      psLoud += L[0]; psOccl += L[1]; psMoved += L[2]; psStuck += L[3]; psBand += L[4]; psCross += L[5];
+      psPrint.push('L' + li + ' loud ' + L[0] + ' occl ' + L[1] + ' moved ' + L[2] + ' stuck ' + L[3] +
+        ' deck-rej ' + L[4] + (stuckHere.length ? ' [STUCK: ' + stuckHere.join(' ') +
+          ' - an occluder whose own deck offers no cell out of the band, so it stays]' : ''));
     }
     // the fixed point: ask the pass to run AGAIN on the deal it just cleared. A correct walk leaves
     // nothing behind it to find, so the second call sees occl 0 and moves nothing. A pass that reports
@@ -16777,6 +16788,25 @@ if (MODE === 'props') {
       're-running the pass on a deal it just cleared finds ' + psAgain + ' occluder(s) on the centre band; '
       + 'anything but 0 means the first pass reported an occluder and left it standing, so the rule is '
       + 'not idempotent and a deal can ship with the defect it was written to remove');
+    /* #695 ITEM 1. #757 shipped the sideways walk and left it reading no height at all, so a prop could be
+       parked on the storey above the deck it was authored on. Two rows: the STATE of the shipped deals (no
+       relocation changed storey) and the rule's RIGHT to exist (it rejected at least one candidate that
+       passed every other test, and on at least one prop it is what chose the destination). The second pair
+       is the vacuity clause - a same-deck test that never fires is the same code as no test, and on the
+       deals where the walk only ever meets flat deck it cannot be told apart on any pixel. */
+    psRow('a relocated prop stands on the deck it was authored on',
+      psDeck === 0,
+      psDeck + ' of ' + psMoved + ' relocation(s) ended on a cell whose MAP.fz differs from the cell the prop '
+      + 'was authored in (read off the move log against the grid, not off a counter). '
+      + psBand + ' candidate cell(s) were rejected by that test across this sweep, and on ' + psCross +
+      ' prop(s) the walk would have parked the prop on another storey without it - that count is the row\'s '
+      + 'right to fail: revert the same-deck test and it is the number that turns red');
+    psRow('the same-deck test has something to reject',
+      psBand > 0,
+      psBand + ' candidate(s) rejected for standing on a different floor (' + psCross + ' move(s) where that '
+      + 'test alone decided the destination). At 0 the rule is indistinguishable from absent on a flat deal, '
+      + 'so this row is VACUOUS at 0 - it does not gate on stuck, which stays the honest answer for a prop '
+      + 'walled in on its own deck');
     psRow('the pair moves pixels at the seat the player is dealt',
       psPair.length > 0 && psPairZero.length === 0 && psGrid,
       (psPair.length ? psPair.join('; ') : 'no deal in this sweep had an occluder on the first pass') +
