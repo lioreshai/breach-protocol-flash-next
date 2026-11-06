@@ -4766,7 +4766,88 @@ function genLevel(li) {
          one cell on a band, one on the reserved shot run, one beside a stair mouth, one with a prop parked
          in it - dies and the next position is asked. No RNG draw, same as the pier pass. The face is
          `cfgL.wall2`, the room's minority cladding, for the same #369 reason as the piers. */
+      /* THE OPENING HAS TO BE SEEN BY SOMEBODY WHO IS IN THAT ROOM (#631, the product decision on the
+         review). A wall whose doorway sits off the sight line its room gives a player buys a big near
+         occluder and no place to go: at ABATOIR CORE's three probe seats this shape put an unbroken face
+         across the left of frame with the opening behind the rank's near end, and `mip`'s near-band
+         census (ceiling under 4 m: 39% -> 57%) and `contrast`'s cam-1 region are the same fact measured
+         two other ways. `gapAt` names the ROOM CENTRE for a room the spawn is not in, which is a cell
+         chosen by geometry with no reference to any view - so the axis the previous rework never swept
+         was WHICH CELL OF THE LINE IS THE OPENING. A candidate is stood here only if the opening it would
+         leave is ON SCREEN from a place a player stands inside that room, with wall carrying on past it on
+         both sides and nothing already dealt standing between. The vantage is the room's own centre cell
+         and its bearing is the direction that cell can see furthest in - the same longest-sight-line rule
+         the probe cameras are derived by (`tools/view.js`'s `scene` camera), read off the grid this pass
+         is working on. No RNG draw, so no prop, lamp, enemy or seat moves. A candidate that cannot show
+         its opening dies like the reservations below, the next position is asked, and a room that can show
+         nothing anywhere keeps main's pier line - which is the shipped behaviour when nothing is accepted,
+         so it needs no per-sector switch, no level list and no knob. */
       let gotWall = 0;
+      /* THE SEAT WHERE THAT ROOM OPENS UP. A dealt room gives a player one view more reliably than any
+         other: stand in the open cell that has the most air in front of it and look down that air - the
+         same longest-sight-line rule `tools/view.js` derives its own scene camera from, asked of the grid
+         this pass is working on, drawing no RNG, so no prop, lamp, enemy or seat moves. The opening counts
+         as SHOWN only if it lies inside the frame that view makes - either way along it, because a player
+         can turn around - with the wall carrying on past it on both sides and inside the frame there too,
+         at least PIER_NEAR away and with nothing already dealt standing between. `cfg.plane` is the
+         renderer's own half-width (js/00_core.js 0.72 = 35.8 deg), so "inside the frame" is the engine's
+         fact and not a tuned angle. A candidate that cannot show its opening dies like the reservations
+         below and the room keeps main's pier line, which is the shipped behaviour when nothing is accepted:
+         no per-sector switch, no level list, no knob. WHY THIS IS THE CLAUSE: `gapAt` names the ROOM CENTRE
+         of the line for a room the spawn is not in - a cell chosen by geometry with no reference to any
+         view - and at ABATOIR CORE that put the opening off the room's sight line, so the frame carried a
+         4-cell solid face with no way through it visible anywhere, which is what that sector's `mip`
+         near-band census (39% -> 57%) and `contrast` cam-1 region were measuring. */
+      let seatGot = -1, seatX = 0, seatY = 0, seatVx = 1, seatVy = 0;
+      const roomSeat = () => {
+        if (seatGot >= 0) return seatGot;
+        seatGot = 0;
+        let bl = -1;
+        for (let y = r.y + 1; y < r.y + r.h - 1; y++) for (let x = r.x + 1; x < r.x + r.w - 1; x++) {
+          if (cell[y * N + x]) continue;
+          const ex = x + 0.5, ey = y + 0.5;
+          for (let k = 0; k < 12; k++) {
+            const a = -Math.PI + k * Math.PI / 6, vx = Math.cos(a), vy = Math.sin(a);
+            let d = 0;
+            for (; d <= SEAT_LOOK; d += 0.5) {
+              const sx = ex + vx * d, sy = ey + vy * d;
+              if (sx < 1 || sy < 1 || sx >= N - 1 || sy >= N - 1) break;
+              if (cell[(sy | 0) * N + (sx | 0)]) break;
+            }
+            if (d > bl) { bl = d; seatX = ex; seatY = ey; seatVx = vx; seatVy = vy; }
+          }
+        }
+        if (bl > PIER_NEAR) seatGot = 1;             // a room with no long march shows a doorway to nobody
+        return seatGot;
+      };
+      const doorSeen = (alongX, pos, gap, put, span) => {
+        if (!roomSeat()) return 0;
+        const gx = (alongX ? pos : r.x + gap) + 0.5, gy = (alongX ? r.y + gap : pos) + 0.5;
+        const dx = gx - seatX, dy = gy - seatY, dd = Math.hypot(dx, dy);
+        if (dd < PIER_NEAR) return 0;                        // a face filling the frame is not a doorway
+        const half = Math.atan(cfg.plane);
+        const vang = Math.atan2(seatVy, seatVx);
+        const onAxis = (x, y) => {                           // inside the frame, either way along it
+          let da = Math.atan2(y - seatY, x - seatX) - vang;
+          while (da > Math.PI) da -= 2 * Math.PI;
+          while (da < -Math.PI) da += 2 * Math.PI;
+          return Math.abs(da) <= half || Math.abs(Math.abs(da) - Math.PI) <= half;
+        };
+        if (!onAxis(gx, gy)) return 0;                       // the opening is in no frame this room gives
+        for (let s = -1; s <= 1; s += 2) {                   // and the line CARRIES ON PAST it, on screen
+          const k = gap + s;
+          if (k < 1 || k > span - 2) return 0;
+          const ix = alongX ? pos : r.x + k, iy = alongX ? r.y + k : pos;
+          if (put.indexOf(iy * N + ix) < 0) return 0;        // air or a reserved gap: the line stops there
+          const ad = Math.atan2(iy + 0.5 - seatY, ix + 0.5 - seatX) - vang;
+          let ae = Math.abs(ad); while (ae > Math.PI) ae = Math.abs(ae - 2 * Math.PI);
+          if (Math.min(ae, Math.abs(Math.PI - ae)) > half) return 0;
+        }
+        for (let d = 0.5; d < dd - 0.5; d += 0.25) {         // and nothing already dealt is in the way
+          if (cell[((seatY + dy * d / dd) | 0) * N + ((seatX + dx * d / dd) | 0)]) return 0;
+        }
+        return 1;
+      };
       const tryWall = (alongX, pos) => {
         const span = alongX ? r.h : r.w;
         const gap = gapAt(r, alongX, pos, inRoom, seatAng);
@@ -4792,6 +4873,7 @@ function genLevel(li) {
         const gi = (alongX ? r.y + gap : pos) * N + (alongX ? pos : r.x + gap);
         if (cell[gi] || fzTry[gi] !== 0 || occupied[gi] || featTry[gi] !== FEAT_NONE) return 0;
         if (open > 2 || put.length < 3) return 0;                   // a rank with holes is not a wall
+        if (!doorSeen(alongX, pos, gap, put, span)) return 0;       // an unseen doorway is not a destination
         const start = ((P.y | 0) * N) + (P.x | 0);
         const was = bfsReach(cell, fzTry, N, start, vbTry, featTry);
         for (const i of put) cell[i] = cfgL.wall2;
@@ -5011,8 +5093,8 @@ function genLevel(li) {
          new bright face in the first frame). Only CROSSING candidates are offered, same as the arrival
          pass: an along-view wall would be a long face beside the eye and would say nothing about where to
          go. Every other room keeps main's pier line exactly. */
-      if (!inRoom && !levelWall)
-        for (const c of cands) if (tryWall(c[0], c[1])) { frameGap(r, c[0], c[1], inRoom, seatAng); gotWall = 1; levelWall = 1; break; }
+      if (!inRoom && !levelWall) { console.log('OFFER L' + li + ' room ' + ri + ' cands ' + cands.length);
+        for (const c of cands) if (tryWall(c[0], c[1])) { frameGap(r, c[0], c[1], inRoom, seatAng); gotWall = 1; levelWall = 1; break; } }
       if (!gotWall)
         for (const c of cands) if (tryLine(c[0], c[1], c[2], inRoom)) { frameGap(r, c[0], c[1], inRoom, seatAng); break; }
     }
