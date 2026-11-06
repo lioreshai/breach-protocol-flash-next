@@ -12115,6 +12115,91 @@ if (MODE === 'contrast') {
       dv: Math.abs(L(c1) - L(c0)), dc: 100 * Math.hypot(p1[0] - p0[0], p1[1] - p0[1]),
       l1: L(c1), l0: L(c0) };
   };
+  /* ---- THE COMPOSITED PAIR (#611, the arm #41 named and every #611 row has been missing) ----
+     Every row above reads `px`, which is `renderWorld`'s framebuffer: the frame BEFORE the composite.
+     That is a structural blind spot this probe already admits to in its #41 block - "a toggle of any of
+     those terms cannot move a pixel of an arm that stops at renderWorld" - and it is why the two tools
+     that price an enemy's colour disagreed by 12x on the same deal: the harness's colour axis is
+     (R-G)/L and ((R+G)/2-B)/L, so a term that ADDS neutral light after the raster leaves the numerators
+     alone and raises the denominator, dividing the step down without touching a grain of pigment.
+     The live read sees that; this block did not.
+
+     Headless still cannot read a composited backbuffer, and it does not have to. Of the three terms
+     that run past `renderWorld`, two have an exact JS-side description the passes themselves define:
+       EXPOSURE  `drawExposure` composites two flat fills, so its curve is arithmetic, not a canvas
+                 mystery: v -> max(v, v*g/255 + A) (the `lighten` of the lifted copy), then
+                 v -> min(v, v*G/255 + C) above the shoulder. A, T, TOP, G, C are read out of the page,
+                 never retyped here, so the curve cannot drift from the shipped one.
+       BLOOM     `drawBloom` writes its own contribution field into `bloomImg.data` BEFORE it composites
+                 (the same field #41's composited arm reads), added at BLOOM_MIX. Reading it is reading
+                 the pass, at the block's own mapping.
+     The grade (`ctx.filter`) and the lamp glow (canvas gradients) have NO field to read, and the row
+     says so in words rather than letting "the composite is ok" be read as "post FX is exonerated".
+     The falsifier is inertness: a run whose delivered pair equals the raster pair to two decimals has
+     applied nothing, and that is a FAILURE of the arm, never a pass. Every term the arm models is on
+     in every shipped tier (EXPOSE_A is on all three quality rows), so "no change" cannot be a state
+     the game is actually in. */
+  const sepPair = (c1, c0) => {
+    const L = c => Math.max(0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2], 1);
+    const o = c => [(c[0] - c[1]) / L(c), ((c[0] + c[1]) * 0.5 - c[2]) / L(c)];
+    const p1 = o(c1), p0 = o(c0);
+    return { dv: Math.abs(L(c1) - L(c0)), dc: 100 * Math.hypot(p1[0] - p0[0], p1[1] - p0[1]), l1: L(c1), l0: L(c0) };
+  };
+  const sepDeliver = () => {
+    const E = run('({A: EXPOSE_A, T: EXPOSE_T, TOP: EXPOSE_TOP, SH: SHOULDER ? 1 : 0, MIX: BLOOM_MIX,' +
+      ' EXQ: (QUAL[clamp(S.gfx | 0, 0, QUAL.length - 1)].expose | 0),' +
+      ' BQ: QUAL[clamp(S.gfx | 0, 0, QUAL.length - 1)].bloom ? 1 : 0})');
+    const gL = 255 - Math.round(255 * E.A / E.T);
+    const G = Math.round(255 * (E.TOP - E.T) / (255 - E.T));
+    const C = Math.round(E.T * (255 - G) / 255);
+    // the bloom block that owns a raster pixel: the pass's own xs/ys mapping, not a resample
+    const FW = Math.max(24, (W / 3) | 0), FH = Math.max(16, (H / 3) | 0);
+    const blk = i => (((i / W) | 0) * FH / H | 0) * FW + ((i % W) * FW / W | 0);
+    const arm = body => {
+      run('if (!COV || COV.length !== BW * BH) COV = new Uint8Array(BW * BH);');
+      run('ENEMIES.length = 0;' + (body ? ' ENEMIES.push(window.__dBody);' : '') +
+        ' S.t = 3.5; ' + VMREST + ' renderWorld(); renderOverlay();');
+      const f = run('typeof bloomImg !== "undefined" && bloomImg ? bloomImg.data : null');
+      const o = { p: new Uint32Array(run('px')), M: new Uint8Array(run('COV')),
+        f: f ? new Uint8Array(f) : null };
+      return o;
+    };
+    const Aa = arm(true);
+    const Bb = arm(false);
+    run('ENEMIES.length = 0; for (const q of __dKeep) ENEMIES.push(q);');
+    const acc = () => ({ n: 0, a: [0, 0, 0], b: [0, 0, 0] });
+    const sAll = { on: acc(), noLift: acc(), noBloom: acc() };
+    for (let i = 0; i < N; i++) {
+      if (!Aa.M[i]) continue;
+      const k = blk(i) * 4, kOk = Aa.f && E.BQ;
+      for (const key of ['on', 'noLift', 'noBloom']) {
+        const lift = key !== 'noLift' && E.EXQ > 0, bl = key !== 'noBloom' && kOk;
+        for (let ch = 0; ch < 3; ch++) {
+          for (const side of [0, 1]) {
+            const q = side ? Aa : Bb;
+            const v = q.p[i] >> (8 * ch) & 255;
+            let d = v;
+            if (lift) {
+              const lf = v * gL / 255 + E.A;
+              if (lf > d) d = lf;
+              if (E.SH) { const sh = v * G / 255 + C; if (sh < d) d = sh; }
+            }
+            if (bl) d += E.MIX * (side ? Aa.f : Bb.f)[k + ch];
+            sAll[key][side ? 'a' : 'b'][ch] += Math.min(255, Math.max(0, d));
+          }
+        }
+        sAll[key].n++;
+      }
+    }
+    if (!sAll.on.n) return { n: 0 };
+    const out = { n: sAll.on.n, exq: E.EXQ, bq: E.BQ, sh: E.SH, mix: E.MIX, liftOn: E.EXQ > 0 };
+    for (const key of ['on', 'noLift', 'noBloom']) {
+      const s = sAll[key], nn = s.n;
+      const r = sepPair(s.a.map(x => x / nn), s.b.map(x => x / nn));
+      out[key] = r;
+    }
+    return out;
+  };
   const sepSeat = (lv, roll) => {
     // the deal is NAMED, not a stream position: dice 1000 + level*97 is flatparity's DEALT deal, and
     // roll r adds 13r, so roll 0 of the sweep IS the deal the shipped frame hashes already lock.
@@ -12206,6 +12291,40 @@ if (MODE === 'contrast') {
         + ' is what the light path gives with NO pigment at all, against the ' + SEP_FA
         + ' bar. A run that reads the SAME colour step with the arm down is measuring the light field, '
         + 'not the body - which is the shape #240 makes every arm in this probe prove.');
+    /* THE COMPOSITED PAIR, at the same body at the same pixels, after the terms that run past
+       renderWorld. This is the row the four cycles of "the probe says 78, the page says 6" needed: it
+       prints BOTH readings of one frame in one process, so the disagreement is attributed inside the
+       run instead of across two tools. Bars are the SAME SEP_V / SEP_C - the eye does not get a second
+       colour axis after the composite, and a bar tuned for this arm would be a second dialect. */
+    const dl = sepDeliver();
+    if (dl.n) {
+      const okV2 = dl.on.dv >= SEP_V, okC2 = dl.on.dc >= SEP_C;
+      const inert = Math.abs(dl.on.dc - dl.noLift.dc) < 0.01 && Math.abs(dl.on.dv - dl.noLift.dv) < 0.01
+        && Math.abs(dl.on.dc - dl.noBloom.dc) < 0.01;
+      row(sepRay + ': the pair STILL holds after the composite (#611 composited arm)',
+        okV2 && okC2 && !inert,
+        'DELIVERED at these pixels: the black-point lift (A=' + dl.exq + ', shoulder ' + (dl.sh ? 'on' : 'off')
+        + ') and the bright pass (on: ' + dl.bq + ', mix ' + dl.mix + ') applied to both arms - his mean '
+        + dl.on.l1.toFixed(1) + ' luma against the surface behind him ' + dl.on.l0.toFixed(1) + ', VALUE '
+        + dl.on.dv.toFixed(1) + ' and COLOUR ' + dl.on.dc.toFixed(1) + ' against the same ' + SEP_V + ' / '
+        + SEP_C + ' bars. Before those terms, on the very same pixels, the raster pair was ' + m.dv.toFixed(1)
+        + ' / ' + m.dc.toFixed(1) + (inert ? ' - THE ARM MOVED NOTHING: the delivered pair equals the raster '
+          + 'pair to two decimals with the active tier naming expose = ' + dl.exq + ' and a bright-pass mix of '
+          + dl.mix + ', so this arm applied no term at all and cannot exonerate the composite - that is a '
+          + 'FAILURE of the arm, never an ok'
+          : ' - the black point on its own leaves ' + dl.noBloom.dc.toFixed(1) + ' of colour and the bright '
+          + 'pass on its own ' + dl.noLift.dc.toFixed(1) + ', so of the move from ' + m.dc.toFixed(1) + ' to '
+          + dl.on.dc.toFixed(1) + ' the LIFT is ' + (dl.noBloom.dc - m.dc).toFixed(1) + ' and the bright pass '
+          + (dl.on.dc - dl.noBloom.dc).toFixed(1)) + '. NOT covered by this arm, no field to read: the grade '
+          + 'filter, the lamp glow, the grain.'
+        + (okV2 && okC2 && !inert ? ' - so the separation the paint pays survives the way the frame is delivered,'
+          + ' not just the way the raster leaves it' : (inert ? '' : ' - the PAINT pays a step the COMPOSITE takes '
+          + 'back, which is the wash this issue has carried as "the probe is green and the page is red"')),
+        inert ? undefined : (okV2 && okC2 ? undefined : '#611'));
+    } else {
+      row(sepRay + ': the pair STILL holds after the composite (#611 composited arm)', false,
+        'no coverage px on the composited arms, so nothing was measured - a FAILURE, not an ok');
+    }
     let worst = null, posed = 0, cone = 0;
     for (let r = 0; r < SEP_ROLLS; r++) {
       const s = sepSeat(lv, r);
