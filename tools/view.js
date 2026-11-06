@@ -14701,6 +14701,13 @@ if (MODE === 'fixtures') {
      inert feature, which is a FAILURE and not a debt. */
   const PURPOSE = ['RACK', 'TANK', 'BOARD'];
   let bad = 0;
+  /* #631 campaign census for the doorway-wall: [generated sectors the pass ran on, generated sectors that
+     DEALT one]. Vacuity is a FAILURE only CAMPAIGN-WIDE - no generated sector anywhere dealing a wall is the
+     d96ca6c state, where every reference hash came back to main's and `FIXTURES ok` printed anyway. One
+     generated sector declining, because no candidate line in it could show its opening to a vantage in that
+     room, is the outcome the #631 scope allows (the room keeps main's pier line, which is shipped behaviour),
+     so it prints as a counted, named decline the way the authored sector already prints its exclusion. */
+  const dwCampaign = [0, 0];
   /* alpha census: what fraction of the finished patch actually covers the wall */
   const cov = run(`(()=>{const o={};for(const k of ['DOOR','PIPE','STRIPE','VENT','RACK','TANK','BOARD']){const t=WFIX[k];
     let op=0,se=0,tr=0,sum=0;for(let i=0;i<t.data.length;i++){const a=t.data[i]>>>24;
@@ -15037,8 +15044,13 @@ if (MODE === 'fixtures') {
         (typeof doorWalls === 'undefined' || !doorWalls || !doorWalls.length) ? ''
           : 'line ' + (doorWalls[0].alongX ? 'x=' : 'y=') + doorWalls[0].pos
             + ', opening at index ' + doorWalls[0].gap + ', ' + doorWalls[0].cells + ' cells of wall',
+        /* #631's review, the stub a reviewer has to be able to see: how many cells of wall the accepted
+           opening leaves on each side of it. An opening with one cell past it is the END of a wall. */
+        (typeof doorWalls === 'undefined' || !doorWalls || !doorWalls.length) ? null
+          : (() => { const s = doorWalls[0].alongX ? doorWalls[0].h : doorWalls[0].w;
+            return { left: doorWalls[0].gap - 1, right: s - 2 - doorWalls[0].gap }; })(),
         !!(LEVELS[S.level] && LEVELS[S.level].authored)]})()`);
-    const [runs, bare, tally, nFix, cont, rN, rOk, rAny, objRuns, dpN, dpOk, kerb, dpAt, bfN, bfOk, bfAt, slL, slOk, slS, slAt, sfN, sfCov, sfObj, sfAt, pbN, pbOk, pbAt, spN, spOk, spS, spAt, spGap, spLen, spObj, dwN, dwAt, auth] = r;
+    const [runs, bare, tally, nFix, cont, rN, rOk, rAny, objRuns, dpN, dpOk, kerb, dpAt, bfN, bfOk, bfAt, slL, slOk, slS, slAt, sfN, sfCov, sfObj, sfAt, pbN, pbOk, pbAt, spN, spOk, spS, spAt, spGap, spLen, spObj, dwN, dwAt, dwStub, auth] = r;
     const tot = kinds.reduce((s, k) => s + tally[k], 0);
     const nPurpose = PURPOSE.reduce((s, k) => s + tally[k], 0);
     const dom = tally.DOOR > tot * 0.6;
@@ -15066,12 +15078,20 @@ if (MODE === 'fixtures') {
        deals none goes red here, whatever the frame hashes do. An authored plan runs no line of this pass,
        so THE STACK is excluded by `LEVELS[li].authored` and says so - an exclusion with a reason, not a
        zero that reads as a win. */
+    if (!auth) { dwCampaign[0]++; if (dwN) dwCampaign[1]++; }
     console.log('     doorway-walls dealt ' + dwN + (dwAt ? '  (room ' + dwAt + ')' : '')
-      + (auth ? '  | authored plan: this pass runs no line here' : ''));
-    if (!dwN && !auth) {
-      console.log('     << NO DOORWAY-WALL ON THIS SECTOR: the solid line the pass is for was never accepted, '
-        + 'so the deal is main\'s and nothing in this frame says "go here" (#631)'); bad++;
-    }
+      + (auth ? '  | authored plan: this pass runs no line here'
+        : !dwN ? '  | DECLINED here: no candidate line in this sector could be accepted (counted, not a '
+          + 'failure - see the campaign line), and the room keeps main\'s pier line' : ''));
+    /* THE STUB, PRINTED (#631's review): an opening with ONE cell of wall past it reads as the END of a
+       wall, not a doorway IN one - the #403 shape in this issue's clothes. The alternative the review
+       offered is the requirement of two cells either side; that is a generator rule and a placement change,
+       so this head takes the other option it named and puts the figure where a reviewer sees it instead of
+       gating on it. `left` and `right` are the wall cells between the opening and each end of the line. */
+    if (dwN && dwStub && dwStub.left < 2 || dwN && dwStub && dwStub.right < 2)
+      console.log('     << STUB: only ' + (dwStub.left < 2 ? dwStub.left : dwStub.right)
+        + ' cell(s) of wall past this opening on its ' + (dwStub.left < 2 ? 'near' : 'far')
+        + ' side, so this reads as a wall END, not a doorway in one (#631, reporting only)');
     if (!tot) { console.log('     << NOTHING PLACED: the whole feature is inert on this deal'); bad++; }
     if (!nPurpose) { console.log('     << NO PURPOSE FIXTURE: no room on this deal says what it is FOR (#400)'); bad++; }
     if (runs && bare / runs > 0.25) bad++;
@@ -15143,6 +15163,17 @@ if (MODE === 'fixtures') {
         + 'objects than their own length divides into at the ' + run('FIX_OBJ_REPEAT') + ' m object spacing'
         + (spAt ? ' (' + spAt + ')' : '') + ' (#400)'); bad++;
     }
+  }
+  /* CAMPAIGN VACUITY (#631): the failure the d96ca6c head was capable of - the pass ran on every generated
+     sector and dealt nothing anywhere - stays a FAILURE at zero dealt. A single sector declining is stated
+     on its own line above and counted here, never reddened: the shape criterion is ONE room per generated
+     sector at most, and a room that cannot show an opening is main's room. */
+  if (dwCampaign[0] && !dwCampaign[1]) {
+    console.log('     << NO DOORWAY-WALL ON ANY GENERATED SECTOR: the pass is inert campaign-wide, so no deal '
+      + 'in the game says "go here" and every frame is main\'s (#631)'); bad++;
+  } else if (dwCampaign[1] < dwCampaign[0]) {
+    console.log('     doorway-walls: ' + dwCampaign[1] + ' of ' + dwCampaign[0]
+      + ' generated sectors deal one; the rest decline and keep main\'s pier line (#631)');
   }
   console.log(bad ? 'FIXTURES ' + bad + ' FAILURES - a long wall is still bare, a kind has become a wash,'
     : 'FIXTURES ok - every long wall run carries something, no kind is a wash, no fixture is a slab');
