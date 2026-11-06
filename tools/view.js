@@ -5412,6 +5412,54 @@ if (MODE === 'drop') {
         + `the ${win} descent frames, touchdown `
         + (lf < 0 ? 'none - walked it on the ground' : `frame ${lf + 1}, discontinuity ${disc.toFixed(4)} m = `
           + `${(100 * disc / Math.max(1e-9, maxStep)).toFixed(0)}% of that step`));
+
+      /* #634 take two - the SHAPE of a walked descent, not its endpoints. The rows above compare where
+         the eye ENDS UP and stayed green through the 2026-10-31 playtest report ("a little skip and then
+         a natural drop"), because the skip is a one-frame velocity spike inside a path whose endpoints
+         are correct: judge two positions and it is invisible.
+         The step-down ease `P.z += dz * min(1,16*dt)` is exact about WHERE the feet land and silent about
+         HOW they get there - its velocity is proportional to the gap, so on the frame a crossing happens
+         the feet are commanded 16*dz from a standstill. Measured at main 174ec34 by sweeping
+         eyeAltitude() per frame down each of these routes: a one-quantum tread moved the eye 0.0667 m in
+         ONE frame (4.0 m/s out of nothing) and a 3-quantum crossing moved it 0.20 m (12 m/s), against the
+         0.0026 m a body under gravity covers in its first frame. That one frame is the skip.
+         The ceiling is the game's own physics rather than a figure chosen here: over a gap d that the
+         crossing rules already agreed the feet take, the only speed a body can be moving at is the one
+         gravity gave it, sqrt(2*G*d), and the most any single frame can ADD to that is G*dt. Two frames'
+         worth of slack on the ADD term only - not on the sqrt - so the first frame of a crossing sits an
+         order of magnitude inside it while a build that commands velocity overshoots by 1.6x on a 1q
+         tread and 3.3x on a 3q ramp crossing (both measured above). Frames the feet are AIRBORNE through
+         are skipped: those are the fall rows' subject, and their velocity is gravity's by construction.
+         The ladder route is exempt and says so in its own verdict: its 1.6 m/s is an authored climb rate
+         (js/30_entities.js `climb * 1.6 * dt`), not a step the feet take, and near the bottom of a
+         ladder the authored rate is larger than the free-fall speed for the gap left, so judging it here
+         would be judging the ladder's own design. Its descent is the row above's job. */
+      if (!kd.fall) {
+        const G = 9.2, DT = 1 / 60;
+        let viol = 0, nDown = 0, worst = 0, worstAt = -1, worstCap = 0, worstGap = 0;
+        for (let i = 1; i < s.length; i++) {
+          if (s[i][3] || s[i - 1][3]) continue;
+          const down = s[i - 1][8] - s[i][8];
+          if (down <= 1e-9) continue;                 // flat or the auto-step UP - #152's snap, by design
+          nDown++;
+          if (kd.ladder) continue;
+          const gap = Math.max(0, s[i - 1][2] - s[i - 1][7]);
+          const cap = (Math.sqrt(2 * G * gap) + 2 * G * DT) * DT;
+          if (down > cap) {
+            viol++;
+            if (down / cap > worst) { worst = down / cap; worstAt = i; worstCap = cap; worstGap = gap; }
+          }
+        }
+        row(`L${li} down a ${kd.name} the feet never out-run gravity`,
+          !vacuous && (kd.ladder ? true : nDown > 0 && viol === 0),
+          kd.ladder
+            ? `exempt: the climb's authored 1.6 m/s is not a step-down; ${nDown} grounded down-frames, `
+              + `biggest eye step ${maxStep.toFixed(4)} m (the ladder row above owns this route)`
+            : `${viol} frame(s) over the ceiling of ${nDown} grounded down-frames` +
+              (worstAt < 0 ? '' : `, worst frame ${worstAt} moved the eye ${(worstCap * worst).toFixed(4)} m `
+                + `against a ceiling of ${worstCap.toFixed(4)} m for its ${worstGap.toFixed(3)} m gap `
+                + `= ${worst.toFixed(1)}x`));
+      }
     }
     console.log(`  L${li} branch attribution: ${branch.join('  ')}`);
 
@@ -9640,11 +9688,27 @@ const RECHALF = refRecord('heights', 'HALF-MOVE', 'num', [97.17, 25.36, 53.08, 9
         return { j, jr };
       };
       const jc = worstJump(zDisc), c = run(PCENSUS);
-      const eyePin = run('P.z');
-      run(`(()=>{for(let w=-${SW};w<=${SW};w++)for(let k=0;k<${SL};k++)MAP.fz[(${SY}+w)*MW+${SX}+k]=0;})()` +
-        ';linkBoundaries();');
+      const eyePin = run('P.z'), eyeDisc = zEye;
+      /* #517 A CONTROL IS ONLY A CONTROL IF IT KEEPS THE CAMERA.
+         This flattening used to zero the disc's floors and nothing else. `ceilAt` is the floor PLUS this
+         cell's own clearance (js/20_level.js:440), so zeroing `fz` also dropped the ceiling by the disc's
+         whole height - and `eyeAltitude()` clamps the eye to `ceilAt - 0.06` (js/40_render.js:607). The
+         disc frame's eye sat at 1.50 m; the "same camera" control frame rendered at 0.94 m. Two cameras,
+         so every floor pixel of the control moved by (1.50 - 0.94) * BH / r: 2.23 m at row 85, 62 m at row
+         2 - which is exactly what the PAST clause below has been reporting as a phantom since October,
+         against a disc frame whose pixels at those rows store their own ray's arrived distance to the last
+         centimetre (measured this cycle: row 81 disc 6.26 against the sentinel march's 6.26; row 85 5.96
+         against 5.96; row 109 4.65 against 4.65). No renderer can answer that clause, because nothing in
+         the renderer moved.
+         The control now carries the flattened floor INTO the clearance (`cz += fz`, then `fz = 0`), which
+         leaves the ceiling at the altitude the disc frame had and moves only the surface the clause is
+         about: the band's floor. `linkBoundaries()` follows the write, as every height write must. The two
+         eye altitudes are read back and asserted below, because a control that moves the camera is not a
+         control - and a row that silently compares two cameras is worse than no row. */
+      run(`(()=>{for(let w=-${SW};w<=${SW};w++)for(let k=0;k<${SL};k++){const i=(${SY}+w)*MW+${SX}+k;` +
+          `MAP.cz[i]+=MAP.fz[i];MAP.fz[i]=0;}})()` + ';linkBoundaries();');
       run(`P.x=${SX}+.5;P.y=${SY}+.5;P.ang=0;P.pitch=0;P.z=${eyePin.toFixed(6)};` + ZRESET + ';' + ZON + ';renderWorld()');
-      const zFlat = zbufCopy(), jf = worstJump(zFlat);
+      const zFlat = zbufCopy(), jf = worstJump(zFlat), eyeFlat = run('eyeZ');
       /* #674 THE EDGE IS WHERE THE TWO FRAMES SPLIT, NOT WHERE A GLOBAL MAXIMUM LIVES.
          The claim #517 makes is that the band's edge is a PLACE: the same camera, with the disc and
          without it, must store different depths on one side of a row and the SAME depth on the other.
@@ -9711,7 +9775,20 @@ const RECHALF = refRecord('heights', 'HALF-MOVE', 'num', [97.17, 25.36, 53.08, 9
         if (d > farMax) { farMax = d; farRow = y; }
       }
       const eDead = edgeRow < 0, pBad = pastMax >= PBOUND;
-      const cok = !c.phantom && !eDead && !pBad;
+      /* The control's own integrity clause. The whole PAST claim is "the same camera, with the band and
+         without it", and the camera here is a DERIVED altitude: eyeAltitude() clamps the eye into the band
+         it stands in (js/40_render.js:607), so removing the band can move the eye by itself. Pinning P.z is
+         not enough - the ceiling clamp moves the eye whatever P.z says - so the control carries the
+         flattened floor into the cell's clearance. If the two frames' eyes ever differ by more than a
+         twentieth of a metre, everything this row reports about the far field is about the camera, so the
+         row says so instead of accusing the renderer. */
+      const camBad = Math.abs(eyeFlat - eyeDisc) > 0.05;
+      /* ONE pose, ONE count. poseA and poseB each add at most 1 to poseBad, which is what the census line
+         ("N of 3 poses FAILED") and `POSES N FAILURE(S)` count. This clause used to add once for itself and
+         once again through `cok`, so a control that moved the eye printed "2 of 3 poses FAILED" for a pose
+         that cannot be two poses - the census the VERT lane reads would have named a failure that did not
+         exist. `camBad` is already a term of `cok`, so the single increment below carries it. */
+      const cok = !c.phantom && !eDead && !pBad && !camBad;
       if (!cok) poseBad++;
       console.log('  ' + pad('poseC', 9) + ' #517 the band\'s own edge is a DEPTH step: the disc-vs-flat split begins at row '
         + (eDead ? 'NONE' : (edgeRow - hzC)) + ' against the authored edge\'s own row ' + (yEdge - hzC) +
@@ -9725,6 +9802,8 @@ const RECHALF = refRecord('heights', 'HALF-MOVE', 'num', [97.17, 25.36, 53.08, 9
         `, and over the ${farN} far rows above that - where the ray is off the level and the wash answers - by ` +
         farMax.toFixed(2) + ' m' + (farRow >= 0 ? ' at row ' + (farRow - hzC) : ' (none)') +
         (pBad ? '  FAIL EDGE-BAND-PHANTOM: a band plane reaches past its own edge, so the near far field is not the floor both frames can prove' : '') +
+        `; the control's eye ${eyeFlat.toFixed(2)} m against the disc's ${eyeDisc.toFixed(2)} m` +
+        (camBad ? '  FAIL EDGE-CONTROL-CAMERA: the control moved the eye, so this A/B is two cameras and its difference is not the band' : '') +
         `; ${c.phantom} phantom px over the whole lower half` + (c.phantom ? '  FAIL BAND-FLOOR-PHANTOM' : ''));
       /* The attribution row. It adds no claim about the picture: it says whether the census can NAME the
          pass that wrote each phantom pixel, which is the thing the next change has to pick. */
@@ -14855,13 +14934,20 @@ if (MODE === 'fixtures') {
               const gx=ax?a:bb-1, gy=ax?bb-1:a, plane=(ax?gx+DX[d]:gy+DY[d])+0.5, side=ax?1:2;
               const inR=(e)=>e[0]===side&&Math.abs(e[1]-plane)<0.01&&e[2]>=at+0.5&&e[2]<=bb-0.5;
               let k=0;for(const e of P)if(inR(e)&&OBJ.has(e[3]))k++;
-              /* THE PROMISE IS THE SPACING, SO THE ASK IS floor(len / FIX_REPEAT). A 7 m slab side at the
-                 shipped 6 m spacing holds ONE object - the middle mount - and a second would land 9.5 m
-                 along a 7 m face, past its end. Demanding two there would be a widening of the rule to
-                 manufacture a green row, so the row asks the arithmetic: a run of L metres carries at
-                 least floor(L / FIX_REPEAT) objects, at least one. Runs that long are the gate; the ones
-                 too short to hold two are counted in slS and are satisfied by the middle mount. */
-              const want=Math.max(1,Math.floor(len/FIX_REPEAT));
+              /* THE PROMISE IS THE OBJECT SPACING, SO THE ASK IS floor((len - 1) / FIX_OBJ_REPEAT)
+                 (#400 increment four). It used to be floor(len / FIX_REPEAT), which is a 6 m pitch, and
+                 that arithmetic is why this row could print 0/0 GATING on three of the four deals while
+                 the owner's seat frame showed one drum on a slab side and a blank either side of it: at
+                 6 m a 7 m face "holds" one object and is excluded from the gate as one-per-run. The
+                 issue's acceptance sentence is per metre for the level's OBJECTS, and a slab side is an
+                 object-bearing face (dropObjs is RACK and TANK only), so the row now asks the same
+                 arithmetic the corridor row above asks, MINUS ONE for the pass's own shape - the first
+                 object on a run sits up to one spacing in from its start, so demanding one at the corner
+                 would be asking for a fixture on a face the run does not own. Runs that cannot hold two
+                 at that pitch are counted in slS and are satisfied by the middle mount; runs that can are
+                 the gate. No threshold was widened: at a shorter pitch the ask is strictly harder, and a
+                 deal that was green at 6 m cannot go green at 4 m by this formula. */
+              const want=Math.max(1,Math.floor((len-1)/FIX_OBJ_REPEAT));
               if(want<2)slS++;else{slL++;if(k>=want)slOk++;else if(!slAt)slAt=gx+','+gy+' '+len+'m d'+d+' carries '+k+' wants '+want;}
             }
             len=0;at=0;};
@@ -16689,20 +16775,109 @@ if (MODE === 'props') {
     const psRow = (label, ok, detail) => { if (!ok) bad++; console.log('  ' + (ok ? 'ok  ' : 'FAIL') + '  ' + label + ' - ' + detail); return ok; };
     const rsSave = rs;
     let psLoud = 0, psOccl = 0, psMoved = 0, psStuck = 0, psDeals = 0, psAccount = 0;
-    const psPrint = [], psPair = [], psPairZero = [];
+    let psBand = 0, psCross = 0, psDeck = 0, psQuiet = 0, psLoudLeft = 0, psRankPx = 0, psRankBad = 0;
+    const psPrint = [], psPair = [], psPairZero = [], psRank = [], psRankNone = [];
     let psGrid = true;
+    /* #695 TAKE THREE, THE STATE, not the counter. `PS_LOUDLEFT` asks the shipped question of the shipped
+       PROPS array: is there a crate or barrel, wearing its LOUD hazard rank, standing inside the dealt
+       frame's centre band at sight-line distance with open deck behind it? It re-derives the pass's own
+       tests from the same globals rather than reading PROPSIGHT, so a pass that reports a prop and leaves it
+       bright is caught here, and it is STRICTER than the pass - it asks the grid with `isSolid` where the
+       pass asks its reachability BFS, so a prop in an unreachable pocket still counts. The one thing it
+       adds is `p.quiet`, the rank the generator now pays when it has nowhere else to put the prop. */
+    const PS_LOUDLEFT = `(() => { let n = 0; for (const p of PROPS) { if (p.quiet) continue;`
+      + ` if (p.kind !== 'crate' && p.kind !== 'barrel') continue; const dx = p.x - P.x, dy = p.y - P.y, d = Math.hypot(dx, dy);`
+      + ` if (d < SIGHT_NEAR || d > SIGHT_FAR) continue; let a = Math.atan2(dy, dx) - P.ang;`
+      + ` while (a > Math.PI) a -= TAU; while (a < -Math.PI) a += TAU; if (Math.abs(a) > SIGHT_BAND) continue;`
+      + ` const ux = dx / d, uy = dy / d; let open = 0;`
+      + ` for (let s = d + 0.75; open < SIGHT_OPEN; s += 0.25) { const gx = (p.x + ux * s) | 0, gy = (p.y + uy * s) | 0;`
+      + ` if (gx < 1 || gy < 1 || gx >= MW - 1 || gy >= MH - 1) break; if (isSolid(gx + 0.5, gy + 0.5)) break; open += 0.25 }`
+      + ` if (open >= SIGHT_OPEN) n++ } return n })()`;
     const PS_BAND = `(() => { let n = 0; for (const p of PROPS) {
       ` + `if (p.kind !== 'crate' && p.kind !== 'barrel') continue; const dx = p.x - P.x, dy = p.y - P.y, d = Math.hypot(dx, dy);
       ` + `if (d < SIGHT_NEAR || d > SIGHT_FAR) continue; let a = Math.atan2(dy, dx) - P.ang;
       ` + `while (a > Math.PI) a -= TAU; while (a < -Math.PI) a += TAU; if (Math.abs(a) <= SIGHT_BAND) n++ } return n })()`;
     for (let li = 0; li < run('LEVELS.length'); li++) {
-      const L = [0, 0, 0, 0]; let paired = false;
+      const L = [0, 0, 0, 0, 0, 0, 0]; let paired = false, ranked = false, stuckHere = [];
       for (let d = 0; d < PS_DEALS; d++) {
         const rsDeal = rs;                       // the stream position THIS deal is dealt from
         run(`genLevel(${li});`);
         const p = JSON.parse(run('JSON.stringify(PROPSIGHT)'));
-        L[0] += p.loud; L[1] += p.occl; L[2] += p.moved; L[3] += p.stuck;
+        L[0] += p.loud; L[1] += p.occl; L[2] += p.moved; L[3] += p.stuck; L[4] += p.band; L[5] += p.cross;
+        L[6] += p.quiet || 0;
+        psLoudLeft += +run(PS_LOUDLEFT);
+        /* #695 TAKE THREE, the rank priced on the pixels of the deal that pays it. ONE prop, ONE flag, ONE
+           process: the same entry is rendered wearing the quiet rank and then wearing the loud one, with no
+           re-deal and no knob between the two frames, so the differing pixels ARE the rank and the grid hash
+           is the control that says nothing else moved. Alongside it the two regions the issue asks about -
+           the prop's own silhouette (frame minus that prop) and the nearest body's pixels (frame minus
+           ENEMIES) - are read off the delivered buffer, which is the only way to answer "does the eye find
+           the box first" without guessing at an albedo. An empty body mask says so in the row rather than
+           printing a number off nothing. */
+        if (!ranked && (p.quiet || 0) && p.stuckAt && p.stuckAt.length) {
+          ranked = true;
+          const qi = p.stuckAt[p.stuckAt.length - 1][4];
+          if (!(qi >= 0)) { psRankNone.push('L' + li + ' deal ' + d + ' (the stuck record carries no prop index)'); continue }
+          const seatR = run('[P.x, P.y, P.ang].join(",")');
+          const geoA = run('[MAP.cell, MAP.fz, MAP.cz].map(a => { let h = 2166136261; for (let i = 0; i < a.length; i++) { h ^= a[i]; h = (h * 16777619) >>> 0; } return h }).join(",")');
+          const dbgK = run(`PROPS[${qi}].kind + '@' + (PROPS[${qi}].x | 0) + ',' + (PROPS[${qi}].y | 0)`);
+          const seatSave = run('[P.x, P.y, P.ang, P.z, P.pitch].join(",")');
+          /* WHERE THE RANK IS PRICED. First the seat the player is actually dealt, because that is the frame
+             the rule is about. If the prop contributes no pixel there - which happens on a stepped room,
+             where the sight-line test is a 2D ray over MAP.cell and cannot see that the FACE of a raised
+             slab stands between the seat and a prop on the deck above it - the pair is taken again from the
+             nearest cell that does have line of sight to it, so the rank is priced on pixels somewhere the
+             player will stand, and the row says which of the two it used. */
+          const shoot = () => {
+            run('renderWorld()');
+            const on = new Uint32Array(run('px'));
+            run(`PROPS[${qi}].quiet = 0; renderWorld()`);
+            const off = new Uint32Array(run('px'));
+            run(`PROPS[${qi}].quiet = 1; window.__p695 = PROPS.splice(${qi}, 1)[0]; renderWorld()`);
+            const noProp = new Uint32Array(run('px'));
+            run('window.__en695 = ENEMIES.slice(); ENEMIES.length = 0; renderWorld();');
+            const noBody = new Uint32Array(run('px'));
+            run('ENEMIES.length = 0; for (const q of window.__en695) ENEMIES.push(q); delete window.__en695; PROPS.splice(' + qi + ', 0, window.__p695); delete window.__p695;');
+            let dif = 0;
+            for (let i = 0; i < on.length; i++) if (on[i] !== off[i]) dif++;
+            const reg = (m, ref) => { let s = 0, n = 0; for (let i = 0; i < m.length; i++) if (m[i] !== ref[i]) { s += 0.2126 * (m[i] & 255) + 0.7152 * (m[i] >> 8 & 255) + 0.0722 * (m[i] >> 16 & 255); n++ } return [n, n ? s / n : 0] };
+            return { dif, pOn: reg(off, noProp), pQ: reg(on, noProp), bR: reg(on, noBody) };
+          };
+          let shot = shoot(), shotAt = 'the dealt seat ' + seatR;
+          if (shot.pOn[0] === 0) {
+            const look = run(`(() => { const q = PROPS[${qi}]; let best = null;
+              for (let y = 1; y < MH - 1; y++) for (let x = 1; x < MW - 1; x++) {
+                const cx = x + 0.5, cy = y + 0.5, dx = q.x - cx, dy = q.y - cy, d = Math.hypot(dx, dy);
+                if (d < 3 || d > 9 || isSolid(cx, cy)) continue;
+                if (castRayDist(cx, cy, dx / d, dy / d, d).dist < d - 0.3) continue;
+                const same = MAP.fz[(y | 0) * MW + (x | 0)] === MAP.fz[(q.y | 0) * MW + (q.x | 0)] ? 0 : 100;
+                if (!best || d + same < best.k) best = { x: cx, y: cy, k: d + same, d };
+              }
+              if (!best) return '';
+              P.x = best.x; P.y = best.y; P.z = floorAt(P.x, P.y); P.ang = Math.atan2(q.y - P.y, q.x - P.x); P.pitch = BH * 0.02;
+              return best.x.toFixed(1) + ',' + best.y.toFixed(1) + ' sees it at ' + best.d.toFixed(1) + ' m' })()`);
+            if (look) { shot = shoot(); shotAt = 'a cell with line of sight - ' + look + ' (the dealt seat draws no pixel of it)'; }
+            const s0 = seatSave.split(',').map(Number);
+            run(`P.x = ${s0[0]}; P.y = ${s0[1]}; P.ang = ${s0[2]}; P.z = ${s0[3]}; P.pitch = ${s0[4]};`);
+          }
+          const geoB = run('[MAP.cell, MAP.fz, MAP.cz].map(a => { let h = 2166136261; for (let i = 0; i < a.length; i++) { h ^= a[i]; h = (h * 16777619) >>> 0; } return h }).join(",")');
+          psRankPx += shot.dif;
+          if (geoA !== geoB) { psGrid = false; psRankBad++; }
+          if (shot.dif === 0 || shot.pOn[0] === 0) psRankBad++;
+          psRank.push('L' + li + ' deal ' + d + ' ' + dbgK + ': ' + shot.dif + ' px differ, prop region '
+            + shot.pOn[1].toFixed(1) + ' loud -> ' + shot.pQ[1].toFixed(1) + ' quiet over ' + shot.pOn[0] +
+            ' px, body region ' + shot.bR[1].toFixed(1) + ' over ' + shot.bR[0] + ' px, grid ' +
+            (geoA === geoB ? 'same' : 'DIFFERENT') + ', shot from ' + shotAt);
+        } else if (!ranked && (p.stuck || 0) && !(p.quiet || 0)) psRankNone.push('L' + li + ' deal ' + d + ' (a stuck occluder wearing no rank)');
         if (p.moved + p.stuck !== p.occl) psAccount++;
+        for (const s of (p.stuckAt || [])) stuckHere.push(s[2] + '@' + s[0] + ',' + s[1] + ' deck ' + s[3] +
+          ' (deal ' + d + ')');
+        /* #695 item 1 IN SITU: not the counter, the shipped state. The log carries the cell the prop was
+           authored in and the cell it now stands in, and neither write touches the grid, so `MAP.fz` at
+           both cells is still what the generator authored. Any pair that differs is a crate the pass put
+           on another storey - the defect the same-deck test exists to prevent, read off the deal rather
+           than off a counter the pass writes about itself. */
+        psDeck += +run(`(() => { let v = 0; for (const m of PROPSIGHT.log) { const a = (m[1] | 0) * MW + (m[0] | 0), b = (m[3] | 0) * MW + (m[2] | 0); if (MAP.fz[a] !== MAP.fz[b]) v++ } return v })()`);
         psDeals++;
         /* The visible pair, in one process and one tree. Both arms start at the SAME stream position and
            the only difference between them is the rule's own knob, so a byte difference IS the walk-out:
@@ -16740,8 +16915,10 @@ if (MODE === 'props') {
           if (diff === 0) psPairZero.push('L' + li);
         }
       }
-      psLoud += L[0]; psOccl += L[1]; psMoved += L[2]; psStuck += L[3];
-      psPrint.push('L' + li + ' loud ' + L[0] + ' occl ' + L[1] + ' moved ' + L[2] + ' stuck ' + L[3]);
+      psLoud += L[0]; psOccl += L[1]; psMoved += L[2]; psStuck += L[3]; psBand += L[4]; psCross += L[5]; psQuiet += L[6];
+      psPrint.push('L' + li + ' loud ' + L[0] + ' occl ' + L[1] + ' moved ' + L[2] + ' stuck ' + L[3] +
+        ' quiet ' + L[6] + ' deck-rej ' + L[4] + (stuckHere.length ? ' [STUCK: ' + stuckHere.join(' ') +
+          ' - an occluder whose own deck offers no cell out of the band, so it stays]' : ''));
     }
     // the fixed point: ask the pass to run AGAIN on the deal it just cleared. A correct walk leaves
     // nothing behind it to find, so the second call sees occl 0 and moves nothing. A pass that reports
@@ -16777,6 +16954,49 @@ if (MODE === 'props') {
       're-running the pass on a deal it just cleared finds ' + psAgain + ' occluder(s) on the centre band; '
       + 'anything but 0 means the first pass reported an occluder and left it standing, so the rule is '
       + 'not idempotent and a deal can ship with the defect it was written to remove');
+    /* #695 ITEM 1. #757 shipped the sideways walk and left it reading no height at all, so a prop could be
+       parked on the storey above the deck it was authored on. Two rows: the STATE of the shipped deals (no
+       relocation changed storey) and the rule's RIGHT to exist (it rejected at least one candidate that
+       passed every other test, and on at least one prop it is what chose the destination). The second pair
+       is the vacuity clause - a same-deck test that never fires is the same code as no test, and on the
+       deals where the walk only ever meets flat deck it cannot be told apart on any pixel. */
+    psRow('a relocated prop stands on the deck it was authored on',
+      psDeck === 0,
+      psDeck + ' of ' + psMoved + ' relocation(s) ended on a cell whose MAP.fz differs from the cell the prop '
+      + 'was authored in (read off the move log against the grid, not off a counter). '
+      + psBand + ' candidate cell(s) were rejected by that test across this sweep, and on ' + psCross +
+      ' prop(s) the walk would have parked the prop on another storey without it - that count is the row\'s '
+      + 'right to fail: revert the same-deck test and it is the number that turns red');
+    psRow('the same-deck test has something to reject',
+      psBand > 0,
+      psBand + ' candidate(s) rejected for standing on a different floor (' + psCross + ' move(s) where that '
+      + 'test alone decided the destination). At 0 the rule is indistinguishable from absent on a flat deal, '
+      + 'so this row is VACUOUS at 0 - it does not gate on stuck, which stays the honest answer for a prop '
+      + 'walled in on its own deck');
+    /* #695 TAKE THREE. #757 shipped the walk and #768 kept it on the prop's own deck; what neither of them
+       settled is the deal where the walk has nowhere to go. Two rows: the GUARANTEE the issue asks for
+       ("in every sector", read off the shipped PROPS of every dealt level rather than off a counter), and
+       the price of the one lever that guarantee uses - the quiet rank, on the pixels of the prop that pays
+       it, next to the region means the issue's own measurement names. */
+    psRow('no prop wearing the loud rank is left on the sight line the player is dealt',
+      psLoudLeft === 0,
+      psLoudLeft + ' loud-ranked crate/barrel(s) stand in the dealt frame\'s centre band, 2.5-14 m out, with '
+      + '3 m of open deck behind them, summed over ' + psDeals + ' deals. ' + psMoved
+      + ' occluder(s) were walked off the line and ' + psQuiet + ' were given the quiet rank instead, so this '
+      + 'is the clause that makes "no bright prop on a spawn sight line" a generator rule instead of an '
+      + 'outcome: it reads the finished PROPS array with the pass\'s own tests re-derived from the grid, and '
+      + 'it is stricter than the pass (isSolid where the pass asks reachability). Set propQuietEnabled = '
+      + 'false and the stuck deal comes back red here');
+    psRow('a prop that cannot leave the line pays the quiet hazard rank',
+      psQuiet === psStuck && (psQuiet > 0 || psStuck === 0),
+      psQuiet + ' prop(s) marked quiet against ' + psStuck + ' stuck occluder(s) - the rank is paid by '
+      + 'exactly the props the walk could not place, and by nothing else, so no prop in the game is dimmer '
+      + 'for its own sake. The rank is js/40_render.js PROP_RANK_QUIET 0.26 off delivered light, the same '
+      + 'rank js/10_assets.js HAZARD_QUIET already pays for a wall\'s service run: same hue, same chevron, '
+      + 'same black contrast, so it still reads as a hazard band at 10 m. ' + (psRank.length ? 'Measured on '
+        + 'the deal that pays it (quiet rank vs the SAME prop loud, one process, no re-deal): ' + psRank.join('; ')
+        : 'NO DEAL IN THIS SWEEP HAD A STUCK OCCLUDER - the rank never fired, which is vacuity, not a pass'
+          + (psRankNone.length ? ' (' + psRankNone.join('; ') + ')' : '')));
     psRow('the pair moves pixels at the seat the player is dealt',
       psPair.length > 0 && psPairZero.length === 0 && psGrid,
       (psPair.length ? psPair.join('; ') : 'no deal in this sweep had an occluder on the first pass') +

@@ -286,12 +286,18 @@ let SPAWN_CLEAR = 2;
    A `let` knob, the way SPAWN_CLEAR is one: `propSightEnabled = false` is the shipped behaviour, and
    `view.js props` uses it as the control that says this row can fail. */
 let propSightEnabled = true;
+/* The second half of the same ruling, and its own knob for the same reason: with `propQuietEnabled = false`
+   a prop that has nowhere to walk keeps the loud hazard rank, which is the shipped behaviour this increment
+   is measured against. `view.js props` A/Bs the rank by flipping `p.quiet` on the SAME prop in the SAME deal
+   (no re-deal, so no question about whether a re-deal replays); this knob is the control that says the rank
+   is a rule and not a coincidence of where the prop happens to stand. */
+let propQuietEnabled = true;
 const SIGHT_BAND = 20 * Math.PI / 180;   // half-width of the centre of a 71.7 deg frame (00_core.js plane)
 const SIGHT_NEAR = 2.5;                  // metres: inside this SPAWN_CLEAR and the frame edge already own it
 const SIGHT_FAR = 14;                    // metres: past this a prop is a detail, not the thing you look at
 const SIGHT_OPEN = 3;                    // metres of clear ground PAST the prop that make it an occluder
 const SIGHT_REACH = 4;                   // cells the sideways walk may go: a prop cannot teleport
-let PROPSIGHT = { loud: 0, occl: 0, moved: 0, stuck: 0, seat: [0, 0, 0], log: [] };   // read by `view.js props`; nothing renders it
+let PROPSIGHT = { loud: 0, occl: 0, moved: 0, stuck: 0, quiet: 0, band: 0, cross: 0, stuckAt: [], seat: [0, 0, 0], log: [] };   // read by `view.js props`; nothing renders it
 
 const cellIdx = (x, y) => (y | 0) * MW + (x | 0);
 
@@ -2663,12 +2669,30 @@ function placeWallFixtures(cfgL, seat, ang) {
                takes it (a face a doorway or a room fixture already owns does not consume the slot, the
                same rule the spacing in pass 3 follows). Forward before backward so the order of `used`
                claims is deterministic; no RNG is read, so no roll, prop, lamp or enemy moves. */
+            /* INCREMENT FOUR PUTS THIS FACE ON THE OBJECT PITCH (#400). The spacing below ran at
+               FIX_REPEAT - the spacing of ALL vocabulary fixtures, 6 m - while the corridor pass above
+               was moved to FIX_OBJ_REPEAT, the shorter spacing of the level's OBJECTS, last increment.
+               The same sentence is being honoured on one geometry and not the other: measured at main
+               2e2907a the four CI deals hold 6 / 6 / 5 / 3 slab runs that are too short to hold two
+               objects at 6 m, and the census could only gate 0 / 0 / 2 / 0 of them, so a 7 m slab side
+               with one drum at 3.5 m and nothing else was green everywhere but the frame. A slab side is
+               also the LONGEST face a generated level has, so it is the face where a 2 m gap between the
+               pitch and the promise shows. So the step is FIX_OBJ_REPEAT here too - middle mount FIRST,
+               unchanged, then one every FIX_OBJ_REPEAT metres in both directions, the KIND cycling with
+               position exactly as the corridor spacing does so a deck edge reads as a run of the
+               sector's things rather than one drum repeated. The budget guard is FIX_RUN_BUDGET, the
+                 same stop the corridor spacing uses: the pillar and arrival passes run AFTER this one and
+               an unbounded slab pass would spend the cap they need. No RNG is read, so no roll, prop,
+               lamp, light or enemy moves; a slab side shorter than one object spacing still takes only
+               its middle mount and is placed byte-identically to the shipped build. */
             if (mountDrop(kind, ax, ay, d)) {
-              for (let s = mid + FIX_REPEAT; s < at + run; s += FIX_REPEAT) {
-                mountDrop(kind, face === 0 ? a : s, face === 0 ? s : a, d);
+              for (let s = mid + FIX_OBJ_REPEAT; s < at + run; s += FIX_OBJ_REPEAT) {
+                if (placed >= FIX_RUN_BUDGET) break;
+                mountDrop(dropObjs[(a + d + s) % dropObjs.length], face === 0 ? a : s, face === 0 ? s : a, d);
               }
-              for (let s = mid - FIX_REPEAT; s >= at; s -= FIX_REPEAT) {
-                mountDrop(kind, face === 0 ? a : s, face === 0 ? s : a, d);
+              for (let s = mid - FIX_OBJ_REPEAT; s >= at; s -= FIX_OBJ_REPEAT) {
+                if (placed >= FIX_RUN_BUDGET) break;
+                mountDrop(dropObjs[(a + d + s) % dropObjs.length], face === 0 ? a : s, face === 0 ? s : a, d);
               }
             }
           }
@@ -3797,7 +3821,7 @@ function rankLoudProps(sx, sy, ang) {
      loud > 0 / occl 0 - the two cases a byte digest cannot tell apart. `seat` is the arrival seat and
      heading the census names in its A/B command, and `log` carries each move's from/to cell. No draw,
      no pixel: this is a counter with a name attached. */
-  PROPSIGHT = { loud: 0, occl: 0, moved: 0, stuck: 0, seat: [sx, sy, ang], log: [] };
+  PROPSIGHT = { loud: 0, occl: 0, moved: 0, stuck: 0, quiet: 0, band: 0, cross: 0, stuckAt: [], seat: [sx, sy, ang], log: [] };
   if (!propSightEnabled) return;
   const N = MW;
   const loud = p => p.kind === 'crate' || p.kind === 'barrel';
@@ -3836,10 +3860,11 @@ function rankLoudProps(sx, sy, ang) {
     const ux = dx / d, uy = dy / d;
     if (openPast(sx, sy, ux, uy, d) < SIGHT_OPEN) continue;   // nothing behind it to hide
     PROPSIGHT.occl++;
+    const fzAuth = MAP.fz[(p.y | 0) * N + (p.x | 0)];   // #695 item 1: the deck this prop was authored on
     /* Walk SIDEWAYS, left first, one then two then three then four cells: the shortest move that leaves
        the band. Left-first rather than hash-chosen, because the perpendicular's sign is a function of the
        bearing and a coin flip per prop would read as one more draw bolted onto the deal. */
-    let nx = -1, ny = -1;
+    let nx = -1, ny = -1, fx = -1, fy = 0;           // fx,fy: where the walk STOPPED honouring the deck (#695 item 1)
     for (let step = 1; step <= SIGHT_REACH && nx < 0; step++) {
       for (let side = 0; side < 2 && nx < 0; side++) {
         const sgn = side ? 1 : -1;
@@ -3854,10 +3879,40 @@ function rankLoudProps(sx, sy, ang) {
         while (b > Math.PI) b -= TAU; while (b < -Math.PI) b += TAU;
         if (Math.abs(b) <= SIGHT_BAND && dd <= SIGHT_FAR) continue;
         if (isSolid(gx + 0.5, gy + 0.5)) continue;
+        /* #695 item 1: SAME DECK. Every test above is about the player's sight line and his ability to
+           reach the cell; none of them reads a height, and a perpendicular walk of up to SIGHT_REACH cells
+           crosses a stepped room's bands easily. A crate on the deck ABOVE the one it was authored on is a
+           false statement about the level - it says that storey is reachable storage when it is the storey
+           you cannot get to - which is worse than the sight-line defect this pass was written to fix, so a
+           candidate standing on another floor is simply not a destination and the walk tries the next cell.
+           `fzAuth` is the prop's OWN floor, read before anything moves, so this compares the relocation to
+           what the generator authored rather than to whatever the walk was doing last. Recording `fx,fy`
+           one line EARLIER - the first cell that satisfies every other test, which is exactly where the
+           pre-item-1 walk would have parked the prop - is what lets `view.js props` price this test on the
+           same deal instead of arguing that stepped rooms exist. */
+        if (fx < 0) { fx = gx; fy = gy; }
+        if (MAP.fz[i] !== fzAuth) { PROPSIGHT.band++; continue; }
         nx = gx; ny = gy;
       }
     }
-    if (nx < 0) { PROPSIGHT.stuck++; continue; }  // walled in: leave it, and let the census row say so
+    if (nx < 0) {
+      /* #695 take three: the RANK pays when the CELL cannot. Everything above is a placement rule, and a
+         prop walled in on its own deck has nowhere to be placed, so on that deal the shipped frame used to
+         keep the defect this pass exists to remove: the loudest paint in the room standing dead centre on
+         the sight line the player is dealt, with 3 m of open deck behind it to hide a body. The other half
+         of the ruling is already in the game - js/10_assets.js gives the hazard paint two ranks, and the
+         quiet one is what a wall's service run pays. A prop that cannot step off the line is scenery that
+         has lost the argument, so it pays the same rank: same hue, same chevron, same black contrast, and
+         0.74x of the delivered light (js/40_render.js PROP_RANK_QUIET). Nothing else in the room is
+         touched, so this is a rank move on one object, not a dim: `quiet` counts how many props paid it and
+         `view.js props` prices it on the pixels by flipping the flag on the same prop in the same deal.
+         `p.quiet` is set here and nowhere else; props are rebuilt every deal, so it cannot leak between
+         levels, and a prop demoted once is demoted by the same test on a re-run (the pass stays a fixed
+         point). */
+      if (propQuietEnabled) { p.quiet = 1; PROPSIGHT.quiet++; }
+      PROPSIGHT.stuck++; PROPSIGHT.stuckAt.push([p.x | 0, p.y | 0, p.kind, fzAuth, PROPS.indexOf(p)]); continue;
+    }
+    if (fx >= 0 && MAP.fz[fy * N + fx] !== fzAuth) PROPSIGHT.cross++;   // the deck test is what moved THIS one
     PROPSIGHT.log.push([p.x, p.y, nx + 0.5, ny + 0.5, p.kind, PROPS.indexOf(p)]);
     p.x = nx + 0.5; p.y = ny + 0.5; p.z = floorAt(p.x, p.y); p.yaw = propYaw(p.x, p.y);
     PROPSIGHT.moved++;

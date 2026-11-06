@@ -297,7 +297,26 @@ const MESH = (function () {
      #19). Near the eye TPR is over 30 px, so level 0 runs with #232's arithmetic untouched and the
      recorded torso gradient still reads 2.52 / 2.17 / 2.52; everything that moves is a body far enough
      to have had no surface at all. */
-  const TS_CYC = 10, TS_MINP = 3.5, TS_LMAX = 2, TS_SLOPE = 9, TS_MAX = 26, TS_BMIN = 0.45;
+  const TS_CYC = 10, TS_MINP = 3.5, TS_LMAX = 2, TS_SLOPE = 9, TS_MAX = 26, TS_BMIN = 0.45, TS_NSLOPE = 0.65;
+  /* #727 THE FLOOR HAD NO SLOPE, AND UP CLOSE THAT MADE IT THE WHOLE TERM. TS_BMIN is the amplitude a
+     face SQUARE to the eye keeps when the grazing band gives it nothing, and it is a CONSTANT - so the
+     luma-per-pixel a chest delivers falls off with range exactly as fast as the face gets bigger, which
+     is the one thing #232 forbids ("what stays constant is the SLOPE, never the amplitude"). Measured
+     on this head by printing TPR at the draw: a brute's torso carries its ONE #655 period (tcy 1.63) as
+     a 49.7 px seam at the `scene 2 0` seat and a 190 px one at 2 m, because the period is a fraction of
+     his own body and the eye is 2 m from it. At 190 px the floor is 0.45 * TS_MAX 26 = 11.7 luma of
+     peak-to-peak spread over the chest: 0.08 luma per pixel, 110x under the slope TS_SLOPE holds at
+     range, and the acceptance scan's own verdict on the deployed build is `one FLAT FIELD` with 0 of 21
+     rows carrying any travel. Nothing was fading - the taper in TS_MINP / TS_LMAX is far away at both
+     ranges, as #760 established.
+       So the floor gets the law the rest of this file already runs: amplitude = SLOPE * projectedPeriod
+     / 4, in TS_NSLOPE, floored at TS_BMIN * TS_MAX and capped at TS_MAX exactly like TAMP. TS_NSLOPE
+     0.65 puts the crossover where the two measurements are: a brute keeps #232's floor beyond 5.3 m and
+     a grunt beyond 4.4 m, so every recorded frame - all of them 7 m out or further - holds its byte, and
+     only a body a player has closed to arm's length turns inside his own silhouette. The cap is what
+     keeps this from being a brightness term: 26 luma is the same ceiling a grazing edge already carries,
+     the wave stays zero-mean over the face, and the clip in `tri` still shallowes it on armour too dark
+     to carry it (#533). Props and the view model read TS_BMIN unchanged - see TF at the draw. */
   const TSC = [0.80, 1.00, 1.15];                   // slightly cool seams on warm armour
   /* 1/TSC, for the clip bound in `tri`: the excursion a channel can carry is its distance to the byte
      limit DIVIDED by its own multiplier, so the two tables cannot drift apart. TSC[2] is unused by the
@@ -390,7 +409,7 @@ const MESH = (function () {
      the same argument holds at range. PS_SLOPE/PS_MAX are armour's 9/26 scaled to a surface that
      means 48 rather than 100; the LAW - amplitude from the pixel's own projected period - is the
      body's and is not re-derived here. */
-  let TAMP = 0, TK = 0, ST = null, TQ0 = 0, TQ1 = 0, TQ2 = 0, TCYC = 10;
+  let TAMP = 0, TK = 0, ST = null, TQ0 = 0, TQ1 = 0, TQ2 = 0, TCYC = 10, TF = TS_BMIN;
   /* #562: HD is the rig's per-vertex HAND marker (wBuild) - the second structure law inside one view-model
      draw. It defaults to an EMPTY array rather than null because the triangle loop reads it on every mesh
      in the game: an empty read is `undefined`, which is falsy, so a body or a prop takes its own constants
@@ -1968,6 +1987,10 @@ const MESH = (function () {
        near-field ceiling differ, and what the eye holds constant across a walk past, luma per screen
        pixel, is unchanged in kind. */
     TAMP = TPR <= TS_MINP ? 0 : Math.min(vm ? WS_MAX : pr ? PS_MAX : TS_MAX, (vm ? WS_SLOPE : pr ? PS_SLOPE : TS_SLOPE) * TPR * 0.25);
+    /* #727: the FACE-ON floor, on the same slope law one line above, and for bodies only. Props and the
+       rig keep TS_BMIN verbatim, so their bytes cannot move; a body's floor rises with how wide its own
+       seam projects, which is another way of asking how near he is. See the TS_NSLOPE note. */
+    TF = (vm || pr) ? TS_BMIN : Math.min(1, Math.max(TS_BMIN, TS_NSLOPE * TPR * 0.25 / TS_MAX));
     /* #562 THE FISTS, the second class in this same draw, and the two lines above with VS_* in place of
        WS_*: their own projected period, the same one coarsening past TS_MINP, their own near-field ceiling.
        Nothing here is a second law - it is the law, read at the other class's constants, and it is computed
@@ -2260,7 +2283,7 @@ const MESH = (function () {
         const hh = HD[i0], amp = hh ? TAMPH : TAMP;
         if (amp && (sa !== 0 || sb !== 0 || sz !== 0)) {
           const q = 1 - Math.min(1, vd / Math.max(1e-6, Math.hypot(evx, evy, evz)));
-          TK = amp * (TS_BMIN + (1 - TS_BMIN) * q);
+          TK = amp * (TF + (1 - TF) * q);
           const tcy = hh ? TCYH : TCYC;
           TQ0 = sa * tcy; TQ1 = sb * tcy; TQ2 = sz * tcy;
         } else TK = 0;

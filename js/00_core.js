@@ -212,6 +212,10 @@ const P = {
   hp: 100, armor: 0, z: 0, vz: 0, air: false,     // z is the feet's ABSOLUTE altitude - floorAt(x, y) is what holds it up
   // The eye's knee after a landing (#634): seconds since touchdown (-1 = none) and the downward
   // speed the fall handed it. Both are read by eyeGive() and settle back to no offset at all.
+  // The feet's own vertical speed while a step down is FOLLOWED rather than fallen (STEP_FOLLOW_A,
+  // js/30_entities.js): it starts at rest, arrives at zero, and is handed to vz when a walked descent
+  // runs out into a real drop, so the eye's vertical velocity is continuous across every descent (#634).
+  dzV: 0,
   landT: -1, landV: 0,
   crouch: 0, sprint: 0, bob: 0, bobPhase: 0, recoil: 0,
   // Boot-time defaults only: resetRun() derives these from WEAPONS, which is the
