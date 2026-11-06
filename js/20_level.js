@@ -4598,6 +4598,62 @@ function genLevel(li) {
       const r = rooms[ri];
       if (r.w * r.h < 24) continue;                        // a 5x5 room is already one bay; give it nothing
       const loX = r.x + 1, hiX = r.x + r.w - 2, loY = r.y + 1, hiY = r.y + r.h - 2;
+      /* THE SOLID MEMBER OF THIS PASS (#631): the same line, but a WALL with ONE doorway in it instead of
+         a rank of columns. Columns you see straight past; an opening in a wall that carries on either side
+         is the one thing the frame can say "go here" with. It is a new member and not a replacement: the
+         pier line stays in every room it already stands in, and the wall is asked for FIRST only in the
+         room you wake in, where the issue's claim is that the first frame must show a way onward.
+
+         A solid line, unlike a pier, CAN sever: removing a whole row of cells is not removing one vertex,
+         so the eight-neighbour ring proof does not apply and is replaced by the test it stood in for -
+         `bfsReach` from the seat, before and after, and the wall is kept only if every cell that was
+         reachable and stays open is still reachable. It rewinds rather than re-rolls, so a room that takes
+         the wall keeps every other cell main dealt it. The doorway is the gap `gapAt` names - the cell the
+         arrival view reaches - and it is left open on purpose: it is the way through.
+
+         Every reservation the pier pass honours is honoured here as a REJECTION, not a skip: a wall with a
+         see-through cell in it is the defect this is fixing, so a candidate that cannot be stood whole -
+         one cell on a band, one on the reserved shot run, one beside a stair mouth, one with a prop parked
+         in it - dies and the next position is asked. No RNG draw, same as the pier pass. The face is
+         `cfgL.wall2`, the room's minority cladding, for the same #369 reason as the piers. */
+      let gotWall = 0;
+      const tryWall = (alongX, pos) => {
+        const span = alongX ? r.h : r.w;
+        const gap = gapAt(r, alongX, pos, inRoom, seatAng);
+        const put = [];
+        let open = 0;                                       // reserved cells the wall has to leave as openings
+        for (let k = 1; k < span - 1; k++) {
+          if (k === gap) continue;                                  // the opening: it stays air
+          const x = alongX ? pos : r.x + k, y = alongX ? r.y + k : pos;
+          if (x < 1 || y < 1 || x >= N - 1 || y >= N - 1) return 0;
+          const i = y * N + x;
+          if (cell[i]) { return 0; }
+          if (fzTry[i] !== 0) { return 0; }
+          if (shotRun[i]) { open++; continue; }                     // stays air: the shot lane still flies
+          let near = featTry[i] !== FEAT_NONE;
+          for (let d = 0; d < 4 && !near; d++) {
+            const j = (y + DIRY[d]) * N + x + DIRX[d];
+            if (j >= 0 && j < N * N && featTry[j] !== FEAT_NONE) near = true;
+          }
+          if (near) { return 0; }
+          if (occupied[i]) { return 0; }
+          put.push(i);
+        }
+        const gi = (alongX ? r.y + gap : pos) * N + (alongX ? pos : r.x + gap);
+        if (cell[gi] || fzTry[gi] !== 0 || occupied[gi] || featTry[gi] !== FEAT_NONE) return 0;
+        if (open > 2 || put.length < 3) return 0;                   // a rank with holes is not a wall
+        const start = ((P.y | 0) * N) + (P.x | 0);
+        const was = bfsReach(cell, fzTry, N, start, vbTry, featTry);
+        for (const i of put) cell[i] = cfgL.wall2;
+        const now = bfsReach(cell, fzTry, N, start, vbTry, featTry);
+        for (let i = 0; i < N * N; i++) {
+          if (was[i] < 0 || now[i] >= 0 || cell[i] !== 0) continue;
+          for (const i2 of put) cell[i2] = 0;                       // the wall would strand walkable floor
+          return 0;
+        }
+        placed += put.length; gotWall++;
+        return 1;
+      };
       const tryLine = (alongX, pos, phase, low) => {
         const span = alongX ? r.h : r.w;
         let got = 0;
@@ -4793,7 +4849,18 @@ function genLevel(li) {
       };
       sweep(r.w >= r.h);                                   // across the LONGER view first
       if (r.w !== r.h) sweep(r.w < r.h);
-      for (const c of cands) if (tryLine(c[0], c[1], c[2], inRoom)) { frameGap(r, c[0], c[1], inRoom, seatAng); break; }
+      /* IN THE ROOM YOU WAKE IN, THE WALL WITH A DOORWAY IS ASKED FOR FIRST (#631). A rank of columns
+         breaks a plan; only an opening in a surface that carries on either side of it says WHERE you go.
+         The crossing candidates are tried as walls before any of them is tried as a pier, and the pier
+         sweep is untouched behind them, so a room whose wall dies on a reservation is dealt as main deals
+         it. Only CROSSING candidates are offered: a wall running ALONG the view would be a long face beside
+         the eye - the exposure cost `exposure` caught the first time this pass stood faces near the seat -
+         and it would say nothing about where to go. Every other room keeps the pier line. */
+      if (inRoom) {
+                for (const c of cands) if (c[0] && tryWall(c[0], c[1])) { frameGap(r, c[0], c[1], inRoom, seatAng); gotWall = 1; break; }
+      }
+      if (!gotWall)
+        for (const c of cands) if (tryLine(c[0], c[1], c[2], inRoom)) { frameGap(r, c[0], c[1], inRoom, seatAng); break; }
     }
     // The grid changed, so the derived bits change with it (AGENTS.md): VB_BLOCK is read from the
     // neighbour grid, and a pier is a new neighbour of four cells.
