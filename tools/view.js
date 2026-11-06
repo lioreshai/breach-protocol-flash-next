@@ -9688,11 +9688,27 @@ const RECHALF = refRecord('heights', 'HALF-MOVE', 'num', [97.17, 25.44, 53.08, 9
         return { j, jr };
       };
       const jc = worstJump(zDisc), c = run(PCENSUS);
-      const eyePin = run('P.z');
-      run(`(()=>{for(let w=-${SW};w<=${SW};w++)for(let k=0;k<${SL};k++)MAP.fz[(${SY}+w)*MW+${SX}+k]=0;})()` +
-        ';linkBoundaries();');
+      const eyePin = run('P.z'), eyeDisc = zEye;
+      /* #517 A CONTROL IS ONLY A CONTROL IF IT KEEPS THE CAMERA.
+         This flattening used to zero the disc's floors and nothing else. `ceilAt` is the floor PLUS this
+         cell's own clearance (js/20_level.js:440), so zeroing `fz` also dropped the ceiling by the disc's
+         whole height - and `eyeAltitude()` clamps the eye to `ceilAt - 0.06` (js/40_render.js:607). The
+         disc frame's eye sat at 1.50 m; the "same camera" control frame rendered at 0.94 m. Two cameras,
+         so every floor pixel of the control moved by (1.50 - 0.94) * BH / r: 2.23 m at row 85, 62 m at row
+         2 - which is exactly what the PAST clause below has been reporting as a phantom since October,
+         against a disc frame whose pixels at those rows store their own ray's arrived distance to the last
+         centimetre (measured this cycle: row 81 disc 6.26 against the sentinel march's 6.26; row 85 5.96
+         against 5.96; row 109 4.65 against 4.65). No renderer can answer that clause, because nothing in
+         the renderer moved.
+         The control now carries the flattened floor INTO the clearance (`cz += fz`, then `fz = 0`), which
+         leaves the ceiling at the altitude the disc frame had and moves only the surface the clause is
+         about: the band's floor. `linkBoundaries()` follows the write, as every height write must. The two
+         eye altitudes are read back and asserted below, because a control that moves the camera is not a
+         control - and a row that silently compares two cameras is worse than no row. */
+      run(`(()=>{for(let w=-${SW};w<=${SW};w++)for(let k=0;k<${SL};k++){const i=(${SY}+w)*MW+${SX}+k;` +
+          `MAP.cz[i]+=MAP.fz[i];MAP.fz[i]=0;}})()` + ';linkBoundaries();');
       run(`P.x=${SX}+.5;P.y=${SY}+.5;P.ang=0;P.pitch=0;P.z=${eyePin.toFixed(6)};` + ZRESET + ';' + ZON + ';renderWorld()');
-      const zFlat = zbufCopy(), jf = worstJump(zFlat);
+      const zFlat = zbufCopy(), jf = worstJump(zFlat), eyeFlat = run('eyeZ');
       /* #674 THE EDGE IS WHERE THE TWO FRAMES SPLIT, NOT WHERE A GLOBAL MAXIMUM LIVES.
          The claim #517 makes is that the band's edge is a PLACE: the same camera, with the disc and
          without it, must store different depths on one side of a row and the SAME depth on the other.
@@ -9759,7 +9775,20 @@ const RECHALF = refRecord('heights', 'HALF-MOVE', 'num', [97.17, 25.44, 53.08, 9
         if (d > farMax) { farMax = d; farRow = y; }
       }
       const eDead = edgeRow < 0, pBad = pastMax >= PBOUND;
-      const cok = !c.phantom && !eDead && !pBad;
+      /* The control's own integrity clause. The whole PAST claim is "the same camera, with the band and
+         without it", and the camera here is a DERIVED altitude: eyeAltitude() clamps the eye into the band
+         it stands in (js/40_render.js:607), so removing the band can move the eye by itself. Pinning P.z is
+         not enough - the ceiling clamp moves the eye whatever P.z says - so the control carries the
+         flattened floor into the cell's clearance. If the two frames' eyes ever differ by more than a
+         twentieth of a metre, everything this row reports about the far field is about the camera, so the
+         row says so instead of accusing the renderer. */
+      const camBad = Math.abs(eyeFlat - eyeDisc) > 0.05;
+      /* ONE pose, ONE count. poseA and poseB each add at most 1 to poseBad, which is what the census line
+         ("N of 3 poses FAILED") and `POSES N FAILURE(S)` count. This clause used to add once for itself and
+         once again through `cok`, so a control that moved the eye printed "2 of 3 poses FAILED" for a pose
+         that cannot be two poses - the census the VERT lane reads would have named a failure that did not
+         exist. `camBad` is already a term of `cok`, so the single increment below carries it. */
+      const cok = !c.phantom && !eDead && !pBad && !camBad;
       if (!cok) poseBad++;
       console.log('  ' + pad('poseC', 9) + ' #517 the band\'s own edge is a DEPTH step: the disc-vs-flat split begins at row '
         + (eDead ? 'NONE' : (edgeRow - hzC)) + ' against the authored edge\'s own row ' + (yEdge - hzC) +
@@ -9773,6 +9802,8 @@ const RECHALF = refRecord('heights', 'HALF-MOVE', 'num', [97.17, 25.44, 53.08, 9
         `, and over the ${farN} far rows above that - where the ray is off the level and the wash answers - by ` +
         farMax.toFixed(2) + ' m' + (farRow >= 0 ? ' at row ' + (farRow - hzC) : ' (none)') +
         (pBad ? '  FAIL EDGE-BAND-PHANTOM: a band plane reaches past its own edge, so the near far field is not the floor both frames can prove' : '') +
+        `; the control's eye ${eyeFlat.toFixed(2)} m against the disc's ${eyeDisc.toFixed(2)} m` +
+        (camBad ? '  FAIL EDGE-CONTROL-CAMERA: the control moved the eye, so this A/B is two cameras and its difference is not the band' : '') +
         `; ${c.phantom} phantom px over the whole lower half` + (c.phantom ? '  FAIL BAND-FLOOR-PHANTOM' : ''));
       /* The attribution row. It adds no claim about the picture: it says whether the census can NAME the
          pass that wrote each phantom pixel, which is the thing the next change has to pick. */
