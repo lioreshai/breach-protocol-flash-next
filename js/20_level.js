@@ -4594,6 +4594,7 @@ function genLevel(li) {
        ways in one tree). It draws no RNG and guards nothing else, so with it true - the shipped case -
        the deal is the deal it was. */
     if (pierEnabled())
+    { let levelWall = 0;                             // one solid doorway-wall per generated sector (#631)
     for (let ri = 0; ri < rooms.length; ri++) {
       const r = rooms[ri];
       if (r.w * r.h < 24) continue;                        // a 5x5 room is already one bay; give it nothing
@@ -4601,8 +4602,8 @@ function genLevel(li) {
       /* THE SOLID MEMBER OF THIS PASS (#631): the same line, but a WALL with ONE doorway in it instead of
          a rank of columns. Columns you see straight past; an opening in a wall that carries on either side
          is the one thing the frame can say "go here" with. It is a new member and not a replacement: the
-         pier line stays in every room it already stands in, and the wall is asked for FIRST only in the
-         room you wake in, where the issue's claim is that the first frame must show a way onward.
+         pier line stays in every room it already stands in, and the wall is asked for in ONE room per
+         generated sector, which is the placement `exposure` settled (see the offer site below).
 
          A solid line, unlike a pier, CAN sever: removing a whole row of cells is not removing one vertex,
          so the eight-neighbour ring proof does not apply and is replaced by the test it stood in for -
@@ -4849,21 +4850,26 @@ function genLevel(li) {
       };
       sweep(r.w >= r.h);                                   // across the LONGER view first
       if (r.w !== r.h) sweep(r.w < r.h);
-      /* IN THE ROOM YOU WAKE IN, THE WALL WITH A DOORWAY IS ASKED FOR FIRST (#631). A rank of columns
-         breaks a plan; only an opening in a surface that carries on either side of it says WHERE you go.
-         The crossing candidates are tried as walls before any of them is tried as a pier, and the pier
-         sweep is untouched behind them, so a room whose wall dies on a reservation is dealt as main deals
-         it. Only CROSSING candidates are offered: a wall running ALONG the view would be a long face beside
-         the eye - the exposure cost `exposure` caught the first time this pass stood faces near the seat -
-         and it would say nothing about where to go. Every other room keeps the pier line. */
-      if (inRoom) {
-                for (const c of cands) if (c[0] && tryWall(c[0], c[1])) { frameGap(r, c[0], c[1], inRoom, seatAng); gotWall = 1; break; }
-      }
+      /* WHICH ROOMS ARE OFFERED THE WALL (#631, measured placement). The arrival room is NOT offered one
+         at this head, and that is a measurement, not an omission: standing a solid rank in the room the
+         player wakes in put a face 3-5 m from the spawn camera and moved ARCHIVE's flattened PARITY/LOCK
+         frames by +16 lumas and its `exposure` spawn pair 71/63 -> 78/66 at main 167a2eb, which is the
+         cost the product decision named as the stop condition for this shape. The claim survives without
+         the arrival frame paying for it: ONE room per generated sector - the first dealt room after the
+         wake room that can hold the line - gets a doorway in a wall that carries on past it on both
+         sides, which is the shape criterion two asks a player to see, and the wake room keeps the
+         one-quantum break main already deals there (a way onward you can see over and walk through, not a
+         new bright face in the first frame). Only CROSSING candidates are offered, same as the arrival
+         pass: an along-view wall would be a long face beside the eye and would say nothing about where to
+         go. Every other room keeps main's pier line exactly. */
+      if (!inRoom && !levelWall)
+        for (const c of cands) if (tryWall(c[0], c[1])) { frameGap(r, c[0], c[1], inRoom, seatAng); gotWall = 1; levelWall = 1; break; }
       if (!gotWall)
         for (const c of cands) if (tryLine(c[0], c[1], c[2], inRoom)) { frameGap(r, c[0], c[1], inRoom, seatAng); break; }
     }
     // The grid changed, so the derived bits change with it (AGENTS.md): VB_BLOCK is read from the
     // neighbour grid, and a pier is a new neighbour of four cells.
+    }                                        // end levelWall scope (#631)
     if (placed) linkBoundaries();
     /* #400: and the new cells are walls, so they get furnished here - nowhere else can reach them, see
        furnishFreeFaces. It writes DECOR only, so it cannot move a boundary, a light or a roll. */
