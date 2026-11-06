@@ -256,6 +256,12 @@ let grownDeck = [];
    have put over the arrival room, scored before any of them is committed. `surface`'s SEAT-PLACE row reads
    it; nothing in the renderer does. Null until a level is generated. */
 let bandCand = null;
+/* #631 THE DOORWAY-WALL CENSUS, one record per wall this pass stands: which room, which line, which cell of
+   it is the opening, how many cells of wall it wrote. It exists so a probe can ask the one question a
+   rendered frame cannot answer on its own - did this pass put anything in the world at all? `fixtures` reads
+   it and a generated sector that deals none is a FAILURE there, not an ok. Null until a generated level
+   runs the pass; an authored plan never sets it, which the row reads as its own exclusion. */
+let doorWalls = null;
 /* #154: metres of clear ground the prop passes keep off the spawn seat. A `let` rather than a literal
    so a probe can A/B it the way it reassigns topUpEnabled and groundPixel (`SPAWN_CLEAR = 0` is the
    shipped behaviour, no clearance), and so smoke's spawn-clearance row can name what it moved.
@@ -3906,6 +3912,7 @@ function genLevel(li) {
      THE STACK's own - a 400-cell grid reporting a region of 826 owned cells. An authored sector now has no
      record, which the row reads as its own vacuity FAILURE rather than as a prediction it did not make. */
   bandCand = null;
+  doorWalls = null;                                 // #631: the doorway-wall census is per level too
   /* #353, same trap as the record above and it is live: `overlookPairs` is reset inside `authorVolume`,
      which an authored plan returns past before the pairing pass runs, so THE STACK inherited level 2's
      three pairs. Nothing on the authored path reads them - `authorOverlooked` and `lightOverlookDecks`
@@ -4744,6 +4751,7 @@ function genLevel(li) {
        the deal is the deal it was. */
     if (pierEnabled())
     { let levelWall = 0;                             // one solid doorway-wall per generated sector (#631)
+    doorWalls = [];                                  // #631: this sector runs the pass, so it has a census
     for (let ri = 0; ri < rooms.length; ri++) {
       const r = rooms[ri];
       if (r.w * r.h < 24) continue;                        // a 5x5 room is already one bay; give it nothing
@@ -4798,11 +4806,22 @@ function genLevel(li) {
          view - and at ABATOIR CORE that put the opening off the room's sight line, so the frame carried a
          4-cell solid face with no way through it visible anywhere, which is what that sector's `mip`
          near-band census (39% -> 57%) and `contrast` cam-1 region were measuring. */
-      let seatGot = -1, seatX = 0, seatY = 0, seatVx = 1, seatVy = 0;
-      const roomSeat = () => {
-        if (seatGot >= 0) return seatGot;
-        seatGot = 0;
-        let bl = -1;
+      /* THE MARCHES THIS ROOM OFFERS, NOT ONE MARCH (#631, the review's second row). The head before this
+         one took the SINGLE cell with the longest sight line in the room and answered BOTH of its questions
+         from that one cell and that one bearing - does the wall CROSS the room, and is its OPENING on a
+         screen a player in this room stands in. One view of a room answers neither question honestly: on
+         the shipped seed every candidate died at one of those two clauses, so the pass stood no wall on
+         any generated sector and a player saw nothing new anywhere in the game. A room is WALKED here, not
+         sampled - the deepest clear march in each of the twelve bearings, measured from whichever open cell
+         reaches furthest along it, kept when it reaches further than PIER_NEAR. That is the set of views
+         standing in this room actually gives, at most twelve of them, read off the grid this pass is
+         working on and drawing no RNG, so no prop, lamp, enemy or seat moves. */
+      let marchGot = -1; const marches = [];
+      const roomMarches = () => {
+        if (marchGot >= 0) return marchGot;
+        marchGot = 0;
+        const bd = [], bc = [];
+        for (let k = 0; k < 12; k++) { bd.push(-1); bc.push(-1); }
         for (let y = r.y + 1; y < r.y + r.h - 1; y++) for (let x = r.x + 1; x < r.x + r.w - 1; x++) {
           if (cell[y * N + x]) continue;
           const ex = x + 0.5, ey = y + 0.5;
@@ -4814,39 +4833,59 @@ function genLevel(li) {
               if (sx < 1 || sy < 1 || sx >= N - 1 || sy >= N - 1) break;
               if (cell[(sy | 0) * N + (sx | 0)]) break;
             }
-            if (d > bl) { bl = d; seatX = ex; seatY = ey; seatVx = vx; seatVy = vy; }
+            if (d > bd[k]) { bd[k] = d; bc[k] = y * N + x; }
           }
         }
-        if (bl > PIER_NEAR) seatGot = 1;             // a room with no long march shows a doorway to nobody
-        return seatGot;
+        for (let k = 0; k < 12; k++) {
+          if (bd[k] <= PIER_NEAR) continue;    // a bearing nothing in here marches down shows a doorway to nobody
+          const a = -Math.PI + k * Math.PI / 6;
+          marches.push({ x: (bc[k] % N) + 0.5, y: ((bc[k] / N) | 0) + 0.5,
+            vx: Math.cos(a), vy: Math.sin(a), d: bd[k] });
+        }
+        if (marches.length) marchGot = 1;      // a room with no long march at all shows a doorway to nobody
+        return marchGot;
       };
+      /* THE OPENING HAS TO BE SEEN FROM SOMEWHERE IN THE ROOM. `cfg.plane` is the renderer's own half-width
+         (js/00_core.js 0.72 = 35.8 deg), so "on screen" is the engine's fact and not a tuned angle, and the
+         test is asked of EVERY view the room gives rather than of one of them: the opening lies inside some
+         frame that room offers - either way along it, because a player can turn around - with the wall
+         carrying on past it on both sides, in that same frame, at least PIER_NEAR from the eye, and with
+         nothing already dealt standing between. A candidate no view shows dies like the reservations below
+         and the room keeps main's pier line, which is the shipped behaviour when nothing is accepted: no
+         per-sector switch, no level list, no knob. WHY THE CLAUSE EXISTS AT ALL: `gapAt` names the ROOM
+         CENTRE for a room the spawn is not in - a cell chosen by geometry with no reference to any view -
+         and at ABATOIR CORE that put the opening off the room's sight line, so the frame carried a 4-cell
+         solid face with no way through it visible anywhere, which is what that sector's `mip` near-band
+         census (39% -> 57%) and `contrast` cam-1 region were measuring. */
       const doorSeen = (alongX, pos, gap, put, span) => {
-        if (!roomSeat()) return 0;
         const gx = (alongX ? pos : r.x + gap) + 0.5, gy = (alongX ? r.y + gap : pos) + 0.5;
-        const dx = gx - seatX, dy = gy - seatY, dd = Math.hypot(dx, dy);
-        if (dd < PIER_NEAR) return 0;                        // a face filling the frame is not a doorway
         const half = Math.atan(cfg.plane);
-        const vang = Math.atan2(seatVy, seatVx);
-        const onAxis = (x, y) => {                           // inside the frame, either way along it
-          let da = Math.atan2(y - seatY, x - seatX) - vang;
-          while (da > Math.PI) da -= 2 * Math.PI;
-          while (da < -Math.PI) da += 2 * Math.PI;
-          return Math.abs(da) <= half || Math.abs(Math.abs(da) - Math.PI) <= half;
-        };
-        if (!onAxis(gx, gy)) return 0;                       // the opening is in no frame this room gives
-        for (let s = -1; s <= 1; s += 2) {                   // and the line CARRIES ON PAST it, on screen
-          const k = gap + s;
-          if (k < 1 || k > span - 2) return 0;
-          const ix = alongX ? pos : r.x + k, iy = alongX ? r.y + k : pos;
-          if (put.indexOf(iy * N + ix) < 0) return 0;        // air or a reserved gap: the line stops there
-          const ad = Math.atan2(iy + 0.5 - seatY, ix + 0.5 - seatX) - vang;
-          let ae = Math.abs(ad); while (ae > Math.PI) ae = Math.abs(ae - 2 * Math.PI);
-          if (Math.min(ae, Math.abs(Math.PI - ae)) > half) return 0;
+        for (const v of marches) {
+          const dx = gx - v.x, dy = gy - v.y, dd = Math.hypot(dx, dy);
+          if (dd < PIER_NEAR) continue;                    // a face filling the frame is not a doorway
+          const vang = Math.atan2(v.vy, v.vx);
+          const edge = (x, y) => {                         // off both this frame and the one behind it
+            let da = Math.atan2(y - v.y, x - v.x) - vang;
+            while (da > Math.PI) da -= 2 * Math.PI;
+            while (da < -Math.PI) da += 2 * Math.PI;
+            return Math.min(Math.abs(da), Math.abs(Math.abs(da) - Math.PI));
+          };
+          if (edge(gx, gy) > half) continue;               // the opening is in no frame this room gives
+          let carries = true;
+          for (let s = -1; s <= 1 && carries; s += 2) {    // and the line CARRIES ON PAST it, on screen
+            const k = gap + s;
+            if (k < 1 || k > span - 2) { carries = false; break; }
+            const ix = alongX ? pos : r.x + k, iy = alongX ? r.y + k : pos;
+            if (put.indexOf(iy * N + ix) < 0) { carries = false; break; }   // air or a reserved gap: it stops there
+            if (edge(ix + 0.5, iy + 0.5) > half) carries = false;
+          }
+          if (!carries) continue;
+          let blocked = false;
+          for (let d = 0.5; d < dd - 0.5 && !blocked; d += 0.25)   // and nothing already dealt is in the way
+            if (cell[((v.y + dy * d / dd) | 0) * N + ((v.x + dx * d / dd) | 0)]) blocked = true;
+          if (!blocked) return 1;
         }
-        for (let d = 0.5; d < dd - 0.5; d += 0.25) {         // and nothing already dealt is in the way
-          if (cell[((seatY + dy * d / dd) | 0) * N + ((seatX + dx * d / dd) | 0)]) return 0;
-        }
-        return 1;
+        return 0;
       };
       const tryWall = (alongX, pos) => {
         /* THE WALL CROSSES THE MARCH; IT DOES NOT RUN ALONGSIDE IT (#631, the review's third row). The
@@ -4862,15 +4901,19 @@ function genLevel(li) {
            room's own march instead of the spawn's): a candidate that runs along the march rather than
            across it dies here like any other rejection, the next position is asked, and a room whose only
            long line runs with the view keeps main's pier line. Nothing about the shape criterion changes -
-           a wall you walk UP to and THROUGH is the shape #631 asks for, and a wall you walk ALONG is not. */
-        if (!roomSeat()) return 0;                            // nobody marches in here: no doorway is shown
-        if (alongX !== (Math.abs(seatVx) >= Math.abs(seatVy))) return 0;
+           a wall you walk UP to and THROUGH is the shape #631 asks for, and a wall you walk ALONG is not.
+           WHICH MARCH THAT MEASURES IS THE ROOM'S DEEPEST ONE, read off the set above, not off whichever
+           single cell happened to win the old one-cell scan - the criterion is the room's axis, and the
+           room has more than one view along it. */
+        if (!roomMarches()) return 0;                         // nobody marches in here: no doorway is shown
+        let deep = marches[0];
+        for (const m of marches) if (m.d > deep.d) deep = m;  // the room's OWN axis: its longest march
+        if (alongX !== (Math.abs(deep.vx) >= Math.abs(deep.vy))) return 0;
         const span = alongX ? r.h : r.w;
-        const gap = gapAt(r, alongX, pos, inRoom, seatAng);
-        const put = [];
+        const want = gapAt(r, alongX, pos, inRoom, seatAng);
+        const put = [], ks = [];
         let open = 0;                                       // reserved cells the wall has to leave as openings
         for (let k = 1; k < span - 1; k++) {
-          if (k === gap) continue;                                  // the opening: it stays air
           const x = alongX ? pos : r.x + k, y = alongX ? r.y + k : pos;
           if (x < 1 || y < 1 || x >= N - 1 || y >= N - 1) return 0;
           const i = y * N + x;
@@ -4884,12 +4927,23 @@ function genLevel(li) {
           }
           if (near) { return 0; }
           if (occupied[i]) { return 0; }
-          put.push(i);
+          put.push(i); ks.push(k);
         }
-        const gi = (alongX ? r.y + gap : pos) * N + (alongX ? pos : r.x + gap);
-        if (cell[gi] || fzTry[gi] !== 0 || occupied[gi] || featTry[gi] !== FEAT_NONE) return 0;
         if (open > 2 || put.length < 3) return 0;                   // a rank with holes is not a wall
-        if (!doorSeen(alongX, pos, gap, put, span)) return 0;       // an unseen doorway is not a destination
+        /* WHICH CELL OF THE LINE IS THE OPENING. `gapAt` names the room centre (or, in the room you wake
+           in, the cell the wake view reaches), and for a room the spawn is not in that is a cell chosen by
+           geometry alone - the head before this one asked a candidate to show THAT cell and, when it could
+           not, threw the whole line away. The room centre is now the FIRST cell asked to be the doorway
+           and the rest of the line is asked in order of how near it sits to that centre, so the opening
+           lands as close to where the room puts it as the room's own views allow instead of wherever the
+           room happens to sit. A line with no cell any view shows is still a rejection. */
+        let gap = -1;
+        const order = ks.slice().sort((a, b) => Math.abs(a - want) - Math.abs(b - want) || a - b);
+        for (const k of order) if (doorSeen(alongX, pos, k, put, span)) { gap = k; break; }
+        if (gap < 0) return 0;                                      // an unseen doorway is not a destination
+        const gi = (alongX ? r.y + gap : pos) * N + (alongX ? pos : r.x + gap);
+        const gp = put.indexOf(gi);
+        if (gp >= 0) put.splice(gp, 1);    // the opening is the one cell of the line this wall does NOT write
         const start = ((P.y | 0) * N) + (P.x | 0);
         const was = bfsReach(cell, fzTry, N, start, vbTry, featTry);
         for (const i of put) cell[i] = cfgL.wall2;
@@ -4900,6 +4954,7 @@ function genLevel(li) {
           return 0;
         }
         placed += put.length; gotWall++;
+        if (doorWalls) doorWalls.push({ room: ri, x: r.x, y: r.y, w: r.w, h: r.h, alongX: alongX ? 1 : 0, pos: pos, gap: gap, cells: put.length });
         return 1;
       };
       const tryLine = (alongX, pos, phase, low) => {

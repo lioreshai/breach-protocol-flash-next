@@ -15002,8 +15002,31 @@ if (MODE === 'fixtures') {
         const ns=e.side===1?[[cx-1,cy],[cx+1,cy]]:[[cx,cy-1],[cx,cy+1]];
         for(const n of ns)if(op(n[0],n[1])&&fz-MAP.fz[n[1]*N+n[0]]>=2)ok=true;
         if(!ok)kerb++;}
-      return [runs,bare,t2,MAP.fixCount,cont,rN,rOk,rAny,objRuns,dpN,dpOk,kerb,dpAt,bfN,bfOk,bfAt,slL,slOk,slS,slAt,sfN,sfCov,sfObj,sfAt,pbN,pbOk,pbAt,spN,spOk,spS,spAt,spGap,spLen,spObj]})()`);
-    const [runs, bare, tally, nFix, cont, rN, rOk, rAny, objRuns, dpN, dpOk, kerb, dpAt, bfN, bfOk, bfAt, slL, slOk, slS, slAt, sfN, sfCov, sfObj, sfAt, pbN, pbOk, pbAt, spN, spOk, spS, spAt, spGap, spLen, spObj] = r;
+      return [runs,bare,t2,MAP.fixCount,cont,rN,rOk,rAny,objRuns,dpN,dpOk,kerb,dpAt,bfN,bfOk,bfAt,slL,slOk,slS,slAt,sfN,sfCov,sfObj,sfAt,pbN,pbOk,pbAt,spN,spOk,spS,spAt,spGap,spLen,spObj,
+        /* #631 the doorway-wall census: how many solid lines with one opening this deal stood, and where the
+           first one went - THEN THE SAME COUNT TAKEN OFF THE SHIPPED GRID, because a record is what the pass
+           SAID and the grid is what the player walks. Each record's line is rebuilt from its room, its axis
+           and its position, and a record only counts when every cell it claims is solid in MAP.cell, its one
+           opening is air, and that opening has a solid cell of the same line on each side of it. A pass that
+           reports a wall a later pass then erased, or writes only part of, therefore counts 0 here. */
+        (typeof doorWalls === 'undefined' || !doorWalls) ? 0 : (() => {
+          const N2 = MAP.w; let n = 0;
+          for (const w of doorWalls) {
+            const span = w.alongX ? w.h : w.w; let solid = 0, openOK = 0;
+            const at = (k) => w.alongX ? (w.y + k) * N2 + w.pos : w.pos * N2 + w.x + k;
+            for (let k = 1; k < span - 1; k++) {
+              if (k === w.gap) { if (MAP.cell[at(k)] === 0) openOK = 1; continue; }
+              if (MAP.cell[at(k)] !== 0) solid++;
+            }
+            if (solid >= 2 && openOK && MAP.cell[at(w.gap - 1)] !== 0 && MAP.cell[at(w.gap + 1)] !== 0) n++;
+          }
+          return n;
+        })(),
+        (typeof doorWalls === 'undefined' || !doorWalls || !doorWalls.length) ? ''
+          : 'line ' + (doorWalls[0].alongX ? 'x=' : 'y=') + doorWalls[0].pos
+            + ', opening at index ' + doorWalls[0].gap + ', ' + doorWalls[0].cells + ' cells of wall',
+        !!(LEVELS[S.level] && LEVELS[S.level].authored)]})()`);
+    const [runs, bare, tally, nFix, cont, rN, rOk, rAny, objRuns, dpN, dpOk, kerb, dpAt, bfN, bfOk, bfAt, slL, slOk, slS, slAt, sfN, sfCov, sfObj, sfAt, pbN, pbOk, pbAt, spN, spOk, spS, spAt, spGap, spLen, spObj, dwN, dwAt, auth] = r;
     const tot = kinds.reduce((s, k) => s + tally[k], 0);
     const nPurpose = PURPOSE.reduce((s, k) => s + tally[k], 0);
     const dom = tally.DOOR > tot * 0.6;
@@ -15022,6 +15045,21 @@ if (MODE === 'fixtures') {
       + '  | runs holding >1 object ' + spOk + '/' + spN + ' (one-per-run ' + spS + '; worst ' + spGap.toFixed(1)
       + ' m per object, deal mean ' + (spObj ? (spLen / spObj) : 0).toFixed(1) + ' m)' + (spAt ? ' (first short: ' + spAt + ')' : '')
       + '  ' + (runs && bare / runs > 0.25 ? '<< 1 in 4 long walls is still one flat repeat' : ''));
+    /* #631 THE DOORWAY-WALL CENSUS, AND THE ROW THAT CAN FAIL ON AN INERT PASS (#631's review).
+       The `DOOR on a continuing passage` figure above counts PAINT, so it reads 0 whether the pass stood a
+       wall or stood nothing at all - at head d96ca6c the shipped seed dealt no doorway-wall on any sector,
+       every reference hash came back to main's, and `FIXTURES ok` printed anyway. That is vacuity, not a
+       pass, and AGENTS.md is explicit that vacuity is a FAILURE. So the count is read off the generator's
+       own census (`doorWalls`, js/20_level.js, one record per wall it stands) and a GENERATED sector that
+       deals none goes red here, whatever the frame hashes do. An authored plan runs no line of this pass,
+       so THE STACK is excluded by `LEVELS[li].authored` and says so - an exclusion with a reason, not a
+       zero that reads as a win. */
+    console.log('     doorway-walls dealt ' + dwN + (dwAt ? '  (room ' + dwAt + ')' : '')
+      + (auth ? '  | authored plan: this pass runs no line here' : ''));
+    if (!dwN && !auth) {
+      console.log('     << NO DOORWAY-WALL ON THIS SECTOR: the solid line the pass is for was never accepted, '
+        + 'so the deal is main\'s and nothing in this frame says "go here" (#631)'); bad++;
+    }
     if (!tot) { console.log('     << NOTHING PLACED: the whole feature is inert on this deal'); bad++; }
     if (!nPurpose) { console.log('     << NO PURPOSE FIXTURE: no room on this deal says what it is FOR (#400)'); bad++; }
     if (runs && bare / runs > 0.25) bad++;
