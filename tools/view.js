@@ -9783,7 +9783,11 @@ const RECHALF = refRecord('heights', 'HALF-MOVE', 'num', [97.17, 25.44, 53.08, 9
          twentieth of a metre, everything this row reports about the far field is about the camera, so the
          row says so instead of accusing the renderer. */
       const camBad = Math.abs(eyeFlat - eyeDisc) > 0.05;
-      if (camBad) poseBad++;
+      /* ONE pose, ONE count. poseA and poseB each add at most 1 to poseBad, which is what the census line
+         ("N of 3 poses FAILED") and `POSES N FAILURE(S)` count. This clause used to add once for itself and
+         once again through `cok`, so a control that moved the eye printed "2 of 3 poses FAILED" for a pose
+         that cannot be two poses - the census the VERT lane reads would have named a failure that did not
+         exist. `camBad` is already a term of `cok`, so the single increment below carries it. */
       const cok = !c.phantom && !eDead && !pBad && !camBad;
       if (!cok) poseBad++;
       console.log('  ' + pad('poseC', 9) + ' #517 the band\'s own edge is a DEPTH step: the disc-vs-flat split begins at row '
