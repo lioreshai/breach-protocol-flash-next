@@ -4849,6 +4849,22 @@ function genLevel(li) {
         return 1;
       };
       const tryWall = (alongX, pos) => {
+        /* THE WALL CROSSES THE MARCH; IT DOES NOT RUN ALONGSIDE IT (#631, the review's third row). The
+           candidate list this offer walks is built for the PIER pass, and a pier that runs along the room's
+           sight line is still an edge the eye reads and walks past. A SOLID line that runs alongside the
+           march is a face receding the whole length of the room: it fills the frame, it puts its own
+           ceiling in the band the roof mip reads coarse, and the doorway it carries is somewhere off to
+           one side rather than ahead. That is the shape ABATOIR CORE took here - a constant-y rank in a
+           room whose seat marches along x, 4.5 m from that seat, and `mip`'s near-band ceiling census in
+           that sector's shipped frame went 29,204 px -> 42,070 px while its ceiling fan went 22 -> 34
+           against an accepted look of <=24+4. So the wall asks the same floors the arrival pass already
+           asks of a crossing line (`crossX = |vx| >= |vy|`, the axis the FRAME looks down, read off this
+           room's own march instead of the spawn's): a candidate that runs along the march rather than
+           across it dies here like any other rejection, the next position is asked, and a room whose only
+           long line runs with the view keeps main's pier line. Nothing about the shape criterion changes -
+           a wall you walk UP to and THROUGH is the shape #631 asks for, and a wall you walk ALONG is not. */
+        if (!roomSeat()) return 0;                            // nobody marches in here: no doorway is shown
+        if (alongX !== (Math.abs(seatVx) >= Math.abs(seatVy))) return 0;
         const span = alongX ? r.h : r.w;
         const gap = gapAt(r, alongX, pos, inRoom, seatAng);
         const put = [];
@@ -5093,8 +5109,8 @@ function genLevel(li) {
          new bright face in the first frame). Only CROSSING candidates are offered, same as the arrival
          pass: an along-view wall would be a long face beside the eye and would say nothing about where to
          go. Every other room keeps main's pier line exactly. */
-      if (!inRoom && !levelWall) { console.log('OFFER L' + li + ' room ' + ri + ' cands ' + cands.length);
-        for (const c of cands) if (tryWall(c[0], c[1])) { frameGap(r, c[0], c[1], inRoom, seatAng); gotWall = 1; levelWall = 1; break; } }
+      if (!inRoom && !levelWall)
+        for (const c of cands) if (tryWall(c[0], c[1])) { frameGap(r, c[0], c[1], inRoom, seatAng); gotWall = 1; levelWall = 1; break; }
       if (!gotWall)
         for (const c of cands) if (tryLine(c[0], c[1], c[2], inRoom)) { frameGap(r, c[0], c[1], inRoom, seatAng); break; }
     }
