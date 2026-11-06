@@ -291,7 +291,7 @@ const SIGHT_NEAR = 2.5;                  // metres: inside this SPAWN_CLEAR and 
 const SIGHT_FAR = 14;                    // metres: past this a prop is a detail, not the thing you look at
 const SIGHT_OPEN = 3;                    // metres of clear ground PAST the prop that make it an occluder
 const SIGHT_REACH = 4;                   // cells the sideways walk may go: a prop cannot teleport
-let PROPSIGHT = { loud: 0, occl: 0, moved: 0, stuck: 0, seat: [0, 0, 0], log: [] };   // read by `view.js props`; nothing renders it
+let PROPSIGHT = { loud: 0, occl: 0, moved: 0, stuck: 0, band: 0, cross: 0, stuckAt: [], seat: [0, 0, 0], log: [] };   // read by `view.js props`; nothing renders it
 
 const cellIdx = (x, y) => (y | 0) * MW + (x | 0);
 
@@ -3815,7 +3815,7 @@ function rankLoudProps(sx, sy, ang) {
      loud > 0 / occl 0 - the two cases a byte digest cannot tell apart. `seat` is the arrival seat and
      heading the census names in its A/B command, and `log` carries each move's from/to cell. No draw,
      no pixel: this is a counter with a name attached. */
-  PROPSIGHT = { loud: 0, occl: 0, moved: 0, stuck: 0, seat: [sx, sy, ang], log: [] };
+  PROPSIGHT = { loud: 0, occl: 0, moved: 0, stuck: 0, band: 0, cross: 0, stuckAt: [], seat: [sx, sy, ang], log: [] };
   if (!propSightEnabled) return;
   const N = MW;
   const loud = p => p.kind === 'crate' || p.kind === 'barrel';
@@ -3854,10 +3854,11 @@ function rankLoudProps(sx, sy, ang) {
     const ux = dx / d, uy = dy / d;
     if (openPast(sx, sy, ux, uy, d) < SIGHT_OPEN) continue;   // nothing behind it to hide
     PROPSIGHT.occl++;
+    const fzAuth = MAP.fz[(p.y | 0) * N + (p.x | 0)];   // #695 item 1: the deck this prop was authored on
     /* Walk SIDEWAYS, left first, one then two then three then four cells: the shortest move that leaves
        the band. Left-first rather than hash-chosen, because the perpendicular's sign is a function of the
        bearing and a coin flip per prop would read as one more draw bolted onto the deal. */
-    let nx = -1, ny = -1;
+    let nx = -1, ny = -1, fx = -1, fy = 0;           // fx,fy: where the walk STOPPED honouring the deck (#695 item 1)
     for (let step = 1; step <= SIGHT_REACH && nx < 0; step++) {
       for (let side = 0; side < 2 && nx < 0; side++) {
         const sgn = side ? 1 : -1;
@@ -3872,10 +3873,26 @@ function rankLoudProps(sx, sy, ang) {
         while (b > Math.PI) b -= TAU; while (b < -Math.PI) b += TAU;
         if (Math.abs(b) <= SIGHT_BAND && dd <= SIGHT_FAR) continue;
         if (isSolid(gx + 0.5, gy + 0.5)) continue;
+        /* #695 item 1: SAME DECK. Every test above is about the player's sight line and his ability to
+           reach the cell; none of them reads a height, and a perpendicular walk of up to SIGHT_REACH cells
+           crosses a stepped room's bands easily. A crate on the deck ABOVE the one it was authored on is a
+           false statement about the level - it says that storey is reachable storage when it is the storey
+           you cannot get to - which is worse than the sight-line defect this pass was written to fix, so a
+           candidate standing on another floor is simply not a destination and the walk tries the next cell.
+           `fzAuth` is the prop's OWN floor, read before anything moves, so this compares the relocation to
+           what the generator authored rather than to whatever the walk was doing last. Recording `fx,fy`
+           one line EARLIER - the first cell that satisfies every other test, which is exactly where the
+           pre-item-1 walk would have parked the prop - is what lets `view.js props` price this test on the
+           same deal instead of arguing that stepped rooms exist. */
+        if (fx < 0) { fx = gx; fy = gy; }
+        if (MAP.fz[i] !== fzAuth) { PROPSIGHT.band++; continue; }
         nx = gx; ny = gy;
       }
     }
-    if (nx < 0) { PROPSIGHT.stuck++; continue; }  // walled in: leave it, and let the census row say so
+    if (nx < 0) {                     // no legal cell on this prop's own deck: leave it, and NAME the deal
+      PROPSIGHT.stuck++; PROPSIGHT.stuckAt.push([p.x | 0, p.y | 0, p.kind, fzAuth]); continue;
+    }
+    if (fx >= 0 && MAP.fz[fy * N + fx] !== fzAuth) PROPSIGHT.cross++;   // the deck test is what moved THIS one
     PROPSIGHT.log.push([p.x, p.y, nx + 0.5, ny + 0.5, p.kind, PROPS.indexOf(p)]);
     p.x = nx + 0.5; p.y = ny + 0.5; p.z = floorAt(p.x, p.y); p.yaw = propYaw(p.x, p.y);
     PROPSIGHT.moved++;
