@@ -10566,6 +10566,54 @@ if (MODE === 'contrast') {
     }
     return { dist: maxD, why: 'guard', dz: 0 };
   }`);
+  /* __seatFor: THE LENS IS PARKED BY AN INDEX THAT CANNOT BE MOVED BY A SOLID (#189 family).
+     The old derivation indexed into the list of OPEN cells, so writing one more solid rank shifted
+     every later cell's index and the camera stood in a DIFFERENT ROOM on the two trees - measured
+     #631: cam 1 at 11,8 band 0.00 on main against 13,8 band 1.00 here, 5 bodies in the frustum of
+     which 4 were hidden by slab geometry there and 3 of which were in the clear here, mask 2,064 px
+     against 15,103. A row that silently switches cameras between builds cannot gate anything, and
+     the annulus then graded three unhidden casters against one posed body's silhouette.
+     So: index over EVERY cell of the grid in row-major order - a list whose length is the grid and
+     nothing else - and let only the one cell that index names be affected by solidity. If that cell
+     is solid, step to the nearest open cell ON THE SAME BAND by a Chebyshev ring scan in (dy, dx)
+     order, which is a function of the grid rather than of how many cells happen to be walkable. A
+     seat that had to step says so beside its anchor, and a seat that stepped OFF its band says that
+     too, because both are cases where the pin did not fully hold and the reader should see it. */
+  run(`window.__seatFor = function (cam) {
+    const all = []; for (let y = 1; y < MH - 1; y++) for (let x = 1; x < MW - 1; x++) all.push([x, y]);
+    const a = all.length ? all[((all.length * 0.31 + cam) | 0) % all.length] : [P.x | 0, P.y | 0];
+    const bq = MAP.fz[a[1] * MW + a[0]];
+    let nOpen = 0;
+    for (const q of all) if (!isSolid(q[0] + .5, q[1] + .5)) nOpen++;
+    const scan = (r0, sameBand) => {
+      for (let r = r0; r <= 10; r++)
+        for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
+          if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+          const x = a[0] + dx, y = a[1] + dy;
+          if (x < 1 || y < 1 || x >= MW - 1 || y >= MH - 1) continue;
+          if (isSolid(x + .5, y + .5)) continue;
+          if (sameBand && MAP.fz[y * MW + x] !== bq) continue;
+          return [x, y];
+        }
+      return null;
+    };
+    let c = a, why = 'the anchor cell itself, which is open';
+    if (isSolid(a[0] + .5, a[1] + .5)) {
+      const s = scan(1, true);
+      if (s) { c = s; why = 'STEPPED to the nearest open cell on band ' + (bq * ZQ).toFixed(2) +
+        ' (the anchor is solid: something wrote a rank here)'; }
+      else {
+        const f = scan(1, false);
+        if (f) { c = f; why = 'STEPPED OFF BAND to the nearest open cell at all - the pin did NOT hold,'
+          ' no open cell on band ' + (bq * ZQ).toFixed(2) + ' within 10 cells'; }
+        else { c = [P.x | 0, P.y | 0]; why = 'NO OPEN CELL ANYWHERE within 10 cells of a solid anchor;'
+          ' fell back to the level seat'; }
+      }
+    }
+    window.__seatInfo = { seat: c, anchor: a, band: MAP.fz[c[1] * MW + c[0]] * ZQ, nAll: all.length,
+      nOpen: nOpen, why: why };
+    return c;
+  }`);
   console.log('contrast: coverage-mask oracle on level ' + LVL + '  buffer ' + W + 'x' + H +
     (DARKRING ? '  DARKRING' : '') + (NOBODY ? '  NOBODY' : '') +
     (RIM >= 0 ? '  RIM=' + RIM : '') + (isNaN(TINTK) ? '' : '  TINT=' + TINTK) + (POSEONLY ? '  POSEONLY' : '') +
@@ -10609,8 +10657,7 @@ if (MODE === 'contrast') {
     if (FLAT) run('MAP.fz.fill(0); MAP.cz.fill(CZ_DEF); linkBoundaries(); for (const e of ENEMIES) e.z = floorAt(e.x, e.y);');
     const camG = run(`(()=>{
       window.__posed = null; window.__looked = null;
-      const cs=[];for(let y=1;y<MH-1;y++)for(let x=1;x<MW-1;x++)if(!isSolid(x+.5,y+.5))cs.push([x,y]);
-      const c=cs.length?cs[((cs.length*0.31+${cam})|0)%cs.length]:[P.x|0,P.y|0];
+      const c=window.__seatFor(${cam});
       P.x=c[0]+.5;P.y=c[1]+.5;P.pitch=0;P.z=floorAt(P.x,P.y);
       // cam 0 looks down the longest sight line, cam 1 looks AT the nearest enemy, cam 2 parks
       // the nearest enemy 3.5 m in front of the lens: the first measures specks on the horizon,
@@ -10743,7 +10790,7 @@ if (MODE === 'contrast') {
       for(const e of ENEMIES)e.state='sleep';
       return {n:ENEMIES.length, pose:poseD, why:poseWhy, clear:clear, band:band, off:poseOff, poseClear:poseClear,
         coneMax:coneMax, spotBand:spotBand, spotPlace:spotPlace, spotOff:spotOff, tried:spotTried, alive:alive,
-        clearWhy:clearWhy, clearDz:clearDz, spots:spots, seat:seat};
+        clearWhy:clearWhy, clearDz:clearDz, spots:spots, seat:seat, pin:window.__seatInfo};
     })()`);
     // arm the mask (null in play; this probe is its only caller) and any shading control
     run('if (!COV || COV.length !== BW * BH) COV = new Uint8Array(BW * BH);');
@@ -10979,6 +11026,18 @@ if (MODE === 'contrast') {
        failure - it is the reason the body below is posed. The numbers are the shape #189 was filed
        with: how far the body is, and how much nearer the thing in front of it is. */
     const named = b => b.map(q => 'body ' + q.d.toFixed(2) + ' m / block ' + q.stop.toFixed(2) + ' m').join(', ');
+    /* #631 (review at 0f86516): THE SEAT CENSUS IS THE PIN'S FALSIFIER. It prints the cell the lens
+       was parked in, the band it stands on and the frustum it looks through, on every camera of every
+       level, so the claim "this seat does not move when a cell becomes solid" is checkable by running
+       ONE copy of this file twice with JSDIR= and diffing the line. A pin that still moves prints a
+       different cell here, and that is the whole test. */
+    console.log('  seat pin   cam ' + cam + ' stands at ' + camG.pin.seat + ' on band ' + camG.pin.band.toFixed(2) +
+      ' (cell ' + ((camG.pin.nAll * 0.31 + cam) | 0) % camG.pin.nAll + ' of ' + camG.pin.nAll +
+      ' cells row-major, ' + camG.pin.nOpen + ' of them open, anchor ' + camG.pin.anchor + ')'
+      + (inFr.length !== visB.length + hidB.length ? ' CENSUS BROKEN' : '')
+      + '  frustum ' + inFr.length + ' = ' + visB.length + ' clear + ' + hidB.length + ' hidden'
+      + (camG.pin.anchor[0] === camG.pin.seat[0] && camG.pin.anchor[1] === camG.pin.seat[1]
+        ? '' : '   [moved: ' + camG.pin.why + ']'));
     console.log('  occlusion  ' + inFr.length + ' of ' + bodies.length + ' bodies in the +' + FOVH.toFixed(1) +
       ' deg half-frustum: ' + visB.length + ' in the clear, ' + slabB.length + ' hidden by slab/band geometry' +
       (slabB.length ? ' [' + named(slabB.slice(0, 4)) + (slabB.length > 4 ? ', +' + (slabB.length - 4) : '') + ']' : '') +
