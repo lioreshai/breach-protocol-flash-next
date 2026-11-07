@@ -16797,6 +16797,55 @@ if (MODE === 'props') {
       ` + `if (p.kind !== 'crate' && p.kind !== 'barrel') continue; const dx = p.x - P.x, dy = p.y - P.y, d = Math.hypot(dx, dy);
       ` + `if (d < SIGHT_NEAR || d > SIGHT_FAR) continue; let a = Math.atan2(dy, dx) - P.ang;
       ` + `while (a > Math.PI) a -= TAU; while (a < -Math.PI) a += TAU; if (Math.abs(a) <= SIGHT_BAND) n++ } return n })()`;
+    /* #772 THE PIXEL GROUND TRUTH FOR "IS THIS PROP IN THE WAY". The pass decides that with a flat ray over
+       `MAP.cell`, which asks which CELLS lie between the dealt seat and the prop and never asks what is drawn
+       on the rows those cells project to - so on a stepped room it can spend a walk or a demotion on a prop
+       the dealt frame contains none of (measured on the deal #772 names: flipping the rank moves 0 px, and
+       deleting the prop moves 0 px, while deleting every prop in the level moves 2649). A 3-D ray is the
+       cheap candidate for that question, so it was tried first, and it does not track the picture either:
+       `losZ` from the seat's eye to the prop's mid-height calls 5 of the 10 in-band loud props over these 16
+       deals invisible while the renderer paints 30 / 168 / 224 / 352 / 1384 px of them, and at those pixels
+       the renderer's own depth buffer reads the prop's own distance (8.83/8.96 at 9.49 m, 4.78/5.17 at
+       5.10 m), which is the renderer saying nothing nearer stands there; drop `bandExitT` out of that ray
+       and it is wrong the OTHER way on the same sweep - it calls the 0 px prop in the issue visible. Aiming
+       at the top third does not settle it either. So a single ray at a single height is not a stand-in for
+       "the eye draws a pixel of it" on stepped content: the visible part of a sprite on a deck one band up
+       is the part that clears the slab's projected top edge, which no one-ray test states.
+       This block therefore measures the quantity instead of proxying it: for every prop the shipped pass
+       SPENT something on - a move in `PROPSIGHT.log`, a demotion in `PROPSIGHT.stuckAt` - the frame is shot
+       twice at the DEALT seat, with and without that one prop, and the differing pixels are what the rule
+       paid for. Zero differing pixels is the defect stated without a proxy. It re-deals at the end of the
+       block because it renders, and the census rows above must not inherit a mutated frame. */
+    let psPxSeen = 0, psPxZero = 0; const psPxZeroAt = [];
+    {
+      for (let li = 0; li < run('LEVELS.length'); li++) {
+        for (let d = 0; d < PS_DEALS; d++) {
+          run(`genLevel(${li});`);
+          const p = JSON.parse(run('JSON.stringify(PROPSIGHT)'));
+          const spent = [];
+          for (const m of p.log) spent.push([m[5], m[4]]);
+          for (const s of (p.stuckAt || [])) spent.push([s[4], s[2] + ' (demoted, not moved)']);
+          if (!spent.length) continue;
+          run('renderWorld()');
+          const base = new Uint32Array(run('px'));
+          for (const e of spent) {
+            if (!(e[0] >= 0)) continue;
+            run(`window.__p772 = PROPS.splice(${e[0]}, 1)[0]; renderWorld();`);
+            const wo = new Uint32Array(run('px'));
+            run('PROPS.splice(' + e[0] + ', 0, window.__p772); delete window.__p772;');
+            let df = 0; for (let i = 0; i < base.length; i++) if (base[i] !== wo[i]) df++;
+            psPxSeen++;
+            if (!df) {
+              psPxZero++;
+              psPxZeroAt.push('L' + li + ' deal ' + d + ' ' + e[1] + ' at ' + run('Math.hypot(PROPS[' + e[0] + '].x - P.x, PROPS[' + e[0] + '].y - P.y).toFixed(1)')
+                + ' m, ' + run('MAP.fz[(PROPS[' + e[0] + '].y | 0) * MW + (PROPS[' + e[0] + '].x | 0)]') + '/'
+                + run('MAP.fz[(P.y | 0) * MW + (P.x | 0)]') + ' deck quanta (prop/seat)')
+            }
+          }
+        }
+      }
+    }
+    rs = rsSave;
     for (let li = 0; li < run('LEVELS.length'); li++) {
       const L = [0, 0, 0, 0, 0, 0, 0]; let paired = false, ranked = false, stuckHere = [];
       for (let d = 0; d < PS_DEALS; d++) {
@@ -17010,6 +17059,17 @@ if (MODE === 'props') {
       + 'the scene dump\'s own camera is derived from the longest sight line out of an open cell by list '
       + 'index, is not the cell the player starts in, and was the reason #757\'s first A/B printed '
       + 'byte-identical while the record rows moved.');
+    psRow('the rule spends its moves on pixels the dealt seat draws',
+      psPxSeen > 0 && (process.env.STRICT ? psPxZero === 0 : psPxZero <= +(process.env.PS_PXZERO || 2)),
+      psPxSeen + ' prop(s) had a move or a demotion spent on them over ' + psDeals + ' deals, and ' + psPxZero +
+      ' of them draw ZERO pixels at the dealt seat (the frame with that prop minus the frame without it, same'
+      + ' seat, same deal, so the differing pixels ARE that prop and nothing else)' +
+      (psPxZeroAt.length ? ': ' + psPxZeroAt.join('; ') : '') + '. That count is #772 stated as a pixel number '
+      + 'rather than as a ray: the sight test is a flat march over MAP.cell, so the rule can pay for a frame '
+      + 'that contains none of the prop. It is a KNOWN debt row at the measured baseline (2 of 16 spent actions - a move and a demotion, both props on a deck above the seat, '
+      + 'the deal #772 names), red past it, and red at anything above 0 under STRICT=1. The fix is the sight '
+      + 'test, not this floor; `psPxSeen > 0` is the clause that stops the row being satisfied by a sweep that '
+      + 'acted on nothing, and no 3-D ray tried here reproduces this count - see the block above.');
   }
   console.log((bad ? 'PROPS PROBE: ' + bad + ' FAILURE(S)' : 'PROPS PROBE: every prop volumetric, light-exempt where emissive, grounded, and solid to the player')
     + (bad || !gkn ? '' : '\n  KNOWN #533: ' + gkn + ' gated prop axis/axes carry surface but under 1/3 of the deck in the same frame (rows above) - the prop is still the plainest object in the room'));
