@@ -297,7 +297,26 @@ const MESH = (function () {
      #19). Near the eye TPR is over 30 px, so level 0 runs with #232's arithmetic untouched and the
      recorded torso gradient still reads 2.52 / 2.17 / 2.52; everything that moves is a body far enough
      to have had no surface at all. */
-  const TS_CYC = 10, TS_MINP = 3.5, TS_LMAX = 2, TS_SLOPE = 9, TS_MAX = 26, TS_BMIN = 0.45;
+  const TS_CYC = 10, TS_MINP = 3.5, TS_LMAX = 2, TS_SLOPE = 9, TS_MAX = 26, TS_BMIN = 0.45, TS_NSLOPE = 0.65;
+  /* #727 THE FLOOR HAD NO SLOPE, AND UP CLOSE THAT MADE IT THE WHOLE TERM. TS_BMIN is the amplitude a
+     face SQUARE to the eye keeps when the grazing band gives it nothing, and it is a CONSTANT - so the
+     luma-per-pixel a chest delivers falls off with range exactly as fast as the face gets bigger, which
+     is the one thing #232 forbids ("what stays constant is the SLOPE, never the amplitude"). Measured
+     on this head by printing TPR at the draw: a brute's torso carries its ONE #655 period (tcy 1.63) as
+     a 49.7 px seam at the `scene 2 0` seat and a 190 px one at 2 m, because the period is a fraction of
+     his own body and the eye is 2 m from it. At 190 px the floor is 0.45 * TS_MAX 26 = 11.7 luma of
+     peak-to-peak spread over the chest: 0.08 luma per pixel, 110x under the slope TS_SLOPE holds at
+     range, and the acceptance scan's own verdict on the deployed build is `one FLAT FIELD` with 0 of 21
+     rows carrying any travel. Nothing was fading - the taper in TS_MINP / TS_LMAX is far away at both
+     ranges, as #760 established.
+       So the floor gets the law the rest of this file already runs: amplitude = SLOPE * projectedPeriod
+     / 4, in TS_NSLOPE, floored at TS_BMIN * TS_MAX and capped at TS_MAX exactly like TAMP. TS_NSLOPE
+     0.65 puts the crossover where the two measurements are: a brute keeps #232's floor beyond 5.3 m and
+     a grunt beyond 4.4 m, so every recorded frame - all of them 7 m out or further - holds its byte, and
+     only a body a player has closed to arm's length turns inside his own silhouette. The cap is what
+     keeps this from being a brightness term: 26 luma is the same ceiling a grazing edge already carries,
+     the wave stays zero-mean over the face, and the clip in `tri` still shallowes it on armour too dark
+     to carry it (#533). Props and the view model read TS_BMIN unchanged - see TF at the draw. */
   const TSC = [0.80, 1.00, 1.15];                   // slightly cool seams on warm armour
   /* 1/TSC, for the clip bound in `tri`: the excursion a channel can carry is its distance to the byte
      limit DIVIDED by its own multiplier, so the two tables cannot drift apart. TSC[2] is unused by the
@@ -390,7 +409,7 @@ const MESH = (function () {
      the same argument holds at range. PS_SLOPE/PS_MAX are armour's 9/26 scaled to a surface that
      means 48 rather than 100; the LAW - amplitude from the pixel's own projected period - is the
      body's and is not re-derived here. */
-  let TAMP = 0, TK = 0, ST = null, TQ0 = 0, TQ1 = 0, TQ2 = 0, TCYC = 10;
+  let TAMP = 0, TK = 0, ST = null, TQ0 = 0, TQ1 = 0, TQ2 = 0, TCYC = 10, TF = TS_BMIN;
   /* #562: HD is the rig's per-vertex HAND marker (wBuild) - the second structure law inside one view-model
      draw. It defaults to an EMPTY array rather than null because the triangle loop reads it on every mesh
      in the game: an empty read is `undefined`, which is falsy, so a body or a prop takes its own constants
@@ -1006,7 +1025,7 @@ const MESH = (function () {
   function vArm(b, x, y, z, s, back, st) {
     const ga = vGripOff(b, back, st); x += ga[0]; y += ga[1]; z += ga[2];
     const w = back ? -1 : 1;
-    s *= vHandScale(st);
+    s *= vHandScale(st, b && b.kind);
     b.tube(x - w * 0.006 * s, y - 0.038 * s, z + 0.004 * s, x + w * 0.010 * s, y - 0.072 * s, z - 0.020 * s,
       0.0128 * s, 0.0150 * s, VW.gloveD);              // the wrist, out of the fist and down
     b.tube(x + w * 0.010 * s, y - 0.072 * s, z - 0.020 * s, x + w * 0.062 * s, y - 0.330 * s, z - 0.095 * s,
@@ -1059,7 +1078,24 @@ const MESH = (function () {
      every term the geometry reads, and a rig that shrank the hands without keying the shrink would serve a
      hip geometry to an ADS frame depending on which of the two was built first. */
   const VMADS = 0.62;                               // hand size at FULL ADS, relative to its hip size
-  const vHandScale = st => 1 - (1 - VMADS) * clamp(st && st.ads ? st.ads : 0, 0, 1);
+  /* #741 A HIP-ONLY FIST SIZE, and it is hip-only for the same reason `VMGRIP` is: at `ads = 1` the term
+     is EXACTLY 1.0, so the sight picture builds the bytes `sight`, `flatparity` and `viewmodel` record.
+     WHY IT EXISTS AT ALL: `viewmodel`'s two fist rows are two halves of one number - `grip` counts hand
+     surface that lands inside the gun's silhouette and `hands` counts the surface outside it, and the two
+     sum to the hand's visible surface exactly (pistol 1864 + 1889 = 3753 at this head). Asking for 70 % of
+     the surface ON the part while the `hands` row still needs the fists to paint at least as much hand at
+     ADS as at hip therefore asks for a surface the pistol does not have: 1248 px of out-of-gun mass at a
+     30 % ceiling needs 4160 px of visible fist and the pistol brings 3753. The shotgun (3674) and rifle
+     (2732) clear that bar with placement alone and are left at 1.0. The pistol's own frame is also the one
+     the issue's live capture reads worst, so the extra 6 % linear (12 % of area) goes where the reading is
+     wrong, is ramped to 1.0 by `ads`, and is scaled through `s` so it grows the hand TOWARD the part it is
+     wrapped round rather than in place. */
+  const VMHSIZE = { pistol: 1.06, shotgun: 1, rifle: 1 };
+  const vHandScale = (st, kind) => {
+    const a = clamp(st && st.ads ? st.ads : 0, 0, 1);
+    const hs = (kind && VMHSIZE[kind]) || 1;          // 1.0 at ads = 1; hip-only by construction
+    return (1 - (1 - VMADS) * a) * (1 + (hs - 1) * (1 - a));
+  };
   /* #632 WHERE THE FIST MOVES TO WHEN IT HAS TO HOLD SOMETHING. Hip-only, in the gun's own metres,
      per hand (0 = the strong hand on the grip, 1 = the support hand), and EXACTLY ZERO at full ADS for
      the same reason the scale ramp is: the ADS pose is recorded by `sight`, `flatparity` and `viewmodel`,
@@ -1085,10 +1121,29 @@ const MESH = (function () {
      It is applied inside vHand AND vArm from the same numbers, which is the point of putting it here
      rather than at the call sites: the wrist is emitted from the fist's own anchor, so a shift that
      moved only the fist would detach the arm from the hand it belongs to. */
+  /* #741 WHERE THOSE HANDS ACTUALLY SIT AT HIP. The entries above came from #632, which priced the
+     support fist's DETACHMENT (it was beside the grip, not under it) and stopped there. The remaining
+     defect was a different one: a fist's mass runs OUTWARD from its anchor (back of hand at -w*0.017,
+     knuckle creases at -w*0.025 in `vHand`), so an anchor parked off the part's axis paints a slab of
+     hand past the part instead of around it - which is the "two tan tabs beside a receiver" reading, and
+     it is why the clear-pixel centroid sat at the bottom-right corner of the raster for all three weapons
+     (517,303 / 553,324 / 560,321 at 601x338). The seats below put each anchor so the fist STRADDLES the
+     edge of the part it holds: most of the surface inside the gun's silhouette, enough outside that the
+     hand still reads as a hand and not as a decal, and none of it far enough out to be a tab. At 0.25 m
+     of reach 8 raster px is ~5.7 mm, i.e. about the width of the hand itself, so "straddling" is also what
+     the row's 8 px dilation is asking for.
+     WHAT EACH ROW NOW PRINTS (one run, `node tools/view.js viewmodel`, raster 601x338): on-weapon 77.6 /
+     78.7 / 77.1 % (was 49.7 / 43.0 / 43.5), clear 7.8 / 6.1 / 8.2 % of hand surface (was 27.7 / 45.0 /
+     36.6), and out-of-gun fist mass 1333 / 1029 / 860 px against that weapon's own ADS-out-of-gun ceiling
+     of 5227 / 2348 / 2152 and its ADS-share floor of 1248 / 642 / 643. Both rows are green on both of
+     their clauses; neither threshold moved. The long guns changed PLACEMENT only - their size term is 1.0.
+     A deeper or nearer fist was tried and is the wrong dial (perspective spreads it outside the part's own
+     silhouette; 20-40 mm of depth away erases the pump and magazine pixels `rounds` prices), which is why
+     only x and y move here. */
   const VMGRIP = {
-    pistol:  [[0, 0, 0], [0.013, 0.010, -0.018]],
-    shotgun: [[0, 0.012, 0], [0.006, 0.016, -0.010]],
-    rifle:   [[0, 0.014, 0], [0.008, 0.018, -0.012]],
+    pistol:  [[-0.023, 0.008, 0], [0.019, 0.040, -0.018]],
+    shotgun: [[-0.040, 0.020, 0], [0.020, 0.016, -0.010]],
+    rifle:   [[-0.012, 0.020, 0], [-0.002, 0.018, -0.012]],
   };
   /* NO fallback by kind. This used to read `VMGRIP[b.kind] || VMGRIP.pistol`, and the `|| pistol` half
      was a load-bearing bug: `kind` is stamped by `wBuild` only, so shotgun and rifle geometry built by
@@ -1107,7 +1162,7 @@ const MESH = (function () {
   function vHand(b, x, y, z, s, back, st) {
     const gg = vGripOff(b, back, st); x += gg[0]; y += gg[1]; z += gg[2];
     if (!VHANDS) return b;
-    s *= vHandScale(st);
+    s *= vHandScale(st, b && b.kind);
     const w = back ? -1 : 1;
     /* #562: the hand IS the region, in the same sense a torso is (#232) and a crate's staves are (#533).
        The coord is the authored x+z in METRES and VS_CYC decides how fast it ramps; see that note. It is set
@@ -1968,6 +2023,10 @@ const MESH = (function () {
        near-field ceiling differ, and what the eye holds constant across a walk past, luma per screen
        pixel, is unchanged in kind. */
     TAMP = TPR <= TS_MINP ? 0 : Math.min(vm ? WS_MAX : pr ? PS_MAX : TS_MAX, (vm ? WS_SLOPE : pr ? PS_SLOPE : TS_SLOPE) * TPR * 0.25);
+    /* #727: the FACE-ON floor, on the same slope law one line above, and for bodies only. Props and the
+       rig keep TS_BMIN verbatim, so their bytes cannot move; a body's floor rises with how wide its own
+       seam projects, which is another way of asking how near he is. See the TS_NSLOPE note. */
+    TF = (vm || pr) ? TS_BMIN : Math.min(1, Math.max(TS_BMIN, TS_NSLOPE * TPR * 0.25 / TS_MAX));
     /* #562 THE FISTS, the second class in this same draw, and the two lines above with VS_* in place of
        WS_*: their own projected period, the same one coarsening past TS_MINP, their own near-field ceiling.
        Nothing here is a second law - it is the law, read at the other class's constants, and it is computed
@@ -2260,7 +2319,7 @@ const MESH = (function () {
         const hh = HD[i0], amp = hh ? TAMPH : TAMP;
         if (amp && (sa !== 0 || sb !== 0 || sz !== 0)) {
           const q = 1 - Math.min(1, vd / Math.max(1e-6, Math.hypot(evx, evy, evz)));
-          TK = amp * (TS_BMIN + (1 - TS_BMIN) * q);
+          TK = amp * (TF + (1 - TF) * q);
           const tcy = hh ? TCYH : TCYC;
           TQ0 = sa * tcy; TQ1 = sb * tcy; TQ2 = sz * tcy;
         } else TK = 0;
