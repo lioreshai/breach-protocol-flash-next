@@ -262,6 +262,11 @@ let bandCand = null;
    it and a generated sector that deals none is a FAILURE there, not an ok. Null until a generated level
    runs the pass; an authored plan never sets it, which the row reads as its own exclusion. */
 let doorWalls = null;
+/* #631 WHY THIS SECTOR DEALS NONE. The census above says what a wall went where; it cannot say why a sector
+   stands none, which is the answer `fixtures` has to print now that a one-cell jamb is a rejection instead of
+   an outcome. One string per generated sector that ran the doorway-wall pass and accepted nothing, naming the
+   rejection that killed the most candidates. Null on an authored plan and empty on a sector that dealt one. */
+let doorDecline = null;
 /* #154: metres of clear ground the prop passes keep off the spawn seat. A `let` rather than a literal
    so a probe can A/B it the way it reassigns topUpEnabled and groundPixel (`SPAWN_CLEAR = 0` is the
    shipped behaviour, no clearance), and so smoke's spawn-clearance row can name what it moved.
@@ -3933,6 +3938,7 @@ function genLevel(li) {
      record, which the row reads as its own vacuity FAILURE rather than as a prediction it did not make. */
   bandCand = null;
   doorWalls = null;                                 // #631: the doorway-wall census is per level too
+  doorDecline = null;                               // #631: and so is the reason a sector dealt none
   /* #353, same trap as the record above and it is live: `overlookPairs` is reset inside `authorVolume`,
      which an authored plan returns past before the pairing pass runs, so THE STACK inherited level 2's
      three pairs. Nothing on the authored path reads them - `authorOverlooked` and `lightOverlookDecks`
@@ -4772,6 +4778,21 @@ function genLevel(li) {
     if (pierEnabled())
     { let levelWall = 0;                             // one solid doorway-wall per generated sector (#631)
     doorWalls = [];                                  // #631: this sector runs the pass, so it has a census
+    /* #631 WHY NOTHING WAS ACCEPTED. Every rejection below is counted by name, so a sector that deals no wall
+       can SAY why instead of just being silent, which is what `fixtures` needs now that a short jamb is a
+       rejection: "declined" and "inert" have to be tellable apart. It is a tally of candidate rejections, not
+       a new rule - it decides nothing, draws no RNG, and writes no cell. */
+    const decl = {};
+    /* THE STAGE IS PART OF THE ANSWER. A reason that killed 17 candidates at the FIRST test tells you less
+       than a reason that killed two candidates nobody had to refuse for anything else, so the decline names
+       the rejection that got FURTHEST before dying, and only uses the count to break a tie between two
+       rejections at the same stage. Stage 1 shape, 2 a reservation, 3 the line's own length or holes, 4 the
+       jamb bar, 5 the room's own views, 6 the stranding proof - later = closer to standing a wall. */
+    const deny = (why, st) => {
+      const d = decl[why] || (decl[why] = { n: 0, s: st });
+      d.n++;
+      return 0;
+    };
     for (let ri = 0; ri < rooms.length; ri++) {
       const r = rooms[ri];
       if (r.w * r.h < 24) continue;                        // a 5x5 room is already one bay; give it nothing
@@ -4925,31 +4946,36 @@ function genLevel(li) {
            WHICH MARCH THAT MEASURES IS THE ROOM'S DEEPEST ONE, read off the set above, not off whichever
            single cell happened to win the old one-cell scan - the criterion is the room's axis, and the
            room has more than one view along it. */
-        if (!roomMarches()) return 0;                         // nobody marches in here: no doorway is shown
+        if (!roomMarches()) return deny('no march past PIER_NEAR in this room', 1);   // nobody marches here
         let deep = marches[0];
         for (const m of marches) if (m.d > deep.d) deep = m;  // the room's OWN axis: its longest march
-        if (alongX !== (Math.abs(deep.vx) >= Math.abs(deep.vy))) return 0;
+        if (alongX !== (Math.abs(deep.vx) >= Math.abs(deep.vy)))
+          return deny('a line along the march, not across it', 1);
         const span = alongX ? r.h : r.w;
         const want = gapAt(r, alongX, pos, inRoom, seatAng);
         const put = [], ks = [];
         let open = 0;                                       // reserved cells the wall has to leave as openings
         for (let k = 1; k < span - 1; k++) {
           const x = alongX ? pos : r.x + k, y = alongX ? r.y + k : pos;
-          if (x < 1 || y < 1 || x >= N - 1 || y >= N - 1) return 0;
+          if (x < 1 || y < 1 || x >= N - 1 || y >= N - 1) return deny('a line off the room', 2);
           const i = y * N + x;
-          if (cell[i]) { return 0; }
-          if (fzTry[i] !== 0) { return 0; }
+          if (cell[i]) { return deny('a cell of the line is already solid', 2); }
+          if (fzTry[i] !== 0) { return deny('a cell of the line stands on a band edge', 2); }
           if (shotRun[i]) { open++; continue; }                     // stays air: the shot lane still flies
           let near = featTry[i] !== FEAT_NONE;
           for (let d = 0; d < 4 && !near; d++) {
             const j = (y + DIRY[d]) * N + x + DIRX[d];
             if (j >= 0 && j < N * N && featTry[j] !== FEAT_NONE) near = true;
           }
-          if (near) { return 0; }
-          if (occupied[i]) { return 0; }
+          if (near) { return deny('a feature cell', 2); }
+          if (occupied[i]) { return deny('a prop, lamp or enemy already owns the cell', 2); }
           put.push(i); ks.push(k);
         }
-        if (open > 2 || put.length < 3) return 0;                   // a rank with holes is not a wall
+        /* THE LINE HAS TO BE LONG ENOUGH TO CARRY TWO CELLS OF WALL ON EACH SIDE OF ITS OPENING (#631's
+           criterion two, at the length term). Five cells is the arithmetic of that: two + opening + two. A
+           shorter line is not a wall with a doorway in it however the opening is chosen, so it dies here
+           rather than after a gap has been looked for in it. */
+        if (open > 2 || put.length < 5) return deny(open > 2 ? 'more than two shot-run reservations' : 'a line too short to leave two cells of wall either side of an opening', 3);
         /* WHICH CELL OF THE LINE IS THE OPENING. `gapAt` names the room centre (or, in the room you wake
            in, the cell the wake view reaches), and for a room the spawn is not in that is a cell chosen by
            geometry alone - the head before this one asked a candidate to show THAT cell and, when it could
@@ -4957,10 +4983,31 @@ function genLevel(li) {
            and the rest of the line is asked in order of how near it sits to that centre, so the opening
            lands as close to where the room puts it as the room's own views allow instead of wherever the
            room happens to sit. A line with no cell any view shows is still a rejection. */
-        let gap = -1;
-        const order = ks.slice().sort((a, b) => Math.abs(a - want) - Math.abs(b - want) || a - b);
-        for (const k of order) if (doorSeen(alongX, pos, k, put, span)) { gap = k; break; }
-        if (gap < 0) return 0;                                      // an unseen doorway is not a destination
+        /* TWO CELLS OF THE LINE'S OWN WALL ON EACH SIDE OF THE OPENING (#631, the product decision on the
+           review). An opening with one cell of wall past it is the END of a wall - #403's shape wearing this
+           issue's clothes - and the build was only PRINTING that fact. It is now asked before a cell can be
+           the doorway at all: `jambs` counts the cells of THIS LINE on each side of the candidate, so cells
+           the wall did not write (a shot-run reservation that stays air, a room wall beyond the line) cannot
+           be counted as carrying on past it. The wall may reach FURTHER along the line to afford its jambs -
+           every cell of the line is still offered, and the ordering below asks the cells nearest the one the
+           room shows first - it may not buy them by writing fewer cells. `JAMB` is criterion two, not a
+           tuned margin: 2 = "wall on both sides", 1 = the stub this clause exists to refuse.
+           The sort gained a term, and it is the shape criterion and not a taste term: of two cells equally
+           near the one the room shows, the one with the longer wall on its SHORTER side is asked first, so a
+           candidate that only just clears the bar loses to one that clears it comfortably. No new draw, so
+           still no prop, lamp, enemy or seat moves. */
+        let gap = -1, jambMiss = 0;
+        const jambs = (k) => { let l = 0, r = 0;
+          for (const j of ks) { if (j < k) l++; else if (j > k) r++; }
+          return l < r ? l : r; };
+        const JAMB = 2;
+        const order = ks.slice().sort((a, b) => Math.abs(a - want) - Math.abs(b - want) ||
+          jambs(b) - jambs(a) || a - b);
+        for (const k of order) {
+          if (jambs(k) < JAMB) { jambMiss++; continue; }  // a wall END here is not a doorway in one
+          if (doorSeen(alongX, pos, k, put, span)) { gap = k; break; }
+        }
+        if (gap < 0) return deny(jambMiss === order.length ? 'no cell of the line leaves two cells of wall on each side' : 'no cell of the line is on a screen this room gives', jambMiss === order.length ? 4 : 5);   // an unseen doorway is not a destination
         const gi = (alongX ? r.y + gap : pos) * N + (alongX ? pos : r.x + gap);
         const gp = put.indexOf(gi);
         if (gp >= 0) put.splice(gp, 1);    // the opening is the one cell of the line this wall does NOT write
@@ -4971,7 +5018,7 @@ function genLevel(li) {
         for (let i = 0; i < N * N; i++) {
           if (was[i] < 0 || now[i] >= 0 || cell[i] !== 0) continue;
           for (const i2 of put) cell[i2] = 0;                       // the wall would strand walkable floor
-          return 0;
+          return deny('the wall would strand walkable floor', 6);
         }
         placed += put.length; gotWall++;
         if (doorWalls) doorWalls.push({ room: ri, x: r.x, y: r.y, w: r.w, h: r.h, alongX: alongX ? 1 : 0, pos: pos, gap: gap, cells: put.length });
@@ -5188,6 +5235,19 @@ function genLevel(li) {
         for (const c of cands) if (tryWall(c[0], c[1])) { frameGap(r, c[0], c[1], inRoom, seatAng); gotWall = 1; levelWall = 1; break; }
       if (!gotWall)
         for (const c of cands) if (tryLine(c[0], c[1], c[2], inRoom)) { frameGap(r, c[0], c[1], inRoom, seatAng); break; }
+    }
+    /* #631 THE DECLINE IS NAMED, NOT IMPLIED. If this sector ran the pass and stands no doorway-wall, the
+       rejection that killed the most candidates is what a reviewer has to see: "it keeps main's pier line" is
+       equally true when the geometry never offered a line long enough to carry two cells of wall either side
+       of an opening and when every line it offered was refused for stranding floor, and those are different
+       next moves. The busiest reason wins; it reports a tally, it decides nothing. */
+    if (!levelWall) {
+      let bestWhy = '', bestN = 0, bestS = -1;
+      for (const w in decl) if (decl[w].s > bestS || (decl[w].s === bestS && decl[w].n > bestN)) {
+        bestS = decl[w].s; bestN = decl[w].n; bestWhy = w;
+      }
+      doorDecline = bestN ? bestWhy + ' (' + bestN + ' candidate line(s), stage ' + bestS + ' of 6)'
+        : 'no candidate line was ever offered';
     }
     // The grid changed, so the derived bits change with it (AGENTS.md): VB_BLOCK is read from the
     // neighbour grid, and a pier is a new neighbour of four cells.
