@@ -17648,11 +17648,15 @@ if (MODE === 'props') {
       ' of them draw ZERO pixels at the dealt seat (the frame with that prop minus the frame without it, same'
       + ' seat, same deal, so the differing pixels ARE that prop and nothing else)' +
       (psPxZeroAt.length ? ': ' + psPxZeroAt.join('; ') : '') + '. That count is #772 stated as a pixel number '
-      + 'rather than as a ray: the sight test is a flat march over MAP.cell, so the rule can pay for a frame '
-      + 'that contains none of the prop. It is a KNOWN debt row at the measured baseline (2 of 16 spent actions - a move and a demotion, both props on a deck above the seat, '
-      + 'the deal #772 names), red past it, and red at anything above 0 under STRICT=1. The fix is the sight '
-      + 'test, not this floor; `psPxSeen > 0` is the clause that stops the row being satisfied by a sweep that '
-      + 'acted on nothing, and no 3-D ray tried here reproduces this count - see the block above.');
+      + 'rather than as a ray. The pass asks NO sight question at all - an occluder today is distance, the '
+      + 'centre band, 3 m of reachable open deck behind it and reachability (js/20_level.js rankLoudProps), and '
+      + 'none of those reads whether a wall face or a slab edge stands between the eye and the prop - so the '
+      + 'rule can pay for a frame that contains none of it. It is a KNOWN debt row at the measured baseline '
+      + '(2 of 16 spent actions - a move and a demotion, both props on a deck above the seat, the deal #772 '
+      + 'names), red past it, and red at anything above 0 under STRICT=1. The fix is one bounded visibility '
+      + 'query over the prop\'s vertical extent, not this floor; `psPxSeen > 0` is the clause that stops the row '
+      + 'being satisfied by a sweep that acted on nothing, and no 3-D ray at a single height reproduces this '
+      + 'count - see the block above.');
   }
   console.log((bad ? 'PROPS PROBE: ' + bad + ' FAILURE(S)' : 'PROPS PROBE: every prop volumetric, light-exempt where emissive, grounded, and solid to the player')
     + (bad || !gkn ? '' : '\n  KNOWN #533: ' + gkn + ' gated prop axis/axes carry surface but under 1/3 of the deck in the same frame (rows above) - the prop is still the plainest object in the room'));
