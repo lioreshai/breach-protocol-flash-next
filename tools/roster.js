@@ -342,6 +342,12 @@ const ENV_CLASS = {
   VH: ['C', 'the render size both harnesses measure at'],
   ASCII: ['C', 'the ASCII print path'],
   SEED: ['C', 'the dealt seed'],
+  // #611: the contrast sweep's OWN dice. The row's verdict is over the worst of 12 DEALS, so naming the
+  // seed it cuts them from changes WHICH pixels the row prices, not what it measures or how it judges -
+  // and SEP_SEEDBASE is how a deal the deployed page called red is replayed headless (tools/view.js
+  // `sepDice`). Defaults are the shipped dice, so nothing ci.yml runs moves.
+  SEP_SEEDBASE: ['C', 'contrast #611: WHICH 12 deals the worst-of-12 row is over (null = the shipped 1000+lv*97+13r; set it to a page ?seed= to replay that deal here)'],
+  SEP_SEEDSTEP: ['C', 'contrast #611: the stride between those deals, same row'],
   JSDIR: ['C', 'WHICH CODE the verdict is of - a knob, so it is scrubbed like any other'],
   REFS_LOCK: ['C', 'WHICH REFERENCE TABLE the verdicts are against - same'],
   PSEAT: ['C', 'surface PROP-SECTOR: score ONE named seat instead of the stride walk, so a seat on an issue can be re-measured in a fresh process'],

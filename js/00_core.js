@@ -212,7 +212,16 @@ const P = {
   hp: 100, armor: 0, z: 0, vz: 0, air: false,     // z is the feet's ABSOLUTE altitude - floorAt(x, y) is what holds it up
   // The eye's knee after a landing (#634): seconds since touchdown (-1 = none) and the downward
   // speed the fall handed it. Both are read by eyeGive() and settle back to no offset at all.
+  // The feet's own vertical speed while a step down is FOLLOWED rather than fallen (STEP_FOLLOW_A,
+  // js/30_entities.js): it starts at rest, arrives at zero, and is handed to vz when a walked descent
+  // runs out into a real drop, so the eye's vertical velocity is continuous across every descent (#634).
+  dzV: 0,
   landT: -1, landV: 0,
+  // The eye's climb after an auto-step UP (#765): how far BELOW the body the eye still is, and the
+  // speed it is closing that gap at. The FEET must arrive on the tread in the crossing frame (an eased
+  // body renders the player inside the floor), so the rise is handed to the eye instead and closed
+  // with the same bounded acceleration the walked step DOWN uses. Both settle back to no offset.
+  riseLag: 0, riseV: 0,
   crouch: 0, sprint: 0, bob: 0, bobPhase: 0, recoil: 0,
   // Boot-time defaults only: resetRun() derives these from WEAPONS, which is the
   // source of truth. The old literals here had drifted from the weapon caps.

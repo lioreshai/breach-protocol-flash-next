@@ -421,6 +421,39 @@ function tryMove(o, dx, dy, rad) {
    impact speed above which the knee is taken as fully bent, which caps the dip at ~0.17 m. */
 const LAND_SHAKE_K = 0.26, LAND_SHAKE_MIN = 0.25, LAND_SHAKE_MAX = 1.2;
 const LAND_GIVE_W = 26, LAND_GIVE_T = 0.45, LAND_GIVE_CAP = 8;
+/* A walked step DOWN is FOLLOWED, not eased (#634's 2026-10-31 playtest rework: "a little skip and then
+   a natural drop"). The ease `P.z += dz * min(1, 16*dt)` is exact about WHERE the feet end up and silent
+   about HOW: its velocity is proportional to the gap, so on the frame a crossing happens the feet are
+   commanded 16*dz from a standstill. Measured at main 174ec34 by sweeping eyeAltitude() per frame, a
+   one-quantum tread moved the eye 0.0667 m in ONE frame (4.0 m/s out of rest - 26 times the 0.153 m/s a
+   body under gravity is allowed per frame) and a 3-quantum climb crossing moved it 0.20 m (12 m/s). That
+   one-frame velocity spike is the skip; the glide that follows is what reads as the drop.
+   STEP_FOLLOW_A bounds the feet's ACCELERATION instead: speed up at A, never faster than sqrt(2*A*d), the
+   speed that still STOPS on the floor at a gap d. Velocity is then continuous from rest to rest with no
+   overshoot, and no frame of a walked descent changes the eye's vertical speed by more than A*dt - the
+   same ceiling a falling body already has, because A is the same 9.2 the airborne branch integrates. It
+   shapes the path between two floors the crossing rules already agreed the feet take; it decides no
+   crossing and moves no balance number. */
+const STEP_FOLLOW_A = 9.2;
+/* The eye's climb after an auto-step UP (#765). The FEET take a one-quantum tread in one frame and
+   must keep doing it: a body that lags below the tread it stepped onto renders as though it is standing
+   in the floor, and `view.js drop`'s "an unblocked quantum step up lifts the feet" row is the check that
+   says so. The EYE has no such obligation, and shipping already decouples the two - after a fall the
+   body stops dead at the floor while eyeGive() carries the eye's speed over a few frames. This is the
+   mirror image of that mechanism, and it uses the same constant: the eye is left d metres below the
+   body and closes the gap accelerating at STEP_FOLLOW_A, capped at sqrt(2*A*d), the speed that still
+   arrives at ZERO lag. Rest to rest, so the eye's vertical speed is continuous across the crossing in
+   both directions, and no frame can ADD more than A*dt to it - gravity's own ceiling, the same one the
+   descent rows hold a walked step-down to. For one quantum: peak 1.52 m/s = 2.5 cm in a frame, spread
+   over 2*sqrt(d/A) = 0.33 s, which is the descent's own number to two decimals (#634, #152).
+   RISE_LAG_MAX is the one place the eye's climb has a bound, and it is the band guard's own number:
+   eyeAltitude() refuses to put the eye below floorAt + 0.12 (js/40_render.js), so a lag of cfg.eye-0.12
+   would have the eye riding the clamp, and a clamp engaging as the treads rise beneath it is the snap
+   this whole change exists to remove. It is a backstop, not a limiter: the closing speed is sqrt(2*A*L),
+   so the law drains FASTER the further behind the eye is, and a climb settles by itself well inside it
+   (`view.js drop`'s ascent rows print the biggest lag they reach). */
+const RISE_LAG_MAX = cfg.eye - 0.15;
+function eyeRise() { return P.riseLag; }
 /* How far BELOW the body the eye sits right now, in metres. The body stops dead at the floor - that
    is what a floor is - so on the touchdown frame the eye's downward speed jumped from the fall's to
    zero, and that jump is the snap: the horizon stopped and then shook on top of a frame that had
@@ -438,6 +471,16 @@ function updatePlayer(dt) {
   // the eye's give outlives the touchdown it came from, and decays to exactly zero: a player
   // standing still renders the frame the body alone puts there (#634)
   if (P.landT >= 0) P.landT = P.landT > LAND_GIVE_T ? -1 : P.landT + dt;
+  // The eye's climb closes at bounded acceleration, exactly the way a walked step-down does, and
+  // arrives at no offset at all: a player standing on a tread renders the frame the body alone puts
+  // there (#765). It runs every frame, grounded or not, because a lag cancelled mid-air would be a
+  // snap dressed up as a fix.
+  if (P.riseLag > 0) {
+    const brake = Math.sqrt(2 * STEP_FOLLOW_A * P.riseLag);
+    P.riseV = Math.min(P.riseV + STEP_FOLLOW_A * dt, brake);
+    P.riseLag -= P.riseV * dt;
+    if (P.riseLag <= 0) { P.riseLag = 0; P.riseV = 0; }
+  }
   if (P.deadT > 0) {
     P.deadT += dt;
     // The death screen is driven by the simulation clock, not a wall-clock timer:
@@ -473,9 +516,9 @@ function updatePlayer(dt) {
     // jump / gravity: P.z is an altitude, so what holds the player up is the column's floor
     const gz = floorAt(P.x, P.y);
     const climb = onLadder(P.x, P.y) ? ((keys['KeyE'] ? 1 : 0) - (keys['KeyQ'] ? 1 : 0)) : 0;
-    if (climb) { P.air = false; P.vz = 0; P.z = clamp(P.z + climb * 1.6 * dt, gz, Math.max(gz, ceilAt(P.x, P.y) - cfg.eye)); }
+    if (climb) { P.air = false; P.vz = 0; P.dzV = 0; P.z = clamp(P.z + climb * 1.6 * dt, gz, Math.max(gz, ceilAt(P.x, P.y) - cfg.eye)); }
     else {
-      if ((keys['Space']) && !P.air && P.crouch < 0.4) { P.air = true; P.vz = 3.0; SND.step(); }
+      if ((keys['Space']) && !P.air && P.crouch < 0.4) { P.air = true; P.vz = 3.0; P.dzV = 0; SND.step(); }
       // Two questions, in this order, and neither answers the other.
       // (1) IS THERE NO FLOOR? A floor more than ONE STEP below the feet is not support. STEP_Z is
       //     the generator's own crossing threshold (js/20_level.js), and STEP_EPS is the eased
@@ -489,7 +532,12 @@ function updatePlayer(dt) {
       //     EK_CLIFF from the low end. `view.js vert`'s feet-vs-kind census is the row that keeps the
       //     two answers the same answer (#633), so reading the kind here adds no second law.
       // A fall is then the jump's own integration, unchanged.
-      if (!P.air && gz < P.z - STEP_Z - STEP_EPS && !steppedDownInto(P.x, P.y, P.z)) { P.air = true; P.vz = 0; }
+      // (3) AND A WALKED DESCENT THAT RUNS OUT INTO ONE OF THOSE keeps the speed it had: the fall is
+      //     handed P.dzV instead of 0. Zeroing it is the same mistake the landing kick used to make - a
+      //     computed number thrown away - and it read as the eye's velocity popping back UP to rest at
+      //     the lip before gravity restarted from zero. Walking off flat ground arrives here with P.dzV
+      //     already 0, so every impact and damage figure in `view.js drop` reads what it read before.
+      if (!P.air && gz < P.z - STEP_Z - STEP_EPS && !steppedDownInto(P.x, P.y, P.z)) { P.air = true; P.vz = P.dzV; P.dzV = 0; }
       if (P.air) {
         P.vz -= 9.2 * dt; P.z += P.vz * dt;
         if (P.z <= gz) {
@@ -511,7 +559,21 @@ function updatePlayer(dt) {
         // a grounded rise of at most ONE STEP is a step the feet simply take; anything taller is a
         // wall by linkBoundaries' own rule - the same threshold, read here instead of restated - so
         // this never lifts the player through a riser
-        if (dz > 0 && dz <= STEP_Z) P.z = gz;
+        if (dz > 0 && dz <= STEP_Z) {
+          P.z = gz; P.dzV = 0;
+          // the feet are on the tread; the eye is handed the rise and follows it - see RISE_LAG_MAX.
+          // The lag is charged on the SAME frame the body moves, which is what makes the eye's own
+          // position continuous: the body's +d and the lag's -d cancel exactly on the crossing frame.
+          P.riseLag = Math.min(RISE_LAG_MAX, P.riseLag + dz);
+        }
+        else if (dz < 0) {
+          // bounded acceleration, then brake onto the floor: see STEP_FOLLOW_A. The last line is a guard
+          // against a frame's truncation, not a snap - the brake term makes it unreachable in the mean.
+          const brake = -Math.sqrt(2 * STEP_FOLLOW_A * -dz);
+          P.dzV = Math.max(P.dzV - STEP_FOLLOW_A * dt, brake);
+          P.z += P.dzV * dt;
+          if (P.z <= gz) { P.z = gz; P.dzV = 0; }
+        }
         else P.z += Math.abs(dz) < 1e-4 ? dz : dz * Math.min(1, 16 * dt);
       }
     }
