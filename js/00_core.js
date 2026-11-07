@@ -217,6 +217,11 @@ const P = {
   // runs out into a real drop, so the eye's vertical velocity is continuous across every descent (#634).
   dzV: 0,
   landT: -1, landV: 0,
+  // The eye's climb after an auto-step UP (#765): how far BELOW the body the eye still is, and the
+  // speed it is closing that gap at. The FEET must arrive on the tread in the crossing frame (an eased
+  // body renders the player inside the floor), so the rise is handed to the eye instead and closed
+  // with the same bounded acceleration the walked step DOWN uses. Both settle back to no offset.
+  riseLag: 0, riseV: 0,
   crouch: 0, sprint: 0, bob: 0, bobPhase: 0, recoil: 0,
   // Boot-time defaults only: resetRun() derives these from WEAPONS, which is the
   // source of truth. The old literals here had drifted from the weapon caps.
