@@ -10919,7 +10919,7 @@ if (MODE === 'contrast') {
        again HERE, after the positions are restored, because "is a found body in the cone" is a question
        about the found frame - and when it says no, the row reports #189 with the cone bound instead of
        measuring an empty shot. */
-    let foundN = -1, foundSt = null, foundVis = 0, foundIn = 0, foundStop = -1;
+    let foundN = -1, foundSt = null, foundVis = 0, foundIn = 0, foundStop = -1, foundNear = -1;
     const ctlCache = {};
     const control = (which) => ctlCache[which] || (ctlCache[which] = flatCtl(which));
     /* Re-render the FOUND frame from scratch and measure it: every body back on the spot the game put it
@@ -10939,14 +10939,14 @@ if (MODE === 'contrast') {
     if (!NOBODY && cam === DEBT.cam) {
       const fq = run(`(()=>{if(window.__posed&&window.__foundPos){const p=window.__posed,f=window.__foundPos;
           p.x=f.x;p.y=f.y;p.z=f.z;p.ang=f.ang;}
-        const cx=Math.cos(P.ang),cy=Math.sin(P.ang);let n=0,k=0,stop=1e9;
+        const cx=Math.cos(P.ang),cy=Math.sin(P.ang);let n=0,k=0,stop=1e9,nd=1e9;
         for(const e of ENEMIES){if(e.state==='dead')continue;
           const dx=e.x-P.x,dy=e.y-P.y,d=Math.hypot(dx,dy);
           const fw=dx*cx+dy*cy,lat=cfg.plane*(dy*cx-dx*cy);
           if(!(d>0.01&&fw>0.2&&Math.abs(lat)<=fw))continue;
-          const m=__march(P.x,P.y,dx/d,dy/d,d);k++;if(m.dist>d-${BRAD})n++;if(m.dist<stop)stop=m.dist;}
-        return {n:n,k:k,stop:stop>1e8?-1:stop}})()`);
-      foundVis = fq.n; foundIn = fq.k; foundStop = fq.stop;
+          const m=__march(P.x,P.y,dx/d,dy/d,d);k++;if(m.dist>d-${BRAD}){n++;if(d<nd)nd=d;}if(m.dist<stop)stop=m.dist;}
+        return {n:n,k:k,stop:stop>1e8?-1:stop,nd:nd>1e8?-1:nd}})()`);
+      foundVis = fq.n; foundIn = fq.k; foundStop = fq.stop; foundNear = fq.nd;
       if (foundVis) {
         run('S.t = 3.5; ' + VMREST + ' renderWorld();');
         const CF = new Uint32Array(run('px')), MC = new Uint8Array(run('COV'));
@@ -11311,6 +11311,20 @@ if (MODE === 'contrast') {
       const fDebt = !fReads && fVac && !!foundSt && foundSt.dl < DLMIN && foundSt.dl >= fFloor && foundSt.lost <= fCeil
         && fSame ? DEBT.issue : undefined;
       const fOk = fReads && (!foundSt || fSame);
+      /* SCALE, NOT VACUITY - the ruling review made on this row at dd0d83d. A placed body the solve
+         puts IN THE CLEAR can still paint under MINMASK, and that is neither state this row knew: it is
+         not "nothing in the clear" (the branch below, unchanged, still a FAILURE), and it is not a frame
+         the dL / lost floors can judge. A projected body's area falls as 1/d^2, so the range at which
+         this rig stops painting MINMASK px is not a constant the probe may pick - it is measured here
+         from the body this run posed and rendered ALONE (posedPx at camG.pose m). Everything past that
+         range is reported as a debt with its range and its pixel count, not as a regression.
+         FALSIFIER, and it is the same measurement: a clear body at or inside READABLE that paints under
+         MINMASK does NOT take this branch - it falls through to the measurement branch and reads FAIL,
+         so a silhouette that stopped projecting, or a shading term that darkened the near field, is
+         still red on this row. MINMASK, DLMIN, LOSTMAX and RINGMIN are main's numbers, unchanged. */
+      const READABLE = (camG.pose > 0 && posedPx >= MINMASK) ? camG.pose * Math.sqrt(posedPx / MINMASK) : -1;
+      const fScale = !fVac && !!foundSt && foundSt.px > 0 && foundSt.px < MINMASK && READABLE > 0
+        && foundNear > 0 && foundNear > READABLE && (!foundSt || fSame);
       if (!bodies.length || NOBODY) {
         row('cam 1 body reads - FOUND bodies', false,
           NOBODY ? 'vacuous: NOBODY=1 emptied the scene, so there is no placement in the frame to judge - this row is a control and fails by design'
@@ -11325,6 +11339,19 @@ if (MODE === 'contrast') {
           // that a PLACED one was visible (measured on L1/12345: the pose draws 1932 px while all 8
           // placed bodies sit behind slabs - that is #189, and it was red for one commit here).
           noPoseBad ? undefined : '#189');
+      } else if (fScale) {
+        row('cam 1 body reads - FOUND bodies', false,
+          'measured debt, NOT vacuity: ' + foundVis + '/' + foundIn + ' placed bodies in the clear, nearest at '
+          + foundNear.toFixed(2) + ' m, painting ' + foundN + ' px of coverage (edge dL ' + foundSt.dl.toFixed(1)
+          + ', lost ' + foundSt.lost.toFixed(0) + '%) against the row\'s own ' + MINMASK + ' px floor. The shortfall is '
+          + 'RANGE, not ink: the rig this run posed and rendered ALONE paints ' + posedPx + ' px at '
+          + camG.pose.toFixed(2) + ' m, so under a 1/d^2 projection this body shape stops reaching '
+          + MINMASK + ' px past ' + READABLE.toFixed(2) + ' m and this one stands '
+          + (foundNear - READABLE).toFixed(2) + ' m outside that band. The coverage floor is NOT lowered and no '
+          + 'body was moved to make the row green. FALSIFIER: a clear body at or inside '
+          + READABLE.toFixed(2) + ' m that paints under ' + MINMASK + ' px takes the measurement branch instead and '
+          + 'reads FAIL, so a projection or shading regression on a readable frame stays a regression',
+          '#421');
       } else {
         row('cam 1 body reads - FOUND bodies', fOk,
           'edge dL ' + foundSt.dl.toFixed(1) + ' vs ' + DLMIN + ', lost ' + foundSt.lost.toFixed(0) + '% vs ' + LOSTMAX +
