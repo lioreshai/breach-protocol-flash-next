@@ -1,5 +1,60 @@
 # Changelog
 
+## [v1.4.21] - 2026-11-06
+
+### Changed
+
+- **A deck edge wears the sector's things all the way along** (#400, PR #751). The side of a raised deck is the
+  longest unbroken wall a level can hand you, and it was still dressed the old way: one object at its middle and
+  metres of blank concrete either side. Deck faces are now furnished at the same pitch as a corridor wall — the
+  sector's own shelving, duct collar or drum about every four metres, cycling kind along the face — so RING
+  TRANSPORT's deck edge reads as a run of drums instead of one drum on a band, and the archive's shelf faces as a
+  run of fittings rather than one rack. A deck edge too short to reach one spacing looks exactly as it did.
+
+- **Furniture stops standing where you walk in** (#695, PRs #757, #768, #771). A hazard-banded crate or barrel
+  could be dealt dead-centre in the frame a level loads with, clear deck behind it — an open pocket for an enemy
+  to stand in while the box held your eye. Such a prop is now walked off the centre of the picture, sideways and
+  one cell at a time, onto the deck it was authored on and never onto the storey above, where it read as reachable
+  storage. A prop that genuinely has nowhere to go — pinned by a wall, a lamp and its neighbours — gives up the
+  game's loudest paint instead: it keeps its chevron stripe, its black contrast and its amber hue, so it still
+  reads as a hazard at 10 m, delivered at the quieter of the two hazard ranks, which is the rank a wall's service
+  run already wears. On the deal that pays it, that crate's own region reads 27.1 luma against the hostile's 27.4,
+  where it had sat seven luma above him. Nothing anywhere got dimmer, and on a deal with nothing on the sight line
+  the room is exactly the room you had before.
+
+### Fixed
+
+- **Walking down a step stops skipping** (#634, PR #756). The frame you crossed the lip was the problem. The feet
+  were told to cover 27 % of the remaining gap at once, so a 25 cm tread moved the eye 6.7 cm in a single frame and
+  a 75 cm ramp crossing moved it 20 cm — that one frame was the "little skip, then a natural drop" players
+  described; the drop itself was always fine. A walked step-down is now followed the way a fall already is: the
+  feet speed up at the game's own gravity and brake so they still stop on the floor, and walking off a plain lip
+  keeps the speed you had instead of restarting the descent from zero. Jump height, step height, ladder rate, fall
+  damage and every damage number are unchanged.
+
+- **An enemy stays a body when you get in his face** (#727, PR #769). At 4–8 m a hostile reads well — one solid
+  figure with a lit flank — but inside about 5 m the shading gave up: his chest was one flat field of one colour,
+  with nothing on it saying which way he faces. The face-on part of the body shading was one fixed amplitude while
+  every other part of it holds brightness *per screen pixel*, so the bigger he got on screen the flatter he got.
+  That floor now rises with how wide the body's own seam projects, capped by the ceiling a grazing edge already
+  uses, so a chest at arm's length turns inside its own silhouette — a lit side and a shaded side. Everything past
+  roughly 5 m is byte-for-byte as it shipped. **Still open:** his arms, hips and the rifle laid across his chest
+  carry no shading at any range; that needs the model's own vertex data and is its own change.
+
+### Verification
+
+No picture changed in these three, but each was a check that had been reporting a pass it could not earn.
+
+- The separation sweep can now be dealt the exact rooms the deployed page measures (#611, PR #753). The two tools
+  had been calling the same question green and red at once — up to 13x apart on the colour axis for one deal,
+  because "twelve deals per level" meant two different sets of twelve. Which dice a row cut is now printed.
+- A close-up body scan now requires a run of pixels to cross brightness to count as a shaded face (#727, PR #760),
+  so a chest painted one value can no longer print as "one solid" — the row that was supposed to catch the flat
+  close-up above was itself the reason it stayed hidden.
+- The raised-band pose, red since October, was comparing two cameras whose eyes sat 0.56 m apart instead of two
+  surfaces (#517, PR #770). With one camera the remainder is a real renderer defect, now attributed to a specific
+  code path rather than to a row near the horizon.
+
 ## [v1.4.20] - 2026-11-02
 
 ### Added
