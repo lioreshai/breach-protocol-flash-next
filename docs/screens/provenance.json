@@ -80,16 +80,26 @@
       },
       "note": "The four blobs that draw a frame, sha256, read from the checkout that carried these frames. The session that took these pixels proved that build off the wire first: index.html and all eleven js/ blobs served by https://lioreshai.github.io/breach-protocol-flash-next/ sha256-match origin/main at 548194b, twelve for twelve, before the shutter - so the browser drew the build this tree ships, which is what makes these frames a property of the build and not of a harness (#388, #597, #640).",
       "at": "2026-11-01"
+    },
+    "7a16776": {
+      "at": "2026-11-07",
+      "files": {
+        "index.html": "c886aca0138047584edd4ee7023c504da19d3d559a6e6bb33833a9290169d557",
+        "js/10_assets.js": "46417870e52abfaf2e22449c901c2c596f961a61e13d1d8fc53cd5faf25e3069",
+        "js/20_level.js": "553cf1a4e8e31651205a15ed92a916d62f5198fde62ba4b3f8e09345d394b1b5",
+        "js/40_render.js": "b2c263dbd273a5f752560faf48a0e9dc7bbf5525c6b0d7ab9d196a99438d18a5"
+      },
+      "note": "The four blobs that draw a frame, sha256, read from the checkout that ran the capture. The session that took these pixels proved that build off the wire first: index.html and all eleven js/ blobs served by https://lioreshai.github.io/breach-protocol-flash-next/ sha256-match origin/main at 7a16776, twelve for twelve - so the browser drew the build this tree ships, which is what makes these frames a property of the build and not of a harness (#388, #597, #766)."
     }
   },
   "shots": [
     {
       "file": "level0-enemies",
-      "sha256": "06d4b00813aa5068537807d7f9abc46d624b4e93e630f91bf727dd6636147944",
+      "sha256": "c147853feaa899fe15b4f4e1b62995676f7b1bc7aff09e83cff2cd70f78a328f",
       "replaces": {
-        "rev": "548194b",
-        "sha256": "5c59c32375ed130bd955382017218842ef7d08ab0c1651008cedc3a146446228",
-        "mean": 59.7763
+        "rev": "7a16776",
+        "sha256": "06d4b00813aa5068537807d7f9abc46d624b4e93e630f91bf727dd6636147944",
+        "mean": 67.2661
       },
       "canvas": "1440x763",
       "origin": "https",
@@ -97,20 +107,19 @@
       "url": "https://lioreshai.github.io/breach-protocol-flash-next/?dev=1&seed=60&boot=0",
       "seed": "60",
       "level": 0,
-      "layout": "256590225",
-      "build": "548194b",
-      "at": "2026-11-01",
+      "layout": 256590225,
+      "build": "7a16776",
+      "at": "2026-11-07",
       "sampleRate": 44100,
-      "note": "RE-TAKEN from the DEPLOYED page for #640 at build 548194b, on a checkout whose shipped bytes were proved off the wire first: index.html and all eleven js/ blobs served by that URL sha256-match origin/main at 548194b, twelve for twelve, so the page drew the build this tree carries. Route: https://lioreshai.github.io/breach-protocol-flash-next/?dev=1&seed=60&boot=0, ONE page load per shot, ONE DEV.boot() per load, DEV.freeze(true), DEV.tick(30), then the pose below, DEV.tick(1), the game's own resume(), DEV.tick(1), S.mode read as \"play\" before the shutter (no pause overlay in the frame). Shutter = canvas.toDataURL on the display canvas, re-encoded to colour type 2 by tools/png_rgb.js (#394); the viewport is pinned to 1440x763 with Emulation.setDeviceMetricsOverride so the display canvas is the geometry every caption counts its 763 rows of. layout is state().layout == DEV.layoutSig() for this deal. Pose: the same deal's derived arrival seat with NO DEV.cam (read back (18.5, 5.5), floorAt 0.00, heading 2.3562), then DEV.clear() and DEV.spawn(\"grunt\", 1, 6), so the HUD reads 1 LEFT. DEV.lum({stride:97}) mean/mid = 66.67 / 79.30 (a stride-97 sample; the caption mean is the whole-frame luma tools/recap.js decodes). sampleRate 44100 is this page's AudioContext measured, which is what says which machine this seed deals (#404). Canvas 1440x763, S.mode play, 1 hostiles left. The frame it replaces is the PNG at 548194b, mean 59.78 decoded from those bytes.",
-      "staleByBuild": "the eight poses were re-shot on the page 06d0650 deployed - that page's index.html and eleven js/ blobs sha256-match this checkout twelve for twelve - by this route at these coordinates: this pose deals the same layout 256590225 this row already records, decodes 67.26 mean luma against these bytes' 67.27 and 30 of 30 rows under the softer 34 bar. Both numbers sit inside the spread one page shows of itself across loads (~7.3k px, #611), so the two blobs that moved since 548194b move no number any caption of this frame quotes"
+      "note": "RE-TAKEN from the DEPLOYED page for #766 at build 7a16776, on a checkout whose shipped bytes were proved off the wire first: index.html and all eleven js/ blobs served by that URL sha256-match origin/main at 7a16776, twelve for twelve, so the page drew the build this tree carries. Route: https://lioreshai.github.io/breach-protocol-flash-next/?dev=1&seed=60&boot=0, ONE page load per shot, ONE DEV.boot() per load, DEV.freeze(true), DEV.tick(30), no startLevel call, then the pose below, DEV.tick(1), the game's own resume(), DEV.tick(1), S.mode read as \"play\" before the shutter (no pause overlay in the frame). Shutter = canvas.toDataURL on the display canvas, re-encoded to colour type 2 by tools/png_rgb.js (#394); the viewport is pinned to 1440x763 with Emulation.setDeviceMetricsOverride so the display canvas is the geometry every caption counts its 763 rows of. layout is state().layout == DEV.layoutSig() for this deal. Pose: the same deal's derived arrival seat with NO DEV.cam (read back (18.5, 5.5) on floorAt 0.00, heading 2.3562), then DEV.clear() and DEV.spawn(\"grunt\", 1, 6), so the HUD reads 1 LEFT. This is the same pose and the same url the replaced row posed; the deal did not re-roll (layout equals the layout that row records), so every pixel that moved is a shipped change and not the generator's dice. DEV.lum({stride:97}) mean/mid = 66.08 / 76.35 (a stride-97 sample; the caption mean is the whole-frame luma tools/recap.js decodes). sampleRate 44100 is this page's AudioContext measured, which is what says which machine this seed deals (#404). Canvas 1440x763, S.mode play, 1 hostiles left. The frame it replaces is the PNG at 7a16776, mean 67.27 decoded from those bytes."
     },
     {
       "file": "level0-facing-wall",
-      "sha256": "24f56e7a7c285025b29288af48db1ee1b1535d920f06020a4e2968e47cae4529",
+      "sha256": "69e32fd1751f347c25b4fbff5f091ed74fbc0753eaac825d9fccf34f3f363d9c",
       "replaces": {
-        "rev": "548194b",
-        "sha256": "7955ea1769c869035ac633fb66d10af92ad697f5386868e3e4055d514ff8c98f",
-        "mean": 68.7619
+        "rev": "7a16776",
+        "sha256": "24f56e7a7c285025b29288af48db1ee1b1535d920f06020a4e2968e47cae4529",
+        "mean": 49.9762
       },
       "canvas": "1440x763",
       "origin": "https",
@@ -118,20 +127,19 @@
       "url": "https://lioreshai.github.io/breach-protocol-flash-next/?dev=1&seed=60&boot=0",
       "seed": "60",
       "level": 0,
-      "layout": "256590225",
-      "build": "548194b",
-      "at": "2026-11-01",
+      "layout": 256590225,
+      "build": "7a16776",
+      "at": "2026-11-07",
       "sampleRate": 44100,
-      "note": "RE-TAKEN from the DEPLOYED page for #640 at build 548194b, on a checkout whose shipped bytes were proved off the wire first: index.html and all eleven js/ blobs served by that URL sha256-match origin/main at 548194b, twelve for twelve, so the page drew the build this tree carries. Route: https://lioreshai.github.io/breach-protocol-flash-next/?dev=1&seed=60&boot=0, ONE page load per shot, ONE DEV.boot() per load, DEV.freeze(true), DEV.tick(30), then the pose below, DEV.tick(1), the game's own resume(), DEV.tick(1), S.mode read as \"play\" before the shutter (no pause overlay in the frame). Shutter = canvas.toDataURL on the display canvas, re-encoded to colour type 2 by tools/png_rgb.js (#394); the viewport is pinned to 1440x763 with Emulation.setDeviceMetricsOverride so the display canvas is the geometry every caption counts its 763 rows of. layout is state().layout == DEV.layoutSig() for this deal. Pose: DEV.cam(1.5, 8.5, floorAt(1.5, 8.5), Math.PI/2, 0) - the replaced row's coordinates verbatim, read back on this deal at (1.5, 8.5) on floorAt 0.00, heading 1.5708. DEV.lum({stride:97}) mean/mid = 48.56 / 62.29 (a stride-97 sample; the caption mean is the whole-frame luma tools/recap.js decodes). sampleRate 44100 is this page's AudioContext measured, which is what says which machine this seed deals (#404). Canvas 1440x763, S.mode play, 8 hostiles left. The frame it replaces is the PNG at 548194b, mean 68.76 decoded from those bytes.",
-      "staleByBuild": "the eight poses were re-shot on the page 06d0650 deployed - that page's index.html and eleven js/ blobs sha256-match this checkout twelve for twelve - by this route at these coordinates: this pose deals the same layout 256590225 this row already records, decodes 49.97 mean luma against these bytes' 49.98 and 33 against 32 rows under the softer 34 bar. Both numbers sit inside the spread one page shows of itself across loads (~7.3k px, #611), so the two blobs that moved since 548194b move no number any caption of this frame quotes"
+      "note": "RE-TAKEN from the DEPLOYED page for #766 at build 7a16776, on a checkout whose shipped bytes were proved off the wire first: index.html and all eleven js/ blobs served by that URL sha256-match origin/main at 7a16776, twelve for twelve, so the page drew the build this tree carries. Route: https://lioreshai.github.io/breach-protocol-flash-next/?dev=1&seed=60&boot=0, ONE page load per shot, ONE DEV.boot() per load, DEV.freeze(true), DEV.tick(30), no startLevel call, then the pose below, DEV.tick(1), the game's own resume(), DEV.tick(1), S.mode read as \"play\" before the shutter (no pause overlay in the frame). Shutter = canvas.toDataURL on the display canvas, re-encoded to colour type 2 by tools/png_rgb.js (#394); the viewport is pinned to 1440x763 with Emulation.setDeviceMetricsOverride so the display canvas is the geometry every caption counts its 763 rows of. layout is state().layout == DEV.layoutSig() for this deal. Pose: DEV.cam(1.5, 8.5, floorAt(1.5, 8.5), Math.PI/2, 0) - the replaced row's coordinates verbatim, read back at (1.5, 8.5) on floorAt 0.00, heading 1.5708. This is the same pose and the same url the replaced row posed; the deal did not re-roll (layout equals the layout that row records), so every pixel that moved is a shipped change and not the generator's dice. DEV.lum({stride:97}) mean/mid = 48.72 / 63.05 (a stride-97 sample; the caption mean is the whole-frame luma tools/recap.js decodes). sampleRate 44100 is this page's AudioContext measured, which is what says which machine this seed deals (#404). Canvas 1440x763, S.mode play, 8 hostiles left. The frame it replaces is the PNG at 7a16776, mean 49.98 decoded from those bytes."
     },
     {
       "file": "level0-pitfloor",
-      "sha256": "0d57167cc0a765ae8a515e31340f9fd49297cc3886cc68940f2d4a925375632d",
+      "sha256": "2f30876e4f935cff26a8cbb000fec9b41914cd17136d224d294889ec29674b08",
       "replaces": {
-        "rev": "548194b",
-        "sha256": "7d781d4ddac8a5f9797348b66ab983cb2b9fdbe75ee0fdafa5a9e4d7db2e3b2f",
-        "mean": 70.9498
+        "rev": "7a16776",
+        "sha256": "0d57167cc0a765ae8a515e31340f9fd49297cc3886cc68940f2d4a925375632d",
+        "mean": 66.0741
       },
       "canvas": "1440x763",
       "origin": "https",
@@ -139,20 +147,19 @@
       "url": "https://lioreshai.github.io/breach-protocol-flash-next/?dev=1&seed=60&boot=0",
       "seed": "60",
       "level": 0,
-      "layout": "256590225",
-      "build": "548194b",
-      "at": "2026-11-01",
+      "layout": 256590225,
+      "build": "7a16776",
+      "at": "2026-11-07",
       "sampleRate": 44100,
-      "note": "RE-TAKEN from the DEPLOYED page for #640 at build 548194b, on a checkout whose shipped bytes were proved off the wire first: index.html and all eleven js/ blobs served by that URL sha256-match origin/main at 548194b, twelve for twelve, so the page drew the build this tree carries. Route: https://lioreshai.github.io/breach-protocol-flash-next/?dev=1&seed=60&boot=0, ONE page load per shot, ONE DEV.boot() per load, DEV.freeze(true), DEV.tick(30), then the pose below, DEV.tick(1), the game's own resume(), DEV.tick(1), S.mode read as \"play\" before the shutter (no pause overlay in the frame). Shutter = canvas.toDataURL on the display canvas, re-encoded to colour type 2 by tools/png_rgb.js (#394); the viewport is pinned to 1440x763 with Emulation.setDeviceMetricsOverride so the display canvas is the geometry every caption counts its 763 rows of. layout is state().layout == DEV.layoutSig() for this deal. Pose: DEV.cam(19.5, 14.5, floorAt(19.5, 14.5), Math.atan2(2, 1), 0) - the replaced row's coordinates verbatim, read back at (19.5, 14.5) on floorAt -1.00, heading 1.1071 (this seat stands on a lower slab). DEV.lum({stride:97}) mean/mid = 62.02 / 90.59 (a stride-97 sample; the caption mean is the whole-frame luma tools/recap.js decodes). sampleRate 44100 is this page's AudioContext measured, which is what says which machine this seed deals (#404). Canvas 1440x763, S.mode play, 8 hostiles left. The frame it replaces is the PNG at 548194b, mean 70.95 decoded from those bytes.",
-      "staleByBuild": "the eight poses were re-shot on the page 06d0650 deployed - that page's index.html and eleven js/ blobs sha256-match this checkout twelve for twelve - by this route at these coordinates: this pose deals the same layout 256590225 this row already records, decodes 66.07 mean luma against these bytes' 66.07 and 9 of 9 rows under the softer 34 bar. Both numbers sit inside the spread one page shows of itself across loads (~7.3k px, #611), so the two blobs that moved since 548194b move no number any caption of this frame quotes"
+      "note": "RE-TAKEN from the DEPLOYED page for #766 at build 7a16776, on a checkout whose shipped bytes were proved off the wire first: index.html and all eleven js/ blobs served by that URL sha256-match origin/main at 7a16776, twelve for twelve, so the page drew the build this tree carries. Route: https://lioreshai.github.io/breach-protocol-flash-next/?dev=1&seed=60&boot=0, ONE page load per shot, ONE DEV.boot() per load, DEV.freeze(true), DEV.tick(30), no startLevel call, then the pose below, DEV.tick(1), the game's own resume(), DEV.tick(1), S.mode read as \"play\" before the shutter (no pause overlay in the frame). Shutter = canvas.toDataURL on the display canvas, re-encoded to colour type 2 by tools/png_rgb.js (#394); the viewport is pinned to 1440x763 with Emulation.setDeviceMetricsOverride so the display canvas is the geometry every caption counts its 763 rows of. layout is state().layout == DEV.layoutSig() for this deal. Pose: DEV.cam(19.5, 14.5, floorAt(19.5, 14.5), Math.atan2(2, 1), 0) - the replaced row's coordinates verbatim, read back at (19.5, 14.5) on floorAt -1.00, heading 1.1071. This is the same pose and the same url the replaced row posed; the deal did not re-roll (layout equals the layout that row records), so every pixel that moved is a shipped change and not the generator's dice. DEV.lum({stride:97}) mean/mid = 62.02 / 90.68 (a stride-97 sample; the caption mean is the whole-frame luma tools/recap.js decodes). sampleRate 44100 is this page's AudioContext measured, which is what says which machine this seed deals (#404). Canvas 1440x763, S.mode play, 8 hostiles left. The frame it replaces is the PNG at 7a16776, mean 66.07 decoded from those bytes."
     },
     {
       "file": "level0-props",
-      "sha256": "54f951a2960ca325ee5acf5d404fd91a5764f452fc8843cf3057b1c00c9c05e5",
+      "sha256": "07714c5885ca0396a40a42e014e8cf97025e12a27ba201dcac0efd9fb720eead",
       "replaces": {
-        "rev": "548194b",
-        "sha256": "23aa42a47dde3dc2b9e6df18c18b6417ce375264ab6b20c552283935e3ae231d",
-        "mean": 47.6554
+        "rev": "7a16776",
+        "sha256": "54f951a2960ca325ee5acf5d404fd91a5764f452fc8843cf3057b1c00c9c05e5",
+        "mean": 65.8339
       },
       "canvas": "1440x763",
       "origin": "https",
@@ -160,20 +167,19 @@
       "url": "https://lioreshai.github.io/breach-protocol-flash-next/?dev=1&seed=60&boot=0",
       "seed": "60",
       "level": 0,
-      "layout": "256590225",
-      "build": "548194b",
-      "at": "2026-11-01",
+      "layout": 256590225,
+      "build": "7a16776",
+      "at": "2026-11-07",
       "sampleRate": 44100,
-      "note": "RE-TAKEN from the DEPLOYED page for #640 at build 548194b, on a checkout whose shipped bytes were proved off the wire first: index.html and all eleven js/ blobs served by that URL sha256-match origin/main at 548194b, twelve for twelve, so the page drew the build this tree carries. Route: https://lioreshai.github.io/breach-protocol-flash-next/?dev=1&seed=60&boot=0, ONE page load per shot, ONE DEV.boot() per load, DEV.freeze(true), DEV.tick(30), then the pose below, DEV.tick(1), the game's own resume(), DEV.tick(1), S.mode read as \"play\" before the shutter (no pause overlay in the frame). Shutter = canvas.toDataURL on the display canvas, re-encoded to colour type 2 by tools/png_rgb.js (#394); the viewport is pinned to 1440x763 with Emulation.setDeviceMetricsOverride so the display canvas is the geometry every caption counts its 763 rows of. layout is state().layout == DEV.layoutSig() for this deal. Pose: DEV.cam(20.5, 11.5, floorAt(20.5, 11.5), Math.PI/2, 0) - the replaced row's coordinates verbatim, read back at (20.5, 11.5) on floorAt 0.00, heading 1.5708. DEV.lum({stride:97}) mean/mid = 61.47 / 76.05 (a stride-97 sample; the caption mean is the whole-frame luma tools/recap.js decodes). sampleRate 44100 is this page's AudioContext measured, which is what says which machine this seed deals (#404). Canvas 1440x763, S.mode play, 8 hostiles left. The frame it replaces is the PNG at 548194b, mean 47.66 decoded from those bytes.",
-      "staleByBuild": "the eight poses were re-shot on the page 06d0650 deployed - that page's index.html and eleven js/ blobs sha256-match this checkout twelve for twelve - by this route at these coordinates: this pose deals the same layout 256590225 this row already records, decodes 65.83 mean luma against these bytes' 65.83 and 7 against 6 rows under the softer 34 bar. Both numbers sit inside the spread one page shows of itself across loads (~7.3k px, #611), so the two blobs that moved since 548194b move no number any caption of this frame quotes"
+      "note": "RE-TAKEN from the DEPLOYED page for #766 at build 7a16776, on a checkout whose shipped bytes were proved off the wire first: index.html and all eleven js/ blobs served by that URL sha256-match origin/main at 7a16776, twelve for twelve, so the page drew the build this tree carries. Route: https://lioreshai.github.io/breach-protocol-flash-next/?dev=1&seed=60&boot=0, ONE page load per shot, ONE DEV.boot() per load, DEV.freeze(true), DEV.tick(30), no startLevel call, then the pose below, DEV.tick(1), the game's own resume(), DEV.tick(1), S.mode read as \"play\" before the shutter (no pause overlay in the frame). Shutter = canvas.toDataURL on the display canvas, re-encoded to colour type 2 by tools/png_rgb.js (#394); the viewport is pinned to 1440x763 with Emulation.setDeviceMetricsOverride so the display canvas is the geometry every caption counts its 763 rows of. layout is state().layout == DEV.layoutSig() for this deal. Pose: DEV.cam(20.5, 11.5, floorAt(20.5, 11.5), Math.PI/2, 0) - the replaced row's coordinates verbatim, read back at (20.5, 11.5) on floorAt 0.00, heading 1.5708. This is the same pose and the same url the replaced row posed; the deal did not re-roll (layout equals the layout that row records), so every pixel that moved is a shipped change and not the generator's dice. DEV.lum({stride:97}) mean/mid = 61.9 / 76.86 (a stride-97 sample; the caption mean is the whole-frame luma tools/recap.js decodes). sampleRate 44100 is this page's AudioContext measured, which is what says which machine this seed deals (#404). Canvas 1440x763, S.mode play, 8 hostiles left. The frame it replaces is the PNG at 7a16776, mean 65.83 decoded from those bytes."
     },
     {
       "file": "level0-spawn",
-      "sha256": "8f77d9d41697068a48894efe938ebf4a5b51947e81bd464cef4e61a6a8fad19e",
+      "sha256": "0b8e2f8d6c2d57492ef4ab793e54998a4a9bb15c6f6a79c96751751248e8fe68",
       "replaces": {
-        "rev": "548194b",
-        "sha256": "98dc8c4708e9483179fcbe2caad93b1b627b6dcec37427b6fe2f7802f29fe318",
-        "mean": 59.8279
+        "rev": "7a16776",
+        "sha256": "8f77d9d41697068a48894efe938ebf4a5b51947e81bd464cef4e61a6a8fad19e",
+        "mean": 67.2992
       },
       "canvas": "1440x763",
       "origin": "https",
@@ -181,20 +187,19 @@
       "url": "https://lioreshai.github.io/breach-protocol-flash-next/?dev=1&seed=60&boot=0",
       "seed": "60",
       "level": 0,
-      "layout": "256590225",
-      "build": "548194b",
-      "at": "2026-11-01",
+      "layout": 256590225,
+      "build": "7a16776",
+      "at": "2026-11-07",
       "sampleRate": 44100,
-      "note": "RE-TAKEN from the DEPLOYED page for #640 at build 548194b, on a checkout whose shipped bytes were proved off the wire first: index.html and all eleven js/ blobs served by that URL sha256-match origin/main at 548194b, twelve for twelve, so the page drew the build this tree carries. Route: https://lioreshai.github.io/breach-protocol-flash-next/?dev=1&seed=60&boot=0, ONE page load per shot, ONE DEV.boot() per load, DEV.freeze(true), DEV.tick(30), then the pose below, DEV.tick(1), the game's own resume(), DEV.tick(1), S.mode read as \"play\" before the shutter (no pause overlay in the frame). Shutter = canvas.toDataURL on the display canvas, re-encoded to colour type 2 by tools/png_rgb.js (#394); the viewport is pinned to 1440x763 with Emulation.setDeviceMetricsOverride so the display canvas is the geometry every caption counts its 763 rows of. layout is state().layout == DEV.layoutSig() for this deal. Pose: DEV.boot() through the URL with NO DEV.cam and no startLevel call - the deal's own arrival seat and bearing, read back at (18.5, 5.5) on floorAt 0.00, heading 2.3562. seatFacing turns the seat to the face of the nearest deck in reach (#421, #482), so the heading is derived, not the literal 0.60 the replaced row posed. DEV.lum({stride:97}) mean/mid = 66.71 / 79.16 (a stride-97 sample; the caption mean is the whole-frame luma tools/recap.js decodes). sampleRate 44100 is this page's AudioContext measured, which is what says which machine this seed deals (#404). Canvas 1440x763, S.mode play, 8 hostiles left. The frame it replaces is the PNG at 548194b, mean 59.83 decoded from those bytes.",
-      "staleByBuild": "the eight poses were re-shot on the page 06d0650 deployed - that page's index.html and eleven js/ blobs sha256-match this checkout twelve for twelve - by this route at these coordinates: this pose deals the same layout 256590225 this row already records, decodes 67.29 mean luma against these bytes' 67.30 and 30 of 30 rows under the softer 34 bar. Both numbers sit inside the spread one page shows of itself across loads (~7.3k px, #611), so the two blobs that moved since 548194b move no number any caption of this frame quotes"
+      "note": "RE-TAKEN from the DEPLOYED page for #766 at build 7a16776, on a checkout whose shipped bytes were proved off the wire first: index.html and all eleven js/ blobs served by that URL sha256-match origin/main at 7a16776, twelve for twelve, so the page drew the build this tree carries. Route: https://lioreshai.github.io/breach-protocol-flash-next/?dev=1&seed=60&boot=0, ONE page load per shot, ONE DEV.boot() per load, DEV.freeze(true), DEV.tick(30), no startLevel call, then the pose below, DEV.tick(1), the game's own resume(), DEV.tick(1), S.mode read as \"play\" before the shutter (no pause overlay in the frame). Shutter = canvas.toDataURL on the display canvas, re-encoded to colour type 2 by tools/png_rgb.js (#394); the viewport is pinned to 1440x763 with Emulation.setDeviceMetricsOverride so the display canvas is the geometry every caption counts its 763 rows of. layout is state().layout == DEV.layoutSig() for this deal. Pose: DEV.boot() through the URL with NO DEV.cam and no startLevel call - the deal's own arrival seat and bearing, read back at (18.5, 5.5) on floorAt 0.00, heading 2.3562. This is the same pose and the same url the replaced row posed; the deal did not re-roll (layout equals the layout that row records), so every pixel that moved is a shipped change and not the generator's dice. DEV.lum({stride:97}) mean/mid = 66.1 / 76.41 (a stride-97 sample; the caption mean is the whole-frame luma tools/recap.js decodes). sampleRate 44100 is this page's AudioContext measured, which is what says which machine this seed deals (#404). Canvas 1440x763, S.mode play, 8 hostiles left. The frame it replaces is the PNG at 7a16776, mean 67.30 decoded from those bytes."
     },
     {
       "file": "level2-abatoir",
-      "sha256": "1392dd260de5c3d5d7d46e1c7f78c56c8e631c6b330840e09d6b9d18e27f2b77",
+      "sha256": "1d5a3d762363320ab2cc83f127cb378485847ca75b773c2cae547b663d957a0c",
       "replaces": {
-        "rev": "548194b",
-        "sha256": "dda15e247d3f2f28553f39230218711162f6928c2e6a2ce62a8ea436e54753ed",
-        "mean": 74.2564
+        "rev": "7a16776",
+        "sha256": "1392dd260de5c3d5d7d46e1c7f78c56c8e631c6b330840e09d6b9d18e27f2b77",
+        "mean": 76.0715
       },
       "canvas": "1440x763",
       "origin": "https",
@@ -202,20 +207,19 @@
       "url": "https://lioreshai.github.io/breach-protocol-flash-next/?dev=1&seed=60&boot=0",
       "seed": "60",
       "level": 2,
-      "layout": "4093107633",
-      "build": "548194b",
-      "at": "2026-11-01",
+      "layout": 4093107633,
+      "build": "7a16776",
+      "at": "2026-11-07",
       "sampleRate": 44100,
-      "note": "RE-TAKEN from the DEPLOYED page for #640 at build 548194b, on a checkout whose shipped bytes were proved off the wire first: index.html and all eleven js/ blobs served by that URL sha256-match origin/main at 548194b, twelve for twelve, so the page drew the build this tree carries. Route: https://lioreshai.github.io/breach-protocol-flash-next/?dev=1&seed=60&boot=0, ONE page load per shot, ONE DEV.boot() per load, DEV.freeze(true), DEV.tick(30), then the pose below, DEV.tick(1), the game's own resume(), DEV.tick(1), S.mode read as \"play\" before the shutter (no pause overlay in the frame). Shutter = canvas.toDataURL on the display canvas, re-encoded to colour type 2 by tools/png_rgb.js (#394); the viewport is pinned to 1440x763 with Emulation.setDeviceMetricsOverride so the display canvas is the geometry every caption counts its 763 rows of. layout is state().layout == DEV.layoutSig() for this deal. Pose: startLevel(2, true) with NO DEV.cam: this sector DECLARES seatAng 0.6, so it arrives at the authored bearing on every deal (#421 DECISION 1), read back at (22.5, 13.5) on floorAt 0.00, heading 0.60. DEV.lum({stride:97}) mean/mid = 75.51 / 88.26 (a stride-97 sample; the caption mean is the whole-frame luma tools/recap.js decodes). sampleRate 44100 is this page's AudioContext measured, which is what says which machine this seed deals (#404). Canvas 1440x763, S.mode play, 18 hostiles left. The frame it replaces is the PNG at 548194b, mean 74.26 decoded from those bytes.",
-      "staleByBuild": "the eight poses were re-shot on the page 06d0650 deployed - that page's index.html and eleven js/ blobs sha256-match this checkout twelve for twelve - by this route at these coordinates: this pose deals the same layout 4093107633 this row already records, decodes 76.05 mean luma against these bytes' 76.07 and 56 of 56 rows under the softer 34 bar. Both numbers sit inside the spread one page shows of itself across loads (~7.3k px, #611), so the two blobs that moved since 548194b move no number any caption of this frame quotes"
+      "note": "RE-TAKEN from the DEPLOYED page for #766 at build 7a16776, on a checkout whose shipped bytes were proved off the wire first: index.html and all eleven js/ blobs served by that URL sha256-match origin/main at 7a16776, twelve for twelve, so the page drew the build this tree carries. Route: https://lioreshai.github.io/breach-protocol-flash-next/?dev=1&seed=60&boot=0, ONE page load per shot, ONE DEV.boot() per load, DEV.freeze(true), DEV.tick(30), startLevel(2, true), then the pose below, DEV.tick(1), the game's own resume(), DEV.tick(1), S.mode read as \"play\" before the shutter (no pause overlay in the frame). Shutter = canvas.toDataURL on the display canvas, re-encoded to colour type 2 by tools/png_rgb.js (#394); the viewport is pinned to 1440x763 with Emulation.setDeviceMetricsOverride so the display canvas is the geometry every caption counts its 763 rows of. layout is state().layout == DEV.layoutSig() for this deal. Pose: startLevel(2, true) with NO DEV.cam: this sector DECLARES seatAng 0.6, so it arrives at the authored bearing on every deal (#421 DECISION 1), read back at (22.5, 13.5) on floorAt 0.00, heading 0.6000. This is the same pose and the same url the replaced row posed; the deal did not re-roll (layout equals the layout that row records), so every pixel that moved is a shipped change and not the generator's dice. DEV.lum({stride:97}) mean/mid = 75.69 / 88.74 (a stride-97 sample; the caption mean is the whole-frame luma tools/recap.js decodes). sampleRate 44100 is this page's AudioContext measured, which is what says which machine this seed deals (#404). Canvas 1440x763, S.mode play, 18 hostiles left. The frame it replaces is the PNG at 7a16776, mean 76.07 decoded from those bytes."
     },
     {
       "file": "level2-abatoir-ceiling",
-      "sha256": "9cd734024d8f221ec10ec5379db0dd0148df33adb747bb3f39ca4e2f36c4ce11",
+      "sha256": "0956a586dd2a9e2c0c221c2489c81974c4f55aa8161b2e3bf1f7cc52ac65ed02",
       "replaces": {
-        "rev": "548194b",
-        "sha256": "e70331fa05799bd1c8c96b4b71c6df29f4c8ea1332b4e06c7afa473148e8a4e2",
-        "mean": 71.884
+        "rev": "7a16776",
+        "sha256": "9cd734024d8f221ec10ec5379db0dd0148df33adb747bb3f39ca4e2f36c4ce11",
+        "mean": 77.8477
       },
       "canvas": "1440x763",
       "origin": "https",
@@ -223,20 +227,19 @@
       "url": "https://lioreshai.github.io/breach-protocol-flash-next/?dev=1&seed=60&boot=0",
       "seed": "60",
       "level": 2,
-      "layout": "4093107633",
-      "build": "548194b",
-      "at": "2026-11-01",
+      "layout": 4093107633,
+      "build": "7a16776",
+      "at": "2026-11-07",
       "sampleRate": 44100,
-      "note": "RE-TAKEN from the DEPLOYED page for #640 at build 548194b, on a checkout whose shipped bytes were proved off the wire first: index.html and all eleven js/ blobs served by that URL sha256-match origin/main at 548194b, twelve for twelve, so the page drew the build this tree carries. Route: https://lioreshai.github.io/breach-protocol-flash-next/?dev=1&seed=60&boot=0, ONE page load per shot, ONE DEV.boot() per load, DEV.freeze(true), DEV.tick(30), then the pose below, DEV.tick(1), the game's own resume(), DEV.tick(1), S.mode read as \"play\" before the shutter (no pause overlay in the frame). Shutter = canvas.toDataURL on the display canvas, re-encoded to colour type 2 by tools/png_rgb.js (#394); the viewport is pinned to 1440x763 with Emulation.setDeviceMetricsOverride so the display canvas is the geometry every caption counts its 763 rows of. layout is state().layout == DEV.layoutSig() for this deal. Pose: startLevel(2, true) then DEV.cam(P.x, P.y, undefined, -0.5539, 194.07) - the replaced row's verbatim tilt, on this deal's own declared seat (read back (22.5, 13.5), pitch 194.1). DEV.lum({stride:97}) mean/mid = 77.44 / 109.30 (a stride-97 sample; the caption mean is the whole-frame luma tools/recap.js decodes). sampleRate 44100 is this page's AudioContext measured, which is what says which machine this seed deals (#404). Canvas 1440x763, S.mode play, 18 hostiles left. The frame it replaces is the PNG at 548194b, mean 71.88 decoded from those bytes.",
-      "staleByBuild": "the eight poses were re-shot on the page 06d0650 deployed - that page's index.html and eleven js/ blobs sha256-match this checkout twelve for twelve - by this route at these coordinates: this pose deals the same layout 4093107633 this row already records, decodes 77.84 mean luma against these bytes' 77.85 and 0 of 0 rows under the softer 34 bar. Both numbers sit inside the spread one page shows of itself across loads (~7.3k px, #611), so the two blobs that moved since 548194b move no number any caption of this frame quotes"
+      "note": "RE-TAKEN from the DEPLOYED page for #766 at build 7a16776, on a checkout whose shipped bytes were proved off the wire first: index.html and all eleven js/ blobs served by that URL sha256-match origin/main at 7a16776, twelve for twelve, so the page drew the build this tree carries. Route: https://lioreshai.github.io/breach-protocol-flash-next/?dev=1&seed=60&boot=0, ONE page load per shot, ONE DEV.boot() per load, DEV.freeze(true), DEV.tick(30), startLevel(2, true), then the pose below, DEV.tick(1), the game's own resume(), DEV.tick(1), S.mode read as \"play\" before the shutter (no pause overlay in the frame). Shutter = canvas.toDataURL on the display canvas, re-encoded to colour type 2 by tools/png_rgb.js (#394); the viewport is pinned to 1440x763 with Emulation.setDeviceMetricsOverride so the display canvas is the geometry every caption counts its 763 rows of. layout is state().layout == DEV.layoutSig() for this deal. Pose: startLevel(2, true) then DEV.cam(P.x, P.y, undefined, -0.5539, 194.07) - the replaced row's verbatim tilt, on this deal's own declared seat (read back (22.5, 13.5), pitch -0.5539). This is the same pose and the same url the replaced row posed; the deal did not re-roll (layout equals the layout that row records), so every pixel that moved is a shipped change and not the generator's dice. DEV.lum({stride:97}) mean/mid = 77.62 / 109.35 (a stride-97 sample; the caption mean is the whole-frame luma tools/recap.js decodes). sampleRate 44100 is this page's AudioContext measured, which is what says which machine this seed deals (#404). Canvas 1440x763, S.mode play, 18 hostiles left. The frame it replaces is the PNG at 7a16776, mean 77.85 decoded from those bytes."
     },
     {
       "file": "level3-stack",
-      "sha256": "fce89f61d61d9c707e43901b5085fa7080f438523ef6a9f780a1fb7c0eff8bfc",
+      "sha256": "0ec9d830fe65276cd69b13e776fdf047da6fad3b5774b0a46dc54f079f7a22f4",
       "replaces": {
-        "rev": "548194b",
-        "sha256": "10196ca867546a530a16381b3a3df9c4a55e4909ab315a62c7725e2bc8b39f5e",
-        "mean": 64.9491
+        "rev": "7a16776",
+        "sha256": "fce89f61d61d9c707e43901b5085fa7080f438523ef6a9f780a1fb7c0eff8bfc",
+        "mean": 69.7529
       },
       "canvas": "1440x763",
       "origin": "https",
@@ -244,12 +247,11 @@
       "url": "https://lioreshai.github.io/breach-protocol-flash-next/?dev=1&seed=60&boot=0",
       "seed": "60",
       "level": 3,
-      "layout": "3610925125",
-      "build": "548194b",
-      "at": "2026-11-01",
+      "layout": 3610925125,
+      "build": "7a16776",
+      "at": "2026-11-07",
       "sampleRate": 44100,
-      "note": "RE-TAKEN from the DEPLOYED page for #640 at build 548194b, on a checkout whose shipped bytes were proved off the wire first: index.html and all eleven js/ blobs served by that URL sha256-match origin/main at 548194b, twelve for twelve, so the page drew the build this tree carries. Route: https://lioreshai.github.io/breach-protocol-flash-next/?dev=1&seed=60&boot=0, ONE page load per shot, ONE DEV.boot() per load, DEV.freeze(true), DEV.tick(30), then the pose below, DEV.tick(1), the game's own resume(), DEV.tick(1), S.mode read as \"play\" before the shutter (no pause overlay in the frame). Shutter = canvas.toDataURL on the display canvas, re-encoded to colour type 2 by tools/png_rgb.js (#394); the viewport is pinned to 1440x763 with Emulation.setDeviceMetricsOverride so the display canvas is the geometry every caption counts its 763 rows of. layout is state().layout == DEV.layoutSig() for this deal. Pose: startLevel(3, true) with NO DEV.cam - THE STACK's authored seat, read back at (1.5, 2.5) on floorAt 0.00 with the derived heading 0.8761 (#421 leaves this plan's bearing unpinned). DEV.lum({stride:97}) mean/mid = 66.98 / 95.02 (a stride-97 sample; the caption mean is the whole-frame luma tools/recap.js decodes). sampleRate 44100 is this page's AudioContext measured, which is what says which machine this seed deals (#404). Canvas 1440x763, S.mode play, 4 hostiles left. The frame it replaces is the PNG at 548194b, mean 64.95 decoded from those bytes.",
-      "staleByBuild": "the eight poses were re-shot on the page 06d0650 deployed - that page's index.html and eleven js/ blobs sha256-match this checkout twelve for twelve - by this route at these coordinates: this pose deals the same layout 3610925125 this row already records, decodes 69.76 mean luma against these bytes' 69.75 and 0 of 0 rows under the softer 34 bar. Both numbers sit inside the spread one page shows of itself across loads (~7.3k px, #611), so the two blobs that moved since 548194b move no number any caption of this frame quotes"
+      "note": "RE-TAKEN from the DEPLOYED page for #766 at build 7a16776, on a checkout whose shipped bytes were proved off the wire first: index.html and all eleven js/ blobs served by that URL sha256-match origin/main at 7a16776, twelve for twelve, so the page drew the build this tree carries. Route: https://lioreshai.github.io/breach-protocol-flash-next/?dev=1&seed=60&boot=0, ONE page load per shot, ONE DEV.boot() per load, DEV.freeze(true), DEV.tick(30), startLevel(3, true), then the pose below, DEV.tick(1), the game's own resume(), DEV.tick(1), S.mode read as \"play\" before the shutter (no pause overlay in the frame). Shutter = canvas.toDataURL on the display canvas, re-encoded to colour type 2 by tools/png_rgb.js (#394); the viewport is pinned to 1440x763 with Emulation.setDeviceMetricsOverride so the display canvas is the geometry every caption counts its 763 rows of. layout is state().layout == DEV.layoutSig() for this deal. Pose: startLevel(3, true) with NO DEV.cam - THE STACK's authored seat, read back at (1.5, 2.5) on floorAt 0.00 with the derived heading 0.8761. This is the same pose and the same url the replaced row posed; the deal did not re-roll (layout equals the layout that row records), so every pixel that moved is a shipped change and not the generator's dice. DEV.lum({stride:97}) mean/mid = 67.08 / 95.23 (a stride-97 sample; the caption mean is the whole-frame luma tools/recap.js decodes). sampleRate 44100 is this page's AudioContext measured, which is what says which machine this seed deals (#404). Canvas 1440x763, S.mode play, 4 hostiles left. The frame it replaces is the PNG at 7a16776, mean 69.75 decoded from those bytes."
     }
   ]
 }
