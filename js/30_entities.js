@@ -435,6 +435,25 @@ const LAND_GIVE_W = 26, LAND_GIVE_T = 0.45, LAND_GIVE_CAP = 8;
    shapes the path between two floors the crossing rules already agreed the feet take; it decides no
    crossing and moves no balance number. */
 const STEP_FOLLOW_A = 9.2;
+/* The eye's climb after an auto-step UP (#765). The FEET take a one-quantum tread in one frame and
+   must keep doing it: a body that lags below the tread it stepped onto renders as though it is standing
+   in the floor, and `view.js drop`'s "an unblocked quantum step up lifts the feet" row is the check that
+   says so. The EYE has no such obligation, and shipping already decouples the two - after a fall the
+   body stops dead at the floor while eyeGive() carries the eye's speed over a few frames. This is the
+   mirror image of that mechanism, and it uses the same constant: the eye is left d metres below the
+   body and closes the gap accelerating at STEP_FOLLOW_A, capped at sqrt(2*A*d), the speed that still
+   arrives at ZERO lag. Rest to rest, so the eye's vertical speed is continuous across the crossing in
+   both directions, and no frame can ADD more than A*dt to it - gravity's own ceiling, the same one the
+   descent rows hold a walked step-down to. For one quantum: peak 1.52 m/s = 2.5 cm in a frame, spread
+   over 2*sqrt(d/A) = 0.33 s, which is the descent's own number to two decimals (#634, #152).
+   RISE_LAG_MAX is the one place the eye's climb has a bound, and it is the band guard's own number:
+   eyeAltitude() refuses to put the eye below floorAt + 0.12 (js/40_render.js), so a lag of cfg.eye-0.12
+   would have the eye riding the clamp, and a clamp engaging as the treads rise beneath it is the snap
+   this whole change exists to remove. It is a backstop, not a limiter: the closing speed is sqrt(2*A*L),
+   so the law drains FASTER the further behind the eye is, and a climb settles by itself well inside it
+   (`view.js drop`'s ascent rows print the biggest lag they reach). */
+const RISE_LAG_MAX = cfg.eye - 0.15;
+function eyeRise() { return P.riseLag; }
 /* How far BELOW the body the eye sits right now, in metres. The body stops dead at the floor - that
    is what a floor is - so on the touchdown frame the eye's downward speed jumped from the fall's to
    zero, and that jump is the snap: the horizon stopped and then shook on top of a frame that had
@@ -452,6 +471,16 @@ function updatePlayer(dt) {
   // the eye's give outlives the touchdown it came from, and decays to exactly zero: a player
   // standing still renders the frame the body alone puts there (#634)
   if (P.landT >= 0) P.landT = P.landT > LAND_GIVE_T ? -1 : P.landT + dt;
+  // The eye's climb closes at bounded acceleration, exactly the way a walked step-down does, and
+  // arrives at no offset at all: a player standing on a tread renders the frame the body alone puts
+  // there (#765). It runs every frame, grounded or not, because a lag cancelled mid-air would be a
+  // snap dressed up as a fix.
+  if (P.riseLag > 0) {
+    const brake = Math.sqrt(2 * STEP_FOLLOW_A * P.riseLag);
+    P.riseV = Math.min(P.riseV + STEP_FOLLOW_A * dt, brake);
+    P.riseLag -= P.riseV * dt;
+    if (P.riseLag <= 0) { P.riseLag = 0; P.riseV = 0; }
+  }
   if (P.deadT > 0) {
     P.deadT += dt;
     // The death screen is driven by the simulation clock, not a wall-clock timer:
@@ -530,7 +559,13 @@ function updatePlayer(dt) {
         // a grounded rise of at most ONE STEP is a step the feet simply take; anything taller is a
         // wall by linkBoundaries' own rule - the same threshold, read here instead of restated - so
         // this never lifts the player through a riser
-        if (dz > 0 && dz <= STEP_Z) { P.z = gz; P.dzV = 0; }   // the auto-step the feet simply take
+        if (dz > 0 && dz <= STEP_Z) {
+          P.z = gz; P.dzV = 0;
+          // the feet are on the tread; the eye is handed the rise and follows it - see RISE_LAG_MAX.
+          // The lag is charged on the SAME frame the body moves, which is what makes the eye's own
+          // position continuous: the body's +d and the lag's -d cancel exactly on the crossing frame.
+          P.riseLag = Math.min(RISE_LAG_MAX, P.riseLag + dz);
+        }
         else if (dz < 0) {
           // bounded acceleration, then brake onto the floor: see STEP_FOLLOW_A. The last line is a guard
           // against a frame's truncation, not a snap - the brake term makes it unreachable in the mean.

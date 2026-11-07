@@ -602,10 +602,11 @@ const PKKIND = { health: 'pickupHealth', ammo: 'pickupAmmo', armor: 'pickupArmor
 
    eyeGive() is the knee after a landing (#634): the body stops at the floor, the eye arrives over the
    next fifth of a second, and the floor guard is what stops a bent knee from putting the eye through
-   the floor it landed on. */
+   the floor it landed on. eyeRise() is the same decoupling pointed the other way (#765): an auto-step
+   lifts the body in one frame because it must, and the eye arrives over the next third of a second. */
 function eyeAltitude() {
   const pfl = floorAt(P.x, P.y);
-  return clamp(cfg.eye + P.z - P.crouch * 0.19 - eyeGive(), pfl + 0.12, ceilAt(P.x, P.y) - 0.06);
+  return clamp(cfg.eye + P.z - P.crouch * 0.19 - eyeGive() - eyeRise(), pfl + 0.12, ceilAt(P.x, P.y) - 0.06);
 }
 
 function renderWorld() {

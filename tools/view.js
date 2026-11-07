@@ -5206,6 +5206,7 @@ if (MODE === 'drop') {
     if (!ok) bad++;
   };
   const ZQ = run('ZQ'), G = 9.2, SAFE = 5.25;   // js/30_entities.js:333 - 5.25 m/s is a 1.5 m drop
+  const cfgEye = run('cfg.eye');                // standing eye height - the band guard's other term (#765)
   const PLACE = (x, y, ang) => `P.x=${x};P.y=${y};P.ang=${ang};P.vx=P.vy=P.vz=0;P.air=false;P.z=floorAt(P.x,P.y);` +
     `S.shake=0;for(const k of ['KeyW','KeyA','KeyS','KeyE','KeyQ','Space','ShiftLeft'])delete keys[k];`;
   const trace = (fr) => run(`(()=>{const s=[];keys['KeyW']=1;for(let i=0;i<${fr};i++){update(1/60);` +
@@ -5348,7 +5349,10 @@ if (MODE === 'drop') {
        these rows also answer "is a ramp down walked or fallen" instead of assuming it. A trace whose
        floor never dropped by the authored amount is vacuity and FAILS - it is not a debt. */
     const etrace = (fr) => run(`(()=>{const s=[];keys['KeyW']=1;for(let i=0;i<${fr};i++){update(1/60);` +
-      `s.push([P.x,P.y,P.z,P.air?1:0,P.vz,P.hp,S.shake,floorAt(P.x,P.y),eyeAltitude()]);}return s})()`);
+      `s.push([P.x,P.y,P.z,P.air?1:0,P.vz,P.hp,S.shake,floorAt(P.x,P.y),eyeAltitude(),` +
+      // column 9: where the BODY says the eye belongs, before the climb lag and before the band guard
+      // - the ascent rows read the eye's own remaining gap off these two columns (#765).
+      `cfg.eye + P.z - P.crouch * 0.19 - eyeGive()]);}return s})()`);
     const ahead = (k) => [[LX + lane.dx * k, LY + lane.dy * k]];
     const DIRd = lane.dx === 1 ? 0 : lane.dy === 1 ? 1 : lane.dx === -1 ? 2 : 3;
     // q = how many quanta the FIRST crossing of that route drops; fall = what the design says the
@@ -5461,7 +5465,80 @@ if (MODE === 'drop') {
                 + `= ${worst.toFixed(1)}x`));
       }
     }
-    console.log(`  L${li} branch attribution: ${branch.join('  ')}`);
+    /* ---- #765: the same question pointed UP. -------------------------------------------------
+       Every row above this one is about the eye going DOWN, and PR #756 made that half glide while the
+       ascent stayed exactly as it was: the auto-step moves the BODY a whole tread in one frame (it must -
+       `an unblocked quantum step up lifts the feet` above proves an eased body drifts 26 frames inside
+       the floor), so the eye went with it. Measured at the #756 head and its base, byte-identically:
+       one quantum moved the eye 0.25 m in ONE frame = 15 m/s out of rest, against the 0.0026 m a body
+       under gravity is allowed per frame and the 0.026 m a walked descent now takes.
+       The fix is the mirror of the shipped landing knee: the feet arrive, the eye FOLLOWS, closing the
+       gap with the descent's own bounded acceleration (js/30_entities.js RISE_LAG_MAX). So this row
+       judges the eye against the SAME ceiling the descent rows use, with the eye's own remaining gap in
+       place of the feet's - rest to rest in both directions, one law. A build without the fix has no
+       gap to close, so its ceiling is gravity's first frame (0.0051 m) and the tread is 49x over it.
+       Grounded frames only: a rise taken as a jump or a fall is the fall rows' subject, and the ladder
+       owns its own authored 1.6 m/s elsewhere. */
+    const upKinds = [
+      { name: 'one quantum step', dig: [[1, 1], [2, 1]], fr: 60 },
+      { name: 'stair (1q treads)', dig: [[1, 1], [2, 2], [3, 3]], fr: 90 },
+    ];
+    const upBranch = [];
+    for (const ku of upKinds) {
+      const need = ku.dig.reduce((m, d) => Math.max(m, d[0]), 0);
+      if (need >= lane.n) { row(`L${li} up a ${ku.name}`, false, `the open lane runs ${lane.n} cells; this route needs cell ${need}`); continue; }
+      const vbU = run(`(function(){ return MAP.vb[${LY * run('MW') + LX}]; })()`);
+      put(X, Y);
+      for (const [k, dq] of ku.dig) poke(ahead(k), dq);
+      put(X, Y);
+      const su0 = run('P.z');
+      const s = etrace(ku.fr);
+      run(`(function(){ MAP.vb[${LY * run('MW') + LX}] = ${vbU}; return 1 })()`);
+      restore();
+      const gzMax = Math.max.apply(null, s.map(r => r[7]));
+      const eMax = Math.max.apply(null, s.map(r => r[8]));
+      const vacuous = gzMax < su0 + ZQ - 0.01 || (eMax - s[0][8]) < ZQ * 0.8;
+      const G2 = 9.2, DT2 = 1 / 60;
+      let uViol = 0, nUp = 0, uWorst = 0, uWorstAt = -1, uWorstCap = 0, uWorstRise = 0, nMove = 0, lagMax = 0;
+      for (let i = 1; i < s.length; i++) {
+        if (s[i][3] || s[i - 1][3]) continue;
+        const up = s[i][8] - s[i - 1][8];
+        if (up <= 1e-9) continue;                       // flat, or a walked step DOWN - #634 owns that
+        nUp++;
+        if (up > 1e-6) nMove++;
+        const lag = Math.max(0, s[i - 1][9] - s[i - 1][8]);   // how far below the body the eye still is
+        if (lag > lagMax) lagMax = lag;
+        const cap = (Math.sqrt(2 * G2 * lag) + 2 * G2 * DT2) * DT2;
+        if (up > cap) {
+          uViol++;
+          if (up / cap > uWorst) { uWorst = up / cap; uWorstAt = i; uWorstCap = cap; uWorstRise = up; }
+        }
+      }
+      // The eye must ARRIVE, not merely spread: a standing player on a tread renders the frame the body
+      // alone puts there, which is what every recorded static pose assumes. And it must arrive LATE -
+      // the spread from the crossing to the arrival is the whole result, and on a build with no lag the
+      // two are the same frame, so this is the row's own anti-vacuity term.
+      const resid = s[s.length - 1][9] - s[s.length - 1][8];
+      let cross = -1;
+      for (let i = 1; i < s.length; i++) if (s[i][7] > s[i - 1][7] + 1e-9 && !s[i][3]) cross = i;
+      let arriveF = -1;
+      for (let i = cross + 1; i < s.length; i++) if (Math.abs(s[i][9] - s[i][8]) < 1e-6) { arriveF = i; break; }
+      const spread = arriveF < 0 || cross < 0 ? -1 : arriveF - cross;
+      upBranch.push(`${ku.name}=${nUp} up-frames`);
+      row(`L${li} up a ${ku.name} the eye is not thrown up`,
+        !vacuous && nUp > 0 && uViol === 0 && spread >= 10 && spread <= 60,
+        `${nUp} grounded up-frames, ${nMove} of them moving the eye at all, biggest lag under the body `
+        + `${lagMax.toFixed(3)} m (the band guard would engage at ${(cfgEye - 0.12).toFixed(2)}), the feet `
+        + `crossed on frame ${cross < 0 ? '-' : cross + 1} and the eye arrived on frame `
+        + `${arriveF < 0 ? `NEVER (still ${(resid * 100).toFixed(1)} cm down at frame ${s.length})` : arriveF + 1}`
+        + ` = ${(spread / 60).toFixed(2)} s of view for a ${(spread > 0 ? s[Math.max(1, cross)][7] - s[Math.max(0, cross - 1)][7] : 0).toFixed(2)} m tread`
+        + (uViol ? `, ${uViol} frame(s) over the ceiling: worst frame ${uWorstAt} moved the eye `
+          + `${uWorstRise.toFixed(4)} m = ${(uWorstRise * 60).toFixed(1)} m/s against a ceiling of `
+          + `${uWorstCap.toFixed(4)} m = ${uWorst.toFixed(1)}x`
+          : `, no frame out-ran gravity (a 0.25 m lag allows `
+            + `${((Math.sqrt(2 * G2 * 0.25) + 2 * G2 * DT2) * DT2).toFixed(4)} m in one frame)`));
+    }
+    console.log(`  L${li} ascent attribution: ${upBranch.join('  ')}`);
 
     /* The threshold is ONE constant (js/20_level.js STEP_Q) read by the generator's kind table and by
        the airborne branch. Rather than grep for the symbol, measure both rules on the real grid: the
