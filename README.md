@@ -65,15 +65,16 @@ every frame below is the picture that build's page drew. Whether that is still t
 that ages: `node tools/recap.js check` hashes the four blobs that draw a frame — `index.html`, `js/10_assets.js`,
 `js/20_level.js`, `js/40_render.js` — against the digests recorded for the bound build in
 [`docs/screens/provenance.json`](docs/screens/provenance.json), and prints `SHIP-BIND` when this tree's bytes are
-those bytes or `FRAME-STALE` naming the blob that moved. A pass aged badly once, binding `bd2441a` while two
+those bytes or `FRAME-STALE`, naming whichever blobs moved. A pass aged badly once, binding `bd2441a` while two
 render commits landed in review, and the tool exists so it cannot age quietly again; the bind is an upper bound on
 "the picture changed", since a comment inside a renderer moves a digest and moves no pixel, so the row names the
 blob and leaves the re-take call to a human. On the tree that carries these frames that row now reads `FRAME-STALE` for
-`7a16776`: one of the four blobs that draw a frame — `js/40_render.js` — has moved on this checkout since the build that
-drew these eight frames, once for the far field answering with the surface its own ray crossed (#616) and once for the
-eye gliding up a step the way it already glided down (#765). So the row says a re-take off a deploy of this checkout is
-owed, and this pass did not make one: what is below is the picture `7a16776`'s page drew and no newer, and that age is
-recorded here rather than written away. Whether the moved blob redraws these eight poses differently is a measurement
+`7a16776`, and that row — not this sentence — is what lists which shipped blobs moved since the build that drew
+these eight frames. This paragraph counts none of them on purpose: the last time this page named the files and the
+commits behind them, a later merge moved one more and the front page was left contradicting its own table two rows
+below it, which is the failure #653 was opened for. So the row says a re-take off a deploy of this checkout is owed,
+and this pass did not make one: what is below is the picture `7a16776`'s page drew and no newer, and that age is
+recorded here rather than written away. Whether those moved blobs redraw these eight poses differently is a measurement
 this checkout cannot make — the bind is an upper bound, and a renderer commit that only moves a comment moves the
 digest and no pixel — so what these frames honestly claim is *bound to a build that no longer ships*, not *the picture
 this page ships*; the re-take, when someone runs one, owes the same provenance pass this one did. The reason this pass ran at all is the case that row cannot see: a bind can hold while the picture moves, because two merged PRs — the sight-line rule (#757) and the rule that keeps a moved prop on the deck it was dealt on (#768) — change where a hazard-banded crate or barrel stands when it sits in front of the room you wake in, and both of those changed a shipped blob while these frames were still bound to a build before them. So the eight were re-shot on the deployed page at `7a16776` — that page's `index.html` and eleven `js/` blobs sha256-matched the tree then, twelve for twelve, read off the wire before the shutter — by the same route at the same coordinates. The same command now prints a `CAPTION-VERDICT` row that compares this sentence with the digests, so the page cannot be left a pass behind by the pass it describes (#653). None of this pass's three deals re-rolled, and that is the point of
