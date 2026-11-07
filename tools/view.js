@@ -8936,7 +8936,7 @@ const RECHALF = refRecord('heights', 'HALF-MOVE', 'num', [97.11, 25.39, 53.10, 9
      arithmetic delivers 0.0000 at every level, and `GNDOF=0` (the A/B in js/40_render.js) puts the
      borrowed lamp back and turns both halves red, which is how these two rows are seen to fail. */
   const OFFMAPFLOOR = 2;
-  let offDefRun = 0;
+  let offDefRun = 0, offCrossRun = 0, offWarmRun = 0, offColDef = 0, offColRow = 0;
   /* #421 THE SOFFIT CLASSIFICATION, PINNED. `MAP.ceilSlab` says which columns have a NEIGHBOUR'S FLOOR
      over their head, and `buildCeilSlab` derives it from `fz` - so a config that pokes FLOORS re-decides
      that byte, legitimately, and the underside material repaints ceiling pixels whose PLANE never moved
@@ -8997,6 +8997,11 @@ const RECHALF = refRecord('heights', 'HALF-MOVE', 'num', [97.11, 25.39, 53.10, 9
         for (let q = 0; q < 9; q++) lgn[q] += c[q];
         lgn[9] += c[9]; lgn[11] += c[11]; lgn[13] += c[13];          // #375: off-map pixels RUN, summed
         for (const q of [10, 12, 14]) if (c[q] > lgn[q]) lgn[q] = c[q];   // and the WORST light delivered
+        lgn[16] += c[16]; lgn[17] += c[17]; lgn[19] += c[19]; lgn[21] += c[21];   // #375 COLLAR sites run
+        offCrossRun += c[16];
+        if (c[18] > offColDef) offColDef = c[18];
+        if (c[20] > offColRow) offColRow = c[20];
+        for (const q of [18, 20]) if (c[q] > lgn[q]) lgn[q] = c[q];               // and the collar WORST
       }
       const cur = new Uint32Array(run('px'));
       const reS = run('({bad:reSolveBad,off:gndOffMap})');   // this ground pass only, not the renderWorld before it
@@ -9377,6 +9382,11 @@ const RECHALF = refRecord('heights', 'HALF-MOVE', 'num', [97.11, 25.39, 53.10, 9
       for (let q = 0; q < 9; q++) lgn[q] += c[q];
       lgn[9] += c[9]; lgn[11] += c[11]; lgn[13] += c[13];           // #375, same fold as the config loop
       for (const q of [10, 12, 14]) if (c[q] > lgn[q]) lgn[q] = c[q];
+      lgn[16] += c[16]; lgn[17] += c[17]; lgn[19] += c[19]; lgn[21] += c[21];    // #375 COLLAR sites run
+      offCrossRun += c[16];
+      if (c[18] > offColDef) offColDef = c[18];
+      if (c[20] > offColRow) offColRow = c[20];
+      for (const q of [18, 20]) if (c[q] > lgn[q]) lgn[q] = c[q];               // and the collar WORST
       if (dY > FARBFAR) farSeen = Math.max(farSeen, dY);
     }
     /* One verdict per level over every render above. LIGHTCAP-LEAK is the fix: a ground or mirror pixel
@@ -9472,6 +9482,51 @@ const RECHALF = refRecord('heights', 'HALF-MOVE', 'num', [97.11, 25.39, 53.10, 9
         `${wc.dmax ? `, phantom up to ${wc.dmax.toFixed(1)} m` : ''}  seat ${dcam.x.toFixed(1)},${dcam.y.toFixed(1)} sight ${dcam.d.toFixed(1)}m` +
         `${dFail ? '  FAIL' + dFail : '  ok'}`);
     }
+  }
+  /* #375 THE COLLAR AGREEMENT, and the row that makes "BOTH copies of the ground-pixel body carry the
+     off-map light rule" a measurement instead of a sentence. The collar is the one-cell band just OUTSIDE
+     the level's outline: off the grid, so `offMapClear` is false and at least one of the four bilinear taps
+     is still a cell that exists. Past it every tap reads 0 and both copies must deliver ambient - which the
+     row above already gates at 0.000. INSIDE the collar the two copies used to disagree by construction:
+     groundPixel sampled the field (#392) and castGround's off-map crossing branch paid `lr = lg = lb = base`
+     with no field at all, so the same ray was lit by one copy and unlit by the other, and the set of rays
+     that leaves the footprint is bounded by the level's own side edges - straight lines through the
+     vanishing point, which is how the outline got drawn as a region with a one-pixel edge. THIS row is the
+     falsifiable half of that: it prints, per copy, the WORST light delivered at a collar site (x1000) and
+     how many collar sites ran. A build whose rule lives in one copy reads a nonzero deferred maximum with a
+     row maximum of exactly 0 - the state PR #453 shipped in, where the existing census stayed green because
+     it only ever looked a whole cell clear of the level, where both copies are 0 by definition and the row
+     could not fail. Vacuity is named separately: a run with no collar site anywhere measured nothing.
+     No threshold to widen: the two figures are the same field, so the only bar is "the row copy is not
+     silent where the deferred copy is not". */
+  if (!offCrossRun) {
+    /* NAMED GAP, not a gate, and the reason is a measurement: at the four sectors' own arrival seats and at
+       the seat this issue names, EVERY bilinear tap an off-map ground pixel has is a cell of the level's own
+       boundary RING, which is SOLID, and a solid cell carries no lightmap - so the collar's field is 0 in
+       both copies and no frame this probe can build reaches a collar pixel with light to give. The row
+       therefore cannot be a gate on geometry the probes do not contain (AGENTS.md: a permanently-red row
+       teaches people to ignore the rows that matter); it prints its own coverage instead. The failure it CAN
+       still print is the one this increment is about: a build where one copy lit the collar and the other
+       paid bare ambient. */
+    console.log(`  ${pad('offmap-collar', 13)} KNOWN OFFMAP-COLLAR-UNREACHED - no off-map ground pixel with a live bilinear tap was painted on any level here; the collar's in-map taps are the level's own boundary ring (solid, lightmap 0), so the field is 0 in BOTH copies and this row measured nothing about its agreement`);
+  } else if (!offColDef && !offColRow) {
+    /* NAMED GAP, and it is the case the four sectors actually sit in: collar sites RUN (thousands of them),
+       but every one of them reads a lightmap of 0, because the only in-map tap an off-map pixel has is a
+       cell of the level's own boundary RING, which is SOLID and carries no lightmap. The two maxima are
+       then equal by construction (0, 0), so an `ok` here would be a green row measuring nothing - the one
+       thing AGENTS.md says a row must never be. Measured at this head: `SET='GNDOFR=0'` is BYTE-IDENTICAL
+       to the shipped frame on all eight level/cam seats and at three seats put on purpose against the
+       level's own north-west edge, i.e. at no frame this probe builds does the ROW half of the rule move a
+       pixel. That is a statement about the geometry, not about the rule: it is why the collar is what the
+       rule has to be measured at, and it is the reason #375 stays open while both copies carry the rule. */
+    console.log(`  ${pad('offmap-collar', 13)} KNOWN OFFMAP-COLLAR-DARK - ${offCrossRun.toLocaleString()} off-map crossing(s) still had a tap on the level and NONE of them had light to give (deferred 0.0000, row 0.0000): the collar's in-map taps are the level's solid boundary ring, so on this geometry the two maxima are equal BY CONSTRUCTION and this row can show neither agreement nor disagreement. The config that makes the pair below able to fail is one LIT cell on that ring - run this probe with GNDOFR=0 there and it reads a deferred maximum against a row maximum of 0.`);
+  } else {
+    const cwFail = (offColDef > 2 && offColRow <= 2) ? ' FAIL OFFMAP-ROW-ONECOPY: the deferred copy lit the collar and the row copy lit nothing'
+      : (offColRow > offColDef + 2 ? ' FAIL OFFMAP-ROW-TOO-BRIGHT: the row copy delivers more than the field the deferred copy samples' : '');
+    console.log(`  ${pad('offmap-collar', 13)} ${offCrossRun.toLocaleString()} off-map row crossing(s) still had a tap on the level; worst light above ambient ` +
+      `deferred ${(offColDef / 1000).toFixed(4)}, row ${(offColRow / 1000).toFixed(4)} - the SAME field, so a row maximum of 0 while the ` +
+      `deferred maximum is not is one copy carrying the rule and the other not${cwFail ? cwFail : '  ok'}`);
+    if (cwFail) bad++;
   }
   /* The site #375 actually fixed has to have run SOMETHING, somewhere: a per-level 0 is a level with no
      long sight line, but four of those means the row has stopped measuring the copy it is about. */
