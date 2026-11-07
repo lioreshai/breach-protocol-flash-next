@@ -16062,6 +16062,26 @@ if (MODE === 'props') {
     // under it must change NOTHING - the correct answer, not a failure, and not a silent pass either:
     // nothing in this probe or any other gate covers a MOVER's altitude, which #76 leaves to gameplay
     const cutRef = mA.top <= 0 || mA.bot >= H - 1 || m3.bot >= H - 1, cutTop = m3.top <= 0;
+    /* #631 CROP, NOT FEET. Raising the floor raises a floorAt-bodied entry's z by one quantum
+       (js/40_render.js:713 for the portal, :693 for a generated prop) while the plane the lens solves
+       its UPPER rows against belongs to the CAMERA's band and does not move - and ceilAt is own floor
+       plus own clearance, so the body's own roof rises with it and the clearance it has to fit in does
+       not. A tall entry (the portal is 1.5 m) therefore climbs INTO the plane above the band and loses
+       its top. The signature is the top ROW, not the height: a body losing its top to geometry has
+       m3.top > mA.top - the visible top edge moves DOWN the screen - while its bottom edge moves UP by
+       the ~want px the step asks for. A prop painted at the old plane cannot do that: it does not move
+       at all, so its top row cannot part either. The bottom row therefore stays the oracle in this
+       branch and SUNK stays one fail away: the crop is reported only when the bottom row rose as the
+       geometry asks, and a body whose bottom does not rise still reddens the row below. */
+    /* The crop excuse is taken only when the feet test passes with MARGIN, not when it merely clears the
+       0.4 floor below. That floor is a measured trap, not taste: freezing this body's z at the plane of the
+       first drawn frame (js/40_render.js:713 sabotaged, so it is painted at the old plane exactly as the
+       row exists to catch) raises the visible bottom row 20 px against want 29 - 0.69 of the step, which
+       the 0.4 floor waves through because the raised slab hides the lower part of a body that did not move.
+       Measured on the two trees: this build 36 px = 1.24 x want (the body really rose with its floor); the
+       frozen-z sabotage 20 px = 0.69 x want. 0.85 sits between the two, so the falsifier reddens the row
+       and the build that ships does not. */
+    const climbCrop = keep < 0.9 && mA.top > 0 && m3.top > mA.top && shift >= want * 0.85;
     const airborne = kind === 'orb';
     if (airborne) console.log('    feet: n/a - airborne, z is the arc 30_entities.js owns, not floorAt;'
       + ' UNCOVERED by any gate here');
@@ -16075,7 +16095,7 @@ if (MODE === 'props') {
     else if (cutRef) fail('(F) ' + kind + ': the silhouette is CUT by the frame (rows ' + mA.top + '..' +
       mA.bot + ' then ' + m3.top + '..' + m3.bot + ' of ' + H + '), so "height kept" and "bottom row" '
       + 'describe the crop and not the feet - the camera is not looking at this prop from its own band');
-    else if (keep < 0.9 && !cutTop) fail('(F) ' + kind + ': SUNK IN THE BAND - raising its floor by one quantum (0.25 m, a step, '
+    else if (keep < 0.9 && !cutTop && !climbCrop) fail('(F) ' + kind + ': SUNK IN THE BAND - raising its floor by one quantum (0.25 m, a step, '
       + 'so no riser is drawn and nothing occludes it) hid ' + (100 * (1 - keep)).toFixed(0) + '% of it (height '
       + mA.h + ' -> ' + m3.h + ' px, bottom ' + mA.bot + ' -> ' + m3.bot + ') on ' + who + ': its z is not '
       + 'floorAt(x,y); the raise disc holds ' + discSolid + ' SOLID cell(s)'
@@ -16090,6 +16110,15 @@ if (MODE === 'props') {
       ' px (expected ~' + want.toFixed(0) + ') on ' + who +
       (cutTop ? ' [top of the ' + m3.h + ' px body leaves the frame after the raise: height is a crop, '
         + 'the bottom row is not]' : '') +
+      /* The crop branch announces itself: a pass path that never prints cannot be told from a pass path
+         that never ran, so this is the line showing the clause is live on this deal. */
+      (climbCrop ? (' [CROP, NOT FEET: the top edge moved ' + mA.top + ' -> ' + m3.top +
+        ' - DOWN the screen - while the bottom rose ' + shift + ' px, so the ' + m3.h +
+        ' px the raise left standing climbed into the plane above its band: z is floorAt at draw time ' +
+        'and clearance is own floor plus own clearance, so a step takes the roof with the feet while the ' +
+        'upper plane of the frame does not move. The bottom row is the feet test and it is green (' +
+        shift + ' of ~' + want.toFixed(0) + ' px); the kept height is not a feet test, so it is not ' +
+        'gated here]') : '') +
       (kind === 'portal' && discSolid ? ' [the raise disc also holds ' + discSolid + ' SOLID cell(s): the '
         + 'raise skips those, so part of this body is behind geometry the raise cannot move and the kept '
         + 'height is a crop, not a sunken prop]' : ''));
