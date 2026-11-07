@@ -256,6 +256,17 @@ let grownDeck = [];
    have put over the arrival room, scored before any of them is committed. `surface`'s SEAT-PLACE row reads
    it; nothing in the renderer does. Null until a level is generated. */
 let bandCand = null;
+/* #631 THE DOORWAY-WALL CENSUS, one record per wall this pass stands: which room, which line, which cell of
+   it is the opening, how many cells of wall it wrote. It exists so a probe can ask the one question a
+   rendered frame cannot answer on its own - did this pass put anything in the world at all? `fixtures` reads
+   it and a generated sector that deals none is a FAILURE there, not an ok. Null until a generated level
+   runs the pass; an authored plan never sets it, which the row reads as its own exclusion. */
+let doorWalls = null;
+/* #631 WHY THIS SECTOR DEALS NONE. The census above says what a wall went where; it cannot say why a sector
+   stands none, which is the answer `fixtures` has to print now that a one-cell jamb is a rejection instead of
+   an outcome. One string per generated sector that ran the doorway-wall pass and accepted nothing, naming the
+   rejection that killed the most candidates. Null on an authored plan and empty on a sector that dealt one. */
+let doorDecline = null;
 /* #154: metres of clear ground the prop passes keep off the spawn seat. A `let` rather than a literal
    so a probe can A/B it the way it reassigns topUpEnabled and groundPixel (`SPAWN_CLEAR = 0` is the
    shipped behaviour, no clearance), and so smoke's spawn-clearance row can name what it moved.
@@ -3926,6 +3937,8 @@ function genLevel(li) {
      THE STACK's own - a 400-cell grid reporting a region of 826 owned cells. An authored sector now has no
      record, which the row reads as its own vacuity FAILURE rather than as a prediction it did not make. */
   bandCand = null;
+  doorWalls = null;                                 // #631: the doorway-wall census is per level too
+  doorDecline = null;                               // #631: and so is the reason a sector dealt none
   /* #353, same trap as the record above and it is live: `overlookPairs` is reset inside `authorVolume`,
      which an authored plan returns past before the pairing pass runs, so THE STACK inherited level 2's
      three pairs. Nothing on the authored path reads them - `authorOverlooked` and `lightOverlookDecks`
@@ -4763,10 +4776,254 @@ function genLevel(li) {
        ways in one tree). It draws no RNG and guards nothing else, so with it true - the shipped case -
        the deal is the deal it was. */
     if (pierEnabled())
+    { let levelWall = 0;                             // one solid doorway-wall per generated sector (#631)
+    doorWalls = [];                                  // #631: this sector runs the pass, so it has a census
+    /* #631 WHY NOTHING WAS ACCEPTED. Every rejection below is counted by name, so a sector that deals no wall
+       can SAY why instead of just being silent, which is what `fixtures` needs now that a short jamb is a
+       rejection: "declined" and "inert" have to be tellable apart. It is a tally of candidate rejections, not
+       a new rule - it decides nothing, draws no RNG, and writes no cell. */
+    const decl = {};
+    /* THE STAGE IS PART OF THE ANSWER. A reason that killed 17 candidates at the FIRST test tells you less
+       than a reason that killed two candidates nobody had to refuse for anything else, so the decline names
+       the rejection that got FURTHEST before dying, and only uses the count to break a tie between two
+       rejections at the same stage. Stage 1 shape, 2 a reservation, 3 the line's own length or holes, 4 the
+       jamb bar, 5 the room's own views, 6 the stranding proof - later = closer to standing a wall. */
+    const deny = (why, st) => {
+      const d = decl[why] || (decl[why] = { n: 0, s: st });
+      d.n++;
+      return 0;
+    };
     for (let ri = 0; ri < rooms.length; ri++) {
       const r = rooms[ri];
       if (r.w * r.h < 24) continue;                        // a 5x5 room is already one bay; give it nothing
       const loX = r.x + 1, hiX = r.x + r.w - 2, loY = r.y + 1, hiY = r.y + r.h - 2;
+      /* THE SOLID MEMBER OF THIS PASS (#631): the same line, but a WALL with ONE doorway in it instead of
+         a rank of columns. Columns you see straight past; an opening in a wall that carries on either side
+         is the one thing the frame can say "go here" with. It is a new member and not a replacement: the
+         pier line stays in every room it already stands in, and the wall is asked for in ONE room per
+         generated sector, which is the placement `exposure` settled (see the offer site below).
+
+         A solid line, unlike a pier, CAN sever: removing a whole row of cells is not removing one vertex,
+         so the eight-neighbour ring proof does not apply and is replaced by the test it stood in for -
+         `bfsReach` from the seat, before and after, and the wall is kept only if every cell that was
+         reachable and stays open is still reachable. It rewinds rather than re-rolls, so a room that takes
+         the wall keeps every other cell main dealt it. The doorway is the gap `gapAt` names - the cell the
+         arrival view reaches - and it is left open on purpose: it is the way through.
+
+         Every reservation the pier pass honours is honoured here as a REJECTION, not a skip: a wall with a
+         see-through cell in it is the defect this is fixing, so a candidate that cannot be stood whole -
+         one cell on a band, one on the reserved shot run, one beside a stair mouth, one with a prop parked
+         in it - dies and the next position is asked. No RNG draw, same as the pier pass. The face is
+         `cfgL.wall2`, the room's minority cladding, for the same #369 reason as the piers. */
+      /* THE OPENING HAS TO BE SEEN BY SOMEBODY WHO IS IN THAT ROOM (#631, the product decision on the
+         review). A wall whose doorway sits off the sight line its room gives a player buys a big near
+         occluder and no place to go: at ABATOIR CORE's three probe seats this shape put an unbroken face
+         across the left of frame with the opening behind the rank's near end, and `mip`'s near-band
+         census (ceiling under 4 m: 39% -> 57%) and `contrast`'s cam-1 region are the same fact measured
+         two other ways. `gapAt` names the ROOM CENTRE for a room the spawn is not in, which is a cell
+         chosen by geometry with no reference to any view - so the axis the previous rework never swept
+         was WHICH CELL OF THE LINE IS THE OPENING. A candidate is stood here only if the opening it would
+         leave is ON SCREEN from a place a player stands inside that room, with wall carrying on past it on
+         both sides and nothing already dealt standing between. The vantage is the room's own centre cell
+         and its bearing is the direction that cell can see furthest in - the same longest-sight-line rule
+         the probe cameras are derived by (`tools/view.js`'s `scene` camera), read off the grid this pass
+         is working on. No RNG draw, so no prop, lamp, enemy or seat moves. A candidate that cannot show
+         its opening dies like the reservations below, the next position is asked, and a room that can show
+         nothing anywhere keeps main's pier line - which is the shipped behaviour when nothing is accepted,
+         so it needs no per-sector switch, no level list and no knob. */
+      let gotWall = 0;
+      /* THE SEAT WHERE THAT ROOM OPENS UP. A dealt room gives a player one view more reliably than any
+         other: stand in the open cell that has the most air in front of it and look down that air - the
+         same longest-sight-line rule `tools/view.js` derives its own scene camera from, asked of the grid
+         this pass is working on, drawing no RNG, so no prop, lamp, enemy or seat moves. The opening counts
+         as SHOWN only if it lies inside the frame that view makes - either way along it, because a player
+         can turn around - with the wall carrying on past it on both sides and inside the frame there too,
+         at least PIER_NEAR away and with nothing already dealt standing between. `cfg.plane` is the
+         renderer's own half-width (js/00_core.js 0.72 = 35.8 deg), so "inside the frame" is the engine's
+         fact and not a tuned angle. A candidate that cannot show its opening dies like the reservations
+         below and the room keeps main's pier line, which is the shipped behaviour when nothing is accepted:
+         no per-sector switch, no level list, no knob. WHY THIS IS THE CLAUSE: `gapAt` names the ROOM CENTRE
+         of the line for a room the spawn is not in - a cell chosen by geometry with no reference to any
+         view - and at ABATOIR CORE that put the opening off the room's sight line, so the frame carried a
+         4-cell solid face with no way through it visible anywhere, which is what that sector's `mip`
+         near-band census (39% -> 57%) and `contrast` cam-1 region were measuring. */
+      /* THE MARCHES THIS ROOM OFFERS, NOT ONE MARCH (#631, the review's second row). The head before this
+         one took the SINGLE cell with the longest sight line in the room and answered BOTH of its questions
+         from that one cell and that one bearing - does the wall CROSS the room, and is its OPENING on a
+         screen a player in this room stands in. One view of a room answers neither question honestly: on
+         the shipped seed every candidate died at one of those two clauses, so the pass stood no wall on
+         any generated sector and a player saw nothing new anywhere in the game. A room is WALKED here, not
+         sampled - the deepest clear march in each of the twelve bearings, measured from whichever open cell
+         reaches furthest along it, kept when it reaches further than PIER_NEAR. That is the set of views
+         standing in this room actually gives, at most twelve of them, read off the grid this pass is
+         working on and drawing no RNG, so no prop, lamp, enemy or seat moves. */
+      let marchGot = -1; const marches = [];
+      const roomMarches = () => {
+        if (marchGot >= 0) return marchGot;
+        marchGot = 0;
+        const bd = [], bc = [];
+        for (let k = 0; k < 12; k++) { bd.push(-1); bc.push(-1); }
+        for (let y = r.y + 1; y < r.y + r.h - 1; y++) for (let x = r.x + 1; x < r.x + r.w - 1; x++) {
+          if (cell[y * N + x]) continue;
+          const ex = x + 0.5, ey = y + 0.5;
+          for (let k = 0; k < 12; k++) {
+            const a = -Math.PI + k * Math.PI / 6, vx = Math.cos(a), vy = Math.sin(a);
+            let d = 0;
+            for (; d <= SEAT_LOOK; d += 0.5) {
+              const sx = ex + vx * d, sy = ey + vy * d;
+              if (sx < 1 || sy < 1 || sx >= N - 1 || sy >= N - 1) break;
+              if (cell[(sy | 0) * N + (sx | 0)]) break;
+            }
+            if (d > bd[k]) { bd[k] = d; bc[k] = y * N + x; }
+          }
+        }
+        for (let k = 0; k < 12; k++) {
+          if (bd[k] <= PIER_NEAR) continue;    // a bearing nothing in here marches down shows a doorway to nobody
+          const a = -Math.PI + k * Math.PI / 6;
+          marches.push({ x: (bc[k] % N) + 0.5, y: ((bc[k] / N) | 0) + 0.5,
+            vx: Math.cos(a), vy: Math.sin(a), d: bd[k] });
+        }
+        if (marches.length) marchGot = 1;      // a room with no long march at all shows a doorway to nobody
+        return marchGot;
+      };
+      /* THE OPENING HAS TO BE SEEN FROM SOMEWHERE IN THE ROOM. `cfg.plane` is the renderer's own half-width
+         (js/00_core.js 0.72 = 35.8 deg), so "on screen" is the engine's fact and not a tuned angle, and the
+         test is asked of EVERY view the room gives rather than of one of them: the opening lies inside some
+         frame that room offers - either way along it, because a player can turn around - with the wall
+         carrying on past it on both sides, in that same frame, at least PIER_NEAR from the eye, and with
+         nothing already dealt standing between. A candidate no view shows dies like the reservations below
+         and the room keeps main's pier line, which is the shipped behaviour when nothing is accepted: no
+         per-sector switch, no level list, no knob. WHY THE CLAUSE EXISTS AT ALL: `gapAt` names the ROOM
+         CENTRE for a room the spawn is not in - a cell chosen by geometry with no reference to any view -
+         and at ABATOIR CORE that put the opening off the room's sight line, so the frame carried a 4-cell
+         solid face with no way through it visible anywhere, which is what that sector's `mip` near-band
+         census (39% -> 57%) and `contrast` cam-1 region were measuring. */
+      const doorSeen = (alongX, pos, gap, put, span) => {
+        const gx = (alongX ? pos : r.x + gap) + 0.5, gy = (alongX ? r.y + gap : pos) + 0.5;
+        const half = Math.atan(cfg.plane);
+        for (const v of marches) {
+          const dx = gx - v.x, dy = gy - v.y, dd = Math.hypot(dx, dy);
+          if (dd < PIER_NEAR) continue;                    // a face filling the frame is not a doorway
+          const vang = Math.atan2(v.vy, v.vx);
+          const edge = (x, y) => {                         // off both this frame and the one behind it
+            let da = Math.atan2(y - v.y, x - v.x) - vang;
+            while (da > Math.PI) da -= 2 * Math.PI;
+            while (da < -Math.PI) da += 2 * Math.PI;
+            return Math.min(Math.abs(da), Math.abs(Math.abs(da) - Math.PI));
+          };
+          if (edge(gx, gy) > half) continue;               // the opening is in no frame this room gives
+          let carries = true;
+          for (let s = -1; s <= 1 && carries; s += 2) {    // and the line CARRIES ON PAST it, on screen
+            const k = gap + s;
+            if (k < 1 || k > span - 2) { carries = false; break; }
+            const ix = alongX ? pos : r.x + k, iy = alongX ? r.y + k : pos;
+            if (put.indexOf(iy * N + ix) < 0) { carries = false; break; }   // air or a reserved gap: it stops there
+            if (edge(ix + 0.5, iy + 0.5) > half) carries = false;
+          }
+          if (!carries) continue;
+          let blocked = false;
+          for (let d = 0.5; d < dd - 0.5 && !blocked; d += 0.25)   // and nothing already dealt is in the way
+            if (cell[((v.y + dy * d / dd) | 0) * N + ((v.x + dx * d / dd) | 0)]) blocked = true;
+          if (!blocked) return 1;
+        }
+        return 0;
+      };
+      const tryWall = (alongX, pos) => {
+        /* THE WALL CROSSES THE MARCH; IT DOES NOT RUN ALONGSIDE IT (#631, the review's third row). The
+           candidate list this offer walks is built for the PIER pass, and a pier that runs along the room's
+           sight line is still an edge the eye reads and walks past. A SOLID line that runs alongside the
+           march is a face receding the whole length of the room: it fills the frame, it puts its own
+           ceiling in the band the roof mip reads coarse, and the doorway it carries is somewhere off to
+           one side rather than ahead. That is the shape ABATOIR CORE took here - a constant-y rank in a
+           room whose seat marches along x, 4.5 m from that seat, and `mip`'s near-band ceiling census in
+           that sector's shipped frame went 29,204 px -> 42,070 px while its ceiling fan went 22 -> 34
+           against an accepted look of <=24+4. So the wall asks the same floors the arrival pass already
+           asks of a crossing line (`crossX = |vx| >= |vy|`, the axis the FRAME looks down, read off this
+           room's own march instead of the spawn's): a candidate that runs along the march rather than
+           across it dies here like any other rejection, the next position is asked, and a room whose only
+           long line runs with the view keeps main's pier line. Nothing about the shape criterion changes -
+           a wall you walk UP to and THROUGH is the shape #631 asks for, and a wall you walk ALONG is not.
+           WHICH MARCH THAT MEASURES IS THE ROOM'S DEEPEST ONE, read off the set above, not off whichever
+           single cell happened to win the old one-cell scan - the criterion is the room's axis, and the
+           room has more than one view along it. */
+        if (!roomMarches()) return deny('no march past PIER_NEAR in this room', 1);   // nobody marches here
+        let deep = marches[0];
+        for (const m of marches) if (m.d > deep.d) deep = m;  // the room's OWN axis: its longest march
+        if (alongX !== (Math.abs(deep.vx) >= Math.abs(deep.vy)))
+          return deny('a line along the march, not across it', 1);
+        const span = alongX ? r.h : r.w;
+        const want = gapAt(r, alongX, pos, inRoom, seatAng);
+        const put = [], ks = [];
+        let open = 0;                                       // reserved cells the wall has to leave as openings
+        for (let k = 1; k < span - 1; k++) {
+          const x = alongX ? pos : r.x + k, y = alongX ? r.y + k : pos;
+          if (x < 1 || y < 1 || x >= N - 1 || y >= N - 1) return deny('a line off the room', 2);
+          const i = y * N + x;
+          if (cell[i]) { return deny('a cell of the line is already solid', 2); }
+          if (fzTry[i] !== 0) { return deny('a cell of the line stands on a band edge', 2); }
+          if (shotRun[i]) { open++; continue; }                     // stays air: the shot lane still flies
+          let near = featTry[i] !== FEAT_NONE;
+          for (let d = 0; d < 4 && !near; d++) {
+            const j = (y + DIRY[d]) * N + x + DIRX[d];
+            if (j >= 0 && j < N * N && featTry[j] !== FEAT_NONE) near = true;
+          }
+          if (near) { return deny('a feature cell', 2); }
+          if (occupied[i]) { return deny('a prop, lamp or enemy already owns the cell', 2); }
+          put.push(i); ks.push(k);
+        }
+        /* THE LINE HAS TO BE LONG ENOUGH TO CARRY TWO CELLS OF WALL ON EACH SIDE OF ITS OPENING (#631's
+           criterion two, at the length term). Five cells is the arithmetic of that: two + opening + two. A
+           shorter line is not a wall with a doorway in it however the opening is chosen, so it dies here
+           rather than after a gap has been looked for in it. */
+        if (open > 2 || put.length < 5) return deny(open > 2 ? 'more than two shot-run reservations' : 'a line too short to leave two cells of wall either side of an opening', 3);
+        /* WHICH CELL OF THE LINE IS THE OPENING. `gapAt` names the room centre (or, in the room you wake
+           in, the cell the wake view reaches), and for a room the spawn is not in that is a cell chosen by
+           geometry alone - the head before this one asked a candidate to show THAT cell and, when it could
+           not, threw the whole line away. The room centre is now the FIRST cell asked to be the doorway
+           and the rest of the line is asked in order of how near it sits to that centre, so the opening
+           lands as close to where the room puts it as the room's own views allow instead of wherever the
+           room happens to sit. A line with no cell any view shows is still a rejection. */
+        /* TWO CELLS OF THE LINE'S OWN WALL ON EACH SIDE OF THE OPENING (#631, the product decision on the
+           review). An opening with one cell of wall past it is the END of a wall - #403's shape wearing this
+           issue's clothes - and the build was only PRINTING that fact. It is now asked before a cell can be
+           the doorway at all: `jambs` counts the cells of THIS LINE on each side of the candidate, so cells
+           the wall did not write (a shot-run reservation that stays air, a room wall beyond the line) cannot
+           be counted as carrying on past it. The wall may reach FURTHER along the line to afford its jambs -
+           every cell of the line is still offered, and the ordering below asks the cells nearest the one the
+           room shows first - it may not buy them by writing fewer cells. `JAMB` is criterion two, not a
+           tuned margin: 2 = "wall on both sides", 1 = the stub this clause exists to refuse.
+           The sort gained a term, and it is the shape criterion and not a taste term: of two cells equally
+           near the one the room shows, the one with the longer wall on its SHORTER side is asked first, so a
+           candidate that only just clears the bar loses to one that clears it comfortably. No new draw, so
+           still no prop, lamp, enemy or seat moves. */
+        let gap = -1, jambMiss = 0;
+        const jambs = (k) => { let l = 0, r = 0;
+          for (const j of ks) { if (j < k) l++; else if (j > k) r++; }
+          return l < r ? l : r; };
+        const JAMB = 2;
+        const order = ks.slice().sort((a, b) => Math.abs(a - want) - Math.abs(b - want) ||
+          jambs(b) - jambs(a) || a - b);
+        for (const k of order) {
+          if (jambs(k) < JAMB) { jambMiss++; continue; }  // a wall END here is not a doorway in one
+          if (doorSeen(alongX, pos, k, put, span)) { gap = k; break; }
+        }
+        if (gap < 0) return deny(jambMiss === order.length ? 'no cell of the line leaves two cells of wall on each side' : 'no cell of the line is on a screen this room gives', jambMiss === order.length ? 4 : 5);   // an unseen doorway is not a destination
+        const gi = (alongX ? r.y + gap : pos) * N + (alongX ? pos : r.x + gap);
+        const gp = put.indexOf(gi);
+        if (gp >= 0) put.splice(gp, 1);    // the opening is the one cell of the line this wall does NOT write
+        const start = ((P.y | 0) * N) + (P.x | 0);
+        const was = bfsReach(cell, fzTry, N, start, vbTry, featTry);
+        for (const i of put) cell[i] = cfgL.wall2;
+        const now = bfsReach(cell, fzTry, N, start, vbTry, featTry);
+        for (let i = 0; i < N * N; i++) {
+          if (was[i] < 0 || now[i] >= 0 || cell[i] !== 0) continue;
+          for (const i2 of put) cell[i2] = 0;                       // the wall would strand walkable floor
+          return deny('the wall would strand walkable floor', 6);
+        }
+        placed += put.length; gotWall++;
+        if (doorWalls) doorWalls.push({ room: ri, x: r.x, y: r.y, w: r.w, h: r.h, alongX: alongX ? 1 : 0, pos: pos, gap: gap, cells: put.length });
+        return 1;
+      };
       const tryLine = (alongX, pos, phase, low) => {
         const span = alongX ? r.h : r.w;
         let got = 0;
@@ -4962,10 +5219,39 @@ function genLevel(li) {
       };
       sweep(r.w >= r.h);                                   // across the LONGER view first
       if (r.w !== r.h) sweep(r.w < r.h);
-      for (const c of cands) if (tryLine(c[0], c[1], c[2], inRoom)) { frameGap(r, c[0], c[1], inRoom, seatAng); break; }
+      /* WHICH ROOMS ARE OFFERED THE WALL (#631, measured placement). The arrival room is NOT offered one
+         at this head, and that is a measurement, not an omission: standing a solid rank in the room the
+         player wakes in put a face 3-5 m from the spawn camera and moved ARCHIVE's flattened PARITY/LOCK
+         frames by +16 lumas and its `exposure` spawn pair 71/63 -> 78/66 at main 167a2eb, which is the
+         cost the product decision named as the stop condition for this shape. The claim survives without
+         the arrival frame paying for it: ONE room per generated sector - the first dealt room after the
+         wake room that can hold the line - gets a doorway in a wall that carries on past it on both
+         sides, which is the shape criterion two asks a player to see, and the wake room keeps the
+         one-quantum break main already deals there (a way onward you can see over and walk through, not a
+         new bright face in the first frame). Only CROSSING candidates are offered, same as the arrival
+         pass: an along-view wall would be a long face beside the eye and would say nothing about where to
+         go. Every other room keeps main's pier line exactly. */
+      if (!inRoom && !levelWall)
+        for (const c of cands) if (tryWall(c[0], c[1])) { frameGap(r, c[0], c[1], inRoom, seatAng); gotWall = 1; levelWall = 1; break; }
+      if (!gotWall)
+        for (const c of cands) if (tryLine(c[0], c[1], c[2], inRoom)) { frameGap(r, c[0], c[1], inRoom, seatAng); break; }
+    }
+    /* #631 THE DECLINE IS NAMED, NOT IMPLIED. If this sector ran the pass and stands no doorway-wall, the
+       rejection that killed the most candidates is what a reviewer has to see: "it keeps main's pier line" is
+       equally true when the geometry never offered a line long enough to carry two cells of wall either side
+       of an opening and when every line it offered was refused for stranding floor, and those are different
+       next moves. The busiest reason wins; it reports a tally, it decides nothing. */
+    if (!levelWall) {
+      let bestWhy = '', bestN = 0, bestS = -1;
+      for (const w in decl) if (decl[w].s > bestS || (decl[w].s === bestS && decl[w].n > bestN)) {
+        bestS = decl[w].s; bestN = decl[w].n; bestWhy = w;
+      }
+      doorDecline = bestN ? bestWhy + ' (' + bestN + ' candidate line(s), stage ' + bestS + ' of 6)'
+        : 'no candidate line was ever offered';
     }
     // The grid changed, so the derived bits change with it (AGENTS.md): VB_BLOCK is read from the
     // neighbour grid, and a pier is a new neighbour of four cells.
+    }                                        // end levelWall scope (#631)
     if (placed) linkBoundaries();
     /* #400: and the new cells are walls, so they get furnished here - nowhere else can reach them, see
        furnishFreeFaces. It writes DECOR only, so it cannot move a boundary, a light or a roll. */

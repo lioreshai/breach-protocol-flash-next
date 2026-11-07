@@ -54,7 +54,27 @@ const LG_OFFMAP = 9, LG_OFFMAX = 10, LG_ROWOFF = 11, LG_ROWOFFMAX = 12, LG_OFFCE
      painted the air colour rather than a material's mean. It is a SAMPLE count, not a pixel count, and it
      is the non-vacuity half of the void row in `heights`: a build that never sends a ray off the level
      cannot claim to have answered one. */
-  LG_FARVOID = 15, LG_NTOT = 16;
+  LG_FARVOID = 15,
+  /* #375 THE TWO COPIES OF THE GROUND PIXEL BODY HAVE TO AGREE, and these two slots are what makes that
+     assertable rather than claimed. LG_ROWCROSS counts the row copy's OFF-MAP CELL CROSSINGS THAT STILL
+     HAVE A LIVE TAP (the collar one cell outside the level's own outline, where the bilinear has an in-map
+     neighbour left); LG_ROWWARM counts how many of those actually DELIVERED light above the ambient base.
+     Before this increment the row copy's off-map branch paid `lr = lg = lb = base` with no field at all,
+     so the pair read (cross > 0, warm = 0) - the signature of a build whose rule lives in only one copy of
+     the pixel body, which is exactly how PR #453 shipped and why its census could not say so. A whole cell
+     clear of the level is NOT counted here (offMapClear) and stays gated at 0 by LG_OFFMAX/LG_ROWOFFMAX:
+     this pair is about the ramp, not about the void. Counted at the crossing, so the shipped cost is one
+     compare on a branch the frame reaches at the level's edge. */
+  LG_ROWCROSS = 16, LG_ROWWARM = 17,
+  /* #375 THE COLLAR PAIR, and it is the row that makes "both copies carry the rule" a measurement. The
+     collar is the one-cell band just OUTSIDE the level's outline: off the grid, but with at least one
+     bilinear tap still on it (offMapClear false). It is the only place the off-map rule can be seen to
+     do anything at all - a whole cell further out every tap reads 0 and both copies must deliver ambient,
+     which LG_OFFMAX/LG_ROWOFFMAX already gate. For each copy: N collar sites RUN, and the LARGEST light
+     above ambient that copy delivered at one. The assertion is the AGREEMENT between the two maxima, not
+     either value: the deferred copy sampling the field while the row copy pays bare ambient is exactly the
+     build PR #453 shipped, and it is a frame with the level's outline still drawn in it. */
+  LG_DEFCW = 18, LG_DEFCWN = 19, LG_ROWCW = 20, LG_ROWCWN = 21, LG_NTOT = 22;
 let G_TRI = false, G_GRIT = 0;                                  // derived from QUAL.rast
 /* #164: altitude reached the geometry and no pixels. A seam at the CREASE of every step the render
    ray crosses - the foot darkened, the far lip lifted - is the one cue that survives a dark room, so
@@ -602,10 +622,11 @@ const PKKIND = { health: 'pickupHealth', ammo: 'pickupAmmo', armor: 'pickupArmor
 
    eyeGive() is the knee after a landing (#634): the body stops at the floor, the eye arrives over the
    next fifth of a second, and the floor guard is what stops a bent knee from putting the eye through
-   the floor it landed on. */
+   the floor it landed on. eyeRise() is the same decoupling pointed the other way (#765): an auto-step
+   lifts the body in one frame because it must, and the eye arrives over the next third of a second. */
 function eyeAltitude() {
   const pfl = floorAt(P.x, P.y);
-  return clamp(cfg.eye + P.z - P.crouch * 0.19 - eyeGive(), pfl + 0.12, ceilAt(P.x, P.y) - 0.06);
+  return clamp(cfg.eye + P.z - P.crouch * 0.19 - eyeGive() - eyeRise(), pfl + 0.12, ceilAt(P.x, P.y) - 0.06);
 }
 
 function renderWorld() {
@@ -854,6 +875,10 @@ let MIPAX = 1, MIPAR = 4;
    none of them adds a THIRD copy of the ground pixel body: a switch shows up as a zero slope, a zero
    offset or one fewer load, not as a new loop. */
 let GJIT = 1, GLRP = 1, GNDAX = 1, AXMIN = 1, GLC = null, GNDFT = 1, GNDRO = 1, GNDFB = 1, GNDOF = 1, GNDNB = 1;
+/* #375 the ROW copy's half of the off-map light rule, on its own switch so a probe can build the
+   one-copy arm: GNDOF is the rule in both copies, GNDOFR=0 with GNDOF=1 is the build PR #453 shipped -
+   groundPixel sampling the field, castGround's off-map crossing branch still paying bare ambient. */
+let GNDOFR = 1;
 /* #616 - THE FAR BAND WEARS A SURFACE. Take five settled WHAT a far pixel answers with (the material's mip
    mean) and take seventeen settled what it answers when there is NO material; neither gave the band a
    SURFACE, so past the radius the picture is one flat colour with no grain, no seam and no material
@@ -883,6 +908,42 @@ let GNDTX = 1, FARBLEND = 1.6;
    build before this switch, and one whose samples all leave it is exactly the horizon colour.
    FARVOID 0 is the A/B - `DEV.set('farvoid', 0)` puts the slab back in the running page. */
 let FARVOID = 1;
+/* #616 - THE VOID Wears A SURFACE. `FARVOID` answers a ray that left the authored grid with the AIR
+   colour, and the air is one number: the band past the radius is flat (measured on ABATOIR CORE at the
+   arrival seat: a neighbouring-pixel step of 1.15 luma inside the band against 3.76 on the roof above it
+   and 2.0-2.7 on the deck under it; on ARCHIVE SUBLEVEL 39.9% of the band's pixels sit under 18 luma).
+   A ray out there did cross something, though: before it left the level it flew over this level's own
+   deck, so the answer it should carry is the MATERIAL of the cell its ray crossed on the way out, at the
+   distance of that crossing. `FARCROSS` gives exactly that - one test against the [0,N) square per ray
+   (never a march, never a texel past the grid), the mip that footprint selects, read at the crossing
+   point as the same RATIO over the mip's own mean the in-map far fetch uses, lit by the row's own base
+   plus #199's air light and fogged at the CROSSING distance - mixed onto the shipped void answer by the
+   VOIDK share, so the band becomes a surface continuously and no boundary moves when the player walks
+   across the radius. It is one texel load for a pixel that was paying a fill, and it reads no lightmap:
+   brightness stays the haze's and #199's census of off-map light stays zero. `FARCROSS 0` is the A/B -
+   `DEV.set('farcross', 0)` puts the flat slab back in the running page. */
+let FARCROSS = 1;
+/* Where each screen column's ray leaves the authored [0,N) square: distance, the point just inside it,
+   and the fog of that distance. A ray's DIRECTION depends only on its column (dir + plane*(x*2/BW-1)),
+   so this is a FRAME constant - two divides, one min and one fog per column, rebuilt when gSer moves and
+   read per pixel as three loads. Both copies of the ground pixel body index it by screen column. */
+let xCSer = -1, xCDst = null, xCX = null, xCY = null, xCFog = null;
+function crossCache(N) {
+  if (xCSer === gSer) return;
+  xCSer = gSer;
+  if (!xCX || xCX.length !== BW) { xCDst = new Float32Array(BW); xCX = new Float32Array(BW); xCY = new Float32Array(BW); xCFog = new Float32Array(BW); }
+  const sb = 2 / BW, lim = FARB * 4;
+  for (let x = 0; x < BW; x++) {
+    const c = -1 + sb * x, rx = dirX + planeX * c, ry = dirY + planeY * c;
+    const tx = rx > 1e-6 ? (N - camX) / rx : rx < -1e-6 ? -camX / rx : 1e30;
+    const ty = ry > 1e-6 ? (N - camY) / ry : ry < -1e-6 ? -camY / ry : 1e30;
+    let d = tx < ty ? tx : ty;
+    if (!(d > 0)) d = 0;                                   // a camera already off the grid crosses here
+    if (d > lim) d = lim;                                  // the same shading cap every other solve uses
+    const s = d > 0.5 ? d - 0.5 : 0;                       // a point the ray DID cross, never past the grid
+    xCDst[x] = d; xCX[x] = camX + rx * s; xCY[x] = camY + ry * s; xCFog[x] = fogAt(d);
+  }
+}
 /* #199 - AIR THAT IS NOT A HOLE. `FARVOID`'s answer is the air colour AT FULL FOG, and this level's air is
    `FOGC = [9,12,20]` (js/00_core.js:182), a luminance of 11. Where a fan's rays leave the level, the frame
    therefore paints BLACK: measured at the ARCHIVE SUBLEVEL arrival seat a contiguous run of rows 278-325, full
@@ -1745,8 +1806,9 @@ function castGround(flash, fcR, fcG, fcB) {
          at this row's own fog. Weighted by offN/FARFAN, so a row with nothing off-map pays zero here and
          a row entirely off-map lands on `fc * invRow`, which plus the row's own `fc * fogRow` add below
          is `fc` exactly: the horizon colour, one number, no slab, no seam at the boundary. */
+      let vr = 0;                                            // VOIDK share, hoisted: #616's void surface reads it
       if (FARVOID && offN) {
-        let vr = (dRaw - FARB) * VOIDK;                        // VOIDK: 0 at the radius, 1 at 1.6x it
+        vr = (dRaw - FARB) * VOIDK;                           // VOIDK: 0 at the radius, 1 at 1.6x it
         if (vr > 1) vr = 1; else if (vr < 0) vr = 0;
         const oS = offN * (1 / FARFAN), iv = 1 - vr;
         ar += offN * wLit * dcN[0] * baseRow * iv + oS * vr * (fcR * invRow - wEm * dcE[0] * invRow);
@@ -1781,27 +1843,69 @@ function castGround(flash, fcR, fcG, fcB) {
          shipped fill, texel by texel. FARBLEND ramps the share in from FARB to FARB*FARBLEND so no surface
          boundary moves when the player walks across the radius. */
       let fpx = 0, fams = 0, famw = 1, mFh = 1, famd = null, fwx = 0, fwy = 0, fdx = 0, fdy = 0,
-        fBr = 0, fBg = 0, fBb = 0, fQr = 0, fQg = 0, fQb = 0;
-      if (GNDTX && tex && tex.mips && (surR | surG | surB) !== 0) {
+        fBr = 0, fBg = 0, fBb = 0, fQr = 0, fQg = 0, fQb = 0, xpx = 0, xxs = 0, xxw = 1, xxh = 1, xxd = null,
+        xAr = 0, xAg = 0, xAb = 0, xPr = 0, xPg = 0, xPb = 0, xQr = 0, xQg = 0, xQb = 0, xSr = 0, xSg = 0, xSb = 0;
+      if (tex && tex.mips && ((GNDTX && (surR | surG | surB) !== 0) || (FARCROSS && FARVOID && offN && vr > 0))) {
         const cfF = dRow / absP, wxr = planeX * stepBase * dRow, wyr = planeY * stepBase * dRow;
         const mF = tex.mips[Math.min(mipSel(wxr, wyr, dirX * cfF, dirY * cfF, sc, tex), tex.mips.length - 1)];
         texAvg(mF);
         const blF = (dRow - FARB) / (FARB * (FARBLEND - 1));
         const shF = blF <= 0 ? 0 : blF >= 1 ? 1 : blF * blF * (3 - 2 * blF);
         const alF = mF.meanALL;
+        fwx = camX + (dirX - planeX) * dRow; fwy = camY + (dirY - planeY) * dRow;   // the loop's own walker
+        fdx = wxr; fdy = wyr;                                                        // is a row constant
         if (shF > 0 && alF[0] > 0 && alF[1] > 0 && alF[2] > 0) {
-          fpx = 1; fams = sc * mF.w; famw = mF.w; mFh = mF.h; famd = mF.data;
-          fwx = camX + (dirX - planeX) * dRow; fwy = camY + (dirY - planeY) * dRow;
-          fdx = wxr; fdy = wyr;
-          fBr = ar - surR * shF * dcN[0]; fBg = ag - surG * shF * dcN[1]; fBb = ab - surB * shF * dcN[2];
-          fQr = surR * shF * dcN[0] / alF[0]; fQg = surG * shF * dcN[1] / alF[1]; fQb = surB * shF * dcN[2] / alF[2];
+          if (GNDTX && (surR | surG | surB) !== 0) {
+            fpx = 1; fams = sc * mF.w; famw = mF.w; mFh = mF.h; famd = mF.data;
+            fBr = ar - surR * shF * dcN[0]; fBg = ag - surG * shF * dcN[1]; fBb = ab - surB * shF * dcN[2];
+            fQr = surR * shF * dcN[0] / alF[0]; fQg = surG * shF * dcN[1] / alF[1]; fQb = surB * shF * dcN[2] / alF[2];
+          }
+          /* #616 - THE VOID WEARS A SURFACE, ROW COPY. A column of this row whose ray left the authored
+             grid has no material AT THAT DISTANCE, but it crossed material on the way out, and the cache
+             says where: `xCX/xCY[x]` is the point column x's ray left the [0,N) square and `xCFog[x]` the
+             fog of that crossing distance. The fetch is the same ONE texel of the same mip the in-map arm
+             just chose (the crossing is never FARTHER than this row's solve, so that level is never finer
+             than the footprint spans - no alias, no march, no texel read past the grid), applied as the
+             same RATIO over the mip's own mean, and lit by `baseRow` plus #199's air light and NOTHING
+             ELSE: no lightmap read, so `heights`' off-map light census stays at zero and the brightness
+             stays the haze's. It arrives on the VOIDK share `vr` - the share the air colour already rides
+             - by taking that share away from the shipped fill, so an all-in-map row is bit-identical and
+             no surface boundary moves when the player walks across the radius. `DEV.set('farcross', 0)`
+             restores the flat slab, and it is the SECOND copy in gndBuild/groundPixel that carries the
+             same rule for the deferred columns (AGENTS.md: change one copy, change the other). */
+          if (FARCROSS && offN && vr > 0) {
+            crossCache(N);
+            const xb = baseRow + (FARLIT && HAZE_L > 0 ? FARLIT * HAZE_L : 0), ivr = 1 - vr;
+            xpx = 1; xxs = sc * mF.w; xxw = mF.w; xxh = mF.h; xxd = mF.data;
+            xAr = (ar + fRRow) * ivr; xAg = (ag + fGRow) * ivr; xAb = (ab + fBRow) * ivr;
+            xPr = vr * xb * (1 - wEm) * dcN[0] / alF[0]; xPg = vr * xb * (1 - wEm) * dcN[1] / alF[1];
+            xPb = vr * xb * (1 - wEm) * dcN[2] / alF[2];
+            xQr = vr * wEm * dcE[0]; xQg = vr * wEm * dcE[1]; xQb = vr * wEm * dcE[2];
+            xSr = vr * fcR; xSg = vr * fcG; xSb = vr * fcB;
+          }
         }
       }
-      if (fpx) {
+      if (fpx || xpx) {
         const rowF = y * BW;
         for (let x = 0; x < BW; x++, fwx += fdx, fwy += fdy) {
           const sx = fwx | 0, sy = fwy | 0;
-          if (sx < 0 || sy < 0 || sx >= N || sy >= N) {   // no level, no surface: the void answer, flat
+          if (sx < 0 || sy < 0 || sx >= N || sy >= N) {   // no level here: the void answer, now a surface
+            if (xpx) {
+              const fg = xCFog[x], iv = 1 - fg;
+              const ux = xCX[x] * xxs, uy = xCY[x] * xxs;
+              let tx = ux | 0, ty = uy | 0;
+              if (ux < 0) tx--;                            // floor, not truncate - the guard both copies use
+              if (uy < 0) ty--;
+              const cF = xxd[(ty & (xxh - 1)) * xxw + (tx & (xxw - 1))];
+              px[rowF + x] = 0xFF000000 | clampi(xAr + iv * (xPr * (cF >> 16 & 255) + xQr) + fg * xSr) << 16 |
+                clampi(xAg + iv * (xPg * (cF >> 8 & 255) + xQg) + fg * xSg) << 8 |
+                clampi(xAb + iv * (xPb * (cF & 255) + xQb) + fg * xSb);
+              continue;
+            }
+            px[rowF + x] = 0xFF000000 | clampi(ar + fRRow) << 16 | clampi(ag + fGRow) << 8 | clampi(ab + fBRow);
+            continue;
+          }
+          if (!fpx) {                                    // armed for the void surface only: the fill stands
             px[rowF + x] = 0xFF000000 | clampi(ar + fRRow) << 16 | clampi(ag + fGRow) << 8 | clampi(ab + fBRow);
             continue;
           }
@@ -2090,12 +2194,59 @@ function castGround(flash, fcR, fcG, fcB) {
           mir = mirOn ? (hash2(gx, gy) * 4) | 0 : 0;    // per-cell mirror, dropped in the far field
         } else {
           gndOffMap++; und = 0; lt = TINT_WHITE; li = 0; lr = lg = lb = base; ldr = ldg = ldb = lhr = lhg = lhb = 0; mir = 0;
+          /* #375 THE ROW COPY OF THE OFF-MAP LIGHT RULE, and the reason the two copies of this body had
+             to change together. The deferred half got the rule in #392 (`if (!own && GNDOF)`, below in
+             groundPixel): an off-map pixel evaluates the light field at the point its own ray landed on,
+             as the four lattice taps around it with every tap outside the map reading 0. This branch kept
+             paying ZERO light plus zero deltas, so the same ray was painted one way by the row and another
+             way by the deferred copy, and the set of rays that leave the footprint is bounded by the map's
+             own side edges - straight lines through the vanishing point. Whichever copy is wrong, that set
+             draws as the level's footprint: a flat region with a one-pixel straight edge at any distance.
+             The rule here is the SAME field, evaluated the same way, at the landing point of the column
+             that crossed out: `wx`/`wy` are that point, Math.floor is the lattice point (NOT `|0`, which
+             truncates toward zero and would call world -0.5 cell 0 and extrapolate away from the edge,
+             the #19 trap), and a tap outside the map reads 0, so the field is exactly 0 one whole cell
+             clear of the level - which is what `heights`' LG_ROWOFFMAX census asserts, and asserts in
+             BOTH arms of `GNDOF` because the census below sits outside this gate.
+             It is evaluated ONCE PER OFF-MAP CELL CROSSING, like everything else in this branch, so the
+             cost is four index guards on a branch the shipped frame reaches at the level's edge; the run
+             it starts carries that value flat (the deltas stay 0), which makes the light a staircase that
+             reaches 0 within a cell or two of the boundary instead of a step AT the boundary - the ramp
+             the issue asks for. `GNDOF` is one switch for both copies on purpose: the rule is one rule,
+             and an arm that fixes only one copy has to be visible as a frame that still has the edge.
+             Light only: no texture, no mip, no depth, no `CEILG`/`CEILGM` lift and no new term past the
+             boundary, so `AMB`, every lamp and the exposure window are untouched (#375's own limits). */
+          if (GNDOF && GNDOFR) {
+            const lta = MAP.lt;
+            if (lta) {
+              const gxO = Math.floor(wx), gyO = Math.floor(wy), ux = wx - gxO, uy = wy - gyO;
+              for (let q = 0; q < 4; q++) {
+                const ix = gxO + (q & 1), iy = gyO + (q >> 1);
+                if (ix < 0 || iy < 0 || ix >= N || iy >= N) continue;      // a tap off the map reads 0
+                const w = (q & 1 ? ux : 1 - ux) * (q >> 1 ? uy : 1 - uy);
+                if (w <= 0) continue;
+                const j = iy * N + ix, j3 = j * 3;
+                if (j3 + 2 >= lta.length) continue;
+                let ql = lm ? lm[j] : 0.4;
+                if (ql > lgc) ql = lgc;                                    // #21, per tap, as the ramp does
+                lr += w * ql * lta[j3] / 128; lg += w * ql * lta[j3 + 1] / 128; lb += w * ql * lta[j3 + 2] / 128;
+              }
+            }
+          }
           /* #375 census, ROW COPY. Read at the crossing, once, not per pixel: this branch zeroes the
              light AND its three deltas, so every pixel until the next crossing keeps exactly this value
              - which makes the site representative of the run of off-map pixels it starts, and that run
              is what the wedge would be. The limitation is stated, not glossed: a future edit that left
              this site at ambient and put light back in the DELTAS would not move the counter (the row's
              ramp terms are covered by mip's gradient rows and by #21's census). */
+          if (cnt && !inMap && !offMapClear(wx, wy, N)) {
+            cnt[LG_ROWCROSS]++;
+            if (Math.max(lr, lg, lb) > base + 0.0005) cnt[LG_ROWWARM]++;
+            cnt[LG_ROWCWN]++;
+            const cw = Math.max(lr, lg, lb) - base;
+            const ci2 = cw > 0 ? (cw * 1000 + 0.5) | 0 : 0;
+            if (ci2 > cnt[LG_ROWCW]) cnt[LG_ROWCW] = ci2;
+          }
           if (cnt && !inMap && offMapClear(wx, wy, N)) {
             cnt[LG_ROWOFF]++;
             const om = Math.max(lr, lg, lb) - base;
@@ -2402,6 +2553,7 @@ let gSer = 0, gMSer = -1, gMRow = -1, gMPl = 0, gMDS = 0, gMDfa = 0, gMFog = 0, 
   gMFar = 0, gMVoid = 0, gMWnR = 0, gMWnG = 0, gMWnB = 0, gMWErr = 0, gMWEg = 0, gMWEm = 0, gMLift = 0,
   gMTx = 0, gMTxS = 0, gMTxW = 1, gMTxH = 1, gMTxD = null,
   gMTxA = 0, gMTxB = 0, gMTxC = 0, gMTxD0 = 0, gMTxD1 = 0, gMTxD2 = 0,
+  gMXx = 0, gMXS = 0, gMXW = 1, gMXH = 1, gMXD = null, gMXA = 0, gMXB = 0, gMXC = 0, gMXE0 = 0, gMXE1 = 0, gMXE2 = 0, gMXF0 = 0, gMXF1 = 0, gMXF2 = 0,
   gLSer = -1, gLSX = 0, gLSY = 0, gML0 = 0, gML1 = 0, gML2 = 0, gMMir = 0,
   gMA0 = 0, gMA1 = 0, gMA2 = 0, gMB0 = 0, gMB1 = 0, gMB2 = 0, gMD0 = 0, gMD1 = 0, gMD2 = 0;
 
@@ -2469,7 +2621,8 @@ function gndBuild(row, isF, absP, pl, tex, sc, fcR, fcG, fcB, fl, amb, dOv) {
        the air answer below, unmodulated. `DEV.set('gndtex', 0)` and a material with no mip chain both
        give exactly what shipped. */
     gMTx = 0;
-    if (GNDTX && tex.mips) {
+    gMXx = 0;
+    if ((GNDTX || (FARCROSS && FARVOID && gMVoid > 0)) && tex.mips) {
       const sbF = 2 / BW, cfF = dc / absP;
       const mF = tex.mips[Math.min(mipSel(planeX * sbF * dc, planeY * sbF * dc, dirX * cfF, dirY * cfF, sc, tex),
         gMN - 1)];
@@ -2482,8 +2635,25 @@ function gndBuild(row, isF, absP, pl, tex, sc, fcR, fcG, fcB, fl, amb, dOv) {
         gMTxA = gMWnR * (1 - shF); gMTxB = gMWnG * (1 - shF); gMTxC = gMWnB * (1 - shF);
         gMTxD0 = gMWnR * shF / alF[0]; gMTxD1 = gMWnG * shF / alF[1]; gMTxD2 = gMWnB * shF / alF[2];
       }
+      /* #616 - the SECOND COPY of the void's surface (AGENTS.md: change one copy, change the other), and
+         the same rule as castGround's far branch at this pixel's OWN solve: the point column x's ray left
+         the authored [0,N) square, the mip this run's footprint selects, the material as a RATIO over that
+         mip's own mean, lit by base + #199's air light with NO lightmap read, fogged at the CROSSING
+         distance, arriving on this pixel's own void share `vV` so the radius crossing is continuous. It
+         arms only for a run that has a void share at all, and it reads no lightmap, so the off-map light
+         census this copy carries (`heights`, OFFMAPFLOOR) stays at zero. `DEV.set('farcross', 0)` puts the
+         flat air slab back in both copies with one call. */
+      if (FARCROSS && FARVOID && gMVoid > 0 && alF[0] > 0 && alF[1] > 0 && alF[2] > 0) {
+        crossCache(MAP.w);
+        const xb = gMBase + (FARLIT && HAZE_L > 0 ? FARLIT * HAZE_L : 0), ve = mm.emFrac;
+        gMXx = 1; gMXS = sc * mF.w; gMXW = mF.w; gMXH = mF.h; gMXD = mF.data;
+        gMXA = gMVoid * xb * (1 - ve) * mm.meanNE[0] / alF[0];
+        gMXB = gMVoid * xb * (1 - ve) * mm.meanNE[1] / alF[1];
+        gMXC = gMVoid * xb * (1 - ve) * mm.meanNE[2] / alF[2];
+        gMXE0 = gMVoid * ve * mm.meanEM[0]; gMXE1 = gMVoid * ve * mm.meanEM[1]; gMXE2 = gMVoid * ve * mm.meanEM[2];
+      }
     }
-  } else { gMFar = 0; gMVoid = 0; gMTx = 0; }
+  } else { gMFar = 0; gMVoid = 0; gMTx = 0; gMXx = 0; }
 }
 
 /* Where a DESCENDING ray goes under a slab, as the crossing's own distance along (dir + plane*cam) - or
@@ -2828,6 +2998,7 @@ function groundPixel(x0, x1, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb
        makes the two copies agree on the same pixel. */
     const liftRow = plA > eyeZ ? Math.min(CEILLD, CEILFL + CEILG * Math.max(0, plA - eyeZ - CEILHI)) : 0;
     lr = lg = lb = gMBase - gMLift + liftRow;
+    let cwTap = 0;
     if (lta) {
       const gx = Math.floor(cx), gy = Math.floor(cy), ux = cx - gx, uy = cy - gy;
       for (let q = 0; q < 4; q++) {
@@ -2840,7 +3011,17 @@ function groundPixel(x0, x1, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb
         let li = lm ? lm[j] : 0.4;
         if (li > lgc) li = lgc;
         lr += w * li * lta[j3] / 128; lg += w * li * lta[j3 + 1] / 128; lb += w * li * lta[j3 + 2] / 128;
+        if (cnt && li > cwTap) cwTap = li;
       }
+    }
+    /* #375 THE COLLAR, deferred copy: off the grid but one tap still on it. Read inside the gate on
+       purpose - this is the copy that HAS the rule, so what it delivers at the collar is the reference the
+       row copy's own collar maximum gets compared against; an off-map pixel further out contributes to
+       neither, and LG_OFFMAX/LG_OFFCEIL keep it at ambient. */
+    if (cnt && !offMapClear(cx, cy, N)) {
+      cnt[LG_DEFCWN]++;
+      const ci3 = (cwTap * 1000 + 0.5) | 0;
+      if (ci3 > cnt[LG_DEFCW]) cnt[LG_DEFCW] = ci3;
     }
   }
   /* #375 census, DEFERRED COPY - deliberately OUTSIDE the GNDOF gate above, so the A/B that puts the
@@ -2898,9 +3079,27 @@ function groundPixel(x0, x1, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb
          off the map or it is not - so the share is vV alone, which is the same ramp the air colour rides on
          the line below. Same FARLIT, same HAZE_L, same material mean. */
       const hv = FARLIT && HAZE_L > 0 ? FARLIT * HAZE_L * vV : 0;
-      px[row + x] = 0xFF000000 | clampi((gMWnB * lb + gMWEm) * iv + gMFB + vV * (fcB + gMWnB * hv)) << 16 |
-        clampi((gMWnG * lg + gMWEg) * iv + gMFG + vV * (fcG + gMWnG * hv)) << 8 |
-        clampi((gMWnR * lr + gMWErr) * iv + gMFR + vV * (fcR + gMWnR * hv));
+      /* #616 - the SECOND COPY of the void's surface (AGENTS.md: change one copy, change the other). Same
+         one texel AT THE CROSSING POINT, same ratio over the mip's own mean, same base + air light with
+         NO lightmap read, the fog of the crossing distance, arriving on this pixel's own void share - so
+         the air answer keeps the share the crossing cannot prove and no boundary moves at the radius.
+         `gMXx` is 0 unless this run armed the fetch, and the arm reads the same per-column cache the row
+         copy fills, indexed by the SAME screen column. */
+      let vR = (gMWnR * lr + gMWErr) * iv + gMFR + vV * (fcR + gMWnR * hv);
+      let vG = (gMWnG * lg + gMWEg) * iv + gMFG + vV * (fcG + gMWnG * hv);
+      let vB = (gMWnB * lb + gMWEm) * iv + gMFB + vV * (fcB + gMWnB * hv);
+      if (gMXx) {
+        const fg = xCFog[x], ivf = 1 - fg;
+        const ux = xCX[x] * gMXS, uy = xCY[x] * gMXS;
+        let tx = ux | 0, ty = uy | 0;
+        if (ux < 0) tx--;                              // floor, not truncate - the guard both copies use
+        if (uy < 0) ty--;
+        const cX = gMXD[(ty & (gMXH - 1)) * gMXW + (tx & (gMXW - 1))];
+        vR = vR * iv + ivf * (gMXA * (cX & 255) + gMXE0) + fg * gMXF0;
+        vG = vG * iv + ivf * (gMXB * (cX >> 8 & 255) + gMXE1) + fg * gMXF1;
+        vB = vB * iv + ivf * (gMXC * (cX >> 16 & 255) + gMXE2) + fg * gMXF2;
+      }
+      px[row + x] = 0xFF000000 | clampi(vB) << 16 | clampi(vG) << 8 | clampi(vR);
       if (cnt) cnt[LG_FARVOID]++;
     } else
       px[row + x] = 0xFF000000 | clampi(gMWnB * lb + gMWEm + gMFB) << 16 |
