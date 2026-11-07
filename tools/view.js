@@ -16830,20 +16830,100 @@ if (MODE === 'props') {
     const psRow = (label, ok, detail) => { if (!ok) bad++; console.log('  ' + (ok ? 'ok  ' : 'FAIL') + '  ' + label + ' - ' + detail); return ok; };
     const rsSave = rs;
     let psLoud = 0, psOccl = 0, psMoved = 0, psStuck = 0, psDeals = 0, psAccount = 0;
-    let psBand = 0, psCross = 0, psDeck = 0;
-    const psPrint = [], psPair = [], psPairZero = [];
+    let psBand = 0, psCross = 0, psDeck = 0, psQuiet = 0, psLoudLeft = 0, psRankPx = 0, psRankBad = 0;
+    const psPrint = [], psPair = [], psPairZero = [], psRank = [], psRankNone = [];
     let psGrid = true;
+    /* #695 TAKE THREE, THE STATE, not the counter. `PS_LOUDLEFT` asks the shipped question of the shipped
+       PROPS array: is there a crate or barrel, wearing its LOUD hazard rank, standing inside the dealt
+       frame's centre band at sight-line distance with open deck behind it? It re-derives the pass's own
+       tests from the same globals rather than reading PROPSIGHT, so a pass that reports a prop and leaves it
+       bright is caught here, and it is STRICTER than the pass - it asks the grid with `isSolid` where the
+       pass asks its reachability BFS, so a prop in an unreachable pocket still counts. The one thing it
+       adds is `p.quiet`, the rank the generator now pays when it has nowhere else to put the prop. */
+    const PS_LOUDLEFT = `(() => { let n = 0; for (const p of PROPS) { if (p.quiet) continue;`
+      + ` if (p.kind !== 'crate' && p.kind !== 'barrel') continue; const dx = p.x - P.x, dy = p.y - P.y, d = Math.hypot(dx, dy);`
+      + ` if (d < SIGHT_NEAR || d > SIGHT_FAR) continue; let a = Math.atan2(dy, dx) - P.ang;`
+      + ` while (a > Math.PI) a -= TAU; while (a < -Math.PI) a += TAU; if (Math.abs(a) > SIGHT_BAND) continue;`
+      + ` const ux = dx / d, uy = dy / d; let open = 0;`
+      + ` for (let s = d + 0.75; open < SIGHT_OPEN; s += 0.25) { const gx = (p.x + ux * s) | 0, gy = (p.y + uy * s) | 0;`
+      + ` if (gx < 1 || gy < 1 || gx >= MW - 1 || gy >= MH - 1) break; if (isSolid(gx + 0.5, gy + 0.5)) break; open += 0.25 }`
+      + ` if (open >= SIGHT_OPEN) n++ } return n })()`;
     const PS_BAND = `(() => { let n = 0; for (const p of PROPS) {
       ` + `if (p.kind !== 'crate' && p.kind !== 'barrel') continue; const dx = p.x - P.x, dy = p.y - P.y, d = Math.hypot(dx, dy);
       ` + `if (d < SIGHT_NEAR || d > SIGHT_FAR) continue; let a = Math.atan2(dy, dx) - P.ang;
       ` + `while (a > Math.PI) a -= TAU; while (a < -Math.PI) a += TAU; if (Math.abs(a) <= SIGHT_BAND) n++ } return n })()`;
     for (let li = 0; li < run('LEVELS.length'); li++) {
-      const L = [0, 0, 0, 0, 0, 0]; let paired = false, stuckHere = [];
+      const L = [0, 0, 0, 0, 0, 0, 0]; let paired = false, ranked = false, stuckHere = [];
       for (let d = 0; d < PS_DEALS; d++) {
         const rsDeal = rs;                       // the stream position THIS deal is dealt from
         run(`genLevel(${li});`);
         const p = JSON.parse(run('JSON.stringify(PROPSIGHT)'));
         L[0] += p.loud; L[1] += p.occl; L[2] += p.moved; L[3] += p.stuck; L[4] += p.band; L[5] += p.cross;
+        L[6] += p.quiet || 0;
+        psLoudLeft += +run(PS_LOUDLEFT);
+        /* #695 TAKE THREE, the rank priced on the pixels of the deal that pays it. ONE prop, ONE flag, ONE
+           process: the same entry is rendered wearing the quiet rank and then wearing the loud one, with no
+           re-deal and no knob between the two frames, so the differing pixels ARE the rank and the grid hash
+           is the control that says nothing else moved. Alongside it the two regions the issue asks about -
+           the prop's own silhouette (frame minus that prop) and the nearest body's pixels (frame minus
+           ENEMIES) - are read off the delivered buffer, which is the only way to answer "does the eye find
+           the box first" without guessing at an albedo. An empty body mask says so in the row rather than
+           printing a number off nothing. */
+        if (!ranked && (p.quiet || 0) && p.stuckAt && p.stuckAt.length) {
+          ranked = true;
+          const qi = p.stuckAt[p.stuckAt.length - 1][4];
+          if (!(qi >= 0)) { psRankNone.push('L' + li + ' deal ' + d + ' (the stuck record carries no prop index)'); continue }
+          const seatR = run('[P.x, P.y, P.ang].join(",")');
+          const geoA = run('[MAP.cell, MAP.fz, MAP.cz].map(a => { let h = 2166136261; for (let i = 0; i < a.length; i++) { h ^= a[i]; h = (h * 16777619) >>> 0; } return h }).join(",")');
+          const dbgK = run(`PROPS[${qi}].kind + '@' + (PROPS[${qi}].x | 0) + ',' + (PROPS[${qi}].y | 0)`);
+          const seatSave = run('[P.x, P.y, P.ang, P.z, P.pitch].join(",")');
+          /* WHERE THE RANK IS PRICED. First the seat the player is actually dealt, because that is the frame
+             the rule is about. If the prop contributes no pixel there - which happens on a stepped room,
+             where the sight-line test is a 2D ray over MAP.cell and cannot see that the FACE of a raised
+             slab stands between the seat and a prop on the deck above it - the pair is taken again from the
+             nearest cell that does have line of sight to it, so the rank is priced on pixels somewhere the
+             player will stand, and the row says which of the two it used. */
+          const shoot = () => {
+            run('renderWorld()');
+            const on = new Uint32Array(run('px'));
+            run(`PROPS[${qi}].quiet = 0; renderWorld()`);
+            const off = new Uint32Array(run('px'));
+            run(`PROPS[${qi}].quiet = 1; window.__p695 = PROPS.splice(${qi}, 1)[0]; renderWorld()`);
+            const noProp = new Uint32Array(run('px'));
+            run('window.__en695 = ENEMIES.slice(); ENEMIES.length = 0; renderWorld();');
+            const noBody = new Uint32Array(run('px'));
+            run('ENEMIES.length = 0; for (const q of window.__en695) ENEMIES.push(q); delete window.__en695; PROPS.splice(' + qi + ', 0, window.__p695); delete window.__p695;');
+            let dif = 0;
+            for (let i = 0; i < on.length; i++) if (on[i] !== off[i]) dif++;
+            const reg = (m, ref) => { let s = 0, n = 0; for (let i = 0; i < m.length; i++) if (m[i] !== ref[i]) { s += 0.2126 * (m[i] & 255) + 0.7152 * (m[i] >> 8 & 255) + 0.0722 * (m[i] >> 16 & 255); n++ } return [n, n ? s / n : 0] };
+            return { dif, pOn: reg(off, noProp), pQ: reg(on, noProp), bR: reg(on, noBody) };
+          };
+          let shot = shoot(), shotAt = 'the dealt seat ' + seatR;
+          if (shot.pOn[0] === 0) {
+            const look = run(`(() => { const q = PROPS[${qi}]; let best = null;
+              for (let y = 1; y < MH - 1; y++) for (let x = 1; x < MW - 1; x++) {
+                const cx = x + 0.5, cy = y + 0.5, dx = q.x - cx, dy = q.y - cy, d = Math.hypot(dx, dy);
+                if (d < 3 || d > 9 || isSolid(cx, cy)) continue;
+                if (castRayDist(cx, cy, dx / d, dy / d, d).dist < d - 0.3) continue;
+                const same = MAP.fz[(y | 0) * MW + (x | 0)] === MAP.fz[(q.y | 0) * MW + (q.x | 0)] ? 0 : 100;
+                if (!best || d + same < best.k) best = { x: cx, y: cy, k: d + same, d };
+              }
+              if (!best) return '';
+              P.x = best.x; P.y = best.y; P.z = floorAt(P.x, P.y); P.ang = Math.atan2(q.y - P.y, q.x - P.x); P.pitch = BH * 0.02;
+              return best.x.toFixed(1) + ',' + best.y.toFixed(1) + ' sees it at ' + best.d.toFixed(1) + ' m' })()`);
+            if (look) { shot = shoot(); shotAt = 'a cell with line of sight - ' + look + ' (the dealt seat draws no pixel of it)'; }
+            const s0 = seatSave.split(',').map(Number);
+            run(`P.x = ${s0[0]}; P.y = ${s0[1]}; P.ang = ${s0[2]}; P.z = ${s0[3]}; P.pitch = ${s0[4]};`);
+          }
+          const geoB = run('[MAP.cell, MAP.fz, MAP.cz].map(a => { let h = 2166136261; for (let i = 0; i < a.length; i++) { h ^= a[i]; h = (h * 16777619) >>> 0; } return h }).join(",")');
+          psRankPx += shot.dif;
+          if (geoA !== geoB) { psGrid = false; psRankBad++; }
+          if (shot.dif === 0 || shot.pOn[0] === 0) psRankBad++;
+          psRank.push('L' + li + ' deal ' + d + ' ' + dbgK + ': ' + shot.dif + ' px differ, prop region '
+            + shot.pOn[1].toFixed(1) + ' loud -> ' + shot.pQ[1].toFixed(1) + ' quiet over ' + shot.pOn[0] +
+            ' px, body region ' + shot.bR[1].toFixed(1) + ' over ' + shot.bR[0] + ' px, grid ' +
+            (geoA === geoB ? 'same' : 'DIFFERENT') + ', shot from ' + shotAt);
+        } else if (!ranked && (p.stuck || 0) && !(p.quiet || 0)) psRankNone.push('L' + li + ' deal ' + d + ' (a stuck occluder wearing no rank)');
         if (p.moved + p.stuck !== p.occl) psAccount++;
         for (const s of (p.stuckAt || [])) stuckHere.push(s[2] + '@' + s[0] + ',' + s[1] + ' deck ' + s[3] +
           ' (deal ' + d + ')');
@@ -16890,9 +16970,9 @@ if (MODE === 'props') {
           if (diff === 0) psPairZero.push('L' + li);
         }
       }
-      psLoud += L[0]; psOccl += L[1]; psMoved += L[2]; psStuck += L[3]; psBand += L[4]; psCross += L[5];
+      psLoud += L[0]; psOccl += L[1]; psMoved += L[2]; psStuck += L[3]; psBand += L[4]; psCross += L[5]; psQuiet += L[6];
       psPrint.push('L' + li + ' loud ' + L[0] + ' occl ' + L[1] + ' moved ' + L[2] + ' stuck ' + L[3] +
-        ' deck-rej ' + L[4] + (stuckHere.length ? ' [STUCK: ' + stuckHere.join(' ') +
+        ' quiet ' + L[6] + ' deck-rej ' + L[4] + (stuckHere.length ? ' [STUCK: ' + stuckHere.join(' ') +
           ' - an occluder whose own deck offers no cell out of the band, so it stays]' : ''));
     }
     // the fixed point: ask the pass to run AGAIN on the deal it just cleared. A correct walk leaves
@@ -16948,6 +17028,30 @@ if (MODE === 'props') {
       + 'test alone decided the destination). At 0 the rule is indistinguishable from absent on a flat deal, '
       + 'so this row is VACUOUS at 0 - it does not gate on stuck, which stays the honest answer for a prop '
       + 'walled in on its own deck');
+    /* #695 TAKE THREE. #757 shipped the walk and #768 kept it on the prop's own deck; what neither of them
+       settled is the deal where the walk has nowhere to go. Two rows: the GUARANTEE the issue asks for
+       ("in every sector", read off the shipped PROPS of every dealt level rather than off a counter), and
+       the price of the one lever that guarantee uses - the quiet rank, on the pixels of the prop that pays
+       it, next to the region means the issue's own measurement names. */
+    psRow('no prop wearing the loud rank is left on the sight line the player is dealt',
+      psLoudLeft === 0,
+      psLoudLeft + ' loud-ranked crate/barrel(s) stand in the dealt frame\'s centre band, 2.5-14 m out, with '
+      + '3 m of open deck behind them, summed over ' + psDeals + ' deals. ' + psMoved
+      + ' occluder(s) were walked off the line and ' + psQuiet + ' were given the quiet rank instead, so this '
+      + 'is the clause that makes "no bright prop on a spawn sight line" a generator rule instead of an '
+      + 'outcome: it reads the finished PROPS array with the pass\'s own tests re-derived from the grid, and '
+      + 'it is stricter than the pass (isSolid where the pass asks reachability). Set propQuietEnabled = '
+      + 'false and the stuck deal comes back red here');
+    psRow('a prop that cannot leave the line pays the quiet hazard rank',
+      psQuiet === psStuck && (psQuiet > 0 || psStuck === 0),
+      psQuiet + ' prop(s) marked quiet against ' + psStuck + ' stuck occluder(s) - the rank is paid by '
+      + 'exactly the props the walk could not place, and by nothing else, so no prop in the game is dimmer '
+      + 'for its own sake. The rank is js/40_render.js PROP_RANK_QUIET 0.26 off delivered light, the same '
+      + 'rank js/10_assets.js HAZARD_QUIET already pays for a wall\'s service run: same hue, same chevron, '
+      + 'same black contrast, so it still reads as a hazard band at 10 m. ' + (psRank.length ? 'Measured on '
+        + 'the deal that pays it (quiet rank vs the SAME prop loud, one process, no re-deal): ' + psRank.join('; ')
+        : 'NO DEAL IN THIS SWEEP HAD A STUCK OCCLUDER - the rank never fired, which is vacuity, not a pass'
+          + (psRankNone.length ? ' (' + psRankNone.join('; ') + ')' : '')));
     psRow('the pair moves pixels at the seat the player is dealt',
       psPair.length > 0 && psPairZero.length === 0 && psGrid,
       (psPair.length ? psPair.join('; ') : 'no deal in this sweep had an occluder on the first pass') +
