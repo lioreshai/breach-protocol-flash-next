@@ -5076,7 +5076,7 @@ function genLevel(li) {
             if (occupied[i]) { hard = 'a prop, lamp or enemy already owns the cell'; break; }
             put.push(i); ks.push(k);
           }
-          return { put: put, ks: ks, open: open, hard: hard };
+          return { put: put, ks: ks, open: open, hard: hard, full: full ? 1 : 0 };
         };
         let line = build(false);
         if (line.hard) return deny(line.hard, 2);
@@ -5138,7 +5138,7 @@ function genLevel(li) {
           return deny('the wall would strand walkable floor', 6);
         }
         placed += put.length; gotWall++;
-        if (doorWalls) doorWalls.push({ room: ri, x: r.x, y: r.y, w: r.w, h: r.h, alongX: alongX ? 1 : 0, pos: pos, gap: gap, cells: put.length });
+        if (doorWalls) doorWalls.push({ room: ri, x: r.x, y: r.y, w: r.w, h: r.h, alongX: alongX ? 1 : 0, pos: pos, gap: gap, cells: put.length, full: line.full });
         return 1;
       };
       const tryLine = (alongX, pos, phase, low) => {

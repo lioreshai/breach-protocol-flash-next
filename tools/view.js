@@ -15584,7 +15584,15 @@ if (MODE === 'fixtures') {
           for (const w of doorWalls) {
             const span = w.alongX ? w.h : w.w; let solid = 0, openOK = 0;
             const at = (k) => w.alongX ? (w.y + k) * N2 + w.pos : w.pos * N2 + w.x + k;
-            for (let k = 1; k < span - 1; k++) {
+            /* THE LINE'S OWN EXTENT, read off the record. A line main stands stops one cell short of each
+               room wall, so its own cells are k = 1 .. span-2 and the open cell and the room's enclosing
+               wall beyond them were never this wall's cell. The WIDE shape (#631, a room too narrow to carry
+               a doorway at the inset) runs the rank to those enclosing walls, so its own cells are
+               k = 0 .. span-1. The bound is the same rule either way - count the cells THIS wall wrote and
+               nothing beyond them - read off the record instead of assumed, which is what makes the stub row
+               able to see a wide line's jamb instead of stopping a cell short of it. */
+            const k0 = w.full ? 0 : 1, k1 = w.full ? span - 1 : span - 2;
+            for (let k = k0; k <= k1; k++) {
               if (k === w.gap) { if (MAP.cell[at(k)] === 0) openOK = 1; continue; }
               if (MAP.cell[at(k)] !== 0) solid++;
             }
@@ -15605,8 +15613,9 @@ if (MODE === 'fixtures') {
           : (() => { const N2 = MAP.w, w = doorWalls[0];
             const span = w.alongX ? w.h : w.w;
             const at = (k) => w.alongX ? (w.y + k) * N2 + w.pos : w.pos * N2 + w.x + k;
+            const k0 = w.full ? 0 : 1, k1 = w.full ? span - 1 : span - 2;   // the line's own cells, see above
             const jam = (sgn) => { let n = 0;
-              for (let k = w.gap + sgn; k >= 1 && k < span - 1; k += sgn) { if (MAP.cell[at(k)]) n++; else break; }
+              for (let k = w.gap + sgn; k >= k0 && k <= k1; k += sgn) { if (MAP.cell[at(k)]) n++; else break; }
               return n; };
             return { left: jam(-1), right: jam(1) }; })(),
         /* WHY THIS SECTOR DEALS NONE (doorDecline in js/20_level.js): the rejection that killed the most
