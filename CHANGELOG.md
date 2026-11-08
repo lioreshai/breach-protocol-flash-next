@@ -51,14 +51,17 @@
 
 ### Fixed
 
-- **The level's own outline stopped drawing in the far floor and ceiling** (#375, PRs #773, #785). A pixel whose
-  ray had left the level was lit two different ways by the two copies of the ground pixel body — one sampled the
-  light of the place the ray landed, the other painted bare ambient. Wherever they disagreed, the level's footprint
-  drew as a flat region with a one-pixel straight edge at any distance, most visibly as a hard-edged trapezoid in
-  the far ceiling. There is now one rule, applied in both copies. On the four sectors as they are dealt today no
-  pixel moves — the disagreement was latent — but the geometry that could produce it is gone, and the check that
-  was supposed to catch it had itself been reporting "nothing to compare" for a one-cell error on its far side,
-  which is now corrected.
+- **One lighting rule for a floor pixel your ray never found a room in** (#375, PRs #773, #785). A pixel whose ray
+  had left the level was lit two different ways by the two copies of the ground pixel body — one sampled the light of
+  the place the ray actually landed, the other painted bare ambient. Wherever the two disagree, the level's own
+  footprint draws: a flat region with a one-pixel straight edge at any distance, the kind of hard-edged trapezoid
+  that had been showing up in the far ceiling. There is now one rule, applied in both copies. The check that was
+  supposed to prove the two copies agree had itself been reporting "nothing to compare", because its off-map test
+  was one cell wrong on the far side; that is corrected too. Being straight about the visible result: on the four
+  sectors as they are dealt today this moves no pixel at all — the frame digests are byte-identical before and
+  after — because no dealt level yet puts a *lit* cell on its own boundary ring for the rule to disagree about. It
+  removes the machinery that could draw the level's outline, it does not make the edge of a level read brighter.
+  That part is still open and tracked on #375.
 
 ### Known limitations
 
@@ -71,6 +74,9 @@
   plans past that first wall (#631).
 - Two materials out of seventeen have been brought to a body's edge parity; the rest of the albedo and grain band
   is untouched (#416), and THE STACK still has no stand-under storey (#421).
+- The far ceiling at a level's own edge is still darker than the room it hangs over. The lighting rule is now
+  identical in both pixel copies, but how bright that far wash should be is an unresolved value decision (#375,
+  #616), and no dealt level currently has a lit cell on its boundary ring to expose the difference.
 
 ## [v1.4.21] - 2026-11-06
 
