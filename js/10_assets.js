@@ -524,8 +524,24 @@ WTEX.FLESH = matTex(T2, T2, p => {
      half of "walls carry the detail, the ceiling sits lowest" that has to stay reachable. */
 WTEX.MUSCLE = matTex(T2, T2, p => {
   const fold = fbm(p.u, p.v, 2, 3, 0.55, 61);                 // broad folds the bundles hang in
-  const fib = 0.50 + 0.24 * Math.sin((p.u * 11 + fold * 1.1) * Math.PI * 2);   // 11 bundles a tile, tileable; #416 took the swing from +-0.50 to +-0.24
-  const grain = fbm(p.u, p.v, 24, 3, 0.5, 17);                // fine meat grain along the bundles
+  /* #416 TAKE SEVEN: the striation is QUIET AT DISTANCE, not quieter in value. 11 bundles a tile, the
+     swing #416's earlier pass already halved; both periodic terms now honour `p.avg`, so the mip-carry
+     fade above can mix them out the way it mixes FLOORS.METAL's diamond, and `mipCyc: 11` says which
+     period that fade keys on. Why a frequency rule and not an amplitude rule, measured at the ABATOIR
+     CORE 10 m seat (luma of slope per screen px behind a body whose own surface reads 2.51, shipped
+     3.93): taking the swing to 0.12 at the SAME period bought 3.27 and taking the period from 11 bundles
+     to 4 bought 6.05 - WORSE, because a coarser pattern is one the mip chain still carries to that
+     distance, where it lands as a low-frequency stripe instead of a wash. Past the sampling limit a
+     pattern IS slope, which is the same finding #19 took thirteen to land for the deck, and the answer
+     there was this same mechanism: attenuate the term by how many texels of the level one of its cycles
+     spans, mixing toward the material baked with the term pinned at its own mean. So the bundles stay
+     11 a tile and keep their full swing in mip 0 - under the lamp at arm's length this is still the same
+     meat, bundles, folds, wet seams and albedo exactly where #369 left them - and past a couple of
+     metres they average out instead of beating. Measured: 2.12 at that seat, under his own 2.51, so the
+     paint behind him is now the quieter of the two. Mean held by construction (see the p.avg note in
+     matTex): matband's MUSCLE figure and the level's exposure medians are the check. */
+  const fib = p.avg ? 0.5 : 0.50 + 0.24 * Math.sin((p.u * 11 + fold * 1.1) * Math.PI * 2);   // 11 bundles a tile, tileable; #416 took the swing from +-0.50 to +-0.24
+  const grain = p.avg ? 0.5 : fbm(p.u, p.v, 24, 3, 0.5, 17);  // fine meat grain along the bundles; pinned in the mean-only bake for the same reason
   let v = 0.98 + (fib - 0.5) * 0.24 + (fold - 0.5) * 0.30 + (grain - 0.5) * 0.10;
   p.r = 148 * v; p.g = 52 * v + 10; p.b = 66 * v + 12;
   p.h = 0.58 + (fib - 0.5) * 0.26 + (fold - 0.5) * 0.12 + (grain - 0.5) * 0.05;
@@ -534,7 +550,7 @@ WTEX.MUSCLE = matTex(T2, T2, p => {
   p.r -= gap * 26; p.g -= gap * 4; p.b += gap * 6; p.h -= gap * 0.14;
   const wet = smoothstep(0.62, 0.94, fbm(p.u, p.v, 9, 3, 0.6, 12));
   p.r += wet * 26; p.g += wet * 11; p.b += wet * 16; p.h += wet * 0.04;
-}, { bump: 1.5, amb: 0.40, spec: 0.46, specPow: 22, ao: 0.72, grain: 5, alb: 1.14 });   // #416: the busiest tile in the table at 35.6 luma of mean step per 2 px - ABATOIR's wall was the sharpest thing in front of a body standing on it
+}, { bump: 1.5, amb: 0.40, spec: 0.46, specPow: 22, ao: 0.72, grain: 5, alb: 1.14, mipCyc: 11 });   // #416: the busiest tile in the table at 35.6 luma of mean step per 2 px - ABATOIR's wall was the sharpest thing in front of a body standing on it; mipCyc names the striation's 11 cycles a tile to the mip-carry fade
 
 WTEX.GRATE = matTex(T2, T2, p => {
   const gx = (p.u * 4) % 1, gy = (p.v * 4) % 1;
