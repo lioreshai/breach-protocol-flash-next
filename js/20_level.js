@@ -5145,29 +5145,58 @@ function genLevel(li) {
           return deny('a line along the march, not across it', 1);
         const span = alongX ? r.h : r.w;
         const want = gapAt(r, alongX, pos, inRoom, seatAng);
-        const put = [], ks = [];
-        let open = 0;                                       // reserved cells the wall has to leave as openings
-        for (let k = 1; k < span - 1; k++) {
-          const x = alongX ? pos : r.x + k, y = alongX ? r.y + k : pos;
-          if (x < 1 || y < 1 || x >= N - 1 || y >= N - 1) return deny('a line off the room', 2);
-          const i = y * N + x;
-          if (cell[i]) { return deny('a cell of the line is already solid', 2); }
-          if (fzTry[i] !== 0) { return deny('a cell of the line stands on a band edge', 2); }
-          if (shotRun[i]) { open++; continue; }                     // stays air: the shot lane still flies
-          let near = featTry[i] !== FEAT_NONE;
-          for (let d = 0; d < 4 && !near; d++) {
-            const j = (y + DIRY[d]) * N + x + DIRX[d];
-            if (j >= 0 && j < N * N && featTry[j] !== FEAT_NONE) near = true;
+        /* THE LINE, BUILT TWICE: INSIDE the room, then (only if that came up too short to carry a doorway)
+           at the ROOM'S OWN WIDTH. The first shape is main's - a rank that stops one cell short of each
+           room wall, so the eye sees a wall floating in the bay with open floor past both its ends. The
+           second runs the rank into the room's own enclosing walls at both ends, which is the shape the
+           issue's criterion two describes: an opening with wall carrying on past it that does not stop, it
+           MEETS the room. It is asked ONLY as a repair for a decline, never in place of a line main already
+           accepts, so a room that already stands a doorway-wall keeps main's geometry cell for cell and a
+           sector's arrival frame cannot move because of it; the one deal that changes here is a room whose
+           crossing axis is too short to carry two cells of wall either side of an opening at main's inset,
+           which is the decline RING TRANSPORT printed at this head (`fixtures`: "DECLINED here (a line too
+           short to leave two cells of wall either side of an opening (8 candidate line(s), stage 3 of 6))").
+           Everything the narrow line had to prove is asked of the wide one, the two cells at the room's own
+           ends included: open floor, no band edge, no feature, no prop or lamp, shot lanes kept air. And
+           the reachability proof below is what catches the one thing a wide line can do that a narrow one
+           cannot - close the room's own end cell, which is where a link doorway lands, and strand the
+           corridor behind it. That rejection is stage 6 and it is counted, not argued with. */
+        const build = (full) => {
+          const put = [], ks = [];
+          let open = 0, hard = '';                          // reserved cells the wall has to leave as openings
+          for (let k = full ? 0 : 1, ke = full ? span : span - 1; k < ke; k++) {
+            const x = alongX ? pos : r.x + k, y = alongX ? r.y + k : pos;
+            if (x < 1 || y < 1 || x >= N - 1 || y >= N - 1) { hard = 'a line off the room'; break; }
+            const i = y * N + x;
+            if (cell[i]) { hard = 'a cell of the line is already solid'; break; }
+            if (fzTry[i] !== 0) { hard = 'a cell of the line stands on a band edge'; break; }
+            if (shotRun[i]) { open++; continue; }                   // stays air: the shot lane still flies
+            let near = featTry[i] !== FEAT_NONE;
+            for (let d = 0; d < 4 && !near; d++) {
+              const j = (y + DIRY[d]) * N + x + DIRX[d];
+              if (j >= 0 && j < N * N && featTry[j] !== FEAT_NONE) near = true;
+            }
+            if (near) { hard = 'a feature cell'; break; }
+            if (occupied[i]) { hard = 'a prop, lamp or enemy already owns the cell'; break; }
+            put.push(i); ks.push(k);
           }
-          if (near) { return deny('a feature cell', 2); }
-          if (occupied[i]) { return deny('a prop, lamp or enemy already owns the cell', 2); }
-          put.push(i); ks.push(k);
+          return { put: put, ks: ks, open: open, hard: hard, full: full ? 1 : 0 };
+        };
+        let line = build(false);
+        if (line.hard) return deny(line.hard, 2);
+        const short = line.open > 2 ? 'more than two shot-run reservations'
+          : 'a line too short to leave two cells of wall either side of an opening';
+        if (line.open > 2 || line.put.length < 5) {
+          const wide = build(true);                         // the room's own width, ends included
+          if (!wide.hard && wide.open <= 2 && wide.put.length >= 5) line = wide;
+          else return deny(short, 3);
         }
+        const put = line.put, ks = line.ks;
         /* THE LINE HAS TO BE LONG ENOUGH TO CARRY TWO CELLS OF WALL ON EACH SIDE OF ITS OPENING (#631's
            criterion two, at the length term). Five cells is the arithmetic of that: two + opening + two. A
            shorter line is not a wall with a doorway in it however the opening is chosen, so it dies here
            rather than after a gap has been looked for in it. */
-        if (open > 2 || put.length < 5) return deny(open > 2 ? 'more than two shot-run reservations' : 'a line too short to leave two cells of wall either side of an opening', 3);
+
         /* WHICH CELL OF THE LINE IS THE OPENING. `gapAt` names the room centre (or, in the room you wake
            in, the cell the wake view reaches), and for a room the spawn is not in that is a cell chosen by
            geometry alone - the head before this one asked a candidate to show THAT cell and, when it could
@@ -5213,7 +5242,7 @@ function genLevel(li) {
           return deny('the wall would strand walkable floor', 6);
         }
         placed += put.length; gotWall++;
-        if (doorWalls) doorWalls.push({ room: ri, x: r.x, y: r.y, w: r.w, h: r.h, alongX: alongX ? 1 : 0, pos: pos, gap: gap, cells: put.length });
+        if (doorWalls) doorWalls.push({ room: ri, x: r.x, y: r.y, w: r.w, h: r.h, alongX: alongX ? 1 : 0, pos: pos, gap: gap, cells: put.length, full: line.full });
         return 1;
       };
       const tryLine = (alongX, pos, phase, low) => {
