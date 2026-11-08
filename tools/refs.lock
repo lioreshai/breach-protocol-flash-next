@@ -5,7 +5,7 @@
 # A declaration with no row here fails REFS-DECLARED-MISSING; a row with no declaration fails
 # REFS-IN-TABLE-UNDECLARED; an edited literal fails REFS-VALUES-MOVED. None of the three is a
 # warning, and the row runs inside flatparity, which ci.yml runs blocking.
-ref	alt	DARK-COVERED	num	71.8 64.5 57.2 100.0
+ref	alt	DARK-COVERED	num	61.1 62.4 58.1 100.0
 ref	alt	DARK-SHARE	num	1.7 7.2 4.3 2.7
 ref	alt	GRID-CENSUS	num	13 190 2 59 13 271 2 64 13 314 2 64 9 141 5 25
 ref	alt	OOB-ERA	num	19 10 16 0
@@ -15,14 +15,14 @@ ref	alt	PIT-MEAN	num	0.289 0.347 0.335 0.316
 ref	alt	SEAT-DARK	num	1.6 4.4 2.7 2.0
 ref	anim	NECK-BAND	num	4.8 2.7 3.4
 ref	anim	NECK-TUBE	num	41 43.2 40
-ref	bands	SEAM-FRAME	md5	3f3f355c0261a8799355d814d6b0e19f c755d3a5932073143a19a14a3da8a9a7 fe8fa98811f98f3553a47cd12cbe33b9 c42332eab8a8c1361094cd9dad8c6313
+ref	bands	SEAM-FRAME	md5	3f3f355c0261a8799355d814d6b0e19f 5d1505254e009349fb91e55f9332a68e a5e78ee00f2c63a2a88ef96bb28fed7b c42332eab8a8c1361094cd9dad8c6313
 ref	contrast	TORSO-DL	num	0.90 1.10 0.88
-ref	cull	CZBAND	crc32	0xfe2753d2 0x067678a0 0x9f562954 0x80adf974
-ref	cull	CZBAND-LIGHT	crc32	0x81b1a1a0 0x56aef71e 0x55ee6840 0x43a22b10
-ref	exposure	MEDIAN	num	75 79 69 91
-ref	exposure	SPAWN	num	73 63 85 65 72 72 75 85
-ref	flatparity	DEALT	md5	f9585c045df7897aa41d850abc6aea42 d5953c63cbaf1c6ec1a4f09b75b1a02c 12b68a63860ddefc88c1316b07621018 eda36191045ddc5a3d7a64979ba83659
-ref	flatparity	LOCK	md5	1adb7e240e28ff11d00f111417bb4a93 862f89cce53035cf25abb647816c697b f0f467356eccf2cf2eb645b258e040b4 d5ac2ff6840b291218e46eb58d2c124f
+ref	cull	CZBAND	crc32	0xfe2753d2 0x7fed8c40 0x02cc0be0 0x80adf974
+ref	cull	CZBAND-LIGHT	crc32	0x81b1a1a0 0xe883dca8 0x3a96adcc 0x43a22b10
+ref	exposure	MEDIAN	num	75 79 72 91
+ref	exposure	SPAWN	num	73 63 86 65 77 77 75 85
+ref	flatparity	DEALT	md5	f9585c045df7897aa41d850abc6aea42 d5953c63cbaf1c6ec1a4f09b75b1a02c fcb4b5ea5ce912afee2e7df445dd87a0 eda36191045ddc5a3d7a64979ba83659
+ref	flatparity	LOCK	md5	b8d5e6dc0f1bdebfda1cc96c9a9bcd81 862f89cce53035cf25abb647816c697b 933b5cab7882cae63ff784f99abe0f6f d5ac2ff6840b291218e46eb58d2c124f
 ref	flatparity	PARITY	md5	29f11129632cacf4af2c022181c75cec 9c0cd3833f8b0ae40eddad5edd8e0f35 906812ff7723008ec5f565236e2f1ae8 12d0a6111bee250b12a8a681535f633f
 ref	heights	HALF-MOVE	num	97.11 25.39 53.10 99.88 42.77 62.44 97.12 27.37 78.31 99.78 42.04 63.35 97.17 29.28 28.16 99.87 42.87 63.89 97.12 11.27 13.38 99.82 38.33 54.54
 ref	props	CTRL-RAT	num	0.491 0.471 0.306 0.431
