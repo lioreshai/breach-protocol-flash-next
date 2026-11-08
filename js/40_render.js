@@ -1248,14 +1248,20 @@ function buildLightRamp() {
 }
 
 /* #375: does this landing point have NO light tap left? The ground light field is a bilinear whose
-   taps are the four cells around the lattice point, and a tap off the map reads 0, so a pixel still
-   has a tap while EITHER axis has an in-map cell adjacent to it: cx in (-1, N+1) and cy in (-1, N+1).
-   Once either axis is a whole cell clear of the level every tap is off the map and the field is
-   exactly 0 - which is the assertion `heights` reads out of LG_OFFMAX / LG_ROWOFFMAX. Both axes are
-   tested on their own because a cell index is one number (AGENTS.md). Called only on off-map pixels,
-   never on the in-map path, so the shipped cost is the branch that skips it. */
+   taps are the four cells around the lattice point, and a tap off the map reads 0, so the question is
+   answered by the SAME index guard the two tap loops use (`ix >= N`, never `ix > N`): with
+   gx = floor(cx) the taps are gx and gx + 1, so an axis has an in-map tap while gx <= N - 1, i.e while
+   cx < N - the HIGH side is one cell tighter than the low side, where gx = -1 still leaves the tap at
+   cell 0. Getting that asymmetry wrong is not a cosmetic mislabel: it is why the collar census counted
+   192 sites at the level-0 cam1 seat that had light nowhere to come from and reported a dark collar,
+   which is the observation that made #375's row half look untestable. Every ray that exits this level
+   exits through its EAST or SOUTH edge, where a point in [N, N + 1) has no tap at all, so the sites
+   that ran were sites the rule cannot light. Both axes are tested on their own because a cell index is
+   one number (AGENTS.md). Called only on off-map pixels, never on the in-map path, so the shipped cost
+   is the branch that skips it, and no pixel depends on the answer: the four call sites are all inside
+   `if (cnt)`, which is why this file's md5 does not move with it. */
 function offMapClear(cx, cy, N) {
-  return cx <= -1 || cx >= N + 1 || cy <= -1 || cy >= N + 1;
+  return cx <= -1 || cx >= N || cy <= -1 || cy >= N;
 }
 
 /* The mip for a ground pixel from the WORLD footprint of one pixel, given the two screen-axis
