@@ -104,6 +104,27 @@ let SEAM = 1, SEAMD = 0.62, SEAMU = 0.13, SEAMW = 0.16, SEAMC = 0.22;
    looks, which is the legibility #669's acceptance asks for. A level that authors no accent (THE STACK,
    and every MAP with no level) pays one extra falsy test per wall pixel and is byte-identical. */
 let RISER_ACC_H = 0.12, RISER_ACC_F = 0.45, RISER_ACC_B = 0.09;
+/* #669 TAKE TWO: THE SAME PAINT, ON A SURFACE THE EYE SWEEPS. The lip and the kerb above are both on
+   VERTICAL faces - 0.12 m down a slab side, 0.09 m up a wall foot - and reading the four arrival seats
+   said what that buys: the mark exists, it is thin, and where a lip turns away the sector has no second
+   thought at all (issue #669, the 2026-11-06 and 11-07 notes). The legible sector is THE STACK, whose
+   accent is a warm CRATE with a TOP the eye crosses as it scans the deck. So an authored accent now also
+   paints the deck's own top face where the walkable surface STOPS: a stripe of ACC_DECK_W metres lying
+   flat on the floor against every boundary that ends it - a wall, a cliff, a lip you can walk off - and
+   NOT against a step or a ladder you simply climb on, which is where the deck carries on.
+   Which boundaries end it is not re-derived here: it is the two bits `linkBoundaries` already writes per
+   directed side from the stored kind (#633) - VB_BLOCK (a wall, a rise you cannot climb) and VB_FACE on a
+   non-climb (the side of a slab, a drop face). So the mark keys off the same census the walker and the
+   riser pass key off, and a flat interior cell pays one byte read and nothing else.
+   `DECKACC` is the A/B: 0 is #719's frame, byte for byte. The term is an ALBEDO on the texel, ahead of
+   the light multiply (as the riser accent and the soffit material are), so it cannot out-light a room,
+   it is fogged like everything else, and it writes no light anywhere. The colour is the level's authored
+   `accent` (js/20_level.js): the one accent #466 budgets, spent on one more surface, not a second accent.
+   A level that authors none - THE STACK, and every MAP with no level - pays one falsy test per floor
+   pixel and is byte-identical. */
+let DECKACC = 1, ACC_DECK_W = 0.14, ACC_DECK_K = 0.9;
+const ACC_DECK_I = 1 / ACC_DECK_W;
+const ACC_DECK_L = 0.97;               // the mark is allowed 3 % under the deck's own albedo luma, never over it          // the reciprocal the two copies below multiply by
 /* #421 THE NOISING ON THE EDGE OF A FLOOR ABOVE YOU. The underside of a slab now wears plate, joists and a
    shadow gap (`SLAB_ALB` below, `buildCeilSlab` in js/20_level.js), and a review of the delivered frames
    still found a full-width near-black band under it: the slab's own SIDE, seen from the room beneath it.
@@ -1711,6 +1732,9 @@ function castGround(flash, fcR, fcG, fcB) {
   const amb = AMB, fl = flash;
   if (GLRP) buildLightRamp();       // #19: nine floats a cell, once a frame - this is the only write
   const gndSteps = MAP.tallStep ? 1 : 0;              // #170, and #517: the CROSSING census, not the draw
+  /* #669 take two: the level's accent and the boundary bits of the deck-edge mark, once per frame. */
+  const accG = DECKACC ? MAP.accent || null : null;
+  const vbs = MAP.vb;
   const ekArr = MAP.ek, stepDraw = MAP.steps ? 1 : 0;  // #515: the stored crossing kind; 0 on a flat level
   //                                      flag - 0 on a flat level AND on a level of pure one-quantum
   //                                      treads, either of which keeps a flat frame free of planeAlong
@@ -2477,6 +2501,24 @@ function castGround(flash, fcR, fcG, fcB) {
         const ka = SLAB_ALB * ku;
         cr = cr * ka * 0.97; cg = cg * ka; cb = cb * ka * 1.06;
       }
+      /* #669 take two, FIRST COPY: the deck's edge, painted on the deck - see DECKACC at the top of this
+         file. An albedo, ahead of the light term; `edgeL` is NOT involved, so a level whose steps are all
+         climbs, and a level with no step at all, still carry the mark. */
+      if (isF && accG) {
+        const dfx = wx - pxi, dfy = wy - pyi;
+        const dpx = dfx < 0.5 ? dfx : 1 - dfx, dpy = dfy < 0.5 ? dfy : 1 - dfy;
+        const dd = dpx < dpy ? dpx : dpy;
+        if (dd < ACC_DECK_W) {
+          const dbs = dpx < dpy ? (dfx < 0.5 ? 2 : 0) : (dfy < 0.5 ? 3 : 1);
+          if (inMap && (vbs[cIdx] & ((VB_BLOCK | VB_FACE) << (dbs << 2)))) {
+            const adw = (1 - dd * ACC_DECK_I) * ACC_DECK_K;
+            const dl0 = cr * 0.2126 + cg * 0.7152 + cb * 0.0722;
+            cr += (accG[0] - cr) * adw; cg += (accG[1] - cg) * adw; cb += (accG[2] - cb) * adw;
+            const dl1 = (cr * 0.2126 + cg * 0.7152 + cb * 0.0722) * ACC_DECK_L;
+            if (dl1 > 1) { const dks = dl0 / dl1; cr *= dks; cg *= dks; cb *= dks; }
+          }
+        }
+      }
       let r = cr * lr + fR, g = cg * lg + fG, b = cb * lb + fB;
       /* #413: a FITTING on the ceiling of this cell, ceiling rows only. One byte per cell decides it,
          so the cost on the 99 % of cells with no fitting overhead is that read. The plate is shaded by
@@ -2776,6 +2818,7 @@ function stepEdgeLum(gx, gy, wx, wy, dRow, absP, planeA) {
 
 function groundPixel(x0, x1, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb, dP, plA, edgeL) {
   const N = MAP.w, cellArr = MAP.cell, lm = MAP.light, fzs = MAP.fz, stepBase = 2 / BW;
+  const accG = DECKACC ? MAP.accent || null : null, vbs = MAP.vb;   // #669 take two, second copy
   const csk = !isF && SLABUND ? MAP.ceilSlab : null;   // #421, second copy: same byte, same rule
   const shm = SHADOW ? SH_HEAD : null;                      // #178, second copy of the ground pixel body
   const lgc = LGCAP, cnt = LGCNT;                     // #21, second copy of the light ceiling too
@@ -3287,6 +3330,24 @@ function groundPixel(x0, x1, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb
     }
     const ka = SLAB_ALB * ku;
     cr = cr * ka * 0.97; cg = cg * ka; cb = cb * ka * 1.06;
+  }
+  /* #669 take two, SECOND COPY (AGENTS.md: change one copy and you have changed the other): the same
+     stripe, on this pixel's own cell and its own footprint, so the deferred far field cannot disagree
+     with the raster above it. */
+  if (isF && accG) {
+    const dfx = cx - sx, dfy = cy - sy;
+    const dpx = dfx < 0.5 ? dfx : 1 - dfx, dpy = dfy < 0.5 ? dfy : 1 - dfy;
+    const dd = dpx < dpy ? dpx : dpy;
+    if (dd < ACC_DECK_W) {
+      const dbs = dpx < dpy ? (dfx < 0.5 ? 2 : 0) : (dfy < 0.5 ? 3 : 1);
+      if (inMap && (vbs[cIdx] & ((VB_BLOCK | VB_FACE) << (dbs << 2)))) {
+        const adw = (1 - dd * ACC_DECK_I) * ACC_DECK_K;
+        const dl0 = cr * 0.2126 + cg * 0.7152 + cb * 0.0722;
+        cr += (accG[0] - cr) * adw; cg += (accG[1] - cg) * adw; cb += (accG[2] - cb) * adw;
+        const dl1 = (cr * 0.2126 + cg * 0.7152 + cb * 0.0722) * ACC_DECK_L;
+        if (dl1 > 1) { const dks = dl0 / dl1; cr *= dks; cg *= dks; cb *= dks; }
+      }
+    }
   }
   let r = cr * lr + gMFR, g = cg * lg + gMFG, b = cb * lb + gMFB;
   /* #413 ceiling fitting, DEFERRED COPY - same one byte, same helper, same two lines. A plate that
