@@ -3879,10 +3879,49 @@ function rankLoudProps(sx, sy, ang) {
      loud > 0 / occl 0 - the two cases a byte digest cannot tell apart. `seat` is the arrival seat and
      heading the census names in its A/B command, and `log` carries each move's from/to cell. No draw,
      no pixel: this is a counter with a name attached. */
-  PROPSIGHT = { loud: 0, occl: 0, moved: 0, stuck: 0, quiet: 0, band: 0, cross: 0, stuckAt: [], seat: [sx, sy, ang], log: [] };
+  PROPSIGHT = { loud: 0, occl: 0, moved: 0, stuck: 0, quiet: 0, band: 0, cross: 0, plane: 0, slab: 0, stuckAt: [], seat: [sx, sy, ang], log: [] };
   if (!propSightEnabled) return;
   const N = MW;
   const loud = p => p.kind === 'crate' || p.kind === 'barrel';
+  /* #421 AN OCCLUDER HAS TO BE A THING THE DEALT FRAME CAN CONTAIN AT ALL. Everything this rule tests
+     is measured on the deck the player is dealt a seat ON: `openPast` walks ground, the sideways walk
+     hands the prop to a cell on its own deck, and the whole point is that a body walking up the arrival
+     sight line should not be hidden behind hazard-striped scenery. A crate standing on a deck two units
+     above or below that plane is not on that walk - and, once a raised band is a full storey (#421), it
+     is not in the dealt frame either: the slab it stands on hides it, so the pass was spending a move or
+     a quiet rank on pixels the dealt seat draws none of (the pixel ground truth in `view.js props` reads
+     that as zero differing pixels for that prop, which is #772's finding stated without a ray). The
+     test is the SAME one the relocation already uses for its own destination - equality of `MAP.fz`, the
+     authored floor quantum - applied to the seat instead of to the destination cell, so no new constant,
+     tolerance or height rule enters the level: it says "the deck you are standing on", which is the
+     plane the sight line this rule protects actually runs along. A prop on another storey is left
+     exactly where the generator authored it, bright and unranked, and counted in `plane`. */
+  const fzSeat = MAP.fz[(sy | 0) * N + (sx | 0)];
+  /* ...AND NOTHING MAY STAND IN FRONT OF IT. The same rule reads the other half of #772's finding: a prop
+     on the seat's own deck can still be out of the frame, because `MAP.cell` does not mark a raised band
+     solid - the asymmetry `bandExitT`'s own note states, "a raised band is not SOLID, so the march above
+     walks straight through a slab of floor whose riser the wall pass paints". At the one-unit band that
+     asymmetry was invisible: a slab shoulder high still left a crate's head over the lip. At a two-unit
+     storey (#421) the slab is taller than the eye line to that crate, so the wall pass paints a face over
+     every pixel of it and the pass was moving, or dimming, a prop the dealt frame contains none of.
+     This is the bounded query that question needs, and it is a floor-plane question, not a ray cast: the
+     one playable band per column means everything BELOW a column's floor plane is slab, so the eye finds
+     the prop if the straight line from the dealt eye to the TOP of the prop stays under every floor plane
+     it crosses (and crosses no wall). `2 * cfg.eye` above the prop's own deck is the top: twice standing
+     eye height, and taller than the tallest crate or barrel sprite js/13_mesh.js draws (a crate spans
+     0.80 authored units), so the clause fires only when even an oversized prop would be wholly behind the
+     slab - a prop with any chance of a pixel over the lip stays an occluder and still gets walked off. */
+  const zEye = floorAt(sx, sy) + cfg.eye;
+  const seenFromSeat = (px, py, pTop, d, ux, uy) => {
+    for (let s = 0.5; s < d - 0.25; s += 0.25) {
+      const gx = (sx + ux * s) | 0, gy = (sy + uy * s) | 0;
+      if (gx < 1 || gy < 1 || gx >= N - 1 || gy >= N - 1) return false;
+      const i = gy * N + gx;
+      if (MAP.cell[i]) return false;                                  // a wall: the frame holds none of it
+      if (MAP.fz[i] * ZQ > zEye + (pTop - zEye) * (s / d) - 1e-9) return false;   // inside that column's slab
+    }
+    return true;
+  };
   // one BFS from the seat: a prop may not be walked into a pocket the player cannot reach, and a prop he
   // cannot reach cannot hide anything from him either, so one array answers both tests.
   const reach = bfsReach(MAP.cell, MAP.fz, N, (sy | 0) * N + (sx | 0), MAP.vb, MAP.feat);
@@ -3915,7 +3954,9 @@ function rankLoudProps(sx, sy, ang) {
     let da = Math.atan2(dy, dx) - ang;
     while (da > Math.PI) da -= TAU; while (da < -Math.PI) da += TAU;
     if (Math.abs(da) > SIGHT_BAND) continue;      // off the frame's centre: scenery, not the first thing you see
+    if (MAP.fz[(p.y | 0) * N + (p.x | 0)] !== fzSeat) { PROPSIGHT.plane++; continue; }   // another storey: not in this frame
     const ux = dx / d, uy = dy / d;
+    if (!seenFromSeat(sx, sy, p.z + 2 * cfg.eye, d, ux, uy)) { PROPSIGHT.slab++; continue; }   // slab or wall in front: nothing of it is drawn
     if (openPast(sx, sy, ux, uy, d) < SIGHT_OPEN) continue;   // nothing behind it to hide
     PROPSIGHT.occl++;
     const fzAuth = MAP.fz[(p.y | 0) * N + (p.x | 0)];   // #695 item 1: the deck this prop was authored on
