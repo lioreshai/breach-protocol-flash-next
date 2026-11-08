@@ -246,10 +246,18 @@ const MOSS_TINT = [44, 86, 40];                     // luma 73.750 (Rec.709) - t
    nothing else: the mottle covers the same texels, at the same height, with the same grain. The one
    caller that uses it is FLOORS.STONE, whose growth target used to be this green at 0.4 - the strongest
    dose in the table, on the deck of two warm-lit sectors. See the comment on FLOORS.STONE.
-   The tint a caller passes MUST be authored at THIS green's own Rec.709 luma, 73.750, because the pull
-   is a lerp toward a constant: a texel's luma after the pull is (1-k)*L + k*L(T), so a tint at the same
-   luma leaves every texel's luminance exactly where it was and moves only its chroma. That is what
-   makes this a hue change the value probes cannot see, which is what #466 asks for. */
+   The pull is a LERP TOWARD A CONSTANT, so a texel's luma after it is (1-k)*L + k*L(T), and that makes
+   two DIFFERENT callers out of one primitive:
+   HUE-ONLY (#466, and the case this primitive was written for): pass a tint authored at THIS green's own
+   Rec.709 luma, 73.750. Every texel's luminance then stays exactly where it was and only its chroma
+   moves, which is why no value probe can see it and why #466 could re-key colour without re-keying a
+   single frame digest. FLOORS.STONE is that caller.
+   VALUE-MOVING (#416 take six): pass a tint at the CALLING SURFACE's own luma instead, and the pull
+   raises or lowers the colonised texels toward the face they grow on. WTEX.BRICK does this deliberately
+   - a dry olive at brick's own tile mean, replacing a 50-luma coarse patch that survived into the frame
+   at 10 m as slope - so that call raises BRICK's tile mean and DOES re-key the frames whose centre half
+   carries the face. A caller of this kind is an albedo edit, not a hue edit: it must say so at the call
+   site and it must re-derive every record whose frame it reaches. Do not read either caller as the other. */
 function moss(p, amt, seed, tint) {                  // patchy growth, not a green wall
   const k = mossMask(p, amt, seed);
   if (k <= 0) return;
@@ -279,15 +287,18 @@ WTEX.BRICK = matTex(T2, T2, p => {
     return;
   }
   const jitter = hash2(c.id, 7) * 0.5 + hash2(c.id, 19) * 0.5;
-  const base = [158 + jitter * 52, 92 + jitter * 30, 70 + jitter * 22];
+  // #416 TAKE SIX: the per-course value swing halved at the same mean (jitter averages 0.5, so
+  // 158 + 26 = 171 + 13). Adjacent courses used to differ by up to 52 luma of red across a two-texel
+  // mortar line; at 10 m that is not a bond pattern, it is a step the eye reads before the body.
+  const base = [171 + jitter * 26, 96 + jitter * 15, 75 + jitter * 11];
   p.r = base[0]; p.g = base[1]; p.b = base[2];
   const n = fbm(p.u * 1, p.v * 1, 6, 4, 0.6, 12);
-  const m = 0.72 + n * 0.6;
+  const m = 0.86 + n * 0.32;                                  // #416 TAKE SIX: same mean (1.02), half the mottle swing
   p.r *= m; p.g *= m; p.b *= m;
   p.h = 0.66 + (n - 0.5) * 0.10;
   // chamfer toward the mortar line
   p.h += (c.edge - 1) * 0.10 * (1 - c.edge);
-  grain(p, 26, 21, 24);
+  grain(p, 12, 21, 24);                                       // #416 TAKE SIX: low-frequency mottle amplitude 26 -> 12
   dust(p, 0.18, [96, 88, 78]);
   /* #416 take three, the LIVE half. Same primitive as the STONE block below, and this is the call site
      a player actually stands in front of: `wall: WT.BRICK` is ARCHIVE SUBLEVEL's primary face
@@ -306,8 +317,21 @@ WTEX.BRICK = matTex(T2, T2, p => {
      mottle, which are NOT a sub-texel edge and are left alone. Falsifier: the three literals back and
      23.5 returns. */
   cracks(p, 0.05, 0.20, 5, 44, [76, 58, 48]);
-  moss(p, 0.20, 63);
-}, { bump: 1.15, amb: 0.42, spec: 0.05, ao: 0.75, grain: 11 });
+  /* #416 TAKE SIX: the growth stays, its VALUE step goes. `mossMask` and the `p.h += k * 0.03` relief
+     are untouched, so the same texels are colonised at the same height - only the TARGET of the pull
+     moved, from the shared vegetation green (luma 73.8) to a dry olive at THIS TILE'S OWN mean luma
+     (118/126/92 is 121.8, matband's BRICK mean to the tenth). The green was a 50-luma coarse patch
+     step on a face at ~124: the widest, softest, and most mip-surviving edge ARCHIVE wears, and the
+     one term in this tile that the #416 falsifier could point at. Attribution, measured with this
+     tile alone flattened behind the same body (`contrast`'s L0 seat): BRICK carries the WHOLE wall
+     term - 4.76 -> 3.69 with WTEX.BRICK flattened, and 4.76 with CONCRETE or TECH flattened, so it
+     is this face and not the minority face behind the seat - and taking its moss out altogether is
+     worth 0.30 of that 1.07 where its speckle, its crack, its mortar colour, its form relief and its
+     bump are each worth 0.02-0.07. A luma-matched pull keeps the growth and removes the step, which
+     is #466's rule applied one surface up: same mask, same coverage, same height, chroma instead of
+     value. `matband`'s wall spread is a luma rule and cannot see it. */
+  moss(p, 0.20, 63, [118, 126, 92]);
+}, { bump: 1.15, amb: 0.42, spec: 0.05, ao: 0.75, grain: 4 });   // #416 TAKE SIX: speckle 11 -> 4. This is ARCHIVE SUBLEVEL's PRIMARY face (js/20_level.js:24), so this tile is the wall a hostile is read against in the first level, and `contrast`'s #416 row says the wall behind him is busier than he is. The take above quieted the crack; what was left in the row's own words is "its own speckle" — the per-texel hash, which is the only term in this tile that is a sub-texel edge. Every other term is untouched: the courses, the chamfers, `grain(p, 26…)` mottle, `dust`, `moss`, `bump`, `amb`, `spec` and the albedo, so the tile still reads as the same brick at the same brightness and `matband`'s band is unmoved by construction (speckle is zero-mean). Only the speckle amplitude moved, and only on the two faces ARCHIVE deals.
 
 WTEX.STONE = matTex(T2, T2, p => {
   const c = courses(p, 2.6, 3.4, 0.05, 0.5);
@@ -355,7 +379,7 @@ WTEX.CONCRETE = matTex(T2, T2, p => {
   const formY = Math.abs(((p.v * 2) % 1) - 0.5) * 2;           // form panel seam banding
   const seam = 1 - smoothstep(0.0, 0.05, Math.abs(p.v * 2 % 1 - 0.5));
   const n = fbm(p.u, p.v, 6, 5, 0.55, 8);
-  let v = 0.78 + n * 0.42;
+  let v = 0.885 + n * 0.21;             // #416 TAKE SIX: same mean (0.99), half the mottle swing - see WTEX.BRICK
   p.r = 130 * v; p.g = 130 * v; p.b = 132 * v;
   p.h = 0.66 + (n - 0.5) * 0.09 - seam * 0.16;
   // aggregate speckle
@@ -373,7 +397,7 @@ WTEX.CONCRETE = matTex(T2, T2, p => {
   const streak = fbm(p.u * 3, p.v * 0.4, 8, 3, 0.6, 77);
   const k2 = smoothstep(0.5, 0.9, streak) * 0.35;
   p.r -= k2 * 30; p.g -= k2 * 28; p.b -= k2 * 22;
-}, { bump: 1.0, amb: 0.44, spec: 0.05, ao: 0.6, grain: 12, alb: 0.95 });
+}, { bump: 1.0, amb: 0.44, spec: 0.05, ao: 0.6, grain: 4, alb: 0.95 });   // #416 TAKE SIX: speckle 12 -> 4, the same cut as WTEX.BRICK above and for the same reason — this is ARCHIVE SUBLEVEL's MINORITY face (js/20_level.js:24, `wall2`), so a body ten metres out is read against BRICK or CONCRETE and quieting one of the two would leave the other free to be the sharpest thing in the region. Streaks, mottle, `bump` and the 0.95 albedo are untouched; speckle is zero-mean so `matband`'s wall spread cannot move.
 
 WTEX.TECH = matTex(T2, T2, p => {
   // 2x2 inset panels with bevels + a glowing conduit lane
@@ -500,8 +524,24 @@ WTEX.FLESH = matTex(T2, T2, p => {
      half of "walls carry the detail, the ceiling sits lowest" that has to stay reachable. */
 WTEX.MUSCLE = matTex(T2, T2, p => {
   const fold = fbm(p.u, p.v, 2, 3, 0.55, 61);                 // broad folds the bundles hang in
-  const fib = 0.50 + 0.24 * Math.sin((p.u * 11 + fold * 1.1) * Math.PI * 2);   // 11 bundles a tile, tileable; #416 took the swing from +-0.50 to +-0.24
-  const grain = fbm(p.u, p.v, 24, 3, 0.5, 17);                // fine meat grain along the bundles
+  /* #416 TAKE SEVEN: the striation is QUIET AT DISTANCE, not quieter in value. 11 bundles a tile, the
+     swing #416's earlier pass already halved; both periodic terms now honour `p.avg`, so the mip-carry
+     fade above can mix them out the way it mixes FLOORS.METAL's diamond, and `mipCyc: 11` says which
+     period that fade keys on. Why a frequency rule and not an amplitude rule, measured at the ABATOIR
+     CORE 10 m seat (luma of slope per screen px behind a body whose own surface reads 2.51, shipped
+     3.93): taking the swing to 0.12 at the SAME period bought 3.27 and taking the period from 11 bundles
+     to 4 bought 6.05 - WORSE, because a coarser pattern is one the mip chain still carries to that
+     distance, where it lands as a low-frequency stripe instead of a wash. Past the sampling limit a
+     pattern IS slope, which is the same finding #19 took thirteen to land for the deck, and the answer
+     there was this same mechanism: attenuate the term by how many texels of the level one of its cycles
+     spans, mixing toward the material baked with the term pinned at its own mean. So the bundles stay
+     11 a tile and keep their full swing in mip 0 - under the lamp at arm's length this is still the same
+     meat, bundles, folds, wet seams and albedo exactly where #369 left them - and past a couple of
+     metres they average out instead of beating. Measured: 2.12 at that seat, under his own 2.51, so the
+     paint behind him is now the quieter of the two. Mean held by construction (see the p.avg note in
+     matTex): matband's MUSCLE figure and the level's exposure medians are the check. */
+  const fib = p.avg ? 0.5 : 0.50 + 0.24 * Math.sin((p.u * 11 + fold * 1.1) * Math.PI * 2);   // 11 bundles a tile, tileable; #416 took the swing from +-0.50 to +-0.24
+  const grain = p.avg ? 0.5 : fbm(p.u, p.v, 24, 3, 0.5, 17);  // fine meat grain along the bundles; pinned in the mean-only bake for the same reason
   let v = 0.98 + (fib - 0.5) * 0.24 + (fold - 0.5) * 0.30 + (grain - 0.5) * 0.10;
   p.r = 148 * v; p.g = 52 * v + 10; p.b = 66 * v + 12;
   p.h = 0.58 + (fib - 0.5) * 0.26 + (fold - 0.5) * 0.12 + (grain - 0.5) * 0.05;
@@ -510,7 +550,7 @@ WTEX.MUSCLE = matTex(T2, T2, p => {
   p.r -= gap * 26; p.g -= gap * 4; p.b += gap * 6; p.h -= gap * 0.14;
   const wet = smoothstep(0.62, 0.94, fbm(p.u, p.v, 9, 3, 0.6, 12));
   p.r += wet * 26; p.g += wet * 11; p.b += wet * 16; p.h += wet * 0.04;
-}, { bump: 1.5, amb: 0.40, spec: 0.46, specPow: 22, ao: 0.72, grain: 5, alb: 1.14 });   // #416: the busiest tile in the table at 35.6 luma of mean step per 2 px - ABATOIR's wall was the sharpest thing in front of a body standing on it
+}, { bump: 1.5, amb: 0.40, spec: 0.46, specPow: 22, ao: 0.72, grain: 5, alb: 1.14, mipCyc: 11 });   // #416: the busiest tile in the table at 35.6 luma of mean step per 2 px - ABATOIR's wall was the sharpest thing in front of a body standing on it; mipCyc names the striation's 11 cycles a tile to the mip-carry fade
 
 WTEX.GRATE = matTex(T2, T2, p => {
   const gx = (p.u * 4) % 1, gy = (p.v * 4) % 1;

@@ -241,8 +241,10 @@ let overlookPairs = [];
    the pairing pass keeps at most OVERLOOK_MAX pairs spaced OVERLOOK_SPACING apart - so "4 decks DARK"
    could not tell a deck the rule never reached from one it reached and failed to light. `why` is the
    condition the pass itself stopped on: 'lit' (a source stands here, placed by this pass), 'own-band'
-   (the deck's own band already delivers OWN_MIN, so the deal garrisons it), 'no-free-cell' (every cell
-   of the deck's band is taken by a body or a prop), 'solid' (the up cell is not air after all).
+   (the deck's own band already delivers OWN_MIN, so the deal garrisons it), 'lit-no-body' (the source
+   stands on a lip cell that a prop or a garrison stands on too, so the light is there and the mesh is
+   not - #421: a dark upper floor is the defect, a missing fixture is not), 'no-band-cell' (the deck's
+   band has no open cell to hang anything on), 'solid' (the up cell is not air after all).
    Draws no RNG and writes no height, so it cannot move a pixel: it is a receipt, not a feature. */
 let overlookLamps = [];
 /* #709: the cells the #421 hall-deck growth pass raised, in the order it raised them, as cell indices.
@@ -256,11 +258,59 @@ let grownDeck = [];
    have put over the arrival room, scored before any of them is committed. `surface`'s SEAT-PLACE row reads
    it; nothing in the renderer does. Null until a level is generated. */
 let bandCand = null;
+/* #631 THE DOORWAY-WALL CENSUS, one record per wall this pass stands: which room, which line, which cell of
+   it is the opening, how many cells of wall it wrote. It exists so a probe can ask the one question a
+   rendered frame cannot answer on its own - did this pass put anything in the world at all? `fixtures` reads
+   it and a generated sector that deals none is a FAILURE there, not an ok. Null until a generated level
+   runs the pass; an authored plan never sets it, which the row reads as its own exclusion. */
+let doorWalls = null;
+/* #631 WHY THIS SECTOR DEALS NONE. The census above says what a wall went where; it cannot say why a sector
+   stands none, which is the answer `fixtures` has to print now that a one-cell jamb is a rejection instead of
+   an outcome. One string per generated sector that ran the doorway-wall pass and accepted nothing, naming the
+   rejection that killed the most candidates. Null on an authored plan and empty on a sector that dealt one. */
+let doorDecline = null;
 /* #154: metres of clear ground the prop passes keep off the spawn seat. A `let` rather than a literal
    so a probe can A/B it the way it reassigns topUpEnabled and groundPixel (`SPAWN_CLEAR = 0` is the
    shipped behaviour, no clearance), and so smoke's spawn-clearance row can name what it moved.
    It is a RADIUS measured from the seat, which is the same number the row asserts. */
 let SPAWN_CLEAR = 2;
+
+/* #695 take two WHERE A LOUD PROP MAY STAND. take two of #695 was a RANK, not a dim: #722 gave the
+   hazard paint two ranks so scenery stops out-shining a detonable barrel, and the look that came back
+   was that the paint was never the whole defect. THE STACK's arrival frame still CENTRES a crate with
+   the hostile behind it, and ARCHIVE still puts hazard barrels on the centre line, because the pass that
+   places props answers only to `takeNear` (a distance band from the last pick) and `clearSpot` (a disc
+   around the seat). Nothing anywhere asked what the player is supposed to look at FIRST, and the frame
+   is ~72 deg wide: a crate 6 m out and 20 deg off the arrival heading sits dead centre and owns the
+   frame, and the one figure-ground law in the renderer (`fgPay`, js/13_mesh.js) pays separation from
+   the room's AVERAGE, so a body behind that crate separates from the fog and not from the box.
+   The rule is therefore about PLACEMENT, and it is a rank rule in the sense the issue asked for: the
+   prop keeps every luma it has and gives up the CENTRE. A crate or barrel that is an OCCLUDER on the
+   arrival sight line - inside the centre band, nearer than the frame's mid distance, with clear ground
+   past it for a body to be hidden by - is walked SIDEWAYS off that line. Props that merely wear the
+   hazard paint and hide nothing are left alone, so this cannot empty a level of bright furniture; it
+   only stops that furniture standing in the doorway of the player's attention on the frame he is shown
+   when the level loads. Lamps are exempt: a lamp IS a light source, its cell is asserted by the lamp
+   census, and moving one is a relight.
+   The move draws NO RNG and rolls no dice, for the #96 reason `clearSpot` already states: an extra draw
+   re-rolls every world downstream of the same SEED, and three rows of `view.js props` went red once for
+   exactly that. The walk is a fixed lateral spiral, left first, deterministic in cell order, so a deal
+   that has nothing to move is byte-identical to the deal main built.
+   A `let` knob, the way SPAWN_CLEAR is one: `propSightEnabled = false` is the shipped behaviour, and
+   `view.js props` uses it as the control that says this row can fail. */
+let propSightEnabled = true;
+/* The second half of the same ruling, and its own knob for the same reason: with `propQuietEnabled = false`
+   a prop that has nowhere to walk keeps the loud hazard rank, which is the shipped behaviour this increment
+   is measured against. `view.js props` A/Bs the rank by flipping `p.quiet` on the SAME prop in the SAME deal
+   (no re-deal, so no question about whether a re-deal replays); this knob is the control that says the rank
+   is a rule and not a coincidence of where the prop happens to stand. */
+let propQuietEnabled = true;
+const SIGHT_BAND = 20 * Math.PI / 180;   // half-width of the centre of a 71.7 deg frame (00_core.js plane)
+const SIGHT_NEAR = 2.5;                  // metres: inside this SPAWN_CLEAR and the frame edge already own it
+const SIGHT_FAR = 14;                    // metres: past this a prop is a detail, not the thing you look at
+const SIGHT_OPEN = 3;                    // metres of clear ground PAST the prop that make it an occluder
+const SIGHT_REACH = 4;                   // cells the sideways walk may go: a prop cannot teleport
+let PROPSIGHT = { loud: 0, occl: 0, moved: 0, stuck: 0, quiet: 0, band: 0, cross: 0, stuckAt: [], seat: [0, 0, 0], log: [] };   // read by `view.js props`; nothing renders it
 
 const cellIdx = (x, y) => (y | 0) * MW + (x | 0);
 
@@ -991,8 +1041,16 @@ function propYaw(x, y) {
      cell's wall face already starts at the raised floor.
    Writes the grid only: genLevel calls linkBoundaries(), which derives the blocking bits (masked by
    VB_KEEP, so the authored ladder nibbles survive a relink) and the ceiling planes from it. */
-const BAND_UP = 4;                                          // one unit above the datum, in quanta
-const BAND_DOWN = -BAND_UP;                                 // one unit below it
+/* #421 TWO UNITS, NOT ONE. A deck raised by a single unit puts its soffit one unit over the floor the
+   eye is on, which is ceiling height: standing under it the player's head is in the slab's own volume and
+   the underside reads as a low lid, not as somebody else's floor. Two units of headroom is the difference
+   between "duck under" and "walk under and shoot over", so the raised side lifts to 8 quanta. The sunken
+   side deliberately does NOT follow it: a pit's legibility is the lip seen from above, one unit is enough
+   for that, and a 8-quantum hole needs its wall bases carried two units down plus a second link, which is
+   a different feature with its own reachability risk. Keeping BAND_DOWN at one unit is also what keeps
+   `alt`'s "off the datum is reachable up AND down" row about a pit rather than about this deck. */
+const BAND_UP = 8;                                          // two units above the datum, in quanta
+const BAND_DOWN = -4;                                       // one unit below it
 const CZ_TALL = 12;                                         // three units of headroom; the gate is 2
 const CZ_SPAWN_TALL = 16;                                   // 4 units: the rung the #15 M4 shape ladder
 //   measured to fit the 16 ms raster gate at the arrival seat (+0.9 ms paired, N=8); CZ_TALL's 3 units
@@ -1040,6 +1098,7 @@ const TALL_WANT_MIN = 2;
    is the 0.50 m the acceptance row counts - how many pairs a level may grow, and how far apart they
    must sit (Chebyshev, in cells) so three pairs do not become one continuous canyon. */
 const OVERLOOK_STEP_Q = 2, OVERLOOK_MAX = 3, OVERLOOK_SPACING = 5;
+const OVERLOOK_STEP_MAX = 4;               // #421: one unit - the tallest riser the pair's shot geometry states
 const PIT_W = 5, PIT_H = 4, PIT_MIN = 6;                    // sunken cells: see feature 2's budget note
 /* #284's rect pass. LOWER bound: the coverage top-up below serves a band only from MIN_BAND = 8
    reachable cells, and a hole it refuses to put a lamp on is a DARK pit floor - which is alt's "a pit
@@ -1128,15 +1187,22 @@ function authorVolume(cell, N, rooms, fz, vb, feat, cz, atSeat) {
        the underside of the deck. `onLadder` reads those nibbles, so the refusal has to name the mouth as
        well as the run. */
     if (noSpawn && inSpawn(mx, my)) return false;
-    for (let k = 1; k <= STAIR_CELLS; k++) {
+    /* #421: the run is sized for the CLIMB, not for a one-unit climb. `STAIR_CELLS` is 4 because a unit
+       needs 3 treads + a landing; ask the same four cells to carry two units and the last tread sits
+       1.25 m over the walker's cell, the crossing rules refuse it, the pocket stays unreachable, and
+       `linkBand`'s give-back erases the whole raised band before the ladder pass is ever consulted
+       (measured at main 00cbd04: bands {0:389,1:160} -> {0:566,0.25:1}, step faces 51 -> 0). One cell
+       per quantum is what the auto-step in js/30_entities.js accepts, so the run is max(STAIR_CELLS,|band|). */
+    const run = Math.max(STAIR_CELLS, Math.abs(band));
+    for (let k = 1; k <= run; k++) {
       const x = mx + DIRX[md] * k, y = my + DIRY[md] * k;
       if (!open(x, y) || sel[y * N + x] || fz[y * N + x] !== 0 || flat[y * N + x]) break;
       if (noSpawn && inSpawn(x, y)) break;              // the arrival room's floor is not a stair tread
       line.push(y * N + x);
     }
     const up = band > 0 ? 1 : -1;
-    if (line.length >= STAIR_CELLS) {
-      for (let k = 0; k < STAIR_CELLS - 1; k++) { const i = mark(line[k]); fz[i] = band - up * (k + 1); feat[i] = FEAT_STAIR; }
+    if (line.length >= run) {
+      for (let k = 0; k < run - 1; k++) { const i = mark(line[k]); fz[i] = band - up * (k + 1); feat[i] = FEAT_STAIR; }
       return true;
     }
     if (!line.length || !ladder) return false;
@@ -1152,7 +1218,8 @@ function authorVolume(cell, N, rooms, fz, vb, feat, cz, atSeat) {
      property of the layout, not of candidate order. A link that does not reduce the stranded count
      is rewound, which is what stops six stairs being authored where one does the job. */
   const linkBand = (sel, band, d0, ladder, noSpawn) => {
-    for (let pass = 0; pass < (ladder ? 2 : 1); pass++) {
+    const passes = ladder ? 2 : 1;
+    for (let pass = 0; pass < passes; pass++) {
       for (let step = 0; step < LINK_STEPS; step++) {
         const d = reach();
         let want = -1;
@@ -1172,6 +1239,11 @@ function authorVolume(cell, N, rooms, fz, vb, feat, cz, atSeat) {
           moved = true; break;
         }
         if (!moved) {
+          /* #421: a pocket is handed back only once BOTH passes have failed on it. The stair pass used to
+             give up here, so on a two-unit band - where no four-cell run is long enough - every pocket was
+             erased before pass 1's ladder was ever offered, and the feature vanished whole. On a one-unit
+             band this is a no-op: whatever the stair links, pass 0 already linked. */
+          if (pass + 1 < passes) break;
           /* This pocket of the band takes no link - a mouth whose run is 3 cells, a component that
              touches the datum only through a diagonal. Hand the pocket back to the datum and keep
              the rest of the band: losing one corner's altitude is a smaller lie than losing the
@@ -1756,6 +1828,15 @@ function authorVolume(cell, N, rooms, fz, vb, feat, cz, atSeat) {
         if (!open(nx, ny)) continue;
         const j = ny * N + nx;
         if (d0[j] < 0 || fz[j] - fz[i] < OVERLOOK_STEP_Q) continue;   // an air neighbour a band ABOVE it
+        /* #421: and a step this pair can STATE. The pass's own geometry - tall air below, the neighbour
+           one unit up, the opening across the boundary [+1.00 .. +2.00] - is a ONE-unit riser, and the
+           hitscan arms above aim from one cell back. Now that the raised band stands two units over the
+           datum, a deck's own edge is a 2 m riser: the shot UP from the cell next to it meets the slab's
+           floor plane at t 0.50 and the row goes red for a reason that is geometry, not a lost feature -
+           in the game you take that shot from two metres back. So the pass pairs the step it documents
+           (two quanta up to one unit), which is the top of a staircase into a deck rather than the deck's
+           outer wall, and the pairs it finds are the ones where the both-ways shot is real. */
+        if (fz[j] - fz[i] > OVERLOOK_STEP_MAX) continue;
         cand.push({ i, j, x, y, dq: fz[j] - fz[i] });
         break;
       }
@@ -2632,12 +2713,30 @@ function placeWallFixtures(cfgL, seat, ang) {
                takes it (a face a doorway or a room fixture already owns does not consume the slot, the
                same rule the spacing in pass 3 follows). Forward before backward so the order of `used`
                claims is deterministic; no RNG is read, so no roll, prop, lamp or enemy moves. */
+            /* INCREMENT FOUR PUTS THIS FACE ON THE OBJECT PITCH (#400). The spacing below ran at
+               FIX_REPEAT - the spacing of ALL vocabulary fixtures, 6 m - while the corridor pass above
+               was moved to FIX_OBJ_REPEAT, the shorter spacing of the level's OBJECTS, last increment.
+               The same sentence is being honoured on one geometry and not the other: measured at main
+               2e2907a the four CI deals hold 6 / 6 / 5 / 3 slab runs that are too short to hold two
+               objects at 6 m, and the census could only gate 0 / 0 / 2 / 0 of them, so a 7 m slab side
+               with one drum at 3.5 m and nothing else was green everywhere but the frame. A slab side is
+               also the LONGEST face a generated level has, so it is the face where a 2 m gap between the
+               pitch and the promise shows. So the step is FIX_OBJ_REPEAT here too - middle mount FIRST,
+               unchanged, then one every FIX_OBJ_REPEAT metres in both directions, the KIND cycling with
+               position exactly as the corridor spacing does so a deck edge reads as a run of the
+               sector's things rather than one drum repeated. The budget guard is FIX_RUN_BUDGET, the
+                 same stop the corridor spacing uses: the pillar and arrival passes run AFTER this one and
+               an unbounded slab pass would spend the cap they need. No RNG is read, so no roll, prop,
+               lamp, light or enemy moves; a slab side shorter than one object spacing still takes only
+               its middle mount and is placed byte-identically to the shipped build. */
             if (mountDrop(kind, ax, ay, d)) {
-              for (let s = mid + FIX_REPEAT; s < at + run; s += FIX_REPEAT) {
-                mountDrop(kind, face === 0 ? a : s, face === 0 ? s : a, d);
+              for (let s = mid + FIX_OBJ_REPEAT; s < at + run; s += FIX_OBJ_REPEAT) {
+                if (placed >= FIX_RUN_BUDGET) break;
+                mountDrop(dropObjs[(a + d + s) % dropObjs.length], face === 0 ? a : s, face === 0 ? s : a, d);
               }
-              for (let s = mid - FIX_REPEAT; s >= at; s -= FIX_REPEAT) {
-                mountDrop(kind, face === 0 ? a : s, face === 0 ? s : a, d);
+              for (let s = mid - FIX_OBJ_REPEAT; s >= at; s -= FIX_OBJ_REPEAT) {
+                if (placed >= FIX_RUN_BUDGET) break;
+                mountDrop(dropObjs[(a + d + s) % dropObjs.length], face === 0 ? a : s, face === 0 ? s : a, d);
               }
             }
           }
@@ -3469,6 +3568,7 @@ function buildAuthored(li) {
      them moves no roll, prop or light and the byte `P.ang` gets is the byte #421 writes. */
   const sang = seatFacing(sp[0], sp[1], cfgL.seatAng);   // #421: derived UNLESS the level declares seatAng
   placeWallFixtures(cfgL, sp, sang);              // #400: the authored finale gets walls too
+  rankLoudProps(sp[0], sp[1], sang);              // #695 take two: no occluding crate on the finale's centre line
   exitX = ex + 0.5; exitY = ey + 0.5;
   P.x = sp[0]; P.y = sp[1]; P.ang = sang; P.vx = P.vy = 0; P.z = floorAt(sp[0], sp[1]);  // probes read P
   buildTint();
@@ -3706,15 +3806,29 @@ function lightOverlookDecks(cfgL) {
         } }
     }
     const jx = (p[1] % N) + 0.5, jy = ((p[1] / N) | 0) + 0.5;
-    let at = -1, best = Infinity;
+    /* #421: a SOURCE needs no free cell; only the fixture BODY does. The scan below used to refuse the
+       whole pair when every cell of the deck's band stood within 0.6 m of a prop or a garrison, which on
+       a two-unit band is a real outcome - the pairing now picks the top of a staircase, so the deck it
+       must light is a small landing that the deal has already furnished - and the result was a DARK
+       upper floor, this issue's own defect wearing a different hat. A lamp is not a physical object: it
+       is a static source with its glow disc off (#221's gate untouched), so the light goes on the lip
+       cell either way and the mesh stands only where nothing else stands. Where a free cell does exist
+       nothing changes at all, so the picture this pass shipped with stays the picture. */
+    let at = -1, best = Infinity, atBody = -1, bestBody = Infinity;
     for (const c of order) {
       const cx = (c % N) + 0.5, cy = ((c / N) | 0) + 0.5, d = Math.hypot(cx - jx, cy - jy);
-      if (d >= best) continue;
+      if (d < best) { at = c; best = d; }
+      if (d >= bestBody) continue;
+      /* #421: the clearance that survives is the one about STANDING FURNITURE - a fixture must not be
+         built inside a crate, which is permanent and visible from below. The ENEMIES test is dropped for
+         this one case because a two-unit deck is a landing the deal garrisons, and a moving body standing
+         in front of a lamp for a second is not the defect this pass exists to prevent; refusing the lamp
+         outright was, which is the row above this scan already fails on. */
       if (!PROPS.every(q => Math.hypot(q.x - cx, q.y - cy) > 0.6)) continue;
-      if (!ENEMIES.every(q => Math.hypot(q.x - cx, q.y - cy) > 0.6)) continue;
-      at = c; best = d;
+      atBody = c; bestBody = d;
     }
-    if (at < 0) { ledger(p, -1, own, 'no-free-cell'); continue; }        // every lip cell taken: leave it be
+    if (at < 0) { ledger(p, -1, own, 'no-band-cell'); continue; }        // the deck is not open air at all
+    if (atBody >= 0) at = atBody;                                        // light and fixture agree where they can
     const x = (at % N) + 0.5, y = ((at / N) | 0) + 0.5;
     const tsc = Math.min(0.6, Math.max(TOPUP_MINF, order.length / TOPUP_TARGET));
     LIGHTS.push({ x: x, y: y, z: fl + LHOVER, band: fl, r: OVL_LAMP_R, str: TOPUP_BASE * tsc,
@@ -3726,12 +3840,12 @@ function lightOverlookDecks(cfgL) {
        It is drawn by the prop/mesh pass and never by drawLightGlow, so #221's off-band ALPHA gate is
        untouched by construction: a body occludes, it does not add. The cell is free of props and bodies
        by the two `every` tests above, so this cannot stand a lamp inside a crate. */
-    if (deckBodyEnabled()) {
+    if (deckBodyEnabled() && atBody >= 0) {
       PROPS.push({ tex: PROP.lamp, x: x, y: y, z: floorAt(x, y), scale: 0.95, kind: 'lamp',
         yaw: propYaw(x, y), ovl: 1 });
       bodyPlaced++;
     }
-    ledger(p, at, own, deckBodyEnabled() ? 'lit' : 'lit-no-body');
+    ledger(p, at, own, deckBodyEnabled() && atBody >= 0 ? 'lit' : 'lit-no-body');
     placed++;
   }
   return placed;
@@ -3755,6 +3869,155 @@ function authorOverlooked(dist) {
   pick.x = up[0] + 0.5; pick.y = up[1] + 0.5; pick.lx = pick.x; pick.ly = pick.y;
 }
 
+/* #695 take two: the arrival sight line, applied. Called once per level from BOTH placement paths,
+   after the seat and its heading exist and after every prop has been placed, so it sees the finished
+   prop set. Reads the grid and PROPS; writes x, y, z, yaw of at most one prop per occluding pick, and
+   calls no Math.random - the deal downstream of a level with nothing to move is the deal main built. */
+function rankLoudProps(sx, sy, ang) {
+  /* The census `view.js props` reads. `loud` counts the props this rule could ever act on, so a build
+     that does not run the pass at all reads loud 0 while a build that runs it and finds nothing reads
+     loud > 0 / occl 0 - the two cases a byte digest cannot tell apart. `seat` is the arrival seat and
+     heading the census names in its A/B command, and `log` carries each move's from/to cell. No draw,
+     no pixel: this is a counter with a name attached. */
+  PROPSIGHT = { loud: 0, occl: 0, moved: 0, stuck: 0, quiet: 0, band: 0, cross: 0, plane: 0, slab: 0, stuckAt: [], seat: [sx, sy, ang], log: [] };
+  if (!propSightEnabled) return;
+  const N = MW;
+  const loud = p => p.kind === 'crate' || p.kind === 'barrel';
+  /* #421 AN OCCLUDER HAS TO BE A THING THE DEALT FRAME CAN CONTAIN AT ALL. Everything this rule tests
+     is measured on the deck the player is dealt a seat ON: `openPast` walks ground, the sideways walk
+     hands the prop to a cell on its own deck, and the whole point is that a body walking up the arrival
+     sight line should not be hidden behind hazard-striped scenery. A crate standing on a deck two units
+     above or below that plane is not on that walk - and, once a raised band is a full storey (#421), it
+     is not in the dealt frame either: the slab it stands on hides it, so the pass was spending a move or
+     a quiet rank on pixels the dealt seat draws none of (the pixel ground truth in `view.js props` reads
+     that as zero differing pixels for that prop, which is #772's finding stated without a ray). The
+     test is the SAME one the relocation already uses for its own destination - equality of `MAP.fz`, the
+     authored floor quantum - applied to the seat instead of to the destination cell, so no new constant,
+     tolerance or height rule enters the level: it says "the deck you are standing on", which is the
+     plane the sight line this rule protects actually runs along. A prop on another storey is left
+     exactly where the generator authored it, bright and unranked, and counted in `plane`. */
+  const fzSeat = MAP.fz[(sy | 0) * N + (sx | 0)];
+  /* ...AND NOTHING MAY STAND IN FRONT OF IT. The same rule reads the other half of #772's finding: a prop
+     on the seat's own deck can still be out of the frame, because `MAP.cell` does not mark a raised band
+     solid - the asymmetry `bandExitT`'s own note states, "a raised band is not SOLID, so the march above
+     walks straight through a slab of floor whose riser the wall pass paints". At the one-unit band that
+     asymmetry was invisible: a slab shoulder high still left a crate's head over the lip. At a two-unit
+     storey (#421) the slab is taller than the eye line to that crate, so the wall pass paints a face over
+     every pixel of it and the pass was moving, or dimming, a prop the dealt frame contains none of.
+     This is the bounded query that question needs, and it is a floor-plane question, not a ray cast: the
+     one playable band per column means everything BELOW a column's floor plane is slab, so the eye finds
+     the prop if the straight line from the dealt eye to the TOP of the prop stays under every floor plane
+     it crosses (and crosses no wall). `2 * cfg.eye` above the prop's own deck is the top: twice standing
+     eye height, and taller than the tallest crate or barrel sprite js/13_mesh.js draws (a crate spans
+     0.80 authored units), so the clause fires only when even an oversized prop would be wholly behind the
+     slab - a prop with any chance of a pixel over the lip stays an occluder and still gets walked off. */
+  const zEye = floorAt(sx, sy) + cfg.eye;
+  const seenFromSeat = (px, py, pTop, d, ux, uy) => {
+    for (let s = 0.5; s < d - 0.25; s += 0.25) {
+      const gx = (sx + ux * s) | 0, gy = (sy + uy * s) | 0;
+      if (gx < 1 || gy < 1 || gx >= N - 1 || gy >= N - 1) return false;
+      const i = gy * N + gx;
+      if (MAP.cell[i]) return false;                                  // a wall: the frame holds none of it
+      if (MAP.fz[i] * ZQ > zEye + (pTop - zEye) * (s / d) - 1e-9) return false;   // inside that column's slab
+    }
+    return true;
+  };
+  // one BFS from the seat: a prop may not be walked into a pocket the player cannot reach, and a prop he
+  // cannot reach cannot hide anything from him either, so one array answers both tests.
+  const reach = bfsReach(MAP.cell, MAP.fz, N, (sy | 0) * N + (sx | 0), MAP.vb, MAP.feat);
+  const occupied = (i, skip) => {
+    for (const p of PROPS) if (p !== skip && ((p.y | 0) * N + (p.x | 0)) === i) return true;
+    for (const p of PICKUPS) if ((p.y | 0) * N + (p.x | 0) === i) return true;
+    for (const p of ENEMIES) if ((p.y | 0) * N + (p.x | 0) === i) return true;
+    return false;
+  };
+  /* metres of clear ground PAST the prop along the seat's ray. A prop against a wall, a door jamb or a
+     floor that steps up is a detail on a surface; a prop with open deck behind it is the thing a body
+     would be hidden by, and only the second case is what this rule is about. */
+  const openPast = (px, py, ux, uy, from) => {
+    let clear = 0;
+    for (let s = from + 0.75; clear < SIGHT_OPEN + 0.01; s += 0.25) {
+      const qx = px + ux * s, qy = py + uy * s, gx = qx | 0, gy = qy | 0;
+      if (gx < 1 || gy < 1 || gx >= N - 1 || gy >= N - 1) return clear;
+      const i = gy * N + gx;
+      if (MAP.cell[i] || reach[i] < 0) return clear;
+      clear += 0.25;
+      if (clear > SIGHT_OPEN + 8) return clear;                 // plenty: stop walking the whole level
+    }
+    return clear;
+  };
+  for (const p of PROPS) {
+    if (!loud(p)) continue;
+    PROPSIGHT.loud++;
+    const dx = p.x - sx, dy = p.y - sy, d = Math.hypot(dx, dy);
+    if (d < SIGHT_NEAR || d > SIGHT_FAR) continue;
+    let da = Math.atan2(dy, dx) - ang;
+    while (da > Math.PI) da -= TAU; while (da < -Math.PI) da += TAU;
+    if (Math.abs(da) > SIGHT_BAND) continue;      // off the frame's centre: scenery, not the first thing you see
+    if (MAP.fz[(p.y | 0) * N + (p.x | 0)] !== fzSeat) { PROPSIGHT.plane++; continue; }   // another storey: not in this frame
+    const ux = dx / d, uy = dy / d;
+    if (!seenFromSeat(sx, sy, p.z + 2 * cfg.eye, d, ux, uy)) { PROPSIGHT.slab++; continue; }   // slab or wall in front: nothing of it is drawn
+    if (openPast(sx, sy, ux, uy, d) < SIGHT_OPEN) continue;   // nothing behind it to hide
+    PROPSIGHT.occl++;
+    const fzAuth = MAP.fz[(p.y | 0) * N + (p.x | 0)];   // #695 item 1: the deck this prop was authored on
+    /* Walk SIDEWAYS, left first, one then two then three then four cells: the shortest move that leaves
+       the band. Left-first rather than hash-chosen, because the perpendicular's sign is a function of the
+       bearing and a coin flip per prop would read as one more draw bolted onto the deal. */
+    let nx = -1, ny = -1, fx = -1, fy = 0;           // fx,fy: where the walk STOPPED honouring the deck (#695 item 1)
+    for (let step = 1; step <= SIGHT_REACH && nx < 0; step++) {
+      for (let side = 0; side < 2 && nx < 0; side++) {
+        const sgn = side ? 1 : -1;
+        const qx = p.x - uy * sgn * step, qy = p.y + ux * sgn * step;
+        const gx = qx | 0, gy = qy | 0, i = gy * N + gx;
+        if (gx < 1 || gy < 1 || gx >= N - 1 || gy >= N - 1) continue;
+        if (MAP.cell[i] || reach[i] < 0 || occupied(i, p)) continue;
+        // the destination must be OUT of the band and out of the seat's own square
+        const ddx = gx + 0.5 - sx, ddy = gy + 0.5 - sy, dd = Math.hypot(ddx, ddy);
+        if (dd < SIGHT_NEAR) continue;
+        let b = Math.atan2(ddy, ddx) - ang;
+        while (b > Math.PI) b -= TAU; while (b < -Math.PI) b += TAU;
+        if (Math.abs(b) <= SIGHT_BAND && dd <= SIGHT_FAR) continue;
+        if (isSolid(gx + 0.5, gy + 0.5)) continue;
+        /* #695 item 1: SAME DECK. Every test above is about the player's sight line and his ability to
+           reach the cell; none of them reads a height, and a perpendicular walk of up to SIGHT_REACH cells
+           crosses a stepped room's bands easily. A crate on the deck ABOVE the one it was authored on is a
+           false statement about the level - it says that storey is reachable storage when it is the storey
+           you cannot get to - which is worse than the sight-line defect this pass was written to fix, so a
+           candidate standing on another floor is simply not a destination and the walk tries the next cell.
+           `fzAuth` is the prop's OWN floor, read before anything moves, so this compares the relocation to
+           what the generator authored rather than to whatever the walk was doing last. Recording `fx,fy`
+           one line EARLIER - the first cell that satisfies every other test, which is exactly where the
+           pre-item-1 walk would have parked the prop - is what lets `view.js props` price this test on the
+           same deal instead of arguing that stepped rooms exist. */
+        if (fx < 0) { fx = gx; fy = gy; }
+        if (MAP.fz[i] !== fzAuth) { PROPSIGHT.band++; continue; }
+        nx = gx; ny = gy;
+      }
+    }
+    if (nx < 0) {
+      /* #695 take three: the RANK pays when the CELL cannot. Everything above is a placement rule, and a
+         prop walled in on its own deck has nowhere to be placed, so on that deal the shipped frame used to
+         keep the defect this pass exists to remove: the loudest paint in the room standing dead centre on
+         the sight line the player is dealt, with 3 m of open deck behind it to hide a body. The other half
+         of the ruling is already in the game - js/10_assets.js gives the hazard paint two ranks, and the
+         quiet one is what a wall's service run pays. A prop that cannot step off the line is scenery that
+         has lost the argument, so it pays the same rank: same hue, same chevron, same black contrast, and
+         0.74x of the delivered light (js/40_render.js PROP_RANK_QUIET). Nothing else in the room is
+         touched, so this is a rank move on one object, not a dim: `quiet` counts how many props paid it and
+         `view.js props` prices it on the pixels by flipping the flag on the same prop in the same deal.
+         `p.quiet` is set here and nowhere else; props are rebuilt every deal, so it cannot leak between
+         levels, and a prop demoted once is demoted by the same test on a re-run (the pass stays a fixed
+         point). */
+      if (propQuietEnabled) { p.quiet = 1; PROPSIGHT.quiet++; }
+      PROPSIGHT.stuck++; PROPSIGHT.stuckAt.push([p.x | 0, p.y | 0, p.kind, fzAuth, PROPS.indexOf(p)]); continue;
+    }
+    if (fx >= 0 && MAP.fz[fy * N + fx] !== fzAuth) PROPSIGHT.cross++;   // the deck test is what moved THIS one
+    PROPSIGHT.log.push([p.x, p.y, nx + 0.5, ny + 0.5, p.kind, PROPS.indexOf(p)]);
+    p.x = nx + 0.5; p.y = ny + 0.5; p.z = floorAt(p.x, p.y); p.yaw = propYaw(p.x, p.y);
+    PROPSIGHT.moved++;
+  }
+}
+
 function genLevel(li) {
   /* #421 THE PLACEMENT RECORD IS PER LEVEL, not per volume pass. `bandCand` is only assigned inside
      `authorVolume`, and an authored plan returns from `buildAuthored` before that pass runs, so leaving the
@@ -3762,6 +4025,8 @@ function genLevel(li) {
      THE STACK's own - a 400-cell grid reporting a region of 826 owned cells. An authored sector now has no
      record, which the row reads as its own vacuity FAILURE rather than as a prediction it did not make. */
   bandCand = null;
+  doorWalls = null;                                 // #631: the doorway-wall census is per level too
+  doorDecline = null;                               // #631: and so is the reason a sector dealt none
   /* #353, same trap as the record above and it is live: `overlookPairs` is reset inside `authorVolume`,
      which an authored plan returns past before the pairing pass runs, so THE STACK inherited level 2's
      three pairs. Nothing on the authored path reads them - `authorOverlooked` and `lightOverlookDecks`
@@ -4346,6 +4611,11 @@ function genLevel(li) {
        same byte #421 wrote. */
     const seatAng = seatFacing(seat[0], seat[1], cfgL.seatAng);   // see seatFacing; THE STACK derives too
     placeWallFixtures(cfgL, seat, seatAng);      // #400: decor goes on the walls, after the walls exist
+    /* #695 take two: the props are placed by distance from the last pick, so a crate can land dead centre
+       in the frame the player is shown on load and spend the room's loudest paint on furniture. Runs after
+       every PROPS.push in this function (lamps, crates, barrels all above) and after the seat and its
+       heading exist; draws no RNG, so the deal below it is the deal main dealt. */
+    rankLoudProps(seat[0], seat[1], seatAng);
     // The scatter pass can drop a pillar on the room centre, and starting inside
     // geometry is unrecoverable - the collision probes would sample the player's own
     // cell - so walk out to the nearest open cell instead of spawning into a wall.
@@ -4594,10 +4864,254 @@ function genLevel(li) {
        ways in one tree). It draws no RNG and guards nothing else, so with it true - the shipped case -
        the deal is the deal it was. */
     if (pierEnabled())
+    { let levelWall = 0;                             // one solid doorway-wall per generated sector (#631)
+    doorWalls = [];                                  // #631: this sector runs the pass, so it has a census
+    /* #631 WHY NOTHING WAS ACCEPTED. Every rejection below is counted by name, so a sector that deals no wall
+       can SAY why instead of just being silent, which is what `fixtures` needs now that a short jamb is a
+       rejection: "declined" and "inert" have to be tellable apart. It is a tally of candidate rejections, not
+       a new rule - it decides nothing, draws no RNG, and writes no cell. */
+    const decl = {};
+    /* THE STAGE IS PART OF THE ANSWER. A reason that killed 17 candidates at the FIRST test tells you less
+       than a reason that killed two candidates nobody had to refuse for anything else, so the decline names
+       the rejection that got FURTHEST before dying, and only uses the count to break a tie between two
+       rejections at the same stage. Stage 1 shape, 2 a reservation, 3 the line's own length or holes, 4 the
+       jamb bar, 5 the room's own views, 6 the stranding proof - later = closer to standing a wall. */
+    const deny = (why, st) => {
+      const d = decl[why] || (decl[why] = { n: 0, s: st });
+      d.n++;
+      return 0;
+    };
     for (let ri = 0; ri < rooms.length; ri++) {
       const r = rooms[ri];
       if (r.w * r.h < 24) continue;                        // a 5x5 room is already one bay; give it nothing
       const loX = r.x + 1, hiX = r.x + r.w - 2, loY = r.y + 1, hiY = r.y + r.h - 2;
+      /* THE SOLID MEMBER OF THIS PASS (#631): the same line, but a WALL with ONE doorway in it instead of
+         a rank of columns. Columns you see straight past; an opening in a wall that carries on either side
+         is the one thing the frame can say "go here" with. It is a new member and not a replacement: the
+         pier line stays in every room it already stands in, and the wall is asked for in ONE room per
+         generated sector, which is the placement `exposure` settled (see the offer site below).
+
+         A solid line, unlike a pier, CAN sever: removing a whole row of cells is not removing one vertex,
+         so the eight-neighbour ring proof does not apply and is replaced by the test it stood in for -
+         `bfsReach` from the seat, before and after, and the wall is kept only if every cell that was
+         reachable and stays open is still reachable. It rewinds rather than re-rolls, so a room that takes
+         the wall keeps every other cell main dealt it. The doorway is the gap `gapAt` names - the cell the
+         arrival view reaches - and it is left open on purpose: it is the way through.
+
+         Every reservation the pier pass honours is honoured here as a REJECTION, not a skip: a wall with a
+         see-through cell in it is the defect this is fixing, so a candidate that cannot be stood whole -
+         one cell on a band, one on the reserved shot run, one beside a stair mouth, one with a prop parked
+         in it - dies and the next position is asked. No RNG draw, same as the pier pass. The face is
+         `cfgL.wall2`, the room's minority cladding, for the same #369 reason as the piers. */
+      /* THE OPENING HAS TO BE SEEN BY SOMEBODY WHO IS IN THAT ROOM (#631, the product decision on the
+         review). A wall whose doorway sits off the sight line its room gives a player buys a big near
+         occluder and no place to go: at ABATOIR CORE's three probe seats this shape put an unbroken face
+         across the left of frame with the opening behind the rank's near end, and `mip`'s near-band
+         census (ceiling under 4 m: 39% -> 57%) and `contrast`'s cam-1 region are the same fact measured
+         two other ways. `gapAt` names the ROOM CENTRE for a room the spawn is not in, which is a cell
+         chosen by geometry with no reference to any view - so the axis the previous rework never swept
+         was WHICH CELL OF THE LINE IS THE OPENING. A candidate is stood here only if the opening it would
+         leave is ON SCREEN from a place a player stands inside that room, with wall carrying on past it on
+         both sides and nothing already dealt standing between. The vantage is the room's own centre cell
+         and its bearing is the direction that cell can see furthest in - the same longest-sight-line rule
+         the probe cameras are derived by (`tools/view.js`'s `scene` camera), read off the grid this pass
+         is working on. No RNG draw, so no prop, lamp, enemy or seat moves. A candidate that cannot show
+         its opening dies like the reservations below, the next position is asked, and a room that can show
+         nothing anywhere keeps main's pier line - which is the shipped behaviour when nothing is accepted,
+         so it needs no per-sector switch, no level list and no knob. */
+      let gotWall = 0;
+      /* THE SEAT WHERE THAT ROOM OPENS UP. A dealt room gives a player one view more reliably than any
+         other: stand in the open cell that has the most air in front of it and look down that air - the
+         same longest-sight-line rule `tools/view.js` derives its own scene camera from, asked of the grid
+         this pass is working on, drawing no RNG, so no prop, lamp, enemy or seat moves. The opening counts
+         as SHOWN only if it lies inside the frame that view makes - either way along it, because a player
+         can turn around - with the wall carrying on past it on both sides and inside the frame there too,
+         at least PIER_NEAR away and with nothing already dealt standing between. `cfg.plane` is the
+         renderer's own half-width (js/00_core.js 0.72 = 35.8 deg), so "inside the frame" is the engine's
+         fact and not a tuned angle. A candidate that cannot show its opening dies like the reservations
+         below and the room keeps main's pier line, which is the shipped behaviour when nothing is accepted:
+         no per-sector switch, no level list, no knob. WHY THIS IS THE CLAUSE: `gapAt` names the ROOM CENTRE
+         of the line for a room the spawn is not in - a cell chosen by geometry with no reference to any
+         view - and at ABATOIR CORE that put the opening off the room's sight line, so the frame carried a
+         4-cell solid face with no way through it visible anywhere, which is what that sector's `mip`
+         near-band census (39% -> 57%) and `contrast` cam-1 region were measuring. */
+      /* THE MARCHES THIS ROOM OFFERS, NOT ONE MARCH (#631, the review's second row). The head before this
+         one took the SINGLE cell with the longest sight line in the room and answered BOTH of its questions
+         from that one cell and that one bearing - does the wall CROSS the room, and is its OPENING on a
+         screen a player in this room stands in. One view of a room answers neither question honestly: on
+         the shipped seed every candidate died at one of those two clauses, so the pass stood no wall on
+         any generated sector and a player saw nothing new anywhere in the game. A room is WALKED here, not
+         sampled - the deepest clear march in each of the twelve bearings, measured from whichever open cell
+         reaches furthest along it, kept when it reaches further than PIER_NEAR. That is the set of views
+         standing in this room actually gives, at most twelve of them, read off the grid this pass is
+         working on and drawing no RNG, so no prop, lamp, enemy or seat moves. */
+      let marchGot = -1; const marches = [];
+      const roomMarches = () => {
+        if (marchGot >= 0) return marchGot;
+        marchGot = 0;
+        const bd = [], bc = [];
+        for (let k = 0; k < 12; k++) { bd.push(-1); bc.push(-1); }
+        for (let y = r.y + 1; y < r.y + r.h - 1; y++) for (let x = r.x + 1; x < r.x + r.w - 1; x++) {
+          if (cell[y * N + x]) continue;
+          const ex = x + 0.5, ey = y + 0.5;
+          for (let k = 0; k < 12; k++) {
+            const a = -Math.PI + k * Math.PI / 6, vx = Math.cos(a), vy = Math.sin(a);
+            let d = 0;
+            for (; d <= SEAT_LOOK; d += 0.5) {
+              const sx = ex + vx * d, sy = ey + vy * d;
+              if (sx < 1 || sy < 1 || sx >= N - 1 || sy >= N - 1) break;
+              if (cell[(sy | 0) * N + (sx | 0)]) break;
+            }
+            if (d > bd[k]) { bd[k] = d; bc[k] = y * N + x; }
+          }
+        }
+        for (let k = 0; k < 12; k++) {
+          if (bd[k] <= PIER_NEAR) continue;    // a bearing nothing in here marches down shows a doorway to nobody
+          const a = -Math.PI + k * Math.PI / 6;
+          marches.push({ x: (bc[k] % N) + 0.5, y: ((bc[k] / N) | 0) + 0.5,
+            vx: Math.cos(a), vy: Math.sin(a), d: bd[k] });
+        }
+        if (marches.length) marchGot = 1;      // a room with no long march at all shows a doorway to nobody
+        return marchGot;
+      };
+      /* THE OPENING HAS TO BE SEEN FROM SOMEWHERE IN THE ROOM. `cfg.plane` is the renderer's own half-width
+         (js/00_core.js 0.72 = 35.8 deg), so "on screen" is the engine's fact and not a tuned angle, and the
+         test is asked of EVERY view the room gives rather than of one of them: the opening lies inside some
+         frame that room offers - either way along it, because a player can turn around - with the wall
+         carrying on past it on both sides, in that same frame, at least PIER_NEAR from the eye, and with
+         nothing already dealt standing between. A candidate no view shows dies like the reservations below
+         and the room keeps main's pier line, which is the shipped behaviour when nothing is accepted: no
+         per-sector switch, no level list, no knob. WHY THE CLAUSE EXISTS AT ALL: `gapAt` names the ROOM
+         CENTRE for a room the spawn is not in - a cell chosen by geometry with no reference to any view -
+         and at ABATOIR CORE that put the opening off the room's sight line, so the frame carried a 4-cell
+         solid face with no way through it visible anywhere, which is what that sector's `mip` near-band
+         census (39% -> 57%) and `contrast` cam-1 region were measuring. */
+      const doorSeen = (alongX, pos, gap, put, span) => {
+        const gx = (alongX ? pos : r.x + gap) + 0.5, gy = (alongX ? r.y + gap : pos) + 0.5;
+        const half = Math.atan(cfg.plane);
+        for (const v of marches) {
+          const dx = gx - v.x, dy = gy - v.y, dd = Math.hypot(dx, dy);
+          if (dd < PIER_NEAR) continue;                    // a face filling the frame is not a doorway
+          const vang = Math.atan2(v.vy, v.vx);
+          const edge = (x, y) => {                         // off both this frame and the one behind it
+            let da = Math.atan2(y - v.y, x - v.x) - vang;
+            while (da > Math.PI) da -= 2 * Math.PI;
+            while (da < -Math.PI) da += 2 * Math.PI;
+            return Math.min(Math.abs(da), Math.abs(Math.abs(da) - Math.PI));
+          };
+          if (edge(gx, gy) > half) continue;               // the opening is in no frame this room gives
+          let carries = true;
+          for (let s = -1; s <= 1 && carries; s += 2) {    // and the line CARRIES ON PAST it, on screen
+            const k = gap + s;
+            if (k < 1 || k > span - 2) { carries = false; break; }
+            const ix = alongX ? pos : r.x + k, iy = alongX ? r.y + k : pos;
+            if (put.indexOf(iy * N + ix) < 0) { carries = false; break; }   // air or a reserved gap: it stops there
+            if (edge(ix + 0.5, iy + 0.5) > half) carries = false;
+          }
+          if (!carries) continue;
+          let blocked = false;
+          for (let d = 0.5; d < dd - 0.5 && !blocked; d += 0.25)   // and nothing already dealt is in the way
+            if (cell[((v.y + dy * d / dd) | 0) * N + ((v.x + dx * d / dd) | 0)]) blocked = true;
+          if (!blocked) return 1;
+        }
+        return 0;
+      };
+      const tryWall = (alongX, pos) => {
+        /* THE WALL CROSSES THE MARCH; IT DOES NOT RUN ALONGSIDE IT (#631, the review's third row). The
+           candidate list this offer walks is built for the PIER pass, and a pier that runs along the room's
+           sight line is still an edge the eye reads and walks past. A SOLID line that runs alongside the
+           march is a face receding the whole length of the room: it fills the frame, it puts its own
+           ceiling in the band the roof mip reads coarse, and the doorway it carries is somewhere off to
+           one side rather than ahead. That is the shape ABATOIR CORE took here - a constant-y rank in a
+           room whose seat marches along x, 4.5 m from that seat, and `mip`'s near-band ceiling census in
+           that sector's shipped frame went 29,204 px -> 42,070 px while its ceiling fan went 22 -> 34
+           against an accepted look of <=24+4. So the wall asks the same floors the arrival pass already
+           asks of a crossing line (`crossX = |vx| >= |vy|`, the axis the FRAME looks down, read off this
+           room's own march instead of the spawn's): a candidate that runs along the march rather than
+           across it dies here like any other rejection, the next position is asked, and a room whose only
+           long line runs with the view keeps main's pier line. Nothing about the shape criterion changes -
+           a wall you walk UP to and THROUGH is the shape #631 asks for, and a wall you walk ALONG is not.
+           WHICH MARCH THAT MEASURES IS THE ROOM'S DEEPEST ONE, read off the set above, not off whichever
+           single cell happened to win the old one-cell scan - the criterion is the room's axis, and the
+           room has more than one view along it. */
+        if (!roomMarches()) return deny('no march past PIER_NEAR in this room', 1);   // nobody marches here
+        let deep = marches[0];
+        for (const m of marches) if (m.d > deep.d) deep = m;  // the room's OWN axis: its longest march
+        if (alongX !== (Math.abs(deep.vx) >= Math.abs(deep.vy)))
+          return deny('a line along the march, not across it', 1);
+        const span = alongX ? r.h : r.w;
+        const want = gapAt(r, alongX, pos, inRoom, seatAng);
+        const put = [], ks = [];
+        let open = 0;                                       // reserved cells the wall has to leave as openings
+        for (let k = 1; k < span - 1; k++) {
+          const x = alongX ? pos : r.x + k, y = alongX ? r.y + k : pos;
+          if (x < 1 || y < 1 || x >= N - 1 || y >= N - 1) return deny('a line off the room', 2);
+          const i = y * N + x;
+          if (cell[i]) { return deny('a cell of the line is already solid', 2); }
+          if (fzTry[i] !== 0) { return deny('a cell of the line stands on a band edge', 2); }
+          if (shotRun[i]) { open++; continue; }                     // stays air: the shot lane still flies
+          let near = featTry[i] !== FEAT_NONE;
+          for (let d = 0; d < 4 && !near; d++) {
+            const j = (y + DIRY[d]) * N + x + DIRX[d];
+            if (j >= 0 && j < N * N && featTry[j] !== FEAT_NONE) near = true;
+          }
+          if (near) { return deny('a feature cell', 2); }
+          if (occupied[i]) { return deny('a prop, lamp or enemy already owns the cell', 2); }
+          put.push(i); ks.push(k);
+        }
+        /* THE LINE HAS TO BE LONG ENOUGH TO CARRY TWO CELLS OF WALL ON EACH SIDE OF ITS OPENING (#631's
+           criterion two, at the length term). Five cells is the arithmetic of that: two + opening + two. A
+           shorter line is not a wall with a doorway in it however the opening is chosen, so it dies here
+           rather than after a gap has been looked for in it. */
+        if (open > 2 || put.length < 5) return deny(open > 2 ? 'more than two shot-run reservations' : 'a line too short to leave two cells of wall either side of an opening', 3);
+        /* WHICH CELL OF THE LINE IS THE OPENING. `gapAt` names the room centre (or, in the room you wake
+           in, the cell the wake view reaches), and for a room the spawn is not in that is a cell chosen by
+           geometry alone - the head before this one asked a candidate to show THAT cell and, when it could
+           not, threw the whole line away. The room centre is now the FIRST cell asked to be the doorway
+           and the rest of the line is asked in order of how near it sits to that centre, so the opening
+           lands as close to where the room puts it as the room's own views allow instead of wherever the
+           room happens to sit. A line with no cell any view shows is still a rejection. */
+        /* TWO CELLS OF THE LINE'S OWN WALL ON EACH SIDE OF THE OPENING (#631, the product decision on the
+           review). An opening with one cell of wall past it is the END of a wall - #403's shape wearing this
+           issue's clothes - and the build was only PRINTING that fact. It is now asked before a cell can be
+           the doorway at all: `jambs` counts the cells of THIS LINE on each side of the candidate, so cells
+           the wall did not write (a shot-run reservation that stays air, a room wall beyond the line) cannot
+           be counted as carrying on past it. The wall may reach FURTHER along the line to afford its jambs -
+           every cell of the line is still offered, and the ordering below asks the cells nearest the one the
+           room shows first - it may not buy them by writing fewer cells. `JAMB` is criterion two, not a
+           tuned margin: 2 = "wall on both sides", 1 = the stub this clause exists to refuse.
+           The sort gained a term, and it is the shape criterion and not a taste term: of two cells equally
+           near the one the room shows, the one with the longer wall on its SHORTER side is asked first, so a
+           candidate that only just clears the bar loses to one that clears it comfortably. No new draw, so
+           still no prop, lamp, enemy or seat moves. */
+        let gap = -1, jambMiss = 0;
+        const jambs = (k) => { let l = 0, r = 0;
+          for (const j of ks) { if (j < k) l++; else if (j > k) r++; }
+          return l < r ? l : r; };
+        const JAMB = 2;
+        const order = ks.slice().sort((a, b) => Math.abs(a - want) - Math.abs(b - want) ||
+          jambs(b) - jambs(a) || a - b);
+        for (const k of order) {
+          if (jambs(k) < JAMB) { jambMiss++; continue; }  // a wall END here is not a doorway in one
+          if (doorSeen(alongX, pos, k, put, span)) { gap = k; break; }
+        }
+        if (gap < 0) return deny(jambMiss === order.length ? 'no cell of the line leaves two cells of wall on each side' : 'no cell of the line is on a screen this room gives', jambMiss === order.length ? 4 : 5);   // an unseen doorway is not a destination
+        const gi = (alongX ? r.y + gap : pos) * N + (alongX ? pos : r.x + gap);
+        const gp = put.indexOf(gi);
+        if (gp >= 0) put.splice(gp, 1);    // the opening is the one cell of the line this wall does NOT write
+        const start = ((P.y | 0) * N) + (P.x | 0);
+        const was = bfsReach(cell, fzTry, N, start, vbTry, featTry);
+        for (const i of put) cell[i] = cfgL.wall2;
+        const now = bfsReach(cell, fzTry, N, start, vbTry, featTry);
+        for (let i = 0; i < N * N; i++) {
+          if (was[i] < 0 || now[i] >= 0 || cell[i] !== 0) continue;
+          for (const i2 of put) cell[i2] = 0;                       // the wall would strand walkable floor
+          return deny('the wall would strand walkable floor', 6);
+        }
+        placed += put.length; gotWall++;
+        if (doorWalls) doorWalls.push({ room: ri, x: r.x, y: r.y, w: r.w, h: r.h, alongX: alongX ? 1 : 0, pos: pos, gap: gap, cells: put.length });
+        return 1;
+      };
       const tryLine = (alongX, pos, phase, low) => {
         const span = alongX ? r.h : r.w;
         let got = 0;
@@ -4793,10 +5307,39 @@ function genLevel(li) {
       };
       sweep(r.w >= r.h);                                   // across the LONGER view first
       if (r.w !== r.h) sweep(r.w < r.h);
-      for (const c of cands) if (tryLine(c[0], c[1], c[2], inRoom)) { frameGap(r, c[0], c[1], inRoom, seatAng); break; }
+      /* WHICH ROOMS ARE OFFERED THE WALL (#631, measured placement). The arrival room is NOT offered one
+         at this head, and that is a measurement, not an omission: standing a solid rank in the room the
+         player wakes in put a face 3-5 m from the spawn camera and moved ARCHIVE's flattened PARITY/LOCK
+         frames by +16 lumas and its `exposure` spawn pair 71/63 -> 78/66 at main 167a2eb, which is the
+         cost the product decision named as the stop condition for this shape. The claim survives without
+         the arrival frame paying for it: ONE room per generated sector - the first dealt room after the
+         wake room that can hold the line - gets a doorway in a wall that carries on past it on both
+         sides, which is the shape criterion two asks a player to see, and the wake room keeps the
+         one-quantum break main already deals there (a way onward you can see over and walk through, not a
+         new bright face in the first frame). Only CROSSING candidates are offered, same as the arrival
+         pass: an along-view wall would be a long face beside the eye and would say nothing about where to
+         go. Every other room keeps main's pier line exactly. */
+      if (!inRoom && !levelWall)
+        for (const c of cands) if (tryWall(c[0], c[1])) { frameGap(r, c[0], c[1], inRoom, seatAng); gotWall = 1; levelWall = 1; break; }
+      if (!gotWall)
+        for (const c of cands) if (tryLine(c[0], c[1], c[2], inRoom)) { frameGap(r, c[0], c[1], inRoom, seatAng); break; }
+    }
+    /* #631 THE DECLINE IS NAMED, NOT IMPLIED. If this sector ran the pass and stands no doorway-wall, the
+       rejection that killed the most candidates is what a reviewer has to see: "it keeps main's pier line" is
+       equally true when the geometry never offered a line long enough to carry two cells of wall either side
+       of an opening and when every line it offered was refused for stranding floor, and those are different
+       next moves. The busiest reason wins; it reports a tally, it decides nothing. */
+    if (!levelWall) {
+      let bestWhy = '', bestN = 0, bestS = -1;
+      for (const w in decl) if (decl[w].s > bestS || (decl[w].s === bestS && decl[w].n > bestN)) {
+        bestS = decl[w].s; bestN = decl[w].n; bestWhy = w;
+      }
+      doorDecline = bestN ? bestWhy + ' (' + bestN + ' candidate line(s), stage ' + bestS + ' of 6)'
+        : 'no candidate line was ever offered';
     }
     // The grid changed, so the derived bits change with it (AGENTS.md): VB_BLOCK is read from the
     // neighbour grid, and a pier is a new neighbour of four cells.
+    }                                        // end levelWall scope (#631)
     if (placed) linkBoundaries();
     /* #400: and the new cells are walls, so they get furnished here - nowhere else can reach them, see
        furnishFreeFaces. It writes DECOR only, so it cannot move a boundary, a light or a roll. */
