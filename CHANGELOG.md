@@ -1,5 +1,77 @@
 # Changelog
 
+## [v1.4.22] - 2026-11-08
+
+### Added
+
+- **You can stand under the floor above you** (#421, PR #752). The raised decks were slabs one metre thick, so
+  walking under a mezzanine put its underside at your eye line and the second storey read as a ceiling. The decks
+  the generator raises are now a full storey — head height plus a metre of clearance — so you walk *under* them,
+  and the landing up there now has a lamp standing on it, a fixture you can see throwing light across the deck it
+  is fought from. The staircase that reaches it climbs two units instead of one and its treads are sized for that
+  climb, so you go up it exactly as you always did. Three sectors deal a stand-under storey today (ARCHIVE
+  SUBLEVEL, RING TRANSPORT, ABATOIR CORE); on ARCHIVE SUBLEVEL the walkable decks within reach of the arrival seat
+  go from 7 to 29, the nearest at 3 m — close enough to shoot over the edge of. THE STACK is authored by hand and
+  is unchanged.
+
+- **Rooms get an interior wall with a doorway in it** (#631, PR #767). Every sector used to deal one open box you
+  could see straight across. One room per sector is now broken by a solid wall that crosses the room and carries
+  on past it on both sides, with one opening — the lit room and its hanging lamps visible through it, so there is
+  an opening you see yourself walking through instead of an empty hall. RING TRANSPORT declines the wall and keeps
+  its free-standing columns rather than end a wall stub in mid-air.
+
+### Changed
+
+- **The distance past the level's edge wears a surface** (#616, PR #754). Past about 22 m every ground pixel used
+  to be filled with one number, the level's air colour, so a far wall, a raised deck and open space were the same
+  flat stripe and a hostile out there arrived with no surface under him. A ray that leaves the level now answers
+  with the surface it actually crossed on the way out — that surface's own material, read coarse enough to cost
+  the same single lookup as before, lit by the row's own light and fogged at the distance it crossed. Nothing pops
+  when you walk across the radius, because no boundary moves; `DEV.set('farcross', 0)` puts the old flat slab back
+  for a side-by-side.
+
+- **Walking up a step glides the eye** (#765, PR #777). Walking *down* has eased the view for a while; walking up
+  still jumped a whole tread in one frame, so a short staircase hiccupped once per step. The horizon now rises
+  over about a third of a second per tread in both directions. Where you can go is untouched — step-up height, the
+  block on a rise taller than one step, fall damage, the landing dip and the ladder rate are all exactly where they
+  were.
+
+- **At the hip, the fists sit on the gun** (#741, PR #776). The resting pose in the lower-right corner was a weapon
+  with two tan tabs glued beside it — up to half the hand surface landing on open air, with a visible gap of room
+  between it and the metal. The hands now sit on the receiver, the pump and the grip, so the thing you hold the
+  weapon with is part of the weapon. Aiming down sights is unchanged.
+
+- **A hostile's wall stops out-shouting him** (#416, PRs #786, #787). Two sectors' walls were busier than the
+  bodies standing in front of them: at ten metres on the dealt seat, the paint behind a hostile was delivering more
+  edge per screen pixel than he was (on ABATOIR CORE, 3.93 luma of slope against his 2.51), so the sharpest thing in
+  the frame was the wallpaper. ARCHIVE SUBLEVEL's brick growth and ABATOIR CORE's meat fibre have been brought to
+  parity with a body at that range — same brick, same courses, same mortar groove, same growth in the same places,
+  same folds and wet seams — with the value step and the coarsened grain gone. His silhouette is now the edge the
+  eye takes.
+
+### Fixed
+
+- **The level's own outline stopped drawing in the far floor and ceiling** (#375, PRs #773, #785). A pixel whose
+  ray had left the level was lit two different ways by the two copies of the ground pixel body — one sampled the
+  light of the place the ray landed, the other painted bare ambient. Wherever they disagreed, the level's footprint
+  drew as a flat region with a one-pixel straight edge at any distance, most visibly as a hard-edged trapezoid in
+  the far ceiling. There is now one rule, applied in both copies. On the four sectors as they are dealt today no
+  pixel moves — the disagreement was latent — but the geometry that could produce it is gone, and the check that
+  was supposed to catch it had itself been reporting "nothing to compare" for a one-cell error on its far side,
+  which is now corrected.
+
+### Known limitations
+
+- Decks that are still dark (#199). Merged work put a source on the decks the lighting pass reaches; walkable
+  decks with no lamp anywhere inside its coverage radius are still dealt, and the fix that bounds the rule by
+  geography is not merged yet.
+- The far field now shows a material but is still fogged darker than the deck under your feet (#199's remaining
+  half), and only the ray-crossing answer landed — a genuinely distant authored surface can still read flat.
+- One interior room wall per sector, and RING TRANSPORT has none; the other three sectors' rooms are still open
+  plans past that first wall (#631).
+- Two materials out of seventeen have been brought to a body's edge parity; the rest of the albedo and grain band
+  is untouched (#416), and THE STACK still has no stand-under storey (#421).
+
 ## [v1.4.21] - 2026-11-06
 
 ### Changed
