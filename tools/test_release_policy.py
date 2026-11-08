@@ -1,5 +1,7 @@
 import importlib.util
+from contextlib import redirect_stdout
 from datetime import datetime, timedelta, timezone
+import io
 import json
 import os
 import subprocess
@@ -129,6 +131,65 @@ class ReleasePolicyTests(unittest.TestCase):
                 self.assertTrue(past['overdue'])
         with self.assertRaises(ValueError):
             policy.publish_state(None, TAG, RELEASE, merged, NOW)
+
+    def gh(self, tag_exists):
+        """A stand-in for the `gh api` process, at the boundary `api` actually shells out to, so the
+        status-code filtering under test is the real one. It answers the way GitHub answers: a tag
+        that does not exist is 422 'No commit found for SHA' on commits/<version> - never 404 - and
+        a release that does not exist is 404 on releases/tags/<version>."""
+        def encoded(value):
+            return json.dumps(dict(content=b64encode(json.dumps(value).encode()).decode()))
+
+        def call(args, data=None):
+            path = args[2].split('repos/test/game/', 1)[1]
+            if path.startswith('git/ref/heads/main'):
+                return json.dumps(dict(object=dict(sha=HEAD)))
+            if path.startswith('contents/release-policy.json'):
+                return encoded(dict(cadence_seconds=86400))
+            if path.startswith('contents/release.json'):
+                return encoded(dict(version='v1.2.1', prepared_from=HEAD))
+            if path.startswith('commits?sha=main'):
+                return json.dumps([dict(commit=dict(committer=dict(date=(NOW - timedelta(hours=2)).isoformat())))])
+            if path.startswith('commits/v1.2.1'):
+                if tag_exists:
+                    return json.dumps(dict(sha=TAG))
+                raise RuntimeError('gh: No commit found for SHA: v1.2.1 (HTTP 422)')
+            if path.startswith('commits/v1.2'):
+                return json.dumps(dict(sha=TAG))
+            if path.startswith('releases/tags/'):
+                raise RuntimeError('gh: Not Found (HTTP 404)')
+            if path.startswith('releases/latest'):
+                return json.dumps(RELEASE)
+            if path.startswith('pulls?'):
+                return json.dumps([])
+            raise AssertionError('unexpected gh api path ' + path)
+        return call
+
+    def test_an_absent_tag_is_reported_and_not_an_api_error(self):
+        """A merged release whose tag was never made is the state both release guards exist to name.
+        GitHub answers that lookup with 422, and `api` read only 404 as absent, so on main both
+        `publish` and `status` raised instead of reporting, the scheduled job's debt row was
+        skipped, and the tracker held no release-due issue for an unpublished v1.4.20 (#759)."""
+        with patch.object(policy, 'call', side_effect=self.gh(False)):
+            publication = policy.publication_on_main('test/game')[0]
+        self.assertEqual(publication['step'], policy.MERGED)
+        self.assertTrue(publication['outstanding'])
+        self.assertEqual(publication['reason'], 'no tag and no release exist for v1.2.1')
+        with patch.object(policy, 'call', side_effect=self.gh(True)):
+            self.assertEqual(policy.publication_on_main('test/game')[0]['step'], policy.TAGGED)
+        with patch.object(policy, 'call', side_effect=self.gh(False)):
+            value = policy.status('test/game')
+        self.assertEqual(value['publication']['step'], policy.MERGED)
+        self.assertTrue(value['publication']['overdue'])
+        self.assertIn('publication outstanding: merged-not-tagged', value['reason'])
+        out = io.StringIO()
+        with patch.object(policy, 'call', side_effect=self.gh(False)), \
+                patch.object(sys, 'argv', ['release_policy.py', 'publish', '--repo', 'test/game']), \
+                redirect_stdout(out):
+            with self.assertRaises(ValueError) as raised:
+                policy.main()
+        self.assertIn('release publish guard: merged-not-tagged for v1.2.1', out.getvalue())
+        self.assertIn('merged-not-tagged', str(raised.exception))
 
     def test_in_flight_publication_does_not_block_a_feature_pr(self):
         manifest = dict(version='v1.2.1', prepared_from=HEAD)
