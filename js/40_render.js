@@ -3333,8 +3333,14 @@ function groundPixel(x0, x1, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb
   }
   /* #669 take two, SECOND COPY (AGENTS.md: change one copy and you have changed the other): the same
      stripe, on this pixel's own cell and its own footprint, so the deferred far field cannot disagree
-     with the raster above it. */
-  if (isF && accG) {
+     with the raster above it.
+     Gated on `own` and not merely `inMap`, for the reason the soffit term above gives: a pixel whose ray
+     left the level had `sx`/`sy` replaced by the PREDICTOR's cell, so `cx - sx` is no longer a fraction
+     inside the cell the stripe is measured in - it is a whole-cell offset, which can make `dd` negative
+     (the band test then passes for a pixel nowhere near an edge) and `adw` exceed 1 (the blend overshoots
+     past the accent into its complement). The row-loop copy needs no such clause: it measures `wx - pxi`
+     with `pxi = wx | 0`, which is a fraction by construction and is already guarded by its own `inMap`. */
+  if (isF && accG && own) {
     const dfx = cx - sx, dfy = cy - sy;
     const dpx = dfx < 0.5 ? dfx : 1 - dfx, dpy = dfy < 0.5 ? dfy : 1 - dfy;
     const dd = dpx < dpy ? dpx : dpy;
