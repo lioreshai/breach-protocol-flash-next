@@ -5048,7 +5048,13 @@ function genLevel(li) {
            issue's criterion two describes: an opening with wall carrying on past it that does not stop, it
            MEETS the room. It is asked ONLY as a repair for a decline, never in place of a line main already
            accepts, so a room that already stands a doorway-wall keeps main's geometry cell for cell and a
-           sector's arrival frame cannot move because of it; the one deal that changes here is a room whose
+           sector's arrival frame cannot move because of it - AND ONLY WHERE THE INSET LINE CANNOT BE LONG
+           ENOUGH RATHER THAN MERELY CAME UP SHORT (`span - 2 < 5`, see the gate below), which is the bound
+           that keeps the promise. Without it the repair pre-empted a whole sector: on the probe-only seed
+           4242 + level*31 a wide ABATOIR room whose inset line lost cells to a shot lane took the wide line,
+           ONE wall is stood per sector, and the room further along the list whose inset line main stood never
+           got asked - `heights` went red on ABATOIR CORE (stripes floor 28.16 against the recorded 53.39)
+           for a sector whose doorway main already deals. The one deal that changes here is a room whose
            crossing axis is too short to carry two cells of wall either side of an opening at main's inset,
            which is the decline RING TRANSPORT printed at this head (`fixtures`: "DECLINED here (a line too
            short to leave two cells of wall either side of an opening (8 candidate line(s), stage 3 of 6))").
@@ -5082,7 +5088,12 @@ function genLevel(li) {
         if (line.hard) return deny(line.hard, 2);
         const short = line.open > 2 ? 'more than two shot-run reservations'
           : 'a line too short to leave two cells of wall either side of an opening';
-        if (line.open > 2 || line.put.length < 5) {
+        /* THE GATE IS ARITHMETIC, NOT TASTE: an inset line runs `span - 2` cells, so a room 7 cells across
+           on this axis can hold 2 + opening + 2 and a short line there is a reservation eating cells, not a
+           narrow room. Ask the wide shape only where the inset shape CANNOT reach five cells; everywhere
+           else main's decline stands, and every sector that already deals a doorway keeps its own room on
+           every seed instead of only on the one seed `fixtures` happens to deal. */
+        if ((line.open > 2 || line.put.length < 5) && span - 2 < 5) {
           const wide = build(true);                         // the room's own width, ends included
           if (!wide.hard && wide.open <= 2 && wide.put.length >= 5) line = wide;
           else return deny(short, 3);
