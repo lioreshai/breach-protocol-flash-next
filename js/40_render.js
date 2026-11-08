@@ -54,7 +54,27 @@ const LG_OFFMAP = 9, LG_OFFMAX = 10, LG_ROWOFF = 11, LG_ROWOFFMAX = 12, LG_OFFCE
      painted the air colour rather than a material's mean. It is a SAMPLE count, not a pixel count, and it
      is the non-vacuity half of the void row in `heights`: a build that never sends a ray off the level
      cannot claim to have answered one. */
-  LG_FARVOID = 15, LG_NTOT = 16;
+  LG_FARVOID = 15,
+  /* #375 THE TWO COPIES OF THE GROUND PIXEL BODY HAVE TO AGREE, and these two slots are what makes that
+     assertable rather than claimed. LG_ROWCROSS counts the row copy's OFF-MAP CELL CROSSINGS THAT STILL
+     HAVE A LIVE TAP (the collar one cell outside the level's own outline, where the bilinear has an in-map
+     neighbour left); LG_ROWWARM counts how many of those actually DELIVERED light above the ambient base.
+     Before this increment the row copy's off-map branch paid `lr = lg = lb = base` with no field at all,
+     so the pair read (cross > 0, warm = 0) - the signature of a build whose rule lives in only one copy of
+     the pixel body, which is exactly how PR #453 shipped and why its census could not say so. A whole cell
+     clear of the level is NOT counted here (offMapClear) and stays gated at 0 by LG_OFFMAX/LG_ROWOFFMAX:
+     this pair is about the ramp, not about the void. Counted at the crossing, so the shipped cost is one
+     compare on a branch the frame reaches at the level's edge. */
+  LG_ROWCROSS = 16, LG_ROWWARM = 17,
+  /* #375 THE COLLAR PAIR, and it is the row that makes "both copies carry the rule" a measurement. The
+     collar is the one-cell band just OUTSIDE the level's outline: off the grid, but with at least one
+     bilinear tap still on it (offMapClear false). It is the only place the off-map rule can be seen to
+     do anything at all - a whole cell further out every tap reads 0 and both copies must deliver ambient,
+     which LG_OFFMAX/LG_ROWOFFMAX already gate. For each copy: N collar sites RUN, and the LARGEST light
+     above ambient that copy delivered at one. The assertion is the AGREEMENT between the two maxima, not
+     either value: the deferred copy sampling the field while the row copy pays bare ambient is exactly the
+     build PR #453 shipped, and it is a frame with the level's outline still drawn in it. */
+  LG_DEFCW = 18, LG_DEFCWN = 19, LG_ROWCW = 20, LG_ROWCWN = 21, LG_NTOT = 22;
 let G_TRI = false, G_GRIT = 0;                                  // derived from QUAL.rast
 /* #164: altitude reached the geometry and no pixels. A seam at the CREASE of every step the render
    ray crosses - the foot darkened, the far lip lifted - is the one cue that survives a dark room, so
@@ -855,6 +875,10 @@ let MIPAX = 1, MIPAR = 4;
    none of them adds a THIRD copy of the ground pixel body: a switch shows up as a zero slope, a zero
    offset or one fewer load, not as a new loop. */
 let GJIT = 1, GLRP = 1, GNDAX = 1, AXMIN = 1, GLC = null, GNDFT = 1, GNDRO = 1, GNDFB = 1, GNDOF = 1, GNDNB = 1;
+/* #375 the ROW copy's half of the off-map light rule, on its own switch so a probe can build the
+   one-copy arm: GNDOF is the rule in both copies, GNDOFR=0 with GNDOF=1 is the build PR #453 shipped -
+   groundPixel sampling the field, castGround's off-map crossing branch still paying bare ambient. */
+let GNDOFR = 1;
 /* #616 - THE FAR BAND WEARS A SURFACE. Take five settled WHAT a far pixel answers with (the material's mip
    mean) and take seventeen settled what it answers when there is NO material; neither gave the band a
    SURFACE, so past the radius the picture is one flat colour with no grain, no seam and no material
@@ -1224,14 +1248,20 @@ function buildLightRamp() {
 }
 
 /* #375: does this landing point have NO light tap left? The ground light field is a bilinear whose
-   taps are the four cells around the lattice point, and a tap off the map reads 0, so a pixel still
-   has a tap while EITHER axis has an in-map cell adjacent to it: cx in (-1, N+1) and cy in (-1, N+1).
-   Once either axis is a whole cell clear of the level every tap is off the map and the field is
-   exactly 0 - which is the assertion `heights` reads out of LG_OFFMAX / LG_ROWOFFMAX. Both axes are
-   tested on their own because a cell index is one number (AGENTS.md). Called only on off-map pixels,
-   never on the in-map path, so the shipped cost is the branch that skips it. */
+   taps are the four cells around the lattice point, and a tap off the map reads 0, so the question is
+   answered by the SAME index guard the two tap loops use (`ix >= N`, never `ix > N`): with
+   gx = floor(cx) the taps are gx and gx + 1, so an axis has an in-map tap while gx <= N - 1, i.e while
+   cx < N - the HIGH side is one cell tighter than the low side, where gx = -1 still leaves the tap at
+   cell 0. Getting that asymmetry wrong is not a cosmetic mislabel: it is why the collar census counted
+   192 sites at the level-0 cam1 seat that had light nowhere to come from and reported a dark collar,
+   which is the observation that made #375's row half look untestable. Every ray that exits this level
+   exits through its EAST or SOUTH edge, where a point in [N, N + 1) has no tap at all, so the sites
+   that ran were sites the rule cannot light. Both axes are tested on their own because a cell index is
+   one number (AGENTS.md). Called only on off-map pixels, never on the in-map path, so the shipped cost
+   is the branch that skips it, and no pixel depends on the answer: the four call sites are all inside
+   `if (cnt)`, which is why this file's md5 does not move with it. */
 function offMapClear(cx, cy, N) {
-  return cx <= -1 || cx >= N + 1 || cy <= -1 || cy >= N + 1;
+  return cx <= -1 || cx >= N || cy <= -1 || cy >= N;
 }
 
 /* The mip for a ground pixel from the WORLD footprint of one pixel, given the two screen-axis
@@ -2170,12 +2200,59 @@ function castGround(flash, fcR, fcG, fcB) {
           mir = mirOn ? (hash2(gx, gy) * 4) | 0 : 0;    // per-cell mirror, dropped in the far field
         } else {
           gndOffMap++; und = 0; lt = TINT_WHITE; li = 0; lr = lg = lb = base; ldr = ldg = ldb = lhr = lhg = lhb = 0; mir = 0;
+          /* #375 THE ROW COPY OF THE OFF-MAP LIGHT RULE, and the reason the two copies of this body had
+             to change together. The deferred half got the rule in #392 (`if (!own && GNDOF)`, below in
+             groundPixel): an off-map pixel evaluates the light field at the point its own ray landed on,
+             as the four lattice taps around it with every tap outside the map reading 0. This branch kept
+             paying ZERO light plus zero deltas, so the same ray was painted one way by the row and another
+             way by the deferred copy, and the set of rays that leave the footprint is bounded by the map's
+             own side edges - straight lines through the vanishing point. Whichever copy is wrong, that set
+             draws as the level's footprint: a flat region with a one-pixel straight edge at any distance.
+             The rule here is the SAME field, evaluated the same way, at the landing point of the column
+             that crossed out: `wx`/`wy` are that point, Math.floor is the lattice point (NOT `|0`, which
+             truncates toward zero and would call world -0.5 cell 0 and extrapolate away from the edge,
+             the #19 trap), and a tap outside the map reads 0, so the field is exactly 0 one whole cell
+             clear of the level - which is what `heights`' LG_ROWOFFMAX census asserts, and asserts in
+             BOTH arms of `GNDOF` because the census below sits outside this gate.
+             It is evaluated ONCE PER OFF-MAP CELL CROSSING, like everything else in this branch, so the
+             cost is four index guards on a branch the shipped frame reaches at the level's edge; the run
+             it starts carries that value flat (the deltas stay 0), which makes the light a staircase that
+             reaches 0 within a cell or two of the boundary instead of a step AT the boundary - the ramp
+             the issue asks for. `GNDOF` is one switch for both copies on purpose: the rule is one rule,
+             and an arm that fixes only one copy has to be visible as a frame that still has the edge.
+             Light only: no texture, no mip, no depth, no `CEILG`/`CEILGM` lift and no new term past the
+             boundary, so `AMB`, every lamp and the exposure window are untouched (#375's own limits). */
+          if (GNDOF && GNDOFR) {
+            const lta = MAP.lt;
+            if (lta) {
+              const gxO = Math.floor(wx), gyO = Math.floor(wy), ux = wx - gxO, uy = wy - gyO;
+              for (let q = 0; q < 4; q++) {
+                const ix = gxO + (q & 1), iy = gyO + (q >> 1);
+                if (ix < 0 || iy < 0 || ix >= N || iy >= N) continue;      // a tap off the map reads 0
+                const w = (q & 1 ? ux : 1 - ux) * (q >> 1 ? uy : 1 - uy);
+                if (w <= 0) continue;
+                const j = iy * N + ix, j3 = j * 3;
+                if (j3 + 2 >= lta.length) continue;
+                let ql = lm ? lm[j] : 0.4;
+                if (ql > lgc) ql = lgc;                                    // #21, per tap, as the ramp does
+                lr += w * ql * lta[j3] / 128; lg += w * ql * lta[j3 + 1] / 128; lb += w * ql * lta[j3 + 2] / 128;
+              }
+            }
+          }
           /* #375 census, ROW COPY. Read at the crossing, once, not per pixel: this branch zeroes the
              light AND its three deltas, so every pixel until the next crossing keeps exactly this value
              - which makes the site representative of the run of off-map pixels it starts, and that run
              is what the wedge would be. The limitation is stated, not glossed: a future edit that left
              this site at ambient and put light back in the DELTAS would not move the counter (the row's
              ramp terms are covered by mip's gradient rows and by #21's census). */
+          if (cnt && !inMap && !offMapClear(wx, wy, N)) {
+            cnt[LG_ROWCROSS]++;
+            if (Math.max(lr, lg, lb) > base + 0.0005) cnt[LG_ROWWARM]++;
+            cnt[LG_ROWCWN]++;
+            const cw = Math.max(lr, lg, lb) - base;
+            const ci2 = cw > 0 ? (cw * 1000 + 0.5) | 0 : 0;
+            if (ci2 > cnt[LG_ROWCW]) cnt[LG_ROWCW] = ci2;
+          }
           if (cnt && !inMap && offMapClear(wx, wy, N)) {
             cnt[LG_ROWOFF]++;
             const om = Math.max(lr, lg, lb) - base;
@@ -2927,6 +3004,7 @@ function groundPixel(x0, x1, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb
        makes the two copies agree on the same pixel. */
     const liftRow = plA > eyeZ ? Math.min(CEILLD, CEILFL + CEILG * Math.max(0, plA - eyeZ - CEILHI)) : 0;
     lr = lg = lb = gMBase - gMLift + liftRow;
+    let cwTap = 0;
     if (lta) {
       const gx = Math.floor(cx), gy = Math.floor(cy), ux = cx - gx, uy = cy - gy;
       for (let q = 0; q < 4; q++) {
@@ -2939,7 +3017,17 @@ function groundPixel(x0, x1, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb
         let li = lm ? lm[j] : 0.4;
         if (li > lgc) li = lgc;
         lr += w * li * lta[j3] / 128; lg += w * li * lta[j3 + 1] / 128; lb += w * li * lta[j3 + 2] / 128;
+        if (cnt && li > cwTap) cwTap = li;
       }
+    }
+    /* #375 THE COLLAR, deferred copy: off the grid but one tap still on it. Read inside the gate on
+       purpose - this is the copy that HAS the rule, so what it delivers at the collar is the reference the
+       row copy's own collar maximum gets compared against; an off-map pixel further out contributes to
+       neither, and LG_OFFMAX/LG_OFFCEIL keep it at ambient. */
+    if (cnt && !offMapClear(cx, cy, N)) {
+      cnt[LG_DEFCWN]++;
+      const ci3 = (cwTap * 1000 + 0.5) | 0;
+      if (ci3 > cnt[LG_DEFCW]) cnt[LG_DEFCW] = ci3;
     }
   }
   /* #375 census, DEFERRED COPY - deliberately OUTSIDE the GNDOF gate above, so the A/B that puts the
@@ -3965,10 +4053,23 @@ function castWalls(flash, fcR, fcG, fcB) {
          world units, and a band that ran up the body's whole span was a wash over the wall that cost
          edge dL and bought no grounding) and it falls off quadratically, so the visible part hugs the
          floor line. */
+      /* #421: the band's OTHER end. The rule above is a clamp at the top of the caster's own span, and
+         this copy had no clamp at the bottom: `vv < 1` is true for every pixel BELOW the feet plane too
+         (vv goes negative and `w` saturates at 1), so a face took the caster's grounding infinitely far
+         DOWN its own span. Flat that is invisible - a wall face starts at the floor the caster stands on,
+         so there is no face pixel below that plane and the two rules agree. A raised deck is the case
+         where they do not: its riser is the side of a slab, and when the slab is lifted two units the
+         part of it under the deck's own floor goes from one unit of face to two, all of it reading as
+         full-strength ink. That is the pixel census `contrast` calls "spread, not aimed" - ink above the
+         horizon row went 565 -> 1666 px when BAND_UP went 4 -> 8 while the ink at the feet did not move -
+         and it is the same rule `shadowFloor` already enforces on a FLOOR with SHADOW_ZT (#18 fifth take),
+         applied to the face copy, which is AGENTS.md's clamp rule: absolute z, clamped into the span the
+         renderer actually draws. Tolerance is SHADOW_ZT itself, so the two copies cannot drift. */
       let shM = 1;
       if (shK > 0) {
-        const vv = (eyeZ - (y - horizon) * shZs - shA) * shS;
-        if (vv < 1) {
+        const vz = eyeZ - (y - horizon) * shZs - shA;   // metres above the plane this caster grounds on
+        const vv = vz * shS;
+        if (vv < 1 && vz > -SHADOW_ZT) {
           const w = 1 - (vv > 0 ? vv : 0);
           shM = 1 - shK * (SHADOW_ZF + (1 - SHADOW_ZF) * w * w);
         }
