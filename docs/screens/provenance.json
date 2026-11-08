@@ -100,14 +100,24 @@
         "js/40_render.js": "2bbafc38434e6b3a8a4324d7e33d8a897f484c7cfb41ad4fe191ced46e05d305"
       },
       "note": "The four blobs that draw a frame, sha256, read from the checkout that ran the capture. `node tools/recap.js check` recomputes them from the tree it runs in and prints whether these frames still show what that tree ships (#536). The session that took these pixels proved this build off the wire: index.html and all eleven js/ blobs served by GitHub Pages sha256-match origin/main at 1f91555, twelve for twelve, before the shutter. This is the build the #616 far-surface work (#739, #754) and the stand-under storey generator (#421, #631) ship together."
+    },
+    "5dddb49": {
+      "at": "2026-11-08",
+      "files": {
+        "index.html": "c886aca0138047584edd4ee7023c504da19d3d559a6e6bb33833a9290169d557",
+        "js/10_assets.js": "77776c11924d31633b68caae5ed7a16ce7461ad89ec23a176ba9fe7763a645dd",
+        "js/20_level.js": "cffcd31a1c4c23da02342fc7d12c2b763a2c29e03d050e3ef04f28c76c3b86ef",
+        "js/40_render.js": "2bbafc38434e6b3a8a4324d7e33d8a897f484c7cfb41ad4fe191ced46e05d305"
+      },
+      "note": "The four blobs that draw a frame, sha256, read from the checkout that ran the capture. `node tools/recap.js check` recomputes them from the tree it runs in and prints whether these frames still show what that tree ships (#536). The session that took these pixels proved this build off the wire: index.html and all eleven js/ blobs served by GitHub Pages sha256-match origin/main at 5dddb49, twelve for twelve, before the shutter."
     }
   },
   "shots": [
     {
       "file": "level0-enemies",
-      "sha256": "4604c38d25c5a806fda079af38f345cb8a585c4aa3126eaf864bf84c70eb91bc",
+      "sha256": "ea03a29b8ba9a451e712f033ec49785a96884cebc019527057a26438e5dddead",
       "replaces": {
-        "rev": "1f91555",
+        "rev": "5dddb49",
         "sha256": "c147853feaa899fe15b4f4e1b62995676f7b1bc7aff09e83cff2cd70f78a328f",
         "mean": 67.4727
       },
@@ -118,17 +128,17 @@
       "seed": "60",
       "level": 0,
       "layout": 1323402791,
-      "build": "1f91555",
+      "build": "5dddb49",
       "at": "2026-11-08",
       "sampleRate": 44100,
-      "note": "RE-TAKEN from the DEPLOYED page for #616 (with #766) at build 1f91555. The pass proved that page byte for byte before the shutter: index.html and all eleven js/ blobs served by that URL sha256-match origin/main at 1f91555, twelve for twelve. One page load and one boot per pose, ?dev=1&seed=60&boot=0, viewport pinned to 1440x763, shutter taken from the canvas after DEV.tick; every seat, layout and luma below was read back out of the page that drew the frame, never carried from the row it replaces. The three dealt signatures moved between the replaced frames and these - the generator authors height and prop placement in its dice now (#421, #631, #757) - so a caption here claims the picture these bytes draw and the route that redraws them, and no longer the geometry of one deal.",
+      "note": "RE-TAKEN from the DEPLOYED page for #616 (with #766) at build 5dddb49, the second take of one pass: the first took these eight poses at 1f91555 and a render commit landed afterwards - e28b4a7 (#416) gave ABATOIR's wall a mip-carry fade in js/10_assets.js, one of the four blobs that draw a frame - so the bind moved out from under those pixels. The pass proved that page byte for byte before the shutter: index.html and all eleven js/ blobs served by that URL sha256-match origin/main at 5dddb49, twelve for twelve. One page load and one boot per pose, ?dev=1&seed=60&boot=0, viewport pinned to 1440x763, shutter taken from the canvas after DEV.tick; every seat, layout and luma below was read back out of the page that drew the frame. All three dealt signatures held from the superseded take (ARCHIVE 1323402791, ABATOIR 1843450263, THE STACK 3610925125), and outside ABATOIR the frames differ from it only by dither phase: the mean moves by at most 0.01 luma on the five ARCHIVE poses and THE STACK, which is the control that says the one shipped blob between the two takes paints one level's wall.",
       "staleByBuild": null
     },
     {
       "file": "level0-facing-wall",
-      "sha256": "07a53ecfc79757f5bdada64ab025b76d194799cdcf12a752406c8681a3bdf652",
+      "sha256": "9768a15e4bfd55b91a419924d6338287e39e88e8a0a8e43b2d49df449f0f6bd6",
       "replaces": {
-        "rev": "1f91555",
+        "rev": "5dddb49",
         "sha256": "69e32fd1751f347c25b4fbff5f091ed74fbc0753eaac825d9fccf34f3f363d9c",
         "mean": 50.0288
       },
@@ -139,17 +149,17 @@
       "seed": "60",
       "level": 0,
       "layout": 1323402791,
-      "build": "1f91555",
+      "build": "5dddb49",
       "at": "2026-11-08",
       "sampleRate": 44100,
-      "note": "RE-TAKEN from the DEPLOYED page for #616 (with #766) at build 1f91555. The pass proved that page byte for byte before the shutter: index.html and all eleven js/ blobs served by that URL sha256-match origin/main at 1f91555, twelve for twelve. One page load and one boot per pose, ?dev=1&seed=60&boot=0, viewport pinned to 1440x763, shutter taken from the canvas after DEV.tick; every seat, layout and luma below was read back out of the page that drew the frame, never carried from the row it replaces. The three dealt signatures moved between the replaced frames and these - the generator authors height and prop placement in its dice now (#421, #631, #757) - so a caption here claims the picture these bytes draw and the route that redraws them, and no longer the geometry of one deal.",
+      "note": "RE-TAKEN from the DEPLOYED page for #616 (with #766) at build 5dddb49, the second take of one pass: the first took these eight poses at 1f91555 and a render commit landed afterwards - e28b4a7 (#416) gave ABATOIR's wall a mip-carry fade in js/10_assets.js, one of the four blobs that draw a frame - so the bind moved out from under those pixels. The pass proved that page byte for byte before the shutter: index.html and all eleven js/ blobs served by that URL sha256-match origin/main at 5dddb49, twelve for twelve. One page load and one boot per pose, ?dev=1&seed=60&boot=0, viewport pinned to 1440x763, shutter taken from the canvas after DEV.tick; every seat, layout and luma below was read back out of the page that drew the frame. All three dealt signatures held from the superseded take (ARCHIVE 1323402791, ABATOIR 1843450263, THE STACK 3610925125), and outside ABATOIR the frames differ from it only by dither phase: the mean moves by at most 0.01 luma on the five ARCHIVE poses and THE STACK, which is the control that says the one shipped blob between the two takes paints one level's wall.",
       "staleByBuild": null
     },
     {
       "file": "level0-pitfloor",
-      "sha256": "2997bd0b5d7de71053991aeed8f043d0dae054e05d336c59f4db6d27a6315fc3",
+      "sha256": "7158875862885d808dcc184bbb454a18cf597e5291d633fd4e2c8260833b0f35",
       "replaces": {
-        "rev": "1f91555",
+        "rev": "5dddb49",
         "sha256": "2f30876e4f935cff26a8cbb000fec9b41914cd17136d224d294889ec29674b08",
         "mean": 66.0651
       },
@@ -160,17 +170,17 @@
       "seed": "60",
       "level": 0,
       "layout": 1323402791,
-      "build": "1f91555",
+      "build": "5dddb49",
       "at": "2026-11-08",
       "sampleRate": 44100,
-      "note": "RE-TAKEN from the DEPLOYED page for #616 (with #766) at build 1f91555. The pass proved that page byte for byte before the shutter: index.html and all eleven js/ blobs served by that URL sha256-match origin/main at 1f91555, twelve for twelve. One page load and one boot per pose, ?dev=1&seed=60&boot=0, viewport pinned to 1440x763, shutter taken from the canvas after DEV.tick; every seat, layout and luma below was read back out of the page that drew the frame, never carried from the row it replaces. The three dealt signatures moved between the replaced frames and these - the generator authors height and prop placement in its dice now (#421, #631, #757) - so a caption here claims the picture these bytes draw and the route that redraws them, and no longer the geometry of one deal.",
+      "note": "RE-TAKEN from the DEPLOYED page for #616 (with #766) at build 5dddb49, the second take of one pass: the first took these eight poses at 1f91555 and a render commit landed afterwards - e28b4a7 (#416) gave ABATOIR's wall a mip-carry fade in js/10_assets.js, one of the four blobs that draw a frame - so the bind moved out from under those pixels. The pass proved that page byte for byte before the shutter: index.html and all eleven js/ blobs served by that URL sha256-match origin/main at 5dddb49, twelve for twelve. One page load and one boot per pose, ?dev=1&seed=60&boot=0, viewport pinned to 1440x763, shutter taken from the canvas after DEV.tick; every seat, layout and luma below was read back out of the page that drew the frame. All three dealt signatures held from the superseded take (ARCHIVE 1323402791, ABATOIR 1843450263, THE STACK 3610925125), and outside ABATOIR the frames differ from it only by dither phase: the mean moves by at most 0.01 luma on the five ARCHIVE poses and THE STACK, which is the control that says the one shipped blob between the two takes paints one level's wall.",
       "staleByBuild": null
     },
     {
       "file": "level0-props",
-      "sha256": "33a4973df9f27dd13109d8b120d8467bd857454f8df71bce6fc1527939ac99f6",
+      "sha256": "1ff9cc5b0bb93eeee9bdffaa78e58b7f357843d8d41f1f5d68b5fcb84aea1e0e",
       "replaces": {
-        "rev": "1f91555",
+        "rev": "5dddb49",
         "sha256": "07714c5885ca0396a40a42e014e8cf97025e12a27ba201dcac0efd9fb720eead",
         "mean": 66.2195
       },
@@ -181,17 +191,17 @@
       "seed": "60",
       "level": 0,
       "layout": 1323402791,
-      "build": "1f91555",
+      "build": "5dddb49",
       "at": "2026-11-08",
       "sampleRate": 44100,
-      "note": "RE-TAKEN from the DEPLOYED page for #616 (with #766) at build 1f91555. The pass proved that page byte for byte before the shutter: index.html and all eleven js/ blobs served by that URL sha256-match origin/main at 1f91555, twelve for twelve. One page load and one boot per pose, ?dev=1&seed=60&boot=0, viewport pinned to 1440x763, shutter taken from the canvas after DEV.tick; every seat, layout and luma below was read back out of the page that drew the frame, never carried from the row it replaces. The three dealt signatures moved between the replaced frames and these - the generator authors height and prop placement in its dice now (#421, #631, #757) - so a caption here claims the picture these bytes draw and the route that redraws them, and no longer the geometry of one deal.",
+      "note": "RE-TAKEN from the DEPLOYED page for #616 (with #766) at build 5dddb49, the second take of one pass: the first took these eight poses at 1f91555 and a render commit landed afterwards - e28b4a7 (#416) gave ABATOIR's wall a mip-carry fade in js/10_assets.js, one of the four blobs that draw a frame - so the bind moved out from under those pixels. The pass proved that page byte for byte before the shutter: index.html and all eleven js/ blobs served by that URL sha256-match origin/main at 5dddb49, twelve for twelve. One page load and one boot per pose, ?dev=1&seed=60&boot=0, viewport pinned to 1440x763, shutter taken from the canvas after DEV.tick; every seat, layout and luma below was read back out of the page that drew the frame. All three dealt signatures held from the superseded take (ARCHIVE 1323402791, ABATOIR 1843450263, THE STACK 3610925125), and outside ABATOIR the frames differ from it only by dither phase: the mean moves by at most 0.01 luma on the five ARCHIVE poses and THE STACK, which is the control that says the one shipped blob between the two takes paints one level's wall.",
       "staleByBuild": null
     },
     {
       "file": "level0-spawn",
-      "sha256": "adef1879f5d9d3c8e62b7335d7a5086181fa76b9086eaf576dca1c16850693e0",
+      "sha256": "8ef0b762b454263451068ee5ed442c6df7c35834d4b17bc8fc01e0eab19ef56c",
       "replaces": {
-        "rev": "1f91555",
+        "rev": "5dddb49",
         "sha256": "0b8e2f8d6c2d57492ef4ab793e54998a4a9bb15c6f6a79c96751751248e8fe68",
         "mean": 67.4978
       },
@@ -202,17 +212,17 @@
       "seed": "60",
       "level": 0,
       "layout": 1323402791,
-      "build": "1f91555",
+      "build": "5dddb49",
       "at": "2026-11-08",
       "sampleRate": 44100,
-      "note": "RE-TAKEN from the DEPLOYED page for #616 (with #766) at build 1f91555. The pass proved that page byte for byte before the shutter: index.html and all eleven js/ blobs served by that URL sha256-match origin/main at 1f91555, twelve for twelve. One page load and one boot per pose, ?dev=1&seed=60&boot=0, viewport pinned to 1440x763, shutter taken from the canvas after DEV.tick; every seat, layout and luma below was read back out of the page that drew the frame, never carried from the row it replaces. The three dealt signatures moved between the replaced frames and these - the generator authors height and prop placement in its dice now (#421, #631, #757) - so a caption here claims the picture these bytes draw and the route that redraws them, and no longer the geometry of one deal.",
+      "note": "RE-TAKEN from the DEPLOYED page for #616 (with #766) at build 5dddb49, the second take of one pass: the first took these eight poses at 1f91555 and a render commit landed afterwards - e28b4a7 (#416) gave ABATOIR's wall a mip-carry fade in js/10_assets.js, one of the four blobs that draw a frame - so the bind moved out from under those pixels. The pass proved that page byte for byte before the shutter: index.html and all eleven js/ blobs served by that URL sha256-match origin/main at 5dddb49, twelve for twelve. One page load and one boot per pose, ?dev=1&seed=60&boot=0, viewport pinned to 1440x763, shutter taken from the canvas after DEV.tick; every seat, layout and luma below was read back out of the page that drew the frame. All three dealt signatures held from the superseded take (ARCHIVE 1323402791, ABATOIR 1843450263, THE STACK 3610925125), and outside ABATOIR the frames differ from it only by dither phase: the mean moves by at most 0.01 luma on the five ARCHIVE poses and THE STACK, which is the control that says the one shipped blob between the two takes paints one level's wall.",
       "staleByBuild": null
     },
     {
       "file": "level2-abatoir",
-      "sha256": "bb377bb31675b2bcbc85137fbd05581081de92f29be89396d256b039d19c145a",
+      "sha256": "a767fe73d2f9c090dcc45635db0bbb0d4527a030353eef5734f94fe4120b025c",
       "replaces": {
-        "rev": "1f91555",
+        "rev": "5dddb49",
         "sha256": "1d5a3d762363320ab2cc83f127cb378485847ca75b773c2cae547b663d957a0c",
         "mean": 76.2712
       },
@@ -223,17 +233,17 @@
       "seed": "60",
       "level": 2,
       "layout": 1843450263,
-      "build": "1f91555",
+      "build": "5dddb49",
       "at": "2026-11-08",
       "sampleRate": 44100,
-      "note": "RE-TAKEN from the DEPLOYED page for #616 (with #766) at build 1f91555. The pass proved that page byte for byte before the shutter: index.html and all eleven js/ blobs served by that URL sha256-match origin/main at 1f91555, twelve for twelve. One page load and one boot per pose, ?dev=1&seed=60&boot=0, viewport pinned to 1440x763, shutter taken from the canvas after DEV.tick; every seat, layout and luma below was read back out of the page that drew the frame, never carried from the row it replaces. The three dealt signatures moved between the replaced frames and these - the generator authors height and prop placement in its dice now (#421, #631, #757) - so a caption here claims the picture these bytes draw and the route that redraws them, and no longer the geometry of one deal.",
+      "note": "RE-TAKEN from the DEPLOYED page for #616 (with #766) at build 5dddb49, the second take of one pass: the first took these eight poses at 1f91555 and a render commit landed afterwards - e28b4a7 (#416) gave ABATOIR's wall a mip-carry fade in js/10_assets.js, one of the four blobs that draw a frame - so the bind moved out from under those pixels. The pass proved that page byte for byte before the shutter: index.html and all eleven js/ blobs served by that URL sha256-match origin/main at 5dddb49, twelve for twelve. One page load and one boot per pose, ?dev=1&seed=60&boot=0, viewport pinned to 1440x763, shutter taken from the canvas after DEV.tick; every seat, layout and luma below was read back out of the page that drew the frame. All three dealt signatures held from the superseded take (ARCHIVE 1323402791, ABATOIR 1843450263, THE STACK 3610925125), and outside ABATOIR the frames differ from it only by dither phase: the mean moves by at most 0.01 luma on the five ARCHIVE poses and THE STACK, which is the control that says the one shipped blob between the two takes paints one level's wall.",
       "staleByBuild": null
     },
     {
       "file": "level2-abatoir-ceiling",
-      "sha256": "dfa3e801d586c373e39c673ed750a3bada5652053053658b8135c33d737d60d6",
+      "sha256": "b405b08747c3c0d29594b4d6f48c539327121f2d082f30eb55ad3f9db25cdfbc",
       "replaces": {
-        "rev": "1f91555",
+        "rev": "5dddb49",
         "sha256": "0956a586dd2a9e2c0c221c2489c81974c4f55aa8161b2e3bf1f7cc52ac65ed02",
         "mean": 77.8968
       },
@@ -244,17 +254,17 @@
       "seed": "60",
       "level": 2,
       "layout": 1843450263,
-      "build": "1f91555",
+      "build": "5dddb49",
       "at": "2026-11-08",
       "sampleRate": 44100,
-      "note": "RE-TAKEN from the DEPLOYED page for #616 (with #766) at build 1f91555. The pass proved that page byte for byte before the shutter: index.html and all eleven js/ blobs served by that URL sha256-match origin/main at 1f91555, twelve for twelve. One page load and one boot per pose, ?dev=1&seed=60&boot=0, viewport pinned to 1440x763, shutter taken from the canvas after DEV.tick; every seat, layout and luma below was read back out of the page that drew the frame, never carried from the row it replaces. The three dealt signatures moved between the replaced frames and these - the generator authors height and prop placement in its dice now (#421, #631, #757) - so a caption here claims the picture these bytes draw and the route that redraws them, and no longer the geometry of one deal.",
+      "note": "RE-TAKEN from the DEPLOYED page for #616 (with #766) at build 5dddb49, the second take of one pass: the first took these eight poses at 1f91555 and a render commit landed afterwards - e28b4a7 (#416) gave ABATOIR's wall a mip-carry fade in js/10_assets.js, one of the four blobs that draw a frame - so the bind moved out from under those pixels. The pass proved that page byte for byte before the shutter: index.html and all eleven js/ blobs served by that URL sha256-match origin/main at 5dddb49, twelve for twelve. One page load and one boot per pose, ?dev=1&seed=60&boot=0, viewport pinned to 1440x763, shutter taken from the canvas after DEV.tick; every seat, layout and luma below was read back out of the page that drew the frame. All three dealt signatures held from the superseded take (ARCHIVE 1323402791, ABATOIR 1843450263, THE STACK 3610925125), and outside ABATOIR the frames differ from it only by dither phase: the mean moves by at most 0.01 luma on the five ARCHIVE poses and THE STACK, which is the control that says the one shipped blob between the two takes paints one level's wall.",
       "staleByBuild": null
     },
     {
       "file": "level3-stack",
-      "sha256": "17fa7cf903c32ed1ea1269dfea5554a0b6dd925c4dd97127a5c03f3e808a5801",
+      "sha256": "ed717f42824dc81a53067d9350bce5c3babd4b1ec7e6240c312a72da448e22d8",
       "replaces": {
-        "rev": "1f91555",
+        "rev": "5dddb49",
         "sha256": "0ec9d830fe65276cd69b13e776fdf047da6fad3b5774b0a46dc54f079f7a22f4",
         "mean": 70.0439
       },
@@ -265,10 +275,10 @@
       "seed": "60",
       "level": 3,
       "layout": 3610925125,
-      "build": "1f91555",
+      "build": "5dddb49",
       "at": "2026-11-08",
       "sampleRate": 44100,
-      "note": "RE-TAKEN from the DEPLOYED page for #616 (with #766) at build 1f91555. The pass proved that page byte for byte before the shutter: index.html and all eleven js/ blobs served by that URL sha256-match origin/main at 1f91555, twelve for twelve. One page load and one boot per pose, ?dev=1&seed=60&boot=0, viewport pinned to 1440x763, shutter taken from the canvas after DEV.tick; every seat, layout and luma below was read back out of the page that drew the frame, never carried from the row it replaces. The three dealt signatures moved between the replaced frames and these - the generator authors height and prop placement in its dice now (#421, #631, #757) - so a caption here claims the picture these bytes draw and the route that redraws them, and no longer the geometry of one deal.",
+      "note": "RE-TAKEN from the DEPLOYED page for #616 (with #766) at build 5dddb49, the second take of one pass: the first took these eight poses at 1f91555 and a render commit landed afterwards - e28b4a7 (#416) gave ABATOIR's wall a mip-carry fade in js/10_assets.js, one of the four blobs that draw a frame - so the bind moved out from under those pixels. The pass proved that page byte for byte before the shutter: index.html and all eleven js/ blobs served by that URL sha256-match origin/main at 5dddb49, twelve for twelve. One page load and one boot per pose, ?dev=1&seed=60&boot=0, viewport pinned to 1440x763, shutter taken from the canvas after DEV.tick; every seat, layout and luma below was read back out of the page that drew the frame. All three dealt signatures held from the superseded take (ARCHIVE 1323402791, ABATOIR 1843450263, THE STACK 3610925125), and outside ABATOIR the frames differ from it only by dither phase: the mean moves by at most 0.01 luma on the five ARCHIVE poses and THE STACK, which is the control that says the one shipped blob between the two takes paints one level's wall.",
       "staleByBuild": null
     }
   ]
