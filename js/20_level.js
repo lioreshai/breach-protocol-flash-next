@@ -3783,8 +3783,20 @@ const OVL_LAMP_R = 3.6;                        // a lip is 1-8 cells: a hall-siz
    "Dark" is the shipped kernel's answer on a scratch lightmap, pre-blur, at the top-up's OWN_MIN - the
    same test the pair pass uses, for the same reason: `blurLight` carries light over a lip, and a datum
    pool must not buy a deck a lamp never stood on. A deck the deal already garrisons is skipped by that
-   same test, so this never doubles a source. */
-function lightUnauthoredDecks(cfgL) {
+   same test, so this never doubles a source.
+   #154 APPLIES TO THIS PASS AND DID NOT RUN HERE. The prop pool keeps `SPAWN_CLEAR` metres of the arrival
+   seat out of its candidate list (`seatClear`, js/20_level.js), and the pass above chooses its cells from an
+   AUTHORED pair; this one chooses them from a census that walks every tall column in the level, so it can
+   decide to furnish the deck directly over the room the player wakes in - measured on one ABATOIR CORE deal
+   as a lamp standing 1.00 m from the spawn seat, which is the arrival frame #154 exists to keep clear. The
+   shipped test is applied here the same way, with the same `SPAWN_CLEAR`, and it binds the FIXTURE and not
+   the light: a lamp is a value in a lightmap and blocks nothing, so the deck keeps its lumas, and only the
+   mesh - the thing you can walk into - steps out of the ring. Where the deck has a second cell clear of the
+   seat, source and fixture move there together (`alt`'s visible-source census asks for a body at the
+   SOURCE's own x,y, so the two must agree), nearest the lip first, which is the pairing pass's own ordering.
+   Where every cell of the deck is inside the ring the light stays at the lip and no mesh is stood, and the
+   ledger says `lit-no-body` - the answer the pairing pass already gives when a deck is furnished out. */
+function lightUnauthoredDecks(cfgL, seatXY) {
   if (!overlookEnabled() || !deckLightEnabled() || !topUpEnabled()) return 0;
   const N = MAP.w, cell = MAP.cell, fz = MAP.fz, cz = MAP.cz;
   const OWN_MIN = 0.25;                          // the pair pass's bar (:3009), not a new one
@@ -3811,12 +3823,39 @@ function lightUnauthoredDecks(cfgL) {
       const px = lx + 0.5, py = ly + 0.5;
       if (!PROPS.every(q => Math.hypot(q.x - px, q.y - py) > 0.6) ||
           !ENEMIES.every(q => Math.hypot(q.x - px, q.y - py) > 0.6)) { overlookLamps.push({ low: i, deck: j, at: -1, own: +own.toFixed(3), why: 'no-free-cell' }); break; }
-      LIGHTS.push({ x: px, y: py, z: fl + LHOVER, band: fl, r: OVL_LAMP_R, str: TOPUP_BASE * TOPUP_MINF,
+      // #154: the seat's own ring, read off the shipped constant - `SPAWN_CLEAR = 0` is the A/B knob.
+      const seatClear = (x, y) => !(SPAWN_CLEAR > 0) || !seatXY ||
+        dist2(x, y, seatXY[0], seatXY[1]) >= SPAWN_CLEAR * SPAWN_CLEAR;
+      let sx = px, sy = py, body = true;
+      if (!seatClear(px, py)) {
+        // the deck is 1-2 cells: walk ITS OWN band for a cell clear of the seat, nearest the lip first
+        let pick = -1, bestD = Infinity;
+        const seen = new Uint8Array(N * N), st = [j];
+        seen[j] = 1;
+        while (st.length) {
+          const c = st.pop();
+          const cx = (c % N) + 0.5, cy = ((c / N) | 0) + 0.5, d = Math.hypot(cx - px, cy - py);
+          if (d < bestD && d > 0 && seatClear(cx, cy) &&
+              PROPS.every(q => Math.hypot(q.x - cx, q.y - cy) > 0.6)) { pick = c; bestD = d; }
+          for (let k = 0; k < 4; k++) {
+            const nx = (c % N) + DIRX[k], ny = ((c / N) | 0) + DIRY[k];
+            if (nx < 0 || ny < 0 || nx >= N || ny >= N) continue;
+            const ni = ny * N + nx;
+            if (seen[ni] || cell[ni] || fz[ni] !== fz[j]) continue;
+            seen[ni] = 1; st.push(ni);
+          }
+        }
+        if (pick >= 0) { sx = (pick % N) + 0.5; sy = ((pick / N) | 0) + 0.5; }
+        else body = false;                              // the whole deck is the seat's foreground
+      }
+      const si = (sy | 0) * N + (sx | 0);
+      LIGHTS.push({ x: sx, y: sy, z: fl + LHOVER, band: fl, r: OVL_LAMP_R, str: TOPUP_BASE * TOPUP_MINF,
         col: cfgL.lampCol, stat: 1, ovl: 1, noglow: 1 });
-      if (deckBodyEnabled())
-        PROPS.push({ tex: PROP.lamp, x: px, y: py, z: floorAt(px, py), scale: 0.95, kind: 'lamp',
-          yaw: propYaw(px, py), ovl: 1 });
-      overlookLamps.push({ low: i, deck: j, at: j, own: +own.toFixed(3), why: 'unserved-deck' });
+      if (deckBodyEnabled() && body)
+        PROPS.push({ tex: PROP.lamp, x: sx, y: sy, z: floorAt(sx, sy), scale: 0.95, kind: 'lamp',
+          yaw: propYaw(sx, sy), ovl: 1 });
+      overlookLamps.push({ low: i, deck: j, at: si, own: +own.toFixed(3),
+        why: body ? 'unserved-deck' : 'lit-no-body' });
       placed++;
       break;
     }
@@ -4664,7 +4703,7 @@ function genLevel(li) {
     /* #199: the decks the 3-pair budget could not reach, AFTER #709 decided the grid and BEFORE the
        splat bakes it - see lightUnauthoredDecks. Order is the whole design: running it before the
        give-back would make a lamp change the deal's geometry. */
-    lightUnauthoredDecks(cfgL);
+    lightUnauthoredDecks(cfgL, seat);
     // lightmap splat, then a smoothing pass and the per-cell tint
     for (const L of LIGHTS) splatLight(L, L.str);
     blurLight(); floorLampField(); buildTint();   // #199: the floor AFTER the blur, which replaces the array
