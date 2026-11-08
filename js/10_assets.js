@@ -246,10 +246,18 @@ const MOSS_TINT = [44, 86, 40];                     // luma 73.750 (Rec.709) - t
    nothing else: the mottle covers the same texels, at the same height, with the same grain. The one
    caller that uses it is FLOORS.STONE, whose growth target used to be this green at 0.4 - the strongest
    dose in the table, on the deck of two warm-lit sectors. See the comment on FLOORS.STONE.
-   The tint a caller passes MUST be authored at THIS green's own Rec.709 luma, 73.750, because the pull
-   is a lerp toward a constant: a texel's luma after the pull is (1-k)*L + k*L(T), so a tint at the same
-   luma leaves every texel's luminance exactly where it was and moves only its chroma. That is what
-   makes this a hue change the value probes cannot see, which is what #466 asks for. */
+   The pull is a LERP TOWARD A CONSTANT, so a texel's luma after it is (1-k)*L + k*L(T), and that makes
+   two DIFFERENT callers out of one primitive:
+   HUE-ONLY (#466, and the case this primitive was written for): pass a tint authored at THIS green's own
+   Rec.709 luma, 73.750. Every texel's luminance then stays exactly where it was and only its chroma
+   moves, which is why no value probe can see it and why #466 could re-key colour without re-keying a
+   single frame digest. FLOORS.STONE is that caller.
+   VALUE-MOVING (#416 take six): pass a tint at the CALLING SURFACE's own luma instead, and the pull
+   raises or lowers the colonised texels toward the face they grow on. WTEX.BRICK does this deliberately
+   - a dry olive at brick's own tile mean, replacing a 50-luma coarse patch that survived into the frame
+   at 10 m as slope - so that call raises BRICK's tile mean and DOES re-key the frames whose centre half
+   carries the face. A caller of this kind is an albedo edit, not a hue edit: it must say so at the call
+   site and it must re-derive every record whose frame it reaches. Do not read either caller as the other. */
 function moss(p, amt, seed, tint) {                  // patchy growth, not a green wall
   const k = mossMask(p, amt, seed);
   if (k <= 0) return;
