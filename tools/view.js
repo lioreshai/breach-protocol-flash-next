@@ -5319,9 +5319,20 @@ if (MODE === 'drop') {
   const trace = (fr) => run(`(()=>{const s=[];keys['KeyW']=1;for(let i=0;i<${fr};i++){update(1/60);` +
     `s.push([P.x,P.y,P.z,P.air?1:0,P.vz,P.hp,S.shake,floorAt(P.x,P.y)]);}return s})()`);
   const snap = () => run('(function(){ window.__fz0 = MAP.fz.slice(); window.__ft0 = MAP.feat.slice(); return 1; })()');
+  /* A POKE AUTHORS A HEIGHT, IT DOES NOT ADJUST ONE. Every row below names its crossing in quanta - "one
+     quantum down", "a stair of 1q treads", "the smallest rise that is a wall" - measured from THE FLOOR
+     THE PLAYER IS SEATED ON. So the write has to be absolute from that floor: `MAP.fz[i] += dq` composes
+     with whatever the deal left in the lane, and a generator that raises a tread in the spawn's forward
+     run turns a 1-quantum dig into no step at all (it lands back on the datum the feet already stand on)
+     and a 1-quantum raise into a 2-quantum wall, which is not a step the feet can take (STEP_Q = 1).
+     Measured at PR #796's head: four L2 rows went red that way while the walk rule they name was main's
+     own. datumQ is read out of the pre-poke snapshot, once per level, so a leaked poke from an earlier
+     row cannot move it. The rows still author their own geometry and still judge the feet, so every one
+     of them remains able to fail - flattening the premise is not the same as flattening the assertion. */
+  let datumQ = 0;
   const poke = (cells, dq) => run(`(function(){
     if (!window.__fz0 || window.__fz0.length !== MAP.fz.length) window.__fz0 = MAP.fz.slice();
-    for (const i of [${cells.map(c => (c[1] | 0) * run('MW') + (c[0] | 0)).join(',')}]) MAP.fz[i] += ${dq};
+    for (const i of [${cells.map(c => (c[1] | 0) * run('MW') + (c[0] | 0)).join(',')}]) MAP.fz[i] = ${datumQ} + ${dq};
     linkBoundaries(); return 1; })()`);
   // feat travels with fz: the #634 descent sweep flags a column FEAT_LADDER, and a sweep that left a
   // ladder standing in the lane would hand the next row a route the level never authored.
@@ -5354,6 +5365,7 @@ if (MODE === 'drop') {
     if (lane.n < 3) { row(`L${li} lane`, false, `no open run of 3 cells from spawn in any direction (best ${lane.n})`); continue; }
     const X = run('P.x'), Y = run('P.y'), LX = Math.floor(X), LY = Math.floor(Y);
     const cellAt = (k) => [[LX + lane.dx * k, LY + lane.dy * k]];
+    datumQ = run(`__fz0[${LY} * MW + ${LX}]`);   // the seat's dealt floor, in quanta - see poke
     const put = (x, y) => run(`(()=>{ ${PLACE(x, y, angTo(lane.dx, lane.dy))} return 1 })()`);
 
     // --- falls: raise the cell the player STANDS ON, so walking forward is stepping off a ledge ----
