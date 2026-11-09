@@ -1148,7 +1148,14 @@ const MESH = (function () {
      hip its radius is thinned by this fraction, which is the other half of why the row below can reveal
      anything - a gap between fingers only shows a part if the slab behind the fingers has stopped covering
      it. 0.24 of 18.5 mm is 4.4 mm, about the thickness of the pump tube's own wall plus the fist's wrap. */
-  const VMFIST = { pistol: 0.14, shotgun: 0.40, rifle: 0.40 };   // per kind, like VMHSIZE: no fallback
+  /* Per kind, like VMHSIZE: no fallback. THE PISTOL IS THINNED LEAST, and the row's own numbers say why:
+     `rounds` there went 13 -> 9 px across this increment while the shotgun's went 812 -> 918. The pistol's
+     round part is the grip BOX the hand wraps from the side - it sits UNDER the box that carries it, not
+     behind the hand - so opening the fist wide over it trades grip pixels for finger pixels instead of
+     revealing anything; the bar on that weapon is a placement problem (#780's other lever, a round part
+     nearer the eye than the box carrying it), not a thinner slab. The shotgun has 40 mm of pump behind
+     the row, which is why the same 0.40 there is what makes the gaps read. */
+  const VMFIST = { pistol: 0.14, shotgun: 0.40, rifle: 0.40 };
   const VMGRIP = {
     pistol:  [[-0.023, 0.008, 0], [0.019, 0.040, -0.018]],
     shotgun: [[-0.040, 0.020, 0], [0.020, 0.016, -0.010]],
