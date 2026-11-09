@@ -124,7 +124,25 @@ let RISER_ACC_H = 0.12, RISER_ACC_F = 0.45, RISER_ACC_B = 0.09;
    pixel and is byte-identical. */
 let DECKACC = 1, ACC_DECK_W = 0.14, ACC_DECK_K = 0.9;
 const ACC_DECK_I = 1 / ACC_DECK_W;
-const ACC_DECK_L = 0.97;               // the mark is allowed 3 % under the deck's own albedo luma, never over it          // the reciprocal the two copies below multiply by
+/* #669 TAKE THREE: THE MARK MUST BE A MARK, NOT A SHADE.
+   `ACC_DECK_L` used to be 0.97 and sat in a clause that only fired when the blended texel came out
+   BRIGHTER than the deck, so the delivered mark was pinned at +3 % of its own surface - the stripe
+   disagreed with the deck in HUE and in almost nothing else. Measured at the three generated seats
+   with the shipped A/B (`DECKACC` 0 against 1, same tree, `scene <lvl> 0`): 2,152 / 16,712 / 2,460 px
+   of mark, delivered luma step against the same pixels unmarked of +0.30 / +1.32 / +4.05. A mark the
+   eye can only find by its hue is what #669 calls a shade, and criterion 1 of the remainder asks for
+   a STEP off the mean of the surface it is painted on.
+   So the renormalise is now a TARGET, not a ceiling: the mark's albedo luma is placed at
+   `ACC_DECK_L` x the deck texel's own albedo luma, BELOW it, and the mark keeps the authored hue.
+   The direction is the whole decision - darker, never brighter - because criterion 3 says nothing may
+   get brighter on the way, and a step DOWN cannot raise a seeded median or a `surface` ORDER row. It
+   stays an ALBEDO ahead of the light multiply, so the step is a fraction of the surface's own albedo
+   and a dark texel cannot be painted into a light source. `ACC_DECK_MIN` is the floor that keeps that
+   true on a texel the light has already left: below it the target stops tracking the texel and holds,
+   so the mark never goes to black, which would be grime and not paint (issue #669, 2026-11-07 note,
+   criterion 2). THE STACK authors no accent and is byte-identical; `DECKACC = 0` is still the A/B. */
+const ACC_DECK_L = 0.80;               // the mark sits 20 % under the deck texel's own albedo luma
+const ACC_DECK_MIN = 28;               // albedo-luma floor on the target, so a dark texel is not painted black
 /* #421 THE NOISING ON THE EDGE OF A FLOOR ABOVE YOU. The underside of a slab now wears plate, joists and a
    shadow gap (`SLAB_ALB` below, `buildCeilSlab` in js/20_level.js), and a review of the delivered frames
    still found a full-width near-black band under it: the slab's own SIDE, seen from the room beneath it.
@@ -2514,8 +2532,9 @@ function castGround(flash, fcR, fcG, fcB) {
             const adw = (1 - dd * ACC_DECK_I) * ACC_DECK_K;
             const dl0 = cr * 0.2126 + cg * 0.7152 + cb * 0.0722;
             cr += (accG[0] - cr) * adw; cg += (accG[1] - cg) * adw; cb += (accG[2] - cb) * adw;
-            const dl1 = (cr * 0.2126 + cg * 0.7152 + cb * 0.0722) * ACC_DECK_L;
-            if (dl1 > 1) { const dks = dl0 / dl1; cr *= dks; cg *= dks; cb *= dks; }
+            const dl1 = cr * 0.2126 + cg * 0.7152 + cb * 0.0722;
+            const dlt = dl0 * ACC_DECK_L > ACC_DECK_MIN ? dl0 * ACC_DECK_L : ACC_DECK_MIN;
+            if (dl1 > dlt) { const dks = dlt / dl1; cr *= dks; cg *= dks; cb *= dks; }
           }
         }
       }
@@ -3350,8 +3369,9 @@ function groundPixel(x0, x1, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb
         const adw = (1 - dd * ACC_DECK_I) * ACC_DECK_K;
         const dl0 = cr * 0.2126 + cg * 0.7152 + cb * 0.0722;
         cr += (accG[0] - cr) * adw; cg += (accG[1] - cg) * adw; cb += (accG[2] - cb) * adw;
-        const dl1 = (cr * 0.2126 + cg * 0.7152 + cb * 0.0722) * ACC_DECK_L;
-        if (dl1 > 1) { const dks = dl0 / dl1; cr *= dks; cg *= dks; cb *= dks; }
+        const dl1 = cr * 0.2126 + cg * 0.7152 + cb * 0.0722;   // #669 take three: a TARGET luma below the
+        const dlt = dl0 * ACC_DECK_L > ACC_DECK_MIN ? dl0 * ACC_DECK_L : ACC_DECK_MIN;   // deck's own, both copies
+        if (dl1 > dlt) { const dks = dlt / dl1; cr *= dks; cg *= dks; cb *= dks; }
       }
     }
   }
