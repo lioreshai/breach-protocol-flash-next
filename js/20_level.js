@@ -135,7 +135,7 @@ const LEVELS = [
     // same offset bought with exposure, so it is not what ships. The lamp itself is untouched: the measured
     // family-hue lamp repaints 80 % of the frame and lands the room on 343 (see #669).
     accent: [74, 137, 164],
-    floor: 'FLESH', ceil: 'SINEW', amb: 0.3, lampCol: [190, 255, 150], fogCol: [21, 8, 11], ceilBias: -0.12,
+    floor: 'FLESH', ceil: 'SINEW', amb: 0.3, lampCol: [190, 255, 150], fogCol: [21, 8, 11], ceilBias: -0.12, ceilLead: 0.30,
     lamps: 16, crates: 9, barrels: 12, spawn: { grunt: 8, hound: 7, brute: 3 }, pick: { health: 5, ammo: 6, armor: 2 },
     fixtures: ['VENT', 'STRIPE'],         // #400: the abattoir breathes; everything here is a duct
     purpose: ['TANK', 'RACK']             // #400: what it breathes and what it drains
