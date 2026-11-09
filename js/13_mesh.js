@@ -1140,6 +1140,15 @@ const MESH = (function () {
      A deeper or nearer fist was tried and is the wrong dial (perspective spreads it outside the part's own
      silhouette; 20-40 mm of depth away erases the pump and magazine pixels `rounds` prices), which is why
      only x and y move here. */
+  /* #780 THE HIP FINGER DETAIL'S OWN GAIN, and like `VMHSIZE` it is hip-only: `vHand` multiplies EVERY term
+     of the finger row by `VMFING * (1 - ads)`, so at `ads = 1` the row collapses to a point inside the fist
+     and is not emitted at all - the sight picture builds the bytes `sight` and `flatparity` record. */
+  const VMFING = 1.0;
+  /* #780 how much of the fist tube's own radius the HIP gives up. The tube is what covers the part: at
+     hip its radius is thinned by this fraction, which is the other half of why the row below can reveal
+     anything - a gap between fingers only shows a part if the slab behind the fingers has stopped covering
+     it. 0.24 of 18.5 mm is 4.4 mm, about the thickness of the pump tube's own wall plus the fist's wrap. */
+  const VMFIST = { pistol: 0.14, shotgun: 0.40, rifle: 0.40 };   // per kind, like VMHSIZE: no fallback
   const VMGRIP = {
     pistol:  [[-0.023, 0.008, 0], [0.019, 0.040, -0.018]],
     shotgun: [[-0.040, 0.020, 0], [0.020, 0.016, -0.010]],
@@ -1177,8 +1186,10 @@ const MESH = (function () {
     // each other have one silhouette and it is a rectangle, which is the reading the issue is about. A
     // cone reads as a wrapped mass, its silhouette is a trapezoid with rounded sides, and its far end is
     // narrower than its near end, which is what a hand curled round a grip looks like from behind.
+    const fing = (1 - clamp(st && st.ads ? st.ads : 0, 0, 1)) * VMFING;
+    const fth = 1 - (VMFIST[b.kind] || 0) * fing;                     // exactly 1.0 at ads = 1: the slab stops being a slab
     b.tube(x - w * 0.002 * s, y - 0.026 * s, z, x + w * 0.001 * s, y + 0.022 * s, z - 0.004 * s,
-      0.0145 * s, 0.0185 * s, VW.skin);              // the fist itself, knuckle end widest
+      0.0145 * s * fth, 0.0185 * s * fth, VW.skin);  // the fist itself, knuckle end widest
     b.box(x + w * 0.004 * s, y + 0.028 * s, z - 0.024 * s, 0.015 * s, 0.005 * s, 0.017 * s, VW.skinD);
     /* #562 TAKE TWO: the BACK OF THE HAND is a tube, not a plate. The plate was 13 mm thick and 48 mm
        square - a flat, right-angled face straight at the lens, ~200 px of it in the corner of every
@@ -1191,6 +1202,38 @@ const MESH = (function () {
        them. */
     b.tube(x - w * 0.017 * s, y - 0.018 * s, z - 0.001 * s, x - w * 0.017 * s, y + 0.015 * s, z - 0.004 * s,
       0.0105 * s, 0.0125 * s, VW.skin);              // the back of the hand, wrist end narrowest
+    /* #780 THE FINGER ROW, and it is the hip's ONLY hand modelling. The fist above is one tapered tube and
+       the back of the hand is one more: two prisms, one silhouette, one depth across the whole mass, which is
+       the "flat plate pressed against the pump" reading the issue names - and because a prism that wide covers
+       the part it wraps, it also paints the pump / magazine / grip out (the `rounds` row printed 13 / 812 /
+       188 round-part px of a 10504 / 12496 / 14703 px hip frame against an 8 % bar, i.e. the thing being held
+       is largely NOT drawn at the pose the game is in almost all the time).
+       What is added is four short prisms ACROSS the part, one per finger, at a pitch wider than their own
+       diameter, so the part shows BETWEEN them. The row stacks along y, NOT along z: the part a fist wraps
+       (pump, magazine, grip) runs along z, which at the rig's own yaw is almost the VIEW direction, so a row
+       spaced along z overlaps itself in screen space and projects nothing - the first cut of this geometry
+       stacked along z, added 269 px of hand to the pistol and took 6 px AWAY from `rounds`, because four
+       prisms one behind another are one prism on screen. Stacked along y, with the row stood on the eye side
+       of the part, each finger is its own band of pixels and the gaps between the bands are the part.
+       Each is tapered thick at the knuckle end and thin at the tip, so the row reads as four separate masses
+       under one light rather than as one slab with lines painted on it - the crease boxes below are the
+       painted-line version of the same idea and they are kept, because a crease is what makes the gap read as
+       a gap and not as a hole in the geometry.
+       IT IS A HIP-ONLY GEOMETRY, not a hip-only offset: `VMFING` multiplies EVERY term below, offsets and
+       extents alike, so the whole row collapses onto the fist's own axis - a point inside the fist tube - as
+       `ads` goes to 1, and at `ads` quantized to exactly 1 it is not emitted at all. The sight picture
+       therefore builds the same bytes it built before (`sight`, `flatparity` and the ADS paint counts in
+       `viewmodel` are unchanged by construction), while the hip gains the mass detail the issue asks for. The
+       collapse is what makes this safe to key: `ads` is already in `WQK` / `wKey`, so a part that changes size
+       with the ADS ramp cannot be served to the wrong pose by the geometry cache (#186's rule). */
+    if (fing > 0) {
+      const fs = fing * s;
+      for (let k = 0; k < 4; k++) {
+        const fy = (k - 1.5) * 0.0128 * fs;             // the pitch: 12.8 mm, wider than a finger
+        b.tube(x - w * 0.0205 * fs, y + fy + 0.0035 * fs, z - 0.0205 * fs,
+          x + w * 0.0125 * fs, y + fy - 0.0025 * fs, z - 0.0175 * fs, 0.0048 * fs, 0.0036 * fs, VW.skin);
+      }
+    }
     b.box(x - w * 0.025 * s, y - 0.013 * s, z, 0.0035 * s, 0.0035 * s, 0.022 * s, VW.skinD);
     b.box(x - w * 0.025 * s, y + 0.009 * s, z, 0.0035 * s, 0.0035 * s, 0.022 * s, VW.skinD);
     b.tube(x + w * 0.011 * s, y + 0.020 * s, z + 0.010 * s, x - w * 0.006 * s, y + 0.030 * s, z + 0.020 * s,
