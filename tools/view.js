@@ -17624,7 +17624,7 @@ if (MODE === 'props') {
     const psRow = (label, ok, detail) => { if (!ok) bad++; console.log('  ' + (ok ? 'ok  ' : 'FAIL') + '  ' + label + ' - ' + detail); return ok; };
     const rsSave = rs;
     let psLoud = 0, psOccl = 0, psMoved = 0, psStuck = 0, psDeals = 0, psAccount = 0;
-    let psBand = 0, psCross = 0, psDeck = 0, psQuiet = 0, psLoudLeft = 0, psRankPx = 0, psRankBad = 0;
+    let psBand = 0, psCross = 0, psDeck = 0, psQuiet = 0, psLoudLeft = 0, psRankPx = 0, psRankBad = 0, psRankCam = 0, psPlane = 0;
     const psPrint = [], psPair = [], psPairZero = [], psRank = [], psRankNone = [];
     let psGrid = true;
     /* #695 TAKE THREE, THE STATE, not the counter. `PS_LOUDLEFT` asks the shipped question of the shipped
@@ -17652,12 +17652,13 @@ if (MODE === 'props') {
       ` + `if (p.kind !== 'crate' && p.kind !== 'barrel') continue; const dx = p.x - P.x, dy = p.y - P.y, d = Math.hypot(dx, dy);
       ` + `if (d < SIGHT_NEAR || d > SIGHT_FAR) continue; let a = Math.atan2(dy, dx) - P.ang;
       ` + `while (a > Math.PI) a -= TAU; while (a < -Math.PI) a += TAU; if (Math.abs(a) <= SIGHT_BAND) n++ } return n })()`;
-    /* #772 THE PIXEL GROUND TRUTH FOR "IS THIS PROP IN THE WAY". The pass decides that with a flat ray over
-       `MAP.cell`, which asks which CELLS lie between the dealt seat and the prop and never asks what is drawn
-       on the rows those cells project to - so on a stepped room it can spend a walk or a demotion on a prop
-       the dealt frame contains none of (measured on the deal #772 names: flipping the rank moves 0 px, and
-       deleting the prop moves 0 px, while deleting every prop in the level moves 2649). A 3-D ray is the
-       cheap candidate for that question, so it was tried first, and it does not track the picture either:
+    /* #772 THE PIXEL GROUND TRUTH FOR "DID THAT ACTION BUY A PIXEL". The pass used to decide "is this prop in
+       the way" with a flat march over `MAP.cell`, which asked which CELLS lie between the dealt seat and the
+       prop and never asked what is drawn on the rows those cells project to - so on a stepped room it could
+       spend a walk or a demotion on a prop the dealt frame contains none of (measured on the deal #772 names:
+       flipping the rank moves 0 px, and deleting the prop moves 0 px, while deleting every prop in the level
+       moves 2649). A 3-D ray is the cheap candidate for that question, so it was tried first, and it does not
+       track the picture either:
        `losZ` from the seat's eye to the prop's mid-height calls 5 of the 10 in-band loud props over these 16
        deals invisible while the renderer paints 30 / 168 / 224 / 352 / 1384 px of them, and at those pixels
        the renderer's own depth buffer reads the prop's own distance (8.83/8.96 at 9.49 m, 4.78/5.17 at
@@ -17666,11 +17667,22 @@ if (MODE === 'props') {
        at the top third does not settle it either. So a single ray at a single height is not a stand-in for
        "the eye draws a pixel of it" on stepped content: the visible part of a sprite on a deck one band up
        is the part that clears the slab's projected top edge, which no one-ray test states.
-       This block therefore measures the quantity instead of proxying it: for every prop the shipped pass
-       SPENT something on - a move in `PROPSIGHT.log`, a demotion in `PROPSIGHT.stuckAt` - the frame is shot
-       twice at the DEALT seat, with and without that one prop, and the differing pixels are what the rule
-       paid for. Zero differing pixels is the defect stated without a proxy. It re-deals at the end of the
-       block because it renders, and the census rows above must not inherit a mutated frame. */
+       This block therefore measures the quantity instead of proxying it, and it measures it per KIND OF
+       SPEND, because the two spends buy different pixels. A MOVE buys the difference between the frame with
+       the prop in the cell the rule found it in and the frame with the prop in the cell the walk handed it
+       to - both at the DEALT seat - so the differing pixels ARE the walk-out, the same pair the `paired`
+       block below takes, priced here per prop instead of once per level. A DEMOTION moves nothing: its whole
+       purchase is the rank on a prop the dealt frame must therefore contain at all, so its pair is the same
+       prop present and absent. Zero differing pixels either way is the defect stated without a proxy.
+       WHY THE DESTINATION-VERSUS-ABSENT ARM IS NOT THE QUESTION, and the trap this replaces: PR #779 shot
+       both arms at the prop's POST-move cell, which charges a successful walk as a wasted one. Measured on
+       the deal it names (L2 deal 2, crate idx26, authored 21.5,22.5 -> handed to 23.5,20.5, seat 10.5,14.5):
+       that prop draws 314 px at the dealt seat where the rule saw it and 0 px where the walk put it, so the
+       old arm read a move that emptied centre frame as a spend on nothing - the instrument's own false
+       positive, and the reason its floor sat at 2 rather than at 0. It re-deals at the end of the block
+       because it renders, and the census rows above must not inherit a mutated frame. The grid is hashed
+       before and after each deal's spends: this block moves one prop's x/y and writes no cell, and a parting
+       hash would say the pair was comparing two worlds. */
     let psPxSeen = 0, psPxZero = 0; const psPxZeroAt = [];
     {
       for (let li = 0; li < run('LEVELS.length'); li++) {
@@ -17678,25 +17690,37 @@ if (MODE === 'props') {
           run(`genLevel(${li});`);
           const p = JSON.parse(run('JSON.stringify(PROPSIGHT)'));
           const spent = [];
-          for (const m of p.log) spent.push([m[5], m[4]]);
-          for (const s of (p.stuckAt || [])) spent.push([s[4], s[2] + ' (demoted, not moved)']);
+          for (const m of p.log) spent.push([m[5], m[4], m[0], m[1], m[2], m[3]]);
+          for (const s of (p.stuckAt || [])) spent.push([s[4], s[2] + ' (demoted, not moved)', -1, -1, -1, -1]);
           if (!spent.length) continue;
           run('renderWorld()');
           const base = new Uint32Array(run('px'));
+          const geoPx = run('[MAP.cell, MAP.fz, MAP.cz].map(a => { let h = 2166136261; for (let i = 0; i < a.length; i++) { h ^= a[i]; h = (h * 16777619) >>> 0; } return h }).join(",")');
           for (const e of spent) {
             if (!(e[0] >= 0)) continue;
-            run(`window.__p772 = PROPS.splice(${e[0]}, 1)[0]; renderWorld();`);
-            const wo = new Uint32Array(run('px'));
-            run('PROPS.splice(' + e[0] + ', 0, window.__p772); delete window.__p772;');
-            let df = 0; for (let i = 0; i < base.length; i++) if (base[i] !== wo[i]) df++;
+            let df = 0, arm;
+            if (e[2] >= 0) {
+              run(`{ const q = PROPS[${e[0]}]; q.x = ${e[2]}; q.y = ${e[3]}; q.z = floorAt(q.x, q.y); q.yaw = propYaw(q.x, q.y); renderWorld(); }`);
+              const au = new Uint32Array(run('px'));
+              for (let i = 0; i < base.length; i++) if (base[i] !== au[i]) df++;
+              run(`{ const q = PROPS[${e[0]}]; q.x = ${e[4]}; q.y = ${e[5]}; q.z = floorAt(q.x, q.y); q.yaw = propYaw(q.x, q.y); }`);
+              arm = 'a walk ' + (e[2] | 0) + ',' + (e[3] | 0) + ' -> ' + (e[4] | 0) + ',' + (e[5] | 0);
+            } else {
+              run(`window.__p772 = PROPS.splice(${e[0]}, 1)[0]; renderWorld();`);
+              const wo = new Uint32Array(run('px'));
+              run('PROPS.splice(' + e[0] + ', 0, window.__p772); delete window.__p772;');
+              for (let i = 0; i < base.length; i++) if (base[i] !== wo[i]) df++;
+              arm = 'a demotion, the prop at rest';
+            }
             psPxSeen++;
             if (!df) {
               psPxZero++;
-              psPxZeroAt.push('L' + li + ' deal ' + d + ' ' + e[1] + ' at ' + run('Math.hypot(PROPS[' + e[0] + '].x - P.x, PROPS[' + e[0] + '].y - P.y).toFixed(1)')
+              psPxZeroAt.push('L' + li + ' deal ' + d + ' ' + e[1] + ', ' + arm + ', at ' + run('Math.hypot(PROPS[' + e[0] + '].x - P.x, PROPS[' + e[0] + '].y - P.y).toFixed(1)')
                 + ' m, ' + run('MAP.fz[(PROPS[' + e[0] + '].y | 0) * MW + (PROPS[' + e[0] + '].x | 0)]') + '/'
                 + run('MAP.fz[(P.y | 0) * MW + (P.x | 0)]') + ' deck quanta (prop/seat)')
             }
           }
+          if (run('[MAP.cell, MAP.fz, MAP.cz].map(a => { let h = 2166136261; for (let i = 0; i < a.length; i++) { h ^= a[i]; h = (h * 16777619) >>> 0; } return h }).join(",")') !== geoPx) psGrid = false;
         }
       }
     }
@@ -17760,7 +17784,7 @@ if (MODE === 'props') {
               if (!best) return '';
               P.x = best.x; P.y = best.y; P.z = floorAt(P.x, P.y); P.ang = Math.atan2(q.y - P.y, q.x - P.x); P.pitch = BH * 0.02;
               return best.x.toFixed(1) + ',' + best.y.toFixed(1) + ' sees it at ' + best.d.toFixed(1) + ' m' })()`);
-            if (look) { shot = shoot(); shotAt = 'a cell with line of sight - ' + look + ' (the dealt seat draws no pixel of it)'; }
+            if (look) { shot = shoot(); shotAt = 'a cell with line of sight - ' + look + ' (the dealt seat draws no pixel of it)'; psRankCam++; }
             const s0 = seatSave.split(',').map(Number);
             run(`P.x = ${s0[0]}; P.y = ${s0[1]}; P.ang = ${s0[2]}; P.z = ${s0[3]}; P.pitch = ${s0[4]};`);
           }
@@ -17819,7 +17843,7 @@ if (MODE === 'props') {
           if (diff === 0) psPairZero.push('L' + li);
         }
       }
-      psLoud += L[0]; psOccl += L[1]; psMoved += L[2]; psStuck += L[3]; psBand += L[4]; psCross += L[5]; psQuiet += L[6];
+      psLoud += L[0]; psOccl += L[1]; psMoved += L[2]; psStuck += L[3]; psBand += L[4]; psCross += L[5]; psQuiet += L[6]; psPlane += L[7];
       psPrint.push('L' + li + ' loud ' + L[0] + ' occl ' + L[1] + ' moved ' + L[2] + ' stuck ' + L[3] +
         ' quiet ' + L[6] + ' deck-rej ' + L[4] + ' storey-rej ' + L[7] + (stuckHere.length ? ' [STUCK: ' + stuckHere.join(' ') +
           ' - an occluder whose own deck offers no cell out of the band, so it stays]' : ''));
@@ -17906,8 +17930,8 @@ if (MODE === 'props') {
       + 'outcome: it reads the finished PROPS array with the pass\'s own tests re-derived from the grid, and '
       + 'it is stricter than the pass (isSolid where the pass asks reachability). Set propQuietEnabled = '
       + 'false and the stuck deal comes back red here');
-    psRow('a prop that cannot leave the line pays the quiet hazard rank',
-      psQuiet === psStuck && (psQuiet > 0 || psStuck === 0),
+    psRow('a prop that cannot leave the line pays the quiet hazard rank, priced at the dealt seat',
+      psQuiet === psStuck && (psQuiet > 0 || psStuck === 0) && psRankBad === 0 && psRankCam === 0,
       psQuiet + ' prop(s) marked quiet against ' + psStuck + ' stuck occluder(s) - the rank is paid by '
       + 'exactly the props the walk could not place, and by nothing else, so no prop in the game is dimmer '
       + 'for its own sake. The rank is js/40_render.js PROP_RANK_QUIET 0.26 off delivered light, the same '
@@ -17930,20 +17954,23 @@ if (MODE === 'props') {
       + 'index, is not the cell the player starts in, and was the reason #757\'s first A/B printed '
       + 'byte-identical while the record rows moved.');
     psRow('the rule spends its moves on pixels the dealt seat draws',
-      psPxSeen > 0 && (process.env.STRICT ? psPxZero === 0 : psPxZero <= +(process.env.PS_PXZERO || 2)),
-      psPxSeen + ' prop(s) had a move or a demotion spent on them over ' + psDeals + ' deals, and ' + psPxZero +
-      ' of them draw ZERO pixels at the dealt seat (the frame with that prop minus the frame without it, same'
-      + ' seat, same deal, so the differing pixels ARE that prop and nothing else)' +
-      (psPxZeroAt.length ? ': ' + psPxZeroAt.join('; ') : '') + '. That count is #772 stated as a pixel number '
-      + 'rather than as a ray. The pass asks NO sight question at all - an occluder today is distance, the '
-      + 'centre band, 3 m of reachable open deck behind it and reachability (js/20_level.js rankLoudProps), and '
-      + 'none of those reads whether a wall face or a slab edge stands between the eye and the prop - so the '
-      + 'rule can pay for a frame that contains none of it. It is a KNOWN debt row at the measured baseline '
-      + '(2 of 16 spent actions - a move and a demotion, both props on a deck above the seat, the deal #772 '
-      + 'names), red past it, and red at anything above 0 under STRICT=1. The fix is one bounded visibility '
-      + 'query over the prop\'s vertical extent, not this floor; `psPxSeen > 0` is the clause that stops the row '
-      + 'being satisfied by a sweep that acted on nothing, and no 3-D ray at a single height reproduces this '
-      + 'count - see the block above.');
+      psPxSeen > 0 && psPxZero === 0 && psRankCam === 0,
+      psPxSeen + ' action(s) - moves and demotions - were spent over ' + psDeals + ' deals, and ' + psPxZero +
+      ' of them changed NO pixel at the dealt seat' + (psPxZeroAt.length ? ': ' + psPxZeroAt.join('; ') : '')
+      + '. A move is priced by putting the prop back in the cell the rule found it in and shooting both'
+      + ' frames from the seat the player is dealt; a demotion cannot move, so it is priced by deleting the'
+      + ' prop it dims. Zero is the gate, not a floor: this row used to carry a KNOWN baseline of 2 (the two'
+      + ' props on a deck above the seat that #772 names), and both are gone - `rankLoudProps` now refuses an'
+      + ' occluder standing on another storey (`plane`, js/20_level.js:4057) or with a wall or slab face'
+      + ' between it and the dealt eye (`seenFromSeat`, :4059), which is where the census\'s ' + psPlane + ' storey-rej(s) '
+      + ' in the census line came from, and the slab clause is what the `slab` counter in `PROPSIGHT` names. '
+      + 'FALSIFIER, MEASURED in one tree: a `JSDIR` copy of js/ whose two clauses are replaced by "visible" '
+      + 'spends 22 actions over these same 16 deals instead of ' + psPxSeen + ', 5 of them changing no pixel at '
+      + 'the dealt seat, and the probe exits 1 - so this row can fail, and fails on the geometry it is about. '
+      + '`psPxSeen > 0` is the clause that stops a sweep which acted '
+      + 'on nothing satisfying it, and `psRankCam === 0` is the same statement for the rank row: a rank priced '
+      + 'from a cell the player was not dealt prices nothing he sees (it did not fire on this sweep). No '
+      + '3-D ray at a single height reproduces any of this count - see the block above.');
   }
   console.log((bad ? 'PROPS PROBE: ' + bad + ' FAILURE(S)' : 'PROPS PROBE: every prop volumetric, light-exempt where emissive, grounded, and solid to the player')
     + (bad || !gkn ? '' : '\n  KNOWN #533: ' + gkn + ' gated prop axis/axes carry surface but under 1/3 of the deck in the same frame (rows above) - the prop is still the plainest object in the room'));
