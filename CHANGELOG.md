@@ -1,5 +1,74 @@
 # Changelog
 
+## [v1.4.23] - 2026-11-09
+
+### Added
+
+- **Every deck you can climb onto is lit now** (#199, PR #750). The generator only ever put a lamp on the raised
+  decks it had authored as a deliberate overlook pair, at most three per sector, while a dealt sector hands you far
+  more decks than that. The unserved ones were black rectangles you could still walk onto: no grain on the floor,
+  nothing readable behind you, no lamp anywhere in the level reaching up there. Each deck that no other source
+  serves now gets a lamp of its own, chosen by the same reachability rules the rest of the lighting pass uses, and
+  kept clear of the arrival seat so a fixture cannot stand in your face on spawn (#154). The pass draws no dice and
+  writes no floor heights, so the rooms, props, enemies and spawn point you were dealt are the ones you already had
+  — only the light is new. Measured on this build: the four sectors' own deals put you on 3, 18, 20 and 1 overlook
+  decks and none of them reads dark.
+
+### Changed
+
+- **A deck's edge reads as an edge** (#669, PRs #793, #795). The one deliberate colour a sector authors used to
+  climb a wall foot and a slab side and nothing else, so a raised deck could stop in front of you with no mark on
+  it at all. That accent now also lies flat on the deck against every boundary that ends it — a wall, a cliff, a lip
+  you can walk off — and it is painted in value as well as hue: the stripe sits 20 % under the albedo of the deck it
+  lies on (`ACC_DECK_L` in `js/40_render.js`), where it used to be pinned about 3 % above the surface behind it and
+  was only findable by its colour. The change's own A/B at the three sectors that author an accent put the mark's
+  own pixels at +0.3 / +1.3 / +4.1 luma against their decks before, and -8.9 / -17.9 / -14.0 after: darker, never
+  brighter, so nothing in the room was lit by the change. THE STACK authors no accent and is byte-for-byte the level
+  it was; `DECKACC = 0` in `js/40_render.js` reproduces the previous frame exactly.
+- **The room you wake in has a step you can walk over** (#631, PR #796). The one-quantum break that splits the
+  spawn room shipped *dashed* — tread, gap, tread — and a dashed lip is a trip hazard rather than an edge, so the
+  arrival frame still read as one open bay. The pass that authors it was asking a column's question of a step (does
+  every neighbour stay floor at the datum?), which a step always fails on its own previous cell; it now asks the
+  question the walk rule actually uses, whether a height difference appeared where none existed, with a reachability
+  sweep refusing any line that would put a storey out of reach. The break authors whole across its line. No dice
+  are drawn by that pass, so no prop, lamp, enemy or spawn seat moved.
+- **RING TRANSPORT has doorways** (#631, PR #791). Its rooms are narrower than the inset at which the crossing wall
+  could stand, so that sector dealt no doorway anywhere and every opening read as a panel at the end of a wall.
+  Where the inset shape cannot reach, the same line is now authored at the room's own width, keeping two cells of
+  wall either side of the opening so it reads as a doorway you walk through rather than the end of a wall, and the
+  reachability proof afterwards rejects the one shape that could strand a corridor behind it. The generator's census
+  now deals a doorway wall in that sector too (line x=12, an opening with two cells of wall past it on each side).
+
+### Fixed
+
+- **A release that shipped without being tagged is reported now** (#759, PR #763). Nothing on screen. Both release
+  guards asked GitHub whether a tag existed and read only one of its two "no" answers, so a merged-but-unpublished
+  release crashed them instead of recording the debt — which is how one release sat finished and unpublished with
+  nothing saying so.
+
+### Verification
+
+Nothing visible changed in these two; each replaces a claim that could not fail with one that can.
+
+- A prop that the arrival sight-line rule walks off the picture is now priced at the frame the player is actually
+  dealt rather than at the cell the prop landed in, so a move that changed nothing shows up as waste. On this build
+  that row reads 12 actions spent over 16 deals, 0 of them changing no pixel (#772, PR #798). The two generator
+  clauses behind that zero — an occluder on another storey, and one with a wall or slab face between it and the
+  dealt eye — were already shipping.
+- The eight frames on the front page were re-shot off the deployed build, with the caption figures re-derived using
+  the estimator they name (#616, #766, PR #789).
+
+### Known limitations
+
+- The deck-edge mark still does not reach the far end of a long room — out there the stripe is absent rather than
+  faint — and the ruling on #669 is to buy that reach on the vertical accent faces rather than by stretching the
+  flat band. THE STACK authors no accent at all, so it gets none of this mark (#669).
+- Seen at eye height in ARCHIVE SUBLEVEL and RING TRANSPORT, mid-frame is still darker than the room you are
+  standing in. That is the open half of #616: the light carried by the distant answer is attenuated by the same fog
+  term that stands for that air, so it is charged twice.
+- Still one interior wall per sector, rooms past that first wall remain open plans, and THE STACK runs no crossing
+  line at all (#631). The far ceiling at a level's own edge is still darker than the room it hangs over (#375).
+
 ## [v1.4.22] - 2026-11-08
 
 ### Added
