@@ -4859,6 +4859,37 @@ function genLevel(li) {
       }
       return true;
     };
+    /* CAN THIS CELL GO UP ONE QUANTUM? #631, and the question is stated on the CELL'S OWN PLANE.
+       `ringOpen` is the right proof for a COLUMN, which removes a cell from the walkable set: an open
+       ring of datum neighbours shows the cell is not a cut vertex. A TREAD removes nothing - the cell
+       stays air and stays walkable, and its floor moves up one quantum - so what has to be proved is
+       different, and it is this: no crossing that exists before the raise may stop existing after it.
+       The crossing rule both walkers use is "|d floor| <= STEP_Q, or a flagged climb" (`bfsReach` above,
+       `canEnter` below), so a raise of ONE quantum strands a neighbour only if that neighbour sits a
+       quantum BELOW the cell being raised and nothing authored lets you climb it. Nothing else can
+       disagree with either walker, because what makes a crossing is a height DIFFERENCE and not an
+       absolute altitude (`STEP_Q`, js/20_level.js:341, and the kind clause in `linkBoundaries`).
+       Why the datum-shaped version of this test was wrong: it asked all eight neighbours to be floor AT
+       THE DATUM, so the first cell of a line it raised poisoned the next cell of the same line - the
+       neighbour had just gone to +1 and stopped being spendable - and the arrival room's break shipped
+       DASHED, one tread with a gap between it and the next. A dashed lip is not an edge, so the room you
+       wake in still read as one open bay. This predicate is what makes the line continuous; the
+       `bfsReach` before-and-after the write below is the same proof the wall path runs, kept as the
+       belt because it also says a spent cell did not strand a storey above it. */
+    const treadOk = (x, y) => {
+      const i = y * N + x;
+      for (let d = 0; d < 4; d++) {
+        const nx = x + DIRX[d], ny = y + DIRY[d];
+        if (nx < 0 || ny < 0 || nx >= N || ny >= N) return false;
+        const j = ny * N + nx;
+        if (cell[j] !== 0) return false;                     // the open ring the proof needs
+        const here = Math.abs(fzTry[j] - fzTry[i]) <= 1 || linkedClimb(vbTry, featTry, i, j, d);
+        if (!here) continue;                                 // no crossing here to lose
+        const up = Math.abs(fzTry[j] - (fzTry[i] + 1)) <= 1 || linkedClimb(vbTry, featTry, i, j, d);
+        if (!up) return false;                               // the raise would strand THAT neighbour
+      }
+      return true;
+    };
     /* THE GAP IN THE LINE IS A DOORWAY, SO IT GETS A FRAME (#631). A row of single columns breaks a plan
        but says nothing about where you go: the eye reads columns, not a way through them. Every gap in a
        pier line is one open cell with a solid column on each side of it, which is a doorway with jambs and
@@ -5248,7 +5279,18 @@ function genLevel(li) {
       const tryLine = (alongX, pos, phase, low) => {
         const span = alongX ? r.h : r.w;
         let got = 0;
-        for (let k = phase; k < span - 1; k += 2) {
+        /* #631 A TREAD IS ONLY AN EDGE IF IT IS CONTINUOUS. A pier line is dashed on purpose - air past
+           every column is what makes a rank of columns cheap to look at and cheap to walk past - but a
+           one-quantum step with a gap in it is a lip, not a break, and the frame the player wakes in read
+           as one open bay. So a `low` line walks EVERY cell of the line and a full-height line keeps
+           main's stride of two. This changes no dice and no candidate: the same line, the same phase, the
+           same room; only the cells the write covers.
+           The reachability belt for this branch is the `bfsReach` pair at the end of the loop: a tread is
+           authored HEIGHT, so unwinding it means putting the quanta back, not clearing a cell. */
+        const seat0 = ((P.y | 0) * N) + (P.x | 0);
+        const wasReach = low ? bfsReach(cell, fzTry, N, seat0, vbTry, featTry) : null;
+        const wrote = [];
+        for (let k = phase; k < span - 1; k += low ? 1 : 2) {
           const x = alongX ? pos : r.x + k, y = alongX ? r.y + k : pos;
           if (x < 1 || y < 1 || x >= N - 1 || y >= N - 1) continue;
           const i = y * N + x;
@@ -5265,7 +5307,10 @@ function genLevel(li) {
           }
           if (near) continue;
           if (occupied[i]) continue;
-          if (!ringOpen(x, y)) continue;                            // the stranding proof, not a hope
+          /* A TREAD AND A COLUMN ARE PROVED APART, because they strand apart: a column deletes a cell, a
+             tread moves one. `treadOk` is that proof and it is the only difference between the two
+             branches of this loop - see the clause above it. */
+          if (!(low ? treadOk(x, y) : ringOpen(x, y))) continue;     // the stranding proof, not a hope
           /* THE PIER WEARS THE ROOM'S MINORITY FACE, NOT ITS PRIMARY ONE. #369's family rule is that a
              surface standing in the SAME cladding as the wall behind it does not read as a surface, which is
              why `pickWallTex` deals a room's faces 78% `cfgL.wall` / 22% `cfgL.wall2`. A pier written
@@ -5327,9 +5372,24 @@ function genLevel(li) {
              band (figures on #631); it also converts authored HEIGHT into CELLS, which `flatparity`'s flat
              senses cannot see in a tread and do see in a column, so it would re-key the L0 PARITY and L0
              LOCK references. No reference is re-recorded by this head because no byte moves. */
-          if (low) fzTry[i] = 1;
+          if (low) { fzTry[i] = fzTry[i] + 1; wrote.push(i); }
           else cell[i] = cfgL.wall2;
           placed++; got++;
+        }
+        /* THE PROOF THE PREDICATE CANNOT DO ALONE, #631 again, and it is the one the wall path already
+           runs (`bfsReach` before, `bfsReach` after, rewind if a walkable cell went dark). Standing the
+           whole line at once is a bigger change to the graph than standing one cell, so the run is proved
+           as a run: if the continuous step would strand any cell that was reachable from the seat before
+           it was authored, the quanta go back and this candidate is refused like any other. `placed` is
+           given back with them, because `placed` is what says a `linkBoundaries()` is owed. */
+        if (low && wrote.length) {
+          const nowReach = bfsReach(cell, fzTry, N, seat0, vbTry, featTry);
+          for (let c = 0; c < N * N; c++) {
+            if (wasReach[c] < 0 || nowReach[c] >= 0 || cell[c] !== 0) continue;
+            for (const w of wrote) fzTry[w] = 0;
+            placed -= wrote.length; got -= wrote.length;
+            return 0;
+          }
         }
         return got;
       };
