@@ -7,7 +7,7 @@
 # warning, and the row runs inside flatparity, which ci.yml runs blocking.
 ref	alt	DARK-COVERED	num	61.1 62.4 58.1 100.0
 ref	alt	DARK-SHARE	num	1.7 7.2 4.3 2.7
-ref	alt	GRID-CENSUS	num	13 190 2 59 13 271 2 64 13 314 2 64 9 141 5 25
+ref	alt	GRID-CENSUS	num	13 191 2 59 13 271 2 64 13 314 2 64 9 141 5 25
 ref	alt	OOB-ERA	num	19 10 16 0
 ref	alt	OOB-NONCLIMB	num	0 0 0 0
 ref	alt	PIT-CELLS	num	190 194 211 204

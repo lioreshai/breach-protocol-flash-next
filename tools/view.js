@@ -718,7 +718,7 @@ if (MODE === 'alt') {
   // staircase digit holds at 2 and L1/L2/L3 hold their whole six in the same run: the preference runs in one
   // sector, so the three sectors that do not ask the near question deal byte-identical geometry - the
   // level-scoped control that says this is one room's deal and not a generator-wide re-deal.
-  const RECGEOM = refRecord('alt', 'GRID-CENSUS', 'num', [13, 190, 2, 59, 13, 271, 2, 64, 13, 314, 2, 64, 9, 141, 5, 25]);   /* #421 STAND-UNDER STOREY, measured on this tree in ONE run. The three GENERATED levels re-key and THE STACK - authored, so the band pass never runs on it - holds its four digits to the cell, which is the level-scoped control that says the deal's dice did not move and only the height a raised band lifts to did. Per level (distinct floor values / cells off datum / bands / step faces): L0 9/186/2/51 -> 13/190/2/59, L1 9/267/2/60 -> 13/271/2/64, L2 9/310/2/56 -> 13/314/2/64. Floor values 9 -> 13 IS the change: a raised band now occupies 8 quanta instead of 4, so the datum, the intermediate quanta a two-unit stair steps through and the deck all carry distinct `fz` where one raised floor used to add one. Off-datum cells and step faces follow the same geometry - a taller band leaves more of its own cells off the datum and a longer run carries more treads. ATTRIBUTION IN ONE TREE: `JSDIR=<main's js> node tools/view.js alt` in the same checkout prints main's census beside these, so the two sets are one harness apart. No seed, dice, band count, reachability rule, threshold or vacuity floor is touched; this row's >= 2 bands, links and reachability clauses are green at their own bounds. */
+  const RECGEOM = refRecord('alt', 'GRID-CENSUS', 'num', [13, 191, 2, 59, 13, 271, 2, 64, 13, 314, 2, 64, 9, 141, 5, 25]);   /* #631 THE WAKE ROOM ASKS ITS OWN DEEPEST VIEW: L0 ONLY moves, 190 -> 191 open cells off the datum, measured on this tree in ONE run of `node tools/view.js alt` with L1 271, L2 314 and L3 141 HELD to the cell in the same run - the level-scoped control that says one tread line moved in the room the player wakes in and no other room's deal was touched. THE DIRECTION IS THE POINT: the arrival pass now spends one cell of the wake room's own deck on a one-quantum step, which is the cell that puts an edge in ARCHIVE SUBLEVEL's first frame (`scene 0 0` 31487d02 -> 83f0c765, `scene 0 1` 1a8f1a52 -> 922c0a5d; `scene 0 2` and ABATOIR's `scene 2 0` are byte-identical to main). No reachability clause moved: every `alt` band row still reads 0 unreachable of 572/885/1147/256 and `off the datum is reachable from spawn, up AND down` holds on all four levels, because a tread moves a floor one quantum and the crossing rule still walks it. The candidate carries the same PIER_NEAR-from-the-eye floor the along-view sweep already enforces, which is why `exposure`'s four spawn pairs and four seeded medians come back MAIN'S, unchanged, in the same session, and why no exposure or flatparity record is re-keyed by this change. Only this digit and the note beside it moved; `tools/refs.lock` was re-derived with `node tools/view.js refs --record` from the declarations, not hand-edited. */   /* #421 STAND-UNDER STOREY, measured on this tree in ONE run. The three GENERATED levels re-key and THE STACK - authored, so the band pass never runs on it - holds its four digits to the cell, which is the level-scoped control that says the deal's dice did not move and only the height a raised band lifts to did. Per level (distinct floor values / cells off datum / bands / step faces): L0 9/186/2/51 -> 13/190/2/59, L1 9/267/2/60 -> 13/271/2/64, L2 9/310/2/56 -> 13/314/2/64. Floor values 9 -> 13 IS the change: a raised band now occupies 8 quanta instead of 4, so the datum, the intermediate quanta a two-unit stair steps through and the deck all carry distinct `fz` where one raised floor used to add one. Off-datum cells and step faces follow the same geometry - a taller band leaves more of its own cells off the datum and a longer run carries more treads. ATTRIBUTION IN ONE TREE: `JSDIR=<main's js> node tools/view.js alt` in the same checkout prints main's census beside these, so the two sets are one harness apart. No seed, dice, band count, reachability rule, threshold or vacuity floor is touched; this row's >= 2 bands, links and reachability clauses are green at their own bounds. */
   const GEOMK = ['floor values', 'cells off datum', 'staircase runs', 'step faces'];
   const SEEDK = SEED !== 12345;      // the deal the record binds is the SEED-12345 deal
   const row = (label, ok, detail) => {
@@ -18226,6 +18226,35 @@ if (MODE === 'bands') {
      so WITHOUT this record the #266 defect is silent even after the drift is gone. Gated on the plain
      run, which is what ci.yml runs; every knob that moves the frame or where it is shot from is
      reported as not-comparable instead of being called a regression. */
+  /* #631 x MAIN-SYNC onto main 4fda4ef (the wake room is asked for its break along its own deepest view),
+     MEASURED on THIS merged tree in ONE run: L0's SEAM=1 lip frame ONLY re-keys (66d0702f -> a3eba0b8) and
+     L1/L2/L3 hold this record's bytes TO THE BYTE in the same run - the level-scoped control, since the
+     change is one tread line inside ARCHIVE SUBLEVEL's arrival room and reaches no other level's deal.
+     THE ROW'S ORACLE IS STILL NOT THE HASH: it is the SEAM=1 vs SEAM=0 pixel count, and this run prints it
+     on BOTH sides - this tree moves 1442 / 6405 / 8589 / 7910 px of the every-7th sample and main's own js
+     in the same harness (`JSDIR=<main js> node tools/view.js bands`, js-sha256 8ad397c700c2253a, `BANDS ok`)
+     moves 10248 / 6405 / 8589 / 7910. L1, L2 and L3 hold their counts TO THE PIXEL, so the seam TERM is
+     untouched; only L0's count moves, and WHY it moves is worth the reading. This probe's two L0 cameras
+     come out of `lipFor`, which scores every boundary of that kind `wide * 1000 - distance`, and this
+     increment steps a one-quantum tread at (22,3) inside the wake room (`MAP.fz` there: main 0, this tree
+     1, read in one run of a diagnostic copy of this harness). That tread is a walk-kind boundary with a
+     level five-cell approach and it is CLOSER to the dealt seat than the lip main's walk rows were measured
+     on, so the walk camera moves with it: main's L0 walk lip is the -x boundary at (13,13), a step DOWN off
+     a deck at 2.00 m (eyeZ 2.50), this tree's is the +x boundary at (21,3) -> (22,3), a step UP of one
+     quantum from the datum (eyeZ 0.50). Attributed per camera in that same diagnostic: the FACE lip is the
+     SAME lip on both trees - (19,11), a 2 m drop face, wide 3 - and it displaces 1707 px of its every-7th
+     sample on BOTH, which is the control that says the seam term's own teeth are exactly main's; the whole
+     10248 -> 1442 fall is the WALK camera, 1464 px there against 206 px here. So this row's L0 teeth are
+     now measured on a one-quantum riser instead of a 2 m deck edge, which is a real narrowing of what the
+     census covers and it is written down rather than cropped: every lip clause the four frames exist to
+     carry came back green at its OWN threshold in the run above - L0 walk lip contrast 99 % against a want
+     of >= 45 % with mean |dL| 64.3 signed +64.3, band 5.3 px of a 24 px riser, 60 of 60 columns carrying a
+     band INSIDE the painted face on the eye's own side and 0 misplaced GATING - so the lip rows are
+     describing an edge the player really meets at that camera, and that edge is the step this increment
+     puts in the room you wake in. The `diffPx > 0` vacuity floor is untouched and 1442 px sits three orders
+     of magnitude above it, so a build that ships no seam term still goes red on the frame re-recorded here.
+     No threshold, lip bound, mask, sample stride, camera, seed list or vacuity clause moved; the table was
+     re-derived with `node tools/view.js refs --record`, not hand-edited. */
   const md5u32 = b => require('crypto').createHash('md5').update(Buffer.from(b.buffer, b.byteOffset, b.byteLength)).digest('hex');
   const KNOBS = ['DIST', 'SEAMD', 'SEAMU', 'SEAMW', 'VW', 'VH', 'SEED', 'JSDIR', 'LAMPS', 'DECKLIGHT'].filter(k => process.env[k]);
   // #149 re-keys all three: the seam frame carries lamp light, and three seats moved on the generated levels.
