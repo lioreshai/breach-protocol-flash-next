@@ -200,6 +200,46 @@ class ReleasePolicyTests(unittest.TestCase):
         overdue = policy.publish_state(manifest, None, None, NOW - timedelta(hours=2), NOW)
         self.assertTrue(self.status(publication=overdue)['due'])
 
+    def test_a_merged_release_awaiting_its_tag_holds_the_row_without_deleting_the_debt(self):
+        """The queue freeze #792 turned into: a release commit has merged and its tag is still owed,
+        so `release.json` on main names a version no other branch can tag. Before this, `verdict`
+        exited 1 past the 3600 s grace and red the required `release` row on every PR that contained
+        the release commit - measured on #793, #800, #801 and #803 at main `5dddb49`, and again at
+        v1.4.23 - which is also how the fix for it could not merge. The hold moves the red row to
+        the ref that owes it: `release publish (main)` still exits 1 on main (the row above), and
+        `due` stays true so `notify` keeps the release-due issue open. Only `verdict` reads it, and
+        an ordinary cadence debt - a published release past its cadence - is still nobody's hold.
+        """
+        manifest = dict(version='v1.2.1', prepared_from=HEAD)
+        overdue = policy.publish_state(manifest, None, None, NOW - timedelta(hours=2), NOW)
+        held = self.status(publication=overdue)
+        self.assertTrue(held['due'], 'the release-due issue must stay open while the tag is owed')
+        self.assertTrue(held['suspended'], 'this branch cannot cut the tag the debt asks for')
+        self.assertIn('merged-not-tagged', held['reason'])
+        # Vacuity: the hold belongs to an outstanding publication, not to the cadence clock. A
+        # published release that simply ran out of cadence is a debt the board still fails on.
+        self.assertFalse(self.status()['suspended'])
+        self.assertFalse(self.status()['publication_held'])
+
+        def run(value):
+            with tempfile.NamedTemporaryFile('w', suffix='.json', delete=False) as handle:
+                json.dump(value, handle)
+                path = handle.name
+            result = subprocess.run([sys.executable, str(Path(policy.__file__)), 'verdict',
+                                     '--input', path], text=True, capture_output=True)
+            os.unlink(path)
+            return result
+
+        # The real CLI, because `release` is a required row and the outcome is its exit code.
+        verdict = run(dict(held, waived=False))
+        self.assertEqual(verdict.returncode, 0, verdict.stdout + verdict.stderr)
+        self.assertIn('Release cadence suspended - release PR merged, publication outstanding',
+                      verdict.stdout)
+        unpaid = run(dict(held, waived=False, suspended=False, publication=None,
+                          reason='release due'))
+        self.assertEqual(unpaid.returncode, 1)
+        self.assertIn('release cadence is overdue', unpaid.stderr)
+
     def test_draft_or_prerelease_publication_is_never_published(self):
         manifest = dict(version='v1.2.1', prepared_from=HEAD)
         for release in (dict(RELEASE, draft=True), dict(RELEASE, prerelease=True)):
