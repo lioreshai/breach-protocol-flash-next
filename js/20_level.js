@@ -5550,10 +5550,37 @@ function genLevel(li) {
          new bright face in the first frame). Only CROSSING candidates are offered, same as the arrival
          pass: an along-view wall would be a long face beside the eye and would say nothing about where to
          go. Every other room keeps main's pier line exactly. */
+      let gotHere = 0;
       if (!inRoom && !levelWall)
-        for (const c of cands) if (tryWall(c[0], c[1])) { frameGap(r, c[0], c[1], inRoom, seatAng); gotWall = 1; levelWall = 1; break; }
+        for (const c of cands) if (tryWall(c[0], c[1])) { frameGap(r, c[0], c[1], inRoom, seatAng); gotWall = 1; levelWall = 1; gotHere = 1; break; }
       if (!gotWall)
-        for (const c of cands) if (tryLine(c[0], c[1], c[2], inRoom)) { frameGap(r, c[0], c[1], inRoom, seatAng); break; }
+        for (const c of cands) if (tryLine(c[0], c[1], c[2], inRoom)) { frameGap(r, c[0], c[1], inRoom, seatAng); gotHere = 1; break; }
+      /* A ROOM THIS PASS STOOD NOTHING IN IS STILL ONE OPEN PLAN (#631's third criterion: "every room's
+         open plan is broken at least once inside the room's own bounds by something with a visible edge").
+         A census of the dealt grid at main says which rooms those are: on the shipped seed three of
+         ARCHIVE's nine rooms, three of RING's six and two of ABATOIR's seven stand no interior structure at
+         all - their candidate lines all died at `ringOpen`, which needs every neighbour of a column to be
+         floor AT THE DATUM, and a dealt room's own band edge crossing the line puts an off-datum cell in
+         every one of its positions. Those rooms are exactly the frames #631 describes: a clear sight from
+         one wall to the other with only props in it.
+
+         So the SAME candidate list is asked a second time for the CHEAP member: the one-quantum tread the
+         wake room already wears. That member is not a smaller favouritism, it is a different proof - a
+         tread removes no cell, it moves one floor up by one quantum, so it is spendable on the off-datum
+         deck `ringOpen` refuses (`treadOk` plus the `bfsReach` pair inside `tryLine` are that proof, and
+         product decision 1 on this issue authorised spending authored deck that way). One quantum is a
+         face to draw (`linkBoundaries` sets `steps` for any nonzero dq, #517) and an automatic step
+         (#100), so the room gains an edge the eye can walk past and a lip the player walks over - and it
+         gains no new bright WALL face, which is the cost that stopped full-height ranks in this pass
+         (#505's spawn band). Raising a room's own band deck by one quantum cannot turn a step into a
+         cliff either: `treadOk` refuses any neighbour whose existing crossing would be lost.
+
+         Nothing here moves a room that already stands structure: `gotHere` is set by both members above,
+         so this clause runs only in a room the pass would otherwise leave untouched. It draws no RNG, so
+         no prop, lamp, enemy or seat moves, and it adds no CELL - the flat senses of `flatparity` flatten
+         `fz` and therefore stay main's bytes." */
+      if (!gotHere)
+        for (const c of cands) if (tryLine(c[0], c[1], c[2], 1)) { gotHere = 1; break; }
     }
     /* #631 THE DECLINE IS NAMED, NOT IMPLIED. If this sector ran the pass and stands no doorway-wall, the
        rejection that killed the most candidates is what a reviewer has to see: "it keeps main's pier line" is

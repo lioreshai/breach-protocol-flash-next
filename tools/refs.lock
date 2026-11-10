@@ -7,7 +7,7 @@
 # warning, and the row runs inside flatparity, which ci.yml runs blocking.
 ref	alt	DARK-COVERED	num	61.1 62.4 58.1 100.0
 ref	alt	DARK-SHARE	num	1.7 7.2 4.3 2.7
-ref	alt	GRID-CENSUS	num	13 191 2 59 13 271 2 64 13 314 2 64 9 141 5 25
+ref	alt	GRID-CENSUS	num	14 192 2 59 14 271 2 64 14 315 2 64 9 141 5 25
 ref	alt	OOB-ERA	num	19 10 16 0
 ref	alt	OOB-NONCLIMB	num	0 0 0 0
 ref	alt	PIT-CELLS	num	190 194 211 204
@@ -15,16 +15,16 @@ ref	alt	PIT-MEAN	num	0.289 0.347 0.335 0.316
 ref	alt	SEAT-DARK	num	1.6 4.4 2.7 2.0
 ref	anim	NECK-BAND	num	4.8 2.7 3.4
 ref	anim	NECK-TUBE	num	41 43.2 40
-ref	bands	SEAM-FRAME	md5	be06516e9d76bbcaaba27c7204d8fe3d c4c6fdd7540467369a3b57b621bd472e f386dbe3f1e2707191538bc44060c0ea 8bf7e861feb0801450e54d3a39ada4f2
+ref	bands	SEAM-FRAME	md5	48ce42ba34f5ea51db575cb5ec7902cb 5722757affa1638094143902cc9ee567 ef22a91a05c54854b0bba3fa06b7b950 a8c27597f8aa37aaff18e7acb71b5a18
 ref	contrast	TORSO-DL	num	0.90 1.10 0.88
 ref	cull	CZBAND	crc32	0x12ce48d4 0xabc53f88 0xf0b71e0b 0xdfa337c4
 ref	cull	CZBAND-LIGHT	crc32	0x81b1a1a0 0xe883dca8 0x3a96adcc 0x43a22b10
-ref	exposure	MEDIAN	num	76 79 73 91
-ref	exposure	SPAWN	num	73 63 87 67 77 78 75 85
-ref	flatparity	DEALT	md5	7b0949645f784ece1abbfd3f72155f6a 0cbe06a2ff520b2f9dbe8b5afba9e721 fcb4b5ea5ce912afee2e7df445dd87a0 55b5690348652cf6d5a2aa12503f2b9d
-ref	flatparity	LOCK	md5	eafb81dba5c3e867fc09102b303ab25e 82cacadfe122d1f2e745150acf565be5 02ec06f689dc108974d987bd17a48131 d5ac2ff6840b291218e46eb58d2c124f
-ref	flatparity	PARITY	md5	77aa9714cf653d4aa2e2b9363fb41a77 aecb2a6a1ab52c331a30c7aaac26bd3d a261eaf46ebc735ce766767df8d5d125 12d0a6111bee250b12a8a681535f633f
-ref	heights	HALF-MOVE	num	97.17 27.76 60.60 99.88 49.78 68.82 97.13 29.95 79.68 99.76 49.15 69.74 97.17 31.65 30.78 99.87 49.79 70.27 97.17 11.27 13.38 99.82 38.33 54.54
+ref	exposure	MEDIAN	num	75 79 71 91
+ref	exposure	SPAWN	num	73 63 86 65 77 77 75 85
+ref	flatparity	DEALT	md5	b2a9ae0af1dd89f85d3e397f7ab1e3c6 46bd2ed11a446a72b8512b63305cccda 41a6d29c7923f6f2c24a161b73ef92a3 c3f30ce64fbac57047d1e44bf36b082b
+ref	flatparity	LOCK	md5	4bccb7e8bef4fd24c07b7a9ce96f3b62 1b21b162b390a295813e9a710fcc21ac ea26eeae51f743de683400572e228a83 7a34863e0b9ea80c85e24bcf36d9e1e6
+ref	flatparity	PARITY	md5	10234a91b41969a4f4ab7a6bd4f8415f 446b64290f5abae1f65facf4431fe7ec 44ec05fe48729f8eb9e5cdd224fe52f2 e974d0f789c71f0988ddfaca585ce495
+ref	heights	HALF-MOVE	num	97.11 27.76 60.60 99.89 49.78 68.82 97.12 29.95 79.68 99.78 49.15 69.74 97.17 31.65 30.78 99.87 49.79 70.27 97.12 11.27 13.38 99.82 38.33 54.54
 ref	props	CTRL-RAT	num	0.491 0.471 0.306 0.431
 ref	props	LAMPCORE	num	263 239.6 263 239.4 263 239.2 245 239.4
 ref	props	PROP-KNOB	num	1.3 0.45 0.5139

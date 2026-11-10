@@ -474,11 +474,32 @@ const EXPOSE_T = 200;            // the shoulder: at or above this luma the term
    a luma of EXPOSE_T. `DEV.set('shoulder', 0)` is the A/B. */
 const EXPOSE_TOP = 224;
 let SHOULDER = 1;
+/* `crisp` is the tier's own statement about THE LAST MILE - how the raster reaches the window - and
+   it is #784: 1 = hard texels, drawn small and enlarged with no filter; 0 = the buffer is raised and
+   the filter stays. Until #784 the look was not stated anywhere: it was `q.res > 0.4` at
+   js/40_render.js:504, so BALANCED (res 0.47, a 2.13x enlargement at a 620-row window) got a bilinear
+   average over every edge the raster had just paid for while PERFORMANCE got the crisp path - the
+   picture was smeared where it was close and blocky where it was far. ULTRA declares 0 because its
+   buffer is already 62 % of the window: enlarging 1.6x with nearest would leave texels that are one
+   screen pixel wide beside ones two wide, which crawls while you strafe, and a raised buffer with the
+   filter kept is the other half of the same decision (#784's "either/or"). If ULTRA's buffer is ever
+   snapped to an exact half of the window, its `crisp` becomes 1 with it. */
 const QUAL = [
-  { name: 'PERFORMANCE', res: 0.34, min: 170, max: 430, bloom: false, grade: false, grain: 0, far: 15, dmax: 8, glow: 0, scan: 0.5, vec: 0, rast: 0, rigH: 0, expose: EXPOSE_A },
-  { name: 'BALANCED', res: 0.47, min: 220, max: 760, bloom: true, grade: true, grain: 0.05, far: 22, dmax: 13, glow: 6, scan: 0.18, vec: 1, rast: 2, rigH: 300, expose: EXPOSE_A },
-  { name: 'ULTRA', res: 0.62, min: 260, max: 780, bloom: true, grade: true, grain: 0.04, far: 30, dmax: 19, glow: 9, scan: 0.1, vec: 1, rast: 4, rigH: 216, expose: EXPOSE_A }
+  { name: 'PERFORMANCE', res: 0.34, crisp: 1, min: 170, max: 430, bloom: false, grade: false, grain: 0, far: 15, dmax: 8, glow: 0, scan: 0.5, vec: 0, rast: 0, rigH: 0, expose: EXPOSE_A },
+  { name: 'BALANCED', res: 0.47, crisp: 1, min: 220, max: 760, bloom: true, grade: true, grain: 0.05, far: 22, dmax: 13, glow: 6, scan: 0.18, vec: 1, rast: 2, rigH: 300, expose: EXPOSE_A },
+  { name: 'ULTRA', res: 0.62, crisp: 0, min: 260, max: 780, bloom: true, grade: true, grain: 0.04, far: 30, dmax: 19, glow: 9, scan: 0.1, vec: 1, rast: 4, rigH: 216, expose: EXPOSE_A }
 ];
+
+/* THE LAST MILE (#784). True = the raster is blitted onto the window with no filter. `q.crisp` is the
+   tier's decision above; the factor test is the window's, and BOTH have to say hard pixels, because at
+   an enlargement under 2 nearest leaves 1- and 2-pixel texels side by side - the other way this frame
+   reads as broken rather than as a look. The softening job belongs to the CRT curtain (`q.scan`) and
+   to the bloom, which is a deliberate blur; nothing in the frame is blurred to look period-correct.
+   Every raster-to-display blit of GAME pixels asks this one question - the frame blit in renderOverlay
+   and both composites in drawExposure - so the crisp path cannot be undone by a pass that forgot it. */
+function blitCrisp(q) {
+  return !!(q && q.crisp) && DH >= BH * 2;
+}
 
 function resize() {
   DPR = Math.min(1.5, window.devicePixelRatio || 1);
@@ -501,7 +522,7 @@ function resize() {
   // through the slab (#163). Only a row with no plane to solve - the horizon row, where dz/0 is
   // Infinity - keeps the sentinel.
   zbuf = new Float32Array(BW * BH).fill(Infinity);
-  ctx.imageSmoothingEnabled = q.res > 0.4;          // smooth upscale instead of chunky pixels
+  ctx.imageSmoothingEnabled = !blitCrisp(q);        // #784: the look is `crisp`, not a side effect of res
   ctx.imageSmoothingQuality = 'low';
   const scan = document.getElementById('scan');     // the CRT curtain is a look, not a given
   if (scan) scan.style.opacity = String(q.scan);
@@ -4675,6 +4696,14 @@ function drawExposure(A) {
   liftCtx.globalCompositeOperation = 'lighter';
   liftCtx.fillStyle = 'rgb(' + A + ',' + A + ',' + A + ')';
   liftCtx.fillRect(0, 0, BW, BH);
+  /* THE SAME LAST MILE, ASKED AGAIN (#784). This composite runs after renderOverlay put the filter
+     back on for the art it draws in display space, and it is a per-channel MAX against a copy of the
+     room: in the darks - the deck, the near half of every wall - the lift wins, so whatever filter is
+     on THIS blit is the filter the floor is delivered with. With smoothing left on, the crisp frame
+     blit was undone exactly where #784 says the defect is, and the near deck stayed soft on the crisp
+     tiers. So it asks blitCrisp too, and both copies of the room land on the same texel grid. */
+  const smoothSave = ctx.imageSmoothingEnabled;
+  ctx.imageSmoothingEnabled = !blitCrisp(GQ);
   ctx.globalCompositeOperation = 'lighten';
   ctx.drawImage(liftCv, 0, 0, BW, BH, 0, 0, DW, DH);
   /* The highlight shoulder, on the same buffer and by the same trick (see EXPOSE_TOP). `darken` is a
@@ -4707,6 +4736,7 @@ function drawExposure(A) {
     ctx.drawImage(liftCv, 0, 0, BW, BH, 0, 0, DW, DH);
     ctx.globalCompositeOperation = 'source-over';
   }
+  ctx.imageSmoothingEnabled = smoothSave;           // everything drawn after this is display-space art
 }
 
 /* ---- the glow's band gate (#221) ---------------------------------
