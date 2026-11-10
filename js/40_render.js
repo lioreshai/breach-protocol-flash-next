@@ -644,8 +644,22 @@ const CEILFL = 0.10;
    Dead where nothing is overhead: on a flat level `MAP.ceilSlab` is zero everywhere, so `und` is 0 for
    every pixel and neither copy of the ground pixel body runs a line of the term - flatparity's frames
    stay bit-identical. `SLABUND = 0` is the A/B that puts the old picture back in a running page. */
+/* #781: the ANGLE the plate is seen at, and it is the term the other three could not be. `surface`'s
+   straight-up ORDER rows went red on two generated sectors (ARCHIVE 95.4 over the level sheet's 61.2,
+   ABATOIR 81.4 over 57.4) because with the lens pointing up the ceiling in frame is a far sliver and the
+   soffit overhead fills the top of the frame. Three passes tried to settle that with constants that scale
+   the WHOLE underside band, and proved that band has no feasible value: `ORDER` wants the plate dark,
+   `ROOF`/`ABOVEBLACK`/`UNDERSIDE` want the same pixels bright, and a scalar cannot do both. The axis they
+   never varied is the plate's own orientation, which the row's distance solve already computes: for a
+   horizontal plane dz/d is `absP / BH` in the row loop and `(pl - eyeZ) / gMDS` in the deferred body, a
+   monotone stand-in for the viewing cosine (it is tan, not cos, so it is clamped at 1 = 45 degrees).
+   Dosing the texel by `1 - SLAB_INC*ci*ci` darkens the plate where it is a SEA overhead and leaves it
+   alone where it is the horizon sliver the arrival roof is made of - which is why `ROOF` stops moving
+   while `ORDER` goes green. It is still a texel multiplier ahead of the light term like the other three,
+   so it spends none of the vault lift #410 capped and adds no light; SLAB_INCF is the floor under it, so
+   a soffit in a dark room is still a soffit and never posterises to black. `SLAB_INC = 0` is the A/B back. */
 const SLAB_ALB = 1.42, SLAB_RIB = 2, SLAB_RIBW = 0.34, SLAB_RIBK = 0.48, SLAB_LIP = 0.40, SLAB_LIPA = 1.35,
-  SLAB_SEAM = 0.09, SLAB_SEAMK = 0.78;
+  SLAB_SEAM = 0.09, SLAB_SEAMK = 0.78, SLAB_INC = 0.85, SLAB_INCF = 0.40;
 let SLABUND = 1;
 const visAt = d => 1 / (1 + d * d * 0.010) + 0.06 * Math.exp(-d * 0.06);
 const fogAt = d => clamp(1 - visAt(d), 0, 1);
@@ -2537,6 +2551,14 @@ function castGround(flash, fcR, fcG, fcB) {
           if ((und & 256) && fyu < ew) ew = fyu;
           if (ew < SLAB_SEAM) { const sv = 1 - ew / SLAB_SEAM; ku *= 1 - SLAB_SEAMK * sv * sv; }
         }
+        /* #781, ROW COPY: dose by the plane's own decline - see SLAB_INC at its definition. `absP/BH` is
+           this row's dz/d, so the term is one multiply per underside pixel and no new sampler. */
+        if (SLAB_INC) {
+          let ci = absP / BH;
+          if (ci > 1) ci = 1;
+          ku *= 1 - SLAB_INC * ci * ci;
+          if (ku < SLAB_INCF) ku = SLAB_INCF;
+        }
         const ka = SLAB_ALB * ku;
         cr = cr * ka * 0.97; cg = cg * ka; cb = cb * ka * 1.06;
       }
@@ -3367,6 +3389,15 @@ function groundPixel(x0, x1, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb
       if ((ux & 64) && 1 - fyu < ew) ew = 1 - fyu;
       if ((ux & 256) && fyu < ew) ew = fyu;
       if (ew < SLAB_SEAM) { const sv = 1 - ew / SLAB_SEAM; ku *= 1 - SLAB_SEAMK * sv * sv; }
+    }
+    /* #781, SECOND COPY (AGENTS.md: change one copy and you have changed the other): the same decline
+       dose, solved from this pixel's own plane altitude and distance, so the deferred far field cannot
+       disagree with the raster above it. */
+    if (SLAB_INC) {
+      let ci = gMDS > 0 ? (pl - eyeZ) / gMDS : 1;
+      if (ci > 1) ci = 1; else if (ci < 0) ci = 0;
+      ku *= 1 - SLAB_INC * ci * ci;
+      if (ku < SLAB_INCF) ku = SLAB_INCF;
     }
     const ka = SLAB_ALB * ku;
     cr = cr * ka * 0.97; cg = cg * ka; cb = cb * ka * 1.06;
