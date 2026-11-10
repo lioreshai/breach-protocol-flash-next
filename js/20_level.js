@@ -5295,7 +5295,16 @@ function genLevel(li) {
           if (x < 1 || y < 1 || x >= N - 1 || y >= N - 1) continue;
           const i = y * N + x;
           if (cell[i]) continue;
-          if (fzTry[i] !== 0) continue;
+          /* A TREAD MAY STAND ON AUTHORED DECK (#631, product decision 1). `fzTry[i] !== 0` used to refuse
+             every off-datum cell to this pass, which is the right rule for a COLUMN - a hole in a band is a
+             hole in a band - but a tread is a one-quantum raise of the floor that is already there, so the
+             only thing it can do to an authored deck is step it, and that is exactly what `treadOk` and the
+             `bfsReach` pair below prove cannot strand a neighbour. Refusing it was what made the arrival
+             room's break stop after three cells on a 9-cell line: the room's own march crosses its band
+             deck, and a tread that dies halfway across is a nib, not an edge. Full-height piers keep the
+             datum rule unchanged (`ringOpen` still demands `fzTry` at the datum): they DELETE a cell, and a
+             deleted cell inside a band is a void with a lip. */
+          if (fzTry[i] !== 0 && !low) continue;
           if (shotRun[i]) continue;
           // A tread, a ladder shaft, a pit lip or a rail is not structure's to spend - and neither is the
           // cell in front of it, which is the approach the climb is authored from (V19 walks four steps
@@ -5460,6 +5469,35 @@ function genLevel(li) {
           const kc = along - (crossX ? r.y : r.x);
           if (pos2 < lo || pos2 > hi || seen(crossX, pos2)) continue;
           cands.push([crossX, pos2, (kc + 1) & 1]);
+        }
+        /* THE ROOM'S OWN DEEPEST VIEW AS A SECOND EYE (#631, product decision 1's other half). The seat's
+           bearing is ONE view of the room, and in the arrival room it is usually a shallow one: ARCHIVE
+           ends 2.4 cells ahead of its dealt seat, so all four crossing depths above die on the room's own
+           bounds and the room is handed to the along-view fallback, which stands a run BESIDE the view.
+           `roomMarches()` already builds the set of views this room actually gives - the deepest clear
+           march in each of twelve bearings, from whichever open cell reaches furthest along it, the same
+           longest-sight-line rule `tools/view.js` derives its own scene camera from. Ask the SAME crossing
+           question of each of them, DEEPEST FIRST (ordering these anything else was measured inert: a
+           1-cell nib from a shallow bearing displaces a line main already stands), at the same four depths.
+           A room whose seat crossing already stands is untouched, because the seat candidates are tried
+           first; this set only takes over where the seat had nothing to offer. No RNG draw, so no prop,
+           lamp, enemy or seat moves. */
+        if (roomMarches()) {
+          const ms = marches.slice().sort((a, b) => b.d - a.d || a.x - b.x || a.y - b.y);
+          for (const m of ms) {
+            const mx = Math.abs(m.vx) >= Math.abs(m.vy);      // the axis THAT view looks down
+            const mlo = mx ? loX : loY, mhi = mx ? hiX : hiY;
+            for (let di = 0; di < 4; di++) {
+              const d = di === 3 ? PIER_NEAR : PIER_VIEW + di;  // 4, 5, 6, then 3 cells DOWN THAT MARCH
+              const rx = m.x + m.vx * d, ry = m.y + m.vy * d;
+              const pos2 = Math.floor(mx ? rx : ry);
+              const along = Math.floor(mx ? ry : rx);
+              const kc = along - (mx ? r.y : r.x);
+              if (pos2 < mlo || pos2 > mhi || seen(mx, pos2)) continue;
+              if (Math.abs(pos2 - (mx ? (P.x | 0) : (P.y | 0))) < PIER_NEAR) continue;   // V_A guard
+              cands.push([mx, pos2, (kc + 1) & 1]);
+            }
+          }
         }
         /* A ROOM TOO SHALLOW TO BE CROSSED IS BROKEN ALONG THE VIEW INSTEAD. A 9x8 room with the seat in
            its middle ends 4-5 cells along a 45 deg view, so no line crossing that view fits inside it at
