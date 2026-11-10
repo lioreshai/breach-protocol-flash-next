@@ -59,15 +59,36 @@ class ReleaseArtifactTests(unittest.TestCase):
             self.assertEqual(errors, [], notes)
             self.assertEqual(notes, [])
 
-    def test_missing_tag_is_a_failure_and_names_the_step(self):
+    def test_missing_tag_on_a_manifest_main_does_not_carry_is_a_failure(self):
+        # The teeth of the #792 debt report, measured on the other side of it: an untagged manifest
+        # nobody merged is still a finding. `main` is moved back one commit so it carries the v1.0
+        # manifest while the ref under review bumps to v1.1, and v1.1 has no tag. A ref cannot pay
+        # a tag by pointing at a version the release line has not reached.
         with tempfile.TemporaryDirectory() as tmp:
             tmp, _, _ = self.repo(tmp)
-            errors, notes = identity.check_release('HEAD', '', tmp)
+            git(tmp, 'checkout', '-q', '-b', 'feature/v1.1')
+            git(tmp, 'branch', '-f', 'main', 'HEAD~1')
+            errors, notes = identity.check_release('HEAD', 'feature/v1.1', tmp)
             self.assertEqual(len(errors), 1, errors)
             self.assertIn('refs/tags/v1.1 does not exist', errors[0])
             self.assertIn('outstanding step', errors[0])
             # The previous artifact is still verified, so the row is never "nothing to check".
             self.assertEqual(notes, [])
+
+    def test_merged_release_awaiting_its_tag_is_a_named_debt_not_a_failure(self):
+        # The state #792 removes: the release commit has merged, so `main` carries the manifest and
+        # docs/RELEASE.md step 4 - which cuts the tag only after this build is green - leaves the
+        # tag ref outstanding. The build cannot create the ref its own step demands, so a red here
+        # holds the publication that would make it green. The step prints the debt and passes;
+        # release publish (main) is the row that goes red on main until the tag is cut. The earlier
+        # artifact is still asserted, so this is a moved debt, not a deleted one.
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp, _, _ = self.repo(tmp)
+            self.assertEqual(git(tmp, 'show', 'main:release.json').count('v1.1'), 1)
+            errors, notes = identity.check_release('HEAD', 'main', tmp)
+            self.assertEqual(errors, [], notes)
+            self.assertIn('KNOWN release artifact v1.1 is outstanding, not wrong', ' '.join(notes))
+            self.assertIn('release publish (main)', ' '.join(notes))
 
     def test_missing_tag_and_missing_previous_tag_is_still_a_failure(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -221,23 +242,47 @@ class ApiArtifactTests(unittest.TestCase):
             self.assertIn('does not descend from', ' '.join(errors))
             del notes
 
-    def test_tag_absent_from_the_forge_is_still_a_named_step(self):
+    def test_tag_absent_from_a_manifest_the_forge_did_not_merge_is_still_a_named_step(self):
+        # The forge says "no such tag" AND says "main does not carry this manifest": the asking ref
+        # is a version the release line never reached, which stays the finding #635 made it.
         with tempfile.TemporaryDirectory() as tmp:
             forge, checkout = self.forge_and_checkout(tmp, forge_tag=False)
+            # main moved on to another manifest, so it does NOT carry the one under review; the
+            # depth-1 checkout still names v1.1. The clone was made before this commit, which is
+            # exactly how a runner checkout can carry a version main never merged.
+            (Path(forge) / 'release.json').write_text(manifest('v1.2', git(forge, 'rev-parse', 'HEAD'), 'v1.1'))
+            git(forge, 'add', 'release.json')
+            git(forge, 'commit', '-q', '-m', 'release: v1.2')
             errors, notes = identity.check_release('HEAD', '', checkout, api=api_from_repo(forge))
             self.assertIn('refs/tags/v1.1 does not exist', ' '.join(errors))
             self.assertIn('outstanding step', ' '.join(errors))
             self.assertIn('API', ' '.join(notes))
 
-    def test_main_still_fails_once_the_exemption_is_reached_first(self):
-        # The guarantee #635 exists for, stated by ref name: the exemption moved ahead of the
-        # absent-tag answer, so the ref that is NOT the release branch must still be red. This is
-        # the row that makes the move a scope fix rather than a loosened threshold.
+    def test_debt_never_hides_a_tag_that_exists_and_is_wrong(self):
+        # The ordering this fix could have got wrong: if the outstanding-tag report ran before the
+        # object reads, every mis-stamped artifact would go green on main, which is the state #635
+        # was filed about. It does not - the forge and the object store are asked first, so a
+        # lightweight tag still fails while branch is `main` and the same manifest is mid-handoff.
+        # The other two sabotsages are the rows above: a tag on the wrong commit answers
+        # `whose release.json names`, one that does not descend answers `does not descend from`,
+        # and both run before the debt report for the same reason.
+        with tempfile.TemporaryDirectory() as tmp:
+            forge, checkout = self.forge_and_checkout(tmp, tag='lightweight')
+            errors, notes = identity.check_release('HEAD', 'main', checkout, api=api_from_repo(forge))
+            self.assertIn('lightweight tag', ' '.join(errors))
+            self.assertNotIn('outstanding', ' '.join(errors))
+
+    def test_merged_release_awaiting_its_tag_is_a_named_debt_through_the_api(self):
+        # The trigger that froze the queue, replayed as a push run sees it: a depth-1 checkout with
+        # no tag objects, the forge answering "no such tag", and main carrying the manifest - the
+        # merged release commit its own push build is asking to be tagged. Prints the debt, exits 0,
+        # and still reads the previous artifact through the API so the row is never vacuous.
         with tempfile.TemporaryDirectory() as tmp:
             forge, checkout = self.forge_and_checkout(tmp, forge_tag=False)
-            errors, _ = identity.check_release('HEAD', 'main', checkout, api=api_from_repo(forge))
-            self.assertIn('refs/tags/v1.1 does not exist', ' '.join(errors))
-            self.assertIn('outstanding step', ' '.join(errors))
+            errors, notes = identity.check_release('HEAD', 'main', checkout, api=api_from_repo(forge))
+            self.assertEqual(errors, [], notes)
+            self.assertIn('KNOWN release artifact v1.1 is outstanding, not wrong', ' '.join(notes))
+            self.assertIn('previous artifact read through the API', ' '.join(notes))
 
     def test_release_branch_push_is_exempt_before_the_forge_absent_answer(self):
         # The failing trigger, measured as it happens on the runner: a push to release/v1.1, so the

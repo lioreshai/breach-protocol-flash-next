@@ -215,6 +215,16 @@ def evaluate(policy, release, main_sha, tag_sha, now, publication=None, release_
     # feature PR pays. Before this, the merge -> publish window failed `release` on every open
     # PR (#621-#630 read BLOCKED for 18 minutes on nothing but that gap); the guard below is
     # the row that goes red, on main. Past the grace the debt is real again.
+    # A release PR that has merged and is waiting on its tag/release is not a debt the next
+    # feature PR pays. Before this, the merge -> publish window failed `release` on every open
+    # PR (#621-#630 read BLOCKED for 18 minutes on nothing but that gap); the guard below is
+    # the row that goes red, on main. docs/RELEASE.md says the same thing in prose - "while a
+    # merged release PR is simply mid-handoff, the `release` row on other people's PRs stops
+    # failing" - and a merged release commit cannot tag itself, so the hold does not expire with
+    # PUBLISH_GRACE either (#792: v1.4.22 and v1.4.23 both froze the queue that way). `due` stays
+    # true, so `notify` keeps the release-due issue open and `publish` keeps reds on main; only
+    # `verdict` reads the hold, and an already-published release never sets it.
+    publication_held = bool(publication and publication['outstanding'])
     if publication and publication['outstanding']:
         if not publication['overdue']:
             due, reason = False, 'publication in flight: ' + publication['step']
@@ -224,7 +234,8 @@ def evaluate(policy, release, main_sha, tag_sha, now, publication=None, release_
                                  cadence_seconds=seconds, main_sha=main_sha,
                                  last_tag=release['tag_name'],
                                  last_published_at=release['published_at'],
-                                 due_at=due_at.isoformat(), publication=publication), release_pr)
+                                 due_at=due_at.isoformat(), publication=publication,
+                                 publication_held=publication_held), release_pr)
 
 
 def apply_release_pr(value, release_pr):
@@ -237,8 +248,12 @@ def apply_release_pr(value, release_pr):
     release-due issue keeps its record and `notify` keeps it open - and only `verdict` honours the
     suspension. Past the grace `suspends` is false and the row fails again on its own terms."""
     value['release_pr'] = release_pr
-    value['suspended'] = bool(release_pr and release_pr['suspends'] and value['due'])
-    if value['suspended']:
+    # The hold on an outstanding publication is reported in `reason` by evaluate - the same step
+    # name the debt issue and the publish guard print - and only added to `suspended` here.
+    value['publication_held'] = bool(value.get('publication_held') and value['due'])
+    value['suspended'] = bool(release_pr and release_pr['suspends'] and value['due']) or \
+        value['publication_held']
+    if release_pr and release_pr['suspends'] and value['due']:
         value['reason'] = ('release PR #%s (%s) is open, publication in flight'
                            % (release_pr['number'], release_pr['version']))
     return value
