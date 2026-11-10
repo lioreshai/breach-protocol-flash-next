@@ -5308,9 +5308,21 @@ function genLevel(li) {
           if (shotRun[i]) continue;
           // A tread, a ladder shaft, a pit lip or a rail is not structure's to spend - and neither is the
           // cell in front of it, which is the approach the climb is authored from (V19 walks four steps
-          // from a datum cell, so blocking that cell loses the row even though the stair still exists).
+          // from a datum cell, so BLOCKING that cell loses the row even though the stair still exists).
+          // THE CLAUSE IS A COLUMN'S, AND A TREAD IS NOT BLOCKING ANYTHING. A one-quantum tread leaves the
+          // cell walkable: `treadOk` below refuses it the moment the raise would cost a neighbour a crossing
+          // it has now, and the `bfsReach` pair refuses the run if any cell reachable from the seat went
+          // dark. Refusing the whole ring to a tread was measured to be what emptied the last rooms this
+          // pass left open: at the deals `fixtures` samples the rooms that stand nothing (one per generated
+          // sector - ARCHIVE 6x8 at 2,4 and 7x5 at 17,16, ABATOIR 8x5 at 3,9) are rooms with a pit or a
+          // stair crossing them, and EVERY cell of EVERY candidate line in them is next to a feature cell,
+          // so all 30-48 cells the ten candidates offered died here and nowhere else (`EMPTY631` tally in a
+          // scratch tree: {"featNear":48}, {"featNear":30}, {"featNear":36} - no other reason appears). A
+          // room crossed by a climb is exactly the room whose far half the issue says reads as nothing. The
+          // feature cell ITSELF stays refused to both members: raising a stair tread or a pit lip changes
+          // the climb, which is not this pass's to spend.
           let near = featTry[i] !== FEAT_NONE;
-          for (let d = 0; d < 4 && !near; d++) {
+          if (!low) for (let d = 0; d < 4 && !near; d++) {
             const j = (y + DIRY[d]) * N + x + DIRX[d];
             if (j >= 0 && j < N * N && featTry[j] !== FEAT_NONE) near = true;
           }
