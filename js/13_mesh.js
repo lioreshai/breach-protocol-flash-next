@@ -117,6 +117,22 @@ const MESH = (function () {
      draw regardless. */
   const FG_FLOOR = 4, FG_PUSH = 9, FG_MAX = 9, LUMW = [0.2126, 0.7152, 0.0722];
 
+  /* #611 THE OTHER AXIS, and the same law written in it (see BODYFGC in js/00_core.js). A grey scale
+     cannot touch the luma-normalised opponent plane the separation row reads - those coordinates are
+     SCALE-INVARIANT - so the value half above leaves the colour step exactly as it found it, and the sweep
+     names the deal that is for: ARCHIVE SUBLEVEL roll 1, a grunt at 10 m, where his own hue IS the surface
+     behind his silhouette - 17.8 of colour step against the 20 bar, while that level's dealt seat reads
+     105.6. The sector roll decides whether the player can see him, in the first sector anybody plays.
+       FG_CFLOOR is the TRIGGER and it sits ABOVE the row's bar on purpose: a draw at or above it computes
+     no gain and writes no pixel, so its inertness is exact and the frames whose bytes this repo records -
+     whose bodies read 43.7 / 48.9 / 90.0 / 105.6 - come back byte-identical. FG_CTGT is where a firing
+     draw lands, FG_CMAX is the most any one channel of his mean colour may move (the rail against a bad
+     measurement, as FG_MAX is for the value half), and FG_CLO/FG_CHI bound the per-channel gain for the
+     same reason BH_LO/BH_HI bound the counter-pigment: a palette channel sitting near the wash would
+     otherwise divide to a huge multiplier. Where a bound binds, the draw lands short and the sweep row
+     beside it prints that. */
+  const FG_CFLOOR = 24, FG_CTGT = 32, FG_CMAX = 22, FG_CMIN = 4, FG_CLO = 0.6, FG_CHI = 1.6;
+
   /* #78: one subdivision knob for every part was the spike's last leftover - a thigh and a visor got
      the same 6-sided prism, so the silhouette faceted exactly where it is widest while the small parts
      were already over-tessellated. `ns` is a per-CALL register on the Builder, the same shape as `em`
@@ -494,8 +510,88 @@ const MESH = (function () {
         clampi((p & 255) + ((p & 255) - wr) * (k - 1))) >>> 0;
     }
   }
+  /* #611 THE COLOUR HALF, armed by BODYFGC (js/00_core.js), and the ONLY place the figure-ground law is
+     written in the colour axis. It runs AFTER fgPay over the same record, so it fits the pixels the value
+     half delivered - and it is inert, to the byte, on every draw whose colour step already clears
+     FG_CFLOOR.
+       WHY THE OTHER AXIS NEEDS ITS OWN TERM: a grey scale on (pixel - wash) is a SCALE, and the plane the
+     separation row charges in is luma-NORMALISED, so scaling a body's pixels cannot move it. That is why
+     #615's hue push and the value half above both left ARCHIVE's roll-1 deal at 17.8 of 20: the value term
+     is arithmetically blind to this axis, and the cast at HIS cell (which BODYHUE cancels) is not the
+     colour of the surface ten metres behind him, which carries its own cell's cast on top of its own
+     albedo. So the surface is READ, as the value half reads it, and the step is his mean and the
+     background's mean put in the row's own coordinates - u = (R-G)/L, v = ((R+G)/2 - B)/L with L his own
+     mean's Rec.709 luma - so what is being paid for is a hue/chroma distance, which neither surface can
+     buy by getting brighter.
+       THE MOVE is along the line that joins the two points, away from the background, by as much as the
+     target lacks, solved for his mean luma HELD: with L fixed the two coordinates give
+     dr - dg = L*du and (dr+dg)/2 - db = L*dv, and holding luma adds 0.2126dr + 0.7152dg + 0.0722db = 0;
+     the three weights sum to 1, which is what closes the system, and the three lines below are its
+     solution. Holding luma is the design, not a courtesy: the colour bar cannot be bought with brightness
+     (the wrong half the assignment names), and the value step fgPay has just charged cannot be moved back.
+       The delta is then applied as a per-channel GAIN on (pixel - wash) - albedo, so the BODYPAINT arm
+     still measures paint against light, the wash is charged once (#458) and no second multiplier lands on
+     the lamp field (#407); a channel whose wash-relative base is under FG_CMIN luma cannot be moved by a
+     gain at all and is left alone. It runs only on a body, only with the paint arm up, only in the shipped
+     light configuration and only on a draw that neither faded nor flashed - the record that carries it is
+     built under those guards - and there is no billboard copy, the one-read-site argument BODYHUE makes. */
+  function fgPayC (rec) {
+    if (BODYFGC !== 1) return;
+    const K = rec.n, fog = rec.fog;
+    if (K < 24) return;
+    const wr = FOGC[0] * fog, wg = FOGC[1] * fog, wb = FOGC[2] * fog;
+    let own = 0, ar = 0, ag = 0, ab = 0, vr = 0, vg = 0, vb = 0;
+    for (let i = 0; i < K; i++) {
+      const o = rec.idx[i];
+      if (zbuf[o] < rec.d[i]) continue;                  // the frame kept something nearer: not his pixel
+      const p = px[o], q = rec.col[i];
+      ar += p & 255; ag += p >> 8 & 255; ab += p >> 16 & 255;
+      vr += q & 255; vg += q >> 8 & 255; vb += q >> 16 & 255;
+      own++;
+    }
+    if (own < 24) return;                                // the same vacuity floor fgPay charges
+    const cr = ar / own, cg = ag / own, cb = ab / own;
+    const br = vr / own, bg = vg / own, bb = vb / own;
+    const Lc = LUMW[0] * cr + LUMW[1] * cg + LUMW[2] * cb;
+    const Lb = LUMW[0] * br + LUMW[1] * bg + LUMW[2] * bb;
+    const nc = Lc > 1 ? Lc : 1, n0 = Lb > 1 ? Lb : 1;
+    const du = (cr - cg) / nc - (br - bg) / n0;
+    const dv = ((cr + cg) * 0.5 - cb) / nc - ((br + bg) * 0.5 - bb) / n0;
+    const dc = 100 * Math.sqrt(du * du + dv * dv);
+    if (dc >= FG_CFLOOR) return;                         // he separates on THIS axis too: inert, no write
+    let ux, uy;
+    if (dc > 0.5) { const s = 1 / (dc * 0.01); ux = du * s; uy = dv * s; }
+    else {
+      // he IS the background's colour, so the line between them has no direction: put him away from the
+      // room's own point in the plane (toward grey when the wall is chromatic), and along the warm axis
+      // when the wall is grey too. Deterministic, and it is a draw that had nothing to be seen by.
+      const bx = (br - bg) / n0, by = ((br + bg) * 0.5 - bb) / n0;
+      const m = Math.sqrt(bx * bx + by * by);
+      if (m > 1e-3) { ux = -bx / m; uy = -by / m; } else { ux = 0; uy = 1; }
+    }
+    const mv = Math.min(FG_CTGT - dc, 100) * 0.01;
+    const A = nc * mv * ux, B = nc * mv * uy;
+    let dR = 0.7513 * A + 0.0722 * B;
+    let dG = -0.2487 * A + 0.0722 * B;
+    let dB = 0.2513 * A - 0.9278 * B;
+    const mx = Math.max(Math.abs(dR), Math.abs(dG), Math.abs(dB));
+    if (mx > FG_CMAX) { const s = FG_CMAX / mx; dR *= s; dG *= s; dB *= s; }
+    const gne = (d, base) => base > FG_CMIN || base < -FG_CMIN
+      ? clamp(1 + d / base, FG_CLO, FG_CHI) : 1;
+    const gr = gne(dR, cr - wr), gg = gne(dG, cg - wg), gb = gne(dB, cb - wb);
+    if (gr === 1 && gg === 1 && gb === 1) return;
+    for (let i = 0; i < K; i++) {
+      const o = rec.idx[i];
+      if (zbuf[o] < rec.d[i]) continue;
+      const p = px[o];
+      px[o] = (0xFF000000 |
+        clampi(wb + ((p >> 16 & 255) - wb) * gb) << 16 |
+        clampi(wg + ((p >> 8 & 255) - wg) * gg) << 8 |
+        clampi(wr + ((p & 255) - wr) * gr)) >>> 0;
+    }
+  }
   const fgFlush = () => {
-    for (let i = 0; i < FGPEND.length; i++) fgPay(FGPEND[i]);
+    for (let i = 0; i < FGPEND.length; i++) { fgPay(FGPEND[i]); fgPayC(FGPEND[i]); }
     for (let i = 0; i < FGPEND.length; i++) FGPEND[i].busy = 0;
     FGPEND.length = 0;
   };
