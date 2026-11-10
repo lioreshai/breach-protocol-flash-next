@@ -1226,6 +1226,27 @@ const MESH = (function () {
        under one light rather than as one slab with lines painted on it - the crease boxes below are the
        painted-line version of the same idea and they are kept, because a crease is what makes the gap read as
        a gap and not as a hole in the geometry.
+       TAKE TWO: THE TIPS STOP SHORT OF THE PART, AND THAT IS BOTH ANATOMY AND THE ROW. The first cut ran
+       every finger from the knuckle to 12.5 mm ACROSS the bore axis, i.e. the tips came out on the far side of
+       the part - a fist whose fingers pass THROUGH the pump it holds, and a prism that crosses the part covers
+       the part. A real wrapped hand puts its knuckles on the near side and its tips curl around the near face;
+       the fingers do not reach the far side of a 45 mm tube from a 90 mm hand. So the tip end came back to
+       6 mm from the knuckle axis and 2 mm toward the eye, and each prism gave up a millimetre of girth. What
+         it buys, measured with `node tools/view.js viewmodel` at raster 601x338: `rounds` pistol 9 -> 15 px, shotgun
+       918 -> 965 (debt 79 -> 31), rifle 188 unchanged, and `grip` on-weapon 77.8 / 78.4 / 78.4 % against
+       79.3 / 78.3 / 78.6 before, so the fists are no less ON the weapon - they just stop painting THROUGH it.
+       FOUR dials were measured on this row and three are the wrong dial, recorded so they are not re-tried on
+       a JSDIR hunch: thinning the FIST TUBE (VMFIST to 0.30 / 0.60 / 0.55) moves `rounds` by 0 px on all three,
+       because the tube's own silhouette is not what is over the part; deleting the BACK-OF-HAND tube buys the
+       pistol 7 px and nothing elsewhere while taking 242 px of hand mass off the `grip` row; and spacing the
+       row WIDER (12.8 -> 15.8 mm pitch) LOSES pixels (918 -> 911) because the outer fingers walk off the part
+       and paint air. What the row is worth has a ceiling and it is measured too: with every hand prism deleted
+       at the setter, `rounds` reads 185 / 1171 / 188 px, so the hand hides 176 / 253 / 0 px. The RIFLE'S 0 px is
+       the row's own answer to the issue's first criterion on that weapon: its tubes are painted out by the gun's
+       own boxes, exactly as the #587 note at the top of this file records, and no hand change - none, including
+       no hands at all - can clear an 1170 px bar from a 188 px ceiling. The same is true of the pistol (ceiling
+       185 px against an 840 px bar). Those two weapons need the issue's OTHER lever, a round part nearer the eye
+       than the box carrying it; the bar is printed as debt, never widened.
        IT IS A HIP-ONLY GEOMETRY, not a hip-only offset: `VMFING` multiplies EVERY term below, offsets and
        extents alike, so the whole row collapses onto the fist's own axis - a point inside the fist tube - as
        `ads` goes to 1, and at `ads` quantized to exactly 1 it is not emitted at all. The sight picture
@@ -1238,7 +1259,7 @@ const MESH = (function () {
       for (let k = 0; k < 4; k++) {
         const fy = (k - 1.5) * 0.0128 * fs;             // the pitch: 12.8 mm, wider than a finger
         b.tube(x - w * 0.0205 * fs, y + fy + 0.0035 * fs, z - 0.0205 * fs,
-          x + w * 0.0125 * fs, y + fy - 0.0025 * fs, z - 0.0175 * fs, 0.0048 * fs, 0.0036 * fs, VW.skin);
+          x + w * 0.0060 * fs, y + fy - 0.0025 * fs, z - 0.0155 * fs, 0.0038 * fs, 0.0030 * fs, VW.skin);
       }
     }
     b.box(x - w * 0.025 * s, y - 0.013 * s, z, 0.0035 * s, 0.0035 * s, 0.022 * s, VW.skinD);
