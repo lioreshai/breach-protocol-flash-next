@@ -20,7 +20,7 @@ ref	contrast	TORSO-DL	num	0.90 1.10 0.88
 ref	cull	CZBAND	crc32	0xce550612 0xe08b263c 0x5ca1460b 0x80adf974
 ref	cull	CZBAND-LIGHT	crc32	0x81b1a1a0 0xe883dca8 0x3a96adcc 0x43a22b10
 ref	exposure	MEDIAN	num	75 79 71 91
-ref	exposure	SPAWN	num	73 63 86 65 77 77 75 85
+ref	exposure	SPAWN	num	72 63 86 65 77 77 75 85
 ref	flatparity	DEALT	md5	b2a9ae0af1dd89f85d3e397f7ab1e3c6 46bd2ed11a446a72b8512b63305cccda 41a6d29c7923f6f2c24a161b73ef92a3 79586af04a202b10daf16da2f2fb604a
 ref	flatparity	LOCK	md5	4bccb7e8bef4fd24c07b7a9ce96f3b62 1b21b162b390a295813e9a710fcc21ac ea26eeae51f743de683400572e228a83 7a34863e0b9ea80c85e24bcf36d9e1e6
 ref	flatparity	PARITY	md5	10234a91b41969a4f4ab7a6bd4f8415f 446b64290f5abae1f65facf4431fe7ec 44ec05fe48729f8eb9e5cdd224fe52f2 e974d0f789c71f0988ddfaca585ce495
