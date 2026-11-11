@@ -10192,6 +10192,39 @@ const RECHALF = refRecord('heights', 'HALF-MOVE', 'num', [97.11, 27.76, 60.60, 9
         return { j, jr };
       };
       const jc = worstJump(zDisc), c = run(PCENSUS);
+      /* #518 WHICH ARM ANSWERS THE ROWS THE PAST CLAUSE GATES - a counter, not a constant.
+         The rows that keep poseC red are the `PDEPTH+PWIN` rows above the band's authored edge, and two
+         solvers can put a depth there: the deferred floor walk, and the plane it was handed. The pose
+         already says the two FRAMES differ; it could not say which of those two answers the disc frame's
+         pixel, and every previous attempt at this issue priced the wrong one. So run BOTH on the pixel's
+         own ray, in the page, the way poseA's two-arm census does:
+           - the sentinel march, handed a plane below every authored floor, which can only answer the
+             surface the ray ARRIVES AT (the same reference poseA uses, and for the same reason: a cap at
+             the eye's own plane would make the reference the answer being tested);
+           - the shipped deferred arm, handed the band datum, `farOK` set exactly as js/40_render.js:2923
+             sets it.
+         A pixel where the two agree is walked. A pixel where the deferred arm returns the plane it was
+         handed while the sentinel names a different one is a row the walk gave up on - and the row says
+         which pass wrote it (ZD.set, the renderer's own queue, the same test posePath uses). Reports and
+         attributes; it gates nothing and moves no threshold, no window and no camera in the clauses above. */
+      const armC = run(`(()=>{const N=MAP.w,hz=Math.round(horizon);
+        const ex=camX|0,ey=camY|0,air=ex>=0&&ey>=0&&ex<N&&ey<N&&!MAP.cell[ey*N+ex];
+        let plA=air?MAP.fz[ey*N+ex]*ZQ:eyeZ;if(!(plA<eyeZ))plA=Math.min(0,eyeZ-ZQ);
+        let n=0,gave=0,walked=0,pdef=0,prow=0,ww=0,why='';
+        const rsb1=reSolveBad;                       // the sentinel marches far: do not spend heights' own row
+        for(let y=Math.max(hz+2,${yEdge - 28});y<${yEdge}&&y<BH;y++){const absP=y-hz;if(absP<=0)continue;
+          for(let x=0;x<BW;x+=13){const cf=x*(2/BW)-1,rx=dirX+planeX*cf,ry=dirY+planeY*cf;
+            const got=zbuf[y*BW+x];if(!(got>0))continue;n++;
+            const pw=planeAlong(rx,ry,-1e9,true,absP),tW=gWalkT;
+            const dW=pw>-1e8?(tW>=0?Math.min(tW,FARB*4):(eyeZ-pw)*BH/absP):-1;
+            const pd=planeAlong(rx,ry,plA,true,absP,1);
+            if(Math.abs(pd-plA)<ZQ*0.5&&Math.abs(pw-pd)>ZQ*0.5){gave++;
+              if(ZD.set[y*BW+x]===1)pdef++;else prow++;
+              const e=dW>0?Math.abs(got-dW):0;
+              if(e>ww){ww=e;why='row '+(y-hz)+' col '+x+' stores '+got.toFixed(2)+' m where its ray arrives at '+dW.toFixed(2)+' and the deferred walk handed back plane '+pd.toFixed(2);}}
+            else walked++;}}
+        reSolveBad=rsb1;
+        return {n,gave,walked,pdef,prow,ww,why};})()`);
       const eyePin = run('P.z'), eyeDisc = zEye;
       /* #517 A CONTROL IS ONLY A CONTROL IF IT KEEPS THE CAMERA.
          This flattening used to zero the disc's floors and nothing else. `ceilAt` is the floor PLUS this
@@ -10306,6 +10339,9 @@ const RECHALF = refRecord('heights', 'HALF-MOVE', 'num', [97.11, 27.76, 60.60, 9
         `, and over the ${farN} far rows above that - where the ray is off the level and the wash answers - by ` +
         farMax.toFixed(2) + ' m' + (farRow >= 0 ? ' at row ' + (farRow - hzC) : ' (none)') +
         (pBad ? '  FAIL EDGE-BAND-PHANTOM: a band plane reaches past its own edge, so the near far field is not the floor both frames can prove' : '') +
+        `; in that window the deferred walk handed the plane it was HANDED on ${armC.gave} of ${armC.n} px`
+        + ` (${armC.walked} answered a plane its own ray arrived at), written by ${armC.pdef} deferred / ${armC.prow} row`
+        + (armC.gave ? (armC.ww ? ' - worst ' + armC.why : '') : ' - the walk answers every gated row, so the disagreement is not this arm') +
         `; the control's eye ${eyeFlat.toFixed(2)} m against the disc's ${eyeDisc.toFixed(2)} m` +
         (camBad ? '  FAIL EDGE-CONTROL-CAMERA: the control moved the eye, so this A/B is two cameras and its difference is not the band' : '') +
         `; ${c.phantom} phantom px over the whole lower half` + (c.phantom ? '  FAIL BAND-FLOOR-PHANTOM' : ''));
