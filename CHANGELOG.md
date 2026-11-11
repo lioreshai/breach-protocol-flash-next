@@ -1,5 +1,27 @@
 # Changelog
 
+## [v1.4.24] - 2026-11-11
+
+### Added
+
+- **The gun is visible at your hip again, and the hand holding it looks like a hand** (#780, PR #803). At the hip — the pose the game is in almost all the time — the support hand was one flat slab that covered the part it was gripping: the pump, magazine or grip was largely not drawn at all. The hand is now four separate fingers laid across the part with the part showing between them, and the fist's own tube gives up some of its width so there is something behind the fingers to see. Aiming down sights is untouched, pixel for pixel. This is the first pass on that defect; the fingers still paint through the part they wrap on one weapon, which stays open as #780.
+
+### Changed
+
+- **Near edges are hard pixels now, not a blur** (#784, PR #804). The raster was enlarged onto your window with a smoothing filter on every tier except the lowest, so every edge the renderer had just paid for was averaged away on the last mile: the floor under your feet was a soft mush while the far half of the room stayed crisp. The last mile is now a stated decision per tier. PERFORMANCE and BALANCED draw small and enlarge with no filter at all — crisp texels end to end — whenever the window is at least twice the raster's height, which is the other half of the rule: below a 2x enlargement nearest leaves texels one screen pixel wide beside ones two wide, which reads as broken rather than as a look. ULTRA keeps the filter, because its buffer is already 62 % of the window and nearest there crawls while you strafe. Softening in the picture is now deliberate: it comes from the CRT curtain and the bloom, not from the upscale. Nothing about resolution or frame cost changed.
+- **Fewer rooms you can see straight through** (#631, PRs #801, #806). Two gaps in the generator closed. A room whose sight line from your seat was too short to be crossed is now asked for its break along the deepest march the room actually offers, so ARCHIVE SUBLEVEL's arrival room gains a break crossing your view instead of a run off to one side of it; and a room big enough to be one open plan that no column rule could stand anything in now gets a one-quantum tread across it — a low step with a real lip, no new wall, nothing deleted. In that change's own census the rooms it left with nothing in them fell from 54 to 29 on ARCHIVE SUBLEVEL, 62 to 31 on RING TRANSPORT and 43 to 13 on ABATOIR CORE. THE STACK's authored layout is byte-for-byte the level it was. No dice are drawn by either pass, so the props, lamps, enemies and spawn seat you were dealt are the ones you already had.
+- **A deck overhead stops out-lighting the ceiling** (#781, PR #810). Look straight up under a raised deck and the surface order used to invert: before this change the surface overhead filled the top of the frame brighter than the floor you are standing on — 95.4 luma against 61.2 on one generated sector, 81.4 against 57.4 on another — so the thing overhead read as the brightest surface in the level. The underside now dims with the angle you read it at, so it darkens where it is a sea of plate overhead and stays as it was where it is the thin horizon sliver an arrival roof is made of. Re-measured on the same two sectors it lands at 58.2 and 56.4 against floors of 61.2 and 57.4, and the arrival roof keeps its value on all four sectors. It adds no light and changes nothing on a flat level.
+
+### Fixed
+
+- **A merged release stops blocking its own publication** (#792, PR #805). The build of a release commit was red on "this commit must carry its own tag", a thing it cannot do because the tag is cut after that build goes green — so the release sat merged, deployed and unpublished. The outstanding tag is now a named, known row instead, and publication proceeds once the merged commit's checks are green. Two earlier releases were affected by this.
+
+### Known limitations
+
+- Rooms that still stand completely open in that same census: 29 on ARCHIVE SUBLEVEL, 31 on RING TRANSPORT and 13 on ABATOIR CORE. The hangar look is much reduced, not gone.
+- On the pistol and the rifle the part being gripped is still almost entirely hidden at the hip — 9 and 188 px of round-part paint against bars of 840 and 1170, where the shotgun now reaches 918 of 997. The hand is no longer the thing covering it there; the round needs to sit nearer the eye than the box carrying it, which is still open as #780.
+- Figures can still arrive wearing their room's hue in the opening sector (#611), and one sector's ceiling lead is still authored rather than derived (#495); both are open and neither was touched here.
+
 ## [v1.4.23] - 2026-11-09
 
 ### Added
