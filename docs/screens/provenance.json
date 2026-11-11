@@ -120,12 +120,22 @@
         "js/40_render.js": "ddbd42a13f7b85c4d431816f9e8a01079c50ed561c7f23e04668f3fb10d54693"
       },
       "note": "The four blobs that draw a frame, sha256, read from the checkout that ran the capture. `node tools/recap.js check` recomputes them from the tree it runs in and prints whether these frames still show what that tree ships (#536). The session that took these pixels proved this build off the wire: index.html and all eleven js/ blobs served by the deployed GitHub Pages URL sha256-match origin/main at 6434ac5, twelve for twelve, before the shutter."
+    },
+    "15e5d3f": {
+      "at": "2026-11-11",
+      "files": {
+        "index.html": "c886aca0138047584edd4ee7023c504da19d3d559a6e6bb33833a9290169d557",
+        "js/10_assets.js": "77776c11924d31633b68caae5ed7a16ce7461ad89ec23a176ba9fe7763a645dd",
+        "js/20_level.js": "f279fc39ae411d9d57ac945a9a303db901cb5451946b9b83f97f5256127e13e3",
+        "js/40_render.js": "880509422131ae6a5308117ea7dacc0fd2a80801f0eabb1d8945aeaf808ac1f8"
+      },
+      "note": "The four blobs that draw a frame, sha256. The session that took these pixels proved them off the wire: every blob that URL serves - index.html and all eleven js/ files - sha256-matches origin/main at 15e5d3f (and this checkout, which is that commit plus a docs-only branch), twelve for twelve, before the shutter. 15e5d3f is main at the time of the capture; 900b05f (#810) is the render commit that made the previous take's 6434ac5 binding stale (#536, #797)."
     }
   },
   "shots": [
     {
       "file": "level0-enemies",
-      "sha256": "dd3d95cde5c9a56d74ff4a59e72cc09af67e06fa1346a9245273153c18f29a8e",
+      "sha256": "abef3cb5e8386dfe8bfb9e50a2ac8bda1cd6663442165e946c4aa9b6e5e451e3",
       "replaces": {
         "rev": "6434ac5",
         "sha256": "ea03a29b8ba9a451e712f033ec49785a96884cebc019527057a26438e5dddead",
@@ -138,15 +148,15 @@
       "seed": "60",
       "level": 0,
       "layout": 4083630493,
-      "build": "6434ac5",
+      "build": "15e5d3f",
       "at": "2026-11-11",
       "sampleRate": 44100,
-      "note": "RE-TAKEN from the DEPLOYED page for #797 at build 6434ac5: the eight front-page frames described the picture 5dddb49 drew, and the deck-edge value step (#669, merged as 6434ac5's parent ff846a1) plus the #631 interior pass moved the picture under them. The pass proved its build off the wire before the shutter: index.html and all eleven js/ blobs served by that URL sha256-match origin/main at 6434ac5, twelve for twelve. One page load and one boot per pose, ?dev=1&seed=60&boot=0, window pinned so the canvas is 1440x763, clock frozen, grain off, shutter from the canvas after DEV.tick; every seat, layout and luma below was read back out of the page that drew the frame (and every mean re-measured from the PNG with tools/recap.js's own decoder, not the harness's). Pose: the spawn seat, then DEV.clear() and DEV.spawn('grunt', 1, 6); he landed at (11.10, 4.53), 6.00 m out, 247 raster px of him painted. This build re-deals two of the three sectors: ARCHIVE SUBLEVEL is layout 4083630493 (1323402791 in the superseded frame) and ABATOIR CORE is 3345463428 (1843450263); THE STACK is hand-authored and held at 3610925125.",
+      "note": "RE-TAKEN from the DEPLOYED page for #797 at build 15e5d3f. The previous take bound 6434ac5; main has since merged 900b05f (#810), which moves js/40_render.js - one of the four blobs that draw a frame - so recap labelled those frames FRAME-STALE and the front page again described a picture that does not ship. This pass is the same eight poses re-run against the deploy, which serves main's bytes: index.html and all eleven js/ blobs served by that URL sha256-match this checkout, twelve for twelve, proved before the shutter. Route: tools/livecap.js devRoute - one page load and one boot per pose at ?dev=1&seed=60&boot=0, DEV.freeze(true), DEV.set(\"grain\",0), DEV.clear() before the pose, shutter from the canvas after DEV.tick; window pinned (CAP_WIN=1440,906) so the canvas decodes 1440x763. Every seat, layout and luma below was read back out of the page that drew the frame, and every mean re-measured from these bytes with tools/recap.js's own decoder, not the capture harness's. Pose: the spawn seat, then DEV.clear() and DEV.spawn('grunt', 1, 6); the route's own seat search turned no bearing (offset 0 m) and left him at (11.10, 4.53), 6.00 m out, with 247 raster px of him painted. The route's DEV.clear() leaves the HUD reading 1 LEFT for this pose (1 enemy in the frame: the posed grunt). Layout signature 4083630493 for this sector under seed 60.",
       "staleByBuild": null
     },
     {
       "file": "level0-facing-wall",
-      "sha256": "cf2ad26caf50dba3b5b7b24749e226859a4946832e3812b8590475870128436e",
+      "sha256": "bf7d26947232afb647655365e91360f4f331c49334188be35fe8b4ecaf1e27b6",
       "replaces": {
         "rev": "6434ac5",
         "sha256": "9768a15e4bfd55b91a419924d6338287e39e88e8a0a8e43b2d49df449f0f6bd6",
@@ -159,15 +169,15 @@
       "seed": "60",
       "level": 0,
       "layout": 4083630493,
-      "build": "6434ac5",
+      "build": "15e5d3f",
       "at": "2026-11-11",
       "sampleRate": 44100,
-      "note": "RE-TAKEN from the DEPLOYED page for #797 at build 6434ac5: the eight front-page frames described the picture 5dddb49 drew, and the deck-edge value step (#669, merged as 6434ac5's parent ff846a1) plus the #631 interior pass moved the picture under them. The pass proved its build off the wire before the shutter: index.html and all eleven js/ blobs served by that URL sha256-match origin/main at 6434ac5, twelve for twelve. One page load and one boot per pose, ?dev=1&seed=60&boot=0, window pinned so the canvas is 1440x763, clock frozen, grain off, shutter from the canvas after DEV.tick; every seat, layout and luma below was read back out of the page that drew the frame (and every mean re-measured from the PNG with tools/recap.js's own decoder, not the harness's). Pose: DEV.cam(1.5, 8.5, undefined, pi/2) - a recorded pose, floorAt 0.00. This build re-deals two of the three sectors: ARCHIVE SUBLEVEL is layout 4083630493 (1323402791 in the superseded frame) and ABATOIR CORE is 3345463428 (1843450263); THE STACK is hand-authored and held at 3610925125.",
+      "note": "RE-TAKEN from the DEPLOYED page for #797 at build 15e5d3f. The previous take bound 6434ac5; main has since merged 900b05f (#810), which moves js/40_render.js - one of the four blobs that draw a frame - so recap labelled those frames FRAME-STALE and the front page again described a picture that does not ship. This pass is the same eight poses re-run against the deploy, which serves main's bytes: index.html and all eleven js/ blobs served by that URL sha256-match this checkout, twelve for twelve, proved before the shutter. Route: tools/livecap.js devRoute - one page load and one boot per pose at ?dev=1&seed=60&boot=0, DEV.freeze(true), DEV.set(\"grain\",0), DEV.clear() before the pose, shutter from the canvas after DEV.tick; window pinned (CAP_WIN=1440,906) so the canvas decodes 1440x763. Every seat, layout and luma below was read back out of the page that drew the frame, and every mean re-measured from these bytes with tools/recap.js's own decoder, not the capture harness's. Pose: DEV.cam(1.5, 8.5, undefined, pi/2) - a recorded pose, read back floorAt 0.00. The route's DEV.clear() leaves the HUD reading 0 LEFT for this pose. Layout signature 4083630493 for this sector under seed 60.",
       "staleByBuild": null
     },
     {
       "file": "level0-pitfloor",
-      "sha256": "8a46642b6beb6117a0e2c37b79007499719c9463f983d6c27cfaa55f31b66417",
+      "sha256": "6ed21d831fc167c796fcd6eabe8b68e21efa67f2ab4dceb5d1f7c964707a75f0",
       "replaces": {
         "rev": "6434ac5",
         "sha256": "7158875862885d808dcc184bbb454a18cf597e5291d633fd4e2c8260833b0f35",
@@ -180,15 +190,15 @@
       "seed": "60",
       "level": 0,
       "layout": 4083630493,
-      "build": "6434ac5",
+      "build": "15e5d3f",
       "at": "2026-11-11",
       "sampleRate": 44100,
-      "note": "RE-TAKEN from the DEPLOYED page for #797 at build 6434ac5: the eight front-page frames described the picture 5dddb49 drew, and the deck-edge value step (#669, merged as 6434ac5's parent ff846a1) plus the #631 interior pass moved the picture under them. The pass proved its build off the wire before the shutter: index.html and all eleven js/ blobs served by that URL sha256-match origin/main at 6434ac5, twelve for twelve. One page load and one boot per pose, ?dev=1&seed=60&boot=0, window pinned so the canvas is 1440x763, clock frozen, grain off, shutter from the canvas after DEV.tick; every seat, layout and luma below was read back out of the page that drew the frame (and every mean re-measured from the PNG with tools/recap.js's own decoder, not the harness's). Pose: DEV.cam(19.5, 14.5, undefined, 1.1071) - a recorded pose, floorAt 0.00. This build re-deals two of the three sectors: ARCHIVE SUBLEVEL is layout 4083630493 (1323402791 in the superseded frame) and ABATOIR CORE is 3345463428 (1843450263); THE STACK is hand-authored and held at 3610925125.",
+      "note": "RE-TAKEN from the DEPLOYED page for #797 at build 15e5d3f. The previous take bound 6434ac5; main has since merged 900b05f (#810), which moves js/40_render.js - one of the four blobs that draw a frame - so recap labelled those frames FRAME-STALE and the front page again described a picture that does not ship. This pass is the same eight poses re-run against the deploy, which serves main's bytes: index.html and all eleven js/ blobs served by that URL sha256-match this checkout, twelve for twelve, proved before the shutter. Route: tools/livecap.js devRoute - one page load and one boot per pose at ?dev=1&seed=60&boot=0, DEV.freeze(true), DEV.set(\"grain\",0), DEV.clear() before the pose, shutter from the canvas after DEV.tick; window pinned (CAP_WIN=1440,906) so the canvas decodes 1440x763. Every seat, layout and luma below was read back out of the page that drew the frame, and every mean re-measured from these bytes with tools/recap.js's own decoder, not the capture harness's. Pose: DEV.cam(19.5, 14.5, undefined, 1.1071) - a recorded pose, read back floorAt 0.00. The route's DEV.clear() leaves the HUD reading 0 LEFT for this pose. Layout signature 4083630493 for this sector under seed 60.",
       "staleByBuild": null
     },
     {
       "file": "level0-props",
-      "sha256": "91364de9e0b53b92a719fa7b18b4527e4485b2158a5224f9826427e2cdf44b43",
+      "sha256": "664f45227af759b64e0e98a3774939d2ee88c7d5693576456c9a08f4666ba16d",
       "replaces": {
         "rev": "6434ac5",
         "sha256": "1ff9cc5b0bb93eeee9bdffaa78e58b7f357843d8d41f1f5d68b5fcb84aea1e0e",
@@ -201,15 +211,15 @@
       "seed": "60",
       "level": 0,
       "layout": 4083630493,
-      "build": "6434ac5",
+      "build": "15e5d3f",
       "at": "2026-11-11",
       "sampleRate": 44100,
-      "note": "RE-TAKEN from the DEPLOYED page for #797 at build 6434ac5: the eight front-page frames described the picture 5dddb49 drew, and the deck-edge value step (#669, merged as 6434ac5's parent ff846a1) plus the #631 interior pass moved the picture under them. The pass proved its build off the wire before the shutter: index.html and all eleven js/ blobs served by that URL sha256-match origin/main at 6434ac5, twelve for twelve. One page load and one boot per pose, ?dev=1&seed=60&boot=0, window pinned so the canvas is 1440x763, clock frozen, grain off, shutter from the canvas after DEV.tick; every seat, layout and luma below was read back out of the page that drew the frame (and every mean re-measured from the PNG with tools/recap.js's own decoder, not the harness's). Pose: DEV.cam(20.5, 11.5, undefined, pi/2) - a recorded pose, floorAt 0.50. This build re-deals two of the three sectors: ARCHIVE SUBLEVEL is layout 4083630493 (1323402791 in the superseded frame) and ABATOIR CORE is 3345463428 (1843450263); THE STACK is hand-authored and held at 3610925125.",
+      "note": "RE-TAKEN from the DEPLOYED page for #797 at build 15e5d3f. The previous take bound 6434ac5; main has since merged 900b05f (#810), which moves js/40_render.js - one of the four blobs that draw a frame - so recap labelled those frames FRAME-STALE and the front page again described a picture that does not ship. This pass is the same eight poses re-run against the deploy, which serves main's bytes: index.html and all eleven js/ blobs served by that URL sha256-match this checkout, twelve for twelve, proved before the shutter. Route: tools/livecap.js devRoute - one page load and one boot per pose at ?dev=1&seed=60&boot=0, DEV.freeze(true), DEV.set(\"grain\",0), DEV.clear() before the pose, shutter from the canvas after DEV.tick; window pinned (CAP_WIN=1440,906) so the canvas decodes 1440x763. Every seat, layout and luma below was read back out of the page that drew the frame, and every mean re-measured from these bytes with tools/recap.js's own decoder, not the capture harness's. Pose: DEV.cam(20.5, 11.5, undefined, pi/2) - a recorded pose, read back floorAt 2.00. The route's DEV.clear() leaves the HUD reading 0 LEFT for this pose. Layout signature 4083630493 for this sector under seed 60.",
       "staleByBuild": null
     },
     {
       "file": "level0-spawn",
-      "sha256": "83ff9fe09084a92d0cc11fc1bc969db6477ea4738c1eb7e41e24945423e491da",
+      "sha256": "320de8c316b5831f53eceeabdb999decaedd5754f2239828e4e6ea1b59d36c4e",
       "replaces": {
         "rev": "6434ac5",
         "sha256": "8ef0b762b454263451068ee5ed442c6df7c35834d4b17bc8fc01e0eab19ef56c",
@@ -222,15 +232,15 @@
       "seed": "60",
       "level": 0,
       "layout": 4083630493,
-      "build": "6434ac5",
+      "build": "15e5d3f",
       "at": "2026-11-11",
       "sampleRate": 44100,
-      "note": "RE-TAKEN from the DEPLOYED page for #797 at build 6434ac5: the eight front-page frames described the picture 5dddb49 drew, and the deck-edge value step (#669, merged as 6434ac5's parent ff846a1) plus the #631 interior pass moved the picture under them. The pass proved its build off the wire before the shutter: index.html and all eleven js/ blobs served by that URL sha256-match origin/main at 6434ac5, twelve for twelve. One page load and one boot per pose, ?dev=1&seed=60&boot=0, window pinned so the canvas is 1440x763, clock frozen, grain off, shutter from the canvas after DEV.tick; every seat, layout and luma below was read back out of the page that drew the frame (and every mean re-measured from the PNG with tools/recap.js's own decoder, not the harness's). Pose: the deal's own spawn seat, read back at (10.5, 10.5) heading -1.4711. This build re-deals two of the three sectors: ARCHIVE SUBLEVEL is layout 4083630493 (1323402791 in the superseded frame) and ABATOIR CORE is 3345463428 (1843450263); THE STACK is hand-authored and held at 3610925125.",
+      "note": "RE-TAKEN from the DEPLOYED page for #797 at build 15e5d3f. The previous take bound 6434ac5; main has since merged 900b05f (#810), which moves js/40_render.js - one of the four blobs that draw a frame - so recap labelled those frames FRAME-STALE and the front page again described a picture that does not ship. This pass is the same eight poses re-run against the deploy, which serves main's bytes: index.html and all eleven js/ blobs served by that URL sha256-match this checkout, twelve for twelve, proved before the shutter. Route: tools/livecap.js devRoute - one page load and one boot per pose at ?dev=1&seed=60&boot=0, DEV.freeze(true), DEV.set(\"grain\",0), DEV.clear() before the pose, shutter from the canvas after DEV.tick; window pinned (CAP_WIN=1440,906) so the canvas decodes 1440x763. Every seat, layout and luma below was read back out of the page that drew the frame, and every mean re-measured from these bytes with tools/recap.js's own decoder, not the capture harness's. Pose: the deal's own spawn seat, read back at (10.50, 10.50) heading -1.4711, floorAt 0.00. The route's DEV.clear() leaves the HUD reading 0 LEFT for this pose. Layout signature 4083630493 for this sector under seed 60.",
       "staleByBuild": null
     },
     {
       "file": "level2-abatoir",
-      "sha256": "bb910b3b944a5549d31dde4e3815206821c42c359b4fac24569d530f5c29ba55",
+      "sha256": "271136fbaa77aa30b2d24141ca5c513ab417df0883f93e157c7ccc23da372ca7",
       "replaces": {
         "rev": "6434ac5",
         "sha256": "a767fe73d2f9c090dcc45635db0bbb0d4527a030353eef5734f94fe4120b025c",
@@ -243,15 +253,15 @@
       "seed": "60",
       "level": 2,
       "layout": 3345463428,
-      "build": "6434ac5",
+      "build": "15e5d3f",
       "at": "2026-11-11",
       "sampleRate": 44100,
-      "note": "RE-TAKEN from the DEPLOYED page for #797 at build 6434ac5: the eight front-page frames described the picture 5dddb49 drew, and the deck-edge value step (#669, merged as 6434ac5's parent ff846a1) plus the #631 interior pass moved the picture under them. The pass proved its build off the wire before the shutter: index.html and all eleven js/ blobs served by that URL sha256-match origin/main at 6434ac5, twelve for twelve. One page load and one boot per pose, ?dev=1&seed=60&boot=0, window pinned so the canvas is 1440x763, clock frozen, grain off, shutter from the canvas after DEV.tick; every seat, layout and luma below was read back out of the page that drew the frame (and every mean re-measured from the PNG with tools/recap.js's own decoder, not the harness's). Pose: the arrival seat, read back at (22.5, 13.5) on the declared bearing 0.6. This build re-deals two of the three sectors: ARCHIVE SUBLEVEL is layout 4083630493 (1323402791 in the superseded frame) and ABATOIR CORE is 3345463428 (1843450263); THE STACK is hand-authored and held at 3610925125.",
+      "note": "RE-TAKEN from the DEPLOYED page for #797 at build 15e5d3f. The previous take bound 6434ac5; main has since merged 900b05f (#810), which moves js/40_render.js - one of the four blobs that draw a frame - so recap labelled those frames FRAME-STALE and the front page again described a picture that does not ship. This pass is the same eight poses re-run against the deploy, which serves main's bytes: index.html and all eleven js/ blobs served by that URL sha256-match this checkout, twelve for twelve, proved before the shutter. Route: tools/livecap.js devRoute - one page load and one boot per pose at ?dev=1&seed=60&boot=0, DEV.freeze(true), DEV.set(\"grain\",0), DEV.clear() before the pose, shutter from the canvas after DEV.tick; window pinned (CAP_WIN=1440,906) so the canvas decodes 1440x763. Every seat, layout and luma below was read back out of the page that drew the frame, and every mean re-measured from these bytes with tools/recap.js's own decoder, not the capture harness's. Pose: the arrival seat, read back at (22.50, 13.50) on the declared bearing 0.60, floorAt 0.00. The route's DEV.clear() leaves the HUD reading 0 LEFT for this pose. Layout signature 3345463428 for this sector under seed 60.",
       "staleByBuild": null
     },
     {
       "file": "level2-abatoir-ceiling",
-      "sha256": "b38e221b989731c8559eca119b703bc3498db1322322ef64ea8a9d00d2d77665",
+      "sha256": "a656fb436ef5c52765f2213dee428a6010db82c87f4aee5f8358b5f25178d91c",
       "replaces": {
         "rev": "6434ac5",
         "sha256": "b405b08747c3c0d29594b4d6f48c539327121f2d082f30eb55ad3f9db25cdfbc",
@@ -264,15 +274,15 @@
       "seed": "60",
       "level": 2,
       "layout": 3345463428,
-      "build": "6434ac5",
+      "build": "15e5d3f",
       "at": "2026-11-11",
       "sampleRate": 44100,
-      "note": "RE-TAKEN from the DEPLOYED page for #797 at build 6434ac5: the eight front-page frames described the picture 5dddb49 drew, and the deck-edge value step (#669, merged as 6434ac5's parent ff846a1) plus the #631 interior pass moved the picture under them. The pass proved its build off the wire before the shutter: index.html and all eleven js/ blobs served by that URL sha256-match origin/main at 6434ac5, twelve for twelve. One page load and one boot per pose, ?dev=1&seed=60&boot=0, window pinned so the canvas is 1440x763, clock frozen, grain off, shutter from the canvas after DEV.tick; every seat, layout and luma below was read back out of the page that drew the frame (and every mean re-measured from the PNG with tools/recap.js's own decoder, not the harness's). Pose: DEV.cam(P.x, P.y, undefined, -0.5539, 194.07) off the same seat - the replaced row's pose verbatim. This build re-deals two of the three sectors: ARCHIVE SUBLEVEL is layout 4083630493 (1323402791 in the superseded frame) and ABATOIR CORE is 3345463428 (1843450263); THE STACK is hand-authored and held at 3610925125.",
+      "note": "RE-TAKEN from the DEPLOYED page for #797 at build 15e5d3f. The previous take bound 6434ac5; main has since merged 900b05f (#810), which moves js/40_render.js - one of the four blobs that draw a frame - so recap labelled those frames FRAME-STALE and the front page again described a picture that does not ship. This pass is the same eight poses re-run against the deploy, which serves main's bytes: index.html and all eleven js/ blobs served by that URL sha256-match this checkout, twelve for twelve, proved before the shutter. Route: tools/livecap.js devRoute - one page load and one boot per pose at ?dev=1&seed=60&boot=0, DEV.freeze(true), DEV.set(\"grain\",0), DEV.clear() before the pose, shutter from the canvas after DEV.tick; window pinned (CAP_WIN=1440,906) so the canvas decodes 1440x763. Every seat, layout and luma below was read back out of the page that drew the frame, and every mean re-measured from these bytes with tools/recap.js's own decoder, not the capture harness's. Pose: DEV.cam(P.x, P.y, undefined, -0.5539, 194.07) off that same seat - the replaced row's pose verbatim, read back heading -0.5539 pitch 194.1. The route's DEV.clear() leaves the HUD reading 0 LEFT for this pose. Layout signature 3345463428 for this sector under seed 60.",
       "staleByBuild": null
     },
     {
       "file": "level3-stack",
-      "sha256": "54c258c5781c09052a9403d26f5cf531062f942a7b9c1c7bf009049a9f7e7b3b",
+      "sha256": "b800ef4b1291ceed32847953b8e4caca91fe8190aabbdde52932a054f8505b0e",
       "replaces": {
         "rev": "6434ac5",
         "sha256": "ed717f42824dc81a53067d9350bce5c3babd4b1ec7e6240c312a72da448e22d8",
@@ -285,10 +295,10 @@
       "seed": "60",
       "level": 3,
       "layout": 3610925125,
-      "build": "6434ac5",
+      "build": "15e5d3f",
       "at": "2026-11-11",
       "sampleRate": 44100,
-      "note": "RE-TAKEN from the DEPLOYED page for #797 at build 6434ac5: the eight front-page frames described the picture 5dddb49 drew, and the deck-edge value step (#669, merged as 6434ac5's parent ff846a1) plus the #631 interior pass moved the picture under them. The pass proved its build off the wire before the shutter: index.html and all eleven js/ blobs served by that URL sha256-match origin/main at 6434ac5, twelve for twelve. One page load and one boot per pose, ?dev=1&seed=60&boot=0, window pinned so the canvas is 1440x763, clock frozen, grain off, shutter from the canvas after DEV.tick; every seat, layout and luma below was read back out of the page that drew the frame (and every mean re-measured from the PNG with tools/recap.js's own decoder, not the harness's). Pose: the authored spawn seat, read back at (1.5, 2.5) heading 0.8761. This build re-deals two of the three sectors: ARCHIVE SUBLEVEL is layout 4083630493 (1323402791 in the superseded frame) and ABATOIR CORE is 3345463428 (1843450263); THE STACK is hand-authored and held at 3610925125.",
+      "note": "RE-TAKEN from the DEPLOYED page for #797 at build 15e5d3f. The previous take bound 6434ac5; main has since merged 900b05f (#810), which moves js/40_render.js - one of the four blobs that draw a frame - so recap labelled those frames FRAME-STALE and the front page again described a picture that does not ship. This pass is the same eight poses re-run against the deploy, which serves main's bytes: index.html and all eleven js/ blobs served by that URL sha256-match this checkout, twelve for twelve, proved before the shutter. Route: tools/livecap.js devRoute - one page load and one boot per pose at ?dev=1&seed=60&boot=0, DEV.freeze(true), DEV.set(\"grain\",0), DEV.clear() before the pose, shutter from the canvas after DEV.tick; window pinned (CAP_WIN=1440,906) so the canvas decodes 1440x763. Every seat, layout and luma below was read back out of the page that drew the frame, and every mean re-measured from these bytes with tools/recap.js's own decoder, not the capture harness's. Pose: the authored spawn seat, read back at (1.50, 2.50) heading 0.8761, floorAt 0.00. The route's DEV.clear() leaves the HUD reading 0 LEFT for this pose. Layout signature 3610925125 for this sector under seed 60.",
       "staleByBuild": null
     }
   ]
