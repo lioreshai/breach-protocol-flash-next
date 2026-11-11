@@ -15,7 +15,7 @@ ref	alt	PIT-MEAN	num	0.289 0.347 0.335 0.316
 ref	alt	SEAT-DARK	num	1.6 4.4 2.7 2.0
 ref	anim	NECK-BAND	num	4.8 2.7 3.4
 ref	anim	NECK-TUBE	num	41 43.2 40
-ref	bands	SEAM-FRAME	md5	48ce42ba34f5ea51db575cb5ec7902cb cb083098011706658c3a9a56c9fb29ee f33a8795b280ffd4d6ba599f165f0d0a a780ec09644a3fd245937b07fcfba6bd
+ref	bands	SEAM-FRAME	md5	16d28835146447f2f9b6ea87b56165a1 f5dac1a8c0adc90d4b3da150cd19e66a a579ec88a80869aff0f4a94dae5fdcca 2b1cd27053878681f1255bc6167e7922
 ref	contrast	TORSO-DL	num	0.90 1.10 0.88
 ref	cull	CZBAND	crc32	0xce550612 0xe08b263c 0x5ca1460b 0x80adf974
 ref	cull	CZBAND-LIGHT	crc32	0x81b1a1a0 0xe883dca8 0x3a96adcc 0x43a22b10
