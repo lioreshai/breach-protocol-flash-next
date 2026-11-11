@@ -110,16 +110,26 @@
         "js/40_render.js": "2bbafc38434e6b3a8a4324d7e33d8a897f484c7cfb41ad4fe191ced46e05d305"
       },
       "note": "The four blobs that draw a frame, sha256, read from the checkout that ran the capture. `node tools/recap.js check` recomputes them from the tree it runs in and prints whether these frames still show what that tree ships (#536). The session that took these pixels proved this build off the wire: index.html and all eleven js/ blobs served by GitHub Pages sha256-match origin/main at 5dddb49, twelve for twelve, before the shutter."
+    },
+    "6434ac5": {
+      "at": "2026-11-11",
+      "files": {
+        "index.html": "c886aca0138047584edd4ee7023c504da19d3d559a6e6bb33833a9290169d557",
+        "js/10_assets.js": "77776c11924d31633b68caae5ed7a16ce7461ad89ec23a176ba9fe7763a645dd",
+        "js/20_level.js": "f279fc39ae411d9d57ac945a9a303db901cb5451946b9b83f97f5256127e13e3",
+        "js/40_render.js": "ddbd42a13f7b85c4d431816f9e8a01079c50ed561c7f23e04668f3fb10d54693"
+      },
+      "note": "The four blobs that draw a frame, sha256, read from the checkout that ran the capture. `node tools/recap.js check` recomputes them from the tree it runs in and prints whether these frames still show what that tree ships (#536). The session that took these pixels proved this build off the wire: index.html and all eleven js/ blobs served by the deployed GitHub Pages URL sha256-match origin/main at 6434ac5, twelve for twelve, before the shutter."
     }
   },
   "shots": [
     {
       "file": "level0-enemies",
-      "sha256": "ea03a29b8ba9a451e712f033ec49785a96884cebc019527057a26438e5dddead",
+      "sha256": "dd3d95cde5c9a56d74ff4a59e72cc09af67e06fa1346a9245273153c18f29a8e",
       "replaces": {
-        "rev": "5dddb49",
-        "sha256": "c147853feaa899fe15b4f4e1b62995676f7b1bc7aff09e83cff2cd70f78a328f",
-        "mean": 67.4727
+        "rev": "6434ac5",
+        "sha256": "ea03a29b8ba9a451e712f033ec49785a96884cebc019527057a26438e5dddead",
+        "mean": 71.5637
       },
       "canvas": "1440x763",
       "origin": "https",
@@ -127,20 +137,20 @@
       "url": "https://lioreshai.github.io/breach-protocol-flash-next/?dev=1&seed=60&boot=0",
       "seed": "60",
       "level": 0,
-      "layout": 1323402791,
-      "build": "5dddb49",
-      "at": "2026-11-08",
+      "layout": 4083630493,
+      "build": "6434ac5",
+      "at": "2026-11-11",
       "sampleRate": 44100,
-      "note": "RE-TAKEN from the DEPLOYED page for #616 (with #766) at build 5dddb49, the second take of one pass: the first took these eight poses at 1f91555 and a render commit landed afterwards - e28b4a7 (#416) gave ABATOIR's wall a mip-carry fade in js/10_assets.js, one of the four blobs that draw a frame - so the bind moved out from under those pixels. The pass proved that page byte for byte before the shutter: index.html and all eleven js/ blobs served by that URL sha256-match origin/main at 5dddb49, twelve for twelve. One page load and one boot per pose, ?dev=1&seed=60&boot=0, viewport pinned to 1440x763, shutter taken from the canvas after DEV.tick; every seat, layout and luma below was read back out of the page that drew the frame. All three dealt signatures held from the superseded take (ARCHIVE 1323402791, ABATOIR 1843450263, THE STACK 3610925125), and outside ABATOIR the frames differ from it only by dither phase: the mean moves by at most 0.01 luma on the five ARCHIVE poses and THE STACK, which is the control that says the one shipped blob between the two takes paints one level's wall.",
+      "note": "RE-TAKEN from the DEPLOYED page for #797 at build 6434ac5: the eight front-page frames described the picture 5dddb49 drew, and the deck-edge value step (#669, merged as 6434ac5's parent ff846a1) plus the #631 interior pass moved the picture under them. The pass proved its build off the wire before the shutter: index.html and all eleven js/ blobs served by that URL sha256-match origin/main at 6434ac5, twelve for twelve. One page load and one boot per pose, ?dev=1&seed=60&boot=0, window pinned so the canvas is 1440x763, clock frozen, grain off, shutter from the canvas after DEV.tick; every seat, layout and luma below was read back out of the page that drew the frame (and every mean re-measured from the PNG with tools/recap.js's own decoder, not the harness's). Pose: the spawn seat, then DEV.clear() and DEV.spawn('grunt', 1, 6); he landed at (11.10, 4.53), 6.00 m out, 247 raster px of him painted. This build re-deals two of the three sectors: ARCHIVE SUBLEVEL is layout 4083630493 (1323402791 in the superseded frame) and ABATOIR CORE is 3345463428 (1843450263); THE STACK is hand-authored and held at 3610925125.",
       "staleByBuild": null
     },
     {
       "file": "level0-facing-wall",
-      "sha256": "9768a15e4bfd55b91a419924d6338287e39e88e8a0a8e43b2d49df449f0f6bd6",
+      "sha256": "cf2ad26caf50dba3b5b7b24749e226859a4946832e3812b8590475870128436e",
       "replaces": {
-        "rev": "5dddb49",
-        "sha256": "69e32fd1751f347c25b4fbff5f091ed74fbc0753eaac825d9fccf34f3f363d9c",
-        "mean": 50.0288
+        "rev": "6434ac5",
+        "sha256": "9768a15e4bfd55b91a419924d6338287e39e88e8a0a8e43b2d49df449f0f6bd6",
+        "mean": 52.1039
       },
       "canvas": "1440x763",
       "origin": "https",
@@ -148,20 +158,20 @@
       "url": "https://lioreshai.github.io/breach-protocol-flash-next/?dev=1&seed=60&boot=0",
       "seed": "60",
       "level": 0,
-      "layout": 1323402791,
-      "build": "5dddb49",
-      "at": "2026-11-08",
+      "layout": 4083630493,
+      "build": "6434ac5",
+      "at": "2026-11-11",
       "sampleRate": 44100,
-      "note": "RE-TAKEN from the DEPLOYED page for #616 (with #766) at build 5dddb49, the second take of one pass: the first took these eight poses at 1f91555 and a render commit landed afterwards - e28b4a7 (#416) gave ABATOIR's wall a mip-carry fade in js/10_assets.js, one of the four blobs that draw a frame - so the bind moved out from under those pixels. The pass proved that page byte for byte before the shutter: index.html and all eleven js/ blobs served by that URL sha256-match origin/main at 5dddb49, twelve for twelve. One page load and one boot per pose, ?dev=1&seed=60&boot=0, viewport pinned to 1440x763, shutter taken from the canvas after DEV.tick; every seat, layout and luma below was read back out of the page that drew the frame. All three dealt signatures held from the superseded take (ARCHIVE 1323402791, ABATOIR 1843450263, THE STACK 3610925125), and outside ABATOIR the frames differ from it only by dither phase: the mean moves by at most 0.01 luma on the five ARCHIVE poses and THE STACK, which is the control that says the one shipped blob between the two takes paints one level's wall.",
+      "note": "RE-TAKEN from the DEPLOYED page for #797 at build 6434ac5: the eight front-page frames described the picture 5dddb49 drew, and the deck-edge value step (#669, merged as 6434ac5's parent ff846a1) plus the #631 interior pass moved the picture under them. The pass proved its build off the wire before the shutter: index.html and all eleven js/ blobs served by that URL sha256-match origin/main at 6434ac5, twelve for twelve. One page load and one boot per pose, ?dev=1&seed=60&boot=0, window pinned so the canvas is 1440x763, clock frozen, grain off, shutter from the canvas after DEV.tick; every seat, layout and luma below was read back out of the page that drew the frame (and every mean re-measured from the PNG with tools/recap.js's own decoder, not the harness's). Pose: DEV.cam(1.5, 8.5, undefined, pi/2) - a recorded pose, floorAt 0.00. This build re-deals two of the three sectors: ARCHIVE SUBLEVEL is layout 4083630493 (1323402791 in the superseded frame) and ABATOIR CORE is 3345463428 (1843450263); THE STACK is hand-authored and held at 3610925125.",
       "staleByBuild": null
     },
     {
       "file": "level0-pitfloor",
-      "sha256": "7158875862885d808dcc184bbb454a18cf597e5291d633fd4e2c8260833b0f35",
+      "sha256": "8a46642b6beb6117a0e2c37b79007499719c9463f983d6c27cfaa55f31b66417",
       "replaces": {
-        "rev": "5dddb49",
-        "sha256": "2f30876e4f935cff26a8cbb000fec9b41914cd17136d224d294889ec29674b08",
-        "mean": 66.0651
+        "rev": "6434ac5",
+        "sha256": "7158875862885d808dcc184bbb454a18cf597e5291d633fd4e2c8260833b0f35",
+        "mean": 67.0179
       },
       "canvas": "1440x763",
       "origin": "https",
@@ -169,20 +179,20 @@
       "url": "https://lioreshai.github.io/breach-protocol-flash-next/?dev=1&seed=60&boot=0",
       "seed": "60",
       "level": 0,
-      "layout": 1323402791,
-      "build": "5dddb49",
-      "at": "2026-11-08",
+      "layout": 4083630493,
+      "build": "6434ac5",
+      "at": "2026-11-11",
       "sampleRate": 44100,
-      "note": "RE-TAKEN from the DEPLOYED page for #616 (with #766) at build 5dddb49, the second take of one pass: the first took these eight poses at 1f91555 and a render commit landed afterwards - e28b4a7 (#416) gave ABATOIR's wall a mip-carry fade in js/10_assets.js, one of the four blobs that draw a frame - so the bind moved out from under those pixels. The pass proved that page byte for byte before the shutter: index.html and all eleven js/ blobs served by that URL sha256-match origin/main at 5dddb49, twelve for twelve. One page load and one boot per pose, ?dev=1&seed=60&boot=0, viewport pinned to 1440x763, shutter taken from the canvas after DEV.tick; every seat, layout and luma below was read back out of the page that drew the frame. All three dealt signatures held from the superseded take (ARCHIVE 1323402791, ABATOIR 1843450263, THE STACK 3610925125), and outside ABATOIR the frames differ from it only by dither phase: the mean moves by at most 0.01 luma on the five ARCHIVE poses and THE STACK, which is the control that says the one shipped blob between the two takes paints one level's wall.",
+      "note": "RE-TAKEN from the DEPLOYED page for #797 at build 6434ac5: the eight front-page frames described the picture 5dddb49 drew, and the deck-edge value step (#669, merged as 6434ac5's parent ff846a1) plus the #631 interior pass moved the picture under them. The pass proved its build off the wire before the shutter: index.html and all eleven js/ blobs served by that URL sha256-match origin/main at 6434ac5, twelve for twelve. One page load and one boot per pose, ?dev=1&seed=60&boot=0, window pinned so the canvas is 1440x763, clock frozen, grain off, shutter from the canvas after DEV.tick; every seat, layout and luma below was read back out of the page that drew the frame (and every mean re-measured from the PNG with tools/recap.js's own decoder, not the harness's). Pose: DEV.cam(19.5, 14.5, undefined, 1.1071) - a recorded pose, floorAt 0.00. This build re-deals two of the three sectors: ARCHIVE SUBLEVEL is layout 4083630493 (1323402791 in the superseded frame) and ABATOIR CORE is 3345463428 (1843450263); THE STACK is hand-authored and held at 3610925125.",
       "staleByBuild": null
     },
     {
       "file": "level0-props",
-      "sha256": "1ff9cc5b0bb93eeee9bdffaa78e58b7f357843d8d41f1f5d68b5fcb84aea1e0e",
+      "sha256": "91364de9e0b53b92a719fa7b18b4527e4485b2158a5224f9826427e2cdf44b43",
       "replaces": {
-        "rev": "5dddb49",
-        "sha256": "07714c5885ca0396a40a42e014e8cf97025e12a27ba201dcac0efd9fb720eead",
-        "mean": 66.2195
+        "rev": "6434ac5",
+        "sha256": "1ff9cc5b0bb93eeee9bdffaa78e58b7f357843d8d41f1f5d68b5fcb84aea1e0e",
+        "mean": 66.8539
       },
       "canvas": "1440x763",
       "origin": "https",
@@ -190,20 +200,20 @@
       "url": "https://lioreshai.github.io/breach-protocol-flash-next/?dev=1&seed=60&boot=0",
       "seed": "60",
       "level": 0,
-      "layout": 1323402791,
-      "build": "5dddb49",
-      "at": "2026-11-08",
+      "layout": 4083630493,
+      "build": "6434ac5",
+      "at": "2026-11-11",
       "sampleRate": 44100,
-      "note": "RE-TAKEN from the DEPLOYED page for #616 (with #766) at build 5dddb49, the second take of one pass: the first took these eight poses at 1f91555 and a render commit landed afterwards - e28b4a7 (#416) gave ABATOIR's wall a mip-carry fade in js/10_assets.js, one of the four blobs that draw a frame - so the bind moved out from under those pixels. The pass proved that page byte for byte before the shutter: index.html and all eleven js/ blobs served by that URL sha256-match origin/main at 5dddb49, twelve for twelve. One page load and one boot per pose, ?dev=1&seed=60&boot=0, viewport pinned to 1440x763, shutter taken from the canvas after DEV.tick; every seat, layout and luma below was read back out of the page that drew the frame. All three dealt signatures held from the superseded take (ARCHIVE 1323402791, ABATOIR 1843450263, THE STACK 3610925125), and outside ABATOIR the frames differ from it only by dither phase: the mean moves by at most 0.01 luma on the five ARCHIVE poses and THE STACK, which is the control that says the one shipped blob between the two takes paints one level's wall.",
+      "note": "RE-TAKEN from the DEPLOYED page for #797 at build 6434ac5: the eight front-page frames described the picture 5dddb49 drew, and the deck-edge value step (#669, merged as 6434ac5's parent ff846a1) plus the #631 interior pass moved the picture under them. The pass proved its build off the wire before the shutter: index.html and all eleven js/ blobs served by that URL sha256-match origin/main at 6434ac5, twelve for twelve. One page load and one boot per pose, ?dev=1&seed=60&boot=0, window pinned so the canvas is 1440x763, clock frozen, grain off, shutter from the canvas after DEV.tick; every seat, layout and luma below was read back out of the page that drew the frame (and every mean re-measured from the PNG with tools/recap.js's own decoder, not the harness's). Pose: DEV.cam(20.5, 11.5, undefined, pi/2) - a recorded pose, floorAt 0.50. This build re-deals two of the three sectors: ARCHIVE SUBLEVEL is layout 4083630493 (1323402791 in the superseded frame) and ABATOIR CORE is 3345463428 (1843450263); THE STACK is hand-authored and held at 3610925125.",
       "staleByBuild": null
     },
     {
       "file": "level0-spawn",
-      "sha256": "8ef0b762b454263451068ee5ed442c6df7c35834d4b17bc8fc01e0eab19ef56c",
+      "sha256": "83ff9fe09084a92d0cc11fc1bc969db6477ea4738c1eb7e41e24945423e491da",
       "replaces": {
-        "rev": "5dddb49",
-        "sha256": "0b8e2f8d6c2d57492ef4ab793e54998a4a9bb15c6f6a79c96751751248e8fe68",
-        "mean": 67.4978
+        "rev": "6434ac5",
+        "sha256": "8ef0b762b454263451068ee5ed442c6df7c35834d4b17bc8fc01e0eab19ef56c",
+        "mean": 71.624
       },
       "canvas": "1440x763",
       "origin": "https",
@@ -211,20 +221,20 @@
       "url": "https://lioreshai.github.io/breach-protocol-flash-next/?dev=1&seed=60&boot=0",
       "seed": "60",
       "level": 0,
-      "layout": 1323402791,
-      "build": "5dddb49",
-      "at": "2026-11-08",
+      "layout": 4083630493,
+      "build": "6434ac5",
+      "at": "2026-11-11",
       "sampleRate": 44100,
-      "note": "RE-TAKEN from the DEPLOYED page for #616 (with #766) at build 5dddb49, the second take of one pass: the first took these eight poses at 1f91555 and a render commit landed afterwards - e28b4a7 (#416) gave ABATOIR's wall a mip-carry fade in js/10_assets.js, one of the four blobs that draw a frame - so the bind moved out from under those pixels. The pass proved that page byte for byte before the shutter: index.html and all eleven js/ blobs served by that URL sha256-match origin/main at 5dddb49, twelve for twelve. One page load and one boot per pose, ?dev=1&seed=60&boot=0, viewport pinned to 1440x763, shutter taken from the canvas after DEV.tick; every seat, layout and luma below was read back out of the page that drew the frame. All three dealt signatures held from the superseded take (ARCHIVE 1323402791, ABATOIR 1843450263, THE STACK 3610925125), and outside ABATOIR the frames differ from it only by dither phase: the mean moves by at most 0.01 luma on the five ARCHIVE poses and THE STACK, which is the control that says the one shipped blob between the two takes paints one level's wall.",
+      "note": "RE-TAKEN from the DEPLOYED page for #797 at build 6434ac5: the eight front-page frames described the picture 5dddb49 drew, and the deck-edge value step (#669, merged as 6434ac5's parent ff846a1) plus the #631 interior pass moved the picture under them. The pass proved its build off the wire before the shutter: index.html and all eleven js/ blobs served by that URL sha256-match origin/main at 6434ac5, twelve for twelve. One page load and one boot per pose, ?dev=1&seed=60&boot=0, window pinned so the canvas is 1440x763, clock frozen, grain off, shutter from the canvas after DEV.tick; every seat, layout and luma below was read back out of the page that drew the frame (and every mean re-measured from the PNG with tools/recap.js's own decoder, not the harness's). Pose: the deal's own spawn seat, read back at (10.5, 10.5) heading -1.4711. This build re-deals two of the three sectors: ARCHIVE SUBLEVEL is layout 4083630493 (1323402791 in the superseded frame) and ABATOIR CORE is 3345463428 (1843450263); THE STACK is hand-authored and held at 3610925125.",
       "staleByBuild": null
     },
     {
       "file": "level2-abatoir",
-      "sha256": "a767fe73d2f9c090dcc45635db0bbb0d4527a030353eef5734f94fe4120b025c",
+      "sha256": "bb910b3b944a5549d31dde4e3815206821c42c359b4fac24569d530f5c29ba55",
       "replaces": {
-        "rev": "5dddb49",
-        "sha256": "1d5a3d762363320ab2cc83f127cb378485847ca75b773c2cae547b663d957a0c",
-        "mean": 76.2712
+        "rev": "6434ac5",
+        "sha256": "a767fe73d2f9c090dcc45635db0bbb0d4527a030353eef5734f94fe4120b025c",
+        "mean": 76.9828
       },
       "canvas": "1440x763",
       "origin": "https",
@@ -232,20 +242,20 @@
       "url": "https://lioreshai.github.io/breach-protocol-flash-next/?dev=1&seed=60&boot=0",
       "seed": "60",
       "level": 2,
-      "layout": 1843450263,
-      "build": "5dddb49",
-      "at": "2026-11-08",
+      "layout": 3345463428,
+      "build": "6434ac5",
+      "at": "2026-11-11",
       "sampleRate": 44100,
-      "note": "RE-TAKEN from the DEPLOYED page for #616 (with #766) at build 5dddb49, the second take of one pass: the first took these eight poses at 1f91555 and a render commit landed afterwards - e28b4a7 (#416) gave ABATOIR's wall a mip-carry fade in js/10_assets.js, one of the four blobs that draw a frame - so the bind moved out from under those pixels. The pass proved that page byte for byte before the shutter: index.html and all eleven js/ blobs served by that URL sha256-match origin/main at 5dddb49, twelve for twelve. One page load and one boot per pose, ?dev=1&seed=60&boot=0, viewport pinned to 1440x763, shutter taken from the canvas after DEV.tick; every seat, layout and luma below was read back out of the page that drew the frame. All three dealt signatures held from the superseded take (ARCHIVE 1323402791, ABATOIR 1843450263, THE STACK 3610925125), and outside ABATOIR the frames differ from it only by dither phase: the mean moves by at most 0.01 luma on the five ARCHIVE poses and THE STACK, which is the control that says the one shipped blob between the two takes paints one level's wall.",
+      "note": "RE-TAKEN from the DEPLOYED page for #797 at build 6434ac5: the eight front-page frames described the picture 5dddb49 drew, and the deck-edge value step (#669, merged as 6434ac5's parent ff846a1) plus the #631 interior pass moved the picture under them. The pass proved its build off the wire before the shutter: index.html and all eleven js/ blobs served by that URL sha256-match origin/main at 6434ac5, twelve for twelve. One page load and one boot per pose, ?dev=1&seed=60&boot=0, window pinned so the canvas is 1440x763, clock frozen, grain off, shutter from the canvas after DEV.tick; every seat, layout and luma below was read back out of the page that drew the frame (and every mean re-measured from the PNG with tools/recap.js's own decoder, not the harness's). Pose: the arrival seat, read back at (22.5, 13.5) on the declared bearing 0.6. This build re-deals two of the three sectors: ARCHIVE SUBLEVEL is layout 4083630493 (1323402791 in the superseded frame) and ABATOIR CORE is 3345463428 (1843450263); THE STACK is hand-authored and held at 3610925125.",
       "staleByBuild": null
     },
     {
       "file": "level2-abatoir-ceiling",
-      "sha256": "b405b08747c3c0d29594b4d6f48c539327121f2d082f30eb55ad3f9db25cdfbc",
+      "sha256": "b38e221b989731c8559eca119b703bc3498db1322322ef64ea8a9d00d2d77665",
       "replaces": {
-        "rev": "5dddb49",
-        "sha256": "0956a586dd2a9e2c0c221c2489c81974c4f55aa8161b2e3bf1f7cc52ac65ed02",
-        "mean": 77.8968
+        "rev": "6434ac5",
+        "sha256": "b405b08747c3c0d29594b4d6f48c539327121f2d082f30eb55ad3f9db25cdfbc",
+        "mean": 79.9594
       },
       "canvas": "1440x763",
       "origin": "https",
@@ -253,20 +263,20 @@
       "url": "https://lioreshai.github.io/breach-protocol-flash-next/?dev=1&seed=60&boot=0",
       "seed": "60",
       "level": 2,
-      "layout": 1843450263,
-      "build": "5dddb49",
-      "at": "2026-11-08",
+      "layout": 3345463428,
+      "build": "6434ac5",
+      "at": "2026-11-11",
       "sampleRate": 44100,
-      "note": "RE-TAKEN from the DEPLOYED page for #616 (with #766) at build 5dddb49, the second take of one pass: the first took these eight poses at 1f91555 and a render commit landed afterwards - e28b4a7 (#416) gave ABATOIR's wall a mip-carry fade in js/10_assets.js, one of the four blobs that draw a frame - so the bind moved out from under those pixels. The pass proved that page byte for byte before the shutter: index.html and all eleven js/ blobs served by that URL sha256-match origin/main at 5dddb49, twelve for twelve. One page load and one boot per pose, ?dev=1&seed=60&boot=0, viewport pinned to 1440x763, shutter taken from the canvas after DEV.tick; every seat, layout and luma below was read back out of the page that drew the frame. All three dealt signatures held from the superseded take (ARCHIVE 1323402791, ABATOIR 1843450263, THE STACK 3610925125), and outside ABATOIR the frames differ from it only by dither phase: the mean moves by at most 0.01 luma on the five ARCHIVE poses and THE STACK, which is the control that says the one shipped blob between the two takes paints one level's wall.",
+      "note": "RE-TAKEN from the DEPLOYED page for #797 at build 6434ac5: the eight front-page frames described the picture 5dddb49 drew, and the deck-edge value step (#669, merged as 6434ac5's parent ff846a1) plus the #631 interior pass moved the picture under them. The pass proved its build off the wire before the shutter: index.html and all eleven js/ blobs served by that URL sha256-match origin/main at 6434ac5, twelve for twelve. One page load and one boot per pose, ?dev=1&seed=60&boot=0, window pinned so the canvas is 1440x763, clock frozen, grain off, shutter from the canvas after DEV.tick; every seat, layout and luma below was read back out of the page that drew the frame (and every mean re-measured from the PNG with tools/recap.js's own decoder, not the harness's). Pose: DEV.cam(P.x, P.y, undefined, -0.5539, 194.07) off the same seat - the replaced row's pose verbatim. This build re-deals two of the three sectors: ARCHIVE SUBLEVEL is layout 4083630493 (1323402791 in the superseded frame) and ABATOIR CORE is 3345463428 (1843450263); THE STACK is hand-authored and held at 3610925125.",
       "staleByBuild": null
     },
     {
       "file": "level3-stack",
-      "sha256": "ed717f42824dc81a53067d9350bce5c3babd4b1ec7e6240c312a72da448e22d8",
+      "sha256": "54c258c5781c09052a9403d26f5cf531062f942a7b9c1c7bf009049a9f7e7b3b",
       "replaces": {
-        "rev": "5dddb49",
-        "sha256": "0ec9d830fe65276cd69b13e776fdf047da6fad3b5774b0a46dc54f079f7a22f4",
-        "mean": 70.0439
+        "rev": "6434ac5",
+        "sha256": "ed717f42824dc81a53067d9350bce5c3babd4b1ec7e6240c312a72da448e22d8",
+        "mean": 69.8956
       },
       "canvas": "1440x763",
       "origin": "https",
@@ -275,10 +285,10 @@
       "seed": "60",
       "level": 3,
       "layout": 3610925125,
-      "build": "5dddb49",
-      "at": "2026-11-08",
+      "build": "6434ac5",
+      "at": "2026-11-11",
       "sampleRate": 44100,
-      "note": "RE-TAKEN from the DEPLOYED page for #616 (with #766) at build 5dddb49, the second take of one pass: the first took these eight poses at 1f91555 and a render commit landed afterwards - e28b4a7 (#416) gave ABATOIR's wall a mip-carry fade in js/10_assets.js, one of the four blobs that draw a frame - so the bind moved out from under those pixels. The pass proved that page byte for byte before the shutter: index.html and all eleven js/ blobs served by that URL sha256-match origin/main at 5dddb49, twelve for twelve. One page load and one boot per pose, ?dev=1&seed=60&boot=0, viewport pinned to 1440x763, shutter taken from the canvas after DEV.tick; every seat, layout and luma below was read back out of the page that drew the frame. All three dealt signatures held from the superseded take (ARCHIVE 1323402791, ABATOIR 1843450263, THE STACK 3610925125), and outside ABATOIR the frames differ from it only by dither phase: the mean moves by at most 0.01 luma on the five ARCHIVE poses and THE STACK, which is the control that says the one shipped blob between the two takes paints one level's wall.",
+      "note": "RE-TAKEN from the DEPLOYED page for #797 at build 6434ac5: the eight front-page frames described the picture 5dddb49 drew, and the deck-edge value step (#669, merged as 6434ac5's parent ff846a1) plus the #631 interior pass moved the picture under them. The pass proved its build off the wire before the shutter: index.html and all eleven js/ blobs served by that URL sha256-match origin/main at 6434ac5, twelve for twelve. One page load and one boot per pose, ?dev=1&seed=60&boot=0, window pinned so the canvas is 1440x763, clock frozen, grain off, shutter from the canvas after DEV.tick; every seat, layout and luma below was read back out of the page that drew the frame (and every mean re-measured from the PNG with tools/recap.js's own decoder, not the harness's). Pose: the authored spawn seat, read back at (1.5, 2.5) heading 0.8761. This build re-deals two of the three sectors: ARCHIVE SUBLEVEL is layout 4083630493 (1323402791 in the superseded frame) and ABATOIR CORE is 3345463428 (1843450263); THE STACK is hand-authored and held at 3610925125.",
       "staleByBuild": null
     }
   ]
