@@ -145,6 +145,39 @@ class ReleaseArtifactTests(unittest.TestCase):
             self.assertEqual(notes, [])
             del release
 
+    def test_the_mid_handoff_debt_never_hides_a_mis_stamped_artifact(self):
+        # Every sabotage the step is supposed to catch, run in the one configuration #792 makes
+        # new: the asking branch IS `main`, main already carries the manifest, and the tag ref
+        # EXISTS but is wrong. The outstanding-tag report is consulted only after both the object
+        # store and the forge answer "no such tag", so a mis-stamped artifact may not be re-read as
+        # a debt here - each variant has to produce its own finding and must not print the KNOWN
+        # row. This is the local-object half; `ApiArtifactTests` covers the same ordering through
+        # the forge for the lightweight variant.
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp, _, release = self.repo(tmp)
+            self.assertEqual(git(tmp, 'show', 'main:release.json').count('v1.1'), 1,
+                             'main must carry the manifest under review, or the debt is not live')
+            actions = dict(os.environ, GIT_COMMITTER_NAME='GitHub Actions',
+                           GIT_COMMITTER_EMAIL='action@github.com')
+            cases = [
+                ('lightweight', lambda: git(tmp, 'tag', 'v1.1', release), 'lightweight tag'),
+                ('wrong commit', lambda: git(tmp, 'tag', '-a', '-m', 'v1.1', 'v1.1', 'HEAD~1'),
+                 'whose release.json names'),
+                ('foreign tagger', lambda: subprocess.run(
+                    ['git', 'tag', '-a', '-m', 'v1.1', 'v1.1', release], cwd=tmp, env=actions,
+                    capture_output=True, check=True), 'tagger is'),
+            ]
+            for label, sabotage, needle in cases:
+                with self.subTest(sabotage=label):
+                    if 'v1.1' in git(tmp, 'tag', '--list'):
+                        git(tmp, 'tag', '-d', 'v1.1')
+                    sabotage()
+                    errors, notes = identity.check_release('HEAD', 'main', tmp)
+                    self.assertIn(needle, ' '.join(errors))
+                    # The debt row is what would have hidden it, so its absence is the assertion.
+                    self.assertNotIn('outstanding', ' '.join(notes))
+                    self.assertNotIn('KNOWN', ' '.join(notes))
+
     def test_release_pr_names_its_own_unmade_tag_without_failing(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp, _, _ = self.repo(tmp)
