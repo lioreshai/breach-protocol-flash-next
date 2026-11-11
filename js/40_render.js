@@ -997,6 +997,21 @@ let FARVOID = 1;
    brightness stays the haze's and #199's census of off-map light stays zero. `FARCROSS 0` is the A/B -
    `DEV.set('farcross', 0)` puts the flat slab back in the running page. */
 let FARCROSS = 1;
+/* #616 - THE DISTANCE THE RAY FLEW. `FARCROSS` hands a void ray the MATERIAL of the point its ray left
+   the grid, and it mixes that material into the air by `1 - fogAt(crossing distance)`. Fog cannot carry
+   this band: `fogAt` has SATURATED out here (visAt at 88 m is 0.0125, at 25 m 0.15), so past about 60 m
+   every column lands on the same air colour whatever it crossed, and a ray that flew 25 m paints the
+   same flat pixel as one that flew 90 m - the band is one value and distance says nothing. `FARDK` gives
+   the band the one number the cache already computes and nothing read: `xCDst[x]`, the distance column
+   x's ray flew before it left the [0,N) square (js/40_render.js:1004-1018). It carries the crossing's
+   DEVIATION from its mip's own mean - which is zero over a patch that spans texels, so the band's AVERAGE
+   stays exactly the shipped air/fog answer and only its STRUCTURE moves - on a share that decays like
+   FARB/(FARB+d) instead of like a fog that has flattened: 0.5 at the radius, 0.2 at the shading cap, and
+   still live where fog is 0.99. Same mip as the crossing fetch (the row's own footprint selects it, never
+   finer), same one texel, no march, no lightmap, no second field, so the off-map light census stays zero
+   and #19's spokes stay impossible. `DEV.set('fardist', 0)` is the A/B: it leaves the fetch and its fog
+   exactly as they shipped. */
+let FARDST = 1;
 /* Where each screen column's ray leaves the authored [0,N) square: distance, the point just inside it,
    and the fog of that distance. A ray's DIRECTION depends only on its column (dir + plane*(x*2/BW-1)),
    so this is a FRAME constant - two divides, one min and one fog per column, rebuilt when gSer moves and
@@ -1927,7 +1942,8 @@ function castGround(flash, fcR, fcG, fcB) {
          boundary moves when the player walks across the radius. */
       let fpx = 0, fams = 0, famw = 1, mFh = 1, famd = null, fwx = 0, fwy = 0, fdx = 0, fdy = 0,
         fBr = 0, fBg = 0, fBb = 0, fQr = 0, fQg = 0, fQb = 0, xpx = 0, xxs = 0, xxw = 1, xxh = 1, xxd = null,
-        xAr = 0, xAg = 0, xAb = 0, xPr = 0, xPg = 0, xPb = 0, xQr = 0, xQg = 0, xQb = 0, xSr = 0, xSg = 0, xSb = 0;
+        xAr = 0, xAg = 0, xAb = 0, xPr = 0, xPg = 0, xPb = 0, xQr = 0, xQg = 0, xQb = 0, xSr = 0, xSg = 0, xSb = 0,
+        xMr = 0, xMg = 0, xMb = 0, xAr0 = 1, xAg0 = 1, xAb0 = 1;
       if (tex && tex.mips && ((GNDTX && (surR | surG | surB) !== 0) || (FARCROSS && FARVOID && offN && vr > 0))) {
         const cfF = dRow / absP, wxr = planeX * stepBase * dRow, wyr = planeY * stepBase * dRow;
         const mF = tex.mips[Math.min(mipSel(wxr, wyr, dirX * cfF, dirY * cfF, sc, tex), tex.mips.length - 1)];
@@ -1965,6 +1981,10 @@ function castGround(flash, fcR, fcG, fcB) {
             xPb = vr * xb * (1 - wEm) * dcN[2] / alF[2];
             xQr = vr * wEm * dcE[0]; xQg = vr * wEm * dcE[1]; xQb = vr * wEm * dcE[2];
             xSr = vr * fcR; xSg = vr * fcG; xSb = vr * fcB;
+            /* #616: the mean part, which KEEPS the fog weight, and the deviation coefficient, which takes
+               the distance share instead. xPr * alF cancels to vr*xb*(1-wEm)*dcN - a row constant. */
+            xMr = vr * xb * (1 - wEm) * dcN[0]; xMg = vr * xb * (1 - wEm) * dcN[1]; xMb = vr * xb * (1 - wEm) * dcN[2];
+            xAr0 = alF[0]; xAg0 = alF[1]; xAb0 = alF[2];
           }
         }
       }
@@ -1980,6 +2000,22 @@ function castGround(flash, fcR, fcG, fcB) {
               if (ux < 0) tx--;                            // floor, not truncate - the guard both copies use
               if (uy < 0) ty--;
               const cF = xxd[(ty & (xxh - 1)) * xxw + (tx & (xxw - 1))];
+              /* #616 - THE DISTANCE, SECOND HALF OF THE ROW COPY (AGENTS.md: the ground pixel body exists
+                 twice; the other copy is gndBuild/groundPixel). The mean of the fetched crossing keeps the
+                 fog weight it shipped with, so this pixel's AVERAGE is the frame that shipped; the fetch's
+                 DEVIATION from the mip mean is re-weighted from `iv` (a fog that has saturated to 0.99 out
+                 here, so no column's material survives) onto `dk`, the share of a surface a ray that flew
+                 d metres still shows. dk is monotone in the one distance the cache holds, so a column that
+                 left the grid at 25 m wears its deck and one that left at 90 m washes out - grain, then
+                 none, in the direction the player is looking, and continuously as they walk. Zero-mean by
+                 construction, so no room is relit and no crossing boundary moves: `dk` rides `vr`. */
+              if (FARDST) {
+                const dk = FARB / (FARB + xCDst[x]);
+                px[rowF + x] = 0xFF000000 | clampi(xAr + iv * (xPr * (cF >> 16 & 255) + xQr) + fg * xSr + dk * xPr * ((cF >> 16 & 255) - xAr0)) << 16 |
+                  clampi(xAg + iv * (xPg * (cF >> 8 & 255) + xQg) + fg * xSg + dk * xPg * ((cF >> 8 & 255) - xAg0)) << 8 |
+                  clampi(xAb + iv * (xPb * (cF & 255) + xQb) + fg * xSb + dk * xPb * ((cF & 255) - xAb0));
+                continue;
+              }
               px[rowF + x] = 0xFF000000 | clampi(xAr + iv * (xPr * (cF >> 16 & 255) + xQr) + fg * xSr) << 16 |
                 clampi(xAg + iv * (xPg * (cF >> 8 & 255) + xQg) + fg * xSg) << 8 |
                 clampi(xAb + iv * (xPb * (cF & 255) + xQb) + fg * xSb);
@@ -2664,6 +2700,7 @@ let gSer = 0, gMSer = -1, gMRow = -1, gMPl = 0, gMDS = 0, gMDfa = 0, gMFog = 0, 
   gMTx = 0, gMTxS = 0, gMTxW = 1, gMTxH = 1, gMTxD = null,
   gMTxA = 0, gMTxB = 0, gMTxC = 0, gMTxD0 = 0, gMTxD1 = 0, gMTxD2 = 0,
   gMXx = 0, gMXS = 0, gMXW = 1, gMXH = 1, gMXD = null, gMXA = 0, gMXB = 0, gMXC = 0, gMXE0 = 0, gMXE1 = 0, gMXE2 = 0, gMXF0 = 0, gMXF1 = 0, gMXF2 = 0,
+  gMXM0 = 0, gMXM1 = 0, gMXM2 = 0, gMXL0 = 1, gMXL1 = 1, gMXL2 = 1,
   gLSer = -1, gLSX = 0, gLSY = 0, gML0 = 0, gML1 = 0, gML2 = 0, gMMir = 0,
   gMA0 = 0, gMA1 = 0, gMA2 = 0, gMB0 = 0, gMB1 = 0, gMB2 = 0, gMD0 = 0, gMD1 = 0, gMD2 = 0;
 
@@ -2761,6 +2798,11 @@ function gndBuild(row, isF, absP, pl, tex, sc, fcR, fcG, fcB, fl, amb, dOv) {
         gMXB = gMVoid * xb * (1 - ve) * mm.meanNE[1] / alF[1];
         gMXC = gMVoid * xb * (1 - ve) * mm.meanNE[2] / alF[2];
         gMXE0 = gMVoid * ve * mm.meanEM[0]; gMXE1 = gMVoid * ve * mm.meanEM[1]; gMXE2 = gMVoid * ve * mm.meanEM[2];
+        /* #616, SECOND COPY of the distance term: the mean keeps the fog weight, the deviation takes the
+           distance share (AGENTS.md: change one copy, change the other). xPr * alF cancels, so the mean is
+           a run constant. */
+        gMXM0 = gMVoid * xb * (1 - ve) * mm.meanNE[0]; gMXM1 = gMVoid * xb * (1 - ve) * mm.meanNE[1]; gMXM2 = gMVoid * xb * (1 - ve) * mm.meanNE[2];
+        gMXL0 = alF[0]; gMXL1 = alF[1]; gMXL2 = alF[2];
       }
     }
   } else { gMFar = 0; gMVoid = 0; gMTx = 0; gMXx = 0; }
@@ -3206,9 +3248,23 @@ function groundPixel(x0, x1, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb
         if (ux < 0) tx--;                              // floor, not truncate - the guard both copies use
         if (uy < 0) ty--;
         const cX = gMXD[(ty & (gMXH - 1)) * gMXW + (tx & (gMXW - 1))];
-        vR = vR * iv + ivf * (gMXA * (cX & 255) + gMXE0) + fg * gMXF0;
-        vG = vG * iv + ivf * (gMXB * (cX >> 8 & 255) + gMXE1) + fg * gMXF1;
-        vB = vB * iv + ivf * (gMXC * (cX >> 16 & 255) + gMXE2) + fg * gMXF2;
+        if (FARDST) {
+          /* #616, SECOND COPY: the fetched crossing keeps its shipped AVERAGE - the mean rides `ivf`, the
+             fog of the crossing distance, exactly as it did - and its DEVIATION from the mip's own mean
+             rides `dk`, the share of a surface a ray that flew xCDst[x] metres still shows. Fog has
+             saturated out here, so `ivf` alone answers a 25 m crossing and a 90 m crossing the same pixel;
+             `dk` = FARB/(FARB+d) has not, so the band stops being one value and says how far it looked.
+             Zero-mean, same mip, same one texel, no lightmap read, `FARB`/`FARLIT`/`HAZE_L`/`VOIDK` and
+             the shipped share all untouched. `DEV.set('fardist', 0)` is the A/B in both copies. */
+          const dk = FARB / (FARB + xCDst[x]);
+          vR = vR * iv + ivf * (gMXA * (cX & 255) + gMXE0) + fg * gMXF0 + dk * gMXA * ((cX & 255) - gMXL0);
+          vG = vG * iv + ivf * (gMXB * (cX >> 8 & 255) + gMXE1) + fg * gMXF1 + dk * gMXB * ((cX >> 8 & 255) - gMXL1);
+          vB = vB * iv + ivf * (gMXC * (cX >> 16 & 255) + gMXE2) + fg * gMXF2 + dk * gMXC * ((cX >> 16 & 255) - gMXL2);
+        } else {
+          vR = vR * iv + ivf * (gMXA * (cX & 255) + gMXE0) + fg * gMXF0;
+          vG = vG * iv + ivf * (gMXB * (cX >> 8 & 255) + gMXE1) + fg * gMXF1;
+          vB = vB * iv + ivf * (gMXC * (cX >> 16 & 255) + gMXE2) + fg * gMXF2;
+        }
       }
       px[row + x] = 0xFF000000 | clampi(vB) << 16 | clampi(vG) << 8 | clampi(vR);
       if (cnt) cnt[LG_FARVOID]++;

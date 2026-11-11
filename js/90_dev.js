@@ -267,6 +267,9 @@
     if (name === 'farvoid') { FARVOID = value === undefined ? 1 : (value ? 1 : 0); return { farvoid: FARVOID }; }
     /* #616: the far void's surface. 0 = the flat air slab past the radius, as it shipped. */
     if (name === 'farcross') { FARCROSS = value === undefined ? 1 : (value ? 1 : 0); xCSer = -1; return { farcross: FARCROSS, far: GQ ? GQ.far : FARB }; }
+    /* #616: the distance a void ray flew, on the crossing's structure. 0 = the fetch fogged by `1-fogAt`
+       alone, which is the saturated answer the band shipped with. */
+    if (name === 'fardist') { FARDST = value === undefined ? 1 : (value ? 1 : 0); return { fardist: FARDST, far: GQ ? GQ.far : FARB }; }
     if (name === 'gndtex') { GNDTX = value === undefined ? 1 : (value ? 1 : 0); return { gndtex: GNDTX, blend: FARBLEND, far: GQ.far }; }
     if (name === 'gndoff') { GNDOF = value === undefined ? 1 : (value ? 1 : 0); return { gndoff: GNDOF }; }
     if (name === 'gndbil') { GNDNB = value === undefined ? 1 : (value ? 1 : 0); return { gndbil: GNDNB }; }
