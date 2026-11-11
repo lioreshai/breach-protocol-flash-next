@@ -10178,7 +10178,20 @@ const RECHALF = refRecord('heights', 'HALF-MOVE', 'num', [97.11, 27.76, 60.60, 9
          authored disc, against a control that flattens the disc under a pinned camera. */
       run(PRE + STAGE + ';' + `(()=>{for(let dx=-1;dx<=1;dx++)for(let dy=-1;dy<=1;dy++)MAP.fz[(${SY}+dy)*MW+${SX}+dx]+=4;})()` +
         ';linkBoundaries();' + SEAT);
+      /* #518 NAME THE LAST WRITER, NOT THE QUEUED ONE (the ruling's own clause).
+         The queue flag below - `ZD.set`, written by the ground pass's deferred wrapper - says which pass
+         QUEUED a pixel's answer. `castGround` runs before `castWalls` (js/40_render.js:747-748), so a wall
+         face, a riser, a prop or a body that paints over the floor pixel later leaves the flag at 1 and
+         the attribution accuses the floor half of a pixel it no longer owns. `SURF` (js/00_core.js:43) is
+         stamped by every draw site, so its class IS the last writer. It is opt-in and null in play and
+         every site guards `if (SURF)`, so arming it for this one frame moves no pixel and no cost; it is
+         allocated fresh here, which also zeroes it, and disarmed right after the census reads it. */
+      run('if (typeof SURF === "undefined") 0; else SURF = new Uint8Array(BW * BH);');
       run(ZRESET + ';' + ZON + ';renderWorld()');                                  // eyeZ is written BY the render: read it after
+      /* The last writer of the ONE COLUMN the PAST clause below actually thresholds (`xc`), row by row.
+         The census's own stride samples every thirteenth column, so its worst pixel need not be the pixel
+         that gates the verdict; this is the store behind the number the row reports. */
+      const sCol = run(`(()=>{if(typeof SURF==="undefined"||!SURF)return null;const o=[];for(let y=0;y<BH;y++)o[y]=SURF[y*BW+${(PW / 2) | 0}];return o;})()`);
       const zEye = run('eyeZ'), zBandFloor = run('floorAt(P.x,P.y)');
       const zDisc = zbufCopy(), hzC = run('Math.round(horizon)'), xc = (PW / 2) | 0;
       const yEdge = Math.round(hzC + (zEye - zBandFloor) * PBH / 1.5);
@@ -10205,12 +10218,15 @@ const RECHALF = refRecord('heights', 'HALF-MOVE', 'num', [97.11, 27.76, 60.60, 9
              sets it.
          A pixel where the two agree is walked. A pixel where the deferred arm returns the plane it was
          handed while the sentinel names a different one is a row the walk gave up on - and the row says
-         which pass wrote it (ZD.set, the renderer's own queue, the same test posePath uses). Reports and
-         attributes; it gates nothing and moves no threshold, no window and no camera in the clauses above. */
+         which pass wrote it (ZD.set, the renderer's own queue, the same test posePath uses) AND who wrote
+         it LAST (SURF, the renderer's own surface id, stamped by every draw site - see the note above the
+         disc render). The two can disagree, and when they do the queue flag is the one that is wrong: it
+         records a queue, not a paint. Reports and attributes; it gates nothing and moves no threshold, no
+         window and no camera in the clauses above. */
       const armC = run(`(()=>{const N=MAP.w,hz=Math.round(horizon);
         const ex=camX|0,ey=camY|0,air=ex>=0&&ey>=0&&ex<N&&ey<N&&!MAP.cell[ey*N+ex];
         let plA=air?MAP.fz[ey*N+ex]*ZQ:eyeZ;if(!(plA<eyeZ))plA=Math.min(0,eyeZ-ZQ);
-        let n=0,gave=0,walked=0,pdef=0,prow=0,ww=0,why='';
+        let n=0,gave=0,walked=0,pdef=0,prow=0,ww=0,why='',sFace=0,sFloor=0,sCeil=0,wsurf=-1;
         const rsb1=reSolveBad;                       // the sentinel marches far: do not spend heights' own row
         for(let y=Math.max(hz+2,${yEdge - 28});y<${yEdge}&&y<BH;y++){const absP=y-hz;if(absP<=0)continue;
           for(let x=0;x<BW;x+=13){const cf=x*(2/BW)-1,rx=dirX+planeX*cf,ry=dirY+planeY*cf;
@@ -10220,11 +10236,14 @@ const RECHALF = refRecord('heights', 'HALF-MOVE', 'num', [97.11, 27.76, 60.60, 9
             const pd=planeAlong(rx,ry,plA,true,absP,1);
             if(Math.abs(pd-plA)<ZQ*0.5&&Math.abs(pw-pd)>ZQ*0.5){gave++;
               if(ZD.set[y*BW+x]===1)pdef++;else prow++;
+              const sv=SURF?SURF[y*BW+x]:-1;                // LAST writer: 0 face/riser/prop, 1 floor, 2 ceiling
+              if(sv===1)sFloor++;else if(sv===2)sCeil++;else sFace++;
               const e=dW>0?Math.abs(got-dW):0;
-              if(e>ww){ww=e;why='row '+(y-hz)+' col '+x+' stores '+got.toFixed(2)+' m where its ray arrives at '+dW.toFixed(2)+' and the deferred walk handed back plane '+pd.toFixed(2);}}
+              if(e>ww){ww=e;wsurf=sv;why='row '+(y-hz)+' col '+x+' stores '+got.toFixed(2)+' m where its ray arrives at '+dW.toFixed(2)+' and the deferred walk handed back plane '+pd.toFixed(2);}}
             else walked++;}}
         reSolveBad=rsb1;
-        return {n,gave,walked,pdef,prow,ww,why};})()`);
+        return {n,gave,walked,pdef,prow,ww,why,sFace,sFloor,sCeil,wsurf};})()`);
+      run('if (typeof SURF === "undefined") 0; else SURF = null;');   // disarm: this frame only
       const eyePin = run('P.z'), eyeDisc = zEye;
       /* #517 A CONTROL IS ONLY A CONTROL IF IT KEEPS THE CAMERA.
          This flattening used to zero the disc's floors and nothing else. `ceilAt` is the floor PLUS this
@@ -10304,6 +10323,11 @@ const RECHALF = refRecord('heights', 'HALF-MOVE', 'num', [97.11, 27.76, 60.60, 9
         pastN++;
         if (d > pastMax) { pastMax = d; pastRow = y; }
       }
+      /* Who last painted the pixel this row thresholds. The PAST statistic reads the centre column only,
+         so this names the writer of that exact pixel rather than of the census's widest-stride sample. */
+      const sName = v => v === 1 ? 'the floor half of the ground pass' : v === 2 ? 'the ceiling half of it'
+        : v === 0 ? 'a wall face, riser, prop or body painted over it'
+          : 'nothing - no draw site claimed it';
       for (let y = hzC + 2; y < yFar && y < PH; y++) {
         const u = zDisc[y * PW + xc], v = zFlat[y * PW + xc];
         if (!isFinite(u) || !isFinite(v) || !(u > 0) || !(v > 0)) continue;
@@ -10335,13 +10359,18 @@ const RECHALF = refRecord('heights', 'HALF-MOVE', 'num', [97.11, 27.76, 60.60, 9
         (eDead ? '  FAIL EDGE-STEPS-DEAD: removing the band changes no depth anywhere, so the pose proves nothing'
           : '  ok') +
         `; PAST the edge (the ${pastN} rows above its authored row, the band the drop face projects into) the two frames differ by at most ` +
-        pastMax.toFixed(2) + ' m' + (pastRow >= 0 ? ' at row ' + (pastRow - hzC) : '') +
+        pastMax.toFixed(2) + ' m' + (pastRow >= 0 ? ' at row ' + (pastRow - hzC)
+          + ' col ' + xc + ', whose last writer is ' + (sCol ? sName(sCol[pastRow]) : 'unknown - this build defines no SURF') : '') +
         `, and over the ${farN} far rows above that - where the ray is off the level and the wash answers - by ` +
         farMax.toFixed(2) + ' m' + (farRow >= 0 ? ' at row ' + (farRow - hzC) : ' (none)') +
         (pBad ? '  FAIL EDGE-BAND-PHANTOM: a band plane reaches past its own edge, so the near far field is not the floor both frames can prove' : '') +
         `; in that window the deferred walk handed the plane it was HANDED on ${armC.gave} of ${armC.n} px`
-        + ` (${armC.walked} answered a plane its own ray arrived at), written by ${armC.pdef} deferred / ${armC.prow} row`
-        + (armC.gave ? (armC.ww ? ' - worst ' + armC.why : '') : ' - the walk answers every gated row, so the disagreement is not this arm') +
+        + ` (${armC.walked} answered a plane its own ray arrived at), queued by ${armC.pdef} deferred / ${armC.prow} row,`
+        + ` LAST written by ${armC.sFace} wall/riser/prop + ${armC.sCeil} ceiling + ${armC.sFloor} floor of those ${armC.gave}`
+        + (armC.gave ? (armC.ww ? ' - worst ' + armC.why + ' (last writer ' +
+            (armC.wsurf === 1 ? 'the floor half' : armC.wsurf === 2 ? 'the ceiling half' :
+              armC.wsurf === 0 ? 'a wall face, riser, prop or body, NOT the floor pass' : 'stamped by nothing - no draw site claimed it')
+            + ')' : '') : ' - the walk answers every gated row, so the disagreement is not this arm') +
         `; the control's eye ${eyeFlat.toFixed(2)} m against the disc's ${eyeDisc.toFixed(2)} m` +
         (camBad ? '  FAIL EDGE-CONTROL-CAMERA: the control moved the eye, so this A/B is two cameras and its difference is not the band' : '') +
         `; ${c.phantom} phantom px over the whole lower half` + (c.phantom ? '  FAIL BAND-FLOOR-PHANTOM' : ''));
