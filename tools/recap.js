@@ -41,6 +41,11 @@
  *            its own bar. A threshold label that differs from the tool's is printed as a note.
  *   vacuity - no PNG decoded, a decode that is not a page screenshot, no decode list, no row
  *            sentence, an embed with no file behind it: FAILURE, exit 1. Never an empty pass.
+ *   channel - the decoder is measured against bytes this file writes, whose channel order is known
+ *            by construction (#394). A colour-type-6 (RGBA) frame must land in R, G, B order, and a
+ *            colour-type-4 grey frame must stay grey. This row exists because every committed PNG
+ *            was colour type 2 until 2026-11-11, so the type-6 branch ran in no CI job and a channel
+ *            rotation in it printed `ok` while every mean it printed was wrong.
  *   claim   - what the capture-pass paragraph states about the bind, against what this checkout's
  *            shipped bytes say (#653). See `captionBind`.
  */
@@ -120,11 +125,17 @@ function pngDecode(buf, name) {
   const rgb = Buffer.alloc(ihdr.w * ihdr.h * 3);
   if (ihdr.color === 2) lin.copy(rgb);
   else if (ihdr.color === 6 || ihdr.color === 4) {
+    // Channel order is stated, not inferred: colour type 6 is RGBA and type 4 is grey+alpha, so the
+    // first byte of a type-6 pixel is RED. Reading it as the green channel - which this branch did
+    // from #239 until #797 - reports `0.2126 G + 0.7152 B + 0.0722 R`, and the captions that quote
+    // `LUMA` above would be a third higher or lower than the pixels. It stayed invisible because
+    // every PNG committed before the 2026-11-11 re-take was colour type 2 and only this branch
+    // landed a type-6 frame; CHANNEL-6 below is the row that keeps it from being invisible again.
     for (let i = 0, j = 0; i < lin.length; i += bps) {
       const g = lin[i];
+      rgb[j++] = ihdr.color === 4 ? g : lin[i];
       rgb[j++] = ihdr.color === 4 ? g : lin[i + 1];
       rgb[j++] = ihdr.color === 4 ? g : lin[i + 2];
-      rgb[j++] = g;
     }
   } else if (ihdr.color === 0) {
     for (let i = 0, j = 0; i < lin.length; i += bps) { rgb[j++] = lin[i]; rgb[j++] = lin[i]; rgb[j++] = lin[i]; }
@@ -137,6 +148,83 @@ function pngDecode(buf, name) {
     }
   }
   return { w: ihdr.w, h: ihdr.h, rgb: rgb };
+}
+
+/* --------------------------------------------------------- channel self-test */
+
+/*
+ * A decoder needs a byte whose channel order is known by construction, or it cannot fail (#394).
+ *
+ * Until 2026-11-11 every file in docs/screens/ was colour type 2, so `pngDecode`'s type-6 branch ran
+ * in no CI job. It carried a rotation - an RGBA pixel was written into the RGB buffer as G, B, R - so
+ * the luma it printed for such a frame was `0.2126 G + 0.7152 B + 0.0722 R`, and because the captions
+ * are quoted back to the same decoder the row still printed `ok`. The 2026-11-11 re-take landed eight
+ * colour-type-6 frames and every mean on the front page turned out to have been read through that
+ * rotation; the pixels were always right (browsers and GitHub decode RGBA correctly) and the CHECK was
+ * wrong, which is the case a gate is for.
+ *
+ * So the branch is now exercised by bytes this file writes. Each case paints one pixel with three
+ * DIFFERENT channel values - a rotation permutes them and changes the luma, an identical-channel grey
+ * pixel would not - and asserts the decoded mean equals the luma of the channels that went in. The
+ * type-4 case is the control on the other half of the branch: grey+alpha must stay grey, which is the
+ * one thing that part of the branch does right.
+ */
+function synthPng(color, px, w, h) {
+  const CH = color === 6 ? 4 : color === 4 ? 2 : 3;
+  const srow = w * CH;
+  const raw = Buffer.alloc((srow + 1) * h);
+  for (let y = 0; y < h; y++) {
+    raw[y * (srow + 1)] = 0;                                  // filter type 0, so the decode is exact
+    for (let x = 0; x < w; x++) px.copy(raw, y * (srow + 1) + 1 + x * CH, 0, CH);
+  }
+  const chunk = function (type, body) {
+    const b = Buffer.alloc(body.length + 12);
+    b.writeUInt32BE(body.length, 0); b.write(type, 4, 'latin1'); body.copy(b, 8);
+    return b;                                                 // crc left 0: this buffer never leaves the process
+  };
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(w, 0); ihdr.writeUInt32BE(h, 4);
+  ihdr[8] = 8; ihdr[9] = color; ihdr[10] = 0; ihdr[11] = 0; ihdr[12] = 0;
+  return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', ihdr),
+    chunk('IDAT', zlib.deflateSync(raw)), chunk('IEND', Buffer.alloc(0))]);
+}
+
+function channelCheck(fails) {
+  const cases = [
+    // colour type 6: R, G, B and an opaque A. Distinct channels, so G,B,R / B,R,G rotations show.
+    { color: 6, px: [217, 13, 89, 255], want: [217, 13, 89], what: 'RGBA R,G,B,A' },
+    // colour type 4: grey + alpha. All three slots must carry the one grey byte.
+    { color: 4, px: [154, 255], want: [154, 154, 154], what: 'grey+alpha' },
+    // colour type 2: the encoding every frame used before this one, kept so a fix that swaps the
+    // rotation to a new wrong order still shows up as a mismatch against the case that always worked.
+    { color: 2, px: [217, 13, 89], want: [217, 13, 89], what: 'RGB' }
+  ];
+  let nrows = 0;
+  for (const c of cases) {
+    const name = 'CHANNEL-' + c.color;
+    let got = null, mean = NaN;
+    try {
+      const img = pngDecode(synthPng(c.color, Buffer.from(c.px), 2, 2), name);
+      got = [img.rgb[0], img.rgb[1], img.rgb[2]];
+      mean = measure(img, 1, DARK).mean;
+    } catch (e) {
+      console.log('DECODE-FAIL ' + name.padEnd(12) + e.message);
+      fails.push(name + ': ' + e.message);
+      nrows++;
+      continue;
+    }
+    const wantL = LR * c.want[0] + LG * c.want[1] + LB * c.want[2];
+    const chans = got && got.every(function (v, i) { return v === c.want[i]; });
+    const okL = Math.abs(mean - wantL) <= 0.01;
+    const ok = chans && okL;
+    console.log((ok ? 'ok      ' : 'CHANNEL ') + name.padEnd(12) + c.what.padEnd(14) + 'wrote ' + '[' + c.px.slice(0, 3).join(',') + ']'
+      + ' read back [' + got.join(',') + '], luma ' + mean.toFixed(2) + ' against ' + wantL.toFixed(2) +
+      (ok ? '' : ' - the decoder is not reading ' + c.what + ' in R,G,B order'));
+    nrows++;
+    if (!ok) fails.push(name + ': a ' + c.what + ' pixel written as [' + c.px.slice(0, 3).join(',') + '] decodes to [' +
+      (got ? got.join(',') : 'nothing') + '], luma ' + mean.toFixed(2) + ' against the ' + wantL.toFixed(2) + ' the rule states');
+  }
+  return { nrows: nrows };
 }
 
 /* ------------------------------------------------------------------- stats */
@@ -1088,6 +1176,12 @@ function checkMode(rows, rev) {
   // the prose that describes it, twice left behind by the pass it described.
   const cb = captionBind(txt, loadProv(rev), fails, notes);
   nrows += cb.nrows;
+
+  // Field 0d - the decoder itself. Every caption number below is read through `pngDecode`, so the
+  // instrument gets measured against bytes whose channel order is known before any of them is
+  // believed (#394: the colour-type-6 branch ran in no CI job and rotated an RGBA pixel's channels).
+  const ch = channelCheck(fails);
+  nrows += ch.nrows;
 
   // Vacuity first: a run that decoded nothing, or decoded something that is not a page screenshot,
   // is a FAILURE - it must never print as an empty table that passes (#235, AGENTS.md).
