@@ -1927,8 +1927,7 @@ function castGround(flash, fcR, fcG, fcB) {
          boundary moves when the player walks across the radius. */
       let fpx = 0, fams = 0, famw = 1, mFh = 1, famd = null, fwx = 0, fwy = 0, fdx = 0, fdy = 0,
         fBr = 0, fBg = 0, fBb = 0, fQr = 0, fQg = 0, fQb = 0, xpx = 0, xxs = 0, xxw = 1, xxh = 1, xxd = null,
-        xAr = 0, xAg = 0, xAb = 0, xPr = 0, xPg = 0, xPb = 0, xQr = 0, xQg = 0, xQb = 0, xSr = 0, xSg = 0, xSb = 0,
-        xLr = 0, xLg = 0, xLb = 0;
+        xAr = 0, xAg = 0, xAb = 0, xPr = 0, xPg = 0, xPb = 0, xQr = 0, xQg = 0, xQb = 0, xSr = 0, xSg = 0, xSb = 0;
       if (tex && tex.mips && ((GNDTX && (surR | surG | surB) !== 0) || (FARCROSS && FARVOID && offN && vr > 0))) {
         const cfF = dRow / absP, wxr = planeX * stepBase * dRow, wyr = planeY * stepBase * dRow;
         const mF = tex.mips[Math.min(mipSel(wxr, wyr, dirX * cfF, dirY * cfF, sc, tex), tex.mips.length - 1)];
@@ -1959,20 +1958,11 @@ function castGround(flash, fcR, fcG, fcB) {
              same rule for the deferred columns (AGENTS.md: change one copy, change the other). */
           if (FARCROSS && offN && vr > 0) {
             crossCache(N);
-            /* #616: the air's own light is ADDED, not fogged. It used to ride inside `xb`, and the pixel
-               below multiplies that whole term by `1 - fogAt(crossing)` - so #199's air light was billed
-               the fog whose entire job is to represent that air, and a pixel that is ENTIRELY void (vr = 1,
-               so `xAr` is nothing) got almost none of it. `xL` carries the same FARLIT*HAZE_L on the same
-               VOIDK share and the same ratio over the mip's own mean, OUTSIDE the fog multiply: one extra
-               multiply-add per channel per void pixel, no new array, no lightmap read, FARLIT/HAZE_L and
-               FARB untouched. `FARLIT 0` still zeroes it. */
-            const xb = baseRow, ivr = 1 - vr, xa = (FARLIT && HAZE_L > 0 ? FARLIT * HAZE_L : 0) * vr;
+            const xb = baseRow + (FARLIT && HAZE_L > 0 ? FARLIT * HAZE_L : 0), ivr = 1 - vr;
             xpx = 1; xxs = sc * mF.w; xxw = mF.w; xxh = mF.h; xxd = mF.data;
             xAr = (ar + fRRow) * ivr; xAg = (ag + fGRow) * ivr; xAb = (ab + fBRow) * ivr;
             xPr = vr * xb * (1 - wEm) * dcN[0] / alF[0]; xPg = vr * xb * (1 - wEm) * dcN[1] / alF[1];
             xPb = vr * xb * (1 - wEm) * dcN[2] / alF[2];
-            xLr = xa * (1 - wEm) * dcN[0] / alF[0]; xLg = xa * (1 - wEm) * dcN[1] / alF[1];
-            xLb = xa * (1 - wEm) * dcN[2] / alF[2];
             xQr = vr * wEm * dcE[0]; xQg = vr * wEm * dcE[1]; xQb = vr * wEm * dcE[2];
             xSr = vr * fcR; xSg = vr * fcG; xSb = vr * fcB;
           }
@@ -1990,9 +1980,9 @@ function castGround(flash, fcR, fcG, fcB) {
               if (ux < 0) tx--;                            // floor, not truncate - the guard both copies use
               if (uy < 0) ty--;
               const cF = xxd[(ty & (xxh - 1)) * xxw + (tx & (xxw - 1))];
-              px[rowF + x] = 0xFF000000 | clampi(xAr + iv * (xPr * (cF >> 16 & 255) + xQr) + fg * xSr + xLr * (cF >> 16 & 255)) << 16 |
-                clampi(xAg + iv * (xPg * (cF >> 8 & 255) + xQg) + fg * xSg + xLg * (cF >> 8 & 255)) << 8 |
-                clampi(xAb + iv * (xPb * (cF & 255) + xQb) + fg * xSb + xLb * (cF & 255));
+              px[rowF + x] = 0xFF000000 | clampi(xAr + iv * (xPr * (cF >> 16 & 255) + xQr) + fg * xSr) << 16 |
+                clampi(xAg + iv * (xPg * (cF >> 8 & 255) + xQg) + fg * xSg) << 8 |
+                clampi(xAb + iv * (xPb * (cF & 255) + xQb) + fg * xSb);
               continue;
             }
             px[rowF + x] = 0xFF000000 | clampi(ar + fRRow) << 16 | clampi(ag + fGRow) << 8 | clampi(ab + fBRow);
@@ -2673,7 +2663,7 @@ let gSer = 0, gMSer = -1, gMRow = -1, gMPl = 0, gMDS = 0, gMDfa = 0, gMFog = 0, 
   gMFar = 0, gMVoid = 0, gMWnR = 0, gMWnG = 0, gMWnB = 0, gMWErr = 0, gMWEg = 0, gMWEm = 0, gMLift = 0,
   gMTx = 0, gMTxS = 0, gMTxW = 1, gMTxH = 1, gMTxD = null,
   gMTxA = 0, gMTxB = 0, gMTxC = 0, gMTxD0 = 0, gMTxD1 = 0, gMTxD2 = 0,
-  gMXx = 0, gMXS = 0, gMXW = 1, gMXH = 1, gMXD = null, gMXA = 0, gMXB = 0, gMXC = 0, gMXE0 = 0, gMXE1 = 0, gMXE2 = 0, gMXF0 = 0, gMXF1 = 0, gMXF2 = 0, gMXG0 = 0, gMXG1 = 0, gMXG2 = 0,
+  gMXx = 0, gMXS = 0, gMXW = 1, gMXH = 1, gMXD = null, gMXA = 0, gMXB = 0, gMXC = 0, gMXE0 = 0, gMXE1 = 0, gMXE2 = 0, gMXF0 = 0, gMXF1 = 0, gMXF2 = 0,
   gLSer = -1, gLSX = 0, gLSY = 0, gML0 = 0, gML1 = 0, gML2 = 0, gMMir = 0,
   gMA0 = 0, gMA1 = 0, gMA2 = 0, gMB0 = 0, gMB1 = 0, gMB2 = 0, gMD0 = 0, gMD1 = 0, gMD2 = 0;
 
@@ -2765,20 +2755,11 @@ function gndBuild(row, isF, absP, pl, tex, sc, fcR, fcG, fcB, fl, amb, dOv) {
          flat air slab back in both copies with one call. */
       if (FARCROSS && FARVOID && gMVoid > 0 && alF[0] > 0 && alF[1] > 0 && alF[2] > 0) {
         crossCache(MAP.w);
-        /* #616, the SECOND COPY (AGENTS.md: change one copy, change the other): #199's air light is ADDED,
-           not fogged. It used to ride inside `xb`, whose whole term the pixel below multiplies by
-           `1 - fogAt(crossing)` - and in this copy the un-fogged `hv` add also loses its share to the `* iv`
-           on the line that arms the fetch, so a pixel that is entirely void paid the air light twice fogged
-           and never once lit. `gMXG` carries the same FARLIT*HAZE_L on this pixel's own void share and the
-           same ratio over the mip's mean, outside every fog multiply. */
-        const xb = gMBase, ve = mm.emFrac, xa = (FARLIT && HAZE_L > 0 ? FARLIT * HAZE_L : 0) * gMVoid;
+        const xb = gMBase + (FARLIT && HAZE_L > 0 ? FARLIT * HAZE_L : 0), ve = mm.emFrac;
         gMXx = 1; gMXS = sc * mF.w; gMXW = mF.w; gMXH = mF.h; gMXD = mF.data;
         gMXA = gMVoid * xb * (1 - ve) * mm.meanNE[0] / alF[0];
         gMXB = gMVoid * xb * (1 - ve) * mm.meanNE[1] / alF[1];
         gMXC = gMVoid * xb * (1 - ve) * mm.meanNE[2] / alF[2];
-        gMXG0 = xa * (1 - ve) * mm.meanNE[0] / alF[0];
-        gMXG1 = xa * (1 - ve) * mm.meanNE[1] / alF[1];
-        gMXG2 = xa * (1 - ve) * mm.meanNE[2] / alF[2];
         gMXE0 = gMVoid * ve * mm.meanEM[0]; gMXE1 = gMVoid * ve * mm.meanEM[1]; gMXE2 = gMVoid * ve * mm.meanEM[2];
       }
     }
@@ -3225,9 +3206,9 @@ function groundPixel(x0, x1, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb
         if (ux < 0) tx--;                              // floor, not truncate - the guard both copies use
         if (uy < 0) ty--;
         const cX = gMXD[(ty & (gMXH - 1)) * gMXW + (tx & (gMXW - 1))];
-        vR = vR * iv + ivf * (gMXA * (cX & 255) + gMXE0) + fg * gMXF0 + gMXG0 * (cX & 255);
-        vG = vG * iv + ivf * (gMXB * (cX >> 8 & 255) + gMXE1) + fg * gMXF1 + gMXG1 * (cX >> 8 & 255);
-        vB = vB * iv + ivf * (gMXC * (cX >> 16 & 255) + gMXE2) + fg * gMXF2 + gMXG2 * (cX >> 16 & 255);
+        vR = vR * iv + ivf * (gMXA * (cX & 255) + gMXE0) + fg * gMXF0;
+        vG = vG * iv + ivf * (gMXB * (cX >> 8 & 255) + gMXE1) + fg * gMXF1;
+        vB = vB * iv + ivf * (gMXC * (cX >> 16 & 255) + gMXE2) + fg * gMXF2;
       }
       px[row + x] = 0xFF000000 | clampi(vB) << 16 | clampi(vG) << 8 | clampi(vR);
       if (cnt) cnt[LG_FARVOID]++;
