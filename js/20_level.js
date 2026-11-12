@@ -3306,7 +3306,14 @@ const CZ_AUTH_TALL = 16;                              // four units, the constan
    Twelve quanta = three units, so a deck at +1.00 m tops out at 4.00 m, the plane the datum hall's four
    units reach from 0.00 m. Same roof line, two room heights: the level's ceiling stops being one plane
    with no seam, and `buildCeilPlanes` still derives every plane from these two numbers alone. */
-const CZ_AUTH_STOREY = 12;
+const CZ_AUTH_STOREY = 11;
+/* #421 ONE QUANTUM DOWN, BECAUSE THE DECK IS ONE QUANTUM UP. The storey's air was authored at twelve
+   quanta against a deck at four - floor +1.00 m plus three units = 4.00 m, the hall's own roof - so that a
+   raised band was a ROOM whose ceiling coincided with the hall's rather than a slab poking through it. The
+   deck now stands five quanta up (+1.25 m, the tallest floor the plan's digit encoding can author, and one
+   quantum above the level's own one-unit ceiling plane, which is the whole point: an underside that sits
+   AT the ceiling plane is indistinguishable from the ceiling), so the clearance above it is eleven quanta
+   and the roof line is unchanged at 5*ZQ + 11*ZQ = 4.00 m. ROOM-HEIGHTS still sees two authored rungs. */
 /* #421 WHY THIS DECK IS FOUR CELLS AND NOT A WING. `linkBoundaries` takes the minimap's band datum to be
    the MODAL open-cell band (js/20_level.js `cntF` -> MAP.fzBase), and THE STACK's east wing already stands
    108 cells at +1.00 m against 122 on the datum. A mezzanine lifted out of the west hall therefore moves
@@ -3347,9 +3354,9 @@ const AUTHORED = {
     "4444" + "4444" + "4444" + "4888" + "8884",   //  1
     "4444" + "4444" + "4444" + "4888" + "8884",   //  2
     "4444" + "4444" + "4444" + "4888" + "8884",   //  3
-    "4444" + "7654" + "4444" + "4888" + "8884",   //  4   // #421 treads up westbound, 0.25 m each, into the deck at (4,5)
-    "4444" + "8844" + "4444" + "4888" + "8884",   //  5   // #421 the mezzanine: 4 cells at +1.00 m, off the arrival axis
-    "4444" + "8844" + "4444" + "4888" + "8884",   //  6
+    "4444" + "8765" + "4444" + "4888" + "8884",   //  4   // #421 treads up westbound, 0.25 m each, into the deck at (4,5); the run is FOUR cells now because the deck stands five quanta up
+    "4444" + "9944" + "4444" + "4888" + "8884",   //  5   // #421 the mezzanine: 4 cells at +1.25 m, off the arrival axis - one quantum higher than the level's own ceiling plane, which is what makes its underside a FLOOR rather than a second sheet of ceiling
+    "4444" + "9944" + "4444" + "4888" + "8884",   //  6
     "4444" + "4444" + "4444" + "4888" + "8884",   //  7
     "4444" + "4444" + "4444" + "4888" + "8884",   //  8
     "4444" + "4444" + "4456" + "7888" + "8884",   //  9
@@ -3369,7 +3376,7 @@ const AUTHORED = {
     "...." + "...." + "...." + ".TTT" + "TTT.",   //  1
     "..T." + "...." + "...." + ".TTT" + "TTT.",   //  2
     "..T." + "...." + "...." + ".TTT" + "TTT.",   //  3
-    "..T." + "SSS." + "...." + ".TTT" + "TTT.",   //  4   // #421 FEAT_STAIR on the treads, so the climb is on the minimap
+    "..T." + "SSSS" + "...." + ".TTT" + "TTT.",   //  4   // #421 FEAT_STAIR on the treads, so the climb is on the minimap - four cells now, one per 0.25 m of the taller climb
     "..T." + "UU.." + "...." + ".TTT" + "TTT.",   //  5   // #421 'U' = the storey's own air; the slab under it is derived
     "..T." + "UU.." + "...." + ".TTT" + "TTT.",   //  6
     "..T." + "...." + "...." + ".TTT" + "TTT.",   //  7
