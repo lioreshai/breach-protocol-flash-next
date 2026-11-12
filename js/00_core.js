@@ -178,6 +178,29 @@ var BODYHUE = 1;
        multiply leaves, which is what the near-zero deals in the sweep are the A/B for. */
 var BODYFG = 1;
 
+/* #611 THE COLOUR HALF, armed by BODYFGC. The value half above buys the luma step; it cannot buy the
+   OTHER axis the eye uses, because a grey scale is scale-invariant in the luma-normalised opponent plane
+   the separation row reads. The measured fact this term exists for: over the twelve deals of a level,
+   ARCHIVE SUBLEVEL has a room where a grunt's own hue is the surface behind his silhouette's hue, and the
+   delivered colour step there is 17.8 - under the 20 the issue is written against - while the level's
+   median deal reads 105.6. So it is the DEAL that decides whether the player can see him, which is the
+   defect #611 was filed for. The hue push above (BODYHUE) cancels the cast falling on HIM and it is right
+   that it does, but it cannot know what surface he is framed by, and a wall ten metres back carries its
+   own cell's cast as well as its own albedo.
+   The law is the value half's own, in the other axis: a body belongs at least FG_CTGT of opponent-plane
+   colour distance from the surface it is framed by, and a draw that already separates is INERT. It is
+   measured on the delivered pixels the frame kept (the same record fgPay uses, so the same pixels
+   tools/view.js contrast gates), the correction is a per-channel GAIN on (pixel - wash) - the same shape
+   as the grey scale beside it, so it is albedo, the wash is charged once (#458) and no second multiplier
+   lands on the lamp field (#407) - and the move is taken along the line joining his colour to the
+   background's in the plane with his own mean luma held, so it cannot buy the colour bar with brightness
+   and cannot move the value step the row beside it charges. The rail FG_CMAX caps any one draw's move.
+   Inert where the step already clears the floor, and that inertness is exact: with the term armed but
+   nothing to pay, the pixels this function writes are byte-for-byte main's.
+   1 (shipped) = the conditional colour push runs. 0 = this increment off: his colour is whatever his
+       palette times the room's cast leaves, which is what the failing deal in the sweep is the A/B for. */
+var BODYFGC = 1;
+
 /* ---------------- config ---------------- */
 let FOGC = [9, 12, 20];   // per level: air has a colour
 const LVL = 32;                       // light/fog buckets
