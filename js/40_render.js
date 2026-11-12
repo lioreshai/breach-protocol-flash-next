@@ -4133,6 +4133,7 @@ function castWalls(flash, fcR, fcG, fcB) {
        horizon, and clipping there would eat the soffit #421 is about. Nothing is blocked: a `dq === 1`
        crossing stays walkable (#100); only the pixels change. */
     let de = Math.min(BH - 1, Math.floor(y1));
+    let yieldFace = 0;                              // #518: 1 when the near deck owns every row of this face
     if (riser && rzn < eyeZ) {
       const yN = horizon + (eyeZ - rzn) * hpx;             // the near slab's top surface at this perp
       if (yN < de) de = Math.floor(yN);
@@ -4166,7 +4167,41 @@ function castWalls(flash, fcR, fcG, fcB) {
          cannot reach it because `ds` was `max(0, ceil(y0))` and nothing else ever moved it). A negative
          kept row means the lip is off the top of the frame, so EVERY visible row is under it and owned by
          the near deck: there is no face to draw and no row to keep, which is what `continue` says. */
-      if (de < ds) { const yK = Math.floor(yN); if (yK < 0) continue; ds = Math.min(ds, yK); de = ds; }
+      /* #518 THE STRADDLE ROW GOES TO THE GROUND PASS. The clause this replaces kept exactly one row -
+         `floor(yN)`, the pixel the lip lands in - and painted it with `perp`, the boundary's own
+         perpendicular distance. That row is one row ABOVE the deck's first solve row, i.e. in the band
+         where the eye's plane answers BEYOND the deck's own edge, so no ray arriving there is in the
+         face at all: the honest surface is whatever the far side carries, at its own distance. Keeping
+         it cost two things - the picture drew a face where no ray reaches, and `zbuf` claimed `perp`,
+         a distance nearer than the arrival, which is what `drawBillboard`'s cull reads
+         (`zbuf[yoff + x] < tY`), so a body standing just past the lip lost that one scan-line. Both
+         are the depth half of #518, not a look argument.
+         The row is therefore yielded: an EMPTY span (`de = ds - 1`), so every `for (y = ds; y <= de)`
+         loop in this body - the face rows, the transient splats, the authored fixtures, the ceiling
+         corner's mean - runs zero times and writes nothing, and the ground pass's own answer for the
+         row stands. What must NOT go with it is the seam: the eye-side crease is the mark that makes
+         the edge an object, it is anchored on the DECK's own row (`yA = yc(rze)`) and runs DOWN into
+         rows the deck honestly owns, so it is independent of whether the wall pass drew a face. Hence
+         `yieldFace` on the span guard: the only reason `ds > de` used to abandon the column. On a step
+         UP and on flat levels `yN >= de` already, so neither the yield nor the flag runs any
+         arithmetic there and those frames stay bit-identical. */
+      if (de < ds && stepFace && rz1 - rz0 <= ZQ + 1e-9) { ds = Math.min(ds, Math.floor(yN)); de = ds - 1; yieldFace = 1; }
+      else if (de < ds) { const yK = Math.floor(yN); if (yK < 0) continue; ds = Math.min(ds, yK); de = ds; }
+    }
+    /* #518 THE ROW IS YIELDED, THE MARK IS NOT. An empty span used to fall through the guard below and
+       abandon the column with it, and that took the seam with it: the eye-side crease is anchored on the
+       DECK's own row (`yc(rze)`) and runs into rows the deck honestly owns, so it never needed the face
+       pixel - it was only ever reaching it through this branch. Called here, BEFORE the guard, and with
+       main's three terms and arguments unchanged, the crease keeps painting and no pixel of the yielded
+       row is written: no colour, and no `zbuf = perp`, which is the depth half of the issue. */
+    if (yieldFace) {
+      if (riser && SEAM) {
+        const seamLit = li - AMB;
+        seamCrease(x, perp, rze, rzf, -SEAMD, rzf > rze ? -1 : 1, seamLit);
+        if (rze !== rz0) seamCrease(x, perp, rz0, rz1, -SEAMD, -1, seamLit, de);
+        seamCrease(x, perp, rz1, rz0, SEAMU, -1, seamLit);
+      }
+      continue;
     }
     if (!(dz > 0) || ds > de) continue;                    // no face here to draw
     const tstep = mh * dz / (y1 - y0);                     // tiles per world unit, not per face
