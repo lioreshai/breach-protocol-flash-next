@@ -1584,6 +1584,24 @@ function planeAlong(rx, ry, pl, isF, absP, farOK) {
       let goOn = 0;                                   // #518: 1 only where the block below extends the reach
       if (inAir) {
         const pe = isF ? fzs[ie] * ZQ : cp[ie];      // the march is standing in a cell whose own surface
+        /* #518 THE CAP BREAK MAY NOT OUTRANK THE ARRIVAL IN THE CELL IT STOPPED IN. The loop tests the
+           cell it is standing in one line LATER (:1630), so a march whose next crossing is at or beyond
+           its reach answers nothing from that cell and hands the CALLER's plane back. That is wrong in
+           exactly one case, and it is the case #517's seat is made of: the far arm has extended `cap` to
+           the solve of the lower floor this ray is over, the march walks up to that solve, the cap test
+           fires before the arrival test, and the pixel is painted with the deck it was queued on. Measured
+           at pose C's PAST window with an exit census on the march (this cycle): 1316 of 1316 failing px
+           end at THIS break, standing in an air cell whose own floor is `0.00`, while the same ray handed
+           a plane below every floor answers `0.00` at 4.53 m and the queued `1.00` solves at 1.50 m. The
+           far arm was already running for these pixels and still returned the queued plane, which is why
+           every rule written at the extension itself measured inert.
+           So apply the loop's OWN arrival test here, with `cap` in place of the crossing's `tOut`: the
+           surface of the cell the march stopped in answers this pixel if its solve lies inside the span
+           the march actually travelled. Nothing new is invented - the plane is the one the ray is standing
+           over and the distance is its own solve, which cannot exceed the reach. A march that crossed no
+           height boundary cannot satisfy it (`pe === pl` on a flat level, and any `pe` nearer the eye than
+           `pl` was answered by the cell test on an earlier iteration), so a flat level costs two compares
+           and moves no byte, and the CEILING half is excluded by `isF` as everywhere else in this block. */
         if ((pe - eyeZ) * sgn > 1e-9 && Math.abs(pe - pl) > ZQ * 0.5) {
           gndWalkEdge++;                             // is not the answer: a slab edge
           /* #518 THE EDGE IS NOT THE END OF THE RAY. `pe` is the floor of the cell the march is standing
@@ -1615,6 +1633,28 @@ function planeAlong(rx, ry, pl, isF, absP, farOK) {
             }
           }
         }
+      }
+      const peCap = inAir && isF ? fzs[cy * N + cx] * ZQ : pl;   // the cell the march stopped in, floors only
+      if (!goOn && inAir && isF && (peCap - pl) < -ZQ * 0.5) {
+        /* #518 THE ARRIVAL TEST, CLIPPED AT THE CAP. The loop applies its per-cell arrival test one line
+           later (:1630), so a march that runs out of reach never gets to ask the question about the cell
+           it stops in, and hands the CALLER's plane back. That is the shape of #517's seat: the ray walks
+           off the deck, the reach ends over the lower floor, and the pixel is painted with the deck it was
+           queued on. Measured this cycle with an exit census on the march, over pose C's PAST window:
+           **1316 of 1316 failing px end at this cap break**, standing in an air cell whose own floor is
+           `0.00`, while the same ray handed a plane below every floor answers `0.00` at 4.53 m and the
+           queued `1.00` solves at 1.50 m. It is also why the far arm's extension measured inert: the rule
+           was written at the extension, and these pixels never arrive at an extension.
+           So ask the loop's own question with `cap` in place of the crossing's `tOut`: does THIS cell's
+           floor answer inside the span the march actually travelled? `tze <= cap <= tOut` and `tze >= tIn`
+           is exactly the per-cell test clipped to the reach, so it is an arrival, not an invention - a
+           pixel can never be placed farther than the ray's own solve of a plane it is standing over. It
+           runs only where no extension was made this iteration, so the march still prefers to keep walking
+           and find whatever is nearer. A column that crossed no height boundary has `pe === pl` and fails
+           the half-quantum test (a flat level: two compares, no byte moved), and the ceiling half is
+           excluded by `isF` as everywhere else in this block. */
+        const tze = (peCap - eyeZ) * sgn > 1e-9 ? (peCap - eyeZ) * sgn * invAbsP : -1;
+        if (tze >= tIn && tze <= cap) { pl = peCap; gWalkHit = 1; break; }
       }
       if (!goOn) break;
       continue;
