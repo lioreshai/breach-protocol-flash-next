@@ -270,6 +270,9 @@
     /* #616: the distance a void ray flew, on the crossing's structure. 0 = the fetch fogged by `1-fogAt`
        alone, which is the saturated answer the band shipped with. */
     if (name === 'fardist') { FARDST = value === undefined ? 1 : (value ? 1 : 0); return { fardist: FARDST, far: GQ ? GQ.far : FARB }; }
+    /* #616: the SHAPE across the band - the surface share weighted by the row's own plane solve. 0 = the
+       share VOIDK alone, which saturates at 1.6*FARB and leaves three quarters of the band one value. */
+    if (name === 'farz') { FARZ = value === undefined ? 1 : (value ? 1 : 0); return { farz: FARZ, ref: FARZREF, far: GQ ? GQ.far : FARB }; }
     if (name === 'gndtex') { GNDTX = value === undefined ? 1 : (value ? 1 : 0); return { gndtex: GNDTX, blend: FARBLEND, far: GQ.far }; }
     if (name === 'gndoff') { GNDOF = value === undefined ? 1 : (value ? 1 : 0); return { gndoff: GNDOF }; }
     if (name === 'gndbil') { GNDNB = value === undefined ? 1 : (value ? 1 : 0); return { gndbil: GNDNB }; }

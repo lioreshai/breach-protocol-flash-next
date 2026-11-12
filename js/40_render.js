@@ -1012,6 +1012,18 @@ let FARCROSS = 1;
    and #19's spokes stay impossible. `DEV.set('fardist', 0)` is the A/B: it leaves the fetch and its fog
    exactly as they shipped. */
 let FARDST = 1;
+/* #616 - THE SHAPE ACROSS THE BAND. `FARCROSS` and `FARDST` give a void column its material and say how
+   far that column flew; NEITHER says how far the ROW is. The share the surface rides, VOIDK, SATURATES at
+   1.6*FARB, and the band reaches to the shading cap at 4*FARB, so three quarters of it rides the same
+   share and reads as one value with a 1.1-luma drift across 56 rows. `FARZ` gives the share the one number
+   the copy already has and reads nothing for: the ROW's own plane solve, `dRow` in the row loop and `dc`
+   in gndBuild - which is exactly what the band is a picture OF, the deck continuing past the map's edge to
+   the horizon. It is a MULTIPLY on the share the surface already rides, anchored at FARB*FARZREF so the
+   row at the anchor distance is the shipped row: nearer rows keep more of the surface they continue into
+   the deck, farther rows give it back to the air, and the crossing's own AVERAGE is not moved at the
+   anchor. Zero cost beyond one divide per row (the row loop) / per run (the deferred copy); no march, no
+   fetch change, no second field, no lightmap read. `DEV.set('farz', 0)` is the A/B in both copies. */
+let FARZ = 1, FARZREF = 2;
 /* Where each screen column's ray leaves the authored [0,N) square: distance, the point just inside it,
    and the fog of that distance. A ray's DIRECTION depends only on its column (dir + plane*(x*2/BW-1)),
    so this is a FRAME constant - two divides, one min and one fog per column, rebuilt when gSer moves and
@@ -1943,7 +1955,7 @@ function castGround(flash, fcR, fcG, fcB) {
       let fpx = 0, fams = 0, famw = 1, mFh = 1, famd = null, fwx = 0, fwy = 0, fdx = 0, fdy = 0,
         fBr = 0, fBg = 0, fBb = 0, fQr = 0, fQg = 0, fQb = 0, xpx = 0, xxs = 0, xxw = 1, xxh = 1, xxd = null,
         xAr = 0, xAg = 0, xAb = 0, xPr = 0, xPg = 0, xPb = 0, xQr = 0, xQg = 0, xQb = 0, xSr = 0, xSg = 0, xSb = 0,
-        xMr = 0, xMg = 0, xMb = 0, xAr0 = 1, xAg0 = 1, xAb0 = 1;
+        xMr = 0, xMg = 0, xMb = 0, xAr0 = 1, xAg0 = 1, xAb0 = 1, xZr = 0, xZg = 0, xZb = 0;
       if (tex && tex.mips && ((GNDTX && (surR | surG | surB) !== 0) || (FARCROSS && FARVOID && offN && vr > 0))) {
         const cfF = dRow / absP, wxr = planeX * stepBase * dRow, wyr = planeY * stepBase * dRow;
         const mF = tex.mips[Math.min(mipSel(wxr, wyr, dirX * cfF, dirY * cfF, sc, tex), tex.mips.length - 1)];
@@ -1975,16 +1987,22 @@ function castGround(flash, fcR, fcG, fcB) {
           if (FARCROSS && offN && vr > 0) {
             crossCache(N);
             const xb = baseRow + (FARLIT && HAZE_L > 0 ? FARLIT * HAZE_L : 0), ivr = 1 - vr;
+            /* #616 - THE SHAPE ACROSS THE BAND, ROW COPY: one multiply on the share the surface rides, by
+               the ROW's own solve distance. It shapes the surface's AVERAGE only - the grain keeps the
+               flying-distance share #818 shipped, untouched - so the band gains a ramp by giving back
+               surface to the air as the row recedes, not by scaling the structure the band already shows.
+               1 at FARB*FARZREF, >1 nearer, <1 to the cap. */
+            const kz = FARZ ? FARB * (1 + FARZREF) / (FARB + dRow) : 1;
             xpx = 1; xxs = sc * mF.w; xxw = mF.w; xxh = mF.h; xxd = mF.data;
             xAr = (ar + fRRow) * ivr; xAg = (ag + fGRow) * ivr; xAb = (ab + fBRow) * ivr;
             xPr = vr * xb * (1 - wEm) * dcN[0] / alF[0]; xPg = vr * xb * (1 - wEm) * dcN[1] / alF[1];
             xPb = vr * xb * (1 - wEm) * dcN[2] / alF[2];
-            xQr = vr * wEm * dcE[0]; xQg = vr * wEm * dcE[1]; xQb = vr * wEm * dcE[2];
+            xZr = kz * xPr; xZg = kz * xPg; xZb = kz * xPb;
+            xQr = kz * vr * wEm * dcE[0]; xQg = kz * vr * wEm * dcE[1]; xQb = kz * vr * wEm * dcE[2];
             xSr = vr * fcR; xSg = vr * fcG; xSb = vr * fcB;
             /* #616: the mean part, which KEEPS the fog weight, and the deviation coefficient, which takes
                the distance share instead. xPr * alF cancels to vr*xb*(1-wEm)*dcN - a row constant. */
-            xMr = vr * xb * (1 - wEm) * dcN[0]; xMg = vr * xb * (1 - wEm) * dcN[1]; xMb = vr * xb * (1 - wEm) * dcN[2];
-            xAr0 = alF[0]; xAg0 = alF[1]; xAb0 = alF[2];
+              xAr0 = alF[0]; xAg0 = alF[1]; xAb0 = alF[2];
           }
         }
       }
@@ -2011,9 +2029,9 @@ function castGround(flash, fcR, fcG, fcB) {
                  construction, so no room is relit and no crossing boundary moves: `dk` rides `vr`. */
               if (FARDST) {
                 const dk = FARB / (FARB + xCDst[x]);
-                px[rowF + x] = 0xFF000000 | clampi(xAr + iv * (xPr * (cF >> 16 & 255) + xQr) + fg * xSr + dk * xPr * ((cF >> 16 & 255) - xAr0)) << 16 |
-                  clampi(xAg + iv * (xPg * (cF >> 8 & 255) + xQg) + fg * xSg + dk * xPg * ((cF >> 8 & 255) - xAg0)) << 8 |
-                  clampi(xAb + iv * (xPb * (cF & 255) + xQb) + fg * xSb + dk * xPb * ((cF & 255) - xAb0));
+                px[rowF + x] = 0xFF000000 | clampi(xAr + iv * (xZr * (cF >> 16 & 255) + xQr) + fg * xSr + dk * xPr * ((cF >> 16 & 255) - xAr0)) << 16 |
+                  clampi(xAg + iv * (xZg * (cF >> 8 & 255) + xQg) + fg * xSg + dk * xPg * ((cF >> 8 & 255) - xAg0)) << 8 |
+                  clampi(xAb + iv * (xZb * (cF & 255) + xQb) + fg * xSb + dk * xPb * ((cF & 255) - xAb0));
                 continue;
               }
               px[rowF + x] = 0xFF000000 | clampi(xAr + iv * (xPr * (cF >> 16 & 255) + xQr) + fg * xSr) << 16 |
@@ -2700,7 +2718,7 @@ let gSer = 0, gMSer = -1, gMRow = -1, gMPl = 0, gMDS = 0, gMDfa = 0, gMFog = 0, 
   gMTx = 0, gMTxS = 0, gMTxW = 1, gMTxH = 1, gMTxD = null,
   gMTxA = 0, gMTxB = 0, gMTxC = 0, gMTxD0 = 0, gMTxD1 = 0, gMTxD2 = 0,
   gMXx = 0, gMXS = 0, gMXW = 1, gMXH = 1, gMXD = null, gMXA = 0, gMXB = 0, gMXC = 0, gMXE0 = 0, gMXE1 = 0, gMXE2 = 0, gMXF0 = 0, gMXF1 = 0, gMXF2 = 0,
-  gMXM0 = 0, gMXM1 = 0, gMXM2 = 0, gMXL0 = 1, gMXL1 = 1, gMXL2 = 1,
+  gMXM0 = 0, gMXM1 = 0, gMXM2 = 0, gMXL0 = 1, gMXL1 = 1, gMXL2 = 1, gMXN0 = 1, gMXN1 = 1, gMXN2 = 1,
   gLSer = -1, gLSX = 0, gLSY = 0, gML0 = 0, gML1 = 0, gML2 = 0, gMMir = 0,
   gMA0 = 0, gMA1 = 0, gMA2 = 0, gMB0 = 0, gMB1 = 0, gMB2 = 0, gMD0 = 0, gMD1 = 0, gMD2 = 0;
 
@@ -2793,11 +2811,15 @@ function gndBuild(row, isF, absP, pl, tex, sc, fcR, fcG, fcB, fl, amb, dOv) {
       if (FARCROSS && FARVOID && gMVoid > 0 && alF[0] > 0 && alF[1] > 0 && alF[2] > 0) {
         crossCache(MAP.w);
         const xb = gMBase + (FARLIT && HAZE_L > 0 ? FARLIT * HAZE_L : 0), ve = mm.emFrac;
+        /* #616 - THE SHAPE ACROSS THE BAND, SECOND COPY (AGENTS.md: change one copy, change the other).
+           Same multiply on the run's own plane solve, `dc`. */
+        const kzR = FARZ ? FARB * (1 + FARZREF) / (FARB + dc) : 1;
         gMXx = 1; gMXS = sc * mF.w; gMXW = mF.w; gMXH = mF.h; gMXD = mF.data;
         gMXA = gMVoid * xb * (1 - ve) * mm.meanNE[0] / alF[0];
         gMXB = gMVoid * xb * (1 - ve) * mm.meanNE[1] / alF[1];
         gMXC = gMVoid * xb * (1 - ve) * mm.meanNE[2] / alF[2];
-        gMXE0 = gMVoid * ve * mm.meanEM[0]; gMXE1 = gMVoid * ve * mm.meanEM[1]; gMXE2 = gMVoid * ve * mm.meanEM[2];
+        gMXN0 = kzR * gMXA; gMXN1 = kzR * gMXB; gMXN2 = kzR * gMXC;
+        gMXE0 = kzR * gMVoid * ve * mm.meanEM[0]; gMXE1 = kzR * gMVoid * ve * mm.meanEM[1]; gMXE2 = kzR * gMVoid * ve * mm.meanEM[2];
         /* #616, SECOND COPY of the distance term: the mean keeps the fog weight, the deviation takes the
            distance share (AGENTS.md: change one copy, change the other). xPr * alF cancels, so the mean is
            a run constant. */
@@ -3298,13 +3320,13 @@ function groundPixel(x0, x1, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb
              Zero-mean, same mip, same one texel, no lightmap read, `FARB`/`FARLIT`/`HAZE_L`/`VOIDK` and
              the shipped share all untouched. `DEV.set('fardist', 0)` is the A/B in both copies. */
           const dk = FARB / (FARB + xCDst[x]);
-          vR = vR * iv + ivf * (gMXA * (cX & 255) + gMXE0) + fg * gMXF0 + dk * gMXA * ((cX & 255) - gMXL0);
-          vG = vG * iv + ivf * (gMXB * (cX >> 8 & 255) + gMXE1) + fg * gMXF1 + dk * gMXB * ((cX >> 8 & 255) - gMXL1);
-          vB = vB * iv + ivf * (gMXC * (cX >> 16 & 255) + gMXE2) + fg * gMXF2 + dk * gMXC * ((cX >> 16 & 255) - gMXL2);
+          vR = vR * iv + ivf * (gMXN0 * (cX & 255) + gMXE0) + fg * gMXF0 + dk * gMXA * ((cX & 255) - gMXL0);
+          vG = vG * iv + ivf * (gMXN1 * (cX >> 8 & 255) + gMXE1) + fg * gMXF1 + dk * gMXB * ((cX >> 8 & 255) - gMXL1);
+          vB = vB * iv + ivf * (gMXN2 * (cX >> 16 & 255) + gMXE2) + fg * gMXF2 + dk * gMXC * ((cX >> 16 & 255) - gMXL2);
         } else {
-          vR = vR * iv + ivf * (gMXA * (cX & 255) + gMXE0) + fg * gMXF0;
-          vG = vG * iv + ivf * (gMXB * (cX >> 8 & 255) + gMXE1) + fg * gMXF1;
-          vB = vB * iv + ivf * (gMXC * (cX >> 16 & 255) + gMXE2) + fg * gMXF2;
+          vR = vR * iv + ivf * (gMXN0 * (cX & 255) + gMXE0) + fg * gMXF0;
+          vG = vG * iv + ivf * (gMXN1 * (cX >> 8 & 255) + gMXE1) + fg * gMXF1;
+          vB = vB * iv + ivf * (gMXN2 * (cX >> 16 & 255) + gMXE2) + fg * gMXF2;
         }
       }
       px[row + x] = 0xFF000000 | clampi(vB) << 16 | clampi(vG) << 8 | clampi(vR);
