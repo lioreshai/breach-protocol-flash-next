@@ -4214,14 +4214,39 @@ function castWalls(flash, fcR, fcG, fcB) {
          lr/lg/lb, its contact shadow and its fog like the concrete under it, and it writes no light and
          no zbuf. Placed after the mip crossfade so the paint is on the albedo the pixel ends up with
          and before the grit term so the relief still reads across the band. */
+      /* #669 TAKE FOUR: THE PAINT IS A STEP IN VALUE, NOT ONLY IN HUE. The two bands above lerped the
+         face's albedo TOWARD the level's accent and stopped there, and the accents that were solved for
+         hue at held luma (js/20_level.js: ARCHIVE `accent` 156 luma against BRICK's ~122) arrived at the
+         pixel BRIGHTER than the surface they are painted on. Measured at ARCHIVE cam1 with the shipped
+         A/B (accent vs accent-null, fb row 192, the eye line of the long room): face 57.6, mark 69.6 -
+         the mark is +12 of luma on a wall that is already the brightest thing in that band of the frame,
+         and 12 is exactly where the run census shatters the line (37 runs, longest 13 framebuffer px, of
+         a 229-px run at the >0.5 bar). The flat deck stripe does not have that problem: `ACC_DECK_L`
+         places its mark at 0.80 x the deck texel's own albedo luma and lets the blend keep any darker
+         value the authored colour brings. The same one-way-down rule now runs on both vertical bands:
+         cap the painted albedo's luma at `ACC_DECK_L` x the FACE's own albedo luma, floored at
+         `ACC_DECK_MIN` so a texel the light has left is not painted to black. One-way DOWN is the whole
+         decision - it cannot raise a seeded median or a `surface` ORDER row, and a level whose accent
+         already arrives under the cap is not moved by it at all, which is why the accents are re-solved
+         to sit under the surface they land on rather than beside it. RING's amber is the case the cap
+         was written for: it arrives at concrete's own luma, so the cap takes 20 % of it and the lip
+         keeps its hue at a lower value. */
+      let al0 = 0;
       if (y <= accY) {
         let aw = (accY - y) * accInv;
         if (aw > 1) aw = 1;
+        al0 = cr * 0.2126 + cg * 0.7152 + cb * 0.0722;
         cr += (accC[0] - cr) * aw; cg += (accC[1] - cg) * aw; cb += (accC[2] - cb) * aw;
       } else if (kerbOn && y >= kerbY) {                 // #669: the wall-foot kerb, ramping DOWN
         let aw = (y - kerbY) * kerbInv;
         if (aw > 1) aw = 1;
+        al0 = cr * 0.2126 + cg * 0.7152 + cb * 0.0722;
         cr += (accC[0] - cr) * aw; cg += (accC[1] - cg) * aw; cb += (accC[2] - cb) * aw;
+      }
+      if (al0 > 0) {                                      // #669: the value step, both vertical bands
+        const al1 = cr * 0.2126 + cg * 0.7152 + cb * 0.0722;
+        const alt = al0 * ACC_DECK_L > ACC_DECK_MIN ? al0 * ACC_DECK_L : ACC_DECK_MIN;
+        if (al1 > alt) { const aks = alt / al1; cr *= aks; cg *= aks; cb *= aks; }
       }
       let gk = 1;
       if (grit > 0) {                                          // relief from the screen-space field
