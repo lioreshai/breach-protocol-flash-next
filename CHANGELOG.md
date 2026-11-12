@@ -1,5 +1,22 @@
 # Changelog
 
+## [v1.4.25] - 2026-11-12
+
+### Changed
+
+- **The deck you are standing on now has an edge** (#517, #518, PR #817). Look down at a pit or a staircase from the deck above and the surface under your feet used to simply stop. The drop's own face reached the frame as one borrowed row of pixels and the rows above it were your floor's plane stretched out to the horizon, so the place you can fall off read as a texture suggestion rather than an edge. The floor pass now paints its own last rows before any face you can walk off — a nosing, the mirror of the tread mark that already marks the step you have just climbed. It keys on the edge kind the level already authors, a one-quantum tread or a taller drop, so a flat level runs none of it and a wall, cliff, ramp or ladder grows no mark. Paint only: no geometry, no added light, no column's distance changes, and the sector you were dealt is the sector you get.
+
+### Fixed
+
+- **The front page's brightness figures were reading red as blue** (#394, PR #811). Frames saved as RGBA were decoded with their channels one place round, so every mean luma quoted from such a frame came from a rotated picture — and the checker still printed `ok`, because the captions were quoted back through the same rotation. The pixels were never wrong in a browser; the arithmetic underneath them was, which is exactly the case a gate is for. Red now goes in the red slot and the decoder is tested on bytes it writes itself, whose channel order is known by construction, so a rotation cannot pass quietly again. Every figure on the front page was re-measured from the committed bytes and the eight frames were re-taken off the build that ships, so the page shows today's picture rather than last week's (#797).
+- **Two CI checks stopped judging the game against a picture the game no longer draws** (PRs #816, #813). The arrival-frame brightness gate was reading its ceiling off an anchor last rendered at the end of September; rendered today that anchor is dimmer than the ordinary arrival frames it exists to bound, which left almost no operating room on RING TRANSPORT and let two runs of one tree disagree by a single luma. The band is now derived inside the run that judges it — same level, its own spawn pose, the same seeded rolls — with the old window printed beside it as drift instead of being absorbed into a pass. Separately, the release-artifact step's outstanding-tag exemption is now shown to fail a tag that exists and is wrong (lightweight, mis-pointed, mis-pinned, or stamped by another identity) rather than only being argued to. Neither moves a pixel; both stop the gate burning a branch on a number that was never about the build under test.
+
+### Known limitations
+
+- The deck edge is a **mark, not yet depth**. The straddle row the wall pass lends the drop is still there, so the renderer's own depth census still reports a platform edge as a phantom and #518 stays open for that half. What shipped is the legibility half: the edge is on screen, and the census now names which pass painted the pixel it is complaining about (#815) instead of blaming the floor half in general. The sampled arrival seats have no step down in frame, so the mark shows up where you walk to one, not in the first frame you see.
+- Rooms the generator still leaves completely open, and figures that can arrive wearing their room's hue in the opening sector, are untouched here (#631, #611). Most dealt sectors are still one storey deep; that is open work, not a regression introduced by this build.
+- The per-sector lighting budget question (#505) is parked as a printed debt with a named trigger rather than shipped. Nothing that reads badly today is waiting on it.
+
 ## [v1.4.24] - 2026-11-11
 
 ### Added
