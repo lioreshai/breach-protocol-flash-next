@@ -989,14 +989,34 @@ let FARVOID = 1;
    A ray out there did cross something, though: before it left the level it flew over this level's own
    deck, so the answer it should carry is the MATERIAL of the cell its ray crossed on the way out, at the
    distance of that crossing. `FARCROSS` gives exactly that - one test against the [0,N) square per ray
-   (never a march, never a texel past the grid), the mip that footprint selects, read at the crossing
-   point as the same RATIO over the mip's own mean the in-map far fetch uses, lit by the row's own base
+   (never a march), the mip that footprint selects, read - as the same RATIO over the mip's own mean the
+   in-map far fetch uses - at the point the pixel's own ray LANDS, lit by the row's own base
    plus #199's air light and fogged at the CROSSING distance - mixed onto the shipped void answer by the
    VOIDK share, so the band becomes a surface continuously and no boundary moves when the player walks
    across the radius. It is one texel load for a pixel that was paying a fill, and it reads no lightmap:
    brightness stays the haze's and #199's census of off-map light stays zero. `FARCROSS 0` is the A/B -
-   `DEV.set('farcross', 0)` puts the flat slab back in the running page. */
+   `DEV.set('farcross', 0)` puts the flat slab back in the running page.
+
+   WHERE that texel comes from, and the limit of it (the #616 ruling, 2026-11-12). The AVERAGE a void pixel
+   pays is the crossing's: the point its ray left the authored square, fogged at the crossing distance, so
+   the band's mean stays the air/haze answer #199 owns. The STRUCTURE is read further out, at the point the
+   pixel's own ray lands. The renderer already solves and paints a floor and a ceiling plane that far -
+   that is what a past-the-radius pixel is solving against when it fills - so this band was the one part of
+   the frame that committed to a surface and then refused to say what it is made of; and a fetch position
+   constant down a screen column cannot put an edge between neighbouring rows at all (measured: the
+   crossing-point texel, at any coefficient, leaves the band's vertical neighbour step at 0.93-0.95 against
+   the 2.3-5.5 the rest of the same frame shows). It is a texel of the level's own material on the mip the
+   footprint already selected, and it carries NO light: `FARVOID`'s "never a texel past the grid" was drawn
+   against a LIGHT lie - ambient-lit stone brighter than the air it replaced - and a texel is not a lamp,
+   so the off-map light census and the brightness answer are untouched. `FARLAND 0` moves the fetch back
+   onto the crossing point; the mean term does not move either way. */
 let FARCROSS = 1;
+/* #616 - WHERE THE FAR BAND'S STRUCTURE IS READ FROM. 1 (shipped) = the deviation rides the texel of the
+   row's own mip at the pixel's own LANDING POINT, in both copies of the ground pixel body, on the share
+   `FARDK` already carries and with the mean term untouched. 0 = the same texel at the CROSSING point only,
+   which is one sample per screen column and therefore cannot make a vertical edge. `DEV.set('farland', 0)`
+   is the A/B; `DEV.set('farcross', 0)` still removes the surface altogether. */
+let FARLAND = 1;
 /* #616 - THE DISTANCE THE RAY FLEW. `FARCROSS` hands a void ray the MATERIAL of the point its ray left
    the grid, and it mixes that material into the air by `1 - fogAt(crossing distance)`. Fog cannot carry
    this band: `fogAt` has SATURATED out here (visAt at 88 m is 0.0125, at 25 m 0.15), so past about 60 m
@@ -2011,9 +2031,30 @@ function castGround(flash, fcR, fcG, fcB) {
                  construction, so no room is relit and no crossing boundary moves: `dk` rides `vr`. */
               if (FARDST) {
                 const dk = FARB / (FARB + xCDst[x]);
-                px[rowF + x] = 0xFF000000 | clampi(xAr + iv * (xPr * (cF >> 16 & 255) + xQr) + fg * xSr + dk * xPr * ((cF >> 16 & 255) - xAr0)) << 16 |
-                  clampi(xAg + iv * (xPg * (cF >> 8 & 255) + xQg) + fg * xSg + dk * xPg * ((cF >> 8 & 255) - xAg0)) << 8 |
-                  clampi(xAb + iv * (xPb * (cF & 255) + xQb) + fg * xSb + dk * xPb * ((cF & 255) - xAb0));
+                /* #616, ROW COPY - THE STRUCTURE IS READ WHERE THE RAY LANDS. The mean above keeps the
+                   crossing texel and the crossing fog, so the AVERAGE of a patch of this band is still the
+                   air/fog answer that shipped; the DEVIATION now rides the texel of the SAME mip at
+                   `fwx/fwy` - the landing point this loop already walks to make the bounds test, so no new
+                   march and no new distance. That is what buys the vertical half: a crossing texel is one
+                   sample per screen column, so every row of the band wears the same one and a neighbouring
+                   row cannot differ by anything but the row constants, while a landing point moves with the
+                   row as well as the column. Same mip the footprint selected (never finer), one extra load
+                   on a pixel that was paying a fill, no lightmap read, no light term. The deviation is over
+                   that mip's OWN mean, so wherever the footprint spans several texels of the level the
+                   patch still averages back to the shipped fill. `DEV.set('farland', 0)` is the A/B.
+                   (AGENTS.md: the ground pixel body exists twice - the other copy is groundPixel.) */
+                let sR = cF >> 16 & 255, sG = cF >> 8 & 255, sB = cF & 255;
+                if (FARLAND) {
+                  const vx = fwx * xxs, vy = fwy * xxs;
+                  let vX = vx | 0, vY = vy | 0;
+                  if (vx < 0) vX--;                          // floor, not truncate - the guard both copies use
+                  if (vy < 0) vY--;
+                  const cV = xxd[(vY & (xxh - 1)) * xxw + (vX & (xxw - 1))];
+                  sR = cV >> 16 & 255; sG = cV >> 8 & 255; sB = cV & 255;
+                }
+                px[rowF + x] = 0xFF000000 | clampi(xAr + iv * (xPr * (cF >> 16 & 255) + xQr) + fg * xSr + dk * xPr * (sR - xAr0)) << 16 |
+                  clampi(xAg + iv * (xPg * (cF >> 8 & 255) + xQg) + fg * xSg + dk * xPg * (sG - xAg0)) << 8 |
+                  clampi(xAb + iv * (xPb * (cF & 255) + xQb) + fg * xSb + dk * xPb * (sB - xAb0));
                 continue;
               }
               px[rowF + x] = 0xFF000000 | clampi(xAr + iv * (xPr * (cF >> 16 & 255) + xQr) + fg * xSr) << 16 |
@@ -3298,9 +3339,26 @@ function groundPixel(x0, x1, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb
              Zero-mean, same mip, same one texel, no lightmap read, `FARB`/`FARLIT`/`HAZE_L`/`VOIDK` and
              the shipped share all untouched. `DEV.set('fardist', 0)` is the A/B in both copies. */
           const dk = FARB / (FARB + xCDst[x]);
-          vR = vR * iv + ivf * (gMXA * (cX & 255) + gMXE0) + fg * gMXF0 + dk * gMXA * ((cX & 255) - gMXL0);
-          vG = vG * iv + ivf * (gMXB * (cX >> 8 & 255) + gMXE1) + fg * gMXF1 + dk * gMXB * ((cX >> 8 & 255) - gMXL1);
-          vB = vB * iv + ivf * (gMXC * (cX >> 16 & 255) + gMXE2) + fg * gMXF2 + dk * gMXC * ((cX >> 16 & 255) - gMXL2);
+          /* #616, SECOND COPY (AGENTS.md: change one copy, change the other). The mean keeps the crossing
+             texel and the crossing fog, so this pixel's AVERAGE is the frame that shipped; the DEVIATION
+             now rides the texel of the SAME mip at this pixel's own landing point `cx/cy`, which the copy
+             already walks for the bounds test. A crossing texel is one sample per screen column, so down a
+             column of the band every row wears the same one and no neighbouring row can differ by anything
+             but the run constants; the landing point moves with the row as well as the column, and that is
+             the vertical half of the grain. Same mip the footprint selected, one extra load on a pixel that
+             was paying a fill, no lightmap, no light term. `DEV.set('farland', 0)` is the A/B in both. */
+          let sR = cX & 255, sG = cX >> 8 & 255, sB = cX >> 16 & 255;
+          if (FARLAND) {
+            const vx = cx * gMXS, vy = cy * gMXS;
+            let vX = vx | 0, vY = vy | 0;
+            if (vx < 0) vX--;                            // floor, not truncate - the guard both copies use
+            if (vy < 0) vY--;
+            const cV = gMXD[(vY & (gMXH - 1)) * gMXW + (vX & (gMXW - 1))];
+            sR = cV & 255; sG = cV >> 8 & 255; sB = cV >> 16 & 255;
+          }
+          vR = vR * iv + ivf * (gMXA * (cX & 255) + gMXE0) + fg * gMXF0 + dk * gMXA * (sR - gMXL0);
+          vG = vG * iv + ivf * (gMXB * (cX >> 8 & 255) + gMXE1) + fg * gMXF1 + dk * gMXB * (sG - gMXL1);
+          vB = vB * iv + ivf * (gMXC * (cX >> 16 & 255) + gMXE2) + fg * gMXF2 + dk * gMXC * (sB - gMXL2);
         } else {
           vR = vR * iv + ivf * (gMXA * (cX & 255) + gMXE0) + fg * gMXF0;
           vG = vG * iv + ivf * (gMXB * (cX >> 8 & 255) + gMXE1) + fg * gMXF1;

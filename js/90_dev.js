@@ -270,6 +270,9 @@
     /* #616: the distance a void ray flew, on the crossing's structure. 0 = the fetch fogged by `1-fogAt`
        alone, which is the saturated answer the band shipped with. */
     if (name === 'fardist') { FARDST = value === undefined ? 1 : (value ? 1 : 0); return { fardist: FARDST, far: GQ ? GQ.far : FARB }; }
+    /* #616: where the far band's structure is read from. 0 = the crossing texel only, one sample per
+       screen column, which cannot make a vertical edge; 1 = also at the pixel's own landing point. */
+    if (name === 'farland') { FARLAND = value === undefined ? 1 : (value ? 1 : 0); return { farland: FARLAND }; }
     if (name === 'gndtex') { GNDTX = value === undefined ? 1 : (value ? 1 : 0); return { gndtex: GNDTX, blend: FARBLEND, far: GQ.far }; }
     if (name === 'gndoff') { GNDOF = value === undefined ? 1 : (value ? 1 : 0); return { gndoff: GNDOF }; }
     if (name === 'gndbil') { GNDNB = value === undefined ? 1 : (value ? 1 : 0); return { gndbil: GNDNB }; }
