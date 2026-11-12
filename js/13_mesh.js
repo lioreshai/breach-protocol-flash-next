@@ -298,6 +298,25 @@ const MESH = (function () {
      recorded torso gradient still reads 2.52 / 2.17 / 2.52; everything that moves is a body far enough
      to have had no surface at all. */
   const TS_CYC = 10, TS_MINP = 3.5, TS_LMAX = 2, TS_SLOPE = 9, TS_MAX = 26, TS_BMIN = 0.45, TS_NSLOPE = 0.65;
+  /* #727 THE CEILING WAS THE CLIFF ON THE NEAR SIDE. TS_MAX 26 is the combat-range amplitude the law
+     saturates at (slope 9 reaches it at TPR 11.6 px, ~25 m out), and it stays the ceiling all the way to
+     the eye - so the ONE thing this file says stays constant, luma per screen pixel, is the one thing
+     that falls: a brute's seam projects 49.7 px at the `scene 2 0` seat and ~190 px at 2 m, and 26 luma
+     spread over 190 px is 0.27 luma per pixel against the 2.09 the same wave delivers at 6 m. The chest
+     is not painted one value - the pinned 2 m seat reads 53 -> 87 across 241 columns - it is turning
+     1.6x where the acceptance needs 2x, and it is the CAP doing it, not a fade (#760: the TS_MINP /
+     TS_LMAX taper is far away at both ranges).
+       So past a projected-period gate the seam keeps the law instead of the ceiling: the amplitude that
+     holds luma-per-pixel at the value the wave already delivers at combat range, `2 * TS_MAX * 2 / TPR`
+     held constant, is `TS_MAX * TPR / TS_PPX` with TS_PPX the 49.7 px of the recorded seat. That is
+     #416 read on its near side - #416 stepped the pattern COARSER where it projected under TS_MINP; this
+     lets the SAME pattern deepen where it projects over TS_NGATE, and the #533 byte clip in `tri` is
+     what stops it, per triangle and per channel, wherever the armour is too dark or too bright to carry
+     it, which is what keeps the wave zero-mean and the mean where #407 charges it. Props and the rig
+     never enter this branch. TS_NGATE 90 px is beyond every recorded frame (the ABATOIR seat is 49.7,
+     and #769 measured every recorded frame at 7 m or further, i.e. TPR 50 or under), so every byte in
+     `tools/refs.lock` stays what it is and only a body the player has closed to arm's length changes. */
+  const TS_NGATE = 90, TS_NMAX = 96, TS_NPPX = 49.7;
   /* #727 THE FLOOR HAD NO SLOPE, AND UP CLOSE THAT MADE IT THE WHOLE TERM. TS_BMIN is the amplitude a
      face SQUARE to the eye keeps when the grazing band gives it nothing, and it is a CONSTANT - so the
      luma-per-pixel a chest delivers falls off with range exactly as fast as the face gets bigger, which
@@ -2072,7 +2091,11 @@ const MESH = (function () {
        units of its own height and `scale` is that height in metres - so only the slope and the
        near-field ceiling differ, and what the eye holds constant across a walk past, luma per screen
        pixel, is unchanged in kind. */
-    TAMP = TPR <= TS_MINP ? 0 : Math.min(vm ? WS_MAX : pr ? PS_MAX : TS_MAX, (vm ? WS_SLOPE : pr ? PS_SLOPE : TS_SLOPE) * TPR * 0.25);
+    /* #727: bodies inside the near gate get the law, not the ceiling - see TS_NGATE. `TPR > TS_NGATE`
+       cannot be true for a prop or the rig on any recorded seat, and `pr`/`vm` are excluded anyway. */
+    const TCEIL = (vm || pr) ? (vm ? WS_MAX : PS_MAX)
+      : (TPR > TS_NGATE ? Math.min(TS_NMAX, TS_MAX * TPR / TS_NPPX) : TS_MAX);
+    TAMP = TPR <= TS_MINP ? 0 : Math.min(TCEIL, (vm ? WS_SLOPE : pr ? PS_SLOPE : TS_SLOPE) * TPR * 0.25);
     /* #727: the FACE-ON floor, on the same slope law one line above, and for bodies only. Props and the
        rig keep TS_BMIN verbatim, so their bytes cannot move; a body's floor rises with how wide its own
        seam projects, which is another way of asking how near he is. See the TS_NSLOPE note. */
