@@ -2899,12 +2899,53 @@ function floorFixedPoint(rx, ry, pl, absP, ax, ay) {
    The face's own view-axis position is projected from the crossing point's lateral coordinate, so on a view
    exactly along a grid axis it is exact and on a diagonal one it is out by at most (1-|dir|), under a row
    of the band. */
+/* #518 THE DOWN SIDE: the mark on a deck's own last rows before it ends.
+
+   The UP side above marks the tread you have just climbed. Its mirror is the edge you are standing at:
+   on a step DOWN seen from above, every row under the lip belongs to the deck the eye is on (#517), the
+   slab's own side is sub-pixel, and before this the only pixel of the drop the frame ever carried was the
+   one straddle row the wall pass borrowed (#518). That row is a surface no ray reaches - honest to walk
+   the ray and it is not there - so it is yielded below and the edge is drawn where the deck's own solve
+   ends, by this pass, on the rows the player is standing on.
+
+   It is the same mechanism as the up side and the same cost: ONE test per cell crossing, keyed on the
+   stored directed kind, never a re-derived height test and never a march. Three tests: the cell the run
+   lands in is AIR and the row's plane REACHES it (this is deck, not somebody's slab); the neighbour AHEAD
+   along the view axis is AIR and LOWER, at a crossing the level authored as a face you can fall off -
+   EK_STEP for a one-quantum tread, which js/20_level.js authors at BOTH ends, or EK_DROP for a taller
+   drop; and the run's depth is within `STEPROW` rows of that face, the same constant-screen band, read on
+   the NEAR side of the boundary instead of the far one. A flat level runs none of it (`stepDraw` is 0),
+   and a wall, a cliff, a ramp and a ladder have no EK_STEP/EK_DROP down-crossing to key to. */
+function stepEdgeDownLum(gx, gy, dRow, absP) {
+  const N = MAP.w, cell = MAP.cell, fzs = MAP.fz, ek = MAP.ek;
+  if (!ek || gx < 0 || gy < 0 || gx >= N || gy >= N) return 0;
+  const i = gy * N + gx;
+  if (cell[i]) return 0;
+  const axX = Math.abs(dirX) >= Math.abs(dirY);
+  const dv = axX ? dirX : dirY;
+  if (Math.abs(dv) < 1e-6) return 0;
+  const s = dv > 0 ? 1 : -1;
+  const nx = axX ? gx + s : gx, ny = axX ? gy : gy + s;    // the neighbour AHEAD along the view axis
+  if (nx < 0 || ny < 0 || nx >= N || ny >= N) return 0;
+  const j = ny * N + nx;
+  if (cell[j] || fzs[j] >= fzs[i]) return 0;               // not a step DOWN
+  const kind = ek[(i << 2) + (axX ? (s > 0 ? 0 : 2) : (s > 0 ? 1 : 3))];
+  if (kind !== EK_STEP && kind !== EK_DROP) return 0;      // a wall, a cliff, a ramp, a ladder: no edge here
+  const kx = axX ? (s > 0 ? gx + 1 : gx) : gx, ky = axX ? gy : (s > 0 ? gy + 1 : gy);
+  const dp = ((kx - camX) * dirX + (ky - camY) * dirY) - dRow;
+  if (dp < 0 || dp > STEPROW * dRow / absP) return 0;
+  return STEPAMT;
+}
+
 function stepEdgeLum(gx, gy, wx, wy, dRow, absP, planeA) {
   const N = MAP.w, cell = MAP.cell, fzs = MAP.fz, ek = MAP.ek;
   if (!ek || gx < 0 || gy < 0 || gx >= N || gy >= N) return 0;
   const i = gy * N + gx;
   if (cell[i]) return 0;
-  if (fzs[i] * ZQ <= planeA + 1e-6) return 0;              // not a slab: the row's plane reaches this cell
+  // #518: the row's plane REACHING this cell is not "no edge" - it is the deck the eye stands on, and a
+  // deck's own last rows before it ends are the edge #517 says is missing. Both copies of the ground body
+  // call through here, so the deferred pixel answers the same question as the row-painted one.
+  if (fzs[i] * ZQ <= planeA + 1e-6) return stepEdgeDownLum(gx, gy, dRow, absP);
   const axX = Math.abs(dirX) >= Math.abs(dirY);
   const dv = axX ? dirX : dirY;
   if (Math.abs(dv) < 1e-6) return 0;
