@@ -3306,7 +3306,14 @@ const CZ_AUTH_TALL = 16;                              // four units, the constan
    Twelve quanta = three units, so a deck at +1.00 m tops out at 4.00 m, the plane the datum hall's four
    units reach from 0.00 m. Same roof line, two room heights: the level's ceiling stops being one plane
    with no seam, and `buildCeilPlanes` still derives every plane from these two numbers alone. */
-const CZ_AUTH_STOREY = 12;
+const CZ_AUTH_STOREY = 11;
+/* #421 ONE QUANTUM DOWN, BECAUSE THE DECK IS ONE QUANTUM UP. The storey's air was authored at twelve
+   quanta against a deck at four - floor +1.00 m plus three units = 4.00 m, the hall's own roof - so that a
+   raised band was a ROOM whose ceiling coincided with the hall's rather than a slab poking through it. The
+   deck now stands five quanta up (+1.25 m, the tallest floor the plan's digit encoding can author, and one
+   quantum above the level's own one-unit ceiling plane, which is the whole point: an underside that sits
+   AT the ceiling plane is indistinguishable from the ceiling), so the clearance above it is eleven quanta
+   and the roof line is unchanged at 5*ZQ + 11*ZQ = 4.00 m. ROOM-HEIGHTS still sees two authored rungs. */
 /* #421 WHY THIS DECK IS FOUR CELLS AND NOT A WING. `linkBoundaries` takes the minimap's band datum to be
    the MODAL open-cell band (js/20_level.js `cntF` -> MAP.fzBase), and THE STACK's east wing already stands
    108 cells at +1.00 m against 122 on the datum. A mezzanine lifted out of the west hall therefore moves
@@ -3325,7 +3332,7 @@ const AUTHORED = {
     "#..." + "...." + ".###" + "#..." + "...#",   //  1
     "#P.." + "...." + ".###" + "#..." + "L..#",   //  2   // #199: a fixture on the upper storey's north end - the one band of THE STACK no disc reached
     "#..." + "...." + ".###" + "#.B." + "...#",   //  3   // #421 the hall lamp that was here at (7,3) moved to (5,7); see the row-7 note. The room under a slab needs a source of its own or its underside reads as black - but this cell put the source in the one line of sight the `mip` wall-fetch row samples AND in the row the arrival lens looks down
-    "#..." + "...." + ".###" + "#..." + "...#",   //  4
+    "#..." + "...." + ".###" + "#..." + "...#",   //  4   // #421 the deck's west end is the hall's own west wall, so the climb that reaches it ends ON a floor: see the alt note on row 4
     "#..." + "L..." + ".###" + "#..." + "...#",   //  5   // #421 the fixture ON the storey: a band no lamp stands on is dark ground to the coverage census
     "#.A." + "...." + ".###" + "#..." + "...#",   //  6
     "#..." + ".L.." + ".###" + "#..." + "g..#",   //  7   // #421 the west hall's own fixture, SOUTH of the deck. Two things had to be true at once and only this side of the slab satisfies both: it must light the aisle the slab's underside stands over (so the slab stops being a dark sheet - the whole point of the increment), and it must not stand in a line of sight some other row is already measuring. At (7,3) it was 1.5 m in front of the east wall the `mip` wall-fetch row samples, and its disc raised that face's scene light from 0.06 to 0.59 - all-opaque mean 101 -> 143, emissive-vs-opaque gap 50 -> 8 against a floor of 20 - and it sat in the arrival row, which is how the same move took THE STACK's first frame to 77.9, outside the 35-75 band. Here it is 5.7 m off that face and 6.4 m from the seat, on the same datum band, still under the slab it is there to light.
@@ -3347,8 +3354,8 @@ const AUTHORED = {
     "4444" + "4444" + "4444" + "4888" + "8884",   //  1
     "4444" + "4444" + "4444" + "4888" + "8884",   //  2
     "4444" + "4444" + "4444" + "4888" + "8884",   //  3
-    "4444" + "7654" + "4444" + "4888" + "8884",   //  4   // #421 treads up westbound, 0.25 m each, into the deck at (4,5)
-    "4444" + "8844" + "4444" + "4888" + "8884",   //  5   // #421 the mezzanine: 4 cells at +1.00 m, off the arrival axis
+    "4999" + "8765" + "4444" + "4888" + "8884",   //  4   // #421 THE DECK IS THE FIFTH CELL OF ITS OWN CLIMB. Four treads up westbound at 0.25 m each from the datum at (8,4) - (7,4),(6,4),(5,4),(4,4) - and the deck continues that same straight line at (3,4),(2,4),(1,4), where the west wall stops it. WHY THE DECK MOVED HERE FROM (4,5): the walk-on row (`tools/smoke.js` V19) finds a staircase by its own rule - the first datum cell with four collinear +1-quanta steps, in row-major order - extends the line while each next cell is one quantum higher, then WALKS it for 150 frames and asserts the feet end at the height that line reaches. While the deck sat one cell NORTH of the top tread, that straight walk carried on past the tread into the hall at the datum: `z 0 on floor 0 ... 28 airborne ... VACUOUS`. A climb whose own run ends at a 1.25 m drop is not a mezzanine, it is a ladder into a hole, so the geometry was wrong before the row was; authoring the deck as the line's continuation makes the authored level pass the row for the same reason the generated sectors do, and the west wall is what makes the walk end on the deck instead of past it.
+    "4494" + "8844" + "4444" + "4888" + "8884",   //  5   // #421 the fourth deck cell, (2,5), sits one row south of the strip's middle so the slab is two cells deep where the arrival aisle passes under it; the two cells main already authored at +1.00 m, (4,5),(5,5), are left exactly where they are - preserved, not relabelled - so this level still has its low dais under the lamp and four authored cells off the datum at band +1.00 m, one more than main, which keeps the minimap's modal band on the datum (see WHY THIS DECK IS FOUR CELLS)
     "4444" + "8844" + "4444" + "4888" + "8884",   //  6
     "4444" + "4444" + "4444" + "4888" + "8884",   //  7
     "4444" + "4444" + "4444" + "4888" + "8884",   //  8
@@ -3369,8 +3376,8 @@ const AUTHORED = {
     "...." + "...." + "...." + ".TTT" + "TTT.",   //  1
     "..T." + "...." + "...." + ".TTT" + "TTT.",   //  2
     "..T." + "...." + "...." + ".TTT" + "TTT.",   //  3
-    "..T." + "SSS." + "...." + ".TTT" + "TTT.",   //  4   // #421 FEAT_STAIR on the treads, so the climb is on the minimap
-    "..T." + "UU.." + "...." + ".TTT" + "TTT.",   //  5   // #421 'U' = the storey's own air; the slab under it is derived
+    ".UUU" + "SSSS" + "...." + ".TTT" + "TTT.",   //  4   // #421 FEAT_STAIR on the four treads, so the climb is on the minimap, and 'U' - the storey's OWN clearance, 2.75 m - on the three deck cells in this row, so the slab's top keeps a room of its own whose roof line is 1.25 + 2.75 = 4.00 m, the hall's own ceiling
+    "..U." + "UU.." + "...." + ".TTT" + "TTT.",   //  5   // #421 'U' = the storey's own air; the slab under it is derived
     "..T." + "UU.." + "...." + ".TTT" + "TTT.",   //  6
     "..T." + "...." + "...." + ".TTT" + "TTT.",   //  7
     ".TTT" + "...." + "...." + ".TTT" + "TTT.",   //  8
