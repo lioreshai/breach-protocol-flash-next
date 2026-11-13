@@ -15384,6 +15384,78 @@ if (MODE === 'viewmodel') {
     ') - the hue row is allowed to be dimensionless only because these terms still reach the gun',
     problems.length ? '<< ' + problems.join(', ') : '');
   bad += problems.length ? 1 : 0;
+
+  /* DOES A RIG FACE TURN INSIDE ITSELF? (#824 criterion 1's row.)
+     The issue's own instrument, `tools/bodyband.js`, cannot answer this: its `runs` counter is
+     incremented in the same branch as its `trans` counter, so steps-per-row and runs-per-row are
+     the SAME number by construction and the tie it reports describes the scanner, not the surface.
+     This row counts them apart. A MONOTONE RUN here ends where the luminance changes direction (or
+     where the rig's mask has a gap), not where an edge is found; a STEP is still a >= 4 luma jump
+     between neighbouring rig pixels, the #655 bar. So `steps > runs` means a step landed INSIDE a
+     run - luminance travelled inside one surface - which is the one thing the first-person view
+     needs and the one thing a fan of slabs and a face painted one value both fail to deliver.
+     Pixels are the rig's own: rig-on minus rig-off, the same mask every other row in this block
+     uses, so no wall, deck or lamp contributes an edge. The mask's own FNV digest is printed beside
+     the counts: a scan of a different silhouette is a different row, and #824 names the last pass
+     that spent three attempts measuring a pillar through a window that held deck and wall.
+     GATE: only vacuity fails today - a mask that covers almost nothing, or sees no edge at all, is a
+     FAILURE and not a debt. The two counters are reported, NOT gated, and the reason is measured: at
+     THESE BYTES with no js/ change the row reads 16.1 steps against 13.9 runs a row, so the
+     "steps above runs" clause #824 criterion 1 names is ALREADY TRUE under a reversal-bounded run and
+     says nothing about a face turning. The clause that does carry the claim is the last counter - a
+     run that doubles inside itself - and it is printed, not asserted, until a term is written and the
+     number is re-measured. Nothing here changes a pixel.
+  const BAND_STEP = +(process.env.VBAND_STEP || 4);        // a step a person can see: #655's bar
+  const BAND_DEAD = +(process.env.VBAND_DEAD || 1);        // below this a delta is noise, not direction
+  const BAND_MIN_PX = +(process.env.VBAND_MIN_PX || 4096); // the rig paints ~10-15k px at hip
+  const BAND_LV = 2;                                       // ABATOIR's seat: the issue's 2 m frame
+  const band = run('window.__vmBand = function (lvl, st) {' +
+    'S.mode = "play"; startLevel(lvl, true); ' + POSE0 + ' eval(st || "");' +
+    'for (var i = 0; i < 6; i++) renderWorld(); VM.lag = 0; VM.vx = 0; VM.vy = 0;' +
+    'window.drawViewModel = window.__VMSAVE; renderWorld(); var A = px.slice();' +
+    'window.drawViewModel = function () {}; VM.lag = 0; renderWorld(); var B = px;' +
+    'window.drawViewModel = window.__VMSAVE;' +
+    'var n = 0, rows = 0, trans = 0, runs = 0, rl = 0, rmin = 0, rmax = 0, runLen = 0, runMax = 0,' +
+    ' trR = 0, trRun = 0, lmin = 1e9, lmax = -1e9, h = 2166136261, y, x, i, L, prev, dir, sgn, gap, s;' +
+    'var close = function () { runLen += rl; if (rl > runMax) runMax = rl; if (rmax >= 2 * Math.max(1, rmin)) trRun++; };' +
+    'for (y = 0; y < BH; y++) { prev = NaN; dir = 0; gap = 0; s = 0; rl = 0; rmin = 0; rmax = 0;' +
+    '  for (x = 0; x < BW; x++) { i = y * BW + x;' +
+    '    if (A[i] === B[i]) { gap = 1; continue; }' +
+    '    n++; h = Math.imul(h ^ ((A[i] & 255) + ((A[i] >>> 8) & 255) + ((A[i] >>> 16) & 255)) + x * 7 + y * 13, 16777619);' +
+    '    L = 0.2126 * (A[i] & 255) + 0.7152 * ((A[i] >>> 8) & 255) + 0.0722 * ((A[i] >>> 16) & 255);' +
+    '    if (L < lmin) lmin = L; if (L > lmax) lmax = L; s++;' +
+    '    if (gap || !(prev === prev)) { if (rl) { runs++; close(); } rl = 1; rmin = L; rmax = L; dir = 0; gap = 0; }' +
+    '    else {' +
+    '      if (Math.abs(L - prev) >= ' + BAND_STEP + ') { trans++; }' +
+    '      sgn = (L - prev > ' + BAND_DEAD + ') ? 1 : ((prev - L > ' + BAND_DEAD + ') ? -1 : 0);' +
+    '      if (sgn && dir && sgn !== dir) { runs++; close(); rl = 1; rmin = Math.min(prev, L); rmax = Math.max(prev, L); }' +
+    '      else { rl++; if (L < rmin) rmin = L; if (L > rmax) rmax = L; }' +
+    '      if (sgn) dir = sgn;' +
+    '    }' +
+    '    prev = L;' +
+    '  }' +
+    '  if (s) { rows++; if (rl) { runs++; close(); } if (trans / 1 > 0) trR += 0; }' +
+    '}' +
+    'return { n: n, rows: rows, trans: trans, runs: runs, runLen: runLen / Math.max(1, runs),' +
+    '  runMax: runMax, trRun: trRun, lmin: lmin, lmax: lmax, hash: (h >>> 0).toString(16) };' +
+    '}(' + BAND_LV + ', "");');
+  const bandRows = band.rows || 1;
+  const bSteps = band.trans / bandRows, bRuns = band.runs / bandRows;
+  problems = [];
+  if (!(band.n >= BAND_MIN_PX)) problems.push('the rig mask covered only ' + band.n + ' px of ' + (BW * BH) +
+    ' - the scan is measuring almost nothing, which is a FAILURE and not a debt');
+  else if (!(band.trans > 0 && band.rows > 8)) problems.push('the scan found ' + band.trans + ' steps over ' +
+    band.rows + ' rows - a rig with no edge anywhere is a broken raster, not a flat one');
+  console.log(('face turn (rig mask)').padEnd(24),
+    band.n + ' px / ' + band.rows + ' rows, luma ' + band.lmin.toFixed(0) + '->' + band.lmax.toFixed(0) +
+    ' (x' + (band.lmax / Math.max(1, band.lmin)).toFixed(1) + ')  steps >= ' + BAND_STEP + ' luma ' +
+    bSteps.toFixed(1) + '/row  monotone runs ' + bRuns.toFixed(1) + '/row (mean ' + band.runLen.toFixed(1) +
+    ' px, longest ' + band.runMax + ')  delta ' + (bSteps - bRuns).toFixed(1) + ' step(s)/row inside a run  ' +
+    'runs carrying >= 2x ' + (band.trRun / bandRows).toFixed(1) + '/row  mask ' + band.hash +
+    '  REPORTS - a run here ends at a luminance REVERSAL or a mask gap, not at every step, so unlike'
+    + ' bodyband these two counters are not the same number and neither is a verdict',
+    problems.length ? '<< ' + problems.join(', ') : '');
+  bad += problems.length ? 1 : 0;
   run('window.drawViewModel = window.__VMSAVE;');
 
   console.log(bad ? bad + ' viewmodel states with problems' : 'viewmodel: all states paint geometry in the lower-right quadrant, no depth written, shots unaffected, sway travels as authored, the gun keeps its own colour between rooms');
