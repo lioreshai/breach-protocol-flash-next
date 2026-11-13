@@ -1,5 +1,23 @@
 # Changelog
 
+## [v1.4.26] - 2026-11-13
+
+### Changed
+
+- **The far band now says how far it is looking** (#616, PR #818). Past the draw radius the strip of picture at eye height was one flat colour: a ray that flew 25 metres off the level's edge and one that flew 90 painted the identical pixel, because fog has saturated out there and none of the surface a column crossed survives into the air. The distance each column's ray actually flew was already computed every frame and read by nothing. It is read now — a column that left the grid nearby wears the material it crossed, one that flew a long way washes out — so the horizon stops being a slab bolted across the middle of the frame and starts carrying distance. Measured at the RING TRANSPORT arrival seat, the neighbouring-pixel step in that band goes 0.743 → 1.078 and the whole frame mean moves 62.14 → 62.24, so this is structure appearing where there was none, not a relight.
+- **Paint stops arriving brighter than the wall it is painted on** (#669, PR #821). On ARCHIVE SUBLEVEL the painted wall foot and slab lip landed 12 lumas *above* the wall carrying them — a rust room with a pale teal seam, which reads as a light leak — and that same brightness broke what is geometrically one continuous 229-pixel line into 37 dashes of at most 13 pixels. ABATOIR CORE had the same defect in milder form. Both sectors now author paint that lands *below* the surface it sits on at the same delivered hue: ARCHIVE's mark reads 35.2 against the same 57.6 face and that eye line reads 10 runs with a longest of 178 pixels, so the wall reads as standing on painted concrete rather than glowing at its foot. The value step is one-way down, so no level's average exposure moves; no lamp colour was changed, and THE STACK authors no accent and is byte-for-byte the sector it was.
+
+### Fixed
+
+- **A body standing just past a deck lip is no longer cut in half** (#518, PR #822). The one row where your own deck stopped was painted with the drop face's distance and stored in the depth buffer as nearer than any ray arriving there can get — 3.50 m recorded where an arriving ray reaches 5.28 m — so an enemy at the bottom of a stair or a drone over the pit lost exactly that scan-line at that moment, culled behind a surface that was not there. That row is now yielded to the ground pass, which answers at the honest distance, and the dark seam that makes the edge read as an object still paints. Every step-up lip, every flat level and every drop taller than one quantum is byte-identical: no arithmetic runs where the deck does not already own the row.
+
+### Known limitations
+
+- **#616 is a partial, stated plainly.** The far band is no longer the flattest region of the frame, which is what this buys; its step of 1.078 is still under the 2.0–2.7 the near deck shows, so distance reads as grain rather than as surface. The issue stays open for that gap.
+- **#518 shipped as the depth half of one row.** A staircase seen from across a room still takes its tread tops from an infinite-plane solve — #515's shear is out there — and a pit seen from the deck still paints its far lip with the deck's plane past the crossing, which is the part of #516 this does not reach. Making that row's depth honest is not the same as making its texture honest, and it is not claimed as such.
+- **RING TRANSPORT's amber lip is 20 % dimmer than before.** Its accent already arrived at the concrete's own luma, so the one-way value cap now takes a step off it. Hue is unchanged; whether that reads better at every lip is a call the deployed page can settle.
+- Rooms the generator still leaves open, and figures arriving wearing their room's hue, remain open work (#631, #611) and are untouched here.
+
 ## [v1.4.25] - 2026-11-12
 
 ### Changed
