@@ -1170,6 +1170,7 @@ if (MODE === 'alt') {
           + `for (const e of ENEMIES) e.state='sleep'; MAP.riserStops=0;`);
         const lumOf = b => i => 0.2126 * (b[i] & 255) + 0.7152 * (b[i] >> 8 & 255) + 0.0722 * (b[i] >> 16 & 255);
         const PXW = run('BW'), PXH = run('BH');
+        const STEPROW0 = run('STEPROW');      // the shipped band width, read before any arm moves it
         const pair = (k) => {
           seatAt(k);
           const A = shot();
@@ -1181,8 +1182,24 @@ if (MODE === 'alt') {
             + `for(let q=0;q<p.length;q++) if(MAP.vb[p[q][0]] & (VB_FACE << (p[q][1] << 2))) n++; return n;})()`);
           const B = shot();
           run('linkBoundaries()');                          // restore the derived bits this row cleared
-          const la = lumOf(A.buf), lb = lumOf(B.buf);
-          let n = 0, edge = 0, mx = 0, dl = 0;
+          /* THE MARK ARM (#515's far half, and the reason the face arm cannot answer it).
+             Arm A and arm B differ by one DERIVED DRAW BIT, so what their diff measures is what a step
+             FACE put on the frame - and the ground pass's tread nosing (#707) keys on `MAP.ek`, which this
+             control never touches. A ground-pass fix is therefore invisible to that diff by construction:
+             it can neither raise it nor lower it. Measured at this head, clearing VB_FACE on a flight moves
+             3277 px on L0 while turning the nosing band off at the same seat moves 2411 px of pixels that
+             OVERLAP it only partly - so the far read has been reporting one of the two passes.
+             Arm C is the OTHER kill switch, the shipped one: `STEPROW = 0` (js/40_render.js, "a global so a
+             probe can A/B it"), the same floors, the same face bits, no tread band. A-C is what the surface
+             term contributes, per seat, and it is the number the 6 m clause can honestly gate on.
+             Both counters are reported for both seats; only the arm that can see a term can gate it. */
+          const sp0 = run('STEPROW');
+          run('STEPROW = 0');
+          const C = shot();
+          run('STEPROW = ' + STEPROW0);                      // restore the shipped band width by value
+          const markKept = run('STEPROW');
+          const la = lumOf(A.buf), lb = lumOf(B.buf), lc = lumOf(C.buf);
+          let n = 0, edge = 0, mx = 0, dl = 0, mn = 0, medge = 0;
           for (let y = 0; y < PXH; y++) for (let x = 1; x < PXW; x++) {
             const i = y * PXW + x;
             const d0 = Math.abs(la(i) - lb(i));
@@ -1190,8 +1207,13 @@ if (MODE === 'alt') {
             n++; if (d0 > mx) mx = d0;
             dl += d0;
             if (Math.abs(la(i - 1) - lb(i - 1)) <= 1) edge++;    // a hard boundary, not a gradient
+            const d1 = Math.abs(la(i) - lc(i));
+            if (d1 <= 1) continue;
+            mn++;
+            if (Math.abs(la(i - 1) - lc(i - 1)) <= 1) medge++;
           }
-          return { n, edge, mx, mean: n ? dl / n : 0, sa: A.stops, sb: B.stops, cleared: pairs.length, stillSet, dist: k + 0.5 };
+          return { n, edge, mx, mean: n ? dl / n : 0, mark: mn, markEdge: medge, markKept,
+            sa: A.stops, sb: B.stops, cleared: pairs.length, stillSet, dist: k + 0.5 };
         };
         const near = pair(Math.min(2, fl.k));
         const far = pair(Math.min(6, fl.k));
@@ -1264,11 +1286,39 @@ if (MODE === 'alt') {
           + `${near.inView.toFixed(2)} m (want > 0) - so a 0 px diff below means no face, not no view; and `
           + `${poseBack} of 6 pose fields plus ${sleepBack} enemy state(s) did NOT come back from these `
           + `shots (want 0 + 0), which is the row below this block measuring a seat this block left behind`);
-        krow(`L${li} a staircase reads across the room (${fl.k < 6 ? 'only ' + fl.k + ' m of flat landing' : '6 m'} seat)`,
-          far.n > 0 && far.edge >= 1,
-          `${far.n} px, ${far.edge} hard edge(s) at ${far.dist.toFixed(1)} m against ${near.n} px at `
-          + `${near.dist.toFixed(1)} m: past the first riser the wall march stops every column, so the treads `
-          + `behind it are floor-plane solves and the flight reads as one face. #515's remaining half.`);
+        /* THE 6 m CLAUSE, promoted from caption to gate. Two arms, because the block now measures the two
+           passes that can carry a staircase at range, and only the arm that can see a term can gate it:
+
+           FACE ARM (arm B, `VB_FACE` cleared on the flight's own boundaries) - unchanged, and it is the
+           clause the row has always had. It drops ~2.3x from 2.5 m to 6.5 m (3277/5213/3555/4689 px ->
+           1454/1194/964/1248 px on the four sectors), which is the march's rule: a column stops at the first
+           riser whose face has pixels, so at range the frame gets one riser per column.
+
+           MARK ARM (arm C, `STEPROW` 4 -> 0, the shipped A/B of the ground pass's tread band; faces left
+           AS DEALT) - new, and it is the half the old clause could not see. #707's nosing keys on `MAP.ek`,
+           which the face control never touches, so a ground-pass fix could neither raise nor lower the face
+           arm: the 6 m caption had been reporting one pass about the other. Measured at this head the mark
+           arm holds up much better with range - 384/628/412/737 px near, 785/263/296/478 px far - so the
+           treads ARE on the frame at 6 m; what is thin at range is a LATERAL edge in them, and on THE STACK
+           there is none at this seat (478 px, 0 edges): a step edge perpendicular to the view projects to a
+           horizontal line, and this scan counts left-to-right transitions only. `markEdge` is therefore
+           printed, not gated - gating it would be gating the scan's own shape, not the picture. A term that
+           puts no pixel anywhere is a FAILURE (vacuity is never a debt), so the gate is both arms'
+           non-vacuity at both seats plus the restore guard; no face-arm threshold moved, no bound widened.
+
+           What stays as a caption, in the detail below, is the SHAPE at range: one lit run with an edge per
+           crossing rather than three separable upsteps. That is a shading question (one light value per
+           column), and this run now states it on the arm that measures it. */
+        row(`L${li} a staircase reads across the room (${fl.k < 6 ? 'only ' + fl.k + ' m of flat landing' : '6 m'} seat)`,
+          far.n > 0 && far.edge >= 1 && far.mark > 0 && near.mark > 0
+          && near.markKept === STEPROW0 && far.markKept === STEPROW0,
+          `face arm ${far.n} px / ${far.edge} hard edge(s) at ${far.dist.toFixed(1)} m against ${near.n} px / `
+          + `${near.edge} at ${near.dist.toFixed(1)} m; TREAD-MARK arm (same floors, faces AS DEALT, `
+          + `STEPROW 4 -> 0) ${far.mark} px / ${far.markEdge} lateral edge(s) far against ${near.mark} px / `
+          + `${near.markEdge} near, band restored to ${far.markKept} (shipped ${STEPROW0}). Past the first `
+          + `riser the wall march stops every column, so at range the flight reaches the frame as the ground `
+          + `pass's own tread band - ~1.5x less from near to far, against the face arm's ~2.3x - and the `
+          + `remaining half is its SHAPE, not its presence. #515.`);
       }
     }
     /* The record row. Thresholds above say a level is not flat; this says it is the SAME level as the
