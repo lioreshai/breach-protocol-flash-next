@@ -644,8 +644,22 @@ const CEILFL = 0.10;
    Dead where nothing is overhead: on a flat level `MAP.ceilSlab` is zero everywhere, so `und` is 0 for
    every pixel and neither copy of the ground pixel body runs a line of the term - flatparity's frames
    stay bit-identical. `SLABUND = 0` is the A/B that puts the old picture back in a running page. */
+/* #781: the ANGLE the plate is seen at, and it is the term the other three could not be. `surface`'s
+   straight-up ORDER rows went red on two generated sectors (ARCHIVE 95.4 over the level sheet's 61.2,
+   ABATOIR 81.4 over 57.4) because with the lens pointing up the ceiling in frame is a far sliver and the
+   soffit overhead fills the top of the frame. Three passes tried to settle that with constants that scale
+   the WHOLE underside band, and proved that band has no feasible value: `ORDER` wants the plate dark,
+   `ROOF`/`ABOVEBLACK`/`UNDERSIDE` want the same pixels bright, and a scalar cannot do both. The axis they
+   never varied is the plate's own orientation, which the row's distance solve already computes: for a
+   horizontal plane dz/d is `absP / BH` in the row loop and `(pl - eyeZ) / gMDS` in the deferred body, a
+   monotone stand-in for the viewing cosine (it is tan, not cos, so it is clamped at 1 = 45 degrees).
+   Dosing the texel by `1 - SLAB_INC*ci*ci` darkens the plate where it is a SEA overhead and leaves it
+   alone where it is the horizon sliver the arrival roof is made of - which is why `ROOF` stops moving
+   while `ORDER` goes green. It is still a texel multiplier ahead of the light term like the other three,
+   so it spends none of the vault lift #410 capped and adds no light; SLAB_INCF is the floor under it, so
+   a soffit in a dark room is still a soffit and never posterises to black. `SLAB_INC = 0` is the A/B back. */
 const SLAB_ALB = 1.42, SLAB_RIB = 2, SLAB_RIBW = 0.34, SLAB_RIBK = 0.48, SLAB_LIP = 0.40, SLAB_LIPA = 1.35,
-  SLAB_SEAM = 0.09, SLAB_SEAMK = 0.78;
+  SLAB_SEAM = 0.09, SLAB_SEAMK = 0.78, SLAB_INC = 0.85, SLAB_INCF = 0.40;
 let SLABUND = 1;
 const visAt = d => 1 / (1 + d * d * 0.010) + 0.06 * Math.exp(-d * 0.06);
 const fogAt = d => clamp(1 - visAt(d), 0, 1);
@@ -983,6 +997,21 @@ let FARVOID = 1;
    brightness stays the haze's and #199's census of off-map light stays zero. `FARCROSS 0` is the A/B -
    `DEV.set('farcross', 0)` puts the flat slab back in the running page. */
 let FARCROSS = 1;
+/* #616 - THE DISTANCE THE RAY FLEW. `FARCROSS` hands a void ray the MATERIAL of the point its ray left
+   the grid, and it mixes that material into the air by `1 - fogAt(crossing distance)`. Fog cannot carry
+   this band: `fogAt` has SATURATED out here (visAt at 88 m is 0.0125, at 25 m 0.15), so past about 60 m
+   every column lands on the same air colour whatever it crossed, and a ray that flew 25 m paints the
+   same flat pixel as one that flew 90 m - the band is one value and distance says nothing. `FARDK` gives
+   the band the one number the cache already computes and nothing read: `xCDst[x]`, the distance column
+   x's ray flew before it left the [0,N) square (js/40_render.js:1004-1018). It carries the crossing's
+   DEVIATION from its mip's own mean - which is zero over a patch that spans texels, so the band's AVERAGE
+   stays exactly the shipped air/fog answer and only its STRUCTURE moves - on a share that decays like
+   FARB/(FARB+d) instead of like a fog that has flattened: 0.5 at the radius, 0.2 at the shading cap, and
+   still live where fog is 0.99. Same mip as the crossing fetch (the row's own footprint selects it, never
+   finer), same one texel, no march, no lightmap, no second field, so the off-map light census stays zero
+   and #19's spokes stay impossible. `DEV.set('fardist', 0)` is the A/B: it leaves the fetch and its fog
+   exactly as they shipped. */
+let FARDST = 1;
 /* Where each screen column's ray leaves the authored [0,N) square: distance, the point just inside it,
    and the fog of that distance. A ray's DIRECTION depends only on its column (dir + plane*(x*2/BW-1)),
    so this is a FRAME constant - two divides, one min and one fog per column, rebuilt when gSer moves and
@@ -1913,7 +1942,8 @@ function castGround(flash, fcR, fcG, fcB) {
          boundary moves when the player walks across the radius. */
       let fpx = 0, fams = 0, famw = 1, mFh = 1, famd = null, fwx = 0, fwy = 0, fdx = 0, fdy = 0,
         fBr = 0, fBg = 0, fBb = 0, fQr = 0, fQg = 0, fQb = 0, xpx = 0, xxs = 0, xxw = 1, xxh = 1, xxd = null,
-        xAr = 0, xAg = 0, xAb = 0, xPr = 0, xPg = 0, xPb = 0, xQr = 0, xQg = 0, xQb = 0, xSr = 0, xSg = 0, xSb = 0;
+        xAr = 0, xAg = 0, xAb = 0, xPr = 0, xPg = 0, xPb = 0, xQr = 0, xQg = 0, xQb = 0, xSr = 0, xSg = 0, xSb = 0,
+        xMr = 0, xMg = 0, xMb = 0, xAr0 = 1, xAg0 = 1, xAb0 = 1;
       if (tex && tex.mips && ((GNDTX && (surR | surG | surB) !== 0) || (FARCROSS && FARVOID && offN && vr > 0))) {
         const cfF = dRow / absP, wxr = planeX * stepBase * dRow, wyr = planeY * stepBase * dRow;
         const mF = tex.mips[Math.min(mipSel(wxr, wyr, dirX * cfF, dirY * cfF, sc, tex), tex.mips.length - 1)];
@@ -1951,6 +1981,10 @@ function castGround(flash, fcR, fcG, fcB) {
             xPb = vr * xb * (1 - wEm) * dcN[2] / alF[2];
             xQr = vr * wEm * dcE[0]; xQg = vr * wEm * dcE[1]; xQb = vr * wEm * dcE[2];
             xSr = vr * fcR; xSg = vr * fcG; xSb = vr * fcB;
+            /* #616: the mean part, which KEEPS the fog weight, and the deviation coefficient, which takes
+               the distance share instead. xPr * alF cancels to vr*xb*(1-wEm)*dcN - a row constant. */
+            xMr = vr * xb * (1 - wEm) * dcN[0]; xMg = vr * xb * (1 - wEm) * dcN[1]; xMb = vr * xb * (1 - wEm) * dcN[2];
+            xAr0 = alF[0]; xAg0 = alF[1]; xAb0 = alF[2];
           }
         }
       }
@@ -1966,6 +2000,22 @@ function castGround(flash, fcR, fcG, fcB) {
               if (ux < 0) tx--;                            // floor, not truncate - the guard both copies use
               if (uy < 0) ty--;
               const cF = xxd[(ty & (xxh - 1)) * xxw + (tx & (xxw - 1))];
+              /* #616 - THE DISTANCE, SECOND HALF OF THE ROW COPY (AGENTS.md: the ground pixel body exists
+                 twice; the other copy is gndBuild/groundPixel). The mean of the fetched crossing keeps the
+                 fog weight it shipped with, so this pixel's AVERAGE is the frame that shipped; the fetch's
+                 DEVIATION from the mip mean is re-weighted from `iv` (a fog that has saturated to 0.99 out
+                 here, so no column's material survives) onto `dk`, the share of a surface a ray that flew
+                 d metres still shows. dk is monotone in the one distance the cache holds, so a column that
+                 left the grid at 25 m wears its deck and one that left at 90 m washes out - grain, then
+                 none, in the direction the player is looking, and continuously as they walk. Zero-mean by
+                 construction, so no room is relit and no crossing boundary moves: `dk` rides `vr`. */
+              if (FARDST) {
+                const dk = FARB / (FARB + xCDst[x]);
+                px[rowF + x] = 0xFF000000 | clampi(xAr + iv * (xPr * (cF >> 16 & 255) + xQr) + fg * xSr + dk * xPr * ((cF >> 16 & 255) - xAr0)) << 16 |
+                  clampi(xAg + iv * (xPg * (cF >> 8 & 255) + xQg) + fg * xSg + dk * xPg * ((cF >> 8 & 255) - xAg0)) << 8 |
+                  clampi(xAb + iv * (xPb * (cF & 255) + xQb) + fg * xSb + dk * xPb * ((cF & 255) - xAb0));
+                continue;
+              }
               px[rowF + x] = 0xFF000000 | clampi(xAr + iv * (xPr * (cF >> 16 & 255) + xQr) + fg * xSr) << 16 |
                 clampi(xAg + iv * (xPg * (cF >> 8 & 255) + xQg) + fg * xSg) << 8 |
                 clampi(xAb + iv * (xPb * (cF & 255) + xQb) + fg * xSb);
@@ -2537,6 +2587,14 @@ function castGround(flash, fcR, fcG, fcB) {
           if ((und & 256) && fyu < ew) ew = fyu;
           if (ew < SLAB_SEAM) { const sv = 1 - ew / SLAB_SEAM; ku *= 1 - SLAB_SEAMK * sv * sv; }
         }
+        /* #781, ROW COPY: dose by the plane's own decline - see SLAB_INC at its definition. `absP/BH` is
+           this row's dz/d, so the term is one multiply per underside pixel and no new sampler. */
+        if (SLAB_INC) {
+          let ci = absP / BH;
+          if (ci > 1) ci = 1;
+          ku *= 1 - SLAB_INC * ci * ci;
+          if (ku < SLAB_INCF) ku = SLAB_INCF;
+        }
         const ka = SLAB_ALB * ku;
         cr = cr * ka * 0.97; cg = cg * ka; cb = cb * ka * 1.06;
       }
@@ -2642,6 +2700,7 @@ let gSer = 0, gMSer = -1, gMRow = -1, gMPl = 0, gMDS = 0, gMDfa = 0, gMFog = 0, 
   gMTx = 0, gMTxS = 0, gMTxW = 1, gMTxH = 1, gMTxD = null,
   gMTxA = 0, gMTxB = 0, gMTxC = 0, gMTxD0 = 0, gMTxD1 = 0, gMTxD2 = 0,
   gMXx = 0, gMXS = 0, gMXW = 1, gMXH = 1, gMXD = null, gMXA = 0, gMXB = 0, gMXC = 0, gMXE0 = 0, gMXE1 = 0, gMXE2 = 0, gMXF0 = 0, gMXF1 = 0, gMXF2 = 0,
+  gMXM0 = 0, gMXM1 = 0, gMXM2 = 0, gMXL0 = 1, gMXL1 = 1, gMXL2 = 1,
   gLSer = -1, gLSX = 0, gLSY = 0, gML0 = 0, gML1 = 0, gML2 = 0, gMMir = 0,
   gMA0 = 0, gMA1 = 0, gMA2 = 0, gMB0 = 0, gMB1 = 0, gMB2 = 0, gMD0 = 0, gMD1 = 0, gMD2 = 0;
 
@@ -2739,6 +2798,11 @@ function gndBuild(row, isF, absP, pl, tex, sc, fcR, fcG, fcB, fl, amb, dOv) {
         gMXB = gMVoid * xb * (1 - ve) * mm.meanNE[1] / alF[1];
         gMXC = gMVoid * xb * (1 - ve) * mm.meanNE[2] / alF[2];
         gMXE0 = gMVoid * ve * mm.meanEM[0]; gMXE1 = gMVoid * ve * mm.meanEM[1]; gMXE2 = gMVoid * ve * mm.meanEM[2];
+        /* #616, SECOND COPY of the distance term: the mean keeps the fog weight, the deviation takes the
+           distance share (AGENTS.md: change one copy, change the other). xPr * alF cancels, so the mean is
+           a run constant. */
+        gMXM0 = gMVoid * xb * (1 - ve) * mm.meanNE[0]; gMXM1 = gMVoid * xb * (1 - ve) * mm.meanNE[1]; gMXM2 = gMVoid * xb * (1 - ve) * mm.meanNE[2];
+        gMXL0 = alF[0]; gMXL1 = alF[1]; gMXL2 = alF[2];
       }
     }
   } else { gMFar = 0; gMVoid = 0; gMTx = 0; gMXx = 0; }
@@ -2835,12 +2899,53 @@ function floorFixedPoint(rx, ry, pl, absP, ax, ay) {
    The face's own view-axis position is projected from the crossing point's lateral coordinate, so on a view
    exactly along a grid axis it is exact and on a diagonal one it is out by at most (1-|dir|), under a row
    of the band. */
+/* #518 THE DOWN SIDE: the mark on a deck's own last rows before it ends.
+
+   The UP side above marks the tread you have just climbed. Its mirror is the edge you are standing at:
+   on a step DOWN seen from above, every row under the lip belongs to the deck the eye is on (#517), the
+   slab's own side is sub-pixel, and before this the only pixel of the drop the frame ever carried was the
+   one straddle row the wall pass borrowed (#518). That row is a surface no ray reaches - honest to walk
+   the ray and it is not there - so it is yielded below and the edge is drawn where the deck's own solve
+   ends, by this pass, on the rows the player is standing on.
+
+   It is the same mechanism as the up side and the same cost: ONE test per cell crossing, keyed on the
+   stored directed kind, never a re-derived height test and never a march. Three tests: the cell the run
+   lands in is AIR and the row's plane REACHES it (this is deck, not somebody's slab); the neighbour AHEAD
+   along the view axis is AIR and LOWER, at a crossing the level authored as a face you can fall off -
+   EK_STEP for a one-quantum tread, which js/20_level.js authors at BOTH ends, or EK_DROP for a taller
+   drop; and the run's depth is within `STEPROW` rows of that face, the same constant-screen band, read on
+   the NEAR side of the boundary instead of the far one. A flat level runs none of it (`stepDraw` is 0),
+   and a wall, a cliff, a ramp and a ladder have no EK_STEP/EK_DROP down-crossing to key to. */
+function stepEdgeDownLum(gx, gy, dRow, absP) {
+  const N = MAP.w, cell = MAP.cell, fzs = MAP.fz, ek = MAP.ek;
+  if (!ek || gx < 0 || gy < 0 || gx >= N || gy >= N) return 0;
+  const i = gy * N + gx;
+  if (cell[i]) return 0;
+  const axX = Math.abs(dirX) >= Math.abs(dirY);
+  const dv = axX ? dirX : dirY;
+  if (Math.abs(dv) < 1e-6) return 0;
+  const s = dv > 0 ? 1 : -1;
+  const nx = axX ? gx + s : gx, ny = axX ? gy : gy + s;    // the neighbour AHEAD along the view axis
+  if (nx < 0 || ny < 0 || nx >= N || ny >= N) return 0;
+  const j = ny * N + nx;
+  if (cell[j] || fzs[j] >= fzs[i]) return 0;               // not a step DOWN
+  const kind = ek[(i << 2) + (axX ? (s > 0 ? 0 : 2) : (s > 0 ? 1 : 3))];
+  if (kind !== EK_STEP && kind !== EK_DROP) return 0;      // a wall, a cliff, a ramp, a ladder: no edge here
+  const kx = axX ? (s > 0 ? gx + 1 : gx) : gx, ky = axX ? gy : (s > 0 ? gy + 1 : gy);
+  const dp = ((kx - camX) * dirX + (ky - camY) * dirY) - dRow;
+  if (dp < 0 || dp > STEPROW * dRow / absP) return 0;
+  return STEPAMT;
+}
+
 function stepEdgeLum(gx, gy, wx, wy, dRow, absP, planeA) {
   const N = MAP.w, cell = MAP.cell, fzs = MAP.fz, ek = MAP.ek;
   if (!ek || gx < 0 || gy < 0 || gx >= N || gy >= N) return 0;
   const i = gy * N + gx;
   if (cell[i]) return 0;
-  if (fzs[i] * ZQ <= planeA + 1e-6) return 0;              // not a slab: the row's plane reaches this cell
+  // #518: the row's plane REACHING this cell is not "no edge" - it is the deck the eye stands on, and a
+  // deck's own last rows before it ends are the edge #517 says is missing. Both copies of the ground body
+  // call through here, so the deferred pixel answers the same question as the row-painted one.
+  if (fzs[i] * ZQ <= planeA + 1e-6) return stepEdgeDownLum(gx, gy, dRow, absP);
   const axX = Math.abs(dirX) >= Math.abs(dirY);
   const dv = axX ? dirX : dirY;
   if (Math.abs(dv) < 1e-6) return 0;
@@ -3184,9 +3289,23 @@ function groundPixel(x0, x1, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb
         if (ux < 0) tx--;                              // floor, not truncate - the guard both copies use
         if (uy < 0) ty--;
         const cX = gMXD[(ty & (gMXH - 1)) * gMXW + (tx & (gMXW - 1))];
-        vR = vR * iv + ivf * (gMXA * (cX & 255) + gMXE0) + fg * gMXF0;
-        vG = vG * iv + ivf * (gMXB * (cX >> 8 & 255) + gMXE1) + fg * gMXF1;
-        vB = vB * iv + ivf * (gMXC * (cX >> 16 & 255) + gMXE2) + fg * gMXF2;
+        if (FARDST) {
+          /* #616, SECOND COPY: the fetched crossing keeps its shipped AVERAGE - the mean rides `ivf`, the
+             fog of the crossing distance, exactly as it did - and its DEVIATION from the mip's own mean
+             rides `dk`, the share of a surface a ray that flew xCDst[x] metres still shows. Fog has
+             saturated out here, so `ivf` alone answers a 25 m crossing and a 90 m crossing the same pixel;
+             `dk` = FARB/(FARB+d) has not, so the band stops being one value and says how far it looked.
+             Zero-mean, same mip, same one texel, no lightmap read, `FARB`/`FARLIT`/`HAZE_L`/`VOIDK` and
+             the shipped share all untouched. `DEV.set('fardist', 0)` is the A/B in both copies. */
+          const dk = FARB / (FARB + xCDst[x]);
+          vR = vR * iv + ivf * (gMXA * (cX & 255) + gMXE0) + fg * gMXF0 + dk * gMXA * ((cX & 255) - gMXL0);
+          vG = vG * iv + ivf * (gMXB * (cX >> 8 & 255) + gMXE1) + fg * gMXF1 + dk * gMXB * ((cX >> 8 & 255) - gMXL1);
+          vB = vB * iv + ivf * (gMXC * (cX >> 16 & 255) + gMXE2) + fg * gMXF2 + dk * gMXC * ((cX >> 16 & 255) - gMXL2);
+        } else {
+          vR = vR * iv + ivf * (gMXA * (cX & 255) + gMXE0) + fg * gMXF0;
+          vG = vG * iv + ivf * (gMXB * (cX >> 8 & 255) + gMXE1) + fg * gMXF1;
+          vB = vB * iv + ivf * (gMXC * (cX >> 16 & 255) + gMXE2) + fg * gMXF2;
+        }
       }
       px[row + x] = 0xFF000000 | clampi(vB) << 16 | clampi(vG) << 8 | clampi(vR);
       if (cnt) cnt[LG_FARVOID]++;
@@ -3367,6 +3486,15 @@ function groundPixel(x0, x1, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb
       if ((ux & 64) && 1 - fyu < ew) ew = 1 - fyu;
       if ((ux & 256) && fyu < ew) ew = fyu;
       if (ew < SLAB_SEAM) { const sv = 1 - ew / SLAB_SEAM; ku *= 1 - SLAB_SEAMK * sv * sv; }
+    }
+    /* #781, SECOND COPY (AGENTS.md: change one copy and you have changed the other): the same decline
+       dose, solved from this pixel's own plane altitude and distance, so the deferred far field cannot
+       disagree with the raster above it. */
+    if (SLAB_INC) {
+      let ci = gMDS > 0 ? (pl - eyeZ) / gMDS : 1;
+      if (ci > 1) ci = 1; else if (ci < 0) ci = 0;
+      ku *= 1 - SLAB_INC * ci * ci;
+      if (ku < SLAB_INCF) ku = SLAB_INCF;
     }
     const ka = SLAB_ALB * ku;
     cr = cr * ka * 0.97; cg = cg * ka; cb = cb * ka * 1.06;
@@ -4005,6 +4133,7 @@ function castWalls(flash, fcR, fcG, fcB) {
        horizon, and clipping there would eat the soffit #421 is about. Nothing is blocked: a `dq === 1`
        crossing stays walkable (#100); only the pixels change. */
     let de = Math.min(BH - 1, Math.floor(y1));
+    let yieldFace = 0;                              // #518: 1 when the near deck owns every row of this face
     if (riser && rzn < eyeZ) {
       const yN = horizon + (eyeZ - rzn) * hpx;             // the near slab's top surface at this perp
       if (yN < de) de = Math.floor(yN);
@@ -4038,7 +4167,41 @@ function castWalls(flash, fcR, fcG, fcB) {
          cannot reach it because `ds` was `max(0, ceil(y0))` and nothing else ever moved it). A negative
          kept row means the lip is off the top of the frame, so EVERY visible row is under it and owned by
          the near deck: there is no face to draw and no row to keep, which is what `continue` says. */
-      if (de < ds) { const yK = Math.floor(yN); if (yK < 0) continue; ds = Math.min(ds, yK); de = ds; }
+      /* #518 THE STRADDLE ROW GOES TO THE GROUND PASS. The clause this replaces kept exactly one row -
+         `floor(yN)`, the pixel the lip lands in - and painted it with `perp`, the boundary's own
+         perpendicular distance. That row is one row ABOVE the deck's first solve row, i.e. in the band
+         where the eye's plane answers BEYOND the deck's own edge, so no ray arriving there is in the
+         face at all: the honest surface is whatever the far side carries, at its own distance. Keeping
+         it cost two things - the picture drew a face where no ray reaches, and `zbuf` claimed `perp`,
+         a distance nearer than the arrival, which is what `drawBillboard`'s cull reads
+         (`zbuf[yoff + x] < tY`), so a body standing just past the lip lost that one scan-line. Both
+         are the depth half of #518, not a look argument.
+         The row is therefore yielded: an EMPTY span (`de = ds - 1`), so every `for (y = ds; y <= de)`
+         loop in this body - the face rows, the transient splats, the authored fixtures, the ceiling
+         corner's mean - runs zero times and writes nothing, and the ground pass's own answer for the
+         row stands. What must NOT go with it is the seam: the eye-side crease is the mark that makes
+         the edge an object, it is anchored on the DECK's own row (`yA = yc(rze)`) and runs DOWN into
+         rows the deck honestly owns, so it is independent of whether the wall pass drew a face. Hence
+         `yieldFace` on the span guard: the only reason `ds > de` used to abandon the column. On a step
+         UP and on flat levels `yN >= de` already, so neither the yield nor the flag runs any
+         arithmetic there and those frames stay bit-identical. */
+      if (de < ds && stepFace && rz1 - rz0 <= ZQ + 1e-9) { ds = Math.min(ds, Math.floor(yN)); de = ds - 1; yieldFace = 1; }
+      else if (de < ds) { const yK = Math.floor(yN); if (yK < 0) continue; ds = Math.min(ds, yK); de = ds; }
+    }
+    /* #518 THE ROW IS YIELDED, THE MARK IS NOT. An empty span used to fall through the guard below and
+       abandon the column with it, and that took the seam with it: the eye-side crease is anchored on the
+       DECK's own row (`yc(rze)`) and runs into rows the deck honestly owns, so it never needed the face
+       pixel - it was only ever reaching it through this branch. Called here, BEFORE the guard, and with
+       main's three terms and arguments unchanged, the crease keeps painting and no pixel of the yielded
+       row is written: no colour, and no `zbuf = perp`, which is the depth half of the issue. */
+    if (yieldFace) {
+      if (riser && SEAM) {
+        const seamLit = li - AMB;
+        seamCrease(x, perp, rze, rzf, -SEAMD, rzf > rze ? -1 : 1, seamLit);
+        if (rze !== rz0) seamCrease(x, perp, rz0, rz1, -SEAMD, -1, seamLit, de);
+        seamCrease(x, perp, rz1, rz0, SEAMU, -1, seamLit);
+      }
+      continue;
     }
     if (!(dz > 0) || ds > de) continue;                    // no face here to draw
     const tstep = mh * dz / (y1 - y0);                     // tiles per world unit, not per face
@@ -4142,14 +4305,39 @@ function castWalls(flash, fcR, fcG, fcB) {
          lr/lg/lb, its contact shadow and its fog like the concrete under it, and it writes no light and
          no zbuf. Placed after the mip crossfade so the paint is on the albedo the pixel ends up with
          and before the grit term so the relief still reads across the band. */
+      /* #669 TAKE FOUR: THE PAINT IS A STEP IN VALUE, NOT ONLY IN HUE. The two bands above lerped the
+         face's albedo TOWARD the level's accent and stopped there, and the accents that were solved for
+         hue at held luma (js/20_level.js: ARCHIVE `accent` 156 luma against BRICK's ~122) arrived at the
+         pixel BRIGHTER than the surface they are painted on. Measured at ARCHIVE cam1 with the shipped
+         A/B (accent vs accent-null, fb row 192, the eye line of the long room): face 57.6, mark 69.6 -
+         the mark is +12 of luma on a wall that is already the brightest thing in that band of the frame,
+         and 12 is exactly where the run census shatters the line (37 runs, longest 13 framebuffer px, of
+         a 229-px run at the >0.5 bar). The flat deck stripe does not have that problem: `ACC_DECK_L`
+         places its mark at 0.80 x the deck texel's own albedo luma and lets the blend keep any darker
+         value the authored colour brings. The same one-way-down rule now runs on both vertical bands:
+         cap the painted albedo's luma at `ACC_DECK_L` x the FACE's own albedo luma, floored at
+         `ACC_DECK_MIN` so a texel the light has left is not painted to black. One-way DOWN is the whole
+         decision - it cannot raise a seeded median or a `surface` ORDER row, and a level whose accent
+         already arrives under the cap is not moved by it at all, which is why the accents are re-solved
+         to sit under the surface they land on rather than beside it. RING's amber is the case the cap
+         was written for: it arrives at concrete's own luma, so the cap takes 20 % of it and the lip
+         keeps its hue at a lower value. */
+      let al0 = 0;
       if (y <= accY) {
         let aw = (accY - y) * accInv;
         if (aw > 1) aw = 1;
+        al0 = cr * 0.2126 + cg * 0.7152 + cb * 0.0722;
         cr += (accC[0] - cr) * aw; cg += (accC[1] - cg) * aw; cb += (accC[2] - cb) * aw;
       } else if (kerbOn && y >= kerbY) {                 // #669: the wall-foot kerb, ramping DOWN
         let aw = (y - kerbY) * kerbInv;
         if (aw > 1) aw = 1;
+        al0 = cr * 0.2126 + cg * 0.7152 + cb * 0.0722;
         cr += (accC[0] - cr) * aw; cg += (accC[1] - cg) * aw; cb += (accC[2] - cb) * aw;
+      }
+      if (al0 > 0) {                                      // #669: the value step, both vertical bands
+        const al1 = cr * 0.2126 + cg * 0.7152 + cb * 0.0722;
+        const alt = al0 * ACC_DECK_L > ACC_DECK_MIN ? al0 * ACC_DECK_L : ACC_DECK_MIN;
+        if (al1 > alt) { const aks = alt / al1; cr *= aks; cg *= aks; cb *= aks; }
       }
       let gk = 1;
       if (grit > 0) {                                          // relief from the screen-space field

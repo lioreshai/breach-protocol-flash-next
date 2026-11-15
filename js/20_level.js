@@ -46,7 +46,18 @@ const LEVELS = [
     // 120 deg off the family, at a mark luma of 67.4 against the 68.5 the authored teal delivered and the
     // same 5,504 px of the arrival frame. Same delivered light, more than twice the disagreement. ABATOIR's
     // mark below arrives at 182, so the two sectors' paint is 33 deg and fourteen lumas apart, not one colour.
-    accent: [15, 195, 190],
+    /* #669 TAKE FOUR: THE PAINT NOW ARRIVES BELOW THE SURFACE IT LANDS ON. The teal above was solved
+       for hue at HELD luma, which left the mark +12 lumas BRIGHTER than the wall it is painted on
+       (ARCHIVE cam1, framebuffer row 192: face 57.6, mark 69.6). A mark that only out-shines its room
+       reads as a light leak, and at the 12-luma run census it shattered a 229-px eye-line into 37
+       dashes of at most 13 px. Solved again on the same delivered basis (this sector's own per-channel
+       delivery, lamp [255, 196, 120]) with ONE change of premise: the mark's luma goes UNDER the face's
+       instead of beside it, at the same delivered hue. At that seat this teal delivers mark 35.2 against
+       the same 57.6 face - a step of 23 lumas DOWN - hue 161 against the room's rendered 17, so 144 deg
+       of disagreement, and the eye line now reads 10 runs / 337 fb px / longest 178 px where main reads
+       37 / 155 / 13. Frame mean 72.7 -> 72.5: a mark can only get darker, which is why no exposure
+       median and no `surface` ORDER row moves. js/40_render.js `ACC_DECK_L` holds the one-way rule. */
+    accent: [7, 88, 86],
     floor: 'STONE', ceil: 'ROCK', amb: 0.19, lampCol: [255, 196, 120], fogCol: [17, 13, 10], ceilLead: 0.30, ceilBias: 0,
     lamps: 6, crates: 7, barrels: 7, spawn: { grunt: 5, hound: 3, brute: 0 }, pick: { health: 3, ammo: 4, armor: 1 },
     fixtures: ['PIPE', 'VENT'],           // #400: the archive is a place with old pipework in it
@@ -134,7 +145,15 @@ const LEVELS = [
     // reached 121 deg off by putting +5 luma on 50 % more pixels and pushed that centre-half mid to 76 - the
     // same offset bought with exposure, so it is not what ships. The lamp itself is untouched: the measured
     // family-hue lamp repaints 80 % of the frame and lands the room on 343 (see #669).
-    accent: [74, 137, 164],
+    /* #669 TAKE FOUR: same re-solve as ARCHIVE's, same premise - the paint sits BELOW the face it is
+       painted on. The blue-grey above arrived at ABATOIR's own rendered luma (mark 53.8 against a 64.7
+       face at cam1's wall-foot line), so it disagreed in hue and barely in value: 42 dashes, longest
+       14 framebuffer px at the 12-luma bar. This one delivers mark 42.6 against that same 64.7 face -
+       22 lumas down - hue 166 against the room's rendered 11, 155 deg, and the line reads 28 runs / 298
+       px at >12 with the >0.5 geometry unchanged (3 runs / 398 px / longest 270). The lamp is untouched,
+       per the ruling on this issue: `lampCol` stays [190, 255, 150], and the oxblood minority wall stays
+       as #466 left it. This sector's ONE accent is this paint, spent on geometry. */
+    accent: [28, 52, 63],
     floor: 'FLESH', ceil: 'SINEW', amb: 0.3, lampCol: [190, 255, 150], fogCol: [21, 8, 11], ceilBias: -0.12,
     lamps: 16, crates: 9, barrels: 12, spawn: { grunt: 8, hound: 7, brute: 3 }, pick: { health: 5, ammo: 6, armor: 2 },
     fixtures: ['VENT', 'STRIPE'],         // #400: the abattoir breathes; everything here is a duct

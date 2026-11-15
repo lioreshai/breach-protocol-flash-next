@@ -1,5 +1,44 @@
 # Changelog
 
+## [v1.4.25] - 2026-11-12
+
+### Changed
+
+- **The deck you are standing on now has an edge** (#517, #518, PR #817). Look down at a pit or a staircase from the deck above and the surface under your feet used to simply stop. The drop's own face reached the frame as one borrowed row of pixels and the rows above it were your floor's plane stretched out to the horizon, so the place you can fall off read as a texture suggestion rather than an edge. The floor pass now paints its own last rows before any face you can walk off — a nosing, the mirror of the tread mark that already marks the step you have just climbed. It keys on the edge kind the level already authors, a one-quantum tread or a taller drop, so a flat level runs none of it and a wall, cliff, ramp or ladder grows no mark. Paint only: no geometry, no added light, no column's distance changes, and the sector you were dealt is the sector you get.
+
+### Fixed
+
+- **The front page's brightness figures were reading red as blue** (#394, PR #811). Frames saved as RGBA were decoded with their channels one place round, so every mean luma quoted from such a frame came from a rotated picture — and the checker still printed `ok`, because the captions were quoted back through the same rotation. The pixels were never wrong in a browser; the arithmetic underneath them was, which is exactly the case a gate is for. Red now goes in the red slot and the decoder is tested on bytes it writes itself, whose channel order is known by construction, so a rotation cannot pass quietly again. Every figure on the front page was re-measured from the committed bytes and the eight frames were re-taken off the build that ships, so the page shows today's picture rather than last week's (#797).
+- **Two CI checks stopped judging the game against a picture the game no longer draws** (PRs #816, #813). The arrival-frame brightness gate was reading its ceiling off an anchor last rendered at the end of September; rendered today that anchor is dimmer than the ordinary arrival frames it exists to bound, which left almost no operating room on RING TRANSPORT and let two runs of one tree disagree by a single luma. The band is now derived inside the run that judges it — same level, its own spawn pose, the same seeded rolls — with the old window printed beside it as drift instead of being absorbed into a pass. Separately, the release-artifact step's outstanding-tag exemption is now shown to fail a tag that exists and is wrong (lightweight, mis-pointed, mis-pinned, or stamped by another identity) rather than only being argued to. Neither moves a pixel; both stop the gate burning a branch on a number that was never about the build under test.
+
+### Known limitations
+
+- The deck edge is a **mark, not yet depth**. The straddle row the wall pass lends the drop is still there, so the renderer's own depth census still reports a platform edge as a phantom and #518 stays open for that half. What shipped is the legibility half: the edge is on screen, and the census now names which pass painted the pixel it is complaining about (#815) instead of blaming the floor half in general. The sampled arrival seats have no step down in frame, so the mark shows up where you walk to one, not in the first frame you see.
+- Rooms the generator still leaves completely open, and figures that can arrive wearing their room's hue in the opening sector, are untouched here (#631, #611). Most dealt sectors are still one storey deep; that is open work, not a regression introduced by this build.
+- The per-sector lighting budget question (#505) is parked as a printed debt with a named trigger rather than shipped. Nothing that reads badly today is waiting on it.
+
+## [v1.4.24] - 2026-11-11
+
+### Added
+
+- **The gun is visible at your hip again, and the hand holding it looks like a hand** (#780, PR #803). At the hip — the pose the game is in almost all the time — the support hand was one flat slab that covered the part it was gripping: the pump, magazine or grip was largely not drawn at all. The hand is now four separate fingers laid across the part with the part showing between them, and the fist's own tube gives up some of its width so there is something behind the fingers to see. Aiming down sights is untouched, pixel for pixel. This is the first pass on that defect; the fingers still paint through the part they wrap on one weapon, which stays open as #780.
+
+### Changed
+
+- **Near edges are hard pixels now, not a blur** (#784, PR #804). The raster was enlarged onto your window with a smoothing filter on every tier except the lowest, so every edge the renderer had just paid for was averaged away on the last mile: the floor under your feet was a soft mush while the far half of the room stayed crisp. The last mile is now a stated decision per tier. PERFORMANCE and BALANCED draw small and enlarge with no filter at all — crisp texels end to end — whenever the window is at least twice the raster's height, which is the other half of the rule: below a 2x enlargement nearest leaves texels one screen pixel wide beside ones two wide, which reads as broken rather than as a look. ULTRA keeps the filter, because its buffer is already 62 % of the window and nearest there crawls while you strafe. Softening in the picture is now deliberate: it comes from the CRT curtain and the bloom, not from the upscale. Nothing about resolution or frame cost changed.
+- **Fewer rooms you can see straight through** (#631, PRs #801, #806). Two gaps in the generator closed. A room whose sight line from your seat was too short to be crossed is now asked for its break along the deepest march the room actually offers, so ARCHIVE SUBLEVEL's arrival room gains a break crossing your view instead of a run off to one side of it; and a room big enough to be one open plan that no column rule could stand anything in now gets a one-quantum tread across it — a low step with a real lip, no new wall, nothing deleted. In that change's own census the rooms it left with nothing in them fell from 54 to 29 on ARCHIVE SUBLEVEL, 62 to 31 on RING TRANSPORT and 43 to 13 on ABATOIR CORE. THE STACK's authored layout is byte-for-byte the level it was. No dice are drawn by either pass, so the props, lamps, enemies and spawn seat you were dealt are the ones you already had.
+- **A deck overhead stops out-lighting the ceiling** (#781, PR #810). Look straight up under a raised deck and the surface order used to invert: before this change the surface overhead filled the top of the frame brighter than the floor you are standing on — 95.4 luma against 61.2 on one generated sector, 81.4 against 57.4 on another — so the thing overhead read as the brightest surface in the level. The underside now dims with the angle you read it at, so it darkens where it is a sea of plate overhead and stays as it was where it is the thin horizon sliver an arrival roof is made of. Re-measured on the same two sectors it lands at 58.2 and 56.4 against floors of 61.2 and 57.4, and the arrival roof keeps its value on all four sectors. It adds no light and changes nothing on a flat level.
+
+### Fixed
+
+- **A merged release stops blocking its own publication** (#792, PR #805). The build of a release commit was red on "this commit must carry its own tag", a thing it cannot do because the tag is cut after that build goes green — so the release sat merged, deployed and unpublished. The outstanding tag is now a named, known row instead, and publication proceeds once the merged commit's checks are green. Two earlier releases were affected by this.
+
+### Known limitations
+
+- Rooms that still stand completely open in that same census: 29 on ARCHIVE SUBLEVEL, 31 on RING TRANSPORT and 13 on ABATOIR CORE. The hangar look is much reduced, not gone.
+- On the pistol and the rifle the part being gripped is still almost entirely hidden at the hip — 9 and 188 px of round-part paint against bars of 840 and 1170, where the shotgun now reaches 918 of 997. The hand is no longer the thing covering it there; the round needs to sit nearer the eye than the box carrying it, which is still open as #780.
+- Figures can still arrive wearing their room's hue in the opening sector (#611), and one sector's ceiling lead is still authored rather than derived (#495); both are open and neither was touched here.
+
 ## [v1.4.23] - 2026-11-09
 
 ### Added
