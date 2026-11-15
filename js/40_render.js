@@ -3918,6 +3918,18 @@ function seamCrease(x, t, zA, zB, amp, dir, deckLit, yCap) {
 /* ------------------------------------------------------------------
    walls: DDA + coloured light + face shading + decals
    ------------------------------------------------------------------ */
+/* #829: the faces ONE COLUMN stops at. A column used to hold exactly one - the first the march met -
+   and the loop below painted that one and stopped, which is the whole of "the wall behind a pit is not
+   drawn". The storage is fixed-size and module-level: a per-column array would allocate 480 of them a
+   frame in the hottest function in the renderer, which is the one-indirection cliff `AGENTS.md` prices
+   in perf notes. WST is a cap on the march's appetite, not a claim about the level: a column that hits
+   the cap simply stops looking, the same bargain `dmax` strikes for the far field. */
+const WST = 4;
+const WSP = new Float64Array(WST), WZ0 = new Float64Array(WST), WZ1 = new Float64Array(WST),
+  WZE = new Float64Array(WST), WZF = new Float64Array(WST), WZN = new Float64Array(WST),
+  WMX = new Int32Array(WST), WMY = new Int32Array(WST), WTV = new Int32Array(WST),
+  WSD = new Int8Array(WST * 3), WSF = new Uint8Array(WST);
+
 function castWalls(flash, fcR, fcG, fcB) {
   const cellArr = MAP.cell, N = MAP.w, lm = MAP.light, cp = MAP.ceilPlane;
   const fzs = MAP.fz, vbs = MAP.vb, doStep = MAP.steps ? 1 : 0;      // #100: 0 on every flat level
@@ -3950,6 +3962,7 @@ function castWalls(flash, fcR, fcG, fcB) {
     if (rdx < 0) { stepX = -1; sdx = (camX - mx) * ddx; } else { stepX = 1; sdx = (mx + 1 - camX) * ddx; }
     if (rdy < 0) { stepY = -1; sdy = (camY - my) * ddy; } else { stepY = 1; sdy = (my + 1 - camY) * ddy; }
     let tv = 0, guard = 0, riser = 0, rz0 = 0, rz1 = 1, rze = 0, rzf = 1, rzn = -1, stepFace = 0;
+    let nSt = 0;                                  // #829: how many faces this column stopped at
     /* #466: the accent band for THIS column, as a screen row and its reciprocal. Both stay at the
        "no band" values on every wall face of a level that authors no accent, so such a pixel pays one
        `y <= accY` compare against -1 and nothing else. #669's wall-foot kerb is the SECOND band of the
@@ -3959,9 +3972,9 @@ function castWalls(flash, fcR, fcG, fcB) {
     while (guard++ < 180) {
       let tX;
       if (sdx < sdy) { tX = sdx; sdx += ddx; mx += stepX; side = 0; } else { tX = sdy; sdy += ddy; my += stepY; side = 1; }
-      if (mx < 0 || my < 0 || mx >= N || my >= N) { tv = 1; break; }
+      if (mx < 0 || my < 0 || mx >= N || my >= N) { tv = 1; WSP[nSt] = side === 0 ? sdx - ddx : sdy - ddy; WTV[nSt] = 1; WSF[nSt] = 0; WSD[nSt * 3] = side; WSD[nSt * 3 + 1] = stepX; WSD[nSt * 3 + 2] = stepY; WMX[nSt] = mx; WMY[nSt] = my; nSt++; break; }
       tv = cellArr[my * N + mx];
-      if (tv !== 0) break;
+      if (tv !== 0) { WSP[nSt] = side === 0 ? sdx - ddx : sdy - ddy; WTV[nSt] = tv; WSF[nSt] = 0; WSD[nSt * 3] = side; WSD[nSt * 3 + 1] = stepX; WSD[nSt * 3 + 2] = stepY; WMX[nSt] = mx; WMY[nSt] = my; nSt++; break; }
       /* #100: an air->air boundary with a step at it is a FACE. The height difference that makes
          canEnter refuse the move (js/20_level.js: `dq > 1` quantum, the same test that sets
          VB_BLOCK) used to be both intangible and invisible, because a face was only ever enumerated
@@ -4037,563 +4050,579 @@ function castWalls(flash, fcR, fcG, fcB) {
              height - the crease belongs at the lip the player is standing at, and on a step down
              that is the higher of the two (#195). rz0/rz1 keep sorting by height: the face's span
              and its texture do not care which side the eye is on. */
-          rze = (dq > 0 ? flo : fhi) * ZQ; rzf = (dq > 0 ? fhi : flo) * ZQ; break;
+          rze = (dq > 0 ? flo : fhi) * ZQ; rzf = (dq > 0 ? fhi : flo) * ZQ;
+          WSP[nSt] = rp; WTV[nSt] = riserTex; WSD[nSt * 3] = side; WSD[nSt * 3 + 1] = stepX; WSD[nSt * 3 + 2] = stepY;
+          WMX[nSt] = mx; WMY[nSt] = my; WZ0[nSt] = rz0; WZ1[nSt] = rz1; WZE[nSt] = rze; WZF[nSt] = rzf; WZN[nSt] = rzn;
+          WSF[nSt] = 1 | (stepFace << 1); nSt++;
+          break;
         }
       }
     }
-    let perp = side === 0 ? sdx - ddx : sdy - ddy;
-    if (!(perp > 0.0001)) perp = 0.0001;
-    if (tv === 0 || perp > FARB * 3) continue;
-    /* A riser is a VERTICAL face, so it wears the same lookup every other face wears (#192). It wore
-       MAP.floorTex on the argument that WTEX.CONCRETE is in no level's palette and read ~+8 raster
-       brighter than a flat level at an identical lightmap - true, and bought with the wrong thing: a
-       lip in the floor's own texture is a brighter patch of the same texture, which is exactly what
-       `view.js bands` reported about generated content once the generator authored stairs (#192's
-       "stairs/pits/decks render as voids": the geometry was there, the MATERIAL said floor). The
-       brightness question is a palette question, answered below by the face's own shading, not by
-       painting walls with floor. Dead on flat levels, so nothing shipped moves. */
-    const tex = WALLS[(tv - 1) % WALLS.length];
-    if (!tex) continue;
-    let wallX = side === 0 ? camY + perp * rdy : camX + perp * rdx;
-    wallX -= Math.floor(wallX);
-    const fog = fogAt(perp), inv = 1 - fog, fR = fcR * fog, fG = fcG * fog, fB = fcB * fog;
-    const hpx = BH / perp;                                    // screen px per world unit at this depth
-    const spanPx = hpx;
-    const mk = spanPx < tex.h * 0.6 ? (spanPx < tex.h * 0.3 ? (spanPx < tex.h * 0.15 ? 3 : 2) : 1) : 0;
-    const m = tex.mips[Math.min(mk, tex.mips.length - 1)];
-    /* Crossfade into the next mip instead of switching at a threshold, so the mip
-     * boundary stops being a visible seam at grazing angles. */
-    let m2 = null, wMix = 0;
-    if (G_TRI && mk + 1 < tex.mips.length) {
-      const lvl = Math.max(0, Math.log2(tex.h * 0.62 / Math.max(spanPx, 0.0001)));
-      const fr = lvl - Math.floor(lvl);
-      if (fr > 0.55) { m2 = tex.mips[Math.min(mk + 1, tex.mips.length - 1)]; wMix = (fr - 0.55) / 0.45 * 0.85; }
-    }
-    const grit = G_GRIT * Math.max(0, Math.min(1, 1.35 - perp * 0.11));
-    const mw = m.w, mh = m.h, td = m.data, maskX = mw - 1, maskY = mh - 1;
-    const mir = (hash2(mx, my) * 2) | 0;
-    let u = wallX * mw;
-    if ((side === 0 && rdx > 0) || (side === 1 && rdy < 0)) u = mw - u;
-    if (mir & 1) u = mw - u;
-    /* u is constant down the column, so the horizontal texel pair and its weights are solved once
-       per ray: that is the part a per-pixel fetch was recomputing. The neighbour wraps with &mask
-       instead of comparing to the width, which is the same answer only while every mip width is a
-       power of two (T2 = 128 halved to 8). The BASE index is left unmasked so an exact texel
-       boundary still reads the texel it always read. */
-    const ux = u | 0, fx = u - ux, rfx = 1 - fx, ux1 = (ux + 1) & maskX;
-    let mw2 = 0, maskY2 = 0, td2 = null, s2 = 0, ux2 = 0, ux2b = 0, fx2 = 0, rfx2 = 0;
-    if (m2) {
-      s2 = m2.w / mw; mw2 = m2.w; maskY2 = m2.h - 1; td2 = m2.data;
-      const u2 = u * s2; ux2 = u2 | 0; fx2 = u2 - ux2; rfx2 = 1 - fx2; ux2b = (ux2 + 1) & (mw2 - 1);
-    }
+    if (nSt === 0) continue;                       // the march met nothing it could draw
+    /* #829: PAINT THE COLUMN FAR TO NEAR. Every face the march recorded gets its own span painted,
+       and because the nearer face is painted LAST it wins every row the two share - which is the same
+       per-pixel nearest-wins rule the rest of the frame runs on, arrived at without a second depth
+       test. A flat level records one stop, this loop runs once, and the column is the column it was. */
+    for (let si = nSt - 1; si >= 0; si--) {
+      riser = WSF[si] & 1; stepFace = WSF[si] >> 1;
+      tv = WTV[si]; side = WSD[si * 3]; stepX = WSD[si * 3 + 1]; stepY = WSD[si * 3 + 2];
+      mx = WMX[si]; my = WMY[si];
+      rz0 = WZ0[si]; rz1 = WZ1[si]; rze = WZE[si]; rzf = WZF[si]; rzn = WZN[si];
+      accY = -1; accInv = 0; kerbY = 1e9; kerbInv = 0; kerbOn = 0;
+      let perp = WSP[si];
+      if (!(perp > 0.0001)) perp = 0.0001;
+      if (perp > FARB * 3) continue;
+      /* A riser is a VERTICAL face, so it wears the same lookup every other face wears (#192). It wore
+         MAP.floorTex on the argument that WTEX.CONCRETE is in no level's palette and read ~+8 raster
+         brighter than a flat level at an identical lightmap - true, and bought with the wrong thing: a
+         lip in the floor's own texture is a brighter patch of the same texture, which is exactly what
+         `view.js bands` reported about generated content once the generator authored stairs (#192's
+         "stairs/pits/decks render as voids": the geometry was there, the MATERIAL said floor). The
+         brightness question is a palette question, answered below by the face's own shading, not by
+         painting walls with floor. Dead on flat levels, so nothing shipped moves. */
+      const tex = WALLS[(tv - 1) % WALLS.length];
+      if (!tex) continue;
+      let wallX = side === 0 ? camY + perp * rdy : camX + perp * rdx;
+      wallX -= Math.floor(wallX);
+      const fog = fogAt(perp), inv = 1 - fog, fR = fcR * fog, fG = fcG * fog, fB = fcB * fog;
+      const hpx = BH / perp;                                    // screen px per world unit at this depth
+      const spanPx = hpx;
+      const mk = spanPx < tex.h * 0.6 ? (spanPx < tex.h * 0.3 ? (spanPx < tex.h * 0.15 ? 3 : 2) : 1) : 0;
+      const m = tex.mips[Math.min(mk, tex.mips.length - 1)];
+      /* Crossfade into the next mip instead of switching at a threshold, so the mip
+       * boundary stops being a visible seam at grazing angles. */
+      let m2 = null, wMix = 0;
+      if (G_TRI && mk + 1 < tex.mips.length) {
+        const lvl = Math.max(0, Math.log2(tex.h * 0.62 / Math.max(spanPx, 0.0001)));
+        const fr = lvl - Math.floor(lvl);
+        if (fr > 0.55) { m2 = tex.mips[Math.min(mk + 1, tex.mips.length - 1)]; wMix = (fr - 0.55) / 0.45 * 0.85; }
+      }
+      const grit = G_GRIT * Math.max(0, Math.min(1, 1.35 - perp * 0.11));
+      const mw = m.w, mh = m.h, td = m.data, maskX = mw - 1, maskY = mh - 1;
+      const mir = (hash2(mx, my) * 2) | 0;
+      let u = wallX * mw;
+      if ((side === 0 && rdx > 0) || (side === 1 && rdy < 0)) u = mw - u;
+      if (mir & 1) u = mw - u;
+      /* u is constant down the column, so the horizontal texel pair and its weights are solved once
+         per ray: that is the part a per-pixel fetch was recomputing. The neighbour wraps with &mask
+         instead of comparing to the width, which is the same answer only while every mip width is a
+         power of two (T2 = 128 halved to 8). The BASE index is left unmasked so an exact texel
+         boundary still reads the texel it always read. */
+      const ux = u | 0, fx = u - ux, rfx = 1 - fx, ux1 = (ux + 1) & maskX;
+      let mw2 = 0, maskY2 = 0, td2 = null, s2 = 0, ux2 = 0, ux2b = 0, fx2 = 0, rfx2 = 0;
+      if (m2) {
+        s2 = m2.w / mw; mw2 = m2.w; maskY2 = m2.h - 1; td2 = m2.data;
+        const u2 = u * s2; ux2 = u2 | 0; fx2 = u2 - ux2; rfx2 = 1 - fx2; ux2b = (ux2 + 1) & (mw2 - 1);
+      }
 
-    /* light on the face: lightmap in the wall cell + lightmap one step out along the normal */
-    const nx = side === 0 ? -stepX : 0, ny = side === 1 ? -stepY : 0;
-    const inIdx = my * N + mx;
-    const lit = lm ? lm[inIdx] : 0.4;
-    const litFront = lm ? cellLightAt(mx + 0.5 + nx * 0.6, my + 0.5 + ny * 0.6) : 0;
-    const lt = cellTint(inIdx);
-    const fall = Math.exp(-perp * 0.16);
-    const fk = flashK0 * Math.exp(-perp * 0.30);
-    let li = (Math.max(lit, litFront * 0.85) * fall + AMB + (riser ? 0 : WALLB)) * (side === 1 ? 0.78 : 1);
-    /* #515: the step face's orientation term, and it is on the WHOLE of the face's light, ambient included.
-       It is not on the lamp half alone because that would be dead where the defect is: THE STACK authors
-       `lamps: 0`, so at the judgement frame the deck's luma IS its ambient plus its bias and a multiply on
-       the lamp term moves nothing. The claim being made is about the field, not about a lamp - a surface
-       that stands in the field rather than facing it catches less of it, whatever the field is made of. */
-    if (stepFace) li *= STEP_LT;
-    if (li > 1) li = 1;
-    const lr = AMB + (li * lt[0] + fk * flR) * 1.05, lg = AMB + (li * lt[1] + fk * flG) * 1.05, lb = AMB + (li * lt[2] + fk * flB) * 1.05;
+      /* light on the face: lightmap in the wall cell + lightmap one step out along the normal */
+      const nx = side === 0 ? -stepX : 0, ny = side === 1 ? -stepY : 0;
+      const inIdx = my * N + mx;
+      const lit = lm ? lm[inIdx] : 0.4;
+      const litFront = lm ? cellLightAt(mx + 0.5 + nx * 0.6, my + 0.5 + ny * 0.6) : 0;
+      const lt = cellTint(inIdx);
+      const fall = Math.exp(-perp * 0.16);
+      const fk = flashK0 * Math.exp(-perp * 0.30);
+      let li = (Math.max(lit, litFront * 0.85) * fall + AMB + (riser ? 0 : WALLB)) * (side === 1 ? 0.78 : 1);
+      /* #515: the step face's orientation term, and it is on the WHOLE of the face's light, ambient included.
+         It is not on the lamp half alone because that would be dead where the defect is: THE STACK authors
+         `lamps: 0`, so at the judgement frame the deck's luma IS its ambient plus its bias and a multiply on
+         the lamp term moves nothing. The claim being made is about the field, not about a lamp - a surface
+         that stands in the field rather than facing it catches less of it, whatever the field is made of. */
+      if (stepFace) li *= STEP_LT;
+      if (li > 1) li = 1;
+      const lr = AMB + (li * lt[0] + fk * flR) * 1.05, lg = AMB + (li * lt[1] + fk * flG) * 1.05, lb = AMB + (li * lt[2] + fk * flB) * 1.05;
 
-    /* The face's real span: it starts being material at the higher of the two floors and runs
-       up to the ceiling plane of the air side, (ox,oy). Flat, z0 = 0 and z1 = 1, which makes
-       y0/y1 the two expressions this function used to contain, bit for bit. */
-    const ox = mx + nx, oy = my + ny;
-    const fd = side === 0 ? (nx > 0 ? 0 : 2) : (ny > 0 ? 1 : 3);
-    /* z1 is the ground pass's plane, read from the same derived array: two sources of truth made a
-       forgotten linkBoundaries() a seam between the passes instead of a failure. Both axes tested
-       before the index, and out of map keeps ceilAt's own answer for the void, which is 1. */
-    const z0 = riser ? rz0 : faceZ0(ox, oy, fd), z1 = riser ? rz1 : (ox >= 0 && oy >= 0 && ox < N && oy < N ? cp[oy * N + ox] : 1), dz = z1 - z0;
-    let y0 = horizon + (eyeZ - z1) * hpx, y1 = horizon + (eyeZ - z0) * hpx;
-    let ds = Math.max(0, Math.ceil(y0));
-    /* #517: A SLAB SIDE YIELDS TO THE TOP SURFACE OF ITS OWN SLAB. A wall face is always nearer than
-       the ground behind it, which is why this loop carried no nearer-ground test at all - and for a
-       wall that premise holds. A riser seen from ABOVE is the one case where it does not: the face's
-       span runs from the higher floor DOWN to the lower one, so every row below the lip's own row is
-       also a row where the floor the eye stands on (the slab's top surface, at `rzn`, the near cell's
-       floor) solves NEARER than `perp`. Painting the face there drew the far deck's edge a metre and a
-       half out, flat, on top of the band you are standing on, which is why the platform's extent - the
-       thing you need in order to know what you can shoot over and where you fall - was not on screen
-       (issue #517, the from-above half of #421).
-       The clip is the row where the near slab's own top surface solves at THIS perpendicular distance,
-       which is monotone in y, so one scalar truncation is exactly the per-face-row depth test and costs
-       one compare per column. It is a no-op for a step UP (`rzn === rz0`, so the row is y1 itself,
-       which `de` already takes) and for every flat level (`MAP.steps` is 0, so no riser column exists),
-       and it cannot fire when the near floor is at or above the eye - that plane never solves below the
-       horizon, and clipping there would eat the soffit #421 is about. Nothing is blocked: a `dq === 1`
-       crossing stays walkable (#100); only the pixels change. */
-    let de = Math.min(BH - 1, Math.floor(y1));
-    let yieldFace = 0;                              // #518: 1 when the near deck owns every row of this face
-    if (riser && rzn < eyeZ) {
-      const yN = horizon + (eyeZ - rzn) * hpx;             // the near slab's top surface at this perp
-      if (yN < de) de = Math.floor(yN);
-      /* THE LIP'S OWN ROW IS NEVER OCCLUDED - IT IS THE LIP. On a step DOWN the slab side's TOP is the
-         near floor (`rzn === rz1`), so `yN` lands on the face's FIRST row `y0` and `floor(yN)` sits a row
-         ABOVE it: without this clamp `ds > de` and the `continue` below abandons the whole face, which
-         takes the drop face out of the frame wherever it is seen from above. That is the same sentence as
-         #517's, reached from the other side: the deck under the player's feet is honest, and the place
-         where it stops is invisible again - the platform's extent is not on screen, the crease and the
-         seam band have no face to sit on, and `view.js bands` prints 0 of 300 lip columns with 0 %
-         contrast (measured at 1268b5c; main 299 of 300 and 78 %).
-         The row the near deck genuinely occludes are those BELOW the lip's row: a ray arriving at one of
-         them hits the plane `rzn` at a distance nearer than `perp`, so it never reaches the slab side at
-         all. The lip's own row is the boundary between the two - the one row the wall pass still answers
-         for, and the row the player reads as the edge. Clamping to `ds` keeps exactly that row and no
-         more, so the phantom drop stays down while the lip stays an object. On a step UP and on flat
-         levels `yN >= de` already, so this clamp runs no arithmetic and those frames stay bit-identical.
-         The row kept is `floor(yN)`, not `ds`. On a step down `ds === ceil(yN)` is the DECK'S OWN first
-         solve row, and the ground pass must own it: `view.js cull`'s band row pins every row from there
-         down to the deck's per-row solve, which is the continuity claim #517 is about (measured: clamping
-         to `ds` instead puts perp back in that row and prints `CULL 8 FAILURES` on the two rows the ruling
-         re-keyed). `floor(yN)` is the one row that STRADDLES the boundary - the pixel the lip actually
-         lands in - and it sits one row above every row the deck answers for, so the deck stays
-         continuous right up to the lip and the lip stays an object the wall pass answers for. */
-      /* The kept row is CLAMPED INTO THE SCREEN. `yN` is a plane solve, not a row: when the lip itself
-         is above the top of the frame - the case `horizon` reaches by poking `P.z` down a metre, and in
-         play a crouch under a slab - `floor(yN)` is NEGATIVE, and taking `ds` there hands the row loop a
-         negative first row. The loop indexes `zbuf`/`px` at that row and its `y <= accY` test is true for
-         every column of a level that authors no accent (`accY` stays -1), so the first such column throws
-         inside `castWalls` (`view.js horizon` crashed at `accC[0]`, exit 1, at this branch's head; main
-         cannot reach it because `ds` was `max(0, ceil(y0))` and nothing else ever moved it). A negative
-         kept row means the lip is off the top of the frame, so EVERY visible row is under it and owned by
-         the near deck: there is no face to draw and no row to keep, which is what `continue` says. */
-      /* #518 THE STRADDLE ROW GOES TO THE GROUND PASS. The clause this replaces kept exactly one row -
-         `floor(yN)`, the pixel the lip lands in - and painted it with `perp`, the boundary's own
-         perpendicular distance. That row is one row ABOVE the deck's first solve row, i.e. in the band
-         where the eye's plane answers BEYOND the deck's own edge, so no ray arriving there is in the
-         face at all: the honest surface is whatever the far side carries, at its own distance. Keeping
-         it cost two things - the picture drew a face where no ray reaches, and `zbuf` claimed `perp`,
-         a distance nearer than the arrival, which is what `drawBillboard`'s cull reads
-         (`zbuf[yoff + x] < tY`), so a body standing just past the lip lost that one scan-line. Both
-         are the depth half of #518, not a look argument.
-         The row is therefore yielded: an EMPTY span (`de = ds - 1`), so every `for (y = ds; y <= de)`
-         loop in this body - the face rows, the transient splats, the authored fixtures, the ceiling
-         corner's mean - runs zero times and writes nothing, and the ground pass's own answer for the
-         row stands. What must NOT go with it is the seam: the eye-side crease is the mark that makes
-         the edge an object, it is anchored on the DECK's own row (`yA = yc(rze)`) and runs DOWN into
-         rows the deck honestly owns, so it is independent of whether the wall pass drew a face. Hence
-         `yieldFace` on the span guard: the only reason `ds > de` used to abandon the column. On a step
-         UP and on flat levels `yN >= de` already, so neither the yield nor the flag runs any
-         arithmetic there and those frames stay bit-identical. */
-      if (de < ds && stepFace && rz1 - rz0 <= ZQ + 1e-9) { ds = Math.min(ds, Math.floor(yN)); de = ds - 1; yieldFace = 1; }
-      else if (de < ds) { const yK = Math.floor(yN); if (yK < 0) continue; ds = Math.min(ds, yK); de = ds; }
-    }
-    /* #518 THE ROW IS YIELDED, THE MARK IS NOT. An empty span used to fall through the guard below and
-       abandon the column with it, and that took the seam with it: the eye-side crease is anchored on the
-       DECK's own row (`yc(rze)`) and runs into rows the deck honestly owns, so it never needed the face
-       pixel - it was only ever reaching it through this branch. Called here, BEFORE the guard, and with
-       main's three terms and arguments unchanged, the crease keeps painting and no pixel of the yielded
-       row is written: no colour, and no `zbuf = perp`, which is the depth half of the issue. */
-    if (yieldFace) {
+      /* The face's real span: it starts being material at the higher of the two floors and runs
+         up to the ceiling plane of the air side, (ox,oy). Flat, z0 = 0 and z1 = 1, which makes
+         y0/y1 the two expressions this function used to contain, bit for bit. */
+      const ox = mx + nx, oy = my + ny;
+      const fd = side === 0 ? (nx > 0 ? 0 : 2) : (ny > 0 ? 1 : 3);
+      /* z1 is the ground pass's plane, read from the same derived array: two sources of truth made a
+         forgotten linkBoundaries() a seam between the passes instead of a failure. Both axes tested
+         before the index, and out of map keeps ceilAt's own answer for the void, which is 1. */
+      const z0 = riser ? rz0 : faceZ0(ox, oy, fd), z1 = riser ? rz1 : (ox >= 0 && oy >= 0 && ox < N && oy < N ? cp[oy * N + ox] : 1), dz = z1 - z0;
+      let y0 = horizon + (eyeZ - z1) * hpx, y1 = horizon + (eyeZ - z0) * hpx;
+      let ds = Math.max(0, Math.ceil(y0));
+      /* #517: A SLAB SIDE YIELDS TO THE TOP SURFACE OF ITS OWN SLAB. A wall face is always nearer than
+         the ground behind it, which is why this loop carried no nearer-ground test at all - and for a
+         wall that premise holds. A riser seen from ABOVE is the one case where it does not: the face's
+         span runs from the higher floor DOWN to the lower one, so every row below the lip's own row is
+         also a row where the floor the eye stands on (the slab's top surface, at `rzn`, the near cell's
+         floor) solves NEARER than `perp`. Painting the face there drew the far deck's edge a metre and a
+         half out, flat, on top of the band you are standing on, which is why the platform's extent - the
+         thing you need in order to know what you can shoot over and where you fall - was not on screen
+         (issue #517, the from-above half of #421).
+         The clip is the row where the near slab's own top surface solves at THIS perpendicular distance,
+         which is monotone in y, so one scalar truncation is exactly the per-face-row depth test and costs
+         one compare per column. It is a no-op for a step UP (`rzn === rz0`, so the row is y1 itself,
+         which `de` already takes) and for every flat level (`MAP.steps` is 0, so no riser column exists),
+         and it cannot fire when the near floor is at or above the eye - that plane never solves below the
+         horizon, and clipping there would eat the soffit #421 is about. Nothing is blocked: a `dq === 1`
+         crossing stays walkable (#100); only the pixels change. */
+      let de = Math.min(BH - 1, Math.floor(y1));
+      let yieldFace = 0;                              // #518: 1 when the near deck owns every row of this face
+      if (riser && rzn < eyeZ) {
+        const yN = horizon + (eyeZ - rzn) * hpx;             // the near slab's top surface at this perp
+        if (yN < de) de = Math.floor(yN);
+        /* THE LIP'S OWN ROW IS NEVER OCCLUDED - IT IS THE LIP. On a step DOWN the slab side's TOP is the
+           near floor (`rzn === rz1`), so `yN` lands on the face's FIRST row `y0` and `floor(yN)` sits a row
+           ABOVE it: without this clamp `ds > de` and the `continue` below abandons the whole face, which
+           takes the drop face out of the frame wherever it is seen from above. That is the same sentence as
+           #517's, reached from the other side: the deck under the player's feet is honest, and the place
+           where it stops is invisible again - the platform's extent is not on screen, the crease and the
+           seam band have no face to sit on, and `view.js bands` prints 0 of 300 lip columns with 0 %
+           contrast (measured at 1268b5c; main 299 of 300 and 78 %).
+           The row the near deck genuinely occludes are those BELOW the lip's row: a ray arriving at one of
+           them hits the plane `rzn` at a distance nearer than `perp`, so it never reaches the slab side at
+           all. The lip's own row is the boundary between the two - the one row the wall pass still answers
+           for, and the row the player reads as the edge. Clamping to `ds` keeps exactly that row and no
+           more, so the phantom drop stays down while the lip stays an object. On a step UP and on flat
+           levels `yN >= de` already, so this clamp runs no arithmetic and those frames stay bit-identical.
+           The row kept is `floor(yN)`, not `ds`. On a step down `ds === ceil(yN)` is the DECK'S OWN first
+           solve row, and the ground pass must own it: `view.js cull`'s band row pins every row from there
+           down to the deck's per-row solve, which is the continuity claim #517 is about (measured: clamping
+           to `ds` instead puts perp back in that row and prints `CULL 8 FAILURES` on the two rows the ruling
+           re-keyed). `floor(yN)` is the one row that STRADDLES the boundary - the pixel the lip actually
+           lands in - and it sits one row above every row the deck answers for, so the deck stays
+           continuous right up to the lip and the lip stays an object the wall pass answers for. */
+        /* The kept row is CLAMPED INTO THE SCREEN. `yN` is a plane solve, not a row: when the lip itself
+           is above the top of the frame - the case `horizon` reaches by poking `P.z` down a metre, and in
+           play a crouch under a slab - `floor(yN)` is NEGATIVE, and taking `ds` there hands the row loop a
+           negative first row. The loop indexes `zbuf`/`px` at that row and its `y <= accY` test is true for
+           every column of a level that authors no accent (`accY` stays -1), so the first such column throws
+           inside `castWalls` (`view.js horizon` crashed at `accC[0]`, exit 1, at this branch's head; main
+           cannot reach it because `ds` was `max(0, ceil(y0))` and nothing else ever moved it). A negative
+           kept row means the lip is off the top of the frame, so EVERY visible row is under it and owned by
+           the near deck: there is no face to draw and no row to keep, which is what `continue` says. */
+        /* #518 THE STRADDLE ROW GOES TO THE GROUND PASS. The clause this replaces kept exactly one row -
+           `floor(yN)`, the pixel the lip lands in - and painted it with `perp`, the boundary's own
+           perpendicular distance. That row is one row ABOVE the deck's first solve row, i.e. in the band
+           where the eye's plane answers BEYOND the deck's own edge, so no ray arriving there is in the
+           face at all: the honest surface is whatever the far side carries, at its own distance. Keeping
+           it cost two things - the picture drew a face where no ray reaches, and `zbuf` claimed `perp`,
+           a distance nearer than the arrival, which is what `drawBillboard`'s cull reads
+           (`zbuf[yoff + x] < tY`), so a body standing just past the lip lost that one scan-line. Both
+           are the depth half of #518, not a look argument.
+           The row is therefore yielded: an EMPTY span (`de = ds - 1`), so every `for (y = ds; y <= de)`
+           loop in this body - the face rows, the transient splats, the authored fixtures, the ceiling
+           corner's mean - runs zero times and writes nothing, and the ground pass's own answer for the
+           row stands. What must NOT go with it is the seam: the eye-side crease is the mark that makes
+           the edge an object, it is anchored on the DECK's own row (`yA = yc(rze)`) and runs DOWN into
+           rows the deck honestly owns, so it is independent of whether the wall pass drew a face. Hence
+           `yieldFace` on the span guard: the only reason `ds > de` used to abandon the column. On a step
+           UP and on flat levels `yN >= de` already, so neither the yield nor the flag runs any
+           arithmetic there and those frames stay bit-identical. */
+        if (de < ds && stepFace && rz1 - rz0 <= ZQ + 1e-9) { ds = Math.min(ds, Math.floor(yN)); de = ds - 1; yieldFace = 1; }
+        else if (de < ds) { const yK = Math.floor(yN); if (yK < 0) continue; ds = Math.min(ds, yK); de = ds; }
+      }
+      /* #518 THE ROW IS YIELDED, THE MARK IS NOT. An empty span used to fall through the guard below and
+         abandon the column with it, and that took the seam with it: the eye-side crease is anchored on the
+         DECK's own row (`yc(rze)`) and runs into rows the deck honestly owns, so it never needed the face
+         pixel - it was only ever reaching it through this branch. Called here, BEFORE the guard, and with
+         main's three terms and arguments unchanged, the crease keeps painting and no pixel of the yielded
+         row is written: no colour, and no `zbuf = perp`, which is the depth half of the issue. */
+      if (yieldFace) {
+        if (riser && SEAM) {
+          const seamLit = li - AMB;
+          seamCrease(x, perp, rze, rzf, -SEAMD, rzf > rze ? -1 : 1, seamLit);
+          if (rze !== rz0) seamCrease(x, perp, rz0, rz1, -SEAMD, -1, seamLit, de);
+          seamCrease(x, perp, rz1, rz0, SEAMU, -1, seamLit);
+        }
+        continue;
+      }
+      if (!(dz > 0) || ds > de) continue;                    // no face here to draw
+      const tstep = mh * dz / (y1 - y0);                     // tiles per world unit, not per face
+      /* #466: where the painted lip ends on this column. rz1 is the TOP of the slab side (the higher of
+         the two floors), so the band is the strip [rz1 - accH, rz1] and its lower edge is the screen row
+         y0 + accH * hpx. `accInv` is the reciprocal of the feather's height in rows, so the top of the
+         band saturates and only the bottom `RISER_ACC_F` of it ramps - a paint line, not a gradient. */
+      if (riser && accC) {
+        /* #669 REWORK: THE CREASE OWNS THE ROWS IT PAINTS. The accent's lip band runs DOWN from `y0`,
+           the top of the slab side, for RISER_ACC_H metres - and on a step DOWN that top IS the lip the
+           eye stands at (`rze === rz1`), which is also the anchor row of the eye-side seam crease, whose
+           band runs down from the same row for min(half the projected riser, SEAMW metres). The two terms
+           were therefore painting the SAME rows: the accent lerped the albedo toward the level's accent
+           colour and the crease then multiplied the result, so the crease's own darkening was priced off
+           a base the accent had raised. Measured on ABATOIR's walk-lip frame, `view.js bands`' band row
+           fell 49 % -> 41 % (13.5 px-lum off a floor at 33 against 14.0 off 29) with the accent authored
+           and 49 % with the lip band disabled - the wall-foot kerb is not involved (identical numbers
+           with it disabled). A lip the player is standing at is read from the crease, not from the paint,
+           so the crease wins the rows it paints: the band is armed only where it starts BELOW this
+           column's crease band. On a step UP that is `y0` unchanged (`dir < 0`, the band runs up from the
+           FAR floor's row, and at these spans the two do not meet), so every up-lip frame - including
+           every `face` lip frame on all four levels - is bit-identical, and on a step DOWN #517 has
+           already given every row under the lip's own row to the deck, so there is no accent pixel to
+           lose: with RISER_ACC_H 0.12 against a crease band of at least 0.125 m (half of one quantum),
+           `ay > yb` is false for every authored span and the band simply does not arm. The accent's
+           legibility at a step down is then the crease's own, plus the wall-foot kerb on the faces that
+           do present rows, which is the mark #669 is about. */
+        const ay = y0 + accH * hpx;
+        const yb = rzf > rze ? y0 : y0 + Math.min((y1 - y0) * 0.5, hpx * SEAMW);
+        if (ay > ds && ay > yb) { accY = ay; accInv = 1 / (accH * hpx * RISER_ACC_F); }
+      } else if (accC) {
+        /* #669: the kerb. y1 is the row of the face's own FLOOR (z0), so the band is the strip
+           [y1 - accB*hpx, y1] and its TOP edge - the paint line - is the row `kerbY`; the weight ramps to
+           1 going DOWN, so the paint is solid against the deck and fades up the wall. Clamped to the face
+           by `de`, which is already the screen-clamped last row. */
+        const ky = y1 - RISER_ACC_B * hpx;
+        if (ky < de) { kerbOn = 1; kerbY = ky; kerbInv = 1 / (RISER_ACC_B * hpx * RISER_ACC_F); }
+      }
+      /* #421: where the edge nosing ends on this column, in the same shape as `accY` above - a row to
+         compare against, -1 for "no band", and the loop pays one compare per pixel either way. The band is
+         the strip [rz1 - LIP_H, rz1] i.e. rows [y0, y0 + LIP_H*hpx]; `rz1` is the TOP of the slab side and on
+         a step UP that is the FAR floor, the deck's own level, so the band sits under the lip you could walk
+         off and not on the crease #517 gave the near deck. Clamped to `de`, so a face whose visible sliver is
+         shorter than the band is all nosing, which is what a near edge seen from under the slab is. */
+      let lipY = -1, lipInv = 0;
+      if (SLABLIP && riser && !stepFace && rz1 > rzn + 1e-9) {
+        const ly = y0 + LIP_H * hpx;
+        if (ly > ds) { lipY = ly < de ? ly : de; lipInv = 1 / (LIP_H * hpx * LIP_F); }
+      }
+      let ty = (ds - y0) * tstep, idx = ds * BW + x;
+      if (ty >= mh) ty %= mh;                                // v wraps every world unit
+      /* #178 contact shadow on a face. A face has ONE world x,y for its whole span, so the planar part of
+         the term is per COLUMN (two subs, two muls, one indexed read) and only the altitude term is per
+         pixel; shA/shB bound the body's own span from its feet up. Darkens the surface's LIGHT, not the
+         fog, and writes no zbuf. */
+      let shK = 0, shA = 0, shB = 1;
+      if (shm) {
+        const fhx = camX + rdx * perp, fhy = camY + rdy * perp;
+        const fcx = fhx | 0, fcy = fhy | 0;
+        if (fcx >= 0 && fcy >= 0 && fcx < N && fcy < N) {
+          for (let k = shm[fcy * N + fcx]; k >= 0; k = SH_NEXT[k]) {
+            const dx = fhx - SH_X[k], dy = fhy - SH_Y[k];
+            const t = 1 - (dx * dx + dy * dy) * SH_I[k];
+            if (t <= 0) continue;
+            const fx = SH_FX[k];
+            const tt = (fx === 2 ? t * t : Math.pow(t, fx)) * SH_FW[k];
+            if (tt > shK) { shK = tt; shA = SH_Z[k]; shB = SH_Z[k] + SH_H[k]; }
+          }
+        }
+      }
+      const shS = shK > 0 ? 1 / Math.max(0.2, shB - shA) : 0, shZs = perp / BH;
+      for (let y = ds; y <= de; y++, idx += BW) {
+        zbuf[idx] = perp;
+        if (SURF) SURF[idx] = 0;            // #546: this pixel is a FACE now, not the ground surface
+        const vy = ty; ty += tstep; if (ty >= mh) ty -= mh;
+        const yv = vy | 0, fy = vy - yv, rfy = 1 - fy;
+        const rw0 = yv * mw, rw1 = ((yv + 1) & maskY) * mw;
+        const t0 = td[rw0 + ux], t1 = td[rw0 + ux1], t2 = td[rw1 + ux], t3 = td[rw1 + ux1];
+        const w0 = rfx * rfy, w1 = fx * rfy, w2 = rfx * fy, w3 = fx * fy;
+        let cr = (t0 & 255) * w0 + (t1 & 255) * w1 + (t2 & 255) * w2 + (t3 & 255) * w3;
+        let cg = (t0 >> 8 & 255) * w0 + (t1 >> 8 & 255) * w1 + (t2 >> 8 & 255) * w2 + (t3 >> 8 & 255) * w3;
+        let cb = (t0 >> 16 & 255) * w0 + (t1 >> 16 & 255) * w1 + (t2 >> 16 & 255) * w2 + (t3 >> 16 & 255) * w3;
+        // #20: four tests, not a blend of the four. The alpha byte is a flag here (253 = this texel emits
+        // light, 255 = ordinary opaque), so blending the corners turns a pixel that merely TOUCHES an
+        // emissive texel into 254.x and the branch is missed at fractional coordinates in mip 0 - and now
+        // that buildMips carries the flag, a blend is the only way a lit texel can still be missed.
+        if ((t0 >>> 24) === 253 || (t1 >>> 24) === 253 || (t2 >>> 24) === 253 || (t3 >>> 24) === 253) {
+          px[idx] = 0xFF000000 | clampi(cb * inv + fB) << 16 | clampi(cg * inv + fG) << 8 | clampi(cr * inv + fR);
+          continue;
+        }
+        if (m2) {                                                 // crossfade into the next mip
+          const v2 = vy * s2, y2 = v2 | 0, gy2 = v2 - y2, cy2 = 1 - gy2;
+          const q0 = y2 * mw2, q1 = ((y2 + 1) & maskY2) * mw2;
+          const e0 = td2[q0 + ux2], e1 = td2[q0 + ux2b], e2 = td2[q1 + ux2], e3 = td2[q1 + ux2b];
+          const g0 = rfx2 * cy2, g1 = fx2 * cy2, g2 = rfx2 * gy2, g3 = fx2 * gy2;
+          cr += (((e0 & 255) * g0 + (e1 & 255) * g1 + (e2 & 255) * g2 + (e3 & 255) * g3) - cr) * wMix;
+          cg += (((e0 >> 8 & 255) * g0 + (e1 >> 8 & 255) * g1 + (e2 >> 8 & 255) * g2 + (e3 >> 8 & 255) * g3) - cg) * wMix;
+          cb += (((e0 >> 16 & 255) * g0 + (e1 >> 16 & 255) * g1 + (e2 >> 16 & 255) * g2 + (e3 >> 16 & 255) * g3) - cb) * wMix;
+        }
+        /* #466: the painted lip. An ALBEDO term on the slab's own side - it goes through this face's
+           lr/lg/lb, its contact shadow and its fog like the concrete under it, and it writes no light and
+           no zbuf. Placed after the mip crossfade so the paint is on the albedo the pixel ends up with
+           and before the grit term so the relief still reads across the band. */
+        /* #669 TAKE FOUR: THE PAINT IS A STEP IN VALUE, NOT ONLY IN HUE. The two bands above lerped the
+           face's albedo TOWARD the level's accent and stopped there, and the accents that were solved for
+           hue at held luma (js/20_level.js: ARCHIVE `accent` 156 luma against BRICK's ~122) arrived at the
+           pixel BRIGHTER than the surface they are painted on. Measured at ARCHIVE cam1 with the shipped
+           A/B (accent vs accent-null, fb row 192, the eye line of the long room): face 57.6, mark 69.6 -
+           the mark is +12 of luma on a wall that is already the brightest thing in that band of the frame,
+           and 12 is exactly where the run census shatters the line (37 runs, longest 13 framebuffer px, of
+           a 229-px run at the >0.5 bar). The flat deck stripe does not have that problem: `ACC_DECK_L`
+           places its mark at 0.80 x the deck texel's own albedo luma and lets the blend keep any darker
+           value the authored colour brings. The same one-way-down rule now runs on both vertical bands:
+           cap the painted albedo's luma at `ACC_DECK_L` x the FACE's own albedo luma, floored at
+           `ACC_DECK_MIN` so a texel the light has left is not painted to black. One-way DOWN is the whole
+           decision - it cannot raise a seeded median or a `surface` ORDER row, and a level whose accent
+           already arrives under the cap is not moved by it at all, which is why the accents are re-solved
+           to sit under the surface they land on rather than beside it. RING's amber is the case the cap
+           was written for: it arrives at concrete's own luma, so the cap takes 20 % of it and the lip
+           keeps its hue at a lower value. */
+        let al0 = 0;
+        if (y <= accY) {
+          let aw = (accY - y) * accInv;
+          if (aw > 1) aw = 1;
+          al0 = cr * 0.2126 + cg * 0.7152 + cb * 0.0722;
+          cr += (accC[0] - cr) * aw; cg += (accC[1] - cg) * aw; cb += (accC[2] - cb) * aw;
+        } else if (kerbOn && y >= kerbY) {                 // #669: the wall-foot kerb, ramping DOWN
+          let aw = (y - kerbY) * kerbInv;
+          if (aw > 1) aw = 1;
+          al0 = cr * 0.2126 + cg * 0.7152 + cb * 0.0722;
+          cr += (accC[0] - cr) * aw; cg += (accC[1] - cg) * aw; cb += (accC[2] - cb) * aw;
+        }
+        if (al0 > 0) {                                      // #669: the value step, both vertical bands
+          const al1 = cr * 0.2126 + cg * 0.7152 + cb * 0.0722;
+          const alt = al0 * ACC_DECK_L > ACC_DECK_MIN ? al0 * ACC_DECK_L : ACC_DECK_MIN;
+          if (al1 > alt) { const aks = alt / al1; cr *= aks; cg *= aks; cb *= aks; }
+        }
+        let gk = 1;
+        if (grit > 0) {                                          // relief from the screen-space field
+          const h0 = DETAIL[(((y + 1) & 63) << 6) | ((x + 1) & 63)], h1 = DETAIL[((y & 63) << 6) | (x & 63)];   // table is 64x64; &31 used a quarter of it at a 32px period
+          gk = Math.max(0.25, 1 + (h0 - h1) / 255 * 1.3 * grit);
+        }
+        /* the body's contact band on this face: full at the feet, SHADOW_ZF of it at the TOP of the band,
+           nothing above it. The band is as tall as the patch is wide (#18: a contact zone is isotropic in
+           world units, and a band that ran up the body's whole span was a wash over the wall that cost
+           edge dL and bought no grounding) and it falls off quadratically, so the visible part hugs the
+           floor line. */
+        /* #421: the band's OTHER end. The rule above is a clamp at the top of the caster's own span, and
+           this copy had no clamp at the bottom: `vv < 1` is true for every pixel BELOW the feet plane too
+           (vv goes negative and `w` saturates at 1), so a face took the caster's grounding infinitely far
+           DOWN its own span. Flat that is invisible - a wall face starts at the floor the caster stands on,
+           so there is no face pixel below that plane and the two rules agree. A raised deck is the case
+           where they do not: its riser is the side of a slab, and when the slab is lifted two units the
+           part of it under the deck's own floor goes from one unit of face to two, all of it reading as
+           full-strength ink. That is the pixel census `contrast` calls "spread, not aimed" - ink above the
+           horizon row went 565 -> 1666 px when BAND_UP went 4 -> 8 while the ink at the feet did not move -
+           and it is the same rule `shadowFloor` already enforces on a FLOOR with SHADOW_ZT (#18 fifth take),
+           applied to the face copy, which is AGENTS.md's clamp rule: absolute z, clamped into the span the
+           renderer actually draws. Tolerance is SHADOW_ZT itself, so the two copies cannot drift. */
+        let shM = 1;
+        if (shK > 0) {
+          const vz = eyeZ - (y - horizon) * shZs - shA;   // metres above the plane this caster grounds on
+          const vv = vz * shS;
+          if (vv < 1 && vz > -SHADOW_ZT) {
+            const w = 1 - (vv > 0 ? vv : 0);
+            shM = 1 - shK * (SHADOW_ZF + (1 - SHADOW_ZF) * w * w);
+          }
+        }
+        let rr = cr * lr * gk * shM + fR, rg = cg * lg * gk * shM + fG, rb = cb * lb * gk * shM + fB;
+        /* #421: the lit nosing, AFTER the light and before the byte - see LIP_H at the top of this file. The
+           weight is multiplied by `inv` (1 - fog) the way this pass's emissive return multiplies by it, so a
+           distant edge fades with the rest of the frame instead of glowing through fog. `y <= lipY` is the
+           same one-compare-per-pixel shape as the accent's `y <= accY`, and `lipY` is -1 on every face that
+           is not the edge of a storey, including every face of a flat level. */
+        if (y <= lipY) {
+          let lw = (lipY - y) * lipInv;
+          if (lw > 1) lw = 1;
+          lw *= LIP_K * inv;
+          rr += (LIP_R - rr) * lw; rg += (LIP_G - rg) * lw; rb += (LIP_B - rb) * lw;
+        }
+        px[idx] = 0xFF000000 | clampi(rb) << 16 | clampi(rg) << 8 | clampi(rr);
+      }
+      pixFilled += (de - ds + 1);
+
+      /* #369: the ceiling's side of this junction. Rows ABOVE `ds` are the ceiling plane the face
+         ends at, so the band runs up from the edge and touches no face pixel; see CSEAM at :61 for
+         why the fix is local and not a value, and which columns are deliberately skipped.
+
+         #369 take twelve: A SLAB SIDE GETS ONE TOO, and it is a different corner. The `!riser` clause
+         skipped every column whose stop is a riser face - and the side of a raised band IS a riser face,
+         so the one junction that carries the second storey was the one the band refused to draw (the
+         `surface` SEAM row has been known-failing on the ARCHIVE/RING/STACK poses for exactly that
+         reason: the roof runs into a slab side with no edge between them and the frame cannot say where
+         the room ends). Widening and deepening the old band were both measured out on that issue and left
+         those two poses byte-identical, because the geometry the width was solved from is not the geometry
+         of this corner: `z1` on a riser is rz1, the raised band's FLOOR, and the plane the eye is actually
+         looking up into above the lip is that band's own CEILING, `cp` of the cell the ray stopped in.
+         So the band is solved from the two planes that meet at the corner - the ceiling above the raised
+         floor for its width, the raised floor's own edge for where it stops - instead of from an edge a
+         slab side does not have. It stays ADDITIVE: `!riser` is load-bearing for the step faces of #515,
+         which is why the old clause is kept for the face-side creases below and only this band's gate
+         changes. The same four clauses carry over, with `zc > eyeZ` standing in for `z1 > eyeZ` so a drop
+         face seen from above - whose rows above `ds` are somebody's FLOOR, not a ceiling - still paints
+         nothing, which is the case the `!riser` clause was really protecting. */
+      if (CSEAM && doStep && ds > 0 && z1 > eyeZ && perp > CSEAMW + 0.15 && perp < FARB) {
+        /* The plane the band runs along: for an ordinary wall face that is z1, unchanged, so a flat or a
+           wall column pays the identical arithmetic and keeps its identical bytes. For a slab side it is
+           the ceiling of the air above the lip, read through the same derived array the face span uses.
+           TWO clauses then keep the band on ceilings: `z1 > eyeZ` is rz1 above the eye, so a step DOWN
+           seen from the deck above - whose lip is the eye's own floor and whose rows above `ds` are a
+           FLOOR plane - still paints nothing, and `zc > eyeZ` refuses a cell whose ceiling plane is at or
+           below the eye, where there is no overhead surface to give an edge to. */
+        const zc = riser ? (mx >= 0 && my >= 0 && mx < N && my < N ? cp[my * N + mx] : 1) : z1;
+        if (zc > eyeZ) {
+        /* The band's WIDTH in rows is the ceiling plane's own projection, not a screen constant: a point
+           CSEAMW metres back along the ceiling from the junction lands on row
+           horizon - (zc-eyeZ)*BH/(perp-CSEAMW), so the band is the rows between that and the edge and
+           keeps its METRES at any depth the way #164's lip keeps hers. It thins to a pixel or two on a
+           distant junction where the ceiling plane is compressed against the horizon - which is where a
+           wide band would be a wash and the SEAM row's own window has nothing to compare anyway. */
+        let cbw = Math.round((zc - eyeZ) * BH * CSEAMW / (perp * (perp - CSEAMW))) + 1;
+        if (cbw < 2) cbw = 2; else if (cbw > 20) cbw = 20; else if (cbw > ds) cbw = ds;
+        /* The bound, once per COLUMN - and since #369 take fourteen, over the SPAN the corner is judged on,
+           not one pixel. Take thirteen read ONE face pixel (`ds + cbw`) against the roof's EDGE row and folded
+           the answer into the crease's own ramp, which made the bound true of exactly one row: `ck` eases to 1
+           at the far end of the band, and `cbw` - the band's width in rows - is the projection of CSEAMW metres
+           along the ceiling, so at 9 m it thins to 5 or 6 rows while the junction's corner is read over the
+           EIGHT rows nearest it (`surface`'s SEAM window, and eight rows is what the eye reads as a corner).
+           Rows 7 and 8 of that span paid nothing, which is why the same arithmetic lifted the ABATOIR medians
+           to 30-50 and left THE STACK's spawn pose at +9.4 pose-deep into take thirteen: the bound was
+           bounding a row and the rule is about a band.
+           So the bound is now solved against the mean of the FACE rows the corner meets (the eight down from
+           `ds`, the same span as the ceiling side) and CAPS each roof row in that span at `faceMean - CSEAMA`.
+           Two things keep it an edge rather than a stripe. (1) It is a cap, never a multiply: a row that already
+           sits at or below the line is written by the crease alone, byte for byte as take thirteen left it -
+           every camU pose and most of ABATOIR CORE are in that case and do not move a pixel. (2) The crease's
+           ramp is untouched and stays inside `cbw`; the CAP reaches two rows past the band and stops, so past
+           those the roof keeps its own light and the vault lift of #495 keeps the rest of the ceiling.
+           It cannot brighten, cannot go under the same 0.3 floor, and touches no flat column (`doStep`).
+           Rec.601, the weighting the probes read; one 8-tap face mean per drawn column, no new array. */
+        let tgt = -1;
+        if (CSEAMA > 0) {
+          let fs = 0, fn = 0;
+          for (let y = ds, ye = ds + CSEAMC - 1 <= de ? ds + CSEAMC - 1 : de; y <= ye; y++) {
+            const v = px[y * BW + x];
+            fs += (v >> 16 & 255) * 0.25 + (v >> 8 & 255) * 0.64 + (v & 255) * 0.11; fn++;
+          }
+          if (fn) tgt = fs / fn - CSEAMA;
+        }
+        /* The cap's reach, in rows: the SPAN the corner is judged on, never less. `cbw` is the projection
+           of CSEAMW metres along the ceiling, and on a compressed far junction it thins to two or three rows
+           while `surface`'s SEAM window still reads the eight rows nearest the seam - so rows past `cbw` were
+           paid nothing and the bound was true of a band narrower than the rule. Take fourteen eased the cap
+           out with `(cbw + 2 - k) * 0.5`, which goes NEGATIVE past `cbw + 2`: the term then multiplied the
+           roof UP (measured on this file's own A/B - widening `cn2` alone took RING cam1's gap from 10.6 to
+           7.8 and THE STACK cam0's from 7.1 to 0.4, the opposite direction of a cap). The ease is clamped at
+           both ends now, so a row past the band is eased out and never lifted. Where `cbw` already reaches
+           the corner span the arithmetic is byte-identical to take fourteen. */
+        const cn2 = (cbw > CSEAMC ? cbw : CSEAMC) + 2;
+        for (let k = 0; k < cn2; k++) {
+          const yy = ds - 1 - k; if (yy < 0) break;
+          const i = yy * BW + x, v = px[i], rk = 1 - k / cbw;
+          let ck = 1 - CSEAMD * (rk > 0 ? rk : 0);
+          if (tgt >= 0) {
+            const lw = ((v >> 16 & 255) * 0.25 + (v >> 8 & 255) * 0.64 + (v & 255) * 0.11) * ck;
+            if (lw > tgt) {
+              let m = tgt > 0 ? tgt / lw : 0.3; if (m < 0.3) m = 0.3;
+              const cr = cbw > CSEAMC ? cbw : CSEAMC;                     // the span the cap holds
+              let ew = k < cr ? 1 : (cr + 2 - k) * 0.5;                   // ease the cap out past it
+              if (ew > 1) ew = 1; else if (ew < 0) ew = 0;
+              ck = ck * (1 - (1 - m) * ew);
+            }
+          }
+          px[i] = (0xFF000000 | clampi((v >> 16 & 255) * ck) << 16 | clampi((v >> 8 & 255) * ck) << 8 | clampi((v & 255) * ck)) >>> 0;
+        }
+        }
+      }
+
+      /* bullet holes / scorch on this face */
+      if (perp < dmax && dMask && dMask[my * N + mx]) {
+        const gl = dGrid[my * N + mx];
+        const hx = camX + rdx * perp, hy = camY + rdy * perp;
+        for (let q = 0; q < gl.length; q++) {
+          const dc = gl[q];
+          if (dc.side !== side + 1) continue;
+          const along = side === 0 ? hy - dc.y : hx - dc.x;
+          const u = Math.abs(along) / dc.r;
+          if (u >= 1) continue;
+          const zTop = dc.z + dc.r, zBot = dc.z - dc.r;
+          const syTop = Math.max(ds, Math.ceil(horizon + (eyeZ - zTop) * hpx));
+          const syBot = Math.min(de, Math.floor(horizon + (eyeZ - zBot) * hpx));
+          const dt = dc.tex;
+          for (let y = syTop; y <= syBot; y++) {
+            const zw = eyeZ - ((y - horizon) / hpx);
+            const v = (zw - (dc.z - dc.r)) / (dc.r * 2);
+            const du = (along / (dc.r * 2) + 0.5) * dt.w, dv = v * dt.h;
+            if (du < 0 || dv < 0 || du >= dt.w || dv >= dt.h) continue;
+            const s = dt.data[(dv | 0) * dt.w + (du | 0)], sa = (s >>> 24) / 255 * dc.a * (1 - u * u * 0.5);
+            if (sa < 0.02) continue;
+            const i = y * BW + x, dst = px[i];
+            px[i] = (0xFF000000 |
+              (clampi((s & 255) * sa + (dst & 255) * (1 - sa))) |
+              (clampi((s >> 8 & 255) * sa + (dst >> 8 & 255) * (1 - sa)) << 8) |
+              (clampi((s >> 16 & 255) * sa + (dst >> 16 & 255) * (1 - sa)) << 16)) >>> 0;
+          }
+        }
+      }
+      /* #400: AUTHORED wall decor, painted with THIS FACE'S OWN LIGHT. That modulation is the whole
+         point of the block: the transient blit above composites the splat's RGB straight over the wall,
+         which is right for a bullet hole in soot and wrong for a thing standing in the room - it would
+         sit at full brightness in a corridor no lamp reaches, and the issue's "not a brighter square"
+         criterion is exactly that failure. So a fixture's albedo goes through lr/lg/lb and picks up the
+         same fog add the body rows used, and the fixture is clipped to the face's drawn span [ds, de],
+         so nothing here can paint the slab above a riser or the ceiling band. It is NOT on the transient
+         decal list: those fade (life defaults to 40) and the list evicts at 180 entries. */
+      /* #400 take two: a fixture is a BOX that STANDS OFF the face, not a rectangle on it. Coplanar
+         art has one silhouette term - the face's own foreshortening, cos(theta) - so 30 degrees off the
+         wall normal a door frame is already a third of its front-on width and along a corridor it is
+         nothing at all, which is the review's "still reads as bare once you are not facing it square".
+         A box has a second term: its FLANK, whose width goes as dep*sin(theta) and does not collapse.
+         So the pass solves the ray against the box, not the face. `d` is the distance along the ray from
+         the face plane back to the box's front plane (dep / the ray's normal component), so the front
+         plane's own depth is perp - d and its along-coordinate is `along - ra*d` - that shift IS the
+         parallax, and where it carries the ray past the box's edge the surface the ray meets is the
+         flank at the depth tS where the along-coordinate crosses that edge. Both surfaces are drawn at
+         their OWN depth (BH/t, not BH/perp), which is what makes the thing sit in the room instead of on
+         the wall. The flank keeps the fixture's own material, dimmed, and both go through this face's lr
+         /lg/lb and the same fog add, so a fixture in an unlit corner stays dark: this is geometry and
+         albedo, never a light. Clipping to [ds,de] is unchanged - a box may not paint the slab above a
+         riser or the ceiling band any more than a decal could. */
+      if (mMask && mMask[my * N + mx]) {
+        const ml = mGrid[my * N + mx];
+        const wx = camX + rdx * perp, wy = camY + rdy * perp;
+        const rn = side === 0 ? rdx : rdy;        // this ray's component along the face normal
+        const ra = side === 0 ? rdy : rdx;        // ... and along the face
+        const an = Math.abs(rn);
+        for (let q = 0; q < ml.length; q++) {
+          const mo = ml[q];
+          if (mo.side !== side + 1) continue;
+          const hw = mo.hw, along = side === 0 ? wy - mo.y : wx - mo.x;
+          let u, tM, dim = 1;
+          if (mo.dep > 0 && an > 1e-4) {
+            const d = mo.dep / an, tN = perp - d;
+            if (!(tN > 0.12)) continue;                  // edge-on, or the eye is inside the box
+            const aN = along - ra * d;
+            if (aN > -hw && aN < hw) { u = aN / (hw * 2) + 0.5; tM = tN; }
+            else {
+              if (Math.abs(ra) < 1e-6) continue;          // dead-on: no flank is ever turned this way
+              const left = aN < -hw;
+              const tS = perp + ((left ? -hw : hw) - along) / ra;
+              if (!(tS > tN && tS < perp)) continue;      // both ends past the same edge: no flank
+              u = left ? 0.03 : 0.97;                     // the material AT that edge, not across it
+              tM = tS; dim = 0.62;                        // a face turned 90 deg from the wall
+            }
+          } else {
+            u = along / (hw * 2) + 0.5;
+            if (!(u >= 0 && u < 1)) continue;
+            tM = perp;
+          }
+          const hpxM = BH / tM;
+          const zT = mo.z + mo.hh, zB = mo.z - mo.hh;
+          const syTop = Math.max(ds, Math.ceil(horizon + (eyeZ - zT) * hpxM));
+          const syBot = Math.min(de, Math.floor(horizon + (eyeZ - zB) * hpxM));
+          const dt = mo.tex, mwx = dt.w, ih = 1 / (zT - zB);
+          for (let y = syTop; y <= syBot; y++) {
+            const zv = (eyeZ - ((y - horizon) / hpxM) - zB) * ih;
+            if (!(zv >= 0 && zv < 1)) continue;
+            const s = dt.data[(zv * dt.h | 0) * mwx + (u * mwx | 0)], sa = (s >>> 24) / 255;
+            if (sa < 0.02) continue;
+            const i = y * BW + x, dst = px[i], ia = 1 - sa;
+            px[i] = (0xFF000000 |
+              (clampi(((s >> 16 & 255) * lb * dim + fB) * sa + (dst >> 16 & 255) * ia) << 16) |
+              (clampi(((s >> 8 & 255) * lg * dim + fG) * sa + (dst >> 8 & 255) * ia) << 8) |
+              clampi(((s & 255) * lr * dim + fR) * sa + (dst & 255) * ia)) >>> 0;
+          }
+        }
+      }
+      /* The riser's own creases, then this column's nearer 1-quantum crease - not INSTEAD OF it. As an
+         `else if` the far seam evicted the near one, and on a level that authors volume a riser sits
+         down some column behind almost every stair tread: measured on 60 of 60 walk-lip columns of L0
+         and L2, where the seam moved not one pixel of the lip the player is standing at (issue #181's
+         bands row read `foot drop 0.0 px-lum, band 0.0 px of a 24 px riser` for exactly this). Painted
+         after so the nearer lip wins any row the two bands share. */
       if (riser && SEAM) {
-        const seamLit = li - AMB;
+        /* A drawn slab side has a junction at EACH of its two screen edges, and before #195 only the
+           lower floor's got one: for a step DOWN that is the edge the eye does NOT stand at, so the
+           visible lip carried no edge at all (up lips 57/77/59% contrast, down lips 17/17/29%). The
+           lower floor's crease stays exactly where it was, because for a step UP it is the same row. */
+        const seamLit = li - AMB;                  // the deck's own LIGHT, fog and ambient out (#385)
         seamCrease(x, perp, rze, rzf, -SEAMD, rzf > rze ? -1 : 1, seamLit);
         if (rze !== rz0) seamCrease(x, perp, rz0, rz1, -SEAMD, -1, seamLit, de);
         seamCrease(x, perp, rz1, rz0, SEAMU, -1, seamLit);
       }
-      continue;
-    }
-    if (!(dz > 0) || ds > de) continue;                    // no face here to draw
-    const tstep = mh * dz / (y1 - y0);                     // tiles per world unit, not per face
-    /* #466: where the painted lip ends on this column. rz1 is the TOP of the slab side (the higher of
-       the two floors), so the band is the strip [rz1 - accH, rz1] and its lower edge is the screen row
-       y0 + accH * hpx. `accInv` is the reciprocal of the feather's height in rows, so the top of the
-       band saturates and only the bottom `RISER_ACC_F` of it ramps - a paint line, not a gradient. */
-    if (riser && accC) {
-      /* #669 REWORK: THE CREASE OWNS THE ROWS IT PAINTS. The accent's lip band runs DOWN from `y0`,
-         the top of the slab side, for RISER_ACC_H metres - and on a step DOWN that top IS the lip the
-         eye stands at (`rze === rz1`), which is also the anchor row of the eye-side seam crease, whose
-         band runs down from the same row for min(half the projected riser, SEAMW metres). The two terms
-         were therefore painting the SAME rows: the accent lerped the albedo toward the level's accent
-         colour and the crease then multiplied the result, so the crease's own darkening was priced off
-         a base the accent had raised. Measured on ABATOIR's walk-lip frame, `view.js bands`' band row
-         fell 49 % -> 41 % (13.5 px-lum off a floor at 33 against 14.0 off 29) with the accent authored
-         and 49 % with the lip band disabled - the wall-foot kerb is not involved (identical numbers
-         with it disabled). A lip the player is standing at is read from the crease, not from the paint,
-         so the crease wins the rows it paints: the band is armed only where it starts BELOW this
-         column's crease band. On a step UP that is `y0` unchanged (`dir < 0`, the band runs up from the
-         FAR floor's row, and at these spans the two do not meet), so every up-lip frame - including
-         every `face` lip frame on all four levels - is bit-identical, and on a step DOWN #517 has
-         already given every row under the lip's own row to the deck, so there is no accent pixel to
-         lose: with RISER_ACC_H 0.12 against a crease band of at least 0.125 m (half of one quantum),
-         `ay > yb` is false for every authored span and the band simply does not arm. The accent's
-         legibility at a step down is then the crease's own, plus the wall-foot kerb on the faces that
-         do present rows, which is the mark #669 is about. */
-      const ay = y0 + accH * hpx;
-      const yb = rzf > rze ? y0 : y0 + Math.min((y1 - y0) * 0.5, hpx * SEAMW);
-      if (ay > ds && ay > yb) { accY = ay; accInv = 1 / (accH * hpx * RISER_ACC_F); }
-    } else if (accC) {
-      /* #669: the kerb. y1 is the row of the face's own FLOOR (z0), so the band is the strip
-         [y1 - accB*hpx, y1] and its TOP edge - the paint line - is the row `kerbY`; the weight ramps to
-         1 going DOWN, so the paint is solid against the deck and fades up the wall. Clamped to the face
-         by `de`, which is already the screen-clamped last row. */
-      const ky = y1 - RISER_ACC_B * hpx;
-      if (ky < de) { kerbOn = 1; kerbY = ky; kerbInv = 1 / (RISER_ACC_B * hpx * RISER_ACC_F); }
-    }
-    /* #421: where the edge nosing ends on this column, in the same shape as `accY` above - a row to
-       compare against, -1 for "no band", and the loop pays one compare per pixel either way. The band is
-       the strip [rz1 - LIP_H, rz1] i.e. rows [y0, y0 + LIP_H*hpx]; `rz1` is the TOP of the slab side and on
-       a step UP that is the FAR floor, the deck's own level, so the band sits under the lip you could walk
-       off and not on the crease #517 gave the near deck. Clamped to `de`, so a face whose visible sliver is
-       shorter than the band is all nosing, which is what a near edge seen from under the slab is. */
-    let lipY = -1, lipInv = 0;
-    if (SLABLIP && riser && !stepFace && rz1 > rzn + 1e-9) {
-      const ly = y0 + LIP_H * hpx;
-      if (ly > ds) { lipY = ly < de ? ly : de; lipInv = 1 / (LIP_H * hpx * LIP_F); }
-    }
-    let ty = (ds - y0) * tstep, idx = ds * BW + x;
-    if (ty >= mh) ty %= mh;                                // v wraps every world unit
-    /* #178 contact shadow on a face. A face has ONE world x,y for its whole span, so the planar part of
-       the term is per COLUMN (two subs, two muls, one indexed read) and only the altitude term is per
-       pixel; shA/shB bound the body's own span from its feet up. Darkens the surface's LIGHT, not the
-       fog, and writes no zbuf. */
-    let shK = 0, shA = 0, shB = 1;
-    if (shm) {
-      const fhx = camX + rdx * perp, fhy = camY + rdy * perp;
-      const fcx = fhx | 0, fcy = fhy | 0;
-      if (fcx >= 0 && fcy >= 0 && fcx < N && fcy < N) {
-        for (let k = shm[fcy * N + fcx]; k >= 0; k = SH_NEXT[k]) {
-          const dx = fhx - SH_X[k], dy = fhy - SH_Y[k];
-          const t = 1 - (dx * dx + dy * dy) * SH_I[k];
-          if (t <= 0) continue;
-          const fx = SH_FX[k];
-          const tt = (fx === 2 ? t * t : Math.pow(t, fx)) * SH_FW[k];
-          if (tt > shK) { shK = tt; shA = SH_Z[k]; shB = SH_Z[k] + SH_H[k]; }
-        }
-      }
-    }
-    const shS = shK > 0 ? 1 / Math.max(0.2, shB - shA) : 0, shZs = perp / BH;
-    for (let y = ds; y <= de; y++, idx += BW) {
-      zbuf[idx] = perp;
-      if (SURF) SURF[idx] = 0;            // #546: this pixel is a FACE now, not the ground surface
-      const vy = ty; ty += tstep; if (ty >= mh) ty -= mh;
-      const yv = vy | 0, fy = vy - yv, rfy = 1 - fy;
-      const rw0 = yv * mw, rw1 = ((yv + 1) & maskY) * mw;
-      const t0 = td[rw0 + ux], t1 = td[rw0 + ux1], t2 = td[rw1 + ux], t3 = td[rw1 + ux1];
-      const w0 = rfx * rfy, w1 = fx * rfy, w2 = rfx * fy, w3 = fx * fy;
-      let cr = (t0 & 255) * w0 + (t1 & 255) * w1 + (t2 & 255) * w2 + (t3 & 255) * w3;
-      let cg = (t0 >> 8 & 255) * w0 + (t1 >> 8 & 255) * w1 + (t2 >> 8 & 255) * w2 + (t3 >> 8 & 255) * w3;
-      let cb = (t0 >> 16 & 255) * w0 + (t1 >> 16 & 255) * w1 + (t2 >> 16 & 255) * w2 + (t3 >> 16 & 255) * w3;
-      // #20: four tests, not a blend of the four. The alpha byte is a flag here (253 = this texel emits
-      // light, 255 = ordinary opaque), so blending the corners turns a pixel that merely TOUCHES an
-      // emissive texel into 254.x and the branch is missed at fractional coordinates in mip 0 - and now
-      // that buildMips carries the flag, a blend is the only way a lit texel can still be missed.
-      if ((t0 >>> 24) === 253 || (t1 >>> 24) === 253 || (t2 >>> 24) === 253 || (t3 >>> 24) === 253) {
-        px[idx] = 0xFF000000 | clampi(cb * inv + fB) << 16 | clampi(cg * inv + fG) << 8 | clampi(cr * inv + fR);
-        continue;
-      }
-      if (m2) {                                                 // crossfade into the next mip
-        const v2 = vy * s2, y2 = v2 | 0, gy2 = v2 - y2, cy2 = 1 - gy2;
-        const q0 = y2 * mw2, q1 = ((y2 + 1) & maskY2) * mw2;
-        const e0 = td2[q0 + ux2], e1 = td2[q0 + ux2b], e2 = td2[q1 + ux2], e3 = td2[q1 + ux2b];
-        const g0 = rfx2 * cy2, g1 = fx2 * cy2, g2 = rfx2 * gy2, g3 = fx2 * gy2;
-        cr += (((e0 & 255) * g0 + (e1 & 255) * g1 + (e2 & 255) * g2 + (e3 & 255) * g3) - cr) * wMix;
-        cg += (((e0 >> 8 & 255) * g0 + (e1 >> 8 & 255) * g1 + (e2 >> 8 & 255) * g2 + (e3 >> 8 & 255) * g3) - cg) * wMix;
-        cb += (((e0 >> 16 & 255) * g0 + (e1 >> 16 & 255) * g1 + (e2 >> 16 & 255) * g2 + (e3 >> 16 & 255) * g3) - cb) * wMix;
-      }
-      /* #466: the painted lip. An ALBEDO term on the slab's own side - it goes through this face's
-         lr/lg/lb, its contact shadow and its fog like the concrete under it, and it writes no light and
-         no zbuf. Placed after the mip crossfade so the paint is on the albedo the pixel ends up with
-         and before the grit term so the relief still reads across the band. */
-      /* #669 TAKE FOUR: THE PAINT IS A STEP IN VALUE, NOT ONLY IN HUE. The two bands above lerped the
-         face's albedo TOWARD the level's accent and stopped there, and the accents that were solved for
-         hue at held luma (js/20_level.js: ARCHIVE `accent` 156 luma against BRICK's ~122) arrived at the
-         pixel BRIGHTER than the surface they are painted on. Measured at ARCHIVE cam1 with the shipped
-         A/B (accent vs accent-null, fb row 192, the eye line of the long room): face 57.6, mark 69.6 -
-         the mark is +12 of luma on a wall that is already the brightest thing in that band of the frame,
-         and 12 is exactly where the run census shatters the line (37 runs, longest 13 framebuffer px, of
-         a 229-px run at the >0.5 bar). The flat deck stripe does not have that problem: `ACC_DECK_L`
-         places its mark at 0.80 x the deck texel's own albedo luma and lets the blend keep any darker
-         value the authored colour brings. The same one-way-down rule now runs on both vertical bands:
-         cap the painted albedo's luma at `ACC_DECK_L` x the FACE's own albedo luma, floored at
-         `ACC_DECK_MIN` so a texel the light has left is not painted to black. One-way DOWN is the whole
-         decision - it cannot raise a seeded median or a `surface` ORDER row, and a level whose accent
-         already arrives under the cap is not moved by it at all, which is why the accents are re-solved
-         to sit under the surface they land on rather than beside it. RING's amber is the case the cap
-         was written for: it arrives at concrete's own luma, so the cap takes 20 % of it and the lip
-         keeps its hue at a lower value. */
-      let al0 = 0;
-      if (y <= accY) {
-        let aw = (accY - y) * accInv;
-        if (aw > 1) aw = 1;
-        al0 = cr * 0.2126 + cg * 0.7152 + cb * 0.0722;
-        cr += (accC[0] - cr) * aw; cg += (accC[1] - cg) * aw; cb += (accC[2] - cb) * aw;
-      } else if (kerbOn && y >= kerbY) {                 // #669: the wall-foot kerb, ramping DOWN
-        let aw = (y - kerbY) * kerbInv;
-        if (aw > 1) aw = 1;
-        al0 = cr * 0.2126 + cg * 0.7152 + cb * 0.0722;
-        cr += (accC[0] - cr) * aw; cg += (accC[1] - cg) * aw; cb += (accC[2] - cb) * aw;
-      }
-      if (al0 > 0) {                                      // #669: the value step, both vertical bands
-        const al1 = cr * 0.2126 + cg * 0.7152 + cb * 0.0722;
-        const alt = al0 * ACC_DECK_L > ACC_DECK_MIN ? al0 * ACC_DECK_L : ACC_DECK_MIN;
-        if (al1 > alt) { const aks = alt / al1; cr *= aks; cg *= aks; cb *= aks; }
-      }
-      let gk = 1;
-      if (grit > 0) {                                          // relief from the screen-space field
-        const h0 = DETAIL[(((y + 1) & 63) << 6) | ((x + 1) & 63)], h1 = DETAIL[((y & 63) << 6) | (x & 63)];   // table is 64x64; &31 used a quarter of it at a 32px period
-        gk = Math.max(0.25, 1 + (h0 - h1) / 255 * 1.3 * grit);
-      }
-      /* the body's contact band on this face: full at the feet, SHADOW_ZF of it at the TOP of the band,
-         nothing above it. The band is as tall as the patch is wide (#18: a contact zone is isotropic in
-         world units, and a band that ran up the body's whole span was a wash over the wall that cost
-         edge dL and bought no grounding) and it falls off quadratically, so the visible part hugs the
-         floor line. */
-      /* #421: the band's OTHER end. The rule above is a clamp at the top of the caster's own span, and
-         this copy had no clamp at the bottom: `vv < 1` is true for every pixel BELOW the feet plane too
-         (vv goes negative and `w` saturates at 1), so a face took the caster's grounding infinitely far
-         DOWN its own span. Flat that is invisible - a wall face starts at the floor the caster stands on,
-         so there is no face pixel below that plane and the two rules agree. A raised deck is the case
-         where they do not: its riser is the side of a slab, and when the slab is lifted two units the
-         part of it under the deck's own floor goes from one unit of face to two, all of it reading as
-         full-strength ink. That is the pixel census `contrast` calls "spread, not aimed" - ink above the
-         horizon row went 565 -> 1666 px when BAND_UP went 4 -> 8 while the ink at the feet did not move -
-         and it is the same rule `shadowFloor` already enforces on a FLOOR with SHADOW_ZT (#18 fifth take),
-         applied to the face copy, which is AGENTS.md's clamp rule: absolute z, clamped into the span the
-         renderer actually draws. Tolerance is SHADOW_ZT itself, so the two copies cannot drift. */
-      let shM = 1;
-      if (shK > 0) {
-        const vz = eyeZ - (y - horizon) * shZs - shA;   // metres above the plane this caster grounds on
-        const vv = vz * shS;
-        if (vv < 1 && vz > -SHADOW_ZT) {
-          const w = 1 - (vv > 0 ? vv : 0);
-          shM = 1 - shK * (SHADOW_ZF + (1 - SHADOW_ZF) * w * w);
-        }
-      }
-      let rr = cr * lr * gk * shM + fR, rg = cg * lg * gk * shM + fG, rb = cb * lb * gk * shM + fB;
-      /* #421: the lit nosing, AFTER the light and before the byte - see LIP_H at the top of this file. The
-         weight is multiplied by `inv` (1 - fog) the way this pass's emissive return multiplies by it, so a
-         distant edge fades with the rest of the frame instead of glowing through fog. `y <= lipY` is the
-         same one-compare-per-pixel shape as the accent's `y <= accY`, and `lipY` is -1 on every face that
-         is not the edge of a storey, including every face of a flat level. */
-      if (y <= lipY) {
-        let lw = (lipY - y) * lipInv;
-        if (lw > 1) lw = 1;
-        lw *= LIP_K * inv;
-        rr += (LIP_R - rr) * lw; rg += (LIP_G - rg) * lw; rb += (LIP_B - rb) * lw;
-      }
-      px[idx] = 0xFF000000 | clampi(rb) << 16 | clampi(rg) << 8 | clampi(rr);
-    }
-    pixFilled += (de - ds + 1);
-
-    /* #369: the ceiling's side of this junction. Rows ABOVE `ds` are the ceiling plane the face
-       ends at, so the band runs up from the edge and touches no face pixel; see CSEAM at :61 for
-       why the fix is local and not a value, and which columns are deliberately skipped.
-
-       #369 take twelve: A SLAB SIDE GETS ONE TOO, and it is a different corner. The `!riser` clause
-       skipped every column whose stop is a riser face - and the side of a raised band IS a riser face,
-       so the one junction that carries the second storey was the one the band refused to draw (the
-       `surface` SEAM row has been known-failing on the ARCHIVE/RING/STACK poses for exactly that
-       reason: the roof runs into a slab side with no edge between them and the frame cannot say where
-       the room ends). Widening and deepening the old band were both measured out on that issue and left
-       those two poses byte-identical, because the geometry the width was solved from is not the geometry
-       of this corner: `z1` on a riser is rz1, the raised band's FLOOR, and the plane the eye is actually
-       looking up into above the lip is that band's own CEILING, `cp` of the cell the ray stopped in.
-       So the band is solved from the two planes that meet at the corner - the ceiling above the raised
-       floor for its width, the raised floor's own edge for where it stops - instead of from an edge a
-       slab side does not have. It stays ADDITIVE: `!riser` is load-bearing for the step faces of #515,
-       which is why the old clause is kept for the face-side creases below and only this band's gate
-       changes. The same four clauses carry over, with `zc > eyeZ` standing in for `z1 > eyeZ` so a drop
-       face seen from above - whose rows above `ds` are somebody's FLOOR, not a ceiling - still paints
-       nothing, which is the case the `!riser` clause was really protecting. */
-    if (CSEAM && doStep && ds > 0 && z1 > eyeZ && perp > CSEAMW + 0.15 && perp < FARB) {
-      /* The plane the band runs along: for an ordinary wall face that is z1, unchanged, so a flat or a
-         wall column pays the identical arithmetic and keeps its identical bytes. For a slab side it is
-         the ceiling of the air above the lip, read through the same derived array the face span uses.
-         TWO clauses then keep the band on ceilings: `z1 > eyeZ` is rz1 above the eye, so a step DOWN
-         seen from the deck above - whose lip is the eye's own floor and whose rows above `ds` are a
-         FLOOR plane - still paints nothing, and `zc > eyeZ` refuses a cell whose ceiling plane is at or
-         below the eye, where there is no overhead surface to give an edge to. */
-      const zc = riser ? (mx >= 0 && my >= 0 && mx < N && my < N ? cp[my * N + mx] : 1) : z1;
-      if (zc > eyeZ) {
-      /* The band's WIDTH in rows is the ceiling plane's own projection, not a screen constant: a point
-         CSEAMW metres back along the ceiling from the junction lands on row
-         horizon - (zc-eyeZ)*BH/(perp-CSEAMW), so the band is the rows between that and the edge and
-         keeps its METRES at any depth the way #164's lip keeps hers. It thins to a pixel or two on a
-         distant junction where the ceiling plane is compressed against the horizon - which is where a
-         wide band would be a wash and the SEAM row's own window has nothing to compare anyway. */
-      let cbw = Math.round((zc - eyeZ) * BH * CSEAMW / (perp * (perp - CSEAMW))) + 1;
-      if (cbw < 2) cbw = 2; else if (cbw > 20) cbw = 20; else if (cbw > ds) cbw = ds;
-      /* The bound, once per COLUMN - and since #369 take fourteen, over the SPAN the corner is judged on,
-         not one pixel. Take thirteen read ONE face pixel (`ds + cbw`) against the roof's EDGE row and folded
-         the answer into the crease's own ramp, which made the bound true of exactly one row: `ck` eases to 1
-         at the far end of the band, and `cbw` - the band's width in rows - is the projection of CSEAMW metres
-         along the ceiling, so at 9 m it thins to 5 or 6 rows while the junction's corner is read over the
-         EIGHT rows nearest it (`surface`'s SEAM window, and eight rows is what the eye reads as a corner).
-         Rows 7 and 8 of that span paid nothing, which is why the same arithmetic lifted the ABATOIR medians
-         to 30-50 and left THE STACK's spawn pose at +9.4 pose-deep into take thirteen: the bound was
-         bounding a row and the rule is about a band.
-         So the bound is now solved against the mean of the FACE rows the corner meets (the eight down from
-         `ds`, the same span as the ceiling side) and CAPS each roof row in that span at `faceMean - CSEAMA`.
-         Two things keep it an edge rather than a stripe. (1) It is a cap, never a multiply: a row that already
-         sits at or below the line is written by the crease alone, byte for byte as take thirteen left it -
-         every camU pose and most of ABATOIR CORE are in that case and do not move a pixel. (2) The crease's
-         ramp is untouched and stays inside `cbw`; the CAP reaches two rows past the band and stops, so past
-         those the roof keeps its own light and the vault lift of #495 keeps the rest of the ceiling.
-         It cannot brighten, cannot go under the same 0.3 floor, and touches no flat column (`doStep`).
-         Rec.601, the weighting the probes read; one 8-tap face mean per drawn column, no new array. */
-      let tgt = -1;
-      if (CSEAMA > 0) {
-        let fs = 0, fn = 0;
-        for (let y = ds, ye = ds + CSEAMC - 1 <= de ? ds + CSEAMC - 1 : de; y <= ye; y++) {
-          const v = px[y * BW + x];
-          fs += (v >> 16 & 255) * 0.25 + (v >> 8 & 255) * 0.64 + (v & 255) * 0.11; fn++;
-        }
-        if (fn) tgt = fs / fn - CSEAMA;
-      }
-      /* The cap's reach, in rows: the SPAN the corner is judged on, never less. `cbw` is the projection
-         of CSEAMW metres along the ceiling, and on a compressed far junction it thins to two or three rows
-         while `surface`'s SEAM window still reads the eight rows nearest the seam - so rows past `cbw` were
-         paid nothing and the bound was true of a band narrower than the rule. Take fourteen eased the cap
-         out with `(cbw + 2 - k) * 0.5`, which goes NEGATIVE past `cbw + 2`: the term then multiplied the
-         roof UP (measured on this file's own A/B - widening `cn2` alone took RING cam1's gap from 10.6 to
-         7.8 and THE STACK cam0's from 7.1 to 0.4, the opposite direction of a cap). The ease is clamped at
-         both ends now, so a row past the band is eased out and never lifted. Where `cbw` already reaches
-         the corner span the arithmetic is byte-identical to take fourteen. */
-      const cn2 = (cbw > CSEAMC ? cbw : CSEAMC) + 2;
-      for (let k = 0; k < cn2; k++) {
-        const yy = ds - 1 - k; if (yy < 0) break;
-        const i = yy * BW + x, v = px[i], rk = 1 - k / cbw;
-        let ck = 1 - CSEAMD * (rk > 0 ? rk : 0);
-        if (tgt >= 0) {
-          const lw = ((v >> 16 & 255) * 0.25 + (v >> 8 & 255) * 0.64 + (v & 255) * 0.11) * ck;
-          if (lw > tgt) {
-            let m = tgt > 0 ? tgt / lw : 0.3; if (m < 0.3) m = 0.3;
-            const cr = cbw > CSEAMC ? cbw : CSEAMC;                     // the span the cap holds
-            let ew = k < cr ? 1 : (cr + 2 - k) * 0.5;                   // ease the cap out past it
-            if (ew > 1) ew = 1; else if (ew < 0) ew = 0;
-            ck = ck * (1 - (1 - m) * ew);
-          }
-        }
-        px[i] = (0xFF000000 | clampi((v >> 16 & 255) * ck) << 16 | clampi((v >> 8 & 255) * ck) << 8 | clampi((v & 255) * ck)) >>> 0;
-      }
-      }
-    }
-
-    /* bullet holes / scorch on this face */
-    if (perp < dmax && dMask && dMask[my * N + mx]) {
-      const gl = dGrid[my * N + mx];
-      const hx = camX + rdx * perp, hy = camY + rdy * perp;
-      for (let q = 0; q < gl.length; q++) {
-        const dc = gl[q];
-        if (dc.side !== side + 1) continue;
-        const along = side === 0 ? hy - dc.y : hx - dc.x;
-        const u = Math.abs(along) / dc.r;
-        if (u >= 1) continue;
-        const zTop = dc.z + dc.r, zBot = dc.z - dc.r;
-        const syTop = Math.max(ds, Math.ceil(horizon + (eyeZ - zTop) * hpx));
-        const syBot = Math.min(de, Math.floor(horizon + (eyeZ - zBot) * hpx));
-        const dt = dc.tex;
-        for (let y = syTop; y <= syBot; y++) {
-          const zw = eyeZ - ((y - horizon) / hpx);
-          const v = (zw - (dc.z - dc.r)) / (dc.r * 2);
-          const du = (along / (dc.r * 2) + 0.5) * dt.w, dv = v * dt.h;
-          if (du < 0 || dv < 0 || du >= dt.w || dv >= dt.h) continue;
-          const s = dt.data[(dv | 0) * dt.w + (du | 0)], sa = (s >>> 24) / 255 * dc.a * (1 - u * u * 0.5);
-          if (sa < 0.02) continue;
-          const i = y * BW + x, dst = px[i];
-          px[i] = (0xFF000000 |
-            (clampi((s & 255) * sa + (dst & 255) * (1 - sa))) |
-            (clampi((s >> 8 & 255) * sa + (dst >> 8 & 255) * (1 - sa)) << 8) |
-            (clampi((s >> 16 & 255) * sa + (dst >> 16 & 255) * (1 - sa)) << 16)) >>> 0;
-        }
-      }
-    }
-    /* #400: AUTHORED wall decor, painted with THIS FACE'S OWN LIGHT. That modulation is the whole
-       point of the block: the transient blit above composites the splat's RGB straight over the wall,
-       which is right for a bullet hole in soot and wrong for a thing standing in the room - it would
-       sit at full brightness in a corridor no lamp reaches, and the issue's "not a brighter square"
-       criterion is exactly that failure. So a fixture's albedo goes through lr/lg/lb and picks up the
-       same fog add the body rows used, and the fixture is clipped to the face's drawn span [ds, de],
-       so nothing here can paint the slab above a riser or the ceiling band. It is NOT on the transient
-       decal list: those fade (life defaults to 40) and the list evicts at 180 entries. */
-    /* #400 take two: a fixture is a BOX that STANDS OFF the face, not a rectangle on it. Coplanar
-       art has one silhouette term - the face's own foreshortening, cos(theta) - so 30 degrees off the
-       wall normal a door frame is already a third of its front-on width and along a corridor it is
-       nothing at all, which is the review's "still reads as bare once you are not facing it square".
-       A box has a second term: its FLANK, whose width goes as dep*sin(theta) and does not collapse.
-       So the pass solves the ray against the box, not the face. `d` is the distance along the ray from
-       the face plane back to the box's front plane (dep / the ray's normal component), so the front
-       plane's own depth is perp - d and its along-coordinate is `along - ra*d` - that shift IS the
-       parallax, and where it carries the ray past the box's edge the surface the ray meets is the
-       flank at the depth tS where the along-coordinate crosses that edge. Both surfaces are drawn at
-       their OWN depth (BH/t, not BH/perp), which is what makes the thing sit in the room instead of on
-       the wall. The flank keeps the fixture's own material, dimmed, and both go through this face's lr
-       /lg/lb and the same fog add, so a fixture in an unlit corner stays dark: this is geometry and
-       albedo, never a light. Clipping to [ds,de] is unchanged - a box may not paint the slab above a
-       riser or the ceiling band any more than a decal could. */
-    if (mMask && mMask[my * N + mx]) {
-      const ml = mGrid[my * N + mx];
-      const wx = camX + rdx * perp, wy = camY + rdy * perp;
-      const rn = side === 0 ? rdx : rdy;        // this ray's component along the face normal
-      const ra = side === 0 ? rdy : rdx;        // ... and along the face
-      const an = Math.abs(rn);
-      for (let q = 0; q < ml.length; q++) {
-        const mo = ml[q];
-        if (mo.side !== side + 1) continue;
-        const hw = mo.hw, along = side === 0 ? wy - mo.y : wx - mo.x;
-        let u, tM, dim = 1;
-        if (mo.dep > 0 && an > 1e-4) {
-          const d = mo.dep / an, tN = perp - d;
-          if (!(tN > 0.12)) continue;                  // edge-on, or the eye is inside the box
-          const aN = along - ra * d;
-          if (aN > -hw && aN < hw) { u = aN / (hw * 2) + 0.5; tM = tN; }
-          else {
-            if (Math.abs(ra) < 1e-6) continue;          // dead-on: no flank is ever turned this way
-            const left = aN < -hw;
-            const tS = perp + ((left ? -hw : hw) - along) / ra;
-            if (!(tS > tN && tS < perp)) continue;      // both ends past the same edge: no flank
-            u = left ? 0.03 : 0.97;                     // the material AT that edge, not across it
-            tM = tS; dim = 0.62;                        // a face turned 90 deg from the wall
-          }
-        } else {
-          u = along / (hw * 2) + 0.5;
-          if (!(u >= 0 && u < 1)) continue;
-          tM = perp;
-        }
-        const hpxM = BH / tM;
-        const zT = mo.z + mo.hh, zB = mo.z - mo.hh;
-        const syTop = Math.max(ds, Math.ceil(horizon + (eyeZ - zT) * hpxM));
-        const syBot = Math.min(de, Math.floor(horizon + (eyeZ - zB) * hpxM));
-        const dt = mo.tex, mwx = dt.w, ih = 1 / (zT - zB);
-        for (let y = syTop; y <= syBot; y++) {
-          const zv = (eyeZ - ((y - horizon) / hpxM) - zB) * ih;
-          if (!(zv >= 0 && zv < 1)) continue;
-          const s = dt.data[(zv * dt.h | 0) * mwx + (u * mwx | 0)], sa = (s >>> 24) / 255;
-          if (sa < 0.02) continue;
-          const i = y * BW + x, dst = px[i], ia = 1 - sa;
-          px[i] = (0xFF000000 |
-            (clampi(((s >> 16 & 255) * lb * dim + fB) * sa + (dst >> 16 & 255) * ia) << 16) |
-            (clampi(((s >> 8 & 255) * lg * dim + fG) * sa + (dst >> 8 & 255) * ia) << 8) |
-            clampi(((s & 255) * lr * dim + fR) * sa + (dst & 255) * ia)) >>> 0;
-        }
-      }
-    }
-    /* The riser's own creases, then this column's nearer 1-quantum crease - not INSTEAD OF it. As an
-       `else if` the far seam evicted the near one, and on a level that authors volume a riser sits
-       down some column behind almost every stair tread: measured on 60 of 60 walk-lip columns of L0
-       and L2, where the seam moved not one pixel of the lip the player is standing at (issue #181's
-       bands row read `foot drop 0.0 px-lum, band 0.0 px of a 24 px riser` for exactly this). Painted
-       after so the nearer lip wins any row the two bands share. */
-    if (riser && SEAM) {
-      /* A drawn slab side has a junction at EACH of its two screen edges, and before #195 only the
-         lower floor's got one: for a step DOWN that is the edge the eye does NOT stand at, so the
-         visible lip carried no edge at all (up lips 57/77/59% contrast, down lips 17/17/29%). The
-         lower floor's crease stays exactly where it was, because for a step UP it is the same row. */
-      const seamLit = li - AMB;                  // the deck's own LIGHT, fog and ambient out (#385)
-      seamCrease(x, perp, rze, rzf, -SEAMD, rzf > rze ? -1 : 1, seamLit);
-      if (rze !== rz0) seamCrease(x, perp, rz0, rz1, -SEAMD, -1, seamLit, de);
-      seamCrease(x, perp, rz1, rz0, SEAMU, -1, seamLit);
     }
   }
 }
