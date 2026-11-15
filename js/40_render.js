@@ -3924,7 +3924,24 @@ function seamCrease(x, t, zA, zB, amp, dir, deckLit, yCap, zg) {
    drawn". The storage is fixed-size and module-level: a per-column array would allocate 480 of them a
    frame in the hottest function in the renderer, which is the one-indirection cliff `AGENTS.md` prices
    in perf notes. WST is a cap on the march's appetite, not a claim about the level: a column that hits
-   the cap simply stops looking, the same bargain `dmax` strikes for the far field. */
+   the cap simply stops looking, the same bargain `dmax` strikes for the far field.
+
+   WHAT THE CAP COSTS, MEASURED (2026-11-15, paired runs in ONE tree with `JSDIR=` pointing at
+   variants that differ from this file by the `WST` literal alone - no timing inside the loop, `SET`
+   wraps `renderWorld` and times each call, 20 warm + 300 timed frames, median of 300, machine load
+   average 2.5-4.0 throughout). The seat is `node tools/view.js scene 1 0` (RING TRANSPORT's dealt
+   camera), step-dense by the per-column census the same run prints: 335 of 601 columns RECORD THE
+   CAP, maxSt 4. Frame cost there is 95 ms at WST 1 against 111 ms at WST 4 - +16 ms, +16 % of the
+   frame - and this harness's whole raster at this seat is ~96-111 ms today (the same command
+   without `JSDIR` prints 84.7 ms over 180 frames of `WARM=1`), so read the delta as a SHARE of a
+   frame, not as milliseconds of play. The cap saturates: 95 / 100 / 110 / 111 ms at WST 1 / 2 / 3 /
+   4, so the third face costs most of it and the fourth is inside the noise. WHERE that cost sits is
+   the other variant: recording four faces and painting only the nearest measures 95 ms, i.e. AT the
+   WST-1 figure - the marching past a lip is free and the four FACE BODIES are the cost. Controls
+   that say the delta is the march and not the harness: the same pair at `scene 2 0` (maxSt 1, cap 0)
+   reads 55 vs 56 ms and at `scene 0 0` (maxSt 3, cap 0, 321 far faces) 83 vs 83 ms - within the
+   run-to-run noise wherever the cap does not bind. No threshold moved to get these numbers: WST
+   stays 4 in the shipped build. */
 const WST = 4;
 const WSP = new Float64Array(WST), WZ0 = new Float64Array(WST), WZ1 = new Float64Array(WST),
   WZE = new Float64Array(WST), WZF = new Float64Array(WST), WZN = new Float64Array(WST),
