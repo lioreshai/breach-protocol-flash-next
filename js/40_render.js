@@ -3866,7 +3866,7 @@ function ceilFixAt(wx, wy, hang) {
    half the riser's projected height, so a 1 m face gets a seam at its foot, not a gradient.
    amp < 0 shades a crease, amp > 0 lifts a lip; a multiply either way, so the AMB floor that sinks an
    additive rim in a dark room cannot sink this. */
-function seamCrease(x, t, zA, zB, amp, dir, deckLit, yCap) {
+function seamCrease(x, t, zA, zB, amp, dir, deckLit, yCap, zg) {
   if (!(t > 0.001)) return;
   const hp = BH / t, yA = horizon + (eyeZ - zA) * hp, yB = horizon + (eyeZ - zB) * hp;
   const bw = Math.min(Math.abs(yB - yA) * 0.5, hp * SEAMW);
@@ -3905,6 +3905,7 @@ function seamCrease(x, t, zA, zB, amp, dir, deckLit, yCap) {
     if (y < 0) { if (dir < 0) break; continue; }
     if (y >= BH) { if (dir > 0) break; continue; }
     const i = y * BW + x, v = px[i];
+    if (zg && zbuf[i] < t) continue;                // #829: a mark on a far face does not cross a nearer surface
     // the lip row itself carries an extra term: where the far surface is already darker than the
     // floor in front of it, a gradient alone passes THROUGH the floor's brightness and the lip
     // vanishes (measured on L1: mean |dL| 25 with the gradient, and the sign of the difference
@@ -4054,7 +4055,20 @@ function castWalls(flash, fcR, fcG, fcB) {
           WSP[nSt] = rp; WTV[nSt] = riserTex; WSD[nSt * 3] = side; WSD[nSt * 3 + 1] = stepX; WSD[nSt * 3 + 2] = stepY;
           WMX[nSt] = mx; WMY[nSt] = my; WZ0[nSt] = rz0; WZ1[nSt] = rz1; WZE[nSt] = rze; WZF[nSt] = rzf; WZN[nSt] = rzn;
           WSF[nSt] = 1 | (stepFace << 1); nSt++;
-          break;
+          /* #829: THE LIP IS A FACE, NOT THE END OF THE COLUMN. `break` here is the line that made
+             everything past a pit or a raised deck disappear: the face a lip paints is the strip
+             between two floors, so the rows above it (or below it, down a pit) belong to whatever the
+             ray meets FURTHER along, and with the march ended they kept the ground pass's farther
+             answer - or `zbuf`'s Infinity, which is the condition a body's own depth test walks
+             straight through, so the frame shows a corridor with an enemy in it where the level has a
+             wall. `docs/VERTICALITY.md` already says what a CLIFF is supposed to show: "the deck's own
+             lip AND whatever is beyond it". Nothing implemented the second half.
+             Marching on costs one more stop of setup per lip and is bounded twice: WST faces per
+             column, and the march's own 180-crossing guard. A stair is the case that benefits most
+             and pays most - every tread is a face - so it is where the cap is felt, and where #515's
+             "the deck beyond the stair solves through" comes from in the first place. */
+          if (nSt >= WST) break;
+          continue;
         }
       }
     }
@@ -4069,6 +4083,14 @@ function castWalls(flash, fcR, fcG, fcB) {
       mx = WMX[si]; my = WMY[si];
       rz0 = WZ0[si]; rz1 = WZ1[si]; rze = WZE[si]; rzf = WZF[si]; rzn = WZN[si];
       accY = -1; accInv = 0; kerbY = 1e9; kerbInv = 0; kerbOn = 0;
+      /* #829: A FACE THAT IS NOT THE NEAREST ONE NEVER OVERPAINTS A NEARER SURFACE. The loop paints far
+         to near so the nearest face wins each row outright, but a far face's span can also reach rows
+         the ground pass already answered honestly - the deck you are standing on, the ceiling above it -
+         and painting those at the far face's distance is the phantom #518 names, arriving from the other
+         direction. `zbuf` at this point is exactly the answer to "who owns this pixel", so the test is
+         one read and one compare, and it is dead on every column with one stop: flat levels and the
+         whole of the first face are byte-identical. */
+      const zguard = si ? 1 : 0;
       let perp = WSP[si];
       if (!(perp > 0.0001)) perp = 0.0001;
       if (perp > FARB * 3) continue;
@@ -4225,9 +4247,9 @@ function castWalls(flash, fcR, fcG, fcB) {
       if (yieldFace) {
         if (riser && SEAM) {
           const seamLit = li - AMB;
-          seamCrease(x, perp, rze, rzf, -SEAMD, rzf > rze ? -1 : 1, seamLit);
-          if (rze !== rz0) seamCrease(x, perp, rz0, rz1, -SEAMD, -1, seamLit, de);
-          seamCrease(x, perp, rz1, rz0, SEAMU, -1, seamLit);
+          seamCrease(x, perp, rze, rzf, -SEAMD, rzf > rze ? -1 : 1, seamLit, undefined, zguard);
+          if (rze !== rz0) seamCrease(x, perp, rz0, rz1, -SEAMD, -1, seamLit, de, zguard);
+          seamCrease(x, perp, rz1, rz0, SEAMU, -1, seamLit, undefined, zguard);
         }
         continue;
       }
@@ -4302,6 +4324,7 @@ function castWalls(flash, fcR, fcG, fcB) {
       }
       const shS = shK > 0 ? 1 / Math.max(0.2, shB - shA) : 0, shZs = perp / BH;
       for (let y = ds; y <= de; y++, idx += BW) {
+        if (zguard && zbuf[idx] < perp) continue;         // #829: a nearer surface already owns this row
         zbuf[idx] = perp;
         if (SURF) SURF[idx] = 0;            // #546: this pixel is a FACE now, not the ground surface
         const vy = ty; ty += tstep; if (ty >= mh) ty -= mh;
@@ -4530,6 +4553,7 @@ function castWalls(flash, fcR, fcG, fcB) {
             const s = dt.data[(dv | 0) * dt.w + (du | 0)], sa = (s >>> 24) / 255 * dc.a * (1 - u * u * 0.5);
             if (sa < 0.02) continue;
             const i = y * BW + x, dst = px[i];
+            if (zguard && zbuf[i] < perp) continue;       // #829: a nearer surface owns this row
             px[i] = (0xFF000000 |
               (clampi((s & 255) * sa + (dst & 255) * (1 - sa))) |
               (clampi((s >> 8 & 255) * sa + (dst >> 8 & 255) * (1 - sa)) << 8) |
@@ -4600,6 +4624,7 @@ function castWalls(flash, fcR, fcG, fcB) {
             const s = dt.data[(zv * dt.h | 0) * mwx + (u * mwx | 0)], sa = (s >>> 24) / 255;
             if (sa < 0.02) continue;
             const i = y * BW + x, dst = px[i], ia = 1 - sa;
+            if (zguard && zbuf[i] < perp) continue;       // #829: a nearer surface owns this row
             px[i] = (0xFF000000 |
               (clampi(((s >> 16 & 255) * lb * dim + fB) * sa + (dst >> 16 & 255) * ia) << 16) |
               (clampi(((s >> 8 & 255) * lg * dim + fG) * sa + (dst >> 8 & 255) * ia) << 8) |
@@ -4619,9 +4644,9 @@ function castWalls(flash, fcR, fcG, fcB) {
            visible lip carried no edge at all (up lips 57/77/59% contrast, down lips 17/17/29%). The
            lower floor's crease stays exactly where it was, because for a step UP it is the same row. */
         const seamLit = li - AMB;                  // the deck's own LIGHT, fog and ambient out (#385)
-        seamCrease(x, perp, rze, rzf, -SEAMD, rzf > rze ? -1 : 1, seamLit);
-        if (rze !== rz0) seamCrease(x, perp, rz0, rz1, -SEAMD, -1, seamLit, de);
-        seamCrease(x, perp, rz1, rz0, SEAMU, -1, seamLit);
+        seamCrease(x, perp, rze, rzf, -SEAMD, rzf > rze ? -1 : 1, seamLit, undefined, zguard);
+        if (rze !== rz0) seamCrease(x, perp, rz0, rz1, -SEAMD, -1, seamLit, de, zguard);
+        seamCrease(x, perp, rz1, rz0, SEAMU, -1, seamLit, undefined, zguard);
       }
     }
   }
