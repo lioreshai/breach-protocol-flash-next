@@ -4080,8 +4080,14 @@ function castWalls(flash, fcR, fcG, fcB) {
              601 - a census larger than its own denominator. `riser` is this column's own flag and is 0
              until the first riser stop, so one compare keeps the count a column census. (Face counts
              are still readable here: the march's own `nSt` and `cull`'s per-column oracle.) */
-          /* SAB F5: incremented on EVERY recorded face again - build WITHOUT fix 5 */
-          MAP.riserStops++;
+          /* #829 review: THE CENSUS COUNTS COLUMNS, AND MUST KEEP DOING SO. `MAP.riserStops` is printed
+             as `riserStops N/BW` (`tools/view.js`'s pit-lip and stair rows) and as "N rays stopped at a
+             riser": a denominator of BW means at most one per column. A march that records up to WST
+             faces per column made it a FACE count, which is how a run printed 1488 of 601 and 796 of
+             601 - a census larger than its own denominator. `riser` is this column's own flag and is 0
+             until the first riser stop, so one compare keeps the count what the prose says it is. Face
+             counts are still readable: the march's own `nSt`, and `cull`'s per-column depth oracle. */
+          if (!riser) MAP.riserStops++;            // once per COLUMN that stopped at a riser
           riser = 1; rz0 = ry0; rz1 = ry1; rzn = fzs[pi] * ZQ; tv = riserTex;   // #518: the level's family, not CONCRETE
           /* #515: a STEP face gets the orientation term below. The kind is READ, not re-derived from the
              height difference - the same rule #633 installed for draw-vs-block, and for the same reason:
