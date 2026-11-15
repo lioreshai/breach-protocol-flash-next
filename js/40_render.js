@@ -3930,16 +3930,19 @@ function seamCrease(x, t, zA, zB, amp, dir, deckLit, yCap, zg) {
    variants that differ from this file by the `WST` literal alone - no timing inside the loop, `SET`
    wraps `renderWorld` and times each call, 20 warm + 300 timed frames, median of 300, machine load
    average 2.5-4.0 throughout). The seat is `node tools/view.js scene 1 0` (RING TRANSPORT's dealt
-   camera), step-dense by the per-column census the same run prints: 335 of 601 columns RECORD THE
-   CAP, maxSt 4. Frame cost there is 95 ms at WST 1 against 111 ms at WST 4 - +16 ms, +16 % of the
+   camera), step-dense by the census THAT command prints on its own line - `faces: 601 of 601 columns
+   record more than one face, 335 stop at the WST=4 cap, maxSt 4`, counted per column in castWalls as
+   MAP.faceMulti / faceCap / faceMax, so the density claim is re-checkable and not one session's number.
+   Frame cost there is 95 ms at WST 1 against 111 ms at WST 4 - +16 ms, +16 % of the
    frame - and this harness's whole raster at this seat is ~96-111 ms today (the same command
    without `JSDIR` prints 84.7 ms over 180 frames of `WARM=1`), so read the delta as a SHARE of a
    frame, not as milliseconds of play. The cap saturates: 95 / 100 / 110 / 111 ms at WST 1 / 2 / 3 /
    4, so the third face costs most of it and the fourth is inside the noise. WHERE that cost sits is
    the other variant: recording four faces and painting only the nearest measures 95 ms, i.e. AT the
    WST-1 figure - the marching past a lip is free and the four FACE BODIES are the cost. Controls
-   that say the delta is the march and not the harness: the same pair at `scene 2 0` (maxSt 1, cap 0)
-   reads 55 vs 56 ms and at `scene 0 0` (maxSt 3, cap 0, 321 far faces) 83 vs 83 ms - within the
+   that say the delta is the march and not the harness: the same pair at `scene 2 0` (that run prints
+   0 of 601 multi, cap 0, maxSt 1) reads 55 vs 56 ms and at `scene 0 0` (241 of 601 multi, cap 0, maxSt 3)
+   83 vs 83 ms - within the
    run-to-run noise wherever the cap does not bind. No threshold moved to get these numbers: WST
    stays 4 in the shipped build. */
 const WST = 4;
@@ -3953,6 +3956,12 @@ function castWalls(flash, fcR, fcG, fcB) {
   const fzs = MAP.fz, vbs = MAP.vb, doStep = MAP.steps ? 1 : 0;      // #100: 0 on every flat level
   const eka = doStep ? MAP.ek : null;                    // #515: the step face's orientation term reads the STORED kind
   MAP.riserStops = 0;                                            // asserted by view.js cull
+  /* #829 review: THE MARCH'S OWN APPETITE, COUNTED ONCE PER COLUMN so the cost note beside `WST` above is
+     a command rather than a transcript: `node tools/view.js scene <L> <cam>` prints these three. They
+     answer "does the cap bind HERE" - `faceMulti` is the columns that pay a second face body, `faceCap`
+     the ones that stopped because they ran out of slots, `faceMax` the worst column in the frame. Three
+     compares on a column whose face bodies already cost hundreds of rows, and no threshold reads them. */
+  MAP.faceMulti = 0; MAP.faceCap = 0; MAP.faceMax = 0;
   const stepBase = 2 / BW;
   const flR = S.flashCol[0] / 255, flG = S.flashCol[1] / 255, flB = S.flashCol[2] / 255;
   const flashK0 = flash;
@@ -4003,10 +4012,10 @@ function castWalls(flash, fcR, fcG, fcB) {
          already owns off-map pixels and answers them with its own far-field wash (#375/#385, which is
          what `gndOffMap` counts), and `if (nSt === 0) continue` below is the path a column that met
          nothing already takes. No shipped pixel moves: the border ring is a solid wall column on all
-         four levels, measured 0 open border cells of 104 / 128 / 144 / 80 at the `scene` seats, so a
-         ray stops at the border long before it can leave the grid - which is why the digests in `bands`,
-         `cull` and `flatparity` hold across this fix. */
-
+         four levels - measured 0 open border cells of the 100 / 124 / 140 / 76 cells in each level's
+         border ring at the four `scene` seats, that being 4N-4 for the authored `size` 26 / 32 / 36 / 20
+         (js/20_level.js:24,102,127,197) - so a ray stops at the border long before it can leave the
+         grid, which is why the digests in `bands`, `cull` and `flatparity` hold across this fix. */
       if (mx < 0 || my < 0 || mx >= N || my >= N) break;
       tv = cellArr[my * N + mx];
       if (tv !== 0) { WSP[nSt] = side === 0 ? sdx - ddx : sdy - ddy; WTV[nSt] = tv; WSF[nSt] = 0; WSD[nSt * 3] = side; WSD[nSt * 3 + 1] = stepX; WSD[nSt * 3 + 2] = stepY; WMX[nSt] = mx; WMY[nSt] = my; nSt++; break; }
@@ -4080,15 +4089,9 @@ function castWalls(flash, fcR, fcG, fcB) {
              riser": a denominator of BW means at most one per column. A march that records up to WST
              faces per column made it a FACE count, which is how a run printed 1488 of 601 and 796 of
              601 - a census larger than its own denominator. `riser` is this column's own flag and is 0
-             until the first riser stop, so one compare keeps the count a column census. (Face counts
-             are still readable here: the march's own `nSt` and `cull`'s per-column oracle.) */
-          /* #829 review: THE CENSUS COUNTS COLUMNS, AND MUST KEEP DOING SO. `MAP.riserStops` is printed
-             as `riserStops N/BW` (`tools/view.js`'s pit-lip and stair rows) and as "N rays stopped at a
-             riser": a denominator of BW means at most one per column. A march that records up to WST
-             faces per column made it a FACE count, which is how a run printed 1488 of 601 and 796 of
-             601 - a census larger than its own denominator. `riser` is this column's own flag and is 0
              until the first riser stop, so one compare keeps the count what the prose says it is. Face
-             counts are still readable: the march's own `nSt`, and `cull`'s per-column depth oracle. */
+             counts are a separate census and `view.js scene` prints them: `MAP.faceMulti`, `MAP.faceCap`
+             and `MAP.faceMax`, counted once per column beside this one. */
           if (!riser) MAP.riserStops++;            // once per COLUMN that stopped at a riser
           riser = 1; rz0 = ry0; rz1 = ry1; rzn = fzs[pi] * ZQ; tv = riserTex;   // #518: the level's family, not CONCRETE
           /* #515: a STEP face gets the orientation term below. The kind is READ, not re-derived from the
@@ -4122,6 +4125,9 @@ function castWalls(flash, fcR, fcG, fcB) {
       }
     }
     if (nSt === 0) continue;                       // the march met nothing it could draw
+    if (nSt > 1) MAP.faceMulti++;
+    if (nSt >= WST) MAP.faceCap++;
+    if (nSt > MAP.faceMax) MAP.faceMax = nSt;
     /* #829: PAINT THE COLUMN FAR TO NEAR. Every face the march recorded gets its own span painted,
        and because the nearer face is painted LAST it wins every row the two share - which is the same
        per-pixel nearest-wins rule the rest of the frame runs on, arrived at without a second depth
@@ -4551,11 +4557,22 @@ function castWalls(flash, fcR, fcG, fcB) {
            ramp is untouched and stays inside `cbw`; the CAP reaches two rows past the band and stops, so past
            those the roof keeps its own light and the vault lift of #495 keeps the rest of the ceiling.
            It cannot brighten, cannot go under the same 0.3 floor, and touches no flat column (`doStep`).
-           Rec.601, the weighting the probes read; one 8-tap face mean per drawn column, no new array. */
+           Rec.601, the weighting the probes read; one 8-tap face mean per drawn column, no new array.
+           #829 review ROUND TWO: THE TARGET IS SAMPLED THROUGH THE SAME DEPTH TEST AS THE STORE. The
+           store below got a `zbuf` test and this loop did not, so on a face whose span is PARTLY owned by
+           a nearer surface `tgt` - how hard the band darkens - was the mean of that nearer surface's
+           pixels: the darkening got priced off geometry the player is not looking at, and it changed as
+           the occluder slid across the face. A row a nearer surface owns is now skipped and not counted
+           in `fn`, so the mean is over the rows this face actually paints; when none survive `tgt` stays
+           -1 and a fully occluded far face caps nothing, which is the same conclusion the store reaches
+           row by row. The test is the store's own - same index, same `zbuf`, same direction - and
+           `zguard` is 0 on a column's first stop, so a one-face column samples exactly what it sampled
+           before and holds its bytes. */
         let tgt = -1;
         if (CSEAMA > 0) {
           let fs = 0, fn = 0;
           for (let y = ds, ye = ds + CSEAMC - 1 <= de ? ds + CSEAMC - 1 : de; y <= ye; y++) {
+            if (zguard && zbuf[y * BW + x] < perp) continue;   // #829: a nearer surface owns this row
             const v = px[y * BW + x];
             fs += (v >> 16 & 255) * 0.25 + (v >> 8 & 255) * 0.64 + (v & 255) * 0.11; fn++;
           }
