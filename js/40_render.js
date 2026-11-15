@@ -3973,6 +3973,23 @@ function castWalls(flash, fcR, fcG, fcB) {
     while (guard++ < 180) {
       let tX;
       if (sdx < sdy) { tX = sdx; sdx += ddx; mx += stepX; side = 0; } else { tX = sdy; sdy += ddy; my += stepY; side = 1; }
+      /* #829 review: OFF THE GRID IS NOT A FACE. A recorded stop has to carry a CELL, because the body
+         below forms `inIdx = my * N + mx` for its light and tint (and `dMask`/`mMask` below do the
+         same): a cell index is ONE number, so a range check on the pair is a bounds check on the PAIR
+         and not on the index. `mx === -1, my === 0` is index -1 -> undefined light -> NaN -> clampi ->
+         a pure black face; `mx === N` is the next row's cell, so the face is lit by a room the ray
+         never entered. That is the fault `AGENTS.md` prices twice, and the march turned it into a
+         per-column hazard: on main this crossing could only ever be a column's FIRST stop (the next
+         `break` was the same line), while past a lip the same ray keeps marching until it walks off the
+         grid, so any pit or deck facing the edge put an off-map face behind the lip.
+         So the march stops and records NOTHING. Nothing is left unanswered either: the ground pass
+         already owns off-map pixels and answers them with its own far-field wash (#375/#385, which is
+         what `gndOffMap` counts), and `if (nSt === 0) continue` below is the path a column that met
+         nothing already takes. No shipped pixel moves: the border ring is a solid wall column on all
+         four levels, measured 0 open border cells of 104 / 128 / 144 / 80 at the `scene` seats, so a
+         ray stops at the border long before it can leave the grid - which is why the digests in `bands`,
+         `cull` and `flatparity` hold across this fix. */
+      /* SAB F3: the off-grid crossing is RECORDED as a face again - build WITHOUT fix 3 */
       if (mx < 0 || my < 0 || mx >= N || my >= N) { tv = 1; WSP[nSt] = side === 0 ? sdx - ddx : sdy - ddy; WTV[nSt] = 1; WSF[nSt] = 0; WSD[nSt * 3] = side; WSD[nSt * 3 + 1] = stepX; WSD[nSt * 3 + 2] = stepY; WMX[nSt] = mx; WMY[nSt] = my; nSt++; break; }
       tv = cellArr[my * N + mx];
       if (tv !== 0) { WSP[nSt] = side === 0 ? sdx - ddx : sdy - ddy; WTV[nSt] = tv; WSF[nSt] = 0; WSD[nSt * 3] = side; WSD[nSt * 3 + 1] = stepX; WSD[nSt * 3 + 2] = stepY; WMX[nSt] = mx; WMY[nSt] = my; nSt++; break; }
@@ -4041,7 +4058,16 @@ function castWalls(flash, fcR, fcG, fcB) {
           const rp = (side === 0 ? sdx - ddx : sdy - ddy), rh = BH / (rp > 1e-4 ? rp : 1e-4);
           const ry1 = fhi * ZQ, ry0 = flo * ZQ;
           if (horizon + (eyeZ - ry1) * rh > BH - 1) continue;
-          riser = 1; rz0 = ry0; rz1 = ry1; rzn = fzs[pi] * ZQ; MAP.riserStops++; tv = riserTex;   // #518: the level's family, not CONCRETE
+          /* #829 review: THE CENSUS COUNTS COLUMNS, AND MUST KEEP DOING SO. `MAP.riserStops` is printed
+             as `riserStops N/BW` (`tools/view.js`'s pit-lip and stair rows) and as "N rays stopped at a
+             riser": a denominator of BW means at most one per column. A march that records up to WST
+             faces per column made it a FACE count, which is how a run printed 1488 of 601 and 796 of
+             601 - a census larger than its own denominator. `riser` is this column's own flag and is 0
+             until the first riser stop, so one compare keeps the count a column census. (Face counts
+             are still readable here: the march's own `nSt` and `cull`'s per-column oracle.) */
+          /* SAB F5: incremented on EVERY recorded face again - build WITHOUT fix 5 */
+          MAP.riserStops++;
+          riser = 1; rz0 = ry0; rz1 = ry1; rzn = fzs[pi] * ZQ; tv = riserTex;   // #518: the level's family, not CONCRETE
           /* #515: a STEP face gets the orientation term below. The kind is READ, not re-derived from the
              height difference - the same rule #633 installed for draw-vs-block, and for the same reason:
              a copy of the height test would be a second answer. `pi` is the cell the ray CAME FROM and `d`
@@ -4324,10 +4350,20 @@ function castWalls(flash, fcR, fcG, fcB) {
       }
       const shS = shK > 0 ? 1 / Math.max(0.2, shB - shA) : 0, shZs = perp / BH;
       for (let y = ds; y <= de; y++, idx += BW) {
+        /* #829 review: THE v-COORDINATE ADVANCES ONCE PER SCREEN ROW, PAINTED OR NOT. `ty` is the face's
+           texture row, and `tstep` is metres-per-row expressed in texels: it is a function of the SCREEN
+           ROW alone (`(ds - y0) * tstep + (y - ds) * tstep`), because the span and the plane solve are
+           linear in y. The depth skip sat ABOVE the advance, so every row this column declined to paint
+           left `ty` one row short for every row after it: a far face whose span starts under a nearer
+           ceiling skips a PREFIX of its rows, so the whole face shifted up by however many rows the skip
+           ate, and the shift jumped as that count changed with camera position - a far wall crawling
+           while the player walks. `vy` moves ahead of the skip, exactly as the emissive `continue` below
+           already does; `zbuf`/`SURF` stay after it, because a skipped row must not claim either. Dead
+           where nothing is skipped, so a one-stop column and every flat level are byte-identical. */
+        const vy = ty; ty += tstep; if (ty >= mh) ty -= mh;
         if (zguard && zbuf[idx] < perp) continue;         // #829: a nearer surface already owns this row
         zbuf[idx] = perp;
         if (SURF) SURF[idx] = 0;            // #546: this pixel is a FACE now, not the ground surface
-        const vy = ty; ty += tstep; if (ty >= mh) ty -= mh;
         const yv = vy | 0, fy = vy - yv, rfy = 1 - fy;
         const rw0 = yv * mw, rw1 = ((yv + 1) & maskY) * mw;
         const t0 = td[rw0 + ux], t1 = td[rw0 + ux1], t2 = td[rw1 + ux], t3 = td[rw1 + ux1];
@@ -4515,6 +4551,16 @@ function castWalls(flash, fcR, fcG, fcB) {
         for (let k = 0; k < cn2; k++) {
           const yy = ds - 1 - k; if (yy < 0) break;
           const i = yy * BW + x, v = px[i], rk = 1 - k / cbw;
+          /* #829 review: THE CORNER BAND IS A MARK ON A FACE, SO IT OBEYS THE DEPTH TEST LIKE EVERY
+             other write in this body (`:4327` above, the decal and decor rows below, `seamCrease`).
+             It was the one store in the face loop that read `px[i]` and multiplied it with no `zbuf`
+             test, and before the march that was invisible: the clause ran once per column and the
+             rows above `ds` were the ceiling the column's own face ends at. Now the clause runs once
+             per RECORDED FACE, so a face at 9 m darkened the ceiling pixels of a surface nearer than
+             9 m - a corner the player cannot see, painted over one he can, which is the #517/#518
+             phantom class arrived at from the far end. The test is the same one read and one compare
+             the rest of the body uses, and it is dead on a column with one stop (`zguard` is 0). */
+          if (zguard && zbuf[i] < perp) continue;        // #829: a nearer surface owns this row
           let ck = 1 - CSEAMD * (rk > 0 ? rk : 0);
           if (tgt >= 0) {
             const lw = ((v >> 16 & 255) * 0.25 + (v >> 8 & 255) * 0.64 + (v & 255) * 0.11) * ck;
