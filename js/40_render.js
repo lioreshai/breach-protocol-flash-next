@@ -4006,22 +4006,7 @@ function castWalls(flash, fcR, fcG, fcB) {
          four levels, measured 0 open border cells of 104 / 128 / 144 / 80 at the `scene` seats, so a
          ray stops at the border long before it can leave the grid - which is why the digests in `bands`,
          `cull` and `flatparity` hold across this fix. */
-      /* #829 review: OFF THE GRID IS NOT A FACE. A recorded stop has to carry a CELL, because the body
-         below forms `inIdx = my * N + mx` for its light and tint (and `dMask`/`mMask` below do the
-         same): a cell index is ONE number, so a range check on the pair is a bounds check on the PAIR
-         and not on the index. `mx === -1, my === 0` is index -1 -> undefined light -> NaN -> clampi ->
-         a pure black face; `mx === N` is the next row's cell, so the face is lit by a room the ray
-         never entered. That is the fault `AGENTS.md` prices twice, and the march turned it into a
-         per-column hazard: on main this crossing could only ever be a column's FIRST stop (the next
-         `break` was the same line), while past a lip the same ray keeps marching until it walks off the
-         grid, so any pit or deck facing the edge put an off-map face behind the lip.
-         So the march stops and records NOTHING. Nothing is left unanswered either: the ground pass
-         already owns off-map pixels and answers them with its own far-field wash (#375/#385, which is
-         what `gndOffMap` counts), and `if (nSt === 0) continue` below is the path a column that met
-         nothing already takes. No shipped pixel moves: the border ring is a solid wall column on all
-         four levels, measured 0 open border cells of 104 / 128 / 144 / 80 at the `scene` seats, so a
-         ray stops at the border long before it can leave the grid - which is why the digests in `bands`,
-         `cull` and `flatparity` hold across this fix. */
+
       if (mx < 0 || my < 0 || mx >= N || my >= N) break;
       tv = cellArr[my * N + mx];
       if (tv !== 0) { WSP[nSt] = side === 0 ? sdx - ddx : sdy - ddy; WTV[nSt] = tv; WSF[nSt] = 0; WSD[nSt * 3] = side; WSD[nSt * 3 + 1] = stepX; WSD[nSt * 3 + 2] = stepY; WMX[nSt] = mx; WMY[nSt] = my; nSt++; break; }
