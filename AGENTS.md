@@ -191,7 +191,12 @@ They generalize; the measurements that found them are in that file.
   conclusion, so count `SUCCESS` rows rather than total rows.
 - **Background jobs race your commits, and naming a path does not save you** — `git add
   tools/view.js` sweeps whatever a running job just wrote there. While a job runs, confirm you
-  own the hunks with `git diff --stat`, or wait. Annotate a mis-subject commit in `git notes`;
+  own the hunks with `git diff --stat`, or wait. **Racing the harness is worse than racing a
+  probe:** a roster running in a worktree while `tools/view.js` is edited there spawns its later
+  children against a half-written harness, and their `SyntaxError` comes back as a roster verdict
+  that reads exactly like a regression (26 invocations, 23 failed, most at 0.0 s). Run a long gate
+  in a tree pinned to a commit nothing is editing, and read the wall-clock beside each row before
+  believing a sweep. Annotate a mis-subject commit in `git notes`;
   rewriting history to fix a subject destroys the diff it documents.
 - Probes that spin the camera also drive the player: recenter, or they walk into the void where
   the grid is undefined and the DDA never hits.

@@ -56,6 +56,18 @@ jobs:
           # push to release/vX.Y.Z has to name the ref actually pushed or the checker is told this
           # is no release branch at all - which reds a correct release branch and holds the release
           # itself, and every branch waiting on its cadence row (#635).
+          # The same unmade tag can outrun this step from the other side. A push to main at the merged
+          # release commit reaches it while docs/RELEASE.md step 4 is still owed, and an earlier revision
+          # demanded refs/tags/vX.Y.Z of a commit that cannot carry one - red on a required row, so the
+          # publish guard would not tag while the row it waits on was red only for want of the tag. Which
+          # releases published was a queue race (#792). The checker now answers that state as a named
+          # KNOWN row and exits 0, and the exemption stays blind to nothing: a tag that EXISTS and is
+          # wrong - lightweight, mis-pointed, mis-pinned, foreign-stamped - fails on its own finding
+          # (#805, #813). So a green row here at an untagged merged release commit is NOT the signal that
+          # a release went out. That signal belongs to `release publish (main)` in
+          # .github/workflows/release-publish.yml, which triggers on push to main and on its own schedule
+          # and goes red once the measured grace passes with main carrying a release.json whose tag ref is
+          # still absent, and to the release-due report it prints. Do not read this row as the debt owner.
           git fetch --quiet --tags --force origin && fetch_status=0 || fetch_status=$?
           tags=$(git tag --list | wc -l)
           shallow=no && [ -f .git/shallow ] && shallow=yes
