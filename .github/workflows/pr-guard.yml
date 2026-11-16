@@ -66,8 +66,8 @@ jobs:
         # it - goes through the gap. One step name grew a colon-space, which a plain YAML scalar cannot
         # carry, and all of ci.yml went inert while every check read green. A guard cannot check the
         # file it lives in, so the identical step is ALSO in ci.yml's required job: each one reports
-        # the other breaking. The rules live in tools/wfyaml.rb, which fails loudly if the parser is
+        # the other breaking. The rules live in tools/wfyaml.js, which fails loudly if the parser is
         # missing or the directory glob matches nothing, instead of passing.
         run: |
           set -euo pipefail
-          ruby tools/wfyaml.rb --dir .github/workflows
+          node tools/wfyaml.js --dir .github/workflows
