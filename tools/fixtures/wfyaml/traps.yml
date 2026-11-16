@@ -1,0 +1,24 @@
+# NOT broken, and the three shapes a naive reader gets wrong. All of them appear in the real
+# workflows, so this file is the fixture version of "the reader reads what Psych reads".
+name: fixtures
+on:                                # the key `on:` is boolean true in YAML 1.1; a reader that resolves
+  push:                            # keys loses every workflow's trigger block, so this one does not
+    branches: [main, 'release/**']
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - name: Read a script that looks like structure
+        run: |
+          on: push
+          jobs:
+            build:
+              runs-on: nothing
+          echo "a $HEAD {{ still one scalar }}"
+      - name: A flow mapping with an expression inside
+        uses: actions/upload-artifact@v4
+        with: { name: '${{ matrix.os }}' }
+  reusable:
+    uses: ./.github/workflows/ok.yml

@@ -1,0 +1,9 @@
+# BROKEN: a tab where indentation is expected. YAML forbids it, so the file does not parse.
+name: fixtures
+on: push
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+	run: echo hi

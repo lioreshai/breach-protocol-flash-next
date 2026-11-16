@@ -44,7 +44,7 @@
  * roster that read only the label left eight of those nine modes unreplayed - which cost PR #649 a
  * red CI on a head whose local roster was clean. An unresolvable loop variable in a GATE step still
  * FAILS the roster rather than running nothing. Blocking steps that run a tool this roster does not
- * cover by design (`recap.js`, `ci/assert.js`, `wfyaml.rb`) are printed as a named gap, not a silent one.
+ * cover by design (`recap.js`, `ci/assert.js`, `wfyaml.js`) are printed as a named gap, not a silent one.
  *
  * VERDICTS. Each entry runs in order, keeps going after a failure, and contributes one line: the
  * child's own exit code, and the child's own verdict *string* (the last line of its output that
@@ -429,10 +429,12 @@ function envCensus() {
 
 /* ---------------------------------------------------------------- the yaml lint (#107) */
 
-// Structural lint only - CI's own `ruby tools/wfyaml.rb` does a real parse, and ruby is not on every
-// box this file runs on. Enough to fail the two shapes that have bitten here: a tab in indentation
-// and a plain-scalar step name containing colon-space, either of which makes the WHOLE file fail to
-// parse, which means no step runs and nothing is reported.
+// Structural lint only - the real parse is `node tools/wfyaml.js`, which ci.yml's own job runs and any
+// box with node can run. This stays because it names the shape with a ci.yml line number and runs
+// under a millisecond: a tab in indentation and a plain-scalar step name containing colon-space,
+// either of which makes the WHOLE file fail to parse, which means no step runs and nothing is
+// reported (#107). It reads the two shapes it recognises; it is not a parser and must not be trusted
+// as one - that is wfyaml.js's job, and fixtures under tools/fixtures/wfyaml/ prove what it catches.
 function yamlLint(lines) {
   const bad = [];
   const names = new Map();
@@ -642,7 +644,7 @@ function main() {
       `${notRun.length} loop line(s) NOT replayed (${notRun.map((o) => 'ci.yml:' + o.line + ' in job "' + o.job + '"').join(', ') || 'none'})`);
     console.log(`yaml: ${jobs.length} job(s), ${jobs.reduce((a, j) => a + j.steps.length, 0)} step(s) walked; ` +
       `lint checked tabs, colon-space in plain scalars, unbalanced quotes, duplicate names` +
-      ` (CI asserts a real parse with its own wfyaml step)`);
+      ` (CI asserts a real parse with its own tools/wfyaml.js step)`);
     if (problems.length) { console.log(`DRIFT FAIL - ${problems.length} problem(s):`); problems.forEach((p) => console.log('  ' + p)); return 1; }
     console.log('DRIFT ok - two independent parses of ci.yml agree on the blocking roster');
     return 0;

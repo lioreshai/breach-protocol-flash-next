@@ -27,8 +27,23 @@ jobs:
 
       - name: Workflow YAML parses and can run
         # The other half of #107's fix. This job is a required check, so a pr-guard.yml that no longer
-        # parses fails HERE instead of vanishing; tools/wfyaml.rb says why an unparseable workflow is
-        # worse than a failing one.
+        # parses fails HERE instead of vanishing; tools/wfyaml.js says why an unparseable workflow is
+        # worse than a failing one, and being Node it can run here and on any box that has this repo.
+        run: node tools/wfyaml.js --dir .github/workflows
+
+      - name: Workflow YAML guard fixtures fail for their own reason
+        # A green row on the eight real files cannot show the guard is capable of failing. Each file
+        # in tools/fixtures/wfyaml/ breaks exactly one rule and names the reason it must fail with,
+        # and the same run re-reads this very directory, so neither a rule that stopped working nor a
+        # reader that fails everything can pass. #840.
+        run: node tools/wfyaml.js --self-test
+
+      - name: Ruby cross-check of the workflow YAML guard
+        # #840's parity run: the Node reader above is the gate and Psych is the witness, for the one
+        # head where both exist. Reported and not gated, because a disagreement is a bug in
+        # tools/wfyaml.js to fix there - never a workflow file to edit until two parsers agree. Read
+        # this step's log beside the node verdict above; when every line matches, the Ruby goes away.
+        continue-on-error: true
         run: ruby tools/wfyaml.rb --dir .github/workflows
 
       - name: Release policy regression checks
