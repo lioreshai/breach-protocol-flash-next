@@ -62,6 +62,13 @@ function makeEnemy(kind, x, y) {
   const crnd = () => { cr ^= cr << 13; cr ^= cr >>> 17; cr ^= cr << 5; return (cr >>> 0) / 4294967296; };
   return {
     kind, type: t, x, y, vx: 0, vy: 0, r: t.r, scale: t.scale,
+    /* #830: a body has an ALTITUDE, not only a column. Without these three fields every consumer below
+       samples `floorAt(e.x, e.y)`, which is the right answer for a body at rest on its band (#98) and
+       a teleport for a body crossing a rim: walking a grunt off a 1 m lip moved its drawn altitude
+       1.00 -> 0.00 in ONE frame, 0 airborne frames. `z` is the body's own altitude while it is
+       falling; while it is settled it is exactly its column's floor, so `bodyAlt` answers `floorAt`
+       and every flat, never-airborne body renders the picture it rendered before this field existed. */
+    z: floorAt(x, y), vz: 0, air: false,
     hp: Math.round(t.hp * DIFFS[S.diff].hp), maxhp: Math.round(t.hp * DIFFS[S.diff].hp),
     state: 'sleep', anim: crnd() * 4, atkT: 0, cd: crnd() * 1.2, dieT: 0, flashT: 0, stagger: 0, loseT: 1.6,
     alert: false, lx: x, ly: y, search: 0, stuck: 0, side: crnd() < 0.5 ? 1 : -1, sideT: 0, movingAmt: 0,
@@ -154,7 +161,7 @@ function hitscan(ang, tanP, range) {
     if (perp > e.r) continue;
     const tj = Math.sqrt(Math.max(0, e.r * e.r - perp * perp));
     const th = proj - tj;                   // where the ray ENTERS the body's column
-    const ez = floorAt(e.x, e.y);            // the body stands on its own band, not on absolute zero (#98)
+    const ez = bodyAlt(e);                  // the body stands on its own band, not on absolute zero (#98)
     /* #353: the body is a VOLUME, not a point. The test above asked the ray's height at ONE t - the
        cylinder's near edge - and that is the right answer for a flat shot and the wrong one for a steep
        one: aimed down over a mezzanine lip the ray enters the column above the head (measured hz 1.146
@@ -288,7 +295,7 @@ function damageEnemy(e, dmg, head, dx, dy) {
   // #116: the spray's altitude is measured from the band the body stands on. It used to be
   // e.scale alone, which reads as an absolute z, so debris born at a chest 0.6 above the DATUM slid
   // up to the floor of a raised band - blood that sprays along the ground instead of through the air.
-  burstParts(e.x, e.y, floorAt(e.x, e.y) + e.scale * (head ? 0.9 : 0.6), head ? 16 : 9, 2.4, c, 0.5, 0.075, false, 1.0);
+  burstParts(e.x, e.y, bodyAlt(e) + e.scale * (head ? 0.9 : 0.6), head ? 16 : 9, 2.4, c, 0.5, 0.075, false, 1.0);
   if (!isSolid(e.x, e.y)) addGroundSplat(e.x, e.y, 0.20 + Math.random() * 0.12, e.kind === 'hound' ? 'goo' : 'blood');
   if (head) S.headMark = 0.3;
   S.hitMark = 0.16;
@@ -302,7 +309,7 @@ function damageEnemy(e, dmg, head, dx, dy) {
     e.vx += (dx || 0) * 1.5; e.vy += (dy || 0) * 1.5;
     killfeed((head ? 'HEADSHOT · ' : '') + e.kind.toUpperCase() + ' DOWN', head ? '#ffe27a' : '#ffcbb3');
     SND.gib(0);
-    burstParts(e.x, e.y, floorAt(e.x, e.y) + e.scale * 0.5, 26, 3.4, e.type.blood, 0.9, 0.11, false, 1.2);
+    burstParts(e.x, e.y, bodyAlt(e) + e.scale * 0.5, 26, 3.4, e.type.blood, 0.9, 0.11, false, 1.2);
     if (!isSolid(e.x, e.y)) addGroundSplat(e.x, e.y, e.scale * 0.42, e.kind === 'hound' ? 'goo' : 'blood');
     if (Math.random() < 0.42 * DIFFS[S.diff].droprate) {
       // #361: the campaign's only grenade source besides the boxes on the floor. One draw, three bands,
@@ -668,6 +675,54 @@ function panOf(e) {
   const a = Math.atan2(e.y - P.y, e.x - P.x) - P.ang;
   return Math.sin(a);
 }
+function bodyAlt(e) { return e.air ? e.z : floorAt(e.x, e.y); }
+/* #830: a body takes a drop. A body had NO altitude state - `makeEnemy` carried x,y,vx,vy and every
+   consumer sampled `floorAt(e.x, e.y)` - so the instant a body's own column said a different floor its
+   altitude WAS that floor. Walked east off a 1 m rim with the shipped crossing rule, one grunt moved
+   its drawn altitude 1.00 -> 0.00 with 0 airborne frames and a 1.000 m one-frame change: the same
+   construction walked by the player is a 1 m fall of several airborne frames at g = 9.2 (#634). This
+   is that mechanism for bodies, and nothing else: the crossing rules (`canEnter`, the stored kind
+   #633) still decide WHERE a body may go, and this file changes only what happens after a crossing
+   the rules already allowed. `bodyAlt` answers `floorAt` while a body is settled, which is the #98
+   convention every consumer already assumes, so a body that never meets a drop - every body on the
+   flat levels - renders and is hit exactly where it was before this field existed. */
+const BODY_GRAV = 9.2;                      // the same g the player's airborne branch integrates (:542)
+function updateBodyZ(e, dt) {
+  const gz = floorAt(e.x, e.y);
+  if (e.air) {
+    e.vz -= BODY_GRAV * dt;
+    e.z += e.vz * dt;
+    if (e.z <= gz) {                        // the band it fell onto: no bounce, no sink, no hover
+      const imp = -e.vz;
+      e.z = gz; e.vz = 0; e.air = false;
+      bodyLanding(e, imp);
+    }
+    return;
+  }
+  /* Settled. A floor more than one step below the feet is not support - the same threshold, and the
+     same tolerance, the player's airborne test uses (:540), and the same question asked of the LEVEL
+     rather than re-solved: a stair tread, a ladder and an authored ramp are EK_STEP at both ends, so a
+     body walked down a staircase walks it, exactly as a player does. */
+  if (gz < e.z - STEP_Z - STEP_EPS && !steppedDownInto(e.x, e.y, e.z)) { e.air = true; e.vz = 0; }
+  else e.z = gz;                            // at rest a body's altitude IS its band's floor, to the bit
+}
+/* The foot-down a body's landing takes: dust off the deck it arrived on and a kick on the camera
+   scaled by the IMPACT and by how far the body is, so a body landing across the room is a puff and a
+   body landing under the eye is a thud. No bounce and no damage: fall damage is the player's (#634),
+   and the puff is RANDOM-FREE like corpseLand's, so a drop cannot re-roll anything. */
+function bodyLanding(e, imp) {
+  const d = Math.hypot(e.x - P.x, e.y - P.y);
+  if (imp < 0.6 || isSolid(e.x, e.y)) return;
+  for (let i = 0; i < 5; i++) {              // the puff creeps outward along the deck it landed on
+    const th = e.ang + Math.PI + (i - 2) * 0.6;
+    addPart(e.x, e.y, bodyAlt(e) + 0.04, Math.cos(th) * 0.38, Math.sin(th) * 0.38, 0.22,
+      0.45 + i * 0.04, '#9a8f7e', 0.045, false);
+  }
+  if (d < 15 && !P.deadT)
+    SND.burst(0.07, e.kind === 'brute' ? 80 : 130, 55, 1.1,
+      Math.min(0.09, imp * 0.016) * e.scale / (1 + d * 0.2), 'lowpass', panOf(e) * 0.5);
+  if (d < 9 && !P.deadT) S.shake += Math.min(0.45, imp * 0.09) * (1 - d / 9);
+}
 function updateEnemies(dt) {
   for (const e of ENEMIES) {
     e.ph += dt;
@@ -680,12 +735,12 @@ function updateEnemies(dt) {
          arriving kicks dust off the surface it lands on and leaves a scuff, which is the last thing
          in the frame that is still moving while the body itself slides the rest of the way down. */
       if (!e.landT && wasT < CORPSE.land && e.dieT >= CORPSE.land) corpseLand(e);
-      e.vx *= 0.8; e.vy *= 0.8; tryMove(e, e.vx * dt, e.vy * dt, e.r * 0.6); continue;
+      e.vx *= 0.8; e.vy *= 0.8; tryMove(e, e.vx * dt, e.vy * dt, e.r * 0.6); updateBodyZ(e, dt); continue;
     }
     const dx = P.x - e.x, dy = P.y - e.y, d = Math.hypot(dx, dy) || 1e-4;
     // #118: the ray is the enemy's EYE to the player's, not a line drawn on the floor plan - see losZ.
     // The muzzle altitude is the same convention the orb spawn uses (#117).
-    const see = d < e.type.sight && losZ(e.x, e.y, floorAt(e.x, e.y) + e.scale * 0.62, P.x, P.y, eyeH()) && P.deadT === 0;
+    const see = d < e.type.sight && losZ(e.x, e.y, bodyAlt(e) + e.scale * 0.62, P.x, P.y, eyeH()) && P.deadT === 0;
     if (see) { e.alert = true; e.lx = P.x; e.ly = P.y; e.loseT = 1.6; }
     else if (e.alert) {
       e.loseT -= dt;
@@ -709,7 +764,7 @@ function updateEnemies(dt) {
           // it (ez + 0.02 .. ez + scale, above) and the same way the draw list does. On its own it is an
           // absolute z of 0.63 for a grunt, and the orb's floor is the band (#98), so on any band at or
           // above that the shot was born under its own floor and popOrb ran in the frame it was pushed.
-          PROJ.push({ kind: 'orb', x: e.x, y: e.y, z: floorAt(e.x, e.y) + e.scale * 0.62, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, vz: 0.35, t: 4.5, tex: PROP.orb[0], scale: 0.42, dmg: t.projDmg, src: e });
+          PROJ.push({ kind: 'orb', x: e.x, y: e.y, z: bodyAlt(e) + e.scale * 0.62, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, vz: 0.35, t: 4.5, tex: PROP.orb[0], scale: 0.42, dmg: t.projDmg, src: e });
           SND.enemyShot(panOf(e));
         } else {
           const dd = Math.hypot(P.x - e.x, P.y - e.y);
@@ -720,7 +775,7 @@ function updateEnemies(dt) {
              edge) keep their melee, because a torso-to-torso ray passes over a 0.25 riser, while a
              full band between them is a floor plane the ray crosses. The 2-D `los` stays as the cheap
              first test, so a wall in front of the body still costs one call, not a plane march. */
-          const ezM = floorAt(e.x, e.y) + e.scale * 0.5, pzM = floorAt(P.x, P.y) + 0.55;
+          const ezM = bodyAlt(e) + e.scale * 0.5, pzM = floorAt(P.x, P.y) + 0.55;
           if (dd < t.reach * 1.25 && los(e.x, e.y, P.x, P.y) && losZ(e.x, e.y, ezM, P.x, P.y, pzM))
             damagePlayer(t.melee * (1 + S.level * LVL_RAMP), Math.atan2(e.y - P.y, e.x - e.x));
         }
@@ -733,6 +788,7 @@ function updateEnemies(dt) {
       e.movingAmt = 0.12;
       if (pr > 0.5 && e.atkMode === 'melee' && d > e.type.reach * 0.6) {
         tryMove(e, (dx / d) * e.type.spd * 0.55 * dt, (dy / d) * e.type.spd * 0.55 * dt, e.r * 0.72);
+        updateBodyZ(e, dt);
         e.svx = damp(e.svx, (dx / d) * e.type.spd * 0.55, 8, dt);
         e.svy = damp(e.svy, (dy / d) * e.type.spd * 0.55, 8, dt);
       }
@@ -792,6 +848,7 @@ function updateEnemies(dt) {
     const stag = e.stagger > 0 ? e.stagger / 0.26 : 0;              // shot shove, decaying
     if (stag > 0) { e.svx += e.stgx * stag * stag; e.svy += e.stgy * stag * stag; }
     tryMove(e, (e.svx + e.vx) * dt, (e.svy + e.vy) * dt, e.r * 0.72);
+    updateBodyZ(e, dt);
     e.vx *= Math.pow(0.02, dt); e.vy *= Math.pow(0.02, dt);
     const moved = Math.hypot(e.x - before.x, e.y - before.y);
     const spd = moved / (dt + 1e-6);
