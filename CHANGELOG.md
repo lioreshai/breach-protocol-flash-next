@@ -1,5 +1,42 @@
 # Changelog
 
+## [v1.4.27] - 2026-11-16
+
+### Added
+
+- **What stands past a pit lip or a platform edge is now drawn** (#829, PR #831). Looking across a
+  drop, the ray march stopped at the first lip it met, so everything behind it — the far wall, a
+  stair, the enemy you were shooting at — painted as the same void as the pit itself. The march now
+  carries past the lip and keeps solving the columns behind it, so a room with a drop in it stops
+  losing half its geometry the moment you line up with the edge. This is the first half of #829; that
+  issue stays open because the far lip's own texture still takes the deck's plane past a crossing.
+
+### Changed
+
+- **A note in the contributor guide about checking a tree that is not moving under you.** A long gate
+  spawned against a harness being edited mid-run dies on a parse error in no time at all, and the
+  verdict it prints — most rows failing at 0.0 s — reads exactly like a regression in the change under
+  test. The guide now says to run long gates in a tree pinned to a commit nothing is editing, and to
+  read the wall-clock beside each row before believing a sweep in which many rows cost nothing
+  (PR #835).
+
+### Known limitations
+
+- The pixel change this release ships is the pit-lip march above (#829, PR #831), and it is half of
+  #829: what stands behind a lip is drawn, the far lip's own texture still takes the deck's plane.
+  Everything else that moves a picture is still in flight: the authored mezzanine that stands above
+  the ceiling plane, so the arrival frame shows a floor over you (#421, PR #823 in rework); the hip
+  hand whose fists paint out the part they grip (#780, PR #807 in rework); ABATOIR CORE's ceiling lead
+  (#495, PR #794, still on a stale base).
+- Unchanged and still open: a corner where two walls meet can be a dead end you leave only by
+  restarting (#832); a crate stops your feet and nothing else — you cannot jump onto one and a shot
+  passes straight through it (#833); lamps and crates are dealt onto stairs and landings and can block
+  the route through a level (#834); a body dropped off a deck has no altitude state, so its drawn
+  height snaps to the floor below in a single frame (#830); a hazard-striped crate still out-shines a
+  body at 9 m (#695); and up close an enemy is still a flat card (#727).
+- Most sectors a seed deals are still one storey deep. Multi-storey navigation is open design work,
+  not something this release changes.
+
 ## [v1.4.26] - 2026-11-13
 
 ### Changed
