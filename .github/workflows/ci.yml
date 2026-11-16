@@ -38,14 +38,6 @@ jobs:
         # reader that fails everything can pass. #840.
         run: node tools/wfyaml.js --self-test
 
-      - name: Ruby cross-check of the workflow YAML guard
-        # #840's parity run: the Node reader above is the gate and Psych is the witness, for the one
-        # head where both exist. Reported and not gated, because a disagreement is a bug in
-        # tools/wfyaml.js to fix there - never a workflow file to edit until two parsers agree. Read
-        # this step's log beside the node verdict above; when every line matches, the Ruby goes away.
-        continue-on-error: true
-        run: ruby tools/wfyaml.rb --dir .github/workflows
-
       - name: Release policy regression checks
         run: python3 -m unittest discover -s tools -p test_release_policy.py
 
