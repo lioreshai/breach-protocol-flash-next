@@ -27,9 +27,16 @@ jobs:
 
       - name: Workflow YAML parses and can run
         # The other half of #107's fix. This job is a required check, so a pr-guard.yml that no longer
-        # parses fails HERE instead of vanishing; tools/wfyaml.rb says why an unparseable workflow is
-        # worse than a failing one.
-        run: ruby tools/wfyaml.rb --dir .github/workflows
+        # parses fails HERE instead of vanishing; tools/wfyaml.js says why an unparseable workflow is
+        # worse than a failing one, and being Node it can run here and on any box that has this repo.
+        run: node tools/wfyaml.js --dir .github/workflows
+
+      - name: Workflow YAML guard fixtures fail for their own reason
+        # A green row on the eight real files cannot show the guard is capable of failing. Each file
+        # in tools/fixtures/wfyaml/ breaks exactly one rule and names the reason it must fail with,
+        # and the same run re-reads this very directory, so neither a rule that stopped working nor a
+        # reader that fails everything can pass. #840.
+        run: node tools/wfyaml.js --self-test
 
       - name: Release policy regression checks
         run: python3 -m unittest discover -s tools -p test_release_policy.py

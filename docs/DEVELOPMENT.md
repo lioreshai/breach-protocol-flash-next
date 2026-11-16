@@ -16,7 +16,10 @@ node tools/ci/assert.js audio  the only thing that can verify audio (see below)
 node tools/ci/assert.js bloom  #377's A/B: what the bloom pass adds to the delivered frame, per level
                                (CAPTURE=n also writes /tmp/fps_bloom_n_on.png and _off.png — one pose,
                                frozen, differing only in DEV.set('bloom', …))
-node tools/wfyaml.rb           every workflow parses, and no job runs nothing
+node tools/wfyaml.js           every workflow parses, and no job runs nothing
+node tools/wfyaml.js --self-test
+                               the same guard against its fixtures: each must fail for its own stated
+                               reason, and the tree's own workflows must still parse
 ```
 
 `smoke.js` is the verdict. **Match `SMOKE PASSED` / `SMOKE FAILED`, never a row count** — the VERT

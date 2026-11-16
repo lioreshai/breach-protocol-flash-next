@@ -1,0 +1,10 @@
+# BROKEN: a step `name:` carrying colon-space. A plain YAML scalar cannot hold it, so the whole file
+# stops parsing, which means ZERO jobs and no check row at all - the defect this guard exists for (#107).
+name: fixtures
+on: push
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Build and test: the deploy
+        run: echo hi

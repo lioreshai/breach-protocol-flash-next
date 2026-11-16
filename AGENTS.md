@@ -100,7 +100,7 @@ Each child runs with that line's own prefix plus PATH/HOME/TMPDIR/TEMP/TMP/LANG/
 and nothing
 else from your shell - an ambient `LEAK=1` or `STRICT=1` you exported weeks ago would otherwise change
 which rows exist, and it is named on the entry's line when dropped. Blocking steps that run something
-other than `view.js`/`smoke.js` (`recap.js`, `ci/assert.js`, `wfyaml.rb`) are printed as a named gap in
+other than `view.js`/`smoke.js` (`recap.js`, `ci/assert.js`, `wfyaml.js`) are printed as a named gap in
 that step's coverage, never as a silent ok.
 
 **Gate on the tool's verdict, never on a grep for a line.** Grepping `raster cost` matched
@@ -224,7 +224,7 @@ They generalize; the measurements that found them are in that file.
   `main`. Older integrations were squashed: confirm historical merges by PR state and
   actual contents rather than assuming their branch commits are ancestors of `main`.
 - **A YAML step `name:` cannot contain `': '`** — a plain scalar cannot hold colon-space, so
-  the whole workflow fails to parse and nothing reports (#107). `tools/wfyaml.rb` asserts each
+  the whole workflow fails to parse and nothing reports (#107). `tools/wfyaml.js` asserts each
   workflow parses and that no job runs nothing; it cannot check its own file, so `ci.yml` and
   `pr-guard.yml` validate each other.
 
