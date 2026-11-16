@@ -2,15 +2,23 @@
 
 ## [v1.4.27] - 2026-11-16
 
+### Added
+
+- **What stands past a pit lip or a platform edge is now drawn** (#829, PR #831). Looking across a
+  drop, the ray march stopped at the first lip it met, so everything behind it — the far wall, a
+  stair, the enemy you were shooting at — painted as the same void as the pit itself. The march now
+  carries past the lip and keeps solving the columns behind it, so a room with a drop in it stops
+  losing half its geometry the moment you line up with the edge. This is the first half of #829; that
+  issue stays open because the far lip's own texture still takes the deck's plane past a crossing.
+
 ### Changed
 
-- **Nothing you see or shoot changed in this build.** One change has merged since v1.4.26 and it is
-  in the contributor guide rather than the game: it names what running a long check in a tree that is
-  being edited underneath it costs. A gate spawned against a half-written harness dies on a parse
-  error in no time at all, and the verdict it prints — most rows failing at 0.0 s — reads exactly like
-  a regression in the change under test. The guide now says to run long gates in a tree pinned to a
-  commit nothing is editing, and to read the wall-clock beside each row before believing a sweep in
-  which many rows cost nothing (PR #835). The shipped game is v1.4.26 pixel for pixel.
+- **A note in the contributor guide about checking a tree that is not moving under you.** A long gate
+  spawned against a harness being edited mid-run dies on a parse error in no time at all, and the
+  verdict it prints — most rows failing at 0.0 s — reads exactly like a regression in the change under
+  test. The guide now says to run long gates in a tree pinned to a commit nothing is editing, and to
+  read the wall-clock beside each row before believing a sweep in which many rows cost nothing
+  (PR #835).
 
 ### Known limitations
 
