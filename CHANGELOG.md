@@ -22,11 +22,12 @@
 
 ### Known limitations
 
-- Every change that moves a pixel is in flight, not in this release: marching the ray march past a
-  deck lip so what stands behind a pit or a platform is drawn at all (#829, PR #831 in rework); the
-  authored mezzanine that stands above the ceiling plane, so the arrival frame shows a floor over you
-  (#421, PR #823 in rework); the hip hand whose fists paint out the part they grip (#780, PR #807 at
-  review); ABATOIR CORE's ceiling lead (#495, PR #794, still on a week-old base).
+- The pixel change this release ships is the pit-lip march above (#829, PR #831), and it is half of
+  #829: what stands behind a lip is drawn, the far lip's own texture still takes the deck's plane.
+  Everything else that moves a picture is still in flight: the authored mezzanine that stands above
+  the ceiling plane, so the arrival frame shows a floor over you (#421, PR #823 in rework); the hip
+  hand whose fists paint out the part they grip (#780, PR #807 in rework); ABATOIR CORE's ceiling lead
+  (#495, PR #794, still on a stale base).
 - Unchanged and still open: a corner where two walls meet can be a dead end you leave only by
   restarting (#832); a crate stops your feet and nothing else — you cannot jump onto one and a shot
   passes straight through it (#833); lamps and crates are dealt onto stairs and landings and can block
