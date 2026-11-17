@@ -418,28 +418,60 @@ function tryMove(o, dx, dy, rad) {
     return;
   }
   const wx = o.x, wy = o.y;
-  // axis-separated slide
+  slide(o, dx, dy, rad);
+  /* THE CORNER WEDGE (#832): NO DIRECTION moves this mover while it stands in a legal cell.
+     The slide asks THREE canEnter questions per axis - the destination and two lateral probes at
+     +- rad * 0.7 - and in a 90-degree corner both laterals land in the two wall cells, so both axes
+     are refused and every key the player presses answers the same. The embedded-mover fallback
+     above cannot help: the mover is not inside geometry and not inside a prop, so the one release
+     that exists for "no direction is offered" stays asleep and only a restart frees him. A body
+     that drops into the same spot stands there for the rest of the level.
+     The release is the geometric one: step back along each axis until the disc stands clear of every
+     face the mover cannot cross, still inside the SAME cell. No crossing is asked about, so
+     `canEnter` and the stored kind (#633) rule exactly as before.
+     WHAT ASSETS IT, AND WHY THAT IS THE WHOLE DESIGN: one command moving nothing is NOT the trigger,
+     because a graze answers that on a single legal frame. Sliding along a wall asks the lateral
+     probes at +- rad * 0.7, so a body may stand as close as 0.7 rad to the face it slides along and
+     be exactly where the rules put it; on the frame its own direction happens to be refused as well,
+     the slide moves nothing, and a release keyed on THAT would push the body off a face it is legally
+     riding - off its sliding line and into whatever stands beside it. That is the snag #849's review
+     found on a lamp in a doorway (`view.js props`'s "slides, does not seal"), and a body that slides
+     is not stuck. The trigger is therefore the question the row measures: run the SAME slide over the
+     eight compass directions at the command's own length and release only when ALL EIGHT move nothing.
+     A body riding a wall always has the wall's own direction open, so it is never touched; a body
+     that truly cannot go anywhere is the one this rule exists for. Eight slides, and only on a frame
+     that moved nothing, and it short-circuits on the first direction that does move. */
+  if (wedgeReliefEnabled() && (dx !== 0 || dy !== 0) && o.x === wx && o.y === wy &&
+      !anyWayOut(o.x, o.y, Math.hypot(dx, dy), rad)) standClear(o, rad);
+}
+/* The axis-separated slide on its own, so the wedge test above can ask it of eight directions without
+   moving anybody. This is the shipped slide, byte for byte - the SAME three probes per axis, the SAME
+   grown prop ghost - and it is the only copy: a second implementation of the slide to test the first
+   one is how the two drift apart. It mutates `o`, which for the wedge test is a scratch object the
+   mover is copied into, never the mover. */
+function slide(o, dx, dy, rad) {
   if (canEnter(o.x, o.y, o.x + dx + Math.sign(dx) * rad, o.y) && canEnter(o.x, o.y, o.x + dx + Math.sign(dx) * rad, o.y - rad * 0.7) && canEnter(o.x, o.y, o.x + dx + Math.sign(dx) * rad, o.y + rad * 0.7) && !propBlocks(o.x + dx, o.y, rad)) o.x += dx;
   if (canEnter(o.x, o.y, o.x, o.y + dy + Math.sign(dy) * rad) && canEnter(o.x, o.y, o.x - rad * 0.7, o.y + dy + Math.sign(dy) * rad) && canEnter(o.x, o.y, o.x + rad * 0.7, o.y + dy + Math.sign(dy) * rad) && !propBlocks(o.x, o.y + dy, rad)) o.y += dy;
-  /* THE CORNER WEDGE (#832): a command that moved the mover NOWHERE while it stands in a legal
-     cell. The slide above asks THREE canEnter questions per axis - the destination and two lateral
-     probes at +- rad * 0.7 - and in a 90-degree corner both laterals land in the two wall cells, so
-     both axes are refused and every key the player presses answers the same. The embedded-mover
-     fallback above cannot help: the mover is not inside geometry and not inside a prop, so the one
-     release that exists for "no direction is offered" stays asleep and only a restart frees him. A
-     body that drops into the same spot stands there for the rest of the level.
-     The reason the probes refuse everything is that the mover's OWN disc overlaps faces it may not
-     cross: it is inside `rad` of a face, which is exactly what makes the lateral probes land in the
-     cell beyond it. A legal move never leaves the centre closer than `rad` to the face it approached
-     (the forward probe at + rad has to be in the open cell), so this overlap is only reachable by
-     arriving some other way - dropping into the corner, a blast, a spawn. So the release is
-     geometric and decides nothing: step back along each axis until the disc stands clear of every
-     face the mover cannot cross, still inside the same cell. No crossing is asked about, so
-     `canEnter` and the stored kind (#633) rule exactly as before; the mover is only released from
-     a position the rules never put it in. */
-  if (wedgeReliefEnabled() && (dx !== 0 || dy !== 0) && o.x === wx && o.y === wy) standClear(o, rad);
 }
-/* The release tryMove calls when the probes offer nothing. `blocked` is canEnter's own answer on a
+/* The eight compass directions at unit length, so a direction is a DIRECTION and the probe length
+   stays the command's own - the question is "could this mover have gone anywhere at all with the step
+   it just tried", not "could it have gone anywhere with a 0.45 m lunge". The exact +-1/0 components
+   matter: 1e-17 from Math.cos(PI/2) would make a pure axis read as a diagonal to Math.sign. A move
+   below WEDGE_MOVED is no move - it is the denormal a trig component would leave, not a step. */
+const WEDGE_DIRS = [[1, 0], [0.7071067811865476, 0.7071067811865476], [0, 1],
+  [-0.7071067811865476, 0.7071067811865476], [-1, 0], [-0.7071067811865476, -0.7071067811865476],
+  [0, -1], [0.7071067811865476, -0.7071067811865476]];
+const WEDGE_MOVED = 1e-6;
+function anyWayOut(x, y, step, rad) {
+  const m = { x: 0, y: 0 };
+  for (let k = 0; k < 8; k++) {
+    m.x = x; m.y = y;
+    slide(m, WEDGE_DIRS[k][0] * step, WEDGE_DIRS[k][1] * step, rad);
+    if (Math.abs(m.x - x) > WEDGE_MOVED || Math.abs(m.y - y) > WEDGE_MOVED) return true;
+  }
+  return false;
+}
+/* The release tryMove calls when no direction moves the mover. `blocked` is canEnter's own answer on a
    one-cell probe from the centre of the mover's cell, so a riser you may not climb counts as a face
    exactly as a solid cell does - one predicate, never a second one. A face that canEnter crosses is
    left alone: standing close to an open doorway is legal and pushing the mover away from it would be
