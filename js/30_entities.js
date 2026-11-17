@@ -738,9 +738,18 @@ function updateEnemies(dt) {
       e.vx *= 0.8; e.vy *= 0.8; tryMove(e, e.vx * dt, e.vy * dt, e.r * 0.6); updateBodyZ(e, dt); continue;
     }
     const dx = P.x - e.x, dy = P.y - e.y, d = Math.hypot(dx, dy) || 1e-4;
-    // #118: the ray is the enemy's EYE to the player's, not a line drawn on the floor plan - see losZ.
-    // The muzzle altitude is the same convention the orb spawn uses (#117).
-    const see = d < e.type.sight && losZ(e.x, e.y, bodyAlt(e) + e.scale * 0.62, P.x, P.y, eyeH()) && P.deadT === 0;
+    /* #118: the ray is the enemy's EYE to the player's, not a line drawn on the floor plan - see losZ -
+       and #830 put that eye at the body's own altitude, which is right for a body STANDING on a band.
+       It is wrong for one in mid-air: falling through a lip lifts the eye into the opening it is
+       passing, and the ray then clears the slab that hides the player from both the deck above and the
+       deck below (measured at L0: eye at the falling altitude sees, eye on either settled band does
+       not). That re-seats `lx,ly` on the player mid-drop and resets loseT, which is the search
+       persistence #358 bought being given back - the `sight` row closed 1.42 m of a 5 m gap against
+       main's 4.62. So sight is taken from a SURFACE: a body with nothing under its feet does not get a
+       new look at you, it keeps walking to where it last saw you and sees you when it lands. The other
+       three #830 consumers (hit volume, muzzle, melee) still read `bodyAlt`, because those are about
+       where the body IS, not about what it can see. */
+    const see = !e.air && d < e.type.sight && losZ(e.x, e.y, bodyAlt(e) + e.scale * 0.62, P.x, P.y, eyeH()) && P.deadT === 0;
     if (see) { e.alert = true; e.lx = P.x; e.ly = P.y; e.loseT = 1.6; }
     else if (e.alert) {
       e.loseT -= dt;
