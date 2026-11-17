@@ -5319,6 +5319,125 @@ if (MODE === 'sight') {
         MB.bandP.wind ? `damage ${MB.bandP.dmg} with the body ${MB.bandP.dz} quanta below at swing time (want 0); opening at poke time ${MB.bandP.gapAt} m (closed here - the raised cell is the PLAYER's, so its own ceiling already cleared the raise before the poke), ray lz ${MB.bandP.dbg.lz}` : 'NO WIND-UP - row vacuous');
     }
   }
+  /* #832: the corner wedge. A seat census - and the census is the row, because the centre version
+     that was run before this issue was filed found ZERO trap cells on all four sectors and could not
+     see the defect at all. Standing a mover at the centre of an open cell asks a question the shipped
+     geometry almost always answers "no": the centre is half a metre from every face, so with the
+     probe radius at 0.3 no lateral probe can reach a wall. The wedge needs the mover INSIDE rad of
+     two faces that both refuse crossing, which is where a drop into a corner leaves it. So this
+     sweeps three populations of seats across every open cell of all four sectors:
+       - a 5x5 grid of positions inside the cell, so off-centre seats are covered;
+       - CORNER SEATS, the mechanism's own config: 0.15 m inside two faces that `canEnter` refuses,
+         which is what it looks like to be wedged (a level with no 90-degree corner would make these
+         rows vacuous, so the count is printed and a zero count fails);
+       - DROP ARRIVALS, the way the report says the position is actually reached: entered just inside
+         the far side of a neighbour the feet may come DOWN from, at the depth a walk-off leaves the
+         body, so the sweep covers arrival and not just standing.
+     Every seat is tested twice, once with the release OFF (which is the shipped behaviour, and is the
+     population of wedges) and once with it ON, and the ON count is what must be zero. The third row
+     is the body half: a body seated in a real wedge and driven through the real update() for 240
+     frames, aimed at a target BEYOND the two faces it cannot cross, so a body that stays frozen and a
+     body that is released are different pictures and the row cannot pass on a mover that simply has
+     nowhere it wants to go. */
+  for (let li = 0; li < run('LEVELS.length'); li++) {
+    const WC = run(`(function(){
+      startLevel(${li}, true);
+      const rad = 0.3, step = 0.45;
+      const o = { swept: 0, solid: 0, wedges: 0, onWedges: 0, cornerSeats: 0, dropSeats: 0,
+                  res: [], bodyMoved: -1, bodySee: -1, seat: null, fzq: 0 };
+      const dirs = [];
+      for (let k = 0; k < 8; k++) dirs.push([Math.cos(k * Math.PI / 4) * step, Math.sin(k * Math.PI / 4) * step]);
+      const m = { x: 0, y: 0 };
+      const escaper = (x, y) => {
+        for (let k = 0; k < 8; k++) {
+          m.x = x; m.y = y;
+          tryMove(m, dirs[k][0], dirs[k][1], rad);
+          if (Math.hypot(m.x - x, m.y - y) >= 0.05) return true;
+        }
+        return false;
+      };
+      const faces = (gx, gy) => [!canEnter(gx + 0.5, gy + 0.5, gx - 0.5, gy + 0.5),
+                                 !canEnter(gx + 0.5, gy + 0.5, gx + 1.5, gy + 0.5),
+                                 !canEnter(gx + 0.5, gy + 0.5, gx + 0.5, gy - 0.5),
+                                 !canEnter(gx + 0.5, gy + 0.5, gx + 0.5, gy + 1.5)];
+      const seats = [];
+      for (let gy = 1; gy < MH - 1; gy++) for (let gx = 1; gx < MW - 1; gx++) {
+        const i = gy * MW + gx;
+        if (MAP.cell[i]) continue;
+        for (const oy of [0.1, 0.3, 0.5, 0.7, 0.9]) for (const ox of [0.1, 0.3, 0.5, 0.7, 0.9]) seats.push([gx + ox, gy + oy]);
+        const f = faces(gx, gy);
+        for (const fx of (f[0] ? [gx + 0.15] : []).concat(f[1] ? [gx + 0.85] : []))
+          for (const fy of (f[2] ? [gy + 0.15] : []).concat(f[3] ? [gy + 0.85] : [])) {
+            seats.push([fx, fy]); o.cornerSeats++;
+          }
+        for (let k = 0; k < 4; k++) {
+          const nx = gx + [1, -1, 0, 0][k], ny = gy + [0, 0, 1, -1][k];
+          if (nx < 0 || ny < 0 || nx >= MW || ny >= MH || MAP.cell[ny * MW + nx]) continue;
+          if (MAP.fz[ny * MW + nx] - MAP.fz[i] < 1) continue;      // a tread is not a drop
+          if (!canEnter(nx + 0.5, ny + 0.5, gx + 0.5, gy + 0.5)) continue;
+          for (const dep of [0.06, 0.35]) for (const lat of [-0.35, 0, 0.35]) {
+            const px = k === 0 ? gx + dep : k === 1 ? gx + 1 - dep : gx + 0.5 + lat;
+            const py = k === 2 ? gy + dep : k === 3 ? gy + 1 - dep : gy + 0.5 + lat;
+            seats.push([px, py]); o.dropSeats++;
+          }
+        }
+      }
+      wedgeRelief = false;
+      const wedges = [];
+      for (const s of seats) {
+        o.swept++;
+        if (isSolid(s[0], s[1])) { o.solid++; continue; }
+        if (!escaper(s[0], s[1])) { o.wedges++; if (wedges.length < 400) wedges.push(s); }
+      }
+      wedgeRelief = true;
+      for (const s of wedges) if (!escaper(s[0], s[1])) o.onWedges++;
+      o.wed = wedges;
+      /* the body half, seated in the first real wedge the sweep found and aimed at a target on the far
+         side of the two faces it cannot cross, so the direction it wants is the refused one. The player
+         is put as far from the body as the grid allows so its eye does not see the player and the walk is toward lx/ly. */
+      if (wedges.length && ENEMIES.length) {
+        const en = ENEMIES[0];
+        ENEMIES.length = 0; ENEMIES.push(en);
+        const s = wedges[0], gx = s[0] | 0, gy = s[1] | 0, f = faces(gx, gy);
+        const tx = (f[0] ? -1 : 0) + (f[1] ? 1 : 0), ty = (f[2] ? -1 : 0) + (f[3] ? 1 : 0);
+        let far = null, fd = -1;
+        for (let y = 1; y < MH - 1; y += 2) for (let x = 1; x < MW - 1; x += 2) {
+          if (MAP.cell[y * MW + x]) continue;
+          const d = Math.hypot(x - s[0], y - s[1]);
+          if (d > fd) { fd = d; far = [x + 0.5, y + 0.5]; }
+        }
+        P.x = far[0]; P.y = far[1]; P.z = floorAt(P.x, P.y); P.ang = 0; P.hp = 100; P.deadT = 0;
+        P.vx = P.vy = P.vz = 0; P.air = false; P.crouch = 0;
+        en.x = s[0]; en.y = s[1]; en.z = floorAt(s[0], s[1]); en.state = 'chase'; en.alert = true;
+        en.lx = s[0] + (tx || 1) * 3; en.ly = s[1] + (ty || 1) * 3; en.loseT = 1e6; en.search = 0;
+        en.hp = 1e6; en.dead = false; en.atkT = 0; en.cd = 0; en.stuck = 0; en.stagger = 0;
+        en.vx = en.vy = en.svx = en.svy = 0;
+        S.mode = 'play'; S.locked = false; PROJ.length = 0;
+        let seen = 0;
+        for (let k = 0; k < 240; k++) {
+          update(1 / 60);
+          if (losZ(en.x, en.y, floorAt(en.x, en.y) + en.scale * 0.62, P.x, P.y, eyeH())) seen++;
+        }
+        o.bodyMoved = +Math.hypot(en.x - s[0], en.y - s[1]).toFixed(2);
+        o.bodySee = seen;
+        o.seat = [+s[0].toFixed(2), +s[1].toFixed(2)];
+        o.fzq = MAP.fz[(s[1] | 0) * MW + (s[0] | 0)];
+      }
+      wedgeRelief = true;
+      return o; })()`);
+    const sample = WC.wed ? WC.wed.slice(0, 3).map(s => `${s[0]},${s[1]}`).join('  ') : 'none';
+    row(`L${li} no seat in a legal cell is a dead end`,
+      WC.onWedges === 0 && WC.swept > 0 && WC.cornerSeats > 0 && WC.wedges > 0,
+      `${WC.swept} seats (${WC.cornerSeats} corner, ${WC.dropSeats} drop arrivals): ${WC.wedges} wedged with the release OFF, ${WC.onWedges} still wedged with it ON  | first wedged seats ${sample}  | ${WC.solid} seats inside geometry are the embedded fallback's, not this row's`);
+    row(`L${li} a body seated in a corner is not frozen for the level`,
+      WC.seat !== null && WC.bodyMoved > 0.2,
+      WC.seat ? `seated at ${WC.seat[0]},${WC.seat[1]} (floor ${WC.fzq} q), aimed past the faces it cannot cross: ` +
+        `${WC.bodyMoved} m in 240 frames of the real update(), eye saw the player ${WC.bodySee}/240` +
+        '  | the seat is a wedge the OFF arm proved refuses all eight directions, so on a build without the release no'
+        + ' command and no chase direction can move this body at all - the row fails there, whichever way it wants to go'
+        + (WC.bodyMoved > 0.2 ? '' : ' - FROZEN, which is the shipped defect')
+        : 'the sweep found no wedge on this level, so the body has nowhere to be seated - VACUOUS');
+  }
   console.log(bad ? `SIGHT ${bad} FAILURES` : 'SIGHT ok - hit tests follow the body they hit');
   process.exit(bad ? 1 : 0);
 }

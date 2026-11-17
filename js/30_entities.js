@@ -410,9 +410,50 @@ function tryMove(o, dx, dy, rad) {
     if (canEnter(o.x, o.y, o.x, o.y + dy)) o.y += dy;
     return;
   }
+  const wx = o.x, wy = o.y;
   // axis-separated slide
   if (canEnter(o.x, o.y, o.x + dx + Math.sign(dx) * rad, o.y) && canEnter(o.x, o.y, o.x + dx + Math.sign(dx) * rad, o.y - rad * 0.7) && canEnter(o.x, o.y, o.x + dx + Math.sign(dx) * rad, o.y + rad * 0.7) && !propBlocks(o.x + dx, o.y, rad)) o.x += dx;
   if (canEnter(o.x, o.y, o.x, o.y + dy + Math.sign(dy) * rad) && canEnter(o.x, o.y, o.x - rad * 0.7, o.y + dy + Math.sign(dy) * rad) && canEnter(o.x, o.y, o.x + rad * 0.7, o.y + dy + Math.sign(dy) * rad) && !propBlocks(o.x, o.y + dy, rad)) o.y += dy;
+  /* THE CORNER WEDGE (#832): a command that moved the mover NOWHERE while it stands in a legal
+     cell. The slide above asks THREE canEnter questions per axis - the destination and two lateral
+     probes at +- rad * 0.7 - and in a 90-degree corner both laterals land in the two wall cells, so
+     both axes are refused and every key the player presses answers the same. The embedded-mover
+     fallback above cannot help: the mover is not inside geometry and not inside a prop, so the one
+     release that exists for "no direction is offered" stays asleep and only a restart frees him. A
+     body that drops into the same spot stands there for the rest of the level.
+     The reason the probes refuse everything is that the mover's OWN disc overlaps faces it may not
+     cross: it is inside `rad` of a face, which is exactly what makes the lateral probes land in the
+     cell beyond it. A legal move never leaves the centre closer than `rad` to the face it approached
+     (the forward probe at + rad has to be in the open cell), so this overlap is only reachable by
+     arriving some other way - dropping into the corner, a blast, a spawn. So the release is
+     geometric and decides nothing: step back along each axis until the disc stands clear of every
+     face the mover cannot cross, still inside the same cell. No crossing is asked about, so
+     `canEnter` and the stored kind (#633) rule exactly as before; the mover is only released from
+     a position the rules never put it in. */
+  if (wedgeReliefEnabled() && (dx !== 0 || dy !== 0) && o.x === wx && o.y === wy) standClear(o, rad);
+}
+/* The release tryMove calls when the probes offer nothing. `blocked` is canEnter's own answer on a
+   one-cell probe from the centre of the mover's cell, so a riser you may not climb counts as a face
+   exactly as a solid cell does - one predicate, never a second one. A face that canEnter crosses is
+   left alone: standing close to an open doorway is legal and pushing the mover away from it would be
+   a new rule, not a release. */
+let wedgeRelief = true;
+function wedgeReliefEnabled() { return wedgeRelief; }
+function standClear(o, rad) {
+  const gx = o.x | 0, gy = o.y | 0, cx = gx + 0.5, cy = gy + 0.5, e = 1e-3;
+  const west = !canEnter(cx, cy, cx - 1, cy), east = !canEnter(cx, cy, cx + 1, cy);
+  const north = !canEnter(cx, cy, cx, cy - 1), south = !canEnter(cx, cy, cx, cy + 1);
+  const clear = (x, blockedWest, blockedEast, lo, hi) => {
+    if (blockedWest && x - lo < rad + e) x = lo + rad + e;
+    if (blockedEast && hi - x < rad + e) x = hi - rad - e;
+    return x;
+  };
+  const nx = clear(o.x, west, east, gx, gx + 1), ny = clear(o.y, north, south, gy, gy + 1);
+  if (nx === o.x && ny === o.y) return;
+  // the push stays inside the mover's own cell, so it can only land on geometry a bad deal authored;
+  // refuse it rather than move a mover into a wall
+  if (isSolid(nx, ny) || propBlocks(nx, ny, rad)) return;
+  o.x = nx; o.y = ny;
 }
 /* Landing feel (#634), both halves driven by the impact speed `imp` the touchdown already computes.
    LAND_SHAKE_*: the camera kick, floored so a small landing is not perfectly still and capped at the
