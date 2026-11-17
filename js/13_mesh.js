@@ -1560,12 +1560,21 @@ const MESH = (function () {
     b.tube(0, shTop - JOIN, 0, 0, nkY + JOIN, 0, neckR(s), neckR(s) * (NECK_R1 / NECK_R0), dk);
     b.box(0, hdY, 0, s.headR * HEAD_HW, s.headR * HEAD_HH, s.headR * 0.80, dk);
     b.box(0, hdY + s.headR * VISOR_DY, s.headR * 0.72, s.headR * 0.62, s.headR * 0.30, s.headR * 0.22, [255, 208, 138]);
+    /* #847 THE ARM WAS THE TORSO'S OWN COLOUR, AND AT 2 m IT STOPPED BEING AN ARM. Both arm tubes were
+       authored in `sk`, the same albedo as the torso box they hang beside, so the only thing telling an
+       arm from a chest was the per-face light ramp on a 4-6 cm tube - at 2 m that is a few pixels of
+       shading between two identical values, and the frame delivered one mass. The forearm now wears the
+       suit (`cl`, the value the legs already wear) and the arm ENDS in a fist, so each arm has a value of
+       its own and an end the eye can find. The fist is `dk`: a hand is a hard knuckle mass, not another
+       sleeve, and this is the part the held weapon sits IN (see the gun block). */
     for (let i = 0; i < 2; i++) {
       const A = q.arm[i], ax = (i ? 1 : -1) * s.shLat;
       b.ns = seg;                                      // #78: the limbs are where 6 sides show
       b.tube(ax, shY, 0, A.ex, A.ey, A.ez, s.arm, s.arm * 0.86, sk);
-      b.tube(A.ex, A.ey, A.ez, A.hx, A.hy, A.hz, s.arm * 0.86, s.arm * 0.7, sk);
+      b.tube(A.ex, A.ey, A.ez, A.hx, A.hy, A.hz, s.arm * 0.86, s.arm * 0.7, cl);
       b.ns = 0;
+      b.box(A.hx, A.hy - s.arm * 0.30, A.hz + s.arm * 0.45,
+        s.arm * 1.20, s.arm * 0.95, s.arm * 1.30, dk);  // the fist, hung off the wrist the tube ends at
     }
     /* #78: a held object. An enemy that goes through the whole attack bucket with nothing in its hands
        reads as a mannequin, and the wind-up had no object to move. The weapon is placed AT the right
@@ -1588,8 +1597,18 @@ const MESH = (function () {
          against 0.10 half-width) so the silhouette gains an edge on BOTH sides, in plan view as well as
          in profile. The arm's elevation still rides on it, but as a small term: the hand is where the
          animation puts it, and the muzzle pitch must not swallow the cant. */
+      /* #847 THE CANT WAS THE PLANK. `0.78 across, 0.55 forward, level` is, projected head-on, a BAR: the
+         screen-space length is `1.3 * gl * gx/|g|` - 0.41 of a body height for a brute, against a chest
+         0.32 wide - and with gy near zero every pixel of it sits on ONE screen row. That is the whole
+         defect: a horizontal band wider than the torso, in the darkest value on the body, at the height
+         where both arms also are. A held object needs screen-space extent at every yaw (that is why the
+         cant exists), but it does not need to be LEVEL, and extent along a DIAGONAL reads as an object
+         instead of scenery. The cant is therefore turned over: 0.52 across, 0.74 forward, and a 20 deg
+         downward lay, so the same length lands as a ~30 deg diagonal from the right shoulder line down to
+         the left hip and no longer stands out past the silhouette on both sides. The arm's elevation term
+         is kept (it is what makes the muzzle swing with the wind-up) and re-based on the new lay. */
       const el = Math.max(-1, Math.min(1, (A.hy - A.ey) / s.fore));
-      let gy = -0.06 + 0.22 * (el + 1), gx = 0.78, gz = 0.55;
+      let gy = -0.30 + 0.26 * (el + 1), gx = 0.52, gz = 0.74;
       /* A corpse must not be able to hold its own top edge up. `anim`'s topple rows found this at once:
          silhouette top moved 8 px of a 272 px body where main moves it 88..91, and the row wants 15% of
          the body's rise - so the corpse stopped reading as collapsed even though 89% of its pixels moved.
@@ -1606,10 +1625,18 @@ const MESH = (function () {
       const gL = Math.hypot(gx, gy, gz) || 1e-6; gx /= gL; gy /= gL; gz /= gL;
       const hx = A.hx, hy = A.hy, hz = A.hz;
       b.ns = 4;
+      /* #847 THE PARTS WERE AUTHORED AS ONE VALUE. The stock and the magazine carry `dk`, and the brute's
+         DARK is [36,26,44] against a GUNM of [30,34,42] - nine luma apart, and the same hue family - so
+         three of the four parts shared a value and the fourth was two steps lighter. Four parts painted
+         one number is one quad, which is exactly what the issue describes. The metal is now ordered by
+         what each part IS: the thick receiver is the LIGHTER gunmetal (a machined block catches light),
+         the thin barrel is the DARK one (a shadowed bore), the stock and magazine stay the body's dark so
+         the wood-and-polymer end reads against the metal. No new value is introduced and no part gets
+         brighter than armour: this re-orders the two that already exist. */
       b.tube(hx - gx * gl * 0.30, hy - gy * gl * 0.30, hz - gz * gl * 0.30, hx, hy, hz, cal * 1.15, cal * 0.95, dk);
-      b.tube(hx, hy, hz, hx + gx * gl * 0.62, hy + gy * gl * 0.62, hz + gz * gl * 0.62, cal, cal * 0.92, GUNM);
+      b.tube(hx, hy, hz, hx + gx * gl * 0.62, hy + gy * gl * 0.62, hz + gz * gl * 0.62, cal, cal * 0.92, GUNM2);
       b.tube(hx + gx * gl * 0.62, hy + gy * gl * 0.62, hz + gz * gl * 0.62,
-        hx + gx * gl, hy + gy * gl, hz + gz * gl, cal * 0.60, cal * 0.48, GUNM2);   // barrel: the longest edge
+        hx + gx * gl, hy + gy * gl, hz + gz * gl, cal * 0.60, cal * 0.48, GUNM);   // barrel: the longest edge
       b.box(hx + gx * gl * 0.30, hy + gy * gl * 0.30 - s.gun.mag * 0.55, hz + gz * gl * 0.30,
         cal * 0.8, s.gun.mag * 0.5, cal * 0.8, dk);    // magazine, hung under the receiver
       b.ns = 0;
