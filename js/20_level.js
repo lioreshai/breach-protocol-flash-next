@@ -4381,27 +4381,51 @@ function genLevel(li) {
        whenever the pick is legal, so a sector whose rooms are mostly flat deals exactly main's props.
        Light is NOT resolved apart from the body: the LIGHTS entry and the PROPS entry come off the same
        cell, and a source is a value in a lightmap that blocks nothing - what the predicate moves is the
-       pick, and it moves by the shipped no-draw ring walk. */
-    const spotOk = (x, y) => (!(SPAWN_CLEAR > 0) || seatClear(x, y)) && !climbCellAt(x, y);
-    // deterministic and RNG-free: the nearest open reachable cell outside the disc and off a climb,
-    // Chebyshev rings first, scan order within a ring. #154 stopped at three rings because a pick inside
-    // the seat's disc is at most that far from open deck; a climb is LONGER than that - a flight of treads
-    // is five cells and every one of them plus both landings fails the predicate - so the walk runs to
-    // six, which is the farthest a fixture was measured needing to go. It still draws nothing: widening a
-    // ring walk costs arithmetic, never a die.
-    const clearSpot = c => {
-      if (spotOk(c[0], c[1])) return c;
-      for (let r = 1; r <= 6; r++)
+       pick, and it moves by the shipped no-draw ring walk.
+       REWORK (PR #852 review): THAT SENTENCE WAS THE BUG. One walk feeding both entries means a lamp
+       dealt on a tread takes its 7-10 m pool with it when it steps off the flight, and the first head
+       paid for the clear tread with light - measured at 428d79b against current main, in one tree each:
+       `view.js alt` sector 0 dark ground 113 -> 170 cells (1.6% -> 2.5% against the recorded 1.7 +/- 0.6)
+       with the covered share 61.1% -> 51.8% and sector 1's seat-reach 4.8% -> 5.7%; `exposure` two
+       sources 1.41 m apart at sector 1 and 1.00 m at sector 2 against the 2.00 m floor main holds at
+       5.00/6.00 - #149 item 2, one pool paid for twice while the place neither one landed in stayed
+       dark; `contrast` sector 0's 10 m paint row down to 26 coverage px under its 40 px floor. A level
+       you can walk up but cannot see is not a better level, so the two questions are now asked by two
+       walks of different depth:
+         clearSpot  WHERE A SOURCE STANDS. #154's walk unchanged - same predicate (the seat's disc), same
+                    three rings. It does not consult `climbCellAt`, because light is a value in a
+                    lightmap and blocks nothing, and a stairwell whose treads are lit is the picture the
+                    lighting passes were written to deliver. On every deal the lightmap is therefore
+                    main's, band for band: `alt`, `exposure` and `contrast` cannot see this change.
+         bodySpot   WHERE A FOOTPRINT STANDS. The climb clause lives here, because the footprint is the
+                    thing that ends a one-cell flight. Six rings rather than three, because a climb is
+                    LONGER than a point obstacle - a flight of treads is five cells and every one of
+                    them plus both landings fails - and it walks outward FROM THE SOURCE'S OWN CELL, so a
+                    displaced post lands beside the pool it lights (r 7.2-10 m) instead of up to six
+                    cells of grid away from it.
+       The two agree on every cell of a level with no stairs, and on every lamp whose pick is already
+       legal, which is most of a deal; they differ only where a lamp was dealt onto a climb, and there
+       the post steps onto the nearest deck while the light stays over the flight. */
+    const seatOk = (x, y) => !(SPAWN_CLEAR > 0) || seatClear(x, y);
+    const bodyOk = (x, y) => seatOk(x, y) && !climbCellAt(x, y);
+    // the shipped no-draw ring walk: Chebyshev rings first, scan order within a ring, predicate and
+    // depth from the caller. It draws nothing and rolls no dice (#96), so a moved cell costs arithmetic
+    // and the level downstream of it stays bit-for-bit the level main built.
+    const ringSpot = (c, ok, rings) => {
+      if (ok(c[0], c[1])) return c;
+      for (let r = 1; r <= rings; r++)
         for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
           if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
           const nx = c[0] + dx, ny = c[1] + dy;
           if (nx < 1 || ny < 1 || nx >= N - 1 || ny >= N - 1) continue;
           const i = ny * N + nx;
-          if (cell[i] || dist[i] < 0 || !spotOk(nx, ny)) continue;
+          if (cell[i] || dist[i] < 0 || !ok(nx, ny)) continue;
           return [nx, ny];
         }
       return c;
     };
+    const clearSpot = c => ringSpot(c, seatOk, 3);   // main's walk: where a SOURCE stands
+    const bodySpot = c => ringSpot(c, bodyOk, 6);    // #834: where a FOOTPRINT stands
     const takeNear = (minD, maxD) => {
       for (let tries = 0; tries < 200; tries++) {
         const c = freeCells[rndi(freeCells.length)], d = dist[c[1] * N + c[0]];
@@ -4418,11 +4442,14 @@ function genLevel(li) {
 
     LIGHTS = []; PROPS = []; PICKUPS = []; PROJ = []; PARTS = []; ENEMIES = [];
     for (let i = 0; i < cfgL.lamps; i++) {
-      const c = clearSpot(takeNear(1));      // #154: a lamp is a prop - it draws, and FOOT.lamp blocks.
-      // one clearSpot call feeds the LIGHTS entry and the PROPS entry below, so light and prop disagree
-      // with each other on no deal;
+      // #154: a lamp is a prop - it draws, and FOOT.lamp blocks. The light stands at the cell the draw
+      // picked (walked out of the seat's disc, #154's rule); the POST stands at that cell too whenever it
+      // is legal, and at the nearest deck that is not a climb whenever the draw landed on a tread. Both
+      // come off the same pick, so no deal can seat a lamp's light and its body in different worlds.
+      const c = clearSpot(takeNear(1));
+      const b = bodySpot(c);
       LIGHTS.push({ x: c[0] + 0.5, y: c[1] + 0.5, z: floorAt(c[0] + 0.5, c[1] + 0.5) + LHOVER, r: 7.2 + Math.random() * 2.8, str: 1.05, col: cfgL.lampCol, stat: 1 });
-      PROPS.push({ tex: PROP.lamp, x: c[0] + 0.5, y: c[1] + 0.5, scale: 0.95, z: floorAt(c[0] + 0.5, c[1] + 0.5), kind: 'lamp', yaw: propYaw(c[0] + 0.5, c[1] + 0.5) });
+      PROPS.push({ tex: PROP.lamp, x: b[0] + 0.5, y: b[1] + 0.5, scale: 0.95, z: floorAt(b[0] + 0.5, b[1] + 0.5), kind: 'lamp', yaw: propYaw(b[0] + 0.5, b[1] + 0.5) });
     }
     /* The pad light deliberately carries NO z: it is drawn as a glow AT the floor, so it
        emits from the floor of its own cell - the documented splatLight default, the same
@@ -4690,20 +4717,25 @@ function genLevel(li) {
         // #154: the coverage top-up drops a lamp too. Its draws come from the private LCG, so the
         // global stream is untouched either way, but the seat's clearance is a PLACEMENT rule, and a
         // lamp is FOOT.lamp wide to a player who walks into it: nudge the chosen cell, keep the
-        // coverage score and intensity that selected it.
+        // coverage score and intensity that selected it. #834: the LIGHT stands at the nudged seat, which
+        // is the cell the coverage score was computed for, and only the FOOTPRINT walks further to get
+        // off a tread - moving a coverage source would darken the very band this pass was called to fix.
         const bq = clearSpot([best % N, (best / N) | 0]);
-        const bx = bq[0], by = bq[1];
-        taken.add(by * N + bx);           // the cell the lamp STANDS in is the one that must stay unique
+        const bp = bodySpot(bq);
+        const bx = bp[0], by = bp[1];
+        const sx = bq[0], sy = bq[1];
+        taken.add(sy * N + sx);           // the cell the SOURCE stands in is the one the pass scored
+        taken.add(by * N + bx);           // and so is the cell the lamp STANDS in, when they differ
         const tsc = Math.min(1, Math.max(TOPUP_MINF, (bcov || 1) / TOPUP_TARGET));   // 0 coverage keeps a full lamp: a dim source that covers nothing would only darken the band
-        LIGHTS.push({ x: bx + 0.5, y: by + 0.5, z: floorAt(bx + 0.5, by + 0.5) + LHOVER, r, str: TOPUP_BASE * tsc, col: cfgL.lampCol, stat: 1 });
+        LIGHTS.push({ x: sx + 0.5, y: sy + 0.5, z: floorAt(sx + 0.5, sy + 0.5) + LHOVER, r, str: TOPUP_BASE * tsc, col: cfgL.lampCol, stat: 1 });
         PROPS.push({ tex: PROP.lamp, x: bx + 0.5, y: by + 0.5, scale: 0.95, z: floorAt(bx + 0.5, by + 0.5), kind: 'lamp', yaw: propYaw(bx + 0.5, by + 0.5) });
       }
     }
     // #834: the two kinds with a CRATE-SIZED footprint go through the same resolver. A crate on a
     // landing blocks the corridor that landing feeds, which is the second half of the issue's table.
-    for (let i = 0; i < cfgL.crates; i++) { const c = clearSpot(takeNear(2)); PROPS.push({ tex: PROP.crate, x: c[0] + 0.5, y: c[1] + 0.5, scale: CRATE_SCALE, z: floorAt(c[0] + 0.5, c[1] + 0.5), kind: 'crate', yaw: propYaw(c[0] + 0.5, c[1] + 0.5) }); }
+    for (let i = 0; i < cfgL.crates; i++) { const c = bodySpot(takeNear(2)); PROPS.push({ tex: PROP.crate, x: c[0] + 0.5, y: c[1] + 0.5, scale: CRATE_SCALE, z: floorAt(c[0] + 0.5, c[1] + 0.5), kind: 'crate', yaw: propYaw(c[0] + 0.5, c[1] + 0.5) }); }
     for (let i = 0; i < cfgL.barrels; i++) {
-      const c = clearSpot(takeNear(2));
+      const c = bodySpot(takeNear(2));
       PROPS.push({ tex: PROP.barrel, x: c[0] + 0.5, y: c[1] + 0.5, scale: 0.86, z: floorAt(c[0] + 0.5, c[1] + 0.5), kind: 'barrel', hp: BARREL_HP, dead: false, yaw: propYaw(c[0] + 0.5, c[1] + 0.5) });
     }
     for (const k in cfgL.pick) for (let i = 0; i < cfgL.pick[k]; i++) {
