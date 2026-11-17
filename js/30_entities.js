@@ -447,13 +447,91 @@ function tryMove(o, dx, dy, rad) {
     if (canEnter(o.x, o.y, o.x, o.y + dy)) o.y += dy;
     return;
   }
-  // axis-separated slide. #833: the prop test is handed the MOVER's feet (`o.z`), not the column's floor.
-  // A body standing on a crate has its feet at the crate's top, and the crate's own side must not refuse
-  // the next step - with the column floor in place of `o.z` a player who had just climbed onto a box could
-  // not walk off it.
+  // #833: the prop question is handed the MOVER's feet (`o.z`), not the column's floor. A body standing
+  // on a crate has its feet at the crate's top, and the crate's own side must not refuse the next step -
+  // with the column floor in place of the feet, a player who had just climbed onto a box could not walk
+  // off it. The same `fz` goes into the slide, the eight-direction wedge probe and the corner release,
+  // so no path answers the prop question with a different subject's altitude.
   const fz = o.z;
+  const wx = o.x, wy = o.y;
+  slide(o, dx, dy, rad, fz);
+  /* THE CORNER WEDGE (#832): NO DIRECTION moves this mover while it stands in a legal cell.
+     The slide asks THREE canEnter questions per axis - the destination and two lateral probes at
+     +- rad * 0.7 - and in a 90-degree corner both laterals land in the two wall cells, so both axes
+     are refused and every key the player presses answers the same. The embedded-mover fallback
+     above cannot help: the mover is not inside geometry and not inside a prop, so the one release
+     that exists for "no direction is offered" stays asleep and only a restart frees him. A body
+     that drops into the same spot stands there for the rest of the level.
+     The release is the geometric one: step back along each axis until the disc stands clear of every
+     face the mover cannot cross, still inside the SAME cell. No crossing is asked about, so
+     `canEnter` and the stored kind (#633) rule exactly as before.
+     WHAT ASSETS IT, AND WHY THAT IS THE WHOLE DESIGN: one command moving nothing is NOT the trigger,
+     because a graze answers that on a single legal frame. Sliding along a wall asks the lateral
+     probes at +- rad * 0.7, so a body may stand as close as 0.7 rad to the face it slides along and
+     be exactly where the rules put it; on the frame its own direction happens to be refused as well,
+     the slide moves nothing, and a release keyed on THAT would push the body off a face it is legally
+     riding - off its sliding line and into whatever stands beside it. That is the snag #849's review
+     found on a lamp in a doorway (`view.js props`'s "slides, does not seal"), and a body that slides
+     is not stuck. The trigger is therefore the question the row measures: run the SAME slide over the
+     eight compass directions at the command's own length and release only when ALL EIGHT move nothing.
+     A body riding a wall always has the wall's own direction open, so it is never touched; a body
+     that truly cannot go anywhere is the one this rule exists for. Eight slides, and only on a frame
+     that moved nothing, and it short-circuits on the first direction that does move. */
+  if (wedgeReliefEnabled() && (dx !== 0 || dy !== 0) && o.x === wx && o.y === wy &&
+      !anyWayOut(o.x, o.y, Math.hypot(dx, dy), rad, fz)) standClear(o, rad, fz);
+}
+/* The axis-separated slide on its own, so the wedge test above can ask it of eight directions without
+   moving anybody. This is the shipped slide, byte for byte - the SAME three probes per axis, the SAME
+   grown prop ghost - and it is the only copy: a second implementation of the slide to test the first
+   one is how the two drift apart. It mutates `o`, which for the wedge test is a scratch object the
+   mover is copied into, never the mover. `fz` is the MOVER's feet (#833) and is carried through the
+   wedge probe explicitly, because the scratch object that stands in for the mover carries x and y
+   only - read off that object the feet would be undefined and every probe would answer for the
+   column floor, which is the subject error #833 is here to remove. */
+function slide(o, dx, dy, rad, fz) {
   if (canEnter(o.x, o.y, o.x + dx + Math.sign(dx) * rad, o.y) && canEnter(o.x, o.y, o.x + dx + Math.sign(dx) * rad, o.y - rad * 0.7) && canEnter(o.x, o.y, o.x + dx + Math.sign(dx) * rad, o.y + rad * 0.7) && !propBlocks(o.x + dx, o.y, rad, fz)) o.x += dx;
   if (canEnter(o.x, o.y, o.x, o.y + dy + Math.sign(dy) * rad) && canEnter(o.x, o.y, o.x - rad * 0.7, o.y + dy + Math.sign(dy) * rad) && canEnter(o.x, o.y, o.x + rad * 0.7, o.y + dy + Math.sign(dy) * rad) && !propBlocks(o.x, o.y + dy, rad, fz)) o.y += dy;
+}
+/* The eight compass directions at unit length, so a direction is a DIRECTION and the probe length
+   stays the command's own - the question is "could this mover have gone anywhere at all with the step
+   it just tried", not "could it have gone anywhere with a 0.45 m lunge". The exact +-1/0 components
+   matter: 1e-17 from Math.cos(PI/2) would make a pure axis read as a diagonal to Math.sign. A move
+   below WEDGE_MOVED is no move - it is the denormal a trig component would leave, not a step. */
+const WEDGE_DIRS = [[1, 0], [0.7071067811865476, 0.7071067811865476], [0, 1],
+  [-0.7071067811865476, 0.7071067811865476], [-1, 0], [-0.7071067811865476, -0.7071067811865476],
+  [0, -1], [0.7071067811865476, -0.7071067811865476]];
+const WEDGE_MOVED = 1e-6;
+function anyWayOut(x, y, step, rad, fz) {
+  const m = { x: 0, y: 0 };
+  for (let k = 0; k < 8; k++) {
+    m.x = x; m.y = y;
+    slide(m, WEDGE_DIRS[k][0] * step, WEDGE_DIRS[k][1] * step, rad, fz);
+    if (Math.abs(m.x - x) > WEDGE_MOVED || Math.abs(m.y - y) > WEDGE_MOVED) return true;
+  }
+  return false;
+}
+/* The release tryMove calls when no direction moves the mover. `blocked` is canEnter's own answer on a
+   one-cell probe from the centre of the mover's cell, so a riser you may not climb counts as a face
+   exactly as a solid cell does - one predicate, never a second one. A face that canEnter crosses is
+   left alone: standing close to an open doorway is legal and pushing the mover away from it would be
+   a new rule, not a release. */
+let wedgeRelief = true;
+function wedgeReliefEnabled() { return wedgeRelief; }
+function standClear(o, rad, fz) {
+  const gx = o.x | 0, gy = o.y | 0, cx = gx + 0.5, cy = gy + 0.5, e = 1e-3;
+  const west = !canEnter(cx, cy, cx - 1, cy), east = !canEnter(cx, cy, cx + 1, cy);
+  const north = !canEnter(cx, cy, cx, cy - 1), south = !canEnter(cx, cy, cx, cy + 1);
+  const clear = (x, blockedWest, blockedEast, lo, hi) => {
+    if (blockedWest && x - lo < rad + e) x = lo + rad + e;
+    if (blockedEast && hi - x < rad + e) x = hi - rad - e;
+    return x;
+  };
+  const nx = clear(o.x, west, east, gx, gx + 1), ny = clear(o.y, north, south, gy, gy + 1);
+  if (nx === o.x && ny === o.y) return;
+  // the push stays inside the mover's own cell, so it can only land on geometry a bad deal authored;
+  // refuse it rather than move a mover into a wall
+  if (isSolid(nx, ny) || propBlocks(nx, ny, rad, fz)) return;
+  o.x = nx; o.y = ny;
 }
 /* Landing feel (#634), both halves driven by the impact speed `imp` the touchdown already computes.
    LAND_SHAKE_*: the camera kick, floored so a small landing is not perfectly still and capped at the
@@ -594,7 +672,15 @@ function updatePlayer(dt) {
         // so the assist reaches the window and cannot exceed it - the shipped crate's 0.63 m top is inside
         // it, a 1.00 m wall is not. The feet still arrive by the integration below and are caught by
         // propStand, so arriving on a crate and arriving on a tread run through one support test.
-        if (mount > P.z + 1e-3) P.vz = Math.max(P.vz, Math.sqrt(2 * 9.2 * PROP_STEP_UP));
+        //
+        // AND IT IS A CLIMB, NOT A HOVER: the assist is priced against the way UP, so the second term is
+        // `P.vz > 0` and the body has to still be going up. Read without it, the term re-armed on every
+        // frame a FALLING body happened to be under a prop top - it re-priced `P.vz` back to +3.72 m/s
+        // from a downward speed, so a drop into or past a prop's column rose, fell, rose, and never
+        // resolved: `view.js vert`'s fall-damage ladder read 0.0 hp / 240 frames on every drop and
+        // `view.js drop` found no touchdown on any level. A body moving DOWN keeps the fall gravity gave
+        // it, which is the same downward speed #634's landing impulse, shake and damage are computed from.
+        if (mount > P.z + 1e-3 && P.vz > 0) P.vz = Math.max(P.vz, Math.sqrt(2 * 9.2 * PROP_STEP_UP));
         P.vz -= 9.2 * dt; P.z += P.vz * dt;
         if (P.z <= gz) {
           const imp = -P.vz;                                 // 5.25 m/s is the impact of a 1.5-unit drop at g=9.2; a jump lands at 3.0
