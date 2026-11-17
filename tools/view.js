@@ -5825,6 +5825,65 @@ if (MODE === 'drop') {
       bFlat.groundOff === 0 && bFlat.air === 0,
       `${bFlat.groundOff} of 60 GROUNDED frames with bodyAlt off floorAt, airborne ${bFlat.air}, biggest `
       + `one-frame change ${bFlat.maxStep.toFixed(4)} (a step the level authored, never a hover)`);
+
+    /* ---- #830, the SAME rim, taken because the AI decided to walk. -------------------------------------
+       Every body row above drives `tryMove` + `updateBodyZ` from the probe, which proves the crossing and
+       the fall but says nothing about the thing the report is about: a body that was COMING AFTER YOU and
+       went over the lip under its own locomotion. This row calls neither - it calls `update(1/60)`, the
+       shipped frame, so the body's own steering, its sight test, its damped velocity and its separation
+       term are all in the trace. The construction is the report's: the body's cell is a one-cell deck
+       (four quanta, 1 m) and the player stands past the lip on the lane below, flat at the seat's own
+       datum, in front of it.
+       The row's premise is printed rather than assumed (`saw the player on frame N`): if the body never
+       alerts it never walks, the trace has no crossing, and the row FAILS as vacuity instead of passing on
+       a body that stood still. FALSIFIED ON PURPOSE: with `updateBodyZ`'s settled branch reduced to
+       `e.z = gz` - the tree before #830 - the same trace is a one-frame 1.000 m change with 0 airborne
+       frames, so the fall is what makes this row green. */
+    {
+      // The player stands in the CENTRE of lane cell 2 - the cell this row also flattens - so the seat
+      // is inside the open lane whatever the spawn's sub-cell offset is (X + 2.6 can land in the wall
+      // past a 3-cell lane, which puts the eye inside geometry and the trace into the void).
+      const deckQ = 4, fr = 150;
+      put(X, Y);
+      run(`(function(){ ENEMIES.length = 0; const e = makeEnemy('grunt', ${X}, ${Y});`
+        + ` e.state = 'chase'; ENEMIES.push(e);
+           MAP.fz[${LY} * MW + ${LX}] = ${datumQ} + ${deckQ};
+           for (const [cx, cy] of ${JSON.stringify(cellAt(1).concat(cellAt(2)))}) MAP.fz[(cy | 0) * MW + (cx | 0)] = ${datumQ};
+           linkBoundaries(); return 1 })()`);
+      put(LX + lane.dx * 2 + 0.5, LY + lane.dy * 2 + 0.5);   // the player, downstairs, in front of it
+      run(`(function(){ ENEMIES[0].z = floorAt(ENEMIES[0].x, ENEMIES[0].y); return 1 })()`);
+      const deckZ = run('floorAt(ENEMIES[0].x, ENEMIES[0].y)');
+      const sAI = run(`(()=>{const s=[],e=ENEMIES[0];for(let i=0;i<${fr};i++){update(1/60);`
+        + `s.push([+e.x.toFixed(5),bodyAlt(e),floorAt(e.x,e.y),e.air?1:0,+e.vz.toFixed(5),e.alert?1:0,`
+        + `Math.hypot(e.x-P.x,e.y-P.y)]);}return s})()`);
+      restore();
+      run('ENEMIES.length = 0;');
+      put(X, Y);
+      const sawF = sAI.findIndex(r => r[5]);
+      const air = sAI.filter(r => r[3]).length;
+      const lip = sAI.findIndex(r => r[2] < deckZ - 0.5);          // its own column says: downstairs
+      const land = sAI.findIndex((r, i) => i && sAI[i - 1][3] && !r[3]);
+      const f0 = sAI.findIndex(r => r[3]);
+      const win = land > 0 ? land : sAI.length - 1;
+      let fallStep = 0, rise = 0;
+      for (let i = Math.max(1, f0); i <= win; i++) {
+        const dd = sAI[i][1] - sAI[i - 1][1];
+        if (Math.abs(dd) > fallStep) fallStep = Math.abs(dd);
+        if (dd > 1e-12) rise = Math.max(rise, dd);
+      }
+      const groundOff = sAI.filter(r => !r[3] && Math.abs(r[1] - r[2]) > 1e-9).length;
+      const end = sAI[sAI.length - 1];
+      const drop = win > 0 ? sAI[win][1] - sAI[Math.max(0, f0 - 1)][1] : 0;
+      row(`L${li} a body the AI walks off a deck falls, and keeps coming`,
+        sawF >= 0 && air >= 3 && fallStep < 0.25 && rise === 0 && land > 0 && groundOff === 0 &&
+        Math.abs(drop + deckQ * ZQ) < 0.02 && !end[3] && end[6] < 1.6,
+        `saw the player on frame ${sawF + 1}, left the deck on frame ${lip < 0 ? 'NEVER' : lip + 1}, `
+        + `airborne ${air} frames, ${land > 0 ? land + 1 - f0 : '-'} frames from lip to landing, drawn `
+        + `altitude ${deckZ.toFixed(3)} -> ${end[1].toFixed(3)} (the descent moved ${drop.toFixed(3)} m against `
+        + `a ${(deckQ * ZQ).toFixed(2)} m deck), biggest one-frame change INSIDE the fall ${fallStep.toFixed(4)} m `
+        + `(the tree before #830: ${(deckQ * ZQ).toFixed(3)} m in one frame), rebound ${rise.toFixed(4)} m, `
+        + `${groundOff} GROUNDED frames off a floor, ${end[6].toFixed(2)} m from the player at the end`);
+    }
   }
 
   console.log(bad ? `DROP ${bad} FAILURES` : 'DROP ok - the player lands on the floor they fall to');
