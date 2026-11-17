@@ -5839,6 +5839,170 @@ if (MODE === 'drop') {
       + `(imp ${rBig.land && rBig.land.imp.toFixed(2)} m/s); hp -${rSmall.land && rSmall.land.hp} and `
       + `-${rBig.land && rBig.land.hp} - both under the ${SAFE} m/s damage threshold, so NEITHER number is `
       + `damagePlayer's own kick, which is what made a shaft-vs-kerb comparison meaningless at the last head`);
+
+    /* ---- #830: the SAME rim, walked by a BODY. ---------------------------------------------------------------
+       Every row above drives the PLAYER, who owns the only altitude state in the game. A body owned
+       none: `makeEnemy` carried no z / vz / air and every consumer sampled `floorAt(e.x, e.y)`, so the
+       instant a body's own column said a different floor its altitude WAS that floor. Measured on the
+       tree these rows replace: a grunt walked east off a 1 m rim moved its DRAWN altitude 1.00 -> 0.00,
+       biggest one-frame change 1.000 m, 0 airborne frames, a 1-frame drop - while the player walked
+       onto the same rim and fell for half a second at g = 9.2 (rows above).
+       The drive is the two shipped functions in the order the game calls them: `tryMove` (which is
+       `canEnter`, the crossing rules #633 owns, and decides WHERE a body may go) then `updateBodyZ`
+       (the altitude solve, which decides only HOW the crossing is taken). Deliberately NOT `update()`,
+       because then the verdict would be about whether the AI chose to walk. The body is put on the
+       lane with `makeEnemy`, whose draws come from the cosmetic stream and re-roll no level (#96), and
+       taken back out at the end so no later row finds a stranger in the cast. */
+    const bput = (dq) => {
+      run(`(function(){ ENEMIES.length=0; const e=makeEnemy('grunt', ${X}, ${Y}); e.state='sleep';`
+        + ` e.alert=false; ENEMIES.push(e); if (${dq}) MAP.fz[${(LY + lane.dy * 0) * run('MW') + (LX + lane.dx * 0)}]=${datumQ}+${dq};`
+        + ` linkBoundaries(); e.z=floorAt(e.x,e.y); return 1 })()`);
+    };
+    const btrace = (fr, spd) => run(`(()=>{const s=[],e=ENEMIES[0];for(let i=0;i<${fr};i++){`
+      + `tryMove(e, ${(lane.dx * spd).toFixed(4)}/60, ${(lane.dy * spd).toFixed(4)}/60, e.r*0.72); updateBodyZ(e, 1/60);`
+      + `s.push([+e.x.toFixed(5), bodyAlt(e), floorAt(e.x,e.y), e.air?1:0, +e.vz.toFixed(5)]);}return s})()`);
+    const bcase = (dq, fr, spd) => {
+      bput(dq);
+      const s = btrace(fr, spd);
+      restore();
+      run('ENEMIES.length=0;');
+      let air = 0, maxStep = 0, maxAt = 0, mono = true;
+      for (let i = 1; i < s.length; i++) {
+        if (s[i][3]) air++;
+        const st = Math.abs(s[i][1] - s[i - 1][1]);
+        if (st > maxStep) { maxStep = st; maxAt = i; }
+        if (s[i][1] > s[i - 1][1] + 1e-12) mono = false;
+      }
+      const land = s.findIndex((r, i) => i && s[i - 1][3] && !r[3]);
+      /* The descent is judged over the FRAMES OF THE DESCENT. Past the rim the dealt lane carries on
+         into the level's own bands, and a body walked onto the next tread takes a one-quantum auto-step
+         up in one frame - the shipped rule for feet (#152), not a bounce. Reading a monotone path over
+         the whole 90 frames therefore called a legal step a rebound, and reading the biggest one-frame
+         change over the whole trace reported that step instead of the fall's own last frame. `fallStep`
+         is the fall's biggest step and `rise` any upward move strictly between leaving the deck and
+         touchdown, which is what "no infinite bounce" actually claims. */
+      const f0 = s.findIndex(r => r[3]);
+      const win = land > 0 ? land : s.length - 1;
+      let fallStep = 0, rise = 0;
+      for (let i = Math.max(1, f0); i <= win; i++) {
+        const d = s[i][1] - s[i - 1][1];
+        if (Math.abs(d) > fallStep) fallStep = Math.abs(d);
+        if (d > 1e-12) rise = Math.max(rise, d);
+      }
+      /* A frame whose drawn altitude disagrees with its column's floor is only legal WHILE the body is
+         airborne - that is the whole change. So the clause a regression has to break is "every frame
+         off the floor is an airborne frame, and no airborne frame is at the floor by accident", which
+         is `groundOff` (a settled body hovering or sunk) rather than a raw off-floor count that a fall
+         is supposed to produce. */
+      const groundOff = s.filter(r => !r[3] && Math.abs(r[1] - r[2]) > 1e-9).length;
+      return { s, air, maxStep, maxAt, fallStep, rise, mono: rise === 0, land, groundOff,
+        end: s[s.length - 1], h: dq * ZQ, f0,
+        fall: s[s.length - 1][1] - s[0][1], drop: s[win][1] - s[Math.max(0, f0 - 1)][1] };
+    };
+    const b1 = bcase(4, 90, 1.7);
+    row(`L${li} a body walked off a 1-unit rim falls, it does not teleport`,
+      b1.air >= 3 && b1.fallStep < 0.25 && b1.rise === 0 && b1.land > 0 && b1.groundOff === 0 &&
+      Math.abs(b1.drop + b1.h) < 0.02 && !b1.end[3],
+      `airborne ${b1.air} frames, drop took ${b1.land > 0 ? b1.land + 1 - b1.f0 : '-'} frame(s) from the lip, `
+      + `drawn altitude ${b1.s[0][1].toFixed(3)} -> ${b1.end[1].toFixed(3)} (the descent itself moved `
+      + `${b1.drop.toFixed(3)} m against a ${b1.h.toFixed(2)} m rim), biggest one-frame change INSIDE the fall `
+      + `${b1.fallStep.toFixed(4)} m (the old build: 1.000 m in one frame), rebound ${b1.rise.toFixed(4)} m, `
+      + `${b1.groundOff} GROUNDED frames off a floor, still falling at the end ${b1.end[3] ? 'YES' : 'no'}`);
+    console.log('    frame        x     body z    floor  air');
+    for (let i = 0; i < b1.s.length; i++)
+      if ((b1.land > 0 && i >= b1.land - 14 && i <= b1.land + 2) || i < 3) {
+        const r = b1.s[i];
+        console.log('    ' + String(i).padStart(5) + ' ' + r[0].toFixed(3).padStart(9) + r[1].toFixed(5).padStart(11) +
+          r[2].toFixed(2).padStart(9) + (r[3] ? '  yes' : '   no'));
+      }
+    /* One quantum down is a STEP for a body too: the threshold and the tolerance are the player's
+       (STEP_Z / STEP_EPS), and a body that fell down every stair tread would clatter across the level. */
+    const b1q = bcase(1, 60, 1.7);
+    row(`L${li} one quantum down is a step for a body, not a fall`,
+      b1q.air === 0 && b1q.maxStep <= ZQ + 1e-9 && b1q.groundOff === 0,
+      `airborne ${b1q.air}, biggest one-frame change ${b1q.maxStep.toFixed(4)} m (one quantum is ${ZQ.toFixed(2)}), `
+      + `altitude ${b1q.s[0][1].toFixed(3)} -> ${b1q.end[1].toFixed(3)} across a dealt lane whose own bands may `
+      + `step back up, ${b1q.groundOff} grounded frames off a floor`);    /* And a crossing the rules REFUSE must still be refused: the raise makes a 1-unit CLIFF in front of
+       the body, which VB_BLOCK blocks, so it must not move and must not change altitude. #830 changes
+       what happens AFTER a crossing the rules allowed and owns no crossing decision of its own. */
+    bput(0);
+    run(`(function(){ for (const [cx,cy] of ${JSON.stringify(cellAt(1).concat(cellAt(2)))}) MAP.fz[(cy|0)*MW + (cx|0)] = ${datumQ} + 4; linkBoundaries(); return 1 })()`);
+    const bUp = btrace(45, 1.7);
+    restore();
+    const bUpMoved = Math.hypot(bUp[bUp.length - 1][0] - X, 0);
+    const bUpAir = bUp.filter(r => r[3]).length, bUpOff = bUp.filter(r => !r[3] && Math.abs(r[1] - r[2]) > 1e-9).length;
+    const bUpSpread = Math.max.apply(null, bUp.map(r => r[1])) - Math.min.apply(null, bUp.map(r => r[1]));
+    run('ENEMIES.length=0;');
+    row(`L${li} a body does not fall through a riser that blocks it`,
+      bUpMoved < 0.6 && bUpAir === 0 && bUpSpread < 1e-9 && bUpOff === 0,
+      `walked into a 1-unit riser: moved ${bUpMoved.toFixed(2)} m, airborne ${bUpAir}, altitude spread `
+      + `${bUpSpread.toFixed(6)} m, ${bUpOff} frames with the drawn altitude off its floor`);
+    /* At rest a body's altitude IS its band's floor, to the bit - the #98 convention every consumer
+       already assumes, and the clause that makes "the consumers follow the body" safe to add. */
+    const bFlat = bcase(0, 60, 1.7);
+    row(`L${li} a settled body's altitude is exactly its floor`,
+      bFlat.groundOff === 0 && bFlat.air === 0,
+      `${bFlat.groundOff} of 60 GROUNDED frames with bodyAlt off floorAt, airborne ${bFlat.air}, biggest `
+      + `one-frame change ${bFlat.maxStep.toFixed(4)} (a step the level authored, never a hover)`);
+
+    /* ---- #830, the SAME rim, taken because the AI decided to walk. -------------------------------------
+       Every body row above drives `tryMove` + `updateBodyZ` from the probe, which proves the crossing and
+       the fall but says nothing about the thing the report is about: a body that was COMING AFTER YOU and
+       went over the lip under its own locomotion. This row calls neither - it calls `update(1/60)`, the
+       shipped frame, so the body's own steering, its sight test, its damped velocity and its separation
+       term are all in the trace. The construction is the report's: the body's cell is a one-cell deck
+       (four quanta, 1 m) and the player stands past the lip on the lane below, flat at the seat's own
+       datum, in front of it.
+       The row's premise is printed rather than assumed (`saw the player on frame N`): if the body never
+       alerts it never walks, the trace has no crossing, and the row FAILS as vacuity instead of passing on
+       a body that stood still. FALSIFIED ON PURPOSE: with `updateBodyZ`'s settled branch reduced to
+       `e.z = gz` - the tree before #830 - the same trace is a one-frame 1.000 m change with 0 airborne
+       frames, so the fall is what makes this row green. */
+    {
+      // The player stands in the CENTRE of lane cell 2 - the cell this row also flattens - so the seat
+      // is inside the open lane whatever the spawn's sub-cell offset is (X + 2.6 can land in the wall
+      // past a 3-cell lane, which puts the eye inside geometry and the trace into the void).
+      const deckQ = 4, fr = 150;
+      put(X, Y);
+      run(`(function(){ ENEMIES.length = 0; const e = makeEnemy('grunt', ${X}, ${Y});`
+        + ` e.state = 'chase'; ENEMIES.push(e);
+           MAP.fz[${LY} * MW + ${LX}] = ${datumQ} + ${deckQ};
+           for (const [cx, cy] of ${JSON.stringify(cellAt(1).concat(cellAt(2)))}) MAP.fz[(cy | 0) * MW + (cx | 0)] = ${datumQ};
+           linkBoundaries(); return 1 })()`);
+      put(LX + lane.dx * 2 + 0.5, LY + lane.dy * 2 + 0.5);   // the player, downstairs, in front of it
+      run(`(function(){ ENEMIES[0].z = floorAt(ENEMIES[0].x, ENEMIES[0].y); return 1 })()`);
+      const deckZ = run('floorAt(ENEMIES[0].x, ENEMIES[0].y)');
+      const sAI = run(`(()=>{const s=[],e=ENEMIES[0];for(let i=0;i<${fr};i++){update(1/60);`
+        + `s.push([+e.x.toFixed(5),bodyAlt(e),floorAt(e.x,e.y),e.air?1:0,+e.vz.toFixed(5),e.alert?1:0,`
+        + `Math.hypot(e.x-P.x,e.y-P.y)]);}return s})()`);
+      restore();
+      run('ENEMIES.length = 0;');
+      put(X, Y);
+      const sawF = sAI.findIndex(r => r[5]);
+      const air = sAI.filter(r => r[3]).length;
+      const lip = sAI.findIndex(r => r[2] < deckZ - 0.5);          // its own column says: downstairs
+      const land = sAI.findIndex((r, i) => i && sAI[i - 1][3] && !r[3]);
+      const f0 = sAI.findIndex(r => r[3]);
+      const win = land > 0 ? land : sAI.length - 1;
+      let fallStep = 0, rise = 0;
+      for (let i = Math.max(1, f0); i <= win; i++) {
+        const dd = sAI[i][1] - sAI[i - 1][1];
+        if (Math.abs(dd) > fallStep) fallStep = Math.abs(dd);
+        if (dd > 1e-12) rise = Math.max(rise, dd);
+      }
+      const groundOff = sAI.filter(r => !r[3] && Math.abs(r[1] - r[2]) > 1e-9).length;
+      const end = sAI[sAI.length - 1];
+      const drop = win > 0 ? sAI[win][1] - sAI[Math.max(0, f0 - 1)][1] : 0;
+      row(`L${li} a body the AI walks off a deck falls, and keeps coming`,
+        sawF >= 0 && air >= 3 && fallStep < 0.25 && rise === 0 && land > 0 && groundOff === 0 &&
+        Math.abs(drop + deckQ * ZQ) < 0.02 && !end[3] && end[6] < 1.6,
+        `saw the player on frame ${sawF + 1}, left the deck on frame ${lip < 0 ? 'NEVER' : lip + 1}, `
+        + `airborne ${air} frames, ${land > 0 ? land + 1 - f0 : '-'} frames from lip to landing, drawn `
+        + `altitude ${deckZ.toFixed(3)} -> ${end[1].toFixed(3)} (the descent moved ${drop.toFixed(3)} m against `
+        + `a ${(deckQ * ZQ).toFixed(2)} m deck), biggest one-frame change INSIDE the fall ${fallStep.toFixed(4)} m `
+        + `(the tree before #830: ${(deckQ * ZQ).toFixed(3)} m in one frame), rebound ${rise.toFixed(4)} m, `
+        + `${groundOff} GROUNDED frames off a floor, ${end[6].toFixed(2)} m from the player at the end`);
+    }
   }
 
   console.log(bad ? `DROP ${bad} FAILURES` : 'DROP ok - the player lands on the floor they fall to');

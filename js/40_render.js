@@ -836,7 +836,10 @@ function renderWorld() {
          deck it lies on is what finally hides it, by depth rather than by blending. Exactly 0 for
          dieT <= 0.55, which is where `anim` samples the corpse, so those rows do not move. */
       mesh: true, kind: e.kind, x: e.x, y: e.y,
-      z: floorAt(e.x, e.y) - settle * CORPSE.sink * e.scale,
+      /* #830: the altitude is the BODY's, not its column's. A settled body answers floorAt exactly,
+         so this is main's number for every body that never leaves a band; a falling one is drawn where
+         it actually is, which is also what its depth test against zbuf is against. */
+      z: bodyAlt(e) - settle * CORPSE.sink * e.scale,
       yaw: TAU * 0.25 - heading,                      // body +z is its front: see js/13_mesh.js draw
       scale: e.scale, alpha: fr.alpha, flash: fr.flash ? 1 : 0, tint: e.tint,
       p: e.anim, mv: e.movingAmt || 0,
@@ -1687,7 +1690,10 @@ function buildShadowGrid() {
     if (d2 > far2) continue;
     // #18 fourth take: metres of annulus past the dead range, so the screen footprint stops collapsing
     const grow = d2 > SHADOW_RD * SHADOW_RD ? SHADOW_RG * (Math.sqrt(d2) - SHADOW_RD) : 0;
-    const n = SH_N, r = SHADOW_R + e.r + grow, fz = floorAt(e.x, e.y);
+    /* #830: the disc rides at the body's FEET, which is what SH_Z means here (see shadowFloor's
+       `plane - SH_Z` band): a settled body answers its own band's floor exactly as before, and one in
+       mid-air no longer grounds itself on the slab it fell past. */
+    const n = SH_N, r = SHADOW_R + e.r + grow, fz = bodyAlt(e);
     SH_X[n] = e.x; SH_Y[n] = e.y; SH_Z[n] = fz; SH_I[n] = 1 / (r * r); SH_H[n] = r;
     SH_FX[n] = SHADOW_F; SH_FW[n] = SHADOW_D;
     const x0 = (e.x - r) | 0, x1 = (e.x + r) | 0, y0 = (e.y - r) | 0, y1 = (e.y + r) | 0;

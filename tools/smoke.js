@@ -583,16 +583,61 @@ const release = () => fire('mouseup', { button: 0 });
     // changes every generated level's pickup census and therefore the pixels and mean luminance that
     // flatparity and exposure record, which is a far larger blast radius than a grenade restock deserves.
     // Dropping from kills also reaches the authored finale, whose pick entry is empty either way.
+    /* The census has two passes and only the second one gates.
+       PASS 1 (printed, not gated) is the census this row used to be: one seeded stream, every body on
+       the level killed, count the gren drops. Measured on #848 at 6997a1e it came up 0/0/0/0 with the
+       drop arm unchanged - the arm draws TWICE per kill (rate, then band) from a stream every row above
+       has shifted, and one position of it put every single band draw outside the gren band. A row that
+       reads one draw sequence tests the stream's position, not the arm, so that number is now a figure
+       on the line rather than the verdict.
+       PASS 2 (the gate) SWEPS the bands, the technique the mesh row below already uses for the drop
+       arms: the rate draw is forced to pass by lifting this difficulty's droprate, and the band draw is
+       pinned inside each band in turn - js/30_entities.js:323 cuts at 0.35 and 0.80, so 0.05 is ammo,
+       0.50 health, 0.95 gren. EVERY body on the level is killed THREE times, once under each pinned
+       value, and the row asserts each pass put exactly (bodies) pickups down and every one of them of the
+       band's own type. It goes RED when a band is cut out of the ternary (that band's pass comes back
+       with the wrong type, on every level, and the line names it), RED if the rate draw stops firing, and
+       RED on vacuity (a level holding no body). Nothing shipped is widened and nothing else moves: the
+       sweep calls NO startLevel and consumes NO draw from the run's ambient stream (the pinned function
+       replaces it for the duration of each kill and is put back after), so the levels every row after
+       this one builds are the same levels they were. */
+    const natural = [], sweptBad = [];
     for (let li = 0; li < nGen; li++) {
       vm.runInContext(`startLevel(${li}, true); PICKUPS.length = 0;`, ctxVm);
       vm.runInContext('for (const e of ENEMIES) if (e.state !== "dead") { e.hp = 1; damageEnemy(e, 9, false, 1, 0); }', ctxVm);
       drops.push(vm.runInContext('PICKUPS.filter(k => k.type === "gren").length', ctxVm));
+      natural.push(vm.runInContext('PICKUPS.length', ctxVm));
+      // PASS 2: the same bodies, re-armed, killed once per band with that band's draw pinned
+      const sw = vm.runInContext(`(() => {
+        const prev = Math.random, dr = DIFFS[S.diff].droprate, bodies = ENEMIES.length;
+        const PIN = [['gren', 0.95], ['ammo', 0.05], ['health', 0.50]];
+        const got = [];
+        DIFFS[S.diff].droprate = 100;                  // the rate draw always passes; only the band is read
+        for (const [want, dk] of PIN) {
+          PICKUPS.length = 0;
+          let n = 0;
+          for (const e of bodies ? ENEMIES : []) {
+            e.state = 'sleep'; e.hp = 1; e.dieT = 0; e.z = floorAt(e.x, e.y); e.vz = 0; e.air = false;
+            Math.random = () => dk;
+            damageEnemy(e, 9, false, 1, 0);
+            n++;
+          }
+          Math.random = prev;
+          got.push([want, n, PICKUPS.length, PICKUPS.filter(k => k.type === want).length]);
+        }
+        DIFFS[S.diff].droprate = dr;
+        return { bodies, got };
+      })()`, ctxVm);
+      if (!sw.bodies) sweptBad.push(`L${li} holds no body at all, so no kill can restock anything`);
+      for (const [want, n, nDrop, nWant] of sw.got) {
+        if (nDrop !== n) sweptBad.push(`L${li}: ${n} kills with the rate draw forced to pass put ${nDrop} pickup(s) down - the drop arm is not firing every time`);
+        else if (nWant !== n) sweptBad.push(`L${li}: ${n} kills with the band draw pinned at the ${want} value put ${nWant} ${want} down of ${nDrop} pickups - that band is gone from the ternary at js/30_entities.js:323`);
+      }
     }
-    const totalDrop = drops.reduce((a, b) => a + b, 0);
     // code, not prose: the marker has to sit in the statement that picks the dropped type
     const dropArm = vm.runInContext('damageEnemy.toString()', ctxVm).includes("'gren'");
-    expect('kills can restock grenades (#361)', totalDrop >= 1 && dropArm,
-      `${drops.join('/')} gren drops per level by killing every body on it, kill-drop statement arms grenades: ${dropArm ? 'yes' : 'NO - no gren band in the drop arm'}`);
+    expect('kills can restock grenades (#361)', sweptBad.length === 0 && dropArm,
+      `swept band census (the gate): ${sweptBad.length ? sweptBad.join('; ') : 'every body on every level dropped ammo, health AND gren, one per band, with the band draw pinned inside that band'}; the same kills on this run's own stream put ${natural.join('/')} pickups down, ${drops.join('/')} of them gren - printed, not gated, because that census is ONE position of a stream the rows above shift (#830's fall frames moved it; no economy code did)`);
     /* A type the economy can put on the floor needs a mesh. PKKIND (js/40_render.js) is the ONLY place a
        pickup type becomes geometry, and a type missing there is not an invisible box: renderSprites hands
        MESH.draw `kind: undefined`, which #362's review found drawn as a 0.42 grunt body. The three drop
