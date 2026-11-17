@@ -153,6 +153,23 @@ function hitscan(ang, tanP, range) {
   const riser = bx.kind === 2 && bx.t < wall.dist;
   const floorStop = bx.kind === 3 && bx.t < wall.dist;      // #131: the ray crossed the ground it stands on
   let bestT = (ceilStop || riser || floorStop) ? bx.t : wall.dist, best = null, hitObj = null;
+  /* #833: props are tested BEFORE bodies, not after them. The loop below already rejects a body at
+     `tz >= bestT`, so making the prop's near face the bound is what turns "a crate" into cover: until this
+     line the prop walk ran only `if (!best)`, i.e. only when nothing else had been hit, so a body taking
+     cover behind a crate was struck THROUGH it on the first level of every game. The test is the shared
+     box from js/20_level.js - the art's own footprint square from the live floor to the DRAWN top
+     (MESH.top * scale), the same solid `propBlocks` stops the feet on and `losZ` hides a body
+     behind. Kinds with no footprint (pickups, the portal, the orb) are not in the set and stay
+     non-blocking; a burnt barrel is `dead` and stops being solid in all three callers at once (#833.1).
+     The ceiling is no longer `p.z + p.scale`: that number was the barrel's SCALE, not its top (the lid
+     reaches 0.97 authored units), and it was a second opinion on an altitude the art already stated. */
+  for (const p of PROPS) {
+    if (!propSolid(p)) continue;
+    const th = propRayT(p, ox, oy, dx, dy, oz, tanP);
+    if (th <= 0.2 || th >= bestT) continue;      // 0.2 = the muzzle guard the barrel branch already used (#148)
+    bestT = th; best = null;
+    hitObj = { barrel: p.kind === 'barrel' ? p : null, prop: p, z: oz + tanP * th };
+  }
   for (const e of ENEMIES) {
     if (e.state === 'dead') continue;
     const ex = e.x - ox, ey = e.y - oy, proj = ex * dx + ey * dy;
@@ -187,19 +204,6 @@ function hitscan(ang, tanP, range) {
     const hz = oz + tanP * tz;
     bestT = tz; best = e; hitObj = { head: hz > ez + e.scale * 0.78, z: hz };
   }
-  if (!best) {
-    for (const p of PROPS) {
-      if (p.kind !== 'barrel' || p.dead) continue;
-      const ex = p.x - ox, ey = p.y - oy, proj = ex * dx + ey * dy;
-      if (proj < 0.2 || proj - 0.4 > bestT) continue;
-      const perp = Math.abs(dx * ey - dy * ex); if (perp > 0.4) continue;
-      const th = proj - Math.sqrt(Math.max(0, 0.16 - perp * perp));
-      if (th <= 0.2 || th >= bestT) continue;
-      const hzb = oz + tanP * th;                       // this branch had no z test at all (#98)
-      if (hzb < p.z || hzb > p.z + p.scale) continue;
-      bestT = th; best = null; hitObj = { barrel: p, z: hzb };
-    }
-  }
   const hx = ox + dx * bestT, hy = oy + dy * bestT, hz = oz + tanP * bestT;
   return { t: bestT, x: hx, y: hy, z: hz, enemy: best, info: hitObj,
     wall: riser || (wall.wall && !(ceilStop || floorStop)), side: riser ? bx.side : wall.side,
@@ -226,6 +230,10 @@ function tryFire() {
       P.hits += (h.info.head ? 1 : 0.34);
     } else if (h.info && h.info.barrel) {
       hurtBarrel(h.info.barrel, w.dmg);
+    } else if (h.info && h.info.prop) {
+      /* #833: a crate or a lamp post takes the hit where it stands - sparks at the face the round died on,
+         no decal, because a prop carries no marks. Before this branch there was nothing to hit. */
+      burstParts(h.x, h.y, Math.max(0.05, h.z), 4, 1.3, h.info.prop.kind === 'crate' ? '#c9a15e' : '#b9c0cc', 0.26, 0.05, false, 0.5);
     } else {
       if (h.wall || h.t > 40) {
         burstParts(h.x, h.y, Math.max(0.05, h.z), 4, 1.4, '#ffd9a0', 0.25, 0.05, true, 0.6);
@@ -394,16 +402,38 @@ P.moving = function () { return Math.hypot(this.vx, this.vy) > 0.35; };
    quanta: a prop on the band above hangs in the air over the datum and must not stop anyone
    walking under it (#189's band-blind family), and this runs in the movement tick, never a
    pixel loop (AGENTS' one-indirection cliff). */
-function propBlocks(x, y, rad) {
+function propBlocks(x, y, rad, fz) {
   const gz = floorAt(x, y);
+  const feet = fz === undefined ? gz : fz;
   for (let i = 0; i < PROPS.length; i++) {
     const p = PROPS[i];
-    if (p.dead) continue;                              // a burnt barrel scatters nothing
-    const r = MESH.foot(p.kind) * (p.scale || 1) + rad;
-    if (Math.abs(p.x - x) >= r || Math.abs(p.y - y) >= r) continue;
-    if (Math.abs(floorAt(p.x, p.y) - gz) < ZQ) return true;
+    if (!propSolid(p) || !propBand(p, gz) || !propOver(p, x, y, rad)) continue;
+    /* #833: the box has a TOP now, and the block asks the mover's own feet against it. A body at or above
+       the drawn top is standing on the prop (or flying over it) and the side is no longer a wall - which is
+     what the old altitude-blind test got wrong twice: it made a crate an unbounded wall you could not
+     jump onto, and it refused the very step the mantle below is about to take. */
+    if (propTopZ(p) <= feet + STEP_Z) continue;
+    return true;
   }
   return false;
+}
+/* #833 THE MANTLE. A prop that is in the way but tops out within PROP_STEP_UP of the feet is a handhold,
+   not a wall: the climb is OFFERED, and the caller pays for it in VERTICAL SPEED (see updatePlayer), never
+   by writing a position - a one-frame lift of 0.63 m is exactly the 37 m/s eye spike #634 exists to stop.
+   The terrain rule is NOT duplicated here: a floor change is still answered by `canEnter` and the EK_STEP
+   byte (#633), and a prop top within ONE STEP of the feet never reaches this function at all, because
+   `propStand` already supports it through the existing grounded step test. One window, read by both
+   questions - see PROP_STEP_UP in js/20_level.js for how it is priced. */
+function propMount(x, y, rad, fz) {
+  const gz = floorAt(x, y);
+  let top = -1;
+  for (let i = 0; i < PROPS.length; i++) {
+    const p = PROPS[i];
+    if (!propSolid(p) || !propBand(p, gz) || !propOver(p, x, y, rad)) continue;
+    const t = propTopZ(p);
+    if (t > fz && t - fz <= PROP_STEP_UP && t > top) top = t;
+  }
+  return top;
 }
 function tryMove(o, dx, dy, rad) {
   // Inside geometry - or inside a PROP's grown footprint, which teleports, dev poses and
@@ -412,13 +442,19 @@ function tryMove(o, dx, dy, rad) {
   // mover that ends up embedded can always walk out of it. The test must use the SAME grown
   // radius that blocks: keyed on the bare footprint, an escaping mover would cross into the
   // ring between footprint and ghost edge, find every outward target blocked, and freeze there.
-  if (isSolid(o.x, o.y) || propBlocks(o.x, o.y, rad)) {
+  if (isSolid(o.x, o.y) || propBlocks(o.x, o.y, rad, o.z)) {
     if (canEnter(o.x, o.y, o.x + dx, o.y)) o.x += dx;
     if (canEnter(o.x, o.y, o.x, o.y + dy)) o.y += dy;
     return;
   }
+  // #833: the prop question is handed the MOVER's feet (`o.z`), not the column's floor. A body standing
+  // on a crate has its feet at the crate's top, and the crate's own side must not refuse the next step -
+  // with the column floor in place of the feet, a player who had just climbed onto a box could not walk
+  // off it. The same `fz` goes into the slide, the eight-direction wedge probe and the corner release,
+  // so no path answers the prop question with a different subject's altitude.
+  const fz = o.z;
   const wx = o.x, wy = o.y;
-  slide(o, dx, dy, rad);
+  slide(o, dx, dy, rad, fz);
   /* THE CORNER WEDGE (#832): NO DIRECTION moves this mover while it stands in a legal cell.
      The slide asks THREE canEnter questions per axis - the destination and two lateral probes at
      +- rad * 0.7 - and in a 90-degree corner both laterals land in the two wall cells, so both axes
@@ -442,16 +478,19 @@ function tryMove(o, dx, dy, rad) {
      that truly cannot go anywhere is the one this rule exists for. Eight slides, and only on a frame
      that moved nothing, and it short-circuits on the first direction that does move. */
   if (wedgeReliefEnabled() && (dx !== 0 || dy !== 0) && o.x === wx && o.y === wy &&
-      !anyWayOut(o.x, o.y, Math.hypot(dx, dy), rad)) standClear(o, rad);
+      !anyWayOut(o.x, o.y, Math.hypot(dx, dy), rad, fz)) standClear(o, rad, fz);
 }
 /* The axis-separated slide on its own, so the wedge test above can ask it of eight directions without
    moving anybody. This is the shipped slide, byte for byte - the SAME three probes per axis, the SAME
    grown prop ghost - and it is the only copy: a second implementation of the slide to test the first
    one is how the two drift apart. It mutates `o`, which for the wedge test is a scratch object the
-   mover is copied into, never the mover. */
-function slide(o, dx, dy, rad) {
-  if (canEnter(o.x, o.y, o.x + dx + Math.sign(dx) * rad, o.y) && canEnter(o.x, o.y, o.x + dx + Math.sign(dx) * rad, o.y - rad * 0.7) && canEnter(o.x, o.y, o.x + dx + Math.sign(dx) * rad, o.y + rad * 0.7) && !propBlocks(o.x + dx, o.y, rad)) o.x += dx;
-  if (canEnter(o.x, o.y, o.x, o.y + dy + Math.sign(dy) * rad) && canEnter(o.x, o.y, o.x - rad * 0.7, o.y + dy + Math.sign(dy) * rad) && canEnter(o.x, o.y, o.x + rad * 0.7, o.y + dy + Math.sign(dy) * rad) && !propBlocks(o.x, o.y + dy, rad)) o.y += dy;
+   mover is copied into, never the mover. `fz` is the MOVER's feet (#833) and is carried through the
+   wedge probe explicitly, because the scratch object that stands in for the mover carries x and y
+   only - read off that object the feet would be undefined and every probe would answer for the
+   column floor, which is the subject error #833 is here to remove. */
+function slide(o, dx, dy, rad, fz) {
+  if (canEnter(o.x, o.y, o.x + dx + Math.sign(dx) * rad, o.y) && canEnter(o.x, o.y, o.x + dx + Math.sign(dx) * rad, o.y - rad * 0.7) && canEnter(o.x, o.y, o.x + dx + Math.sign(dx) * rad, o.y + rad * 0.7) && !propBlocks(o.x + dx, o.y, rad, fz)) o.x += dx;
+  if (canEnter(o.x, o.y, o.x, o.y + dy + Math.sign(dy) * rad) && canEnter(o.x, o.y, o.x - rad * 0.7, o.y + dy + Math.sign(dy) * rad) && canEnter(o.x, o.y, o.x + rad * 0.7, o.y + dy + Math.sign(dy) * rad) && !propBlocks(o.x, o.y + dy, rad, fz)) o.y += dy;
 }
 /* The eight compass directions at unit length, so a direction is a DIRECTION and the probe length
    stays the command's own - the question is "could this mover have gone anywhere at all with the step
@@ -462,11 +501,11 @@ const WEDGE_DIRS = [[1, 0], [0.7071067811865476, 0.7071067811865476], [0, 1],
   [-0.7071067811865476, 0.7071067811865476], [-1, 0], [-0.7071067811865476, -0.7071067811865476],
   [0, -1], [0.7071067811865476, -0.7071067811865476]];
 const WEDGE_MOVED = 1e-6;
-function anyWayOut(x, y, step, rad) {
+function anyWayOut(x, y, step, rad, fz) {
   const m = { x: 0, y: 0 };
   for (let k = 0; k < 8; k++) {
     m.x = x; m.y = y;
-    slide(m, WEDGE_DIRS[k][0] * step, WEDGE_DIRS[k][1] * step, rad);
+    slide(m, WEDGE_DIRS[k][0] * step, WEDGE_DIRS[k][1] * step, rad, fz);
     if (Math.abs(m.x - x) > WEDGE_MOVED || Math.abs(m.y - y) > WEDGE_MOVED) return true;
   }
   return false;
@@ -478,7 +517,7 @@ function anyWayOut(x, y, step, rad) {
    a new rule, not a release. */
 let wedgeRelief = true;
 function wedgeReliefEnabled() { return wedgeRelief; }
-function standClear(o, rad) {
+function standClear(o, rad, fz) {
   const gx = o.x | 0, gy = o.y | 0, cx = gx + 0.5, cy = gy + 0.5, e = 1e-3;
   const west = !canEnter(cx, cy, cx - 1, cy), east = !canEnter(cx, cy, cx + 1, cy);
   const north = !canEnter(cx, cy, cx, cy - 1), south = !canEnter(cx, cy, cx, cy + 1);
@@ -491,7 +530,7 @@ function standClear(o, rad) {
   if (nx === o.x && ny === o.y) return;
   // the push stays inside the mover's own cell, so it can only land on geometry a bad deal authored;
   // refuse it rather than move a mover into a wall
-  if (isSolid(nx, ny) || propBlocks(nx, ny, rad)) return;
+  if (isSolid(nx, ny) || propBlocks(nx, ny, rad, fz)) return;
   o.x = nx; o.y = ny;
 }
 /* Landing feel (#634), both halves driven by the impact speed `imp` the touchdown already computes.
@@ -593,8 +632,17 @@ function updatePlayer(dt) {
     const accel = fw || sd ? 14 : 11;
     P.vx += (tvx - P.vx) * Math.min(1, accel * dt);
     P.vy += (tvy - P.vy) * Math.min(1, accel * dt);
-    // jump / gravity: P.z is an altitude, so what holds the player up is the column's floor
-    const gz = floorAt(P.x, P.y);
+    // jump / gravity: P.z is an altitude, so what holds the player up is the column's floor -
+    /* #833: and a prop standing on that floor is part of it. `gz` is whichever surface is higher, the column
+       or a prop TOP within ONE STEP of the feet (propStand) - so a low crate is taken by the existing
+       grounded step test below and nothing is added to that test; `mount` is the top of a handhold being
+       pressed into while Space is held (propMount), paid for in SPEED only. Both ask the one footprint
+       predicate in js/20_level.js - the box tryMove blocks on, the shot stops on and the AI's sight cannot
+       see through - so a crate that stops your feet is the same crate you can stand on, and a burnt barrel
+       stops being all three in the frame it dies (#833.1). Terrain is untouched: the quantum tread is still
+       answered by canEnter / the EK_STEP byte (#633). */
+    const gz = Math.max(propStand(P.x, P.y, 0, P.z), floorAt(P.x, P.y));
+    const mount = keys['Space'] ? propMount(P.x, P.y, 0.28, P.z) : -1;
     const climb = onLadder(P.x, P.y) ? ((keys['KeyE'] ? 1 : 0) - (keys['KeyQ'] ? 1 : 0)) : 0;
     if (climb) { P.air = false; P.vz = 0; P.dzV = 0; P.z = clamp(P.z + climb * 1.6 * dt, gz, Math.max(gz, ceilAt(P.x, P.y) - cfg.eye)); }
     else {
@@ -619,6 +667,20 @@ function updatePlayer(dt) {
       //     already 0, so every impact and damage figure in `view.js drop` reads what it read before.
       if (!P.air && gz < P.z - STEP_Z - STEP_EPS && !steppedDownInto(P.x, P.y, P.z)) { P.air = true; P.vz = P.dzV; P.dzV = 0; }
       if (P.air) {
+        // #833: pressing into a handhold pays the REST of the climb, in velocity. PRICED, not tuned:
+        // sqrt(2 g PROP_STEP_UP) is the speed this branch's own 9.2 carries the feet exactly PROP_STEP_UP,
+        // so the assist reaches the window and cannot exceed it - the shipped crate's 0.63 m top is inside
+        // it, a 1.00 m wall is not. The feet still arrive by the integration below and are caught by
+        // propStand, so arriving on a crate and arriving on a tread run through one support test.
+        //
+        // AND IT IS A CLIMB, NOT A HOVER: the assist is priced against the way UP, so the second term is
+        // `P.vz > 0` and the body has to still be going up. Read without it, the term re-armed on every
+        // frame a FALLING body happened to be under a prop top - it re-priced `P.vz` back to +3.72 m/s
+        // from a downward speed, so a drop into or past a prop's column rose, fell, rose, and never
+        // resolved: `view.js vert`'s fall-damage ladder read 0.0 hp / 240 frames on every drop and
+        // `view.js drop` found no touchdown on any level. A body moving DOWN keeps the fall gravity gave
+        // it, which is the same downward speed #634's landing impulse, shake and damage are computed from.
+        if (mount > P.z + 1e-3 && P.vz > 0) P.vz = Math.max(P.vz, Math.sqrt(2 * 9.2 * PROP_STEP_UP));
         P.vz -= 9.2 * dt; P.z += P.vz * dt;
         if (P.z <= gz) {
           const imp = -P.vz;                                 // 5.25 m/s is the impact of a 1.5-unit drop at g=9.2; a jump lands at 3.0

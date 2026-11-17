@@ -1946,6 +1946,14 @@ const MESH = (function () {
      it measures because a footprint guessed in the caller is a second source of truth that drifts
      the day the art changes; `MESH.foot` is the only reader (#212). */
   const FOOT = { barrel: 0.255, crate: 0.375, lamp: 0.17 };
+  /* #833: the SAME kind table read upward — the TOP each prop's authored geometry reaches, in the same
+     NORMALISED units, so `MESH.top(kind) * scale` is the altitude a prop is actually drawn to. Read off
+     the builders above: the barrel's lid tube and bung reach 0.97 (`b.tube(.. 0.97 ..)`, `b.box(0,0.95,..)`
+     +0.02), the crate's lid box reaches 0.875 (`b.box(0, 0.85, 0, .375, .025, .375)`), the lamp's shade
+     tube tops at 0.84. A height guessed in a caller is the same second source of truth #212 retired for
+     the footprint, and #833 is that disagreement reached for altitude: the shot path used `p.scale` (0.86
+     for a barrel, 0.72 for a crate) as its z ceiling, which is neither the drawn top nor a shared number. */
+  const TOP = { barrel: 0.97, crate: 0.875, lamp: 0.84 };
 
   function draw(o) {
     /* A view model brings its own vertex set (`mdl`): its parts travel continuously - ejector, pump,
@@ -2506,6 +2514,7 @@ const MESH = (function () {
     heldKinds: () => Object.keys(SPEC).filter(k => SPEC[k].gun),
     limbSides: () => segLimbs(),
     foot: k => FOOT[k] || 0,
+    top: k => TOP[k] || 0,          // #833: the drawn top, in the same normalised units as `foot`
     vertsFor: k => model(k || 'grunt').nV,
     /* the view model's geometry: rebuilt per frame, never cached, and the numbers the probes need */
     weapon: (k, st) => weaponGeo(k, st),

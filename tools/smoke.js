@@ -1269,6 +1269,13 @@ const release = () => fire('mouseup', { button: 0 });
         const f0=MAP.fz[y*MAP.w+x];let mixed=0;
         for(let k=2;k<=Math.min(11,MAP.w-1-x,Math.floor(r.dist));k++)if(MAP.fz[y*MAP.w+x+k]!==f0)mixed=1;
         if(mixed)continue;
+        // #833: and nothing STANDING in the run. A prop is a body to a round now, so a corridor with a
+        // crate in it answers this row as a prop hit - which is a correct new behaviour but not the shot
+        // under test, and the level arm stops being a wall shot at all (measured: it read a hit at 6.838 m
+        // with 0 marks, and the row's own VACUOUS clause fired). The test asks the shared predicate, so it
+        // is the same box the feet, the round and the sight ask, not a third opinion about props.
+        let pblk=0;for(const q of PROPS){const th=propSolid(q)?propRayT(q,x+0.5,y+0.5,1,0,floorAt(x+0.5,y+0.5)+cfg.eye,0):-1;if(th>0&&th<r.dist)pblk=1;}
+        if(pblk)continue;
         a.push([x+0.5,y+0.5,+r.dist.toFixed(3)]);}
         return a.length?a.sort((p,q)=>q[2]-p[2])[0]:[]}`);
       const spot = cands && cands.length === 3 ? cands : null;

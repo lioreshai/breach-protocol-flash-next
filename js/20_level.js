@@ -881,6 +881,67 @@ const cellLightAt = (x, y) => {
   if (ix < 0 || iy < 0 || ix >= MW || iy >= MH) return 0;
   return MAP.light[iy * MW + ix];
 };
+/* #833: ONE predicate answers a prop. Movement, the shot solver and the sight march used to carry three
+   separate opinions about whether a prop is there, and only one of them (`propBlocks`) said yes: a crate
+   stopped your feet, let your round through and hid nothing from a hostile's eye. These three reads are the
+   single answer, and every caller below asks THEM. The numbers come from the art, never from a caller:
+   `MESH.foot` is the footprint half-extent (#212) and `MESH.top` is the top the geometry is DRAWN to, so
+   the solid is the box the frame shows - [floor, drawn top] over the footprint square. Both are scaled by
+   `p.scale`, and both read the LIVE floor the way js/40_render.js draws a prop, so a prop standing on a
+   raised band blocks and is hit at the altitude you can see. `dead` covers the burnt barrel in all three
+   at once; a kind with no footprint (a pickup, the portal, the orb) is not in this set and stays
+   non-blocking by construction. */
+const propFootR = p => MESH.foot(p.kind) * (p.scale || 1);
+const propTopZ = p => floorAt(p.x, p.y) + MESH.top(p.kind) * (p.scale || 1);
+const propSolid = p => !p.dead && propFootR(p) > 0;
+/* The footprint test, grown by the mover's radius - the Minkowski square #218 built, unchanged (#633's
+   one-predicate rule: this is the SAME square tryMove slides on, so the block and the support cannot
+   drift apart). rad 0 asks the bare box, which is the question "can feet rest here". */
+const propOver = (p, x, y, rad) => {
+  const r = propFootR(p) + rad;
+  return Math.abs(p.x - x) < r && Math.abs(p.y - y) < r;
+};
+/* The band term #218 shipped, read live so a probe that raises a cell's floor moves the answer with it: a
+   prop on a band that is not the mover's own hangs in the air over the datum and stops no one (#189's
+   band-blind family, #772's flat ray that wrongly counted a prop on the deck above). */
+const propBand = (p, gz) => Math.abs(floorAt(p.x, p.y) - gz) < ZQ;
+/* A prop's top within this distance ABOVE the feet is a handhold, not a wall: press into it and the feet
+   are lifted onto it. PRICED, not tuned - the shipped crate's drawn top is 0.875 * 0.72 = 0.63 m and no
+   motion the game ships reaches it (the jump peaks at 0.489 m, the auto-step takes one 0.25 m quantum),
+   so a smaller window leaves criterion 2 unmet and a window that reaches 1.00 m would let a body climb
+   the room's own geometry. `view.js props` prints the two numbers this window is priced between. */
+const PROP_STEP_UP = 0.75;
+/* Where the feet rest in this column: the column's own floor, or the top of a prop standing on it that is
+   no more than PROP_STEP_UP above where the feet already are. Only a surface at/below the feet (plus the
+   2 cm the shipped step-down residue already uses) supports a GROUNDED mover - lifting onto a crate is
+   the mantle below, never a walk-through. */
+function propStand(x, y, rad, fz) {
+  const gz = floorAt(x, y);
+  let top = gz;
+  for (let i = 0; i < PROPS.length; i++) {
+    const p = PROPS[i];
+    if (!propSolid(p) || !propBand(p, gz) || !propOver(p, x, y, rad)) continue;
+    const t = propTopZ(p);
+    if (t > top && t - fz <= STEP_Z) top = t;
+  }
+  return top;
+}
+/* Where a ray first enters a prop's box, or -1. A slab intersection against the SAME square footprint and
+   the SAME [floor, drawn top] span, so the round answers to the object the feet answer to and the #98 z
+   test that only the barrel branch ever had becomes the general rule: a round aimed OVER a crate's top
+   carries on past it. */
+function propRayT(p, ox, oy, dx, dy, oz, tanP) {
+  const f = propFootR(p), z0 = floorAt(p.x, p.y), z1 = propTopZ(p);          // f > 0 and !dead checked by the caller
+
+  let t0 = 0, t1 = 1e9;
+  if (Math.abs(dx) < 1e-9) { if (Math.abs(ox - p.x) >= f) return -1; }
+  else { let a = (p.x - f - ox) / dx, b = (p.x + f - ox) / dx; if (a > b) { const s = a; a = b; b = s; } t0 = Math.max(t0, a); t1 = Math.min(t1, b); }
+  if (Math.abs(dy) < 1e-9) { if (Math.abs(oy - p.y) >= f) return -1; }
+  else { let a = (p.y - f - oy) / dy, b = (p.y + f - oy) / dy; if (a > b) { const s = a; a = b; b = s; } t0 = Math.max(t0, a); t1 = Math.min(t1, b); }
+  if (Math.abs(tanP) < 1e-9) { if (oz < z0 || oz > z1) return -1; }
+  else { let a = (z0 - oz) / tanP, b = (z1 - oz) / tanP; if (a > b) { const s = a; a = b; b = s; } t0 = Math.max(t0, a); t1 = Math.min(t1, b); }
+  return t1 > t0 && t0 > 0 ? t0 : -1;
+}
 function blocked(ax, ay, bx, by) {
   const dx = bx - ax, dy = by - ay, d = Math.hypot(dx, dy);
   if (d < 1e-4) return false;
@@ -914,12 +975,34 @@ function losZ(ax, ay, az, bx, by, bz) {
   if (d < 1e-4) return true;
   const ex = bandExitT(ax, ay, dx / d, dy / d, az, (bz - az) / d, d);
   if (ex.kind !== 0 && ex.t > 1e-3) return false;
+  /* #833: the same box the feet answer to and the round answers to. Until this line the AI's sight
+     marched grid cells alone, so a hostile saw - and shot - a player standing behind a crate the frame
+     plainly hides from him. The altitude is the LINE's, not a cell's: a prop whose top is below the sight
+     line is floor the eye looks over, and one whose floor is above it is furniture on the deck overhead,
+     which is the #772 case the flat ray got wrong.
+     PRICED ONCE PER CALL, not once per sample. The first version asked `does a prop cover this point`
+     inside the march below, which is PROPS.length reads at every 0.14 m sample - measured on SEED 12345
+     / L0 ARCHIVE SUBLEVEL at 767 us/frame against smoke's 0.6 ms AI floor, a regression this row gates.
+     The slab intersection below is both cheaper (one box solve per prop per call, ~30, instead of ~30 x
+     65) and EXACT: a 14 cm sample grid steps over a lamp post 0.16 m wide, a box solve cannot. An entry
+     at t = 0 is the eye INSIDE the box - a body standing on a crate or inside a barrel's footprint - and
+     is not a block, exactly as the march's own first sample is skipped. */
+  const ux = dx / d, uy = dy / d, tanP = (bz - az) / d;
+  for (let i = 0; i < PROPS.length; i++) {
+    const p = PROPS[i];
+    if (!propSolid(p)) continue;
+    const ex = p.x - ax, ey = p.y - ay, f = propFootR(p);
+    const proj = ex * ux + ey * uy;                       // cheap reject first: the box cannot be in
+    if (proj < -f || proj - f > d) continue;              // front of the eye within this segment
+    const th = propRayT(p, ax, ay, ux, uy, az, tanP);
+    if (th > 0 && th < d) return false;
+  }
   const st = 0.14, n = (d / st) | 0;
   for (let i = 1; i < n; i++) {
-    const t = i * st / d, sx = ax + dx * t, sy = ay + dy * t;
+    const t = i * st / d, sx = ax + dx * t, sy = ay + dy * t, sz = az + (bz - az) * t;
     if (isSolid(sx, sy)) return false;
     // 1e-3 because a floor level with the line is the floor the eye stands on, not a wall in front of it
-    if (floorAt(sx, sy) > az + (bz - az) * t + 1e-3) return false;
+    if (floorAt(sx, sy) > sz + 1e-3) return false;
   }
   return true;
 }
