@@ -4840,17 +4840,20 @@ if (MODE === 'vert') {
       let climb = 0;
       for (let i = 0; i < N * N; i++) if (!cell[i] && climbCellAt(i % N, (i / N) | 0)) climb++;
       const seen = {lamp: 0, crate: 0, barrel: 0}, bad = {lamp: 0, crate: 0, barrel: 0};
-      let auth = 0; const ex = [];
+      let auth = 0; const ex = [], byN = {};
       for (const p of PROPS) {
         const k = p.kind; if (!seen.hasOwnProperty(k)) continue;
         seen[k]++;
         if (!climbCellAt(p.x, p.y)) continue;
         if (p.plan) { auth++; if (ex.length < 2) ex.push(k + ' (authored) ' + (p.x | 0) + ',' + (p.y | 0)); continue; }
         bad[k]++;
-        if (ex.length < 2) ex.push(k + ' ' + (p.x | 0) + ',' + (p.y | 0) + ' fz=' + MAP.fz[(p.y | 0) * N + (p.x | 0)]);
+        const by = p.ovl ? 'deck body' : PROPSIGHT.log.some(m => m[5] === PROPS.indexOf(p)) ? 'sight-line walk'
+                 : p.bodyMoved ? 'stair walk' : 'prop pool';
+        byN[by] = (byN[by] || 0) + 1;
+        if (ex.length < 2) ex.push(k + ' (' + by + ') ' + (p.x | 0) + ',' + (p.y | 0) + ' fz=' + MAP.fz[(p.y | 0) * N + (p.x | 0)]);
       }
       const lightBad = LIGHTS.filter(L => !cell[(L.y | 0) * N + (L.x | 0)] && climbCellAt(L.x, L.y)).length;
-      return {N: N, name: LEVELS[${li}].name, climb: climb, seen: seen, bad: bad, auth: auth, ex: ex,
+      return {N: N, name: LEVELS[${li}].name, climb: climb, seen: seen, bad: bad, auth: auth, ex: ex, byN: byN, off: PROPSOFF,
         lightBad: lightBad, open: (() => { let n = 0; for (let i = 0; i < N * N; i++) if (!cell[i]) n++; return n; })()};
     })()`);
     const nSeen = f.seen.lamp + f.seen.crate + f.seen.barrel;
@@ -4874,6 +4877,8 @@ if (MODE === 'vert') {
       `against the measured floor ${FLOOR[li]}${nBad > FLOOR[li] ? ' FAIL' : ''}` +
       `${f.auth ? ', plus ' + f.auth + ' AUTHORED by the plan (named, not counted)' : ''}` +
       `${f.lightBad ? ' | ' + f.lightBad + ' light source(s) on a climb, which blocks nothing' : ''}` +
+      (Object.keys(f.byN).length ? ' | placed by ' + Object.keys(f.byN).map(k => k + ' ' + f.byN[k]).join(', ') : '') +
+      ` | sight-line corridor walk: ${f.off.cand} relocated candidate(s) checked, ${f.off.moved} moved off it, ${f.off.stuck} with nowhere to go` +
       (ex => ex ? ' | e.g. ' + ex : '')(f.ex.join(' ; ')) +
       `  ${ok ? (nBad ? 'KNOWN #834 (a non-pool pass still stands ' + nBad + ')' : 'ok') : 'FAIL'}`);
   }
