@@ -344,6 +344,9 @@ let PROPSIGHT = { loud: 0, occl: 0, moved: 0, stuck: 0, quiet: 0, band: 0, cross
 /* #834 REWORK (PR #852 review): the counters for the SECOND corridor the stair walk can drop a footprint
    into - the arrival sight line. `view.js vert` reads these; nothing renders them. */
 let PROPSOFF = { cand: 0, moved: 0, stuck: 0, at: [] };
+/* #834: the counters for the clause that asks the climb question LAST, once the grid is final. See the
+   block at the end of genLevel's attempt. `view.js vert` reads these; nothing renders them. */
+let PROPSCLIMB = { cand: 0, moved: 0, stuck: 0, at: [] };
 
 const cellIdx = (x, y) => (y | 0) * MW + (x | 0);
 
@@ -5873,6 +5876,65 @@ function genLevel(li) {
        furnishFreeFaces. It writes DECOR only, so it cannot move a boundary, a light or a roll. */
     if (placed) furnishFreeFaces(cfgL);
 
+    /* #834 THE CLIMB QUESTION, ASKED LAST - AFTER THE GRID IS THE GRID.
+       `bodyOk` already refuses a climb cell at the pick, and it holds for every fixture whose cell never
+       changes. It cannot hold for a fixture whose CELL CHANGES UNDER IT: the give-back (#709) and the
+       pier / arrival-break pass (#631) both write `MAP.fz` and call `linkBoundaries()` long after the prop
+       loops, and a boundary that was EK_ROOM when the footprint was dealt becomes EK_STEP when the deck
+       under it is handed back or a tread is authored beside it. The census blamed those on "the prop
+       pool" by elimination - L0's barrel 22,10 at fz=8 and L2's lamp 12,22 are both fixtures the pick put
+       on flat floor and a LATER height write turned into a step crossing. A predicate asked at placement
+       time cannot see a write it runs before, so this is the same question asked where the answer exists:
+       once, at the end of the attempt, of every dealt fixture, off the derived `MAP.ek` the feet read.
+       It is a MOVED pick, never a rejected one - `ringSpot` again, so no RNG is drawn and the deal below
+       it stays the deal main dealt - and it carries both clauses the two earlier walks own: `bodyOk` (the
+       seat's disc AND the climb) and `!onSightLine`, because a footprint that steps off a tread into the
+       arrival corridor just trades #834 for #695, which is what PR #852's review measured. It also refuses
+       a cell another fixture already stands in: this pass runs after every push, so unlike the walks
+       above it can collide.
+       WHAT IT DOES NOT MOVE, and why that is stated rather than hidden: a deck body (`ovl`) stands at its
+       OWN SOURCE's cell by construction (#353 - "the light and the fixture cannot disagree about where
+       the lamp is"), and `alt`'s visible-source clause counts a `noglow` source as visible only when a
+       body stands within 0.35 m of it (`view.js:865`). Moving one of those off the deck would darken the
+       deck it exists to light, which is the exact trade PR #852's review rejected. So a deck body is
+       EXCLUDED here and NAMED by the census instead, under its own clause, with its cell printed. That is
+       #834's "a prop that must sit on a climb for a reason" answered the only way this one can be: the
+       reason is the light, the row says so, and the tread-blocking case the issue is about - a crate or a
+       barrel dealt by a distance rule - is what this clause removes. */
+    {
+      PROPSCLIMB = { cand: 0, moved: 0, stuck: 0, at: [] };
+      const fzSeat = MAP.fz[((seat[1] | 0) * N) + (seat[0] | 0)];
+      const eyeZ = floorAt(seat[0], seat[1]) + cfg.eye;
+      const onSightLine = (x, y) => {
+        const dx = x + 0.5 - seat[0], dy = y + 0.5 - seat[1], d = Math.hypot(dx, dy);
+        if (d < SIGHT_NEAR || d > SIGHT_FAR) return false;
+        if (MAP.fz[(y | 0) * N + (x | 0)] !== fzSeat) return false;   // another storey: out of this frame
+        let b = Math.atan2(dy, dx) - seatAng;
+        while (b > Math.PI) b -= TAU; while (b < -Math.PI) b += TAU;
+        if (Math.abs(b) > SIGHT_BAND) return false;
+        return losZ(seat[0], seat[1], eyeZ, x + 0.5, y + 0.5, floorAt(x + 0.5, y + 0.5) + 0.4);
+      };
+      const takenAt = (x, y) => {
+        const i = (y | 0) * N + (x | 0);
+        if (i === (((exitY | 0) * N) + (exitX | 0))) return true;      // never plug the exit
+        for (const q of PROPS) if (((q.y | 0) * N + (q.x | 0)) === i) return true;
+        for (const q of PICKUPS) if (((q.y | 0) * N + (q.x | 0)) === i) return true;
+        for (const q of ENEMIES) if (!q.dead && ((q.y | 0) * N + (q.x | 0)) === i) return true;
+        return false;
+      };
+      for (const p of PROPS) {
+        if (p.plan || p.ovl) continue;            // authored stands where the plan says; a deck body IS its light
+        if (!climbCellAt(p.x, p.y)) continue;
+        PROPSCLIMB.cand++;
+        const c = ringSpot([p.x | 0, p.y | 0], (x, y) =>
+          bodyOk(x, y) && !onSightLine(x, y) && !takenAt(x, y), 6);
+        if (c[0] === (p.x | 0) && c[1] === (p.y | 0)) { PROPSCLIMB.stuck++; PROPSCLIMB.at.push([p.x | 0, p.y | 0, p.kind]); continue; }
+        p.x = c[0] + 0.5; p.y = c[1] + 0.5; p.z = floorAt(p.x, p.y); p.yaw = propYaw(p.x, p.y);
+        p.climbFixed = 1;
+        PROPSCLIMB.moved++;
+      }
+      MAP.climbFix = PROPSCLIMB;                  // census only, same idiom as MAP.deckGive
+    }
 
     return true;
   }
