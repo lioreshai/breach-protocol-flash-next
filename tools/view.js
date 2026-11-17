@@ -4801,6 +4801,66 @@ if (MODE === 'vert') {
   }
   run(`if(globalThis.__genReal){genLevel=globalThis.__genReal;globalThis.__genReal=null;globalThis.__spawnBand=0;}`);
   EDGE_CENSUS();
+  /* #834: FIXTURES ON A CLIMB. RUN LAST, for EDGE_CENSUS's own reason - startLevel rolls the dice, and
+     a census that dealt a level earlier would re-deal every level the rows above measured. The issue's
+     defect is not cosmetic: a flight is ONE cell wide and a lamp post is FOOT.lamp wide, so furniture
+     dealt on a tread ends the route rather than decorating it, and 15 of 77 lamps and 14 of 108 props
+     sat on a climb across the four sectors when the issue was filed. The question is the one placement
+     never asked, so it is asked here off the two stores placement now reads - MAP.feat and the stored
+     EK_STEP kind on either side of the crossing (climbCellAt) - and never off FEAT alone, because the
+     top and bottom landing of a flight are not treads and are exactly as blocked.
+     THE CENSUS IS FALSIFIABLE IN BOTH DIRECTIONS: it prints the population it scored (climb cells, and
+     lamps / crates / barrels per sector, split dealt against authored), so a run that finds no
+     violation cannot have found it by scoring nothing - the population row goes red on its own.
+     AUTHORED IS NAMED, NOT COUNTED (#834 criterion 4): a prop whose cell came from a plan glyph carries
+     `plan` and is reported as authored, because a plan putting a lamp on a stair is a decision, while
+     the generator doing it is the defect. THE ARMS: `git stash` the placement predicate in js/20_level
+     .js's clearSpot (spotOk) and the dealt columns come back non-zero on the sectors that deal stairs. */
+  console.log('fixtures on a climb (#834)');
+  for (let li = 0; li < NL; li++) {
+    const f = run(`(function(){
+      startLevel(${li}, true);
+      const N = MW, cell = MAP.cell;
+      let climb = 0;
+      for (let i = 0; i < N * N; i++) if (!cell[i] && climbCellAt(i % N, (i / N) | 0)) climb++;
+      const seen = {lamp: 0, crate: 0, barrel: 0}, bad = {lamp: 0, crate: 0, barrel: 0};
+      let auth = 0; const ex = [];
+      for (const p of PROPS) {
+        const k = p.kind; if (!seen.hasOwnProperty(k)) continue;
+        seen[k]++;
+        if (!climbCellAt(p.x, p.y)) continue;
+        if (p.plan) { auth++; if (ex.length < 2) ex.push(k + ' (authored) ' + (p.x | 0) + ',' + (p.y | 0)); continue; }
+        bad[k]++;
+        if (ex.length < 2) ex.push(k + ' ' + (p.x | 0) + ',' + (p.y | 0) + ' fz=' + MAP.fz[(p.y | 0) * N + (p.x | 0)]);
+      }
+      const lightBad = LIGHTS.filter(L => !cell[(L.y | 0) * N + (L.x | 0)] && climbCellAt(L.x, L.y)).length;
+      return {N: N, name: LEVELS[${li}].name, climb: climb, seen: seen, bad: bad, auth: auth, ex: ex,
+        lightBad: lightBad, open: (() => { let n = 0; for (let i = 0; i < N * N; i++) if (!cell[i]) n++; return n; })()};
+    })()`);
+    const nSeen = f.seen.lamp + f.seen.crate + f.seen.barrel;
+    const nBad = f.bad.lamp + f.bad.crate + f.bad.barrel;
+    const vac = f.climb === 0 || nSeen === 0;
+    /* THE FLOOR, not zero, and the reason is #834's own fourth criterion plus the gate rule: the dealt
+       count came down from the issue's 15 lamps / 14 props to the two or three fixtures a placement pass
+       OTHER than the pool still stands on a climb - the #695 sight-line walk-out, which picks its
+       destination by the player's sight line and reaches a perpendicular four cells, and the overlook
+       deck bodies, which stand on the deck cell the pairing chose. Those two passes are the remainder of
+       the issue and are named here rather than widened around. The row gates what this increment moved
+       and goes red the day a deal puts more of them back. */
+    const FLOOR = [2, 1, 2, 0];
+    const ok = !vac && nBad <= FLOOR[li];
+    bad += ok ? 0 : 1;
+    console.log('  level ' + li + ' ' + f.name + ' ' +
+      (vac ? 'VACUOUS: ' : '') +
+      `climb cells ${f.climb}/${f.open} of the open grid, dealt fixtures ${nSeen} ` +
+      `(lamps ${f.seen.lamp}, crates ${f.seen.crate}, barrels ${f.seen.barrel}) - ` +
+      `on a climb ${nBad} (lamps ${f.bad.lamp}, crates ${f.bad.crate}, barrels ${f.bad.barrel}) ` +
+      `against the measured floor ${FLOOR[li]}${nBad > FLOOR[li] ? ' FAIL' : ''}` +
+      `${f.auth ? ', plus ' + f.auth + ' AUTHORED by the plan (named, not counted)' : ''}` +
+      `${f.lightBad ? ' | ' + f.lightBad + ' light source(s) on a climb, which blocks nothing' : ''}` +
+      (ex => ex ? ' | e.g. ' + ex : '')(f.ex.join(' ; ')) +
+      `  ${ok ? (nBad ? 'KNOWN #834 (a non-pool pass still stands ' + nBad + ')' : 'ok') : 'FAIL'}`);
+  }
   if (bad) { console.log('vert: FAILED'); process.exit(1); }
   console.log('vert: all levels ok');
   // Without this the pass path fell through into the scene dump: CI's gate step printed a

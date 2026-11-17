@@ -473,6 +473,34 @@ function steppedDownInto(x, y, z) {
   }
   return false;
 }
+/* #834: does this cell belong to a CLIMB - a tread, or the landing your feet reach first?
+   A lamp post or a crate is a footprint of FOOT.* metres, and a flight is one cell wide, so a fixture
+   dealt on a tread does not uglify the route, it ends it: the level becomes unusable rather than ugly.
+   The question is answered off the SAME two stores the renderer and the feet already read, so
+   placement cannot disagree with movement about which cells are a climb: `MAP.feat` carries the authored
+   tread/ladder cells and `MAP.ek` carries the stored crossing kind (#633), which is EK_STEP at BOTH
+   ends of a tread, a ladder and an authored ramp, and at a one-quantum lip either way. Checking the
+   kind on BOTH sides of the crossing is what makes the top and bottom landing count as part of the
+   climb: the landing cell is not a tread, but the crossing into the flight is an EK_STEP from it.
+   Flat levels store EK_ROOM everywhere and no feat, so this answers false on every cell and the
+   placement predicate below is inert where there is nothing to climb. */
+function climbCellAt(x, y) {
+  const xi = x | 0, yi = y | 0;
+  if (xi < 0 || yi < 0 || xi >= MW || yi >= MH) return false;
+  const i = yi * MW + xi;
+  if (MAP.cell[i]) return false;                    // a column is not a route; openness answers it
+  if (MAP.feat[i] === FEAT_STAIR || MAP.feat[i] === FEAT_LADDER) return true;
+  if (!MAP.ek) return false;                        // no kind store yet: nothing is a climb, the old rule
+  for (let d = 0; d < 4; d++) {
+    if (MAP.ek[(i << 2) + d] === EK_STEP) return true;
+    const nx = xi + DIRX[d], ny = yi + DIRY[d];
+    if (nx < 0 || ny < 0 || nx >= MW || ny >= MH) continue;
+    const n = ny * MW + nx;
+    if (MAP.cell[n]) continue;                      // a WALL is EK_WALL, never a climb
+    if (MAP.ek[(n << 2) + (d ^ 2)] === EK_STEP) return true;
+  }
+  return false;
+}
 /* The underside of whatever stands above: the tallest neighbouring floor, but never
    lower than one unit over this column's own. Flat, this is exactly 1. */
 function ceilAt(x, y) {
@@ -3485,15 +3513,17 @@ function buildAuthored(li) {
             seen[ni] = 1; st.push(ni); } } }
       const lstr = Math.max(TOPUP_MINF, Math.min(1, cov / TOPUP_TARGET));
       LIGHTS.push({ x: px, y: py, z: fl + LHOVER, r: 7.2, str: lstr, col: cfgL.lampCol, stat: 1 });
-      PROPS.push({ tex: PROP.lamp, x: px, y: py, scale: 0.95, z: fl, kind: 'lamp', yaw: propYaw(px, py) });
-    } else if (s[2] === 'B') PROPS.push({ tex: PROP.barrel, x: px, y: py, scale: 0.86, z: fl, kind: 'barrel', hp: BARREL_HP, dead: false, yaw: propYaw(px, py) });
+      // #834 criterion 4: a plan's mark is a DESIGN decision, so the census names it as authored and
+      // does not count it against the dealt population. THE STACK's lamps come from here.
+      PROPS.push({ tex: PROP.lamp, x: px, y: py, scale: 0.95, z: fl, kind: 'lamp', yaw: propYaw(px, py), plan: 1 });
+    } else if (s[2] === 'B') PROPS.push({ tex: PROP.barrel, x: px, y: py, scale: 0.86, z: fl, kind: 'barrel', hp: BARREL_HP, dead: false, yaw: propYaw(px, py), plan: 1 });
     /* #386: one crate in the game. The plan glyph carried the scale THE STACK was DRAWN at, so the
        authored crate shipped at 1 while every generated crate ships at 0.72 - the same prop, a third
        taller on screen, and a wider obstruction in the collision ghost (FOOT.crate*scale + 0.28 =
        0.655 m against 0.55 m), so the finale's crate was cover the player never learned. Nothing about
        the authored room makes a bigger crate mean anything; the two placement paths now carry one
        literal. Lamps (0.95) and barrels (0.86) already agreed between the paths and are untouched. */
-    else if (s[2] === 'C') PROPS.push({ tex: PROP.crate, x: px, y: py, scale: CRATE_SCALE, z: fl, kind: 'crate', yaw: propYaw(px, py) });
+    else if (s[2] === 'C') PROPS.push({ tex: PROP.crate, x: px, y: py, scale: CRATE_SCALE, z: fl, kind: 'crate', yaw: propYaw(px, py), plan: 1 });
     else if (s[2] === 'A' || s[2] === 'H') PICKUPS.push({ type: s[2] === 'A' ? 'ammo' : 'health', x: px, y: py, bob: 0, dead: false });
     else if (s[2] === 'g' || s[2] === 'h' || s[2] === 'b') {
       const ak = s[2] === 'g' ? 'grunt' : s[2] === 'h' ? 'hound' : 'brute';
@@ -4303,17 +4333,41 @@ function genLevel(li) {
        pickup floats and blocks nothing, and enemies already keep takeNear(7+) metres. */
     const seat = nearestOpen(px0, py0);
     const seatClear = (x, y) => dist2(x + 0.5, y + 0.5, seat[0], seat[1]) >= SPAWN_CLEAR * SPAWN_CLEAR;
-    // deterministic and RNG-free: the nearest open reachable cell outside the disc, Chebyshev rings
-    // first, scan order within a ring. Three rings is 48 cells; nothing moves when none qualifies.
+    /* #834: THE FIXTURE MAY NOT STAND WHERE YOUR FEET CLIMB. This predicate is the second half of the
+       one question #154 added here - "where may a prop stand?" - and it is asked of the SAME walk, not
+       of a second one, for the #96 reason stated above: a `continue` inside takeNear costs one more
+       rndi draw and re-rolls every world downstream of the same SEED, so the fix cannot be a rejected
+       candidate. It is a MOVED pick, found by the ring walk below, which draws nothing and rolls no
+       dice: the level downstream of a fixture that had to move stays bit-for-bit the level main built
+       and only that fixture's own square metre changes.
+       Why the climb and not just the room: a flight is ONE cell wide and a lamp post is FOOT.lamp wide,
+       so a fixture dealt on a tread does not make the stair ugly, it ends the route - measured on the
+       four sectors at 15 of 77 lamps and 14 of 108 props sitting on a climb (issue #834's table), and
+       on the narrow flights that is an unusable level. `climbCellAt` answers it off MAP.feat and the
+       stored EK_STEP kind, the same two stores the feet and the renderer read, so placement cannot
+       disagree with movement about what counts as a climb; it is true of the treads AND of the cells
+       whose only claim is the crossing into the flight, which is what "landing" means here.
+       The candidate set shrinks by the climb cells only, and the walk still prefers the pick itself
+       whenever the pick is legal, so a sector whose rooms are mostly flat deals exactly main's props.
+       Light is NOT resolved apart from the body: the LIGHTS entry and the PROPS entry come off the same
+       cell, and a source is a value in a lightmap that blocks nothing - what the predicate moves is the
+       pick, and it moves by the shipped no-draw ring walk. */
+    const spotOk = (x, y) => (!(SPAWN_CLEAR > 0) || seatClear(x, y)) && !climbCellAt(x, y);
+    // deterministic and RNG-free: the nearest open reachable cell outside the disc and off a climb,
+    // Chebyshev rings first, scan order within a ring. #154 stopped at three rings because a pick inside
+    // the seat's disc is at most that far from open deck; a climb is LONGER than that - a flight of treads
+    // is five cells and every one of them plus both landings fails the predicate - so the walk runs to
+    // six, which is the farthest a fixture was measured needing to go. It still draws nothing: widening a
+    // ring walk costs arithmetic, never a die.
     const clearSpot = c => {
-      if (!(SPAWN_CLEAR > 0) || seatClear(c[0], c[1])) return c;
-      for (let r = 1; r <= 3; r++)
+      if (spotOk(c[0], c[1])) return c;
+      for (let r = 1; r <= 6; r++)
         for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
           if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
           const nx = c[0] + dx, ny = c[1] + dy;
           if (nx < 1 || ny < 1 || nx >= N - 1 || ny >= N - 1) continue;
           const i = ny * N + nx;
-          if (cell[i] || dist[i] < 0 || !seatClear(nx, ny)) continue;
+          if (cell[i] || dist[i] < 0 || !spotOk(nx, ny)) continue;
           return [nx, ny];
         }
       return c;
@@ -4615,6 +4669,8 @@ function genLevel(li) {
         PROPS.push({ tex: PROP.lamp, x: bx + 0.5, y: by + 0.5, scale: 0.95, z: floorAt(bx + 0.5, by + 0.5), kind: 'lamp', yaw: propYaw(bx + 0.5, by + 0.5) });
       }
     }
+    // #834: the two kinds with a CRATE-SIZED footprint go through the same resolver. A crate on a
+    // landing blocks the corridor that landing feeds, which is the second half of the issue's table.
     for (let i = 0; i < cfgL.crates; i++) { const c = clearSpot(takeNear(2)); PROPS.push({ tex: PROP.crate, x: c[0] + 0.5, y: c[1] + 0.5, scale: CRATE_SCALE, z: floorAt(c[0] + 0.5, c[1] + 0.5), kind: 'crate', yaw: propYaw(c[0] + 0.5, c[1] + 0.5) }); }
     for (let i = 0; i < cfgL.barrels; i++) {
       const c = clearSpot(takeNear(2));
