@@ -1,5 +1,108 @@
 # Changelog
 
+## [v1.4.28] - 2026-11-17
+
+### Added
+
+- **A body that walks off a deck now falls** (#830, PRs #848, #850). Chase a grunt onto a mezzanine and
+  it used to reach the lip and simply be on the floor below in the next frame — no drop, no landing, no
+  change in how big it is on the way down. It now steps off, gains speed under gravity for about half a
+  second, and lands with a puff of dust, a thud that fades with distance and a small camera kick scaled
+  by how hard it hit; the same rule runs on a corpse knocked off a ledge, and a body chased up a step it
+  cannot walk up still cannot take it. The altitude was never only cosmetic: it is the body's hit volume
+  and its occlusion, so a body standing on the deck above while drawn on the deck below was hittable in
+  the wrong place and depth-tested against the wrong band — which is also how a body could look like it
+  was standing in a room it was not in. Draw height, the contact shadow, a shot's height window and the
+  AI's eye now read the body's own altitude, and a body in mid-drop keeps moving to where it last saw you
+  instead of handing back a search it had already earned.
+
+### Fixed
+
+- **A corner where two walls meet is no longer a dead end** (#832, PR #849). Walk or fall into a 90-degree
+  corner and every direction used to refuse — left, right, forwards, backwards — so the only way back into
+  the fight was restarting the level. Enemies froze in the same place: a body that dropped into a stepped
+  corner stood there doing nothing for the rest of the level, and you won a fight without ever seeing why.
+  A mover that no direction can move is now stepped clear of the faces it is standing inside and walks on.
+  Nothing about what may be crossed changed — the corner stops you exactly as before, it just no longer
+  keeps you — and a body sliding past a lamp in a doorway still slides. Sweeping every open cell of all
+  four sectors for seats where all eight directions are refused: 24 / 20 / 26 / 22 wedges found with the
+  release off, none still wedged with it on, and a body seated in one now moves where before it moved
+  0 m in 240 frames.
+
+### Changed
+
+- **Up close an enemy keeps turning** (#727, PR #846). At arm's length a hostile's chest used to be one
+  flat field of a single colour with nothing on it saying which way he was facing, even though at combat
+  range the same body already reads as one lit flank and one shaded flank — the information existed and
+  then vanished as you closed. The near-side cap that caused it was a shading wave whose brightness was
+  frozen at its combat-range value all the way to the eye; past a projected-size gate the wave now keeps
+  its slope instead of its ceiling, bounded by the existing byte clip so it cannot lift the brightness the
+  room's light is charged against. At the pinned 2 m seat the PR measured the torso interior going from
+  53-87 luma with no run on the body crossing a 2x contrast step to 37-105 luma with one such run per
+  row: a left-to-right ramp instead of one value, so you can tell a chest-on brute from one showing you
+  his back before he moves. At the ordinary combat seat the frame is byte-identical, props and your own
+  weapon never enter the new branch, and no light or exposure value moved.
+- **A brute at arm's length carries a weapon, not a plank** (#847, PR #853). Held out in front of him, his
+  arms and the weapon drew as one dark horizontal slab standing out past his own silhouette — wider than
+  his chest, darker than anything else on him, no break between the two arms and no hint of what he was
+  holding, because the weapon was laid level so every pixel of it landed on one screen row. The cant is
+  turned over rather than shortened, so the same length arrives as a diagonal from shoulder toward far
+  hip; each forearm now wears the suit value the legs already wear and ends in a fist, so each arm has a
+  value of its own and an end the eye can find; and the weapon's four parts are painted by what each one
+  is instead of sharing one number. All of it is authored geometry and per-part paint — no light,
+  threshold or exposure term moved.
+- **A crate standing at a hostile's post stops out-shining him** (#695, PRs #845, #851). In the sectors
+  where a body is dealt standing in front of bright furniture, the box no longer wins the argument. A crate
+  or barrel within about 1.75 m of the square a body spawns on — on his own deck, no nearer to you than he
+  is, and inside sight-line range — now wears the quiet hazard rank the game already pays elsewhere: same
+  amber-on-charcoal hue, same chevron, same black contrast, at 0.74x of the delivered light. It still reads
+  as a hazard band at 10 m; it just stops being the brightest thing in the frame he is standing in front of.
+  Everywhere else the level's props are byte-identical, a sector whose bodies stand clear of the loud paint
+  deals exactly what it dealt before, and the census that found this now names the props it charged instead
+  of printing a bare count. At this head the row reads no prop over the +25 bar on all four sectors.
+- **A dealt lamp, crate or barrel no longer stands on a stair** (#834, PRs #852, #854). 15 of 77 lamps and
+  14 of 108 props used to be dealt onto a tread or a stair landing, and on a one-cell-wide flight that ends
+  the route through a level. Fixture placement now asks the same climb question the spawn seat has always
+  asked, and the pick moves without touching the dice: a sector whose rooms are flat deals exactly the
+  props it dealt before, and fixtures per deal are unchanged. An authored lamp on a stair is counted
+  separately as a decision rather than a defect. Measured at this head: ARCHIVE SUBLEVEL 2 of 25 dealt
+  fixtures on a climb, RING TRANSPORT 1 of 37, ABATOIR CORE 2 of 41, THE STACK 0 dealt plus 4 authored.
+- **At the hip, the fingers stop painting through the part they hold** (#780, PR #807). The support hand's
+  finger prisms ran right across the tube they grip, so a finger covered the very part the player is
+  holding and the thing being held stopped reading as that thing. The tips now stop short of the far side
+  and each finger gives up a millimetre of girth, so the row wraps the near face of the tube and the pump,
+  magazine or cylinder reads between the fingers rather than under them. Re-read at this head: the shotgun
+  puts 965 round-part pixels into its hip paint against a bar of 996; the pistol and the rifle still do
+  not, which is the remaining half of the issue. Aiming down sights is untouched.
+- **The workflow guard is a Node script now** (#840, PR #843). The check that stops a malformed workflow
+  file from silently producing zero jobs was this repository's only Ruby program, and it only ever ran on
+  the CI runner that happens to ship Ruby; `node tools/wfyaml.js --dir .github/workflows` runs on any
+  machine with the repo checked out. Nothing in the game moves.
+
+### Known limitations
+
+- **#834 ships as a rule, not a zero.** Five fixtures per four-sector deal still land on a climb — one
+  blocking barrel in ARCHIVE SUBLEVEL at 22,10 and four lamps — placed by passes that choose a cell outside
+  the prop pool: the arrival sight-line walk-out and the overlook deck bodies. The census prints each one
+  by name and by which pass stood it there, and the issue stays open for that remainder.
+- **The quiet prop rank is keyed to where a body is dealt, not where he walks.** A hostile who crosses the
+  room and stops in front of a different crate carries no rank with him. That issue's opposite tail is also
+  still open: props that sit a whole 25-luma band *under* the deck they stand on read as a dark footprint in
+  the floor rather than a solid with sides — at this head 10 of 15 charged props on THE STACK, worst a lamp
+  at -80.6.
+- **A crate still stops your feet and nothing else** (#833): you cannot climb onto one and your round passes
+  straight through it. That fix is in review on PR #855; it is not in this build.
+- **On the pistol and the rifle the part being gripped is still almost entirely hidden at the hip** — 15 px
+  and 188 px of round-part paint against bars of 840 and 1167 at this head, where the shotgun now reaches
+  965 of 996. That is a question about where the round sits, not about the hand, and #780 stays open for it.
+- Unchanged and still open: the authored mezzanine whose slab draws as a plain ceiling, so an arrival frame
+  can show a floor over you (#421, held for a maintainer decision); ABATOIR CORE's ceiling lead (#495);
+  figures arriving wearing their room's hue (#611); rooms the generator leaves as empty hangars (#631); and
+  what stands behind a pit lip is now drawn, while the far lip's own texture still takes the deck's plane
+  past a crossing (#829).
+- Most sectors a seed deals are still one storey deep. Multi-storey navigation is open design work, not
+  something this release changes.
+
 ## [v1.4.27] - 2026-11-16
 
 ### Added
