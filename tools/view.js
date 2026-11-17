@@ -21335,7 +21335,8 @@ if (MODE === 'surface') {
     const pGapsS = pProps.map(p => p.gap).sort((a, b) => a - b);
     const pMed = pGapsS.length ? pGapsS[pGapsS.length >> 1] : NaN;
     const pOver = pProps.filter(p => p.gap > PROPT_S).sort((x, y) => y.gap - x.gap);
-    const pUnder = pProps.filter(p => p.gap <= -PROPT_S).length;
+    const pUnderA = pProps.filter(p => p.gap <= -PROPT_S).sort((x, y) => x.gap - y.gap);
+    const pUnder = pUnderA.length;
     const medOf = a => a.length ? a[a.length >> 1] : NaN;
     const seatNear = pGaps.map(g => g.prop - g.near).filter(x => isFinite(x));
     const gateOk = ATTR
@@ -21356,6 +21357,10 @@ if (MODE === 'surface') {
           + `a lamp's painted post stands IN the pool it casts, so its own deck is the brightest floor in the room; `
           + `the aperture itself is already out of the prop mean (the lights-off test above)` : '') 
         + `; ${pUnder} at or under -${PROPT_S}`
+        + (pUnderA.length ? ' [' + pUnderA.slice(0, 3).map(p => `${p.gap.toFixed(1)} ${p.kind}@${p.x},${p.y} ${p.d}m`
+          + ` (${p.prop.toFixed(0)}/${p.deck.toFixed(0)} from seat ${p.seat}, ${p.np} px/${p.nd} deck px)`).join(', ') + ']'
+          + ` - ${pUnderA.length} of ${pProps.length} charged props sit a whole ${PROPT_S}-luma band UNDER the deck they stand on,`
+          + ` which is the near-silhouette half of #695: the prop reads as a hole in the floor, not a solid with sides` : '')
         : `ATTR=0: no per-prop render spent, so this row is charged on the whole-frame deck exactly as `
           + `#557 shipped it - ${pGaps.length} seat(s), ${over.length} over +${PROPT_S}`) : '') 
         + ` | REPORTED, not gated: the same seats against the deck of the WHOLE FRAME read median `
