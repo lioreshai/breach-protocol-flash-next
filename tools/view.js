@@ -4842,20 +4842,60 @@ if (MODE === 'vert') {
       let climb = 0;
       for (let i = 0; i < N * N; i++) if (!cell[i] && climbCellAt(i % N, (i / N) | 0)) climb++;
       const seen = {lamp: 0, crate: 0, barrel: 0}, bad = {lamp: 0, crate: 0, barrel: 0};
-      let auth = 0; const ex = [], byN = {};
+      let auth = 0, srcd = 0; const ex = [], byN = {};
+      /* #834 CRITERION 4, AS A MEASUREMENT AND NOT A FLAG. A fixture that must stand on a climb FOR A
+       REASON is named rather than counted, and the reason here is two facts the probe can check: (a) a
+       disc-less source stands at the fixture's own cell, so the mesh IS the lamp that lights the deck
+       (alt's visible-source clause calls a noglow source visible only when a body is within 0.35 m of
+       it - the pair #353 binds cannot be cut in half), and (b) the deck's OWN band has no free cell that
+       is not a climb, so there was nowhere else to stand the pair. A flag alone buys nothing: an ovl
+       mesh with no source at its cell, or a deck that did have a cell off the route, is counted as the
+       violation it is, and so is every crate and barrel, which carry no source at all - the population
+       the issue was filed for. THE SABOTAGE THAT SHOWS IT: put ovl: 1 on the crate push in
+       js/20_level.js and the row still counts it, by the kind clause; stand a deck's lamp one cell off its
+       source and clause (a) fails; clear a deck cell of its step and clause (b) fails, and the fixture is
+       expected to have walked there. THE FLOOR IS 0 on every sector now: what used to be carried by
+       FLOOR = [1,1,1,0] is carried by these two clauses, so a deal that puts a footprint on a climb for
+       no reason at all goes RED at zero rather than at one. */
+      const srcAt = p => LIGHTS.some(L => L.ovl && L.noglow &&
+        Math.abs(L.x - p.x) < 0.35 && Math.abs(L.y - p.y) < 0.35);
+      const deckCellOffRoute = p => {
+        const N2 = MW, i0 = (p.y | 0) * N2 + (p.x | 0), f0 = MAP.fz[i0];
+        const seen = new Uint8Array(N2 * N2), st = [i0]; seen[i0] = 1;
+        while (st.length) {
+          const c = st.pop(), cx = c % N2, cy = (c / N2) | 0;
+          // the generator's own test: a cell it could have stood the pair on is free AND off the route
+          if (c !== i0 && !climbCellAt(cx, cy) &&
+              PROPS.every(q => Math.hypot(q.x - cx, q.y - cy) > 0.6)) return true;
+          for (let d = 0; d < 4; d++) {
+            const nx = cx + DIRX[d], ny = cy + DIRY[d];
+            if (nx < 0 || ny < 0 || nx >= N2 || ny >= N2) continue;
+            const ni = ny * N2 + nx;
+            if (seen[ni] || MAP.cell[ni] || MAP.fz[ni] !== f0) continue;
+            seen[ni] = 1; st.push(ni);
+          }
+        }
+        return false;
+      };
       for (const p of PROPS) {
         const k = p.kind; if (!seen.hasOwnProperty(k)) continue;
         seen[k]++;
         if (!climbCellAt(p.x, p.y)) continue;
         if (p.plan) { auth++; if (ex.length < 2) ex.push(k + ' (authored) ' + (p.x | 0) + ',' + (p.y | 0)); continue; }
+        if (k === 'lamp' && p.ovl && srcAt(p) && !deckCellOffRoute(p)) {
+          srcd++;
+          if (ex.length < 2) ex.push(k + ' (its own light source, no cell off it on the deck) ' + (p.x | 0) + ',' + (p.y | 0));
+          continue;
+        }
         bad[k]++;
-        const by = p.ovl ? 'deck body' : PROPSIGHT.log.some(m => m[5] === PROPS.indexOf(p)) ? 'sight-line walk'
+        const by = p.ovl ? (srcAt(p) ? 'deck body, a free deck cell off the route existed' : 'deck body, no source at its cell')
+                 : PROPSIGHT.log.some(m => m[5] === PROPS.indexOf(p)) ? 'sight-line walk'
                  : p.bodyMoved ? 'stair walk' : 'prop pool';
         byN[by] = (byN[by] || 0) + 1;
         if (ex.length < 2) ex.push(k + ' (' + by + ') ' + (p.x | 0) + ',' + (p.y | 0) + ' fz=' + MAP.fz[(p.y | 0) * N + (p.x | 0)]);
       }
       const lightBad = LIGHTS.filter(L => !cell[(L.y | 0) * N + (L.x | 0)] && climbCellAt(L.x, L.y)).length;
-      return {N: N, name: LEVELS[${li}].name, climb: climb, seen: seen, bad: bad, auth: auth, ex: ex, byN: byN, off: PROPSOFF, fix: PROPSCLIMB,
+      return {N: N, name: LEVELS[${li}].name, climb: climb, seen: seen, bad: bad, auth: auth, srcd: srcd, ex: ex, byN: byN, off: PROPSOFF, fix: PROPSCLIMB,
         lightBad: lightBad, open: (() => { let n = 0; for (let i = 0; i < N * N; i++) if (!cell[i]) n++; return n; })()};
     })()`);
     const nSeen = f.seen.lamp + f.seen.crate + f.seen.barrel;
@@ -4873,7 +4913,7 @@ if (MODE === 'vert') {
        removed: the dealt pool's footprint, and - new at this head - the footprint a LATER height write
        turned into a step crossing, which is `PROPSCLIMB` below and is what L0's barrel at 22,10 fz=8 and
        L2's lamp at 12,22 were. The row goes red the day a deal puts one of THOSE back. */
-    const FLOOR = [1, 1, 1, 0];
+    const FLOOR = [0, 0, 0, 0];
     const ok = !vac && nBad <= FLOOR[li];
     bad += ok ? 0 : 1;
     console.log('  level ' + li + ' ' + f.name + ' ' +
@@ -4884,6 +4924,7 @@ if (MODE === 'vert') {
       `against the measured floor ${FLOOR[li]}${nBad > FLOOR[li] ? ' FAIL' : ''}` +
       `${f.auth ? ', plus ' + f.auth + ' AUTHORED by the plan (named, not counted)' : ''}` +
       `${f.lightBad ? ' | ' + f.lightBad + ' light source(s) on a climb, which blocks nothing' : ''}` +
+      `${f.srcd ? ' | ' + f.srcd + ' deck lamp(s) that ARE their own light source with no cell off the route on their deck (named, not counted: criterion 4)' : ''}` +
       (Object.keys(f.byN).length ? ' | placed by ' + Object.keys(f.byN).map(k => k + ' ' + f.byN[k]).join(', ') : '') +
       ` | sight-line corridor walk: ${f.off.cand} relocated candidate(s) checked, ${f.off.moved} moved off it, ${f.off.stuck} with nowhere to go` +
       ` | final climb clause: ${f.fix.cand} fixture(s) on a climb after the last height write, ${f.fix.moved} walked off it, ${f.fix.stuck} with nowhere to go` +
