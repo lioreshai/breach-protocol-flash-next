@@ -329,6 +329,17 @@ const SIGHT_NEAR = 2.5;                  // metres: inside this SPAWN_CLEAR and 
 const SIGHT_FAR = 14;                    // metres: past this a prop is a detail, not the thing you look at
 const SIGHT_OPEN = 3;                    // metres of clear ground PAST the prop that make it an occluder
 const SIGHT_REACH = 4;                   // cells the sideways walk may go: a prop cannot teleport
+/* #695 take four: the BODY'S BACKDROP. The two rules above guard the frame the player is DEALT; neither
+   says anything about the frame where a hostile walks into view standing in front of a crate. That is the
+   case the issue's own table measures - "second body, behind that crate", 50.1 luma against the crate's
+   90.9 - and it is the one case no luma rule can buy, because the box is nearer the eye than the man. So
+   the rule is about PLACEMENT again, and it is narrow: a crate or barrel standing within BODY_BACK metres
+   of the post a hostile is dealt at, and no nearer to the player than that post, is the surface that body
+   will be read against, so it pays the rank the wall's service runs and the walled-in occluders already
+   pay (js/40_render.js PROP_RANK_QUIET) - same hue, same chevron, still a hazard band at 10 m. Nothing is
+   dimmed anywhere else in the level, `FG_PUSH` is untouched, and a sector whose bodies stand clear of the
+   bright furniture runs byte-identical. */
+const BODY_BACK = 1.75;                  // metres: a body's own silhouette plus the deck he is read on
 let PROPSIGHT = { loud: 0, occl: 0, moved: 0, stuck: 0, quiet: 0, band: 0, cross: 0, stuckAt: [], seat: [0, 0, 0], log: [] };   // read by `view.js props`; nothing renders it
 
 const cellIdx = (x, y) => (y | 0) * MW + (x | 0);
@@ -4028,7 +4039,7 @@ function rankLoudProps(sx, sy, ang) {
      loud > 0 / occl 0 - the two cases a byte digest cannot tell apart. `seat` is the arrival seat and
      heading the census names in its A/B command, and `log` carries each move's from/to cell. No draw,
      no pixel: this is a counter with a name attached. */
-  PROPSIGHT = { loud: 0, occl: 0, moved: 0, stuck: 0, quiet: 0, band: 0, cross: 0, plane: 0, slab: 0, stuckAt: [], seat: [sx, sy, ang], log: [] };
+  PROPSIGHT = { loud: 0, occl: 0, moved: 0, stuck: 0, quiet: 0, band: 0, cross: 0, plane: 0, slab: 0, body: 0, bodyAt: [], stuckAt: [], seat: [sx, sy, ang], log: [] };
   if (!propSightEnabled) return;
   const N = MW;
   const loud = p => p.kind === 'crate' || p.kind === 'barrel';
@@ -4164,6 +4175,25 @@ function rankLoudProps(sx, sy, ang) {
     PROPSIGHT.log.push([p.x, p.y, nx + 0.5, ny + 0.5, p.kind, PROPS.indexOf(p)]);
     p.x = nx + 0.5; p.y = ny + 0.5; p.z = floorAt(p.x, p.y); p.yaw = propYaw(p.x, p.y);
     PROPSIGHT.moved++;
+  }
+  /* #695 take four: THE BODY'S BACKDROP, paid after the relocation so the two spends stay disjoint and the
+     census identity `quiet === stuck` keeps meaning what #757 and #768 made it mean. Every prop the walk
+     has just moved is tested at the cell it NOW stands in, which is the cell the dealt frame will draw. A
+     prop already wearing the quiet rank is skipped, so nothing is ranked twice and `body` counts props the
+     sight-line pass never touched. */
+  if (propQuietEnabled) {
+    for (const p of PROPS) {
+      if (!loud(p) || p.quiet) continue;
+      for (const e of ENEMIES) {
+        const bd = Math.hypot(e.x - sx, e.y - sy);
+        if (bd > SIGHT_FAR) continue;                       // out of the frame the dealt seat shows
+        if (Math.hypot(p.x - sx, p.y - sy) < bd - 0.5) continue;   // the prop is in FRONT of him: he owns the frame
+        if (Math.hypot(p.x - e.x, p.y - e.y) > BODY_BACK) continue;
+        if (MAP.fz[(p.y | 0) * N + (p.x | 0)] !== MAP.fz[(e.y | 0) * N + (e.x | 0)]) continue;
+        p.quiet = 1; PROPSIGHT.body++; PROPSIGHT.bodyAt.push([p.x | 0, p.y | 0, p.kind, PROPS.indexOf(p), e.x | 0, e.y | 0]);
+        break;
+      }
+    }
   }
 }
 
