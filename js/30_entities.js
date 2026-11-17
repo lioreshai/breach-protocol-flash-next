@@ -153,6 +153,23 @@ function hitscan(ang, tanP, range) {
   const riser = bx.kind === 2 && bx.t < wall.dist;
   const floorStop = bx.kind === 3 && bx.t < wall.dist;      // #131: the ray crossed the ground it stands on
   let bestT = (ceilStop || riser || floorStop) ? bx.t : wall.dist, best = null, hitObj = null;
+  /* #833: props are tested BEFORE bodies, not after them. The loop below already rejects a body at
+     `tz >= bestT`, so making the prop's near face the bound is what turns "a crate" into cover: until this
+     line the prop walk ran only `if (!best)`, i.e. only when nothing else had been hit, so a body taking
+     cover behind a crate was struck THROUGH it on the first level of every game. The test is the shared
+     box from js/20_level.js - the art's own footprint square from the live floor to the DRAWN top
+     (MESH.top * scale), the same solid `propBlocks` stops the feet on and `propOccludes` hides a body
+     behind. Kinds with no footprint (pickups, the portal, the orb) are not in the set and stay
+     non-blocking; a burnt barrel is `dead` and stops being solid in all three callers at once (#833.1).
+     The ceiling is no longer `p.z + p.scale`: that number was the barrel's SCALE, not its top (the lid
+     reaches 0.97 authored units), and it was a second opinion on an altitude the art already stated. */
+  for (const p of PROPS) {
+    if (!propSolid(p)) continue;
+    const th = propRayT(p, ox, oy, dx, dy, oz, tanP);
+    if (th <= 0.2 || th >= bestT) continue;      // 0.2 = the muzzle guard the barrel branch already used (#148)
+    bestT = th; best = null;
+    hitObj = { barrel: p.kind === 'barrel' ? p : null, prop: p, z: oz + tanP * th };
+  }
   for (const e of ENEMIES) {
     if (e.state === 'dead') continue;
     const ex = e.x - ox, ey = e.y - oy, proj = ex * dx + ey * dy;
@@ -187,19 +204,6 @@ function hitscan(ang, tanP, range) {
     const hz = oz + tanP * tz;
     bestT = tz; best = e; hitObj = { head: hz > ez + e.scale * 0.78, z: hz };
   }
-  if (!best) {
-    for (const p of PROPS) {
-      if (p.kind !== 'barrel' || p.dead) continue;
-      const ex = p.x - ox, ey = p.y - oy, proj = ex * dx + ey * dy;
-      if (proj < 0.2 || proj - 0.4 > bestT) continue;
-      const perp = Math.abs(dx * ey - dy * ex); if (perp > 0.4) continue;
-      const th = proj - Math.sqrt(Math.max(0, 0.16 - perp * perp));
-      if (th <= 0.2 || th >= bestT) continue;
-      const hzb = oz + tanP * th;                       // this branch had no z test at all (#98)
-      if (hzb < p.z || hzb > p.z + p.scale) continue;
-      bestT = th; best = null; hitObj = { barrel: p, z: hzb };
-    }
-  }
   const hx = ox + dx * bestT, hy = oy + dy * bestT, hz = oz + tanP * bestT;
   return { t: bestT, x: hx, y: hy, z: hz, enemy: best, info: hitObj,
     wall: riser || (wall.wall && !(ceilStop || floorStop)), side: riser ? bx.side : wall.side,
@@ -226,6 +230,10 @@ function tryFire() {
       P.hits += (h.info.head ? 1 : 0.34);
     } else if (h.info && h.info.barrel) {
       hurtBarrel(h.info.barrel, w.dmg);
+    } else if (h.info && h.info.prop) {
+      /* #833: a crate or a lamp post takes the hit where it stands - sparks at the face the round died on,
+         no decal, because a prop carries no marks. Before this branch there was nothing to hit. */
+      burstParts(h.x, h.y, Math.max(0.05, h.z), 4, 1.3, h.info.prop.kind === 'crate' ? '#c9a15e' : '#b9c0cc', 0.26, 0.05, false, 0.5);
     } else {
       if (h.wall || h.t > 40) {
         burstParts(h.x, h.y, Math.max(0.05, h.z), 4, 1.4, '#ffd9a0', 0.25, 0.05, true, 0.6);
@@ -394,16 +402,35 @@ P.moving = function () { return Math.hypot(this.vx, this.vy) > 0.35; };
    quanta: a prop on the band above hangs in the air over the datum and must not stop anyone
    walking under it (#189's band-blind family), and this runs in the movement tick, never a
    pixel loop (AGENTS' one-indirection cliff). */
-function propBlocks(x, y, rad) {
+function propBlocks(x, y, rad, fz) {
   const gz = floorAt(x, y);
+  const feet = fz === undefined ? gz : fz;
   for (let i = 0; i < PROPS.length; i++) {
     const p = PROPS[i];
-    if (p.dead) continue;                              // a burnt barrel scatters nothing
-    const r = MESH.foot(p.kind) * (p.scale || 1) + rad;
-    if (Math.abs(p.x - x) >= r || Math.abs(p.y - y) >= r) continue;
-    if (Math.abs(floorAt(p.x, p.y) - gz) < ZQ) return true;
+    if (!propSolid(p) || !propBand(p, gz) || !propOver(p, x, y, rad)) continue;
+    /* #833: the box has a TOP now, and the block asks the mover's own feet against it. A body at or above
+       the drawn top is standing on the prop (or flying over it) and the side is no longer a wall - which is
+     what the old altitude-blind test got wrong twice: it made a crate an unbounded wall you could not
+     jump onto, and it refused the very step the mantle below is about to take. */
+    if (propTopZ(p) <= feet + 0.02) continue;
+    return true;
   }
   return false;
+}
+/* #833 THE MANTLE. A prop that is in the way but tops out within PROP_STEP_UP of the feet is a handhold,
+   not a wall, so the feet are lifted onto it. The terrain rule is NOT duplicated here: a floor change is
+   still answered by `canEnter` and the EK_STEP byte (#633), and this answers an OBJECT. One window, read
+   by both questions - see PROP_STEP_UP in js/20_level.js for how it is priced. */
+function propMount(x, y, rad, fz) {
+  const gz = floorAt(x, y);
+  let top = -1;
+  for (let i = 0; i < PROPS.length; i++) {
+    const p = PROPS[i];
+    if (!propSolid(p) || !propBand(p, gz) || !propOver(p, x, y, rad)) continue;
+    const t = propTopZ(p);
+    if (t > fz && t - fz <= PROP_STEP_UP && t > top) top = t;
+  }
+  return top;
 }
 function tryMove(o, dx, dy, rad) {
   // Inside geometry - or inside a PROP's grown footprint, which teleports, dev poses and
@@ -520,8 +547,15 @@ function updatePlayer(dt) {
     const accel = fw || sd ? 14 : 11;
     P.vx += (tvx - P.vx) * Math.min(1, accel * dt);
     P.vy += (tvy - P.vy) * Math.min(1, accel * dt);
-    // jump / gravity: P.z is an altitude, so what holds the player up is the column's floor
-    const gz = floorAt(P.x, P.y);
+    // jump / gravity: P.z is an altitude, so what holds the player up is the column's floor -
+    /* #833: and a prop standing on that floor is part of it. The feet are supported by whichever surface
+       is higher, the column or a prop TOP they are already at or above (propStand), and pressing into a
+       prop whose top is within PROP_STEP_UP of the feet is a mantle, not a wall (propMount). Both ask the
+       one footprint predicate in js/20_level.js - the box tryMove blocks on, the shot stops on and the
+       AI's sight cannot see through - so a crate that stops your feet is the same crate you can stand on.
+       Terrain is untouched: the quantum tread is still answered by canEnter / the EK_STEP byte (#633). */
+    const gz = Math.max(propStand(P.x, P.y, 0, P.z),
+      keys['Space'] ? propMount(P.x, P.y, 0.28, P.z) : -1, floorAt(P.x, P.y));
     const climb = onLadder(P.x, P.y) ? ((keys['KeyE'] ? 1 : 0) - (keys['KeyQ'] ? 1 : 0)) : 0;
     if (climb) { P.air = false; P.vz = 0; P.dzV = 0; P.z = clamp(P.z + climb * 1.6 * dt, gz, Math.max(gz, ceilAt(P.x, P.y) - cfg.eye)); }
     else {
@@ -566,7 +600,7 @@ function updatePlayer(dt) {
         // a grounded rise of at most ONE STEP is a step the feet simply take; anything taller is a
         // wall by linkBoundaries' own rule - the same threshold, read here instead of restated - so
         // this never lifts the player through a riser
-        if (dz > 0 && dz <= STEP_Z) {
+        if (dz > 0 && (dz <= STEP_Z || keys['Space'])) {
           P.z = gz; P.dzV = 0;
           // the feet are on the tread; the eye is handed the rise and follows it - see RISE_LAG_MAX.
           // The lag is charged on the SAME frame the body moves, which is what makes the eye's own
