@@ -412,15 +412,18 @@ function propBlocks(x, y, rad, fz) {
        the drawn top is standing on the prop (or flying over it) and the side is no longer a wall - which is
      what the old altitude-blind test got wrong twice: it made a crate an unbounded wall you could not
      jump onto, and it refused the very step the mantle below is about to take. */
-    if (propTopZ(p) <= feet + 0.02) continue;
+    if (propTopZ(p) <= feet + STEP_Z) continue;
     return true;
   }
   return false;
 }
 /* #833 THE MANTLE. A prop that is in the way but tops out within PROP_STEP_UP of the feet is a handhold,
-   not a wall, so the feet are lifted onto it. The terrain rule is NOT duplicated here: a floor change is
-   still answered by `canEnter` and the EK_STEP byte (#633), and this answers an OBJECT. One window, read
-   by both questions - see PROP_STEP_UP in js/20_level.js for how it is priced. */
+   not a wall: the climb is OFFERED, and the caller pays for it in VERTICAL SPEED (see updatePlayer), never
+   by writing a position - a one-frame lift of 0.63 m is exactly the 37 m/s eye spike #634 exists to stop.
+   The terrain rule is NOT duplicated here: a floor change is still answered by `canEnter` and the EK_STEP
+   byte (#633), and a prop top within ONE STEP of the feet never reaches this function at all, because
+   `propStand` already supports it through the existing grounded step test. One window, read by both
+   questions - see PROP_STEP_UP in js/20_level.js for how it is priced. */
 function propMount(x, y, rad, fz) {
   const gz = floorAt(x, y);
   let top = -1;
@@ -439,14 +442,18 @@ function tryMove(o, dx, dy, rad) {
   // mover that ends up embedded can always walk out of it. The test must use the SAME grown
   // radius that blocks: keyed on the bare footprint, an escaping mover would cross into the
   // ring between footprint and ghost edge, find every outward target blocked, and freeze there.
-  if (isSolid(o.x, o.y) || propBlocks(o.x, o.y, rad)) {
+  if (isSolid(o.x, o.y) || propBlocks(o.x, o.y, rad, o.z)) {
     if (canEnter(o.x, o.y, o.x + dx, o.y)) o.x += dx;
     if (canEnter(o.x, o.y, o.x, o.y + dy)) o.y += dy;
     return;
   }
-  // axis-separated slide
-  if (canEnter(o.x, o.y, o.x + dx + Math.sign(dx) * rad, o.y) && canEnter(o.x, o.y, o.x + dx + Math.sign(dx) * rad, o.y - rad * 0.7) && canEnter(o.x, o.y, o.x + dx + Math.sign(dx) * rad, o.y + rad * 0.7) && !propBlocks(o.x + dx, o.y, rad)) o.x += dx;
-  if (canEnter(o.x, o.y, o.x, o.y + dy + Math.sign(dy) * rad) && canEnter(o.x, o.y, o.x - rad * 0.7, o.y + dy + Math.sign(dy) * rad) && canEnter(o.x, o.y, o.x + rad * 0.7, o.y + dy + Math.sign(dy) * rad) && !propBlocks(o.x, o.y + dy, rad)) o.y += dy;
+  // axis-separated slide. #833: the prop test is handed the MOVER's feet (`o.z`), not the column's floor.
+  // A body standing on a crate has its feet at the crate's top, and the crate's own side must not refuse
+  // the next step - with the column floor in place of `o.z` a player who had just climbed onto a box could
+  // not walk off it.
+  const fz = o.z;
+  if (canEnter(o.x, o.y, o.x + dx + Math.sign(dx) * rad, o.y) && canEnter(o.x, o.y, o.x + dx + Math.sign(dx) * rad, o.y - rad * 0.7) && canEnter(o.x, o.y, o.x + dx + Math.sign(dx) * rad, o.y + rad * 0.7) && !propBlocks(o.x + dx, o.y, rad, fz)) o.x += dx;
+  if (canEnter(o.x, o.y, o.x, o.y + dy + Math.sign(dy) * rad) && canEnter(o.x, o.y, o.x - rad * 0.7, o.y + dy + Math.sign(dy) * rad) && canEnter(o.x, o.y, o.x + rad * 0.7, o.y + dy + Math.sign(dy) * rad) && !propBlocks(o.x, o.y + dy, rad, fz)) o.y += dy;
 }
 /* Landing feel (#634), both halves driven by the impact speed `imp` the touchdown already computes.
    LAND_SHAKE_*: the camera kick, floored so a small landing is not perfectly still and capped at the
@@ -548,14 +555,16 @@ function updatePlayer(dt) {
     P.vx += (tvx - P.vx) * Math.min(1, accel * dt);
     P.vy += (tvy - P.vy) * Math.min(1, accel * dt);
     // jump / gravity: P.z is an altitude, so what holds the player up is the column's floor -
-    /* #833: and a prop standing on that floor is part of it. The feet are supported by whichever surface
-       is higher, the column or a prop TOP they are already at or above (propStand), and pressing into a
-       prop whose top is within PROP_STEP_UP of the feet is a mantle, not a wall (propMount). Both ask the
-       one footprint predicate in js/20_level.js - the box tryMove blocks on, the shot stops on and the
-       AI's sight cannot see through - so a crate that stops your feet is the same crate you can stand on.
-       Terrain is untouched: the quantum tread is still answered by canEnter / the EK_STEP byte (#633). */
-    const gz = Math.max(propStand(P.x, P.y, 0, P.z),
-      keys['Space'] ? propMount(P.x, P.y, 0.28, P.z) : -1, floorAt(P.x, P.y));
+    /* #833: and a prop standing on that floor is part of it. `gz` is whichever surface is higher, the column
+       or a prop TOP within ONE STEP of the feet (propStand) - so a low crate is taken by the existing
+       grounded step test below and nothing is added to that test; `mount` is the top of a handhold being
+       pressed into while Space is held (propMount), paid for in SPEED only. Both ask the one footprint
+       predicate in js/20_level.js - the box tryMove blocks on, the shot stops on and the AI's sight cannot
+       see through - so a crate that stops your feet is the same crate you can stand on, and a burnt barrel
+       stops being all three in the frame it dies (#833.1). Terrain is untouched: the quantum tread is still
+       answered by canEnter / the EK_STEP byte (#633). */
+    const gz = Math.max(propStand(P.x, P.y, 0, P.z), floorAt(P.x, P.y));
+    const mount = keys['Space'] ? propMount(P.x, P.y, 0.28, P.z) : -1;
     const climb = onLadder(P.x, P.y) ? ((keys['KeyE'] ? 1 : 0) - (keys['KeyQ'] ? 1 : 0)) : 0;
     if (climb) { P.air = false; P.vz = 0; P.dzV = 0; P.z = clamp(P.z + climb * 1.6 * dt, gz, Math.max(gz, ceilAt(P.x, P.y) - cfg.eye)); }
     else {
@@ -580,6 +589,12 @@ function updatePlayer(dt) {
       //     already 0, so every impact and damage figure in `view.js drop` reads what it read before.
       if (!P.air && gz < P.z - STEP_Z - STEP_EPS && !steppedDownInto(P.x, P.y, P.z)) { P.air = true; P.vz = P.dzV; P.dzV = 0; }
       if (P.air) {
+        // #833: pressing into a handhold pays the REST of the climb, in velocity. PRICED, not tuned:
+        // sqrt(2 g PROP_STEP_UP) is the speed this branch's own 9.2 carries the feet exactly PROP_STEP_UP,
+        // so the assist reaches the window and cannot exceed it - the shipped crate's 0.63 m top is inside
+        // it, a 1.00 m wall is not. The feet still arrive by the integration below and are caught by
+        // propStand, so arriving on a crate and arriving on a tread run through one support test.
+        if (mount > P.z + 1e-3) P.vz = Math.max(P.vz, Math.sqrt(2 * 9.2 * PROP_STEP_UP));
         P.vz -= 9.2 * dt; P.z += P.vz * dt;
         if (P.z <= gz) {
           const imp = -P.vz;                                 // 5.25 m/s is the impact of a 1.5-unit drop at g=9.2; a jump lands at 3.0
@@ -600,7 +615,7 @@ function updatePlayer(dt) {
         // a grounded rise of at most ONE STEP is a step the feet simply take; anything taller is a
         // wall by linkBoundaries' own rule - the same threshold, read here instead of restated - so
         // this never lifts the player through a riser
-        if (dz > 0 && (dz <= STEP_Z || keys['Space'])) {
+        if (dz > 0 && dz <= STEP_Z) {
           P.z = gz; P.dzV = 0;
           // the feet are on the tread; the eye is handed the rise and follows it - see RISE_LAG_MAX.
           // The lag is charged on the SAME frame the body moves, which is what makes the eye's own

@@ -877,26 +877,17 @@ function propStand(x, y, rad, fz) {
     const p = PROPS[i];
     if (!propSolid(p) || !propBand(p, gz) || !propOver(p, x, y, rad)) continue;
     const t = propTopZ(p);
-    if (t > top && t - fz <= 0.02) top = t;
+    if (t > top && t - fz <= STEP_Z) top = t;
   }
   return top;
-}
-/* Does a prop stand between these two altitudes? The sight line's own height decides, so a prop on the
-   deck above is floor, not cover, exactly as #772 requires of a flat ray. */
-function propOccludes(x, y, z) {
-  for (let i = 0; i < PROPS.length; i++) {
-    const p = PROPS[i];
-    if (!propSolid(p) || !propOver(p, x, y, 0)) continue;
-    if (z >= floorAt(p.x, p.y) && z <= propTopZ(p)) return true;
-  }
-  return false;
 }
 /* Where a ray first enters a prop's box, or -1. A slab intersection against the SAME square footprint and
    the SAME [floor, drawn top] span, so the round answers to the object the feet answer to and the #98 z
    test that only the barrel branch ever had becomes the general rule: a round aimed OVER a crate's top
    carries on past it. */
 function propRayT(p, ox, oy, dx, dy, oz, tanP) {
-  const f = propFootR(p), z0 = floorAt(p.x, p.y), z1 = propTopZ(p);
+  const f = propFootR(p), z0 = floorAt(p.x, p.y), z1 = propTopZ(p);          // f > 0 and !dead checked by the caller
+
   let t0 = 0, t1 = 1e9;
   if (Math.abs(dx) < 1e-9) { if (Math.abs(ox - p.x) >= f) return -1; }
   else { let a = (p.x - f - ox) / dx, b = (p.x + f - ox) / dx; if (a > b) { const s = a; a = b; b = s; } t0 = Math.max(t0, a); t1 = Math.min(t1, b); }
@@ -939,16 +930,32 @@ function losZ(ax, ay, az, bx, by, bz) {
   if (d < 1e-4) return true;
   const ex = bandExitT(ax, ay, dx / d, dy / d, az, (bz - az) / d, d);
   if (ex.kind !== 0 && ex.t > 1e-3) return false;
+  /* #833: the same box the feet answer to and the round answers to. Until this line the AI's sight
+     marched grid cells alone, so a hostile saw - and shot - a player standing behind a crate the frame
+     plainly hides from him. The altitude is the LINE's, not a cell's: a prop whose top is below the sight
+     line is floor the eye looks over, and one whose floor is above it is furniture on the deck overhead,
+     which is the #772 case the flat ray got wrong.
+     PRICED ONCE PER CALL, not once per sample. The first version asked `does a prop cover this point`
+     inside the march below, which is PROPS.length reads at every 0.14 m sample - measured on SEED 12345
+     / L0 ARCHIVE SUBLEVEL at 767 us/frame against smoke's 0.6 ms AI floor, a regression this row gates.
+     The slab intersection below is both cheaper (one box solve per prop per call, ~30, instead of ~30 x
+     65) and EXACT: a 14 cm sample grid steps over a lamp post 0.16 m wide, a box solve cannot. An entry
+     at t = 0 is the eye INSIDE the box - a body standing on a crate or inside a barrel's footprint - and
+     is not a block, exactly as the march's own first sample is skipped. */
+  const ux = dx / d, uy = dy / d, tanP = (bz - az) / d;
+  for (let i = 0; i < PROPS.length; i++) {
+    const p = PROPS[i];
+    if (!propSolid(p)) continue;
+    const ex = p.x - ax, ey = p.y - ay, f = propFootR(p);
+    const proj = ex * ux + ey * uy;                       // cheap reject first: the box cannot be in
+    if (proj < -f || proj - f > d) continue;              // front of the eye within this segment
+    const th = propRayT(p, ax, ay, ux, uy, az, tanP);
+    if (th > 0 && th < d) return false;
+  }
   const st = 0.14, n = (d / st) | 0;
   for (let i = 1; i < n; i++) {
     const t = i * st / d, sx = ax + dx * t, sy = ay + dy * t, sz = az + (bz - az) * t;
     if (isSolid(sx, sy)) return false;
-    /* #833: the same box the feet answer to and the round answers to. Until this line the AI's sight
-       marched grid cells alone, so a hostile saw - and shot - a player standing behind a crate the frame
-       plainly hides from him. The altitude is the LINE's, not a cell's: a prop whose top is below the
-       sight line is floor the eye looks over, and one whose floor is above it is furniture on the deck
-       overhead, which is the #772 case the flat ray got wrong. */
-    if (propOccludes(sx, sy, sz)) return false;
     // 1e-3 because a floor level with the line is the floor the eye stands on, not a wall in front of it
     if (floorAt(sx, sy) > sz + 1e-3) return false;
   }
