@@ -341,6 +341,9 @@ const SIGHT_REACH = 4;                   // cells the sideways walk may go: a pr
    bright furniture runs byte-identical. */
 const BODY_BACK = 1.75;                  // metres: a body's own silhouette plus the deck he is read on
 let PROPSIGHT = { loud: 0, occl: 0, moved: 0, stuck: 0, quiet: 0, band: 0, cross: 0, stuckAt: [], seat: [0, 0, 0], log: [] };   // read by `view.js props`; nothing renders it
+/* #834 REWORK (PR #852 review): the counters for the SECOND corridor the stair walk can drop a footprint
+   into - the arrival sight line. `view.js vert` reads these; nothing renders them. */
+let PROPSOFF = { cand: 0, moved: 0, stuck: 0, at: [] };
 
 const cellIdx = (x, y) => (y | 0) * MW + (x | 0);
 
@@ -4204,6 +4207,7 @@ function genLevel(li) {
      THE STACK's own - a 400-cell grid reporting a region of 826 owned cells. An authored sector now has no
      record, which the row reads as its own vacuity FAILURE rather than as a prediction it did not make. */
   bandCand = null;
+  PROPSOFF = { cand: 0, moved: 0, stuck: 0, at: [] };   // #834: per level, same reason as bandCand
   doorWalls = null;                                 // #631: the doorway-wall census is per level too
   doorDecline = null;                               // #631: and so is the reason a sector dealt none
   /* #353, same trap as the record above and it is live: `overlookPairs` is reset inside `authorVolume`,
@@ -4449,7 +4453,7 @@ function genLevel(li) {
       const c = clearSpot(takeNear(1));
       const b = bodySpot(c);
       LIGHTS.push({ x: c[0] + 0.5, y: c[1] + 0.5, z: floorAt(c[0] + 0.5, c[1] + 0.5) + LHOVER, r: 7.2 + Math.random() * 2.8, str: 1.05, col: cfgL.lampCol, stat: 1 });
-      PROPS.push({ tex: PROP.lamp, x: b[0] + 0.5, y: b[1] + 0.5, scale: 0.95, z: floorAt(b[0] + 0.5, b[1] + 0.5), kind: 'lamp', yaw: propYaw(b[0] + 0.5, b[1] + 0.5) });
+      PROPS.push({ tex: PROP.lamp, x: b[0] + 0.5, y: b[1] + 0.5, scale: 0.95, z: floorAt(b[0] + 0.5, b[1] + 0.5), kind: 'lamp', yaw: propYaw(b[0] + 0.5, b[1] + 0.5), bodyMoved: b[0] !== c[0] || b[1] !== c[1] });
     }
     /* The pad light deliberately carries NO z: it is drawn as a glow AT the floor, so it
        emits from the floor of its own cell - the documented splatLight default, the same
@@ -4728,15 +4732,19 @@ function genLevel(li) {
         taken.add(by * N + bx);           // and so is the cell the lamp STANDS in, when they differ
         const tsc = Math.min(1, Math.max(TOPUP_MINF, (bcov || 1) / TOPUP_TARGET));   // 0 coverage keeps a full lamp: a dim source that covers nothing would only darken the band
         LIGHTS.push({ x: sx + 0.5, y: sy + 0.5, z: floorAt(sx + 0.5, sy + 0.5) + LHOVER, r, str: TOPUP_BASE * tsc, col: cfgL.lampCol, stat: 1 });
-        PROPS.push({ tex: PROP.lamp, x: bx + 0.5, y: by + 0.5, scale: 0.95, z: floorAt(bx + 0.5, by + 0.5), kind: 'lamp', yaw: propYaw(bx + 0.5, by + 0.5) });
+        PROPS.push({ tex: PROP.lamp, x: bx + 0.5, y: by + 0.5, scale: 0.95, z: floorAt(bx + 0.5, by + 0.5), kind: 'lamp', yaw: propYaw(bx + 0.5, by + 0.5), bodyMoved: bx !== sx || by !== sy });
       }
     }
     // #834: the two kinds with a CRATE-SIZED footprint go through the same resolver. A crate on a
     // landing blocks the corridor that landing feeds, which is the second half of the issue's table.
-    for (let i = 0; i < cfgL.crates; i++) { const c = bodySpot(takeNear(2)); PROPS.push({ tex: PROP.crate, x: c[0] + 0.5, y: c[1] + 0.5, scale: CRATE_SCALE, z: floorAt(c[0] + 0.5, c[1] + 0.5), kind: 'crate', yaw: propYaw(c[0] + 0.5, c[1] + 0.5) }); }
+    // #834 REWORK: `bodyMoved` marks the fixtures the STAIR WALK moved, as opposed to the ones the pick
+    // placed. The corridor pass below acts on the marked set only, so a deal that never had to move a
+    // footprint off a tread - which is every flat sector and most of a stepped one - deals main's props
+    // to the cell and the pass measures nothing.
+    for (let i = 0; i < cfgL.crates; i++) { const q = takeNear(2), c = bodySpot(q); PROPS.push({ tex: PROP.crate, x: c[0] + 0.5, y: c[1] + 0.5, scale: CRATE_SCALE, z: floorAt(c[0] + 0.5, c[1] + 0.5), kind: 'crate', yaw: propYaw(c[0] + 0.5, c[1] + 0.5), bodyMoved: c[0] !== q[0] || c[1] !== q[1] }); }
     for (let i = 0; i < cfgL.barrels; i++) {
-      const c = bodySpot(takeNear(2));
-      PROPS.push({ tex: PROP.barrel, x: c[0] + 0.5, y: c[1] + 0.5, scale: 0.86, z: floorAt(c[0] + 0.5, c[1] + 0.5), kind: 'barrel', hp: BARREL_HP, dead: false, yaw: propYaw(c[0] + 0.5, c[1] + 0.5) });
+      const q = takeNear(2), c = bodySpot(q);
+      PROPS.push({ tex: PROP.barrel, x: c[0] + 0.5, y: c[1] + 0.5, scale: 0.86, z: floorAt(c[0] + 0.5, c[1] + 0.5), kind: 'barrel', hp: BARREL_HP, dead: false, yaw: propYaw(c[0] + 0.5, c[1] + 0.5), bodyMoved: c[0] !== q[0] || c[1] !== q[1] });
     }
     for (const k in cfgL.pick) for (let i = 0; i < cfgL.pick[k]; i++) {
       const c = takeNear(2);
@@ -4857,6 +4865,48 @@ function genLevel(li) {
        every PROPS.push in this function (lamps, crates, barrels all above) and after the seat and its
        heading exist; draws no RNG, so the deal below it is the deal main dealt. */
     rankLoudProps(seat[0], seat[1], seatAng);
+    /* #834 REWORK (PR #852 review): THE FOOTPRINT THE STAIR WALK MOVED MAY NOT STEP INTO THE CORRIDOR
+       THE ARRIVAL HEADING LOOKS DOWN. Measured at `93ac46a` against main in one tree each: `contrast`
+       sector 0's 10 m census fell from 199 coverage px to 26, under its 40 px floor, because a lamp the
+       climb clause relocated now stands on the dealt eye's own ray between him and the body the row
+       poses - the object stopped being in the way of your feet and started being in the line of sight,
+       which is the defect #695 and #772 were written to stop, arriving from the other direction.
+       `rankLoudProps` owns that corridor for the props it RANKS, and its walk already refuses a band
+       cell; the climb clause never looked at it, because at placement time the heading does not exist
+       yet - `seatAng` is derived below, after the splat, and hoisting it above the prop loops would let
+       `authorOverlooked` and the deck give-back change the grid it reads and so change the dealt frame.
+       So this is the same question asked where the heading DOES exist, of the smallest set that can be
+       blamed for it: the fixtures the climb clause itself moved (`bodyMoved`). A flat sector marks
+       none, so the pass measures nothing there; a stepped sector marks the two or three it moved. The
+       light is not touched - it stands at the source's cell, byte-identical to main's #154 walk - so
+       this cannot relight anything, which is what `flatparity` and `alt` are there to prove.
+       The predicate is `rankLoudProps`'s own corridor test, not a new constant: the seat's own floor
+       plane, `SIGHT_NEAR..SIGHT_FAR` metres out, inside `SIGHT_BAND` of the dealt bearing, and actually
+       seen from the eye by `losZ` (a post around a corner hides nothing and is not refused). The walk
+       is `ringSpot` again - no draw, so the deal below is the deal main dealt. A footprint with nowhere
+       to go is COUNTED, not squeezed into the corridor, and `vert` prints the count by name. */
+    {
+      const fzSeat = MAP.fz[((seat[1] | 0) * N) + (seat[0] | 0)];
+      const eyeZ = floorAt(seat[0], seat[1]) + cfg.eye;
+      const onSightLine = (x, y) => {
+        const dx = x + 0.5 - seat[0], dy = y + 0.5 - seat[1], d = Math.hypot(dx, dy);
+        if (d < SIGHT_NEAR || d > SIGHT_FAR) return false;
+        if (MAP.fz[(y | 0) * N + (x | 0)] !== fzSeat) return false;   // another storey: out of this frame
+        let b = Math.atan2(dy, dx) - seatAng;
+        while (b > Math.PI) b -= TAU; while (b < -Math.PI) b += TAU;
+        if (Math.abs(b) > SIGHT_BAND) return false;
+        return losZ(seat[0], seat[1], eyeZ, x + 0.5, y + 0.5, floorAt(x + 0.5, y + 0.5) + 0.4);
+      };
+      for (const p of PROPS) {
+        if (!p.bodyMoved || p.plan) continue;
+        PROPSOFF.cand++;
+        if (!onSightLine(p.x, p.y)) continue;
+        const c = ringSpot([p.x | 0, p.y | 0], (x, y) => bodyOk(x, y) && !onSightLine(x, y), 6);
+        if (c[0] === (p.x | 0) && c[1] === (p.y | 0)) { PROPSOFF.stuck++; PROPSOFF.at.push([p.x | 0, p.y | 0, p.kind, -1, -1]); continue; }
+        p.x = c[0] + 0.5; p.y = c[1] + 0.5; p.z = floorAt(p.x, p.y); p.yaw = propYaw(p.x, p.y);
+        PROPSOFF.moved++;
+      }
+    }
     // The scatter pass can drop a pillar on the room centre, and starting inside
     // geometry is unrecoverable - the collision probes would sample the player's own
     // cell - so walk out to the nearest open cell instead of spawning into a wall.
