@@ -12984,11 +12984,30 @@ if (MODE === 'contrast') {
     BUSFLAT = process.env.BUS_FLAT === '1';
   for (let lv = 0; lv < 4; lv++) {
     run(`startLevel(${lv}, true); S.mode='play'; S.locked=false;`);
+    /* THE FIXTURE HAS TO STAND WHERE THE FRAME CAN SEE HIM (#833). __march is a GEOMETRY march - solid
+       columns and slab gates - and it has always been blind to the objects standing on the deck. That
+       was harmless while props stopped nothing but feet; once one prop answers feet, shots and sight
+       (js/20_level.js #833), a body posed 10 m down a ray that crosses a lamp post paints a handful of
+       pixels BEHIND cover, and this row's statistic then averages 35 pixels where it averaged 132 - a
+       vacuous measurement of a picture the row was never looking at. So the pose asks the question the
+       shipped bytes already answer, `losZ`, the same sight march a hostile uses to decide whether a
+       crate hides you: a yaw counts as poseable when the geometry march reaches 10 m AND the shipped
+       sight line at torso altitude is unobstructed. Both are the engine's own predicates; this probe
+       invents no third opinion about what is solid, which is the #695 lesson the generator applies to
+       its own arrival corridor (`rankLoudProps`). When every clear yaw is behind cover the pose falls
+       back to the old longest march and the row SAYS so, with the count of yaws cover refused. */
     const g = run(`(()=>{
-      let best = -1, ba = P.ang;
-      for (let k = 0; k < 48; k++) { const a = k * Math.PI / 24;
-        const m = __march(P.x, P.y, Math.cos(a), Math.sin(a), ${BUS_D} + 1);
+      let best = -1, ba = P.ang, fb = -1, fba = P.ang, clearYaws = 0, coverYaws = 0;
+      const ez = floorAt(P.x, P.y) + cfg.eye;
+      for (let k = 0; k < 48; k++) { const a = k * Math.PI / 24, cx = Math.cos(a), cy = Math.sin(a);
+        const m = __march(P.x, P.y, cx, cy, ${BUS_D} + 1);
+        if (m.dist > fb) { fb = m.dist; fba = a; }
+        if (m.dist < ${BUS_D}) continue;
+        const qx = P.x + cx * ${BUS_D}, qy = P.y + cy * ${BUS_D};
+        if (!losZ(P.x, P.y, ez, qx, qy, floorAt(qx, qy) + cfg.eye)) { coverYaws++; continue; }
+        clearYaws++;
         if (m.dist > best) { best = m.dist; ba = a; } }
+      if (best < 0) { best = fb; ba = fba; }    // nothing poseable: the row below reports the cone, and this head's census says whether cover was the reason
       P.ang = ba; P.pitch = 0; P.z = floorAt(P.x, P.y);
       let e = null;
       for (const q of ENEMIES) if (q.state !== 'dead' && (!e || q.scale > e.scale)) e = q;
@@ -12998,15 +13017,21 @@ if (MODE === 'contrast') {
       e.x = bx; e.y = by; e.z = floorAt(bx, by); e.ang = ba + Math.PI; e.movingAmt = 0; e.state = 'sleep';
       for (const q of ENEMIES) if (q !== e) q.state = 'sleep';
       let tn = '-'; for (const k in FLOORS) if (FLOORS[k] === MAP.floorTex) tn = 'FLOORS.' + k;
-      return { clear: +best.toFixed(2), seat: [+P.x.toFixed(2), +P.y.toFixed(2)],
+      return { clear: +best.toFixed(2), reach: +fb.toFixed(2), free: clearYaws, cover: coverYaws,
+        seat: [+P.x.toFixed(2), +P.y.toFixed(2)],
         body: [+bx.toFixed(2), +by.toFixed(2)], kind: e.kind, made: !!e.fresh, tex: tn };
     })()`);
     const busRay = 'L' + lv + ' at ' + BUS_D + ' m on the spawn seat';
+    // what cover refused, stated in every branch: a census of WHICH yaws were poseable is the difference
+    // between "the cone is shallow" and "the seat is furnished", and the #833 fix is invisible without it
+    const busPose = 'posed on ' + g.free + ' of 48 yaws that are clear at ' + BUS_D + ' m and ' +
+      'unobstructed to torso height by the shipped sight answer (losZ); ' + g.cover +
+      ' clear yaws were refused for standing behind a prop';
     if (g.clear < BUS_D) {
       row(busRay + ' background is not steeper than his outline (#416)', false,
         'no clear ray reaches ' + BUS_D + ' m from the spawn seat ' + JSON.stringify(g.seat) + ' - the longest '
         + 'march over 48 yaws stops at ' + g.clear + ' m, so the busyness behind a body cannot be measured at '
-        + 'this range on this seat (the cone, not the paint)', '#189');
+        + 'this range on this seat (the cone, not the paint). ' + busPose, '#189');
       continue;
     }
     run('if (!COV || COV.length !== BW * BH) COV = new Uint8Array(BW * BH);');
@@ -13070,11 +13095,20 @@ if (MODE === 'contrast') {
     };
     const m0 = bus(false), m1 = BUSFLAT ? bus(true) : null, m2 = bus('wall'), m3 = bus('light');
     const name = 'L' + lv + ' at ' + BUS_D + ' m: the paint behind him vs his outline (#416)';
-    if (m0.n < BUS_MINPX || !m0.en) {
+    /* VACUITY FAILS AND THE RUN DOES NOT SHORTEN (#853 review item 1). The two falsifier rows below were
+       behind a `continue`, so a level whose body came back hidden printed ONE row where the same probe
+       prints THREE on every other seat - a probe silently dropping rows from its own census, which is the
+       shape AGENTS calls worse than a red row. The arms measure the SAME four renders as the busyness row,
+       so they run on either branch: the vacuity stays a hard FAILURE, and the two rows that price the
+       arms (both #416 debt, so they report rather than gate) still say what the renders did. The 40 px
+       vacuity floor below is main's and is NOT moved. */
+    const busVac = m0.n < BUS_MINPX || !m0.en;
+    if (busVac) {
       row(name, false, 'vacuous: ' + m0.n + ' coverage px behind the body (' + m0.en + ' with a background) at '
-        + BUS_D + ' m, under the ' + BUS_MINPX + ' px floor - a mean over that is not a measurement');
-      continue;
-    }
+        + BUS_D + ' m, under the ' + BUS_MINPX + ' px floor - a mean over that is not a measurement. '
+        + busPose + ' The falsifier rows below ran on the SAME renders, so what this seat did and did not '
+        + 'measure is still printed.');
+    } else {
     const quiet = m0.bpx >= BUS_CUSH && m0.dl >= m0.back * BUS_RATIO;
     // (debt is passed below so a regression REPORTS under #416 and gates under STRICT, the repo's shape
     //  for a new row in a blocking probe; vacuity - the px floors - never takes the debt branch.)
@@ -13109,6 +13143,7 @@ if (MODE === 'contrast') {
       + ' | the bar is his outline at ' + BUS_RATIO + 'x the delivered slope behind him, measured against '
       + 'the ' + (m0.dl / m0.back).toFixed(1) + 'x this seat reads at this head; it reports as #' + '416 debt '
       + 'and STRICT=1 gates it';
+    }
     /* THE ARM THE DECK FALSIFIER CANNOT RUN. At 10 m the pixels behind a body are overwhelmingly a WALL,
        and the deck arm above is provably inert on two of the four seats (it reads 3.63 -> 3.63 on ARCHIVE
        and 1.52 -> 1.52 on THE STACK at 46c8619): a falsifier that flattens a surface the region does not

@@ -158,7 +158,7 @@ function hitscan(ang, tanP, range) {
      line the prop walk ran only `if (!best)`, i.e. only when nothing else had been hit, so a body taking
      cover behind a crate was struck THROUGH it on the first level of every game. The test is the shared
      box from js/20_level.js - the art's own footprint square from the live floor to the DRAWN top
-     (MESH.top * scale), the same solid `propBlocks` stops the feet on and `propOccludes` hides a body
+     (MESH.top * scale), the same solid `propBlocks` stops the feet on and `losZ` hides a body
      behind. Kinds with no footprint (pickups, the portal, the orb) are not in the set and stay
      non-blocking; a burnt barrel is `dead` and stops being solid in all three callers at once (#833.1).
      The ceiling is no longer `p.z + p.scale`: that number was the barrel's SCALE, not its top (the lid
