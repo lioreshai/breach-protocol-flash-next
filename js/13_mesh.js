@@ -473,7 +473,7 @@ const MESH = (function () {
   const fgTake = () => {
     for (let i = 0; i < FGREC.length; i++) if (!FGREC[i].busy) return FGREC[i];
     if (FGREC.length >= 24) { fgFlush(); for (let i = 0; i < FGREC.length; i++) if (!FGREC[i].busy) return FGREC[i]; }
-    const r = { idx: new Uint32Array(1024), col: new Uint32Array(1024), d: new Float32Array(1024), n: 0, fog: 0, busy: 0 };
+    const r = { idx: new Uint32Array(1024), col: new Uint32Array(1024), d: new Float32Array(1024), n: 0, fog: 0, busy: 0, deck: 0, dk: 0 };
     FGREC.push(r); return r;
   };
   /* The payment itself, and the ONLY place the figure-ground law lives: one mean over the pixels the
@@ -513,8 +513,77 @@ const MESH = (function () {
         clampi((p & 255) + ((p & 255) - wr) * (k - 1))) >>> 0;
     }
   }
+  /* #695 THE DECK PAYMENT, the same law in the other direction, and the SECOND place a figure-ground
+     step is bought. `fgPay` puts a BODY a band away from the surface behind him. Nothing put a PROP
+     anywhere relative to the floor it stands on, and `view.js surface`'s PROP-SECTOR census found the
+     result lopsided: 25 of 61 charged props sit a whole 25-luma band UNDER the deck inside their own
+     footprint, so a crate reads as a burnt-in hole in the floor rather than a solid with sides - and a
+     room whose furniture reads as holes is a room whose threats the player cannot find either, because
+     the eye is reading the floor instead of the figure in it.
+       Four levers already implemented and measured on this issue are all the SAME family - a scale on a
+     prop's paint or face ramp, sized by a LIGHT RATIO - and they all fail at the same end, because a
+     ratio cannot tell the prop that is a hole from the prop that is already at the bar (f509e12, three
+     arms: the bound opened buys props over +25 without emptying the tail; the footprint-light floor puts
+     RING's `barrel@29.5,12.5` at +30 over its own deck, which is the gated clause). This pays the
+     shortfall in the currency the census charges it in, so the two ends stop fighting:
+       (1) WHAT IT IS PAIRED AGAINST is READ, not modelled: the pixels this prop's projected box covers,
+           kept where the depth buffer says they are BEHIND the prop - which, for a box standing on a
+           floor, is that floor going on behind it. `bl` is therefore the deck, delivered, under the same
+           lamps, at the same moment. Four reads decide whether it is worth a capture at all
+           (`PROP_DECK_MIN`): a prop on a dark deck cannot be a hole in a bright floor.
+       (2) IT FIRES ON A FLOOR OF A DIFFERENCE. A prop within `PROP_DECK_FLOOR` luma under that deck is a
+           solid and pays NOTHING - the term is inert, one read pass. That is the whole answer to the
+           arms above: the population already at the bar does not move, because the trigger is delivered
+           luma and not a light ratio.
+       (3) THE TARGET IS STATED BELOW THE DECK (`bl - PROP_DECK_KEEP`), which is what makes the gated
+           `<= +25` ceiling UNREACHABLE BY CONSTRUCTION rather than a bound someone re-checks whenever a
+           constant moves: the payment cannot put a prop above the surface it is standing on, so no future
+           change to `PROP_DECK_RAIL` can buy a `PROP-SECTOR` failure. The rail caps the move against a
+           bad measurement only.
+       (4) THE PAYMENT is the same grey scale on (pixel - wash) `fgPay` runs, so `texel * light` is what
+           scales, the wash is charged once (#458), no second multiplier over the lamp field is added
+           (#407), and the hue/chroma axis stays scale-invariant. It is armed for crates and barrels only:
+           a LAMP post is exempt by #371 (its own deck is the brightest floor in the room because it is
+           the lamp casting it, so a dark post in its own pool is the ruling, not the defect), not by this
+           file. No billboard, view-model or body copy - the one-read-site rule BODYHUE states - and the
+           same shipped-light-configuration guard `fgPay` needs, or a probe arm's own delta gets paid out.
+       Props live inside flatparity's hashed frames, so the first run of this is a re-key, not a drift. */
+  const PROP_DECK_FLOOR = 25, PROP_DECK_KEEP = 18, PROP_DECK_RAIL = 45, PROP_DECK_MAXK = 3.2,
+        PROP_DECK_MIN = 55, PROP_DECK_MAXPX = 24576;
+  function propPay (rec) {
+    const K = rec.n, fog = rec.fog;
+    if (K < 24) return;
+    const wr = FOGC[0] * fog, wg = FOGC[1] * fog, wb = FOGC[2] * fog;
+    const wa = (LUMW[0] * FOGC[0] + LUMW[1] * FOGC[1] + LUMW[2] * FOGC[2]) * fog;
+    const bl = rec.dk;                                  // its deck, measured at the draw, in luma
+    let dl = 0, own = 0;
+    for (let i = 0; i < K; i++) {
+      const o = rec.idx[i];
+      if (zbuf[o] < rec.d[i]) continue;                  // the frame kept something nearer: not its pixel
+      const p = px[o];
+      dl += LUMW[0] * (p & 255) + LUMW[1] * (p >> 8 & 255) + LUMW[2] * (p >> 16 & 255);
+      own++;
+    }
+    if (own < 24) return;                                // the vacuity floor, on the set actually fitted
+    dl /= own;
+    if (bl - dl < PROP_DECK_FLOOR) return;               // it reads as a solid: inert
+    const den = dl - wa;
+    if (den <= 2) return;                                // a prop at the wash has no value to scale
+    const want = Math.min(bl - PROP_DECK_KEEP, dl + PROP_DECK_RAIL);
+    const k = clamp((want - wa) / den, 1, PROP_DECK_MAXK);
+    if (k === 1) return;
+    for (let i = 0; i < K; i++) {
+      const o = rec.idx[i];
+      if (zbuf[o] < rec.d[i]) continue;
+      const p = px[o];
+      px[o] = (0xFF000000 |
+        clampi((p >> 16 & 255) + ((p >> 16 & 255) - wb) * (k - 1)) << 16 |
+        clampi((p >> 8 & 255) + ((p >> 8 & 255) - wg) * (k - 1)) << 8 |
+        clampi((p & 255) + ((p & 255) - wr) * (k - 1))) >>> 0;
+    }
+  }
   const fgFlush = () => {
-    for (let i = 0; i < FGPEND.length; i++) fgPay(FGPEND[i]);
+    for (let i = 0; i < FGPEND.length; i++) (FGPEND[i].deck ? propPay : fgPay)(FGPEND[i]);
     for (let i = 0; i < FGPEND.length; i++) FGPEND[i].busy = 0;
     FGPEND.length = 0;
   };
@@ -2311,7 +2380,56 @@ const MESH = (function () {
        blended pixel is a mix of two surfaces, so neither colour belongs to him), not hit-flashed (whose
        colour is a term of the shot), and only when the BODYPAINT arm is up so the paint arm still
        measures paint against light. There is no billboard copy - the one-read-site argument BODYHUE makes. */
-    let fgX0 = 0, fgY0 = 0, fgW = 0, fgH = 0, fgFog = 0;
+    let fgX0 = 0, fgY0 = 0, fgW = 0, fgH = 0, fgFog = 0, fgDeck = 0;
+    /* #695 THE DECK THE PROP STANDS ON, read the same way #611 reads a body's backdrop: the world is
+       drawn BEFORE the object pass, so the pixels inside a prop's projected box - less the contact patch
+       the depth buffer says are GROUND at the prop's own distance, which are the floor in FRONT of it and
+       not its face, and less anything a nearer object already owns - are the floor and wall it is read
+       against. Four reads on its centre line, kept only where the depth says BEHIND, is the census's own
+       comparator at the price the #611 note calls "a few samples, never per pixel"; the mean is the deck
+       the eye compares the box to, delivered, under the same lamps. A prop whose own value is a band under
+       it gets its shortfall paid at the end of the object pass (`propPay`) - see the #695 note there, and
+       the #695 note on PROPDECK in js/00_core.js for why this is keyed on delivered luma and not on a
+       light ratio, which three earlier arms of this issue proved raises the props already at the bar.
+       Lamps are exempt by #371: a lamp post's own deck is the brightest floor in the room BECAUSE it is
+       the lamp casting it, so a dark post in its own pool is the ruling and not the defect. The ground
+       test is the same luma-and-depth discrimination `tools/view.js surface` applies to its own means, so
+       the probe and the renderer are arguing about the same set of pixels. */
+    let fgDeckV = 0;
+    if (PROPDECK && pr && !MDL && !EMIS && o.kind !== 'lamp' && BODYPAINT && !FLASH && ALPHA >= 1 &&
+        tYc > 0.6 && tYc < 18 && BODYSHADE && BODYDIST && !BODYHAZE) {
+      const fq = 1 / tYc;
+      const fsx = (BW * 0.5) * (1 + (cam.invDet * (dirY * ex - dirX * ey)) * fq);
+      const fby = horizon + (BH * (eyeZ - o.z)) * fq;            // the prop's OWN contact line
+      const fhx = Math.max(3, (BW * 0.5) * Math.abs(cam.invDet * dirY / tYc) * (FOOT[o.kind] || 0.4) * sc * 2);
+      let dS = 0, dN = 0;
+      for (let s = 0; s < 8; s++) {
+        const ox = (s & 1 ? 1 : -1) * fhx * (s < 4 ? 1.3 : 2.0);
+        const oy = (s & 2 ? 1 : -1) * (s < 4 ? 0 : fhx * 0.7);
+        const sx = Math.round(fsx + ox), sy = Math.round(fby + oy);
+        if (sx < 0 || sy < 0 || sx >= BW || sy >= BH || sy <= horizon) continue;   // not the floor
+        const off = sy * BW + sx;
+        if (!(zbuf[off] > tYc * 0.55 && zbuf[off] < tYc + 2.2)) continue;          // occluded, or off the slab
+        const p = px[off];
+        dS += LUMW[0] * (p & 255) + LUMW[1] * (p >> 8 & 255) + LUMW[2] * (p >> 16 & 255); dN++;
+      }
+      if (dN >= 4 && dS / dN >= PROP_DECK_MIN) {
+        fgDeckV = dS / dN;
+        const fsy = horizon + (BH * (eyeZ - (o.z + sc * 0.5))) * fq;
+        const fex = (BH / tYc) * sc * 0.8;
+        const fx0 = Math.max(0, Math.round(fsx - fex)), fx1 = Math.min(BW - 1, Math.round(fsx + fex));
+        const fy0 = Math.max(0, Math.round(fsy - fex)), fy1 = Math.min(BH - 1, Math.round(fsy + fex));
+        if (fx1 >= fx0 && fy1 >= fy0 && (fx1 - fx0 + 1) * (fy1 - fy0 + 1) <= BGMAX) {
+          if (!BGSAVE) { BGSAVE = new Uint32Array(BGMAX); BGDEPTH = new Float32Array(BGMAX); }
+          fgX0 = fx0; fgY0 = fy0; fgW = fx1 - fx0 + 1; fgH = fy1 - fy0 + 1;
+          fgFog = fogAt(Math.max(0.2, Math.hypot(ex, ey)));
+          for (let y = 0; y < fgH; y++) {
+            const src = (fy0 + y) * BW + fx0, dst = y * fgW;
+            for (let x = 0; x < fgW; x++) { BGSAVE[dst + x] = px[src + x]; BGDEPTH[dst + x] = zbuf[src + x]; }
+          }
+        } else fgW = 0;
+      }
+    }
     /* The three light ARMS (BODYDIST / BODYSHADE / BODYHAZE) are the probe's A/B on the light path, and
        this term is computed from DELIVERED pixels. If it ran while an arm was raised it would measure the
        arm's own delta and push it back out - the failure the predictive form avoided by reading only the
@@ -2511,6 +2629,7 @@ const MESH = (function () {
     if (fgW) {
       const rec = fgTake();
       rec.busy = 1; rec.n = 0; rec.fog = fgFog;
+      rec.deck = fgDeckV > 0 ? 1 : 0; rec.dk = fgDeckV;
       for (let y = 0; y < fgH; y++) {
         const row = (fgY0 + y) * BW + fgX0, base = y * fgW;
         for (let x = 0; x < fgW; x++) {
