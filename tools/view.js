@@ -18527,6 +18527,78 @@ if (MODE === 'props') {
       const a = JSON.parse(run('JSON.stringify(PROPSIGHT)'));
       psAgain = a.occl; psAgainMoved = a.moved; psAgainLoud = +run(PS_LOUDLEFT);
     }
+    /* THE SAME-DECK TEST ON A CONFIG THAT OFFERS IT (#353). The census above counts what the dealt sweeps
+       hand it, and on ABATOIR CORE the arrival region's slab now stands ACROSS the dealt sight line: the
+       crates main walked sideways off the line are refused before the walk ever runs (this head's ABATOIR
+       census reads `occl 1` against main's 5, and main's three `deck-rej` went with them). Neither the
+       rule nor its clause changed - the DEAL stopped putting a band edge beside a walked crate, which is
+       the same silent-coverage gap that made this a vacuity row in the first place. So the row now NAMES
+       the config instead of waiting for a roll to land one: on each dealt level, stand one loud prop at a
+       deck edge the generator itself authored, square on at 4 m from a seat on that same deck with 3 m of
+       open deck behind it, and ask the shipped pass the question. Nothing is authored into the grid, no
+       dice are drawn and nothing is rendered; the props the probe moved are put back by the same call.
+       The clause is unchanged (`> 0`, no tolerance, no roll list, no vacuity wording): revert the
+       `MAP.fz[i] !== fzAuth` test at js/20_level.js and this reads 0 AND the fixture's crate lands on the
+       storey below, which turns the state row above red in the same run. */
+    let psBandFx = 0, psCrossFx = 0, psDeckFx = 0, psFxAt = [], psFxTried = 0, psFxNone = [];
+    {
+      const rsFx = rs;
+      for (let li = 0; li < run('LEVELS.length'); li++) {
+        run(`genLevel(${li});`);
+        const fx = JSON.parse(run(`(() => {
+          const N = MW, seat0 = (P.y | 0) * N + (P.x | 0);
+          const reach = bfsReach(MAP.cell, MAP.fz, N, seat0, MAP.vb, MAP.feat);
+          let qi = -1;
+          for (let i = 0; i < PROPS.length; i++) if (PROPS[i].kind === 'crate' || PROPS[i].kind === 'barrel') { qi = i; break; }
+          const out = { band: 0, cross: 0, bad: 0, at: '', tries: 0 };
+          if (qi < 0) return JSON.stringify(out);
+          const snap = PROPS.map(q => [q.x, q.y, q.z, q.yaw, q.quiet | 0]);
+          const putBack = () => { for (let i = 0; i < PROPS.length; i++) { const q = PROPS[i], s = snap[i];
+            q.x = s[0]; q.y = s[1]; q.z = s[2]; q.yaw = s[3]; q.quiet = s[4]; } };
+          const open = (x, y) => x > 0 && y > 0 && x < N - 1 && y < N - 1 &&
+            !MAP.cell[y * N + x] && !isSolid(x + 0.5, y + 0.5) && reach[y * N + x] >= 0;
+          const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+          for (let y = 1; y < N - 1 && !out.band && out.tries < 60; y++) for (let x = 1; x < N - 1 && !out.band; x++) {
+            const ci = y * N + x;
+            if (!open(x, y)) continue;
+            for (const dd of DIRS) {
+              const ax = x + 0.5 - dd[0] * 4, ay = y + 0.5 - dd[1] * 4;         // the seat, 4 m back
+              if (!open(ax | 0, ay | 0) || MAP.fz[(ay | 0) * N + (ax | 0)] !== MAP.fz[ci]) continue;
+              let clear = true;
+              for (let s = 0.5; s < 3.8; s += 0.5) { const gx = (ax + dd[0] * s) | 0, gy = (ay + dd[1] * s) | 0;
+                if (!open(gx, gy) || MAP.fz[gy * N + gx] !== MAP.fz[ci]) { clear = false; break } }
+              if (!clear) continue;
+              let past = 0;
+              for (let s = 0.75; past < SIGHT_OPEN + 0.01; s += 0.25) { const gx = (x + 0.5 + dd[0] * s) | 0, gy = (y + 0.5 + dd[1] * s) | 0;
+                if (!open(gx, gy)) break; past += 0.25; }
+              if (past < SIGHT_OPEN) continue;
+              let edge = false;                                                 // 2 cells sideways: OUT of the band
+              for (let st = 2; st <= 3 && !edge; st++) for (const sg of [-1, 1]) {
+                const gx = (x + 0.5 - dd[1] * sg * st) | 0, gy = (y + 0.5 + dd[0] * sg * st) | 0;
+                if (!open(gx, gy)) continue;
+                if (MAP.fz[gy * N + gx] !== MAP.fz[ci]) edge = true;
+              }
+              if (!edge) continue;
+              out.tries++;
+              const q = PROPS[qi];
+              q.x = x + 0.5; q.y = y + 0.5; q.z = floorAt(q.x, q.y); q.yaw = propYaw(q.x, q.y); q.quiet = 0;
+              rankLoudProps(ax, ay, Math.atan2(dd[1], dd[0]));
+              out.band += PROPSIGHT.band; out.cross += PROPSIGHT.cross;
+              for (const m of PROPSIGHT.log) if (MAP.fz[(m[1] | 0) * N + (m[0] | 0)] !== MAP.fz[(m[3] | 0) * N + (m[2] | 0)]) out.bad++;
+              if (out.band) out.at = PROPS[qi].kind + '@' + x + ',' + y + ' deck ' + MAP.fz[ci] +
+                ', seen from ' + ax.toFixed(1) + ',' + ay.toFixed(1) + ' (seat deck ' + MAP.fz[(ay | 0) * N + (ax | 0)] + ')';
+              putBack();
+              if (out.band) break;
+            }
+          }
+          putBack();
+          return JSON.stringify(out);
+        })()`));
+        psBandFx += fx.band; psCrossFx += fx.cross; psDeckFx += fx.bad; psFxTried += fx.tries;
+        if (fx.band > 0) psFxAt.push('L' + li + ' ' + fx.at); else psFxNone.push('L' + li);
+      }
+      rs = rsFx;
+    }
     rs = rsSave;
     console.log('  sight-line census (#695 take two): ' + psPrint.join('   ') + '   over ' + psDeals +
       ' deals x ' + run('LEVELS.length') + ' levels, one rendered pair on the first deal per level that '
@@ -18560,18 +18632,26 @@ if (MODE === 'props') {
        is the vacuity clause - a same-deck test that never fires is the same code as no test, and on the
        deals where the walk only ever meets flat deck it cannot be told apart on any pixel. */
     psRow('a relocated prop stands on the deck it was authored on',
-      psDeck === 0,
+      psDeck === 0 && psDeckFx === 0,
       psDeck + ' of ' + psMoved + ' relocation(s) ended on a cell whose MAP.fz differs from the cell the prop '
-      + 'was authored in (read off the move log against the grid, not off a counter). '
-      + psBand + ' candidate cell(s) were rejected by that test across this sweep, and on ' + psCross +
+      + 'was authored in (read off the move log against the grid, not off a counter), and ' + psDeckFx +
+      ' on the named deck-edge config below. '
+      + (psBand + psBandFx) + ' candidate cell(s) were rejected by that test (' + psBand + ' from the dealt '
+      + 'sweep, ' + psBandFx + ' from the fixture), and on ' + (psCross + psCrossFx) +
       ' prop(s) the walk would have parked the prop on another storey without it - that count is the row\'s '
       + 'right to fail: revert the same-deck test and it is the number that turns red');
     psRow('the same-deck test has something to reject',
-      psBand > 0,
-      psBand + ' candidate(s) rejected for standing on a different floor (' + psCross + ' move(s) where that '
-      + 'test alone decided the destination). At 0 the rule is indistinguishable from absent on a flat deal, '
-      + 'so this row is VACUOUS at 0 - it does not gate on stuck, which stays the honest answer for a prop '
-      + 'walled in on its own deck');
+      psBand + psBandFx > 0,
+      (psBand + psBandFx) + ' candidate(s) rejected for standing on a different floor (' + (psCross + psCrossFx) +
+      ' move(s) where that test alone decided the destination): ' + psBand + ' out of the ' + psDeals +
+      ' dealt sweeps' + (psBandFx ? ', and ' + psBandFx + ' on the deck-edge config offered by '
+        + psFxAt.join('; ') + ' after ' + psFxTried + ' placement(s) tried' : ', and 0 on the deck-edge config '
+        + 'on ' + psFxNone.join('/') + ' (' + psFxTried + ' placements tried)') +
+      '. At 0 on BOTH the rule is indistinguishable from absent, so this row is VACUOUS at 0 - it does not '
+      + 'gate on stuck, which stays the honest answer for a prop walled in on its own deck. The dealt sweep '
+      + 'went quiet on ABATOIR CORE because the arrival slab stands between the dealt eye and the crates main '
+      + 'walked sideways (its census reads occl 1 against main\'s 5), not because the rule stopped running; '
+      + 'the fixture is the config that offers it, on the dealt grid, with no grid write and no roll added');
     /* #695 TAKE THREE. #757 shipped the walk and #768 kept it on the prop's own deck; what neither of them
        settled is the deal where the walk has nowhere to go. Two rows: the GUARANTEE the issue asks for
        ("in every sector", read off the shipped PROPS of every dealt level rather than off a counter), and
