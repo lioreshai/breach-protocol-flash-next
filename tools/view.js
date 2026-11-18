@@ -373,6 +373,12 @@ function boot(knob, seed) {
      else - same rooms, same draws, same bands, no lamp and no seed moves - so alt's overlook row can
      be SEEN to fail rather than assumed to be load-bearing (js/20_level.js overlookEnabled). */
   if (process.env.OVERLOOK === 'off') run('overlookEnabled = function () { return false; };');
+  /* SEATREGION=off is #353's PLACEMENT CONTROL: it drops ONLY the ninth candidate region - the one whose
+     seam is the arrival room's own neighbourhood - so feature 2 can author its plateau on the eight
+     centre-line regions and nothing else. Same rooms, same draws, same seeds, no lamp moves. With it,
+     `surface`'s SEAT-RANGE row on ABATOIR CORE must fall back to main's `0 within 6 m / nearest 9.5 m`,
+     which is the row this change is bought for (js/20_level.js seatRegionEnabled). */
+  if (process.env.SEATREGION === 'off') run('seatRegionEnabled = function () { return false; };');
   /* PIER=off is #665's CONTROL SWITCH: it turns off the #631 interior-column pass at DEAL time and
      nothing else - same rooms, same draws, same lights, same seed, no height authored - so `surface`'s
      ROOF row can be SEEN to move rather than argued about. Read it with the two arms side by side:
@@ -20700,7 +20706,14 @@ if (MODE === 'surface') {
        tagged to the issue; a set in which NO rect reaches the near range is placement work, printed as such.
        Reads a record only - no render, no write - so every row after it renders what it rendered before. */
     const candT = run('bandCand ? bandCand.map(c => [c.tag, c.n, c.reach, c.near]) : null');
-    const candOK = Array.isArray(candT) && candT.length === 8 && candT.some(c => c[1] > 0);
+    /* The clause counts the regions THIS DEAL SCORED, not a literal 8: feature 2 can now author a ninth
+       (#353 - a region whose seam is the arrival room's neighbourhood), and a hard-coded 8 made this row
+       print "NO placement record on this deal" the moment that region joined the candidate set. The
+       expected count is read off the deal - 8 centre-line regions, plus the seat region when the switch
+       that authors it is on - so a deal that scored nothing, or scored one region fewer than the pass
+       says it offered, still reads as vacuity. */
+    const candWant = run('8 + (typeof seatRegionEnabled === "function" && seatRegionEnabled() ? 1 : 0)');
+    const candOK = Array.isArray(candT) && candT.length === candWant && candT.some(c => c[1] > 0);
     const bestNear = candOK ? candT.reduce((m, c) => Math.max(m, c[3]), 0) : 0;
     const bestReach = candOK ? candT.reduce((m, c) => Math.max(m, c[2]), 0) : 0;
     const placeMiss = sHead.near === 0 && bestNear > 0;

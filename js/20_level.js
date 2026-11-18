@@ -1572,6 +1572,32 @@ function authorVolume(cell, N, rooms, fz, vb, feat, cz, atSeat) {
     y0: q[1] ? N2 : 1, y1: q[1] ? N - 2 : N2 - 1 });
   for (const h of [[1, 0], [0, 0], [0, 1], [1, 1]]) rects.push({
     tag: 'h' + (h[0] + h[1] * 2), quad: 0, x0: h[0] ? N2 : 1, x1: N - 2, y0: h[1] ? N2 : 1, y1: N - 2 });
+  /* #353 THE NINTH REGION - A SEAM AT THE ARRIVAL ROOM'S OWN NEIGHBOURHOOD. The eight above are four
+     quadrants and four half-planes, so every seam this feature can author is a line through the MAP
+     CENTRE, and `surface`'s SEAT-PLACE prints `best 0 near` for all eight on ABATOIR CORE: a seat deep
+     in a quadrant has no candidate that can stand a deck inside the 6 m a one-quantum soffit needs, at
+     ANY ranking - which is why two rounds of re-ranking that candidate set moved zero census pixels.
+     This region is the same shape (a rect, same `maskOf`, same >= 8-cell floor, same `linkBand` proof,
+     same `noSpawn` stair rule, no dice drawn) with ONE difference: its two edges are anchored on the
+     SPAWN RECT, `SEAT_SEAM` cells off its outer faces and always on the map-interior side, so the deck
+     it raises starts beside the arrival room instead of across the map from it. Interior-side matters:
+     a region that swallowed the spawn rect would leave the arrival room as a pit ringed by a 2 m deck
+     with no mouth outside the room to link from (#421's arrival-floor rule), and `pickBand` would hand
+     it back - which it still does if it cannot link here.
+     It is LAST in the shipped order (`last: 1` sorts after both groups and is 0 for the eight, so the
+     eight keep their exact order) and it is only ever CHOSEN by the near/reach fallback below, so a
+     deal whose shipped band already puts a column inside 6 m - ARCHIVE, RING - never spends it and
+     stays byte for byte what it was. `surface`'s SEAT-PLACE row scores it beside the eight. */
+  const SEAT_SEAM = 2;                      // cells between the region's edge and the spawn rect's faces
+  if (seatRegionEnabled()) {
+    const ex = spawnR.cx >= N2, ey = spawnR.cy >= N2;
+    rects.push({
+      tag: 'r' + ((ex ? 1 : 0) + (ey ? 2 : 0)), quad: 0, last: 1,
+      x0: ex ? 1 : Math.min(N - 2, spawnR.x + spawnR.w + SEAT_SEAM),
+      x1: ex ? Math.max(1, spawnR.x - 1 - SEAT_SEAM) : N - 2,
+      y0: ey ? 1 : Math.min(N - 2, spawnR.y + spawnR.h + SEAT_SEAM),
+      y1: ey ? Math.max(1, spawnR.cy - 1 - SEAT_SEAM) : N - 2 });
+  }
   /* The region a candidate WOULD raise, as a mask and with no other write: the reach census below has
      to ask that question of all eight candidates before any of them is committed, and the only honest
      way to ask it is to build exactly the mask the committed pass builds. */
@@ -1619,7 +1645,8 @@ function authorVolume(cell, N, rooms, fz, vb, feat, cz, atSeat) {
       if (!cell[i] && fz[i] === 0 && !flat[i] && !inSpawn(x, y)) n++;
     }
     return { r, n };
-  }).sort((a, b) => b.r.quad - a.r.quad || b.n - a.n || a.r.tag.localeCompare(b.r.tag));
+  }).sort((a, b) => b.r.quad - a.r.quad || (a.r.last | 0) - (b.r.last | 0) || b.n - a.n ||
+    a.r.tag.localeCompare(b.r.tag));
   const cpBand = cut();                               // all of feature 2, for the fallback's undo
   let bandTag = null;
   /* `noSpawn` goes to `linkAt` through `linkBand`: the near-seat preference is the only caller that asks
@@ -3367,6 +3394,11 @@ function topUpEnabled() { return true; }
    runs the deal without it and the overlook rows are seen to fail. A row that has never been seen to
    fail has not been tested (AGENTS.md). */
 function overlookEnabled() { return true; }
+/* #353's ninth candidate region, in the same idiom as the two above: ONE call site, so
+   `SEATREGION=off node tools/view.js surface` deals the level with only the eight centre-line regions
+   and `surface`'s SEAT-RANGE row can be SEEN to fall back to main's `0 within 6 m / nearest 9.5 m`.
+   Nothing else in feature 2 reads it. */
+function seatRegionEnabled() { return true; }
 /* #631's interior-column pass, in the same idiom as the two above: ONE call site, so
    `PIER=off node tools/view.js surface|scene` deals the level with the rooms but not the columns and
    `surface`'s ROOF row becomes a measurement rather than a reading of one arm (#665). */
@@ -4362,15 +4394,17 @@ function genLevel(li) {
        MAP.fz becomes below, so a band written before this point cannot be invisible to the gate. */
     const fzTry = new Int8Array(N * N), czTry = new Uint8Array(N * N).fill(CZ_DEF);
     const vbTry = new Uint16Array(N * N), featTry = new Uint8Array(N * N);
-    /* #421 SCOPE, and it is deliberately narrow: the near-seat preference is offered only to the sector
-       the player WAKES in, which is level 0. The pass below is otherwise per-level, so a wide flag would
-       re-pick the deck in every sector on the dice stream the probe gates lock - RING TRANSPORT and ABATOIR
-       CORE among them - and their frames are those records' to hold. Review of this PR made that a
-       decision rather than an accident: letting the rule run wherever it improves the frame is the better
-       world, but it has to arrive as its own change with those locked records re-recorded by name. Level 0
-       keeps the shipped ranking too - the preference stays a preference, and a deal whose band already puts
-       a column inside SEAT_NEAR never reaches it. */
-    authorVolume(cell, N, rooms, fzTry, vbTry, featTry, czTry, li === 0);
+    /* #421 scoped the near-seat preference to the sector the player WAKES IN, because a wide flag would
+       re-pick the deck in every sector on the dice stream the probe gates lock. #353 WIDENS IT, and the
+       widening is a measurement rather than a preference: the question the preference asks - did the
+       committed band leave any column inside `SEAT_NEAR`? - is asked of every level, and a deal that
+       answers "yes" (ARCHIVE 30, RING 17) never enters the retry at all, so its bytes do not move. Only
+       a band that delivered NOTHING near re-tries the candidate set, which on the graded deals is
+       ABATOIR CORE alone. The ninth region above is what gives that retry something to pick: on the
+       eight centre-line regions every candidate answers `0 near` on ABATOIR CORE, so widening the scope
+       without it would change nothing there either. Locked frames for any sector this does move are
+       re-recorded by name in the same commit, which is what #421 asked this step to arrive with. */
+    authorVolume(cell, N, rooms, fzTry, vbTry, featTry, czTry, true);
 
     const dist = bfsReach(cell, fzTry, N, rooms[0].cy * N + rooms[0].cx, vbTry, featTry);
     let reachable = 0, far = -1, farIdx = -1, total = 0;
