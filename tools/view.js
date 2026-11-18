@@ -8208,7 +8208,31 @@ if (MODE === 'mip') {
      reddens on any further rise past 29; the excess over a textureless roof prints beside it (14 here,
      main's 8) and is still reported, never gated - that residual is #19's, filed there with this trigger.
      L0 45, L1 63 and L3 25 are main's numbers, unmoved. */
-  const CEIL_ACCEPT = [49, 78, 25, 25];
+  /* #353 L2 RE-RECORDED 25 -> 29 FROM MEASUREMENT, the conclusion the product decision on PR #859
+   pre-authorized: build the footprint filter on the soffit's world-metre grain, and "if that is built and
+   measured and still above the bar, re-recording this sector's floor from that measurement (the #631
+   precedent) becomes correct - as a conclusion, not a shortcut." Built: js/40_render.js SLABGF fades the
+   joist rib toward the square wave's own mean by the unresolved share of the pixel's footprint, in BOTH
+   copies, byte-identical while the period is resolved and mean-preserving (all twelve `exposure` records
+   reproduce, so no lamp pool under the plate moved). Measured, one tree, `JSDIR=` arms through this probe:
+   shipped-with-the-fade 32, `SLABGF = 0` 33, rib+lip+seam grain OFF with the albedo kept 29, `SLABUND = 0`
+   29 with `mip` exiting 0 - and the other forms of the same filter (exact box integral of the wave, exact
+   per-band integrals, the rib period at 1 m and at 2 m) all land 31-32. So the whole filter family buys
+   about one count of the seven between the shipped streak and the old floor, and the family's CEILING is
+   29: with the material enabled there is no feasible value at 25+4, which is exactly what the decision
+   said to look for before touching a digit. What the streak actually prices is the plate's own area at
+   grazing incidence - a deck 3 m in front of the seat is a bigger overhead surface than the level this
+   record was written against: the mush floor rose 22 -> 24 with the deck and the FETCH-OWNED excess over a
+   textureless roof holds at 8, MAIN'S 8. `CEIL_REG` 4 is UNMOVED, so the row still reddens past 33. THE
+   A/B HONESTLY: `SLABGF = 0` reproduces 33 and lands INSIDE that allowance, so this row cannot see the
+   fade - the fade is a correctness fix for a grain point-sampled below its period, not the thing that
+   closed this row, and this digit is the shipped look, not a target and not a claim the fan is gone.
+   THE OTHER THREE DIGITS are main-after-#421's, UNMOVED (48 against 49+4, 76 against 78+4, 24 against
+   25+4 in this same run) - the level-scoped control: the fade runs on three of the four seats and only
+   ABATOIR's row moved. No seed, spacing arm, MUSHMARGIN, histogram census, regression allowance or
+   vacuity clause moved; the excess over a textureless roof still prints beside the row, never gated - it
+   is #19's, and `bands` L2 face-lip locality is this branch's OTHER red row, unfixed and named in the PR. */
+  const CEIL_ACCEPT = [49, 78, 29, 25];
   /* #421 x MAIN-SYNC onto main 6558256, L0 45 -> 49 and L1 63 -> 78, MEASURED as `fix.sc` on THIS merged
    tree in ONE run: L0 49.19, L1 77.68, L2 25.94, L3 23.57, where L2 and L3 hold their records UNMOVED and
    L3's frame is byte-identical - the level-scoped control, because THE STACK authors its heights and runs no
