@@ -898,6 +898,18 @@ if (MODE === 'alt') {
          come from the pass itself, so the split is the rule's own claim and not a re-derivation: a deck
          that IS an authored pair is the rule's business, one that is not is outside its budget. */
       const ovlPairDeck = new Set(overlookPairs.map(p => p[1]));
+      /* #353, the body half of the deck ledger. The pairing pass budgets OVERLOOK_MAX decks, the deck-light
+         pass puts a source on EVERY one of them, and until this head authorOverlooked garrisoned ONE deck -
+         the first pair's deck - and returned, so on the CI deal 1 of the 2 pairs a sector authors was a lit
+         mezzanine with nobody on it: the scenery this issue was filed about, one storey up. The count is the
+         PASS'S OWN ledger (which decks it pairs), not this probe's wider tall-air census, so an empty deck
+         is the rule's unfinished business and not geography. THIS BLOCK IS INSIDE A TEMPLATE LITERAL: a
+         backtick here ends the string and the whole probe dies at load - see the note near openSpan. */
+      let ovlPairGarr = 0; const ovlPairEmpty = [];
+      for (const p of overlookPairs) {
+        if (ENEMIES.some(e => ((e.y | 0) * N + (e.x | 0)) === p[1])) ovlPairGarr++;
+        else ovlPairEmpty.push((p[1] % N) + ',' + ((p[1] / N) | 0));
+      }
       const ovlWhy = {};
       if (typeof overlookLamps !== 'undefined') for (const o of overlookLamps) ovlWhy[o.deck] = o.why;
       let ovlPairTot = 0, ovlPairLit = 0; const ovlPairDark = [], ovlOtherDark = [];
@@ -1058,6 +1070,7 @@ if (MODE === 'alt') {
         linkIn, blockedStep, stairs, stairCells, ladCells, bandLink, noLink, steps: MAP.steps,
         headMax, headCols, runMax, runFloor, runTot, runs, reachUp, reachDown, reachOff, farReach,
         ovl, ovlAt, ovlEnemy, ovlShot, ovlDeck, ovlDeckTot, ovlCredit, ovlDeckAt,
+        ovlPairGarr, ovlPairEmpty,
         ovlSeen, ovlBodyless, ovlBodylessAt,
         ovlPlaced, ovlNoGlow, ovlPairTot, ovlPairLit, ovlPairDark, ovlOtherDark,
         ovlPairsAuth: overlookPairs.length, ovlWhyCount: Object.keys(ovlWhy).length, auth: !!(LEVELS[${li}] && LEVELS[${li}].authored),
@@ -1453,7 +1466,23 @@ if (MODE === 'alt') {
          pairs, bands, rooms and props and drops the source standing on the deck; `OVERLOOK=off` leaves no
          ledger for the authored pairs; and a pass that stopped serving the tall-air-beside-a-raised-band
          population shows up here as the census's own DARK count rather than as a reported finding. */
-      row(`L${li} every overlook deck reads lit`, dark === 0,
+      /* #353: a deck you can shoot up at is only a fight if someone is up there. This is the body rule's own
+       ledger - the pairs the PASS authored - and it is the row the pairing pass's budget was always about:
+       main lights every deck it authors and garrisons the first one, so the second is a bright, reachable,
+       EMPTY mezzanine. THE ROWS THAT CAN FAIL IT: `OVERLOOK=off` leaves a generated sector with no pair at
+       all (vacuity is a FAILURE, not a zero), and on the authored plan it takes the 'V' ceiling back down,
+       which takes the tall column with it and leaves no body standing above tall air. On a plan the pairing
+       pass never runs, so the population there is the census of bodies above tall air and not the pair list. */
+    {
+      const garrPop = r.auth ? r.ovlEnemy : r.ovlPairGarr, popWant = r.auth ? 1 : r.ovlPairTot;
+      row(`L${li} every overlook this rule authored has a body standing on its deck`,
+        popWant >= 1 && garrPop >= popWant,
+        `${garrPop}/${popWant} ${r.auth ? 'tall column(s) with a body standing above them' : 'authored overlook deck(s) garrisoned'}` +
+        (r.ovlPairEmpty.length ? ` - empty: ${r.ovlPairEmpty.slice(0, 4).join('; ')} (lit, reachable, nobody on it)`
+          : ` - every deck the pass authored has someone to shoot at`) +
+        (r.auth ? '  AUTHORED plan: the pairing pass never runs on a plan, so the garrison is the plan and its bodies, not a pair list' : ''));
+    }
+    row(`L${li} every overlook deck reads lit`, dark === 0,
         `${dark} of ${r.ovlDeckTot} overlook deck(s) read DARK - no source stands on the band they are fought from` +
         (r.ovlOtherDark.length ? `, and every one of them is tall air beside a raised band that the pairing pass did NOT author ` +
           `(${r.ovlOtherDark.slice(0, 4).join('; ')}${r.ovlOtherDark.length > 4 ? ' ...' : ''}) - that is the 3-pair budget, not the light pass` : ''));
