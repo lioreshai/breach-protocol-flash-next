@@ -18838,7 +18838,7 @@ if (MODE === 'bands') {
     };
     for (let x = 1; x < BW - 1; x += ${STRIDE}) {
       const cam = x * sb - 1, rx = dirX + planeX * cam, ry = dirY + planeY * cam;
-      let mx = CX | 0, my = CY | 0, t = D, guard = 0, ev = null;
+      let mx = CX | 0, my = CY | 0, t = D, guard = 0, ev = null, nfc = 0;   // nfc = faces recorded, vs WST
       if (mx < 0 || my < 0 || mx >= N || my >= N || cell[my * N + mx]) { RES.push([x, 'void', 0, 0, 0, 0, 0]); continue; }
       const sX = rx < 0 ? -1 : 1, sY = ry < 0 ? -1 : 1;
       const qX = Math.abs(1 / rx), qY = Math.abs(1 / ry);
@@ -18857,7 +18857,20 @@ if (MODE === 'bands') {
           if (vb[prev] & (VB_RAMP | VB_LADDER) << (d << 2)) { prev = cur; continue; }   // climbable: no lip
           if (Math.abs(dq) > 1) {          // js/40_render.js:567 draws the SLAB side of an air->air step
             ev = [x, 'face', dq, t, fz[prev] * ZQ, Math.min(fz[cur], fz[prev]) * ZQ, Math.max(fz[cur], fz[prev]) * ZQ];
-            break;
+            if (STOP1) break;
+            /* #353: PAST A SLAB SIDE THE MARCH KEEPS GOING, AND THIS ENUMERATION HAS TO. #829 made a
+               lip a FACE rather than the end of the column (js/40_render.js caps the faces a column
+               records at WST and then keeps marching), so castWalls records and paints the creases
+               BEHIND a slab side - up to four of them - while this loop used to break at the first
+               one. The rows that farther lip's own band reaches were then absent from creaseByX, so
+               the seam's local term AT A REAL CREASE was booked as a leak. ATTRIBUTION IN ONE TREE:
+               a JSDIR variant differing only by the WST literal (1 instead of 4) prints L2 face-lip
+               locality 0.0 against this branch's 7.2, every other term on the row held - the whole of
+               the red, and it is the walk kind's known trap arriving on the FACE kind by way of a
+               deal that stands a storey inside the lip camera's frame. The cap matches the renderer's
+               own WST so the mask can never claim more creases than the wall pass could paint; the
+               clearRows clause below is what says the mask has not eaten the measurement. */
+            RES.push(ev); ev = null; prev = cur; nfc++; if (nfc >= 4) break; continue;
           }
           ev = [x, 'walk', dq, t, fz[prev] * ZQ, Math.min(fz[cur], fz[prev]) * ZQ, Math.max(fz[cur], fz[prev]) * ZQ];
           if (STOP1) break;                       // all=1: the row's own first event; all=0: keep the whole list
