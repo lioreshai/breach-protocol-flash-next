@@ -1750,7 +1750,23 @@ function authorVolume(cell, N, rooms, fz, vb, feat, cz, atSeat) {
      Growth is capped at LEDGE_MAX cells over LEDGE_GROW rounds, biased to cells nearest the seat and to
      cells that put a deck over LOW-clearance air inside the seat's own 6 m - the columns SEAT-RANGE counts.
      A deal that cannot grow keeps the level it had; no dice are drawn, so every deal that does not grow is
-     byte-identical to main, and one that does differs by `fz` on at most LEDGE_MAX cells. */
+     byte-identical to main, and one that does differs by `fz` on at most LEDGE_MAX cells.
+
+     #353: THE SEAT DISTANCE IS A PREFERENCE NOW, NOT A VETO. This pass used to drop every candidate farther
+     than `LEDGE_REACH` = 9 cells from the spawn rect, and ABATOIR CORE's dealt plateau has its nearest cell
+     13 cells out, so the pass ended having grown ZERO cells there: `surface`'s L2 SEAT-RANGE reads `0 within
+     6 m, nearest 9.5 m` and its SEAT-CEILING says no azimuth on that grid reaches the bar at all. The veto was
+     a bound on how far a FIRST step could be, which is the one thing a plateau that starts far away cannot
+     satisfy - so the deck never took one, in any round, ever.
+     The window now decides WHICH candidates a round may take, not whether it may take any: a round that still
+     has a cell inside the window takes exactly the cells it took before (every in-window candidate sorts
+     ahead of every out-of-window one, because `cover > 0` puts a cell within `LEDGE_NEAR` + 1 = 7 of the seat,
+     so the `cover` term the sort already leads with can never lift a far cell over a near one), and only a
+     round that would otherwise grow NOTHING walks out to the nearest cell beyond the window. That makes this
+     strictly additive: a sector whose deck already reached the seat is byte-identical, and ABATOIR CORE's
+     deck starts advancing toward it. `LEDGE_MAX`, `LEDGE_GROW`, `LEDGE_NEAR`, the `keeps(d0)` occupancy proof,
+     the per-cell reachability proof, the `inSpawn` exclusion and the hall-floor snapshot all still bound the
+     result exactly as before; no threshold, window value, band count, seed or dice moves. */
   const LEDGE_MAX = 16, LEDGE_GROW = 3, LEDGE_REACH = 9, LEDGE_NEAR = 6;   // metres = cells
   if (selBand) {
     const cpL = cut(), deck = selBand.slice(), grew = [];
@@ -1764,7 +1780,6 @@ function authorVolume(cell, N, rooms, fz, vb, feat, cz, atSeat) {
         if (cell[i] || fz[i] !== 0 || flat[i] || inSpawn(x, y) || deck[i]) continue;
         if (feat[i] !== FEAT_NONE || cz[i] !== CZ_DEF || d0[i] < 0) continue;
         const dd = Math.max(Math.abs(x - spawnR.cx), Math.abs(y - spawnR.cy));
-        if (dd > LEDGE_REACH) continue;
         let adj = 0;
         for (let d = 0; d < 4; d++) if (deck[(y + DIRY[d]) * N + x + DIRX[d]]) { adj = 1; break; }
         if (!adj) continue;
@@ -1780,8 +1795,14 @@ function authorVolume(cell, N, rooms, fz, vb, feat, cz, atSeat) {
       }
       if (!cand.length) break;
       cand.sort((a, b) => a[2] - b[2] || a[1] - b[1] || a[0] - b[0]);
+      /* #353: the window ranks. Cells inside it are taken first and, since they all sort ahead of the cells
+         outside it, a round that has one grows exactly the frontier it grew on main; the tail is reached only
+         by a round whose whole frontier sits beyond the window, which on main broke out having grown nothing.
+         The tail is still one cell per round off the plateau's own edge - it is a step, not a corridor. */
+      const inWin = cand.length - cand.filter(c => c[1] > LEDGE_REACH).length;
+      const take = inWin ? cand.slice(0, inWin) : cand;
       const cp = cut(), added = [];
-      for (const c of cand) {
+      for (const c of take) {
         if (grew.length + added.length >= LEDGE_MAX) break;
         added.push(c[0]); deck[c[0]] = 1; mark(c[0]); fz[c[0]] = BAND_UP;
       }
