@@ -1,5 +1,54 @@
 # Changelog
 
+## [v1.4.29] - 2026-11-18
+
+### Added
+
+- **A crate is one object: it stops your feet, your rounds and a hostile's sight** (#833, PR #855). A
+  crate used to stop only your feet. You could put a round straight through it, an enemy standing behind
+  it could see you through it, and jumping at one dropped you onto the deck underneath. Now a round dies
+  on a crate, a lamp post or a live barrel with sparks on the face it hit, so a hostile taking cover
+  behind a box is genuinely in cover and his sight line stops at that same box; and you can stand on a
+  crate. Jump into one and your feet land on the top surface, and from up there your own view, your
+  muzzle, your contact shadow and how much of you an enemy can see all follow that altitude, so climbing
+  a crate is a way to see over a low wall rather than a way to get stuck. Walk off the edge and you fall,
+  keeping the speed gravity gave you, so the landing kick, the knee bend and fall damage still read the
+  way they did. A barrel that explodes stops being solid for all three at once, in the frame it dies.
+  Pickups, the portal and the orb stay walk-through.
+
+### Changed
+
+- **A prop standing in the pool of light from its own fitting reads as a solid with sides** (#695,
+  PR #861). The worst cases were a lamp whose metal painted 40-48 while the deck under it painted
+  120-123, a barrel at 29 against a deck of 106 and a crate at 28 against 105 — a prop that dark against
+  the floor it is standing on looks burnt into the deck, and you cannot judge where it ends. That matters
+  now that a crate stops your feet and you can stand on one. A prop's paint now scales with how far the
+  light at its own cell stands above the deck value the prop textures are authored for, bounded so a prop
+  cannot become the loudest thing in the room. Props standing outside a light pool are unchanged byte for
+  byte, and this is not another push on overall brightness.
+- **Nothing gets dealt on a staircase** (#834, PRs #856, #858). In ARCHIVE SUBLEVEL a barrel stood at the
+  head of a one-cell flight with no way past it, so that stair was ugly for a second and impassable the
+  next, and a lamp post in ABATOIR CORE was parked where a flight lands. Both now stand one cell clear,
+  off the route, so a flight reads as a flight. The arrival frame in ARCHIVE SUBLEVEL is a shade brighter
+  as a result (spawn mean 73 -> 74): the deck behind the barrel shows. Fixtures were being left there
+  because the deck's own height was written *after* the fixtures were placed, so the check that refuses a
+  climb cell was answered by stale data; it now runs once at the end, after the last height write. The
+  level check no longer just tolerates one fixture per staircase — it names the one that remains with two
+  facts you can disagree with, so a barrel dropped on a tread for no reason can no longer print the same
+  ok as the lamp that *is* that deck's light.
+
+### Fixed
+
+- **A flight you can actually walk** (#834, PR #856). The unusable case above was a blocker, not a
+  cosmetic complaint: on a one-cell flight with a barrel at its head there is no route past it.
+
+Not in this release, and known: enemies still path around a crate rather than climbing onto it; the flat
+light-and-splash ray stays deliberately prop-blind, so a knee-high crate does not darken the room behind
+it; standing on a crate in a one-unit room puts your eye close to the ceiling plane, which renders
+correctly but reads cramped; and one overlook's deck lamp still stands on its landing, because walking
+that one off the deck moves a light source rather than an object and leaves the deck lit by nothing you
+can see — the real answer is a deck-edge or wall fitting.
+
 ## [v1.4.28] - 2026-11-17
 
 ### Added
