@@ -2063,6 +2063,33 @@ const MESH = (function () {
        what is owed; the absolute is what the mean-hold control pins. A barrel keeps its lit side and its
        shaded side by construction: this moves the term's average, not PROP_R1's slope. */
     const PROP_DMEAN_K = { barrel: 0.5139 };
+    /* #695 THE FLOOR UNDER A PROP, and it is keyed on the deck, not on the prop.
+       The ceiling half of the prop value band ships (PROPBAND above, the rank the generator pays in
+       js/20_level.js); the census that prices it - `view.js surface`'s PROP-SECTOR row - now reports
+       BOTH tails per prop, and the tail that is full is the UNDER one: props sitting a whole 25-luma
+       band BELOW the deck inside their own footprint (4 / 9 / 5 / 10 of the charged props at the dealt
+       seats, medians -13.5 / -34.6 / -9.1 / -70.7). A prop that far under its own floor is not quiet, it
+       is a hole in that floor.
+       Both constant levers for this were already implemented, measured and reverted on this issue - a
+       per-kind form-term centring and a lamp-metal albedo lift - and both did the same thing: they moved
+       the props that read correctly as hard as the ones that do not, and the population that was already
+       near the bar crossed +25. What the named cases have in common is not the kind, it is the POSITION:
+       L3 `lamp@13.5,9.5` (40 against a deck of 120-123 at three seats), L1 `lamp@26.5,27.5` (35/120) and
+       L2 `lamp@5.5,4.5` (65/109) all stand IN the light they carry, and L0 `crate@20.5,3.5` (28/105 at
+       12.2 m) is read across a deck the room lights. The deck under them is the brightest floor in the
+       room because of the SAME field the prop is lit by.
+       So the lift is conditional on that field: a prop's face ramp is scaled by how far the lamp field at
+       the prop's OWN CELL stands above `PROP_POOL_REF`, the deck brightness the shipped paint is authored
+       for. Below the reference the term is exactly 1 and the prop's bytes do not move - which is the scope
+       control, and the reason this is not the third global push the issue refuses. Above it, `aw` - the
+       knob #371 established as the only thing a prop's face value answers to - is raised UNIFORMLY, so
+       the lit-to-shaded face RATIO the `props` probe's face rows read is unchanged by construction: this
+       is a scale on the prop's own paint, the same lever PROPBAND pulls, not a second light term, not a
+       lightmap, and not `FG_PUSH`, which #611 and #407 both price as buying nothing.
+       `PROP_POOL_MAX` bounds the scale, so a prop standing in a saturated pool cannot be lifted past the
+       bar the ceiling half of this band already holds; the shipped value is set at the point `view.js
+       surface` measures the under-tail down without moving any prop over +25.` */
+    const PROP_POOL_REF = 0.75, PROP_POOL_K = 1.2, PROP_POOL_MAX = 1.12;
     /* The centring a prop is actually shaded with: one lookup per DRAW, not per triangle. A kind with no
        row above keeps PROP_DMEAN, so a crate and a lamp run byte-identical arithmetic - that is the scope
        control the issue asks for, and it is structural: the only way a box reaches this table is by a row
@@ -2200,6 +2227,10 @@ const MESH = (function () {
        call site would have traded one defect for the dim-the-gun-when-you-aim-at-a-wall one. */
     const cc = o.cell === undefined ? cellIdx(o.x, o.y) : o.cell;
     const lt = o.near ? TINT_NEUTRAL : cellTint(cc), lm = MAP.light;
+    /* #695: the deck-relative prop floor, one read per DRAW. `lm[cc]` is the SAME field value a ground
+       pixel in that cell reads (`li = lm[cIdx]`, js/40_render.js:1037), which is what makes this a
+       comparison against the floor the prop stands on rather than a second light of its own. */
+    const poolK = pr && lm ? 1 + Math.min(PROP_POOL_MAX - 1, PROP_POOL_K * Math.max(0, lm[cc] - PROP_POOL_REF)) : 1;
     /* #611 WHERE the body's paint sits in hue, decided once per DRAW from the cast falling on it.
        A body's delivered colour is its palette x the room's lamp tint, so a fixed albedo separates in
        the rooms whose hue is far from the kind's and disappears in the ones whose hue is close - the
@@ -2396,7 +2427,7 @@ const MESH = (function () {
            face of a solid receives it equally and an orientation term on it would darken the flank that
            geometry happens not to favour. Bodies and the view model keep the shipped line untouched -
            #407 prices the body's ramp against its own field and #376 owns the gun. */
-        const aw = pr ? 1 + PROP_R1 * (d - pdm) : 1;
+        const aw = (pr ? 1 + PROP_R1 * (d - pdm) : 1) * poolK;
         const lw = pr ? aw : sh;
         lr = (AMB * aw + li * lt[0] * lw + fk * (FC[0] / 255)) * hz;
         lg = (AMB * aw + li * lt[1] * lw + fk * (FC[1] / 255)) * hz;
