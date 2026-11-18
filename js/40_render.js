@@ -366,11 +366,25 @@ let SHADOW = 1, SHADOW_D = 0.34, SHADOW_R = 0.16, SHADOW_ZT = 0.02, SHADOW_F = 2
    `contrast`'s BANDCEIL (0.60 x the body's own mask px) permits roughly 1.1 m of patch radius at 12 m and
    1.25 m at 16 m. SHADOW_RG 0.045 puts 0.94 m at 12 m and 1.12 m at 16 m, i.e. ~70 % of the sanctioned
    annulus, and the new far-band rows in that probe are the row that fails if it is spread past that.
-   PROPS TAKE THE SAME GROWTH (#18 sixth take, applied in the prop loop below against the prop's own
-   distance): the acceptance says the cue has to hold for a crate as well, and a crate authored in metres
-   collapsed to a pixel or two at exactly the ranges a fight starts. `props` still gates a prop's patch on
-   its OWN silhouette ratio, and the near-field patch a prop casts inside SHADOW_RD is unchanged by this. */
-let SHADOW_RD = 4, SHADOW_RG = 0.045;
+   PROPS TAKE THE SAME MECHANISM, sized on their own yardstick (#18 sixth take, then #353 EIGHTH TAKE,
+   applied in the prop loop below against the prop's own distance): the acceptance says the cue has to hold
+   for a crate as well, and a crate authored in metres collapsed to a pixel or two at exactly the ranges a
+   fight starts. `props` still gates a prop's patch on its OWN silhouette ratio, and the near-field patch a
+   prop casts inside SHADOW_RD is unchanged by this.
+   #353 EIGHTH TAKE - THE GROWTH IS PER CASTER. One constant sized the two casters together, and the two
+   censuses that price it are sized differently: a body's far-band row measures his ink against a disc
+   ~0.58 m wide, a crate's against a footprint of 0.16-0.27 m, so a growth that keeps a MAN's cue visible at
+   16 m spreads a CRATE's over several times its own width and `props`' aimed-not-spread rows call that a
+   smudge. ABATOIR CORE's re-dealt seat (this branch) puts the arrival fight out at 16 m on a deck the
+   generator raised, and at the shared 0.045 m/m his contact ink there collapses to 6 px of deck against the
+   8 px floor `contrast` prices - `main` reads 39 px on a sector whose seat is unchanged. The constant is
+   therefore split: SHADOW_RG is the BODY's growth, SHADOW_PRG the PROP's, and the shipped 0.045 is kept for
+   the crate, which is the value every prop row was measured at. The body's is 0.07 m/m, which puts 1.51 m of
+   disc radius at 16 m against the 1.6x spread bar `contrast` measures it with (it reads x0.68 there, 0 stray
+   px) and clears that row's 8 px floor at 17 px. It is still the same linear, continuous, pop-free growth
+   and the same single mechanism; only its size is now carried per caster, which is what the two rows' own
+   denominators ask for. */
+let SHADOW_RD = 4, SHADOW_RG = 0.07, SHADOW_PRG = 0.045;
 /* #371 item 3: the same term, on a PROP. A crate's lower edge used to be as bright as its upper edge,
    because nothing said where the crate meets the floor. This is not a new mechanism - it registers the
    prop in the SAME grid #178 built, so both ground copies and the wall loop darkening happens once per
@@ -1752,7 +1766,7 @@ function buildShadowGrid() {
          far-band census attributed by CASTER - grown discs of both casters overlap on the same deck and
          `shadowFloor` answers a shared pixel with the darkest disc, so before #648 a crate-at-range row
          could not be written without the body's own row collapsing (measured 14 px -> 1 px). */
-      const pgrow = pd2 > SHADOW_RD * SHADOW_RD ? SHADOW_RG * (Math.sqrt(pd2) - SHADOW_RD) : 0;
+      const pgrow = pd2 > SHADOW_RD * SHADOW_RD ? SHADOW_PRG * (Math.sqrt(pd2) - SHADOW_RD) : 0;
       const n = SH_N, r = MESH.foot(p.kind) * (p.scale || 1) + SHADOW_PR + pgrow;
       if (r <= 0) continue;                             // a kind with no authored footprint grounds nothing
       SH_X[n] = p.x; SH_Y[n] = p.y; SH_Z[n] = floorAt(p.x, p.y); SH_I[n] = 1 / (r * r); SH_H[n] = r;
