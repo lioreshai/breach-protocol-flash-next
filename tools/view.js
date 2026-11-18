@@ -379,6 +379,13 @@ function boot(knob, seed) {
      `surface`'s SEAT-RANGE row on ABATOIR CORE must fall back to main's `0 within 6 m / nearest 9.5 m`,
      which is the row this change is bought for (js/20_level.js seatRegionEnabled). */
   if (process.env.SEATREGION === 'off') run('seatRegionEnabled = function () { return false; };');
+  /* SEATANG=on is the SECOND control on this change and it is the one that PRICES the bearing. ABATOIR
+     CORE no longer declares an arrival heading, so this knob writes back the one line #353 deletes -
+     `LEVELS[2].seatAng = 0.6`, the #421 DECISION 1 opt-out - and nothing else: same grid, same region,
+     same lamps, same dice, no re-deal. With it `surface`'s L2 `SEAT` row must fall off the census it just
+     cleared, which is what makes a DERIVED heading a measurement rather than a preference
+     (js/20_level.js LEVELS[2], seatFacing). Read it against the shipped arm, never instead of it. */
+  if (process.env.SEATANG === 'on') run('LEVELS[2].seatAng = 0.6;');
   /* PIER=off is #665's CONTROL SWITCH: it turns off the #631 interior-column pass at DEAL time and
      nothing else - same rooms, same draws, same lights, same seed, no height authored - so `surface`'s
      ROOF row can be SEEN to move rather than argued about. Read it with the two arms side by side:
@@ -20720,7 +20727,8 @@ if (MODE === 'surface') {
     row(`L${li} SEAT-PLACE a band this feature can author reaches the near range`, candOK && !placeMiss,
       `delivered ${sHead.near} flagged column(s) within ${SEAT_NEAR} m of the seat; the ${candT ? candT.length : 0} `
       + `region(s) the deal scored before committing predict best ${bestNear} near / ${bestReach} in reach`
-      + (candOK ? ' [' + candT.map(c => c[0] + ' ' + c[3] + '/' + c[2]).join(' ') + ']' : '')
+      + (candOK ? ' [' + candT.map(c => c[0] + ' ' + c[1] + 'cell ' + c[3] + '/' + c[2]).join(' ') + ']'
+        + ' (cells / near / in reach)' : '')
       + (!candOK ? ' - NO placement record on this deal, so nothing was measured'
         : placeMiss ? ' - the census feature 2 scored predicts a deck within '
           + SEAT_NEAR + ' m and the BUILT grid delivers none: the pre-commit mask and the derived grid '

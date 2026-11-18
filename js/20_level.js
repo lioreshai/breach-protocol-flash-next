@@ -125,15 +125,13 @@ const LEVELS = [
     // worst-roll floor at ceilBias terms (see the #369 note on this level in the issue) and lightening it
     // runs into the composited upper anchor above, so the deck keeps its light and the walls change.
     name: 'ABATOIR CORE', size: 36, rooms: 11, maxRoom: 11, wall: WT.MUSCLE, wall2: WT.TECH2,
-    // #421 DECISION 1 (maintainer, 2026-10-15): this sector ARRIVES at the authored bearing on EVERY deal.
-    // `seatFacing` reads the dealt grid, and on ABATOIR CORE the deck it can reach is far enough away that
-    // which face wins the scan is deal-dependent - the same level measured 0.600 on the pinned deal and
-    // -0.882 on another. A bearing that changes between deals is not a look the level authored, so this
-    // sector opts out by DECLARING its arrival heading here. It is the only level that does: ARCHIVE and
-    // RING derive (their arrival was empty before this change), and THE STACK is deliberately NOT pinned,
-    // because the remaining work on #421 is to move its authored plateau into the seat's reach - pinning
-    // it now would quietly make that work do nothing. See seatFacing.
-    seatAng: 0.6,
+    // #353: this sector DERIVES its arrival heading like the other three. It used to declare `seatAng: 0.6`
+    // (#421 DECISION 1), which was authored against a grid with no deck inside the frame's reach - the
+    // sector's own `SEAT-CEILING` row then read 0 px in every direction, so a constant was the only
+    // honest answer. The candidate region in `authorVolume` removes that premise, and with it the constant's
+    // only remaining effect: holding the lens away from a storey the generator can now stand 3 m from the
+    // seat. This is the ABATOIR half of #421 DECISION 1 retired; `seatFacing` is unchanged, and a deal whose
+    // grid offers no deck still falls back to the shipped 0.6 there.
     // #669 THE ACCENT, SOLVED AT RENDERED LIGHT - see the ARCHIVE note above for the mechanism. Authored
     // [86, 140, 81] arrives at 88 deg against this sector's rendered family hue of 11: a 77 deg offset,
     // under #669's 90 deg floor, because the green-white lamp [190, 255, 150] drags an already-green mark
@@ -1589,14 +1587,26 @@ function authorVolume(cell, N, rooms, fz, vb, feat, cz, atSeat) {
      deal whose shipped band already puts a column inside 6 m - ARCHIVE, RING - never spends it and
      stays byte for byte what it was. `surface`'s SEAT-PLACE row scores it beside the eight. */
   const SEAT_SEAM = 2;                      // cells between the region's edge and the spawn rect's faces
+  /* THE FOOTPRINT CAP. A candidate here does not ADD a plateau, it takes one's place, so its area is
+     load-bearing and both extremes have been measured on the graded deal: with the far edges at the map's
+     own edges the region is a slab over most of a 36-cell map and the dealt census doubles (315 cells off
+     datum -> 666, step faces 64 -> 84, with the dark-ground and glow rows red beside it); capped to a
+     4-cell shelf it UNDER-fills (58 cells off datum, largest walkable patch 32 against a floor of 138).
+     So the span is the one the `h*` rects already take - half the map - which is the footprint of the
+     candidate this one replaces, measured from the seam rather than from the map centre. */
+  const SEAT_SPAN = N >> 1;
   if (seatRegionEnabled()) {
     const ex = spawnR.cx >= N2, ey = spawnR.cy >= N2;
+    const xNear = ex ? Math.max(1, spawnR.x - 1 - SEAT_SEAM)
+      : Math.min(N - 2, spawnR.x + spawnR.w + SEAT_SEAM);
+    const yNear = ey ? Math.max(1, spawnR.cy - 1 - SEAT_SEAM)
+      : Math.min(N - 2, spawnR.y + spawnR.h + SEAT_SEAM);
     rects.push({
       tag: 'r' + ((ex ? 1 : 0) + (ey ? 2 : 0)), quad: 0, last: 1,
-      x0: ex ? 1 : Math.min(N - 2, spawnR.x + spawnR.w + SEAT_SEAM),
-      x1: ex ? Math.max(1, spawnR.x - 1 - SEAT_SEAM) : N - 2,
-      y0: ey ? 1 : Math.min(N - 2, spawnR.y + spawnR.h + SEAT_SEAM),
-      y1: ey ? Math.max(1, spawnR.cy - 1 - SEAT_SEAM) : N - 2 });
+      x0: ex ? Math.max(1, xNear - SEAT_SPAN) : xNear,
+      x1: ex ? xNear : Math.min(N - 2, xNear + SEAT_SPAN),
+      y0: ey ? Math.max(1, yNear - SEAT_SPAN) : yNear,
+      y1: ey ? yNear : Math.min(N - 2, yNear + SEAT_SPAN) });
   }
   /* The region a candidate WOULD raise, as a mask and with no other write: the reach census below has
      to ask that question of all eight candidates before any of them is committed, and the only honest
@@ -1711,9 +1721,22 @@ function authorVolume(cell, N, rooms, fz, vb, feat, cz, atSeat) {
      fallback never fires, so this rewind changes no pixel there; it makes the fallback honest where it
      does. */
     rewind(cpBand);
-    const rankBy = range => ranked.map(c => ({ c, v: overSeat(maskOf(c.r), range) })).filter(o => o.v > 0)
-      .sort((a, b) => b.v - a.v || b.c.r.quad - a.c.r.quad || b.c.n - a.c.n ||
-        a.c.r.tag.localeCompare(b.c.r.tag));
+    /* CENTRE-LINE FIRST, ALWAYS. A candidate here REPLACES the plateau rather than adding to one, so the
+       ninth region is offered ONLY where the eight centre-line seams offer nothing at all at the range
+       being asked - which is the gap it was authored for, and the one `SEAT-PLACE` prints as "its seams
+       are centre lines, so this is PLACEMENT". Where any centre-line rect can deliver, the shipped
+       candidate set runs exactly as it did before this region existed, so ARCHIVE and RING keep their
+       bytes on EVERY roll and not just the dealt one. The first version of this region scored all nine
+       together and cost RING TRANSPORT its recorded `exposure` medians and spawn pair on the rolls where
+       its centre-line band happened to deliver no near column: a region bought for one sector's empty
+       reach must not re-deal another sector's arrival frame. */
+    const rankBy = range => {
+      const scored = ranked.map(c => ({ c, v: overSeat(maskOf(c.r), range) })).filter(o => o.v > 0);
+      const centre = scored.filter(o => !o.c.r.last);
+      return (centre.length ? centre : scored)
+        .sort((a, b) => b.v - a.v || b.c.r.quad - a.c.r.quad || b.c.n - a.c.n ||
+          a.c.r.tag.localeCompare(b.c.r.tag));
+    };
     /* One list, and the near one wins wherever it has a candidate, because that is the term the eye can
        read. A near-ranked list is built ONLY for a band that delivered no near column, so a deal that
        already stands a deck inside 6 m never reaches this line at all. Where NO candidate can author a near
