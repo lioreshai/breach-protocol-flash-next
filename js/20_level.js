@@ -4155,22 +4155,38 @@ function lightOverlookDecks(cfgL) {
   return placed;
 }
 
+/* #353's last unfought half. The pairing pass authors up to OVERLOOK_MAX overlooks per sector and the
+   deck-light pass puts a lamp on EVERY one of them, but this pass - the one that decides whether an
+   overlook is a fight or a view - garrisoned `seats[0]` and returned. Measured on the CI deal: 2 pairs
+   per generated sector, 1 body standing above them, so the second mezzanine is exactly the scenery this
+   issue was filed about, one storey up and lit, with nobody on it. The row `alt` prints for the DECKS
+   (`every overlook this rule authored has a source on its deck`) already insists on one source per pair;
+   this is the same guarantee for the body you shoot at.
+   WHICH body moves, and why it can be moved cheaply: the one FURTHEST from the seat that is not already
+   on a deck, the rule this pass already used - it is simply applied per empty deck now instead of once.
+   That choice is not a preference, it is what keeps the dealt frame the dealt frame. The bodies this pass
+   relocates are chosen by descending distance from the arrival seat, so the first move is a body the
+   arrival camera cannot contain, and the second is further out still; the frame `flatparity` hashes and
+   the seats `exposure` samples are painted by what is NEAR the seat. No RNG is drawn here, so the dice
+   downstream - props, lamps, fixtures, every height write - land where they landed before. */
 function authorOverlooked(dist) {
   if (!overlookPairs.length || !ENEMIES.length) return;
   const N = MAP.w;
   const seats = overlookPairs.map(p => [p[1] % N, (p[1] / N) | 0]);
-  for (const e of ENEMIES) {
-    const ex = e.x | 0, ey = e.y | 0;
-    for (const s of seats) if (s[0] === ex && s[1] === ey) return;      // already garrisoned
+  const onADeck = e => seats.some(s => (e.x | 0) === s[0] && (e.y | 0) === s[1]);
+  const posted = new Set();
+  for (const s of seats) {
+    if (ENEMIES.some(e => (e.x | 0) === s[0] && (e.y | 0) === s[1])) continue;   // the deal garrisons it
+    let pick = null, best = -1;
+    for (const e of ENEMIES) {
+      if (posted.has(e) || onADeck(e)) continue;      // never strip one deck to fill another
+      const d = dist[(e.y | 0) * N + (e.x | 0)];
+      if (d > best) { best = d; pick = e; }           // furthest from the seat: outside the dealt frame
+    }
+    if (!pick) break;
+    posted.add(pick);
+    pick.x = s[0] + 0.5; pick.y = s[1] + 0.5; pick.lx = pick.x; pick.ly = pick.y;
   }
-  let pick = null, best = -1;
-  for (const e of ENEMIES) {
-    const d = dist[(e.y | 0) * N + (e.x | 0)];
-    if (d > best) { best = d; pick = e; }                               // furthest from the seat
-  }
-  if (!pick) return;
-  const up = seats[0];
-  pick.x = up[0] + 0.5; pick.y = up[1] + 0.5; pick.lx = pick.x; pick.ly = pick.y;
 }
 
 /* #695 take two: the arrival sight line, applied. Called once per level from BOTH placement paths,
