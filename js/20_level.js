@@ -2383,7 +2383,7 @@ const FIX_OBJ_REPEAT = 4;
    `node tools/view.js fixtures`. */
 const FIX_RUN_BUDGET = 96;
 const FIX_SPAN = { DOOR: [0.50, 0.94], PIPE: [0.66, 0.30], STRIPE: [0.56, 0.20], VENT: [0.72, 0.26],
-  RACK: [0.46, 0.62], TANK: [0.46, 0.72], BOARD: [0.82, 0.14] };
+  RACK: [0.46, 0.62], TANK: [0.46, 0.72], BOARD: [0.82, 0.14], SCONCE: [0.74, 0.18] };
 /* FIX_DEP is how far each kind STANDS OFF the face, in metres (#400 take two). A rectangle painted on
    the wall plane has a silhouette proportional to cos(theta) off the face normal, so seen along a
    corridor it collapses to nothing and a long wall reads bare again; a box also shows its flank, whose
@@ -2391,7 +2391,8 @@ const FIX_SPAN = { DOOR: [0.50, 0.94], PIPE: [0.66, 0.30], STRIPE: [0.56, 0.20],
    door reveal is 12 cm of jamb, a pipe run sits on 10 cm of saddle bracket, a duct collar 8 cm, and a
    hazard band is a thin plate. The wall pass reads this to draw the box (#40_render.js, the fixture
    block); 0 would fall back to the old coplanar blit, which is why the flat path stays in the renderer. */
-const FIX_DEP = { DOOR: 0.12, PIPE: 0.10, STRIPE: 0.03, VENT: 0.08, RACK: 0.20, TANK: 0.24, BOARD: 0.06 };
+const FIX_DEP = { DOOR: 0.12, PIPE: 0.10, STRIPE: 0.03, VENT: 0.08, RACK: 0.20, TANK: 0.24, BOARD: 0.06,
+  SCONCE: 0.10 };
 /* FIX_EDGE is the subset of kinds that are OBJECTS rather than PAINT: a door reveal, a duct collar, a
    shelf, a drum. Each stands at least 8 cm off the face, so it has a flank and a silhouette the eye can
    find at 8 m; STRIPE and PIPE are a band and a run and do NOT qualify, which is the difference the
@@ -2409,6 +2410,7 @@ const FIX_SEAT_MIN = 2, FIX_SEAT_N = 2;
    the sectors that keep the shipped 0.6 heading - at that bearing the two directions inside a half turn
    are exactly the two take five walked, so only the seats #421 TURNED change which faces are furnished. */
 const FIX_SEAT_ARC = Math.PI / 2;
+let WFIX_USED = null;                      // one flag per (wall cell, direction) a sconce owns (#860)
 function addWFix(tex, gx, gy, side, along, zc, hh, hw, dep) {
   const N = MAP.w;
   if (gx < 0 || gy < 0 || gx >= N || gy >= N) return;
@@ -2476,6 +2478,66 @@ function furnishFreeFaces(cfgL) {
   return got;
 }
 
+/* ---------------- wall-mounted fittings (#860) ----------------
+   Every light in the game stood ON THE FLOOR - a post at a room's middle, or a pendant hung over the
+   circulation - so the largest part of the frame above shoulder height was bare paint under a dark
+   roof, and the walls, which already carry RACKs, TANKs and VENTs, carried no light of their own.
+   This mounts a SCONCE (js/10_assets.js WFIX.SCONCE) high on a room's own wall and hangs a source on
+   it. Two rules keep it inside the shipped model:
+     - the body is an ordinary DECOR entry, drawn by the wall fixture block with the FACE'S OWN light
+       (js/40_render.js), so it is a thing in the room and not a brighter square (#400's rule);
+     - the source is an ordinary LIGHTS entry that STATES its floor in `band` the way #413's pendants
+     do, so the splat kernel's band test recognises the room it is standing in and it cannot light a
+     column it is not on. It is pushed BEFORE the splat loop, so it bakes like a lamp and the blur and
+     tint passes see it like every other source - no second lightmap anywhere.
+   One per room (two in a room with a wide perimeter, matching the fixture pass's own bar), no RNG
+   drawn, and the faces it takes are recorded in WFIX_USED so the fixture passes that run later do not
+   hang a TANK through it. */
+const WF_R = 4.6;                          // reach: a wall washer, not a room filler - a lamp is 7.2
+const WF_STR = 0.5;                        // against a floor lamp's 1.05 and a pendant's 0.55
+const WF_MIN_SPAN = 1.6;                   // metres of face: below this there is no band above the pool
+const WF_MIN_ABOVE = 1.5;                  // metres above its own deck the lens must sit: shoulder height
+function placeWallLamps(cfgL) {
+  if (!wallFixEnabled() || !ceilFixEnabled()) return;
+  const N = MAP.w, cell = MAP.cell;
+  const isOpen = (x, y) => x > 0 && y > 0 && x < N - 1 && y < N - 1 && cell[y * N + x] === 0;
+  const isWall = (x, y) => x >= 0 && y >= 0 && x < N && y < N && cell[y * N + x] !== 0;
+  WFIX_USED = new Uint8Array(N * N * 4);
+  const rooms = MAP.rooms || [];
+  let got = 0;
+  for (let ri = 0; ri < rooms.length && got < 24; ri++) {
+    const r = rooms[ri], faces = [];
+    for (let y = r.y; y < r.y + r.h && faces.length < 96; y++) for (let x = r.x; x < r.x + r.w; x++) {
+      if (!isOpen(x, y)) continue;
+      for (let d = 0; d < 4; d++) if (isWall(x + DIRX[d], y + DIRY[d])) faces.push([x, y, d]);
+    }
+    const need = faces.length > 6 ? 2 : 1;
+    const start = (ri * 5 + 2) % Math.max(1, faces.length);
+    let n = 0;
+    for (let k = 0; k < faces.length && n < need; k++) {
+      const f = faces[(start + k) % faces.length];
+      if (mountSconce(f[0], f[1], f[2])) n++;
+    }
+    got += n;
+  }
+  function mountSconce(ax, ay, d) {
+    const wx = ax + DIRX[d], wy = ay + DIRY[d];
+    const k = (wy * N + wx) * 4 + d;
+    if (!isWall(wx, wy) || WFIX_USED[k]) return false;
+    const fl = floorAt(ax + 0.5, ay + 0.5), cz = ceilAt(ax + 0.5, ay + 0.5);
+    const z0 = faceZ0(ax, ay, d), span = cz - z0;
+    if (!(span > WF_MIN_SPAN)) return false;
+    const z = Math.min(z0 + span * FIX_SPAN.SCONCE[0], cz - 0.3);
+    if (z - fl < WF_MIN_ABOVE) return false;         // it would sit IN the floor lamp's pool, not above it
+    WFIX_USED[k] = 1;
+    addWFix(WFIX.SCONCE, wx, wy, DIRX[d] !== 0 ? 0 : 1, DIRX[d] !== 0 ? ay + 0.5 : ax + 0.5,
+      z, Math.max(0.06, span * FIX_SPAN.SCONCE[1] * 0.5), 0.30, FIX_DEP.SCONCE);
+    LIGHTS.push({ x: ax + 0.5 + DIRX[d] * 0.32, y: ay + 0.5 + DIRY[d] * 0.32, z: z, band: fl,
+      r: WF_R, str: WF_STR, col: cfgL.lampCol, stat: 1, wfix: 1 });
+    return true;
+  }
+}
+
 function placeWallFixtures(cfgL, seat, ang) {
   const kinds = (cfgL.fixtures || ['PIPE', 'STRIPE', 'VENT']).filter(k => WFIX[k]);
   if (!kinds.length) return;
@@ -2501,7 +2563,7 @@ function placeWallFixtures(cfgL, seat, ang) {
     const wx = ax + DIRX[d], wy = ay + DIRY[d];
     if (placed > 120 || !isWall(wx, wy)) return false;
     const k = (wy * N + wx) * 4 + d;
-    if (used[k]) return false;
+    if (used[k] || (WFIX_USED && WFIX_USED[k])) return false;
     const z0 = faceZ0(ax, ay, d), z1 = ceilAt(ax + 0.5, ay + 0.5), span = z1 - z0;
     if (!(span > 0.35)) return false;               // no face here to hang anything on
     used[k] = 1; kindOf[k] = kind;
@@ -3449,6 +3511,16 @@ function deckBodyEnabled() { return true; }
    being able to fail. It is NOT a threshold: the shipped path is unchanged, and the fittings are
    still lit, hashed and gated on the LAMPS-unset (LOCK/DEALT) senses of the same probe. */
 function ceilFixEnabled() { return true; }
+/* #860's wall-mounted fitting, in the same idiom as the three above: ONE call site, so
+   `WFIX=off node tools/view.js fixtures` deals the SAME rooms, lamps, props and bodies with no sconce
+   on any wall, which is what makes the new fixtures row capable of failing for want of a WALL LIGHT
+   rather than for want of a room. The sconce's own source is also gated on `ceilFixEnabled()`, NOT
+   only on this knob, because it is generator-added fill light: flatparity's PARITY sense is a
+   formula-collapse proof that runs the deal with no generator-added light at all, and a fitting that
+   survived that knob would quietly make the proof describe a build the probe never dealt (#413's
+   lesson, stated at ceilFixEnabled above). */
+function wallFixEnabled() { return true; }
+
 
 /* ---- M6: the hand-authored level (#16) -------------------------------------------------
    Everything in this file above is a generator: it rolls rooms and hopes altitude falls out. This
@@ -3761,6 +3833,7 @@ function buildAuthored(li) {
   // #413: before the splat, so a ceiling source is baked like every lamp. The plan's own spawn square
   // goes in as well, so the entry room is guaranteed a fitting above it (see pass 0).
   placeCeilFixtures(cfgL, sx + 0.5, sy + 0.5);
+  placeWallLamps(cfgL);                         // #860: and a fitting on the wall, before the same splat
   for (const L of LIGHTS) splatLight(L, L.str);
   kneeLampField();                              // #408: the authored pool's PEAK, its radius untouched
   floorLampField();                             // #199: and its TROUGH, in the authored plan too
@@ -4931,6 +5004,7 @@ function genLevel(li) {
     // `seat` is the #154 seat, chosen before any pass that draws, so the entry fitting is deterministic
     // and draws no RNG of its own.
     placeCeilFixtures(cfgL, seat[0], seat[1]);
+    placeWallLamps(cfgL);                       // #860: the wall's own fixture, before the splat below
     /* ---- #709 THE DECK STOPS WHERE THE LIGHT DOES -----------------------------------------------
        The growth pass (feature 2b) raises floor it cannot score: it runs inside `authorVolume`, and the
        lamp loop BELOW this line places the first fixture of the deal, so at the moment a cell is chosen
