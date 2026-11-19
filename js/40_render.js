@@ -1224,11 +1224,26 @@ const GWN = 4;                                   // hard cap on levels walked (m
    reason a third area term is not what is left on this issue.
    GNDMM therefore ships at 0 - main's picture, pixel for pixel, nothing re-keyed - and stays in the tree
    as the one-constant A/B of that claim, beside `gndwash` and `gndwalk`: `DEV.set('gndmean', 1)` is the
-   arm and a value above 1 scales the share. What the mush arm leaves on these four seats is the answer to
-   where the fan lives: a ceiling with NO texture at all measures 27 / 57 / 24 / 23, so on levels 1 and 3
-   the fetch owns LESS of the streak than the light and the slab geometry do, and the two strata the band
-   rows name - the near magnified texel (CGWN, shipped) and the off-map far field (#375) - are what is
-   actually left. */
+   arm and a value above 1 scales the share. What the mush arm - a ceiling with NO texture at all, which
+   measures 27 / 57 / 24 / 23 here - leaves on these four seats is where the rest of the fan lives, and
+   `mip`'s own band rows say it is not out in the far field: at 12 m+ the shipped ceiling streak is 49
+   against that textureless roof's 50 on level 0 and 111 against 116 on level 1, so by this probe's own
+   rule - a band the mush frame reports at the same or a HIGHER proportion is reporting light and slab,
+   not a fetch - the fetch buys nothing past 12 m, and the off-map pixels out there are not an open
+   question either (#375 closed completed at b655e29, its rule sitting in BOTH copies of this body).
+   What those rows single out is the NEAR band: <4 m ceiling streak 123 against a textureless 38 on level 0
+   and 143 against 91 on level 1, while the magnified share CGWN already pays for is four of those points
+   (its own row: near-band 119 against a 123 control) and the same band's detail row reads 32 against a
+   mush floor of 13. A close roof's per-texel speckle is therefore doing both jobs at once - it is what
+   makes a nearby ceiling read as material AND what sweeps the spokes - which makes the one live lead on
+   this issue a MATERIAL question in js/10_assets.js, where `ceilBlocks` already gives the roof its
+   structure one octave coarser than any fetch term reaches, rather than a 21st fetch term or the light.
+   THE LIGHT-RAMP BUYBACK was measured and DECLINED, not deferred: at the shipped look all four levels sit
+   INSIDE their accepted bars (48/76/32/24 under 49/78/29/25 + 4), so there is no over-budget streak here
+   to pay for by flattening the ground's per-cell light ramp - that ramp is what #495, #829 and the
+   bilinear light plane are, and smoothing it would spend `exposure.js`'s pinned medians and the lamp
+   pools those changes built. The fan is left at the accepted floor and waits on ADDING light high on a
+   wall (#860), not on spreading the light that is already there. */
 let GNDMM = 0, GNDMMS = 1;
 
 /* #19, TAKE SIXTEEN - THE CEILING WASH, and the measurement that decided its shape.
