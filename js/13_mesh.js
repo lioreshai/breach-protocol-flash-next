@@ -959,6 +959,30 @@ const MESH = (function () {
      issue never asks for its jambs to carry a lit side. */
   const PROPKIND = { barrel: 1, crate: 1, lamp: 1 };
 
+  /* #862 THE PICKUPS, WHICH WERE ANSWERING NEITHER LIGHT LAW. PROPGEO holds two classes and PROPKIND
+     names one of them, so `pr` was false for a pickup and it fell through BOTH of the levers the scenery
+     work wrote: the visibility fill (#371 took `PROP_FILL` back for props and pickups kept the body's
+     0.30) and the face ramp (#371's form term `aw` is gated on `pr`, so a pickup landed on the 0.75/0.42
+     pair whose own note above says it was authored for the ORB and the PORTAL - self-luminous sprites -
+     and runs 0.75..1.17 about a mean of 0.96, i.e. flat). Measured on the deployed build at the RING
+     TRANSPORT arrival seat: the kit's own region 142.23 mean against a deck band of 63.34 and a frame of
+     56.23, so the object the player walks over was the loudest thing in the room. And its shell is
+     authored at [228,234,242] (luma 233) which, through the 1.35 billboard lift PROPBAND applies to
+     everything else in this table, was CLIPPED to [255,255,255] before any light touched it - a white
+     card that no lamp can answer. One room, two laws: a crate in the same cell pays 0 fill and a ranked
+     0.78 albedo.
+     So the pickup kinds join ONE predicate with the props, `PROPLIT` below, and that predicate is what
+     the fill, the rank, the form term and the clip read. It is not a pickup-only exception in the light
+     line and it is not a second light: `PROPLIT` is PROPKIND plus the four rows here, and the two classes
+     keep their OWN rank table (a pickup is readability and is not pushed down to the crate's 0.78), which
+     is the same "one law, per-kind constants" shape as PROPBAND/PROP_DMEAN_K above. The orb and the portal
+     are in neither table, so the 0.75/0.42 self-luminous arm keeps exactly the two objects it was authored
+     for. */
+  const PICKUPKIND = { pickupHealth: 1, pickupAmmo: 1, pickupArmor: 1, pickupGren: 1 };
+  /* THE ONE PREDICATE: a PROPGEO object that is lit by the room rather than painted through it. Props
+     answer it with their own table, pickups with theirs, and the orb/portal answer it not at all. */
+  const PROPLIT = Object.assign({}, PROPKIND, PICKUPKIND);
+
   /* ---- the weapon in the player's hands (#...) ---------------------------------
      The three view models were 2-D canvas path art in js/40_render.js. They are geometry here, on the
      same Builder the bodies and props use, so their pixels come out of the same perspective projection
@@ -1738,8 +1762,20 @@ const MESH = (function () {
        barrel keeps #371's value untouched, and the lamp keeps its own for the reasons above. Nothing in the
        figure-ground step moves: this takes a prop DOWN, and `contrast`'s body-separation rows are the check
        that no body paid for it. */
-    const PROP_ALB = 0.88, PROP_ALB_LAMP = 0.80, PROP_ALB_CRATE = 0.78;
-    const PROPBAND = { crate: PROP_ALB_CRATE, barrel: PROP_ALB, lamp: PROP_ALB_LAMP };
+    /* #862: the pickup rows. The shells were authored as BILLBOARD paint and then handed the same 1.35
+       lift, so every one of them arrived at the raster clipped: `228 * 1.35 + 6 = 313 -> 255`, a white
+       square whose face cannot answer a lamp because the channel is already pinned (#371 found exactly
+       this on the crate and folded the product; the pickups were never ranked, only clipped). The rank
+       below is the one that takes the LOUDEST shell - health's near-white [228,234,242] - back off the
+       clip, and it is the number the table holds for all four kinds because the four shells were authored
+       at the same intent ("a tin you can find across a room") and only the health case was measured.
+       It is deliberately above the crate's 0.78: a pickup is readability, the crate is cover, and #611's
+       own ruling is that the ENEMY is the thing to find. Measured at the RING TRANSPORT arrival seat
+       against the deck band it stands on (63.34) and the frame (56.23). */
+    const PROP_ALB = 0.88, PROP_ALB_LAMP = 0.80, PROP_ALB_CRATE = 0.78, PROP_ALB_PICK = 0.62;
+    const PROPBAND = { crate: PROP_ALB_CRATE, barrel: PROP_ALB, lamp: PROP_ALB_LAMP,
+      pickupHealth: PROP_ALB_PICK, pickupAmmo: PROP_ALB_PICK, pickupArmor: PROP_ALB_PICK,
+      pickupGren: PROP_ALB_PICK };
     const band = PROPBAND[kind];
     for (let i = 3, v = 0; i < b.p.length; i += 6, v++) {
       const k = band && !b.e[v] ? band : 1;         // emissive vertices keep their authored bytes
@@ -2029,6 +2065,11 @@ const MESH = (function () {
        game at any yaw. That is the 18-luminance crate. */
     const pg = !MDL && PROPGEO[o.kind] !== undefined;
     const pr = pg && PROPKIND[o.kind] === 1;         // a prop, not merely something built by PROPGEO
+    /* #862: the LIGHT predicate. `pr` above stays the PROP predicate - it is what the seam law, the pool
+       lift and the generator's rank read, and a pickup has none of those. This one reads the four terms
+       the room pays: the fill, the face ramp, the clip and nothing else. Props and pickups answer it;
+       the orb and the portal do not. */
+    const pl = pg && PROPLIT[o.kind] === 1;
     R0 = MDL ? 0.55 : (pg ? 0.75 : 0.30);
     R1 = MDL ? 0.55 : (pg ? 0.42 : 0.85);
     /* #371: the prop form term's own two constants, and the ONLY knobs a prop's face value answers to -
@@ -2381,7 +2422,7 @@ const MESH = (function () {
            BODYDIST 0 puts the second falloff back in this copy AND in the billboard copy - the A/B the
            distance rows in tools/view.js contrast are meant to be seen failing. */
         const li = Math.min(1, (lm ? lm[cc] : 0.5) * (BODYDIST ? 1 : Math.exp(-dc * 0.14)) +
-          (pr ? PROP_FILL : 0.30) * visAt(dc));
+          (pl ? PROP_FILL : 0.30) * visAt(dc));
         /* #407 half four: the haze is ADDED to a world pixel, never multiplied over its light - the row
            loop (:1349), a wall face (:2183) and a billboard (:2397) all end at `texel*light + FOGC*fog`,
            and `* inv` is left on light-EXEMPT texels only. This branch was the one place a LIT surface
@@ -2427,8 +2468,8 @@ const MESH = (function () {
            face of a solid receives it equally and an orientation term on it would darken the flank that
            geometry happens not to favour. Bodies and the view model keep the shipped line untouched -
            #407 prices the body's ramp against its own field and #376 owns the gun. */
-        const aw = (pr ? 1 + PROP_R1 * (d - pdm) : 1) * poolK;
-        const lw = pr ? aw : sh;
+        const aw = (pl ? 1 + PROP_R1 * (d - pdm) : 1) * poolK;
+        const lw = pl ? aw : sh;
         lr = (AMB * aw + li * lt[0] * lw + fk * (FC[0] / 255)) * hz;
         lg = (AMB * aw + li * lt[1] * lw + fk * (FC[1] / 255)) * hz;
         lb = (AMB * aw + li * lt[2] * lw + fk * (FC[2] / 255)) * hz;
@@ -2436,7 +2477,7 @@ const MESH = (function () {
         /* #371: the fold is a bound on the PRODUCT (albedo x light), not on the light, so it rides where
            the product is finished and the light-exempt branch has already been taken round. PKN is a
            module register for the same reason CR is: tri() reads registers, not the argument list. */
-        PKN = pr ? 1 : 0;
+        PKN = pl ? 1 : 0;
         if (TINT) { lr *= TINT[0]; lg *= TINT[1]; lb *= TINT[2]; }
         if (FLR > lr) lr = FLR;
         if (FLR > lg) lg = FLR;
