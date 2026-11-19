@@ -1191,6 +1191,46 @@ const GJITPX = 48;      // GJIT 1 keeps the mirror only where a cell is this man
 let GWALK = 1;
 const GWN = 4;                                   // hard cap on levels walked (mips are 5 deep)
 
+/* #19, TAKE TWENTY - THE TAPS' OWN SPAN, and the falsification it carries.
+   Take fifteen handed the strip a selected texel cannot carry UP the chain, to a pair one level coarser,
+   and measured that walking deeper changes nothing. The obvious next question is the one this term answers
+   by being un-shippable: how much of the pixel does the fetch's OWN set of taps actually stand for? Two
+   texels of level k+j are 2^(j+1) texels of the selected level k, so the taps represent
+
+     rep = 1 + SUM_j 2^(j+1)          5 texels at GWALK = 1, 13 at 3
+
+   and the share of a strip F texels long that no tap stands for, 1 - rep/F, was the candidate for the
+   material's mean - the near-band walk path being the one place take fifteen left un-washed, since its
+   gate (`fLong > 1`) is the SAME expression the magnified share's gate (`fC < 1 && !gnw`) excludes.
+
+   MEASURED, AND IT IS FALSIFIED - by the control, not by the streak. Both copies below, run against the
+   same tree with the term switched off (`JSDIR=` + `node tools/view.js mip`, one process per arm, this
+   head; the shipped arm is ceiling streak per sector, then the 1-D CONTROL the same probe renders):
+     GNDMM 0 (ships)   ceil 48 / 76 / 32 / 24      ctl 55 / 93 / 39 / 33    mip ok
+     GNDMMS 0.25, 0.5  the same four rows to the digit, control included
+     GNDMM 1, strength 1   ceil 47 / 75 / 32 / 24  ctl 46 / 74 / 35 / 18    mip FAILS
+   Two things that row says, and they are the same thing twice. On the SHIPPED arm the gate barely opens:
+   `mipSel` selects the level whose texel is the pixel's footprint rounded up to a power of two, so a
+   correctly-selected pixel's long-axis F lands in [1, 2) and `fLong > rep` with rep = 5 is false on
+   essentially all of them - one point of streak, inside the +-3 this issue records. Where the gate DOES
+   open is a pixel whose selected mip is too fine for its footprint, and that is the 1-D control's
+   condition, not the shipped look's: its rep stays 5 while its F runs past 30, so its un-represented
+   share runs to the mean and its ceiling streak falls from 55 / 93 / 39 / 33 to 46 / 74 / 35 / 18 - the
+   control flattening faster than the arm, which is this issue's signature for a blur (take eighteen,
+   same shape as `CGW` at 1 and `GNDFA` off) rather than a filter.
+   So `rep` does not fix the fault that killed `CGW`; it only moves the gate's threshold along the SAME
+   quantity. Both are in texels of the mip the pixel selected, and no quantity of that kind can tell a
+   long strip from a wrong selection - which is the arithmetic behind take fifteen's one point, and the
+   reason a third area term is not what is left on this issue.
+   GNDMM therefore ships at 0 - main's picture, pixel for pixel, nothing re-keyed - and stays in the tree
+   as the one-constant A/B of that claim, beside `gndwash` and `gndwalk`: `DEV.set('gndmean', 1)` is the
+   arm and a value above 1 scales the share. What the mush arm leaves on these four seats is the answer to
+   where the fan lives: a ceiling with NO texture at all measures 27 / 57 / 24 / 23, so on levels 1 and 3
+   the fetch owns LESS of the streak than the light and the slab geometry do, and the two strata the band
+   rows name - the near magnified texel (CGWN, shipped) and the off-map far field (#375) - are what is
+   actually left. */
+let GNDMM = 0, GNDMMS = 1;
+
 /* #19, TAKE SIXTEEN - THE CEILING WASH, and the measurement that decided its shape.
    Take fifteen falsified COVERAGE (reading the whole footprint from the chain moved the ceiling streak by
    one point), and the scope call then funded the other look: fade a ceiling's texel toward its own
@@ -2283,7 +2323,7 @@ function castGround(flash, fcR, fcG, fcB) {
        are all row constants here (the deferred copy reads the same rule from the pixel's own footprint).
        Weights are built so they sum to 1 by construction: c starts at the share level kRow carries and
        each level takes the strip it can cover, the last one taking the remainder. */
-    let gnw = 0, gW0 = 1, cgW = 0, cgR = 0, cgG = 0, cgB = 0;
+    let gnw = 0, gW0 = 1, cgW = 0, cgR = 0, cgG = 0, cgB = 0, gMw = 0, gMr = 0, gMg = 0, gMb = 0;
     /* #19 take sixteen, the ROW copy. F, the share and the mean are all row constants here, so the ceiling
        pixel body pays ONE test and three fused mults and loads NO texel for its un-carried share - the
        wash is cheaper on a ceiling row than the walk it replaces. Past FARB the row is filled by the far
@@ -2299,17 +2339,28 @@ function castGround(flash, fcR, fcG, fcB) {
     } else if (GNDFA && kRow + 1 < tex.mips.length) {
       const fLong = colA * colA * 4 >= rowT2 ? colA * 2 : Math.sqrt(rowT2);
       if (fLong > 1) {
-        let c = 1 / fLong, j = 1, sum = 0;
+        let c = 1 / fLong, j = 1, sum = 0, rep = 1;
         for (; j <= GWALK && kRow + j < tex.mips.length; j++) {
           const last = j === GWALK || kRow + j + 1 >= tex.mips.length;
           const cn = last || (1 << j) >= fLong ? 1 : (1 << j) / fLong;
           const mu = tex.mips[kRow + j];
           gwd[j - 1] = mu.data; gwmw[j - 1] = mu.w; gwmk[(j - 1) * 2] = mu.w - 1; gwmk[(j - 1) * 2 + 1] = mu.h - 1;
           gws[j - 1] = sc * mu.w; gwox[j - 1] = j - 1; gww[j - 1] = GNDFA * (cn > c ? cn - c : 0);
-          sum += gww[j - 1]; c = cn; gnw = j;
+          sum += gww[j - 1]; c = cn; gnw = j; rep += 1 << (j + 1);     // rep: texels of THIS level the taps hold
           if (c >= 1) break;
         }
         gW0 = 1 - sum;                        // the selected level keeps the share its texel carries
+        /* #19 take twenty, ROW copy: the share no tap stands for goes to the material's mean and the walk's
+           shares scale by what is left, so the weights still add to one. Ships off (GNDMM = 0): see the
+           measurement above. meanALL, not the wash's meanNE, because this share is folded in BEFORE the
+           emissive return and a far lamp must not darken by the share this term moves. */
+        if (GNDMM && fLong > rep) {
+          const sC = 1 - GNDMMS * (1 - rep / fLong), mmW = tex.mips[tex.mips.length - 1];
+          texAvg(mmW);
+          for (let q = 0; q < gnw; q++) gww[q] *= sC;
+          gW0 *= sC; gMw = 1 - sC;
+          gMr = mmW.meanALL[0] * gMw; gMg = mmW.meanALL[1] * gMw; gMb = mmW.meanALL[2] * gMw;
+        }
       }
     }
     /* #19 take eighteen, the ROW copy: the MAGNIFIED share, ceiling rows only, and a ROW constant here for
@@ -2585,7 +2636,7 @@ function castGround(flash, fcR, fcG, fcB) {
         if ((c1 >>> 24) === 253 || (c2 >>> 24) === 253) em = 253;
       }
       if (gnw) {                              // the walk's weighted sum; the shares add to ONE, so no
-        let ar = 0, ag = 0, ab = 0;           // pixel gets brighter or darker from WHERE its area is read
+        let ar = gMr, ag = gMg, ab = gMb;     // pixel gets brighter or darker from WHERE its area is read
         for (let q = 0; q < gnw; q++) {
           const fd = gwd[q], fmx = gwmk[q * 2], fmy = gwmk[q * 2 + 1], fmw = gwmw[q];
           const vx = wx * gws[q], vy = wy * gws[q];
@@ -3417,7 +3468,7 @@ function groundPixel(x0, x1, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb
      rule, same arithmetic, second copy - AGENTS.md counts the duplication as the price of the row loop's
      registers. Weights sum to 1: level k carries min(1,1/F), level k+j carries the strip its texel can
      cover, and the deepest level read takes the remainder the chain could not reach. */
-  let gnw = 0, gW0 = 1, cgW = 0, cgR = 0, cgG = 0, cgB = 0;
+  let gnw = 0, gW0 = 1, cgW = 0, cgR = 0, cgG = 0, cgB = 0, gMw = 0, gMr = 0, gMg = 0, gMb = 0;
   /* #19 take sixteen, the DEFERRED copy of the ceiling wash: this pixel's OWN mip and OWN footprint, same
      rule and the same convex form as the row copy (AGENTS.md counts the duplication as the price of the
      row loop's registers). Past FARB gMFar answered this pixel above, and it answered it with this same
@@ -3436,17 +3487,26 @@ function groundPixel(x0, x1, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb
     const colT = gMCf * ms * 0.5, colA = colT < 0 ? -colT : colT, rowT2 = (gMCxs * gMCxs + gMCys * gMCys) * ms * ms;
     const fLong = colA * colA * 4 >= rowT2 ? colA * 2 : Math.sqrt(rowT2);
     if (fLong > 1) {
-      let c = 1 / fLong, j = 1, sum = 0;
+      let c = 1 / fLong, j = 1, sum = 0, rep = 1;
       for (; j <= GWALK && k + j < gMN; j++) {
         const last = j === GWALK || k + j + 1 >= gMN;
         const cn = last || (1 << j) >= fLong ? 1 : (1 << j) / fLong;
         const mu = tex.mips[k + j];
         gwd[j - 1] = mu.data; gwmw[j - 1] = mu.w; gwmk[(j - 1) * 2] = mu.w - 1; gwmk[(j - 1) * 2 + 1] = mu.h - 1;
         gws[j - 1] = sc * mu.w; gwox[j - 1] = j - 1; gww[j - 1] = GNDFA * (cn > c ? cn - c : 0);
-        sum += gww[j - 1]; c = cn; gnw = j;
+        sum += gww[j - 1]; c = cn; gnw = j; rep += 1 << (j + 1);       // rep, second copy (AGENTS.md)
         if (c >= 1) break;
       }
       gW0 = 1 - sum;
+      /* #19 take twenty, DEFERRED copy: this pixel's OWN F and OWN levels, same arithmetic as the row copy
+         (AGENTS.md counts the duplication as the price of the row loop's registers). */
+      if (GNDMM && fLong > rep) {
+        const sC = 1 - GNDMMS * (1 - rep / fLong), mmW = tex.mips[gMN - 1];
+        texAvg(mmW);
+        for (let q = 0; q < gnw; q++) gww[q] *= sC;
+        gW0 *= sC; gMw = 1 - sC;
+        gMr = mmW.meanALL[0] * gMw; gMg = mmW.meanALL[1] * gMw; gMb = mmW.meanALL[2] * gMw;
+      }
     }
   }
   /* #19 take eighteen, the DEFERRED copy of the MAGNIFIED share - same rule, same grading, THIS pixel's own
@@ -3517,7 +3577,7 @@ function groundPixel(x0, x1, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb
     cb = cb * 0.5 + (c1 >> 16 & 255) * 0.25 + (c2 >> 16 & 255) * 0.25;
     if ((c1 >>> 24) === 253 || (c2 >>> 24) === 253) em = 253;    // the FLAG rule, same as the row copy
   }
-  let gar = 0, gag = 0, gab = 0;
+  let gar = gMr, gag = gMg, gab = gMb;        // the mean's share first, then the taps (#19 take twenty)
   for (let q = 0; q < gnw; q++) {            // the same walk as the row copy, from THIS pixel's OWN mip
     const fd = gwd[q], fmx = gwmk[q * 2], fmy = gwmk[q * 2 + 1], fmw = gwmw[q];
     const vx = cx * gws[q], vy = cy * gws[q];         // and footprint, second copy (AGENTS.md)
