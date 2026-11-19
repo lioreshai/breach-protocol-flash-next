@@ -1,5 +1,70 @@
 # Changelog
 
+## [v1.4.30] - 2026-11-19
+
+### Added
+
+- **A room now has a light on its own wall** (#860, PR #869). Every light in the game used to stand on
+  the floor — a post in the middle of a room, or a pendant over the circulation — so everything above
+  shoulder height was bare paint under a dark roof, and ARCHIVE SUBLEVEL and THE STACK arrived as a wide
+  lit deck, a band of unlit wall and a lid. There is now a bolted mounting plate high on a room's own
+  wall with a cove over a warm lens you can see, and the wall under it reads lit instead of bare. It is a
+  drawn object, not a brighter square: the plate, bolts and the spill running down the face are painted at
+  boot like the other wall fixtures, and the light it carries is an ordinary source that states which
+  floor it stands on, so it cannot brighten a column it is not standing in. One per room, two on a wide
+  perimeter, and no lamp that was already dealt was moved to make room for it.
+
+### Changed
+
+- **ABATOIR CORE wakes you facing the storey its own generator raised** (#353, PR #859). That sector's
+  arrival heading used to be a constant pointing down an empty corridor — nothing inside 6 m, the nearest
+  geometry 9.5 m away — while the other three sectors derive theirs and arrive looking at a volume above
+  them. It now derives the same way, and the dealt seat sits with a deck 3.0 m in front of it, so the
+  first frame is a room with a floor you can see the edge of instead of a tunnel. Three of the four
+  sectors now arrive looking up at something. THE STACK's own gap is a separate open issue.
+- **An enemy at the far end of a room stays standing on his deck** (#353, PR #859). His contact
+  darkening is authored in metres, so its footprint on screen shrinks with range; once ABATOIR's arrival
+  fight moved out to 16 m it had collapsed to 6 px of deck against the 8 the eye needs to read a body as
+  a thing with weight, and he looked pasted over the floor. The growth is now sized per caster — a body's
+  own, a crate's kept at the number every prop was measured at — which puts it at 17 px there without
+  smearing a crate past its own width. Within 4 m the frame is byte-identical to what shipped.
+- **The joist grain under a raised deck resolves instead of shimmering** (#353, PR #859). The rib is a
+  0.5 m repetition drawn per pixel rather than fetched from a texture, so where one pixel's own footprint
+  on the ceiling was wider than that period the value it showed was a draw between rib and field, not a
+  sample of either. Such a pixel is now given a share of the rib's own area, which is mean-preserving:
+  every seeded exposure median reproduces to the digit and no lamp pool under the plate moved. It is a
+  correctness fix for a grain sampled below its own period, not a brightness change, and it is not what
+  moved the ceiling-streak row — that row's floor was re-recorded from the shipped build, which is stated
+  in the issue rather than cropped out.
+- **Every upper deck a sector authors now has someone standing on it** (#353, PR #865). The generator
+  puts up to three overlooks per sector and a lamp on every one, but posted a body to the first deck only
+  and returned, so on the shipped dice one lit, reachable upper floor per generated sector had nobody on
+  it. A mezzanine the level lit and furnished is now a fight: ARCHIVE, RING and ABATOIR read 2 of 2
+  authored decks garrisoned. The bodies moved are the ones furthest from your arrival seat, so the frames
+  the game delivers are byte-identical — no geometry, prop, lamp or light changed.
+- **The front-page frames are re-taken off the build that ships** (#844, PR #867). The first-person hand
+  in all eight was the one from before the support hand's fingers stopped painting through the part they
+  hold; the deployed page has drawn the current hand since, so the eight screenshots — same eight sectors,
+  same eight poses — were describing an older game.
+
+### Fixed
+
+- **The check that judges the gun's own pixels actually runs** (#824, PR #870). The comparison that
+  isolates the view model's pixels — a frame with the gun drawn against one without — sat inside an
+  unterminated block comment, so it exited successfully while printing nothing, and both the issue and its
+  comments quoted a baseline that had never been printed. With the comment closed the row runs, and the
+  numbers it reports change what the shading work has to prove: the "steps land outside flat runs"
+  criterion is already true today, so the remaining gap is luminance variation inside those runs. Nothing
+  on screen changed in this release; the first-person rig is still flat, and that work is the next one.
+
+Not in this release, and known: the floors and ceilings still read as a fan of spokes meeting at the
+vanishing point (#19) — the mechanism tried this round, a term for how much of a far pixel's strip the
+texture fetch's own taps stand for, was measured against the shipped look and shipped switched off, since
+on that arm the gate barely opens; the gun in the corner of your view carries no shading of its own yet
+(#824); the wall fitting has no probe that can fail with the placement pass switched off, so its lit band
+is shown in a rendered frame rather than asserted by a gate (#860); and two sectors' arrival roofs still
+read under 0.7x the deck under them (#616, #495).
+
 ## [v1.4.29] - 2026-11-18
 
 ### Added
