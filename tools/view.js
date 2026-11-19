@@ -9305,10 +9305,22 @@ const EXPO_MED = refRecord('exposure', 'MEDIAN', 'num', [76, 83, 67, 93])   /* #
      authored sector's one plan deck is served by the lamp its plan draws, and this rule stands nothing
      there (0.00 sources per deal). */
   const COV_DECK_MAX = [9, 7, 6, 1];   // MAX deck sources in ONE deal over the 12 seeded deals this census deals (dice 1000 + lv*97 + r*13), MEASURED on this tree and printed beside the row every run
+  /* #860 take two, the two numbers the wall-fitting row reads. WALL_MIN_PER_DEAL is a FLOOR, not a ceiling:
+     the class places at least one fitting in every deal on every sector, and the clause exists so that a
+     build with the placement pass switched off (or a pass that regressed to placing nothing) FAILS rather
+     than reports a zero that reads like a quiet sector. Measured off these same 12 deals per sector.
+     WALL_BURY_MAX is the measured baseline of a DIFFERENT defect, counted apart and named in the row: a
+     sconce whose own air cell a later cell write turns solid. It is a ceiling at the number this tree
+     measures, so the row goes red if the partition pass starts burying MORE fittings, and it does not
+     excuse the existing ones - clearing them is a placement decision, not a drift
+     in this tolerance. */
+  const WALL_MIN = [1.4, 1.6, 3.4, 4.0];   // MEAN wall sources per deal, measured on THIS tree over the 12 seeded deals (17 / 20 / 42 / 48 sources over 12 deals)
+  const WALL_BURY_MAX = [0, 1, 1, 0];      // measured baseline of the BURIED count, see the row
   const covAgg = [];
   if (COV_ROLLS > 0) for (let lv = 0; lv < N; lv++) {
     const A = { deals: 0, big: 0, bigDark: 0, bigNoStand: 0, allDark: 0, cells: 0, dark: 0, smallCells: 0, smallDark: 0,
-      lamps: 0, fixes: 0, deck: 0, wall: 0, wallOff: 0, deckOff: 0, deckPopMax: 0, deckMaxDeal: 0, deckOffAt: undefined,
+      lamps: 0, fixes: 0, deck: 0, wall: 0, wallMin: Infinity, wallBury: 0, wallOffAt: undefined, wallOff: 0,
+      deckOff: 0, deckPopMax: 0, deckMaxDeal: 0, deckOffAt: undefined,
       gap: Infinity, gapReserve: Infinity, bands: 0, worstBand: '', darkBands: [], standBands: [], allDarkBands: [] };
     for (let r = 0; r < COV_ROLLS; r++) {
       seedRng(1000 + lv * 97 + r * 13);
@@ -9450,14 +9462,15 @@ const EXPO_MED = refRecord('exposure', 'MEDIAN', 'num', [76, 83, 67, 93])   /* #
            plane the room does not have. A sconce whose source lands in a solid cell, or states a floor that
            is not the cell under it, is lighting a column it is not on and is named by cell here. */
         const wallOff = [];
+        let wallBury = 0;
         for (const s of wall) {
           const gx = s.x | 0, gy = s.y | 0, ci = gy * N + gx;
-          if (cell[ci]) { wallOff.push((s.x | 0) + ',' + (s.y | 0) + ' [in a solid cell]'); continue; }
+          if (cell[ci]) { wallBury++; continue; }        // buried by a LATER cell write - its own clause, below
           if (Math.abs(s.f - fz[ci] * ZQ) > ZQ + 1e-9) wallOff.push(gx + ',' + gy + ' [states ' + s.f.toFixed(2)
             + ', the cell under it is ' + (fz[ci] * ZQ).toFixed(2) + ']');
         }
         return { bands: out, lamps: lamps.length + 1, fixes: all.length - lamps.length - deck.length - wall.length,
-          deck: deck.length, wall: wall.length, wallOff: wallOff, deckPop: deckCells.size, deckOff: deckOff,
+          deck: deck.length, wall: wall.length, wallOff: wallOff, wallBury: wallBury, deckPop: deckCells.size, deckOff: deckOff,
           gap: gap, gapReserve: gapReserve };
       })()`);
       const S = A;
@@ -9467,6 +9480,9 @@ const EXPO_MED = refRecord('exposure', 'MEDIAN', 'num', [76, 83, 67, 93])   /* #
       S.fixes += c.fixes || 0;
       S.deck += c.deck || 0;
       S.wall += c.wall || 0;
+      if (c.wall < S.wallMin) S.wallMin = c.wall;
+      S.wallBury += c.wallBury || 0;
+      if (c.wallOff && c.wallOff.length && S.wallOffAt === undefined) S.wallOffAt = 'roll ' + r + ' at ' + c.wallOff.join(' ');
       S.wallOff += c.wallOff ? c.wallOff.length : 0;
       S.deckPopMax = Math.max(S.deckPopMax || 0, c.deckPop || 0);
       S.deckOff += c.deckOff ? c.deckOff.length : 0;
@@ -9563,6 +9579,42 @@ const EXPO_MED = refRecord('exposure', 'MEDIAN', 'num', [76, 83, 67, 93])   /* #
       + 'ambient dice, so the two agree on the PREDICATE and differ on the DEAL by construction. A source on '
       + 'ordinary floor, a pit lip or a corridor is a membership FAILURE named by cell, which is what the old '
       + '`count <= OVERLOOK_MAX` clause could not see; the coverage-pass ceiling above stays main\u2019s to the digit.');
+  }
+  /* #860 take two: the WALL FITTING class, as a row that can fail. PR #869 shipped the fitting and the
+     light it carries, and it left the census fields in this loop (`wall`, `wallOff`) with NO READER - the
+     aggregate was accumulated at :9470-9473 and no row named it, so turning the placement pass off changed
+     no verdict. The criterion that row has to carry is the issue's own: "a sector's wall carries at least
+     one light that is not a floor post or a hung pendant, and the row must fail with the pass disabled".
+     Two clauses, both read off the deal rather than asserted:
+       (i) POPULATION - at least one `wfix` source in EVERY deal of the sector. This is the vacuity clause
+           and it is what makes the row fail with `wallFixEnabled() = false` (measured, see the PR body);
+           a class that placed nothing is a FAILURE, not a zero (AGENTS' vacuity rule, #199's precedent).
+       (ii) BAND - every one of those sources states the floor of the cell its own lens is inside, at the
+           #413 tolerance the kernel itself uses. A sconce whose source states another plane is lighting a
+           column it is not on, which is the failure #413 was written against.
+     WHAT (ii) DOES NOT COUNT, and the clause that does instead: a source whose cell the census finds
+     SOLID is NOT in (ii). That is a different defect with a different owner - the room-partition pass
+     (`tryLine`, js/20_level.js:5688) stands wall cells AFTER the splat loop at :5086 has baked this
+     source's pool, so a sconce mounted on a face whose air cell the partition later walls ends up with a
+     baked pool inside new rock. The count of those is printed beside this row as `buried` and gated at
+     the measured baseline - a RECORD at the number this tree measures, going red if the pass starts
+     burying MORE; clearing the ones this tree measures is a placement decision and not a
+     drift in this row's tolerance. It is not folded into (ii) because (ii) is a statement about the band
+     the source STATES, and a buried source states the right band for a cell that no longer exists. */
+  if (COV_ROLLS > 0) for (let lv = 0; lv < N; lv++) {
+    const A = covAgg[lv], deals = A.deals;
+    row('L' + lv + ' a fitting on the wall lights the band it states',
+      A.wall / deals >= WALL_MIN[lv] && A.wallOff === 0 && A.wallBury <= WALL_BURY_MAX[lv],
+      (A.wall / deals).toFixed(2) + ' wall-mounted sources per deal, FEWEST in any one deal ' +
+      (A.wallMin === Infinity ? 'n/a' : A.wallMin) + ' of the ' + deals + ' deals dealt here, and ' + A.wallOff +
+      ' of the ' + A.wall + ' sources stating a floor that is not the cell under its own lens' +
+      (A.wallOffAt ? ' - first: ' + A.wallOffAt : '') +
+      '. This class is neither a floor post nor a hung pendant (js/10_assets.js WFIX.SCONCE, placed by'
+      + ' placeWallLamps after the coverage pass draws no RNG); it is the only light in the game mounted ON A'
+      + ' WALL, so the population floor is the falsifier for "the wall is furnished" - a build that places'
+      + ' none fails this row by name whatever the lightmap did. Separate count, same loop: ' + A.wallBury +
+      ' of them whose own cell a LATER cell write (the room-partition wall at js/20_level.js:5688, which'
+      + ' runs after the splat) turned solid - a stated debt at the measured baseline ' + WALL_BURY_MAX[lv] + ', not an allowance for more.');
   }
   row('the sampled frames are not vacuous',
     gpix > 0 && grand / gpix > 5 && grand / gpix < 250 && 100 * gdark / gpix < 80,
