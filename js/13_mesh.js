@@ -1771,13 +1771,13 @@ const MESH = (function () {
        at the same intent ("a tin you can find across a room") and only the health case was measured.
        It is the CRATE's row: the rank is an albedo MULTIPLIER, not a brightness, so sharing it does not
        make a kit read as a crate - in one harness frame at the same 2.9 m seat the near-white shell lands at
-       own mean 62 against the crate's own 16.9 and the barrel's 19.4, i.e. the kit is still the brightest
+       own mean 61.8 against the crate's own 16.9 and the barrel's 19.4, i.e. the kit is still the brightest
        prop in the room, about at the brightness of the deck band it stands on (63.3, measured on the
        deployed arrival frame) instead of 129.4 clipped. MEASURED, not derived: an earlier value of 0.62 on
        this branch came out of the clip arithmetic and its comment claimed a value "above" 0.78 while
        holding one BELOW it - a lower multiplier is darker - and it put the lit kit at own mean 48.3, a dim
        rather than a relight (#862's "not a dim and flatten"). A rank sweep in this harness is
-       0.62 -> 48.3, 0.76 -> 60.1, 0.78 -> 62.2 own mean lit, and the clip ceiling on the loudest shell is
+       0.62 -> 48.3, 0.76 -> 60.1, 0.78 -> 61.8 own mean lit, and the clip ceiling on the loudest shell is
        249 / (228 * 1.35) = 0.809, so 0.78 is the crate's own row, one step under the clip. */
     const PROP_ALB = 0.88, PROP_ALB_LAMP = 0.80, PROP_ALB_CRATE = 0.78, PROP_ALB_PICK = PROP_ALB_CRATE;
     const PROPBAND = { crate: PROP_ALB_CRATE, barrel: PROP_ALB, lamp: PROP_ALB_LAMP,
