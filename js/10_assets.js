@@ -1175,6 +1175,35 @@ WFIX.BOARD = fixTex(64, 40, (s, w, h) => {
   fixAge(s, w, h);
 });
 
+/* A SCONCE: the one wall fixture in the game that CARRIES A LIGHT (#860). Everything else in WFIX is
+   albedo only - the wall pass multiplies it by the face's own light, so a wall in a room whose lamp
+   stands four metres off it is bare paint from the floor to a dark roof. This is the fixture that says
+   "the light is THERE": a backplate bolted to the wall, a cove above a warm lens, and the light spill
+   painted DOWN the face it is mounted on. It is still albedo + alpha like its six siblings (a fixture
+   is never a second lightmap, AGENTS.md); the light it carries is an ordinary LIGHTS entry authored
+   beside it by placeWallLamps (js/20_level.js), with the band stated explicitly the way #413 requires,
+   so it cannot reach a column it is not standing on. The lens is a bright warm near-white at a small
+   fraction of the patch and the rest of the plate sits at the wall's own mid-tone, because the wall
+   pass lights this whole patch by the light its own source delivers - a white plate would be the
+   brightest thing in its own room and the exposure gate would move on furniture. */
+WFIX.SCONCE = fixTex(48, 64, (s, w, h) => {
+  s.clear();
+  const cx = w * 0.5;
+  s.rrect(cx - w * 0.30, h * 0.14, w * 0.60, h * 0.74, w * 0.07, [104, 108, 116], 1);   // backplate
+  s.lgrad(cx - w * 0.30, 0, w * 0.60, h, [[0, [52, 54, 60], 1], [0.36, [126, 130, 138], 1],
+                                          [0.78, [92, 96, 104], 1], [1, [46, 48, 54], 1]], 0);
+  for (const bx of [cx - w * 0.24, cx + w * 0.24])                                       // the two bolts
+    for (const by of [h * 0.20, h * 0.80]) s.circle(bx, by, 1.8, [128, 130, 136], 0.9);
+  s.rect(cx - w * 0.26, h * 0.72, w * 0.52, h * 0.09, [86, 90, 98], 1);                  // cove lip
+  s.rect(cx - w * 0.22, h * 0.60, w * 0.44, h * 0.12, [238, 224, 190], 1);               // the lens
+  s.rgrad(cx, h * 0.64, w * 0.34, [[0, [250, 240, 214], 0.95], [1, [214, 196, 158], 0]], 0);
+  for (let k = 0; k < 6; k++)                                                            // spill down the plate
+    s.rect(cx - w * 0.20 + k * 2, h * (0.30 - k * 0.012), w * 0.40 - k * 4, h * 0.02,
+           [176, 166, 140], 0.34 - k * 0.05);
+  s.rect(cx - w * 0.30, h * 0.86, w * 0.60, h * 0.035, [44, 45, 50], 0.9);               // shadow under the mount
+  fixAge(s, w, h);
+});
+
 /* ============================ ceiling fittings (#413) ============================
    The plate you see when you look UP. #437 hung a light source on the ceiling over each room, which
    gave the sheet a pool of light and nothing to look at: the brightest thing in the frame had no
