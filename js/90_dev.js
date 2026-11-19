@@ -293,6 +293,10 @@
        issue's own cross-process wobble, so it is an arm and not a fix (js/40_render.js, take eighteen).
        `mip`'s magnified-share row is the A/B and renders BOTH senses in one process. */
     if (name === 'gndmag') { CGWN = value === undefined ? 1 : (value ? 1 : 0); return { gndmag: CGWN }; }
+    /* #19 take twenty's A/B. 1 = the share of a minified pixel's strip that the walk's own taps do not
+       stand for goes to the material's mean instead of being left on them; 0 (shipped) = main, because
+       measured, the gate never opens - see js/40_render.js. A value above 1 scales the share. */
+    if (name === 'gndmean') { GNDMM = value === undefined || value > 0 ? 1 : 0; if (value > 1) GNDMMS = value; return { gndmean: GNDMM, gndmeans: GNDMMS }; }
     /* #353's A/B. 1 (shipped) = the soffit's joist rib is faded toward its own mean by the share of its
        0.5 m period this pixel's footprint cannot hold, in BOTH copies of the ground pixel body; 0 = the
        hard-edged wave every pixel samples at a point. Measured on ABATOIR CORE the two differ by about
