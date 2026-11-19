@@ -78,11 +78,11 @@ that ages: `node tools/recap.js check` hashes the four blobs that draw a frame �
 those bytes or `FRAME-STALE`, naming whichever blobs moved. A pass aged badly once, binding `bd2441a` while two
 render commits landed while a pass was in review, and the tool exists so it cannot age quietly again; the bind is an upper bound on
 "the picture changed", since a comment inside a renderer moves a digest and moves no pixel, so the row names the
-blob and leaves the re-take call to a human. On the tree that carries these frames that row now reads `SHIP-BIND` for
-`0546b82`, so these eight are the picture this checkout ships; that row — not this sentence — is what says so. This paragraph counts none of them on purpose: the last time this page named the files and the
-commits behind them, a later merge moved one more and the front page was left contradicting its own table two rows
-below it, which is the failure #653 was opened for. So a re-take off a deploy of
-this checkout is what keeps these frames honest, and this pass is that re-take. The same command also prints a
+blob and leaves the re-take call to a human. On the tree that carries these frames that row now reads `FRAME-STALE` for
+`0546b82`: `js/40_render.js`, one of the four, has moved since the build that drew these pixels — #866's far-field fetch
+term, which that merge measured and then shipped switched off, so the row names the blob and stops there rather than
+claiming a pixel moved. These eight are therefore `0546b82`'s picture; whether it is still this checkout's is that row's
+call, not this sentence's, and the next commit to move one of those four will re-key it here too. The same command also prints a
 `CAPTION-VERDICT` row that compares this sentence with the digests, so the page cannot be left a pass behind by the
 pass it describes (#653).
 
