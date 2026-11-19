@@ -16007,7 +16007,7 @@ if (MODE === 'viewmodel') {
      "steps above runs" clause #824 criterion 1 names is ALREADY TRUE under a reversal-bounded run and
      says nothing about a face turning. The clause that does carry the claim is the last counter - a
      run that doubles inside itself - and it is printed, not asserted, until a term is written and the
-     number is re-measured. Nothing here changes a pixel.
+     number is re-measured. Nothing here changes a pixel. */
   const BAND_STEP = +(process.env.VBAND_STEP || 4);        // a step a person can see: #655's bar
   const BAND_DEAD = +(process.env.VBAND_DEAD || 1);        // below this a delta is noise, not direction
   const BAND_MIN_PX = +(process.env.VBAND_MIN_PX || 4096); // the rig paints ~10-15k px at hip
