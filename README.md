@@ -51,7 +51,7 @@ a byte claim written here is false by the next merge (#395). What *changed* betw
 in the PR that moved it, not here.
 
 `node tools/recap.js check` decodes the eight PNGs and fails if any number below disagrees with the
-bytes, so a caption cannot drift from its frame. The eight frames decode to **57.31 / 81.20 / 57.30 / 67.46 / 65.33 / 70.19 / 67.20 / 62.16** mean luma
+bytes, so a caption cannot drift from its frame. The eight frames decode to **60.77 / 81.46 / 60.76 / 67.48 / 65.35 / 70.29 / 67.20 / 62.17** mean luma
 (`0.2126 R + 0.7152 G + 0.0722 B`, the rule `DEV.lum` uses), in the order they appear below. A dark
 row below means a row whose own mean luma is under 24 — the threshold the tool measures at, whatever
 number a sentence labels. The same command subtracts, frame by frame, the mean of the frame each one
@@ -59,17 +59,19 @@ replaces — recorded per shot in `docs/screens/provenance.json` at the pass tha
 fails a caption whose quoted delta is not that difference, so a delta ages the way a mean does and
 cannot be left behind by the pass it describes (#668).
 
-The eight do *not* separate that cleanly, and the numbers say so: five frames move by ten lumas or more, the two ABATOIR
-poses sit under that at **-7.46** and **-8.11**, and THE STACK moves **-0.01**. That last is the reason a mean is not a
-way to see a frame: THE STACK is the hand-authored plan, whose aggregate barely moved, and still **2.59%** of its pixels
-differ from the frame it replaces by the kept-pixel rule (summed |dRGB| over 18) that `tools/livecap.js` states, against
-69.88% to 86.81% on the seven dealt frames. A near-zero delta is a statement about the exposure, not about the picture.
+The eight do *not* separate that cleanly, and this pass says so the other way round: two frames move **+3.46** mean luma
+and the other six move by a tenth of a luma or less. That is the reason a mean is not a way to see a frame. The two
+ARCHIVE poses taken from the spawn seat keep **27.54%** and **27.58%** of their pixels differing from the bytes they
+replace under the kept-pixel rule (summed |dRGB| over 18) that `tools/livecap.js` states, while their aggregate reports
+three and a half lumas; THE STACK moves a tenth of a luma and keeps **1.07%**. A delta is a statement about the
+exposure, not about how much of the picture moved.
 Every row of `provenance.json` carries its own replaced-frame mean so the direction is readable per frame rather than
 only in aggregate.
 
-All eight were re-taken in one pass off the deployed page at build `0546b82`, whose #353 merges move `js/20_level.js` and
-`js/40_render.js` — two of the four blobs that draw a frame — and whose #807 merge moves `js/13_mesh.js`, the hand you
-hold the gun with; the pass supersedes the one that bound `12a7825`, and it proved its build off
+All eight were re-taken in one pass off the deployed page at build `44ff9a4`, whose #873 merge moves `js/13_mesh.js` — the
+hand and slide you hold the gun with — and whose #860 merge moves `js/10_assets.js` and `js/20_level.js`, two of the four
+blobs that draw a frame, by putting a fitting on a room's own enclosing wall; `js/40_render.js` moved with #19. The pass
+supersedes the one that bound `0546b82`, and it proved its build off
 the wire by sha256-comparing index.html and all eleven `js/` blobs served by that page against the tree that carries these
 frames before the shutter, twelve for twelve, so every frame below is the picture that build's page drew. Whether that is still today's picture is no longer a sentence
 that ages: `node tools/recap.js check` hashes the four blobs that draw a frame — `index.html`, `js/10_assets.js`,
@@ -78,50 +80,39 @@ that ages: `node tools/recap.js check` hashes the four blobs that draw a frame �
 those bytes or `FRAME-STALE`, naming whichever blobs moved. A pass aged badly once, binding `bd2441a` while two
 render commits landed while a pass was in review, and the tool exists so it cannot age quietly again; the bind is an upper bound on
 "the picture changed", since a comment inside a renderer moves a digest and moves no pixel, so the row names the
-blob and leaves the re-take call to a human. On the tree that carries these frames that row now reads `FRAME-STALE` for
-`0546b82`: `js/40_render.js`, one of the four, has moved since the build that drew these pixels — #866's far-field fetch
-term, which that merge measured and then shipped switched off, so the row names the blob and stops there rather than
-claiming a pixel moved. These eight are therefore `0546b82`'s picture; whether it is still this checkout's is that row's
-call, not this sentence's, and the next commit to move one of those four will re-key it here too. The same command also prints a
+blob and leaves the re-take call to a human. On the tree that carries these frames that row reads `SHIP-BIND` for
+`44ff9a4`: the four blobs that draw a frame are byte-identical here, so these eight are this checkout's own picture. The
+next commit to move one of those four will re-key this sentence too, and the row will name whichever blob moved. The same command also prints a
 `CAPTION-VERDICT` row that compares this sentence with the digests, so the page cannot be left a pass behind by the
 pass it describes (#653).
 
-What a reader should take from the eight frames is that the *rooms* moved, not just the props on the sight line. All
-three dealt signatures came back different from the ones the rows these frames replace name: ARCHIVE SUBLEVEL
-2826521082 is now 4083630493, ABATOIR CORE 1076609884 is now 2343219222, and THE STACK — hand-authored — is back at
-3610925125, the signature it carried two passes ago. Two terms re-cut one seed and this
-pass cannot attribute the move to one of them: the build, because a generator's draw count moves between builds and a
-signature belongs to the build its row names, and this instrument's audio device, which drew 72,000 seeded values
-through `SND.init`'s noise buffer before the generator where the rows these frames replace state 48000 Hz and 72,000
-(#404). That is why every row there states its own sample rate, and why a signature is read as this row's deal rather
-than as a property of the URL. Every one of the eight frames sits on a deal the rows they replace do not - the authored
-plan's signature moved with the rest - so a mean below is a statement about the room this instrument's seed 60 dealt,
-not about the room the replaced frame showed. It is also why no caption below states the
+What a reader should take from the eight frames is that the rooms held and the paint moved. All three dealt signatures
+came back identical to the ones the rows these frames replace name: ARCHIVE SUBLEVEL 4083630493, ABATOIR CORE 2343219222,
+and THE STACK — hand-authored — still 3610925125, and `SND.ac.sampleRate` read 44100 in every page that drew a frame
+here, the same instrument term those rows state (#404). So this is today's bytes drawing yesterday's room rather than a
+new roll: every mean below is a statement about the deal the replaced frame already showed, and a delta below is a
+statement about the paint. That is why every row there states its own sample rate, and why a signature is read as this
+row's deal rather than as a property of the URL. It is also why no caption below states the
 geometry of a deal — which cell holds the pit, how many risers stand in a run — because a sentence like that is true
 of one roll and false of the next one. Three of the five ARCHIVE poses are recorded `DEV.cam` coordinates, so what is
 held constant under a re-roll is the *camera*, not the sector. This pass re-ran the same url at one page load and one
-boot per level, read every pose back out of the page that drew it, and read the seats back where the re-roll put them:
-the ARCHIVE spawn seat at (10.5, 10.5) where the replaced rows read (7.5, 12.5), ABATOIR CORE at (22.5, 13.5) on the
-bearing its own deal derives, 2.4228, where those rows read (24.5, 7.5) on the 0.6 literal #859 retired, and THE STACK
-at (1.5, 2.5) on the heading its plan derives,
-0.8761 - the authored seat, unchanged, which is the control that says the route held and the deals did not. What is *not* restated
+boot per level, read every pose back out of the page that drew it, and read the seats back where the same deal put them:
+the ARCHIVE spawn seat at (10.5, 10.5), ABATOIR CORE at (22.5, 13.5) on the bearing its own deal derives, 2.4228, and
+THE STACK at (1.5, 2.5) on the heading its plan derives,
+0.8761 - three seats identical to the ones the replaced rows name, which is the control that says the route held and the
+deals did too. What is *not* restated
 here is the interior the old captions quoted — a cell's `MAP.light`, which 3×3 block held the pit — because those
 were re-read from the page that drew this frame, not carried forward (#420).
 
-What moved the picture since the frames these replace is one shipped hand, one shipped generator and the dice. The hand
-is the reason this pass exists: #807 merged after the last eight frames were taken, and the deployed page has been
-drawing a different support hand than the front page shows ever since — its finger prisms now stop short of the part
-they hold, so at the hip the pump, magazine and cylinder read between the fingers instead of under them (about 2.1k
-pixels of a 1202x676 frame, all of them inside the support hand's box). `js/20_level.js` and `js/40_render.js` then
-moved through #353, which now stands a body on every authored overlook a sector writes and gave ABATOIR CORE an arrival
-bearing its own deal derives; the generator's draw count and this instrument's audio device re-cut seed 60 with them,
-so every frame sits on a deal the replaced rows do not, and the three poses recorded as `DEV.cam` coordinates are one
-camera over a different room. The other changes a frame can show between the two takes are a hazard-banded crate or
-barrel dealt clear of the sight line (#757) and staying on the deck it was dealt on (#768); the line where a walkable
-deck ending reads as a lit step (#669); and a slab underside that dims with the angle you read it at (#810).
-Per frame, in the order the eight appear below, the deltas to **-12.18 / +14.14 / -12.17 / +17.00 / +13.65 / -0.01 / -7.46 / -8.11** mean luma; `recap`
+What moved the picture since the frames these replace is the gun and one wall — not the dice, whose three signatures
+came back unchanged. #873 gave every first-person part one ramp across its own face instead of a 10 mm sawtooth, so the
+slide now reads brighter along its top than down its flank. #860 gave a room's own enclosing wall a fitting with a
+source on its own band, so deals whose upper walls stood bare now carry a sconce the room lights. Between the two builds
+`js/10_assets.js`, `js/20_level.js` and `js/40_render.js` all moved — three of the four blobs that draw a frame — and
+`js/13_mesh.js`, the rig itself, moved with #873.
+Per frame, in the order the eight appear below, the deltas to **+3.46 / +0.26 / +3.46 / +0.02 / +0.02 / +0.10 / +0.00 / +0.01** mean luma; `recap`
 computes each one from the two frames and names the row that disagrees, and a caption below repeats only its own
-number. Five frames move by ten lumas or more, both ABATOIR poses sit under that bar, and THE STACK moves **-0.01**,
+number. Two frames move by three and a half lumas; the other six by a tenth or less,
 
 The shipped picture those numbers describe is the one the last pass introduced: a roof that is a lit surface
 rather than a black sheet, because the ceiling's light term gained a floor (#495); an enemy's base that reads
@@ -145,13 +136,14 @@ the same row and the pit-floor deck at 8 rows in an 8-row run from row 98.
 ![the spawn seat on a lit datum floor, a raised band ahead with the edge of its own deck lit](docs/screens/level0-spawn.png)
 
 The spawn seat (10.5, 10.5) on a lit datum floor — the seat this build's own deal puts you in, read off the
-page rather than typed — **0 of 763 rows average below luminance 24**, no dark band left to count, mean 57.31,
-thirds 59.3 / 63.5 / 49.2. It is **-12.18** on the
-frame it replaces - and the reason is the dice, not a relighting: ARCHIVE SUBLEVEL
-came back as layout **4083630493** where the row these frames replace named 2826521082, because the generator authors
-height and prop placement in its own roll now (#421, #631, #757), and because this instrument's audio device re-cuts
-the stream the roll reads (#404). What
-the frame shows is a different room from the same recorded camera: the datum deck under a lit roof, a raised band ahead
+page rather than typed — **0 of 763 rows average below luminance 24**, no dark band left to count, mean 60.77,
+thirds 60.8 / 64.0 / 57.5. It is **+3.46** on the
+frame it replaces - and the reason is the paint, not the dice: the layout is **4083630493**, the signature the row these
+frames replace already named, and this instrument's audio term is the same 44100 Hz (#404), so this is the same room
+drawn by today's bytes. **27.54%** of its pixels differ from those bytes by the kept-pixel rule — a quarter of the
+picture for three and a half lumas of mean — and what shipped between them is the per-part face ramp on the held gun
+(#873) and a fitting on a room's own enclosing wall (#860).
+What the frame shows is the same room from the same recorded camera: the datum deck under a lit roof, a raised band ahead
 wearing the lit edge of its own deck (#669), and the ashlar faces closing the room on both sides.
 Those faces are the shipped picture this caption has kept across passes: two visible faces of one wall are no longer
 one value — the face-orientation term carries its whole light, ambient
@@ -170,13 +162,13 @@ frame is not restated here: prop placement comes out of the deal, and this deal 
 
 The tread at the end of a run of deck, seen at (1.5, 8.5) - the seat this pass read back, `floorAt` **0.00**,
 heading π/2. **0 of 763 rows average below luminance 24**
-(mean 81.20, band means 70.5 / 88.7 / 84.5; at the tool's other bar, nothing at all).
-This deal put no risers on this sight line, so the pose gives a long deck under a lit roof instead: the ashlar faces
-closing the left, a brick face running away on the right with its base line lit, and two lamps and a drum or two
-standing mid-frame where the replaced bytes had the treads. The air over the deck is dim, not empty, and this frame is
-**+14.14** on the frame it replaces -
-which is the size of a different room rather than of a dither: it is the same camera over ARCHIVE's 4083630493 deal,
-and 85.47% of its pixels differ from those bytes by the kept-pixel rule. The faces that are in frame read
+(mean 81.46, band means 70.9 / 89.0 / 84.5; at the tool's other bar, nothing at all).
+This deal puts no risers on this sight line, so the pose gives a long deck under a lit roof: the ashlar faces
+closing the left, a brick face running away on the right with its base line lit, and a lamp or two standing mid-frame.
+The air over the deck is dim, not empty, and this frame is
+**+0.26** on the frame it replaces -
+which is the size of re-lit faces rather than of a different room: it is the same camera over ARCHIVE's 4083630493 deal,
+the deal those bytes already carried, and 1.66% of its pixels differ from them by the kept-pixel rule. The faces that are in frame read
 because their own faces are lit at different values (#371, #431). There is no dark block left for this caption to count -
 173 rows under 34 became 15 with the room-height pass (#431) and this deal's room leaves none at all - and two shipped changes
 account for the long fall since the sentence above was written: the ceiling
@@ -196,22 +188,23 @@ brick face between the eye and his feet is why that is all of him the frame retu
 rule marches past. The light falls off
 across him: the side turned toward the lamp reads brighter than the side turned away, because the face term now
 covers a body's whole light, ambient included (#371). He is posed with `e.anim` pinned to **0**: rest pose, not
-a stride (`view.js anim` gates motion). **0 of 763 rows average below luminance 24** here — and nothing under 34 either — mean 57.30, thirds
-59.2 / 63.5 / 49.2, **-12.17** on the frame he replaces, which is the re-deal the spawn seat above it is about rather
-than a relit room (#421, #631, #757). Bodies are meshes from `js/13_mesh.js`; whether one
+a stride (`view.js anim` gates motion). **0 of 763 rows average below luminance 24** here — and nothing under 34 either — mean 60.76, thirds
+60.7 / 64.0 / 57.6, **+3.46** on the frame he replaces — the largest move of the eight, and the same room the spawn seat
+above it is about. It is not a re-deal: the layout is **4083630493** again, and **27.58%** of the frame's pixels differ
+from those bytes by the kept-pixel rule, a quarter of the picture for three and a half lumas of mean. Bodies are meshes from `js/13_mesh.js`; whether one
 reads against the paint behind it at combat range is what `node tools/view.js contrast` prices (#416), and the
 wall behind him in this frame is the repainted one.
 
 ![the deck edge from the band above it, its own lip lit, with the room falling away beyond it](docs/screens/level0-props.png)
 
 The recorded lip pose — camera **(20.5, 11.5)**, yaw **π/2**, feet on `floorAt` **2.00** — and ARCHIVE
-SUBLEVEL dealt from a different signature than the row these frames replace, so this is the same camera over a
-different room. **0 of 763 rows average below luminance 24**, and no dark band left at that
-bar (mean 67.46, band means 79.9 / 66.6 / 55.9; at the tool's other bar of 34 it counts 10 rows, an 8-row run from row
-638 - the deck in the shadow of the edge you are standing on; the frame these replace put 24 rows in a 22-row run from
-that same row). The frame is **+17.00** on the one
-it replaces, the largest move of the eight, and it is one camera over a room that was re-dealt rather than a room that
-was relit: 69.88% of its pixels differ from those bytes by the kept-pixel rule.
+SUBLEVEL dealt from the same signature the row these frames replace names, so this is the same camera over the same
+room. **0 of 763 rows average below luminance 24**, and no dark band left at that
+bar (mean 67.48, band means 79.9 / 66.6 / 55.9; at the tool's other bar of 34 it counts 10 rows, an 8-row run from row
+638 - the deck in the shadow of the edge you are standing on; the frame these replace counts the same 10 rows in the
+same 8-row run from that same row). The frame is **+0.02** on the one
+it replaces, and it is one camera over the room it already showed: 0.49% of its pixels differ from those bytes by the
+kept-pixel rule.
 This frame's HUD reads **0 LEFT**
 because the capture route clears the room before it poses the camera, so no hostile this deal seats is standing in the
 frame; the route is the shipped one (`devRoute` in tools/livecap.js), and every ARCHIVE pose below shares it. The edge
@@ -223,12 +216,12 @@ out-shines the room behind it (#476, #491).
 ![standing on the datum deck at a lit wall run with a crate mid-frame and the slab edge's own lip lit on the right](docs/screens/level0-pitfloor.png)
 
 The same pose the replaced row posed - (19.5, 14.5), heading **atan2(2, 1) = 1.11 rad**, feet on the datum slab at `floorAt` **0.00**, every
-one of them read back off the load that drew this frame - but not the same deal, so what those bytes left as a pier is
-here a brick run with its own top edge lit (#669) and a crate's flank standing mid-frame. Frame mean
-**65.33**; **0 of 763 rows average below luminance 24**, and nothing at all under the tool's softer 34 bar, where the
-frame these replace counted 8 rows in an 8-row run from row 98. This frame is **+13.65** on the frame it
-replaces - the same coordinates over ARCHIVE's 4083630493 deal, which puts the camera on a different slab than the one
-those bytes stood on. What
+one of them read back off the load that drew this frame - and on the same deal those bytes sat on, so what those bytes
+left as a pier is here a brick run with its own top edge lit (#669) and a crate's flank standing mid-frame. Frame mean
+**65.35**; **0 of 763 rows average below luminance 24**, and nothing at all under the tool's softer 34 bar, where the
+frame these replace counts nothing either. This frame is **+0.02** on the frame it
+replaces - the same coordinates over ARCHIVE's 4083630493 deal, the deal those bytes already carried, and 0.49% of its
+pixels differ from them by the kept-pixel rule. What
 crosses the middle of the frame is the underside of a floor above this one - the dark band with lit deck under it -
 which is what the room-height passes (#548, #421) put into the generator's own rooms, and it is the one large surface in
 this set that #810's angle dose reaches — 77.41% of this frame's pixels are not the pixels the replaced take put up,
@@ -239,8 +232,8 @@ spawn seat's deck, which is why it falls off across the room instead of stepping
 ![the authored two-storey level from its own spawn seat](docs/screens/level3-stack.png)
 
 **THE STACK**, the hand-authored level, from its spawn seat: (1.5, 2.5) on the datum, the derived heading 0.8761, the
-route's clear leaving the HUD at **0 LEFT**, and **0 of 763 rows average below luminance 24** (mean 70.19, thirds 59.9 /
-80.4 / 70.4; at the tool's other bar, no rows under 34 at all). The seat reads back at (1.5, 2.5) on `floorAt` **0.00**,
+route's clear leaving the HUD at **0 LEFT**, and **0 of 763 rows average below luminance 24** (mean 70.29, thirds 59.7 /
+80.6 / 70.6; at the tool's other bar, no rows under 34 at all). The seat reads back at (1.5, 2.5) on `floorAt` **0.00**,
 heading 0.8761, and the plan it sits in is the hand-written one. The heights the replaced caption read off that plan —
 the slab over the seat, the opening the heading stops at, the span of the face crossing the middle of the frame — are
 not restated here: #421 authored a storey into this plan since those numbers were taken, and this pass read the seat,
@@ -255,14 +248,13 @@ glyphs on the minimap are the climb that gets you up there. Hand-authoring remov
 plan is written cell by cell over a 20 × 20 grid — and it also shows what is still missing:
 Whether this seat is genuinely under a second storey is a `tools/view.js volume` claim and this pass did not
 re-read it; what the frame shows is a bright band over a lit deck, which is the shape #353 is about. The vault is still
-not the darkest large surface, its band runs **59.9** against the deck's 80.3, and there is no dark block left to
+not the darkest large surface, its band runs **59.7** against the deck's 80.6, and there is no dark block left to
 count, because #495 gave the ceiling a light floor and this seat's slab top is a lit surface now. The plan is written
-cell by cell and the seat is still (1.5, 2.5), and this frame is **-0.01** on the one it replaces - and not because the
-deal held: layout **3610925125** is the signature this sector carried two passes ago and not the 1154765829 the replaced
-row names, because #548 authors height in the authored cells too and the seeded stream that rolls it was re-cut. The
-aggregate nearly held while the frame did not:
-**2.59%** of its pixels differ from the bytes it replaces by the kept-pixel rule, the smallest move of the eight. What
-moved between these bytes and the last pass is the light in the air and the props standing in it:
+cell by cell and the seat is still (1.5, 2.5), and this frame is **+0.10** on the one it replaces - and the deal held:
+layout **3610925125** is the signature the replaced row names, authored cell by cell, and the seeded stream that rolls
+it was not re-cut. A tenth of a luma is not nothing here:
+**1.07%** of its pixels differ from the bytes it replaces by the kept-pixel rule. What
+moved between these bytes and the last pass is the light on the walls and the gun in your hands:
 the lit roof (#495), the roof-to-wall junction (#369), the riser material (#518) and the prop surface (#533),
 on top of the ashlar family these faces already wore (#428). The heights the replaced caption read off this plan -
 the slab at 1.00 over the seat, the atrium opening at 4.00, where the heading's first face stops - are not restated,
@@ -273,19 +265,18 @@ because #548 authors height in the authored cells too and this pass did not re-s
 **ABATOIR CORE**, the room with the most ceiling in the game, from its own arrival seat (22.5, 13.5)
 on the datum, on the bearing its own deal derives - 2.4228, since #859 retired the literal 0.6 every arrival used to be
 pinned to - and 0 hostiles left after the route's clear: **0 of 763 rows average below luminance 24** (mean 67.20, thirds
-64.6 / 68.4 / 91.0; at the tool's other bar, nothing at all). The top third reads **64.6** and the bottom **91.0**: the slab over the room is still the
+58.3 / 65.5 / 77.9; at the tool's other bar, nothing at all). The top third reads **58.3** and the bottom **77.9**: the slab over the room is still the
 largest surface in frame and the shaded underside of it the darkest thing on it, the raised deck mid-room wears the
 lit edge of its own lip (#669), and the crates on the deck sit nearer their room's own
 value than any frame here showed before (#479, #491). This frame and the next are one
 url at two headings - one page load and one boot each, which is the route that re-deals a level rather than advancing
 a stream (`js/90_dev.js:21-22`) - because the two rows of one level have to name one deal; and read the seat before the
 numbers: this
-level's deal is **2343219222**, where the row these frames replace named 1076609884, so the two frames are an A/B of
-the shipped changes since those bytes *and* of the generator's dice, not of one held room (#420, #421). The coordinates
-the older captions gave describe floor plans that are no longer dealt, and that re-roll history is #420's standing
-problem; the delta here is **-7.46**, while **81.59%** of the frame's pixels differ from the bytes it replaces: a
-different room under a seat that did not move is worth a quarter of a luma in aggregate and two thirds of the frame in
-pixels. The mean is not how you see a re-roll; the layout field is.
+level's deal is **2343219222**, the signature the row these frames replace already names, so the two frames are an A/B of
+the shipped changes since those bytes and not of the dice (#420, #421). The seat, the bearing and the room all held, and
+that is what makes this pair readable as a picture change: the delta here is **+0.00**, while **0.49%** of the frame's
+pixels differ from the bytes it replaces. A held room is worth nothing at all in aggregate and half a per cent of the
+frame in pixels; the layout field is what says so.
 What the middle of this frame answers with is the point for #616: past the draw radius a pixel now reads the material
 its own ray crossed, at the mip that footprint spans, so the far half of ABATOIR is stone going into the air colour
 rather than one flat value, and the far wall keeps reading as stone as it recedes instead of flattening to one number.
@@ -296,9 +287,9 @@ prices the ceiling share and the slab-to-deck ratio; the frame itself only shows
 
 ![the same seat tilted up at the ceiling it lands on, and the wall band under it](docs/screens/level2-abatoir-ceiling.png)
 
-The same seat on the same deal, held on its own dealt heading and tilted up by a quarter of the raster height (194 px
-out of a 776-row buffer): **0 of 763 rows average below luminance 24**, with nothing under 34
-either (mean 62.16, thirds 56.0 / 68.4 / 62.2, and **-8.11** on the frame it replaces). The seat reads back at (22.5,
+The same seat on the same deal, held on its own dealt heading and tilted up by a quarter of the raster height (`BH*0.25`,
+read back as pitch 89.8): **0 of 763 rows average below luminance 24**, with nothing under 34
+either (mean 62.17, thirds 56.0 / 68.4 / 62.2, and **+0.01** on the frame it replaces). The seat reads back at (22.5,
 13.5) on `floorAt` **0.00**, and the pose is the same tilt the replaced row took - `DEV.cam(P.x, P.y, undefined, P.ang,
 BH*0.25)` - so the two frames stay comparable pose for pose, the heading coming from this build's own deal rather than
 from the literal #859 retired. That is also why this caption names no fitting: the solve the
