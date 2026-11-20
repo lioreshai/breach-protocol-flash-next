@@ -224,8 +224,12 @@ replaces - the same coordinates over ARCHIVE's 4083630493 deal, the deal those b
 pixels differ from them by the kept-pixel rule. What
 crosses the middle of the frame is the underside of a floor above this one - the dark band with lit deck under it -
 which is what the room-height passes (#548, #421) put into the generator's own rooms, and it is the one large surface in
-this set that #810's angle dose reaches — 77.41% of this frame's pixels are not the pixels the replaced take put up,
-counting a pixel as moved when its three channels differ by more than 18 in sum. Its top band reads 68.3
+this set that #810's angle dose reaches — and it is not what moved this time. Of the 5,375 pixels that differ from the
+take this one replaces, 5,337 sit in the bottom third, their columns span 888 to 1186, and 4,447 of them fall in one run
+of rows 512-654: the held gun's own box in the lower right, every part of it now carrying one ramp across its own face
+instead of a 10 mm sawtooth (#873), while the underside above it came back the same bytes. A frame mean a fiftieth of a
+luma up with half a per cent of the frame rewritten is a shading change on one object, counted a pixel at a time when
+its three channels differ by more than 18 in sum. Its top band reads 68.3
 against the middle third's 57.6. The floor under the crosshair comes off the same near-field fetch as the
 spawn seat's deck, which is why it falls off across the room instead of stepping texel to texel (#467).
 
