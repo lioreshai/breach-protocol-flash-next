@@ -2492,11 +2492,32 @@ function furnishFreeFaces(cfgL) {
      tint passes see it like every other source - no second lightmap anywhere.
    One per room (two in a room with a wide perimeter, matching the fixture pass's own bar), no RNG
    drawn, and the faces it takes are recorded in WFIX_USED so the fixture passes that run later do not
-   hang a TANK through it. */
+   hang a TANK through it.
+
+   #860 TAKE THREE - THE ROOM THAT OFFERS NO FACE. Pass A collected its faces ONLY from cells inside the
+   room's OWN rect, and on a great many deals that is the wrong question: the generator's rooms are carved
+   out of rock that later passes open up again - a 2-wide corridor link, the #709 deck give-back, the wide
+   bay a merged pair of rooms becomes - so a room rect sits with every one of its cells open and its
+   enclosing wall one or two cells OUTSIDE the recorded rect. Measured over the 12 seeded deals per sector
+   this probe deals, at main 69c2dbb with a census print inside this function (one run, exit 0): ARCHIVE
+   SUBLEVEL placed zero fittings in 7 of 12 deals and RING TRANSPORT in 6 of 12, and in EVERY one of those
+   deals the reason is `faces = 0` for every room - not a span rejection, not a height rejection, no wall
+   inside the loop's field of view at all. That is the whole of the "FEWEST in any one deal 0" line
+   `exposure` prints for L0 and L1: the sector's walls are BARE for that deal, not badly furnished, and a
+   mean over 12 deals hides a bare deal completely.
+   So a room that placed nothing is asked a second time in the ring `WF_FALLBACK` (2 cells) AROUND its
+   rect - the wall the eye reaches from that room - with the same span and shoulder-height tests, the same
+   one-per-room bar and the same WFIX_USED claim, so a face a neighbouring room already dressed is not
+   stolen and no face is dressed twice. The second ask happens ONLY for a room whose own rect placed
+   nothing: a room that furnishes itself deals the identical fixture, on the identical face, at the
+   identical height, so those rooms and those deals stay byte-for-byte main's and only the bare ones
+   change. It draws no RNG, writes no cell and no height, and stands at most the fitting the room was
+   already entitled to - the pass's own 24-fitting budget and face cap are shared, not doubled. */
 const WF_R = 4.6;                          // reach: a wall washer, not a room filler - a lamp is 7.2
 const WF_STR = 0.5;                        // against a floor lamp's 1.05 and a pendant's 0.55
 const WF_MIN_SPAN = 1.6;                   // metres of face: below this there is no band above the pool
 const WF_MIN_ABOVE = 1.5;                  // metres above its own deck the lens must sit: shoulder height
+const WF_FALLBACK = 2;                     // cells outside the room rect the second ask may reach
 function placeWallLamps(cfgL) {
   if (!wallFixEnabled() || !ceilFixEnabled()) return;
   const N = MAP.w, cell = MAP.cell;
@@ -2517,6 +2538,23 @@ function placeWallLamps(cfgL) {
     for (let k = 0; k < faces.length && n < need; k++) {
       const f = faces[(start + k) % faces.length];
       if (mountSconce(f[0], f[1], f[2])) n++;
+    }
+    /* The second ask (#860 take three): this room furnished NOTHING. Ask the ring AROUND the rect, once,
+       for one fitting, with the same bar and the same claim. Only the own-rect empty case reaches this -
+       a room that placed a fitting never asks again, so no already-furnished room changes. */
+    if (!n) {
+      const ring = [];
+      for (let y = r.y - WF_FALLBACK; y < r.y + r.h + WF_FALLBACK && ring.length < 96; y++)
+        for (let x = r.x - WF_FALLBACK; x < r.x + r.w + WF_FALLBACK; x++) {
+          if (x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h) continue;   // own rect: already asked
+          if (!isOpen(x, y)) continue;
+          for (let d = 0; d < 4; d++) if (isWall(x + DIRX[d], y + DIRY[d])) ring.push([x, y, d]);
+        }
+      const start2 = (ri * 5 + 2) % Math.max(1, ring.length);
+      for (let k = 0; k < ring.length && n < 1; k++) {
+        const f = ring[(start2 + k) % ring.length];
+        if (mountSconce(f[0], f[1], f[2])) n++;
+      }
     }
     got += n;
   }
