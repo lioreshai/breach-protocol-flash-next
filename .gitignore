@@ -29,6 +29,11 @@ npm-debug.log*
 coverage/
 .nyc_output/
 
+# Bytecode caches from the Python checkers in tools/ - this repo has no build step,
+# so a compiled cache must never be committed. `git add -A` after running
+# `python3 -m unittest discover -s tools` would otherwise re-add them.
+__pycache__/
+
 # Local scratch: probe dumps go to /tmp by design (see tools/view.js)
 /dump/
 /scratch/

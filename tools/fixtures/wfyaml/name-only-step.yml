@@ -1,0 +1,10 @@
+# BROKEN: step 0 is a mapping with a name and nothing else. The runner skips it while the job still
+# reports success, which is a green row that ran nothing.
+name: fixtures
+on: push
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Consider the matter
+      - run: echo hi

@@ -401,7 +401,7 @@ def read_workflow(text):
     carry an `if:` or declare themselves informational. Deliberately textual - the standard library
     has no YAML and this repo installs nothing - and it reads only indent-2 keys under `on:` and
     `jobs:` plus indent-4 `if:` / `continue-on-error:` / `name:` inside a job, which is the shape
-    every workflow here uses. CI's `ruby tools/wfyaml.rb --dir .github/workflows` does the real
+    every workflow here uses. CI's `node tools/wfyaml.js --dir .github/workflows` does the real
     parse and runs blocking, so a file this reader cannot walk is red before this row is."""
     top, job, doc = None, None, {'on': [], 'jobs': []}
     for raw in text.splitlines():

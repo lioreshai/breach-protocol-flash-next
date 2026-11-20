@@ -366,11 +366,25 @@ let SHADOW = 1, SHADOW_D = 0.34, SHADOW_R = 0.16, SHADOW_ZT = 0.02, SHADOW_F = 2
    `contrast`'s BANDCEIL (0.60 x the body's own mask px) permits roughly 1.1 m of patch radius at 12 m and
    1.25 m at 16 m. SHADOW_RG 0.045 puts 0.94 m at 12 m and 1.12 m at 16 m, i.e. ~70 % of the sanctioned
    annulus, and the new far-band rows in that probe are the row that fails if it is spread past that.
-   PROPS TAKE THE SAME GROWTH (#18 sixth take, applied in the prop loop below against the prop's own
-   distance): the acceptance says the cue has to hold for a crate as well, and a crate authored in metres
-   collapsed to a pixel or two at exactly the ranges a fight starts. `props` still gates a prop's patch on
-   its OWN silhouette ratio, and the near-field patch a prop casts inside SHADOW_RD is unchanged by this. */
-let SHADOW_RD = 4, SHADOW_RG = 0.045;
+   PROPS TAKE THE SAME MECHANISM, sized on their own yardstick (#18 sixth take, then #353 EIGHTH TAKE,
+   applied in the prop loop below against the prop's own distance): the acceptance says the cue has to hold
+   for a crate as well, and a crate authored in metres collapsed to a pixel or two at exactly the ranges a
+   fight starts. `props` still gates a prop's patch on its OWN silhouette ratio, and the near-field patch a
+   prop casts inside SHADOW_RD is unchanged by this.
+   #353 EIGHTH TAKE - THE GROWTH IS PER CASTER. One constant sized the two casters together, and the two
+   censuses that price it are sized differently: a body's far-band row measures his ink against a disc
+   ~0.58 m wide, a crate's against a footprint of 0.16-0.27 m, so a growth that keeps a MAN's cue visible at
+   16 m spreads a CRATE's over several times its own width and `props`' aimed-not-spread rows call that a
+   smudge. ABATOIR CORE's re-dealt seat (this branch) puts the arrival fight out at 16 m on a deck the
+   generator raised, and at the shared 0.045 m/m his contact ink there collapses to 6 px of deck against the
+   8 px floor `contrast` prices - `main` reads 39 px on a sector whose seat is unchanged. The constant is
+   therefore split: SHADOW_RG is the BODY's growth, SHADOW_PRG the PROP's, and the shipped 0.045 is kept for
+   the crate, which is the value every prop row was measured at. The body's is 0.07 m/m, which puts 1.51 m of
+   disc radius at 16 m against the 1.6x spread bar `contrast` measures it with (it reads x0.68 there, 0 stray
+   px) and clears that row's 8 px floor at 17 px. It is still the same linear, continuous, pop-free growth
+   and the same single mechanism; only its size is now carried per caster, which is what the two rows' own
+   denominators ask for. */
+let SHADOW_RD = 4, SHADOW_RG = 0.07, SHADOW_PRG = 0.045;
 /* #371 item 3: the same term, on a PROP. A crate's lower edge used to be as bright as its upper edge,
    because nothing said where the crate meets the floor. This is not a new mechanism - it registers the
    prop in the SAME grid #178 built, so both ground copies and the wall loop darkening happens once per
@@ -660,7 +674,36 @@ const CEILFL = 0.10;
    a soffit in a dark room is still a soffit and never posterises to black. `SLAB_INC = 0` is the A/B back. */
 const SLAB_ALB = 1.42, SLAB_RIB = 2, SLAB_RIBW = 0.34, SLAB_RIBK = 0.48, SLAB_LIP = 0.40, SLAB_LIPA = 1.35,
   SLAB_SEAM = 0.09, SLAB_SEAMK = 0.78, SLAB_INC = 0.85, SLAB_INCF = 0.40;
-let SLABUND = 1;
+/* #353 (the product decision on #421's soffit) - THE JOIST RIB IS FADED BY THE PIXEL'S FOOTPRINT.
+   The rib is a WORLD-METRE square wave - a joist every 1/SLAB_RIB = 0.5 m along the span, written from
+   the cell-local position at the pixel - and it is not in a texture, so none of the machinery #19 built
+   for the FETCH (mips, the walk, the far wash, the magnified share) can reach it. Where the pixel's own
+   footprint on the plane is wider than the period, the value the point sample picks is not a sample of
+   the rib but a draw between rib and field. That is #19's defect class on a term the mip chain never
+   sees, and the fix is the FILTER rather than a constant: past one period the pixel is given a share of
+   the rib's OWN area (`SLAB_RIBM`, the square wave's mean), by the same convex share `1 - P/F` the
+   fetch's walk and wash use, and it is byte-identical to what shipped while the period is resolved. It
+   is mean-preserving by construction, so the plate's average albedo and every lamp pool under it are
+   unchanged - which is why all eight `exposure` records come back to the digit with this term on - and
+   it spends none of the vault lift #410 caps.
+   WHAT IT BUYS ON THE FAN ROW, MEASURED IN ONE TREE AT THIS HEAD, IS ABOUT A POINT AND IT IS NOT THE
+   LEVER: L2 32 with the fade, 33 with `SLABGF = 0`, and 32 with the rib's contrast, the lit lip and the
+   shadow gap ALL turned off while the albedo stays - so the grain is not what `mip`'s ceiling-fan row
+   prices. What it prices is a 3 m plate overhead at grazing incidence: the textureless control rose with
+   the deck (22 -> 24) and the fetch-owned excess over it holds at main's 8, while the underside material
+   itself is the only arm that reaches the old figure (`SLABUND = 0`, 29, and that is #421's look, not
+   this sector's). Read this term as a correctness fix for a grain that was being point-sampled below its
+   period - which is why it ships - and NOT as the thing that closed the fan row; `CEIL_ACCEPT` in
+   tools/view.js carries that, with the measurement beside it.
+   Deliberately NOT filtered: the lit lip (SLAB_LIP, a 0.4 m one-shot band) and the shadow gap
+   (SLAB_SEAM, 0.09 m). Both were tried. A one-shot band has no period to average over, so fading it is
+   NOT mean-preserving: it moved the seeded medians by 1-2 lumas (L0 76 -> 74, L1 83 -> 81, L2 65 -> 64),
+   i.e. the seat goes dimmer to buy a streak metric - and it bought a point of that metric, the same
+   point the rib's fade buys for free. The lit edge that makes the deck read as a floor stays #421's.
+   `SLABGF` is the A/B: 0 puts the hard-edged point sample back in BOTH copies. `DEV.set('slabgrain', 0)`
+   is the same A/B in a running page. Both copies of the pixel body carry the fade, as AGENTS.md charges. */
+const SLAB_RIBM = 1 - SLAB_RIBW * (1 - SLAB_RIBK);   // the rib square wave's own mean
+let SLABUND = 1, SLABGF = 1;
 const visAt = d => 1 / (1 + d * d * 0.010) + 0.06 * Math.exp(-d * 0.06);
 const fogAt = d => clamp(1 - visAt(d), 0, 1);
 const clampi = v => v < 0 ? 0 : v > 255 ? 255 : v | 0;
@@ -836,7 +879,10 @@ function renderWorld() {
          deck it lies on is what finally hides it, by depth rather than by blending. Exactly 0 for
          dieT <= 0.55, which is where `anim` samples the corpse, so those rows do not move. */
       mesh: true, kind: e.kind, x: e.x, y: e.y,
-      z: floorAt(e.x, e.y) - settle * CORPSE.sink * e.scale,
+      /* #830: the altitude is the BODY's, not its column's. A settled body answers floorAt exactly,
+         so this is main's number for every body that never leaves a band; a falling one is drawn where
+         it actually is, which is also what its depth test against zbuf is against. */
+      z: bodyAlt(e) - settle * CORPSE.sink * e.scale,
       yaw: TAU * 0.25 - heading,                      // body +z is its front: see js/13_mesh.js draw
       scale: e.scale, alpha: fr.alpha, flash: fr.flash ? 1 : 0, tint: e.tint,
       p: e.anim, mv: e.movingAmt || 0,
@@ -1144,6 +1190,61 @@ const GJITPX = 48;      // GJIT 1 keeps the mirror only where a cell is this man
    A/B in the running page. */
 let GWALK = 1;
 const GWN = 4;                                   // hard cap on levels walked (mips are 5 deep)
+
+/* #19, TAKE TWENTY - THE TAPS' OWN SPAN, and the falsification it carries.
+   Take fifteen handed the strip a selected texel cannot carry UP the chain, to a pair one level coarser,
+   and measured that walking deeper changes nothing. The obvious next question is the one this term answers
+   by being un-shippable: how much of the pixel does the fetch's OWN set of taps actually stand for? Two
+   texels of level k+j are 2^(j+1) texels of the selected level k, so the taps represent
+
+     rep = 1 + SUM_j 2^(j+1)          5 texels at GWALK = 1, 13 at 3
+
+   and the share of a strip F texels long that no tap stands for, 1 - rep/F, was the candidate for the
+   material's mean - the near-band walk path being the one place take fifteen left un-washed, since its
+   gate (`fLong > 1`) is the SAME expression the magnified share's gate (`fC < 1 && !gnw`) excludes.
+
+   MEASURED, AND IT IS FALSIFIED - by the control, not by the streak. Both copies below, run against the
+   same tree with the term switched off (`JSDIR=` + `node tools/view.js mip`, one process per arm, this
+   head; the shipped arm is ceiling streak per sector, then the 1-D CONTROL the same probe renders):
+     GNDMM 0 (ships)   ceil 48 / 76 / 32 / 24      ctl 55 / 93 / 39 / 33    mip ok
+     GNDMMS 0.25, 0.5  the same four rows to the digit, control included
+     GNDMM 1, strength 1   ceil 47 / 75 / 32 / 24  ctl 46 / 74 / 35 / 18    mip FAILS
+   Two things that row says, and they are the same thing twice. On the SHIPPED arm the gate barely opens:
+   `mipSel` selects the level whose texel is the pixel's footprint rounded up to a power of two, so a
+   correctly-selected pixel's long-axis F lands in [1, 2) and `fLong > rep` with rep = 5 is false on
+   essentially all of them - one point of streak, inside the +-3 this issue records. Where the gate DOES
+   open is a pixel whose selected mip is too fine for its footprint, and that is the 1-D control's
+   condition, not the shipped look's: its rep stays 5 while its F runs past 30, so its un-represented
+   share runs to the mean and its ceiling streak falls from 55 / 93 / 39 / 33 to 46 / 74 / 35 / 18 - the
+   control flattening faster than the arm, which is this issue's signature for a blur (take eighteen,
+   same shape as `CGW` at 1 and `GNDFA` off) rather than a filter.
+   So `rep` does not fix the fault that killed `CGW`; it only moves the gate's threshold along the SAME
+   quantity. Both are in texels of the mip the pixel selected, and no quantity of that kind can tell a
+   long strip from a wrong selection - which is the arithmetic behind take fifteen's one point, and the
+   reason a third area term is not what is left on this issue.
+   GNDMM therefore ships at 0 - main's picture, pixel for pixel, nothing re-keyed - and stays in the tree
+   as the one-constant A/B of that claim, beside `gndwash` and `gndwalk`: `DEV.set('gndmean', 1)` is the
+   arm and a value above 1 scales the share. What the mush arm - a ceiling with NO texture at all, which
+   measures 27 / 57 / 24 / 23 here - leaves on these four seats is where the rest of the fan lives, and
+   `mip`'s own band rows say it is not out in the far field: at 12 m+ the shipped ceiling streak is 49
+   against that textureless roof's 50 on level 0 and 111 against 116 on level 1, so by this probe's own
+   rule - a band the mush frame reports at the same or a HIGHER proportion is reporting light and slab,
+   not a fetch - the fetch buys nothing past 12 m, and the off-map pixels out there are not an open
+   question either (#375 closed completed at b655e29, its rule sitting in BOTH copies of this body).
+   What those rows single out is the NEAR band: <4 m ceiling streak 123 against a textureless 38 on level 0
+   and 143 against 91 on level 1, while the magnified share CGWN already pays for is four of those points
+   (its own row: near-band 119 against a 123 control) and the same band's detail row reads 32 against a
+   mush floor of 13. A close roof's per-texel speckle is therefore doing both jobs at once - it is what
+   makes a nearby ceiling read as material AND what sweeps the spokes - which makes the one live lead on
+   this issue a MATERIAL question in js/10_assets.js, where `ceilBlocks` already gives the roof its
+   structure one octave coarser than any fetch term reaches, rather than a 21st fetch term or the light.
+   THE LIGHT-RAMP BUYBACK was measured and DECLINED, not deferred: at the shipped look all four levels sit
+   INSIDE their accepted bars (48/76/32/24 under 49/78/29/25 + 4), so there is no over-budget streak here
+   to pay for by flattening the ground's per-cell light ramp - that ramp is what #495, #829 and the
+   bilinear light plane are, and smoothing it would spend `exposure.js`'s pinned medians and the lamp
+   pools those changes built. The fan is left at the accepted floor and waits on ADDING light high on a
+   wall (#860), not on spreading the light that is already there. */
+let GNDMM = 0, GNDMMS = 1;
 
 /* #19, TAKE SIXTEEN - THE CEILING WASH, and the measurement that decided its shape.
    Take fifteen falsified COVERAGE (reading the whole footprint from the chain moved the ceiling streak by
@@ -1687,7 +1788,10 @@ function buildShadowGrid() {
     if (d2 > far2) continue;
     // #18 fourth take: metres of annulus past the dead range, so the screen footprint stops collapsing
     const grow = d2 > SHADOW_RD * SHADOW_RD ? SHADOW_RG * (Math.sqrt(d2) - SHADOW_RD) : 0;
-    const n = SH_N, r = SHADOW_R + e.r + grow, fz = floorAt(e.x, e.y);
+    /* #830: the disc rides at the body's FEET, which is what SH_Z means here (see shadowFloor's
+       `plane - SH_Z` band): a settled body answers its own band's floor exactly as before, and one in
+       mid-air no longer grounds itself on the slab it fell past. */
+    const n = SH_N, r = SHADOW_R + e.r + grow, fz = bodyAlt(e);
     SH_X[n] = e.x; SH_Y[n] = e.y; SH_Z[n] = fz; SH_I[n] = 1 / (r * r); SH_H[n] = r;
     SH_FX[n] = SHADOW_F; SH_FW[n] = SHADOW_D;
     const x0 = (e.x - r) | 0, x1 = (e.x + r) | 0, y0 = (e.y - r) | 0, y1 = (e.y + r) | 0;
@@ -1717,7 +1821,7 @@ function buildShadowGrid() {
          far-band census attributed by CASTER - grown discs of both casters overlap on the same deck and
          `shadowFloor` answers a shared pixel with the darkest disc, so before #648 a crate-at-range row
          could not be written without the body's own row collapsing (measured 14 px -> 1 px). */
-      const pgrow = pd2 > SHADOW_RD * SHADOW_RD ? SHADOW_RG * (Math.sqrt(pd2) - SHADOW_RD) : 0;
+      const pgrow = pd2 > SHADOW_RD * SHADOW_RD ? SHADOW_PRG * (Math.sqrt(pd2) - SHADOW_RD) : 0;
       const n = SH_N, r = MESH.foot(p.kind) * (p.scale || 1) + SHADOW_PR + pgrow;
       if (r <= 0) continue;                             // a kind with no authored footprint grounds nothing
       SH_X[n] = p.x; SH_Y[n] = p.y; SH_Z[n] = floorAt(p.x, p.y); SH_I[n] = 1 / (r * r); SH_H[n] = r;
@@ -2189,6 +2293,19 @@ function castGround(flash, fcR, fcG, fcB) {
        and silently drop the filter the geometry is asking for. The offset keeps the sign; the pair is
        +-ox either way, so the filter stays symmetric whichever way that ray points. */
     const colT = cfRow * ms * 0.5, colA = colT < 0 ? -colT : colT, rowT2 = (wxs * wxs + wys * wys) * ms * ms;
+    /* #353, the ROW copy of the soffit-grain fade: the three shares are ROW constants for the same
+       reason the walk's and the wash's are - the row's plane distance, its column delta and its mip all
+       are. The footprint is the same long-axis number the walk gates on, in WORLD METRES: the branch test
+       is identical to `colA*colA*4 >= rowT2` with `ms` cancelled out of both sides, so the filter and the
+       fetch agree about which axis is the long one and about how wide the pixel is. Second copy:
+       gndBuild/groundPixel. `cskOn` already says `!isF`, so a floor row - and a flat level, where
+       MAP.ceilSlab is all zero - runs no line of this. */
+    let fgA = 0;
+    if (cskOn && SLABGF) {
+      const fpC = cfRow < 0 ? -cfRow : cfRow, fp2 = wxs * wxs + wys * wys;
+      const fp = fpC * fpC >= fp2 ? fpC : Math.sqrt(fp2);          // metres of plane per pixel
+      if (fp * SLAB_RIB > 1) fgA = 1 - 1 / (fp * SLAB_RIB);        // the share of the period it cannot hold
+    }
     let axOn = 0, ox = 0, oy = 0, oxs = 0, oys = 0;
     if (GNDAX) {
       if (colA * colA * 4 >= rowT2) {
@@ -2221,7 +2338,7 @@ function castGround(flash, fcR, fcG, fcB) {
        are all row constants here (the deferred copy reads the same rule from the pixel's own footprint).
        Weights are built so they sum to 1 by construction: c starts at the share level kRow carries and
        each level takes the strip it can cover, the last one taking the remainder. */
-    let gnw = 0, gW0 = 1, cgW = 0, cgR = 0, cgG = 0, cgB = 0;
+    let gnw = 0, gW0 = 1, cgW = 0, cgR = 0, cgG = 0, cgB = 0, gMw = 0, gMr = 0, gMg = 0, gMb = 0;
     /* #19 take sixteen, the ROW copy. F, the share and the mean are all row constants here, so the ceiling
        pixel body pays ONE test and three fused mults and loads NO texel for its un-carried share - the
        wash is cheaper on a ceiling row than the walk it replaces. Past FARB the row is filled by the far
@@ -2237,17 +2354,28 @@ function castGround(flash, fcR, fcG, fcB) {
     } else if (GNDFA && kRow + 1 < tex.mips.length) {
       const fLong = colA * colA * 4 >= rowT2 ? colA * 2 : Math.sqrt(rowT2);
       if (fLong > 1) {
-        let c = 1 / fLong, j = 1, sum = 0;
+        let c = 1 / fLong, j = 1, sum = 0, rep = 1;
         for (; j <= GWALK && kRow + j < tex.mips.length; j++) {
           const last = j === GWALK || kRow + j + 1 >= tex.mips.length;
           const cn = last || (1 << j) >= fLong ? 1 : (1 << j) / fLong;
           const mu = tex.mips[kRow + j];
           gwd[j - 1] = mu.data; gwmw[j - 1] = mu.w; gwmk[(j - 1) * 2] = mu.w - 1; gwmk[(j - 1) * 2 + 1] = mu.h - 1;
           gws[j - 1] = sc * mu.w; gwox[j - 1] = j - 1; gww[j - 1] = GNDFA * (cn > c ? cn - c : 0);
-          sum += gww[j - 1]; c = cn; gnw = j;
+          sum += gww[j - 1]; c = cn; gnw = j; rep += 1 << (j + 1);     // rep: texels of THIS level the taps hold
           if (c >= 1) break;
         }
         gW0 = 1 - sum;                        // the selected level keeps the share its texel carries
+        /* #19 take twenty, ROW copy: the share no tap stands for goes to the material's mean and the walk's
+           shares scale by what is left, so the weights still add to one. Ships off (GNDMM = 0): see the
+           measurement above. meanALL, not the wash's meanNE, because this share is folded in BEFORE the
+           emissive return and a far lamp must not darken by the share this term moves. */
+        if (GNDMM && fLong > rep) {
+          const sC = 1 - GNDMMS * (1 - rep / fLong), mmW = tex.mips[tex.mips.length - 1];
+          texAvg(mmW);
+          for (let q = 0; q < gnw; q++) gww[q] *= sC;
+          gW0 *= sC; gMw = 1 - sC;
+          gMr = mmW.meanALL[0] * gMw; gMg = mmW.meanALL[1] * gMw; gMb = mmW.meanALL[2] * gMw;
+        }
       }
     }
     /* #19 take eighteen, the ROW copy: the MAGNIFIED share, ceiling rows only, and a ROW constant here for
@@ -2523,7 +2651,7 @@ function castGround(flash, fcR, fcG, fcB) {
         if ((c1 >>> 24) === 253 || (c2 >>> 24) === 253) em = 253;
       }
       if (gnw) {                              // the walk's weighted sum; the shares add to ONE, so no
-        let ar = 0, ag = 0, ab = 0;           // pixel gets brighter or darker from WHERE its area is read
+        let ar = gMr, ag = gMg, ab = gMb;     // pixel gets brighter or darker from WHERE its area is read
         for (let q = 0; q < gnw; q++) {
           const fd = gwd[q], fmx = gwmk[q * 2], fmy = gwmk[q * 2 + 1], fmw = gwmw[q];
           const vx = wx * gws[q], vy = wy * gws[q];
@@ -2569,8 +2697,20 @@ function castGround(flash, fcR, fcG, fcB) {
          one number, so `und` is 0 whenever the walk is off the map). */
       if (und) {
         const fxu = wx - gx, fyu = wy - gy;
-        const ru = (und & 10 ? fxu : fyu) * SLAB_RIB, rf = ru - Math.floor(ru);
-        let ku = rf < SLAB_RIBW ? SLAB_RIBK : 1;
+        const ru = (und & 10 ? fxu : fyu) * SLAB_RIB;
+        let ku = ru - Math.floor(ru) < SLAB_RIBW ? SLAB_RIBK : 1;
+        /* #353, ROW COPY: the rib faded toward its own mean by the share of the period this row cannot
+           hold. `fgA` is 0 while the footprint is inside one period - byte-identical to what shipped,
+           which is the control every band row reads - and is `1 - P/F` past it, the same convex share
+           the fetch's walk and wash use, so a pixel two periods out keeps half its contrast and one
+           eight periods out keeps an eighth. The mean it converges to is the square wave's own area
+           (`SLAB_RIBM`), so the plate's average albedo does not move and no lamp pool under it does:
+           `exposure`'s four seeded medians and eight spawn digits come back on their records in one run.
+           The exact box integral of the wave was tried first and measured the SAME fan at a cost of six
+           flops a pixel, and so did turning all three grain terms off with the albedo kept: the fan is
+           not the wave's area, it is the plate's own area at grazing incidence (SLABGF at the top of
+           this file). Second copy: groundPixel. */
+        if (fgA > 0) ku = SLAB_RIBM + (ku - SLAB_RIBM) * (1 - fgA);   // #353 the unresolved share -> mean
         if (und & 30) {
           let lw = 4;
           if ((und & 2) && 1 - fxu < lw) lw = 1 - fxu;
@@ -2697,6 +2837,7 @@ let gSer = 0, gMSer = -1, gMRow = -1, gMPl = 0, gMDS = 0, gMDfa = 0, gMFog = 0, 
   gMFG = 0, gMFB = 0, gMBase = 0, gMCx0 = 0, gMCy0 = 0, gMCxs = 0, gMCys = 0,
   gMCf = 0, gMAx = 0, gMWs = 0, gMAn = 1, gMAr = 4, gMN = 0, gMDist = -1, gMMirOn = 0,
   gMFar = 0, gMVoid = 0, gMWnR = 0, gMWnG = 0, gMWnB = 0, gMWErr = 0, gMWEg = 0, gMWEm = 0, gMLift = 0,
+  gMFgA = 0,
   gMTx = 0, gMTxS = 0, gMTxW = 1, gMTxH = 1, gMTxD = null,
   gMTxA = 0, gMTxB = 0, gMTxC = 0, gMTxD0 = 0, gMTxD1 = 0, gMTxD2 = 0,
   gMXx = 0, gMXS = 0, gMXW = 1, gMXH = 1, gMXD = null, gMXA = 0, gMXB = 0, gMXC = 0, gMXE0 = 0, gMXE1 = 0, gMXE2 = 0, gMXF0 = 0, gMXF1 = 0, gMXF2 = 0,
@@ -2722,6 +2863,17 @@ function gndBuild(row, isF, absP, pl, tex, sc, fcR, fcG, fcB, fl, amb, dOv) {
      of this run needs two multiplies, not a ray build. Same algebra the row uses for its own wx/wys. */
   const sb = 2 / BW;
   gMCxs = sb * planeX * dc; gMCys = sb * planeY * dc;
+  /* #353, the DEFERRED copy of the soffit-grain share - same rule, same arithmetic, THIS run's own
+     distance, second copy (AGENTS.md: change one copy and you have changed the other). It is a run
+     constant exactly like the walk's and the wash's, and `gMFgA` is what groundPixel's soffit term
+     reads. SOLVED FROM dc/absP, NOT FROM `gMCf`: gMCf is the SAME number but is assigned further down
+     this function, after the mip selection, so reading it here would use the PREVIOUS run's plane and
+     give a share for a distance this run is not at. */
+  if (!isF && SLABUND && SLABGF) {
+    const fpC = dc / absP, fp2 = gMCxs * gMCxs + gMCys * gMCys;
+    const fp = fpC * fpC >= fp2 ? fpC : Math.sqrt(fp2);
+    if (fp * SLAB_RIB > 1) gMFgA = 1 - 1 / (fp * SLAB_RIB);
+  } else gMFgA = 0;
   gMCx0 = camX + (dirX - planeX) * dc; gMCy0 = camY + (dirY - planeY) * dc;
   /* mip selection, per (row, plane): mipSel's ROW axis is the same number for every column of the run,
      and only its column axis moves - by |ray|, which is what the pixel's own cam offset says. Same
@@ -3331,7 +3483,7 @@ function groundPixel(x0, x1, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb
      rule, same arithmetic, second copy - AGENTS.md counts the duplication as the price of the row loop's
      registers. Weights sum to 1: level k carries min(1,1/F), level k+j carries the strip its texel can
      cover, and the deepest level read takes the remainder the chain could not reach. */
-  let gnw = 0, gW0 = 1, cgW = 0, cgR = 0, cgG = 0, cgB = 0;
+  let gnw = 0, gW0 = 1, cgW = 0, cgR = 0, cgG = 0, cgB = 0, gMw = 0, gMr = 0, gMg = 0, gMb = 0;
   /* #19 take sixteen, the DEFERRED copy of the ceiling wash: this pixel's OWN mip and OWN footprint, same
      rule and the same convex form as the row copy (AGENTS.md counts the duplication as the price of the
      row loop's registers). Past FARB gMFar answered this pixel above, and it answered it with this same
@@ -3350,17 +3502,26 @@ function groundPixel(x0, x1, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb
     const colT = gMCf * ms * 0.5, colA = colT < 0 ? -colT : colT, rowT2 = (gMCxs * gMCxs + gMCys * gMCys) * ms * ms;
     const fLong = colA * colA * 4 >= rowT2 ? colA * 2 : Math.sqrt(rowT2);
     if (fLong > 1) {
-      let c = 1 / fLong, j = 1, sum = 0;
+      let c = 1 / fLong, j = 1, sum = 0, rep = 1;
       for (; j <= GWALK && k + j < gMN; j++) {
         const last = j === GWALK || k + j + 1 >= gMN;
         const cn = last || (1 << j) >= fLong ? 1 : (1 << j) / fLong;
         const mu = tex.mips[k + j];
         gwd[j - 1] = mu.data; gwmw[j - 1] = mu.w; gwmk[(j - 1) * 2] = mu.w - 1; gwmk[(j - 1) * 2 + 1] = mu.h - 1;
         gws[j - 1] = sc * mu.w; gwox[j - 1] = j - 1; gww[j - 1] = GNDFA * (cn > c ? cn - c : 0);
-        sum += gww[j - 1]; c = cn; gnw = j;
+        sum += gww[j - 1]; c = cn; gnw = j; rep += 1 << (j + 1);       // rep, second copy (AGENTS.md)
         if (c >= 1) break;
       }
       gW0 = 1 - sum;
+      /* #19 take twenty, DEFERRED copy: this pixel's OWN F and OWN levels, same arithmetic as the row copy
+         (AGENTS.md counts the duplication as the price of the row loop's registers). */
+      if (GNDMM && fLong > rep) {
+        const sC = 1 - GNDMMS * (1 - rep / fLong), mmW = tex.mips[gMN - 1];
+        texAvg(mmW);
+        for (let q = 0; q < gnw; q++) gww[q] *= sC;
+        gW0 *= sC; gMw = 1 - sC;
+        gMr = mmW.meanALL[0] * gMw; gMg = mmW.meanALL[1] * gMw; gMb = mmW.meanALL[2] * gMw;
+      }
     }
   }
   /* #19 take eighteen, the DEFERRED copy of the MAGNIFIED share - same rule, same grading, THIS pixel's own
@@ -3431,7 +3592,7 @@ function groundPixel(x0, x1, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb
     cb = cb * 0.5 + (c1 >> 16 & 255) * 0.25 + (c2 >> 16 & 255) * 0.25;
     if ((c1 >>> 24) === 253 || (c2 >>> 24) === 253) em = 253;    // the FLAG rule, same as the row copy
   }
-  let gar = 0, gag = 0, gab = 0;
+  let gar = gMr, gag = gMg, gab = gMb;        // the mean's share first, then the taps (#19 take twenty)
   for (let q = 0; q < gnw; q++) {            // the same walk as the row copy, from THIS pixel's OWN mip
     const fd = gwd[q], fmx = gwmk[q * 2], fmy = gwmk[q * 2 + 1], fmw = gwmw[q];
     const vx = cx * gws[q], vy = cy * gws[q];         // and footprint, second copy (AGENTS.md)
@@ -3469,8 +3630,11 @@ function groundPixel(x0, x1, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb
   if (csk !== null && inMap && csk[cIdx]) {
     const ux = csk[cIdx];
     const fxu = cx - sx, fyu = cy - sy;
-    const ru = (ux & 10 ? fxu : fyu) * SLAB_RIB, rf = ru - Math.floor(ru);
-    let ku = rf < SLAB_RIBW ? SLAB_RIBK : 1;
+    const ru = (ux & 10 ? fxu : fyu) * SLAB_RIB;
+    let ku = ru - Math.floor(ru) < SLAB_RIBW ? SLAB_RIBK : 1;
+    /* #353, DEFERRED COPY: the rib faded toward its own mean by the unresolved share of this run's
+       footprint (gndBuild). 0 while the period is resolved, so a near pixel is byte-identical. */
+    if (gMFgA > 0) ku = SLAB_RIBM + (ku - SLAB_RIBM) * (1 - gMFgA);   // #353, second copy
     if (ux & 30) {
       let lw = 4;
       if ((ux & 2) && 1 - fxu < lw) lw = 1 - fxu;
