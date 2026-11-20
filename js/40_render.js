@@ -708,7 +708,32 @@ const CEILFL = 0.10;
    moves, #410's vault cap is untouched, the two pixel-body copies carry the same three constants, and
    on a flat level `MAP.ceilSlab` is zero so no line of the term runs and `flatparity` stays bit-exact.
    `SLABUND = 0` is still the A/B that puts the old picture back. */
-const SLAB_ALB = 1.42, SLAB_RIB = 2, SLAB_RIBW = 0.34, SLAB_RIBK = 0.48, SLAB_LIP = 0.40, SLAB_LIPA = 1.35,
+/* #421 THE GRAIN IS THE CHANNEL THE MEAN-PRICED ROWS CANNOT SEE. The soffit has carried its own
+   material since PR #461 - plate over joists, at its own albedo - and `surface` still scored the band
+   overhead 6-7 luma from the level's ceiling sheet at the four look-up seats, which is the issue's
+   criterion 1. That gap is not reachable by a brightness term and the reason is arithmetic, not taste:
+   every scorable pose contributes a forbidden interval for a plate-wide scale `k` (its own underside mean
+   must land 15 lumas from ITS sheet, and the sheets run 50-78 lumas across poses), and the union of
+   those intervals is (0.320, 1.391) - no scalar escapes it - while a per-pixel map of the pixel's own
+   luma is excluded outright, because THE STACK's arrival pose needs its underside kept at or over 75.7
+   and ABATOIR's needs the same map applied to a 110.2-luma underside taken to 35.3 or below. A monotone
+   map cannot do both. What none of those rows prices is the plate's GRAIN: the joist rib is
+   mean-preserving by construction (`SLAB_RIBM` is its own area), so contrast bought there moves no
+   band mean, no seeded median and no ORDER/ABOVEBLACK/ROOF ratio - which is why #353's fade could ship
+   with all eight `exposure` records on their digits.
+   So the material half is spent on the grain, and the defect there is measurable: the rib shipped at a
+   0.5 m pitch, and #353's footprint filter - correctly - fades a wave the pixel cannot resolve toward
+   its mean. A soffit is seen from 1.5-4 m, where one pixel covers a metre or more of plane, so in most
+   of every look-up frame the rib had already faded to flat plate and the only difference left between
+   a floor's underside and the level's sheet was a 1.42 albedo multiplied away by the same light field.
+   The pitch goes to 0.77 m (a joist at a real joist's spacing, and 1.5x further before the filter
+   starts), and the shadow line goes narrower and deeper at the SAME area - 0.25 duty at 0.30 depth
+   against 0.34 at 0.48 - so `SLAB_RIBM` lands at 0.824 against 0.823 and the plate's average albedo is
+   where it was to two decimals. What moves is that a soffit is now a lined plate at the distances a
+   second storey is actually looked up at, instead of a sheet with the ceiling's own flatness. Both
+   copies of the ground pixel body read these three constants, and `SLABGF = 0` is still the A/B that
+   puts the hard-edged point sample back. */
+const SLAB_ALB = 1.42, SLAB_RIB = 1.3, SLAB_RIBW = 0.25, SLAB_RIBK = 0.30, SLAB_LIP = 0.40, SLAB_LIPA = 1.35,
   SLAB_SEAM = 0.34, SLAB_SEAMK = 0.82, SLAB_INC = 0.85, SLAB_INCF = 0.40;
 /* #421: THE CREASE'S AREA SHARE, PAID BACK ONTO THE PLATE IT CUTS. The gap is a BAND now, not a crease
    one pixel wide, and a band takes luma off the underside's MEAN in proportion to its area - which is
