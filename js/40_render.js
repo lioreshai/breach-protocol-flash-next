@@ -672,8 +672,70 @@ const CEILFL = 0.10;
    while `ORDER` goes green. It is still a texel multiplier ahead of the light term like the other three,
    so it spends none of the vault lift #410 capped and adds no light; SLAB_INCF is the floor under it, so
    a soffit in a dark room is still a soffit and never posterises to black. `SLAB_INC = 0` is the A/B back. */
+/* #421 TAKE: THE SHADOW GAP IS WIDENED FROM A CREASE INTO A BAND. The gap shipped at 0.09 m, a crease
+   one pixel wide at the distances a soffit is seen at: `surface`'s LIP row - the median luma step across
+   the underside's near edge, the thing that is supposed to say "this is the end of a floor" - measured
+   10.4 / 13.6 / 2.7 luma at the three seats it can score against a 15-luma bar, and its UNDERSIDE row -
+   the underside band against the level's own ceiling sheet in the same frame - 7.0 / 3.9 / 2.3. Both
+   numbers are a DIFFERENCE between two surfaces, which is why three passes of plate-wide constants
+   could not close them: a whole-band dose is bounded above by ORDER and below by ABOVEBLACK, and the
+   feasible interval for one scalar is empty (measured: the darken window closes at k <= 0.554 and the
+   brighten window opens at k >= 1.443). A BAND that lives at the edge is not bounded the same way. It
+   spends its darkness where the slab actually stops, so the step the LIP row solves rises by the full
+   dose while the band's mean - which is what ABOVEBLACK and ORDER price - moves only by the edge's
+   AREA SHARE. At 0.34 m the gap is a strip a hand wide along the underside's end, which is also what a
+   shadow gap under a slab is in the world: the deck's own depth, not a line. Same bytes as before
+   (bits 5..8 of `MAP.ceilSlab`, `buildCeilSlab`'s second pass), same ramp, same two copies of the pixel
+   body; only the width moved, and `SLABUND = 0` is still the A/B back. */
+/* #421 TAKE: THE SHADOW GAP BECOMES A BAND, AND THE PLATE KEEPS ITS MEAN. The gap shipped 0.09 m wide -
+   a crease one pixel wide at the distances a soffit is seen at - so a slab's near edge stepped 10.4 /
+   13.6 / 2.7 luma at the three seats `surface` can score it against a 15-luma bar, and the issue's
+   "you cannot see where the edge of that slab is" is exactly that measurement. Widening the gap is the
+   one lever that is not bounded from both sides: three passes proved a WHOLE-BAND constant infeasible
+   (the darken window closes at k <= 0.554 while ABOVEBLACK and the brighten window open at k >= 1.443),
+   because `UNDERSIDE` grades a DIFFERENCE and `ORDER` / `ABOVEBLACK` price each surface against a floor
+   and a ceiling. An EDGE term is priced differently: `LIP` samples the six pixels on each side of the
+   underside's own end, so the step it solves rises by the full depth of the crease while the band's
+   MEAN - the number the other two rows read - moves only by the crease's AREA SHARE.
+   Measured, and this is the part that decided the shape: widening the crease to 0.34 m at 0.82 depth
+   put all three `LIP` seats over the bar (10.4 -> 19.4, 13.6 -> 19.1, and ABATOIR's 2.7 -> 25.9) and
+   took 13 % off the BAND MEAN, which pushed two rows that were green back into the dead zone (RING
+   TRANSPORT's cam3 20.5 -> 8.3, THE STACK's camN 25.2 -> 13.0). A crease that buys an edge by dimming
+   the storey is the same trade #706 made and #781 retired, so the darkening is paid for by `SLAB_PAY`
+   lifts the texel by the crease's own area share, byte for byte on both copies, which holds the
+   underside band's mean where it was and makes this increment a REDISTRIBUTION of the soffit's albedo
+   onto its edge rather than a darkening of it. Nothing here is a floor, a window or a light: no lamp
+   moves, #410's vault cap is untouched, the two pixel-body copies carry the same three constants, and
+   on a flat level `MAP.ceilSlab` is zero so no line of the term runs and `flatparity` stays bit-exact.
+   `SLABUND = 0` is still the A/B that puts the old picture back. */
 const SLAB_ALB = 1.42, SLAB_RIB = 2, SLAB_RIBW = 0.34, SLAB_RIBK = 0.48, SLAB_LIP = 0.40, SLAB_LIPA = 1.35,
-  SLAB_SEAM = 0.09, SLAB_SEAMK = 0.78, SLAB_INC = 0.85, SLAB_INCF = 0.40;
+  SLAB_SEAM = 0.34, SLAB_SEAMK = 0.82, SLAB_INC = 0.85, SLAB_INCF = 0.40;
+/* #421: THE CREASE'S AREA SHARE, PAID BACK ONTO THE PLATE IT CUTS. The gap is a BAND now, not a crease
+   one pixel wide, and a band takes luma off the underside's MEAN in proportion to its area - which is
+   the number `ABOVEBLACK`, `ORDER` and `UNDERSIDE` price, and the reason every whole-band constant has
+   failed here: measured at 0.34 m x 0.82 the crease cost 13 % of the band mean and pushed two rows that
+   were green back into the dead zone (RING TRANSPORT cam3 20.5 -> 8.3, THE STACK camN 25.2 -> 13.0).
+   A crease that buys an edge by dimming the storey is the trade #706 made and #781 retired, so the
+   darkness is paid for where it is taken: a cell's crease covers the union of one strip per side the
+   underside ENDS at (bits 5..8 of `MAP.ceilSlab`, the same bytes, no new array), whose area is exactly
+   `1 - (1-SLAB_SEAM)^k` for k sides, and the ramp's own mean over a strip is `1 - SLAB_SEAMK/3`. Pixels
+   OUTSIDE that band carry the payback `1 / (1 - share*SLAB_SEAMK/3)`, so the cell's mean albedo is what
+   it was - by construction, not by a tuned constant, and in the same image the strip at the end stays
+   dark. This is #353's and #19's mean-preserving shape applied to a term the mip chain never sees: the
+   increment is a REDISTRIBUTION of the soffit's albedo onto its edge, which is what `LIP` reads, and
+   not a darkening of the storey, which is what `ORDER` and `ABOVEBLACK` read. Table built once at load
+   from the two crease constants; a cell with no end boundary indexes entry 0 and pays nothing. Second
+   copy: groundPixel. `SLABUND = 0` is still the A/B that puts main's picture back. */
+const SLAB_PAY = (() => {
+  const t = new Float32Array(16);
+  for (let m = 0; m < 16; m++) {
+    let k = 0;
+    for (let d = 0; d < 4; d++) if (m & (1 << d)) k++;
+    const share = k ? 1 - Math.pow(1 - SLAB_SEAM, k) : 0;
+    t[m] = 1 / (1 - share * SLAB_SEAMK / 3);
+  }
+  return t;
+})();
 /* #353 (the product decision on #421's soffit) - THE JOIST RIB IS FADED BY THE PIXEL'S FOOTPRINT.
    The rib is a WORLD-METRE square wave - a joist every 1/SLAB_RIB = 0.5 m along the span, written from
    the cell-local position at the pixel - and it is not in a texture, so none of the machinery #19 built
@@ -2726,6 +2788,7 @@ function castGround(flash, fcR, fcG, fcB) {
           if ((und & 64) && 1 - fyu < ew) ew = 1 - fyu;
           if ((und & 256) && fyu < ew) ew = fyu;
           if (ew < SLAB_SEAM) { const sv = 1 - ew / SLAB_SEAM; ku *= 1 - SLAB_SEAMK * sv * sv; }
+          else ku *= SLAB_PAY[(und >> 5) & 15];       // #421, row copy: the crease's share, paid back
         }
         /* #781, ROW COPY: dose by the plane's own decline - see SLAB_INC at its definition. `absP/BH` is
            this row's dz/d, so the term is one multiply per underside pixel and no new sampler. */
@@ -3643,13 +3706,14 @@ function groundPixel(x0, x1, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb
       if ((ux & 16) && fyu < lw) lw = fyu;
       if (lw < SLAB_LIP) ku += SLAB_LIPA * (1 - lw / SLAB_LIP);
     }
-    if (ux & 480) {                                    // #421, second copy: same bits, same seam
+    if (ux & 480) {                                    // #421, second copy: same bits, same crease
       let ew = 4;
       if ((ux & 32) && 1 - fxu < ew) ew = 1 - fxu;
       if ((ux & 128) && fxu < ew) ew = fxu;
       if ((ux & 64) && 1 - fyu < ew) ew = 1 - fyu;
       if ((ux & 256) && fyu < ew) ew = fyu;
       if (ew < SLAB_SEAM) { const sv = 1 - ew / SLAB_SEAM; ku *= 1 - SLAB_SEAMK * sv * sv; }
+      else ku *= SLAB_PAY[(ux >> 5) & 15];             // #421, second copy: same payback, same table
     }
     /* #781, SECOND COPY (AGENTS.md: change one copy and you have changed the other): the same decline
        dose, solved from this pixel's own plane altitude and distance, so the deferred far field cannot
@@ -3660,7 +3724,7 @@ function groundPixel(x0, x1, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb
       ku *= 1 - SLAB_INC * ci * ci;
       if (ku < SLAB_INCF) ku = SLAB_INCF;
     }
-    const ka = SLAB_ALB * ku;
+    const ka = SLAB_ALB * ku;                                      // #421, second copy
     cr = cr * ka * 0.97; cg = cg * ka; cb = cb * ka * 1.06;
   }
   /* #669 take two, SECOND COPY (AGENTS.md: change one copy and you have changed the other): the same
