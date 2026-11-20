@@ -415,8 +415,33 @@ const MESH = (function () {
      NO wave at all rather than an oversampled one - the same rule `af` already applies to a tube's axis.
      A part that snaps to zero on all three axes has all-zero coords and takes the existing flat branch,
      which is why the hands, the sleeve and the muzzle flash stay exactly as they are. */
+  /* #824 THE PERIOD IS THE PART, NOT THE SEAM PITCH. The line above put as many 10 mm seams across a
+     part as the part could hold, so at the rig's own seat (a ~0.245 m anchor, WS_CYC 100) every face
+     carried a ~14 px triangle: a face could differ from its neighbour and still be FLAT ACROSS itself,
+     which is what `node tools/view.js viewmodel`'s rig-mask scan reports as a fan of slabs (at
+     `491b829`, 16.6 steps a row against 14.4 monotone runs a row over 10,504 rig px, mask 3911117e -
+     every luminance step landing on a part boundary and none travelling inside a surface).
+     One period of the SAME triangle wave across a part's own mass is the same term read at the period
+     the eye can resolve: the ramp rises over the half of the part facing the key and falls over the
+     half facing away, so luminance travels INSIDE a surface instead of only at its ends. #562 already
+     chose exactly this for the fists - VS_CYC 4, one 0.25 m period across a 0.09 m fist - and the note
+     there says why the gun's metal was kept off it: a 10 mm seam projects to ~20 px and reads as
+     checkering on a barrel. Both readings are wanted and both survive: the tube's RING count still
+     comes off WS_CYC, so the machined rings stay on top of the ramp (#587 take four), and only the
+     AXIAL period changes.
+       What is NOT changed, and why the mean cannot move: the amplitude law, its ceiling and the byte
+     clip all still read TPR, the projected period of a WS_CYC seam (js/13_mesh.js:2181), so the swing
+     across a face stays the shipped WS_MAX 12 luma and is NOT the far larger amplitude a part-scale
+     period would otherwise earn - this is a redistribution of light the part already receives, never a
+     brightening. Zero-mean is held the way #533 requires: each axis now spans exactly ONE period, so
+     the wave is paired about the part's own centre on every axis and on every face, and the coarsening
+     that #416 applies past TS_MINP halves one whole period, which the rig never reaches at its own
+     anchor distance (~0.19-0.25 m, so TPR ~22 px against the TS_MINP 3.5 gate). The build-time floor
+     is UNCHANGED - a part whose span is under 1.5 seam periods still gets no wave at all, which is why
+     the hands, the sleeve, the muzzle flash and the sight ears leave this term exactly as they are.
+     `wg` is set only by the weapon builders, so no body, prop, hand or sleeve vertex changes coordinate. */
   const WS_CYC = 100, WS_SLOPE = 4.0, WS_MAX = 12;
-  const wSnap = h => { const per = 2 * h * WS_CYC; return per < 1.5 ? 0 : 2 * Math.round(per / 2) / per; };
+  const wSnap = h => { const per = 2 * h * WS_CYC; return per < 1.5 ? 0 : 1 / per; };
   /* PS_CYC is 1/0.12 seams per authored unit, and the number is chosen, not tuned: a crate face is
      0.72 authored units wide (PROPGEO.crate half extents 0.36), and 0.72 * 25/3 = 6 SEAMS EXACTLY.
      That is what makes the wave's mean exactly 0 on every face instead of nearly 0. The wave is
