@@ -35,16 +35,25 @@
   the clip and a rank. A kit is still the brightest prop you can find across a room — about the
   brightness of the deck it stands on, instead of blown out — and the orb and the portal, which make
   their own light, are unchanged.
+- **A roof reads as one surface instead of a fan of stripes** (#19, PR #881). Standing under a low roof,
+  the ceiling came back as light and dark wedges running to the vanishing point, in every frame with a
+  ceiling in it. The ceiling textures were painted with detail finer than the sheet they are drawn on can
+  hold — up to 280 repetitions across a sheet that can carry 64, and one of them with louvre slats a
+  pixel and a half apart — and a fetch across a floor or roof at a shallow angle smears that leftover
+  alias into spokes. Every ceiling term is now painted inside the sheet's own limit at the same strength.
+  You give up a little grit on the roof and get back a ceiling with readable bays; each tile keeps its
+  own colour, brightness and place in the room's light, so no room got brighter or darker. The same
+  spoking over open FLOORS is still there and needs its own fix.
 - **The front page shows the game that ships** (#876, PRs #877, #878). All eight screenshots are
   re-taken off the current build, so the held weapon carries its new face shading and the wall fittings
   appear where they now stand. Where a frame barely moved the caption says so, with the percentage of
   pixels that differ from the frame it replaces; the pit-floor caption's contradictory numbers are
   replaced with what actually changed in that frame.
 
-Not in this release, and known: on a level's wide open floors and ceilings can still read as a fan of
-spokes meeting at the eye (#19, in review now); a prop standing in its own light pool can still read as a
-hole in its deck (#695, in rework); and an enemy at range can still take on his room's hue (#809, in
-rework). One merged PR in this release changed no pixel: #860's wall fitting gained a check row that fails
+Not in this release, and known: the spokes over a level's wide open floors are still there — the roof half
+of that defect is fixed here and the floor half is not (#19); a prop standing in its own light pool can
+still read as a hole in its deck (#695, in rework); and an enemy at range can still take on his room's hue
+(#809, in rework). One merged PR in this release changed no pixel: #860's wall fitting gained a check row that fails
 when the pass that places it is switched off, so that fixture can no longer silently stop being dealt.
 
 ## [v1.4.30] - 2026-11-19
