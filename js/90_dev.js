@@ -297,14 +297,10 @@
        stand for goes to the material's mean instead of being left on them; 0 (shipped) = main, because
        measured, the gate never opens - see js/40_render.js. A value above 1 scales the share. */
     if (name === 'gndmean') { GNDMM = value === undefined || value > 0 ? 1 : 0; if (value > 1) GNDMMS = value; return { gndmean: GNDMM, gndmeans: GNDMMS }; }
-    /* #353's A/B. 1 (shipped) = the soffit's joist rib is faded toward its own mean by the share of its
-       0.5 m period this pixel's footprint cannot hold, in BOTH copies of the ground pixel body; 0 = the
-       hard-edged wave every pixel samples at a point. Measured on ABATOIR CORE the two differ by about
-       half a luma of ceiling streak (32.5 against 33.0, `mip`'s own L2 number), which is LESS than this
-       row's 4-point regression allowance - so switching it off does not redden `mip`, and the honest
-       reading is that the fade is a correctness fix for a below-Nyquist grain, not the lever on the fan
-       (js/40_render.js, SLABGF, and the measurement recorded at CEIL_ACCEPT in tools/view.js). */
-    if (name === 'slabgrain') { SLABGF = value === undefined ? 1 : (value ? 1 : 0); return { slabgrain: SLABGF }; }
+    /* #353's `slabgrain` A/B is GONE with the term it switched: the soffit's joist is baked into
+       CEILS.SOFFIT now (js/10_assets.js, and the note at SLABUND in js/40_render.js), so a switch here
+       would gate a term that is no longer in the build and hand a probe a green row that cannot fail. The
+       live A/B for this plane is `DEV.set('slabund', 0)`. */
     /* #407's A/B. 1 (shipped) = a body or prop takes MAP.light WHOLE at its own cell, exactly as a wall
        column and a ground pixel do; 0 = the pre-#407 second falloff (lm * exp(-distance * 0.14)) is back
        in BOTH copies - the mesh triangle shading and the billboard. One register, two read sites, so it
