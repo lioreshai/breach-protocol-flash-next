@@ -935,6 +935,36 @@ CEILS.SINEW = matTex(64, 64, p => {
 }, { bump: 1.3, amb: 0.42, spec: 0.16, specPow: 18, ao: 0.8, grain: 5, alb: 1.16 });   // #495 TAKE FIVE: 1.05 -> 1.16. TAKE FOUR sized this tile by what ABATOIR CORE's SPAWN frame could carry under the absolute top of the window tools/ci/assert.js gates (1.21 arrived with 0.7 luma under it, which is a coin-flip gate - #505), so it stopped at 1.05 and that sector stayed the one roof under the ~0.7x this issue sets: 0.59x at the arrival seat. The gap is paid for here out of the DECK instead of out of the frame: FLOORS.FLESH -0.05 alb below gives back about what this takes, so the composited spawn median moves by ONE luma (72 -> 73 against a top of 75) and the seeded median 65 -> 66, both inside every window. `surface` ORDER at L2 cam0 goes 0.59 -> 0.65 (53.9 against a deck of 82.9) and the three other ABATOIR seats go with it (0.68 -> 0.75, 0.35 -> 0.38, 0.48 -> 0.53); the tile mean is 78.1, still under the `ceil below every face` bar at 90.5 and under every other ceiling tile's own headroom. THE CAP AND THE ORDER ARE UNTOUCHED: no bias, no lift, no lamp, no height, no threshold moved - the roof's BASE is still `amb + ceilBias + lift` and still cannot out-light the deck under it. THE LAST 0.05x at that seat is not paint: at a ceiling base now at full parity with its deck's (0.30 = 0.30, measured by A/B'ing this level's authored ceilBias to -0.06, which buys +0.6 luma and stops there because #380's cap `lift <= max(0, FLOORB - CEILB)` binds), the remaining deficit is the additive half of the delivered pixel - the exposure lift and the bloom, which compress a ratio - plus the fact that L2's spawn frame is the one frame in the campaign that sits 3 lumas under a gate. That is #505's, not this tile's.
 // The grain and the bays stay as TAKE THREE left them: the roof keeps its structure and gives back only its lead. sized by measurement to what ABATOIR CORE's own arrival frame can pay. This tile covers 47 % of that sector's arrival frame, and on the tree that synced main the composited first frame sat at 75.0 against an absolute window whose top is 75 (tools/ci/assert.js exposure) - zero margin, which is why CI's push and pull_request runs gave opposite verdicts on one tree (#505). 0.94 returns 0.9 luma of frame (spawn 75.0 -> 74.1, seeded median 69 -> 68.77) and buys that margin out of the roof's own value, not out of a band: no threshold, window or floor moved here. Hue untouched, so #466's family statement (ceiling h31 against wall h9) stands, and the grain raised in #495 is what keeps the roof a SURFACE at the lower value - the roof keeps its structure and gives back only its lead.
 
+/* #421 THE UNDERSIDE'S OWN SHEET. A slab's underside used to be the level's ceiling tile times SLAB_ALB
+   with a procedural joist rib on top, and the footprint filter (#353) correctly faded that rib toward its
+   own mean wherever a pixel covers more plane than one period - which is past ~3 m, i.e. everywhere a
+   second storey is actually looked up from. So the surface over your head was the ceiling's mean AND the
+   ceiling's texel structure, and a floor seen from below was indistinguishable from a flat roof. A baked
+   tile is the fix because the mip chain is the filter: `mipCyc` declares the joist period and `matCarry`
+   attenuates it per level the way #881 did for the roof sheets, so the relief survives at range instead
+   of collapsing to plate. The joist count per tile is an INTEGER (2) so the sheet stays tileable - a
+   fractional period would seam at every tile boundary, which is the trap fbm's integer octaves avoid.
+   The fetch is by TEXEL GRID, not by mip index: the renderer picks the soffit level whose width equals
+   the ceiling level this row solved (js/40_render.js SOFFAT), so a 64-texel ceiling sheet (CEILS.SINEW)
+   and this 128-texel one agree on where the pixel's point falls in the pattern. */
+const SOFFJOIST_CYC = 2;                          // joists per tile: 0.45 m apart at ceilTile 0.9
+const soffRib = u => smoothstep(0.28, 0.58, Math.abs(((u * SOFFJOIST_CYC) % 1) - 0.5) * 2);
+const SOFFRIB_MEAN = termMean(u => soffRib(u), 64);
+CEILS.SOFFIT = matTex(T2, T2, p => {
+  const n = fbm(p.u, p.v, 4, 3, 0.55, 61);         // top octave 4*2^2 = 16 cycles: well under the 64 a
+                                                   // 128-texel sheet can hold (#881's frequency law)
+  let v = 0.46 + n * 0.3;
+  p.r = 78 * v; p.g = 79 * v; p.b = 86 * v;        // the ceiling family's cool grey: this is a ceiling-
+                                                   // family surface, and #369's ordering stays intact
+  p.h = 0.6 + (n - 0.5) * 0.06;
+  const rib = p.avg ? SOFFRIB_MEAN : soffRib(p.u); // p.avg = the mean-only bake matCarry mixes toward
+  p.h -= (1 - rib) * 0.26;                         // the joist is a recess the bump term reads
+  p.r -= (1 - rib) * 17; p.g -= (1 - rib) * 16; p.b -= (1 - rib) * 13;
+  const bay = p.avg ? 0.5 : fbm(p.u * 2, p.v * 2, 2, 2, 0.5, 37);   // service staining between joists
+  p.h -= bay * 0.05; p.r -= bay * 7; p.g -= bay * 7; p.b -= bay * 5;
+  dust(p, 0.12, [92, 94, 100]);
+}, { bump: 1.15, amb: 0.42, spec: 0.05, ao: 0.8, grain: 5, alb: 1.72, mipCyc: SOFFJOIST_CYC });
+
 /* ============================ decals ============================ */
 const DECAL = {};
 function decalTex(size, fn) {
