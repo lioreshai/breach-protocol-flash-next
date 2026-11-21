@@ -1,5 +1,68 @@
 # Changelog
 
+## [v1.4.32] - 2026-11-21
+
+### Changed
+
+- **A floor above you now looks like a floor** (#421, PRs #886, #890). Walk under a mezzanine and look
+  up. The surface over your head used to wear the level's roof sheet — same material, same grain, one
+  straight edge — so a storey somebody could stand on above you was indistinguishable from a ceiling, and
+  you could not see where that floor ended. It now has its own material: plate over joists, baked into the
+  texture chain so the joists stay legible at the 1.5–4 m a second storey is actually seen from instead of
+  dissolving into flat plate. And the slab's end is no longer a soft fade you cannot point at — the same
+  darkness is folded to one side of a split, so what you get is a shadow gap, a lit lip, then the roof. The
+  steepest edge in the frame now sits on the boundary you shoot over. Measured on this build, the step
+  across that edge reads 30.1 / 29.8 / 55.2 / 31.4 lumas at the four look-up seats that can score it,
+  against a 15-luma bar. The band's own average brightness is held by construction, so an overhead surface
+  still cannot out-light the deck you stand on: this is structure, not a brighter ceiling.
+- **Stone floors stop streaking toward the horizon** (#19, PR #885). Crossing a stone deck — ARCHIVE
+  SUBLEVEL and THE STACK especially — used to lay thin comb-lines across it running back to the vanishing
+  point. The floor textures carried detail finer than their own sheets can hold, and a shallow-angle fetch
+  smears that leftover alias into spokes. Every deck term is now painted inside its sheet's own limit at the
+  same strength, so a bay reads as one continuous surface. Nothing got blurrier or brighter: on this build
+  the floor streak measures 30 / 33 / 60 / 38 against a worse 34 / 40 / 73 / 42 from the plain
+  one-dimensional mip control, and the room light is what it was.
+- **A wall keeps its grain instead of crawling when you back off** (#889, PR #891). At six or seven metres
+  the walls used to shimmer and shuffle as you strafed, sitting directly behind whatever you were trying to
+  read. Thirteen of the grain terms in the wall textures — nine of the ten wall tiles, worst on metal,
+  grate and the tech panels — sat past what a 128-texel sheet can hold. Each now sits inside that limit at
+  its original strength, so every wall keeps its brightness, its grain and its place in the room's light.
+  This is the rule the roofs got in v1.4.31, applied to the walls.
+- **The front page shows the game that ships** (#882, PR #887). All eight screenshots are re-taken off the
+  deployed build, so they carry the slab-edge band, the joist spacing and the deck repaint. Where a frame
+  barely moved, its caption says so, with the percentage of pixels that differ from the frame it replaces.
+
+### Fixed
+
+- **The shotgun's pump is no longer hidden by the hand holding it** (#780, PR #892). At the hip — the pose
+  almost every second of play is in — the pump handle sat at the same depth as the fist gripping it and was
+  painted out, so the weapon read as a solid block rather than a pump-action. It now comes 6 mm nearer the
+  eye, arm and hand together. On this build the row that measures whether a carried part is actually drawn
+  clears its bar for the shotgun: 999 px against a 992-px bar. At the shoulder nothing changes — aiming
+  down the sights builds exactly the pixels it built before.
+- **The fist holding your gun has knuckles** (#780, PR #897). The widest thing about the hand was the smooth
+  barrel of its back, so one surface stood in front of every finger and the hand read as a flat plate
+  pressed against the weapon. Four knuckle heads now sit on the eye side of that barrel, on the same pitch
+  as the fingers they belong to, and the part being gripped shows in the gaps between them. Under one light
+  the hand breaks into separate masses instead of being one edge with lines drawn on it. Hip only — the
+  sight picture is untouched.
+- **A release that waits in review no longer lands on an already-red main** (#884, PR #888). The clock on an
+  outstanding publication step was started from the commit that authored the release files, which sits on
+  the release branch and only reaches main when its PR merges — so a release PR held in review for over an
+  hour went red ten seconds after merging. The clock now starts at the merge, and the guard and the tracker
+  describe the same debt the same way.
+
+Not in this release, and known: looking past a pit still stops at the lip on some seats — the march beyond
+the fourth face is in rework (#829, PR #898), though the measurement that filed it is now a gate that can
+fail (#896); the streak in the first four metres of a floor is magnified detail rather than minification,
+so this repaint does not address it (#19); four wall mottle calls share a helper with the floor sheets and
+remain past the resolution limit (#889); the pistol and the rifle still have their carried parts painted
+out, at 15 px and 188 px against bars of 845 and 1167 — on those two guns it is the weapon's own housing
+doing the hiding, which is a placement problem and not another pass at the hand (#780); a prop standing in
+its own light pool can still read as a hole in its deck (#695, in rework); and an enemy at range can still
+take on his room's hue (#809, in rework). Two merged PRs changed no pixel: #896 added a census row, and
+#888 changed release timing only.
+
 ## [v1.4.31] - 2026-11-20
 
 ### Added
