@@ -1279,7 +1279,20 @@ const MESH = (function () {
     b.tube(x - w * 0.002 * s, y - 0.026 * s, z, x + w * 0.001 * s, y + 0.022 * s, z - 0.004 * s,
       0.0145 * s * fth, 0.0185 * s * fth, VW.skin);  // the fist itself, knuckle end widest
     b.box(x + w * 0.004 * s, y + 0.028 * s, z - 0.024 * s, 0.015 * s, 0.005 * s, 0.017 * s, VW.skinD);
-    /* #562 TAKE TWO: the BACK OF THE HAND is a tube, not a plate. The plate was 13 mm thick and 48 mm
+    /* #780 TAKE THREE, on top of #562's tube: the back of the hand stops being the WIDEST thing in the fist.
+       Its outer surface sat 0.017 + 0.0125 = 0.0295 m off the hand's axis while the finger row stands at
+       0.0205 + 0.0038 = 0.0243, so ONE smooth barrel projected in front of every mass that was supposed to
+       read as a finger - the "flat plate pressed against the pump" of the issue's title, at one depth and
+       with one silhouette. At hip the barrel comes in to 0.0145 + 0.01125 = 0.02575 and the knuckle heads
+       below take the widest line at 0.0245 + 0.0048 = 0.0293: the widest thing about a fist seen from behind
+       is four knuckles, not a cylinder. Both factors are multiplied by `fing`, so at `ads = 1` this emits
+         main's own centre and radii and the sight picture builds the bytes `sight` and `flatparity` record.
+       WHAT IT MEASURES, `node tools/view.js viewmodel` at raster 601x338: the rig mask's own luminance
+       structure goes from 7.5 steps >= 4 luma per row to 8.4, and the mean monotone run from 11.4 px to 10.6,
+       which is the flat plate breaking into masses; `rounds` comes back 15 / 999 / 188 px, UNCHANGED, so the
+       knuckle row neither reveals nor covers a round part - the two debts it still prints are the gun's own
+       housings, exactly as the ceiling row at the head of this file records them.
+       #562 TAKE TWO: the BACK OF THE HAND is a tube, not a plate. The plate was 13 mm thick and 48 mm
        square - a flat, right-angled face straight at the lens, ~200 px of it in the corner of every
        frame, and a flat face at one depth is exactly the reading the issue is about: at the same light it
        is indistinguishable from the side of a crate. A tapered tube across the same span keeps the hand's
@@ -1288,8 +1301,15 @@ const MESH = (function () {
        mm of silhouette against 48 x 48) because #562's acceptance says frame cost must not rise: the rig is
        already inside the raster budget, so a silhouette change has to be bought with pixels, not added to
        them. */
-    b.tube(x - w * 0.017 * s, y - 0.018 * s, z - 0.001 * s, x - w * 0.017 * s, y + 0.015 * s, z - 0.004 * s,
-      0.0105 * s, 0.0125 * s, VW.skin);              // the back of the hand, wrist end narrowest
+    b.tube(x - w * s * (0.017 - 0.0025 * fing), y - 0.018 * s, z - 0.001 * s, x - w * s * (0.017 - 0.0025 * fing), y + 0.015 * s, z - 0.004 * s,
+      0.0105 * s * (1 - 0.10 * fing), 0.0125 * s * (1 - 0.10 * fing), VW.skin);   // the back of the hand, wrist end narrowest
+    /* #780 THE KNUCKLE ROW: four heads on the eye side of that barrel, at the SAME pitch as the fingers they
+       belong to, so knuckles and fingers are one row of masses and not two. They are the point of the change:
+       a knuckle is where the hand stops being one surface and starts being four, and it is the only place on
+       the back of the hand where the part behind it shows through. 9.6 mm of head against a 12.8 mm pitch
+       leaves a 3.2 mm gap - about 4.5 device px at the hip's own 5.7 mm / 8 px - so the four heads read as
+       separate masses under one light instead of as one edge with lines painted on it. Hip-only by `fs`:
+       at `ads = 1` the whole row is not emitted, so the sight picture is the recorded one by construction. */
     /* #780 THE FINGER ROW, and it is the hip's ONLY hand modelling. The fist above is one tapered tube and
        the back of the hand is one more: two prisms, one silhouette, one depth across the whole mass, which is
        the "flat plate pressed against the pump" reading the issue names - and because a prism that wide covers
@@ -1339,6 +1359,12 @@ const MESH = (function () {
       const fs = fing * s;
       for (let k = 0; k < 4; k++) {
         const fy = (k - 1.5) * 0.0128 * fs;             // the pitch: 12.8 mm, wider than a finger
+        /* The knuckle head, on the eye side of the back-of-hand barrel and 4.6 mm proud of its old surface.
+           Same pitch as the finger it belongs to, so the four heads and the four fingers are one row of
+           masses and not two; 9.2 mm of head against a 12.8 mm pitch leaves a 3.6 mm gap between knuckles,
+           which at the hip's own ~5.7 mm / 8 px is about 5 device px of the part showing between them. */
+        b.tube(x - w * 0.0245 * fs, y + fy + 0.0035 * fs, z - 0.0225 * fs,
+          x - w * 0.0225 * fs, y + fy + 0.0030 * fs, z - 0.0155 * fs, 0.0048 * fs, 0.0042 * fs, VW.skin);
         b.tube(x - w * 0.0205 * fs, y + fy + 0.0035 * fs, z - 0.0205 * fs,
           x + w * 0.0060 * fs, y + fy - 0.0025 * fs, z - 0.0155 * fs, 0.0038 * fs, 0.0030 * fs, VW.skin);
       }
