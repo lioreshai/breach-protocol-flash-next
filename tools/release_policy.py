@@ -456,7 +456,7 @@ def publication_line(publication):
     if not publication['outstanding']:
         return f"Outstanding release step: none - {publication['version']} is published ({shown})."
     return (f"Outstanding release step: {publication['step']} for {publication['version']} "
-            f"({shown}, alarm at {publication['grace_seconds']} s). " + grace_clause(publication))
+            f"({shown}, alarm at {publication['grace_seconds']} s)." + grace_note(publication))
 
 
 def grace_clause(publication):
@@ -465,6 +465,17 @@ def grace_clause(publication):
     the issue that records the debt cannot describe the same state differently (#884)."""
     return ('PAST THE GRACE: finish the handoff - tag the merge commit and publish the release.'
             if publication['overdue'] else 'Within the grace; the tag and release are still owed.')
+
+
+def grace_note(publication):
+    """That sentence with its separating space, and **nothing** once the handoff is complete.
+
+    The grace clause describes time still owed, so it is false of a published release: appended to
+    it unconditionally the `release publish (main)` row read 'the GitHub release is published.
+    Within the grace; the tag and release are still owed.' - the row denying two clauses later what
+    its own first clause states, on every push to main and every hourly pass (#888 review). One
+    helper holds the guard so no caller can print the sentence into a state that owes nothing."""
+    return ' ' + grace_clause(publication) if publication['outstanding'] else ''
 
 
 def release_pr_line(release_pr):
@@ -518,7 +529,7 @@ def main():
         value, main_sha = publication_on_main(args.repo, ref=args.ref)
         print(f"release publish guard: {value['step']} for {value['version']} "
               f"(main {main_sha[:12]}, {value['age_seconds']} s since release.json landed on main, "
-              f"grace {value['grace_seconds']} s) - {value['reason']}. {grace_clause(value)}")
+              f"grace {value['grace_seconds']} s) - {value['reason']}." + grace_note(value))
         if value['overdue']:
             raise ValueError('release.json on main names ' + value['version'] + ', which is '
                              + value['step'] + ' after ' + str(value['age_seconds'])

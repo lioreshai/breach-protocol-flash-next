@@ -330,6 +330,47 @@ class ReleasePolicyTests(unittest.TestCase):
         self.assertTrue(publication['overdue'])
         self.assertEqual(publication['age_seconds'], policy.PUBLISH_GRACE + 60)
 
+    def test_the_published_publish_row_says_nothing_about_the_grace(self):
+        """#888 review: the publish row appended its grace sentence whatever the state, so on a
+        published release it printed 'the GitHub release is published. Within the grace; the tag and
+        release are still owed.' - the row `release publish (main)` prints on every push to main and
+        every hourly pass denying, two clauses later, what its first clause states. The sentence
+        belongs to a step that is still owed; `publication_line()` already guarded it on `outstanding`
+        and the CLI row did not.
+
+        The paired arm moves one thing - GitHub's answer about the release - and demands the sentence
+        reappear, so this row cannot be satisfied by the wording disappearing from the tool."""
+        landed = NOW - timedelta(seconds=policy.PUBLISH_GRACE + 60)
+
+        def published(repo, path, payload=None, optional=False):
+            if path.startswith('releases/tags/'):
+                return PUBLISHED
+            return policy_api(repo, path, payload, optional)
+
+        policy_api = policy.api
+        for answer, step, sentence in ((published, policy.PUBLISHED, ''),
+                                      (policy_api, policy.TAGGED, 'PAST THE GRACE')):
+            with self.subTest(step=step), \
+                    patch.object(policy, 'call', side_effect=self.gh(True, landed_at=landed)), \
+                    patch.object(policy, 'api', side_effect=answer), \
+                    patch.object(sys, 'argv',
+                                 ['release_policy.py', 'publish', '--repo', 'test/game']), \
+                    redirect_stdout(out := io.StringIO()):
+                if step == policy.PUBLISHED:
+                    policy.main()
+                else:
+                    with self.assertRaises(ValueError):
+                        policy.main()
+            row = out.getvalue()
+            self.assertIn('release publish guard: ' + step + ' for v1.2.1', row)
+            if sentence:
+                self.assertIn(sentence, row,
+                              'an outstanding step still has to be told its window')
+            else:
+                for wording in ('Within the grace', 'PAST THE GRACE', 'still owed'):
+                    self.assertNotIn(wording, row,
+                                     'a published release owes nothing and the row cannot say it does')
+
     def test_in_flight_publication_does_not_block_a_feature_pr(self):
         manifest = dict(version='v1.2.1', prepared_from=HEAD)
         in_flight = policy.publish_state(manifest, None, None, NOW - timedelta(minutes=5), NOW)
