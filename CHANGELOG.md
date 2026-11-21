@@ -1,5 +1,61 @@
 # Changelog
 
+## [v1.4.31] - 2026-11-20
+
+### Added
+
+- **A floor above you now reads as a floor** (#421, PRs #879, #880). Walk under a raised deck and look
+  up. The underside used to be a flat sheet with one hairline where it ended, and it had the same
+  flatness as the ceiling over the rest of the level, so "there is a storey over my head" was something
+  you had to remember rather than see. The slab's end now carries a shadow band about the width of a
+  hand, which puts the darkness exactly where the floor stops: the step across that edge measured
+  10.4 / 13.6 / 2.7 lumas at the three seats that can score it, against a 15-luma bar, and reads
+  19.4 / 19.1 / 25.9 now. And the joists under the plate are spaced at 0.77 m, a real joist's pitch, so
+  the lining is still legible at the 1.5-4 m a second storey is actually seen from instead of dissolving
+  into a flat panel. Neither change dims anything: the luma the shadow band takes off the edge is paid
+  back onto the rest of the plate, and the rib's own shadow area is unchanged, so no lamp pool and no
+  room's average brightness moved.
+
+### Changed
+
+- **Your own gun's faces turn instead of sitting flat** (#824, PRs #873, #874). The weapon in your hands
+  is the closest object in every frame and until now it was the flattest thing on screen: the slide, the
+  frame and the grip each read as one value, so in a close fight the biggest mass in the lower right
+  looked stuck over the room rather than standing in it. Each part now carries one slow ramp across its
+  own face — lighter toward the side that faces the lamp, darker toward the side that faces away — so the
+  top of the slide reads ahead of its flank. The gun is no brighter: the same average light arrives, it
+  is only moved inside each face, and the ratio under a lamp and while firing is unchanged. The hands,
+  the sleeve and the muzzle flash are untouched. The issue now carries a before/after pair of the resting
+  pose taken at the same seat, with the recipe to re-take it.
+- **Health kits, ammo, armour and grenades answer the room's light like everything else does** (#862,
+  PR #868). Pickups were the one class the scenery lighting law never covered, so a health kit on the
+  RING TRANSPORT deck was the loudest object in the room — 142 lumas of itself against a floor of 63 —
+  and its near-white shell was pinned to pure white before any light reached it, which means no lamp
+  could answer it at all. They now pay the same four terms as a crate: the room's fill, face shading,
+  the clip and a rank. A kit is still the brightest prop you can find across a room — about the
+  brightness of the deck it stands on, instead of blown out — and the orb and the portal, which make
+  their own light, are unchanged.
+- **A roof reads as one surface instead of a fan of stripes** (#19, PR #881). Standing under a low roof,
+  the ceiling came back as light and dark wedges running to the vanishing point, in every frame with a
+  ceiling in it. The ceiling textures were painted with detail finer than the sheet they are drawn on can
+  hold — up to 280 repetitions across a sheet that can carry 64, and one of them with louvre slats a
+  pixel and a half apart — and a fetch across a floor or roof at a shallow angle smears that leftover
+  alias into spokes. Every ceiling term is now painted inside the sheet's own limit at the same strength.
+  You give up a little grit on the roof and get back a ceiling with readable bays; each tile keeps its
+  own colour, brightness and place in the room's light, so no room got brighter or darker. The same
+  spoking over open FLOORS is still there and needs its own fix.
+- **The front page shows the game that ships** (#876, PRs #877, #878). All eight screenshots are
+  re-taken off the current build, so the held weapon carries its new face shading and the wall fittings
+  appear where they now stand. Where a frame barely moved the caption says so, with the percentage of
+  pixels that differ from the frame it replaces; the pit-floor caption's contradictory numbers are
+  replaced with what actually changed in that frame.
+
+Not in this release, and known: the spokes over a level's wide open floors are still there — the roof half
+of that defect is fixed here and the floor half is not (#19); a prop standing in its own light pool can
+still read as a hole in its deck (#695, in rework); and an enemy at range can still take on his room's hue
+(#809, in rework). One merged PR in this release changed no pixel: #860's wall fitting gained a check row that fails
+when the pass that places it is switched off, so that fixture can no longer silently stop being dealt.
+
 ## [v1.4.30] - 2026-11-19
 
 ### Added
