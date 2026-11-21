@@ -178,6 +178,29 @@ var BODYHUE = 1;
        multiply leaves, which is what the near-zero deals in the sweep are the A/B for. */
 var BODYFG = 1;
 
+/* #695: PROPDECK arms the SECOND figure-ground law, the one a room is framed by. #611 gave the BODY a
+   rule - he belongs a band away from the surface behind him - and nothing ever gave the FURNITURE one, so
+   the brightest, most saturated paint in the game (the hazard chevron on a crate or a barrel, WFIX.STRIPE
+   in js/10_assets.js) is spent on scenery while the hostile is the dull thing in the frame. What came back
+   from `tools/view.js surface` is the worse half of that: 25 of 61 charged props across the four sectors
+   sit a WHOLE 25-luma band BELOW the deck inside their own footprint, so a crate reads as a burnt-in hole
+   in the floor rather than a solid with sides, and the eye has to find the box before it finds the man.
+   Four constants and two bound levers for that were already implemented, measured and reverted here - a
+   per-kind form centring, a lamp-metal albedo lift, a uniform prop-pool scale (PR #861, merged) and a
+   footprint-light floor - and they all did the same thing: a lift sized by a LIGHT RATIO raises the props
+   that already read at or above their deck as hard as the ones that read as holes, so the arm that empties
+   the under-tail is the arm that reddens the gated +25 ceiling row (`PROP-SECTOR`). Measured at f509e12:
+   opening the bound on the shipped scale sent three of four sectors into debt; the footprint-light floor
+   took RING's `barrel@29.5,12.5` to +30 over its own deck.
+   So the law has to be CONDITIONAL on the DELIVERED pair, exactly the shape `fgPay` ships for bodies: per
+   prop draw, read the pixels the prop is about to cover, pay at the end of the object pass over the pixels
+   the frame KEPT, and state the target BELOW that deck - which is what makes the +25 ceiling unreachable
+   by construction instead of by a bound someone has to re-check every time a constant moves. A prop that
+   already reads as a solid pays nothing at all, which is why this cannot make a room louder.
+   1 (shipped) = the deck-relative floor runs on crates, barrels and lamp posts. 0 = the shipped-before-
+   this-increment form, which is what `view.js surface` A/Bs the under-tail against. */
+var PROPDECK = 1;
+
 /* ---------------- config ---------------- */
 let FOGC = [9, 12, 20];   // per level: air has a colour
 const LVL = 32;                       // light/fog buckets
