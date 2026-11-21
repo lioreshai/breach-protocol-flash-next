@@ -769,6 +769,36 @@ const SLAB_ALB = 1.42, SLAB_LIP = 0.40, SLAB_LIPA = 1.35,
    not a darkening of the storey, which is what `ORDER` and `ABOVEBLACK` read. Table built once at load
    from the two crease constants; a cell with no end boundary indexes entry 0 and pays nothing. Second
    copy: groundPixel. `SLABUND = 0` is still the A/B that puts main's picture back. */
+/* #421 THE END OF THE UNDERSIDE IS A JOINT, NOT A FADE. The crease shipped as a ramp: from the slab's end
+   inward the plate darkens by `SLAB_SEAMK*(1-ew/SLAB_SEAM)^2`, so over 0.34 m the value rises from 0.18
+   of the plate to all of it with no turn in it. A monotone ramp is exactly what the review measured as a
+   smear - `UNDERSIDE-SWEEP` scored an overhead in only 2-3 poses per sector and three of six poses score
+   NO edge at all, because a gradient has no place in it that the eye can call a line. The fix is the
+   SHAPE the same darkness makes when it is folded to one side of a split instead of spread across the
+   band: keep the crease ramp exactly as it is (untouched, as the increment requires) and multiply a pair
+   of equal-and-opposite steps over it. From the end boundary inward the first `SLAB_JNT` of the band is
+   recessed by `SLAB_JNTP` - a shadow gap, which is what the end of a slab IS - and the rest of the band is
+   LIFTED by `SLAB_JNTB`, the lit wall of that recess catching the room below. Dark line, then a brighter
+   plate, then the sheet: a JOINT with relief, with the highest gradient in the frame sitting exactly at
+   the boundary the player needs to aim over.
+   It pays for itself, which is the clause the increment is graded on. The pair is mean-preserving against
+   the shipped picture by construction, not by a tuned constant: over the band the crease's own integral is
+   `A = 1 - SLAB_SEAMK/3`, and the part of it under the recess is `A1(c) = c - (SLAB_SEAMK/3)(1-(1-c)^3)`, so
+   the lift that makes the two contributions cancel is `SLAB_JNTP*A1/(A-A1)` - derived from the ramp, below,
+   at load. The band's mean is therefore what it was to the arithmetic mean, so `ABOVEBLACK` and `ORDER`
+   cannot see this term at all, `SLAB_PAY` needs no new entry and is not widened (the joint is EXEMPT from
+   the payback rather than paid by it, the way the lit lip is: the payback still answers the crease alone),
+   and no lamp, no `MAP.ceilSlab` bit and no authored height moves. It is the same mean-preserving shape
+   #353 and #19 use for grain, applied to an end boundary. Second copy: groundPixel. `SLABUND = 0` is still
+   the A/B that puts main's picture back. */
+const SLAB_JNT = 0.50, SLAB_JNTP = 0.45;
+const SLAB_JNTW = SLAB_JNT * SLAB_SEAM;                       // the recess's width in metres
+const SLAB_JNTB = (() => {                                    // the lit wall's lift, derived
+  const A = 1 - SLAB_SEAMK / 3;
+  const c = SLAB_JNT;
+  const A1 = c - (SLAB_SEAMK / 3) * (1 - Math.pow(1 - c, 3));
+  return SLAB_JNTP * A1 / (A - A1);
+})();
 const SLAB_PAY = (() => {
   const t = new Float32Array(16);
   for (let m = 0; m < 16; m++) {
@@ -2831,8 +2861,11 @@ function castGround(flash, fcR, fcG, fcB) {
           if ((und & 128) && fxu < ew) ew = fxu;
           if ((und & 64) && 1 - fyu < ew) ew = 1 - fyu;
           if ((und & 256) && fyu < ew) ew = fyu;
-          if (ew < SLAB_SEAM) { const sv = 1 - ew / SLAB_SEAM; ku *= 1 - SLAB_SEAMK * sv * sv; }
-          else ku *= SLAB_PAY[(und >> 5) & 15];       // #421, row copy: the crease's share, paid back
+          if (ew < SLAB_SEAM) {
+            const sv = 1 - ew / SLAB_SEAM; ku *= 1 - SLAB_SEAMK * sv * sv;
+            /* #421, ROW COPY: the joint's pair over the ramp - recess at the boundary, lit wall inside it. */
+            ku *= ew < SLAB_JNTW ? 1 - SLAB_JNTP : 1 + SLAB_JNTB;
+          } else ku *= SLAB_PAY[(und >> 5) & 15];       // #421, row copy: the crease's share, paid back
         }
         /* #781, ROW COPY: dose by the plane's own decline - see SLAB_INC at its definition. `absP/BH` is
            this row's dz/d, so the term is one multiply per underside pixel and no new sampler. */
@@ -3758,8 +3791,11 @@ function groundPixel(x0, x1, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb
       if ((ux & 128) && fxu < ew) ew = fxu;
       if ((ux & 64) && 1 - fyu < ew) ew = 1 - fyu;
       if ((ux & 256) && fyu < ew) ew = fyu;
-      if (ew < SLAB_SEAM) { const sv = 1 - ew / SLAB_SEAM; ku *= 1 - SLAB_SEAMK * sv * sv; }
-      else ku *= SLAB_PAY[(ux >> 5) & 15];             // #421, second copy: same payback, same table
+      if (ew < SLAB_SEAM) {
+        const sv = 1 - ew / SLAB_SEAM; ku *= 1 - SLAB_SEAMK * sv * sv;
+        /* #421, SECOND COPY (AGENTS.md): the same pair, same two constants. */
+        ku *= ew < SLAB_JNTW ? 1 - SLAB_JNTP : 1 + SLAB_JNTB;
+      } else ku *= SLAB_PAY[(ux >> 5) & 15];             // #421, second copy: same payback, same table
     }
     /* #781, SECOND COPY (AGENTS.md: change one copy and you have changed the other): the same decline
        dose, solved from this pixel's own plane altitude and distance, so the deferred far field cannot
