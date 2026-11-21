@@ -7729,6 +7729,136 @@ on the branch, and the plain `cull` run stays green with no re-key at all. No th
   }
 
 
+  /* ---- #829 criterion 5: past a lip the march must still find the FAR face ----------------
+     The census that filed this issue, as a gate rather than as prose. cull's other lip rows ask what
+     the face AT the edge is worth (#517, #515) or what depth the far surface of a DEALT lip carries
+     (#192); none of them can disagree with a march that ends at the first lip, because every one of
+     them stops at the same lip the renderer does. This row's oracle is the closing wall, which is
+     BEYOND the lip: it marches each column to the first solid column, takes that column's own
+     perpendicular distance, and asks whether the frame carries that distance anywhere in the span the
+     wall projects into. A column that stopped at the lip has no such pixel - it kept the ground pass's
+     answer past the edge, which is a plane solved farther than the wall, or nothing at all.
+
+     THE CONTROL IS THE OTHER ARM, not a threshold: arm B is the identical corridor with the pit NOT
+     authored, so the same march, the same wall and the same camera run on a lane with no lip to stop
+     at. Any build reaches the wall there; only the pit arm can go red, which is what makes the pair
+     a test of the lip rather than a bound that would also fail on a lane that was never stepped in.
+     Vacuity is a FAILURE in both directions: a corridor the patch could not lay, a pit arm with no
+     riser in the frame, a frame identical to the control (the pit drew nothing), or a pit arm whose
+     columns all read "nearer surface" (no row of the wall's span left uncovered, so the far face was
+     never actually asked for) all fail the row by name. */
+  const farFacePair = (li, pit) => run(`(function () {
+    S.mode = 'play'; S.locked = false; startLevel(${li}, true);
+    exitX = -40; exitY = -40;
+    const N = MAP.w, cell = MAP.cell, fz = MAP.fz, cp = MAP.ceilPlane;
+    window.__ffCell = cell.slice(); window.__ffFz = fz.slice(); window.__ffCz = MAP.cz.slice();
+    // A 9 x 3 open patch to carve the lane out of: never a lane the level happens to have, so the
+    // geometry the row judges is the geometry the row laid (#192's rule, inverted - here the point is
+    // that BOTH arms carry the identical patch and only the pit differs).
+    let lx = -1, ly = -1, openPatch = 1;
+    outer:
+    for (let y = 3; y < N - 3 && lx < 0; y++) for (let x = 3; x < N - 10; x++) {
+      let ok = 1;
+      for (let d = -1; d <= 1 && ok; d++) for (let k = 0; k < 9 && ok; k++)
+        if (cell[(y + d) * N + x + k]) ok = 0;
+      if (ok) { lx = x; ly = y; break outer; }
+    }
+    if (lx < 0) { openPatch = 0;            // THE STACK authors a tight hall and no 9x3 open patch: the
+      lx = 3; ly = (N / 2) | 0;             // lane is carved where the hall stands. Both arms carve the
+    }                                       // SAME cells, so the pair is still one geometry plus a pit.
+    for (let d = -1; d <= 1; d++) {
+      for (let k = 0; k < 7; k++) {
+        const i = (ly + d) * N + lx + k;
+        cell[i] = 0; fz[i] = 0; MAP.cz[i] = CZ_DEF; MAP.feat[i] = FEAT_NONE;
+      }
+      cell[(ly + d) * N + lx + 7] = 1; fz[(ly + d) * N + lx + 7] = 0;   // the closing wall
+      cell[(ly + d) * N + lx + 8] = 1;
+      if (${pit ? 1 : 0}) for (let k = 3; k <= 5; k++) {
+        const i = (ly + d) * N + lx + k;
+        fz[i] = -8; MAP.cz[i] = 12;                                     // a 2 m pit, ceiling back at +1
+      }
+    }
+    linkBoundaries();
+    ENEMIES.length = 0; PROPS.length = 0; PROJ.length = 0; PARTS.length = 0; PICKUPS.length = 0;
+    P.x = lx + 0.5; P.y = ly + 0.5; P.ang = 0; P.pitch = 0; P.crouch = 0;
+    P.vx = 0; P.vy = 0; P.vz = 0; P.air = false; P.bob = 0; P.kick = 0;
+    P.z = floorAt(P.x, P.y);
+    S.t = 3.5; renderWorld();
+    const zb = new Float32Array(zbuf), pxk = new Uint32Array(px);
+    const T = { cols: 0, atWall: 0, nearer: 0, farther: 0, void_: 0, risers: MAP.riserStops,
+      multi: MAP.faceMulti, cap: MAP.faceCap, maxSt: MAP.faceMax, steps: MAP.steps,
+      cam: [+P.x.toFixed(1), +P.y.toFixed(1)], wall: lx + 7, hz: Math.round(horizon), openPatch,
+      eyeZ: +eyeZ.toFixed(2), px: pxk, worst: 0, ex: [] };
+    const TOL = 0.05;
+    for (let x = 1; x < BW - 1; x++) {
+      const cf = x * (2 / BW) - 1, rx = dirX + planeX * cf, ry = dirY + planeY * cf;
+      let mx = camX | 0, my = camY | 0, side = 0;
+      const ax = Math.abs(rx), ay = Math.abs(ry), sx = rx > 0 ? 1 : -1, sy = ry > 0 ? 1 : -1;
+      let tx = ax > 0 ? (rx > 0 ? mx + 1 - camX : camX - mx) / ax : 1e30;
+      let ty = ay > 0 ? (ry > 0 ? my + 1 - camY : camY - my) / ay : 1e30;
+      let wallT = 0, z0 = 0, z1 = 0;
+      for (let g = 0; g < 24 && !wallT; g++) {
+        const i = my * N + mx;
+        if (cell[i]) {                                                 // the first SOLID column: truth
+          // the distance AT WHICH this cell was entered: tx/ty have already been advanced past the
+          // crossing, so one step's worth comes back off - the form castWalls' own sdx-ddx uses.
+          wallT = Math.abs(side === 0 ? tx - 1 / ax : ty - 1 / ay);
+          z0 = 0; z1 = cp[i] > 0 ? cp[i] : 1; break;
+        }
+        if (tx < ty) { tx += 1 / ax; mx += sx; side = 0; } else { ty += 1 / ay; my += sy; side = 1; }
+        if (mx < 0 || my < 0 || mx >= N || my >= N) break;
+      }
+      if (!(wallT > 0.05 && wallT < FARB)) continue;
+      const y0 = Math.ceil(horizon + (eyeZ - z1) * BH / wallT) + 1;    // edge rows: the passes round
+      const y1 = Math.floor(horizon + (eyeZ - z0) * BH / wallT) - 1;   //   there, the march does not
+      if (y1 < y0) continue;
+      T.cols++;
+      let at = 0, near = 0, far = 0, inf = 0, n = 0;
+      for (let y = y0; y <= y1; y++) {
+        const v = zb[y * BW + x]; n++;
+        if (!isFinite(v)) { inf++; continue; }
+        const d = v - wallT;
+        if (Math.abs(d) <= TOL) at++;
+        else if (d < 0) near++;
+        else { far++; if (Math.abs(d) > Math.abs(T.worst)) { T.worst = d; T.ex = [x, y, +v.toFixed(2), +wallT.toFixed(2)]; } }
+      }
+      if (!n) continue;
+      if (at) T.atWall++;
+      else if (near) T.nearer++;
+      else if (inf === n) T.void_++;
+      else T.farther++;
+    }
+    for (let i = 0; i < cell.length; i++) { cell[i] = window.__ffCell[i]; fz[i] = window.__ffFz[i];
+      MAP.cz[i] = window.__ffCz[i]; }
+    linkBoundaries();
+    return T;
+  })()`);
+  for (let li = 0; li < run('LEVELS.length'); li++) {
+    const A = farFacePair(li, 1), B = farFacePair(li, 0);
+    if (A.fail || B.fail) {
+      row(`L${li} past a pit lip the march still finds the wall behind it`, false,
+        `VACUOUS - ${A.fail || B.fail}: the row lays its own lane, so nothing here depends on a roll, ` +
+        `and nothing here can pass either`);
+      continue;
+    }
+    let diff = 0;
+    for (let i = 0, M = A.px.length; i < M; i++) if (A.px[i] !== B.px[i]) diff++;
+    const fail = A.cols >= 24 && A.risers > 0 && A.atWall + A.nearer >= A.cols - 1 && A.void_ === 0 &&
+      A.farther === 0 && diff > 0 && B.farther === 0 && B.void_ === 0;
+    row(`L${li} past a pit lip the march still finds the wall behind it`, fail,
+      `lane at (${A.cam}) looking +x at a solid wall ${A.wall} cells out, a 3-cell 2 m pit in the middle` +
+      ` of it: PIT ARM ${A.atWall} of ${A.cols} columns carry the WALL'S OWN perpendicular distance inside` +
+      ` the span that wall projects into (${A.nearer} more have every such row owned by a nearer surface,` +
+      ` which is honest), ${A.farther} columns answered FARTHER than the wall and ${A.void_} left with` +
+      ` nothing (zbuf Infinity - the condition a body's own depth test walks through); riserStops ${A.risers},` +
+      ` ${A.multi} multi-face columns, ${A.cap} stopped at the WST cap, maxSt ${A.maxSt}, MAP.steps ${A.steps},` +
+      ` horizon ${A.hz}, eyeZ ${A.eyeZ}${A.openPatch ? ', carved out of an open 9x3 patch' : ' - this authored plan has no open 9x3 patch, so the lane was carved through the hall'}.` +
+      ` CONTROL ARM, the same lane with the pit NOT authored and the same` +
+      ` camera: ${B.atWall} of ${B.cols} at the wall, ${B.farther} farther, ${B.void_} void, riserStops` +
+      ` ${B.risers} - a build that reaches the wall only when no lip stands in the lane is the bug, not a` +
+      ` passing arm. ${diff} px of the frame differ between them, so the pit is in the picture.${A.ex.length ? ` worst ${A.worst.toFixed(2)} at x${A.ex[0]} row ${A.ex[1]}: zbuf ${A.ex[2]} against the wall's own ${A.ex[3]}` : ''}`);
+  }
+
   console.log((bad ? `CULL ${bad} FAILURES` : 'CULL ok - bodies sit on the band they stand on') +
     (known ? `  (${known} known ${STRICT ? 'FAILED under STRICT' : 'reporting'} rows: air-air steps occlude nothing, #100)` : ''));
   process.exit(bad ? 1 : 0);
