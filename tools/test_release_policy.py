@@ -1,6 +1,19 @@
 import importlib.util
 from contextlib import redirect_stdout
 from datetime import datetime, timedelta, timezone
+
+
+class FakeDateTime(datetime):
+    """`datetime.now` frozen at one instant, so two guards read in the same test can be compared on
+    the clock rather than on whatever the box was doing while they ran. A datetime subclass, because
+    the module also calls datetime.fromisoformat while reading the same timestamps."""
+
+    instant = None
+
+    @classmethod
+    def now(cls, tz=None):
+        return cls.instant
+
 import io
 import json
 import os
@@ -19,6 +32,9 @@ policy = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(policy)
 NOW = datetime(2026, 10, 7, tzinfo=timezone.utc)
 HEAD, TAG = 'a' * 40, 'b' * 40
+# The commit on main that touched release.json, deliberately distinct from HEAD so the guard's
+# commit-to-PR query has to be answered and cannot pass on the release commit's own sha.
+AUTHORED = 'c' * 40
 RELEASE = dict(tag_name='v1.2', published_at=(NOW - timedelta(days=1)).isoformat(), draft=False, prerelease=False)
 MANIFEST = dict(version='v1.2.1', prepared_from=HEAD, prepared_at=NOW.isoformat())
 PUBLISHED = dict(RELEASE, tag_name='v1.2.1')
@@ -95,7 +111,11 @@ class ReleasePolicyTests(unittest.TestCase):
             if path.startswith('contents/release.json'):
                 return dict(content=b64encode(json.dumps(dict(version='v1.2', prepared_from=HEAD)).encode()).decode())
             if path.startswith('commits?sha=main'):
-                return [dict(commit=dict(committer=dict(date=(NOW - timedelta(hours=1)).isoformat())))]
+                return [dict(sha=AUTHORED, commit=dict(committer=dict(date=(NOW - timedelta(hours=1)).isoformat())))]
+            if path.endswith('/pulls?per_page=100'):
+                # No merged PR names this commit: it went to main directly, so the commit itself is
+                # the landing and its own committer date still dates the step.
+                return []
             if path == 'releases/latest':
                 return RELEASE
             if path.startswith('commits/'):
@@ -132,11 +152,20 @@ class ReleasePolicyTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             policy.publish_state(None, TAG, RELEASE, merged, NOW)
 
-    def gh(self, tag_exists):
+    def gh(self, tag_exists, landed_at=None, authored_at=None):
         """A stand-in for the `gh api` process, at the boundary `api` actually shells out to, so the
         status-code filtering under test is the real one. It answers the way GitHub answers: a tag
         that does not exist is 422 'No commit found for SHA' on commits/<version> - never 404 - and
-        a release that does not exist is 404 on releases/tags/<version>."""
+        a release that does not exist is 404 on releases/tags/<version>.
+
+        `authored_at` is the committer date of the commit on main that touched release.json and
+        `landed_at` the merged_at of the merged PR that carried it there; their difference is the time
+        the release PR spent in review, which is the clock #884 is about. Leaving `landed_at` unset
+        answers as a commit no PR names - one pushed straight to main - where the commit itself is the
+        landing, so every older row keeps dating the step from it exactly as it did before.
+        """
+        authored_at = authored_at or NOW - timedelta(hours=2)
+
         def encoded(value):
             return json.dumps(dict(content=b64encode(json.dumps(value).encode()).decode()))
 
@@ -149,7 +178,15 @@ class ReleasePolicyTests(unittest.TestCase):
             if path.startswith('contents/release.json'):
                 return encoded(dict(version='v1.2.1', prepared_from=HEAD))
             if path.startswith('commits?sha=main'):
-                return json.dumps([dict(commit=dict(committer=dict(date=(NOW - timedelta(hours=2)).isoformat())))])
+                return json.dumps([dict(sha=AUTHORED, commit=dict(committer=dict(
+                    date=authored_at.isoformat())))])
+            if path.endswith('/pulls?per_page=100'):
+                # The commit-to-PR query the guard asks in order to date the step: one merged PR into
+                # main, or none at all when the caller left landed_at unset.
+                if landed_at is None:
+                    return json.dumps([])
+                return json.dumps([dict(number=883, merged_at=landed_at.isoformat(),
+                                        base=dict(ref='main'))])
             if path.startswith('commits/v1.2.1'):
                 if tag_exists:
                     return json.dumps(dict(sha=TAG))
@@ -190,6 +227,149 @@ class ReleasePolicyTests(unittest.TestCase):
                 policy.main()
         self.assertIn('release publish guard: merged-not-tagged for v1.2.1', out.getvalue())
         self.assertIn('merged-not-tagged', str(raised.exception))
+
+    def test_a_release_pr_that_waits_on_review_does_not_spend_the_publish_grace(self):
+        """#884. release.json is authored on release/<version> and reaches main only when its PR
+        merges, so the committer date of the commit that touched it is the authoring time on the
+        branch. Measured at main 36c6263 (release PR #883, v1.4.31): the commit was committed
+        2026-11-20T21:20:06Z and the PR merged 22:50:24Z, and the push build of that merge - running
+        at 22:50:34Z - read age_seconds 5428 against a 3600 s grace, so `release publish (main)` went
+        red 10 s after the merge that started the clock while the true age was 10 s. A release PR that
+        spends longer in review than the grace therefore merged to an already-red main and left the
+        product lead none of the window release_policy.py documents. The row below is that state with
+        margin: the branch commit is older than the merge by more than one whole grace window.
+        """
+        authored = NOW - timedelta(seconds=policy.PUBLISH_GRACE + 3600)
+        merged = NOW - timedelta(seconds=60)
+        self.assertGreater((merged - authored).total_seconds(), policy.PUBLISH_GRACE,
+                           'vacuity: a merge that follows its authoring inside the grace measures '
+                           'nothing, so this row would pass on the unfixed clock')
+        stub = self.gh(False, landed_at=merged, authored_at=authored)
+        FakeDateTime.instant = NOW
+        frozen = patch.object(policy, 'datetime', FakeDateTime)
+
+        with patch.object(policy, 'call', side_effect=stub):
+            publication = policy.publication_on_main('test/game', NOW)[0]
+        self.assertEqual(publication['step'], policy.MERGED)
+        self.assertTrue(publication['outstanding'])
+        self.assertEqual(publication['age_seconds'], 60,
+                         'the step is owed from the merge, not from the branch commit')
+        self.assertFalse(publication['overdue'],
+                         'a release PR in review for two grace windows is not a handoff that is late')
+
+        # The row a person reads: the first push to main after such a merge is green and says so.
+        out = io.StringIO()
+        with frozen, patch.object(policy, 'call', side_effect=stub), \
+                patch.object(sys, 'argv', ['release_policy.py', 'publish', '--repo', 'test/game']), \
+                redirect_stdout(out):
+            policy.main()
+        self.assertIn('release publish guard: merged-not-tagged for v1.2.1', out.getvalue())
+        self.assertIn('Within the grace; the tag and release are still owed.', out.getvalue())
+
+        # Vacuity the other way: the same state goes red once the handoff itself - not the review -
+        # has sat past the grace. Only merged_at moved between the two arms.
+        late = self.gh(False, landed_at=NOW - timedelta(seconds=policy.PUBLISH_GRACE + 60),
+                       authored_at=authored)
+        with frozen, patch.object(policy, 'call', side_effect=late), \
+                patch.object(sys, 'argv', ['release_policy.py', 'publish', '--repo', 'test/game']), \
+                redirect_stdout(io.StringIO()):
+            with self.assertRaises(ValueError) as raised:
+                policy.main()
+        self.assertIn('merged-not-tagged', str(raised.exception))
+
+        # And the two guards cannot disagree about the age of the state they are both naming.
+        instant = datetime.now(timezone.utc)
+        FakeDateTime.instant = instant
+        with patch.object(policy, 'call', side_effect=stub), frozen:
+            status_age = policy.status('test/game')['publication']['age_seconds']
+            guard_age = policy.publication_on_main('test/game')[0]['age_seconds']
+        self.assertEqual(status_age, guard_age)
+        self.assertEqual(status_age, int((instant - merged).total_seconds()))
+
+    def test_the_merge_query_fails_rather_than_reporting_no_debt(self):
+        """#884 widened what the guard asks, so keep the rule #759 left behind: an API error fails
+        rather than reading as 'nothing owed'. Absence is the one answer that is not an error, and
+        only in the shape GitHub actually uses for it."""
+        authored = NOW - timedelta(hours=2)
+
+        def landed(rows=None, error=None):
+            def api(repo, path, payload=None, optional=False):
+                if error:
+                    raise RuntimeError(error)
+                return rows
+            with patch.object(policy, 'api', side_effect=api):
+                return policy.landed_on_main('test/game', AUTHORED, authored)
+
+        # An error on the new call is still an error - never "the step is not owed".
+        with self.assertRaises(RuntimeError):
+            landed(error='gh: Server Error (HTTP 500)')
+        # An unreadable shape is a failure too, as is an answer too large to trust.
+        for rows in ({}, ['row'], [dict(number=n, base=dict(ref='main'), merged_at=NOW.isoformat())
+                             for n in range(100)]):
+            with self.subTest(rows=rows if not isinstance(rows, list) or len(rows) < 4 else 'page'), \
+                    self.assertRaises(ValueError):
+                landed(rows)
+        # A commit no PR names landed when it was committed: the fallback dates the debt, it does not
+        # erase it. And several PRs naming one commit are resolved to the earliest, the first landing.
+        self.assertEqual(landed(rows=[]), authored)
+        self.assertEqual(landed(rows=[dict(number=1, base=dict(ref='fix/doors'),
+                                          merged_at=(NOW + timedelta(hours=5)).isoformat())]), authored)
+        self.assertEqual(landed(rows=[dict(number=2, base=dict(ref='main'),
+                                          merged_at=(authored + timedelta(hours=3)).isoformat()),
+                                      dict(number=3, base=dict(ref='main'),
+                                           merged_at=authored.isoformat())]), authored)
+
+    def test_a_commit_no_pr_names_is_still_dated_from_itself(self):
+        """The fallback must not become a silent 'no debt': a release.json committed straight to main
+        has no merge to date from, so its own committer date - here past the grace - still reads
+        outstanding and overdue."""
+        with patch.object(policy, 'call', side_effect=self.gh(False, authored_at=NOW - timedelta(
+                seconds=policy.PUBLISH_GRACE + 60))):
+            publication = policy.publication_on_main('test/game', NOW)[0]
+        self.assertTrue(publication['outstanding'])
+        self.assertTrue(publication['overdue'])
+        self.assertEqual(publication['age_seconds'], policy.PUBLISH_GRACE + 60)
+
+    def test_the_published_publish_row_says_nothing_about_the_grace(self):
+        """#888 review: the publish row appended its grace sentence whatever the state, so on a
+        published release it printed 'the GitHub release is published. Within the grace; the tag and
+        release are still owed.' - the row `release publish (main)` prints on every push to main and
+        every hourly pass denying, two clauses later, what its first clause states. The sentence
+        belongs to a step that is still owed; `publication_line()` already guarded it on `outstanding`
+        and the CLI row did not.
+
+        The paired arm moves one thing - GitHub's answer about the release - and demands the sentence
+        reappear, so this row cannot be satisfied by the wording disappearing from the tool."""
+        landed = NOW - timedelta(seconds=policy.PUBLISH_GRACE + 60)
+
+        def published(repo, path, payload=None, optional=False):
+            if path.startswith('releases/tags/'):
+                return PUBLISHED
+            return policy_api(repo, path, payload, optional)
+
+        policy_api = policy.api
+        for answer, step, sentence in ((published, policy.PUBLISHED, ''),
+                                      (policy_api, policy.TAGGED, 'PAST THE GRACE')):
+            with self.subTest(step=step), \
+                    patch.object(policy, 'call', side_effect=self.gh(True, landed_at=landed)), \
+                    patch.object(policy, 'api', side_effect=answer), \
+                    patch.object(sys, 'argv',
+                                 ['release_policy.py', 'publish', '--repo', 'test/game']), \
+                    redirect_stdout(out := io.StringIO()):
+                if step == policy.PUBLISHED:
+                    policy.main()
+                else:
+                    with self.assertRaises(ValueError):
+                        policy.main()
+            row = out.getvalue()
+            self.assertIn('release publish guard: ' + step + ' for v1.2.1', row)
+            if sentence:
+                self.assertIn(sentence, row,
+                              'an outstanding step still has to be told its window')
+            else:
+                for wording in ('Within the grace', 'PAST THE GRACE', 'still owed'):
+                    self.assertNotIn(wording, row,
+                                     'a published release owes nothing and the row cannot say it does')
 
     def test_in_flight_publication_does_not_block_a_feature_pr(self):
         manifest = dict(version='v1.2.1', prepared_from=HEAD)
