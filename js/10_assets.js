@@ -310,12 +310,46 @@ function courses(p, cols, rows, mortar, stagger) {
 }
 
 /* ============================ WALLS ============================ */
+/* #889 THE WALL FAMILY'S DETAIL, AT A SCALE THE SHEET CAN HOLD (the paint half of the fan, wall side).
+   #881 wrote the law for the roof and left these ten tiles as the level-scoped control on every frame it
+   re-keyed. Applied here, computed rather than remembered: a term authored as fbm(u*SCALE, v*SCALE, base,
+   oct) reaches a T2 = 128 sheet at SCALE * base * 2^(oct-1) cycles, whose limit is 64 - and THIRTEEN of the
+   24 fbm terms in these painters sat past it, in nine of the ten tiles (every one but FLESH). The worst
+   were the anisotropic streaks - METAL's body at 288 cycles in u, GRATE's at 224, TECH's brushed streak at
+   192 - the same one-axis shape #881 found on CEILS.PANEL, which is why a wall read at six or seven metres
+   crawls along one axis instead of settling. Past Nyquist the bake writes an uncorrelated per-texel alias,
+   no mip level can carry it, and a long thin fetch strip sweeps it into spokes; behind a body it is background
+   busy at exactly the spatial frequency a silhouette is not (#611).
+   THE FIX, AND WHY IT COSTS NOTHING IN LIGHT: every term comes under the limit at the SAME amplitude, gain
+   and octave count, so the fbm mean is 0.5 either side of the change and no tile's `alb`, `amb`, `grain`,
+   bump, speckle or light term moves - a frequency move, not a relight. Two rules, both so the term still
+   reads as the same material rather than as a wash:
+     - the OCTAVE COUNT and gain are held, not trimmed. fbm normalises by the sum of its octave amplitudes,
+       so keeping them keeps the term's variance; dropping the aliasing octave instead would have RAISED the
+       contrast of what remains (3 octaves at gain 0.6 normalise to 1.96, two to 1.6), which is a relight
+       wearing a frequency edit's clothes.
+     - where a term was anisotropic, the axis that was already legal keeps its own authored content and the
+       STRETCH is what comes down (u*8 -> u*2 at base 8, v*0.5 untouched). The stretch is what made it a
+       streak; the frequency was what made it noise.
+   Where a term was isotropic the base lattice comes down to the largest power of two that fits: 20 -> 16,
+   22 -> 16, 9 (4 oct) -> 8, 18 -> 16, 6 (5 oct) -> 4, 34 (2 oct) -> 32, 24 -> 16. Each still tops out at
+   64 cycles, so a wall at arm's length keeps the finest grain the sheet can carry; what goes is the term
+   that was never detail.
+   WHAT THIS IS NOT: no fetch knob (the fetch half of #19 is closed at its measured figures), no light term,
+   no sheet-size change, no `alb` change - the law is free in light and free in cost, which is the whole
+   point of applying it. The four `grain(p, amt, seed, base)` mottle calls in these tiles (BRICK 24, STONE
+   26, TECH2 20, SLAB 30) put their TOP octave at 80-120 cycles through the shared helper and are above the
+   limit too; they are ~2 luma of swing against these terms' 20-70, they live in a helper FLOORS also calls,
+   and they are named here as measured-not-yet-moved rather than folded into this increment uncounted.
+   CHECKS: `matband`'s wall spread (1.46x against 1.5x) and every `exposure` median are the no-relight
+   control; `mip`'s wall-fetch row and `surface`'s wall rows are the picture; the frame digits a repaint
+   legitimately moves come from `node tools/view.js refs --record`, not from a hand. */
 const WTEX = {};
 const T2 = 128;
 WTEX.BRICK = matTex(T2, T2, p => {
   const c = courses(p, 3, 8, 0.055, 1);
   if (c.mortar) {
-    const n = fbm(p.u, p.v, 20, 3, 0.6, 31);
+    const n = fbm(p.u, p.v, 16, 3, 0.6, 31);        // #889: 20 -> 16 base; top octave 80 -> 64 cycles, same amplitude
     p.h = 0.30 + n * 0.10;
     p.r = 158 + n * 44; p.g = 148 + n * 40; p.b = 134 + n * 36;
     return;
@@ -370,17 +404,17 @@ WTEX.BRICK = matTex(T2, T2, p => {
 WTEX.STONE = matTex(T2, T2, p => {
   const c = courses(p, 2.6, 3.4, 0.05, 0.5);
   if (c.mortar) {
-    const n = fbm(p.u, p.v, 22, 3, 0.6, 5);
+    const n = fbm(p.u, p.v, 16, 3, 0.6, 5);         // #889: 22 -> 16; top octave 88 -> 64
     p.h = 0.26 + n * 0.1; p.r = 118 + n * 38; p.g = 118 + n * 36; p.b = 114 + n * 34;
     return;
   }
   const j = hash2(c.id, 3);
   const v = 0.62 + j * 0.5 + (fbm(p.u, p.v, 7, 4, 0.58, 17) - 0.5) * 0.5;
   p.r = 132 * v + 40; p.g = 136 * v + 40; p.b = 140 * v + 40;
-  p.h = 0.68 + (fbm(p.u, p.v, 9, 4, 0.6, 3) - 0.5) * 0.16 + (c.edge - 1) * 0.07;
+  p.h = 0.68 + (fbm(p.u, p.v, 8, 4, 0.6, 3) - 0.5) * 0.16 + (c.edge - 1) * 0.07;   // #889: 9 -> 8 over 4 octaves; top octave 72 -> 64
   grain(p, 8, 44, 26);
   // pitted rock
-  const pit = smoothstep(0.60, 0.96, fbm(p.u, p.v, 18, 3, 0.6, 71));
+  const pit = smoothstep(0.60, 0.96, fbm(p.u, p.v, 16, 3, 0.6, 71));   // #889: 18 -> 16; top octave 72 -> 64
   p.h -= pit * 0.09; p.r -= pit * 13; p.g -= pit * 13; p.b -= pit * 12;
   moss(p, 0.34, 12);
   /* #416 take three: the CRACKS were this tile's grain, not its speckle and not its relief.
@@ -412,12 +446,12 @@ WTEX.STONE = matTex(T2, T2, p => {
 WTEX.CONCRETE = matTex(T2, T2, p => {
   const formY = Math.abs(((p.v * 2) % 1) - 0.5) * 2;           // form panel seam banding
   const seam = 1 - smoothstep(0.0, 0.05, Math.abs(p.v * 2 % 1 - 0.5));
-  const n = fbm(p.u, p.v, 6, 5, 0.55, 8);
+  const n = fbm(p.u, p.v, 4, 5, 0.55, 8);           // #889: 6 -> 4 over 5 octaves; top octave 96 -> 64
   let v = 0.885 + n * 0.21;             // #416 TAKE SIX: same mean (0.99), half the mottle swing - see WTEX.BRICK
   p.r = 130 * v; p.g = 130 * v; p.b = 132 * v;
   p.h = 0.66 + (n - 0.5) * 0.09 - seam * 0.16;
   // aggregate speckle
-  const ag = fbm(p.u, p.v, 34, 2, 0.5, 55);
+  const ag = fbm(p.u, p.v, 32, 2, 0.5, 55);         // #889: 34 -> 32 over 2 octaves; top octave 68 -> 64
   if (ag > 0.72) { const k = (ag - 0.72) * 3; p.h += k * 0.06; p.r += 26 * k; p.g += 24 * k; p.b += 20 * k; }
   if (ag < 0.22) { const k = (0.22 - ag) * 2.4; p.h -= k * 0.05; p.r -= 20 * k; p.g -= 20 * k; p.b -= 18 * k; }
   // tie holes on the seam line
@@ -428,7 +462,7 @@ WTEX.CONCRETE = matTex(T2, T2, p => {
   cracks(p, 0.06, 0.09, 4, 23, [70, 70, 74]);
   // damp staining from the seam downward
   const st = smoothstep(0.0, 1, (p.v * 2 % 1)) * 0.5;
-  const streak = fbm(p.u * 3, p.v * 0.4, 8, 3, 0.6, 77);
+  const streak = fbm(p.u * 2, p.v * 0.4, 8, 3, 0.6, 77);   // #889: u stretch 3 -> 2; top octave 96 -> 64 in u, v's 12.8 authored as it was
   const k2 = smoothstep(0.5, 0.9, streak) * 0.35;
   p.r -= k2 * 30; p.g -= k2 * 28; p.b -= k2 * 22;
 }, { bump: 1.0, amb: 0.44, spec: 0.05, ao: 0.6, grain: 4, alb: 0.95 });   // #416 TAKE SIX: speckle 12 -> 4, the same cut as WTEX.BRICK above and for the same reason — this is ARCHIVE SUBLEVEL's MINORITY face (js/20_level.js:24, `wall2`), so a body ten metres out is read against BRICK or CONCRETE and quieting one of the two would leave the other free to be the sharpest thing in the region. Streaks, mottle, `bump` and the 0.95 albedo are untouched; speckle is zero-mean so `matband`'s wall spread cannot move.
@@ -438,7 +472,7 @@ WTEX.TECH = matTex(T2, T2, p => {
   const gx = (p.u * 2) % 1, gy = (p.v * 2) % 1;
   const d = sdRoundBox(gx - 0.5, gy - 0.5, 0.46, 0.42, 0.06);
   const bevel = smoothstep(0.06, -0.02, d);
-  const n = fbm(p.u * 6, p.v * 0.6, 8, 3, 0.55, 5);            // brushed, stretched
+  const n = fbm(p.u * 2, p.v * 0.6, 8, 3, 0.55, 5);            // #889: brushed, stretched - u stretch 6 -> 2; top octave 192 -> 64 in u
   let v = 0.8 + n * 0.4;
   const base = [94, 108, 128];
   p.r = base[0] * v; p.g = base[1] * v; p.b = base[2] * v;
@@ -489,7 +523,7 @@ WTEX.TECH2 = matTex(T2, T2, p => {
   const gx = (p.u * 3) % 1, gy = (p.v * 3) % 1;
   const hx = Math.abs(gx - 0.5), hy = Math.abs(gy - 0.5);
   const cell = smoothstep(0.5, 0.44, Math.max(hx, hy) + Math.min(hx, hy) * 0.35);
-  const n = fbm(p.u * 5, p.v * 0.8, 7, 3, 0.55, 21);
+  const n = fbm(p.u * 2, p.v * 0.8, 8, 3, 0.55, 21);           // #889: u stretch 5 -> 2, base 7 -> 8; top octave 140 -> 64 in u
   let v = 0.78 + n * 0.4;
   p.r = 145 * v; p.g = 55 * v; p.b = 56 * v;                        // #466: oxblood, not violet - same luma
   p.h = 0.55 + cell * 0.16 + (n - 0.5) * 0.05;
@@ -502,7 +536,7 @@ WTEX.TECH2 = matTex(T2, T2, p => {
 }, { bump: 1.0, amb: 0.40, spec: 0.26, specPow: 30, ao: 0.6, grain: 7, alb: 1.14 });   // #416: the darkest wall tile in the table at 82.3 mean luma, raised into band
 
 WTEX.METAL = matTex(T2, T2, p => {
-  const n = fbm(p.u * 8, p.v * 0.5, 9, 3, 0.55, 17);
+  const n = fbm(p.u * 2, p.v * 0.5, 8, 3, 0.55, 17);           // #889: u stretch 8 -> 2, base 9 -> 8; top octave 288 -> 64 in u, v holds at 16
   let v = 0.82 + n * 0.36;
   p.r = 104 * v; p.g = 110 * v; p.b = 120 * v;
   p.h = 0.62 + (n - 0.5) * 0.05;
@@ -575,7 +609,7 @@ WTEX.MUSCLE = matTex(T2, T2, p => {
      paint behind him is now the quieter of the two. Mean held by construction (see the p.avg note in
      matTex): matband's MUSCLE figure and the level's exposure medians are the check. */
   const fib = p.avg ? 0.5 : 0.50 + 0.24 * Math.sin((p.u * 11 + fold * 1.1) * Math.PI * 2);   // 11 bundles a tile, tileable; #416 took the swing from +-0.50 to +-0.24
-  const grain = p.avg ? 0.5 : fbm(p.u, p.v, 24, 3, 0.5, 17);  // fine meat grain along the bundles; pinned in the mean-only bake for the same reason
+  const grain = p.avg ? 0.5 : fbm(p.u, p.v, 16, 3, 0.5, 17);  // #889: 24 -> 16; top octave 96 -> 64. Fine meat grain along the bundles; pinned in the mean-only bake for the same reason
   let v = 0.98 + (fib - 0.5) * 0.24 + (fold - 0.5) * 0.30 + (grain - 0.5) * 0.10;
   p.r = 148 * v; p.g = 52 * v + 10; p.b = 66 * v + 12;
   p.h = 0.58 + (fib - 0.5) * 0.26 + (fold - 0.5) * 0.12 + (grain - 0.5) * 0.05;
@@ -590,7 +624,7 @@ WTEX.GRATE = matTex(T2, T2, p => {
   const gx = (p.u * 4) % 1, gy = (p.v * 4) % 1;
   const bar = Math.min(Math.abs(gx - 0.5), Math.abs(gy - 0.5));
   const solid = smoothstep(0.10, 0.16, bar);
-  const n = fbm(p.u * 7, p.v * 0.7, 8, 3, 0.55, 29);
+  const n = fbm(p.u * 2, p.v * 0.7, 8, 3, 0.55, 29);           // #889: u stretch 7 -> 2; top octave 224 -> 64 in u, v holds at 22.4
   let v = 0.8 + n * 0.4;
   p.r = 96 * v; p.g = 100 * v; p.b = 108 * v;
   p.h = 0.42 + solid * 0.24 + (n - 0.5) * 0.04;
@@ -634,7 +668,7 @@ WTEX.SLAB = matTex(T2, T2, p => {
   const tie = smoothstep(0.03, -0.03, Math.min(sdCircle(fx - 0.25, fy - 0.5, 0.035),
                                                  sdCircle(fx - 0.75, fy - 0.5, 0.035)));
   p.r -= tie * 40; p.g -= tie * 38; p.b -= tie * 34; p.h -= tie * 0.22;
-  const streak = fbm(p.u * 3, p.v * 0.4, 8, 3, 0.6, 77);              // damp runs from the joints down
+  const streak = fbm(p.u * 2, p.v * 0.4, 8, 3, 0.6, 77);              // #889: u stretch 3 -> 2; top octave 96 -> 64. Damp runs from the joints down
   const st = smoothstep(0.55, 0.9, streak) * 0.30;
   p.r -= st * 20; p.g -= st * 22; p.b -= st * 14; p.h -= st * 0.05;
   grain(p, 20, 26, 30);
