@@ -305,17 +305,66 @@ def git_file(ref, file, optional=False):
         raise
 
 
+def landed_on_main(repo, sha, authored_at):
+    """When the commit that authored `release.json` reached main - which is when the publish step
+    starts being owed.
+
+    `release.json` is authored on `release/<version>` and reaches main only when its PR merges, so
+    the committer date of the commit that touched it is the authoring time on the branch, not the
+    landing. Measured at main `36c6263` (release PR #883, v1.4.31): the commit was committed
+    `2026-11-20T21:20:06Z`, the PR merged `22:50:24Z`, and the push build of the merge commit ran at
+    `22:50:34Z`, where the guard read an age of 5428 s against a 3600 s grace and went red 10 s after
+    the merge that started the clock, while the true age was 10 s (#884). A release PR that spends
+    longer in review than the grace therefore merges to an already-red main, and the product lead is
+    given none of the window `PUBLISH_GRACE` documents.
+
+    GitHub names the merges that carried a commit, so the landing is asked for rather than inferred.
+    The *earliest* merge into main is the answer: a later PR that merged main into itself also lists
+    this commit, and that merge is not when the file arrived. A commit no PR merged - one committed
+    straight to main - lands when it is committed, so its own date stands and the behaviour is
+    unchanged there. Every other API failure still raises: an unreadable answer must not read as
+    'no debt owed'.
+    """
+    if not re.fullmatch(SHA, sha or ''):
+        raise ValueError('the commit that touched release.json carries no sha; the release guard '
+                         'cannot ask which merge carried it to main')
+    pulls = api(repo, 'commits/' + sha + '/pulls?per_page=100')
+    if not isinstance(pulls, list):
+        raise ValueError('the merge query for the release commit did not return a list; the release '
+                         'guard cannot date the outstanding step')
+    if len(pulls) == 100:
+        raise ValueError('the merge query for the release commit filled its page; the release guard '
+                         'cannot tell which merge first landed release.json on main')
+    merged = []
+    for pull in pulls:
+        if not isinstance(pull, dict):
+            raise ValueError('the merge query for the release commit returned a non-object row')
+        base = pull.get('base') if isinstance(pull.get('base'), dict) else {}
+        if base.get('ref') != 'main' or not pull.get('merged_at'):
+            continue
+        if not isinstance(pull['merged_at'], str):
+            raise ValueError('the merge query for the release commit carries a merged_at that is '
+                             'not a timestamp')
+        merged.append(stamp(pull['merged_at']))
+    return min(merged) if merged else authored_at
+
+
 def publication_on_main(repo, now=None, ref=''):
     """The publish state of the release release.json names, read from main.
 
     `ref` is a local git ref instead of main, used by the sabotage run so a doctored
-    release.json can be checked in the one tree that made it."""
+    release.json can be checked in the one tree that made it. The clock starts where #884 put it:
+    at the merge that lands release.json on main, not at the branch commit that authored it."""
     now = now or datetime.now(timezone.utc)
     if ref:
         raw = git_file(ref, 'release.json', optional=True)
         manifest = json.loads(raw) if raw else None
         main_sha = call(['git', 'rev-parse', ref])
-        merged_at = stamp(call(['git', 'log', '-1', '--format=%cI', ref, '--', 'release.json']))
+        # --first-parent is the local form of landed_on_main. A landing merge is TREESAME to the
+        # release branch for this path, so a plain `git log -- release.json` follows the second
+        # parent back to the branch commit and dates the debt from the authoring again.
+        merged_at = stamp(call(['git', 'log', '-1', '--first-parent', '--format=%cI', ref, '--',
+                                'release.json']))
     else:
         main_sha = api(repo, 'git/ref/heads/main')['object']['sha']
         from base64 import b64decode
@@ -325,7 +374,11 @@ def publication_on_main(repo, now=None, ref=''):
         if not isinstance(commits, list) or not commits:
             raise ValueError('no commit on main touches release.json; the release guard cannot '
                              'date the outstanding step')
-        merged_at = stamp(commits[0]['commit']['committer']['date'])
+        commit = commits[0]
+        if not isinstance(commit, dict):
+            raise ValueError('the release.json commit query returned a non-object row')
+        merged_at = landed_on_main(repo, commit.get('sha'),
+                                   stamp(commit['commit']['committer']['date']))
     version = manifest.get('version') if isinstance(manifest, dict) else None
     if not isinstance(version, str) or not re.fullmatch(VERSION, version or ''):
         raise ValueError('release.json version is %r, not a release version' % (version,))
@@ -338,6 +391,9 @@ def publication_on_main(repo, now=None, ref=''):
 
 def status(repo, branch=''):
     # Read policy from main, so a feature PR cannot waive debt by editing it.
+    # One clock read for the whole verdict, and publication_on_main is given that reading: `status`
+    # and `publish` must not disagree about how long the same state has been owed (#884).
+    now = datetime.now(timezone.utc)
     main_sha = api(repo, 'git/ref/heads/main')['object']['sha']
     from base64 import b64decode
     policy_file = api(repo, 'contents/release-policy.json?ref=' + main_sha, optional=branch == RESET_BRANCH)
@@ -346,13 +402,13 @@ def status(repo, branch=''):
     # The latest release's own tag, through the same absent-aware lookup: a release whose tag was
     # deleted reports 'a release exists for <version> but its tag does not' rather than raising.
     tag_sha = tag_commit(repo, release['tag_name']) if release else None
-    publication = publication_on_main(repo)[0]
+    publication = publication_on_main(repo, now)[0]
     pulls = api(repo, 'pulls?state=open&base=main&per_page=100')
     if isinstance(pulls, list) and len(pulls) == 100:
         raise ValueError('the open pull request query filled its page; the release guard cannot '
                          'name the newest release PR reliably')
     release_pr = release_pr_state(pulls, release['tag_name'] if release else None)
-    value = evaluate(policy, release, main_sha, tag_sha, datetime.now(timezone.utc), publication,
+    value = evaluate(policy, release, main_sha, tag_sha, now, publication,
                      release_pr)
     value['waived'] = bool(re.fullmatch('release/' + VERSION, branch)) or (branch == RESET_BRANCH and policy_file is None)
     return value
@@ -400,9 +456,15 @@ def publication_line(publication):
     if not publication['outstanding']:
         return f"Outstanding release step: none - {publication['version']} is published ({shown})."
     return (f"Outstanding release step: {publication['step']} for {publication['version']} "
-            f"({shown}, alarm at {publication['grace_seconds']} s). "
-            + ('PAST THE GRACE: finish the handoff - tag the merge commit and publish the release.'
-               if publication['overdue'] else 'Within the grace; the tag and release are still owed.'))
+            f"({shown}, alarm at {publication['grace_seconds']} s). " + grace_clause(publication))
+
+
+def grace_clause(publication):
+    """The sentence that says whether the handoff is inside its window or past it. Both the debt
+    issue line above and the `release publish (main)` row print it, so the row a person acts on and
+    the issue that records the debt cannot describe the same state differently (#884)."""
+    return ('PAST THE GRACE: finish the handoff - tag the merge commit and publish the release.'
+            if publication['overdue'] else 'Within the grace; the tag and release are still owed.')
 
 
 def release_pr_line(release_pr):
@@ -455,8 +517,8 @@ def main():
     elif args.command == 'publish':
         value, main_sha = publication_on_main(args.repo, ref=args.ref)
         print(f"release publish guard: {value['step']} for {value['version']} "
-              f"(main {main_sha[:12]}, {value['age_seconds']} s since that commit, "
-              f"grace {value['grace_seconds']} s) - {value['reason']}")
+              f"(main {main_sha[:12]}, {value['age_seconds']} s since release.json landed on main, "
+              f"grace {value['grace_seconds']} s) - {value['reason']}. {grace_clause(value)}")
         if value['overdue']:
             raise ValueError('release.json on main names ' + value['version'] + ', which is '
                              + value['step'] + ' after ' + str(value['age_seconds'])
