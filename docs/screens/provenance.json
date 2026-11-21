@@ -160,16 +160,26 @@
         "js/40_render.js": "dcb6df92ddb1e42fbb7753d9d62af6dc88fc22d461dc0bff981697b9e3e930c7"
       },
       "note": "The four blobs that draw a frame, sha256, read from the checkout that ran the capture. `node tools/recap.js check` recomputes them from the tree it runs in and prints whether these frames still show what that tree ships (#536). The session that took these pixels proved this build off the wire: index.html and all eleven js/ blobs served by GitHub Pages sha256-match origin/main at 44ff9a4, twelve for twelve, before the shutter - the deploy serves main’s bytes, and this branch changes no shipped byte."
+    },
+    "cc0a3e3": {
+      "at": "2026-11-21",
+      "files": {
+        "index.html": "c886aca0138047584edd4ee7023c504da19d3d559a6e6bb33833a9290169d557",
+        "js/10_assets.js": "18ee433e3446f84ddac29da202991c14eaaf19aa09c3d5e71331b0f2ba2ee3ef",
+        "js/20_level.js": "4c5fd0d5dfa3fac22c1a8ea6fbae88328be5c282da30ddd6da8b8b0c5cb0bf0d",
+        "js/40_render.js": "de4217a91d1e5f9256605bddc511f841051dd4a521482f6362ed398786525346"
+      },
+      "note": "The four blobs that draw a frame, sha256, read from the checkout that ran the capture. `node tools/recap.js check` recomputes them from the tree it runs in and prints whether these frames still show what that tree ships (#536). The session that took these pixels proved this build off the wire: index.html and all eleven js/ blobs served by GitHub Pages sha256-match origin/main at cc0a3e3, twelve for twelve, before the shutter - the deploy serves main’s bytes, and this branch changes no shipped byte."
     }
   },
   "shots": [
     {
       "file": "level0-enemies",
-      "sha256": "157d063e69bbc8cd8c87bac2901e5e0cd3712086395d056a58377de9f5e3cbb8",
+      "sha256": "d3a0e708fb18a220a272d15feb2e48fb9e3b2cf4835e7c08d02b23badc0521b7",
       "replaces": {
-        "rev": "609be21",
-        "sha256": "1dec93930708d7b41c2e794b14e39a741931278a074a62b425b292f42af3f46d",
-        "mean": 57.2984
+        "rev": "d538f51",
+        "sha256": "157d063e69bbc8cd8c87bac2901e5e0cd3712086395d056a58377de9f5e3cbb8",
+        "mean": 60.76
       },
       "canvas": "1440x763",
       "origin": "https",
@@ -178,19 +188,19 @@
       "seed": "60",
       "level": 0,
       "layout": 4083630493,
-      "build": "44ff9a4",
-      "at": "2026-11-20",
+      "build": "cc0a3e3",
+      "at": "2026-11-21",
       "sampleRate": 44100,
-      "note": "RE-TAKEN from the DEPLOYED page for #876 at build 44ff9a4. The previous pass bound 0546b82; since then #873 gave every first-person part one ramp across its own face (js/13_mesh.js and js/40_render.js - the slide now reads brighter along its top than down its flank) and #869 put a fitting on a room’s own enclosing wall (js/20_level.js), so recap labelled the 0546b82 rows FRAME-STALE on three of the four blobs that draw a frame and the front page was describing a picture that no longer ships. This pass is the same eight poses re-run against the deploy, which serves main’s bytes: index.html and all eleven js/ blobs served by that URL sha256-match this checkout, twelve for twelve, proved before the shutter. Route: tools/livecap.js devRoute against the DEPLOYED page - one page load and one boot per pose at ?dev=1&seed=60&boot=0, DEV.freeze(true), DEV.set(\"grain\",0), DEV.clear() before the pose, shutter from the canvas after DEV.tick. The display surface was pinned with Emulation.setDeviceMetricsOverride to 1440x763 (this chromium build reports innerHeight 620 for every --window-size tried, and every frame in docs/screens is 1440x763), so the raster and the aspect are the ones the committed frames have always carried. Chromium gave RGBA; committed through tools/png_rgb.js. Every seat, layout and audio term below was read back out of the page that drew the frame, and every mean re-measured from these bytes with tools/recap.js’s own decoder. Pose: the spawn seat, then DEV.clear() and DEV.spawn('grunt', 1, 6); the route’s own seat search needed no turn and left him at (11.10, 4.53), 6.00 m out on the view line, on a floorAt 0.00 band with 255 raster px of him painted. Layout signature 4083630493 for this sector under seed 60 on this instrument. Audio term: SND.ac.sampleRate read 44100 in the page that drew this frame, so this seed deals this layout after 66150 seeded draws through SND.init’s noise buffer (#404) - the same deal every row of this table names, which is what makes this today’s bytes drawing yesterday’s room rather than a new roll.",
+      "note": "RE-TAKEN from the DEPLOYED page for #882 at build cc0a3e3. The previous pass bound 44ff9a4; since then #879 widened a slab’s shadow gap from a one-pixel crease into a hand-wide band and paid its luma back onto the rest of the plate (f1463d4), #880 re-pitched the joists under a raised floor from 0.50 m to 0.77 m with a narrower, deeper shadow line at the same area (7c37ac1), and #19 moved the roof’s and the deck’s detail under the sheet’s own resolution limit (a319158, 29c967f). Two of the four blobs that draw a frame — js/40_render.js and js/10_assets.js — differ between 44ff9a4 and this checkout, so recap labelled the 44ff9a4 rows FRAME-STALE and the front page was describing a picture that no longer ships. This pass is the same eight poses re-run against the deploy, which serves main’s bytes: index.html and all eleven js/ blobs served by that URL sha256-match this checkout, twelve for twelve, proved before the shutter. Route: `node tools/livecap.js frames --url <deployed ?dev=1&seed=60&boot=0> --vp 1440x763`, one page load and one boot per pose, DEV.freeze(true), DEV.set(\"grain\",0), DEV.clear() before the pose, shutter from the canvas after DEV.tick; the pose table is checked into tools/livecap.js (FRAMES) so the eight are reproducible without a transcript, and --vp pins the display surface with Emulation.setDeviceMetricsOverride to the 1440x763 every frame in docs/screens carries (this chromium reports innerHeight 620 for every --window-size, and livecap's capture default came back 1440x620). Chromium gave RGBA; committed through tools/png_rgb.js. Every seat, layout and audio term below was read back out of the page that drew the frame, and every mean re-measured from these bytes with tools/recap.js’s own decoder. Pose: the spawn seat, then DEV.clear() and DEV.spawn('grunt', 1, 6); the route’s own seat search needed no turn and left him dead on the view line at (11.10, 4.53), 6.00 m out, with 255 raster px of him painted. Frame mean 60.58, which is -0.18 on the frame it replaces, and 4.18% of its pixels differ from those bytes by the kept-pixel rule (summed |dRGB| over 18, counted over the whole 1440x763 frame, which is the rule tools/livecap.js states). Layout signature 4083630493 for ARCHIVE SUBLEVEL under seed 60 on this instrument — identical to the row this frame replaces, so this is a picture change and not a re-deal. Audio term: SND.ac.sampleRate read 44100 in the page that drew this frame, the same instrument term those rows state (#404).",
       "staleByBuild": null
     },
     {
       "file": "level0-facing-wall",
-      "sha256": "e1ce1d1f737cc852c48ea23934d077ceb34827dc1472fc4d1b8b93dad5f17f0f",
+      "sha256": "4590a9f656735b29e94c0344c73226250fe6601639dcae988632ee54f198d7ae",
       "replaces": {
-        "rev": "609be21",
-        "sha256": "2373bda35a03af798048570c2f9241a0e829ff5611168373f3d7d48b0676a441",
-        "mean": 81.1979
+        "rev": "d538f51",
+        "sha256": "e1ce1d1f737cc852c48ea23934d077ceb34827dc1472fc4d1b8b93dad5f17f0f",
+        "mean": 81.46
       },
       "canvas": "1440x763",
       "origin": "https",
@@ -199,19 +209,19 @@
       "seed": "60",
       "level": 0,
       "layout": 4083630493,
-      "build": "44ff9a4",
-      "at": "2026-11-20",
+      "build": "cc0a3e3",
+      "at": "2026-11-21",
       "sampleRate": 44100,
-      "note": "RE-TAKEN from the DEPLOYED page for #876 at build 44ff9a4. The previous pass bound 0546b82; since then #873 gave every first-person part one ramp across its own face (js/13_mesh.js and js/40_render.js - the slide now reads brighter along its top than down its flank) and #869 put a fitting on a room’s own enclosing wall (js/20_level.js), so recap labelled the 0546b82 rows FRAME-STALE on three of the four blobs that draw a frame and the front page was describing a picture that no longer ships. This pass is the same eight poses re-run against the deploy, which serves main’s bytes: index.html and all eleven js/ blobs served by that URL sha256-match this checkout, twelve for twelve, proved before the shutter. Route: tools/livecap.js devRoute against the DEPLOYED page - one page load and one boot per pose at ?dev=1&seed=60&boot=0, DEV.freeze(true), DEV.set(\"grain\",0), DEV.clear() before the pose, shutter from the canvas after DEV.tick. The display surface was pinned with Emulation.setDeviceMetricsOverride to 1440x763 (this chromium build reports innerHeight 620 for every --window-size tried, and every frame in docs/screens is 1440x763), so the raster and the aspect are the ones the committed frames have always carried. Chromium gave RGBA; committed through tools/png_rgb.js. Every seat, layout and audio term below was read back out of the page that drew the frame, and every mean re-measured from these bytes with tools/recap.js’s own decoder. Pose: DEV.cam(1.5, 8.5, undefined, Math.PI/2) - a recorded pose, read back heading 1.5708, floorAt 0.00. Layout signature 4083630493 for this sector under seed 60 on this instrument. Audio term: SND.ac.sampleRate read 44100 in the page that drew this frame, so this seed deals this layout after 66150 seeded draws through SND.init’s noise buffer (#404) - the same deal every row of this table names, which is what makes this today’s bytes drawing yesterday’s room rather than a new roll.",
+      "note": "RE-TAKEN from the DEPLOYED page for #882 at build cc0a3e3. The previous pass bound 44ff9a4; since then #879 widened a slab’s shadow gap from a one-pixel crease into a hand-wide band and paid its luma back onto the rest of the plate (f1463d4), #880 re-pitched the joists under a raised floor from 0.50 m to 0.77 m with a narrower, deeper shadow line at the same area (7c37ac1), and #19 moved the roof’s and the deck’s detail under the sheet’s own resolution limit (a319158, 29c967f). Two of the four blobs that draw a frame — js/40_render.js and js/10_assets.js — differ between 44ff9a4 and this checkout, so recap labelled the 44ff9a4 rows FRAME-STALE and the front page was describing a picture that no longer ships. This pass is the same eight poses re-run against the deploy, which serves main’s bytes: index.html and all eleven js/ blobs served by that URL sha256-match this checkout, twelve for twelve, proved before the shutter. Route: `node tools/livecap.js frames --url <deployed ?dev=1&seed=60&boot=0> --vp 1440x763`, one page load and one boot per pose, DEV.freeze(true), DEV.set(\"grain\",0), DEV.clear() before the pose, shutter from the canvas after DEV.tick; the pose table is checked into tools/livecap.js (FRAMES) so the eight are reproducible without a transcript, and --vp pins the display surface with Emulation.setDeviceMetricsOverride to the 1440x763 every frame in docs/screens carries (this chromium reports innerHeight 620 for every --window-size, and livecap's capture default came back 1440x620). Chromium gave RGBA; committed through tools/png_rgb.js. Every seat, layout and audio term below was read back out of the page that drew the frame, and every mean re-measured from these bytes with tools/recap.js’s own decoder. Pose: DEV.cam(1.5, 8.5, undefined, Math.PI/2) — a recorded pose, read back at (1.50, 8.50) heading 1.5708, floorAt 0.00. Frame mean 81.48, which is +0.02 on the frame it replaces, and 10.41% of its pixels differ from those bytes by the kept-pixel rule (summed |dRGB| over 18, counted over the whole 1440x763 frame, which is the rule tools/livecap.js states). Layout signature 4083630493 for ARCHIVE SUBLEVEL under seed 60 on this instrument — identical to the row this frame replaces, so this is a picture change and not a re-deal. Audio term: SND.ac.sampleRate read 44100 in the page that drew this frame, the same instrument term those rows state (#404).",
       "staleByBuild": null
     },
     {
       "file": "level0-pitfloor",
-      "sha256": "ff93897afbb8405e36b91702129c8345712a4fba720f8ed85172b72728f46c80",
+      "sha256": "43a28acf8e7732add57c5dcd7f6f2634d1de62cd66118ac980f5b0cd8dba3cf9",
       "replaces": {
-        "rev": "609be21",
-        "sha256": "d59728178486cb36cb935326a6f68eb141a59bed6a195523436ac1779a13e296",
-        "mean": 65.3343
+        "rev": "d538f51",
+        "sha256": "ff93897afbb8405e36b91702129c8345712a4fba720f8ed85172b72728f46c80",
+        "mean": 65.35
       },
       "canvas": "1440x763",
       "origin": "https",
@@ -220,19 +230,19 @@
       "seed": "60",
       "level": 0,
       "layout": 4083630493,
-      "build": "44ff9a4",
-      "at": "2026-11-20",
+      "build": "cc0a3e3",
+      "at": "2026-11-21",
       "sampleRate": 44100,
-      "note": "RE-TAKEN from the DEPLOYED page for #876 at build 44ff9a4. The previous pass bound 0546b82; since then #873 gave every first-person part one ramp across its own face (js/13_mesh.js and js/40_render.js - the slide now reads brighter along its top than down its flank) and #869 put a fitting on a room’s own enclosing wall (js/20_level.js), so recap labelled the 0546b82 rows FRAME-STALE on three of the four blobs that draw a frame and the front page was describing a picture that no longer ships. This pass is the same eight poses re-run against the deploy, which serves main’s bytes: index.html and all eleven js/ blobs served by that URL sha256-match this checkout, twelve for twelve, proved before the shutter. Route: tools/livecap.js devRoute against the DEPLOYED page - one page load and one boot per pose at ?dev=1&seed=60&boot=0, DEV.freeze(true), DEV.set(\"grain\",0), DEV.clear() before the pose, shutter from the canvas after DEV.tick. The display surface was pinned with Emulation.setDeviceMetricsOverride to 1440x763 (this chromium build reports innerHeight 620 for every --window-size tried, and every frame in docs/screens is 1440x763), so the raster and the aspect are the ones the committed frames have always carried. Chromium gave RGBA; committed through tools/png_rgb.js. Every seat, layout and audio term below was read back out of the page that drew the frame, and every mean re-measured from these bytes with tools/recap.js’s own decoder. Pose: DEV.cam(19.5, 14.5, undefined, 1.1071) - a recorded pose, read back heading 1.1071, floorAt 0.00. Layout signature 4083630493 for this sector under seed 60 on this instrument. Audio term: SND.ac.sampleRate read 44100 in the page that drew this frame, so this seed deals this layout after 66150 seeded draws through SND.init’s noise buffer (#404) - the same deal every row of this table names, which is what makes this today’s bytes drawing yesterday’s room rather than a new roll.",
+      "note": "RE-TAKEN from the DEPLOYED page for #882 at build cc0a3e3. The previous pass bound 44ff9a4; since then #879 widened a slab’s shadow gap from a one-pixel crease into a hand-wide band and paid its luma back onto the rest of the plate (f1463d4), #880 re-pitched the joists under a raised floor from 0.50 m to 0.77 m with a narrower, deeper shadow line at the same area (7c37ac1), and #19 moved the roof’s and the deck’s detail under the sheet’s own resolution limit (a319158, 29c967f). Two of the four blobs that draw a frame — js/40_render.js and js/10_assets.js — differ between 44ff9a4 and this checkout, so recap labelled the 44ff9a4 rows FRAME-STALE and the front page was describing a picture that no longer ships. This pass is the same eight poses re-run against the deploy, which serves main’s bytes: index.html and all eleven js/ blobs served by that URL sha256-match this checkout, twelve for twelve, proved before the shutter. Route: `node tools/livecap.js frames --url <deployed ?dev=1&seed=60&boot=0> --vp 1440x763`, one page load and one boot per pose, DEV.freeze(true), DEV.set(\"grain\",0), DEV.clear() before the pose, shutter from the canvas after DEV.tick; the pose table is checked into tools/livecap.js (FRAMES) so the eight are reproducible without a transcript, and --vp pins the display surface with Emulation.setDeviceMetricsOverride to the 1440x763 every frame in docs/screens carries (this chromium reports innerHeight 620 for every --window-size, and livecap's capture default came back 1440x620). Chromium gave RGBA; committed through tools/png_rgb.js. Every seat, layout and audio term below was read back out of the page that drew the frame, and every mean re-measured from these bytes with tools/recap.js’s own decoder. Pose: DEV.cam(19.5, 14.5, undefined, 1.1071) — a recorded pose, read back at (19.50, 14.50) heading 1.1071, floorAt 0.00. Frame mean 65.15, which is -0.20 on the frame it replaces, and 22.35% of its pixels differ from those bytes by the kept-pixel rule (summed |dRGB| over 18, counted over the whole 1440x763 frame, which is the rule tools/livecap.js states). Layout signature 4083630493 for ARCHIVE SUBLEVEL under seed 60 on this instrument — identical to the row this frame replaces, so this is a picture change and not a re-deal. Audio term: SND.ac.sampleRate read 44100 in the page that drew this frame, the same instrument term those rows state (#404).",
       "staleByBuild": null
     },
     {
       "file": "level0-props",
-      "sha256": "59a25846539ffd4254e3b55d9f1ce6aaaa33e12761401a10c81633dbf103cffa",
+      "sha256": "28f42a3b7691e3d4962b932185bab16ff176b02b46a4dfa076433bb5f268d86f",
       "replaces": {
-        "rev": "609be21",
-        "sha256": "76e5eeab764a85e260ce38ceda64556bd01a498788a43202f3c5028db9ffcb56",
-        "mean": 67.4591
+        "rev": "d538f51",
+        "sha256": "59a25846539ffd4254e3b55d9f1ce6aaaa33e12761401a10c81633dbf103cffa",
+        "mean": 67.48
       },
       "canvas": "1440x763",
       "origin": "https",
@@ -241,19 +251,19 @@
       "seed": "60",
       "level": 0,
       "layout": 4083630493,
-      "build": "44ff9a4",
-      "at": "2026-11-20",
+      "build": "cc0a3e3",
+      "at": "2026-11-21",
       "sampleRate": 44100,
-      "note": "RE-TAKEN from the DEPLOYED page for #876 at build 44ff9a4. The previous pass bound 0546b82; since then #873 gave every first-person part one ramp across its own face (js/13_mesh.js and js/40_render.js - the slide now reads brighter along its top than down its flank) and #869 put a fitting on a room’s own enclosing wall (js/20_level.js), so recap labelled the 0546b82 rows FRAME-STALE on three of the four blobs that draw a frame and the front page was describing a picture that no longer ships. This pass is the same eight poses re-run against the deploy, which serves main’s bytes: index.html and all eleven js/ blobs served by that URL sha256-match this checkout, twelve for twelve, proved before the shutter. Route: tools/livecap.js devRoute against the DEPLOYED page - one page load and one boot per pose at ?dev=1&seed=60&boot=0, DEV.freeze(true), DEV.set(\"grain\",0), DEV.clear() before the pose, shutter from the canvas after DEV.tick. The display surface was pinned with Emulation.setDeviceMetricsOverride to 1440x763 (this chromium build reports innerHeight 620 for every --window-size tried, and every frame in docs/screens is 1440x763), so the raster and the aspect are the ones the committed frames have always carried. Chromium gave RGBA; committed through tools/png_rgb.js. Every seat, layout and audio term below was read back out of the page that drew the frame, and every mean re-measured from these bytes with tools/recap.js’s own decoder. Pose: DEV.cam(20.5, 11.5, undefined, Math.PI/2) - a recorded pose, read back heading 1.5708, floorAt 2.00. Layout signature 4083630493 for this sector under seed 60 on this instrument. Audio term: SND.ac.sampleRate read 44100 in the page that drew this frame, so this seed deals this layout after 66150 seeded draws through SND.init’s noise buffer (#404) - the same deal every row of this table names, which is what makes this today’s bytes drawing yesterday’s room rather than a new roll.",
+      "note": "RE-TAKEN from the DEPLOYED page for #882 at build cc0a3e3. The previous pass bound 44ff9a4; since then #879 widened a slab’s shadow gap from a one-pixel crease into a hand-wide band and paid its luma back onto the rest of the plate (f1463d4), #880 re-pitched the joists under a raised floor from 0.50 m to 0.77 m with a narrower, deeper shadow line at the same area (7c37ac1), and #19 moved the roof’s and the deck’s detail under the sheet’s own resolution limit (a319158, 29c967f). Two of the four blobs that draw a frame — js/40_render.js and js/10_assets.js — differ between 44ff9a4 and this checkout, so recap labelled the 44ff9a4 rows FRAME-STALE and the front page was describing a picture that no longer ships. This pass is the same eight poses re-run against the deploy, which serves main’s bytes: index.html and all eleven js/ blobs served by that URL sha256-match this checkout, twelve for twelve, proved before the shutter. Route: `node tools/livecap.js frames --url <deployed ?dev=1&seed=60&boot=0> --vp 1440x763`, one page load and one boot per pose, DEV.freeze(true), DEV.set(\"grain\",0), DEV.clear() before the pose, shutter from the canvas after DEV.tick; the pose table is checked into tools/livecap.js (FRAMES) so the eight are reproducible without a transcript, and --vp pins the display surface with Emulation.setDeviceMetricsOverride to the 1440x763 every frame in docs/screens carries (this chromium reports innerHeight 620 for every --window-size, and livecap's capture default came back 1440x620). Chromium gave RGBA; committed through tools/png_rgb.js. Every seat, layout and audio term below was read back out of the page that drew the frame, and every mean re-measured from these bytes with tools/recap.js’s own decoder. Pose: DEV.cam(20.5, 11.5, undefined, Math.PI/2) — a recorded pose, read back at (20.50, 11.50) heading 1.5708, floorAt 2.00. Frame mean 64.89, which is -2.59 on the frame it replaces, and 23.31% of its pixels differ from those bytes by the kept-pixel rule (summed |dRGB| over 18, counted over the whole 1440x763 frame, which is the rule tools/livecap.js states). Layout signature 4083630493 for ARCHIVE SUBLEVEL under seed 60 on this instrument — identical to the row this frame replaces, so this is a picture change and not a re-deal. Audio term: SND.ac.sampleRate read 44100 in the page that drew this frame, the same instrument term those rows state (#404).",
       "staleByBuild": null
     },
     {
       "file": "level0-spawn",
-      "sha256": "383523102c6b3d28dc75f4a8454d7a354cc6c2fac9c87bf02587f72c52aaa1ae",
+      "sha256": "5b209ec4bc0c8dd007eefecda7aa08f79804181d9d5df8bc9dbffb6585bb28fa",
       "replaces": {
-        "rev": "609be21",
-        "sha256": "4597f28ba492c4d7d4a4e11a4528db80d65ea523ab232197984f85b5ef53627a",
-        "mean": 57.3082
+        "rev": "d538f51",
+        "sha256": "383523102c6b3d28dc75f4a8454d7a354cc6c2fac9c87bf02587f72c52aaa1ae",
+        "mean": 60.77
       },
       "canvas": "1440x763",
       "origin": "https",
@@ -262,19 +272,19 @@
       "seed": "60",
       "level": 0,
       "layout": 4083630493,
-      "build": "44ff9a4",
-      "at": "2026-11-20",
+      "build": "cc0a3e3",
+      "at": "2026-11-21",
       "sampleRate": 44100,
-      "note": "RE-TAKEN from the DEPLOYED page for #876 at build 44ff9a4. The previous pass bound 0546b82; since then #873 gave every first-person part one ramp across its own face (js/13_mesh.js and js/40_render.js - the slide now reads brighter along its top than down its flank) and #869 put a fitting on a room’s own enclosing wall (js/20_level.js), so recap labelled the 0546b82 rows FRAME-STALE on three of the four blobs that draw a frame and the front page was describing a picture that no longer ships. This pass is the same eight poses re-run against the deploy, which serves main’s bytes: index.html and all eleven js/ blobs served by that URL sha256-match this checkout, twelve for twelve, proved before the shutter. Route: tools/livecap.js devRoute against the DEPLOYED page - one page load and one boot per pose at ?dev=1&seed=60&boot=0, DEV.freeze(true), DEV.set(\"grain\",0), DEV.clear() before the pose, shutter from the canvas after DEV.tick. The display surface was pinned with Emulation.setDeviceMetricsOverride to 1440x763 (this chromium build reports innerHeight 620 for every --window-size tried, and every frame in docs/screens is 1440x763), so the raster and the aspect are the ones the committed frames have always carried. Chromium gave RGBA; committed through tools/png_rgb.js. Every seat, layout and audio term below was read back out of the page that drew the frame, and every mean re-measured from these bytes with tools/recap.js’s own decoder. Pose: the deal’s own spawn seat, read back at (10.50, 10.50) heading -1.4711, floorAt 0.00, with 0 hostiles left after the route’s DEV.clear(). Layout signature 4083630493 for this sector under seed 60 on this instrument. Audio term: SND.ac.sampleRate read 44100 in the page that drew this frame, so this seed deals this layout after 66150 seeded draws through SND.init’s noise buffer (#404) - the same deal every row of this table names, which is what makes this today’s bytes drawing yesterday’s room rather than a new roll.",
+      "note": "RE-TAKEN from the DEPLOYED page for #882 at build cc0a3e3. The previous pass bound 44ff9a4; since then #879 widened a slab’s shadow gap from a one-pixel crease into a hand-wide band and paid its luma back onto the rest of the plate (f1463d4), #880 re-pitched the joists under a raised floor from 0.50 m to 0.77 m with a narrower, deeper shadow line at the same area (7c37ac1), and #19 moved the roof’s and the deck’s detail under the sheet’s own resolution limit (a319158, 29c967f). Two of the four blobs that draw a frame — js/40_render.js and js/10_assets.js — differ between 44ff9a4 and this checkout, so recap labelled the 44ff9a4 rows FRAME-STALE and the front page was describing a picture that no longer ships. This pass is the same eight poses re-run against the deploy, which serves main’s bytes: index.html and all eleven js/ blobs served by that URL sha256-match this checkout, twelve for twelve, proved before the shutter. Route: `node tools/livecap.js frames --url <deployed ?dev=1&seed=60&boot=0> --vp 1440x763`, one page load and one boot per pose, DEV.freeze(true), DEV.set(\"grain\",0), DEV.clear() before the pose, shutter from the canvas after DEV.tick; the pose table is checked into tools/livecap.js (FRAMES) so the eight are reproducible without a transcript, and --vp pins the display surface with Emulation.setDeviceMetricsOverride to the 1440x763 every frame in docs/screens carries (this chromium reports innerHeight 620 for every --window-size, and livecap's capture default came back 1440x620). Chromium gave RGBA; committed through tools/png_rgb.js. Every seat, layout and audio term below was read back out of the page that drew the frame, and every mean re-measured from these bytes with tools/recap.js’s own decoder. Pose: the deal’s own spawn seat, read back at (10.50, 10.50) heading -1.4711, floorAt 0.00, with 0 hostiles left after the route’s DEV.clear(). Frame mean 60.59, which is -0.18 on the frame it replaces, and 4.25% of its pixels differ from those bytes by the kept-pixel rule (summed |dRGB| over 18, counted over the whole 1440x763 frame, which is the rule tools/livecap.js states). Layout signature 4083630493 for ARCHIVE SUBLEVEL under seed 60 on this instrument — identical to the row this frame replaces, so this is a picture change and not a re-deal. Audio term: SND.ac.sampleRate read 44100 in the page that drew this frame, the same instrument term those rows state (#404).",
       "staleByBuild": null
     },
     {
       "file": "level2-abatoir",
-      "sha256": "647ad7c819246725a43cc5dbd3d0d6f7cc6b19239e6c649553bdfeb917875e5f",
+      "sha256": "39017b2d10197d11125e3bc0a063048256fb722ef0d63cc244e799cc7ee18943",
       "replaces": {
-        "rev": "609be21",
-        "sha256": "82ecb4a59ab7de7bc66147f4500a5cec50813f13c848f23e67b7359188b75904",
-        "mean": 67.1954
+        "rev": "d538f51",
+        "sha256": "647ad7c819246725a43cc5dbd3d0d6f7cc6b19239e6c649553bdfeb917875e5f",
+        "mean": 67.2
       },
       "canvas": "1440x763",
       "origin": "https",
@@ -283,19 +293,19 @@
       "seed": "60",
       "level": 2,
       "layout": 2343219222,
-      "build": "44ff9a4",
-      "at": "2026-11-20",
+      "build": "cc0a3e3",
+      "at": "2026-11-21",
       "sampleRate": 44100,
-      "note": "RE-TAKEN from the DEPLOYED page for #876 at build 44ff9a4. The previous pass bound 0546b82; since then #873 gave every first-person part one ramp across its own face (js/13_mesh.js and js/40_render.js - the slide now reads brighter along its top than down its flank) and #869 put a fitting on a room’s own enclosing wall (js/20_level.js), so recap labelled the 0546b82 rows FRAME-STALE on three of the four blobs that draw a frame and the front page was describing a picture that no longer ships. This pass is the same eight poses re-run against the deploy, which serves main’s bytes: index.html and all eleven js/ blobs served by that URL sha256-match this checkout, twelve for twelve, proved before the shutter. Route: tools/livecap.js devRoute against the DEPLOYED page - one page load and one boot per pose at ?dev=1&seed=60&boot=0, DEV.freeze(true), DEV.set(\"grain\",0), DEV.clear() before the pose, shutter from the canvas after DEV.tick. The display surface was pinned with Emulation.setDeviceMetricsOverride to 1440x763 (this chromium build reports innerHeight 620 for every --window-size tried, and every frame in docs/screens is 1440x763), so the raster and the aspect are the ones the committed frames have always carried. Chromium gave RGBA; committed through tools/png_rgb.js. Every seat, layout and audio term below was read back out of the page that drew the frame, and every mean re-measured from these bytes with tools/recap.js’s own decoder. Pose: the dealt arrival seat, read back at (22.50, 13.50) heading 2.4228, floorAt 0.00. Layout signature 2343219222 for this sector under seed 60 on this instrument. Audio term: SND.ac.sampleRate read 44100 in the page that drew this frame, so this seed deals this layout after 66150 seeded draws through SND.init’s noise buffer (#404) - the same deal every row of this table names, which is what makes this today’s bytes drawing yesterday’s room rather than a new roll.",
+      "note": "RE-TAKEN from the DEPLOYED page for #882 at build cc0a3e3. The previous pass bound 44ff9a4; since then #879 widened a slab’s shadow gap from a one-pixel crease into a hand-wide band and paid its luma back onto the rest of the plate (f1463d4), #880 re-pitched the joists under a raised floor from 0.50 m to 0.77 m with a narrower, deeper shadow line at the same area (7c37ac1), and #19 moved the roof’s and the deck’s detail under the sheet’s own resolution limit (a319158, 29c967f). Two of the four blobs that draw a frame — js/40_render.js and js/10_assets.js — differ between 44ff9a4 and this checkout, so recap labelled the 44ff9a4 rows FRAME-STALE and the front page was describing a picture that no longer ships. This pass is the same eight poses re-run against the deploy, which serves main’s bytes: index.html and all eleven js/ blobs served by that URL sha256-match this checkout, twelve for twelve, proved before the shutter. Route: `node tools/livecap.js frames --url <deployed ?dev=1&seed=60&boot=0> --vp 1440x763`, one page load and one boot per pose, DEV.freeze(true), DEV.set(\"grain\",0), DEV.clear() before the pose, shutter from the canvas after DEV.tick; the pose table is checked into tools/livecap.js (FRAMES) so the eight are reproducible without a transcript, and --vp pins the display surface with Emulation.setDeviceMetricsOverride to the 1440x763 every frame in docs/screens carries (this chromium reports innerHeight 620 for every --window-size, and livecap's capture default came back 1440x620). Chromium gave RGBA; committed through tools/png_rgb.js. Every seat, layout and audio term below was read back out of the page that drew the frame, and every mean re-measured from these bytes with tools/recap.js’s own decoder. Pose: the dealt arrival seat, read back at (22.50, 13.50) heading 2.4228, floorAt 0.00. Frame mean 66.71, which is -0.49 on the frame it replaces, and 4.49% of its pixels differ from those bytes by the kept-pixel rule (summed |dRGB| over 18, counted over the whole 1440x763 frame, which is the rule tools/livecap.js states). Layout signature 2343219222 for ABATOIR CORE under seed 60 on this instrument — identical to the row this frame replaces, so this is a picture change and not a re-deal. Audio term: SND.ac.sampleRate read 44100 in the page that drew this frame, the same instrument term those rows state (#404).",
       "staleByBuild": null
     },
     {
       "file": "level2-abatoir-ceiling",
-      "sha256": "30a0030b8c0db0594b7121b80be1253e94d1baa28a2257741f1bb52b9d5a63ff",
+      "sha256": "e86611257c94424cf871018ce62fadd91f288e4cf769adaef14c18394448dc80",
       "replaces": {
-        "rev": "609be21",
-        "sha256": "1f77a0cffc167434e74fc53097a7368692df6ac4519df48f8c0068c9e75cdb8e",
-        "mean": 62.1634
+        "rev": "d538f51",
+        "sha256": "30a0030b8c0db0594b7121b80be1253e94d1baa28a2257741f1bb52b9d5a63ff",
+        "mean": 62.17
       },
       "canvas": "1440x763",
       "origin": "https",
@@ -304,19 +314,19 @@
       "seed": "60",
       "level": 2,
       "layout": 2343219222,
-      "build": "44ff9a4",
-      "at": "2026-11-20",
+      "build": "cc0a3e3",
+      "at": "2026-11-21",
       "sampleRate": 44100,
-      "note": "RE-TAKEN from the DEPLOYED page for #876 at build 44ff9a4. The previous pass bound 0546b82; since then #873 gave every first-person part one ramp across its own face (js/13_mesh.js and js/40_render.js - the slide now reads brighter along its top than down its flank) and #869 put a fitting on a room’s own enclosing wall (js/20_level.js), so recap labelled the 0546b82 rows FRAME-STALE on three of the four blobs that draw a frame and the front page was describing a picture that no longer ships. This pass is the same eight poses re-run against the deploy, which serves main’s bytes: index.html and all eleven js/ blobs served by that URL sha256-match this checkout, twelve for twelve, proved before the shutter. Route: tools/livecap.js devRoute against the DEPLOYED page - one page load and one boot per pose at ?dev=1&seed=60&boot=0, DEV.freeze(true), DEV.set(\"grain\",0), DEV.clear() before the pose, shutter from the canvas after DEV.tick. The display surface was pinned with Emulation.setDeviceMetricsOverride to 1440x763 (this chromium build reports innerHeight 620 for every --window-size tried, and every frame in docs/screens is 1440x763), so the raster and the aspect are the ones the committed frames have always carried. Chromium gave RGBA; committed through tools/png_rgb.js. Every seat, layout and audio term below was read back out of the page that drew the frame, and every mean re-measured from these bytes with tools/recap.js’s own decoder. Pose: DEV.cam(P.x, P.y, undefined, P.ang, BH*0.25) off that same dealt seat - the same eye tilted at the storey overhead, read back at (22.50, 13.50) heading 2.4228, pitch 89.8. Layout signature 2343219222 for this sector under seed 60 on this instrument. Audio term: SND.ac.sampleRate read 44100 in the page that drew this frame, so this seed deals this layout after 66150 seeded draws through SND.init’s noise buffer (#404) - the same deal every row of this table names, which is what makes this today’s bytes drawing yesterday’s room rather than a new roll.",
+      "note": "RE-TAKEN from the DEPLOYED page for #882 at build cc0a3e3. The previous pass bound 44ff9a4; since then #879 widened a slab’s shadow gap from a one-pixel crease into a hand-wide band and paid its luma back onto the rest of the plate (f1463d4), #880 re-pitched the joists under a raised floor from 0.50 m to 0.77 m with a narrower, deeper shadow line at the same area (7c37ac1), and #19 moved the roof’s and the deck’s detail under the sheet’s own resolution limit (a319158, 29c967f). Two of the four blobs that draw a frame — js/40_render.js and js/10_assets.js — differ between 44ff9a4 and this checkout, so recap labelled the 44ff9a4 rows FRAME-STALE and the front page was describing a picture that no longer ships. This pass is the same eight poses re-run against the deploy, which serves main’s bytes: index.html and all eleven js/ blobs served by that URL sha256-match this checkout, twelve for twelve, proved before the shutter. Route: `node tools/livecap.js frames --url <deployed ?dev=1&seed=60&boot=0> --vp 1440x763`, one page load and one boot per pose, DEV.freeze(true), DEV.set(\"grain\",0), DEV.clear() before the pose, shutter from the canvas after DEV.tick; the pose table is checked into tools/livecap.js (FRAMES) so the eight are reproducible without a transcript, and --vp pins the display surface with Emulation.setDeviceMetricsOverride to the 1440x763 every frame in docs/screens carries (this chromium reports innerHeight 620 for every --window-size, and livecap's capture default came back 1440x620). Chromium gave RGBA; committed through tools/png_rgb.js. Every seat, layout and audio term below was read back out of the page that drew the frame, and every mean re-measured from these bytes with tools/recap.js’s own decoder. Pose: DEV.cam(P.x, P.y, undefined, P.ang, BH*0.25) off that same dealt seat — the same eye tilted at the storey overhead, read back at (22.50, 13.50) heading 2.4228, pitch 89.8. Frame mean 61.57, which is -0.60 on the frame it replaces, and 6.09% of its pixels differ from those bytes by the kept-pixel rule (summed |dRGB| over 18, counted over the whole 1440x763 frame, which is the rule tools/livecap.js states). Layout signature 2343219222 for ABATOIR CORE under seed 60 on this instrument — identical to the row this frame replaces, so this is a picture change and not a re-deal. Audio term: SND.ac.sampleRate read 44100 in the page that drew this frame, the same instrument term those rows state (#404).",
       "staleByBuild": null
     },
     {
       "file": "level3-stack",
-      "sha256": "cafe9e763173578d6fbb3421c119fa1722aab9862f85daf74410d5d3639e2260",
+      "sha256": "76bf565fca5d31c7fdfe85c6c28978f38dd328f817b4c63c60dbe56b9ef21a22",
       "replaces": {
-        "rev": "609be21",
-        "sha256": "b57365ad43a3325224d815b120e59f07a526d91454aa4dd3b225b77bad42ddd9",
-        "mean": 70.1929
+        "rev": "d538f51",
+        "sha256": "cafe9e763173578d6fbb3421c119fa1722aab9862f85daf74410d5d3639e2260",
+        "mean": 70.29
       },
       "canvas": "1440x763",
       "origin": "https",
@@ -325,10 +335,10 @@
       "seed": "60",
       "level": 3,
       "layout": 3610925125,
-      "build": "44ff9a4",
-      "at": "2026-11-20",
+      "build": "cc0a3e3",
+      "at": "2026-11-21",
       "sampleRate": 44100,
-      "note": "RE-TAKEN from the DEPLOYED page for #876 at build 44ff9a4. The previous pass bound 0546b82; since then #873 gave every first-person part one ramp across its own face (js/13_mesh.js and js/40_render.js - the slide now reads brighter along its top than down its flank) and #869 put a fitting on a room’s own enclosing wall (js/20_level.js), so recap labelled the 0546b82 rows FRAME-STALE on three of the four blobs that draw a frame and the front page was describing a picture that no longer ships. This pass is the same eight poses re-run against the deploy, which serves main’s bytes: index.html and all eleven js/ blobs served by that URL sha256-match this checkout, twelve for twelve, proved before the shutter. Route: tools/livecap.js devRoute against the DEPLOYED page - one page load and one boot per pose at ?dev=1&seed=60&boot=0, DEV.freeze(true), DEV.set(\"grain\",0), DEV.clear() before the pose, shutter from the canvas after DEV.tick. The display surface was pinned with Emulation.setDeviceMetricsOverride to 1440x763 (this chromium build reports innerHeight 620 for every --window-size tried, and every frame in docs/screens is 1440x763), so the raster and the aspect are the ones the committed frames have always carried. Chromium gave RGBA; committed through tools/png_rgb.js. Every seat, layout and audio term below was read back out of the page that drew the frame, and every mean re-measured from these bytes with tools/recap.js’s own decoder. Pose: the authored spawn seat, read back at (1.50, 2.50) heading 0.8761, floorAt 0.00. Layout signature 3610925125 for this sector under seed 60 on this instrument. Audio term: SND.ac.sampleRate read 44100 in the page that drew this frame, so this seed deals this layout after 66150 seeded draws through SND.init’s noise buffer (#404) - the same deal every row of this table names, which is what makes this today’s bytes drawing yesterday’s room rather than a new roll.",
+      "note": "RE-TAKEN from the DEPLOYED page for #882 at build cc0a3e3. The previous pass bound 44ff9a4; since then #879 widened a slab’s shadow gap from a one-pixel crease into a hand-wide band and paid its luma back onto the rest of the plate (f1463d4), #880 re-pitched the joists under a raised floor from 0.50 m to 0.77 m with a narrower, deeper shadow line at the same area (7c37ac1), and #19 moved the roof’s and the deck’s detail under the sheet’s own resolution limit (a319158, 29c967f). Two of the four blobs that draw a frame — js/40_render.js and js/10_assets.js — differ between 44ff9a4 and this checkout, so recap labelled the 44ff9a4 rows FRAME-STALE and the front page was describing a picture that no longer ships. This pass is the same eight poses re-run against the deploy, which serves main’s bytes: index.html and all eleven js/ blobs served by that URL sha256-match this checkout, twelve for twelve, proved before the shutter. Route: `node tools/livecap.js frames --url <deployed ?dev=1&seed=60&boot=0> --vp 1440x763`, one page load and one boot per pose, DEV.freeze(true), DEV.set(\"grain\",0), DEV.clear() before the pose, shutter from the canvas after DEV.tick; the pose table is checked into tools/livecap.js (FRAMES) so the eight are reproducible without a transcript, and --vp pins the display surface with Emulation.setDeviceMetricsOverride to the 1440x763 every frame in docs/screens carries (this chromium reports innerHeight 620 for every --window-size, and livecap's capture default came back 1440x620). Chromium gave RGBA; committed through tools/png_rgb.js. Every seat, layout and audio term below was read back out of the page that drew the frame, and every mean re-measured from these bytes with tools/recap.js’s own decoder. Pose: the authored spawn seat, read back at (1.50, 2.50) heading 0.8761, floorAt 0.00. Frame mean 70.01, which is -0.28 on the frame it replaces, and 9.12% of its pixels differ from those bytes by the kept-pixel rule (summed |dRGB| over 18, counted over the whole 1440x763 frame, which is the rule tools/livecap.js states). Layout signature 3610925125 for THE STACK under seed 60 on this instrument — identical to the row this frame replaces, so this is a picture change and not a re-deal. Audio term: SND.ac.sampleRate read 44100 in the page that drew this frame, the same instrument term those rows state (#404).",
       "staleByBuild": null
     }
   ]
