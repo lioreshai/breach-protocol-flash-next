@@ -153,9 +153,9 @@ frames replace already named, and this instrument's audio term is the same 44100
 drawn by today's bytes. **0.48%** of its pixels differ from those bytes by the kept-pixel rule — one pixel in
 two hundred, for two hundredths of a luma of mean — and what shipped between them is the slab's own underside, now
 fetched from a joist sheet of its own through the mip chain rather than borrowed off the ceiling's (#886). All 2,443
-of the differing pixels in the top third sit on the raised band's underside ahead of the camera; the remaining 2,837
-are in the bottom third, inside the columns the held gun covers, which is weather the harness itself reports between
-two frames of one page load rather than a shipped change.
+of the differing pixels in the top third sit on the raised band's underside ahead of the camera; 2,837 of the rest are
+in the bottom third and 40 in the middle, inside the columns the held gun covers, which is weather the harness itself
+reports between two frames of one page load rather than a shipped change.
 What the frame shows is the same room from the same recorded camera: the datum deck under a lit roof, a raised band ahead
 wearing the lit edge of its own deck (#669), and the ashlar faces closing the room on both sides.
 Those faces are the shipped picture this caption has kept across passes: two visible faces of one wall are no longer
@@ -182,8 +182,9 @@ The air over the deck is dim, not empty, and this frame is
 **−0.01** on the frame it replaces -
 which is the size of a repaint rather than of a different room: it is the same camera over ARCHIVE's 4083630493 deal,
 the deal those bytes already carried, and 0.24% of its pixels differ from them by the kept-pixel rule — 2,609 of them,
-and 2,515 of those in the bottom third between columns 886 and 1186, inside the box the held gun occupies. The top
-third changed in 94 pixels. So this is the one pose in the set where the underside repaint puts nothing new on screen:
+and 2,515 of those in the bottom third between columns 886 and 1186, inside the box the held gun occupies. The other
+94 are in rows 493 to 508 of the middle third, columns 915 to 938, and the top third carries not one of them. So this
+is the one pose in the set where the underside repaint puts nothing new on screen:
 the difference is at the same order as the harness's own load-to-load disagreement, and the honest reading is "the same
 picture" rather than a repaint. The faces that are in frame read
 because their own faces are lit at different values (#371, #431). There is no dark block left for this caption to count -
