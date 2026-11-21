@@ -1224,6 +1224,19 @@ const MESH = (function () {
      nearer the eye than the box carrying it), not a thinner slab. The shotgun has 40 mm of pump behind
      the row, which is why the same 0.40 there is what makes the gaps read. */
   const VMFIST = { pistol: 0.14, shotgun: 0.40, rifle: 0.40 };
+  /* #780 THE CARRIED ROUND PART COMES Nearer THE EYE AT HIP, and this is the OTHER lever the row names.
+     `rounds` prices how many of a gun's own tube pixels reach the screen, and with every hand prism deleted
+     at the setter it reads 185 / 1171 / 188 px - so on two of the three weapons the hand is NOT what hides
+     the part, the gun's own housing is: a tube slung under or ahead of the box that carries it is behind
+     that box at the hip's own yaw, and perspective shrinks it further before it gets there. The only
+     placement that reveals it is one set NEARER the lens than the box carrying it (#587 measured that
+     shape at ~945 px on a pistol). The term below is that placement, expressed in the gun's own metres
+     along its bore, and it is HIP-ONLY: multiplied by (1 - ads) so at `ads = 1` it is exactly zero and the
+     sight picture builds the bytes `sight` and `flatparity` record. It moves the part AND the hand gripping
+     it by the same number, from the same constant, at both the vArm and the vHand call site - a pump that
+     slid rearward while its fist stayed put would be a pump off the hand, and #741's placement rows are
+     the census that would notice. Per kind, like `VMGRIP`: no fallback. */
+  const VMROUND = { pistol: 0, shotgun: 0.006, rifle: 0 };
   const VMGRIP = {
     pistol:  [[-0.023, 0.008, 0], [0.019, 0.040, -0.018]],
     shotgun: [[-0.040, 0.020, 0], [0.020, 0.016, -0.010]],
@@ -1394,8 +1407,9 @@ const MESH = (function () {
        the pump travels on the lower one, which is what `pump` does to the geometry below. */
     shotgun(b, s) {
       const MU = VMUZZLE.shotgun, pu = (s.pump || 0) * 0.034;
+      const pk = VMROUND.shotgun * (1 - clamp(s.ads || 0, 0, 1));    // 2 mm rearward at hip, exactly 0 at ADS
       vArm(b, 0.014, -0.034, 0.000, 1.02, false, s);
-      vArm(b, -0.010, -0.040, 0.266 + pu, 1.0, true, s);   // the pump hand's arm travels with the pump
+      vArm(b, -0.010, -0.040, 0.266 + pu - pk, 1.0, true, s);   // the pump hand's arm travels with the pump
       b.wg = 1;                                        // #587 the metal gets the surface; the sleeve above and the fists below do not
       b.box(0, 0.004, 0.086, 0.0215, 0.0185, 0.082, VW.steel);          // the receiver
       b.box(0, 0.0235, 0.086, 0.011, 0.0045, 0.070, VW.black);          // the top rib
@@ -1403,7 +1417,7 @@ const MESH = (function () {
       b.tube(0, 0.004, 0.164, 0, 0.004, MU, 0.0135, 0.012, VW.dark);     // the barrel
       b.tube(0, -0.024, 0.150, 0, -0.024, MU - 0.032, 0.0135, 0.0125, VW.poly); // the magazine tube
       b.box(0, 0.004, MU, 0.0155, 0.0155, 0.005, VW.black);             // the muzzle ring
-      b.tube(0, -0.024, 0.238 + pu, 0, -0.024, 0.300 + pu, 0.0225, 0.0215, VW.wood);  // the pump, travels
+      b.tube(0, -0.024, 0.238 + pu - pk, 0, -0.024, 0.300 + pu - pk, 0.0225, 0.0215, VW.wood);  // the pump, travels
       b.tube(0, -0.030, -0.004, 0, -0.086, -0.190, 0.0245, 0.0285, VW.wood2); // the stock
       b.box(0, -0.104, -0.186, 0.023, 0.011, 0.014, VW.black);          // the recoil pad
       b.tube(0, -0.020, 0.016, 0, -0.118, -0.026, 0.0205, 0.018, VW.wood2);  // the pistol grip
@@ -1414,7 +1428,7 @@ const MESH = (function () {
       }
       b.wg = 0;
       vHand(b, 0.014, -0.034, 0.000, 1.02, false, s);
-      vHand(b, -0.010, -0.040, 0.266 + pu, 1.0, true, s);
+      vHand(b, -0.010, -0.040, 0.266 + pu - pk, 1.0, true, s);
       if (s.mz > 0.004) vFlash(b, s.mz, MU);
       return b;
     },
