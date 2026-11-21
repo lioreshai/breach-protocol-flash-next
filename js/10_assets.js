@@ -652,7 +652,7 @@ const FLOORS = {}, CEILS = {};
 FLOORS.CONCRETE = matTex(T2, T2, p => {
   const jx = Math.abs(((p.u * 2) % 1) - 0.5) * 2, jy = Math.abs(((p.v * 2) % 1) - 0.5) * 2;
   const grout = smoothstep(0.94, 1, Math.max(jx, jy));
-  const n = fbm(p.u, p.v, 6, 5, 0.55, 11);
+  const n = fbm(p.u, p.v, 6, 4, 0.55, 11);
   let v = 0.76 + n * 0.45;
   p.r = 96 * v; p.g = 96 * v; p.b = 100 * v;
   p.h = 0.6 - grout * 0.2 + (n - 0.5) * 0.07;
@@ -660,7 +660,7 @@ FLOORS.CONCRETE = matTex(T2, T2, p => {
   p.h += (ag - 0.5) * 0.05; p.r += (ag - 0.5) * 26; p.g += (ag - 0.5) * 24; p.b += (ag - 0.5) * 20;
   dust(p, 0.22, [120, 116, 108]);
   cracks(p, 0.05, 0.08, 4, 51, [56, 56, 60]);
-}, { bump: 0.9, amb: 0.5, spec: 0.14, specPow: 18, ao: 0.5, grain: 11 });
+}, { bump: 0.9, amb: 0.5, spec: 0.14, specPow: 18, ao: 0.5, grain: 5 });
 FLOORS.TILE = matTex(T2, T2, p => {
   const gx = (p.u * 4) % 1, gy = (p.v * 4) % 1;
   const d = Math.max(Math.abs(gx - 0.5) - 0.46, Math.abs(gy - 0.5) - 0.46);
@@ -677,9 +677,9 @@ FLOORS.TILE = matTex(T2, T2, p => {
   const chip = smoothstep(0.5, 0.9, Math.hypot(Math.max(cx, 0), Math.max(cy, 0)) * 3.6 + hash2(id, 9) * 0.4);
   p.h -= chip * 0.12; p.r -= chip * 30; p.g -= chip * 28; p.b -= chip * 22;
   dust(p, 0.26, [104, 100, 92]);
-}, { bump: 0.85, amb: 0.48, spec: 0.34, specPow: 44, ao: 0.7, grain: 7, alb: 0.81 });   // #416: the glaring near-white tile of the issue's first sentence - brightest tile in the game at 166.7 mean luma
+}, { bump: 0.85, amb: 0.48, spec: 0.34, specPow: 44, ao: 0.7, grain: 5, alb: 0.81 });   // #416: the glaring near-white tile of the issue's first sentence - brightest tile in the game at 166.7 mean luma
 FLOORS.METAL = matTex(T2, T2, p => {
-  const n = fbm(p.u * 7, p.v * 0.7, 9, 3, 0.55, 23);
+  const n = fbm(p.u * 7, p.v * 0.7, 2, 3, 0.55, 23);
   let v = 0.82 + n * 0.4;
   p.r = 78 * v; p.g = 84 * v; p.b = 94 * v;
   p.h = 0.6 + (n - 0.5) * 0.05;
@@ -700,7 +700,7 @@ FLOORS.METAL = matTex(T2, T2, p => {
   }
   rust(p, 0.42, 73);
   dust(p, 0.14, [110, 112, 116]);
-}, { bump: 1.2, amb: 0.46, spec: 0.30, specPow: 46, ao: 0.55, grain: 8, alb: 0.86, mipCyc: MATDIA_CYC });   // #495 TAKE FOUR: 0.95 -> 0.86 - the deck pays part of the roof's lift, so the frame is traded and not brightened; `exposure`'s medians move up by at most 4 lumas across the four sectors and stay in window.   // #416: spec 0.44 -> 0.30 - this deck's own 1%-clipping highlight measured 249 luma, i.e. 1% of the floor read as a mirror
+}, { bump: 1.2, amb: 0.46, spec: 0.30, specPow: 46, ao: 0.55, grain: 5, alb: 0.86, mipCyc: MATDIA_CYC });   // #495 TAKE FOUR: 0.95 -> 0.86 - the deck pays part of the roof's lift, so the frame is traded and not brightened; `exposure`'s medians move up by at most 4 lumas across the four sectors and stay in window.   // #416: spec 0.44 -> 0.30 - this deck's own 1%-clipping highlight measured 249 luma, i.e. 1% of the floor read as a mirror
 FLOORS.STONE = matTex(T2, T2, p => {
   // irregular flagstones from a jittered grid
   const s = 3, gx = p.u * s, gy = p.v * s;
@@ -715,7 +715,7 @@ FLOORS.STONE = matTex(T2, T2, p => {
   }
   const r = Math.sqrt(best);
   const edge = smoothstep(0.34, 0.46, r * 1.0);
-  const j = hash2(bid, 4), n = fbm(p.u, p.v, 8, 4, 0.58, 27);
+  const j = hash2(bid, 4), n = fbm(p.u, p.v, 6, 4, 0.58, 27);
   let v = 0.6 + j * 0.45 + (n - 0.5) * 0.4;
   p.r = 88 * v + 18; p.g = 90 * v + 18; p.b = 86 * v + 18;
   p.h = 0.64 - edge * 0.2 + (n - 0.5) * 0.12;
@@ -746,7 +746,7 @@ FLOORS.STONE = matTex(T2, T2, p => {
      ABATOIR CORE, which wear METAL and FLESH decks - are the level-scoped control on flatparity/cull. */
   moss(p, 0.4, 15, [84, 73, 51]);
   dust(p, 0.2, [92, 90, 84]);
-}, { bump: 1.1, amb: 0.5, spec: 0.08, specPow: 20, ao: 0.8, grain: 12, alb: 0.97 });   // #495 TAKE FOUR: 1.05 -> 0.97, the same trade on the deck ARCHIVE SUBLEVEL walks on.
+}, { bump: 1.1, amb: 0.5, spec: 0.08, specPow: 20, ao: 0.8, grain: 5, alb: 0.97 });   // #495 TAKE FOUR: 1.05 -> 0.97, the same trade on the deck ARCHIVE SUBLEVEL walks on.
 FLOORS.FLESH = matTex(T2, T2, p => {
   const n = fbm(p.u, p.v, 5, 4, 0.55, 3);
   let v = 0.66 + n * 0.6;
@@ -804,7 +804,7 @@ FLOORS.FLESH = matTex(T2, T2, p => {
   if (vk > 0.9) { p.r += (126 - p.r) * 0.5; p.g += (78 - p.g) * 0.5; p.b += (74 - p.b) * 0.5; p.h += 0.05; }
   const pool = smoothstep(0.62, 0.86, fbm(p.u, p.v, 3, 3, 0.6, 92));
   p.r -= pool * 26; p.g -= pool * 12; p.b -= pool * 6; p.h -= pool * 0.05;
-}, { bump: 1.3, amb: 0.42, spec: 0.55, specPow: 20, ao: 0.7, grain: 7, alb: 1.12 });   // #495 TAKE FIVE: 1.17 -> 1.12. This deck is worn by ABATOIR CORE alone (js/20_level.js:96), which is what makes it the level-scoped half of the trade: its roof tile came up and this came down, so that sector's frame is traded and not brightened. Bounded by #416's family bar, not by taste - `matband`'s floor spread is 136.0 / 91.7 = 1.48x against MAXFAM 1.5, so this is within four hundredths of the darkest the floor family permits; going further would have widened a threshold, which is not this issue's currency. The deck band at `surface` L2 cam0 comes down 84.7 -> 82.9 (a 2.1% move on a surface the player reads enemies against), and the SEAM/WALL/PROP rows on this level are green beside it.
+}, { bump: 1.3, amb: 0.42, spec: 0.55, specPow: 20, ao: 0.7, grain: 5, alb: 1.12 });   // #495 TAKE FIVE: 1.17 -> 1.12. This deck is worn by ABATOIR CORE alone (js/20_level.js:96), which is what makes it the level-scoped half of the trade: its roof tile came up and this came down, so that sector's frame is traded and not brightened. Bounded by #416's family bar, not by taste - `matband`'s floor spread is 136.0 / 91.7 = 1.48x against MAXFAM 1.5, so this is within four hundredths of the darkest the floor family permits; going further would have widened a threshold, which is not this issue's currency. The deck band at `surface` L2 cam0 comes down 84.7 -> 82.9 (a 2.1% move on a surface the player reads enemies against), and the SEAM/WALL/PROP rows on this level are green beside it.
 
 CEILS.CONCRETE = matTex(T2, T2, p => {
   const sx = (p.u * 2) % 1, sy = (p.v * 2) % 1;
