@@ -11,9 +11,9 @@
   texture chain so the joists stay legible at the 1.5–4 m a second storey is actually seen from instead of
   dissolving into flat plate. And the slab's end is no longer a soft fade you cannot point at — the same
   darkness is folded to one side of a split, so what you get is a shadow gap, a lit lip, then the roof. The
-  steepest edge in the frame now sits on the boundary you shoot over. Measured on this build, the step
-  across that edge reads 30.1 / 29.8 / 55.2 / 31.4 lumas at the four look-up seats that can score it,
-  against a 15-luma bar. The band's own average brightness is held by construction, so an overhead surface
+  steepest edge in the frame now sits on the boundary you shoot over. Measured on this build, the median
+  step across that edge reads 58.8 / 72.8 / 29.9 / 67.7 lumas at the four sectors' look-up seats, against
+  that row's 15-luma bar. The band's own average brightness is held by construction, so an overhead surface
   still cannot out-light the deck you stand on: this is structure, not a brighter ceiling.
 - **Stone floors stop streaking toward the horizon** (#19, PR #885). Crossing a stone deck — ARCHIVE
   SUBLEVEL and THE STACK especially — used to lay thin comb-lines across it running back to the vanishing
@@ -24,10 +24,10 @@
   one-dimensional mip control, and the room light is what it was.
 - **A wall keeps its grain instead of crawling when you back off** (#889, PR #891). At six or seven metres
   the walls used to shimmer and shuffle as you strafed, sitting directly behind whatever you were trying to
-  read. Thirteen of the grain terms in the wall textures — nine of the ten wall tiles, worst on metal,
-  grate and the tech panels — sat past what a 128-texel sheet can hold. Each now sits inside that limit at
-  its original strength, so every wall keeps its brightness, its grain and its place in the room's light.
-  This is the rule the roofs got in v1.4.31, applied to the walls.
+  read. The grain was authored into the wall textures finer than a 128-texel sheet can hold, worst on metal,
+  grate and the tech panels. Thirteen of those terms, in nine of the ten wall tiles, are now painted inside
+  that limit at their original strength, so every wall keeps its brightness, its grain and its place in the
+  room's light. This is the rule the roofs got in v1.4.31, applied to the walls.
 - **The front page shows the game that ships** (#882, PR #887). All eight screenshots are re-taken off the
   deployed build, so they carry the slab-edge band, the joist spacing and the deck repaint. Where a frame
   barely moved, its caption says so, with the percentage of pixels that differ from the frame it replaces.
