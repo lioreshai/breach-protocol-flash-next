@@ -4253,9 +4253,30 @@ function seamCrease(x, t, zA, zB, amp, dir, deckLit, yCap, zg) {
    that say the delta is the march and not the harness: the same pair at `scene 2 0` (that run prints
    0 of 601 multi, cap 0, maxSt 1) reads 55 vs 56 ms and at `scene 0 0` (241 of 601 multi, cap 0, maxSt 3)
    83 vs 83 ms - within the
-   run-to-run noise wherever the cap does not bind. No threshold moved to get these numbers: WST
-   stays 4 in the shipped build. */
-const WST = 4;
+   run-to-run noise wherever the cap does not bind. No threshold moved to get these numbers.
+
+   WHERE THE CAP ACTUALLY COSTS PIXELS, MEASURED (2026-11-21, same recipe - `JSDIR=` variants that
+   differ from this file by the `WST` literal alone, driven through `node tools/view.js scene <L> <cam>`,
+   and the resulting PNGs diffed pixel-for-pixel; head 1d0371e). Two questions, and they point in
+   different directions: HOW OFTEN the cap binds, and WHAT THE DROPPED FACES WOULD HAVE PAINTED.
+   Columns at the cap, and pixels the 5th + 6th face delivers, at the two dealt cameras per sector:
+     L0 ARCHIVE SUBLEVEL 0 / 0 capped,      0 / 0 px changed
+     L1 RING TRANSPORT   335 / 235 capped,  0 / 0 px changed
+     L2 ABATOIR CORE     295 / 270 capped,  720 / 1986 px changed
+     L3 THE STACK        0 / 0 capped,      0 / 0 px changed
+   RING TRANSPORT is the step-dense seat the 2026-11-15 note above priced, and it is the one place the
+   cap binds without buying a pixel: there the extra faces land in rows a nearer face already owns.
+   ABATOIR CORE is where the cap is a picture question - its mezzanine lips end four columns in the
+   centre of frame, and those rows go on answering the ground pass's farther distance (x 373-501,
+   y 322-407 of 1202x676 at cam0). That is #829's own symptom at a seat the game deals.
+   The price of the sixth slot, same harness, `WARM=1` (180 frames of play, raster avg): L1 cam0
+   93.60 / 92.93 / 93.81 ms and L2 cam0 219.11 / 214.08 / 220.83 ms at WST 4 / 5 / 6 - inside the
+   run-to-run noise at the densest seat, which is what the saturation curve above predicts once the
+   face bodies, not the marching, are the cost. WST is 6 in the shipped build: enough for every face a
+   dealt column reaches within noise, and still a cap, not a claim about the level. Eight was measured
+   too - it costs the same and changes 3840 further L2 pixels on 6 remaining capped columns, which no
+   dealt seat is asking for yet. */
+const WST = 6;
 const WSP = new Float64Array(WST), WZ0 = new Float64Array(WST), WZ1 = new Float64Array(WST),
   WZE = new Float64Array(WST), WZF = new Float64Array(WST), WZN = new Float64Array(WST),
   WMX = new Int32Array(WST), WMY = new Int32Array(WST), WTV = new Int32Array(WST),
