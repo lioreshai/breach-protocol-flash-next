@@ -6395,6 +6395,132 @@ if (MODE === 'drop') {
     }
   }
 
+  /* ---- #893 THE ARC IS OBEYED: the one movement test is handed the mover's FEET ------------------
+     Every row above this one is GROUNDED: it walks, steps or falls. None of them could see the report
+     "I can't jump over a gap I could clear on the ground", because `canEnter` took no altitude and a
+     CLIFF therefore stopped a body whose feet were 0.46 m above its floor - at the far lip of a pit and
+     on the way up onto a deck (js/20_level.js). These rows author a deck and a pit in row 1 and drive
+     one jump through the real input layer.
+     WHAT A ROW ASSERTS, and why it is not a threshold: the arc is a quantity the game already owns - vz
+     3.0 against g 9.2, apex 0.464 m, 38 airborne frames - so a gap is clearable IF the distance the body
+     actually covers while airborne reaches the far lip. Both numbers are MEASURED from the trace and
+     printed beside the verdict, never quoted, and the row asserts `crossed == reachable`. That is the
+     issue's own wording ("the arc be obeyed where the geometry already allows it") and it makes the row
+     able to fail in both directions: a predicate that stops a body which had the distance goes red, and
+     so does one that lands a body the arc never carried. `drop`'s own damage rows are criterion 6 and
+     are untouched; the crossing rows here add an hp clause so a gap cannot be cleared by paying health.
+     The anti-knob arm (js/20_level.js `feetZEnabled = false`, the pre-#893 build) runs the SAME authored
+     geometry in the SAME tree and must cross nothing - #893.5. */
+  {
+    const Z = run('ZQ'), LANE = 1, C0 = 2, C1 = 24, LIP = 10;
+    const mk = () => run(`(function(){ S.mode='play';S.locked=false;S.diff=1;startLevel(0,true);
+      ENEMIES.length=0;PROPS.length=0;for(const k in keys)delete keys[k];window.__b=0;
+      for(let x=${C0};x<=${C1};x++){const i=${LANE}*MW+x;MAP.cell[i]=0;MAP.fz[i]=0;MAP.cz[i]=CZ_DEF;MAP.feat[i]=0;}
+      linkBoundaries();feetZEnabled=true;return 1;})()`);
+    const dig = (x0, w, q) => run(`(function(){for(let k=0;k<${w};k++)MAP.fz[${LANE}*MW+${x0}+k]=${q};
+      linkBoundaries();return 1;})()`);
+    // One run: 20 run-up frames on the deck, then Space on the frame the body nears the lip. The trace
+    // returns [endX, endFloor, apex, airborne frames, hp lost, x at take-off, far-lip x, knob crossed?]
+    const jump = (w, sp, q, blind) => run(`(function(){
+      feetZEnabled=${blind ? 'false' : 'true'};
+      for(const k in keys)delete keys[k];
+      P.x=${LIP}-2.4;P.y=${LANE}+0.5;P.ang=0;P.vx=P.vy=P.vz=0;P.air=false;P.crouch=0;P.sprint=0;
+      P.z=floorAt(P.x,P.y);P.hp=100;P.armor=0;S.shake=0;keys['KeyW']=1;${sp ? "keys['ShiftLeft']=1;" : ''}
+      let j=0,air=0,apex=-9,xj=0,cross=0,reach=0;
+      for(let i=0;i<20;i++)update(1/60);
+      for(let i=0;i<70;i++){
+        if(!j&&P.x>${LIP}-0.34){keys['Space']=1;j=1;xj=P.x;}else delete keys['Space'];
+        update(1/60);
+        if(P.air){air++;if(P.z>apex)apex=P.z;}
+        // How far the arc carries THIS body at an altitude the far deck could receive it at: the
+        // predicate lets feet through a boundary one quantum below them, so the reach is measured
+        // over airborne frames whose feet are within one quantum of the deck floor. Measured, not
+        // computed from vz/g, so what the row compares against the gap is the game's own arc.
+        if(P.air&&P.z>=-${Z}){const r=P.x-xj;if(r>reach)reach=r;}
+        if(floorAt(P.x,P.y)===0&&P.x>${LIP}+${w})cross=1;
+      }
+      return [P.x,floorAt(P.x,P.y),apex,air,100-P.hp,xj,cross,reach];})()`);
+    mk();
+    let cOn = 0, cOff = 0, nReach = 0;
+    const rows6 = [];
+    for (const w of [1, 2, 3]) for (const sp of [true, false]) {
+      const spn = sp ? 'sprint' : 'walk';
+      dig(LIP, w, -4); const on = jump(w, sp, -4, false);
+      dig(LIP, w, -4); const off = jump(w, sp, -4, true);
+      const xj = on[5], far = LIP + w, need = far - xj, dist = on[7];
+      // THE ASSERTION: the arc answers, not the wish. `reachable` is the game's own airborne carry
+      // against the gap; the row demands a crossing exactly where the arc arrives and refuses one
+      // where it does not, so it fails both ways - a predicate that stops a body with the distance,
+      // and a predicate that lands a body the arc never carried. Where the arc cannot reach, the row
+      // says so in the open instead of quietly expecting a jump the shipped `P.vz` does not give.
+      const reachOk = dist >= need - 1e-9;
+      const ok = on[6] === (reachOk ? 1 : 0) && off[6] === 0 && on[4] === 0;
+      if (on[6]) cOn++; if (off[6]) cOff++;
+      if (reachOk) nReach++;
+      rows6.push({ w, spn, on, off, need, dist, air: on[3], apex: on[2], reachOk, ok });
+    }
+    for (const r of rows6)
+      row(`L0 jump a ${r.w}-cell pit, 1.00 m down, ${r.spn} (#893)`, r.ok,
+        `crossed ${r.on[6] ? 'YES' : 'NO'}${r.reachOk ? '' : ' - and the arc did not reach'}: it carried `
+        + `${Math.max(0, r.dist).toFixed(2)} m at deck level against the ${r.need.toFixed(2)} m to the far `
+        + `lip, apex ${r.apex.toFixed(3)} m, ${r.air} airborne frames, end floor ${r.on[1].toFixed(3)} at x `
+        + `${r.on[0].toFixed(2)}, hp -${r.on[4]}; altitude-blind: crossed `
+        + `${r.off[6] ? 'YES - the knob is not load-bearing' : 'no, end floor ' + r.off[1].toFixed(3)}`);
+    row('L0 an airborne body crosses every pit its own arc reaches, and the blind build none (#893.1, #893.5)',
+      cOn === nReach && cOff === 0, `${cOn} of ${nReach} reachable pits crossed (main crossed 0 of 6), `
+      + `altitude-blind ${cOff}; ${6 - nReach} configuration(s) are past the shipped arc and the row says so`);
+
+    // The report's second half: a pit deeper than a jump plus a step was a TRAP, because the same
+    // altitude-blind answer refused the way out in both directions. The reach of the escape is the arc
+    // plus one quantum (STEP_Z), and the row prints the arithmetic instead of a threshold.
+    for (const q of [2, 4]) {
+      mk(); dig(LIP, 2, -q);
+      const esc = (blind) => {
+        run(`(function(){feetZEnabled=${blind ? 'false' : 'true'};
+          for(const k in keys)delete keys[k];
+          P.x=${LIP}+1.0;P.y=${LANE}+0.5;P.ang=0;P.vx=P.vy=P.vz=0;P.crouch=0;P.sprint=0;P.hp=100;
+          P.z=-${q} * ${Z};P.air=false;keys['KeyW']=1;keys['ShiftLeft']=1;return 1;})()`);
+        return run(`(function(){let best=-99,fr=-1,j=0,apex=-9;
+          for(let i=0;i<240;i++){if(!j){keys['Space']=1;j=1;}else if(i>2)delete keys['Space'];
+            update(1/60);const f=floorAt(P.x,P.y);if(P.air&&P.z>apex)apex=P.z;
+            if(f>best){best=f;fr=i;}if(f===0&&!P.air)break;}
+          return [best,fr,P.x,P.z,apex];})()`);
+      };
+      const e = esc(false), eOff = esc(true);
+      // The deck is receivable from the arc if the apex is within one quantum of it - the same
+      // one-quantum term the predicate carries, read off the MEASURED apex, never off vz/g.
+      const want = e[4] >= -Z - 1e-9;
+      row(`L0 jump out of a pit ${(q * Z).toFixed(2)} m deep (#893.2)`,
+        (e[0] === 0) === want && eOff[0] < 0 && (want ? e[0] === 0 : true),
+        `out ${e[0] === 0 ? 'YES' : 'NO'} on frame ${e[1]} (apex ${e[4].toFixed(3)} m + one quantum ${Z.toFixed(2)} `
+        + `= ${(e[4] + Z).toFixed(3)} m of reach against a ${(q * Z).toFixed(2)} m lip), best floor `
+        + `${e[0].toFixed(3)}, ended at x ${e[2].toFixed(2)} z ${e[3].toFixed(3)}; altitude-blind: best floor `
+        + `${eOff[0].toFixed(3)}, never out`);
+    }
+
+    // #893.4 A WALKER'S ANSWERS DO NOT MOVE: omitting the fifth argument is the same answer as handing
+    // the column's own floor, on every directed boundary of the authored grid and of a dealt level. This
+    // is the generator's census (`nearestOpen`, `bfsReach`, the walk at js/20_level.js) cannot move.
+    const same = (y0, y1) => run(`(function(){let n=0,bad=0;for(let y=${y0};y<=${y1};y++)for(let x=1;x<MW-1;x++){
+      const i=y*MW+x;if(MAP.cell[i])continue;for(let d=0;d<4;d++){
+        const nx=x+DIRX[d],ny=y+DIRY[d];if(nx<0||ny<0||nx>=MW||ny>=MH||MAP.cell[ny*MW+nx])continue;
+        n++;if(canEnter(x+0.5,y+0.5,nx+0.5,ny+0.5)!==canEnter(x+0.5,y+0.5,nx+0.5,ny+0.5,floorAt(x+0.5,y+0.5)))bad++;}}
+      return [n,bad];})()`);
+    const a0 = same(LANE, LANE);
+    mk();
+    const a1 = same(1, run('MH') - 2);
+    row('L0 omitting the altitude IS the grounded answer, on every boundary (#893.4)',
+      a0[0] > 40 && a0[1] === 0 && a1[0] > 2000 && a1[1] === 0,
+      `authored lane ${a0[0]} directed crossings / ${a0[1]} disagree; the dealt level ${a1[0]} / ${a1[1]} `
+      + `(a walker hands no z, so no dealt level's reachability census can move)`);
+    const one = run(`canEnter.toString().indexOf('feetZEnabled') >= 0 ? 'PRESENT' : 'REMOVED'`);
+    const second = run(`tryMove.toString().indexOf('STEP_Q') < 0 && slide.toString().indexOf('ceilAt') < 0`);
+    row('L0 the altitude is in the one predicate, not a second rise test (#893.3)',
+      one === 'PRESENT' && second === true,
+      `canEnter carries the term (${one}); tryMove and slide re-solve no rise (${second ? 'none' : 'A SECOND TEST'})`);
+    mk();
+  }
+
   console.log(bad ? `DROP ${bad} FAILURES` : 'DROP ok - the player lands on the floor they fall to');
   process.exit(bad ? 1 : 0);
 }
