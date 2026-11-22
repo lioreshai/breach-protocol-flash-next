@@ -6050,6 +6050,149 @@ if (MODE === 'drop') {
     }
     console.log(`  L${li} ascent attribution: ${upBranch.join('  ')}`);
 
+    /* ---- #894: the EYE IN THE AIR, judged frame by frame against the feet. ----------------------
+       Every row above this one is about a crossing the FEET take, and all of them stayed green through
+       the report "when I jump off a cliff it seems like I warp or snap down", because on this path the
+       feet are honest: the airborne branch integrates `P.vz -= 9.2*dt` and the landing rows agree the
+       body arrives on a curve. The warp is in the CAMERA, and it is not in the step branches of
+       js/30_entities.js at all - it is the band guard in `eyeAltitude()`. The eye had no state of its
+       own: its altitude was re-derived from the body and then CLAMPED into the band of whatever column
+       the XY happened to be in. Two consequences, both measured at a020836 in the probes' own boot:
+       a walked crossing of a 4-quantum lip moved the eye 0.5600 m on a frame the feet moved 0.0000 m
+       (`ceilAt` of a pit is the DECK's floor, so the bound was already below the body at the lip), and
+       the eye then sat on that bound motionless for 0.35 s of a 0.45 s fall; on flat ground the same
+       term pinned the top of every jump for 9 frames, because the apex puts the eye at ceilAt - 0.036
+       and the bound is ceilAt - 0.06.
+       The fix is scoped to the airborne case, so THESE rows judge the airborne case and nothing else:
+       while the feet are unsupported the eye takes the body's altitude with the FLOOR guard still on,
+       and the ceiling term - a rule about a body AT REST in a room (#103) - is left alone. The grounded
+       path is byte-for-byte unchanged, which is why the descent and ascent rows above are the control.
+       FALSIFICATION IN THE SAME TREE: the same trace is scored under three laws - the shipped
+       `eyeAltitude()`, the a020836 clamp applied in every state, and the clamp applied ONLY while
+       grounded (what shipped now is). law 1 must be clean where law 2 snaps, and the shipped function
+       must agree with law 3 to the bit on every frame; if it does not, the row is measuring a camera
+       that is not the one this fix describes, and it says so rather than passing. */
+    const AG = 9.2, ADT = 1 / 60, ASLACK = AG * ADT * ADT * 4;   // 4 frames' worth of gravity's own ADD
+    const atrace = (fr, jump) => run(`(()=>{const s=[];keys['KeyW']=1;keys['ShiftLeft']=1;` +
+      `let j=${jump ? 1 : 0};for(let i=0;i<${fr};i++){if(j){keys['Space']=1;j=0}else delete keys['Space'];` +
+      `update(1/60);s.push([+P.x.toFixed(4),P.z,P.air?1:0,floorAt(P.x,P.y),ceilAt(P.x,P.y),eyeAltitude(),` +
+      `cfg.eye+P.z-P.crouch*0.19-eyeGive()-eyeRise(),P.vz]);}return s})()`);
+    // A frame of a FALL that the eye did not spend is a snap wearing a different costume: the eye is
+    // allowed what the FEET moved plus what gravity can add to a falling eye in four frames, and the
+    // LANDING is excluded by construction (its knee is #634's, priced by the rows above), so this is
+    // the airborne window and nothing else.
+    const aWind = (s) => {
+      const land = s.findIndex((r, i) => i && s[i - 1][2] && !r[2]);
+      let f0 = s.findIndex(r => r[2]);
+      if (f0 < 0) return [-1, -1, 0];
+      for (let i = f0; i > 0; i--) if (!s[i - 1][2]) { f0 = i - 1; break; }
+      return [f0, land > 0 ? Math.min(land, s.length - 1) : s.length - 1, land];
+    };
+    const aLAW = [0, 1, 2];
+    const aEye = (law, r) => law === 0 ? r[5]
+      : law === 1 ? Math.min(Math.max(r[6], r[3] + 0.12), r[4] - 0.06)
+      : (r[2] ? Math.max(r[6], r[3] + 0.12) : Math.min(Math.max(r[6], r[3] + 0.12), r[4] - 0.06));
+    // Three statistics per law, on the SAME frames: the biggest one-frame EYE move the FEET did not
+    // author (the snap), how many airborne frames left the eye exactly where it was while the body fell
+    // (the freeze), how many frames it sat exactly on the ceiling bound (the pin), and whether it ever
+    // went through the floor its feet are over.
+    const aScore = (law, s) => {
+      const [f0, w1, land] = aWind(s);
+      let snap = 0, snapAt = -1, stuck = 0, pin = 0, mismatch = 0, floorBre = 0, minAbove = 1e9;
+      for (let i = 1; i < s.length; i++) {
+        const e = aEye(law, s[i]), e0 = aEye(law, s[i - 1]);
+        const de = Math.abs(e - e0), dz = Math.abs(s[i][1] - s[i - 1][1]);
+        if (f0 >= 0 && i >= f0 && i <= w1) {
+          if (de - dz > snap) { snap = de - dz; snapAt = i; }
+          if (s[i][2] && s[i - 1][2] && de < 1e-9 && dz > ASLACK / 4) stuck++;
+        }
+        if (s[i][2] && Math.abs(e - (s[i][4] - 0.06)) < 1e-9 && s[i][6] > s[i][4] - 0.06 + 1e-9) pin++;
+        minAbove = Math.min(minAbove, e - s[i][3]);
+        if (e < s[i][3] + 0.12 - 1e-9) floorBre++;
+      }
+      // the eye must ARRIVE where the body does: by the touchdown frame it is within one frame of the
+      // body's own answer, and it must have MOVED on at least half the fall's frames.
+      const resid = w1 >= 0 ? Math.abs(aEye(law, s[w1]) - (s[w1][2] ? Math.max(s[w1][6], s[w1][3] + 0.12) : s[w1][6])) : 0;
+      let moved = 0, nAir = 0;
+      for (let i = 1; i < s.length; i++) {
+        if (s[i][2]) nAir++;
+        if (s[i][2] && s[i - 1][2] && Math.abs(aEye(law, s[i]) - aEye(law, s[i - 1])) > 1e-6) moved++;
+        if (law === 0 && !s[i][2] && !s[i - 1][2] && Math.abs(aEye(0, s[i]) - s[i][6]) > 1e-12) mismatch++;
+      }
+      return { snap, snapAt, stuck, pin, mismatch, floorBre, minAbove, resid, moved, nAir, f0, land };
+    };
+    const aName = ['shipped eyeAltitude()', 'the a020836 clamp in every state', 'the clamp only while GROUNDED'];
+    /* These rows author CLEARANCE as well as floor. `ceilAt` is max(own floor + cz, neighbouring
+       floors) (js/20_level.js), and a DEALT room's cz is frequently taller than CZ_DEF - measured: the
+       spawn rooms of L0-L2 carry a 4.00 m ceiling, so the ceiling half of the band never engages
+       anywhere in their air and the rows would be scoring a geometry the report is not about. CZ_DEF
+       over the dug column is exactly the report's column: "a column 4 quanta under a deck whose own
+       clearance is CZ_DEF", ceiling = the deck's own floor. cz is restored with the floor. */
+    const czCells = (ks) => ks.map(k => (LY + lane.dy * k) * run('MW') + (LX + lane.dx * k));
+    const czPut = (ks, q) => run(`(function(){ if (!window.__cz0 || window.__cz0.length !== MAP.cz.length) window.__cz0 = MAP.cz.slice();
+      for (const i of [${czCells(ks).join(',')}]) MAP.cz[i] = ${q}; linkBoundaries(); return 1; })()`);
+    const czBack = () => run('(function(){ if (window.__cz0) for (let i = 0; i < MAP.cz.length; i++) MAP.cz[i] = __cz0[i]; linkBoundaries(); return 1; })()');
+    const aDetail = (sc) => aName.map((n, k) => `${n}: snap ${sc[k].snap.toFixed(4)} m`
+      + `${sc[k].snapAt >= 0 ? '@f' + sc[k].snapAt : ''}, frozen ${sc[k].stuck}, pinned ${sc[k].pin}`).join('  |  ');
+
+    for (const q of [2, 4, 8]) {
+      if (1 >= lane.n) { row(`L${li} off a ${q}-quantum lip the eye falls with the body`, false, `no open lane`); continue; }
+      const ks = [];
+      for (let k = 1; k < Math.min(lane.n, 4); k++) ks.push(k);
+      put(X, Y);
+      for (const k of ks) poke(ahead(k), -q);
+      czPut(ks, run('CZ_DEF'));
+      put(X, Y);
+      const s = atrace(60, false);
+      restore(); czBack();
+      const sc = aLAW.map(k => aScore(k, s));
+      const vacuous = sc[0].nAir < 3 || sc[0].land < 0;
+      row(`L${li} off a ${q}-quantum lip the eye falls with the body`,
+        !vacuous && sc[0].snap <= ASLACK && sc[0].stuck === 0 && sc[0].floorBre === 0 &&
+        sc[0].mismatch === 0 && sc[0].resid < 0.02 && sc[0].moved >= Math.floor(sc[0].nAir / 2) &&
+        sc[1].snap > 4 * ASLACK && sc[1].stuck > 0,
+        `${sc[0].nAir} airborne frames from frame ${sc[0].f0}, feet down ${(q * ZQ).toFixed(2)} m by frame `
+        + `${sc[0].land}; no frame of the fall may move the eye more than the feet plus ${ASLACK.toFixed(4)} m `
+        + `(worst ${(sc[0].snap * 1000).toFixed(1)} mm at frame ${sc[0].snapAt}), the eye moved on `
+        + `${sc[0].moved}/${sc[0].nAir - 1} fall frames and was ${(sc[0].resid * 1000).toFixed(1)} mm off the `
+        + `body at touchdown, its floor never came closer than ${sc[0].minAbove.toFixed(3)} m (the guard `
+        + `wants 0.120). ${aDetail(sc)} - law 1 is the SAME frames under a020836's clamp, so this row is `
+        + `armed even on a build that fixes nothing`);
+    }
+
+    /* The top of a jump on a flat deck: the whole arc must be a curve. The pin count is the report -
+       9 frames of an exactly constant eye while the body rose to its 0.464 m apex and came back down.
+       Vacuity: a trace with no arc has no arc. */
+    {
+      put(X, Y);
+      czPut([0, 1, 2], run('CZ_DEF'));
+      put(X, Y);
+      const s = atrace(50, true);
+      restore(); czBack();
+      const sc = aLAW.map(k => aScore(k, s));
+      const apex = Math.max.apply(null, s.map(r => r[1]));
+      const eTop = Math.max.apply(null, s.map(r => aEye(0, r)));
+      const eLo = Math.min.apply(null, s.map(r => aEye(0, r)));
+      const ceil = Math.min.apply(null, s.map(r => r[4]));
+      // the arc's own frames: from leaving the deck to the frame before the feet arrive
+      const aw = s.map((r, i) => (r[2] && i && !s[i - 1][2]) || (r[2] && s[i - 1][2]) ? i : -1).filter(i => i > 0);
+      let shapeViol = 0, shapeWorst = 0;
+      for (let i = 1; i < s.length; i++) {
+        if (!s[i][2] && !s[i - 1][2]) continue;
+        const want = Math.max(s[i][6], s[i][3] + 0.12);
+        const d = Math.abs(aEye(0, s[i]) - aEye(0, s[i - 1]) - (want - Math.max(s[i - 1][6], s[i - 1][3] + 0.12)));
+        if (d > ASLACK) { shapeViol++; shapeWorst = Math.max(shapeWorst, d); }
+      }
+      row(`L${li} the top of a jump is a curve`,
+        sc[0].nAir >= 20 && apex > 0.3 && sc[0].pin === 0 && shapeViol === 0 &&
+        sc[0].snap <= ASLACK && sc[0].mismatch === 0 && sc[1].pin > 0,
+        `${sc[0].nAir} airborne frames, apex ${apex.toFixed(3)} m, the eye's own top ${eTop.toFixed(4)} against `
+        + `a ceiling of ${ceil.toFixed(2)} and the old bound of ${(ceil - 0.06).toFixed(2)}; the eye rose `
+        + `${(eTop - eLo).toFixed(4)} m of view for a ${(apex - s[0][1]).toFixed(3)} m arc and sat on the bound `
+        + `on ${sc[0].pin} frame(s) (the flat top), with ${shapeViol} frame(s) off the body's own integration `
+        + `by at most ${shapeWorst.toFixed(4)} m. ${aDetail(sc)}`);
+    }
+
     /* The threshold is ONE constant (js/20_level.js STEP_Q) read by the generator's kind table and by
        the airborne branch. Rather than grep for the symbol, measure both rules on the real grid: the
        smallest DROP that puts the feet in the fall branch, and the smallest RISE that canEnter
