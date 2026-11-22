@@ -1468,7 +1468,33 @@ const MESH = (function () {
       b.box(0, 0.005, 0.092, 0.0235, 0.0195, 0.086, VW.steel);          // the upper receiver
       b.box(0, 0.0265, 0.092, 0.0155, 0.0055, 0.078, VW.black);         // the dust cover
       b.box(0, 0.005, 0.150, 0.0225, 0.0022, 0.030, VW.seam);           // the upper / handguard parting line
-      b.box(0, -0.004, 0.238, 0.0245, 0.020, 0.056, VW.poly);            // the handguard
+      /* #780 THE HANDGUARD IS A PRISM, NOT A PLATE, and it is the part the player is holding.
+         The support fist sits ON this part at the hip (the #741 seat, `VMGRIP.rifle[1]`), and a 49 x 40 mm
+         box puts one flat, broad, air-lit face into the frame with the fingers painted out behind it: the
+         `rounds` arm of this probe read 188 px of a rifle's own round parts reaching the screen at hip
+         against an 8 % bar of 1167 px, because every part the hand grips was authored with `b.box` and the
+         arm counts the rig's PRISMS - a box part is invisible to it wherever it is placed. Re-authoring
+         this envelope as a prism is the one lever the product decision on #780 funds: same envelope
+         (0.182 -> 0.294 along z, 40 mm tall), round in section, so the mass the fingers wrap has facets
+         that catch the light at different angles and the part being held reads as held.
+         EIGHT SIDES, not the shipped six: at 40 mm across the gun projects 60-90 px at the rig's own seat,
+         and six sides across that is a facet wide enough to read as a flat with an edge on it - the exact
+         defect this issue files. Eight keeps the silhouette inside the old box's 40 mm height.
+         AT EVERY POSE and with NO hip-only term, by product decision: a shape is not a multiplier, so it
+         cannot ramp to 1.0 at `ads = 1`, and the alternative - a `VMROUND.rifle` carry - was measured and
+         rejected for spending 0.2 of a point of #741's fist contact to buy 16 px. The sight picture is
+         unchanged because the prism sits inside the box's envelope: `sight` is ok and the ADS gun-only
+         paint count is main's to the pixel on this arm. */
+      b.ns = 8;
+      b.tube(0, -0.004, 0.182, 0, -0.004, 0.294, 0.020, 0.0185, VW.poly);  // the handguard, round
+      b.ns = 0;
+      /* The two flats the old box's sides carried are the width the round section hands back, and a
+         handguard narrower than the receiver under it reads as a toy. Two 11 mm rails along the flanks put
+         that width back as MORE round parts - both inside the old 49 mm envelope, both prisms the `rounds`
+         arm counts, both far enough outboard that the support fist's knuckles (which reach x = -0.030 at
+         the hip seat) never cover them. */
+      b.tube(-0.019, -0.004, 0.186, -0.019, -0.004, 0.290, 0.0055, 0.005, VW.polyD);
+      b.tube(0.019, -0.004, 0.186, 0.019, -0.004, 0.290, 0.0055, 0.005, VW.polyD);
       b.tube(0, 0.004, 0.292, 0, 0.004, MU - 0.034, 0.0125, 0.0115, VW.dark); // the barrel
       b.tube(0, 0.004, MU - 0.034, 0, 0.004, MU, 0.016, 0.0145, VW.black);    // the flash hider
       b.box(0, 0.0215, MU - 0.054, 0.0075, 0.0125, 0.0085, VW.dark);    // the gas block
@@ -1476,12 +1502,25 @@ const MESH = (function () {
       b.box(-0.014, 0.0335, 0.030, 0.0045, 0.0085, 0.006, VW.black);    // rear sight, left ear
       b.box(0.014, 0.0335, 0.030, 0.0045, 0.0085, 0.006, VW.black);     // rear sight, right ear
       b.box(0, -0.006, 0.116, 0.0175, 0.0125, 0.031, VW.dark);          // the magwell
+      /* #780 THE MAGAZINE TOO, and it is the second half of the same measurement. The handguard prism took
+         the rifle's `rounds` row from 188 to 448 px and the bar is 1148, so the part the issue names third
+         - "the pump handle, the magazine, the cylinder" - is what the rest of the debt sits behind. The box
+         below paints ~366 px of hip frame and is INVISIBLE to that row wherever it is placed, because
+         `setRounds` deletes geometry through `Builder.prototype.tube` only.
+         Its envelope is 33 mm wide x 56 mm deep x 104 mm tall, so a prism of radius 16.5 mm along the tall
+         axis is inside it on all three: seen down the bore - which is the ADS sight picture, and the number
+         that row prints - the stick still projects its own 33 mm of width and 104 mm of drop, so the ADS
+         gun-only paint count is main's. The rounded corners are what the hip sees, and what makes the part
+         the off hand's arm crosses read as a held magazine rather than a dark slab. */
+      b.ns = 8;
       if (s.magOut > 0.02) {
-        b.box(0, -0.088 + s.magOut * 0.10, 0.118 + s.magOut * 0.02, 0.0165, 0.052, 0.028, VW.blue);
+        b.tube(0, -0.036 + s.magOut * 0.10, 0.118 + s.magOut * 0.02,
+               0, -0.140 + s.magOut * 0.10, 0.118 + s.magOut * 0.02, 0.0165, 0.016, VW.blue);
       } else {
-        b.box(0, -0.086, 0.118, 0.0165, 0.052, 0.028, VW.blue);         // the magazine
+        b.tube(0, -0.034, 0.118, 0, -0.138, 0.118, 0.0165, 0.016, VW.blue);   // the magazine, round
         b.box(0, -0.142, 0.118, 0.0175, 0.006, 0.029, VW.black);        // its floorplate
       }
+      b.ns = 0;
       b.box(0, 0.020, -0.004 - (s.slideBack || 0) * 0.022, 0.0125, 0.0075, 0.017, VW.dark); // charging handle
       b.tube(0, -0.028, -0.006, 0, -0.112, 0.014, 0.021, 0.0185, VW.poly);    // the grip
       b.tube(0, -0.030, -0.014, 0, -0.062, -0.190, 0.0225, 0.0265, VW.poly);  // the stock
