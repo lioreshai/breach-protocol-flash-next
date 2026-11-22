@@ -6175,7 +6175,6 @@ if (MODE === 'drop') {
       const eLo = Math.min.apply(null, s.map(r => aEye(0, r)));
       const ceil = Math.min.apply(null, s.map(r => r[4]));
       // the arc's own frames: from leaving the deck to the frame before the feet arrive
-      const aw = s.map((r, i) => (r[2] && i && !s[i - 1][2]) || (r[2] && s[i - 1][2]) ? i : -1).filter(i => i > 0);
       let shapeViol = 0, shapeWorst = 0;
       for (let i = 1; i < s.length; i++) {
         if (!s[i][2] && !s[i - 1][2]) continue;
