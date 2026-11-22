@@ -874,10 +874,34 @@ const PKKIND = { health: 'pickupHealth', ammo: 'pickupAmmo', armor: 'pickupArmor
    eyeGive() is the knee after a landing (#634): the body stops at the floor, the eye arrives over the
    next fifth of a second, and the floor guard is what stops a bent knee from putting the eye through
    the floor it landed on. eyeRise() is the same decoupling pointed the other way (#765): an auto-step
-   lifts the body in one frame because it must, and the eye arrives over the next third of a second. */
+   lifts the body in one frame because it must, and the eye arrives over the next third of a second.
+
+   AND THE CEILING HALF OF THAT BAND IS A RULE ABOUT A BODY AT REST (#894). `ceilAt` is the max of the
+   column's own floor+clearance and every NEIGHBOURING floor (js/20_level.js), so the ceiling over a pit
+   is the deck's own floor: the frame the XY crosses a lip the upper bound is already half a metre BELOW
+   where the body is, and a clamp on a re-derived value moves the eye further in one frame than the body
+   can move in any number - measured at a020836 as 0.560 m of eye against 0.000 m of feet, and the eye
+   then held at that number for 0.35 s of a 0.45 s fall because the bound is not reached until the body
+   has fallen a whole `cfg.eye`. The same term pinned the top of every jump for 9 frames on a deck with
+   the shipped CZ_DEF headroom, because the apex puts the eye at ceilAt - 0.036 and the bound is
+   ceilAt - 0.06. Neither is a snap the feet take; both are the camera's own arithmetic.
+   So while the feet are UNSUPPORTED the eye takes the body's altitude with the FLOOR guard still on -
+   a bent knee or a lagged climb cannot put the eye through the floor it is heading for - and the ceiling
+   is left alone, because a body in flight is between two bands and no single column's band contains it.
+   UNSUPPORTED is the physics' OWN test (`gz < P.z - STEP_Z - STEP_EPS`, js/30_entities.js:668), not
+   `P.air`: within a frame the z-solve runs BEFORE tryMove, so on the frame a crossing happens the XY is
+   already over the far column while `P.air` is still false - key this on `P.air` and the one frame that
+   carries the whole snap is missed (measured: 0.5600 m on frame 8 of a sprinted 4-quantum crossing).
+   A descent of one quantum - a tread the feet are walked down, not fallen - is therefore still GROUNDED
+   here, exactly as the crossing rules call it a step (#633), and every walked-descent row keeps the
+   glide it prices. #103's failure stays impossible: it is a rule about a body AT REST in a room, and a
+   body at rest is supported by the column it stands in, so that case is byte-for-byte what it was. */
 function eyeAltitude() {
   const pfl = floorAt(P.x, P.y);
-  return clamp(cfg.eye + P.z - P.crouch * 0.19 - eyeGive() - eyeRise(), pfl + 0.12, ceilAt(P.x, P.y) - 0.06);
+  const want = cfg.eye + P.z - P.crouch * 0.19 - eyeGive() - eyeRise();
+  const sup = Math.max(pfl, propStand(P.x, P.y, 0, P.z));   // a crate top holds the feet up just as a floor does
+  if (P.air || P.z - sup > STEP_Z + STEP_EPS) return Math.max(want, pfl + 0.12);
+  return clamp(want, pfl + 0.12, ceilAt(P.x, P.y) - 0.06);
 }
 
 function renderWorld() {
