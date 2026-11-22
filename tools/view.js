@@ -6571,7 +6571,10 @@ if (MODE === 'drop') {
           `landed ${r.sp[1] === r.h ? 'ON the deck' : 'NO'}${r.want ? '' : ' - and the rise is past both the arc and the handhold window'}: `
           + `apex ${r.sp[2].toFixed(3)} m, ${r.sp[3]} airborne frames, end floor ${r.sp[1].toFixed(3)} at x `
           + `${r.sp[0].toFixed(2)}, hp -${r.sp[4]}; walked ` + (r.wk[1] === r.h ? 'takes it' : `stops at the lip, floor ${r.wk[1].toFixed(3)}`) + `; altitude-blind `
-          + `${r.bl[1] === r.h ? 'LANDS - knob not load-bearing' : 'refuses, floor ' + r.bl[1].toFixed(3)}`);
+          // A one-quantum tread is landed by the BLIND build because a WALKER already takes it - that is the
+          // grounded answer, not a broken knob, and the clause below reads the same condition. Saying
+          // "knob not load-bearing" there would put a false alarm on a green row.
+          + `${r.bl[1] === r.h ? (r.h <= run('STEP_Z') + 1e-9 ? 'lands it too (a walker takes a one-quantum tread with no altitude)' : 'LANDS - knob not load-bearing') : 'refuses, floor ' + r.bl[1].toFixed(3)}`);
       const mountUp = rows8.filter(r => r.sp[1] === r.h).map(r => r.h), noMount = rows8.filter(r => r.bl[1] === r.h).map(r => r.h);
       row('L0 terrain and props price the way up with ONE number (#893.7)',
         mountUp[mountUp.length - 1] <= PSU + 1e-9 &&
