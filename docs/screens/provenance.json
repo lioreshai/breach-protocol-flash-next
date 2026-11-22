@@ -180,16 +180,46 @@
         "js/40_render.js": "e11b94fd6f1cb21eb1dfb295d60a2d0ee917a79e7697c42a9be50875332c2948"
       },
       "note": "The four blobs that draw a frame, sha256, read from the checkout that ran the capture. `node tools/recap.js check` recomputes them from the tree it runs in and prints whether these frames still show what that tree ships (#536). The session that took these pixels proved this build off the wire: index.html and all eleven js/ blobs served by GitHub Pages sha256-match origin/main at a32a8a6, twelve for twelve, before the shutter - the deploy serves main's bytes, and this branch changes no shipped byte."
+    },
+    "058c31f": {
+      "at": "2026-11-22",
+      "files": {
+        "index.html": "c886aca0138047584edd4ee7023c504da19d3d559a6e6bb33833a9290169d557",
+        "js/10_assets.js": "b122466d91a8da81fe168133a66b7ae2c1d44293463014f81f42c470d9f95eba",
+        "js/20_level.js": "4c5fd0d5dfa3fac22c1a8ea6fbae88328be5c282da30ddd6da8b8b0c5cb0bf0d",
+        "js/40_render.js": "c876b4b40538ea586c3a889d8fa2ba6cf5f4c45d4a36ba271eade0d307d751d5"
+      },
+      "note": "The four blobs that draw a frame, sha256, read from the checkout that ran the capture. `node tools/recap.js check` recomputes them from the tree it runs in and prints whether these frames still show what that tree ships (#536). The session that took these pixels proved this build off the wire: index.html and all eleven js/ blobs served by https://lioreshai.github.io/breach-protocol-flash-next/ sha256-match origin/main at 058c31f, twelve for twelve, before the shutter - the deploy serves main's bytes, and this branch changes no shipped byte."
+    },
+    "aa872f9": {
+      "at": "2026-11-22",
+      "files": {
+        "index.html": "c886aca0138047584edd4ee7023c504da19d3d559a6e6bb33833a9290169d557",
+        "js/10_assets.js": "b122466d91a8da81fe168133a66b7ae2c1d44293463014f81f42c470d9f95eba",
+        "js/20_level.js": "c310a0e818a3e4c7849b19f137053f96d9144b4437679e465ef1fc818cdde9b7",
+        "js/40_render.js": "ec51535d0f14373ea6367632565933accfa9b30f652ab636a482d2235c1a9c98"
+      },
+      "note": "The four blobs that draw a frame, sha256, read from the checkout that ran the capture. `node tools/recap.js check` recomputes them from the tree it runs in and prints whether these frames still show what that tree ships (#536). The session that took these pixels proved this build off the wire: index.html, js/10_assets.js, js/20_level.js and js/40_render.js served by https://lioreshai.github.io/breach-protocol-flash-next/ sha256-match origin/main at aa872f9, four for four, before the shutter - the deploy serves main's bytes, and this branch changes no shipped byte."
+    },
+    "b7a40d6": {
+      "at": "2026-11-22",
+      "files": {
+        "index.html": "c886aca0138047584edd4ee7023c504da19d3d559a6e6bb33833a9290169d557",
+        "js/10_assets.js": "b122466d91a8da81fe168133a66b7ae2c1d44293463014f81f42c470d9f95eba",
+        "js/20_level.js": "c310a0e818a3e4c7849b19f137053f96d9144b4437679e465ef1fc818cdde9b7",
+        "js/40_render.js": "3ab810e04bee02dbd507f68268d657ba948f93fd3fbdb691e85903193627dd7d"
+      },
+      "note": "The four blobs that draw a frame, sha256, read from the checkout that ran the capture. `node tools/recap.js check` recomputes them from the tree it runs in and prints whether these frames still show what that tree ships (#536). The session that took these pixels proved this build off the wire: index.html, js/10_assets.js, js/20_level.js and js/40_render.js served by https://lioreshai.github.io/breach-protocol-flash-next/ sha256-match origin/main at b7a40d6, four for four, before the shutter - the deploy serves main's bytes, and this branch changes no shipped byte."
     }
   },
   "shots": [
     {
       "file": "level0-enemies",
-      "sha256": "1b32257c26938b152607efcbeb675e5db0a832a0b555d7730629e041be4ba4c4",
+      "sha256": "0a93e5aae63d028fc4cdd5a967a365438cdd38348ca3022c47361560f4b27bf5",
       "replaces": {
-        "rev": "2c48193",
-        "sha256": "d3a0e708fb18a220a272d15feb2e48fb9e3b2cf4835e7c08d02b23badc0521b7",
-        "mean": 60.58
+        "rev": "82e43cc",
+        "sha256": "1b32257c26938b152607efcbeb675e5db0a832a0b555d7730629e041be4ba4c4",
+        "mean": 60.6056
       },
       "canvas": "1440x763",
       "origin": "https",
@@ -198,19 +228,19 @@
       "seed": "60",
       "level": 0,
       "layout": 4083630493,
-      "build": "a32a8a6",
-      "at": "2026-11-21",
+      "build": "b7a40d6",
+      "at": "2026-11-22",
       "sampleRate": 44100,
-      "note": "RE-TAKEN from the DEPLOYED page for #882 at build a32a8a6. The previous pass bound cc0a3e3; since then #886 (a1c152d) gave a slab's underside its own sheet - the joist is baked into CEILS.SOFFIT and fetched through the mip chain instead of being raised per pixel off the ceiling's tile, so the relief is filtered by the chain at the distance a second storey is actually looked up at. That moved two of the four blobs that draw a frame, js/40_render.js and js/10_assets.js, between cc0a3e3 and this checkout, so recap labelled the cc0a3e3 rows FRAME-STALE and the front page was describing a picture that no longer ships. Earlier causes are NOT restated as this pass's: #879's shadow band, #880's joist pitch and #19's sheet re-key are already inside the bytes this frame replaces, so they account for none of the movement here. This pass is the same eight poses re-run against the deploy, which serves main's bytes: index.html and all eleven js/ blobs served by that URL sha256-match this checkout, twelve for twelve, proved before the shutter. Route: `node tools/livecap.js frames --url <deployed ?dev=1&seed=60&boot=0> --vp 1440x763`, one page load and one boot per pose, DEV.freeze(true), DEV.set(\"grain\",0), DEV.clear() before the pose, shutter from the canvas after DEV.tick; the pose table is checked into tools/livecap.js (FRAMES) and --vp pins the display surface to the 1440x763 every frame in docs/screens carries. Chromium gave RGBA; committed through tools/png_rgb.js. Every seat, layout and audio term below was read back out of the page that drew the frame, and every mean re-measured from these bytes with tools/recap.js's own decoder. Pose: the spawn seat, then DEV.clear() and DEV.spawn('grunt', 1, 6); the route's own seat search needed no turn this deal and left him dead on the view line 6.00 m out with 255 raster px of him painted. Frame mean 60.61, which is +0.03 on the frame it replaces, and 0.23% of its pixels (2,512 of 1,098,720) differ from those bytes by the kept-pixel rule (summed |dRGB| over 18, counted over the whole 1440x763 frame, which is the rule tools/livecap.js states); they fall 2,443 in the top third, 0 in the middle and 69 in the bottom, over rows 0-739 and columns 565-1163. Band means 60.4 / 64.0 / 57.5. Dark census: 0 rows under 24 and none under 34; the frame it replaces reads 0 and 0. Layout signature 4083630493 under seed 60 on this instrument - identical to the row this frame replaces, so this is a picture change and not a re-deal. Audio term: SND.ac.sampleRate read 44100 in the page that drew this frame, the same instrument term those rows state (#404).",
+      "note": "RE-TAKEN from the DEPLOYED page for #895 at build b7a40d6, which re-keys the eight rows that bound aa872f9. One of the four blobs the bind hashes moved while the last pass sat in review: #903 (1f6f9ab, merged at b7a40d6) made a face a nearer face owns continue the march instead of ending it, in js/40_render.js. Unlike the previous re-key this one is a picture change, not only a byte change: three of the eight frames show a wall that the march used to stop at. The other five came back with no world pixel moved - #893's jump predicate and #894's airborne eye still draw nothing in a still - and the three dealt layout signatures are the ones the replaced rows already named (4083630493 / 3610925125 / 2343219222), so the rooms are the same rooms. Route: `node tools/livecap.js frames --url <deployed ?dev=1&seed=60&boot=0> --vp 1440x763`, one page load and one boot per pose, DEV.freeze(true), DEV.set(\"grain\",0), DEV.clear() before the pose, shutter from the canvas after DEV.tick; the pose table is checked into tools/livecap.js (FRAMES). The four blobs that draw a frame - index.html, js/10_assets.js, js/20_level.js, js/40_render.js - were sha256-compared against the deployed page before the shutter, four for four. Chromium handed back RGBA and each frame was re-encoded to colour type 2 through tools/png_rgb.js (rgb-diff 0, alpha min 255). The layout signature was read off the page that drew the frame; the audio term was NOT readable in this pass's headless loads (no output device, so SND.init's AudioContext constructor returns without setting SND.ac and js/50_ui_input.js never reaches a sample rate). It is therefore carried from the row this one supersedes and stated as carried, and the control for it is #404's own rule read the other way: that term changes how many draws precede generation, and all three signatures came back identical to the replaced rows' at the same seed, so the instrument that dealt these rooms is the one those rows name. Replaces the frame the deployed front page carries (82e43cc); the delta every caption quotes is measured against those bytes.",
       "staleByBuild": null
     },
     {
       "file": "level0-facing-wall",
-      "sha256": "d786a6d3a34eb2bc7cfec8581e99aa33b1553dd23ee9e911faee6471cfe852f3",
+      "sha256": "3e6f3037443e3fc0aee54c0ac7982fe153c204762873a6a71095af94b4fc94e6",
       "replaces": {
-        "rev": "2c48193",
-        "sha256": "4590a9f656735b29e94c0344c73226250fe6601639dcae988632ee54f198d7ae",
-        "mean": 81.48
+        "rev": "82e43cc",
+        "sha256": "d786a6d3a34eb2bc7cfec8581e99aa33b1553dd23ee9e911faee6471cfe852f3",
+        "mean": 81.4731
       },
       "canvas": "1440x763",
       "origin": "https",
@@ -219,19 +249,19 @@
       "seed": "60",
       "level": 0,
       "layout": 4083630493,
-      "build": "a32a8a6",
-      "at": "2026-11-21",
+      "build": "b7a40d6",
+      "at": "2026-11-22",
       "sampleRate": 44100,
-      "note": "RE-TAKEN from the DEPLOYED page for #882 at build a32a8a6. The previous pass bound cc0a3e3; since then #886 (a1c152d) gave a slab's underside its own sheet - the joist is baked into CEILS.SOFFIT and fetched through the mip chain instead of being raised per pixel off the ceiling's tile, so the relief is filtered by the chain at the distance a second storey is actually looked up at. That moved two of the four blobs that draw a frame, js/40_render.js and js/10_assets.js, between cc0a3e3 and this checkout, so recap labelled the cc0a3e3 rows FRAME-STALE and the front page was describing a picture that no longer ships. Earlier causes are NOT restated as this pass's: #879's shadow band, #880's joist pitch and #19's sheet re-key are already inside the bytes this frame replaces, so they account for none of the movement here. This pass is the same eight poses re-run against the deploy, which serves main's bytes: index.html and all eleven js/ blobs served by that URL sha256-match this checkout, twelve for twelve, proved before the shutter. Route: `node tools/livecap.js frames --url <deployed ?dev=1&seed=60&boot=0> --vp 1440x763`, one page load and one boot per pose, DEV.freeze(true), DEV.set(\"grain\",0), DEV.clear() before the pose, shutter from the canvas after DEV.tick; the pose table is checked into tools/livecap.js (FRAMES) and --vp pins the display surface to the 1440x763 every frame in docs/screens carries. Chromium gave RGBA; committed through tools/png_rgb.js. Every seat, layout and audio term below was read back out of the page that drew the frame, and every mean re-measured from these bytes with tools/recap.js's own decoder. Pose: DEV.cam(1.5, 8.5, undefined, Math.PI/2), read back at (1.50, 8.50) heading 1.5708. Frame mean 81.47, which is -0.01 on the frame it replaces, and 0.24% of its pixels (2,609 of 1,098,720) differ from those bytes by the kept-pixel rule (summed |dRGB| over 18, counted over the whole 1440x763 frame, which is the rule tools/livecap.js states); they fall 0 in the top third, 94 in the middle and 2,515 in the bottom, over rows 493-762 and columns 886-1186. Band means 70.9 / 88.9 / 84.7. Dark census: 0 rows under 24 and none under 34; the frame it replaces reads 0 and 0. Layout signature 4083630493 under seed 60 on this instrument - identical to the row this frame replaces, so this is a picture change and not a re-deal. Audio term: SND.ac.sampleRate read 44100 in the page that drew this frame, the same instrument term those rows state (#404).",
+      "note": "RE-TAKEN from the DEPLOYED page for #895 at build b7a40d6, which re-keys the eight rows that bound aa872f9. One of the four blobs the bind hashes moved while the last pass sat in review: #903 (1f6f9ab, merged at b7a40d6) made a face a nearer face owns continue the march instead of ending it, in js/40_render.js. Unlike the previous re-key this one is a picture change, not only a byte change: three of the eight frames show a wall that the march used to stop at. The other five came back with no world pixel moved - #893's jump predicate and #894's airborne eye still draw nothing in a still - and the three dealt layout signatures are the ones the replaced rows already named (4083630493 / 3610925125 / 2343219222), so the rooms are the same rooms. Route: `node tools/livecap.js frames --url <deployed ?dev=1&seed=60&boot=0> --vp 1440x763`, one page load and one boot per pose, DEV.freeze(true), DEV.set(\"grain\",0), DEV.clear() before the pose, shutter from the canvas after DEV.tick; the pose table is checked into tools/livecap.js (FRAMES). The four blobs that draw a frame - index.html, js/10_assets.js, js/20_level.js, js/40_render.js - were sha256-compared against the deployed page before the shutter, four for four. Chromium handed back RGBA and each frame was re-encoded to colour type 2 through tools/png_rgb.js (rgb-diff 0, alpha min 255). The layout signature was read off the page that drew the frame; the audio term was NOT readable in this pass's headless loads (no output device, so SND.init's AudioContext constructor returns without setting SND.ac and js/50_ui_input.js never reaches a sample rate). It is therefore carried from the row this one supersedes and stated as carried, and the control for it is #404's own rule read the other way: that term changes how many draws precede generation, and all three signatures came back identical to the replaced rows' at the same seed, so the instrument that dealt these rooms is the one those rows name. Replaces the frame the deployed front page carries (82e43cc); the delta every caption quotes is measured against those bytes.",
       "staleByBuild": null
     },
     {
       "file": "level0-pitfloor",
-      "sha256": "7e4a86528ee00d1d098f19d7ab033197407258946eb44d84b2f742f4853c6fa2",
+      "sha256": "ba8a451a514a0db827cc74810c9570e632cc75bc64fb6b176fb3d03f2004f9c5",
       "replaces": {
-        "rev": "2c48193",
-        "sha256": "43a28acf8e7732add57c5dcd7f6f2634d1de62cd66118ac980f5b0cd8dba3cf9",
-        "mean": 65.15
+        "rev": "82e43cc",
+        "sha256": "7e4a86528ee00d1d098f19d7ab033197407258946eb44d84b2f742f4853c6fa2",
+        "mean": 65.0013
       },
       "canvas": "1440x763",
       "origin": "https",
@@ -240,19 +270,19 @@
       "seed": "60",
       "level": 0,
       "layout": 4083630493,
-      "build": "a32a8a6",
-      "at": "2026-11-21",
+      "build": "b7a40d6",
+      "at": "2026-11-22",
       "sampleRate": 44100,
-      "note": "RE-TAKEN from the DEPLOYED page for #882 at build a32a8a6. The previous pass bound cc0a3e3; since then #886 (a1c152d) gave a slab's underside its own sheet - the joist is baked into CEILS.SOFFIT and fetched through the mip chain instead of being raised per pixel off the ceiling's tile, so the relief is filtered by the chain at the distance a second storey is actually looked up at. That moved two of the four blobs that draw a frame, js/40_render.js and js/10_assets.js, between cc0a3e3 and this checkout, so recap labelled the cc0a3e3 rows FRAME-STALE and the front page was describing a picture that no longer ships. Earlier causes are NOT restated as this pass's: #879's shadow band, #880's joist pitch and #19's sheet re-key are already inside the bytes this frame replaces, so they account for none of the movement here. This pass is the same eight poses re-run against the deploy, which serves main's bytes: index.html and all eleven js/ blobs served by that URL sha256-match this checkout, twelve for twelve, proved before the shutter. Route: `node tools/livecap.js frames --url <deployed ?dev=1&seed=60&boot=0> --vp 1440x763`, one page load and one boot per pose, DEV.freeze(true), DEV.set(\"grain\",0), DEV.clear() before the pose, shutter from the canvas after DEV.tick; the pose table is checked into tools/livecap.js (FRAMES) and --vp pins the display surface to the 1440x763 every frame in docs/screens carries. Chromium gave RGBA; committed through tools/png_rgb.js. Every seat, layout and audio term below was read back out of the page that drew the frame, and every mean re-measured from these bytes with tools/recap.js's own decoder. Pose: DEV.cam(19.5, 14.5, undefined, 1.1071), read back at (19.50, 14.50) heading 1.1071. Frame mean 65.00, which is -0.15 on the frame it replaces, and 19.48% of its pixels (213,999 of 1,098,720) differ from those bytes by the kept-pixel rule (summed |dRGB| over 18, counted over the whole 1440x763 frame, which is the rule tools/livecap.js states); they fall 195,439 in the top third, 18,534 in the middle and 26 in the bottom, over rows 0-751 and columns 0-1439. Band means 68.4 / 57.2 / 69.5. Dark census: 0 rows under 24 and none under 34; the frame it replaces reads 0 and 0. Layout signature 4083630493 under seed 60 on this instrument - identical to the row this frame replaces, so this is a picture change and not a re-deal. Audio term: SND.ac.sampleRate read 44100 in the page that drew this frame, the same instrument term those rows state (#404).",
+      "note": "RE-TAKEN from the DEPLOYED page for #895 at build b7a40d6, which re-keys the eight rows that bound aa872f9. One of the four blobs the bind hashes moved while the last pass sat in review: #903 (1f6f9ab, merged at b7a40d6) made a face a nearer face owns continue the march instead of ending it, in js/40_render.js. Unlike the previous re-key this one is a picture change, not only a byte change: three of the eight frames show a wall that the march used to stop at. The other five came back with no world pixel moved - #893's jump predicate and #894's airborne eye still draw nothing in a still - and the three dealt layout signatures are the ones the replaced rows already named (4083630493 / 3610925125 / 2343219222), so the rooms are the same rooms. Route: `node tools/livecap.js frames --url <deployed ?dev=1&seed=60&boot=0> --vp 1440x763`, one page load and one boot per pose, DEV.freeze(true), DEV.set(\"grain\",0), DEV.clear() before the pose, shutter from the canvas after DEV.tick; the pose table is checked into tools/livecap.js (FRAMES). The four blobs that draw a frame - index.html, js/10_assets.js, js/20_level.js, js/40_render.js - were sha256-compared against the deployed page before the shutter, four for four. Chromium handed back RGBA and each frame was re-encoded to colour type 2 through tools/png_rgb.js (rgb-diff 0, alpha min 255). The layout signature was read off the page that drew the frame; the audio term was NOT readable in this pass's headless loads (no output device, so SND.init's AudioContext constructor returns without setting SND.ac and js/50_ui_input.js never reaches a sample rate). It is therefore carried from the row this one supersedes and stated as carried, and the control for it is #404's own rule read the other way: that term changes how many draws precede generation, and all three signatures came back identical to the replaced rows' at the same seed, so the instrument that dealt these rooms is the one those rows name. Replaces the frame the deployed front page carries (82e43cc); the delta every caption quotes is measured against those bytes.",
       "staleByBuild": null
     },
     {
       "file": "level0-props",
-      "sha256": "b627ba62f19ca4e60f6f788214c5c210e8fcf1d08022a43cc1df8483974a0745",
+      "sha256": "2443c452f8dd951d2a4e6c441a017d8d5592c68323316a5b36a07375b4c254fc",
       "replaces": {
-        "rev": "2c48193",
-        "sha256": "28f42a3b7691e3d4962b932185bab16ff176b02b46a4dfa076433bb5f268d86f",
-        "mean": 64.89
+        "rev": "82e43cc",
+        "sha256": "b627ba62f19ca4e60f6f788214c5c210e8fcf1d08022a43cc1df8483974a0745",
+        "mean": 66.2401
       },
       "canvas": "1440x763",
       "origin": "https",
@@ -261,19 +291,19 @@
       "seed": "60",
       "level": 0,
       "layout": 4083630493,
-      "build": "a32a8a6",
-      "at": "2026-11-21",
+      "build": "b7a40d6",
+      "at": "2026-11-22",
       "sampleRate": 44100,
-      "note": "RE-TAKEN from the DEPLOYED page for #882 at build a32a8a6. The previous pass bound cc0a3e3; since then #886 (a1c152d) gave a slab's underside its own sheet - the joist is baked into CEILS.SOFFIT and fetched through the mip chain instead of being raised per pixel off the ceiling's tile, so the relief is filtered by the chain at the distance a second storey is actually looked up at. That moved two of the four blobs that draw a frame, js/40_render.js and js/10_assets.js, between cc0a3e3 and this checkout, so recap labelled the cc0a3e3 rows FRAME-STALE and the front page was describing a picture that no longer ships. Earlier causes are NOT restated as this pass's: #879's shadow band, #880's joist pitch and #19's sheet re-key are already inside the bytes this frame replaces, so they account for none of the movement here. This pass is the same eight poses re-run against the deploy, which serves main's bytes: index.html and all eleven js/ blobs served by that URL sha256-match this checkout, twelve for twelve, proved before the shutter. Route: `node tools/livecap.js frames --url <deployed ?dev=1&seed=60&boot=0> --vp 1440x763`, one page load and one boot per pose, DEV.freeze(true), DEV.set(\"grain\",0), DEV.clear() before the pose, shutter from the canvas after DEV.tick; the pose table is checked into tools/livecap.js (FRAMES) and --vp pins the display surface to the 1440x763 every frame in docs/screens carries. Chromium gave RGBA; committed through tools/png_rgb.js. Every seat, layout and audio term below was read back out of the page that drew the frame, and every mean re-measured from these bytes with tools/recap.js's own decoder. Pose: DEV.cam(20.5, 11.5, undefined, Math.PI/2), read back at (20.50, 11.50) heading 1.5708. Frame mean 66.24, which is +1.35 on the frame it replaces, and 19.71% of its pixels (216,550 of 1,098,720) differ from those bytes by the kept-pixel rule (summed |dRGB| over 18, counted over the whole 1440x763 frame, which is the rule tools/livecap.js states); they fall 145,571 in the top third, 70,670 in the middle and 309 in the bottom, over rows 130-762 and columns 0-1439. Band means 75.9 / 66.8 / 55.9. Dark census: 0 rows under 24 and 10 under 34 (a 8-row run from row 638); the frame it replaces reads 0 and 10. Layout signature 4083630493 under seed 60 on this instrument - identical to the row this frame replaces, so this is a picture change and not a re-deal. Audio term: SND.ac.sampleRate read 44100 in the page that drew this frame, the same instrument term those rows state (#404).",
+      "note": "RE-TAKEN from the DEPLOYED page for #895 at build b7a40d6, which re-keys the eight rows that bound aa872f9. One of the four blobs the bind hashes moved while the last pass sat in review: #903 (1f6f9ab, merged at b7a40d6) made a face a nearer face owns continue the march instead of ending it, in js/40_render.js. Unlike the previous re-key this one is a picture change, not only a byte change: three of the eight frames show a wall that the march used to stop at. The other five came back with no world pixel moved - #893's jump predicate and #894's airborne eye still draw nothing in a still - and the three dealt layout signatures are the ones the replaced rows already named (4083630493 / 3610925125 / 2343219222), so the rooms are the same rooms. Route: `node tools/livecap.js frames --url <deployed ?dev=1&seed=60&boot=0> --vp 1440x763`, one page load and one boot per pose, DEV.freeze(true), DEV.set(\"grain\",0), DEV.clear() before the pose, shutter from the canvas after DEV.tick; the pose table is checked into tools/livecap.js (FRAMES). The four blobs that draw a frame - index.html, js/10_assets.js, js/20_level.js, js/40_render.js - were sha256-compared against the deployed page before the shutter, four for four. Chromium handed back RGBA and each frame was re-encoded to colour type 2 through tools/png_rgb.js (rgb-diff 0, alpha min 255). The layout signature was read off the page that drew the frame; the audio term was NOT readable in this pass's headless loads (no output device, so SND.init's AudioContext constructor returns without setting SND.ac and js/50_ui_input.js never reaches a sample rate). It is therefore carried from the row this one supersedes and stated as carried, and the control for it is #404's own rule read the other way: that term changes how many draws precede generation, and all three signatures came back identical to the replaced rows' at the same seed, so the instrument that dealt these rooms is the one those rows name. Replaces the frame the deployed front page carries (82e43cc); the delta every caption quotes is measured against those bytes.",
       "staleByBuild": null
     },
     {
       "file": "level0-spawn",
-      "sha256": "214bf7c1e441827c5e8910092f78a86c8dec73b3699df569ceb8dd1959663caa",
+      "sha256": "55be4d1f26ac9df6cdde59f19320a01f0bb96842f00062b1ee1d047ba4dbb172",
       "replaces": {
-        "rev": "2c48193",
-        "sha256": "5b209ec4bc0c8dd007eefecda7aa08f79804181d9d5df8bc9dbffb6585bb28fa",
-        "mean": 60.59
+        "rev": "82e43cc",
+        "sha256": "214bf7c1e441827c5e8910092f78a86c8dec73b3699df569ceb8dd1959663caa",
+        "mean": 60.6147
       },
       "canvas": "1440x763",
       "origin": "https",
@@ -282,19 +312,19 @@
       "seed": "60",
       "level": 0,
       "layout": 4083630493,
-      "build": "a32a8a6",
-      "at": "2026-11-21",
+      "build": "b7a40d6",
+      "at": "2026-11-22",
       "sampleRate": 44100,
-      "note": "RE-TAKEN from the DEPLOYED page for #882 at build a32a8a6. The previous pass bound cc0a3e3; since then #886 (a1c152d) gave a slab's underside its own sheet - the joist is baked into CEILS.SOFFIT and fetched through the mip chain instead of being raised per pixel off the ceiling's tile, so the relief is filtered by the chain at the distance a second storey is actually looked up at. That moved two of the four blobs that draw a frame, js/40_render.js and js/10_assets.js, between cc0a3e3 and this checkout, so recap labelled the cc0a3e3 rows FRAME-STALE and the front page was describing a picture that no longer ships. Earlier causes are NOT restated as this pass's: #879's shadow band, #880's joist pitch and #19's sheet re-key are already inside the bytes this frame replaces, so they account for none of the movement here. This pass is the same eight poses re-run against the deploy, which serves main's bytes: index.html and all eleven js/ blobs served by that URL sha256-match this checkout, twelve for twelve, proved before the shutter. Route: `node tools/livecap.js frames --url <deployed ?dev=1&seed=60&boot=0> --vp 1440x763`, one page load and one boot per pose, DEV.freeze(true), DEV.set(\"grain\",0), DEV.clear() before the pose, shutter from the canvas after DEV.tick; the pose table is checked into tools/livecap.js (FRAMES) and --vp pins the display surface to the 1440x763 every frame in docs/screens carries. Chromium gave RGBA; committed through tools/png_rgb.js. Every seat, layout and audio term below was read back out of the page that drew the frame, and every mean re-measured from these bytes with tools/recap.js's own decoder. Pose: the deal's own spawn seat, read back at (10.50, 10.50) on heading -1.4711. Frame mean 60.61, which is +0.02 on the frame it replaces, and 0.48% of its pixels (5,320 of 1,098,720) differ from those bytes by the kept-pixel rule (summed |dRGB| over 18, counted over the whole 1440x763 frame, which is the rule tools/livecap.js states); they fall 2,443 in the top third, 40 in the middle and 2,837 in the bottom, over rows 0-762 and columns 565-1199. Band means 60.4 / 64.0 / 57.4. Dark census: 0 rows under 24 and none under 34; the frame it replaces reads 0 and 0. Layout signature 4083630493 under seed 60 on this instrument - identical to the row this frame replaces, so this is a picture change and not a re-deal. Audio term: SND.ac.sampleRate read 44100 in the page that drew this frame, the same instrument term those rows state (#404).",
+      "note": "RE-TAKEN from the DEPLOYED page for #895 at build b7a40d6, which re-keys the eight rows that bound aa872f9. One of the four blobs the bind hashes moved while the last pass sat in review: #903 (1f6f9ab, merged at b7a40d6) made a face a nearer face owns continue the march instead of ending it, in js/40_render.js. Unlike the previous re-key this one is a picture change, not only a byte change: three of the eight frames show a wall that the march used to stop at. The other five came back with no world pixel moved - #893's jump predicate and #894's airborne eye still draw nothing in a still - and the three dealt layout signatures are the ones the replaced rows already named (4083630493 / 3610925125 / 2343219222), so the rooms are the same rooms. Route: `node tools/livecap.js frames --url <deployed ?dev=1&seed=60&boot=0> --vp 1440x763`, one page load and one boot per pose, DEV.freeze(true), DEV.set(\"grain\",0), DEV.clear() before the pose, shutter from the canvas after DEV.tick; the pose table is checked into tools/livecap.js (FRAMES). The four blobs that draw a frame - index.html, js/10_assets.js, js/20_level.js, js/40_render.js - were sha256-compared against the deployed page before the shutter, four for four. Chromium handed back RGBA and each frame was re-encoded to colour type 2 through tools/png_rgb.js (rgb-diff 0, alpha min 255). The layout signature was read off the page that drew the frame; the audio term was NOT readable in this pass's headless loads (no output device, so SND.init's AudioContext constructor returns without setting SND.ac and js/50_ui_input.js never reaches a sample rate). It is therefore carried from the row this one supersedes and stated as carried, and the control for it is #404's own rule read the other way: that term changes how many draws precede generation, and all three signatures came back identical to the replaced rows' at the same seed, so the instrument that dealt these rooms is the one those rows name. Replaces the frame the deployed front page carries (82e43cc); the delta every caption quotes is measured against those bytes.",
       "staleByBuild": null
     },
     {
       "file": "level2-abatoir",
-      "sha256": "a2ac72fb2d9b39381a65caceec96ceb91e02ce9fee5ad206c21e7595d3e09faf",
+      "sha256": "9af13196765168ccd93127e428b55ea01ab251bab4f33cb15e1d5d3730ce48c9",
       "replaces": {
-        "rev": "2c48193",
-        "sha256": "39017b2d10197d11125e3bc0a063048256fb722ef0d63cc244e799cc7ee18943",
-        "mean": 66.71
+        "rev": "82e43cc",
+        "sha256": "a2ac72fb2d9b39381a65caceec96ceb91e02ce9fee5ad206c21e7595d3e09faf",
+        "mean": 67.1631
       },
       "canvas": "1440x763",
       "origin": "https",
@@ -303,19 +333,19 @@
       "seed": "60",
       "level": 2,
       "layout": 2343219222,
-      "build": "a32a8a6",
-      "at": "2026-11-21",
+      "build": "b7a40d6",
+      "at": "2026-11-22",
       "sampleRate": 44100,
-      "note": "RE-TAKEN from the DEPLOYED page for #882 at build a32a8a6. The previous pass bound cc0a3e3; since then #886 (a1c152d) gave a slab's underside its own sheet - the joist is baked into CEILS.SOFFIT and fetched through the mip chain instead of being raised per pixel off the ceiling's tile, so the relief is filtered by the chain at the distance a second storey is actually looked up at. That moved two of the four blobs that draw a frame, js/40_render.js and js/10_assets.js, between cc0a3e3 and this checkout, so recap labelled the cc0a3e3 rows FRAME-STALE and the front page was describing a picture that no longer ships. Earlier causes are NOT restated as this pass's: #879's shadow band, #880's joist pitch and #19's sheet re-key are already inside the bytes this frame replaces, so they account for none of the movement here. This pass is the same eight poses re-run against the deploy, which serves main's bytes: index.html and all eleven js/ blobs served by that URL sha256-match this checkout, twelve for twelve, proved before the shutter. Route: `node tools/livecap.js frames --url <deployed ?dev=1&seed=60&boot=0> --vp 1440x763`, one page load and one boot per pose, DEV.freeze(true), DEV.set(\"grain\",0), DEV.clear() before the pose, shutter from the canvas after DEV.tick; the pose table is checked into tools/livecap.js (FRAMES) and --vp pins the display surface to the 1440x763 every frame in docs/screens carries. Chromium gave RGBA; committed through tools/png_rgb.js. Every seat, layout and audio term below was read back out of the page that drew the frame, and every mean re-measured from these bytes with tools/recap.js's own decoder. Pose: the deal's own arrival seat, read back at (22.50, 13.50) heading 2.4228. Frame mean 67.16, which is +0.45 on the frame it replaces, and 6.22% of its pixels (68,357 of 1,098,720) differ from those bytes by the kept-pixel rule (summed |dRGB| over 18, counted over the whole 1440x763 frame, which is the rule tools/livecap.js states); they fall 68,357 in the top third, 0 in the middle and 0 in the bottom, over rows 0-254 and columns 68-1439. Band means 58.2 / 65.5 / 77.8. Dark census: 0 rows under 24 and none under 34; the frame it replaces reads 0 and 0. Layout signature 2343219222 under seed 60 on this instrument - identical to the row this frame replaces, so this is a picture change and not a re-deal. Audio term: SND.ac.sampleRate read 44100 in the page that drew this frame, the same instrument term those rows state (#404).",
+      "note": "RE-TAKEN from the DEPLOYED page for #895 at build b7a40d6, which re-keys the eight rows that bound aa872f9. One of the four blobs the bind hashes moved while the last pass sat in review: #903 (1f6f9ab, merged at b7a40d6) made a face a nearer face owns continue the march instead of ending it, in js/40_render.js. Unlike the previous re-key this one is a picture change, not only a byte change: three of the eight frames show a wall that the march used to stop at. The other five came back with no world pixel moved - #893's jump predicate and #894's airborne eye still draw nothing in a still - and the three dealt layout signatures are the ones the replaced rows already named (4083630493 / 3610925125 / 2343219222), so the rooms are the same rooms. Route: `node tools/livecap.js frames --url <deployed ?dev=1&seed=60&boot=0> --vp 1440x763`, one page load and one boot per pose, DEV.freeze(true), DEV.set(\"grain\",0), DEV.clear() before the pose, shutter from the canvas after DEV.tick; the pose table is checked into tools/livecap.js (FRAMES). The four blobs that draw a frame - index.html, js/10_assets.js, js/20_level.js, js/40_render.js - were sha256-compared against the deployed page before the shutter, four for four. Chromium handed back RGBA and each frame was re-encoded to colour type 2 through tools/png_rgb.js (rgb-diff 0, alpha min 255). The layout signature was read off the page that drew the frame; the audio term was NOT readable in this pass's headless loads (no output device, so SND.init's AudioContext constructor returns without setting SND.ac and js/50_ui_input.js never reaches a sample rate). It is therefore carried from the row this one supersedes and stated as carried, and the control for it is #404's own rule read the other way: that term changes how many draws precede generation, and all three signatures came back identical to the replaced rows' at the same seed, so the instrument that dealt these rooms is the one those rows name. Replaces the frame the deployed front page carries (82e43cc); the delta every caption quotes is measured against those bytes.",
       "staleByBuild": null
     },
     {
       "file": "level2-abatoir-ceiling",
-      "sha256": "379a3d9a967edad5f5046033727fbe0fe4b4405c859a8a6bb7a300a39397f724",
+      "sha256": "43538906dfc34d5ce00cf5e4ae90deee330cb5b5c4abdbe364c85ff65faad9c0",
       "replaces": {
-        "rev": "2c48193",
-        "sha256": "e86611257c94424cf871018ce62fadd91f288e4cf769adaef14c18394448dc80",
-        "mean": 61.57
+        "rev": "82e43cc",
+        "sha256": "379a3d9a967edad5f5046033727fbe0fe4b4405c859a8a6bb7a300a39397f724",
+        "mean": 62.2308
       },
       "canvas": "1440x763",
       "origin": "https",
@@ -324,19 +354,19 @@
       "seed": "60",
       "level": 2,
       "layout": 2343219222,
-      "build": "a32a8a6",
-      "at": "2026-11-21",
+      "build": "b7a40d6",
+      "at": "2026-11-22",
       "sampleRate": 44100,
-      "note": "RE-TAKEN from the DEPLOYED page for #882 at build a32a8a6. The previous pass bound cc0a3e3; since then #886 (a1c152d) gave a slab's underside its own sheet - the joist is baked into CEILS.SOFFIT and fetched through the mip chain instead of being raised per pixel off the ceiling's tile, so the relief is filtered by the chain at the distance a second storey is actually looked up at. That moved two of the four blobs that draw a frame, js/40_render.js and js/10_assets.js, between cc0a3e3 and this checkout, so recap labelled the cc0a3e3 rows FRAME-STALE and the front page was describing a picture that no longer ships. Earlier causes are NOT restated as this pass's: #879's shadow band, #880's joist pitch and #19's sheet re-key are already inside the bytes this frame replaces, so they account for none of the movement here. This pass is the same eight poses re-run against the deploy, which serves main's bytes: index.html and all eleven js/ blobs served by that URL sha256-match this checkout, twelve for twelve, proved before the shutter. Route: `node tools/livecap.js frames --url <deployed ?dev=1&seed=60&boot=0> --vp 1440x763`, one page load and one boot per pose, DEV.freeze(true), DEV.set(\"grain\",0), DEV.clear() before the pose, shutter from the canvas after DEV.tick; the pose table is checked into tools/livecap.js (FRAMES) and --vp pins the display surface to the 1440x763 every frame in docs/screens carries. Chromium gave RGBA; committed through tools/png_rgb.js. Every seat, layout and audio term below was read back out of the page that drew the frame, and every mean re-measured from these bytes with tools/recap.js's own decoder. Pose: the same arrival seat with DEV.cam(P.x, P.y, undefined, P.ang, BH*0.25), read back at (22.50, 13.50) heading 2.4228 tilted a quarter of the raster. Frame mean 62.23, which is +0.66 on the frame it replaces, and 8.54% of its pixels (93,803 of 1,098,720) differ from those bytes by the kept-pixel rule (summed |dRGB| over 18, counted over the whole 1440x763 frame, which is the rule tools/livecap.js states); they fall 45,236 in the top third, 48,567 in the middle and 0 in the bottom, over rows 113-443 and columns 68-1439. Band means 56.3 / 68.3 / 62.2. Dark census: 0 rows under 24 and none under 34; the frame it replaces reads 0 and 0. Layout signature 2343219222 under seed 60 on this instrument - identical to the row this frame replaces, so this is a picture change and not a re-deal. Audio term: SND.ac.sampleRate read 44100 in the page that drew this frame, the same instrument term those rows state (#404).",
+      "note": "RE-TAKEN from the DEPLOYED page for #895 at build b7a40d6, which re-keys the eight rows that bound aa872f9. One of the four blobs the bind hashes moved while the last pass sat in review: #903 (1f6f9ab, merged at b7a40d6) made a face a nearer face owns continue the march instead of ending it, in js/40_render.js. Unlike the previous re-key this one is a picture change, not only a byte change: three of the eight frames show a wall that the march used to stop at. The other five came back with no world pixel moved - #893's jump predicate and #894's airborne eye still draw nothing in a still - and the three dealt layout signatures are the ones the replaced rows already named (4083630493 / 3610925125 / 2343219222), so the rooms are the same rooms. Route: `node tools/livecap.js frames --url <deployed ?dev=1&seed=60&boot=0> --vp 1440x763`, one page load and one boot per pose, DEV.freeze(true), DEV.set(\"grain\",0), DEV.clear() before the pose, shutter from the canvas after DEV.tick; the pose table is checked into tools/livecap.js (FRAMES). The four blobs that draw a frame - index.html, js/10_assets.js, js/20_level.js, js/40_render.js - were sha256-compared against the deployed page before the shutter, four for four. Chromium handed back RGBA and each frame was re-encoded to colour type 2 through tools/png_rgb.js (rgb-diff 0, alpha min 255). The layout signature was read off the page that drew the frame; the audio term was NOT readable in this pass's headless loads (no output device, so SND.init's AudioContext constructor returns without setting SND.ac and js/50_ui_input.js never reaches a sample rate). It is therefore carried from the row this one supersedes and stated as carried, and the control for it is #404's own rule read the other way: that term changes how many draws precede generation, and all three signatures came back identical to the replaced rows' at the same seed, so the instrument that dealt these rooms is the one those rows name. Replaces the frame the deployed front page carries (82e43cc); the delta every caption quotes is measured against those bytes.",
       "staleByBuild": null
     },
     {
       "file": "level3-stack",
-      "sha256": "a7c46927786191695ba6b801da5fa91d7e922eb341bf4f7309c71dc89481fd14",
+      "sha256": "cd73867ce81455235620bd5d12c72592e27e69810792142c040a3be9ac6a6667",
       "replaces": {
-        "rev": "2c48193",
-        "sha256": "76bf565fca5d31c7fdfe85c6c28978f38dd328f817b4c63c60dbe56b9ef21a22",
-        "mean": 70.01
+        "rev": "82e43cc",
+        "sha256": "a7c46927786191695ba6b801da5fa91d7e922eb341bf4f7309c71dc89481fd14",
+        "mean": 70.0066
       },
       "canvas": "1440x763",
       "origin": "https",
@@ -345,10 +375,10 @@
       "seed": "60",
       "level": 3,
       "layout": 3610925125,
-      "build": "a32a8a6",
-      "at": "2026-11-21",
+      "build": "b7a40d6",
+      "at": "2026-11-22",
       "sampleRate": 44100,
-      "note": "RE-TAKEN from the DEPLOYED page for #882 at build a32a8a6. The previous pass bound cc0a3e3; since then #886 (a1c152d) gave a slab's underside its own sheet - the joist is baked into CEILS.SOFFIT and fetched through the mip chain instead of being raised per pixel off the ceiling's tile, so the relief is filtered by the chain at the distance a second storey is actually looked up at. That moved two of the four blobs that draw a frame, js/40_render.js and js/10_assets.js, between cc0a3e3 and this checkout, so recap labelled the cc0a3e3 rows FRAME-STALE and the front page was describing a picture that no longer ships. Earlier causes are NOT restated as this pass's: #879's shadow band, #880's joist pitch and #19's sheet re-key are already inside the bytes this frame replaces, so they account for none of the movement here. This pass is the same eight poses re-run against the deploy, which serves main's bytes: index.html and all eleven js/ blobs served by that URL sha256-match this checkout, twelve for twelve, proved before the shutter. Route: `node tools/livecap.js frames --url <deployed ?dev=1&seed=60&boot=0> --vp 1440x763`, one page load and one boot per pose, DEV.freeze(true), DEV.set(\"grain\",0), DEV.clear() before the pose, shutter from the canvas after DEV.tick; the pose table is checked into tools/livecap.js (FRAMES) and --vp pins the display surface to the 1440x763 every frame in docs/screens carries. Chromium gave RGBA; committed through tools/png_rgb.js. Every seat, layout and audio term below was read back out of the page that drew the frame, and every mean re-measured from these bytes with tools/recap.js's own decoder. Pose: the authored level's own spawn seat, read back at (1.50, 2.50) heading 0.8761. Frame mean 70.01, which is +0.00 on the frame it replaces, and 1.55% of its pixels (16,998 of 1,098,720) differ from those bytes by the kept-pixel rule (summed |dRGB| over 18, counted over the whole 1440x763 frame, which is the rule tools/livecap.js states); they fall 3,600 in the top third, 12,967 in the middle and 431 in the bottom, over rows 0-756 and columns 240-1437. Band means 59.3 / 80.0 / 70.7. Dark census: 0 rows under 24 and none under 34; the frame it replaces reads 0 and 0. Layout signature 3610925125 under seed 60 on this instrument - identical to the row this frame replaces, so this is a picture change and not a re-deal. Audio term: SND.ac.sampleRate read 44100 in the page that drew this frame, the same instrument term those rows state (#404).",
+      "note": "RE-TAKEN from the DEPLOYED page for #895 at build b7a40d6, which re-keys the eight rows that bound aa872f9. One of the four blobs the bind hashes moved while the last pass sat in review: #903 (1f6f9ab, merged at b7a40d6) made a face a nearer face owns continue the march instead of ending it, in js/40_render.js. Unlike the previous re-key this one is a picture change, not only a byte change: three of the eight frames show a wall that the march used to stop at. The other five came back with no world pixel moved - #893's jump predicate and #894's airborne eye still draw nothing in a still - and the three dealt layout signatures are the ones the replaced rows already named (4083630493 / 3610925125 / 2343219222), so the rooms are the same rooms. Route: `node tools/livecap.js frames --url <deployed ?dev=1&seed=60&boot=0> --vp 1440x763`, one page load and one boot per pose, DEV.freeze(true), DEV.set(\"grain\",0), DEV.clear() before the pose, shutter from the canvas after DEV.tick; the pose table is checked into tools/livecap.js (FRAMES). The four blobs that draw a frame - index.html, js/10_assets.js, js/20_level.js, js/40_render.js - were sha256-compared against the deployed page before the shutter, four for four. Chromium handed back RGBA and each frame was re-encoded to colour type 2 through tools/png_rgb.js (rgb-diff 0, alpha min 255). The layout signature was read off the page that drew the frame; the audio term was NOT readable in this pass's headless loads (no output device, so SND.init's AudioContext constructor returns without setting SND.ac and js/50_ui_input.js never reaches a sample rate). It is therefore carried from the row this one supersedes and stated as carried, and the control for it is #404's own rule read the other way: that term changes how many draws precede generation, and all three signatures came back identical to the replaced rows' at the same seed, so the instrument that dealt these rooms is the one those rows name. Replaces the frame the deployed front page carries (82e43cc); the delta every caption quotes is measured against those bytes.",
       "staleByBuild": null
     }
   ]
