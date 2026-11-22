@@ -267,6 +267,9 @@
     if (name === 'farvoid') { FARVOID = value === undefined ? 1 : (value ? 1 : 0); return { farvoid: FARVOID }; }
     /* #616: the far void's surface. 0 = the flat air slab past the radius, as it shipped. */
     if (name === 'farcross') { FARCROSS = value === undefined ? 1 : (value ? 1 : 0); xCSer = -1; return { farcross: FARCROSS, far: GQ ? GQ.far : FARB }; }
+    /* #616: the distance a void ray flew, on the crossing's structure. 0 = the fetch fogged by `1-fogAt`
+       alone, which is the saturated answer the band shipped with. */
+    if (name === 'fardist') { FARDST = value === undefined ? 1 : (value ? 1 : 0); return { fardist: FARDST, far: GQ ? GQ.far : FARB }; }
     if (name === 'gndtex') { GNDTX = value === undefined ? 1 : (value ? 1 : 0); return { gndtex: GNDTX, blend: FARBLEND, far: GQ.far }; }
     if (name === 'gndoff') { GNDOF = value === undefined ? 1 : (value ? 1 : 0); return { gndoff: GNDOF }; }
     if (name === 'gndbil') { GNDNB = value === undefined ? 1 : (value ? 1 : 0); return { gndbil: GNDNB }; }
@@ -290,6 +293,14 @@
        issue's own cross-process wobble, so it is an arm and not a fix (js/40_render.js, take eighteen).
        `mip`'s magnified-share row is the A/B and renders BOTH senses in one process. */
     if (name === 'gndmag') { CGWN = value === undefined ? 1 : (value ? 1 : 0); return { gndmag: CGWN }; }
+    /* #19 take twenty's A/B. 1 = the share of a minified pixel's strip that the walk's own taps do not
+       stand for goes to the material's mean instead of being left on them; 0 (shipped) = main, because
+       measured, the gate never opens - see js/40_render.js. A value above 1 scales the share. */
+    if (name === 'gndmean') { GNDMM = value === undefined || value > 0 ? 1 : 0; if (value > 1) GNDMMS = value; return { gndmean: GNDMM, gndmeans: GNDMMS }; }
+    /* #353's `slabgrain` A/B is GONE with the term it switched: the soffit's joist is baked into
+       CEILS.SOFFIT now (js/10_assets.js, and the note at SLABUND in js/40_render.js), so a switch here
+       would gate a term that is no longer in the build and hand a probe a green row that cannot fail. The
+       live A/B for this plane is `DEV.set('slabund', 0)`. */
     /* #407's A/B. 1 (shipped) = a body or prop takes MAP.light WHOLE at its own cell, exactly as a wall
        column and a ground pixel do; 0 = the pre-#407 second falloff (lm * exp(-distance * 0.14)) is back
        in BOTH copies - the mesh triangle shading and the billboard. One register, two read sites, so it

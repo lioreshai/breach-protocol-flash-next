@@ -1,0 +1,7 @@
+# BROKEN: a job with neither runs-on: nor uses: - the runner would never start it.
+name: fixtures
+on: push
+jobs:
+  build:
+    steps:
+      - run: echo hi

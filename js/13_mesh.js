@@ -298,6 +298,25 @@ const MESH = (function () {
      recorded torso gradient still reads 2.52 / 2.17 / 2.52; everything that moves is a body far enough
      to have had no surface at all. */
   const TS_CYC = 10, TS_MINP = 3.5, TS_LMAX = 2, TS_SLOPE = 9, TS_MAX = 26, TS_BMIN = 0.45, TS_NSLOPE = 0.65;
+  /* #727 THE CEILING WAS THE CLIFF ON THE NEAR SIDE. TS_MAX 26 is the combat-range amplitude the law
+     saturates at (slope 9 reaches it at TPR 11.6 px, ~25 m out), and it stays the ceiling all the way to
+     the eye - so the ONE thing this file says stays constant, luma per screen pixel, is the one thing
+     that falls: a brute's seam projects 49.7 px at the `scene 2 0` seat and ~190 px at 2 m, and 26 luma
+     spread over 190 px is 0.27 luma per pixel against the 2.09 the same wave delivers at 6 m. The chest
+     is not painted one value - the pinned 2 m seat reads 53 -> 87 across 241 columns - it is turning
+     1.6x where the acceptance needs 2x, and it is the CAP doing it, not a fade (#760: the TS_MINP /
+     TS_LMAX taper is far away at both ranges).
+       So past a projected-period gate the seam keeps the law instead of the ceiling: the amplitude that
+     holds luma-per-pixel at the value the wave already delivers at combat range, `2 * TS_MAX * 2 / TPR`
+     held constant, is `TS_MAX * TPR / TS_PPX` with TS_PPX the 49.7 px of the recorded seat. That is
+     #416 read on its near side - #416 stepped the pattern COARSER where it projected under TS_MINP; this
+     lets the SAME pattern deepen where it projects over TS_NGATE, and the #533 byte clip in `tri` is
+     what stops it, per triangle and per channel, wherever the armour is too dark or too bright to carry
+     it, which is what keeps the wave zero-mean and the mean where #407 charges it. Props and the rig
+     never enter this branch. TS_NGATE 90 px is beyond every recorded frame (the ABATOIR seat is 49.7,
+     and #769 measured every recorded frame at 7 m or further, i.e. TPR 50 or under), so every byte in
+     `tools/refs.lock` stays what it is and only a body the player has closed to arm's length changes. */
+  const TS_NGATE = 90, TS_NMAX = 96, TS_NPPX = 49.7;
   /* #727 THE FLOOR HAD NO SLOPE, AND UP CLOSE THAT MADE IT THE WHOLE TERM. TS_BMIN is the amplitude a
      face SQUARE to the eye keeps when the grazing band gives it nothing, and it is a CONSTANT - so the
      luma-per-pixel a chest delivers falls off with range exactly as fast as the face gets bigger, which
@@ -396,8 +415,33 @@ const MESH = (function () {
      NO wave at all rather than an oversampled one - the same rule `af` already applies to a tube's axis.
      A part that snaps to zero on all three axes has all-zero coords and takes the existing flat branch,
      which is why the hands, the sleeve and the muzzle flash stay exactly as they are. */
+  /* #824 THE PERIOD IS THE PART, NOT THE SEAM PITCH. The line above put as many 10 mm seams across a
+     part as the part could hold, so at the rig's own seat (a ~0.245 m anchor, WS_CYC 100) every face
+     carried a ~14 px triangle: a face could differ from its neighbour and still be FLAT ACROSS itself,
+     which is what `node tools/view.js viewmodel`'s rig-mask scan reports as a fan of slabs (at
+     `491b829`, 16.6 steps a row against 14.4 monotone runs a row over 10,504 rig px, mask 3911117e -
+     every luminance step landing on a part boundary and none travelling inside a surface).
+     One period of the SAME triangle wave across a part's own mass is the same term read at the period
+     the eye can resolve: the ramp rises over the half of the part facing the key and falls over the
+     half facing away, so luminance travels INSIDE a surface instead of only at its ends. #562 already
+     chose exactly this for the fists - VS_CYC 4, one 0.25 m period across a 0.09 m fist - and the note
+     there says why the gun's metal was kept off it: a 10 mm seam projects to ~20 px and reads as
+     checkering on a barrel. Both readings are wanted and both survive: the tube's RING count still
+     comes off WS_CYC, so the machined rings stay on top of the ramp (#587 take four), and only the
+     AXIAL period changes.
+       What is NOT changed, and why the mean cannot move: the amplitude law, its ceiling and the byte
+     clip all still read TPR, the projected period of a WS_CYC seam (js/13_mesh.js:2181), so the swing
+     across a face stays the shipped WS_MAX 12 luma and is NOT the far larger amplitude a part-scale
+     period would otherwise earn - this is a redistribution of light the part already receives, never a
+     brightening. Zero-mean is held the way #533 requires: each axis now spans exactly ONE period, so
+     the wave is paired about the part's own centre on every axis and on every face, and the coarsening
+     that #416 applies past TS_MINP halves one whole period, which the rig never reaches at its own
+     anchor distance (~0.19-0.25 m, so TPR ~22 px against the TS_MINP 3.5 gate). The build-time floor
+     is UNCHANGED - a part whose span is under 1.5 seam periods still gets no wave at all, which is why
+     the hands, the sleeve, the muzzle flash and the sight ears leave this term exactly as they are.
+     `wg` is set only by the weapon builders, so no body, prop, hand or sleeve vertex changes coordinate. */
   const WS_CYC = 100, WS_SLOPE = 4.0, WS_MAX = 12;
-  const wSnap = h => { const per = 2 * h * WS_CYC; return per < 1.5 ? 0 : 2 * Math.round(per / 2) / per; };
+  const wSnap = h => { const per = 2 * h * WS_CYC; return per < 1.5 ? 0 : 1 / per; };
   /* PS_CYC is 1/0.12 seams per authored unit, and the number is chosen, not tuned: a crate face is
      0.72 authored units wide (PROPGEO.crate half extents 0.36), and 0.72 * 25/3 = 6 SEAMS EXACTLY.
      That is what makes the wave's mean exactly 0 on every face instead of nearly 0. The wave is
@@ -940,6 +984,30 @@ const MESH = (function () {
      issue never asks for its jambs to carry a lit side. */
   const PROPKIND = { barrel: 1, crate: 1, lamp: 1 };
 
+  /* #862 THE PICKUPS, WHICH WERE ANSWERING NEITHER LIGHT LAW. PROPGEO holds two classes and PROPKIND
+     names one of them, so `pr` was false for a pickup and it fell through BOTH of the levers the scenery
+     work wrote: the visibility fill (#371 took `PROP_FILL` back for props and pickups kept the body's
+     0.30) and the face ramp (#371's form term `aw` is gated on `pr`, so a pickup landed on the 0.75/0.42
+     pair whose own note above says it was authored for the ORB and the PORTAL - self-luminous sprites -
+     and runs 0.75..1.17 about a mean of 0.96, i.e. flat). Measured on the deployed build at the RING
+     TRANSPORT arrival seat: the kit's own region 142.23 mean against a deck band of 63.34 and a frame of
+     56.23, so the object the player walks over was the loudest thing in the room. And its shell is
+     authored at [228,234,242] (luma 233) which, through the 1.35 billboard lift PROPBAND applies to
+     everything else in this table, was CLIPPED to [255,255,255] before any light touched it - a white
+     card that no lamp can answer. One room, two laws: a crate in the same cell pays 0 fill and a ranked
+     0.78 albedo.
+     So the pickup kinds join ONE predicate with the props, `PROPLIT` below, and that predicate is what
+     the fill, the rank, the form term and the clip read. It is not a pickup-only exception in the light
+     line and it is not a second light: `PROPLIT` is PROPKIND plus the four rows here, and the two classes
+     keep their OWN rank table (a pickup is readability and is not pushed down to the crate's 0.78), which
+     is the same "one law, per-kind constants" shape as PROPBAND/PROP_DMEAN_K above. The orb and the portal
+     are in neither table, so the 0.75/0.42 self-luminous arm keeps exactly the two objects it was authored
+     for. */
+  const PICKUPKIND = { pickupHealth: 1, pickupAmmo: 1, pickupArmor: 1, pickupGren: 1 };
+  /* THE ONE PREDICATE: a PROPGEO object that is lit by the room rather than painted through it. Props
+     answer it with their own table, pickups with theirs, and the orb/portal answer it not at all. */
+  const PROPLIT = Object.assign({}, PROPKIND, PICKUPKIND);
+
   /* ---- the weapon in the player's hands (#...) ---------------------------------
      The three view models were 2-D canvas path art in js/40_render.js. They are geometry here, on the
      same Builder the bodies and props use, so their pixels come out of the same perspective projection
@@ -1140,6 +1208,35 @@ const MESH = (function () {
      A deeper or nearer fist was tried and is the wrong dial (perspective spreads it outside the part's own
      silhouette; 20-40 mm of depth away erases the pump and magazine pixels `rounds` prices), which is why
      only x and y move here. */
+  /* #780 THE HIP FINGER DETAIL'S OWN GAIN, and like `VMHSIZE` it is hip-only: `vHand` multiplies EVERY term
+     of the finger row by `VMFING * (1 - ads)`, so at `ads = 1` the row collapses to a point inside the fist
+     and is not emitted at all - the sight picture builds the bytes `sight` and `flatparity` record. */
+  const VMFING = 1.0;
+  /* #780 how much of the fist tube's own radius the HIP gives up. The tube is what covers the part: at
+     hip its radius is thinned by this fraction, which is the other half of why the row below can reveal
+     anything - a gap between fingers only shows a part if the slab behind the fingers has stopped covering
+     it. 0.24 of 18.5 mm is 4.4 mm, about the thickness of the pump tube's own wall plus the fist's wrap. */
+  /* Per kind, like VMHSIZE: no fallback. THE PISTOL IS THINNED LEAST, and the row's own numbers say why:
+     `rounds` there went 13 -> 9 px across this increment while the shotgun's went 812 -> 918. The pistol's
+     round part is the grip BOX the hand wraps from the side - it sits UNDER the box that carries it, not
+     behind the hand - so opening the fist wide over it trades grip pixels for finger pixels instead of
+     revealing anything; the bar on that weapon is a placement problem (#780's other lever, a round part
+     nearer the eye than the box carrying it), not a thinner slab. The shotgun has 40 mm of pump behind
+     the row, which is why the same 0.40 there is what makes the gaps read. */
+  const VMFIST = { pistol: 0.14, shotgun: 0.40, rifle: 0.40 };
+  /* #780 THE CARRIED ROUND PART COMES Nearer THE EYE AT HIP, and this is the OTHER lever the row names.
+     `rounds` prices how many of a gun's own tube pixels reach the screen, and with every hand prism deleted
+     at the setter it reads 185 / 1171 / 188 px - so on two of the three weapons the hand is NOT what hides
+     the part, the gun's own housing is: a tube slung under or ahead of the box that carries it is behind
+     that box at the hip's own yaw, and perspective shrinks it further before it gets there. The only
+     placement that reveals it is one set NEARER the lens than the box carrying it (#587 measured that
+     shape at ~945 px on a pistol). The term below is that placement, expressed in the gun's own metres
+     along its bore, and it is HIP-ONLY: multiplied by (1 - ads) so at `ads = 1` it is exactly zero and the
+     sight picture builds the bytes `sight` and `flatparity` record. It moves the part AND the hand gripping
+     it by the same number, from the same constant, at both the vArm and the vHand call site - a pump that
+     slid rearward while its fist stayed put would be a pump off the hand, and #741's placement rows are
+     the census that would notice. Per kind, like `VMGRIP`: no fallback. */
+  const VMROUND = { pistol: 0, shotgun: 0.006, rifle: 0 };
   const VMGRIP = {
     pistol:  [[-0.023, 0.008, 0], [0.019, 0.040, -0.018]],
     shotgun: [[-0.040, 0.020, 0], [0.020, 0.016, -0.010]],
@@ -1177,10 +1274,25 @@ const MESH = (function () {
     // each other have one silhouette and it is a rectangle, which is the reading the issue is about. A
     // cone reads as a wrapped mass, its silhouette is a trapezoid with rounded sides, and its far end is
     // narrower than its near end, which is what a hand curled round a grip looks like from behind.
+    const fing = (1 - clamp(st && st.ads ? st.ads : 0, 0, 1)) * VMFING;
+    const fth = 1 - (VMFIST[b.kind] || 0) * fing;                     // exactly 1.0 at ads = 1: the slab stops being a slab
     b.tube(x - w * 0.002 * s, y - 0.026 * s, z, x + w * 0.001 * s, y + 0.022 * s, z - 0.004 * s,
-      0.0145 * s, 0.0185 * s, VW.skin);              // the fist itself, knuckle end widest
+      0.0145 * s * fth, 0.0185 * s * fth, VW.skin);  // the fist itself, knuckle end widest
     b.box(x + w * 0.004 * s, y + 0.028 * s, z - 0.024 * s, 0.015 * s, 0.005 * s, 0.017 * s, VW.skinD);
-    /* #562 TAKE TWO: the BACK OF THE HAND is a tube, not a plate. The plate was 13 mm thick and 48 mm
+    /* #780 TAKE THREE, on top of #562's tube: the back of the hand stops being the WIDEST thing in the fist.
+       Its outer surface sat 0.017 + 0.0125 = 0.0295 m off the hand's axis while the finger row stands at
+       0.0205 + 0.0038 = 0.0243, so ONE smooth barrel projected in front of every mass that was supposed to
+       read as a finger - the "flat plate pressed against the pump" of the issue's title, at one depth and
+       with one silhouette. At hip the barrel comes in to 0.0145 + 0.01125 = 0.02575 and the knuckle heads
+       below take the widest line at 0.0245 + 0.0048 = 0.0293: the widest thing about a fist seen from behind
+       is four knuckles, not a cylinder. Both factors are multiplied by `fing`, so at `ads = 1` this emits
+         main's own centre and radii and the sight picture builds the bytes `sight` and `flatparity` record.
+       WHAT IT MEASURES, `node tools/view.js viewmodel` at raster 601x338: the rig mask's own luminance
+       structure goes from 7.5 steps >= 4 luma per row to 8.4, and the mean monotone run from 11.4 px to 10.6,
+       which is the flat plate breaking into masses; `rounds` comes back 15 / 999 / 188 px, UNCHANGED, so the
+       knuckle row neither reveals nor covers a round part - the two debts it still prints are the gun's own
+       housings, exactly as the ceiling row at the head of this file records them.
+       #562 TAKE TWO: the BACK OF THE HAND is a tube, not a plate. The plate was 13 mm thick and 48 mm
        square - a flat, right-angled face straight at the lens, ~200 px of it in the corner of every
        frame, and a flat face at one depth is exactly the reading the issue is about: at the same light it
        is indistinguishable from the side of a crate. A tapered tube across the same span keeps the hand's
@@ -1189,8 +1301,74 @@ const MESH = (function () {
        mm of silhouette against 48 x 48) because #562's acceptance says frame cost must not rise: the rig is
        already inside the raster budget, so a silhouette change has to be bought with pixels, not added to
        them. */
-    b.tube(x - w * 0.017 * s, y - 0.018 * s, z - 0.001 * s, x - w * 0.017 * s, y + 0.015 * s, z - 0.004 * s,
-      0.0105 * s, 0.0125 * s, VW.skin);              // the back of the hand, wrist end narrowest
+    b.tube(x - w * s * (0.017 - 0.0025 * fing), y - 0.018 * s, z - 0.001 * s, x - w * s * (0.017 - 0.0025 * fing), y + 0.015 * s, z - 0.004 * s,
+      0.0105 * s * (1 - 0.10 * fing), 0.0125 * s * (1 - 0.10 * fing), VW.skin);   // the back of the hand, wrist end narrowest
+    /* #780 THE KNUCKLE ROW: four heads on the eye side of that barrel, at the SAME pitch as the fingers they
+       belong to, so knuckles and fingers are one row of masses and not two. They are the point of the change:
+       a knuckle is where the hand stops being one surface and starts being four, and it is the only place on
+       the back of the hand where the part behind it shows through. 9.6 mm of head against a 12.8 mm pitch
+       leaves a 3.2 mm gap - about 4.5 device px at the hip's own 5.7 mm / 8 px - so the four heads read as
+       separate masses under one light instead of as one edge with lines painted on it. Hip-only by `fs`:
+       at `ads = 1` the whole row is not emitted, so the sight picture is the recorded one by construction. */
+    /* #780 THE FINGER ROW, and it is the hip's ONLY hand modelling. The fist above is one tapered tube and
+       the back of the hand is one more: two prisms, one silhouette, one depth across the whole mass, which is
+       the "flat plate pressed against the pump" reading the issue names - and because a prism that wide covers
+       the part it wraps, it also paints the pump / magazine / grip out (the `rounds` row printed 13 / 812 /
+       188 round-part px of a 10504 / 12496 / 14703 px hip frame against an 8 % bar, i.e. the thing being held
+       is largely NOT drawn at the pose the game is in almost all the time).
+       What is added is four short prisms ACROSS the part, one per finger, at a pitch wider than their own
+       diameter, so the part shows BETWEEN them. The row stacks along y, NOT along z: the part a fist wraps
+       (pump, magazine, grip) runs along z, which at the rig's own yaw is almost the VIEW direction, so a row
+       spaced along z overlaps itself in screen space and projects nothing - the first cut of this geometry
+       stacked along z, added 269 px of hand to the pistol and took 6 px AWAY from `rounds`, because four
+       prisms one behind another are one prism on screen. Stacked along y, with the row stood on the eye side
+       of the part, each finger is its own band of pixels and the gaps between the bands are the part.
+       Each is tapered thick at the knuckle end and thin at the tip, so the row reads as four separate masses
+       under one light rather than as one slab with lines painted on it - the crease boxes below are the
+       painted-line version of the same idea and they are kept, because a crease is what makes the gap read as
+       a gap and not as a hole in the geometry.
+       TAKE TWO: THE TIPS STOP SHORT OF THE PART, AND THAT IS BOTH ANATOMY AND THE ROW. The first cut ran
+       every finger from the knuckle to 12.5 mm ACROSS the bore axis, i.e. the tips came out on the far side of
+       the part - a fist whose fingers pass THROUGH the pump it holds, and a prism that crosses the part covers
+       the part. A real wrapped hand puts its knuckles on the near side and its tips curl around the near face;
+       the fingers do not reach the far side of a 45 mm tube from a 90 mm hand. So the tip end came back to
+       6 mm from the knuckle axis and 2 mm toward the eye, and each prism gave up a millimetre of girth. What
+         it buys, measured with `node tools/view.js viewmodel` at raster 601x338: `rounds` pistol 9 -> 15 px, shotgun
+       918 -> 965 (debt 79 -> 31), rifle 188 unchanged, and `grip` on-weapon 77.8 / 78.4 / 78.4 % against
+       79.3 / 78.3 / 78.6 before, so the fists are no less ON the weapon - they just stop painting THROUGH it.
+       FOUR dials were measured on this row and three are the wrong dial, recorded so they are not re-tried on
+       a JSDIR hunch: thinning the FIST TUBE (VMFIST to 0.30 / 0.60 / 0.55) moves `rounds` by 0 px on all three,
+       because the tube's own silhouette is not what is over the part; deleting the BACK-OF-HAND tube buys the
+       pistol 7 px and nothing elsewhere while taking 242 px of hand mass off the `grip` row; and spacing the
+       row WIDER (12.8 -> 15.8 mm pitch) LOSES pixels (918 -> 911) because the outer fingers walk off the part
+       and paint air. What the row is worth has a ceiling and it is measured too: with every hand prism deleted
+       at the setter, `rounds` reads 185 / 1171 / 188 px, so the hand hides 176 / 253 / 0 px. The RIFLE'S 0 px is
+       the row's own answer to the issue's first criterion on that weapon: its tubes are painted out by the gun's
+       own boxes, exactly as the #587 note at the top of this file records, and no hand change - none, including
+       no hands at all - can clear an 1170 px bar from a 188 px ceiling. The same is true of the pistol (ceiling
+       185 px against an 840 px bar). Those two weapons need the issue's OTHER lever, a round part nearer the eye
+       than the box carrying it; the bar is printed as debt, never widened.
+       IT IS A HIP-ONLY GEOMETRY, not a hip-only offset: `VMFING` multiplies EVERY term below, offsets and
+       extents alike, so the whole row collapses onto the fist's own axis - a point inside the fist tube - as
+       `ads` goes to 1, and at `ads` quantized to exactly 1 it is not emitted at all. The sight picture
+       therefore builds the same bytes it built before (`sight`, `flatparity` and the ADS paint counts in
+       `viewmodel` are unchanged by construction), while the hip gains the mass detail the issue asks for. The
+       collapse is what makes this safe to key: `ads` is already in `WQK` / `wKey`, so a part that changes size
+       with the ADS ramp cannot be served to the wrong pose by the geometry cache (#186's rule). */
+    if (fing > 0) {
+      const fs = fing * s;
+      for (let k = 0; k < 4; k++) {
+        const fy = (k - 1.5) * 0.0128 * fs;             // the pitch: 12.8 mm, wider than a finger
+        /* The knuckle head, on the eye side of the back-of-hand barrel and 4.6 mm proud of its old surface.
+           Same pitch as the finger it belongs to, so the four heads and the four fingers are one row of
+           masses and not two; 9.2 mm of head against a 12.8 mm pitch leaves a 3.6 mm gap between knuckles,
+           which at the hip's own ~5.7 mm / 8 px is about 5 device px of the part showing between them. */
+        b.tube(x - w * 0.0245 * fs, y + fy + 0.0035 * fs, z - 0.0225 * fs,
+          x - w * 0.0225 * fs, y + fy + 0.0030 * fs, z - 0.0155 * fs, 0.0048 * fs, 0.0042 * fs, VW.skin);
+        b.tube(x - w * 0.0205 * fs, y + fy + 0.0035 * fs, z - 0.0205 * fs,
+          x + w * 0.0060 * fs, y + fy - 0.0025 * fs, z - 0.0155 * fs, 0.0038 * fs, 0.0030 * fs, VW.skin);
+      }
+    }
     b.box(x - w * 0.025 * s, y - 0.013 * s, z, 0.0035 * s, 0.0035 * s, 0.022 * s, VW.skinD);
     b.box(x - w * 0.025 * s, y + 0.009 * s, z, 0.0035 * s, 0.0035 * s, 0.022 * s, VW.skinD);
     b.tube(x + w * 0.011 * s, y + 0.020 * s, z + 0.010 * s, x - w * 0.006 * s, y + 0.030 * s, z + 0.020 * s,
@@ -1255,8 +1433,9 @@ const MESH = (function () {
        the pump travels on the lower one, which is what `pump` does to the geometry below. */
     shotgun(b, s) {
       const MU = VMUZZLE.shotgun, pu = (s.pump || 0) * 0.034;
+      const pk = VMROUND.shotgun * (1 - clamp(s.ads || 0, 0, 1));    // 2 mm rearward at hip, exactly 0 at ADS
       vArm(b, 0.014, -0.034, 0.000, 1.02, false, s);
-      vArm(b, -0.010, -0.040, 0.266 + pu, 1.0, true, s);   // the pump hand's arm travels with the pump
+      vArm(b, -0.010, -0.040, 0.266 + pu - pk, 1.0, true, s);   // the pump hand's arm travels with the pump
       b.wg = 1;                                        // #587 the metal gets the surface; the sleeve above and the fists below do not
       b.box(0, 0.004, 0.086, 0.0215, 0.0185, 0.082, VW.steel);          // the receiver
       b.box(0, 0.0235, 0.086, 0.011, 0.0045, 0.070, VW.black);          // the top rib
@@ -1264,7 +1443,7 @@ const MESH = (function () {
       b.tube(0, 0.004, 0.164, 0, 0.004, MU, 0.0135, 0.012, VW.dark);     // the barrel
       b.tube(0, -0.024, 0.150, 0, -0.024, MU - 0.032, 0.0135, 0.0125, VW.poly); // the magazine tube
       b.box(0, 0.004, MU, 0.0155, 0.0155, 0.005, VW.black);             // the muzzle ring
-      b.tube(0, -0.024, 0.238 + pu, 0, -0.024, 0.300 + pu, 0.0225, 0.0215, VW.wood);  // the pump, travels
+      b.tube(0, -0.024, 0.238 + pu - pk, 0, -0.024, 0.300 + pu - pk, 0.0225, 0.0215, VW.wood);  // the pump, travels
       b.tube(0, -0.030, -0.004, 0, -0.086, -0.190, 0.0245, 0.0285, VW.wood2); // the stock
       b.box(0, -0.104, -0.186, 0.023, 0.011, 0.014, VW.black);          // the recoil pad
       b.tube(0, -0.020, 0.016, 0, -0.118, -0.026, 0.0205, 0.018, VW.wood2);  // the pistol grip
@@ -1275,7 +1454,7 @@ const MESH = (function () {
       }
       b.wg = 0;
       vHand(b, 0.014, -0.034, 0.000, 1.02, false, s);
-      vHand(b, -0.010, -0.040, 0.266 + pu, 1.0, true, s);
+      vHand(b, -0.010, -0.040, 0.266 + pu - pk, 1.0, true, s);
       if (s.mz > 0.004) vFlash(b, s.mz, MU);
       return b;
     },
@@ -1470,12 +1649,21 @@ const MESH = (function () {
     b.tube(0, shTop - JOIN, 0, 0, nkY + JOIN, 0, neckR(s), neckR(s) * (NECK_R1 / NECK_R0), dk);
     b.box(0, hdY, 0, s.headR * HEAD_HW, s.headR * HEAD_HH, s.headR * 0.80, dk);
     b.box(0, hdY + s.headR * VISOR_DY, s.headR * 0.72, s.headR * 0.62, s.headR * 0.30, s.headR * 0.22, [255, 208, 138]);
+    /* #847 THE ARM WAS THE TORSO'S OWN COLOUR, AND AT 2 m IT STOPPED BEING AN ARM. Both arm tubes were
+       authored in `sk`, the same albedo as the torso box they hang beside, so the only thing telling an
+       arm from a chest was the per-face light ramp on a 4-6 cm tube - at 2 m that is a few pixels of
+       shading between two identical values, and the frame delivered one mass. The forearm now wears the
+       suit (`cl`, the value the legs already wear) and the arm ENDS in a fist, so each arm has a value of
+       its own and an end the eye can find. The fist is `dk`: a hand is a hard knuckle mass, not another
+       sleeve, and this is the part the held weapon sits IN (see the gun block). */
     for (let i = 0; i < 2; i++) {
       const A = q.arm[i], ax = (i ? 1 : -1) * s.shLat;
       b.ns = seg;                                      // #78: the limbs are where 6 sides show
       b.tube(ax, shY, 0, A.ex, A.ey, A.ez, s.arm, s.arm * 0.86, sk);
-      b.tube(A.ex, A.ey, A.ez, A.hx, A.hy, A.hz, s.arm * 0.86, s.arm * 0.7, sk);
+      b.tube(A.ex, A.ey, A.ez, A.hx, A.hy, A.hz, s.arm * 0.86, s.arm * 0.7, cl);
       b.ns = 0;
+      b.box(A.hx, A.hy - s.arm * 0.30, A.hz + s.arm * 0.45,
+        s.arm * 1.20, s.arm * 0.95, s.arm * 1.30, dk);  // the fist, hung off the wrist the tube ends at
     }
     /* #78: a held object. An enemy that goes through the whole attack bucket with nothing in its hands
        reads as a mannequin, and the wind-up had no object to move. The weapon is placed AT the right
@@ -1498,8 +1686,18 @@ const MESH = (function () {
          against 0.10 half-width) so the silhouette gains an edge on BOTH sides, in plan view as well as
          in profile. The arm's elevation still rides on it, but as a small term: the hand is where the
          animation puts it, and the muzzle pitch must not swallow the cant. */
+      /* #847 THE CANT WAS THE PLANK. `0.78 across, 0.55 forward, level` is, projected head-on, a BAR: the
+         screen-space length is `1.3 * gl * gx/|g|` - 0.41 of a body height for a brute, against a chest
+         0.32 wide - and with gy near zero every pixel of it sits on ONE screen row. That is the whole
+         defect: a horizontal band wider than the torso, in the darkest value on the body, at the height
+         where both arms also are. A held object needs screen-space extent at every yaw (that is why the
+         cant exists), but it does not need to be LEVEL, and extent along a DIAGONAL reads as an object
+         instead of scenery. The cant is therefore turned over: 0.52 across, 0.74 forward, and a 20 deg
+         downward lay, so the same length lands as a ~30 deg diagonal from the right shoulder line down to
+         the left hip and no longer stands out past the silhouette on both sides. The arm's elevation term
+         is kept (it is what makes the muzzle swing with the wind-up) and re-based on the new lay. */
       const el = Math.max(-1, Math.min(1, (A.hy - A.ey) / s.fore));
-      let gy = -0.06 + 0.22 * (el + 1), gx = 0.78, gz = 0.55;
+      let gy = -0.30 + 0.26 * (el + 1), gx = 0.52, gz = 0.74;
       /* A corpse must not be able to hold its own top edge up. `anim`'s topple rows found this at once:
          silhouette top moved 8 px of a 272 px body where main moves it 88..91, and the row wants 15% of
          the body's rise - so the corpse stopped reading as collapsed even though 89% of its pixels moved.
@@ -1516,10 +1714,18 @@ const MESH = (function () {
       const gL = Math.hypot(gx, gy, gz) || 1e-6; gx /= gL; gy /= gL; gz /= gL;
       const hx = A.hx, hy = A.hy, hz = A.hz;
       b.ns = 4;
+      /* #847 THE PARTS WERE AUTHORED AS ONE VALUE. The stock and the magazine carry `dk`, and the brute's
+         DARK is [36,26,44] against a GUNM of [30,34,42] - nine luma apart, and the same hue family - so
+         three of the four parts shared a value and the fourth was two steps lighter. Four parts painted
+         one number is one quad, which is exactly what the issue describes. The metal is now ordered by
+         what each part IS: the thick receiver is the LIGHTER gunmetal (a machined block catches light),
+         the thin barrel is the DARK one (a shadowed bore), the stock and magazine stay the body's dark so
+         the wood-and-polymer end reads against the metal. No new value is introduced and no part gets
+         brighter than armour: this re-orders the two that already exist. */
       b.tube(hx - gx * gl * 0.30, hy - gy * gl * 0.30, hz - gz * gl * 0.30, hx, hy, hz, cal * 1.15, cal * 0.95, dk);
-      b.tube(hx, hy, hz, hx + gx * gl * 0.62, hy + gy * gl * 0.62, hz + gz * gl * 0.62, cal, cal * 0.92, GUNM);
+      b.tube(hx, hy, hz, hx + gx * gl * 0.62, hy + gy * gl * 0.62, hz + gz * gl * 0.62, cal, cal * 0.92, GUNM2);
       b.tube(hx + gx * gl * 0.62, hy + gy * gl * 0.62, hz + gz * gl * 0.62,
-        hx + gx * gl, hy + gy * gl, hz + gz * gl, cal * 0.60, cal * 0.48, GUNM2);   // barrel: the longest edge
+        hx + gx * gl, hy + gy * gl, hz + gz * gl, cal * 0.60, cal * 0.48, GUNM);   // barrel: the longest edge
       b.box(hx + gx * gl * 0.30, hy + gy * gl * 0.30 - s.gun.mag * 0.55, hz + gz * gl * 0.30,
         cal * 0.8, s.gun.mag * 0.5, cal * 0.8, dk);    // magazine, hung under the receiver
       b.ns = 0;
@@ -1621,8 +1827,27 @@ const MESH = (function () {
        barrel keeps #371's value untouched, and the lamp keeps its own for the reasons above. Nothing in the
        figure-ground step moves: this takes a prop DOWN, and `contrast`'s body-separation rows are the check
        that no body paid for it. */
-    const PROP_ALB = 0.88, PROP_ALB_LAMP = 0.80, PROP_ALB_CRATE = 0.78;
-    const PROPBAND = { crate: PROP_ALB_CRATE, barrel: PROP_ALB, lamp: PROP_ALB_LAMP };
+    /* #862: the pickup rows. The shells were authored as BILLBOARD paint and then handed the same 1.35
+       lift, so every one of them arrived at the raster clipped: `228 * 1.35 + 6 = 313 -> 255`, a white
+       square whose face cannot answer a lamp because the channel is already pinned (#371 found exactly
+       this on the crate and folded the product; the pickups were never ranked, only clipped). The rank
+       below is the one that takes the LOUDEST shell - health's near-white [228,234,242] - back off the
+       clip, and it is the number the table holds for all four kinds because the four shells were authored
+       at the same intent ("a tin you can find across a room") and only the health case was measured.
+       It is the CRATE's row: the rank is an albedo MULTIPLIER, not a brightness, so sharing it does not
+       make a kit read as a crate - in one harness frame at the same 2.9 m seat the near-white shell lands at
+       own mean 61.8 against the crate's own 16.9 and the barrel's 19.4, i.e. the kit is still the brightest
+       prop in the room, about at the brightness of the deck band it stands on (63.3, measured on the
+       deployed arrival frame) instead of 129.4 clipped. MEASURED, not derived: an earlier value of 0.62 on
+       this branch came out of the clip arithmetic and its comment claimed a value "above" 0.78 while
+       holding one BELOW it - a lower multiplier is darker - and it put the lit kit at own mean 48.3, a dim
+       rather than a relight (#862's "not a dim and flatten"). A rank sweep in this harness is
+       0.62 -> 48.3, 0.76 -> 60.1, 0.78 -> 61.8 own mean lit, and the clip ceiling on the loudest shell is
+       249 / (228 * 1.35) = 0.809, so 0.78 is the crate's own row, one step under the clip. */
+    const PROP_ALB = 0.88, PROP_ALB_LAMP = 0.80, PROP_ALB_CRATE = 0.78, PROP_ALB_PICK = PROP_ALB_CRATE;
+    const PROPBAND = { crate: PROP_ALB_CRATE, barrel: PROP_ALB, lamp: PROP_ALB_LAMP,
+      pickupHealth: PROP_ALB_PICK, pickupAmmo: PROP_ALB_PICK, pickupArmor: PROP_ALB_PICK,
+      pickupGren: PROP_ALB_PICK };
     const band = PROPBAND[kind];
     for (let i = 3, v = 0; i < b.p.length; i += 6, v++) {
       const k = band && !b.e[v] ? band : 1;         // emissive vertices keep their authored bytes
@@ -1829,6 +2054,14 @@ const MESH = (function () {
      it measures because a footprint guessed in the caller is a second source of truth that drifts
      the day the art changes; `MESH.foot` is the only reader (#212). */
   const FOOT = { barrel: 0.255, crate: 0.375, lamp: 0.17 };
+  /* #833: the SAME kind table read upward — the TOP each prop's authored geometry reaches, in the same
+     NORMALISED units, so `MESH.top(kind) * scale` is the altitude a prop is actually drawn to. Read off
+     the builders above: the barrel's lid tube and bung reach 0.97 (`b.tube(.. 0.97 ..)`, `b.box(0,0.95,..)`
+     +0.02), the crate's lid box reaches 0.875 (`b.box(0, 0.85, 0, .375, .025, .375)`), the lamp's shade
+     tube tops at 0.84. A height guessed in a caller is the same second source of truth #212 retired for
+     the footprint, and #833 is that disagreement reached for altitude: the shot path used `p.scale` (0.86
+     for a barrel, 0.72 for a crate) as its z ceiling, which is neither the drawn top nor a shared number. */
+  const TOP = { barrel: 0.97, crate: 0.875, lamp: 0.84 };
 
   function draw(o) {
     /* A view model brings its own vertex set (`mdl`): its parts travel continuously - ejector, pump,
@@ -1904,6 +2137,11 @@ const MESH = (function () {
        game at any yaw. That is the 18-luminance crate. */
     const pg = !MDL && PROPGEO[o.kind] !== undefined;
     const pr = pg && PROPKIND[o.kind] === 1;         // a prop, not merely something built by PROPGEO
+    /* #862: the LIGHT predicate. `pr` above stays the PROP predicate - it is what the seam law, the pool
+       lift and the generator's rank read, and a pickup has none of those. This one reads the four terms
+       the room pays: the fill, the face ramp, the clip and nothing else. Props and pickups answer it;
+       the orb and the portal do not. */
+    const pl = pg && PROPLIT[o.kind] === 1;
     R0 = MDL ? 0.55 : (pg ? 0.75 : 0.30);
     R1 = MDL ? 0.55 : (pg ? 0.42 : 0.85);
     /* #371: the prop form term's own two constants, and the ONLY knobs a prop's face value answers to -
@@ -1938,6 +2176,33 @@ const MESH = (function () {
        what is owed; the absolute is what the mean-hold control pins. A barrel keeps its lit side and its
        shaded side by construction: this moves the term's average, not PROP_R1's slope. */
     const PROP_DMEAN_K = { barrel: 0.5139 };
+    /* #695 THE FLOOR UNDER A PROP, and it is keyed on the deck, not on the prop.
+       The ceiling half of the prop value band ships (PROPBAND above, the rank the generator pays in
+       js/20_level.js); the census that prices it - `view.js surface`'s PROP-SECTOR row - now reports
+       BOTH tails per prop, and the tail that is full is the UNDER one: props sitting a whole 25-luma
+       band BELOW the deck inside their own footprint (4 / 9 / 5 / 10 of the charged props at the dealt
+       seats, medians -13.5 / -34.6 / -9.1 / -70.7). A prop that far under its own floor is not quiet, it
+       is a hole in that floor.
+       Both constant levers for this were already implemented, measured and reverted on this issue - a
+       per-kind form-term centring and a lamp-metal albedo lift - and both did the same thing: they moved
+       the props that read correctly as hard as the ones that do not, and the population that was already
+       near the bar crossed +25. What the named cases have in common is not the kind, it is the POSITION:
+       L3 `lamp@13.5,9.5` (40 against a deck of 120-123 at three seats), L1 `lamp@26.5,27.5` (35/120) and
+       L2 `lamp@5.5,4.5` (65/109) all stand IN the light they carry, and L0 `crate@20.5,3.5` (28/105 at
+       12.2 m) is read across a deck the room lights. The deck under them is the brightest floor in the
+       room because of the SAME field the prop is lit by.
+       So the lift is conditional on that field: a prop's face ramp is scaled by how far the lamp field at
+       the prop's OWN CELL stands above `PROP_POOL_REF`, the deck brightness the shipped paint is authored
+       for. Below the reference the term is exactly 1 and the prop's bytes do not move - which is the scope
+       control, and the reason this is not the third global push the issue refuses. Above it, `aw` - the
+       knob #371 established as the only thing a prop's face value answers to - is raised UNIFORMLY, so
+       the lit-to-shaded face RATIO the `props` probe's face rows read is unchanged by construction: this
+       is a scale on the prop's own paint, the same lever PROPBAND pulls, not a second light term, not a
+       lightmap, and not `FG_PUSH`, which #611 and #407 both price as buying nothing.
+       `PROP_POOL_MAX` bounds the scale, so a prop standing in a saturated pool cannot be lifted past the
+       bar the ceiling half of this band already holds; the shipped value is set at the point `view.js
+       surface` measures the under-tail down without moving any prop over +25.` */
+    const PROP_POOL_REF = 0.75, PROP_POOL_K = 1.2, PROP_POOL_MAX = 1.12;
     /* The centring a prop is actually shaded with: one lookup per DRAW, not per triangle. A kind with no
        row above keeps PROP_DMEAN, so a crate and a lamp run byte-identical arithmetic - that is the scope
        control the issue asks for, and it is structural: the only way a box reaches this table is by a row
@@ -2022,7 +2287,11 @@ const MESH = (function () {
        units of its own height and `scale` is that height in metres - so only the slope and the
        near-field ceiling differ, and what the eye holds constant across a walk past, luma per screen
        pixel, is unchanged in kind. */
-    TAMP = TPR <= TS_MINP ? 0 : Math.min(vm ? WS_MAX : pr ? PS_MAX : TS_MAX, (vm ? WS_SLOPE : pr ? PS_SLOPE : TS_SLOPE) * TPR * 0.25);
+    /* #727: bodies inside the near gate get the law, not the ceiling - see TS_NGATE. `TPR > TS_NGATE`
+       cannot be true for a prop or the rig on any recorded seat, and `pr`/`vm` are excluded anyway. */
+    const TCEIL = (vm || pr) ? (vm ? WS_MAX : PS_MAX)
+      : (TPR > TS_NGATE ? Math.min(TS_NMAX, TS_MAX * TPR / TS_NPPX) : TS_MAX);
+    TAMP = TPR <= TS_MINP ? 0 : Math.min(TCEIL, (vm ? WS_SLOPE : pr ? PS_SLOPE : TS_SLOPE) * TPR * 0.25);
     /* #727: the FACE-ON floor, on the same slope law one line above, and for bodies only. Props and the
        rig keep TS_BMIN verbatim, so their bytes cannot move; a body's floor rises with how wide its own
        seam projects, which is another way of asking how near he is. See the TS_NSLOPE note. */
@@ -2071,6 +2340,10 @@ const MESH = (function () {
        call site would have traded one defect for the dim-the-gun-when-you-aim-at-a-wall one. */
     const cc = o.cell === undefined ? cellIdx(o.x, o.y) : o.cell;
     const lt = o.near ? TINT_NEUTRAL : cellTint(cc), lm = MAP.light;
+    /* #695: the deck-relative prop floor, one read per DRAW. `lm[cc]` is the SAME field value a ground
+       pixel in that cell reads (`li = lm[cIdx]`, js/40_render.js:1037), which is what makes this a
+       comparison against the floor the prop stands on rather than a second light of its own. */
+    const poolK = pr && lm ? 1 + Math.min(PROP_POOL_MAX - 1, PROP_POOL_K * Math.max(0, lm[cc] - PROP_POOL_REF)) : 1;
     /* #611 WHERE the body's paint sits in hue, decided once per DRAW from the cast falling on it.
        A body's delivered colour is its palette x the room's lamp tint, so a fixed albedo separates in
        the rooms whose hue is far from the kind's and disappears in the ones whose hue is close - the
@@ -2221,7 +2494,7 @@ const MESH = (function () {
            BODYDIST 0 puts the second falloff back in this copy AND in the billboard copy - the A/B the
            distance rows in tools/view.js contrast are meant to be seen failing. */
         const li = Math.min(1, (lm ? lm[cc] : 0.5) * (BODYDIST ? 1 : Math.exp(-dc * 0.14)) +
-          (pr ? PROP_FILL : 0.30) * visAt(dc));
+          (pl ? PROP_FILL : 0.30) * visAt(dc));
         /* #407 half four: the haze is ADDED to a world pixel, never multiplied over its light - the row
            loop (:1349), a wall face (:2183) and a billboard (:2397) all end at `texel*light + FOGC*fog`,
            and `* inv` is left on light-EXEMPT texels only. This branch was the one place a LIT surface
@@ -2267,8 +2540,8 @@ const MESH = (function () {
            face of a solid receives it equally and an orientation term on it would darken the flank that
            geometry happens not to favour. Bodies and the view model keep the shipped line untouched -
            #407 prices the body's ramp against its own field and #376 owns the gun. */
-        const aw = pr ? 1 + PROP_R1 * (d - pdm) : 1;
-        const lw = pr ? aw : sh;
+        const aw = (pl ? 1 + PROP_R1 * (d - pdm) : 1) * poolK;
+        const lw = pl ? aw : sh;
         lr = (AMB * aw + li * lt[0] * lw + fk * (FC[0] / 255)) * hz;
         lg = (AMB * aw + li * lt[1] * lw + fk * (FC[1] / 255)) * hz;
         lb = (AMB * aw + li * lt[2] * lw + fk * (FC[2] / 255)) * hz;
@@ -2276,7 +2549,7 @@ const MESH = (function () {
         /* #371: the fold is a bound on the PRODUCT (albedo x light), not on the light, so it rides where
            the product is finished and the light-exempt branch has already been taken round. PKN is a
            module register for the same reason CR is: tri() reads registers, not the argument list. */
-        PKN = pr ? 1 : 0;
+        PKN = pl ? 1 : 0;
         if (TINT) { lr *= TINT[0]; lg *= TINT[1]; lb *= TINT[2]; }
         if (FLR > lr) lr = FLR;
         if (FLR > lg) lg = FLR;
@@ -2385,6 +2658,7 @@ const MESH = (function () {
     heldKinds: () => Object.keys(SPEC).filter(k => SPEC[k].gun),
     limbSides: () => segLimbs(),
     foot: k => FOOT[k] || 0,
+    top: k => TOP[k] || 0,          // #833: the drawn top, in the same normalised units as `foot`
     vertsFor: k => model(k || 'grunt').nV,
     /* the view model's geometry: rebuilt per frame, never cached, and the numbers the probes need */
     weapon: (k, st) => weaponGeo(k, st),

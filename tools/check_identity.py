@@ -248,6 +248,30 @@ def manifest_at_api(target, api):
         return None
 
 
+def main_names(version, api=None, cwd=None):
+    """True when `main` already carries a release.json naming `version`.
+
+    This is the question that tells a release mid-handoff from a version the asking ref invented.
+    docs/RELEASE.md step 4 cuts the tag on the MERGED release commit, and `check_changelog` lets
+    only a versioned release PR change release.json, so a manifest already carried by main with no
+    tag yet is a release somebody is still finishing rather than a debt the next ref pays. Ask
+    main, never the ref under review, and an unanswered question is False - never an exemption.
+    """
+    raw = manifest_at_api('main', api) if api is not None else None
+    if raw is None:
+        for ref in ('origin/main', 'main'):
+            code, text = git(['show', ref + ':release.json'], cwd)
+            if not code:
+                raw = text
+                break
+    if not raw:
+        return False
+    try:
+        return json.loads(raw).get('version') == version
+    except ValueError:
+        return False
+
+
 def check_release(ref='HEAD', branch='', cwd=None, api=None):
     """Check the release artifact the manifest at `ref` names. A missing tag is a NAMED
     outstanding step, never 'nothing to check'."""
@@ -298,37 +322,81 @@ def check_release(ref='HEAD', branch='', cwd=None, api=None):
     if forge_absent:
         notes.append('%s: the API holds no refs/tags/%s, so the tag is outstanding rather than '
                      'unfetched' % (version, version))
-        return release_finding(version, manifest, notes, api=api, local=False), notes
+        return release_finding(version, manifest, notes, api=api, local=False,
+                               debt=held_on_main(version, api, cwd, notes)), notes
 
     _, any_tag = git(['tag', '--list'], cwd)
     if not any_tag:
         return ['refs/tags/' + version + ' cannot be checked and no tag exists in this checkout at '
                 'all: fetch the tags before running the release-artifact check'], notes
 
-    return release_finding(version, manifest, notes, cwd=cwd, api=api), notes
+    return release_finding(version, manifest, notes, cwd=cwd, api=api,
+                           debt=held_on_main(version, api, cwd, notes)), notes
 
 
-def release_finding(version, manifest, notes, cwd=None, api=None, local=True):
+def held_on_main(version, api, cwd, notes):
+    """The named-debt sentence when the tag ref is verifiably absent AND main already carries this
+    manifest, else None so the caller keeps the outstanding-step finding.
+
+    A merged release commit cannot carry the tag docs/RELEASE.md step 4 cuts on it: the tag is cut
+    after that commit's own build goes green, so the step asks the build for a ref that only its own
+    success is allowed to create. Its `push` run reds a required row with that, permanently - a
+    re-run replays the workflow stored at the same commit and finds the same missing tag - and the
+    publish guard will not cut the tag while the row is red. v1.4.22 and v1.4.23 both landed merged,
+    deployed and unpublished in exactly that state; the only thing that separated the releases that
+    shipped was how long their run sat queued before it reached the step (#792).
+
+    The debt is moved to the ref that owes it, not deleted, and it keeps a loud home: `release
+    publish (main)` (release-publish.yml, `release_policy.py publish`) goes red on main for this
+    state and the release-due issue names the same step. Asking main is what keeps the teeth: a ref
+    whose manifest main does not carry still gets the finding. A tag that EXISTS never reaches here
+    - the object store and the forge are both asked first - so an annotated-ness, tagger, pin or
+    ancestry fault still fails whoever is asking. An absence the checkout cannot prove (no tags
+    fetched at all and no forge answer) stays the vacuity failure above, never a debt.
+    """
+    if not main_names(version, api, cwd):
+        return None
+    notes.append('release artifact %s: main carries this manifest and the tag ref is absent, so the '
+                 'release is mid-handoff rather than unpublishable' % version)
+    return ('KNOWN release artifact %s is outstanding, not wrong: main carries release.json naming it '
+            'and refs/tags/%s is not cut yet. docs/RELEASE.md step 4 cuts that tag on the merged '
+            'release commit after its build is green, so this ref cannot carry it; release publish '
+            '(main) and the release-due issue hold the debt until it is.' % (version, version))
+
+
+def release_finding(version, manifest, notes, cwd=None, api=None, local=True, debt=None):
     """The verdict for a release.json whose tag does not exist: name the outstanding step, and
-    still verify whatever earlier artifact exists. This can never read 'nothing to check'."""
+    still verify whatever earlier artifact exists. This can never read 'nothing to check'.
+
+    `debt` is the same fact reported rather than charged: when the asking ref cannot be the one that
+    cuts the tag, the finding becomes a printed KNOWN row and only the earlier artifact is asserted
+    (#792). The earlier-artifact assertions are never waived by it - a release line with no
+    verifiable tag at all stays a failure whoever is asking."""
     finding = ('release artifact %s: release.json is present and refs/tags/%s does not exist. The '
                'outstanding step is the annotated tag on the merged release commit.' % (version, version))
+    if debt:
+        notes.append(debt)
+        errors = []
+    else:
+        errors = [finding]
     previous = manifest.get('previous_tag')
     if not isinstance(previous, str) or not VERSION.fullmatch(previous):
-        return [finding + ' release.json previous_tag is %r, so no earlier artifact can be checked '
-                'either.' % previous]
+        return errors + (['release.json previous_tag is %r, so no earlier artifact can be checked '
+                          'either.' % previous] if debt else
+                         [finding + ' release.json previous_tag is %r, so no earlier artifact can be '
+                          'checked either.' % previous])
     if local:
         code, _ = git(['rev-parse', '--verify', '--quiet', 'refs/tags/' + previous], cwd)
         if code:
-            return [finding + ' The previous tag %s is missing too, so this release line has no '
-                    'verifiable artifact at all.' % previous]
-        return [finding] + check_tag(previous, notes, cwd, api=api)
+            return errors + [finding + ' The previous tag %s is missing too, so this release line has '
+                             'no verifiable artifact at all.' % previous]
+        return errors + check_tag(previous, notes, cwd, api=api)
     state, facts = tag_object(previous, api)
     if state != 'object':
-        return [finding + ' The previous tag %s could not be read through the API either, so this '
-                'release line has no verifiable artifact at all.' % previous]
+        return errors + [finding + ' The previous tag %s could not be read through the API either, so '
+                             'this release line has no verifiable artifact at all.' % previous]
     notes.append('%s: previous artifact read through the API; %s is not in this checkout' % (previous, previous))
-    return [finding] + identity_facts(previous, facts) + check_pin(
+    return errors + identity_facts(previous, facts) + check_pin(
         previous, facts.get('target', ''), manifest_at_api(facts.get('target', ''), api),
         api=api, notes=notes, local=False)
 

@@ -66,6 +66,7 @@ const MIN_COV_FRAC = +(process.env.COVFRAC || 0.0006);
 
 /* ---------------------------------------------------------------- tiny helpers */
 
+let VIEWPORT = '';
 function arg(name, dflt) {
   const i = process.argv.indexOf('--' + name);
   return i > 0 && process.argv[i + 1] !== undefined ? process.argv[i + 1] : dflt;
@@ -98,6 +99,7 @@ function portOpen(port, tries) {
 /* ---------------------------------------------------------------- the CDP client */
 
 async function openPage(url, profileDir, deadline) {
+  const vp = VIEWPORT ? String(VIEWPORT).split(/[x,]/).map(Number) : null;
   const port = +(process.env.CDP_PORT || 9377);
   let up = await portOpen(port);
   let chrome = null;
@@ -143,6 +145,15 @@ async function openPage(url, profileDir, deadline) {
     return m.result && m.result.result ? m.result.result.value : undefined;
   }
   await send('Runtime.enable'); await send('Page.enable');
+  /* --vp pins the DISPLAY surface, which is not the same thing as --window-size: this chromium build
+   * reports innerHeight 620 for every --window-size tried, and js/40_render.js resize() sizes the
+   * canvas off innerWidth/innerHeight, so a capture run comes out 1440x620 while every committed
+   * frame in docs/screens is 1440x763 (their canvas row and their aspect are gated on that). The
+   * override is capture-time only and reaches no shipped byte; it makes the raster and the aspect the
+   * committed frames carry instead of the ones this particular chromium happens to report. */
+  if (vp && vp.length === 2 && vp[0] && vp[1]) {
+    await send('Emulation.setDeviceMetricsOverride', { width: vp[0], height: vp[1], deviceScaleFactor: 1, mobile: false });
+  }
   return {
     evaluate, pageErrors,
     async goto(u) {
@@ -156,6 +167,29 @@ async function openPage(url, profileDir, deadline) {
     close() { try { ws.close(); } catch (e) { void e; } if (chrome) chrome.kill('SIGKILL'); }
   };
 }
+
+/* ---------------------------------------------------------------- the eight front-page frames (#882)
+ *
+ * The pose table below is the whole capture plan for docs/screens/*.png, lifted out of the `note`
+ * field of each row of docs/screens/provenance.json so that a re-take is ONE command instead of a
+ * transcript. Every number here is a seat the page that drew the committed frame read back, not a
+ * guess: `DEV.cam` coordinates as written in those notes, the dealt seats by leaving the camera
+ * where the deal put it, and the one body by the route's own spawn-and-search. recap's rows then
+ * check the result against the file: if a seat drifted the layout signature or the canvas row moves
+ * and the row says so, so a pose that no longer matches the note cannot pass quietly.
+ *
+ *   node tools/livecap.js frames --out DIR [--url <dev page>] [--vp 1440x763] [--name level0-spawn]
+ */
+const FRAMES = [
+  { name: 'level0-spawn', level: 0 },
+  { name: 'level0-facing-wall', level: 0, cam: '1.5, 8.5, undefined, Math.PI/2' },
+  { name: 'level0-enemies', level: 0, body: { kind: 'grunt', dist: 6 } },
+  { name: 'level0-props', level: 0, cam: '20.5, 11.5, undefined, Math.PI/2' },
+  { name: 'level0-pitfloor', level: 0, cam: '19.5, 14.5, undefined, 1.1071' },
+  { name: 'level3-stack', level: 3 },
+  { name: 'level2-abatoir', level: 2 },
+  { name: 'level2-abatoir-ceiling', level: 2, cam: 'P.x, P.y, undefined, P.ang, BH*0.25' },
+];
 
 /* ---------------------------------------------------------------- the DEV route */
 
@@ -230,6 +264,10 @@ function devRoute(o) {
   out.mode=st.mode;out.level=st.level;out.name=st.levelName;out.layout=st.layout;
   out.live=st.enemies.length;out.p=st.p;out.lum=DEV.lum({stride:97});
   out.canvas=cv.width+'x'+cv.height;
+  /* The deal's audio term (#404): a seeded boot advances the generator through SND.init's noise buffer,
+   * so the sample rate is part of the instrument a frame's layout signature was dealt on. Read off the
+   * page that drew the frame, never carried forward from the row being replaced. */
+  out.sampleRate=(window.SND&&SND.ac)?SND.ac.sampleRate:null;
   out.png=cv.toDataURL('image/png').split(',')[1];
   /* THE CLEAR ARM COMES FROM THIS SAME LOAD (#611). The two arms used to be two page loads of one url
      - same seed, clock frozen, grain off. They are NOT the same frame: two loads of ARCHIVE SUBLEVEL
@@ -729,6 +767,8 @@ async function cap(o) {
   for (const r of rows) {
     console.log('CAP ' + r.name + (r.file ? ' ' + path.relative(process.cwd(), r.file) : ' ERROR ' + r.error) +
       (r.layout !== undefined ? '  layout ' + r.layout + ' mode ' + r.mode + ' canvas ' + r.canvas +
+        (r.sampleRate ? ' audio ' + r.sampleRate + 'Hz' : '') +
+        (r.p ? ' seat ' + r.p.x.toFixed(2) + ',' + r.p.y.toFixed(2) + ' hdg ' + r.p.ang.toFixed(4) : '') +
         ' lum ' + (r.lum ? r.lum.mean + '/' + r.lum.mid : '?') +
         (r.body ? ' body ' + r.kind + ' @ ' + r.body.d + ' m off ' + r.body.off + ' m, ' + r.body.vis +
           ' raster px of him painted' +
@@ -840,6 +880,7 @@ async function sweep(o) {
 
 async function main() {
   const cmd = process.argv[2];
+  VIEWPORT = arg('vp', '');
   const url = arg('url', 'https://lioreshai.github.io/breach-protocol-flash-next/?dev=1&seed=' + arg('seed', '60') + '&boot=0');
   const out = arg('out', 'livecap');
 
@@ -876,6 +917,19 @@ async function main() {
         process.exitCode = 1;
       }
     }
+    return;
+  }
+
+  if (cmd === 'frames') {
+    const only = arg('name', '');
+    const shots = FRAMES.filter(s => !only || s.name === only);
+    if (!shots.length) { console.log('LIVECAP-FAIL no front-page frame is named ' + only); process.exit(2); }
+    const rows = await cap({ url, out, shots, timeout: arg('timeout', 300) });
+    const bad = rows.filter(r => r.error || !r.png && !r.file).length;
+    console.log('FRAMES ' + shots.length + ' pose(s) off ' + url.replace(/\?.*/, '') + ' at ' + (VIEWPORT || 'the page\'s own window size') +
+      ' -> ' + out + ': ' + (rows.length - bad) + ' frame(s) written, ' + bad + ' failed. Commit each through '
+      + 'tools/png_rgb.js (toDataURL hands back RGBA and the gate reads colour type 2), then re-measure with tools/recap.js.');
+    if (bad) process.exitCode = 1;
     return;
   }
 
