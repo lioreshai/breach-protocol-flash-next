@@ -4303,11 +4303,16 @@ function seamCrease(x, t, zA, zB, amp, dir, deckLit, yCap, zg) {
    dealt column reaches within noise, and still a cap, not a claim about the level. Eight was measured
    too - it costs the same and changes 3840 further L2 pixels on 6 remaining capped columns, which no
    dealt seat is asking for yet. */
-const WST = 6;
+const WST = 8;
 const WSP = new Float64Array(WST), WZ0 = new Float64Array(WST), WZ1 = new Float64Array(WST),
   WZE = new Float64Array(WST), WZF = new Float64Array(WST), WZN = new Float64Array(WST),
   WMX = new Int32Array(WST), WMY = new Int32Array(WST), WTV = new Int32Array(WST),
-  WSD = new Int8Array(WST * 3), WSF = new Uint8Array(WST);
+  WSD = new Int8Array(WST * 3), WSF = new Uint8Array(WST),
+  /* #829: the SCREEN ROWS each recorded face of this column owns, written as the face is recorded and in
+     the same screen space as the face body's `ds`/`de`. They are the coverage list the march tests a
+     candidate face against below: a face whose every row a NEARER recorded face already owns cannot
+     change the column, so it is marched past WITHOUT taking a slot. */
+  WDS = new Int32Array(WST), WDE = new Int32Array(WST);
 
 function castWalls(flash, fcR, fcG, fcB) {
   const cellArr = MAP.cell, N = MAP.w, lm = MAP.light, cp = MAP.ceilPlane;
@@ -4319,7 +4324,7 @@ function castWalls(flash, fcR, fcG, fcB) {
      answer "does the cap bind HERE" - `faceMulti` is the columns that pay a second face body, `faceCap`
      the ones that stopped because they ran out of slots, `faceMax` the worst column in the frame. Three
      compares on a column whose face bodies already cost hundreds of rows, and no threshold reads them. */
-  MAP.faceMulti = 0; MAP.faceCap = 0; MAP.faceMax = 0;
+  MAP.faceMulti = 0; MAP.faceCap = 0; MAP.faceMax = 0; MAP.faceSkip = 0;
   const stepBase = 2 / BW;
   const flR = S.flashCol[0] / 255, flG = S.flashCol[1] / 255, flB = S.flashCol[2] / 255;
   const flashK0 = flash;
@@ -4442,6 +4447,39 @@ function castWalls(flash, fcR, fcG, fcB) {
           const rp = (side === 0 ? sdx - ddx : sdy - ddy), rh = BH / (rp > 1e-4 ? rp : 1e-4);
           const ry1 = fhi * ZQ, ry0 = flo * ZQ;
           if (horizon + (eyeZ - ry1) * rh > BH - 1) continue;
+          /* #829 DECISION: A FACE A NEARER RECORDED FACE OWNS EVERY ROW OF IS NOT A STOP EITHER. The
+             clause above is #515's rule at the FRAME's bottom edge. Its second half is the column's own
+             edges: on a step-dense column the 2nd, 3rd and later lips project into rows the FIRST lip
+             already owns, and each of those faces still spends a WST slot. That is what the cap pays for
+             on RING TRANSPORT (`scene 1 0`: 601 of 601 columns record more than one face, and faces past
+             the fourth there deliver 0 px), and it is why ABATOIR's pit columns ran out of slots before
+             the wall behind the pit was reached. The candidate's predicted span is the pair the face body
+             solves below, so this is the face body's own per-row question asked once per stop; when it is
+             covered the march continues and NO slot is taken, so nothing is set up and nothing is painted
+             - which is why the test takes cost off the dense seats instead of adding it. Nothing shipped
+             is lost: that face would have been painted first and then painted over by the nearer faces
+             that own the rows (`zguard` refuses the rows `zbuf` already answers nearer).
+             THE #517 YIELD CLIP IS APPLIED HERE TOO, AND IT IS NOT A DETAIL. A face whose span the clip
+             empties still paints its CREASE (#518: the row is yielded, the mark is not), so such a face
+             is not free to drop - measured: leaving the clip out of this test moved 60 px at `scene 0 0`
+             and 188 at `scene 0 1`, ARCHIVE's dealt cameras, where nothing else in this change does. With
+             the clip applied an emptied span fails `cS <= cE` below and the face is recorded as before. */
+          const yT = horizon + (eyeZ - ry1) * rh;
+          let cS = 0, cE = -1;
+          if (nSt) {
+            const yB = horizon + (eyeZ - ry0) * rh, rznear = fzs[pi] * ZQ;
+            cS = yT > 0 ? Math.ceil(yT) : 0;
+            cE = yB < BH - 1 ? Math.floor(yB) : BH - 1;
+            if (rznear < eyeZ) { const yN = horizon + (eyeZ - rznear) * rh; if (yN < cE) cE = Math.floor(yN); }
+            let row = cS, hop = 0;
+            while (row <= cE && hop++ < nSt) {
+              let past = row - 1;
+              for (let k = 0; k < nSt; k++) if (WDS[k] <= row && WDE[k] > past) past = WDE[k];
+              if (past < row) break;                      // a row no nearer face owns: this face owns it
+              row = past + 1;
+            }
+            if (cS <= cE && row > cE) { MAP.faceSkip++; continue; }   // marched past; it takes no slot
+          }
           /* #829 review: THE CENSUS COUNTS COLUMNS, AND MUST KEEP DOING SO. `MAP.riserStops` is printed
              as `riserStops N/BW` (`tools/view.js`'s pit-lip and stair rows) and as "N rays stopped at a
              riser": a denominator of BW means at most one per column. A march that records up to WST
@@ -4464,6 +4502,10 @@ function castWalls(flash, fcR, fcG, fcB) {
           rze = (dq > 0 ? flo : fhi) * ZQ; rzf = (dq > 0 ? fhi : flo) * ZQ;
           WSP[nSt] = rp; WTV[nSt] = riserTex; WSD[nSt * 3] = side; WSD[nSt * 3 + 1] = stepX; WSD[nSt * 3 + 2] = stepY;
           WMX[nSt] = mx; WMY[nSt] = my; WZ0[nSt] = rz0; WZ1[nSt] = rz1; WZE[nSt] = rze; WZF[nSt] = rzf; WZN[nSt] = rzn;
+          /* The rows this face owns. For a column's FIRST face no test ran above, so the span is solved
+             here; the yield clip is not applied, because a first face has no nearer face to yield to. */
+          WDS[nSt] = nSt ? cS : (yT > 0 ? Math.ceil(yT) : 0);
+          WDE[nSt] = nSt ? cE : Math.min(BH - 1, Math.floor(horizon + (eyeZ - ry0) * rh));
           WSF[nSt] = 1 | (stepFace << 1); nSt++;
           /* #829: THE LIP IS A FACE, NOT THE END OF THE COLUMN. `break` here is the line that made
              everything past a pit or a raised deck disappear: the face a lip paints is the strip
