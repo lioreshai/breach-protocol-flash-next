@@ -337,10 +337,15 @@ function courses(p, cols, rows, mortar, stagger) {
    that was never detail.
    WHAT THIS IS NOT: no fetch knob (the fetch half of #19 is closed at its measured figures), no light term,
    no sheet-size change, no `alb` change - the law is free in light and free in cost, which is the whole
-   point of applying it. The four `grain(p, amt, seed, base)` mottle calls in these tiles (BRICK 24, STONE
-   26, TECH2 20, SLAB 30) put their TOP octave at 80-120 cycles through the shared helper and are above the
-   limit too; they are ~2 luma of swing against these terms' 20-70, they live in a helper FLOORS also calls,
-   and they are named here as measured-not-yet-moved rather than folded into this increment uncounted.
+   point of applying it. THE SECOND HALF, same law, second increment: the four `grain(p, amt, seed, base)`
+   mottle calls (BRICK 24, STONE 26, TECH2 20, SLAB 30) reached 96, 104, 80 and 120 cycles through the shared
+   helper - `grain` runs its fbm at three octaves, so the top octave is `base * 4`. Their bases come to 16,
+   which tops out at exactly 64, at the SAME amplitudes (12, 8, 16, 20), the same octave count and the same
+   gain, for the same reason as above: `fbm` normalises by the octave-amplitude sum, which no `base` moves.
+   The claim that these four were shared with the deck family was checked and is false - `grain(p, …)` has
+   exactly these four call sites in all of js/, all wall painters; `Surf.prototype.grain` (js/05_paint.js)
+   is a different function used by sprite and decal sheets. So this is a four-tile repaint and nothing else,
+   and `matband`'s five FLOORS rows are its control, byte for byte.
    CHECKS: `matband`'s wall spread (1.46x against 1.5x) and every `exposure` median are the no-relight
    control; `mip`'s wall-fetch row and `surface`'s wall rows are the picture; the frame digits a repaint
    legitimately moves come from `node tools/view.js refs --record`, not from a hand. */
@@ -366,7 +371,7 @@ WTEX.BRICK = matTex(T2, T2, p => {
   p.h = 0.66 + (n - 0.5) * 0.10;
   // chamfer toward the mortar line
   p.h += (c.edge - 1) * 0.10 * (1 - c.edge);
-  grain(p, 12, 21, 24);                                       // #416 TAKE SIX: low-frequency mottle amplitude 26 -> 12
+  grain(p, 12, 21, 16);                                       // #416 TAKE SIX: low-frequency mottle amplitude 26 -> 12. #889 second half: base 24 -> 16, top octave 96 -> 64, amplitude untouched
   dust(p, 0.18, [96, 88, 78]);
   /* #416 take three, the LIVE half. Same primitive as the STONE block below, and this is the call site
      a player actually stands in front of: `wall: WT.BRICK` is ARCHIVE SUBLEVEL's primary face
@@ -412,7 +417,7 @@ WTEX.STONE = matTex(T2, T2, p => {
   const v = 0.62 + j * 0.5 + (fbm(p.u, p.v, 7, 4, 0.58, 17) - 0.5) * 0.5;
   p.r = 132 * v + 40; p.g = 136 * v + 40; p.b = 140 * v + 40;
   p.h = 0.68 + (fbm(p.u, p.v, 8, 4, 0.6, 3) - 0.5) * 0.16 + (c.edge - 1) * 0.07;   // #889: 9 -> 8 over 4 octaves; top octave 72 -> 64
-  grain(p, 8, 44, 26);
+  grain(p, 8, 44, 16);                                        // #889 second half: base 26 -> 16; top octave 104 -> 64, amplitude 8 as authored
   // pitted rock
   const pit = smoothstep(0.60, 0.96, fbm(p.u, p.v, 16, 3, 0.6, 71));   // #889: 18 -> 16; top octave 72 -> 64
   p.h -= pit * 0.09; p.r -= pit * 13; p.g -= pit * 13; p.b -= pit * 12;
@@ -532,7 +537,7 @@ WTEX.TECH2 = matTex(T2, T2, p => {
   const vein = smoothstep(0.030, 0.0, Math.abs(gy - 0.5) - 0.0) * (1 - cell);
   if (vein > 0.1) { p.r = 205; p.g = 118 + 60 * n; p.b = 55; p.h = 0.52; p.e = 1; }   // #466: amber filament
   dust(p, 0.20, [84, 52, 46]);                                      // #466: rust dust
-  grain(p, 16, 9, 20);
+  grain(p, 16, 9, 16);                                        // #889 second half: base 20 -> 16; top octave 80 -> 64, amplitude 16 as authored
 }, { bump: 1.0, amb: 0.40, spec: 0.26, specPow: 30, ao: 0.6, grain: 7, alb: 1.14 });   // #416: the darkest wall tile in the table at 82.3 mean luma, raised into band
 
 WTEX.METAL = matTex(T2, T2, p => {
@@ -671,7 +676,7 @@ WTEX.SLAB = matTex(T2, T2, p => {
   const streak = fbm(p.u * 2, p.v * 0.4, 8, 3, 0.6, 77);              // #889: u stretch 3 -> 2; top octave 96 -> 64. Damp runs from the joints down
   const st = smoothstep(0.55, 0.9, streak) * 0.30;
   p.r -= st * 20; p.g -= st * 22; p.b -= st * 14; p.h -= st * 0.05;
-  grain(p, 20, 26, 30);
+  grain(p, 20, 26, 16);                                       // #889 second half: base 30 -> 16; top octave 120 -> 64, amplitude 20 as authored - the coarsest mottle in the family, and the one a wall at 6 m was shuffling
 }, { bump: 1.15, amb: 0.44, spec: 0.06, specPow: 26, ao: 0.78, grain: 11, alb: 0.89 });   // #416: moves WITH WTEX.STONE's alb, so #369's "authored at the deck's own mean albedo" still holds
 
 const WALLS = [];
