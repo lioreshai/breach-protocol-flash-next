@@ -4790,21 +4790,26 @@ function castWalls(flash, fcR, fcG, fcB) {
            already does; `zbuf`/`SURF` stay after it, because a skipped row must not claim either. Dead
            where nothing is skipped, so a one-stop column and every flat level are byte-identical. */
         const vy = ty; ty += tstep; if (ty >= mh) ty -= mh;
-        /* #829: a nearer surface already owns this row. #904: THE COMPARE RUNS IN ONE PRECISION.
-           `zbuf` is a Float32Array and `perp` is a double, and down a staircase those are not two
-           surfaces but ONE distance arrived at by two paths: the ground march stops at this riser's
-           crossing and stores it as a float, the wall march carries `rp = sdx - ddx` as a double. They
-           agree to under 5e-4 and disagree in the last bits, so `zbuf[idx] < perp` was decided by which
-           way the float rounded - and that answer varies with the COLUMN. Measured across one descending
-           flight (SEED 12345, L0, seat 3.5,14.5,1.5708, pitch -BH*0.06) the same screen row alternated
-           painted/skipped column to column inside one face's own span, and the frame carried the thin
-           vertical bars this issue is about. Quantising `perp` to the precision the buffer actually
-           stores makes the same-surface case an exact tie instead of a rounding lottery, and the tie
-           goes to the pixel already painted: the ground march already built this pixel from this very
-           crossing, so the face body repainting it is a second answer to a question already answered.
-           Dead where the two depths differ by more than a float step, so a one-stop column - every flat
-           level, and the nearest face of every column - is byte-identical. */
-        if (zguard && !(Math.fround(perp) < zbuf[idx])) continue;
+        /* #829: a nearer surface already owns this row. #904: ONE QUESTION, ASKED IN ONE PRECISION, AND
+           IT BUYS ONLY THE PAINT. `zbuf` is a Float32Array and `perp` is a double, and down a staircase
+           those are not two surfaces but ONE distance arrived at by two paths: the ground march stops at
+           this riser's crossing and stores it as a float, the wall march carries `rp = sdx - ddx` as a
+           double. They agree to under 5e-4 and disagree in the last bits, so `zbuf[idx] < perp` was
+           decided by which way the float rounded - and that answer varies with the COLUMN. Measured
+           across one descending flight (SEED 12345, L0, seat 3.5,14.5,1.5708, pitch -BH*0.06) the same
+           screen row alternated painted/skipped column to column inside one face's own span, and the
+           frame carried the thin vertical bars this issue is about.
+           THE TIE IS SETTLED TOWARD THE PIXEL ALREADY PAINTED - the ground march built it from this very
+           crossing, so the face body repainting it is a second answer to a question already answered -
+           AND TOWARD THE PIXELS ONLY. `perp <= zbuf[idx]` keeps #829's ownership test EXACTLY: a face
+           this branch paints is a face #829 also painted, so the `zbuf[idx] = perp` and `SURF` writes
+           below run on exactly the pixels they ran on before and a row this branch does not paint stores
+           what #829's own test stored there (on a tie that store is a float no-op: the two values are
+           the same float). `Math.fround(perp) < zbuf[idx]` then drops the rows whose two answers are
+           ONE float, which is the whole of the comb and nothing else. Dead where the two depths differ
+           by more than a float step, so a one-stop column - every flat level, and the nearest face of
+           every column - is byte-identical. */
+        if (zguard && !(perp <= zbuf[idx] && Math.fround(perp) < zbuf[idx])) continue;
         zbuf[idx] = perp;
         if (SURF) SURF[idx] = 0;            // #546: this pixel is a FACE now, not the ground surface
         const yv = vy | 0, fy = vy - yv, rfy = 1 - fy;
@@ -4986,7 +4991,7 @@ function castWalls(flash, fcR, fcG, fcB) {
         if (CSEAMA > 0) {
           let fs = 0, fn = 0;
           for (let y = ds, ye = ds + CSEAMC - 1 <= de ? ds + CSEAMC - 1 : de; y <= ye; y++) {
-            if (zguard && !(Math.fround(perp) < zbuf[y * BW + x])) continue;   // #829/#904: nearer-or-equal surface owns this row
+            if (zguard && !(perp <= zbuf[y * BW + x] && Math.fround(perp) < zbuf[y * BW + x])) continue;   // #829 ownership + #904 tie: the painted pixel stands
             const v = px[y * BW + x];
             fs += (v >> 16 & 255) * 0.25 + (v >> 8 & 255) * 0.64 + (v & 255) * 0.11; fn++;
           }
@@ -5014,7 +5019,7 @@ function castWalls(flash, fcR, fcG, fcB) {
              9 m - a corner the player cannot see, painted over one he can, which is the #517/#518
              phantom class arrived at from the far end. The test is the same one read and one compare
              the rest of the body uses, and it is dead on a column with one stop (`zguard` is 0). */
-          if (zguard && !(Math.fround(perp) < zbuf[i])) continue;   // #829/#904: nearer-or-equal surface owns this row
+          if (zguard && !(perp <= zbuf[i] && Math.fround(perp) < zbuf[i])) continue;   // #829 ownership + #904 tie: the painted pixel stands
           let ck = 1 - CSEAMD * (rk > 0 ? rk : 0);
           if (tgt >= 0) {
             const lw = ((v >> 16 & 255) * 0.25 + (v >> 8 & 255) * 0.64 + (v & 255) * 0.11) * ck;
@@ -5053,7 +5058,7 @@ function castWalls(flash, fcR, fcG, fcB) {
             const s = dt.data[(dv | 0) * dt.w + (du | 0)], sa = (s >>> 24) / 255 * dc.a * (1 - u * u * 0.5);
             if (sa < 0.02) continue;
             const i = y * BW + x, dst = px[i];
-            if (zguard && !(Math.fround(perp) < zbuf[i])) continue;   // #829/#904: nearer-or-equal surface owns this row
+            if (zguard && !(perp <= zbuf[i] && Math.fround(perp) < zbuf[i])) continue;   // #829 ownership + #904 tie: the painted pixel stands
             px[i] = (0xFF000000 |
               (clampi((s & 255) * sa + (dst & 255) * (1 - sa))) |
               (clampi((s >> 8 & 255) * sa + (dst >> 8 & 255) * (1 - sa)) << 8) |
@@ -5124,7 +5129,7 @@ function castWalls(flash, fcR, fcG, fcB) {
             const s = dt.data[(zv * dt.h | 0) * mwx + (u * mwx | 0)], sa = (s >>> 24) / 255;
             if (sa < 0.02) continue;
             const i = y * BW + x, dst = px[i], ia = 1 - sa;
-            if (zguard && !(Math.fround(perp) < zbuf[i])) continue;   // #829/#904: nearer-or-equal surface owns this row
+            if (zguard && !(perp <= zbuf[i] && Math.fround(perp) < zbuf[i])) continue;   // #829 ownership + #904 tie: the painted pixel stands
             px[i] = (0xFF000000 |
               (clampi(((s >> 16 & 255) * lb * dim + fB) * sa + (dst >> 16 & 255) * ia) << 16) |
               (clampi(((s >> 8 & 255) * lg * dim + fG) * sa + (dst >> 8 & 255) * ia) << 8) |
