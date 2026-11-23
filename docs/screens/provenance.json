@@ -215,11 +215,19 @@
       "at": "2026-11-23",
       "files": {
         "index.html": "c886aca0138047584edd4ee7023c504da19d3d559a6e6bb33833a9290169d557",
+        "js/00_core.js": "ca752015bd204e817f1887f2028d8e35366aa34d6d87bca5ece2c3af356f7091",
+        "js/05_paint.js": "a5ec9c69ad6aebd6ca18ad1f0d8256418e88e6b019d70bcfeab5e5e88d65f5ae",
         "js/10_assets.js": "b122466d91a8da81fe168133a66b7ae2c1d44293463014f81f42c470d9f95eba",
+        "js/11_rig.js": "e4a6ef3f1c939e4a5e8a7e13a82d8319210253eac7562c9348bfc86d12ed042a",
+        "js/12_sprites.js": "b3088cda462e24cda63f00902f9aed279310279d0c582d255c6c9d4bb90fcaba",
+        "js/13_mesh.js": "ed5b0c51113eb68b89899337f42f5829daadb557d79890af082d19b3805d25ce",
         "js/20_level.js": "9feba98e3cc4c46dffc441bb1deddc0f1d5ae1040a5f8a76b1b01b4dec79b585",
-        "js/40_render.js": "3ab810e04bee02dbd507f68268d657ba948f93fd3fbdb691e85903193627dd7d"
+        "js/30_entities.js": "8849a87bbb1f06bd226415a37e3f2ed3869fcad5a7d44f705bb34262c1a860c9",
+        "js/40_render.js": "3ab810e04bee02dbd507f68268d657ba948f93fd3fbdb691e85903193627dd7d",
+        "js/50_ui_input.js": "b8c096cda417bf85819d7415f3d02a04d07de390a0a1668c23ed102c218404d2",
+        "js/90_dev.js": "69f7245713e4a8e77506c072dbde929e3381e96f3e8e52492cfe9457dbe0e8a4"
       },
-      "note": "The four blobs that draw a frame, sha256, read from the build this bind re-keys to. `node tools/recap.js check` recomputes them from the tree it runs in and prints whether these frames still show what that tree ships (#536). This entry is a BIND RE-KEY, not a capture: the pixels were taken at b7a40d6 by the pass described in tools/recap.js and README.md, and #910 measured what main at 39edaf3 draws from the same route - all eight poses re-rendered off https://lioreshai.github.io/breach-protocol-flash-next/ after that deploy sha256-matched origin/main four for four. The frames came back with no world pixel moved: three of the eight are byte-identical to the committed bytes and the other five differ only inside the columns the held rig occupies (0.03% to 0.39% of the frame, every mean within 0.01 luma), which is the load-to-load disagreement #611 already names, not a surface being fetched differently. So the PNGs are carried and only the bind moves. The blob that moved is js/20_level.js, and what moved in it is a jump predicate (#893): a still frame cannot show it because the feet are on the ground."
+      "note": "The twelve blobs that build serves - index.html and every script its own index.html loads - as sha256, read from that build. `node tools/recap.js check` recomputes them from the tree it runs in and prints whether these frames still show what that tree ships (#536). This entry is a BIND RE-KEY, not a capture: the pixels were taken at b7a40d6 by the pass described in tools/recap.js and README.md, and #910 measured what main at 39edaf3 draws from the same route - all eight poses re-rendered off https://lioreshai.github.io/breach-protocol-flash-next/ after that deploy sha256-matched origin/main four for four. The frames came back with no world pixel moved: three of the eight are byte-identical to the committed bytes and the other five differ only inside the columns the held rig occupies (0.03% to 0.39% of the frame, every mean within 0.01 luma), which is the load-to-load disagreement #611 already names, not a surface being fetched differently. So the PNGs are carried and only the bind moves. The blob that moved is js/20_level.js, and what moved in it is a jump predicate (#893): a still frame cannot show it because the feet are on the ground."
     }
   },
   "shots": [

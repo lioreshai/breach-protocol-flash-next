@@ -82,28 +82,37 @@ The merged changes below are what a reader sees differently here: a wall keeps i
 ten (#889, `js/10_assets.js`); a wall march now looks past the fourth face, so a pit's far wall arrives instead of the
 level ending at the lip (#829, `js/40_render.js`); and the end of a slab's underside is a joint rather than a fade
 (#421, `js/40_render.js`). At the hip the held rifle's fore-end and magazine are round, the fist carries a knuckle row,
-and the shotgun's pump is drawn where it used to be painted out (#780, #892, `js/13_mesh.js`) — that file is not one of
-the four blobs the bind below hashes, and it is the reason every frame in this set has a bottom-third set of differing
-pixels inside the columns the rig occupies. Three of the four blobs that draw a frame moved since the frames on this
+and the shotgun's pump is drawn where it used to be painted out (#780, #892, `js/13_mesh.js`) — one of the twelve blobs
+the bind below now hashes, and it is the reason every frame in this set has a bottom-third set of differing
+pixels inside the columns the rig occupies. Three of the blobs that paint a frame moved since the frames on this
 page: `js/40_render.js`, `js/10_assets.js` and `js/20_level.js`. Three of the commits behind them repaint a still — the
 wall sheet, the slab joint, and the march, whose reach past a lip was extended once more by #903, which is why three of
 these eight frames now show a wall the march used to stop at. Two others did not — #894's airborne eye in
 `js/40_render.js` and #893's jump predicate in `js/20_level.js` draw nothing in a still, one only while the feet are off
 the ground and the other only when a body pushes at a face. The eight poses came back on the same three layout
 signatures the replaced rows name. The pass supersedes the frames this page carries (`82e43cc`), and it proved its build off the wire by
-sha256-comparing the four blobs that draw a frame — `index.html`, `js/10_assets.js`, `js/20_level.js`,
+sha256-comparing the four blobs it then hashed — `index.html`, `js/10_assets.js`, `js/20_level.js`,
 `js/40_render.js` — served by that page against the tree that carries these frames before the shutter, four for four,
 so every frame below is the picture that build's page drew; the re-key repeated that same blob-by-blob proof against
-`39edaf3` before it re-rendered the poses. Whether that is still today's picture is no longer a sentence
-that ages: `node tools/recap.js check` hashes the four blobs that draw a frame — `index.html`, `js/10_assets.js`,
-`js/20_level.js`, `js/40_render.js` — against the digests recorded for the bound build in
+`39edaf3` before it re-rendered the poses, and the record now carries all twelve digests for that build, read from the
+build itself. Whether that is still today's picture is no longer a sentence
+that ages: `node tools/recap.js check` hashes every blob the page serves — `index.html` and every script that build's own
+`index.html` loads, twelve for `39edaf3`, so no file that paints can be left out of the bind (#555) — against the digests
+recorded for the bound build in
 [`docs/screens/provenance.json`](docs/screens/provenance.json), and prints `SHIP-BIND` when this tree's bytes are
-those bytes or `FRAME-STALE`, naming whichever blobs moved. A pass aged badly once, binding `bd2441a` while two
-render commits landed while a pass was in review, and the tool exists so it cannot age quietly again; the bind is an upper bound on
-"the picture changed", since a comment inside a renderer moves a digest and moves no pixel, so the row names the
-blob and leaves the re-take call to a human. On the tree that carries these frames that row reads `SHIP-BIND` for
-`39edaf3`: the four blobs that draw a frame are byte-identical here, so these eight are this checkout's own picture. The
-next commit to move one of those four will re-key this sentence too, and the row will name whichever blob moved. The same command also prints a
+those bytes. When they differ it does not answer a pixel question with a hash: it paints the seats these rows were shot in
+from both trees — that build's scripts out of git, this checkout's own, one harness write apart (`JSDIR`) — and prints
+`FRAME-EQUIV` when every seat comes back byte-identical (the record needs a re-key and no shutter is owed) or
+`FRAME-MOVED`, with the pixel count and the two means, when a seat paints differently (a re-take is owed). Where the
+pixels cannot be asked — a shallow CI checkout has no history to read the other tree from — it prints `FRAME-STALE`
+naming the blobs and says the render did not run. A pass aged badly once, binding `bd2441a` while two
+render commits landed while a pass was in review, and the tool exists so it cannot age quietly again. On the tree that
+carries these frames that row reads `FRAME-MOVED` for
+`39edaf3`: `js/40_render.js` moved after the key (#904's staircase faces), and the render agrees a seat repaints — the
+harness's own ABATOIR seat differs at 5,476 of 812,552 px, mean 62.80 to 62.44, while the ARCHIVE and STACK seats come
+back byte-identical. So a face moved, not the levels, and a re-take off a deploy of this build is owed — which is the
+debt #910 keeps open now that the tool can tell a re-key from a re-take instead of charging eight captures for either.
+The next commit to move a shipped blob will re-key this sentence too, and the row will name whichever blob moved. The same command also prints a
 `CAPTION-VERDICT` row that compares this sentence with the digests, so the page cannot be left a pass behind by the
 pass it describes (#653).
 
@@ -135,9 +144,9 @@ wall, it now keeps looking past the fourth face, so what stands beyond a pit's l
 stopping at the lip (#829). The end of a slab's underside joins the wall it lands on instead of fading into it (#421).
 And at the hip the rifle's fore-end, magazine and knuckles are modelled and the shotgun's pump is no longer hidden
 behind the fist gripping it (#780, #892) — nothing about aiming changes, the hand simply stops reading as a plate.
-Between the two builds `js/10_assets.js`, `js/20_level.js` and `js/40_render.js` moved — three of the four blobs that
-draw a frame — and `js/13_mesh.js` moved with them, which the bind cannot see because it hashes the four blobs that
-draw the *room*.
+Between the two builds `js/10_assets.js`, `js/20_level.js` and `js/40_render.js` moved — three of the blobs that
+paint a frame — and `js/13_mesh.js` moved with them, which the bind used to miss because it hashed four hand-picked
+files and not the page's own script list; #555 was filed for that hole and the record above closes it.
 Per frame, in the order the eight appear below, the deltas to **−0.02 / −0.07 / −0.02 / −0.18 / +0.21 / +0.20 / −0.01 / −0.01** mean luma; `recap`
 computes each one from the two frames and names the row that disagrees, and a caption below repeats only its own
 number. Six of the eight come back darker and two lighter, every one of them inside a quarter of a luma; the furthest
