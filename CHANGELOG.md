@@ -14,7 +14,8 @@
   that is 3,860 and 4,332 pixels changed near the centre of frame, and 6,834 across a band of THE STACK where
   the far wash used to answer; the other six dealt cameras are byte for byte what they shipped. In RING
   TRANSPORT, the sector that paid for extra faces and got nothing, columns hitting the old cap go 59 → 0 and
-  the frame is unchanged. Aiming at a body two storeys up across a gap is now a question the level answers.
+  the frame is unchanged. What stands behind a lip is now part of the picture rather than a gap in it; the
+  overlook-a-storey-up aiming case the same issue filed is still open there.
 
 - **Jumping clears a lip the body is already flying over** (#893, PR #902). The game's one movement test took
   no altitude, so a riser blocked a body whose feet were half a metre above it exactly as it blocked a walker.
