@@ -874,10 +874,34 @@ const PKKIND = { health: 'pickupHealth', ammo: 'pickupAmmo', armor: 'pickupArmor
    eyeGive() is the knee after a landing (#634): the body stops at the floor, the eye arrives over the
    next fifth of a second, and the floor guard is what stops a bent knee from putting the eye through
    the floor it landed on. eyeRise() is the same decoupling pointed the other way (#765): an auto-step
-   lifts the body in one frame because it must, and the eye arrives over the next third of a second. */
+   lifts the body in one frame because it must, and the eye arrives over the next third of a second.
+
+   AND THE CEILING HALF OF THAT BAND IS A RULE ABOUT A BODY AT REST (#894). `ceilAt` is the max of the
+   column's own floor+clearance and every NEIGHBOURING floor (js/20_level.js), so the ceiling over a pit
+   is the deck's own floor: the frame the XY crosses a lip the upper bound is already half a metre BELOW
+   where the body is, and a clamp on a re-derived value moves the eye further in one frame than the body
+   can move in any number - measured at a020836 as 0.560 m of eye against 0.000 m of feet, and the eye
+   then held at that number for 0.35 s of a 0.45 s fall because the bound is not reached until the body
+   has fallen a whole `cfg.eye`. The same term pinned the top of every jump for 9 frames on a deck with
+   the shipped CZ_DEF headroom, because the apex puts the eye at ceilAt - 0.036 and the bound is
+   ceilAt - 0.06. Neither is a snap the feet take; both are the camera's own arithmetic.
+   So while the feet are UNSUPPORTED the eye takes the body's altitude with the FLOOR guard still on -
+   a bent knee or a lagged climb cannot put the eye through the floor it is heading for - and the ceiling
+   is left alone, because a body in flight is between two bands and no single column's band contains it.
+   UNSUPPORTED is the physics' OWN test (`gz < P.z - STEP_Z - STEP_EPS`, js/30_entities.js:668), not
+   `P.air`: within a frame the z-solve runs BEFORE tryMove, so on the frame a crossing happens the XY is
+   already over the far column while `P.air` is still false - key this on `P.air` and the one frame that
+   carries the whole snap is missed (measured: 0.5600 m on frame 8 of a sprinted 4-quantum crossing).
+   A descent of one quantum - a tread the feet are walked down, not fallen - is therefore still GROUNDED
+   here, exactly as the crossing rules call it a step (#633), and every walked-descent row keeps the
+   glide it prices. #103's failure stays impossible: it is a rule about a body AT REST in a room, and a
+   body at rest is supported by the column it stands in, so that case is byte-for-byte what it was. */
 function eyeAltitude() {
   const pfl = floorAt(P.x, P.y);
-  return clamp(cfg.eye + P.z - P.crouch * 0.19 - eyeGive() - eyeRise(), pfl + 0.12, ceilAt(P.x, P.y) - 0.06);
+  const want = cfg.eye + P.z - P.crouch * 0.19 - eyeGive() - eyeRise();
+  const sup = Math.max(pfl, propStand(P.x, P.y, 0, P.z));   // a crate top holds the feet up just as a floor does
+  if (P.air || P.z - sup > STEP_Z + STEP_EPS) return Math.max(want, pfl + 0.12);
+  return clamp(want, pfl + 0.12, ceilAt(P.x, P.y) - 0.06);
 }
 
 function renderWorld() {
@@ -4279,11 +4303,16 @@ function seamCrease(x, t, zA, zB, amp, dir, deckLit, yCap, zg) {
    dealt column reaches within noise, and still a cap, not a claim about the level. Eight was measured
    too - it costs the same and changes 3840 further L2 pixels on 6 remaining capped columns, which no
    dealt seat is asking for yet. */
-const WST = 6;
+const WST = 8;
 const WSP = new Float64Array(WST), WZ0 = new Float64Array(WST), WZ1 = new Float64Array(WST),
   WZE = new Float64Array(WST), WZF = new Float64Array(WST), WZN = new Float64Array(WST),
   WMX = new Int32Array(WST), WMY = new Int32Array(WST), WTV = new Int32Array(WST),
-  WSD = new Int8Array(WST * 3), WSF = new Uint8Array(WST);
+  WSD = new Int8Array(WST * 3), WSF = new Uint8Array(WST),
+  /* #829: the SCREEN ROWS each recorded face of this column owns, written as the face is recorded and in
+     the same screen space as the face body's `ds`/`de`. They are the coverage list the march tests a
+     candidate face against below: a face whose every row a NEARER recorded face already owns cannot
+     change the column, so it is marched past WITHOUT taking a slot. */
+  WDS = new Int32Array(WST), WDE = new Int32Array(WST);
 
 function castWalls(flash, fcR, fcG, fcB) {
   const cellArr = MAP.cell, N = MAP.w, lm = MAP.light, cp = MAP.ceilPlane;
@@ -4295,7 +4324,7 @@ function castWalls(flash, fcR, fcG, fcB) {
      answer "does the cap bind HERE" - `faceMulti` is the columns that pay a second face body, `faceCap`
      the ones that stopped because they ran out of slots, `faceMax` the worst column in the frame. Three
      compares on a column whose face bodies already cost hundreds of rows, and no threshold reads them. */
-  MAP.faceMulti = 0; MAP.faceCap = 0; MAP.faceMax = 0;
+  MAP.faceMulti = 0; MAP.faceCap = 0; MAP.faceMax = 0; MAP.faceSkip = 0;
   const stepBase = 2 / BW;
   const flR = S.flashCol[0] / 255, flG = S.flashCol[1] / 255, flB = S.flashCol[2] / 255;
   const flashK0 = flash;
@@ -4418,6 +4447,39 @@ function castWalls(flash, fcR, fcG, fcB) {
           const rp = (side === 0 ? sdx - ddx : sdy - ddy), rh = BH / (rp > 1e-4 ? rp : 1e-4);
           const ry1 = fhi * ZQ, ry0 = flo * ZQ;
           if (horizon + (eyeZ - ry1) * rh > BH - 1) continue;
+          /* #829 DECISION: A FACE A NEARER RECORDED FACE OWNS EVERY ROW OF IS NOT A STOP EITHER. The
+             clause above is #515's rule at the FRAME's bottom edge. Its second half is the column's own
+             edges: on a step-dense column the 2nd, 3rd and later lips project into rows the FIRST lip
+             already owns, and each of those faces still spends a WST slot. That is what the cap pays for
+             on RING TRANSPORT (`scene 1 0`: 601 of 601 columns record more than one face, and faces past
+             the fourth there deliver 0 px), and it is why ABATOIR's pit columns ran out of slots before
+             the wall behind the pit was reached. The candidate's predicted span is the pair the face body
+             solves below, so this is the face body's own per-row question asked once per stop; when it is
+             covered the march continues and NO slot is taken, so nothing is set up and nothing is painted
+             - which is why the test takes cost off the dense seats instead of adding it. Nothing shipped
+             is lost: that face would have been painted first and then painted over by the nearer faces
+             that own the rows (`zguard` refuses the rows `zbuf` already answers nearer).
+             THE #517 YIELD CLIP IS APPLIED HERE TOO, AND IT IS NOT A DETAIL. A face whose span the clip
+             empties still paints its CREASE (#518: the row is yielded, the mark is not), so such a face
+             is not free to drop - measured: leaving the clip out of this test moved 60 px at `scene 0 0`
+             and 188 at `scene 0 1`, ARCHIVE's dealt cameras, where nothing else in this change does. With
+             the clip applied an emptied span fails `cS <= cE` below and the face is recorded as before. */
+          const yT = horizon + (eyeZ - ry1) * rh;
+          let cS = 0, cE = -1;
+          if (nSt) {
+            const yB = horizon + (eyeZ - ry0) * rh, rznear = fzs[pi] * ZQ;
+            cS = yT > 0 ? Math.ceil(yT) : 0;
+            cE = yB < BH - 1 ? Math.floor(yB) : BH - 1;
+            if (rznear < eyeZ) { const yN = horizon + (eyeZ - rznear) * rh; if (yN < cE) cE = Math.floor(yN); }
+            let row = cS, hop = 0;
+            while (row <= cE && hop++ < nSt) {
+              let past = row - 1;
+              for (let k = 0; k < nSt; k++) if (WDS[k] <= row && WDE[k] > past) past = WDE[k];
+              if (past < row) break;                      // a row no nearer face owns: this face owns it
+              row = past + 1;
+            }
+            if (cS <= cE && row > cE) { MAP.faceSkip++; continue; }   // marched past; it takes no slot
+          }
           /* #829 review: THE CENSUS COUNTS COLUMNS, AND MUST KEEP DOING SO. `MAP.riserStops` is printed
              as `riserStops N/BW` (`tools/view.js`'s pit-lip and stair rows) and as "N rays stopped at a
              riser": a denominator of BW means at most one per column. A march that records up to WST
@@ -4440,6 +4502,10 @@ function castWalls(flash, fcR, fcG, fcB) {
           rze = (dq > 0 ? flo : fhi) * ZQ; rzf = (dq > 0 ? fhi : flo) * ZQ;
           WSP[nSt] = rp; WTV[nSt] = riserTex; WSD[nSt * 3] = side; WSD[nSt * 3 + 1] = stepX; WSD[nSt * 3 + 2] = stepY;
           WMX[nSt] = mx; WMY[nSt] = my; WZ0[nSt] = rz0; WZ1[nSt] = rz1; WZE[nSt] = rze; WZF[nSt] = rzf; WZN[nSt] = rzn;
+          /* The rows this face owns. For a column's FIRST face no test ran above, so the span is solved
+             here; the yield clip is not applied, because a first face has no nearer face to yield to. */
+          WDS[nSt] = nSt ? cS : (yT > 0 ? Math.ceil(yT) : 0);
+          WDE[nSt] = nSt ? cE : Math.min(BH - 1, Math.floor(horizon + (eyeZ - ry0) * rh));
           WSF[nSt] = 1 | (stepFace << 1); nSt++;
           /* #829: THE LIP IS A FACE, NOT THE END OF THE COLUMN. `break` here is the line that made
              everything past a pit or a raised deck disappear: the face a lip paints is the strip

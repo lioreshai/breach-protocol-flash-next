@@ -829,12 +829,26 @@ const sideFrom = (fx, fy, tx, ty) => {
   if (dy === -1 && !dx) return 3;
   return -1;
 };
+/* #893 THE TWO NUMBERS THE ALTITUDE TERM READS.
+   feetZEnabled is this issue's ONE knob, a `let` global the way propSightEnabled above is one: with it
+   false the predicate is altitude-blind again, which is the pre-#893 build, and `view.js jump`'s
+   anti-knob arm runs both ways in one tree to show the new rows fail at the numbers the report
+   measured (0/6 crossed, never escapes). Shipped behaviour is true.
+   The term reads NO new number. What a crossing costs the feet is STEP_Q/STEP_Z (above, #634: the one
+   quantity the blocker, the auto-step and the fall already agree on), and what a column costs a body is
+   cfg.eye - the same standability law the ladder clamp reads as `ceilAt - cfg.eye` (#765). */
+let feetZEnabled = true;
 /* The one movement test, and the only one: an open column reached through a crossing
    that is not blocked. Height lives in the flag rather than in a second comparison here,
    so while the grid is flat this is exactly !isSolid(tx, ty). A mover standing inside
    geometry answers to openness alone - the flags of a wall say every way out is blocked,
-   and taking them at face value is a permanent lock. */
-function canEnter(fx, fy, tx, ty) {
+   and taking them at face value is a permanent lock.
+   The optional fifth argument is the mover's FEET (#893). It is OPTIONAL in the strong sense: every
+   caller that does not hand one - the generator's `nearestOpen` and `bfsReach`, the reachability walk
+   at js/20_level.js, the bot AI, and a player who is standing on something - is answered exactly as
+   this function answered before it existed, because the altitude clause below is not reached. That is
+   what keeps a walker's answers byte-identical while an arc is obeyed (#893.4). */
+function canEnter(fx, fy, tx, ty, fz) {
   if (isSolid(tx, ty)) return false;
   if (isSolid(fx, fy)) return true;
   const d = sideFrom(fx, fy, tx, ty);
@@ -842,9 +856,21 @@ function canEnter(fx, fy, tx, ty) {
      read through STEP_Q; it answered nothing VB_BLOCK did not already answer - a rise past one step
      with no climb is EK_CLIFF, and EK_CLIFF is exactly the kind that sets VB_BLOCK - and `view.js
      vert`'s feet-vs-kind census is the row that proves the two answers are the same one. A second
-     predicate for a stored answer is how the two halves get to disagree. */
+     predicate for a stored answer is how the two halves get to disagree.
+     #893 keeps that shape and adds the one thing the stored kind CANNOT know, which is how high the
+     body asking is. A CLIFF stops a pair of FEET that have to climb it; it does not stop a body the
+     game's own gravity has already lifted over it. So the kind stays the stored answer and the altitude
+     enters only as the condition under which a CLIFF stops being a stop - and a climb (RAMP/LADDER) is
+     excluded, because there the stored kind already offers an up that is not an arc. This is not the
+     #634 draft: that read a RISE (what the level authored, which VB_BLOCK already said) where this
+     reads FEET (what the mover is doing, which no byte in MAP.vb can carry). */
   if (d < 0) return true;
-  return !(vbAt(fx, fy, d) & VB_BLOCK);
+  const b = vbAt(fx, fy, d);
+  if (!(b & VB_BLOCK)) return true;
+  if (!feetZEnabled || fz === undefined || (b & (VB_RAMP | VB_LADDER))) return false;
+  const df = floorAt(tx, ty);
+  if (fz + STEP_Z < df) return false;              // still more than a step BELOW the far deck: the grounded answer
+  return df + cfg.eye <= ceilAt(tx, ty);           // and the far column is one a body can stand in
 }
 
 /* Nearest cell with a walkable floor, by breadth-first search from a starting point:
