@@ -25,6 +25,12 @@
   you on the pit floor. Walking, stepping, falling, fall damage, bot movement and the generator's own
   reachability walk are answered exactly as before — 2,152 directed boundary crossings of a dealt level agree
   with the grounded answer, 0 disagreements.
+- **A half-wall is now a handhold at the height a crate is** (#893, PR #908). Jump at a ledge whose deck stands
+  0.75 m above the one you are on and you land on it. It used to stop you at the lip, while a crate with exactly
+  the same top could be vaulted — the game priced "how high can I lift myself" twice and the two prices differed
+  by 3.6 cm. One number now prices both, read off the same window props already used. A full 1.00 m storey still
+  refuses and a 1.00 m pit still cannot be jumped out of: the arc tops out at 0.464 m and a storey is deliberately
+  left off the jump. Walking, stepping and every pit row that was already gating are unchanged.
 
 - **A fall moves the eye instead of teleporting it** (#894, PR #905). The camera's height was re-derived from
   the body and clamped into the band of whichever column you were over, and a pit's ceiling is the neighbouring
@@ -60,9 +66,7 @@
 - **A shallow pit is no longer a one-way hole** (#893, PR #902). Jumping out of a 0.50 m pit returns you to the
   deck instead of leaving you standing on the pit floor.
 
-Not in this release, and known: a 3-quantum (+0.75 m) ledge still cannot be mounted the way a crate with the
-same top can, so terrain and props price a climb twice (#893, in rework); a descending staircase stripes inside
-its own faces (#904, PR #907 in review); the pistol's carried parts are still painted out, at 15 px against an
+Not in this release, and known: a descending staircase stripes inside its own faces (#904, PR #907 in review); the pistol's carried parts are still painted out, at 15 px against an
 845 px bar, because that envelope holds no round geometry at all (#780); and three older look items — a room
 with no wall inside its own rect, a prop reading as a hole in its own deck, and an enemy wearing his room's
 hue — remain in rework (#860, #695, #611).
