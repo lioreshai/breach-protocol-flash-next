@@ -713,28 +713,62 @@ const STALE_FIELD = 'staleByBuild';   // prose: which build this layout was meas
  * #468, #478, #431 and #536 were each filed: the front page's frames bound a build, render commits
  * landed, and the pictures quietly described a game that no longer shipped.
  *
- * What IS local and decisive is the bytes that draw a frame. `builds` records, per build a row names,
- * the sha256 of the shipped blobs a capture pass proves off the wire one blob at a time - index.html
- * plus the three files that put any pixel on screen: js/10_assets.js makes the textures, js/20_level.js
- * the lit materials, js/40_render.js is the rasterizer. `check` recomputes them from this tree. All
- * equal: these frames show what this checkout ships. Unequal: a blob that draws a frame moved, so the
- * frames show the picture the OLD blob drew - named per file, not as a sentence.
+ * What IS local and decisive is the bytes the page ships. `builds` records, per build a row names, the
+ * sha256 of every blob that build serves. The set is NOT a hand-kept list of files that "draw a frame"
+ * - it is that build's own index.html plus every script index.html loads, read off the file (#910, and
+ * #555 before it). The list used to be four hand-picked blobs, which was wrong in both directions: it
+ * parted the front page from its build over a jump predicate in js/20_level.js that repaints a still not
+ * at all, and it printed `ok SHIP-BIND` while js/13_mesh.js - the file that writes the held rifle
+ * straight into the framebuffer - was not hashed at all. A page's script tags are a set nobody can
+ * forget a member of.
  *
- * This is an UPPER bound on "the picture changed": a comment inside js/40_render.js moves a digest and
- * moves no pixel. That is why the row prints and counts by default and gates only under STRICT=1 - the
- * promotion path this repo already uses for a new gate, so the debt shows in the verdict line before it
- * shows in anyone's way. It widens no threshold and does not replace `staleByBuild`, which is a capture
- * session's measurement of what a DEPLOY deals; this is a checkout's measurement of what its own bytes
- * draw.
+ * Byte equality is an UPPER bound on "the picture changed": a comment inside js/40_render.js moves a
+ * digest and moves no pixel. So when the bytes differ the row does not stop at the hash - it asks the
+ * pixels (`arbiter`). Both trees paint the same seats through the same `JSDIR` A/B knob AGENTS.md
+ * already prescribes, and the row says which way that came back:
+ *
+ *   FRAME-EQUIV  every seat byte-identical: the bound build draws this tree's picture. A re-KEY of the
+ *                record is owed and no shutter is - the shape #910 itself turned out to be.
+ *   FRAME-MOVED  a seat paints differently, with the pixel count and the two means beside it. That is a
+ *                re-take, and it is the only verdict here that says so.
+ *   FRAME-STALE  the bytes differ and the pixels could not be asked (no git history for that build - a
+ *                depth-1 CI checkout is the common case - or the render failed). The byte claim stands
+ *                alone and says so; a gap that prints is a gap, not a pass.
+ *
+ * All three count as debt by default and gate under STRICT=1 - the promotion path this repo already uses
+ * - and none of them widens a threshold or replaces `staleByBuild`, which is a capture session's
+ * measurement of what a DEPLOY deals. `ARB=0` skips the render and forces FRAME-STALE; ARB_POSES caps
+ * the seats per side (default: one per sector the bound rows were shot in, max 3). The wall clock the
+ * render adds prints in the row, because a gate that gets slower quietly stops being run.
  */
-const SHIP_FILES = ['index.html', 'js/10_assets.js', 'js/20_level.js', 'js/40_render.js'];
+const SHIP_FILES = ['index.html', 'js/10_assets.js', 'js/20_level.js', 'js/40_render.js'];   // fallback: index.html unreadable
 const BUILDS_KEY = 'builds';
-const PROVENANCE_HINT = 'provenance.json records no shipped-bytes digest for it, so nothing here can say whether those '
-  + 'frames still show what ships (add builds[<build>].files = the sha256 of ' + SHIP_FILES.join(' + ') + ' at that build)';
+const ARB_ON = process.env.ARB !== '0';
+const ARB_POSES = parseInt(process.env.ARB_POSES || '3', 10);
 
-function shipDigests(rev) {
+/* The blobs a build serves: its own index.html plus the scripts that file loads, in file order. The
+ * page is its own manifest, so a shipped file cannot be left out of the bind by forgetting a list. */
+function shipSet(rev) {
+  let html = null;
+  try {
+    html = rev ? cp.execFileSync('git', ['show', rev + ':index.html'], { cwd: ROOT, encoding: 'utf8', maxBuffer: 1 << 26 })
+      : fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+  } catch (e) { html = null; }
+  if (!html) return { files: SHIP_FILES.slice(), why: 'index.html could not be read at ' + (rev ? 'rev ' + rev : 'this checkout') };
+  const out = ['index.html'];
+  const re = /<script[^>]+src="([^"]+)"/g;
+  let m;
+  while ((m = re.exec(html))) if (out.indexOf(m[1]) < 0) out.push(m[1]);
+  return { files: out, why: '' };
+}
+
+const PROVENANCE_HINT = 'provenance.json records no shipped-bytes digest for it, so nothing here can say whether those '
+  + 'frames still show what ships (add builds[<build>].files = the sha256 of index.html and every script that build\'s '
+  + 'index.html loads, read from that build)';
+
+function shipDigests(rev, files) {
   const out = {};
-  for (const f of SHIP_FILES) {
+  for (const f of files || shipSet(rev).files) {
     try {
       const buf = rev ? cp.execFileSync('git', ['show', rev + ':' + f], { cwd: ROOT, maxBuffer: 1 << 26 })
         : fs.readFileSync(path.join(ROOT, f));
@@ -753,8 +787,8 @@ function shipDigests(rev) {
 function buildCheck(prov, fails, notes) {
   const STRICT = !!process.env.STRICT;
   const rev = prov.rev || null;
-  let nrows = 0, bound = 0, drift = 0;
-  if (prov.err) return { nrows: 0, bound: 0, drift: 0 };
+  let nrows = 0, bound = 0, drift = 0, equiv = 0, movedPx = 0, noArb = 0;
+  if (prov.err) return { nrows: 0, bound: 0, drift: 0, equiv: 0, movedPx: 0, noArb: 0 };
   const builds = prov[BUILDS_KEY] || {};
   const named = [];
   for (const s of prov.shots) if (named.indexOf(s.build) < 0) named.push(s.build);
@@ -776,30 +810,138 @@ function buildCheck(prov, fails, notes) {
       if (STRICT) fails.push('build ' + b + ' has no shipped-bytes digest in ' + PROV_REL);
       continue;
     }
-    const unreadable = SHIP_FILES.filter(function (f) { return !here[f]; });
-    if (unreadable.length) {
+    // The bound set is the union of what this page serves and what the record hashed: a file that
+    // shipped then and not now is a shipped byte that moved, and dropping it would quietly narrow the
+    // bind every time a script is renamed.
+    const set = shipSet(rev).files;
+    for (const f of Object.keys(rec.files)) if (set.indexOf(f) < 0) set.push(f);
+    const unreadable = set.filter(function (f) { return !here[f] && rec.files[f]; });
+    if (unreadable.length === set.length) {
       nrows++;
-      console.log('SHIP-UNREADABLE   ' + String(b).padEnd(12) + 'cannot read ' + unreadable.join(' ') + ' at ' + src +
+      console.log('SHIP-UNREADABLE   ' + String(b).padEnd(12) + 'cannot read ' + set.length + ' shipped blob(s) at ' + src +
         ' - the compare did not run, which is a named gap and not a pass');
-      notes.push('the shipped-bytes compare could not read ' + unreadable.join(' ') + ' at ' + src);
+      notes.push('the shipped-bytes compare could not read ' + set.join(' ') + ' at ' + src);
       continue;
     }
-    const moved = SHIP_FILES.filter(function (f) { return rec.files[f] !== here[f]; });
+    const missing = set.filter(function (f) { return rec.files[f] === undefined; });
+    // Only a blob the record actually hashes can disagree with it. An unhashed one is the #555 gap and
+    // says so by name; counting it as "moved" would read like a picture claim built from nothing.
+    const moved = set.filter(function (f) { return rec.files[f] !== undefined && rec.files[f] !== here[f]; });
+    const part = missing.length ? ' The record hashes ' + (set.length - missing.length) + ' of ' + set.length +
+      ' blobs this build serves (' + missing.join(', ') + ' ' + (missing.length > 1 ? 'were' : 'was') +
+      ' never hashed at it, so the byte claim cannot see ' + (missing.length > 1 ? 'them' : 'it') + ' - #555)'
+      : '';
     if (!moved.length) {
+      if (missing.length) {
+        drift++;
+        console.log('SHIP-PARTIAL      ' + String(b).padEnd(12) + 'the ' + (set.length - missing.length) + ' blob(s) this record hashes are '
+          + 'byte-identical in ' + src + ', and ' + missing.length + ' blob(s) the same page serves ' + (missing.length > 1 ? 'were' : 'was') +
+          ' never hashed at that build, so nothing here can say what ' + (missing.length > 1 ? 'they' : 'it') + ' drew' + part
+          + (STRICT ? '' : ' (printed; STRICT=1 gates it)'));
+        if (STRICT) fails.push('build ' + b + ' records no digest for ' + missing.join(' ') + ' of the blobs its own page serves');
+        continue;
+      }
       bound++;
-      console.log('ok      SHIP-BIND     ' + String(b).padEnd(12) + 'the four blobs that draw a frame are byte-identical in '
-        + src + ' - these frames show what ships here (' + SHIP_FILES.join(', ') + ')');
+      console.log('ok      SHIP-BIND     ' + String(b).padEnd(12) + 'the ' + set.length + ' shipped blob(s) this bind covers are '
+        + 'byte-identical in ' + src + ' - these frames show what ships here' + part);
       continue;
     }
     drift++;
-    console.log('FRAME-STALE       ' + String(b).padEnd(12) + moved.length + ' of ' + SHIP_FILES.length +
-      ' shipped blob(s) that draw a frame differ between build ' + b + ' and ' + src + ': ' + moved.join(', ') +
-      ' - every frame bound to ' + b + ' shows the picture the old blob drew, so a re-take off a deploy of ' + src +
-      ' is owed' + (STRICT ? '' : ' (printed; STRICT=1 gates it)'));
-    if (STRICT) fails.push('frames bound to build ' + b + ' while ' + moved.join(' ') + ' moved since');
+    const head = moved.length + ' of ' + set.length + ' shipped blob(s) differ between build ' + b + ' and ' + src + ': '
+      + moved.join(', ') + '. ';
+    // The hash can only say "maybe". Ask the pixels (#910).
+    const ar = arbiter(b, set, seatsFor(prov, b));
+    if (!ar.ran) {
+      noArb++;
+      console.log('FRAME-STALE       ' + String(b).padEnd(12) + head + 'the pixels could not be asked (' + ar.why +
+        '), so this is a byte claim only' + part + (STRICT ? '' : ' (printed; STRICT=1 gates it)'));
+      if (STRICT) fails.push('frames bound to build ' + b + ' while ' + moved.join(' ') + ' moved and no render could decide it');
+      continue;
+    }
+    if (ar.same) {
+      equiv++;
+      console.log('FRAME-EQUIV       ' + String(b).padEnd(12) + head + ar.poses.length + ' seat(s) [' +
+        ar.poses.map(function (p) { return 'L' + p.lvl + 'c' + p.cam; }).join(' ') + '] came back BYTE-IDENTICAL from both '
+        + 'trees (' + ar.secs.toFixed(1) + ' s of render' + ') - the bound build draws this tree\'s picture: re-KEY the record, no '
+        + 'shutter is owed' + part + (STRICT ? '' : ' (printed; STRICT=1 gates it)'));
+      if (STRICT) fails.push('the record binds build ' + b + ' whose bytes moved, though ' + ar.poses.length + ' seat(s) render identical (a re-key is owed)');
+      continue;
+    }
+    movedPx++;
+    const worst = ar.poses.slice().sort(function (p, q) { return q.px - p.px; })[0];
+    console.log('FRAME-MOVED       ' + String(b).padEnd(12) + head + ar.moved + ' of ' + ar.poses.length +
+      ' seat(s) paint differently, worst L' + worst.lvl + 'c' + worst.cam + ' at ' + worst.px + ' of ' + worst.total + ' px ('
+      + worst.mA.toFixed(2) + ' -> ' + worst.mB.toFixed(2) + ' mean), ' + ar.secs.toFixed(1) + ' s of render - these frames show a '
+      + 'picture this checkout no longer draws, so a re-take off a deploy of ' + src + ' is owed' + part
+      + (STRICT ? '' : ' (printed; STRICT=1 gates it)'));
+    if (STRICT) fails.push('frames bound to build ' + b + ' paint differently from ' + src + ' (L' + worst.lvl + ', ' + worst.px + ' px): a re-take is owed');
   }
-  return { nrows: nrows, bound: bound, drift: drift };
+  return { nrows: nrows, bound: bound, drift: drift, equiv: equiv, movedPx: movedPx, noArb: noArb };
 }
+
+/* One seat per sector the rows bound to a build were shot in (camera 0), so the arbiter renders frames
+ * the record actually claims rather than a favourite pose. */
+function seatsFor(prov, build) {
+  const out = [];
+  for (const s of prov.shots) {
+    if (s.build !== build || s.level === null || s.level === undefined) continue;
+    if (out.some(function (p) { return p.lvl === s.level; })) continue;
+    out.push({ lvl: s.level, cam: 0 });
+  }
+  return out.sort(function (a, b) { return a.lvl - b.lvl; }).slice(0, ARB_POSES);
+}
+
+/*
+ * The pixel arbiter (#910). Read the bound build's own scripts out of git into a scratch tree, paint
+ * each seat twice through tools/view.js - once per tree - and compare bytes. A byte-identical pair is
+ * proof those bytes draw the same frame at that seat; a pair that differs is attributable to the bytes,
+ * because the instrument is identical on both sides. It decides nothing about what a DEPLOY deals, and
+ * it never renders when the bytes already match.
+ */
+function arbiter(build, files, seats) {
+  const r = { ran: false, same: false, poses: [], moved: 0, secs: 0, why: '' };
+  if (!ARB_ON) { r.why = 'ARB=0 skipped the render'; return r; }
+  if (!seats.length) { r.why = 'no row bound to this build names a level, so there is no seat to paint'; return r; }
+  const t = Date.now();
+  let dir = null;
+  try {
+    dir = fs.mkdtempSync(path.join(require('os').tmpdir(), 'recap-arb-'));
+    fs.mkdirSync(path.join(dir, 'js'));
+    for (const f of files) {
+      if (f === 'index.html' || !/\.js$/.test(f)) continue;
+      fs.writeFileSync(path.join(dir, f), cp.execFileSync('git', ['show', build + ':' + f], { cwd: ROOT, maxBuffer: 1 << 26 }));
+    }
+    r.ran = true;
+    for (const s of seats) {
+      const a = path.join(dir, 'a.png'), b2 = path.join(dir, 'b.png');
+      const envA = Object.assign({}, process.env, { JSDIR: path.join(dir, 'js'), OUT: a });
+      const envB = Object.assign({}, process.env, { JSDIR: path.join(ROOT, 'js'), OUT: b2 });
+      cp.execFileSync(process.execPath, [path.join(ROOT, 'tools', 'view.js'), 'scene', String(s.lvl), String(s.cam)],
+        { cwd: ROOT, env: envA, stdio: 'ignore', maxBuffer: 1 << 24 });
+      cp.execFileSync(process.execPath, [path.join(ROOT, 'tools', 'view.js'), 'scene', String(s.lvl), String(s.cam)],
+        { cwd: ROOT, env: envB, stdio: 'ignore', maxBuffer: 1 << 24 });
+      const A = pngDecode(fs.readFileSync(a), 'arbiter ' + build), B = pngDecode(fs.readFileSync(b2), 'arbiter ' + src0());
+      let px = 0;
+      const n = Math.min(A.rgb.length, B.rgb.length) / 3 | 0;
+      for (let i = 0; i < n; i++) {
+        const k = i * 3;
+        if (A.rgb[k] !== B.rgb[k] || A.rgb[k + 1] !== B.rgb[k + 1] || A.rgb[k + 2] !== B.rgb[k + 2]) px++;
+      }
+      r.poses.push({ lvl: s.lvl, cam: s.cam, px: px, total: n, mA: measure(A, 1, DARK).mean, mB: measure(B, 1, DARK).mean });
+      if (px) r.moved++;
+    }
+    r.same = r.moved === 0;
+  } catch (e) {
+    r.why = (r.ran ? 'the render failed: ' : 'that build\'s bytes are not in this checkout (a depth-1 checkout has no history): ') +
+      String(e && e.message || e).split('\n')[0].slice(0, 120);
+  } finally {
+    r.secs = (Date.now() - t) / 1000;
+    if (dir) { try { fs.rmSync(dir, { recursive: true, force: true }); } catch (e) { /* scratch */ } }
+  }
+  return r;
+}
+
+function src0() { return process.env.PROV ? 'the named tree' : 'this checkout'; }
 
 /*
  * The capture-pass paragraph's own claims (#653).
@@ -883,7 +1025,8 @@ function captionBind(txt, prov, fails, notes) {
   }
   const rec = builds[claimBuild];
   const here = shipDigests(prov.rev || null);
-  const moved = SHIP_FILES.filter(function (f) { return rec.files[f] !== here[f]; });
+  const set = shipSet(prov.rev || null).files;
+  const moved = set.filter(function (f) { return rec.files[f] !== undefined && rec.files[f] !== here[f]; });
   // Which way does the paragraph lean, and which way do the bytes lean? Both directions of disagreement
   // are the same defect: a page written by one pass and shipped by the commits after it. #653 was the
   // first of them; a paragraph that still says "a re-take is owed" after the frames were re-taken is the
@@ -893,19 +1036,19 @@ function captionBind(txt, prov, fails, notes) {
   const agrees = (claimed === 'SHIP-BIND') === holds;
   if (agrees) {
     console.log('ok      CAPTION-VERDICT ' + claimBuild.padEnd(10) + 'the paragraph reads ' + claimed + ' for build ' + claimBuild +
-      ', which is what ' + src + '\'s bytes say too (' + (holds ? SHIP_FILES.join(', ') + ' all agree, so no re-take is owed here'
-        : moved.length + ' of ' + SHIP_FILES.length + ' differ: ' + moved.join(', ') + ', so a re-take is owed here)'));
+      ', which is what ' + src + '\'s bytes say too (' + (holds ? set.length + ' shipped blob(s) agree, so no re-take is owed here'
+        : moved.length + ' of ' + set.length + ' differ: ' + moved.join(', ') + ' - a re-key, unless a seat paints differently)'));
   } else if (claimed === 'SHIP-BIND') {
     debt++;
     console.log('CAPTION-STALE       ' + claimBuild.padEnd(12) + 'the paragraph states the bind holds for build ' + claimBuild +
-      ' while ' + moved.length + ' of ' + SHIP_FILES.length + ' shipped blob(s) that draw a frame differ in ' + src + ': ' +
-      moved.join(', ') + ' - the front page says these frames are the picture it ships and the bind row says a re-take is owed; '
+      ' while ' + moved.length + ' of ' + set.length + ' shipped blob(s) differ in ' + src + ': ' +
+      moved.join(', ') + ' - the front page says these frames are the picture it ships and the bind row does not; '
       + 'the paragraph is one commit behind its own table' + (STRICT ? '' : ' (printed; STRICT=1 gates it)'));
     if (STRICT) fails.push('README states the bind holds for ' + claimBuild + ' while ' + moved.join(' ') + ' moved since');
   } else {
     debt++;
     console.log('CAPTION-FRESH       ' + claimBuild.padEnd(12) + 'the paragraph reads ' + claimed + ' for build ' + claimBuild +
-      ' while all ' + SHIP_FILES.length + ' shipped blobs that draw a frame are byte-identical in ' + src + ' - the front page '
+      ' while all ' + set.length + ' shipped blobs this record hashes are byte-identical in ' + src + ' - the front page '
       + 'says a re-take is owed when the bind row says it is not, which is the same drift in the other direction'
       + (STRICT ? '' : ' (printed; STRICT=1 gates it)'));
     if (STRICT) fails.push('README reads FRAME-STALE for ' + claimBuild + ' while every shipped blob still matches it');
@@ -1271,8 +1414,9 @@ function checkMode(rows, rev) {
     (pv.device ? ', ' + pv.device + ' with a device-scoped deal (#404)' : '') +
     (pv.stale ? ', ' + pv.stale + ' labelled stale-by-build (a re-take off a newer deploy re-deals; the caption coordinates are inside one build)' : '') +
     ', ' + bv.bound + ' build(s) bound to this tree\'s shipped blobs' +
-    (bv.drift ? ', ' + bv.drift + ' build(s) whose shipped blobs moved (frames describe a picture that no longer ships' +
-      (process.env.STRICT ? '' : '; STRICT=1 gates it') + ')' : '') +
+    (bv.drift ? ', ' + bv.drift + ' build(s) whose shipped blobs moved (' + bv.equiv + ' pixel-identical: a re-key is owed, ' +
+      bv.movedPx + ' paint differently: a re-take is owed' + (bv.noArb ? ', ' + bv.noArb + ' undecided' : '') +
+      (process.env.STRICT ? '' : '; STRICT=1 gates them') + ')' : '') +
     (cb.debt ? ', ' + cb.debt + ' capture-pass sentence(s) asserting a bind this checkout\'s bytes deny' +
       (process.env.STRICT ? '' : '; STRICT=1 gates it') : '') +
     (dl.unbound ? ', ' + dl.unbound + ' frame(s) with no replaced-frame mean, so no delta is computable for them' +
