@@ -84,7 +84,7 @@ level ending at the lip (#829, `js/40_render.js`); and the end of a slab's under
 (#421, `js/40_render.js`). At the hip the held rifle's fore-end and magazine are round, the fist carries a knuckle row,
 and the shotgun's pump is drawn where it used to be painted out (#780, #892, `js/13_mesh.js`) — one of the twelve blobs
 the bind below now hashes, and it is the reason every frame in this set has a bottom-third set of differing
-pixels inside the columns the rig occupies. Three of the blobs that draw a frame moved since the frames on this
+pixels inside the columns the rig occupies. Three of the blobs that paint a frame moved since the frames on this
 page: `js/40_render.js`, `js/10_assets.js` and `js/20_level.js`. Three of the commits behind them repaint a still — the
 wall sheet, the slab joint, and the march, whose reach past a lip was extended once more by #903, which is why three of
 these eight frames now show a wall the march used to stop at. Two others did not — #894's airborne eye in
@@ -105,13 +105,14 @@ from both trees — that build's scripts out of git, this checkout's own, one ha
 `FRAME-EQUIV` when every seat comes back byte-identical (the record needs a re-key and no shutter is owed) or
 `FRAME-MOVED`, with the pixel count and the two means, when a seat paints differently (a re-take is owed). Where the
 pixels cannot be asked — a shallow CI checkout has no history to read the other tree from — it prints `FRAME-STALE`
-naming the blobs and says the render could not run. A pass aged badly once, binding `bd2441a` while two
+naming the blobs and says the render did not run. A pass aged badly once, binding `bd2441a` while two
 render commits landed while a pass was in review, and the tool exists so it cannot age quietly again. On the tree that
-carries these frames that row reads `FRAME-STALE` for
-`39edaf3`: `js/40_render.js` moved after the key (#904's staircase faces), and the render says a seat really does paint
-differently — ABATOIR's arrival frame at 5,476 of 812,552 px, mean 62.80 to 62.44 — so those eight frames need a re-take
-off a deploy of this build, which is the debt #910 keeps open; the ARCHIVE and STACK seats came back byte-identical, so
-what moved is a face, not the levels. The next commit to move a shipped blob will re-key this sentence too, and the row will name whichever blob moved. The same command also prints a
+carries these frames that row reads `FRAME-MOVED` for
+`39edaf3`: `js/40_render.js` moved after the key (#904's staircase faces), and the render agrees a seat repaints — the
+harness's own ABATOIR seat differs at 5,476 of 812,552 px, mean 62.80 to 62.44, while the ARCHIVE and STACK seats come
+back byte-identical. So a face moved, not the levels, and a re-take off a deploy of this build is owed — which is the
+debt #910 keeps open now that the tool can tell a re-key from a re-take instead of charging eight captures for either.
+The next commit to move a shipped blob will re-key this sentence too, and the row will name whichever blob moved. The same command also prints a
 `CAPTION-VERDICT` row that compares this sentence with the digests, so the page cannot be left a pass behind by the
 pass it describes (#653).
 
@@ -144,7 +145,7 @@ stopping at the lip (#829). The end of a slab's underside joins the wall it land
 And at the hip the rifle's fore-end, magazine and knuckles are modelled and the shotgun's pump is no longer hidden
 behind the fist gripping it (#780, #892) — nothing about aiming changes, the hand simply stops reading as a plate.
 Between the two builds `js/10_assets.js`, `js/20_level.js` and `js/40_render.js` moved — three of the blobs that
-draw a frame — and `js/13_mesh.js` moved with them, which the bind used to miss because it hashed four hand-picked
+paint a frame — and `js/13_mesh.js` moved with them, which the bind used to miss because it hashed four hand-picked
 files and not the page's own script list; #555 was filed for that hole and the record above closes it.
 Per frame, in the order the eight appear below, the deltas to **−0.02 / −0.07 / −0.02 / −0.18 / +0.21 / +0.20 / −0.01 / −0.01** mean luma; `recap`
 computes each one from the two frames and names the row that disagrees, and a caption below repeats only its own

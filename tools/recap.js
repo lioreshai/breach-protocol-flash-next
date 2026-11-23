@@ -972,7 +972,7 @@ function src0() { return process.env.PROV ? 'the named tree' : 'this checkout'; 
  * claim are different pages and only one of them is green in this table.
  */
 const CAP_BUILD = /deployed page at build\s+`([0-9a-f]{7,40})`/;
-const CAP_VERDICT = /reads\s+`(SHIP-BIND|FRAME-STALE)`\s+for\s*`?([0-9a-f]{7,40})?/;
+const CAP_VERDICT = /reads\s+`(SHIP-BIND|FRAME-EQUIV|FRAME-STALE|FRAME-MOVED)`\s+for\s*`?([0-9a-f]{7,40})?/;
 const CAP_FRESH = /no re-take is owed|today\'s picture|the front page is today/i;
 // A freshness phrase only asserts the bind where the paragraph is talking about the bound build. The
 // window is around the build mention in the whitespace-flattened page, so a stray "today's picture" in
@@ -1032,13 +1032,20 @@ function captionBind(txt, prov, fails, notes) {
   // first of them; a paragraph that still says "a re-take is owed" after the frames were re-taken is the
   // second, and it is just as misleading to the reader in front of it.
   const claimed = v ? v[1] : 'SHIP-BIND';
+  // Which way does the paragraph lean, and which way do the bytes lean? Both directions of disagreement
+  // are the same defect: a page written by one pass and shipped by the commits after it. #653 was the
+  // first of them; a paragraph that still says "a re-take is owed" after the frames were re-taken is the
+  // second, and it is just as misleading to the reader in front of it. `SHIP-BIND` and `FRAME-EQUIV` are
+  // the two labels that say the picture is unchanged; `FRAME-STALE` and `FRAME-MOVED` are the two that
+  // say the bytes moved (#910: the first of those pairs splits on whether a seat repaints).
+  const holdsClaim = claimed === 'SHIP-BIND' || claimed === 'FRAME-EQUIV';
   const holds = !moved.length;
-  const agrees = (claimed === 'SHIP-BIND') === holds;
+  const agrees = holdsClaim === holds;
   if (agrees) {
     console.log('ok      CAPTION-VERDICT ' + claimBuild.padEnd(10) + 'the paragraph reads ' + claimed + ' for build ' + claimBuild +
       ', which is what ' + src + '\'s bytes say too (' + (holds ? set.length + ' shipped blob(s) agree, so no re-take is owed here'
         : moved.length + ' of ' + set.length + ' differ: ' + moved.join(', ') + ' - a re-key, unless a seat paints differently)'));
-  } else if (claimed === 'SHIP-BIND') {
+  } else if (holdsClaim) {
     debt++;
     console.log('CAPTION-STALE       ' + claimBuild.padEnd(12) + 'the paragraph states the bind holds for build ' + claimBuild +
       ' while ' + moved.length + ' of ' + set.length + ' shipped blob(s) differ in ' + src + ': ' +
