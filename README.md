@@ -70,8 +70,15 @@ caption below states its kept-pixel percentage beside its mean.
 Every row of `provenance.json` carries its own replaced-frame mean so the direction is readable per frame rather than
 only in aggregate.
 
-All eight were re-taken in one pass off the deployed page at build `b7a40d6`, whose merged changes are what a
-reader sees differently here: a wall keeps its grain out at six to fourteen metres instead of shuffling between six and
+All eight frames bind the deployed page at build `39edaf3`. The shutter ran one build earlier, at `b7a40d6`, and
+#910 re-keyed the bind rather than re-shooting: the only blob that draws a frame which moved between the two is
+`js/20_level.js`, and what moved in it is a jump predicate (#893) a still cannot show because the feet are on the
+ground. That was measured, not assumed — all eight poses were re-rendered off a deploy whose four shipped blobs
+sha256-matched that build four for four, and they came back with no world pixel moved: three frames byte-identical,
+the other five differing by 0.03% to 0.39% of their pixels inside the columns the held rig occupies, every mean
+within 0.01 luma, which is one page load refusing to agree with the next (#611). So the PNGs are `b7a40d6`'s and the
+bytes that draw them are `39edaf3`'s, and a re-shoot would have handed back the same picture with different dither.
+The merged changes below are what a reader sees differently here: a wall keeps its grain out at six to fourteen metres instead of shuffling between six and
 ten (#889, `js/10_assets.js`); a wall march now looks past the fourth face, so a pit's far wall arrives instead of the
 level ending at the lip (#829, `js/40_render.js`); and the end of a slab's underside is a joint rather than a fade
 (#421, `js/40_render.js`). At the hip the held rifle's fore-end and magazine are round, the fist carries a knuckle row,
@@ -86,7 +93,8 @@ the ground and the other only when a body pushes at a face. The eight poses came
 signatures the replaced rows name. The pass supersedes the frames this page carries (`82e43cc`), and it proved its build off the wire by
 sha256-comparing the four blobs that draw a frame — `index.html`, `js/10_assets.js`, `js/20_level.js`,
 `js/40_render.js` — served by that page against the tree that carries these frames before the shutter, four for four,
-so every frame below is the picture that build's page drew. Whether that is still today's picture is no longer a sentence
+so every frame below is the picture that build's page drew; the re-key repeated that same blob-by-blob proof against
+`39edaf3` before it re-rendered the poses. Whether that is still today's picture is no longer a sentence
 that ages: `node tools/recap.js check` hashes the four blobs that draw a frame — `index.html`, `js/10_assets.js`,
 `js/20_level.js`, `js/40_render.js` — against the digests recorded for the bound build in
 [`docs/screens/provenance.json`](docs/screens/provenance.json), and prints `SHIP-BIND` when this tree's bytes are
@@ -94,7 +102,7 @@ those bytes or `FRAME-STALE`, naming whichever blobs moved. A pass aged badly on
 render commits landed while a pass was in review, and the tool exists so it cannot age quietly again; the bind is an upper bound on
 "the picture changed", since a comment inside a renderer moves a digest and moves no pixel, so the row names the
 blob and leaves the re-take call to a human. On the tree that carries these frames that row reads `SHIP-BIND` for
-`b7a40d6`: the four blobs that draw a frame are byte-identical here, so these eight are this checkout's own picture. The
+`39edaf3`: the four blobs that draw a frame are byte-identical here, so these eight are this checkout's own picture. The
 next commit to move one of those four will re-key this sentence too, and the row will name whichever blob moved. The same command also prints a
 `CAPTION-VERDICT` row that compares this sentence with the digests, so the page cannot be left a pass behind by the
 pass it describes (#653).
