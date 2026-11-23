@@ -6518,6 +6518,75 @@ if (MODE === 'drop') {
     row('L0 the altitude is in the one predicate, not a second rise test (#893.3)',
       one === 'PRESENT' && second === true,
       `canEnter carries the term (${one}); tryMove and slide re-solve no rise (${second ? 'none' : 'A SECOND TEST'})`);
+
+    /* #893 ONE PRICE, NOT TWO - the report's last symptom: "I can vault the crate but not the half-wall of
+       exactly the same height". A prop's top within PROP_STEP_UP of the feet was a handhold and the climb
+       was paid in velocity (`propMount` + the airborne assist); terrain offered nothing, so terrain stopped
+       at the arc's own ceiling (apex + one quantum = 0.714 m) while a crate reached 0.75. `terrainMount`
+       now reads the SAME window off the deck the body stands over and the SAME `mount` line spends it, so
+       the only thing that can move here is the height a rise may have: at most PROP_STEP_UP mounts, past it
+       the rise refuses - and a 4-quantum (1.00 m) rise keeping the jump off the storey is the arc decision
+       published on the issue, asserted as a row rather than remembered in prose. Both arms run the same
+       authored lane in the same tree: `feetZEnabled = false` is the pre-#893 build (#893.5), and the walked
+       arm is the grounded answer the rest of this probe already gates. */
+    {
+      const PSU = run('PROP_STEP_UP');
+      const raise = (q) => run(`(function(){for(let x=${LIP};x<=${C1};x++){const i=${LANE}*MW+x;
+        MAP.fz[i]=${q};MAP.cz[i]=CZ_DEF;}linkBoundaries();feetZEnabled=true;return 1;})()`);
+      // Space is held through the ascent - that IS the input the mantle is priced on - and the trace
+      // returns [endX, endFloor, apex, airborne frames, hp lost, x at the lip].
+      const leap = (q, sp, walk, blind) => run(`(function(){
+        feetZEnabled=${blind ? 'false' : 'true'};
+        for(const k in keys)delete keys[k];
+        P.x=${LIP}-2.4;P.y=${LANE}+0.5;P.ang=0;P.vx=P.vy=P.vz=0;P.air=false;P.crouch=0;P.sprint=0;
+        P.z=floorAt(P.x,P.y);P.hp=100;P.armor=0;S.shake=0;keys['KeyW']=1;${sp ? "keys['ShiftLeft']=1;" : ''}
+        let j=0,air=0,apex=-9;
+        for(let i=0;i<20;i++)update(1/60);
+        for(let i=0;i<90;i++){
+          if(!j&&P.x>${LIP}-0.7){${walk ? '' : "keys['Space']=1;"}j=1;}${walk ? "else if(j&&i>3)delete keys['Space'];" : ''}
+          update(1/60);
+          if(P.air){air++;if(P.z>apex)apex=P.z;}
+        }
+        return [P.x,floorAt(P.x,P.y),apex,air,100-P.hp];})()`);
+      const rows8 = [];
+      for (const q of [1, 2, 3, 4]) {
+        raise(q);
+        const sp = leap(q, true, false, false), wk = leap(q, false, true, false), bl = leap(q, true, false, true);
+        const h = q * run('ZQ');
+        // The ARC alone reaches where the altitude-blind apex plus one quantum reaches - the blind arm is
+        // the shipped arc with no assist, so `arcReaches` is measured, never computed off vz/g.
+        const arcReaches = bl[2] + run('STEP_Z') >= h - 1e-9;
+        const want = arcReaches || h <= PSU + 1e-9;
+        // The walked arm is the GROUNDED answer and must not move: only a one-quantum tread is taken
+        // (the auto-step), everything taller stops the walker at the lip minus the collision radius.
+        const wkOk = wk[1] === (q === 1 ? h : 0) && wk[4] === 0;
+        // The blind build is the pre-#893 build: it hands NO altitude to the one test, so the only rise
+        // it can take is the one a WALKER already took - a single quantum, not blocked at all. Landing
+        // anything taller in that arm would mean the knob is not load-bearing (#893.5).
+        rows8.push({ q, h, sp, wk, bl, want, arcReaches, ok: (sp[1] === h) === want && sp[4] === 0 && wkOk &&
+          (bl[1] === h) === (h <= run('STEP_Z') + 1e-9) });
+      }
+      for (const r of rows8)
+        row(`L0 jump a ${(r.h).toFixed(2)} m riser, sprint (#893)`, r.ok,
+          `landed ${r.sp[1] === r.h ? 'ON the deck' : 'NO'}${r.want ? '' : ' - and the rise is past both the arc and the handhold window'}: `
+          + `apex ${r.sp[2].toFixed(3)} m, ${r.sp[3]} airborne frames, end floor ${r.sp[1].toFixed(3)} at x `
+          + `${r.sp[0].toFixed(2)}, hp -${r.sp[4]}; walked ` + (r.wk[1] === r.h ? 'takes it' : `stops at the lip, floor ${r.wk[1].toFixed(3)}`) + `; altitude-blind `
+          // A one-quantum tread is landed by the BLIND build because a WALKER already takes it - that is the
+          // grounded answer, not a broken knob, and the clause below reads the same condition. Saying
+          // "knob not load-bearing" there would put a false alarm on a green row.
+          + `${r.bl[1] === r.h ? (r.h <= run('STEP_Z') + 1e-9 ? 'lands it too (a walker takes a one-quantum tread with no altitude)' : 'LANDS - knob not load-bearing') : 'refuses, floor ' + r.bl[1].toFixed(3)}`);
+      const mountUp = rows8.filter(r => r.sp[1] === r.h).map(r => r.h), noMount = rows8.filter(r => r.bl[1] === r.h).map(r => r.h);
+      row('L0 terrain and props price the way up with ONE number (#893.7)',
+        mountUp[mountUp.length - 1] <= PSU + 1e-9 &&
+        mountUp[mountUp.length - 1] >= PSU - run('ZQ') &&
+        rows8.filter(r => r.h > PSU).every(r => r.sp[1] !== r.h) &&
+        run(`terrainMount.toString().indexOf('PROP_STEP_UP') >= 0`) === true &&
+        run(`updatePlayer.toString().indexOf('terrainMount') >= 0 && updatePlayer.toString().indexOf('sqrt(2 * 9.2 * PROP_STEP_UP)') >= 0`) === true,
+        `the highest deck the jump+mantle lands on is ${mountUp.length ? mountUp[mountUp.length - 1].toFixed(2) : 'none'} m against `
+        + `PROP_STEP_UP ${PSU.toFixed(2)} (the crate's own window); every rise past it refuses; the assist is the `
+        + `prop's existing sqrt(2 g PROP_STEP_UP), spent by one line for both (${run(`terrainMount.toString().indexOf('PROP_STEP_UP') >= 0`)}); `
+        + `the arc alone landed ${noMount.length ? noMount.map(h => h.toFixed(2)).join('/') : 'nothing'}`);
+    }
     mk();
   }
 
