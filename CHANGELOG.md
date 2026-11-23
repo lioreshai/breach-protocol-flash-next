@@ -66,8 +66,9 @@
 - **A shallow pit is no longer a one-way hole** (#893, PR #902). Jumping out of a 0.50 m pit returns you to the
   deck instead of leaving you standing on the pit floor.
 
-Not in this release, and known: a descending staircase stripes inside its own faces (#904, PR #907 in review); the pistol's carried parts are still painted out, at 15 px against an
-845 px bar, because that envelope holds no round geometry at all (#780); and three older look items — a room
+Not in this release, and known: a descending staircase stripes inside its own faces (#904, PR #907 in
+review); the pistol's carried parts are still painted out, at 15 px against an 845 px bar, because that envelope
+holds no round geometry at all (#780); and three older look items — a room
 with no wall inside its own rect, a prop reading as a hole in its own deck, and an enemy wearing his room's
 hue — remain in rework (#860, #695, #611).
 
