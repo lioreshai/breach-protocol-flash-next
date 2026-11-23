@@ -4730,8 +4730,22 @@ function castWalls(flash, fcR, fcG, fcB) {
            `yieldFace` on the span guard: the only reason `ds > de` used to abandon the column. On a step
            UP and on flat levels `yN >= de` already, so neither the yield nor the flag runs any
            arithmetic there and those frames stay bit-identical. */
-        if (de < ds && stepFace && rz1 - rz0 <= ZQ + 1e-9) { ds = Math.min(ds, Math.floor(yN)); de = ds - 1; yieldFace = 1; }
-        else if (de < ds) { const yK = Math.floor(yN); if (yK < 0) continue; ds = Math.min(ds, yK); de = ds; }
+        /* #517 THE YIELD IS GEOMETRY, NOT A TREAD FLAG. The two clauses this replaces yielded the straddle
+           row when the crossing was an authored `EK_STEP` tread one quantum high, and KEPT it for every
+           other step down. That difference was never geometry: the occlusion the yield rests on - a ray
+           arriving under the lip's row meets the deck under the eye first, so it never reaches the slab
+           side - holds for a step down of ANY rise, tread or not, authored stair or a one-cell drop into a
+           pit. Keeping the row for the taller drops is the phantom #517 poses a camera at: `POSE=1
+           node tools/view.js heights` poseC stands on a band three quanta above the deck below, reads
+           1.50 m of picture at a row whose ray arrives at 4.53 m, names that pixel's last writer a
+           wall/riser pixel, and `drawBillboard`'s cull reads the same stored `perp` out of `zbuf` and drops
+           one scan-line of a body standing just past the lip. So the rise test and the kind test are gone:
+           EVERY step down yields its straddle row, and the seam call below paints the mark the player reads
+           in rows the deck honestly owns. A step UP and a flat level take the same single branch with the
+           same `yN >= de` already true, so `de < ds` is false there, no arithmetic runs and those frames
+           stay bit-identical. The negative-kept-row guard is kept for every step down: a lip off the top of
+           the frame has no visible face and no seam row, which is what `continue` says. */
+        if (de < ds) { const yK = Math.floor(yN); if (yK < 0) continue; ds = Math.min(ds, yK); de = ds - 1; yieldFace = 1; }
       }
       /* #518 THE ROW IS YIELDED, THE MARK IS NOT. An empty span used to fall through the guard below and
          abandon the column with it, and that took the seam with it: the eye-side crease is anchored on the
