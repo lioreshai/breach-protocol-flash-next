@@ -1843,6 +1843,24 @@ function planeAlong(rx, ry, pl, isF, absP, farOK) {
       let goOn = 0;                                   // #518: 1 only where the block below extends the reach
       if (inAir) {
         const pe = isF ? fzs[ie] * ZQ : cp[ie];      // the march is standing in a cell whose own surface
+        /* #518 THE CAP BREAK MAY NOT OUTRANK THE ARRIVAL IN THE CELL IT STOPPED IN. The loop tests the
+           cell it is standing in one line LATER (:1630), so a march whose next crossing is at or beyond
+           its reach answers nothing from that cell and hands the CALLER's plane back. That is wrong in
+           exactly one case, and it is the case #517's seat is made of: the far arm has extended `cap` to
+           the solve of the lower floor this ray is over, the march walks up to that solve, the cap test
+           fires before the arrival test, and the pixel is painted with the deck it was queued on. Measured
+           at pose C's PAST window with an exit census on the march (this cycle): 1316 of 1316 failing px
+           end at THIS break, standing in an air cell whose own floor is `0.00`, while the same ray handed
+           a plane below every floor answers `0.00` at 4.53 m and the queued `1.00` solves at 1.50 m. The
+           far arm was already running for these pixels and still returned the queued plane, which is why
+           every rule written at the extension itself measured inert.
+           So apply the loop's OWN arrival test here, with `cap` in place of the crossing's `tOut`: the
+           surface of the cell the march stopped in answers this pixel if its solve lies inside the span
+           the march actually travelled. Nothing new is invented - the plane is the one the ray is standing
+           over and the distance is its own solve, which cannot exceed the reach. A march that crossed no
+           height boundary cannot satisfy it (`pe === pl` on a flat level, and any `pe` nearer the eye than
+           `pl` was answered by the cell test on an earlier iteration), so a flat level costs two compares
+           and moves no byte, and the CEILING half is excluded by `isF` as everywhere else in this block. */
         if ((pe - eyeZ) * sgn > 1e-9 && Math.abs(pe - pl) > ZQ * 0.5) {
           gndWalkEdge++;                             // is not the answer: a slab edge
           /* #518 THE EDGE IS NOT THE END OF THE RAY. `pe` is the floor of the cell the march is standing
@@ -1874,6 +1892,28 @@ function planeAlong(rx, ry, pl, isF, absP, farOK) {
             }
           }
         }
+      }
+      const peCap = inAir && isF ? fzs[cy * N + cx] * ZQ : pl;   // the cell the march stopped in, floors only
+      if (!goOn && inAir && isF && (peCap - pl) < -ZQ * 0.5) {
+        /* #518 THE ARRIVAL TEST, CLIPPED AT THE CAP. The loop applies its per-cell arrival test one line
+           later (:1630), so a march that runs out of reach never gets to ask the question about the cell
+           it stops in, and hands the CALLER's plane back. That is the shape of #517's seat: the ray walks
+           off the deck, the reach ends over the lower floor, and the pixel is painted with the deck it was
+           queued on. Measured this cycle with an exit census on the march, over pose C's PAST window:
+           **1316 of 1316 failing px end at this cap break**, standing in an air cell whose own floor is
+           `0.00`, while the same ray handed a plane below every floor answers `0.00` at 4.53 m and the
+           queued `1.00` solves at 1.50 m. It is also why the far arm's extension measured inert: the rule
+           was written at the extension, and these pixels never arrive at an extension.
+           So ask the loop's own question with `cap` in place of the crossing's `tOut`: does THIS cell's
+           floor answer inside the span the march actually travelled? `tze <= cap <= tOut` and `tze >= tIn`
+           is exactly the per-cell test clipped to the reach, so it is an arrival, not an invention - a
+           pixel can never be placed farther than the ray's own solve of a plane it is standing over. It
+           runs only where no extension was made this iteration, so the march still prefers to keep walking
+           and find whatever is nearer. A column that crossed no height boundary has `pe === pl` and fails
+           the half-quantum test (a flat level: two compares, no byte moved), and the ceiling half is
+           excluded by `isF` as everywhere else in this block. */
+        const tze = (peCap - eyeZ) * sgn > 1e-9 ? (peCap - eyeZ) * sgn * invAbsP : -1;
+        if (tze >= tIn && tze <= cap) { pl = peCap; gWalkHit = 1; break; }
       }
       if (!goOn) break;
       continue;
@@ -4790,7 +4830,26 @@ function castWalls(flash, fcR, fcG, fcB) {
            already does; `zbuf`/`SURF` stay after it, because a skipped row must not claim either. Dead
            where nothing is skipped, so a one-stop column and every flat level are byte-identical. */
         const vy = ty; ty += tstep; if (ty >= mh) ty -= mh;
-        if (zguard && zbuf[idx] < perp) continue;         // #829: a nearer surface already owns this row
+        /* #829: a nearer surface already owns this row. #904: ONE QUESTION, ASKED IN ONE PRECISION, AND
+           IT BUYS ONLY THE PAINT. `zbuf` is a Float32Array and `perp` is a double, and down a staircase
+           those are not two surfaces but ONE distance arrived at by two paths: the ground march stops at
+           this riser's crossing and stores it as a float, the wall march carries `rp = sdx - ddx` as a
+           double. They agree to under 5e-4 and disagree in the last bits, so `zbuf[idx] < perp` was
+           decided by which way the float rounded - and that answer varies with the COLUMN. Measured
+           across one descending flight (SEED 12345, L0, seat 3.5,14.5,1.5708, pitch -BH*0.06) the same
+           screen row alternated painted/skipped column to column inside one face's own span, and the
+           frame carried the thin vertical bars this issue is about.
+           THE TIE IS SETTLED TOWARD THE PIXEL ALREADY PAINTED - the ground march built it from this very
+           crossing, so the face body repainting it is a second answer to a question already answered -
+           AND TOWARD THE PIXELS ONLY. `perp <= zbuf[idx]` keeps #829's ownership test EXACTLY: a face
+           this branch paints is a face #829 also painted, so the `zbuf[idx] = perp` and `SURF` writes
+           below run on exactly the pixels they ran on before and a row this branch does not paint stores
+           what #829's own test stored there (on a tie that store is a float no-op: the two values are
+           the same float). `Math.fround(perp) < zbuf[idx]` then drops the rows whose two answers are
+           ONE float, which is the whole of the comb and nothing else. Dead where the two depths differ
+           by more than a float step, so a one-stop column - every flat level, and the nearest face of
+           every column - is byte-identical. */
+        if (zguard && !(perp <= zbuf[idx] && Math.fround(perp) < zbuf[idx])) continue;
         zbuf[idx] = perp;
         if (SURF) SURF[idx] = 0;            // #546: this pixel is a FACE now, not the ground surface
         const yv = vy | 0, fy = vy - yv, rfy = 1 - fy;
@@ -4972,7 +5031,7 @@ function castWalls(flash, fcR, fcG, fcB) {
         if (CSEAMA > 0) {
           let fs = 0, fn = 0;
           for (let y = ds, ye = ds + CSEAMC - 1 <= de ? ds + CSEAMC - 1 : de; y <= ye; y++) {
-            if (zguard && zbuf[y * BW + x] < perp) continue;   // #829: a nearer surface owns this row
+            if (zguard && zbuf[y * BW + x] < perp) continue;       // #829: a nearer surface owns this row (tie left as #829 asked it)
             const v = px[y * BW + x];
             fs += (v >> 16 & 255) * 0.25 + (v >> 8 & 255) * 0.64 + (v & 255) * 0.11; fn++;
           }
@@ -5000,7 +5059,7 @@ function castWalls(flash, fcR, fcG, fcB) {
              9 m - a corner the player cannot see, painted over one he can, which is the #517/#518
              phantom class arrived at from the far end. The test is the same one read and one compare
              the rest of the body uses, and it is dead on a column with one stop (`zguard` is 0). */
-          if (zguard && zbuf[i] < perp) continue;        // #829: a nearer surface owns this row
+          if (zguard && zbuf[i] < perp) continue;       // #829: a nearer surface owns this row (tie left as #829 asked it)
           let ck = 1 - CSEAMD * (rk > 0 ? rk : 0);
           if (tgt >= 0) {
             const lw = ((v >> 16 & 255) * 0.25 + (v >> 8 & 255) * 0.64 + (v & 255) * 0.11) * ck;
@@ -5039,7 +5098,7 @@ function castWalls(flash, fcR, fcG, fcB) {
             const s = dt.data[(dv | 0) * dt.w + (du | 0)], sa = (s >>> 24) / 255 * dc.a * (1 - u * u * 0.5);
             if (sa < 0.02) continue;
             const i = y * BW + x, dst = px[i];
-            if (zguard && zbuf[i] < perp) continue;       // #829: a nearer surface owns this row
+            if (zguard && zbuf[i] < perp) continue;       // #829: a nearer surface owns this row (tie left as #829 asked it)
             px[i] = (0xFF000000 |
               (clampi((s & 255) * sa + (dst & 255) * (1 - sa))) |
               (clampi((s >> 8 & 255) * sa + (dst >> 8 & 255) * (1 - sa)) << 8) |
@@ -5110,7 +5169,7 @@ function castWalls(flash, fcR, fcG, fcB) {
             const s = dt.data[(zv * dt.h | 0) * mwx + (u * mwx | 0)], sa = (s >>> 24) / 255;
             if (sa < 0.02) continue;
             const i = y * BW + x, dst = px[i], ia = 1 - sa;
-            if (zguard && zbuf[i] < perp) continue;       // #829: a nearer surface owns this row
+            if (zguard && zbuf[i] < perp) continue;       // #829: a nearer surface owns this row (tie left as #829 asked it)
             px[i] = (0xFF000000 |
               (clampi(((s >> 16 & 255) * lb * dim + fB) * sa + (dst >> 16 & 255) * ia) << 16) |
               (clampi(((s >> 8 & 255) * lg * dim + fG) * sa + (dst >> 8 & 255) * ia) << 8) |

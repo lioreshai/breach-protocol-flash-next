@@ -873,6 +873,49 @@ function canEnter(fx, fy, tx, ty, fz) {
   return df + cfg.eye <= ceilAt(tx, ty);           // and the far column is one a body can stand in
 }
 
+/* #893 THE SAME HANDHOLD WINDOW, OFFERED BY TERRAIN. `propMount` (js/30_entities.js) says a prop whose
+   top stands within PROP_STEP_UP of the feet is a handhold and the caller pays the climb in VERTICAL
+   SPEED; terrain used to offer no such thing, so the game priced "how high can I lift myself" twice and
+   the two prices differed by 3.6 cm - a player could vault a 0.63 m crate but not a half-wall of the very
+   same height. This is the terrain half of that ONE window, and it reads no new number: PROP_STEP_UP is
+   the reach, STEP_Z/canEnter is still the crossing, cfg.eye is still standability.
+   WHY IT IS NOT A SECOND PREDICATE (#633): this decides no crossing. It answers only "is there a deck on
+   the far side of a face this body is pressed against that it could stand on", and it asks `canEnter`
+   whether that face is a stop at these feet BEFORE offering anything - so a boundary the one predicate
+   already crosses (flat deck, a one-quantum tread, a ramp or a ladder, whose stored kind already offers an
+   up that is not an arc) offers nothing here, and the crossing itself stays canEnter's alone. The window
+   is measured from the FLOOR THE BODY STANDS OVER, not from the feet, for the same reason a prop's top is
+   measured from its own floor: the reach is a property of the climb, not of how far into the arc the body
+   happens to be. It is consulted only from the airborne branch of updatePlayer, so a walker - the player on
+   foot, every bot at rest, and the generator's own walkers - never reaches it. */
+function terrainMount(x, y, rad, fz) {
+  if (!feetZEnabled || fz === undefined) return -1;
+  const gx = x | 0, gy = y | 0, cf = floorAt(x, y);
+  let top = -1;
+  for (let d = 0; d < 4; d++) {
+    const nx = gx + DIRX[d], ny = gy + DIRY[d];
+    if (nx < 0 || ny < 0 || nx >= MW || ny >= MH || MAP.cell[ny * MW + nx]) continue;
+    // Pressed against THAT face: the gap from the body to the face plane must be inside the collision
+    // radius, which is the same margin `slide` probes with (`x + dx + sign(dx) * rad`), so "against a
+    // face" cannot drift from "the face stops the slide". Read off the plane, not off a cell index: a
+    // body may stand as close as exactly rad, and a cell-index test would miss that frame.
+    const gap = DIRX[d] ? (DIRX[d] > 0 ? nx - x : x - (nx + 1)) : (DIRY[d] > 0 ? ny - y : y - (ny + 1));
+    // rad PLUS one frame of the fastest speed the game ships (sprint 5.7 m/s at 1/60 s = 0.095 m): a
+    // body resting against a face sits a frame's travel BEYOND rad, because the slide advances only when
+    // its probe `x + dx + sign(dx) * rad` is clear. Without the frame term the body that is actually
+    // stopped by the face is never "against" it.
+    if (gap > rad + 0.0951) continue;
+    if (canEnter(x, y, nx + 0.5, ny + 0.5, fz)) continue;      // not a stop at these feet: nothing to offer
+    const df = floorAt(nx + 0.5, ny + 0.5);
+    const rise = df - cf;
+    if (rise <= 0 || rise > PROP_STEP_UP + 1e-9) continue;     // the prop's own window, read off the deck
+    if (df <= fz) continue;                                    // already up there: the arc answers this one
+    if (df + cfg.eye > ceilAt(nx + 0.5, ny + 0.5)) continue;   // and the far column is one a body can stand in
+    if (df > top) top = df;
+  }
+  return top;
+}
+
 /* Nearest cell with a walkable floor, by breadth-first search from a starting point:
    four-neighbour, over exactly the crossings the player is allowed to make, so a sealed
    band can never be mistaken for a way out. */

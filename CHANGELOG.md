@@ -1,5 +1,78 @@
 # Changelog
 
+## [v1.4.33] - 2026-11-23
+
+### Changed
+
+- **The level keeps going behind a pit's lip** (#829, PRs #898, #903). Walk up to a pit, a raised deck or a
+  mezzanine and look at it. Past the edge the frame used to stop answering: the wall standing behind the lip
+  was simply absent, so you saw open deck where a room went on, and a body on the far side was inside geometry
+  you could shoot through. Two changes fix it. The march that finds faces was spending a slot on every lip a
+  column crosses, and on a step-dense column the second and later lips land in screen rows the first lip
+  already owns — those faces are now marched past without taking a slot, so the slots go to faces that can
+  actually change the column. And the face budget goes from four to eight. On ABATOIR CORE's two dealt cameras
+  that is 3,860 and 4,332 pixels changed near the centre of frame, and 6,834 across a band of THE STACK where
+  the far wash used to answer; the other six dealt cameras are byte for byte what they shipped. In RING
+  TRANSPORT, the sector that paid for extra faces and got nothing, columns hitting the old cap go 59 → 0 and
+  the frame is unchanged. What stands behind a lip is now part of the picture rather than a gap in it; the
+  overlook-a-storey-up aiming case the same issue filed is still open there.
+
+- **Jumping clears a lip the body is already flying over** (#893, PR #902). The game's one movement test took
+  no altitude, so a riser blocked a body whose feet were half a metre above it exactly as it blocked a walker.
+  A jump therefore cleared nothing at any width. Now, for a body the physics has lifted off the ground, a
+  cliff stops being a stop when the feet are within one step of the far side's floor and that column is one a
+  body can stand in. Measured: 1-, 2- and 3-cell pits whose floor is 1.00 m down are crossed at sprint and
+  1- and 2-cell pits at a walk, landing on the far deck, where every one of those cases previously ended with
+  you on the pit floor. Walking, stepping, falling, fall damage, bot movement and the generator's own
+  reachability walk are answered exactly as before — 2,152 directed boundary crossings of a dealt level agree
+  with the grounded answer, 0 disagreements.
+- **A half-wall is now a handhold at the height a crate is** (#893, PR #908). Jump at a ledge whose deck stands
+  0.75 m above the one you are on and you land on it. It used to stop you at the lip, while a crate with exactly
+  the same top could be vaulted — the game priced "how high can I lift myself" twice and the two prices differed
+  by 3.6 cm. One number now prices both, read off the same window props already used. A full 1.00 m storey still
+  refuses and a 1.00 m pit still cannot be jumped out of: the arc tops out at 0.464 m and a storey is deliberately
+  left off the jump. Walking, stepping and every pit row that was already gating are unchanged.
+
+- **A fall moves the eye instead of teleporting it** (#894, PR #905). The camera's height was re-derived from
+  the body and clamped into the band of whichever column you were over, and a pit's ceiling is the neighbouring
+  deck's floor — so the frame your feet crossed the lip, the view dropped about half a metre in one frame and
+  then sat completely still while the rest of the fall happened (for a 1 m drop, motionless through the first
+  ~0.35 s of a ~0.45 s fall). The top of every jump on a normal deck was flat for 9 frames for the same reason.
+  While the feet are unsupported the eye now takes the body's altitude with the floor guard still on. Jumping
+  and going over a lip read as a curve. Standing still in a room is byte-identical.
+
+- **The rifle's fore-end and magazine are round** (#780, PR #901). The rifle is the gun the off hand actually
+  grips, and its fore-end was a flat polymer plate with the fingers painted out behind it and the magazine a
+  dark slab, so the weapon stopped reading as the thing being held. Both parts are now eight-sided prisms
+  inside the envelopes they already occupied, with two polymer rails along the handguard's flanks putting back
+  the width the round section hands over. Same silhouette, different surface: the facets catch the light at
+  different angles, so the mass the fingers wrap has a near side and a far side. The census that prices exactly
+  this — render the rifle at the hip, then again with every round part deleted — went 188 px → 1,172 px against
+  its own 1,117 px bar, so the rifle's held-parts row reads MET for the first time. The sight picture is
+  unchanged. Pistol and shotgun are untouched.
+
+- **Walls hold their grain instead of shuffling at range** (#889, PR #900). The last four wall textures whose
+  slow mottle was authored finer than a 128-texel sheet can hold — brick, concrete, the tech panel and the
+  slab — now carry that detail at the sheet's own ceiling, at unchanged amplitude, octaves and gain. This is
+  the remainder of the rule applied to the other wall tiles in v1.4.32: the shimmer that sat directly behind
+  whatever you were reading at six metres is gone, and every tile keeps its brightness, its grain and its place
+  in the room's light.
+
+- **The front page shows the build that ships** (#895, PR #906). All eight screenshots are re-taken off the
+  deployed game after the wall march landed, and every caption figure re-measured off those frames. Where a
+  frame barely moved, its caption says so.
+
+### Fixed
+
+- **A shallow pit is no longer a one-way hole** (#893, PR #902). Jumping out of a 0.50 m pit returns you to the
+  deck instead of leaving you standing on the pit floor.
+
+Not in this release, and known: a descending staircase stripes inside its own faces (#904, PR #907 in
+review); the pistol's carried parts are still painted out, at 15 px against an 845 px bar, because that envelope
+holds no round geometry at all (#780); and three older look items — a room
+with no wall inside its own rect, a prop reading as a hole in its own deck, and an enemy wearing his room's
+hue — remain in rework (#860, #695, #611).
+
 ## [v1.4.32] - 2026-11-21
 
 ### Changed

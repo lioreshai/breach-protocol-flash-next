@@ -655,7 +655,14 @@ function updatePlayer(dt) {
        stops being all three in the frame it dies (#833.1). Terrain is untouched: the quantum tread is still
        answered by canEnter / the EK_STEP byte (#633). */
     const gz = Math.max(propStand(P.x, P.y, 0, P.z), floorAt(P.x, P.y));
-    const mount = keys['Space'] ? propMount(P.x, P.y, 0.28, P.z) : -1;
+    /* #893 ONE PRICE FOR THE WAY UP. `mount` is the surface being pressed into while Space is held, and it
+       now comes from BOTH halves of the world: a prop's drawn top (`propMount`) or the deck on the far side
+       of a face this body is stopped by (`terrainMount`). The two are deliberately combined by taking the
+       HIGHER surface, because the one line that spends them below prices the climb by PROP_STEP_UP - the
+       prop's own window - and one price may only be paid once. Terrain used to get no offer at all, which is
+       why a 0.63 m crate could be vaulted and a half-wall of the same height could not. Neither half is
+       reached unless Space is held and the body is airborne, so the grounded path is untouched. */
+    const mount = keys['Space'] ? Math.max(propMount(P.x, P.y, 0.28, P.z), terrainMount(P.x, P.y, 0.28, P.z)) : -1;
     const climb = onLadder(P.x, P.y) ? ((keys['KeyE'] ? 1 : 0) - (keys['KeyQ'] ? 1 : 0)) : 0;
     if (climb) { P.air = false; P.vz = 0; P.dzV = 0; P.z = clamp(P.z + climb * 1.6 * dt, gz, Math.max(gz, ceilAt(P.x, P.y) - cfg.eye)); }
     else {
