@@ -18708,6 +18708,142 @@ if (MODE === 'props') {
           + mA.n + ' px body; SHADOW_PROP 0 reads 0 px by construction - the term is one flag)');
       }
     }
+    /* ---- (Q) PICKUP FACES: a lit side and a shaded side on a 0.21 m tin (#862, Done-when 2) ------
+       The prop census above cannot be lifted onto this class and was measured failing when tried: a
+       pickup is 0.21 m tall, so at the seat (F)/(Y) pose it is a ~25 px body; the (Y) band, eroded by its
+       own 2 px cushion, holds 68-74 px against that row's 120-px floor, and re-posing the lens also
+       switches on (G)/(T)/(P) - claims about a surface wave, an authored yaw and a contact patch that a
+       pickup does not make (measured on main 039501c: 13 FAILURE(S), 68/70/74 px vacuity on a 39 px
+       body). So this row asks the one question #862 owes - does the tin arrive with one flank lit and the
+       other shaded - with an operator sized to the silhouette.
+
+       WHY A FLANK SPLIT AND NOT A LEVEL CENSUS. A `PICKUPS` entry carries no yaw anywhere
+       (js/20_level.js pushes {type,x,y,bob}; js/40_render.js pushes no yaw on the draw entry), so the box
+       is drawn square to the grid, its four vertical normals sit at azimuth k*90, and a lens 45 deg
+       between two adjacent normals sees BOTH at equal width with the near vertical edge down the middle
+       of the silhouette. Split each row on that edge and both sides are one triangle with one normal and
+       one albedo, so a flank's luminance is ONE number and the comparison needs a dozen pixels, not a
+       decile spread over a hundred. That matters here specifically because the two flanks do NOT share an
+       albedo - `pickParts` puts the plate on the +-z faces only (js/13_mesh.js:872) - so a census that
+       counts luminance LEVELS on this body can be answered by PAINT.
+
+       THE CONTROL IS THE KEY, NOT A THRESHOLD, and for THIS pose the control COLLAPSES rather than swaps.
+       With the box square to the grid the two faces a 45-deg seat sees answer d = |KEY_xy| and d = 0, and
+       the two it does not see answer the other pair. Reverse the key's horizontal direction and BOTH
+       visible faces land on d = 0: a gap that is lighting goes to nothing, a gap that is paint (plate,
+       wrap band, the top face) survives untouched. The prop rows get to ask which flank the key lights;
+       an axis-aligned box cannot answer that - the same geometry that makes (T) a vacuity for it makes
+       COLLAPSE the right control here.
+
+       THE BAND IS pickParts' OWN SHELL SPAN. The case fills body-y 0.26..0.74, the wrap band 0.25..0.35
+       and the plate 0.44..0.68, so in mask fractions (top row = 0.74, bottom = 0.25) rows 0.62..0.79 are
+       the only strip that is neither plate nor band on either flank. Above it the top face of the box
+       reads; below it the wrap band does.
+
+       THE SEAT. The claim is "at 3 m", the range the game deals a pickup at, so the ladder starts there
+       and steps in ONLY when that seat is a wall, another band, or too far away to hold PY_MIN px on each
+       flank - and the row prints the seat it settled on, because a seat chosen by pixel count is evidence
+       only if it says so. */
+    if (/^pickup/.test(kind)) {
+      const PY_REL = 0.30, PY_MIN = 12, PY_CUSH = 1, PY_SEAM = 2;
+      const K = run('KEY');
+      const cands = [];
+      for (let k = 0; k < 4; k++) {
+        const a = k * Math.PI * 0.5;                    // face k's outward normal azimuth (yaw is 0)
+        const d = Math.max(0, K[0] * Math.cos(a) + K[1] * Math.sin(a));
+        const b = a + Math.PI * 0.5;                    // the next face round
+        const e = Math.max(0, K[0] * Math.cos(b) + K[1] * Math.sin(b));
+        cands.push({ gap: Math.abs(d - e), th: a + Math.PI * 0.25, d, e });
+      }
+      cands.sort((p, q) => q.gap - p.gap);
+      const best = cands[0];
+      const med = a => { if (!a.length) return 0; a.sort((p, q) => p - q); const k = a.length >> 1;
+        return a.length & 1 ? a[k] : (a[k - 1] + a[k]) * 0.5; };
+      const flanks = (s, m) => {
+        const y0 = m.top + Math.round(0.62 * m.h), y1 = m.top + Math.round(0.79 * m.h);
+        const L = [], R = [];
+        /* THE SEAM IS THE VIEW AXIS. The lens is aimed AT the box centre, and at 45 deg the near vertical
+           edge bisects the two faces, so it projects onto the axis of projection - column W/2 - whatever
+           the distance. Taking the seam off the mask's own bounding box instead was tried first and the
+           bbox is not symmetric (one stray difference-pixel widens it), which left 35 px on one flank and
+           265 on the other; taking it per row was tried second and a row's covered span is NOT symmetric
+           about the edge under perspective, which read the two flanks as ONE level on three of four
+           kinds. The axis is the only one of the three that is the edge by construction. The pixel counts
+           are still unequal - the nearer face subtends more columns than the farther one at the same tilt,
+           which is perspective, not a wrong seam - so the row prints both counts beside the medians. */
+        const mid = W >> 1;
+        for (let y = y0 + PY_CUSH; y <= y1 - PY_CUSH && y < H - PY_CUSH; y++) {
+          for (let x = m.lft + PY_CUSH; x <= m.rgt - PY_CUSH && x < W - PY_CUSH; x++) {
+            if (Math.abs(x - mid) <= PY_SEAM) continue;  // the edge itself is neither face
+            const i = y * W + x;
+            if (!m.cov[i]) continue;
+            let all = true;
+            for (let dy = -PY_CUSH; dy <= PY_CUSH && all; dy++)
+              for (let dx = -PY_CUSH; dx <= PY_CUSH; dx++) if (!m.cov[i + dy * W + dx]) { all = false; break; }
+            if (!all) continue;
+            (x < mid ? L : R).push(lum(s.A, i));
+          }
+        }
+        return { n: Math.min(L.length, R.length), a: med(L), b: med(R), nL: L.length, nR: R.length, y0, y1 };
+      };
+      const seat = dd => {
+        const sx = fX + Math.cos(best.th) * dd, sy = fY + Math.sin(best.th) * dd;
+        const ok = run('(()=>{const x=' + sx.toFixed(4) + ',y=' + sy.toFixed(4) + ';return !isSolid(x,y) && '
+          + 'floorAt(x,y)===floorAt(' + fX.toFixed(4) + ',' + fY.toFixed(4) + ')})()');
+        if (!ok) return false;
+        run('P.x=' + sx.toFixed(4) + ';P.y=' + sy.toFixed(4) + ';P.ang=Math.atan2(' + fY.toFixed(4) +
+          '-P.y,' + fX.toFixed(4) + '-P.x);P.pitch=0;P.z=floorAt(P.x,P.y)');
+        return true;
+      };
+      let got = null;
+      for (const dd of [3.0, 2.6, 2.2, 1.8, 1.5]) {
+        if (!seat(dd)) continue;
+        const s = pair(fcode, foff, fon), m = mask(s), f = flanks(s, m);
+        if (!got || f.n > got.f.n) got = { dd, f, m };
+        if (f.n >= PY_MIN) break;                       // the FURTHEST seat that can see both flanks
+      }
+      if (!got) {
+        fail('(Q) ' + kind + ': every 45-deg seat from 3.0 m to 1.5 m is a wall or another band, so the '
+          + 'tin\u2019s two faces could not be judged from anywhere - nothing was measured');
+      } else if (got.f.n < PY_MIN) {
+        fail('(Q) ' + kind + ': vacuity - the shell band holds ' + got.f.nL + '/' + got.f.nR + ' px per flank '
+          + 'at the best seat (' + got.dd.toFixed(2) + ' m, rows ' + got.f.y0 + '-' + got.f.y1 + ' of a '
+          + got.m.h + ' px body), under ' + PY_MIN + ', so no flank median was taken');
+      } else {
+        seat(got.dd);
+        run('KEY[0]=' + (-K[0]).toFixed(6) + ';KEY[1]=' + (-K[1]).toFixed(6));
+        const sk = pair(fcode, foff, fon);
+        run('KEY[0]=' + K[0].toFixed(6) + ';KEY[1]=' + K[1].toFixed(6));
+        const fk = flanks(sk, mask(sk));
+        const gap = Math.abs(got.f.a - got.f.b), mean = (got.f.a + got.f.b) / 2;
+        const rel = mean > 0 ? gap / mean : 0;
+        const gapK = Math.abs(fk.a - fk.b);
+        const at = ' (' + got.f.nL + '/' + got.f.nR + ' px per flank, rows ' + got.f.y0 + '-' + got.f.y1 +
+          ' of a ' + got.m.h + ' px body at ' + got.dd.toFixed(2) + ' m, azimuth '
+          + (best.th * 180 / Math.PI).toFixed(0) + 'deg = 45deg between two faces answering d '
+          + best.d.toFixed(2) + ' and ' + best.e.toFixed(2) + ' under KEY)';
+        const pairTxt = 'flanks ' + got.f.a.toFixed(0) + ' and ' + got.f.b.toFixed(0);
+        const lit = got.f.a > got.f.b ? 'LEFT' : 'RIGHT', klit = fk.a > fk.b ? 'LEFT' : 'RIGHT';
+        if (gap < 2) fail('(Q) ' + kind + ': ' + pairTxt + ' are ONE luminance level' + at + ') - the frame '
+          + 'is a flat card. That is what a pickup on the self-luminous 0.75 + 0.42*d ramp looks like: '
+          + 'centred on 0.96 it runs 0.75..1.17, and with d = max(0, N\u00b7KEY) an axis-aligned box\u2019s '
+          + 'shaded face answers d = 0, so the two visible faces of a box that emits nothing cannot be '
+          + 'told apart by any light in the game');
+        else if (rel < PY_REL) fail('(Q) ' + kind + ': ' + pairTxt + ' sit ' + gap.toFixed(1) + ' luminance '
+          + 'apart, rel ' + rel.toFixed(2) + at + ' - under ' + PY_REL + ' the brighter flank is a hairline, '
+          + 'not a shadow, and the prop face row calls the same ratio flat');
+        else if (gapK < 2 || Math.sign(fk.a - fk.b) === Math.sign(got.f.a - got.f.b)) fail('(Q) ' + kind +
+          ': ' + pairTxt + ' are ' + gap.toFixed(1) + ' apart (rel ' + rel.toFixed(2) + ')' + at + ' but '
+          + 'reversing the key\u2019s horizontal direction does not move the bright flank to the other side: '
+          + 'it is ' + lit + ' at the shipped key and ' + klit + ' at the reversed one (reversed flanks '
+          + fk.a.toFixed(0) + '/' + fk.b.toFixed(0) + ') - a flank that stays bright while the light turns '
+          + 'round is painted, not lit, and this row cannot credit it');
+        else console.log('    faces: ' + pairTxt + ' = ' + gap.toFixed(1) + ' apart, rel ' + rel.toFixed(2) +
+          ', the lit side is ' + lit + ' at the shipped key and ' + klit + ' at the reversed one (reversed '
+          + 'flanks ' + fk.a.toFixed(0) + '/' + fk.b.toFixed(0) + ')' + at + ' - a lit face and a shaded '
+          + 'one, and turning the light moves the bright one');
+      }
+    }
   }
   /* #218: props stop the player. tryMove consults the SAME authored footprint row (F)'s siblings
      draw with (MESH.foot * scale, js/13_mesh.js:799) grown by the mover radius, gated on the grid:
