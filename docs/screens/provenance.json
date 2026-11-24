@@ -264,14 +264,32 @@
     "js/90_dev.js": "69f7245713e4a8e77506c072dbde929e3381e96f3e8e52492cfe9457dbe0e8a4"
    },
    "note": "The 12 blobs that draw a frame, sha256, read from the checkout that ran the capture. index.html plus every script its own index.html loads, so no file that paints can be left out of the bind (#555). `node tools/recap.js check` recomputes them from the tree it runs in and prints whether these frames still show what that tree ships (#536). The session that took these pixels proved this build off the wire, blob by blob, against the deployed page."
+  },
+  "d7a0196": {
+   "at": "2026-11-24",
+   "files": {
+    "index.html": "c886aca0138047584edd4ee7023c504da19d3d559a6e6bb33833a9290169d557",
+    "js/00_core.js": "ca752015bd204e817f1887f2028d8e35366aa34d6d87bca5ece2c3af356f7091",
+    "js/05_paint.js": "a5ec9c69ad6aebd6ca18ad1f0d8256418e88e6b019d70bcfeab5e5e88d65f5ae",
+    "js/10_assets.js": "b122466d91a8da81fe168133a66b7ae2c1d44293463014f81f42c470d9f95eba",
+    "js/11_rig.js": "e4a6ef3f1c939e4a5e8a7e13a82d8319210253eac7562c9348bfc86d12ed042a",
+    "js/12_sprites.js": "b3088cda462e24cda63f00902f9aed279310279d0c582d255c6c9d4bb90fcaba",
+    "js/13_mesh.js": "ed5b0c51113eb68b89899337f42f5829daadb557d79890af082d19b3805d25ce",
+    "js/20_level.js": "5a6d73de16cb675c20565d9749bab7f1129a74c4021530b4638fdc0260ff1d8e",
+    "js/30_entities.js": "8849a87bbb1f06bd226415a37e3f2ed3869fcad5a7d44f705bb34262c1a860c9",
+    "js/40_render.js": "b96f68b8f844b3a330b2f9d7aaf506985e82fda22253368a1302290ebff1f530",
+    "js/50_ui_input.js": "b8c096cda417bf85819d7415f3d02a04d07de390a0a1668c23ed102c218404d2",
+    "js/90_dev.js": "69f7245713e4a8e77506c072dbde929e3381e96f3e8e52492cfe9457dbe0e8a4"
+   },
+   "note": "The 12 blobs that build serves - index.html and every script its own index.html loads - as sha256, read from that build, and proved off the wire before the shutter: for each of them the bytes served by https://lioreshai.github.io/breach-protocol-flash-next/ sha256-match `git show d7a0196:<file>`, 12 for 12. `node tools/recap.js check` recomputes them from the tree it runs in and prints whether these frames still show what that tree ships (#536, #916). It is also the first build after #918 moved js/40_render.js's crease term, which is why the frames bound to the previous build stopped matching this checkout."
   }
  },
  "shots": [
   {
    "file": "level0-enemies",
-   "sha256": "ee3d3c62a11f8a7b37d1d6ea6ec29f778a0727b9fb492587066f20a6c56e8466",
+   "sha256": "54ee4654a1a82dff615116537c59d517a6f7c3cf859450303441e1d235cd92d4",
    "replaces": {
-    "rev": "b5b8b74",
+    "rev": "d7a0196",
     "sha256": "316e0eb5b8e28fc68f7365c8e7c835b134a606af0c1cf9835e41c16198cd36b1",
     "mean": 60.5867
    },
@@ -282,19 +300,19 @@
    "seed": "60",
    "level": 0,
    "layout": 4083630493,
-   "build": "b5b8b74",
+   "build": "d7a0196",
    "at": "2026-11-24",
    "sampleRate": 44100,
-   "note": "Re-taken off the deployed page at b5b8b74 for #916, the build the bind names: that page was proved blob by blob first - index.html and every script it loads, 12 in all, sha256-match `git show b5b8b74:<file>` 12 for 12 - and the shutter ran on that page afterwards, so these are the pixels the shipped bytes draw and not a harness render. Route: one page load and one boot per pose (js/90_dev.js refuses a second DEV.boot() in a load), the pose left where the deal put the seat, DEV.freeze(true), DEV.set(\"grain\",0), DEV.clear() before the shutter, the display pinned to 1440x763 by livecap's --vp (this chromium reports innerHeight 620 for every --window-size), toDataURL handed back RGBA and the frame re-encoded to colour type 2 through tools/png_rgb.js. The dealt signature is the one the replaced row named (4083630493) and the audio term is carried rather than read: these headless loads have no output device, so SND.init never sets SND.ac and sampleRate is not readable off the page (#404); the control is that the term sets how many draws precede generation, so had it moved the signature would have moved with it, and it did not. What these bytes replace (rev b5b8b74, mean 60.5867, which bound f42f5ce) differs from them by 666 px (0.06%) of pixels under the kept-pixel rule and -0.0012 of mean luma; where they are is stated in the README caption this row addresses.",
+   "note": "Re-taken off the deployed page at d7a0196 for #916, the build the bind names, one build later than the pass this row supersedes: #918 (d7a0196) moved js/40_render.js, one of the twelve blobs the bind hashes, so the frames bound to d7a0196 drew a picture this checkout no longer ships. The deploy was proved blob by blob first - index.html and every script it loads, 12 in all, sha256-match `git show d7a0196:<file>` 12 for 12 - and the shutter ran on that page afterwards, so these are the pixels the shipped bytes draw and not a harness render. Route: one page load and one boot per pose (js/90_dev.js refuses a second DEV.boot() in a load), the camera on the dealt spawn seat with one grunt placed by the route's own seat search, DEV.freeze(true), DEV.set(\"grain\",0), DEV.clear() before the shutter, the display pinned to 1440x763 by livecap's --vp (this chromium reports innerHeight 620 for every --window-size), toDataURL handed back RGBA and the frame re-encoded to colour type 2 through tools/png_rgb.js. The dealt signature is the one the replaced row named (4083630493) and the audio term is carried rather than read: these headless loads have no output device, so SND.init never sets SND.ac and sampleRate is not readable off the page (#404); the control is that the term sets how many draws precede generation, so had it moved the signature would have moved with it, and it did not. What these bytes replace (rev d7a0196, mean 60.5867) differs from them by 1854 px (0.17%) under the kept-pixel rule and -0.0044 of mean luma; where they are is stated in the README caption this row addresses: none in the top third, 39 in the middle and 1,815 in the bottom, over rows 493 to 762 and columns 907 to 1201, inside the rifle's columns and none of the posed body.",
    "staleByBuild": null,
-   "_keptPx": 666,
-   "_keptPct": 0.06
+   "_keptPx": 1854,
+   "_keptPct": 0.17
   },
   {
    "file": "level0-facing-wall",
-   "sha256": "d2ad914997c95faded7aeebf398a569ca71f3e5d95c659c6592258fffac82b21",
+   "sha256": "ffba167514fa023fc68f6f5950ff21b9ac2867815c7c66bd86f85e41351cb849",
    "replaces": {
-    "rev": "b5b8b74",
+    "rev": "d7a0196",
     "sha256": "c21066a652e95c0b113e16a0ebe84b3eea9c4bbf8747a132e0fdef2256e503fd",
     "mean": 81.3995
    },
@@ -305,19 +323,19 @@
    "seed": "60",
    "level": 0,
    "layout": 4083630493,
-   "build": "b5b8b74",
+   "build": "d7a0196",
    "at": "2026-11-24",
    "sampleRate": 44100,
-   "note": "Re-taken off the deployed page at b5b8b74 for #916, the build the bind names: that page was proved blob by blob first - index.html and every script it loads, 12 in all, sha256-match `git show b5b8b74:<file>` 12 for 12 - and the shutter ran on that page afterwards, so these are the pixels the shipped bytes draw and not a harness render. Route: one page load and one boot per pose (js/90_dev.js refuses a second DEV.boot() in a load), the pose as DEV.cam coordinates, DEV.freeze(true), DEV.set(\"grain\",0), DEV.clear() before the shutter, the display pinned to 1440x763 by livecap's --vp (this chromium reports innerHeight 620 for every --window-size), toDataURL handed back RGBA and the frame re-encoded to colour type 2 through tools/png_rgb.js. The dealt signature is the one the replaced row named (4083630493) and the audio term is carried rather than read: these headless loads have no output device, so SND.init never sets SND.ac and sampleRate is not readable off the page (#404); the control is that the term sets how many draws precede generation, so had it moved the signature would have moved with it, and it did not. What these bytes replace (rev b5b8b74, mean 81.3995, which bound f42f5ce) differs from them by 196 px (0.02%) of pixels under the kept-pixel rule and -0.0007 of mean luma; where they are is stated in the README caption this row addresses.",
+   "note": "Re-taken off the deployed page at d7a0196 for #916, the build the bind names, one build later than the pass this row supersedes: #918 (d7a0196) moved js/40_render.js, one of the twelve blobs the bind hashes, so the frames bound to d7a0196 drew a picture this checkout no longer ships. The deploy was proved blob by blob first - index.html and every script it loads, 12 in all, sha256-match `git show d7a0196:<file>` 12 for 12 - and the shutter ran on that page afterwards, so these are the pixels the shipped bytes draw and not a harness render. Route: one page load and one boot per pose (js/90_dev.js refuses a second DEV.boot() in a load), the pose as DEV.cam(1.5, 8.5, undefined, Math.PI/2), DEV.freeze(true), DEV.set(\"grain\",0), DEV.clear() before the shutter, the display pinned to 1440x763 by livecap's --vp (this chromium reports innerHeight 620 for every --window-size), toDataURL handed back RGBA and the frame re-encoded to colour type 2 through tools/png_rgb.js. The dealt signature is the one the replaced row named (4083630493) and the audio term is carried rather than read: these headless loads have no output device, so SND.init never sets SND.ac and sampleRate is not readable off the page (#404); the control is that the term sets how many draws precede generation, so had it moved the signature would have moved with it, and it did not. What these bytes replace (rev d7a0196, mean 81.3995) differs from them by 2584 px (0.24%) under the kept-pixel rule and 0.0031 of mean luma; where they are is stated in the README caption this row addresses: none in the top third, 46 in the middle and 2,538 in the bottom, over rows 493 to 762 and columns 890 to 1186, all inside the rifle's columns.",
    "staleByBuild": null,
-   "_keptPx": 196,
-   "_keptPct": 0.02
+   "_keptPx": 2584,
+   "_keptPct": 0.24
   },
   {
    "file": "level0-pitfloor",
-   "sha256": "d75fa9f7db7b3efaa9250870a873d48d6aef3a9c1e4b60e0baebe334919f4c81",
+   "sha256": "689b825d0b568086bca60f4f9a85e116f39fa40608c103c46e0e1bb85b0283a5",
    "replaces": {
-    "rev": "b5b8b74",
+    "rev": "d7a0196",
     "sha256": "15971931f023551bf34597588dbafbc46156d59e091562729b87212aa3202f7f",
     "mean": 64.9686
    },
@@ -328,19 +346,19 @@
    "seed": "60",
    "level": 0,
    "layout": 4083630493,
-   "build": "b5b8b74",
+   "build": "d7a0196",
    "at": "2026-11-24",
    "sampleRate": 44100,
-   "note": "Re-taken off the deployed page at b5b8b74 for #916, the build the bind names: that page was proved blob by blob first - index.html and every script it loads, 12 in all, sha256-match `git show b5b8b74:<file>` 12 for 12 - and the shutter ran on that page afterwards, so these are the pixels the shipped bytes draw and not a harness render. Route: one page load and one boot per pose (js/90_dev.js refuses a second DEV.boot() in a load), the pose as DEV.cam coordinates, DEV.freeze(true), DEV.set(\"grain\",0), DEV.clear() before the shutter, the display pinned to 1440x763 by livecap's --vp (this chromium reports innerHeight 620 for every --window-size), toDataURL handed back RGBA and the frame re-encoded to colour type 2 through tools/png_rgb.js. The dealt signature is the one the replaced row named (4083630493) and the audio term is carried rather than read: these headless loads have no output device, so SND.init never sets SND.ac and sampleRate is not readable off the page (#404); the control is that the term sets how many draws precede generation, so had it moved the signature would have moved with it, and it did not. What these bytes replace (rev b5b8b74, mean 64.9686, which bound f42f5ce) differs from them by 1249 px (0.11%) of pixels under the kept-pixel rule and -0.0223 of mean luma; where they are is stated in the README caption this row addresses.",
+   "note": "Re-taken off the deployed page at d7a0196 for #916, the build the bind names, one build later than the pass this row supersedes: #918 (d7a0196) moved js/40_render.js, one of the twelve blobs the bind hashes, so the frames bound to d7a0196 drew a picture this checkout no longer ships. The deploy was proved blob by blob first - index.html and every script it loads, 12 in all, sha256-match `git show d7a0196:<file>` 12 for 12 - and the shutter ran on that page afterwards, so these are the pixels the shipped bytes draw and not a harness render. Route: one page load and one boot per pose (js/90_dev.js refuses a second DEV.boot() in a load), the pose as DEV.cam(19.5, 14.5, undefined, 1.1071), DEV.freeze(true), DEV.set(\"grain\",0), DEV.clear() before the shutter, the display pinned to 1440x763 by livecap's --vp (this chromium reports innerHeight 620 for every --window-size), toDataURL handed back RGBA and the frame re-encoded to colour type 2 through tools/png_rgb.js. The dealt signature is the one the replaced row named (4083630493) and the audio term is carried rather than read: these headless loads have no output device, so SND.init never sets SND.ac and sampleRate is not readable off the page (#404); the control is that the term sets how many draws precede generation, so had it moved the signature would have moved with it, and it did not. What these bytes replace (rev d7a0196, mean 64.9686) differs from them by 1255 px (0.11%) under the kept-pixel rule and -0.0224 of mean luma; where they are is stated in the README caption this row addresses: none in the top third, 8 in the middle and 1,247 in the bottom, over rows 493 to 762 and columns 903 to 1,439 - 298 of them outside the rifle's columns, along the deck edge on the right.",
    "staleByBuild": null,
-   "_keptPx": 1249,
+   "_keptPx": 1255,
    "_keptPct": 0.11
   },
   {
    "file": "level0-props",
-   "sha256": "a4d3515bf1c92414afa19aa8138cbf80ec0b1edc9e900210ae367f1036d16e22",
+   "sha256": "f8a2ce7d25b5736a938e79f9669ac3edc22f73f3d0e086c0a5dd42391748352b",
    "replaces": {
-    "rev": "b5b8b74",
+    "rev": "d7a0196",
     "sha256": "7f20c1917d2c169623ce95a4b9e90c4bcb347fe8fbef52fba89fff39a6c58000",
     "mean": 65.9683
    },
@@ -351,19 +369,19 @@
    "seed": "60",
    "level": 0,
    "layout": 4083630493,
-   "build": "b5b8b74",
+   "build": "d7a0196",
    "at": "2026-11-24",
    "sampleRate": 44100,
-   "note": "Re-taken off the deployed page at b5b8b74 for #916, the build the bind names: that page was proved blob by blob first - index.html and every script it loads, 12 in all, sha256-match `git show b5b8b74:<file>` 12 for 12 - and the shutter ran on that page afterwards, so these are the pixels the shipped bytes draw and not a harness render. Route: one page load and one boot per pose (js/90_dev.js refuses a second DEV.boot() in a load), the pose as DEV.cam coordinates, DEV.freeze(true), DEV.set(\"grain\",0), DEV.clear() before the shutter, the display pinned to 1440x763 by livecap's --vp (this chromium reports innerHeight 620 for every --window-size), toDataURL handed back RGBA and the frame re-encoded to colour type 2 through tools/png_rgb.js. The dealt signature is the one the replaced row named (4083630493) and the audio term is carried rather than read: these headless loads have no output device, so SND.init never sets SND.ac and sampleRate is not readable off the page (#404); the control is that the term sets how many draws precede generation, so had it moved the signature would have moved with it, and it did not. What these bytes replace (rev b5b8b74, mean 65.9683, which bound f42f5ce) differs from them by 4053 px (0.37%) of pixels under the kept-pixel rule and -0.1045 of mean luma; where they are is stated in the README caption this row addresses.",
+   "note": "Re-taken off the deployed page at d7a0196 for #916, the build the bind names, one build later than the pass this row supersedes: #918 (d7a0196) moved js/40_render.js, one of the twelve blobs the bind hashes, so the frames bound to d7a0196 drew a picture this checkout no longer ships. The deploy was proved blob by blob first - index.html and every script it loads, 12 in all, sha256-match `git show d7a0196:<file>` 12 for 12 - and the shutter ran on that page afterwards, so these are the pixels the shipped bytes draw and not a harness render. Route: one page load and one boot per pose (js/90_dev.js refuses a second DEV.boot() in a load), the pose as DEV.cam(20.5, 11.5, undefined, Math.PI/2), DEV.freeze(true), DEV.set(\"grain\",0), DEV.clear() before the shutter, the display pinned to 1440x763 by livecap's --vp (this chromium reports innerHeight 620 for every --window-size), toDataURL handed back RGBA and the frame re-encoded to colour type 2 through tools/png_rgb.js. The dealt signature is the one the replaced row named (4083630493) and the audio term is carried rather than read: these headless loads have no output device, so SND.init never sets SND.ac and sampleRate is not readable off the page (#404); the control is that the term sets how many draws precede generation, so had it moved the signature would have moved with it, and it did not. What these bytes replace (rev d7a0196, mean 65.9683) differs from them by 4159 px (0.38%) under the kept-pixel rule and -0.1192 of mean luma; where they are is stated in the README caption this row addresses: none in the top third, 4 in the middle and 4,155 in the bottom, over rows 495 to 762 and EVERY column 0 to 1,439 - 3,497 of them outside the rifle's columns, which is geometry and not the gun's pose.",
    "staleByBuild": null,
-   "_keptPx": 4053,
-   "_keptPct": 0.37
+   "_keptPx": 4159,
+   "_keptPct": 0.38
   },
   {
    "file": "level0-spawn",
-   "sha256": "fb5668e32b069985d015029c6aca10253a65d36dfec767b9ba0c40e20545be05",
+   "sha256": "437217a6f03c7d77c4efff1108a4f6b2f9459ba2efea6154e29d3c8cbf979c2d",
    "replaces": {
-    "rev": "b5b8b74",
+    "rev": "d7a0196",
     "sha256": "9c6a4b66c3e7e2e67bd0c04e3e8126c32bcca08633bf2c032c4da5b0d77c47ae",
     "mean": 60.5931
    },
@@ -374,19 +392,19 @@
    "seed": "60",
    "level": 0,
    "layout": 4083630493,
-   "build": "b5b8b74",
+   "build": "d7a0196",
    "at": "2026-11-24",
    "sampleRate": 44100,
-   "note": "Re-taken off the deployed page at b5b8b74 for #916, the build the bind names: that page was proved blob by blob first - index.html and every script it loads, 12 in all, sha256-match `git show b5b8b74:<file>` 12 for 12 - and the shutter ran on that page afterwards, so these are the pixels the shipped bytes draw and not a harness render. Route: one page load and one boot per pose (js/90_dev.js refuses a second DEV.boot() in a load), the pose left where the deal put the seat, DEV.freeze(true), DEV.set(\"grain\",0), DEV.clear() before the shutter, the display pinned to 1440x763 by livecap's --vp (this chromium reports innerHeight 620 for every --window-size), toDataURL handed back RGBA and the frame re-encoded to colour type 2 through tools/png_rgb.js. The dealt signature is the one the replaced row named (4083630493) and the audio term is carried rather than read: these headless loads have no output device, so SND.init never sets SND.ac and sampleRate is not readable off the page (#404); the control is that the term sets how many draws precede generation, so had it moved the signature would have moved with it, and it did not. What these bytes replace (rev b5b8b74, mean 60.5931, which bound f42f5ce) differs from them by 1879 px (0.17%) of pixels under the kept-pixel rule and -0.0051 of mean luma; where they are is stated in the README caption this row addresses.",
+   "note": "Re-taken off the deployed page at d7a0196 for #916, the build the bind names, one build later than the pass this row supersedes: #918 (d7a0196) moved js/40_render.js, one of the twelve blobs the bind hashes, so the frames bound to d7a0196 drew a picture this checkout no longer ships. The deploy was proved blob by blob first - index.html and every script it loads, 12 in all, sha256-match `git show d7a0196:<file>` 12 for 12 - and the shutter ran on that page afterwards, so these are the pixels the shipped bytes draw and not a harness render. Route: one page load and one boot per pose (js/90_dev.js refuses a second DEV.boot() in a load), the camera left on the dealt spawn seat, DEV.freeze(true), DEV.set(\"grain\",0), DEV.clear() before the shutter, the display pinned to 1440x763 by livecap's --vp (this chromium reports innerHeight 620 for every --window-size), toDataURL handed back RGBA and the frame re-encoded to colour type 2 through tools/png_rgb.js. The dealt signature is the one the replaced row named (4083630493) and the audio term is carried rather than read: these headless loads have no output device, so SND.init never sets SND.ac and sampleRate is not readable off the page (#404); the control is that the term sets how many draws precede generation, so had it moved the signature would have moved with it, and it did not. What these bytes replace (rev d7a0196, mean 60.5931) differs from them by 2086 px (0.19%) under the kept-pixel rule and -0.0060 of mean luma; where they are is stated in the README caption this row addresses: none in the top third, 50 in the middle and 2,036 in the bottom, over rows 495 to 762 and columns 896 to 1197 - every one of them inside the columns the held rifle occupies.",
    "staleByBuild": null,
-   "_keptPx": 1879,
-   "_keptPct": 0.17
+   "_keptPx": 2086,
+   "_keptPct": 0.19
   },
   {
    "file": "level2-abatoir",
-   "sha256": "634470971014c29bcdf4294492fd4076b0d90d527fb142bcded6fadf054ed3e1",
+   "sha256": "0ad7ed85cf3ee62e1a2a86474c7ad282831df41ca3bc9bd239dc745863f8157f",
    "replaces": {
-    "rev": "b5b8b74",
+    "rev": "d7a0196",
     "sha256": "28c41ae250983e63a097644d03fbb07cb6ecb858e200ba2fbe86a9b5f1be0276",
     "mean": 67.0816
    },
@@ -397,19 +415,19 @@
    "seed": "60",
    "level": 2,
    "layout": 2343219222,
-   "build": "b5b8b74",
+   "build": "d7a0196",
    "at": "2026-11-24",
    "sampleRate": 44100,
-   "note": "Re-taken off the deployed page at b5b8b74 for #916, the build the bind names: that page was proved blob by blob first - index.html and every script it loads, 12 in all, sha256-match `git show b5b8b74:<file>` 12 for 12 - and the shutter ran on that page afterwards, so these are the pixels the shipped bytes draw and not a harness render. Route: one page load and one boot per pose (js/90_dev.js refuses a second DEV.boot() in a load), the pose left where the deal put the seat, DEV.freeze(true), DEV.set(\"grain\",0), DEV.clear() before the shutter, the display pinned to 1440x763 by livecap's --vp (this chromium reports innerHeight 620 for every --window-size), toDataURL handed back RGBA and the frame re-encoded to colour type 2 through tools/png_rgb.js. The dealt signature is the one the replaced row named (2343219222) and the audio term is carried rather than read: these headless loads have no output device, so SND.init never sets SND.ac and sampleRate is not readable off the page (#404); the control is that the term sets how many draws precede generation, so had it moved the signature would have moved with it, and it did not. What these bytes replace (rev b5b8b74, mean 67.0816, which bound f42f5ce) differs from them by 0 px (0.00%) of pixels under the kept-pixel rule and 0.0000 of mean luma; where they are is stated in the README caption this row addresses.",
+   "note": "Re-taken off the deployed page at d7a0196 for #916, the build the bind names, one build later than the pass this row supersedes: #918 (d7a0196) moved js/40_render.js, one of the twelve blobs the bind hashes, so the frames bound to d7a0196 drew a picture this checkout no longer ships. The deploy was proved blob by blob first - index.html and every script it loads, 12 in all, sha256-match `git show d7a0196:<file>` 12 for 12 - and the shutter ran on that page afterwards, so these are the pixels the shipped bytes draw and not a harness render. Route: one page load and one boot per pose (js/90_dev.js refuses a second DEV.boot() in a load), the camera left on the dealt arrival seat, DEV.freeze(true), DEV.set(\"grain\",0), DEV.clear() before the shutter, the display pinned to 1440x763 by livecap's --vp (this chromium reports innerHeight 620 for every --window-size), toDataURL handed back RGBA and the frame re-encoded to colour type 2 through tools/png_rgb.js. The dealt signature is the one the replaced row named (2343219222) and the audio term is carried rather than read: these headless loads have no output device, so SND.init never sets SND.ac and sampleRate is not readable off the page (#404); the control is that the term sets how many draws precede generation, so had it moved the signature would have moved with it, and it did not. What these bytes replace (rev d7a0196, mean 67.0816) differs from them by 0 px (0%) under the kept-pixel rule and -0.0006 of mean luma; where they are is stated in the README caption this row addresses: no pixel reaches the kept-pixel threshold at all.",
    "staleByBuild": null,
    "_keptPx": 0,
    "_keptPct": 0
   },
   {
    "file": "level2-abatoir-ceiling",
-   "sha256": "4110d35c7114062523b82654e9d5758d546cea1531be46432aed3a56c7f9f488",
+   "sha256": "e0991e74f1d04aded3239a8315200c5a6b40073743e38ef20edd64134e5fe8ee",
    "replaces": {
-    "rev": "b5b8b74",
+    "rev": "d7a0196",
     "sha256": "789aa93f8985941ed265d3d9a5f00093ab5a3ac1da72718411fb4b8c02b4462d",
     "mean": 62.6808
    },
@@ -420,19 +438,19 @@
    "seed": "60",
    "level": 2,
    "layout": 2343219222,
-   "build": "b5b8b74",
+   "build": "d7a0196",
    "at": "2026-11-24",
    "sampleRate": 44100,
-   "note": "Re-taken off the deployed page at b5b8b74 for #916, the build the bind names: that page was proved blob by blob first - index.html and every script it loads, 12 in all, sha256-match `git show b5b8b74:<file>` 12 for 12 - and the shutter ran on that page afterwards, so these are the pixels the shipped bytes draw and not a harness render. Route: one page load and one boot per pose (js/90_dev.js refuses a second DEV.boot() in a load), the pose as DEV.cam coordinates, DEV.freeze(true), DEV.set(\"grain\",0), DEV.clear() before the shutter, the display pinned to 1440x763 by livecap's --vp (this chromium reports innerHeight 620 for every --window-size), toDataURL handed back RGBA and the frame re-encoded to colour type 2 through tools/png_rgb.js. The dealt signature is the one the replaced row named (2343219222) and the audio term is carried rather than read: these headless loads have no output device, so SND.init never sets SND.ac and sampleRate is not readable off the page (#404); the control is that the term sets how many draws precede generation, so had it moved the signature would have moved with it, and it did not. What these bytes replace (rev b5b8b74, mean 62.6808, which bound f42f5ce) differs from them by 0 px (0.00%) of pixels under the kept-pixel rule and -0.0000 of mean luma; where they are is stated in the README caption this row addresses.",
+   "note": "Re-taken off the deployed page at d7a0196 for #916, the build the bind names, one build later than the pass this row supersedes: #918 (d7a0196) moved js/40_render.js, one of the twelve blobs the bind hashes, so the frames bound to d7a0196 drew a picture this checkout no longer ships. The deploy was proved blob by blob first - index.html and every script it loads, 12 in all, sha256-match `git show d7a0196:<file>` 12 for 12 - and the shutter ran on that page afterwards, so these are the pixels the shipped bytes draw and not a harness render. Route: one page load and one boot per pose (js/90_dev.js refuses a second DEV.boot() in a load), the pose as DEV.cam(P.x, P.y, undefined, P.ang, BH*0.25), DEV.freeze(true), DEV.set(\"grain\",0), DEV.clear() before the shutter, the display pinned to 1440x763 by livecap's --vp (this chromium reports innerHeight 620 for every --window-size), toDataURL handed back RGBA and the frame re-encoded to colour type 2 through tools/png_rgb.js. The dealt signature is the one the replaced row named (2343219222) and the audio term is carried rather than read: these headless loads have no output device, so SND.init never sets SND.ac and sampleRate is not readable off the page (#404); the control is that the term sets how many draws precede generation, so had it moved the signature would have moved with it, and it did not. What these bytes replace (rev d7a0196, mean 62.6808) differs from them by 0 px (0%) under the kept-pixel rule and -0.0004 of mean luma; where they are is stated in the README caption this row addresses: no pixel reaches the kept-pixel threshold at all.",
    "staleByBuild": null,
    "_keptPx": 0,
    "_keptPct": 0
   },
   {
    "file": "level3-stack",
-   "sha256": "ea8c49228d87f66621f78e136ae4c01fcd55e12d8d4f28dd625898481979fb57",
+   "sha256": "4105e85481abeefcca6c9a2927aa19834ca339b4e4d7d4edd217c4f30e253560",
    "replaces": {
-    "rev": "b5b8b74",
+    "rev": "d7a0196",
     "sha256": "30d011fafcd64af66fb6f42ff039246b7482213e9bd51ea3a7c80440f89fc985",
     "mean": 70.2093
    },
@@ -443,13 +461,13 @@
    "seed": "60",
    "level": 3,
    "layout": 3610925125,
-   "build": "b5b8b74",
+   "build": "d7a0196",
    "at": "2026-11-24",
    "sampleRate": 44100,
-   "note": "Re-taken off the deployed page at b5b8b74 for #916, the build the bind names: that page was proved blob by blob first - index.html and every script it loads, 12 in all, sha256-match `git show b5b8b74:<file>` 12 for 12 - and the shutter ran on that page afterwards, so these are the pixels the shipped bytes draw and not a harness render. Route: one page load and one boot per pose (js/90_dev.js refuses a second DEV.boot() in a load), the pose left where the deal put the seat, DEV.freeze(true), DEV.set(\"grain\",0), DEV.clear() before the shutter, the display pinned to 1440x763 by livecap's --vp (this chromium reports innerHeight 620 for every --window-size), toDataURL handed back RGBA and the frame re-encoded to colour type 2 through tools/png_rgb.js. The dealt signature is the one the replaced row named (3610925125) and the audio term is carried rather than read: these headless loads have no output device, so SND.init never sets SND.ac and sampleRate is not readable off the page (#404); the control is that the term sets how many draws precede generation, so had it moved the signature would have moved with it, and it did not. What these bytes replace (rev b5b8b74, mean 70.2093, which bound f42f5ce) differs from them by 1055 px (0.10%) of pixels under the kept-pixel rule and 0.0091 of mean luma; where they are is stated in the README caption this row addresses.",
+   "note": "Re-taken off the deployed page at d7a0196 for #916, the build the bind names, one build later than the pass this row supersedes: #918 (d7a0196) moved js/40_render.js, one of the twelve blobs the bind hashes, so the frames bound to d7a0196 drew a picture this checkout no longer ships. The deploy was proved blob by blob first - index.html and every script it loads, 12 in all, sha256-match `git show d7a0196:<file>` 12 for 12 - and the shutter ran on that page afterwards, so these are the pixels the shipped bytes draw and not a harness render. Route: one page load and one boot per pose (js/90_dev.js refuses a second DEV.boot() in a load), the camera left where the authored plan puts its seat, DEV.freeze(true), DEV.set(\"grain\",0), DEV.clear() before the shutter, the display pinned to 1440x763 by livecap's --vp (this chromium reports innerHeight 620 for every --window-size), toDataURL handed back RGBA and the frame re-encoded to colour type 2 through tools/png_rgb.js. The dealt signature is the one the replaced row named (3610925125) and the audio term is carried rather than read: these headless loads have no output device, so SND.init never sets SND.ac and sampleRate is not readable off the page (#404); the control is that the term sets how many draws precede generation, so had it moved the signature would have moved with it, and it did not. What these bytes replace (rev d7a0196, mean 70.2093) differs from them by 1408 px (0.13%) under the kept-pixel rule and 0.0109 of mean luma; where they are is stated in the README caption this row addresses: none in the top third, 382 in the middle and 1,026 in the bottom, over rows 406 to 762 and columns 909 to 1,282, all inside the rifle's columns.",
    "staleByBuild": null,
-   "_keptPx": 1055,
-   "_keptPct": 0.1
+   "_keptPx": 1408,
+   "_keptPct": 0.13
   }
  ]
 }
