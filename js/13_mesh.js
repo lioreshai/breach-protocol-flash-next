@@ -297,7 +297,7 @@ const MESH = (function () {
      #19). Near the eye TPR is over 30 px, so level 0 runs with #232's arithmetic untouched and the
      recorded torso gradient still reads 2.52 / 2.17 / 2.52; everything that moves is a body far enough
      to have had no surface at all. */
-  const TS_CYC = 10, TS_MINP = 3.5, TS_LMAX = 2, TS_SLOPE = 9, TS_MAX = 26, TS_BMIN = 0.45, TS_NSLOPE = 0.65;
+  const TS_CYC = 10, TS_MINP = 3.5, TS_LMAX = 2, TS_SLOPE = 9, TS_MAX = 26, TS_BMIN = 0.45, TS_NSLOPE = 0.94;
   /* #727 THE CEILING WAS THE CLIFF ON THE NEAR SIDE. TS_MAX 26 is the combat-range amplitude the law
      saturates at (slope 9 reaches it at TPR 11.6 px, ~25 m out), and it stays the ceiling all the way to
      the eye - so the ONE thing this file says stays constant, luma per screen pixel, is the one thing
@@ -313,10 +313,26 @@ const MESH = (function () {
      lets the SAME pattern deepen where it projects over TS_NGATE, and the #533 byte clip in `tri` is
      what stops it, per triangle and per channel, wherever the armour is too dark or too bright to carry
      it, which is what keeps the wave zero-mean and the mean where #407 charges it. Props and the rig
-     never enter this branch. TS_NGATE 90 px is beyond every recorded frame (the ABATOIR seat is 49.7,
-     and #769 measured every recorded frame at 7 m or further, i.e. TPR 50 or under), so every byte in
-     `tools/refs.lock` stays what it is and only a body the player has closed to arm's length changes. */
-  const TS_NGATE = 90, TS_NMAX = 96, TS_NPPX = 49.7;
+     never enter this branch.
+       #922 THE GATE WAS PARKED OUTSIDE COMBAT RANGE. 90 px was chosen as "beyond every recorded frame",
+     and a frame is not a fight: a brute's seam projects 394/TPR metres, so 90 px is 4.4 m out - the
+     distance a hostile closes to before he shoots. Between the gate and the ceiling the SAME ceiling that
+     #727 rejected at 2 m was still being delivered, and it bottoms out AT the gate: 4 * TS_MAX * band /
+     TPR with the ceiling constant is 104 * band / TPR, which FALLS as he walks in, reaching 1.16 luma/px
+     at 4.4 m against the 2.09 the law holds past it - so the curve dips in the middle of the range a
+     fight happens in and steps back up as he crosses 4.4 m. Measured on the frame at ABATOIR's arrival
+     seat (`scene 2 0`, one body 5 m out, mean |L(x) - L(x-1)| over his own kept pixels): 0.553 luma per
+     screen px against 1.778 in the room beside him, which is what "flat coloured cards" is.
+       So the gate goes to its own crossover. `TS_MAX * TPR / TS_NPPX` returns TS_MAX at TPR = TS_NPPX by
+     construction, so parking the gate there makes the curve CONTINUOUS rather than merely higher, and the
+     delivered slope is 4 * TS_MAX * band / TS_NPPX = a constant from the gate out to arm's length - the
+     one quantity this file says stays constant, read at the range it used to stop covering. It is not a
+     threshold widened or a window moved: the law, its slope and its ceiling are the three numbers #727
+     authored, and the only change is where the ceiling stops overriding them. Recorded frames are 7 m out
+     or further (TPR 50 or under for the largest body), so the gate now sits just outside them and the
+     bytes that move are bodies the player can actually fight - which is the point #727's note was making
+     with a number borrowed from the frame list rather than from the law. */
+  const TS_NPPX = 49.7, TS_NGATE = TS_NPPX, TS_NMAX = 96;
   /* #727 THE FLOOR HAD NO SLOPE, AND UP CLOSE THAT MADE IT THE WHOLE TERM. TS_BMIN is the amplitude a
      face SQUARE to the eye keeps when the grazing band gives it nothing, and it is a CONSTANT - so the
      luma-per-pixel a chest delivers falls off with range exactly as fast as the face gets bigger, which
@@ -335,7 +351,19 @@ const MESH = (function () {
      only a body a player has closed to arm's length turns inside his own silhouette. The cap is what
      keeps this from being a brightness term: 26 luma is the same ceiling a grazing edge already carries,
      the wave stays zero-mean over the face, and the clip in `tri` still shallowes it on armour too dark
-     to carry it (#533). Props and the view model read TS_BMIN unchanged - see TF at the draw. */
+     to carry it (#533). Props and the view model read TS_BMIN unchanged - see TF at the draw.
+       #922 THE FLOOR'S CROSSOVER HAS TO SIT WHERE THE CEILING'S DOES, OR THE FLOOR SPENDS BACK WHAT THE
+     CEILING GIVES UP. The two terms multiply: what reaches the pixel is `4 * TAMP * TF / TPR`, so a
+     ceiling let loose at TPR 49.7 and a floor still pinned to TS_BMIN 0.45 give `4 * TS_MAX * 0.45 /
+     TS_NPPX` = 0.94 luma per px - under the 1.778 the room behind him delivers, and the frame agreed
+     (0.754 measured with only the gate moved, against 1.778). The floor's own crossover sits at TPR =
+     4 * TS_BMIN * TS_MAX / TS_NSLOPE, which is 72 px at TS_NSLOPE 0.65 - a brute's 5.5 m, inside the
+     same combat band, so between 5.5 and 8 m the floor was the binding term and it was binding on a
+     constant. Put the two crossovers on the SAME projected period and neither term can spend what the
+     other buys: TS_NSLOPE = 4 * TS_BMIN * TS_MAX / TS_NPPX = 0.94, which is the same arithmetic #727 used
+     to place 0.65, re-solved against the period this issue's own measurement names instead of the frame
+     list. The cap is unchanged at TS_MAX and the clip unchanged, so the wave is still zero-mean; what
+     moves is 1.83% of one frame's pixels, all of them inside one silhouette. */
   const TSC = [0.80, 1.00, 1.15];                   // slightly cool seams on warm armour
   /* 1/TSC, for the clip bound in `tri`: the excursion a channel can carry is its distance to the byte
      limit DIVIDED by its own multiplier, so the two tables cannot drift apart. TSC[2] is unused by the
