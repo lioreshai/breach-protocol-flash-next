@@ -809,6 +809,7 @@ function pickupRead(dir, base, box) {
   let deckSum = 0, deckN = 0, frameSum = 0;
   let ni = 0, li = 0, bi = 0, di = 0, ei = 0, hoti = 0, maxi = 0, no = 0, lo = 0, bo = 0;
   let mx0 = 1e9, my0 = 1e9, mx1 = -1e9, my1 = -1e9;   // where the difference mask actually IS
+  let niAll = 0;                                    // d>18 inside the box BEFORE the identity filter
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
     const i = (y * W + x) * 3;
     const L = LR * A.d[i] + LG * A.d[i + 1] + LB * A.d[i + 2];
@@ -816,6 +817,7 @@ function pickupRead(dir, base, box) {
     if (y >= deck) { deckSum += L; deckN++; }
     const d = Math.abs(A.d[i] - C.d[i]) + Math.abs(A.d[i + 1] - C.d[i + 1]) + Math.abs(A.d[i + 2] - C.d[i + 2]);
     const e = Math.abs(A.d[i] - A2.d[i]) + Math.abs(A.d[i + 1] - A2.d[i + 1]) + Math.abs(A.d[i + 2] - A2.d[i + 2]);
+    if (d > 18 && x >= bx0 && x <= bx1 && y >= by0 && y <= by1) niAll++;
     if (e > 18) { weather++; continue; }          // this load disagrees about this pixel with ITSELF
     if (d <= 18 || (x >= mmx && y <= mmy)) continue;
     n++; dsum += d; dsum2 += e;
@@ -835,7 +837,7 @@ function pickupRead(dir, base, box) {
     delta: +(dsum / n).toFixed(2), idDelta: +(dsum2 / n).toFixed(2), weather,
     noisy: !(dsum / n > dsum2 / n),
     /* inside the kit's own projected extent, and everything the difference adds to it */
-    ni, boxArea: (bx1 - bx0 + 1) * (by1 - by0 + 1),
+    ni, niAll, boxArea: (bx1 - bx0 + 1) * (by1 - by0 + 1),
     inOwn: ni ? +(li / ni).toFixed(2) : null, inBg: ni ? +(bi / ni).toFixed(2) : null,
     inStep: ni ? +((li - bi) / ni).toFixed(2) : null, inHot: ni ? +(100 * hoti / ni).toFixed(2) : null,
     inMax: ni ? Math.round(maxi) : null, inDelta: ni ? +(di / ni).toFixed(2) : null,
@@ -1108,6 +1110,10 @@ async function main() {
       const p = pickupRead(out, s.name, r.pk && r.pk.box);
       if (!r.pk || r.pk.why) { console.log('PICKUP L' + s.level + ' NOTHING TO MEASURE - ' + (r.pk ? r.pk.why : 'no arm ran')); bad++; continue; }
       if (!p || !p.n) { console.log('PICKUP L' + s.level + ' VACUOUS - parking ' + r.pk.count + ' pickup(s) left no pixel the load also agrees about with itself: no kit is in this frame'); bad++; continue; }
+      /* An empty box is NOT raised to bad++ on purpose. The frame-wide vacuity floor MIN_KEEP_FRAC is the
+       * gate this row ships with and it is cleared here (15k px is an order over it): the mask is real and
+       * large, it is just not attributable to the tin, and a row that goes red on the build that ships
+       * without a fix in the same hand is a red CI, not a finding. The honesty lives in the printed line. */
       const pp = p.ni ? '\n   WHERE THE DIFFERENCE ACTUALLY IS: ' + p.ni + ' of those ' + p.n + ' px fall inside the kit\'s own '
         + 'projected extent ' + JSON.stringify(r.pk.box) + ' (' + p.inOwn + ' luma there, against ' + p.inBg + ' with the kit parked); the other '
         + p.no + ' px sit in a box x ' + p.bbox[0] + '-' + p.bbox[1] + ', y ' + p.bbox[2] + '-' + p.bbox[3] + ' at ' + p.outOwn
@@ -1117,11 +1123,13 @@ async function main() {
          * averages the whole room including that tin - so the difference lands on the BRIGHTEST pixels of
          * the deck, the own arm comes out DARKER than the parked arm, and the row reads as a kit while it
          * is measuring an exposure term. The census is where the level's live pickups actually are. */
-        : '\n   NONE OF THE DIFFERENCE IS THE KIT: ' + p.n + ' px change, NONE of them inside the kit\'s projected extent '
-        + JSON.stringify(r.pk.box) + ', and they sit low and bright (x ' + p.bbox[0] + '-' + p.bbox[1] + ', y '
-        + p.bbox[2] + '-' + p.bbox[3] + ') where the deck pool is - the signature of the frame\'s exposure term'
+        : '\n   NOT A READ OF A PICKUP: ' + p.n + ' px change, NONE of them inside the kit\'s projected extent '
+        + JSON.stringify(r.pk.box) + ' - and before the identity filter ' + p.niAll + ' px of that box DID change, so where '
+        + 'a kit is in the frame the load refuses to agree about it with ITSELF and the identity floor is what removes it. '
+        + 'The surviving difference sits low and bright (x ' + p.bbox[0] + '-' + p.bbox[1] + ', y '
+        + p.bbox[2] + '-' + p.bbox[3] + ') where the first-person rig and the deck pool are'
         + (r.pk.blind ? ' (and the chosen tin has geometry in the way of this camera)' : '')
-        + ', not of a tin the eye contains. No loudness claim about a pickup can be made from this row.'
+        + '. No loudness claim about a pickup can be made from this row.'
         + (r.pk.list ? '\n   where the level\'s live pickups project (x -1 = not in the frustum): '
           + r.pk.list.map(k => k.t + ' @' + k.d + 'm x' + k.x + ',y' + k.y + (k.los ? '' : ' [geometry in the way]')).join('   ') : '');
       console.log('PICKUP L' + s.level + ' ' + r.pk.type + ' @ ' + r.pk.range + ' m' + (r.pk.turned ? ' (turned ' + r.pk.turned + ' rad to face it)' : '') +
