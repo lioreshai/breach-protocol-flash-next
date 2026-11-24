@@ -18746,7 +18746,16 @@ if (MODE === 'props') {
        only if it says so. */
     if (/^pickup/.test(kind)) {
       const PY_REL = 0.30, PY_MIN = 12, PY_CUSH = 1, PY_SEAM = 2;
-      const K = run('KEY');
+      /* KEY IS SNAPSHOT, NOT ALIASED. vm.runInContext hands the host the LIVE context object for an
+         object-valued expression, so run('KEY') and the game's KEY are the same array: negating KEY in
+         the context below would write through K as well, the restore would then re-assign the already
+         negated value to itself, and every kind that runs after this block would be posed and judged
+         under a light the game does not ship. Measured with the aliased read: pickupAmmo's mask 743 ->
+         947 px and its lit-by-light own mean 34.0 -> 14.9, pickupGren 819 -> 950 / 29.5 -> 12.9, on a
+         diff that touches no byte of js/, and those two kinds searched their seats at azimuth 135 where
+         the shipped key sorts 315. .slice() copies, so K is a number snapshot exactly like the scalars
+         the (T+) block takes at KEY[0]/KEY[1]. */
+      const K = run('KEY.slice()');
       const cands = [];
       for (let k = 0; k < 4; k++) {
         const a = k * Math.PI * 0.5;                    // face k's outward normal azimuth (yaw is 0)
