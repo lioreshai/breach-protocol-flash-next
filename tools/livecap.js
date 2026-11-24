@@ -314,20 +314,56 @@ function devRoute(o) {
      identity control, so a mask that is weather says so in its own row.
      The camera turns toward the nearest live pickup when the dealt heading leaves it out of the frustum:
      the row is about the object, and a row with no object in it measures the harness. The realised range
-     and whether the turn happened are printed beside the digits. */
+     and whether the turn happened are printed beside the digits.
+
+     THE BOX IS THE KIT'S OWN SILHOUETTE, NOT A REGION (#862 Done-when 1, second pass). A park-and-restore
+     difference also contains everything the kit was HIDING: measured on the Pages build, 15235 kept px
+     with the OWN arm 6.99 luma DARKER than the parked arm at those pixels, which is the far wall the tin
+     occludes, not the tin. So the mask is now intersected with the projected extent of the kit's own
+     authored box, computed by the page's OWN project() (js/40_render.js:5704) at the eight corners of
+     that box as the renderer places it: the draw entry lifts z to floorAt(x,y) + 0.16 + sin(bob)*0.05 at
+     scale 0.42 (js/40_render.js:1013) and pickParts authors the extents - the wrap band reaches 0.315 in
+     x/z and the case spans body-y 0.25..0.74 (js/13_mesh.js:895-900), so 0.132 m of half-width and
+     0.105..0.311 m above that anchor. What falls INSIDE the box is the object; what falls outside it is
+     the wash and the occlusion, printed beside the row rather than averaged into it. The box is a clip,
+     not a second mask: it cannot add a pixel the park-and-restore difference did not already light up, and
+     it is computed by the same project() the overlay uses, so it cannot disagree with where the kit drew. */
   ${o.pickup ? `out.pk={};
-  var nk=null,nd=1e9;
+  var nk=null,nd=1e9,ni9=-1;
+  /* THE PICKUP IS THE NEAREST ONE THE EYE CAN ACTUALLY REACH, not the nearest one in XY. Chosen by XY -
+     how this arm shipped - the row can pick a tin standing behind a pillar: the parked arm then changes
+     nothing at the tin's own screen position and everything in the light pool it spills, and the row
+     reports a kit while measuring a deck. blocked() is the same line test the body seat search uses. */
   for(var pi=0;pi<PICKUPS.length;pi++){var k=PICKUPS[pi];if(k.dead)continue;
-    var dd=Math.hypot(k.x-P.x,k.y-P.y);if(dd<nd){nd=dd;nk=k;}}
+    var dd=Math.hypot(k.x-P.x,k.y-P.y);
+    if(dd<nd && !blocked(P.x,P.y,k.x,k.y)){nd=dd;nk=k;ni9=pi;}}
+  if(!nk){for(var p2b=0;p2b<PICKUPS.length;p2b++){var kb=PICKUPS[p2b];if(kb.dead)continue;
+    var d2b=Math.hypot(kb.x-P.x,kb.y-P.y);if(d2b<nd){nd=d2b;nk=kb;ni9=p2b;out.pk.blind=1;}}}
   out.pk.count=PICKUPS.length;
   if(!nk){out.pk.why='no live pickup in the level';}
   else{var aim=Math.atan2(nk.y-P.y,nk.x-P.x),dA=aim-P.ang;
     while(dA>Math.PI)dA-=TAU;while(dA<-Math.PI)dA+=TAU;
     out.pk.type=nk.type;out.pk.range=+nd.toFixed(2);
+    /* Every live pickup, where the page's own projection puts it, and whether the camera can see it: the
+     * row claims ONE object, and the census is how the row can say which one it measured. */
+    out.pk.list=[];
+    for(var p9=0;p9<PICKUPS.length && out.pk.list.length<10;p9++){var k9=PICKUPS[p9];if(k9.dead)continue;
+      var z9=floorAt(k9.x,k9.y)+0.16+Math.sin(k9.bob)*0.05,s9=project(k9.x,k9.y,z9+0.2);
+      out.pk.list.push({t:k9.type,d:+Math.hypot(k9.x-P.x,k9.y-P.y).toFixed(2),
+        x:s9?Math.round(s9.x):-1,y:s9?Math.round(s9.y):-1,los:blocked(P.x,P.y,k9.x,k9.y)?0:1});}
     if(Math.abs(dA)>0.55){P.ang=aim;out.pk.turned=+dA.toFixed(3);DEV.tick(1);}
-    var PS=PICKUPS.slice();PICKUPS.length=0;out.c=[];
+    /* The kit's own projected extent, in the SAME display pixels the delivered PNG is read at. */
+    var pkz=floorAt(nk.x,nk.y)+0.16+Math.sin(nk.bob)*0.05,pkx=0.132,bb=null;
+    for(var c1=0;c1<2;c1++)for(var c2=0;c2<2;c2++)for(var c3=0;c3<2;c3++){
+      var pp=project(nk.x+(c1?pkx:-pkx),nk.y+(c2?pkx:-pkx),pkz+(c3?0.311:0.105));
+      if(!pp)continue;
+      if(!bb)bb=[pp.x,pp.x,pp.y,pp.y];
+      if(pp.x<bb[0])bb[0]=pp.x; if(pp.x>bb[1])bb[1]=pp.x;
+      if(pp.y<bb[2])bb[2]=pp.y; if(pp.y>bb[3])bb[3]=pp.y;}
+    out.pk.box=bb?bb.map(function(v){return Math.round(v);}):null;
+    var PS=PICKUPS[ni9];PICKUPS.splice(ni9,1);out.c=[];
     for(var u3=0;u3<${ARMS};u3++){DEV.tick(1);out.c.push(cv.toDataURL('image/png').split(',')[1]);}
-    PICKUPS.length=0;for(var u4=0;u4<PS.length;u4++)PICKUPS.push(PS[u4]);
+    PICKUPS.splice(ni9,0,PS);
     out.b=[];for(var u5=0;u5<${ARMS}*2;u5++){DEV.tick(1);out.b.push(cv.toDataURL('image/png').split(',')[1]);}}
   out.png=null;` : ''}
   return out;})()`;
@@ -753,14 +789,26 @@ function pairRead(dir, base) {
  * summed-|dRGB| 18 the fg read uses, MINUS the minimap box: js/40_render.js:6203 draws a 3-unit dot for
  * every explored pickup, so parking the kits also erases ink in the top-right panel, and that ink is not
  * the object standing in the room. Everything else - the deck mean, the share at or above 200 - is read
- * over the mask in the own arm, which is the delivered frame, not a model of it. */
-function pickupRead(dir, base) {
+ * over the mask in the own arm, which is the delivered frame, not a model of it.
+ *
+ * `box` splits that mask in two, and the split is the whole point of the second pass at this row. A
+ * difference mask answers the question "what did the kit CHANGE", which is the kit's faces PLUS every
+ * pixel it was hiding plus the bloom its shell throws. Measured on the Pages build at the L1 seat: 15235
+ * kept px whose own-arm mean is 6.99 luma DARKER than the parked arm - the far wall, not the tin. The
+ * loudness question #862 asks is about the object, so the pixels INSIDE the kit's projected extent are
+ * read as `in` and everything else as `out`; the deck and frame means are read over the whole delivered
+ * frame either way. */
+function pickupRead(dir, base, box) {
   const own = armFiles(dir, base), park = armFiles(dir, base.replace('-pick', '-parked'));
   if (own.length < ARMS * 2 || park.length < ARMS) return null;
   const A = avgPNG(own.slice(0, ARMS)), A2 = avgPNG(own.slice(ARMS)), C = avgPNG(park.slice(0, ARMS));
   const W = A.w, H = A.h, mmx = W * 0.76, mmy = H * 0.32, deck = H * 0.726;
+  const bx0 = box ? Math.max(0, box[0]) : 0, bx1 = box ? Math.min(W - 1, box[1]) : W - 1;
+  const by0 = box ? Math.max(0, box[2]) : 0, by1 = box ? Math.min(H - 1, box[3]) : H - 1;
   let n = 0, dsum = 0, weather = 0, lsum = 0, lmax = 0, hot = 0, dsum2 = 0, bsum = 0;
   let deckSum = 0, deckN = 0, frameSum = 0;
+  let ni = 0, li = 0, bi = 0, di = 0, ei = 0, hoti = 0, maxi = 0, no = 0, lo = 0, bo = 0;
+  let mx0 = 1e9, my0 = 1e9, mx1 = -1e9, my1 = -1e9;   // where the difference mask actually IS
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
     const i = (y * W + x) * 3;
     const L = LR * A.d[i] + LG * A.d[i + 1] + LB * A.d[i + 2];
@@ -771,8 +819,13 @@ function pickupRead(dir, base) {
     if (e > 18) { weather++; continue; }          // this load disagrees about this pixel with ITSELF
     if (d <= 18 || (x >= mmx && y <= mmy)) continue;
     n++; dsum += d; dsum2 += e;
-    bsum += Math.max(0, LR * C.d[i] + LG * C.d[i + 1] + LB * C.d[i + 2]);
+    if (x < mx0) mx0 = x; if (x > mx1) mx1 = x; if (y < my0) my0 = y; if (y > my1) my1 = y;
+    const bL = Math.max(0, LR * C.d[i] + LG * C.d[i + 1] + LB * C.d[i + 2]);
+    bsum += bL;
     lsum += L; if (L > lmax) lmax = L; if (L >= 200) hot++;
+    if (x >= bx0 && x <= bx1 && y >= by0 && y <= by1) {
+      ni++; li += L; bi += bL; di += d; ei += e; if (L >= 200) hoti++; if (L > maxi) maxi = L;
+    } else { no++; lo += L; bo += bL; }
   }
   if (!n) return { n: 0, frame: +(frameSum / (W * H)).toFixed(2), deck: +(deckSum / Math.max(1, deckN)).toFixed(2) };
   return {
@@ -780,7 +833,15 @@ function pickupRead(dir, base) {
     own: +(lsum / n).toFixed(2), max: Math.round(lmax), hot: +(100 * hot / n).toFixed(2),
     bg: +(bsum / n).toFixed(2), step: +((lsum - bsum) / n).toFixed(2),
     delta: +(dsum / n).toFixed(2), idDelta: +(dsum2 / n).toFixed(2), weather,
-    noisy: !(dsum / n > dsum2 / n)
+    noisy: !(dsum / n > dsum2 / n),
+    /* inside the kit's own projected extent, and everything the difference adds to it */
+    ni, boxArea: (bx1 - bx0 + 1) * (by1 - by0 + 1),
+    inOwn: ni ? +(li / ni).toFixed(2) : null, inBg: ni ? +(bi / ni).toFixed(2) : null,
+    inStep: ni ? +((li - bi) / ni).toFixed(2) : null, inHot: ni ? +(100 * hoti / ni).toFixed(2) : null,
+    inMax: ni ? Math.round(maxi) : null, inDelta: ni ? +(di / ni).toFixed(2) : null,
+    inId: ni ? +(ei / ni).toFixed(2) : null,
+    outOwn: no ? +(lo / no).toFixed(2) : null, outBg: no ? +(bo / no).toFixed(2) : null,
+    bbox: n ? [mx0, mx1, my0, my1] : null
   };
 }
 
@@ -1044,23 +1105,34 @@ async function main() {
     let bad = 0;
     for (let i = 0; i < shots.length; i++) {
       const s = shots[i], r = rows[i] || {};
-      const p = pickupRead(out, s.name);
+      const p = pickupRead(out, s.name, r.pk && r.pk.box);
       if (!r.pk || r.pk.why) { console.log('PICKUP L' + s.level + ' NOTHING TO MEASURE - ' + (r.pk ? r.pk.why : 'no arm ran')); bad++; continue; }
       if (!p || !p.n) { console.log('PICKUP L' + s.level + ' VACUOUS - parking ' + r.pk.count + ' pickup(s) left no pixel the load also agrees about with itself: no kit is in this frame'); bad++; continue; }
-      if (p.noisy) bad++;
+      const pp = p.ni ? '\n   WHERE THE DIFFERENCE ACTUALLY IS: ' + p.ni + ' of those ' + p.n + ' px fall inside the kit\'s own '
+        + 'projected extent ' + JSON.stringify(r.pk.box) + ' (' + p.inOwn + ' luma there, against ' + p.inBg + ' with the kit parked); the other '
+        + p.no + ' px sit in a box x ' + p.bbox[0] + '-' + p.bbox[1] + ', y ' + p.bbox[2] + '-' + p.bbox[3] + ' at ' + p.outOwn
+        + ' - the light pool the tin spills and the pixels it was hiding. Read the line above this one off the inside number.'
+        /* An EMPTY box is the interesting case, and it is the one this row shipped blind to. Parking a tin
+         * that the frustum does not contain still changes the frame, because the frame's own exposure term
+         * averages the whole room including that tin - so the difference lands on the BRIGHTEST pixels of
+         * the deck, the own arm comes out DARKER than the parked arm, and the row reads as a kit while it
+         * is measuring an exposure term. The census is where the level's live pickups actually are. */
+        : '\n   NONE OF THE DIFFERENCE IS THE KIT: ' + p.n + ' px change, NONE of them inside the kit\'s projected extent '
+        + JSON.stringify(r.pk.box) + ', and they sit low and bright (x ' + p.bbox[0] + '-' + p.bbox[1] + ', y '
+        + p.bbox[2] + '-' + p.bbox[3] + ') where the deck pool is - the signature of the frame\'s exposure term'
+        + (r.pk.blind ? ' (and the chosen tin has geometry in the way of this camera)' : '')
+        + ', not of a tin the eye contains. No loudness claim about a pickup can be made from this row.'
+        + (r.pk.list ? '\n   where the level\'s live pickups project (x -1 = not in the frustum): '
+          + r.pk.list.map(k => k.t + ' @' + k.d + 'm x' + k.x + ',y' + k.y + (k.los ? '' : ' [geometry in the way]')).join('   ') : '');
       console.log('PICKUP L' + s.level + ' ' + r.pk.type + ' @ ' + r.pk.range + ' m' + (r.pk.turned ? ' (turned ' + r.pk.turned + ' rad to face it)' : '') +
         ' own ' + p.own + ' luma mean over ' + p.n + ' of ' + p.buf + ' px (max ' + p.max + ', ' + p.hot + '% at or above 200)' +
         ' against ' + p.bg + ' where the kit stands (' + p.step + ' of step), deck band ' + p.deck + ', whole frame ' + p.frame +
         '\n   mask delta ' + p.delta + ' against ' + p.idDelta + ' between two halves of the OWN arm (' + p.weather +
         ' of ' + p.n + ' px move that much on their own): ' + (p.noisy ? 'DOES NOT clear its own floor, not a measurement' : 'clears its own floor') +
-        // The two comparisons have to AGREE before either is a verdict: the deck band is a region of the
-        // delivered frame and `bg` is what the same frame put at the very pixels the kit now covers. If the
-        // masked pixels are darker than the pixels they replaced, the mask is not a silhouette - it is a
-        // wash the kit's glow bled into - and the row says so instead of quoting one half of it.
         (p.own < p.bg
           ? '\n   NOT A SILHOUETTE: the kept pixels are ' + p.step + ' luma DARKER than the pixels they replaced, so this\n'
             + '   mask is a wash around the kit, not the kit. Read the deck comparison only as a region average.'
-          : (p.own > p.deck ? ' - THE PICKUP IS LOUDER THAN THE DECK IT STANDS ON' : ' - quieter than the deck band it stands on')));
+          : (p.own > p.deck ? ' - THE PICKUP IS LOUDER THAN THE DECK IT STANDS ON' : ' - quieter than the deck band it stands on')) + pp);
       if (!flag('keep')) for (const f of armFiles(out, s.name).concat(armFiles(out, s.clear))) fs.unlinkSync(f);
     }
     console.log('LIVECAP-PICKUP ' + (levels.length - bad) + ' of ' + levels.length +
