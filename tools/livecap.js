@@ -887,6 +887,19 @@ async function main() {
   if (cmd === 'cap' || cmd === 'both') {
     const levels = (arg('levels', arg('level', '0,1,2,3')) + '').split(',').map(Number);
     const shots = [];
+    /* --pose takes the ARGUMENTS of DEV.cam as written in an issue's own repro block, so "take the
+       frame this issue asks for" is one command rather than a transcript. Same load, same freeze,
+       same shutter as every other shot; only the seat comes from the page's repro notes instead of
+       from the deal. An issue's pose is the seat its defect was reported at, which is the seat a
+       dealt arrival will not necessarily visit - #517's two (on the band, and on the deck under it)
+       are both seats the deal never hands the player. */
+    const pose = arg('pose', '');
+    if (pose) {
+      for (const l of levels) shots.push({ name: arg('name', 'l' + l + '-pose'), level: l, cam: pose });
+      const rows = await cap({ url, out, shots, timeout: arg('timeout', 180), why: flag('why') });
+      for (const r of rows) if (r.error) process.exitCode = 1;
+      return;
+    }
     for (const l of levels) {
       if (cmd === 'both' || flag('body')) {
         if (cmd === 'both') {
@@ -964,6 +977,7 @@ async function main() {
   console.log([
     'usage:',
     '  node tools/livecap.js cap  --url <dev page> [--levels 0,1,2,3] [--dist 10] [--out DIR]',
+    '  node tools/livecap.js cap  --pose "11.5, 1.5, undefined, -Math.PI/2, 0.0" [--level 0] [--name shot]',
     '  node tools/livecap.js both --url <dev page> [--levels 0,1,2,3] [--dist 10] [--out DIR] [--why]',
     '  node tools/livecap.js fg   <with-body.png> <without.png>',
     '  node tools/livecap.js cost [--url <dev page>] [--levels 0,1,2,3] [--frames 24] [--yawFrames 8]',
