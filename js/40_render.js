@@ -289,6 +289,26 @@ let STEPROW = 4, STEPAMT = 0, STEPDEF = 12;
    what keeps that counterfactual byte-identical - the ceiling pass pays one null test and stops. */
 let CF_FIX = null;
 const SEAMK = 0.45;                             // deck LIGHT at which the absolute term has faded out
+/* #517 (THE MARK'S STRENGTH ON A BRIGHT DECK): the ABSOLUTE half's FLOOR, in lumas, and it is
+   light-INDEPENDENT - the one thing `SEAMA`'s fade is not.
+
+   `SEAMA` pays a dark deck what a multiply cannot buy there (#385), and it fades to zero as the deck's
+   light reaches `SEAMK`. That fade is the right shape for the room it was bought for and the wrong shape
+   for the one #517 left behind: a step DOWN seen from above keeps no face at all, so its lip carries only
+   the eye-side crease, whose mark is a multiply on rows the deck owns - and a multiply is scale-free, so
+   its CONTRAST is whatever the ramp happens to be at the row the crease reaches, and nothing about it
+   grows when the surface it sits on gets brighter. Measured at THE STACK's face lip, 43% against the 45%
+   bar, with the mark's own depth unchanged at 19.5 px-lum (`view.js bands`, one tree: main measures 21.8
+   at the same lip, so the mark did not thin - the ramp did).
+
+   A floor under the absolute half is the mechanism #385 already ships and #515 already trusted for the
+   tread nosing (`STEPAMT` is lumas, not a fraction, "for #385's reason"): an edge in lumas, applied to
+   exactly the rows the multiply already touches, so the band's WIDTH, its locality and its far share are
+   untouched and only its depth on a bright surface moves. It is a FLOOR and not a dose - `ab` is taken
+   from the authored term whenever that term is already deeper, so a dark deck is byte-identical, and it
+   runs only where `dir > 0`, i.e. the crease that runs DOWN the deck's own rows at a step seen from
+   above; a step UP and a flat level run no new arithmetic at all. */
+const SEAMABS = 6;                              // lumas: the crease's absolute floor on a step DOWN seen from above
 /* #178: contact shadow. A rim ADDS to the body, and the rig raster is multiplied by scene light at
    composite, so an additive rim is weakest in the dark rooms that need separation most - AMB 0.19
    floors it. This SUBTRACTS from the world a body occludes instead: a short radial falloff on the
@@ -4274,6 +4294,11 @@ function seamCrease(x, t, zA, zB, amp, dir, deckLit, yCap, zg) {
     ab = SEAMA * (1 - deckLit / SEAMK);
     if (ab > SEAMA) ab = SEAMA;
   }
+  /* #517: the light-independent floor, and it is scoped to the one crease #517 left holding the edge
+     alone - a step DOWN, seen from above, whose face the deck occludes, whose rows the deck owns, and
+     whose mark is therefore nothing but this ramp. `dir > 0` is exactly that crease (`rzf > rze ? -1 : 1`
+     at both call sites), so a step UP, a flat column and the far floor's own crease are bit-identical. */
+  if (SEAMABS > 0 && amp < 0 && dir > 0 && ab < SEAMABS) ab = SEAMABS;
   for (let k = kAt; k <= kEnd; k++) {
     const y = y0 + dir * k;
     if (y < 0) { if (dir < 0) break; continue; }
