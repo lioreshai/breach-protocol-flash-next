@@ -75,8 +75,15 @@ caption below states its kept-pixel percentage beside its mean.
 Every row of `provenance.json` carries its own replaced-frame mean so the direction is readable per frame rather than
 only in aggregate.
 
-All eight were re-taken in one pass off the deployed page at build `d7a0196`, whose two shipped changes are what a reader
-sees differently here: standing on a raised band, the strip of picture at the edge of your own deck used to be painted
+All eight are bound to the deployed page at build `7f74a90`, which is a re-key rather than eight new shutters: #924 moved
+`js/13_mesh.js`, one of the twelve blobs the bind hashes, so the record re-keyed to that build, and every pose was re-run off
+that page first. Both ABATOIR CORE frames came back the same bytes the front page already carries — identical sha256, 0 of
+1,098,720 px — and the other six differ from them by 0.00% to 0.28%, all of it inside the columns the held rig occupies, which
+is the disagreement between two page loads #611 already names and not a surface being drawn differently (#780, #892). The
+reason the body-seam change is invisible here is the same reason it is not invisible in a fight: the gate now reaches a hostile
+out to a projected period of 49.7 px, roughly 4.4 m for a brute, and the route that shoots these eight poses clears the room
+before it poses the camera. The one body in the set, the grunt 6 m out, stands past it and came back unchanged. The two
+changes the pass before this one made are what a reader sees differently here: standing on a raised band, the strip of picture at the edge of your own deck used to be painted
 as a wall face at the boundary's own distance, and it is now the deck up to the lip and whatever honestly stands behind
 it (#517) — and the lit crease where that walkable surface stops now keeps a floor under it, so the edge still reads in a
 bright room instead of fading with the room's own light (#918). Both live in `js/40_render.js`, one of the twelve the bind
@@ -85,13 +92,13 @@ came back the same picture apart from the gun's pose between two page loads (#78
 ARCHIVE poses that look at a deck edge are the only ones where the room itself moved. The eight poses came back on the same
 three layout signatures the replaced rows name — ARCHIVE 4083630493, ABATOIR 2343219222, THE STACK 3610925125 — so the
 deltas below are a statement about paint, not about the dice. The pass supersedes the frames this page carries
-(`f42f5ce`, re-taken by #914 — the bytes at `b5b8b74` and `d7a0196` are those same bytes), and it proved its build off
-the wire before the shutter: `index.html` and
-every script that page loads — twelve blobs — sha256-match `git show d7a0196:<file>` twelve for twelve, so every frame
+(`f42f5ce`, re-taken by #914 — the bytes at `b5b8b74` and `d7a0196` are those same bytes), and the re-key proved its
+build off the wire before the record moved to it: `index.html` and
+every script that page loads — twelve blobs — sha256-match `git show 7f74a90:<file>` twelve for twelve, so every frame
 below is the picture that build's page drew, and the record now carries all twelve digests for it, read from the build
 itself. Whether that is still today's picture is no longer a sentence
 that ages: `node tools/recap.js check` hashes every blob the page serves — `index.html` and every script that build's own
-`index.html` loads, twelve for `d7a0196`, so no file that paints can be left out of the bind (#555) — against the digests
+`index.html` loads, twelve for `7f74a90`, so no file that paints can be left out of the bind (#555) — against the digests
 recorded for the bound build in
 [`docs/screens/provenance.json`](docs/screens/provenance.json), and prints `SHIP-BIND` when this tree's bytes are
 those bytes. When they differ it does not answer a pixel question with a hash: it paints the seats these rows were shot in
@@ -101,9 +108,9 @@ from both trees — that build's scripts out of git, this checkout's own, one ha
 pixels cannot be asked — a shallow CI checkout has no history to read the other tree from — it prints `FRAME-STALE`
 naming the blobs and says the render did not run. A pass aged badly once, binding `bd2441a` while two
 render commits landed while a pass was in review, and the tool exists so it cannot age quietly again. On the tree that
-carries these frames that row reads `SHIP-BIND` for `d7a0196`: all twelve blobs the page serves are byte-identical here,
-so these eight are this checkout's own picture and no re-take is owed. That debt has come due three times, and twice in a
-row a shipped renderer byte opened it: #910 settled it for `f42f5ce` after #908 parted the bind without repainting a
+carries these frames that row reads `SHIP-BIND` for `7f74a90`: all twelve blobs the page serves are byte-identical here,
+so these eight are this checkout's own picture and no re-take is owed. That debt has come due four times, and twice in a
+row a shipped renderer byte opened it, once in a file the front page had never hashed: #910 settled it for `f42f5ce` after #908 parted the bind without repainting a
 seat, #517 parted it over a row that does paint, and #918 parted it again one commit later — the same blob, the crease at
 that same row. The arbiter is what tells those cases apart, and this time it disagreed with the front page: its three
 camera-0 seats came back byte-identical, which is a verdict of *re-key, no shutter*, while the lip pose this page
