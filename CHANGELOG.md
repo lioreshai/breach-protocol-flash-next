@@ -41,10 +41,11 @@
 
 - **The project page now shows the build that ships** (#910, PRs #911, #913, #914, #919). Each of the eight
   frames carries the build its pixels were shot from, the check that keeps that claim honest covers every file
-  the page actually serves — `index.html` and the twelve scripts it loads — and a file that changed without
-  moving a single pixel no longer forces the whole set to be re-shot. The set has been re-taken in one pass off
-  the deployed build, so on the game this release ships `node tools/recap.js check` answers `SHIP-BIND`: those
-  twelve painting files are byte-identical to the build these eight frames came from, and no re-take is owed.
+  the page actually serves — `index.html` and the eleven scripts it loads, twelve blobs in all — and a file
+  that changed without moving a single pixel no longer forces the whole set to be re-shot. The set has been
+  re-taken in one pass off the deployed build, so on the game this release ships `node tools/recap.js check`
+  answers `SHIP-BIND`: those twelve painting files are byte-identical to the build these eight frames came
+  from, and no re-take is owed.
   When a page and a build do disagree, the page now says which side is behind instead of quietly agreeing with
   itself.
 
