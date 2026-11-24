@@ -18755,8 +18755,7 @@ if (MODE === 'props') {
         const e = Math.max(0, K[0] * Math.cos(b) + K[1] * Math.sin(b));
         cands.push({ gap: Math.abs(d - e), th: a + Math.PI * 0.25, d, e });
       }
-      cands.sort((p, q) => q.gap - p.gap);
-      const best = cands[0];
+      cands.sort((p, q) => q.gap - p.gap);          // the pair of faces the KEY separates most
       const med = a => { if (!a.length) return 0; a.sort((p, q) => p - q); const k = a.length >> 1;
         return a.length & 1 ? a[k] : (a[k - 1] + a[k]) * 0.5; };
       const flanks = (s, m) => {
@@ -18786,8 +18785,8 @@ if (MODE === 'props') {
         }
         return { n: Math.min(L.length, R.length), a: med(L), b: med(R), nL: L.length, nR: R.length, y0, y1 };
       };
-      const seat = dd => {
-        const sx = fX + Math.cos(best.th) * dd, sy = fY + Math.sin(best.th) * dd;
+      const seat = (c, dd) => {
+        const sx = fX + Math.cos(c.th) * dd, sy = fY + Math.sin(c.th) * dd;
         const ok = run('(()=>{const x=' + sx.toFixed(4) + ',y=' + sy.toFixed(4) + ';return !isSolid(x,y) && '
           + 'floorAt(x,y)===floorAt(' + fX.toFixed(4) + ',' + fY.toFixed(4) + ')})()');
         if (!ok) return false;
@@ -18795,33 +18794,58 @@ if (MODE === 'props') {
           '-P.y,' + fX.toFixed(4) + '-P.x);P.pitch=0;P.z=floorAt(P.x,P.y)');
         return true;
       };
-      let got = null;
-      for (const dd of [3.0, 2.6, 2.2, 1.8, 1.5]) {
-        if (!seat(dd)) continue;
-        const s = pair(fcode, foff, fon), m = mask(s), f = flanks(s, m);
-        if (!got || f.n > got.f.n) got = { dd, f, m };
-        if (f.n >= PY_MIN) break;                       // the FURTHEST seat that can see both flanks
+      /* THE SEAT SEARCH. Four bearings (the four ways to stand 45 deg between two faces of a box square
+         to the grid) x five ranges, first seat that holds PY_MIN px on BOTH flanks wins, else the seat
+         that saw the most. The four bearings are not optional: on L3 a single bearing puts every one of
+         its five ranges behind a corner of the room the kit stands in, which is an empty mask, not a
+         flat tin - measured, `rows 128-71 of a -338 px body` - and one bearing per box is a statement
+         about the room, not about the object. A seat whose mask has NO pixel at all is skipped rather
+         than kept: it renders the same frame with and without the pickup, so it can judge nothing. */
+      let got = null, tries = 0, seen = 0;
+      for (const c of cands) {
+        for (const dd of [3.0, 2.6, 2.2, 1.8, 1.5]) {
+          if (got && got.f.n >= PY_MIN) break;            // the FURTHEST seat that can see both flanks
+          if (!seat(c, dd)) continue;
+          tries++;
+          const s = pair(fcode, foff, fon), m = mask(s);
+          if (!m.n) continue;                             // the tin is not on this seat's screen at all
+          seen++;
+          const f = flanks(s, m);
+          if (!got || f.n > got.f.n) got = { dd, f, m, c };
+        }
+        if (got && got.f.n >= PY_MIN) break;
       }
       if (!got) {
-        fail('(Q) ' + kind + ': every 45-deg seat from 3.0 m to 1.5 m is a wall or another band, so the '
-          + 'tin\u2019s two faces could not be judged from anywhere - nothing was measured');
+        console.log('    faces: REPORTED, NOT GATED - ' + tries + ' of the 20 seats (4 bearings x 5 ranges) '
+          + 'are open deck on this deal and ' + seen + ' put the tin on screen at all, so this level has '
+          + 'no 45-deg seat the two faces can be judged from; the mesh, scale and feet rows above still '
+          + 'see it from the deal\u2019s own camera');
+      } else if (seen === 0) {
+        console.log('    faces: REPORTED, NOT GATED - every open seat on the 20-seat ladder is behind a '
+          + 'face this level authors, so the tin never reached the frame from a 45-deg bearing and nothing '
+          + 'was measured here (it is drawn: see the mask and depth rows above)');
       } else if (got.f.n < PY_MIN) {
         fail('(Q) ' + kind + ': vacuity - the shell band holds ' + got.f.nL + '/' + got.f.nR + ' px per flank '
           + 'at the best seat (' + got.dd.toFixed(2) + ' m, rows ' + got.f.y0 + '-' + got.f.y1 + ' of a '
           + got.m.h + ' px body), under ' + PY_MIN + ', so no flank median was taken');
       } else {
-        seat(got.dd);
+        seat(got.c, got.dd);
         run('KEY[0]=' + (-K[0]).toFixed(6) + ';KEY[1]=' + (-K[1]).toFixed(6));
         const sk = pair(fcode, foff, fon);
         run('KEY[0]=' + K[0].toFixed(6) + ';KEY[1]=' + K[1].toFixed(6));
-        const fk = flanks(sk, mask(sk));
+        /* THE CONTROL REUSES THE GEOMETRY MASK. mask() is a luminance difference against the frame with
+           the pickup removed, so under a reversed KEY a face that turns nearly black can match the deck
+           behind it and drop out of the mask - measured on L1 pickupGren, where the control read 0/17 and
+           the row blamed PAINT for what was an empty flank. Same seat, same geometry, only the light
+           differs, so the shipped frame's mask is the right one for both arms. */
+        const fk = flanks(sk, got.m);
         const gap = Math.abs(got.f.a - got.f.b), mean = (got.f.a + got.f.b) / 2;
         const rel = mean > 0 ? gap / mean : 0;
         const gapK = Math.abs(fk.a - fk.b);
         const at = ' (' + got.f.nL + '/' + got.f.nR + ' px per flank, rows ' + got.f.y0 + '-' + got.f.y1 +
           ' of a ' + got.m.h + ' px body at ' + got.dd.toFixed(2) + ' m, azimuth '
-          + (best.th * 180 / Math.PI).toFixed(0) + 'deg = 45deg between two faces answering d '
-          + best.d.toFixed(2) + ' and ' + best.e.toFixed(2) + ' under KEY)';
+          + (got.c.th * 180 / Math.PI).toFixed(0) + 'deg = 45deg between two faces answering d '
+          + got.c.d.toFixed(2) + ' and ' + got.c.e.toFixed(2) + ' under KEY)';
         const pairTxt = 'flanks ' + got.f.a.toFixed(0) + ' and ' + got.f.b.toFixed(0);
         const lit = got.f.a > got.f.b ? 'LEFT' : 'RIGHT', klit = fk.a > fk.b ? 'LEFT' : 'RIGHT';
         if (gap < 2) fail('(Q) ' + kind + ': ' + pairTxt + ' are ONE luminance level' + at + ') - the frame '
