@@ -39,9 +39,11 @@
   the surface and distance it actually reaches. A flat level cannot satisfy the test, so it costs two compares
   and moves no pixel.
 
-- **The project page shows the build that ships** (#910, PRs #911, #913, #914). The front page's eight
-  screenshots are re-taken off the current deployed build, and the check that binds them to a build no longer
-  decides over pixels that never moved.
+- **A front-page screenshot now says which build it came from** (#910, PRs #911, #913, #914). Each of the
+  eight frames on the project page carries the build its pixels were shot from, the check that keeps that claim
+  honest covers every file the page actually serves, and a file that changed without moving a single pixel no
+  longer forces the whole set to be re-shot. So when the page and the game disagree, the page says which side
+  is behind instead of quietly agreeing with itself.
 
 ### Known limitations
 
@@ -51,6 +53,11 @@
   at 0.67x the deck under it, the last one under the bar.
 - This release fixes the floor half of the past-the-edge case only. Ceilings past a lip still answer the
   plane they were queued on (#518's ceiling half).
+- The front page's eight frames are still keyed to build `f42f5ce`. One renderer file has moved since — the
+  floor-lip work at `d7a0196` — so at one ABATOIR seat the build being released paints 16,880 of 812,552
+  pixels differently (mean luma 65.11 → 65.01) and the page's picture is one build behind the game. The bind
+  row names it (`node tools/recap.js check`); the re-take off a deploy is #916, and PR #919 is in rework. It
+  is a stale picture on a web page, not a wrong pixel in the build.
 
 ## [v1.4.33] - 2026-11-23
 
