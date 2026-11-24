@@ -301,6 +301,35 @@ function devRoute(o) {
       out.m=btoa(s);out.buf=[BW,BH];out.dims=[cv.width,cv.height];COV=null;}}
   ENEMIES.length=0;out.c=[];for(var u2=0;u2<${ARMS}*2;u2++){DEV.tick(1);out.c.push(cv.toDataURL('image/png').split(',')[1]);}
   out.png=null;` : ''}
+  /* THE PICKUP ARM (#862's last acceptance row). A pickup is not a PROPKIND and it is not a body, so
+     js/00_core.js COV stamps NOTHING for it: props, pickups and the view model all stamp 0. There is
+     therefore no renderer mask to read a pickup's own pixels out of, and a bounding box carried over from
+     the deal the defect was filed on measures whatever stands in that part of THIS frame - measured on
+     the deployed build, the same rectangle returned identical digits in the shipped and the falsifier arm
+     (issue #862, 2026-11-24), which is the signature of a box with no kit in it. The only honest pickup
+     mask left is a PARK-AND-RESTORE inside ONE page load: draw the frame, empty PICKUPS, draw it again,
+     put them back. Same load, same frozen clock, same bake, same rig pose, and updatePickups (js/30_entities.js)
+     is inside the gated update(), so the bob phase is pinned by DEV.freeze and cannot make the two arms
+     disagree about where the tin stands. Frames: K parked, 2K own - the own arm's two halves are the
+     identity control, so a mask that is weather says so in its own row.
+     The camera turns toward the nearest live pickup when the dealt heading leaves it out of the frustum:
+     the row is about the object, and a row with no object in it measures the harness. The realised range
+     and whether the turn happened are printed beside the digits. */
+  ${o.pickup ? `out.pk={};
+  var nk=null,nd=1e9;
+  for(var pi=0;pi<PICKUPS.length;pi++){var k=PICKUPS[pi];if(k.dead)continue;
+    var dd=Math.hypot(k.x-P.x,k.y-P.y);if(dd<nd){nd=dd;nk=k;}}
+  out.pk.count=PICKUPS.length;
+  if(!nk){out.pk.why='no live pickup in the level';}
+  else{var aim=Math.atan2(nk.y-P.y,nk.x-P.x),dA=aim-P.ang;
+    while(dA>Math.PI)dA-=TAU;while(dA<-Math.PI)dA+=TAU;
+    out.pk.type=nk.type;out.pk.range=+nd.toFixed(2);
+    if(Math.abs(dA)>0.55){P.ang=aim;out.pk.turned=+dA.toFixed(3);DEV.tick(1);}
+    var PS=PICKUPS.slice();PICKUPS.length=0;out.c=[];
+    for(var u3=0;u3<${ARMS};u3++){DEV.tick(1);out.c.push(cv.toDataURL('image/png').split(',')[1]);}
+    PICKUPS.length=0;for(var u4=0;u4<PS.length;u4++)PICKUPS.push(PS[u4]);
+    out.b=[];for(var u5=0;u5<${ARMS}*2;u5++){DEV.tick(1);out.b.push(cv.toDataURL('image/png').split(',')[1]);}}
+  out.png=null;` : ''}
   return out;})()`;
 }
 
@@ -718,6 +747,43 @@ function pairRead(dir, base) {
   return { r, idn, k };
 }
 
+/* One pickup read. `own` and `park` are K-frame means of the two arms of ONE load; `own2` is the second
+ * half of the own arm, the identity control (#611's rule: a mask that the load disagrees about by itself
+ * is weather, not the object). The mask is the pixels the two arms disagree about by more than the same
+ * summed-|dRGB| 18 the fg read uses, MINUS the minimap box: js/40_render.js:6203 draws a 3-unit dot for
+ * every explored pickup, so parking the kits also erases ink in the top-right panel, and that ink is not
+ * the object standing in the room. Everything else - the deck mean, the share at or above 200 - is read
+ * over the mask in the own arm, which is the delivered frame, not a model of it. */
+function pickupRead(dir, base) {
+  const own = armFiles(dir, base), park = armFiles(dir, base.replace('-pick', '-parked'));
+  if (own.length < ARMS * 2 || park.length < ARMS) return null;
+  const A = avgPNG(own.slice(0, ARMS)), A2 = avgPNG(own.slice(ARMS)), C = avgPNG(park.slice(0, ARMS));
+  const W = A.w, H = A.h, mmx = W * 0.76, mmy = H * 0.32, deck = H * 0.726;
+  let n = 0, dsum = 0, weather = 0, lsum = 0, lmax = 0, hot = 0, dsum2 = 0, bsum = 0;
+  let deckSum = 0, deckN = 0, frameSum = 0;
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const i = (y * W + x) * 3;
+    const L = LR * A.d[i] + LG * A.d[i + 1] + LB * A.d[i + 2];
+    frameSum += L;
+    if (y >= deck) { deckSum += L; deckN++; }
+    const d = Math.abs(A.d[i] - C.d[i]) + Math.abs(A.d[i + 1] - C.d[i + 1]) + Math.abs(A.d[i + 2] - C.d[i + 2]);
+    const e = Math.abs(A.d[i] - A2.d[i]) + Math.abs(A.d[i + 1] - A2.d[i + 1]) + Math.abs(A.d[i + 2] - A2.d[i + 2]);
+    if (e > 18) { weather++; continue; }          // this load disagrees about this pixel with ITSELF
+    if (d <= 18 || (x >= mmx && y <= mmy)) continue;
+    n++; dsum += d; dsum2 += e;
+    bsum += Math.max(0, LR * C.d[i] + LG * C.d[i + 1] + LB * C.d[i + 2]);
+    lsum += L; if (L > lmax) lmax = L; if (L >= 200) hot++;
+  }
+  if (!n) return { n: 0, frame: +(frameSum / (W * H)).toFixed(2), deck: +(deckSum / Math.max(1, deckN)).toFixed(2) };
+  return {
+    n, buf: W * H, frame: +(frameSum / (W * H)).toFixed(2), deck: +(deckSum / deckN).toFixed(2),
+    own: +(lsum / n).toFixed(2), max: Math.round(lmax), hot: +(100 * hot / n).toFixed(2),
+    bg: +(bsum / n).toFixed(2), step: +((lsum - bsum) / n).toFixed(2),
+    delta: +(dsum / n).toFixed(2), idDelta: +(dsum2 / n).toFixed(2), weather,
+    noisy: !(dsum / n > dsum2 / n)
+  };
+}
+
 async function cap(o) {
   const out = path.resolve(o.out);
   fs.mkdirSync(out, { recursive: true });
@@ -967,6 +1033,43 @@ async function main() {
     return;
   }
 
+  if (cmd === 'pickup') {
+    /* #862 Done-when 1 and 4: is a pickup the loudest object in the frame the deal hands the player, and
+     * does a build without the relight put the number back? Point --url at the deployed build for the
+     * first question and at a served copy of a falsifier js/ for the second; nothing else changes. */
+    const levels = (arg('levels', '0,1,2,3') + '').split(',').map(Number);
+    const shots = [];
+    for (const l of levels) shots.push({ name: 'l' + l + '-pick', clear: 'l' + l + '-parked', level: l, pickup: true });
+    const rows = await cap({ url, out, shots, timeout: arg('timeout', 240) });
+    let bad = 0;
+    for (let i = 0; i < shots.length; i++) {
+      const s = shots[i], r = rows[i] || {};
+      const p = pickupRead(out, s.name);
+      if (!r.pk || r.pk.why) { console.log('PICKUP L' + s.level + ' NOTHING TO MEASURE - ' + (r.pk ? r.pk.why : 'no arm ran')); bad++; continue; }
+      if (!p || !p.n) { console.log('PICKUP L' + s.level + ' VACUOUS - parking ' + r.pk.count + ' pickup(s) left no pixel the load also agrees about with itself: no kit is in this frame'); bad++; continue; }
+      if (p.noisy) bad++;
+      console.log('PICKUP L' + s.level + ' ' + r.pk.type + ' @ ' + r.pk.range + ' m' + (r.pk.turned ? ' (turned ' + r.pk.turned + ' rad to face it)' : '') +
+        ' own ' + p.own + ' luma mean over ' + p.n + ' of ' + p.buf + ' px (max ' + p.max + ', ' + p.hot + '% at or above 200)' +
+        ' against ' + p.bg + ' where the kit stands (' + p.step + ' of step), deck band ' + p.deck + ', whole frame ' + p.frame +
+        '\n   mask delta ' + p.delta + ' against ' + p.idDelta + ' between two halves of the OWN arm (' + p.weather +
+        ' of ' + p.n + ' px move that much on their own): ' + (p.noisy ? 'DOES NOT clear its own floor, not a measurement' : 'clears its own floor') +
+        // The two comparisons have to AGREE before either is a verdict: the deck band is a region of the
+        // delivered frame and `bg` is what the same frame put at the very pixels the kit now covers. If the
+        // masked pixels are darker than the pixels they replaced, the mask is not a silhouette - it is a
+        // wash the kit's glow bled into - and the row says so instead of quoting one half of it.
+        (p.own < p.bg
+          ? '\n   NOT A SILHOUETTE: the kept pixels are ' + p.step + ' luma DARKER than the pixels they replaced, so this\n'
+            + '   mask is a wash around the kit, not the kit. Read the deck comparison only as a region average.'
+          : (p.own > p.deck ? ' - THE PICKUP IS LOUDER THAN THE DECK IT STANDS ON' : ' - quieter than the deck band it stands on')));
+      if (!flag('keep')) for (const f of armFiles(out, s.name).concat(armFiles(out, s.clear))) fs.unlinkSync(f);
+    }
+    console.log('LIVECAP-PICKUP ' + (levels.length - bad) + ' of ' + levels.length +
+      ' sector(s) measured the own pixels of a pickup off ' + url.replace(/\?.*/, '') + ' - ' + bad +
+      ' sector(s) vacuous or weather-bound, and those rows are not measurements.');
+    if (bad) process.exitCode = 1;
+    return;
+  }
+
   if (cmd === 'sweep') {
     const levels = (arg('levels', '0,1,2,3') + '').split(',').map(Number);
     await sweep({ url, levels, deals: +arg('deals', 12), seed: +arg('seed', 60), step: +arg('seedstep', 1013),
@@ -980,6 +1083,7 @@ async function main() {
     '  node tools/livecap.js cap  --pose "11.5, 1.5, undefined, -Math.PI/2, 0.0" [--level 0] [--name shot]',
     '  node tools/livecap.js both --url <dev page> [--levels 0,1,2,3] [--dist 10] [--out DIR] [--why]',
     '  node tools/livecap.js fg   <with-body.png> <without.png>',
+    '  node tools/livecap.js pickup --url <dev page> [--levels 0,1,2,3] [--out DIR] [--keep]',
     '  node tools/livecap.js cost [--url <dev page>] [--levels 0,1,2,3] [--frames 24] [--yawFrames 8]',
     '  node tools/livecap.js sweep [--url <dev page>] [--levels 0,1,2,3] [--deals 12] [--seed 60] [--dist 10]',
     '',
