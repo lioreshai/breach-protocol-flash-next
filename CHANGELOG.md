@@ -1,5 +1,57 @@
 # Changelog
 
+## [v1.4.34] - 2026-11-24
+
+### Changed
+
+- **The lip of the floor you are standing on reads as an edge** (#517, PRs #915, #918). Stand on a raised
+  band — an upstairs reached by steps — and look off its edge. That line used to be painted as a slab face at
+  the boundary's own distance, while a ray landing on it actually arrives up to 3 m farther away: the lip
+  looked like a near wall hanging in the air, and a body standing just past it lost a scan-line to the depth
+  buffer. The deck now runs up to the lip and whatever is honestly behind it runs past, with a lit crease
+  marking where walkable surface stops — for a drop of any height, not just a one-quantum stair tread. The
+  crease also keeps its depth when the room is bright: measured at THE STACK's face lip the edge had thinned
+  to 43% contrast in a lit room against 84% in a dim one, and it is now lit independently of the deck, so
+  "where can I shoot over" and "where will I fall" stay readable with the lamps on. A step up, a flat room
+  and a dark deck are unchanged.
+
+- **ABATOIR CORE's ceiling stops being a lid** (#495, PR #794). In the sector that drops you into its tank
+  room, the surface over your head read 0.63x the brightness of the floor you stand on and covers 42% of the
+  frame — nearly half the picture was a black sheet. It now reads 0.74x, arriving as a lit material with its
+  own shading. The rule it is graded against is unchanged and still asserted — a roof may not out-value the
+  deck it covers — and the other three sectors are byte for byte what they shipped: this is one authored
+  number on one sector.
+
+### Fixed
+
+- **A descending staircase stops striping inside its own faces** (#904, PR #907). Looking down a flight, the
+  staircase's own area was combed with thin vertical light/dark bars repeating down the treads while the
+  silhouette was already correct. Down a flight, the depth answer for a face was decided by which way an
+  identical distance happened to round when stored as a 32-bit float, and the answer flipped from column to
+  column. The tie is now settled in one comparison; the flight reads as one continuous surface from the top
+  tread to the bottom, and the dealt-room and moving-body censuses are unchanged.
+
+- **Past a deck's edge you see the floor your ray arrives at** (#518, PR #912). Near the edge of a raised
+  deck, the ground just past the drop was the deck itself stretched to the horizon — same texture, same
+  brightness, at the deck's distance — which made a platform's edge stop being somewhere you can fall off and
+  made a pit read like a table seen from above. The floor march now applies its own arrival test when it runs
+  out of reach instead of handing back the plane the pixel was queued on, so a column past a lip is painted at
+  the surface and distance it actually reaches. A flat level cannot satisfy the test, so it costs two compares
+  and moves no pixel.
+
+- **The project page shows the build that ships** (#910, PRs #911, #913, #914). The front page's eight
+  screenshots are re-taken off the current deployed build, and the check that binds them to a build no longer
+  decides over pixels that never moved.
+
+### Known limitations
+
+- Looking **up** at a raised floor from the deck below is still the weakest frame in the game: that slab's
+  underside wears the level's ceiling material, so from below the second storey can still read as a lid with
+  no visible floor over it. That is #421 and #495's remaining sector — THE STACK still arrives with its roof
+  at 0.67x the deck under it, the last one under the bar.
+- This release fixes the floor half of the past-the-edge case only. Ceilings past a lip still answer the
+  plane they were queued on (#518's ceiling half).
+
 ## [v1.4.33] - 2026-11-23
 
 ### Changed
