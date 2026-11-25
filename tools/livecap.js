@@ -1098,7 +1098,8 @@ async function cost(o) {
       + 'difference of two loops and is NOT a price. Vacuity is a FAILURE, not a debt.');
   if (ctlFloors.length)
     console.log('LIVECOST the inert controls - every one of them switching NOTHING - land at a median '
-      + median(ctlFloors).toFixed(1) + ' ms of paired gap over ' + ctlFloors.length + ' sample(s), and '
+      + median(ctlFloors).toFixed(1) + ' ms of paired gap (' + ctlFloors.length + ' sector(s), one pooled '
+      + 'figure each), and '
       + (ctlSpread.length ? 'spread ' + median(ctlSpread).toFixed(1) + ' ms WITHIN one sector across the '
         + 'arms on the line' : 'were run') + '. That figure is this run\'s floor: it is what an arm reads '
       + 'when it changes nothing, so every % closed above is measured as (that floor - the arm) over the '
