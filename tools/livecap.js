@@ -800,7 +800,7 @@ async function cost(o) {
     const cat = (map, k) => (map['c' + k] || []);
     const wCircle = []; for (let k = 0; k < S; k++) wCircle.push(m2(cat(warm, k)));
     const allW = [], allS = [];
-    for (let k = 0; k < S; k++) { allW.push.apply(allW, cat(warm, k)); allS.push.apply(allS, cat(a, 'c' + k) || []); }
+    for (let k = 0; k < S; k++) { allW.push.apply(allW, cat(warm, k)); allS.push.apply(allS, a['c' + k] || []); }
     const turnMs = m2(allW), steadyMs = m2(allS), turnR = turnMs / Math.max(1e-6, steadyMs);
     const wFin = wCircle.filter(isFinite);
     const wLo = wFin.length ? Math.min.apply(null, wFin) : NaN, wHi = wFin.length ? Math.max.apply(null, wFin) : NaN;
@@ -810,10 +810,18 @@ async function cost(o) {
      * belongs to the round itself. Split every sweep sample by where in its round's visit order it ran. */
     const h1 = [], h2 = [];
     for (let k = 0; k < S; k++) {
-      const v = cat(a, 'c' + k), p = cat(posat, k);
+      const v = a['c' + k] || [], p = cat(posat, k);
       for (let i = 0; i < v.length; i++) { if (p[i] === undefined) continue; (p[i] < S / 2 ? h1 : h2).push(v[i]); }
     }
     const ord1 = m2(h1), ord2 = m2(h2), ordR = ord1 / Math.max(1e-6, ord2);
+    /* ONE POSE, TWO WINDOWS. Heading 0 of the circle IS the dealt pose (the sweep starts at `dealt` and
+     * steps by 0), so it is the same frame the `dealt` and `hold` arms time - but the circle samples it
+     * through M frames per arm and the named arms through N. If ms/frame depends on how many frames a
+     * sample averages, the two halves of this read are not comparable in absolute ms and the sweep's
+     * figures cannot be set beside the dealt/pinned ratio. This prices that instead of leaving it to the
+     * reader, and it is what made an earlier round of this issue compare a 4-frame window to a 24-frame
+     * one and call the difference a bearing. */
+    const winSame = m2(a.c0), winR = winSame / Math.max(1e-6, dms);
     console.log('COST L' + r.level + ' ' + r.name + ' seat ' + r.p.x.toFixed(2) + ',' + r.p.y.toFixed(2) +
       ' dealt ' + dealt.toFixed(3) + ' rad (' + (differs ? 'a turned seat' : 'the pinned heading itself') +
       ')  dealt ' + dms + '  pinned ' + pms + '  up ' + ums + '  hold ' + hms + ' ms/frame | dealt/pinned ' + ratio.toFixed(2) +
@@ -829,6 +837,12 @@ async function cost(o) {
         + 'what a frame in which it did not, so what this circle ranks is held-frame geometry')
       + '). The turn term by heading spans ' + wLo.toFixed(2) + '-' + wHi.toFixed(2) + ' ms, ' + wSpread.toFixed(2)
       + 'x, where the HELD term spans ' + lo.toFixed(2) + '-' + hi.toFixed(2) + ' ms, ' + spread.toFixed(2) + 'x.\n'
+      + '   ONE POSE, TWO WINDOWS: heading 0 of the circle IS the dealt pose, timed here through '
+      + (+o.yawFrames || 3) + ' frames per sample and by the dealt arm through ' + (+o.frames || 4) +
+      ' - ' + winSame.toFixed(2) + ' against ' + dms.toFixed(2) + ' ms/frame, ' + winR.toFixed(2)
+      + 'x for the SAME frame. A sample that costs less the fewer frames it averages is a sample whose '
+      + 'cost RISES across the sample, so no absolute ms in this read may be set beside another arm\'s '
+      + 'unless the two used the same window; ratios inside one window still mean what they say.\n'
       + '   Visit-order control: the first half of each round\'s visit order costs ' + ord1.toFixed(2)
       + ' ms/frame and the second half ' + ord2.toFixed(2) + ' (ratio ' + ordR.toFixed(2)
       + 'x) - a round that drifts during itself can put a heading at the top of the table with no bearing '
