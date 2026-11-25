@@ -152,7 +152,20 @@ const LEVELS = [
        per the ruling on this issue: `lampCol` stays [190, 255, 150], and the oxblood minority wall stays
        as #466 left it. This sector's ONE accent is this paint, spent on geometry. */
     accent: [28, 52, 63],
-    floor: 'FLESH', ceil: 'SINEW', amb: 0.3, lampCol: [190, 255, 150], fogCol: [21, 8, 11], ceilBias: -0.12, ceilLead: 0.30,
+    // #495 SIXTH WAVE: THE ROOF IS PAID FOR OUT OF THIS SECTOR'S OWN SURPLUS, not added to the frame.
+    // ABATOIR CORE is the one sector whose `surface` ROOF row passed inside a coin-flip of the 0.7x bar
+    // (0.74x, margin +0.04, and a RANGE-bin MEDIAN of 0.54 - the majority of ranges still read the roof
+    // at just over half its deck, which is this issue's own title defect living inside a green row) while
+    // carrying the most exposure headroom of any sector (16.7 lumas under its derived top). So the luma
+    // is TRADED, not bought: `ceilBias` -0.12 -> -0.02 raises every ceiling row's base, and a NEW
+    // `floorBias: -0.06` gives most of it back on the deck that roof covers, so the sector's composited
+    // spawn median and its operating room come back at MAIN'S digits (69.3 and 16.7 lumas, unchanged) and
+    // the ratio moves because the two surfaces SWAPPED value inside one frame. #369's value order and
+    // PR #380's derived cap are untouched and still bind the WHOLE lift term: the ceiling's base is still
+    // `AMB + CEILB + min(ceilLead, CEILFL + CEILG*max(0, dz-CEILHI))` and an authored `ceilLead` is still
+    // the level's own word; no second light field, no per-pixel ceiling array, no lamp, no height moved.
+    // Height is still said by the riser seam and the minimap band cue (#164), not by light.
+    floor: 'FLESH', ceil: 'SINEW', amb: 0.3, lampCol: [190, 255, 150], fogCol: [21, 8, 11], ceilBias: -0.02, floorBias: -0.06, ceilLead: 0.30,
     lamps: 16, crates: 9, barrels: 12, spawn: { grunt: 8, hound: 7, brute: 3 }, pick: { health: 5, ammo: 6, armor: 2 },
     fixtures: ['VENT', 'STRIPE'],         // #400: the abattoir breathes; everything here is a duct
     purpose: ['TANK', 'RACK']             // #400: what it breathes and what it drains
