@@ -612,8 +612,18 @@ function fgLine(tag, r, idn, k) {
      pinned  the literal 0.6 rad every seat used before arrival bearings were derived (#421),
              which is the heading tools/view.js's `seat price` row times its ratio against
      up      the dealt heading with the eye tilted at the storey the level built overhead
-     circle  the same seat through 8 yaw samples, so a swing that is really "any heading costs
-             about the same" cannot hide behind the two named ones
+     hold    the DEALT POSE AGAIN, timed in a different slot of the same round. It is the timer's
+             mirror: one pose timed twice, so its ratio against `dealt` has to be 1.00 and any
+             drift is the harness, not the room. Before #728 the only self-check the read had was
+             the accident of a sector whose dealt heading equals the pinned literal, and on the
+             build that ships none of the four does - so the table printed with no self-check at
+             all. `hold` makes the check unconditional.
+     circle  the same seat through a full turn sampled at --yawSamples headings (8 by default), so
+             a swing that is really "any heading costs about the same" cannot hide behind the two
+             named ones. The headings are visited in an order that ROTATES with the round, which is
+             what the three named arms already do and what the eight-point scan of #728 did not:
+             visiting heading k in slot k of every round makes any order effect land on the same
+             heading every round, which is indistinguishable from that heading costing more.
  * The clock is frozen (DEV.freeze) so every arm renders the same world: what varies between the
  * arms is what the eye contains, which is exactly the quantity #529 argues about. The frame is
  * timed with the page's own performance.now() around DEV.tick, so it includes everything the
@@ -628,12 +638,31 @@ function fgLine(tag, r, idn, k) {
  * 54.43 ms in the other - a 1.30x swing made by nothing but the order the arms ran in, on a shared
  * runner. A ratio taken off a drifting timer is not a measurement, so every arm is sampled once per
  * round, the round rotates which arm goes first, and each arm's number is the median of its rounds.
- * The sectors where the dealt heading equals the pinned one are then a free instrument: one pose
- * timed twice, so their ratio has to land on 1.00, and one that does not says the timer is drifting.
- * That is printed as IDENTITY SPREAD on the row and fails the read - a ratio that cannot tell an
- * identical frame from itself cannot price a turned one. */
+ * The `hold` arm is that instrument by construction rather than by luck: a ratio that cannot tell an
+ * identical frame from itself cannot price a turned one, and it is printed as IDENTITY SPREAD on the
+ * row and fails the read.
+ *
+ * NAMING THE PASS THAT PAYS (#728 Done-when 2). Once the circle says a heading pays, the route turns
+ * the two extremes of it - the slowest and the fastest heading of the turn - into a second pair of
+ * arms, and times each of them again once per candidate pass with that pass switched off through the
+ * page's own DEV.set registers. The shipped value of every register is snapshotted off the page before
+ * the first arm and restored after every one, so no ablation leaks into the next. A pass that costs
+ * the same at both headings is not the swing; a pass whose OFF half closes the gap IS the swing, and
+ * the row prints how much of the gap each one closes. This prices the frame a player gets - the page's
+ * own renderWorld under the page's own clock - not a model of it. */
+const PASS_AB = [
+  ['farband', 'gndtex', 0, () => GNDTX],        // the deferred far band's own texel fetch (#616)
+  ['wash', 'gndfar', 0, () => GNDFB],           // the far answer: wash past FARB vs the textured field
+  ['glow', 'glow', 0, q => q.glow],             // drawLightGlow
+  ['bloom', 'bloom', false, q => q.bloom],      // the bloom pass
+  ['decals', 'dmax', 0, q => q.dmax],           // the decal mask walk inside the wall span
+  ['shadows', 'shadow', 0, () => SHADOW]        // buildShadowGrid + the contact darkening reads
+];
+
 function costRoute(o) {
   const N = +o.frames || 4, R = +o.rounds || 5, M = +o.yawFrames || 3;
+  const S = Math.max(4, Math.min(32, +o.yawSamples || 8));
+  const AB = o.passes === false ? '[]' : JSON.stringify(PASS_AB.map(p => [p[0], p[1], p[2]]));
   return `(function(){
   var out={arms:{}};
   DEV.boot(); DEV.freeze(true); DEV.tick(30);
@@ -645,19 +674,43 @@ function costRoute(o) {
   DEV.tick(1);
   var st=DEV.state();
   out.name=st.levelName; out.layout=st.layout; out.mode=st.mode; out.p=st.p;
-  var x=st.p.x, y=st.p.y, z=st.p.z, dealt=st.p.ang, acc={};
+  var x=st.p.x, y=st.p.y, z=st.p.z, dealt=st.p.ang, acc={}, nsp={};
   function sample(tag,ang,pitch,n){
     DEV.cam(x,y,z,ang,pitch);
     DEV.tick(2);                                  // settle: the first frame of a new view pays the caches
     var t0=performance.now();
     for(var i=0;i<n;i++) DEV.tick(1);
     (acc[tag]=acc[tag]||[]).push((performance.now()-t0)/n);
+    (nsp[tag]=nsp[tag]||[]).push(DEV.stats().drawCalls);   // sprites actually drawn in that frame
   }
-  var UP=BH*${YAWUP}, arms=[['dealt',dealt,0],['pinned',${PINHEAD},0],['up',dealt,UP]];
+  function med(a){var s=a.slice().sort(function(p,q){return p-q});var m=s.length>>1;
+    return s.length%2?s[m]:0.5*(s[m-1]+s[m]);}
+  var UP=BH*${YAWUP}, arms=[['dealt',dealt,0],['pinned',${PINHEAD},0],['up',dealt,UP],['hold',dealt,0]];
   for(var r=0;r<${R};r++){
-    for(var k=0;k<3;k++){var a=arms[(k+r)%3]; sample(a[0],a[1],a[2],${N});}
+    for(var k=0;k<4;k++){var a=arms[(k+r)%4]; sample(a[0],a[1],a[2],${N});}
   }
-  for(var q=0;q<${R};q++) for(var k2=0;k2<8;k2++) sample('c'+k2,dealt+k2*Math.PI/4,0,${M});
+  var S=${S}, step=2*Math.PI/S;
+  for(var q=0;q<${R};q++) for(var k2=0;k2<S;k2++){
+    var h=(k2+q)%S; sample('c'+h,dealt+h*step,0,${M});
+  }
+  var cmed=[]; for(var k3=0;k3<S;k3++) cmed.push(med(acc['c'+k3]));
+  var iHi=0,iLo=0;
+  for(var k4=1;k4<S;k4++){ if(cmed[k4]>cmed[iHi]) iHi=k4; if(cmed[k4]<cmed[iLo]) iLo=k4; }
+  out.circle=cmed; out.S=S; out.iHi=iHi; out.iLo=iLo;
+  out.hiSpr=med(nsp['c'+iHi]); out.loSpr=med(nsp['c'+iLo]);
+  // the two extremes get a baseline of their own, timed exactly like the ablations beside them
+  var aHi=dealt+iHi*step, aLo=dealt+iLo*step;
+  for(var q3=0;q3<${R};q3++){ sample('b_hi',aHi,0,${M}); sample('b_lo',aLo,0,${M}); }
+  // DONE-WHEN 2: price every switchable pass at BOTH extremes. A pass that costs the same at each is
+  // not the swing; a pass whose OFF half closes the gap between the headings IS the swing.
+  var AB=${AB};
+  var snap={gndtex:GNDTX,gndfar:GNDFB,shadow:SHADOW,glow:GQ.glow,bloom:GQ.bloom,dmax:GQ.dmax};
+  out.snap=snap;
+  for(var q1=0;q1<${R};q1++) for(var p=0;p<AB.length;p++){
+    var nm=AB[p][0], reg=AB[p][1], offv=AB[p][2];
+    DEV.set(reg,offv); sample(nm+'_hi',aHi,0,${M}); DEV.set(reg,snap[reg]);
+    DEV.set(reg,offv); sample(nm+'_lo',aLo,0,${M}); DEV.set(reg,snap[reg]);
+  }
   for(var t in acc) out.arms[t]=acc[t];
   out.buf=[BW,BH]; out.tier=DEV.stats().tier; out.gfx=st.gfx;
   return out;})()`;
@@ -667,6 +720,7 @@ const median = a => { const s = a.slice().sort((x, y) => x - y); return s.length
   : 0.5 * (s[s.length / 2 - 1] + s[s.length / 2]); };
 const med = a => +median(a).toFixed(2);
 const ID_TOL = 0.10;                              // how far one pose may time from itself, in x
+const YAW_FLAT = +(process.env.YAW_FLAT || 1.35);  // at or below this, a whole turn at one seat is FLAT
 
 async function cost(o) {
   const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'livecost-'));
@@ -680,7 +734,7 @@ async function cost(o) {
       if (!rows.length && !(await page.evaluate('!!(window.DEV && DEV.on)')))
         throw new Error(o.url + ' is not a ?dev=1 page (js/90_dev.js stayed inert)');
       const v = await page.evaluate(costRoute({ level: lvl, frames: o.frames, rounds: o.rounds,
-        yawFrames: o.yawFrames }));
+        yawFrames: o.yawFrames, yawSamples: o.yawSamples, passes: o.passes !== false }));
       rows.push(Object.assign({ level: lvl }, v));
     }
   } finally {
@@ -688,29 +742,52 @@ async function cost(o) {
     fs.rmSync(profile, { recursive: true, force: true });
   }
 
-  let swung = 0, ident = 0, drift = 0;
+  let swung = 0, ident = 0, drift = 0, paid = 0, flatN = 0, worst = null;
   for (const r of rows) {
     if (r.error) { console.log('COST L' + r.level + ' ERROR ' + r.error); continue; }
-    const a = r.arms, dealt = r.p.ang;
-    const dms = med(a.dealt), pms = med(a.pinned), ums = med(a.up);
-    const circle = []; for (let k = 0; k < 8; k++) circle.push(med(a['c' + k]));
+    const a = r.arms, dealt = r.p.ang, S = r.S || 8;
+    const dms = med(a.dealt), pms = med(a.pinned), ums = med(a.up), hms = med(a.hold);
+    const circle = []; for (let k = 0; k < S; k++) circle.push(med(a['c' + k]));
     const differs = Math.abs(Math.atan2(Math.sin(dealt - PINHEAD), Math.cos(dealt - PINHEAD))) > 1e-6;
     const ratio = dms / Math.max(1e-6, pms);
     const upR = ums / Math.max(1e-6, dms);
     const lo = Math.min.apply(null, circle), hi = Math.max.apply(null, circle);
-    if (differs) { if (ratio >= LIVE_SWING) swung++; }
-    else { ident++; if (!(Math.abs(ratio - 1) <= ID_TOL)) drift++; }
+    if (differs && ratio >= LIVE_SWING) swung++;
+    /* The timer checked against itself, in EVERY sector: `hold` is the dealt pose timed again in a
+     * different slot of the same round, so the identity pair no longer depends on a sector happening
+     * to face the pinned 0.6 rad - and on the build that ships none of the four does, which is how a
+     * #728 circle table printed with no self-check behind it at all. */
+    const idR = dms / Math.max(1e-6, hms), spread = hi / Math.max(1e-6, lo);
+    ident++; if (!(Math.abs(idR - 1) <= ID_TOL)) drift++;
+    if (spread >= YAW_FLAT) paid++; else flatN++;
     console.log('COST L' + r.level + ' ' + r.name + ' seat ' + r.p.x.toFixed(2) + ',' + r.p.y.toFixed(2) +
       ' dealt ' + dealt.toFixed(3) + ' rad (' + (differs ? 'a turned seat' : 'the pinned heading itself') +
-      ')  dealt ' + dms + '  pinned ' + pms + '  up ' + ums + ' ms/frame | dealt/pinned ' + ratio.toFixed(2) +
-      'x, turned up ' + upR.toFixed(2) + 'x, yaw circle ' + lo.toFixed(2) + '-' + hi.toFixed(2) + 'x  [' +
-      r.tier + '/' + r.gfx + ' ' + r.buf.join('x') + ', layout ' + r.layout + ', ' + a.dealt.length + ' round(s)' +
-      (differs ? '' : ', IDENTITY SPREAD ' + ratio.toFixed(2) + 'x' + (Math.abs(ratio - 1) <= ID_TOL ? '' : ' DRIFT')) + ']');
+      ')  dealt ' + dms + '  pinned ' + pms + '  up ' + ums + '  hold ' + hms + ' ms/frame | dealt/pinned ' + ratio.toFixed(2) +
+      'x, turned up ' + upR.toFixed(2) + 'x, one pose twice ' + idR.toFixed(2) + 'x, yaw circle ' + S + ' headings '
+      + lo.toFixed(2) + '-' + hi.toFixed(2) + ' ms/frame, spread ' + spread.toFixed(2) + 'x  [' +
+      r.tier + '/' + r.gfx + ' ' + r.buf.join('x') + ', layout ' + r.layout + ', ' + a.dealt.length + ' round(s), visit order rotates per round' +
+      (Math.abs(idR - 1) <= ID_TOL ? '' : ', IDENTITY DRIFT ' + idR.toFixed(2) + 'x') + ']');
+    if (spread < YAW_FLAT) continue;
+    const wr = v => ((v % (2 * Math.PI)) + 3 * Math.PI) % (2 * Math.PI) - Math.PI;
+    const bhi = med(a.b_hi), blo = med(a.b_lo), gap = bhi - blo;
+    const ab = PASS_AB.map(p => {
+      const oHi = med(a[p[0] + '_hi']), oLo = med(a[p[0] + '_lo']);
+      return { name: p[0], gap: oHi - oLo, closed: gap > 0.5 ? (gap - (oHi - oLo)) / gap : 0 };
+    }).filter(x => a[x.name + '_hi'] && isFinite(x.gap));
+    console.log('COST L' + r.level + '   ms/frame by heading: ' + circle.map((v, k) =>
+      wr(dealt + k * 2 * Math.PI / S).toFixed(2) + ':' + v.toFixed(1)).join('  ')
+      + '\n   the heading that pays is ' + wr(dealt + r.iHi * 2 * Math.PI / S).toFixed(3) + ' rad at '
+      + hi.toFixed(2) + ' ms against ' + lo.toFixed(2) + ' at ' + wr(dealt + r.iLo * 2 * Math.PI / S).toFixed(3)
+      + '; sprites drawn ' + r.hiSpr + ' vs ' + r.loSpr + '. Pass split at the two extremes (shipped frame '
+      + bhi.toFixed(2) + '/' + blo.toFixed(2) + ', gap ' + gap.toFixed(2) + ' ms): '
+      + ab.map(x => x.name + ' off -> gap ' + x.gap.toFixed(1) + ' ms, ' + (100 * x.closed).toFixed(0)
+        + '% closed').join(', '));
+    for (const x of ab) if (!worst || x.closed > worst.closed) worst = Object.assign({ level: r.level, gap: gap }, x);
   }
   if (page.pageErrors.length) console.log('NOTE page exceptions: ' + page.pageErrors.slice(0, 3).join(' | '));
   if (!ident) {
-    console.log('LIVECOST no sector sat at the pinned heading, so nothing here checked the timer against ' +
-      'itself - no ratio below means anything. FAILURE, not a clean bill.');
+    console.log('LIVECOST nothing was timed, so the timer was never checked against itself - no ratio '
+      + 'below means anything. FAILURE, not a clean bill.');
     process.exitCode = 1;
     return rows;
   }
@@ -729,6 +806,21 @@ async function cost(o) {
     'x that would put a player-visible swing behind the harness ratio (tools/view.js `seat price`). ' +
     (swung ? 'The swing reaches the frame.' : 'The swing does not reach the frame: the harness prices a ' +
       'buffer, the player gets this.'));
+  const S0 = (rows.find(r => !r.error) || { S: 8 }).S;
+  if (!paid) console.log('LIVECOST the yaw circle is FLAT: every sector read turned a full circle at ' + S0
+    + ' headings with the visit order rotating per round, and the worst heading stayed under '
+    + YAW_FLAT.toFixed(2) + 'x the fastest at a HELD camera. A coarse scan that printed a wide swing was '
+    + 'measuring the scan - a slot in the round - not a bearing in the level.');
+  else console.log('LIVECOST the yaw circle is NOT flat: ' + paid + ' of ' + (paid + flatN)
+    + ' sector(s) spread at or over ' + YAW_FLAT.toFixed(2) + 'x across one slow turn at a held camera ('
+    + S0 + ' headings, visit order rotated per round, one pose twice within ' + ID_TOL.toFixed(2)
+    + 'x) - a hitch in the hand while a player sweeps a room. '
+    + (worst && worst.closed > 0.25
+      ? 'The pass that pays is ' + worst.name + ' (L' + worst.level + '): turning it off closes '
+        + (100 * worst.closed).toFixed(0) + '% of that seat\'s ' + worst.gap.toFixed(1)
+        + ' ms heading gap, so the swing lives in that pass; what is left is the cost of the geometry.'
+      : 'No single switch closes a quarter of the gap, so the swing is the geometry the eye contains - the '
+        + 'wall columns and ground rows a long sight line marches - not one pass that can be turned off.'));
   return rows;
 }
 
@@ -1078,8 +1170,9 @@ async function main() {
   if (cmd === 'cost') {
     /* kept separate from the usage text below so a reader who lands here sees what the flags mean */
     const levels = (arg('levels', '0,1,2,3') + '').split(',').map(Number);
-    await cost({ url, levels, frames: arg('frames', 24), yawFrames: arg('yawFrames', 8),
-      timeout: arg('timeout', 240) });
+    await cost({ url, levels, frames: arg('frames', 24), rounds: arg('rounds', 5),
+      yawFrames: arg('yawFrames', 8), yawSamples: arg('yawSamples', 8),
+      passes: arg('passes', '1') !== '0', timeout: arg('timeout', 240) });
     return;
   }
 
@@ -1165,6 +1258,8 @@ async function main() {
     '  node tools/livecap.js fg   <with-body.png> <without.png>',
     '  node tools/livecap.js pickup --url <dev page> [--levels 0,1,2,3] [--out DIR] [--keep]',
     '  node tools/livecap.js cost [--url <dev page>] [--levels 0,1,2,3] [--frames 24] [--yawFrames 8]',
+    '                              [--yawSamples 8] [--passes 1]   yawFrames = FRAMES PER SAMPLE; the',
+    '                              circle heading count is --yawSamples, not --yawFrames (#728)',
     '  node tools/livecap.js sweep [--url <dev page>] [--levels 0,1,2,3] [--deals 12] [--seed 60] [--dist 10]',
     '',
     'sweep = #611 bullet 2 on the deployed build: 12 dealt rooms per level, one page load per deal (the',
