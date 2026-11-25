@@ -152,20 +152,31 @@ const LEVELS = [
        per the ruling on this issue: `lampCol` stays [190, 255, 150], and the oxblood minority wall stays
        as #466 left it. This sector's ONE accent is this paint, spent on geometry. */
     accent: [28, 52, 63],
-    // #495 SIXTH WAVE: THE ROOF IS PAID FOR OUT OF THIS SECTOR'S OWN SURPLUS, not added to the frame.
-    // ABATOIR CORE is the one sector whose `surface` ROOF row passed inside a coin-flip of the 0.7x bar
-    // (0.74x, margin +0.04, and a RANGE-bin MEDIAN of 0.54 - the majority of ranges still read the roof
-    // at just over half its deck, which is this issue's own title defect living inside a green row) while
-    // carrying the most exposure headroom of any sector (16.7 lumas under its derived top). So the luma
-    // is TRADED, not bought: `ceilBias` -0.12 -> -0.02 raises every ceiling row's base, and a NEW
-    // `floorBias: -0.06` gives most of it back on the deck that roof covers, so the sector's composited
-    // spawn median and its operating room come back at MAIN'S digits (69.3 and 16.7 lumas, unchanged) and
-    // the ratio moves because the two surfaces SWAPPED value inside one frame. #369's value order and
-    // PR #380's derived cap are untouched and still bind the WHOLE lift term: the ceiling's base is still
-    // `AMB + CEILB + min(ceilLead, CEILFL + CEILG*max(0, dz-CEILHI))` and an authored `ceilLead` is still
-    // the level's own word; no second light field, no per-pixel ceiling array, no lamp, no height moved.
-    // Height is still said by the riser seam and the minimap band cue (#164), not by light.
-    floor: 'FLESH', ceil: 'SINEW', amb: 0.3, lampCol: [190, 255, 150], fogCol: [21, 8, 11], ceilBias: -0.02, floorBias: -0.06, ceilLead: 0.30,
+    // #495 SIXTH WAVE (review round): THE ROOF IS PAID FOR OUT OF THIS SECTOR'S OWN SURPLUS, not added
+    // to the frame. ABATOIR CORE is the one sector whose `surface` ROOF row passed inside a coin-flip of
+    // the 0.7x bar (0.74x, margin +0.04, and a RANGE-bin MEDIAN of 0.54 - the majority of ranges still
+    // read the roof at just over half its deck, which is this issue's own title defect living inside a
+    // green row) while carrying the most exposure headroom of any sector (17.3 lumas under its derived
+    // top). So the luma is TRADED, not bought: `ceilBias` -0.12 -> -0.08 raises every ceiling row's base
+    // and a NEW `floorBias: -0.04` gives part of it back on the deck that roof covers, so the sector's
+    // composited spawn median and its operating room come back at MAIN'S digits (69.4 and 17.3 lumas) and
+    // the ratio moves because the two surfaces SWAPPED value inside one frame.
+    // WHY THIS DOSE AND NOT THE FIRST ONE: the first cut of this line spent the whole surplus (-0.12 ->
+    // -0.02 with the deck paying -0.06) and reached 0.87x at the seat. Two rows priced that purchase and
+    // the review sent it back, MEASURED with main's js beside it in one tree (`JSDIR=`): `mip`'s L2
+    // ceiling fan, which is the #19 radial streak normalised by the frame's own mean luma, went 32 -> 34
+    // against `accepted <=29+4`, and `bands`' L2 far-band step across the FARB boundary went 7.18 -> 9.14
+    // against `<= 8`. Both terms grow with the ceiling's share of a frame whose mean is fixed - a brighter
+    // roof and a darker deck each raise that ratio, and the streak is read AFTER that normalisation - so
+    // the honest size of the trade is the one those two rows still call the accepted look: 0.80x at the
+    // seat (ceiling 63.4 over a deck of 80.0) with the fan back at 33 and the far-band step at 6.96. The
+    // rest of the surplus is left in the frame rather than spent on a roof that buys its look with streak.
+    // #369's value order and PR #380's derived cap are untouched and still bind the WHOLE lift term: the
+    // ceiling's base is still `AMB + CEILB + min(ceilLead, CEILFL + CEILG*max(0, dz-CEILHI))` and an
+    // authored `ceilLead` is still the level's own word; no second light field, no per-pixel ceiling
+    // array, no lamp, no height, no threshold moved. Height is still said by the riser seam and the
+    // minimap band cue (#164), not by light.
+    floor: 'FLESH', ceil: 'SINEW', amb: 0.3, lampCol: [190, 255, 150], fogCol: [21, 8, 11], ceilBias: -0.08, floorBias: -0.04, ceilLead: 0.30,
     lamps: 16, crates: 9, barrels: 12, spawn: { grunt: 8, hound: 7, brute: 3 }, pick: { health: 5, ammo: 6, armor: 2 },
     fixtures: ['VENT', 'STRIPE'],         // #400: the abattoir breathes; everything here is a duct
     purpose: ['TANK', 'RACK']             // #400: what it breathes and what it drains
