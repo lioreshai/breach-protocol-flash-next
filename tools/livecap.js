@@ -667,13 +667,27 @@ const PASS_AB = [
   ['glow', 'glow', 0, q => q.glow],             // drawLightGlow
   ['bloom', 'bloom', false, q => q.bloom],      // the bloom pass
   ['decals', 'dmax', 0, q => q.dmax],           // the decal mask walk inside the wall span
-  ['shadows', 'shadow', 0, () => SHADOW]        // buildShadowGrid + the contact darkening reads
+  ['shadows', 'shadow', 0, () => SHADOW],       // buildShadowGrid + the contact darkening reads
+  /* #728 Done-when 2, the shadow pass's OWN halves. `shadow` is one switch over two costs: a per-frame
+     build (buildShadowGrid fills MAP.w^2 grid heads and distance-culls every body and prop, js/40_render
+     :1994) and a per-PIXEL read (shadowFloor's chain walk, whose cost depends on which cells the eye is
+     in and so CAN vary with heading). Naming "shadows" as the payer cannot say which; a seat that pays
+     for its grid build pays at every heading, and a seat that pays for the walk pays by bearing, which is
+     the shape this issue is about. There is no DEV register for either half - SHADOW_PROP and SHADOW_FAR
+     are script-scope `let`s (js/40_render.js:446, :372), and a `let` at the top of a classic script lives
+     in the global lexical environment, so a function built by `new Function` from the page's own global
+     scope reaches it. That is the same mechanism DEV.set uses for the gnd* terms; here it is done without
+     touching js/ so the read still runs against the shipped build. Both arms RESTORE the value they read
+     off the page before the first arm, so neither leaks into the next. Each changes the PAINT as well as
+     the milliseconds - an ablation always does - so its number is that term's cost, not a free win. */
+  ['shbuild', null, 0, () => SHADOW_PROP, 'SHADOW_PROP'],  // the prop caster loop off: the grid is still
+  ['shdisc', null, 0, () => SHADOW_FAR, 'SHADOW_FAR']      // filled and culled but registers no disc
 ];
 
 function costRoute(o) {
   const N = +o.frames || 4, R = +o.rounds || 5, M = +o.yawFrames || 3;
   const S = Math.max(4, Math.min(32, +o.yawSamples || 8));
-  const AB = o.passes === false ? '[]' : JSON.stringify(PASS_AB.map(p => [p[0], p[1], p[2]]));
+  const AB = o.passes === false ? '[]' : JSON.stringify(PASS_AB.map(p => [p[0], p[1], p[2], p[4] || null]));
   // one shuffle seed per (level, round), so the visit order varies across rounds and across sectors
   // but a re-run of the same command replays the same order.
   const SEED0 = 104729 * ((o.level | 0) + 1) + 13;
@@ -749,11 +763,19 @@ function costRoute(o) {
   // not the swing; a pass whose OFF half closes the gap between the headings IS the swing.
   var AB=${AB};
   var snap={gndtex:GNDTX,gndfar:GNDFB,shadow:SHADOW,glow:GQ.glow,bloom:GQ.bloom,dmax:GQ.dmax};
+  /* A raw arm is switched by ASSIGNING a script-scope name, so its shipped value has to be read off the
+     page the same way (AB[p][3] is the name, AB[p][4] the value read back before anything was touched). */
+  function rawGet(e){ try { return (new Function('return ' + e))(); } catch (err) { return undefined; } }
+  function armSet(p,v){ if(p[3]) { try { (new Function('v', p[3] + '=v'))(v); } catch (err) { out.abErr=String(err); } }
+                         else DEV.set(p[1], v); }
+  for(var pz=0;pz<AB.length;pz++) if(AB[pz][3]) AB[pz][4]=rawGet(AB[pz][3]);
+  // a raw switch that reads back nothing did not arm, and an arm that never moved the page is a row about nothing
+  out.rawErr=AB.filter(function(p){ return p[3] && p[4] === undefined; }).map(function(p){ return p[0]+':'+p[3]; });
   out.snap=snap;
   for(var q1=0;q1<${R};q1++) for(var p=0;p<AB.length;p++){
-    var nm=AB[p][0], reg=AB[p][1], offv=AB[p][2], first=(q1+p)%2;
-    DEV.set(reg,offv); sample(nm+(first?'_lo':'_hi'),first?aLo:aHi,0,${M}); DEV.set(reg,snap[reg]);
-    DEV.set(reg,offv); sample(nm+(first?'_hi':'_lo'),first?aHi:aLo,0,${M}); DEV.set(reg,snap[reg]);
+    var nm=AB[p][0], reg=AB[p][1], offv=AB[p][2], first=(q1+p)%2, back=AB[p][3]?AB[p][4]:snap[reg];
+    armSet(AB[p],offv); sample(nm+(first?'_lo':'_hi'),first?aLo:aHi,0,${M}); armSet(AB[p],back);
+    armSet(AB[p],offv); sample(nm+(first?'_hi':'_lo'),first?aHi:aLo,0,${M}); armSet(AB[p],back);
   }
   for(var t in acc) out.arms[t]=acc[t];
   out.warm=warm; out.pos=posat;
@@ -962,6 +984,16 @@ async function cost(o) {
    * without ever printing a verdict - which is exactly the config #728 is about, so the read regressed
    * on the path it exists to measure (#933 review, falsified by deleting only that token). Hoisted. */
   const abRan = rows.some(r => !r.error && (r.arms.farband_hi || []).length);
+  /* The two shadow-half arms are switched by ASSIGNING a renderer global from the page's global scope
+   * (see PASS_AB). If that assignment cannot see the binding - a renamed `let`, a build where the name is
+   * gone - every sample of those arms is a sample of the SHIPPED frame and the row would read "shbuild off
+   * -> 0% closed" as if it had tested something. Say which switch never armed instead. (#933 left the same
+   * shape of hole with `--passes 0`; AGENTS.md: a row that has never been able to fail is not a row.) */
+  const rawBad = rows.filter(r => !r.error && (r.rawErr || []).length).map(r => 'L' + r.level + ' ' + r.rawErr.join(','));
+  if (rawBad.length)
+    console.log('LIVECOST the raw pass switches did NOT arm in ' + rawBad.length + ' sector(s) (' + rawBad.join('; ') +
+      '): those arms timed the shipped frame, so their rows below say NOTHING about the pass they name. '
+      + 'Vacuity is a FAILURE, not a debt.');
   /* Object.assign({level, gap}, x) used to let x's OWN gap overwrite the seat's, so the sentence that
    * reads "closes N% of that seat's G ms heading gap" printed G as the ablated residual - 1.9 ms shown for
    * an 11.2 ms gap. seatGap carries the seat's figure and is applied LAST so x cannot overwrite it. */
