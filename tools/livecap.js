@@ -688,19 +688,42 @@ function costRoute(o) {
   DEV.tick(1);
   var st=DEV.state();
   out.name=st.levelName; out.layout=st.layout; out.mode=st.mode; out.p=st.p;
-  var x=st.p.x, y=st.p.y, z=st.p.z, dealt=st.p.ang, acc={}, nsp={};
-  function sample(tag,ang,pitch,n){
+  var x=st.p.x, y=st.p.y, z=st.p.z, dealt=st.p.ang, acc={}, nsp={}, warm={}, posat={};
+  function sample(tag,ang,pitch,n,pos){
     DEV.cam(x,y,z,ang,pitch);
-    DEV.tick(2);                                  // settle: the first frame of a new view pays the caches
+    var w0=performance.now(); DEV.tick(1);         // the RE-POSE term: what arriving at this view costs
+    (warm[tag]=warm[tag]||[]).push(performance.now()-w0);
+    DEV.tick(1);                                  // settle, exactly the second half of the old tick(2)
     var t0=performance.now();
     for(var i=0;i<n;i++) DEV.tick(1);
     (acc[tag]=acc[tag]||[]).push((performance.now()-t0)/n);
+    if(pos!==undefined)(posat[tag]=posat[tag]||[]).push(pos);   // where in this round's visit order it ran
     (nsp[tag]=nsp[tag]||[]).push(DEV.stats().drawCalls);   // sprites actually drawn in that frame
+  }
+  /* A TURN whose PREDECESSOR pose is always a DIFFERENT pose. warm.dealt is not one: in the rotating arm
+   * order hold sits immediately before dealt in EVERY round, and hold IS the dealt pose - so the first
+   * tick the dealt arm times is a HELD frame wearing a turn's name, which is how the cross-sector row
+   * priced the frame that turns at 0.53x a held frame for a term that was never a turn (#933 review).
+   * PARK takes the camera a quarter turn away and ticks once, UNTIMED, so the timed frame always starts
+   * from a view the frame before it did not have. Its held term is the dealt pose timed exactly as the
+   * dealt arm times it, so a park leaking past the settle shows as a gap between arms.turn and arms.dealt. */
+  function turnArm(tag,park,ang,pitch,n){
+    DEV.cam(x,y,z,park,pitch); DEV.tick(1);
+    DEV.cam(x,y,z,ang,pitch);
+    var w0=performance.now(); DEV.tick(1);
+    (warm[tag]=warm[tag]||[]).push(performance.now()-w0);
+    DEV.tick(1);
+    var t0=performance.now();
+    for(var i=0;i<n;i++) DEV.tick(1);
+    (acc[tag]=acc[tag]||[]).push((performance.now()-t0)/n);
+    (nsp[tag]=nsp[tag]||[]).push(DEV.stats().drawCalls);
   }
   function med(a){var s=a.slice().sort(function(p,q){return p-q});var m=s.length>>1;
     return s.length%2?s[m]:0.5*(s[m-1]+s[m]);}
   var UP=BH*${YAWUP}, arms=[['dealt',dealt,0],['pinned',${PINHEAD},0],['up',dealt,UP],['hold',dealt,0]];
+  var PARK=dealt+Math.PI/2;     // a quarter turn away: the turn a sweeping player actually makes per frame
   for(var r=0;r<${R};r++){
+    turnArm('turn',PARK,dealt,0,${N});
     for(var k=0;k<4;k++){var a=arms[(k+r)%4]; sample(a[0],a[1],a[2],${N});}
   }
   var S=${S}, step=2*Math.PI/S;
@@ -709,7 +732,7 @@ function costRoute(o) {
     for(i=n-1;i>0;i--){s=(Math.imul(s,1103515245)+12345)>>>0; j=s%(i+1); t=a[i]; a[i]=a[j]; a[j]=t;}
     return a;}
   for(var q=0;q<${R};q++){ var pm=perm(S,${SEED0}+q*7919);
-    for(var k2=0;k2<S;k2++){ var h=pm[k2]; sample('c'+h,dealt+h*step,0,${M}); }
+    for(var k2=0;k2<S;k2++){ var h=pm[k2]; sample('c'+h,dealt+h*step,0,${M},k2); }
   }
   var cmed=[]; for(var k3=0;k3<S;k3++) cmed.push(med(acc['c'+k3]));
   var iHi=0,iLo=0;
@@ -733,6 +756,7 @@ function costRoute(o) {
     DEV.set(reg,offv); sample(nm+(first?'_hi':'_lo'),first?aHi:aLo,0,${M}); DEV.set(reg,snap[reg]);
   }
   for(var t in acc) out.arms[t]=acc[t];
+  out.warm=warm; out.pos=posat;
   out.buf=[BW,BH]; out.tier=DEV.stats().tier; out.gfx=st.gfx;
   return out;})()`;
 }
@@ -766,6 +790,11 @@ async function cost(o) {
   let swung = 0, ident = 0, drift = 0, paid = 0, flatN = 0, worst = null, spreadN = 0;
   let pairHeld = 0, pairSwap = 0, pairFlat = 0;      // what the re-timed pair said, per sector
   const swapList = [];
+  /* Every ablation, at every sector whose pair held. The closing row names ONE pass, and naming the
+   * single biggest closure across four seats is how a small denominator (L2's gap can be 11 ms while
+   * L0's is 28) gets reported as the answer - so the pass is chosen by the MEDIAN closure across the
+   * seats and every seat's own figure is printed beside it. */
+  const abAll = {};
   for (const r of rows) {
     if (r.error) { console.log('COST L' + r.level + ' ERROR ' + r.error); continue; }
     const a = r.arms, dealt = r.p.ang, S = r.S || 8;
@@ -783,6 +812,45 @@ async function cost(o) {
     const idR = dms / Math.max(1e-6, hms), spread = hi / Math.max(1e-6, lo);
     ident++; if (!(Math.abs(idR - 1) <= ID_TOL)) drift++;
     if (spread >= YAW_FLAT) { paid++; spreadN++; } else flatN++;
+    /* #728, the question the circle has never actually timed. Every arm above re-poses, SETTLES for two
+     * frames, and then times the frames AFTER the settle - so every number in this read is the cost of a
+     * HELD frame at some heading. A player sweeping a room does not get held frames: while the hand is
+     * moving, EVERY frame is a first frame after a pose change. `warm` is that frame - the first tick
+     * after DEV.cam, timed inside the same sample() call as the steady frames beside it, so the pair is
+     * paired by construction, not by an ordering trick. If it costs what the frames after it cost, the
+     * turn is free and the sweep's spread has to be a held-frame property; if it costs more, the hitch a
+     * player feels while turning is priced, and the heading spread is beside the point. */
+    const warm = r.warm || {}, posat = r.pos || {};
+    const m2 = v => (v && v.length ? med(v) : NaN);
+    const cat = (map, k) => (map['c' + k] || []);
+    const wCircle = []; for (let k = 0; k < S; k++) wCircle.push(m2(cat(warm, k)));
+    const allW = [], allS = [];
+    for (let k = 0; k < S; k++) { allW.push.apply(allW, cat(warm, k)); allS.push.apply(allS, a['c' + k] || []); }
+    const turnMs = m2(allW), steadyMs = m2(allS), turnR = turnMs / Math.max(1e-6, steadyMs);
+    const wFin = wCircle.filter(isFinite);
+    const wLo = wFin.length ? Math.min.apply(null, wFin) : NaN, wHi = wFin.length ? Math.max.apply(null, wFin) : NaN;
+    const wSpread = wLo > 0 ? wHi / wLo : NaN;
+    /* The ORDER effect, priced instead of argued. The sweep visits headings in a shuffled order, which
+     * removes any systematic pairing of a heading with a transition, but it does not remove a drift that
+     * belongs to the round itself. Split every sweep sample by where in its round's visit order it ran. */
+    const h1 = [], h2 = [];
+    for (let k = 0; k < S; k++) {
+      const v = a['c' + k] || [], p = cat(posat, k);
+      for (let i = 0; i < v.length; i++) { if (p[i] === undefined) continue; (p[i] < S / 2 ? h1 : h2).push(v[i]); }
+    }
+    const ord1 = m2(h1), ord2 = m2(h2), ordR = ord1 / Math.max(1e-6, ord2);
+    /* ONE POSE, TWO WINDOWS. Heading 0 of the circle IS the dealt pose (the sweep starts at `dealt` and
+     * steps by 0), so it is the same frame the `dealt` and `hold` arms time - but the circle samples it
+     * through M frames per arm and the named arms through N. If ms/frame depends on how many frames a
+     * sample averages, the two halves of this read are not comparable in absolute ms and the sweep's
+     * figures cannot be set beside the dealt/pinned ratio. This prices that instead of leaving it to the
+     * reader, and it is what made an earlier round of this issue compare a 4-frame window to a 24-frame
+     * one and call the difference a bearing. */
+    const winSame = m2(a.c0), winR = winSame / Math.max(1e-6, dms);
+    /* frames PER SAMPLE in each half of this read - the two halves are allowed to differ, and when they do
+     * no absolute ms/frame may be compared across them (#728: an earlier round set a 4-frame circle window
+     * beside 12-frame arms and called the difference a bearing). */
+    const winM = +o.yawFrames || 3, winN = +o.frames || 4;
     console.log('COST L' + r.level + ' ' + r.name + ' seat ' + r.p.x.toFixed(2) + ',' + r.p.y.toFixed(2) +
       ' dealt ' + dealt.toFixed(3) + ' rad (' + (differs ? 'a turned seat' : 'the pinned heading itself') +
       ')  dealt ' + dms + '  pinned ' + pms + '  up ' + ums + '  hold ' + hms + ' ms/frame | dealt/pinned ' + ratio.toFixed(2) +
@@ -790,6 +858,37 @@ async function cost(o) {
       + lo.toFixed(2) + '-' + hi.toFixed(2) + ' ms/frame, spread ' + spread.toFixed(2) + 'x  [' +
       r.tier + '/' + r.gfx + ' ' + r.buf.join('x') + ', layout ' + r.layout + ', ' + a.dealt.length + ' round(s), headings visited in a fresh seeded order every round' +
       (Math.abs(idR - 1) <= ID_TOL ? '' : ', IDENTITY DRIFT ' + idR.toFixed(2) + 'x') + ']');
+    console.log('COST L' + r.level + '   THE TURN ITSELF: the first frame after a re-pose costs ' + turnMs.toFixed(2)
+      + ' ms/frame against ' + steadyMs.toFixed(2) + ' for the frames that follow it (' + allW.length
+      + ' re-pose frames timed beside ' + allS.length + ' held ones), ' + turnR.toFixed(2)
+      + 'x (' + (turnR >= 1.15 ? 'a player mid-turn pays this on EVERY frame until the hand stops; the held-frame '
+        + 'numbers above understate what a sweep costs' : 'turning is free: a frame in which the view changed costs '
+        + 'what a frame in which it did not, so what this circle ranks is held-frame geometry')
+      + '). The turn term by heading spans ' + wLo.toFixed(2) + '-' + wHi.toFixed(2) + ' ms, ' + wSpread.toFixed(2)
+      + 'x, where the HELD term spans ' + lo.toFixed(2) + '-' + hi.toFixed(2) + ' ms, ' + spread.toFixed(2) + 'x.\n'
+      + '   ONE POSE, TWO WINDOWS: heading 0 of the circle IS the dealt pose, timed here through '
+      + winM + ' frames per sample and by the dealt arm through ' + winN + ' - ' + winSame.toFixed(2)
+      + ' against ' + dms.toFixed(2) + ' ms/frame, ' + winR.toFixed(2) + 'x for the SAME frame. '
+      + (winSame > 0 && winR >= 1 - ID_TOL && winR <= 1 + ID_TOL
+        ? 'The two windows price one identical frame the same, so this read\'s ms/frame is window-insensitive '
+          + 'at these two widths and arms timed through either one may be compared.'
+        : winM === winN
+          // equal windows: whatever is left is NOT a window effect, and saying so is the whole point
+          ? 'Both halves used the SAME window (' + winN + ' frames), so this gap is not a window effect at '
+            + 'all: one pose read ' + (winR < 1 ? 'cheaper' : 'dearer') + ' in the sweep than in the named-arm '
+            + 'loop is a POSITION effect - the circle runs after the arms, and a run that is cheaper (or '
+            + 'dearer) later in itself puts every absolute ms in this read at the mercy of where in the run it '
+            + 'was taken. Only terms paired inside ONE sample - the turn term above, the slot-trading pair '
+            + 'below - are free of it; ratios across the two halves are not. '
+          : 'A sample that costs ' + (winR < 1 ? 'less' : 'more') + ' the fewer frames it averages is a sample '
+            + 'whose cost ' + (winR < 1 ? 'RISES' : 'FALLS') + ' across it, so no absolute ms in this read may '
+            + 'be set beside another arm\'s unless the two used the same window; ratios inside one window still '
+            + 'mean what they say.')
+      + '\n'
+      + '   Visit-order control: the first half of each round\'s visit order costs ' + ord1.toFixed(2)
+      + ' ms/frame and the second half ' + ord2.toFixed(2) + ' (ratio ' + ordR.toFixed(2)
+      + 'x) - a round that drifts during itself can put a heading at the top of the table with no bearing '
+      + 'behind it, which is what the pair below is for.');
     if (spread < YAW_FLAT) continue;
     const wr = v => ((v % (2 * Math.PI)) + 3 * Math.PI) % (2 * Math.PI) - Math.PI;
     /* PAIRED, not a difference of medians. `b_hi` and `b_lo` are one sample per round and the two trade
@@ -828,7 +927,12 @@ async function cost(o) {
       : '.\n   No pass is named here: the sweep\'s two extremes do not reproduce as a gap when they are '
         + 'timed beside each other, so there is nothing to attribute.')
       );
-    if (held) for (const x of ab) if (!worst || x.closed > worst.closed) worst = Object.assign({ level: r.level, gap: gap }, x);
+    if (held) {
+      for (const x of ab) {
+        if (!worst || x.closed > worst.closed) worst = Object.assign({}, x, { level: r.level, seatGap: gap });
+        (abAll[x.name] = abAll[x.name] || []).push({ level: r.level, closed: x.closed, gap: gap });
+      }
+    }
   }
   if (page.pageErrors.length) console.log('NOTE page exceptions: ' + page.pageErrors.slice(0, 3).join(' | '));
   if (!ident) {
@@ -853,12 +957,56 @@ async function cost(o) {
     (swung ? 'The swing reaches the frame.' : 'The swing does not reach the frame: the harness prices a ' +
       'buffer, the player gets this.'));
   const S0 = (rows.find(r => !r.error) || { S: 8 }).S;
+  /* Was `ab.length` read here, a const declared INSIDE the per-sector loop: on any sweep that was not
+   * flat the closing verdict row threw `ReferenceError: ab is not defined` and livecap cost exited 1
+   * without ever printing a verdict - which is exactly the config #728 is about, so the read regressed
+   * on the path it exists to measure (#933 review, falsified by deleting only that token). Hoisted. */
+  const abRan = rows.some(r => !r.error && (r.arms.farband_hi || []).length);
+  /* Object.assign({level, gap}, x) used to let x's OWN gap overwrite the seat's, so the sentence that
+   * reads "closes N% of that seat's G ms heading gap" printed G as the ablated residual - 1.9 ms shown for
+   * an 11.2 ms gap. seatGap carries the seat's figure and is applied LAST so x cannot overwrite it. */
+  const abNames = Object.keys(abAll);
+  const abMed = abNames.map(n => ({ name: n, closed: median(abAll[n].map(x => x.closed)),
+    at: abAll[n].map(x => 'L' + x.level + ' ' + (100 * x.closed).toFixed(0) + '% of ' + x.gap.toFixed(1)).join(', ') }))
+    .sort((p, q) => q.closed - p.closed);
   /* A sweep spread is not yet a bearing. The pair of extremes is timed a second time trading slots every
    * round, and the PAIRED difference of those two arms is what says whether the sweep found a direction
    * that costs more or found the turn itself: `pairHeld` counted the sectors where the slow heading of
    * the sweep is still slow beside the fast one. On the deployed build at seed 60 all four sectors came
    * back the other way (pairSwap), which is the answer #728 asked for: the ~4x is what a re-pose costs,
    * in every direction, not what one direction costs. */
+  /* The turn term, over all sectors: what the hand pays while it is moving. This used to read
+   * warm.dealt, which is NOT a turn: in the rotating arm loop the sample before a dealt sample is
+   * `hold`, and hold IS the dealt pose, so that figure was a held frame called a turn (and the park
+   * arm below is what replaces it). `turn` parks the camera a quarter turn away, untimed, and times
+   * the first frame back at the dealt seat against N held frames at that same seat in the same call. */
+  const tw = rows.filter(r => !r.error && r.warm && (r.warm.turn || []).length).map(r => med(r.warm.turn)),
+    ts = rows.filter(r => !r.error && (r.arms.turn || []).length).map(r => med(r.arms.turn));
+  if (tw.length && ts.length) {
+    const tr = median(tw) / Math.max(1e-6, median(ts));
+    /* the park must not leak: arms.turn times the dealt pose exactly as the dealt arm does, so if the
+     * quarter-turn detour is still being paid for in the HELD term these two disagree and the turn
+     * figure is a park artefact, not a price. Same tolerance as the identity check. */
+    const leak = rows.filter(r => !r.error && (r.arms.turn || []).length && (r.arms.dealt || []).length)
+      .map(r => med(r.arms.turn) / Math.max(1e-6, med(r.arms.dealt)));
+    const lk = median(leak), lkBad = Math.abs(lk - 1) > ID_TOL;
+    const tRounds = (rows.find(r => r.warm && (r.warm.turn || []).length) || { warm: { turn: [] } }).warm.turn.length;
+    console.log('LIVECOST turning at a stationary seat costs ' + median(tw).toFixed(2) + ' ms for the frame that '
+      + 'turns against ' + median(ts).toFixed(2) + ' ms for a frame that holds - ' + tr.toFixed(2)
+      + 'x, paired inside one sample and taken from a camera parked a quarter turn away first (' + tw.length
+      + ' sector(s) x ' + tRounds + ' round(s); the park control reads ' + lk.toFixed(2)
+      + 'x against the dealt arm' + (lkBad ? ' - THAT PARK IS LEAKING PAST THE SETTLE, so this turn figure is an '
+        + 'artefact of the detour and means nothing: raise --frames.' : ', so the detour is paid for in the '
+        + 'turn frame and in that frame only') + '.) '
+      + (tr >= 1.15 || lkBad
+        ? 'So a sweep of the room is NOT held frames averaged: every frame the hand is moving pays a re-pose '
+          + 'the settled numbers above never time. That is the hitch #728 describes, and it is a cost of '
+          + 'TURNING, not of any direction.'
+        : 'So the frame a turning player gets is the frame a held camera gets: the circle above is the whole '
+          + 'story, and there is no separate re-pose cost to name. The conclusion merged from #932 - that the '
+          + '~4x is what a re-pose costs in every direction - is not supported either: a re-pose that costs '
+          + 'nothing is not where the milliseconds are.'));
+  }
   if (!paid) console.log('LIVECOST the yaw circle is FLAT: every sector read turned a full circle at ' + S0
     + ' headings, each round visiting them in a fresh seeded order, and the worst heading stayed under '
     + YAW_FLAT.toFixed(2) + 'x the fastest at a HELD camera. A coarse scan that printed a wide swing was '
@@ -870,21 +1018,33 @@ async function cost(o) {
       + '(one pose twice within ' + ID_TOL.toFixed(2) + 'x, so the timer is steady), and in ' + how + ' ('
       + swapList.join(' ') + ') the moment the two extremes were timed beside each other with the pair '
       + 'trading slots every round. A heading that costs more only when it is never compared with anything '
-      + 'is not a heading: what the eight-point scan measured is the cost of TURNING - the view caches a '
-      + 're-pose invalidates, paid the same whatever you turn towards - so no pass is named and no bearing '
-      + 'is priced. The circle is FLAT in the only sense a player can check: which way you face does not '
-      + 'change what a frame costs.');
+      + 'is not a heading: what the scan measured is the cost of SAMPLING, not of a direction, so no pass '
+      + 'is named and no bearing is priced. The circle is FLAT in the only sense a player can check: which '
+      + 'way you face does not change what a frame costs. Note this row no longer blames the TURN either: '
+      + 'the re-pose term above times the frame in which the view changes beside the frames after it in the '
+      + 'same sample, and on the build that was read it came back the CHEAPER one, so "the ~4x is what a '
+      + 're-pose costs in every direction" (the conclusion merged from #932) is not supported by this read '
+      + 'and the milliseconds belong somewhere else.');
   }
   else console.log('LIVECOST the yaw circle is NOT flat: ' + paid + ' of ' + (paid + flatN)
     + ' sector(s) spread at or over ' + YAW_FLAT.toFixed(2) + 'x across one slow turn at a held camera ('
     + S0 + ' headings, a fresh seeded visit order every round, ' + pairHeld + ' of them keeping the '
     + 'gap when the pair was re-timed beside each other, one pose twice within ' + ID_TOL.toFixed(2)
     + 'x) - a hitch in the hand while a player sweeps a room. '
-    + (worst && worst.closed > 0.25
-      ? 'The pass that pays is ' + worst.name + ' (L' + worst.level + '): turning it off closes '
-        + (100 * worst.closed).toFixed(0) + '% of that seat\'s ' + worst.gap.toFixed(1)
-        + ' ms heading gap, so the swing lives in that pass; what is left is the cost of the geometry.'
-      : 'No single switch closes a quarter of the gap, so the swing is the geometry the eye contains - the '
+    + (!abRan
+      ? 'No pass ablation ran (--passes 0), so NOTHING here is attributed to a pass: the gap is measured, '
+        + 'not explained. Re-run without --passes 0 to name one.'
+      : abMed.length && abMed[0].closed > 0.25
+      ? 'The pass that pays is ' + abMed[0].name + ': turning it off closes a MEDIAN '
+        + (100 * abMed[0].closed).toFixed(0) + '% of the heading gap across the ' + abAll[abMed[0].name].length
+        + ' seat(s) whose pair held (' + abMed[0].at + ' ms), so that pass is where the swing lives; the '
+        + 'rest is the cost of the geometry. No single switch pays everywhere - the spread across seats is '
+        + 'the next thing to price.'
+      : worst && worst.closed > 0.25
+      ? 'One seat only: ' + worst.name + ' off at L' + worst.level + ' closes '
+        + (100 * worst.closed).toFixed(0) + '% of that seat\'s ' + worst.seatGap.toFixed(1)
+        + ' ms heading gap, but no pass clears a quarter of the gap across every seat, so no pass is named.'
+      : 'No single switch closes a quarter of the gap at any seat, so the swing is the geometry the eye contains - the '
         + 'wall columns and ground rows a long sight line marches - not one pass that can be turned off.'));
   return rows;
 }

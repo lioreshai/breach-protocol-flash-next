@@ -1,5 +1,42 @@
 # Changelog
 
+## [v1.4.35] - 2026-11-25
+
+### Changed
+
+- **A hostile at fighting range keeps the light his room keeps** (#922, PRs #924, #930). An enemy four to
+  eight metres away used to arrive dimmer than the wall directly behind him — his own lit/shaded form was
+  also scaling the room's light down to roughly three quarters of itself, so he resolved a beat late as a
+  flat coloured card rather than as a body, in exactly the range a fight happens in. Two numbers in the
+  character renderer moved. The form ramp is now centred on the room's light instead of multiplying it, so
+  the lit/shaded spread stays and the room's light arrives whole; and the torso seam's near-field gate now
+  sits at the distance where that shading law crosses over on its own, where it had been parked at a
+  distance borrowed from a list of saved screenshots — 4.4 m, i.e. inside combat range, which is where his
+  surface had been flattening out. Measured at the four sectors' spawn seats at 8 m, his delivered brightness
+  against the surface behind him at the same pixels went from -27.1 / -26.5 / -9.7 / -10.9 lumas to
+  -15.8 / -19.6 / +8.0 / +7.9 across ARCHIVE SUBLEVEL, RING TRANSPORT, ABATOIR CORE and THE STACK, against a
+  20-luma bar, with every moved pixel inside his own silhouette and the room behind him unchanged. The gun
+  in your hands keeps its own shading and props keep theirs, so this is his body and nothing else.
+
+### What else is in this release
+
+The rest of the merged work moved no shipped pixel, and is listed so nothing here reads as more than it
+is: a gate and a live-page instrument behind the pickup relight, so a health kit's own pixels can be
+isolated from a running frame and a later change cannot quietly flatten it back into a card (#862, PRs
+#926, #928, #929); a turn-cost read that re-tests its own timer and its own sampling order (#728, PR
+#932); and the front page's eight frames re-keyed against the build that ships (#925, PR #927).
+
+### Still open after this release
+
+- **ABATOIR CORE at 16 m** still reads 22.7 lumas under the surface behind it against the 20 bar. The light
+  path is now paid at that seat; what is left is the enemy's own colour against that wall, which #611 owns
+  and PR #809 has in rework.
+- **Turning on the spot is still dear.** The merged read found no single heading that pays for it — what a
+  turn costs is the turn itself — and it contradicts an earlier reading of the same sweep, so the ~4x
+  spread across a circle is unreduced and still owned by #728, with PR #933 open on the method.
+- **The front page's screenshots predate this change.** They are pinned to the build before the body
+  centring; a re-take off the new deploy is owed (#931).
+
 ## [v1.4.34] - 2026-11-24
 
 ### Changed
