@@ -13272,7 +13272,7 @@ if (MODE === 'contrast') {
         let n = 0, sb = 0, sg = 0, sr = 0, sgg = 0, sbb = 0;
         for (let i = 0; i < N; i++) if (M[i]) { n++; sb += lum(A, i); sg += lum(Bb, i); sr += Bb[i] & 255; sgg += Bb[i] >> 8 & 255; sbb += Bb[i] >> 16 & 255; }
         run('ENEMIES.length = 0; for (const q of __dKeep) ENEMIES.push(q);');
-        return { n: n, body: n ? sb / n : 0, back: n ? sg / n : 0, f: Bb,
+        return { n: n, body: n ? sb / n : 0, back: n ? sg / n : 0, f: Bb, m: M, b: A,
           backRGB: n ? ((Math.round(sr / n) << 16 | Math.round(sgg / n) << 8 | Math.round(sbb / n)) >>> 0) : 0xffffff };
       };
       const on = arm();
@@ -13588,28 +13588,58 @@ if (MODE === 'contrast') {
          pair (js/13_mesh.js:1097). So the ramp is also a SCALE on light that has no direction, and a
          body in its own lit cell still lands under the wall behind it at the range #432's rows measure
          - which is why those rows print a residual they cannot attribute to #199 or to the falloff.
-         BODYSHADE = 0 IN THIS PROCESS centres the SAME ramp on the field instead of on zero (mean 1 over
-         the domain, R1 untouched, so form keeps its spread), and one more render of the SAME coverage px
-         says in luma what that off-centre costs. This row prices the term; it does not ship it - the
-         centred form is a picture change on every body in the game and moves the frames flatparity and
-         bands record, so it is review's call with this number beside it, not a default flipped here. */
+         BODYSHADE DOWN puts the OLD form back IN THIS PROCESS and one more render of the SAME coverage px
+         says in luma what the centring is worth. #922 SHIPPED the centring, so the shipped render is the
+         centred one and the arm is the debt, not the promise: the row asks how much darker these px get
+         when the ramp is made a scale on the field again. It is a GATE now, not a price list - a tree
+         whose rows read the SAME with the arm down has no centring in js/ to price and reads RED, which is
+         the vacuity rule (no term, no measurement), and a tree that still ships `R0 + R1*d` reads RED with
+         a NEGATIVE delta, which is this issue's own defect rather than a harness gap.
+           One confound to read beside the number: the same register arms #611's figure-ground push
+         (js/13_mesh.js:2502 reads it as "the shipped light terms are in force"), so with the arm down the
+         rail stands down too. That is the intended arm discipline - a rail computed from delivered pixels
+         would measure the arm's own delta and push it back out - and it is why the arm-down mean is not
+         byte-identical to the picture #407 measured: the rail is inert wherever a draw already separates
+         (the #611 rows beside this one print the step, and a step over their floor means no push fired),
+         so at the 8 and 16 m seats the two effects do not overlap. Where they do, the delta on this row
+         is centring PLUS push and the FG rows say so. */
       const SH0 = run('typeof BODYSHADE === "number" ? BODYSHADE : -1');
       if (SH0 === 1) {
         run('BODYSHADE = 0;'); const ce = arm(); run('BODYSHADE = 1;');
-        const cm = ce.body - on.body;
-        row(seatRay + ': the shade arm prices the shape ramp (#407 half two)', cm >= DIST_ARM,
-          'BODYSHADE=0 in this process centres the SAME R1 ramp on the field instead of on zero and the '
-          + 'SAME ' + on.n + ' px read ' + ce.body.toFixed(1) + ' instead of ' + on.body.toFixed(1) + ' - '
-          + cm.toFixed(1) + ' luma of the ' + gap.toFixed(1) + ' shortfall is the ramp acting as a scale '
-          + 'on a directionless field (mean R0 + R1/2 instead of 1). With that term paid the row above '
-          + 'would read ' + (gap - cm).toFixed(1) + ' luma against its ' + DIST_TOL + ' bar, so what is '
-          + 'left at this seat is ' + (gap - cm > DIST_TOL ? 'STILL past the bar - material/albedo or #199, '
-            + 'not this ramp' : 'inside the bar - this ramp WAS this seat\'s unpaid half') + '. A tree whose '
-          + 'rows read the SAME with the arm down has no ramp scale left in js/ to price.');
+        const cm = on.body - ce.body;
+        /* Non-vacuity and the background control in one census: count the px these two renders disagree
+           with, and split them by the coverage mask the body draws stamp. IN the mask is the term; OUT of
+           it is a leak, and a body term that moves a pixel it does not own is not this term at all. This
+           is also the clause the shipped picture is checked with: the centring must never move the room. */
+        let mvIn = 0, mvOut = 0;
+        for (let i = 0; i < N; i++)
+          if (on.b[i] !== ce.b[i]) { if (on.m[i]) mvIn++; else mvOut++; }
+        row(seatRay + ': the shade arm prices the shape ramp (#407 half two)',
+          cm > 0 && mvIn > 0 && mvOut === 0,
+          'the shipped form CENTRES the R1 ramp on the field (mean 1 over its own domain); BODYSHADE=0 puts '
+          + 'the old R0 + R1*d back - a mean of ' + (0.30 + 0.85 / 2).toFixed(3) + ' on the enemy pair - and '
+          + 'the SAME ' + on.n + ' px read ' + ce.body.toFixed(1) + ' instead of ' + on.body.toFixed(1) + ', '
+          + 'so the centring is worth ' + cm.toFixed(1) + ' luma here: ' + mvIn + ' of his own px moved and '
+          + mvOut + ' outside his silhouette. With the OLD form the row above would read '
+          + (gap + cm).toFixed(1) + ' luma against its ' + DIST_TOL + ' bar, so what is left after this term '
+          + 'is ' + (gap > DIST_TOL ? 'STILL past the bar - material/albedo or #199, not this ramp'
+            : 'inside the bar - this ramp WAS this seat\'s unpaid half') + '. The verdict is a SIGN and two '
+          + 'pixel counts, not the DIST_ARM luma floor, and why it changed is the shipping: before #922 this '
+          + 'row asked an UPWARD arm what centring would buy and required at least DIST_ARM of it; now the '
+          + 'centring is the shipped render and the arm goes DOWN to the old scale, so the row asks whether '
+          + 'the tree really spends less without it (sign), whether ANY of his px moved (non-vacuity) and '
+          + 'whether the room moved with them (leak). DIST_ARM stays as written for the falloff and haze '
+          + 'arms beside this one, and this seat\'s own number is printed above rather than quoted here, '
+          + 'because the wash sets most of the delivered luma at 16 m and a scale on the LAMP field cannot '
+          + 'move what the wash already set. A tree that ships no centring reads 0.0 with 0 px moved and '
+          + 'FAILS as vacuity; one whose delta is NEGATIVE ships the scale form and is the defect #922 '
+          + 'filed.');
       } else {
-        row(seatRay + ': the shade arm prices the shape ramp (#407 half two)', SH0 === 0,
-          SH0 === 0 ? 'the centred form is SHIPPED on this tree, so there is no arm to price - the row '
-            + 'above is the row that gates it'
+        row(seatRay + ': the shade arm prices the shape ramp (#407 half two)', false,
+          SH0 === 0 ? 'RED: BODYSHADE ships at 0 on this tree, so a body\'s lamp field is being scaled by '
+            + 'the ramp\'s mean again - the term #922 shipped out. Either the centred form is gone from '
+            + 'js/13_mesh.js or the default was moved in js/00_core.js; the row above is the picture a '
+            + 'player gets and it is the one that gates.'
             : 'no BODYSHADE global in js/, so nothing can say the ramp scale is in the tree at all');
       }
       /* #407 HALF FOUR: the haze arm, and the term this PR ships. Every WORLD surface composes its

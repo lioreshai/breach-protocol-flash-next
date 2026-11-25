@@ -2575,12 +2575,23 @@ const MESH = (function () {
            but multiplying it by R0 + R1*d makes the shape ramp also a SCALE on that field: its mean over
            d is R0 + R1/2 = 0.725 for the enemy pair, so a body in its own lit cell kept under three
            quarters of the light the wall behind it keeps, and a face turned off the key kept R0 alone.
-           BODYSHADE 0 centres the SAME ramp on the field instead of on zero - `1 + R1*(d - 0.5)`, mean 1
+           BODYSHADE CENTRES THE SAME RAMP ON THE FIELD INSTEAD OF ON ZERO - `1 + R1*(d - 0.5)`, mean 1
            over the ramp's own domain - so form keeps its full spread and the field arrives whole in the
            average. The VIEW MODEL keeps the shipped form either way: #376 owns the gun's shading, and
            the pair below is not the gun's history. There is no billboard copy of this term - the sprite
-           path has no N*L at all (js/40_render.js:2291) - so unlike BODYDIST one read site is enough. */
-        const sh = MDL || BODYSHADE ? R0 + R1 * d : 1 + R1 * (d - 0.5);
+           path has no N*L at all (js/40_render.js:2291) - so unlike BODYDIST one read site is enough.
+             #922 SHIPS IT. The centred form is what a world body is drawn with now, and the register is
+           the A/B the other way: BODYSHADE DOWN puts the OLD `R0 + R1*d` back, so `contrast`'s shade rows
+           price what this tree no longer spends. Note which way the NOT falls and why: `!BODYSHADE` is
+           the arm, not the shipped state, so the register keeps its SECOND job - the figure-ground gate
+           above reads it as "the shipped light terms are in force", and it still reads it that way at
+           the shipped value 1, which is what keeps #611's push armed while this term is being A/B-ed.
+           Centring is neutral over the ramp's DOMAIN, not over the delivered pixels: the last report
+           measured the pixel-weighted mean of `d` at 0.43 at 4-6 m and 0.69 at 8 m, so no single centre
+           is neutral for what the eye receives at every range - #371's `PROP_DMEAN` trick has no value to
+           sit at for a body, because a body's FACE MIX moves with range and a box's does not. That is why
+           this centres on 0.5 and lets the distance rows measure what the pixels actually average. */
+        const sh = MDL || !BODYSHADE ? R0 + R1 * d : 1 + R1 * (d - 0.5);
         const fk = FL ? FL * 1.1 * Math.exp(-dc * 0.30) : 0;
         /* #371: on a PROP the form term scales the WHOLE light, ambient included, and it is centred on
            one so the mean is held by construction instead of by re-pairing R0 against R1.

@@ -64,13 +64,20 @@ var BODYDIST = 1;
    alone - 30% of a field the wall behind it keeps whole. That is the half #415 did not pay and the
    distance rows in tools/view.js contrast have been reporting as an unpriced residual ever since: a
    body in its OWN lit cell, 8-16 m out, still lands 20-39 luma under its own background.
-   1 (shipped) = the field is MULTIPLIED by the ramp, `sh = R0 + R1*d`. That is main, byte for byte; this
-       register moves no pixel until a row asks.
-   0 = the ramp CENTRED ON THE FIELD instead of on zero, `sh = 1 + R1*(d - 0.5)`, whose mean over the
-       ramp's domain d in [0,1] is exactly 1 - so the field reaches a body whole in the average while the
-       lit/shaded SPREAD stays the R1 #371 measured. Same constant, so it re-centres a kind's faces
-       instead of dimming it. What the PIXELS average is the face distribution's business, and the row
-       measures that rather than asserting this sentence.
+   1 (shipped, #922) = the ramp CENTRED ON THE FIELD instead of on zero, `sh = 1 + R1*(d - 0.5)`, whose
+       mean over the ramp's domain d in [0,1] is exactly 1 - so the field reaches a body whole in the
+       average while the lit/shaded SPREAD stays the R1 #371 measured. Same constant, so it re-centres a
+       kind's faces instead of dimming it. What the PIXELS average is the face distribution's business,
+       and the row measures that rather than asserting this sentence: the mean of `d` over the faces a
+       body KEEPS is 0.43 at 4-6 m and 0.69 at 8 m, so there is no per-kind constant that is neutral at
+       every range and this term is deliberately neutral over the DOMAIN instead.
+   0 = the field MULTIPLIED by the ramp, `sh = R0 + R1*d`, mean R0 + R1/2 = 0.725 - the form #407
+       priced and #922 shipped out. The polarity is the opposite of what it was before #922 landed, so
+       read the row, not this sentence, for which half of the field the term still owes: the arm is DOWN
+       when the centring is in force and the row goes red if the two renders agree.
+   Why it is not #371's `PROP_DMEAN`: a box's face mix never changes with range and a body's does, so a
+   single authored centre has no value to sit at. That is the last report's own measurement, and it is
+   why this centres on 0.5 rather than hunting a constant.
    ONE read site, and the view model (`MDL`) is excluded by that site: #376 owns the gun's shading and
    this issue is about bodies IN the world. There is also no billboard copy to keep in step, unlike
    BODYDIST - drawBillboard has no N*L term at all, its `ramp` is a vertical gradient

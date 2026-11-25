@@ -311,10 +311,13 @@
        the black-point lift alone, which is what the > luma 224 rows were measured against before. Both
        halves of the term still run; only the `darken` fold is skipped. */
     if (name === 'shoulder') { SHOULDER = value === undefined ? 1 : (value ? 1 : 0); return { shoulder: SHOULDER, top: EXPOSE_TOP }; }
-    /* #407 half two's A/B. 1 (shipped) = a body's shape ramp also SCALES the directionless lamp field,
-       so the field reaches it at R0 + R1/2 of what the wall behind keeps; 0 = the same ramp centred on
-       the field (mean 1 over its own domain) in the one mesh site that carries it. The gun keeps the
-       shipped form either way - #376 owns that. See js/00_core.js. */
+    /* #407 half two's A/B, shipped by #922 with its polarity the other way round. 1 (shipped) = the
+       body's shape ramp is CENTRED on the directionless lamp field, `1 + R1*(d - 0.5)`, mean 1 over the
+       ramp's own domain, so the field reaches a body whole in the average and the lit/shaded spread
+       stays R1's; 0 = the OLD form, the ramp also acting as a SCALE (`R0 + R1*d`, mean R0 + R1/2 =
+       0.725), which is the picture #407 priced. The gun keeps the old form either way - #376 owns
+       that - and js/13_mesh.js's figure-ground gate reads this register as "the shipped light terms are
+       in force", so it stays armed at 1 and stands down under the arm. See js/00_core.js. */
     if (name === 'bodyshade') { BODYSHADE = value === undefined ? 1 : (value ? 1 : 0); return { bodyshade: BODYSHADE }; }
     /* #407 half three's A/B. 1 (shipped) = a body wears its own texel albedo; 0 = every non-emissive,
        non-view-model mesh pixel wears BPAINT_RGB instead while every light term stays put, so the same
