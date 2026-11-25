@@ -845,7 +845,8 @@ async function cost(o) {
   const ctlBad = [];          // arms whose inert control never got sampled: closed would be a bare difference
   const ctlSpread = [];       // how far the inert controls inside one sector disagree, in ms
   const ctlFloors = [];       // every inert control's paired gap, all sectors: this run's floor
-  const nilSlot = { hi: [], lo: [] };   // the SHIPPED frame, timed in every slot of the ablation loop
+  const nilAll = { hi: [], lo: [] };      // every inert SAMPLE, flat: the identity spread's raw material
+  const nilSlot = { hi: [], lo: [] };   // per-ARM median ms of the SHIPPED frame, one entry per arm/sector
   let ctlSum = [];            // the sum of median closures, per sector: over 1.0 cannot be additively true
   for (const r of rows) {
     if (r.error) { console.log('COST L' + r.level + ' ERROR ' + r.error); continue; }
@@ -954,34 +955,46 @@ async function cost(o) {
     const bhi = med(a.b_hi), blo = med(a.b_lo);
     const gap = pr.length ? pr.reduce((s, v) => s + v, 0) / pr.length : 0;
     const sgap = hi - lo;                                  // what the sweep claimed the gap was
+    /* The FLOOR, pooled. Every nil_* sample below is the SAME frame - the shipped one at one of the two
+     * headings - so all of one heading's inert samples are estimates of one quantity and belong in ONE
+     * median over arms x rounds. Taken per arm the floor was as noisy as the gap it subtracts: one sector
+     * put the eight inert paired gaps at 3.2-34.7 ms and the arm beside the 34.7 read "159% closed". That
+     * is a subtraction of two noisy numbers, not a result. Pooled, the same samples give one floor per
+     * sector with 8x the samples behind it; the per-arm paired gaps stay, but only as the noise band they
+     * are. (#936 review: an inert switch read the same closure as the two shadow arms that moved the page.) */
+    const nilHiA = [], nilLoA = [], armFloors = [];
+    for (const p of PASS_AB) {
+      const nh = a['nil_' + p[0] + '_hi'] || [], nl = a['nil_' + p[0] + '_lo'] || [];
+      nilHiA.push.apply(nilHiA, nh); nilLoA.push.apply(nilLoA, nl);
+      nilAll.hi.push.apply(nilAll.hi, nh); nilAll.lo.push.apply(nilAll.lo, nl);
+      if (nh.length) nilSlot.hi.push(med(nh));      // ONE number per arm: the shipped frame as this slot
+      if (nl.length) nilSlot.lo.push(med(nl));      // of the ablation loop timed it
+    }
+    const ctlGap = (nilHiA.length && nilLoA.length) ? med(nilHiA) - med(nilLoA) : NaN;
     const ab = PASS_AB.map(p => {
       const q = (a[p[0] + '_hi'] || []).map((v, i) => v - (a[p[0] + '_lo'] || [])[i]);
       const g = q.length ? q.reduce((s2, v) => s2 + v, 0) / q.length : NaN;
       /* The INERT control beside this arm: the same switch armed the same way with the value the page
-       * already holds, so the picture is the shipped one and its paired difference is this run's FLOOR.
-       * closed is (floor - off) / gap, NOT (b-pair - off) / gap: the latter credits an arm with the
-       * milliseconds the run spent between its two loops, which is how a switch that changes nothing
-       * closed 59-64% of a 47 ms gap in review (#936). A missing control is vacuity, not a zero. */
+       * already holds, so the picture is the shipped one. closed is (floor - off) / gap, NOT (b-pair -
+       * off) / gap: the latter credits an arm with the milliseconds the run spent between its two loops,
+       * which is how a switch that changes nothing closed 59-64% of a 47 ms gap in review (#936). A
+       * missing control is vacuity, not a zero. */
       const nq = (a['nil_' + p[0] + '_hi'] || []).map((v, i) => v - (a['nil_' + p[0] + '_lo'] || [])[i]);
       const ng = nq.length ? nq.reduce((s2, v) => s2 + v, 0) / nq.length : NaN;
-      return { name: p[0], gap: g, floor: ng,
-        closed: (gap > 0.5 && isFinite(ng)) ? (ng - g) / gap : 0 };
+      armFloors.push(ng);
+      return { name: p[0], gap: g, armFloor: ng, floor: ctlGap,
+        closed: (gap > 0.5 && isFinite(ctlGap)) ? (ctlGap - g) / gap : 0 };
     }).filter(x => (a[x.name + '_hi'] || []).length && isFinite(x.gap));
-    const noCtrl = ab.filter(x => !isFinite(x.floor)).map(x => 'L' + r.level + ' ' + x.name);
+    const noCtrl = ab.filter(x => !isFinite(x.armFloor)).map(x => 'L' + r.level + ' ' + x.name);
     ctlBad.push.apply(ctlBad, noCtrl);
-    const floors = ab.map(x => x.floor).filter(isFinite);
-    ctlFloors.push.apply(ctlFloors, floors);
-    const ctlGap = floors.length ? median(floors) : NaN;
+    const floors = armFloors.filter(isFinite);
+    if (isFinite(ctlGap)) ctlFloors.push(ctlGap);
     if (floors.length) ctlSpread.push(Math.max.apply(null, floors) - Math.min.apply(null, floors));
     /* The identity control for the ablation loop, built from what it already times. Every nil_* sample IS
      * the shipped frame, and the eight arms' controls are spread across the loop's slots, so the ratio
      * between the dearest and cheapest of them is the timer's own spread INSIDE the loop that decides
      * which pass pays - the thing `hold` prices for the named arms and the `one pose twice` column
      * reports. It costs no extra ticks: it is the same samples, grouped. */
-    for (const p of PASS_AB) {
-      nilSlot.hi.push.apply(nilSlot.hi, (a['nil_' + p[0] + '_hi'] || []));
-      nilSlot.lo.push.apply(nilSlot.lo, (a['nil_' + p[0] + '_lo'] || []));
-    }
     /* A control has to reproduce the gap it is being subtracted from. If every inert sample of the
      * ablation loop prices the two headings at the SAME money while the sweep and the b-pair say they
      * differ by 37 ms, the gap is simply not there any more by the time this loop runs - the run got
@@ -1011,7 +1024,7 @@ async function cost(o) {
           + (Math.max.apply(null, floors) - Math.min.apply(null, floors)).toFixed(1) + ' ms' : '')
         + '): '
         + ab.map(x => x.name + ' off -> gap ' + x.gap.toFixed(1) + ' ms, '
-          + (isFinite(x.floor) ? x.floor.toFixed(1) + ' nothing, ' : 'NO CONTROL, ')
+          + (isFinite(x.armFloor) ? x.armFloor.toFixed(1) + ' nothing, ' : 'NO CONTROL, ')
           + (100 * x.closed).toFixed(0) + '% closed').join(', ')
         + (ctlOk ? '' : '\n   BUT THIS LINE PRICES NOTHING: the inert controls here land at ' + ctlGap.toFixed(1)
           + ' ms of paired gap while this seat\'s own pair is ' + gap.toFixed(1) + ' ms, so by the time the '
@@ -1095,14 +1108,14 @@ async function cost(o) {
         : 'The floor is flat across the arms, so a closure above a few percent is the switch, not the slot.')
       + (nilSlot.hi.length > 2 ? '\n   ONE SHIPPED FRAME, EVERY SLOT: the ' + nilSlot.hi.length + ' inert '
         + 'hi-heading samples and ' + nilSlot.lo.length + ' inert lo-heading samples are all the SAME frame,'
-        + ' timed one slot apart across the loop, and they span ' + nilSlot.hi.map(med).sort((p, q) => p - q)[0]
-          .toFixed(1) + '-' + nilSlot.hi.map(med).sort((p, q) => p - q)[nilSlot.hi.length - 1].toFixed(1)
-        + ' ms per heading (' + (Math.max.apply(null, nilSlot.hi.map(med)) / Math.max(1e-6,
-          Math.min.apply(null, nilSlot.hi.map(med)))).toFixed(2) + 'x at the slow heading, '
-        + (Math.max.apply(null, nilSlot.lo.map(med)) / Math.max(1e-6,
-          Math.min.apply(null, nilSlot.lo.map(med)))).toFixed(2)
-        + 'x at the fast one). That is the timer\'s spread inside the ablation loop itself, and it is the '
-        + 'noise band every % closed on this read sits in.' : ''));
+        + ' timed one slot apart across the loop. Their own medians are ' + med(nilAll.hi) + ' and '
+        + med(nilAll.lo) + ' ms/frame, and the ' + nilSlot.hi.length + ' per-arm medians beside them span '
+        + (Math.max.apply(null, nilSlot.hi) / Math.max(1e-6,
+          Math.min.apply(null, nilSlot.hi))).toFixed(2)
+        + 'x at the slow heading and ' + (Math.max.apply(null, nilSlot.lo) / Math.max(1e-6,
+          Math.min.apply(null, nilSlot.lo))).toFixed(2)
+        + 'x at the fast one. That is the timer\'s spread inside the ablation loop itself - the noise band '
+        + 'every % closed on this read sits in, timed against nothing switched at all.' : ''));
   if (ctlSum.length)
     console.log('LIVECOST additivity: the arms on one line claim shares of the SAME gap and they sum to '
       + ctlSum.map(x => 'L' + x.level + ' ' + (100 * x.sum).toFixed(0) + '%').join(' ') +
