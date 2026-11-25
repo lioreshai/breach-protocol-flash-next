@@ -2492,14 +2492,24 @@ const MESH = (function () {
        colour is a term of the shot), and only when the BODYPAINT arm is up so the paint arm still
        measures paint against light. There is no billboard copy - the one-read-site argument BODYHUE makes. */
     let fgX0 = 0, fgY0 = 0, fgW = 0, fgH = 0, fgFog = 0;
-    /* The three light ARMS (BODYDIST / BODYSHADE / BODYHAZE) are the probe's A/B on the light path, and
-       this term is computed from DELIVERED pixels. If it ran while an arm was raised it would measure the
+    /* The light ARMS (BODYDIST / BODYSHADE / BODYHAZE) are the probe's A/B on the light path, and this
+       term is computed from DELIVERED pixels. If it ran while an arm was raised it would measure the
        arm's own delta and push it back out - the failure the predictive form avoided by reading only the
        shipped light terms, and the reason L1's shade arm row went red the first time this was tried. So the
-       term is armed only in the shipped light configuration; in play all three are at their shipped values
-       and the term always runs, and under an arm the arm is left to speak for itself. */
+       term is armed only in the shipped light configuration; in play every term is at its shipped value
+       and the push always runs, and under an arm the arm is left to speak for itself.
+         #922 reads that condition through BODYCFG, its OWN register, rather than through BODYSHADE.
+       The two were always doing different jobs: BODYSHADE says WHICH ramp the body is drawn with, and the
+       test here says "the pixels I am about to read are the shipped ones". Those happened to agree while
+       BODYSHADE's shipped value meant the old form. #922 shipped the centring AT BODYSHADE 1, so the arm
+       moved to 0, and the borrowed test started firing on the arm: a shade A/B that put the old scale back
+       also stood this push down, so one render of the pair priced the centring AND the absence of the
+       push - which is the 56 and 95 pixels outside the body's own silhouette that contrast's shade rows
+       counted at L2 16 m and L3 8 m. The push now answers to BODYCFG alone (plus the two terms whose
+       shipped value is still their shipped value), so an A/B on the ramp moves the ramp and nothing else,
+       and the push has a switch of its own that moves no pixel in a frame with no body in it. */
     if (BODYFG && BODYPAINT && BODY && !MDL && !pr && !FLASH && ALPHA >= 1 && tYc > 0.75 &&
-        BODYSHADE && BODYDIST && !BODYHAZE) {
+        BODYCFG && BODYDIST && !BODYHAZE) {
       const fq = 1 / tYc;
       const fsx = (BW * 0.5) * (1 + (cam.invDet * (dirY * ex - dirX * ey)) * fq);
       const fsy = horizon + (BH * (eyeZ - (o.z + sc * 0.5))) * fq;
@@ -2580,18 +2590,25 @@ const MESH = (function () {
            average. The VIEW MODEL keeps the shipped form either way: #376 owns the gun's shading, and
            the pair below is not the gun's history. There is no billboard copy of this term - the sprite
            path has no N*L at all (js/40_render.js:2291) - so unlike BODYDIST one read site is enough.
-             #922 SHIPS IT. The centred form is what a world body is drawn with now, and the register is
-           the A/B the other way: BODYSHADE DOWN puts the OLD `R0 + R1*d` back, so `contrast`'s shade rows
-           price what this tree no longer spends. Note which way the NOT falls and why: `!BODYSHADE` is
-           the arm, not the shipped state, so the register keeps its SECOND job - the figure-ground gate
-           above reads it as "the shipped light terms are in force", and it still reads it that way at
-           the shipped value 1, which is what keeps #611's push armed while this term is being A/B-ed.
-           Centring is neutral over the ramp's DOMAIN, not over the delivered pixels: the last report
-           measured the pixel-weighted mean of `d` at 0.43 at 4-6 m and 0.69 at 8 m, so no single centre
+             #922 SHIPS IT, and scopes it with the flag the COVERAGE MASK already uses: `!BODY` keeps the old
+           form, so the centred ramp reaches a CHARACTER's draw and nothing else. The read site serves more
+           than characters - `lw = pl ? aw : sh` hands `sh` to any mesh draw that is not in PROPLIT, so a
+           prop outside that list, a hazard or any other non-character mesh was being re-centred too, and
+           those pixels are not in the mask, which is the 56 and 95 px outside the silhouette that
+           contrast's shade rows billed to the centring. Deleting #611's push outright (BODYCFG=0 in a
+           JSDIR copy, so no figure-ground term runs in either arm) left the same 56 px, which is how this
+           was attributed: not the push, the scope. BODY is the flag js/00_core.js documents the mask stamp
+           reads, so "what the centring repaints" and "what the mask owns" are now the same set by
+           construction, not by two files agreeing.
+             The register is the A/B the other way: BODYSHADE DOWN puts the OLD `R0 + R1*d` back, so
+           contrast's shade rows price what this tree no longer spends, and with the push on BODYCFG the
+           arm moves the ramp and nothing else. Centring is neutral over the ramp's DOMAIN, not over the
+           delivered pixels: the last report measured the pixel-weighted mean of `d` at 0.43 at 4-6 m and
+           0.69 at 8 m, so no single centre
            is neutral for what the eye receives at every range - #371's `PROP_DMEAN` trick has no value to
            sit at for a body, because a body's FACE MIX moves with range and a box's does not. That is why
            this centres on 0.5 and lets the distance rows measure what the pixels actually average. */
-        const sh = MDL || !BODYSHADE ? R0 + R1 * d : 1 + R1 * (d - 0.5);
+        const sh = MDL || !BODY || !BODYSHADE ? R0 + R1 * d : 1 + R1 * (d - 0.5);
         const fk = FL ? FL * 1.1 * Math.exp(-dc * 0.30) : 0;
         /* #371: on a PROP the form term scales the WHOLE light, ambient included, and it is centred on
            one so the mean is held by construction instead of by re-pairing R0 against R1.

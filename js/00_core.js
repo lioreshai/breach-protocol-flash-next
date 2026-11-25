@@ -185,6 +185,22 @@ var BODYHUE = 1;
        multiply leaves, which is what the near-zero deals in the sweep are the A/B for. */
 var BODYFG = 1;
 
+/* #922: BODYCFG is the figure-ground push's OWN arming - the register that says "the shipped light terms
+   are at their shipped values, so reading DELIVERED pixels is safe". It replaces BODYSHADE in that test
+   and in that test only.
+   Why it has to be its own register: BODYSHADE selects WHICH shape ramp a body is drawn with, and until
+   #922 the same value also stood the push down, because the push reads delivered pixels and an arm that
+   changes delivered pixels would otherwise have its own delta measured and pushed back out. #922 shipped
+   the centred ramp at BODYSHADE 1, which makes BODYSHADE=0 the ARM rather than the shipped state - so an
+   A/B on the ramp silently disarmed the push as well, and one render of that pair is two terms. The
+   figure-ground rows in tools/view.js contrast counted the leak as pixels moved OUTSIDE the body's own
+   silhouette (56 at L2 16 m, 95 at L3 8 m): the push firing in one arm and not the other.
+   It moves no pixel: in play every light term is at its shipped value, BODYCFG is 1, and the push is
+   armed exactly as it was when the test read `BODYSHADE && BODYDIST && !BODYHAZE`. 0 is a probe-only arm
+   that stands the push down WITHOUT touching any light term - which is what makes it the control for
+   this register: arm up and arm down with no body in the frame must be the same bytes. */
+var BODYCFG = 1;
+
 /* ---------------- config ---------------- */
 let FOGC = [9, 12, 20];   // per level: air has a colour
 const LVL = 32;                       // light/fog buckets

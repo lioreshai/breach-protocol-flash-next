@@ -319,6 +319,12 @@
        that - and js/13_mesh.js's figure-ground gate reads this register as "the shipped light terms are
        in force", so it stays armed at 1 and stands down under the arm. See js/00_core.js. */
     if (name === 'bodyshade') { BODYSHADE = value === undefined ? 1 : (value ? 1 : 0); return { bodyshade: BODYSHADE }; }
+    /* #922: #611's figure-ground push has its OWN arming now, so an A/B on a light term can hold the push
+       in ONE state across both of its renders instead of moving it by accident. 1 (shipped) = the push
+       runs, which is what it did while this test borrowed BODYSHADE's value; 0 = the push stands down and
+       no light term moves. A frame with no body in it is byte-identical either way - the push only ever
+       fires on a world body - which is the contract this register is checked with. */
+    if (name === 'bodycfg') { BODYCFG = value === undefined ? 1 : (value ? 1 : 0); return { bodycfg: BODYCFG }; }
     /* #407 half three's A/B. 1 (shipped) = a body wears its own texel albedo; 0 = every non-emissive,
        non-view-model mesh pixel wears BPAINT_RGB instead while every light term stays put, so the same
        silhouette can be rendered wearing the colour of the surface behind it. tools/view.js contrast
