@@ -620,10 +620,12 @@ function fgLine(tag, r, idn, k) {
              all. `hold` makes the check unconditional.
      circle  the same seat through a full turn sampled at --yawSamples headings (8 by default), so
              a swing that is really "any heading costs about the same" cannot hide behind the two
-             named ones. The headings are visited in an order that ROTATES with the round, which is
-             what the three named arms already do and what the eight-point scan of #728 did not:
-             visiting heading k in slot k of every round makes any order effect land on the same
-             heading every round, which is indistinguishable from that heading costing more.
+             named ones. The headings are visited in a DIFFERENT PERMUTATION every round (a seeded
+             shuffle, so the read is reproducible). Rotating the start of a cyclic sweep is not a
+             control: in a sweep heading h always follows h - step, so the price of that TRANSITION
+             is confounded with the heading and lands on the same heading in every round - which is
+             indistinguishable from that heading costing more. Shuffling leaves a bearing that really
+             costs more standing out while a transition cost averages onto every heading.
  * The clock is frozen (DEV.freeze) so every arm renders the same world: what varies between the
  * arms is what the eye contains, which is exactly the quantity #529 argues about. The frame is
  * timed with the page's own performance.now() around DEV.tick, so it includes everything the
@@ -641,6 +643,15 @@ function fgLine(tag, r, idn, k) {
  * The `hold` arm is that instrument by construction rather than by luck: a ratio that cannot tell an
  * identical frame from itself cannot price a turned one, and it is printed as IDENTITY SPREAD on the
  * row and fails the read.
+ *
+ * WHY THE EXTREMES ARE RE-TIMED BEFORE ANY PASS IS NAMED. The two extremes of the circle get a pair of
+ * arms of their own (`b_hi`, `b_lo`) in which the order ALTERNATES with the round, and that pair is the
+ * reproducibility check on the circle: if the slow heading of the sweep is not still the slow heading
+ * when it is timed in another slot of the run, with a different heading before it, then what spread is
+ * real belongs to the sequence and not to the bearing, and naming a pass would be naming an artefact.
+ * Measured on the deployed build before the shuffle existed (16 headings, 5 rounds, seed 60): the sweep
+ * spread 3.4-4.4x and the same headings came out slow in all four sectors, while the same two extremes
+ * re-timed as a pair came back with the sign REVERSED in all four (-19.1, -20.3, -19.1, -30.6 ms).
  *
  * NAMING THE PASS THAT PAYS (#728 Done-when 2). Once the circle says a heading pays, the route turns
  * the two extremes of it - the slowest and the fastest heading of the turn - into a second pair of
@@ -663,6 +674,9 @@ function costRoute(o) {
   const N = +o.frames || 4, R = +o.rounds || 5, M = +o.yawFrames || 3;
   const S = Math.max(4, Math.min(32, +o.yawSamples || 8));
   const AB = o.passes === false ? '[]' : JSON.stringify(PASS_AB.map(p => [p[0], p[1], p[2]]));
+  // one shuffle seed per (level, round), so the visit order varies across rounds and across sectors
+  // but a re-run of the same command replays the same order.
+  const SEED0 = 104729 * ((o.level | 0) + 1) + 13;
   return `(function(){
   var out={arms:{}};
   DEV.boot(); DEV.freeze(true); DEV.tick(30);
@@ -690,8 +704,12 @@ function costRoute(o) {
     for(var k=0;k<4;k++){var a=arms[(k+r)%4]; sample(a[0],a[1],a[2],${N});}
   }
   var S=${S}, step=2*Math.PI/S;
-  for(var q=0;q<${R};q++) for(var k2=0;k2<S;k2++){
-    var h=(k2+q)%S; sample('c'+h,dealt+h*step,0,${M});
+  function perm(n,seed){var a=[],i,j,t,s=(seed>>>0)||1;
+    for(i=0;i<n;i++)a.push(i);
+    for(i=n-1;i>0;i--){s=(Math.imul(s,1103515245)+12345)>>>0; j=s%(i+1); t=a[i]; a[i]=a[j]; a[j]=t;}
+    return a;}
+  for(var q=0;q<${R};q++){ var pm=perm(S,${SEED0}+q*7919);
+    for(var k2=0;k2<S;k2++){ var h=pm[k2]; sample('c'+h,dealt+h*step,0,${M}); }
   }
   var cmed=[]; for(var k3=0;k3<S;k3++) cmed.push(med(acc['c'+k3]));
   var iHi=0,iLo=0;
@@ -700,16 +718,19 @@ function costRoute(o) {
   out.hiSpr=med(nsp['c'+iHi]); out.loSpr=med(nsp['c'+iLo]);
   // the two extremes get a baseline of their own, timed exactly like the ablations beside them
   var aHi=dealt+iHi*step, aLo=dealt+iLo*step;
-  for(var q3=0;q3<${R};q3++){ sample('b_hi',aHi,0,${M}); sample('b_lo',aLo,0,${M}); }
+  for(var q3=0;q3<${R};q3++){
+    if(q3%2){ sample('b_lo',aLo,0,${M}); sample('b_hi',aHi,0,${M}); }
+    else    { sample('b_hi',aHi,0,${M}); sample('b_lo',aLo,0,${M}); }
+  }
   // DONE-WHEN 2: price every switchable pass at BOTH extremes. A pass that costs the same at each is
   // not the swing; a pass whose OFF half closes the gap between the headings IS the swing.
   var AB=${AB};
   var snap={gndtex:GNDTX,gndfar:GNDFB,shadow:SHADOW,glow:GQ.glow,bloom:GQ.bloom,dmax:GQ.dmax};
   out.snap=snap;
   for(var q1=0;q1<${R};q1++) for(var p=0;p<AB.length;p++){
-    var nm=AB[p][0], reg=AB[p][1], offv=AB[p][2];
-    DEV.set(reg,offv); sample(nm+'_hi',aHi,0,${M}); DEV.set(reg,snap[reg]);
-    DEV.set(reg,offv); sample(nm+'_lo',aLo,0,${M}); DEV.set(reg,snap[reg]);
+    var nm=AB[p][0], reg=AB[p][1], offv=AB[p][2], first=(q1+p)%2;
+    DEV.set(reg,offv); sample(nm+(first?'_lo':'_hi'),first?aLo:aHi,0,${M}); DEV.set(reg,snap[reg]);
+    DEV.set(reg,offv); sample(nm+(first?'_hi':'_lo'),first?aHi:aLo,0,${M}); DEV.set(reg,snap[reg]);
   }
   for(var t in acc) out.arms[t]=acc[t];
   out.buf=[BW,BH]; out.tier=DEV.stats().tier; out.gfx=st.gfx;
@@ -742,7 +763,9 @@ async function cost(o) {
     fs.rmSync(profile, { recursive: true, force: true });
   }
 
-  let swung = 0, ident = 0, drift = 0, paid = 0, flatN = 0, worst = null;
+  let swung = 0, ident = 0, drift = 0, paid = 0, flatN = 0, worst = null, spreadN = 0;
+  let pairHeld = 0, pairSwap = 0, pairFlat = 0;      // what the re-timed pair said, per sector
+  const swapList = [];
   for (const r of rows) {
     if (r.error) { console.log('COST L' + r.level + ' ERROR ' + r.error); continue; }
     const a = r.arms, dealt = r.p.ang, S = r.S || 8;
@@ -759,30 +782,53 @@ async function cost(o) {
      * #728 circle table printed with no self-check behind it at all. */
     const idR = dms / Math.max(1e-6, hms), spread = hi / Math.max(1e-6, lo);
     ident++; if (!(Math.abs(idR - 1) <= ID_TOL)) drift++;
-    if (spread >= YAW_FLAT) paid++; else flatN++;
+    if (spread >= YAW_FLAT) { paid++; spreadN++; } else flatN++;
     console.log('COST L' + r.level + ' ' + r.name + ' seat ' + r.p.x.toFixed(2) + ',' + r.p.y.toFixed(2) +
       ' dealt ' + dealt.toFixed(3) + ' rad (' + (differs ? 'a turned seat' : 'the pinned heading itself') +
       ')  dealt ' + dms + '  pinned ' + pms + '  up ' + ums + '  hold ' + hms + ' ms/frame | dealt/pinned ' + ratio.toFixed(2) +
       'x, turned up ' + upR.toFixed(2) + 'x, one pose twice ' + idR.toFixed(2) + 'x, yaw circle ' + S + ' headings '
       + lo.toFixed(2) + '-' + hi.toFixed(2) + ' ms/frame, spread ' + spread.toFixed(2) + 'x  [' +
-      r.tier + '/' + r.gfx + ' ' + r.buf.join('x') + ', layout ' + r.layout + ', ' + a.dealt.length + ' round(s), visit order rotates per round' +
+      r.tier + '/' + r.gfx + ' ' + r.buf.join('x') + ', layout ' + r.layout + ', ' + a.dealt.length + ' round(s), headings visited in a fresh seeded order every round' +
       (Math.abs(idR - 1) <= ID_TOL ? '' : ', IDENTITY DRIFT ' + idR.toFixed(2) + 'x') + ']');
     if (spread < YAW_FLAT) continue;
     const wr = v => ((v % (2 * Math.PI)) + 3 * Math.PI) % (2 * Math.PI) - Math.PI;
-    const bhi = med(a.b_hi), blo = med(a.b_lo), gap = bhi - blo;
+    /* PAIRED, not a difference of medians. `b_hi` and `b_lo` are one sample per round and the two trade
+     * slots every round, so a cost that belongs to the SLOT - which half of the round you ran in -
+     * cancels in the per-round difference and survives a difference of medians. With an odd round
+     * count it survives the difference of medians badly: three of five rounds put one heading first and
+     * the median of each arm then reports the slot, not the heading, which is exactly what the first
+     * 16-heading read of #728 did (its pair came back NEGATIVE in all four sectors, -16.8 to -29.3 ms,
+     * while the sweep it was meant to confirm had come back positive by 44-56 ms). */
+    const pr = (a.b_hi || []).map((v, i) => v - (a.b_lo || [])[i]);
+    const bhi = med(a.b_hi), blo = med(a.b_lo);
+    const gap = pr.length ? pr.reduce((s, v) => s + v, 0) / pr.length : 0;
+    const sgap = hi - lo;                                  // what the sweep claimed the gap was
     const ab = PASS_AB.map(p => {
-      const oHi = med(a[p[0] + '_hi']), oLo = med(a[p[0] + '_lo']);
-      return { name: p[0], gap: oHi - oLo, closed: gap > 0.5 ? (gap - (oHi - oLo)) / gap : 0 };
-    }).filter(x => a[x.name + '_hi'] && isFinite(x.gap));
+      const q = (a[p[0] + '_hi'] || []).map((v, i) => v - (a[p[0] + '_lo'] || [])[i]);
+      const g = q.length ? q.reduce((s2, v) => s2 + v, 0) / q.length : NaN;
+      return { name: p[0], gap: g, closed: gap > 0.5 ? (gap - g) / gap : 0 };
+    }).filter(x => (a[x.name + '_hi'] || []).length && isFinite(x.gap));
+    const held = gap >= Math.min(4, 0.25 * sgap), swapped = gap <= -0.25 * sgap;
+    if (held) pairHeld++; else if (swapped) { pairSwap++; swapList.push('L' + r.level); } else pairFlat++;
     console.log('COST L' + r.level + '   ms/frame by heading: ' + circle.map((v, k) =>
       wr(dealt + k * 2 * Math.PI / S).toFixed(2) + ':' + v.toFixed(1)).join('  ')
       + '\n   the heading that pays is ' + wr(dealt + r.iHi * 2 * Math.PI / S).toFixed(3) + ' rad at '
       + hi.toFixed(2) + ' ms against ' + lo.toFixed(2) + ' at ' + wr(dealt + r.iLo * 2 * Math.PI / S).toFixed(3)
-      + '; sprites drawn ' + r.hiSpr + ' vs ' + r.loSpr + '. Pass split at the two extremes (shipped frame '
-      + bhi.toFixed(2) + '/' + blo.toFixed(2) + ', gap ' + gap.toFixed(2) + ' ms): '
-      + ab.map(x => x.name + ' off -> gap ' + x.gap.toFixed(1) + ' ms, ' + (100 * x.closed).toFixed(0)
-        + '% closed').join(', '));
-    for (const x of ab) if (!worst || x.closed > worst.closed) worst = Object.assign({ level: r.level, gap: gap }, x);
+      + '; sprites drawn ' + r.hiSpr + ' vs ' + r.loSpr + '.\n   RE-TIMED as a PAIR that trades slots every '
+      + 'round, paired difference of the two arms (a slot cost cancels in it; the two medians alone are '
+      + bhi.toFixed(2) + '/' + blo.toFixed(2) + ' and are NOT the estimate): ' + gap.toFixed(2)
+      + ' ms against the sweep\'s ' + sgap.toFixed(2) + ' -\u003e ' + (held
+        ? 'the slow heading of the sweep is still slow beside the fast one: this is a bearing in the level'
+        : swapped
+          ? 'the two extremes SWAPPED places: what the sweep ranked was the visit, not the bearing'
+          : 'the two extremes are the SAME PRICE beside each other: the sweep spread, the pair does not')
+      + (held ? '.\n   Pass split at the two extremes (gap ' + gap.toFixed(2) + ' ms): '
+        + ab.map(x => x.name + ' off -> gap ' + x.gap.toFixed(1) + ' ms, ' + (100 * x.closed).toFixed(0)
+          + '% closed').join(', ')
+      : '.\n   No pass is named here: the sweep\'s two extremes do not reproduce as a gap when they are '
+        + 'timed beside each other, so there is nothing to attribute.')
+      );
+    if (held) for (const x of ab) if (!worst || x.closed > worst.closed) worst = Object.assign({ level: r.level, gap: gap }, x);
   }
   if (page.pageErrors.length) console.log('NOTE page exceptions: ' + page.pageErrors.slice(0, 3).join(' | '));
   if (!ident) {
@@ -807,13 +853,32 @@ async function cost(o) {
     (swung ? 'The swing reaches the frame.' : 'The swing does not reach the frame: the harness prices a ' +
       'buffer, the player gets this.'));
   const S0 = (rows.find(r => !r.error) || { S: 8 }).S;
+  /* A sweep spread is not yet a bearing. The pair of extremes is timed a second time trading slots every
+   * round, and the PAIRED difference of those two arms is what says whether the sweep found a direction
+   * that costs more or found the turn itself: `pairHeld` counted the sectors where the slow heading of
+   * the sweep is still slow beside the fast one. On the deployed build at seed 60 all four sectors came
+   * back the other way (pairSwap), which is the answer #728 asked for: the ~4x is what a re-pose costs,
+   * in every direction, not what one direction costs. */
   if (!paid) console.log('LIVECOST the yaw circle is FLAT: every sector read turned a full circle at ' + S0
-    + ' headings with the visit order rotating per round, and the worst heading stayed under '
+    + ' headings, each round visiting them in a fresh seeded order, and the worst heading stayed under '
     + YAW_FLAT.toFixed(2) + 'x the fastest at a HELD camera. A coarse scan that printed a wide swing was '
     + 'measuring the scan - a slot in the round - not a bearing in the level.');
+  else if (pairHeld === 0) {
+    const how = pairSwap ? pairSwap + ' of them swapped places' : pairFlat + ' of them came back the same price';
+    console.log('LIVECOST the yaw circle spreads but prices NOTHING: ' + paid + ' of ' + (paid + flatN)
+      + ' sector(s) read ' + S0 + ' headings at or over ' + YAW_FLAT.toFixed(2) + 'x apart at a HELD camera '
+      + '(one pose twice within ' + ID_TOL.toFixed(2) + 'x, so the timer is steady), and in ' + how + ' ('
+      + swapList.join(' ') + ') the moment the two extremes were timed beside each other with the pair '
+      + 'trading slots every round. A heading that costs more only when it is never compared with anything '
+      + 'is not a heading: what the eight-point scan measured is the cost of TURNING - the view caches a '
+      + 're-pose invalidates, paid the same whatever you turn towards - so no pass is named and no bearing '
+      + 'is priced. The circle is FLAT in the only sense a player can check: which way you face does not '
+      + 'change what a frame costs.');
+  }
   else console.log('LIVECOST the yaw circle is NOT flat: ' + paid + ' of ' + (paid + flatN)
     + ' sector(s) spread at or over ' + YAW_FLAT.toFixed(2) + 'x across one slow turn at a held camera ('
-    + S0 + ' headings, visit order rotated per round, one pose twice within ' + ID_TOL.toFixed(2)
+    + S0 + ' headings, a fresh seeded visit order every round, ' + pairHeld + ' of them keeping the '
+    + 'gap when the pair was re-timed beside each other, one pose twice within ' + ID_TOL.toFixed(2)
     + 'x) - a hitch in the hand while a player sweeps a room. '
     + (worst && worst.closed > 0.25
       ? 'The pass that pays is ' + worst.name + ' (L' + worst.level + '): turning it off closes '
