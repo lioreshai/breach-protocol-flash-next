@@ -688,13 +688,16 @@ function costRoute(o) {
   DEV.tick(1);
   var st=DEV.state();
   out.name=st.levelName; out.layout=st.layout; out.mode=st.mode; out.p=st.p;
-  var x=st.p.x, y=st.p.y, z=st.p.z, dealt=st.p.ang, acc={}, nsp={};
-  function sample(tag,ang,pitch,n){
+  var x=st.p.x, y=st.p.y, z=st.p.z, dealt=st.p.ang, acc={}, nsp={}, warm={}, posat={};
+  function sample(tag,ang,pitch,n,pos){
     DEV.cam(x,y,z,ang,pitch);
-    DEV.tick(2);                                  // settle: the first frame of a new view pays the caches
+    var w0=performance.now(); DEV.tick(1);         // the RE-POSE term: what arriving at this view costs
+    (warm[tag]=warm[tag]||[]).push(performance.now()-w0);
+    DEV.tick(1);                                  // settle, exactly the second half of the old tick(2)
     var t0=performance.now();
     for(var i=0;i<n;i++) DEV.tick(1);
     (acc[tag]=acc[tag]||[]).push((performance.now()-t0)/n);
+    if(pos!==undefined)(posat[tag]=posat[tag]||[]).push(pos);   // where in this round's visit order it ran
     (nsp[tag]=nsp[tag]||[]).push(DEV.stats().drawCalls);   // sprites actually drawn in that frame
   }
   function med(a){var s=a.slice().sort(function(p,q){return p-q});var m=s.length>>1;
@@ -709,7 +712,7 @@ function costRoute(o) {
     for(i=n-1;i>0;i--){s=(Math.imul(s,1103515245)+12345)>>>0; j=s%(i+1); t=a[i]; a[i]=a[j]; a[j]=t;}
     return a;}
   for(var q=0;q<${R};q++){ var pm=perm(S,${SEED0}+q*7919);
-    for(var k2=0;k2<S;k2++){ var h=pm[k2]; sample('c'+h,dealt+h*step,0,${M}); }
+    for(var k2=0;k2<S;k2++){ var h=pm[k2]; sample('c'+h,dealt+h*step,0,${M},k2); }
   }
   var cmed=[]; for(var k3=0;k3<S;k3++) cmed.push(med(acc['c'+k3]));
   var iHi=0,iLo=0;
@@ -733,6 +736,7 @@ function costRoute(o) {
     DEV.set(reg,offv); sample(nm+(first?'_hi':'_lo'),first?aHi:aLo,0,${M}); DEV.set(reg,snap[reg]);
   }
   for(var t in acc) out.arms[t]=acc[t];
+  out.warm=warm; out.pos=posat;
   out.buf=[BW,BH]; out.tier=DEV.stats().tier; out.gfx=st.gfx;
   return out;})()`;
 }
@@ -783,6 +787,33 @@ async function cost(o) {
     const idR = dms / Math.max(1e-6, hms), spread = hi / Math.max(1e-6, lo);
     ident++; if (!(Math.abs(idR - 1) <= ID_TOL)) drift++;
     if (spread >= YAW_FLAT) { paid++; spreadN++; } else flatN++;
+    /* #728, the question the circle has never actually timed. Every arm above re-poses, SETTLES for two
+     * frames, and then times the frames AFTER the settle - so every number in this read is the cost of a
+     * HELD frame at some heading. A player sweeping a room does not get held frames: while the hand is
+     * moving, EVERY frame is a first frame after a pose change. `warm` is that frame - the first tick
+     * after DEV.cam, timed inside the same sample() call as the steady frames beside it, so the pair is
+     * paired by construction, not by an ordering trick. If it costs what the frames after it cost, the
+     * turn is free and the sweep's spread has to be a held-frame property; if it costs more, the hitch a
+     * player feels while turning is priced, and the heading spread is beside the point. */
+    const warm = r.warm || {}, posat = r.pos || {};
+    const m2 = v => (v && v.length ? med(v) : NaN);
+    const cat = (map, k) => (map['c' + k] || []);
+    const wCircle = []; for (let k = 0; k < S; k++) wCircle.push(m2(cat(warm, k)));
+    const allW = [], allS = [];
+    for (let k = 0; k < S; k++) { allW.push.apply(allW, cat(warm, k)); allS.push.apply(allS, cat(a, 'c' + k) || []); }
+    const turnMs = m2(allW), steadyMs = m2(allS), turnR = turnMs / Math.max(1e-6, steadyMs);
+    const wFin = wCircle.filter(isFinite);
+    const wLo = wFin.length ? Math.min.apply(null, wFin) : NaN, wHi = wFin.length ? Math.max.apply(null, wFin) : NaN;
+    const wSpread = wLo > 0 ? wHi / wLo : NaN;
+    /* The ORDER effect, priced instead of argued. The sweep visits headings in a shuffled order, which
+     * removes any systematic pairing of a heading with a transition, but it does not remove a drift that
+     * belongs to the round itself. Split every sweep sample by where in its round's visit order it ran. */
+    const h1 = [], h2 = [];
+    for (let k = 0; k < S; k++) {
+      const v = cat(a, 'c' + k), p = cat(posat, k);
+      for (let i = 0; i < v.length; i++) { if (p[i] === undefined) continue; (p[i] < S / 2 ? h1 : h2).push(v[i]); }
+    }
+    const ord1 = m2(h1), ord2 = m2(h2), ordR = ord1 / Math.max(1e-6, ord2);
     console.log('COST L' + r.level + ' ' + r.name + ' seat ' + r.p.x.toFixed(2) + ',' + r.p.y.toFixed(2) +
       ' dealt ' + dealt.toFixed(3) + ' rad (' + (differs ? 'a turned seat' : 'the pinned heading itself') +
       ')  dealt ' + dms + '  pinned ' + pms + '  up ' + ums + '  hold ' + hms + ' ms/frame | dealt/pinned ' + ratio.toFixed(2) +
@@ -790,6 +821,18 @@ async function cost(o) {
       + lo.toFixed(2) + '-' + hi.toFixed(2) + ' ms/frame, spread ' + spread.toFixed(2) + 'x  [' +
       r.tier + '/' + r.gfx + ' ' + r.buf.join('x') + ', layout ' + r.layout + ', ' + a.dealt.length + ' round(s), headings visited in a fresh seeded order every round' +
       (Math.abs(idR - 1) <= ID_TOL ? '' : ', IDENTITY DRIFT ' + idR.toFixed(2) + 'x') + ']');
+    console.log('COST L' + r.level + '   THE TURN ITSELF: the first frame after a re-pose costs ' + turnMs.toFixed(2)
+      + ' ms/frame against ' + steadyMs.toFixed(2) + ' for the frames that follow it (' + allW.length
+      + ' re-pose frames timed beside ' + allS.length + ' held ones), ' + turnR.toFixed(2)
+      + 'x (' + (turnR >= 1.15 ? 'a player mid-turn pays this on EVERY frame until the hand stops; the held-frame '
+        + 'numbers above understate what a sweep costs' : 'turning is free: a frame in which the view changed costs '
+        + 'what a frame in which it did not, so what this circle ranks is held-frame geometry')
+      + '). The turn term by heading spans ' + wLo.toFixed(2) + '-' + wHi.toFixed(2) + ' ms, ' + wSpread.toFixed(2)
+      + 'x, where the HELD term spans ' + lo.toFixed(2) + '-' + hi.toFixed(2) + ' ms, ' + spread.toFixed(2) + 'x.\n'
+      + '   Visit-order control: the first half of each round\'s visit order costs ' + ord1.toFixed(2)
+      + ' ms/frame and the second half ' + ord2.toFixed(2) + ' (ratio ' + ordR.toFixed(2)
+      + 'x) - a round that drifts during itself can put a heading at the top of the table with no bearing '
+      + 'behind it, which is what the pair below is for.');
     if (spread < YAW_FLAT) continue;
     const wr = v => ((v % (2 * Math.PI)) + 3 * Math.PI) % (2 * Math.PI) - Math.PI;
     /* PAIRED, not a difference of medians. `b_hi` and `b_lo` are one sample per round and the two trade
@@ -859,6 +902,19 @@ async function cost(o) {
    * the sweep is still slow beside the fast one. On the deployed build at seed 60 all four sectors came
    * back the other way (pairSwap), which is the answer #728 asked for: the ~4x is what a re-pose costs,
    * in every direction, not what one direction costs. */
+  /* The turn term, over all sectors: what the hand pays while it is moving. */
+  const tw = rows.filter(r => !r.error && r.warm).map(r => med(r.warm.dealt || [])), ts = rows.filter(r => !r.error).map(r => med(r.arms.dealt));
+  if (tw.length && ts.length) {
+    const tr = median(tw) / Math.max(1e-6, median(ts));
+    console.log('LIVECOST turning at a stationary seat costs ' + median(tw).toFixed(2) + ' ms for the frame that '
+      + 'turns against ' + median(ts).toFixed(2) + ' ms for a frame that holds - ' + tr.toFixed(2)
+      + 'x. ' + (tr >= 1.15
+        ? 'So a sweep of the room is NOT four held frames averaged: every frame the hand is moving pays a '
+          + 're-pose the settled numbers above never time. That is the hitch #728 describes, and it is a '
+          + 'cost of TURNING, not of any direction.'
+        : 'So the frame a turning player gets is the frame a held camera gets: the circle above is the whole '
+          + 'story, and there is no separate re-pose cost to name.'));
+  }
   if (!paid) console.log('LIVECOST the yaw circle is FLAT: every sector read turned a full circle at ' + S0
     + ' headings, each round visiting them in a fresh seeded order, and the worst heading stayed under '
     + YAW_FLAT.toFixed(2) + 'x the fastest at a HELD camera. A coarse scan that printed a wide swing was '
