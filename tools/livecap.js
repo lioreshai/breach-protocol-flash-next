@@ -848,6 +848,13 @@ async function cost(o) {
   const nilAll = { hi: [], lo: [] };      // every inert SAMPLE, flat: the identity spread's raw material
   const nilSlot = { hi: [], lo: [] };   // per-ARM median ms of the SHIPPED frame, one entry per arm/sector
   let ctlSum = [];            // the sum of median closures, per sector: over 1.0 cannot be additively true
+  /* How many sectors the pass split is actually allowed to speak from - `held` AND `ctlOk`. The named
+   * pass is already gated on both (#936 review), but the additivity census was not: a sector that prints
+   * "this sector attributes NOTHING below" still fed a share into "the arms sum to L2 33%", so the
+   * closing sentence could read "this line over-attributes" about a sector that attributes nothing, and
+   * "no switch closes a quarter" could be reported for a run in which NO switch was ever testable.
+   * One counter, both gates. (#936 review, the two follow-ups it left open.) */
+  let attributed = 0;
   for (const r of rows) {
     if (r.error) { console.log('COST L' + r.level + ' ERROR ' + r.error); continue; }
     const a = r.arms, dealt = r.p.ang, S = r.S || 8;
@@ -1034,8 +1041,9 @@ async function cost(o) {
       : '.\n   No pass is named here: the sweep\'s two extremes do not reproduce as a gap when they are '
         + 'timed beside each other, so there is nothing to attribute.')
       );
-    if (held) {
-      if (ctlOk) for (const x of ab) {
+    if (held && ctlOk) {
+      attributed++;
+      for (const x of ab) {
         if (!worst || x.closed > worst.closed) worst = Object.assign({}, x, { level: r.level, seatGap: gap });
         (abAll[x.name] = abAll[x.name] || []).push({ level: r.level, closed: x.closed, gap: gap });
       }
@@ -1043,7 +1051,9 @@ async function cost(o) {
        * arithmetic that cannot be additively true, and it is what the #936 review found (farband 54,
        * glow 60, bloom 57, decals 55, shadows 67 of one 48 ms gap). With the control subtracted the
        * same claim should come down; if it still sums past 1.3 the row over-attributes and the reader
-       * has to be told, because the closing sentence names only the biggest one. */
+       * has to be told, because the closing sentence names only the biggest one. A sector whose own
+       * control says the gap is gone is EXCLUDED here, not counted: a share of drift cannot sum to an
+       * over-attribute, and a census about a refused sector is a census about nothing. */
       ctlSum.push({ level: r.level, sum: ab.reduce((s, x) => s + x.closed, 0), n: ab.length,
         floor: isFinite(ctlGap) ? ctlGap : NaN, gap: gap });
     }
@@ -1206,8 +1216,19 @@ async function cost(o) {
       ? 'One seat only: ' + worst.name + ' off at L' + worst.level + ' closes '
         + (100 * worst.closed).toFixed(0) + '% of that seat\'s ' + worst.seatGap.toFixed(1)
         + ' ms heading gap, but no pass clears a quarter of the gap across every seat, so no pass is named.'
-      : 'No single switch closes a quarter of the gap at any seat, so the swing is the geometry the eye contains - the '
-        + 'wall columns and ground rows a long sight line marches - not one pass that can be turned off.'));
+      : attributed === 0
+        // every sector refused: nothing was ever testable, which is NOT the same finding as "nothing pays"
+        ? 'NOTHING WAS ATTRIBUTABLE IN THIS RUN. ' + pairHeld + ' sector(s) held a heading gap when the two '
+          + 'extremes were re-timed beside each other, but in EVERY one the inert controls - switches handed'
+          + ' the value the page already holds - priced the two headings at the SAME money, so by the time '
+          + 'the ablation loop ran there was no gap left in the run to close and no switch was ever '
+          + 'testable. That is a property of THIS RUN (it went cold or cheap between the sweep and the '
+          + 'ablations), not of the build: it does NOT license "no pass pays", and the % closed figures '
+          + 'above are shares of drift. Raise --frames and --rounds until at least one sector clears its '
+          + 'own control.'
+        : 'No single switch closes a quarter of the gap at any of the ' + attributed
+          + ' attributable seat(s), so the swing is the geometry the eye contains - the wall columns and '
+          + 'ground rows a long sight line marches - not one pass that can be turned off.'));
   return rows;
 }
 
