@@ -297,7 +297,7 @@ const MESH = (function () {
      #19). Near the eye TPR is over 30 px, so level 0 runs with #232's arithmetic untouched and the
      recorded torso gradient still reads 2.52 / 2.17 / 2.52; everything that moves is a body far enough
      to have had no surface at all. */
-  const TS_CYC = 10, TS_MINP = 3.5, TS_LMAX = 2, TS_SLOPE = 9, TS_MAX = 26, TS_BMIN = 0.45, TS_NSLOPE = 0.94;
+  const TS_CYC = 10, TS_MINP = 3.5, TS_LMAX = 2, TS_SLOPE = 9, TS_MAX = 26, TS_BMIN = 0.45, TS_NSLOPE = 1.30;
   /* #727 THE CEILING WAS THE CLIFF ON THE NEAR SIDE. TS_MAX 26 is the combat-range amplitude the law
      saturates at (slope 9 reaches it at TPR 11.6 px, ~25 m out), and it stays the ceiling all the way to
      the eye - so the ONE thing this file says stays constant, luma per screen pixel, is the one thing
@@ -363,7 +363,30 @@ const MESH = (function () {
      other buys: TS_NSLOPE = 4 * TS_BMIN * TS_MAX / TS_NPPX = 0.94, which is the same arithmetic #727 used
      to place 0.65, re-solved against the period this issue's own measurement names instead of the frame
      list. The cap is unchanged at TS_MAX and the clip unchanged, so the wave is still zero-mean; what
-     moves is 1.83% of one frame's pixels, all of them inside one silhouette. */
+     moves is 1.83% of one frame's pixels, all of them inside one silhouette.
+       #922 TAKE TWO THE LEVEL, NOT THE CROSSOVER. With the gate at its own crossover the slope a body
+     square to the eye delivers INSIDE the gate is `TS_NSLOPE * TPR / TS_NPPX` - the ceiling and the
+     period cancel, so one number sets the whole near field and it is 0.94 luma per px at the gate,
+     against the 1.58 to 1.81 `contrast` measures in the room behind him at the same rows. The ratio the
+     torso rows print is the frame's own answer: 0.79 / 0.93 / 0.91 dL-per-px against rooms of 1.58 /
+     1.81 / 3.58 - ratios 0.50 / 0.52 / 0.25 - so a hostile at arm's length still arrives with half the
+     surface his background has, which is the picture this issue was filed about. `TS_NSLOPE` is that
+     level and it is the only one in the file, so it is what moves.
+       It is moved to the largest value the file's own zero-mean rule will carry, not to a round number.
+     Raising the face-on band raises the excursion `tri` is asked to paint, and where the armour is too
+     dark or too bright to carry it the #533 clip shaves one side: the wave stops cancelling and arrives
+     as a DC step. `contrast` gates exactly that (`torso gradient not paid by mean or edge`, DC floor
+     TG_BIAS 1.20, main's number, UNMOVED). Measured in one harness on the same three seats, both arms
+     either side of the same byte: TS_NSLOPE 1.79 buys torso 1.19 / 1.37 / 1.34 (ratios 0.75 / 0.76 /
+     0.37) and costs DC 1.20 / 1.29 / 1.31 - three FAILs, a rectified seam; TS_NSLOPE 1.30 buys 0.83 /
+     0.99 / 0.96 (0.52 / 0.55 / 0.27) at DC 0.85 / 0.91 / 0.93, inside the floor on all three, CONTRAST
+     0 FAILURES of 127 rows. So 1.30 is the ceiling of this term, and the residual ratio - the deck and
+     wall grain behind him is still the busier surface, worst case 0.27 - is NOT this term's to fix: it
+     is the authored frequency of the paint behind him, and #922 says so in its own "Not this issue".
+     The floor's crossover moves with it, to TPR = 4 * TS_BMIN * TS_MAX / TS_NSLOPE = 36 px, which is
+     ~11 m for a brute: the far field past it still answers TS_BMIN and holds its byte, and the frames
+     that move are the ones carrying a body inside ~11 m. Cap, clip, slope, ceiling, gate and every
+     threshold in `contrast` are unchanged; no window, mask, fade or vignette is added. */
   const TSC = [0.80, 1.00, 1.15];                   // slightly cool seams on warm armour
   /* 1/TSC, for the clip bound in `tri`: the excursion a channel can carry is its distance to the byte
      limit DIVIDED by its own multiplier, so the two tables cannot drift apart. TSC[2] is unused by the
