@@ -950,7 +950,10 @@ async function cost(o) {
     + S0 + ' headings, a fresh seeded visit order every round, ' + pairHeld + ' of them keeping the '
     + 'gap when the pair was re-timed beside each other, one pose twice within ' + ID_TOL.toFixed(2)
     + 'x) - a hitch in the hand while a player sweeps a room. '
-    + (worst && worst.closed > 0.25
+    + (!ab.length && rows.every(r => r.error || !(r.arms.farband_hi || []).length)
+      ? 'No pass ablation ran (--passes 0), so NOTHING here is attributed to a pass: the gap is measured, '
+        + 'not explained. Re-run without --passes 0 to name one.'
+      : worst && worst.closed > 0.25
       ? 'The pass that pays is ' + worst.name + ' (L' + worst.level + '): turning it off closes '
         + (100 * worst.closed).toFixed(0) + '% of that seat\'s ' + worst.gap.toFixed(1)
         + ' ms heading gap, so the swing lives in that pass; what is left is the cost of the geometry.'
