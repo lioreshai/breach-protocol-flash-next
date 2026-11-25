@@ -658,22 +658,51 @@ function fgLine(tag, r, idn, k) {
  * arms, and times each of them again once per candidate pass with that pass switched off through the
  * page's own DEV.set registers. The shipped value of every register is snapshotted off the page before
  * the first arm and restored after every one, so no ablation leaks into the next. A pass that costs
- * the same at both headings is not the swing; a pass whose OFF half closes the gap IS the swing, and
- * the row prints how much of the gap each one closes. This prices the frame a player gets - the page's
- * own renderWorld under the page's own clock - not a model of it. */
+ * the same at both headings is not the swing; a pass whose OFF half closes the gap IS the swing.
+ *
+ * WHY EVERY ABLATION RUNS BESIDE AN INERT CONTROL, AND WHY "% CLOSED" IS A DIFFERENCE OF PAIRS. The
+ * first version took closed as (seatGap - ablatedGap) / seatGap, with seatGap from the slot-trading
+ * pair in its own loop and ablatedGap from the ablation loop. That mixed two places in the run, and a
+ * reader proved the mix was the whole figure: an arm given the SHIPPED value of its own switch - so
+ * the switch fires and changes nothing - closed 59-64% of a 47 ms gap, indistinguishable from the two
+ * arms that really moved the page beside it (62/61, 62/60), and every arm on the line landed at 54-71%
+ * of one gap, which cannot be additively true (#936 review). The floor is that the ablation pair is
+ * timed later in the run than the b-pair, so the run's own drift rides on the numerator. So each arm
+ * now runs with a CONTROL of its own, in the same round and one sample away: the identical switch,
+ * armed the identical way, handed the value the page already holds, so it changes nothing at all. The
+ * control is timed lo-then-hi exactly as its arm is, with the slot both trade by driven by the same
+ * (q1+p)%2, so the two pairs sit at the same position in the run and the drift cancels in
+ * (control - off). "% closed" is therefore (controlPair - offPair) / seatGap: 0% now means "this pass
+ * is not it", not "this is where the run happens to be". It costs twice the ablation ticks, and the
+ * seat's own gap stays the slot-trading b-pair's figure, because that is the sweep's number and the
+ * sentence quoting it should still quote the sweep. */
 const PASS_AB = [
   ['farband', 'gndtex', 0, () => GNDTX],        // the deferred far band's own texel fetch (#616)
   ['wash', 'gndfar', 0, () => GNDFB],           // the far answer: wash past FARB vs the textured field
   ['glow', 'glow', 0, q => q.glow],             // drawLightGlow
   ['bloom', 'bloom', false, q => q.bloom],      // the bloom pass
   ['decals', 'dmax', 0, q => q.dmax],           // the decal mask walk inside the wall span
-  ['shadows', 'shadow', 0, () => SHADOW]        // buildShadowGrid + the contact darkening reads
+  ['shadows', 'shadow', 0, () => SHADOW],       // buildShadowGrid + the contact darkening reads
+  /* #728 Done-when 2, the shadow pass's OWN halves. `shadow` is one switch over two costs: a per-frame
+     build (buildShadowGrid fills MAP.w^2 grid heads and distance-culls every body and prop, js/40_render
+     :1994) and a per-PIXEL read (shadowFloor's chain walk, whose cost depends on which cells the eye is
+     in and so CAN vary with heading). Naming "shadows" as the payer cannot say which; a seat that pays
+     for its grid build pays at every heading, and a seat that pays for the walk pays by bearing, which is
+     the shape this issue is about. There is no DEV register for either half - SHADOW_PROP and SHADOW_FAR
+     are script-scope `let`s (js/40_render.js:446, :372), and a `let` at the top of a classic script lives
+     in the global lexical environment, so a function built by `new Function` from the page's own global
+     scope reaches it. That is the same mechanism DEV.set uses for the gnd* terms; here it is done without
+     touching js/ so the read still runs against the shipped build. Both arms RESTORE the value they read
+     off the page before the first arm, so neither leaks into the next. Each changes the PAINT as well as
+     the milliseconds - an ablation always does - so its number is that term's cost, not a free win. */
+  ['shbuild', null, 0, () => SHADOW_PROP, 'SHADOW_PROP'],  // the prop caster loop off: the grid is still
+  ['shdisc', null, 0, () => SHADOW_FAR, 'SHADOW_FAR']      // filled and culled but registers no disc
 ];
 
 function costRoute(o) {
   const N = +o.frames || 4, R = +o.rounds || 5, M = +o.yawFrames || 3;
   const S = Math.max(4, Math.min(32, +o.yawSamples || 8));
-  const AB = o.passes === false ? '[]' : JSON.stringify(PASS_AB.map(p => [p[0], p[1], p[2]]));
+  const AB = o.passes === false ? '[]' : JSON.stringify(PASS_AB.map(p => [p[0], p[1], p[2], p[4] || null]));
   // one shuffle seed per (level, round), so the visit order varies across rounds and across sectors
   // but a re-run of the same command replays the same order.
   const SEED0 = 104729 * ((o.level | 0) + 1) + 13;
@@ -749,11 +778,29 @@ function costRoute(o) {
   // not the swing; a pass whose OFF half closes the gap between the headings IS the swing.
   var AB=${AB};
   var snap={gndtex:GNDTX,gndfar:GNDFB,shadow:SHADOW,glow:GQ.glow,bloom:GQ.bloom,dmax:GQ.dmax};
+  /* A raw arm is switched by ASSIGNING a script-scope name, so its shipped value has to be read off the
+     page the same way (AB[p][3] is the name, AB[p][4] the value read back before anything was touched). */
+  function rawGet(e){ try { return (new Function('return ' + e))(); } catch (err) { return undefined; } }
+  function armSet(p,v){ if(p[3]) { try { (new Function('v', p[3] + '=v'))(v); } catch (err) { out.abErr=String(err); } }
+                         else DEV.set(p[1], v); }
+  for(var pz=0;pz<AB.length;pz++) if(AB[pz][3]) AB[pz][4]=rawGet(AB[pz][3]);
+  // a raw switch that reads back nothing did not arm, and an arm that never moved the page is a row about nothing
+  out.rawErr=AB.filter(function(p){ return p[3] && p[4] === undefined; }).map(function(p){ return p[0]+':'+p[3]; });
   out.snap=snap;
+  /* One arm's two headings plus its INERT control's two headings, interleaved so the pair and its
+   * control occupy the same two slots of the same round. armSet(p,back) is the inert arm: for a DEV
+   * register that re-writes the snapshot, for a raw one it re-assigns the value rawGet read off the
+   * page, so the mechanism runs and the picture does not change. */
   for(var q1=0;q1<${R};q1++) for(var p=0;p<AB.length;p++){
-    var nm=AB[p][0], reg=AB[p][1], offv=AB[p][2], first=(q1+p)%2;
-    DEV.set(reg,offv); sample(nm+(first?'_lo':'_hi'),first?aLo:aHi,0,${M}); DEV.set(reg,snap[reg]);
-    DEV.set(reg,offv); sample(nm+(first?'_hi':'_lo'),first?aHi:aLo,0,${M}); DEV.set(reg,snap[reg]);
+    var nm=AB[p][0], reg=AB[p][1], offv=AB[p][2], first=(q1+p)%2, back=AB[p][3]?AB[p][4]:snap[reg];
+    /* off and its inert control ALTERNATE at each heading (arm,control,arm,control) so both pairs have
+     * the SAME two-sample separation and the same number of switch operations per sample: a drift that
+     * is linear in position within the round then biases the two pairs by the same amount and cancels
+     * in their difference, which is what makes "0% closed" mean the switch did nothing. */
+    armSet(AB[p],offv); sample(nm+(first?'_lo':'_hi'),first?aLo:aHi,0,${M}); armSet(AB[p],back);
+    armSet(AB[p],back); sample('nil_'+nm+(first?'_lo':'_hi'),first?aLo:aHi,0,${M});
+    armSet(AB[p],offv); sample(nm+(first?'_hi':'_lo'),first?aHi:aLo,0,${M}); armSet(AB[p],back);
+    armSet(AB[p],back); sample('nil_'+nm+(first?'_hi':'_lo'),first?aHi:aLo,0,${M});
   }
   for(var t in acc) out.arms[t]=acc[t];
   out.warm=warm; out.pos=posat;
@@ -795,6 +842,12 @@ async function cost(o) {
    * L0's is 28) gets reported as the answer - so the pass is chosen by the MEDIAN closure across the
    * seats and every seat's own figure is printed beside it. */
   const abAll = {};
+  const ctlBad = [];          // arms whose inert control never got sampled: closed would be a bare difference
+  const ctlSpread = [];       // how far the inert controls inside one sector disagree, in ms
+  const ctlFloors = [];       // every inert control's paired gap, all sectors: this run's floor
+  const nilAll = { hi: [], lo: [] };      // every inert SAMPLE, flat: the identity spread's raw material
+  const nilSlot = { hi: [], lo: [] };   // per-ARM median ms of the SHIPPED frame, one entry per arm/sector
+  let ctlSum = [];            // the sum of median closures, per sector: over 1.0 cannot be additively true
   for (const r of rows) {
     if (r.error) { console.log('COST L' + r.level + ' ERROR ' + r.error); continue; }
     const a = r.arms, dealt = r.p.ang, S = r.S || 8;
@@ -902,11 +955,55 @@ async function cost(o) {
     const bhi = med(a.b_hi), blo = med(a.b_lo);
     const gap = pr.length ? pr.reduce((s, v) => s + v, 0) / pr.length : 0;
     const sgap = hi - lo;                                  // what the sweep claimed the gap was
+    /* The FLOOR, pooled. Every nil_* sample below is the SAME frame - the shipped one at one of the two
+     * headings - so all of one heading's inert samples are estimates of one quantity and belong in ONE
+     * median over arms x rounds. Taken per arm the floor was as noisy as the gap it subtracts: one sector
+     * put the eight inert paired gaps at 3.2-34.7 ms and the arm beside the 34.7 read "159% closed". That
+     * is a subtraction of two noisy numbers, not a result. Pooled, the same samples give one floor per
+     * sector with 8x the samples behind it; the per-arm paired gaps stay, but only as the noise band they
+     * are. (#936 review: an inert switch read the same closure as the two shadow arms that moved the page.) */
+    const nilHiA = [], nilLoA = [], armFloors = [];
+    for (const p of PASS_AB) {
+      const nh = a['nil_' + p[0] + '_hi'] || [], nl = a['nil_' + p[0] + '_lo'] || [];
+      nilHiA.push.apply(nilHiA, nh); nilLoA.push.apply(nilLoA, nl);
+      nilAll.hi.push.apply(nilAll.hi, nh); nilAll.lo.push.apply(nilAll.lo, nl);
+      if (nh.length) nilSlot.hi.push(med(nh));      // ONE number per arm: the shipped frame as this slot
+      if (nl.length) nilSlot.lo.push(med(nl));      // of the ablation loop timed it
+    }
+    const ctlGap = (nilHiA.length && nilLoA.length) ? med(nilHiA) - med(nilLoA) : NaN;
     const ab = PASS_AB.map(p => {
       const q = (a[p[0] + '_hi'] || []).map((v, i) => v - (a[p[0] + '_lo'] || [])[i]);
       const g = q.length ? q.reduce((s2, v) => s2 + v, 0) / q.length : NaN;
-      return { name: p[0], gap: g, closed: gap > 0.5 ? (gap - g) / gap : 0 };
+      /* The INERT control beside this arm: the same switch armed the same way with the value the page
+       * already holds, so the picture is the shipped one. closed is (floor - off) / gap, NOT (b-pair -
+       * off) / gap: the latter credits an arm with the milliseconds the run spent between its two loops,
+       * which is how a switch that changes nothing closed 59-64% of a 47 ms gap in review (#936). A
+       * missing control is vacuity, not a zero. */
+      const nq = (a['nil_' + p[0] + '_hi'] || []).map((v, i) => v - (a['nil_' + p[0] + '_lo'] || [])[i]);
+      const ng = nq.length ? nq.reduce((s2, v) => s2 + v, 0) / nq.length : NaN;
+      armFloors.push(ng);
+      return { name: p[0], gap: g, armFloor: ng, floor: ctlGap,
+        closed: (gap > 0.5 && isFinite(ctlGap)) ? (ctlGap - g) / gap : 0 };
     }).filter(x => (a[x.name + '_hi'] || []).length && isFinite(x.gap));
+    const noCtrl = ab.filter(x => !isFinite(x.armFloor)).map(x => 'L' + r.level + ' ' + x.name);
+    ctlBad.push.apply(ctlBad, noCtrl);
+    const floors = armFloors.filter(isFinite);
+    if (isFinite(ctlGap)) ctlFloors.push(ctlGap);
+    if (floors.length) ctlSpread.push(Math.max.apply(null, floors) - Math.min.apply(null, floors));
+    /* The identity control for the ablation loop, built from what it already times. Every nil_* sample IS
+     * the shipped frame, and the eight arms' controls are spread across the loop's slots, so the ratio
+     * between the dearest and cheapest of them is the timer's own spread INSIDE the loop that decides
+     * which pass pays - the thing `hold` prices for the named arms and the `one pose twice` column
+     * reports. It costs no extra ticks: it is the same samples, grouped. */
+    /* A control has to reproduce the gap it is being subtracted from. If every inert sample of the
+     * ablation loop prices the two headings at the SAME money while the sweep and the b-pair say they
+     * differ by 37 ms, the gap is simply not there any more by the time this loop runs - the run got
+     * cheaper (measured on a 2-round config: the FIRST nil pair read 43 ms, the next seven read 0.6-2.0,
+     * and the same pose also read 63.79 ms in the named-arm loop against 25.14 in the later sweep). Then
+     * (floor - off) / gap is arithmetic on a term the run no longer contains, and the biggest closure on
+     * the line is where in the loop the arm sat. Say so and refuse to attribute from this sector: an
+     * unpriced sector is honest, a 98% closure made of drift is a fake result (#936 review). */
+    const ctlOk = isFinite(ctlGap) && ctlGap >= 0.5 * gap && ctlGap <= 1.8 * gap;
     const held = gap >= Math.min(4, 0.25 * sgap), swapped = gap <= -0.25 * sgap;
     if (held) pairHeld++; else if (swapped) { pairSwap++; swapList.push('L' + r.level); } else pairFlat++;
     console.log('COST L' + r.level + '   ms/frame by heading: ' + circle.map((v, k) =>
@@ -921,17 +1018,34 @@ async function cost(o) {
         : swapped
           ? 'the two extremes SWAPPED places: what the sweep ranked was the visit, not the bearing'
           : 'the two extremes are the SAME PRICE beside each other: the sweep spread, the pair does not')
-      + (held ? '.\n   Pass split at the two extremes (gap ' + gap.toFixed(2) + ' ms): '
-        + ab.map(x => x.name + ' off -> gap ' + x.gap.toFixed(1) + ' ms, ' + (100 * x.closed).toFixed(0)
-          + '% closed').join(', ')
+      + (held ? '.\n   Pass split at the two extremes (gap ' + gap.toFixed(2) + ' ms, and nothing off -> gap '
+        + (isFinite(ctlGap) ? ctlGap.toFixed(1) + ' ms' : 'NOT TIMED') + ' for the ' + floors.length
+        + ' inert control(s) run beside these arms' + (floors.length > 1 ? ', spread '
+          + (Math.max.apply(null, floors) - Math.min.apply(null, floors)).toFixed(1) + ' ms' : '')
+        + '): '
+        + ab.map(x => x.name + ' off -> gap ' + x.gap.toFixed(1) + ' ms, '
+          + (isFinite(x.armFloor) ? x.armFloor.toFixed(1) + ' nothing, ' : 'NO CONTROL, ')
+          + (100 * x.closed).toFixed(0) + '% closed').join(', ')
+        + (ctlOk ? '' : '\n   BUT THIS LINE PRICES NOTHING: the inert controls here land at ' + ctlGap.toFixed(1)
+          + ' ms of paired gap while this seat\'s own pair is ' + gap.toFixed(1) + ' ms, so by the time the '
+          + 'ablation loop ran the two headings cost the SAME money and there is no gap left to close. '
+          + 'Every % above is then a share of drift, not of a pass, and this sector attributes NOTHING '
+          + 'below. Raise --frames and --rounds so the run is warm and steady before it ablates.')
       : '.\n   No pass is named here: the sweep\'s two extremes do not reproduce as a gap when they are '
         + 'timed beside each other, so there is nothing to attribute.')
       );
     if (held) {
-      for (const x of ab) {
+      if (ctlOk) for (const x of ab) {
         if (!worst || x.closed > worst.closed) worst = Object.assign({}, x, { level: r.level, seatGap: gap });
         (abAll[x.name] = abAll[x.name] || []).push({ level: r.level, closed: x.closed, gap: gap });
       }
+      /* Every arm on this line claims a share of ONE gap. Five shares that sum past a whole gap is
+       * arithmetic that cannot be additively true, and it is what the #936 review found (farband 54,
+       * glow 60, bloom 57, decals 55, shadows 67 of one 48 ms gap). With the control subtracted the
+       * same claim should come down; if it still sums past 1.3 the row over-attributes and the reader
+       * has to be told, because the closing sentence names only the biggest one. */
+      ctlSum.push({ level: r.level, sum: ab.reduce((s, x) => s + x.closed, 0), n: ab.length,
+        floor: isFinite(ctlGap) ? ctlGap : NaN, gap: gap });
     }
   }
   if (page.pageErrors.length) console.log('NOTE page exceptions: ' + page.pageErrors.slice(0, 3).join(' | '));
@@ -962,9 +1076,57 @@ async function cost(o) {
    * without ever printing a verdict - which is exactly the config #728 is about, so the read regressed
    * on the path it exists to measure (#933 review, falsified by deleting only that token). Hoisted. */
   const abRan = rows.some(r => !r.error && (r.arms.farband_hi || []).length);
+  /* The two shadow-half arms are switched by ASSIGNING a renderer global from the page's global scope
+   * (see PASS_AB). If that assignment cannot see the binding - a renamed `let`, a build where the name is
+   * gone - every sample of those arms is a sample of the SHIPPED frame and the row would read "shbuild off
+   * -> 0% closed" as if it had tested something. Say which switch never armed instead. (#933 left the same
+   * shape of hole with `--passes 0`; AGENTS.md: a row that has never been able to fail is not a row.) */
+  const rawBad = rows.filter(r => !r.error && (r.rawErr || []).length).map(r => 'L' + r.level + ' ' + r.rawErr.join(','));
+  if (rawBad.length)
+    console.log('LIVECOST the raw pass switches did NOT arm in ' + rawBad.length + ' sector(s) (' + rawBad.join('; ') +
+      '): those arms timed the shipped frame, so their rows below say NOTHING about the pass they name. '
+      + 'Vacuity is a FAILURE, not a debt.');
   /* Object.assign({level, gap}, x) used to let x's OWN gap overwrite the seat's, so the sentence that
    * reads "closes N% of that seat's G ms heading gap" printed G as the ablated residual - 1.9 ms shown for
    * an 11.2 ms gap. seatGap carries the seat's figure and is applied LAST so x cannot overwrite it. */
+  /* The inert control is the denominator's floor. If an arm was timed without one there is nothing to
+   * subtract, its `closed` is the bare difference the review showed to be position, and printing it
+   * beside real controls would let a row about the run masquerade as a row about a pass. */
+  if (ctlBad.length)
+    console.log('LIVECOST ' + ctlBad.length + ' arm(s) were timed with NO inert control beside them (' +
+      ctlBad.slice(0, 8).join(', ') + (ctlBad.length > 8 ? ', ...' : '') + '): their % closed is a bare '
+      + 'difference of two loops and is NOT a price. Vacuity is a FAILURE, not a debt.');
+  if (ctlFloors.length)
+    console.log('LIVECOST the inert controls - every one of them switching NOTHING - land at a median '
+      + median(ctlFloors).toFixed(1) + ' ms of paired gap (' + ctlFloors.length + ' sector(s), one pooled '
+      + 'figure each), and '
+      + (ctlSpread.length ? 'spread ' + median(ctlSpread).toFixed(1) + ' ms WITHIN one sector across the '
+        + 'arms on the line' : 'were run') + '. That figure is this run\'s floor: it is what an arm reads '
+      + 'when it changes nothing, so every % closed above is measured as (that floor - the arm) over the '
+      + 'seat\'s own paired gap, not as (the b-pair - the arm). '
+      + (median(ctlSpread) > 4 ? 'The within-sector spread is over 4 ms, so the floor itself wobbles by a '
+        + 'real fraction of the gap and the small closures are inside it - raise --rounds.'
+        : 'The floor is flat across the arms, so a closure above a few percent is the switch, not the slot.')
+      + (nilSlot.hi.length > 2 ? '\n   ONE SHIPPED FRAME, EVERY SLOT: the ' + nilSlot.hi.length + ' inert '
+        + 'hi-heading samples and ' + nilSlot.lo.length + ' inert lo-heading samples are all the SAME frame,'
+        + ' timed one slot apart across the loop. Their own medians are ' + med(nilAll.hi) + ' and '
+        + med(nilAll.lo) + ' ms/frame, and the ' + nilSlot.hi.length + ' per-arm medians beside them span '
+        + (Math.max.apply(null, nilSlot.hi) / Math.max(1e-6,
+          Math.min.apply(null, nilSlot.hi))).toFixed(2)
+        + 'x at the slow heading and ' + (Math.max.apply(null, nilSlot.lo) / Math.max(1e-6,
+          Math.min.apply(null, nilSlot.lo))).toFixed(2)
+        + 'x at the fast one. That is the timer\'s spread inside the ablation loop itself - the noise band '
+        + 'every % closed on this read sits in, timed against nothing switched at all.' : ''));
+  if (ctlSum.length)
+    console.log('LIVECOST additivity: the arms on one line claim shares of the SAME gap and they sum to '
+      + ctlSum.map(x => 'L' + x.level + ' ' + (100 * x.sum).toFixed(0) + '%').join(' ') +
+      (ctlSum.every(x => x.sum <= 1.3)
+        ? ' - within one gap plus the noise, so the shares are allowed to overlap and the named pass is '
+          + 'a share, not the whole swing.'
+        : ' - PAST one gap. Two switches cannot each pay for milliseconds the other already paid for, so '
+          + 'this line over-attributes: the terms ablate overlapping work (an off ground pass makes the '
+          + 'wall pass cheaper too), and naming one pass as "where the milliseconds are" would be naming '
+          + 'a share the row cannot add up to.'));
   const abNames = Object.keys(abAll);
   const abMed = abNames.map(n => ({ name: n, closed: median(abAll[n].map(x => x.closed)),
     at: abAll[n].map(x => 'L' + x.level + ' ' + (100 * x.closed).toFixed(0) + '% of ' + x.gap.toFixed(1)).join(', ') }))
