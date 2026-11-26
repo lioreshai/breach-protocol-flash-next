@@ -1714,14 +1714,32 @@ const MESH = (function () {
     }
     b.tip(q.pitch, hipY, 0);                         // the wind-up tips everything above the hip
     b.rg = 1;                                        // #232: the torso is the region that gets structure
-    /* #655: the torso's seam period IS the torso box, not a twelfth of the body. The box's coord is
-       `x + z` (rgY is 0 for a body), so across its own authored half-extents the coord spans
-       `2*(shLat*1.05 + torso*0.42)`, and setting the count to the reciprocal makes that exactly ONE
-       period: one ramp, so one flank faces the key and one does not. It is whole, which is what keeps
-       the wave's mean at zero over the body the way #533 requires of a crate; it is NOT even, and that
-       is affordable here because the one-step far coarsening is unreachable at this period - a body
-       would have to project under TS_MINP px, i.e. stand ~200 m out, where no pixel of it is torso. */
-    b.tcy = 1 / (2 * (s.shLat * 1.05 + s.torso * 0.42));
+    /* #655: the torso's seam period comes off the torso box, not off a twelfth of the body. The box's
+       coord is `x + z` (rgY is 0 for a body), so across its own authored half-extents the coord spans
+       `2*(shLat*1.05 + torso*0.42)`, and setting the count to the reciprocal of that span makes the
+       torso carry exactly ONE period: one ramp, so one flank faces the key and one does not. It is
+       whole, which is what keeps the wave's mean at zero over the body the way #533 requires of a crate.
+         #922 TWO PERIODS, AND WHY THE COUNT IS THE RIGHT LEVER. Read at the range a fight happens at -
+       4 to 8 m - one ramp spread over a chest that projects 80 to 150 px wide delivers `4*TAMP*band/TPR`
+       of 0.65 to 1.0 luma per screen px, against the 1.6 to 1.8 the room behind him carries: he arrived
+       as sheets of flat colour. Amplitude cannot buy that back without going rectified against the
+       #533 byte clip (measured on this issue: raising the face-on level to where the walk goes flat
+       costs DC 1.35-1.91 against the zero-mean row's 1.20 floor), and DC is the wrong place to pay.
+       The COUNT is a frequency, not a level: doubling it puts twice as many edges through the SAME
+       excursion, so `tri` is asked to paint no bigger a swing and the wave still cancels - the brake on
+       this term is not DC but the fan row #655 exists for (`torso reads as one solid, not a fan of
+       slabs`), which is where a body being carved into slabs actually gets caught. Measured at ABATOIR
+       CORE's three seats, this byte the only one moved (torso gradient / torso:room / DC vs 1.20 /
+       wobble vs 0.085):
+         1 period  1.15 / 1.48 / 0.96 dL-px   0.91 / 1.03 / 0.22   0.69 / 1.06 / 0.86   0.080 / 0.056 / 0.031
+         2 periods 1.47 / 2.09 / 1.65         1.17 / 1.45 / 0.38   0.01 / 1.05 / 0.11   0.085 / 0.078 / 0.047
+       The room's own slope is identical in both arms (1.26 / 1.44 / 4.31), so nothing outside his
+       silhouette moved, and `CONTRAST 0 FAILURE(S) of 127 rows` at the arm. TWO IS THE TOP OF THIS
+       TERM, not a dose to tune upward: cam 0's fan row lands ON its 0.085 ceiling here, and a third
+       period is the slab fan #655 was filed to kill. It stays whole (an integer count), so the far
+       coarsening is still unreachable - with the count doubled a body would have to project under
+       TS_MINP px at ~100 m to reach it, where no pixel of it is torso. */
+    b.tcy = 2 / (2 * (s.shLat * 1.05 + s.torso * 0.42));
     b.box(0, (hipY + shTop) * 0.5, 0, s.shLat * 1.05, (shTop - hipY) * 0.5, s.torso * 0.42, sk);
     b.rg = 0;                                        // the coord register stays: only torso vertices carry one
     b.box(0, hipY + 0.02, 0, s.hipLat * 1.3, 0.045, s.torso * 0.34, dk);
