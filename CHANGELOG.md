@@ -1,5 +1,56 @@
 # Changelog
 
+## [v1.4.36] - 2026-11-26
+
+### Changed
+
+- **ABATOIR CORE's ceiling stops being a dark lid** (#495, PR #935). That sector drops you into a tank room
+  whose roof covers 42% of the opening frame, and the roof arrived at barely three quarters of the
+  brightness of the floor you stand on. It now arrives at **0.80x** its own deck — ceiling 63.4 over a deck
+  of 80.0, against **0.74x** (60.6 over 83.7) measured on the previous build in the same harness — and the
+  range-bin median, the ratio at the distances the eye actually judges the roof at, goes **0.54 -> 0.59**.
+  The light was traded, not added: the sector's ceiling dose was lifted and most of it paid back out of the
+  deck that roof covers, so the room's overall brightness comes back at the number it shipped with and
+  nothing glows more than it used to. The rule that a roof may never out-value the floor beneath it is
+  untouched, and the ceiling-under-deck check stays green on all four sectors. THE STACK's roof is the one
+  still short of its own deck — 0.67x at its arrival seat — and that is a ceiling with no surface of its own
+  at range rather than a dark one, owned by #421.
+
+- **An enemy at arm's length keeps his own surface** (#922, PR #938). Up close, a hostile's torso arrived as
+  flat coloured sheets: his own seams carried about half the on-screen slope of the wall directly behind
+  him, in exactly the range a fight happens in. The near-field seam that draws his form is now cut at the
+  steepest level the renderer's own zero-mean rule can carry without tipping into a one-sided wash. Measured
+  before and after in one harness at the same three seats, the inside of a torso delivers **0.83 / 0.99 /
+  0.96** luma of slope per screen pixel against rooms of 1.58 / 1.81 / 3.58 — ratios **0.52 / 0.55 / 0.27**,
+  up from 0.50 / 0.52 / 0.25 — while the check that catches a body paying for its structure with brightness
+  instead of surface stays inside its floor on all three, and all 127 contrast rows stay clean. The distance
+  at which his body stops being drawn this way moves with it, to about 11 m for a brute; past that he is
+  by the renderer's own crossover arithmetic, roughly 11 m for a brute; past that he is unchanged, and no
+  pixel outside a silhouette moved. What is left in the busiest room, where the wall
+  behind him is still the busier surface at 0.27, is his colour against that wall rather than his shading —
+  that is #611.
+
+### What else is in this release
+
+No other merged work moved a shipped pixel. The live-page timing instrument behind the turn-cost question
+grew up: it now prices the window that times the measurement as well as the frame, times only the frames in
+which the view actually changes, splits the shadow pass into its two costs and says when a switch never
+armed, runs every ablation beside an inert control that switches nothing, and refuses to attribute anything
+from a sector whose gap has already closed or from a run that had nothing to measure (#728, PRs #933, #936,
+#937). The recorded reference digests were re-derived against the build that ships (PR #935).
+
+### Still open after this release
+
+- **Turning on the spot is still dear** (#728). The instrument to price it is now in place; no single heading
+  has been shown to account for the ~4x spread across a circle, so the turn itself remains the cost.
+- **An enemy is painted in his room's colours at 10-16 m** (#611, PR #809 in rework) — the other half of why
+  he arrives a beat late in the busiest rooms.
+- **THE STACK's roof** at 0.67x, and **ABATOIR CORE's far bins** at a 0.59x median inside the now-green 0.80x
+  aggregate: past the draw radius the roof has no light of its own to spend, and #495 was closed on that as
+  named debt rather than a fourth dose.
+- **The front page's screenshots predate both changes above.** The shipped-bytes bind in the front-page check
+  now names one build whose pixels paint differently, so a re-take off the deployed build is owed (#931).
+
 ## [v1.4.35] - 2026-11-25
 
 ### Changed
