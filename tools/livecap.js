@@ -257,6 +257,12 @@ function devRoute(o) {
   }
   if(!pick){ENEMIES.length=0;out.body=null;out.noSeat=tried;}  // no seat to measure: say so, do not place him anyway
   else{e.x=pick.x;e.y=pick.y;e.ang=Math.atan2(P.y-e.y,P.x-e.x);out.body=pick;out.kind=e.kind;out.tried=tried;}` : 'out.body=null;'}
+  /* --turn <rad>: turn the EYE after he has been seated, leaving his feet where the search put them.
+     The bearing search above turns the BEARING, so it always parks him inside the frustum - which is
+     right for a figure-ground row and wrong for "do the flat sheets come back at the edge of vision",
+     because the clipped body that frame describes is the one the report was filed against. One look()
+     after the seat is the difference, and it moves no pixel of the room: the camera stays on its cell. */
+  ${o.turn ? 'DEV.look(' + (+o.turn) + ');' : ''}
   DEV.tick(1);
   try{resume();}catch(err){out.resumeErr=String(err);}
   DEV.tick(1);
@@ -1534,11 +1540,11 @@ async function main() {
         if (cmd === 'both') {
           /* ONE load per sector, three arms, in the order that makes the mask the body: the body
              frame, then him removed, then the same frame again as the identity control. */
-          shots.push({ name: 'l' + l + '-body', clear: 'l' + l + '-clear', level: l, pair: true,
+          shots.push({ name: 'l' + l + '-body', clear: 'l' + l + '-clear', level: l, pair: true, turn: arg('turn', ''),
             body: { kind: arg('kind', l === 2 ? 'brute' : 'grunt'), dist: +arg('dist', 10) } });
         } else {
           shots.push({ name: 'l' + l + '-clear', level: l });
-          shots.push({ name: 'l' + l + '-body', level: l, body: { kind: arg('kind', l === 2 ? 'brute' : 'grunt'), dist: +arg('dist', 10) } });
+          shots.push({ name: 'l' + l + '-body', level: l, turn: arg('turn', ''), body: { kind: arg('kind', l === 2 ? 'brute' : 'grunt'), dist: +arg('dist', 10) } });
         }
       } else {
         shots.push({ name: 'l' + l + '-arrival', level: l });
@@ -1664,6 +1670,11 @@ async function main() {
     '  node tools/livecap.js cap  --pose "11.5, 1.5, undefined, -Math.PI/2, 0.0" [--level 0] [--name shot]',
     '  node tools/livecap.js both --url <dev page> [--levels 0,1,2,3] [--dist 10] [--out DIR] [--why]',
     '  node tools/livecap.js fg   <with-body.png> <without.png>',
+    '  node tools/livecap.js both --url <dev page> [--dist 5] [--turn <rad>]',
+    '                              --turn rotates the EYE (DEV.look) AFTER the seat search has seated him,',
+    '                              so he sits off-axis or half outside the frame edge - the heading a slow',
+    '                              turn shows, and the seat #922 was reported from. atan(0.72) = 0.62 rad',
+    '                              is half the frustum at res 1.0, so that is the edge of vision.',,
     '  node tools/livecap.js pickup --url <dev page> [--levels 0,1,2,3] [--out DIR] [--keep]',
     '  node tools/livecap.js cost [--url <dev page>] [--levels 0,1,2,3] [--frames 24] [--yawFrames 8]',
     '                              [--yawSamples 8] [--passes 1]   yawFrames = FRAMES PER SAMPLE; the',
