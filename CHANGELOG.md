@@ -10,11 +10,11 @@
   of 80.0, against **0.74x** (60.6 over 83.7) measured on the previous build in the same harness — and the
   range-bin median, the ratio at the distances the eye actually judges the roof at, goes **0.54 -> 0.59**.
   The light was traded, not added: the sector's ceiling dose was lifted and most of it paid back out of the
-  deck that roof covers, so the room's overall brightness comes back at the number it shipped with and
-  nothing glows more than it used to. The rule that a roof may never out-value the floor beneath it is
-  untouched, and the ceiling-under-deck check stays green on all four sectors. THE STACK's roof is the one
-  still short of its own deck — 0.67x at its arrival seat — and that is a ceiling with no surface of its own
-  at range rather than a dark one, owned by #421.
+  deck that roof covers, so the room's overall brightness comes back at the number it shipped with: what
+  changed is where the light sits inside the frame, not how much of it there is. The rule that a roof may
+  never out-value the floor beneath it is untouched, and the ceiling-under-deck check stays green on all four
+  sectors. THE STACK's roof is the one still short of its own deck — 0.67x at its arrival seat — and that is
+  a ceiling with no surface of its own at range rather than a dark one, owned by #421.
 
 - **An enemy at arm's length keeps his own surface** (#922, PR #938). Up close, a hostile's torso arrived as
   flat coloured sheets: his own seams carried about half the on-screen slope of the wall directly behind
@@ -24,11 +24,10 @@
   0.96** luma of slope per screen pixel against rooms of 1.58 / 1.81 / 3.58 — ratios **0.52 / 0.55 / 0.27**,
   up from 0.50 / 0.52 / 0.25 — while the check that catches a body paying for its structure with brightness
   instead of surface stays inside its floor on all three, and all 127 contrast rows stay clean. The distance
-  at which his body stops being drawn this way moves with it, to about 11 m for a brute; past that he is
-  by the renderer's own crossover arithmetic, roughly 11 m for a brute; past that he is unchanged, and no
-  pixel outside a silhouette moved. What is left in the busiest room, where the wall
-  behind him is still the busier surface at 0.27, is his colour against that wall rather than his shading —
-  that is #611.
+  at which his body stops being drawn this way moves with it, to roughly 11 m for a brute by the renderer's
+  own crossover arithmetic; past that he is unchanged, and no pixel outside a silhouette moved. What is left
+  in the busiest room, where the wall behind him is still the busier surface at 0.27, is his colour against
+  that wall rather than his shading — that is #611.
 
 ### What else is in this release
 
