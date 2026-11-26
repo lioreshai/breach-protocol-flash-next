@@ -309,6 +309,19 @@ const SEAMK = 0.45;                             // deck LIGHT at which the absol
    runs only where `dir > 0`, i.e. the crease that runs DOWN the deck's own rows at a step seen from
    above; a step UP and a flat level run no new arithmetic at all. */
 const SEAMABS = 6;                              // lumas: the crease's absolute floor on a step DOWN seen from above
+/* #941: the crease's DARK FLOOR, in lumas, and it is the floor under the OTHER half. `SEAMABS` is a floor
+   on how much the crease may TAKE; this is a floor on how much light the crease may LEAVE. A multiply is
+   scale-free (#385's own sentence), so on a far face the march already left at rgb 4,8,9 the lip row's 16%
+   delivers rgb 0,1,1 - a hole, not a shaded surface - and it does so on the rows anchored to the boundary
+   the march stopped at, which is why the shipped picture reads as a staircase of holes along a storey's far
+   edge rather than as a dark edge (#941, three deployed seats). It is scoped to the pixels the crease would
+   otherwise take below it, so a lip row the term already left at or above the floor is byte-identical, a
+   flat column runs no new arithmetic at all, and the frame cannot get brighter: this raises nothing above
+   the light the surface arrived with. The value is the generator's own dark floor stated in lumas (a deck
+   below `OWN_MIN` is "not a floor that is actually LIT", js/20_level.js:4246) read at the frame's own
+   black census (`tools/view.js stats`'s dark bar is luma 6), and it sits below every lit lip that
+   `surface`'s SEAM rows and `bands`' seam rows measure, so those rows are measuring the same ink as before. */
+const SEAMNK = 8;
 /* #178: contact shadow. A rim ADDS to the body, and the rig raster is multiplied by scene light at
    composite, so an additive rim is weakest in the dark rooms that need separation most - AMB 0.19
    floors it. This SUBTRACTS from the world a body occludes instead: a short radial falloff on the
@@ -4309,8 +4322,26 @@ function seamCrease(x, t, zA, zB, amp, dir, deckLit, yCap, zg) {
     // floor in front of it, a gradient alone passes THROUGH the floor's brightness and the lip
     // vanishes (measured on L1: mean |dL| 25 with the gradient, and the sign of the difference
     // changes across levels, so an unsigned threshold cannot be the whole gate)
-    const kk = 1 + amp * (1 - k / bw) - (!k && amp < 0 ? SEAMC : 0);
-    const d = ab * (1 - k / bw);
+    let kk = 1 + amp * (1 - k / bw) - (!k && amp < 0 ? SEAMC : 0);
+    let d = ab * (1 - k / bw);
+    /* #941: a crease is a DOSE on the light that is there, and where the surface under it carries none
+       there is nothing to dose. `kk` takes 84% off the lip row whatever the pixel underneath reads, so a
+       far face arriving from the march at rgb 4,8,9 leaves at rgb 0,1,1 - not a shaded surface, a HOLE -
+       and because the band is anchored on the boundary the march stopped at, those zeroes run one step
+       per cell along a storey's far edge: the torn black staircase #941 reports at three shipped seats.
+       So the write is floored at `SEAMNK` lumas measured along the pixel's OWN hue - the whole darkening
+       (multiply and absolute term together) is scaled by one `q` until the delivered luma reaches the
+       floor, and a pixel carrying less than the floor is left alone entirely, which is the same statement
+       the generator makes about a deck at `OWN_MIN`: below the dark floor there is no surface to shade.
+       It is a floor and not a dimmer: a pixel the crease already left at or above `SEAMNK` is the byte it
+       always was, so a lit lip - and every flat column, which runs no crease at all - is byte-identical,
+       and the only pixels that move are the ones the crease was driving to zero. */
+    if (SEAMNK > 0 && kk < 1) {
+      const Li = 0.2126 * (v & 255) + 0.7152 * (v >> 8 & 255) + 0.0722 * (v >> 16 & 255);
+      const fl = Li < SEAMNK ? Li : SEAMNK;
+      const Lo = Li * kk - d;
+      if (Lo < fl) { const q = (Li - fl) / (Li - Lo); kk = 1 - (1 - kk) * q; d *= q; }
+    }
     px[i] = (0xFF000000 | clampi((v >> 16 & 255) * kk - d) << 16 | clampi((v >> 8 & 255) * kk - d) << 8 | clampi((v & 255) * kk - d)) >>> 0;
   }
 }
