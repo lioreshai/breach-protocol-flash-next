@@ -297,7 +297,7 @@ const MESH = (function () {
      #19). Near the eye TPR is over 30 px, so level 0 runs with #232's arithmetic untouched and the
      recorded torso gradient still reads 2.52 / 2.17 / 2.52; everything that moves is a body far enough
      to have had no surface at all. */
-  const TS_CYC = 10, TS_MINP = 3.5, TS_LMAX = 2, TS_SLOPE = 9, TS_MAX = 26, TS_BMIN = 0.45, TS_NSLOPE = 2.0930;
+  const TS_CYC = 10, TS_MINP = 3.5, TS_LMAX = 2, TS_SLOPE = 9, TS_MAX = 26, TS_BMIN = 0.45, TS_NSLOPE = 2.6000;
   /* #727 THE CEILING WAS THE CLIFF ON THE NEAR SIDE. TS_MAX 26 is the combat-range amplitude the law
      saturates at (slope 9 reaches it at TPR 11.6 px, ~25 m out), and it stays the ceiling all the way to
      the eye - so the ONE thing this file says stays constant, luma per screen pixel, is the one thing
@@ -332,7 +332,7 @@ const MESH = (function () {
      or further (TPR 50 or under for the largest body), so the gate now sits just outside them and the
      bytes that move are bodies the player can actually fight - which is the point #727's note was making
      with a number borrowed from the frame list rather than from the law. */
-  const TS_NPPX = 49.7, TS_NGATE = TS_NPPX, TS_NMAX = 96;
+  const TS_NPPX = 40.0, TS_NGATE = TS_NPPX, TS_NMAX = 96;
   /* #727 THE FLOOR HAD NO SLOPE, AND UP CLOSE THAT MADE IT THE WHOLE TERM. TS_BMIN is the amplitude a
      face SQUARE to the eye keeps when the grazing band gives it nothing, and it is a CONSTANT - so the
      luma-per-pixel a chest delivers falls off with range exactly as fast as the face gets bigger, which
