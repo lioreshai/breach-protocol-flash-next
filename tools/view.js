@@ -12099,9 +12099,22 @@ if (MODE === 'contrast') {
   const torsoStats = (F, M, list, cm, F2) => {
     const hw = W * 0.5, invDet = 1 / (cm.planeX * cm.dirY - cm.dirX * cm.planeY);
     const slope = (f, i) => Math.abs(lum(f, i + 1) - lum(f, i - 1)) * 0.5;
+    /* #922 THE PARTNER AXIS. `slope` reads the COLUMN step, and it is the operator every torso row in this
+       probe has always used. Since PR #946 a body's torso coord carries a height weight as well as the
+       around-him one (`b.rgY = 2/((shTop - hipY) * b.tcy)`, js/13_mesh.js:1788), so the wave on one face
+       travels in TWO directions and how much of it lands on each axis is a property of which way that face
+       points, not of how far away he is. Read one axis only, "his internal slope" is therefore the share
+       the kept faces happen to put across the screen: a body can hold his surface and still fall on a row
+       that watches columns, and a row that watches columns cannot tell that from a body who lost it. That
+       is L3's residual in PR #946 - 0.72 / 0.76 / 0.73 of his own 8 m reading at 4 / 5 / 6 m against a
+       column operator - so `slopeY` is the SAME operator on the ROW step, over the SAME cushioned interior
+       pixels of the SAME silhouette: one body, one mask, two axes, no new window and no second pose.
+       Nothing that reads `grad` changes; `gradY` is added beside it, and the pair is what the near-band
+       block can then gate. */
+    const slopeY = (f, i) => Math.abs(lum(f, i + W) - lum(f, i - W)) * 0.5;
     // the same operator WITHOUT the absolute value: its mean is the DC the wave carries, see TG_BIAS
     const slopeS = (f, i) => (lum(f, i + 1) - lum(f, i - 1)) * 0.5;
-    const r = { px: 0, gs: 0, sgs: 0, ls: 0, bs: 0, limbPx: 0, limbGs: 0, limbBs: 0, silPx: 0, silLs: 0, rej: 0,
+    const r = { px: 0, gs: 0, gy: 0, sgs: 0, ls: 0, bs: 0, limbPx: 0, limbGs: 0, limbBs: 0, silPx: 0, silLs: 0, rej: 0,
       rows: 0, trav: 0, runs: 0, runPx: 0, rowN: 0, travel: 0, runRow: 0, runLen: 0, wob: 0,
       grad: 0, bias: 0, bandMean: 0, boil: 0, limbGrad: 0, limbBoil: 0, silMean: 0, room: 0, roomBias: 0, roomN: 0, per: [] };
     for (const e of list) {
@@ -12117,7 +12130,7 @@ if (MODE === 'contrast') {
       // [top row, bottom row, which accumulator] - torso band, then the limb band BELOW the hip
       const bands = [[Math.ceil(rowH(sp.sh)), Math.floor(rowH(sp.hip)), 0],
         [Math.ceil(rowH(sp.hip - 0.06)), Math.floor(rowH(0.06)), 1]];
-      const acc = [[0, 0, 0, 0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]];
+      const acc = [[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]];
       let bMin = 1e9, bMax = -1e9;   // #655 this body's own luma span over the cushioned torso interior
       for (const bd of bands) {
         const a = acc[bd[2]];
@@ -12139,7 +12152,7 @@ if (MODE === 'contrast') {
               for (let ox = -2; ox <= 2; ox++) if (!M[o + x + ox]) { cushion = false; break; }
             }
             if (!cushion) { r.rej++; continue; }
-            a[0]++; a[1] += slope(F, i); a[2] += lum(F, i); a[4] += slopeS(F, i);
+            a[0]++; a[1] += slope(F, i); a[2] += lum(F, i); a[4] += slopeS(F, i); a[10] += slopeY(F, i);
             if (F2) a[3] += Math.abs(lum(F2, i) - lum(F, i));
             const lv = lum(F, i);
             if (rPx && Math.abs(lv - last) >= TG_STEP) rRuns++;
@@ -12158,7 +12171,7 @@ if (MODE === 'contrast') {
       }
       const a = acc[0], b = acc[1];
       if (a[0] >= 8 && bMax > bMin) { a[5]++; a[6] += bMax - bMin; }   // #655 the body's own TRAVEL
-      r.px += a[0]; r.gs += a[1]; r.sgs += a[4]; r.ls += a[2]; r.bs += a[3];
+      r.px += a[0]; r.gs += a[1]; r.gy += a[10]; r.sgs += a[4]; r.ls += a[2]; r.bs += a[3];
       r.limbPx += b[0]; r.limbGs += b[1]; r.limbBs += b[3];
       r.rows += a[5]; r.trav += a[6]; r.runs += a[7]; r.runPx += a[8]; r.rowN += a[9];
       r.per.push({ k: e.k, d: tY, px: a[0], g: a[0] ? a[1] / a[0] : 0, boil: a[0] ? a[3] / a[0] : 0,
@@ -12173,6 +12186,7 @@ if (MODE === 'contrast') {
     }
     r.room = r.roomN ? rs / r.roomN : 0; r.roomBias = r.roomN ? rss / r.roomN : 0;
     r.grad = r.px ? r.gs / r.px : 0;
+    r.gradY = r.px ? r.gy / r.px : 0;   // #922 the partner axis: same pixels, same operator, row step
     r.bias = r.px ? Math.abs(r.sgs / r.px - r.roomBias) : 0; r.bandMean = r.px ? r.ls / r.px : 0;
     r.boil = r.px ? r.bs / r.px : 0; r.limbGrad = r.limbPx ? r.limbGs / r.limbPx : 0;
     r.limbBoil = r.limbPx ? r.limbBs / r.limbPx : 0; r.silMean = r.silPx ? r.silLs / r.silPx : 0;
@@ -14410,7 +14424,7 @@ if (MODE === 'contrast') {
        the far end of the cone) against 220-230 px on the other three. */
     const NB_D = [4, 5, 6, 8], NB_REF = 8, NB_RATIO = +(process.env.NB_RATIO || 1.3),
       NB_MINPX = +(process.env.NB_MINPX || TG_MINPX), NB_FLOOR = +(process.env.NB_FLOOR || 0.65);
-    let nbHeld = 0, nbMissed = 0, nbMeas = 0;
+    let nbHeld = 0, nbMissed = 0, nbMeas = 0, nbPairHeld = 0, nbPairMissed = 0;
     for (let lv = 0; lv < 4; lv++) {
       run('startLevel(' + lv + ', true); S.mode="play"; S.locked=false;');
       const g = run('(function(){'
@@ -14448,7 +14462,7 @@ if (MODE === 'contrast') {
         const cm = run('({camX, camY, dirX, dirY, planeX, planeY, eyeZ, hz: horizon, BW, BH})');
         const st = torsoStats(F, M, [{ k: g.kind, x: w.x, y: w.y, z: w.z, s: w.s, dead: 0 }], cm);
         run('ENEMIES.length = 0; for (const q of __nbKeep) ENEMIES.push(q);');
-        walk.push({ D: D, g: st.grad, px: st.px, room: st.room });
+        walk.push({ D: D, g: st.grad, gy: st.gradY, px: st.px, room: st.room });
       }
       const ref = walk[walk.length - 1];
       /* The REFERENCE range is the one the geometry can refuse: a body at 8 m is small, and on the room
@@ -14489,11 +14503,49 @@ if (MODE === 'contrast') {
               + ' he goes flatter as he closes')
               : ' - so one body keeps one surface from arm\'s length out to the end of the band'),
         vac.length ? undefined : (hard ? undefined : '#922'));
+
+      /* #922 THE PARTNER AXIS ON THE SAME FRAMES. The row above gates the COLUMN step, which is the
+         operator every torso row in this probe has used since #240. A torso face now carries wave travel
+         in the height axis as well (js/13_mesh.js `b.rgY`, PR #946), and how much of one face's swing
+         lands on each axis is a property of which way THAT FACE points - so a body's one-axis reading can
+         move because the mix of faces the frame kept changed, not because he lost surface. PR #946 left
+         exactly that ambiguity on L3, where the column ratio reads 0.72 / 0.76 / 0.73 at 4 / 5 / 6 m.
+           This row reads the identical operator on the ROW step over the identical cushioned interior
+         pixels (`slopeY` in torsoStats), and gates the PAIR - the magnitude of the two axes he actually
+         wears - against his own 8 m magnitude. No new window and no new tolerance: NB_RATIO and NB_MINPX
+         are these rows' own numbers, the frames and the seat are the loop's, and the column row keeps its
+         verdict and its #922 debt row exactly as PR #946 left them. If the pair holds while the column
+         ratio does not, L3's residual is the frame's face mix, not a term that went flat; if the pair
+         fails too, it is the shading and this row is where it gets caught. */
+      const pMag = q => Math.sqrt(q.g * q.g + q.gy * q.gy);
+      const rp = walk.map(q => ({ D: q.D, r: pMag(ref) ? pMag(q) / pMag(ref) : 0 }));
+      const offp = rp.filter(q => q.D !== NB_REF && (q.r > NB_RATIO || q.r < 1 / NB_RATIO));
+      /* Same debt shape as the row above, same constants, no new number: a shortfall between NB_FLOOR and
+         1/NB_RATIO reports as #922, and a pair that falls PAST NB_FLOOR is worse than the debt and fails
+         outright. NB_FLOOR is the sibling row's own 0.65 and this head measures 0.73 on the worst room, so
+         the floor sits under what is measured and the row can still be crossed from above. */
+      const worstp = Math.min.apply(null, rp.filter(q => q.D !== NB_REF).map(q => q.r));
+      const hardp = !vac.length && worstp < NB_FLOOR;
+      if (!vac.length && !offp.length) nbPairHeld++; else nbPairMissed++;
+      row(ray + ' keeps his surface on BOTH axes (#922)', !vac.length && !offp.length,
+        vac.length ? 'VACUITY: same pixels as the row above, under the ' + NB_MINPX + ' px floor at ' +
+          vac.map(q => q.D + ' m').join(', ') + ', so neither axis measured'
+          : 'dL/dx ' + walk.map(q => q.D + ' m ' + q.g.toFixed(2)).join(' / ') + '  |  dL/dy ' +
+            walk.map(q => q.D + ' m ' + q.gy.toFixed(2)).join(' / ') + '  |  pair ratio to his OWN 8 m ' +
+            rp.map(q => q.D + ':' + q.r.toFixed(2)).join(' ') +
+            (offp.length ? ' - OUTSIDE a factor of ' + NB_RATIO + ' at ' +
+              offp.map(q => q.D + ' m (' + q.r.toFixed(2) + ')').join(', ') + ', worst ' + worstp.toFixed(2)
+              + (hardp ? ' - BELOW the ' + NB_FLOOR + ' floor: the pair itself collapses, which is a term lost, '
+                  + 'not a face mix' : ': the pair falls too, so this is the shading, not the frame\'s face mix')
+              : ' - the pair holds, so the surface is there and the column row\'s shortfall is the frame\'s '
+                + 'face mix on a wave that now travels two ways'),
+        (offp.length && !hardp) ? '#922' : undefined);
     }
-    console.log('  near band  ' + nbHeld + ' of 4 levels walked the 4-8 m band and held it, ' + nbMissed +
-      ' did not (' + nbMeas + ' seated the 8 m reference)  |  ratio bar ' + NB_RATIO + ', worse-than-debt floor '
-      + NB_FLOOR + ', vacuity floor ' + NB_MINPX + ' px  |  the ratio is one body against his own 8 m reading,'
-      + ' so no room and no threshold is in it');
+    console.log('  near band  ' + nbHeld + ' of 4 levels walked the 4-8 m band and held it on the COLUMN '
+      + 'operator, ' + nbMissed + ' did not; on the PAIR of axes ' + nbPairHeld + ' of ' +
+      (nbPairHeld + nbPairMissed) + ' held (' + nbMeas + ' seated the 8 m reference)  |  ratio bar ' + NB_RATIO + ', worse-than-debt floor '
+      + NB_FLOOR + ', vacuity floor ' + NB_MINPX + ' px  |  every ratio is one body against his own 8 m '
+      + 'reading on the same pixels, so no room and no threshold is in either column');
     /* INSTRUMENT-LEVEL VACUITY, the #244 rule at the foot of this probe: if not ONE room measured the
        band, the rows above printed nothing that can fail, and that is a FAILURE and not a quiet 0. */
     row('the 4-8 m walk measured at least one room (#922)', nbMeas > 0,
