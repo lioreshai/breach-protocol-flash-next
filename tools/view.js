@@ -433,6 +433,10 @@ function ascii(u32, w, h) {
   }
   return out;
 }
+/* the file's own luma, and it has to be this one: the framebuffer packs RED in byte 0
+   (js/40_render.js:3027 writes `clampi(b) << 16 | clampi(g) << 8 | clampi(r)`), so the red coefficient
+   belongs on `& 255`. Rec.601 weights with blue there count a red-palleted sector's dark floor high. */
+const lum2 = (b, i) => 0.2126 * (b[i] & 255) + 0.7152 * (b[i] >> 8 & 255) + 0.0722 * (b[i] >> 16 & 255);
 function stats(label, u32, w, h) {
   let lum = 0, dark = 0, clip = 0, n = 0; const hist = new Array(8).fill(0);
   for (let i = 0; i < u32.length; i++) {
@@ -23677,6 +23681,54 @@ if (MODE === 'stats') {
   console.log(`  faces: ${run('MAP.faceMulti')} of ${BW} columns record more than one face, ` +
     `${run('MAP.faceCap')} stop at the WST=${run('WST')} cap, maxSt ${run('MAP.faceMax')}` +
     ` (MAP.steps ${run('MAP.steps')})`);
+  /* #941 THE FAR EDGE GETS A ROW THAT CAN PRICE IT. Six passes on this issue measured the stepped
+     underside boundary with a scratch script over the written PNG, because no shipped line counts it -
+     the same trap #922 paid three cycles in byte-identical A/Bs for, and the reason the arithmetic at
+     this boundary kept being re-argued instead of settled. Three figures, from the frame `scene` is about
+     to dump, and nothing gates on them:
+     - `stepped` = columns whose UNDERSIDE-BAND FAR EDGE moves more than 2 px from its neighbour, where
+       a column's edge is the deepest row of the top 45 % of the frame delivered under luma 25 (the far
+       wash, the darkest thing that band delivers). Adjacent columns must BOTH have an edge: a column
+       where the band simply ends is counted as `bandEnd` instead, because a band's own end is a real
+       drop and must not be read as one more step of the staircase.
+     - `black` = pixels of that band delivered under the generator's own dark floor (luma 1.5), which is
+       the issue's second criterion stated as a count rather than as a sentence.
+     Both figures use `lum2`, the one luma convention this file already uses everywhere: the framebuffer
+     packs RED in byte 0 (`px[i] = 0xFF000000 | b << 16 | g << 8 | r`, js/40_render.js:3027), so the red
+     coefficient goes on `& 255`. Weight the other bytes and the same frame reads its dark floor high on a
+     red-palleted sector (the pair this file shipped against is in the #941 review thread), so what the next
+     pass prices a far-edge fix against is the frame's own luma rather than a second convention.
+     The census reads the buffer `renderWorld` already filled and renders nothing extra, so the PNG below
+     is the bytes it always was. PROVE IT, DON'T TRANSSCRIBE IT: a digest belongs to the `js/` of the tree
+     it was read in, not to this block, so write none here - run this probe in a clean worktree of the tree
+     you are comparing against with `OUT=` pointed at two paths and diff the md5 of the two files.
+     Nothing here gates: no threshold, window, tolerance, seed, camera or reference reads these figures.
+     The row is a read of the frame, not a constant: at `SEED=63 SEAT=9.5,10.5,0.8330 node tools/view.js
+     scene 2 0` it counts the staircase and at `SEED=60 SEAT=26.5,16.5,0.1651` it counts none, which is the
+     control that keeps it from being a row that is simply always red. */
+  {
+    const TOP = (BH * 0.45) | 0;
+    const edge = new Int32Array(BW).fill(-1);
+    let black = 0, bandEnd = 0, stepped = 0, worstStep = 0;
+    for (let x = 0; x < BW; x++) {
+      for (let y = 0; y < TOP; y++) {
+        const l = lum2(buf, y * BW + x);
+        if (l < 25) edge[x] = y;
+        if (l < 1.5) black++;
+      }
+    }
+    for (let x = 1; x < BW; x++) {
+      if ((edge[x] < 0) !== (edge[x - 1] < 0)) { bandEnd++; continue; }
+      if (edge[x] < 0) continue;
+      const d = Math.abs(edge[x] - edge[x - 1]);
+      if (d <= 2) continue;
+      stepped++;
+      if (d > worstStep) worstStep = d;
+    }
+    console.log(`  far edge: ${stepped} of ${BW} columns step by more than 2 px (worst ${worstStep} px), ` +
+      `${bandEnd} column(s) where the band itself ends, ${black} px of the top ` +
+      `${Math.round(TOP / BH * 100)} % delivered under luma 1.5`);
+  }
   dump(`scene L${LVL} cam${CAM}`, buf, BW, BH, 2);
   if (process.env.WARM) {
     // warm the rig cache the way play does: walk, turn, and watch the budget hold
