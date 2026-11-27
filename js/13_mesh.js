@@ -1765,8 +1765,29 @@ const MESH = (function () {
        coarsening is still unreachable - with the count doubled a body would have to project under
        TS_MINP px at ~100 m to reach it, where no pixel of it is torso. */
     b.tcy = 2 / (2 * (s.shLat * 1.05 + s.torso * 0.42));
+    /* #922 THE TORSO'S SEAM RAN IN ONE DIRECTION ONLY, and one direction is a corrugation, not armour.
+       The coord was `x + z` with the height weight at 0 (`rgY`, declared beside `rg`), and local `y` IS
+       world height (`VZ = o.z + by*sc`), so across his chest the wave never travelled: a front face is a
+       set of vertical ridges, which is the shape the report described - "sheets of flat colour, one hard
+       vertical edge". `surface` already refuses this shape on a crate and names the term that fixes it
+       (#533's PS_HCYC); bodies were exempt only because "every body pixel in the gate is recorded" against
+       that coord, and since #655 the torso read is geometry-normalised and #945 added a range-independent
+       walk, so the exemption's reason is spent.
+         It is NOT PS_HCYC. That 0.9 was chosen because at 1.0 a crate's y span is 6.667 periods - a third
+       left unpaired, so the face gains light (#371, #533 take two). The rule is WHOLE periods per span at
+       BOTH levels of the coarsening, so the weight is derived from this torso box's own spans exactly the
+       way `tcy` above is: the y span is `shTop - hipY`, and two whole periods across it is
+       `rgY = 2 / ((shTop - hipY) * tcy)`. That puts 2.000 periods on the height axis against the 2.000 the
+       x+z span already carries, and 1.000 on both at TCYC/2 - the axes are paired by construction rather
+       than by a tuned constant, so the wave stays zero-mean rather than merely measuring so:
+         grunt  tcy 4.9603  y span 0.3320  rgY 1.2145     brute  tcy 2.9577  y span 0.2438  rgY 2.7742
+         hound  tcy 3.2616  y span 0.3550  rgY 1.7273
+       Whole on every kind at both levels, so no kind is refused. Prop and view-model emits set the
+       register explicitly and are byte-identical; this one line and `b.rg = 0` below are the only body
+       writes, and the hip box under rg=0 still carries no coord. */
+    b.rgY = 2 / ((shTop - hipY) * b.tcy);
     b.box(0, (hipY + shTop) * 0.5, 0, s.shLat * 1.05, (shTop - hipY) * 0.5, s.torso * 0.42, sk);
-    b.rg = 0;                                        // the coord register stays: only torso vertices carry one
+    b.rg = 0; b.rgY = 0;                             // the coord register stays: only torso vertices carry one
     b.box(0, hipY + 0.02, 0, s.hipLat * 1.3, 0.045, s.torso * 0.34, dk);
     /* The neck. The torso box's top face now sits SHOULDER_LIFT*headR above the shoulder line and the
        head box starts above it, so the band this tube has to fill is shorter than the gap between the
