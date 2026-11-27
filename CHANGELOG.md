@@ -1,5 +1,50 @@
 # Changelog
 
+## [v1.4.37] - 2026-11-27
+
+### Changed
+
+- **An enemy at fighting range looks like armour, not painted card** (#922, PRs #939, #944, #946). A hostile
+  4-8 m away — the range a firefight actually happens at — arrived as sheets of flat colour joined at one
+  hard vertical edge, and he got *flatter* as he closed: between roughly 5 m and 17 m he held one dull value
+  and only sharpened again at arm's length, so the thing you have to react to read as a lesser surface than
+  the wall behind it. Three authored numbers in the body mesh close that. His torso seam now runs twice
+  across his own box instead of once, so twice as many edges arrive through the same brightness swing; that
+  seam now travels *up* him as well as around him, which is the difference between a set of vertical ridges
+  and a mottled body; and the structure level is made to hold from the eye out to about 17 m instead of
+  plateauing across the middle of a fight. Read on a body walked in from 8 m, his own structure now stays
+  near its 8 m value at 4, 5 and 6 m in two of the three rooms that can be measured there, where it used to
+  dip by a visible margin. This is not a brighter enemy and not a bigger silhouette: past about 17 m he is
+  unchanged byte for byte, and no pixel outside his outline moved. Still open on #922: the very close end,
+  where the pattern is no longer the limit and the amplitude ceiling is — in one sector's seating room he
+  stays about 1.3x softer at 4-6 m than at 8 m.
+
+### Fixed
+
+- **The top of the frame stops tearing into a black staircase** (#941, PR #943). Look up at the storey above
+  you and the line where its underside ended used to arrive as a comb of pure-black cells, stepping once per
+  room cell across a third to a half of the frame at the seats you actually spawn at — and it was the first
+  thing the eye caught, ahead of the room itself. It was neither missing geometry nor a missing light. The
+  dark crease drawn along a deck edge removes 84% of a pixel's light whatever that pixel was carrying, so on
+  a far face the raycast had already left nearly dark, it delivered nothing at all, one cell at a time along
+  that boundary. The crease now has a dark floor: it may not drive a pixel under the least light the level
+  generator counts as a surface that is actually lit, and it applies only to the pixels it was already
+  crushing. At the two headless seats that showed the defect, pixels arriving under that floor go from 600
+  and 1076 down to none, and the frames do not get brighter to buy it — the light was redistributed, not
+  added, and the sector's overall exposure lands where it shipped. The edge is now a continuous dark line
+  rather than a hole. It still steps by whole cells at the far end of a long view, which is a resolution
+  limit of the walk rather than a black gap, and that stays open on #941.
+
+### What else is in this release
+
+No other merged work moved a shipped pixel. What the two fixes above are measured with got stronger: a slow
+turn can now be captured with a hostile half outside the edge of vision, so "he keeps his surface at every
+heading" became a claim about the frame edge and not only about the centre (#942); a body walked from 8 m to
+arm's length now prints his own structure at each range against his own 8 m reading, which is the number the
+fix above is written in and had no row behind it (#945); and a storey's far edge is now counted by the
+shipped picture itself — stepped columns, worst single step, and pixels landing under the dark floor —
+instead of by a throwaway script rewritten per attempt (#947).
+
 ## [v1.4.36] - 2026-11-26
 
 ### Changed
