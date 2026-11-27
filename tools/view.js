@@ -14357,6 +14357,136 @@ if (MODE === 'contrast') {
         + 'measured nothing - which is a FAILURE, not an ok',
       worst && (worst.dc < SEP_C || worst.dv < SEP_V) ? '#611' : undefined);
   }
+  /* ---- #922 THE 4-8 m BAND, PRICED ---------------------------------------------------------
+     WHY THIS BLOCK EXISTS. #922's acceptance is written in metres - "a hostile between 4 m and 8 m
+     carries the surface the same wave already delivers at 8 m, his internal slope within a factor of
+     1.3 of that value" - and until now NO checked-in row could price that sentence. Every pose in
+     this probe sits at `min(3.5, max(1.2, 0.7 x clear))`, and at that range the seam's face-on
+     multiplier is already pinned at its own cap, so three separate A/B runs of the near-field slope
+     constant came back BYTE-IDENTICAL to main. That is a probe whose geometry never reaches the
+     branch, not a dead constant (AGENTS: name the config that exercises the mechanism, and confirm
+     the assertion runs there). The rows below move ONE body along ONE clear ray to 4, 5, 6 and 8 m
+     and read his own internal slope at each, so the band the issue is written in is measured.
+       WHAT IS MEASURED is `torsoStats`' own operator - mean |L(x) - L(x-1)| over the pixels a BODY
+     painted last, inside the projection of the torso, with the 2 px interior cushion, so a
+     silhouette edge cannot pay for a face - on a frame holding exactly one body, facing the lens, on
+     the camera's own band, gait and rifle frozen. The reference is that SAME body's 8 m reading in
+     the same room from the same deal, so the ratio is one body against himself and nothing about the
+     room can pay for it or hide it.
+       WHY 8 m IS THE REFERENCE: it is the far end of the band the issue names and the range at which
+     the seam already delivers what reads as armour. The defect was that the SAME body went FLATTER as
+     he closed - a plateau between the ceiling's projected-period gate and the face-on floor's own
+     crossover, whose level was one authored constant whatever the range - so the row asks the
+     issue's question directly: does the slope he carries at 4, 5 and 6 m stay within a factor of
+     NB_RATIO of his own 8 m value?
+       VACUITY IS A FAILURE. A range that paints under NB_MINPX cushioned torso px, or a seat whose
+     longest clear march cannot reach 8 m, says so and goes red: a row that measures nothing has not
+     measured the band, which is the whole reason this block was written.
+       THE ROW IS PROVEN TO REACH ITS BRANCH by running it against a scratch js/ with the near-field
+     slope constant put back to the value PR #944 replaced (`JSDIR=`, same harness): the walk comes
+     back with the plateau and this row goes red. That arm is recorded in the issue's evidence. */
+  {
+    /* NB_MINPX is LEFT at the probe's own torso floor, TG_MINPX 60: this row does not invent a smaller
+       one to make a thin room pass. What it does instead is follow the distance rows above - when the
+       REFERENCE range paints under that floor the room is refused by geometry and reports (#189's
+       branch), and the census row below is what fails if NO room measured the band at all. Measured at
+       this head, the 8 m reference paints 47 px on L0 (its largest body is the smallest kind, seen at
+       the far end of the cone) against 220-230 px on the other three. */
+    const NB_D = [4, 5, 6, 8], NB_REF = 8, NB_RATIO = +(process.env.NB_RATIO || 1.3),
+      NB_MINPX = +(process.env.NB_MINPX || TG_MINPX), NB_FLOOR = +(process.env.NB_FLOOR || 0.65);
+    let nbHeld = 0, nbMissed = 0, nbMeas = 0;
+    for (let lv = 0; lv < 4; lv++) {
+      run('startLevel(' + lv + ', true); S.mode="play"; S.locked=false;');
+      const g = run('(function(){'
+        + 'let best = -1, ba = P.ang;'
+        + 'for (let k = 0; k < 48; k++) { const a = k * Math.PI / 24;'
+        + '  const m = __march(P.x, P.y, Math.cos(a), Math.sin(a), ' + NB_REF + ' + 1);'
+        + '  if (m.dist > best) { best = m.dist; ba = a; } }'
+        + 'P.ang = ba; P.pitch = 0; P.z = floorAt(P.x, P.y);'
+        + 'let e = null;'
+        + 'for (const q of ENEMIES) if (q.state !== "dead" && (!e || q.scale > e.scale)) e = q;'
+        + 'if (!e) { e = makeEnemy("grunt", P.x, P.y); ENEMIES.push(e); e.fresh = 1; }'
+        + 'window.__nbBody = e; window.__nbKeep = ENEMIES.slice();'
+        + 'for (const q of ENEMIES) if (q !== e) q.state = "sleep";'
+        + 'e.state = "sleep"; e.movingAmt = 0; e.atkT = 0; e.dieT = 0;'
+        + 'return { clear: +best.toFixed(2), seat: [+P.x.toFixed(2), +P.y.toFixed(2)],'
+        + '  kind: e.kind, made: !!e.fresh };})()');
+      const ray = 'L' + lv + ' walked 4-8 m on the spawn seat';
+      if (g.clear < NB_REF) {   // the cone refused the reference range: #189's shape, named not swallowed
+        row(ray + ' keeps his surface (#922)', false,
+          'the longest clear march from the spawn seat ' + JSON.stringify(g.seat) + ' stops at ' +
+          g.clear + ' m, so the 8 m reference cannot be seated here - the cone, not the shading', '#189');
+        continue;
+      }
+      run('if (!COV || COV.length !== BW * BH) COV = new Uint8Array(BW * BH);');
+      const walk = [];
+      for (const D of NB_D) {
+        const w = run('(function(){ const e = window.__nbBody;'
+          + 'const cx = Math.cos(P.ang), cy = Math.sin(P.ang);'
+          + 'const bx = P.x + cx * ' + D + ', by = P.y + cy * ' + D + ';'
+          + 'e.x = bx; e.y = by; e.z = floorAt(bx, by); e.ang = P.ang + Math.PI;'
+          + 'ENEMIES.length = 0; ENEMIES.push(e);'
+          + 'S.t = 3.5; ' + VMREST + ' renderWorld();'
+          + 'return { x: +bx.toFixed(2), y: +by.toFixed(2), z: +e.z.toFixed(2), s: e.scale };})()');
+        const F = new Uint32Array(run('px')), M = new Uint8Array(run('COV'));
+        const cm = run('({camX, camY, dirX, dirY, planeX, planeY, eyeZ, hz: horizon, BW, BH})');
+        const st = torsoStats(F, M, [{ k: g.kind, x: w.x, y: w.y, z: w.z, s: w.s, dead: 0 }], cm);
+        run('ENEMIES.length = 0; for (const q of __nbKeep) ENEMIES.push(q);');
+        walk.push({ D: D, g: st.grad, px: st.px, room: st.room });
+      }
+      const ref = walk[walk.length - 1];
+      /* The REFERENCE range is the one the geometry can refuse: a body at 8 m is small, and on the room
+       whose longest march is the shortest his torso resolves to fewer pixels than the torso floor.
+       That is the distance rows' #189 shape and it is reported as one - it is NOT this row's subject,
+       and it is not allowed to become a silent ok either, so the instrument-level vacuity row below is
+       what fails if not ONE room seated the reference. */
+      if (ref.px < NB_MINPX) {
+        row(ray + ' keeps his surface (#922)', false,
+          g.kind + ' at 8 m paints only ' + ref.px + ' cushioned torso px from this seat - under the ' +
+          NB_MINPX + ' px floor, so the reference is not measurable here and no ratio can be quoted'
+          + ' (the cone and the body\'s projected size, not the shading)', '#189');
+        continue;
+      }
+      nbMeas++;
+      const vac = walk.filter(q => q.px < NB_MINPX);
+      const rat = walk.map(q => ({ D: q.D, r: ref.g ? q.g / ref.g : 0 }));
+      const off = rat.filter(q => q.D !== NB_REF && (q.r > NB_RATIO || q.r < 1 / NB_RATIO));
+      /* KNOWN at the measured baseline, RED past it. The worst ratio this head measures is 0.70 (L3 at
+       4 m), so a walk that falls past 0.65 is WORSE than the debt this row reports and fails outright,
+       with no debt to hide behind; a shortfall between 0.65 and 1/NB_RATIO reports as #922 and goes red
+         under STRICT=1. Nothing here is a widened window: NB_FLOOR sits under today's measurement and
+       NB_RATIO is the issue's own acceptance factor, untouched. */
+      const worst = Math.min.apply(null, rat.filter(q => q.D !== NB_REF).map(q => q.r));
+      const hard = !vac.length && worst < NB_FLOOR;
+      const ok = !vac.length && !off.length;
+      if (ok) nbHeld++; else nbMissed++;
+      row(ray + ' keeps his surface (#922)', ok,
+        vac.length ? 'VACUITY: ' + vac.map(q => q.D + ' m paints ' + q.px + ' cushioned torso px').join(', ')
+          + ' - under the ' + NB_MINPX + ' px floor, so that range measured nothing'
+          : (g.kind === 'hound' ? 'hound' : g.kind) + (g.made ? ' (probe-made: the level dealt none)' : '') +
+            ' at ' + walk.map(q => q.D + ' m ' + q.g.toFixed(2)).join(' / ') + ' dL per screen px (' +
+            walk.map(q => q.px).join('/') + ' cushioned px, room beside him ' + ref.room.toFixed(2) + ');'
+            + ' ratio to his OWN 8 m value ' + rat.map(q => q.D + ':' + q.r.toFixed(2)).join(' ')
+            + (off.length ? ' - OUTSIDE a factor of ' + NB_RATIO + ' at ' + off.map(q => q.D + ' m ('
+              + q.r.toFixed(2) + ')').join(', ') + ', worst ' + worst.toFixed(2) + (hard ? ' - BELOW the ' +
+              NB_FLOOR + ' floor, which is worse than the debt this row reports' : ', which is the plateau:'
+              + ' he goes flatter as he closes')
+              : ' - so one body keeps one surface from arm\'s length out to the end of the band'),
+        vac.length ? undefined : (hard ? undefined : '#922'));
+    }
+    console.log('  near band  ' + nbHeld + ' of 4 levels walked the 4-8 m band and held it, ' + nbMissed +
+      ' did not (' + nbMeas + ' seated the 8 m reference)  |  ratio bar ' + NB_RATIO + ', worse-than-debt floor '
+      + NB_FLOOR + ', vacuity floor ' + NB_MINPX + ' px  |  the ratio is one body against his own 8 m reading,'
+      + ' so no room and no threshold is in it');
+    /* INSTRUMENT-LEVEL VACUITY, the #244 rule at the foot of this probe: if not ONE room measured the
+       band, the rows above printed nothing that can fail, and that is a FAILURE and not a quiet 0. */
+    row('the 4-8 m walk measured at least one room (#922)', nbMeas > 0,
+      nbMeas + ' of 4 levels seated the 8 m reference and walked 4, 5, 6 and 8 m' +
+      (nbMeas ? '' : ' - the row is not measuring, which is the defect this block was written to fix'),
+      undefined);
+    run('if (window.__nbKeep) { ENEMIES.length = 0; for (const q of __nbKeep) ENEMIES.push(q); }'
+      + ' window.__nbBody = null;');
+  }
   run('startLevel(3, true);');   // leave the world the rows above left it in, as #416's loop does
   if (process.env.ARMCOST) {
     /* What the mask costs WHEN A PROBE ARMS IT - the only state in which it can cost anything, and
