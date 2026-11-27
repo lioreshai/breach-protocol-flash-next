@@ -297,7 +297,7 @@ const MESH = (function () {
      #19). Near the eye TPR is over 30 px, so level 0 runs with #232's arithmetic untouched and the
      recorded torso gradient still reads 2.52 / 2.17 / 2.52; everything that moves is a body far enough
      to have had no surface at all. */
-  const TS_CYC = 10, TS_MINP = 3.5, TS_LMAX = 2, TS_SLOPE = 9, TS_MAX = 26, TS_BMIN = 0.45, TS_NSLOPE = 1.30;
+  const TS_CYC = 10, TS_MINP = 3.5, TS_LMAX = 2, TS_SLOPE = 9, TS_MAX = 26, TS_BMIN = 0.45, TS_NSLOPE = 2.0930;
   /* #727 THE CEILING WAS THE CLIFF ON THE NEAR SIDE. TS_MAX 26 is the combat-range amplitude the law
      saturates at (slope 9 reaches it at TPR 11.6 px, ~25 m out), and it stays the ceiling all the way to
      the eye - so the ONE thing this file says stays constant, luma per screen pixel, is the one thing
@@ -386,7 +386,32 @@ const MESH = (function () {
      The floor's crossover moves with it, to TPR = 4 * TS_BMIN * TS_MAX / TS_NSLOPE = 36 px, which is
      ~11 m for a brute: the far field past it still answers TS_BMIN and holds its byte, and the frames
      that move are the ones carrying a body inside ~11 m. Cap, clip, slope, ceiling, gate and every
-     threshold in `contrast` are unchanged; no window, mask, fade or vignette is added. */
+     threshold in `contrast` are unchanged; no window, mask, fade or vignette is added.
+       #922 TAKE THREE THE LEVEL THAT MAKES THE CURVE AN IDENTITY. Take two left a flat span: between
+     the floor's crossover (TPR = 4 * TS_BMIN * TS_MAX / TS_NSLOPE) and the ceiling's gate (TS_NPPX) the
+     ceiling is pinned at TS_MAX and the floor is on its own law, so `4 * TAMP * TF / TPR` reduces to
+     TS_NSLOPE and the slope is a constant, whatever the range - 1.30 out there against the 2.093 =
+     4 * TS_MAX / TS_NPPX this file already delivers inside the gate. A brute walked that span at 8 to
+     11 m, so the flattest he ever looked was one band of combat range, and the reason was arithmetic:
+     the ceiling-lost branch holds luma-per-pixel at 4 * TS_MAX / TS_NPPX by construction, and the floor
+     reaches its own cap of 1.0 at TPR = 4 * TS_MAX / TS_NSLOPE. Those two are the same quantity only
+     when TS_NSLOPE = 4 * TS_MAX / TS_NPPX = 2.093, which is what this is set to. At that value the
+     floor's cap arrives at the projected period the ceiling's gate arrives at, so the two branches are
+     one line: 2.093 luma per screen px from the eye out to TPR = 4 * TS_BMIN * TS_MAX / TS_NSLOPE =
+     22.4 px, ~17.6 m for a brute, and the 8 m value the acceptance compares against is that same 2.093
+     - the ratio it asks for is 1.00 by construction, not by tuning, and there is no step at the gate
+     because there is no longer a branch boundary there.
+       It is not a brighter body: 2.093 is what a hostile ALREADY delivers inside the gate, so the
+     change extends a level the near field holds outward instead of raising it, and the far field past
+     ~17.6 m still answers TS_BMIN byte for byte. WHY NO PROBE MOVED: at `contrast`'s own 3.5 m pose
+     TPR is ~112 px, where TF is already pinned at its cap of 1.0 for any TS_NSLOPE, so torso grad, DC
+     and every recorded torso/DC digit come back IDENTICAL (verified: `node tools/view.js contrast` on
+     this tree is byte-identical to main's, and the 1.90 arm is too - the three prior null A/Bs were
+     this, not a dead constant). The band this moves is 5 to 17 m, which no checked-in row seats a body
+     in; `flatparity`, both smoke lanes and `cull` are the census that says nothing else moved, and the
+     residual is measurement, not mechanism: a torso-slope row at 4/5/6/8 m in one room is what would
+     gate this band rather than leave it to arithmetic. No threshold, window, tolerance, seed or census
+     clause is moved and no reference was re-recorded, because none of them moved. */
   const TSC = [0.80, 1.00, 1.15];                   // slightly cool seams on warm armour
   /* 1/TSC, for the clip bound in `tri`: the excursion a channel can carry is its distance to the byte
      limit DIVIDED by its own multiplier, so the two tables cannot drift apart. TSC[2] is unused by the
