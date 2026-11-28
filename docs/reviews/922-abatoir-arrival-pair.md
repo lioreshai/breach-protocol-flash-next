@@ -9,8 +9,10 @@ PNG is the picture a player is handed, at 1440x620.
 |---|---|---|
 | `922-abatoir-5m-before.png` | the byte before the fix (`c92664d`), served locally from a checkout of that commit | his torso: one lit face and one dark one, the seam barely there |
 | `922-abatoir-5m-after.png` | the byte that ships (`b9127f3`, GitHub Pages) | the same torso carrying the seam across the chest between those two faces |
-| `922-abatoir-5m-turn-plus.png` | ships, eye turned `+0.45 rad` after he was seated | the body clipped by the left edge of the frame — no flat sheet, no hard vertical edge |
-| `922-abatoir-5m-turn-minus.png` | ships, eye turned `-0.45 rad` | the same body clipped by the right edge — the seat the report was filed against |
+| `922-abatoir-5m-turn-plus.png` | ships, eye turned `+0.45 rad` after he was seated | the body **off-centre and near** the left edge of vision — no flat sheet, no hard vertical edge |
+| `922-abatoir-5m-turn-minus.png` | ships, eye turned `-0.45 rad` | the same body near the right edge — the seat the report was filed against |
+| `922-abatoir-5m-clip-plus.png` | ships, eye turned `+0.6 rad` | the body **cut by** the left edge: his own coverage mask runs raster columns 0-64 of 676 |
+| `922-abatoir-5m-clip-minus.png` | ships, eye turned `-0.6 rad` | cut by the right edge — mask columns 610-675 — the case the report describes |
 
 Every frame: seed 60, seed-route `boot=0`, layout `2343219222`, level 2, the dealt arrival seat
 `22.50, 13.50` heading `2.4228 rad`, one brute parked at a realised 5.00 m down the camera's own
@@ -40,4 +42,28 @@ ABATOIR CORE and 0.82/0.87/0.84 in THE STACK, against 0.77/0.90/0.88, 0.89/0.91/
 0.72/0.76/0.73 before. The pictures above exist so that claim can be looked at rather than only
 read, and so the turned frames can be checked for the sheets coming back at any heading. They do
 not: across `+0.45`, `0` and `-0.45 rad` the same body keeps one silhouette with two shaded faces
-and a seam, at every heading that clips him.
+and a seam.
+
+## What "clipped" means here, measured
+
+The first version of this file called the `±0.45 rad` frames *clipped* by the edge of vision. They
+are not, and the word was wrong: on those two frames his columns run x 168-312 and x 1129-1283 of
+1440, so about 150 px of deck is still outside him and no body pixel comes within 30 columns of
+either edge. At `js/00_core.js`'s camera plane 0.72 — a 71.7° horizontal field — the near edge of a
+5 m body only reaches x 152 at that yaw, so cutting starts near 0.56 rad.
+
+The last two frames above are the case the report was actually filed against, taken at `±0.6 rad`
+where the frustum does cut him. The proof is the renderer's own coverage mask, not the eye: at
+`+0.6 rad` the body's stamped pixels occupy raster columns **0-64** of a 676-wide raster (4,496 px,
+rows 74-180), and at `-0.6 rad` columns **610-675** (4,257 px) — in both frames his mask touches the
+outer column, so part of him is off screen. What arrives in that sliver is still one mass with a lit
+side and a shaded side, the seam across the chest and a contact shadow where he meets the deck; no
+quadrilateral sheet of flat colour appears at either heading, and the hard vertical edge the report
+named — the seam showing through as a boundary between two faces of one torso — stays a shading
+change rather than becoming an edge. The room
+behind him is the shipped room in both frames — the turn moves the eye only, so his feet and every
+pixel of ABATOIR stay where the dealt seat put them.
+
+So the sheets this issue was written about are gone at every heading that was checked, including the
+ones that clip him, and the flat 0.65 luma-per-pixel plateau inside 4.4 m is priced in
+`node tools/view.js contrast`'s 4-8 m walk rows rather than in a picture.
