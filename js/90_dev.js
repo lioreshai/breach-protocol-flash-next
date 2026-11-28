@@ -325,6 +325,15 @@
        no light term moves. A frame with no body in it is byte-identical either way - the push only ever
        fires on a world body - which is the contract this register is checked with. */
     if (name === 'bodycfg') { BODYCFG = value === undefined ? 1 : (value ? 1 : 0); return { bodycfg: BODYCFG }; }
+    /* #611's COLOUR half, authored rather than dealt (PR #809). It has its own register for the reason
+       #922 wrote bodycfg: the term reads DELIVERED pixels, so an A/B that reaches it through a light term
+       would measure its own delta and push it back out. 1 (shipped) = the per-channel gain runs where a
+       body's own hue sits inside FG_CTGT of the surface framing him; 0 = he wears his palette times the
+       room's cast, which is the state the 17.8-luma deal in the sweep is the A/B for. Where he already
+       separates the term is inert, so 0 and 1 are byte-identical on a frame with no body in it - the same
+       contract bodycfg is checked with. Without this arm the register existed only as a declaration, and a
+       term nothing can stand down is a term no row can prove. */
+    if (name === 'bodyfgc') { BODYFGC = value === undefined ? 1 : (value ? 1 : 0); return { bodyfgc: BODYFGC }; }
     /* #407 half three's A/B. 1 (shipped) = a body wears its own texel albedo; 0 = every non-emissive,
        non-view-model mesh pixel wears BPAINT_RGB instead while every light term stays put, so the same
        silhouette can be rendered wearing the colour of the surface behind it. tools/view.js contrast
