@@ -435,7 +435,18 @@ function propMount(x, y, rad, fz) {
   }
   return top;
 }
+/* #893 THE FEET THE ONE TEST MAY ASK ABOUT. `canEnter`'s fifth argument is the mover's own altitude,
+   and it is handed only to a body the physics has taken OFF the ground - `air`, the same flag the jump
+   and the fall are integrated under. Every other body is answered exactly as this predicate always
+   answered it, because a body that is not airborne has its feet on its own column's floor to the bit
+   (the grounded branch of updatePlayer and updateBodyZ writes precisely that), so leaving the argument
+   out is not a fallback but the same fact stated once. That is what makes #893.4 true by construction:
+   the player walking, every bot at rest, and the generator's own walkers - `nearestOpen`, `bfsReach`,
+   the reachability walk at js/20_level.js - all take the stored kind's answer and no arc can re-decide
+   what the level thinks is reachable. */
+function feetZ(o) { return o.air ? o.z : undefined; }
 function tryMove(o, dx, dy, rad) {
+  const cz = feetZ(o);
   // Inside geometry - or inside a PROP's grown footprint, which teleports, dev poses and
   // blast knockback can reach - the radius probes land on the mover's own cell and reject every
   // direction, which is a permanent lock - fall back to bare destination tests so a
@@ -443,8 +454,8 @@ function tryMove(o, dx, dy, rad) {
   // radius that blocks: keyed on the bare footprint, an escaping mover would cross into the
   // ring between footprint and ghost edge, find every outward target blocked, and freeze there.
   if (isSolid(o.x, o.y) || propBlocks(o.x, o.y, rad, o.z)) {
-    if (canEnter(o.x, o.y, o.x + dx, o.y)) o.x += dx;
-    if (canEnter(o.x, o.y, o.x, o.y + dy)) o.y += dy;
+    if (canEnter(o.x, o.y, o.x + dx, o.y, cz)) o.x += dx;
+    if (canEnter(o.x, o.y, o.x, o.y + dy, cz)) o.y += dy;
     return;
   }
   // #833: the prop question is handed the MOVER's feet (`o.z`), not the column's floor. A body standing
@@ -489,8 +500,9 @@ function tryMove(o, dx, dy, rad) {
    only - read off that object the feet would be undefined and every probe would answer for the
    column floor, which is the subject error #833 is here to remove. */
 function slide(o, dx, dy, rad, fz) {
-  if (canEnter(o.x, o.y, o.x + dx + Math.sign(dx) * rad, o.y) && canEnter(o.x, o.y, o.x + dx + Math.sign(dx) * rad, o.y - rad * 0.7) && canEnter(o.x, o.y, o.x + dx + Math.sign(dx) * rad, o.y + rad * 0.7) && !propBlocks(o.x + dx, o.y, rad, fz)) o.x += dx;
-  if (canEnter(o.x, o.y, o.x, o.y + dy + Math.sign(dy) * rad) && canEnter(o.x, o.y, o.x - rad * 0.7, o.y + dy + Math.sign(dy) * rad) && canEnter(o.x, o.y, o.x + rad * 0.7, o.y + dy + Math.sign(dy) * rad) && !propBlocks(o.x, o.y + dy, rad, fz)) o.y += dy;
+  const cz = feetZ(o);                            // #893: the arc, not the column - see feetZ()
+  if (canEnter(o.x, o.y, o.x + dx + Math.sign(dx) * rad, o.y, cz) && canEnter(o.x, o.y, o.x + dx + Math.sign(dx) * rad, o.y - rad * 0.7, cz) && canEnter(o.x, o.y, o.x + dx + Math.sign(dx) * rad, o.y + rad * 0.7, cz) && !propBlocks(o.x + dx, o.y, rad, fz)) o.x += dx;
+  if (canEnter(o.x, o.y, o.x, o.y + dy + Math.sign(dy) * rad, cz) && canEnter(o.x, o.y, o.x - rad * 0.7, o.y + dy + Math.sign(dy) * rad, cz) && canEnter(o.x, o.y, o.x + rad * 0.7, o.y + dy + Math.sign(dy) * rad, cz) && !propBlocks(o.x, o.y + dy, rad, fz)) o.y += dy;
 }
 /* The eight compass directions at unit length, so a direction is a DIRECTION and the probe length
    stays the command's own - the question is "could this mover have gone anywhere at all with the step
@@ -519,8 +531,9 @@ let wedgeRelief = true;
 function wedgeReliefEnabled() { return wedgeRelief; }
 function standClear(o, rad, fz) {
   const gx = o.x | 0, gy = o.y | 0, cx = gx + 0.5, cy = gy + 0.5, e = 1e-3;
-  const west = !canEnter(cx, cy, cx - 1, cy), east = !canEnter(cx, cy, cx + 1, cy);
-  const north = !canEnter(cx, cy, cx, cy - 1), south = !canEnter(cx, cy, cx, cy + 1);
+  const cz = feetZ(o);                            // #893: a lip this body can fly over is not a face
+  const west = !canEnter(cx, cy, cx - 1, cy, cz), east = !canEnter(cx, cy, cx + 1, cy, cz);
+  const north = !canEnter(cx, cy, cx, cy - 1, cz), south = !canEnter(cx, cy, cx, cy + 1, cz);
   const clear = (x, blockedWest, blockedEast, lo, hi) => {
     if (blockedWest && x - lo < rad + e) x = lo + rad + e;
     if (blockedEast && hi - x < rad + e) x = hi - rad - e;
@@ -642,7 +655,14 @@ function updatePlayer(dt) {
        stops being all three in the frame it dies (#833.1). Terrain is untouched: the quantum tread is still
        answered by canEnter / the EK_STEP byte (#633). */
     const gz = Math.max(propStand(P.x, P.y, 0, P.z), floorAt(P.x, P.y));
-    const mount = keys['Space'] ? propMount(P.x, P.y, 0.28, P.z) : -1;
+    /* #893 ONE PRICE FOR THE WAY UP. `mount` is the surface being pressed into while Space is held, and it
+       now comes from BOTH halves of the world: a prop's drawn top (`propMount`) or the deck on the far side
+       of a face this body is stopped by (`terrainMount`). The two are deliberately combined by taking the
+       HIGHER surface, because the one line that spends them below prices the climb by PROP_STEP_UP - the
+       prop's own window - and one price may only be paid once. Terrain used to get no offer at all, which is
+       why a 0.63 m crate could be vaulted and a half-wall of the same height could not. Neither half is
+       reached unless Space is held and the body is airborne, so the grounded path is untouched. */
+    const mount = keys['Space'] ? Math.max(propMount(P.x, P.y, 0.28, P.z), terrainMount(P.x, P.y, 0.28, P.z)) : -1;
     const climb = onLadder(P.x, P.y) ? ((keys['KeyE'] ? 1 : 0) - (keys['KeyQ'] ? 1 : 0)) : 0;
     if (climb) { P.air = false; P.vz = 0; P.dzV = 0; P.z = clamp(P.z + climb * 1.6 * dt, gz, Math.max(gz, ceilAt(P.x, P.y) - cfg.eye)); }
     else {

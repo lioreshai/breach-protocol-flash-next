@@ -1,315 +1,491 @@
 {
-  "about": "Capture-time provenance for docs/screens/*.png (#335). One row per shot, written by the session that took the pixels: sha256/canvas are properties of the bytes, origin/install/url/seed/level/layout/sampleRate/build are properties of the instrument and cannot be recovered from the PNG afterwards. `node tools/recap.js check` verifies each row against the file it addresses and against every other row of the same (seed, level, sampleRate); the vocabulary, the route verdicts and the audio-draw rule live in tools/recap.js, not here.",
-  "builds": {
-    "4abba57": {
-      "at": "2026-10-16",
-      "files": {
-        "index.html": "c886aca0138047584edd4ee7023c504da19d3d559a6e6bb33833a9290169d557",
-        "js/10_assets.js": "e79c562de83bdf57df13dbd3fa361dbd6a471a5033984e2a6f0304575ca2174f",
-        "js/20_level.js": "c98b3e6a3f6b1b98239b28de732a31ce832f6ad9aebeb5451638b7e01c7551f6",
-        "js/40_render.js": "de4a012b166caec72f917a5c4fbf90e71e932898cf7b444cc08ccea62ac60392"
-      },
-      "note": "The four blobs that draw a frame, sha256, read from the checkout that ran the capture. index.html plus the three js/ files that put a pixel on screen: js/10_assets.js makes the textures, js/20_level.js the lit materials, js/40_render.js is the rasterizer. `node tools/recap.js check` recomputes them from the tree it runs in and prints whether these frames still show what that tree ships (#536). The session that took these pixels proved this build off the wire, blob by blob, against the deployed page."
-    },
-    "39d1a70": {
-      "at": "2026-10-20",
-      "files": {
-        "index.html": "c886aca0138047584edd4ee7023c504da19d3d559a6e6bb33833a9290169d557",
-        "js/10_assets.js": "13b58d4471ce85c3517c00cf32f2c019d27113d41f3e68d133a3f81342fa8784",
-        "js/20_level.js": "9e6d155f80db28c0872dcef0dd75c4ab63f71e7a4146f1693f44f15e6ab3908b",
-        "js/40_render.js": "20bdef2d1bf909e565b12aab41f7d69ec5ebc10c23c6d82036f14a9d04c039a4"
-      },
-      "note": "The four blobs that draw a frame, sha256, read from the checkout that ran the capture. `node tools/recap.js check` recomputes them from the tree it runs in and prints whether these frames still show what that tree ships (#536). The session that took these pixels proved this build off the wire: index.html and all eleven js/ blobs served by GitHub Pages sha256-match origin/main at 39d1a70, twelve for twelve, before the shutter."
-    },
-    "89e3e16": {
-      "at": "2026-10-20",
-      "files": {
-        "index.html": "c886aca0138047584edd4ee7023c504da19d3d559a6e6bb33833a9290169d557",
-        "js/10_assets.js": "13b58d4471ce85c3517c00cf32f2c019d27113d41f3e68d133a3f81342fa8784",
-        "js/20_level.js": "55d9f213b4f4658c786919395f57680ad5a8d70868e53330d2eaf265502b39e7",
-        "js/40_render.js": "2a897abb5a271aee7d2174ad6522a83a38c43444be1d6d0587bd6bdc435f5988"
-      },
-      "note": "The four blobs that draw a frame, sha256, read from the checkout that ran the capture. `node tools/recap.js check` recomputes them from the tree it runs in and prints whether these frames still show what that tree ships (#536). The session that took these pixels proved this build off the wire: index.html and all eleven js/ blobs served by GitHub Pages sha256-match origin/main at 89e3e16, twelve for twelve, before the shutter."
-    },
-    "2fc7e59": {
-      "at": "2026-10-20",
-      "files": {
-        "index.html": "c886aca0138047584edd4ee7023c504da19d3d559a6e6bb33833a9290169d557",
-        "js/10_assets.js": "13b58d4471ce85c3517c00cf32f2c019d27113d41f3e68d133a3f81342fa8784",
-        "js/20_level.js": "569623b09b591954cb9ca7e4f6feac0f8120e7c70a2cfdcf33e4daa67aebbd16",
-        "js/40_render.js": "2a897abb5a271aee7d2174ad6522a83a38c43444be1d6d0587bd6bdc435f5988"
-      },
-      "note": "The four blobs that draw a frame, sha256, read from the checkout that ran the capture. `node tools/recap.js check` recomputes them from the tree it runs in and prints whether these frames still show what that tree ships (#536). The session that took these pixels proved this build off the wire: index.html and all eleven js/ blobs served by GitHub Pages sha256-match this checkout, twelve for twelve, before the shutter - the deploy serves origin/main, and this branch changes no shipped byte."
-    },
-    "153ea1b": {
-      "at": "2026-10-24",
-      "files": {
-        "index.html": "c886aca0138047584edd4ee7023c504da19d3d559a6e6bb33833a9290169d557",
-        "js/10_assets.js": "13b58d4471ce85c3517c00cf32f2c019d27113d41f3e68d133a3f81342fa8784",
-        "js/20_level.js": "a338d1afb4f895a9301d3488cbd48c43d45d418ce1cfda96663031833cf4e382",
-        "js/40_render.js": "041dad3b886562fcdbe6d17f6f8ec7f9266b384f6e129017d905fbb2e9328d15"
-      },
-      "note": "main 153ea1b - #645 landed the magnified ceiling share (CGWN=1); CGW still 0"
-    },
-    "28a6fa4": {
-      "at": "2026-10-26",
-      "files": {
-        "index.html": "c886aca0138047584edd4ee7023c504da19d3d559a6e6bb33833a9290169d557",
-        "js/10_assets.js": "13b58d4471ce85c3517c00cf32f2c019d27113d41f3e68d133a3f81342fa8784",
-        "js/20_level.js": "b92f43dd784086033adc2cf438564e199425e0083fb43d9e77a89246b6c622ab",
-        "js/40_render.js": "d1fb190ca74f193fae7bbe5e994aa73b44a88af1174055cc344e27aed934396d"
-      },
-      "note": "The four blobs that draw a frame, sha256, read from the checkout that ran the capture. The session that took these pixels proved this build off the wire first: for each of the four, the sha256 of the bytes served by https://lioreshai.github.io/breach-protocol-flash-next/ equals git show <build>:<file>, 4 for 4 - so the browser drew the build this tree ships, which is what makes these frames a property of the build and not of a harness (#388, #597)."
-    },
-    "5d08c12": {
-      "at": "2026-10-26",
-      "files": {
-        "index.html": "c886aca0138047584edd4ee7023c504da19d3d559a6e6bb33833a9290169d557",
-        "js/10_assets.js": "13b58d4471ce85c3517c00cf32f2c019d27113d41f3e68d133a3f81342fa8784",
-        "js/20_level.js": "897c0957c0e25d9cfef9002871e6432b70fdb7e84ad833622612c094fa705a83",
-        "js/40_render.js": "3d836e03bb4da76c2f5ac05c71ce1fb828a20fdc10dc1322112a76792712aadb"
-      },
-      "note": "The four blobs that draw a frame, sha256, read from the checkout that ran the capture. The session that took these pixels proved this build off the wire first: for each of the four, the sha256 of the bytes served by https://lioreshai.github.io/breach-protocol-flash-next/ equals git show <build>:<file>, 4 for 4 - so the browser drew the build this tree ships, which is what makes these frames a property of the build and not of a harness (#388, #597)."
-    },
-    "548194b": {
-      "files": {
-        "index.html": "c886aca0138047584edd4ee7023c504da19d3d559a6e6bb33833a9290169d557",
-        "js/10_assets.js": "46417870e52abfaf2e22449c901c2c596f961a61e13d1d8fc53cd5faf25e3069",
-        "js/20_level.js": "907d3953527f2927e924d5778a2f907358c2b12a6013197e2008c4488850ce85",
-        "js/40_render.js": "6ad76adea099bd9042ad3778e71b62451ba46387ff73f33d6cc77a4f7f33fa95"
-      },
-      "note": "The four blobs that draw a frame, sha256, read from the checkout that carried these frames. The session that took these pixels proved that build off the wire first: index.html and all eleven js/ blobs served by https://lioreshai.github.io/breach-protocol-flash-next/ sha256-match origin/main at 548194b, twelve for twelve, before the shutter - so the browser drew the build this tree ships, which is what makes these frames a property of the build and not of a harness (#388, #597, #640).",
-      "at": "2026-11-01"
-    },
-    "7a16776": {
-      "at": "2026-11-07",
-      "files": {
-        "index.html": "c886aca0138047584edd4ee7023c504da19d3d559a6e6bb33833a9290169d557",
-        "js/10_assets.js": "46417870e52abfaf2e22449c901c2c596f961a61e13d1d8fc53cd5faf25e3069",
-        "js/20_level.js": "553cf1a4e8e31651205a15ed92a916d62f5198fde62ba4b3f8e09345d394b1b5",
-        "js/40_render.js": "b2c263dbd273a5f752560faf48a0e9dc7bbf5525c6b0d7ab9d196a99438d18a5"
-      },
-      "note": "The four blobs that draw a frame, sha256, read from the checkout that ran the capture. The session that took these pixels proved that build off the wire first: index.html and all eleven js/ blobs served by https://lioreshai.github.io/breach-protocol-flash-next/ sha256-match origin/main at 7a16776, twelve for twelve - so the browser drew the build this tree ships, which is what makes these frames a property of the build and not of a harness (#388, #597, #766)."
-    },
-    "1f91555": {
-      "at": "2026-11-08",
-      "files": {
-        "index.html": "c886aca0138047584edd4ee7023c504da19d3d559a6e6bb33833a9290169d557",
-        "js/10_assets.js": "df5601568e567f75a2fa38f28a8366c862d8cc12999ff1d6d7e2d54c20540fc3",
-        "js/20_level.js": "cffcd31a1c4c23da02342fc7d12c2b763a2c29e03d050e3ef04f28c76c3b86ef",
-        "js/40_render.js": "2bbafc38434e6b3a8a4324d7e33d8a897f484c7cfb41ad4fe191ced46e05d305"
-      },
-      "note": "The four blobs that draw a frame, sha256, read from the checkout that ran the capture. `node tools/recap.js check` recomputes them from the tree it runs in and prints whether these frames still show what that tree ships (#536). The session that took these pixels proved this build off the wire: index.html and all eleven js/ blobs served by GitHub Pages sha256-match origin/main at 1f91555, twelve for twelve, before the shutter. This is the build the #616 far-surface work (#739, #754) and the stand-under storey generator (#421, #631) ship together."
-    },
-    "5dddb49": {
-      "at": "2026-11-08",
-      "files": {
-        "index.html": "c886aca0138047584edd4ee7023c504da19d3d559a6e6bb33833a9290169d557",
-        "js/10_assets.js": "77776c11924d31633b68caae5ed7a16ce7461ad89ec23a176ba9fe7763a645dd",
-        "js/20_level.js": "cffcd31a1c4c23da02342fc7d12c2b763a2c29e03d050e3ef04f28c76c3b86ef",
-        "js/40_render.js": "2bbafc38434e6b3a8a4324d7e33d8a897f484c7cfb41ad4fe191ced46e05d305"
-      },
-      "note": "The four blobs that draw a frame, sha256, read from the checkout that ran the capture. `node tools/recap.js check` recomputes them from the tree it runs in and prints whether these frames still show what that tree ships (#536). The session that took these pixels proved this build off the wire: index.html and all eleven js/ blobs served by GitHub Pages sha256-match origin/main at 5dddb49, twelve for twelve, before the shutter."
-    },
-    "6434ac5": {
-      "at": "2026-11-11",
-      "files": {
-        "index.html": "c886aca0138047584edd4ee7023c504da19d3d559a6e6bb33833a9290169d557",
-        "js/10_assets.js": "77776c11924d31633b68caae5ed7a16ce7461ad89ec23a176ba9fe7763a645dd",
-        "js/20_level.js": "f279fc39ae411d9d57ac945a9a303db901cb5451946b9b83f97f5256127e13e3",
-        "js/40_render.js": "ddbd42a13f7b85c4d431816f9e8a01079c50ed561c7f23e04668f3fb10d54693"
-      },
-      "note": "The four blobs that draw a frame, sha256, read from the checkout that ran the capture. `node tools/recap.js check` recomputes them from the tree it runs in and prints whether these frames still show what that tree ships (#536). The session that took these pixels proved this build off the wire: index.html and all eleven js/ blobs served by the deployed GitHub Pages URL sha256-match origin/main at 6434ac5, twelve for twelve, before the shutter."
-    },
-    "15e5d3f": {
-      "at": "2026-11-11",
-      "files": {
-        "index.html": "c886aca0138047584edd4ee7023c504da19d3d559a6e6bb33833a9290169d557",
-        "js/10_assets.js": "77776c11924d31633b68caae5ed7a16ce7461ad89ec23a176ba9fe7763a645dd",
-        "js/20_level.js": "f279fc39ae411d9d57ac945a9a303db901cb5451946b9b83f97f5256127e13e3",
-        "js/40_render.js": "880509422131ae6a5308117ea7dacc0fd2a80801f0eabb1d8945aeaf808ac1f8"
-      },
-      "note": "The four blobs that draw a frame, sha256. The session that took these pixels proved them off the wire: every blob that URL serves - index.html and all eleven js/ files - sha256-matches origin/main at 15e5d3f (and this checkout, which is that commit plus a docs-only branch), twelve for twelve, before the shutter. 15e5d3f is main at the time of the capture; 900b05f (#810) is the render commit that made the previous take's 6434ac5 binding stale (#536, #797)."
-    },
-    "12a7825": {
-      "at": "2026-11-16",
-      "files": {
-        "index.html": "c886aca0138047584edd4ee7023c504da19d3d559a6e6bb33833a9290169d557",
-        "js/10_assets.js": "77776c11924d31633b68caae5ed7a16ce7461ad89ec23a176ba9fe7763a645dd",
-        "js/20_level.js": "45408bce913272763325e88615e8e8f1dddf71ef937b9f698a32279128c6a869",
-        "js/40_render.js": "a9511687ebafe030efd246cb45d0cc5d98116773f89d78d32ae565a320958804"
-      },
-      "note": "The four blobs that draw a frame, sha256, read from the checkout that ran the capture. `node tools/recap.js check` recomputes them from the tree it runs in and prints whether these frames still show what that tree ships (#536). The session that took these pixels proved this build off the wire: index.html and all eleven js/ blobs served by https://lioreshai.github.io/breach-protocol-flash-next/ sha256-match origin/main at 12a7825, twelve for twelve, before the shutter."
-    }
+ "about": "Capture-time provenance for docs/screens/*.png (#335). One row per shot, written by the session that took the pixels: sha256/canvas are properties of the bytes, origin/install/url/seed/level/layout/sampleRate/build are properties of the instrument and cannot be recovered from the PNG afterwards. `node tools/recap.js check` verifies each row against the file it addresses and against every other row of the same (seed, level, sampleRate); the vocabulary, the route verdicts and the audio-draw rule live in tools/recap.js, not here.",
+ "builds": {
+  "4abba57": {
+   "at": "2026-10-16",
+   "files": {
+    "index.html": "c886aca0138047584edd4ee7023c504da19d3d559a6e6bb33833a9290169d557",
+    "js/10_assets.js": "e79c562de83bdf57df13dbd3fa361dbd6a471a5033984e2a6f0304575ca2174f",
+    "js/20_level.js": "c98b3e6a3f6b1b98239b28de732a31ce832f6ad9aebeb5451638b7e01c7551f6",
+    "js/40_render.js": "de4a012b166caec72f917a5c4fbf90e71e932898cf7b444cc08ccea62ac60392"
+   },
+   "note": "The four blobs that draw a frame, sha256, read from the checkout that ran the capture. index.html plus the three js/ files that put a pixel on screen: js/10_assets.js makes the textures, js/20_level.js the lit materials, js/40_render.js is the rasterizer. `node tools/recap.js check` recomputes them from the tree it runs in and prints whether these frames still show what that tree ships (#536). The session that took these pixels proved this build off the wire, blob by blob, against the deployed page."
   },
-  "shots": [
-    {
-      "file": "level0-enemies",
-      "sha256": "bd496c1266d64a0191820cd7c6eb8f34c655dea026f3cf93461105c772d611b8",
-      "replaces": {
-        "rev": "800a6ff",
-        "sha256": "abef3cb5e8386dfe8bfb9e50a2ac8bda1cd6663442165e946c4aa9b6e5e451e3",
-        "mean": 57.4599
-      },
-      "canvas": "1440x763",
-      "origin": "https",
-      "install": "url-open",
-      "url": "https://lioreshai.github.io/breach-protocol-flash-next/?dev=1&seed=60&boot=0",
-      "seed": "60",
-      "level": 0,
-      "layout": 2826521082,
-      "build": "12a7825",
-      "at": "2026-11-16",
-      "sampleRate": 48000,
-      "note": "RE-TAKEN from the DEPLOYED page for #838 at build 12a7825. The previous take bound 15e5d3f; main has since merged #831 (12a7825), which moves js/40_render.js - one of the four blobs that draw a frame - so recap labelled those frames FRAME-STALE and the front page again described a picture that does not ship. This pass is the same eight poses re-run against the deploy, which serves main’s bytes: index.html and all eleven js/ blobs served by that URL sha256-match this checkout, twelve for twelve, proved before the shutter. Route: tools/livecap.js devRoute - one page load and one boot per pose at ?dev=1&seed=60&boot=0, DEV.freeze(true), DEV.set(\"grain\",0), DEV.clear() before the pose, shutter from the canvas after DEV.tick; window pinned (CAP_WIN=1440,906) so the canvas decodes 1440x763. Chromium gave RGBA, committed through tools/png_rgb.js. Every seat, layout and luma below was read back out of the page that drew the frame, and every mean re-measured from these bytes with tools/recap.js’s own decoder, not the capture harness’s. Pose: the spawn seat, then DEV.clear() and DEV.spawn('grunt', 1, 6); the route’s own seat search turned the bearing 1.44 m and left him at (13.50, 12.63), 6.00 m out, 0.24 rad off the view line, on a floorAt 2.00 band with 587 raster px of him painted. The route’s DEV.clear() leaves the HUD reading 1 LEFT for this pose (1 enemy in the frame: the posed grunt). Layout signature 2826521082 for this sector under seed 60.Audio term: SND.ac.sampleRate read 48000 in the page that drew this frame, so this seed deals this layout on an instrument that draws 72,000 seeded values through SND.init’s noise buffer before the generator, where the rows these frames replace state 44100 and 66,150 (#404). All three layout signatures therefore differ from the replaced rows, on a build whose generator draw count also moved; the deal a URL names is per audio device, and this row states the device it was dealt on. The superseded frame is read from 800a6ff, the commit that put the bytes this pass replaces on main (those pixels were taken at build 15e5d3f).",
-      "staleByBuild": null
-    },
-    {
-      "file": "level0-facing-wall",
-      "sha256": "15dc65c268dff0fb46cfc46adf9ffb6275ff43e57e963d69d2e8c6837d433898",
-      "replaces": {
-        "rev": "800a6ff",
-        "sha256": "bf7d26947232afb647655365e91360f4f331c49334188be35fe8b4ecaf1e27b6",
-        "mean": 81.5471
-      },
-      "canvas": "1440x763",
-      "origin": "https",
-      "install": "url-open",
-      "url": "https://lioreshai.github.io/breach-protocol-flash-next/?dev=1&seed=60&boot=0",
-      "seed": "60",
-      "level": 0,
-      "layout": 2826521082,
-      "build": "12a7825",
-      "at": "2026-11-16",
-      "sampleRate": 48000,
-      "note": "RE-TAKEN from the DEPLOYED page for #838 at build 12a7825. The previous take bound 15e5d3f; main has since merged #831 (12a7825), which moves js/40_render.js - one of the four blobs that draw a frame - so recap labelled those frames FRAME-STALE and the front page again described a picture that does not ship. This pass is the same eight poses re-run against the deploy, which serves main’s bytes: index.html and all eleven js/ blobs served by that URL sha256-match this checkout, twelve for twelve, proved before the shutter. Route: tools/livecap.js devRoute - one page load and one boot per pose at ?dev=1&seed=60&boot=0, DEV.freeze(true), DEV.set(\"grain\",0), DEV.clear() before the pose, shutter from the canvas after DEV.tick; window pinned (CAP_WIN=1440,906) so the canvas decodes 1440x763. Chromium gave RGBA, committed through tools/png_rgb.js. Every seat, layout and luma below was read back out of the page that drew the frame, and every mean re-measured from these bytes with tools/recap.js’s own decoder, not the capture harness’s. Pose: DEV.cam(1.5, 8.5, undefined, pi/2) - a recorded pose, read back heading 1.5708, floorAt 0.00. The route’s DEV.clear() leaves the HUD reading 0 LEFT for this pose. Layout signature 2826521082 for this sector under seed 60.Audio term: SND.ac.sampleRate read 48000 in the page that drew this frame, so this seed deals this layout on an instrument that draws 72,000 seeded values through SND.init’s noise buffer before the generator, where the rows these frames replace state 44100 and 66,150 (#404). All three layout signatures therefore differ from the replaced rows, on a build whose generator draw count also moved; the deal a URL names is per audio device, and this row states the device it was dealt on. The superseded frame is read from 800a6ff, the commit that put the bytes this pass replaces on main (those pixels were taken at build 15e5d3f).",
-      "staleByBuild": null
-    },
-    {
-      "file": "level0-pitfloor",
-      "sha256": "3daff0d7b6d533bbbcb19bd49644b3e457a036770f8cf1a2a50058c95136581d",
-      "replaces": {
-        "rev": "800a6ff",
-        "sha256": "6ed21d831fc167c796fcd6eabe8b68e21efa67f2ab4dceb5d1f7c964707a75f0",
-        "mean": 64.9154
-      },
-      "canvas": "1440x763",
-      "origin": "https",
-      "install": "url-open",
-      "url": "https://lioreshai.github.io/breach-protocol-flash-next/?dev=1&seed=60&boot=0",
-      "seed": "60",
-      "level": 0,
-      "layout": 2826521082,
-      "build": "12a7825",
-      "at": "2026-11-16",
-      "sampleRate": 48000,
-      "note": "RE-TAKEN from the DEPLOYED page for #838 at build 12a7825. The previous take bound 15e5d3f; main has since merged #831 (12a7825), which moves js/40_render.js - one of the four blobs that draw a frame - so recap labelled those frames FRAME-STALE and the front page again described a picture that does not ship. This pass is the same eight poses re-run against the deploy, which serves main’s bytes: index.html and all eleven js/ blobs served by that URL sha256-match this checkout, twelve for twelve, proved before the shutter. Route: tools/livecap.js devRoute - one page load and one boot per pose at ?dev=1&seed=60&boot=0, DEV.freeze(true), DEV.set(\"grain\",0), DEV.clear() before the pose, shutter from the canvas after DEV.tick; window pinned (CAP_WIN=1440,906) so the canvas decodes 1440x763. Chromium gave RGBA, committed through tools/png_rgb.js. Every seat, layout and luma below was read back out of the page that drew the frame, and every mean re-measured from these bytes with tools/recap.js’s own decoder, not the capture harness’s. Pose: DEV.cam(19.5, 14.5, undefined, 1.1071) - a recorded pose, read back heading 1.1071, floorAt 0.00. The route’s DEV.clear() leaves the HUD reading 0 LEFT for this pose. Layout signature 2826521082 for this sector under seed 60.Audio term: SND.ac.sampleRate read 48000 in the page that drew this frame, so this seed deals this layout on an instrument that draws 72,000 seeded values through SND.init’s noise buffer before the generator, where the rows these frames replace state 44100 and 66,150 (#404). All three layout signatures therefore differ from the replaced rows, on a build whose generator draw count also moved; the deal a URL names is per audio device, and this row states the device it was dealt on. The superseded frame is read from 800a6ff, the commit that put the bytes this pass replaces on main (those pixels were taken at build 15e5d3f).",
-      "staleByBuild": null
-    },
-    {
-      "file": "level0-props",
-      "sha256": "8827857d96c89177eba286e56e538e3f333b6ac7bc581c5e3f95e926acf9acf9",
-      "replaces": {
-        "rev": "800a6ff",
-        "sha256": "664f45227af759b64e0e98a3774939d2ee88c7d5693576456c9a08f4666ba16d",
-        "mean": 67.5153
-      },
-      "canvas": "1440x763",
-      "origin": "https",
-      "install": "url-open",
-      "url": "https://lioreshai.github.io/breach-protocol-flash-next/?dev=1&seed=60&boot=0",
-      "seed": "60",
-      "level": 0,
-      "layout": 2826521082,
-      "build": "12a7825",
-      "at": "2026-11-16",
-      "sampleRate": 48000,
-      "note": "RE-TAKEN from the DEPLOYED page for #838 at build 12a7825. The previous take bound 15e5d3f; main has since merged #831 (12a7825), which moves js/40_render.js - one of the four blobs that draw a frame - so recap labelled those frames FRAME-STALE and the front page again described a picture that does not ship. This pass is the same eight poses re-run against the deploy, which serves main’s bytes: index.html and all eleven js/ blobs served by that URL sha256-match this checkout, twelve for twelve, proved before the shutter. Route: tools/livecap.js devRoute - one page load and one boot per pose at ?dev=1&seed=60&boot=0, DEV.freeze(true), DEV.set(\"grain\",0), DEV.clear() before the pose, shutter from the canvas after DEV.tick; window pinned (CAP_WIN=1440,906) so the canvas decodes 1440x763. Chromium gave RGBA, committed through tools/png_rgb.js. Every seat, layout and luma below was read back out of the page that drew the frame, and every mean re-measured from these bytes with tools/recap.js’s own decoder, not the capture harness’s. Pose: DEV.cam(20.5, 11.5, undefined, pi/2) - a recorded pose, read back heading 1.5708, floorAt 2.00. The route’s DEV.clear() leaves the HUD reading 0 LEFT for this pose. Layout signature 2826521082 for this sector under seed 60.Audio term: SND.ac.sampleRate read 48000 in the page that drew this frame, so this seed deals this layout on an instrument that draws 72,000 seeded values through SND.init’s noise buffer before the generator, where the rows these frames replace state 44100 and 66,150 (#404). All three layout signatures therefore differ from the replaced rows, on a build whose generator draw count also moved; the deal a URL names is per audio device, and this row states the device it was dealt on. The superseded frame is read from 800a6ff, the commit that put the bytes this pass replaces on main (those pixels were taken at build 15e5d3f).",
-      "staleByBuild": null
-    },
-    {
-      "file": "level0-spawn",
-      "sha256": "8bef2ad09fcc04b116998832c6fb7f61532da63603322089fd89578b7439069c",
-      "replaces": {
-        "rev": "800a6ff",
-        "sha256": "320de8c316b5831f53eceeabdb999decaedd5754f2239828e4e6ea1b59d36c4e",
-        "mean": 57.4749
-      },
-      "canvas": "1440x763",
-      "origin": "https",
-      "install": "url-open",
-      "url": "https://lioreshai.github.io/breach-protocol-flash-next/?dev=1&seed=60&boot=0",
-      "seed": "60",
-      "level": 0,
-      "layout": 2826521082,
-      "build": "12a7825",
-      "at": "2026-11-16",
-      "sampleRate": 48000,
-      "note": "RE-TAKEN from the DEPLOYED page for #838 at build 12a7825. The previous take bound 15e5d3f; main has since merged #831 (12a7825), which moves js/40_render.js - one of the four blobs that draw a frame - so recap labelled those frames FRAME-STALE and the front page again described a picture that does not ship. This pass is the same eight poses re-run against the deploy, which serves main’s bytes: index.html and all eleven js/ blobs served by that URL sha256-match this checkout, twelve for twelve, proved before the shutter. Route: tools/livecap.js devRoute - one page load and one boot per pose at ?dev=1&seed=60&boot=0, DEV.freeze(true), DEV.set(\"grain\",0), DEV.clear() before the pose, shutter from the canvas after DEV.tick; window pinned (CAP_WIN=1440,906) so the canvas decodes 1440x763. Chromium gave RGBA, committed through tools/png_rgb.js. Every seat, layout and luma below was read back out of the page that drew the frame, and every mean re-measured from these bytes with tools/recap.js’s own decoder, not the capture harness’s. Pose: the deal’s own spawn seat, read back at (7.50, 12.50) heading -0.2187, floorAt 0.00. The route’s DEV.clear() leaves the HUD reading 0 LEFT for this pose. Layout signature 2826521082 for this sector under seed 60.Audio term: SND.ac.sampleRate read 48000 in the page that drew this frame, so this seed deals this layout on an instrument that draws 72,000 seeded values through SND.init’s noise buffer before the generator, where the rows these frames replace state 44100 and 66,150 (#404). All three layout signatures therefore differ from the replaced rows, on a build whose generator draw count also moved; the deal a URL names is per audio device, and this row states the device it was dealt on. The superseded frame is read from 800a6ff, the commit that put the bytes this pass replaces on main (those pixels were taken at build 15e5d3f).",
-      "staleByBuild": null
-    },
-    {
-      "file": "level2-abatoir",
-      "sha256": "63f69fc91b8db96893c79a7ba65066b07f88f65036ad126d49e44496bea95a79",
-      "replaces": {
-        "rev": "800a6ff",
-        "sha256": "271136fbaa77aa30b2d24141ca5c513ab417df0883f93e157c7ccc23da372ca7",
-        "mean": 77.1691
-      },
-      "canvas": "1440x763",
-      "origin": "https",
-      "install": "url-open",
-      "url": "https://lioreshai.github.io/breach-protocol-flash-next/?dev=1&seed=60&boot=0",
-      "seed": "60",
-      "level": 2,
-      "layout": 1076609884,
-      "build": "12a7825",
-      "at": "2026-11-16",
-      "sampleRate": 48000,
-      "note": "RE-TAKEN from the DEPLOYED page for #838 at build 12a7825. The previous take bound 15e5d3f; main has since merged #831 (12a7825), which moves js/40_render.js - one of the four blobs that draw a frame - so recap labelled those frames FRAME-STALE and the front page again described a picture that does not ship. This pass is the same eight poses re-run against the deploy, which serves main’s bytes: index.html and all eleven js/ blobs served by that URL sha256-match this checkout, twelve for twelve, proved before the shutter. Route: tools/livecap.js devRoute - one page load and one boot per pose at ?dev=1&seed=60&boot=0, DEV.freeze(true), DEV.set(\"grain\",0), DEV.clear() before the pose, shutter from the canvas after DEV.tick; window pinned (CAP_WIN=1440,906) so the canvas decodes 1440x763. Chromium gave RGBA, committed through tools/png_rgb.js. Every seat, layout and luma below was read back out of the page that drew the frame, and every mean re-measured from these bytes with tools/recap.js’s own decoder, not the capture harness’s. Pose: the arrival seat, read back at (24.50, 7.50) on the declared bearing 0.60, floorAt 0.00. The route’s DEV.clear() leaves the HUD reading 0 LEFT for this pose. Layout signature 1076609884 for this sector under seed 60.Audio term: SND.ac.sampleRate read 48000 in the page that drew this frame, so this seed deals this layout on an instrument that draws 72,000 seeded values through SND.init’s noise buffer before the generator, where the rows these frames replace state 44100 and 66,150 (#404). All three layout signatures therefore differ from the replaced rows, on a build whose generator draw count also moved; the deal a URL names is per audio device, and this row states the device it was dealt on. The superseded frame is read from 800a6ff, the commit that put the bytes this pass replaces on main (those pixels were taken at build 15e5d3f).",
-      "staleByBuild": null
-    },
-    {
-      "file": "level2-abatoir-ceiling",
-      "sha256": "bd62edecc3a702b32aef82a793a846e6eea5dd11a3ec2244d4b3474f6bc4f776",
-      "replaces": {
-        "rev": "800a6ff",
-        "sha256": "a656fb436ef5c52765f2213dee428a6010db82c87f4aee5f8358b5f25178d91c",
-        "mean": 79.948
-      },
-      "canvas": "1440x763",
-      "origin": "https",
-      "install": "url-open",
-      "url": "https://lioreshai.github.io/breach-protocol-flash-next/?dev=1&seed=60&boot=0",
-      "seed": "60",
-      "level": 2,
-      "layout": 1076609884,
-      "build": "12a7825",
-      "at": "2026-11-16",
-      "sampleRate": 48000,
-      "note": "RE-TAKEN from the DEPLOYED page for #838 at build 12a7825. The previous take bound 15e5d3f; main has since merged #831 (12a7825), which moves js/40_render.js - one of the four blobs that draw a frame - so recap labelled those frames FRAME-STALE and the front page again described a picture that does not ship. This pass is the same eight poses re-run against the deploy, which serves main’s bytes: index.html and all eleven js/ blobs served by that URL sha256-match this checkout, twelve for twelve, proved before the shutter. Route: tools/livecap.js devRoute - one page load and one boot per pose at ?dev=1&seed=60&boot=0, DEV.freeze(true), DEV.set(\"grain\",0), DEV.clear() before the pose, shutter from the canvas after DEV.tick; window pinned (CAP_WIN=1440,906) so the canvas decodes 1440x763. Chromium gave RGBA, committed through tools/png_rgb.js. Every seat, layout and luma below was read back out of the page that drew the frame, and every mean re-measured from these bytes with tools/recap.js’s own decoder, not the capture harness’s. Pose: DEV.cam(P.x, P.y, undefined, -0.5539, 194.07) off that same seat - the replaced row’s pose verbatim, read back at (24.50, 7.50) heading -0.5539, pitch 194.1. The route’s DEV.clear() leaves the HUD reading 0 LEFT for this pose. Layout signature 1076609884 for this sector under seed 60.Audio term: SND.ac.sampleRate read 48000 in the page that drew this frame, so this seed deals this layout on an instrument that draws 72,000 seeded values through SND.init’s noise buffer before the generator, where the rows these frames replace state 44100 and 66,150 (#404). All three layout signatures therefore differ from the replaced rows, on a build whose generator draw count also moved; the deal a URL names is per audio device, and this row states the device it was dealt on. The superseded frame is read from 800a6ff, the commit that put the bytes this pass replaces on main (those pixels were taken at build 15e5d3f).",
-      "staleByBuild": null
-    },
-    {
-      "file": "level3-stack",
-      "sha256": "3253eef683636ab517a14dfc3c6dfd41cee0ea9d3aea6ed9a7bcf34d3bc1a655",
-      "replaces": {
-        "rev": "800a6ff",
-        "sha256": "b800ef4b1291ceed32847953b8e4caca91fe8190aabbdde52932a054f8505b0e",
-        "mean": 69.8959
-      },
-      "canvas": "1440x763",
-      "origin": "https",
-      "install": "url-open",
-      "url": "https://lioreshai.github.io/breach-protocol-flash-next/?dev=1&seed=60&boot=0",
-      "seed": "60",
-      "level": 3,
-      "layout": 1154765829,
-      "build": "12a7825",
-      "at": "2026-11-16",
-      "sampleRate": 48000,
-      "note": "RE-TAKEN from the DEPLOYED page for #838 at build 12a7825. The previous take bound 15e5d3f; main has since merged #831 (12a7825), which moves js/40_render.js - one of the four blobs that draw a frame - so recap labelled those frames FRAME-STALE and the front page again described a picture that does not ship. This pass is the same eight poses re-run against the deploy, which serves main’s bytes: index.html and all eleven js/ blobs served by that URL sha256-match this checkout, twelve for twelve, proved before the shutter. Route: tools/livecap.js devRoute - one page load and one boot per pose at ?dev=1&seed=60&boot=0, DEV.freeze(true), DEV.set(\"grain\",0), DEV.clear() before the pose, shutter from the canvas after DEV.tick; window pinned (CAP_WIN=1440,906) so the canvas decodes 1440x763. Chromium gave RGBA, committed through tools/png_rgb.js. Every seat, layout and luma below was read back out of the page that drew the frame, and every mean re-measured from these bytes with tools/recap.js’s own decoder, not the capture harness’s. Pose: the authored spawn seat, read back at (1.50, 2.50) heading 0.8761, floorAt 0.00. The route’s DEV.clear() leaves the HUD reading 0 LEFT for this pose. Layout signature 1154765829 for this sector under seed 60.Audio term: SND.ac.sampleRate read 48000 in the page that drew this frame, so this seed deals this layout on an instrument that draws 72,000 seeded values through SND.init’s noise buffer before the generator, where the rows these frames replace state 44100 and 66,150 (#404). All three layout signatures therefore differ from the replaced rows, on a build whose generator draw count also moved; the deal a URL names is per audio device, and this row states the device it was dealt on. The superseded frame is read from 800a6ff, the commit that put the bytes this pass replaces on main (those pixels were taken at build 15e5d3f).",
-      "staleByBuild": null
-    }
-  ]
+  "39d1a70": {
+   "at": "2026-10-20",
+   "files": {
+    "index.html": "c886aca0138047584edd4ee7023c504da19d3d559a6e6bb33833a9290169d557",
+    "js/10_assets.js": "13b58d4471ce85c3517c00cf32f2c019d27113d41f3e68d133a3f81342fa8784",
+    "js/20_level.js": "9e6d155f80db28c0872dcef0dd75c4ab63f71e7a4146f1693f44f15e6ab3908b",
+    "js/40_render.js": "20bdef2d1bf909e565b12aab41f7d69ec5ebc10c23c6d82036f14a9d04c039a4"
+   },
+   "note": "The four blobs that draw a frame, sha256, read from the checkout that ran the capture. `node tools/recap.js check` recomputes them from the tree it runs in and prints whether these frames still show what that tree ships (#536). The session that took these pixels proved this build off the wire: index.html and all eleven js/ blobs served by GitHub Pages sha256-match origin/main at 39d1a70, twelve for twelve, before the shutter."
+  },
+  "89e3e16": {
+   "at": "2026-10-20",
+   "files": {
+    "index.html": "c886aca0138047584edd4ee7023c504da19d3d559a6e6bb33833a9290169d557",
+    "js/10_assets.js": "13b58d4471ce85c3517c00cf32f2c019d27113d41f3e68d133a3f81342fa8784",
+    "js/20_level.js": "55d9f213b4f4658c786919395f57680ad5a8d70868e53330d2eaf265502b39e7",
+    "js/40_render.js": "2a897abb5a271aee7d2174ad6522a83a38c43444be1d6d0587bd6bdc435f5988"
+   },
+   "note": "The four blobs that draw a frame, sha256, read from the checkout that ran the capture. `node tools/recap.js check` recomputes them from the tree it runs in and prints whether these frames still show what that tree ships (#536). The session that took these pixels proved this build off the wire: index.html and all eleven js/ blobs served by GitHub Pages sha256-match origin/main at 89e3e16, twelve for twelve, before the shutter."
+  },
+  "2fc7e59": {
+   "at": "2026-10-20",
+   "files": {
+    "index.html": "c886aca0138047584edd4ee7023c504da19d3d559a6e6bb33833a9290169d557",
+    "js/10_assets.js": "13b58d4471ce85c3517c00cf32f2c019d27113d41f3e68d133a3f81342fa8784",
+    "js/20_level.js": "569623b09b591954cb9ca7e4f6feac0f8120e7c70a2cfdcf33e4daa67aebbd16",
+    "js/40_render.js": "2a897abb5a271aee7d2174ad6522a83a38c43444be1d6d0587bd6bdc435f5988"
+   },
+   "note": "The four blobs that draw a frame, sha256, read from the checkout that ran the capture. `node tools/recap.js check` recomputes them from the tree it runs in and prints whether these frames still show what that tree ships (#536). The session that took these pixels proved this build off the wire: index.html and all eleven js/ blobs served by GitHub Pages sha256-match this checkout, twelve for twelve, before the shutter - the deploy serves origin/main, and this branch changes no shipped byte."
+  },
+  "153ea1b": {
+   "at": "2026-10-24",
+   "files": {
+    "index.html": "c886aca0138047584edd4ee7023c504da19d3d559a6e6bb33833a9290169d557",
+    "js/10_assets.js": "13b58d4471ce85c3517c00cf32f2c019d27113d41f3e68d133a3f81342fa8784",
+    "js/20_level.js": "a338d1afb4f895a9301d3488cbd48c43d45d418ce1cfda96663031833cf4e382",
+    "js/40_render.js": "041dad3b886562fcdbe6d17f6f8ec7f9266b384f6e129017d905fbb2e9328d15"
+   },
+   "note": "main 153ea1b - #645 landed the magnified ceiling share (CGWN=1); CGW still 0"
+  },
+  "28a6fa4": {
+   "at": "2026-10-26",
+   "files": {
+    "index.html": "c886aca0138047584edd4ee7023c504da19d3d559a6e6bb33833a9290169d557",
+    "js/10_assets.js": "13b58d4471ce85c3517c00cf32f2c019d27113d41f3e68d133a3f81342fa8784",
+    "js/20_level.js": "b92f43dd784086033adc2cf438564e199425e0083fb43d9e77a89246b6c622ab",
+    "js/40_render.js": "d1fb190ca74f193fae7bbe5e994aa73b44a88af1174055cc344e27aed934396d"
+   },
+   "note": "The four blobs that draw a frame, sha256, read from the checkout that ran the capture. The session that took these pixels proved this build off the wire first: for each of the four, the sha256 of the bytes served by https://lioreshai.github.io/breach-protocol-flash-next/ equals git show <build>:<file>, 4 for 4 - so the browser drew the build this tree ships, which is what makes these frames a property of the build and not of a harness (#388, #597)."
+  },
+  "5d08c12": {
+   "at": "2026-10-26",
+   "files": {
+    "index.html": "c886aca0138047584edd4ee7023c504da19d3d559a6e6bb33833a9290169d557",
+    "js/10_assets.js": "13b58d4471ce85c3517c00cf32f2c019d27113d41f3e68d133a3f81342fa8784",
+    "js/20_level.js": "897c0957c0e25d9cfef9002871e6432b70fdb7e84ad833622612c094fa705a83",
+    "js/40_render.js": "3d836e03bb4da76c2f5ac05c71ce1fb828a20fdc10dc1322112a76792712aadb"
+   },
+   "note": "The four blobs that draw a frame, sha256, read from the checkout that ran the capture. The session that took these pixels proved this build off the wire first: for each of the four, the sha256 of the bytes served by https://lioreshai.github.io/breach-protocol-flash-next/ equals git show <build>:<file>, 4 for 4 - so the browser drew the build this tree ships, which is what makes these frames a property of the build and not of a harness (#388, #597)."
+  },
+  "548194b": {
+   "files": {
+    "index.html": "c886aca0138047584edd4ee7023c504da19d3d559a6e6bb33833a9290169d557",
+    "js/10_assets.js": "46417870e52abfaf2e22449c901c2c596f961a61e13d1d8fc53cd5faf25e3069",
+    "js/20_level.js": "907d3953527f2927e924d5778a2f907358c2b12a6013197e2008c4488850ce85",
+    "js/40_render.js": "6ad76adea099bd9042ad3778e71b62451ba46387ff73f33d6cc77a4f7f33fa95"
+   },
+   "note": "The four blobs that draw a frame, sha256, read from the checkout that carried these frames. The session that took these pixels proved that build off the wire first: index.html and all eleven js/ blobs served by https://lioreshai.github.io/breach-protocol-flash-next/ sha256-match origin/main at 548194b, twelve for twelve, before the shutter - so the browser drew the build this tree ships, which is what makes these frames a property of the build and not of a harness (#388, #597, #640).",
+   "at": "2026-11-01"
+  },
+  "7a16776": {
+   "at": "2026-11-07",
+   "files": {
+    "index.html": "c886aca0138047584edd4ee7023c504da19d3d559a6e6bb33833a9290169d557",
+    "js/10_assets.js": "46417870e52abfaf2e22449c901c2c596f961a61e13d1d8fc53cd5faf25e3069",
+    "js/20_level.js": "553cf1a4e8e31651205a15ed92a916d62f5198fde62ba4b3f8e09345d394b1b5",
+    "js/40_render.js": "b2c263dbd273a5f752560faf48a0e9dc7bbf5525c6b0d7ab9d196a99438d18a5"
+   },
+   "note": "The four blobs that draw a frame, sha256, read from the checkout that ran the capture. The session that took these pixels proved that build off the wire first: index.html and all eleven js/ blobs served by https://lioreshai.github.io/breach-protocol-flash-next/ sha256-match origin/main at 7a16776, twelve for twelve - so the browser drew the build this tree ships, which is what makes these frames a property of the build and not of a harness (#388, #597, #766)."
+  },
+  "1f91555": {
+   "at": "2026-11-08",
+   "files": {
+    "index.html": "c886aca0138047584edd4ee7023c504da19d3d559a6e6bb33833a9290169d557",
+    "js/10_assets.js": "df5601568e567f75a2fa38f28a8366c862d8cc12999ff1d6d7e2d54c20540fc3",
+    "js/20_level.js": "cffcd31a1c4c23da02342fc7d12c2b763a2c29e03d050e3ef04f28c76c3b86ef",
+    "js/40_render.js": "2bbafc38434e6b3a8a4324d7e33d8a897f484c7cfb41ad4fe191ced46e05d305"
+   },
+   "note": "The four blobs that draw a frame, sha256, read from the checkout that ran the capture. `node tools/recap.js check` recomputes them from the tree it runs in and prints whether these frames still show what that tree ships (#536). The session that took these pixels proved this build off the wire: index.html and all eleven js/ blobs served by GitHub Pages sha256-match origin/main at 1f91555, twelve for twelve, before the shutter. This is the build the #616 far-surface work (#739, #754) and the stand-under storey generator (#421, #631) ship together."
+  },
+  "5dddb49": {
+   "at": "2026-11-08",
+   "files": {
+    "index.html": "c886aca0138047584edd4ee7023c504da19d3d559a6e6bb33833a9290169d557",
+    "js/10_assets.js": "77776c11924d31633b68caae5ed7a16ce7461ad89ec23a176ba9fe7763a645dd",
+    "js/20_level.js": "cffcd31a1c4c23da02342fc7d12c2b763a2c29e03d050e3ef04f28c76c3b86ef",
+    "js/40_render.js": "2bbafc38434e6b3a8a4324d7e33d8a897f484c7cfb41ad4fe191ced46e05d305"
+   },
+   "note": "The four blobs that draw a frame, sha256, read from the checkout that ran the capture. `node tools/recap.js check` recomputes them from the tree it runs in and prints whether these frames still show what that tree ships (#536). The session that took these pixels proved this build off the wire: index.html and all eleven js/ blobs served by GitHub Pages sha256-match origin/main at 5dddb49, twelve for twelve, before the shutter."
+  },
+  "6434ac5": {
+   "at": "2026-11-11",
+   "files": {
+    "index.html": "c886aca0138047584edd4ee7023c504da19d3d559a6e6bb33833a9290169d557",
+    "js/10_assets.js": "77776c11924d31633b68caae5ed7a16ce7461ad89ec23a176ba9fe7763a645dd",
+    "js/20_level.js": "f279fc39ae411d9d57ac945a9a303db901cb5451946b9b83f97f5256127e13e3",
+    "js/40_render.js": "ddbd42a13f7b85c4d431816f9e8a01079c50ed561c7f23e04668f3fb10d54693"
+   },
+   "note": "The four blobs that draw a frame, sha256, read from the checkout that ran the capture. `node tools/recap.js check` recomputes them from the tree it runs in and prints whether these frames still show what that tree ships (#536). The session that took these pixels proved this build off the wire: index.html and all eleven js/ blobs served by the deployed GitHub Pages URL sha256-match origin/main at 6434ac5, twelve for twelve, before the shutter."
+  },
+  "15e5d3f": {
+   "at": "2026-11-11",
+   "files": {
+    "index.html": "c886aca0138047584edd4ee7023c504da19d3d559a6e6bb33833a9290169d557",
+    "js/10_assets.js": "77776c11924d31633b68caae5ed7a16ce7461ad89ec23a176ba9fe7763a645dd",
+    "js/20_level.js": "f279fc39ae411d9d57ac945a9a303db901cb5451946b9b83f97f5256127e13e3",
+    "js/40_render.js": "880509422131ae6a5308117ea7dacc0fd2a80801f0eabb1d8945aeaf808ac1f8"
+   },
+   "note": "The four blobs that draw a frame, sha256. The session that took these pixels proved them off the wire: every blob that URL serves - index.html and all eleven js/ files - sha256-matches origin/main at 15e5d3f (and this checkout, which is that commit plus a docs-only branch), twelve for twelve, before the shutter. 15e5d3f is main at the time of the capture; 900b05f (#810) is the render commit that made the previous take's 6434ac5 binding stale (#536, #797)."
+  },
+  "12a7825": {
+   "at": "2026-11-16",
+   "files": {
+    "index.html": "c886aca0138047584edd4ee7023c504da19d3d559a6e6bb33833a9290169d557",
+    "js/10_assets.js": "77776c11924d31633b68caae5ed7a16ce7461ad89ec23a176ba9fe7763a645dd",
+    "js/20_level.js": "45408bce913272763325e88615e8e8f1dddf71ef937b9f698a32279128c6a869",
+    "js/40_render.js": "a9511687ebafe030efd246cb45d0cc5d98116773f89d78d32ae565a320958804"
+   },
+   "note": "The four blobs that draw a frame, sha256, read from the checkout that ran the capture. `node tools/recap.js check` recomputes them from the tree it runs in and prints whether these frames still show what that tree ships (#536). The session that took these pixels proved this build off the wire: index.html and all eleven js/ blobs served by https://lioreshai.github.io/breach-protocol-flash-next/ sha256-match origin/main at 12a7825, twelve for twelve, before the shutter."
+  },
+  "0546b82": {
+   "at": "2026-11-19",
+   "files": {
+    "index.html": "c886aca0138047584edd4ee7023c504da19d3d559a6e6bb33833a9290169d557",
+    "js/10_assets.js": "77776c11924d31633b68caae5ed7a16ce7461ad89ec23a176ba9fe7763a645dd",
+    "js/20_level.js": "9b841ac25628892dcb5f6c97890d5a1e9aef0c4e443d0865e23ac19060c76cbe",
+    "js/40_render.js": "8c68fce369146ca8d4dfc9a5bdb7da45dfae716f8dee5ff9c9f0de646adbb788"
+   },
+   "note": "main 0546b82. The session that took these pixels proved this build off the wire: index.html and all eleven js/ blobs served by GitHub Pages sha256-match origin/main at 0546b82, twelve for twelve, before the shutter - so these four digests are both this checkout’s bytes and the bytes that drew the frame."
+  },
+  "44ff9a4": {
+   "at": "2026-11-20",
+   "files": {
+    "index.html": "c886aca0138047584edd4ee7023c504da19d3d559a6e6bb33833a9290169d557",
+    "js/10_assets.js": "65ca81fb73c7752e94adeae978f9f032c6483f02e7cf0cc5457853261f8e3784",
+    "js/20_level.js": "4c5fd0d5dfa3fac22c1a8ea6fbae88328be5c282da30ddd6da8b8b0c5cb0bf0d",
+    "js/40_render.js": "dcb6df92ddb1e42fbb7753d9d62af6dc88fc22d461dc0bff981697b9e3e930c7"
+   },
+   "note": "The four blobs that draw a frame, sha256, read from the checkout that ran the capture. `node tools/recap.js check` recomputes them from the tree it runs in and prints whether these frames still show what that tree ships (#536). The session that took these pixels proved this build off the wire: index.html and all eleven js/ blobs served by GitHub Pages sha256-match origin/main at 44ff9a4, twelve for twelve, before the shutter - the deploy serves main’s bytes, and this branch changes no shipped byte."
+  },
+  "cc0a3e3": {
+   "at": "2026-11-21",
+   "files": {
+    "index.html": "c886aca0138047584edd4ee7023c504da19d3d559a6e6bb33833a9290169d557",
+    "js/10_assets.js": "18ee433e3446f84ddac29da202991c14eaaf19aa09c3d5e71331b0f2ba2ee3ef",
+    "js/20_level.js": "4c5fd0d5dfa3fac22c1a8ea6fbae88328be5c282da30ddd6da8b8b0c5cb0bf0d",
+    "js/40_render.js": "de4217a91d1e5f9256605bddc511f841051dd4a521482f6362ed398786525346"
+   },
+   "note": "The four blobs that draw a frame, sha256, read from the checkout that ran the capture. `node tools/recap.js check` recomputes them from the tree it runs in and prints whether these frames still show what that tree ships (#536). The session that took these pixels proved this build off the wire: index.html and all eleven js/ blobs served by GitHub Pages sha256-match origin/main at cc0a3e3, twelve for twelve, before the shutter - the deploy serves main’s bytes, and this branch changes no shipped byte."
+  },
+  "a32a8a6": {
+   "at": "2026-11-21",
+   "files": {
+    "index.html": "c886aca0138047584edd4ee7023c504da19d3d559a6e6bb33833a9290169d557",
+    "js/10_assets.js": "d897fd75833d7e19adb9d3138311a89c5478f8a712da07bddf534215e0dd8571",
+    "js/20_level.js": "4c5fd0d5dfa3fac22c1a8ea6fbae88328be5c282da30ddd6da8b8b0c5cb0bf0d",
+    "js/40_render.js": "e11b94fd6f1cb21eb1dfb295d60a2d0ee917a79e7697c42a9be50875332c2948"
+   },
+   "note": "The four blobs that draw a frame, sha256, read from the checkout that ran the capture. `node tools/recap.js check` recomputes them from the tree it runs in and prints whether these frames still show what that tree ships (#536). The session that took these pixels proved this build off the wire: index.html and all eleven js/ blobs served by GitHub Pages sha256-match origin/main at a32a8a6, twelve for twelve, before the shutter - the deploy serves main's bytes, and this branch changes no shipped byte."
+  },
+  "058c31f": {
+   "at": "2026-11-22",
+   "files": {
+    "index.html": "c886aca0138047584edd4ee7023c504da19d3d559a6e6bb33833a9290169d557",
+    "js/10_assets.js": "b122466d91a8da81fe168133a66b7ae2c1d44293463014f81f42c470d9f95eba",
+    "js/20_level.js": "4c5fd0d5dfa3fac22c1a8ea6fbae88328be5c282da30ddd6da8b8b0c5cb0bf0d",
+    "js/40_render.js": "c876b4b40538ea586c3a889d8fa2ba6cf5f4c45d4a36ba271eade0d307d751d5"
+   },
+   "note": "The four blobs that draw a frame, sha256, read from the checkout that ran the capture. `node tools/recap.js check` recomputes them from the tree it runs in and prints whether these frames still show what that tree ships (#536). The session that took these pixels proved this build off the wire: index.html and all eleven js/ blobs served by https://lioreshai.github.io/breach-protocol-flash-next/ sha256-match origin/main at 058c31f, twelve for twelve, before the shutter - the deploy serves main's bytes, and this branch changes no shipped byte."
+  },
+  "aa872f9": {
+   "at": "2026-11-22",
+   "files": {
+    "index.html": "c886aca0138047584edd4ee7023c504da19d3d559a6e6bb33833a9290169d557",
+    "js/10_assets.js": "b122466d91a8da81fe168133a66b7ae2c1d44293463014f81f42c470d9f95eba",
+    "js/20_level.js": "c310a0e818a3e4c7849b19f137053f96d9144b4437679e465ef1fc818cdde9b7",
+    "js/40_render.js": "ec51535d0f14373ea6367632565933accfa9b30f652ab636a482d2235c1a9c98"
+   },
+   "note": "The four blobs that draw a frame, sha256, read from the checkout that ran the capture. `node tools/recap.js check` recomputes them from the tree it runs in and prints whether these frames still show what that tree ships (#536). The session that took these pixels proved this build off the wire: index.html, js/10_assets.js, js/20_level.js and js/40_render.js served by https://lioreshai.github.io/breach-protocol-flash-next/ sha256-match origin/main at aa872f9, four for four, before the shutter - the deploy serves main's bytes, and this branch changes no shipped byte."
+  },
+  "b7a40d6": {
+   "at": "2026-11-22",
+   "files": {
+    "index.html": "c886aca0138047584edd4ee7023c504da19d3d559a6e6bb33833a9290169d557",
+    "js/10_assets.js": "b122466d91a8da81fe168133a66b7ae2c1d44293463014f81f42c470d9f95eba",
+    "js/20_level.js": "c310a0e818a3e4c7849b19f137053f96d9144b4437679e465ef1fc818cdde9b7",
+    "js/40_render.js": "3ab810e04bee02dbd507f68268d657ba948f93fd3fbdb691e85903193627dd7d"
+   },
+   "note": "The four blobs that draw a frame, sha256, read from the checkout that ran the capture. `node tools/recap.js check` recomputes them from the tree it runs in and prints whether these frames still show what that tree ships (#536). The session that took these pixels proved this build off the wire: index.html, js/10_assets.js, js/20_level.js and js/40_render.js served by https://lioreshai.github.io/breach-protocol-flash-next/ sha256-match origin/main at b7a40d6, four for four, before the shutter - the deploy serves main's bytes, and this branch changes no shipped byte."
+  },
+  "39edaf3": {
+   "at": "2026-11-23",
+   "files": {
+    "index.html": "c886aca0138047584edd4ee7023c504da19d3d559a6e6bb33833a9290169d557",
+    "js/00_core.js": "ca752015bd204e817f1887f2028d8e35366aa34d6d87bca5ece2c3af356f7091",
+    "js/05_paint.js": "a5ec9c69ad6aebd6ca18ad1f0d8256418e88e6b019d70bcfeab5e5e88d65f5ae",
+    "js/10_assets.js": "b122466d91a8da81fe168133a66b7ae2c1d44293463014f81f42c470d9f95eba",
+    "js/11_rig.js": "e4a6ef3f1c939e4a5e8a7e13a82d8319210253eac7562c9348bfc86d12ed042a",
+    "js/12_sprites.js": "b3088cda462e24cda63f00902f9aed279310279d0c582d255c6c9d4bb90fcaba",
+    "js/13_mesh.js": "ed5b0c51113eb68b89899337f42f5829daadb557d79890af082d19b3805d25ce",
+    "js/20_level.js": "9feba98e3cc4c46dffc441bb1deddc0f1d5ae1040a5f8a76b1b01b4dec79b585",
+    "js/30_entities.js": "8849a87bbb1f06bd226415a37e3f2ed3869fcad5a7d44f705bb34262c1a860c9",
+    "js/40_render.js": "3ab810e04bee02dbd507f68268d657ba948f93fd3fbdb691e85903193627dd7d",
+    "js/50_ui_input.js": "b8c096cda417bf85819d7415f3d02a04d07de390a0a1668c23ed102c218404d2",
+    "js/90_dev.js": "69f7245713e4a8e77506c072dbde929e3381e96f3e8e52492cfe9457dbe0e8a4"
+   },
+   "note": "The twelve blobs that build serves - index.html and every script its own index.html loads - as sha256, read from that build. `node tools/recap.js check` recomputes them from the tree it runs in and prints whether these frames still show what that tree ships (#536). This entry is a BIND RE-KEY, not a capture: the pixels were taken at b7a40d6 by the pass described in tools/recap.js and README.md, and #910 measured what main at 39edaf3 draws from the same route - all eight poses re-rendered off https://lioreshai.github.io/breach-protocol-flash-next/ after that deploy sha256-matched origin/main four for four. The frames came back with no world pixel moved: three of the eight are byte-identical to the committed bytes and the other five differ only inside the columns the held rig occupies (0.03% to 0.39% of the frame, every mean within 0.01 luma), which is the load-to-load disagreement #611 already names, not a surface being fetched differently. So the PNGs are carried and only the bind moves. The blob that moved is js/20_level.js, and what moved in it is a jump predicate (#893): a still frame cannot show it because the feet are on the ground."
+  },
+  "f42f5ce": {
+   "at": "2026-11-23",
+   "files": {
+    "index.html": "c886aca0138047584edd4ee7023c504da19d3d559a6e6bb33833a9290169d557",
+    "js/00_core.js": "ca752015bd204e817f1887f2028d8e35366aa34d6d87bca5ece2c3af356f7091",
+    "js/05_paint.js": "a5ec9c69ad6aebd6ca18ad1f0d8256418e88e6b019d70bcfeab5e5e88d65f5ae",
+    "js/10_assets.js": "b122466d91a8da81fe168133a66b7ae2c1d44293463014f81f42c470d9f95eba",
+    "js/11_rig.js": "e4a6ef3f1c939e4a5e8a7e13a82d8319210253eac7562c9348bfc86d12ed042a",
+    "js/12_sprites.js": "b3088cda462e24cda63f00902f9aed279310279d0c582d255c6c9d4bb90fcaba",
+    "js/13_mesh.js": "ed5b0c51113eb68b89899337f42f5829daadb557d79890af082d19b3805d25ce",
+    "js/20_level.js": "5a6d73de16cb675c20565d9749bab7f1129a74c4021530b4638fdc0260ff1d8e",
+    "js/30_entities.js": "8849a87bbb1f06bd226415a37e3f2ed3869fcad5a7d44f705bb34262c1a860c9",
+    "js/40_render.js": "659a5edfe4c63a5c05cba54625112a58f33f0fb0b316aea7f4aa121cbae3b2fc",
+    "js/50_ui_input.js": "b8c096cda417bf85819d7415f3d02a04d07de390a0a1668c23ed102c218404d2",
+    "js/90_dev.js": "69f7245713e4a8e77506c072dbde929e3381e96f3e8e52492cfe9457dbe0e8a4"
+   },
+   "note": "The 12 blobs that build serves - index.html and every script its own index.html loads - as sha256, read from that build, and proved off the wire before the shutter: for each of them the bytes served by https://lioreshai.github.io/breach-protocol-flash-next/ sha256-match `git show f42f5ce:<file>`, 12 for 12. `node tools/recap.js check` recomputes them from the tree it runs in and prints whether these frames still show what that tree ships (#536). This entry is a CAPTURE: the pixels in the rows that name it were taken from that page by the pass tools/livecap.js FRAMES describes."
+  },
+  "b5b8b74": {
+   "at": "2026-11-24",
+   "files": {
+    "index.html": "c886aca0138047584edd4ee7023c504da19d3d559a6e6bb33833a9290169d557",
+    "js/00_core.js": "ca752015bd204e817f1887f2028d8e35366aa34d6d87bca5ece2c3af356f7091",
+    "js/05_paint.js": "a5ec9c69ad6aebd6ca18ad1f0d8256418e88e6b019d70bcfeab5e5e88d65f5ae",
+    "js/10_assets.js": "b122466d91a8da81fe168133a66b7ae2c1d44293463014f81f42c470d9f95eba",
+    "js/11_rig.js": "e4a6ef3f1c939e4a5e8a7e13a82d8319210253eac7562c9348bfc86d12ed042a",
+    "js/12_sprites.js": "b3088cda462e24cda63f00902f9aed279310279d0c582d255c6c9d4bb90fcaba",
+    "js/13_mesh.js": "ed5b0c51113eb68b89899337f42f5829daadb557d79890af082d19b3805d25ce",
+    "js/20_level.js": "5a6d73de16cb675c20565d9749bab7f1129a74c4021530b4638fdc0260ff1d8e",
+    "js/30_entities.js": "8849a87bbb1f06bd226415a37e3f2ed3869fcad5a7d44f705bb34262c1a860c9",
+    "js/40_render.js": "da4526e570f0d261fccb2cb6ca2d26dd5c33e55c60b92053b2fbbda9b8bb521b",
+    "js/50_ui_input.js": "b8c096cda417bf85819d7415f3d02a04d07de390a0a1668c23ed102c218404d2",
+    "js/90_dev.js": "69f7245713e4a8e77506c072dbde929e3381e96f3e8e52492cfe9457dbe0e8a4"
+   },
+   "note": "The 12 blobs that draw a frame, sha256, read from the checkout that ran the capture. index.html plus every script its own index.html loads, so no file that paints can be left out of the bind (#555). `node tools/recap.js check` recomputes them from the tree it runs in and prints whether these frames still show what that tree ships (#536). The session that took these pixels proved this build off the wire, blob by blob, against the deployed page."
+  },
+  "d7a0196": {
+   "at": "2026-11-24",
+   "files": {
+    "index.html": "c886aca0138047584edd4ee7023c504da19d3d559a6e6bb33833a9290169d557",
+    "js/00_core.js": "ca752015bd204e817f1887f2028d8e35366aa34d6d87bca5ece2c3af356f7091",
+    "js/05_paint.js": "a5ec9c69ad6aebd6ca18ad1f0d8256418e88e6b019d70bcfeab5e5e88d65f5ae",
+    "js/10_assets.js": "b122466d91a8da81fe168133a66b7ae2c1d44293463014f81f42c470d9f95eba",
+    "js/11_rig.js": "e4a6ef3f1c939e4a5e8a7e13a82d8319210253eac7562c9348bfc86d12ed042a",
+    "js/12_sprites.js": "b3088cda462e24cda63f00902f9aed279310279d0c582d255c6c9d4bb90fcaba",
+    "js/13_mesh.js": "ed5b0c51113eb68b89899337f42f5829daadb557d79890af082d19b3805d25ce",
+    "js/20_level.js": "5a6d73de16cb675c20565d9749bab7f1129a74c4021530b4638fdc0260ff1d8e",
+    "js/30_entities.js": "8849a87bbb1f06bd226415a37e3f2ed3869fcad5a7d44f705bb34262c1a860c9",
+    "js/40_render.js": "b96f68b8f844b3a330b2f9d7aaf506985e82fda22253368a1302290ebff1f530",
+    "js/50_ui_input.js": "b8c096cda417bf85819d7415f3d02a04d07de390a0a1668c23ed102c218404d2",
+    "js/90_dev.js": "69f7245713e4a8e77506c072dbde929e3381e96f3e8e52492cfe9457dbe0e8a4"
+   },
+   "note": "The 12 blobs that build serves - index.html and every script its own index.html loads - as sha256, read from that build, and proved off the wire before the shutter: for each of them the bytes served by https://lioreshai.github.io/breach-protocol-flash-next/ sha256-match `git show d7a0196:<file>`, 12 for 12. `node tools/recap.js check` recomputes them from the tree it runs in and prints whether these frames still show what that tree ships (#536, #916). It is also the first build after #918 moved js/40_render.js's crease term, which is why the frames bound to the previous build stopped matching this checkout."
+  },
+  "7f74a90": {
+   "at": "2026-11-24",
+   "files": {
+    "index.html": "c886aca0138047584edd4ee7023c504da19d3d559a6e6bb33833a9290169d557",
+    "js/00_core.js": "ca752015bd204e817f1887f2028d8e35366aa34d6d87bca5ece2c3af356f7091",
+    "js/05_paint.js": "a5ec9c69ad6aebd6ca18ad1f0d8256418e88e6b019d70bcfeab5e5e88d65f5ae",
+    "js/10_assets.js": "b122466d91a8da81fe168133a66b7ae2c1d44293463014f81f42c470d9f95eba",
+    "js/11_rig.js": "e4a6ef3f1c939e4a5e8a7e13a82d8319210253eac7562c9348bfc86d12ed042a",
+    "js/12_sprites.js": "b3088cda462e24cda63f00902f9aed279310279d0c582d255c6c9d4bb90fcaba",
+    "js/13_mesh.js": "5f9a574889e1f37164b4edf6837473db0ccdb4981a7482b149256f3c57e3134b",
+    "js/20_level.js": "5a6d73de16cb675c20565d9749bab7f1129a74c4021530b4638fdc0260ff1d8e",
+    "js/30_entities.js": "8849a87bbb1f06bd226415a37e3f2ed3869fcad5a7d44f705bb34262c1a860c9",
+    "js/40_render.js": "b96f68b8f844b3a330b2f9d7aaf506985e82fda22253368a1302290ebff1f530",
+    "js/50_ui_input.js": "b8c096cda417bf85819d7415f3d02a04d07de390a0a1668c23ed102c218404d2",
+    "js/90_dev.js": "69f7245713e4a8e77506c072dbde929e3381e96f3e8e52492cfe9457dbe0e8a4"
+   },
+   "note": "The twelve blobs that build serves - index.html and every script its own index.html loads - as sha256, read from that build, and proved off the wire before the record moved to it: for each of them the bytes served by https://lioreshai.github.io/breach-protocol-flash-next/ sha256-match `git show 7f74a90:<file>`, 12 for 12. `node tools/recap.js check` recomputes them from the tree it runs in and prints whether these frames still show what that tree ships (#536, #925). This entry is a BIND RE-KEY, not a capture: the pixels in the rows that name it were taken at build d7a0196 by the pass tools/livecap.js FRAMES describes, and #924 moved one of the twelve - js/13_mesh.js, whose body-surface gate (#922) now runs out to its own crossover at a projected period of 49.7 px. That is a nearer body than any frame in this set carries, so the eight poses were re-run off that deploy to ask the pixels instead of the hash: two of them (both ABATOIR CORE poses) came back BYTE-IDENTICAL to the committed bytes, and the other six differ from them by between 0.00% and 0.28% of the frame with every differing pixel inside the columns the held rig occupies - the load-to-load disagreement #611 already names, not a surface being fetched differently. The three layout signatures came back the same (4083630493 / 2343219222 / 3610925125), so the deal fields these rows carry are still true of the picture they address. The PNGs are therefore carried and only the bind moves, which is the shape #910 recorded for 39edaf3."
+  }
+ },
+ "shots": [
+  {
+   "file": "level0-enemies",
+   "sha256": "54ee4654a1a82dff615116537c59d517a6f7c3cf859450303441e1d235cd92d4",
+   "replaces": {
+    "rev": "d7a0196",
+    "sha256": "316e0eb5b8e28fc68f7365c8e7c835b134a606af0c1cf9835e41c16198cd36b1",
+    "mean": 60.5867
+   },
+   "canvas": "1440x763",
+   "origin": "https",
+   "install": "url-open",
+   "url": "https://lioreshai.github.io/breach-protocol-flash-next/?dev=1&seed=60&boot=0",
+   "seed": "60",
+   "level": 0,
+   "layout": 4083630493,
+   "build": "7f74a90",
+   "at": "2026-11-24",
+   "sampleRate": 44100,
+   "note": "Re-taken off the deployed page at d7a0196 for #916, the build the bind names, one build later than the pass this row supersedes: #918 (d7a0196) moved js/40_render.js, one of the twelve blobs the bind hashes, so the frames bound to d7a0196 drew a picture this checkout no longer ships. The deploy was proved blob by blob first - index.html and every script it loads, 12 in all, sha256-match `git show d7a0196:<file>` 12 for 12 - and the shutter ran on that page afterwards, so these are the pixels the shipped bytes draw and not a harness render. Route: one page load and one boot per pose (js/90_dev.js refuses a second DEV.boot() in a load), the camera on the dealt spawn seat with one grunt placed by the route's own seat search, DEV.freeze(true), DEV.set(\"grain\",0), DEV.clear() before the shutter, the display pinned to 1440x763 by livecap's --vp (this chromium reports innerHeight 620 for every --window-size), toDataURL handed back RGBA and the frame re-encoded to colour type 2 through tools/png_rgb.js. The dealt signature is the one the replaced row named (4083630493) and the audio term is carried rather than read: these headless loads have no output device, so SND.init never sets SND.ac and sampleRate is not readable off the page (#404); the control is that the term sets how many draws precede generation, so had it moved the signature would have moved with it, and it did not. What these bytes replace (rev d7a0196, mean 60.5867) differs from them by 1854 px (0.17%) under the kept-pixel rule and -0.0044 of mean luma; where they are is stated in the README caption this row addresses: none in the top third, 39 in the middle and 1,815 in the bottom, over rows 493 to 762 and columns 907 to 1201, inside the rifle's columns and none of the posed body. Re-keyed to build 7f74a90 for #925 with no shutter: #924 moved js/13_mesh.js, one of the twelve blobs the bind hashes, so the byte claim stopped describing this checkout, and all eight poses were then re-run off a deploy proved 12 for 12 against that build. On that page this pose came back 294 px (0.03%) from these bytes, none of them the posed grunt's - all over rows 495-762 and columns 932-1,186, inside the rifle, mean 60.5823 -> 60.5820, layout 4083630493 re-read - the pixels a reader sees are the ones these bytes already carry, so only the bind moves.",
+   "staleByBuild": null,
+   "_keptPx": 1854,
+   "_keptPct": 0.17
+  },
+  {
+   "file": "level0-facing-wall",
+   "sha256": "ffba167514fa023fc68f6f5950ff21b9ac2867815c7c66bd86f85e41351cb849",
+   "replaces": {
+    "rev": "d7a0196",
+    "sha256": "c21066a652e95c0b113e16a0ebe84b3eea9c4bbf8747a132e0fdef2256e503fd",
+    "mean": 81.3995
+   },
+   "canvas": "1440x763",
+   "origin": "https",
+   "install": "url-open",
+   "url": "https://lioreshai.github.io/breach-protocol-flash-next/?dev=1&seed=60&boot=0",
+   "seed": "60",
+   "level": 0,
+   "layout": 4083630493,
+   "build": "7f74a90",
+   "at": "2026-11-24",
+   "sampleRate": 44100,
+   "note": "Re-taken off the deployed page at d7a0196 for #916, the build the bind names, one build later than the pass this row supersedes: #918 (d7a0196) moved js/40_render.js, one of the twelve blobs the bind hashes, so the frames bound to d7a0196 drew a picture this checkout no longer ships. The deploy was proved blob by blob first - index.html and every script it loads, 12 in all, sha256-match `git show d7a0196:<file>` 12 for 12 - and the shutter ran on that page afterwards, so these are the pixels the shipped bytes draw and not a harness render. Route: one page load and one boot per pose (js/90_dev.js refuses a second DEV.boot() in a load), the pose as DEV.cam(1.5, 8.5, undefined, Math.PI/2), DEV.freeze(true), DEV.set(\"grain\",0), DEV.clear() before the shutter, the display pinned to 1440x763 by livecap's --vp (this chromium reports innerHeight 620 for every --window-size), toDataURL handed back RGBA and the frame re-encoded to colour type 2 through tools/png_rgb.js. The dealt signature is the one the replaced row named (4083630493) and the audio term is carried rather than read: these headless loads have no output device, so SND.init never sets SND.ac and sampleRate is not readable off the page (#404); the control is that the term sets how many draws precede generation, so had it moved the signature would have moved with it, and it did not. What these bytes replace (rev d7a0196, mean 81.3995) differs from them by 2584 px (0.24%) under the kept-pixel rule and 0.0031 of mean luma; where they are is stated in the README caption this row addresses: none in the top third, 46 in the middle and 2,538 in the bottom, over rows 493 to 762 and columns 890 to 1186, all inside the rifle's columns. Re-keyed to build 7f74a90 for #925 with no shutter: #924 moved js/13_mesh.js, one of the twelve blobs the bind hashes, so the byte claim stopped describing this checkout, and all eight poses were then re-run off a deploy proved 12 for 12 against that build. On that page this pose came back 3,084 px (0.28%) from these bytes, every one inside the held rifle's columns over rows 493-762 and columns 890-1,186, mean 81.4026 -> 81.3991, layout 4083630493 re-read - the pixels a reader sees are the ones these bytes already carry, so only the bind moves.",
+   "staleByBuild": null,
+   "_keptPx": 2584,
+   "_keptPct": 0.24
+  },
+  {
+   "file": "level0-pitfloor",
+   "sha256": "689b825d0b568086bca60f4f9a85e116f39fa40608c103c46e0e1bb85b0283a5",
+   "replaces": {
+    "rev": "d7a0196",
+    "sha256": "15971931f023551bf34597588dbafbc46156d59e091562729b87212aa3202f7f",
+    "mean": 64.9686
+   },
+   "canvas": "1440x763",
+   "origin": "https",
+   "install": "url-open",
+   "url": "https://lioreshai.github.io/breach-protocol-flash-next/?dev=1&seed=60&boot=0",
+   "seed": "60",
+   "level": 0,
+   "layout": 4083630493,
+   "build": "7f74a90",
+   "at": "2026-11-24",
+   "sampleRate": 44100,
+   "note": "Re-taken off the deployed page at d7a0196 for #916, the build the bind names, one build later than the pass this row supersedes: #918 (d7a0196) moved js/40_render.js, one of the twelve blobs the bind hashes, so the frames bound to d7a0196 drew a picture this checkout no longer ships. The deploy was proved blob by blob first - index.html and every script it loads, 12 in all, sha256-match `git show d7a0196:<file>` 12 for 12 - and the shutter ran on that page afterwards, so these are the pixels the shipped bytes draw and not a harness render. Route: one page load and one boot per pose (js/90_dev.js refuses a second DEV.boot() in a load), the pose as DEV.cam(19.5, 14.5, undefined, 1.1071), DEV.freeze(true), DEV.set(\"grain\",0), DEV.clear() before the shutter, the display pinned to 1440x763 by livecap's --vp (this chromium reports innerHeight 620 for every --window-size), toDataURL handed back RGBA and the frame re-encoded to colour type 2 through tools/png_rgb.js. The dealt signature is the one the replaced row named (4083630493) and the audio term is carried rather than read: these headless loads have no output device, so SND.init never sets SND.ac and sampleRate is not readable off the page (#404); the control is that the term sets how many draws precede generation, so had it moved the signature would have moved with it, and it did not. What these bytes replace (rev d7a0196, mean 64.9686) differs from them by 1255 px (0.11%) under the kept-pixel rule and -0.0224 of mean luma; where they are is stated in the README caption this row addresses: none in the top third, 8 in the middle and 1,247 in the bottom, over rows 493 to 762 and columns 903 to 1,439 - 298 of them outside the rifle's columns, along the deck edge on the right. Re-keyed to build 7f74a90 for #925 with no shutter: #924 moved js/13_mesh.js, one of the twelve blobs the bind hashes, so the byte claim stopped describing this checkout, and all eight poses were then re-run off a deploy proved 12 for 12 against that build. On that page this pose came back 14 px (0.00%) from these bytes, all in the rifle's columns over rows 648-709, mean 64.9462 -> 64.9463, layout 4083630493 re-read - the pixels a reader sees are the ones these bytes already carry, so only the bind moves.",
+   "staleByBuild": null,
+   "_keptPx": 1255,
+   "_keptPct": 0.11
+  },
+  {
+   "file": "level0-props",
+   "sha256": "f8a2ce7d25b5736a938e79f9669ac3edc22f73f3d0e086c0a5dd42391748352b",
+   "replaces": {
+    "rev": "d7a0196",
+    "sha256": "7f20c1917d2c169623ce95a4b9e90c4bcb347fe8fbef52fba89fff39a6c58000",
+    "mean": 65.9683
+   },
+   "canvas": "1440x763",
+   "origin": "https",
+   "install": "url-open",
+   "url": "https://lioreshai.github.io/breach-protocol-flash-next/?dev=1&seed=60&boot=0",
+   "seed": "60",
+   "level": 0,
+   "layout": 4083630493,
+   "build": "7f74a90",
+   "at": "2026-11-24",
+   "sampleRate": 44100,
+   "note": "Re-taken off the deployed page at d7a0196 for #916, the build the bind names, one build later than the pass this row supersedes: #918 (d7a0196) moved js/40_render.js, one of the twelve blobs the bind hashes, so the frames bound to d7a0196 drew a picture this checkout no longer ships. The deploy was proved blob by blob first - index.html and every script it loads, 12 in all, sha256-match `git show d7a0196:<file>` 12 for 12 - and the shutter ran on that page afterwards, so these are the pixels the shipped bytes draw and not a harness render. Route: one page load and one boot per pose (js/90_dev.js refuses a second DEV.boot() in a load), the pose as DEV.cam(20.5, 11.5, undefined, Math.PI/2), DEV.freeze(true), DEV.set(\"grain\",0), DEV.clear() before the shutter, the display pinned to 1440x763 by livecap's --vp (this chromium reports innerHeight 620 for every --window-size), toDataURL handed back RGBA and the frame re-encoded to colour type 2 through tools/png_rgb.js. The dealt signature is the one the replaced row named (4083630493) and the audio term is carried rather than read: these headless loads have no output device, so SND.init never sets SND.ac and sampleRate is not readable off the page (#404); the control is that the term sets how many draws precede generation, so had it moved the signature would have moved with it, and it did not. What these bytes replace (rev d7a0196, mean 65.9683) differs from them by 4159 px (0.38%) under the kept-pixel rule and -0.1192 of mean luma; where they are is stated in the README caption this row addresses: none in the top third, 4 in the middle and 4,155 in the bottom, over rows 495 to 762 and EVERY column 0 to 1,439 - 3,497 of them outside the rifle's columns, which is geometry and not the gun's pose. Re-keyed to build 7f74a90 for #925 with no shutter: #924 moved js/13_mesh.js, one of the twelve blobs the bind hashes, so the byte claim stopped describing this checkout, and all eight poses were then re-run off a deploy proved 12 for 12 against that build. On that page this pose came back 200 px (0.02%) from these bytes inside the rifle's columns over rows 493-762, mean 65.8491 -> 65.8484, layout 4083630493 re-read - the pixels a reader sees are the ones these bytes already carry, so only the bind moves.",
+   "staleByBuild": null,
+   "_keptPx": 4159,
+   "_keptPct": 0.38
+  },
+  {
+   "file": "level0-spawn",
+   "sha256": "437217a6f03c7d77c4efff1108a4f6b2f9459ba2efea6154e29d3c8cbf979c2d",
+   "replaces": {
+    "rev": "d7a0196",
+    "sha256": "9c6a4b66c3e7e2e67bd0c04e3e8126c32bcca08633bf2c032c4da5b0d77c47ae",
+    "mean": 60.5931
+   },
+   "canvas": "1440x763",
+   "origin": "https",
+   "install": "url-open",
+   "url": "https://lioreshai.github.io/breach-protocol-flash-next/?dev=1&seed=60&boot=0",
+   "seed": "60",
+   "level": 0,
+   "layout": 4083630493,
+   "build": "7f74a90",
+   "at": "2026-11-24",
+   "sampleRate": 44100,
+   "note": "Re-taken off the deployed page at d7a0196 for #916, the build the bind names, one build later than the pass this row supersedes: #918 (d7a0196) moved js/40_render.js, one of the twelve blobs the bind hashes, so the frames bound to d7a0196 drew a picture this checkout no longer ships. The deploy was proved blob by blob first - index.html and every script it loads, 12 in all, sha256-match `git show d7a0196:<file>` 12 for 12 - and the shutter ran on that page afterwards, so these are the pixels the shipped bytes draw and not a harness render. Route: one page load and one boot per pose (js/90_dev.js refuses a second DEV.boot() in a load), the camera left on the dealt spawn seat, DEV.freeze(true), DEV.set(\"grain\",0), DEV.clear() before the shutter, the display pinned to 1440x763 by livecap's --vp (this chromium reports innerHeight 620 for every --window-size), toDataURL handed back RGBA and the frame re-encoded to colour type 2 through tools/png_rgb.js. The dealt signature is the one the replaced row named (4083630493) and the audio term is carried rather than read: these headless loads have no output device, so SND.init never sets SND.ac and sampleRate is not readable off the page (#404); the control is that the term sets how many draws precede generation, so had it moved the signature would have moved with it, and it did not. What these bytes replace (rev d7a0196, mean 60.5931) differs from them by 2086 px (0.19%) under the kept-pixel rule and -0.0060 of mean luma; where they are is stated in the README caption this row addresses: none in the top third, 50 in the middle and 2,036 in the bottom, over rows 495 to 762 and columns 896 to 1197 - every one of them inside the columns the held rifle occupies. Re-keyed to build 7f74a90 for #925 with no shutter: #924 moved js/13_mesh.js, one of the twelve blobs the bind hashes, so the byte claim stopped describing this checkout, and all eight poses were then re-run off a deploy proved 12 for 12 against that build. On that page this pose came back BYTE-IDENTICAL to these bytes at that build (1,098,720 of 1,098,720 px equal), layout 4083630493 re-read - the pixels a reader sees are the ones these bytes already carry, so only the bind moves.",
+   "staleByBuild": null,
+   "_keptPx": 2086,
+   "_keptPct": 0.19
+  },
+  {
+   "file": "level2-abatoir",
+   "sha256": "0ad7ed85cf3ee62e1a2a86474c7ad282831df41ca3bc9bd239dc745863f8157f",
+   "replaces": {
+    "rev": "d7a0196",
+    "sha256": "28c41ae250983e63a097644d03fbb07cb6ecb858e200ba2fbe86a9b5f1be0276",
+    "mean": 67.0816
+   },
+   "canvas": "1440x763",
+   "origin": "https",
+   "install": "url-open",
+   "url": "https://lioreshai.github.io/breach-protocol-flash-next/?dev=1&seed=60&boot=0",
+   "seed": "60",
+   "level": 2,
+   "layout": 2343219222,
+   "build": "7f74a90",
+   "at": "2026-11-24",
+   "sampleRate": 44100,
+   "note": "Re-taken off the deployed page at d7a0196 for #916, the build the bind names, one build later than the pass this row supersedes: #918 (d7a0196) moved js/40_render.js, one of the twelve blobs the bind hashes, so the frames bound to d7a0196 drew a picture this checkout no longer ships. The deploy was proved blob by blob first - index.html and every script it loads, 12 in all, sha256-match `git show d7a0196:<file>` 12 for 12 - and the shutter ran on that page afterwards, so these are the pixels the shipped bytes draw and not a harness render. Route: one page load and one boot per pose (js/90_dev.js refuses a second DEV.boot() in a load), the camera left on the dealt arrival seat, DEV.freeze(true), DEV.set(\"grain\",0), DEV.clear() before the shutter, the display pinned to 1440x763 by livecap's --vp (this chromium reports innerHeight 620 for every --window-size), toDataURL handed back RGBA and the frame re-encoded to colour type 2 through tools/png_rgb.js. The dealt signature is the one the replaced row named (2343219222) and the audio term is carried rather than read: these headless loads have no output device, so SND.init never sets SND.ac and sampleRate is not readable off the page (#404); the control is that the term sets how many draws precede generation, so had it moved the signature would have moved with it, and it did not. What these bytes replace (rev d7a0196, mean 67.0816) differs from them by 0 px (0%) under the kept-pixel rule and -0.0006 of mean luma; where they are is stated in the README caption this row addresses: no pixel reaches the kept-pixel threshold at all. Re-keyed to build 7f74a90 for #925 with no shutter: #924 moved js/13_mesh.js, one of the twelve blobs the bind hashes, so the byte claim stopped describing this checkout, and all eight poses were then re-run off a deploy proved 12 for 12 against that build. On that page this pose came back BYTE-IDENTICAL to these bytes at that build - the same sha256, 0ad7ed85 - layout 2343219222 re-read - the pixels a reader sees are the ones these bytes already carry, so only the bind moves.",
+   "staleByBuild": null,
+   "_keptPx": 0,
+   "_keptPct": 0
+  },
+  {
+   "file": "level2-abatoir-ceiling",
+   "sha256": "e0991e74f1d04aded3239a8315200c5a6b40073743e38ef20edd64134e5fe8ee",
+   "replaces": {
+    "rev": "d7a0196",
+    "sha256": "789aa93f8985941ed265d3d9a5f00093ab5a3ac1da72718411fb4b8c02b4462d",
+    "mean": 62.6808
+   },
+   "canvas": "1440x763",
+   "origin": "https",
+   "install": "url-open",
+   "url": "https://lioreshai.github.io/breach-protocol-flash-next/?dev=1&seed=60&boot=0",
+   "seed": "60",
+   "level": 2,
+   "layout": 2343219222,
+   "build": "7f74a90",
+   "at": "2026-11-24",
+   "sampleRate": 44100,
+   "note": "Re-taken off the deployed page at d7a0196 for #916, the build the bind names, one build later than the pass this row supersedes: #918 (d7a0196) moved js/40_render.js, one of the twelve blobs the bind hashes, so the frames bound to d7a0196 drew a picture this checkout no longer ships. The deploy was proved blob by blob first - index.html and every script it loads, 12 in all, sha256-match `git show d7a0196:<file>` 12 for 12 - and the shutter ran on that page afterwards, so these are the pixels the shipped bytes draw and not a harness render. Route: one page load and one boot per pose (js/90_dev.js refuses a second DEV.boot() in a load), the pose as DEV.cam(P.x, P.y, undefined, P.ang, BH*0.25), DEV.freeze(true), DEV.set(\"grain\",0), DEV.clear() before the shutter, the display pinned to 1440x763 by livecap's --vp (this chromium reports innerHeight 620 for every --window-size), toDataURL handed back RGBA and the frame re-encoded to colour type 2 through tools/png_rgb.js. The dealt signature is the one the replaced row named (2343219222) and the audio term is carried rather than read: these headless loads have no output device, so SND.init never sets SND.ac and sampleRate is not readable off the page (#404); the control is that the term sets how many draws precede generation, so had it moved the signature would have moved with it, and it did not. What these bytes replace (rev d7a0196, mean 62.6808) differs from them by 0 px (0%) under the kept-pixel rule and -0.0004 of mean luma; where they are is stated in the README caption this row addresses: no pixel reaches the kept-pixel threshold at all. Re-keyed to build 7f74a90 for #925 with no shutter: #924 moved js/13_mesh.js, one of the twelve blobs the bind hashes, so the byte claim stopped describing this checkout, and all eight poses were then re-run off a deploy proved 12 for 12 against that build. On that page this pose came back BYTE-IDENTICAL to these bytes at that build - the same sha256, e0991e74 - layout 2343219222 re-read - the pixels a reader sees are the ones these bytes already carry, so only the bind moves.",
+   "staleByBuild": null,
+   "_keptPx": 0,
+   "_keptPct": 0
+  },
+  {
+   "file": "level3-stack",
+   "sha256": "4105e85481abeefcca6c9a2927aa19834ca339b4e4d7d4edd217c4f30e253560",
+   "replaces": {
+    "rev": "d7a0196",
+    "sha256": "30d011fafcd64af66fb6f42ff039246b7482213e9bd51ea3a7c80440f89fc985",
+    "mean": 70.2093
+   },
+   "canvas": "1440x763",
+   "origin": "https",
+   "install": "url-open",
+   "url": "https://lioreshai.github.io/breach-protocol-flash-next/?dev=1&seed=60&boot=0",
+   "seed": "60",
+   "level": 3,
+   "layout": 3610925125,
+   "build": "7f74a90",
+   "at": "2026-11-24",
+   "sampleRate": 44100,
+   "note": "Re-taken off the deployed page at d7a0196 for #916, the build the bind names, one build later than the pass this row supersedes: #918 (d7a0196) moved js/40_render.js, one of the twelve blobs the bind hashes, so the frames bound to d7a0196 drew a picture this checkout no longer ships. The deploy was proved blob by blob first - index.html and every script it loads, 12 in all, sha256-match `git show d7a0196:<file>` 12 for 12 - and the shutter ran on that page afterwards, so these are the pixels the shipped bytes draw and not a harness render. Route: one page load and one boot per pose (js/90_dev.js refuses a second DEV.boot() in a load), the camera left where the authored plan puts its seat, DEV.freeze(true), DEV.set(\"grain\",0), DEV.clear() before the shutter, the display pinned to 1440x763 by livecap's --vp (this chromium reports innerHeight 620 for every --window-size), toDataURL handed back RGBA and the frame re-encoded to colour type 2 through tools/png_rgb.js. The dealt signature is the one the replaced row named (3610925125) and the audio term is carried rather than read: these headless loads have no output device, so SND.init never sets SND.ac and sampleRate is not readable off the page (#404); the control is that the term sets how many draws precede generation, so had it moved the signature would have moved with it, and it did not. What these bytes replace (rev d7a0196, mean 70.2093) differs from them by 1408 px (0.13%) under the kept-pixel rule and 0.0109 of mean luma; where they are is stated in the README caption this row addresses: none in the top third, 382 in the middle and 1,026 in the bottom, over rows 406 to 762 and columns 909 to 1,282, all inside the rifle's columns. Re-keyed to build 7f74a90 for #925 with no shutter: #924 moved js/13_mesh.js, one of the twelve blobs the bind hashes, so the byte claim stopped describing this checkout, and all eight poses were then re-run off a deploy proved 12 for 12 against that build. On that page this pose came back 126 px (0.01%) from these bytes, inside the rifle's columns over rows 504-760 and columns 928-1,214, mean 70.2202 -> 70.2200, layout 3610925125 re-read - the pixels a reader sees are the ones these bytes already carry, so only the bind moves.",
+   "staleByBuild": null,
+   "_keptPx": 1408,
+   "_keptPct": 0.13
+  }
+ ]
 }
